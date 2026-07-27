@@ -1,5 +1,12 @@
 import type { IsoDateTime, RegionCode } from "./identity.js";
 import type { CharacterIdentityInput, CharacterSnapshotDTO, CanonicalCharacter } from "./identity.js";
+import type {
+  RaiderIoCharacterProfile,
+  RaiderIoPeriod,
+  RaiderIoRunDetails,
+  RaiderIoSeasonCutoffs,
+  RaiderIoStaticData,
+} from "./raiderio.js";
 import type { MythicRunDTO } from "./runs.js";
 
 export type ProviderName = "blizzard" | "warcraftlogs" | "raiderio";
@@ -115,13 +122,22 @@ export interface WarcraftLogsProvider {
 
 export interface RaiderIoProvider {
   readonly name: "raiderio";
+  /** When false, callers should skip Raider.IO refresh steps. */
+  readonly enabled: boolean;
   getCharacterProfile(
     identity: CharacterIdentityInput,
     ctx: ProviderFetchContext,
-  ): Promise<ProviderResult<unknown>>;
+  ): Promise<ProviderResult<RaiderIoCharacterProfile>>;
   getSeasonCutoffs(
     region: RegionCode,
     seasonSlug: string,
     ctx: ProviderFetchContext,
-  ): Promise<ProviderResult<unknown>>;
+  ): Promise<ProviderResult<RaiderIoSeasonCutoffs>>;
+  getStaticData(ctx: ProviderFetchContext): Promise<ProviderResult<RaiderIoStaticData>>;
+  getRunDetails(
+    seasonSlug: string,
+    externalRunId: string,
+    ctx: ProviderFetchContext,
+  ): Promise<ProviderResult<RaiderIoRunDetails>>;
+  getPeriods(ctx: ProviderFetchContext): Promise<ProviderResult<RaiderIoPeriod[]>>;
 }

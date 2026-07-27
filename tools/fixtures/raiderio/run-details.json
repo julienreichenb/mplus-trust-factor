@@ -1,0 +1,61 @@
+{
+  "season": "season-tww-2",
+  "keystone_run_id": 99001001,
+  "mythic_level": 12,
+  "clear_time_ms": 1680000,
+  "keystone_time_ms": 1800000,
+  "completed_at": "2026-07-19T18:30:00.000Z",
+  "score": 385.5,
+  "dungeon": {
+    "name": "Ara-Kara, City of Echoes",
+    "slug": "arak",
+    "short_name": "ARAK"
+  },
+  "url": "https://raider.io/mythic-plus-runs/season-tww-2/99001001",
+  "roster": [
+    {
+      "character": {
+        "name": "Fixturehero",
+        "class": "Mage",
+        "active_spec_name": "Arcane",
+        "realm": "tarren-mill",
+        "region": "eu"
+      },
+      "role": "dps",
+      "ranks": { "overall": 2845 }
+    },
+    {
+      "character": {
+        "name": "Teammateone",
+        "class": "Paladin",
+        "active_spec_name": "Protection",
+        "realm": "tarren-mill",
+        "region": "eu"
+      },
+      "role": "tank",
+      "ranks": { "overall": 3100 }
+    },
+    {
+      "character": {
+        "name": "Teammatetwo",
+        "class": "Priest",
+        "active_spec_name": "Holy",
+        "realm": "silvermoon",
+        "region": "eu"
+      },
+      "role": "healer",
+      "ranks": { "overall": 2950 }
+    },
+    {
+      "character": {
+        "name": "Teammatethree",
+        "class": "Rogue",
+        "active_spec_name": "Assassination",
+        "realm": "tarren-mill",
+        "region": "eu"
+      },
+      "role": "dps",
+      "ranks": { "overall": 3200 }
+    }
+  ]
+}

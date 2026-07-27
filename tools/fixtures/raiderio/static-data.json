@@ -1,0 +1,31 @@
+{
+  "seasons": [
+    {
+      "slug": "season-tww-2",
+      "name": "The War Within Season 2",
+      "starts_at": "2026-03-15T00:00:00.000Z",
+      "ends_at": null,
+      "is_current": true,
+      "dungeons": [
+        { "slug": "arak", "name": "Ara-Kara, City of Echoes", "short_name": "ARAK" },
+        { "slug": "dawn", "name": "The Dawnbreaker", "short_name": "DAWN" }
+      ]
+    }
+  ],
+  "dungeons": [
+    {
+      "slug": "arak",
+      "name": "Ara-Kara, City of Echoes",
+      "short_name": "ARAK",
+      "map_challenge_mode_id": 503,
+      "zone_id": 14971
+    },
+    {
+      "slug": "dawn",
+      "name": "The Dawnbreaker",
+      "short_name": "DAWN",
+      "map_challenge_mode_id": 505,
+      "zone_id": 14973
+    }
+  ]
+}

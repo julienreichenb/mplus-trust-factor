@@ -11,6 +11,17 @@
     "note": "Sanitized fixture placeholder — Agent 2 replaces with verified GraphQL shapes"
   },
   "raiderio": {
-    "note": "Sanitized fixture placeholder — Agent 3 replaces with verified OpenAPI shapes"
+    "note": "Sanitized fixtures — see tools/fixtures/raiderio/",
+    "fixtures": [
+      "character-profile-eu.json",
+      "character-profile-partial.json",
+      "character-not-found.json",
+      "season-cutoffs-eu.json",
+      "static-data.json",
+      "run-details.json",
+      "periods.json",
+      "rate-limited-429.json",
+      "malformed-response.json"
+    ]
   }
 }

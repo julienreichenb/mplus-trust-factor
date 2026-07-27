@@ -1,0 +1,12 @@
+{
+  "cutoffs": {
+    "updatedAt": "2026-07-20T06:00:00.000Z",
+    "region": { "name": "Europe", "slug": "eu" },
+    "p750": {
+      "score": 2650.5,
+      "all": { "score": 2650.5 },
+      "horde": { "score": 2640 },
+      "alliance": { "score": 2660 }
+    }
+  }
+}
