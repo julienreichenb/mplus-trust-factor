@@ -125,7 +125,17 @@ export const characterResolveSchema = z.object({
         name: z.string(),
         level: z.number().nullable().optional(),
         classID: z.number().nullable().optional(),
-        faction: z.number().nullable().optional(),
+        // Live schema: GameFaction object. Legacy fixtures may still send a numeric id.
+        faction: z
+          .union([
+            z.number(),
+            z.object({
+              id: z.number(),
+              name: z.string().nullable().optional(),
+            }),
+          ])
+          .nullable()
+          .optional(),
         hidden: z.boolean(),
         server: z.object({
           slug: z.string(),

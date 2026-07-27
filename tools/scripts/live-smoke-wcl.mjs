@@ -40,7 +40,12 @@ if (deep) {
 
   const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
   const smokeTs = resolve(root, "packages/providers/warcraftlogs/src/smoke-live.ts");
-  const result = spawnSync("pnpm", ["exec", "tsx", smokeTs, ...filteredArgv, "--deep"], {
+  // Windows paths may contain spaces; quote every arg for cmd.exe via shell:true.
+  const quote = (value) => `"${String(value).replace(/"/g, '\\"')}"`;
+  const cmd = ["pnpm", "exec", "tsx", quote(smokeTs), ...filteredArgv.map(quote), "--deep"].join(
+    " ",
+  );
+  const result = spawnSync(cmd, {
     cwd: root,
     env: process.env,
     stdio: "inherit",

@@ -67,7 +67,7 @@ export interface CharacterResolvePayload {
   name: string;
   level?: number | null;
   classID?: number | null;
-  faction?: number | null;
+  faction?: number | { id: number; name?: string | null } | null;
   hidden: boolean;
   server: { slug: string; region?: { name: string } };
 }
