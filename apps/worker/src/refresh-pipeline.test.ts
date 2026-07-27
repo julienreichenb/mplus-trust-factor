@@ -2,7 +2,14 @@ import { randomUUID } from "node:crypto";
 import { afterAll, describe, expect, it } from "vitest";
 import { loadEnv } from "@mplus/config";
 import { checkDatabaseHealth, createPrismaClient, type PrismaClient } from "@mplus/database";
-import { ExternalApiError, type ProviderName, type RefreshCharacterJob } from "@mplus/contracts";
+import {
+  ExternalApiError,
+  type ProviderName,
+  type ProviderResult,
+  type RaiderIoCharacterProfile,
+  type RefreshCharacterJob,
+  type ScoreSnapshotDTO,
+} from "@mplus/contracts";
 import { createWorkerContainer, type WorkerContainer } from "./container.js";
 import { negativeCache } from "./negative-cache.js";
 import { runRefreshPipeline } from "./orchestration/refresh-pipeline.js";
@@ -59,6 +66,24 @@ describe.skipIf(!dbAvailable)("runRefreshPipeline (fixture mode, real Postgres)"
       expect(result.score?.overallScore).toBeGreaterThanOrEqual(0);
       expect(result.score?.overallScore).toBeLessThanOrEqual(100);
       expect(["S", "A", "B", "C", "D"]).toContain(result.score?.grade);
+
+      const explanation = result.score?.explanation as {
+        observations?: Array<{ metricKey: string }>;
+        modelKey?: string;
+      };
+      expect(explanation.modelKey).toBeTruthy();
+      expect(explanation.observations?.some((o) => o.metricKey === "performance.mythic_rating")).toBe(
+        true,
+      );
+      expect(
+        explanation.observations?.some((o) => o.metricKey === "performance.spec_percentile"),
+      ).toBeFalsy();
+
+      const providerStates = await prisma.characterProviderState.findMany({
+        where: { characterId: result.character.id },
+      });
+      expect(providerStates.length).toBeGreaterThanOrEqual(1);
+      expect(providerStates.some((s) => s.provider === "BLIZZARD" && s.state === "OK")).toBe(true);
 
       const persistedSnapshot = await prisma.scoreSnapshot.findFirst({
         where: { characterId: result.character.id },
@@ -127,10 +152,68 @@ describe.skipIf(!dbAvailable)("runRefreshPipeline (fixture mode, real Postgres)"
       expect(result.stagesSkipped).toContain("analyze-run");
       expect(result.score).not.toBeNull();
 
-      const runParticipants = await prisma.runParticipant.count({
-        where: { characterId: result.character.id, isTargetCharacter: true },
+      const wclState = await prisma.characterProviderState.findFirst({
+        where: { characterId: result.character.id, provider: "WARCRAFT_LOGS" },
       });
-      expect(runParticipants).toBe(0);
+      expect(wclState?.state).toBe("UNAVAILABLE");
+
+      const wclSources = await prisma.runSourceReference.count({
+        where: {
+          provider: "WARCRAFT_LOGS",
+          run: { participants: { some: { characterId: result.character.id } } },
+        },
+      });
+      expect(wclSources).toBe(0);
+    },
+    30_000,
+  );
+
+  it(
+    "returns a Blizzard-backed score when Raider.IO is unavailable",
+    async () => {
+      const container = buildContainer(new Set<ProviderName>(["raiderio"]));
+      const name = `NoRaiderIo-${randomUUID().slice(0, 8)}`;
+      const result = await runRefreshPipeline(container, buildJob(name));
+
+      expect(result.stagesSkipped).toContain("refresh-raiderio");
+      expect(result.score).not.toBeNull();
+      expect(result.job.status).toBe("COMPLETED");
+
+      const rioState = await prisma.characterProviderState.findFirst({
+        where: { characterId: result.character.id, provider: "RAIDER_IO" },
+      });
+      expect(rioState?.state).toBe("UNAVAILABLE");
+    },
+    30_000,
+  );
+
+  it(
+    "soft-skips live-shaped Raider.IO 500/rate-limit failures without failing the job",
+    async () => {
+      const base = buildContainer();
+      const failingRaiderIo = {
+        ...base.providers.raiderio,
+        enabled: true,
+        async getCharacterProfile(): Promise<ProviderResult<RaiderIoCharacterProfile>> {
+          throw new ExternalApiError({
+            message: "Raider.IO upstream 500",
+            code: "UNKNOWN",
+            provider: "raiderio",
+            retryable: true,
+            statusCode: 500,
+          });
+        },
+      };
+      const container = createWorkerContainer(loadEnv(), {
+        prisma,
+        providers: { raiderio: failingRaiderIo },
+      });
+      const name = `RioFail-${randomUUID().slice(0, 8)}`;
+      const result = await runRefreshPipeline(container, buildJob(name));
+
+      expect(result.stagesSkipped).toContain("refresh-raiderio");
+      expect(result.score).not.toBeNull();
+      expect(result.job.status).toBe("COMPLETED");
     },
     30_000,
   );
@@ -164,10 +247,57 @@ describe.skipIf(!dbAvailable)("runRefreshPipeline (fixture mode, real Postgres)"
       const second = await runRefreshPipeline(container, buildJob(name, { requestedAt: job.requestedAt }));
 
       expect(first.job.dedupeKey).toBe(second.job.dedupeKey);
-      // A repeat refresh reuses the same IngestionJob row (dedupe key is unique at the DB level).
       expect(first.job.id).toBe(second.job.id);
-      const jobCount = await prisma.ingestionJob.count({ where: { dedupeKey: first.job.dedupeKey ?? undefined } });
+      const jobCount = await prisma.ingestionJob.count({
+        where: { dedupeKey: first.job.dedupeKey ?? undefined },
+      });
       expect(jobCount).toBe(1);
+    },
+    30_000,
+  );
+
+  it(
+    "rejects structurally invalid score snapshots and does not persist them",
+    async () => {
+      const base = buildContainer();
+      const container = createWorkerContainer(loadEnv(), {
+        prisma,
+        calculateScore: () =>
+          ({
+            characterId: "x",
+            seasonSlug: "s",
+            modelKey: "default",
+            modelVersion: 1,
+            scopeType: "CHARACTER",
+            scopeKey: null,
+            overallScore: 999,
+            grade: "S",
+            skillScore: 50,
+            authenticityScore: 50,
+            confidence: 0.5,
+            calculatedAt: new Date().toISOString(),
+            inputFingerprint: "bad",
+            dimensions: [],
+            redFlags: [],
+            explanation: { modelKey: "default", modelVersion: 1 },
+          }) as ScoreSnapshotDTO,
+      });
+      // keep providers from base
+      Object.assign(container.providers, base.providers);
+
+      const name = `InvalidSnap-${randomUUID().slice(0, 8)}`;
+      await expect(runRefreshPipeline(container, buildJob(name))).rejects.toThrow(
+        /structural validation/i,
+      );
+
+      const snaps = await prisma.scoreSnapshot.count({
+        where: {
+          character: {
+            normalizedName: name.toLocaleLowerCase("en-US"),
+          },
+        },
+      });
+      expect(snaps).toBe(0);
     },
     30_000,
   );

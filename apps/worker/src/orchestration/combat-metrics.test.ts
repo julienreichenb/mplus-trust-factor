@@ -33,7 +33,7 @@ describe("extractMetricsFromCombatFacts", () => {
   it("derives survival and utility metrics from WCL combat facts", () => {
     const observations = extractMetricsFromCombatFacts(baseFacts, "2026-07-27T12:00:00.000Z");
     const survival = observations.find((obs) => obs.metricKey === "survival.death_rate");
-    const utility = observations.find((obs) => obs.metricKey === "utility.interrupt_success");
+    const utility = observations.find((obs) => obs.metricKey === "utility.interrupts");
 
     expect(survival?.rawValue).toBe(1);
     expect(survival?.sourceProvider).toBe("warcraftlogs");

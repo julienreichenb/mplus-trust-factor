@@ -10,7 +10,7 @@
       "expectedScoreRange": { "min": 0, "max": 100 },
       "observations": [
         {
-          "metricKey": "performance.spec_percentile",
+          "metricKey": "performance.mythic_rating",
           "dimension": "PERFORMANCE",
           "rawValue": 88,
           "normalizedValue": 88,

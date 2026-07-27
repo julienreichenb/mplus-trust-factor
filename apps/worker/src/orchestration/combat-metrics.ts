@@ -41,7 +41,7 @@ export function extractMetricsFromCombatFacts(
       },
     },
     {
-      metricKey: "utility.interrupt_success",
+      metricKey: "utility.interrupts",
       dimension: "UTILITY",
       rawValue: interruptsSucceeded,
       normalizedValue:
@@ -53,7 +53,7 @@ export function extractMetricsFromCombatFacts(
       context: { interruptsObserved, interruptsSucceeded },
     },
     {
-      metricKey: "utility.dispel_success",
+      metricKey: "utility.dispels",
       dimension: "UTILITY",
       rawValue: dispelsSucceeded,
       normalizedValue: dispelsSucceeded > 0 ? clamp01(dispelsSucceeded / 10) * 100 : null,

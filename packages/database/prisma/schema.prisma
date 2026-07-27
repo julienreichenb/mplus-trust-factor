@@ -103,6 +103,15 @@ enum AddonExportStatus {
   FAILED
 }
 
+enum ProviderLifecycleState {
+  OK
+  STALE
+  UNAVAILABLE
+  RATE_LIMITED
+  PRIVATE_OR_HIDDEN
+  NOT_FOUND
+}
+
 model Region {
   id            String   @id @default(uuid()) @db.Uuid
   code          String   @unique
@@ -272,10 +281,36 @@ model Character {
   redFlags          CharacterRedFlag[]
   disputes          ScoreDispute[]
   ingestionJobs     IngestionJob[]
+  providerStates    CharacterProviderState[]
 
   @@unique([regionId, realmId, normalizedName])
   @@index([lastPublicRefreshAt])
   @@map("characters")
+}
+
+model CharacterProviderState {
+  id                    String                 @id @default(uuid()) @db.Uuid
+  characterId           String                 @map("character_id") @db.Uuid
+  provider              Provider
+  state                 ProviderLifecycleState
+  detail                String?
+  warnings              Json                   @default("[]")
+  disagreements         Json                   @default("[]")
+  excludedObservations  Json                   @default("[]") @map("excluded_observations")
+  wclVisibility         String?                @map("wcl_visibility")
+  lastAttemptAt         DateTime               @map("last_attempt_at") @db.Timestamptz(3)
+  lastSuccessAt         DateTime?              @map("last_success_at") @db.Timestamptz(3)
+  fetchedAt             DateTime?              @map("fetched_at") @db.Timestamptz(3)
+  expiresAt             DateTime?              @map("expires_at") @db.Timestamptz(3)
+  metadata              Json                   @default("{}")
+  createdAt             DateTime               @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt             DateTime               @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  character Character @relation(fields: [characterId], references: [id], onDelete: Cascade)
+
+  @@unique([characterId, provider])
+  @@index([provider, state])
+  @@map("character_provider_states")
 }
 
 model CharacterAlias {

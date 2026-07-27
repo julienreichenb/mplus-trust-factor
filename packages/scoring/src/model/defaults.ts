@@ -26,7 +26,7 @@ export function createDefaultModelV1(
     },
     metricWeights: {
       PERFORMANCE: [
-        { metricKey: "performance.spec_percentile", weight: 0.55 },
+        { metricKey: "performance.mythic_rating", weight: 0.55 },
         { metricKey: "performance.consistency", weight: 0.25 },
         { metricKey: "performance.contextual_contribution", weight: 0.2 },
       ],

@@ -1,6 +1,8 @@
 import type { IsoDateTime, RegionCode, CharacterIdentityInput } from "./identity.js";
 import type { ScoreSnapshotDTO, RedFlagDTO, Grade } from "./scoring.js";
 import type { JobStatusDTO } from "./jobs.js";
+import type { WclVisibilityState } from "./warcraftlogs.js";
+import type { CharacterProviderStateDTO, SourceDisagreementDTO } from "./fusion.js";
 
 export interface ApiErrorEnvelope {
   error: {
@@ -70,13 +72,6 @@ export interface ProfileWarning {
   severity: "INFO" | "WARN";
 }
 
-/** Warcraft Logs visibility state surfaced on character profiles. */
-export type WclVisibilityState =
-  | "PUBLIC"
-  | "HIDDEN"
-  | "NO_PUBLIC_LOGS"
-  | "PRIVATE_SKIPPED";
-
 export interface CharacterProfileResponse {
   characterId: string;
   region: RegionCode;
@@ -103,6 +98,9 @@ export interface CharacterProfileResponse {
   warnings?: ProfileWarning[];
   raiderIoUsed?: boolean;
   wclVisibility?: WclVisibilityState | null;
+  /** Character-level provider lifecycle (present even when no runs exist). */
+  providerStates?: CharacterProviderStateDTO[];
+  sourceDisagreements?: SourceDisagreementDTO[];
 }
 
 export interface CharacterComparisonRequest {

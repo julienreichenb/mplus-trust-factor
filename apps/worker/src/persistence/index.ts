@@ -8,6 +8,10 @@ import {
 import { createJobRepository, type JobRepository } from "./job-repository.js";
 import { createMechanicRuleRepository, type MechanicRuleRepository } from "./mechanic-rule-repository.js";
 import { createMetricRepository, type MetricRepository } from "./metric-repository.js";
+import {
+  createProviderStateRepository,
+  type ProviderStateRepository,
+} from "./provider-state-repository.js";
 import { createRealmRepository, type RealmRepository } from "./realm-repository.js";
 import { createRunRepository, type RunRepository } from "./run-repository.js";
 import { createScoreRepository, type ScoreRepository } from "./score-repository.js";
@@ -22,6 +26,7 @@ export interface WorkerRepositories {
   externalRequest: ExternalRequestRepository;
   addonExport: AddonExportRepository;
   mechanicRule: MechanicRuleRepository;
+  providerState: ProviderStateRepository;
 }
 
 export function createRepositories(prisma: PrismaClient): WorkerRepositories {
@@ -35,6 +40,7 @@ export function createRepositories(prisma: PrismaClient): WorkerRepositories {
     externalRequest: createExternalRequestRepository(prisma),
     addonExport: createAddonExportRepository(prisma),
     mechanicRule: createMechanicRuleRepository(prisma),
+    providerState: createProviderStateRepository(prisma),
   };
 }
 
@@ -44,6 +50,7 @@ export * from "./external-request-repository.js";
 export * from "./job-repository.js";
 export * from "./mechanic-rule-repository.js";
 export * from "./metric-repository.js";
+export * from "./provider-state-repository.js";
 export * from "./realm-repository.js";
 export * from "./run-repository.js";
 export * from "./score-repository.js";
