@@ -1,49 +1,38 @@
-import type {
-  BlizzardProvider,
-  CharacterIdentityInput,
-  CharacterSnapshotDTO,
-  CanonicalCharacter,
-  ProviderFetchContext,
-  ProviderResult,
-} from "@mplus/contracts";
-import { ExternalApiError } from "@mplus/contracts";
+import type { BlizzardProvider } from "@mplus/contracts";
+import type { BlizzardClientOptions } from "./config.js";
+import { FixtureBlizzardProvider } from "./fixture-provider.js";
+import { LiveBlizzardProvider } from "./live-provider.js";
+import { mapStatusToError } from "./errors.js";
 
-function notImplemented(method: string): never {
-  throw new ExternalApiError({
-    message: `BlizzardProvider.${method} is not implemented (Agent 1 owns live integration)`,
-    code: "UNKNOWN",
-    provider: "blizzard",
-    retryable: false,
-  });
-}
-
-export class FixtureBlizzardProvider implements BlizzardProvider {
-  readonly name = "blizzard" as const;
-
-  async getCharacterProfile(
-    _identity: CharacterIdentityInput,
-    _ctx: ProviderFetchContext,
-  ): Promise<ProviderResult<CanonicalCharacter>> {
-    notImplemented("getCharacterProfile");
-  }
-
-  async getCharacterEquipment(
-    _identity: CharacterIdentityInput,
-    _ctx: ProviderFetchContext,
-  ): Promise<ProviderResult<CharacterSnapshotDTO>> {
-    notImplemented("getCharacterEquipment");
-  }
-
-  async getMythicKeystoneProfile(
-    _identity: CharacterIdentityInput,
-    _ctx: ProviderFetchContext,
-  ): Promise<ProviderResult<unknown>> {
-    notImplemented("getMythicKeystoneProfile");
-  }
-}
-
-export function createBlizzardProvider(_mode: "fixture" | "live" = "fixture"): BlizzardProvider {
-  return new FixtureBlizzardProvider();
-}
-
+export type { BlizzardClientOptions, BlizzardRegionKey, NamespaceKind } from "./config.js";
+export {
+  BLIZZARD_REGIONS,
+  DEFAULT_TTL_SECONDS,
+  OAUTH_TOKEN_URL,
+  SCHEMA_VERSION,
+  getRegionConfig,
+  namespaceFor,
+  resolveRegionKey,
+} from "./config.js";
+export { BlizzardTokenManager } from "./token-manager.js";
+export { FixtureBlizzardProvider } from "./fixture-provider.js";
+export { LiveBlizzardProvider } from "./live-provider.js";
+export { encodeCharacterPath, fingerprintFor } from "./normalize.js";
 export type { BlizzardProvider };
+
+export function createBlizzardProvider(
+  mode: "fixture" | "live" = "fixture",
+  options: BlizzardClientOptions = {},
+): BlizzardProvider {
+  if (mode === "fixture") {
+    return new FixtureBlizzardProvider(options);
+  }
+  if (!options.clientId || !options.clientSecret) {
+    throw mapStatusToError({
+      statusCode: null,
+      message: "PROVIDER_MODE=live requires BLIZZARD_CLIENT_ID and BLIZZARD_CLIENT_SECRET",
+      reason: "CONFIGURATION_ERROR",
+    });
+  }
+  return new LiveBlizzardProvider(options);
+}

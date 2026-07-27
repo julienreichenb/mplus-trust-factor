@@ -1,0 +1,39 @@
+{
+  "character": {
+    "name": "Examplecharacter",
+    "id": 123456789,
+    "realm": { "slug": "tarren-mill" }
+  },
+  "average_item_level": 630,
+  "equipped_item_level": 632,
+  "equipped_items": [
+    {
+      "item": { "id": 194301 },
+      "slot": { "type": "TRINKET_1", "name": "Trinket" },
+      "name": "Sample Key Trinket",
+      "quality": { "type": "EPIC", "name": "Epic" },
+      "level": { "value": 639 }
+    },
+    {
+      "item": { "id": 194302 },
+      "slot": { "type": "TRINKET_2", "name": "Trinket" },
+      "name": "Secondary Trinket",
+      "quality": { "type": "EPIC", "name": "Epic" },
+      "level": { "value": 636 }
+    },
+    {
+      "item": { "id": 194310 },
+      "slot": { "type": "FINGER_1", "name": "Finger" },
+      "name": "Sample Ring",
+      "quality": { "type": "EPIC", "name": "Epic" },
+      "level": { "value": 632 }
+    },
+    {
+      "item": { "id": 194320 },
+      "slot": { "type": "HEAD", "name": "Head" },
+      "name": "Sample Helm",
+      "quality": { "type": "EPIC", "name": "Epic" },
+      "level": { "value": 629 }
+    }
+  ]
+}

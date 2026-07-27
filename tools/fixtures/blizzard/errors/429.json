@@ -1,0 +1,5 @@
+{
+  "code": 429,
+  "type": "BLZWEBAPI00000429",
+  "detail": "Too Many Requests"
+}

@@ -6,9 +6,13 @@
     "composite": true
   },
   "include": ["src/**/*.ts"],
+  "exclude": ["src/**/*.test.ts"],
   "references": [
     { "path": "../../packages/config" },
     { "path": "../../packages/contracts" },
-    { "path": "../../packages/observability" }
+    { "path": "../../packages/database" },
+    { "path": "../../packages/domain" },
+    { "path": "../../packages/observability" },
+    { "path": "../../packages/scoring" }
   ]
 }

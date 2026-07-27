@@ -7,6 +7,8 @@ export interface ApiErrorEnvelope {
     code: string;
     message: string;
     requestId: string;
+    /** When true, client may retry with backoff. Optional for backward compatibility. */
+    retryable?: boolean;
     details?: unknown;
   };
 }
@@ -25,6 +27,49 @@ export interface SearchCharacterResponse {
   score: ScoreSnapshotDTO | null;
 }
 
+export interface AnalyzedRunSummary {
+  runId: string;
+  kind: "LATEST" | "HIGHEST" | "BOTH";
+  dungeonName: string;
+  dungeonSlug: string;
+  keyLevel: number;
+  completedAt: IsoDateTime;
+  timed: boolean;
+  performanceSummary: string;
+  coverageRatio: number;
+}
+
+export interface EquipmentSummary {
+  averageItemLevel: number | null;
+  equippedItemLevel: number | null;
+  keyItems: Array<{ slot: string; name: string; itemLevel: number | null }>;
+}
+
+export interface TalentSummary {
+  specializationSlug: string | null;
+  loadoutCode: string | null;
+  summary: string | null;
+}
+
+export interface SeasonSummary {
+  seasonSlug: string;
+  runCount: number;
+  mythicRating: number | null;
+  priorSeasonRating: number | null;
+}
+
+export interface ProfileEntitlements {
+  detailsUnlocked: boolean;
+  runsUnlocked: boolean;
+  compareExpanded: boolean;
+}
+
+export interface ProfileWarning {
+  code: string;
+  message: string;
+  severity: "INFO" | "WARN";
+}
+
 export interface CharacterProfileResponse {
   characterId: string;
   region: RegionCode;
@@ -37,6 +82,19 @@ export interface CharacterProfileResponse {
   highestAnalyzedRunId: string | null;
   sources: Array<{ provider: string; fetchedAt: IsoDateTime; url: string | null }>;
   refreshStatus: "FRESH" | "QUEUED" | "STALE";
+  /** Profile enrichments (Agent 6 / CR-06) */
+  classSlug?: string | null;
+  specSlug?: string | null;
+  role?: "DPS" | "TANK" | "HEALER" | null;
+  itemLevel?: number | null;
+  lastAnalyzedRun?: AnalyzedRunSummary | null;
+  highestAnalyzedRun?: AnalyzedRunSummary | null;
+  equipment?: EquipmentSummary | null;
+  talents?: TalentSummary | null;
+  seasonSummary?: SeasonSummary | null;
+  entitlements?: ProfileEntitlements;
+  warnings?: ProfileWarning[];
+  raiderIoUsed?: boolean;
 }
 
 export interface CharacterComparisonRequest {

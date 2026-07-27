@@ -1,46 +1,43 @@
-import { Queue } from "bullmq";
-import { Redis } from "ioredis";
 import { loadEnv } from "@mplus/config";
 import { QUEUE_NAMES } from "@mplus/contracts";
-import { createLogger } from "@mplus/observability";
-import { createWorkers } from "./processors.js";
+import { createWorkerContainer } from "./container.js";
+import { closeWorkers, createWorkers } from "./processors.js";
+import { createQueueProducers } from "./queues.js";
 
 async function main(): Promise<void> {
   const env = loadEnv();
-  const logger = createLogger({ level: env.LOG_LEVEL, name: "worker" });
-  const connection = new Redis(env.REDIS_URL, { maxRetriesPerRequest: null });
+  const container = createWorkerContainer(env);
+  const connection = container.createRedisConnection();
 
-  // Ensure named queues exist for observability even before producers enqueue.
-  const queues = Object.values(QUEUE_NAMES).map(
-    (name) => new Queue(name, { connection }),
-  );
+  const producers = createQueueProducers(connection, container);
+  const workers = createWorkers(connection, container);
 
-  const workers = createWorkers(connection, logger);
+  // `run()` resolves only once the worker is closed, so it must not be awaited here.
   for (const worker of workers) {
-    worker.on("failed", (job, error) => {
-      logger.error({ jobId: job?.id, queue: worker.name, err: error }, "job failed");
+    void worker.run().catch((error) => {
+      container.logger.error({ queue: worker.name, err: error }, "worker run loop crashed");
     });
-    await worker.run();
   }
 
-  logger.info(
-    {
-      queues: Object.values(QUEUE_NAMES),
-      status: "ready",
-      note: "Processors explicitly NotImplemented until Agent 5 orchestration",
-    },
+  container.logger.info(
+    { queues: Object.values(QUEUE_NAMES), status: "ready", providerMode: env.PROVIDER_MODE },
     "worker started",
   );
 
-  const shutdown = async () => {
-    await Promise.all(workers.map((worker) => worker.close()));
-    await Promise.all(queues.map((queue) => queue.close()));
+  let shuttingDown = false;
+  const shutdown = async (signal: string) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    container.logger.info({ signal }, "worker shutting down");
+    await closeWorkers(workers);
+    await producers.close();
     await connection.quit();
+    await container.prisma.$disconnect();
     process.exit(0);
   };
 
-  process.on("SIGINT", () => void shutdown());
-  process.on("SIGTERM", () => void shutdown());
+  process.on("SIGINT", () => void shutdown("SIGINT"));
+  process.on("SIGTERM", () => void shutdown("SIGTERM"));
 }
 
 main().catch((error) => {

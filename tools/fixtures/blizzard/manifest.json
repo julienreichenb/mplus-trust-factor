@@ -1,0 +1,54 @@
+{
+  "characters": {
+    "EU:tarren-mill:examplecharacter": {
+      "profile": "character-profile-normal.json",
+      "equipment": "equipment-key-items.json",
+      "specializations": "specializations-multi.json",
+      "media": "media-avatar.json",
+      "mythicIndex": "mythic-keystone-profile-index.json",
+      "mythicSeason": "mythic-keystone-season-current.json"
+    },
+    "EU:tarren-mill:élisé": {
+      "profile": "character-profile-accented.json",
+      "equipment": "equipment-key-items.json",
+      "specializations": "specializations-multi.json",
+      "media": "media-avatar.json",
+      "mythicIndex": "mythic-keystone-profile-index.json",
+      "mythicSeason": "mythic-keystone-season-current.json"
+    },
+    "EU:tarren-mill:o'connor": {
+      "profile": "character-profile-accented.json",
+      "equipment": "partial-fields.json",
+      "specializations": "specializations-multi.json",
+      "media": "media-avatar.json",
+      "mythicIndex": "mythic-keystone-profile-index.json",
+      "mythicSeason": "mythic-keystone-season-current.json"
+    }
+  },
+  "realms": {
+    "tarren-mill": "realm-tarren-mill.json"
+  },
+  "seasons": {
+    "index": "season-index.json",
+    "byId": {
+      "13": "season-current.json"
+    }
+  },
+  "dungeons": {
+    "index": "dungeon-index.json",
+    "byId": {
+      "399": "dungeon-sample.json"
+    }
+  },
+  "items": {
+    "194301": {
+      "item": "item-sample.json",
+      "media": "item-media-sample.json"
+    }
+  },
+  "errors": {
+    "404": "errors/404.json",
+    "429": "errors/429.json",
+    "500": "errors/500.json"
+  }
+}

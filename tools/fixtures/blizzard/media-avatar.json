@@ -1,0 +1,16 @@
+{
+  "assets": [
+    {
+      "key": "avatar",
+      "value": "https://render.worldofwarcraft.com/eu/character/tarren-mill/0/0-avatar.jpg"
+    },
+    {
+      "key": "inset",
+      "value": "https://render.worldofwarcraft.com/eu/character/tarren-mill/0/0-inset.jpg"
+    },
+    {
+      "key": "main",
+      "value": "https://render.worldofwarcraft.com/eu/character/tarren-mill/0/0-main.jpg"
+    }
+  ]
+}

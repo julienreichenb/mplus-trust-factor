@@ -3,31 +3,12 @@
   "info": {
     "title": "M+ Trust Factor API",
     "version": "0.1.0",
-    "description": "Foundation OpenAPI surface — domain routes owned by Agent 5"
+    "description": "Agent 5 backend surface: public character/comparison/score-model routes with stale-while-revalidate refresh semantics, plus MVP-protected admin routes for score model and mechanic-rule administration."
   },
   "components": {
     "schemas": {}
   },
   "paths": {
-    "/metrics": {
-      "get": {
-        "tags": [
-          "observability"
-        ],
-        "responses": {
-          "200": {
-            "description": "Default Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/health/live": {
       "get": {
         "tags": [
@@ -145,6 +126,3852 @@
                       }
                     }
                   }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/realms": {
+      "get": {
+        "tags": [
+          "realms"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "in": "query",
+            "name": "region",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "query",
+            "name": "query",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "query",
+            "name": "q",
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "realms": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "regionCode": {
+                            "type": "string"
+                          },
+                          "slug": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          }
+                        },
+                        "additionalProperties": true
+                      }
+                    }
+                  },
+                  "required": [
+                    "realms"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        },
+                        "details": {}
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "requestId"
+                      ],
+                      "additionalProperties": true
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/characters/search": {
+      "get": {
+        "tags": [
+          "characters"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "in": "query",
+            "name": "region",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "in": "query",
+            "name": "realm",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "in": "query",
+            "name": "name",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "characterId": {
+                      "type": [
+                        "null",
+                        "string"
+                      ]
+                    },
+                    "identity": {
+                      "type": "object",
+                      "properties": {
+                        "region": {
+                          "type": "string"
+                        },
+                        "realmSlug": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "region",
+                        "realmSlug",
+                        "name"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "refreshStatus": {
+                      "type": "string"
+                    },
+                    "job": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "jobId": {
+                              "type": "string"
+                            },
+                            "queue": {
+                              "type": "string"
+                            },
+                            "status": {
+                              "type": "string"
+                            },
+                            "dedupeKey": {
+                              "type": [
+                                "null",
+                                "string"
+                              ]
+                            },
+                            "createdAt": {
+                              "type": "string"
+                            },
+                            "startedAt": {
+                              "type": [
+                                "null",
+                                "string"
+                              ]
+                            },
+                            "finishedAt": {
+                              "type": [
+                                "null",
+                                "string"
+                              ]
+                            },
+                            "errorMessage": {
+                              "type": [
+                                "null",
+                                "string"
+                              ]
+                            }
+                          },
+                          "additionalProperties": true
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "score": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "characterId": {
+                              "type": "string"
+                            },
+                            "seasonSlug": {
+                              "type": "string"
+                            },
+                            "modelKey": {
+                              "type": "string"
+                            },
+                            "modelVersion": {
+                              "type": "number"
+                            },
+                            "scopeType": {
+                              "type": "string"
+                            },
+                            "scopeKey": {
+                              "type": [
+                                "null",
+                                "string"
+                              ]
+                            },
+                            "overallScore": {
+                              "type": "number"
+                            },
+                            "grade": {
+                              "type": "string"
+                            },
+                            "skillScore": {
+                              "type": "number"
+                            },
+                            "authenticityScore": {
+                              "type": "number"
+                            },
+                            "confidence": {
+                              "type": "number"
+                            },
+                            "calculatedAt": {
+                              "type": "string"
+                            },
+                            "inputFingerprint": {
+                              "type": "string"
+                            },
+                            "dimensions": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "dimension": {
+                                    "type": "string"
+                                  },
+                                  "score": {
+                                    "type": "number"
+                                  },
+                                  "confidence": {
+                                    "type": "number"
+                                  },
+                                  "weight": {
+                                    "type": "number"
+                                  },
+                                  "contributors": {}
+                                },
+                                "additionalProperties": true
+                              }
+                            },
+                            "redFlags": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "key": {
+                                    "type": "string"
+                                  },
+                                  "label": {
+                                    "type": "string"
+                                  },
+                                  "severity": {
+                                    "type": "string"
+                                  },
+                                  "confidence": {
+                                    "type": "number"
+                                  },
+                                  "public": {
+                                    "type": "boolean"
+                                  },
+                                  "evidence": {}
+                                },
+                                "additionalProperties": true
+                              }
+                            },
+                            "explanation": {}
+                          },
+                          "additionalProperties": true
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        },
+                        "details": {}
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "requestId"
+                      ],
+                      "additionalProperties": true
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/characters/{region}/{realm}/{name}": {
+      "get": {
+        "tags": [
+          "characters"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "in": "path",
+            "name": "region",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "in": "path",
+            "name": "realm",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "in": "path",
+            "name": "name",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "characterId": {
+                      "type": "string"
+                    },
+                    "region": {
+                      "type": "string"
+                    },
+                    "realmSlug": {
+                      "type": "string"
+                    },
+                    "displayName": {
+                      "type": "string"
+                    },
+                    "score": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "characterId": {
+                              "type": "string"
+                            },
+                            "seasonSlug": {
+                              "type": "string"
+                            },
+                            "modelKey": {
+                              "type": "string"
+                            },
+                            "modelVersion": {
+                              "type": "number"
+                            },
+                            "scopeType": {
+                              "type": "string"
+                            },
+                            "scopeKey": {
+                              "type": [
+                                "null",
+                                "string"
+                              ]
+                            },
+                            "overallScore": {
+                              "type": "number"
+                            },
+                            "grade": {
+                              "type": "string"
+                            },
+                            "skillScore": {
+                              "type": "number"
+                            },
+                            "authenticityScore": {
+                              "type": "number"
+                            },
+                            "confidence": {
+                              "type": "number"
+                            },
+                            "calculatedAt": {
+                              "type": "string"
+                            },
+                            "inputFingerprint": {
+                              "type": "string"
+                            },
+                            "dimensions": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "dimension": {
+                                    "type": "string"
+                                  },
+                                  "score": {
+                                    "type": "number"
+                                  },
+                                  "confidence": {
+                                    "type": "number"
+                                  },
+                                  "weight": {
+                                    "type": "number"
+                                  },
+                                  "contributors": {}
+                                },
+                                "additionalProperties": true
+                              }
+                            },
+                            "redFlags": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "key": {
+                                    "type": "string"
+                                  },
+                                  "label": {
+                                    "type": "string"
+                                  },
+                                  "severity": {
+                                    "type": "string"
+                                  },
+                                  "confidence": {
+                                    "type": "number"
+                                  },
+                                  "public": {
+                                    "type": "boolean"
+                                  },
+                                  "evidence": {}
+                                },
+                                "additionalProperties": true
+                              }
+                            },
+                            "explanation": {}
+                          },
+                          "additionalProperties": true
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "redFlags": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "key": {
+                            "type": "string"
+                          },
+                          "label": {
+                            "type": "string"
+                          },
+                          "severity": {
+                            "type": "string"
+                          },
+                          "confidence": {
+                            "type": "number"
+                          },
+                          "public": {
+                            "type": "boolean"
+                          },
+                          "evidence": {}
+                        },
+                        "additionalProperties": true
+                      }
+                    },
+                    "dataConfidence": {
+                      "type": [
+                        "null",
+                        "number"
+                      ]
+                    },
+                    "lastAnalyzedRunId": {
+                      "type": [
+                        "null",
+                        "string"
+                      ]
+                    },
+                    "highestAnalyzedRunId": {
+                      "type": [
+                        "null",
+                        "string"
+                      ]
+                    },
+                    "sources": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "provider": {
+                            "type": "string"
+                          },
+                          "fetchedAt": {
+                            "type": "string"
+                          },
+                          "url": {
+                            "type": [
+                              "null",
+                              "string"
+                            ]
+                          }
+                        },
+                        "additionalProperties": true
+                      }
+                    },
+                    "refreshStatus": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "characterId": {
+                      "type": "string"
+                    },
+                    "region": {
+                      "type": "string"
+                    },
+                    "realmSlug": {
+                      "type": "string"
+                    },
+                    "displayName": {
+                      "type": "string"
+                    },
+                    "score": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "characterId": {
+                              "type": "string"
+                            },
+                            "seasonSlug": {
+                              "type": "string"
+                            },
+                            "modelKey": {
+                              "type": "string"
+                            },
+                            "modelVersion": {
+                              "type": "number"
+                            },
+                            "scopeType": {
+                              "type": "string"
+                            },
+                            "scopeKey": {
+                              "type": [
+                                "null",
+                                "string"
+                              ]
+                            },
+                            "overallScore": {
+                              "type": "number"
+                            },
+                            "grade": {
+                              "type": "string"
+                            },
+                            "skillScore": {
+                              "type": "number"
+                            },
+                            "authenticityScore": {
+                              "type": "number"
+                            },
+                            "confidence": {
+                              "type": "number"
+                            },
+                            "calculatedAt": {
+                              "type": "string"
+                            },
+                            "inputFingerprint": {
+                              "type": "string"
+                            },
+                            "dimensions": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "dimension": {
+                                    "type": "string"
+                                  },
+                                  "score": {
+                                    "type": "number"
+                                  },
+                                  "confidence": {
+                                    "type": "number"
+                                  },
+                                  "weight": {
+                                    "type": "number"
+                                  },
+                                  "contributors": {}
+                                },
+                                "additionalProperties": true
+                              }
+                            },
+                            "redFlags": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "key": {
+                                    "type": "string"
+                                  },
+                                  "label": {
+                                    "type": "string"
+                                  },
+                                  "severity": {
+                                    "type": "string"
+                                  },
+                                  "confidence": {
+                                    "type": "number"
+                                  },
+                                  "public": {
+                                    "type": "boolean"
+                                  },
+                                  "evidence": {}
+                                },
+                                "additionalProperties": true
+                              }
+                            },
+                            "explanation": {}
+                          },
+                          "additionalProperties": true
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "redFlags": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "key": {
+                            "type": "string"
+                          },
+                          "label": {
+                            "type": "string"
+                          },
+                          "severity": {
+                            "type": "string"
+                          },
+                          "confidence": {
+                            "type": "number"
+                          },
+                          "public": {
+                            "type": "boolean"
+                          },
+                          "evidence": {}
+                        },
+                        "additionalProperties": true
+                      }
+                    },
+                    "dataConfidence": {
+                      "type": [
+                        "null",
+                        "number"
+                      ]
+                    },
+                    "lastAnalyzedRunId": {
+                      "type": [
+                        "null",
+                        "string"
+                      ]
+                    },
+                    "highestAnalyzedRunId": {
+                      "type": [
+                        "null",
+                        "string"
+                      ]
+                    },
+                    "sources": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "provider": {
+                            "type": "string"
+                          },
+                          "fetchedAt": {
+                            "type": "string"
+                          },
+                          "url": {
+                            "type": [
+                              "null",
+                              "string"
+                            ]
+                          }
+                        },
+                        "additionalProperties": true
+                      }
+                    },
+                    "refreshStatus": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        },
+                        "details": {}
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "requestId"
+                      ],
+                      "additionalProperties": true
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/characters/{region}/{realm}/{name}/refresh": {
+      "post": {
+        "tags": [
+          "characters"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "in": "path",
+            "name": "region",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "in": "path",
+            "name": "realm",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "in": "path",
+            "name": "name",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "characterId": {
+                      "type": "string"
+                    },
+                    "refreshStatus": {
+                      "type": "string"
+                    },
+                    "job": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "jobId": {
+                              "type": "string"
+                            },
+                            "queue": {
+                              "type": "string"
+                            },
+                            "status": {
+                              "type": "string"
+                            },
+                            "dedupeKey": {
+                              "type": [
+                                "null",
+                                "string"
+                              ]
+                            },
+                            "createdAt": {
+                              "type": "string"
+                            },
+                            "startedAt": {
+                              "type": [
+                                "null",
+                                "string"
+                              ]
+                            },
+                            "finishedAt": {
+                              "type": [
+                                "null",
+                                "string"
+                              ]
+                            },
+                            "errorMessage": {
+                              "type": [
+                                "null",
+                                "string"
+                              ]
+                            }
+                          },
+                          "additionalProperties": true
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "cooldownSecondsRemaining": {
+                      "type": "number"
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        },
+                        "details": {}
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "requestId"
+                      ],
+                      "additionalProperties": true
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/characters/{region}/{realm}/{name}/refresh-status": {
+      "get": {
+        "tags": [
+          "characters"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "in": "path",
+            "name": "region",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "in": "path",
+            "name": "realm",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "in": "path",
+            "name": "name",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "characterId": {
+                      "type": "string"
+                    },
+                    "refreshStatus": {
+                      "type": "string"
+                    },
+                    "job": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "jobId": {
+                              "type": "string"
+                            },
+                            "queue": {
+                              "type": "string"
+                            },
+                            "status": {
+                              "type": "string"
+                            },
+                            "dedupeKey": {
+                              "type": [
+                                "null",
+                                "string"
+                              ]
+                            },
+                            "createdAt": {
+                              "type": "string"
+                            },
+                            "startedAt": {
+                              "type": [
+                                "null",
+                                "string"
+                              ]
+                            },
+                            "finishedAt": {
+                              "type": [
+                                "null",
+                                "string"
+                              ]
+                            },
+                            "errorMessage": {
+                              "type": [
+                                "null",
+                                "string"
+                              ]
+                            }
+                          },
+                          "additionalProperties": true
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "cooldownSecondsRemaining": {
+                      "type": "number"
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        },
+                        "details": {}
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "requestId"
+                      ],
+                      "additionalProperties": true
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/characters/{region}/{realm}/{name}/history": {
+      "get": {
+        "tags": [
+          "characters"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            },
+            "in": "query",
+            "name": "limit",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "in": "path",
+            "name": "region",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "in": "path",
+            "name": "realm",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "in": "path",
+            "name": "name",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "characterId": {
+                      "type": "string"
+                    },
+                    "snapshots": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "characterId": {
+                            "type": "string"
+                          },
+                          "seasonSlug": {
+                            "type": "string"
+                          },
+                          "modelKey": {
+                            "type": "string"
+                          },
+                          "modelVersion": {
+                            "type": "number"
+                          },
+                          "scopeType": {
+                            "type": "string"
+                          },
+                          "scopeKey": {
+                            "type": [
+                              "null",
+                              "string"
+                            ]
+                          },
+                          "overallScore": {
+                            "type": "number"
+                          },
+                          "grade": {
+                            "type": "string"
+                          },
+                          "skillScore": {
+                            "type": "number"
+                          },
+                          "authenticityScore": {
+                            "type": "number"
+                          },
+                          "confidence": {
+                            "type": "number"
+                          },
+                          "calculatedAt": {
+                            "type": "string"
+                          },
+                          "inputFingerprint": {
+                            "type": "string"
+                          },
+                          "dimensions": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "dimension": {
+                                  "type": "string"
+                                },
+                                "score": {
+                                  "type": "number"
+                                },
+                                "confidence": {
+                                  "type": "number"
+                                },
+                                "weight": {
+                                  "type": "number"
+                                },
+                                "contributors": {}
+                              },
+                              "additionalProperties": true
+                            }
+                          },
+                          "redFlags": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "key": {
+                                  "type": "string"
+                                },
+                                "label": {
+                                  "type": "string"
+                                },
+                                "severity": {
+                                  "type": "string"
+                                },
+                                "confidence": {
+                                  "type": "number"
+                                },
+                                "public": {
+                                  "type": "boolean"
+                                },
+                                "evidence": {}
+                              },
+                              "additionalProperties": true
+                            }
+                          },
+                          "explanation": {}
+                        },
+                        "additionalProperties": true
+                      }
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        },
+                        "details": {}
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "requestId"
+                      ],
+                      "additionalProperties": true
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/characters/{region}/{realm}/{name}/runs": {
+      "get": {
+        "tags": [
+          "characters"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "latest",
+                "highest"
+              ]
+            },
+            "in": "query",
+            "name": "kind",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "in": "path",
+            "name": "region",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "in": "path",
+            "name": "realm",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "in": "path",
+            "name": "name",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "runId": {
+                          "type": "string"
+                        },
+                        "dungeonSlug": {
+                          "type": "string"
+                        },
+                        "seasonSlug": {
+                          "type": "string"
+                        },
+                        "keyLevel": {
+                          "type": "number"
+                        },
+                        "completedAt": {
+                          "type": "string"
+                        },
+                        "durationMs": {
+                          "type": "number"
+                        },
+                        "timerMs": {
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "timed": {
+                          "type": "boolean"
+                        },
+                        "scoreValue": {
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "sources": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "provider": {
+                                "type": "string"
+                              },
+                              "externalUrl": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              }
+                            },
+                            "additionalProperties": true
+                          }
+                        }
+                      },
+                      "additionalProperties": true
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        },
+                        "details": {}
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "requestId"
+                      ],
+                      "additionalProperties": true
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/characters/{region}/{realm}/{name}/scores": {
+      "get": {
+        "tags": [
+          "characters"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "in": "path",
+            "name": "region",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "in": "path",
+            "name": "realm",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "in": "path",
+            "name": "name",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "characterId": {
+                      "type": "string"
+                    },
+                    "seasonSlug": {
+                      "type": "string"
+                    },
+                    "modelKey": {
+                      "type": "string"
+                    },
+                    "modelVersion": {
+                      "type": "number"
+                    },
+                    "scopeType": {
+                      "type": "string"
+                    },
+                    "scopeKey": {
+                      "type": [
+                        "null",
+                        "string"
+                      ]
+                    },
+                    "overallScore": {
+                      "type": "number"
+                    },
+                    "grade": {
+                      "type": "string"
+                    },
+                    "skillScore": {
+                      "type": "number"
+                    },
+                    "authenticityScore": {
+                      "type": "number"
+                    },
+                    "confidence": {
+                      "type": "number"
+                    },
+                    "calculatedAt": {
+                      "type": "string"
+                    },
+                    "inputFingerprint": {
+                      "type": "string"
+                    },
+                    "dimensions": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "dimension": {
+                            "type": "string"
+                          },
+                          "score": {
+                            "type": "number"
+                          },
+                          "confidence": {
+                            "type": "number"
+                          },
+                          "weight": {
+                            "type": "number"
+                          },
+                          "contributors": {}
+                        },
+                        "additionalProperties": true
+                      }
+                    },
+                    "redFlags": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "key": {
+                            "type": "string"
+                          },
+                          "label": {
+                            "type": "string"
+                          },
+                          "severity": {
+                            "type": "string"
+                          },
+                          "confidence": {
+                            "type": "number"
+                          },
+                          "public": {
+                            "type": "boolean"
+                          },
+                          "evidence": {}
+                        },
+                        "additionalProperties": true
+                      }
+                    },
+                    "explanation": {}
+                  },
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        },
+                        "details": {}
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "requestId"
+                      ],
+                      "additionalProperties": true
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/comparisons": {
+      "post": {
+        "tags": [
+          "comparisons"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "characters": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "region": {
+                          "type": "string"
+                        },
+                        "realmSlug": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "region",
+                        "realmSlug",
+                        "name"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "minItems": 2,
+                    "maxItems": 10
+                  },
+                  "seasonSlug": {
+                    "type": "string"
+                  },
+                  "modelKey": {
+                    "type": "string"
+                  },
+                  "modelVersion": {
+                    "type": "integer",
+                    "minimum": 1
+                  }
+                },
+                "required": [
+                  "characters"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "modelKey": {
+                      "type": "string"
+                    },
+                    "modelVersion": {
+                      "type": "number"
+                    },
+                    "seasonSlug": {
+                      "type": "string"
+                    },
+                    "calculatedAt": {
+                      "type": "string"
+                    },
+                    "entries": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "identity": {
+                            "type": "object",
+                            "properties": {
+                              "region": {
+                                "type": "string"
+                              },
+                              "realmSlug": {
+                                "type": "string"
+                              },
+                              "name": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "region",
+                              "realmSlug",
+                              "name"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "characterId": {
+                            "type": [
+                              "null",
+                              "string"
+                            ]
+                          },
+                          "overallScore": {
+                            "type": [
+                              "null",
+                              "number"
+                            ]
+                          },
+                          "grade": {
+                            "type": [
+                              "null",
+                              "string"
+                            ]
+                          },
+                          "confidence": {
+                            "type": [
+                              "null",
+                              "number"
+                            ]
+                          },
+                          "dimensions": {
+                            "anyOf": [
+                              {
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "dimension": {
+                                      "type": "string"
+                                    },
+                                    "score": {
+                                      "type": "number"
+                                    },
+                                    "confidence": {
+                                      "type": "number"
+                                    },
+                                    "weight": {
+                                      "type": "number"
+                                    },
+                                    "contributors": {}
+                                  },
+                                  "additionalProperties": true
+                                }
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "deltasFromMedian": {
+                            "type": "object",
+                            "additionalProperties": true
+                          },
+                          "deltasFromBest": {
+                            "type": "object",
+                            "additionalProperties": true
+                          }
+                        },
+                        "additionalProperties": true
+                      }
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        },
+                        "details": {}
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "requestId"
+                      ],
+                      "additionalProperties": true
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        },
+                        "details": {}
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "requestId"
+                      ],
+                      "additionalProperties": true
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/score-models/public": {
+      "get": {
+        "tags": [
+          "score-models"
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "models": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "key": {
+                            "type": "string"
+                          },
+                          "version": {
+                            "type": "number"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "status": {
+                            "type": "string"
+                          },
+                          "config": {
+                            "type": "object",
+                            "additionalProperties": true
+                          },
+                          "createdAt": {
+                            "type": "string"
+                          },
+                          "activatedAt": {
+                            "type": [
+                              "null",
+                              "string"
+                            ]
+                          }
+                        },
+                        "additionalProperties": true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/jobs/{id}": {
+      "get": {
+        "tags": [
+          "jobs"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "jobId": {
+                      "type": "string"
+                    },
+                    "queue": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string"
+                    },
+                    "dedupeKey": {
+                      "type": [
+                        "null",
+                        "string"
+                      ]
+                    },
+                    "createdAt": {
+                      "type": "string"
+                    },
+                    "startedAt": {
+                      "type": [
+                        "null",
+                        "string"
+                      ]
+                    },
+                    "finishedAt": {
+                      "type": [
+                        "null",
+                        "string"
+                      ]
+                    },
+                    "errorMessage": {
+                      "type": [
+                        "null",
+                        "string"
+                      ]
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        },
+                        "details": {}
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "requestId"
+                      ],
+                      "additionalProperties": true
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/score-models": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "models": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "key": {
+                            "type": "string"
+                          },
+                          "version": {
+                            "type": "number"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "status": {
+                            "type": "string"
+                          },
+                          "config": {
+                            "type": "object",
+                            "additionalProperties": true
+                          },
+                          "createdAt": {
+                            "type": "string"
+                          },
+                          "activatedAt": {
+                            "type": [
+                              "null",
+                              "string"
+                            ]
+                          }
+                        },
+                        "additionalProperties": true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "key": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "name": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "description": {
+                    "type": "string"
+                  },
+                  "config": {
+                    "type": "object",
+                    "properties": {
+                      "key": {
+                        "type": "string"
+                      },
+                      "version": {
+                        "type": "integer",
+                        "minimum": 1
+                      },
+                      "weights": {
+                        "type": "object",
+                        "properties": {
+                          "performance": {
+                            "type": "number"
+                          },
+                          "survival": {
+                            "type": "number"
+                          },
+                          "utility": {
+                            "type": "number"
+                          },
+                          "experienceConsistency": {
+                            "type": "number"
+                          },
+                          "mythicRaid": {
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "performance",
+                          "survival",
+                          "utility",
+                          "experienceConsistency",
+                          "mythicRaid"
+                        ]
+                      },
+                      "authenticityBlend": {
+                        "type": "object",
+                        "properties": {
+                          "skillWeight": {
+                            "type": "number"
+                          },
+                          "authenticityWeight": {
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "skillWeight",
+                          "authenticityWeight"
+                        ]
+                      },
+                      "confidenceNeutralScore": {
+                        "type": "number"
+                      },
+                      "gradeThresholds": {
+                        "type": "object",
+                        "properties": {
+                          "S": {
+                            "type": "number"
+                          },
+                          "A": {
+                            "type": "number"
+                          },
+                          "B": {
+                            "type": "number"
+                          },
+                          "C": {
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "S",
+                          "A",
+                          "B",
+                          "C"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "key",
+                      "version",
+                      "weights",
+                      "authenticityBlend",
+                      "confidenceNeutralScore",
+                      "gradeThresholds"
+                    ]
+                  }
+                },
+                "required": [
+                  "key",
+                  "name",
+                  "config"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "key": {
+                      "type": "string"
+                    },
+                    "version": {
+                      "type": "number"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string"
+                    },
+                    "config": {
+                      "type": "object",
+                      "additionalProperties": true
+                    },
+                    "createdAt": {
+                      "type": "string"
+                    },
+                    "activatedAt": {
+                      "type": [
+                        "null",
+                        "string"
+                      ]
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        },
+                        "details": {}
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "requestId"
+                      ],
+                      "additionalProperties": true
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/score-models/{id}/clone": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "key": {
+                      "type": "string"
+                    },
+                    "version": {
+                      "type": "number"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string"
+                    },
+                    "config": {
+                      "type": "object",
+                      "additionalProperties": true
+                    },
+                    "createdAt": {
+                      "type": "string"
+                    },
+                    "activatedAt": {
+                      "type": [
+                        "null",
+                        "string"
+                      ]
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        },
+                        "details": {}
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "requestId"
+                      ],
+                      "additionalProperties": true
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/score-models/{id}": {
+      "put": {
+        "tags": [
+          "admin"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "config": {
+                    "type": "object",
+                    "properties": {
+                      "key": {
+                        "type": "string"
+                      },
+                      "version": {
+                        "type": "integer",
+                        "minimum": 1
+                      },
+                      "weights": {
+                        "type": "object",
+                        "properties": {
+                          "performance": {
+                            "type": "number"
+                          },
+                          "survival": {
+                            "type": "number"
+                          },
+                          "utility": {
+                            "type": "number"
+                          },
+                          "experienceConsistency": {
+                            "type": "number"
+                          },
+                          "mythicRaid": {
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "performance",
+                          "survival",
+                          "utility",
+                          "experienceConsistency",
+                          "mythicRaid"
+                        ]
+                      },
+                      "authenticityBlend": {
+                        "type": "object",
+                        "properties": {
+                          "skillWeight": {
+                            "type": "number"
+                          },
+                          "authenticityWeight": {
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "skillWeight",
+                          "authenticityWeight"
+                        ]
+                      },
+                      "confidenceNeutralScore": {
+                        "type": "number"
+                      },
+                      "gradeThresholds": {
+                        "type": "object",
+                        "properties": {
+                          "S": {
+                            "type": "number"
+                          },
+                          "A": {
+                            "type": "number"
+                          },
+                          "B": {
+                            "type": "number"
+                          },
+                          "C": {
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "S",
+                          "A",
+                          "B",
+                          "C"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "key",
+                      "version",
+                      "weights",
+                      "authenticityBlend",
+                      "confidenceNeutralScore",
+                      "gradeThresholds"
+                    ]
+                  }
+                },
+                "required": [
+                  "config"
+                ]
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "key": {
+                      "type": "string"
+                    },
+                    "version": {
+                      "type": "number"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string"
+                    },
+                    "config": {
+                      "type": "object",
+                      "additionalProperties": true
+                    },
+                    "createdAt": {
+                      "type": "string"
+                    },
+                    "activatedAt": {
+                      "type": [
+                        "null",
+                        "string"
+                      ]
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        },
+                        "details": {}
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "requestId"
+                      ],
+                      "additionalProperties": true
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        },
+                        "details": {}
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "requestId"
+                      ],
+                      "additionalProperties": true
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/score-models/{id}/validate": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "valid": {
+                      "type": "boolean"
+                    },
+                    "errors": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        },
+                        "details": {}
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "requestId"
+                      ],
+                      "additionalProperties": true
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/score-models/{id}/backtest": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "scoreModelId": {
+                      "type": "string"
+                    },
+                    "sampleSize": {
+                      "type": "number"
+                    },
+                    "gradeDistribution": {
+                      "type": "object",
+                      "additionalProperties": true
+                    },
+                    "meanScore": {
+                      "type": "number"
+                    },
+                    "generatedAt": {
+                      "type": "string"
+                    },
+                    "note": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        },
+                        "details": {}
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "requestId"
+                      ],
+                      "additionalProperties": true
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/score-models/{id}/activate": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "characterId": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "key": {
+                      "type": "string"
+                    },
+                    "version": {
+                      "type": "number"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string"
+                    },
+                    "config": {
+                      "type": "object",
+                      "additionalProperties": true
+                    },
+                    "createdAt": {
+                      "type": "string"
+                    },
+                    "activatedAt": {
+                      "type": [
+                        "null",
+                        "string"
+                      ]
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        },
+                        "details": {}
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "requestId"
+                      ],
+                      "additionalProperties": true
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/characters/{id}/recalculate": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "jobId": {
+                      "type": "string"
+                    },
+                    "queue": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string"
+                    },
+                    "dedupeKey": {
+                      "type": [
+                        "null",
+                        "string"
+                      ]
+                    },
+                    "createdAt": {
+                      "type": "string"
+                    },
+                    "startedAt": {
+                      "type": [
+                        "null",
+                        "string"
+                      ]
+                    },
+                    "finishedAt": {
+                      "type": [
+                        "null",
+                        "string"
+                      ]
+                    },
+                    "errorMessage": {
+                      "type": [
+                        "null",
+                        "string"
+                      ]
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        },
+                        "details": {}
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "requestId"
+                      ],
+                      "additionalProperties": true
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/mechanic-rules": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "query",
+            "name": "seasonId",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "query",
+            "name": "dungeonId",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "boolean"
+            },
+            "in": "query",
+            "name": "active",
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "rules": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "seasonId": {
+                            "type": "string"
+                          },
+                          "dungeonId": {
+                            "type": "string"
+                          },
+                          "npcId": {
+                            "type": [
+                              "null",
+                              "number"
+                            ]
+                          },
+                          "spellId": {
+                            "type": "number"
+                          },
+                          "ruleType": {
+                            "type": "string"
+                          },
+                          "severity": {
+                            "type": "number"
+                          },
+                          "applicableRoles": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "responseSpellIds": {
+                            "type": "array",
+                            "items": {
+                              "type": "number"
+                            }
+                          },
+                          "notes": {
+                            "type": [
+                              "null",
+                              "string"
+                            ]
+                          },
+                          "source": {
+                            "type": "string"
+                          },
+                          "version": {
+                            "type": "string"
+                          },
+                          "active": {
+                            "type": "boolean"
+                          }
+                        },
+                        "additionalProperties": true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "seasonId": {
+                    "type": "string"
+                  },
+                  "dungeonId": {
+                    "type": "string"
+                  },
+                  "npcId": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
+                  "spellId": {
+                    "type": "integer"
+                  },
+                  "ruleType": {
+                    "type": "string",
+                    "enum": [
+                      "AVOIDABLE_DAMAGE",
+                      "MANDATORY_DAMAGE",
+                      "PRIORITY_INTERRUPT",
+                      "CROWD_CONTROL",
+                      "DISPEL",
+                      "PURGE",
+                      "DEFENSIVE_WINDOW",
+                      "EXTERNAL_WINDOW"
+                    ]
+                  },
+                  "severity": {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  "applicableRoles": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "DPS",
+                        "TANK",
+                        "HEALER"
+                      ]
+                    }
+                  },
+                  "responseSpellIds": {
+                    "type": "array",
+                    "items": {
+                      "type": "integer"
+                    }
+                  },
+                  "notes": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "source": {
+                    "type": "string"
+                  },
+                  "version": {
+                    "type": "string"
+                  },
+                  "active": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "seasonId",
+                  "dungeonId",
+                  "spellId",
+                  "ruleType",
+                  "severity",
+                  "applicableRoles",
+                  "source",
+                  "version"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "seasonId": {
+                      "type": "string"
+                    },
+                    "dungeonId": {
+                      "type": "string"
+                    },
+                    "npcId": {
+                      "type": [
+                        "null",
+                        "number"
+                      ]
+                    },
+                    "spellId": {
+                      "type": "number"
+                    },
+                    "ruleType": {
+                      "type": "string"
+                    },
+                    "severity": {
+                      "type": "number"
+                    },
+                    "applicableRoles": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "responseSpellIds": {
+                      "type": "array",
+                      "items": {
+                        "type": "number"
+                      }
+                    },
+                    "notes": {
+                      "type": [
+                        "null",
+                        "string"
+                      ]
+                    },
+                    "source": {
+                      "type": "string"
+                    },
+                    "version": {
+                      "type": "string"
+                    },
+                    "active": {
+                      "type": "boolean"
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        },
+                        "details": {}
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "requestId"
+                      ],
+                      "additionalProperties": true
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/mechanic-rules/{id}": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "seasonId": {
+                      "type": "string"
+                    },
+                    "dungeonId": {
+                      "type": "string"
+                    },
+                    "npcId": {
+                      "type": [
+                        "null",
+                        "number"
+                      ]
+                    },
+                    "spellId": {
+                      "type": "number"
+                    },
+                    "ruleType": {
+                      "type": "string"
+                    },
+                    "severity": {
+                      "type": "number"
+                    },
+                    "applicableRoles": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "responseSpellIds": {
+                      "type": "array",
+                      "items": {
+                        "type": "number"
+                      }
+                    },
+                    "notes": {
+                      "type": [
+                        "null",
+                        "string"
+                      ]
+                    },
+                    "source": {
+                      "type": "string"
+                    },
+                    "version": {
+                      "type": "string"
+                    },
+                    "active": {
+                      "type": "boolean"
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        },
+                        "details": {}
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "requestId"
+                      ],
+                      "additionalProperties": true
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "admin"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "seasonId": {
+                    "type": "string"
+                  },
+                  "dungeonId": {
+                    "type": "string"
+                  },
+                  "npcId": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
+                  "spellId": {
+                    "type": "integer"
+                  },
+                  "ruleType": {
+                    "type": "string",
+                    "enum": [
+                      "AVOIDABLE_DAMAGE",
+                      "MANDATORY_DAMAGE",
+                      "PRIORITY_INTERRUPT",
+                      "CROWD_CONTROL",
+                      "DISPEL",
+                      "PURGE",
+                      "DEFENSIVE_WINDOW",
+                      "EXTERNAL_WINDOW"
+                    ]
+                  },
+                  "severity": {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  "applicableRoles": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "DPS",
+                        "TANK",
+                        "HEALER"
+                      ]
+                    }
+                  },
+                  "responseSpellIds": {
+                    "type": "array",
+                    "items": {
+                      "type": "integer"
+                    }
+                  },
+                  "notes": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "source": {
+                    "type": "string"
+                  },
+                  "version": {
+                    "type": "string"
+                  },
+                  "active": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "seasonId": {
+                      "type": "string"
+                    },
+                    "dungeonId": {
+                      "type": "string"
+                    },
+                    "npcId": {
+                      "type": [
+                        "null",
+                        "number"
+                      ]
+                    },
+                    "spellId": {
+                      "type": "number"
+                    },
+                    "ruleType": {
+                      "type": "string"
+                    },
+                    "severity": {
+                      "type": "number"
+                    },
+                    "applicableRoles": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "responseSpellIds": {
+                      "type": "array",
+                      "items": {
+                        "type": "number"
+                      }
+                    },
+                    "notes": {
+                      "type": [
+                        "null",
+                        "string"
+                      ]
+                    },
+                    "source": {
+                      "type": "string"
+                    },
+                    "version": {
+                      "type": "string"
+                    },
+                    "active": {
+                      "type": "boolean"
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        },
+                        "details": {}
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "requestId"
+                      ],
+                      "additionalProperties": true
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "admin"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "seasonId": {
+                      "type": "string"
+                    },
+                    "dungeonId": {
+                      "type": "string"
+                    },
+                    "npcId": {
+                      "type": [
+                        "null",
+                        "number"
+                      ]
+                    },
+                    "spellId": {
+                      "type": "number"
+                    },
+                    "ruleType": {
+                      "type": "string"
+                    },
+                    "severity": {
+                      "type": "number"
+                    },
+                    "applicableRoles": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "responseSpellIds": {
+                      "type": "array",
+                      "items": {
+                        "type": "number"
+                      }
+                    },
+                    "notes": {
+                      "type": [
+                        "null",
+                        "string"
+                      ]
+                    },
+                    "source": {
+                      "type": "string"
+                    },
+                    "version": {
+                      "type": "string"
+                    },
+                    "active": {
+                      "type": "boolean"
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        },
+                        "details": {}
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "requestId"
+                      ],
+                      "additionalProperties": true
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
                 }
               }
             }

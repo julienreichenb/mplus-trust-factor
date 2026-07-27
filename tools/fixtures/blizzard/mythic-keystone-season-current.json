@@ -1,0 +1,51 @@
+{
+  "season": { "id": 13 },
+  "character": {
+    "name": "Examplecharacter",
+    "realm": { "slug": "tarren-mill" }
+  },
+  "current_mythic_rating": {
+    "rating": 2845.12
+  },
+  "best_runs": [
+    {
+      "dungeon": { "id": 399, "name": "Ruby Life Pools" },
+      "keystone_level": 12,
+      "duration": 1520000,
+      "completed_timestamp": 1720100000000,
+      "is_completed_within_time": true,
+      "mythic_rating": { "rating": 180.5 },
+      "affixes": [
+        { "id": 9, "name": "Tyrannical" },
+        { "id": 124, "name": "Storming" }
+      ],
+      "members": [
+        {
+          "character": {
+            "name": "Examplecharacter",
+            "realm": { "slug": "tarren-mill" },
+            "id": 123456789
+          },
+          "specialization": {
+            "id": 63,
+            "name": "Fire",
+            "type": { "type": "DAMAGE", "name": "Damage" }
+          },
+          "equipped_item_level": 632
+        },
+        {
+          "character": {
+            "name": "Tankbuddy",
+            "realm": { "slug": "tarren-mill" }
+          },
+          "specialization": {
+            "id": 66,
+            "name": "Protection",
+            "type": { "type": "TANK", "name": "Tank" }
+          },
+          "equipped_item_level": 640
+        }
+      ]
+    }
+  ]
+}

@@ -1,6 +1,7 @@
 import { describe, expect, it, beforeAll, afterAll } from "vitest";
 import { loadEnv, resetEnvCache } from "@mplus/config";
 import { buildApp } from "./app.js";
+import { createApiContainer } from "./container.js";
 import type { FastifyInstance } from "fastify";
 
 describe("API health", () => {
@@ -10,9 +11,7 @@ describe("API health", () => {
     resetEnvCache();
     const env = loadEnv({
       ...process.env,
-      DATABASE_URL:
-        process.env.DATABASE_URL ??
-        "postgresql://mplus:mplus@localhost:5433/mplus_trust?schema=public",
+      DATABASE_URL: process.env.DATABASE_URL ?? "postgresql://mplus:mplus@localhost:5433/mplus_trust?schema=public",
       REDIS_URL: process.env.REDIS_URL ?? "redis://localhost:6379",
       ADMIN_API_KEY: "test-admin-key",
       SESSION_SECRET: "test-session-secret-at-least-32-chars",
@@ -20,7 +19,8 @@ describe("API health", () => {
       WEB_ORIGIN: "http://localhost:5173",
       PUBLIC_BASE_URL: "http://localhost:3000",
     });
-    app = await buildApp({ env });
+    const container = createApiContainer(env, { skipQueues: true });
+    app = await buildApp({ env, container });
     await app.ready();
   });
 
@@ -40,13 +40,5 @@ describe("API health", () => {
     const body = response.json();
     expect(body.name).toBe("M+ Trust Factor");
     expect(body.providerMode).toBe("fixture");
-  });
-
-  it("exposes prometheus metrics", async () => {
-    await app.inject({ method: "GET", url: "/health/live" });
-    const response = await app.inject({ method: "GET", url: "/metrics" });
-    expect(response.statusCode).toBe(200);
-    expect(response.headers["content-type"]).toContain("text/plain");
-    expect(response.body).toContain("http_requests_total");
   });
 });

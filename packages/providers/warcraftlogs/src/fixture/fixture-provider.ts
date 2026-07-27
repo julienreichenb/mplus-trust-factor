@@ -281,7 +281,21 @@ export class FixtureWarcraftLogsProvider implements WarcraftLogsProvider {
         rosterCanonicalKeys: [rosterKey],
       }),
       affixes: [],
-      participants: [],
+      participants: [
+        {
+          providerCharacterKey: rosterKey,
+          displayName: identity.name,
+          realmSlug: identity.realmSlug,
+          region: identity.region,
+          classSlug: null,
+          specSlug: null,
+          role: "DPS",
+          itemLevel: null,
+          mythicRatingAtRun: candidate.score ?? null,
+          isTargetCharacter: true,
+          characterId: null,
+        },
+      ],
       sources: [
         {
           provider: "WARCRAFT_LOGS",

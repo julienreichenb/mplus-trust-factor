@@ -1,5 +1,11 @@
 import type { IsoDateTime, RegionCode } from "./identity.js";
-import type { CharacterIdentityInput, CharacterSnapshotDTO, CanonicalCharacter } from "./identity.js";
+import type {
+  CharacterIdentityInput,
+  CharacterSnapshotDTO,
+  CanonicalCharacter,
+  EquipmentSnapshotDTO,
+  TalentSnapshotDTO,
+} from "./identity.js";
 import type {
   RaiderIoCharacterProfile,
   RaiderIoPeriod,
@@ -91,20 +97,128 @@ export class ExternalApiError extends Error {
   }
 }
 
+/** Static realm metadata normalized from Blizzard game data. */
+export interface BlizzardRealmDTO {
+  blizzardRealmId: number;
+  slug: string;
+  name: string;
+  region: RegionCode;
+  locale: string | null;
+  timezone: string | null;
+  connectedRealmId: number | null;
+}
+
+/** Static season / dungeon / item records from Blizzard game data. */
+export interface BlizzardSeasonDTO {
+  blizzardSeasonId: number;
+  slug: string;
+  name: string | null;
+  startTimestamp: number | null;
+  endTimestamp: number | null;
+}
+
+export interface BlizzardDungeonDTO {
+  blizzardDungeonId: number;
+  slug: string;
+  name: string;
+  mapId: number | null;
+}
+
+export interface BlizzardItemDTO {
+  blizzardItemId: number;
+  name: string;
+  quality: string | null;
+  level: number | null;
+  requiredLevel: number | null;
+  mediaUrl: string | null;
+}
+
+export interface BlizzardCharacterMediaDTO {
+  avatarUrl: string | null;
+  insetUrl: string | null;
+  mainUrl: string | null;
+  assets: Array<{ key: string; url: string }>;
+}
+
+export interface BlizzardMythicKeystoneProfileDTO {
+  currentMythicRating: number | null;
+  currentSeasonId: number | null;
+  seasons: Array<{ seasonId: number }>;
+  character: CharacterIdentityInput;
+}
+
+export interface BlizzardMythicLeaderboardDTO {
+  connectedRealmId: number;
+  dungeonId: number;
+  periodId: number;
+  leadingGroups: unknown;
+  map: unknown;
+}
+
 export interface BlizzardProvider {
   readonly name: "blizzard";
+  getRealm(
+    realmSlug: string,
+    ctx: ProviderFetchContext,
+  ): Promise<ProviderResult<BlizzardRealmDTO>>;
   getCharacterProfile(
     identity: CharacterIdentityInput,
     ctx: ProviderFetchContext,
   ): Promise<ProviderResult<CanonicalCharacter>>;
+  /** Compatibility method: character snapshot derived from equipment/profile. */
   getCharacterEquipment(
     identity: CharacterIdentityInput,
     ctx: ProviderFetchContext,
   ): Promise<ProviderResult<CharacterSnapshotDTO>>;
+  getEquipmentSnapshot(
+    identity: CharacterIdentityInput,
+    ctx: ProviderFetchContext,
+  ): Promise<ProviderResult<EquipmentSnapshotDTO>>;
+  getTalentSnapshot(
+    identity: CharacterIdentityInput,
+    ctx: ProviderFetchContext,
+  ): Promise<ProviderResult<TalentSnapshotDTO>>;
+  getCharacterMedia(
+    identity: CharacterIdentityInput,
+    ctx: ProviderFetchContext,
+  ): Promise<ProviderResult<BlizzardCharacterMediaDTO>>;
   getMythicKeystoneProfile(
     identity: CharacterIdentityInput,
     ctx: ProviderFetchContext,
-  ): Promise<ProviderResult<unknown>>;
+  ): Promise<ProviderResult<BlizzardMythicKeystoneProfileDTO>>;
+  getMythicKeystoneSeasonProfile(
+    identity: CharacterIdentityInput,
+    seasonId: number,
+    ctx: ProviderFetchContext,
+  ): Promise<ProviderResult<{ profile: BlizzardMythicKeystoneProfileDTO; runs: MythicRunDTO[] }>>;
+  getMythicKeystoneSeasonIndex(
+    ctx: ProviderFetchContext,
+  ): Promise<ProviderResult<BlizzardSeasonDTO[]>>;
+  getMythicKeystoneSeason(
+    seasonId: number,
+    ctx: ProviderFetchContext,
+  ): Promise<ProviderResult<BlizzardSeasonDTO>>;
+  getMythicKeystoneDungeonIndex(
+    ctx: ProviderFetchContext,
+  ): Promise<ProviderResult<BlizzardDungeonDTO[]>>;
+  getMythicKeystoneDungeon(
+    dungeonId: number,
+    ctx: ProviderFetchContext,
+  ): Promise<ProviderResult<BlizzardDungeonDTO>>;
+  /** Fetch item details only for explicitly requested IDs (aggressively cached). */
+  getItems(
+    itemIds: number[],
+    ctx: ProviderFetchContext,
+  ): Promise<ProviderResult<BlizzardItemDTO[]>>;
+  /**
+   * Explicit connected-realm leaderboard fetch. Callers must not bulk-crawl.
+   */
+  getConnectedRealmMythicLeaderboard(
+    connectedRealmId: number,
+    dungeonId: number,
+    periodId: number,
+    ctx: ProviderFetchContext,
+  ): Promise<ProviderResult<BlizzardMythicLeaderboardDTO>>;
 }
 
 export interface WarcraftLogsProvider {

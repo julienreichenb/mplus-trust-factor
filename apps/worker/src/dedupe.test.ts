@@ -1,64 +1,101 @@
 import { describe, expect, it } from "vitest";
 import {
-  refreshCharacterDedupeKey,
   analyzeRunDedupeKey,
-  recalculateScoreDedupeKey,
   generateAddonExportDedupeKey,
-  buildDedupeKey,
+  recalculateScoreDedupeKey,
+  refreshCharacterDedupeKey,
 } from "./dedupe.js";
-import { QUEUE_NAMES } from "@mplus/contracts";
 
-describe("worker dedupe keys", () => {
-  it("produces stable refresh character dedupe keys", () => {
+const requestedAt = "2026-01-01T00:00:00.000Z";
+
+describe("dedupe keys", () => {
+  it("refreshCharacterDedupeKey is stable for identical payloads", () => {
     const job = {
       region: "EU",
       realmSlug: "tarren-mill",
-      name: "Example",
+      name: "Examplecharacter",
       priority: "normal" as const,
       forceRefresh: false,
-      requestedAt: "2026-07-20T18:00:00.000Z",
+      requestedAt,
     };
-    const a = refreshCharacterDedupeKey(job);
-    const b = refreshCharacterDedupeKey({ ...job, name: "example" });
-    expect(a).toBe(b);
-    expect(a).toHaveLength(64);
+    expect(refreshCharacterDedupeKey(job)).toBe(refreshCharacterDedupeKey({ ...job }));
   });
 
-  it("differentiates analyze run by analysis version", () => {
+  it("refreshCharacterDedupeKey is case-insensitive on name", () => {
     const base = {
+      region: "EU",
+      realmSlug: "tarren-mill",
+      priority: "normal" as const,
+      forceRefresh: false,
+      requestedAt,
+    };
+    expect(refreshCharacterDedupeKey({ ...base, name: "Examplecharacter" })).toBe(
+      refreshCharacterDedupeKey({ ...base, name: "examplecharacter" }),
+    );
+  });
+
+  it("refreshCharacterDedupeKey differs by forceRefresh", () => {
+    const base = {
+      region: "EU",
+      realmSlug: "tarren-mill",
+      name: "Examplecharacter",
+      priority: "normal" as const,
+      requestedAt,
+    };
+    expect(refreshCharacterDedupeKey({ ...base, forceRefresh: false })).not.toBe(
+      refreshCharacterDedupeKey({ ...base, forceRefresh: true }),
+    );
+  });
+
+  it("refreshCharacterDedupeKey differs by identity", () => {
+    const base = {
+      region: "EU",
+      priority: "normal" as const,
+      forceRefresh: false,
+      requestedAt,
+    };
+    expect(
+      refreshCharacterDedupeKey({ ...base, realmSlug: "tarren-mill", name: "Examplecharacter" }),
+    ).not.toBe(refreshCharacterDedupeKey({ ...base, realmSlug: "silvermoon", name: "Examplecharacter" }));
+  });
+
+  it("analyzeRunDedupeKey is stable and unique per run/character/selection", () => {
+    const job = {
       runId: "11111111-1111-1111-1111-111111111111",
       characterId: "22222222-2222-2222-2222-222222222222",
       selectionKind: "LATEST" as const,
-      requestedAt: "2026-07-20T18:00:00.000Z",
+      analysisVersion: "v1",
+      requestedAt,
     };
-    const v1 = analyzeRunDedupeKey({ ...base, analysisVersion: "1" });
-    const v2 = analyzeRunDedupeKey({ ...base, analysisVersion: "2" });
-    expect(v1).not.toBe(v2);
+    expect(analyzeRunDedupeKey(job)).toBe(analyzeRunDedupeKey({ ...job }));
+    expect(analyzeRunDedupeKey(job)).not.toBe(analyzeRunDedupeKey({ ...job, selectionKind: "HIGHEST" }));
   });
 
-  it("builds unique keys per queue", () => {
-    const refresh = buildDedupeKey(QUEUE_NAMES.refreshCharacter, ["EU", "a"]);
-    const analyze = buildDedupeKey(QUEUE_NAMES.analyzeRun, ["EU", "a"]);
-    expect(refresh).not.toBe(analyze);
-  });
-
-  it("dedupes recalculate and addon export jobs", () => {
-    const recalc = recalculateScoreDedupeKey({
-      characterId: "11111111-1111-1111-1111-111111111111",
-      seasonId: "22222222-2222-2222-2222-222222222222",
+  it("recalculateScoreDedupeKey is stable and unique per model version", () => {
+    const job = {
+      characterId: "22222222-2222-2222-2222-222222222222",
+      seasonId: "33333333-3333-3333-3333-333333333333",
       scoreModelKey: "default",
       scoreModelVersion: 1,
-      requestedAt: "2026-07-20T18:00:00.000Z",
-    });
-    const addon = generateAddonExportDedupeKey({
+      requestedAt,
+    };
+    expect(recalculateScoreDedupeKey(job)).toBe(recalculateScoreDedupeKey({ ...job }));
+    expect(recalculateScoreDedupeKey(job)).not.toBe(
+      recalculateScoreDedupeKey({ ...job, scoreModelVersion: 2 }),
+    );
+  });
+
+  it("generateAddonExportDedupeKey is stable and unique per region/season/model", () => {
+    const job = {
       region: "EU",
-      seasonId: "22222222-2222-2222-2222-222222222222",
+      seasonId: "33333333-3333-3333-3333-333333333333",
       scoreModelKey: "default",
       scoreModelVersion: 1,
-      requestedAt: "2026-07-20T18:00:00.000Z",
-    });
-    expect(recalc).toHaveLength(64);
-    expect(addon).toHaveLength(64);
-    expect(recalc).not.toBe(addon);
+      requestedAt,
+    };
+    expect(generateAddonExportDedupeKey(job)).toBe(generateAddonExportDedupeKey({ ...job }));
+    expect(generateAddonExportDedupeKey(job)).not.toBe(
+      generateAddonExportDedupeKey({ ...job, region: "US" }),
+    );
   });
 });
