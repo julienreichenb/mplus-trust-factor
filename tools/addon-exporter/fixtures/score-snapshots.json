@@ -1,0 +1,160 @@
+{
+  "context": {
+    "formatVersion": 1,
+    "generatedAt": "2026-07-27T09:00:00.000Z",
+    "region": "EU",
+    "seasonSlug": "season-mvp",
+    "scoreModelKey": "default",
+    "scoreModelVersion": 1
+  },
+  "records": [
+    {
+      "region": "EU",
+      "realmSlug": "argent-dawn",
+      "name": "Aelindra",
+      "overallScore": 92,
+      "grade": "S",
+      "confidence": 0.88,
+      "calculatedAt": "2026-07-27T09:00:00.000Z",
+      "runCount": 25,
+      "baselineDungeonComplete": true,
+      "top25Percent": true,
+      "stale": false,
+      "redFlagKeys": [],
+      "profileKey": "vec0"
+    },
+    {
+      "region": "EU",
+      "realmSlug": "Kazzak",
+      "name": "Boostling",
+      "overallScore": 71,
+      "grade": "B",
+      "confidence": 0.45,
+      "calculatedAt": "2026-07-27T09:00:00.000Z",
+      "runCount": 26,
+      "baselineDungeonComplete": true,
+      "top25Percent": false,
+      "stale": false,
+      "redFlagKeys": [
+        "boost_suspected",
+        "atypical_progression"
+      ],
+      "profileKey": "vec1"
+    },
+    {
+      "region": "EU",
+      "realmSlug": "twisting-nether",
+      "name": "Logshidden",
+      "overallScore": 58,
+      "grade": "C",
+      "confidence": 0.35,
+      "calculatedAt": "2026-07-27T09:00:00.000Z",
+      "runCount": 27,
+      "baselineDungeonComplete": true,
+      "top25Percent": false,
+      "stale": false,
+      "redFlagKeys": [
+        "logs_hidden",
+        "insufficient_data"
+      ],
+      "profileKey": "vec2"
+    },
+    {
+      "region": "EU",
+      "realmSlug": "ravencrest",
+      "name": "Sparseprofile",
+      "overallScore": 52,
+      "grade": "C",
+      "confidence": 0.18,
+      "calculatedAt": "2026-07-27T09:00:00.000Z",
+      "runCount": 8,
+      "baselineDungeonComplete": false,
+      "top25Percent": false,
+      "stale": false,
+      "redFlagKeys": [
+        "insufficient_data"
+      ],
+      "searchedOnly": false
+    },
+    {
+      "region": "EU",
+      "realmSlug": "tarren-mill",
+      "name": "Staleplayer",
+      "overallScore": 76,
+      "grade": "A",
+      "confidence": 0.7,
+      "calculatedAt": "2026-03-29T09:00:00.000Z",
+      "runCount": 40,
+      "baselineDungeonComplete": true,
+      "top25Percent": false,
+      "stale": true,
+      "redFlagKeys": []
+    },
+    {
+      "region": "EU",
+      "realmSlug": "draenor",
+      "name": "Searchonly",
+      "overallScore": 63,
+      "grade": "B",
+      "confidence": 0.5,
+      "calculatedAt": "2026-07-27T09:00:00.000Z",
+      "runCount": 5,
+      "baselineDungeonComplete": false,
+      "top25Percent": false,
+      "stale": false,
+      "searchedOnly": true,
+      "redFlagKeys": [
+        "insufficient_data"
+      ]
+    },
+    {
+      "region": "EU",
+      "realmSlug": "stormrage",
+      "name": "Tankmain",
+      "overallScore": 84,
+      "grade": "A",
+      "confidence": 0.82,
+      "calculatedAt": "2026-07-27T09:00:00.000Z",
+      "runCount": 55,
+      "baselineDungeonComplete": true,
+      "top25Percent": true,
+      "stale": false,
+      "redFlagKeys": [],
+      "profileKey": "tank01"
+    },
+    {
+      "region": "EU",
+      "realmSlug": "silvermoon",
+      "name": "Healbot",
+      "overallScore": 79,
+      "grade": "B",
+      "confidence": 0.77,
+      "calculatedAt": "2026-07-27T09:00:00.000Z",
+      "runCount": 48,
+      "baselineDungeonComplete": true,
+      "top25Percent": false,
+      "stale": false,
+      "redFlagKeys": [
+        "probable_reroll"
+      ],
+      "profileKey": "heal01"
+    },
+    {
+      "region": "EU",
+      "realmSlug": "tarren-mill",
+      "name": "Rerollpro",
+      "overallScore": 88,
+      "grade": "A",
+      "confidence": 0.74,
+      "calculatedAt": "2026-07-27T09:00:00.000Z",
+      "runCount": 32,
+      "baselineDungeonComplete": true,
+      "top25Percent": true,
+      "stale": false,
+      "redFlagKeys": [
+        "confirmed_reroll"
+      ],
+      "profileKey": "reroll01"
+    }
+  ]
+}
