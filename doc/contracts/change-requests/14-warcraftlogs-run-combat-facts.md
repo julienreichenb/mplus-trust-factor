@@ -72,7 +72,10 @@ WCL_MPLUS_ZONE_EXPIRES_AT=2026-12-01T00:00:00.000Z
 ```
 
 ## Status
-Documented migration-ready proposal — **no `@mplus/contracts` edit in Agent 14 branch**.
+**Applied by Agent 15** — shared DTOs live in `packages/contracts/src/warcraftlogs.ts`;
+`CharacterProfileResponse.wclVisibility` accepts `UNAVAILABLE` | `RATE_LIMITED`;
+provider package re-exports the contract visibility/coverage types while keeping full
+event-bearing `RunCombatFacts` provider-local.
 
 ## Related
 - [02-warcraftlogs-extended-provider.md](./02-warcraftlogs-extended-provider.md)

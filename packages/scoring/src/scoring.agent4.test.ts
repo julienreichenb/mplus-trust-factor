@@ -109,7 +109,7 @@ describe("Agent 4: scoring and authenticity engine", () => {
     const model = createDefaultModelV1();
     const observations: MetricObservationDTO[] = [
       {
-        metricKey: "performance.spec_percentile",
+        metricKey: "performance.mythic_rating",
         dimension: "PERFORMANCE",
         rawValue: 100,
         normalizedValue: 100,

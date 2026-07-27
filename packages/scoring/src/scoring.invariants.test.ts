@@ -28,7 +28,7 @@ describe("scoring data-quality invariants", () => {
       scopeKey: null,
       observations: [
         {
-          metricKey: "performance.spec_percentile",
+          metricKey: "performance.mythic_rating",
           dimension: "PERFORMANCE",
           rawValue: 75,
           normalizedValue: 75,

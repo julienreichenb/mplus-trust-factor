@@ -1,16 +1,21 @@
 import type { IsoDateTime, RegionCode } from "@mplus/contracts";
+import type {
+  RunCombatFactsCoverage,
+  RunCombatFactsLimitations,
+  WclVisibilityState,
+} from "@mplus/contracts";
+
+export type {
+  RunCombatFactsCoverage,
+  RunCombatFactsLimitations,
+  WclVisibilityState,
+};
 
 /**
  * Character / evidence visibility on Warcraft Logs public API.
  * Absence of logs must never directly lower performance score — coverage only.
+ * Canonical definition lives in `@mplus/contracts` (CR-14).
  */
-export type WclVisibilityState =
-  | "PUBLIC"
-  | "HIDDEN"
-  | "NO_PUBLIC_LOGS"
-  | "PRIVATE_SKIPPED"
-  | "UNAVAILABLE"
-  | "RATE_LIMITED";
 
 export interface WclCharacterSummary {
   wclCharacterId: number;
@@ -192,23 +197,6 @@ export interface WclCombatantInfo {
   gear: unknown;
   talents: unknown;
   artifactTraits: unknown;
-}
-
-export interface RunCombatFactsCoverage {
-  casts: boolean;
-  interrupts: boolean;
-  deaths: boolean;
-  damageTaken: boolean;
-  auras: boolean;
-  dispels: boolean;
-  healing: boolean;
-  combatantInfo: boolean;
-}
-
-export interface RunCombatFactsLimitations {
-  missingCategories: string[];
-  truncatedPages: string[];
-  notes: string[];
 }
 
 export interface RunCombatFacts {

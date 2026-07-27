@@ -234,6 +234,11 @@ export interface WarcraftLogsProvider {
     fightId: number,
     ctx: ProviderFetchContext,
   ): Promise<ProviderResult<unknown>>;
+  /** Optional Wave 3 character-level discovery summary (visibility without requiring runs). */
+  discoverCharacterSummary?(
+    identity: CharacterIdentityInput,
+    ctx: ProviderFetchContext,
+  ): Promise<ProviderResult<{ visibility: import("./warcraftlogs.js").WclVisibilityState; warnings: string[] }>>;
 }
 
 export interface RaiderIoProvider {

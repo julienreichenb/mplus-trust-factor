@@ -50,7 +50,7 @@ function m(
 }
 
 const FULL_STRONG = [
-  m("performance.spec_percentile", "PERFORMANCE", 92),
+  m("performance.mythic_rating", "PERFORMANCE", 92),
   m("performance.consistency", "PERFORMANCE", 88),
   m("performance.contextual_contribution", "PERFORMANCE", 90),
   m("survival.death_rate", "SURVIVAL", 85),
@@ -104,7 +104,7 @@ export const PROFILES: ScoringProfileFixture[] = [
       weakTargetPerformance: 0.7,
     },
     metrics: [
-      m("performance.spec_percentile", "PERFORMANCE", 42),
+      m("performance.mythic_rating", "PERFORMANCE", 42),
       m("performance.consistency", "PERFORMANCE", 40),
       m("performance.contextual_contribution", "PERFORMANCE", 35),
       m("survival.death_rate", "SURVIVAL", 45),
@@ -147,7 +147,7 @@ export const PROFILES: ScoringProfileFixture[] = [
       lackIntermediateProgression: 0.9,
     },
     metrics: [
-      m("performance.spec_percentile", "PERFORMANCE", 28),
+      m("performance.mythic_rating", "PERFORMANCE", 28),
       m("performance.consistency", "PERFORMANCE", 25),
       m("performance.contextual_contribution", "PERFORMANCE", 20),
       m("survival.death_rate", "SURVIVAL", 30),
@@ -194,7 +194,7 @@ export const PROFILES: ScoringProfileFixture[] = [
       strongPriorSeasonSameRole: 0.8,
     },
     metrics: [
-      m("performance.spec_percentile", "PERFORMANCE", 82),
+      m("performance.mythic_rating", "PERFORMANCE", 82),
       m("performance.consistency", "PERFORMANCE", 78),
       m("performance.contextual_contribution", "PERFORMANCE", 80),
       m("survival.death_rate", "SURVIVAL", 75),
@@ -234,7 +234,7 @@ export const PROFILES: ScoringProfileFixture[] = [
       strongPriorSeasonSameRole: 0.7,
     },
     metrics: [
-      m("performance.spec_percentile", "PERFORMANCE", 95, 0.5, "raiderio", {
+      m("performance.mythic_rating", "PERFORMANCE", 95, 0.5, "raiderio", {
         logsHidden: true,
         sampleSize: 5,
       }),
@@ -275,7 +275,7 @@ export const PROFILES: ScoringProfileFixture[] = [
       independentGroupDiversity: 0.5,
     },
     metrics: [
-      m("performance.spec_percentile", "PERFORMANCE", 55),
+      m("performance.mythic_rating", "PERFORMANCE", 55),
       m("performance.consistency", "PERFORMANCE", 52),
       m("performance.contextual_contribution", "PERFORMANCE", 50),
       m("survival.death_rate", "SURVIVAL", 54),
@@ -309,7 +309,7 @@ export const PROFILES: ScoringProfileFixture[] = [
     selectedRunCoverage: 0.2,
     authenticity: {},
     metrics: [
-      m("performance.spec_percentile", "PERFORMANCE", 60, 0.4, "raiderio", { sampleSize: 2 }),
+      m("performance.mythic_rating", "PERFORMANCE", 60, 0.4, "raiderio", { sampleSize: 2 }),
       m("performance.consistency", "PERFORMANCE", null),
       m("performance.contextual_contribution", "PERFORMANCE", null),
       m("survival.death_rate", "SURVIVAL", null),
@@ -352,7 +352,7 @@ export const PROFILES: ScoringProfileFixture[] = [
       strongPersonalTopRunPerformance: 0.75,
     },
     metrics: [
-      m("performance.spec_percentile", "PERFORMANCE", 80),
+      m("performance.mythic_rating", "PERFORMANCE", 80),
       m("performance.consistency", "PERFORMANCE", 78),
       m("performance.contextual_contribution", "PERFORMANCE", 82),
       m("survival.death_rate", "SURVIVAL", 88),
@@ -388,7 +388,7 @@ export const PROFILES: ScoringProfileFixture[] = [
       independentGroupDiversity: 0.65,
     },
     metrics: [
-      m("performance.spec_percentile", "PERFORMANCE", 72),
+      m("performance.mythic_rating", "PERFORMANCE", 72),
       m("performance.consistency", "PERFORMANCE", 70),
       m("performance.contextual_contribution", "PERFORMANCE", 75),
       m("survival.death_rate", "SURVIVAL", 80),
@@ -422,7 +422,7 @@ export const PROFILES: ScoringProfileFixture[] = [
     selectedRunCoverage: 0.85,
     authenticity: { independentGroupDiversity: 0.6 },
     metrics: [
-      m("performance.spec_percentile", "PERFORMANCE", 70),
+      m("performance.mythic_rating", "PERFORMANCE", 70),
       m("performance.consistency", "PERFORMANCE", 68),
       m("performance.contextual_contribution", "PERFORMANCE", 65),
       m("survival.death_rate", "SURVIVAL", 90),

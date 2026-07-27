@@ -24,7 +24,8 @@ Wave 3 requires gear, talents, and crawl-staleness as stable DTO facts while kee
 - No changes to `RaiderIoProvider` method signatures.
 - Capability state remains provider-local (`getCapabilities()` on concrete provider) for Agent 15 promotion if desired.
 
-## Consumers
+## Status
 
-- Agent 15: fusion / refresh DAG / persistent cache
-- Agent 16: attribution + gear/score display
+Additive fields landed in `packages/contracts/src/raiderio.ts` (Agent 13) and reconciled by
+Agent 15 for fusion consumers (`gear`, `talents`, `crawlStale`). Season-cutoffs remain optional
+and non-blocking when upstream returns HTTP 500.

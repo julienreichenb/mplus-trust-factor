@@ -59,11 +59,18 @@ const metricDefinitions: Array<{
   description: string;
 }> = [
   {
+    key: "performance.mythic_rating",
+    dimension: ScoreDimension.PERFORMANCE,
+    valueType: "number",
+    direction: MetricDirection.HIGHER_BETTER,
+    description: "Season-aware Blizzard Mythic rating observation (not a fabricated percentile)",
+  },
+  {
     key: "performance.spec_percentile",
     dimension: ScoreDimension.PERFORMANCE,
     valueType: "number",
     direction: MetricDirection.HIGHER_BETTER,
-    description: "Specialization performance percentile in comparable brackets",
+    description: "Specialization performance percentile when a real ranking source provides one",
   },
   {
     key: "survival.death_rate",
