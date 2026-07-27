@@ -69,27 +69,27 @@ function resolveRaiderIoProvider(env: AppEnv): RaiderIoProvider {
   return createRaiderIoProvider(env.PROVIDER_MODE);
 }
 
-/** Builds provider ports from env, honouring disabled-provider flags and test overrides. */
+function isProviderDisabledByEnv(env: AppEnv, name: ProviderName): boolean {
+  if (name === "blizzard") return !env.BLIZZARD_ENABLED;
+  if (name === "warcraftlogs") return !env.WCL_ENABLED;
+  if (name === "raiderio") return !env.RAIDERIO_ENABLED;
+  return false;
+}
+
+/** Builds provider ports from env, honouring enable flags, disabled-provider sets and test overrides. */
 export function resolveWorkerProviders(
   env: AppEnv,
   disabledProviders: Set<ProviderName>,
   overrides: Partial<WorkerProviders> = {},
 ): WorkerProviders {
+  const blizzardOff = disabledProviders.has("blizzard") || isProviderDisabledByEnv(env, "blizzard");
+  const wclOff = disabledProviders.has("warcraftlogs") || isProviderDisabledByEnv(env, "warcraftlogs");
+  const raiderioOff = disabledProviders.has("raiderio") || isProviderDisabledByEnv(env, "raiderio");
+
   return {
-    blizzard:
-      overrides.blizzard ??
-      (disabledProviders.has("blizzard")
-        ? createDisabledProvider("blizzard")
-        : resolveBlizzardProvider(env)),
+    blizzard: overrides.blizzard ?? (blizzardOff ? createDisabledProvider("blizzard") : resolveBlizzardProvider(env)),
     warcraftlogs:
-      overrides.warcraftlogs ??
-      (disabledProviders.has("warcraftlogs")
-        ? createDisabledProvider("warcraftlogs")
-        : resolveWarcraftLogsProvider(env)),
-    raiderio:
-      overrides.raiderio ??
-      (disabledProviders.has("raiderio")
-        ? createDisabledProvider("raiderio")
-        : resolveRaiderIoProvider(env)),
+      overrides.warcraftlogs ?? (wclOff ? createDisabledProvider("warcraftlogs") : resolveWarcraftLogsProvider(env)),
+    raiderio: overrides.raiderio ?? (raiderioOff ? createDisabledProvider("raiderio") : resolveRaiderIoProvider(env)),
   };
 }

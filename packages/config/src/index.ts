@@ -28,6 +28,10 @@ export const envSchema = z
 
     PROVIDER_MODE: z.enum(["fixture", "live"]).default("fixture"),
 
+    /** Explicit opt-in for manual live smoke commands only. Never enable in CI. */
+    ALLOW_LIVE_PROVIDER_CALLS: booleanFromString.default(false),
+
+    BLIZZARD_ENABLED: booleanFromString.default(true),
     BLIZZARD_CLIENT_ID: z.string().optional().default(""),
     BLIZZARD_CLIENT_SECRET: z.string().optional().default(""),
     BLIZZARD_DEFAULT_REGION: z.string().default("eu"),
@@ -35,6 +39,7 @@ export const envSchema = z
     BLIZZARD_REQUEST_CONCURRENCY: z.coerce.number().int().positive().default(4),
     BLIZZARD_CHARACTER_TTL_SECONDS: z.coerce.number().int().positive().default(86_400),
 
+    WCL_ENABLED: booleanFromString.default(true),
     WCL_CLIENT_ID: z.string().optional().default(""),
     WCL_CLIENT_SECRET: z.string().optional().default(""),
     WCL_PUBLIC_GRAPHQL_URL: z
@@ -70,25 +75,61 @@ export const envSchema = z
     TRUST_PROXY: booleanFromString.default(false),
   })
   .superRefine((env, ctx) => {
-    if (env.PROVIDER_MODE === "live") {
-      if (!env.BLIZZARD_CLIENT_ID || !env.BLIZZARD_CLIENT_SECRET) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: "Blizzard credentials required when PROVIDER_MODE=live",
-          path: ["BLIZZARD_CLIENT_ID"],
-        });
-      }
-      if (!env.WCL_CLIENT_ID || !env.WCL_CLIENT_SECRET) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: "Warcraft Logs credentials required when PROVIDER_MODE=live",
-          path: ["WCL_CLIENT_ID"],
-        });
-      }
+    if (env.PROVIDER_MODE !== "live") {
+      return;
+    }
+
+    if (env.BLIZZARD_ENABLED && (!env.BLIZZARD_CLIENT_ID || !env.BLIZZARD_CLIENT_SECRET)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "Blizzard live mode requires BLIZZARD_CLIENT_ID and BLIZZARD_CLIENT_SECRET when BLIZZARD_ENABLED=true (or set BLIZZARD_ENABLED=false)",
+        path: ["BLIZZARD_CLIENT_ID"],
+      });
+    }
+
+    if (env.WCL_ENABLED && (!env.WCL_CLIENT_ID || !env.WCL_CLIENT_SECRET)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "Warcraft Logs live mode requires WCL_CLIENT_ID and WCL_CLIENT_SECRET when WCL_ENABLED=true (or set WCL_ENABLED=false)",
+        path: ["WCL_CLIENT_ID"],
+      });
     }
   });
 
 export type AppEnv = z.infer<typeof envSchema>;
+
+/** Safe startup summary: booleans and modes only — never credential values. */
+export interface ConfigSummary {
+  appEnv: AppEnv["APP_ENV"];
+  nodeEnv: AppEnv["NODE_ENV"];
+  providerMode: AppEnv["PROVIDER_MODE"];
+  allowLiveProviderCalls: boolean;
+  blizzardEnabled: boolean;
+  wclEnabled: boolean;
+  raiderioEnabled: boolean;
+  blizzardCredentialsConfigured: boolean;
+  wclCredentialsConfigured: boolean;
+  raiderioAppKeyConfigured: boolean;
+  logLevel: AppEnv["LOG_LEVEL"];
+}
+
+export function getConfigSummary(env: AppEnv): ConfigSummary {
+  return {
+    appEnv: env.APP_ENV,
+    nodeEnv: env.NODE_ENV,
+    providerMode: env.PROVIDER_MODE,
+    allowLiveProviderCalls: env.ALLOW_LIVE_PROVIDER_CALLS,
+    blizzardEnabled: env.BLIZZARD_ENABLED,
+    wclEnabled: env.WCL_ENABLED,
+    raiderioEnabled: env.RAIDERIO_ENABLED,
+    blizzardCredentialsConfigured: Boolean(env.BLIZZARD_CLIENT_ID && env.BLIZZARD_CLIENT_SECRET),
+    wclCredentialsConfigured: Boolean(env.WCL_CLIENT_ID && env.WCL_CLIENT_SECRET),
+    raiderioAppKeyConfigured: Boolean(env.RAIDERIO_APP_KEY),
+    logLevel: env.LOG_LEVEL,
+  };
+}
 
 let cachedEnv: AppEnv | null = null;
 

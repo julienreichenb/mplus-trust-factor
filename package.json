@@ -34,7 +34,11 @@
     "addon:check": "node tools/scripts/addon.mjs check",
     "addon:benchmark": "node tools/scripts/addon.mjs benchmark",
     "addon:package": "node tools/scripts/addon.mjs package",
-    "wcl:smoke": "node tools/scripts/with-env.mjs node tools/scripts/wcl-smoke.mjs",
+    "wcl:smoke": "node tools/scripts/with-env.mjs node tools/scripts/live-smoke-wcl.mjs",
+    "live:smoke:blizzard": "node tools/scripts/with-env.mjs node tools/scripts/live-smoke-blizzard.mjs",
+    "live:smoke:raiderio": "node tools/scripts/with-env.mjs node tools/scripts/live-smoke-raiderio.mjs",
+    "live:smoke:wcl": "node tools/scripts/with-env.mjs node tools/scripts/live-smoke-wcl.mjs",
+    "live:smoke:character": "node tools/scripts/with-env.mjs node tools/scripts/live-smoke-character.mjs",
     "format": "prettier --write ."
   },
   "devDependencies": {

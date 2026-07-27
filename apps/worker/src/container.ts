@@ -44,7 +44,10 @@ export function createWorkerContainer(
 ): WorkerContainer {
   const prisma = overrides.prisma ?? createPrismaClient(env.DATABASE_URL);
   const logger = overrides.logger ?? createLogger({ level: env.LOG_LEVEL, name: "worker" });
-  const disabledProviders = overrides.disabledProviders ?? new Set<ProviderName>();
+  const disabledProviders = new Set<ProviderName>(overrides.disabledProviders ?? []);
+  if (!env.BLIZZARD_ENABLED) disabledProviders.add("blizzard");
+  if (!env.WCL_ENABLED) disabledProviders.add("warcraftlogs");
+  if (!env.RAIDERIO_ENABLED) disabledProviders.add("raiderio");
   const providers = resolveWorkerProviders(env, disabledProviders, overrides.providers);
   const repositories = {
     ...createRepositories(prisma),

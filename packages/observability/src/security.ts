@@ -51,7 +51,7 @@ export function assertAllowedProviderUrl(urlString: string): void {
 }
 
 export function redactSecretsInObject<T extends Record<string, unknown>>(obj: T): T {
-  const sensitive = /secret|password|token|authorization|cookie|api[_-]?key/i;
+  const sensitive = /secret|password|token|authorization|cookie|api[_-]?key|client[_-]?id|client[_-]?secret|session/i;
   const result = { ...obj };
   for (const key of Object.keys(result)) {
     if (sensitive.test(key)) {
