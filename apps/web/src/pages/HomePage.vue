@@ -13,14 +13,25 @@ const realm = ref("");
 const name = ref("");
 const error = ref<string | null>(null);
 
-const { suggestions, loading, open, select, close, search } = useRealmAutocomplete(region, realm);
+const {
+  suggestions,
+  loading,
+  open,
+  activeIndex,
+  select,
+  search,
+  onBlur,
+  onKeydown,
+  resolveRealmSlug,
+} = useRealmAutocomplete(region, realm);
 
-function onRealmBlur(): void {
-  window.setTimeout(() => close(), 150);
-}
+const listboxId = "realm-suggestions";
+const activeOptionId = computed(() =>
+  open.value && activeIndex.value >= 0 ? `realm-option-${activeIndex.value}` : undefined,
+);
 
 const canSubmit = computed(
-  () => region.value.trim() && realm.value.trim() && name.value.trim(),
+  () => region.value.trim() && resolveRealmSlug() && name.value.trim(),
 );
 
 function submit(): void {
@@ -29,7 +40,8 @@ function submit(): void {
     error.value = "Region is required.";
     return;
   }
-  if (!realm.value.trim()) {
+  const realmSlug = resolveRealmSlug();
+  if (!realmSlug) {
     error.value = "Realm is required.";
     return;
   }
@@ -37,7 +49,7 @@ function submit(): void {
     error.value = "Character name is required.";
     return;
   }
-  const params = canonicalCharacterPath(region.value, realm.value, name.value);
+  const params = canonicalCharacterPath(region.value, realmSlug, name.value);
   recent.add({
     region: params.region,
     realmSlug: params.realm,
@@ -49,6 +61,13 @@ function submit(): void {
 function openRecent(item: { region: string; realmSlug: string; name: string }): void {
   const params = canonicalCharacterPath(item.region, item.realmSlug, item.name);
   void router.push({ name: "character", params });
+}
+
+function onOptionMouseDown(index: number): void {
+  const option = suggestions.value[index];
+  if (option) {
+    void select(option);
+  }
 }
 </script>
 
@@ -68,36 +87,47 @@ function openRecent(item: { region: string; realmSlug: string; name: string }): 
         </select>
       </label>
 
-      <label class="realm-field">
-        Realm
+      <div class="realm-field">
+        <label id="realm-label" for="realm-input">Realm</label>
         <input
+          id="realm-input"
           v-model="realm"
           name="realm"
+          role="combobox"
           autocomplete="off"
           aria-autocomplete="list"
           :aria-expanded="open"
-          aria-controls="realm-suggestions"
+          :aria-controls="listboxId"
+          :aria-activedescendant="activeOptionId"
+          aria-labelledby="realm-label"
           data-testid="realm-input"
           @focus="void search(realm)"
-          @blur="onRealmBlur"
+          @blur="onBlur"
+          @keydown="onKeydown"
         />
         <ul
           v-if="open && suggestions.length"
-          id="realm-suggestions"
+          :id="listboxId"
           class="suggestions"
           role="listbox"
+          aria-labelledby="realm-label"
+          data-testid="realm-suggestions"
         >
           <li
-            v-for="s in suggestions"
+            v-for="(s, index) in suggestions"
+            :id="`realm-option-${index}`"
             :key="s.slug"
             role="option"
-            @mousedown.prevent="select(s)"
+            :aria-selected="index === activeIndex"
+            :data-testid="`realm-option-${s.slug}`"
+            :class="{ active: index === activeIndex }"
+            @mousedown.prevent="onOptionMouseDown(index)"
           >
             {{ s.name }} <span class="slug">({{ s.slug }})</span>
           </li>
         </ul>
         <span v-if="loading" class="hint">Searching realms…</span>
-      </label>
+      </div>
 
       <label>
         Character name
@@ -134,7 +164,8 @@ function openRecent(item: { region: string; realmSlug: string; name: string }): 
   max-width: 28rem;
 }
 
-label {
+label,
+.realm-field {
   display: grid;
   gap: 0.3rem;
   font-weight: 600;
@@ -173,9 +204,11 @@ select {
 .suggestions li {
   padding: 0.45rem 0.7rem;
   cursor: pointer;
+  font-weight: 400;
 }
 
 .suggestions li:hover,
+.suggestions li.active,
 .suggestions li:focus {
   background: var(--panel);
 }
