@@ -9,10 +9,12 @@ const props = withDefaults(
   defineProps<{
     submitLabel?: string;
     showRecent?: boolean;
+    formId?: string;
   }>(),
   {
     submitLabel: "Check trust score",
     showRecent: true,
+    formId: "character-search",
   },
 );
 
@@ -36,9 +38,11 @@ const {
   resolveRealmSlug,
 } = useRealmAutocomplete(region, realm);
 
-const listboxId = "realm-suggestions";
+const listboxId = computed(() => `${props.formId}-realm-suggestions`);
+const realmInputId = computed(() => `${props.formId}-realm-input`);
+const realmLabelId = computed(() => `${props.formId}-realm-label`);
 const activeOptionId = computed(() =>
-  open.value && activeIndex.value >= 0 ? `realm-option-${activeIndex.value}` : undefined,
+  open.value && activeIndex.value >= 0 ? `${props.formId}-realm-option-${activeIndex.value}` : undefined,
 );
 
 const canSubmit = computed(
@@ -85,7 +89,7 @@ function onOptionMouseDown(index: number): void {
 <template>
   <div class="search-module">
     <form
-      id="character-search"
+      :id="props.formId"
       class="search-form"
       aria-label="Character search"
       data-testid="search-form"
@@ -102,9 +106,9 @@ function onOptionMouseDown(index: number): void {
       </label>
 
       <div class="realm-field field">
-        <label id="realm-label" class="field__label" for="realm-input">Realm</label>
+        <label :id="realmLabelId" class="field__label" :for="realmInputId">Realm</label>
         <input
-          id="realm-input"
+          :id="realmInputId"
           v-model="realm"
           name="realm"
           role="combobox"
@@ -113,7 +117,7 @@ function onOptionMouseDown(index: number): void {
           :aria-expanded="open"
           :aria-controls="listboxId"
           :aria-activedescendant="activeOptionId"
-          aria-labelledby="realm-label"
+          :aria-labelledby="realmLabelId"
           data-testid="realm-input"
           @focus="void search(realm)"
           @blur="onBlur"
@@ -124,12 +128,12 @@ function onOptionMouseDown(index: number): void {
           :id="listboxId"
           class="suggestions"
           role="listbox"
-          aria-labelledby="realm-label"
+          :aria-labelledby="realmLabelId"
           data-testid="realm-suggestions"
         >
           <li
             v-for="(s, index) in suggestions"
-            :id="`realm-option-${index}`"
+            :id="`${props.formId}-realm-option-${index}`"
             :key="s.slug"
             role="option"
             :aria-selected="index === activeIndex"

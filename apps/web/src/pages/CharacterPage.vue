@@ -7,10 +7,11 @@ import { useRefreshPolling } from "../composables/useRefreshPolling";
 import { useRecentSearchesStore } from "../stores/recentSearches";
 import SkeletonBlock from "../components/common/SkeletonBlock.vue";
 import StatusBanner from "../components/common/StatusBanner.vue";
+import CollapsiblePanel from "../components/common/CollapsiblePanel.vue";
 import ScoreHeader from "../components/profile/ScoreHeader.vue";
-import DimensionCards from "../components/profile/DimensionCards.vue";
+import DimensionEvidencePanel from "../components/profile/DimensionEvidencePanel.vue";
 import AuthenticitySection from "../components/profile/AuthenticitySection.vue";
-import AnalyzedRunsSection from "../components/profile/AnalyzedRunsSection.vue";
+import SelectedRunsPanel from "../components/profile/SelectedRunsPanel.vue";
 import PerformanceSummaryPanel from "../components/profile/PerformanceSummaryPanel.vue";
 import WclVisibilityBanner from "../components/profile/WclVisibilityBanner.vue";
 import TrustRadarChart from "../components/charts/TrustRadarChart.vue";
@@ -19,9 +20,15 @@ import DataProvenancePanel from "../components/character/DataProvenancePanel.vue
 import EquipmentGrid from "../components/equipment/EquipmentGrid.vue";
 import TalentBuildPanel from "../components/talents/TalentBuildPanel.vue";
 import MethodologyPanel from "../components/methodology/MethodologyPanel.vue";
-import { resolveDataConfidence } from "../lib/characterViewModel";
+import {
+  presentDimensionEvidence,
+  resolveDataConfidence,
+} from "../lib/characterViewModel";
+import { resolveSelectedRuns } from "../lib/selectedRunsViewModel";
 import { useWowheadTooltips } from "../composables/useWowheadTooltips";
 import { ApiClientError } from "../api/live-client";
+
+type ProfileTab = "overview" | "keys" | "methodology";
 
 const props = defineProps<{
   region: string;
@@ -38,6 +45,7 @@ const loading = ref(true);
 const error = ref<string | null>(null);
 const notFound = ref(false);
 const profile = ref<CharacterProfileView | null>(null);
+const activeTab = ref<ProfileTab>("overview");
 
 const confidenceWarning = computed(() => {
   const conf = profile.value ? resolveDataConfidence(profile.value) : null;
@@ -62,11 +70,22 @@ const entitlements = computed(
     },
 );
 
+const selectedRuns = computed(() =>
+  profile.value ? resolveSelectedRuns(profile.value) : null,
+);
+
+const dimensionEvidence = computed(() =>
+  profile.value?.score?.dimensions
+    ? presentDimensionEvidence(profile.value.score.dimensions, profile.value.score.modelVersion)
+    : [],
+);
+
 async function load(): Promise<void> {
   loading.value = true;
   error.value = null;
   notFound.value = false;
   stopPolling();
+  activeTab.value = "overview";
   const signal = nextSignal();
   const identity = {
     region: props.region.toUpperCase(),
@@ -237,52 +256,98 @@ watch(
 
       <ScoreHeader :profile="profile" :refreshing="polling" @refresh="refresh" />
 
-      <TrustRadarChart
-        v-if="profile.score?.dimensions?.length"
-        :series="[
-          {
-            id: profile.characterId,
-            name: profile.displayName,
-            dimensions: profile.score.dimensions,
-          },
-        ]"
-        :locked="!entitlements.detailsUnlocked"
-      />
+      <nav class="tabs" aria-label="Profile sections" data-testid="profile-tabs">
+        <button
+          type="button"
+          class="tabs__btn"
+          :aria-selected="activeTab === 'overview'"
+          data-testid="tab-overview"
+          @click="activeTab = 'overview'"
+        >
+          Overview
+        </button>
+        <button
+          type="button"
+          class="tabs__btn"
+          :aria-selected="activeTab === 'keys'"
+          data-testid="tab-keys"
+          @click="activeTab = 'keys'"
+        >
+          Highest Keys
+        </button>
+        <button
+          type="button"
+          class="tabs__btn"
+          :aria-selected="activeTab === 'methodology'"
+          data-testid="tab-methodology"
+          @click="activeTab = 'methodology'"
+        >
+          Methodology
+        </button>
+      </nav>
 
-      <DimensionCards
-        v-if="profile.score"
-        :dimensions="profile.score.dimensions"
-        :locked="!entitlements.detailsUnlocked"
-      />
+      <div v-if="activeTab === 'overview'" class="tab-panel" data-testid="panel-overview">
+        <TrustRadarChart
+          v-if="profile.score?.dimensions?.length"
+          :series="[
+            {
+              id: profile.characterId,
+              name: profile.displayName,
+              dimensions: profile.score.dimensions,
+            },
+          ]"
+          :locked="!entitlements.detailsUnlocked"
+        />
 
-      <div class="split">
+        <DimensionEvidencePanel
+          :dimensions="dimensionEvidence"
+          :locked="!entitlements.detailsUnlocked"
+        />
+
         <KeySignalsPanel
           :dimensions="profile.score?.dimensions ?? []"
           :flags="profile.redFlags"
         />
-        <DataProvenancePanel :profile="profile" />
+
+        <CollapsiblePanel title="Equipment">
+          <EquipmentGrid :equipment="profile.equipment" :locked="!entitlements.detailsUnlocked" />
+        </CollapsiblePanel>
+
+        <CollapsiblePanel title="Talents & specialization">
+          <TalentBuildPanel :talents="profile.talents" :locked="!entitlements.detailsUnlocked" />
+        </CollapsiblePanel>
+
+        <CollapsiblePanel title="Provider provenance">
+          <DataProvenancePanel :profile="profile" />
+        </CollapsiblePanel>
+
+        <CollapsiblePanel title="Historical experience & authenticity">
+          <AuthenticitySection
+            :authenticity-score="profile.score?.authenticityScore ?? null"
+            :flags="authFlags"
+            :locked="!entitlements.detailsUnlocked"
+          />
+          <PerformanceSummaryPanel
+            :summary="profile.performanceSummary"
+            :locked="!entitlements.detailsUnlocked"
+          />
+        </CollapsiblePanel>
       </div>
 
-      <AuthenticitySection
-        :authenticity-score="profile.score?.authenticityScore ?? null"
-        :flags="authFlags"
-        :locked="!entitlements.detailsUnlocked"
-      />
+      <div v-else-if="activeTab === 'keys'" class="tab-panel" data-testid="panel-keys">
+        <SelectedRunsPanel
+          v-if="selectedRuns"
+          :runs="selectedRuns.runs"
+          :coverage-label="selectedRuns.coverageLabel"
+          :expected-count="selectedRuns.expectedCount"
+          :locked="!entitlements.runsUnlocked"
+        />
+      </div>
 
-      <AnalyzedRunsSection
-        :last="profile.lastAnalyzedRun ?? null"
-        :highest="profile.highestAnalyzedRun ?? null"
-        :locked="!entitlements.runsUnlocked"
-      />
-
-      <PerformanceSummaryPanel
-        :summary="profile.performanceSummary"
-        :locked="!entitlements.detailsUnlocked"
-      />
-
-      <EquipmentGrid :equipment="profile.equipment" :locked="!entitlements.detailsUnlocked" />
-      <TalentBuildPanel :talents="profile.talents" :locked="!entitlements.detailsUnlocked" />
-      <MethodologyPanel :profile="profile" />
+      <div v-else class="tab-panel" data-testid="panel-methodology">
+        <MethodologyPanel :profile="profile" />
+        <DataProvenancePanel :profile="profile" />
+      </div>
     </template>
   </section>
 </template>
@@ -298,15 +363,40 @@ watch(
   gap: var(--space-5);
 }
 
-.split {
-  display: grid;
-  gap: var(--space-6);
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+  position: sticky;
+  top: 3.75rem;
+  z-index: 5;
+  background: linear-gradient(180deg, rgb(7 7 7 / 96%), rgb(7 7 7 / 88%));
+  backdrop-filter: blur(8px);
 }
 
-@media (min-width: 1024px) {
-  .split {
-    grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
-    align-items: start;
-  }
+.tabs__btn {
+  font: inherit;
+  font-weight: 600;
+  font-size: var(--text-sm);
+  min-height: 2.5rem;
+  padding: 0.4rem 0.85rem;
+  border-radius: var(--radius-control);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.tabs__btn[aria-selected="true"] {
+  color: var(--color-text);
+  border-color: var(--color-border);
+  background: var(--color-surface);
+}
+
+.tab-panel {
+  display: grid;
+  gap: var(--space-8);
 }
 </style>

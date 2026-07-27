@@ -3,13 +3,14 @@ import { computed } from "vue";
 import { RouterLink } from "vue-router";
 import type { CharacterProfileView } from "../../api/types";
 import {
+  coreDimensionRows,
   humanizeSlug,
   presentGrade,
   resolveDataConfidence,
   topSignals,
   parseContributorSignals,
 } from "../../lib/characterViewModel";
-import { formatPercent, formatScore } from "../../lib/format";
+import { formatPercent, formatScore, formatWeight } from "../../lib/format";
 import TrustTierBadge from "../landing/TrustTierBadge.vue";
 import CharacterMediaPanel from "../character/CharacterMediaPanel.vue";
 
@@ -29,6 +30,9 @@ const signals = computed(() =>
 );
 const positives = computed(() => topSignals(signals.value, "positive", 2));
 const risks = computed(() => topSignals(signals.value, "risk", 2));
+const coreDims = computed(() =>
+  props.profile.score?.dimensions ? coreDimensionRows(props.profile.score.dimensions) : [],
+);
 
 const gradeLabel = computed(() => {
   const g = props.profile.score?.grade;
@@ -162,6 +166,23 @@ const classSpec = computed(() => {
             <p v-else class="empty">Unavailable in this snapshot</p>
           </div>
         </div>
+      </div>
+    </div>
+
+    <div v-if="coreDims.length" class="core-dims" data-testid="core-dimensions" aria-label="Four trust dimensions">
+      <div v-for="dim in coreDims" :key="dim.dimension" class="core-dims__item">
+        <span class="core-dims__label">{{ dim.label }}</span>
+        <span class="core-dims__score mpts-data">
+          {{ dim.missing ? "Unavailable" : formatScore(dim.score, 0) }}
+        </span>
+        <span class="core-dims__meta">
+          w {{ formatWeight(dim.weight) }} · conf
+          {{
+            dim.confidence == null
+              ? "Unavailable"
+              : formatPercent(dim.confidence <= 1 ? dim.confidence * 100 : dim.confidence, 0)
+          }}
+        </span>
       </div>
     </div>
   </header>
@@ -395,6 +416,46 @@ const classSpec = computed(() => {
 
   .trust {
     grid-column: auto;
+  }
+}
+
+.core-dims {
+  display: grid;
+  gap: var(--space-3);
+  grid-template-columns: 1fr 1fr;
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+}
+
+.core-dims__item {
+  display: grid;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.core-dims__label {
+  font-size: var(--text-xs);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.core-dims__score {
+  font-size: var(--text-xl);
+  font-weight: 600;
+  color: var(--color-gold-300);
+}
+
+.core-dims__meta {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+}
+
+@media (min-width: 768px) {
+  .core-dims {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }
 </style>

@@ -1,11 +1,15 @@
-/** Stable radar dimension order (excludes AUTHENTICITY). */
-export const RADAR_DIMENSIONS = [
+/** Wave 4 primary trust dimensions (excludes AUTHENTICITY and RAID). */
+export const CORE_TRUST_DIMENSIONS = [
   "PERFORMANCE",
   "SURVIVAL",
   "UTILITY",
   "EXPERIENCE",
-  "RAID",
 ] as const;
+
+export type CoreTrustDimension = (typeof CORE_TRUST_DIMENSIONS)[number];
+
+/** Stable radar dimension order (excludes AUTHENTICITY). */
+export const RADAR_DIMENSIONS = [...CORE_TRUST_DIMENSIONS, "RAID"] as const;
 
 export type RadarDimension = (typeof RADAR_DIMENSIONS)[number];
 

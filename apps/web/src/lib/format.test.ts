@@ -26,4 +26,14 @@ describe("format helpers", () => {
       "RAID",
     ]);
   });
+
+  it("exposes four core trust dimensions", async () => {
+    const { CORE_TRUST_DIMENSIONS } = await import("../lib/format");
+    expect([...CORE_TRUST_DIMENSIONS]).toEqual([
+      "PERFORMANCE",
+      "SURVIVAL",
+      "UTILITY",
+      "EXPERIENCE",
+    ]);
+  });
 });

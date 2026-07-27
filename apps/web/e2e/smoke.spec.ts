@@ -7,14 +7,16 @@ test.describe("M+ Trust Factor web (mock mode)", () => {
 
     await page.goto("/");
     await expect(page.getByTestId("api-mode")).toContainText("mock");
-    await page.getByTestId("realm-input").fill("tarren-mill");
-    await page.getByTestId("name-input").fill("Aleria");
-    await page.getByTestId("search-submit").click();
+    const heroSearch = page.locator("#character-search");
+    await heroSearch.getByTestId("realm-input").fill("tarren-mill");
+    await heroSearch.getByTestId("name-input").fill("Aleria");
+    await heroSearch.getByTestId("search-submit").click();
     await expect(page).toHaveURL(/\/character\/EU\/tarren-mill\/Aleria/i);
     await expect(page.getByTestId("score-header")).toBeVisible();
     await expect(page.getByTestId("overall-score")).toHaveText("88");
     await expect(page.getByTestId("grade")).toContainText("A");
     await expect(page.getByTestId("radar-fallback")).toBeVisible();
+    await page.getByTestId("tab-methodology").click();
     await expect(page.getByTestId("raiderio-attribution")).toBeVisible();
     expect(errors).toEqual([]);
   });
@@ -53,8 +55,8 @@ test.describe("M+ Trust Factor web (mock mode)", () => {
   test("accessibility smoke: landmarks and headings", async ({ page }) => {
     await page.goto("/");
     await expect(page.getByRole("navigation", { name: "Primary" })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Know who you run with." })).toBeVisible();
-    await expect(page.getByTestId("search-form")).toBeVisible();
+    await expect(page.getByRole("heading", { level: 1, name: /Trust Factor explains execution/i })).toBeVisible();
+    await expect(page.locator("#character-search")).toBeVisible();
     await page.goto("/character/EU/tarren-mill/Aleria");
     await expect(page.getByRole("main")).toBeVisible();
     await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
