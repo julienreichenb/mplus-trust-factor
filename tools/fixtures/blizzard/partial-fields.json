@@ -1,0 +1,9 @@
+{
+  "character": {
+    "name": "O'Connor",
+    "id": 111,
+    "realm": { "slug": "tarren-mill" }
+  },
+  "average_item_level": null,
+  "equipped_items": []
+}

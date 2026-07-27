@@ -223,6 +223,12 @@ importers:
       '@mplus/contracts':
         specifier: workspace:*
         version: link:../../contracts
+      '@mplus/domain':
+        specifier: workspace:*
+        version: link:../../domain
+      zod:
+        specifier: ^3.25.76
+        version: 3.25.76
     devDependencies:
       typescript:
         specifier: ^5.8.3

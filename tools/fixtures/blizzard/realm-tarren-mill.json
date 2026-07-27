@@ -1,0 +1,10 @@
+{
+  "id": 1084,
+  "slug": "tarren-mill",
+  "name": "Tarren Mill",
+  "locale": "en_GB",
+  "timezone": "Europe/Paris",
+  "connected_realm": {
+    "href": "https://eu.api.blizzard.com/data/wow/connected-realm/1084?namespace=dynamic-eu"
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "id": 123456789,
+  "name": "Examplecharacter",
+  "realm": {
+    "id": 1084,
+    "slug": "tarren-mill",
+    "name": "Tarren Mill"
+  },
+  "character_class": {
+    "id": 8,
+    "name": "Mage"
+  },
+  "active_spec": {
+    "id": 63,
+    "name": "Fire",
+    "type": {
+      "type": "DAMAGE",
+      "name": "Damage"
+    }
+  },
+  "level": 80,
+  "last_login_timestamp": 1720000000000,
+  "average_item_level": 630,
+  "equipped_item_level": 632,
+  "faction": {
+    "type": "HORDE",
+    "name": "Horde"
+  }
+}
