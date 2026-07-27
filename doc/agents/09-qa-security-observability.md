@@ -3,7 +3,7 @@
 - Scope: QA, security, data quality, observability
 - Branch/worktree: agent/qa (current branch)
 - Date: 2026-07-27
-- Commit(s): see git log
+- Commit(s): 00aeca2
 
 # Summary
 Implemented cross-cutting quality controls without rewriting feature code: `@mplus/test-utils` package with fixture loaders, provider boundary Zod schemas, data-quality invariant validators, failure-injection helpers, and OpenAPI contract utilities. Expanded versioned synthetic fixtures under `tools/fixtures/`. Extended `@mplus/observability` with Prometheus-compatible metrics registry, WCL budget snapshot helper, and security utilities (constant-time compare, HTML escape, provider host allowlist). Added `GET /metrics` to the API. Created contract, data-quality, security, and failure-injection test suites. Added autocannon load script. Documented testing strategy, fixtures, data quality, load tests, observability, threat model, privacy/retention, and red-flag language policy.
