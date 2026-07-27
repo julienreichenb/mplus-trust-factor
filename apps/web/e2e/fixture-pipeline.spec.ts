@@ -32,7 +32,10 @@ test.describe("fixture pipeline E2E (live API + inline worker)", () => {
     await searchCharacter(page, nameA);
     await expect(page.getByTestId("raiderio-attribution")).toBeVisible();
     await expect(page.getByTestId("overall-score")).not.toHaveText("—");
-    await expect(page.getByTestId("wcl-visibility")).toHaveText(/^(PUBLIC|NO_MATCHED_RUN)$/);
+    await expect(page.getByTestId("wcl-visibility")).toHaveText("PUBLIC");
+    await expect(page.getByTestId("wcl-data-state")).toHaveText(
+      /^(MATCHED_COMBAT_LOGS|RANKINGS_ONLY|NO_MATCHED_RUN|NO_PUBLIC_LOGS)$/,
+    );
 
     await searchCharacter(page, nameB);
 

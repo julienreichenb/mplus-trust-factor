@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import type { WclVisibilityState } from "@mplus/contracts";
+import type { WclDataState, WclVisibilityState } from "@mplus/contracts";
 import type { CharacterProfileView } from "../../api/types";
 import { humanizeProvider } from "../../lib/characterViewModel";
 
@@ -47,16 +47,22 @@ const rows = computed(() =>
     const contributed =
       found?.contributedToScore === true || lifecycle?.contributedToScore === true;
     let statusLabel = found ? "Present in snapshot" : "Not in snapshot";
-    if (lifecycle?.wclVisibility === "NO_MATCHED_RUN") {
-      statusLabel = "Public logs · no matched runs";
-    } else if (lifecycle?.wclVisibility === "HIDDEN") {
+    const dataState = lifecycle?.wclDataState ?? props.profile.wclDataState ?? null;
+    if (lifecycle?.wclVisibility === "HIDDEN" || props.profile.wclVisibility === "HIDDEN") {
       statusLabel = "Hidden on Warcraft Logs";
-    } else if (lifecycle?.state === "RATE_LIMITED") {
+    } else if (dataState === "NO_MATCHED_RUN") {
+      statusLabel = "Public profile — no combat logs matched to selected runs";
+    } else if (dataState === "RANKINGS_ONLY") {
+      statusLabel = "Public rankings contributed; detailed combat analysis unavailable";
+    } else if (lifecycle?.state === "RATE_LIMITED" || dataState === "RATE_LIMITED") {
       statusLabel = "Rate limited";
-    } else if (lifecycle?.state === "UNAVAILABLE" && !found) {
+    } else if ((lifecycle?.state === "UNAVAILABLE" || dataState === "UNAVAILABLE") && !found) {
       statusLabel = "Unavailable";
     } else if (contributed) {
-      statusLabel = "Present · contributed to score";
+      const types = lifecycle?.contributionTypes?.length
+        ? ` · ${lifecycle.contributionTypes.join("+").toLowerCase()}`
+        : "";
+      statusLabel = `Present · contributed to score${types}`;
     }
     return {
       provider,
@@ -69,20 +75,26 @@ const rows = computed(() =>
   }),
 );
 
-const wclLabel = computed(() => wclStatusLabel(props.profile.wclVisibility));
+const wclLabel = computed(() => wclStatusLabel(props.profile.wclVisibility, props.profile.wclDataState));
 
-function wclStatusLabel(visibility: WclVisibilityState | null | undefined): string {
-  switch (visibility) {
-    case "PUBLIC":
-      return "Public logs available";
-    case "HIDDEN":
-      return "Character hidden on Warcraft Logs";
+function wclStatusLabel(
+  visibility: WclVisibilityState | null | undefined,
+  dataState?: WclDataState | null,
+): string {
+  if (visibility === "HIDDEN") return "Character hidden on Warcraft Logs";
+  if (visibility === "PUBLIC" && dataState === "NO_MATCHED_RUN") {
+    return "Public profile — no combat logs matched to selected runs";
+  }
+  if (visibility === "PUBLIC" && dataState === "RANKINGS_ONLY") {
+    return "Public rankings contributed; detailed combat analysis unavailable";
+  }
+  if (visibility === "PUBLIC" && dataState === "MATCHED_COMBAT_LOGS") {
+    return "Public logs available";
+  }
+  if (visibility === "PUBLIC") return "Public Warcraft Logs profile";
+  switch (dataState) {
     case "NO_PUBLIC_LOGS":
       return "No public Warcraft Logs reports";
-    case "NO_MATCHED_RUN":
-      return "Public logs found, but none matched selected runs";
-    case "PRIVATE_SKIPPED":
-      return "Private reports skipped";
     case "UNAVAILABLE":
       return "Warcraft Logs unavailable";
     case "RATE_LIMITED":

@@ -10,7 +10,7 @@ import { ExternalApiError } from "@mplus/contracts";
 import { computeRunFingerprint } from "@mplus/domain";
 import {
   buildCharacterDiscovery,
-  deriveVisibility,
+  deriveWclProvenance,
   mapCharacterSummary,
   mapRegionToWcl,
   mapZoneRankings,
@@ -150,11 +150,19 @@ export class FixtureWarcraftLogsProvider implements WarcraftLogsProvider {
   async discoverCharacterSummary(
     identity: CharacterIdentityInput,
     ctx: ProviderFetchContext,
-  ): Promise<ProviderResult<{ visibility: WclVisibilityState; warnings: string[]; dungeonAggregates: WclCharacterDiscoveryResult["dungeonAggregates"] }>> {
+  ): Promise<
+    ProviderResult<{
+      visibility: WclVisibilityState | null;
+      dataState: import("@mplus/contracts").WclDataState;
+      warnings: string[];
+      dungeonAggregates: WclCharacterDiscoveryResult["dungeonAggregates"];
+    }>
+  > {
     const discovery = this.discoverCharacter(identity, ctx);
     return emptyProviderResult(
       {
         visibility: discovery.summary.visibility,
+        dataState: discovery.summary.dataState,
         warnings: discovery.summary.warnings,
         dungeonAggregates: discovery.dungeonAggregates,
       },
@@ -228,10 +236,17 @@ export class FixtureWarcraftLogsProvider implements WarcraftLogsProvider {
       recentParsed.characterData.character?.recentReports,
     );
 
-    const visibility = deriveVisibility(character, rankings, recentMapped.candidates.length, {
+    const provenance = deriveWclProvenance(character, rankings, recentMapped.candidates.length, {
       privateSkipped: recentMapped.privateSkipped + recentMapped.unlistedSkipped,
     });
-    const summary = mapCharacterSummary(character, identity.region, ctx.now, visibility);
+    const summary = mapCharacterSummary(
+      character,
+      identity.region,
+      ctx.now,
+      provenance.visibility,
+      [],
+      provenance.dataState,
+    );
 
     return buildCharacterDiscovery({
       summary,

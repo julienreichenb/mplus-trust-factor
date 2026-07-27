@@ -1,4 +1,5 @@
 import type { RegionCode } from "@mplus/contracts";
+import type { WclDataState, WclProvenance } from "@mplus/contracts";
 import type {
   WclCharacterSummary,
   WclRankingObservation,
@@ -111,8 +112,9 @@ export function mapCharacterSummary(
   character: CharacterResolvePayload,
   region: RegionCode,
   fetchedAt: string,
-  visibility: WclVisibilityState,
+  visibility: WclVisibilityState | null,
   warnings: string[] = [],
+  dataState: WclDataState = "NO_PUBLIC_LOGS",
 ): WclCharacterSummary {
   return {
     wclCharacterId: character.id,
@@ -124,11 +126,46 @@ export function mapCharacterSummary(
     level: character.level ?? null,
     hidden: character.hidden,
     visibility,
+    dataState,
     fetchedAt,
     warnings,
   };
 }
 
+/**
+ * Derive explicit profile visibility + independent data-state from discovery inputs.
+ * Matching outcomes (NO_MATCHED_RUN / RANKINGS_ONLY) are refined later in the pipeline.
+ */
+export function deriveWclProvenance(
+  character: CharacterResolvePayload | null,
+  rankings: WclRankingObservation[],
+  recentPublicCount: number,
+  options: {
+    privateSkipped?: number;
+    rateLimited?: boolean;
+    unavailable?: boolean;
+  } = {},
+): WclProvenance & { dataState: WclDataState } {
+  if (options.rateLimited) {
+    return { visibility: null, dataState: "RATE_LIMITED" };
+  }
+  if (options.unavailable) {
+    return { visibility: null, dataState: "UNAVAILABLE" };
+  }
+  if (!character) {
+    return { visibility: null, dataState: "NO_PUBLIC_LOGS" };
+  }
+  if (character.hidden) {
+    return { visibility: "HIDDEN", dataState: "NO_PUBLIC_LOGS" };
+  }
+  if (rankings.length === 0 && recentPublicCount === 0) {
+    return { visibility: "PUBLIC", dataState: "NO_PUBLIC_LOGS" };
+  }
+  // Public profile with discoverable logs/rankings — matching refined after analyze.
+  return { visibility: "PUBLIC", dataState: "NO_MATCHED_RUN" };
+}
+
+/** @deprecated Prefer deriveWclProvenance — returns visibility only (or null for failures). */
 export function deriveVisibility(
   character: CharacterResolvePayload | null,
   rankings: WclRankingObservation[],
@@ -138,29 +175,8 @@ export function deriveVisibility(
     rateLimited?: boolean;
     unavailable?: boolean;
   } = {},
-): WclVisibilityState {
-  if (options.rateLimited) {
-    return "RATE_LIMITED";
-  }
-  if (options.unavailable) {
-    return "UNAVAILABLE";
-  }
-  if (!character) {
-    return "NO_PUBLIC_LOGS";
-  }
-  if (character.hidden) {
-    return "HIDDEN";
-  }
-  if (rankings.length === 0 && recentPublicCount === 0) {
-    if ((options.privateSkipped ?? 0) > 0) {
-      return "PRIVATE_SKIPPED";
-    }
-    return "NO_PUBLIC_LOGS";
-  }
-  if ((options.privateSkipped ?? 0) > 0 && rankings.length === 0 && recentPublicCount === 0) {
-    return "PRIVATE_SKIPPED";
-  }
-  return "PUBLIC";
+): WclVisibilityState | null {
+  return deriveWclProvenance(character, rankings, recentPublicCount, options).visibility;
 }
 
 export function mapZoneRankings(

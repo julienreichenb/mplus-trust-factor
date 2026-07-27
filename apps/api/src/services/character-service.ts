@@ -6,8 +6,11 @@ import type {
   RefreshStatusResponse,
   ScoreSnapshotDTO,
   SearchCharacterResponse,
+  WclContributionType,
+  WclDataState,
   WclVisibilityState,
 } from "@mplus/contracts";
+import { deriveWclContributionTypes, normalizeWclProvenance, parseWclDataState } from "@mplus/contracts";
 import type { EnqueueResult } from "@mplus/worker";
 import type { ApiContainer } from "../container.js";
 import { HttpError } from "../errors.js";
@@ -26,16 +29,20 @@ import { characterCacheKey } from "../lib/response-cache.js";
 const ALL_PROVIDERS: ProviderName[] = ["blizzard", "raiderio", "warcraftlogs"];
 
 function readScoreObservationProviders(explanation: unknown): string[] {
+  return readScoreObservations(explanation)
+    .map((o) => (typeof o.sourceProvider === "string" ? o.sourceProvider : null))
+    .filter((p): p is string => Boolean(p));
+}
+
+function readScoreObservations(
+  explanation: unknown,
+): Array<{ sourceProvider?: string | null; context?: unknown; metricKey?: string | null }> {
   if (!explanation || typeof explanation !== "object") return [];
   const observations = (explanation as { observations?: unknown }).observations;
   if (!Array.isArray(observations)) return [];
-  return observations
-    .map((o) =>
-      o && typeof o === "object" && typeof (o as { sourceProvider?: unknown }).sourceProvider === "string"
-        ? (o as { sourceProvider: string }).sourceProvider
-        : null,
-    )
-    .filter((p): p is string => Boolean(p));
+  return observations.filter((o): o is { sourceProvider?: string | null; context?: unknown; metricKey?: string | null } =>
+    Boolean(o) && typeof o === "object",
+  );
 }
 
 function readFreshness(explanation: unknown): number | null {
@@ -47,45 +54,70 @@ function readFreshness(explanation: unknown): number | null {
 }
 
 function readWclVisibility(value: unknown): WclVisibilityState | null {
-  if (
-    value === "PUBLIC" ||
-    value === "HIDDEN" ||
-    value === "NO_PUBLIC_LOGS" ||
-    value === "PRIVATE_SKIPPED" ||
-    value === "NO_MATCHED_RUN" ||
-    value === "UNAVAILABLE" ||
-    value === "RATE_LIMITED"
-  ) {
-    return value;
-  }
-  return null;
+  return normalizeWclProvenance(typeof value === "string" ? value : null).visibility;
+}
+
+function readWclDataState(value: unknown, legacyVisibility?: unknown): WclDataState | null {
+  const fromDirect = parseWclDataState(value);
+  if (fromDirect) return fromDirect;
+  return normalizeWclProvenance(
+    typeof legacyVisibility === "string" ? legacyVisibility : null,
+    typeof value === "string" ? value : null,
+  ).dataState;
 }
 
 function readWclVisibilityFromSummary(summary: unknown): WclVisibilityState | null {
   if (!summary || typeof summary !== "object") return null;
-  return readWclVisibility((summary as { wclVisibility?: unknown }).wclVisibility);
+  const record = summary as { wclVisibility?: unknown; wclDataState?: unknown };
+  return normalizeWclProvenance(
+    typeof record.wclVisibility === "string" ? record.wclVisibility : null,
+    typeof record.wclDataState === "string" ? record.wclDataState : null,
+  ).visibility;
 }
 
-async function resolveWclVisibility(
+function readWclDataStateFromSummary(summary: unknown): WclDataState | null {
+  if (!summary || typeof summary !== "object") return null;
+  const record = summary as { wclVisibility?: unknown; wclDataState?: unknown };
+  return normalizeWclProvenance(
+    typeof record.wclVisibility === "string" ? record.wclVisibility : null,
+    typeof record.wclDataState === "string" ? record.wclDataState : null,
+  ).dataState;
+}
+
+async function resolveWclProvenance(
   prisma: ApiContainer["worker"]["prisma"],
   characterId: string,
-): Promise<WclVisibilityState | null> {
+): Promise<{ visibility: WclVisibilityState | null; dataState: WclDataState | null }> {
   // Prefer character-level provider state (present even with zero matched runs).
   const providerState = await prisma.characterProviderState.findUnique({
     where: {
       characterId_provider: { characterId, provider: "WARCRAFT_LOGS" },
     },
-    select: { wclVisibility: true },
+    select: { wclVisibility: true, metadata: true },
   });
-  const fromState = readWclVisibility(providerState?.wclVisibility);
-  if (fromState) return fromState;
+  if (providerState) {
+    const metadata =
+      providerState.metadata && typeof providerState.metadata === "object"
+        ? (providerState.metadata as Record<string, unknown>)
+        : {};
+    const provenance = normalizeWclProvenance(
+      providerState.wclVisibility,
+      typeof metadata.wclDataState === "string" ? metadata.wclDataState : null,
+    );
+    if (provenance.visibility != null || provenance.dataState != null) {
+      return provenance;
+    }
+  }
 
   const analysis = await prisma.runAnalysis.findFirst({
     where: { characterId },
     orderBy: { analyzedAt: "desc" },
     select: { summary: true },
   });
-  return readWclVisibilityFromSummary(analysis?.summary);
+  return {
+    visibility: readWclVisibilityFromSummary(analysis?.summary),
+    dataState: readWclDataStateFromSummary(analysis?.summary),
+  };
 }
 
 function readSelectedRunCoverage(explanation: unknown): number | null {
@@ -166,6 +198,7 @@ export class CharacterService {
   private buildSources(
     character: Character,
     observationProviders: string[] = [],
+    contributionTypesByProvider: Partial<Record<string, WclContributionType[]>> = {},
   ): CharacterSourceAttribution[] {
     const fetchedAt = (character.lastPublicRefreshAt ?? character.lastSeenAt)?.toISOString();
     if (!fetchedAt) return [];
@@ -180,6 +213,7 @@ export class CharacterService {
           fetchedAt,
           url: provider === "raiderio" ? (character.raiderioProfileUrl ?? null) : null,
           contributedToScore: contributed,
+          contributionTypes: contributionTypesByProvider[publicKey],
         };
       },
     );
@@ -194,7 +228,7 @@ export class CharacterService {
     sources: CharacterSourceAttribution[],
     refreshStatus: CharacterProfileResponse["refreshStatus"],
   ): Promise<CharacterProfileResponse> {
-    const [characterDetail, latestRun, highestRun, latestCharSnapshot, runCount, wclVisibility, providerStates] =
+    const [characterDetail, latestRun, highestRun, latestCharSnapshot, runCount, wclProvenance, providerStates] =
       await Promise.all([
       this.container.worker.prisma.character.findUnique({
         where: { id: character.id },
@@ -208,7 +242,7 @@ export class CharacterService {
         include: { equipment: true, talents: true },
       }),
       this.repositories.run.countForCharacter(character.id, snapshot?.seasonId),
-      resolveWclVisibility(this.container.worker.prisma, character.id),
+      resolveWclProvenance(this.container.worker.prisma, character.id),
       this.repositories.providerState.listForCharacter(character.id),
     ]);
 
@@ -216,14 +250,28 @@ export class CharacterService {
     const freshness = readFreshness(snapshot?.explanation);
     const selectedRunCoverage = readSelectedRunCoverage(snapshot?.explanation);
     const performanceSummary = readPerformanceSummary(snapshot?.explanation);
+    const wclContributionTypes = deriveWclContributionTypes(
+      readScoreObservations(snapshot?.explanation),
+    );
+    const explanationDataState = readWclDataStateFromSummary(snapshot?.explanation);
+    const wclVisibility = wclProvenance.visibility;
+    const wclDataState = wclProvenance.dataState ?? explanationDataState;
 
-    const normalizedSources = sources.map((s) => ({
-      ...s,
-      provider: toPublicProviderKey(s.provider),
-      contributedToScore:
+    const normalizedSources = sources.map((s) => {
+      const publicKey = toPublicProviderKey(s.provider);
+      const contributed =
         s.contributedToScore ??
-        observationProviders.some((p) => toPublicProviderKey(p) === toPublicProviderKey(s.provider)),
-    }));
+        observationProviders.some((p) => toPublicProviderKey(p) === publicKey);
+      return {
+        ...s,
+        provider: publicKey,
+        contributedToScore: contributed,
+        contributionTypes:
+          publicKey === "WARCRAFT_LOGS"
+            ? (s.contributionTypes ?? wclContributionTypes)
+            : s.contributionTypes,
+      };
+    });
 
     const base = mapCharacterProfile({
       character,
@@ -258,7 +306,18 @@ export class CharacterService {
         seasonSlug: snapshot?.season.slug ?? null,
         seasonName: snapshot?.season.name ?? null,
         wclVisibility,
-        providerStates,
+        wclDataState,
+        providerStates: providerStates.map((state) =>
+          state.provider === "warcraftlogs"
+            ? {
+                ...state,
+                wclVisibility,
+                wclDataState: state.wclDataState ?? wclDataState,
+                contributionTypes: wclContributionTypes,
+                contributedToScore: wclContributionTypes.length > 0,
+              }
+            : state,
+        ),
         selectedRunCoverage,
         runCoverageById,
         performanceSummary,
@@ -315,7 +374,9 @@ export class CharacterService {
       snapshot,
       latestRun?.id ?? null,
       highestRun?.id ?? null,
-      this.buildSources(character, readScoreObservationProviders(snapshot.explanation)),
+      this.buildSources(character, readScoreObservationProviders(snapshot.explanation), {
+        WARCRAFT_LOGS: deriveWclContributionTypes(readScoreObservations(snapshot.explanation)),
+      }),
       fresh ? "FRESH" : "STALE",
     );
     const result: GetProfileResult = { statusCode: 200, body };

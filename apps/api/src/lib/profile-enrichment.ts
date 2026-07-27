@@ -18,6 +18,7 @@ import type {
   ProfileWarning,
   SeasonSummary,
   TalentSummary,
+  WclDataState,
   WclVisibilityState,
 } from "@mplus/contracts";
 import type { AppEnv } from "@mplus/config";
@@ -42,6 +43,7 @@ export interface CharacterEnrichmentInput {
   seasonSlug: string | null;
   seasonName?: string | null;
   wclVisibility: WclVisibilityState | null;
+  wclDataState?: WclDataState | null;
   providerStates?: CharacterProviderStateDTO[];
   selectedRunCoverage?: number | null;
   runCoverageById?: Record<string, number | null>;
@@ -213,6 +215,7 @@ export function mapTalentSummary(
 function buildWarnings(
   score: CharacterProfileResponse["score"],
   wclVisibility: WclVisibilityState | null,
+  wclDataState: WclDataState | null,
 ): ProfileWarning[] {
   const warnings: ProfileWarning[] = [];
   if (score?.grade === "U" || (score && score.confidence < 0.35)) {
@@ -228,31 +231,37 @@ function buildWarnings(
       message: "Detailed logs are explicitly hidden.",
       severity: "WARN",
     });
-  } else if (wclVisibility === "NO_PUBLIC_LOGS" || score?.redFlags.some((f) => f.key === "no_public_logs")) {
+  } else if (wclDataState === "NO_PUBLIC_LOGS" || score?.redFlags.some((f) => f.key === "no_public_logs")) {
     warnings.push({
       code: "NO_PUBLIC_LOGS",
       message: "No public Warcraft Logs reports were found.",
       severity: "WARN",
     });
-  } else if (wclVisibility === "UNAVAILABLE" || score?.redFlags.some((f) => f.key === "wcl_unavailable")) {
+  } else if (wclDataState === "UNAVAILABLE" || score?.redFlags.some((f) => f.key === "wcl_unavailable")) {
     warnings.push({
       code: "WCL_UNAVAILABLE",
       message: "Warcraft Logs was unavailable during enrichment.",
       severity: "INFO",
     });
-  } else if (wclVisibility === "RATE_LIMITED" || score?.redFlags.some((f) => f.key === "wcl_rate_limited")) {
+  } else if (wclDataState === "RATE_LIMITED" || score?.redFlags.some((f) => f.key === "wcl_rate_limited")) {
     warnings.push({
       code: "WCL_RATE_LIMITED",
       message: "Warcraft Logs enrichment was rate-limited.",
       severity: "INFO",
     });
   } else if (
-    wclVisibility === "NO_MATCHED_RUN" ||
+    wclDataState === "NO_MATCHED_RUN" ||
     score?.redFlags.some((f) => f.key === "no_matched_run")
   ) {
     warnings.push({
       code: "NO_MATCHED_RUN",
-      message: "Public logs exist but none matched the selected runs.",
+      message: "Public profile — no combat logs matched to selected runs.",
+      severity: "INFO",
+    });
+  } else if (wclDataState === "RANKINGS_ONLY") {
+    warnings.push({
+      code: "RANKINGS_ONLY",
+      message: "Public rankings contributed; detailed combat analysis unavailable.",
       severity: "INFO",
     });
   }
@@ -315,6 +324,7 @@ export function buildProfileEnrichments(input: CharacterEnrichmentInput): Pick<
   | "warnings"
   | "raiderIoUsed"
   | "wclVisibility"
+  | "wclDataState"
   | "providerStates"
   | "sourceDisagreements"
 > {
@@ -327,6 +337,7 @@ export function buildProfileEnrichments(input: CharacterEnrichmentInput): Pick<
     seasonSlug,
     seasonName,
     wclVisibility,
+    wclDataState,
     providerStates,
     selectedRunCoverage,
     runCoverageById,
@@ -406,6 +417,7 @@ export function buildProfileEnrichments(input: CharacterEnrichmentInput): Pick<
     warnings: [],
     raiderIoUsed: Boolean(character.raiderioProfileUrl),
     wclVisibility,
+    wclDataState: wclDataState ?? null,
     providerStates: enrichedProviderStates,
     sourceDisagreements: sourceDisagreements ?? [],
   };
@@ -417,6 +429,6 @@ export function applyProfileWarnings(
 ): ReturnType<typeof buildProfileEnrichments> {
   return {
     ...enrichments,
-    warnings: buildWarnings(score, enrichments.wclVisibility ?? null),
+    warnings: buildWarnings(score, enrichments.wclVisibility ?? null, enrichments.wclDataState ?? null),
   };
 }

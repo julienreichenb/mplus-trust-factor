@@ -19,6 +19,7 @@ import {
   rankingsToCandidates,
   mythicRunPlaceholders,
   deriveVisibility,
+  deriveWclProvenance,
   capDiscoveryCandidates,
   mapZoneRankings,
   countParseStyleRankingRows,
@@ -672,25 +673,28 @@ describe("FixtureWarcraftLogsProvider", () => {
       ctx,
     );
     expect(discovery.summary.visibility).toBe("HIDDEN");
+    expect(discovery.summary.dataState).toBe("NO_PUBLIC_LOGS");
     expect(discovery.candidates).toHaveLength(0);
     expect(discovery.latest).toBeNull();
   });
 
-  it("returns successful NO_PUBLIC_LOGS state with zero combat coverage", () => {
+  it("returns successful NO_PUBLIC_LOGS data-state with public visibility", () => {
     const discovery = provider.discoverCharacter(
       { region: "EU", realmSlug: "silvermoon", name: "Nologsplayer" },
       ctx,
     );
-    expect(discovery.summary.visibility).toBe("NO_PUBLIC_LOGS");
+    expect(discovery.summary.visibility).toBe("PUBLIC");
+    expect(discovery.summary.dataState).toBe("NO_PUBLIC_LOGS");
     expect(discovery.candidates).toHaveLength(0);
   });
 
-  it("skips private/unlisted reports as PRIVATE_SKIPPED", () => {
+  it("skips private/unlisted reports without treating them as visibility", () => {
     const discovery = provider.discoverCharacter(
       { region: "EU", realmSlug: "tarren-mill", name: "Privateplayer" },
       ctx,
     );
-    expect(discovery.summary.visibility).toBe("PRIVATE_SKIPPED");
+    expect(discovery.summary.visibility).toBe("PUBLIC");
+    expect(discovery.summary.dataState).toBe("NO_PUBLIC_LOGS");
     expect(discovery.privateReportsSkipped).toBeGreaterThan(0);
     expect(discovery.candidates).toHaveLength(0);
   });
@@ -744,9 +748,16 @@ describe("FixtureWarcraftLogsProvider", () => {
     expect(() => parseWithSchema(characterResolveSchema, raw, "ResolveCharacter")).toThrow();
   });
 
-  it("models RATE_LIMITED visibility helper", () => {
-    expect(deriveVisibility(null, [], 0, { rateLimited: true })).toBe("RATE_LIMITED");
-    expect(deriveVisibility(null, [], 0, { unavailable: true })).toBe("UNAVAILABLE");
+  it("models RATE_LIMITED / UNAVAILABLE as data-state, not visibility", () => {
+    expect(deriveWclProvenance(null, [], 0, { rateLimited: true })).toEqual({
+      visibility: null,
+      dataState: "RATE_LIMITED",
+    });
+    expect(deriveWclProvenance(null, [], 0, { unavailable: true })).toEqual({
+      visibility: null,
+      dataState: "UNAVAILABLE",
+    });
+    expect(deriveVisibility(null, [], 0, { rateLimited: true })).toBeNull();
   });
 });
 

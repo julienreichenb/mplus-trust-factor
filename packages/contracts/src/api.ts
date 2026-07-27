@@ -1,7 +1,7 @@
 import type { IsoDateTime, RegionCode, CharacterIdentityInput } from "./identity.js";
 import type { ScoreSnapshotDTO, RedFlagDTO, Grade } from "./scoring.js";
 import type { JobStatusDTO } from "./jobs.js";
-import type { WclVisibilityState } from "./warcraftlogs.js";
+import type { WclContributionType, WclDataState, WclVisibilityState } from "./warcraftlogs.js";
 import type { CharacterProviderStateDTO, SourceDisagreementDTO } from "./fusion.js";
 
 export interface ApiErrorEnvelope {
@@ -174,6 +174,8 @@ export interface CharacterProfileResponse {
     url: string | null;
     /** True when this provider contributed observations to the current score snapshot. */
     contributedToScore?: boolean;
+    /** How this provider contributed (WCL: zone rankings and/or combat facts). */
+    contributionTypes?: WclContributionType[];
   }>;
   refreshStatus: "FRESH" | "QUEUED" | "STALE";
   /** Profile enrichments (Agent 6 / CR-06 / Agent 16) */
@@ -197,7 +199,10 @@ export interface CharacterProfileResponse {
   entitlements?: ProfileEntitlements;
   warnings?: ProfileWarning[];
   raiderIoUsed?: boolean;
+  /** Explicit WCL profile visibility only: PUBLIC | HIDDEN | null. */
   wclVisibility?: WclVisibilityState | null;
+  /** Matching / rankings / availability outcome — never a visibility substitute. */
+  wclDataState?: WclDataState | null;
   /** Character-level provider lifecycle (present even when no runs exist). */
   providerStates?: CharacterProviderStateDTO[];
   sourceDisagreements?: SourceDisagreementDTO[];

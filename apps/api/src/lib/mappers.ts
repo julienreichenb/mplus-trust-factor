@@ -124,6 +124,7 @@ export interface CharacterSourceAttribution {
   fetchedAt: IsoDateTime;
   url: string | null;
   contributedToScore?: boolean;
+  contributionTypes?: import("@mplus/contracts").WclContributionType[];
 }
 
 export interface CharacterProfileMapInput {

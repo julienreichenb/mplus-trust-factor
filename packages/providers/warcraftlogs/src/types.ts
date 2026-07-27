@@ -2,12 +2,14 @@ import type { IsoDateTime, RegionCode } from "@mplus/contracts";
 import type {
   RunCombatFactsCoverage,
   RunCombatFactsLimitations,
+  WclDataState,
   WclVisibilityState,
 } from "@mplus/contracts";
 
 export type {
   RunCombatFactsCoverage,
   RunCombatFactsLimitations,
+  WclDataState,
   WclVisibilityState,
 };
 
@@ -26,7 +28,10 @@ export interface WclCharacterSummary {
   classId: number | null;
   level: number | null;
   hidden: boolean;
-  visibility: WclVisibilityState;
+  /** Explicit profile visibility only (PUBLIC | HIDDEN). */
+  visibility: WclVisibilityState | null;
+  /** Matching / rankings / availability outcome. */
+  dataState: WclDataState;
   fetchedAt: IsoDateTime;
   /** Zone / discovery warnings (expiry, truncated candidates, private skips). */
   warnings: string[];

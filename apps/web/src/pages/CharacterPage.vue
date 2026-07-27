@@ -230,7 +230,10 @@ watch(
         {{ w.message }}
       </StatusBanner>
 
-      <WclVisibilityBanner :visibility="profile.wclVisibility" />
+      <WclVisibilityBanner
+        :visibility="profile.wclVisibility"
+        :data-state="profile.wclDataState"
+      />
 
       <ScoreHeader :profile="profile" :refreshing="polling" @refresh="refresh" />
 

@@ -759,7 +759,9 @@ describe("run fusion", () => {
   });
 
   it("maps NO_MATCHED_RUN visibility to OK provider state", () => {
-    expect(mapWclVisibilityToState("NO_MATCHED_RUN")).toBe("OK");
-    expect(mapWclVisibilityToState("UNAVAILABLE")).toBe("UNAVAILABLE");
+    expect(mapWclVisibilityToState("PUBLIC", "NO_MATCHED_RUN")).toBe("OK");
+    expect(mapWclVisibilityToState(null, "UNAVAILABLE")).toBe("UNAVAILABLE");
+    expect(mapWclVisibilityToState("HIDDEN")).toBe("PRIVATE_OR_HIDDEN");
+    expect(mapWclVisibilityToState("PUBLIC", "RANKINGS_ONLY")).toBe("OK");
   });
 });

@@ -148,8 +148,11 @@ describe.skipIf(!dbAvailable)("runRefreshPipeline (fixture mode, real Postgres)"
           }),
         });
       } else {
-        // Public logs with zero matched selected-run combat analyses → NO_MATCHED_RUN.
-        expect(visibilityAnalysis?.summary).toMatchObject({ wclVisibility: "NO_MATCHED_RUN" });
+        // Public profile with zero matched selected-run combat analyses → dataState NO_MATCHED_RUN.
+        expect(visibilityAnalysis?.summary).toMatchObject({
+          wclVisibility: "PUBLIC",
+          wclDataState: expect.stringMatching(/^(NO_MATCHED_RUN|RANKINGS_ONLY|NO_PUBLIC_LOGS)$/),
+        });
       }
     },
     30_000,
@@ -377,7 +380,12 @@ describe.skipIf(!dbAvailable)("runRefreshPipeline (fixture mode, real Postgres)"
         ...base.providers.warcraftlogs,
         async discoverCharacterSummary() {
           return {
-            data: { visibility: "NO_PUBLIC_LOGS" as const, warnings: [], dungeonAggregates: [] },
+            data: {
+              visibility: "PUBLIC" as const,
+              dataState: "NO_PUBLIC_LOGS" as const,
+              warnings: [],
+              dungeonAggregates: [],
+            },
             provenance: {
               provider: "warcraftlogs" as const,
               externalRequestId: null,
@@ -442,7 +450,10 @@ describe.skipIf(!dbAvailable)("runRefreshPipeline (fixture mode, real Postgres)"
       const wclState = await prisma.characterProviderState.findFirst({
         where: { characterId: result.character.id, provider: "WARCRAFT_LOGS" },
       });
-      expect(wclState?.wclVisibility).toBe("NO_PUBLIC_LOGS");
+      expect(wclState?.wclVisibility).toBe("PUBLIC");
+      expect((wclState?.metadata as { wclDataState?: string } | null)?.wclDataState).toBe(
+        "NO_PUBLIC_LOGS",
+      );
       expect(wclState?.state).toBe("PRIVATE_OR_HIDDEN");
     },
     30_000,
@@ -453,7 +464,11 @@ describe.skipIf(!dbAvailable)("runRefreshPipeline (fixture mode, real Postgres)"
     async () => {
       const base = buildContainer();
       const asyncDiscover = async () => ({
-        summary: { visibility: "PUBLIC" as const, warnings: [] as string[] },
+        summary: {
+          visibility: "PUBLIC" as const,
+          dataState: "NO_MATCHED_RUN" as const,
+          warnings: [] as string[],
+        },
         dungeonAggregates: [],
         candidates: [],
       });

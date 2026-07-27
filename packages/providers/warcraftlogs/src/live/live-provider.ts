@@ -24,7 +24,7 @@ import { OPERATIONS } from "../operations/queries.js";
 import {
   buildCharacterDiscovery,
   classifyReportVisibility,
-  deriveVisibility,
+  deriveWclProvenance,
   mapCharacterSummary,
   mapRegionToWcl,
   mapZoneRankings,
@@ -297,7 +297,8 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
     ctx: ProviderFetchContext,
   ): Promise<
     ProviderResult<{
-      visibility: WclVisibilityState;
+      visibility: WclVisibilityState | null;
+      dataState: import("@mplus/contracts").WclDataState;
       warnings: string[];
       dungeonAggregates: import("../types.js").WclDungeonPerformanceAggregate[];
     }>
@@ -306,6 +307,7 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
     return providerEnvelope(
       {
         visibility: discovery.summary.visibility,
+        dataState: discovery.summary.dataState,
         warnings: discovery.summary.warnings,
         dungeonAggregates: discovery.dungeonAggregates,
       },
@@ -384,7 +386,8 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
           classId: null,
           level: null,
           hidden: false,
-          visibility: "RATE_LIMITED",
+          visibility: null,
+          dataState: "RATE_LIMITED",
           fetchedAt: ctx.now,
           warnings: [
             `WCL rate budget STOP at ${budget.utilizationPercent.toFixed(1)}% — discovery deferred`,
@@ -524,10 +527,17 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
       warnings.push(`Skipped ${recentMapped.privateSkipped} private report(s)`);
     }
 
-    const visibility = deriveVisibility(character, rankings, recentPublicCount, {
+    const provenance = deriveWclProvenance(character, rankings, recentPublicCount, {
       privateSkipped,
     });
-    const summary = mapCharacterSummary(character, identity.region, ctx.now, visibility, warnings);
+    const summary = mapCharacterSummary(
+      character,
+      identity.region,
+      ctx.now,
+      provenance.visibility,
+      warnings,
+      provenance.dataState,
+    );
 
     return buildCharacterDiscovery({
       summary,

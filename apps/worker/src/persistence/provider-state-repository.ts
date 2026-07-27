@@ -12,6 +12,7 @@ import type {
   SourceDisagreementDTO,
   WclVisibilityState,
 } from "@mplus/contracts";
+import { normalizeWclProvenance } from "@mplus/contracts";
 
 function providerNameToDb(provider: ProviderName): Provider {
   switch (provider) {
@@ -53,6 +54,15 @@ function toDto(row: CharacterProviderState): CharacterProviderStateDTO {
         ? "warcraftlogs"
         : "raiderio";
 
+  const metadata =
+    row.metadata && typeof row.metadata === "object"
+      ? (row.metadata as Record<string, unknown>)
+      : {};
+  const provenance = normalizeWclProvenance(
+    row.wclVisibility,
+    typeof metadata.wclDataState === "string" ? metadata.wclDataState : null,
+  );
+
   return {
     provider,
     state: row.state,
@@ -61,7 +71,8 @@ function toDto(row: CharacterProviderState): CharacterProviderStateDTO {
     lastSuccessAt: row.lastSuccessAt?.toISOString() ?? null,
     fetchedAt: row.fetchedAt?.toISOString() ?? null,
     expiresAt: row.expiresAt?.toISOString() ?? null,
-    wclVisibility: (row.wclVisibility as WclVisibilityState | null) ?? null,
+    wclVisibility: provenance.visibility,
+    wclDataState: provenance.dataState,
     warnings: Array.isArray(row.warnings) ? (row.warnings as string[]) : [],
   };
 }

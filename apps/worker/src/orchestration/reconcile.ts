@@ -5,6 +5,7 @@ import type {
   ProviderName,
   RaiderIoCharacterProfile,
   SourceDisagreementDTO,
+  WclDataState,
   WclVisibilityState,
 } from "@mplus/contracts";
 import { ExternalApiError } from "@mplus/contracts";
@@ -52,22 +53,16 @@ export function mapErrorToProviderState(error: unknown): ProviderLifecycleState 
   }
 }
 
-export function mapWclVisibilityToState(visibility: WclVisibilityState | null): ProviderLifecycleState {
-  if (!visibility) return "UNAVAILABLE";
-  switch (visibility) {
-    case "PUBLIC":
-    case "NO_MATCHED_RUN":
-      return "OK";
-    case "HIDDEN":
-    case "NO_PUBLIC_LOGS":
-    case "PRIVATE_SKIPPED":
-      return "PRIVATE_OR_HIDDEN";
-    case "RATE_LIMITED":
-      return "RATE_LIMITED";
-    case "UNAVAILABLE":
-    default:
-      return "UNAVAILABLE";
-  }
+export function mapWclVisibilityToState(
+  visibility: WclVisibilityState | null,
+  dataState: WclDataState | null = null,
+): ProviderLifecycleState {
+  if (dataState === "RATE_LIMITED") return "RATE_LIMITED";
+  if (dataState === "UNAVAILABLE") return "UNAVAILABLE";
+  if (visibility === "HIDDEN" || dataState === "NO_PUBLIC_LOGS") return "PRIVATE_OR_HIDDEN";
+  if (visibility === "PUBLIC") return "OK";
+  if (!visibility && !dataState) return "UNAVAILABLE";
+  return "OK";
 }
 
 export function providerNameToDb(provider: ProviderName): "BLIZZARD" | "WARCRAFT_LOGS" | "RAIDER_IO" {

@@ -17,6 +17,9 @@ import {
   type ScoreSnapshotDTO,
   type SourceDisagreementDTO,
   type WclVisibilityState,
+  type WclDataState,
+  refineWclDataState,
+  normalizeWclProvenance,
 } from "@mplus/contracts";
 import { extractBoostSupportFacts } from "@mplus/provider-raiderio";
 import type { RunCombatFacts, WclReportFightDetails } from "@mplus/provider-warcraftlogs";
@@ -103,8 +106,8 @@ function isRaiderIoSkipped(container: WorkerContainer): boolean {
 }
 
 /**
- * Resolve character-level WCL visibility via the Wave 3 async contract.
- * Prefer `discoverCharacterSummary` → ProviderResult.data.visibility.
+ * Resolve character-level WCL visibility + data-state via the Wave 3 async contract.
+ * Prefer `discoverCharacterSummary` → ProviderResult.data.{visibility,dataState}.
  * Never treat a Promise as a sync `{ summary }` object.
  */
 async function resolveWclSummary(
@@ -114,13 +117,21 @@ async function resolveWclSummary(
   record: (result: Awaited<ReturnType<NonNullable<typeof provider.discoverCharacterSummary>>>) => Promise<void>,
 ): Promise<{
   visibility: WclVisibilityState | null;
+  dataState: WclDataState | null;
   dungeonAggregates: WclDungeonPerformanceAggregateDTO[];
 }> {
   if (typeof provider.discoverCharacterSummary === "function") {
     const summary = await provider.discoverCharacterSummary(identity, ctx);
     await record(summary);
+    const normalized = normalizeWclProvenance(
+      typeof summary.data.visibility === "string" ? summary.data.visibility : null,
+      typeof (summary.data as { dataState?: unknown }).dataState === "string"
+        ? ((summary.data as { dataState: string }).dataState)
+        : null,
+    );
     return {
-      visibility: summary.data.visibility,
+      visibility: normalized.visibility,
+      dataState: normalized.dataState ?? parseSummaryDataState(summary.data),
       dungeonAggregates: summary.data.dungeonAggregates ?? [],
     };
   }
@@ -132,23 +143,35 @@ async function resolveWclSummary(
       c: ProviderFetchContext,
     ) =>
       | {
-          summary: { visibility: WclVisibilityState };
+          summary: { visibility: WclVisibilityState | null; dataState?: WclDataState };
           dungeonAggregates?: WclDungeonPerformanceAggregateDTO[];
         }
       | Promise<{
-          summary: { visibility: WclVisibilityState };
+          summary: { visibility: WclVisibilityState | null; dataState?: WclDataState };
           dungeonAggregates?: WclDungeonPerformanceAggregateDTO[];
         }>;
   };
   if (typeof maybeDiscover.discoverCharacter === "function") {
     const discovery = await Promise.resolve(maybeDiscover.discoverCharacter(identity, ctx));
+    const normalized = normalizeWclProvenance(
+      discovery?.summary?.visibility,
+      discovery?.summary?.dataState,
+    );
     return {
-      visibility: discovery?.summary?.visibility ?? null,
+      visibility: normalized.visibility,
+      dataState: normalized.dataState,
       dungeonAggregates: discovery?.dungeonAggregates ?? [],
     };
   }
 
-  return { visibility: null, dungeonAggregates: [] };
+  return { visibility: null, dataState: null, dungeonAggregates: [] };
+}
+
+function parseSummaryDataState(summary: { dataState?: unknown; visibility?: unknown }): WclDataState | null {
+  return normalizeWclProvenance(
+    typeof summary.visibility === "string" ? summary.visibility : null,
+    typeof summary.dataState === "string" ? summary.dataState : null,
+  ).dataState;
 }
 
 function toPersistedCombatFacts(facts: RunCombatFacts) {
@@ -242,6 +265,7 @@ export async function runRefreshPipeline(
   let seasonCutoffs: RaiderIoSeasonCutoffs | null = null;
   let boostFacts: RaiderIoBoostSupportFacts | null = null;
   let wclVisibility: WclVisibilityState | null = null;
+  let wclDataState: WclDataState | null = null;
   let discoveredRuns: MythicRunDTO[] = [];
 
   // ── Blizzard identity gate ──────────────────────────────────────────────
@@ -387,6 +411,7 @@ export async function runRefreshPipeline(
   };
   type WclEnrichment = {
     visibility: WclVisibilityState | null;
+    dataState: WclDataState | null;
     runs: MythicRunDTO[];
     dungeonAggregates: WclDungeonPerformanceAggregateDTO[];
   };
@@ -492,7 +517,7 @@ export async function runRefreshPipeline(
         detail: "provider disabled",
         lastAttemptAt: now,
       });
-      return { visibility: null, runs: [], dungeonAggregates: [] };
+      return { visibility: null, dataState: null, runs: [], dungeonAggregates: [] };
     }
 
     const wclCtx: ProviderFetchContext = {
@@ -501,6 +526,7 @@ export async function runRefreshPipeline(
     };
 
     let visibility: WclVisibilityState | null = null;
+    let dataState: WclDataState | null = null;
     let dungeonAggregates: WclDungeonPerformanceAggregateDTO[] = [];
     try {
       const summary = await resolveWclSummary(
@@ -512,33 +538,37 @@ export async function runRefreshPipeline(
         },
       );
       visibility = summary.visibility;
+      dataState = summary.dataState;
       dungeonAggregates = summary.dungeonAggregates;
 
       const runsResult = await providers.warcraftlogs.discoverCharacterRuns(identity, wclCtx);
       await recordProviderResult(repositories, runsResult);
 
-      // NO_PUBLIC_LOGS / HIDDEN / RATE_LIMITED are coverage states — still a successful enrichment.
+      // Coverage outcomes live on dataState — visibility stays PUBLIC/HIDDEN/null only.
       await repositories.providerState.upsert({
         characterId: character.id,
         provider: "warcraftlogs",
-        state: mapWclVisibilityToState(visibility),
+        state: mapWclVisibilityToState(visibility, dataState),
         wclVisibility: visibility,
         lastAttemptAt: now,
         lastSuccessAt: now,
         fetchedAt: now,
         expiresAt: runsResult.freshness.expiresAt ? new Date(runsResult.freshness.expiresAt) : null,
         metadata: {
+          wclDataState: dataState,
           discoveredRunCount: runsResult.data.length,
           hydrationHintCount: hydrationHints.length,
           dungeonAggregateCount: dungeonAggregates.length,
         },
       });
-      return { visibility, runs: runsResult.data, dungeonAggregates };
+      return { visibility, dataState, runs: runsResult.data, dungeonAggregates };
     } catch (error) {
       // WCL is enrichment-only: never block a Blizzard/Raider.IO-backed MVP score.
       // GraphQL schema / invalid-response errors stay UNAVAILABLE with detail.
       stagesSkipped.push("refresh-warcraftlogs-summary");
       const state = mapErrorToProviderState(error);
+      const failedDataState: WclDataState =
+        state === "RATE_LIMITED" ? "RATE_LIMITED" : dataState ?? "UNAVAILABLE";
       await repositories.providerState.upsert({
         characterId: character.id,
         provider: "warcraftlogs",
@@ -546,14 +576,15 @@ export async function runRefreshPipeline(
           state === "PRIVATE_OR_HIDDEN"
             ? "PRIVATE_OR_HIDDEN"
             : visibility
-              ? mapWclVisibilityToState(visibility)
+              ? mapWclVisibilityToState(visibility, failedDataState)
               : state,
         detail: error instanceof Error ? error.message : "enrichment soft-skip",
         wclVisibility: visibility,
         lastAttemptAt: now,
+        metadata: { wclDataState: failedDataState },
       });
       logger.info({ identity, err: error }, "refresh pipeline: WCL soft-skipped");
-      return { visibility, runs: [], dungeonAggregates };
+      return { visibility, dataState: failedDataState, runs: [], dungeonAggregates };
     }
   };
 
@@ -578,6 +609,7 @@ export async function runRefreshPipeline(
 
   const wclEnrichment = await enrichWarcraftLogs(hydrationHints);
   wclVisibility = wclEnrichment.visibility;
+  wclDataState = wclEnrichment.dataState;
   discoveredRuns = wclEnrichment.runs;
   const wclDungeonAggregates = wclEnrichment.dungeonAggregates;
 
@@ -800,14 +832,18 @@ export async function runRefreshPipeline(
     stagesSkipped.push("analyze-run");
   }
 
-  // Character-level WCL visibility even when zero runs / no analysis target.
-  if (wclVisibility !== null) {
-    // Public logs with zero matched selected-run analyses → explicit NO_MATCHED_RUN (not UNAVAILABLE).
-    if (wclVisibility === "PUBLIC" && combatFactsList.length === 0) {
-      wclVisibility = "NO_MATCHED_RUN";
-    }
+  // Character-level WCL visibility + data-state even when zero runs / no analysis target.
+  // Never overwrite PUBLIC/HIDDEN visibility with a matching outcome such as NO_MATCHED_RUN.
+  if (wclVisibility !== null || wclDataState !== null) {
+    wclDataState = refineWclDataState({
+      visibility: wclVisibility,
+      baseDataState: wclDataState,
+      combatFactsCount: combatFactsList.length,
+      dungeonAggregateCount: wclDungeonAggregates.length,
+    });
     const visibilitySummary = {
       wclVisibility,
+      wclDataState,
       discoveredRunCount: discoveredRuns.length,
       matchedSelectedRuns: combatFactsList.length,
       matchedPairCount: fusion.matchedPairCount,
@@ -822,7 +858,7 @@ export async function runRefreshPipeline(
     await repositories.providerState.upsert({
       characterId: character.id,
       provider: "warcraftlogs",
-      state: mapWclVisibilityToState(wclVisibility),
+      state: mapWclVisibilityToState(wclVisibility, wclDataState),
       wclVisibility,
       lastAttemptAt: now,
       lastSuccessAt: now,
@@ -894,7 +930,12 @@ export async function runRefreshPipeline(
       selectedRuns.size > 0 ? combatFactsList.length / selectedRuns.size : 0,
     explanatoryRuns,
     logFreshness:
-      wclVisibility === "PUBLIC" || wclVisibility === "NO_MATCHED_RUN" ? 0.85 : 0.4,
+      wclVisibility === "PUBLIC" &&
+      (wclDataState === "MATCHED_COMBAT_LOGS" ||
+        wclDataState === "RANKINGS_ONLY" ||
+        wclDataState === "NO_MATCHED_RUN")
+        ? 0.85
+        : 0.4,
     observedAt,
   });
   observations.push(...wclPerformance.observations);
@@ -954,7 +995,9 @@ export async function runRefreshPipeline(
   const freshness =
     wclVisibility === "HIDDEN"
       ? 0.35
-      : wclVisibility === "NO_PUBLIC_LOGS" || wclVisibility === "RATE_LIMITED" || wclVisibility === "UNAVAILABLE"
+      : wclDataState === "NO_PUBLIC_LOGS" ||
+          wclDataState === "RATE_LIMITED" ||
+          wclDataState === "UNAVAILABLE"
         ? 0.45
         : stagesSkipped.includes("refresh-raiderio") || stagesSkipped.includes("refresh-warcraftlogs-summary")
           ? 0.55
@@ -1049,6 +1092,7 @@ export async function runRefreshPipeline(
           seasonSlug: season.slug,
           fusedRunCount: fusedRuns.length,
           wclVisibility,
+          wclDataState,
           performanceSummary: wclPerformance.summary,
         }
       : scoreDto.explanation;
