@@ -14,6 +14,10 @@ Stable TypeScript contracts live in `packages/contracts`.
 
 `ProviderName`, fetch context/metadata, `ProviderResult<T>`, `DataFreshness`, `SourceProvenance`, `ExternalApiError`, provider interfaces.
 
+## Raider.IO (Agent 3)
+
+Normalized DTOs in `raiderio.ts`: character profile, cutoffs, static data, run details, boost-support facts, attribution.
+
 ## Scoring
 
 `ScoreDimension`, observations, coverage, scopes, model config, dimension/score snapshots, red flags, grades.

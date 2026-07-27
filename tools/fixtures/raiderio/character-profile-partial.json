@@ -1,0 +1,13 @@
+{
+  "name": "Partialhero",
+  "class": "Warrior",
+  "region": "eu",
+  "realm": "tarren-mill",
+  "profile_url": "https://raider.io/characters/eu/tarren-mill/Partialhero",
+  "mythic_plus_scores_by_season": [
+    {
+      "season": "season-tww-2",
+      "scores": { "all": 1500, "dps": 0, "healer": 0, "tank": 1500 }
+    }
+  ]
+}

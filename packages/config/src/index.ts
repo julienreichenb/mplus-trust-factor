@@ -47,11 +47,15 @@ export const envSchema = z
     WCL_RATE_STOP_PERCENT: z.coerce.number().min(0).max(100).default(90),
     WCL_CHARACTER_TTL_SECONDS: z.coerce.number().int().positive().default(43_200),
 
+    RAIDERIO_ENABLED: booleanFromString.default(true),
     RAIDERIO_BASE_URL: z.string().url().default("https://raider.io"),
     RAIDERIO_APP_KEY: z.string().optional().default(""),
     RAIDERIO_SOFT_RPM: z.coerce.number().int().positive().default(60),
     RAIDERIO_REQUEST_CONCURRENCY: z.coerce.number().int().positive().default(2),
     RAIDERIO_CHARACTER_TTL_SECONDS: z.coerce.number().int().positive().default(43_200),
+    RAIDERIO_NEGATIVE_CACHE_SECONDS: z.coerce.number().int().positive().default(2700),
+    RAIDERIO_CUTOFFS_TTL_SECONDS: z.coerce.number().int().positive().default(86_400),
+    RAIDERIO_STATIC_DATA_TTL_SECONDS: z.coerce.number().int().positive().default(604_800),
 
     ACTIVE_SCORE_MODEL_KEY: z.string().default("default"),
     ACTIVE_SCORE_MODEL_VERSION: z.coerce.number().int().positive().default(1),

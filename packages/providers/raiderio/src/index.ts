@@ -1,42 +1,52 @@
-import type {
-  CharacterIdentityInput,
-  ProviderFetchContext,
-  ProviderResult,
-  RaiderIoProvider,
-  RegionCode,
-} from "@mplus/contracts";
-import { ExternalApiError } from "@mplus/contracts";
+import type { RaiderIoProvider } from "@mplus/contracts";
+import { getEnv, loadEnv } from "@mplus/config";
+import { DisabledRaiderIoProvider } from "./disabled-provider.js";
+import { FixtureRaiderIoProvider } from "./fixture-provider.js";
+import { LiveRaiderIoProvider } from "./live-provider.js";
+import { RaiderIoHttpClient } from "./http-client.js";
+import type { RaiderIoProviderDeps } from "./provider-base.js";
 
-function notImplemented(method: string): never {
-  throw new ExternalApiError({
-    message: `RaiderIoProvider.${method} is not implemented (Agent 3 owns live integration)`,
-    code: "UNKNOWN",
-    provider: "raiderio",
-    retryable: false,
-  });
-}
+export function createRaiderIoProvider(mode: "fixture" | "live" = "fixture"): RaiderIoProvider {
+  const env = getEnv();
 
-export class FixtureRaiderIoProvider implements RaiderIoProvider {
-  readonly name = "raiderio" as const;
-
-  async getCharacterProfile(
-    _identity: CharacterIdentityInput,
-    _ctx: ProviderFetchContext,
-  ): Promise<ProviderResult<unknown>> {
-    notImplemented("getCharacterProfile");
+  if (!env.RAIDERIO_ENABLED) {
+    return new DisabledRaiderIoProvider();
   }
 
-  async getSeasonCutoffs(
-    _region: RegionCode,
-    _seasonSlug: string,
-    _ctx: ProviderFetchContext,
-  ): Promise<ProviderResult<unknown>> {
-    notImplemented("getSeasonCutoffs");
+  const deps: RaiderIoProviderDeps = {
+    env: {
+      RAIDERIO_CHARACTER_TTL_SECONDS: env.RAIDERIO_CHARACTER_TTL_SECONDS,
+      RAIDERIO_NEGATIVE_CACHE_SECONDS: env.RAIDERIO_NEGATIVE_CACHE_SECONDS,
+      RAIDERIO_CUTOFFS_TTL_SECONDS: env.RAIDERIO_CUTOFFS_TTL_SECONDS,
+      RAIDERIO_STATIC_DATA_TTL_SECONDS: env.RAIDERIO_STATIC_DATA_TTL_SECONDS,
+    },
+  };
+
+  if (mode === "live") {
+    const http = new RaiderIoHttpClient({
+      baseUrl: env.RAIDERIO_BASE_URL,
+      appKey: env.RAIDERIO_APP_KEY || undefined,
+      softRpm: env.RAIDERIO_SOFT_RPM,
+      maxConcurrency: env.RAIDERIO_REQUEST_CONCURRENCY,
+    });
+    return new LiveRaiderIoProvider({ ...deps, http });
   }
+
+  return new FixtureRaiderIoProvider(deps);
 }
 
-export function createRaiderIoProvider(_mode: "fixture" | "live" = "fixture"): RaiderIoProvider {
-  return new FixtureRaiderIoProvider();
+export function createRaiderIoProviderFromEnv(): RaiderIoProvider {
+  loadEnv();
+  return createRaiderIoProvider(getEnv().PROVIDER_MODE);
 }
 
+export { buildMinimalCharacterFields, MINIMAL_CHARACTER_FIELDS } from "./fields.js";
+export { extractBoostSupportFacts, buildAttribution } from "./normalize.js";
+export { createRpmLimiter } from "./rate-limiter.js";
+export { InMemoryProviderCache } from "./cache.js";
+export { RaiderIoHttpClient } from "./http-client.js";
+export { FixtureRaiderIoProvider } from "./fixture-provider.js";
+export { LiveRaiderIoProvider } from "./live-provider.js";
+export { DisabledRaiderIoProvider } from "./disabled-provider.js";
 export type { RaiderIoProvider };
+export type { RaiderIoMetrics } from "./metrics.js";

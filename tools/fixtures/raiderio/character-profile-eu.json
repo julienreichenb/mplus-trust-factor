@@ -1,0 +1,142 @@
+{
+  "name": "Fixturehero",
+  "class": "Mage",
+  "active_spec_name": "Arcane",
+  "active_spec_role": "DPS",
+  "region": "eu",
+  "realm": "tarren-mill",
+  "profile_url": "https://raider.io/characters/eu/tarren-mill/Fixturehero",
+  "last_crawled_at": "2026-07-20T12:00:00.000Z",
+  "mythic_plus_scores_by_season": [
+    {
+      "season": "season-tww-2",
+      "scores": { "all": 2845.5, "dps": 2900, "healer": 0, "tank": 0 }
+    },
+    {
+      "season": "season-tww-1",
+      "scores": { "all": 2650.2, "dps": 2680, "healer": 0, "tank": 0 }
+    }
+  ],
+  "mythic_plus_ranks": {
+    "overall": 15234,
+    "class": 2100,
+    "server": 450,
+    "world": 89000,
+    "region": 12000,
+    "role": "dps"
+  },
+  "mythic_plus_recent_runs": [
+    {
+      "keystone_run_id": 99001001,
+      "dungeon": "Ara-Kara, City of Echoes",
+      "short_name": "ARAK",
+      "mythic_level": 12,
+      "completed_at": "2026-07-19T18:30:00.000Z",
+      "clear_time_ms": 1680000,
+      "par_time_ms": 1800000,
+      "num_keystone_upgrades": 1,
+      "score": 385.5,
+      "url": "https://raider.io/mythic-plus-runs/season-tww-2/99001001",
+      "roster": [
+        {
+          "character": {
+            "name": "Fixturehero",
+            "class": "Mage",
+            "active_spec_name": "Arcane",
+            "active_spec_role": "dps",
+            "realm": "tarren-mill",
+            "region": "eu"
+          },
+          "role": "dps",
+          "ranks": { "overall": 2845 }
+        },
+        {
+          "character": {
+            "name": "Teammateone",
+            "class": "Paladin",
+            "active_spec_name": "Protection",
+            "active_spec_role": "tank",
+            "realm": "tarren-mill",
+            "region": "eu"
+          },
+          "role": "tank",
+          "ranks": { "overall": 3100 }
+        },
+        {
+          "character": {
+            "name": "Teammatetwo",
+            "class": "Priest",
+            "active_spec_name": "Holy",
+            "active_spec_role": "healer",
+            "realm": "silvermoon",
+            "region": "eu"
+          },
+          "role": "healer",
+          "ranks": { "overall": 2950 }
+        },
+        {
+          "character": {
+            "name": "Teammatethree",
+            "class": "Rogue",
+            "active_spec_name": "Assassination",
+            "active_spec_role": "dps",
+            "realm": "tarren-mill",
+            "region": "eu"
+          },
+          "role": "dps",
+          "ranks": { "overall": 3200 }
+        },
+        {
+          "character": {
+            "name": "Teammatefour",
+            "class": "Hunter",
+            "active_spec_name": "Beast Mastery",
+            "active_spec_role": "dps",
+            "realm": "draenor",
+            "region": "eu"
+          },
+          "role": "dps",
+          "ranks": { "overall": 3050 }
+        }
+      ]
+    }
+  ],
+  "mythic_plus_best_runs": [
+    {
+      "keystone_run_id": 99001002,
+      "dungeon": "The Dawnbreaker",
+      "short_name": "DAWN",
+      "mythic_level": 13,
+      "completed_at": "2026-07-15T20:00:00.000Z",
+      "clear_time_ms": 1750000,
+      "par_time_ms": 1860000,
+      "num_keystone_upgrades": 1,
+      "score": 410.2,
+      "roster": []
+    }
+  ],
+  "mythic_plus_highest_level_runs": [
+    {
+      "keystone_run_id": 99001002,
+      "dungeon": "The Dawnbreaker",
+      "short_name": "DAWN",
+      "mythic_level": 13,
+      "completed_at": "2026-07-15T20:00:00.000Z",
+      "clear_time_ms": 1750000,
+      "par_time_ms": 1860000,
+      "num_keystone_upgrades": 1,
+      "score": 410.2,
+      "roster": []
+    }
+  ],
+  "raid_progression": {
+    "nerubar-palace": {
+      "raid": "Nerub-ar Palace",
+      "summary": "6/8 M",
+      "total_bosses": 8,
+      "normal_bosses_killed": 8,
+      "heroic_bosses_killed": 8,
+      "mythic_bosses_killed": 6
+    }
+  }
+}

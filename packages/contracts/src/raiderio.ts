@@ -1,0 +1,183 @@
+import type { IsoDateTime, RegionCode } from "./identity.js";
+
+/** Attribution required when Raider.IO-derived data is shown publicly. */
+export interface RaiderIoAttribution {
+  provider: "raiderio";
+  displayText: "Data from Raider.IO";
+  homepageUrl: "https://raider.io";
+  profileUrl: string | null;
+  sourceUrl: string | null;
+}
+
+export interface RaiderIoScoreSummary {
+  all: number;
+  dps: number | null;
+  healer: number | null;
+  tank: number | null;
+}
+
+export interface RaiderIoSeasonScores {
+  seasonSlug: string;
+  scores: RaiderIoScoreSummary;
+  isCurrentSeason: boolean;
+  isPreviousSeason: boolean;
+}
+
+export interface RaiderIoRankSummary {
+  overall: number | null;
+  class: number | null;
+  server: number | null;
+  world: number | null;
+  region: number | null;
+  role: string | null;
+}
+
+export interface RaiderIoRosterMember {
+  providerCharacterKey: string;
+  displayName: string;
+  realmSlug: string;
+  region: RegionCode;
+  classSlug: string | null;
+  specSlug: string | null;
+  role: "DPS" | "TANK" | "HEALER" | null;
+  mythicRating: number | null;
+  rankOverall: number | null;
+}
+
+export interface RaiderIoRunCandidate {
+  externalRunId: string;
+  seasonSlug: string;
+  dungeonSlug: string;
+  dungeonName: string;
+  keyLevel: number;
+  completedAt: IsoDateTime;
+  durationMs: number;
+  timerMs: number | null;
+  timed: boolean;
+  scoreValue: number | null;
+  source: "recent" | "best" | "highest_level";
+  roster: RaiderIoRosterMember[];
+  rosterComplete: boolean;
+  profileUrl: string | null;
+}
+
+export interface RaiderIoRaidProgressionEntry {
+  raidSlug: string;
+  raidName: string;
+  summary: string;
+  totalBosses: number;
+  normalBossesKilled: number;
+  heroicBossesKilled: number;
+  mythicBossesKilled: number;
+}
+
+export interface RaiderIoCharacterProfile {
+  region: RegionCode;
+  realmSlug: string;
+  normalizedName: string;
+  displayName: string;
+  classSlug: string | null;
+  specSlug: string | null;
+  role: "DPS" | "TANK" | "HEALER" | null;
+  profileUrl: string;
+  lastCrawledAt: IsoDateTime | null;
+  currentSeason: RaiderIoSeasonScores | null;
+  previousSeason: RaiderIoSeasonScores | null;
+  ranks: RaiderIoRankSummary | null;
+  recentRuns: RaiderIoRunCandidate[];
+  bestRuns: RaiderIoRunCandidate[];
+  highestLevelRuns: RaiderIoRunCandidate[];
+  raidProgression: RaiderIoRaidProgressionEntry[];
+  runHistoryIncomplete: boolean;
+  representedRunCount: number;
+  attribution: RaiderIoAttribution;
+}
+
+export interface RaiderIoCutoffThreshold {
+  score: number;
+  quantile: "p750";
+  label: "top_25_percent";
+}
+
+export interface RaiderIoSeasonCutoffs {
+  region: RegionCode;
+  seasonSlug: string | null;
+  updatedAt: IsoDateTime | null;
+  top25Percent: RaiderIoCutoffThreshold | null;
+  attribution: RaiderIoAttribution;
+}
+
+export interface RaiderIoStaticDungeon {
+  slug: string;
+  name: string;
+  shortName: string;
+  mapChallengeModeId: number | null;
+  zoneId: number | null;
+}
+
+export interface RaiderIoStaticSeason {
+  slug: string;
+  name: string;
+  startsAt: IsoDateTime | null;
+  endsAt: IsoDateTime | null;
+  isCurrent: boolean;
+  dungeonSlugs: string[];
+}
+
+export interface RaiderIoStaticData {
+  expansionId: number;
+  seasons: RaiderIoStaticSeason[];
+  dungeons: RaiderIoStaticDungeon[];
+  attribution: RaiderIoAttribution;
+}
+
+export interface RaiderIoPeriod {
+  id: number;
+  seasonSlug: string | null;
+  startsAt: IsoDateTime;
+  endsAt: IsoDateTime;
+}
+
+export interface RaiderIoRunDetails {
+  externalRunId: string;
+  seasonSlug: string;
+  dungeonSlug: string;
+  dungeonName: string;
+  keyLevel: number;
+  completedAt: IsoDateTime;
+  durationMs: number;
+  timerMs: number | null;
+  timed: boolean;
+  scoreValue: number | null;
+  roster: RaiderIoRosterMember[];
+  profileUrl: string | null;
+  attribution: RaiderIoAttribution;
+}
+
+/** Neutral facts for authenticity/boost analysis (Agent 4). Does not compute boost verdicts. */
+export interface RaiderIoBoostSupportFacts {
+  targetCharacterKey: string;
+  snapshotAt: IsoDateTime;
+  currentSeasonScore: number | null;
+  previousSeasonScore: number | null;
+  currentRanks: RaiderIoRankSummary | null;
+  runs: Array<{
+    externalRunId: string;
+    completedAt: IsoDateTime;
+    dungeonSlug: string;
+    keyLevel: number;
+    durationMs: number;
+    timed: boolean;
+    scoreValue: number | null;
+    source: RaiderIoRunCandidate["source"];
+    teammates: RaiderIoRosterMember[];
+  }>;
+  teammateRecurrence: Array<{
+    providerCharacterKey: string;
+    sharedRunCount: number;
+    averageTeammateScore: number | null;
+  }>;
+  representedRunCount: number;
+  historyIncomplete: boolean;
+  attribution: RaiderIoAttribution;
+}
