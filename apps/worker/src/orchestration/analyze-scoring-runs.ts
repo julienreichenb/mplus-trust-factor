@@ -10,11 +10,14 @@ import type {
   ProviderResult,
   ScoringRunSelection,
   ScoringSelectedRun,
+  SurvivalRawFacts,
 } from "@mplus/contracts";
 import {
   MIDNIGHT_S1_SEASON,
+  estimateAvailableDefensiveUses,
   extractSurvivalCounts,
   extractUtilityCounts,
+  hasAbilityCategory,
   loadSeedAbilityCatalog,
   loadSeedScoringMechanicCatalog,
   resolveSeasonDungeonSet,
@@ -65,6 +68,8 @@ export interface ScoringRunAnalysisRow {
   analysisError: string | null;
   reusedCachedFight: boolean;
   wclApiCalls: number;
+  /** Survival raw facts for the selected run (null when detail unavailable). */
+  survivalFacts: SurvivalRawFacts | null;
 }
 
 export interface ScoringRunAnalysisDiagnostics {
@@ -209,7 +214,7 @@ function buildUnavailableObservations(input: {
   classSlug?: string | null;
   specSlug?: string | null;
   region?: string | null;
-}): MetricObservationDTO[] {
+}): { observations: MetricObservationDTO[]; survival: SurvivalRawFacts } {
   const abilityCatalog = loadSeedAbilityCatalog();
   const mechanicCatalog = loadSeedScoringMechanicCatalog();
   const provenance = buildProvenance({
@@ -241,17 +246,20 @@ function buildUnavailableObservations(input: {
     region: input.region ?? null,
     detailAvailable: false,
   });
-  return rawFactsToMetricObservations({ survival, utility, performance }).map((obs) => ({
-    ...obs,
-    confidence: Math.min(obs.confidence, 0.15),
-    context: {
-      ...(typeof obs.context === "object" && obs.context ? obs.context : {}),
-      detailAvailable: false,
-      rejectionReason: input.reason,
-      classSlug: input.classSlug ?? null,
-      specSlug: input.specSlug ?? null,
-    },
-  }));
+  return {
+    survival,
+    observations: rawFactsToMetricObservations({ survival, utility, performance }).map((obs) => ({
+      ...obs,
+      confidence: Math.min(obs.confidence, 0.15),
+      context: {
+        ...(typeof obs.context === "object" && obs.context ? obs.context : {}),
+        detailAvailable: false,
+        rejectionReason: input.reason,
+        classSlug: input.classSlug ?? null,
+        specSlug: input.specSlug ?? null,
+      },
+    })),
+  };
 }
 
 function buildAvailableObservations(input: {
@@ -262,7 +270,7 @@ function buildAvailableObservations(input: {
   classSlug?: string | null;
   specSlug?: string | null;
   region?: string | null;
-}): MetricObservationDTO[] {
+}): { observations: MetricObservationDTO[]; survival: SurvivalRawFacts } {
   const abilityCatalog = loadSeedAbilityCatalog();
   const mechanicCatalog = loadSeedScoringMechanicCatalog();
   const attributed = resolveAttributedSourceIds(input.facts.actorMap, input.facts.targetSourceId);
@@ -278,7 +286,7 @@ function buildAvailableObservations(input: {
     targetSourceId: input.facts.targetSourceId,
     attributedSourceIds: attributed,
     hostileTargetIds,
-    maxHealth: null as number | null,
+    maxHealth: input.facts.combatantInfo?.maxHitPoints ?? null,
     abilityCatalog,
     mechanicCatalog,
     casts: input.facts.casts,
@@ -320,16 +328,34 @@ function buildAvailableObservations(input: {
     region: input.region ?? null,
     detailAvailable: true,
   });
-  return rawFactsToMetricObservations({ survival, utility, performance }).map((obs) => ({
-    ...obs,
-    context: {
-      ...(typeof obs.context === "object" && obs.context ? obs.context : {}),
-      detailAvailable: true,
-      coverageRatio: coverageRatio(input.facts),
-      classSlug: input.classSlug ?? null,
-      specSlug: input.specSlug ?? null,
-    },
-  }));
+  return {
+    survival,
+    observations: rawFactsToMetricObservations({ survival, utility, performance }).map((obs) => ({
+      ...obs,
+      context: {
+        ...(typeof obs.context === "object" && obs.context ? obs.context : {}),
+        detailAvailable: true,
+        coverageRatio: coverageRatio(input.facts),
+        classSlug: input.classSlug ?? null,
+        specSlug: input.specSlug ?? null,
+        availableDefensiveUses: estimateAvailableDefensiveUses({
+          abilityCatalog,
+          durationMs: input.selected.durationMs,
+          classSlug: input.classSlug,
+          specSlug: input.specSlug,
+        }),
+        hasPersonalDefensiveCapability: hasAbilityCategory(
+          abilityCatalog,
+          "personal_defensive",
+          input.classSlug,
+          input.specSlug,
+        ),
+        hasSelfHealOrPotionCapability:
+          hasAbilityCategory(abilityCatalog, "self_heal", input.classSlug, input.specSlug) ||
+          hasAbilityCategory(abilityCatalog, "health_potion", input.classSlug, input.specSlug),
+      },
+    })),
+  };
 }
 
 /**
@@ -386,6 +412,15 @@ export async function analyzeScoringRuns(input: {
   for (const selected of targets) {
     const candidate = byId.get(selected.canonicalRunId);
     if (!candidate) {
+      const built = buildUnavailableObservations({
+        selected,
+        observedAt,
+        reason: "selected_run_missing_from_candidates",
+        seasonSlug: input.season.seasonSlug,
+        classSlug: input.classSlug,
+        specSlug: input.specSlug,
+        region: input.ctx.region,
+      });
       rows.push({
         selected,
         runId: selected.canonicalRunId,
@@ -396,24 +431,24 @@ export async function analyzeScoringRuns(input: {
         analysisError: null,
         reusedCachedFight: false,
         wclApiCalls: 0,
+        survivalFacts: built.survival,
       });
-      v3Observations.push(
-        ...buildUnavailableObservations({
-          selected,
-          observedAt,
-          reason: "selected_run_missing_from_candidates",
-          seasonSlug: input.season.seasonSlug,
-          classSlug: input.classSlug,
-          specSlug: input.specSlug,
-          region: input.ctx.region,
-        }),
-      );
+      v3Observations.push(...built.observations);
       continue;
     }
 
     if (!candidate.wclSource || !selected.wclReportMatched) {
       const reason =
         selected.rejectionReasons[0] ?? "wcl_detail_unavailable_on_highest_run";
+      const built = buildUnavailableObservations({
+        selected,
+        observedAt,
+        reason,
+        seasonSlug: input.season.seasonSlug,
+        classSlug: input.classSlug,
+        specSlug: input.specSlug,
+        region: input.ctx.region,
+      });
       rows.push({
         selected,
         runId: candidate.runId,
@@ -424,18 +459,9 @@ export async function analyzeScoringRuns(input: {
         analysisError: null,
         reusedCachedFight: false,
         wclApiCalls: 0,
+        survivalFacts: built.survival,
       });
-      v3Observations.push(
-        ...buildUnavailableObservations({
-          selected,
-          observedAt,
-          reason,
-          seasonSlug: input.season.seasonSlug,
-          classSlug: input.classSlug,
-          specSlug: input.specSlug,
-          region: input.ctx.region,
-        }),
-      );
+      v3Observations.push(...built.observations);
       continue;
     }
 
@@ -473,6 +499,15 @@ export async function analyzeScoringRuns(input: {
 
     if (!details?.combatFacts) {
       const reason = analysisError ?? "wcl_fight_details_unavailable";
+      const built = buildUnavailableObservations({
+        selected,
+        observedAt,
+        reason,
+        seasonSlug: input.season.seasonSlug,
+        classSlug: input.classSlug,
+        specSlug: input.specSlug,
+        region: input.ctx.region,
+      });
       rows.push({
         selected,
         runId: candidate.runId,
@@ -483,23 +518,23 @@ export async function analyzeScoringRuns(input: {
         analysisError,
         reusedCachedFight,
         wclApiCalls: rowApiCalls,
+        survivalFacts: built.survival,
       });
-      v3Observations.push(
-        ...buildUnavailableObservations({
-          selected,
-          observedAt,
-          reason,
-          seasonSlug: input.season.seasonSlug,
-          classSlug: input.classSlug,
-          specSlug: input.specSlug,
-          region: input.ctx.region,
-        }),
-      );
+      v3Observations.push(...built.observations);
       continue;
     }
 
     const coverage = coverageRatio(details.combatFacts);
     combatFactsList.push(details.combatFacts);
+    const built = buildAvailableObservations({
+      selected,
+      facts: details.combatFacts,
+      observedAt,
+      seasonSlug: input.season.seasonSlug,
+      classSlug: input.classSlug,
+      specSlug: input.specSlug,
+      region: input.ctx.region,
+    });
     rows.push({
       selected: {
         ...selected,
@@ -519,18 +554,9 @@ export async function analyzeScoringRuns(input: {
       analysisError: null,
       reusedCachedFight,
       wclApiCalls: rowApiCalls,
+      survivalFacts: built.survival,
     });
-    v3Observations.push(
-      ...buildAvailableObservations({
-        selected,
-        facts: details.combatFacts,
-        observedAt,
-        seasonSlug: input.season.seasonSlug,
-        classSlug: input.classSlug,
-        specSlug: input.specSlug,
-        region: input.ctx.region,
-      }),
-    );
+    v3Observations.push(...built.observations);
   }
 
   const accounted = input.endWclApiCallAccounting?.();

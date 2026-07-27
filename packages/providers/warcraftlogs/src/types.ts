@@ -203,6 +203,8 @@ export interface WclHealingEvent {
 export interface WclCombatantInfo {
   sourceId: number;
   specId: number | null;
+  /** Max hit points from CombatantInfo when the provider exposes it. */
+  maxHitPoints: number | null;
   gear: unknown;
   talents: unknown;
   artifactTraits: unknown;

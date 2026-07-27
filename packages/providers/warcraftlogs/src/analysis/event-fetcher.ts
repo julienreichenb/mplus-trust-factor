@@ -211,6 +211,10 @@ export async function buildRunCombatFactsFromEvents(
           combatantInfo = {
             sourceId: targetSourceId,
             specId: num(first, "specID"),
+            maxHitPoints:
+              num(first, "maxHitPoints") ??
+              num(first, "maxHitpoints") ??
+              num(first, "hitPoints"),
             gear: first.gear ?? null,
             talents: first.talents ?? null,
             artifactTraits: first.artifactTraits ?? null,

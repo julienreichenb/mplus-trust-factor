@@ -86,7 +86,7 @@ export function buildEightRunRawFactRows(input: {
         targetSourceId: facts.targetSourceId,
         attributedSourceIds: attributed,
         hostileTargetIds,
-        maxHealth: null as number | null,
+        maxHealth: facts.combatantInfo?.maxHitPoints ?? null,
         abilityCatalog,
         mechanicCatalog,
         casts: facts.casts,

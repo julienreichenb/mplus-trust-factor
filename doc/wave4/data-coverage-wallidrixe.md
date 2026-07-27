@@ -34,13 +34,13 @@ This document records whether each required Wave 4 metric can be collected from 
 
 | Metric | Status | Notes |
 |---|---|---|
-| Death count | AVAILABLE | WCL Deaths filtered to target actor. |
+| Death count | AVAILABLE | WCL Deaths filtered to target actor. Scored by Survival v3 soft curve (cap 5). |
 | Damage taken | AVAILABLE | WCL DamageTaken totals for target. |
-| Avoidable damage | PARTIAL | Requires scoring-mechanic catalog; unknown abilities are never avoidable. Seed covers synthetic + a few live IDs only — coverage ratio will be low until Agent 23 expands catalog. |
-| Personal defensive casts | AVAILABLE | Catalog-driven (`personal_defensive`) for Warlock seed. |
-| Self-heal effective / overheal | PARTIAL | Requires Healing events (`includeHealing=true` in eight-run smoke). Catalog maps Drain Life / Healthstone. |
-| Healing potion casts | PARTIAL | Catalog seed includes Healthstone + shared potion id; live potion IDs may differ by season. |
-| Max health | BLOCKED | Not present on current `RunCombatFacts` / combatantInfo snapshot. Needed for damage normalization. |
+| Avoidable damage | PARTIAL | Versioned scoring-mechanic catalog (`scoring-mechanic-catalog-v1-survival-agent23`). Unknown abilities never avoidable. Recycled dungeons expanded; Midnight-original dungeons still placeholder IDs. |
+| Personal defensives | AVAILABLE | Catalog-driven (`personal_defensive`) for Warlock seed; available uses = Σ floor(duration/CD), spam capped. |
+| Self-heal effective / overheal | PARTIAL | Requires Healing events. Effective heal credited; overheal exposed in explanation only. |
+| Healing potion casts | PARTIAL | Catalog includes Healthstone + Algari + seasonal seed ID — verify live Midnight potion IDs. |
+| Max health | PARTIAL | Extracted from CombatantInfo `maxHitPoints` when present; otherwise BLOCKED and avoidable contributor renormalizes. |
 
 ## Utility
 

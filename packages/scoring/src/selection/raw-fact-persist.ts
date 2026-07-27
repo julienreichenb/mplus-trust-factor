@@ -256,6 +256,30 @@ export function rawFactsToMetricObservations(input: {
       confidence: input.survival.personalDefensiveCasts == null ? 0 : 0.7,
     },
     {
+      metricKey: "survival.v3.self_heal_effective",
+      dimension: "SURVIVAL",
+      rawValue: input.survival.selfHealEffective,
+      confidence: input.survival.selfHealEffective == null ? 0 : 0.65,
+    },
+    {
+      metricKey: "survival.v3.self_heal_overheal",
+      dimension: "SURVIVAL",
+      rawValue: input.survival.selfHealOverheal,
+      confidence: input.survival.selfHealOverheal == null ? 0 : 0.65,
+    },
+    {
+      metricKey: "survival.v3.health_potion_casts",
+      dimension: "SURVIVAL",
+      rawValue: input.survival.healthPotionCasts,
+      confidence: input.survival.healthPotionCasts == null ? 0 : 0.7,
+    },
+    {
+      metricKey: "survival.v3.max_health",
+      dimension: "SURVIVAL",
+      rawValue: input.survival.maxHealth,
+      confidence: input.survival.maxHealth == null ? 0 : 0.75,
+    },
+    {
       metricKey: "utility.v3.kick_casts",
       dimension: "UTILITY",
       rawValue: input.utility.kickCasts,

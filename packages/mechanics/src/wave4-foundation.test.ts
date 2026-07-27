@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   MIDNIGHT_S1_SEASON,
+  estimateAvailableDefensiveUses,
   extractSurvivalCounts,
   extractUtilityCounts,
+  hasAbilityCategory,
   isPlaceholderSeasonSlug,
   loadSeedAbilityCatalog,
   loadSeedScoringMechanicCatalog,
@@ -23,6 +25,22 @@ describe("wave4 ability + scoring mechanic catalogs", () => {
     const catalog = loadSeedScoringMechanicCatalog();
     expect(validateScoringMechanicCatalog(catalog)).toEqual([]);
     expect(catalog.catalogVersion).toMatch(/^scoring-mechanic-catalog-/);
+    expect(catalog.rules.length).toBeGreaterThan(5);
+  });
+
+  it("estimates warlock demo defensive capacity from duration", () => {
+    const catalog = loadSeedAbilityCatalog();
+    expect(hasAbilityCategory(catalog, "personal_defensive", "warlock", "demonology")).toBe(
+      true,
+    );
+    const uses = estimateAvailableDefensiveUses({
+      abilityCatalog: catalog,
+      durationMs: 180_000,
+      classSlug: "warlock",
+      specSlug: "demonology",
+    });
+    // Unending Resolve 180s → 1; Dark Pact 60s → 3
+    expect(uses).toBe(4);
   });
 
   it("rejects invalid ability catalog versions / rules", () => {

@@ -2,7 +2,7 @@ import type { AbilityCatalog } from "../ability-types.js";
 
 /** Bounded Wave 4 seed — Warlock Demonology + shared potions. Spell IDs live only here. */
 export const SEED_ABILITY_CATALOG: AbilityCatalog = {
-  catalogVersion: "ability-catalog-v1-seed",
+  catalogVersion: "ability-catalog-v1-survival-agent23",
   seasonSlug: "season-midnight-s1",
   rules: [
     {
@@ -113,6 +113,12 @@ export const SEED_ABILITY_CATALOG: AbilityCatalog = {
       classSlug: "*",
       categories: ["health_potion"],
       notes: "Algari Healing Potion (shared; seed id for validation)",
+    },
+    {
+      spellId: 1236940,
+      classSlug: "*",
+      categories: ["health_potion"],
+      notes: "Seasonal healing potion seed — verify live Midnight item/spell ID",
     },
     {
       spellId: 89808,
