@@ -28,6 +28,11 @@
     "db:studio": "node tools/scripts/with-env.mjs pnpm --filter @mplus/database exec prisma studio",
     "db:generate": "pnpm --filter @mplus/database exec prisma generate",
     "openapi:generate": "node tools/scripts/with-env.mjs pnpm --filter @mplus/api run openapi:generate",
+    "addon:export": "node tools/scripts/addon.mjs export",
+    "addon:test": "node tools/scripts/addon.mjs test",
+    "addon:check": "node tools/scripts/addon.mjs check",
+    "addon:benchmark": "node tools/scripts/addon.mjs benchmark",
+    "addon:package": "node tools/scripts/addon.mjs package",
     "wcl:smoke": "node tools/scripts/with-env.mjs node tools/scripts/wcl-smoke.mjs",
     "format": "prettier --write ."
   },
