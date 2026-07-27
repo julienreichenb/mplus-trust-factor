@@ -30,6 +30,8 @@ import {
   normalizeCharacterProfile,
   normalizeDungeon,
   normalizeEquipmentSnapshot,
+  attachEquipmentIconUrls,
+  sanitizeHttpsUrl,
   normalizeItem,
   normalizeLeaderboard,
   normalizeMedia,
@@ -293,15 +295,33 @@ export class LiveBlizzardProvider implements BlizzardProvider {
       locale: this.defaultLocale,
     });
     const raw = parseOrThrow(equipmentSchema, result.data, endpointKey);
+    let snapshot = normalizeEquipmentSnapshot(identity, raw);
+    try {
+      const itemIds = (Array.isArray(snapshot.items) ? snapshot.items : [])
+        .map((entry) =>
+          entry && typeof entry === "object" && typeof (entry as { itemId?: unknown }).itemId === "number"
+            ? ((entry as { itemId: number }).itemId)
+            : null,
+        )
+        .filter((id): id is number => id != null);
+      if (itemIds.length > 0) {
+        const itemsResult = await this.getItems(itemIds, ctx);
+        const iconByItemId = new Map<number, string | null>();
+        for (const item of itemsResult.data) {
+          iconByItemId.set(item.blizzardItemId, sanitizeHttpsUrl(item.mediaUrl));
+        }
+        snapshot = attachEquipmentIconUrls(snapshot, iconByItemId);
+      }
+    } catch {
+      // Partial/failed item-media lookup must not fail equipment enrichment.
+    }
     return buildProviderResult({
-      data: normalizeEquipmentSnapshot(identity, raw),
+      data: snapshot,
       ctx,
       endpointKey,
       sourceUrl: result.sourceUrl,
       cacheHit: result.cacheHit,
       statusCode: result.statusCode,
-      retryCount: result.retryCount,
-      etag: result.etag,
       expiresAt: result.expiresAt,
     });
   }
@@ -795,54 +815,58 @@ export class LiveBlizzardProvider implements BlizzardProvider {
     let sourceUrl: string | null = null;
 
     for (const itemId of unique) {
-      const itemFp = fingerprintFor({
-        region: region.key,
-        endpointKey: "item.get",
-        pathParams: { itemId: String(itemId) },
-      });
-      const itemResult = await this.http.getJson<unknown>({
-        regionConfig: region,
-        namespaceKind: "static",
-        path: `data/wow/item/${itemId}`,
-        endpointKey: "item.get",
-        fingerprint: itemFp,
-        ttlSeconds: DEFAULT_TTL_SECONDS.item,
-        forceRefresh: ctx.forceRefresh,
-        locale: this.defaultLocale,
-      });
-      const mediaFp = fingerprintFor({
-        region: region.key,
-        endpointKey: "item.media",
-        pathParams: { itemId: String(itemId) },
-      });
-      const mediaResult = await this.http.getJson<unknown>({
-        regionConfig: region,
-        namespaceKind: "static",
-        path: `data/wow/media/item/${itemId}`,
-        endpointKey: "item.media",
-        fingerprint: mediaFp,
-        ttlSeconds: DEFAULT_TTL_SECONDS.item,
-        forceRefresh: ctx.forceRefresh,
-        locale: this.defaultLocale,
-      });
-      const item = parseOrThrow(itemSchema, itemResult.data, "item.get");
-      const media = parseOrThrow(itemMediaSchema, mediaResult.data, "item.media");
-      const icon = media.assets.find((a) => a.key === "icon")?.value ?? null;
-      items.push(
-        normalizeItem(
-          {
-            id: item.id,
-            name: item.name,
-            quality: item.quality ? { type: refLabel(item.quality) ?? undefined, name: item.quality.name } : null,
-            level: item.level ?? undefined,
-            required_level: item.required_level ?? undefined,
-          },
-          icon,
-        ),
-      );
-      cacheHit = cacheHit && itemResult.cacheHit && mediaResult.cacheHit;
-      statusCode = itemResult.statusCode;
-      sourceUrl = itemResult.sourceUrl;
+      try {
+        const itemFp = fingerprintFor({
+          region: region.key,
+          endpointKey: "item.get",
+          pathParams: { itemId: String(itemId) },
+        });
+        const itemResult = await this.http.getJson<unknown>({
+          regionConfig: region,
+          namespaceKind: "static",
+          path: `data/wow/item/${itemId}`,
+          endpointKey: "item.get",
+          fingerprint: itemFp,
+          ttlSeconds: DEFAULT_TTL_SECONDS.item,
+          forceRefresh: ctx.forceRefresh,
+          locale: this.defaultLocale,
+        });
+        const mediaFp = fingerprintFor({
+          region: region.key,
+          endpointKey: "item.media",
+          pathParams: { itemId: String(itemId) },
+        });
+        const mediaResult = await this.http.getJson<unknown>({
+          regionConfig: region,
+          namespaceKind: "static",
+          path: `data/wow/media/item/${itemId}`,
+          endpointKey: "item.media",
+          fingerprint: mediaFp,
+          ttlSeconds: DEFAULT_TTL_SECONDS.item,
+          forceRefresh: ctx.forceRefresh,
+          locale: this.defaultLocale,
+        });
+        const item = parseOrThrow(itemSchema, itemResult.data, "item.get");
+        const media = parseOrThrow(itemMediaSchema, mediaResult.data, "item.media");
+        const icon = media.assets.find((a) => a.key === "icon")?.value ?? null;
+        items.push(
+          normalizeItem(
+            {
+              id: item.id,
+              name: item.name,
+              quality: item.quality ? { type: refLabel(item.quality) ?? undefined, name: item.quality.name } : null,
+              level: item.level ?? undefined,
+              required_level: item.required_level ?? undefined,
+            },
+            icon,
+          ),
+        );
+        cacheHit = cacheHit && itemResult.cacheHit && mediaResult.cacheHit;
+        statusCode = itemResult.statusCode;
+        sourceUrl = itemResult.sourceUrl;
+      } catch {
+        // Soft-skip individual item/media failures so partial catalogs still enrich.
+      }
     }
 
     return buildProviderResult({

@@ -112,6 +112,8 @@ export function normalizeCharacterProfile(
     classSlug: slugifyLabel(payload.character_class?.name) ?? null,
     specSlug: slugifyLabel(payload.active_spec?.name) ?? null,
     role: roleFromSpecType(payload.active_spec?.type),
+    level: typeof payload.level === "number" && payload.level > 0 ? payload.level : null,
+    faction: payload.faction?.name ?? null,
     blizzardCharacterId: String(payload.id),
     wclCanonicalId: null,
     raiderioProfileUrl: null,
@@ -218,15 +220,36 @@ export function normalizeEquipmentSnapshot(
 ): EquipmentSnapshotDTO {
   const ref = toCharacterRef(identity);
   const characterId = characterCanonicalId(ref.region, ref.realmSlug, ref.normalizedName);
-  const items = (equipment.equipped_items ?? []).map((item) => ({
-    itemId: item.item.id,
-    slot: refLabel(item.slot),
-    name: item.name ?? null,
-    quality: refLabel(item.quality),
-    itemLevel: item.level?.value ?? null,
-  }));
-  const keyItems = items.filter((item) => {
-    const slot = String(item.slot ?? "").toUpperCase();
+  const items = (equipment.equipped_items ?? []).map((item) => {
+    const raw = item as {
+      enchantments?: Array<{ display_string?: string; enchantment_id?: number }>;
+      sockets?: Array<{ item?: { name?: string; id?: number }; display_string?: string }>;
+      media?: { id?: number };
+    };
+    const enchantments = (raw.enchantments ?? [])
+      .map((e) => e.display_string?.trim())
+      .filter((s): s is string => Boolean(s));
+    const gems = (raw.sockets ?? [])
+      .map((s) => {
+        const name = s.item?.name?.trim() || s.display_string?.trim() || null;
+        if (!name) return null;
+        return { name, itemId: s.item?.id ?? null };
+      })
+      .filter((g): g is { name: string; itemId: number | null } => g != null);
+
+    return {
+      itemId: item.item.id,
+      slot: refLabel(item.slot),
+      name: item.name ?? null,
+      quality: refLabel(item.quality),
+      itemLevel: item.level?.value ?? null,
+      iconUrl: null as string | null,
+      enchantments,
+      gems,
+    };
+  });
+  const keyItems = items.filter((entry) => {
+    const slot = String(entry.slot ?? "").toUpperCase();
     return slot.includes("TRINKET") || slot.includes("FINGER") || slot.includes("NECK");
   });
   return {
@@ -239,6 +262,43 @@ export function normalizeEquipmentSnapshot(
     keyItems,
     sourcePayloadId: null,
   };
+}
+
+/** Attach HTTPS icon URLs onto equipment items (mutates a shallow copy). Soft-fail per item. */
+export function attachEquipmentIconUrls(
+  snapshot: EquipmentSnapshotDTO,
+  iconByItemId: Map<number, string | null>,
+): EquipmentSnapshotDTO {
+  const attach = (raw: unknown): unknown => {
+    if (!Array.isArray(raw)) return raw;
+    return raw.map((entry) => {
+      if (!entry || typeof entry !== "object") return entry;
+      const item = entry as { itemId?: unknown; iconUrl?: unknown };
+      const id = typeof item.itemId === "number" ? item.itemId : null;
+      if (id == null) return entry;
+      const icon = iconByItemId.get(id);
+      if (!icon) return entry;
+      return { ...item, iconUrl: sanitizeHttpsUrl(icon) };
+    });
+  };
+  return {
+    ...snapshot,
+    items: attach(snapshot.items),
+    keyItems: attach(snapshot.keyItems),
+  };
+}
+
+export function sanitizeHttpsUrl(value: string | null | undefined): string | null {
+  if (!value || typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed.toLowerCase().startsWith("https://")) return null;
+  try {
+    const url = new URL(trimmed);
+    if (url.protocol !== "https:") return null;
+    return url.toString();
+  } catch {
+    return null;
+  }
 }
 
 export function normalizeTalentSnapshot(
@@ -266,13 +326,16 @@ export function normalizeTalentSnapshot(
 }
 
 export function normalizeMedia(payload: MediaPayload): BlizzardCharacterMediaDTO {
-  const assets = (payload.assets ?? []).map((a) => ({ key: a.key, url: a.value }));
+  const assets = (payload.assets ?? []).map((a) => ({
+    key: a.key,
+    url: sanitizeHttpsUrl(a.value) ?? a.value,
+  }));
   const byKey = Object.fromEntries(assets.map((a) => [a.key, a.url]));
   return {
-    avatarUrl: byKey.avatar ?? null,
-    insetUrl: byKey.inset ?? null,
-    mainUrl: byKey.main ?? byKey["main-raw"] ?? null,
-    assets,
+    avatarUrl: sanitizeHttpsUrl(byKey.avatar ?? null),
+    insetUrl: sanitizeHttpsUrl(byKey.inset ?? null),
+    mainUrl: sanitizeHttpsUrl(byKey.main ?? byKey["main-raw"] ?? null),
+    assets: assets.filter((a) => sanitizeHttpsUrl(a.url) != null),
   };
 }
 

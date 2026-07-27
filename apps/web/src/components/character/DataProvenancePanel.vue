@@ -10,10 +10,32 @@ const props = defineProps<{
 
 const expectedProviders = ["BLIZZARD", "RAIDER_IO", "WARCRAFT_LOGS"] as const;
 
+function normalizeProviderKey(provider: string): string {
+  const compact = provider.trim().toLowerCase().replace(/[_-]+/g, "");
+  if (compact === "blizzard") return "BLIZZARD";
+  if (compact === "raiderio") return "RAIDER_IO";
+  if (compact === "warcraftlogs") return "WARCRAFT_LOGS";
+  return provider.toUpperCase();
+}
+
 const sourceMap = computed(() => {
-  const map = new Map<string, { provider: string; fetchedAt: string; url: string | null }>();
+  const map = new Map<
+    string,
+    { provider: string; fetchedAt: string; url: string | null; contributedToScore?: boolean }
+  >();
   for (const source of props.profile.sources ?? []) {
-    map.set(source.provider.toUpperCase(), source);
+    map.set(normalizeProviderKey(source.provider), {
+      ...source,
+      provider: normalizeProviderKey(source.provider),
+    });
+  }
+  return map;
+});
+
+const stateMap = computed(() => {
+  const map = new Map<string, NonNullable<CharacterProfileView["providerStates"]>[number]>();
+  for (const state of props.profile.providerStates ?? []) {
+    map.set(normalizeProviderKey(String(state.provider)), state);
   }
   return map;
 });
@@ -21,13 +43,28 @@ const sourceMap = computed(() => {
 const rows = computed(() =>
   expectedProviders.map((provider) => {
     const found = sourceMap.value.get(provider);
+    const lifecycle = stateMap.value.get(provider);
+    const contributed =
+      found?.contributedToScore === true || lifecycle?.contributedToScore === true;
+    let statusLabel = found ? "Present in snapshot" : "Not in snapshot";
+    if (lifecycle?.wclVisibility === "NO_MATCHED_RUN") {
+      statusLabel = "Public logs · no matched runs";
+    } else if (lifecycle?.wclVisibility === "HIDDEN") {
+      statusLabel = "Hidden on Warcraft Logs";
+    } else if (lifecycle?.state === "RATE_LIMITED") {
+      statusLabel = "Rate limited";
+    } else if (lifecycle?.state === "UNAVAILABLE" && !found) {
+      statusLabel = "Unavailable";
+    } else if (contributed) {
+      statusLabel = "Present · contributed to score";
+    }
     return {
       provider,
       label: humanizeProvider(provider),
-      present: Boolean(found),
-      fetchedAt: found?.fetchedAt ?? null,
-      url: found?.url ?? null,
-      statusLabel: found ? "Present in snapshot" : "Not in snapshot",
+      present: Boolean(found || lifecycle),
+      fetchedAt: found?.fetchedAt ?? lifecycle?.fetchedAt ?? null,
+      url: found?.url ?? lifecycle?.sourceUrl ?? null,
+      statusLabel,
     };
   }),
 );
@@ -42,6 +79,8 @@ function wclStatusLabel(visibility: WclVisibilityState | null | undefined): stri
       return "Character hidden on Warcraft Logs";
     case "NO_PUBLIC_LOGS":
       return "No public Warcraft Logs reports";
+    case "NO_MATCHED_RUN":
+      return "Public logs found, but none matched selected runs";
     case "PRIVATE_SKIPPED":
       return "Private reports skipped";
     case "UNAVAILABLE":
@@ -70,9 +109,6 @@ function wclStatusLabel(visibility: WclVisibilityState | null | undefined): stri
       <div>
         <dt>Warcraft Logs</dt>
         <dd>
-          <span v-if="profile.wclVisibility" class="sr-only" data-testid="wcl-visibility">{{
-            profile.wclVisibility
-          }}</span>
           {{ wclLabel }}
         </dd>
       </div>

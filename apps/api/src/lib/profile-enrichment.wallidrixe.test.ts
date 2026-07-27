@@ -4,7 +4,7 @@ import {
   buildProfileEnrichments,
 } from "./profile-enrichment.js";
 import type { AppEnv } from "@mplus/config";
-import type { Character, CharacterSnapshot, EquipmentSnapshot, GameClass, GameSpecialization } from "@mplus/database";
+import type { Character, CharacterSnapshot, EquipmentSnapshot, GameClass, GameSpecialization, TalentSnapshot } from "@mplus/database";
 import type { MythicRunWithRelations } from "@mplus/worker";
 import type { ScoreSnapshotDTO } from "@mplus/contracts";
 
@@ -154,5 +154,161 @@ describe("Wallidrixe-shaped profile enrichment", () => {
       { confidence: 0.2, grade: "U", redFlags: [{ key: "insufficient_data" }] } as unknown as ScoreSnapshotDTO,
     );
     expect(unrated.warnings.some((w) => w.code === "INSUFFICIENT_DATA")).toBe(true);
+  });
+
+  it("maps full equipment DTO and rejects unsafe icon URLs / zero item levels", () => {
+    const snapshot = {
+      itemLevelEquipped: 680,
+      mythicRating: 3000,
+      equipment: {
+        averageItemLevel: 678,
+        equippedItemLevel: 680,
+        items: [
+          {
+            slot: "Head",
+            itemId: 1,
+            name: "Helm",
+            itemLevel: 0,
+            quality: "Epic",
+            iconUrl: "http://insecure.example/icon.png",
+            enchantments: ["+50 Crit"],
+            gems: [{ name: "Crit Gem", itemId: 9 }],
+          },
+          {
+            slot: "Trinket",
+            itemId: 2,
+            name: "Safe Trinket",
+            itemLevel: 684,
+            quality: "Epic",
+            iconUrl: "https://render.worldofwarcraft.com/icons/56/inv.png",
+            enchantments: [],
+            gems: [],
+          },
+        ],
+        keyItems: [
+          {
+            slot: "Trinket",
+            itemId: 2,
+            name: "Safe Trinket",
+            itemLevel: 684,
+            quality: "Epic",
+            iconUrl: "https://render.worldofwarcraft.com/icons/56/inv.png",
+            enchantments: [],
+            gems: [],
+          },
+        ],
+      },
+      rawSummary: {
+        media: {
+          avatarUrl: "https://render.worldofwarcraft.com/eu/avatar.jpg",
+          insetUrl: null,
+          mainRawUrl: "javascript:alert(1)",
+        },
+      },
+      talents: [
+        {
+          loadoutCode: "FIRE-LOADOUT",
+          talents: { activeSpecialization: { name: "fire" } },
+        },
+      ],
+      capturedAt: new Date("2026-07-20T12:00:00.000Z"),
+    } as unknown as CharacterSnapshot & { equipment: EquipmentSnapshot; talents: TalentSnapshot[] };
+
+    const enrichments = buildProfileEnrichments({
+      character: characterStub(),
+      latestSnapshot: snapshot,
+      latestRun: runStub("run-a"),
+      highestRun: runStub("run-a"),
+      runCount: 8,
+      seasonSlug: "blizzard-season-13",
+      wclVisibility: "PUBLIC",
+      selectedRunCoverage: 0.9,
+      providerStates: [
+        {
+          provider: "warcraftlogs",
+          state: "OK",
+          detail: null,
+          lastAttemptAt: "2026-07-20T12:00:00.000Z",
+          lastSuccessAt: "2026-07-20T12:00:00.000Z",
+          fetchedAt: "2026-07-20T12:00:00.000Z",
+          expiresAt: null,
+          wclVisibility: "PUBLIC",
+          warnings: [],
+        },
+      ],
+      scoreObservationProviders: ["warcraftlogs", "blizzard"],
+      performanceSummary: {
+        currentSeason: {
+          peakScore: 80,
+          consistencyScore: 70,
+          score: 76.5,
+          confidence: 0.9,
+          dungeonCount: 8,
+          expectedDungeonCount: 8,
+          latestObservedAt: "2026-07-20T12:00:00.000Z",
+          dungeons: [],
+        },
+        historical: null,
+      },
+      env,
+    });
+
+    expect(enrichments.lastAnalyzedRun?.kind).toBe("BOTH");
+    expect(enrichments.highestAnalyzedRun?.kind).toBe("BOTH");
+    expect(enrichments.equipment?.items).toHaveLength(2);
+    expect(enrichments.equipment?.items[0]?.itemLevel).toBeNull();
+    expect(enrichments.equipment?.items[0]?.iconUrl).toBeNull();
+    expect(enrichments.equipment?.items[1]?.iconUrl).toContain("https://");
+    expect(enrichments.equipment?.items[0]?.enchantments).toEqual(["+50 Crit"]);
+    expect(enrichments.media?.avatarUrl).toContain("https://");
+    expect(enrichments.media?.mainRawUrl).toBeNull();
+    expect(enrichments.talents?.loadoutCode).toBe("FIRE-LOADOUT");
+    expect(enrichments.providerStates?.[0]?.contributedToScore).toBe(true);
+    expect(enrichments.performanceSummary?.currentSeason.dungeonCount).toBe(8);
+  });
+
+  it("returns distinct BEST/LATEST kinds when runs differ", () => {
+    const enrichments = buildProfileEnrichments({
+      character: characterStub(),
+      latestRun: runStub("run-latest"),
+      highestRun: runStub("run-best"),
+      runCount: 4,
+      seasonSlug: "blizzard-season-13",
+      wclVisibility: "NO_MATCHED_RUN",
+      selectedRunCoverage: 0,
+      env,
+    });
+    expect(enrichments.lastAnalyzedRun?.kind).toBe("LATEST");
+    expect(enrichments.highestAnalyzedRun?.kind).toBe("HIGHEST");
+    const warned = applyProfileWarnings(enrichments, {
+      confidence: 0.5,
+      grade: "B",
+      redFlags: [],
+    } as unknown as ScoreSnapshotDTO);
+    expect(warned.warnings.some((w) => w.code === "NO_MATCHED_RUN")).toBe(true);
+  });
+
+  it("keeps talent loadout null when provider snapshot has no talent row", () => {
+    const enrichments = buildProfileEnrichments({
+      character: characterStub(),
+      latestSnapshot: {
+        itemLevelEquipped: null,
+        mythicRating: null,
+        equipment: null,
+        talents: [],
+        rawSummary: {},
+        capturedAt: new Date(),
+      } as unknown as CharacterSnapshot,
+      latestRun: null,
+      highestRun: null,
+      runCount: 0,
+      seasonSlug: "blizzard-season-13",
+      wclVisibility: "HIDDEN",
+      selectedRunCoverage: 0,
+      env,
+    });
+    expect(enrichments.talents?.specializationSlug).toBe("fire");
+    expect(enrichments.talents?.loadoutCode).toBeNull();
+    expect(enrichments.talents?.selectedTalents).toBeNull();
   });
 });

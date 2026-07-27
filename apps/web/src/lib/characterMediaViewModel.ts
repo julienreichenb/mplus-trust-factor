@@ -47,11 +47,9 @@ export function toCharacterMediaViewModel(profile: CharacterProfileView): Charac
     };
   }
 
-  const renderUrl = readOptionalHttpsUrl(profile, [
-    "renderUrl",
-    "characterRenderUrl",
-    "mainRawUrl",
-  ]);
+  const renderUrl =
+    sanitizeHttpsUrl(profile.media?.mainRawUrl ?? null) ??
+    readOptionalHttpsUrl(profile, ["renderUrl", "characterRenderUrl", "mainRawUrl"]);
   if (renderUrl) {
     return {
       type: "render",
@@ -62,7 +60,10 @@ export function toCharacterMediaViewModel(profile: CharacterProfileView): Charac
     };
   }
 
-  const avatarUrl = readOptionalHttpsUrl(profile, ["avatarUrl", "insetUrl", "bustUrl"]);
+  const avatarUrl =
+    sanitizeHttpsUrl(profile.media?.avatarUrl ?? null) ??
+    sanitizeHttpsUrl(profile.media?.insetUrl ?? null) ??
+    readOptionalHttpsUrl(profile, ["avatarUrl", "insetUrl", "bustUrl"]);
   if (avatarUrl) {
     return {
       type: "avatar",

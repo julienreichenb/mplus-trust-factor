@@ -77,11 +77,22 @@ export function parseContributorSignals(dimensions: DimensionScoreDTO[]): Contri
   const signals: ContributorSignal[] = [];
   for (const dim of dimensions) {
     if (dim.dimension === "AUTHENTICITY") continue;
+    const label = DIMENSION_LABELS[dim.dimension as RadarDimension] ?? dim.dimension;
     const contrib = dim.contributors as
-      | { positive?: Array<{ label?: string }>; negative?: Array<{ label?: string }> }
+      | {
+          positive?: Array<{ label?: string; metricKey?: string }>;
+          negative?: Array<{ label?: string; metricKey?: string }>;
+          available?: Array<{
+            metricKey?: string;
+            normalizedValue?: number | null;
+            available?: boolean;
+          }>;
+          missing?: Array<{ metricKey?: string; available?: boolean }>;
+        }
       | null
       | undefined;
-    const label = DIMENSION_LABELS[dim.dimension as RadarDimension] ?? dim.dimension;
+
+    // Preferred shape (mock / legacy explainers).
     for (const item of contrib?.positive ?? []) {
       if (item?.label?.trim()) {
         signals.push({ kind: "positive", label: item.label.trim(), dimension: label });
@@ -92,8 +103,35 @@ export function parseContributorSignals(dimensions: DimensionScoreDTO[]): Contri
         signals.push({ kind: "risk", label: item.label.trim(), dimension: label });
       }
     }
+
+    // Live scoring shape: { available, missing } metric contributors.
+    if ((contrib?.positive?.length ?? 0) === 0 && (contrib?.negative?.length ?? 0) === 0) {
+      for (const item of contrib?.available ?? []) {
+        if (!item?.metricKey) continue;
+        const metricLabel = humanizeMetricKey(item.metricKey);
+        const value = item.normalizedValue;
+        if (typeof value === "number" && value >= 55) {
+          signals.push({ kind: "positive", label: metricLabel, dimension: label });
+        } else if (typeof value === "number" && value < 45) {
+          signals.push({ kind: "risk", label: metricLabel, dimension: label });
+        }
+      }
+      for (const item of contrib?.missing ?? []) {
+        if (!item?.metricKey) continue;
+        signals.push({
+          kind: "risk",
+          label: `Missing ${humanizeMetricKey(item.metricKey)}`,
+          dimension: label,
+        });
+      }
+    }
   }
   return signals;
+}
+
+function humanizeMetricKey(metricKey: string): string {
+  const leaf = metricKey.includes(".") ? metricKey.slice(metricKey.lastIndexOf(".") + 1) : metricKey;
+  return leaf.replace(/[_-]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 export function topSignals(

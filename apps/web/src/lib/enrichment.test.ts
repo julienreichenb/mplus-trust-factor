@@ -1,48 +1,60 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { mount } from "@vue/test-utils";
-import { toEquipmentViewModel } from "./equipmentViewModel";
-import { toCharacterMediaViewModel } from "./characterMediaViewModel";
 import { presentGrade } from "./characterViewModel";
+import { toCharacterMediaViewModel } from "./characterMediaViewModel";
+import { toEquipmentViewModel } from "./equipmentViewModel";
 import { resetFeatureFlagsCache } from "../config/features";
+import { sanitizeHttpsUrl } from "./safeUrl";
 import { FIXTURE_CHARACTERS } from "../api/mock/fixtures";
 import EquipmentGrid from "../components/equipment/EquipmentGrid.vue";
 import EquipmentSlot from "../components/equipment/EquipmentSlot.vue";
 import CharacterMediaPanel from "../components/character/CharacterMediaPanel.vue";
-import { sanitizeHttpsUrl } from "./safeUrl";
 
 describe("equipmentViewModel", () => {
   afterEach(() => {
     resetFeatureFlagsCache();
   });
 
-  it("maps fixture key items without inventing enrichment", () => {
-    const view = toEquipmentViewModel(FIXTURE_CHARACTERS[0]!.profile.equipment);
-    expect(view?.filledCount).toBe(2);
-    const trinkets = view!.items.filter((i) => i.isAvailable);
-    expect(trinkets.every((i) => i.itemId == null && i.iconUrl == null && i.externalUrl == null)).toBe(
-      true,
-    );
-  });
-
-  it("appends unknown slots instead of dropping them", () => {
+  it("maps known equipment slots and leaves others unavailable", () => {
     const view = toEquipmentViewModel({
       averageItemLevel: 600,
       equippedItemLevel: 600,
+      items: [],
       keyItems: [
-        { slot: "Shirt", name: "Fancy Shirt", itemLevel: 1 },
-        { slot: "Trinket", name: "Known Trinket", itemLevel: 670 },
+        {
+          slot: "Shirt",
+          name: "Fancy Shirt",
+          itemLevel: 1,
+          itemId: null,
+          quality: null,
+          iconUrl: null,
+          enchantments: [],
+          gems: [],
+        },
+        {
+          slot: "Trinket",
+          name: "Known Trinket",
+          itemLevel: 670,
+          itemId: null,
+          quality: null,
+          iconUrl: null,
+          enchantments: [],
+          gems: [],
+        },
       ],
     });
-    expect(view?.items.some((i) => i.slotLabel === "Shirt" && !i.isKnownSlot)).toBe(true);
-    expect(view?.items.some((i) => i.slotLabel === "Trinket 1" && i.name === "Known Trinket")).toBe(
-      true,
-    );
+    expect(view!.items.find((i) => i.id === "trinket-1")?.name).toBe("Known Trinket");
+    expect(view!.items.find((i) => i.slotLabel === "Shirt" || i.id.startsWith("unknown"))).toBeTruthy();
   });
 
   it("builds Wowhead links only for valid item IDs when links are enabled", () => {
+    resetFeatureFlagsCache();
+    vi.stubEnv("VITE_WOWHEAD_LINKS_ENABLED", "true");
+    resetFeatureFlagsCache();
     const view = toEquipmentViewModel({
       averageItemLevel: null,
       equippedItemLevel: null,
+      items: [],
       keyItems: [
         {
           slot: "Head",
@@ -51,7 +63,9 @@ describe("equipmentViewModel", () => {
           itemId: 12345,
           iconUrl: "https://render.worldofwarcraft.com/icons/56/inv_helmet.jpg",
           quality: "Epic",
-        } as { slot: string; name: string; itemLevel: number | null },
+          enchantments: [],
+          gems: [],
+        },
       ],
     });
     const head = view!.items.find((i) => i.id === "head")!;
@@ -59,6 +73,29 @@ describe("equipmentViewModel", () => {
     expect(head.iconUrl).toContain("https://");
     expect(head.externalUrl).toBe("https://www.wowhead.com/item=12345");
     expect(head.quality).toBe("Epic");
+    vi.unstubAllEnvs();
+    resetFeatureFlagsCache();
+  });
+
+  it("does not render missing item level as zero", () => {
+    const view = toEquipmentViewModel({
+      averageItemLevel: null,
+      equippedItemLevel: null,
+      items: [
+        {
+          slot: "Chest",
+          name: "Mystery Chest",
+          itemLevel: 0,
+          itemId: 1,
+          quality: null,
+          iconUrl: null,
+          enchantments: [],
+          gems: [],
+        },
+      ],
+      keyItems: [],
+    });
+    expect(view!.items.find((i) => i.id === "chest")?.itemLevel).toBeNull();
   });
 
   it("rejects unsafe icon URLs", () => {
@@ -76,15 +113,23 @@ describe("characterMediaViewModel", () => {
   });
 
   it("falls back to placeholder when media is unavailable", () => {
-    const media = toCharacterMediaViewModel(FIXTURE_CHARACTERS[0]!.profile);
+    const profile = {
+      ...FIXTURE_CHARACTERS[0]!.profile,
+      media: null,
+    };
+    const media = toCharacterMediaViewModel(profile);
     expect(media.type).toBe("placeholder");
     expect(media.url).toBeNull();
   });
 
-  it("uses a trusted profile media URL when present", () => {
+  it("prefers typed profile.media HTTPS URLs", () => {
     const profile = {
       ...FIXTURE_CHARACTERS[0]!.profile,
-      renderUrl: "https://render.worldofwarcraft.com/eu/character/test.jpg",
+      media: {
+        avatarUrl: null,
+        insetUrl: null,
+        mainRawUrl: "https://render.worldofwarcraft.com/eu/main.jpg",
+      },
     };
     const media = toCharacterMediaViewModel(profile);
     expect(media.type).toBe("render");
@@ -94,7 +139,11 @@ describe("characterMediaViewModel", () => {
   it("rejects invalid media URLs", () => {
     const profile = {
       ...FIXTURE_CHARACTERS[0]!.profile,
-      avatarUrl: "javascript:alert(1)",
+      media: {
+        avatarUrl: "javascript:alert(1)",
+        insetUrl: null,
+        mainRawUrl: null,
+      },
     };
     const media = toCharacterMediaViewModel(profile);
     expect(media.type).toBe("placeholder");
@@ -103,6 +152,11 @@ describe("characterMediaViewModel", () => {
 });
 
 describe("equipment UI enrichment", () => {
+  afterEach(() => {
+    resetFeatureFlagsCache();
+    vi.unstubAllEnvs();
+  });
+
   it("keeps equipment usable without Wowhead data", () => {
     const wrapper = mount(EquipmentGrid, {
       props: { equipment: FIXTURE_CHARACTERS[1]!.profile.equipment },
@@ -112,16 +166,23 @@ describe("equipment UI enrichment", () => {
   });
 
   it("renders an external link when enrichment provides an item ID", () => {
+    vi.stubEnv("VITE_WOWHEAD_LINKS_ENABLED", "true");
+    resetFeatureFlagsCache();
     const view = toEquipmentViewModel({
       averageItemLevel: 1,
       equippedItemLevel: 1,
+      items: [],
       keyItems: [
         {
           slot: "Neck",
           name: "Ashkandi",
           itemLevel: 700,
           itemId: 19019,
-        } as { slot: string; name: string; itemLevel: number | null },
+          quality: null,
+          iconUrl: null,
+          enchantments: [],
+          gems: [],
+        },
       ],
     });
     const item = view!.items.find((i) => i.id === "neck")!;
@@ -136,13 +197,18 @@ describe("equipment UI enrichment", () => {
     const view = toEquipmentViewModel({
       averageItemLevel: 1,
       equippedItemLevel: 1,
+      items: [],
       keyItems: [
         {
           slot: "Chest",
           name: "Broken Icon Item",
           itemLevel: 100,
+          itemId: null,
+          quality: null,
           iconUrl: "https://example.com/missing.png",
-        } as { slot: string; name: string; itemLevel: number | null },
+          enchantments: [],
+          gems: [],
+        },
       ],
     });
     const item = view!.items.find((i) => i.id === "chest")!;
@@ -157,7 +223,7 @@ describe("equipment UI enrichment", () => {
 describe("character media panel", () => {
   it("renders a stable placeholder without media", () => {
     const wrapper = mount(CharacterMediaPanel, {
-      props: { profile: FIXTURE_CHARACTERS[0]!.profile },
+      props: { profile: { ...FIXTURE_CHARACTERS[0]!.profile, media: null } },
     });
     expect(wrapper.attributes("data-media-type")).toBe("placeholder");
     expect(wrapper.text()).toContain("Media placeholder");

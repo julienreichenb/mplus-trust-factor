@@ -117,6 +117,95 @@ export const sourceAttributionSchema = {
     provider: { type: "string" },
     fetchedAt: { type: "string" },
     url: { type: ["string", "null"] },
+    contributedToScore: { type: "boolean" },
+  },
+  additionalProperties: true,
+} as const;
+
+export const equipmentItemSchema = {
+  type: "object",
+  properties: {
+    slot: { type: "string" },
+    itemId: { type: ["number", "null"] },
+    name: { type: ["string", "null"] },
+    itemLevel: { type: ["number", "null"] },
+    quality: { type: ["string", "null"] },
+    iconUrl: { type: ["string", "null"] },
+    enchantments: { type: "array", items: { type: "string" } },
+    gems: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          name: { type: "string" },
+          itemId: { type: ["number", "null"] },
+        },
+        additionalProperties: true,
+      },
+    },
+  },
+  additionalProperties: true,
+} as const;
+
+export const equipmentSummarySchema = {
+  type: "object",
+  properties: {
+    averageItemLevel: { type: ["number", "null"] },
+    equippedItemLevel: { type: ["number", "null"] },
+    items: { type: "array", items: equipmentItemSchema },
+    keyItems: { type: "array", items: equipmentItemSchema },
+  },
+  additionalProperties: true,
+} as const;
+
+export const talentSummarySchema = {
+  type: "object",
+  properties: {
+    specializationSlug: { type: ["string", "null"] },
+    loadoutCode: { type: ["string", "null"] },
+    summary: { type: ["string", "null"] },
+    loadoutName: { type: ["string", "null"] },
+    selectedTalents: {
+      type: ["array", "null"],
+      items: {
+        type: "object",
+        properties: {
+          id: { type: ["number", "null"] },
+          name: { type: ["string", "null"] },
+        },
+        additionalProperties: true,
+      },
+    },
+    sourceProvider: { type: ["string", "null"] },
+    fetchedAt: { type: ["string", "null"] },
+  },
+  additionalProperties: true,
+} as const;
+
+export const characterMediaSchema = {
+  type: "object",
+  properties: {
+    avatarUrl: { type: ["string", "null"] },
+    insetUrl: { type: ["string", "null"] },
+    mainRawUrl: { type: ["string", "null"] },
+  },
+  additionalProperties: true,
+} as const;
+
+export const providerStateSchema = {
+  type: "object",
+  properties: {
+    provider: { type: "string" },
+    state: { type: "string" },
+    detail: { type: ["string", "null"] },
+    lastAttemptAt: { type: "string" },
+    lastSuccessAt: { type: ["string", "null"] },
+    fetchedAt: { type: ["string", "null"] },
+    expiresAt: { type: ["string", "null"] },
+    wclVisibility: { type: ["string", "null"] },
+    warnings: { type: "array", items: { type: "string" } },
+    contributedToScore: { type: "boolean" },
+    sourceUrl: { type: ["string", "null"] },
   },
   additionalProperties: true,
 } as const;
@@ -127,6 +216,7 @@ export const characterProfileResponseSchema = {
     characterId: { type: "string" },
     region: { type: "string" },
     realmSlug: { type: "string" },
+    realmName: { type: ["string", "null"] },
     displayName: { type: "string" },
     score: { anyOf: [scoreSnapshotSchema, { type: "null" }] },
     redFlags: { type: "array", items: redFlagSchema },
@@ -135,6 +225,27 @@ export const characterProfileResponseSchema = {
     highestAnalyzedRunId: { type: ["string", "null"] },
     sources: { type: "array", items: sourceAttributionSchema },
     refreshStatus: { type: "string" },
+    classSlug: { type: ["string", "null"] },
+    specSlug: { type: ["string", "null"] },
+    role: { type: ["string", "null"] },
+    faction: { type: ["string", "null"] },
+    level: { type: ["number", "null"] },
+    profileUrl: { type: ["string", "null"] },
+    itemLevel: { type: ["number", "null"] },
+    freshness: { type: ["number", "null"] },
+    lastAnalyzedRun: {},
+    highestAnalyzedRun: {},
+    equipment: { anyOf: [equipmentSummarySchema, { type: "null" }] },
+    talents: { anyOf: [talentSummarySchema, { type: "null" }] },
+    media: { anyOf: [characterMediaSchema, { type: "null" }] },
+    seasonSummary: {},
+    performanceSummary: {},
+    entitlements: {},
+    warnings: { type: "array" },
+    raiderIoUsed: { type: "boolean" },
+    wclVisibility: { type: ["string", "null"] },
+    providerStates: { type: "array", items: providerStateSchema },
+    sourceDisagreements: { type: "array" },
   },
   additionalProperties: true,
 } as const;

@@ -9,6 +9,8 @@ export const GRADE_TO_CODE: Record<Grade, number> = {
   B: 3,
   C: 2,
   D: 1,
+  /** Unrated — not exported as a ranked tier; treated as absent (0). */
+  U: 0,
 };
 
 export const CODE_TO_GRADE: Record<number, Grade> = {

@@ -11,6 +11,7 @@ import ScoreHeader from "../components/profile/ScoreHeader.vue";
 import DimensionCards from "../components/profile/DimensionCards.vue";
 import AuthenticitySection from "../components/profile/AuthenticitySection.vue";
 import AnalyzedRunsSection from "../components/profile/AnalyzedRunsSection.vue";
+import PerformanceSummaryPanel from "../components/profile/PerformanceSummaryPanel.vue";
 import WclVisibilityBanner from "../components/profile/WclVisibilityBanner.vue";
 import TrustRadarChart from "../components/charts/TrustRadarChart.vue";
 import KeySignalsPanel from "../components/character/KeySignalsPanel.vue";
@@ -81,18 +82,29 @@ async function load(): Promise<void> {
         identity,
         onUpdate: (status) => {
           if (profile.value) {
+            const terminalFailed =
+              status.refreshStatus === "FAILED" || status.job?.status === "failed";
+            const inProgress =
+              status.refreshStatus === "IN_PROGRESS" ||
+              status.refreshStatus === "QUEUED" ||
+              status.job?.status === "queued" ||
+              status.job?.status === "active";
             profile.value = {
               ...profile.value,
-              refreshStatus:
-                status.refreshStatus === "IN_PROGRESS" || status.refreshStatus === "QUEUED"
+              refreshStatus: terminalFailed
+                ? "STALE"
+                : inProgress
                   ? "QUEUED"
-                  : status.refreshStatus === "FAILED"
-                    ? "STALE"
-                    : "FRESH",
+                  : "FRESH",
             };
           }
         },
-        onComplete: async () => {
+        onComplete: async (status) => {
+          if (status.refreshStatus === "FAILED" || status.job?.status === "failed") {
+            error.value =
+              status.job?.errorMessage?.trim() ||
+              "Refresh failed. You can retry without losing the last available snapshot.";
+          }
           const refreshed = await api.getCharacterProfile(identity);
           profile.value = refreshed;
         },
@@ -138,7 +150,12 @@ async function refresh(): Promise<void> {
           };
         }
       },
-      onComplete: async () => {
+      onComplete: async (status) => {
+        if (status.refreshStatus === "FAILED" || status.job?.status === "failed") {
+          error.value =
+            status.job?.errorMessage?.trim() ||
+            "Refresh failed. You can retry without losing the last available snapshot.";
+        }
         const refreshed = await api.getCharacterProfile(identity);
         profile.value = refreshed;
       },
@@ -253,6 +270,11 @@ watch(
         :last="profile.lastAnalyzedRun ?? null"
         :highest="profile.highestAnalyzedRun ?? null"
         :locked="!entitlements.runsUnlocked"
+      />
+
+      <PerformanceSummaryPanel
+        :summary="profile.performanceSummary"
+        :locked="!entitlements.detailsUnlocked"
       />
 
       <EquipmentGrid :equipment="profile.equipment" :locked="!entitlements.detailsUnlocked" />

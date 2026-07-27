@@ -26,6 +26,9 @@ export {
   buildObservationEnvelope,
   resolveCurrentSeasonIdFromIndex,
   normalizePeriod,
+  sanitizeHttpsUrl,
+  attachEquipmentIconUrls,
+  normalizeEquipmentSnapshot,
 } from "./normalize.js";
 export type {
   BlizzardIdentityDiagnostics,

@@ -13,6 +13,8 @@ import {
   errorReasonOf,
   redactSecrets,
   resolveCurrentSeasonIdFromIndex,
+  sanitizeHttpsUrl,
+  attachEquipmentIconUrls,
 } from "./index.js";
 import type { FixtureBlizzardProvider } from "./fixture-provider.js";
 import { fingerprintFor } from "./normalize.js";
@@ -154,6 +156,29 @@ describe("FixtureBlizzardProvider", () => {
     expect(result.data.equippedItemLevel).toBe(632);
     expect(Array.isArray(result.data.keyItems)).toBe(true);
     expect((result.data.keyItems as unknown[]).length).toBeGreaterThan(0);
+  });
+
+  it("sanitizes equipment icon URLs and rejects unsafe schemes", () => {
+    expect(sanitizeHttpsUrl("http://example.com/x.png")).toBeNull();
+    expect(sanitizeHttpsUrl("javascript:alert(1)")).toBeNull();
+    expect(sanitizeHttpsUrl("https://cdn.blizzard.com/icon.png")).toBe(
+      "https://cdn.blizzard.com/icon.png",
+    );
+
+    const attached = attachEquipmentIconUrls(
+      {
+        id: "eq-1",
+        characterSnapshotId: "c-1",
+        capturedAt: new Date().toISOString(),
+        averageItemLevel: 600,
+        equippedItemLevel: 600,
+        items: [{ itemId: 1, slot: "Head", name: "Helm", iconUrl: null }],
+        keyItems: [],
+        sourcePayloadId: null,
+      } as never,
+      new Map([[1, "https://render.worldofwarcraft.com/icons/56/inv.png"]]),
+    );
+    expect((attached.items as Array<{ iconUrl: string | null }>)[0]?.iconUrl).toContain("https://");
   });
 
   it("returns CharacterSnapshotDTO from getCharacterEquipment", async () => {

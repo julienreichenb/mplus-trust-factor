@@ -8,7 +8,7 @@ describe("feature flags", () => {
 
   it("uses safe production defaults", () => {
     expect(resolveFeatureFlags({})).toEqual({
-      wowheadLinksEnabled: true,
+      wowheadLinksEnabled: false,
       wowheadTooltipsEnabled: false,
       characterMediaEnabled: true,
     });
@@ -36,7 +36,7 @@ describe("feature flags", () => {
         VITE_CHARACTER_MEDIA_ENABLED: "maybe",
       }),
     ).toEqual({
-      wowheadLinksEnabled: true,
+      wowheadLinksEnabled: false,
       wowheadTooltipsEnabled: false,
       characterMediaEnabled: true,
     });

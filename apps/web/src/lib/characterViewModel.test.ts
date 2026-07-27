@@ -52,18 +52,24 @@ describe("characterViewModel", () => {
     expect(slots.find((s) => s.id === "head")?.filled).toBe(false);
   });
 
-  it("marks missing radar dimensions explicitly", () => {
-    const rows = dimensionRows([
+  it("maps live available/missing contributors into positive/risk signals", () => {
+    const signals = parseContributorSignals([
       {
         dimension: "PERFORMANCE",
-        score: 91,
+        score: 70,
         confidence: 0.8,
         weight: 0.32,
-        contributors: null,
+        contributors: {
+          available: [
+            { metricKey: "performance.peak", normalizedValue: 80 },
+            { metricKey: "performance.consistency", normalizedValue: 30 },
+          ],
+          missing: [{ metricKey: "performance.coverage" }],
+        },
       },
     ]);
-    expect(rows[0]?.missing).toBe(false);
-    expect(rows[1]?.missing).toBe(true);
-    expect(rows[1]?.score).toBeNull();
+    expect(signals.some((s) => s.kind === "positive" && s.label.includes("Peak"))).toBe(true);
+    expect(signals.some((s) => s.kind === "risk" && s.label.includes("Consistency"))).toBe(true);
+    expect(signals.some((s) => s.kind === "risk" && s.label.includes("Missing"))).toBe(true);
   });
 });

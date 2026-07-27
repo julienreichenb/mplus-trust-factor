@@ -264,12 +264,52 @@ export async function runRefreshPipeline(
       const equipment = await providers.blizzard.getCharacterEquipment(identity, ctx);
       blizzardItemLevel = equipment.data.itemLevelEquipped;
       const equipmentSnapshot = await providers.blizzard.getEquipmentSnapshot(identity, ctx);
-      await repositories.character.recordSnapshot(character.id, equipment.data, {
-        averageItemLevel: equipmentSnapshot.data.averageItemLevel,
-        equippedItemLevel: equipmentSnapshot.data.equippedItemLevel,
-        items: equipmentSnapshot.data.items,
-        keyItems: equipmentSnapshot.data.keyItems,
-      });
+
+      let mediaExtras: {
+        avatarUrl: string | null;
+        insetUrl: string | null;
+        mainRawUrl: string | null;
+      } | null = null;
+      try {
+        const media = await providers.blizzard.getCharacterMedia(identity, ctx);
+        await recordProviderResult(repositories, media);
+        mediaExtras = {
+          avatarUrl: media.data.avatarUrl,
+          insetUrl: media.data.insetUrl,
+          mainRawUrl: media.data.mainUrl,
+        };
+      } catch (mediaError) {
+        logger.info({ identity, err: mediaError }, "refresh pipeline: character media soft-skip");
+      }
+
+      let talentExtras: {
+        specializationSlug: string | null;
+        loadoutCode: string | null;
+        talents: unknown;
+      } | null = null;
+      try {
+        const talents = await providers.blizzard.getTalentSnapshot(identity, ctx);
+        await recordProviderResult(repositories, talents);
+        talentExtras = {
+          specializationSlug: talents.data.specializationSlug,
+          loadoutCode: talents.data.loadoutCode,
+          talents: talents.data.talents,
+        };
+      } catch (talentError) {
+        logger.info({ identity, err: talentError }, "refresh pipeline: talent snapshot soft-skip");
+      }
+
+      await repositories.character.recordSnapshot(
+        character.id,
+        equipment.data,
+        {
+          averageItemLevel: equipmentSnapshot.data.averageItemLevel,
+          equippedItemLevel: equipmentSnapshot.data.equippedItemLevel,
+          items: equipmentSnapshot.data.items,
+          keyItems: equipmentSnapshot.data.keyItems,
+        },
+        { media: mediaExtras, talent: talentExtras },
+      );
       await recordProviderResult(repositories, equipment);
       await recordProviderResult(repositories, equipmentSnapshot);
 

@@ -247,15 +247,62 @@ export const FIXTURE_CHARACTERS: FixtureCharacter[] = [
       equipment: {
         averageItemLevel: 666,
         equippedItemLevel: 668,
-        keyItems: [
-          { slot: "Trinket", name: "House of Cards", itemLevel: 678 },
-          { slot: "Trinket", name: "Signet of the Priory", itemLevel: 671 },
+        items: [
+          {
+            slot: "Trinket",
+            itemId: 228411,
+            name: "House of Cards",
+            itemLevel: 678,
+            quality: "Epic",
+            iconUrl: null,
+            enchantments: [],
+            gems: [],
+          },
+          {
+            slot: "Trinket",
+            itemId: 219309,
+            name: "Signet of the Priory",
+            itemLevel: 671,
+            quality: "Epic",
+            iconUrl: null,
+            enchantments: [],
+            gems: [],
+          },
         ],
+        keyItems: [
+          {
+            slot: "Trinket",
+            itemId: 228411,
+            name: "House of Cards",
+            itemLevel: 678,
+            quality: "Epic",
+            iconUrl: null,
+            enchantments: [],
+            gems: [],
+          },
+          {
+            slot: "Trinket",
+            itemId: 219309,
+            name: "Signet of the Priory",
+            itemLevel: 671,
+            quality: "Epic",
+            iconUrl: null,
+            enchantments: [],
+            gems: [],
+          },
+        ],
+      },
+      media: {
+        avatarUrl: null,
+        insetUrl: null,
+        mainRawUrl: null,
       },
       talents: {
         specializationSlug: "fire",
         loadoutCode: "FIRE-FIXTURE-LOADOUT",
         summary: "Standard Fire single-target / M+ hybrid.",
+        sourceProvider: "blizzard",
+        fetchedAt: now,
       },
       seasonSummary: {
         seasonSlug: "season-tww-3",
@@ -293,6 +340,7 @@ export const FIXTURE_CHARACTERS: FixtureCharacter[] = [
       equipment: {
         averageItemLevel: 638,
         equippedItemLevel: 640,
+        items: [],
         keyItems: [],
       },
       talents: {
@@ -361,7 +409,30 @@ export const FIXTURE_CHARACTERS: FixtureCharacter[] = [
       equipment: {
         averageItemLevel: 652,
         equippedItemLevel: 655,
-        keyItems: [{ slot: "Trinket", name: "Fixture Trinket", itemLevel: 662 }],
+        items: [
+          {
+            slot: "Trinket",
+            itemId: null,
+            name: "Fixture Trinket",
+            itemLevel: 662,
+            quality: null,
+            iconUrl: null,
+            enchantments: [],
+            gems: [],
+          },
+        ],
+        keyItems: [
+          {
+            slot: "Trinket",
+            itemId: null,
+            name: "Fixture Trinket",
+            itemLevel: 662,
+            quality: null,
+            iconUrl: null,
+            enchantments: [],
+            gems: [],
+          },
+        ],
       },
       talents: {
         specializationSlug: "augmentation",

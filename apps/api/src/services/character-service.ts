@@ -20,10 +20,31 @@ import {
   type CharacterSourceAttribution,
   type RunSummaryDTO,
 } from "../lib/mappers.js";
-import { applyProfileWarnings, buildProfileEnrichments } from "../lib/profile-enrichment.js";
+import { applyProfileWarnings, buildProfileEnrichments, toPublicProviderKey } from "../lib/profile-enrichment.js";
 import { characterCacheKey } from "../lib/response-cache.js";
 
 const ALL_PROVIDERS: ProviderName[] = ["blizzard", "raiderio", "warcraftlogs"];
+
+function readScoreObservationProviders(explanation: unknown): string[] {
+  if (!explanation || typeof explanation !== "object") return [];
+  const observations = (explanation as { observations?: unknown }).observations;
+  if (!Array.isArray(observations)) return [];
+  return observations
+    .map((o) =>
+      o && typeof o === "object" && typeof (o as { sourceProvider?: unknown }).sourceProvider === "string"
+        ? (o as { sourceProvider: string }).sourceProvider
+        : null,
+    )
+    .filter((p): p is string => Boolean(p));
+}
+
+function readFreshness(explanation: unknown): number | null {
+  if (!explanation || typeof explanation !== "object") return null;
+  const coverage = (explanation as { coverage?: { freshness?: unknown } }).coverage;
+  return typeof coverage?.freshness === "number" && Number.isFinite(coverage.freshness)
+    ? coverage.freshness
+    : null;
+}
 
 function readWclVisibility(value: unknown): WclVisibilityState | null {
   if (
@@ -142,14 +163,26 @@ export class CharacterService {
     });
   }
 
-  private buildSources(character: Character): CharacterSourceAttribution[] {
+  private buildSources(
+    character: Character,
+    observationProviders: string[] = [],
+  ): CharacterSourceAttribution[] {
     const fetchedAt = (character.lastPublicRefreshAt ?? character.lastSeenAt)?.toISOString();
     if (!fetchedAt) return [];
-    return ALL_PROVIDERS.filter((provider) => !this.worker.disabledProviders.has(provider)).map((provider) => ({
-      provider,
-      fetchedAt,
-      url: provider === "raiderio" ? (character.raiderioProfileUrl ?? null) : null,
-    }));
+    return ALL_PROVIDERS.filter((provider) => !this.worker.disabledProviders.has(provider)).map(
+      (provider) => {
+        const publicKey = toPublicProviderKey(provider);
+        const contributed = observationProviders.some(
+          (p) => toPublicProviderKey(p) === publicKey,
+        );
+        return {
+          provider: publicKey,
+          fetchedAt,
+          url: provider === "raiderio" ? (character.raiderioProfileUrl ?? null) : null,
+          contributedToScore: contributed,
+        };
+      },
+    );
   }
 
   private async buildEnrichedProfile(
@@ -165,19 +198,32 @@ export class CharacterService {
       await Promise.all([
       this.container.worker.prisma.character.findUnique({
         where: { id: character.id },
-        include: { gameClass: true, activeSpec: true },
+        include: { gameClass: true, activeSpec: true, realm: true },
       }),
       latestRunId ? this.repositories.run.findById(latestRunId) : Promise.resolve(null),
       highestRunId ? this.repositories.run.findById(highestRunId) : Promise.resolve(null),
       this.container.worker.prisma.characterSnapshot.findFirst({
         where: { characterId: character.id },
         orderBy: { capturedAt: "desc" },
-        include: { equipment: true },
+        include: { equipment: true, talents: true },
       }),
       this.repositories.run.countForCharacter(character.id, snapshot?.seasonId),
       resolveWclVisibility(this.container.worker.prisma, character.id),
       this.repositories.providerState.listForCharacter(character.id),
     ]);
+
+    const observationProviders = readScoreObservationProviders(snapshot?.explanation);
+    const freshness = readFreshness(snapshot?.explanation);
+    const selectedRunCoverage = readSelectedRunCoverage(snapshot?.explanation);
+    const performanceSummary = readPerformanceSummary(snapshot?.explanation);
+
+    const normalizedSources = sources.map((s) => ({
+      ...s,
+      provider: toPublicProviderKey(s.provider),
+      contributedToScore:
+        s.contributedToScore ??
+        observationProviders.some((p) => toPublicProviderKey(p) === toPublicProviderKey(s.provider)),
+    }));
 
     const base = mapCharacterProfile({
       character,
@@ -185,7 +231,7 @@ export class CharacterService {
       snapshot,
       latestRunId,
       highestRunId,
-      sources,
+      sources: normalizedSources,
       refreshStatus,
     });
 
@@ -202,9 +248,6 @@ export class CharacterService {
       }),
     );
 
-    const selectedRunCoverage = readSelectedRunCoverage(snapshot?.explanation);
-    const performanceSummary = readPerformanceSummary(snapshot?.explanation);
-
     const enrichments = applyProfileWarnings(
       buildProfileEnrichments({
         character: characterDetail,
@@ -213,11 +256,14 @@ export class CharacterService {
         highestRun,
         runCount,
         seasonSlug: snapshot?.season.slug ?? null,
+        seasonName: snapshot?.season.name ?? null,
         wclVisibility,
         providerStates,
         selectedRunCoverage,
         runCoverageById,
         performanceSummary,
+        freshness,
+        scoreObservationProviders: observationProviders,
         env: this.container.env,
       }),
       base.score,
@@ -269,7 +315,7 @@ export class CharacterService {
       snapshot,
       latestRun?.id ?? null,
       highestRun?.id ?? null,
-      this.buildSources(character),
+      this.buildSources(character, readScoreObservationProviders(snapshot.explanation)),
       fresh ? "FRESH" : "STALE",
     );
     const result: GetProfileResult = { statusCode: 200, body };

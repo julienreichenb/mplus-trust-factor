@@ -166,6 +166,27 @@ describe.skipIf(!dbAvailable)("character routes", () => {
     );
   });
 
+  it("exposes public enrichment fields without inventing item level zero", async () => {
+    const name = uniqueName("EnrichmentFields");
+    await app.inject({ method: "GET", url: `/api/v1/characters/${REALM_PATH}/${name}` });
+    const response = await app.inject({ method: "GET", url: `/api/v1/characters/${REALM_PATH}/${name}` });
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+    expect(body).toHaveProperty("equipment");
+    expect(body).toHaveProperty("media");
+    expect(body).toHaveProperty("talents");
+    expect(body).toHaveProperty("providerStates");
+    expect(body).toHaveProperty("sources");
+    if (body.equipment?.items) {
+      for (const item of body.equipment.items) {
+        expect(item.itemLevel === null || item.itemLevel > 0).toBe(true);
+        if (item.iconUrl) expect(String(item.iconUrl)).toMatch(/^https:\/\//);
+      }
+    }
+    const raw = JSON.stringify(body);
+    expect(raw).not.toMatch(/reportCode|client_secret|access_token/i);
+  });
+
   it("refresh-status reaches a terminal FRESH state after successful inline refresh", async () => {
     const name = uniqueName("RefreshPollTerminal");
 

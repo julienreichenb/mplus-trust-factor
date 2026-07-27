@@ -595,7 +595,7 @@ export function createRunRepository(prisma: PrismaClient): RunRepository {
         orderBy: { analyzedAt: "desc" },
         select: { coverage: true },
       });
-      return analysis?.coverage ?? null;
+      return analysis?.coverage != null ? Number(analysis.coverage) : null;
     },
 
     async upsertRunAnalysis(input) {

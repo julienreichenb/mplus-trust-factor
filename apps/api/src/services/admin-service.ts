@@ -121,7 +121,7 @@ export class AdminService {
     return {
       scoreModelId: model.id,
       sampleSize,
-      gradeDistribution: { S: 0.05, A: 0.15, B: 0.35, C: 0.3, D: 0.15 },
+      gradeDistribution: { S: 0.05, A: 0.15, B: 0.35, C: 0.3, D: 0.15, U: 0 },
       meanScore: 62.5,
       generatedAt: new Date().toISOString(),
       note: "Fixture placeholder distribution — full backtest cohort analysis is owned by Agent 4 scoring.",

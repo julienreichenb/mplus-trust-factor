@@ -41,20 +41,47 @@ export interface AnalyzedRunSummary {
   coverageRatio: number;
 }
 
+/** Public equipment item — Blizzard-primary; missing fields stay null. */
+export interface EquipmentItemDTO {
+  slot: string;
+  itemId: number | null;
+  name: string | null;
+  itemLevel: number | null;
+  quality: string | null;
+  iconUrl: string | null;
+  enchantments: string[];
+  gems: Array<{ name: string; itemId?: number | null }>;
+}
+
 export interface EquipmentSummary {
   averageItemLevel: number | null;
   equippedItemLevel: number | null;
-  keyItems: Array<{ slot: string; name: string; itemLevel: number | null }>;
+  /** Full paperdoll slots in stable order when available. */
+  items: EquipmentItemDTO[];
+  /** High-signal subset (neck/rings/trinkets); also mirrored in items. */
+  keyItems: EquipmentItemDTO[];
 }
 
 export interface TalentSummary {
   specializationSlug: string | null;
   loadoutCode: string | null;
   summary: string | null;
+  loadoutName?: string | null;
+  selectedTalents?: Array<{ id: number | null; name: string | null }> | null;
+  sourceProvider?: string | null;
+  fetchedAt?: IsoDateTime | null;
+}
+
+/** Blizzard character media — HTTPS public assets only. */
+export interface CharacterMediaDTO {
+  avatarUrl: string | null;
+  insetUrl: string | null;
+  mainRawUrl: string | null;
 }
 
 export interface SeasonSummary {
   seasonSlug: string;
+  seasonName?: string | null;
   /**
    * Unique canonical Mythic+ runs for this character in the season
    * (distinct MythicRun.canonicalFingerprint). Not provider source-reference count:
@@ -63,6 +90,7 @@ export interface SeasonSummary {
   runCount: number;
   mythicRating: number | null;
   priorSeasonRating: number | null;
+  latestActivityAt?: IsoDateTime | null;
 }
 
 /** Sanitized PERFORMANCE explanation — no private report codes. */
@@ -132,23 +160,37 @@ export interface CharacterProfileResponse {
   characterId: string;
   region: RegionCode;
   realmSlug: string;
+  /** Human-readable realm name when available. */
+  realmName?: string | null;
   displayName: string;
   score: ScoreSnapshotDTO | null;
   redFlags: RedFlagDTO[];
   dataConfidence: number | null;
   lastAnalyzedRunId: string | null;
   highestAnalyzedRunId: string | null;
-  sources: Array<{ provider: string; fetchedAt: IsoDateTime; url: string | null }>;
+  sources: Array<{
+    provider: string;
+    fetchedAt: IsoDateTime;
+    url: string | null;
+    /** True when this provider contributed observations to the current score snapshot. */
+    contributedToScore?: boolean;
+  }>;
   refreshStatus: "FRESH" | "QUEUED" | "STALE";
-  /** Profile enrichments (Agent 6 / CR-06) */
+  /** Profile enrichments (Agent 6 / CR-06 / Agent 16) */
   classSlug?: string | null;
   specSlug?: string | null;
   role?: "DPS" | "TANK" | "HEALER" | null;
+  faction?: string | null;
+  level?: number | null;
+  profileUrl?: string | null;
   itemLevel?: number | null;
+  /** Score-snapshot freshness 0–1 when available (from explanation coverage). */
+  freshness?: number | null;
   lastAnalyzedRun?: AnalyzedRunSummary | null;
   highestAnalyzedRun?: AnalyzedRunSummary | null;
   equipment?: EquipmentSummary | null;
   talents?: TalentSummary | null;
+  media?: CharacterMediaDTO | null;
   seasonSummary?: SeasonSummary | null;
   /** Current-season WCL execution summary (aggregate only; no private report codes). */
   performanceSummary?: PerformanceSummaryDTO | null;

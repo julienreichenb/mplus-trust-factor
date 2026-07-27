@@ -1,6 +1,6 @@
 /**
- * Frontend feature flags. Defaults are production-safe:
- * - Wowhead links: on (only emit when a valid item ID exists)
+ * Frontend feature flags. Defaults match apps/web/.env.example:
+ * - Wowhead links: off (optional enrichment)
  * - Wowhead tooltips: off (third-party script)
  * - Character media: on (only render when a trusted https URL exists)
  */
@@ -23,7 +23,7 @@ export function resolveFeatureFlags(
   env: Partial<ImportMetaEnv> = import.meta.env,
 ): FeatureFlags {
   return {
-    wowheadLinksEnabled: parseBooleanFlag(env.VITE_WOWHEAD_LINKS_ENABLED, true),
+    wowheadLinksEnabled: parseBooleanFlag(env.VITE_WOWHEAD_LINKS_ENABLED, false),
     wowheadTooltipsEnabled: parseBooleanFlag(env.VITE_WOWHEAD_TOOLTIPS_ENABLED, false),
     characterMediaEnabled: parseBooleanFlag(env.VITE_CHARACTER_MEDIA_ENABLED, true),
   };

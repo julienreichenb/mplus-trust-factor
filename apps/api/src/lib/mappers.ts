@@ -51,6 +51,31 @@ function extractRedFlags(explanation: unknown): RedFlagDTO[] {
   );
 }
 
+const PUBLIC_EXPLANATION_FORBIDDEN_KEYS = new Set([
+  "reportcode",
+  "client_secret",
+  "clientsecret",
+  "access_token",
+  "accesstoken",
+  "refreshtoken",
+  "refresh_token",
+  "authorization",
+]);
+
+/** Strip private provider identifiers from score explanations before public API responses. */
+export function sanitizePublicExplanation(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((entry) => sanitizePublicExplanation(entry));
+  }
+  if (!value || typeof value !== "object") return value;
+  const out: Record<string, unknown> = {};
+  for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+    if (PUBLIC_EXPLANATION_FORBIDDEN_KEYS.has(key.toLowerCase())) continue;
+    out[key] = sanitizePublicExplanation(entry);
+  }
+  return out;
+}
+
 /** Maps a persisted `ScoreSnapshot` (+ dimensions/model/season relations) to the public DTO. */
 export function mapScoreSnapshot(snapshot: ScoreSnapshotWithRelations): ScoreSnapshotDTO {
   const redFlags = extractRedFlags(snapshot.explanation);
@@ -76,7 +101,7 @@ export function mapScoreSnapshot(snapshot: ScoreSnapshotWithRelations): ScoreSna
       contributors: dimension.contributors,
     })),
     redFlags,
-    explanation: snapshot.explanation,
+    explanation: sanitizePublicExplanation(snapshot.explanation),
   };
 }
 
@@ -98,6 +123,7 @@ export interface CharacterSourceAttribution {
   provider: string;
   fetchedAt: IsoDateTime;
   url: string | null;
+  contributedToScore?: boolean;
 }
 
 export interface CharacterProfileMapInput {

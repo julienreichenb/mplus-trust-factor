@@ -1,15 +1,24 @@
-import type { Character, CharacterSnapshot, EquipmentSnapshot, GameClass, GameSpecialization } from "@mplus/database";
+import type {
+  Character,
+  CharacterSnapshot,
+  EquipmentSnapshot,
+  GameClass,
+  GameSpecialization,
+  TalentSnapshot,
+} from "@mplus/database";
 import type {
   AnalyzedRunSummary,
+  CharacterMediaDTO,
   CharacterProfileResponse,
   CharacterProviderStateDTO,
+  EquipmentItemDTO,
   EquipmentSummary,
+  PerformanceSummaryDTO,
   ProfileEntitlements,
   ProfileWarning,
   SeasonSummary,
   TalentSummary,
   WclVisibilityState,
-  PerformanceSummaryDTO,
 } from "@mplus/contracts";
 import type { AppEnv } from "@mplus/config";
 import type { MythicRunWithRelations } from "@mplus/worker";
@@ -19,19 +28,27 @@ export interface CharacterEnrichmentInput {
   character: Character & {
     gameClass?: GameClass | null;
     activeSpec?: GameSpecialization | null;
+    realm?: { slug: string; name: string } | null;
   };
-  latestSnapshot?: (CharacterSnapshot & { equipment?: EquipmentSnapshot | null }) | null;
+  latestSnapshot?:
+    | (CharacterSnapshot & {
+        equipment?: EquipmentSnapshot | null;
+        talents?: TalentSnapshot[];
+      })
+    | null;
   latestRun: MythicRunWithRelations | null;
   highestRun: MythicRunWithRelations | null;
   runCount: number;
   seasonSlug: string | null;
+  seasonName?: string | null;
   wclVisibility: WclVisibilityState | null;
   providerStates?: CharacterProviderStateDTO[];
-  /** Selected-run combat coverage (0–1), aligned with score context.selectedRunCoverage. */
   selectedRunCoverage?: number | null;
   runCoverageById?: Record<string, number | null>;
-  /** PERFORMANCE summary from score explanation (sanitized; no private report codes). */
   performanceSummary?: PerformanceSummaryDTO | null;
+  freshness?: number | null;
+  sourceDisagreements?: CharacterProfileResponse["sourceDisagreements"];
+  scoreObservationProviders?: string[];
   env: AppEnv;
 }
 
@@ -61,9 +78,136 @@ function coverageForRun(
 ): number {
   const analyzed = runCoverageById?.[runId];
   if (typeof analyzed === "number") return analyzed;
-  // Never claim full coverage when no WCL combat facts were analyzed.
   if (selectedRunCoverage == null) return 0;
   return selectedRunCoverage;
+}
+
+function sanitizeHttpsUrl(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed.toLowerCase().startsWith("https://")) return null;
+  try {
+    const url = new URL(trimmed);
+    return url.protocol === "https:" ? url.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
+function mapEquipmentItem(raw: unknown): EquipmentItemDTO | null {
+  if (!raw || typeof raw !== "object") return null;
+  const item = raw as Record<string, unknown>;
+  const slot = typeof item.slot === "string" ? item.slot : null;
+  if (!slot) return null;
+  const itemId = typeof item.itemId === "number" && item.itemId > 0 ? item.itemId : null;
+  const name = typeof item.name === "string" && item.name.trim() ? item.name.trim() : null;
+  const itemLevel =
+    typeof item.itemLevel === "number" && Number.isFinite(item.itemLevel) && item.itemLevel > 0
+      ? item.itemLevel
+      : null;
+  const quality = typeof item.quality === "string" ? item.quality : null;
+  const iconUrl = sanitizeHttpsUrl(item.iconUrl ?? item.icon);
+  const enchantments = Array.isArray(item.enchantments)
+    ? item.enchantments.filter((e): e is string => typeof e === "string" && e.trim().length > 0)
+    : typeof item.enchantment === "string" && item.enchantment.trim()
+      ? [item.enchantment.trim()]
+      : [];
+  const gems = Array.isArray(item.gems)
+    ? item.gems
+        .map((g) => {
+          if (!g || typeof g !== "object") return null;
+          const gem = g as { name?: unknown; itemId?: unknown };
+          if (typeof gem.name !== "string" || !gem.name.trim()) return null;
+          return {
+            name: gem.name.trim(),
+            itemId: typeof gem.itemId === "number" ? gem.itemId : null,
+          };
+        })
+        .filter((g): g is { name: string; itemId: number | null } => g != null)
+    : [];
+
+  return { slot, itemId, name, itemLevel, quality, iconUrl, enchantments, gems };
+}
+
+/** Map persisted equipment JSON into the public DTO. Never invent item level 0. */
+export function mapEquipmentSummary(equipment: EquipmentSnapshot | null | undefined): EquipmentSummary | null {
+  if (!equipment) return null;
+  const rawItems = Array.isArray(equipment.items) ? equipment.items : [];
+  const rawKeyItems = Array.isArray(equipment.keyItems) ? equipment.keyItems : [];
+  const items = (rawItems.length > 0 ? rawItems : rawKeyItems)
+    .map(mapEquipmentItem)
+    .filter((i): i is EquipmentItemDTO => i != null);
+  const keyItems = rawKeyItems
+    .map(mapEquipmentItem)
+    .filter((i): i is EquipmentItemDTO => i != null);
+
+  const average =
+    equipment.averageItemLevel != null && equipment.averageItemLevel > 0
+      ? equipment.averageItemLevel
+      : null;
+  const equipped =
+    equipment.equippedItemLevel != null && equipment.equippedItemLevel > 0
+      ? equipment.equippedItemLevel
+      : null;
+
+  if (items.length === 0 && average == null && equipped == null) {
+    // Preserve an explicit empty equipment summary when a snapshot row exists.
+    return {
+      averageItemLevel: null,
+      equippedItemLevel: null,
+      items: [],
+      keyItems: [],
+    };
+  }
+
+  return {
+    averageItemLevel: average,
+    equippedItemLevel: equipped,
+    items,
+    keyItems: keyItems.length > 0 ? keyItems : items.filter((i) => /trinket|finger|neck/i.test(i.slot)),
+  };
+}
+
+export function mapCharacterMedia(rawSummary: unknown): CharacterMediaDTO | null {
+  if (!rawSummary || typeof rawSummary !== "object") return null;
+  const media = (rawSummary as { media?: unknown }).media;
+  if (!media || typeof media !== "object") return null;
+  const m = media as Record<string, unknown>;
+  const avatarUrl = sanitizeHttpsUrl(m.avatarUrl);
+  const insetUrl = sanitizeHttpsUrl(m.insetUrl);
+  const mainRawUrl = sanitizeHttpsUrl(m.mainRawUrl ?? m.mainUrl);
+  if (!avatarUrl && !insetUrl && !mainRawUrl) return null;
+  return { avatarUrl, insetUrl, mainRawUrl };
+}
+
+export function mapTalentSummary(
+  character: CharacterEnrichmentInput["character"],
+  snapshot: CharacterEnrichmentInput["latestSnapshot"],
+): TalentSummary | null {
+  const talentRow = snapshot?.talents?.[0] ?? null;
+  const specializationSlug =
+    character.activeSpec?.slug ??
+    (talentRow
+      ? ((talentRow.talents as { activeSpecialization?: { name?: string } } | null)?.activeSpecialization
+          ?.name ?? null)
+      : null);
+
+  if (!talentRow && !specializationSlug) return null;
+
+  const loadoutCode = talentRow?.loadoutCode ?? null;
+  return {
+    specializationSlug: specializationSlug ?? character.activeSpec?.slug ?? null,
+    loadoutCode,
+    summary: loadoutCode
+      ? "Blizzard talent loadout available"
+      : specializationSlug
+        ? "Specialization known; detailed loadout unavailable"
+        : null,
+    loadoutName: null,
+    selectedTalents: null,
+    sourceProvider: talentRow ? "blizzard" : null,
+    fetchedAt: snapshot?.capturedAt?.toISOString?.() ?? null,
+  };
 }
 
 function buildWarnings(
@@ -130,17 +274,41 @@ function buildEntitlements(env: AppEnv): ProfileEntitlements {
   };
 }
 
+/** Canonical public provider keys used by the SPA provenance panel. */
+export function toPublicProviderKey(provider: string): string {
+  const normalized = provider.trim().toLowerCase().replace(/[_-]+/g, "");
+  if (normalized === "blizzard") return "BLIZZARD";
+  if (normalized === "raiderio") return "RAIDER_IO";
+  if (normalized === "warcraftlogs") return "WARCRAFT_LOGS";
+  return provider.toUpperCase();
+}
+
+export function providerContributedToScore(
+  provider: string,
+  observationProviders: string[] | undefined,
+): boolean {
+  if (!observationProviders || observationProviders.length === 0) return false;
+  const key = toPublicProviderKey(provider);
+  return observationProviders.some((p) => toPublicProviderKey(p) === key);
+}
+
 /** Maps persisted character/run/snapshot rows into profile enrichment fields. */
 export function buildProfileEnrichments(input: CharacterEnrichmentInput): Pick<
   CharacterProfileResponse,
   | "classSlug"
   | "specSlug"
   | "role"
+  | "faction"
+  | "level"
+  | "profileUrl"
+  | "realmName"
   | "itemLevel"
+  | "freshness"
   | "lastAnalyzedRun"
   | "highestAnalyzedRun"
   | "equipment"
   | "talents"
+  | "media"
   | "seasonSummary"
   | "performanceSummary"
   | "entitlements"
@@ -148,6 +316,7 @@ export function buildProfileEnrichments(input: CharacterEnrichmentInput): Pick<
   | "raiderIoUsed"
   | "wclVisibility"
   | "providerStates"
+  | "sourceDisagreements"
 > {
   const {
     character,
@@ -156,11 +325,15 @@ export function buildProfileEnrichments(input: CharacterEnrichmentInput): Pick<
     highestRun,
     runCount,
     seasonSlug,
+    seasonName,
     wclVisibility,
     providerStates,
     selectedRunCoverage,
     runCoverageById,
     performanceSummary = null,
+    freshness = null,
+    sourceDisagreements,
+    scoreObservationProviders,
     env,
   } = input;
   const bothSame = latestRun && highestRun && latestRun.id === highestRun.id;
@@ -182,58 +355,59 @@ export function buildProfileEnrichments(input: CharacterEnrichmentInput): Pick<
     );
   }
 
-  let equipment: EquipmentSummary | null = null;
-  if (latestSnapshot?.equipment) {
-    const eq = latestSnapshot.equipment;
-    const keyItemsRaw = eq.keyItems;
-    const keyItems = Array.isArray(keyItemsRaw)
-      ? (keyItemsRaw as Array<{ slot: string; name: string; itemLevel: number | null }>)
-      : [];
-    equipment = {
-      averageItemLevel: eq.averageItemLevel,
-      equippedItemLevel: eq.equippedItemLevel,
-      keyItems,
-    };
-  }
-
-  const talents: TalentSummary | null = character.activeSpec
-    ? {
-        specializationSlug: character.activeSpec.slug,
-        loadoutCode: null,
-        summary: null,
-      }
-    : null;
+  const equipment = mapEquipmentSummary(latestSnapshot?.equipment ?? null);
+  const talents = mapTalentSummary(character, latestSnapshot);
+  const media = mapCharacterMedia(latestSnapshot?.rawSummary);
 
   const seasonSummary: SeasonSummary | null = seasonSlug
     ? {
         seasonSlug,
-        // Unique MythicRun.canonicalFingerprint count (not provider source refs).
+        seasonName: seasonName ?? null,
         runCount,
         mythicRating: latestSnapshot?.mythicRating ?? null,
         priorSeasonRating: null,
+        latestActivityAt:
+          latestRun?.completedAt instanceof Date
+            ? latestRun.completedAt.toISOString()
+            : typeof latestRun?.completedAt === "string"
+              ? latestRun.completedAt
+              : null,
       }
     : null;
 
-  // Preserve null item level — never coerce unavailable values to zero.
   const rawIlvl = latestSnapshot?.itemLevelEquipped ?? null;
   const itemLevel = rawIlvl != null && rawIlvl > 0 ? rawIlvl : null;
+
+  const enrichedProviderStates = (providerStates ?? []).map((state) => ({
+    ...state,
+    contributedToScore: providerContributedToScore(state.provider, scoreObservationProviders),
+    sourceUrl:
+      state.provider === "raiderio" ? (character.raiderioProfileUrl ?? null) : (state.sourceUrl ?? null),
+  }));
 
   return {
     classSlug: character.gameClass?.slug ?? null,
     specSlug: character.activeSpec?.slug ?? null,
     role: character.role ?? null,
+    faction: character.faction ?? null,
+    level: character.level != null && character.level > 0 ? character.level : null,
+    profileUrl: character.profileUrl ?? null,
+    realmName: character.realm?.name ?? null,
     itemLevel,
+    freshness,
     lastAnalyzedRun,
     highestAnalyzedRun,
     equipment,
     talents,
+    media,
     seasonSummary,
     performanceSummary: performanceSummary ?? null,
     entitlements: buildEntitlements(env),
     warnings: [],
     raiderIoUsed: Boolean(character.raiderioProfileUrl),
     wclVisibility,
-    providerStates: providerStates ?? [],
+    providerStates: enrichedProviderStates,
+    sourceDisagreements: sourceDisagreements ?? [],
   };
 }
 

@@ -21,6 +21,10 @@ export interface CharacterProviderStateDTO {
   expiresAt: IsoDateTime | null;
   wclVisibility: WclVisibilityState | null;
   warnings: string[];
+  /** True when observations from this provider fed the latest score. */
+  contributedToScore?: boolean;
+  /** Public-safe source URL when available. */
+  sourceUrl?: string | null;
 }
 
 export interface SourceDisagreementDTO {

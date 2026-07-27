@@ -48,10 +48,13 @@ export function useRefreshPolling() {
         const status = await api.getRefreshStatus(options.identity);
         if (stopped) return;
         options.onUpdate(status);
+        const jobTerminal =
+          status.job?.status === "completed" || status.job?.status === "failed";
         if (
           status.refreshStatus === "FRESH" ||
           status.refreshStatus === "FAILED" ||
-          status.refreshStatus === "STALE"
+          status.refreshStatus === "STALE" ||
+          jobTerminal
         ) {
           polling.value = false;
           options.onComplete(status);

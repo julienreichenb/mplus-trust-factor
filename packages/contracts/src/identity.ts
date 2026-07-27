@@ -24,6 +24,10 @@ export interface CanonicalCharacter {
   classSlug: string | null;
   specSlug: string | null;
   role: "DPS" | "TANK" | "HEALER" | null;
+  /** Character level when Blizzard profile provides it. */
+  level?: number | null;
+  /** Faction label when Blizzard profile provides it (e.g. Alliance / Horde). */
+  faction?: string | null;
   blizzardCharacterId: string | null;
   wclCanonicalId: string | null;
   raiderioProfileUrl: string | null;

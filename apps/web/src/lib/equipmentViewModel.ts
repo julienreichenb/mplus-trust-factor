@@ -102,7 +102,16 @@ function enrichFromRawItem(item: object): {
   const itemId = readOptionalPositiveInt(item, ["itemId", "id"]);
   const quality = readOptionalString(item, ["quality", "qualityName"]);
   const iconUrl = readOptionalHttpsUrl(item, ["iconUrl", "icon"]);
-  const enchantment = readOptionalString(item, ["enchantment", "enchant"]);
+  let enchantment = readOptionalString(item, ["enchantment", "enchant"]);
+  if (!enchantment) {
+    const record = item as Record<string, unknown>;
+    if (Array.isArray(record.enchantments)) {
+      const parts = record.enchantments.filter(
+        (e): e is string => typeof e === "string" && e.trim().length > 0,
+      );
+      enchantment = parts.length ? parts.join(", ") : null;
+    }
+  }
   const gems = parseGems(item);
 
   let externalUrl: string | null = null;
@@ -132,12 +141,14 @@ export function toEquipmentViewModel(
   const unknown: EquipmentItemViewModel[] = [];
   let unknownIndex = 0;
 
-  for (const item of equipment.keyItems ?? []) {
+  for (const item of equipment.items?.length ? equipment.items : (equipment.keyItems ?? [])) {
     if (!item || typeof item !== "object") continue;
     const slotRaw = typeof item.slot === "string" ? item.slot : "";
     const name = typeof item.name === "string" && item.name.trim() ? item.name.trim() : null;
     const itemLevel =
-      typeof item.itemLevel === "number" && !Number.isNaN(item.itemLevel) ? item.itemLevel : null;
+      typeof item.itemLevel === "number" && !Number.isNaN(item.itemLevel) && item.itemLevel > 0
+        ? item.itemLevel
+        : null;
     const enrichment = enrichFromRawItem(item);
 
     const candidates = EQUIPMENT_SLOT_DEFS.filter((def) => def.match.test(slotRaw));

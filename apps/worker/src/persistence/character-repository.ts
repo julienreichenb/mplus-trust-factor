@@ -54,6 +54,14 @@ export interface CharacterRepository {
       items?: unknown;
       keyItems?: unknown;
     },
+    extras?: {
+      media?: { avatarUrl: string | null; insetUrl: string | null; mainRawUrl: string | null } | null;
+      talent?: {
+        specializationSlug: string | null;
+        loadoutCode: string | null;
+        talents: unknown;
+      } | null;
+    },
   ): Promise<void>;
   updateRefreshTimestamps(
     characterId: string,
@@ -152,6 +160,8 @@ export function createCharacterRepository(prisma: PrismaClient): CharacterReposi
             ...(classId ? { classId } : {}),
             ...(activeSpecId ? { activeSpecId } : {}),
             ...(profile.role ? { role: profile.role } : {}),
+            ...(profile.level != null ? { level: profile.level } : {}),
+            ...(profile.faction ? { faction: profile.faction } : {}),
             ...(profile.blizzardCharacterId ? { blizzardCharacterId: BigInt(profile.blizzardCharacterId) } : {}),
             lastSeenAt: new Date(),
           },
@@ -159,7 +169,7 @@ export function createCharacterRepository(prisma: PrismaClient): CharacterReposi
       });
     },
 
-    async recordSnapshot(characterId, snapshot, equipment) {
+    async recordSnapshot(characterId, snapshot, equipment, extras) {
       await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
         const created = await tx.characterSnapshot.create({
           data: {
@@ -168,7 +178,17 @@ export function createCharacterRepository(prisma: PrismaClient): CharacterReposi
             itemLevelEquipped: snapshot.itemLevelEquipped,
             role: snapshot.role,
             mythicRating: snapshot.mythicRating,
-            rawSummary: {},
+            rawSummary: {
+              ...(extras?.media
+                ? {
+                    media: {
+                      avatarUrl: extras.media.avatarUrl,
+                      insetUrl: extras.media.insetUrl,
+                      mainRawUrl: extras.media.mainRawUrl,
+                    },
+                  }
+                : {}),
+            },
           },
         });
         if (equipment) {
@@ -180,6 +200,30 @@ export function createCharacterRepository(prisma: PrismaClient): CharacterReposi
               equippedItemLevel: equipment.equippedItemLevel,
               items: (equipment.items ?? []) as object,
               keyItems: (equipment.keyItems ?? []) as object,
+            },
+          });
+        }
+        if (extras?.talent) {
+          let specializationId: string | null = null;
+          if (extras.talent.specializationSlug) {
+            // Link when we already know the character's class/spec; otherwise store code-only.
+            const character = await tx.character.findUnique({ where: { id: characterId } });
+            if (character?.classId && character.role) {
+              const existing = await tx.gameSpecialization.findFirst({
+                where: {
+                  classId: character.classId,
+                  slug: extras.talent.specializationSlug,
+                },
+              });
+              specializationId = existing?.id ?? null;
+            }
+          }
+          await tx.talentSnapshot.create({
+            data: {
+              characterSnapshotId: created.id,
+              specializationId,
+              loadoutCode: extras.talent.loadoutCode,
+              talents: (extras.talent.talents ?? {}) as object,
             },
           });
         }
