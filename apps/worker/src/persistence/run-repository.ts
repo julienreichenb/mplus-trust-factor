@@ -134,6 +134,13 @@ export interface RunRepository {
     characterId: string,
     runId: string,
   ): Promise<number | null>;
+  /**
+   * Latest wcl-combat-facts-v1 analyses for many runs (coverage + summary JSON).
+   */
+  findLatestAnalysesForRuns(
+    characterId: string,
+    runIds: string[],
+  ): Promise<Map<string, { coverage: number | null; summary: unknown }>>;
   upsertRunAnalysis(input: {
     runId: string;
     characterId: string;
@@ -609,6 +616,28 @@ export function createRunRepository(prisma: PrismaClient): RunRepository {
         select: { coverage: true },
       });
       return analysis?.coverage != null ? Number(analysis.coverage) : null;
+    },
+
+    async findLatestAnalysesForRuns(characterId, runIds) {
+      const out = new Map<string, { coverage: number | null; summary: unknown }>();
+      if (runIds.length === 0) return out;
+      const rows = await prisma.runAnalysis.findMany({
+        where: {
+          characterId,
+          analysisVersion: "wcl-combat-facts-v1",
+          runId: { in: [...new Set(runIds)] },
+        },
+        orderBy: { analyzedAt: "desc" },
+        select: { runId: true, coverage: true, summary: true },
+      });
+      for (const row of rows) {
+        if (out.has(row.runId)) continue;
+        out.set(row.runId, {
+          coverage: row.coverage != null ? Number(row.coverage) : null,
+          summary: row.summary,
+        });
+      }
+      return out;
     },
 
     async upsertRunAnalysis(input) {

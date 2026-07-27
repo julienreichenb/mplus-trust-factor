@@ -19,6 +19,8 @@ import type {
   SeasonSummary,
   ProfileEntitlements,
   ProfileWarning,
+  ScoringRunSelectionProfileDTO,
+  ScoringSelectedRunProfileDTO,
 } from "@mplus/contracts";
 
 /** Field visibility flags — launch may unlock everything. */
@@ -111,6 +113,8 @@ export type {
   RefreshStatusResponse,
   RegionCode,
   ScoreSnapshotDTO,
+  ScoringRunSelectionProfileDTO,
+  ScoringSelectedRunProfileDTO,
   SearchCharacterResponse,
   SeasonSummary,
   TalentSummary,

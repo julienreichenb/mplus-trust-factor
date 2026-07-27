@@ -25,6 +25,7 @@ import {
   type RunSummaryDTO,
 } from "../lib/mappers.js";
 import { applyProfileWarnings, buildProfileEnrichments, toPublicProviderKey } from "../lib/profile-enrichment.js";
+import { mapScoringRunSelectionProfile } from "../lib/scoring-run-selection.js";
 import { characterCacheKey } from "../lib/response-cache.js";
 
 const ALL_PROVIDERS: ProviderName[] = ["blizzard", "raiderio", "warcraftlogs"];
@@ -284,6 +285,70 @@ export class CharacterService {
       }),
     );
 
+    const seasonId = snapshot?.seasonId ?? null;
+    const seasonRuns = seasonId
+      ? await this.repositories.run.listForCharacterSeason(character.id, seasonId)
+      : [];
+    const analysesByRun = await this.repositories.run.findLatestAnalysesForRuns(
+      character.id,
+      seasonRuns.map((run) => run.id),
+    );
+    const scoringRunSelection = seasonId
+      ? mapScoringRunSelectionProfile({
+          seasonSlug: snapshot?.season.slug ?? "",
+          expectedDungeonCount: snapshot?.season.dungeonCount ?? 8,
+          runs: seasonRuns.map((run) => {
+            const analysis = analysesByRun.get(run.id);
+            const summary =
+              analysis?.summary && typeof analysis.summary === "object"
+                ? (analysis.summary as {
+                    detailAvailable?: boolean;
+                    rejectionReason?: string | null;
+                    scoringV3?: {
+                      detailAvailable?: boolean;
+                      rejectionReason?: string | null;
+                      selectionReason?: string;
+                    };
+                    combatFacts?: unknown;
+                  })
+                : null;
+            const detailAvailable =
+              summary?.scoringV3?.detailAvailable ??
+              summary?.detailAvailable ??
+              Boolean(summary?.combatFacts);
+            return {
+              runId: run.id,
+              dungeonSlug: run.dungeon.slug,
+              dungeonName: run.dungeon.name,
+              seasonSlug: run.season.slug,
+              keyLevel: run.keyLevel,
+              timed: run.timed,
+              completedAt: run.completedAt.toISOString(),
+              durationMs: run.durationMs,
+              raiderIoScore: run.scoreValue,
+              wclReportMatched: run.sources.some(
+                (s) =>
+                  s.provider === "WARCRAFT_LOGS" &&
+                  Boolean(s.reportCode) &&
+                  s.fightId != null &&
+                  s.fightId > 0,
+              ),
+              analysis: analysis
+                ? {
+                    coverage: analysis.coverage,
+                    detailAvailable,
+                    rejectionReason:
+                      summary?.scoringV3?.rejectionReason ?? summary?.rejectionReason ?? null,
+                    evidenceSummary: null,
+                  }
+                : null,
+            };
+          }),
+          performanceSummary,
+          observedAt: snapshot?.calculatedAt?.toISOString?.() ?? new Date().toISOString(),
+        })
+      : null;
+
     const enrichments = applyProfileWarnings(
       buildProfileEnrichments({
         character: characterDetail,
@@ -311,6 +376,7 @@ export class CharacterService {
         performanceSummary,
         freshness,
         scoreObservationProviders: observationProviders,
+        scoringRunSelection,
         env: this.container.env,
       }),
       base.score,

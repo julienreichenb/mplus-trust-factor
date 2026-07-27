@@ -71,9 +71,15 @@ importers:
       '@mplus/domain':
         specifier: workspace:*
         version: link:../../packages/domain
+      '@mplus/mechanics':
+        specifier: workspace:*
+        version: link:../../packages/mechanics
       '@mplus/observability':
         specifier: workspace:*
         version: link:../../packages/observability
+      '@mplus/scoring':
+        specifier: workspace:*
+        version: link:../../packages/scoring
       '@mplus/worker':
         specifier: workspace:*
         version: link:../worker

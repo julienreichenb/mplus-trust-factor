@@ -16,6 +16,7 @@ import type {
   PerformanceSummaryDTO,
   ProfileEntitlements,
   ProfileWarning,
+  ScoringRunSelectionProfileDTO,
   SeasonSummary,
   TalentSummary,
   WclDataState,
@@ -51,6 +52,7 @@ export interface CharacterEnrichmentInput {
   freshness?: number | null;
   sourceDisagreements?: CharacterProfileResponse["sourceDisagreements"];
   scoreObservationProviders?: string[];
+  scoringRunSelection?: ScoringRunSelectionProfileDTO | null;
   env: AppEnv;
 }
 
@@ -327,6 +329,7 @@ export function buildProfileEnrichments(input: CharacterEnrichmentInput): Pick<
   | "wclDataState"
   | "providerStates"
   | "sourceDisagreements"
+  | "scoringRunSelection"
 > {
   const {
     character,
@@ -345,6 +348,7 @@ export function buildProfileEnrichments(input: CharacterEnrichmentInput): Pick<
     freshness = null,
     sourceDisagreements,
     scoreObservationProviders,
+    scoringRunSelection = null,
     env,
   } = input;
   const bothSame = latestRun && highestRun && latestRun.id === highestRun.id;
@@ -420,6 +424,7 @@ export function buildProfileEnrichments(input: CharacterEnrichmentInput): Pick<
     wclDataState: wclDataState ?? null,
     providerStates: enrichedProviderStates,
     sourceDisagreements: sourceDisagreements ?? [],
+    scoringRunSelection: scoringRunSelection ?? null,
   };
 }
 

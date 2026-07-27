@@ -36,6 +36,51 @@ export interface ScoringSelectedRun {
   rejectionReasons: string[];
 }
 
+/**
+ * Public combat-log coverage for a selected scoring run.
+ * Never invent zeros for unavailable detail.
+ */
+export type CombatCoverageState = "AVAILABLE" | "PARTIAL" | "UNAVAILABLE";
+
+/**
+ * Frozen per-dungeon selection row exposed on the public character profile.
+ * Replaces Agent 26 web-only SelectedRunView fields.
+ */
+export interface ScoringSelectedRunProfileDTO {
+  canonicalRunId: string;
+  dungeonSlug: string;
+  dungeonName: string;
+  keyLevel: number;
+  completedAt: IsoDateTime;
+  timed: boolean | null;
+  durationMs: number | null;
+  raiderIoScore: number | null;
+  selectionReason: ScoringRunSelectionReason;
+  combatCoverageState: CombatCoverageState;
+  /** Explicit reason when combat detail is missing or incomplete. */
+  unavailableReason: string | null;
+  wclReportMatched: boolean;
+  wclCoverageRatio: number | null;
+  /** Performance summary fields when available (null when missing — never coerced to 0). */
+  parsePercentile: number | null;
+  keyDifficultyPercentile: number | null;
+  evidenceSummary: string | null;
+  missingMetrics: string[];
+}
+
+/**
+ * Frozen ScoringRunSelection projection on CharacterProfileResponse.
+ */
+export interface ScoringRunSelectionProfileDTO {
+  seasonSlug: string;
+  expectedDungeonCount: number;
+  expectedDungeonSlugs: string[];
+  selectedRuns: ScoringSelectedRunProfileDTO[];
+  missingDungeonSlugs: string[];
+  selectionConfidence: number | null;
+  observedAt: IsoDateTime | null;
+}
+
 /** Provenance required on every persisted raw fact. */
 export interface RawFactProvenance {
   sourceProvider: "blizzard" | "raiderio" | "warcraftlogs" | "catalog" | "derived";
