@@ -1,9 +1,10 @@
-import { loadEnv } from "@mplus/config";
+import { getConfigSummary, loadEnv } from "@mplus/config";
 import { buildApp } from "./app.js";
 
 async function main(): Promise<void> {
   const env = loadEnv();
   const app = await buildApp({ env });
+  app.log.info({ config: getConfigSummary(env) }, "api configuration summary");
   await app.listen({ host: env.API_HOST, port: env.API_PORT });
 
   let shuttingDown = false;

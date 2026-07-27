@@ -1,4 +1,4 @@
-import { loadEnv } from "@mplus/config";
+import { getConfigSummary, loadEnv } from "@mplus/config";
 import { QUEUE_NAMES } from "@mplus/contracts";
 import { createWorkerContainer } from "./container.js";
 import { closeWorkers, createWorkers } from "./processors.js";
@@ -20,7 +20,11 @@ async function main(): Promise<void> {
   }
 
   container.logger.info(
-    { queues: Object.values(QUEUE_NAMES), status: "ready", providerMode: env.PROVIDER_MODE },
+    {
+      queues: Object.values(QUEUE_NAMES),
+      status: "ready",
+      config: getConfigSummary(env),
+    },
     "worker started",
   );
 

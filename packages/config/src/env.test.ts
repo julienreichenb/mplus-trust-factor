@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { loadEnv, resetEnvCache } from "./index.js";
+import { getConfigSummary, loadEnv, resetEnvCache } from "./index.js";
 
 const baseEnv = {
   DATABASE_URL: "postgresql://mplus:mplus@localhost:5433/mplus_trust?schema=public",
@@ -18,9 +18,13 @@ describe("loadEnv", () => {
     expect(env.PROVIDER_MODE).toBe("fixture");
     expect(env.API_PORT).toBe(3000);
     expect(env.ACTIVE_SCORE_MODEL_KEY).toBe("default");
+    expect(env.BLIZZARD_ENABLED).toBe(true);
+    expect(env.WCL_ENABLED).toBe(true);
+    expect(env.RAIDERIO_ENABLED).toBe(true);
+    expect(env.ALLOW_LIVE_PROVIDER_CALLS).toBe(false);
   });
 
-  it("rejects live mode without Blizzard credentials", () => {
+  it("rejects live mode without Blizzard credentials when Blizzard is enabled", () => {
     resetEnvCache();
     expect(() =>
       loadEnv({
@@ -29,7 +33,45 @@ describe("loadEnv", () => {
         WCL_CLIENT_ID: "wcl",
         WCL_CLIENT_SECRET: "secret",
       }),
-    ).toThrow(/Invalid environment configuration/);
+    ).toThrow(/Blizzard live mode requires BLIZZARD_CLIENT_ID/);
+  });
+
+  it("rejects live mode without WCL credentials when WCL is enabled", () => {
+    resetEnvCache();
+    expect(() =>
+      loadEnv({
+        ...baseEnv,
+        PROVIDER_MODE: "live",
+        BLIZZARD_CLIENT_ID: "blizzard",
+        BLIZZARD_CLIENT_SECRET: "secret",
+      }),
+    ).toThrow(/Warcraft Logs live mode requires WCL_CLIENT_ID/);
+  });
+
+  it("allows live mode without Blizzard credentials when Blizzard is disabled", () => {
+    resetEnvCache();
+    const env = loadEnv({
+      ...baseEnv,
+      PROVIDER_MODE: "live",
+      BLIZZARD_ENABLED: "false",
+      WCL_CLIENT_ID: "wcl",
+      WCL_CLIENT_SECRET: "secret",
+    });
+    expect(env.BLIZZARD_ENABLED).toBe(false);
+    expect(env.PROVIDER_MODE).toBe("live");
+  });
+
+  it("allows live mode without WCL credentials when WCL is disabled", () => {
+    resetEnvCache();
+    const env = loadEnv({
+      ...baseEnv,
+      PROVIDER_MODE: "live",
+      WCL_ENABLED: "false",
+      BLIZZARD_CLIENT_ID: "blizzard",
+      BLIZZARD_CLIENT_SECRET: "secret",
+    });
+    expect(env.WCL_ENABLED).toBe(false);
+    expect(env.PROVIDER_MODE).toBe("live");
   });
 
   it("rejects short SESSION_SECRET", () => {
@@ -40,5 +82,20 @@ describe("loadEnv", () => {
         SESSION_SECRET: "too-short",
       }),
     ).toThrow(/SESSION_SECRET/);
+  });
+
+  it("returns a credential-free config summary", () => {
+    resetEnvCache();
+    const env = loadEnv({
+      ...baseEnv,
+      BLIZZARD_CLIENT_ID: "id-value",
+      BLIZZARD_CLIENT_SECRET: "secret-value",
+      ALLOW_LIVE_PROVIDER_CALLS: "true",
+    });
+    const summary = getConfigSummary(env);
+    expect(summary.blizzardCredentialsConfigured).toBe(true);
+    expect(summary.allowLiveProviderCalls).toBe(true);
+    expect(JSON.stringify(summary)).not.toContain("secret-value");
+    expect(JSON.stringify(summary)).not.toContain("id-value");
   });
 });
