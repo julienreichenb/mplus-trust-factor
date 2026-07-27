@@ -298,6 +298,216 @@ describe.skipIf(!dbAvailable)("runRefreshPipeline (fixture mode, real Postgres)"
         },
       });
       expect(snaps).toBe(0);
+
+      const failedJob = await prisma.ingestionJob.findFirst({
+        where: {
+          character: { normalizedName: name.toLocaleLowerCase("en-US") },
+        },
+        orderBy: { scheduledAt: "desc" },
+      });
+      expect(failedJob?.status).toBe("FAILED");
+      expect(failedJob?.error).toMatchObject({
+        message: expect.stringMatching(/structural validation/i),
+      });
+    },
+    30_000,
+  );
+
+  it(
+    "completes with a Blizzard-backed score when WCL reports NO_PUBLIC_LOGS",
+    async () => {
+      const base = buildContainer();
+      const wcl = {
+        ...base.providers.warcraftlogs,
+        async discoverCharacterSummary() {
+          return {
+            data: { visibility: "NO_PUBLIC_LOGS" as const, warnings: [] },
+            provenance: {
+              provider: "warcraftlogs" as const,
+              externalRequestId: null,
+              sourcePayloadId: null,
+              sourceUrl: null,
+              fetchedAt: new Date().toISOString(),
+              schemaVersion: "test",
+            },
+            freshness: { fetchedAt: new Date().toISOString(), expiresAt: null, stale: false },
+            metadata: {
+              provider: "warcraftlogs" as const,
+              endpointKey: "discoverCharacterSummary",
+              requestFingerprint: "test-no-logs",
+              requestedAt: new Date().toISOString(),
+              completedAt: new Date().toISOString(),
+              statusCode: 200,
+              cacheHit: false,
+              retryCount: 0,
+              costUnits: 0,
+              etag: null,
+              expiresAt: null,
+            },
+          };
+        },
+        async discoverCharacterRuns() {
+          return {
+            data: [],
+            provenance: {
+              provider: "warcraftlogs" as const,
+              externalRequestId: null,
+              sourcePayloadId: null,
+              sourceUrl: null,
+              fetchedAt: new Date().toISOString(),
+              schemaVersion: "test",
+            },
+            freshness: { fetchedAt: new Date().toISOString(), expiresAt: null, stale: false },
+            metadata: {
+              provider: "warcraftlogs" as const,
+              endpointKey: "discoverCharacterRuns",
+              requestFingerprint: "test-no-runs",
+              requestedAt: new Date().toISOString(),
+              completedAt: new Date().toISOString(),
+              statusCode: 200,
+              cacheHit: false,
+              retryCount: 0,
+              costUnits: 0,
+              etag: null,
+              expiresAt: null,
+            },
+          };
+        },
+      };
+      const container = createWorkerContainer(loadEnv(), {
+        prisma,
+        providers: { warcraftlogs: wcl },
+      });
+      const name = `NoPublicLogs-${randomUUID().slice(0, 8)}`;
+      const result = await runRefreshPipeline(container, buildJob(name));
+
+      expect(result.job.status).toBe("COMPLETED");
+      expect(result.score).not.toBeNull();
+      const wclState = await prisma.characterProviderState.findFirst({
+        where: { characterId: result.character.id, provider: "WARCRAFT_LOGS" },
+      });
+      expect(wclState?.wclVisibility).toBe("NO_PUBLIC_LOGS");
+      expect(wclState?.state).toBe("PRIVATE_OR_HIDDEN");
+    },
+    30_000,
+  );
+
+  it(
+    "still produces a score when WCL lacks discoverCharacterSummary and only has async discoverCharacter",
+    async () => {
+      const base = buildContainer();
+      const asyncDiscover = async () => ({
+        summary: { visibility: "PUBLIC" as const, warnings: [] as string[] },
+        candidates: [],
+      });
+      const wcl = {
+        name: "warcraftlogs" as const,
+        discoverCharacter: asyncDiscover,
+        async discoverCharacterRuns(_identity: unknown, ctx: { now: string }) {
+          const discovery = await asyncDiscover();
+          expect(discovery.summary.visibility).toBe("PUBLIC");
+          return {
+            data: [],
+            provenance: {
+              provider: "warcraftlogs" as const,
+              externalRequestId: null,
+              sourcePayloadId: null,
+              sourceUrl: null,
+              fetchedAt: ctx.now,
+              schemaVersion: "test",
+            },
+            freshness: { fetchedAt: ctx.now, expiresAt: null, stale: false },
+            metadata: {
+              provider: "warcraftlogs" as const,
+              endpointKey: "discoverCharacterRuns",
+              requestFingerprint: "async-only",
+              requestedAt: ctx.now,
+              completedAt: ctx.now,
+              statusCode: 200,
+              cacheHit: false,
+              retryCount: 0,
+              costUnits: 0,
+              etag: null,
+              expiresAt: null,
+            },
+          };
+        },
+        async getReportFightDetails() {
+          throw new ExternalApiError({
+            message: "no fights",
+            code: "NOT_FOUND",
+            provider: "warcraftlogs",
+            retryable: false,
+          });
+        },
+      };
+      // No discoverCharacterSummary — exercises Promise-safe fallback path.
+      const container = createWorkerContainer(loadEnv(), {
+        prisma,
+        providers: { warcraftlogs: wcl as never },
+      });
+      const name = `AsyncWclOnly-${randomUUID().slice(0, 8)}`;
+      const result = await runRefreshPipeline(container, buildJob(name));
+      expect(result.job.status).toBe("COMPLETED");
+      expect(result.score).not.toBeNull();
+    },
+    30_000,
+  );
+
+  it(
+    "soft-skips WCL parsing failures and completes a Blizzard-backed score (never stuck QUEUED)",
+    async () => {
+      const base = buildContainer();
+      const wcl = {
+        ...base.providers.warcraftlogs,
+        async discoverCharacterSummary() {
+          throw new TypeError("Cannot read properties of undefined (reading 'visibility')");
+        },
+        async discoverCharacterRuns() {
+          throw new TypeError("Cannot read properties of undefined (reading 'visibility')");
+        },
+      };
+      const container = createWorkerContainer(loadEnv(), {
+        prisma,
+        providers: { warcraftlogs: wcl },
+      });
+      const name = `WclParseFail-${randomUUID().slice(0, 8)}`;
+      const result = await runRefreshPipeline(container, buildJob(name));
+
+      expect(result.stagesSkipped).toContain("refresh-warcraftlogs-summary");
+      expect(result.job.status).toBe("COMPLETED");
+      expect(result.score).not.toBeNull();
+      expect(["queued", "QUEUED"]).not.toContain(result.job.status);
+    },
+    30_000,
+  );
+
+  it(
+    "marks unexpected pipeline failures FAILED (never QUEUED with an errorMessage)",
+    async () => {
+      const base = buildContainer();
+      const container = createWorkerContainer(loadEnv(), {
+        prisma,
+        calculateScore: () => {
+          throw new Error("unexpected scoring boom");
+        },
+      });
+      Object.assign(container.providers, base.providers);
+
+      const name = `UnexpectedFail-${randomUUID().slice(0, 8)}`;
+      await expect(runRefreshPipeline(container, buildJob(name))).rejects.toThrow(
+        /unexpected scoring boom/i,
+      );
+
+      const job = await prisma.ingestionJob.findFirst({
+        where: {
+          character: { normalizedName: name.toLocaleLowerCase("en-US") },
+        },
+        orderBy: { scheduledAt: "desc" },
+      });
+      expect(job?.status).toBe("FAILED");
+      expect(job?.status).not.toBe("QUEUED");
+      expect(job?.error).toMatchObject({ message: expect.stringMatching(/unexpected scoring boom/i) });
     },
     30_000,
   );

@@ -108,6 +108,22 @@ describe.skipIf(!dbAvailable)("character routes", () => {
     expect(jobResponse.json().status).toBe("completed");
   });
 
+  it("refresh-status reaches a terminal FRESH state after successful inline refresh", async () => {
+    const name = uniqueName("RefreshPollTerminal");
+
+    await app.inject({ method: "GET", url: `/api/v1/characters/${REALM_PATH}/${name}` });
+
+    const status = await app.inject({
+      method: "GET",
+      url: `/api/v1/characters/${REALM_PATH}/${name}/refresh-status`,
+    });
+    expect(status.statusCode).toBe(200);
+    const body = status.json();
+    expect(["FRESH", "STALE"]).toContain(body.refreshStatus);
+    expect(body.job?.status).toBe("completed");
+    expect(body.job?.errorMessage).toBeNull();
+  });
+
   it("returns 404 for an unknown job id", async () => {
     const response = await app.inject({ method: "GET", url: "/api/v1/jobs/00000000-0000-0000-0000-000000000000" });
     expect(response.statusCode).toBe(404);

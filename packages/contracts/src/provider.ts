@@ -14,6 +14,7 @@ import type {
   RaiderIoStaticData,
 } from "./raiderio.js";
 import type { MythicRunDTO } from "./runs.js";
+import type { WclVisibilityState } from "./warcraftlogs.js";
 
 export type ProviderName = "blizzard" | "warcraftlogs" | "raiderio";
 
@@ -159,10 +160,7 @@ export interface BlizzardMythicLeaderboardDTO {
 
 export interface BlizzardProvider {
   readonly name: "blizzard";
-  getRealm(
-    realmSlug: string,
-    ctx: ProviderFetchContext,
-  ): Promise<ProviderResult<BlizzardRealmDTO>>;
+  getRealm(realmSlug: string, ctx: ProviderFetchContext): Promise<ProviderResult<BlizzardRealmDTO>>;
   getCharacterProfile(
     identity: CharacterIdentityInput,
     ctx: ProviderFetchContext,
@@ -238,7 +236,7 @@ export interface WarcraftLogsProvider {
   discoverCharacterSummary?(
     identity: CharacterIdentityInput,
     ctx: ProviderFetchContext,
-  ): Promise<ProviderResult<{ visibility: import("./warcraftlogs.js").WclVisibilityState; warnings: string[] }>>;
+  ): Promise<ProviderResult<{ visibility: WclVisibilityState; warnings: string[] }>>;
 }
 
 export interface RaiderIoProvider {

@@ -4,6 +4,7 @@ import type {
   ProviderFetchContext,
   ProviderResult,
   WarcraftLogsProvider,
+  WclVisibilityState,
 } from "@mplus/contracts";
 import { ExternalApiError } from "@mplus/contracts";
 import { computeRunFingerprint } from "@mplus/domain";
@@ -99,6 +100,22 @@ export class FixtureWarcraftLogsProvider implements WarcraftLogsProvider {
       .filter((c) => !c.incompleteness.fightUnknown)
       .map((c) => this.candidateToMythicRun(c, identity, ctx));
     return emptyProviderResult(runs, "discoverCharacterRuns", `fixture-discover-${identity.name}`, ctx);
+  }
+
+  async discoverCharacterSummary(
+    identity: CharacterIdentityInput,
+    ctx: ProviderFetchContext,
+  ): Promise<ProviderResult<{ visibility: WclVisibilityState; warnings: string[] }>> {
+    const discovery = this.discoverCharacter(identity, ctx);
+    return emptyProviderResult(
+      {
+        visibility: discovery.summary.visibility,
+        warnings: discovery.summary.warnings,
+      },
+      "discoverCharacterSummary",
+      `fixture-summary-${identity.name}`,
+      ctx,
+    );
   }
 
   async getReportFightDetails(

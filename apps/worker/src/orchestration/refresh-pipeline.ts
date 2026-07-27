@@ -95,31 +95,37 @@ function isRaiderIoSkipped(container: WorkerContainer): boolean {
   );
 }
 
-function resolveWclVisibility(
+/**
+ * Resolve character-level WCL visibility via the Wave 3 async contract.
+ * Prefer `discoverCharacterSummary` → ProviderResult.data.visibility.
+ * Never treat a Promise as a sync `{ summary }` object.
+ */
+async function resolveWclVisibility(
   provider: WorkerContainer["providers"]["warcraftlogs"],
   identity: CharacterIdentityInput,
   ctx: ProviderFetchContext,
-): WclVisibilityState | null {
-  if (
-    "discoverCharacterSummary" in provider &&
-    typeof provider.discoverCharacterSummary === "function"
-  ) {
-    // Sync fixture helpers may return a plain object; live returns a Promise — handled by caller.
+  record: (result: Awaited<ReturnType<NonNullable<typeof provider.discoverCharacterSummary>>>) => Promise<void>,
+): Promise<WclVisibilityState | null> {
+  if (typeof provider.discoverCharacterSummary === "function") {
+    const summary = await provider.discoverCharacterSummary(identity, ctx);
+    await record(summary);
+    return summary.data.visibility;
   }
-  if (
-    "discoverCharacter" in provider &&
-    typeof (provider as { discoverCharacter?: (i: CharacterIdentityInput, c: ProviderFetchContext) => { summary: { visibility: WclVisibilityState } } }).discoverCharacter === "function"
-  ) {
-    const discovery = (
-      provider as {
-        discoverCharacter: (
-          i: CharacterIdentityInput,
-          c: ProviderFetchContext,
-        ) => { summary: { visibility: WclVisibilityState } };
-      }
-    ).discoverCharacter(identity, ctx);
-    return discovery.summary.visibility;
+
+  // Package-local fallback (fixture/live still expose discoverCharacter).
+  const maybeDiscover = provider as {
+    discoverCharacter?: (
+      i: CharacterIdentityInput,
+      c: ProviderFetchContext,
+    ) =>
+      | { summary: { visibility: WclVisibilityState } }
+      | Promise<{ summary: { visibility: WclVisibilityState } }>;
+  };
+  if (typeof maybeDiscover.discoverCharacter === "function") {
+    const discovery = await Promise.resolve(maybeDiscover.discoverCharacter(identity, ctx));
+    return discovery?.summary?.visibility ?? null;
   }
+
   return null;
 }
 
@@ -162,9 +168,21 @@ export async function runRefreshPipeline(
     payload: jobPayload,
   });
   let job = await repositories.job.markActive(createdJob.id);
+  let terminalized = false;
 
+  const ensureFailed = async (error: unknown): Promise<void> => {
+    if (terminalized) return;
+    const current = await repositories.job.findById(job.id);
+    if (current && (current.status === "QUEUED" || current.status === "ACTIVE")) {
+      job = await repositories.job.markFailed(job.id, error);
+    }
+    terminalized = true;
+  };
+
+  try {
   if (negativeCache.has(identity) && !jobPayload.forceRefresh) {
     job = await repositories.job.markFailed(job.id, new Error("negative cache hit: identity not found"));
+    terminalized = true;
     throw new ExternalApiError({
       message: `Character ${identity.name} is negatively cached as NOT_FOUND`,
       code: "NOT_FOUND",
@@ -189,7 +207,7 @@ export async function runRefreshPipeline(
     }
     const classification = classifyError(error);
     logger.error({ stage, identity, err: error, classification }, "refresh pipeline: stage failed");
-    await repositories.job.markFailed(job.id, error);
+    await ensureFailed(error);
     throw error;
   };
 
@@ -393,20 +411,19 @@ export async function runRefreshPipeline(
 
     let visibility: WclVisibilityState | null = null;
     try {
-      if (
-        "discoverCharacterSummary" in providers.warcraftlogs &&
-        typeof providers.warcraftlogs.discoverCharacterSummary === "function"
-      ) {
-        const summary = await providers.warcraftlogs.discoverCharacterSummary!(identity, ctx);
-        visibility = summary.data.visibility;
-        await recordProviderResult(repositories, summary);
-      } else {
-        visibility = resolveWclVisibility(providers.warcraftlogs, identity, ctx);
-      }
+      visibility = await resolveWclVisibility(
+        providers.warcraftlogs,
+        identity,
+        ctx,
+        async (result) => {
+          await recordProviderResult(repositories, result);
+        },
+      );
 
       const runsResult = await providers.warcraftlogs.discoverCharacterRuns(identity, ctx);
       await recordProviderResult(repositories, runsResult);
 
+      // NO_PUBLIC_LOGS / HIDDEN / RATE_LIMITED are coverage states — still a successful enrichment.
       await repositories.providerState.upsert({
         characterId: character.id,
         provider: "warcraftlogs",
@@ -420,26 +437,24 @@ export async function runRefreshPipeline(
       });
       return { visibility, runs: runsResult.data };
     } catch (error) {
-      if (isEnrichmentSoftSkip(error)) {
-        stagesSkipped.push("refresh-warcraftlogs-summary");
-        const state = mapErrorToProviderState(error);
-        await repositories.providerState.upsert({
-          characterId: character.id,
-          provider: "warcraftlogs",
-          state:
-            state === "PRIVATE_OR_HIDDEN"
-              ? "PRIVATE_OR_HIDDEN"
-              : visibility
-                ? mapWclVisibilityToState(visibility)
-                : state,
-          detail: error instanceof Error ? error.message : "enrichment soft-skip",
-          wclVisibility: visibility,
-          lastAttemptAt: now,
-        });
-        logger.info({ identity, err: error }, "refresh pipeline: WCL soft-skipped");
-        return { visibility, runs: [] };
-      }
-      return await failHard("refresh-warcraftlogs-summary", error);
+      // WCL is enrichment-only: never block a Blizzard/Raider.IO-backed MVP score.
+      stagesSkipped.push("refresh-warcraftlogs-summary");
+      const state = mapErrorToProviderState(error);
+      await repositories.providerState.upsert({
+        characterId: character.id,
+        provider: "warcraftlogs",
+        state:
+          state === "PRIVATE_OR_HIDDEN"
+            ? "PRIVATE_OR_HIDDEN"
+            : visibility
+              ? mapWclVisibilityToState(visibility)
+              : state,
+        detail: error instanceof Error ? error.message : "enrichment soft-skip",
+        wclVisibility: visibility,
+        lastAttemptAt: now,
+      });
+      logger.info({ identity, err: error }, "refresh pipeline: WCL soft-skipped");
+      return { visibility, runs: [] };
     }
   };
 
@@ -691,6 +706,7 @@ export async function runRefreshPipeline(
   if (!model) {
     const error = new Error(`No active score model found for key "${container.env.ACTIVE_SCORE_MODEL_KEY}"`);
     await repositories.job.markFailed(job.id, error);
+    terminalized = true;
     throw error;
   }
 
@@ -750,6 +766,7 @@ export async function runRefreshPipeline(
       `Score snapshot failed structural validation: ${quality.violations.map((v) => v.code).join(", ")}`,
     );
     await repositories.job.markFailed(job.id, error);
+    terminalized = true;
     throw error;
   }
 
@@ -767,6 +784,7 @@ export async function runRefreshPipeline(
     lastPublicRefreshAt: now,
   });
   job = await repositories.job.markCompleted(job.id);
+  terminalized = true;
 
   return {
     character,
@@ -777,4 +795,8 @@ export async function runRefreshPipeline(
     disagreements,
     excludedObservations,
   };
+  } catch (error) {
+    await ensureFailed(error);
+    throw error;
+  }
 }

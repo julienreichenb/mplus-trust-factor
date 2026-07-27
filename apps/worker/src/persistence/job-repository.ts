@@ -1,4 +1,4 @@
-import type { IngestionJob, PrismaClient } from "@mplus/database";
+import { Prisma, type IngestionJob, type PrismaClient } from "@mplus/database";
 
 export interface CreateOrGetJobInput {
   jobType: string;
@@ -46,7 +46,8 @@ export function createJobRepository(prisma: PrismaClient): JobRepository {
             scheduledAt: new Date(),
             startedAt: null,
             completedAt: null,
-            error: undefined,
+            // Prisma ignores `undefined`; must use DbNull to clear a previous failure payload.
+            error: Prisma.DbNull,
           },
         });
         return { job: reset, reused: true };
@@ -76,7 +77,7 @@ export function createJobRepository(prisma: PrismaClient): JobRepository {
     async markCompleted(id) {
       return prisma.ingestionJob.update({
         where: { id },
-        data: { status: "COMPLETED", completedAt: new Date() },
+        data: { status: "COMPLETED", completedAt: new Date(), error: Prisma.DbNull },
       });
     },
 

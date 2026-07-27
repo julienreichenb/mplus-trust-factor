@@ -4,6 +4,7 @@ import type {
   ProviderFetchContext,
   ProviderResult,
   WarcraftLogsProvider,
+  WclVisibilityState,
 } from "@mplus/contracts";
 import { ExternalApiError } from "@mplus/contracts";
 import { computeRunFingerprint } from "@mplus/domain";
@@ -165,6 +166,24 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
       runs,
       "discoverCharacterRuns",
       `live-discover-${identity.region}-${identity.realmSlug}-${identity.name}`,
+      ctx,
+      null,
+      this.config.env.WCL_CHARACTER_TTL_SECONDS,
+    );
+  }
+
+  async discoverCharacterSummary(
+    identity: CharacterIdentityInput,
+    ctx: ProviderFetchContext,
+  ): Promise<ProviderResult<{ visibility: WclVisibilityState; warnings: string[] }>> {
+    const discovery = await this.discoverCharacter(identity, ctx);
+    return providerEnvelope(
+      {
+        visibility: discovery.summary.visibility,
+        warnings: discovery.summary.warnings,
+      },
+      "discoverCharacterSummary",
+      `live-summary-${identity.region}-${identity.realmSlug}-${identity.name}`,
       ctx,
       null,
       this.config.env.WCL_CHARACTER_TTL_SECONDS,

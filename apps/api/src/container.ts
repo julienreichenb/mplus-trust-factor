@@ -93,6 +93,11 @@ function createInlineQueueProducers(worker: WorkerContainer): QueueProducers {
         // negative-cache bookkeeping for NOT_FOUND identities.
         await runRefreshPipeline(worker, payload);
       } catch (error) {
+        // Safety net: a job with an error must never remain QUEUED/ACTIVE for refresh polling.
+        const current = await repositories.job.findById(job.id);
+        if (current && (current.status === "QUEUED" || current.status === "ACTIVE")) {
+          await repositories.job.markFailed(job.id, error);
+        }
         logger.warn({ err: error, dedupeKey }, "inline refresh-character pipeline failed");
       }
       return { jobId: job.id, dedupeKey, reused };
