@@ -139,6 +139,23 @@ export function toUtilityRawFacts(input: {
   }
 
   const c = input.counts;
+  const groupSupportStatus =
+    c.groupSupportEvidenceMode === "confirmed_party_usage"
+      ? ({ availability: "AVAILABLE" as const, reason: null })
+      : c.groupSupportCasts > 0
+        ? ({
+            availability: "PARTIAL" as const,
+            reason: "group_support_cast_only_party_usage_unconfirmed",
+          })
+        : ({ availability: "AVAILABLE" as const, reason: null });
+
+  const offensiveStatus = c.capability.offensiveDispels
+    ? ({ availability: "AVAILABLE" as const, reason: null })
+    : ({
+        availability: "BLOCKED" as const,
+        reason: "offensive_dispel_not_in_spec_capability",
+      });
+
   return {
     provenance: input.provenance,
     kickCasts: c.kickCasts,
@@ -147,10 +164,16 @@ export function toUtilityRawFacts(input: {
     distinctCcTargets: c.distinctCcTargets,
     groupSupportCasts: c.groupSupportCasts,
     defensiveDispels: c.defensiveDispels,
-    offensiveDispels: c.offensiveDispels,
+    offensiveDispels: c.capability.offensiveDispels ? c.offensiveDispels : 0,
     fieldStatus: {
-      kickCasts: { availability: "AVAILABLE", reason: null },
-      successfulInterrupts: { availability: "AVAILABLE", reason: null },
+      kickCasts: {
+        availability: c.capability.interrupts ? "AVAILABLE" : "BLOCKED",
+        reason: c.capability.interrupts ? null : "interrupt_not_in_spec_capability",
+      },
+      successfulInterrupts: {
+        availability: c.capability.interrupts ? "AVAILABLE" : "BLOCKED",
+        reason: c.capability.interrupts ? null : "interrupt_not_in_spec_capability",
+      },
       effectiveKickCooldownMs: {
         availability: c.effectiveKickCooldownMs != null ? "AVAILABLE" : "PARTIAL",
         reason:
@@ -158,13 +181,23 @@ export function toUtilityRawFacts(input: {
             ? null
             : "interrupt_cooldown_missing_from_catalog_or_loadout",
       },
-      distinctCcTargets: { availability: "AVAILABLE", reason: null },
-      groupSupportCasts: { availability: "AVAILABLE", reason: null },
-      defensiveDispels: { availability: "AVAILABLE", reason: null },
-      offensiveDispels: {
-        availability: "PARTIAL",
-        reason: "offensive_dispel_capability_not_seeded_for_warlock_demo",
+      distinctCcTargets: {
+        availability: c.capability.crowdControl ? "AVAILABLE" : "BLOCKED",
+        reason: c.capability.crowdControl ? null : "crowd_control_not_in_spec_capability",
       },
+      groupSupportCasts: c.capability.groupSupport
+        ? groupSupportStatus
+        : {
+            availability: "BLOCKED",
+            reason: "group_support_not_in_spec_capability",
+          },
+      defensiveDispels: {
+        availability: c.capability.defensiveDispels ? "AVAILABLE" : "BLOCKED",
+        reason: c.capability.defensiveDispels
+          ? null
+          : "defensive_dispel_not_in_spec_capability",
+      },
+      offensiveDispels: offensiveStatus,
     },
   };
 }
@@ -272,6 +305,29 @@ export function rawFactsToMetricObservations(input: {
       dimension: "UTILITY",
       rawValue: input.utility.distinctCcTargets,
       confidence: input.utility.distinctCcTargets == null ? 0 : 0.7,
+    },
+    {
+      metricKey: "utility.v3.group_support_casts",
+      dimension: "UTILITY",
+      rawValue: input.utility.groupSupportCasts,
+      confidence: input.utility.groupSupportCasts == null ? 0 : 0.65,
+    },
+    {
+      metricKey: "utility.v3.defensive_dispels",
+      dimension: "UTILITY",
+      rawValue: input.utility.defensiveDispels,
+      confidence: input.utility.defensiveDispels == null ? 0 : 0.7,
+    },
+    {
+      metricKey: "utility.v3.offensive_dispels",
+      dimension: "UTILITY",
+      rawValue: input.utility.offensiveDispels,
+      confidence:
+        input.utility.fieldStatus.offensiveDispels?.availability === "BLOCKED"
+          ? 0
+          : input.utility.offensiveDispels == null
+            ? 0
+            : 0.7,
     },
     {
       metricKey: "performance.v3.parse_percentile",

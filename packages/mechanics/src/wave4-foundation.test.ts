@@ -84,6 +84,64 @@ describe("raw fact extraction + pet attribution", () => {
     expect(utility.successfulInterrupts).toBe(1);
     expect(utility.effectiveKickCooldownMs).toBe(24_000);
     expect(utility.distinctCcTargets).toBe(1);
+    expect(utility.capability.offensiveDispels).toBe(false);
+    expect(utility.capability.interrupts).toBe(true);
+    expect(utility.resolvedInterrupt.spellIds).toContain(19647);
+  });
+
+  it("counts distinct CC targets and labels gateway as cast-only without party aura", () => {
+    const utility = extractUtilityCounts({
+      seasonSlug: "season-midnight-s1",
+      dungeonSlug: "skyreach",
+      targetSourceId: 1,
+      attributedSourceIds: new Set([1]),
+      hostileTargetIds: new Set([10, 11]),
+      maxHealth: null,
+      abilityCatalog,
+      mechanicCatalog,
+      casts: [
+        { abilityGameId: 30283, sourceId: 1, targetId: 10 },
+        { abilityGameId: 30283, sourceId: 1, targetId: 10 },
+        { abilityGameId: 6789, sourceId: 1, targetId: 11 },
+        { abilityGameId: 111771, sourceId: 1, targetId: null },
+      ],
+      interrupts: [],
+      deaths: [],
+      damageTaken: [],
+      healing: [],
+      dispels: [{ abilityGameId: 89808, sourceId: 1, targetId: 1 }],
+      classSlug: "warlock",
+      specSlug: "demonology",
+    });
+    expect(utility.distinctCcTargets).toBe(2);
+    expect(utility.groupSupportCasts).toBe(1);
+    expect(utility.groupSupportEvidenceMode).toBe("cast_only");
+    expect(utility.defensiveDispels).toBe(1);
+    expect(utility.offensiveDispels).toBe(0);
+  });
+
+  it("never invents offensive dispel credit for Warlock Demo", () => {
+    const utility = extractUtilityCounts({
+      seasonSlug: "season-midnight-s1",
+      dungeonSlug: "skyreach",
+      targetSourceId: 1,
+      attributedSourceIds: new Set([1]),
+      maxHealth: null,
+      abilityCatalog,
+      mechanicCatalog,
+      casts: [],
+      interrupts: [],
+      deaths: [],
+      damageTaken: [],
+      healing: [],
+      // Uncatalogued hostile dispel must not become offensive (or defensive) for Demo.
+      dispels: [{ abilityGameId: 999001, sourceId: 1, targetId: 50 }],
+      classSlug: "warlock",
+      specSlug: "demonology",
+    });
+    expect(utility.capability.offensiveDispels).toBe(false);
+    expect(utility.offensiveDispels).toBe(0);
+    expect(utility.defensiveDispels).toBe(0);
   });
 
   it("never treats unknown damage as avoidable", () => {

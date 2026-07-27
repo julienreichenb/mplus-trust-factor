@@ -61,6 +61,36 @@ export type {
   HistoricalSeasonAggregateInput,
   PerformanceRunRefInput,
 } from "./performance/types.js";
+export {
+  computeUtilityDimension,
+  computeInterruptScore,
+  computeKickActivityScore,
+  computeKickSuccessScore,
+  computeCrowdControlScore,
+  computeGroupSupportScore,
+  computeDispelScore,
+  computeUtilityConfidence,
+  resolveUtilityContributorWeights,
+  resolveUtilityMetricWeights,
+  explainUtilityRun,
+  UTILITY_INTERRUPT_WEIGHT,
+  UTILITY_CROWD_CONTROL_WEIGHT,
+  UTILITY_GROUP_SUPPORT_WEIGHT,
+  UTILITY_DISPELS_WEIGHT,
+  KICK_ACTIVITY_WEIGHT,
+  KICK_SUCCESS_WEIGHT,
+  UTILITY_V3_FORMULA_VERSION,
+  UTILITY_V3_METRIC_KEYS,
+} from "./utility/aggregate.js";
+export { utilityDimensionToMetricObservations } from "./utility/observations.js";
+export type {
+  UtilitySummaryDTO,
+  ComputeUtilityResult,
+  ComputeUtilityInput,
+  UtilityRunFactsInput,
+  UtilityRunScore,
+  UtilityContributorScore,
+} from "./utility/types.js";
 export { calculateScore, calculateScoreEngine } from "./calculate.js";
 export type { CalculateScoreInput } from "./calculate.js";
 
