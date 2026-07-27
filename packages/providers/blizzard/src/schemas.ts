@@ -208,6 +208,22 @@ export const seasonSchema = z
     id: z.number(),
     start_timestamp: z.number().nullish(),
     end_timestamp: z.number().nullish(),
+    periods: z.array(z.object({ id: z.number() }).passthrough()).optional(),
+  })
+  .passthrough();
+
+export const periodIndexSchema = z
+  .object({
+    periods: z.array(z.object({ id: z.number() }).passthrough()).default([]),
+    current_period: z.object({ id: z.number() }).passthrough().optional(),
+  })
+  .passthrough();
+
+export const periodSchema = z
+  .object({
+    id: z.number(),
+    start_timestamp: z.number().nullish(),
+    end_timestamp: z.number().nullish(),
   })
   .passthrough();
 
@@ -268,3 +284,7 @@ export type MediaPayload = z.infer<typeof mediaSchema>;
 export type MythicKeystoneProfileIndexPayload = z.infer<typeof mythicKeystoneProfileIndexSchema>;
 export type MythicKeystoneSeasonProfilePayload = z.infer<typeof mythicKeystoneSeasonProfileSchema>;
 export type MythicBestRunPayload = z.infer<typeof mythicBestRunSchema>;
+export type PeriodIndexPayload = z.infer<typeof periodIndexSchema>;
+export type PeriodPayload = z.infer<typeof periodSchema>;
+export type SeasonIndexPayload = z.infer<typeof seasonIndexSchema>;
+export type SeasonPayload = z.infer<typeof seasonSchema>;

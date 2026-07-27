@@ -84,6 +84,17 @@ export function encodeCharacterPath(realmSlug: string, characterName: string): s
   return `${realm}/${name}`;
 }
 
+export interface BlizzardIdentityDiagnostics {
+  submitted: CharacterIdentityInput;
+  canonical: {
+    region: RegionCode;
+    realmSlug: string;
+    normalizedName: string;
+    displayName: string;
+  };
+  matchesSubmitted: boolean;
+}
+
 export function normalizeCharacterProfile(
   payload: CharacterProfilePayload,
   identity: CharacterIdentityInput,
@@ -109,6 +120,77 @@ export function normalizeCharacterProfile(
       : null,
     lastPublicRefreshAt: null,
   };
+}
+
+/** Retain submitted identity alongside Blizzard-canonical values for diagnostics. */
+export function buildIdentityDiagnostics(
+  identity: CharacterIdentityInput,
+  canonical: CanonicalCharacter,
+): BlizzardIdentityDiagnostics {
+  const submitted = {
+    region: normalizeRegion(identity.region),
+    realmSlug: normalizeRealmSlug(identity.realmSlug),
+    name: identity.name,
+  };
+  const matchesSubmitted =
+    normalizeRegion(submitted.region) === normalizeRegion(canonical.region) &&
+    normalizeRealmSlug(submitted.realmSlug) === canonical.realmSlug &&
+    normalizeName(submitted.name) === canonical.normalizedName;
+  return {
+    submitted,
+    canonical: {
+      region: canonical.region,
+      realmSlug: canonical.realmSlug,
+      normalizedName: canonical.normalizedName,
+      displayName: canonical.displayName,
+    },
+    matchesSubmitted,
+  };
+}
+
+/** Package-local period DTO (contracts CR not opened in Wave 3 Agent 12). */
+export interface BlizzardPeriodDTO {
+  blizzardPeriodId: number;
+  startTimestamp: number | null;
+  endTimestamp: number | null;
+}
+
+export interface BlizzardCurrentSeasonPeriod {
+  seasonId: number;
+  season: BlizzardSeasonDTO;
+  periodId: number | null;
+  period: BlizzardPeriodDTO | null;
+  source: "season_index.current_season" | "season_index.last" | "period_index.current_period";
+}
+
+export function normalizePeriod(payload: {
+  id: number;
+  start_timestamp?: number | null;
+  end_timestamp?: number | null;
+}): BlizzardPeriodDTO {
+  return {
+    blizzardPeriodId: payload.id,
+    startTimestamp: payload.start_timestamp ?? null,
+    endTimestamp: payload.end_timestamp ?? null,
+  };
+}
+
+/**
+ * Resolve current season id from the season index without hardcoding.
+ * Prefer `current_season`; fall back to the last listed season id only as a last resort.
+ */
+export function resolveCurrentSeasonIdFromIndex(payload: {
+  seasons: Array<{ id: number }>;
+  current_season?: { id: number } | null;
+}): { seasonId: number; source: BlizzardCurrentSeasonPeriod["source"] } {
+  if (payload.current_season?.id != null) {
+    return { seasonId: payload.current_season.id, source: "season_index.current_season" };
+  }
+  const last = payload.seasons[payload.seasons.length - 1];
+  if (!last) {
+    throw new Error("Blizzard season index contained no seasons");
+  }
+  return { seasonId: last.id, source: "season_index.last" };
 }
 
 export function normalizeCharacterSnapshot(
@@ -197,9 +279,15 @@ export function normalizeMedia(payload: MediaPayload): BlizzardCharacterMediaDTO
 export function normalizeMythicProfileIndex(
   payload: MythicKeystoneProfileIndexPayload,
   identity: CharacterIdentityInput,
+  preferredCurrentSeasonId?: number | null,
 ): BlizzardMythicKeystoneProfileDTO {
   const seasons = (payload.seasons ?? []).map((s) => ({ seasonId: s.id }));
-  const currentSeasonId = seasons.length > 0 ? (seasons[seasons.length - 1]?.seasonId ?? null) : null;
+  const fromPreferred =
+    preferredCurrentSeasonId != null && seasons.some((s) => s.seasonId === preferredCurrentSeasonId)
+      ? preferredCurrentSeasonId
+      : null;
+  const currentSeasonId =
+    fromPreferred ?? (seasons.length > 0 ? (seasons[seasons.length - 1]?.seasonId ?? null) : null);
   return {
     currentMythicRating: payload.current_mythic_rating?.rating ?? null,
     currentSeasonId,
@@ -396,11 +484,13 @@ export function buildProviderResult<T>(input: {
   expiresAt?: string | null;
   requestedAt?: string;
   completedAt?: string;
+  pathParams?: Record<string, string>;
+  queryParams?: Record<string, string>;
 }): ProviderResult<T> {
   const requestedAt = input.requestedAt ?? input.ctx.now;
   const completedAt = input.completedAt ?? new Date().toISOString();
-  const pathParams: Record<string, string> = {};
-  const queryParams: Record<string, string> = {};
+  const pathParams = input.pathParams ?? {};
+  const queryParams = input.queryParams ?? {};
   const fingerprint = buildRequestFingerprint({
     provider: "blizzard",
     region: String(input.ctx.region),
@@ -413,6 +503,7 @@ export function buildProviderResult<T>(input: {
     provider: "blizzard",
     externalRequestId: input.ctx.requestId,
     sourcePayloadId: null,
+    // Never persist query credentials; callers must pass already-redacted URLs.
     sourceUrl: input.sourceUrl,
     fetchedAt: completedAt,
     schemaVersion: SCHEMA_VERSION,
@@ -439,6 +530,31 @@ export function buildProviderResult<T>(input: {
       stale: false,
     },
     metadata,
+  };
+}
+
+/**
+ * Normalized observation envelope for downstream scoring (no secrets / auth headers).
+ */
+export function buildObservationEnvelope(input: {
+  observationKey: string;
+  value: unknown;
+  result: ProviderResult<unknown>;
+  identityDiagnostics?: BlizzardIdentityDiagnostics | null;
+}): Record<string, unknown> {
+  return {
+    observationKey: input.observationKey,
+    provider: "blizzard",
+    value: input.value,
+    fetchedAt: input.result.freshness.fetchedAt,
+    expiresAt: input.result.freshness.expiresAt,
+    endpointKey: input.result.metadata.endpointKey,
+    requestFingerprint: input.result.metadata.requestFingerprint,
+    statusCode: input.result.metadata.statusCode,
+    cacheHit: input.result.metadata.cacheHit,
+    schemaVersion: input.result.provenance.schemaVersion,
+    sourceUrl: input.result.provenance.sourceUrl,
+    identity: input.identityDiagnostics ?? null,
   };
 }
 

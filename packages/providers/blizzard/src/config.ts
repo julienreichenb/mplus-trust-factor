@@ -99,10 +99,15 @@ export interface BlizzardClientOptions {
   defaultRegion?: BlizzardRegionKey;
   defaultLocale?: string;
   concurrency?: number;
+  /** Per-request timeout in milliseconds (default 15s). */
+  timeoutMs?: number;
+  /** Max HTTP attempts including the first try (default 3). */
+  maxAttempts?: number;
   characterTtlSeconds?: number;
   fixtureDir?: string;
   fetchImpl?: typeof fetch;
   now?: () => number;
+  sleep?: (ms: number) => Promise<void>;
   logger?: {
     debug?: (obj: Record<string, unknown>, msg?: string) => void;
     info?: (obj: Record<string, unknown>, msg?: string) => void;
@@ -110,3 +115,6 @@ export interface BlizzardClientOptions {
     error?: (obj: Record<string, unknown>, msg?: string) => void;
   };
 }
+
+export const DEFAULT_TIMEOUT_MS = 15_000;
+export const DEFAULT_MAX_ATTEMPTS = 3;

@@ -22,10 +22,12 @@ import { DEFAULT_TTL_SECONDS } from "./config.js";
 import { mapStatusToError } from "./errors.js";
 import { BlizzardHttpClient, regionFromContext } from "./http-client.js";
 import {
+  buildIdentityDiagnostics,
+  buildObservationEnvelope,
   buildProviderResult,
   encodeCharacterPath,
   fingerprintFor,
-    normalizeCharacterProfile,
+  normalizeCharacterProfile,
   normalizeDungeon,
   normalizeEquipmentSnapshot,
   normalizeItem,
@@ -33,10 +35,15 @@ import {
   normalizeMedia,
   normalizeMythicProfileIndex,
   normalizeMythicRuns,
+  normalizePeriod,
   normalizeRealm,
   normalizeSeason,
   normalizeTalentSnapshot,
   refLabel,
+  resolveCurrentSeasonIdFromIndex,
+  type BlizzardCurrentSeasonPeriod,
+  type BlizzardIdentityDiagnostics,
+  type BlizzardPeriodDTO,
 } from "./normalize.js";
 import {
   characterProfileSchema,
@@ -49,6 +56,8 @@ import {
   mediaSchema,
   mythicKeystoneProfileIndexSchema,
   mythicKeystoneSeasonProfileSchema,
+  periodIndexSchema,
+  periodSchema,
   realmSchema,
   seasonIndexSchema,
   seasonSchema,
@@ -69,6 +78,7 @@ function parseOrThrow<S extends z.ZodTypeAny>(
       statusCode: null,
       message: `Invalid Blizzard response for ${endpointKey}`,
       reason: "INVALID_PROVIDER_RESPONSE",
+      endpointKey,
       details: { error: error instanceof Error ? error.message : String(error) },
     });
   }
@@ -151,28 +161,76 @@ export class LiveBlizzardProvider implements BlizzardProvider {
         name: normalizeName(identity.name),
       },
     });
-    const result = await this.http.getJson<unknown>({
-      regionConfig: region,
-      namespaceKind: "profile",
-      path,
-      endpointKey,
-      fingerprint,
-      ttlSeconds: this.characterTtlSeconds,
-      forceRefresh: ctx.forceRefresh,
-      locale: this.defaultLocale,
-    });
-    const raw = parseOrThrow(characterProfileSchema, result.data, endpointKey);
-    return buildProviderResult({
-      data: normalizeCharacterProfile(raw, identity),
-      ctx,
-      endpointKey,
-      sourceUrl: result.sourceUrl,
-      cacheHit: result.cacheHit,
-      statusCode: result.statusCode,
-      retryCount: result.retryCount,
-      etag: result.etag,
-      expiresAt: result.expiresAt,
-    });
+    try {
+      const result = await this.http.getJson<unknown>({
+        regionConfig: region,
+        namespaceKind: "profile",
+        path,
+        endpointKey,
+        fingerprint,
+        ttlSeconds: this.characterTtlSeconds,
+        forceRefresh: ctx.forceRefresh,
+        locale: this.defaultLocale,
+        negativeCache: true,
+      });
+      const raw = parseOrThrow(characterProfileSchema, result.data, endpointKey);
+      const data = normalizeCharacterProfile(raw, identity);
+      const providerResult = buildProviderResult({
+        data,
+        ctx,
+        endpointKey,
+        sourceUrl: result.sourceUrl,
+        cacheHit: result.cacheHit,
+        statusCode: result.statusCode,
+        retryCount: result.retryCount,
+        etag: result.etag,
+        expiresAt: result.expiresAt,
+        pathParams: {
+          realmSlug: normalizeRealmSlug(identity.realmSlug),
+          name: normalizeName(identity.name),
+        },
+      });
+      // Attach diagnostics without leaking into DTO contracts.
+      (providerResult as ProviderResult<CanonicalCharacter> & {
+        identityDiagnostics: BlizzardIdentityDiagnostics;
+      }).identityDiagnostics = buildIdentityDiagnostics(identity, data);
+      return providerResult;
+    } catch (error) {
+      throw enrichIdentityError(error, identity, endpointKey);
+    }
+  }
+
+  /**
+   * Profile + identity diagnostics + observation envelope (Wave 3 live hardening helper).
+   */
+  async resolveCharacterIdentity(
+    identity: CharacterIdentityInput,
+    ctx: ProviderFetchContext,
+  ): Promise<{
+    result: ProviderResult<CanonicalCharacter>;
+    identityDiagnostics: BlizzardIdentityDiagnostics;
+    observation: Record<string, unknown>;
+  }> {
+    const result = await this.getCharacterProfile(identity, ctx);
+    const identityDiagnostics =
+      (result as ProviderResult<CanonicalCharacter> & {
+        identityDiagnostics?: BlizzardIdentityDiagnostics;
+      }).identityDiagnostics ?? buildIdentityDiagnostics(identity, result.data);
+    return {
+      result,
+      identityDiagnostics,
+      observation: buildObservationEnvelope({
+        observationKey: "blizzard.character.identity",
+        value: {
+          blizzardCharacterId: result.data.blizzardCharacterId,
+          classSlug: result.data.classSlug,
+          specSlug: result.data.specSlug,
+          role: result.data.role,
+        },
+        result,
+        identityDiagnostics,
+      }),
+    };
   }
 
   async getCharacterEquipment(
@@ -291,7 +349,8 @@ export class LiveBlizzardProvider implements BlizzardProvider {
     const region = this.region(ctx);
     const endpointKey = "character.media";
     const charPath = encodeCharacterPath(identity.realmSlug, identity.name);
-    const path = `profile/wow/character/${charPath}/media`;
+    // Official Profile API path is character-media (not /media).
+    const path = `profile/wow/character/${charPath}/character-media`;
     const fingerprint = fingerprintFor({
       region: region.key,
       endpointKey,
@@ -447,6 +506,172 @@ export class LiveBlizzardProvider implements BlizzardProvider {
       retryCount: result.retryCount,
       etag: result.etag,
       expiresAt: result.expiresAt,
+    });
+  }
+
+  async getMythicKeystonePeriodIndex(
+    ctx: ProviderFetchContext,
+  ): Promise<ProviderResult<{ periods: BlizzardPeriodDTO[]; currentPeriodId: number | null }>> {
+    const region = this.region(ctx);
+    const endpointKey = "mplus.period.index";
+    const path = "data/wow/mythic-keystone/period/index";
+    const fingerprint = fingerprintFor({ region: region.key, endpointKey, pathParams: {} });
+    const result = await this.http.getJson<unknown>({
+      regionConfig: region,
+      namespaceKind: "dynamic",
+      path,
+      endpointKey,
+      fingerprint,
+      ttlSeconds: DEFAULT_TTL_SECONDS.seasonIndex,
+      forceRefresh: ctx.forceRefresh,
+      locale: this.defaultLocale,
+    });
+    const raw = parseOrThrow(periodIndexSchema, result.data, endpointKey);
+    return buildProviderResult({
+      data: {
+        periods: raw.periods.map((p) => normalizePeriod({ id: p.id })),
+        currentPeriodId: raw.current_period?.id ?? null,
+      },
+      ctx,
+      endpointKey,
+      sourceUrl: result.sourceUrl,
+      cacheHit: result.cacheHit,
+      statusCode: result.statusCode,
+      retryCount: result.retryCount,
+      etag: result.etag,
+      expiresAt: result.expiresAt,
+    });
+  }
+
+  async getMythicKeystonePeriod(
+    periodId: number,
+    ctx: ProviderFetchContext,
+  ): Promise<ProviderResult<BlizzardPeriodDTO>> {
+    const region = this.region(ctx);
+    const endpointKey = "mplus.period.get";
+    const path = `data/wow/mythic-keystone/period/${periodId}`;
+    const fingerprint = fingerprintFor({
+      region: region.key,
+      endpointKey,
+      pathParams: { periodId: String(periodId) },
+    });
+    const result = await this.http.getJson<unknown>({
+      regionConfig: region,
+      namespaceKind: "dynamic",
+      path,
+      endpointKey,
+      fingerprint,
+      ttlSeconds: DEFAULT_TTL_SECONDS.seasonHistorical,
+      forceRefresh: ctx.forceRefresh,
+      locale: this.defaultLocale,
+    });
+    const raw = parseOrThrow(periodSchema, result.data, endpointKey);
+    return buildProviderResult({
+      data: normalizePeriod(raw),
+      ctx,
+      endpointKey,
+      sourceUrl: result.sourceUrl,
+      cacheHit: result.cacheHit,
+      statusCode: result.statusCode,
+      retryCount: result.retryCount,
+      etag: result.etag,
+      expiresAt: result.expiresAt,
+    });
+  }
+
+  /**
+   * Resolve dynamic current season + period without hardcoding season IDs.
+   */
+  async resolveCurrentSeasonPeriod(
+    ctx: ProviderFetchContext,
+  ): Promise<ProviderResult<BlizzardCurrentSeasonPeriod>> {
+    const region = this.region(ctx);
+    const indexFp = fingerprintFor({
+      region: region.key,
+      endpointKey: "mplus.season.index",
+      pathParams: {},
+    });
+    const indexResult = await this.http.getJson<unknown>({
+      regionConfig: region,
+      namespaceKind: "dynamic",
+      path: "data/wow/mythic-keystone/season/index",
+      endpointKey: "mplus.season.index",
+      fingerprint: indexFp,
+      ttlSeconds: DEFAULT_TTL_SECONDS.seasonIndex,
+      forceRefresh: ctx.forceRefresh,
+      locale: this.defaultLocale,
+    });
+    const index = parseOrThrow(seasonIndexSchema, indexResult.data, "mplus.season.index");
+    const { seasonId, source } = resolveCurrentSeasonIdFromIndex(index);
+    const season = await this.getMythicKeystoneSeason(seasonId, ctx);
+
+    let periodId: number | null = null;
+    let period: BlizzardPeriodDTO | null = null;
+    let periodSource: BlizzardCurrentSeasonPeriod["source"] = source;
+    try {
+      const periodIndex = await this.getMythicKeystonePeriodIndex(ctx);
+      periodId = periodIndex.data.currentPeriodId;
+      if (periodId != null) {
+        const periodResult = await this.getMythicKeystonePeriod(periodId, ctx);
+        period = periodResult.data;
+        periodSource = "period_index.current_period";
+      }
+    } catch {
+      // Period endpoints are best-effort; season resolution remains authoritative.
+    }
+
+    return buildProviderResult({
+      data: {
+        seasonId,
+        season: season.data,
+        periodId,
+        period,
+        source: periodId != null ? periodSource : source,
+      },
+      ctx,
+      endpointKey: "mplus.current.season_period",
+      sourceUrl: indexResult.sourceUrl,
+      cacheHit: indexResult.cacheHit && season.metadata.cacheHit,
+      statusCode: indexResult.statusCode,
+      retryCount: indexResult.retryCount,
+      etag: indexResult.etag,
+      expiresAt: season.freshness.expiresAt,
+    });
+  }
+
+  /**
+   * Fetch current-season best runs after resolving the season id dynamically.
+   * Best runs are not a complete history.
+   */
+  async getCurrentSeasonBestRuns(
+    identity: CharacterIdentityInput,
+    ctx: ProviderFetchContext,
+  ): Promise<
+    ProviderResult<{
+      seasonId: number;
+      profile: BlizzardMythicKeystoneProfileDTO;
+      runs: MythicRunDTO[];
+    }>
+  > {
+    const current = await this.resolveCurrentSeasonPeriod(ctx);
+    const seasonProfile = await this.getMythicKeystoneSeasonProfile(
+      identity,
+      current.data.seasonId,
+      ctx,
+    );
+    return buildProviderResult({
+      data: {
+        seasonId: current.data.seasonId,
+        profile: seasonProfile.data.profile,
+        runs: seasonProfile.data.runs,
+      },
+      ctx,
+      endpointKey: "character.mplus.season.current",
+      sourceUrl: seasonProfile.provenance.sourceUrl,
+      cacheHit: current.metadata.cacheHit && seasonProfile.metadata.cacheHit,
+      statusCode: seasonProfile.metadata.statusCode,
+      retryCount: seasonProfile.metadata.retryCount,
+      expiresAt: seasonProfile.freshness.expiresAt,
     });
   }
 
@@ -677,4 +902,25 @@ export class LiveBlizzardProvider implements BlizzardProvider {
   private region(ctx: ProviderFetchContext) {
     return regionFromContext(normalizeRegion(ctx.region), this.defaultRegion, this.defaultLocale);
   }
+}
+
+function enrichIdentityError(
+  error: unknown,
+  identity: CharacterIdentityInput,
+  endpointKey: string,
+): never {
+  if (error && typeof error === "object" && "details" in error) {
+    const details = (error as { details?: Record<string, unknown> }).details ?? {};
+    (error as { details: Record<string, unknown> }).details = {
+      ...details,
+      endpointKey,
+      submittedIdentity: {
+        region: normalizeRegion(identity.region),
+        realmSlug: normalizeRealmSlug(identity.realmSlug),
+        name: identity.name,
+        normalizedName: normalizeName(identity.name),
+      },
+    };
+  }
+  throw error;
 }
