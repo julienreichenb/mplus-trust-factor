@@ -27,4 +27,6 @@ Branch: `integration/wave3`
 
 ## GO / NO-GO input
 
-Pending full suite + live validation in the Agent 17 delivery note. Treat security/observability foundations as ready for final integration review.
+**GO** for Agent 20 final integration review on `integration/wave3` at `62c78c688345a370954734f40f88136dfb8443ce`.
+
+Evidence: security/readiness suites green; live Wallidrixe double refresh reached FRESH with PUBLIC visibility separated from data-state; scoring formulas and approved UI design unchanged.
