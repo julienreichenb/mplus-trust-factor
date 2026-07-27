@@ -12,6 +12,7 @@ import type {
   RefreshStatusResponse,
   RegionCode,
 } from "./types";
+import { normalizeRealmOptions } from "./realm-options";
 
 export class ApiClientError extends Error {
   readonly status: number;
@@ -71,10 +72,11 @@ export function createLiveApiClient(options: {
     body?: unknown,
     signal?: AbortSignal,
   ): Promise<T> {
+    const hasBody = body !== undefined;
     const response = await fetch(`${base}${path}`, {
       method,
-      headers: headers({ "Content-Type": "application/json" }),
-      body: body === undefined ? undefined : JSON.stringify(body),
+      headers: headers(hasBody ? { "Content-Type": "application/json" } : undefined),
+      body: hasBody ? JSON.stringify(body) : undefined,
       signal,
     });
     return parseJson<T>(response);
@@ -84,10 +86,10 @@ export function createLiveApiClient(options: {
     getMeta: (signal) => get<MetaResponse>("/api/v1/meta", signal),
 
     searchRealms: (region: RegionCode, query: string, signal) =>
-      get<{ realms: RealmOption[] }>(
+      get<{ realms: Array<{ slug: string; name?: string | null }> }>(
         `/api/v1/realms?region=${encodeURIComponent(String(region))}&query=${encodeURIComponent(query)}`,
         signal,
-      ).then((r) => r.realms),
+      ).then((r) => normalizeRealmOptions(r.realms)),
 
     getCharacterProfile: (identity: CharacterIdentityInput, signal) =>
       get<CharacterProfileResponse>(identityPath(identity), signal),

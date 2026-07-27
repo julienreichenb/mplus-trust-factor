@@ -7,6 +7,7 @@ import {
   type Ref,
 } from "vue";
 import { api } from "../api/client";
+import { normalizeRealmOption } from "../api/realm-options";
 import type { RealmOption, RegionCode } from "../api/types";
 
 export function useRealmAutocomplete(
@@ -102,9 +103,10 @@ export function useRealmAutocomplete(
     clearPendingSearch();
     selecting = true;
     suppressQueryWatch = true;
-    selectedSlug.value = realm.slug;
-    selectedLabel.value = realm.name;
-    query.value = realm.name;
+    const normalized = normalizeRealmOption(realm);
+    selectedSlug.value = normalized.slug;
+    selectedLabel.value = normalized.name;
+    query.value = normalized.name;
     suggestions.value = [];
     open.value = false;
     activeIndex.value = -1;

@@ -125,6 +125,17 @@ describe("useRealmAutocomplete", () => {
     expect(query.value).toBe("Tarren Mill");
     expect(ac.selectedSlug.value).toBe("tarren-mill");
   });
+
+  it("displays a human label when live API returns slug as name", async () => {
+    const region = ref("EU");
+    const query = ref("");
+    const ac = useRealmAutocomplete(region, query, 0);
+
+    await ac.select({ slug: "tarren-mill", name: "tarren-mill" });
+    expect(query.value).toBe("Tarren Mill");
+    expect(ac.selectedSlug.value).toBe("tarren-mill");
+    expect(ac.resolveRealmSlug()).toBe("tarren-mill");
+  });
 });
 
 describe("HomePage realm combobox", () => {
