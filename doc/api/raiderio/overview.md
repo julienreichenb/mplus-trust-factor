@@ -1,17 +1,17 @@
 # Raider.IO integration overview
 
-Agent 3 owns a **minimal, replaceable** Raider.IO provider at `@mplus/provider-raiderio`.
+Agent 3 owns a **minimal, replaceable** Raider.IO provider at `@mplus/provider-raiderio`. Wave 3 (Agent 13) hardens the live character profile path.
 
 ## Purpose
 
 Supplement Blizzard and Warcraft Logs with:
 
-- Mythic+ score summaries (current and previous season)
-- Run candidates (recent, best, highest level) with roster when available
+- Current-season Mythic+ score summaries
+- Gear / talent presence markers
+- Run candidates (recent, best) with roster when available
 - Regional rank context
-- Raid progression summary
-- EU season cutoffs (top 25% threshold)
-- Static season/dungeon mapping
+- Optional EU season cutoffs (non-blocking; may be unavailable)
+- Static season/dungeon mapping with versioned expansion resolution
 
 ## Design principles
 
@@ -20,6 +20,7 @@ Supplement Blizzard and Warcraft Logs with:
 3. **No scraping** — documented REST endpoints only
 4. **No bulk crawl** — `/api/v1/mythic-plus/runs` is not used
 5. **Attribution** — every normalized DTO includes `RaiderIoAttribution`
+6. **Partial success** — season-cutoffs failures must not block character refresh
 
 ## Factory
 
@@ -43,3 +44,4 @@ Default for tests. Fixtures live in `tools/fixtures/raiderio/`.
 - [Cache and rate policy](./cache-and-rate-policy.md)
 - [Terms and commercial risk](./terms-and-commercial-risk.md)
 - [Replaceability](./replaceability.md)
+- [Wave 3 research notes](../../research/providers/raiderio-live-api.md)

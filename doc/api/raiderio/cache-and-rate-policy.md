@@ -1,4 +1,4 @@
-# Raider.IO cache and rate policy
+# Raider.IO cache and rate policy (Wave 3)
 
 ## Internal soft budget
 
@@ -6,6 +6,7 @@
 |---------|---------|---------|
 | Soft RPM | 60 | `RAIDERIO_SOFT_RPM` |
 | Concurrency | 2 | `RAIDERIO_REQUEST_CONCURRENCY` |
+| Timeout | 10s | provider default (`RAIDERIO_DEFAULT_TIMEOUT_MS`) |
 | Character TTL | 12 hours | `RAIDERIO_CHARACTER_TTL_SECONDS` |
 | Negative cache | 45 minutes | `RAIDERIO_NEGATIVE_CACHE_SECONDS` |
 | Cutoffs TTL | 24 hours | `RAIDERIO_CUTOFFS_TTL_SECONDS` |
@@ -18,13 +19,20 @@ Official unauthenticated limit: **200 req/min** (we stay well below at 60).
 - Token bucket (`createRpmLimiter`) per HTTP client
 - Concurrency semaphore (max 2 in-flight)
 - On HTTP 429: honor `Retry-After`, exponential backoff with jitter, max 3 retries
+- Timeout via `AbortController` → `TIMEOUT` (retryable)
 
 ## Caching implementation
 
-- In-memory cache keyed by `buildRequestFingerprint`
+- Default: in-memory `RaiderIoCacheStore` keyed by `buildRequestFingerprint`
 - In-flight dedupe for identical concurrent requests
-- Negative cache for 404 characters (45 min default)
+- Negative cache for missing characters (45 min default)
 - `forceRefresh` on `ProviderFetchContext` bypasses positive cache
+- `describeCacheEntry()` exposes fingerprint, TTL, schema version and query params for Agent 15 persistent `ExternalRequest` wiring
+
+## Capability state
+
+`getCapabilities()` reports per-endpoint `available | unavailable | unknown`.
+`seasonCutoffs` is set to `unavailable` on 5xx/parse failure without throwing to callers.
 
 ## Metrics (in-process)
 
@@ -34,8 +42,3 @@ Official unauthenticated limit: **200 req/min** (we stay well below at 60).
 - `cacheHits` / `cacheMisses`
 - `rateLimited`
 - `negativeCacheHits`
-
-## Refresh policy alignment
-
-- No profile refresh on every page load (Agent 5 worker enforces cooldown)
-- Manual refresh subject to global `MANUAL_REFRESH_COOLDOWN_SECONDS`

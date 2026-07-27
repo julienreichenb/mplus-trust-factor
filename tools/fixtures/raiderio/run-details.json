@@ -1,5 +1,5 @@
 {
-  "season": "season-tww-2",
+  "season": "season-mn-1",
   "keystone_run_id": 99001001,
   "mythic_level": 12,
   "clear_time_ms": 1680000,
@@ -11,51 +11,51 @@
     "slug": "arak",
     "short_name": "ARAK"
   },
-  "url": "https://raider.io/mythic-plus-runs/season-tww-2/99001001",
+  "url": "https://raider.io/mythic-plus-runs/season-mn-1/99001001",
   "roster": [
     {
       "character": {
         "name": "Fixturehero",
-        "class": "Mage",
-        "active_spec_name": "Arcane",
-        "realm": "tarren-mill",
-        "region": "eu"
+        "class": { "name": "Mage", "slug": "mage" },
+        "spec": { "name": "Arcane", "slug": "arcane", "role": "dps" },
+        "realm": { "name": "Tarren Mill", "slug": "tarren-mill" },
+        "region": { "name": "Europe", "slug": "eu", "short_name": "EU" }
       },
       "role": "dps",
-      "ranks": { "overall": 2845 }
+      "ranks": { "overall": { "world": 89000, "region": 12000, "realm": 450 } }
     },
     {
       "character": {
         "name": "Teammateone",
-        "class": "Paladin",
-        "active_spec_name": "Protection",
-        "realm": "tarren-mill",
-        "region": "eu"
+        "class": { "name": "Paladin", "slug": "paladin" },
+        "spec": { "name": "Protection", "slug": "protection", "role": "tank" },
+        "realm": { "name": "Tarren Mill", "slug": "tarren-mill" },
+        "region": { "name": "Europe", "slug": "eu", "short_name": "EU" }
       },
       "role": "tank",
-      "ranks": { "overall": 3100 }
+      "ranks": { "overall": { "world": 1000, "region": 400, "realm": 20 } }
     },
     {
       "character": {
         "name": "Teammatetwo",
-        "class": "Priest",
-        "active_spec_name": "Holy",
-        "realm": "silvermoon",
-        "region": "eu"
+        "class": { "name": "Priest", "slug": "priest" },
+        "spec": { "name": "Holy", "slug": "holy", "role": "healer" },
+        "realm": { "name": "Silvermoon", "slug": "silvermoon" },
+        "region": { "name": "Europe", "slug": "eu", "short_name": "EU" }
       },
       "role": "healer",
-      "ranks": { "overall": 2950 }
+      "ranks": { "overall": { "world": 2000, "region": 700, "realm": 50 } }
     },
     {
       "character": {
         "name": "Teammatethree",
-        "class": "Rogue",
-        "active_spec_name": "Assassination",
-        "realm": "tarren-mill",
-        "region": "eu"
+        "class": { "name": "Rogue", "slug": "rogue" },
+        "spec": { "name": "Assassination", "slug": "assassination", "role": "dps" },
+        "realm": { "name": "Tarren Mill", "slug": "tarren-mill" },
+        "region": { "name": "Europe", "slug": "eu", "short_name": "EU" }
       },
       "role": "dps",
-      "ranks": { "overall": 3200 }
+      "ranks": { "overall": { "world": 3000, "region": 900, "realm": 60 } }
     }
   ]
 }

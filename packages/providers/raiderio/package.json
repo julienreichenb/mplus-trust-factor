@@ -14,12 +14,14 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run --config ../../vitest.config.ts packages/providers/raiderio"
+    "test": "vitest run --config ../../../vitest.config.ts --dir .",
+    "smoke:live": "node --import tsx ./src/smoke-live.ts"
   },
   "dependencies": {
     "@mplus/config": "workspace:*",
     "@mplus/contracts": "workspace:*",
-    "@mplus/domain": "workspace:*"
+    "@mplus/domain": "workspace:*",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "typescript": "^5.8.3",

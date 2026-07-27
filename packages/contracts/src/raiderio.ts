@@ -71,6 +71,27 @@ export interface RaiderIoRaidProgressionEntry {
   mythicBossesKilled: number;
 }
 
+export interface RaiderIoGearItem {
+  slot: string;
+  itemId: number | null;
+  itemLevel: number | null;
+  name: string | null;
+  icon: string | null;
+  quality: number | null;
+}
+
+export interface RaiderIoGearSummary {
+  itemLevelEquipped: number | null;
+  itemLevelTotal: number | null;
+  items: RaiderIoGearItem[];
+}
+
+/** Minimal talent presence marker; full loadout parsing stays provider-local until needed. */
+export interface RaiderIoTalentSummary {
+  present: boolean;
+  shape: "object" | "array" | "absent";
+}
+
 export interface RaiderIoCharacterProfile {
   region: RegionCode;
   realmSlug: string;
@@ -81,6 +102,10 @@ export interface RaiderIoCharacterProfile {
   role: "DPS" | "TANK" | "HEALER" | null;
   profileUrl: string;
   lastCrawledAt: IsoDateTime | null;
+  /** True when `lastCrawledAt` is older than the provider stale threshold. */
+  crawlStale: boolean;
+  gear: RaiderIoGearSummary | null;
+  talents: RaiderIoTalentSummary | null;
   currentSeason: RaiderIoSeasonScores | null;
   previousSeason: RaiderIoSeasonScores | null;
   ranks: RaiderIoRankSummary | null;
