@@ -1,5 +1,9 @@
 # Agent 25 — Experience v3 handoff
 
+## Commit
+
+`b1ad7af2292e7376463850b91abb300f14d08c41`
+
 ## Branch / worktree
 
 - Worktree: `25-experience-v3`
