@@ -250,6 +250,15 @@ describe("FixtureWarcraftLogsProvider", () => {
     expect(details.combatFacts.combatantInfo?.specId).toBe(63);
   });
 
+  it("uses targetCharacter from fetch context in getReportFightDetails", async () => {
+    const result = await provider.getReportFightDetails("AbCdEf12XyZ3", 3, {
+      ...ctx,
+      targetCharacter: { region: "EU", realmSlug: "tarren-mill", name: "Fixtureplayer" },
+    });
+    expect(result.data.combatFacts.reportCode).toBe("AbCdEf12XyZ3");
+    expect(result.data.combatFacts.interrupts.length).toBeGreaterThanOrEqual(0);
+  });
+
   it("avoids duplicate detailed fetch for same revision", async () => {
     await provider.fetchReportFightDetails("AbCdEf12XyZ3", 3, "Fixtureplayer", "tarren-mill", ctx);
     const second = await provider.fetchReportFightDetails(

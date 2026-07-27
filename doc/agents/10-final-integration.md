@@ -43,9 +43,7 @@ See `doc/release/known-limitations.md`.
 - CR-03: reconciled.
 
 # Follow-up work
-- Wire live WCL actor resolution to refresh job identity (not default env character).
-- Connect Vue live client to restored API routes (Agent 6 follow-up).
-- E2E Playwright cohort scenario.
+- Automate Playwright fixture-live in CI when Postgres service is available.
 - Raider.IO commercial/legal review before public launch.
 
 # Rollback

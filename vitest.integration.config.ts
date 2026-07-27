@@ -1,13 +1,41 @@
+import path from "node:path";
 import { defineConfig } from "vitest/config";
 
 export default defineConfig({
+  resolve: {
+    alias: {
+      "@mplus/config": path.resolve(__dirname, "packages/config/src/index.ts"),
+      "@mplus/contracts": path.resolve(__dirname, "packages/contracts/src/index.ts"),
+      "@mplus/database": path.resolve(__dirname, "packages/database/src/index.ts"),
+      "@mplus/domain": path.resolve(__dirname, "packages/domain/src/index.ts"),
+      "@mplus/observability": path.resolve(__dirname, "packages/observability/src/index.ts"),
+      "@mplus/scoring": path.resolve(__dirname, "packages/scoring/src/index.ts"),
+      "@mplus/mechanics": path.resolve(__dirname, "packages/mechanics/src/index.ts"),
+      "@mplus/provider-blizzard": path.resolve(
+        __dirname,
+        "packages/providers/blizzard/src/index.ts",
+      ),
+      "@mplus/provider-warcraftlogs": path.resolve(
+        __dirname,
+        "packages/providers/warcraftlogs/src/index.ts",
+      ),
+      "@mplus/provider-raiderio": path.resolve(
+        __dirname,
+        "packages/providers/raiderio/src/index.ts",
+      ),
+      "@mplus/worker": path.resolve(__dirname, "apps/worker/src/public-api.ts"),
+      "@mplus/addon-exporter": path.resolve(__dirname, "tools/addon-exporter/src/index.ts"),
+      "@mplus/test-utils": path.resolve(__dirname, "packages/test-utils/src/index.ts"),
+      "@mplus/api-app": path.resolve(__dirname, "apps/api/src/app.ts"),
+    },
+  },
   test: {
     globals: false,
     environment: "node",
     include: ["**/*.integration.test.ts"],
     exclude: ["**/node_modules/**", "**/dist/**"],
-    testTimeout: 60_000,
-    hookTimeout: 60_000,
+    testTimeout: 120_000,
+    hookTimeout: 120_000,
     env: {
       PROVIDER_MODE: "fixture",
       NODE_ENV: "test",

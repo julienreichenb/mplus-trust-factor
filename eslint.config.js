@@ -9,6 +9,8 @@ export default tseslint.config(
   {
     ignores: [
       "**/dist/**",
+      "**/dist-mock/**",
+      "**/dist-e2e-live/**",
       "**/node_modules/**",
       "**/coverage/**",
       "addon/**",

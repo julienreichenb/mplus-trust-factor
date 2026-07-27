@@ -137,8 +137,11 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
     fightId: number,
     ctx: ProviderFetchContext,
   ): Promise<ProviderResult<WclReportFightDetails>> {
-    const characterName = process.env.WCL_DEFAULT_CHARACTER_NAME ?? "Fixtureplayer";
-    const realmSlug = process.env.WCL_DEFAULT_REALM_SLUG ?? "tarren-mill";
+    const identity = ctx.targetCharacter;
+    const characterName =
+      identity?.name ?? process.env.WCL_DEFAULT_CHARACTER_NAME ?? "Fixtureplayer";
+    const realmSlug =
+      identity?.realmSlug ?? process.env.WCL_DEFAULT_REALM_SLUG ?? "tarren-mill";
     const details = await this.fetchReportFightDetails(
       reportCode,
       fightId,

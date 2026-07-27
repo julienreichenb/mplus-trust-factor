@@ -80,15 +80,23 @@ describe.skipIf(!dbAvailable)("runRefreshPipeline (fixture mode, real Postgres)"
       });
       expect(externalRequests).toBeGreaterThan(0);
 
-      const analysis = await prisma.runAnalysis.findFirst({
-        where: { characterId: result.character.id },
+      const combatAnalysis = await prisma.runAnalysis.findFirst({
+        where: { characterId: result.character.id, analysisVersion: "wcl-combat-facts-v1" },
       });
-      expect(analysis?.summary).toMatchObject({
-        combatFacts: expect.objectContaining({
-          reportCode: expect.any(String),
-          fightId: expect.any(Number),
-        }),
+      const visibilityAnalysis = await prisma.runAnalysis.findFirst({
+        where: { characterId: result.character.id, analysisVersion: "wcl-visibility-v1" },
       });
+      const analysis = combatAnalysis ?? visibilityAnalysis;
+      expect(analysis).not.toBeNull();
+      expect(analysis?.summary).toMatchObject({ wclVisibility: "PUBLIC" });
+      if (combatAnalysis) {
+        expect(combatAnalysis.summary).toMatchObject({
+          combatFacts: expect.objectContaining({
+            reportCode: expect.any(String),
+            fightId: expect.any(Number),
+          }),
+        });
+      }
     },
     30_000,
   );

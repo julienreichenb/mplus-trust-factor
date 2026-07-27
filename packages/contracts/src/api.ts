@@ -70,6 +70,13 @@ export interface ProfileWarning {
   severity: "INFO" | "WARN";
 }
 
+/** Warcraft Logs visibility state surfaced on character profiles. */
+export type WclVisibilityState =
+  | "PUBLIC"
+  | "HIDDEN"
+  | "NO_PUBLIC_LOGS"
+  | "PRIVATE_SKIPPED";
+
 export interface CharacterProfileResponse {
   characterId: string;
   region: RegionCode;
@@ -95,6 +102,7 @@ export interface CharacterProfileResponse {
   entitlements?: ProfileEntitlements;
   warnings?: ProfileWarning[];
   raiderIoUsed?: boolean;
+  wclVisibility?: WclVisibilityState | null;
 }
 
 export interface CharacterComparisonRequest {

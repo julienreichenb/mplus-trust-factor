@@ -23,6 +23,8 @@ export interface ProviderFetchContext {
   correlationId: string | null;
   forceRefresh: boolean;
   now: IsoDateTime;
+  /** Character under refresh ? used for WCL actor resolution in report fight details. */
+  targetCharacter?: CharacterIdentityInput;
 }
 
 export interface ProviderRequestMetadata {

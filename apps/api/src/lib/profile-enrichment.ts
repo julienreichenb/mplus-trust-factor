@@ -7,6 +7,7 @@ import type {
   ProfileWarning,
   SeasonSummary,
   TalentSummary,
+  WclVisibilityState,
 } from "@mplus/contracts";
 import type { AppEnv } from "@mplus/config";
 import type { MythicRunWithRelations } from "@mplus/worker";
@@ -22,6 +23,7 @@ export interface CharacterEnrichmentInput {
   highestRun: MythicRunWithRelations | null;
   runCount: number;
   seasonSlug: string | null;
+  wclVisibility: WclVisibilityState | null;
   env: AppEnv;
 }
 
@@ -92,8 +94,9 @@ export function buildProfileEnrichments(input: CharacterEnrichmentInput): Pick<
   | "entitlements"
   | "warnings"
   | "raiderIoUsed"
+  | "wclVisibility"
 > {
-  const { character, latestSnapshot, latestRun, highestRun, runCount, seasonSlug, env } = input;
+  const { character, latestSnapshot, latestRun, highestRun, runCount, seasonSlug, wclVisibility, env } = input;
   const bothSame = latestRun && highestRun && latestRun.id === highestRun.id;
 
   let lastAnalyzedRun: AnalyzedRunSummary | null = null;
@@ -149,6 +152,7 @@ export function buildProfileEnrichments(input: CharacterEnrichmentInput): Pick<
     entitlements: buildEntitlements(env),
     warnings: [],
     raiderIoUsed: Boolean(character.raiderioProfileUrl),
+    wclVisibility,
   };
 }
 

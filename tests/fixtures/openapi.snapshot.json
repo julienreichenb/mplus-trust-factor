@@ -133,6 +133,26 @@
         }
       }
     },
+    "/metrics": {
+      "get": {
+        "tags": [
+          "observability"
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string",
+                  "contentMediaType": "text/plain"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/realms": {
       "get": {
         "tags": [

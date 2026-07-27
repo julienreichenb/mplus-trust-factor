@@ -92,11 +92,14 @@ export class FixtureWarcraftLogsProvider implements WarcraftLogsProvider {
     fightId: number,
     ctx: ProviderFetchContext,
   ): Promise<ProviderResult<WclReportFightDetails>> {
+    const identity = ctx.targetCharacter;
+    const characterName = identity?.name ?? "Fixtureplayer";
+    const realmSlug = identity?.realmSlug ?? "tarren-mill";
     const details = await this.fetchReportFightDetails(
       reportCode,
       fightId,
-      "Fixtureplayer",
-      "tarren-mill",
+      characterName,
+      realmSlug,
       ctx,
     );
     return emptyProviderResult(

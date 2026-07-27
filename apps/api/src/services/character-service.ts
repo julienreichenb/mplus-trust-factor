@@ -6,6 +6,7 @@ import type {
   RefreshStatusResponse,
   ScoreSnapshotDTO,
   SearchCharacterResponse,
+  WclVisibilityState,
 } from "@mplus/contracts";
 import type { EnqueueResult } from "@mplus/worker";
 import type { ApiContainer } from "../container.js";
@@ -23,6 +24,32 @@ import { applyProfileWarnings, buildProfileEnrichments } from "../lib/profile-en
 import { characterCacheKey } from "../lib/response-cache.js";
 
 const ALL_PROVIDERS: ProviderName[] = ["blizzard", "raiderio", "warcraftlogs"];
+
+function readWclVisibility(summary: unknown): WclVisibilityState | null {
+  if (!summary || typeof summary !== "object") return null;
+  const value = (summary as { wclVisibility?: unknown }).wclVisibility;
+  if (
+    value === "PUBLIC" ||
+    value === "HIDDEN" ||
+    value === "NO_PUBLIC_LOGS" ||
+    value === "PRIVATE_SKIPPED"
+  ) {
+    return value;
+  }
+  return null;
+}
+
+async function resolveWclVisibility(
+  prisma: ApiContainer["worker"]["prisma"],
+  characterId: string,
+): Promise<WclVisibilityState | null> {
+  const analysis = await prisma.runAnalysis.findFirst({
+    where: { characterId },
+    orderBy: { analyzedAt: "desc" },
+    select: { summary: true },
+  });
+  return readWclVisibility(analysis?.summary);
+}
 
 export interface CharacterHistoryResponse {
   characterId: string;
@@ -102,7 +129,8 @@ export class CharacterService {
     sources: CharacterSourceAttribution[],
     refreshStatus: CharacterProfileResponse["refreshStatus"],
   ): Promise<CharacterProfileResponse> {
-    const [characterDetail, latestRun, highestRun, latestCharSnapshot, runCount] = await Promise.all([
+    const [characterDetail, latestRun, highestRun, latestCharSnapshot, runCount, wclVisibility] =
+      await Promise.all([
       this.container.worker.prisma.character.findUnique({
         where: { id: character.id },
         include: { gameClass: true, activeSpec: true },
@@ -115,6 +143,7 @@ export class CharacterService {
         include: { equipment: true },
       }),
       this.repositories.run.countForCharacter(character.id),
+      resolveWclVisibility(this.container.worker.prisma, character.id),
     ]);
 
     const base = mapCharacterProfile({
@@ -137,6 +166,7 @@ export class CharacterService {
         highestRun,
         runCount,
         seasonSlug: snapshot?.season.slug ?? null,
+        wclVisibility,
         env: this.container.env,
       }),
       base.score,

@@ -5,7 +5,7 @@ import swagger from "@fastify/swagger";
 import swaggerUi from "@fastify/swagger-ui";
 import { type AppEnv, loadEnv } from "@mplus/config";
 import { checkDatabaseHealth } from "@mplus/database";
-import { SECRET_REDACT_PATHS, createRequestId } from "@mplus/observability";
+import { SECRET_REDACT_PATHS, createRequestId, getMetricsRegistry } from "@mplus/observability";
 import type { ApiErrorEnvelope, MetaResponse } from "@mplus/contracts";
 import { createApiContainer, type ApiContainer } from "./container.js";
 import { isHttpError } from "./errors.js";
@@ -47,6 +47,15 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   app.decorate("container", container);
   app.addHook("onClose", async () => {
     await container.close();
+  });
+
+  app.addHook("onResponse", async (request, reply) => {
+    getMetricsRegistry().recordHttpRequest(
+      request.routeOptions.url ?? request.url,
+      request.method,
+      reply.statusCode,
+      reply.elapsedTime,
+    );
   });
 
   await app.register(cors, {
@@ -200,6 +209,21 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
         version: env.ACTIVE_SCORE_MODEL_VERSION,
       },
     }),
+  );
+
+  app.get(
+    "/metrics",
+    {
+      schema: {
+        tags: ["observability"],
+        response: {
+          200: { type: "string", contentMediaType: "text/plain" },
+        },
+      },
+    },
+    async (_request, reply) => {
+      return reply.type("text/plain").send(getMetricsRegistry().toPrometheusText());
+    },
   );
 
   await app.register(buildRealmRoutes(container));

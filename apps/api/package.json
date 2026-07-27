@@ -8,7 +8,8 @@
     "start": "node dist/index.js",
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "openapi:generate": "tsx src/openapi-generate.ts"
+    "openapi:generate": "tsx src/openapi-generate.ts",
+    "e2e:fixture-api": "tsx src/e2e-fixture-server.ts"
   },
   "dependencies": {
     "@fastify/cors": "^11.0.1",

@@ -17,6 +17,7 @@
     "test:security": "vitest run tests/security",
     "test:failure": "vitest run tests/failure-injection",
     "test:integration": "vitest run --config vitest.integration.config.ts",
+    "test:e2e": "pnpm --filter @mplus/web run test:e2e",
     "test:load": "node tools/scripts/load-test.mjs",
     "build": "pnpm -r --if-present run build",
     "dev": "pnpm run --parallel --filter @mplus/api --filter @mplus/worker --filter @mplus/web dev",

@@ -4,6 +4,8 @@ node_modules/
 
 # Builds
 dist/
+dist-mock/
+dist-e2e-live/
 build/
 coverage/
 *.tsbuildinfo
@@ -40,6 +42,7 @@ packages/database/prisma/*.db-journal
 .turbo/
 .cache/
 .vitest/
+apps/web/e2e/.e2e-pids.json
 
 # Addon build artifacts
 addon/**/*.zip

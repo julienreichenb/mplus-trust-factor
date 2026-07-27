@@ -56,12 +56,14 @@ function isFixtureDisabledIdentity(identity: CharacterIdentityInput): boolean {
 }
 
 function buildContext(job: RefreshCharacterJob, now: Date): ProviderFetchContext {
+  const identity = toIdentity(job);
   return {
     region: normalizeRegion(job.region),
     requestId: randomUUID(),
     correlationId: null,
     forceRefresh: job.forceRefresh,
     now: now.toISOString(),
+    targetCharacter: identity,
   };
 }
 
@@ -292,6 +294,27 @@ export async function runRefreshPipeline(
     }
   } else {
     stagesSkipped.push("analyze-run");
+  }
+
+  if (wclVisibility !== null && combatFactsList.length === 0) {
+    const latestRun = await repositories.run.findLatestForCharacter(character.id);
+    if (latestRun) {
+      const existingAnalysis = await container.prisma.runAnalysis.findFirst({
+        where: { characterId: character.id, analysisVersion: "wcl-visibility-v1" },
+        select: { id: true },
+      });
+      if (!existingAnalysis) {
+        await repositories.run.upsertRunAnalysis({
+          runId: latestRun.id,
+          characterId: character.id,
+          analysisVersion: "wcl-visibility-v1",
+          analyzedAt: now,
+          coverage: 0,
+          summary: { wclVisibility },
+          sourcePayloadIds: [],
+        });
+      }
+    }
   }
 
   // 7. extract-metrics
