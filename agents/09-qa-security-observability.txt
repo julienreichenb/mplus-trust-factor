@@ -1,0 +1,209 @@
+AGENT 9 — QA, SECURITY, DATA QUALITY, AND OBSERVABILITY
+======================================================
+
+Start in Cursor Plan mode.
+
+Role and ownership
+------------------
+Build cross-cutting quality controls without rewriting feature implementations.
+
+Primary ownership:
+- shared test utilities assigned by Agent 0
+- `tools/fixtures/**` coordination
+- `doc/testing/**`
+- `doc/security/**`
+- observability additions in agreed package paths
+- load/contract test configuration
+
+Plan-mode deliverable
+---------------------
+Write `doc/plans/09-qa-security-observability.md` before code. Include:
+- test pyramid.
+- fixture governance.
+- contract tests.
+- data-quality invariants.
+- threat model.
+- privacy/retention review.
+- observability signals.
+- performance/load targets.
+- failure injection.
+- No implementation until review/transition.
+
+Testing strategy
+----------------
+Create a coherent test framework:
+
+Unit:
+- provider normalization.
+- scoring.
+- identity/run matching.
+- exporter.
+- API validation.
+
+Integration:
+- PostgreSQL migrations/repositories.
+- Redis/BullMQ.
+- API + worker with fake providers.
+- raw artifact storage.
+- OpenAPI client compatibility.
+
+Contract:
+- Validate provider fixture payloads against provider boundary schemas.
+- Validate internal API responses against OpenAPI.
+- Detect contract drift.
+- Optional manually triggered live provider smoke tests, never required in CI.
+
+End-to-end:
+- search -> queued refresh -> profile.
+- comparison.
+- admin model draft/activation.
+- addon export.
+
+Data quality invariants
+-----------------------
+Implement checks/reports for:
+- Region present on every character/run identity.
+- No duplicate canonical run/source reference.
+- Scores in 0–100.
+- Confidence in 0–1.
+- Grade matches active thresholds.
+- Dimension weights sum to 1 for active model.
+- Score snapshot references immutable model version.
+- Source provenance exists for external metrics.
+- No old model silently overwrites a new snapshot.
+- Same report revision is not analyzed twice for same analysis version.
+- Missing metrics are not stored as fake zero unless zero is a real observation.
+- External payload hashes are stable.
+- Addon export includes only eligible current-model characters.
+- No premium/admin/raw payload fields leak into addon dataset.
+
+Fixture governance
+------------------
+- Sanitized public examples or synthetic fixtures.
+- Document origin and capture date.
+- Remove tokens, cookies, IPs, emails, private report codes, and unrelated player data.
+- Version fixtures by provider/schema.
+- Add schema drift process.
+- Provide a representative expert cohort for scoring golden tests.
+
+Threat model
+------------
+Document and test:
+- provider secret leakage.
+- SSRF through user-controlled URLs: do not accept arbitrary provider URL.
+- SQL injection.
+- GraphQL query injection: use static documents + variables.
+- admin API brute force.
+- refresh abuse and API-cost amplification.
+- queue poisoning/oversized payload.
+- decompression bomb/raw artifact abuse.
+- path traversal in artifact storage.
+- stored XSS via player/guild names.
+- Unicode confusables in character names.
+- malicious/invalid provider payload.
+- stale or replayed OAuth token.
+- public red-flag defamation risk.
+- entitlement bypass.
+- addon dataset tampering.
+
+Controls:
+- allowlisted provider hosts.
+- timeouts and max response sizes.
+- input schemas.
+- output escaping.
+- rate limiting.
+- constant-time admin key comparison.
+- audit log for model activation.
+- checksum/signature-ready addon export.
+- structured redaction.
+
+Privacy/retention
+-----------------
+- Public game character data is still handled responsibly.
+- Define retention for raw payloads and large event artifacts.
+- Keep compact derived scores longer than raw events.
+- Support future deletion/recompute/dispute workflows.
+- Do not store unnecessary Battle.net account data.
+- No private logs in MVP.
+
+Observability
+-------------
+Provide lightweight signals:
+- request count/latency/errors by internal route.
+- provider request count/latency/status/cache-hit.
+- 429 count.
+- WCL points spent/remaining snapshot.
+- queue depth/age/failures.
+- refresh duration.
+- score calculation count/version.
+- data confidence distribution.
+- addon export size/count.
+- DB health and connection failures.
+
+Use:
+- Pino structured logs.
+- correlation/request/job IDs.
+- optional Prometheus-compatible `/metrics` if lightweight and coordinated.
+- no heavy dashboard stack required.
+- document useful log queries.
+
+Performance/load targets
+------------------------
+Provisional MVP targets on a small VPS:
+- cached profile API p95 < 300 ms.
+- comparison of 10 cached profiles p95 < 750 ms.
+- search request must not block on detailed external analysis.
+- API remains responsive while worker processes jobs.
+- addon lookup is effectively constant-time.
+- exporter handles at least 100k synthetic characters within documented memory/time budget.
+- provider worker respects configured concurrency and RPM.
+
+Implement a lightweight load script, e.g. k6 or autocannon, using fixture/cached data.
+
+Failure injection
+-----------------
+Test:
+- Blizzard 429.
+- WCL rate budget at 90%.
+- Raider.IO disabled.
+- Redis temporary loss.
+- provider timeout.
+- invalid report pagination.
+- DB unique conflict during duplicate job.
+- failed migration in deployment dry run.
+- stale score still served.
+- raw artifact write failure.
+
+Security automation
+-------------------
+Coordinate with Agent 8:
+- dependency audit.
+- secret scan.
+- container scan.
+- SBOM if available.
+- no live credential tests on PRs.
+
+Documentation
+-------------
+Create:
+- `doc/testing/strategy.md`
+- `doc/testing/fixtures.md`
+- `doc/testing/data-quality.md`
+- `doc/testing/load-tests.md`
+- `doc/security/threat-model.md`
+- `doc/security/privacy-retention.md`
+- `doc/security/red-flag-language.md`
+- `doc/testing/observability.md`
+
+Acceptance criteria
+-------------------
+- Contract drift can fail CI.
+- Data invariants are executable tests/checks.
+- Threat model includes cost-amplification and red-flag risks.
+- Fixture sanitization is documented.
+- Load test runs against local fixture stack.
+- Failure-injection tests cover provider/rate/cache paths.
+- Logs redact credentials.
+- Metrics/log fields support provider-budget troubleshooting.
+- No feature package is broadly reformatted or rewritten.
+- `doc/agents/09-qa-security-observability.md` is complete.

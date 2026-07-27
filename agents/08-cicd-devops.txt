@@ -1,0 +1,225 @@
+AGENT 8 — DOCKER, CI/CD, AND SMALL UBUNTU VPS OPERATIONS
+=======================================================
+
+Start in Cursor Plan mode.
+
+Role and ownership
+------------------
+Create repeatable local containers, CI, image publication, and a safe deployment path to a small Ubuntu VPS.
+
+Primary ownership:
+- `.github/**`
+- `infra/**`
+- production Dockerfiles/Compose files
+- `doc/operations/**`
+
+Coordinate before changing shared root scripts.
+
+Plan-mode deliverable
+---------------------
+Write `doc/plans/08-devops.md` before implementation. Include:
+- container topology.
+- expected VPS sizing assumptions.
+- local versus production compose.
+- CI job graph.
+- GHCR tagging.
+- deployment and rollback.
+- migration safety.
+- backup/restore.
+- secrets.
+- TLS/domain flow.
+- addon artifact packaging hook.
+- No implementation until review/transition.
+
+Container topology
+------------------
+Production services:
+- caddy
+- web
+- api
+- worker
+- postgres
+- redis
+
+Constraints:
+- Small VPS friendly.
+- No Kubernetes.
+- No MinIO unless proven necessary.
+- Raw large artifacts use a mounted filesystem volume through the storage abstraction.
+- Internal database/Redis ports are not publicly exposed.
+- Only 80/443 exposed by reverse proxy.
+- Use named volumes and explicit backup paths.
+
+Dockerfiles
+-----------
+Create multi-stage, non-root images:
+- web static build served by Caddy or a minimal server.
+- api.
+- worker.
+- addon-exporter build job if useful.
+
+Requirements:
+- pinned base image major/minor/digest strategy documented.
+- production dependencies only in final image.
+- health checks.
+- graceful signals.
+- no secrets baked into images.
+- deterministic build with frozen lockfile.
+- OCI labels/version.
+
+Compose
+-------
+Local:
+- PostgreSQL and Redis, optionally full stack profile.
+- developer-friendly volumes.
+
+Production:
+- image tags from GHCR.
+- Caddy TLS.
+- health dependencies.
+- restart policies.
+- log rotation.
+- resource limits/reservations where Compose supports them.
+- separate migration one-shot service.
+- raw artifact and backup volumes.
+- `.env` runtime file stored only on VPS.
+
+Caddy
+-----
+- Reverse proxy `/api/*` to API.
+- Serve web.
+- Automatic HTTPS once DOMAIN and ACME_EMAIL are configured.
+- Security headers.
+- Compression.
+- sensible request body/timeouts.
+- health endpoint route.
+- Do not cache dynamic private/admin responses at proxy level.
+
+GitHub Actions CI
+-----------------
+On pull request:
+- checkout.
+- setup Node/pnpm cache.
+- frozen install.
+- lint.
+- typecheck.
+- unit tests.
+- integration tests with PostgreSQL/Redis services or Testcontainers.
+- build.
+- OpenAPI drift check.
+- Prisma migration validation.
+- Docker build.
+- dependency/security audit with documented severity policy.
+- secret scan.
+- optional Lua syntax/export tests.
+
+On main/tag:
+- repeat required checks.
+- build images.
+- push to GHCR.
+- immutable tags:
+  - git SHA
+  - semantic release tag when present
+  - `main` only as convenience, never deployment source of truth
+- create provenance/SBOM if practical.
+- build addon ZIP artifact.
+
+Deployment workflow
+-------------------
+Provide:
+- manual `workflow_dispatch` for production.
+- optional automatic staging.
+- GitHub environment approval for production.
+- dedicated deploy SSH user.
+- upload/update compose and selected image tag.
+- pre-deploy database backup.
+- pull images.
+- run migrations.
+- start services.
+- wait for health.
+- smoke test public URL.
+- record deployed SHA.
+- rollback to previous SHA if health/smoke fails.
+
+Do not require direct root SSH.
+
+Migration policy
+----------------
+- Migrations are forward-only in production.
+- Back up before migration.
+- Run one migration job, not from every API replica.
+- Document expand/contract practice for future zero-downtime changes.
+- For MVP single-instance deployment, brief maintenance is acceptable if documented.
+
+Backup/restore
+--------------
+Scripts:
+- `pg_dump` compressed, timestamped.
+- retention configurable.
+- raw artifact backup optional/separate.
+- restore checklist.
+- test restore against a disposable database.
+- Warn that a backup never tested is not a backup strategy.
+
+Operations
+----------
+Document:
+- Ubuntu prerequisites.
+- Docker Engine/Compose install through official repository.
+- firewall: SSH, 80, 443.
+- domain DNS.
+- deploy user.
+- directory layout.
+- secret file permissions.
+- first deployment.
+- update.
+- rollback.
+- backup.
+- restore.
+- log inspection.
+- disk cleanup.
+- provider credential rotation.
+- incident checklist.
+
+Observability integration
+-------------------------
+- structured logs through Docker.
+- health/readiness.
+- container restart visibility.
+- optional metrics endpoint only if Agent 9 provides it.
+- do not deploy a heavy observability stack by default.
+
+Security
+--------
+- non-root containers.
+- read-only filesystem where practical.
+- drop capabilities.
+- no public Postgres/Redis.
+- Caddy security headers.
+- SSH key only.
+- GitHub secrets/environments.
+- image scanning.
+- secret scanning.
+- admin route protection.
+- backup permissions.
+
+Acceptance criteria
+-------------------
+- `docker compose` full local stack starts on a clean machine with documented env.
+- Production compose validates.
+- Images build for web/api/worker.
+- CI runs without external API credentials.
+- GHCR workflow uses immutable SHA tags.
+- Deployment workflow is manual/protected and includes backup, migration, health, smoke, rollback.
+- Restore procedure is tested/documented.
+- Database and Redis are not exposed publicly.
+- No secret in image or repository.
+- Addon ZIP can be produced as a CI artifact.
+- `doc/agents/08-devops.md` is complete.
+
+Do not
+------
+- Deploy to a real server without explicit credentials/approval.
+- Use `latest` as the only production tag.
+- Run migrations independently in every container.
+- Add Kubernetes.

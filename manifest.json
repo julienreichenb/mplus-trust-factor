@@ -1,0 +1,43 @@
+{
+  "project": "M+ Trust Factor",
+  "generated_files": [
+    "AGENT-OUTPUT-TEMPLATE.txt",
+    "API-SOURCES-AND-REQUEST-BUDGETS.txt",
+    "ARCHITECTURE-AND-DB.txt",
+    "COMMON-CONTEXT.txt",
+    "ENVIRONMENT-AND-SECRETS.txt",
+    "PROCESS-FLOWS.txt",
+    "README-FIRST.txt",
+    "WAVE-EXECUTION-PLAN.txt",
+    "agents/00-agent-zero-foundation.txt",
+    "agents/01-blizzard-integration.txt",
+    "agents/02-warcraftlogs-integration.txt",
+    "agents/03-raiderio-integration.txt",
+    "agents/04-scoring-boost-engine.txt",
+    "agents/05-backend-api-worker.txt",
+    "agents/06-web-frontend.txt",
+    "agents/07-wow-addon-export.txt",
+    "agents/08-cicd-devops.txt",
+    "agents/09-qa-security-observability.txt",
+    "agents/10-final-integration-release.txt"
+  ],
+  "execution_order": {
+    "wave_0": [
+      "agents/00-agent-zero-foundation.txt"
+    ],
+    "wave_1_parallel": [
+      "agents/01-blizzard-integration.txt",
+      "agents/02-warcraftlogs-integration.txt",
+      "agents/03-raiderio-integration.txt",
+      "agents/04-scoring-boost-engine.txt",
+      "agents/05-backend-api-worker.txt",
+      "agents/06-web-frontend.txt",
+      "agents/07-wow-addon-export.txt",
+      "agents/08-cicd-devops.txt",
+      "agents/09-qa-security-observability.txt"
+    ],
+    "wave_2": [
+      "agents/10-final-integration-release.txt"
+    ]
+  }
+}

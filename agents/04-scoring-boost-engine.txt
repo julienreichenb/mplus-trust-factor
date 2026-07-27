@@ -1,0 +1,301 @@
+AGENT 4 — VERSIONED SCORING, CONFIDENCE, AND BOOST-SUSPICION ENGINE
+=================================================================
+
+Start in Cursor Plan mode.
+
+Role and ownership
+------------------
+Implement the deterministic scoring engine and mechanic-catalog abstractions.
+
+Primary ownership:
+- `packages/scoring/**`
+- `packages/mechanics/**`
+- `doc/scoring/**`
+- scoring fixtures under `tools/fixtures/scoring/**`
+
+No external API calls are allowed in this package.
+
+Plan-mode deliverable
+---------------------
+Write `doc/plans/04-scoring.md` before code. Include:
+- Metric taxonomy.
+- Normalization strategy.
+- Missing-data handling.
+- Confidence formula.
+- Authenticity feature model.
+- Grade thresholds.
+- Role-specific differences.
+- Explainability output.
+- Golden test cohort.
+- Calibration/backtest approach.
+- No implementation until review/transition.
+
+Core API
+--------
+Design a pure API similar to:
+- `calculateMetricScores(input, modelConfig)`
+- `calculateDimensionScores(...)`
+- `calculateAuthenticity(...)`
+- `calculateFinalTrust(...)`
+- `explainScore(...)`
+- `gradeScore(...)`
+- `validateScoreModelConfig(...)`
+
+Inputs:
+- Immutable normalized observations.
+- Character/run/season context.
+- ScoreModelConfig.
+- Optional mechanic catalog version.
+- No database client.
+- No current clock unless passed explicitly.
+
+Outputs:
+- Overall score.
+- Grade.
+- Skill score.
+- Authenticity score.
+- Confidence.
+- Dimension scores.
+- Metric contributors.
+- Red flags.
+- Explanation.
+- Input fingerprint.
+- Model key/version.
+
+Initial model
+-------------
+Default dimension weights:
+- Performance 0.32
+- Survival 0.27
+- Utility 0.23
+- ExperienceConsistency 0.13
+- MythicRaid 0.05
+
+Initial provisional submetric weights:
+
+Performance:
+- equivalent-spec/dungeon/key percentile: 0.55
+- consistency across available runs/rankings: 0.25
+- contextual contribution in selected detailed runs: 0.20
+
+Survival:
+- death rate/context: 0.35
+- avoidable damage according to active MechanicRules: 0.30
+- defensive usage/readiness: 0.25
+- healthstone/potion/self-save usage: 0.10
+
+Utility:
+- successful and relevant interrupts: 0.30
+- relevant crowd control: 0.25
+- dispels/purges: 0.15
+- external support cooldowns: 0.15
+- class-specific utility: 0.15
+
+ExperienceConsistency:
+- current-season dungeon breadth: 0.35
+- repeated completion near personal top level: 0.25
+- run volume and recency: 0.15
+- normalized historical seasons: 0.15
+- class/spec/role continuity: 0.10
+
+MythicRaid:
+- Mythic progression: 0.60
+- aggregate Mythic parse signal: 0.40
+
+These weights must be configurable and should be treated as v1 hypotheses.
+
+Missing metrics
+---------------
+Do not turn missing data into zero.
+
+For each dimension:
+1. Compute weighted average of available metrics.
+2. Compute coverage as available configured weight / total configured weight.
+3. Combine provider confidence and sample-size confidence.
+4. Shrink dimension score toward 50:
+   adjustedDimension = dimensionConfidence * rawDimension + (1 - dimensionConfidence) * 50
+5. Return missing contributors explicitly.
+6. Optionally cap an extreme dimension result when coverage is below a configurable minimum.
+
+Overall:
+- Use adjusted dimensions.
+- Overall confidence is the configured weighted combination of dimension confidence, source coverage,
+  freshness, and selected-run coverage.
+- Apply confidence shrinkage formula from COMMON-CONTEXT.
+
+Normalization requirements
+--------------------------
+- All normalized metric values are 0–100.
+- Avoid permanent hardcoded population percentiles.
+- Model config may specify:
+  - percentile mapping
+  - logistic curves
+  - piecewise thresholds
+  - winsorization
+  - season/key bracket
+  - role/spec context
+- Raw DPS/HPS is never directly compared across specs without context.
+- Old seasons must be normalized against their own season before decay.
+
+Historical decay initial default:
+- current season: 0.70
+- previous season: 0.20
+- older seasons combined: 0.10
+Make configurable.
+
+Role-specific behavior
+----------------------
+DPS:
+- Strong performance weight on damage percentile/context.
+- Survival and utility remain significant.
+
+Tank:
+- Do not use raw HPS.
+- Performance can include damage plus role-appropriate stability/mitigation facts.
+- Survival must account for expected tank damage and active mitigation, not simply low damage taken.
+
+Healer:
+- HPS alone is secondary and highly context-dependent.
+- Include offensive contribution where normalized.
+- Include dispels, externals, cooldown timing, group survival context.
+- Avoid penalizing low HPS in low-damage groups.
+
+Mechanic catalog
+----------------
+Implement:
+- Schema/types for MechanicRule.
+- Catalog versioning.
+- Rule matcher by season/dungeon/spell/NPC/role.
+- Explicit distinction:
+  - avoidable
+  - mandatory
+  - soak
+  - priority interrupt
+  - CC
+  - dispel/purge
+  - defensive/external window
+- Empty/minimal seed catalog is acceptable, but the engine must handle no rule safely.
+- Never classify unknown damage as avoidable.
+
+Authenticity/boost suspicion
+----------------------------
+Start at 100 and apply configurable evidence weights.
+
+Initial suspicion features:
+- progression key-level jump.
+- compressed time window for best runs.
+- low run volume for achieved score.
+- repeated stronger teammates.
+- top-run roster concentration.
+- weak target performance in score-producing runs.
+- high deaths/low contribution in top runs.
+- rating/performance divergence.
+- lack of intermediate progression.
+
+Mitigations:
+- confirmed high-rated main.
+- probable reroll.
+- strong prior-season same-class/role history.
+- strong personal top-run performance.
+- independent group diversity.
+
+Requirements:
+- Evidence entries include feature key, raw value, normalized severity, confidence, and contribution.
+- Clamp authenticity 0–100.
+- Aggressive v1 tags are acceptable:
+  - authenticity < 40 with adequate evidence: high-confidence `BOOST_SUSPECTED`
+  - 40–60: `ATYPICAL_PROGRESSION`
+  - low evidence: no boost tag; use `INSUFFICIENT_DATA`
+- Thresholds configurable.
+- Reroll mitigation cannot erase direct evidence of poor performance; it only explains rapid progression.
+- Never output categorical purchase accusation.
+
+Final formula
+-------------
+Default:
+ObservedTrust = SkillScore * (0.60 + 0.40 * Authenticity / 100)
+FinalTrust = Confidence * ObservedTrust + (1 - Confidence) * 50
+
+Add model validation:
+- weights sum correctly.
+- all ranges valid.
+- thresholds ordered.
+- no unsupported normalization type.
+- immutable version semantics.
+
+Explainability
+--------------
+Return:
+- Top 3 positive contributors.
+- Top 3 negative contributors.
+- Missing/high-impact unavailable metrics.
+- Source categories.
+- Major authenticity evidence.
+- Short public explanation.
+- Detailed admin explanation.
+- No raw secret algorithm internals beyond model metadata needed for public trust.
+
+Golden fixtures
+---------------
+Create at least these synthetic profiles:
+1. Strong non-meta spec: high performance, survival, utility.
+2. Meta spec with high rating but poor logs.
+3. Likely boosted low-volume player with repeated elite roster.
+4. Legitimate reroll with confirmed elite main.
+5. Excellent player with hidden logs and reduced confidence.
+6. Average player with complete data.
+7. Sparse-data new player.
+8. Tank.
+9. Healer.
+10. Same player under default, survival-focused, and utility-focused model.
+
+Tests
+-----
+- deterministic output.
+- score clamping.
+- model validation.
+- weight redistribution/coverage.
+- confidence shrinkage.
+- same input fingerprint gives same output.
+- historical decay.
+- role-specific path.
+- reroll mitigation.
+- aggressive boost tag with sufficient evidence.
+- no boost tag with insufficient evidence.
+- grade boundaries.
+- property tests: no NaN, no out-of-range values.
+- golden snapshots with intentional review process.
+
+Documentation
+-------------
+Create:
+- `doc/scoring/model-v1.md`
+- `doc/scoring/metric-catalog.md`
+- `doc/scoring/confidence.md`
+- `doc/scoring/authenticity-and-boost.md`
+- `doc/scoring/role-specific-models.md`
+- `doc/scoring/calibration-plan.md`
+- `doc/scoring/explainability.md`
+
+Calibration plan
+----------------
+Document a future expert-labelled cohort workflow:
+- Expert labels characters/runs.
+- Compare predicted score/order to expert assessment.
+- Track false positive boost tags.
+- Analyze score distribution by spec/role.
+- Detect meta bias.
+- Version changes only after backtest.
+
+Acceptance criteria
+-------------------
+- Pure deterministic package with zero network/database dependency.
+- Model v1 is data-driven/configurable, not scattered constants.
+- Missing data shrinks toward neutral.
+- Scores include confidence and provenance-ready contributors.
+- Boost logic outputs evidence and probabilistic tags.
+- Confirmed/probable reroll is represented.
+- Role-specific tests exist.
+- Golden cohort passes.
+- Lint, typecheck, tests, build pass.
+- `doc/agents/04-scoring.md` is complete.

@@ -1,0 +1,173 @@
+AGENT 1 — BLIZZARD / BATTLE.NET PROVIDER
+=======================================
+
+Start in Cursor Plan mode.
+
+Role and ownership
+------------------
+Implement the Blizzard provider only.
+
+Primary ownership:
+- `packages/providers/blizzard/**`
+- `doc/api/blizzard/**`
+- Blizzard fixtures under `tools/fixtures/blizzard/**`
+
+Avoid editing shared contracts or Prisma schema. If required, create a contract change request.
+
+Read first
+----------
+Read all `doc/bootstrap/` context and the shared contracts created by Agent 0.
+Read official sources:
+- https://develop.battle.net/
+- https://community.developer.battle.net/documentation/guides/using-oauth
+- https://community.developer.battle.net/documentation/guides/regionality-and-apis
+- https://community.developer.battle.net/documentation/world-of-warcraft/profile-apis
+- https://community.developer.battle.net/documentation/world-of-warcraft/game-data-apis
+
+Plan-mode deliverable
+---------------------
+Write `doc/plans/01-blizzard.md` before code. Include:
+- Exact live endpoints and namespaces confirmed from official docs.
+- Authentication/token lifecycle.
+- Request/response schemas needed.
+- Cache TTL matrix.
+- Error mapping.
+- Normalization strategy.
+- Fixture strategy.
+- Any missing API capability.
+- No implementation until plan review/transition.
+
+Functional scope
+----------------
+Implement a typed Blizzard client for EU with region-ready host/namespace configuration.
+
+OAuth:
+- Client credentials token manager.
+- POST to official token endpoint.
+- Basic auth.
+- Cache token until expiry minus safety window.
+- Deduplicate concurrent token refreshes.
+- Never log client secret or access token.
+
+Required operations, after verifying live docs:
+1. Resolve realm metadata.
+2. Fetch character profile summary.
+3. Fetch equipment summary.
+4. Fetch specializations/talent information exposed by current Profile API.
+5. Fetch character media/avatar.
+6. Fetch character Mythic Keystone profile index.
+7. Fetch current and selected historical season M+ profile.
+8. Fetch current M+ season index/details.
+9. Fetch M+ dungeon index/details.
+10. Fetch item details/media only for equipped/key item IDs and cache aggressively.
+11. Support future connected-realm leaderboard calls behind an explicit method, but do not bulk crawl them.
+
+Expected endpoint templates to verify:
+- `/profile/wow/character/{realmSlug}/{characterName}`
+- `/equipment`
+- `/specializations`
+- `/media`
+- `/mythic-keystone-profile`
+- `/mythic-keystone-profile/season/{seasonId}`
+- game-data season/dungeon/item/spec endpoints listed in API-SOURCES-AND-REQUEST-BUDGETS.txt
+
+Normalization
+-------------
+Map Blizzard payloads into shared DTOs:
+- CanonicalCharacter.
+- CharacterSnapshotDTO.
+- EquipmentSnapshotDTO.
+- TalentSnapshotDTO.
+- MythicRunDTO where the API exposes runs.
+- Static class/spec/realm/season/dungeon records.
+
+Rules:
+- Character and realm names are display values, not keys.
+- Preserve provider IDs and canonical links.
+- Normalize character identity using shared helpers.
+- Preserve raw source provenance and fetch timestamps.
+- Support names containing accents and apostrophes.
+- Do not infer account identity.
+
+Request efficiency
+------------------
+- Use endpoint-specific TTLs.
+- Shared request fingerprint/cache adapter.
+- In-flight request deduplication.
+- Configurable low concurrency.
+- Retry idempotent requests only.
+- Honor Retry-After and 429.
+- Conditional requests if the endpoint provides ETag/Last-Modified.
+- Batch item details logically but do not exceed documented API behavior.
+- Fetch item details only for equipment currently needed by a character page or key-item detector.
+- Avoid leaderboard scanning for population discovery.
+
+Error handling
+--------------
+Map to shared errors:
+- NOT_FOUND
+- UNAUTHORIZED_PROVIDER
+- RATE_LIMITED
+- PROVIDER_UNAVAILABLE
+- INVALID_PROVIDER_RESPONSE
+- PRIVATE_OR_RESTRICTED
+- TRANSIENT_NETWORK
+- CONFIGURATION_ERROR
+
+Include provider response request ID/headers when safe.
+
+Fixtures and tests
+------------------
+Create sanitized fixtures for:
+- Normal max-level EU character.
+- Character not found.
+- Character with accented name.
+- Equipment with trinkets/key items.
+- Multiple specializations.
+- Current-season M+ profile.
+- Missing/partial fields.
+- 429 and 5xx.
+
+Use schema validation at provider boundary.
+Tests:
+- Token cache and concurrent refresh.
+- Correct regional host/namespace.
+- URL encoding.
+- Payload validation.
+- DTO normalization.
+- cache-hit behavior.
+- retry/backoff with fake timers.
+- no secret leakage in logs.
+
+Documentation
+-------------
+Create:
+- `doc/api/blizzard/overview.md`
+- `doc/api/blizzard/endpoints.md`
+- `doc/api/blizzard/cache-policy.md`
+- `doc/api/blizzard/fixtures.md`
+- `doc/api/blizzard/limitations.md`
+- Live-schema date and documentation URLs.
+- Example requests with secrets redacted.
+
+Acceptance criteria
+-------------------
+- Provider works entirely in fixture mode.
+- Optional live smoke script works when credentials are present.
+- No live API call in unit tests.
+- All required provider methods return shared normalized DTOs.
+- Token refresh is race-safe.
+- Region is configurable and EU is default.
+- Exact namespace/locale behavior is covered by tests.
+- Item requests are cached and limited to requested IDs.
+- No account-wide claim is inferred.
+- Lint, strict typecheck, tests, and package build pass.
+- `doc/agents/01-blizzard.md` is complete.
+
+Do not
+------
+- Add Raider.IO or WCL logic.
+- Compute final scores.
+- Bulk crawl leaderboards.
+- Store provider secrets.
+- Scrape Armory HTML.
