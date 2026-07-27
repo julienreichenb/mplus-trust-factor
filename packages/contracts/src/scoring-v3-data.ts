@@ -20,6 +20,24 @@ export interface ScoringRunSelection {
   observedAt: IsoDateTime;
 }
 
+/**
+ * Public combat-log coverage for a selected scoring run.
+ * Never invent zeros for unavailable detail.
+ */
+export type CombatCoverageState = "AVAILABLE" | "PARTIAL" | "UNAVAILABLE";
+
+/** Match confidence attached when a WCL candidate was compared to the canonical run. */
+export type ScoringWclMatchConfidence = "HIGH" | "MEDIUM" | "LOW" | "NONE";
+
+/** Sanitized match evidence for a selected scoring run (no roster dump). */
+export interface ScoringWclMatchEvidence {
+  dungeonMatch: boolean;
+  keyLevelMatch: boolean;
+  timeDeltaMs: number | null;
+  durationDeltaMs: number | null;
+  rosterOverlapRatio: number | null;
+}
+
 export interface ScoringSelectedRun {
   dungeonSlug: string;
   canonicalRunId: string;
@@ -34,13 +52,13 @@ export interface ScoringSelectedRun {
   detailAvailable: boolean;
   selectionReason: ScoringRunSelectionReason;
   rejectionReasons: string[];
+  /** Sanitized WCL report identity when an accepted match/source exists. */
+  wclReportFingerprint: string | null;
+  wclFightId: number | null;
+  matchConfidence: ScoringWclMatchConfidence | null;
+  matchEvidence: ScoringWclMatchEvidence | null;
+  combatCoverageState: CombatCoverageState;
 }
-
-/**
- * Public combat-log coverage for a selected scoring run.
- * Never invent zeros for unavailable detail.
- */
-export type CombatCoverageState = "AVAILABLE" | "PARTIAL" | "UNAVAILABLE";
 
 /**
  * Frozen per-dungeon selection row exposed on the public character profile.

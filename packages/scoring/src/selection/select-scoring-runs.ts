@@ -1,7 +1,10 @@
 import type {
+  CombatCoverageState,
   ScoringRunSelection,
   ScoringRunSelectionReason,
   ScoringSelectedRun,
+  ScoringWclMatchConfidence,
+  ScoringWclMatchEvidence,
 } from "@mplus/contracts";
 import type { SeasonDungeonSet } from "@mplus/mechanics";
 
@@ -17,6 +20,12 @@ export interface SelectableScoringRun {
   raiderIoScore: number | null;
   wclReportMatched: boolean;
   wclCoverageRatio: number | null;
+  /** Internal report code used for analysis fetches — never printed by smoke. */
+  wclReportCode?: string | null;
+  wclReportFingerprint?: string | null;
+  wclFightId?: number | null;
+  matchConfidence?: ScoringWclMatchConfidence | null;
+  matchEvidence?: ScoringWclMatchEvidence | null;
 }
 
 export interface SelectScoringRunsInput {
@@ -80,6 +89,13 @@ function selectionReason(
   return "LATEST_TIEBREAK";
 }
 
+function initialCombatCoverageState(run: SelectableScoringRun): CombatCoverageState {
+  if (!run.wclReportMatched) return "UNAVAILABLE";
+  if (run.wclCoverageRatio != null && run.wclCoverageRatio < 0.75) return "PARTIAL";
+  if (run.wclCoverageRatio == null) return "UNAVAILABLE";
+  return "AVAILABLE";
+}
+
 function toSelected(run: SelectableScoringRun, reason: ScoringRunSelectionReason): ScoringSelectedRun {
   const rejectionReasons: string[] = [];
   if (!run.wclReportMatched) {
@@ -98,6 +114,11 @@ function toSelected(run: SelectableScoringRun, reason: ScoringRunSelectionReason
     detailAvailable: run.wclReportMatched,
     selectionReason: reason,
     rejectionReasons,
+    wclReportFingerprint: run.wclReportFingerprint ?? null,
+    wclFightId: run.wclFightId ?? null,
+    matchConfidence: run.matchConfidence ?? null,
+    matchEvidence: run.matchEvidence ?? null,
+    combatCoverageState: initialCombatCoverageState(run),
   };
 }
 

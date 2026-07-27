@@ -892,6 +892,18 @@ export async function runRefreshPipeline(
       classSlug: blizzardProfile?.classSlug ?? raiderIoProfile?.classSlug ?? null,
       specSlug: blizzardProfile?.specSlug ?? raiderIoProfile?.specSlug ?? null,
       isSoftSkipError: isEnrichmentSoftSkip,
+      beginWclApiCallAccounting: () => {
+        const client = (
+          providers.warcraftlogs as { getGraphQlClient?: () => { resetRequestCount: () => void } }
+        ).getGraphQlClient?.();
+        client?.resetRequestCount();
+      },
+      endWclApiCallAccounting: () => {
+        const client = (
+          providers.warcraftlogs as { getGraphQlClient?: () => { getRequestCount: () => number } }
+        ).getGraphQlClient?.();
+        return client?.getRequestCount() ?? 0;
+      },
     });
     scoringAnalysisDiagnostics = analysis.diagnostics;
 

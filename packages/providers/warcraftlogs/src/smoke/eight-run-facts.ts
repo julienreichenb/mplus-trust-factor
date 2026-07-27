@@ -142,8 +142,8 @@ export function buildEightRunRawFactRows(input: {
       selectionReason: selected.selectionReason,
       wclReportFingerprint: analysis?.reportCode
         ? sanitizeReportRef(analysis.reportCode).fingerprint
-        : null,
-      wclFightId: analysis?.fightId ?? null,
+        : (selected.wclReportFingerprint ?? null),
+      wclFightId: analysis?.fightId ?? selected.wclFightId ?? null,
       detailAvailable,
       performance,
       survival,

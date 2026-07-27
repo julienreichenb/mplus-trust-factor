@@ -2,6 +2,7 @@
  * Gate A.1 — analyze all ScoringRunSelection entries (up to season dungeon count).
  * Selection is highest key → score → timed → latest; never demotes unlogged highest.
  */
+import { createHash } from "node:crypto";
 import type {
   MetricObservationDTO,
   MythicRunDTO,
@@ -98,7 +99,7 @@ export type FetchReportFightDetails = (
   reportCode: string,
   fightId: number,
   ctx: ProviderFetchContext,
-) => Promise<ProviderResult<unknown>>;
+) => Promise<ProviderResult<unknown> & { wclApiCallCount?: number }>;
 
 function wclSourceFromDto(run: MythicRunDTO): ScoringRunWclSource | null {
   const source = run.sources.find(
@@ -160,6 +161,9 @@ export function resolveScoringSeasonDungeonSet(input: {
 }
 
 function toSelectable(candidate: ScoringRunAnalysisCandidate): SelectableScoringRun {
+  const fingerprint = candidate.wclSource
+    ? createHash("sha256").update(candidate.wclSource.reportCode, "utf8").digest("hex").slice(0, 12)
+    : null;
   return {
     id: candidate.runId,
     dungeonSlug: candidate.dungeonSlug,
@@ -171,6 +175,19 @@ function toSelectable(candidate: ScoringRunAnalysisCandidate): SelectableScoring
     raiderIoScore: candidate.raiderIoScore,
     wclReportMatched: candidate.wclSource != null,
     wclCoverageRatio: null,
+    wclReportCode: candidate.wclSource?.reportCode ?? null,
+    wclReportFingerprint: fingerprint,
+    wclFightId: candidate.wclSource?.fightId ?? null,
+    matchConfidence: candidate.wclSource ? "MEDIUM" : null,
+    matchEvidence: candidate.wclSource
+      ? {
+          dungeonMatch: true,
+          keyLevelMatch: true,
+          timeDeltaMs: null,
+          durationDeltaMs: null,
+          rosterOverlapRatio: null,
+        }
+      : null,
   };
 }
 
@@ -329,6 +346,9 @@ export async function analyzeScoringRuns(input: {
   classSlug?: string | null;
   specSlug?: string | null;
   isSoftSkipError?: (error: unknown) => boolean;
+  /** Optional GraphQL request accounting around the analysis session. */
+  beginWclApiCallAccounting?: () => void;
+  endWclApiCallAccounting?: () => number;
 }): Promise<AnalyzeScoringRunsResult> {
   const observedAt = input.observedAt ?? new Date().toISOString();
   const budget = resolveMaxAnalysisFights({
@@ -353,10 +373,11 @@ export async function analyzeScoringRuns(input: {
 
   const fightCache = new Map<
     string,
-    { result: ProviderResult<unknown>; apiCalls: number }
- >();
+    { result: ProviderResult<unknown> & { wclApiCallCount?: number }; apiCalls: number }
+  >();
   let wclApiCallCount = 0;
   let deduplicatedFightFetches = 0;
+  input.beginWclApiCallAccounting?.();
 
   const rows: ScoringRunAnalysisRow[] = [];
   const combatFactsList: RunCombatFacts[] = [];
@@ -436,9 +457,9 @@ export async function analyzeScoringRuns(input: {
           candidate.wclSource.fightId,
           input.ctx,
         );
-        rowApiCalls = 1;
-        wclApiCallCount += 1;
-        fightCache.set(key, { result, apiCalls: 1 });
+        rowApiCalls = result.wclApiCallCount ?? 1;
+        wclApiCallCount += rowApiCalls;
+        fightCache.set(key, { result, apiCalls: rowApiCalls });
         details = result.data as WclReportFightDetails;
       }
     } catch (error) {
@@ -477,14 +498,18 @@ export async function analyzeScoringRuns(input: {
       continue;
     }
 
+    const coverage = coverageRatio(details.combatFacts);
     combatFactsList.push(details.combatFacts);
     rows.push({
       selected: {
         ...selected,
         wclReportMatched: true,
-        wclCoverageRatio: coverageRatio(details.combatFacts),
+        wclCoverageRatio: coverage,
         detailAvailable: true,
         rejectionReasons: [],
+        wclReportFingerprint: selected.wclReportFingerprint,
+        wclFightId: candidate.wclSource.fightId,
+        combatCoverageState: coverage >= 0.75 ? "AVAILABLE" : "PARTIAL",
       },
       runId: candidate.runId,
       dungeonSlug: selected.dungeonSlug,
@@ -508,6 +533,11 @@ export async function analyzeScoringRuns(input: {
     );
   }
 
+  const accounted = input.endWclApiCallAccounting?.();
+  if (typeof accounted === "number" && accounted > wclApiCallCount) {
+    wclApiCallCount = accounted;
+  }
+
   const diagnostics: ScoringRunAnalysisDiagnostics = {
     selectedRunCount: targets.length,
     analyzedFightCount: rows.filter((r) => r.detailAvailable).length,
@@ -529,7 +559,13 @@ export async function analyzeScoringRuns(input: {
   };
 
   return {
-    selection,
+    selection: {
+      ...selection,
+      selectedRuns: selection.selectedRuns.map((selected) => {
+        const row = rows.find((r) => r.selected.canonicalRunId === selected.canonicalRunId);
+        return row?.selected ?? selected;
+      }),
+    },
     rows,
     combatFactsList,
     v3Observations,

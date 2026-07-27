@@ -240,7 +240,61 @@ describe("analyzeScoringRuns", () => {
     expect(result.rows).toHaveLength(1);
     expect(result.rows[0]?.runId).toBe("highest-unlogged");
     expect(result.rows[0]?.detailAvailable).toBe(false);
+    expect(result.selection.selectedRuns[0]?.wclReportMatched).toBe(false);
+    expect(result.selection.selectedRuns[0]?.combatCoverageState).toBe("UNAVAILABLE");
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("propagates accepted WCL identity onto ScoringRunSelection and counts nested API calls", async () => {
+    const dungeonSlug = "skyreach";
+    const candidates = [
+      candidate({
+        runId: "skyreach-22",
+        dungeonSlug,
+        keyLevel: 22,
+        completedAt: "2026-07-11T16:39:43.000Z",
+        durationMs: 1_557_871,
+        wclSource: { reportCode: "7PajSkyreach6KAc", fightId: 1 },
+      }),
+    ];
+    const fetch = vi.fn(async (reportCode: string, fightId: number) => ({
+      data: { combatFacts: emptyCombatFacts(reportCode, fightId) },
+      provider: "warcraftlogs" as const,
+      fetchedAt: observedAt,
+      ttlSeconds: 60,
+      requestId: "t",
+      cacheHit: false,
+      rawArtifactId: null,
+      wclApiCallCount: 9,
+    }));
+
+    let began = false;
+    const result = await analyzeScoringRuns({
+      candidates,
+      season: {
+        ...MIDNIGHT_S1_SEASON,
+        dungeonSlugs: [dungeonSlug],
+        expectedDungeonCount: 1,
+      },
+      ctx: ctx(),
+      fetchReportFightDetails: fetch,
+      observedAt,
+      beginWclApiCallAccounting: () => {
+        began = true;
+      },
+      endWclApiCallAccounting: () => 9,
+    });
+
+    expect(began).toBe(true);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(result.diagnostics.wclApiCallCount).toBe(9);
+    expect(result.diagnostics.analyzedFightCount).toBe(1);
+    const selected = result.selection.selectedRuns[0];
+    expect(selected?.wclReportMatched).toBe(true);
+    expect(selected?.detailAvailable).toBe(true);
+    expect(selected?.wclFightId).toBe(1);
+    expect(selected?.wclReportFingerprint).toMatch(/^[a-f0-9]{12}$/);
+    expect(selected?.combatCoverageState).toBe("PARTIAL");
   });
 
   it("continues when a provider partial failure hits one dungeon", async () => {

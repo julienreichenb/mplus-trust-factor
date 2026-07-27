@@ -20,6 +20,34 @@ export const DEFAULT_MATCHING_CONFIG: RunMatchingConfig = {
   rosterOverlapMedium: 0.5,
 };
 
+/** Empty / blank / "unknown" dungeon slugs never participate as known-dungeon matches. */
+export function isDungeonSlugKnown(slug: string | null | undefined): boolean {
+  const normalized = slug?.normalize("NFKC").trim().toLocaleLowerCase("en-US") ?? "";
+  return Boolean(normalized) && normalized !== "unknown";
+}
+
+export function isDungeonSlugUnknown(slug: string | null | undefined): boolean {
+  return !isDungeonSlugKnown(slug);
+}
+
+/**
+ * Accepted WCL match for scoring analysis — aligned with cross-provider persist attach:
+ * known dungeon + key + (time OR duration). Roster is optional for analysis acceptance.
+ * Does not invent a second matcher; uses matchRunCandidate evidence.
+ */
+export function isAcceptedWclMatchForAnalysis(
+  match: Pick<RunMatchResult, "confidence" | "evidence">,
+  config: RunMatchingConfig = DEFAULT_MATCHING_CONFIG,
+): boolean {
+  if (match.confidence === "HIGH" || match.confidence === "MEDIUM") return true;
+  const { dungeonMatch, keyLevelMatch, timeDeltaMs, durationDeltaMs } = match.evidence;
+  if (!dungeonMatch || !keyLevelMatch) return false;
+  const timeMatch = timeDeltaMs !== null && timeDeltaMs <= config.timeToleranceMs;
+  const durationMatch =
+    durationDeltaMs !== null && durationDeltaMs <= config.durationToleranceMs;
+  return timeMatch || durationMatch;
+}
+
 export function matchRunCandidate(
   candidate: WclRunCandidate,
   external: ExternalRunMatchInput,
@@ -27,8 +55,9 @@ export function matchRunCandidate(
   config: RunMatchingConfig = DEFAULT_MATCHING_CONFIG,
 ): RunMatchResult {
   const dungeonMatch =
-    candidate.dungeonSlug !== null &&
-    candidate.dungeonSlug.toLowerCase() === external.dungeonSlug.toLowerCase();
+    isDungeonSlugKnown(candidate.dungeonSlug) &&
+    isDungeonSlugKnown(external.dungeonSlug) &&
+    candidate.dungeonSlug!.toLowerCase() === external.dungeonSlug.toLowerCase();
 
   const keyLevel = candidate.keyLevel;
   const keyLevelDelta =

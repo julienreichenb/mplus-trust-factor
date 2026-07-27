@@ -8,9 +8,10 @@
  * Requires ALLOW_LIVE_PROVIDER_CALLS=true. Never invoked by CI.
  */
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { existsSync, readFileSync } from "node:fs";
+import { createRequire } from "node:module";
+import { dirname, resolve, resolve as resolvePath } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import type { CharacterIdentityInput, ProviderFetchContext } from "@mplus/contracts";
 import { LiveWarcraftLogsProvider } from "./live/live-provider.js";
 import { OPERATIONS } from "./operations/queries.js";
@@ -18,12 +19,15 @@ import { DETAILED_EVENT_TYPES } from "./operations/queries.js";
 import { shouldQueryZoneRankings } from "./discovery/mplus-zone.js";
 import {
   DEFAULT_MATCHING_CONFIG,
+  isAcceptedWclMatchForAnalysis,
+  isDungeonSlugUnknown,
   matchRunCandidate,
 } from "./discovery/run-matching.js";
 import { mapRegionToWcl } from "./discovery/run-discovery.js";
 import {
   assertWorkerWclPath,
   rejectionReasonFromMatch,
+  reportCodeFingerprint,
   sanitizeReportRef,
 } from "./smoke/sanitize.js";
 import {
@@ -31,13 +35,12 @@ import {
   buildScoringDataFoundationSnapshot,
   type EightRunCombatAnalysis,
 } from "./smoke/eight-run-facts.js";
-import type { ExternalRunMatchInput, WclRunCandidate } from "./types.js";
+import type { ExternalRunMatchInput, RunMatchResult, WclRunCandidate } from "./types.js";
 import {
   MIDNIGHT_S1_SEASON,
   resolveSeasonDungeonSet,
 } from "@mplus/mechanics";
 import { selectScoringRuns, type SelectableScoringRun } from "@mplus/scoring";
-
 function envFlag(value: string | undefined, defaultValue = false): boolean {
   if (value === undefined || value === "") return defaultValue;
   return ["1", "true", "yes", "on"].includes(value.trim().toLowerCase());
@@ -536,13 +539,19 @@ function bestCandidateForExternal(
 ): {
   candidate: WclRunCandidate | null;
   confidence: string;
-  evidence: ReturnType<typeof matchRunCandidate>["evidence"] | null;
+  evidence: RunMatchResult["evidence"] | null;
   rejectionReason: string | null;
+  acceptedForAnalysis: boolean;
+  match: RunMatchResult | null;
 } {
-  let best: ReturnType<typeof matchRunCandidate> | null = null;
+  let best: RunMatchResult | null = null;
   let bestCandidate: WclRunCandidate | null = null;
   for (const candidate of candidates) {
     if (candidate.incompleteness.fightUnknown) continue;
+    // Empty dungeon slugs are unknown — they must not win known-dungeon matching.
+    if (isDungeonSlugUnknown(candidate.dungeonSlug)) {
+      candidate.incompleteness.dungeonUnknown = true;
+    }
     const match = matchRunCandidate(candidate, external, [], DEFAULT_MATCHING_CONFIG);
     if (
       !best ||
@@ -551,6 +560,26 @@ function bestCandidateForExternal(
     ) {
       best = match;
       bestCandidate = candidate;
+    } else if (
+      best &&
+      match.confidence === best.confidence &&
+      isAcceptedWclMatchForAnalysis(match) &&
+      !isAcceptedWclMatchForAnalysis(best)
+    ) {
+      best = match;
+      bestCandidate = candidate;
+    } else if (
+      best &&
+      match.confidence === best.confidence &&
+      isAcceptedWclMatchForAnalysis(match) &&
+      isAcceptedWclMatchForAnalysis(best)
+    ) {
+      const bestTime = best.evidence.timeDeltaMs ?? Number.POSITIVE_INFINITY;
+      const nextTime = match.evidence.timeDeltaMs ?? Number.POSITIVE_INFINITY;
+      if (nextTime < bestTime) {
+        best = match;
+        bestCandidate = candidate;
+      }
     }
   }
   if (!best || !bestCandidate) {
@@ -559,19 +588,86 @@ function bestCandidateForExternal(
       confidence: "NONE",
       evidence: null,
       rejectionReason: "no_wcl_candidate_with_known_fight",
+      acceptedForAnalysis: false,
+      match: null,
     };
   }
+  const acceptedForAnalysis = isAcceptedWclMatchForAnalysis(best);
   return {
     candidate: bestCandidate,
     confidence: best.confidence,
     evidence: best.evidence,
+    acceptedForAnalysis,
+    match: best,
     rejectionReason: rejectionReasonFromMatch({
       confidence: best.confidence,
       evidence: best.evidence,
       autoMergeAllowed: best.autoMergeAllowed,
       timeToleranceMs: DEFAULT_MATCHING_CONFIG.timeToleranceMs,
+      durationToleranceMs: DEFAULT_MATCHING_CONFIG.durationToleranceMs,
+      acceptedForAnalysis,
     }),
   };
+}
+
+type PrismaSmokeClient = {
+  region: { findUnique: (args: unknown) => Promise<{ id: string } | null> };
+  realm: { findUnique: (args: unknown) => Promise<{ id: string } | null> };
+  character: { findUnique: (args: unknown) => Promise<{ id: string } | null> };
+  characterProviderState: {
+    findUnique: (args: unknown) => Promise<Record<string, unknown> | null>;
+  };
+  mythicRun: {
+    findMany: (args: unknown) => Promise<Array<{ canonicalFingerprint: string }>>;
+  };
+  runSourceReference: {
+    count: (args: unknown) => Promise<number>;
+  };
+  metricObservation: {
+    findMany: (args: unknown) => Promise<
+      Array<{
+        sourceProvider: string;
+        confidence: string | null;
+        metricDefinition?: { key: string } | null;
+        metricKey?: string;
+      }>
+    >;
+  };
+  $disconnect: () => Promise<void>;
+};
+
+async function loadCreatePrismaClient(): Promise<(url?: string) => PrismaSmokeClient> {
+  try {
+    const mod = (await import("@mplus/database")) as {
+      createPrismaClient: (url?: string) => PrismaSmokeClient;
+    };
+    return mod.createPrismaClient;
+  } catch {
+    /* fall through */
+  }
+
+  const root = resolvePath(dirname(fileURLToPath(import.meta.url)), "../../../..");
+  const distEntry = resolvePath(root, "packages/database/dist/index.js");
+  const srcEntry = resolvePath(root, "packages/database/src/index.ts");
+
+  if (existsSync(distEntry)) {
+    const requireFromDb = createRequire(resolvePath(root, "packages/database/package.json"));
+    const mod = requireFromDb("./dist/index.js") as {
+      createPrismaClient: (url?: string) => PrismaSmokeClient;
+    };
+    return mod.createPrismaClient;
+  }
+
+  if (existsSync(srcEntry)) {
+    const mod = (await import(pathToFileURL(srcEntry).href)) as {
+      createPrismaClient: (url?: string) => PrismaSmokeClient;
+    };
+    return mod.createPrismaClient;
+  }
+
+  throw new Error(
+    "Cannot load @mplus/database — build packages/database or ensure src/index.ts is available",
+  );
 }
 
 async function readPersistenceDiagnostics(identity: CharacterIdentityInput): Promise<unknown> {
@@ -580,37 +676,7 @@ async function readPersistenceDiagnostics(identity: CharacterIdentityInput): Pro
     return { available: false, reason: "DATABASE_URL unset" };
   }
   try {
-    const { createRequire } = await import("node:module");
-    const { resolve: resolvePath } = await import("node:path");
-    const dbPkg = resolvePath(process.cwd(), "packages/database/package.json");
-    const requireFromDb = createRequire(dbPkg);
-    const { createPrismaClient } = requireFromDb("./dist/index.js") as {
-      createPrismaClient: (url?: string) => {
-        region: { findUnique: (args: unknown) => Promise<{ id: string } | null> };
-        realm: { findUnique: (args: unknown) => Promise<{ id: string } | null> };
-        character: { findUnique: (args: unknown) => Promise<{ id: string } | null> };
-        characterProviderState: {
-          findUnique: (args: unknown) => Promise<Record<string, unknown> | null>;
-        };
-        mythicRun: {
-          findMany: (args: unknown) => Promise<Array<{ canonicalFingerprint: string }>>;
-        };
-        runSourceReference: {
-          count: (args: unknown) => Promise<number>;
-        };
-        metricObservation: {
-          findMany: (args: unknown) => Promise<
-            Array<{
-              sourceProvider: string;
-              confidence: string | null;
-              metricDefinition?: { key: string } | null;
-              metricKey?: string;
-            }>
-          >;
-        };
-        $disconnect: () => Promise<void>;
-      };
-    };
+    const createPrismaClient = await loadCreatePrismaClient();
     const prisma = createPrismaClient(databaseUrl);
     try {
       const region = await prisma.region.findUnique({ where: { code: identity.region } });
@@ -854,12 +920,15 @@ async function runDeep(
           .filter((c) => !c.incompleteness.fightUnknown)
           .concat(
             // Synthesize matchable candidates from discoverCharacterRuns DTOs when discovery stubs were hydrated.
-            runsResult.data.map((run) => ({
+            runsResult.data.map((run) => {
+              const dungeonUnknown =
+                run.dungeonSlug === "unknown" || isDungeonSlugUnknown(run.dungeonSlug);
+              return {
               reportCode: run.sources[0]?.reportCode ?? run.id,
               fightId: run.sources[0]?.fightId ?? 0,
               encounterId: 0,
               zoneId: null,
-              dungeonSlug: run.dungeonSlug === "unknown" ? null : run.dungeonSlug,
+              dungeonSlug: dungeonUnknown ? null : run.dungeonSlug,
               seasonSlug: run.seasonSlug === "unknown" ? null : run.seasonSlug,
               keyLevel: run.keyLevel > 0 ? run.keyLevel : null,
               score: run.scoreValue,
@@ -872,7 +941,7 @@ async function runDeep(
               matchConfidence: null,
               targetActorId: null,
               incompleteness: {
-                dungeonUnknown: run.dungeonSlug === "unknown",
+                dungeonUnknown,
                 seasonUnknown: run.seasonSlug === "unknown",
                 timedUnknown: false,
                 keyLevelUnknown: run.keyLevel <= 0,
@@ -880,7 +949,8 @@ async function runDeep(
                 fightUnknown: false,
               },
               warnings: [],
-            })),
+            };
+            }),
           )
       : discovery.candidates;
 
@@ -902,18 +972,25 @@ async function runDeep(
             keyLevel: best.candidate.keyLevel,
             completedAt: best.candidate.completedAt,
             fightUnknown: best.candidate.incompleteness.fightUnknown,
+            dungeonUnknown: best.candidate.incompleteness.dungeonUnknown,
           }
         : null,
       confidence: best.confidence,
+      acceptedForAnalysis: best.acceptedForAnalysis,
       evidence: best.evidence,
       rejectionReason: best.rejectionReason,
     };
   });
 
   let analysis: unknown = null;
-  const analyzableMatch = matchRows.find(
-    (m) => m.confidence === "HIGH" || m.confidence === "MEDIUM",
+  const analyzableAccepted = matchRows.find((m) => m.acceptedForAnalysis)?.bestWclCandidate;
+  const skyreachAccepted = matchRows.find(
+    (m) =>
+      m.acceptedForAnalysis &&
+      m.selectedRun.dungeonSlug === "skyreach" &&
+      m.selectedRun.keyLevel === 22,
   )?.bestWclCandidate;
+  const analyzableMatch = skyreachAccepted ?? analyzableAccepted;
   const analyzableCandidate =
     matchCandidates.find((c) => !c.incompleteness.fightUnknown && c.fightId > 0) ?? null;
 
@@ -945,10 +1022,26 @@ async function runDeep(
       );
       const facts = details.combatFacts;
       const coverageEntries = Object.entries(facts.coverage);
+      const querySucceeded = true;
+      const actorPresent = typeof facts.targetSourceId === "number" && facts.targetSourceId > 0;
+      const eventsReturned =
+        facts.casts.length +
+          facts.interrupts.length +
+          facts.deaths.length +
+          facts.damageTaken.length +
+          facts.auras.length +
+          facts.dispels.length +
+          facts.healing.length >
+        0;
+      const metricExtractable = eventsReturned && actorPresent;
       analysis = {
         report: sanitizeReportRef(reportCode),
         fightId: details.fight.id,
         actorResolved: facts.targetSourceId,
+        fightWindow: {
+          startTime: details.fight.startTime,
+          endTime: details.fight.endTime,
+        },
         eventTypesFetched: DETAILED_EVENT_TYPES,
         counts: {
           deaths: facts.deaths.length,
@@ -958,6 +1051,16 @@ async function runDeep(
           damageTaken: facts.damageTaken.length,
           auras: facts.auras.length,
           healing: facts.healing.length,
+        },
+        /** Query HTTP/GraphQL success must not be equated with metric extractability. */
+        extractionValidation: {
+          querySucceeded,
+          actorPresent,
+          eventsReturned,
+          metricExtractable,
+          petAttributedSourceCount: [...facts.actorMap.byId.values()].filter(
+            (a) => a.petOwnerId === facts.targetSourceId,
+          ).length,
         },
         coverage: facts.coverage,
         coverageRatio:
@@ -971,6 +1074,12 @@ async function runDeep(
         report: sanitizeReportRef(reportCode),
         fightId,
         error: errorMessage(error),
+        extractionValidation: {
+          querySucceeded: false,
+          actorPresent: false,
+          eventsReturned: false,
+          metricExtractable: false,
+        },
       };
     }
   } else {
@@ -999,10 +1108,11 @@ async function runDeep(
     durationMs: number;
     score: number | null;
     timed: boolean | null;
-    wclMatched: boolean;
-    wclCoverage: number | null;
+    match: ReturnType<typeof bestCandidateForExternal>;
     idPrefix: string;
   }) => {
+    const accepted = run.match.acceptedForAnalysis && run.match.candidate != null;
+    const candidate = run.match.candidate;
     selectablePool.push({
       id: `${run.idPrefix}:${run.dungeonSlug}:${run.keyLevel}:${run.completedAt}`,
       dungeonSlug: run.dungeonSlug,
@@ -1012,8 +1122,21 @@ async function runDeep(
       completedAt: run.completedAt,
       durationMs: run.durationMs,
       raiderIoScore: run.score,
-      wclReportMatched: run.wclMatched,
-      wclCoverageRatio: run.wclCoverage,
+      wclReportMatched: accepted,
+      wclCoverageRatio: null,
+      wclReportCode: accepted ? candidate!.reportCode : null,
+      wclReportFingerprint: accepted ? reportCodeFingerprint(candidate!.reportCode) : null,
+      wclFightId: accepted ? candidate!.fightId : null,
+      matchConfidence: (run.match.confidence as SelectableScoringRun["matchConfidence"]) ?? null,
+      matchEvidence: run.match.evidence
+        ? {
+            dungeonMatch: run.match.evidence.dungeonMatch,
+            keyLevelMatch: run.match.evidence.keyLevelMatch,
+            timeDeltaMs: run.match.evidence.timeDeltaMs,
+            durationDeltaMs: run.match.evidence.durationDeltaMs,
+            rosterOverlapRatio: run.match.evidence.rosterOverlapRatio,
+          }
+        : null,
     });
   };
 
@@ -1026,8 +1149,7 @@ async function runDeep(
       durationMs: run.durationMs,
       score: null,
       timed: null,
-      wclMatched: match.confidence === "HIGH" || match.confidence === "MEDIUM",
-      wclCoverage: null,
+      match,
       idPrefix: "blizzard",
     });
   }
@@ -1040,8 +1162,7 @@ async function runDeep(
       durationMs: run.durationMs,
       score: run.score,
       timed: run.timed,
-      wclMatched: match.confidence === "HIGH" || match.confidence === "MEDIUM",
-      wclCoverage: null,
+      match,
       idPrefix: "raiderio",
     });
   }
@@ -1055,12 +1176,13 @@ async function runDeep(
   const eightRunAnalyses: EightRunCombatAnalysis[] = [];
   const truncatedCategoriesObserved: string[] = [];
   let eightRunPointCost: number | null = null;
-  let wclApiCallCount = 0;
   let deduplicatedFightFetches = 0;
   const fightDetailsCache = new Map<
     string,
     Awaited<ReturnType<LiveWarcraftLogsProvider["fetchReportFightDetails"]>>
   >();
+  const graphQl = provider.getGraphQlClient();
+  graphQl.resetRequestCount();
   try {
     const rate = await provider.fetchRateLimit(ctx);
     if (rate && typeof rate === "object" && "pointsSpentThisHour" in rate) {
@@ -1069,17 +1191,15 @@ async function runDeep(
   } catch {
     /* optional */
   }
+  // Rate-limit probe is not part of scoring-v3 analysis session accounting.
+  graphQl.resetRequestCount();
+
+  const selectableById = new Map(selectablePool.map((s) => [s.id, s]));
 
   for (const selected of scoringSelection.selectedRuns) {
-    const external: ExternalRunMatchInput = {
-      dungeonSlug: selected.dungeonSlug,
-      keyLevel: selected.keyLevel,
-      completedAt: selected.completedAt,
-      durationMs: selected.durationMs ?? 0,
-      participants: [{ realmSlug: identity.realmSlug, name: identity.name }],
-    };
-    const match = bestCandidateForExternal(external, matchCandidates);
-    const candidate = match.candidate;
+    const fromPool = selectableById.get(selected.canonicalRunId);
+    const reportCode = fromPool?.wclReportCode ?? null;
+    const fightId = fromPool?.wclFightId ?? null;
     const selectable: SelectableScoringRun = {
       id: selected.canonicalRunId,
       dungeonSlug: selected.dungeonSlug,
@@ -1091,9 +1211,14 @@ async function runDeep(
       raiderIoScore: selected.raiderIoScore,
       wclReportMatched: selected.wclReportMatched,
       wclCoverageRatio: selected.wclCoverageRatio,
+      wclReportCode: reportCode,
+      wclReportFingerprint: selected.wclReportFingerprint,
+      wclFightId: fightId,
+      matchConfidence: selected.matchConfidence,
+      matchEvidence: selected.matchEvidence,
     };
 
-    if (!candidate || candidate.fightId <= 0 || !selected.wclReportMatched) {
+    if (!selected.wclReportMatched || !reportCode || !fightId || fightId <= 0) {
       eightRunAnalyses.push({
         selectable,
         reportCode: null,
@@ -1101,7 +1226,7 @@ async function runDeep(
         combatFacts: null,
         parsePercentile: null,
         apiPointCost: null,
-        analysisError: match.rejectionReason ?? "wcl_detail_unavailable_on_highest_run",
+        analysisError: selected.rejectionReasons[0] ?? "wcl_detail_unavailable_on_highest_run",
         classSlug: "warlock",
         specSlug: "demonology",
         region: identity.region,
@@ -1109,15 +1234,15 @@ async function runDeep(
       continue;
     }
 
-    const cacheKey = `${candidate.reportCode}:${candidate.fightId}`;
+    const cacheKey = `${reportCode}:${fightId}`;
     try {
       let details = fightDetailsCache.get(cacheKey);
       if (details) {
         deduplicatedFightFetches += 1;
       } else {
         details = await provider.fetchReportFightDetails(
-          candidate.reportCode,
-          candidate.fightId,
+          reportCode,
+          fightId,
           identity.name,
           identity.realmSlug,
           ctx,
@@ -1125,19 +1250,18 @@ async function runDeep(
           true,
         );
         fightDetailsCache.set(cacheKey, details);
-        wclApiCallCount += 1;
       }
       truncatedCategoriesObserved.push(...details.combatFacts.limitations.truncatedPages);
       const ranking = discovery.rankings.find(
         (r) =>
-          r.reportCode === candidate.reportCode &&
-          r.fightId === candidate.fightId &&
+          r.reportCode === reportCode &&
+          r.fightId === fightId &&
           typeof r.percentile === "number",
       );
       eightRunAnalyses.push({
         selectable,
-        reportCode: candidate.reportCode,
-        fightId: candidate.fightId,
+        reportCode,
+        fightId,
         combatFacts: details.combatFacts,
         parsePercentile: ranking?.percentile ?? null,
         apiPointCost: null,
@@ -1149,8 +1273,8 @@ async function runDeep(
     } catch (error) {
       eightRunAnalyses.push({
         selectable,
-        reportCode: candidate.reportCode,
-        fightId: candidate.fightId,
+        reportCode,
+        fightId,
         combatFacts: null,
         parsePercentile: null,
         apiPointCost: null,
@@ -1161,6 +1285,9 @@ async function runDeep(
       });
     }
   }
+
+  const wclApiCallCount = graphQl.getRequestCount();
+  const wclApiCallsByOperation = graphQl.getRequestCountsByOperation();
 
   const eightRunRows = buildEightRunRawFactRows({
     selection: scoringSelection,
@@ -1173,8 +1300,47 @@ async function runDeep(
     truncatedCategoriesObserved: [...new Set(truncatedCategoriesObserved)],
   });
   const selectedRunCount = scoringSelection.selectedRuns.length;
+  const acceptedMatchedSelectedRunCount = scoringSelection.selectedRuns.filter(
+    (r) => r.wclReportMatched,
+  ).length;
   const analyzedFightCount = eightRunRows.filter((r) => r.detailAvailable).length;
   const missingCombatFactCount = eightRunRows.filter((r) => !r.detailAvailable).length;
+
+  const skyreachExtraction = (() => {
+    const row = scoringV3Foundation.rows.find((r) => r.dungeonSlug === "skyreach");
+    const analysisRow = eightRunAnalyses.find((a) => a.selectable.dungeonSlug === "skyreach");
+    if (!row || !analysisRow) return null;
+    const facts = analysisRow.combatFacts;
+    return {
+      dungeonSlug: "skyreach",
+      keyLevel: row.keyLevel,
+      wclReportFingerprint: row.wclReportFingerprint,
+      wclFightId: row.wclFightId,
+      detailAvailable: row.detailAvailable,
+      extractionValidation: facts
+        ? {
+            querySucceeded: true,
+            actorPresent: facts.targetSourceId > 0,
+            eventsReturned:
+              facts.casts.length + facts.damageTaken.length + facts.deaths.length > 0,
+            metricExtractable:
+              facts.targetSourceId > 0 &&
+              (facts.casts.length > 0 || facts.damageTaken.length > 0),
+            castCount: facts.casts.length,
+            damageTakenCount: facts.damageTaken.length,
+            petAttributedSourceCount: [...facts.actorMap.byId.values()].filter(
+              (a) => a.petOwnerId === facts.targetSourceId,
+            ).length,
+          }
+        : {
+            querySucceeded: false,
+            actorPresent: false,
+            eventsReturned: false,
+            metricExtractable: false,
+            reason: analysisRow.analysisError,
+          },
+    };
+  })();
 
   print("wcl.smoke.deep", {
     identity: {
@@ -1246,9 +1412,11 @@ async function runDeep(
       seasonSlug: scoringV3Foundation.seasonSlug,
       expectedDungeonCount: scoringV3Foundation.expectedDungeonCount,
       selectedRunCount,
+      acceptedMatchedSelectedRunCount,
       analyzedFightCount,
       missingCombatFactCount,
       wclApiCallCount,
+      wclApiCallsByOperation,
       deduplicatedFightFetches,
       selectionConfidence: scoringV3Foundation.selection.selectionConfidence,
       missingDungeonSlugs: scoringV3Foundation.selection.missingDungeonSlugs,
@@ -1258,16 +1426,26 @@ async function runDeep(
       formulaVersion: scoringV3Foundation.formulaVersion,
       abilityCatalogVersion: scoringV3Foundation.abilityCatalogVersion,
       mechanicCatalogVersion: scoringV3Foundation.mechanicCatalogVersion,
-      rows: scoringV3Foundation.rows.map((row) => ({
+      skyreachExtraction,
+      rows: scoringV3Foundation.rows.map((row) => {
+        const selected = scoringSelection.selectedRuns.find(
+          (s) => s.dungeonSlug === row.dungeonSlug,
+        );
+        return {
         dungeonSlug: row.dungeonSlug,
         canonicalRunFingerprint: row.canonicalRunFingerprint,
         keyLevel: row.keyLevel,
         durationMs: row.durationMs,
         timed: row.timed,
         selectionReason: row.selectionReason,
-        wclReportFingerprint: row.wclReportFingerprint,
-        wclFightId: row.wclFightId,
+        wclReportFingerprint: row.wclReportFingerprint ?? selected?.wclReportFingerprint ?? null,
+        wclFightId: row.wclFightId ?? selected?.wclFightId ?? null,
         detailAvailable: row.detailAvailable,
+        combatCoverageState: row.detailAvailable
+          ? "AVAILABLE"
+          : (selected?.combatCoverageState ?? "UNAVAILABLE"),
+        matchConfidence: selected?.matchConfidence ?? null,
+        matchEvidence: selected?.matchEvidence ?? null,
         rejectionReasons: row.rejectionReasons,
         missingDataReasons: row.missingDataReasons,
         parsePercentile: row.performance.parsePercentile,
@@ -1292,7 +1470,8 @@ async function runDeep(
           utility: row.utility.fieldStatus,
           performance: row.performance.fieldStatus,
         },
-      })),
+      };
+      }),
     },
     persistence,
   });
