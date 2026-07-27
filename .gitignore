@@ -39,6 +39,10 @@ packages/database/prisma/*.db-journal
 .turbo/
 .cache/
 .vitest/
+apps/web/test-results/
+apps/web/playwright-report/
+apps/web/blob-report/
+apps/web/playwright/.cache/
 
 # Addon build artifacts
 addon/**/*.zip

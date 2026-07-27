@@ -22,7 +22,12 @@ export default defineConfig({
     globals: false,
     environment: "node",
     include: ["**/src/**/*.test.ts", "**/tests/**/*.test.ts"],
-    exclude: ["**/node_modules/**", "**/dist/**", "**/*.integration.test.ts"],
+    exclude: [
+      "**/node_modules/**",
+      "**/dist/**",
+      "**/*.integration.test.ts",
+      "apps/web/**",
+    ],
     env: {
       PROVIDER_MODE: "fixture",
       NODE_ENV: "test",
