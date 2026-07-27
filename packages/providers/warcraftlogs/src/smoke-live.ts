@@ -1,0 +1,895 @@
+/**
+ * Manual Warcraft Logs live smoke + optional --deep diagnostic.
+ *
+ * Usage:
+ *   pnpm wcl:smoke -- --region EU --realm archimonde --name Wallidrixe
+ *   pnpm wcl:smoke -- --region EU --realm archimonde --name Wallidrixe --deep
+ *
+ * Requires ALLOW_LIVE_PROVIDER_CALLS=true. Never invoked by CI.
+ */
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import type { CharacterIdentityInput, ProviderFetchContext } from "@mplus/contracts";
+import { LiveWarcraftLogsProvider } from "./live/live-provider.js";
+import { OPERATIONS } from "./operations/queries.js";
+import { DETAILED_EVENT_TYPES } from "./operations/queries.js";
+import { shouldQueryZoneRankings } from "./discovery/mplus-zone.js";
+import {
+  DEFAULT_MATCHING_CONFIG,
+  matchRunCandidate,
+} from "./discovery/run-matching.js";
+import { mapRegionToWcl } from "./discovery/run-discovery.js";
+import {
+  assertWorkerWclPath,
+  rejectionReasonFromMatch,
+  sanitizeReportRef,
+} from "./smoke/sanitize.js";
+import type { ExternalRunMatchInput, WclRunCandidate } from "./types.js";
+
+function envFlag(value: string | undefined, defaultValue = false): boolean {
+  if (value === undefined || value === "") return defaultValue;
+  return ["1", "true", "yes", "on"].includes(value.trim().toLowerCase());
+}
+
+function parseArgs(argv: string[]): {
+  region: string;
+  realm: string;
+  name: string;
+  deep: boolean;
+} {
+  const flags: Record<string, string | boolean> = {};
+  for (let i = 0; i < argv.length; i += 1) {
+    const arg = argv[i];
+    if (!arg?.startsWith("--")) continue;
+    const key = arg.slice(2);
+    if (key === "deep") {
+      flags.deep = true;
+      continue;
+    }
+    const next = argv[i + 1];
+    if (!next || next.startsWith("--")) {
+      throw new Error(`Missing value for --${key}`);
+    }
+    flags[key] = next;
+    i += 1;
+  }
+
+  const region = String(flags.region ?? "").trim().toUpperCase();
+  const realm = String(flags.realm ?? "").trim().toLowerCase();
+  const name = String(flags.name ?? "").trim();
+  if (!region || !realm || !name) {
+    throw new Error(
+      "Usage: --region <EU|US|KR|TW> --realm <slug> --name <exact-name> [--deep]",
+    );
+  }
+  if (!["EU", "US", "KR", "TW"].includes(region)) {
+    throw new Error(`Unsupported region "${region}"`);
+  }
+  return { region, realm, name, deep: Boolean(flags.deep) };
+}
+
+function print(label: string, payload: unknown): void {
+  console.log(label);
+  console.log(JSON.stringify(payload, null, 2));
+}
+
+function buildCtx(identity: CharacterIdentityInput): ProviderFetchContext {
+  return {
+    region: identity.region,
+    requestId: `wcl-smoke-${Date.now()}`,
+    correlationId: null,
+    forceRefresh: true,
+    now: new Date().toISOString(),
+    targetCharacter: identity,
+  };
+}
+
+async function fetchBlizzardSelectedRuns(
+  identity: CharacterIdentityInput,
+): Promise<ExternalRunMatchInput[]> {
+  const clientId = process.env.BLIZZARD_CLIENT_ID ?? "";
+  const clientSecret = process.env.BLIZZARD_CLIENT_SECRET ?? "";
+  if (!clientId || !clientSecret) return [];
+
+  const region = String(identity.region).toLowerCase();
+  const tokenRes = await fetch("https://oauth.battle.net/token", {
+    method: "POST",
+    headers: {
+      Authorization: `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString("base64")}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: "grant_type=client_credentials",
+  });
+  if (!tokenRes.ok) return [];
+  const tokenJson = (await tokenRes.json()) as { access_token?: string };
+  const accessToken = tokenJson.access_token;
+  if (!accessToken) return [];
+
+  const locale = process.env.BLIZZARD_DEFAULT_LOCALE ?? "en_GB";
+  const indexUrl = new URL(
+    `https://${region}.api.blizzard.com/profile/wow/character/${encodeURIComponent(identity.realmSlug)}/${encodeURIComponent(identity.name.toLowerCase())}/mythic-keystone-profile`,
+  );
+  indexUrl.searchParams.set("namespace", `profile-${region}`);
+  indexUrl.searchParams.set("locale", locale);
+  const indexRes = await fetch(indexUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
+  if (!indexRes.ok) return [];
+  const indexBody = (await indexRes.json()) as {
+    current_period?: { id?: number };
+    seasons?: Array<{ id: number }>;
+  };
+  const seasonId =
+    indexBody.seasons?.[indexBody.seasons.length - 1]?.id ?? indexBody.current_period?.id ?? null;
+  if (seasonId == null) return [];
+
+  const seasonUrl = new URL(
+    `https://${region}.api.blizzard.com/profile/wow/character/${encodeURIComponent(identity.realmSlug)}/${encodeURIComponent(identity.name.toLowerCase())}/mythic-keystone-profile/season/${seasonId}`,
+  );
+  seasonUrl.searchParams.set("namespace", `profile-${region}`);
+  seasonUrl.searchParams.set("locale", locale);
+  const seasonRes = await fetch(seasonUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
+  if (!seasonRes.ok) return [];
+  const seasonBody = (await seasonRes.json()) as {
+    best_runs?: Array<{
+      dungeon?: { name?: string };
+      keystone_level?: number;
+      completed_timestamp?: number;
+      duration?: number;
+      members?: Array<{
+        character?: { name?: string; realm?: { slug?: string } };
+      }>;
+    }>;
+  };
+
+  const slugify = (value: string) =>
+    value
+      .normalize("NFKC")
+      .trim()
+      .toLocaleLowerCase("en-US")
+      .replace(/['']/g, "")
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "");
+
+  return (seasonBody.best_runs ?? [])
+    .filter((run) => run.completed_timestamp != null && run.keystone_level != null)
+    .slice(0, 8)
+    .map((run) => ({
+      dungeonSlug: slugify(run.dungeon?.name ?? "unknown"),
+      keyLevel: run.keystone_level!,
+      completedAt: new Date(run.completed_timestamp!).toISOString(),
+      durationMs: run.duration ?? 0,
+      participants: (run.members ?? []).map((m) => ({
+        realmSlug: (m.character?.realm?.slug ?? identity.realmSlug).toLowerCase(),
+        name: m.character?.name ?? "unknown",
+      })),
+    }));
+}
+
+async function fetchRaiderIoRunHints(
+  identity: CharacterIdentityInput,
+): Promise<ExternalRunMatchInput[]> {
+  const region = String(identity.region).toLowerCase();
+  const url = new URL("https://raider.io/api/v1/characters/profile");
+  url.searchParams.set("region", region);
+  url.searchParams.set("realm", identity.realmSlug);
+  url.searchParams.set("name", identity.name);
+  url.searchParams.set("fields", "mythic_plus_recent_runs,mythic_plus_best_runs");
+  const headers: Record<string, string> = {};
+  if (process.env.RAIDERIO_APP_KEY) {
+    headers["X-Raider-Api-Key"] = process.env.RAIDERIO_APP_KEY;
+  }
+  const res = await fetch(url, { headers });
+  if (!res.ok) return [];
+  const body = (await res.json()) as {
+    mythic_plus_recent_runs?: Array<{
+      dungeon?: string;
+      short_name?: string;
+      mythic_level?: number;
+      completed_at?: string;
+      clear_time_ms?: number;
+    }>;
+    mythic_plus_best_runs?: Array<{
+      dungeon?: string;
+      short_name?: string;
+      mythic_level?: number;
+      completed_at?: string;
+      clear_time_ms?: number;
+    }>;
+  };
+
+  const slugify = (value: string) =>
+    value
+      .normalize("NFKC")
+      .trim()
+      .toLocaleLowerCase("en-US")
+      .replace(/['']/g, "")
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "");
+
+  const rows = [...(body.mythic_plus_recent_runs ?? []), ...(body.mythic_plus_best_runs ?? [])];
+  const seen = new Set<string>();
+  const out: ExternalRunMatchInput[] = [];
+  for (const run of rows) {
+    if (!run.completed_at || run.mythic_level == null) continue;
+    const dungeonSlug = slugify(run.short_name ?? run.dungeon ?? "unknown");
+    const key = `${dungeonSlug}|${run.mythic_level}|${run.completed_at}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({
+      dungeonSlug,
+      keyLevel: run.mythic_level,
+      completedAt: new Date(run.completed_at).toISOString(),
+      durationMs: run.clear_time_ms ?? 0,
+      participants: [{ realmSlug: identity.realmSlug, name: identity.name }],
+    });
+    if (out.length >= 10) break;
+  }
+  return out;
+}
+
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  return String(error);
+}
+
+async function probeRankingsDiagnostics(
+  provider: LiveWarcraftLogsProvider,
+  identity: CharacterIdentityInput,
+  zoneId: number,
+  queried: boolean,
+): Promise<{
+  zoneRankingsQueried: boolean;
+  rawRankingRowCount: number;
+  totalParsesSum: number | null;
+  graphqlErrors: string[];
+}> {
+  if (!queried) {
+    return {
+      zoneRankingsQueried: false,
+      rawRankingRowCount: 0,
+      totalParsesSum: null,
+      graphqlErrors: [],
+    };
+  }
+  const client = provider.getGraphQlClient();
+  try {
+    const result = await client.request({
+      operationName: OPERATIONS.CharacterZoneRankings.operationName,
+      query: OPERATIONS.CharacterZoneRankings.query,
+      variables: {
+        name: identity.name,
+        serverSlug: identity.realmSlug,
+        serverRegion: mapRegionToWcl(identity.region),
+        zoneID: zoneId,
+      },
+      region: identity.region,
+    });
+    const zoneRankings = (
+      result.response.data as {
+        characterData?: {
+          character?: {
+            zoneRankings?: {
+              totalParses?: number | null;
+              rankings?: unknown[] | null;
+            } | null;
+          } | null;
+        };
+      }
+    )?.characterData?.character?.zoneRankings;
+    const rankings = zoneRankings?.rankings ?? [];
+    return {
+      zoneRankingsQueried: true,
+      rawRankingRowCount: rankings.length,
+      totalParsesSum:
+        typeof zoneRankings?.totalParses === "number" ? zoneRankings.totalParses : null,
+      graphqlErrors: (result.response.errors ?? []).map((e) => e.message),
+    };
+  } catch (error) {
+    return {
+      zoneRankingsQueried: true,
+      rawRankingRowCount: 0,
+      totalParsesSum: null,
+      graphqlErrors: [errorMessage(error)],
+    };
+  }
+}
+
+async function probeRecentReportsList(
+  provider: LiveWarcraftLogsProvider,
+  identity: CharacterIdentityInput,
+): Promise<{
+  total: number | null;
+  codes: string[];
+  graphqlErrors: string[];
+}> {
+  const client = provider.getGraphQlClient();
+  try {
+    const result = await client.request({
+      operationName: OPERATIONS.CharacterRecentReports.operationName,
+      query: OPERATIONS.CharacterRecentReports.query,
+      variables: {
+        name: identity.name,
+        serverSlug: identity.realmSlug,
+        serverRegion: mapRegionToWcl(identity.region),
+        limit: 10,
+        page: 1,
+      },
+      region: identity.region,
+    });
+    const page = (
+      result.response.data as {
+        characterData?: {
+          character?: {
+            recentReports?: {
+              total?: number | null;
+              data?: Array<{ code?: string; visibility?: string }>;
+            } | null;
+          } | null;
+        };
+      }
+    )?.characterData?.character?.recentReports;
+    const codes = (page?.data ?? [])
+      .filter((r) => r.code && (r.visibility ?? "public").toLowerCase() === "public")
+      .map((r) => r.code!)
+      .slice(0, 5);
+    return {
+      total: typeof page?.total === "number" ? page.total : null,
+      codes,
+      graphqlErrors: (result.response.errors ?? []).map((e) => e.message),
+    };
+  } catch (error) {
+    return { total: null, codes: [], graphqlErrors: [errorMessage(error)] };
+  }
+}
+
+async function probeRecentReportDetails(
+  provider: LiveWarcraftLogsProvider,
+  identity: CharacterIdentityInput,
+  reportCodes: string[],
+): Promise<
+  Array<{
+    report: ReturnType<typeof sanitizeReportRef>;
+    startTimeMs: number | null;
+    endTimeMs: number | null;
+    fightCount: number;
+    targetAppearsInMasterData: boolean | null;
+    targetAppearsInRankedOrFriendly: boolean | null;
+    graphqlErrors: string[];
+  }>
+> {
+  const client = provider.getGraphQlClient();
+  const out = [];
+  for (const code of reportCodes.slice(0, 3)) {
+    try {
+      const result = await client.request({
+        operationName: OPERATIONS.ReportWithFightAndMasterData.operationName,
+        query: OPERATIONS.ReportWithFightAndMasterData.query,
+        variables: { code },
+        region: identity.region,
+      });
+      const report = (result.response.data as {
+        reportData?: {
+          report?: {
+            startTime?: number;
+            endTime?: number;
+            fights?: Array<{
+              id: number;
+              friendlyPlayers?: Array<{ name?: string; server?: string }>;
+            }>;
+            masterData?: {
+              actors?: Array<{ name?: string; server?: string | null; type?: string }>;
+            };
+          } | null;
+        };
+      })?.reportData?.report;
+
+      const actors = report?.masterData?.actors ?? [];
+      const targetName = identity.name.toLowerCase();
+      const targetRealm = identity.realmSlug.toLowerCase();
+      const nameMatches = (name: string | undefined, server: string | null | undefined) =>
+        (name ?? "").toLowerCase() === targetName &&
+        ((server ?? "").toLowerCase() === targetRealm || !server);
+      const inMaster = actors.some((a) => a.type === "Player" && nameMatches(a.name, a.server));
+      const inFriendly = (report?.fights ?? []).some((f) =>
+        (f.friendlyPlayers ?? []).some((p) => nameMatches(p.name, p.server)),
+      );
+
+      out.push({
+        report: sanitizeReportRef(code),
+        startTimeMs: report?.startTime ?? null,
+        endTimeMs: report?.endTime ?? null,
+        fightCount: report?.fights?.length ?? 0,
+        targetAppearsInMasterData: report ? inMaster : null,
+        targetAppearsInRankedOrFriendly: report ? inMaster || inFriendly : null,
+        graphqlErrors: (result.response.errors ?? []).map((e) => e.message),
+      });
+    } catch (error) {
+      out.push({
+        report: sanitizeReportRef(code),
+        startTimeMs: null,
+        endTimeMs: null,
+        fightCount: 0,
+        targetAppearsInMasterData: null,
+        targetAppearsInRankedOrFriendly: null,
+        graphqlErrors: [errorMessage(error)],
+      });
+    }
+  }
+  return out;
+}
+
+function bestCandidateForExternal(
+  external: ExternalRunMatchInput,
+  candidates: WclRunCandidate[],
+): {
+  candidate: WclRunCandidate | null;
+  confidence: string;
+  evidence: ReturnType<typeof matchRunCandidate>["evidence"] | null;
+  rejectionReason: string | null;
+} {
+  let best: ReturnType<typeof matchRunCandidate> | null = null;
+  let bestCandidate: WclRunCandidate | null = null;
+  for (const candidate of candidates) {
+    if (candidate.incompleteness.fightUnknown) continue;
+    const match = matchRunCandidate(candidate, external, [], DEFAULT_MATCHING_CONFIG);
+    if (
+      !best ||
+      ["NONE", "LOW", "MEDIUM", "HIGH"].indexOf(match.confidence) >
+        ["NONE", "LOW", "MEDIUM", "HIGH"].indexOf(best.confidence)
+    ) {
+      best = match;
+      bestCandidate = candidate;
+    }
+  }
+  if (!best || !bestCandidate) {
+    return {
+      candidate: null,
+      confidence: "NONE",
+      evidence: null,
+      rejectionReason: "no_wcl_candidate_with_known_fight",
+    };
+  }
+  return {
+    candidate: bestCandidate,
+    confidence: best.confidence,
+    evidence: best.evidence,
+    rejectionReason: rejectionReasonFromMatch({
+      confidence: best.confidence,
+      evidence: best.evidence,
+      autoMergeAllowed: best.autoMergeAllowed,
+      timeToleranceMs: DEFAULT_MATCHING_CONFIG.timeToleranceMs,
+    }),
+  };
+}
+
+async function readPersistenceDiagnostics(identity: CharacterIdentityInput): Promise<unknown> {
+  const databaseUrl = process.env.DATABASE_URL;
+  if (!databaseUrl) {
+    return { available: false, reason: "DATABASE_URL unset" };
+  }
+  try {
+    // Smoke-only: load workspace database package without coupling the provider to it.
+    let createPrismaClient: (url?: string) => {
+      region: { findUnique: (args: unknown) => Promise<{ id: string } | null> };
+      realm: { findUnique: (args: unknown) => Promise<{ id: string } | null> };
+      character: { findUnique: (args: unknown) => Promise<{ id: string } | null> };
+      characterProviderState: {
+        findUnique: (args: unknown) => Promise<Record<string, unknown> | null>;
+      };
+      metricObservation: {
+        findMany: (args: unknown) => Promise<
+          Array<{ metricKey: string; sourceProvider: string; confidence: string | null }>
+        >;
+      };
+      $disconnect: () => Promise<void>;
+    };
+    try {
+      ({ createPrismaClient } = await import(
+        new URL("../../../../database/src/index.ts", import.meta.url).href
+      ));
+    } catch {
+      ({ createPrismaClient } = await import("@mplus/database"));
+    }
+    const prisma = createPrismaClient(databaseUrl);
+    try {
+      const region = await prisma.region.findUnique({ where: { code: identity.region } });
+      if (!region) return { available: true, characterFound: false };
+      const realm = await prisma.realm.findUnique({
+        where: { regionId_slug: { regionId: region.id, slug: identity.realmSlug } },
+      });
+      if (!realm) return { available: true, characterFound: false };
+      const character = await prisma.character.findUnique({
+        where: {
+          regionId_realmId_normalizedName: {
+            regionId: region.id,
+            realmId: realm.id,
+            normalizedName: identity.name.normalize("NFKC").trim().toLocaleLowerCase("en-US"),
+          },
+        },
+      });
+      if (!character) return { available: true, characterFound: false };
+
+      const [providerState, observations] = await Promise.all([
+        prisma.characterProviderState.findUnique({
+          where: {
+            characterId_provider: { characterId: character.id, provider: "WARCRAFT_LOGS" },
+          },
+        }),
+        prisma.metricObservation.findMany({
+          where: { characterId: character.id },
+          orderBy: { observedAt: "desc" },
+          take: 50,
+          select: { metricKey: true, sourceProvider: true, confidence: true },
+        }),
+      ]);
+
+      const wclObservations = observations.filter((o) => o.sourceProvider === "WARCRAFT_LOGS");
+      const excludedRaw = providerState?.excludedObservations;
+      const excludedReasons = Array.isArray(excludedRaw)
+        ? (excludedRaw as Array<{ reason?: string }>).map((e) => e.reason ?? "unknown")
+        : [];
+
+      return {
+        available: true,
+        characterFound: true,
+        characterIdFingerprint: createHash("sha256")
+          .update(character.id, "utf8")
+          .digest("hex")
+          .slice(0, 12),
+        providerState: providerState
+          ? {
+              state: providerState.state,
+              wclVisibility: providerState.wclVisibility,
+              detail: providerState.detail,
+              lastSuccessAt:
+                providerState.lastSuccessAt instanceof Date
+                  ? providerState.lastSuccessAt.toISOString()
+                  : (providerState.lastSuccessAt ?? null),
+              fetchedAt:
+                providerState.fetchedAt instanceof Date
+                  ? providerState.fetchedAt.toISOString()
+                  : (providerState.fetchedAt ?? null),
+              metadata: providerState.metadata,
+            }
+          : null,
+        observationsTotal: observations.length,
+        wclObservationsCount: wclObservations.length,
+        metricKeysEmitted: [...new Set(observations.map((o) => o.metricKey))],
+        wclMetricKeys: [...new Set(wclObservations.map((o) => o.metricKey))],
+        excludedObservationReasons: excludedReasons,
+      };
+    } finally {
+      await prisma.$disconnect();
+    }
+  } catch (error) {
+    return {
+      available: false,
+      reason: errorMessage(error),
+    };
+  }
+}
+
+async function runShallow(
+  provider: LiveWarcraftLogsProvider,
+  identity: CharacterIdentityInput,
+  ctx: ProviderFetchContext,
+): Promise<void> {
+  const summary = await provider.discoverCharacterSummary!(identity, ctx);
+  print("wcl.smoke", {
+    identity,
+    visibility: summary.data.visibility,
+    warnings: summary.data.warnings,
+  });
+  console.log("OK");
+}
+
+async function runDeep(
+  provider: LiveWarcraftLogsProvider,
+  identity: CharacterIdentityInput,
+  ctx: ProviderFetchContext,
+): Promise<void> {
+  const pipelineSource = readFileSync(
+    resolve(
+      fileURLToPath(new URL(".", import.meta.url)),
+      "../../../../apps/worker/src/orchestration/refresh-pipeline.ts",
+    ),
+    "utf8",
+  );
+  const missingWorkerCalls = assertWorkerWclPath(pipelineSource);
+
+  const zone = provider.getZoneConfig();
+  const zoneQueried = shouldQueryZoneRankings(zone);
+
+  let discovery: Awaited<ReturnType<LiveWarcraftLogsProvider["discoverCharacter"]>>;
+  let discoveryError: string | null = null;
+  try {
+    discovery = await provider.discoverCharacter(identity, ctx);
+  } catch (error) {
+    discoveryError = errorMessage(error);
+    print("wcl.smoke.deep", {
+      identity: {
+        region: identity.region,
+        realmSlug: identity.realmSlug,
+        name: identity.name,
+      },
+      fatal: { stage: "discoverCharacter", error: discoveryError },
+      workerPath: {
+        requiredCalls: ["discoverCharacterSummary", "discoverCharacterRuns", "getReportFightDetails"],
+        missingFromRefreshPipeline: missingWorkerCalls,
+      },
+      rankings: {
+        configuredZoneId: zone.zoneId,
+        zoneRankingsQueried: zoneQueried,
+        zoneExpired: zone.expired,
+        zoneSource: zone.source,
+        zoneWarning: zone.warning,
+      },
+    });
+    process.exit(1);
+  }
+
+  const runsResult = await provider.discoverCharacterRuns(identity, ctx);
+  const rankingsProbe = await probeRankingsDiagnostics(
+    provider,
+    identity,
+    zone.zoneId,
+    zoneQueried,
+  );
+  const recentList = await probeRecentReportsList(provider, identity);
+  const reportCodes = [
+    ...new Set([
+      ...recentList.codes,
+      ...discovery.candidates.filter((c) => c.reportCode).map((c) => c.reportCode),
+    ]),
+  ].slice(0, 5);
+  const recentDetails = await probeRecentReportDetails(provider, identity, reportCodes);
+
+  const blizzardRuns = await fetchBlizzardSelectedRuns(identity);
+  const rioRuns = await fetchRaiderIoRunHints(identity);
+  const selectedExternals = [...blizzardRuns, ...rioRuns].slice(0, 12);
+
+  const matchRows = selectedExternals.map((external, index) => {
+    const best = bestCandidateForExternal(external, discovery.candidates);
+    return {
+      selectedRun: {
+        sourceHint: index < blizzardRuns.length ? "blizzard" : "raiderio",
+        dungeonSlug: external.dungeonSlug,
+        keyLevel: external.keyLevel,
+        completedAt: external.completedAt,
+        durationMs: external.durationMs,
+      },
+      bestWclCandidate: best.candidate
+        ? {
+            ...sanitizeReportRef(best.candidate.reportCode),
+            fightId: best.candidate.fightId,
+            dungeonSlug: best.candidate.dungeonSlug,
+            keyLevel: best.candidate.keyLevel,
+            completedAt: best.candidate.completedAt,
+            fightUnknown: best.candidate.incompleteness.fightUnknown,
+          }
+        : null,
+      confidence: best.confidence,
+      evidence: best.evidence,
+      rejectionReason: best.rejectionReason,
+    };
+  });
+
+  let analysis: unknown = null;
+  const analyzableMatch = matchRows.find(
+    (m) => m.confidence === "HIGH" || m.confidence === "MEDIUM",
+  )?.bestWclCandidate;
+  const analyzableCandidate =
+    discovery.candidates.find((c) => !c.incompleteness.fightUnknown && c.fightId > 0) ?? null;
+
+  let reportCode: string | null = null;
+  let fightId = 0;
+  if (analyzableMatch) {
+    fightId = analyzableMatch.fightId;
+    reportCode =
+      discovery.candidates.find(
+        (c) =>
+          c.fightId === analyzableMatch.fightId &&
+          sanitizeReportRef(c.reportCode).fingerprint === analyzableMatch.fingerprint,
+      )?.reportCode ?? null;
+  } else if (analyzableCandidate) {
+    fightId = analyzableCandidate.fightId;
+    reportCode = analyzableCandidate.reportCode;
+  }
+
+  if (reportCode && fightId > 0) {
+    try {
+      const details = await provider.fetchReportFightDetails(
+        reportCode,
+        fightId,
+        identity.name,
+        identity.realmSlug,
+        ctx,
+        `smoke-deep-${Date.now()}`,
+        false,
+      );
+      const facts = details.combatFacts;
+      const coverageEntries = Object.entries(facts.coverage);
+      analysis = {
+        report: sanitizeReportRef(reportCode),
+        fightId: details.fight.id,
+        actorResolved: facts.targetSourceId,
+        eventTypesFetched: DETAILED_EVENT_TYPES,
+        counts: {
+          deaths: facts.deaths.length,
+          interrupts: facts.interrupts.length,
+          casts: facts.casts.length,
+          dispels: facts.dispels.length,
+          damageTaken: facts.damageTaken.length,
+          auras: facts.auras.length,
+          healing: facts.healing.length,
+        },
+        coverage: facts.coverage,
+        coverageRatio:
+          coverageEntries.length === 0
+            ? 0
+            : coverageEntries.filter(([, v]) => v).length / coverageEntries.length,
+        limitations: facts.limitations,
+      };
+    } catch (error) {
+      analysis = {
+        report: sanitizeReportRef(reportCode),
+        fightId,
+        error: errorMessage(error),
+      };
+    }
+  } else {
+    analysis = {
+      skipped: true,
+      reason: "no_candidate_with_known_fight_id",
+      hint:
+        "discoverCharacterRuns filters fightUnknown stubs; empty zoneRankings leaves only recentReports stubs and blocks getReportFightDetails.",
+    };
+  }
+
+  const persistence = await readPersistenceDiagnostics(identity);
+
+  print("wcl.smoke.deep", {
+    identity: {
+      region: identity.region,
+      realmSlug: identity.realmSlug,
+      name: identity.name,
+    },
+    workerPath: {
+      requiredCalls: ["discoverCharacterSummary", "discoverCharacterRuns", "getReportFightDetails"],
+      missingFromRefreshPipeline: missingWorkerCalls,
+      note:
+        "Worker enrichWarcraftLogs calls discoverCharacterSummary then discoverCharacterRuns; selected runs with WARCRAFT_LOGS sources call getReportFightDetails. discoverCharacterRuns filters out fightUnknown stubs.",
+    },
+    characterDiscovery: {
+      characterId: discovery.summary.wclCharacterId,
+      canonicalId: discovery.summary.canonicalId,
+      hidden: discovery.summary.hidden,
+      visibility: discovery.summary.visibility,
+      warnings: discovery.summary.warnings,
+      wclServerRegion: mapRegionToWcl(identity.region),
+    },
+    rankings: {
+      configuredZoneId: zone.zoneId,
+      zoneExpired: zone.expired,
+      zoneSource: zone.source,
+      zoneRankingsQueried: rankingsProbe.zoneRankingsQueried,
+      rawRankingRowCount: rankingsProbe.rawRankingRowCount,
+      totalParses: rankingsProbe.totalParsesSum,
+      rankingObservationCount: discovery.rankings.length,
+      graphqlErrors: rankingsProbe.graphqlErrors,
+      zoneWarning: zone.warning,
+    },
+    recentReports: {
+      total: recentList.total,
+      listGraphqlErrors: recentList.graphqlErrors,
+      candidateStubCount: discovery.candidates.filter((c) => c.source === "recentReports").length,
+      probedReports: recentDetails,
+      note: "recentReports stubs have fightUnknown=true and are excluded from discoverCharacterRuns output.",
+    },
+    normalizedCandidates: {
+      total: discovery.candidates.length,
+      withKnownFight: discovery.candidates.filter((c) => !c.incompleteness.fightUnknown).length,
+      returnedByDiscoverCharacterRuns: runsResult.data.length,
+      candidatesTruncated: discovery.candidatesTruncated,
+      privateReportsSkipped: discovery.privateReportsSkipped,
+      sample: discovery.candidates.slice(0, 12).map((c) => ({
+        ...sanitizeReportRef(c.reportCode),
+        fightId: c.fightId,
+        dungeonSlug: c.dungeonSlug,
+        keyLevel: c.keyLevel,
+        completedAt: c.completedAt,
+        startTimeMs: c.startTimeMs,
+        targetActorId: null,
+        source: c.source,
+        fightUnknown: c.incompleteness.fightUnknown,
+        dungeonUnknown: c.incompleteness.dungeonUnknown,
+        warnings: c.warnings.slice(0, 3),
+      })),
+      note: "targetActorId is resolved only during detailed fight analysis (not discovery).",
+    },
+    matching: {
+      externalRunCount: selectedExternals.length,
+      blizzardRunCount: blizzardRuns.length,
+      raiderIoRunCount: rioRuns.length,
+      rows: matchRows,
+    },
+    detailedAnalysis: analysis,
+    persistence,
+  });
+
+  if (missingWorkerCalls.length > 0) {
+    console.error("FAIL: worker refresh pipeline missing required WCL calls", missingWorkerCalls);
+    process.exit(1);
+  }
+  console.log("OK");
+}
+
+async function main(): Promise<void> {
+  if (!envFlag(process.env.ALLOW_LIVE_PROVIDER_CALLS, false)) {
+    console.error(
+      "REFUSED: live smoke requires ALLOW_LIVE_PROVIDER_CALLS=true (never enable this in CI).",
+    );
+    process.exit(2);
+  }
+
+  let args: ReturnType<typeof parseArgs>;
+  try {
+    args = parseArgs(process.argv.slice(2));
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exit(2);
+  }
+
+  const clientId = process.env.WCL_CLIENT_ID ?? "";
+  const clientSecret = process.env.WCL_CLIENT_SECRET ?? "";
+  if (!clientId || !clientSecret) {
+    console.error("FAIL: WCL_CLIENT_ID and WCL_CLIENT_SECRET are required.");
+    process.exit(1);
+  }
+
+  print("config", {
+    providerMode: process.env.PROVIDER_MODE ?? "fixture",
+    allowLiveProviderCalls: process.env.ALLOW_LIVE_PROVIDER_CALLS ?? "false",
+    deep: args.deep,
+    wclCredentialsConfigured: true,
+    blizzardCredentialsConfigured: Boolean(
+      process.env.BLIZZARD_CLIENT_ID && process.env.BLIZZARD_CLIENT_SECRET,
+    ),
+    raiderioAppKeyConfigured: Boolean(process.env.RAIDERIO_APP_KEY),
+    mplusZoneId: process.env.WCL_MPLUS_ZONE_ID ?? null,
+  });
+
+  const identity: CharacterIdentityInput = {
+    region: args.region,
+    realmSlug: args.realm,
+    name: args.name,
+  };
+  const ctx = buildCtx(identity);
+
+  const provider = new LiveWarcraftLogsProvider({
+    env: {
+      WCL_CLIENT_ID: clientId,
+      WCL_CLIENT_SECRET: clientSecret,
+      WCL_PUBLIC_GRAPHQL_URL:
+        process.env.WCL_PUBLIC_GRAPHQL_URL ?? "https://www.warcraftlogs.com/api/v2/client",
+      WCL_TOKEN_URL: process.env.WCL_TOKEN_URL ?? "https://www.warcraftlogs.com/oauth/token",
+      WCL_RATE_WARN_PERCENT: Number(process.env.WCL_RATE_WARN_PERCENT ?? 70),
+      WCL_RATE_DEFER_PERCENT: Number(process.env.WCL_RATE_DEFER_PERCENT ?? 80),
+      WCL_RATE_STOP_PERCENT: Number(process.env.WCL_RATE_STOP_PERCENT ?? 90),
+      WCL_CHARACTER_TTL_SECONDS: Number(process.env.WCL_CHARACTER_TTL_SECONDS ?? 43_200),
+    },
+    processEnv: process.env,
+  });
+
+  if (args.deep) {
+    await runDeep(provider, identity, ctx);
+  } else {
+    await runShallow(provider, identity, ctx);
+  }
+}
+
+main().catch((error) => {
+  console.error(error instanceof Error ? error.message : String(error));
+  process.exit(1);
+});

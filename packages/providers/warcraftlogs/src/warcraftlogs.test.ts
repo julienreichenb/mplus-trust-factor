@@ -33,6 +33,13 @@ import { parseWithSchema, characterResolveSchema } from "./client/graphql-client
 import { isUnavailableEvidenceError, mapGraphQlErrors } from "./client/errors.js";
 import { OPERATIONS } from "./operations/queries.js";
 import type { WclRunCandidate } from "./types.js";
+import {
+  assertWorkerWclPath,
+  rejectionReasonFromMatch,
+  sanitizeReportCode,
+  sanitizeReportRef,
+  WORKER_WCL_REQUIRED_CALLS,
+} from "./smoke/sanitize.js";
 
 const ctx = {
   region: "EU" as const,
@@ -299,6 +306,63 @@ describe("RateLimitData live GraphQL selection", () => {
       expect(rateLimitBlock![0]).toContain(field);
       expect(OPERATIONS.RateLimitData.query).toContain(field);
     }
+  });
+});
+
+describe("Deep smoke sanitization + worker path", () => {
+  it("masks report codes and fingerprints without leaking full codes", () => {
+    const code = "AbCdEfGhIjKl";
+    const ref = sanitizeReportRef(code);
+    expect(ref.maskedCode).toBe(sanitizeReportCode(code));
+    expect(ref.maskedCode).not.toBe(code);
+    expect(ref.maskedCode).toContain("****");
+    expect(ref.fingerprint).toHaveLength(12);
+    expect(ref.fingerprint).not.toContain(code);
+  });
+
+  it("explains match rejection reasons without auto-merge", () => {
+    expect(
+      rejectionReasonFromMatch({
+        confidence: "LOW",
+        evidence: {
+          dungeonMatch: false,
+          keyLevelMatch: true,
+          timeDeltaMs: 500_000,
+          durationDeltaMs: null,
+          rosterOverlapRatio: 0.1,
+        },
+        autoMergeAllowed: false,
+        timeToleranceMs: 120_000,
+      }),
+    ).toContain("dungeon_mismatch_or_unknown");
+    expect(
+      rejectionReasonFromMatch({
+        confidence: "HIGH",
+        evidence: {
+          dungeonMatch: true,
+          keyLevelMatch: true,
+          timeDeltaMs: 1_000,
+          durationDeltaMs: 1_000,
+          rosterOverlapRatio: 1,
+        },
+        autoMergeAllowed: true,
+      }),
+    ).toBeNull();
+  });
+
+  it("refresh-pipeline uses full WCL discovery + analyze path", () => {
+    const pipelinePath = resolve(
+      fileURLToPath(new URL(".", import.meta.url)),
+      "../../../../apps/worker/src/orchestration/refresh-pipeline.ts",
+    );
+    const source = readFileSync(pipelinePath, "utf8");
+    expect(assertWorkerWclPath(source)).toEqual([]);
+    for (const call of WORKER_WCL_REQUIRED_CALLS) {
+      expect(source).toContain(call);
+    }
+    // Must not stop at summary-only enrichment.
+    expect(source).toMatch(/discoverCharacterSummary[\s\S]*discoverCharacterRuns/);
+    expect(source).toContain("getReportFightDetails");
   });
 });
 

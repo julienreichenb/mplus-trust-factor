@@ -1,15 +1,57 @@
 #!/usr/bin/env node
 /**
  * Manual Warcraft Logs public-API live smoke. Requires ALLOW_LIVE_PROVIDER_CALLS=true.
+ *
  * Usage:
- *   pnpm live:smoke:wcl -- --region EU --realm tarren-mill --name Example
+ *   pnpm wcl:smoke -- --region EU --realm archimonde --name Wallidrixe
+ *   pnpm wcl:smoke -- --region EU --realm archimonde --name Wallidrixe --deep
+ *   pnpm live:smoke:wcl -- --region EU --realm archimonde --name Wallidrixe
+ *
+ * Shallow mode probes OAuth + character resolve.
+ * --deep runs the bounded provider diagnostic (discovery, rankings, matching, analysis, persistence).
  */
-import { assertLiveCallsAllowed, requireIdentityArgs, printEnvModeSummary, printRedacted } from "./live-smoke-lib.mjs";
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import { dirname, resolve } from "node:path";
+import {
+  assertLiveCallsAllowed,
+  requireIdentityArgs,
+  printEnvModeSummary,
+  printRedacted,
+  parseIdentityArgs,
+} from "./live-smoke-lib.mjs";
 
 assertLiveCallsAllowed();
+
+const argv = process.argv.slice(2);
+const deep = argv.includes("--deep");
+const filteredArgv = argv.filter((a) => a !== "--deep");
+
+if (deep) {
+  try {
+    parseIdentityArgs(filteredArgv);
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    console.error(
+      "Deep mode usage: pnpm wcl:smoke -- --region EU --realm <slug> --name <name> --deep",
+    );
+    process.exit(2);
+  }
+
+  const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+  const smokeTs = resolve(root, "packages/providers/warcraftlogs/src/smoke-live.ts");
+  const result = spawnSync("pnpm", ["exec", "tsx", smokeTs, ...filteredArgv, "--deep"], {
+    cwd: root,
+    env: process.env,
+    stdio: "inherit",
+    shell: true,
+  });
+  process.exit(result.status ?? 1);
+}
+
 printEnvModeSummary();
 
-const identity = requireIdentityArgs();
+const identity = requireIdentityArgs(filteredArgv);
 const clientId = process.env.WCL_CLIENT_ID ?? "";
 const clientSecret = process.env.WCL_CLIENT_SECRET ?? "";
 

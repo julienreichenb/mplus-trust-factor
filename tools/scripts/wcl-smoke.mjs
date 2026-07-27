@@ -1,6 +1,10 @@
 #!/usr/bin/env node
 /**
- * Deprecated entrypoint — use `pnpm live:smoke:wcl` with identity args and
- * ALLOW_LIVE_PROVIDER_CALLS=true. Kept so older docs keep a working pointer.
+ * Warcraft Logs live smoke entrypoint (`pnpm wcl:smoke`).
+ * Delegates to live-smoke-wcl.mjs (shallow OAuth/character or --deep diagnostic).
+ * Requires ALLOW_LIVE_PROVIDER_CALLS=true.
+ *
+ *   pnpm wcl:smoke -- --region EU --realm archimonde --name Wallidrixe
+ *   pnpm wcl:smoke -- --region EU --realm archimonde --name Wallidrixe --deep
  */
 import "./live-smoke-wcl.mjs";
