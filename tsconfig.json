@@ -1,0 +1,16 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true
+  },
+  "include": [
+    "apps/**/*.ts",
+    "apps/**/*.tsx",
+    "apps/**/*.vue",
+    "packages/**/*.ts",
+    "tools/**/*.ts",
+    "vitest*.ts",
+    "eslint.config.js"
+  ],
+  "exclude": ["node_modules", "dist", "**/dist"]
+}

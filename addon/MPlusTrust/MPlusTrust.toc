@@ -1,0 +1,10 @@
+## Interface: 110000
+## Title: MPlusTrust
+## Notes: M+ Trust Factor grade overlay (static data only; no HTTP)
+## Author: M+ Trust Factor
+## Version: 0.1.0
+## DefaultState: Enabled
+## SavedVariables: MPlusTrustDB
+## X-Website: https://example.invalid/mplus-trust-factor
+
+core.lua

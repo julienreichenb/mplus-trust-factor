@@ -1,0 +1,125 @@
+M+ TRUST FACTOR — MULTI-AGENT EXECUTION PLAN
+===========================================
+
+Wave 0 — Foundation, one agent only
+-----------------------------------
+Run:
+- 00-agent-zero-foundation.txt
+
+Agent 0 must:
+- Create the monorepo.
+- Establish contracts, folder ownership, database schema, test commands, and documentation conventions.
+- Commit a clean baseline.
+- Be merged before any parallel agent starts.
+
+Wave 1 — Parallel implementation
+--------------------------------
+Run Agents 1–9 in isolated branches/worktrees based on the merged Agent 0 commit:
+
+1. Blizzard integration
+2. Warcraft Logs integration
+3. Raider.IO integration
+4. Scoring and boost engine
+5. Backend API and worker orchestration
+6. Vue web frontend
+7. WoW addon and static exporter
+8. CI/CD and VPS deployment
+9. QA, security, and observability
+
+Recommended branch names:
+- agent/blizzard
+- agent/warcraftlogs
+- agent/raiderio
+- agent/scoring
+- agent/backend
+- agent/frontend
+- agent/addon
+- agent/devops
+- agent/qa
+
+Ownership to minimize conflicts
+-------------------------------
+Agent 0:
+- Root workspace files.
+- Shared contracts baseline.
+- Initial Prisma schema.
+- Base scripts.
+
+Agent 1:
+- `packages/providers/blizzard/**`
+- `doc/api/blizzard/**`
+
+Agent 2:
+- `packages/providers/warcraftlogs/**`
+- `doc/api/warcraftlogs/**`
+
+Agent 3:
+- `packages/providers/raiderio/**`
+- `doc/api/raiderio/**`
+
+Agent 4:
+- `packages/scoring/**`
+- `packages/mechanics/**` only for scoring/catalog abstractions
+- `doc/scoring/**`
+
+Agent 5:
+- `apps/api/**`
+- `apps/worker/**`
+- orchestration repositories/services
+- `doc/api/internal/**`
+
+Agent 6:
+- `apps/web/**`
+- `doc/architecture/frontend/**`
+
+Agent 7:
+- `addon/**`
+- `tools/addon-exporter/**`
+- `doc/architecture/addon/**`
+
+Agent 8:
+- `.github/**`
+- `infra/**`
+- production Docker/Compose files
+- `doc/operations/**`
+
+Agent 9:
+- testing utilities/fixtures not owned above
+- security/observability packages when coordinated
+- `doc/testing/**`
+- `doc/security/**`
+
+Shared-file conflict policy
+---------------------------
+- Avoid editing root `package.json`, lockfile, Prisma schema, or shared contracts unless necessary.
+- If a shared change is required:
+  1. Write `doc/contracts/change-requests/<agent>-<topic>.md`.
+  2. Add the minimum backward-compatible change.
+  3. Mention it prominently in the agent handoff.
+- Do not reformat unrelated files.
+- Commit in small, reviewable units.
+
+Wave 2 — Integration
+--------------------
+After Wave 1 branches are merged:
+- Run 10-final-integration-release.txt.
+
+The integration agent:
+- Reconciles contract changes.
+- Runs migrations.
+- Connects real provider adapters to the worker.
+- Completes end-to-end fixture flow.
+- Verifies Docker and deployment.
+- Produces the release readiness report.
+
+Plan-mode rule
+--------------
+Every agent prompt explicitly requires:
+1. Start in Cursor Plan mode.
+2. Read shared docs.
+3. Inspect existing repository code.
+4. Write `doc/plans/<agent>.md`.
+5. Identify assumptions and contract changes.
+6. Only then implement after plan approval/transition to Agent mode.
+
+Do not launch all agents against an empty repository.

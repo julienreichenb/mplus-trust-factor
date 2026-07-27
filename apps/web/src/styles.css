@@ -1,0 +1,57 @@
+:root {
+  color-scheme: light;
+  font-family: "Segoe UI", "Helvetica Neue", sans-serif;
+  line-height: 1.5;
+  --bg: #f3f0e8;
+  --fg: #1c1b19;
+  --accent: #0f5c4c;
+  --border: #d3cdc0;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: linear-gradient(180deg, #f7f4ec 0%, #ebe6da 100%);
+  color: var(--fg);
+  min-height: 100vh;
+}
+
+a {
+  color: var(--accent);
+}
+
+.shell {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 1.5rem;
+}
+
+.nav {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 2rem;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 1rem;
+}
+
+.nav a {
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.nav a.router-link-active {
+  text-decoration: underline;
+}
+
+main h1 {
+  font-size: 1.75rem;
+  margin: 0 0 0.5rem;
+}
+
+main p {
+  margin-top: 0;
+}

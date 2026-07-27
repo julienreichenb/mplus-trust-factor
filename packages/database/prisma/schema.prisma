@@ -1,0 +1,784 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Provider {
+  BLIZZARD
+  WARCRAFT_LOGS
+  RAIDER_IO
+}
+
+enum CharacterRole {
+  DPS
+  TANK
+  HEALER
+}
+
+enum AccountLinkConfidence {
+  CONFIRMED
+  PROBABLE
+}
+
+enum ArtifactCompression {
+  NONE
+  GZIP
+  ZSTD
+}
+
+enum ScoreDimension {
+  PERFORMANCE
+  SURVIVAL
+  UTILITY
+  EXPERIENCE
+  RAID
+  AUTHENTICITY
+}
+
+enum MetricDirection {
+  HIGHER_BETTER
+  LOWER_BETTER
+  CONTEXTUAL
+}
+
+enum ScopeType {
+  CHARACTER
+  ROLE
+  CLASS
+  SPEC
+  ACCOUNT
+}
+
+enum MechanicRuleType {
+  AVOIDABLE_DAMAGE
+  MANDATORY_DAMAGE
+  PRIORITY_INTERRUPT
+  CROWD_CONTROL
+  DISPEL
+  PURGE
+  DEFENSIVE_WINDOW
+  EXTERNAL_WINDOW
+}
+
+enum ScoreModelStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+}
+
+enum RedFlagSeverity {
+  INFO
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum RedFlagStatus {
+  ACTIVE
+  CLEARED
+  DISPUTED
+}
+
+enum JobStatus {
+  QUEUED
+  ACTIVE
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum UserRole {
+  USER
+  ADMIN
+}
+
+enum AddonExportStatus {
+  PENDING
+  READY
+  FAILED
+}
+
+model Region {
+  id            String   @id @default(uuid()) @db.Uuid
+  code          String   @unique
+  apiHost       String   @map("api_host")
+  localeDefault String   @map("locale_default")
+  enabled       Boolean  @default(true)
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  realms             Realm[]
+  seasons            Season[]
+  characters         Character[]
+  characterAliases   CharacterAlias[]
+  mythicRuns         MythicRun[]
+  battleNetAccounts  BattleNetAccount[]
+  addonExports       AddonExport[]
+
+  @@map("regions")
+}
+
+model Realm {
+  id               String   @id @default(uuid()) @db.Uuid
+  regionId         String   @map("region_id") @db.Uuid
+  blizzardRealmId  BigInt?  @map("blizzard_realm_id")
+  slug             String
+  name             String
+  connectedRealmId BigInt?  @map("connected_realm_id")
+  locale           String?
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  region     Region      @relation(fields: [regionId], references: [id])
+  characters Character[]
+
+  @@unique([regionId, slug])
+  @@map("realms")
+}
+
+model Season {
+  id                String    @id @default(uuid()) @db.Uuid
+  regionId          String?   @map("region_id") @db.Uuid
+  blizzardSeasonId  Int?      @map("blizzard_season_id")
+  providerSeasonId  String?   @map("provider_season_id")
+  slug              String
+  name              String
+  startsAt          DateTime? @map("starts_at") @db.Timestamptz(3)
+  endsAt            DateTime? @map("ends_at") @db.Timestamptz(3)
+  isCurrent         Boolean   @default(false) @map("is_current")
+  dungeonCount      Int       @default(0) @map("dungeon_count")
+  metadata          Json      @default("{}")
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  region           Region?           @relation(fields: [regionId], references: [id])
+  seasonDungeons   SeasonDungeon[]
+  mythicRuns       MythicRun[]
+  metricObservations MetricObservation[]
+  mechanicRules    MechanicRule[]
+  scoreSnapshots   ScoreSnapshot[]
+  characterRedFlags CharacterRedFlag[]
+  addonExports     AddonExport[]
+
+  @@unique([regionId, slug])
+  @@map("seasons")
+}
+
+model Dungeon {
+  id                 String   @id @default(uuid()) @db.Uuid
+  blizzardDungeonId  BigInt?  @map("blizzard_dungeon_id")
+  wclZoneOrEncounterId BigInt? @map("wcl_zone_or_encounter_id")
+  raiderioSlug       String?  @map("raiderio_slug")
+  slug               String   @unique
+  name               String
+  mapId              Int?     @map("map_id")
+  metadata           Json     @default("{}")
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt          DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  seasonDungeons SeasonDungeon[]
+  mythicRuns     MythicRun[]
+  mechanicRules  MechanicRule[]
+
+  @@map("dungeons")
+}
+
+model SeasonDungeon {
+  seasonId        String  @map("season_id") @db.Uuid
+  dungeonId       String  @map("dungeon_id") @db.Uuid
+  sortOrder       Int     @default(0) @map("sort_order")
+  timerSeconds    Int?    @map("timer_seconds")
+  baselineKeyLevel Int    @default(10) @map("baseline_key_level")
+  metadata        Json    @default("{}")
+
+  season  Season  @relation(fields: [seasonId], references: [id])
+  dungeon Dungeon @relation(fields: [dungeonId], references: [id])
+
+  @@id([seasonId, dungeonId])
+  @@map("season_dungeons")
+}
+
+model GameClass {
+  id          String   @id @default(uuid()) @db.Uuid
+  slug        String   @unique
+  name        String
+  providerIds Json     @default("{}") @map("provider_ids")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  specializations GameSpecialization[]
+  characters      Character[]
+  runParticipants RunParticipant[]
+
+  @@map("game_classes")
+}
+
+model GameSpecialization {
+  id          String        @id @default(uuid()) @db.Uuid
+  classId     String        @map("class_id") @db.Uuid
+  slug        String
+  name        String
+  role        CharacterRole
+  providerIds Json          @default("{}") @map("provider_ids")
+  createdAt   DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  gameClass           GameClass            @relation(fields: [classId], references: [id])
+  charactersAsActive  Character[]          @relation("ActiveSpec")
+  characterSnapshots  CharacterSnapshot[]
+  talentSnapshots     TalentSnapshot[]
+  runParticipants     RunParticipant[]
+
+  @@unique([classId, slug])
+  @@map("game_specializations")
+}
+
+model Character {
+  id                   String         @id @default(uuid()) @db.Uuid
+  regionId             String         @map("region_id") @db.Uuid
+  realmId              String         @map("realm_id") @db.Uuid
+  normalizedName       String         @map("normalized_name")
+  displayName          String         @map("display_name")
+  level                Int?
+  faction              String?
+  classId              String?        @map("class_id") @db.Uuid
+  activeSpecId         String?        @map("active_spec_id") @db.Uuid
+  role                 CharacterRole?
+  blizzardCharacterId  BigInt?        @map("blizzard_character_id")
+  wclCanonicalId       BigInt?        @map("wcl_canonical_id")
+  raiderioProfileUrl   String?        @map("raiderio_profile_url")
+  profileUrl           String?        @map("profile_url")
+  lastSeenAt           DateTime?      @map("last_seen_at") @db.Timestamptz(3)
+  lastPublicRefreshAt  DateTime?      @map("last_public_refresh_at") @db.Timestamptz(3)
+  createdAt            DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt            DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  region            Region              @relation(fields: [regionId], references: [id])
+  realm             Realm               @relation(fields: [realmId], references: [id])
+  gameClass         GameClass?          @relation(fields: [classId], references: [id])
+  activeSpec        GameSpecialization? @relation("ActiveSpec", fields: [activeSpecId], references: [id])
+  aliases           CharacterAlias[]
+  snapshots         CharacterSnapshot[]
+  accountLinks      AccountCharacter[]
+  runParticipants   RunParticipant[]
+  runAnalyses       RunAnalysis[]
+  metricObservations MetricObservation[]
+  scoreSnapshots    ScoreSnapshot[]
+  redFlags          CharacterRedFlag[]
+  disputes          ScoreDispute[]
+  ingestionJobs     IngestionJob[]
+
+  @@unique([regionId, realmId, normalizedName])
+  @@index([lastPublicRefreshAt])
+  @@map("characters")
+}
+
+model CharacterAlias {
+  id             String    @id @default(uuid()) @db.Uuid
+  characterId    String    @map("character_id") @db.Uuid
+  regionId       String    @map("region_id") @db.Uuid
+  realmSlug      String    @map("realm_slug")
+  normalizedName String    @map("normalized_name")
+  validFrom      DateTime  @default(now()) @map("valid_from") @db.Timestamptz(3)
+  validTo        DateTime? @map("valid_to") @db.Timestamptz(3)
+  sourceProvider Provider  @map("source_provider")
+
+  character Character @relation(fields: [characterId], references: [id])
+  region    Region    @relation(fields: [regionId], references: [id])
+
+  @@unique([regionId, realmSlug, normalizedName])
+  @@map("character_aliases")
+}
+
+model BattleNetAccount {
+  id              String    @id @default(uuid()) @db.Uuid
+  userId          String?   @map("user_id") @db.Uuid
+  regionId        String    @map("region_id") @db.Uuid
+  battletagHash   String    @map("battletag_hash")
+  claimed         Boolean   @default(false)
+  linkedAt        DateTime? @map("linked_at") @db.Timestamptz(3)
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user       User?              @relation(fields: [userId], references: [id])
+  region     Region             @relation(fields: [regionId], references: [id])
+  characters AccountCharacter[]
+
+  @@unique([regionId, battletagHash])
+  @@map("battlenet_accounts")
+}
+
+model AccountCharacter {
+  accountId   String                 @map("account_id") @db.Uuid
+  characterId String                 @map("character_id") @db.Uuid
+  confidence  AccountLinkConfidence
+  source      String
+  linkedAt    DateTime               @default(now()) @map("linked_at") @db.Timestamptz(3)
+
+  account   BattleNetAccount @relation(fields: [accountId], references: [id])
+  character Character        @relation(fields: [characterId], references: [id])
+
+  @@id([accountId, characterId])
+  @@map("account_characters")
+}
+
+model CharacterSnapshot {
+  id                String         @id @default(uuid()) @db.Uuid
+  characterId       String         @map("character_id") @db.Uuid
+  capturedAt        DateTime       @map("captured_at") @db.Timestamptz(3)
+  itemLevelEquipped Float?         @map("item_level_equipped")
+  activeSpecId      String?        @map("active_spec_id") @db.Uuid
+  role              CharacterRole?
+  mythicRating      Float?         @map("mythic_rating")
+  sourcePayloadId   String?        @map("source_payload_id") @db.Uuid
+  rawSummary        Json           @default("{}") @map("raw_summary")
+
+  character   Character            @relation(fields: [characterId], references: [id])
+  activeSpec  GameSpecialization?  @relation(fields: [activeSpecId], references: [id])
+  equipment   EquipmentSnapshot?
+  talents     TalentSnapshot[]
+
+  @@index([characterId, capturedAt(sort: Desc)])
+  @@map("character_snapshots")
+}
+
+model EquipmentSnapshot {
+  id                   String   @id @default(uuid()) @db.Uuid
+  characterSnapshotId  String   @unique @map("character_snapshot_id") @db.Uuid
+  capturedAt           DateTime @map("captured_at") @db.Timestamptz(3)
+  averageItemLevel     Float?   @map("average_item_level")
+  equippedItemLevel    Float?   @map("equipped_item_level")
+  items                Json     @default("[]")
+  keyItems             Json     @default("{}") @map("key_items")
+  sourcePayloadId      String?  @map("source_payload_id") @db.Uuid
+
+  characterSnapshot CharacterSnapshot @relation(fields: [characterSnapshotId], references: [id])
+
+  @@map("equipment_snapshots")
+}
+
+model TalentSnapshot {
+  id                  String   @id @default(uuid()) @db.Uuid
+  characterSnapshotId String   @map("character_snapshot_id") @db.Uuid
+  specializationId    String?  @map("specialization_id") @db.Uuid
+  loadoutCode         String?  @map("loadout_code")
+  talents             Json     @default("{}")
+  sourcePayloadId     String?  @map("source_payload_id") @db.Uuid
+
+  characterSnapshot CharacterSnapshot    @relation(fields: [characterSnapshotId], references: [id])
+  specialization    GameSpecialization?  @relation(fields: [specializationId], references: [id])
+
+  @@map("talent_snapshots")
+}
+
+model ExternalRequest {
+  id                 String    @id @default(uuid()) @db.Uuid
+  provider           Provider
+  requestFingerprint String    @unique @map("request_fingerprint")
+  endpointKey        String    @map("endpoint_key")
+  method             String
+  requestedAt        DateTime  @map("requested_at") @db.Timestamptz(3)
+  completedAt        DateTime? @map("completed_at") @db.Timestamptz(3)
+  statusCode         Int?      @map("status_code")
+  cacheHit           Boolean   @default(false) @map("cache_hit")
+  retryCount         Int       @default(0) @map("retry_count")
+  costUnits          Float?    @map("cost_units")
+  errorCode          String?   @map("error_code")
+  responseHeaders    Json?     @map("response_headers")
+  expiresAt          DateTime? @map("expires_at") @db.Timestamptz(3)
+  etag               String?
+  lastModified       String?   @map("last_modified")
+
+  payloads ExternalPayload[]
+
+  @@index([provider, endpointKey, requestedAt(sort: Desc)])
+  @@map("external_requests")
+}
+
+model ExternalPayload {
+  id                String   @id @default(uuid()) @db.Uuid
+  externalRequestId String   @map("external_request_id") @db.Uuid
+  provider          Provider
+  contentHash       String   @map("content_hash")
+  payload           Json?
+  artifactId        String?  @map("artifact_id") @db.Uuid
+  fetchedAt         DateTime @map("fetched_at") @db.Timestamptz(3)
+  schemaVersion     String   @map("schema_version")
+
+  externalRequest ExternalRequest @relation(fields: [externalRequestId], references: [id])
+  artifact        RawArtifact?    @relation(fields: [artifactId], references: [id])
+
+  @@unique([provider, contentHash])
+  @@map("external_payloads")
+}
+
+model RawArtifact {
+  id             String              @id @default(uuid()) @db.Uuid
+  provider       Provider
+  storageUri     String              @map("storage_uri")
+  compression    ArtifactCompression @default(NONE)
+  contentHash    String              @map("content_hash")
+  sizeBytes      BigInt              @map("size_bytes")
+  createdAt      DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+  retentionUntil DateTime?           @map("retention_until") @db.Timestamptz(3)
+
+  payloads     ExternalPayload[]
+  addonExports AddonExport[]
+
+  @@index([contentHash])
+  @@map("raw_artifacts")
+}
+
+model MythicRun {
+  id                   String   @id @default(uuid()) @db.Uuid
+  seasonId             String   @map("season_id") @db.Uuid
+  dungeonId            String   @map("dungeon_id") @db.Uuid
+  regionId             String   @map("region_id") @db.Uuid
+  keyLevel             Int      @map("key_level")
+  completedAt          DateTime @map("completed_at") @db.Timestamptz(3)
+  durationMs           Int      @map("duration_ms")
+  timerMs              Int?     @map("timer_ms")
+  timed                Boolean
+  scoreValue           Float?   @map("score_value")
+  canonicalFingerprint String   @unique @map("canonical_fingerprint")
+  affixes              Json     @default("[]")
+  sourceQuality        Int      @default(0) @map("source_quality") @db.SmallInt
+  createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt            DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  season       Season               @relation(fields: [seasonId], references: [id])
+  dungeon      Dungeon              @relation(fields: [dungeonId], references: [id])
+  region       Region               @relation(fields: [regionId], references: [id])
+  sources      RunSourceReference[]
+  participants RunParticipant[]
+  analyses     RunAnalysis[]
+  metricObservations MetricObservation[]
+  redFlags     CharacterRedFlag[]
+  ingestionJobs IngestionJob[]
+
+  @@index([seasonId, dungeonId, keyLevel, completedAt])
+  @@index([completedAt(sort: Desc)])
+  @@map("mythic_runs")
+}
+
+model RunSourceReference {
+  id              String   @id @default(uuid()) @db.Uuid
+  runId           String   @map("run_id") @db.Uuid
+  provider        Provider
+  externalRunId   String   @map("external_run_id")
+  externalUrl     String?  @map("external_url")
+  sourcePayloadId String?  @map("source_payload_id") @db.Uuid
+  reportCode      String?  @map("report_code")
+  fightId         Int?     @map("fight_id")
+  revision        Int?
+
+  run MythicRun @relation(fields: [runId], references: [id])
+
+  @@unique([provider, externalRunId])
+  @@unique([provider, reportCode, fightId])
+  @@map("run_source_references")
+}
+
+model RunParticipant {
+  id                  String         @id @default(uuid()) @db.Uuid
+  runId               String         @map("run_id") @db.Uuid
+  characterId         String?        @map("character_id") @db.Uuid
+  providerCharacterKey String        @map("provider_character_key")
+  displayName         String         @map("display_name")
+  realmSlug           String         @map("realm_slug")
+  regionCode          String         @map("region_code")
+  classId             String?        @map("class_id") @db.Uuid
+  specId              String?        @map("spec_id") @db.Uuid
+  role                CharacterRole?
+  itemLevel           Float?         @map("item_level")
+  mythicRatingAtRun   Float?         @map("mythic_rating_at_run")
+  isTargetCharacter   Boolean        @default(false) @map("is_target_character")
+  sourcePayloadId     String?        @map("source_payload_id") @db.Uuid
+
+  run       MythicRun            @relation(fields: [runId], references: [id])
+  character Character?           @relation(fields: [characterId], references: [id])
+  gameClass GameClass?           @relation(fields: [classId], references: [id])
+  spec      GameSpecialization?  @relation(fields: [specId], references: [id])
+
+  @@unique([runId, providerCharacterKey])
+  @@map("run_participants")
+}
+
+model RunAnalysis {
+  id               String   @id @default(uuid()) @db.Uuid
+  runId            String   @map("run_id") @db.Uuid
+  characterId      String   @map("character_id") @db.Uuid
+  analysisVersion  String   @map("analysis_version")
+  analyzedAt       DateTime @map("analyzed_at") @db.Timestamptz(3)
+  coverage         Decimal  @db.Decimal(5, 4)
+  summary          Json     @default("{}")
+  sourcePayloadIds Json     @default("[]") @map("source_payload_ids")
+
+  run       MythicRun @relation(fields: [runId], references: [id])
+  character Character @relation(fields: [characterId], references: [id])
+
+  @@unique([runId, characterId, analysisVersion])
+  @@map("run_analyses")
+}
+
+model MetricDefinition {
+  id                   String          @id @default(uuid()) @db.Uuid
+  key                  String          @unique
+  dimension            ScoreDimension
+  valueType            String          @map("value_type")
+  direction            MetricDirection
+  description          String
+  defaultNormalization Json            @default("{}") @map("default_normalization")
+  active               Boolean         @default(true)
+
+  observations MetricObservation[]
+
+  @@map("metric_definitions")
+}
+
+model MetricObservation {
+  id                 String         @id @default(uuid()) @db.Uuid
+  characterId        String         @map("character_id") @db.Uuid
+  runId              String?        @map("run_id") @db.Uuid
+  seasonId           String?        @map("season_id") @db.Uuid
+  scopeType          ScopeType      @map("scope_type")
+  scopeKey           String?        @map("scope_key")
+  metricDefinitionId String         @map("metric_definition_id") @db.Uuid
+  rawValue           Decimal?       @map("raw_value") @db.Decimal(18, 6)
+  normalizedValue    Decimal?       @map("normalized_value") @db.Decimal(8, 4)
+  confidence         Decimal        @db.Decimal(5, 4)
+  observedAt         DateTime       @map("observed_at") @db.Timestamptz(3)
+  sourceProvider     Provider       @map("source_provider")
+  sourcePayloadId    String?        @map("source_payload_id") @db.Uuid
+  context            Json           @default("{}")
+
+  character        Character        @relation(fields: [characterId], references: [id])
+  run              MythicRun?       @relation(fields: [runId], references: [id])
+  season           Season?          @relation(fields: [seasonId], references: [id])
+  metricDefinition MetricDefinition @relation(fields: [metricDefinitionId], references: [id])
+
+  @@index([characterId, seasonId, metricDefinitionId])
+  @@map("metric_observations")
+}
+
+model MechanicRule {
+  id               String           @id @default(uuid()) @db.Uuid
+  seasonId         String           @map("season_id") @db.Uuid
+  dungeonId        String           @map("dungeon_id") @db.Uuid
+  npcId            BigInt?          @map("npc_id")
+  spellId          BigInt           @map("spell_id")
+  ruleType         MechanicRuleType @map("rule_type")
+  severity         Decimal          @db.Decimal(8, 4)
+  applicableRoles  Json             @default("[]") @map("applicable_roles")
+  responseSpellIds Json             @default("[]") @map("response_spell_ids")
+  notes            String?
+  source           String
+  version          String
+  active           Boolean          @default(true)
+
+  season  Season  @relation(fields: [seasonId], references: [id])
+  dungeon Dungeon @relation(fields: [dungeonId], references: [id])
+
+  @@unique([seasonId, dungeonId, spellId, ruleType, version])
+  @@map("mechanic_rules")
+}
+
+model ScoreModel {
+  id              String           @id @default(uuid()) @db.Uuid
+  key             String
+  version         Int
+  name            String
+  description     String           @default("")
+  status          ScoreModelStatus @default(DRAFT)
+  config          Json
+  createdByUserId String?          @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  activatedAt     DateTime?        @map("activated_at") @db.Timestamptz(3)
+
+  createdBy         User?              @relation(fields: [createdByUserId], references: [id])
+  scoreSnapshots    ScoreSnapshot[]
+  characterRedFlags CharacterRedFlag[]
+  addonExports      AddonExport[]
+
+  @@unique([key, version])
+  @@map("score_models")
+}
+
+model ScoreSnapshot {
+  id               String    @id @default(uuid()) @db.Uuid
+  characterId      String    @map("character_id") @db.Uuid
+  seasonId         String    @map("season_id") @db.Uuid
+  scoreModelId     String    @map("score_model_id") @db.Uuid
+  scopeType        ScopeType @map("scope_type")
+  scopeKey         String?   @map("scope_key")
+  overallScore     Decimal   @map("overall_score") @db.Decimal(8, 4)
+  grade            String    @db.Char(1)
+  skillScore       Decimal   @map("skill_score") @db.Decimal(8, 4)
+  authenticityScore Decimal  @map("authenticity_score") @db.Decimal(8, 4)
+  confidence       Decimal   @db.Decimal(5, 4)
+  calculatedAt     DateTime  @map("calculated_at") @db.Timestamptz(3)
+  inputFingerprint String    @map("input_fingerprint")
+  explanation      Json      @default("{}")
+
+  character      Character        @relation(fields: [characterId], references: [id])
+  season         Season           @relation(fields: [seasonId], references: [id])
+  scoreModel     ScoreModel       @relation(fields: [scoreModelId], references: [id])
+  dimensionScores DimensionScore[]
+  disputes       ScoreDispute[]
+
+  @@unique([characterId, seasonId, scoreModelId, scopeType, scopeKey, inputFingerprint])
+  @@index([characterId, calculatedAt(sort: Desc)])
+  @@map("score_snapshots")
+}
+
+model DimensionScore {
+  id              String         @id @default(uuid()) @db.Uuid
+  scoreSnapshotId String         @map("score_snapshot_id") @db.Uuid
+  dimension       ScoreDimension
+  score           Decimal        @db.Decimal(8, 4)
+  confidence      Decimal        @db.Decimal(5, 4)
+  weight          Decimal        @db.Decimal(8, 6)
+  contributors    Json           @default("[]")
+
+  scoreSnapshot ScoreSnapshot @relation(fields: [scoreSnapshotId], references: [id])
+
+  @@unique([scoreSnapshotId, dimension])
+  @@map("dimension_scores")
+}
+
+model RedFlagDefinition {
+  id          String          @id @default(uuid()) @db.Uuid
+  key         String          @unique
+  label       String
+  description String
+  severity    RedFlagSeverity
+  public      Boolean         @default(true)
+  active      Boolean         @default(true)
+
+  flags CharacterRedFlag[]
+
+  @@map("red_flag_definitions")
+}
+
+model CharacterRedFlag {
+  id             String        @id @default(uuid()) @db.Uuid
+  characterId    String        @map("character_id") @db.Uuid
+  seasonId       String?       @map("season_id") @db.Uuid
+  runId          String?       @map("run_id") @db.Uuid
+  definitionId   String        @map("definition_id") @db.Uuid
+  confidence     Decimal       @db.Decimal(5, 4)
+  status         RedFlagStatus @default(ACTIVE)
+  evidence       Json          @default("{}")
+  firstDetectedAt DateTime     @map("first_detected_at") @db.Timestamptz(3)
+  lastDetectedAt DateTime      @map("last_detected_at") @db.Timestamptz(3)
+  scoreModelId   String?       @map("score_model_id") @db.Uuid
+
+  character  Character         @relation(fields: [characterId], references: [id])
+  season     Season?           @relation(fields: [seasonId], references: [id])
+  run        MythicRun?        @relation(fields: [runId], references: [id])
+  definition RedFlagDefinition @relation(fields: [definitionId], references: [id])
+  scoreModel ScoreModel?       @relation(fields: [scoreModelId], references: [id])
+
+  @@index([characterId, status])
+  @@map("character_red_flags")
+}
+
+model ScoreDispute {
+  id              String    @id @default(uuid()) @db.Uuid
+  characterId     String    @map("character_id") @db.Uuid
+  userId          String?   @map("user_id") @db.Uuid
+  scoreSnapshotId String?   @map("score_snapshot_id") @db.Uuid
+  status          String    @default("OPEN")
+  reason          String
+  evidence        Json      @default("{}")
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  resolvedAt      DateTime? @map("resolved_at") @db.Timestamptz(3)
+
+  character     Character      @relation(fields: [characterId], references: [id])
+  user          User?          @relation(fields: [userId], references: [id])
+  scoreSnapshot ScoreSnapshot? @relation(fields: [scoreSnapshotId], references: [id])
+
+  @@map("score_disputes")
+}
+
+model IngestionJob {
+  id          String    @id @default(uuid()) @db.Uuid
+  jobType     String    @map("job_type")
+  characterId String?   @map("character_id") @db.Uuid
+  runId       String?   @map("run_id") @db.Uuid
+  status      JobStatus @default(QUEUED)
+  dedupeKey   String?   @unique @map("dedupe_key")
+  priority    Int       @default(0)
+  attempts    Int       @default(0)
+  payload     Json      @default("{}")
+  scheduledAt DateTime  @default(now()) @map("scheduled_at") @db.Timestamptz(3)
+  startedAt   DateTime? @map("started_at") @db.Timestamptz(3)
+  completedAt DateTime? @map("completed_at") @db.Timestamptz(3)
+  error       Json?
+
+  character Character? @relation(fields: [characterId], references: [id])
+  run       MythicRun? @relation(fields: [runId], references: [id])
+
+  @@index([status, scheduledAt])
+  @@map("ingestion_jobs")
+}
+
+model User {
+  id              String   @id @default(uuid()) @db.Uuid
+  email           String?  @unique
+  displayName     String?  @map("display_name")
+  role            UserRole @default(USER)
+  authProvider    String   @map("auth_provider")
+  externalSubject String   @map("external_subject")
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  entitlements      Entitlement[]
+  battleNetAccounts BattleNetAccount[]
+  scoreModels       ScoreModel[]
+  disputes          ScoreDispute[]
+
+  @@unique([authProvider, externalSubject])
+  @@map("users")
+}
+
+model Entitlement {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  key       String
+  startsAt  DateTime  @map("starts_at") @db.Timestamptz(3)
+  endsAt    DateTime? @map("ends_at") @db.Timestamptz(3)
+  source    String
+  metadata  Json      @default("{}")
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@unique([userId, key, startsAt])
+  @@map("entitlements")
+}
+
+model AddonExport {
+  id             String            @id @default(uuid()) @db.Uuid
+  regionId       String            @map("region_id") @db.Uuid
+  seasonId       String            @map("season_id") @db.Uuid
+  scoreModelId   String            @map("score_model_id") @db.Uuid
+  generatedAt    DateTime          @map("generated_at") @db.Timestamptz(3)
+  characterCount Int               @map("character_count")
+  formatVersion  String            @map("format_version")
+  artifactId     String?           @map("artifact_id") @db.Uuid
+  checksum       String
+  status         AddonExportStatus @default(PENDING)
+  metadata       Json              @default("{}")
+
+  region     Region       @relation(fields: [regionId], references: [id])
+  season     Season       @relation(fields: [seasonId], references: [id])
+  scoreModel ScoreModel   @relation(fields: [scoreModelId], references: [id])
+  artifact   RawArtifact? @relation(fields: [artifactId], references: [id])
+
+  @@index([regionId, seasonId, generatedAt(sort: Desc)])
+  @@map("addon_exports")
+}

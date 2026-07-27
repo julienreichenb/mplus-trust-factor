@@ -1,0 +1,271 @@
+M+ TRUST FACTOR — EXTERNAL API SOURCES, ENDPOINTS, AND BUDGET POLICY
+===================================================================
+
+Important
+---------
+API surfaces may evolve. Each integration agent must verify the live official documentation in Plan mode,
+record the observed schema/version in `doc/api/`, and update fixtures. Never substitute HTML scraping.
+
+1. Blizzard / Battle.net
+------------------------
+Official documentation:
+- Developer portal:
+  https://develop.battle.net/
+- OAuth guide:
+  https://community.developer.battle.net/documentation/guides/using-oauth
+- Regionality:
+  https://community.developer.battle.net/documentation/guides/regionality-and-apis
+- World of Warcraft Profile APIs:
+  https://community.developer.battle.net/documentation/world-of-warcraft/profile-apis
+- World of Warcraft Game Data APIs:
+  https://community.developer.battle.net/documentation/world-of-warcraft/game-data-apis
+
+OAuth:
+- Token endpoint:
+  POST https://oauth.battle.net/token
+- Server-to-server public data:
+  HTTP Basic client_id:client_secret
+  form body: grant_type=client_credentials
+- Send access token in Authorization header:
+  Authorization: Bearer <token>
+
+EU API base:
+- https://eu.api.blizzard.com
+
+Expected MVP endpoint templates to verify:
+Public character:
+- GET /profile/wow/character/{realmSlug}/{characterName}
+- GET /profile/wow/character/{realmSlug}/{characterName}/equipment
+- GET /profile/wow/character/{realmSlug}/{characterName}/specializations
+- GET /profile/wow/character/{realmSlug}/{characterName}/media
+- GET /profile/wow/character/{realmSlug}/{characterName}/mythic-keystone-profile
+- GET /profile/wow/character/{realmSlug}/{characterName}/mythic-keystone-profile/season/{seasonId}
+
+Game data:
+- GET /data/wow/realm/index
+- GET /data/wow/realm/{realmSlug}
+- GET /data/wow/mythic-keystone/season/index
+- GET /data/wow/mythic-keystone/season/{seasonId}
+- GET /data/wow/mythic-keystone/dungeon/index
+- GET /data/wow/mythic-keystone/dungeon/{dungeonId}
+- GET /data/wow/connected-realm/{connectedRealmId}/mythic-leaderboard/{dungeonId}/period/{periodId}
+- GET /data/wow/item/{itemId}
+- GET /data/wow/media/item/{itemId}
+- GET /data/wow/playable-specialization/{specId}
+
+Namespace/locale:
+- Profile calls generally require a dynamic profile namespace such as `profile-eu`.
+- Game data calls generally require a dynamic namespace such as `dynamic-eu`.
+- Static data may use `static-eu`.
+- Use locale such as `en_GB` for stable English labels, but keys must be provider IDs/slugs, not labels.
+- Verify exact namespace per endpoint in official docs.
+
+Future claimed account:
+- Verify the current user-profile endpoints and OAuth authorization-code/PKCE requirements before implementation.
+- Do not implement account-wide inference through unsupported endpoints.
+
+Blizzard request budget policy:
+- Cache OAuth token until shortly before expiry.
+- Static/current-season indexes: 24 hours to 7 days depending on mutability.
+- Historical season/static data: effectively immutable; very long TTL.
+- Character identity: 24 hours.
+- Equipment/spec/talents: 6–12 hours.
+- M+ profile: 6–12 hours.
+- User-triggered refresh cooldown: initially 15 minutes per character.
+- Internal concurrency default: conservative, e.g. 4–8 requests, configurable.
+- Honor 429 and Retry-After.
+- Do not assume undocumented quotas.
+- Blizzard leaderboards may expose only a limited top set per realm/dungeon and are not sufficient alone
+  to reconstruct every run.
+
+2. Warcraft Logs
+----------------
+Official documentation:
+- OAuth and API overview:
+  https://www.warcraftlogs.com/api/docs
+- GraphQL schema:
+  https://www.warcraftlogs.com/v2-api-docs/warcraft/
+- Character:
+  https://www.warcraftlogs.com/v2-api-docs/warcraft/character.doc.html
+- CharacterData:
+  https://www.warcraftlogs.com/v2-api-docs/warcraft/characterdata.doc.html
+- Report:
+  https://www.warcraftlogs.com/v2-api-docs/warcraft/report.doc.html
+- ReportData:
+  https://www.warcraftlogs.com/v2-api-docs/warcraft/reportdata.doc.html
+- EventDataType:
+  https://www.warcraftlogs.com/v2-api-docs/warcraft/eventdatatype.doc.html
+- RateLimitData:
+  https://www.warcraftlogs.com/v2-api-docs/warcraft/ratelimitdata.doc.html
+
+OAuth/API URLs:
+- Token:
+  POST https://www.warcraftlogs.com/oauth/token
+- Public GraphQL:
+  POST https://www.warcraftlogs.com/api/v2/client
+- Authorized/private GraphQL:
+  POST https://www.warcraftlogs.com/api/v2/user
+
+MVP authentication:
+- Use client_credentials for public data only.
+- Do not expose client secret to the Vue app.
+- Cache token server-side.
+
+Relevant GraphQL roots and fields to investigate:
+- characterData.character(...)
+- Character canonicalID
+- Character zoneRankings / encounter rankings fields available in the current schema
+- Character report discovery fields available in the current schema
+- reportData.report(code: ...)
+- Report fights
+- Report masterData(translate: false)
+- Report playerDetails
+- Report rankings
+- Report table
+- Report events
+- Query rateLimitData
+
+Relevant event categories include:
+- Casts
+- Interrupts
+- Deaths
+- DamageTaken
+- Buffs
+- Debuffs
+- Dispels
+- Healing
+- CombatantInfo
+
+Warcraft Logs budget policy:
+- Query `rateLimitData` before expensive batches and periodically during workers.
+- Configurable soft stop:
+  - warn at 70% of hourly points
+  - defer non-urgent jobs at 80%
+  - stop expensive work at 90%
+- Prefer one GraphQL request with aliases/combined fields over several small requests when point cost is lower.
+- Always filter detailed calls by selected fight IDs and actor IDs where possible.
+- Use `translate: false` unless localized labels are explicitly required.
+- Fetch report master data once per report revision.
+- Detailed analysis only for latest and highest relevant run.
+- If both runs are identical, fetch once.
+- Persist report revision; immutable revision data should not be re-downloaded.
+- Follow pagination using the schema's next-page timestamp.
+- Do not fetch all event types "just in case".
+- Cache public character/ranking discovery for 6–12 hours.
+- Cache completed detailed run analysis indefinitely by report revision + analysis version.
+- Use authorization-code/PKCE only in a future opt-in feature for private logs.
+
+Open research item:
+- Reliably matching a Raider.IO/Blizzard run to a Warcraft Logs report/fight may not always be possible.
+- The WCL agent must document exact identifiers returned by current rankings/report APIs, matching confidence,
+  and fallback behavior.
+
+3. Raider.IO
+------------
+Official documentation:
+- API documentation:
+  https://raider.io/api
+- OpenAPI/Swagger document:
+  https://raider.io/swagger.json
+- Mythic+ cutoffs page:
+  https://raider.io/mythic-plus/cutoffs
+- API application registration:
+  https://raider.io/settings/apps
+
+Official API base:
+- https://raider.io
+
+Relevant documented endpoints:
+- GET /api/v1/characters/profile
+- GET /api/v1/mythic-plus/run-details
+- GET /api/v1/mythic-plus/season-cutoffs
+- GET /api/v1/mythic-plus/static-data
+- GET /api/v1/mythic-plus/runs
+- GET /api/v1/periods
+
+Strict MVP usage:
+Allowed/expected:
+1. One character profile request for a new or stale searched character, requesting only necessary fields.
+2. Season cutoffs for EU, cached daily.
+3. Mythic+ static data, cached daily/weekly.
+4. Run details only for one of the two selected runs when required and not already available from the profile payload.
+
+Avoid:
+- Bulk crawling `/mythic-plus/runs`.
+- Polling live-tracking endpoints.
+- Re-fetching full character profiles on every page view.
+- Requesting broad field sets.
+- Scraping profile pages.
+- Making Raider.IO the sole source of core character identity/equipment if Blizzard exposes it.
+
+Character fields to verify against the live OpenAPI before coding:
+- mythic_plus_scores
+- mythic_plus_scores_by_season
+- mythic_plus_recent_runs
+- mythic_plus_best_runs
+- mythic_plus_highest_level_runs
+- mythic_plus_ranks
+- raid_progression
+- gear only if Blizzard fallback is needed
+
+Rate/terms:
+- The public documentation states that unauthenticated requests are limited to 200 requests/minute.
+- Use a much lower internal soft budget initially: 60 requests/minute, concurrency 2, configurable.
+- Honor 429 and Retry-After with exponential backoff and jitter.
+- Cache character profile response for 12 hours by default.
+- Negative-cache missing characters for 30–60 minutes.
+- Cutoffs: 24 hours.
+- Static data: 24 hours to 7 days.
+- Register an application before meaningful public scale.
+- Public-facing use requires Raider.IO attribution.
+- Current published acceptable-use language prohibits competing services/resale without permission and directs
+  commercial users to contact Raider.IO.
+- Therefore:
+  - Treat Raider.IO as a replaceable accelerator.
+  - Put it behind a provider interface.
+  - Record every field dependency.
+  - Do not place irreplaceable product logic inside Raider.IO-specific DTOs.
+  - Contact Raider.IO before monetization or broad public launch.
+
+4. Source priority by datum
+---------------------------
+Identity, realm, class/spec, equipment, talents:
+1. Blizzard
+2. WCL combatant info as historical run snapshot
+3. Raider.IO only as fallback/summary
+
+Current/previous M+ rating and recent/best runs:
+1. Blizzard where complete and available
+2. Raider.IO for convenient run/roster history, under strict budget
+3. Warcraft Logs for logged runs and detailed performance
+
+Detailed combat behavior:
+1. Warcraft Logs
+2. No HTML scraping or third-party inferred metrics without an explicit contract
+
+Regional cutoff:
+1. Raider.IO season-cutoffs for MVP
+2. Replaceable future internal distribution if enough data exists
+
+Raid progression:
+1. Blizzard and/or Raider.IO summary
+2. Warcraft Logs aggregate Mythic rankings for parse signal
+
+5. Cross-provider cache key
+---------------------------
+Every request fingerprint should include:
+- provider
+- region
+- endpoint key
+- normalized path parameters
+- sorted query parameters
+- request body hash for GraphQL
+- GraphQL operation name and variables
+- authentication scope type, but never the token itself
+
+6. Attribution
+--------------
+- Store source URLs/identifiers.
+- Show "Data sources" on the website profile page.
+- Include Raider.IO attribution/link wherever its data is publicly rendered.
+- Add a provider/legal review before commercial launch.

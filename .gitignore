@@ -1,0 +1,44 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Builds
+dist/
+build/
+coverage/
+*.tsbuildinfo
+openapi.json
+apps/api/openapi.json
+
+# Environment / secrets
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# IDE / OS
+.idea/
+.vscode/*
+!.vscode/extensions.json
+.DS_Store
+Thumbs.db
+
+# Logs / temp
+logs/
+*.log
+tmp/
+.temp/
+raw-artifacts/
+data/
+
+# Prisma
+packages/database/prisma/*.db
+packages/database/prisma/*.db-journal
+
+# Test / cache
+.turbo/
+.cache/
+.vitest/
+
+# Addon build artifacts
+addon/**/*.zip

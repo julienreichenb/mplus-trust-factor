@@ -1,0 +1,548 @@
+M+ TRUST FACTOR — TARGET ARCHITECTURE AND DATABASE CONTRACT
+===========================================================
+
+1. Technology baseline
+----------------------
+Use current stable releases at implementation time and pin exact versions in lockfiles/container images.
+
+Required stack:
+- Monorepo: pnpm workspaces.
+- Language: TypeScript with strict mode.
+- Web: Vue 3, Vite, Vue Router, Pinia.
+- UI: a lightweight component approach; avoid locking core domain logic to a UI library.
+- Charts: Apache ECharts radar chart or an equivalent mature library.
+- API: Node.js active LTS + Fastify.
+- API contracts: OpenAPI generated from route schemas.
+- Validation: Zod or Fastify-compatible JSON schema with inferred TypeScript types.
+- Database: PostgreSQL.
+- ORM/migrations: Prisma.
+- Queue/cache: Redis + BullMQ.
+- Tests: Vitest, Supertest/Fastify inject, Playwright, Testcontainers where useful.
+- Logs: Pino structured JSON.
+- Containers: Docker and Docker Compose.
+- Production reverse proxy: Caddy unless Agent 8 documents a stronger reason for another choice.
+- Package images: GitHub Container Registry.
+
+2. Repository layout
+--------------------
+Expected baseline:
+
+apps/
+  api/
+  web/
+  worker/
+
+packages/
+  config/
+  database/
+  domain/
+  contracts/
+  observability/
+  providers/
+    blizzard/
+    warcraftlogs/
+    raiderio/
+  scoring/
+  mechanics/
+
+tools/
+  addon-exporter/
+  fixtures/
+  scripts/
+
+addon/
+  MPlusTrust/
+
+doc/
+  bootstrap/
+  architecture/
+  adr/
+  api/
+  agents/
+  plans/
+  operations/
+  scoring/
+  testing/
+
+infra/
+  docker/
+  caddy/
+  scripts/
+
+3. Architectural rules
+----------------------
+- Provider packages return normalized domain DTOs and retain raw provenance.
+- Provider packages do not compute the final Trust Factor.
+- Scoring package is deterministic and performs no network calls.
+- API routes do not call providers synchronously without a timeout and refresh policy.
+- Long ingestion and analysis work runs through BullMQ.
+- Website reads stable API DTOs, not provider-specific payloads.
+- Addon exporter reads score snapshots, never external APIs directly.
+- External requests are deduplicated, cached, rate-limited, and observable.
+- A raw provider response must be linked to normalized records through provenance metadata.
+- No agent may silently change shared contracts after Agent 0. Proposed changes go into
+  `doc/contracts/change-requests/<agent>-<topic>.md` unless explicitly coordinated.
+
+4. High-level component flow
+----------------------------
+[Vue Web]
+    |
+    v
+[Fastify API] ---- [PostgreSQL]
+    |                    ^
+    v                    |
+[BullMQ / Redis] --> [Worker]
+                         |
+                         +--> Blizzard provider
+                         +--> Warcraft Logs provider
+                         +--> Raider.IO provider
+                         +--> Normalization and run matching
+                         +--> Metric extraction
+                         +--> Scoring engine
+                         +--> Score snapshots
+                         +--> Addon export job
+
+5. Proposed database schema
+---------------------------
+The exact Prisma syntax is Agent 0's responsibility, but preserve these concepts and keys.
+
+A. Identity and static game data
+--------------------------------
+Region
+- id: UUID
+- code: enum/string, unique (EU, US, KR, TW, ...)
+- api_host
+- locale_default
+- enabled
+- created_at, updated_at
+
+Realm
+- id: UUID
+- region_id: FK Region
+- blizzard_realm_id: bigint nullable
+- slug
+- name
+- connected_realm_id nullable
+- locale
+- unique(region_id, slug)
+
+Season
+- id: UUID
+- region_id nullable if globally shared
+- provider_season_id / blizzard_season_id nullable
+- slug
+- name
+- starts_at, ends_at nullable
+- is_current
+- dungeon_count
+- metadata JSONB
+- unique(region_id, slug)
+
+Dungeon
+- id: UUID
+- blizzard_dungeon_id bigint nullable
+- wcl_zone_or_encounter_id bigint nullable
+- raiderio_slug nullable
+- slug
+- name
+- map_id nullable
+- metadata JSONB
+
+SeasonDungeon
+- season_id
+- dungeon_id
+- sort_order
+- timer_seconds nullable
+- baseline_key_level default 10
+- metadata JSONB
+- PK(season_id, dungeon_id)
+
+GameClass / GameSpecialization
+- canonical IDs, names, slugs, role
+- provider IDs in JSONB or dedicated columns
+- avoid using localized names as keys
+
+B. Characters and accounts
+---------------------------
+Character
+- id: UUID
+- region_id
+- realm_id
+- normalized_name
+- display_name
+- level nullable
+- faction nullable
+- class_id nullable
+- active_spec_id nullable
+- role nullable
+- blizzard_character_id bigint nullable
+- wcl_canonical_id bigint nullable
+- raiderio_profile_url nullable
+- profile_url nullable
+- last_seen_at
+- last_public_refresh_at
+- created_at, updated_at
+- unique(region_id, realm_id, normalized_name)
+
+CharacterAlias
+- id
+- character_id
+- region_id
+- realm_slug
+- normalized_name
+- valid_from, valid_to nullable
+- source_provider
+- unique(region_id, realm_slug, normalized_name)
+
+BattleNetAccount
+- id
+- user_id nullable
+- region_id
+- battletag_hash or external subject identifier
+- claimed boolean
+- linked_at
+- never store unnecessary OAuth profile data
+
+AccountCharacter
+- account_id
+- character_id
+- confidence enum: CONFIRMED / PROBABLE
+- source
+- linked_at
+- PK(account_id, character_id)
+
+CharacterSnapshot
+- id
+- character_id
+- captured_at
+- item_level_equipped nullable
+- active_spec_id nullable
+- role nullable
+- mythic_rating nullable
+- source_payload_id
+- raw_summary JSONB
+- index(character_id, captured_at desc)
+
+EquipmentSnapshot
+- id
+- character_snapshot_id
+- captured_at
+- average_item_level nullable
+- equipped_item_level nullable
+- items JSONB
+- key_items JSONB
+- source_payload_id
+
+TalentSnapshot
+- id
+- character_snapshot_id
+- specialization_id
+- loadout_code nullable
+- talents JSONB
+- source_payload_id
+
+C. External request provenance and raw storage
+----------------------------------------------
+ExternalRequest
+- id
+- provider enum: BLIZZARD / WARCRAFT_LOGS / RAIDER_IO
+- request_fingerprint unique
+- endpoint_key
+- method
+- requested_at
+- completed_at nullable
+- status_code nullable
+- cache_hit boolean
+- retry_count
+- cost_units nullable
+- error_code nullable
+- response_headers JSONB
+- expires_at nullable
+- etag nullable
+- last_modified nullable
+
+ExternalPayload
+- id
+- external_request_id
+- provider
+- content_hash
+- payload JSONB nullable for reasonably small payloads
+- artifact_id nullable for large compressed content
+- fetched_at
+- schema_version
+- unique(provider, content_hash)
+
+RawArtifact
+- id
+- provider
+- storage_uri
+- compression enum: NONE / GZIP / ZSTD
+- content_hash
+- size_bytes
+- created_at
+- retention_until nullable
+
+D. Mythic+ runs
+---------------
+MythicRun
+- id: UUID
+- season_id
+- dungeon_id
+- region_id
+- key_level
+- completed_at
+- duration_ms
+- timer_ms nullable
+- timed boolean
+- score_value nullable
+- canonical_fingerprint unique
+- affixes JSONB
+- source_quality smallint
+- created_at, updated_at
+- indexes(season_id, dungeon_id, key_level, completed_at)
+- index(completed_at desc)
+
+RunSourceReference
+- id
+- run_id
+- provider
+- external_run_id
+- external_url nullable
+- source_payload_id nullable
+- report_code nullable
+- fight_id nullable
+- revision nullable
+- unique(provider, external_run_id)
+- unique(provider, report_code, fight_id) where supported
+
+RunParticipant
+- id
+- run_id
+- character_id nullable until resolved
+- provider_character_key
+- display_name
+- realm_slug
+- region_code
+- class_id nullable
+- spec_id nullable
+- role nullable
+- item_level nullable
+- mythic_rating_at_run nullable
+- is_target_character boolean default false
+- source_payload_id nullable
+- unique(run_id, provider_character_key)
+
+RunAnalysis
+- id
+- run_id
+- character_id
+- analysis_version
+- analyzed_at
+- coverage numeric 0..1
+- summary JSONB
+- source_payload_ids JSONB
+- unique(run_id, character_id, analysis_version)
+
+E. Metrics and mechanic catalog
+-------------------------------
+MetricDefinition
+- id
+- key unique, e.g. `performance.spec_percentile`
+- dimension enum: PERFORMANCE / SURVIVAL / UTILITY / EXPERIENCE / RAID / AUTHENTICITY
+- value_type
+- direction enum: HIGHER_BETTER / LOWER_BETTER / CONTEXTUAL
+- description
+- default_normalization JSONB
+- active
+
+MetricObservation
+- id
+- character_id
+- run_id nullable
+- season_id nullable
+- scope_type enum: CHARACTER / ROLE / CLASS / SPEC / ACCOUNT
+- scope_key nullable
+- metric_definition_id
+- raw_value numeric nullable
+- normalized_value numeric 0..100 nullable
+- confidence numeric 0..1
+- observed_at
+- source_provider
+- source_payload_id nullable
+- context JSONB
+- index(character_id, season_id, metric_definition_id)
+
+MechanicRule
+- id
+- season_id
+- dungeon_id
+- npc_id nullable
+- spell_id
+- rule_type enum:
+  AVOIDABLE_DAMAGE / MANDATORY_DAMAGE / PRIORITY_INTERRUPT / CROWD_CONTROL /
+  DISPEL / PURGE / DEFENSIVE_WINDOW / EXTERNAL_WINDOW
+- severity numeric
+- applicable_roles JSONB
+- response_spell_ids JSONB
+- notes
+- source
+- version
+- active
+- unique(season_id, dungeon_id, spell_id, rule_type, version)
+
+F. Models, score snapshots, and red flags
+-----------------------------------------
+ScoreModel
+- id
+- key
+- version integer
+- name
+- description
+- status enum: DRAFT / ACTIVE / ARCHIVED
+- config JSONB
+- created_by_user_id nullable
+- created_at
+- activated_at nullable
+- unique(key, version)
+
+ScoreSnapshot
+- id
+- character_id
+- season_id
+- score_model_id
+- scope_type
+- scope_key nullable
+- overall_score numeric 0..100
+- grade char
+- skill_score numeric
+- authenticity_score numeric
+- confidence numeric 0..1
+- calculated_at
+- input_fingerprint
+- explanation JSONB
+- unique(character_id, season_id, score_model_id, scope_type, scope_key, input_fingerprint)
+- index(character_id, calculated_at desc)
+
+DimensionScore
+- id
+- score_snapshot_id
+- dimension
+- score numeric 0..100
+- confidence numeric 0..1
+- weight numeric
+- contributors JSONB
+- unique(score_snapshot_id, dimension)
+
+RedFlagDefinition
+- id
+- key unique
+- label
+- description
+- severity enum: INFO / LOW / MEDIUM / HIGH / CRITICAL
+- public boolean
+- active
+
+CharacterRedFlag
+- id
+- character_id
+- season_id nullable
+- run_id nullable
+- definition_id
+- confidence numeric 0..1
+- status enum: ACTIVE / CLEARED / DISPUTED
+- evidence JSONB
+- first_detected_at
+- last_detected_at
+- score_model_id nullable
+
+ScoreDispute
+- id
+- character_id
+- user_id nullable
+- score_snapshot_id nullable
+- status
+- reason
+- evidence JSONB
+- created_at, resolved_at nullable
+- MVP may expose no public workflow, but schema is future-ready.
+
+G. Jobs, users, and entitlements
+--------------------------------
+IngestionJob
+- id
+- job_type
+- character_id nullable
+- run_id nullable
+- status
+- dedupe_key unique nullable
+- priority
+- attempts
+- payload JSONB
+- scheduled_at
+- started_at nullable
+- completed_at nullable
+- error JSONB nullable
+
+User
+- id
+- email nullable unique
+- display_name nullable
+- role enum: USER / ADMIN
+- auth_provider
+- external_subject
+- created_at
+
+Entitlement
+- id
+- user_id
+- key
+- starts_at
+- ends_at nullable
+- source
+- metadata JSONB
+- unique(user_id, key, starts_at)
+
+AddonExport
+- id
+- region_id
+- season_id
+- score_model_id
+- generated_at
+- character_count
+- format_version
+- artifact_id
+- checksum
+- status
+- metadata JSONB
+
+6. Canonical character and run matching
+---------------------------------------
+Character key:
+- Prefer stable provider canonical IDs when available.
+- Otherwise use normalized `(region, realm_slug, character_name)`.
+- Keep aliases for renames/transfers.
+- Normalize Unicode using NFKC and a stable lower-case strategy, but preserve display names.
+
+Run canonical fingerprint proposal:
+SHA-256 of:
+- region
+- season canonical key
+- dungeon canonical key
+- completed_at in milliseconds if available
+- key level
+- duration
+- sorted roster canonical keys
+
+If one provider has lower timestamp precision, perform candidate matching with bounded tolerances and
+store the match confidence. Never merge runs only because dungeon, level, and date are similar.
+
+7. Database acceptance expectations
+-----------------------------------
+- Initial migration applies on an empty PostgreSQL database.
+- Seed creates EU region, a placeholder current season, model v1, metric definitions, grade thresholds,
+  and red-flag definitions without fake production scores.
+- Unique constraints make ingestion idempotent.
+- Useful query indexes exist.
+- Timestamps are UTC.
+- Numeric score fields use sufficient precision and are clamped at service boundaries.
+- Large event payloads are not blindly stored uncompressed in PostgreSQL.

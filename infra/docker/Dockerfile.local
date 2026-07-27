@@ -1,0 +1,20 @@
+# Local development image placeholders — production images owned by Agent 8.
+FROM node:24-bookworm-slim AS base
+WORKDIR /app
+RUN corepack enable
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml .npmrc ./
+COPY packages ./packages
+COPY apps ./apps
+COPY tools ./tools
+RUN pnpm install --frozen-lockfile
+RUN pnpm --filter @mplus/database exec prisma generate
+RUN pnpm --filter @mplus/config --filter @mplus/contracts --filter @mplus/domain --filter @mplus/observability --filter @mplus/database --filter @mplus/api build
+
+FROM base AS api
+WORKDIR /app
+EXPOSE 3000
+CMD ["pnpm", "--filter", "@mplus/api", "start"]
+
+FROM base AS worker
+WORKDIR /app
+CMD ["pnpm", "--filter", "@mplus/worker", "start"]

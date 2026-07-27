@@ -1,0 +1,21 @@
+{
+  "name": "@mplus/addon-exporter",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "mplus-addon-export": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start": "tsx src/cli.ts"
+  },
+  "dependencies": {
+    "@mplus/contracts": "workspace:*"
+  },
+  "devDependencies": {
+    "tsx": "^4.20.3",
+    "typescript": "^5.8.3"
+  }
+}

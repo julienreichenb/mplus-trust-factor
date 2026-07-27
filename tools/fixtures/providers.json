@@ -1,0 +1,16 @@
+{
+  "blizzard": {
+    "characterProfile": {
+      "note": "Sanitized fixture placeholder — Agent 1 replaces with verified shapes",
+      "region": "EU",
+      "realm": "tarren-mill",
+      "name": "Examplecharacter"
+    }
+  },
+  "warcraftlogs": {
+    "note": "Sanitized fixture placeholder — Agent 2 replaces with verified GraphQL shapes"
+  },
+  "raiderio": {
+    "note": "Sanitized fixture placeholder — Agent 3 replaces with verified OpenAPI shapes"
+  }
+}
