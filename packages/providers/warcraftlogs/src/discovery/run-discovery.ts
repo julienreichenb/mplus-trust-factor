@@ -3,12 +3,15 @@ import type {
   WclCharacterSummary,
   WclRankingObservation,
   WclRunCandidate,
+  WclRunCandidateIncompleteness,
   WclVisibilityState,
 } from "../types.js";
+import { MAX_DISCOVERY_CANDIDATES } from "./bounds.js";
+import { FIXTURE_MPLUS_ZONE_ID } from "./mplus-zone.js";
 import { dedupeCandidates, selectLatestAndHighest } from "./run-matching.js";
 
-/** MVP season zone mapping — replace with live worldData lookup in Agent 5. */
-export const DEFAULT_MPLUS_ZONE_ID = 45;
+/** @deprecated Use FIXTURE_MPLUS_ZONE_ID — live mode must not use this silently. */
+export const DEFAULT_MPLUS_ZONE_ID = FIXTURE_MPLUS_ZONE_ID;
 
 /** Encounter ID → dungeon slug mapping for fixture/MVP season. */
 export const ENCOUNTER_DUNGEON_MAP: Record<number, string> = {
@@ -69,11 +72,26 @@ export interface CharacterResolvePayload {
   server: { slug: string; region?: { name: string } };
 }
 
+function emptyIncompleteness(
+  overrides: Partial<WclRunCandidateIncompleteness> = {},
+): WclRunCandidateIncompleteness {
+  return {
+    dungeonUnknown: true,
+    seasonUnknown: true,
+    timedUnknown: true,
+    keyLevelUnknown: true,
+    rosterIncomplete: true,
+    fightUnknown: false,
+    ...overrides,
+  };
+}
+
 export function mapCharacterSummary(
   character: CharacterResolvePayload,
   region: RegionCode,
   fetchedAt: string,
   visibility: WclVisibilityState,
+  warnings: string[] = [],
 ): WclCharacterSummary {
   return {
     wclCharacterId: character.id,
@@ -86,6 +104,7 @@ export function mapCharacterSummary(
     hidden: character.hidden,
     visibility,
     fetchedAt,
+    warnings,
   };
 }
 
@@ -93,7 +112,18 @@ export function deriveVisibility(
   character: CharacterResolvePayload | null,
   rankings: WclRankingObservation[],
   recentPublicCount: number,
+  options: {
+    privateSkipped?: number;
+    rateLimited?: boolean;
+    unavailable?: boolean;
+  } = {},
 ): WclVisibilityState {
+  if (options.rateLimited) {
+    return "RATE_LIMITED";
+  }
+  if (options.unavailable) {
+    return "UNAVAILABLE";
+  }
   if (!character) {
     return "NO_PUBLIC_LOGS";
   }
@@ -101,7 +131,13 @@ export function deriveVisibility(
     return "HIDDEN";
   }
   if (rankings.length === 0 && recentPublicCount === 0) {
+    if ((options.privateSkipped ?? 0) > 0) {
+      return "PRIVATE_SKIPPED";
+    }
     return "NO_PUBLIC_LOGS";
+  }
+  if ((options.privateSkipped ?? 0) > 0 && rankings.length === 0 && recentPublicCount === 0) {
+    return "PRIVATE_SKIPPED";
   }
   return "PUBLIC";
 }
@@ -128,53 +164,142 @@ export function mapZoneRankings(
     durationMs: row.duration ?? null,
     startTimeMs: row.startTime ?? null,
     reportStartTimeMs: row.report.startTime,
-    timed: row.kill ?? null,
+    // kill ≠ timed; WCL rankings do not expose timer success here
+    timed: null,
     metric: payload.metric ?? null,
   }));
 }
 
 export function rankingsToCandidates(rankings: WclRankingObservation[]): WclRunCandidate[] {
-  return rankings.map((r) => ({
-    reportCode: r.reportCode,
-    fightId: r.fightId,
-    encounterId: r.encounterId,
-    zoneId: r.zoneId,
-    dungeonSlug: ENCOUNTER_DUNGEON_MAP[r.encounterId] ?? null,
-    keyLevel: r.keyLevel,
-    score: r.score,
-    startTimeMs: r.startTimeMs,
-    completedAt:
-      r.reportStartTimeMs != null && r.startTimeMs != null
-        ? new Date(r.reportStartTimeMs + r.startTimeMs).toISOString()
-        : null,
-    durationMs: r.durationMs,
-    selectionTags: [],
-    source: "zoneRankings" as const,
-  }));
+  return rankings.map((r) => {
+    const dungeonSlug = ENCOUNTER_DUNGEON_MAP[r.encounterId] ?? null;
+    const warnings: string[] = [];
+    if (dungeonSlug == null && r.encounterId > 0) {
+      warnings.push(`Unknown encounter→dungeon mapping for encounterId=${r.encounterId}`);
+    }
+    return {
+      reportCode: r.reportCode,
+      fightId: r.fightId,
+      encounterId: r.encounterId,
+      zoneId: r.zoneId,
+      dungeonSlug,
+      seasonSlug: null,
+      keyLevel: r.keyLevel,
+      score: r.score,
+      startTimeMs: r.startTimeMs,
+      completedAt:
+        r.reportStartTimeMs != null && r.startTimeMs != null
+          ? new Date(r.reportStartTimeMs + r.startTimeMs).toISOString()
+          : null,
+      durationMs: r.durationMs,
+      timed: null,
+      selectionTags: [],
+      source: "zoneRankings" as const,
+      matchConfidence: null,
+      incompleteness: emptyIncompleteness({
+        dungeonUnknown: dungeonSlug == null,
+        seasonUnknown: true,
+        timedUnknown: true,
+        keyLevelUnknown: r.keyLevel == null,
+        rosterIncomplete: true,
+        fightUnknown: false,
+      }),
+      warnings,
+    };
+  });
+}
+
+export function classifyReportVisibility(visibility: string | null | undefined): {
+  isPublic: boolean;
+  isPrivate: boolean;
+  isUnlisted: boolean;
+} {
+  const v = (visibility ?? "public").toLowerCase();
+  return {
+    isPublic: v === "public",
+    isPrivate: v === "private",
+    isUnlisted: v === "unlisted",
+  };
 }
 
 export function recentReportsToCandidates(
   payload: RecentReportsPayload | null | undefined,
-): WclRunCandidate[] {
+): { candidates: WclRunCandidate[]; privateSkipped: number; unlistedSkipped: number } {
   if (!payload?.data) {
-    return [];
+    return { candidates: [], privateSkipped: 0, unlistedSkipped: 0 };
   }
-  return payload.data
-    .filter((r) => (r.visibility ?? "public") === "public")
-    .map((r) => ({
+
+  let privateSkipped = 0;
+  let unlistedSkipped = 0;
+  const candidates: WclRunCandidate[] = [];
+
+  for (const r of payload.data) {
+    const vis = classifyReportVisibility(r.visibility);
+    if (vis.isPrivate) {
+      privateSkipped += 1;
+      continue;
+    }
+    if (vis.isUnlisted) {
+      unlistedSkipped += 1;
+      continue;
+    }
+    if (!vis.isPublic) {
+      privateSkipped += 1;
+      continue;
+    }
+
+    candidates.push({
       reportCode: r.code,
-      fightId: 1,
+      // Fight unknown until report metadata is fetched — never invent fightId=1 as fact
+      fightId: 0,
       encounterId: 0,
       zoneId: r.zone?.id ?? null,
       dungeonSlug: null,
+      seasonSlug: null,
       keyLevel: null,
       score: null,
       startTimeMs: r.startTime,
       completedAt: new Date(r.startTime).toISOString(),
       durationMs: r.endTime != null ? r.endTime - r.startTime : null,
+      timed: null,
       selectionTags: [],
       source: "recentReports" as const,
-    }));
+      matchConfidence: null,
+      incompleteness: emptyIncompleteness({
+        fightUnknown: true,
+        dungeonUnknown: true,
+        seasonUnknown: true,
+        timedUnknown: true,
+        keyLevelUnknown: true,
+        rosterIncomplete: true,
+      }),
+      warnings: ["recentReports stub — fight/dungeon/key unknown until report metadata"],
+    });
+  }
+
+  return { candidates, privateSkipped, unlistedSkipped };
+}
+
+/**
+ * Prefer ranking candidates (have fight IDs) over recentReports stubs when capping.
+ */
+export function capDiscoveryCandidates(
+  rankingCandidates: WclRunCandidate[],
+  recentCandidates: WclRunCandidate[],
+  max = MAX_DISCOVERY_CANDIDATES,
+): { candidates: WclRunCandidate[]; truncated: boolean } {
+  const merged = dedupeCandidates([...rankingCandidates, ...recentCandidates]);
+  // Prefer zoneRankings rows; demote fightUnknown stubs
+  merged.sort((a, b) => {
+    const aScore = a.incompleteness.fightUnknown ? 1 : 0;
+    const bScore = b.incompleteness.fightUnknown ? 1 : 0;
+    if (aScore !== bScore) return aScore - bScore;
+    return 0;
+  });
+  if (merged.length <= max) {
+    return { candidates: merged, truncated: false };
+  }
+  return { candidates: merged.slice(0, max), truncated: true };
 }
 
 export function buildCharacterDiscovery(input: {
@@ -182,18 +307,76 @@ export function buildCharacterDiscovery(input: {
   rankings: WclRankingObservation[];
   rankingCandidates: WclRunCandidate[];
   recentCandidates: WclRunCandidate[];
-}) {
-  const merged = dedupeCandidates([...input.rankingCandidates, ...input.recentCandidates]);
-  const { latest, highest } = selectLatestAndHighest(merged);
+  privateReportsSkipped?: number;
+}): {
+  summary: WclCharacterSummary;
+  rankings: WclRankingObservation[];
+  candidates: WclRunCandidate[];
+  latest: WclRunCandidate | null;
+  highest: WclRunCandidate | null;
+  candidatesTruncated: boolean;
+  privateReportsSkipped: number;
+} {
+  const { candidates, truncated } = capDiscoveryCandidates(
+    input.rankingCandidates,
+    input.recentCandidates,
+  );
+  const { latest, highest } = selectLatestAndHighest(candidates);
+  const warnings = [...input.summary.warnings];
+  if (truncated) {
+    warnings.push(
+      `Discovery candidates truncated to ${MAX_DISCOVERY_CANDIDATES} (documented cap)`,
+    );
+  }
   return {
-    summary: input.summary,
+    summary: { ...input.summary, warnings },
     rankings: input.rankings,
-    candidates: merged,
+    candidates,
     latest,
     highest,
+    candidatesTruncated: truncated,
+    privateReportsSkipped: input.privateReportsSkipped ?? 0,
   };
 }
 
 export function mapRegionToWcl(region: RegionCode): string {
   return region.toUpperCase();
+}
+
+/**
+ * Map a discovery candidate into MythicRunDTO-safe placeholders.
+ * Never claims timed=true or a known season/dungeon without evidence.
+ */
+export function mythicRunPlaceholders(candidate: WclRunCandidate): {
+  seasonSlug: string;
+  dungeonSlug: string;
+  keyLevel: number;
+  timed: boolean;
+  durationMs: number;
+  warnings: string[];
+} {
+  const warnings = [...candidate.warnings];
+  if (candidate.seasonSlug == null) {
+    warnings.push("seasonSlug unknown — using sentinel 'unknown'");
+  }
+  if (candidate.dungeonSlug == null) {
+    warnings.push("dungeonSlug unknown — using sentinel 'unknown'");
+  }
+  if (candidate.timed == null) {
+    warnings.push("timed unknown — defaulting to false (not claiming timed)");
+  }
+  if (candidate.keyLevel == null) {
+    warnings.push("keyLevel unknown — using 0 placeholder");
+  }
+  if (candidate.incompleteness.rosterIncomplete) {
+    warnings.push("roster incomplete — fingerprint may be target-only");
+  }
+  return {
+    seasonSlug: candidate.seasonSlug ?? "unknown",
+    dungeonSlug: candidate.dungeonSlug ?? "unknown",
+    keyLevel: candidate.keyLevel ?? 0,
+    timed: candidate.timed ?? false,
+    durationMs: candidate.durationMs ?? 0,
+    warnings,
+  };
 }

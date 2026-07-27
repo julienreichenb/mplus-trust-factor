@@ -14,7 +14,10 @@ export type WclFixtureScenario =
   | "paginated-events"
   | "rate-limit-near-stop"
   | "graphql-partial-errors"
-  | "invalid-json-scalar";
+  | "invalid-json-scalar"
+  | "archived-report-unavailable"
+  | "private-reports-skipped"
+  | "ambiguous-actor-report";
 
 export interface WclFixtureBundle {
   scenario: WclFixtureScenario;
@@ -37,6 +40,9 @@ const SCENARIO_FILES: Record<WclFixtureScenario, string> = {
   "rate-limit-near-stop": "rate-limit-near-stop.json",
   "graphql-partial-errors": "graphql-partial-errors.json",
   "invalid-json-scalar": "invalid-json-scalar.json",
+  "archived-report-unavailable": "archived-report-unavailable.json",
+  "private-reports-skipped": "private-reports-skipped.json",
+  "ambiguous-actor-report": "ambiguous-actor-report.json",
 };
 
 export function resolveFixtureRoot(): string {
@@ -65,6 +71,9 @@ export function loadFixtureByIdentity(name: string, realmSlug: string): WclFixtu
   if (normalizedName === "sameplayer") {
     return loadFixtureScenario("same-latest-highest");
   }
+  if (normalizedName === "privateplayer") {
+    return loadFixtureScenario("private-reports-skipped");
+  }
   if (normalizedName === "fixtureplayer" || normalizedRealm === "tarren-mill") {
     return loadFixtureScenario("character-with-rankings");
   }
@@ -80,6 +89,12 @@ export function loadReportFixture(reportCode: string): WclFixtureBundle {
   }
   if (reportCode === "PageEvt888") {
     return loadFixtureScenario("paginated-events");
+  }
+  if (reportCode === "AmbActor99") {
+    return loadFixtureScenario("ambiguous-actor-report");
+  }
+  if (reportCode === "Archived001") {
+    return loadFixtureScenario("archived-report-unavailable");
   }
   return loadFixtureScenario("public-mplus-report");
 }

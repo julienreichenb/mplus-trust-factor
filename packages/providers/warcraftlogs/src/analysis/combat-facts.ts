@@ -11,7 +11,8 @@ import type {
   WclHealingEvent,
   WclInterruptEvent,
 } from "../types.js";
-import { buildActorMap, resolveActorSourceId } from "../discovery/run-matching.js";
+import { wclError } from "../client/errors.js";
+import { buildActorMap, resolveActorSourceIdStrict } from "../discovery/run-matching.js";
 
 export interface BuildCombatFactsInput {
   reportCode: string;
@@ -26,8 +27,15 @@ export interface BuildCombatFactsInput {
 
 export function buildRunCombatFacts(input: BuildCombatFactsInput): RunCombatFacts {
   const actorMap = buildActorMap(input.actors);
-  const targetSourceId =
-    resolveActorSourceId(actorMap, input.characterName, input.realmSlug) ?? input.actors[0]?.id ?? 1;
+  const resolved = resolveActorSourceIdStrict(actorMap, input.characterName, input.realmSlug);
+  if ("error" in resolved) {
+    throw wclError(
+      resolved.error === "AMBIGUOUS" ? "INVALID_RESPONSE" : "NOT_FOUND",
+      resolved.message,
+      { actorResolution: resolved.error },
+    );
+  }
+  const targetSourceId = resolved.sourceId;
 
   const coverage: RunCombatFactsCoverage = {
     casts: false,

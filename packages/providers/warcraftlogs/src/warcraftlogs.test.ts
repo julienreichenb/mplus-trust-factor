@@ -7,12 +7,27 @@ import {
   dedupeCandidates,
   matchRunCandidate,
   resolveActorSourceId,
+  resolveActorSourceIdStrict,
   selectLatestAndHighest,
   buildActorMap,
 } from "./discovery/run-matching.js";
+import {
+  recentReportsToCandidates,
+  rankingsToCandidates,
+  mythicRunPlaceholders,
+  deriveVisibility,
+  capDiscoveryCandidates,
+} from "./discovery/run-discovery.js";
+import { MAX_DISCOVERY_CANDIDATES, MAX_EVENT_PAGES } from "./discovery/bounds.js";
+import {
+  resolveMplusZoneConfig,
+  shouldQueryZoneRankings,
+  MPLUS_ZONE_ENV,
+} from "./discovery/mplus-zone.js";
 import { ReportRevisionCache } from "./analysis/revision-cache.js";
 import { evaluateRateBudget, parseRateLimitSnapshot, shouldDeferExpensiveWork } from "./rate/rate-budget.js";
 import { parseWithSchema, characterResolveSchema } from "./client/graphql-client.js";
+import { isUnavailableEvidenceError, mapGraphQlErrors } from "./client/errors.js";
 import type { WclRunCandidate } from "./types.js";
 
 const ctx = {
@@ -21,7 +36,42 @@ const ctx = {
   correlationId: null,
   forceRefresh: false,
   now: new Date().toISOString(),
+  targetCharacter: {
+    region: "EU" as const,
+    realmSlug: "tarren-mill",
+    name: "Fixtureplayer",
+  },
 };
+
+function baseCandidate(overrides: Partial<WclRunCandidate> = {}): WclRunCandidate {
+  return {
+    reportCode: "AbCdEf12XyZ3",
+    fightId: 3,
+    encounterId: 1201,
+    zoneId: 45,
+    dungeonSlug: "ara-kara-city-of-echoes",
+    seasonSlug: null,
+    keyLevel: 12,
+    score: 385,
+    startTimeMs: 120000,
+    completedAt: "2025-06-27T10:02:00.000Z",
+    durationMs: 1823456,
+    timed: null,
+    selectionTags: [],
+    source: "zoneRankings",
+    matchConfidence: null,
+    incompleteness: {
+      dungeonUnknown: false,
+      seasonUnknown: true,
+      timedUnknown: true,
+      keyLevelUnknown: false,
+      rosterIncomplete: true,
+      fightUnknown: false,
+    },
+    warnings: [],
+    ...overrides,
+  };
+}
 
 describe("WclTokenManager", () => {
   it("deduplicates concurrent token refresh", async () => {
@@ -83,20 +133,7 @@ describe("GraphQL fingerprint", () => {
 });
 
 describe("Run matching", () => {
-  const candidate: WclRunCandidate = {
-    reportCode: "AbCdEf12XyZ3",
-    fightId: 3,
-    encounterId: 1201,
-    zoneId: 45,
-    dungeonSlug: "ara-kara-city-of-echoes",
-    keyLevel: 12,
-    score: 385,
-    startTimeMs: 120000,
-    completedAt: "2025-06-27T10:02:00.000Z",
-    durationMs: 1823456,
-    selectionTags: [],
-    source: "zoneRankings",
-  };
+  const candidate = baseCandidate();
 
   it("returns HIGH confidence for strong matches", () => {
     const result = matchRunCandidate(
@@ -145,25 +182,32 @@ describe("Actor resolution", () => {
     ]);
     expect(resolveActorSourceId(map, "Fixtureplayer", "tarren-mill")).toBe(1);
   });
+
+  it("fails safely on ambiguous same-name players", () => {
+    const map = buildActorMap([
+      { id: 1, name: "Twinplayer", type: "Player", server: "Tarren Mill" },
+      { id: 2, name: "Twinplayer", type: "Player", server: "Tarren Mill" },
+    ]);
+    expect(resolveActorSourceId(map, "Twinplayer", "tarren-mill")).toBeNull();
+    const strict = resolveActorSourceIdStrict(map, "Twinplayer", "tarren-mill");
+    expect("error" in strict && strict.error).toBe("AMBIGUOUS");
+  });
 });
 
 describe("Latest/highest selection", () => {
   it("tags same run as LATEST and HIGHEST", () => {
     const candidates: WclRunCandidate[] = [
-      {
+      baseCandidate({
         reportCode: "SameRun001",
         fightId: 1,
         encounterId: 1207,
-        zoneId: 45,
         dungeonSlug: "the-dawnbreaker",
         keyLevel: 14,
         score: 410,
         startTimeMs: 80000,
         completedAt: "2025-06-27T12:00:00.000Z",
         durationMs: 1700000,
-        selectionTags: [],
-        source: "zoneRankings",
-      },
+      }),
     ];
     const deduped = dedupeCandidates(candidates);
     const { latest, highest } = selectLatestAndHighest(deduped);
@@ -208,32 +252,143 @@ describe("Rate budget", () => {
   });
 });
 
+describe("M+ zone configuration", () => {
+  it("requires explicit zone ID outside fixture mode", () => {
+    expect(() =>
+      resolveMplusZoneConfig({ env: {}, allowFixtureDefault: false }),
+    ).toThrow(/WCL_MPLUS_ZONE_ID/);
+  });
+
+  it("warns when zone is past expiry and skips rankings", () => {
+    const config = resolveMplusZoneConfig({
+      zoneId: 45,
+      expiresAt: "2020-01-01T00:00:00.000Z",
+      now: new Date("2026-07-27T00:00:00.000Z"),
+    });
+    expect(config.expired).toBe(true);
+    expect(config.warning).toMatch(/expired/);
+    expect(shouldQueryZoneRankings(config)).toBe(false);
+  });
+
+  it("warns when expiry env is unset", () => {
+    const config = resolveMplusZoneConfig({
+      env: { [MPLUS_ZONE_ENV.zoneId]: "45" },
+      now: new Date("2026-07-27T00:00:00.000Z"),
+    });
+    expect(config.zoneId).toBe(45);
+    expect(config.expired).toBe(false);
+    expect(config.warning).toMatch(/expires/i);
+  });
+});
+
+describe("Discovery bounds and placeholders", () => {
+  it("documents candidate cap and event page bound", () => {
+    expect(MAX_DISCOVERY_CANDIDATES).toBe(25);
+    expect(MAX_EVENT_PAGES).toBeLessThanOrEqual(10);
+  });
+
+  it("never claims timed=true without evidence", () => {
+    const placeholders = mythicRunPlaceholders(baseCandidate({ timed: null }));
+    expect(placeholders.timed).toBe(false);
+    expect(placeholders.seasonSlug).toBe("unknown");
+  });
+
+  it("skips private and unlisted recent reports", () => {
+    const mapped = recentReportsToCandidates({
+      data: [
+        { code: "Pub1", startTime: 1, visibility: "public", zone: { id: 45 } },
+        { code: "Priv1", startTime: 2, visibility: "private", zone: { id: 45 } },
+        { code: "Unl1", startTime: 3, visibility: "unlisted", zone: { id: 45 } },
+      ],
+    });
+    expect(mapped.candidates).toHaveLength(1);
+    expect(mapped.privateSkipped).toBe(1);
+    expect(mapped.unlistedSkipped).toBe(1);
+    expect(mapped.candidates[0]?.incompleteness.fightUnknown).toBe(true);
+  });
+
+  it("caps discovery candidates", () => {
+    const rankings = rankingsToCandidates(
+      Array.from({ length: 30 }, (_, i) => ({
+        reportCode: `R${i}`,
+        fightId: i + 1,
+        encounterId: 1201,
+        zoneId: 45,
+        bracket: 10,
+        keyLevel: 10,
+        score: 100,
+        amount: null,
+        percentile: null,
+        specSlug: null,
+        roleSlug: null,
+        durationMs: 1000,
+        startTimeMs: i,
+        reportStartTimeMs: 1_000_000,
+        timed: null,
+        metric: "playerscore",
+      })),
+    );
+    const capped = capDiscoveryCandidates(rankings, []);
+    expect(capped.candidates).toHaveLength(MAX_DISCOVERY_CANDIDATES);
+    expect(capped.truncated).toBe(true);
+  });
+});
+
+describe("GraphQL errors and unavailable evidence", () => {
+  it("marks archived report GraphQL errors as unavailable evidence", () => {
+    const error = mapGraphQlErrors([
+      { message: "This report has been archived and is unavailable without archive access" },
+    ]);
+    expect(isUnavailableEvidenceError(error)).toBe(true);
+  });
+
+  it("maps rate-limit GraphQL messages to RATE_LIMITED", () => {
+    const error = mapGraphQlErrors([{ message: "You have exceeded your rate limit points remaining" }]);
+    expect(error.code).toBe("RATE_LIMITED");
+  });
+});
+
 describe("FixtureWarcraftLogsProvider", () => {
   const provider = new FixtureWarcraftLogsProvider();
 
-  it("discovers character runs from fixtures", async () => {
+  it("discovers character runs from fixtures without optimistic timed=true", async () => {
     const result = await provider.discoverCharacterRuns(
       { region: "EU", realmSlug: "tarren-mill", name: "Fixtureplayer" },
       ctx,
     );
     expect(result.data.length).toBeGreaterThan(0);
     expect(result.data[0]?.sources[0]?.provider).toBe("WARCRAFT_LOGS");
+    expect(result.data.every((run) => run.timed === false)).toBe(true);
+    expect(result.data.every((run) => run.seasonSlug === "unknown")).toBe(true);
   });
 
-  it("distinguishes hidden characters", () => {
+  it("returns successful HIDDEN state with zero combat coverage", () => {
     const discovery = provider.discoverCharacter(
       { region: "EU", realmSlug: "tarren-mill", name: "Hiddenplayer" },
       ctx,
     );
     expect(discovery.summary.visibility).toBe("HIDDEN");
+    expect(discovery.candidates).toHaveLength(0);
+    expect(discovery.latest).toBeNull();
   });
 
-  it("distinguishes no public logs", () => {
+  it("returns successful NO_PUBLIC_LOGS state with zero combat coverage", () => {
     const discovery = provider.discoverCharacter(
       { region: "EU", realmSlug: "silvermoon", name: "Nologsplayer" },
       ctx,
     );
     expect(discovery.summary.visibility).toBe("NO_PUBLIC_LOGS");
+    expect(discovery.candidates).toHaveLength(0);
+  });
+
+  it("skips private/unlisted reports as PRIVATE_SKIPPED", () => {
+    const discovery = provider.discoverCharacter(
+      { region: "EU", realmSlug: "tarren-mill", name: "Privateplayer" },
+      ctx,
+    );
+    expect(discovery.summary.visibility).toBe("PRIVATE_SKIPPED");
+    expect(discovery.privateReportsSkipped).toBeGreaterThan(0);
+    expect(discovery.candidates).toHaveLength(0);
   });
 
   it("extracts combat facts from report fixture", async () => {
@@ -250,13 +405,21 @@ describe("FixtureWarcraftLogsProvider", () => {
     expect(details.combatFacts.combatantInfo?.specId).toBe(63);
   });
 
-  it("uses targetCharacter from fetch context in getReportFightDetails", async () => {
-    const result = await provider.getReportFightDetails("AbCdEf12XyZ3", 3, {
-      ...ctx,
-      targetCharacter: { region: "EU", realmSlug: "tarren-mill", name: "Fixtureplayer" },
+  it("requires targetCharacter from fetch context in getReportFightDetails", async () => {
+    await expect(provider.getReportFightDetails("AbCdEf12XyZ3", 3, { ...ctx, targetCharacter: undefined })).rejects.toMatchObject({
+      code: "INVALID_RESPONSE",
     });
+
+    const result = await provider.getReportFightDetails("AbCdEf12XyZ3", 3, ctx);
     expect(result.data.combatFacts.reportCode).toBe("AbCdEf12XyZ3");
-    expect(result.data.combatFacts.interrupts.length).toBeGreaterThanOrEqual(0);
+  });
+
+  it("fails safely on actor ambiguity", async () => {
+    await expect(
+      provider.fetchReportFightDetails("AmbActor99", 1, "Twinplayer", "tarren-mill", ctx),
+    ).rejects.toMatchObject({
+      message: expect.stringMatching(/Ambiguous/i),
+    });
   });
 
   it("avoids duplicate detailed fetch for same revision", async () => {
@@ -275,6 +438,11 @@ describe("FixtureWarcraftLogsProvider", () => {
     const fixture = loadFixtureScenario("invalid-json-scalar");
     const raw = (fixture.resolveCharacter as { data: unknown }).data;
     expect(() => parseWithSchema(characterResolveSchema, raw, "ResolveCharacter")).toThrow();
+  });
+
+  it("models RATE_LIMITED visibility helper", () => {
+    expect(deriveVisibility(null, [], 0, { rateLimited: true })).toBe("RATE_LIMITED");
+    expect(deriveVisibility(null, [], 0, { unavailable: true })).toBe("UNAVAILABLE");
   });
 });
 

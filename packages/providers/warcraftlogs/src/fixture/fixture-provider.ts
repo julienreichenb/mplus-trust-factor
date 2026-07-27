@@ -13,10 +13,11 @@ import {
   mapCharacterSummary,
   mapRegionToWcl,
   mapZoneRankings,
+  mythicRunPlaceholders,
   rankingsToCandidates,
   recentReportsToCandidates,
-  DEFAULT_MPLUS_ZONE_ID,
 } from "../discovery/run-discovery.js";
+import { FIXTURE_MPLUS_ZONE_ID } from "../discovery/mplus-zone.js";
 import {
   characterResolveSchema,
   parseWithSchema,
@@ -25,6 +26,7 @@ import {
   reportFightSchema,
   zoneRankingsSchema,
 } from "../client/graphql-client.js";
+import { wclError } from "../client/errors.js";
 import { buildRunCombatFacts } from "../analysis/combat-facts.js";
 import { ReportRevisionCache } from "../analysis/revision-cache.js";
 import { evaluateRateBudget, parseRateLimitSnapshot } from "../rate/rate-budget.js";
@@ -73,6 +75,16 @@ function emptyProviderResult<T>(
   };
 }
 
+function requireTargetCharacter(ctx: ProviderFetchContext): CharacterIdentityInput {
+  if (!ctx.targetCharacter) {
+    throw wclError(
+      "INVALID_RESPONSE",
+      "ProviderFetchContext.targetCharacter is required for WCL report/fight analysis",
+    );
+  }
+  return ctx.targetCharacter;
+}
+
 export class FixtureWarcraftLogsProvider implements WarcraftLogsProvider {
   readonly name = "warcraftlogs" as const;
   private readonly revisionCache = new ReportRevisionCache();
@@ -83,7 +95,9 @@ export class FixtureWarcraftLogsProvider implements WarcraftLogsProvider {
     ctx: ProviderFetchContext,
   ): Promise<ProviderResult<MythicRunDTO[]>> {
     const discovery = this.discoverCharacter(identity, ctx);
-    const runs = discovery.candidates.map((c) => this.candidateToMythicRun(c, identity, ctx));
+    const runs = discovery.candidates
+      .filter((c) => !c.incompleteness.fightUnknown)
+      .map((c) => this.candidateToMythicRun(c, identity, ctx));
     return emptyProviderResult(runs, "discoverCharacterRuns", `fixture-discover-${identity.name}`, ctx);
   }
 
@@ -92,14 +106,12 @@ export class FixtureWarcraftLogsProvider implements WarcraftLogsProvider {
     fightId: number,
     ctx: ProviderFetchContext,
   ): Promise<ProviderResult<WclReportFightDetails>> {
-    const identity = ctx.targetCharacter;
-    const characterName = identity?.name ?? "Fixtureplayer";
-    const realmSlug = identity?.realmSlug ?? "tarren-mill";
+    const identity = requireTargetCharacter(ctx);
     const details = await this.fetchReportFightDetails(
       reportCode,
       fightId,
-      characterName,
-      realmSlug,
+      identity.name,
+      identity.realmSlug,
       ctx,
     );
     return emptyProviderResult(
@@ -132,26 +144,26 @@ export class FixtureWarcraftLogsProvider implements WarcraftLogsProvider {
     const rankingsParsed = parseWithSchema(zoneRankingsSchema, rankingsRaw, "ZoneRankings");
     const rankings = mapZoneRankings(
       rankingsParsed.characterData.character?.zoneRankings,
-      DEFAULT_MPLUS_ZONE_ID,
+      FIXTURE_MPLUS_ZONE_ID,
     );
 
     const recentRaw = (fixture.recentReports as { data: unknown }).data;
     const recentParsed = parseWithSchema(recentReportsSchema, recentRaw, "RecentReports");
-    const recentPublicCount =
-      recentParsed.characterData.character?.recentReports?.data?.filter(
-        (r) => (r.visibility ?? "public") === "public",
-      ).length ?? 0;
+    const recentMapped = recentReportsToCandidates(
+      recentParsed.characterData.character?.recentReports,
+    );
 
-    const visibility = deriveVisibility(character, rankings, recentPublicCount);
+    const visibility = deriveVisibility(character, rankings, recentMapped.candidates.length, {
+      privateSkipped: recentMapped.privateSkipped + recentMapped.unlistedSkipped,
+    });
     const summary = mapCharacterSummary(character, identity.region, ctx.now, visibility);
 
     return buildCharacterDiscovery({
       summary,
       rankings,
       rankingCandidates: rankingsToCandidates(rankings),
-      recentCandidates: recentReportsToCandidates(
-        recentParsed.characterData.character?.recentReports,
-      ),
+      recentCandidates: recentMapped.candidates,
+      privateReportsSkipped: recentMapped.privateSkipped + recentMapped.unlistedSkipped,
     });
   }
 
@@ -262,25 +274,26 @@ export class FixtureWarcraftLogsProvider implements WarcraftLogsProvider {
     ctx: ProviderFetchContext,
   ): MythicRunDTO {
     const completedAt = candidate.completedAt ?? ctx.now;
+    const placeholders = mythicRunPlaceholders(candidate);
     const rosterKey = `${mapRegionToWcl(identity.region)}|${identity.realmSlug}|${identity.name}`;
     return {
       id: `${candidate.reportCode}-${candidate.fightId}`,
       region: identity.region,
-      seasonSlug: "current",
-      dungeonSlug: candidate.dungeonSlug ?? "unknown",
-      keyLevel: candidate.keyLevel ?? 0,
+      seasonSlug: placeholders.seasonSlug,
+      dungeonSlug: placeholders.dungeonSlug,
+      keyLevel: placeholders.keyLevel,
       completedAt,
-      durationMs: candidate.durationMs ?? 0,
+      durationMs: placeholders.durationMs,
       timerMs: null,
-      timed: true,
+      timed: placeholders.timed,
       scoreValue: candidate.score,
       canonicalFingerprint: computeRunFingerprint({
         region: identity.region,
-        seasonKey: "current",
-        dungeonKey: candidate.dungeonSlug ?? "unknown",
+        seasonKey: placeholders.seasonSlug,
+        dungeonKey: placeholders.dungeonSlug,
         completedAtMs: new Date(completedAt).getTime(),
-        keyLevel: candidate.keyLevel ?? 0,
-        durationMs: candidate.durationMs ?? 0,
+        keyLevel: placeholders.keyLevel,
+        durationMs: placeholders.durationMs,
         rosterCanonicalKeys: [rosterKey],
       }),
       affixes: [],

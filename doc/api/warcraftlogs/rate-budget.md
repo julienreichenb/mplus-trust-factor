@@ -20,9 +20,10 @@ Implementation: `evaluateRateBudget`, `shouldDeferExpensiveWork` in `@mplus/prov
 - `translate: false` on masterData and events
 - Filter by `fightIDs`, `sourceID`, event type
 - Fetch masterData once per report revision
-- Paginate with `nextPageTimestamp`; guard loops (max 50 pages)
+- Paginate with `nextPageTimestamp`; guard loops (max 10 pages / 2000 events per category)
 - Cache immutable revision data in `ReportRevisionCache`
 - Detailed analysis only for latest + highest run (deduped)
+- `STOP` budget returns character-level `RATE_LIMITED` without probing reports
 
 ## Estimated character refresh budget
 

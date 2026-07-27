@@ -99,6 +99,6 @@ Categories fetched for detailed analysis:
 | Healing | External support only |
 | CombatantInfo | Gear/spec snapshot |
 
-Pagination: follow `nextPageTimestamp` until null; max 50 pages per category.
+Pagination: follow `nextPageTimestamp` until null; max **10** pages per category (`MAX_EVENT_PAGES`), max **2000** events retained per category.
 
 **Observed cost:** ~1–5 points per page depending on category.

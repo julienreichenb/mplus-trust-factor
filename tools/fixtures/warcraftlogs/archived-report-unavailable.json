@@ -1,0 +1,37 @@
+{
+  "scenario": "archived-report-unavailable",
+  "resolveCharacter": {
+    "data": {
+      "characterData": {
+        "character": {
+          "id": 900010,
+          "canonicalID": 800010,
+          "name": "Archiveplayer",
+          "level": 80,
+          "classID": 8,
+          "faction": 0,
+          "hidden": false,
+          "server": { "slug": "tarren-mill", "region": { "name": "EU" } }
+        }
+      }
+    }
+  },
+  "zoneRankings": { "data": { "characterData": { "character": { "zoneRankings": { "rankings": [] } } } } },
+  "recentReports": { "data": { "characterData": { "character": { "recentReports": { "data": [], "total": 0, "has_more_pages": false } } } } },
+  "rateLimitData": {
+    "data": { "rateLimitData": { "limitPerHour": 3600, "pointsSpentThisHour": 40, "pointsRemaining": 3560, "resetInSeconds": 3000 } }
+  },
+  "report": {
+    "errors": [
+      {
+        "message": "This report has been archived and is unavailable without archive access"
+      }
+    ],
+    "data": {
+      "reportData": {
+        "report": null
+      }
+    }
+  },
+  "events": {}
+}

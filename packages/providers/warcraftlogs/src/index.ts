@@ -16,12 +16,17 @@ export function createWarcraftLogsProvider(
     | "WCL_RATE_STOP_PERCENT"
     | "WCL_CHARACTER_TTL_SECONDS"
   >,
+  options?: { zoneId?: number; zoneExpiresAt?: string | null },
 ): WarcraftLogsProvider {
   if (mode === "live") {
     if (!env?.WCL_CLIENT_ID || !env?.WCL_CLIENT_SECRET) {
       throw new Error("WCL credentials required for live provider mode");
     }
-    return new LiveWarcraftLogsProvider({ env });
+    return new LiveWarcraftLogsProvider({
+      env,
+      zoneId: options?.zoneId,
+      zoneExpiresAt: options?.zoneExpiresAt,
+    });
   }
   return new FixtureWarcraftLogsProvider();
 }
@@ -36,6 +41,8 @@ export * from "./client/errors.js";
 export * from "./operations/queries.js";
 export * from "./discovery/run-discovery.js";
 export * from "./discovery/run-matching.js";
+export * from "./discovery/mplus-zone.js";
+export * from "./discovery/bounds.js";
 export * from "./analysis/revision-cache.js";
 export * from "./analysis/combat-facts.js";
 export { buildRunCombatFactsFromEvents, fetchAllEventPages } from "./analysis/event-fetcher.js";

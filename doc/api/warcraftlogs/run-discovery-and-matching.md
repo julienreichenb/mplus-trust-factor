@@ -48,4 +48,19 @@ Never auto-merge below `MEDIUM` confidence.
 | `PUBLIC` | Rankings or recent public reports available |
 | `HIDDEN` | `character.hidden === true` |
 | `NO_PUBLIC_LOGS` | Character exists but no public data |
-| `PRIVATE_SKIPPED` | Private reports excluded (public API only) |
+| `PRIVATE_SKIPPED` | Only private/unlisted reports observed (never probed) |
+| `UNAVAILABLE` | Archived/gated report detail — not player fault |
+| `RATE_LIMITED` | Rate budget STOP/DEFER — expensive work skipped |
+
+## Discovery bounds
+
+| Bound | Value |
+|-------|-------|
+| Rankings queries | 1 (skipped if zone expired) |
+| recentReports pages | 1 (`limit=20`) |
+| Candidate cap | 25 (`MAX_DISCOVERY_CANDIDATES`) |
+| Analysis fights | ≤2 (latest + highest, deduped) |
+| Event pages / type | ≤10 |
+| Events retained / type | ≤2000 |
+
+Private and unlisted reports are filtered out; `allowUnlisted` is never set.

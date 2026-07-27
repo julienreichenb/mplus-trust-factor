@@ -52,14 +52,38 @@ export function mapHttpStatusToError(status: number, body: unknown): ExternalApi
 }
 
 export function mapGraphQlErrors(errors: Array<{ message: string; extensions?: unknown }>): ExternalApiError {
+  const joined = errors.map((e) => e.message).join("; ");
   const notFound = errors.some((e) => /not found|unknown character/i.test(e.message));
+  const rateLimited = errors.some((e) => /rate.?limit|too many points|points remaining/i.test(e.message));
+  const archived = errors.some((e) =>
+    /archiv|unavailable|access denied|not available|subscription/i.test(e.message),
+  );
+
+  let code: ExternalApiErrorCode = "INVALID_RESPONSE";
+  if (notFound) code = "NOT_FOUND";
+  else if (rateLimited) code = "RATE_LIMITED";
+  else if (archived) code = "INVALID_RESPONSE"; // classified as UNAVAILABLE by callers via isUnavailableEvidenceError
+
   return new ExternalApiError({
-    message: errors.map((e) => e.message).join("; "),
-    code: notFound ? "NOT_FOUND" : "INVALID_RESPONSE",
+    message: joined,
+    code,
     provider: "warcraftlogs",
-    retryable: false,
-    details: errors,
+    retryable: rateLimited,
+    details: { errors, unavailableEvidence: archived },
   });
+}
+
+/** Archived / subscription-gated report detail — evidence unavailable, not player fault. */
+export function isUnavailableEvidenceError(error: unknown): boolean {
+  if (!(error instanceof ExternalApiError)) {
+    return false;
+  }
+  if (error.provider !== "warcraftlogs") {
+    return false;
+  }
+  const details = error.details as { unavailableEvidence?: boolean } | null;
+  if (details?.unavailableEvidence) return true;
+  return /archiv|unavailable|access denied|not available|subscription/i.test(error.message);
 }
 
 export function wclError(code: ExternalApiErrorCode, message: string, details?: unknown): ExternalApiError {
