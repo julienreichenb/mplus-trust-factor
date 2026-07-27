@@ -2,7 +2,7 @@
 
 ## Commit
 
-See final hash on branch `agent/wave4-ux`.
+`538f1ae3ec02c0c1a048d4a7b329b9b76849dc80` on branch `agent/wave4-ux`.
 
 ## What changed
 
