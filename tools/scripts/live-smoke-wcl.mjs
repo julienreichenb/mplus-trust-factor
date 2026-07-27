@@ -47,7 +47,7 @@ if (!accessToken || typeof accessToken !== "string") {
 }
 
 const query = `query Smoke($name: String!, $serverSlug: String!, $serverRegion: String!) {
-  rateLimitData { limitPerHour pointsSpentThisHour pointsRemaining resetInSeconds }
+  rateLimitData { limitPerHour pointsSpentThisHour pointsResetIn }
   characterData {
     character(name: $name, serverSlug: $serverSlug, serverRegion: $serverRegion) {
       id

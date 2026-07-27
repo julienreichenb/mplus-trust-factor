@@ -1,4 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { buildGraphQlFingerprint, hashGraphQlBody } from "./client/fingerprint.js";
 import { WclTokenManager } from "./client/token-manager.js";
 import { FixtureWarcraftLogsProvider } from "./fixture/fixture-provider.js";
@@ -28,6 +31,7 @@ import { ReportRevisionCache } from "./analysis/revision-cache.js";
 import { evaluateRateBudget, parseRateLimitSnapshot, shouldDeferExpensiveWork } from "./rate/rate-budget.js";
 import { parseWithSchema, characterResolveSchema } from "./client/graphql-client.js";
 import { isUnavailableEvidenceError, mapGraphQlErrors } from "./client/errors.js";
+import { OPERATIONS } from "./operations/queries.js";
 import type { WclRunCandidate } from "./types.js";
 
 const ctx = {
@@ -236,7 +240,7 @@ describe("Rate budget", () => {
     const snapshot = parseRateLimitSnapshot({
       limitPerHour: 3600,
       pointsSpentThisHour: 2900,
-      resetInSeconds: 600,
+      pointsResetIn: 600,
     });
     const decision = evaluateRateBudget(snapshot, { warnPercent: 70, deferPercent: 80, stopPercent: 90 });
     expect(decision.action).toBe("DEFER");
@@ -249,6 +253,52 @@ describe("Rate budget", () => {
     const snapshot = parseRateLimitSnapshot(raw);
     const decision = evaluateRateBudget(snapshot, { warnPercent: 70, deferPercent: 80, stopPercent: 90 });
     expect(decision.action).toBe("STOP");
+  });
+
+  it("derives pointsRemaining from live schema fields (pointsResetIn)", () => {
+    const snapshot = parseRateLimitSnapshot({
+      limitPerHour: 3600,
+      pointsSpentThisHour: 120,
+      pointsResetIn: 2400,
+    });
+    expect(snapshot.pointsRemaining).toBe(3480);
+    expect(snapshot.resetAt).toBeTruthy();
+  });
+});
+
+describe("RateLimitData live GraphQL selection", () => {
+  const LIVE_FIELDS = ["limitPerHour", "pointsSpentThisHour", "pointsResetIn"] as const;
+  const STALE_FIELDS = ["pointsRemaining", "resetInSeconds"] as const;
+
+  function assertLiveRateLimitSelection(querySource: string): void {
+    for (const field of LIVE_FIELDS) {
+      expect(querySource).toMatch(new RegExp(`\\b${field}\\b`));
+    }
+    for (const field of STALE_FIELDS) {
+      expect(querySource).not.toMatch(new RegExp(`\\b${field}\\b`));
+    }
+  }
+
+  it("OPERATIONS.RateLimitData matches the current live schema fields", () => {
+    assertLiveRateLimitSelection(OPERATIONS.RateLimitData.query);
+  });
+
+  it("live-smoke-wcl.mjs rateLimitData selection matches OPERATIONS (no stale fields)", () => {
+    const smokePath = resolve(
+      fileURLToPath(new URL(".", import.meta.url)),
+      "../../../../tools/scripts/live-smoke-wcl.mjs",
+    );
+    const smokeSource = readFileSync(smokePath, "utf8");
+    const rateLimitBlock = smokeSource.match(/rateLimitData\s*\{[^}]+\}/);
+    expect(rateLimitBlock?.[0]).toBeTruthy();
+    assertLiveRateLimitSelection(rateLimitBlock![0]!);
+    assertLiveRateLimitSelection(OPERATIONS.RateLimitData.query);
+
+    // Smoke and provider operation must request the same live fields.
+    for (const field of LIVE_FIELDS) {
+      expect(rateLimitBlock![0]).toContain(field);
+      expect(OPERATIONS.RateLimitData.query).toContain(field);
+    }
   });
 });
 
