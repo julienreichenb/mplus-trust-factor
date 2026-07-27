@@ -58,12 +58,18 @@ export function slugifyDungeonName(value: string): string {
     .replace(/^-+|-+$/g, "");
 }
 
-export function resolveDungeonSlug(fight: HydrationFight): string | null {
+export function resolveDungeonSlug(
+  fight: HydrationFight,
+  reportZoneName?: string | null,
+): string | null {
   if (fight.encounterID != null && ENCOUNTER_DUNGEON_MAP[fight.encounterID]) {
     return ENCOUNTER_DUNGEON_MAP[fight.encounterID]!;
   }
   if (fight.name && fight.name.trim()) {
     return slugifyDungeonName(fight.name);
+  }
+  if (reportZoneName?.trim()) {
+    return slugifyDungeonName(reportZoneName);
   }
   return null;
 }
@@ -145,11 +151,29 @@ export function hydratedFightToCandidate(
   report: HydrationReportPayload,
   fight: HydrationFight,
   targetActorId: number,
+  hints: HydrationHint[] = [],
 ): WclRunCandidate {
-  const dungeonSlug = resolveDungeonSlug(fight);
+  let dungeonSlug = resolveDungeonSlug(fight, report.zone?.name);
   const durationMs = Math.max(0, fight.endTime - fight.startTime);
   const completedAtMs = report.startTime + fight.endTime;
   const keyLevel = fight.keystoneLevel ?? null;
+  const completedAt = new Date(completedAtMs).toISOString();
+
+  // Prefer external hydration hints when encounter→dungeon map misses the season pool.
+  if (dungeonSlug == null && keyLevel != null && hints.length > 0) {
+    const CLOCK_SKEW_MS = 45 * 60 * 1000;
+    let best: { hint: HydrationHint; delta: number } | null = null;
+    for (const h of hints) {
+      if (!h.dungeonSlug?.trim()) continue;
+      if (h.keyLevel != null && h.keyLevel !== keyLevel) continue;
+      const delta = Math.abs(Date.parse(h.completedAt) - completedAtMs);
+      if (delta > CLOCK_SKEW_MS) continue;
+      if (!best || delta < best.delta) best = { hint: h, delta };
+    }
+    if (best?.hint.dungeonSlug) {
+      dungeonSlug = best.hint.dungeonSlug;
+    }
+  }
 
   return {
     reportCode: report.code,
@@ -161,7 +185,7 @@ export function hydratedFightToCandidate(
     keyLevel,
     score: null,
     startTimeMs: report.startTime + fight.startTime,
-    completedAt: new Date(completedAtMs).toISOString(),
+    completedAt,
     durationMs,
     timed: null,
     selectionTags: [],
@@ -187,6 +211,7 @@ export function candidatesFromHydratedReport(
   report: HydrationReportPayload,
   characterName: string,
   realmSlug: string,
+  hints: HydrationHint[] = [],
 ): { candidates: WclRunCandidate[]; rejected: string[] } {
   const rejected: string[] = [];
   const vis = (report.visibility ?? "public").toLowerCase();
@@ -219,7 +244,7 @@ export function candidatesFromHydratedReport(
       rejected.push(`fight_${fight.id}_target_absent`);
       continue;
     }
-    candidates.push(hydratedFightToCandidate(report, fight, targetActorId));
+    candidates.push(hydratedFightToCandidate(report, fight, targetActorId, hints));
   }
 
   return { candidates, rejected };
@@ -257,7 +282,12 @@ export async function hydrateFightUnknownCandidates(input: {
         continue;
       }
       hydratedReportCount += 1;
-      const mapped = candidatesFromHydratedReport(report, input.characterName, input.realmSlug);
+      const mapped = candidatesFromHydratedReport(
+        report,
+        input.characterName,
+        input.realmSlug,
+        input.hints ?? [],
+      );
       rejectedReasons.push(...mapped.rejected);
       hydrated.push(...mapped.candidates);
     } catch (error) {

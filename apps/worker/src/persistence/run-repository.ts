@@ -10,6 +10,10 @@ import type {
 import type { MythicRunDTO } from "@mplus/contracts";
 import { ensureRegion } from "./realm-repository.js";
 import type { PrismaClientOrTx } from "./shared.js";
+import {
+  computeCrossProviderRunKey,
+  evaluateCrossProviderPersistMatch,
+} from "../orchestration/run-fusion.js";
 
 /** Read shape used by API mappers: adds the relations needed for a run summary DTO. */
 export type MythicRunWithRelations = MythicRun & {
@@ -100,7 +104,29 @@ export interface RunRepository {
   findLatestForCharacter(characterId: string): Promise<MythicRunWithRelations | null>;
   findHighestForCharacter(characterId: string): Promise<MythicRunWithRelations | null>;
   findById(runId: string): Promise<MythicRunWithRelations | null>;
+  /**
+   * Unique canonical Mythic+ runs the character participated in (target).
+   * Counts distinct MythicRun.canonicalFingerprint — never RunSourceReference rows.
+   */
   countForCharacter(characterId: string, seasonId?: string): Promise<number>;
+  /** Provider source refs attached to those runs (RIO+WCL for one run → 2). Diagnostic only. */
+  countProviderSourcesForCharacter(characterId: string, seasonId?: string): Promise<number>;
+  /**
+   * Collapse existing duplicate MythicRun rows that represent the same M+ run
+   * (dungeon + key + time|duration). Moves sources/participants/analyses/metrics onto the winner.
+   */
+  reconcileDuplicateRunsForCharacter(
+    characterId: string,
+    seasonId?: string,
+  ): Promise<{ mergedGroups: number; deletedRunCount: number }>;
+  /**
+   * Detach the character from MythicRun rows outside the active season and delete
+   * orphaned runs that no longer have participants.
+   */
+  pruneOtherSeasonParticipations(
+    characterId: string,
+    activeSeasonId: string,
+  ): Promise<{ detachedParticipations: number; deletedRuns: number }>;
   findWclSource(runId: string): Promise<{ reportCode: string; fightId: number } | null>;
   findLatestAnalysisCoverage(
     characterId: string,
@@ -155,6 +181,7 @@ export function createRunRepository(prisma: PrismaClient): RunRepository {
           await tx.runSourceReference.upsert({
             where: { provider_externalRunId: { provider: source.provider, externalRunId: source.externalRunId } },
             update: {
+              runId: mythicRun.id,
               externalUrl: source.externalUrl,
               reportCode: source.reportCode,
               fightId: source.fightId,
@@ -236,13 +263,318 @@ export function createRunRepository(prisma: PrismaClient): RunRepository {
     },
 
     async countForCharacter(characterId, seasonId) {
-      return prisma.runParticipant.count({
+      // Distinct fingerprints (unique on MythicRun) — not participant or provider-source rows.
+      const rows = await prisma.mythicRun.findMany({
+        where: {
+          ...(seasonId ? { seasonId } : {}),
+          participants: {
+            some: { characterId, isTargetCharacter: true },
+          },
+        },
+        select: { canonicalFingerprint: true },
+        distinct: ["canonicalFingerprint"],
+      });
+      return rows.length;
+    },
+
+    async countProviderSourcesForCharacter(characterId, seasonId) {
+      return prisma.runSourceReference.count({
+        where: {
+          run: {
+            ...(seasonId ? { seasonId } : {}),
+            participants: {
+              some: { characterId, isTargetCharacter: true },
+            },
+          },
+        },
+      });
+    },
+
+    async reconcileDuplicateRunsForCharacter(characterId, seasonId) {
+      const runs = await prisma.mythicRun.findMany({
+        where: {
+          ...(seasonId ? { seasonId } : {}),
+          participants: { some: { characterId, isTargetCharacter: true } },
+        },
+        include: { sources: true, dungeon: true },
+        orderBy: { createdAt: "asc" },
+      });
+
+      type RunRow = (typeof runs)[number];
+      const parent = new Map<string, string>();
+      const find = (id: string): string => {
+        const p = parent.get(id) ?? id;
+        if (p !== id) {
+          const root = find(p);
+          parent.set(id, root);
+          return root;
+        }
+        return id;
+      };
+      const union = (a: string, b: string) => {
+        const ra = find(a);
+        const rb = find(b);
+        if (ra !== rb) parent.set(rb, ra);
+      };
+
+      for (const run of runs) parent.set(run.id, run.id);
+
+      for (let i = 0; i < runs.length; i++) {
+        const a = runs[i]!;
+        for (let j = i + 1; j < runs.length; j++) {
+          const b = runs[j]!;
+          const { matched } = evaluateCrossProviderPersistMatch(
+            {
+              dungeonSlug: a.dungeon.slug,
+              keyLevel: a.keyLevel,
+              completedAt: a.completedAt.toISOString(),
+              durationMs: a.durationMs,
+            },
+            {
+              dungeonSlug: b.dungeon.slug,
+              keyLevel: b.keyLevel,
+              completedAt: b.completedAt.toISOString(),
+              durationMs: b.durationMs,
+            },
+          );
+          if (matched) union(a.id, b.id);
+        }
+      }
+
+      const groups = new Map<string, RunRow[]>();
+      for (const run of runs) {
+        const root = find(run.id);
+        const list = groups.get(root) ?? [];
+        list.push(run);
+        groups.set(root, list);
+      }
+
+      let mergedGroups = 0;
+      let deletedRunCount = 0;
+
+      const providerRank = (provider: string) =>
+        provider === "BLIZZARD" ? 3 : provider === "RAIDER_IO" ? 2 : provider === "WARCRAFT_LOGS" ? 1 : 0;
+
+      for (const group of groups.values()) {
+        if (group.length < 2) continue;
+        mergedGroups += 1;
+
+        group.sort((a, b) => {
+          const aRank = Math.max(0, ...a.sources.map((s) => providerRank(s.provider)));
+          const bRank = Math.max(0, ...b.sources.map((s) => providerRank(s.provider)));
+          if (bRank !== aRank) return bRank - aRank;
+          return a.createdAt.getTime() - b.createdAt.getTime();
+        });
+        const winner = group[0]!;
+        const losers = group.slice(1);
+
+        await prisma.$transaction(async (tx) => {
+          for (const loser of losers) {
+            // Move sources onto winner (skip if provider+external already present).
+            for (const source of loser.sources) {
+              const existing = await tx.runSourceReference.findFirst({
+                where: {
+                  OR: [
+                    {
+                      provider: source.provider,
+                      externalRunId: source.externalRunId,
+                    },
+                    ...(source.reportCode != null && source.fightId != null
+                      ? [
+                          {
+                            provider: source.provider,
+                            reportCode: source.reportCode,
+                            fightId: source.fightId,
+                          },
+                        ]
+                      : []),
+                  ],
+                },
+              });
+              if (existing) {
+                if (existing.runId !== winner.id) {
+                  await tx.runSourceReference.update({
+                    where: { id: existing.id },
+                    data: { runId: winner.id },
+                  });
+                }
+                if (existing.id !== source.id) {
+                  await tx.runSourceReference.delete({ where: { id: source.id } }).catch(() => undefined);
+                }
+              } else {
+                await tx.runSourceReference.update({
+                  where: { id: source.id },
+                  data: { runId: winner.id },
+                });
+              }
+            }
+
+            const loserParticipants = await tx.runParticipant.findMany({ where: { runId: loser.id } });
+            for (const participant of loserParticipants) {
+              const clash = await tx.runParticipant.findUnique({
+                where: {
+                  runId_providerCharacterKey: {
+                    runId: winner.id,
+                    providerCharacterKey: participant.providerCharacterKey,
+                  },
+                },
+              });
+              if (clash) {
+                await tx.runParticipant.update({
+                  where: { id: clash.id },
+                  data: {
+                    isTargetCharacter: clash.isTargetCharacter || participant.isTargetCharacter,
+                    characterId: clash.characterId ?? participant.characterId,
+                    itemLevel: clash.itemLevel ?? participant.itemLevel,
+                    mythicRatingAtRun: clash.mythicRatingAtRun ?? participant.mythicRatingAtRun,
+                  },
+                });
+                await tx.runParticipant.delete({ where: { id: participant.id } });
+              } else {
+                await tx.runParticipant.update({
+                  where: { id: participant.id },
+                  data: { runId: winner.id },
+                });
+              }
+            }
+
+            const analyses = await tx.runAnalysis.findMany({ where: { runId: loser.id } });
+            for (const analysis of analyses) {
+              const clash = await tx.runAnalysis.findUnique({
+                where: {
+                  runId_characterId_analysisVersion: {
+                    runId: winner.id,
+                    characterId: analysis.characterId,
+                    analysisVersion: analysis.analysisVersion,
+                  },
+                },
+              });
+              if (clash) {
+                if (analysis.analyzedAt > clash.analyzedAt) {
+                  await tx.runAnalysis.update({
+                    where: { id: clash.id },
+                    data: {
+                      analyzedAt: analysis.analyzedAt,
+                      coverage: analysis.coverage,
+                      summary: analysis.summary as object,
+                      sourcePayloadIds: analysis.sourcePayloadIds as object,
+                    },
+                  });
+                }
+                await tx.runAnalysis.delete({ where: { id: analysis.id } });
+              } else {
+                await tx.runAnalysis.update({
+                  where: { id: analysis.id },
+                  data: { runId: winner.id },
+                });
+              }
+            }
+
+            await tx.metricObservation.updateMany({
+              where: { runId: loser.id },
+              data: { runId: winner.id },
+            });
+            await tx.characterRedFlag.updateMany({
+              where: { runId: loser.id },
+              data: { runId: winner.id },
+            });
+            await tx.ingestionJob.updateMany({
+              where: { runId: loser.id },
+              data: { runId: winner.id },
+            });
+
+            await tx.mythicRun.delete({ where: { id: loser.id } });
+            deletedRunCount += 1;
+          }
+
+          const region = await tx.region.findUnique({ where: { id: winner.regionId } });
+          const fingerprint = computeCrossProviderRunKey({
+            region: (region?.code ?? "EU") as "EU" | "US" | "KR" | "TW",
+            dungeonSlug: winner.dungeon.slug,
+            keyLevel: winner.keyLevel,
+            completedAt: winner.completedAt.toISOString(),
+          });
+          if (fingerprint !== winner.canonicalFingerprint) {
+            const clash = await tx.mythicRun.findUnique({
+              where: { canonicalFingerprint: fingerprint },
+            });
+            if (!clash || clash.id === winner.id) {
+              await tx.mythicRun.update({
+                where: { id: winner.id },
+                data: { canonicalFingerprint: fingerprint },
+              });
+            }
+          }
+        });
+      }
+
+      // After source reassignment, drop orphan MythicRun rows that no longer have any sources.
+      const orphans = await prisma.mythicRun.findMany({
+        where: {
+          ...(seasonId ? { seasonId } : {}),
+          participants: { some: { characterId, isTargetCharacter: true } },
+          sources: { none: {} },
+        },
+        select: { id: true },
+      });
+      for (const orphan of orphans) {
+        await prisma.$transaction(async (tx) => {
+          await tx.runParticipant.deleteMany({ where: { runId: orphan.id } });
+          await tx.runAnalysis.deleteMany({ where: { runId: orphan.id } });
+          await tx.metricObservation.updateMany({
+            where: { runId: orphan.id },
+            data: { runId: null },
+          });
+          await tx.characterRedFlag.updateMany({
+            where: { runId: orphan.id },
+            data: { runId: null },
+          });
+          await tx.ingestionJob.updateMany({
+            where: { runId: orphan.id },
+            data: { runId: null },
+          });
+          await tx.mythicRun.delete({ where: { id: orphan.id } });
+        });
+        deletedRunCount += 1;
+      }
+
+      return { mergedGroups, deletedRunCount };
+    },
+
+    async pruneOtherSeasonParticipations(characterId, activeSeasonId) {
+      const foreign = await prisma.runParticipant.findMany({
         where: {
           characterId,
           isTargetCharacter: true,
-          ...(seasonId ? { run: { seasonId } } : {}),
+          run: { seasonId: { not: activeSeasonId } },
         },
+        select: { id: true, runId: true },
       });
+
+      let detachedParticipations = 0;
+      let deletedRuns = 0;
+      const runIds = [...new Set(foreign.map((p) => p.runId))];
+
+      for (const participant of foreign) {
+        await prisma.runParticipant.delete({ where: { id: participant.id } });
+        detachedParticipations += 1;
+      }
+
+      for (const runId of runIds) {
+        const remaining = await prisma.runParticipant.count({ where: { runId } });
+        if (remaining > 0) continue;
+        await prisma.$transaction(async (tx) => {
+          await tx.runSourceReference.deleteMany({ where: { runId } });
+          await tx.runAnalysis.deleteMany({ where: { runId } });
+          await tx.metricObservation.updateMany({ where: { runId }, data: { runId: null } });
+          await tx.characterRedFlag.updateMany({ where: { runId }, data: { runId: null } });
+          await tx.ingestionJob.updateMany({ where: { runId }, data: { runId: null } });
+          await tx.mythicRun.delete({ where: { id: runId } });
+        });
+        deletedRuns += 1;
+      }
+
+      return { detachedParticipations, deletedRuns };
     },
 
     async findWclSource(runId) {

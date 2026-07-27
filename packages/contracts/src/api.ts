@@ -55,6 +55,11 @@ export interface TalentSummary {
 
 export interface SeasonSummary {
   seasonSlug: string;
+  /**
+   * Unique canonical Mythic+ runs for this character in the season
+   * (distinct MythicRun.canonicalFingerprint). Not provider source-reference count:
+   * a single run sourced from both Raider.IO and WCL counts as 1.
+   */
   runCount: number;
   mythicRating: number | null;
   priorSeasonRating: number | null;

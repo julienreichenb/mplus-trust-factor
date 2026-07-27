@@ -42,7 +42,7 @@ import {
   collectRaiderIoRuns,
   ensureTargetParticipant,
   filterRunsToActiveWindow,
-  mergeRunSources,
+  fuseCrossProviderRuns,
 } from "./run-fusion.js";
 
 export const REFRESH_STAGES = [
@@ -588,7 +588,8 @@ export async function runRefreshPipeline(
     }
   }
 
-  let fusedRuns = mergeRunSources([...blizzardRuns, ...rioRuns, ...discoveredRuns]).map((run) =>
+  const fusion = fuseCrossProviderRuns([...blizzardRuns, ...rioRuns, ...discoveredRuns]);
+  let fusedRuns = fusion.runs.map((run) =>
     ensureTargetParticipant(
       {
         ...run,
@@ -638,6 +639,31 @@ export async function runRefreshPipeline(
       targetCharacterId: character.id,
     });
   }
+
+  const reconcileResult = await repositories.run.reconcileDuplicateRunsForCharacter(
+    character.id,
+    season.id,
+  );
+  const seasonPrune = await repositories.run.pruneOtherSeasonParticipations(
+    character.id,
+    season.id,
+  );
+  if (reconcileResult.deletedRunCount > 0 || seasonPrune.deletedRuns > 0) {
+    logger.info(
+      {
+        identity,
+        mergedGroups: reconcileResult.mergedGroups,
+        deletedRunCount: reconcileResult.deletedRunCount,
+        detachedOtherSeasonParticipations: seasonPrune.detachedParticipations,
+        deletedOtherSeasonRuns: seasonPrune.deletedRuns,
+      },
+      "refresh pipeline: reconciled duplicate MythicRun rows",
+    );
+  }
+
+  // Re-count after reconcile so volume_recency / seasonSummary use canonical rows.
+  const canonicalRunCount = await repositories.run.countForCharacter(character.id, season.id);
+  const volumeRunCount = canonicalRunCount > 0 ? canonicalRunCount : fusion.mergedCanonicalRunCount;
 
   if (disagreements.length > 0 || excludedObservations.length > 0 || fusionWarnings.length > 0) {
     await repositories.providerState.upsert({
@@ -721,6 +747,13 @@ export async function runRefreshPipeline(
       wclVisibility,
       discoveredRunCount: discoveredRuns.length,
       matchedSelectedRuns: combatFactsList.length,
+      matchedPairCount: fusion.matchedPairCount,
+      mergedCanonicalRunCount: volumeRunCount,
+      unresolvedCrossProviderMatches: fusion.unresolvedCrossProviderMatches,
+      reconciledDuplicateGroups: reconcileResult.mergedGroups,
+      reconciledDeletedRuns: reconcileResult.deletedRunCount,
+      prunedOtherSeasonParticipations: seasonPrune.detachedParticipations,
+      prunedOtherSeasonRuns: seasonPrune.deletedRuns,
     };
     // Always persist character-level provider visibility (including zero matched runs).
     await repositories.providerState.upsert({
@@ -787,7 +820,7 @@ export async function runRefreshPipeline(
     observations.push(...extractMetricsFromCombatFacts(facts, observedAt));
   }
 
-  const runVolume = fusedRuns.length;
+  const runVolume = volumeRunCount;
   if (runVolume > 0) {
     observations.push({
       metricKey: "experience.volume_recency",
@@ -800,9 +833,12 @@ export async function runRefreshPipeline(
       coverage: null,
       context: {
         discoveredRuns: discoveredRuns.length,
-        fusedRuns: fusedRuns.length,
+        fusedRuns: fusion.mergedCanonicalRunCount,
+        canonicalRunCount: volumeRunCount,
+        matchedPairCount: fusion.matchedPairCount,
+        unresolvedCrossProviderMatches: fusion.unresolvedCrossProviderMatches,
         wclVisibility,
-        derivedFrom: "run_volume",
+        derivedFrom: "canonical_run_volume",
       },
     });
   }

@@ -570,6 +570,12 @@ async function readPersistenceDiagnostics(identity: CharacterIdentityInput): Pro
         characterProviderState: {
           findUnique: (args: unknown) => Promise<Record<string, unknown> | null>;
         };
+        mythicRun: {
+          findMany: (args: unknown) => Promise<Array<{ canonicalFingerprint: string }>>;
+        };
+        runSourceReference: {
+          count: (args: unknown) => Promise<number>;
+        };
         metricObservation: {
           findMany: (args: unknown) => Promise<
             Array<{
@@ -602,7 +608,8 @@ async function readPersistenceDiagnostics(identity: CharacterIdentityInput): Pro
       });
       if (!character) return { available: true, characterFound: false };
 
-      const [providerState, observations] = await Promise.all([
+      const [providerState, observations, canonicalRuns, providerSourceReferenceCount] =
+        await Promise.all([
         prisma.characterProviderState.findUnique({
           where: {
             characterId_provider: { characterId: character.id, provider: "WARCRAFT_LOGS" },
@@ -618,6 +625,24 @@ async function readPersistenceDiagnostics(identity: CharacterIdentityInput): Pro
             metricDefinition: { select: { key: true } },
           },
         }),
+        prisma.mythicRun.findMany({
+          where: {
+            participants: {
+              some: { characterId: character.id, isTargetCharacter: true },
+            },
+          },
+          select: { canonicalFingerprint: true },
+          distinct: ["canonicalFingerprint"],
+        }),
+        prisma.runSourceReference.count({
+          where: {
+            run: {
+              participants: {
+                some: { characterId: character.id, isTargetCharacter: true },
+              },
+            },
+          },
+        }),
       ]);
 
       const wclObservations = observations.filter((o) => o.sourceProvider === "WARCRAFT_LOGS");
@@ -631,6 +656,7 @@ async function readPersistenceDiagnostics(identity: CharacterIdentityInput): Pro
       const wclMetricKeys = wclObservations.map(
         (o) => o.metricDefinition?.key ?? o.metricKey ?? "unknown",
       );
+      const uniqueCanonicalFingerprintCount = canonicalRuns.length;
 
       return {
         available: true,
@@ -660,6 +686,27 @@ async function readPersistenceDiagnostics(identity: CharacterIdentityInput): Pro
         metricKeysEmitted: [...new Set(metricKeys)],
         wclMetricKeys: [...new Set(wclMetricKeys)],
         excludedObservationReasons: excludedReasons,
+        /** seasonSummary.runCount semantics: unique MythicRun fingerprints, not provider records. */
+        uniqueCanonicalFingerprintCount,
+        providerSourceReferenceCount,
+        matchedPairCount:
+          typeof (providerState?.metadata as { matchedPairCount?: unknown } | null)?.matchedPairCount ===
+          "number"
+            ? (providerState?.metadata as { matchedPairCount: number }).matchedPairCount
+            : null,
+        mergedCanonicalRunCount:
+          typeof (providerState?.metadata as { mergedCanonicalRunCount?: unknown } | null)
+            ?.mergedCanonicalRunCount === "number"
+            ? (providerState?.metadata as { mergedCanonicalRunCount: number }).mergedCanonicalRunCount
+            : uniqueCanonicalFingerprintCount,
+        unresolvedCrossProviderMatches:
+          typeof (providerState?.metadata as { unresolvedCrossProviderMatches?: unknown } | null)
+            ?.unresolvedCrossProviderMatches === "number"
+            ? (providerState?.metadata as { unresolvedCrossProviderMatches: number })
+                .unresolvedCrossProviderMatches
+            : null,
+        runCountSemantics:
+          "uniqueCanonicalFingerprintCount === seasonSummary.runCount; providerSourceReferenceCount may be higher when RIO+WCL share a run",
       };
     } finally {
       await prisma.$disconnect();

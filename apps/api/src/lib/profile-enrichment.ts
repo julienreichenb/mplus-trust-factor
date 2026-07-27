@@ -202,6 +202,7 @@ export function buildProfileEnrichments(input: CharacterEnrichmentInput): Pick<
   const seasonSummary: SeasonSummary | null = seasonSlug
     ? {
         seasonSlug,
+        // Unique MythicRun.canonicalFingerprint count (not provider source refs).
         runCount,
         mythicRating: latestSnapshot?.mythicRating ?? null,
         priorSeasonRating: null,
