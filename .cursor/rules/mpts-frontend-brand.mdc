@@ -1,0 +1,26 @@
+---
+description: M+ Trust Score brand, UX and WoW presentation rules for the Vue front-end
+globs:
+  - "apps/web/**/*"
+  - "doc/architecture/frontend/**/*"
+alwaysApply: false
+---
+
+Before changing the public front-end, read:
+
+- `doc/architecture/frontend/brand-and-ux-system.md`
+- `doc/architecture/frontend/wow-content-integration.md`
+
+Non-negotiable constraints:
+
+- Keep the visual balance approximately 75% modern SaaS/data and 25% Warcraft atmosphere.
+- Use `apps/web/src/styles/design-tokens.css`; do not introduce hard-coded brand colors.
+- Inter is the product font, Cinzel is a rare display accent, JetBrains Mono is for data values.
+- Preserve route behavior and existing E2E `data-testid` values unless tests change in the same work.
+- Blizzard is the source of truth for character, equipment, talent and media data.
+- Wowhead is optional and presentation-only: documented tooltips and outbound links.
+- Never scrape Wowhead, embed its model viewer or depend on undocumented private endpoints.
+- Core profile and equipment UI must work when all third-party scripts are blocked.
+- Show confidence, freshness and methodology near the score.
+- Design loading, partial, unavailable, stale and failure states.
+- Maintain keyboard access, reduced-motion support and a text equivalent for charts.
