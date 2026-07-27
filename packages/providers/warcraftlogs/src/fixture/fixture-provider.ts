@@ -17,6 +17,7 @@ import {
   mythicRunPlaceholders,
   rankingsToCandidates,
   recentReportsToCandidates,
+  type ZoneRankingsPayload,
 } from "../discovery/run-discovery.js";
 import { FIXTURE_MPLUS_ZONE_ID } from "../discovery/mplus-zone.js";
 import {
@@ -203,7 +204,7 @@ export class FixtureWarcraftLogsProvider implements WarcraftLogsProvider {
     const rankingsRaw = (fixture.zoneRankings as { data: unknown }).data;
     const rankingsParsed = parseWithSchema(zoneRankingsSchema, rankingsRaw, "ZoneRankings");
     const rankings = mapZoneRankings(
-      rankingsParsed.characterData.character?.zoneRankings,
+      (rankingsParsed.characterData.character?.zoneRankings ?? null) as ZoneRankingsPayload | null,
       FIXTURE_MPLUS_ZONE_ID,
     );
 
@@ -312,13 +313,17 @@ export class FixtureWarcraftLogsProvider implements WarcraftLogsProvider {
         endTime: fight.endTime,
         bracket: fight.keystoneLevel ?? null,
         keystoneLevel: fight.keystoneLevel ?? null,
-        friendlyPlayers: (fight.friendlyPlayers ?? []).map((p) => ({
-          id: p.id,
-          name: p.name,
-          server: p.server,
-          type: p.type,
-          icon: p.icon ?? null,
-        })),
+        friendlyPlayers: (fight.friendlyPlayers ?? []).map((p) =>
+          typeof p === "number"
+            ? { id: p, name: "", server: "", type: "Player", icon: null }
+            : {
+                id: p.id,
+                name: p.name,
+                server: p.server,
+                type: p.type,
+                icon: p.icon ?? null,
+              },
+        ),
       },
       combatFacts,
     };

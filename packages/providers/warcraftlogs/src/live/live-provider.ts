@@ -32,6 +32,7 @@ import {
   rankingsToCandidates,
   recentReportsToCandidates,
   countParseStyleRankingRows,
+  type ZoneRankingsPayload,
 } from "../discovery/run-discovery.js";
 import {
   MAX_RECENT_REPORTS_LIMIT,
@@ -442,7 +443,8 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
         rankingsResult.response.data,
         "ZoneRankings",
       );
-      const zonePayload = rankingsParsed.characterData.character?.zoneRankings;
+      const zonePayload = (rankingsParsed.characterData.character?.zoneRankings ??
+        null) as ZoneRankingsPayload | null;
       const rowCounts = countParseStyleRankingRows(zonePayload);
       if (rowCounts.totalRows > 0 && rowCounts.parseRows === 0) {
         warnings.push(

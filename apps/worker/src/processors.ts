@@ -13,6 +13,15 @@ import { runRecalculateScore } from "./orchestration/recalculate-score.js";
 import { runRefreshPipeline } from "./orchestration/refresh-pipeline.js";
 import { classifyError } from "./orchestration/retry-classification.js";
 
+/** BullMQ JSON-encodes job return values; Prisma may include BigInt. */
+function toBullmqReturnValue(value: unknown): unknown {
+  return JSON.parse(
+    JSON.stringify(value, (_key, current) =>
+      typeof current === "bigint" ? current.toString() : current,
+    ),
+  );
+}
+
 /** Runs `fn`; non-retryable failures call `job.discard()` so BullMQ does not schedule further attempts. */
 async function withRetryClassification<T>(job: Job, fn: () => Promise<T>): Promise<T> {
   try {
@@ -31,7 +40,8 @@ export function createWorkers(connection: ConnectionOptions, container: WorkerCo
     QUEUE_NAMES.refreshCharacter,
     async (job) => {
       const payload = refreshCharacterJobSchema.parse(job.data);
-      return withRetryClassification(job, () => runRefreshPipeline(container, payload));
+      const result = await withRetryClassification(job, () => runRefreshPipeline(container, payload));
+      return toBullmqReturnValue(result);
     },
     { connection, autorun: false },
   );
@@ -40,7 +50,8 @@ export function createWorkers(connection: ConnectionOptions, container: WorkerCo
     QUEUE_NAMES.analyzeRun,
     async (job) => {
       const payload = analyzeRunJobSchema.parse(job.data);
-      return withRetryClassification(job, () => runAnalyzeRun(container, payload));
+      const result = await withRetryClassification(job, () => runAnalyzeRun(container, payload));
+      return toBullmqReturnValue(result);
     },
     { connection, autorun: false },
   );
@@ -49,7 +60,8 @@ export function createWorkers(connection: ConnectionOptions, container: WorkerCo
     QUEUE_NAMES.recalculateScore,
     async (job) => {
       const payload = recalculateScoreJobSchema.parse(job.data);
-      return withRetryClassification(job, () => runRecalculateScore(container, payload));
+      const result = await withRetryClassification(job, () => runRecalculateScore(container, payload));
+      return toBullmqReturnValue(result);
     },
     { connection, autorun: false },
   );
@@ -58,7 +70,10 @@ export function createWorkers(connection: ConnectionOptions, container: WorkerCo
     QUEUE_NAMES.generateAddonExport,
     async (job) => {
       const payload = generateAddonExportJobSchema.parse(job.data);
-      return withRetryClassification(job, () => runGenerateAddonExport(container, payload));
+      const result = await withRetryClassification(job, () =>
+        runGenerateAddonExport(container, payload),
+      );
+      return toBullmqReturnValue(result);
     },
     { connection, autorun: false },
   );

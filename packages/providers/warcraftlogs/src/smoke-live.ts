@@ -572,7 +572,12 @@ async function readPersistenceDiagnostics(identity: CharacterIdentityInput): Pro
         };
         metricObservation: {
           findMany: (args: unknown) => Promise<
-            Array<{ metricKey: string; sourceProvider: string; confidence: string | null }>
+            Array<{
+              sourceProvider: string;
+              confidence: string | null;
+              metricDefinition?: { key: string } | null;
+              metricKey?: string;
+            }>
           >;
         };
         $disconnect: () => Promise<void>;
@@ -621,10 +626,10 @@ async function readPersistenceDiagnostics(identity: CharacterIdentityInput): Pro
         ? (excludedRaw as Array<{ reason?: string }>).map((e) => e.reason ?? "unknown")
         : [];
       const metricKeys = observations.map(
-        (o) => (o.metricDefinition as { key?: string } | null)?.key ?? "unknown",
+        (o) => o.metricDefinition?.key ?? o.metricKey ?? "unknown",
       );
       const wclMetricKeys = wclObservations.map(
-        (o) => (o.metricDefinition as { key?: string } | null)?.key ?? "unknown",
+        (o) => o.metricDefinition?.key ?? o.metricKey ?? "unknown",
       );
 
       return {
