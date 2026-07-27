@@ -149,7 +149,7 @@ function mapRun(
   return {
     externalRunId: String(run.keystone_run_id),
     seasonSlug,
-    dungeonSlug: slugify(run.short_name ?? run.dungeon),
+    dungeonSlug: slugify(run.dungeon ?? run.short_name),
     dungeonName: run.dungeon,
     keyLevel: run.mythic_level,
     completedAt: run.completed_at,

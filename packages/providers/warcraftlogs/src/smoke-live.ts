@@ -119,8 +119,8 @@ async function fetchBlizzardSelectedRuns(
     current_period?: { id?: number };
     seasons?: Array<{ id: number }>;
   };
-  const seasonId =
-    indexBody.seasons?.[indexBody.seasons.length - 1]?.id ?? indexBody.current_period?.id ?? null;
+  // seasons[0] is typically the current season; never use the oldest entry.
+  const seasonId = indexBody.seasons?.[0]?.id ?? null;
   if (seasonId == null) return [];
 
   const seasonUrl = new URL(
@@ -212,7 +212,7 @@ async function fetchRaiderIoRunHints(
   const out: ExternalRunMatchInput[] = [];
   for (const run of rows) {
     if (!run.completed_at || run.mythic_level == null) continue;
-    const dungeonSlug = slugify(run.short_name ?? run.dungeon ?? "unknown");
+    const dungeonSlug = slugify(run.dungeon ?? run.short_name ?? "unknown");
     const key = `${dungeonSlug}|${run.mythic_level}|${run.completed_at}`;
     if (seen.has(key)) continue;
     seen.add(key);
@@ -226,6 +226,19 @@ async function fetchRaiderIoRunHints(
     if (out.length >= 10) break;
   }
   return out;
+}
+
+/** Keep only runs inside the active scoring window (exclude historical seasons). */
+function filterActiveExternalRuns(
+  runs: ExternalRunMatchInput[],
+  nowMs = Date.now(),
+  maxAgeMs = 180 * 24 * 60 * 60 * 1000,
+): ExternalRunMatchInput[] {
+  return runs.filter((run) => {
+    const completedMs = Date.parse(run.completedAt);
+    if (Number.isNaN(completedMs)) return false;
+    return nowMs - completedMs <= maxAgeMs;
+  });
 }
 
 function errorMessage(error: unknown): string {
@@ -733,7 +746,18 @@ async function runDeep(
     process.exit(1);
   }
 
-  const runsResult = await provider.discoverCharacterRuns(identity, ctx);
+  const blizzardRuns = filterActiveExternalRuns(await fetchBlizzardSelectedRuns(identity));
+  const rioRuns = filterActiveExternalRuns(await fetchRaiderIoRunHints(identity));
+  const selectedExternals = [...blizzardRuns, ...rioRuns].slice(0, 12);
+
+  const runsResult = await provider.discoverCharacterRuns(identity, {
+    ...ctx,
+    wclHydrationHints: selectedExternals.map((run) => ({
+      completedAt: run.completedAt,
+      dungeonSlug: run.dungeonSlug,
+      keyLevel: run.keyLevel,
+    })),
+  });
   const rankingsProbe = await probeRankingsDiagnostics(
     provider,
     identity,
@@ -749,12 +773,45 @@ async function runDeep(
   ].slice(0, 5);
   const recentDetails = await probeRecentReportDetails(provider, identity, reportCodes);
 
-  const blizzardRuns = await fetchBlizzardSelectedRuns(identity);
-  const rioRuns = await fetchRaiderIoRunHints(identity);
-  const selectedExternals = [...blizzardRuns, ...rioRuns].slice(0, 12);
+  // Prefer hydrated fight-known candidates for matching (discoverCharacterRuns already hydrated).
+  const matchCandidates =
+    runsResult.data.length > 0
+      ? discovery.candidates
+          .filter((c) => !c.incompleteness.fightUnknown)
+          .concat(
+            // Synthesize matchable candidates from discoverCharacterRuns DTOs when discovery stubs were hydrated.
+            runsResult.data.map((run) => ({
+              reportCode: run.sources[0]?.reportCode ?? run.id,
+              fightId: run.sources[0]?.fightId ?? 0,
+              encounterId: 0,
+              zoneId: null,
+              dungeonSlug: run.dungeonSlug === "unknown" ? null : run.dungeonSlug,
+              seasonSlug: run.seasonSlug === "unknown" ? null : run.seasonSlug,
+              keyLevel: run.keyLevel > 0 ? run.keyLevel : null,
+              score: run.scoreValue,
+              startTimeMs: Date.parse(run.completedAt) - (run.durationMs || 0),
+              completedAt: run.completedAt,
+              durationMs: run.durationMs,
+              timed: run.timed,
+              selectionTags: [] as Array<"LATEST" | "HIGHEST">,
+              source: "recentReports" as const,
+              matchConfidence: null,
+              targetActorId: null,
+              incompleteness: {
+                dungeonUnknown: run.dungeonSlug === "unknown",
+                seasonUnknown: run.seasonSlug === "unknown",
+                timedUnknown: false,
+                keyLevelUnknown: run.keyLevel <= 0,
+                rosterIncomplete: true,
+                fightUnknown: false,
+              },
+              warnings: [],
+            })),
+          )
+      : discovery.candidates;
 
   const matchRows = selectedExternals.map((external, index) => {
-    const best = bestCandidateForExternal(external, discovery.candidates);
+    const best = bestCandidateForExternal(external, matchCandidates);
     return {
       selectedRun: {
         sourceHint: index < blizzardRuns.length ? "blizzard" : "raiderio",
@@ -784,14 +841,14 @@ async function runDeep(
     (m) => m.confidence === "HIGH" || m.confidence === "MEDIUM",
   )?.bestWclCandidate;
   const analyzableCandidate =
-    discovery.candidates.find((c) => !c.incompleteness.fightUnknown && c.fightId > 0) ?? null;
+    matchCandidates.find((c) => !c.incompleteness.fightUnknown && c.fightId > 0) ?? null;
 
   let reportCode: string | null = null;
   let fightId = 0;
   if (analyzableMatch) {
     fightId = analyzableMatch.fightId;
     reportCode =
-      discovery.candidates.find(
+      matchCandidates.find(
         (c) =>
           c.fightId === analyzableMatch.fightId &&
           sanitizeReportRef(c.reportCode).fingerprint === analyzableMatch.fingerprint,
@@ -863,7 +920,7 @@ async function runDeep(
       requiredCalls: ["discoverCharacterSummary", "discoverCharacterRuns", "getReportFightDetails"],
       missingFromRefreshPipeline: missingWorkerCalls,
       note:
-        "Worker enrichWarcraftLogs calls discoverCharacterSummary then discoverCharacterRuns; selected runs with WARCRAFT_LOGS sources call getReportFightDetails. discoverCharacterRuns filters out fightUnknown stubs.",
+        "Worker enrichWarcraftLogs runs after Blizzard/Raider.IO, passes hydration hints, then discoverCharacterRuns hydrates fightUnknown stubs before filtering.",
     },
     characterDiscovery: {
       characterId: discovery.summary.wclCharacterId,
@@ -889,28 +946,28 @@ async function runDeep(
       listGraphqlErrors: recentList.graphqlErrors,
       candidateStubCount: discovery.candidates.filter((c) => c.source === "recentReports").length,
       probedReports: recentDetails,
-      note: "recentReports stubs have fightUnknown=true and are excluded from discoverCharacterRuns output.",
+      note: "recentReports stubs are hydrated (bounded) before discoverCharacterRuns filtering; probed rows show masterData target presence.",
     },
     normalizedCandidates: {
-      total: discovery.candidates.length,
-      withKnownFight: discovery.candidates.filter((c) => !c.incompleteness.fightUnknown).length,
+      total: matchCandidates.length,
+      withKnownFight: matchCandidates.filter((c) => !c.incompleteness.fightUnknown).length,
       returnedByDiscoverCharacterRuns: runsResult.data.length,
       candidatesTruncated: discovery.candidatesTruncated,
       privateReportsSkipped: discovery.privateReportsSkipped,
-      sample: discovery.candidates.slice(0, 12).map((c) => ({
+      sample: matchCandidates.slice(0, 12).map((c) => ({
         ...sanitizeReportRef(c.reportCode),
         fightId: c.fightId,
         dungeonSlug: c.dungeonSlug,
         keyLevel: c.keyLevel,
         completedAt: c.completedAt,
         startTimeMs: c.startTimeMs,
-        targetActorId: null,
+        targetActorId: c.targetActorId ?? null,
         source: c.source,
         fightUnknown: c.incompleteness.fightUnknown,
         dungeonUnknown: c.incompleteness.dungeonUnknown,
         warnings: c.warnings.slice(0, 3),
       })),
-      note: "targetActorId is resolved only during detailed fight analysis (not discovery).",
+      note: "Fight-known candidates come from zoneRankings Parses rows and/or bounded recentReports hydration.",
     },
     matching: {
       externalRunCount: selectedExternals.length,

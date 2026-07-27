@@ -36,7 +36,12 @@ import {
 import {
   MAX_RECENT_REPORTS_LIMIT,
   MAX_RECENT_REPORT_PAGES,
+  MAX_HYDRATION_REPORTS,
 } from "../discovery/bounds.js";
+import {
+  hydrateFightUnknownCandidates,
+  type HydrationReportPayload,
+} from "../discovery/report-hydration.js";
 import {
   resolveMplusZoneConfig,
   shouldQueryZoneRankings,
@@ -66,6 +71,8 @@ export interface LiveWarcraftLogsProviderConfig {
   /** Explicit current M+ zone ID (preferred over WCL_MPLUS_ZONE_ID env). */
   zoneId?: number;
   zoneExpiresAt?: string | null;
+  /** Override MAX_HYDRATION_REPORTS bound. */
+  maxHydrationReports?: number;
   processEnv?: NodeJS.ProcessEnv;
   logger?: Pick<Console, "info" | "warn" | "error">;
 }
@@ -172,6 +179,7 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
   private readonly revisionCache = new ReportRevisionCache();
   private readonly zoneConfig: MplusZoneConfig;
   private readonly logger: Pick<Console, "info" | "warn" | "error">;
+  private readonly maxHydrationReports: number;
 
   constructor(private readonly config: LiveWarcraftLogsProviderConfig) {
     const tokenManager = new WclTokenManager({
@@ -185,6 +193,10 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
       logger: config.logger,
     });
     this.logger = config.logger ?? console;
+    const envMax = Number((config.processEnv ?? process.env).WCL_MAX_HYDRATION_REPORTS);
+    this.maxHydrationReports =
+      config.maxHydrationReports ??
+      (Number.isInteger(envMax) && envMax > 0 ? envMax : MAX_HYDRATION_REPORTS);
     this.zoneConfig = resolveMplusZoneConfig({
       zoneId: config.zoneId,
       expiresAt: config.zoneExpiresAt,
@@ -205,8 +217,27 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
     ctx: ProviderFetchContext,
   ): Promise<ProviderResult<MythicRunDTO[]>> {
     const discovery = await this.discoverCharacter(identity, ctx);
-    const runs = discovery.candidates
-      .filter((c) => !c.incompleteness.fightUnknown)
+    const hydrated = await hydrateFightUnknownCandidates({
+      candidates: discovery.candidates,
+      characterName: identity.name,
+      realmSlug: identity.realmSlug,
+      hints: ctx.wclHydrationHints,
+      maxReports: this.maxHydrationReports,
+      fetchReport: (code) => this.fetchReportPayloadForHydration(code),
+    });
+    if (hydrated.hydratedReportCount > 0) {
+      this.logger.info(
+        {
+          identity,
+          hydratedReportCount: hydrated.hydratedReportCount,
+          knownFightCandidates: hydrated.candidates.filter((c) => !c.incompleteness.fightUnknown)
+            .length,
+        },
+        "wcl.discovery.hydration",
+      );
+    }
+    const runs = hydrated.candidates
+      .filter((c) => !c.incompleteness.fightUnknown && c.fightId > 0)
       .map((c) => this.candidateToMythicRun(c, identity, ctx));
     return providerEnvelope(
       runs,
@@ -216,6 +247,47 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
       null,
       this.config.env.WCL_CHARACTER_TTL_SECONDS,
     );
+  }
+
+  private async fetchReportPayloadForHydration(
+    reportCode: string,
+  ): Promise<HydrationReportPayload | null> {
+    const reportResult = await this.client.request({
+      operationName: OPERATIONS.ReportWithFightAndMasterData.operationName,
+      query: OPERATIONS.ReportWithFightAndMasterData.query,
+      variables: { code: reportCode },
+    });
+    const parsed = parseWithSchema(reportFightSchema, reportResult.response.data, "Report");
+    const report = parsed.reportData.report;
+    if (!report) return null;
+    return {
+      code: report.code,
+      startTime: report.startTime,
+      endTime: report.endTime,
+      visibility: report.visibility,
+      zone: report.zone ?? null,
+      fights: report.fights.map((f) => ({
+        id: f.id,
+        encounterID: f.encounterID,
+        name: f.name,
+        difficulty: f.difficulty,
+        kill: f.kill,
+        startTime: f.startTime,
+        endTime: f.endTime,
+        keystoneLevel: f.keystoneLevel,
+        friendlyPlayers: f.friendlyPlayers ?? undefined,
+      })),
+      masterData: report.masterData
+        ? {
+            actors: (report.masterData.actors ?? []).map((a) => ({
+              id: a.id,
+              name: a.name,
+              type: a.type,
+              server: a.server,
+            })),
+          }
+        : null,
+    };
   }
 
   async discoverCharacterSummary(

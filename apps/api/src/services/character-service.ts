@@ -31,6 +31,7 @@ function readWclVisibility(value: unknown): WclVisibilityState | null {
     value === "HIDDEN" ||
     value === "NO_PUBLIC_LOGS" ||
     value === "PRIVATE_SKIPPED" ||
+    value === "NO_MATCHED_RUN" ||
     value === "UNAVAILABLE" ||
     value === "RATE_LIMITED"
   ) {

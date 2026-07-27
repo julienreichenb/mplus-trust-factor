@@ -56,6 +56,7 @@ export function mapWclVisibilityToState(visibility: WclVisibilityState | null): 
   if (!visibility) return "UNAVAILABLE";
   switch (visibility) {
     case "PUBLIC":
+    case "NO_MATCHED_RUN":
       return "OK";
     case "HIDDEN":
     case "NO_PUBLIC_LOGS":

@@ -38,7 +38,12 @@ import {
   reconcileSources,
 } from "./reconcile.js";
 import { classifyError, isSoftSkip } from "./retry-classification.js";
-import { collectRaiderIoRuns, ensureTargetParticipant, mergeRunSources } from "./run-fusion.js";
+import {
+  collectRaiderIoRuns,
+  ensureTargetParticipant,
+  filterRunsToActiveWindow,
+  mergeRunSources,
+} from "./run-fusion.js";
 
 export const REFRESH_STAGES = [
   "resolve-character",
@@ -417,7 +422,9 @@ export async function runRefreshPipeline(
     }
   };
 
-  const enrichWarcraftLogs = async (): Promise<WclEnrichment> => {
+  const enrichWarcraftLogs = async (
+    hydrationHints: NonNullable<ProviderFetchContext["wclHydrationHints"]>,
+  ): Promise<WclEnrichment> => {
     if (disabledProviders.has("warcraftlogs") || isFixtureDisabledIdentity(identity)) {
       stagesSkipped.push("refresh-warcraftlogs-summary");
       await repositories.providerState.upsert({
@@ -430,18 +437,23 @@ export async function runRefreshPipeline(
       return { visibility: null, runs: [] };
     }
 
+    const wclCtx: ProviderFetchContext = {
+      ...ctx,
+      wclHydrationHints: hydrationHints,
+    };
+
     let visibility: WclVisibilityState | null = null;
     try {
       visibility = await resolveWclVisibility(
         providers.warcraftlogs,
         identity,
-        ctx,
+        wclCtx,
         async (result) => {
           await recordProviderResult(repositories, result);
         },
       );
 
-      const runsResult = await providers.warcraftlogs.discoverCharacterRuns(identity, ctx);
+      const runsResult = await providers.warcraftlogs.discoverCharacterRuns(identity, wclCtx);
       await recordProviderResult(repositories, runsResult);
 
       // NO_PUBLIC_LOGS / HIDDEN / RATE_LIMITED are coverage states — still a successful enrichment.
@@ -454,11 +466,15 @@ export async function runRefreshPipeline(
         lastSuccessAt: now,
         fetchedAt: now,
         expiresAt: runsResult.freshness.expiresAt ? new Date(runsResult.freshness.expiresAt) : null,
-        metadata: { discoveredRunCount: runsResult.data.length },
+        metadata: {
+          discoveredRunCount: runsResult.data.length,
+          hydrationHintCount: hydrationHints.length,
+        },
       });
       return { visibility, runs: runsResult.data };
     } catch (error) {
       // WCL is enrichment-only: never block a Blizzard/Raider.IO-backed MVP score.
+      // GraphQL schema / invalid-response errors stay UNAVAILABLE with detail.
       stagesSkipped.push("refresh-warcraftlogs-summary");
       const state = mapErrorToProviderState(error);
       await repositories.providerState.upsert({
@@ -479,13 +495,26 @@ export async function runRefreshPipeline(
     }
   };
 
-  const [rioEnrichment, wclEnrichment] = await Promise.all([
-    enrichRaiderIo(),
-    enrichWarcraftLogs(),
-  ]);
+  // Raider.IO first so current-season run hints can prioritize WCL report hydration.
+  const rioEnrichment = await enrichRaiderIo();
   raiderIoProfile = rioEnrichment.profile;
   seasonCutoffs = rioEnrichment.cutoffs;
   boostFacts = rioEnrichment.boost;
+
+  const rioRunsRaw =
+    raiderIoProfile != null
+      ? collectRaiderIoRuns(raiderIoProfile.recentRuns, raiderIoProfile.bestRuns, identity)
+      : [];
+  const nowMs = now.getTime();
+  blizzardRuns = filterRunsToActiveWindow(blizzardRuns, { nowMs });
+  const rioRuns = filterRunsToActiveWindow(rioRunsRaw, { nowMs });
+  const hydrationHints = [...blizzardRuns, ...rioRuns].map((run) => ({
+    completedAt: run.completedAt,
+    dungeonSlug: run.dungeonSlug,
+    keyLevel: run.keyLevel,
+  }));
+
+  const wclEnrichment = await enrichWarcraftLogs(hydrationHints);
   wclVisibility = wclEnrichment.visibility;
   discoveredRuns = wclEnrichment.runs;
 
@@ -498,11 +527,6 @@ export async function runRefreshPipeline(
   });
   disagreements.push(...reconcile.disagreements);
   fusionWarnings.push(...reconcile.warnings);
-
-  const rioRuns =
-    raiderIoProfile != null
-      ? collectRaiderIoRuns(raiderIoProfile.recentRuns, raiderIoProfile.bestRuns, identity)
-      : [];
 
   // Resolve Blizzard current season before persistence so runs/scores share one identity.
   const season =
@@ -689,6 +713,10 @@ export async function runRefreshPipeline(
 
   // Character-level WCL visibility even when zero runs / no analysis target.
   if (wclVisibility !== null) {
+    // Public logs with zero matched selected-run analyses → explicit NO_MATCHED_RUN (not UNAVAILABLE).
+    if (wclVisibility === "PUBLIC" && combatFactsList.length === 0) {
+      wclVisibility = "NO_MATCHED_RUN";
+    }
     const visibilitySummary = {
       wclVisibility,
       discoveredRunCount: discoveredRuns.length,

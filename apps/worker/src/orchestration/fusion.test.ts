@@ -2,10 +2,16 @@ import { describe, expect, it } from "vitest";
 import {
   isEnrichmentSoftSkip,
   mapErrorToProviderState,
+  mapWclVisibilityToState,
   reconcileSources,
 } from "./reconcile.js";
 import { ExternalApiError } from "@mplus/contracts";
-import { collectRaiderIoRuns, ensureTargetParticipant, mergeRunSources } from "./run-fusion.js";
+import {
+  collectRaiderIoRuns,
+  ensureTargetParticipant,
+  filterRunsToActiveWindow,
+  mergeRunSources,
+} from "./run-fusion.js";
 import type { MythicRunDTO, RaiderIoRunCandidate } from "@mplus/contracts";
 
 describe("enrichment soft-skip", () => {
@@ -283,5 +289,73 @@ describe("run fusion", () => {
     );
     expect(runs).toHaveLength(1);
     expect(runs[0]!.sources[0]!.provider).toBe("RAIDER_IO");
+  });
+
+  it("excludes historical Blizzard runs from the active matching window", () => {
+    const nowMs = Date.parse("2026-07-27T12:00:00.000Z");
+    const filtered = filterRunsToActiveWindow(
+      [
+        { completedAt: "2019-08-15T21:09:04.000Z", id: "old" },
+        { completedAt: "2026-07-26T20:10:23.000Z", id: "current" },
+      ],
+      { nowMs },
+    );
+    expect(filtered.map((r) => r.id)).toEqual(["current"]);
+  });
+
+  it("merges RIO short dungeon aliases with WCL full dungeon slugs", () => {
+    const completedAt = "2026-07-26T20:10:23.000Z";
+    const rio: MythicRunDTO = {
+      id: "rio",
+      region: "EU",
+      seasonSlug: "season-mn-1",
+      dungeonSlug: "pos",
+      keyLevel: 22,
+      completedAt,
+      durationMs: 1_700_000,
+      timerMs: null,
+      timed: true,
+      scoreValue: 200,
+      canonicalFingerprint: "rio",
+      affixes: {},
+      participants: [],
+      sources: [
+        {
+          provider: "RAIDER_IO",
+          externalRunId: "1",
+          externalUrl: null,
+          reportCode: null,
+          fightId: null,
+          revision: null,
+        },
+      ],
+    };
+    const wcl: MythicRunDTO = {
+      ...rio,
+      id: "wcl",
+      dungeonSlug: "priory-of-the-sacred-flame",
+      canonicalFingerprint: "wcl",
+      sources: [
+        {
+          provider: "WARCRAFT_LOGS",
+          externalRunId: "code:3",
+          externalUrl: null,
+          reportCode: "AbCdEf12XyZ3",
+          fightId: 3,
+          revision: null,
+        },
+      ],
+    };
+    const merged = mergeRunSources([rio, wcl]);
+    expect(merged).toHaveLength(1);
+    expect(merged[0]!.sources.map((s) => s.provider).sort()).toEqual([
+      "RAIDER_IO",
+      "WARCRAFT_LOGS",
+    ]);
+  });
+
+  it("maps NO_MATCHED_RUN visibility to OK provider state", () => {
+    expect(mapWclVisibilityToState("NO_MATCHED_RUN")).toBe("OK");
+    expect(mapWclVisibilityToState("UNAVAILABLE")).toBe("UNAVAILABLE");
   });
 });

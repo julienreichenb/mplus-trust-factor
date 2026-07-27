@@ -20,7 +20,6 @@ export const OPERATIONS = {
       name
       level
       classID
-      faction { id name }
       hidden
       server { slug region { name } }
     }

@@ -131,14 +131,17 @@ describe.skipIf(!dbAvailable)("runRefreshPipeline (fixture mode, real Postgres)"
       });
       const analysis = combatAnalysis ?? visibilityAnalysis;
       expect(analysis).not.toBeNull();
-      expect(analysis?.summary).toMatchObject({ wclVisibility: "PUBLIC" });
       if (combatAnalysis) {
         expect(combatAnalysis.summary).toMatchObject({
+          wclVisibility: "PUBLIC",
           combatFacts: expect.objectContaining({
             reportCode: expect.any(String),
             fightId: expect.any(Number),
           }),
         });
+      } else {
+        // Public logs with zero matched selected-run combat analyses → NO_MATCHED_RUN.
+        expect(visibilityAnalysis?.summary).toMatchObject({ wclVisibility: "NO_MATCHED_RUN" });
       }
     },
     30_000,

@@ -31,6 +31,7 @@ import { wclError } from "../client/errors.js";
 import { buildRunCombatFacts } from "../analysis/combat-facts.js";
 import { ReportRevisionCache } from "../analysis/revision-cache.js";
 import { evaluateRateBudget, parseRateLimitSnapshot } from "../rate/rate-budget.js";
+import { hydrateFightUnknownCandidates } from "../discovery/report-hydration.js";
 import type {
   WclCharacterDiscoveryResult,
   WclRateBudgetDecision,
@@ -96,8 +97,50 @@ export class FixtureWarcraftLogsProvider implements WarcraftLogsProvider {
     ctx: ProviderFetchContext,
   ): Promise<ProviderResult<MythicRunDTO[]>> {
     const discovery = this.discoverCharacter(identity, ctx);
-    const runs = discovery.candidates
-      .filter((c) => !c.incompleteness.fightUnknown)
+    const hydrated = await hydrateFightUnknownCandidates({
+      candidates: discovery.candidates,
+      characterName: identity.name,
+      realmSlug: identity.realmSlug,
+      hints: ctx.wclHydrationHints,
+      fetchReport: async (code) => {
+        const fixture = loadReportFixture(code);
+        const raw = (fixture.report as { data: unknown } | undefined)?.data;
+        if (!raw) return null;
+        const parsed = parseWithSchema(reportFightSchema, raw, "Report");
+        const report = parsed.reportData.report;
+        if (!report) return null;
+        return {
+          code: report.code,
+          startTime: report.startTime,
+          endTime: report.endTime,
+          visibility: report.visibility,
+          zone: report.zone ?? null,
+          fights: report.fights.map((f) => ({
+            id: f.id,
+            encounterID: f.encounterID,
+            name: f.name,
+            difficulty: f.difficulty,
+            kill: f.kill,
+            startTime: f.startTime,
+            endTime: f.endTime,
+            keystoneLevel: f.keystoneLevel,
+            friendlyPlayers: f.friendlyPlayers ?? undefined,
+          })),
+          masterData: report.masterData
+            ? {
+                actors: (report.masterData.actors ?? []).map((a) => ({
+                  id: a.id,
+                  name: a.name,
+                  type: a.type,
+                  server: a.server,
+                })),
+              }
+            : null,
+        };
+      },
+    });
+    const runs = hydrated.candidates
+      .filter((c) => !c.incompleteness.fightUnknown && c.fightId > 0)
       .map((c) => this.candidateToMythicRun(c, identity, ctx));
     return emptyProviderResult(runs, "discoverCharacterRuns", `fixture-discover-${identity.name}`, ctx);
   }

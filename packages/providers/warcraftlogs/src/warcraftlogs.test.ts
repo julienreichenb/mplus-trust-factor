@@ -42,6 +42,12 @@ import {
   sanitizeReportRef,
   WORKER_WCL_REQUIRED_CALLS,
 } from "./smoke/sanitize.js";
+import {
+  candidatesFromHydratedReport,
+  hydrateFightUnknownCandidates,
+  prioritizeReportsForHydration,
+} from "./discovery/report-hydration.js";
+import { MAX_HYDRATION_REPORTS } from "./discovery/bounds.js";
 
 const ctx = {
   region: "EU" as const,
@@ -301,6 +307,15 @@ describe("RateLimitData live GraphQL selection", () => {
     );
   });
 
+  it("all production GraphQL documents avoid bare faction and friendlyPlayers object subselection", () => {
+    for (const [name, op] of Object.entries(OPERATIONS)) {
+      expect(op.query, name).not.toMatch(/\bfaction\b(?!\s*\{)/);
+      expect(op.query, name).not.toMatch(/friendlyPlayers\s*\{/);
+    }
+    expect(OPERATIONS.ResolveCharacter.query).not.toMatch(/\bfaction\b/);
+    expect(OPERATIONS.ReportWithFightAndMasterData.query).toMatch(/\bfriendlyPlayers\b/);
+  });
+
   it("live-smoke-wcl.mjs rateLimitData selection matches OPERATIONS (no stale fields)", () => {
     const smokePath = resolve(
       fileURLToPath(new URL(".", import.meta.url)),
@@ -352,6 +367,108 @@ describe("Deep smoke sanitization + worker path", () => {
     expect(mapped[0]?.reportCode).toBe("AbCdEf12XyZ3");
     expect(mapped[0]?.fightId).toBe(3);
     expect(mapped[0]?.zoneId).toBe(47);
+  });
+
+  it("hydrates fightUnknown stubs into Mythic+ candidates with target actor", async () => {
+    const stub = baseCandidate({
+      fightId: 0,
+      source: "recentReports",
+      incompleteness: {
+        dungeonUnknown: true,
+        seasonUnknown: true,
+        timedUnknown: true,
+        keyLevelUnknown: true,
+        rosterIncomplete: true,
+        fightUnknown: true,
+      },
+      warnings: ["stub"],
+      completedAt: "2026-07-26T20:10:00.000Z",
+      startTimeMs: Date.parse("2026-07-26T19:40:00.000Z"),
+    });
+    const prioritized = prioritizeReportsForHydration(
+      [stub],
+      [{ completedAt: "2026-07-26T20:10:23.000Z", dungeonSlug: "priory-of-the-sacred-flame", keyLevel: 22 }],
+      MAX_HYDRATION_REPORTS,
+    );
+    expect(prioritized).toHaveLength(1);
+
+    const hydrated = await hydrateFightUnknownCandidates({
+      candidates: [stub],
+      characterName: "Fixtureplayer",
+      realmSlug: "tarren-mill",
+      hints: [{ completedAt: "2026-07-26T20:10:23.000Z", keyLevel: 12 }],
+      fetchReport: async () => ({
+        code: "AbCdEf12XyZ3",
+        startTime: 1751000000000,
+        endTime: 1751003600000,
+        visibility: "public",
+        zone: { id: 47, name: "Mythic+" },
+        fights: [
+          {
+            id: 3,
+            encounterID: 1201,
+            name: "Ara-Kara, City of Echoes",
+            keystoneLevel: 12,
+            startTime: 120000,
+            endTime: 1943456,
+            friendlyPlayers: [1],
+          },
+          {
+            id: 9,
+            name: "Trash",
+            keystoneLevel: null,
+            startTime: 0,
+            endTime: 1000,
+            friendlyPlayers: [1],
+          },
+        ],
+        masterData: {
+          actors: [
+            { id: 1, name: "Fixtureplayer", type: "Player", server: "Tarren Mill" },
+            { id: 2, name: "Other", type: "Player", server: "Tarren Mill" },
+          ],
+        },
+      }),
+    });
+
+    expect(hydrated.hydratedReportCount).toBe(1);
+    const known = hydrated.candidates.filter((c) => !c.incompleteness.fightUnknown);
+    expect(known).toHaveLength(1);
+    expect(known[0]?.fightId).toBe(3);
+    expect(known[0]?.keyLevel).toBe(12);
+    expect(known[0]?.targetActorId).toBe(1);
+    expect(known[0]?.dungeonSlug).toBe("ara-kara-city-of-echoes");
+    expect(candidatesFromHydratedReport(
+      {
+        code: "AbCdEf12XyZ3",
+        startTime: 1,
+        visibility: "public",
+        fights: [{ id: 1, keystoneLevel: 10, startTime: 0, endTime: 1000 }],
+        masterData: { actors: [] },
+      },
+      "Fixtureplayer",
+      "tarren-mill",
+    ).rejected.some((r) => r.includes("target_absent"))).toBe(true);
+  });
+
+  it("fixture discoverCharacterRuns hydrates stubs then returns fight-known runs", async () => {
+    const provider = new FixtureWarcraftLogsProvider();
+    // Force stub-only discovery by using rankings character then hydrating AbCdEf12XyZ3.
+    const result = await provider.discoverCharacterRuns(
+      { region: "EU", realmSlug: "tarren-mill", name: "Fixtureplayer" },
+      {
+        ...ctx,
+        wclHydrationHints: [
+          {
+            completedAt: "2025-06-27T10:02:00.000Z",
+            dungeonSlug: "ara-kara-city-of-echoes",
+            keyLevel: 12,
+          },
+        ],
+      },
+    );
+    expect(result.data.length).toBeGreaterThan(0);
+    expect(result.data.every((r) => r.sources[0]?.fightId && r.sources[0].fightId > 0)).toBe(true);
   });
 
   it("explains match rejection reasons without auto-merge", () => {

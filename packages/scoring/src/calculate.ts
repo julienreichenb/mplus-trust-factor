@@ -200,7 +200,7 @@ export function calculateScoreEngine(input: CalculateScoreEngineInput): ScoreSna
       evidence: { wclVisibility },
     });
   } else if (
-    wclVisibility === "PUBLIC" &&
+    (wclVisibility === "PUBLIC" || wclVisibility === "NO_MATCHED_RUN") &&
     (context.selectedRunCoverage ?? 1) <= 0 &&
     (context.matchedWclRunCount ?? 0) === 0
   ) {

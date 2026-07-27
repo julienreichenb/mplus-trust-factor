@@ -15,6 +15,18 @@ export const MAX_RECENT_REPORT_PAGES = 1;
  */
 export const MAX_DISCOVERY_CANDIDATES = 25;
 
+/**
+ * Max public recentReports opened for fight/masterData hydration per discovery.
+ * Override via WCL_MAX_HYDRATION_REPORTS when creating the live provider.
+ */
+export const MAX_HYDRATION_REPORTS = 5;
+
+/** Prefer reports within this window of an external run hint when hydrating. */
+export const HYDRATION_HINT_WINDOW_MS = 6 * 60 * 60 * 1000;
+
+/** Max Mythic+ fights kept per hydrated report. */
+export const MAX_FIGHTS_PER_HYDRATED_REPORT = 8;
+
 /** Max unique reports opened for detailed fight analysis per refresh. */
 export const MAX_ANALYSIS_REPORTS = 2;
 

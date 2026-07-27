@@ -19,6 +19,56 @@ function normalizeDungeonSlug(slug: string): string {
 }
 
 /**
+ * Canonical dungeon keys so RIO short names and WCL/Blizzard full slugs can merge.
+ * Extend as season pools rotate.
+ */
+const DUNGEON_CANONICAL: Record<string, string> = {
+  // TWW / Midnight overlapping aliases
+  arak: "ara-kara-city-of-echoes",
+  "ara-kara": "ara-kara-city-of-echoes",
+  "ara-kara-city-of-echoes": "ara-kara-city-of-echoes",
+  aa: "algethar-academy",
+  "algethar-academy": "algethar-academy",
+  "algeth-ar-academy": "algethar-academy",
+  mt: "magisters-terrace",
+  "magisters-terrace": "magisters-terrace",
+  pos: "priory-of-the-sacred-flame",
+  "priory-of-the-sacred-flame": "priory-of-the-sacred-flame",
+  mc: "motherlode",
+  "the-motherlode": "motherlode",
+  motherlode: "motherlode",
+  nx: "nexus-point-xenas",
+  "nexus-point-xenas": "nexus-point-xenas",
+  sot: "seat-of-the-triumvirate",
+  "seat-of-the-triumvirate": "seat-of-the-triumvirate",
+};
+
+function canonicalDungeonKey(slug: string): string {
+  const normalized = normalizeDungeonSlug(slug);
+  return DUNGEON_CANONICAL[normalized] ?? normalized;
+}
+
+function dungeonsCompatible(a: string, b: string): boolean {
+  return canonicalDungeonKey(a) === canonicalDungeonKey(b);
+}
+
+/** Runs older than this are excluded from current-season fusion/matching budgets. */
+export const ACTIVE_RUN_MAX_AGE_MS = 180 * 24 * 60 * 60 * 1000;
+
+/** Drop historical runs that must not consume the selected-run budget. */
+export function filterRunsToActiveWindow<T extends { completedAt: string }>(
+  runs: T[],
+  options: { nowMs: number; maxAgeMs?: number },
+): T[] {
+  const maxAgeMs = options.maxAgeMs ?? ACTIVE_RUN_MAX_AGE_MS;
+  return runs.filter((run) => {
+    const completedMs = Date.parse(run.completedAt);
+    if (Number.isNaN(completedMs)) return false;
+    return options.nowMs - completedMs <= maxAgeMs;
+  });
+}
+
+/**
  * Cross-provider match key: region + dungeon + key + completedAt bucket.
  * Intentionally ignores provider-prefixed fingerprints and roster variance so
  * Blizzard, Raider.IO and WCL representations of the same run collapse.
@@ -30,7 +80,7 @@ export function computeCrossProviderRunKey(run: Pick<
   const completedBucket = Math.round(new Date(run.completedAt).getTime() / 60_000);
   return fingerprint([
     String(run.region).toUpperCase(),
-    normalizeDungeonSlug(run.dungeonSlug),
+    canonicalDungeonKey(run.dungeonSlug),
     String(run.keyLevel),
     String(completedBucket),
   ]);
@@ -79,7 +129,7 @@ function mergeParticipants(
 }
 
 function runsMatch(a: MythicRunDTO, b: MythicRunDTO): boolean {
-  if (normalizeDungeonSlug(a.dungeonSlug) !== normalizeDungeonSlug(b.dungeonSlug)) return false;
+  if (!dungeonsCompatible(a.dungeonSlug, b.dungeonSlug)) return false;
   if (a.keyLevel !== b.keyLevel) return false;
   const delta = Math.abs(new Date(a.completedAt).getTime() - new Date(b.completedAt).getTime());
   return delta <= MATCH_WINDOW_MS;

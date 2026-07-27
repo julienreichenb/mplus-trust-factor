@@ -24,8 +24,17 @@ export interface ProviderFetchContext {
   correlationId: string | null;
   forceRefresh: boolean;
   now: IsoDateTime;
-  /** Character under refresh ? used for WCL actor resolution in report fight details. */
+  /** Character under refresh — used for WCL actor resolution in report fight details. */
   targetCharacter?: CharacterIdentityInput;
+  /**
+   * Optional current-season Blizzard/Raider.IO run hints for prioritizing
+   * recentReports hydration (completedAt / dungeon / key).
+   */
+  wclHydrationHints?: Array<{
+    completedAt: IsoDateTime;
+    dungeonSlug?: string;
+    keyLevel?: number;
+  }>;
 }
 
 export interface ProviderRequestMetadata {

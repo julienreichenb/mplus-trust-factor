@@ -8,6 +8,7 @@ export type WclVisibilityState =
   | "HIDDEN"
   | "NO_PUBLIC_LOGS"
   | "PRIVATE_SKIPPED"
+  | "NO_MATCHED_RUN"
   | "UNAVAILABLE"
   | "RATE_LIMITED";
 

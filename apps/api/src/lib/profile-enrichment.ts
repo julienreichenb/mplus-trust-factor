@@ -99,7 +99,10 @@ function buildWarnings(
       message: "Warcraft Logs enrichment was rate-limited.",
       severity: "INFO",
     });
-  } else if (score?.redFlags.some((f) => f.key === "no_matched_run")) {
+  } else if (
+    wclVisibility === "NO_MATCHED_RUN" ||
+    score?.redFlags.some((f) => f.key === "no_matched_run")
+  ) {
     warnings.push({
       code: "NO_MATCHED_RUN",
       message: "Public logs exist but none matched the selected runs.",

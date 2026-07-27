@@ -43,6 +43,7 @@ export * from "./discovery/run-discovery.js";
 export * from "./discovery/run-matching.js";
 export * from "./discovery/mplus-zone.js";
 export * from "./discovery/bounds.js";
+export * from "./discovery/report-hydration.js";
 export * from "./analysis/revision-cache.js";
 export * from "./analysis/combat-facts.js";
 export { buildRunCombatFactsFromEvents, fetchAllEventPages } from "./analysis/event-fetcher.js";

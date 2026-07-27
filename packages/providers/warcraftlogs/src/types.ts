@@ -86,6 +86,8 @@ export interface WclRunCandidate {
   source: "zoneRankings" | "recentReports";
   /** Cross-provider match confidence when an external run was compared; else null. */
   matchConfidence: RunMatchConfidence | null;
+  /** Resolved during report hydration; null until masterData/friendlyPlayers resolve the target. */
+  targetActorId?: number | null;
   incompleteness: WclRunCandidateIncompleteness;
   warnings: string[];
 }
