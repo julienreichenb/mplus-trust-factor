@@ -2,10 +2,12 @@ import { describe, expect, it } from "vitest";
 import {
   mapEquipmentSlots,
   parseContributorSignals,
+  presentDimensionEvidence,
   presentGrade,
   resolveDataConfidence,
   topSignals,
 } from "./characterViewModel";
+import { resolveSelectedRuns } from "./selectedRunsViewModel";
 import { FIXTURE_CHARACTERS } from "../api/mock/fixtures";
 
 describe("characterViewModel", () => {
@@ -70,5 +72,22 @@ describe("characterViewModel", () => {
     expect(signals.some((s) => s.kind === "positive" && s.label.includes("Peak"))).toBe(true);
     expect(signals.some((s) => s.kind === "risk" && s.label.includes("Consistency"))).toBe(true);
     expect(signals.some((s) => s.kind === "risk" && s.label.includes("Missing"))).toBe(true);
+  });
+
+  it("presents dimension evidence without treating missing as zero", () => {
+    const unrated = FIXTURE_CHARACTERS.find((c) => c.identity.name === "Unrated")!.profile;
+    const evidence = presentDimensionEvidence(unrated.score!.dimensions, unrated.score!.modelVersion);
+    expect(evidence).toHaveLength(4);
+    expect(evidence[0]!.missingMetrics.length).toBeGreaterThan(0);
+  });
+});
+
+describe("selectedRunsViewModel", () => {
+  it("uses fixture selectedRuns for Aleria", () => {
+    const profile = FIXTURE_CHARACTERS[0]!.profile;
+    const resolved = resolveSelectedRuns(profile);
+    expect(resolved.runs).toHaveLength(8);
+    expect(resolved.coverageLabel).toBe("8/8 dungeons");
+    expect(resolved.runs.some((r) => r.missingMetrics.includes("wcl_match"))).toBe(true);
   });
 });

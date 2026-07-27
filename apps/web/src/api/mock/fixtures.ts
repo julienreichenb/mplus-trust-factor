@@ -6,6 +6,7 @@ import type {
   JobStatusDTO,
   RedFlagDTO,
   ScoreSnapshotDTO,
+  SelectedRunView,
 } from "../types";
 import { deepClone } from "../../lib/clone";
 
@@ -58,10 +59,21 @@ export const DEFAULT_MODEL_CONFIG: EditableModelConfig = {
   },
 };
 
-function contributors(positive: string, negative: string): unknown {
+function contributors(
+  positive: string,
+  negative: string,
+  extras?: {
+    internalWeights?: Array<{ key: string; weight: number; available?: boolean }>;
+    perRunEvidence?: Array<{ dungeon: string; summary: string }>;
+    missingMetrics?: string[];
+  },
+): unknown {
   return {
     positive: [{ label: positive, impact: 8 }],
     negative: [{ label: negative, impact: -5 }],
+    internalWeights: extras?.internalWeights ?? [],
+    perRunEvidence: extras?.perRunEvidence ?? [],
+    missingMetrics: extras?.missingMetrics ?? [],
   };
 }
 
@@ -71,7 +83,19 @@ function baseScore(
   grade: ScoreSnapshotDTO["grade"],
   authenticity: number,
   confidence: number,
-  dims: Array<{ dimension: ScoreSnapshotDTO["dimensions"][number]["dimension"]; score: number; weight: number; confidence: number; pos: string; neg: string }>,
+  dims: Array<{
+    dimension: ScoreSnapshotDTO["dimensions"][number]["dimension"];
+    score: number;
+    weight: number;
+    confidence: number;
+    pos: string;
+    neg: string;
+    extras?: {
+      internalWeights?: Array<{ key: string; weight: number; available?: boolean }>;
+      perRunEvidence?: Array<{ dungeon: string; summary: string }>;
+      missingMetrics?: string[];
+    };
+  }>,
   redFlags: RedFlagDTO[],
   calculatedAt: string,
 ): ScoreSnapshotDTO {
@@ -94,7 +118,7 @@ function baseScore(
       score: d.score,
       confidence: d.confidence,
       weight: d.weight,
-      contributors: contributors(d.pos, d.neg),
+      contributors: contributors(d.pos, d.neg, d.extras),
     })),
     redFlags,
     explanation: {
@@ -110,11 +134,90 @@ const aleriaScore = baseScore(
   82,
   0.78,
   [
-    { dimension: "PERFORMANCE", score: 91, weight: 0.32, confidence: 0.85, pos: "Strong DPS percentile on +12s", neg: "Slight dip on Tyrannical weeks" },
-    { dimension: "SURVIVAL", score: 84, weight: 0.27, confidence: 0.8, pos: "Low avoidable damage", neg: "Two deaths on first boss pull" },
-    { dimension: "UTILITY", score: 86, weight: 0.23, confidence: 0.75, pos: "Consistent interrupts", neg: "Missed one purge window" },
-    { dimension: "EXPERIENCE", score: 80, weight: 0.13, confidence: 0.9, pos: "42 season runs", neg: "Narrow dungeon spread" },
-    { dimension: "RAID", score: 70, weight: 0.05, confidence: 0.55, pos: "4/8M", neg: "Limited parse sample" },
+    {
+      dimension: "PERFORMANCE",
+      score: 91,
+      weight: 0.32,
+      confidence: 0.85,
+      pos: "Strong DPS percentile on +12s",
+      neg: "Slight dip on Tyrannical weeks",
+      extras: {
+        internalWeights: [
+          { key: "execution_percentile", weight: 0.65 },
+          { key: "key_difficulty", weight: 0.35 },
+        ],
+        perRunEvidence: [
+          { dungeon: "Priory of the Sacred Flame", summary: "Parse 88 · key difficulty 74" },
+          { dungeon: "The Rookery", summary: "Parse 91 · key difficulty 80" },
+        ],
+        missingMetrics: [],
+      },
+    },
+    {
+      dimension: "SURVIVAL",
+      score: 84,
+      weight: 0.27,
+      confidence: 0.8,
+      pos: "Low avoidable damage",
+      neg: "Two deaths on first boss pull",
+      extras: {
+        internalWeights: [
+          { key: "deaths", weight: 0.35 },
+          { key: "avoidable_damage", weight: 0.3 },
+          { key: "personal_defensives", weight: 0.2 },
+          { key: "self_heal_potion", weight: 0.15 },
+        ],
+        perRunEvidence: [
+          { dungeon: "Priory of the Sacred Flame", summary: "0 deaths · avoidable damage low" },
+        ],
+        missingMetrics: [],
+      },
+    },
+    {
+      dimension: "UTILITY",
+      score: 86,
+      weight: 0.23,
+      confidence: 0.75,
+      pos: "Consistent interrupts",
+      neg: "Missed one purge window",
+      extras: {
+        internalWeights: [
+          { key: "interrupts", weight: 0.4 },
+          { key: "crowd_control", weight: 0.3 },
+          { key: "dispels", weight: 0.3 },
+        ],
+        perRunEvidence: [
+          { dungeon: "Operation: Floodgate", summary: "Kick uptime strong · 1 missed purge" },
+        ],
+        missingMetrics: [],
+      },
+    },
+    {
+      dimension: "EXPERIENCE",
+      score: 80,
+      weight: 0.13,
+      confidence: 0.9,
+      pos: "42 season runs",
+      neg: "Narrow dungeon spread",
+      extras: {
+        internalWeights: [
+          { key: "volume", weight: 0.4 },
+          { key: "breadth", weight: 0.3 },
+          { key: "progression", weight: 0.3 },
+        ],
+        perRunEvidence: [],
+        missingMetrics: ["account_linked_alts"],
+      },
+    },
+    {
+      dimension: "RAID",
+      score: 70,
+      weight: 0.05,
+      confidence: 0.55,
+      pos: "4/8M",
+      neg: "Limited parse sample",
+      extras: { missingMetrics: ["mythic_parse_sample"] },
+    },
   ],
   [
     {
@@ -200,6 +303,69 @@ const boostSuspectScore = baseScore(
   now,
 );
 
+const unratedScore = baseScore(
+  "44444444-4444-4444-8444-444444444444",
+  50,
+  "U",
+  50,
+  0.12,
+  [
+    {
+      dimension: "PERFORMANCE",
+      score: 50,
+      weight: 0.32,
+      confidence: 0.1,
+      pos: "Neutral prior",
+      neg: "No usable parses",
+      extras: {
+        internalWeights: [
+          { key: "execution_percentile", weight: 0.65, available: false },
+          { key: "key_difficulty", weight: 0.35, available: false },
+        ],
+        missingMetrics: ["parse_percentile", "selected_runs"],
+      },
+    },
+    {
+      dimension: "SURVIVAL",
+      score: 50,
+      weight: 0.27,
+      confidence: 0.1,
+      pos: "Neutral prior",
+      neg: "No combat facts",
+      extras: { missingMetrics: ["deaths", "avoidable_damage"] },
+    },
+    {
+      dimension: "UTILITY",
+      score: 50,
+      weight: 0.23,
+      confidence: 0.1,
+      pos: "Neutral prior",
+      neg: "No combat facts",
+      extras: { missingMetrics: ["interrupts"] },
+    },
+    {
+      dimension: "EXPERIENCE",
+      score: 40,
+      weight: 0.13,
+      confidence: 0.2,
+      pos: "Character exists",
+      neg: "No season sample",
+      extras: { missingMetrics: ["season_run_volume"] },
+    },
+  ],
+  [
+    {
+      key: "insufficient_data",
+      label: "Insufficient data",
+      severity: "HIGH",
+      confidence: 0.95,
+      public: true,
+      evidence: { note: "Below minimum confidence for a letter grade — shown as Unrated" },
+    },
+  ],
+  staleAt,
+);
+
 export interface FixtureCharacter {
   identity: CharacterIdentityInput;
   profile: CharacterProfileView;
@@ -217,6 +383,145 @@ const sharedRun = {
   performanceSummary: "Top 20% DPS for key bracket; clean interrupt uptime.",
   coverageRatio: 0.88,
 };
+
+const ALERIA_SELECTED_RUNS: SelectedRunView[] = [
+  {
+    runId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    dungeonName: "Priory of the Sacred Flame",
+    dungeonSlug: "priory-of-the-sacred-flame",
+    keyLevel: 12,
+    completedAt: "2026-07-18T21:14:00.000Z",
+    timed: true,
+    durationMs: 1_820_000,
+    raiderIoScore: 148,
+    wclReportMatched: true,
+    wclCoverageRatio: 0.88,
+    selectionReason: "HIGHEST_KEY" as const,
+    parsePercentile: 88,
+    keyDifficultyPercentile: 74,
+    evidenceSummary: "Timed +12 with strong personal contribution.",
+    missingMetrics: [],
+  },
+  {
+    runId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaab",
+    dungeonName: "The Rookery",
+    dungeonSlug: "the-rookery",
+    keyLevel: 13,
+    completedAt: "2026-07-17T20:05:00.000Z",
+    timed: true,
+    durationMs: 1_760_000,
+    raiderIoScore: 162,
+    wclReportMatched: true,
+    wclCoverageRatio: 0.91,
+    selectionReason: "HIGHEST_KEY" as const,
+    parsePercentile: 91,
+    keyDifficultyPercentile: 80,
+    evidenceSummary: "Highest key this season; clean survival.",
+    missingMetrics: [],
+  },
+  {
+    runId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaac",
+    dungeonName: "Operation: Floodgate",
+    dungeonSlug: "operation-floodgate",
+    keyLevel: 12,
+    completedAt: "2026-07-16T19:40:00.000Z",
+    timed: true,
+    durationMs: 1_905_000,
+    raiderIoScore: 146,
+    wclReportMatched: true,
+    wclCoverageRatio: 0.84,
+    selectionReason: "HIGHEST_KEY" as const,
+    parsePercentile: 79,
+    keyDifficultyPercentile: 72,
+    evidenceSummary: "Solid utility; one missed purge window.",
+    missingMetrics: [],
+  },
+  {
+    runId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaad",
+    dungeonName: "Darkflame Cleft",
+    dungeonSlug: "darkflame-cleft",
+    keyLevel: 11,
+    completedAt: "2026-07-15T22:10:00.000Z",
+    timed: true,
+    durationMs: 1_710_000,
+    raiderIoScore: 132,
+    wclReportMatched: true,
+    wclCoverageRatio: 0.8,
+    selectionReason: "HIGHEST_SCORE_TIEBREAK" as const,
+    parsePercentile: 84,
+    keyDifficultyPercentile: 66,
+    evidenceSummary: "Tiebreak on score vs equal key level.",
+    missingMetrics: [],
+  },
+  {
+    runId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaae",
+    dungeonName: "Cinderbrew Meadery",
+    dungeonSlug: "cinderbrew-meadery",
+    keyLevel: 12,
+    completedAt: "2026-07-14T18:22:00.000Z",
+    timed: false,
+    durationMs: 2_140_000,
+    raiderIoScore: 120,
+    wclReportMatched: true,
+    wclCoverageRatio: 0.77,
+    selectionReason: "HIGHEST_KEY" as const,
+    parsePercentile: 71,
+    keyDifficultyPercentile: 74,
+    evidenceSummary: "Deplete; still highest available key for dungeon.",
+    missingMetrics: [],
+  },
+  {
+    runId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaf",
+    dungeonName: "The Motherlode!!",
+    dungeonSlug: "the-motherlode",
+    keyLevel: 11,
+    completedAt: "2026-07-13T21:00:00.000Z",
+    timed: true,
+    durationMs: 1_880_000,
+    raiderIoScore: 130,
+    wclReportMatched: false,
+    wclCoverageRatio: null,
+    selectionReason: "HIGHEST_KEY" as const,
+    parsePercentile: null,
+    keyDifficultyPercentile: 64,
+    evidenceSummary: "RIO selected; WCL match unavailable for this run.",
+    missingMetrics: ["wcl_match", "parse_percentile"],
+  },
+  {
+    runId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaab0",
+    dungeonName: "Theater of Pain",
+    dungeonSlug: "theater-of-pain",
+    keyLevel: 12,
+    completedAt: "2026-07-12T17:45:00.000Z",
+    timed: true,
+    durationMs: 1_990_000,
+    raiderIoScore: 145,
+    wclReportMatched: true,
+    wclCoverageRatio: 0.86,
+    selectionReason: "HIGHEST_KEY" as const,
+    parsePercentile: 82,
+    keyDifficultyPercentile: 73,
+    evidenceSummary: "Balanced execution across bosses.",
+    missingMetrics: [],
+  },
+  {
+    runId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaab1",
+    dungeonName: "Operation: Mechagon — Workshop",
+    dungeonSlug: "operation-mechagon-workshop",
+    keyLevel: 10,
+    completedAt: "2026-07-11T16:30:00.000Z",
+    timed: true,
+    durationMs: 1_650_000,
+    raiderIoScore: 118,
+    wclReportMatched: true,
+    wclCoverageRatio: 0.7,
+    selectionReason: "LATEST_TIEBREAK" as const,
+    parsePercentile: 76,
+    keyDifficultyPercentile: 58,
+    evidenceSummary: "Lowest key in set; still fills dungeon coverage.",
+    missingMetrics: ["defensive_dispel_casts"],
+  },
+];
 
 export const FIXTURE_CHARACTERS: FixtureCharacter[] = [
   {
@@ -310,6 +615,8 @@ export const FIXTURE_CHARACTERS: FixtureCharacter[] = [
         mythicRating: 2840,
         priorSeasonRating: 2650,
       },
+      selectedRuns: ALERIA_SELECTED_RUNS,
+      selectedRunExpectedCount: 8,
       entitlements: { detailsUnlocked: true, runsUnlocked: true, compareExpanded: true },
       warnings: [],
       raiderIoUsed: true,
@@ -450,6 +757,47 @@ export const FIXTURE_CHARACTERS: FixtureCharacter[] = [
         { code: "AUTHENTICITY", message: "Authenticity signals are probabilistic, not proof of boosting.", severity: "INFO" },
       ],
       raiderIoUsed: true,
+    },
+  },
+  {
+    identity: { region: "EU", realmSlug: "outland", name: "Unrated" },
+    profile: {
+      characterId: "44444444-4444-4444-8444-444444444444",
+      region: "EU",
+      realmSlug: "outland",
+      displayName: "Unrated",
+      score: unratedScore,
+      redFlags: unratedScore.redFlags,
+      dataConfidence: 12,
+      lastAnalyzedRunId: null,
+      highestAnalyzedRunId: null,
+      sources: [{ provider: "BLIZZARD", fetchedAt: staleAt, url: null }],
+      refreshStatus: "STALE",
+      classSlug: "priest",
+      specSlug: "shadow",
+      role: "DPS",
+      itemLevel: null,
+      lastAnalyzedRun: null,
+      highestAnalyzedRun: null,
+      selectedRuns: [],
+      selectedRunExpectedCount: 8,
+      equipment: null,
+      talents: null,
+      seasonSummary: {
+        seasonSlug: "season-tww-3",
+        runCount: 0,
+        mythicRating: null,
+        priorSeasonRating: null,
+      },
+      entitlements: { detailsUnlocked: true, runsUnlocked: true, compareExpanded: true },
+      warnings: [
+        {
+          code: "UNRATED",
+          message: "Grade U — insufficient evidence for a reliable letter grade.",
+          severity: "WARN",
+        },
+      ],
+      raiderIoUsed: false,
     },
   },
 ];

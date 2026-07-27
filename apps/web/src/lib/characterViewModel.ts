@@ -4,7 +4,13 @@ import type {
   Grade,
   RedFlagDTO,
 } from "../api/types";
-import { DIMENSION_LABELS, RADAR_DIMENSIONS, type RadarDimension } from "./format";
+import {
+  CORE_TRUST_DIMENSIONS,
+  DIMENSION_LABELS,
+  RADAR_DIMENSIONS,
+  type CoreTrustDimension,
+  type RadarDimension,
+} from "./format";
 
 export type TrustGrade = Grade;
 
@@ -168,6 +174,101 @@ export function dimensionRows(dimensions: DimensionScoreDTO[]) {
       confidence: found?.confidence ?? null,
       weight: found?.weight ?? null,
       missing: !found,
+    };
+  });
+}
+
+/** Primary Wave 4 dimensions for above-fold and landing preview. */
+export function coreDimensionRows(dimensions: DimensionScoreDTO[]) {
+  return CORE_TRUST_DIMENSIONS.map((dim) => {
+    const found = dimensions.find((d) => d.dimension === dim);
+    return {
+      dimension: dim as CoreTrustDimension,
+      label: DIMENSION_LABELS[dim],
+      score: found?.score ?? null,
+      confidence: found?.confidence ?? null,
+      weight: found?.weight ?? null,
+      missing: !found,
+      contributors: found?.contributors ?? null,
+    };
+  });
+}
+
+export interface DimensionEvidenceView {
+  dimension: CoreTrustDimension;
+  label: string;
+  score: number | null;
+  confidence: number | null;
+  weight: number | null;
+  missing: boolean;
+  modelVersion: string | null;
+  positive: string[];
+  negative: string[];
+  internalWeights: Array<{ key: string; weight: number | null; available: boolean }>;
+  perRunEvidence: Array<{ dungeon: string; summary: string }>;
+  missingMetrics: string[];
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" ? (value as Record<string, unknown>) : null;
+}
+
+export function presentDimensionEvidence(
+  dimensions: DimensionScoreDTO[],
+  modelVersion?: number | null,
+): DimensionEvidenceView[] {
+  return coreDimensionRows(dimensions).map((row) => {
+    const contrib = asRecord(row.contributors);
+    const positive = Array.isArray(contrib?.positive)
+      ? contrib.positive
+          .map((item) => asRecord(item)?.label)
+          .filter((label): label is string => typeof label === "string" && Boolean(label.trim()))
+      : [];
+    const negative = Array.isArray(contrib?.negative)
+      ? contrib.negative
+          .map((item) => asRecord(item)?.label)
+          .filter((label): label is string => typeof label === "string" && Boolean(label.trim()))
+      : [];
+    const internalWeights = Array.isArray(contrib?.internalWeights)
+      ? contrib.internalWeights.map((item) => {
+          const rec = asRecord(item);
+          const key = typeof rec?.key === "string" ? rec.key : "metric";
+          const weight = typeof rec?.weight === "number" ? rec.weight : null;
+          const available = rec?.available !== false && weight != null;
+          return { key, weight, available };
+        })
+      : [];
+    const perRunEvidence = Array.isArray(contrib?.perRunEvidence)
+      ? contrib.perRunEvidence
+          .map((item) => {
+            const rec = asRecord(item);
+            const dungeon = typeof rec?.dungeon === "string" ? rec.dungeon : null;
+            const summary = typeof rec?.summary === "string" ? rec.summary : null;
+            return dungeon && summary ? { dungeon, summary } : null;
+          })
+          .filter((item): item is { dungeon: string; summary: string } => item != null)
+      : [];
+    const missingMetrics = Array.isArray(contrib?.missingMetrics)
+      ? contrib.missingMetrics.filter((m): m is string => typeof m === "string")
+      : Array.isArray(contrib?.missing)
+        ? contrib.missing
+            .map((item) => asRecord(item)?.metricKey)
+            .filter((key): key is string => typeof key === "string")
+        : [];
+
+    return {
+      dimension: row.dimension,
+      label: row.label,
+      score: row.score,
+      confidence: row.confidence,
+      weight: row.weight,
+      missing: row.missing,
+      modelVersion: modelVersion != null ? String(modelVersion) : null,
+      positive,
+      negative,
+      internalWeights,
+      perRunEvidence,
+      missingMetrics,
     };
   });
 }

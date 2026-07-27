@@ -1,78 +1,56 @@
 <script setup lang="ts">
-const principles = [
-  {
-    title: "Explainable",
-    body: "Tiers map to scored dimensions with visible rationale, not opaque rankings.",
-  },
-  {
-    title: "Multi-dimensional",
-    body: "No single metric decides trust — performance, consistency and evidence quality all contribute.",
-  },
-  {
-    title: "Versioned",
-    body: "Scores carry a model key and version so results remain comparable over time.",
-  },
-  {
-    title: "Freshness-aware",
-    body: "Source timestamps and refresh state stay attached to the result.",
-  },
-  {
-    title: "Confidence-aware",
-    body: "Incomplete or thin evidence is surfaced instead of silently overconfident tiers.",
-  },
-] as const;
-
 const providers = [
   {
     name: "Blizzard APIs",
-    status: "Implemented in the API layer",
-    note: "Character, equipment and related profile signals when the live mode is configured.",
+    status: "Identity, media, equipment, talents",
+    note: "Character identity and paperdoll when live mode is configured.",
   },
   {
     name: "Raider.IO",
-    status: "Used when attributed",
-    note: "Public Mythic+ context with required attribution on character results.",
+    status: "Season runs and rating context",
+    note: "Public Mythic+ context with required attribution on results.",
   },
   {
     name: "Warcraft Logs",
-    status: "Used when available",
-    note: "Performance signals when visibility and data allow.",
+    status: "Execution evidence when matched",
+    note: "Parses and combat facts when visibility and matching allow.",
   },
+] as const;
+
+const flow = [
+  "Resolve active season and fuse canonical runs.",
+  "Select one highest-key run per dungeon.",
+  "Score dimensions from that shared set.",
+  "Publish Trust Factor with confidence and gaps.",
 ] as const;
 </script>
 
 <template>
   <section id="methodology" class="methodology" aria-labelledby="methodology-title">
     <header class="methodology__header">
-      <p class="eyebrow">Methodology</p>
+      <p class="eyebrow">Provenance & methodology</p>
       <h2 id="methodology-title">Transparent by design</h2>
       <p>
-        M+ Trust Factor is an evidence panel for high-key screening. The landing preview shows the
-        intended explainability surface; live character pages already expose score, confidence,
-        freshness and source attribution from the current API contracts.
+        Providers stay named. Missing matches stay missing. Model key and version travel with every
+        score so results remain inspectable.
       </p>
     </header>
 
     <div class="methodology__panel">
-      <pre class="equation mpts-data" aria-label="Conceptual scoring equation">
-TrustFactor = f(dimensions, weights, evidenceCompleteness)
-Tier ∈ {S, A, B, C, D}
-      </pre>
-      <p class="equation-note">
-        Conceptual model only. Exact weights and thresholds ship with the active score model version
-        on character results.
-      </p>
-
-      <ul class="principles">
-        <li v-for="item in principles" :key="item.title">
-          <h3>{{ item.title }}</h3>
-          <p>{{ item.body }}</p>
+      <ol class="flow">
+        <li v-for="(step, index) in flow" :key="step">
+          <span class="flow__n mpts-data">{{ index + 1 }}</span>
+          <span>{{ step }}</span>
         </li>
-      </ul>
+      </ol>
+      <p class="equation-note">
+        Exact weights ship with the active score model on character results. The frontend never
+        recalculates Trust Factor.
+      </p>
     </div>
 
     <div class="sources" aria-labelledby="sources-heading">
-      <h3 id="sources-heading">Data providers in this architecture</h3>
+      <h3 id="sources-heading">Data providers</h3>
       <ul>
         <li v-for="provider in providers" :key="provider.name">
           <div class="sources__head">
@@ -83,8 +61,7 @@ Tier ∈ {S, A, B, C, D}
         </li>
       </ul>
       <p class="mode-note">
-        The visible API mode indicator shows whether this build is running against mock fixtures or a
-        live backend. Fixture mode does not claim live World of Warcraft data.
+        The API mode indicator shows whether this build uses mock fixtures or a live backend.
       </p>
     </div>
   </section>
@@ -126,37 +103,35 @@ Tier ∈ {S, A, B, C, D}
   background: var(--color-surface);
 }
 
-.equation {
-  margin: 0;
-  padding: var(--space-4);
-  border-radius: var(--radius-control);
-  border: 1px solid var(--color-border);
-  background: var(--color-obsidian-900);
-  color: var(--color-gold-300);
-  font-size: var(--text-sm);
-  white-space: pre-wrap;
-  overflow-x: auto;
-}
-
-.equation-note {
-  margin: 0;
-  font-size: var(--text-sm);
-}
-
-.principles {
+.flow {
   list-style: none;
   margin: 0;
   padding: 0;
   display: grid;
-  gap: var(--space-4);
+  gap: var(--space-3);
 }
 
-.principles h3 {
-  margin: 0 0 var(--space-1);
-  color: var(--color-text);
+.flow li {
+  display: grid;
+  grid-template-columns: 2rem 1fr;
+  gap: var(--space-3);
+  align-items: start;
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
 }
 
-.principles p {
+.flow__n {
+  display: grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  color: var(--color-gold-300);
+  font-size: var(--text-xs);
+}
+
+.equation-note {
   margin: 0;
   font-size: var(--text-sm);
 }
@@ -201,18 +176,5 @@ Tier ∈ {S, A, B, C, D}
 .mode-note {
   margin-top: var(--space-5);
   color: var(--color-text-muted);
-}
-
-@media (min-width: 768px) {
-  .principles {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: var(--space-5) var(--space-6);
-  }
-}
-
-@media (min-width: 1024px) {
-  .principles {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
 }
 </style>

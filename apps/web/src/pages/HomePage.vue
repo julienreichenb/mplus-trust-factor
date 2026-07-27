@@ -1,19 +1,21 @@
 <script setup lang="ts">
 import CharacterSearchForm from "../components/search/CharacterSearchForm.vue";
 import HeroProductPreview from "../components/landing/HeroProductPreview.vue";
-import FeatureGrid from "../components/landing/FeatureGrid.vue";
+import RatingComparison from "../components/landing/RatingComparison.vue";
+import EightRunExplainer from "../components/landing/EightRunExplainer.vue";
 import MethodologySummary from "../components/landing/MethodologySummary.vue";
+import FinalSearchCta from "../components/landing/FinalSearchCta.vue";
 </script>
 
 <template>
   <div class="landing">
     <section class="hero" aria-labelledby="hero-title">
       <div class="hero__copy">
-        <p class="eyebrow">Explainable Mythic+ player intelligence</p>
-        <h1 id="hero-title">Know who you run with.</h1>
+        <p class="eyebrow">Explainable Mythic+ trust intelligence</p>
+        <h1 id="hero-title">Rating shows completion. Trust Factor explains execution.</h1>
         <p class="lede">
-          An explainable Mythic+ trust score built from performance, consistency, progression and
-          public player data.
+          Screen teammates with a dark, evidence-first Trust Score — four dimensions, eight selected
+          runs, confidence and provenance. Not another completion leaderboard.
         </p>
 
         <CharacterSearchForm />
@@ -29,25 +31,10 @@ import MethodologySummary from "../components/landing/MethodologySummary.vue";
       </div>
     </section>
 
-    <section class="strip" aria-label="Product principles">
-      <ul>
-        <li>
-          <strong>Explainable</strong>
-          <span>Every tier links to dimensions, weights and sources.</span>
-        </li>
-        <li>
-          <strong>Current</strong>
-          <span>Freshness and confidence stay visible on results.</span>
-        </li>
-        <li>
-          <strong>Built for high keys</strong>
-          <span>Optimized for expert screening, not casual browsing.</span>
-        </li>
-      </ul>
-    </section>
-
-    <FeatureGrid />
+    <RatingComparison />
+    <EightRunExplainer />
     <MethodologySummary />
+    <FinalSearchCta />
 
     <footer class="landing-footer">
       <p>
@@ -82,16 +69,14 @@ import MethodologySummary from "../components/landing/MethodologySummary.vue";
 
 .hero h1 {
   margin: 0 0 var(--space-4);
-  font-size: clamp(2.25rem, 6vw, 4.25rem);
-  background: linear-gradient(180deg, var(--color-gold-300) 0%, var(--color-stone-100) 72%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
+  font-size: clamp(1.85rem, 4.8vw, 3.35rem);
+  line-height: 1.15;
+  color: var(--color-text);
 }
 
 .lede {
   margin: 0 0 var(--space-6);
-  max-width: 36rem;
+  max-width: 38rem;
   font-size: var(--text-lg);
   color: var(--color-text-muted);
 }
@@ -110,34 +95,6 @@ import MethodologySummary from "../components/landing/MethodologySummary.vue";
   font-weight: 600;
 }
 
-.strip ul {
-  list-style: none;
-  margin: 0;
-  padding: var(--space-5);
-  display: grid;
-  gap: var(--space-5);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-card);
-  background: rgb(23 23 25 / 72%);
-}
-
-.strip li {
-  display: grid;
-  gap: var(--space-1);
-}
-
-.strip strong {
-  color: var(--color-text);
-  font-size: var(--text-sm);
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-.strip span {
-  color: var(--color-text-muted);
-  font-size: var(--text-sm);
-}
-
 .landing-footer {
   padding-top: var(--space-6);
   border-top: 1px solid var(--color-border);
@@ -154,12 +111,6 @@ import MethodologySummary from "../components/landing/MethodologySummary.vue";
   .landing {
     gap: var(--space-16);
   }
-
-  .strip ul {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: var(--space-6);
-    padding: var(--space-6);
-  }
 }
 
 @media (min-width: 1024px) {
@@ -168,14 +119,14 @@ import MethodologySummary from "../components/landing/MethodologySummary.vue";
   }
 
   .hero {
-    grid-template-columns: minmax(0, 1.15fr) minmax(18rem, 0.85fr);
+    grid-template-columns: minmax(0, 1.1fr) minmax(18rem, 0.9fr);
     gap: var(--space-10);
     align-items: start;
   }
 
   .hero__preview {
     position: sticky;
-    top: var(--space-6);
+    top: calc(4.5rem + var(--space-6));
   }
 }
 </style>

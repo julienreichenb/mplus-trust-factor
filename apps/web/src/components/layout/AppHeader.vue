@@ -12,38 +12,50 @@ function hashHref(hash: string): string {
 </script>
 
 <template>
-  <header class="app-header">
-    <RouterLink class="brand" to="/" aria-label="M+ Trust Factor home">
-      <BrandMark decorative size="md" />
-      <span class="brand__text">
-        <span class="brand__short">M+TS</span>
-        <span class="brand__full">M+ Trust Factor</span>
-      </span>
-    </RouterLink>
+  <header class="app-header" data-testid="app-header">
+    <div class="app-header__inner">
+      <RouterLink class="brand" to="/" aria-label="M+ Trust Factor home">
+        <BrandMark decorative size="md" />
+        <span class="brand__text">
+          <span class="brand__short">M+TS</span>
+          <span class="brand__full">M+ Trust Factor</span>
+        </span>
+      </RouterLink>
 
-    <nav class="nav" aria-label="Primary">
-      <RouterLink to="/">Home</RouterLink>
-      <a :href="hashHref('#features')">Features</a>
-      <a :href="hashHref('#methodology')">Methodology</a>
-      <RouterLink to="/compare">Compare</RouterLink>
-    </nav>
+      <nav class="nav" aria-label="Primary">
+        <RouterLink to="/">Home</RouterLink>
+        <a :href="hashHref('#comparison')">Why Trust</a>
+        <a :href="hashHref('#methodology')">Methodology</a>
+        <RouterLink to="/compare">Compare</RouterLink>
+      </nav>
 
-    <div class="actions">
-      <a class="btn secondary search-cta" :href="hashHref('#character-search')">Search a character</a>
-      <span class="mode-pill" data-testid="api-mode">API: {{ apiMode }}</span>
+      <div class="actions">
+        <a class="btn secondary search-cta" :href="hashHref('#character-search')">Search</a>
+        <span class="mode-pill" data-testid="api-mode">API: {{ apiMode }}</span>
+      </div>
     </div>
   </header>
 </template>
 
 <style scoped>
 .app-header {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  margin: calc(-1 * var(--space-5)) calc(-1 * var(--space-5)) var(--space-8);
+  padding: var(--space-3) var(--space-5);
+  border-bottom: 1px solid var(--color-border);
+  background: rgb(7 7 7 / 88%);
+  backdrop-filter: blur(12px);
+}
+
+.app-header__inner {
+  max-width: var(--container-page);
+  margin: 0 auto;
   display: grid;
   grid-template-columns: 1fr auto;
-  gap: var(--space-4);
+  gap: var(--space-3);
   align-items: center;
-  margin-bottom: var(--space-8);
-  padding-bottom: var(--space-5);
-  border-bottom: 1px solid var(--color-border);
 }
 
 .brand {
@@ -148,6 +160,11 @@ function hashHref(hash: string): string {
 
 @media (min-width: 768px) {
   .app-header {
+    margin: calc(-1 * var(--space-6)) calc(-1 * var(--space-8)) var(--space-8);
+    padding: var(--space-3) var(--space-8);
+  }
+
+  .app-header__inner {
     grid-template-columns: auto 1fr auto;
   }
 
@@ -156,6 +173,13 @@ function hashHref(hash: string): string {
     order: unset;
     gap: var(--space-5);
     justify-content: center;
+  }
+}
+
+@media (min-width: 1024px) {
+  .app-header {
+    margin: calc(-1 * var(--space-6)) calc(-1 * var(--space-12)) var(--space-8);
+    padding: var(--space-3) var(--space-12);
   }
 }
 

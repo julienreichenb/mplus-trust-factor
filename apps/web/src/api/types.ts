@@ -25,9 +25,34 @@ import type {
 export type Entitlements = ProfileEntitlements;
 
 /**
- * Enriched profile view for the UI — same shape as API `CharacterProfileResponse` enrichments.
+ * Wave 4 UX: one highest-key run per active-season dungeon.
+ * Optional until Agent 21 freezes the shared selection contract; fixtures populate it for rendering.
  */
-export type CharacterProfileView = CharacterProfileResponse;
+export interface SelectedRunView {
+  runId: string;
+  dungeonName: string;
+  dungeonSlug: string;
+  keyLevel: number;
+  completedAt: string;
+  timed: boolean | null;
+  durationMs: number | null;
+  raiderIoScore: number | null;
+  wclReportMatched: boolean;
+  wclCoverageRatio: number | null;
+  selectionReason: "HIGHEST_KEY" | "HIGHEST_SCORE_TIEBREAK" | "LATEST_TIEBREAK";
+  parsePercentile: number | null;
+  keyDifficultyPercentile: number | null;
+  evidenceSummary: string | null;
+  missingMetrics: string[];
+}
+
+/**
+ * Enriched profile view for the UI — API response plus optional Wave 4 rendering fields.
+ */
+export type CharacterProfileView = CharacterProfileResponse & {
+  selectedRuns?: SelectedRunView[] | null;
+  selectedRunExpectedCount?: number | null;
+};
 
 export interface RealmOption {
   slug: string;
