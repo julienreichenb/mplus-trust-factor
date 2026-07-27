@@ -78,6 +78,9 @@ describe("security: secret scanning", () => {
     expect(SECRET_REDACT_PATHS).toContain("*.RAIDERIO_APP_KEY");
     expect(SECRET_REDACT_PATHS).toContain("*.BLIZZARD_CLIENT_ID");
     expect(SECRET_REDACT_PATHS).toContain("*.WCL_CLIENT_ID");
+    expect(SECRET_REDACT_PATHS).toContain("*.reportCode");
+    expect(SECRET_REDACT_PATHS).toContain("*.DATABASE_URL");
+    expect(SECRET_REDACT_PATHS).toContain("*.REDIS_URL");
   });
 
   it("redacts secrets from log-shaped objects and smoke output helpers", () => {

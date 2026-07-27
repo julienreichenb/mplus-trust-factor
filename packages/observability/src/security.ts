@@ -1,4 +1,4 @@
-import { timingSafeEqual } from "node:crypto";
+import { createHash, timingSafeEqual } from "node:crypto";
 
 const DEFAULT_ALLOWED_PROVIDER_HOSTS = [
   "eu.api.blizzard.com",
@@ -9,6 +9,13 @@ const DEFAULT_ALLOWED_PROVIDER_HOSTS = [
   "www.warcraftlogs.com",
   "raider.io",
 ] as const;
+
+const SENSITIVE_KEY =
+  /secret|password|token|authorization|cookie|api[_-]?key|client[_-]?id|client[_-]?secret|session|database_url|redis_url|connectionstring/i;
+
+const REPORT_CODE_KEY = /^(reportcode|report_code)$/i;
+
+const BEARER_PATTERN = /\bBearer\s+[A-Za-z0-9\-._~+/]+=*/gi;
 
 export function constantTimeEqual(a: string, b: string): boolean {
   const bufA = Buffer.from(a);
@@ -50,15 +57,96 @@ export function assertAllowedProviderUrl(urlString: string): void {
   }
 }
 
+/** Short stable fingerprint safe for logs/metrics (never reverseable to the original). */
+export function fingerprintIdentifier(value: string): string {
+  return createHash("sha256").update(value, "utf8").digest("hex").slice(0, 12);
+}
+
+/** Mask report codes: keep short prefix/suffix only. */
+export function maskReportCode(code: string): string {
+  if (code.length <= 6) return `${code.slice(0, 2)}****`;
+  return `${code.slice(0, 4)}****${code.slice(-4)}`;
+}
+
+export function sanitizeReportRef(code: string): { fingerprint: string; maskedCode: string } {
+  return {
+    fingerprint: fingerprintIdentifier(code),
+    maskedCode: maskReportCode(code),
+  };
+}
+
+/**
+ * Shallow redaction of credential-like keys (legacy helper; prefer `sanitizeSensitiveDeep`).
+ */
 export function redactSecretsInObject<T extends Record<string, unknown>>(obj: T): T {
-  const sensitive = /secret|password|token|authorization|cookie|api[_-]?key|client[_-]?id|client[_-]?secret|session/i;
   const result = { ...obj };
   for (const key of Object.keys(result)) {
-    if (sensitive.test(key)) {
+    if (SENSITIVE_KEY.test(key) || REPORT_CODE_KEY.test(key)) {
       (result as Record<string, unknown>)[key] = "[Redacted]";
     }
   }
   return result;
+}
+
+function sanitizeStringValue(value: string): string {
+  return value.replace(BEARER_PATTERN, "Bearer [Redacted]");
+}
+
+/**
+ * Deep sanitizer for logs, job results, and public error details.
+ * Redacts OAuth/credentials and replaces report codes with fingerprints.
+ */
+export function sanitizeSensitiveDeep(value: unknown, seen = new WeakSet<object>()): unknown {
+  if (value == null) return value;
+  if (typeof value === "bigint") return value.toString();
+  if (typeof value === "string") return sanitizeStringValue(value);
+  if (typeof value !== "object") return value;
+  if (seen.has(value as object)) return "[Circular]";
+  seen.add(value as object);
+
+  if (Array.isArray(value)) {
+    return value.map((entry) => sanitizeSensitiveDeep(entry, seen));
+  }
+
+  const out: Record<string, unknown> = {};
+  for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+    if (SENSITIVE_KEY.test(key)) {
+      out[key] = "[Redacted]";
+      continue;
+    }
+    if (REPORT_CODE_KEY.test(key) && typeof entry === "string" && entry.length > 0) {
+      const ref = sanitizeReportRef(entry);
+      out[key] = ref.maskedCode;
+      out[`${key}Fingerprint`] = ref.fingerprint;
+      continue;
+    }
+    // WCL GraphQL variables use `{ code, fightIDs }` — treat as report code when co-located.
+    if (
+      /^code$/i.test(key) &&
+      typeof entry === "string" &&
+      /^[A-Za-z0-9]{8,32}$/.test(entry) &&
+      ("fightIDs" in (value as object) ||
+        "fightId" in (value as object) ||
+        "reportCode" in (value as object))
+    ) {
+      const ref = sanitizeReportRef(entry);
+      out[key] = ref.maskedCode;
+      out[`${key}Fingerprint`] = ref.fingerprint;
+      continue;
+    }
+    out[key] = sanitizeSensitiveDeep(entry, seen);
+  }
+  return out;
+}
+
+/** JSON-safe clone: BigInt → string, then deep secret/report-code sanitization. */
+export function toJsonSafeSanitized(value: unknown): unknown {
+  const jsonSafe = JSON.parse(
+    JSON.stringify(value, (_key, current) =>
+      typeof current === "bigint" ? current.toString() : current,
+    ),
+  );
+  return sanitizeSensitiveDeep(jsonSafe);
 }
 
 export { DEFAULT_ALLOWED_PROVIDER_HOSTS };

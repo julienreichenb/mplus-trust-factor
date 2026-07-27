@@ -6,6 +6,7 @@ import {
   recalculateScoreJobSchema,
   refreshCharacterJobSchema,
 } from "@mplus/contracts";
+import { toJsonSafeSanitized } from "@mplus/observability";
 import type { WorkerContainer } from "./container.js";
 import { runAnalyzeRun } from "./orchestration/analyze-run.js";
 import { runGenerateAddonExport } from "./orchestration/generate-addon-export.js";
@@ -13,13 +14,9 @@ import { runRecalculateScore } from "./orchestration/recalculate-score.js";
 import { runRefreshPipeline } from "./orchestration/refresh-pipeline.js";
 import { classifyError } from "./orchestration/retry-classification.js";
 
-/** BullMQ JSON-encodes job return values; Prisma may include BigInt. */
-function toBullmqReturnValue(value: unknown): unknown {
-  return JSON.parse(
-    JSON.stringify(value, (_key, current) =>
-      typeof current === "bigint" ? current.toString() : current,
-    ),
-  );
+/** BullMQ JSON-encodes job return values; Prisma may include BigInt. Secrets/report codes are stripped. */
+export function toBullmqReturnValue(value: unknown): unknown {
+  return toJsonSafeSanitized(value);
 }
 
 /** Runs `fn`; non-retryable failures call `job.discard()` so BullMQ does not schedule further attempts. */

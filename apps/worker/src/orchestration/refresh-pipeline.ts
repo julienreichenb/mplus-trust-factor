@@ -23,6 +23,7 @@ import {
 } from "@mplus/contracts";
 import { extractBoostSupportFacts } from "@mplus/provider-raiderio";
 import type { RunCombatFacts, WclReportFightDetails } from "@mplus/provider-warcraftlogs";
+import { OBS_EVENTS, fingerprintIdentifier } from "@mplus/observability";
 import { validateScoreSnapshot } from "@mplus/test-utils";
 import type { WorkerContainer } from "../container.js";
 import { refreshCharacterDedupeKey } from "../dedupe.js";
@@ -84,10 +85,12 @@ function isFixtureDisabledIdentity(identity: CharacterIdentityInput): boolean {
 
 function buildContext(job: RefreshCharacterJob, now: Date): ProviderFetchContext {
   const identity = toIdentity(job);
+  const correlationId = job.correlationId?.trim() || null;
+  const requestId = correlationId ?? randomUUID();
   return {
     region: normalizeRegion(job.region),
-    requestId: randomUUID(),
-    correlationId: null,
+    requestId,
+    correlationId,
     forceRefresh: job.forceRefresh,
     now: now.toISOString(),
     targetCharacter: identity,
@@ -205,13 +208,27 @@ export async function runRefreshPipeline(
   const disagreements: SourceDisagreementDTO[] = [];
   const excludedObservations: ExcludedObservationDTO[] = [];
   const fusionWarnings: string[] = [];
+  const identityFingerprint = fingerprintIdentifier(
+    `${identity.region}:${identity.realmSlug}:${identity.name}`.toLocaleLowerCase("en-US"),
+  );
+  const logBase = {
+    correlationId: ctx.correlationId ?? ctx.requestId,
+    identityFingerprint,
+    region: identity.region,
+  };
+
+  logger.info({ ...logBase, event: OBS_EVENTS.refreshWorkerStarted }, OBS_EVENTS.refreshWorkerStarted);
 
   const dedupeKey = refreshCharacterDedupeKey(jobPayload);
-  const { job: createdJob } = await repositories.job.createOrGetByDedupe({
+  const { job: createdJob, reused } = await repositories.job.createOrGetByDedupe({
     jobType: "refresh-character",
     dedupeKey,
     payload: jobPayload,
   });
+  logger.info(
+    { ...logBase, event: OBS_EVENTS.refreshDedupe, dedupeKey, reused, jobId: createdJob.id },
+    OBS_EVENTS.refreshDedupe,
+  );
   let job = await repositories.job.markActive(createdJob.id);
   let terminalized = false;
 
@@ -280,6 +297,10 @@ export async function runRefreshPipeline(
     });
   } else {
     try {
+      logger.info(
+        { ...logBase, event: OBS_EVENTS.refreshProviderPhaseStarted, provider: "blizzard" },
+        OBS_EVENTS.refreshProviderPhaseStarted,
+      );
       const profile = await providers.blizzard.getCharacterProfile(identity, ctx);
       blizzardProfile = profile.data;
       character = await repositories.character.applyProviderProfile(character.id, profile.data);
@@ -387,6 +408,16 @@ export async function runRefreshPipeline(
           ? new Date(keystoneProfile.freshness.expiresAt)
           : null,
       });
+      logger.info(
+        {
+          ...logBase,
+          event: OBS_EVENTS.refreshProviderPhaseCompleted,
+          provider: "blizzard",
+          resultState: "OK",
+          recordsDiscovered: blizzardRuns.length,
+        },
+        OBS_EVENTS.refreshProviderPhaseCompleted,
+      );
     } catch (error) {
       if (isSoftSkip(error)) {
         stagesSkipped.push("refresh-blizzard");
@@ -430,6 +461,10 @@ export async function runRefreshPipeline(
     }
 
     try {
+      logger.info(
+        { ...logBase, event: OBS_EVENTS.refreshProviderPhaseStarted, provider: "raiderio" },
+        OBS_EVENTS.refreshProviderPhaseStarted,
+      );
       const profile = await providers.raiderio.getCharacterProfile(identity, ctx);
       const boost = extractBoostSupportFacts(profile.data);
       if (profile.data.profileUrl) {
@@ -529,6 +564,10 @@ export async function runRefreshPipeline(
     let dataState: WclDataState | null = null;
     let dungeonAggregates: WclDungeonPerformanceAggregateDTO[] = [];
     try {
+      logger.info(
+        { ...logBase, event: OBS_EVENTS.refreshProviderPhaseStarted, provider: "warcraftlogs" },
+        OBS_EVENTS.refreshProviderPhaseStarted,
+      );
       const summary = await resolveWclSummary(
         providers.warcraftlogs,
         identity,
@@ -684,7 +723,7 @@ export async function runRefreshPipeline(
   }
 
   const fusion = fuseCrossProviderRuns([...blizzardRuns, ...rioRuns, ...discoveredRuns]);
-  let fusedRuns = fusion.runs.map((run) =>
+  const fusedRuns = fusion.runs.map((run) =>
     ensureTargetParticipant(
       {
         ...run,
@@ -693,6 +732,27 @@ export async function runRefreshPipeline(
       },
       identity,
     ),
+  );
+  const sharedSourceRunCount = fusedRuns.filter(
+    (run) => new Set(run.sources.map((s) => s.provider)).size > 1,
+  ).length;
+  const sourcelessRows = fusedRuns.filter((run) => run.sources.length === 0).length;
+  logger.info(
+    {
+      ...logBase,
+      event: OBS_EVENTS.refreshFusionCompleted,
+      providerSourceCounts: {
+        blizzard: blizzardRuns.length,
+        raiderio: rioRuns.length,
+        warcraftlogs: discoveredRuns.length,
+      },
+      canonicalRunCount: fusion.mergedCanonicalRunCount,
+      sharedSourceRunCount,
+      duplicatesReconciled: fusion.matchedPairCount,
+      unresolvedCandidateMatches: fusion.unresolvedCrossProviderMatches,
+      sourcelessRows,
+    },
+    OBS_EVENTS.refreshFusionCompleted,
   );
 
   for (const run of fusedRuns) {
@@ -1043,6 +1103,18 @@ export async function runRefreshPipeline(
       authenticity: authenticityFeatures,
     },
   });
+  logger.info(
+    {
+      ...logBase,
+      event: OBS_EVENTS.refreshScoreCalculated,
+      modelKey: model.key,
+      modelVersion: model.version,
+      scoreConfidence: scoreDto.confidence,
+      observationCount: observations.length,
+      dimensionCoverage: scoreDto.dimensions.map((d) => d.dimension),
+    },
+    OBS_EVENTS.refreshScoreCalculated,
+  );
 
   // Override PERFORMANCE dimension confidence with independent WCL confidence when scored.
   if (wclPerformance.observations.length > 0) {
@@ -1128,6 +1200,26 @@ export async function runRefreshPipeline(
   });
   job = await repositories.job.markCompleted(job.id);
   terminalized = true;
+  logger.info(
+    {
+      ...logBase,
+      event: OBS_EVENTS.refreshPersistenceCompleted,
+      jobId: job.id,
+      characterId: character.id,
+      fusedRunCount: fusedRuns.length,
+    },
+    OBS_EVENTS.refreshPersistenceCompleted,
+  );
+  logger.info(
+    {
+      ...logBase,
+      event: OBS_EVENTS.refreshTerminal,
+      jobId: job.id,
+      status: "COMPLETED",
+      stagesSkipped,
+    },
+    OBS_EVENTS.refreshTerminal,
+  );
 
   return {
     character,
@@ -1140,6 +1232,15 @@ export async function runRefreshPipeline(
   };
   } catch (error) {
     await ensureFailed(error);
+    logger.warn(
+      {
+        ...logBase,
+        event: OBS_EVENTS.refreshTerminal,
+        jobId: job.id,
+        status: "FAILED",
+      },
+      OBS_EVENTS.refreshTerminal,
+    );
     throw error;
   }
 }

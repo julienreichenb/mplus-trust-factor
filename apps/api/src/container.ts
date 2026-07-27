@@ -45,6 +45,8 @@ export interface ApiContainer {
   responseCache: ResponseCache;
   entitlements: ApiEntitlements;
   negativeCache: NegativeCache;
+  /** Whether BullMQ/Redis is required for readiness (false when skipQueues/inline). */
+  queueMode: "bullmq" | "inline";
   close(): Promise<void>;
 }
 
@@ -190,15 +192,19 @@ export function createApiContainer(env: AppEnv, overrides: ApiContainerOverrides
   let redisConnection: Redis | undefined;
   let producers: QueueProducers;
   let ownsProducers = false;
+  let queueMode: "bullmq" | "inline" = "bullmq";
 
   if (overrides.producers) {
     producers = overrides.producers;
+    queueMode = "inline";
   } else if (overrides.skipQueues) {
     producers = createInlineQueueProducers(worker);
+    queueMode = "inline";
   } else {
     redisConnection = worker.createRedisConnection();
     producers = createQueueProducers(redisConnection, worker);
     ownsProducers = true;
+    queueMode = "bullmq";
   }
 
   return {
@@ -211,6 +217,7 @@ export function createApiContainer(env: AppEnv, overrides: ApiContainerOverrides
       publicDetailsAll: overrides.entitlements?.publicDetailsAll ?? env.PUBLIC_DETAILS_ALL,
     },
     negativeCache,
+    queueMode,
     async close(): Promise<void> {
       if (ownsProducers) {
         await producers.close();

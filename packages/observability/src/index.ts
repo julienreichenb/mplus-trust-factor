@@ -13,6 +13,12 @@ export const SECRET_REDACT_PATHS = [
   "*.access_token",
   "*.accessToken",
   "*.refreshToken",
+  "*.refresh_token",
+  "*.reportCode",
+  "*.report_code",
+  "*.Authorization",
+  "*.DATABASE_URL",
+  "*.REDIS_URL",
   "*.ADMIN_API_KEY",
   "*.SESSION_SECRET",
   "*.BLIZZARD_CLIENT_ID",
@@ -55,8 +61,15 @@ export {
   isAllowedProviderHost,
   assertAllowedProviderUrl,
   redactSecretsInObject,
+  sanitizeSensitiveDeep,
+  toJsonSafeSanitized,
+  fingerprintIdentifier,
+  maskReportCode,
+  sanitizeReportRef,
   DEFAULT_ALLOWED_PROVIDER_HOSTS,
 } from "./security.js";
+
+export { OBS_EVENTS, type ObsEventName } from "./events.js";
 
 export {
   MetricsRegistry,

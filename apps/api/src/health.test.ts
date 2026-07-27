@@ -34,6 +34,25 @@ describe("API health", () => {
     expect(response.json()).toEqual({ status: "ok" });
   });
 
+  it("returns ready when database is up (Redis skipped in inline queue mode)", async () => {
+    const response = await app.inject({ method: "GET", url: "/health/ready" });
+    expect(response.statusCode).toBe(200);
+    const body = response.json() as {
+      status: string;
+      database: { ok: boolean };
+      redis: { ok: boolean; skipped?: boolean };
+      queueMode: string;
+      providers: Record<string, { enabled: boolean; configured: boolean }>;
+    };
+    expect(body.status).toBe("ready");
+    expect(body.database.ok).toBe(true);
+    expect(body.redis.ok).toBe(true);
+    expect(body.redis.skipped).toBe(true);
+    expect(body.queueMode).toBe("inline");
+    expect(body.providers.blizzard.enabled).toBeDefined();
+    expect(JSON.stringify(body)).not.toMatch(/CLIENT_SECRET|access_token|postgresql:\/\//i);
+  });
+
   it("returns meta", async () => {
     const response = await app.inject({ method: "GET", url: "/api/v1/meta" });
     expect(response.statusCode).toBe(200);

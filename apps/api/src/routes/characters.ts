@@ -42,9 +42,9 @@ export function buildCharacterRoutes(container: ApiContainer): FastifyPluginAsyn
           querystring: {
             type: "object",
             properties: {
-              region: { type: "string", minLength: 1 },
-              realm: { type: "string", minLength: 1 },
-              name: { type: "string", minLength: 1 },
+              region: { type: "string", minLength: 1, maxLength: 8 },
+              realm: { type: "string", minLength: 1, maxLength: 64 },
+              name: { type: "string", minLength: 1, maxLength: 48 },
             },
             required: ["region", "realm", "name"],
           },
@@ -56,7 +56,10 @@ export function buildCharacterRoutes(container: ApiContainer): FastifyPluginAsyn
       },
       async (request) => {
         const { region, realm, name } = request.query as { region: string; realm: string; name: string };
-        return service.searchCharacter({ region, realmSlug: realm, name });
+        return service.searchCharacter(
+          { region, realmSlug: realm, name },
+          { correlationId: request.id },
+        );
       },
     );
 
@@ -75,7 +78,9 @@ export function buildCharacterRoutes(container: ApiContainer): FastifyPluginAsyn
       },
       async (request, reply) => {
         const identity = toIdentity(request.params as IdentityParams);
-        const { statusCode, body } = await service.getProfile(identity);
+        const { statusCode, body } = await service.getProfile(identity, {
+          correlationId: request.id,
+        });
         return reply.status(statusCode).send(body);
       },
     );
@@ -96,7 +101,7 @@ export function buildCharacterRoutes(container: ApiContainer): FastifyPluginAsyn
       async (request) => {
         const identity = toIdentity(request.params as IdentityParams);
         const isAdmin = isAdminRequest(container.env, request as FastifyRequest);
-        return service.requestRefresh(identity, { isAdmin });
+        return service.requestRefresh(identity, { isAdmin, correlationId: request.id });
       },
     );
 

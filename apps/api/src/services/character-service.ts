@@ -183,6 +183,7 @@ export class CharacterService {
     identity: CharacterIdentityInput,
     character: Character,
     forceRefresh = false,
+    correlationId?: string | null,
   ): Promise<EnqueueResult> {
     this.container.responseCache.invalidate(characterCacheKey(identity));
     return this.container.producers.enqueueRefreshCharacter({
@@ -192,6 +193,7 @@ export class CharacterService {
       name: identity.name,
       priority: "normal",
       forceRefresh,
+      correlationId: correlationId ?? null,
     });
   }
 
@@ -332,7 +334,10 @@ export class CharacterService {
   }
 
   /** SWR profile read. 200 fresh/stale (background refresh enqueued when stale), 202 queued, 404 confirmed absent. */
-  async getProfile(identity: CharacterIdentityInput): Promise<GetProfileResult> {
+  async getProfile(
+    identity: CharacterIdentityInput,
+    opts: { correlationId?: string | null } = {},
+  ): Promise<GetProfileResult> {
     if (this.container.negativeCache.has(identity)) {
       throw HttpError.notFound("CHARACTER_NOT_FOUND", "Character is confirmed not found upstream");
     }
@@ -346,7 +351,7 @@ export class CharacterService {
     const fresh = isFresh(character.lastPublicRefreshAt, this.freshnessTtlSeconds);
 
     if (!snapshot) {
-      await this.enqueueRefresh(identity, character);
+      await this.enqueueRefresh(identity, character, false, opts.correlationId);
       const body = await this.buildEnrichedProfile(
         identity,
         character,
@@ -360,7 +365,7 @@ export class CharacterService {
     }
 
     if (!fresh) {
-      await this.enqueueRefresh(identity, character);
+      await this.enqueueRefresh(identity, character, false, opts.correlationId);
     }
 
     const [latestRun, highestRun] = await Promise.all([
@@ -387,7 +392,10 @@ export class CharacterService {
   }
 
   /** Lightweight identity lookup for search/autocomplete flows; same SWR semantics as `getProfile`. */
-  async searchCharacter(identity: CharacterIdentityInput): Promise<SearchCharacterResponse> {
+  async searchCharacter(
+    identity: CharacterIdentityInput,
+    opts: { correlationId?: string | null } = {},
+  ): Promise<SearchCharacterResponse> {
     if (this.container.negativeCache.has(identity)) {
       return { characterId: null, identity, refreshStatus: "NOT_FOUND", job: null, score: null };
     }
@@ -399,11 +407,11 @@ export class CharacterService {
     let refreshStatus: SearchCharacterResponse["refreshStatus"] = "FRESH";
     let jobId: string | null = null;
     if (!snapshot) {
-      const enqueueResult = await this.enqueueRefresh(identity, character);
+      const enqueueResult = await this.enqueueRefresh(identity, character, false, opts.correlationId);
       jobId = enqueueResult.jobId;
       refreshStatus = "QUEUED";
     } else if (!fresh) {
-      const enqueueResult = await this.enqueueRefresh(identity, character);
+      const enqueueResult = await this.enqueueRefresh(identity, character, false, opts.correlationId);
       jobId = enqueueResult.jobId;
       refreshStatus = "STALE";
     }
@@ -451,7 +459,10 @@ export class CharacterService {
    * admin callers), then enqueues. Never throws for a busy/cooling-down character — the cooldown
    * state is communicated via `cooldownSecondsRemaining` in the 200 response.
    */
-  async requestRefresh(identity: CharacterIdentityInput, opts: { isAdmin: boolean }): Promise<RefreshStatusResponse> {
+  async requestRefresh(
+    identity: CharacterIdentityInput,
+    opts: { isAdmin: boolean; correlationId?: string | null },
+  ): Promise<RefreshStatusResponse> {
     if (this.container.negativeCache.has(identity) && !opts.isAdmin) {
       throw HttpError.notFound("CHARACTER_NOT_FOUND", "Character is confirmed not found upstream");
     }
@@ -485,7 +496,12 @@ export class CharacterService {
       };
     }
 
-    const enqueueResult = await this.enqueueRefresh(identity, character, opts.isAdmin);
+    const enqueueResult = await this.enqueueRefresh(
+      identity,
+      character,
+      opts.isAdmin,
+      opts.correlationId,
+    );
     const job = await this.repositories.job.findById(enqueueResult.jobId);
     return {
       characterId: character.id,

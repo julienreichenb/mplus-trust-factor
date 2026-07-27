@@ -12,12 +12,14 @@ export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
 
 export const refreshCharacterJobSchema = z.object({
   characterId: z.string().uuid().optional(),
-  region: z.string().min(1),
-  realmSlug: z.string().min(1),
-  name: z.string().min(1),
+  region: z.string().min(1).max(8),
+  realmSlug: z.string().min(1).max(64),
+  name: z.string().min(1).max(48),
   priority: z.enum(["high", "normal", "low"]).default("normal"),
   forceRefresh: z.boolean().default(false),
   requestedAt: z.string().datetime(),
+  /** API request id propagated API → queue → worker for log correlation. */
+  correlationId: z.string().min(1).max(128).nullable().optional(),
 });
 
 export type RefreshCharacterJob = z.infer<typeof refreshCharacterJobSchema> & {

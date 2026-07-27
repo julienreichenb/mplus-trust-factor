@@ -10,8 +10,10 @@ import {
   type JobStatusDTO,
   type QueueName,
   type ScoreSnapshotDTO,
+  type WclContributionType,
 } from "@mplus/contracts";
 import type { RedFlagDTO } from "@mplus/contracts";
+import { sanitizeSensitiveDeep } from "@mplus/observability";
 import type { MythicRunWithRelations, ScoreSnapshotWithRelations } from "@mplus/worker";
 
 const QUEUE_NAME_VALUES = new Set<string>(Object.values(QUEUE_NAMES));
@@ -31,11 +33,11 @@ const JOB_STATUS_MAP: Record<IngestionJob["status"], JobStatus> = {
 };
 
 function extractErrorMessage(error: unknown): string | null {
-  if (error && typeof error === "object" && "message" in error) {
-    const message = (error as { message?: unknown }).message;
-    if (typeof message === "string") return message;
-  }
-  return null;
+  if (!error || typeof error !== "object" || !("message" in error)) return null;
+  const message = (error as { message?: unknown }).message;
+  if (typeof message !== "string") return null;
+  const sanitized = sanitizeSensitiveDeep({ message }) as { message: string };
+  return sanitized.message;
 }
 
 function extractRedFlags(explanation: unknown): RedFlagDTO[] {
@@ -124,7 +126,7 @@ export interface CharacterSourceAttribution {
   fetchedAt: IsoDateTime;
   url: string | null;
   contributedToScore?: boolean;
-  contributionTypes?: import("@mplus/contracts").WclContributionType[];
+  contributionTypes?: WclContributionType[];
 }
 
 export interface CharacterProfileMapInput {

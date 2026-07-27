@@ -13,9 +13,22 @@ describe("job payload schemas", () => {
       realmSlug: "tarren-mill",
       name: "Example",
       requestedAt: new Date().toISOString(),
+      correlationId: "req-123",
     });
     expect(parsed.priority).toBe("normal");
     expect(parsed.forceRefresh).toBe(false);
+    expect(parsed.correlationId).toBe("req-123");
+  });
+
+  it("rejects oversized identity fields on RefreshCharacterJob", () => {
+    expect(() =>
+      refreshCharacterJobSchema.parse({
+        region: "EU",
+        realmSlug: "x".repeat(65),
+        name: "Example",
+        requestedAt: new Date().toISOString(),
+      }),
+    ).toThrow();
   });
 
   it("validates AnalyzeRunJob", () => {

@@ -15,6 +15,7 @@ import { buildComparisonRoutes } from "./routes/comparisons.js";
 import { buildJobRoutes } from "./routes/jobs.js";
 import { buildRealmRoutes } from "./routes/realms.js";
 import { buildPublicScoreModelRoutes } from "./routes/score-models.js";
+import { checkRedisHealth } from "./lib/redis-health.js";
 
 declare module "fastify" {
   interface FastifyInstance {
@@ -144,22 +145,16 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
         response: {
           200: {
             type: "object",
+            additionalProperties: true,
             properties: {
               status: { type: "string" },
-              database: {
-                type: "object",
-                properties: {
-                  ok: { type: "boolean" },
-                  latencyMs: { type: "number" },
-                },
-              },
             },
           },
           503: {
             type: "object",
+            additionalProperties: true,
             properties: {
               status: { type: "string" },
-              database: { type: "object" },
             },
           },
         },
@@ -167,10 +162,60 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     },
     async (_request, reply) => {
       const database = await checkDatabaseHealth(container.worker.prisma);
-      if (!database.ok) {
-        return reply.status(503).send({ status: "not_ready", database });
+      const providers = {
+        blizzard: {
+          enabled: env.BLIZZARD_ENABLED,
+          configured:
+            env.PROVIDER_MODE === "fixture" ||
+            Boolean(env.BLIZZARD_CLIENT_ID && env.BLIZZARD_CLIENT_SECRET),
+        },
+        raiderio: {
+          enabled: env.RAIDERIO_ENABLED,
+          // App key is optional; fixture mode always counts as configured.
+          configured: env.PROVIDER_MODE === "fixture" || env.RAIDERIO_ENABLED,
+        },
+        warcraftlogs: {
+          enabled: env.WCL_ENABLED,
+          configured:
+            env.PROVIDER_MODE === "fixture" || Boolean(env.WCL_CLIENT_ID && env.WCL_CLIENT_SECRET),
+        },
+      };
+
+      let redis: { ok: boolean; latencyMs: number; skipped?: boolean; error?: string };
+      if (container.queueMode === "inline") {
+        redis = { ok: true, latencyMs: 0, skipped: true };
+      } else {
+        redis = await checkRedisHealth(() =>
+          container.worker.createRedisConnection({
+            connectTimeout: 2_000,
+            maxRetriesPerRequest: 1,
+            enableReadyCheck: true,
+            lazyConnect: true,
+          }),
+        );
       }
-      return { status: "ready", database };
+
+      const ready = database.ok && redis.ok;
+      const body = {
+        status: ready ? "ready" : "not_ready",
+        database: {
+          ok: database.ok,
+          latencyMs: database.latencyMs,
+          ...(database.ok ? {} : { error: "database unreachable" }),
+        },
+        redis: {
+          ok: redis.ok,
+          latencyMs: redis.latencyMs,
+          ...(redis.skipped ? { skipped: true } : {}),
+          ...(redis.ok ? {} : { error: "redis unreachable" }),
+        },
+        queueMode: container.queueMode,
+        providers,
+      };
+      if (!ready) {
+        return reply.status(503).send(body);
+      }
+      return body;
     },
   );
 
