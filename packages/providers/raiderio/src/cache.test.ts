@@ -7,7 +7,10 @@ describe("InMemoryProviderCache", () => {
     cache.set("fp1", { score: 100 }, 60, 1000);
     const hit = cache.get<{ score: number }>("fp1", 2000);
     expect(hit.hit).toBe(true);
-    if (hit.hit) expect(hit.value.score).toBe(100);
+    if (hit.hit) {
+      expect(hit.value.score).toBe(100);
+      expect(hit.expiresAtMs).toBeGreaterThan(2000);
+    }
   });
 
   it("expires entries after TTL", () => {

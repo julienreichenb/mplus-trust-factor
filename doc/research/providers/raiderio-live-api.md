@@ -1,17 +1,26 @@
 # Raider.IO API — Wave 3 live integration notes
 
 **Research date:** 2026-07-27  
-**Status:** implementation guidance, not legal advice.
+**Status:** implementation guidance, not legal advice.  
+**OpenAPI version verified:** v0.62.5 (`https://raider.io/swagger.json`)
 
 ## API and rate limits
 
-The official API is documented by Raider.IO’s OpenAPI document. The unauthenticated public allowance is documented as 200 requests/minute, subject to change. Handle `429` with backoff. An application key may provide higher limits.
+The official API is documented by Raider.IO’s OpenAPI document. The unauthenticated public allowance is documented as 200 requests/minute, subject to change. Handle `429` with backoff and honor `Retry-After`. An application key may provide higher limits.
 
 Do not scrape Raider.IO pages. Use only documented API endpoints.
 
+## Application key transmission (verified)
+
+OpenAPI documents optional `access_key` as a **query parameter** on every used endpoint:
+
+> The API key from your RaiderIO App: http://raider.io/settings/apps.
+
+`RAIDERIO_APP_KEY` is sent only as `access_key=...` in the query string. Do not invent Authorization headers or alternate schemes.
+
 ## Required attribution and terms
 
-Raider.IO requires a prominent backlink when displaying Raider.IO-derived data. Keep `profile_url` and render a visible Raider.IO attribution near score/rank/run data.
+Raider.IO requires a prominent backlink when displaying Raider.IO-derived data. Keep `profile_url` / `attribution.profileUrl` and render a visible Raider.IO attribution near score/rank/run data.
 
 The public API terms describe community/personal use and restrict competing services, resale and some commercial uses. Public launch or monetization must remain gated on written confirmation or a commercial agreement appropriate to M+ Trust Factor.
 
@@ -30,7 +39,7 @@ name={character name}
 fields={comma-separated fields}
 ```
 
-Recommended bounded field set:
+Wave 3 minimum explicit field set:
 
 ```text
 gear,
@@ -41,62 +50,73 @@ mythic_plus_recent_runs,
 mythic_plus_best_runs
 ```
 
-Only request additional fields when the product uses them. `mythic_plus_recent_runs` and `mythic_plus_best_runs` are bounded lists, suitable for this MVP.
+### Live response notes (2026-07-27)
 
-Useful profile fields include:
-
-- canonical name/region/realm,
-- class/spec/role/faction,
-- thumbnail and profile URL,
-- `last_crawled_at`,
-- gear,
-- current-season scores,
-- ranks,
-- recent/best runs.
-
-Run objects can include dungeon, key level, completion time, clear/par time, upgrades, score, URL, affixes and played spec/role.
+- Missing characters return **HTTP 400** with message `Could not find requested character` (not 404).
+- `mythic_plus_ranks` uses nested buckets: `{ overall: { world, region, realm }, class: {...}, dps: {...} }`.
+- `gear.items` is an object keyed by slot (not an array) on live payloads; empty gear may return `items: []`.
+- `talents` may be omitted even when requested.
+- `last_crawled_at` can be years old; treat as stale when older than the provider threshold (7 days).
 
 ## Optional endpoints
 
 ```text
 GET /api/v1/periods
-GET /api/v1/mythic-plus/static-data
-GET /api/v1/mythic-plus/run-details
-GET /api/v1/mythic-plus/season-cutoffs
+GET /api/v1/mythic-plus/static-data?expansion_id={id}
+GET /api/v1/mythic-plus/run-details?season={slug}&id={runId}
+GET /api/v1/mythic-plus/season-cutoffs?region={region}
 ```
 
-For Wave 3:
+### Expansion IDs (OpenAPI)
 
-- Use `periods` or static data only when needed to map the current season/period.
-- Do not make `season-cutoffs` a hard dependency; it returned HTTP 500 during Wave 2 verification.
-- Do not hardcode expansion ID. Resolve supported/current expansion dynamically from API data or a versioned configuration with an explicit expiry warning.
-- `run-details` must preserve the actual region; the current implementation hardcodes `EU` in its return value and must be fixed.
+| ID | Label |
+|----|-------|
+| 11 | Midnight (documented current as of 2026-07-27) |
+| 10 | The War Within |
+| 9 | Dragonflight |
+| 8 | Shadowlands |
+| 7 | Battle for Azeroth |
+| 6 | Legion |
 
-## Data use decisions
+Do not hardcode an unversioned expansion. Resolve via documented catalog + static-data probe, or an explicit override with pin-age warning (`RAIDERIO_EXPANSION_DOCUMENTED_AS_OF`).
 
-- Raider.IO score is a source observation, not the M+ Trust Factor score.
-- Use ranks/scores and recent/best runs as supporting performance/experience evidence.
-- Record `last_crawled_at`; stale Raider.IO data must be labelled.
-- Reconcile identity against Blizzard. On mismatch, warn and exclude questionable fields from scoring.
-- Do not use alternate-character linkage or sensitive inference in the MVP unless it is clearly documented, necessary and legally approved.
-- Raider.IO can lag Blizzard because its crawler updates asynchronously; disagreement is expected and must be surfaced.
+### Periods shape
+
+Live `/periods` returns per-region windows (`previous` / `current` / `next` with `period`, `start`, `end`), not the legacy flat `{ id, season, starts_at, ends_at }` list. The provider normalizes both shapes.
+
+### Season cutoffs
+
+`GET /api/v1/mythic-plus/season-cutoffs?region=eu` returned **HTTP 500** during Wave 2 and Wave 3 verification. Treat cutoffs as **optional / non-blocking**. Capability state `seasonCutoffs=unavailable` is set when the endpoint fails; character refresh must continue.
+
+### Run details region
+
+`run-details` does not accept a region query param. Region must come from `ProviderFetchContext.region` and/or roster `character.region.slug`. Never hardcode `EU`.
 
 ## Reliability requirements
 
-- Configurable timeout, retry and concurrency.
+- Configurable timeout (default 10s), retry and concurrency.
 - Respect `429` and `Retry-After`.
-- Provider-local cache must become Redis/Postgres-backed or use the project’s shared external request cache; in-memory-only cache is insufficient for multiple workers/restarts.
-- Cache by normalized identity plus exact field set.
-- Persist provider timestamp, source URL, request fingerprint and schema version.
-- Validate responses with Zod and retain redacted parse diagnostics.
+- Retry transient 5xx / network / timeout with backoff + jitter.
+- Reject malformed JSON as `INVALID_RESPONSE`.
+- Zod-validate core response envelopes; keep redacted parse diagnostics in error details.
+- Provider exposes `RaiderIoCacheStore` + `describeCacheEntry()` so Agent 15 can back the cache with `ExternalRequest` persistence without duplicating HTTP calls. Default remains in-memory until that wiring lands.
 
-## Current repository risks to address
+## Manual smoke (no app key required)
 
-- `fetchRunDetails()` returns `region: "EU"` regardless of input.
-- Static expansion ID is hardcoded.
-- `season-cutoffs` is currently treated as implemented despite observed server errors.
-- Confirm that `RAIDERIO_APP_KEY` is sent using the exact mechanism documented for approved applications; do not guess query/header behavior.
-- Ensure the frontend shows the required backlink for every Raider.IO-derived score/rank/run section.
+```powershell
+$env:ALLOW_LIVE_PROVIDER_CALLS="true"
+# optional overrides:
+# $env:RAIDERIO_SMOKE_REGION="EU"
+# $env:RAIDERIO_SMOKE_REALM="silvermoon"
+# $env:RAIDERIO_SMOKE_NAME="Pin"
+node --import tsx packages/providers/raiderio/src/smoke-live.ts
+```
+
+Within documented public limits, smoke works without `RAIDERIO_APP_KEY`.
+
+## Legal / commercial launch gate
+
+Public launch or monetization remains blocked until Raider.IO terms are reviewed for the intended commercial product posture. See `doc/api/raiderio/terms-and-commercial-risk.md`.
 
 ## Primary references
 

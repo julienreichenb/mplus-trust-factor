@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { ExternalApiError } from "@mplus/contracts";
 import { createRaiderIoProvider, DisabledRaiderIoProvider } from "./index.js";
 import { FixtureRaiderIoProvider } from "./fixture-provider.js";
+import { InMemoryProviderCache } from "./cache.js";
 
 const ctx = {
   region: "EU" as const,
@@ -23,61 +24,114 @@ const deps = {
 describe("FixtureRaiderIoProvider", () => {
   const provider = new FixtureRaiderIoProvider(deps);
 
-  it("is enabled and returns normalized character profile with attribution", async () => {
+  it("returns normalized character profile with attribution, gear and ranks", async () => {
     const result = await provider.getCharacterProfile(
       { region: "EU", realmSlug: "tarren-mill", name: "Fixturehero" },
-      ctx,
+      { ...ctx, forceRefresh: true },
     );
     expect(result.data.displayName).toBe("Fixturehero");
     expect(result.data.currentSeason?.scores.all).toBe(2845.5);
+    expect(result.data.gear?.itemLevelEquipped).toBe(684);
+    expect(result.data.ranks?.overall).toBe(89000);
     expect(result.data.attribution.displayText).toBe("Data from Raider.IO");
+    expect(result.data.attribution.profileUrl).toContain("Fixturehero");
+    expect(result.provenance.sourceUrl).toContain("raider.io");
     expect(result.metadata.cacheHit).toBe(false);
-    expect(result.provenance.provider).toBe("raiderio");
+    expect(result.freshness.stale).toBe(false);
   });
 
-  it("caches character profile on second request", async () => {
-    const identity = { region: "EU" as const, realmSlug: "tarren-mill", name: "Cachedhero" };
-    await provider.getCharacterProfile(identity, ctx);
-    const cached = await provider.getCharacterProfile(identity, ctx);
-    expect(cached.metadata.cacheHit).toBe(true);
-    expect(provider.metrics.cacheHits).toBeGreaterThan(0);
+  it("marks stale last_crawled_at profiles", async () => {
+    const result = await provider.getCharacterProfile(
+      { region: "EU", realmSlug: "tarren-mill", name: "Stalehero" },
+      { ...ctx, forceRefresh: true },
+    );
+    expect(result.data.crawlStale).toBe(true);
+    expect(result.freshness.stale).toBe(true);
+    expect(result.data.lastCrawledAt).toBe("2017-01-19T00:00:00.000Z");
   });
 
-  it("returns season cutoffs with top 25% threshold", async () => {
-    const result = await provider.getSeasonCutoffs("EU", "season-tww-2", ctx);
-    expect(result.data.top25Percent?.score).toBe(2650.5);
+  it("handles missing optional fields", async () => {
+    const result = await provider.getCharacterProfile(
+      { region: "EU", realmSlug: "tarren-mill", name: "Partialhero" },
+      { ...ctx, forceRefresh: true },
+    );
+    expect(result.data.ranks).toBeNull();
+    expect(result.data.gear).toBeNull();
+    expect(result.data.recentRuns).toEqual([]);
     expect(result.data.attribution.homepageUrl).toBe("https://raider.io");
   });
 
-  it("returns static data and periods", async () => {
-    const staticData = await provider.getStaticData(ctx);
+  it("caches character profile on second request and exposes cache metadata", async () => {
+    const cache = new InMemoryProviderCache();
+    const local = new FixtureRaiderIoProvider({ ...deps, cache });
+    const identity = { region: "EU" as const, realmSlug: "tarren-mill", name: "Cachedhero" };
+    await local.getCharacterProfile(identity, ctx);
+    const cached = await local.getCharacterProfile(identity, ctx);
+    expect(cached.metadata.cacheHit).toBe(true);
+    expect(cached.metadata.requestFingerprint).toBeTruthy();
+    expect(local.metrics.cacheHits).toBeGreaterThan(0);
+    const meta = local.describeCacheEntry(
+      "characters.profile",
+      "EU",
+      { region: "eu", realm: "tarren-mill", name: "Cachedhero", fields: "gear" },
+      43_200,
+    );
+    expect(meta.provider).toBe("raiderio");
+    expect(meta.schemaVersion).toBe("0.62.5");
+  });
+
+  it("returns season cutoffs with top 25% threshold", async () => {
+    const result = await provider.getSeasonCutoffs("EU", "season-mn-1", { ...ctx, forceRefresh: true });
+    expect(result.data.top25Percent?.score).toBe(2650.5);
+    expect(result.data.attribution.homepageUrl).toBe("https://raider.io");
+    expect(provider.getCapabilities().seasonCutoffs).toBe("available");
+  });
+
+  it("makes season-cutoffs optional and non-blocking on 5xx", async () => {
+    const local = new FixtureRaiderIoProvider(deps);
+    const result = await local.getSeasonCutoffs("EU", "unavailable", { ...ctx, forceRefresh: true });
+    expect(result.data.top25Percent).toBeNull();
+    expect(result.freshness.stale).toBe(true);
+    expect(local.getCapabilities().seasonCutoffs).toBe("unavailable");
+  });
+
+  it("returns static data with resolved expansion and periods", async () => {
+    const staticData = await provider.getStaticData({ ...ctx, forceRefresh: true });
     expect(staticData.data.seasons.length).toBeGreaterThan(0);
-    const periods = await provider.getPeriods(ctx);
+    expect(staticData.data.expansionId).toBe(11);
+    const periods = await provider.getPeriods({ ...ctx, forceRefresh: true });
     expect(periods.data.length).toBeGreaterThan(0);
   });
 
-  it("returns run details with roster", async () => {
-    const result = await provider.getRunDetails("season-tww-2", "99001001", ctx);
-    expect(result.data.roster.length).toBeGreaterThanOrEqual(4);
-    expect(result.data.attribution.displayText).toBe("Data from Raider.IO");
+  it("returns run details using request region, not hardcoded EU", async () => {
+    const usCtx = { ...ctx, region: "US" as const, forceRefresh: true };
+    const euCtx = { ...ctx, region: "EU" as const, forceRefresh: true };
+    const usResult = await provider.getRunDetails("season-mn-1", "99001001", usCtx);
+    const euResult = await provider.getRunDetails("season-mn-1", "99001001-eu", euCtx);
+    expect(usResult.data.roster.length).toBeGreaterThanOrEqual(4);
+    // Roster regions come from payload (EU in fixture), not a hardcoded provider default.
+    expect(usResult.data.roster.every((m) => m.region === "EU")).toBe(true);
+    expect(usResult.metadata.requestFingerprint).not.toBe(euResult.metadata.requestFingerprint);
+    expect(usResult.data.attribution.displayText).toBe("Data from Raider.IO");
   });
 
   it("throws NOT_FOUND for missing character fixture", async () => {
     await expect(
       provider.getCharacterProfile(
         { region: "EU", realmSlug: "tarren-mill", name: "Missinghero" },
-        ctx,
+        { ...ctx, forceRefresh: true },
       ),
     ).rejects.toBeInstanceOf(ExternalApiError);
   });
 
-  it("uses one profile call worth of data per refresh (no extra endpoints required)", async () => {
-    const before = provider.metrics.requestsTotal;
-    await provider.getCharacterProfile(
+  it("uses one profile call worth of data per refresh", async () => {
+    const local = new FixtureRaiderIoProvider(deps);
+    const before = local.metrics.requestsTotal;
+    await local.getCharacterProfile(
       { region: "EU", realmSlug: "tarren-mill", name: "Onecall" },
       { ...ctx, forceRefresh: true },
     );
-    expect(provider.metrics.requestsTotal - before).toBe(1);
+    expect(local.metrics.requestsTotal - before).toBe(1);
   });
 });
 

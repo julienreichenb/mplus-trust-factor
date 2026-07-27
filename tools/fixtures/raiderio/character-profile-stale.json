@@ -1,0 +1,28 @@
+{
+  "name": "Stalehero",
+  "class": "Hunter",
+  "active_spec_name": "Beast Mastery",
+  "active_spec_role": "DPS",
+  "region": "eu",
+  "realm": "tarren-mill",
+  "profile_url": "https://raider.io/characters/eu/tarren-mill/Stalehero",
+  "last_crawled_at": "2017-01-19T00:00:00.000Z",
+  "gear": {
+    "item_level_equipped": 0,
+    "item_level_total": 0,
+    "items": {}
+  },
+  "talents": [],
+  "mythic_plus_scores_by_season": [
+    {
+      "season": "season-mn-1",
+      "scores": { "all": 0, "dps": 0, "healer": 0, "tank": 0 }
+    }
+  ],
+  "mythic_plus_ranks": {
+    "overall": { "world": 0, "region": 0, "realm": 0 },
+    "class": { "world": 0, "region": 0, "realm": 0 }
+  },
+  "mythic_plus_recent_runs": [],
+  "mythic_plus_best_runs": []
+}

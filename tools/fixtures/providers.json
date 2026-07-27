@@ -31,8 +31,10 @@
     "fixtures": [
       "character-profile-eu.json",
       "character-profile-partial.json",
+      "character-profile-stale.json",
       "character-not-found.json",
       "season-cutoffs-eu.json",
+      "season-cutoffs-unavailable.json",
       "static-data.json",
       "run-details.json",
       "periods.json",

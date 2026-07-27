@@ -23,13 +23,15 @@ export function createRaiderIoProvider(mode: "fixture" | "live" = "fixture"): Ra
   };
 
   if (mode === "live") {
+    const metrics = undefined;
     const http = new RaiderIoHttpClient({
       baseUrl: env.RAIDERIO_BASE_URL,
+      // OpenAPI: access_key query parameter only (never guess Authorization headers).
       appKey: env.RAIDERIO_APP_KEY || undefined,
       softRpm: env.RAIDERIO_SOFT_RPM,
       maxConcurrency: env.RAIDERIO_REQUEST_CONCURRENCY,
     });
-    return new LiveRaiderIoProvider({ ...deps, http });
+    return new LiveRaiderIoProvider({ ...deps, http, metrics });
   }
 
   return new FixtureRaiderIoProvider(deps);
@@ -41,12 +43,26 @@ export function createRaiderIoProviderFromEnv(): RaiderIoProvider {
 }
 
 export { buildMinimalCharacterFields, MINIMAL_CHARACTER_FIELDS } from "./fields.js";
-export { extractBoostSupportFacts, buildAttribution } from "./normalize.js";
+export {
+  extractBoostSupportFacts,
+  buildAttribution,
+  isCrawlStale,
+  mapGear,
+  mapRanks,
+  mapTalents,
+} from "./normalize.js";
 export { createRpmLimiter } from "./rate-limiter.js";
 export { InMemoryProviderCache } from "./cache.js";
+export type { RaiderIoCacheStore, RaiderIoCacheEntryMetadata } from "./cache.js";
 export { RaiderIoHttpClient } from "./http-client.js";
 export { FixtureRaiderIoProvider } from "./fixture-provider.js";
 export { LiveRaiderIoProvider } from "./live-provider.js";
 export { DisabledRaiderIoProvider } from "./disabled-provider.js";
+export type { RaiderIoCapabilities, RaiderIoCapabilityState } from "./capabilities.js";
+export {
+  RAIDERIO_DOCUMENTED_CURRENT_EXPANSION_ID,
+  RAIDERIO_EXPANSION_CATALOG,
+  RAIDERIO_EXPANSION_DOCUMENTED_AS_OF,
+} from "./constants.js";
 export type { RaiderIoProvider };
 export type { RaiderIoMetrics } from "./metrics.js";

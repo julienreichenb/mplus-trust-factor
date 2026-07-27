@@ -1,14 +1,14 @@
 /**
- * Minimal Raider.IO character profile fields for a single stale refresh.
- * Verified against OpenAPI v0.62.5 fields parameter documentation.
+ * Wave 3 minimum explicit character profile fields.
+ * Verified against OpenAPI v0.62.5 fields parameter documentation (2026-07-27).
  */
 export const MINIMAL_CHARACTER_FIELDS = [
-  "mythic_plus_scores_by_season:current:previous",
+  "gear",
+  "talents",
+  "mythic_plus_scores_by_season:current",
   "mythic_plus_ranks",
   "mythic_plus_recent_runs",
   "mythic_plus_best_runs",
-  "mythic_plus_highest_level_runs",
-  "raid_progression:current-expansion",
 ] as const;
 
 export function buildMinimalCharacterFields(): string {

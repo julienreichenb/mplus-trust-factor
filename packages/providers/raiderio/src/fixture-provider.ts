@@ -11,6 +11,7 @@ import type {
   RawSeasonCutoffsResponse,
   RawStaticDataResponse,
 } from "./raw-types.js";
+import { RAIDERIO_DOCUMENTED_CURRENT_EXPANSION_ID } from "./constants.js";
 
 const FIXTURE_DIR = path.resolve(
   fileURLToPath(new URL("../../../../tools/fixtures/raiderio", import.meta.url)),
@@ -37,8 +38,13 @@ export class FixtureRaiderIoProvider extends BaseRaiderIoProvider {
         code: "NOT_FOUND",
         provider: "raiderio",
         retryable: false,
-        statusCode: 404,
+        statusCode: 400,
       });
+    }
+
+    if (normalizedName.includes("stale")) {
+      const raw = await loadJsonFixture<RawCharacterProfileResponse>("character-profile-stale.json");
+      return { raw, statusCode: 200 };
     }
 
     if (normalizedName.includes("partial")) {
@@ -52,13 +58,24 @@ export class FixtureRaiderIoProvider extends BaseRaiderIoProvider {
 
   protected async fetchSeasonCutoffs(
     _region: RegionCode,
-    _seasonSlug: string,
+    seasonSlug: string,
   ): Promise<{ raw: RawSeasonCutoffsResponse; statusCode: number }> {
+    if (seasonSlug.toLowerCase().includes("fail") || seasonSlug.toLowerCase().includes("unavailable")) {
+      throw new ExternalApiError({
+        message: "Raider.IO HTTP 500 on mythic-plus.season-cutoffs",
+        code: "UNKNOWN",
+        provider: "raiderio",
+        retryable: true,
+        statusCode: 500,
+      });
+    }
     const raw = await loadJsonFixture<RawSeasonCutoffsResponse>("season-cutoffs-eu.json");
     return { raw, statusCode: 200 };
   }
 
-  protected async fetchStaticData(): Promise<{ raw: RawStaticDataResponse; statusCode: number }> {
+  protected async fetchStaticData(
+    _expansionId = RAIDERIO_DOCUMENTED_CURRENT_EXPANSION_ID,
+  ): Promise<{ raw: RawStaticDataResponse; statusCode: number }> {
     const raw = await loadJsonFixture<RawStaticDataResponse>("static-data.json");
     return { raw, statusCode: 200 };
   }
@@ -66,9 +83,10 @@ export class FixtureRaiderIoProvider extends BaseRaiderIoProvider {
   protected async fetchRunDetails(
     _seasonSlug: string,
     _externalRunId: string,
-  ): Promise<{ raw: RawRunDetailsResponse; statusCode: number; region: RegionCode }> {
+    _region: RegionCode,
+  ): Promise<{ raw: RawRunDetailsResponse; statusCode: number }> {
     const raw = await loadJsonFixture<RawRunDetailsResponse>("run-details.json");
-    return { raw, statusCode: 200, region: "EU" };
+    return { raw, statusCode: 200 };
   }
 
   protected async fetchPeriods(): Promise<{ raw: RawPeriodsResponse; statusCode: number }> {

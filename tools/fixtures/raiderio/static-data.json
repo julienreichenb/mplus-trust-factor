@@ -1,31 +1,37 @@
 {
   "seasons": [
     {
-      "slug": "season-tww-2",
-      "name": "The War Within Season 2",
-      "starts_at": "2026-03-15T00:00:00.000Z",
-      "ends_at": null,
-      "is_current": true,
+      "slug": "season-mn-1",
+      "name": "MN Season 1",
+      "is_main_season": true,
+      "starts": {
+        "us": "2026-03-15T15:00:00Z",
+        "eu": "2026-03-16T04:00:00Z"
+      },
+      "ends": {
+        "us": "2026-12-16T15:00:00Z",
+        "eu": "2026-12-17T04:00:00Z"
+      },
       "dungeons": [
-        { "slug": "arak", "name": "Ara-Kara, City of Echoes", "short_name": "ARAK" },
-        { "slug": "dawn", "name": "The Dawnbreaker", "short_name": "DAWN" }
+        { "slug": "algethar-academy", "name": "Algeth'ar Academy", "short_name": "AA" },
+        { "slug": "arak", "name": "Ara-Kara, City of Echoes", "short_name": "ARAK" }
       ]
     }
   ],
   "dungeons": [
+    {
+      "slug": "algethar-academy",
+      "name": "Algeth'ar Academy",
+      "short_name": "AA",
+      "map_challenge_mode_id": 402,
+      "zone_id": 14032
+    },
     {
       "slug": "arak",
       "name": "Ara-Kara, City of Echoes",
       "short_name": "ARAK",
       "map_challenge_mode_id": 503,
       "zone_id": 14971
-    },
-    {
-      "slug": "dawn",
-      "name": "The Dawnbreaker",
-      "short_name": "DAWN",
-      "map_challenge_mode_id": 505,
-      "zone_id": 14973
     }
   ]
 }

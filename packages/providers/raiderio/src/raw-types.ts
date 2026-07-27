@@ -13,11 +13,12 @@ export interface RawSeasonScores {
 
 export interface RawRosterCharacter {
   name: string;
-  class: string;
+  class?: string | { name?: string; slug?: string };
   active_spec_name?: string;
   active_spec_role?: string;
-  realm: string;
-  region: string;
+  spec?: { name?: string; slug?: string; role?: string };
+  realm: string | { name?: string; slug?: string };
+  region: string | { name?: string; slug?: string; short_name?: string };
   profile_url?: string;
 }
 
@@ -25,8 +26,8 @@ export interface RawRosterMember {
   character: RawRosterCharacter;
   role?: string;
   ranks?: {
-    overall?: number;
-    class?: number;
+    overall?: number | { world?: number; region?: number; realm?: number };
+    class?: number | { world?: number; region?: number; realm?: number };
     server?: number;
     world?: number;
     region?: number;
@@ -45,15 +46,40 @@ export interface RawKeystoneRun {
   score?: number;
   roster?: RawRosterMember[];
   url?: string;
+  role?: string;
+  spec?: { name?: string; slug?: string; role?: string };
+}
+
+export interface RawRankBucket {
+  world?: number;
+  region?: number;
+  realm?: number;
 }
 
 export interface RawMythicPlusRanks {
-  overall?: number;
-  class?: number;
+  overall?: number | RawRankBucket;
+  class?: number | RawRankBucket;
   server?: number;
   world?: number;
   region?: number;
   role?: string;
+  dps?: number | RawRankBucket;
+  tank?: number | RawRankBucket;
+  healer?: number | RawRankBucket;
+}
+
+export interface RawGearItem {
+  item_id?: number;
+  item_level?: number;
+  name?: string;
+  icon?: string;
+  item_quality?: number;
+}
+
+export interface RawGear {
+  item_level_equipped?: number;
+  item_level_total?: number;
+  items?: RawGearItem[] | Record<string, RawGearItem | null | undefined>;
 }
 
 export interface RawRaidProgressionEntry {
@@ -74,6 +100,8 @@ export interface RawCharacterProfileResponse {
   realm: string;
   profile_url?: string;
   last_crawled_at?: string;
+  gear?: RawGear;
+  talents?: unknown;
   mythic_plus_scores_by_season?: RawSeasonScores[];
   mythic_plus_ranks?: RawMythicPlusRanks;
   mythic_plus_recent_runs?: RawKeystoneRun[];
@@ -82,6 +110,7 @@ export interface RawCharacterProfileResponse {
   raid_progression?: Record<string, RawRaidProgressionEntry>;
   statusCode?: number;
   message?: string;
+  error?: string;
 }
 
 export interface RawCutoffQuantile {
@@ -96,6 +125,9 @@ export interface RawSeasonCutoffs {
 
 export interface RawSeasonCutoffsResponse {
   cutoffs?: RawSeasonCutoffs;
+  statusCode?: number;
+  message?: string;
+  error?: string;
 }
 
 export interface RawStaticDungeon {
@@ -104,14 +136,19 @@ export interface RawStaticDungeon {
   short_name?: string;
   map_challenge_mode_id?: number;
   zone_id?: number;
+  id?: number;
+  challenge_mode_id?: number;
 }
 
 export interface RawStaticSeason {
   slug?: string;
   name?: string;
-  starts_at?: string;
-  ends_at?: string;
+  starts_at?: string | Record<string, string>;
+  ends_at?: string | Record<string, string> | null;
+  starts?: string | Record<string, string>;
+  ends?: string | Record<string, string> | null;
   is_current?: boolean;
+  is_main_season?: boolean;
   dungeons?: RawStaticDungeon[];
 }
 
@@ -140,6 +177,19 @@ export interface RawPeriod {
   ends_at: string;
 }
 
+export interface RawRegionPeriodWindow {
+  period?: number;
+  start?: string;
+  end?: string;
+}
+
+export interface RawRegionPeriods {
+  region?: string;
+  previous?: RawRegionPeriodWindow;
+  current?: RawRegionPeriodWindow;
+  next?: RawRegionPeriodWindow;
+}
+
 export interface RawPeriodsResponse {
-  periods?: RawPeriod[];
+  periods?: RawPeriod[] | RawRegionPeriods[];
 }

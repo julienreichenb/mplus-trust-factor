@@ -1,4 +1,5 @@
 import { ExternalApiError } from "@mplus/contracts";
+import { RAIDERIO_DEFAULT_TIMEOUT_MS } from "./constants.js";
 import { createRpmLimiter, type TokenBucketRateLimiter } from "./rate-limiter.js";
 
 export interface RaiderIoHttpResponse<T> {
@@ -9,12 +10,21 @@ export interface RaiderIoHttpResponse<T> {
 
 export interface RaiderIoHttpClientOptions {
   baseUrl: string;
+  /** Optional app key. OpenAPI documents this as query param `access_key` only. */
   appKey?: string;
   softRpm: number;
   maxConcurrency: number;
   maxRetries?: number;
+  timeoutMs?: number;
   fetchImpl?: typeof fetch;
   sleep?: (ms: number) => Promise<void>;
+  onRateLimited?: () => void;
+}
+
+function isNotFoundBody(body: unknown): boolean {
+  if (!body || typeof body !== "object") return false;
+  const message = String((body as { message?: unknown }).message ?? "").toLowerCase();
+  return message.includes("could not find requested character") || message.includes("not found");
 }
 
 export class RaiderIoHttpClient {
@@ -23,6 +33,7 @@ export class RaiderIoHttpClient {
   private readonly waitQueue: Array<() => void> = [];
   private readonly fetchImpl: typeof fetch;
   private readonly sleep: (ms: number) => Promise<void>;
+  private readonly timeoutMs: number;
 
   constructor(private readonly options: RaiderIoHttpClientOptions) {
     this.rateLimiter = createRpmLimiter(options.softRpm);
@@ -30,6 +41,7 @@ export class RaiderIoHttpClient {
     this.sleep =
       options.sleep ??
       ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
+    this.timeoutMs = options.timeoutMs ?? RAIDERIO_DEFAULT_TIMEOUT_MS;
   }
 
   private async acquireSlot(): Promise<void> {
@@ -51,6 +63,10 @@ export class RaiderIoHttpClient {
     if (next) next();
   }
 
+  /**
+   * Builds request URLs. `RAIDERIO_APP_KEY` is transmitted only as OpenAPI `access_key` query param.
+   * Do not invent Authorization headers.
+   */
   private buildUrl(path: string, query: Record<string, string | undefined>): string {
     const url = new URL(path, this.options.baseUrl);
     for (const [key, value] of Object.entries(query)) {
@@ -62,6 +78,30 @@ export class RaiderIoHttpClient {
       url.searchParams.set("access_key", this.options.appKey);
     }
     return url.toString();
+  }
+
+  private async fetchWithTimeout(url: string): Promise<Response> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    try {
+      return await this.fetchImpl(url, {
+        method: "GET",
+        headers: { Accept: "application/json" },
+        signal: controller.signal,
+      });
+    } catch (error) {
+      if (error instanceof Error && (error.name === "AbortError" || /aborted/i.test(error.message))) {
+        throw new ExternalApiError({
+          message: `Raider.IO request timed out after ${this.timeoutMs}ms`,
+          code: "TIMEOUT",
+          provider: "raiderio",
+          retryable: true,
+        });
+      }
+      throw error;
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   async getJson<T>(
@@ -81,12 +121,10 @@ export class RaiderIoHttpClient {
       await this.acquireSlot();
       try {
         const url = this.buildUrl(path, query);
-        const response = await this.fetchImpl(url, {
-          method: "GET",
-          headers: { Accept: "application/json" },
-        });
+        const response = await this.fetchWithTimeout(url);
 
         if (response.status === 429) {
+          this.options.onRateLimited?.();
           const retryAfter = response.headers.get("Retry-After");
           const waitMs = retryAfter ? Number.parseInt(retryAfter, 10) * 1000 : 2 ** attempt * 250;
           const jitter = Math.floor(Math.random() * 100);
@@ -116,16 +154,18 @@ export class RaiderIoHttpClient {
             provider: "raiderio",
             retryable: false,
             statusCode: response.status,
+            details: { bodyPreview: text.slice(0, 200) },
           });
         }
 
-        if (response.status === 404) {
+        // Live API returns HTTP 400 (not 404) for missing characters.
+        if (response.status === 404 || (response.status === 400 && isNotFoundBody(body))) {
           throw new ExternalApiError({
             message: `Raider.IO resource not found for ${endpointKey}`,
             code: "NOT_FOUND",
             provider: "raiderio",
             retryable: false,
-            statusCode: 404,
+            statusCode: response.status,
             details: body,
           });
         }
@@ -133,7 +173,7 @@ export class RaiderIoHttpClient {
         if (!response.ok) {
           throw new ExternalApiError({
             message: `Raider.IO HTTP ${response.status} on ${endpointKey}`,
-            code: "UNKNOWN",
+            code: response.status >= 500 ? "UNKNOWN" : "INVALID_RESPONSE",
             provider: "raiderio",
             retryable: response.status >= 500,
             statusCode: response.status,
@@ -142,7 +182,7 @@ export class RaiderIoHttpClient {
         }
 
         return { statusCode: response.status, headers: response.headers, body };
-      } catch (error) {
+      } catch (error: unknown) {
         lastError = error;
         if (error instanceof ExternalApiError) {
           if (!error.retryable || attempt >= maxRetries) throw error;

@@ -8,7 +8,7 @@ import type {
   RawSeasonCutoffsResponse,
   RawStaticDataResponse,
 } from "./raw-types.js";
-import { RAIDERIO_DEFAULT_EXPANSION_ID } from "./constants.js";
+import { RAIDERIO_DOCUMENTED_CURRENT_EXPANSION_ID } from "./constants.js";
 
 export interface LiveRaiderIoProviderDeps extends RaiderIoProviderDeps {
   http: RaiderIoHttpClient;
@@ -54,10 +54,12 @@ export class LiveRaiderIoProvider extends BaseRaiderIoProvider {
     return { raw: response.body, statusCode: response.statusCode };
   }
 
-  protected async fetchStaticData(): Promise<{ raw: RawStaticDataResponse; statusCode: number }> {
+  protected async fetchStaticData(
+    expansionId = RAIDERIO_DOCUMENTED_CURRENT_EXPANSION_ID,
+  ): Promise<{ raw: RawStaticDataResponse; statusCode: number }> {
     const response = await this.http.getJson<RawStaticDataResponse>(
       "/api/v1/mythic-plus/static-data",
-      { expansion_id: String(RAIDERIO_DEFAULT_EXPANSION_ID) },
+      { expansion_id: String(expansionId) },
       "mythic-plus.static-data",
     );
     return { raw: response.body, statusCode: response.statusCode };
@@ -66,13 +68,14 @@ export class LiveRaiderIoProvider extends BaseRaiderIoProvider {
   protected async fetchRunDetails(
     seasonSlug: string,
     externalRunId: string,
-  ): Promise<{ raw: RawRunDetailsResponse; statusCode: number; region: RegionCode }> {
+    _region: RegionCode,
+  ): Promise<{ raw: RawRunDetailsResponse; statusCode: number }> {
     const response = await this.http.getJson<RawRunDetailsResponse>(
       "/api/v1/mythic-plus/run-details",
       { season: seasonSlug, id: externalRunId },
       "mythic-plus.run-details",
     );
-    return { raw: response.body, statusCode: response.statusCode, region: "EU" };
+    return { raw: response.body, statusCode: response.statusCode };
   }
 
   protected async fetchPeriods(): Promise<{ raw: RawPeriodsResponse; statusCode: number }> {
