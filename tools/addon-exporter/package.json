@@ -7,15 +7,30 @@
     "mplus-addon-export": "./dist/cli.js"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
-    "start": "tsx src/cli.ts"
+    "build": "tsc -b tsconfig.json",
+    "typecheck": "tsc -b tsconfig.json",
+    "test": "vitest run --config vitest.config.ts",
+    "fixture:build": "tsx src/build-fixture.ts",
+    "preexport": "pnpm --filter @mplus/contracts build && pnpm --filter @mplus/domain build",
+    "export": "tsx src/cli.ts export",
+    "prebenchmark": "pnpm run preexport",
+    "benchmark": "tsx src/cli.ts benchmark",
+    "prepackage": "pnpm run preexport",
+    "package": "tsx src/cli.ts package",
+    "lua:check": "tsx src/lua-syntax-check.ts",
+    "start": "tsx src/cli.ts export"
   },
   "dependencies": {
-    "@mplus/contracts": "workspace:*"
+    "@mplus/contracts": "workspace:*",
+    "@mplus/domain": "workspace:*",
+    "archiver": "^7.0.1"
   },
   "devDependencies": {
+    "@types/archiver": "^6.0.3",
+    "@types/luaparse": "^0.2.12",
+    "luaparse": "^0.3.1",
     "tsx": "^4.20.3",
-    "typescript": "^5.8.3"
+    "typescript": "^5.8.3",
+    "vitest": "^3.2.4"
   }
 }

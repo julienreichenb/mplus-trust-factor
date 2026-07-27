@@ -30,6 +30,7 @@ tmp/
 .temp/
 raw-artifacts/
 data/
+!addon/MPlusTrust/Data/
 
 # Prisma
 packages/database/prisma/*.db
