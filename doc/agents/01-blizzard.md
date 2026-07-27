@@ -3,7 +3,7 @@
 - Scope: Blizzard / Battle.net provider integration
 - Branch/worktree: `agent/blizzard`
 - Date: 2026-07-27
-- Commit(s): pending (this handoff)
+- Commit(s): `9058f6f`
 
 # Summary
 Implemented a typed Blizzard provider for EU (region-ready) with OAuth client-credentials token manager, HTTP cache/dedupe/retry, Zod boundary validation, DTO normalization, sanitized fixtures, fixture + live modes, API docs, and unit tests. No live API calls in tests; live smoke skips cleanly without credentials.
