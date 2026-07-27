@@ -262,22 +262,14 @@ export function normalizeCharacterProfile(
     `https://raider.io/characters/${normalizedRegion.toLowerCase()}/${realmSlug}/${encodeURIComponent(raw.name)}`;
 
   const seasons = raw.mythic_plus_scores_by_season ?? [];
-  const currentSeason = seasons[0]
-    ? {
-        seasonSlug: seasons[0].season,
-        scores: mapScores(seasons[0].scores),
-        isCurrentSeason: true,
-        isPreviousSeason: false,
-      }
-    : null;
-  const previousSeason = seasons[1]
-    ? {
-        seasonSlug: seasons[1].season,
-        scores: mapScores(seasons[1].scores),
-        isCurrentSeason: false,
-        isPreviousSeason: true,
-      }
-    : null;
+  const seasonScores = seasons.map((entry, index) => ({
+    seasonSlug: entry.season,
+    scores: mapScores(entry.scores),
+    isCurrentSeason: index === 0,
+    isPreviousSeason: index === 1,
+  }));
+  const currentSeason = seasonScores[0] ?? null;
+  const previousSeason = seasonScores[1] ?? null;
 
   const seasonSlug = currentSeason?.seasonSlug ?? "current";
   const recentRuns = (raw.mythic_plus_recent_runs ?? []).map((r) =>
@@ -310,6 +302,7 @@ export function normalizeCharacterProfile(
     talents: mapTalents(raw.talents),
     currentSeason,
     previousSeason,
+    seasons: seasonScores,
     ranks: raw.mythic_plus_ranks ? mapRanks(raw.mythic_plus_ranks) : null,
     recentRuns,
     bestRuns,

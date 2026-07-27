@@ -129,4 +129,51 @@ describe("Wallidrixe-shaped scoring regressions", () => {
     expect(performance.confidence).toBe(0);
     expect(performance.score).toBe(50);
   });
+
+  it("Experience missing account_linked_alts does not force a low EXPERIENCE score", () => {
+    const model = createDefaultModelV2();
+    const snapshot = calculateScore({
+      characterId: "11111111-1111-1111-1111-111111111111",
+      seasonSlug: "season-mn-1",
+      model,
+      scopeType: "CHARACTER",
+      scopeKey: null,
+      observations: [
+        observation({
+          metricKey: "experience.mythic_rating",
+          dimension: "EXPERIENCE",
+          rawValue: 2845,
+          normalizedValue: 78,
+          context: {
+            mode: "CHARACTER_HISTORY",
+            missingMetrics: ["account_linked_alts"],
+          },
+        }),
+        observation({
+          metricKey: "experience.dungeon_breadth",
+          dimension: "EXPERIENCE",
+          rawValue: 100,
+          normalizedValue: 100,
+        }),
+        observation({
+          metricKey: "experience.volume_recency",
+          dimension: "EXPERIENCE",
+          rawValue: 16,
+          normalizedValue: 80,
+        }),
+        observation({
+          metricKey: "experience.historical_seasons",
+          dimension: "EXPERIENCE",
+          rawValue: 70,
+          normalizedValue: 70,
+        }),
+      ],
+      calculatedAt: "2026-07-28T00:00:00.000Z",
+      inputFingerprint: "wallidrixe-experience-no-alts",
+      context: { role: "DPS", freshness: 0.8, selectedRunCoverage: 0.75 },
+    });
+    const experience = snapshot.dimensions.find((d) => d.dimension === "EXPERIENCE")!;
+    expect(experience.score).toBeGreaterThan(60);
+    expect(JSON.stringify(snapshot.explanation)).not.toMatch(/account.?alt.*zero/i);
+  });
 });

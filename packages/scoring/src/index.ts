@@ -61,6 +61,30 @@ export type {
   HistoricalSeasonAggregateInput,
   PerformanceRunRefInput,
 } from "./performance/types.js";
+export {
+  computeExperienceDimension,
+  computeExperienceConfidence,
+  computeBreadthWithDiminishingReturns,
+  computeCurrentPeak,
+  computeHistoricalPeak,
+  computeLongevityScore,
+  applyAgeDecay,
+  normalizeScoreAgainstTop25Cutoff,
+  resolveExperienceV3MetricWeights,
+  EXPERIENCE_CURRENT_PEAK_WEIGHT,
+  EXPERIENCE_CURRENT_BREADTH_WEIGHT,
+  EXPERIENCE_HISTORICAL_PEAK_WEIGHT,
+  EXPERIENCE_LONGEVITY_WEIGHT,
+  AGE_DECAY_PER_SEASON,
+  AGE_DECAY_FLOOR,
+  EXPERIENCE_V3_METRIC_KEYS,
+} from "./experience/aggregate.js";
+export type {
+  ComputeExperienceInput,
+  ComputeExperienceResult,
+  ExperienceCharacterHistory,
+  ExperienceSeasonFact,
+} from "./experience/types.js";
 export { calculateScore, calculateScoreEngine } from "./calculate.js";
 export type { CalculateScoreInput } from "./calculate.js";
 

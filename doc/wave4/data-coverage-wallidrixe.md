@@ -54,12 +54,18 @@ This document records whether each required Wave 4 metric can be collected from 
 | Defensive dispels | AVAILABLE | Singe Magic / Command Demon seeded. |
 | Offensive dispels / purges | PARTIAL / BLOCKED | No Warlock offensive-dispel seed; classification falls back heuristically — Agent 24 must decide capability matrix. |
 
-## Experience (feasibility only)
+## Experience
 
 | Metric | Status | Notes |
 |---|---|---|
-| Same-character rename/transfer | AVAILABLE | WCL `canonicalId` (Agent 25). |
-| Public account-wide alts | BLOCKED | Not publicly enumerable via WCL; needs consent / verified linkage. |
+| Same-character rename/transfer | AVAILABLE | WCL `canonicalId`. |
+| Public character current + previous season scores | AVAILABLE | Raider.IO `mythic_plus_scores_by_season:current:previous`; Blizzard current rating. |
+| Season-normalized peak / breadth / longevity | AVAILABLE | `@mplus/scoring` Experience v3; missing contributors renormalized (never zero). |
+| Historical peak with age-decay floor | PARTIAL | Works when season-normalized values exist; older seasons often use heuristic ceiling until Agent 27 calibrates per-season cutoffs. |
+| Public account-wide alts | BLOCKED | Not publicly enumerable; missing metric `account_linked_alts` must not lower score. |
+| Verified account history mode | BLOCKED (product) | Formula + labels ready; requires Battle.net user OAuth / explicit claims. |
+
+See `doc/wave4/experience-feasibility.md`.
 
 ## Provider cost & pagination
 

@@ -108,6 +108,11 @@ export interface RaiderIoCharacterProfile {
   talents: RaiderIoTalentSummary | null;
   currentSeason: RaiderIoSeasonScores | null;
   previousSeason: RaiderIoSeasonScores | null;
+  /**
+   * Ordered season scores as returned by Raider.IO (index 0 = current when requested).
+   * Prefer this for Experience history; do not compare raw scores across seasons.
+   */
+  seasons: RaiderIoSeasonScores[];
   ranks: RaiderIoRankSummary | null;
   recentRuns: RaiderIoRunCandidate[];
   bestRuns: RaiderIoRunCandidate[];
