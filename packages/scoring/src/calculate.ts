@@ -43,6 +43,7 @@ function coerceModel(
     authenticityBlend: model.authenticityBlend,
     confidenceNeutralScore: model.confidenceNeutralScore,
     gradeThresholds: model.gradeThresholds,
+    minConfidenceForGrade: model.minConfidenceForGrade,
   });
 }
 
@@ -130,31 +131,88 @@ export function calculateScoreEngine(input: CalculateScoreEngineInput): ScoreSna
   }));
 
   const redFlags = [...authenticity.redFlags];
-  if (confidence < 0.35) {
+  const minConfidence = model.minConfidenceForGrade ?? 0.35;
+  if (confidence < minConfidence) {
     redFlags.push({
       key: "insufficient_data",
       label: "Insufficient data",
       severity: "INFO",
       confidence: 1 - confidence,
       public: true,
-      evidence: { confidence },
+      evidence: { confidence, minConfidenceForGrade: minConfidence },
     });
   }
-  const hiddenLogs = observations.some(
-    (o) =>
-      typeof o.context === "object" &&
-      o.context !== null &&
-      "logsHidden" in o.context &&
-      (o.context as { logsHidden?: boolean }).logsHidden === true,
-  );
-  if (hiddenLogs || (context.selectedRunCoverage ?? 1) < 0.2) {
+
+  // LOGS_HIDDEN only for explicit HIDDEN visibility — never infer from low coverage.
+  const wclVisibility =
+    typeof context.wclVisibility === "string"
+      ? context.wclVisibility
+      : observations
+          .map((o) =>
+            typeof o.context === "object" && o.context !== null
+              ? (o.context as { wclVisibility?: string }).wclVisibility
+              : undefined,
+          )
+          .find((v) => typeof v === "string");
+  const explicitHidden =
+    wclVisibility === "HIDDEN" ||
+    observations.some(
+      (o) =>
+        typeof o.context === "object" &&
+        o.context !== null &&
+        (o.context as { logsHidden?: boolean }).logsHidden === true,
+    );
+  if (explicitHidden) {
     redFlags.push({
       key: "logs_hidden",
       label: "Logs hidden",
       severity: "MEDIUM",
-      confidence: 0.8,
+      confidence: 0.9,
       public: true,
-      evidence: { selectedRunCoverage: context.selectedRunCoverage ?? null },
+      evidence: { wclVisibility: wclVisibility ?? "HIDDEN" },
+    });
+  } else if (wclVisibility === "NO_PUBLIC_LOGS") {
+    redFlags.push({
+      key: "no_public_logs",
+      label: "No public logs",
+      severity: "LOW",
+      confidence: 0.85,
+      public: true,
+      evidence: { wclVisibility },
+    });
+  } else if (wclVisibility === "UNAVAILABLE") {
+    redFlags.push({
+      key: "wcl_unavailable",
+      label: "Warcraft Logs unavailable",
+      severity: "INFO",
+      confidence: 0.7,
+      public: true,
+      evidence: { wclVisibility },
+    });
+  } else if (wclVisibility === "RATE_LIMITED") {
+    redFlags.push({
+      key: "wcl_rate_limited",
+      label: "Warcraft Logs rate limited",
+      severity: "INFO",
+      confidence: 0.7,
+      public: true,
+      evidence: { wclVisibility },
+    });
+  } else if (
+    wclVisibility === "PUBLIC" &&
+    (context.selectedRunCoverage ?? 1) <= 0 &&
+    (context.matchedWclRunCount ?? 0) === 0
+  ) {
+    redFlags.push({
+      key: "no_matched_run",
+      label: "No matched public run",
+      severity: "LOW",
+      confidence: 0.75,
+      public: true,
+      evidence: {
+        wclVisibility,
+        selectedRunCoverage: context.selectedRunCoverage ?? 0,
+      },
     });
   }
 

@@ -10,12 +10,23 @@ import type {
 export function gradeScore(
   score: number,
   thresholds: ScoreModelConfig["gradeThresholds"],
-): Grade {
+): Exclude<Grade, "U"> {
   if (score >= thresholds.S) return "S";
   if (score >= thresholds.A) return "A";
   if (score >= thresholds.B) return "B";
   if (score >= thresholds.C) return "C";
   return "D";
+}
+
+/** Present UNRATED when confidence is below the model threshold. */
+export function presentGrade(
+  score: number,
+  confidence: number,
+  model: Pick<ScoreModelConfigV1, "gradeThresholds" | "minConfidenceForGrade">,
+): Grade {
+  const minConfidence = model.minConfidenceForGrade ?? 0.35;
+  if (confidence < minConfidence) return "U";
+  return gradeScore(score, model.gradeThresholds);
 }
 
 export function calculateSkillScore(dimensions: DimensionScoreResult[]): number {
@@ -66,12 +77,13 @@ export function calculateFinalTrust(input: {
   const overallScore = clamp(
     confidence * observedTrust + (1 - confidence) * model.confidenceNeutralScore,
   );
+  const clampedConfidence = clamp01(confidence);
   return {
     skillScore: clamp(skillScore),
     authenticityScore: clamp(authenticityScore),
     observedTrust: clamp(observedTrust),
-    confidence: clamp01(confidence),
+    confidence: clampedConfidence,
     overallScore,
-    grade: gradeScore(overallScore, model.gradeThresholds),
+    grade: presentGrade(overallScore, clampedConfidence, model),
   };
 }

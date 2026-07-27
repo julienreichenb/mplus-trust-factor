@@ -8,7 +8,8 @@ export type ScoreDimension =
   | "RAID"
   | "AUTHENTICITY";
 
-export type Grade = "S" | "A" | "B" | "C" | "D";
+/** Letter grades plus `U` = UNRATED / insufficient confidence to present a reliable rating. */
+export type Grade = "S" | "A" | "B" | "C" | "D" | "U";
 
 export type ScoreScope = "CHARACTER" | "ROLE" | "CLASS" | "SPEC" | "ACCOUNT";
 
@@ -51,6 +52,11 @@ export interface ScoreModelConfig {
     B: number;
     C: number;
   };
+  /**
+   * Below this overall confidence, grade is `U` (UNRATED / INSUFFICIENT_DATA)
+   * rather than a letter grade that looks reliable.
+   */
+  minConfidenceForGrade?: number;
 }
 
 export interface DimensionScoreDTO {

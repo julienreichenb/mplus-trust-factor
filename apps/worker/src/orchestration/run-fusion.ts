@@ -8,8 +8,81 @@ import type {
   RunSourceRefDTO,
 } from "@mplus/contracts";
 
+const MATCH_WINDOW_MS = 120_000;
+
 function fingerprint(parts: string[]): string {
   return createHash("sha256").update(parts.join("|"), "utf8").digest("hex").slice(0, 32);
+}
+
+function normalizeDungeonSlug(slug: string): string {
+  return slug.normalize("NFKC").trim().toLocaleLowerCase("en-US");
+}
+
+/**
+ * Cross-provider match key: region + dungeon + key + completedAt bucket.
+ * Intentionally ignores provider-prefixed fingerprints and roster variance so
+ * Blizzard, Raider.IO and WCL representations of the same run collapse.
+ */
+export function computeCrossProviderRunKey(run: Pick<
+  MythicRunDTO,
+  "region" | "dungeonSlug" | "keyLevel" | "completedAt"
+>): string {
+  const completedBucket = Math.round(new Date(run.completedAt).getTime() / 60_000);
+  return fingerprint([
+    String(run.region).toUpperCase(),
+    normalizeDungeonSlug(run.dungeonSlug),
+    String(run.keyLevel),
+    String(completedBucket),
+  ]);
+}
+
+function sourcePriority(provider: string): number {
+  switch (provider) {
+    case "BLIZZARD":
+      return 3;
+    case "RAIDER_IO":
+      return 2;
+    case "WARCRAFT_LOGS":
+      return 1;
+    default:
+      return 0;
+  }
+}
+
+function mergeParticipants(
+  existing: RunParticipantDTO[],
+  incoming: RunParticipantDTO[],
+): RunParticipantDTO[] {
+  if (incoming.length === 0) return [...existing];
+  if (existing.length === 0) return [...incoming];
+  const byKey = new Map<string, RunParticipantDTO>();
+  for (const participant of [...existing, ...incoming]) {
+    const key = participant.providerCharacterKey.toLocaleLowerCase("en-US");
+    const prior = byKey.get(key);
+    if (!prior) {
+      byKey.set(key, participant);
+      continue;
+    }
+    byKey.set(key, {
+      ...prior,
+      ...participant,
+      classSlug: participant.classSlug ?? prior.classSlug,
+      specSlug: participant.specSlug ?? prior.specSlug,
+      role: participant.role ?? prior.role,
+      itemLevel: participant.itemLevel ?? prior.itemLevel,
+      mythicRatingAtRun: participant.mythicRatingAtRun ?? prior.mythicRatingAtRun,
+      isTargetCharacter: prior.isTargetCharacter || participant.isTargetCharacter,
+      characterId: participant.characterId ?? prior.characterId,
+    });
+  }
+  return [...byKey.values()];
+}
+
+function runsMatch(a: MythicRunDTO, b: MythicRunDTO): boolean {
+  if (normalizeDungeonSlug(a.dungeonSlug) !== normalizeDungeonSlug(b.dungeonSlug)) return false;
+  if (a.keyLevel !== b.keyLevel) return false;
+  const delta = Math.abs(new Date(a.completedAt).getTime() - new Date(b.completedAt).getTime());
+  return delta <= MATCH_WINDOW_MS;
 }
 
 function candidateToParticipants(
@@ -67,17 +140,17 @@ export function raiderIoCandidateToMythicRun(
     },
   ];
 
-  const canonicalFingerprint = fingerprint([
-    "raiderio",
-    candidate.externalRunId,
-    candidate.dungeonSlug,
-    String(candidate.keyLevel),
-    candidate.completedAt,
-  ]);
+  const runBase = {
+    region: target.region as RegionCode,
+    dungeonSlug: candidate.dungeonSlug,
+    keyLevel: candidate.keyLevel,
+    completedAt: candidate.completedAt,
+  };
+  const canonicalFingerprint = computeCrossProviderRunKey(runBase);
 
   return {
     id: `rio:${candidate.externalRunId}`,
-    region: target.region as RegionCode,
+    region: runBase.region,
     seasonSlug: candidate.seasonSlug,
     dungeonSlug: candidate.dungeonSlug,
     keyLevel: candidate.keyLevel,
@@ -109,21 +182,25 @@ export function collectRaiderIoRuns(
   return [...byId.values()];
 }
 
-/** Deduplicate runs that share dungeon+key+completion window across providers. */
+/**
+ * Deduplicate Blizzard / Raider.IO / WCL representations of the same run.
+ * Uses dungeon + key + completion window, then rewrites fingerprints to a
+ * shared cross-provider key so DB upserts also collide.
+ */
 export function mergeRunSources(runs: MythicRunDTO[]): MythicRunDTO[] {
   const merged: MythicRunDTO[] = [];
   for (const run of runs) {
-    const match = merged.find(
-      (existing) =>
-        existing.dungeonSlug === run.dungeonSlug &&
-        existing.keyLevel === run.keyLevel &&
-        Math.abs(new Date(existing.completedAt).getTime() - new Date(run.completedAt).getTime()) <=
-          120_000,
-    );
+    const match = merged.find((existing) => runsMatch(existing, run));
     if (!match) {
-      merged.push({ ...run, sources: [...run.sources], participants: [...run.participants] });
+      merged.push({
+        ...run,
+        canonicalFingerprint: computeCrossProviderRunKey(run),
+        sources: [...run.sources],
+        participants: [...run.participants],
+      });
       continue;
     }
+
     for (const source of run.sources) {
       if (
         !match.sources.some(
@@ -133,6 +210,60 @@ export function mergeRunSources(runs: MythicRunDTO[]): MythicRunDTO[] {
         match.sources.push(source);
       }
     }
+    match.participants = mergeParticipants(match.participants, run.participants);
+    match.canonicalFingerprint = computeCrossProviderRunKey(match);
+
+    const incomingPriority = Math.max(0, ...run.sources.map((s) => sourcePriority(s.provider)));
+    const existingPriority = Math.max(
+      0,
+      ...match.sources
+        .filter((s) => !run.sources.some((r) => r.provider === s.provider && r.externalRunId === s.externalRunId))
+        .map((s) => sourcePriority(s.provider)),
+    );
+    if (incomingPriority >= existingPriority) {
+      match.durationMs = run.durationMs || match.durationMs;
+      match.timerMs = run.timerMs ?? match.timerMs;
+      match.timed = run.timed;
+      match.scoreValue = run.scoreValue ?? match.scoreValue;
+    }
+    if (match.seasonSlug === "unknown" && run.seasonSlug !== "unknown") {
+      match.seasonSlug = run.seasonSlug;
+    } else if (
+      incomingPriority > existingPriority &&
+      run.seasonSlug !== "unknown" &&
+      !run.seasonSlug.startsWith("placeholder")
+    ) {
+      match.seasonSlug = run.seasonSlug;
+    }
   }
   return merged;
+}
+
+/** Ensure a target-character participant exists when providers omit roster (e.g. WCL-only). */
+export function ensureTargetParticipant(
+  run: MythicRunDTO,
+  target: CharacterIdentityInput,
+): MythicRunDTO {
+  if (run.participants.some((p) => p.isTargetCharacter)) return run;
+  const providerCharacterKey =
+    `${target.region}|${target.realmSlug}|${target.name}`.toLocaleLowerCase("en-US");
+  return {
+    ...run,
+    participants: [
+      ...run.participants,
+      {
+        providerCharacterKey,
+        displayName: target.name,
+        realmSlug: target.realmSlug,
+        region: target.region as RegionCode,
+        classSlug: null,
+        specSlug: null,
+        role: null,
+        itemLevel: null,
+        mythicRatingAtRun: null,
+        isTargetCharacter: true,
+        characterId: null,
+      },
+    ],
+  };
 }

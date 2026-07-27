@@ -2,6 +2,7 @@ import type { Character, CharacterSnapshot, EquipmentSnapshot, GameClass, GameSp
 import type {
   AnalyzedRunSummary,
   CharacterProfileResponse,
+  CharacterProviderStateDTO,
   EquipmentSummary,
   ProfileEntitlements,
   ProfileWarning,
@@ -24,12 +25,17 @@ export interface CharacterEnrichmentInput {
   runCount: number;
   seasonSlug: string | null;
   wclVisibility: WclVisibilityState | null;
+  providerStates?: CharacterProviderStateDTO[];
+  /** Selected-run combat coverage (0–1), aligned with score context.selectedRunCoverage. */
+  selectedRunCoverage?: number | null;
+  runCoverageById?: Record<string, number | null>;
   env: AppEnv;
 }
 
 function runToSummary(
   run: MythicRunWithRelations,
   kind: AnalyzedRunSummary["kind"],
+  coverageRatio: number,
 ): AnalyzedRunSummary {
   const summary = mapRunSummary(run);
   return {
@@ -41,24 +47,63 @@ function runToSummary(
     completedAt: summary.completedAt,
     timed: summary.timed,
     performanceSummary: `Key +${summary.keyLevel} ${summary.timed ? "timed" : "depleted"}`,
-    coverageRatio: 1,
+    coverageRatio,
   };
 }
 
-function buildWarnings(score: CharacterProfileResponse["score"]): ProfileWarning[] {
+function coverageForRun(
+  runId: string,
+  runCoverageById: Record<string, number | null> | undefined,
+  selectedRunCoverage: number | null | undefined,
+): number {
+  const analyzed = runCoverageById?.[runId];
+  if (typeof analyzed === "number") return analyzed;
+  // Never claim full coverage when no WCL combat facts were analyzed.
+  if (selectedRunCoverage == null) return 0;
+  return selectedRunCoverage;
+}
+
+function buildWarnings(
+  score: CharacterProfileResponse["score"],
+  wclVisibility: WclVisibilityState | null,
+): ProfileWarning[] {
   const warnings: ProfileWarning[] = [];
-  if (score && score.confidence < 0.35) {
+  if (score?.grade === "U" || (score && score.confidence < 0.35)) {
     warnings.push({
       code: "INSUFFICIENT_DATA",
-      message: "Data incomplete — confidence is reduced toward neutral.",
+      message: "Data incomplete — confidence is too low for a reliable grade (UNRATED).",
       severity: "WARN",
     });
   }
-  if (score?.redFlags.some((f) => f.key === "logs_hidden")) {
+  if (score?.redFlags.some((f) => f.key === "logs_hidden") || wclVisibility === "HIDDEN") {
     warnings.push({
       code: "LOGS_HIDDEN",
-      message: "Detailed logs are hidden or incomplete.",
+      message: "Detailed logs are explicitly hidden.",
       severity: "WARN",
+    });
+  } else if (wclVisibility === "NO_PUBLIC_LOGS" || score?.redFlags.some((f) => f.key === "no_public_logs")) {
+    warnings.push({
+      code: "NO_PUBLIC_LOGS",
+      message: "No public Warcraft Logs reports were found.",
+      severity: "WARN",
+    });
+  } else if (wclVisibility === "UNAVAILABLE" || score?.redFlags.some((f) => f.key === "wcl_unavailable")) {
+    warnings.push({
+      code: "WCL_UNAVAILABLE",
+      message: "Warcraft Logs was unavailable during enrichment.",
+      severity: "INFO",
+    });
+  } else if (wclVisibility === "RATE_LIMITED" || score?.redFlags.some((f) => f.key === "wcl_rate_limited")) {
+    warnings.push({
+      code: "WCL_RATE_LIMITED",
+      message: "Warcraft Logs enrichment was rate-limited.",
+      severity: "INFO",
+    });
+  } else if (score?.redFlags.some((f) => f.key === "no_matched_run")) {
+    warnings.push({
+      code: "NO_MATCHED_RUN",
+      message: "Public logs exist but none matched the selected runs.",
+      severity: "INFO",
     });
   }
   if (score?.redFlags.some((f) => f.key === "boost_suspected")) {
@@ -95,17 +140,38 @@ export function buildProfileEnrichments(input: CharacterEnrichmentInput): Pick<
   | "warnings"
   | "raiderIoUsed"
   | "wclVisibility"
+  | "providerStates"
 > {
-  const { character, latestSnapshot, latestRun, highestRun, runCount, seasonSlug, wclVisibility, env } = input;
+  const {
+    character,
+    latestSnapshot,
+    latestRun,
+    highestRun,
+    runCount,
+    seasonSlug,
+    wclVisibility,
+    providerStates,
+    selectedRunCoverage,
+    runCoverageById,
+    env,
+  } = input;
   const bothSame = latestRun && highestRun && latestRun.id === highestRun.id;
 
   let lastAnalyzedRun: AnalyzedRunSummary | null = null;
   let highestAnalyzedRun: AnalyzedRunSummary | null = null;
   if (latestRun) {
-    lastAnalyzedRun = runToSummary(latestRun, bothSame ? "BOTH" : "LATEST");
+    lastAnalyzedRun = runToSummary(
+      latestRun,
+      bothSame ? "BOTH" : "LATEST",
+      coverageForRun(latestRun.id, runCoverageById, selectedRunCoverage),
+    );
   }
   if (highestRun) {
-    highestAnalyzedRun = runToSummary(highestRun, bothSame ? "BOTH" : "HIGHEST");
+    highestAnalyzedRun = runToSummary(
+      highestRun,
+      bothSame ? "BOTH" : "HIGHEST",
+      coverageForRun(highestRun.id, runCoverageById, selectedRunCoverage),
+    );
   }
 
   let equipment: EquipmentSummary | null = null;
@@ -139,11 +205,15 @@ export function buildProfileEnrichments(input: CharacterEnrichmentInput): Pick<
       }
     : null;
 
+  // Preserve null item level — never coerce unavailable values to zero.
+  const rawIlvl = latestSnapshot?.itemLevelEquipped ?? null;
+  const itemLevel = rawIlvl != null && rawIlvl > 0 ? rawIlvl : null;
+
   return {
     classSlug: character.gameClass?.slug ?? null,
     specSlug: character.activeSpec?.slug ?? null,
     role: character.role ?? null,
-    itemLevel: latestSnapshot?.itemLevelEquipped ?? null,
+    itemLevel,
     lastAnalyzedRun,
     highestAnalyzedRun,
     equipment,
@@ -153,6 +223,7 @@ export function buildProfileEnrichments(input: CharacterEnrichmentInput): Pick<
     warnings: [],
     raiderIoUsed: Boolean(character.raiderioProfileUrl),
     wclVisibility,
+    providerStates: providerStates ?? [],
   };
 }
 
@@ -160,5 +231,8 @@ export function applyProfileWarnings(
   enrichments: ReturnType<typeof buildProfileEnrichments>,
   score: CharacterProfileResponse["score"],
 ): ReturnType<typeof buildProfileEnrichments> {
-  return { ...enrichments, warnings: buildWarnings(score) };
+  return {
+    ...enrichments,
+    warnings: buildWarnings(score, enrichments.wclVisibility ?? null),
+  };
 }

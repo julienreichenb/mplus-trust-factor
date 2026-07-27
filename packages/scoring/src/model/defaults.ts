@@ -24,6 +24,7 @@ export function createDefaultModelV1(
       B: 65,
       C: 50,
     },
+    minConfidenceForGrade: 0.35,
     metricWeights: {
       PERFORMANCE: [
         { metricKey: "performance.mythic_rating", weight: 0.55 },

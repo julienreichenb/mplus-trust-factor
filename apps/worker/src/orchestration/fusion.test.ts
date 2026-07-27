@@ -5,7 +5,7 @@ import {
   reconcileSources,
 } from "./reconcile.js";
 import { ExternalApiError } from "@mplus/contracts";
-import { collectRaiderIoRuns, mergeRunSources } from "./run-fusion.js";
+import { collectRaiderIoRuns, ensureTargetParticipant, mergeRunSources } from "./run-fusion.js";
 import type { MythicRunDTO, RaiderIoRunCandidate } from "@mplus/contracts";
 
 describe("enrichment soft-skip", () => {
@@ -163,6 +163,100 @@ describe("run fusion", () => {
       "RAIDER_IO",
       "WARCRAFT_LOGS",
     ]);
+    expect(merged[0]!.canonicalFingerprint).toBe(merged[0]!.canonicalFingerprint);
+  });
+
+  it("deduplicates Blizzard + Raider.IO + WCL via cross-provider fingerprints (Wallidrixe shape)", () => {
+    const completedAt = "2026-07-18T21:10:00.000Z";
+    const blizzard: MythicRunDTO = {
+      id: "blizz:1",
+      region: "EU",
+      seasonSlug: "blizzard-season-13",
+      dungeonSlug: "ara-kara",
+      keyLevel: 14,
+      completedAt,
+      durationMs: 1_700_000,
+      timerMs: 2_000_000,
+      timed: true,
+      scoreValue: 210,
+      canonicalFingerprint: "provider-blizzard-unique",
+      affixes: {},
+      participants: [
+        {
+          providerCharacterKey: "eu|kazzak|wallidrixe",
+          displayName: "Wallidrixe",
+          realmSlug: "kazzak",
+          region: "EU",
+          classSlug: "mage",
+          specSlug: "fire",
+          role: "DPS",
+          itemLevel: 684,
+          mythicRatingAtRun: null,
+          isTargetCharacter: true,
+          characterId: null,
+        },
+      ],
+      sources: [
+        {
+          provider: "BLIZZARD",
+          externalRunId: "blizz-1",
+          externalUrl: null,
+          reportCode: null,
+          fightId: null,
+          revision: null,
+        },
+      ],
+    };
+    const rio: MythicRunDTO = {
+      ...blizzard,
+      id: "rio:99",
+      seasonSlug: "season-tww-3",
+      canonicalFingerprint: "provider-rio-unique",
+      completedAt: "2026-07-18T21:10:45.000Z",
+      participants: [],
+      sources: [
+        {
+          provider: "RAIDER_IO",
+          externalRunId: "99",
+          externalUrl: null,
+          reportCode: null,
+          fightId: null,
+          revision: null,
+        },
+      ],
+    };
+    const wcl: MythicRunDTO = {
+      ...blizzard,
+      id: "wcl:ABC:3",
+      seasonSlug: "unknown",
+      canonicalFingerprint: "provider-wcl-unique",
+      completedAt: "2026-07-18T21:11:20.000Z",
+      participants: [],
+      sources: [
+        {
+          provider: "WARCRAFT_LOGS",
+          externalRunId: "ABC:3",
+          externalUrl: null,
+          reportCode: "ABC",
+          fightId: 3,
+          revision: 1,
+        },
+      ],
+    };
+
+    const merged = mergeRunSources([blizzard, rio, wcl]);
+    expect(merged).toHaveLength(1);
+    expect(merged[0]!.sources).toHaveLength(3);
+    expect(merged[0]!.participants.some((p) => p.isTargetCharacter)).toBe(true);
+    expect(merged[0]!.canonicalFingerprint).not.toBe("provider-blizzard-unique");
+    expect(merged[0]!.canonicalFingerprint).not.toBe("provider-rio-unique");
+    expect(merged[0]!.canonicalFingerprint).not.toBe("provider-wcl-unique");
+
+    const withTarget = ensureTargetParticipant(
+      { ...wcl, participants: [] },
+      { region: "EU", realmSlug: "kazzak", name: "Wallidrixe" },
+    );
+    expect(withTarget.participants.some((p) => p.isTargetCharacter)).toBe(true);
   });
 
   it("collects unique Raider.IO recent/best runs", () => {

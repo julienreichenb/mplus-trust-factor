@@ -36,6 +36,45 @@ export async function ensureCurrentSeason(client: PrismaClientOrTx, regionId: st
   });
 }
 
+/**
+ * Resolve and mark Blizzard's current season as the regional current season.
+ * Replaces placeholder-current / auto-current as the active scoring season.
+ */
+export async function ensureBlizzardCurrentSeason(
+  client: PrismaClientOrTx,
+  regionId: string,
+  blizzardSeasonId: number,
+): Promise<Season> {
+  const slug = `blizzard-season-${blizzardSeasonId}`;
+  const existing = await client.season.findFirst({ where: { regionId, slug } });
+
+  await client.season.updateMany({
+    where: { regionId, isCurrent: true, NOT: { slug } },
+    data: { isCurrent: false },
+  });
+
+  if (existing) {
+    return client.season.update({
+      where: { id: existing.id },
+      data: {
+        isCurrent: true,
+        name: `Blizzard Season ${blizzardSeasonId}`,
+        metadata: { blizzardSeasonId, source: "blizzard" },
+      },
+    });
+  }
+
+  return client.season.create({
+    data: {
+      regionId,
+      slug,
+      name: `Blizzard Season ${blizzardSeasonId}`,
+      isCurrent: true,
+      metadata: { blizzardSeasonId, source: "blizzard" },
+    },
+  });
+}
+
 export async function ensureSeasonBySlug(
   client: PrismaClientOrTx,
   regionId: string,
@@ -61,8 +100,12 @@ export interface RunRepository {
   findLatestForCharacter(characterId: string): Promise<MythicRunWithRelations | null>;
   findHighestForCharacter(characterId: string): Promise<MythicRunWithRelations | null>;
   findById(runId: string): Promise<MythicRunWithRelations | null>;
-  countForCharacter(characterId: string): Promise<number>;
+  countForCharacter(characterId: string, seasonId?: string): Promise<number>;
   findWclSource(runId: string): Promise<{ reportCode: string; fightId: number } | null>;
+  findLatestAnalysisCoverage(
+    characterId: string,
+    runId: string,
+  ): Promise<number | null>;
   upsertRunAnalysis(input: {
     runId: string;
     characterId: string;
@@ -192,9 +235,13 @@ export function createRunRepository(prisma: PrismaClient): RunRepository {
       });
     },
 
-    async countForCharacter(characterId) {
+    async countForCharacter(characterId, seasonId) {
       return prisma.runParticipant.count({
-        where: { characterId, isTargetCharacter: true },
+        where: {
+          characterId,
+          isTargetCharacter: true,
+          ...(seasonId ? { run: { seasonId } } : {}),
+        },
       });
     },
 
@@ -204,6 +251,19 @@ export function createRunRepository(prisma: PrismaClient): RunRepository {
       });
       if (!source?.reportCode || source.fightId === null) return null;
       return { reportCode: source.reportCode, fightId: source.fightId };
+    },
+
+    async findLatestAnalysisCoverage(characterId, runId) {
+      const analysis = await prisma.runAnalysis.findFirst({
+        where: {
+          characterId,
+          runId,
+          analysisVersion: "wcl-combat-facts-v1",
+        },
+        orderBy: { analyzedAt: "desc" },
+        select: { coverage: true },
+      });
+      return analysis?.coverage ?? null;
     },
 
     async upsertRunAnalysis(input) {

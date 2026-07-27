@@ -32,6 +32,7 @@ export { calculateDimensionScores } from "./dimensions.js";
 export { calculateAuthenticity } from "./authenticity.js";
 export {
   gradeScore,
+  presentGrade,
   calculateSkillScore,
   calculateOverallConfidence,
   calculateFinalTrust,

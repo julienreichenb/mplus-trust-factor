@@ -48,7 +48,12 @@ export interface CharacterRepository {
   recordSnapshot(
     characterId: string,
     snapshot: CharacterSnapshotDTO,
-    equipment?: { averageItemLevel: number | null; equippedItemLevel: number | null; items?: unknown },
+    equipment?: {
+      averageItemLevel: number | null;
+      equippedItemLevel: number | null;
+      items?: unknown;
+      keyItems?: unknown;
+    },
   ): Promise<void>;
   updateRefreshTimestamps(
     characterId: string,
@@ -134,8 +139,9 @@ export function createCharacterRepository(prisma: PrismaClient): CharacterReposi
         if (profile.classSlug) {
           const gameClass = await ensureGameClass(tx, profile.classSlug);
           classId = gameClass.id;
-          if (profile.specSlug && profile.role) {
-            const spec = await ensureGameSpecialization(tx, gameClass.id, profile.specSlug, profile.role);
+          if (profile.specSlug) {
+            const role = profile.role ?? "DPS";
+            const spec = await ensureGameSpecialization(tx, gameClass.id, profile.specSlug, role);
             activeSpecId = spec.id;
           }
         }
@@ -173,6 +179,7 @@ export function createCharacterRepository(prisma: PrismaClient): CharacterReposi
               averageItemLevel: equipment.averageItemLevel,
               equippedItemLevel: equipment.equippedItemLevel,
               items: (equipment.items ?? []) as object,
+              keyItems: (equipment.keyItems ?? []) as object,
             },
           });
         }

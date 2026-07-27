@@ -24,7 +24,7 @@ import { validateScoreSnapshot } from "@mplus/test-utils";
 import type { WorkerContainer } from "../container.js";
 import { refreshCharacterDedupeKey } from "../dedupe.js";
 import { negativeCache } from "../negative-cache.js";
-import { ensureCurrentSeason } from "../persistence/run-repository.js";
+import { ensureBlizzardCurrentSeason, ensureCurrentSeason } from "../persistence/run-repository.js";
 import { mapBoostFactsToAuthenticity } from "./boost-authenticity.js";
 import { extractMetricsFromCombatFacts } from "./combat-metrics.js";
 import { fingerprintObservations } from "./fingerprint.js";
@@ -38,7 +38,7 @@ import {
   reconcileSources,
 } from "./reconcile.js";
 import { classifyError, isSoftSkip } from "./retry-classification.js";
-import { collectRaiderIoRuns, mergeRunSources } from "./run-fusion.js";
+import { collectRaiderIoRuns, ensureTargetParticipant, mergeRunSources } from "./run-fusion.js";
 
 export const REFRESH_STAGES = [
   "resolve-character",
@@ -241,11 +241,32 @@ export async function runRefreshPipeline(
 
       const equipment = await providers.blizzard.getCharacterEquipment(identity, ctx);
       blizzardItemLevel = equipment.data.itemLevelEquipped;
+      const equipmentSnapshot = await providers.blizzard.getEquipmentSnapshot(identity, ctx);
       await repositories.character.recordSnapshot(character.id, equipment.data, {
-        averageItemLevel: equipment.data.itemLevelEquipped,
-        equippedItemLevel: equipment.data.itemLevelEquipped,
+        averageItemLevel: equipmentSnapshot.data.averageItemLevel,
+        equippedItemLevel: equipmentSnapshot.data.equippedItemLevel,
+        items: equipmentSnapshot.data.items,
+        keyItems: equipmentSnapshot.data.keyItems,
       });
       await recordProviderResult(repositories, equipment);
+      await recordProviderResult(repositories, equipmentSnapshot);
+
+      // Prefer specialization/role from the equipment+talents bundle when profile omitted them.
+      if (
+        (!blizzardProfile.specSlug || !blizzardProfile.role) &&
+        (equipment.data.activeSpecSlug || equipment.data.role)
+      ) {
+        character = await repositories.character.applyProviderProfile(character.id, {
+          ...blizzardProfile,
+          specSlug: blizzardProfile.specSlug ?? equipment.data.activeSpecSlug,
+          role: blizzardProfile.role ?? equipment.data.role,
+        });
+        blizzardProfile = {
+          ...blizzardProfile,
+          specSlug: blizzardProfile.specSlug ?? equipment.data.activeSpecSlug,
+          role: blizzardProfile.role ?? equipment.data.role,
+        };
+      }
 
       const keystoneProfile = await providers.blizzard.getMythicKeystoneProfile(identity, ctx);
       mythicKeystoneScore = keystoneProfile.data.currentMythicRating;
@@ -482,7 +503,77 @@ export async function runRefreshPipeline(
     raiderIoProfile != null
       ? collectRaiderIoRuns(raiderIoProfile.recentRuns, raiderIoProfile.bestRuns, identity)
       : [];
-  const fusedRuns = mergeRunSources([...blizzardRuns, ...rioRuns, ...discoveredRuns]);
+
+  // Resolve Blizzard current season before persistence so runs/scores share one identity.
+  const season =
+    currentSeasonId != null
+      ? await ensureBlizzardCurrentSeason(container.prisma, character.regionId, currentSeasonId)
+      : await ensureCurrentSeason(container.prisma, character.regionId);
+
+  // Raider.IO fallback for missing Blizzard class/spec/role/gear/talents.
+  if (raiderIoProfile) {
+    const needsIdentityFallback =
+      !blizzardProfile?.classSlug ||
+      !blizzardProfile?.specSlug ||
+      !blizzardProfile?.role ||
+      !character.classId ||
+      !character.activeSpecId ||
+      !character.role;
+    if (needsIdentityFallback) {
+      character = await repositories.character.applyProviderProfile(character.id, {
+        id: character.id,
+        region: identity.region,
+        realmSlug: identity.realmSlug,
+        normalizedName: character.normalizedName,
+        displayName: character.displayName,
+        classSlug: blizzardProfile?.classSlug ?? raiderIoProfile.classSlug,
+        specSlug: blizzardProfile?.specSlug ?? raiderIoProfile.specSlug,
+        role: blizzardProfile?.role ?? raiderIoProfile.role,
+        blizzardCharacterId: blizzardProfile?.blizzardCharacterId ?? null,
+        wclCanonicalId: null,
+        raiderioProfileUrl: raiderIoProfile.profileUrl,
+        lastSeenAt: null,
+        lastPublicRefreshAt: null,
+      });
+    }
+
+    if (blizzardItemLevel == null && raiderIoProfile.gear) {
+      const rioIlvl = raiderIoProfile.gear.itemLevelEquipped;
+      // Preserve null — never fabricate zero item level.
+      if (rioIlvl != null) {
+        await repositories.character.recordSnapshot(
+          character.id,
+          {
+            id: randomUUID(),
+            characterId: character.id,
+            capturedAt: now.toISOString(),
+            itemLevelEquipped: rioIlvl,
+            activeSpecSlug: raiderIoProfile.specSlug,
+            role: raiderIoProfile.role,
+            mythicRating: mythicKeystoneScore,
+            sourcePayloadId: null,
+          },
+          {
+            averageItemLevel: raiderIoProfile.gear.itemLevelTotal ?? rioIlvl,
+            equippedItemLevel: rioIlvl,
+            items: raiderIoProfile.gear.items ?? [],
+            keyItems: [],
+          },
+        );
+      }
+    }
+  }
+
+  let fusedRuns = mergeRunSources([...blizzardRuns, ...rioRuns, ...discoveredRuns]).map((run) =>
+    ensureTargetParticipant(
+      {
+        ...run,
+        // Current-season refresh always persists under the resolved Blizzard season identity.
+        seasonSlug: season.slug,
+      },
+      identity,
+    ),
+  );
 
   for (const run of fusedRuns) {
     const hasWcl = run.sources.some((s) => s.provider === "WARCRAFT_LOGS");
@@ -598,7 +689,22 @@ export async function runRefreshPipeline(
 
   // Character-level WCL visibility even when zero runs / no analysis target.
   if (wclVisibility !== null) {
-    const visibilitySummary = { wclVisibility, discoveredRunCount: discoveredRuns.length };
+    const visibilitySummary = {
+      wclVisibility,
+      discoveredRunCount: discoveredRuns.length,
+      matchedSelectedRuns: combatFactsList.length,
+    };
+    // Always persist character-level provider visibility (including zero matched runs).
+    await repositories.providerState.upsert({
+      characterId: character.id,
+      provider: "warcraftlogs",
+      state: mapWclVisibilityToState(wclVisibility),
+      wclVisibility,
+      lastAttemptAt: now,
+      lastSuccessAt: now,
+      fetchedAt: now,
+      metadata: visibilitySummary,
+    });
     if (combatFactsList.length === 0) {
       const anyRun = latestRun ?? (await repositories.run.findLatestForCharacter(character.id));
       if (anyRun) {
@@ -610,17 +716,6 @@ export async function runRefreshPipeline(
           coverage: 0,
           summary: visibilitySummary,
           sourcePayloadIds: [],
-        });
-      } else {
-        await repositories.providerState.upsert({
-          characterId: character.id,
-          provider: "warcraftlogs",
-          state: mapWclVisibilityToState(wclVisibility),
-          wclVisibility,
-          lastAttemptAt: now,
-          lastSuccessAt: now,
-          fetchedAt: now,
-          metadata: visibilitySummary,
         });
       }
     }
@@ -664,7 +759,7 @@ export async function runRefreshPipeline(
     observations.push(...extractMetricsFromCombatFacts(facts, observedAt));
   }
 
-  const runVolume = fusedRuns.length > 0 ? fusedRuns.length : discoveredRuns.length;
+  const runVolume = fusedRuns.length;
   if (runVolume > 0) {
     observations.push({
       metricKey: "experience.volume_recency",
@@ -685,20 +780,20 @@ export async function runRefreshPipeline(
   }
 
   const authenticityFeatures = boostFacts ? mapBoostFactsToAuthenticity(boostFacts) : undefined;
+  // Coverage is actual combat-facts analysis over selected runs — never invent 1.0 or treat
+  // zero coverage as evidence that logs are hidden.
   const selectedRunCoverage =
-    selectedRuns.size > 0
-      ? combatFactsList.length / selectedRuns.size
-      : wclVisibility === "HIDDEN" || wclVisibility === "NO_PUBLIC_LOGS"
-        ? 0.2
-        : 0;
+    selectedRuns.size > 0 ? combatFactsList.length / selectedRuns.size : 0;
   const freshness =
-    wclVisibility === "HIDDEN" || wclVisibility === "NO_PUBLIC_LOGS"
+    wclVisibility === "HIDDEN"
       ? 0.35
-      : stagesSkipped.includes("refresh-raiderio") || stagesSkipped.includes("refresh-warcraftlogs-summary")
-        ? 0.55
-        : 0.75;
+      : wclVisibility === "NO_PUBLIC_LOGS" || wclVisibility === "RATE_LIMITED" || wclVisibility === "UNAVAILABLE"
+        ? 0.45
+        : stagesSkipped.includes("refresh-raiderio") || stagesSkipped.includes("refresh-warcraftlogs-summary")
+          ? 0.55
+          : 0.75;
 
-  const season = await ensureCurrentSeason(container.prisma, character.regionId);
+  // Season already resolved above for run persistence.
   await repositories.metric.replaceObservations(character.id, season.id, observations);
 
   // ── Calculate + structurally validate score ─────────────────────────────
@@ -720,12 +815,18 @@ export async function runRefreshPipeline(
     calculatedAt: now.toISOString(),
     inputFingerprint: fingerprintObservations(character.id, model.key, model.version, observations),
     context: {
-      role: character.role ?? "DPS",
+      role: character.role ?? blizzardProfile?.role ?? raiderIoProfile?.role ?? "DPS",
       freshness,
       selectedRunCoverage,
+      wclVisibility,
+      matchedWclRunCount: combatFactsList.length,
       authenticity: authenticityFeatures,
     },
   });
+
+  const providerStates = await repositories.providerState.listForCharacter(character.id);
+  const timestampFor = (provider: "blizzard" | "raiderio" | "warcraftlogs") =>
+    providerStates.find((s) => s.provider === provider)?.fetchedAt ?? null;
 
   // Enrich explanation with fusion provenance (model version already present).
   const explanation =
@@ -742,15 +843,19 @@ export async function runRefreshPipeline(
             context: o.context,
           })),
           providerTimestamps: {
-            blizzard: blizzardProfile ? now.toISOString() : null,
-            raiderio: raiderIoProfile ? now.toISOString() : null,
-            warcraftlogs: wclVisibility ? now.toISOString() : null,
+            blizzard: timestampFor("blizzard") ?? (blizzardProfile ? now.toISOString() : null),
+            raiderio: timestampFor("raiderio") ?? (raiderIoProfile ? now.toISOString() : null),
+            warcraftlogs:
+              timestampFor("warcraftlogs") ?? (wclVisibility != null ? now.toISOString() : null),
           },
           warnings: fusionWarnings,
           disagreements,
           excludedObservations,
           confidence: scoreDto.confidence,
           coverage: { selectedRunCoverage, freshness },
+          seasonSlug: season.slug,
+          fusedRunCount: fusedRuns.length,
+          wclVisibility,
         }
       : scoreDto.explanation;
 

@@ -65,11 +65,15 @@ describe.skipIf(!dbAvailable)("runRefreshPipeline (fixture mode, real Postgres)"
       expect(result.score).not.toBeNull();
       expect(result.score?.overallScore).toBeGreaterThanOrEqual(0);
       expect(result.score?.overallScore).toBeLessThanOrEqual(100);
-      expect(["S", "A", "B", "C", "D"]).toContain(result.score?.grade);
+      expect(["S", "A", "B", "C", "D", "U"]).toContain(result.score?.grade);
 
       const explanation = result.score?.explanation as {
         observations?: Array<{ metricKey: string }>;
         modelKey?: string;
+        coverage?: { selectedRunCoverage?: number };
+        wclVisibility?: string;
+        fusedRunCount?: number;
+        providerTimestamps?: { warcraftlogs?: string | null };
       };
       expect(explanation.modelKey).toBeTruthy();
       expect(explanation.observations?.some((o) => o.metricKey === "performance.mythic_rating")).toBe(
@@ -90,10 +94,24 @@ describe.skipIf(!dbAvailable)("runRefreshPipeline (fixture mode, real Postgres)"
       });
       expect(persistedSnapshot).not.toBeNull();
 
+      const season = await prisma.season.findUnique({ where: { id: persistedSnapshot!.seasonId } });
+      expect(season?.slug).toMatch(/^blizzard-season-\d+$/);
+      expect(season?.isCurrent).toBe(true);
+      expect(season?.slug).not.toBe("placeholder-current");
+
+      expect(explanation.coverage?.selectedRunCoverage).toBeGreaterThanOrEqual(0);
+      expect(explanation.coverage?.selectedRunCoverage).toBeLessThanOrEqual(1);
+      expect(explanation.wclVisibility).toBeTruthy();
+      expect(explanation.providerTimestamps?.warcraftlogs).toBeTruthy();
+
       const runParticipants = await prisma.runParticipant.count({
         where: { characterId: result.character.id, isTargetCharacter: true },
       });
       expect(runParticipants).toBeGreaterThan(0);
+      // Fused run count and persisted target participants should agree after dedupe.
+      if (typeof explanation.fusedRunCount === "number") {
+        expect(runParticipants).toBe(explanation.fusedRunCount);
+      }
 
       const runAnalyses = await prisma.runAnalysis.count({
         where: { characterId: result.character.id },

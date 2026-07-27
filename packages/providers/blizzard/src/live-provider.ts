@@ -41,6 +41,7 @@ import {
   normalizeTalentSnapshot,
   refLabel,
   resolveCurrentSeasonIdFromIndex,
+  roleFromSpecType,
   type BlizzardCurrentSeasonPeriod,
   type BlizzardIdentityDiagnostics,
   type BlizzardPeriodDTO,
@@ -249,7 +250,10 @@ export class LiveBlizzardProvider implements BlizzardProvider {
         capturedAt: equipment.data.capturedAt,
         itemLevelEquipped: equipment.data.equippedItemLevel,
         activeSpecSlug: talents.data.specializationSlug,
-        role: null,
+        role: roleFromSpecType(
+          (talents.data.talents as { activeSpecialization?: { type?: string | { type?: string } } } | null)
+            ?.activeSpecialization?.type,
+        ),
         mythicRating: mythic.data.currentMythicRating,
         sourcePayloadId: null,
       },

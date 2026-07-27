@@ -96,6 +96,8 @@ export interface ScoreModelConfigV1 extends ScoreModelConfig {
   metricWeights: DimensionMetricWeights;
   normalization: Record<string, NormalizationSpec>;
   historicalDecay: HistoricalDecayWeights;
+  /** Default 0.35 — below this, grade is U (UNRATED). */
+  minConfidenceForGrade: number;
   minCoverageForExtreme: number;
   extremeCapLow: number;
   extremeCapHigh: number;
@@ -116,6 +118,10 @@ export interface ScoringContext {
   freshness?: number;
   /** 0–1 coverage of selected detailed runs. */
   selectedRunCoverage?: number;
+  /** Character-level Warcraft Logs visibility when known. */
+  wclVisibility?: string | null;
+  /** Count of selected runs that successfully matched a WCL report. */
+  matchedWclRunCount?: number;
   /** Mechanic catalog version used when deriving survival/utility facts (provenance). */
   mechanicCatalogVersion?: string | null;
   authenticity?: AuthenticityFeatureInput;

@@ -25,30 +25,52 @@ import { characterCacheKey } from "../lib/response-cache.js";
 
 const ALL_PROVIDERS: ProviderName[] = ["blizzard", "raiderio", "warcraftlogs"];
 
-function readWclVisibility(summary: unknown): WclVisibilityState | null {
-  if (!summary || typeof summary !== "object") return null;
-  const value = (summary as { wclVisibility?: unknown }).wclVisibility;
+function readWclVisibility(value: unknown): WclVisibilityState | null {
   if (
     value === "PUBLIC" ||
     value === "HIDDEN" ||
     value === "NO_PUBLIC_LOGS" ||
-    value === "PRIVATE_SKIPPED"
+    value === "PRIVATE_SKIPPED" ||
+    value === "UNAVAILABLE" ||
+    value === "RATE_LIMITED"
   ) {
     return value;
   }
   return null;
 }
 
+function readWclVisibilityFromSummary(summary: unknown): WclVisibilityState | null {
+  if (!summary || typeof summary !== "object") return null;
+  return readWclVisibility((summary as { wclVisibility?: unknown }).wclVisibility);
+}
+
 async function resolveWclVisibility(
   prisma: ApiContainer["worker"]["prisma"],
   characterId: string,
 ): Promise<WclVisibilityState | null> {
+  // Prefer character-level provider state (present even with zero matched runs).
+  const providerState = await prisma.characterProviderState.findUnique({
+    where: {
+      characterId_provider: { characterId, provider: "WARCRAFT_LOGS" },
+    },
+    select: { wclVisibility: true },
+  });
+  const fromState = readWclVisibility(providerState?.wclVisibility);
+  if (fromState) return fromState;
+
   const analysis = await prisma.runAnalysis.findFirst({
     where: { characterId },
     orderBy: { analyzedAt: "desc" },
     select: { summary: true },
   });
-  return readWclVisibility(analysis?.summary);
+  return readWclVisibilityFromSummary(analysis?.summary);
+}
+
+function readSelectedRunCoverage(explanation: unknown): number | null {
+  if (!explanation || typeof explanation !== "object") return null;
+  const coverage = (explanation as { coverage?: { selectedRunCoverage?: unknown } }).coverage;
+  const value = coverage?.selectedRunCoverage;
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 export interface CharacterHistoryResponse {
@@ -129,7 +151,7 @@ export class CharacterService {
     sources: CharacterSourceAttribution[],
     refreshStatus: CharacterProfileResponse["refreshStatus"],
   ): Promise<CharacterProfileResponse> {
-    const [characterDetail, latestRun, highestRun, latestCharSnapshot, runCount, wclVisibility] =
+    const [characterDetail, latestRun, highestRun, latestCharSnapshot, runCount, wclVisibility, providerStates] =
       await Promise.all([
       this.container.worker.prisma.character.findUnique({
         where: { id: character.id },
@@ -142,8 +164,9 @@ export class CharacterService {
         orderBy: { capturedAt: "desc" },
         include: { equipment: true },
       }),
-      this.repositories.run.countForCharacter(character.id),
+      this.repositories.run.countForCharacter(character.id, snapshot?.seasonId),
       resolveWclVisibility(this.container.worker.prisma, character.id),
+      this.repositories.providerState.listForCharacter(character.id),
     ]);
 
     const base = mapCharacterProfile({
@@ -158,6 +181,19 @@ export class CharacterService {
 
     if (!characterDetail) return base;
 
+    const runIds = [latestRun?.id, highestRun?.id].filter((id): id is string => Boolean(id));
+    const runCoverageById: Record<string, number | null> = {};
+    await Promise.all(
+      runIds.map(async (runId) => {
+        runCoverageById[runId] = await this.repositories.run.findLatestAnalysisCoverage(
+          character.id,
+          runId,
+        );
+      }),
+    );
+
+    const selectedRunCoverage = readSelectedRunCoverage(snapshot?.explanation);
+
     const enrichments = applyProfileWarnings(
       buildProfileEnrichments({
         character: characterDetail,
@@ -167,6 +203,9 @@ export class CharacterService {
         runCount,
         seasonSlug: snapshot?.season.slug ?? null,
         wclVisibility,
+        providerStates,
+        selectedRunCoverage,
+        runCoverageById,
         env: this.container.env,
       }),
       base.score,
