@@ -1,0 +1,476 @@
+import type {
+  AdminScoreModelDTO,
+  CharacterIdentityInput,
+  CharacterProfileView,
+  EditableModelConfig,
+  JobStatusDTO,
+  RedFlagDTO,
+  ScoreSnapshotDTO,
+} from "../types";
+import { deepClone } from "../../lib/clone";
+
+const now = "2026-07-20T12:00:00.000Z";
+const staleAt = "2026-07-19T08:00:00.000Z";
+
+export const EU_REALMS = [
+  { slug: "tarren-mill", name: "Tarren Mill" },
+  { slug: "silvermoon", name: "Silvermoon" },
+  { slug: "draenor", name: "Draenor" },
+  { slug: "kazzak", name: "Kazzak" },
+  { slug: "ravencrest", name: "Ravencrest" },
+  { slug: "twisting-nether", name: "Twisting Nether" },
+  { slug: "outland", name: "Outland" },
+  { slug: "stormscale", name: "Stormscale" },
+  { slug: "sylvanas", name: "Sylvanas" },
+  { slug: "ghostlands", name: "Ghostlands" },
+] as const;
+
+export const DEFAULT_MODEL_CONFIG: EditableModelConfig = {
+  key: "default",
+  version: 1,
+  weights: {
+    performance: 0.32,
+    survival: 0.27,
+    utility: 0.23,
+    experienceConsistency: 0.13,
+    mythicRaid: 0.05,
+  },
+  authenticityBlend: {
+    skillWeight: 0.6,
+    authenticityWeight: 0.4,
+  },
+  confidenceNeutralScore: 50,
+  gradeThresholds: { S: 90, A: 80, B: 65, C: 50 },
+  nestedMetricWeights: {
+    performance: { spec_percentile: 0.5, consistency: 0.3, contribution: 0.2 },
+    survival: { deaths: 0.4, avoidable: 0.35, defensives: 0.25 },
+    utility: { interrupts: 0.4, cc: 0.3, dispels: 0.3 },
+    experienceConsistency: { volume: 0.4, breadth: 0.3, progression: 0.3 },
+    mythicRaid: { progression: 0.6, parses: 0.4 },
+  },
+  confidenceParameters: {
+    minRunsForFullConfidence: 20,
+    shrinkageFloor: 0.35,
+  },
+  boostThresholds: {
+    suspicionSoft: 0.45,
+    suspicionHard: 0.7,
+  },
+};
+
+function contributors(positive: string, negative: string): unknown {
+  return {
+    positive: [{ label: positive, impact: 8 }],
+    negative: [{ label: negative, impact: -5 }],
+  };
+}
+
+function baseScore(
+  characterId: string,
+  overall: number,
+  grade: ScoreSnapshotDTO["grade"],
+  authenticity: number,
+  confidence: number,
+  dims: Array<{ dimension: ScoreSnapshotDTO["dimensions"][number]["dimension"]; score: number; weight: number; confidence: number; pos: string; neg: string }>,
+  redFlags: RedFlagDTO[],
+  calculatedAt: string,
+): ScoreSnapshotDTO {
+  return {
+    characterId,
+    seasonSlug: "season-tww-3",
+    modelKey: "default",
+    modelVersion: 1,
+    scopeType: "CHARACTER",
+    scopeKey: null,
+    overallScore: overall,
+    grade,
+    skillScore: Math.min(100, overall + 3),
+    authenticityScore: authenticity,
+    confidence,
+    calculatedAt,
+    inputFingerprint: `fp-${characterId}`,
+    dimensions: dims.map((d) => ({
+      dimension: d.dimension,
+      score: d.score,
+      confidence: d.confidence,
+      weight: d.weight,
+      contributors: contributors(d.pos, d.neg),
+    })),
+    redFlags,
+    explanation: {
+      summary: "Fixture explanation for UI development",
+    },
+  };
+}
+
+const aleriaScore = baseScore(
+  "11111111-1111-4111-8111-111111111111",
+  88,
+  "A",
+  82,
+  0.78,
+  [
+    { dimension: "PERFORMANCE", score: 91, weight: 0.32, confidence: 0.85, pos: "Strong DPS percentile on +12s", neg: "Slight dip on Tyrannical weeks" },
+    { dimension: "SURVIVAL", score: 84, weight: 0.27, confidence: 0.8, pos: "Low avoidable damage", neg: "Two deaths on first boss pull" },
+    { dimension: "UTILITY", score: 86, weight: 0.23, confidence: 0.75, pos: "Consistent interrupts", neg: "Missed one purge window" },
+    { dimension: "EXPERIENCE", score: 80, weight: 0.13, confidence: 0.9, pos: "42 season runs", neg: "Narrow dungeon spread" },
+    { dimension: "RAID", score: 70, weight: 0.05, confidence: 0.55, pos: "4/8M", neg: "Limited parse sample" },
+  ],
+  [
+    {
+      key: "atypical_progression",
+      label: "Atypical progression",
+      severity: "LOW",
+      confidence: 0.4,
+      public: true,
+      evidence: { note: "Short burst of high keys after a quiet week — probabilistic only" },
+    },
+  ],
+  now,
+);
+
+const lowConfScore = baseScore(
+  "22222222-2222-4222-8222-222222222222",
+  54,
+  "C",
+  48,
+  0.28,
+  [
+    { dimension: "PERFORMANCE", score: 58, weight: 0.32, confidence: 0.25, pos: "Average parses when logged", neg: "Sparse sample" },
+    { dimension: "SURVIVAL", score: 50, weight: 0.27, confidence: 0.2, pos: "Neutral", neg: "Insufficient logs" },
+    { dimension: "UTILITY", score: 52, weight: 0.23, confidence: 0.2, pos: "Neutral", neg: "Insufficient logs" },
+    { dimension: "EXPERIENCE", score: 45, weight: 0.13, confidence: 0.4, pos: "Some prior-season play", neg: "Low current volume" },
+    { dimension: "RAID", score: 40, weight: 0.05, confidence: 0.15, pos: "None", neg: "No Mythic signal" },
+  ],
+  [
+    {
+      key: "logs_hidden",
+      label: "Logs hidden",
+      severity: "MEDIUM",
+      confidence: 0.9,
+      public: true,
+      evidence: { note: "Public logs incomplete for detailed analysis" },
+    },
+    {
+      key: "insufficient_data",
+      label: "Insufficient data",
+      severity: "HIGH",
+      confidence: 0.85,
+      public: true,
+      evidence: { note: "Fewer than recommended season runs" },
+    },
+  ],
+  staleAt,
+);
+
+const boostSuspectScore = baseScore(
+  "33333333-3333-4333-8333-333333333333",
+  76,
+  "B",
+  38,
+  0.62,
+  [
+    { dimension: "PERFORMANCE", score: 55, weight: 0.32, confidence: 0.7, pos: "Timed keys", neg: "Weak personal contribution in top runs" },
+    { dimension: "SURVIVAL", score: 48, weight: 0.27, confidence: 0.65, pos: "Survived most pulls", neg: "High death rate in scoring runs" },
+    { dimension: "UTILITY", score: 60, weight: 0.23, confidence: 0.6, pos: "Some interrupts", neg: "Low utility timing" },
+    { dimension: "EXPERIENCE", score: 88, weight: 0.13, confidence: 0.8, pos: "Rapid key climb", neg: "Thin intermediate history" },
+    { dimension: "RAID", score: 50, weight: 0.05, confidence: 0.4, pos: "Heroic clears", neg: "No Mythic" },
+  ],
+  [
+    {
+      key: "boost_suspected",
+      label: "Boost suspected",
+      severity: "HIGH",
+      confidence: 0.72,
+      public: true,
+      evidence: {
+        note: "Pattern suggests possible carry — not a factual accusation",
+        signals: ["roster_overlap", "rating_jump", "weak_personal_perf"],
+      },
+    },
+    {
+      key: "low_run_volume",
+      label: "Low run volume",
+      severity: "MEDIUM",
+      confidence: 0.6,
+      public: true,
+      evidence: { note: "High score relative to run count" },
+    },
+  ],
+  now,
+);
+
+export interface FixtureCharacter {
+  identity: CharacterIdentityInput;
+  profile: CharacterProfileView;
+  /** When true, first profile fetch returns QUEUED then flips after polls. */
+  simulateQueuedRefresh?: boolean;
+}
+
+const sharedRun = {
+  runId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+  dungeonName: "Priory of the Sacred Flame",
+  dungeonSlug: "priory-of-the-sacred-flame",
+  keyLevel: 12,
+  completedAt: "2026-07-18T21:14:00.000Z",
+  timed: true,
+  performanceSummary: "Top 20% DPS for key bracket; clean interrupt uptime.",
+  coverageRatio: 0.88,
+};
+
+export const FIXTURE_CHARACTERS: FixtureCharacter[] = [
+  {
+    identity: { region: "EU", realmSlug: "tarren-mill", name: "Aleria" },
+    profile: {
+      characterId: "11111111-1111-4111-8111-111111111111",
+      region: "EU",
+      realmSlug: "tarren-mill",
+      displayName: "Aleria",
+      score: aleriaScore,
+      redFlags: aleriaScore.redFlags,
+      dataConfidence: 78,
+      lastAnalyzedRunId: sharedRun.runId,
+      highestAnalyzedRunId: sharedRun.runId,
+      sources: [
+        { provider: "BLIZZARD", fetchedAt: now, url: null },
+        { provider: "WARCRAFT_LOGS", fetchedAt: now, url: "https://www.warcraftlogs.com/character/eu/tarren-mill/aleria" },
+        { provider: "RAIDER_IO", fetchedAt: now, url: "https://raider.io/characters/eu/tarren-mill/Aleria" },
+      ],
+      refreshStatus: "FRESH",
+      classSlug: "mage",
+      specSlug: "fire",
+      role: "DPS",
+      itemLevel: 668,
+      lastAnalyzedRun: { ...sharedRun, kind: "BOTH" },
+      highestAnalyzedRun: { ...sharedRun, kind: "BOTH" },
+      equipment: {
+        averageItemLevel: 666,
+        equippedItemLevel: 668,
+        keyItems: [
+          { slot: "Trinket", name: "House of Cards", itemLevel: 678 },
+          { slot: "Trinket", name: "Signet of the Priory", itemLevel: 671 },
+        ],
+      },
+      talents: {
+        specializationSlug: "fire",
+        loadoutCode: "FIRE-FIXTURE-LOADOUT",
+        summary: "Standard Fire single-target / M+ hybrid.",
+      },
+      seasonSummary: {
+        seasonSlug: "season-tww-3",
+        runCount: 42,
+        mythicRating: 2840,
+        priorSeasonRating: 2650,
+      },
+      entitlements: { detailsUnlocked: true, runsUnlocked: true, compareExpanded: true },
+      warnings: [],
+      raiderIoUsed: true,
+    },
+  },
+  {
+    identity: { region: "EU", realmSlug: "silvermoon", name: "Lowdata" },
+    profile: {
+      characterId: "22222222-2222-4222-8222-222222222222",
+      region: "EU",
+      realmSlug: "silvermoon",
+      displayName: "Lowdata",
+      score: lowConfScore,
+      redFlags: lowConfScore.redFlags,
+      dataConfidence: 28,
+      lastAnalyzedRunId: null,
+      highestAnalyzedRunId: null,
+      sources: [
+        { provider: "BLIZZARD", fetchedAt: staleAt, url: null },
+      ],
+      refreshStatus: "STALE",
+      classSlug: "warrior",
+      specSlug: "arms",
+      role: "DPS",
+      itemLevel: 640,
+      lastAnalyzedRun: null,
+      highestAnalyzedRun: null,
+      equipment: {
+        averageItemLevel: 638,
+        equippedItemLevel: 640,
+        keyItems: [],
+      },
+      talents: {
+        specializationSlug: "arms",
+        loadoutCode: null,
+        summary: "Limited talent snapshot.",
+      },
+      seasonSummary: {
+        seasonSlug: "season-tww-3",
+        runCount: 6,
+        mythicRating: 1810,
+        priorSeasonRating: null,
+      },
+      entitlements: { detailsUnlocked: true, runsUnlocked: true, compareExpanded: true },
+      warnings: [
+        { code: "INSUFFICIENT_DATA", message: "Data incomplete — confidence is reduced toward neutral.", severity: "WARN" },
+        { code: "LOGS_HIDDEN", message: "Detailed logs are hidden or incomplete.", severity: "WARN" },
+      ],
+      raiderIoUsed: false,
+    },
+  },
+  {
+    identity: { region: "EU", realmSlug: "kazzak", name: "Carryme" },
+    simulateQueuedRefresh: true,
+    profile: {
+      characterId: "33333333-3333-4333-8333-333333333333",
+      region: "EU",
+      realmSlug: "kazzak",
+      displayName: "Carryme",
+      score: boostSuspectScore,
+      redFlags: boostSuspectScore.redFlags,
+      dataConfidence: 62,
+      lastAnalyzedRunId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      highestAnalyzedRunId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+      sources: [
+        { provider: "BLIZZARD", fetchedAt: now, url: null },
+        { provider: "RAIDER_IO", fetchedAt: now, url: "https://raider.io/characters/eu/kazzak/Carryme" },
+      ],
+      refreshStatus: "QUEUED",
+      classSlug: "evoker",
+      specSlug: "augmentation",
+      role: "DPS",
+      itemLevel: 655,
+      lastAnalyzedRun: {
+        runId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        kind: "LATEST",
+        dungeonName: "Operation: Floodgate",
+        dungeonSlug: "operation-floodgate",
+        keyLevel: 10,
+        completedAt: "2026-07-19T19:00:00.000Z",
+        timed: true,
+        performanceSummary: "Below-bracket contribution in a high-rated group.",
+        coverageRatio: 0.7,
+      },
+      highestAnalyzedRun: {
+        runId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+        kind: "HIGHEST",
+        dungeonName: "The Rookery",
+        dungeonSlug: "the-rookery",
+        keyLevel: 13,
+        completedAt: "2026-07-15T22:30:00.000Z",
+        timed: false,
+        performanceSummary: "Deplete; weak personal metrics vs teammates.",
+        coverageRatio: 0.65,
+      },
+      equipment: {
+        averageItemLevel: 652,
+        equippedItemLevel: 655,
+        keyItems: [{ slot: "Trinket", name: "Fixture Trinket", itemLevel: 662 }],
+      },
+      talents: {
+        specializationSlug: "augmentation",
+        loadoutCode: "AUG-FIXTURE",
+        summary: "Support-oriented Augmentation.",
+      },
+      seasonSummary: {
+        seasonSlug: "season-tww-3",
+        runCount: 14,
+        mythicRating: 2610,
+        priorSeasonRating: 1200,
+      },
+      entitlements: { detailsUnlocked: true, runsUnlocked: true, compareExpanded: true },
+      warnings: [
+        { code: "AUTHENTICITY", message: "Authenticity signals are probabilistic, not proof of boosting.", severity: "INFO" },
+      ],
+      raiderIoUsed: true,
+    },
+  },
+];
+
+export function identityKey(id: CharacterIdentityInput): string {
+  return `${id.region.toLowerCase()}|${id.realmSlug.toLowerCase()}|${id.name.toLowerCase()}`;
+}
+
+export function findFixture(identity: CharacterIdentityInput): FixtureCharacter | undefined {
+  const key = identityKey(identity);
+  return FIXTURE_CHARACTERS.find((c) => identityKey(c.identity) === key);
+}
+
+export function createJob(status: JobStatusDTO["status"], characterId: string): JobStatusDTO {
+  return {
+    jobId: `job-${characterId.slice(0, 8)}`,
+    queue: "refresh-character",
+    status,
+    dedupeKey: `refresh:${characterId}`,
+    createdAt: now,
+    startedAt: status === "queued" ? null : now,
+    finishedAt: status === "completed" ? now : null,
+    errorMessage: status === "failed" ? "Fixture refresh failed" : null,
+  };
+}
+
+let modelStore: AdminScoreModelDTO[] = [
+  {
+    id: "model-active-1",
+    key: "default",
+    version: 1,
+    name: "Default Trust Model",
+    status: "ACTIVE",
+    config: DEFAULT_MODEL_CONFIG,
+    createdAt: "2026-07-01T00:00:00.000Z",
+    activatedAt: "2026-07-01T00:00:00.000Z",
+  },
+  {
+    id: "model-archived-0",
+    key: "default",
+    version: 0,
+    name: "Default Trust Model (archived)",
+    status: "ARCHIVED",
+    config: { ...DEFAULT_MODEL_CONFIG, version: 0 },
+    createdAt: "2026-06-01T00:00:00.000Z",
+    activatedAt: "2026-06-01T00:00:00.000Z",
+  },
+];
+
+let nextModelVersion = 2;
+
+/** Mutable mock session state (queued refresh polls). */
+export const mockSession = {
+  refreshPolls: new Map<string, number>(),
+};
+
+export function getModelStore(): AdminScoreModelDTO[] {
+  return modelStore;
+}
+
+export function setModelStore(next: AdminScoreModelDTO[]): void {
+  modelStore = next;
+}
+
+export function allocateModelVersion(): number {
+  const v = nextModelVersion;
+  nextModelVersion += 1;
+  return v;
+}
+
+export function resetMockState(): void {
+  mockSession.refreshPolls.clear();
+  nextModelVersion = 2;
+  modelStore = [
+    {
+      id: "model-active-1",
+      key: "default",
+      version: 1,
+      name: "Default Trust Model",
+      status: "ACTIVE",
+      config: deepClone(DEFAULT_MODEL_CONFIG),
+      createdAt: "2026-07-01T00:00:00.000Z",
+      activatedAt: "2026-07-01T00:00:00.000Z",
+    },
+    {
+      id: "model-archived-0",
+      key: "default",
+      version: 0,
+      name: "Default Trust Model (archived)",
+      status: "ARCHIVED",
+      config: { ...deepClone(DEFAULT_MODEL_CONFIG), version: 0 },
+      createdAt: "2026-06-01T00:00:00.000Z",
+      activatedAt: "2026-06-01T00:00:00.000Z",
+    },
+  ];
+}

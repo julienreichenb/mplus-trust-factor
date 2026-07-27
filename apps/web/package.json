@@ -6,16 +6,21 @@
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc -p tsconfig.json --noEmit && vite build",
-    "preview": "vite preview",
-    "typecheck": "vue-tsc -p tsconfig.json --noEmit"
+    "preview": "vite preview --port 4173",
+    "typecheck": "vue-tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:e2e": "playwright test",
+    "test:e2e:install": "playwright install chromium"
   },
   "dependencies": {
     "@mplus/contracts": "workspace:*",
+    "echarts": "^5.6.0",
     "pinia": "^3.0.3",
     "vue": "^3.5.18",
     "vue-router": "^4.5.1"
   },
   "devDependencies": {
+    "@playwright/test": "^1.54.1",
     "@vitejs/plugin-vue": "^5.2.4",
     "@vue/test-utils": "^2.4.6",
     "jsdom": "^26.1.0",
