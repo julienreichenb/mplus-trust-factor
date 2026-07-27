@@ -1,0 +1,64 @@
+{
+  "scenario": "ambiguous-actor-report",
+  "resolveCharacter": {
+    "data": {
+      "characterData": {
+        "character": {
+          "id": 900012,
+          "canonicalID": 800012,
+          "name": "Twinplayer",
+          "level": 80,
+          "classID": 8,
+          "hidden": false,
+          "server": { "slug": "tarren-mill", "region": { "name": "EU" } }
+        }
+      }
+    }
+  },
+  "zoneRankings": { "data": { "characterData": { "character": { "zoneRankings": { "rankings": [] } } } } },
+  "recentReports": { "data": { "characterData": { "character": { "recentReports": { "data": [], "total": 0, "has_more_pages": false } } } } },
+  "rateLimitData": {
+    "data": { "rateLimitData": { "limitPerHour": 3600, "pointsSpentThisHour": 10, "pointsRemaining": 3590, "resetInSeconds": 3200 } }
+  },
+  "report": {
+    "data": {
+      "reportData": {
+        "report": {
+          "code": "AmbActor99",
+          "title": "Ambiguous actors",
+          "revision": 1,
+          "startTime": 1751000000000,
+          "endTime": 1751003600000,
+          "visibility": "public",
+          "zone": { "id": 45, "name": "Mythic Season 15" },
+          "fights": [
+            {
+              "id": 1,
+              "encounterID": 1201,
+              "name": "Ara-Kara",
+              "difficulty": 10,
+              "kill": true,
+              "startTime": 0,
+              "endTime": 1800000,
+              "keystoneLevel": 10,
+              "friendlyPlayers": [
+                { "id": 1, "name": "Twinplayer", "server": "Tarren Mill", "type": "Mage", "icon": null },
+                { "id": 2, "name": "Twinplayer", "server": "Tarren Mill", "type": "Mage", "icon": null }
+              ]
+            }
+          ],
+          "masterData": {
+            "actors": [
+              { "id": 1, "name": "Twinplayer", "type": "Player", "subType": "Mage", "server": "Tarren Mill" },
+              { "id": 2, "name": "Twinplayer", "type": "Player", "subType": "Mage", "server": "Tarren Mill" }
+            ],
+            "abilities": []
+          }
+        }
+      }
+    }
+  },
+  "events": {
+    "Casts": { "data": [] }
+  }
+}

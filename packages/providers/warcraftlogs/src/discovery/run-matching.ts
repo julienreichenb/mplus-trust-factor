@@ -133,17 +133,83 @@ export function resolveActorSourceId(
   realmSlug: string,
 ): number | null {
   const ids = actorMap.byName.get(characterName.toLowerCase()) ?? [];
-  for (const id of ids) {
-    const actor = actorMap.byId.get(id);
-    if (!actor) continue;
-    if (actor.server && actor.server.toLowerCase() !== realmSlug.toLowerCase()) {
-      continue;
-    }
-    if (actor.type === "Player") {
-      return id;
-    }
+  const players = ids
+    .map((id) => actorMap.byId.get(id))
+    .filter((actor): actor is NonNullable<typeof actor> => actor != null && actor.type === "Player");
+
+  const realmNorm = realmSlug.toLowerCase().replace(/\s+/g, "-");
+  const realmMatches = players.filter((actor) => {
+    if (!actor.server) return false;
+    const serverNorm = actor.server.toLowerCase().replace(/\s+/g, "-");
+    return serverNorm === realmNorm || serverNorm === realmSlug.toLowerCase();
+  });
+
+  if (realmMatches.length === 1) {
+    return realmMatches[0]!.id;
   }
-  return ids[0] ?? null;
+  if (realmMatches.length > 1) {
+    return null; // ambiguous — caller must fail safely
+  }
+
+  // No realm match: only accept a single Player with matching name and no conflicting servers
+  if (players.length === 1) {
+    return players[0]!.id;
+  }
+  return null;
+}
+
+/**
+ * Resolve actor or describe why resolution failed (missing / ambiguous).
+ */
+export function resolveActorSourceIdStrict(
+  actorMap: WclActorMap,
+  characterName: string,
+  realmSlug: string,
+): { sourceId: number } | { error: "NOT_FOUND" | "AMBIGUOUS"; message: string } {
+  const ids = actorMap.byName.get(characterName.toLowerCase()) ?? [];
+  const players = ids
+    .map((id) => actorMap.byId.get(id))
+    .filter((actor): actor is NonNullable<typeof actor> => actor != null && actor.type === "Player");
+
+  if (players.length === 0) {
+    return {
+      error: "NOT_FOUND",
+      message: `Actor not found for ${characterName}-${realmSlug}`,
+    };
+  }
+
+  const realmNorm = realmSlug.toLowerCase().replace(/\s+/g, "-");
+  const realmMatches = players.filter((actor) => {
+    if (!actor.server) return true; // defer; counted below
+    const serverNorm = actor.server.toLowerCase().replace(/\s+/g, "-");
+    return serverNorm === realmNorm || serverNorm === realmSlug.toLowerCase();
+  });
+
+  const withServer = realmMatches.filter((a) => a.server);
+  const withoutServer = realmMatches.filter((a) => !a.server);
+
+  if (withServer.length === 1 && withoutServer.length === 0) {
+    return { sourceId: withServer[0]!.id };
+  }
+  if (withServer.length === 0 && withoutServer.length === 1 && players.length === 1) {
+    return { sourceId: withoutServer[0]!.id };
+  }
+  if (withServer.length > 1 || (withServer.length === 0 && players.length > 1)) {
+    return {
+      error: "AMBIGUOUS",
+      message: `Ambiguous actor match for ${characterName}-${realmSlug} (${players.length} players)`,
+    };
+  }
+  if (withServer.length === 1) {
+    return { sourceId: withServer[0]!.id };
+  }
+  if (players.length === 1) {
+    return { sourceId: players[0]!.id };
+  }
+  return {
+    error: "AMBIGUOUS",
+    message: `Ambiguous actor match for ${characterName}-${realmSlug}`,
+  };
 }
 
 export function selectLatestAndHighest(candidates: WclRunCandidate[]): {

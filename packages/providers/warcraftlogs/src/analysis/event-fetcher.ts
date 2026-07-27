@@ -1,12 +1,11 @@
 import type { WclGraphQlClient } from "../client/graphql-client.js";
 import { eventsPageSchema, parseWithSchema } from "../client/graphql-client.js";
 import { wclError } from "../client/errors.js";
+import { DETAILED_EVENT_TYPES, OPERATIONS, type EventDataType } from "../operations/queries.js";
 import {
-  DETAILED_EVENT_TYPES,
   MAX_EVENT_PAGES,
-  OPERATIONS,
-  type EventDataType,
-} from "../operations/queries.js";
+  MAX_EVENTS_PER_CATEGORY,
+} from "../discovery/bounds.js";
 import type {
   RunCombatFacts,
   RunCombatFactsCoverage,
@@ -19,8 +18,10 @@ import type {
   WclDispelEvent,
   WclHealingEvent,
   WclInterruptEvent,
+  WclRateBudgetDecision,
 } from "../types.js";
-import { buildActorMap, resolveActorSourceId } from "../discovery/run-matching.js";
+import { buildActorMap, resolveActorSourceIdStrict } from "../discovery/run-matching.js";
+import { shouldDeferExpensiveWork } from "../rate/rate-budget.js";
 
 export interface FetchCombatFactsInput {
   reportCode: string;
@@ -31,6 +32,10 @@ export interface FetchCombatFactsInput {
   actors: Array<{ id: number; name: string; type: string; subType?: string | null; server?: string | null }>;
   eventLimit?: number;
   includeHealing?: boolean;
+  /** Optional rate budget gate checked before each event category. */
+  rateBudget?: WclRateBudgetDecision | null;
+  maxEventPages?: number;
+  maxEventsPerCategory?: number;
 }
 
 export async function fetchAllEventPages(
@@ -41,6 +46,8 @@ export async function fetchAllEventPages(
     dataType: EventDataType;
     sourceId: number | null;
     eventLimit?: number;
+    maxEventPages?: number;
+    maxEventsPerCategory?: number;
   },
 ): Promise<{ events: Array<Record<string, unknown>>; truncated: boolean }> {
   const all: Array<Record<string, unknown>> = [];
@@ -48,8 +55,10 @@ export async function fetchAllEventPages(
   let pages = 0;
   let truncated = false;
   const seenTimestamps = new Set<number>();
+  const maxPages = input.maxEventPages ?? MAX_EVENT_PAGES;
+  const maxEvents = input.maxEventsPerCategory ?? MAX_EVENTS_PER_CATEGORY;
 
-  while (pages < MAX_EVENT_PAGES) {
+  while (pages < maxPages) {
     const result = await client.request({
       operationName: OPERATIONS.ReportEvents.operationName,
       query: OPERATIONS.ReportEvents.query,
@@ -75,6 +84,12 @@ export async function fetchAllEventPages(
     all.push(...(page.data ?? []));
     pages += 1;
 
+    if (all.length >= maxEvents) {
+      truncated = true;
+      all.length = maxEvents;
+      break;
+    }
+
     if (page.nextPageTimestamp == null) {
       break;
     }
@@ -86,7 +101,7 @@ export async function fetchAllEventPages(
     startTime = page.nextPageTimestamp;
   }
 
-  if (pages >= MAX_EVENT_PAGES) {
+  if (pages >= maxPages) {
     truncated = true;
   }
 
@@ -98,10 +113,15 @@ export async function buildRunCombatFactsFromEvents(
   input: FetchCombatFactsInput,
 ): Promise<RunCombatFacts> {
   const actorMap = buildActorMap(input.actors);
-  const targetSourceId = resolveActorSourceId(actorMap, input.characterName, input.realmSlug);
-  if (targetSourceId == null) {
-    throw wclError("NOT_FOUND", `Actor not found for ${input.characterName}-${input.realmSlug}`);
+  const resolved = resolveActorSourceIdStrict(actorMap, input.characterName, input.realmSlug);
+  if ("error" in resolved) {
+    throw wclError(
+      resolved.error === "AMBIGUOUS" ? "INVALID_RESPONSE" : "NOT_FOUND",
+      resolved.message,
+      { actorResolution: resolved.error },
+    );
   }
+  const targetSourceId = resolved.sourceId;
 
   const coverage: RunCombatFactsCoverage = {
     casts: false,
@@ -133,12 +153,22 @@ export async function buildRunCombatFactsFromEvents(
     : DETAILED_EVENT_TYPES.filter((t) => t !== "Healing");
 
   for (const dataType of typesToFetch) {
+    if (input.rateBudget && shouldDeferExpensiveWork(input.rateBudget)) {
+      limitations.notes.push(
+        `Rate budget ${input.rateBudget.action} — stopped before event type ${dataType}`,
+      );
+      limitations.missingCategories.push(...typesToFetch.slice(typesToFetch.indexOf(dataType)));
+      break;
+    }
+
     const { events, truncated } = await fetchAllEventPages(client, {
       reportCode: input.reportCode,
       fightId: input.fightId,
       dataType,
-      sourceId: dataType === "CombatantInfo" ? targetSourceId : targetSourceId,
+      sourceId: targetSourceId,
       eventLimit: input.eventLimit,
+      maxEventPages: input.maxEventPages,
+      maxEventsPerCategory: input.maxEventsPerCategory,
     });
 
     if (truncated) {

@@ -2,11 +2,11 @@
 
 ## API gaps
 
-- **Season zone ID** — M+ `zoneID` must be resolved from worldData or config; not hardcoded in production.
-- **Encounter → dungeon mapping** — MVP uses static `ENCOUNTER_DUNGEON_MAP`; Agent 5 should seed from season metadata.
+- **Season zone ID** — live requires `WCL_MPLUS_ZONE_ID` (or constructor `zoneId`) plus recommended `WCL_MPLUS_ZONE_EXPIRES_AT`; expired zones skip rankings.
+- **Encounter → dungeon mapping** — MVP uses static `ENCOUNTER_DUNGEON_MAP`; Agent 15 should seed from season metadata.
 - **Run matching** — WCL ↔ Blizzard/Raider.IO matching is best-effort; low confidence never auto-merges.
 - **Private logs** — Public API excludes private reports; user OAuth not implemented in MVP.
-- **Archived reports** — May block events/tables without subscription; treat as missing data.
+- **Archived reports** — May block events/tables without subscription; treat as `UNAVAILABLE` evidence.
 
 ## Data quality
 

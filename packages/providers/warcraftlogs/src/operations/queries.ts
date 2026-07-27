@@ -5,8 +5,7 @@ export const OPERATIONS = {
   rateLimitData {
     limitPerHour
     pointsSpentThisHour
-    pointsRemaining
-    resetInSeconds
+    pointsResetIn
   }
 }`,
   },
@@ -172,4 +171,5 @@ export const DETAILED_EVENT_TYPES: EventDataType[] = [
   "CombatantInfo",
 ];
 
-export const MAX_EVENT_PAGES = 50;
+/** @deprecated Import MAX_EVENT_PAGES from discovery/bounds.js */
+export { MAX_EVENT_PAGES } from "../discovery/bounds.js";

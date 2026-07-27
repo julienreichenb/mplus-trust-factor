@@ -18,18 +18,28 @@ import {
   zoneRankingsSchema,
 } from "../client/graphql-client.js";
 import { WclTokenManager } from "../client/token-manager.js";
-import { wclError } from "../client/errors.js";
+import { isUnavailableEvidenceError, wclError } from "../client/errors.js";
 import { OPERATIONS } from "../operations/queries.js";
 import {
-  DEFAULT_MPLUS_ZONE_ID,
   buildCharacterDiscovery,
+  classifyReportVisibility,
   deriveVisibility,
   mapCharacterSummary,
   mapRegionToWcl,
   mapZoneRankings,
+  mythicRunPlaceholders,
   rankingsToCandidates,
   recentReportsToCandidates,
 } from "../discovery/run-discovery.js";
+import {
+  MAX_RECENT_REPORTS_LIMIT,
+  MAX_RECENT_REPORT_PAGES,
+} from "../discovery/bounds.js";
+import {
+  resolveMplusZoneConfig,
+  shouldQueryZoneRankings,
+  type MplusZoneConfig,
+} from "../discovery/mplus-zone.js";
 import { buildRunCombatFactsFromEvents } from "../analysis/event-fetcher.js";
 import { ReportRevisionCache } from "../analysis/revision-cache.js";
 import {
@@ -51,7 +61,10 @@ export interface LiveWarcraftLogsProviderConfig {
     | "WCL_RATE_STOP_PERCENT"
     | "WCL_CHARACTER_TTL_SECONDS"
   >;
+  /** Explicit current M+ zone ID (preferred over WCL_MPLUS_ZONE_ID env). */
   zoneId?: number;
+  zoneExpiresAt?: string | null;
+  processEnv?: NodeJS.ProcessEnv;
   logger?: Pick<Console, "info" | "warn" | "error">;
 }
 
@@ -96,11 +109,22 @@ function providerEnvelope<T>(
   };
 }
 
+function requireTargetCharacter(ctx: ProviderFetchContext): CharacterIdentityInput {
+  if (!ctx.targetCharacter) {
+    throw wclError(
+      "INVALID_RESPONSE",
+      "ProviderFetchContext.targetCharacter is required for WCL report/fight analysis",
+    );
+  }
+  return ctx.targetCharacter;
+}
+
 export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
   readonly name = "warcraftlogs" as const;
   private readonly client: WclGraphQlClient;
   private readonly revisionCache = new ReportRevisionCache();
-  private readonly zoneId: number;
+  private readonly zoneConfig: MplusZoneConfig;
+  private readonly logger: Pick<Console, "info" | "warn" | "error">;
 
   constructor(private readonly config: LiveWarcraftLogsProviderConfig) {
     const tokenManager = new WclTokenManager({
@@ -113,7 +137,20 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
       tokenManager,
       logger: config.logger,
     });
-    this.zoneId = config.zoneId ?? DEFAULT_MPLUS_ZONE_ID;
+    this.logger = config.logger ?? console;
+    this.zoneConfig = resolveMplusZoneConfig({
+      zoneId: config.zoneId,
+      expiresAt: config.zoneExpiresAt,
+      env: config.processEnv ?? process.env,
+      allowFixtureDefault: false,
+    });
+    if (this.zoneConfig.warning) {
+      this.logger.warn({ warning: this.zoneConfig.warning }, "wcl.mplus_zone.warning");
+    }
+  }
+
+  getZoneConfig(): MplusZoneConfig {
+    return this.zoneConfig;
   }
 
   async discoverCharacterRuns(
@@ -121,7 +158,9 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
     ctx: ProviderFetchContext,
   ): Promise<ProviderResult<MythicRunDTO[]>> {
     const discovery = await this.discoverCharacter(identity, ctx);
-    const runs = discovery.candidates.map((c) => this.candidateToMythicRun(c, identity, ctx));
+    const runs = discovery.candidates
+      .filter((c) => !c.incompleteness.fightUnknown)
+      .map((c) => this.candidateToMythicRun(c, identity, ctx));
     return providerEnvelope(
       runs,
       "discoverCharacterRuns",
@@ -137,26 +176,34 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
     fightId: number,
     ctx: ProviderFetchContext,
   ): Promise<ProviderResult<WclReportFightDetails>> {
-    const identity = ctx.targetCharacter;
-    const characterName =
-      identity?.name ?? process.env.WCL_DEFAULT_CHARACTER_NAME ?? "Fixtureplayer";
-    const realmSlug =
-      identity?.realmSlug ?? process.env.WCL_DEFAULT_REALM_SLUG ?? "tarren-mill";
-    const details = await this.fetchReportFightDetails(
-      reportCode,
-      fightId,
-      characterName,
-      realmSlug,
-      ctx,
-    );
-    return providerEnvelope(
-      details,
-      "getReportFightDetails",
-      `live-report-${reportCode}-${fightId}`,
-      ctx,
-      null,
-      this.config.env.WCL_CHARACTER_TTL_SECONDS,
-    );
+    const identity = requireTargetCharacter(ctx);
+    try {
+      const details = await this.fetchReportFightDetails(
+        reportCode,
+        fightId,
+        identity.name,
+        identity.realmSlug,
+        ctx,
+      );
+      return providerEnvelope(
+        details,
+        "getReportFightDetails",
+        `live-report-${reportCode}-${fightId}`,
+        ctx,
+        null,
+        this.config.env.WCL_CHARACTER_TTL_SECONDS,
+      );
+    } catch (error) {
+      if (isUnavailableEvidenceError(error)) {
+        throw wclError("INVALID_RESPONSE", "WCL report detail unavailable (archived/gated)", {
+          visibility: "UNAVAILABLE",
+          reportCode,
+          fightId,
+          cause: error instanceof Error ? error.message : error,
+        });
+      }
+      throw error;
+    }
   }
 
   async fetchRateLimit(_ctx: ProviderFetchContext) {
@@ -179,8 +226,37 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
     ctx: ProviderFetchContext,
   ): Promise<WclCharacterDiscoveryResult> {
     const budget = await this.fetchRateLimit(ctx);
+    if (budget.action === "STOP") {
+      // Hard stop before expensive work — character-level RATE_LIMITED state, not player error
+      return {
+        summary: {
+          wclCharacterId: 0,
+          canonicalId: 0,
+          name: identity.name,
+          realmSlug: identity.realmSlug,
+          region: identity.region,
+          classId: null,
+          level: null,
+          hidden: false,
+          visibility: "RATE_LIMITED",
+          fetchedAt: ctx.now,
+          warnings: [
+            `WCL rate budget STOP at ${budget.utilizationPercent.toFixed(1)}% — discovery deferred`,
+          ],
+        },
+        rankings: [],
+        candidates: [],
+        latest: null,
+        highest: null,
+        candidatesTruncated: false,
+        privateReportsSkipped: 0,
+      };
+    }
     if (shouldDeferExpensiveWork(budget)) {
-      throw wclError("BUDGET_EXCEEDED", "WCL rate budget exceeded — deferring character discovery");
+      throw wclError("BUDGET_EXCEEDED", "WCL rate budget exceeded — deferring character discovery", {
+        visibility: "RATE_LIMITED",
+        utilizationPercent: budget.utilizationPercent,
+      });
     }
 
     const serverRegion = mapRegionToWcl(identity.region);
@@ -205,27 +281,41 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
       });
     }
 
-    const rankingsResult = await this.client.request({
-      operationName: OPERATIONS.CharacterZoneRankings.operationName,
-      query: OPERATIONS.CharacterZoneRankings.query,
-      variables: {
-        name: identity.name,
-        serverSlug: identity.realmSlug,
-        serverRegion,
-        zoneID: this.zoneId,
-      },
-      region: identity.region,
-    });
-    const rankingsParsed = parseWithSchema(
-      zoneRankingsSchema,
-      rankingsResult.response.data,
-      "ZoneRankings",
-    );
-    const rankings = mapZoneRankings(
-      rankingsParsed.characterData.character?.zoneRankings,
-      this.zoneId,
-    );
+    const warnings: string[] = [];
+    if (this.zoneConfig.warning) {
+      warnings.push(this.zoneConfig.warning);
+    }
 
+    let rankings: ReturnType<typeof mapZoneRankings> = [];
+    if (shouldQueryZoneRankings(this.zoneConfig)) {
+      // Bounded: exactly one zoneRankings query when zone is valid/non-expired
+      const rankingsResult = await this.client.request({
+        operationName: OPERATIONS.CharacterZoneRankings.operationName,
+        query: OPERATIONS.CharacterZoneRankings.query,
+        variables: {
+          name: identity.name,
+          serverSlug: identity.realmSlug,
+          serverRegion,
+          zoneID: this.zoneConfig.zoneId,
+        },
+        region: identity.region,
+      });
+      const rankingsParsed = parseWithSchema(
+        zoneRankingsSchema,
+        rankingsResult.response.data,
+        "ZoneRankings",
+      );
+      rankings = mapZoneRankings(
+        rankingsParsed.characterData.character?.zoneRankings,
+        this.zoneConfig.zoneId,
+      );
+    } else {
+      warnings.push(
+        `Skipped zoneRankings — configured zone ${this.zoneConfig.zoneId} is expired`,
+      );
+    }
+
+    // Bounded: one recentReports page only (limit documented in bounds.ts)
     const recentResult = await this.client.request({
       operationName: OPERATIONS.CharacterRecentReports.operationName,
       query: OPERATIONS.CharacterRecentReports.query,
@@ -233,27 +323,37 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
         name: identity.name,
         serverSlug: identity.realmSlug,
         serverRegion,
-        limit: 20,
-        page: 1,
+        limit: MAX_RECENT_REPORTS_LIMIT,
+        page: MAX_RECENT_REPORT_PAGES,
       },
       region: identity.region,
     });
     const recentParsed = parseWithSchema(recentReportsSchema, recentResult.response.data, "RecentReports");
-    const recentPublicCount =
-      recentParsed.characterData.character?.recentReports?.data?.filter(
-        (r) => (r.visibility ?? "public") === "public",
-      ).length ?? 0;
+    const recentMapped = recentReportsToCandidates(
+      recentParsed.characterData.character?.recentReports,
+    );
+    const recentPublicCount = recentMapped.candidates.length;
+    const privateSkipped = recentMapped.privateSkipped + recentMapped.unlistedSkipped;
+    if (recentMapped.unlistedSkipped > 0) {
+      warnings.push(
+        `Skipped ${recentMapped.unlistedSkipped} unlisted report(s) — never probed with allowUnlisted`,
+      );
+    }
+    if (recentMapped.privateSkipped > 0) {
+      warnings.push(`Skipped ${recentMapped.privateSkipped} private report(s)`);
+    }
 
-    const visibility = deriveVisibility(character, rankings, recentPublicCount);
-    const summary = mapCharacterSummary(character, identity.region, ctx.now, visibility);
+    const visibility = deriveVisibility(character, rankings, recentPublicCount, {
+      privateSkipped,
+    });
+    const summary = mapCharacterSummary(character, identity.region, ctx.now, visibility, warnings);
 
     return buildCharacterDiscovery({
       summary,
       rankings,
       rankingCandidates: rankingsToCandidates(rankings),
-      recentCandidates: recentReportsToCandidates(
-        recentParsed.characterData.character?.recentReports,
-      ),
+      recentCandidates: recentMapped.candidates,
+      privateReportsSkipped: privateSkipped,
     });
   }
 
@@ -268,9 +368,12 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
   ): Promise<WclReportFightDetails> {
     const budget = await this.fetchRateLimit(ctx);
     if (shouldDeferExpensiveWork(budget)) {
-      throw wclError("BUDGET_EXCEEDED", "WCL rate budget exceeded — deferring detailed analysis");
+      throw wclError("BUDGET_EXCEEDED", "WCL rate budget exceeded — deferring detailed analysis", {
+        visibility: "RATE_LIMITED",
+      });
     }
 
+    // Public client only: report(code) without allowUnlisted — never probe unlisted/private codes
     const reportResult = await this.client.request({
       operationName: OPERATIONS.ReportWithFightAndMasterData.operationName,
       query: OPERATIONS.ReportWithFightAndMasterData.query,
@@ -285,6 +388,15 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
         provider: "warcraftlogs",
         retryable: false,
       });
+    }
+
+    const vis = classifyReportVisibility(report.visibility);
+    if (!vis.isPublic) {
+      throw wclError(
+        "INVALID_RESPONSE",
+        `Refusing to analyze non-public report (visibility=${report.visibility})`,
+        { visibility: "PRIVATE_SKIPPED", reportCode },
+      );
     }
 
     this.revisionCache.setRevision(reportCode, report.revision);
@@ -313,6 +425,7 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
       realmSlug,
       actors: report.masterData?.actors ?? [],
       includeHealing,
+      rateBudget: budget,
     });
 
     this.revisionCache.markAnalysis(reportCode, fightId, report.revision, analysisVersion);
@@ -364,26 +477,31 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
     ctx: ProviderFetchContext,
   ): MythicRunDTO {
     const completedAt = candidate.completedAt ?? ctx.now;
-    const rosterKey = `${mapRegionToWcl(identity.region)}|${identity.realmSlug}|${identity.name}`;
+    const placeholders = mythicRunPlaceholders(candidate);
+    const rosterKeys =
+      candidate.incompleteness.rosterIncomplete
+        ? [`${mapRegionToWcl(identity.region)}|${identity.realmSlug}|${identity.name}`]
+        : [`${mapRegionToWcl(identity.region)}|${identity.realmSlug}|${identity.name}`];
+
     return {
       id: `${candidate.reportCode}-${candidate.fightId}`,
       region: identity.region,
-      seasonSlug: "current",
-      dungeonSlug: candidate.dungeonSlug ?? "unknown",
-      keyLevel: candidate.keyLevel ?? 0,
+      seasonSlug: placeholders.seasonSlug,
+      dungeonSlug: placeholders.dungeonSlug,
+      keyLevel: placeholders.keyLevel,
       completedAt,
-      durationMs: candidate.durationMs ?? 0,
+      durationMs: placeholders.durationMs,
       timerMs: null,
-      timed: true,
+      timed: placeholders.timed,
       scoreValue: candidate.score,
       canonicalFingerprint: computeRunFingerprint({
         region: identity.region,
-        seasonKey: "current",
-        dungeonKey: candidate.dungeonSlug ?? "unknown",
+        seasonKey: placeholders.seasonSlug,
+        dungeonKey: placeholders.dungeonSlug,
         completedAtMs: new Date(completedAt).getTime(),
-        keyLevel: candidate.keyLevel ?? 0,
-        durationMs: candidate.durationMs ?? 0,
-        rosterCanonicalKeys: [rosterKey],
+        keyLevel: placeholders.keyLevel,
+        durationMs: placeholders.durationMs,
+        rosterCanonicalKeys: rosterKeys,
       }),
       affixes: [],
       participants: [],

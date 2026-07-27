@@ -1,11 +1,16 @@
 import type { IsoDateTime, RegionCode } from "@mplus/contracts";
 
-/** Character visibility on Warcraft Logs public API. */
+/**
+ * Character / evidence visibility on Warcraft Logs public API.
+ * Absence of logs must never directly lower performance score — coverage only.
+ */
 export type WclVisibilityState =
   | "PUBLIC"
   | "HIDDEN"
   | "NO_PUBLIC_LOGS"
-  | "PRIVATE_SKIPPED";
+  | "PRIVATE_SKIPPED"
+  | "UNAVAILABLE"
+  | "RATE_LIMITED";
 
 export interface WclCharacterSummary {
   wclCharacterId: number;
@@ -18,6 +23,8 @@ export interface WclCharacterSummary {
   hidden: boolean;
   visibility: WclVisibilityState;
   fetchedAt: IsoDateTime;
+  /** Zone / discovery warnings (expiry, truncated candidates, private skips). */
+  warnings: string[];
 }
 
 export interface WclRankingObservation {
@@ -39,19 +46,43 @@ export interface WclRankingObservation {
   metric: string | null;
 }
 
+/** Incomplete / unknown facts on a discovery candidate — never invent certainty. */
+export interface WclRunCandidateIncompleteness {
+  dungeonUnknown: boolean;
+  seasonUnknown: boolean;
+  timedUnknown: boolean;
+  keyLevelUnknown: boolean;
+  rosterIncomplete: boolean;
+  fightUnknown: boolean;
+}
+
+export type RunMatchConfidence = "HIGH" | "MEDIUM" | "LOW" | "NONE";
+
 export interface WclRunCandidate {
   reportCode: string;
   fightId: number;
   encounterId: number;
   zoneId: number | null;
+  /** Null when encounter→dungeon mapping is unknown — do not claim a dungeon. */
   dungeonSlug: string | null;
+  /** Null until season metadata is wired — do not claim "current". */
+  seasonSlug: string | null;
   keyLevel: number | null;
   score: number | null;
   startTimeMs: number | null;
   completedAt: IsoDateTime | null;
   durationMs: number | null;
+  /**
+   * Timed only when source evidence exists (timer comparison).
+   * Kill ≠ timed. Null means unknown — never default to true.
+   */
+  timed: boolean | null;
   selectionTags: Array<"LATEST" | "HIGHEST">;
   source: "zoneRankings" | "recentReports";
+  /** Cross-provider match confidence when an external run was compared; else null. */
+  matchConfidence: RunMatchConfidence | null;
+  incompleteness: WclRunCandidateIncompleteness;
+  warnings: string[];
 }
 
 export interface WclReportSummary {
@@ -198,8 +229,6 @@ export interface RunCombatFacts {
   limitations: RunCombatFactsLimitations;
 }
 
-export type RunMatchConfidence = "HIGH" | "MEDIUM" | "LOW" | "NONE";
-
 export interface RunMatchEvidence {
   dungeonMatch: boolean;
   keyLevelMatch: boolean;
@@ -237,6 +266,10 @@ export interface WclCharacterDiscoveryResult {
   candidates: WclRunCandidate[];
   latest: WclRunCandidate | null;
   highest: WclRunCandidate | null;
+  /** True when candidate list was capped by MAX_DISCOVERY_CANDIDATES. */
+  candidatesTruncated: boolean;
+  /** Private/unlisted reports observed and skipped (never probed). */
+  privateReportsSkipped: number;
 }
 
 export interface WclReportFightDetails {
