@@ -1,0 +1,108 @@
+:root {
+  color-scheme: dark;
+
+  --color-obsidian-950: #070707;
+  --color-obsidian-900: #0d0d0f;
+  --color-iron-850: #171719;
+  --color-iron-800: #202024;
+  --color-iron-700: #34343a;
+  --color-stone-300: #c8bda8;
+  --color-stone-100: #f1e9db;
+  --color-amber-600: #d97706;
+  --color-amber-500: #f59e0b;
+  --color-amber-400: #fbbf24;
+  --color-gold-300: #f4d58d;
+  --color-ember-500: #f97316;
+  --color-success-500: #22c55e;
+  --color-danger-500: #ef4444;
+  --color-info-500: #38bdf8;
+
+  --color-bg: var(--color-obsidian-950);
+  --color-bg-elevated: var(--color-obsidian-900);
+  --color-surface: var(--color-iron-850);
+  --color-surface-hover: var(--color-iron-800);
+  --color-border: var(--color-iron-700);
+  --color-text: var(--color-stone-100);
+  --color-text-muted: var(--color-stone-300);
+  --color-brand: var(--color-amber-500);
+  --color-brand-hover: var(--color-amber-400);
+  --color-focus: var(--color-amber-400);
+
+  --color-tier-s: #f4d58d;
+  --color-tier-a: #a3e635;
+  --color-tier-b: #38bdf8;
+  --color-tier-c: #a78bfa;
+  --color-tier-d: #fb7185;
+
+  --font-body: "Inter", "Segoe UI", sans-serif;
+  --font-display: "Cinzel", Georgia, serif;
+  --font-data: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-base: 1rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.25rem;
+  --text-2xl: 1.5rem;
+  --text-3xl: 2rem;
+  --text-display: clamp(2.5rem, 6vw, 5.5rem);
+
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-10: 2.5rem;
+  --space-12: 3rem;
+  --space-16: 4rem;
+  --space-24: 6rem;
+
+  --radius-control: 0.5rem;
+  --radius-card: 0.75rem;
+  --radius-hero: 1rem;
+  --radius-pill: 999px;
+
+  --shadow-focus: 0 0 0 2px var(--color-bg), 0 0 0 4px var(--color-focus);
+  --shadow-brand-glow: 0 0 24px rgb(245 158 11 / 22%);
+
+  --duration-fast: 140ms;
+  --duration-default: 200ms;
+  --duration-slow: 320ms;
+
+  --container-page: 80rem;
+  --container-reading: 45rem;
+
+  --gutter-mobile: 1.25rem;
+  --gutter-tablet: 2rem;
+  --gutter-desktop: 3rem;
+  --section-gap-mobile: 4rem;
+  --section-gap-desktop: 6rem;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.mpts-data {
+  font-family: var(--font-data);
+  font-variant-numeric: tabular-nums;
+}
+
+.mpts-display {
+  font-family: var(--font-display);
+  font-weight: 700;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

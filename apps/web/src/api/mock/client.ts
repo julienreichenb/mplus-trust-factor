@@ -329,7 +329,7 @@ export function createMockApiClient(): MplusApiClient {
       return {
         cohortSize: 24,
         meanOverall: 61.4,
-        gradeDistribution: { S: 1, A: 4, B: 9, C: 7, D: 3 },
+        gradeDistribution: { S: 1, A: 4, B: 9, C: 7, D: 3, U: 0 },
         notes: "Fixture backtest on sanitized cohort — not production data.",
       };
     },

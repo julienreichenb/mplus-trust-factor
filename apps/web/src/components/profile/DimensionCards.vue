@@ -70,27 +70,28 @@ const cards = computed(() =>
 }
 
 .card {
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 0.85rem;
-  background: var(--panel);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  padding: var(--space-4);
+  background: var(--color-surface);
 }
 
 .card h3 {
   margin: 0 0 0.35rem;
-  font-size: 1rem;
+  font-size: var(--text-base);
 }
 
 .score {
-  font-size: 1.5rem;
+  font-size: var(--text-2xl);
   font-weight: 700;
   margin: 0;
-  font-family: var(--font-display);
+  font-family: var(--font-data);
+  color: var(--color-gold-300);
 }
 
 .score span {
-  color: var(--muted);
-  font-size: 0.9rem;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
   font-weight: 500;
 }
 
@@ -101,9 +102,9 @@ dl {
 }
 
 dt {
-  font-size: 0.7rem;
+  font-size: var(--text-xs);
   text-transform: uppercase;
-  color: var(--muted);
+  color: var(--color-text-muted);
 }
 
 dd {
@@ -113,11 +114,11 @@ dd {
 
 .contrib {
   margin: 0.25rem 0 0;
-  font-size: 0.88rem;
-  color: var(--muted);
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
 }
 
 .locked {
-  color: var(--muted);
+  color: var(--color-text-muted);
 }
 </style>

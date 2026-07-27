@@ -53,7 +53,8 @@ test.describe("M+ Trust Factor web (mock mode)", () => {
   test("accessibility smoke: landmarks and headings", async ({ page }) => {
     await page.goto("/");
     await expect(page.getByRole("navigation", { name: "Primary" })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Search a character" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Know who you run with." })).toBeVisible();
+    await expect(page.getByTestId("search-form")).toBeVisible();
     await page.goto("/character/EU/tarren-mill/Aleria");
     await expect(page.getByRole("main")).toBeVisible();
     await expect(page.getByRole("heading", { level: 1 })).toBeVisible();

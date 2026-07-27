@@ -1,249 +1,181 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
-import { useRouter } from "vue-router";
-import { useRealmAutocomplete } from "../composables/useRealmAutocomplete";
-import { useRecentSearchesStore } from "../stores/recentSearches";
-import { canonicalCharacterPath } from "../lib/format";
-
-const router = useRouter();
-const recent = useRecentSearchesStore();
-
-const region = ref("EU");
-const realm = ref("");
-const name = ref("");
-const error = ref<string | null>(null);
-
-const {
-  suggestions,
-  loading,
-  open,
-  activeIndex,
-  select,
-  search,
-  onBlur,
-  onKeydown,
-  resolveRealmSlug,
-} = useRealmAutocomplete(region, realm);
-
-const listboxId = "realm-suggestions";
-const activeOptionId = computed(() =>
-  open.value && activeIndex.value >= 0 ? `realm-option-${activeIndex.value}` : undefined,
-);
-
-const canSubmit = computed(
-  () => region.value.trim() && resolveRealmSlug() && name.value.trim(),
-);
-
-function submit(): void {
-  error.value = null;
-  if (!region.value.trim()) {
-    error.value = "Region is required.";
-    return;
-  }
-  const realmSlug = resolveRealmSlug();
-  if (!realmSlug) {
-    error.value = "Realm is required.";
-    return;
-  }
-  if (!name.value.trim()) {
-    error.value = "Character name is required.";
-    return;
-  }
-  const params = canonicalCharacterPath(region.value, realmSlug, name.value);
-  recent.add({
-    region: params.region,
-    realmSlug: params.realm,
-    name: params.name,
-  });
-  void router.push({ name: "character", params });
-}
-
-function openRecent(item: { region: string; realmSlug: string; name: string }): void {
-  const params = canonicalCharacterPath(item.region, item.realmSlug, item.name);
-  void router.push({ name: "character", params });
-}
-
-function onOptionMouseDown(index: number): void {
-  const option = suggestions.value[index];
-  if (option) {
-    void select(option);
-  }
-}
+import CharacterSearchForm from "../components/search/CharacterSearchForm.vue";
+import HeroProductPreview from "../components/landing/HeroProductPreview.vue";
+import FeatureGrid from "../components/landing/FeatureGrid.vue";
+import MethodologySummary from "../components/landing/MethodologySummary.vue";
 </script>
 
 <template>
-  <section>
-    <h1>Search a character</h1>
-    <p>Look up a Retail character by region, realm, and name. EU is the MVP default.</p>
+  <div class="landing">
+    <section class="hero" aria-labelledby="hero-title">
+      <div class="hero__copy">
+        <p class="eyebrow">Explainable Mythic+ player intelligence</p>
+        <h1 id="hero-title">Know who you run with.</h1>
+        <p class="lede">
+          An explainable Mythic+ trust score built from performance, consistency, progression and
+          public player data.
+        </p>
 
-    <form class="search-form" aria-label="Character search" data-testid="search-form" @submit.prevent="submit">
-      <label>
-        Region
-        <select v-model="region" name="region" data-testid="region-select">
-          <option value="EU">EU</option>
-          <option value="US" disabled>US (soon)</option>
-          <option value="KR" disabled>KR (soon)</option>
-          <option value="TW" disabled>TW (soon)</option>
-        </select>
-      </label>
+        <CharacterSearchForm />
 
-      <div class="realm-field">
-        <label id="realm-label" for="realm-input">Realm</label>
-        <input
-          id="realm-input"
-          v-model="realm"
-          name="realm"
-          role="combobox"
-          autocomplete="off"
-          aria-autocomplete="list"
-          :aria-expanded="open"
-          :aria-controls="listboxId"
-          :aria-activedescendant="activeOptionId"
-          aria-labelledby="realm-label"
-          data-testid="realm-input"
-          @focus="void search(realm)"
-          @blur="onBlur"
-          @keydown="onKeydown"
-        />
-        <ul
-          v-if="open && suggestions.length"
-          :id="listboxId"
-          class="suggestions"
-          role="listbox"
-          aria-labelledby="realm-label"
-          data-testid="realm-suggestions"
-        >
-          <li
-            v-for="(s, index) in suggestions"
-            :id="`realm-option-${index}`"
-            :key="s.slug"
-            role="option"
-            :aria-selected="index === activeIndex"
-            :data-testid="`realm-option-${s.slug}`"
-            :class="{ active: index === activeIndex }"
-            @mousedown.prevent="onOptionMouseDown(index)"
-          >
-            {{ s.name }} <span class="slug">({{ s.slug }})</span>
-          </li>
-        </ul>
-        <span v-if="loading" class="hint">Searching realms…</span>
+        <p class="trust-line">
+          Transparent model. Public data. Versioned scoring.
+          <a class="trust-line__link" href="#methodology">See how scoring works</a>
+        </p>
       </div>
 
-      <label>
-        Character name
-        <input v-model="name" name="name" autocomplete="off" data-testid="name-input" />
-      </label>
-
-      <p v-if="error" class="error" role="alert">{{ error }}</p>
-
-      <button type="submit" class="btn primary" data-testid="search-submit" :disabled="!canSubmit">
-        Search
-      </button>
-    </form>
-
-    <section v-if="recent.items.length" class="recent" aria-labelledby="recent-title">
-      <div class="recent-head">
-        <h2 id="recent-title">Recent searches</h2>
-        <button type="button" class="btn link" @click="recent.clear()">Clear</button>
+      <div class="hero__preview">
+        <HeroProductPreview />
       </div>
+    </section>
+
+    <section class="strip" aria-label="Product principles">
       <ul>
-        <li v-for="item in recent.items" :key="`${item.region}-${item.realmSlug}-${item.name}`">
-          <button type="button" class="btn link" @click="openRecent(item)">
-            {{ item.name }} — {{ item.realmSlug }} ({{ item.region }})
-          </button>
+        <li>
+          <strong>Explainable</strong>
+          <span>Every tier links to dimensions, weights and sources.</span>
+        </li>
+        <li>
+          <strong>Current</strong>
+          <span>Freshness and confidence stay visible on results.</span>
+        </li>
+        <li>
+          <strong>Built for high keys</strong>
+          <span>Optimized for expert screening, not casual browsing.</span>
         </li>
       </ul>
     </section>
-  </section>
+
+    <FeatureGrid />
+    <MethodologySummary />
+
+    <footer class="landing-footer">
+      <p>
+        World of Warcraft and Blizzard Entertainment are trademarks or registered trademarks of
+        Blizzard Entertainment, Inc. M+ Trust Factor is an independent community project and is not
+        affiliated with or endorsed by Blizzard Entertainment or Wowhead.
+      </p>
+    </footer>
+  </div>
 </template>
 
 <style scoped>
-.search-form {
+.landing {
   display: grid;
-  gap: 0.85rem;
-  max-width: 28rem;
+  gap: var(--section-gap-mobile);
 }
 
-label,
-.realm-field {
+.hero {
   display: grid;
-  gap: 0.3rem;
-  font-weight: 600;
+  gap: var(--space-10);
+  align-items: start;
 }
 
-input,
-select {
-  font: inherit;
-  padding: 0.55rem 0.7rem;
-  border-radius: 6px;
-  border: 1px solid var(--border);
-  background: var(--panel);
-  color: var(--fg);
+.eyebrow {
+  margin: 0 0 var(--space-3);
+  font-family: var(--font-data);
+  font-size: var(--text-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-gold-300);
 }
 
-.realm-field {
-  position: relative;
+.hero h1 {
+  margin: 0 0 var(--space-4);
+  font-size: clamp(2.25rem, 6vw, 4.25rem);
+  background: linear-gradient(180deg, var(--color-gold-300) 0%, var(--color-stone-100) 72%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
 }
 
-.suggestions {
-  position: absolute;
-  z-index: 5;
-  left: 0;
-  right: 0;
-  top: calc(100% + 2px);
-  margin: 0;
-  padding: 0.25rem 0;
-  list-style: none;
-  background: var(--panel-2);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  max-height: 14rem;
-  overflow: auto;
+.lede {
+  margin: 0 0 var(--space-6);
+  max-width: 36rem;
+  font-size: var(--text-lg);
+  color: var(--color-text-muted);
 }
 
-.suggestions li {
-  padding: 0.45rem 0.7rem;
-  cursor: pointer;
-  font-weight: 400;
-}
-
-.suggestions li:hover,
-.suggestions li.active,
-.suggestions li:focus {
-  background: var(--panel);
-}
-
-.slug {
-  color: var(--muted);
-  font-weight: 400;
-}
-
-.hint {
-  font-size: 0.8rem;
-  color: var(--muted);
-  font-weight: 400;
-}
-
-.error {
-  color: var(--danger);
-  margin: 0;
-}
-
-.recent {
-  margin-top: 2rem;
-}
-
-.recent-head {
+.trust-line {
+  margin: var(--space-5) 0 0;
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
   display: flex;
-  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-3);
   align-items: center;
 }
 
-.recent ul {
+.trust-line__link {
+  font-weight: 600;
+}
+
+.strip ul {
   list-style: none;
-  padding: 0;
-  margin: 0.5rem 0 0;
+  margin: 0;
+  padding: var(--space-5);
   display: grid;
-  gap: 0.35rem;
+  gap: var(--space-5);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  background: rgb(23 23 25 / 72%);
+}
+
+.strip li {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.strip strong {
+  color: var(--color-text);
+  font-size: var(--text-sm);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.strip span {
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.landing-footer {
+  padding-top: var(--space-6);
+  border-top: 1px solid var(--color-border);
+}
+
+.landing-footer p {
+  margin: 0;
+  max-width: 48rem;
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+}
+
+@media (min-width: 768px) {
+  .landing {
+    gap: var(--space-16);
+  }
+
+  .strip ul {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--space-6);
+    padding: var(--space-6);
+  }
+}
+
+@media (min-width: 1024px) {
+  .landing {
+    gap: var(--section-gap-desktop);
+  }
+
+  .hero {
+    grid-template-columns: minmax(0, 1.15fr) minmax(18rem, 0.85fr);
+    gap: var(--space-10);
+    align-items: start;
+  }
+
+  .hero__preview {
+    position: sticky;
+    top: var(--space-6);
+  }
 }
 </style>

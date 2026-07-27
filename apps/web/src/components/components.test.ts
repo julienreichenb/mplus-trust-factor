@@ -1,12 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { mount } from "@vue/test-utils";
 import { createPinia, setActivePinia } from "pinia";
+import { createMemoryHistory, createRouter } from "vue-router";
 import ScoreHeader from "../components/profile/ScoreHeader.vue";
 import RedFlagsList from "../components/profile/RedFlagsList.vue";
 import StatusBanner from "../components/common/StatusBanner.vue";
 import TrustRadarChart from "../components/charts/TrustRadarChart.vue";
+import TrustTierBadge from "../components/landing/TrustTierBadge.vue";
+import EquipmentGrid from "../components/equipment/EquipmentGrid.vue";
 import { FIXTURE_CHARACTERS } from "../api/mock/fixtures";
 import { routeDefs } from "../routes";
+import { presentGrade } from "../lib/characterViewModel";
 
 describe("web router", () => {
   it("registers required foundation routes", () => {
@@ -19,13 +23,46 @@ describe("web router", () => {
 });
 
 describe("ScoreHeader", () => {
-  it("renders overall score and grade prominently", () => {
+  it("renders overall score and grade prominently", async () => {
     setActivePinia(createPinia());
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: routeDefs,
+    });
+    await router.push("/");
+    await router.isReady();
     const profile = FIXTURE_CHARACTERS[0]!.profile;
-    const wrapper = mount(ScoreHeader, { props: { profile } });
+    const wrapper = mount(ScoreHeader, {
+      props: { profile },
+      global: { plugins: [router] },
+    });
     expect(wrapper.get("[data-testid='overall-score']").text()).toBe("88");
     expect(wrapper.get("[data-testid='grade']").text()).toContain("Grade A");
     expect(wrapper.get("[data-testid='confidence']").text()).toContain("78");
+    expect(wrapper.get("[data-testid='freshness']").text()).toBe("FRESH");
+    expect(wrapper.get("[data-testid='character-media']").attributes("data-media-type")).toBe(
+      "placeholder",
+    );
+  });
+});
+
+describe("TrustTierBadge", () => {
+  it("renders U as unrated rather than a weak D-like tier", () => {
+    const wrapper = mount(TrustTierBadge, { props: { tier: "U" } });
+    expect(wrapper.attributes("data-unrated")).toBe("true");
+    expect(wrapper.attributes("data-tier")).toBe("U");
+    expect(wrapper.text()).toContain("Unrated");
+    expect(presentGrade("U").isUnrated).toBe(true);
+  });
+});
+
+describe("EquipmentGrid", () => {
+  it("shows unavailable slots without inventing item names", () => {
+    const equipment = FIXTURE_CHARACTERS[1]!.profile.equipment!;
+    const wrapper = mount(EquipmentGrid, { props: { equipment } });
+    expect(wrapper.text()).toContain("Unavailable");
+    expect(wrapper.text()).toContain("0 keyed items");
+    expect(wrapper.findAll("a")).toHaveLength(0);
   });
 });
 
@@ -57,15 +94,11 @@ describe("TrustRadarChart", () => {
       props: {
         series: [{ id: "1", name: "Aleria", dimensions: dims }],
       },
-      global: {
-        stubs: {
-          // Keep DOM table; avoid canvas init side effects where possible
-        },
-      },
     });
     const table = wrapper.get("[data-testid='radar-fallback']");
     expect(table.text()).toContain("Performance");
     expect(table.text()).toContain("91");
+    expect(wrapper.get("[data-testid='dimension-table']").text()).toContain("Exact dimension values");
     wrapper.unmount();
   });
 });
