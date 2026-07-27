@@ -246,21 +246,21 @@ export const reportFightSchema = z.object({
         zone: z.object({ id: z.number(), name: z.string().nullable().optional() }).nullable().optional(),
         fights: z.array(
           z.object({
-            id: z.number(),
-            encounterID: z.number().nullable().optional(),
+            id: z.coerce.number(),
+            encounterID: z.coerce.number().nullable().optional(),
             name: z.string().nullable().optional(),
-            difficulty: z.number().nullable().optional(),
+            difficulty: z.coerce.number().nullable().optional(),
             kill: z.boolean().nullable().optional(),
-            startTime: z.number(),
-            endTime: z.number(),
-            keystoneLevel: z.number().nullable().optional(),
+            startTime: z.coerce.number(),
+            endTime: z.coerce.number(),
+            keystoneLevel: z.coerce.number().nullable().optional(),
             // Live schema: actor ID ints. Legacy fixtures may still embed player objects.
             friendlyPlayers: z
               .array(
                 z.union([
-                  z.number(),
+                  z.coerce.number(),
                   z.object({
-                    id: z.number(),
+                    id: z.coerce.number(),
                     name: z.string(),
                     server: z.string(),
                     type: z.string(),
@@ -277,7 +277,7 @@ export const reportFightSchema = z.object({
             actors: z
               .array(
                 z.object({
-                  id: z.number(),
+                  id: z.coerce.number(),
                   name: z.string(),
                   type: z.string(),
                   subType: z.string().nullable().optional(),
@@ -288,8 +288,9 @@ export const reportFightSchema = z.object({
             abilities: z
               .array(
                 z.object({
-                  gameID: z.number(),
-                  type: z.number().nullable().optional(),
+                  // Live WCL often serializes ability IDs as strings in JSON scalars.
+                  gameID: z.coerce.number(),
+                  type: z.coerce.number().nullable().optional(),
                 }),
               )
               .default([]),
