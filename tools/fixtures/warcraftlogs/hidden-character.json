@@ -1,0 +1,24 @@
+{
+  "scenario": "hidden-character",
+  "resolveCharacter": {
+    "data": {
+      "characterData": {
+        "character": {
+          "id": 900002,
+          "canonicalID": 800002,
+          "name": "Hiddenplayer",
+          "level": 80,
+          "classID": 5,
+          "faction": 1,
+          "hidden": true,
+          "server": { "slug": "tarren-mill", "region": { "name": "EU" } }
+        }
+      }
+    }
+  },
+  "zoneRankings": { "data": { "characterData": { "character": { "zoneRankings": { "rankings": [] } } } } },
+  "recentReports": { "data": { "characterData": { "character": { "recentReports": { "data": [], "total": 0, "has_more_pages": false } } } } },
+  "rateLimitData": {
+    "data": { "rateLimitData": { "limitPerHour": 3600, "pointsSpentThisHour": 50, "pointsRemaining": 3550, "resetInSeconds": 3000 } }
+  }
+}

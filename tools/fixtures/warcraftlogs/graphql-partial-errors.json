@@ -1,0 +1,24 @@
+{
+  "scenario": "graphql-partial-errors",
+  "resolveCharacter": {
+    "errors": [{ "message": "Partial failure: rankings unavailable for partition 2" }],
+    "data": {
+      "characterData": {
+        "character": {
+          "id": 900005,
+          "canonicalID": 800005,
+          "name": "Partialplayer",
+          "level": 80,
+          "classID": 9,
+          "hidden": false,
+          "server": { "slug": "tarren-mill", "region": { "name": "EU" } }
+        }
+      }
+    }
+  },
+  "zoneRankings": { "data": { "characterData": { "character": { "zoneRankings": null } } } },
+  "recentReports": { "data": { "characterData": { "character": { "recentReports": { "data": [], "total": 0, "has_more_pages": false } } } } },
+  "rateLimitData": {
+    "data": { "rateLimitData": { "limitPerHour": 3600, "pointsSpentThisHour": 90, "pointsRemaining": 3510, "resetInSeconds": 2500 } }
+  }
+}

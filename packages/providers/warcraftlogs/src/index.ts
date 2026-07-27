@@ -1,44 +1,45 @@
-import type {
-  CharacterIdentityInput,
-  MythicRunDTO,
-  ProviderFetchContext,
-  ProviderResult,
-  WarcraftLogsProvider,
-} from "@mplus/contracts";
-import { ExternalApiError } from "@mplus/contracts";
-
-function notImplemented(method: string): never {
-  throw new ExternalApiError({
-    message: `WarcraftLogsProvider.${method} is not implemented (Agent 2 owns live integration)`,
-    code: "UNKNOWN",
-    provider: "warcraftlogs",
-    retryable: false,
-  });
-}
-
-export class FixtureWarcraftLogsProvider implements WarcraftLogsProvider {
-  readonly name = "warcraftlogs" as const;
-
-  async discoverCharacterRuns(
-    _identity: CharacterIdentityInput,
-    _ctx: ProviderFetchContext,
-  ): Promise<ProviderResult<MythicRunDTO[]>> {
-    notImplemented("discoverCharacterRuns");
-  }
-
-  async getReportFightDetails(
-    _reportCode: string,
-    _fightId: number,
-    _ctx: ProviderFetchContext,
-  ): Promise<ProviderResult<unknown>> {
-    notImplemented("getReportFightDetails");
-  }
-}
+import type { AppEnv } from "@mplus/config";
+import type { WarcraftLogsProvider } from "@mplus/contracts";
+import { FixtureWarcraftLogsProvider } from "./fixture/fixture-provider.js";
+import { LiveWarcraftLogsProvider } from "./live/live-provider.js";
 
 export function createWarcraftLogsProvider(
-  _mode: "fixture" | "live" = "fixture",
+  mode: "fixture" | "live" = "fixture",
+  env?: Pick<
+    AppEnv,
+    | "WCL_CLIENT_ID"
+    | "WCL_CLIENT_SECRET"
+    | "WCL_PUBLIC_GRAPHQL_URL"
+    | "WCL_TOKEN_URL"
+    | "WCL_RATE_WARN_PERCENT"
+    | "WCL_RATE_DEFER_PERCENT"
+    | "WCL_RATE_STOP_PERCENT"
+    | "WCL_CHARACTER_TTL_SECONDS"
+  >,
 ): WarcraftLogsProvider {
+  if (mode === "live") {
+    if (!env?.WCL_CLIENT_ID || !env?.WCL_CLIENT_SECRET) {
+      throw new Error("WCL credentials required for live provider mode");
+    }
+    return new LiveWarcraftLogsProvider({ env });
+  }
   return new FixtureWarcraftLogsProvider();
 }
+
+export { FixtureWarcraftLogsProvider } from "./fixture/fixture-provider.js";
+export { LiveWarcraftLogsProvider } from "./live/live-provider.js";
+export * from "./types.js";
+export * from "./client/token-manager.js";
+export * from "./client/fingerprint.js";
+export * from "./client/graphql-client.js";
+export * from "./client/errors.js";
+export * from "./operations/queries.js";
+export * from "./discovery/run-discovery.js";
+export * from "./discovery/run-matching.js";
+export * from "./analysis/revision-cache.js";
+export * from "./analysis/combat-facts.js";
+export { buildRunCombatFactsFromEvents, fetchAllEventPages } from "./analysis/event-fetcher.js";
+export * from "./rate/rate-budget.js";
+export * from "./fixture/loader.js";
 
 export type { WarcraftLogsProvider };

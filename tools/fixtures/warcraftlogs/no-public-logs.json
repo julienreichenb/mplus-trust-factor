@@ -1,0 +1,24 @@
+{
+  "scenario": "no-public-logs",
+  "resolveCharacter": {
+    "data": {
+      "characterData": {
+        "character": {
+          "id": 900003,
+          "canonicalID": 800003,
+          "name": "Nologsplayer",
+          "level": 80,
+          "classID": 1,
+          "faction": 0,
+          "hidden": false,
+          "server": { "slug": "silvermoon", "region": { "name": "EU" } }
+        }
+      }
+    }
+  },
+  "zoneRankings": { "data": { "characterData": { "character": { "zoneRankings": { "rankings": [] } } } } },
+  "recentReports": { "data": { "characterData": { "character": { "recentReports": { "data": [], "total": 0, "has_more_pages": false } } } } },
+  "rateLimitData": {
+    "data": { "rateLimitData": { "limitPerHour": 3600, "pointsSpentThisHour": 30, "pointsRemaining": 3570, "resetInSeconds": 3200 } }
+  }
+}

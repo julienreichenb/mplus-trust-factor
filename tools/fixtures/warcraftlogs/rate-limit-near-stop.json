@@ -1,0 +1,16 @@
+{
+  "scenario": "rate-limit-near-stop",
+  "resolveCharacter": { "data": { "characterData": { "character": null } } },
+  "zoneRankings": { "data": { "characterData": { "character": null } } },
+  "recentReports": { "data": { "characterData": { "character": null } } },
+  "rateLimitData": {
+    "data": {
+      "rateLimitData": {
+        "limitPerHour": 3600,
+        "pointsSpentThisHour": 3300,
+        "pointsRemaining": 300,
+        "resetInSeconds": 600
+      }
+    }
+  }
+}

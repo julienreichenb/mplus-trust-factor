@@ -1,0 +1,44 @@
+{
+  "scenario": "report-revision-bump",
+  "resolveCharacter": { "data": { "characterData": { "character": null } } },
+  "zoneRankings": { "data": { "characterData": { "character": null } } },
+  "recentReports": { "data": { "characterData": { "character": null } } },
+  "rateLimitData": {
+    "data": { "rateLimitData": { "limitPerHour": 3600, "pointsSpentThisHour": 100, "pointsRemaining": 3500, "resetInSeconds": 2000 } }
+  },
+  "report": {
+    "data": {
+      "reportData": {
+        "report": {
+          "code": "RevBump999",
+          "title": "Revision test",
+          "revision": 5,
+          "startTime": 1751000000000,
+          "endTime": 1751003600000,
+          "visibility": "public",
+          "zone": { "id": 45, "name": "Mythic Season 15" },
+          "fights": [
+            {
+              "id": 1,
+              "encounterID": 1208,
+              "name": "The Rookery",
+              "difficulty": 10,
+              "kill": true,
+              "startTime": 50000,
+              "endTime": 1900000,
+              "keystoneLevel": 11,
+              "friendlyPlayers": [
+                { "id": 1, "name": "Fixtureplayer", "server": "Tarren Mill", "type": "Mage", "icon": "Mage-Fire" }
+              ]
+            }
+          ],
+          "masterData": {
+            "actors": [{ "id": 1, "name": "Fixtureplayer", "type": "Player", "subType": "Mage", "server": "Tarren Mill" }],
+            "abilities": []
+          }
+        }
+      }
+    }
+  },
+  "events": { "Casts": { "data": [] }, "Interrupts": { "data": [] }, "Deaths": { "data": [] }, "DamageTaken": { "data": [] } }
+}

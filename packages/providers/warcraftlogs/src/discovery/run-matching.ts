@@ -1,0 +1,202 @@
+import type {
+  ExternalRunMatchInput,
+  RunMatchConfidence,
+  RunMatchResult,
+  WclActorMap,
+  WclRunCandidate,
+} from "../types.js";
+
+export interface RunMatchingConfig {
+  timeToleranceMs: number;
+  durationToleranceMs: number;
+  rosterOverlapHigh: number;
+  rosterOverlapMedium: number;
+}
+
+export const DEFAULT_MATCHING_CONFIG: RunMatchingConfig = {
+  timeToleranceMs: 120_000,
+  durationToleranceMs: 15_000,
+  rosterOverlapHigh: 0.8,
+  rosterOverlapMedium: 0.5,
+};
+
+export function matchRunCandidate(
+  candidate: WclRunCandidate,
+  external: ExternalRunMatchInput,
+  rosterFromFight: Array<{ realmSlug: string; name: string }> = [],
+  config: RunMatchingConfig = DEFAULT_MATCHING_CONFIG,
+): RunMatchResult {
+  const dungeonMatch =
+    candidate.dungeonSlug !== null &&
+    candidate.dungeonSlug.toLowerCase() === external.dungeonSlug.toLowerCase();
+
+  const keyLevel = candidate.keyLevel;
+  const keyLevelDelta =
+    keyLevel !== null && keyLevel !== undefined ? Math.abs(keyLevel - external.keyLevel) : null;
+  const keyLevelMatch = keyLevelDelta === 0;
+
+  let timeDeltaMs: number | null = null;
+  if (candidate.completedAt) {
+    timeDeltaMs = Math.abs(
+      new Date(candidate.completedAt).getTime() - new Date(external.completedAt).getTime(),
+    );
+  }
+
+  const durationDeltaMs =
+    candidate.durationMs != null
+      ? Math.abs(candidate.durationMs - external.durationMs)
+      : null;
+
+  const rosterOverlapRatio = computeRosterOverlap(rosterFromFight, external.participants);
+  const timeMatch = timeDeltaMs !== null && timeDeltaMs <= config.timeToleranceMs;
+  const durationMatch =
+    durationDeltaMs !== null && durationDeltaMs <= config.durationToleranceMs;
+
+  let confidence: RunMatchConfidence = "NONE";
+  if (
+    dungeonMatch &&
+    keyLevelMatch &&
+    timeMatch &&
+    durationMatch &&
+    rosterOverlapRatio !== null &&
+    rosterOverlapRatio >= config.rosterOverlapHigh
+  ) {
+    confidence = "HIGH";
+  } else if (
+    dungeonMatch &&
+    keyLevelMatch &&
+    (timeMatch || durationMatch) &&
+    rosterOverlapRatio !== null &&
+    rosterOverlapRatio >= config.rosterOverlapMedium
+  ) {
+    confidence = "MEDIUM";
+  } else if (dungeonMatch && keyLevelMatch) {
+    confidence = "LOW";
+  }
+
+  return {
+    confidence,
+    evidence: {
+      dungeonMatch,
+      keyLevelMatch,
+      keyLevelDelta,
+      timeDeltaMs,
+      durationDeltaMs,
+      rosterOverlapRatio,
+    },
+    autoMergeAllowed: confidence === "HIGH",
+  };
+}
+
+function computeRosterOverlap(
+  wclRoster: Array<{ realmSlug: string; name: string }>,
+  external: Array<{ realmSlug: string; name: string }>,
+): number | null {
+  if (wclRoster.length === 0 || external.length === 0) {
+    return null;
+  }
+  const externalKeys = new Set(
+    external.map((p) => `${p.realmSlug.toLowerCase()}|${p.name.toLowerCase()}`),
+  );
+  const matches = wclRoster.filter((p) =>
+    externalKeys.has(`${p.realmSlug.toLowerCase()}|${p.name.toLowerCase()}`),
+  ).length;
+  return matches / Math.max(wclRoster.length, external.length);
+}
+
+export function buildActorMap(
+  actors: Array<{ id: number; name: string; type: string; subType?: string | null; server?: string | null }>,
+): WclActorMap {
+  const byId = new Map<number, { id: number; name: string; type: string; subType: string | null; server: string | null }>();
+  const byName = new Map<string, number[]>();
+
+  for (const actor of actors) {
+    byId.set(actor.id, {
+      id: actor.id,
+      name: actor.name,
+      type: actor.type,
+      subType: actor.subType ?? null,
+      server: actor.server ?? null,
+    });
+    const key = actor.name.toLowerCase();
+    const existing = byName.get(key) ?? [];
+    existing.push(actor.id);
+    byName.set(key, existing);
+  }
+
+  return { byId, byName };
+}
+
+export function resolveActorSourceId(
+  actorMap: WclActorMap,
+  characterName: string,
+  realmSlug: string,
+): number | null {
+  const ids = actorMap.byName.get(characterName.toLowerCase()) ?? [];
+  for (const id of ids) {
+    const actor = actorMap.byId.get(id);
+    if (!actor) continue;
+    if (actor.server && actor.server.toLowerCase() !== realmSlug.toLowerCase()) {
+      continue;
+    }
+    if (actor.type === "Player") {
+      return id;
+    }
+  }
+  return ids[0] ?? null;
+}
+
+export function selectLatestAndHighest(candidates: WclRunCandidate[]): {
+  latest: WclRunCandidate | null;
+  highest: WclRunCandidate | null;
+} {
+  if (candidates.length === 0) {
+    return { latest: null, highest: null };
+  }
+
+  const latest = [...candidates].sort((a, b) => {
+    const aTime = a.completedAt ? new Date(a.completedAt).getTime() : (a.startTimeMs ?? 0);
+    const bTime = b.completedAt ? new Date(b.completedAt).getTime() : (b.startTimeMs ?? 0);
+    return bTime - aTime;
+  })[0]!;
+
+  const highest = [...candidates].sort((a, b) => {
+    const aLevel = a.keyLevel ?? 0;
+    const bLevel = b.keyLevel ?? 0;
+    if (bLevel !== aLevel) return bLevel - aLevel;
+    const aScore = a.score ?? 0;
+    const bScore = b.score ?? 0;
+    if (bScore !== aScore) return bScore - aScore;
+    const aTime = a.completedAt ? new Date(a.completedAt).getTime() : (a.startTimeMs ?? 0);
+    const bTime = b.completedAt ? new Date(b.completedAt).getTime() : (b.startTimeMs ?? 0);
+    return bTime - aTime;
+  })[0]!;
+
+  const isSameRun = latest.reportCode === highest.reportCode && latest.fightId === highest.fightId;
+  if (isSameRun) {
+    latest.selectionTags = ["LATEST", "HIGHEST"];
+    highest.selectionTags = ["LATEST", "HIGHEST"];
+  } else {
+    latest.selectionTags = ["LATEST"];
+    highest.selectionTags = ["HIGHEST"];
+  }
+
+  return { latest, highest };
+}
+
+export function dedupeCandidates(candidates: WclRunCandidate[]): WclRunCandidate[] {
+  const seen = new Map<string, WclRunCandidate>();
+  for (const candidate of candidates) {
+    const key = `${candidate.reportCode}:${candidate.fightId}`;
+    const existing = seen.get(key);
+    if (!existing) {
+      seen.set(key, { ...candidate, selectionTags: [...candidate.selectionTags] });
+      continue;
+    }
+    existing.selectionTags = [...new Set([...existing.selectionTags, ...candidate.selectionTags])];
+    if ((candidate.keyLevel ?? 0) > (existing.keyLevel ?? 0)) {
+      seen.set(key, { ...candidate, selectionTags: existing.selectionTags });
+    }
+  }
+  return [...seen.values()];
+}

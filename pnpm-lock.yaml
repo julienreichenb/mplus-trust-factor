@@ -240,13 +240,25 @@ importers:
 
   packages/providers/warcraftlogs:
     dependencies:
+      '@mplus/config':
+        specifier: workspace:*
+        version: link:../../config
       '@mplus/contracts':
         specifier: workspace:*
         version: link:../../contracts
+      '@mplus/domain':
+        specifier: workspace:*
+        version: link:../../domain
+      zod:
+        specifier: ^3.25.76
+        version: 3.25.76
     devDependencies:
       typescript:
         specifier: ^5.8.3
         version: 5.9.3
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.7(@types/node@22.20.1)(jiti@2.7.0)(jsdom@26.1.0)(tsx@4.23.1)(yaml@2.9.0)
 
   packages/scoring:
     dependencies:

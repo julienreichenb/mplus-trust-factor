@@ -10,6 +10,10 @@ export default defineConfig({
       "@mplus/domain": path.resolve(__dirname, "packages/domain/src/index.ts"),
       "@mplus/observability": path.resolve(__dirname, "packages/observability/src/index.ts"),
       "@mplus/scoring": path.resolve(__dirname, "packages/scoring/src/index.ts"),
+      "@mplus/provider-warcraftlogs": path.resolve(
+        __dirname,
+        "packages/providers/warcraftlogs/src/index.ts",
+      ),
     },
   },
   test: {

@@ -23,6 +23,7 @@
     "db:studio": "node tools/scripts/with-env.mjs pnpm --filter @mplus/database exec prisma studio",
     "db:generate": "pnpm --filter @mplus/database exec prisma generate",
     "openapi:generate": "node tools/scripts/with-env.mjs pnpm --filter @mplus/api run openapi:generate",
+    "wcl:smoke": "node tools/scripts/with-env.mjs node tools/scripts/wcl-smoke.mjs",
     "format": "prettier --write ."
   },
   "devDependencies": {

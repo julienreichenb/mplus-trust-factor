@@ -1,0 +1,98 @@
+{
+  "scenario": "character-with-rankings",
+  "resolveCharacter": {
+    "data": {
+      "characterData": {
+        "character": {
+          "id": 900001,
+          "canonicalID": 800001,
+          "name": "Fixtureplayer",
+          "level": 80,
+          "classID": 8,
+          "faction": 0,
+          "hidden": false,
+          "server": { "slug": "tarren-mill", "region": { "name": "EU" } }
+        }
+      }
+    }
+  },
+  "zoneRankings": {
+    "data": {
+      "characterData": {
+        "character": {
+          "zoneRankings": {
+            "metric": "playerscore",
+            "difficulty": 10,
+            "rankPercent": 72.5,
+            "totalParses": 45,
+            "zone": { "id": 45, "name": "Mythic Season 15" },
+            "rankings": [
+              {
+                "report": { "code": "AbCdEf12XyZ3", "startTime": 1751000000000, "endTime": 1751003600000 },
+                "fightID": 3,
+                "encounterID": 1201,
+                "difficulty": 10,
+                "kill": true,
+                "duration": 1823456,
+                "bracket": 12,
+                "score": 385.4,
+                "total": 100,
+                "amount": 78.2,
+                "spec": "Fire",
+                "role": "dps",
+                "startTime": 120000
+              },
+              {
+                "report": { "code": "GhIjKl45MnO6", "startTime": 1750900000000, "endTime": 1750903300000 },
+                "fightID": 2,
+                "encounterID": 1203,
+                "difficulty": 10,
+                "kill": true,
+                "duration": 2100000,
+                "bracket": 10,
+                "score": 312.1,
+                "total": 100,
+                "amount": 65.0,
+                "spec": "Fire",
+                "role": "dps",
+                "startTime": 95000
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "recentReports": {
+    "data": {
+      "characterData": {
+        "character": {
+          "recentReports": {
+            "data": [
+              {
+                "code": "AbCdEf12XyZ3",
+                "title": "M+ Ara-Kara +12",
+                "startTime": 1751000000000,
+                "endTime": 1751003600000,
+                "visibility": "public",
+                "zone": { "id": 45, "name": "Mythic Season 15" }
+              }
+            ],
+            "total": 1,
+            "has_more_pages": false
+          }
+        }
+      }
+    }
+  },
+  "rateLimitData": {
+    "data": {
+      "rateLimitData": {
+        "limitPerHour": 3600,
+        "pointsSpentThisHour": 120,
+        "pointsRemaining": 3480,
+        "resetInSeconds": 2400
+      }
+    }
+  }
+}
