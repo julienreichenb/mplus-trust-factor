@@ -1,4 +1,4 @@
-import { Worker, type ConnectionOptions, type Processor } from "bullmq";
+import { Worker, type ConnectionOptions, type Job } from "bullmq";
 import {
   QUEUE_NAMES,
   analyzeRunJobSchema,
@@ -6,31 +6,32 @@ import {
   recalculateScoreJobSchema,
   refreshCharacterJobSchema,
 } from "@mplus/contracts";
-import type { Logger } from "@mplus/observability";
+import type { WorkerContainer } from "./container.js";
+import { runAnalyzeRun } from "./orchestration/analyze-run.js";
+import { runGenerateAddonExport } from "./orchestration/generate-addon-export.js";
+import { runRecalculateScore } from "./orchestration/recalculate-score.js";
+import { runRefreshPipeline } from "./orchestration/refresh-pipeline.js";
+import { classifyError } from "./orchestration/retry-classification.js";
 
-export class NotImplementedJobError extends Error {
-  constructor(queue: string) {
-    super(`Processor for queue "${queue}" is not implemented (development skeleton)`);
-    this.name = "NotImplementedJobError";
+/** Runs `fn`; non-retryable failures call `job.discard()` so BullMQ does not schedule further attempts. */
+async function withRetryClassification<T>(job: Job, fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (error) {
+    const classification = classifyError(error);
+    if (!classification.retryable) {
+      await job.discard();
+    }
+    throw error;
   }
 }
 
-function notImplementedProcessor(queue: string, logger: Logger): Processor {
-  return async (job) => {
-    logger.warn({ queue, jobId: job.id }, "NotImplemented processor invoked");
-    if (process.env.NODE_ENV === "production") {
-      throw new NotImplementedJobError(queue);
-    }
-    throw new NotImplementedJobError(queue);
-  };
-}
-
-export function createWorkers(connection: ConnectionOptions, logger: Logger): Worker[] {
+export function createWorkers(connection: ConnectionOptions, container: WorkerContainer): Worker[] {
   const refresh = new Worker(
     QUEUE_NAMES.refreshCharacter,
     async (job) => {
-      refreshCharacterJobSchema.parse(job.data);
-      return notImplementedProcessor(QUEUE_NAMES.refreshCharacter, logger)(job);
+      const payload = refreshCharacterJobSchema.parse(job.data);
+      return withRetryClassification(job, () => runRefreshPipeline(container, payload));
     },
     { connection, autorun: false },
   );
@@ -38,8 +39,8 @@ export function createWorkers(connection: ConnectionOptions, logger: Logger): Wo
   const analyze = new Worker(
     QUEUE_NAMES.analyzeRun,
     async (job) => {
-      analyzeRunJobSchema.parse(job.data);
-      return notImplementedProcessor(QUEUE_NAMES.analyzeRun, logger)(job);
+      const payload = analyzeRunJobSchema.parse(job.data);
+      return withRetryClassification(job, () => runAnalyzeRun(container, payload));
     },
     { connection, autorun: false },
   );
@@ -47,8 +48,8 @@ export function createWorkers(connection: ConnectionOptions, logger: Logger): Wo
   const recalculate = new Worker(
     QUEUE_NAMES.recalculateScore,
     async (job) => {
-      recalculateScoreJobSchema.parse(job.data);
-      return notImplementedProcessor(QUEUE_NAMES.recalculateScore, logger)(job);
+      const payload = recalculateScoreJobSchema.parse(job.data);
+      return withRetryClassification(job, () => runRecalculateScore(container, payload));
     },
     { connection, autorun: false },
   );
@@ -56,11 +57,22 @@ export function createWorkers(connection: ConnectionOptions, logger: Logger): Wo
   const addonExport = new Worker(
     QUEUE_NAMES.generateAddonExport,
     async (job) => {
-      generateAddonExportJobSchema.parse(job.data);
-      return notImplementedProcessor(QUEUE_NAMES.generateAddonExport, logger)(job);
+      const payload = generateAddonExportJobSchema.parse(job.data);
+      return withRetryClassification(job, () => runGenerateAddonExport(container, payload));
     },
     { connection, autorun: false },
   );
 
+  for (const worker of [refresh, analyze, recalculate, addonExport]) {
+    worker.on("failed", (job, error) => {
+      container.logger.error({ jobId: job?.id, queue: worker.name, err: error }, "job failed");
+    });
+  }
+
   return [refresh, analyze, recalculate, addonExport];
+}
+
+/** Gracefully closes all workers; safe to call even if some workers never started running. */
+export async function closeWorkers(workers: Worker[]): Promise<void> {
+  await Promise.all(workers.map((worker) => worker.close()));
 }

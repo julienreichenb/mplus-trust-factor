@@ -11,6 +11,9 @@
     { "path": "../../packages/config" },
     { "path": "../../packages/contracts" },
     { "path": "../../packages/database" },
-    { "path": "../../packages/observability" }
+    { "path": "../../packages/domain" },
+    { "path": "../../packages/observability" },
+    { "path": "../../packages/scoring" },
+    { "path": "../worker" }
   ]
 }
