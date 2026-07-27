@@ -1,0 +1,15 @@
+{
+  "note": "Synthetic scoring fixtures for Agent 4. Profile definitions live in profiles.ts and are loaded by packages/scoring tests.",
+  "cohort": [
+    "01-strong-non-meta",
+    "02-meta-poor-logs",
+    "03-boost-suspect",
+    "04-legitimate-reroll",
+    "05-excellent-hidden-logs",
+    "06-average-complete",
+    "07-sparse-new",
+    "08-tank",
+    "09-healer",
+    "10-model-variants"
+  ]
+}
