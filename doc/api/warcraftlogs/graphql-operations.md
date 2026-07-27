@@ -9,13 +9,14 @@ query RateLimitData {
   rateLimitData {
     limitPerHour
     pointsSpentThisHour
-    pointsRemaining
-    resetInSeconds
+    pointsResetIn
   }
 }
 ```
 
 **Observed cost:** ~0–1 point.
+
+Live schema uses `pointsResetIn` (seconds until reset). `pointsRemaining` is derived client-side as `limitPerHour - pointsSpentThisHour`.
 
 ## ResolveCharacter
 

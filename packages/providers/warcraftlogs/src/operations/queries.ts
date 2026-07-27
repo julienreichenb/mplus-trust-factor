@@ -5,8 +5,7 @@ export const OPERATIONS = {
   rateLimitData {
     limitPerHour
     pointsSpentThisHour
-    pointsRemaining
-    resetInSeconds
+    pointsResetIn
   }
 }`,
   },

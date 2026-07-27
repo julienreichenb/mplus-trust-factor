@@ -35,13 +35,15 @@ export function parseRateLimitSnapshot(data: {
   limitPerHour: number;
   pointsSpentThisHour: number;
   pointsRemaining?: number;
+  /** Live GraphQL field. */
+  pointsResetIn?: number | null;
+  /** Legacy fixture alias for pointsResetIn. */
   resetInSeconds?: number | null;
 }): WclRateLimitSnapshot {
   const now = Date.now();
+  const resetInSeconds = data.pointsResetIn ?? data.resetInSeconds ?? null;
   const resetAt =
-    data.resetInSeconds != null
-      ? new Date(now + data.resetInSeconds * 1000).toISOString()
-      : null;
+    resetInSeconds != null ? new Date(now + resetInSeconds * 1000).toISOString() : null;
   return {
     limitPerHour: data.limitPerHour,
     pointsSpentThisHour: data.pointsSpentThisHour,

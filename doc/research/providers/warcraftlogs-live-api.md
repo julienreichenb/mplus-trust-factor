@@ -43,7 +43,7 @@ Relevant GraphQL surfaces include:
 - Character `recentReports(limit, page)`; documented maximum limit is 100 — we use 20.
 - Character hidden/public state and server identity.
 - Report fights, master data/actors, player details and events.
-- `rateLimitData` with hourly allowance, points spent and reset time.
+- `rateLimitData` with hourly allowance, points spent and `pointsResetIn` (seconds until reset).
 
 ## Privacy and visibility
 

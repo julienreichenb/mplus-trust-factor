@@ -108,6 +108,9 @@ export const rateLimitDataSchema = z.object({
   rateLimitData: z.object({
     limitPerHour: z.number(),
     pointsSpentThisHour: z.number(),
+    /** Live WCL schema field (seconds until reset). */
+    pointsResetIn: z.number().optional(),
+    /** Legacy fixture alias — prefer pointsResetIn. */
     pointsRemaining: z.number().optional(),
     resetInSeconds: z.number().nullable().optional(),
   }),
