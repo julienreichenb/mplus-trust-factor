@@ -29,7 +29,9 @@ import { mapBoostFactsToAuthenticity } from "./boost-authenticity.js";
 import { extractMetricsFromCombatFacts } from "./combat-metrics.js";
 import { fingerprintObservations } from "./fingerprint.js";
 import { buildMythicRatingObservation } from "./performance-metrics.js";
+import { buildWclPerformanceObservations } from "./wcl-performance-metrics.js";
 import { recordProviderResult } from "./provider-recording.js";
+import type { WclDungeonPerformanceAggregateDTO } from "@mplus/contracts";
 import {
   excludedLowConfidenceMatch,
   isEnrichmentSoftSkip,
@@ -105,16 +107,22 @@ function isRaiderIoSkipped(container: WorkerContainer): boolean {
  * Prefer `discoverCharacterSummary` → ProviderResult.data.visibility.
  * Never treat a Promise as a sync `{ summary }` object.
  */
-async function resolveWclVisibility(
+async function resolveWclSummary(
   provider: WorkerContainer["providers"]["warcraftlogs"],
   identity: CharacterIdentityInput,
   ctx: ProviderFetchContext,
   record: (result: Awaited<ReturnType<NonNullable<typeof provider.discoverCharacterSummary>>>) => Promise<void>,
-): Promise<WclVisibilityState | null> {
+): Promise<{
+  visibility: WclVisibilityState | null;
+  dungeonAggregates: WclDungeonPerformanceAggregateDTO[];
+}> {
   if (typeof provider.discoverCharacterSummary === "function") {
     const summary = await provider.discoverCharacterSummary(identity, ctx);
     await record(summary);
-    return summary.data.visibility;
+    return {
+      visibility: summary.data.visibility,
+      dungeonAggregates: summary.data.dungeonAggregates ?? [],
+    };
   }
 
   // Package-local fallback (fixture/live still expose discoverCharacter).
@@ -123,15 +131,24 @@ async function resolveWclVisibility(
       i: CharacterIdentityInput,
       c: ProviderFetchContext,
     ) =>
-      | { summary: { visibility: WclVisibilityState } }
-      | Promise<{ summary: { visibility: WclVisibilityState } }>;
+      | {
+          summary: { visibility: WclVisibilityState };
+          dungeonAggregates?: WclDungeonPerformanceAggregateDTO[];
+        }
+      | Promise<{
+          summary: { visibility: WclVisibilityState };
+          dungeonAggregates?: WclDungeonPerformanceAggregateDTO[];
+        }>;
   };
   if (typeof maybeDiscover.discoverCharacter === "function") {
     const discovery = await Promise.resolve(maybeDiscover.discoverCharacter(identity, ctx));
-    return discovery?.summary?.visibility ?? null;
+    return {
+      visibility: discovery?.summary?.visibility ?? null,
+      dungeonAggregates: discovery?.dungeonAggregates ?? [],
+    };
   }
 
-  return null;
+  return { visibility: null, dungeonAggregates: [] };
 }
 
 function toPersistedCombatFacts(facts: RunCombatFacts) {
@@ -331,6 +348,7 @@ export async function runRefreshPipeline(
   type WclEnrichment = {
     visibility: WclVisibilityState | null;
     runs: MythicRunDTO[];
+    dungeonAggregates: WclDungeonPerformanceAggregateDTO[];
   };
 
   const enrichRaiderIo = async (): Promise<RaiderIoEnrichment> => {
@@ -434,7 +452,7 @@ export async function runRefreshPipeline(
         detail: "provider disabled",
         lastAttemptAt: now,
       });
-      return { visibility: null, runs: [] };
+      return { visibility: null, runs: [], dungeonAggregates: [] };
     }
 
     const wclCtx: ProviderFetchContext = {
@@ -443,8 +461,9 @@ export async function runRefreshPipeline(
     };
 
     let visibility: WclVisibilityState | null = null;
+    let dungeonAggregates: WclDungeonPerformanceAggregateDTO[] = [];
     try {
-      visibility = await resolveWclVisibility(
+      const summary = await resolveWclSummary(
         providers.warcraftlogs,
         identity,
         wclCtx,
@@ -452,6 +471,8 @@ export async function runRefreshPipeline(
           await recordProviderResult(repositories, result);
         },
       );
+      visibility = summary.visibility;
+      dungeonAggregates = summary.dungeonAggregates;
 
       const runsResult = await providers.warcraftlogs.discoverCharacterRuns(identity, wclCtx);
       await recordProviderResult(repositories, runsResult);
@@ -469,9 +490,10 @@ export async function runRefreshPipeline(
         metadata: {
           discoveredRunCount: runsResult.data.length,
           hydrationHintCount: hydrationHints.length,
+          dungeonAggregateCount: dungeonAggregates.length,
         },
       });
-      return { visibility, runs: runsResult.data };
+      return { visibility, runs: runsResult.data, dungeonAggregates };
     } catch (error) {
       // WCL is enrichment-only: never block a Blizzard/Raider.IO-backed MVP score.
       // GraphQL schema / invalid-response errors stay UNAVAILABLE with detail.
@@ -491,7 +513,7 @@ export async function runRefreshPipeline(
         lastAttemptAt: now,
       });
       logger.info({ identity, err: error }, "refresh pipeline: WCL soft-skipped");
-      return { visibility, runs: [] };
+      return { visibility, runs: [], dungeonAggregates };
     }
   };
 
@@ -517,6 +539,7 @@ export async function runRefreshPipeline(
   const wclEnrichment = await enrichWarcraftLogs(hydrationHints);
   wclVisibility = wclEnrichment.visibility;
   discoveredRuns = wclEnrichment.runs;
+  const wclDungeonAggregates = wclEnrichment.dungeonAggregates;
 
   // ── Reconcile + fuse runs ───────────────────────────────────────────────
   const reconcile = reconcileSources({
@@ -796,6 +819,46 @@ export async function runRefreshPipeline(
     );
   }
 
+  const roleSlug = (character.role ?? blizzardProfile?.role ?? raiderIoProfile?.role ?? null)
+    ?.toString()
+    .toLowerCase();
+  const specSlug =
+    blizzardProfile?.specSlug ?? raiderIoProfile?.specSlug ?? null;
+
+  const explanatoryRuns = fusedRuns.map((run) => ({
+    runId: run.id,
+    dungeonSlug: run.dungeonSlug,
+    keyLevel: run.keyLevel,
+    completedAt: run.completedAt,
+    timed: run.timed,
+    parsePercentile: null as number | null,
+    scoreValue: run.scoreValue,
+    hasWclSource: run.sources.some((s) => s.provider === "WARCRAFT_LOGS"),
+  }));
+
+  const wclPerformance = buildWclPerformanceObservations({
+    currentSeasonDungeons: wclDungeonAggregates.map((d) => ({
+      dungeonSlug: d.dungeonSlug,
+      dungeonName: d.dungeonName,
+      bestParsePercentile: d.bestParsePercentile,
+      medianParsePercentile: d.medianParsePercentile,
+      loggedRunCount: d.loggedRunCount,
+      specSlug: d.specSlug,
+      roleSlug: d.roleSlug,
+    })),
+    expectedDungeonCount: season.dungeonCount > 0 ? season.dungeonCount : 8,
+    activeSpecSlug: specSlug,
+    activeRoleSlug: roleSlug,
+    hasResolvedSpecAndRole: Boolean(specSlug && roleSlug),
+    selectedRunWclCoverage:
+      selectedRuns.size > 0 ? combatFactsList.length / selectedRuns.size : 0,
+    explanatoryRuns,
+    logFreshness:
+      wclVisibility === "PUBLIC" || wclVisibility === "NO_MATCHED_RUN" ? 0.85 : 0.4,
+    observedAt,
+  });
+  observations.push(...wclPerformance.observations);
+
   // Keep Raider.IO score as a separate non-product observation (never fed as product score).
   const rioScore = raiderIoProfile?.currentSeason?.scores.all ?? null;
   if (rioScore != null) {
@@ -869,10 +932,20 @@ export async function runRefreshPipeline(
     throw error;
   }
 
+  const modelConfig = {
+    ...(model.config as unknown as ScoreModelConfig & Record<string, unknown>),
+    version: model.version,
+    key: model.key,
+    metricWeights: {
+      ...((model.config as { metricWeights?: Record<string, unknown> }).metricWeights ?? {}),
+      PERFORMANCE: wclPerformance.performanceMetricWeights,
+    },
+  } as ScoreModelConfig;
+
   const scoreDto = container.calculateScore({
     characterId: character.id,
     seasonSlug: season.slug,
-    model: model.config as unknown as ScoreModelConfig,
+    model: modelConfig,
     scopeType: "CHARACTER",
     scopeKey: null,
     observations,
@@ -887,6 +960,22 @@ export async function runRefreshPipeline(
       authenticity: authenticityFeatures,
     },
   });
+
+  // Override PERFORMANCE dimension confidence with independent WCL confidence when scored.
+  if (wclPerformance.observations.length > 0) {
+    for (const dim of scoreDto.dimensions) {
+      if (dim.dimension === "PERFORMANCE") {
+        dim.confidence = wclPerformance.confidence;
+      }
+    }
+  } else {
+    for (const dim of scoreDto.dimensions) {
+      if (dim.dimension === "PERFORMANCE") {
+        dim.confidence = 0;
+        dim.score = (modelConfig as { confidenceNeutralScore?: number }).confidenceNeutralScore ?? 50;
+      }
+    }
+  }
 
   const providerStates = await repositories.providerState.listForCharacter(character.id);
   const timestampFor = (provider: "blizzard" | "raiderio" | "warcraftlogs") =>
@@ -920,6 +1009,7 @@ export async function runRefreshPipeline(
           seasonSlug: season.slug,
           fusedRunCount: fusedRuns.length,
           wclVisibility,
+          performanceSummary: wclPerformance.summary,
         }
       : scoreDto.explanation;
 

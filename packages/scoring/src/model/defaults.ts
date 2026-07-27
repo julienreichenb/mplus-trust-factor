@@ -1,4 +1,5 @@
 import type { ScoreModelConfigV1 } from "../types.js";
+import { resolvePerformanceMetricWeights } from "../performance/aggregate.js";
 
 export function createDefaultModelV1(
   overrides: Partial<ScoreModelConfigV1> = {},
@@ -107,6 +108,57 @@ export function createDefaultModelV1(
   };
 
   return deepMerge(base, overrides);
+}
+
+/**
+ * Default Trust Factor v2 — PERFORMANCE from current-season WCL parse percentiles
+ * (peak + consistency) with optional historical best-average. Mythic+ rating is
+ * an EXPERIENCE/progression signal only, never a PERFORMANCE percentile.
+ */
+export function createDefaultModelV2(
+  overrides: Partial<ScoreModelConfigV1> = {},
+): ScoreModelConfigV1 {
+  const performanceWeights = resolvePerformanceMetricWeights(true);
+  return createDefaultModelV1({
+    version: 2,
+    metricWeights: {
+      PERFORMANCE: performanceWeights,
+      SURVIVAL: [
+        { metricKey: "survival.death_rate", weight: 0.35 },
+        { metricKey: "survival.avoidable_damage", weight: 0.3 },
+        { metricKey: "survival.defensive_usage", weight: 0.25 },
+        { metricKey: "survival.consumable_usage", weight: 0.1 },
+      ],
+      UTILITY: [
+        { metricKey: "utility.interrupts", weight: 0.3 },
+        { metricKey: "utility.crowd_control", weight: 0.25 },
+        { metricKey: "utility.dispels", weight: 0.15 },
+        { metricKey: "utility.externals", weight: 0.15 },
+        { metricKey: "utility.class_specific", weight: 0.15 },
+      ],
+      EXPERIENCE: [
+        { metricKey: "experience.dungeon_breadth", weight: 0.28 },
+        { metricKey: "experience.top_level_repeat", weight: 0.22 },
+        { metricKey: "experience.volume_recency", weight: 0.15 },
+        { metricKey: "experience.mythic_rating", weight: 0.15 },
+        { metricKey: "experience.historical_seasons", weight: 0.12 },
+        { metricKey: "experience.role_continuity", weight: 0.08 },
+      ],
+      RAID: [
+        { metricKey: "raid.mythic_progression", weight: 0.6 },
+        { metricKey: "raid.mythic_parses", weight: 0.4 },
+      ],
+    },
+    normalization: {
+      "survival.death_rate": { type: "identity", invert: true },
+      "survival.avoidable_damage": { type: "identity", invert: true },
+      "performance.current_season_peak": { type: "percentile" },
+      "performance.current_season_consistency": { type: "percentile" },
+      "performance.historical_best_average": { type: "percentile" },
+      default: { type: "identity" },
+    },
+    ...overrides,
+  });
 }
 
 function deepMerge<T extends object>(base: T, overrides: Partial<T>): T {

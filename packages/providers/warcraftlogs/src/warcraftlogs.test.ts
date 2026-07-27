@@ -369,6 +369,45 @@ describe("Deep smoke sanitization + worker path", () => {
     expect(mapped[0]?.zoneId).toBe(47);
   });
 
+  it("maps aggregate zoneRankings rows to dungeon best/median percentiles", async () => {
+    const { mapZoneRankingAggregates } = await import("./discovery/zone-ranking-aggregates.js");
+    const payload = {
+      metric: "playerscore",
+      zone: 47,
+      partition: 1,
+      bestPerformanceAverage: 80,
+      medianPerformanceAverage: 75,
+      rankings: [
+        {
+          encounter: { id: 99, name: "Skyreach" },
+          rankPercent: 98,
+          medianPercent: 98,
+          totalKills: 6,
+          spec: "Affliction",
+        },
+        {
+          encounter: { id: 100, name: "Pit of Saron" },
+          rankPercent: 95,
+          medianPercent: 75,
+          totalKills: 20,
+        },
+        {
+          report: { code: "ParseOnly", startTime: 1 },
+          fightID: 1,
+          encounterID: 1201,
+          amount: 1,
+          total: 1,
+        },
+      ],
+    };
+    const mapped = mapZoneRankingAggregates(payload);
+    expect(mapped.dungeons).toHaveLength(2);
+    expect(mapped.dungeons.find((d) => d.dungeonSlug === "skyreach")?.bestParsePercentile).toBe(98);
+    expect(mapped.dungeons.find((d) => d.dungeonSlug === "pit-of-saron")?.medianParsePercentile).toBe(
+      75,
+    );
+  });
+
   it("hydrates fightUnknown stubs into Mythic+ candidates with target actor", async () => {
     const stub = baseCandidate({
       fightId: 0,

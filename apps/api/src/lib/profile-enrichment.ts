@@ -9,6 +9,7 @@ import type {
   SeasonSummary,
   TalentSummary,
   WclVisibilityState,
+  PerformanceSummaryDTO,
 } from "@mplus/contracts";
 import type { AppEnv } from "@mplus/config";
 import type { MythicRunWithRelations } from "@mplus/worker";
@@ -29,6 +30,8 @@ export interface CharacterEnrichmentInput {
   /** Selected-run combat coverage (0–1), aligned with score context.selectedRunCoverage. */
   selectedRunCoverage?: number | null;
   runCoverageById?: Record<string, number | null>;
+  /** PERFORMANCE summary from score explanation (sanitized; no private report codes). */
+  performanceSummary?: PerformanceSummaryDTO | null;
   env: AppEnv;
 }
 
@@ -139,6 +142,7 @@ export function buildProfileEnrichments(input: CharacterEnrichmentInput): Pick<
   | "equipment"
   | "talents"
   | "seasonSummary"
+  | "performanceSummary"
   | "entitlements"
   | "warnings"
   | "raiderIoUsed"
@@ -156,6 +160,7 @@ export function buildProfileEnrichments(input: CharacterEnrichmentInput): Pick<
     providerStates,
     selectedRunCoverage,
     runCoverageById,
+    performanceSummary = null,
     env,
   } = input;
   const bothSame = latestRun && highestRun && latestRun.id === highestRun.id;
@@ -223,6 +228,7 @@ export function buildProfileEnrichments(input: CharacterEnrichmentInput): Pick<
     equipment,
     talents,
     seasonSummary,
+    performanceSummary: performanceSummary ?? null,
     entitlements: buildEntitlements(env),
     warnings: [],
     raiderIoUsed: Boolean(character.raiderioProfileUrl),

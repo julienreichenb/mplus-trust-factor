@@ -38,3 +38,21 @@ export interface RunCombatFacts {
   coverage: RunCombatFactsCoverage;
   limitations: RunCombatFactsLimitations;
 }
+
+/** Per-dungeon WCL Best%/Median% used for PERFORMANCE (no private report codes). */
+export interface WclDungeonPerformanceAggregateDTO {
+  dungeonSlug: string;
+  dungeonName: string;
+  encounterId: number | null;
+  bestParsePercentile: number | null;
+  medianParsePercentile: number | null;
+  loggedRunCount: number;
+  specSlug: string | null;
+  roleSlug: string | null;
+}
+
+export interface WclCharacterSummaryDTO {
+  visibility: WclVisibilityState;
+  warnings: string[];
+  dungeonAggregates: WclDungeonPerformanceAggregateDTO[];
+}

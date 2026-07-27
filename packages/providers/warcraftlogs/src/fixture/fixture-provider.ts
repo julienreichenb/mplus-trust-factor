@@ -19,6 +19,7 @@ import {
   recentReportsToCandidates,
   type ZoneRankingsPayload,
 } from "../discovery/run-discovery.js";
+import { mapZoneRankingAggregates } from "../discovery/zone-ranking-aggregates.js";
 import { FIXTURE_MPLUS_ZONE_ID } from "../discovery/mplus-zone.js";
 import {
   characterResolveSchema,
@@ -149,12 +150,13 @@ export class FixtureWarcraftLogsProvider implements WarcraftLogsProvider {
   async discoverCharacterSummary(
     identity: CharacterIdentityInput,
     ctx: ProviderFetchContext,
-  ): Promise<ProviderResult<{ visibility: WclVisibilityState; warnings: string[] }>> {
+  ): Promise<ProviderResult<{ visibility: WclVisibilityState; warnings: string[]; dungeonAggregates: WclCharacterDiscoveryResult["dungeonAggregates"] }>> {
     const discovery = this.discoverCharacter(identity, ctx);
     return emptyProviderResult(
       {
         visibility: discovery.summary.visibility,
         warnings: discovery.summary.warnings,
+        dungeonAggregates: discovery.dungeonAggregates,
       },
       "discoverCharacterSummary",
       `fixture-summary-${identity.name}`,
@@ -207,6 +209,18 @@ export class FixtureWarcraftLogsProvider implements WarcraftLogsProvider {
       (rankingsParsed.characterData.character?.zoneRankings ?? null) as ZoneRankingsPayload | null,
       FIXTURE_MPLUS_ZONE_ID,
     );
+    const aggregatePayload = (rankingsParsed.characterData.character?.zoneRankings ??
+      null) as ZoneRankingsPayload | null;
+    const dungeonAggregates = mapZoneRankingAggregates(aggregatePayload).dungeons.map((d) => ({
+      dungeonSlug: d.dungeonSlug,
+      dungeonName: d.dungeonName,
+      encounterId: d.encounterId,
+      bestParsePercentile: d.bestParsePercentile,
+      medianParsePercentile: d.medianParsePercentile,
+      loggedRunCount: d.loggedRunCount,
+      specSlug: d.specSlug,
+      roleSlug: d.roleSlug,
+    }));
 
     const recentRaw = (fixture.recentReports as { data: unknown }).data;
     const recentParsed = parseWithSchema(recentReportsSchema, recentRaw, "RecentReports");
@@ -222,6 +236,7 @@ export class FixtureWarcraftLogsProvider implements WarcraftLogsProvider {
     return buildCharacterDiscovery({
       summary,
       rankings,
+      dungeonAggregates,
       rankingCandidates: rankingsToCandidates(rankings),
       recentCandidates: recentMapped.candidates,
       privateReportsSkipped: recentMapped.privateSkipped + recentMapped.unlistedSkipped,

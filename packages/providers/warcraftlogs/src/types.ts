@@ -250,9 +250,23 @@ export interface WclRateBudgetDecision {
   snapshot: WclRateLimitSnapshot;
 }
 
+/** Per-dungeon Best%/Median% from aggregate zoneRankings (PERFORMANCE input). */
+export interface WclDungeonPerformanceAggregate {
+  dungeonSlug: string;
+  dungeonName: string;
+  encounterId: number | null;
+  bestParsePercentile: number | null;
+  medianParsePercentile: number | null;
+  loggedRunCount: number;
+  specSlug: string | null;
+  roleSlug: string | null;
+}
+
 export interface WclCharacterDiscoveryResult {
   summary: WclCharacterSummary;
   rankings: WclRankingObservation[];
+  /** Equal-weight dungeon aggregates for PERFORMANCE (not used for run discovery). */
+  dungeonAggregates: WclDungeonPerformanceAggregate[];
   candidates: WclRunCandidate[];
   latest: WclRunCandidate | null;
   highest: WclRunCandidate | null;

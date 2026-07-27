@@ -173,7 +173,11 @@ export const zoneRankingsPayloadSchema = z
     metric: z.string().nullable().optional(),
     difficulty: z.number().nullable().optional(),
     rankPercent: z.number().nullable().optional(),
+    medianPercent: z.number().nullable().optional(),
     totalParses: z.number().nullable().optional(),
+    partition: z.number().nullable().optional(),
+    bestPerformanceAverage: z.number().nullable().optional(),
+    medianPerformanceAverage: z.number().nullable().optional(),
     zone: z
       .union([
         z.number(),
@@ -181,7 +185,7 @@ export const zoneRankingsPayloadSchema = z
       ])
       .nullable()
       .optional(),
-    // Accept both parse-style and aggregate ranking rows; mapping filters to parse-style.
+    // Accept both parse-style and aggregate ranking rows; mapping filters appropriately.
     rankings: z.array(z.unknown()).optional().default([]),
   })
   .passthrough()

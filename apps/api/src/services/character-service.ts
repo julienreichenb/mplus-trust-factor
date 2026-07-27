@@ -74,6 +74,15 @@ function readSelectedRunCoverage(explanation: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
+function readPerformanceSummary(
+  explanation: unknown,
+): import("@mplus/contracts").PerformanceSummaryDTO | null {
+  if (!explanation || typeof explanation !== "object") return null;
+  const summary = (explanation as { performanceSummary?: unknown }).performanceSummary;
+  if (!summary || typeof summary !== "object") return null;
+  return summary as import("@mplus/contracts").PerformanceSummaryDTO;
+}
+
 export interface CharacterHistoryResponse {
   characterId: string;
   snapshots: ScoreSnapshotDTO[];
@@ -194,6 +203,7 @@ export class CharacterService {
     );
 
     const selectedRunCoverage = readSelectedRunCoverage(snapshot?.explanation);
+    const performanceSummary = readPerformanceSummary(snapshot?.explanation);
 
     const enrichments = applyProfileWarnings(
       buildProfileEnrichments({
@@ -207,6 +217,7 @@ export class CharacterService {
         providerStates,
         selectedRunCoverage,
         runCoverageById,
+        performanceSummary,
         env: this.container.env,
       }),
       base.score,

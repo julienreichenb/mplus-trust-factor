@@ -25,7 +25,7 @@ loadRootEnv();
 
 const prisma = new PrismaClient();
 
-const defaultModelConfig = {
+const defaultModelConfigV1 = {
   weights: {
     performance: 0.32,
     survival: 0.27,
@@ -83,6 +83,29 @@ const defaultModelConfig = {
   },
 } satisfies Prisma.InputJsonValue;
 
+/** v2: PERFORMANCE from WCL parse percentiles; Mythic+ rating → EXPERIENCE only. */
+const defaultModelConfigV2 = {
+  ...defaultModelConfigV1,
+  metricWeights: {
+    PERFORMANCE: [
+      { metricKey: "performance.current_season_peak", weight: 0.5525 },
+      { metricKey: "performance.current_season_consistency", weight: 0.2975 },
+      { metricKey: "performance.historical_best_average", weight: 0.15 },
+    ],
+    SURVIVAL: defaultModelConfigV1.metricWeights.SURVIVAL,
+    UTILITY: defaultModelConfigV1.metricWeights.UTILITY,
+    EXPERIENCE: [
+      { metricKey: "experience.dungeon_breadth", weight: 0.28 },
+      { metricKey: "experience.top_level_repeat", weight: 0.22 },
+      { metricKey: "experience.volume_recency", weight: 0.15 },
+      { metricKey: "experience.mythic_rating", weight: 0.15 },
+      { metricKey: "experience.historical_seasons", weight: 0.12 },
+      { metricKey: "experience.role_continuity", weight: 0.08 },
+    ],
+    RAID: defaultModelConfigV1.metricWeights.RAID,
+  },
+} satisfies Prisma.InputJsonValue;
+
 const metricDefinitions: Array<{
   key: string;
   dimension: ScoreDimension;
@@ -95,7 +118,36 @@ const metricDefinitions: Array<{
     dimension: ScoreDimension.PERFORMANCE,
     valueType: "number",
     direction: MetricDirection.HIGHER_BETTER,
-    description: "Season-aware Blizzard Mythic rating observation (not a fabricated percentile)",
+    description:
+      "Legacy v1 Blizzard Mythic rating PERFORMANCE contributor (retired in model v2; prefer experience.mythic_rating)",
+  },
+  {
+    key: "performance.current_season_peak",
+    dimension: ScoreDimension.PERFORMANCE,
+    valueType: "number",
+    direction: MetricDirection.HIGHER_BETTER,
+    description: "Equal-weight mean of current-season WCL best parse percentiles per dungeon",
+  },
+  {
+    key: "performance.current_season_consistency",
+    dimension: ScoreDimension.PERFORMANCE,
+    valueType: "number",
+    direction: MetricDirection.HIGHER_BETTER,
+    description: "Equal-weight mean of current-season WCL median parse percentiles per dungeon",
+  },
+  {
+    key: "performance.historical_best_average",
+    dimension: ScoreDimension.PERFORMANCE,
+    valueType: "number",
+    direction: MetricDirection.HIGHER_BETTER,
+    description: "Recency-weighted mean of prior-season best parse percentile averages (same spec/role)",
+  },
+  {
+    key: "experience.mythic_rating",
+    dimension: ScoreDimension.EXPERIENCE,
+    valueType: "number",
+    direction: MetricDirection.HIGHER_BETTER,
+    description: "Blizzard Mythic+ rating as progression/experience context (not a parse percentile)",
   },
   {
     key: "performance.spec_percentile",
@@ -275,20 +327,48 @@ async function seed(): Promise<void> {
     },
     update: {
       name: "Default Trust Factor v1",
-      description: "Initial configurable model from COMMON-CONTEXT",
-      status: ScoreModelStatus.ACTIVE,
-      config: defaultModelConfig,
-      activatedAt: new Date(),
+      description: "Legacy model — Mythic+ rating as PERFORMANCE (archived; snapshots retained)",
+      status: ScoreModelStatus.ARCHIVED,
+      config: defaultModelConfigV1,
     },
     create: {
       key: "default",
       version: 1,
       name: "Default Trust Factor v1",
-      description: "Initial configurable model from COMMON-CONTEXT",
+      description: "Legacy model — Mythic+ rating as PERFORMANCE (archived; snapshots retained)",
+      status: ScoreModelStatus.ARCHIVED,
+      config: defaultModelConfigV1,
+    },
+  });
+
+  await prisma.scoreModel.upsert({
+    where: {
+      key_version: { key: "default", version: 2 },
+    },
+    update: {
+      name: "Default Trust Factor v2",
+      description:
+        "PERFORMANCE from current-season WCL parse percentiles (peak/consistency) with optional historical best-average",
       status: ScoreModelStatus.ACTIVE,
-      config: defaultModelConfig,
+      config: defaultModelConfigV2,
       activatedAt: new Date(),
     },
+    create: {
+      key: "default",
+      version: 2,
+      name: "Default Trust Factor v2",
+      description:
+        "PERFORMANCE from current-season WCL parse percentiles (peak/consistency) with optional historical best-average",
+      status: ScoreModelStatus.ACTIVE,
+      config: defaultModelConfigV2,
+      activatedAt: new Date(),
+    },
+  });
+
+  // Ensure only one ACTIVE model for key=default.
+  await prisma.scoreModel.updateMany({
+    where: { key: "default", version: { not: 2 }, status: ScoreModelStatus.ACTIVE },
+    data: { status: ScoreModelStatus.ARCHIVED },
   });
 
   for (const metric of metricDefinitions) {
@@ -326,7 +406,7 @@ async function seed(): Promise<void> {
     });
   }
 
-  console.log("Seed completed (idempotent): EU region, placeholder season, model v1, metrics, red flags.");
+  console.log("Seed completed (idempotent): EU region, placeholder season, model v2 ACTIVE (v1 archived), metrics, red flags.");
 }
 
 seed()

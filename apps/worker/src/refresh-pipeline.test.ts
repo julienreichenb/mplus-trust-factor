@@ -76,12 +76,20 @@ describe.skipIf(!dbAvailable)("runRefreshPipeline (fixture mode, real Postgres)"
         providerTimestamps?: { warcraftlogs?: string | null };
       };
       expect(explanation.modelKey).toBeTruthy();
-      expect(explanation.observations?.some((o) => o.metricKey === "performance.mythic_rating")).toBe(
+      expect(explanation.observations?.some((o) => o.metricKey === "experience.mythic_rating")).toBe(
         true,
       );
       expect(
+        explanation.observations?.some((o) => o.metricKey === "performance.mythic_rating"),
+      ).toBeFalsy();
+      expect(
         explanation.observations?.some((o) => o.metricKey === "performance.spec_percentile"),
       ).toBeFalsy();
+      // PERFORMANCE must not be driven by Mythic+ rating as a percentile.
+      const perfObs = explanation.observations?.filter((o) =>
+        o.metricKey.startsWith("performance."),
+      );
+      expect(perfObs?.every((o) => o.metricKey !== "performance.mythic_rating")).toBe(true);
 
       const providerStates = await prisma.characterProviderState.findMany({
         where: { characterId: result.character.id },
@@ -369,7 +377,7 @@ describe.skipIf(!dbAvailable)("runRefreshPipeline (fixture mode, real Postgres)"
         ...base.providers.warcraftlogs,
         async discoverCharacterSummary() {
           return {
-            data: { visibility: "NO_PUBLIC_LOGS" as const, warnings: [] },
+            data: { visibility: "NO_PUBLIC_LOGS" as const, warnings: [], dungeonAggregates: [] },
             provenance: {
               provider: "warcraftlogs" as const,
               externalRequestId: null,
@@ -446,6 +454,7 @@ describe.skipIf(!dbAvailable)("runRefreshPipeline (fixture mode, real Postgres)"
       const base = buildContainer();
       const asyncDiscover = async () => ({
         summary: { visibility: "PUBLIC" as const, warnings: [] as string[] },
+        dungeonAggregates: [],
         candidates: [],
       });
       const wcl = {

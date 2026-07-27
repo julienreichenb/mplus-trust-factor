@@ -65,6 +65,57 @@ export interface SeasonSummary {
   priorSeasonRating: number | null;
 }
 
+/** Sanitized PERFORMANCE explanation — no private report codes. */
+export interface PerformanceExplanatoryRunDTO {
+  runId: string;
+  kind: "BEST" | "LATEST" | "BOTH";
+  dungeonSlug: string;
+  dungeonName: string;
+  keyLevel: number;
+  completedAt: IsoDateTime;
+  timed: boolean;
+  parsePercentile: number | null;
+  scoreValue: number | null;
+}
+
+export interface PerformanceDungeonSummaryDTO {
+  dungeonSlug: string;
+  dungeonName: string;
+  bestParsePercentile: number | null;
+  medianParsePercentile: number | null;
+  loggedRunCount: number;
+  bestRun: PerformanceExplanatoryRunDTO | null;
+  latestRun: PerformanceExplanatoryRunDTO | null;
+}
+
+export interface PerformanceCurrentSeasonSummaryDTO {
+  peakScore: number | null;
+  consistencyScore: number | null;
+  score: number | null;
+  confidence: number;
+  dungeonCount: number;
+  expectedDungeonCount: number;
+  latestObservedAt: IsoDateTime | null;
+  dungeons: PerformanceDungeonSummaryDTO[];
+}
+
+export interface PerformanceHistoricalSeasonSummaryDTO {
+  seasonSlug: string;
+  averageBestParsePercentile: number;
+  dungeonCount: number;
+}
+
+export interface PerformanceHistoricalSummaryDTO {
+  score: number;
+  seasonsUsed: number;
+  seasons: PerformanceHistoricalSeasonSummaryDTO[];
+}
+
+export interface PerformanceSummaryDTO {
+  currentSeason: PerformanceCurrentSeasonSummaryDTO;
+  historical: PerformanceHistoricalSummaryDTO | null;
+}
+
 export interface ProfileEntitlements {
   detailsUnlocked: boolean;
   runsUnlocked: boolean;
@@ -99,6 +150,8 @@ export interface CharacterProfileResponse {
   equipment?: EquipmentSummary | null;
   talents?: TalentSummary | null;
   seasonSummary?: SeasonSummary | null;
+  /** Current-season WCL execution summary (aggregate only; no private report codes). */
+  performanceSummary?: PerformanceSummaryDTO | null;
   entitlements?: ProfileEntitlements;
   warnings?: ProfileWarning[];
   raiderIoUsed?: boolean;

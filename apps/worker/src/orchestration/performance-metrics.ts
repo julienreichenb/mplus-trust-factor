@@ -16,9 +16,8 @@ export interface MythicRatingObservationInput {
 }
 
 /**
- * Builds a correctly named Blizzard Mythic rating observation.
- * Never labels raw rating as a percentile. Uses season cutoffs when available;
- * otherwise a transparent bounded heuristic with low confidence.
+ * Builds a Blizzard Mythic+ rating observation as EXPERIENCE/progression context.
+ * Never labels raw rating as a parse percentile or PERFORMANCE execution quality.
  */
 export function buildMythicRatingObservation(
   input: MythicRatingObservationInput,
@@ -27,11 +26,11 @@ export function buildMythicRatingObservation(
   const top25 = input.cutoffs?.top25Percent?.score ?? null;
 
   if (top25 != null && top25 > 0) {
-    // Map rating relative to documented top-25% cutoff: cutoff ≈ 75th percentile score band.
+    // Map rating relative to documented top-25% cutoff for progression context only.
     const normalizedValue = clamp01(input.mythicRating / (top25 / 0.75)) * 100;
     return {
-      metricKey: "performance.mythic_rating",
-      dimension: "PERFORMANCE",
+      metricKey: "experience.mythic_rating",
+      dimension: "EXPERIENCE",
       rawValue: input.mythicRating,
       normalizedValue,
       confidence: 0.75,
@@ -44,14 +43,15 @@ export function buildMythicRatingObservation(
         cutoffScore: top25,
         cutoffSeasonSlug: input.cutoffs?.seasonSlug ?? null,
         cutoffUpdatedAt: input.cutoffs?.updatedAt ?? null,
+        notAParsePercentile: true,
         raiderIoScoreKeptSeparate: true,
       },
     };
   }
 
   return {
-    metricKey: "performance.mythic_rating",
-    dimension: "PERFORMANCE",
+    metricKey: "experience.mythic_rating",
+    dimension: "EXPERIENCE",
     rawValue: input.mythicRating,
     normalizedValue: clamp01(input.mythicRating / ceiling) * 100,
     confidence: 0.35,
@@ -63,6 +63,7 @@ export function buildMythicRatingObservation(
       normalization: "transparent_heuristic_ceiling",
       heuristicCeiling: ceiling,
       lowConfidence: true,
+      notAParsePercentile: true,
       warning: "Season cutoffs unavailable; using documented heuristic ceiling, not a percentile.",
       raiderIoScoreKeptSeparate: true,
     },

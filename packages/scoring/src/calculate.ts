@@ -8,7 +8,7 @@ import { calculateDimensionScores } from "./dimensions.js";
 import { explainScore } from "./explain.js";
 import { computeInputFingerprint } from "./fingerprint.js";
 import { calculateMetricScores } from "./metrics.js";
-import { createDefaultModelV1 } from "./model/defaults.js";
+import { createDefaultModelV1, createDefaultModelV2 } from "./model/defaults.js";
 import type {
   CalculateScoreEngineInput,
   ScoreModelConfigV1,
@@ -36,7 +36,8 @@ function coerceModel(
   // Always merge through defaults so seeded/slim DB configs (metricWeights without
   // normalization/confidenceBlend/etc.) remain valid ScoreModelConfigV1 documents.
   const partial = model as Partial<ScoreModelConfigV1> & ScoreModelConfig;
-  return createDefaultModelV1({
+  const factory = (partial.version ?? 1) >= 2 ? createDefaultModelV2 : createDefaultModelV1;
+  return factory({
     key: partial.key,
     version: partial.version,
     weights: partial.weights,

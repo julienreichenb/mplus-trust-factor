@@ -41,8 +41,25 @@ export { explainScore } from "./explain.js";
 export { computeInputFingerprint } from "./fingerprint.js";
 export {
   createDefaultModelV1,
+  createDefaultModelV2,
   createSurvivalFocusedModel,
   createUtilityFocusedModel,
 } from "./model/defaults.js";
+export {
+  computePerformanceDimension,
+  computeCurrentSeasonPeak,
+  computeCurrentSeasonConsistency,
+  computeHistoricalPerformance,
+  resolvePerformanceMetricWeights,
+  CURRENT_SEASON_PEAK_WEIGHT,
+  CURRENT_SEASON_CONSISTENCY_WEIGHT,
+} from "./performance/aggregate.js";
+export type {
+  PerformanceSummaryDTO,
+  ComputePerformanceResult,
+  PerformanceDungeonAggregate,
+  HistoricalSeasonAggregateInput,
+  PerformanceRunRefInput,
+} from "./performance/types.js";
 export { calculateScore, calculateScoreEngine } from "./calculate.js";
 export type { CalculateScoreInput } from "./calculate.js";

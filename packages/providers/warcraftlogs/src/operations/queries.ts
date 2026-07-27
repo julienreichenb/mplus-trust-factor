@@ -39,6 +39,18 @@ export const OPERATIONS = {
 }`,
   },
 
+  /** Aggregate dungeon Best%/Median% — omit compare:Parses so rows include rankPercent/medianPercent. */
+  CharacterZoneRankingAggregates: {
+    operationName: "CharacterZoneRankingAggregates",
+    query: `query CharacterZoneRankingAggregates($name: String!, $serverSlug: String!, $serverRegion: String!, $zoneID: Int!) {
+  characterData {
+    character(name: $name, serverSlug: $serverSlug, serverRegion: $serverRegion) {
+      zoneRankings(zoneID: $zoneID, metric: playerscore, byBracket: true)
+    }
+  }
+}`,
+  },
+
   CharacterRecentReports: {
     operationName: "CharacterRecentReports",
     query: `query CharacterRecentReports($name: String!, $serverSlug: String!, $serverRegion: String!, $limit: Int!, $page: Int!) {

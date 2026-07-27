@@ -14,7 +14,7 @@ import type {
   RaiderIoStaticData,
 } from "./raiderio.js";
 import type { MythicRunDTO } from "./runs.js";
-import type { WclVisibilityState } from "./warcraftlogs.js";
+import type { WclCharacterSummaryDTO, WclVisibilityState } from "./warcraftlogs.js";
 
 export type ProviderName = "blizzard" | "warcraftlogs" | "raiderio";
 
@@ -245,7 +245,7 @@ export interface WarcraftLogsProvider {
   discoverCharacterSummary?(
     identity: CharacterIdentityInput,
     ctx: ProviderFetchContext,
-  ): Promise<ProviderResult<{ visibility: WclVisibilityState; warnings: string[] }>>;
+  ): Promise<ProviderResult<WclCharacterSummaryDTO>>;
 }
 
 export interface RaiderIoProvider {

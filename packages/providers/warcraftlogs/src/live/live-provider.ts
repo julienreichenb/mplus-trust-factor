@@ -34,6 +34,7 @@ import {
   countParseStyleRankingRows,
   type ZoneRankingsPayload,
 } from "../discovery/run-discovery.js";
+import { mapZoneRankingAggregates } from "../discovery/zone-ranking-aggregates.js";
 import {
   MAX_RECENT_REPORTS_LIMIT,
   MAX_RECENT_REPORT_PAGES,
@@ -294,12 +295,19 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
   async discoverCharacterSummary(
     identity: CharacterIdentityInput,
     ctx: ProviderFetchContext,
-  ): Promise<ProviderResult<{ visibility: WclVisibilityState; warnings: string[] }>> {
+  ): Promise<
+    ProviderResult<{
+      visibility: WclVisibilityState;
+      warnings: string[];
+      dungeonAggregates: import("../types.js").WclDungeonPerformanceAggregate[];
+    }>
+  > {
     const discovery = await this.discoverCharacter(identity, ctx);
     return providerEnvelope(
       {
         visibility: discovery.summary.visibility,
         warnings: discovery.summary.warnings,
+        dungeonAggregates: discovery.dungeonAggregates,
       },
       "discoverCharacterSummary",
       `live-summary-${identity.region}-${identity.realmSlug}-${identity.name}`,
@@ -383,6 +391,7 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
           ],
         },
         rankings: [],
+        dungeonAggregates: [],
         candidates: [],
         latest: null,
         highest: null,
@@ -425,8 +434,9 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
     }
 
     let rankings: ReturnType<typeof mapZoneRankings> = [];
+    let dungeonAggregates: ReturnType<typeof mapZoneRankingAggregates>["dungeons"] = [];
     if (shouldQueryZoneRankings(this.zoneConfig)) {
-      // Bounded: exactly one zoneRankings query when zone is valid/non-expired
+      // Bounded: Parses query for run discovery + aggregate query for PERFORMANCE percentiles.
       const rankingsResult = await this.client.request({
         operationName: OPERATIONS.CharacterZoneRankings.operationName,
         query: OPERATIONS.CharacterZoneRankings.query,
@@ -452,6 +462,34 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
         );
       }
       rankings = mapZoneRankings(zonePayload, this.zoneConfig.zoneId);
+
+      try {
+        const aggregatesResult = await this.client.request({
+          operationName: OPERATIONS.CharacterZoneRankingAggregates.operationName,
+          query: OPERATIONS.CharacterZoneRankingAggregates.query,
+          variables: {
+            name: identity.name,
+            serverSlug: identity.realmSlug,
+            serverRegion,
+            zoneID: this.zoneConfig.zoneId,
+          },
+          region: identity.region,
+        });
+        const aggregatesParsed = parseWithSchema(
+          zoneRankingsSchema,
+          aggregatesResult.response.data,
+          "ZoneRankingAggregates",
+        );
+        const aggregatePayload = (aggregatesParsed.characterData.character?.zoneRankings ??
+          null) as ZoneRankingsPayload | null;
+        dungeonAggregates = mapZoneRankingAggregates(aggregatePayload).dungeons;
+      } catch (error) {
+        warnings.push(
+          `zoneRankings aggregate query failed — PERFORMANCE percentiles unavailable (${
+            error instanceof Error ? error.message : "unknown"
+          })`,
+        );
+      }
     } else {
       warnings.push(
         `Skipped zoneRankings — configured zone ${this.zoneConfig.zoneId} is expired`,
@@ -494,6 +532,16 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
     return buildCharacterDiscovery({
       summary,
       rankings,
+      dungeonAggregates: dungeonAggregates.map((d) => ({
+        dungeonSlug: d.dungeonSlug,
+        dungeonName: d.dungeonName,
+        encounterId: d.encounterId,
+        bestParsePercentile: d.bestParsePercentile,
+        medianParsePercentile: d.medianParsePercentile,
+        loggedRunCount: d.loggedRunCount,
+        specSlug: d.specSlug,
+        roleSlug: d.roleSlug,
+      })),
       rankingCandidates: rankingsToCandidates(rankings),
       recentCandidates: recentMapped.candidates,
       privateReportsSkipped: privateSkipped,

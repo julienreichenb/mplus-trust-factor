@@ -331,9 +331,11 @@ export function buildCharacterDiscovery(input: {
   rankingCandidates: WclRunCandidate[];
   recentCandidates: WclRunCandidate[];
   privateReportsSkipped?: number;
+  dungeonAggregates?: import("../types.js").WclDungeonPerformanceAggregate[];
 }): {
   summary: WclCharacterSummary;
   rankings: WclRankingObservation[];
+  dungeonAggregates: import("../types.js").WclDungeonPerformanceAggregate[];
   candidates: WclRunCandidate[];
   latest: WclRunCandidate | null;
   highest: WclRunCandidate | null;
@@ -354,6 +356,7 @@ export function buildCharacterDiscovery(input: {
   return {
     summary: { ...input.summary, warnings },
     rankings: input.rankings,
+    dungeonAggregates: input.dungeonAggregates ?? [],
     candidates,
     latest,
     highest,
