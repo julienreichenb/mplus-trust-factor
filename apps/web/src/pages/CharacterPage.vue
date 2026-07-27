@@ -8,14 +8,17 @@ import { useRecentSearchesStore } from "../stores/recentSearches";
 import SkeletonBlock from "../components/common/SkeletonBlock.vue";
 import StatusBanner from "../components/common/StatusBanner.vue";
 import ScoreHeader from "../components/profile/ScoreHeader.vue";
-import RedFlagsList from "../components/profile/RedFlagsList.vue";
 import DimensionCards from "../components/profile/DimensionCards.vue";
 import AuthenticitySection from "../components/profile/AuthenticitySection.vue";
 import AnalyzedRunsSection from "../components/profile/AnalyzedRunsSection.vue";
-import EquipmentSeasonSection from "../components/profile/EquipmentSeasonSection.vue";
-import SourcesAttribution from "../components/profile/SourcesAttribution.vue";
 import WclVisibilityBanner from "../components/profile/WclVisibilityBanner.vue";
 import TrustRadarChart from "../components/charts/TrustRadarChart.vue";
+import KeySignalsPanel from "../components/character/KeySignalsPanel.vue";
+import DataProvenancePanel from "../components/character/DataProvenancePanel.vue";
+import EquipmentGrid from "../components/equipment/EquipmentGrid.vue";
+import TalentBuildPanel from "../components/talents/TalentBuildPanel.vue";
+import MethodologyPanel from "../components/methodology/MethodologyPanel.vue";
+import { resolveDataConfidence } from "../lib/characterViewModel";
 import { ApiClientError } from "../api/live-client";
 
 const props = defineProps<{
@@ -34,7 +37,7 @@ const notFound = ref(false);
 const profile = ref<CharacterProfileView | null>(null);
 
 const confidenceWarning = computed(() => {
-  const conf = profile.value?.dataConfidence ?? (profile.value?.score?.confidence != null ? profile.value.score.confidence * 100 : null);
+  const conf = profile.value ? resolveDataConfidence(profile.value) : null;
   return conf !== null && conf < 40;
 });
 
@@ -47,13 +50,14 @@ const authFlags = computed(
     ) ?? [],
 );
 
-const entitlements = computed(() => profile.value?.entitlements ?? {
-  detailsUnlocked: true,
-  runsUnlocked: true,
-  compareExpanded: true,
-});
-
-const raiderIoUsed = computed(() => profile.value?.raiderIoUsed ?? false);
+const entitlements = computed(
+  () =>
+    profile.value?.entitlements ?? {
+      detailsUnlocked: true,
+      runsUnlocked: true,
+      compareExpanded: true,
+    },
+);
 
 async function load(): Promise<void> {
   loading.value = true;
@@ -152,11 +156,16 @@ watch(
 </script>
 
 <template>
-  <section data-testid="character-page">
-    <SkeletonBlock v-if="loading" label="Loading character profile" :lines="8" />
+  <section class="character-page" data-testid="character-page">
+    <div v-if="loading" class="loading" role="status" aria-live="polite">
+      <SkeletonBlock label="Loading character identity" :lines="4" />
+      <SkeletonBlock label="Loading trust score" :lines="5" />
+      <SkeletonBlock label="Loading dimensions and sources" :lines="6" />
+    </div>
 
     <StatusBanner v-else-if="notFound" tone="warn" title="Character not found">
-      No fixture or API record for {{ name }} on {{ realm }} ({{ region }}). Try Aleria / tarren-mill in mock mode.
+      No fixture or API record for {{ name }} on {{ realm }} ({{ region }}). Try Aleria / tarren-mill in
+      mock mode.
     </StatusBanner>
 
     <StatusBanner v-else-if="error" tone="error" title="Could not load profile">
@@ -189,7 +198,8 @@ watch(
         title="Low confidence"
         data-testid="confidence-warning"
       >
-        Data confidence is low. The Trust Factor is shrunk toward neutral and should be interpreted cautiously.
+        Data confidence is low. The Trust Factor is shrunk toward neutral and should be interpreted
+        cautiously.
       </StatusBanner>
 
       <StatusBanner
@@ -214,6 +224,7 @@ watch(
             dimensions: profile.score.dimensions,
           },
         ]"
+        :locked="!entitlements.detailsUnlocked"
       />
 
       <DimensionCards
@@ -222,13 +233,19 @@ watch(
         :locked="!entitlements.detailsUnlocked"
       />
 
+      <div class="split">
+        <KeySignalsPanel
+          :dimensions="profile.score?.dimensions ?? []"
+          :flags="profile.redFlags"
+        />
+        <DataProvenancePanel :profile="profile" />
+      </div>
+
       <AuthenticitySection
         :authenticity-score="profile.score?.authenticityScore ?? null"
         :flags="authFlags"
         :locked="!entitlements.detailsUnlocked"
       />
-
-      <RedFlagsList :flags="profile.redFlags" />
 
       <AnalyzedRunsSection
         :last="profile.lastAnalyzedRun ?? null"
@@ -236,20 +253,33 @@ watch(
         :locked="!entitlements.runsUnlocked"
       />
 
-      <EquipmentSeasonSection
-        :equipment="profile.equipment ?? null"
-        :talents="profile.talents ?? null"
-        :season="profile.seasonSummary ?? null"
-        :locked="!entitlements.detailsUnlocked"
-      />
-
-      <SourcesAttribution
-        :sources="profile.sources"
-        :raider-io-used="raiderIoUsed"
-        :model-key="profile.score?.modelKey"
-        :model-version="profile.score?.modelVersion"
-        :calculated-at="profile.score?.calculatedAt"
-      />
+      <EquipmentGrid :equipment="profile.equipment" :locked="!entitlements.detailsUnlocked" />
+      <TalentBuildPanel :talents="profile.talents" :locked="!entitlements.detailsUnlocked" />
+      <MethodologyPanel :profile="profile" />
     </template>
   </section>
 </template>
+
+<style scoped>
+.character-page {
+  display: grid;
+  gap: var(--space-8);
+}
+
+.loading {
+  display: grid;
+  gap: var(--space-5);
+}
+
+.split {
+  display: grid;
+  gap: var(--space-6);
+}
+
+@media (min-width: 1024px) {
+  .split {
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
+    align-items: start;
+  }
+}
+</style>

@@ -1,38 +1,37 @@
 <script setup lang="ts">
-withDefaults(
+import { computed } from "vue";
+import type { Grade } from "../../api/types";
+import { presentGrade } from "../../lib/characterViewModel";
+
+const props = withDefaults(
   defineProps<{
-    tier?: "S" | "A" | "B" | "C" | "D";
+    tier?: Grade | null;
     label?: string;
     size?: "sm" | "md" | "lg";
   }>(),
   {
     tier: "A",
-    label: "Strong trust profile",
+    label: undefined,
     size: "md",
   },
 );
 
-const tierNames: Record<string, string> = {
-  S: "Elite confidence",
-  A: "Strong confidence",
-  B: "Credible",
-  C: "Situational",
-  D: "Insufficient evidence",
-};
+const presentation = computed(() => presentGrade(props.tier));
 </script>
 
 <template>
   <div
     class="tier-badge"
-    :data-tier="tier"
+    :data-tier="presentation.letter ?? 'none'"
+    :data-unrated="presentation.isUnrated ? 'true' : 'false'"
     :data-size="size"
     role="img"
-    :aria-label="`Tier ${tier}: ${label || tierNames[tier]}`"
+    :aria-label="`${presentation.title}: ${label || presentation.interpretation}`"
   >
-    <span class="tier-badge__letter" aria-hidden="true">{{ tier }}</span>
+    <span class="tier-badge__letter" aria-hidden="true">{{ presentation.letter ?? "—" }}</span>
     <span class="tier-badge__meta">
-      <span class="tier-badge__title">Tier {{ tier }}</span>
-      <span class="tier-badge__label">{{ label || tierNames[tier] }}</span>
+      <span class="tier-badge__title">{{ presentation.title }}</span>
+      <span class="tier-badge__label">{{ label || presentation.interpretation }}</span>
     </span>
   </div>
 </template>
@@ -59,7 +58,7 @@ const tierNames: Record<string, string> = {
   font-size: var(--text-xl);
   background: var(--color-iron-800);
   border: 1px solid currentColor;
-  color: var(--color-tier-a);
+  color: var(--color-text-muted);
 }
 
 .tier-badge[data-tier="S"] .tier-badge__letter {
@@ -81,6 +80,15 @@ const tierNames: Record<string, string> = {
 
 .tier-badge[data-tier="D"] .tier-badge__letter {
   color: var(--color-tier-d);
+}
+
+.tier-badge[data-tier="U"] .tier-badge__letter,
+.tier-badge[data-unrated="true"] .tier-badge__letter {
+  clip-path: none;
+  border-radius: var(--radius-control);
+  color: var(--color-info-500);
+  border-style: dashed;
+  box-shadow: none;
 }
 
 .tier-badge__meta {

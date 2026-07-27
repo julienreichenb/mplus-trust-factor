@@ -13,6 +13,7 @@ import {
   formatScore,
   formatWeight,
 } from "../../lib/format";
+import TrustDimensionTable from "../score/TrustDimensionTable.vue";
 
 echarts.use([RadarChart, TooltipComponent, LegendComponent, CanvasRenderer]);
 
@@ -26,6 +27,7 @@ export interface RadarSeries {
 const props = defineProps<{
   series: RadarSeries[];
   title?: string;
+  locked?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -35,6 +37,8 @@ const emit = defineEmits<{
 const el = ref<HTMLDivElement | null>(null);
 let chart: echarts.ECharts | null = null;
 
+const primaryDimensions = computed(() => props.series[0]?.dimensions ?? []);
+
 const ordered = computed(() =>
   props.series.map((s) => ({
     ...s,
@@ -43,9 +47,10 @@ const ordered = computed(() =>
       const found = s.dimensions.find((d) => d.dimension === dim);
       return {
         dimension: dim,
-        score: found?.score ?? 0,
-        confidence: found?.confidence ?? 0,
-        weight: found?.weight ?? 0,
+        score: found?.score ?? null,
+        confidence: found?.confidence ?? null,
+        weight: found?.weight ?? null,
+        missing: !found,
       };
     }),
   })),
@@ -62,6 +67,10 @@ function canUseCanvas(): boolean {
   }
 }
 
+function prefersReducedMotion(): boolean {
+  return typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
 function render(): void {
   if (!el.value || !canUseCanvas()) return;
   if (!chart) chart = echarts.init(el.value, undefined, { renderer: "canvas" });
@@ -69,7 +78,8 @@ function render(): void {
   const visible = ordered.value.filter((s) => s.visible);
   chart.setOption(
     {
-      color: ["#3ecf8e", "#5b8def", "#e6b84d", "#d6755b", "#9b7bff", "#5ec8d8"],
+      animation: !prefersReducedMotion(),
+      color: ["#F59E0B", "#38BDF8", "#A3E635", "#A78BFA", "#FB7185", "#F4D58D"],
       tooltip: {
         trigger: "item",
         formatter: (params: {
@@ -83,11 +93,14 @@ function render(): void {
           const point = series?.values[idx];
           if (!point) return "";
           const label = DIMENSION_LABELS[point.dimension as RadarDimension];
+          if (point.missing) {
+            return [`<strong>${params.seriesName}</strong>`, label, "Missing from snapshot"].join("<br/>");
+          }
           return [
             `<strong>${params.seriesName}</strong>`,
             `${label}`,
             `Score: ${formatScore(point.score, 0)}`,
-            `Confidence: ${formatPercent(point.confidence * 100, 0)}`,
+            `Confidence: ${formatPercent((point.confidence ?? 0) * 100, 0)}`,
             `Weight: ${formatWeight(point.weight)}`,
           ].join("<br/>");
         },
@@ -99,19 +112,27 @@ function render(): void {
           max: 100,
           min: 0,
         })),
-        axisName: { color: "#a8b0bf", fontSize: 11 },
-        splitArea: {
-          areaStyle: { color: ["#141923", "#181e2a"] },
+        axisName: {
+          color: "#C8BDA8",
+          fontSize: 11,
+          overflow: "break",
+          width: 72,
         },
-        axisLine: { lineStyle: { color: "#2c3548" } },
-        splitLine: { lineStyle: { color: "#2c3548" } },
+        splitArea: {
+          areaStyle: { color: ["rgba(23,23,25,0.35)", "rgba(32,32,36,0.55)"] },
+        },
+        axisLine: { lineStyle: { color: "#34343A" } },
+        splitLine: { lineStyle: { color: "#34343A" } },
+        center: ["50%", "52%"],
+        radius: "62%",
       },
       series: [
         {
           type: "radar",
+          areaStyle: { opacity: 0.14 },
           data: visible.map((s) => ({
             name: s.name,
-            value: s.values.map((v) => v.score),
+            value: s.values.map((v) => (v.missing ? 0 : (v.score ?? 0))),
           })),
         },
       ],
@@ -143,7 +164,7 @@ watch(
 </script>
 
 <template>
-  <section class="radar-wrap" aria-labelledby="radar-title">
+  <section class="radar-wrap" aria-labelledby="radar-title" data-testid="trust-dimension-radar">
     <div class="radar-head">
       <h2 id="radar-title">{{ title ?? "Trust dimensions" }}</h2>
       <div v-if="series.length > 1" class="toggles" role="group" aria-label="Toggle comparison series">
@@ -157,10 +178,20 @@ watch(
         </label>
       </div>
     </div>
-    <div ref="el" class="chart" role="img" :aria-label="title ?? 'Radar chart of trust dimensions'" />
+
+    <div class="radar-layout">
+      <div
+        ref="el"
+        class="chart"
+        role="img"
+        :aria-label="title ?? 'Radar chart of trust dimensions'"
+      />
+      <TrustDimensionTable :dimensions="primaryDimensions" :locked="locked" />
+    </div>
+
     <table class="a11y-table" data-testid="radar-fallback">
       <caption>
-        Textual equivalent of the radar chart (scores 0–100)
+        Textual equivalent of the radar chart (scores 0–100). Missing dimensions are marked explicitly.
       </caption>
       <thead>
         <tr>
@@ -174,9 +205,14 @@ watch(
         <tr v-for="s in ordered.filter((x) => x.visible)" :key="s.id">
           <th scope="row">{{ s.name }}</th>
           <td v-for="v in s.values" :key="v.dimension">
-            {{ formatScore(v.score, 0) }}
-            <span class="sr-meta">(conf {{ formatPercent(v.confidence * 100, 0) }}, wt
-              {{ formatWeight(v.weight) }})</span>
+            <template v-if="v.missing">Missing</template>
+            <template v-else>
+              {{ formatScore(v.score, 0) }}
+              <span class="sr-meta"
+                >(conf {{ formatPercent((v.confidence ?? 0) * 100, 0) }}, wt
+                {{ formatWeight(v.weight) }})</span
+              >
+            </template>
           </td>
         </tr>
       </tbody>
@@ -186,46 +222,59 @@ watch(
 
 <style scoped>
 .radar-wrap {
-  margin: 1rem 0 1.5rem;
+  display: grid;
+  gap: var(--space-4);
+  margin: 0;
 }
 
 .radar-head {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.75rem;
+  gap: var(--space-3);
   justify-content: space-between;
   align-items: center;
+}
+
+.radar-head h2 {
+  margin: 0;
+}
+
+.radar-layout {
+  display: grid;
+  gap: var(--space-4);
 }
 
 .chart {
   width: 100%;
   height: min(380px, 70vw);
   min-height: 260px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
 }
 
 .toggles {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.75rem;
+  gap: var(--space-3);
 }
 
 .toggle {
   display: inline-flex;
-  gap: 0.35rem;
+  gap: var(--space-2);
   align-items: center;
-  font-size: 0.9rem;
+  font-size: var(--text-sm);
 }
 
 .a11y-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.85rem;
-  margin-top: 0.75rem;
+  font-size: var(--text-sm);
 }
 
 .a11y-table th,
 .a11y-table td {
-  border: 1px solid var(--border);
+  border: 1px solid var(--color-border);
   padding: 0.4rem 0.5rem;
   text-align: left;
 }
@@ -233,12 +282,19 @@ watch(
 .a11y-table caption {
   text-align: left;
   padding: 0.35rem 0;
-  color: var(--muted);
+  color: var(--color-text-muted);
 }
 
 .sr-meta {
   display: block;
-  color: var(--muted);
-  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}
+
+@media (min-width: 900px) {
+  .radar-layout {
+    grid-template-columns: minmax(16rem, 0.9fr) minmax(0, 1.1fr);
+    align-items: center;
+  }
 }
 </style>
