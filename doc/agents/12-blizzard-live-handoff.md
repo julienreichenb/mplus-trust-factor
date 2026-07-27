@@ -7,7 +7,8 @@
 
 ## Commit
 
-`fbebcfc3e01b97e33c8901ab2932b402720c595d`
+- `fbebcfc3e01b97e33c8901ab2932b402720c595d` — provider hardening
+- `25d416c85805e305eaeaaa3765fb59e17fedd3b0` — handoff commit hash (HEAD)
 
 ## Summary
 
