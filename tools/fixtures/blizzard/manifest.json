@@ -34,6 +34,12 @@
       "13": "season-current.json"
     }
   },
+  "periods": {
+    "index": "period-index.json",
+    "byId": {
+      "952": "period-current.json"
+    }
+  },
   "dungeons": {
     "index": "dungeon-index.json",
     "byId": {
@@ -47,6 +53,8 @@
     }
   },
   "errors": {
+    "400": "errors/400.json",
+    "403": "errors/403.json",
     "404": "errors/404.json",
     "429": "errors/429.json",
     "500": "errors/500.json"

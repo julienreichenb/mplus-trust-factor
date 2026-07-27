@@ -20,6 +20,10 @@ export interface FixtureManifest {
     index: string;
     byId: Record<string, string>;
   };
+  periods: {
+    index: string;
+    byId: Record<string, string>;
+  };
   dungeons: {
     index: string;
     byId: Record<string, string>;

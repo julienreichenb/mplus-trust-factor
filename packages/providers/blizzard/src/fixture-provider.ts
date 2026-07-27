@@ -23,6 +23,8 @@ import { DEFAULT_TTL_SECONDS, getRegionConfig } from "./config.js";
 import { mapStatusToError } from "./errors.js";
 import { FixtureStore } from "./fixture-store.js";
 import {
+  buildIdentityDiagnostics,
+  buildObservationEnvelope,
   buildProviderResult,
   normalizeCharacterProfile,
   normalizeCharacterSnapshot,
@@ -33,12 +35,17 @@ import {
   normalizeMedia,
   normalizeMythicProfileIndex,
   normalizeMythicRuns,
+  normalizePeriod,
   normalizeRealm,
   normalizeSeason,
   normalizeTalentSnapshot,
   refLabel,
+  resolveCurrentSeasonIdFromIndex,
   roleFromSpecType,
   slugifyLabel,
+  type BlizzardCurrentSeasonPeriod,
+  type BlizzardIdentityDiagnostics,
+  type BlizzardPeriodDTO,
 } from "./normalize.js";
 import {
   characterProfileSchema,
@@ -50,6 +57,8 @@ import {
   mediaSchema,
   mythicKeystoneProfileIndexSchema,
   mythicKeystoneSeasonProfileSchema,
+  periodIndexSchema,
+  periodSchema,
   realmSchema,
   seasonIndexSchema,
   seasonSchema,
@@ -109,8 +118,9 @@ export class FixtureBlizzardProvider implements BlizzardProvider {
   ): Promise<ProviderResult<CanonicalCharacter>> {
     const bundle = this.bundle(identity);
     const raw = parseOrThrow(characterProfileSchema, bundle.profile, "character.profile");
-    return buildProviderResult({
-      data: normalizeCharacterProfile(raw, identity),
+    const data = normalizeCharacterProfile(raw, identity);
+    const result = buildProviderResult({
+      data,
       ctx,
       endpointKey: "character.profile",
       sourceUrl: this.characterSource(identity, ""),
@@ -118,6 +128,40 @@ export class FixtureBlizzardProvider implements BlizzardProvider {
       statusCode: 200,
       expiresAt: ttlExpiry(DEFAULT_TTL_SECONDS.characterProfile),
     });
+    (result as ProviderResult<CanonicalCharacter> & {
+      identityDiagnostics: BlizzardIdentityDiagnostics;
+    }).identityDiagnostics = buildIdentityDiagnostics(identity, data);
+    return result;
+  }
+
+  async resolveCharacterIdentity(
+    identity: CharacterIdentityInput,
+    ctx: ProviderFetchContext,
+  ): Promise<{
+    result: ProviderResult<CanonicalCharacter>;
+    identityDiagnostics: BlizzardIdentityDiagnostics;
+    observation: Record<string, unknown>;
+  }> {
+    const result = await this.getCharacterProfile(identity, ctx);
+    const identityDiagnostics =
+      (result as ProviderResult<CanonicalCharacter> & {
+        identityDiagnostics?: BlizzardIdentityDiagnostics;
+      }).identityDiagnostics ?? buildIdentityDiagnostics(identity, result.data);
+    return {
+      result,
+      identityDiagnostics,
+      observation: buildObservationEnvelope({
+        observationKey: "blizzard.character.identity",
+        value: {
+          blizzardCharacterId: result.data.blizzardCharacterId,
+          classSlug: result.data.classSlug,
+          specSlug: result.data.specSlug,
+          role: result.data.role,
+        },
+        result,
+        identityDiagnostics,
+      }),
+    };
   }
 
   async getCharacterEquipment(
@@ -191,7 +235,7 @@ export class FixtureBlizzardProvider implements BlizzardProvider {
       data: normalizeMedia(media),
       ctx,
       endpointKey: "character.media",
-      sourceUrl: this.characterSource(identity, "/media"),
+      sourceUrl: this.characterSource(identity, "/character-media"),
       cacheHit: true,
       statusCode: 200,
       expiresAt: ttlExpiry(DEFAULT_TTL_SECONDS.characterMedia),
@@ -290,6 +334,114 @@ export class FixtureBlizzardProvider implements BlizzardProvider {
       cacheHit: true,
       statusCode: 200,
       expiresAt: ttlExpiry(DEFAULT_TTL_SECONDS.seasonHistorical),
+    });
+  }
+
+  async getMythicKeystonePeriodIndex(
+    ctx: ProviderFetchContext,
+  ): Promise<ProviderResult<{ periods: BlizzardPeriodDTO[]; currentPeriodId: number | null }>> {
+    const raw = parseOrThrow(
+      periodIndexSchema,
+      this.store.readJson(this.store.manifest.periods.index),
+      "mplus.period.index",
+    );
+    return buildProviderResult({
+      data: {
+        periods: raw.periods.map((p) => normalizePeriod({ id: p.id })),
+        currentPeriodId: raw.current_period?.id ?? null,
+      },
+      ctx,
+      endpointKey: "mplus.period.index",
+      sourceUrl: "fixture://blizzard/mythic-keystone/period/index",
+      cacheHit: true,
+      statusCode: 200,
+      expiresAt: ttlExpiry(DEFAULT_TTL_SECONDS.seasonIndex),
+    });
+  }
+
+  async getMythicKeystonePeriod(
+    periodId: number,
+    ctx: ProviderFetchContext,
+  ): Promise<ProviderResult<BlizzardPeriodDTO>> {
+    const relative = this.store.manifest.periods.byId[String(periodId)];
+    if (!relative) {
+      throw mapStatusToError({
+        statusCode: 404,
+        message: `Period not found in fixtures: ${periodId}`,
+        reason: "NOT_FOUND",
+      });
+    }
+    const raw = parseOrThrow(periodSchema, this.store.readJson(relative), "mplus.period.get");
+    return buildProviderResult({
+      data: normalizePeriod(raw),
+      ctx,
+      endpointKey: "mplus.period.get",
+      sourceUrl: `fixture://blizzard/mythic-keystone/period/${periodId}`,
+      cacheHit: true,
+      statusCode: 200,
+      expiresAt: ttlExpiry(DEFAULT_TTL_SECONDS.seasonHistorical),
+    });
+  }
+
+  async resolveCurrentSeasonPeriod(
+    ctx: ProviderFetchContext,
+  ): Promise<ProviderResult<BlizzardCurrentSeasonPeriod>> {
+    const index = parseOrThrow(
+      seasonIndexSchema,
+      this.store.readJson(this.store.manifest.seasons.index),
+      "mplus.season.index",
+    );
+    const { seasonId, source } = resolveCurrentSeasonIdFromIndex(index);
+    const season = await this.getMythicKeystoneSeason(seasonId, ctx);
+    const periodIndex = await this.getMythicKeystonePeriodIndex(ctx);
+    const periodId = periodIndex.data.currentPeriodId;
+    const period =
+      periodId != null ? (await this.getMythicKeystonePeriod(periodId, ctx)).data : null;
+    return buildProviderResult({
+      data: {
+        seasonId,
+        season: season.data,
+        periodId,
+        period,
+        source: periodId != null ? "period_index.current_period" : source,
+      },
+      ctx,
+      endpointKey: "mplus.current.season_period",
+      sourceUrl: "fixture://blizzard/mythic-keystone/current",
+      cacheHit: true,
+      statusCode: 200,
+      expiresAt: season.freshness.expiresAt,
+    });
+  }
+
+  async getCurrentSeasonBestRuns(
+    identity: CharacterIdentityInput,
+    ctx: ProviderFetchContext,
+  ): Promise<
+    ProviderResult<{
+      seasonId: number;
+      profile: BlizzardMythicKeystoneProfileDTO;
+      runs: MythicRunDTO[];
+    }>
+  > {
+    const current = await this.resolveCurrentSeasonPeriod(ctx);
+    const seasonProfile = await this.getMythicKeystoneSeasonProfile(
+      identity,
+      current.data.seasonId,
+      ctx,
+    );
+    return buildProviderResult({
+      data: {
+        seasonId: current.data.seasonId,
+        profile: seasonProfile.data.profile,
+        runs: seasonProfile.data.runs,
+      },
+      ctx,
+      endpointKey: "character.mplus.season.current",
+      sourceUrl: seasonProfile.provenance.sourceUrl,
+      cacheHit: true,
+      statusCode: 200,
+      expiresAt: seasonProfile.freshness.expiresAt,
     });
   }
 
@@ -395,14 +547,23 @@ export class FixtureBlizzardProvider implements BlizzardProvider {
     });
   }
 
-  /** Test helper to simulate rate-limit / 5xx fixture errors. */
-  simulateError(kind: "429" | "500"): never {
+  /** Test helper to simulate rate-limit / 5xx / privacy / invalid fixture errors. */
+  simulateError(kind: "400" | "403" | "404" | "429" | "500" | "profile-404"): never {
+    if (kind === "profile-404") {
+      throw mapStatusToError({
+        statusCode: 404,
+        message: "Simulated Blizzard character profile 404",
+        reason: "PROFILE_UNAVAILABLE",
+        endpointKey: "character.profile",
+        details: { body: this.store.readJson(this.store.manifest.errors["404"] ?? "errors/404.json") },
+      });
+    }
     const relative = this.store.manifest.errors[kind];
     const body = relative ? this.store.readJson(relative) : {};
     throw mapStatusToError({
       statusCode: Number(kind),
       message: `Simulated Blizzard ${kind}`,
-      reason: kind === "429" ? "RATE_LIMITED" : "PROVIDER_UNAVAILABLE",
+      endpointKey: kind === "404" ? "realm.get" : undefined,
       details: { body },
     });
   }

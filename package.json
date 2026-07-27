@@ -35,6 +35,7 @@
     "addon:benchmark": "node tools/scripts/addon.mjs benchmark",
     "addon:package": "node tools/scripts/addon.mjs package",
     "wcl:smoke": "node tools/scripts/with-env.mjs node tools/scripts/wcl-smoke.mjs",
+    "blizzard:smoke": "node tools/scripts/with-env.mjs pnpm --filter @mplus/provider-blizzard smoke:live",
     "format": "prettier --write ."
   },
   "devDependencies": {

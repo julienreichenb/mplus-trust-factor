@@ -8,6 +8,8 @@ export type { BlizzardClientOptions, BlizzardRegionKey, NamespaceKind } from "./
 export {
   BLIZZARD_REGIONS,
   DEFAULT_TTL_SECONDS,
+  DEFAULT_TIMEOUT_MS,
+  DEFAULT_MAX_ATTEMPTS,
   OAUTH_TOKEN_URL,
   SCHEMA_VERSION,
   getRegionConfig,
@@ -17,8 +19,30 @@ export {
 export { BlizzardTokenManager } from "./token-manager.js";
 export { FixtureBlizzardProvider } from "./fixture-provider.js";
 export { LiveBlizzardProvider } from "./live-provider.js";
-export { encodeCharacterPath, fingerprintFor } from "./normalize.js";
+export {
+  encodeCharacterPath,
+  fingerprintFor,
+  buildIdentityDiagnostics,
+  buildObservationEnvelope,
+  resolveCurrentSeasonIdFromIndex,
+  normalizePeriod,
+} from "./normalize.js";
+export type {
+  BlizzardIdentityDiagnostics,
+  BlizzardPeriodDTO,
+  BlizzardCurrentSeasonPeriod,
+} from "./normalize.js";
+export {
+  mapStatusToError,
+  errorReasonOf,
+  redactSecrets,
+  type BlizzardErrorReason,
+} from "./errors.js";
+export { parseRetryAfterMs, redactUrl } from "./http-client.js";
 export type { BlizzardProvider };
+
+/** Official Profile API character-media path suffix (contract-tested). */
+export const CHARACTER_MEDIA_PATH_SUFFIX = "character-media";
 
 export function createBlizzardProvider(
   mode: "fixture" | "live" = "fixture",

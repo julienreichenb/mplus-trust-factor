@@ -4,14 +4,34 @@ import {
   createBlizzardProvider,
   BlizzardTokenManager,
   BLIZZARD_REGIONS,
+  CHARACTER_MEDIA_PATH_SUFFIX,
   encodeCharacterPath,
   LiveBlizzardProvider,
   getRegionConfig,
   namespaceFor,
+  parseRetryAfterMs,
+  errorReasonOf,
+  redactSecrets,
+  resolveCurrentSeasonIdFromIndex,
 } from "./index.js";
 import type { FixtureBlizzardProvider } from "./fixture-provider.js";
 import { fingerprintFor } from "./normalize.js";
 import { BlizzardHttpClient } from "./http-client.js";
+import {
+  characterProfileSchema,
+  equipmentSchema,
+  mediaSchema,
+  mythicKeystoneProfileIndexSchema,
+  mythicKeystoneSeasonProfileSchema,
+  periodIndexSchema,
+  periodSchema,
+  seasonIndexSchema,
+  seasonSchema,
+  specializationsSchema,
+} from "./schemas.js";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 const ctx = {
   region: "EU" as const,
@@ -27,6 +47,11 @@ const identity = {
   name: "Examplecharacter",
 };
 
+const fixtureDir = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "../../../../tools/fixtures/blizzard",
+);
+
 describe("Blizzard region/namespace", () => {
   it("defaults EU hosts and namespaces", () => {
     const eu = getRegionConfig("EU");
@@ -37,10 +62,11 @@ describe("Blizzard region/namespace", () => {
     expect(eu.defaultLocale).toBe("en_GB");
   });
 
-  it("supports US/KR/TW", () => {
+  it("supports US/KR/TW and rejects China", () => {
     expect(BLIZZARD_REGIONS.us.profileNamespace).toBe("profile-us");
     expect(BLIZZARD_REGIONS.kr.dynamicNamespace).toBe("dynamic-kr");
     expect(BLIZZARD_REGIONS.tw.staticNamespace).toBe("static-tw");
+    expect(() => getRegionConfig("CN")).toThrow(/Unsupported Blizzard region/);
   });
 });
 
@@ -51,8 +77,36 @@ describe("URL encoding", () => {
   });
 });
 
+describe("MVP response-shape contracts", () => {
+  const load = (name: string) => JSON.parse(readFileSync(path.join(fixtureDir, name), "utf8"));
+
+  it("validates all MVP endpoint fixtures against Zod schemas", () => {
+    expect(() => characterProfileSchema.parse(load("character-profile-normal.json"))).not.toThrow();
+    expect(() => equipmentSchema.parse(load("equipment-key-items.json"))).not.toThrow();
+    expect(() => specializationsSchema.parse(load("specializations-multi.json"))).not.toThrow();
+    expect(() => mediaSchema.parse(load("media-avatar.json"))).not.toThrow();
+    expect(() =>
+      mythicKeystoneProfileIndexSchema.parse(load("mythic-keystone-profile-index.json")),
+    ).not.toThrow();
+    expect(() =>
+      mythicKeystoneSeasonProfileSchema.parse(load("mythic-keystone-season-current.json")),
+    ).not.toThrow();
+    expect(() => seasonIndexSchema.parse(load("season-index.json"))).not.toThrow();
+    expect(() => seasonSchema.parse(load("season-current.json"))).not.toThrow();
+    expect(() => periodIndexSchema.parse(load("period-index.json"))).not.toThrow();
+    expect(() => periodSchema.parse(load("period-current.json"))).not.toThrow();
+  });
+
+  it("resolves current season from index.current_season without hardcoding", () => {
+    const index = seasonIndexSchema.parse(load("season-index.json"));
+    const resolved = resolveCurrentSeasonIdFromIndex(index);
+    expect(resolved.seasonId).toBe(13);
+    expect(resolved.source).toBe("season_index.current_season");
+  });
+});
+
 describe("FixtureBlizzardProvider", () => {
-  const provider = createBlizzardProvider("fixture");
+  const provider = createBlizzardProvider("fixture") as FixtureBlizzardProvider;
 
   it("resolves realm metadata", async () => {
     const result = await provider.getRealm("tarren-mill", ctx);
@@ -71,6 +125,13 @@ describe("FixtureBlizzardProvider", () => {
     expect(result.data.role).toBe("DPS");
     expect(result.data.blizzardCharacterId).toBe("123456789");
     expect(result.data.wclCanonicalId).toBeNull();
+  });
+
+  it("emits identity diagnostics and redacted observation envelopes", async () => {
+    const resolved = await provider.resolveCharacterIdentity(identity, ctx);
+    expect(resolved.identityDiagnostics.matchesSubmitted).toBe(true);
+    expect(resolved.observation.provider).toBe("blizzard");
+    expect(JSON.stringify(resolved.observation)).not.toMatch(/Bearer|client_secret|access_token/i);
   });
 
   it("supports accented character names", async () => {
@@ -107,9 +168,11 @@ describe("FixtureBlizzardProvider", () => {
     expect(result.data.loadoutCode).toBe("C8DAH");
   });
 
-  it("returns media avatar", async () => {
+  it("returns media avatar with character-media source path", async () => {
     const result = await provider.getCharacterMedia(identity, ctx);
     expect(result.data.avatarUrl).toContain("avatar.jpg");
+    expect(result.provenance.sourceUrl).toContain(`/${CHARACTER_MEDIA_PATH_SUFFIX}`);
+    expect(result.provenance.sourceUrl).not.toMatch(/\/media(\?|$)/);
   });
 
   it("returns mythic keystone profile and season runs", async () => {
@@ -119,6 +182,15 @@ describe("FixtureBlizzardProvider", () => {
     expect(season.data.runs.length).toBe(1);
     expect(season.data.runs[0]?.keyLevel).toBe(12);
     expect(season.data.runs[0]?.sources[0]?.provider).toBe("BLIZZARD");
+  });
+
+  it("resolves dynamic current season/period and current-season best runs", async () => {
+    const current = await provider.resolveCurrentSeasonPeriod(ctx);
+    expect(current.data.seasonId).toBe(13);
+    expect(current.data.periodId).toBe(952);
+    const best = await provider.getCurrentSeasonBestRuns(identity, ctx);
+    expect(best.data.seasonId).toBe(13);
+    expect(best.data.runs.length).toBe(1);
   });
 
   it("returns season/dungeon indexes and item details for requested IDs only", async () => {
@@ -137,18 +209,39 @@ describe("FixtureBlizzardProvider", () => {
     expect(Array.isArray(board.data.leadingGroups)).toBe(true);
   });
 
-  it("maps 429 and 5xx fixture errors", () => {
-    const fixture = provider as FixtureBlizzardProvider;
-    expect(() => fixture.simulateError("429")).toThrow(ExternalApiError);
+  it("maps 400/403/404/429/5xx and profile-unavailable reasons", () => {
+    expect(() => provider.simulateError("429")).toThrow(ExternalApiError);
     try {
-      fixture.simulateError("429");
+      provider.simulateError("429");
     } catch (error) {
       expect(error).toMatchObject({ code: "RATE_LIMITED" });
+      expect(errorReasonOf(error)).toBe("RATE_LIMITED");
     }
     try {
-      fixture.simulateError("500");
+      provider.simulateError("500");
     } catch (error) {
       expect(error).toMatchObject({ code: "NETWORK" });
+    }
+    try {
+      provider.simulateError("400");
+    } catch (error) {
+      expect(errorReasonOf(error)).toBe("INVALID_REQUEST");
+    }
+    try {
+      provider.simulateError("403");
+    } catch (error) {
+      expect(errorReasonOf(error)).toBe("PRIVATE_OR_RESTRICTED");
+    }
+    try {
+      provider.simulateError("404");
+    } catch (error) {
+      expect(errorReasonOf(error)).toBe("NOT_FOUND");
+    }
+    try {
+      provider.simulateError("profile-404");
+    } catch (error) {
+      expect(error).toMatchObject({ code: "NOT_FOUND" });
+      expect(errorReasonOf(error)).toBe("PROFILE_UNAVAILABLE");
     }
   });
 });
@@ -200,12 +293,13 @@ describe("BlizzardTokenManager", () => {
     });
     const token = await manager.getAccessToken();
     expect(token).toBe("super-secret-token");
-    const serialized = JSON.stringify({ clientSecret: "client-secret-value", token });
-    // Callers must redact; manager itself does not embed secrets into thrown errors on success.
-    expect(serialized).toContain("client-secret-value");
-    expect(() =>
-      JSON.parse(JSON.stringify({ ok: true, hasToken: Boolean(token) })),
-    ).not.toThrow();
+    const redacted = redactSecrets({
+      Authorization: `Bearer ${token}`,
+      client_secret: "client-secret-value",
+      access_token: token,
+    });
+    expect(JSON.stringify(redacted)).not.toContain("super-secret-token");
+    expect(JSON.stringify(redacted)).not.toContain("client-secret-value");
   });
 });
 
@@ -259,7 +353,36 @@ describe("LiveBlizzardProvider HTTP behavior", () => {
     expect(initAuthHeaderSafe(fetchImpl)).toBe(true);
   });
 
-  it("retries 429 with backoff using fake timers", async () => {
+  it("calls character-media (not /media) for media endpoint", async () => {
+    const urls: string[] = [];
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      urls.push(url);
+      if (url.includes("oauth.battle.net")) {
+        return new Response(JSON.stringify({ access_token: "t", expires_in: 3600 }), { status: 200 });
+      }
+      expect(url).toContain("/character-media");
+      expect(url).not.toMatch(/\/media\?/);
+      return new Response(
+        JSON.stringify({
+          assets: [{ key: "avatar", value: "https://render.example/avatar.jpg" }],
+        }),
+        { status: 200 },
+      );
+    }) as unknown as typeof fetch;
+
+    const provider = new LiveBlizzardProvider({
+      clientId: "id",
+      clientSecret: "secret",
+      fetchImpl,
+    });
+
+    const media = await provider.getCharacterMedia(identity, { ...ctx, forceRefresh: true });
+    expect(media.data.avatarUrl).toContain("avatar.jpg");
+    expect(urls.some((u) => u.includes("/character-media"))).toBe(true);
+  });
+
+  it("retries 429 with Retry-After and jitter using fake timers", async () => {
     let attempts = 0;
     const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
@@ -273,10 +396,7 @@ describe("LiveBlizzardProvider HTTP behavior", () => {
           headers: { "retry-after": "0" },
         });
       }
-      return new Response(
-        JSON.stringify({ id: 13, start_timestamp: 1 }),
-        { status: 200 },
-      );
+      return new Response(JSON.stringify({ id: 13, start_timestamp: 1 }), { status: 200 });
     }) as unknown as typeof fetch;
 
     const provider = new LiveBlizzardProvider({
@@ -290,6 +410,35 @@ describe("LiveBlizzardProvider HTTP behavior", () => {
     const result = await promise;
     expect(result.data.blizzardSeasonId).toBe(13);
     expect(attempts).toBe(3);
+  });
+
+  it("maps profile 404 to PROFILE_UNAVAILABLE reason", async () => {
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("oauth.battle.net")) {
+        return new Response(JSON.stringify({ access_token: "t", expires_in: 3600 }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ detail: "Not Found" }), { status: 404 });
+    }) as unknown as typeof fetch;
+
+    const provider = new LiveBlizzardProvider({
+      clientId: "id",
+      clientSecret: "secret",
+      fetchImpl,
+    });
+
+    try {
+      await provider.getCharacterProfile(identity, { ...ctx, forceRefresh: true });
+      expect.fail("expected profile 404");
+    } catch (error) {
+      expect(error).toMatchObject({ code: "NOT_FOUND" });
+      expect(errorReasonOf(error)).toBe("PROFILE_UNAVAILABLE");
+      expect((error as ExternalApiError).details).toMatchObject({
+        submittedIdentity: expect.objectContaining({
+          normalizedName: "examplecharacter",
+        }),
+      });
+    }
   });
 
   it("rejects invalid payloads with INVALID_RESPONSE", async () => {
@@ -310,6 +459,50 @@ describe("LiveBlizzardProvider HTTP behavior", () => {
     await expect(provider.getRealm("tarren-mill", { ...ctx, forceRefresh: true })).rejects.toMatchObject({
       code: "INVALID_RESPONSE",
     });
+  });
+
+  it("times out and classifies TIMEOUT", async () => {
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("oauth.battle.net")) {
+        return new Response(JSON.stringify({ access_token: "t", expires_in: 3600 }), { status: 200 });
+      }
+      return await new Promise<Response>((_resolve, reject) => {
+        const signal = init?.signal;
+        if (!signal) {
+          reject(new Error("missing abort signal"));
+          return;
+        }
+        if (signal.aborted) {
+          reject(Object.assign(new Error("Aborted"), { name: "AbortError" }));
+          return;
+        }
+        signal.addEventListener("abort", () => {
+          reject(Object.assign(new Error("Aborted"), { name: "AbortError" }));
+        });
+      });
+    }) as unknown as typeof fetch;
+
+    const provider = new LiveBlizzardProvider({
+      clientId: "id",
+      clientSecret: "secret",
+      fetchImpl,
+      timeoutMs: 5,
+      maxAttempts: 1,
+    });
+
+    const promise = provider.getRealm("tarren-mill", { ...ctx, forceRefresh: true });
+    const assertion = expect(promise).rejects.toMatchObject({ code: "TIMEOUT" });
+    await vi.advanceTimersByTimeAsync(20);
+    await assertion;
+  });
+});
+
+describe("Retry-After parsing", () => {
+  it("supports delta-seconds and HTTP-date", () => {
+    expect(parseRetryAfterMs("2")).toBe(2000);
+    const now = () => Date.parse("Wed, 21 Oct 2015 07:28:00 GMT");
+    expect(parseRetryAfterMs("Wed, 21 Oct 2015 07:28:05 GMT", now)).toBe(5000);
   });
 });
 
