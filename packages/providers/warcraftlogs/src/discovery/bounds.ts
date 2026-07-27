@@ -27,11 +27,23 @@ export const HYDRATION_HINT_WINDOW_MS = 6 * 60 * 60 * 1000;
 /** Max Mythic+ fights kept per hydrated report. */
 export const MAX_FIGHTS_PER_HYDRATED_REPORT = 8;
 
-/** Max unique reports opened for detailed fight analysis per refresh. */
-export const MAX_ANALYSIS_REPORTS = 2;
+/**
+ * Default max fights analyzed per refresh from the ScoringRunSelection set.
+ * Must cover the active-season dungeon pool (currently 8), not latest+highest only.
+ */
+export const MAX_ANALYSIS_FIGHTS = 8;
 
-/** Max fights analyzed per refresh (latest + highest, deduped). */
-export const MAX_ANALYSIS_FIGHTS = 2;
+/**
+ * Default max unique reports opened for detailed fight analysis per refresh.
+ * Aligned with the eight-run selection budget; still subject to hard cap.
+ */
+export const MAX_ANALYSIS_REPORTS = 8;
+
+/**
+ * Absolute ceiling for analysis fights/reports regardless of configuration.
+ * Prevents unbounded live GraphQL spend from a misconfigured env var.
+ */
+export const ABSOLUTE_MAX_ANALYSIS_FIGHTS = 16;
 
 /** Max event pages per dataType category. */
 export const MAX_EVENT_PAGES = 10;
@@ -52,3 +64,25 @@ export const REQUIRED_EVENT_TYPES = [
 ] as const;
 
 export const OPTIONAL_EVENT_TYPES = ["Healing"] as const;
+
+/**
+ * Resolve the effective fight-analysis budget for Scoring v3.
+ * Based on selected canonical scoring runs / expected dungeon count — never "first N reports".
+ */
+export function resolveMaxAnalysisFights(input: {
+  expectedDungeonCount: number;
+  configuredMax?: number | null;
+  hardCap?: number;
+}): number {
+  const hardCap = input.hardCap ?? ABSOLUTE_MAX_ANALYSIS_FIGHTS;
+  const expected = Math.max(0, Math.floor(input.expectedDungeonCount));
+  const fallback = expected > 0 ? expected : MAX_ANALYSIS_FIGHTS;
+  const configured =
+    input.configuredMax == null || !Number.isFinite(input.configuredMax)
+      ? fallback
+      : Math.floor(input.configuredMax);
+  const bounded = Math.min(hardCap, Math.max(1, configured));
+  // Never analyze more fights than the expected dungeon pool when that pool is known.
+  if (expected > 0) return Math.min(bounded, expected);
+  return bounded;
+}

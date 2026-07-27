@@ -16,7 +16,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@mplus/contracts": "workspace:*"
+    "@mplus/contracts": "workspace:*",
+    "@mplus/mechanics": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.8.3",

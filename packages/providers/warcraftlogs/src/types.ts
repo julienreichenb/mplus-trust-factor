@@ -140,6 +140,8 @@ export interface WclActorEntry {
   type: string;
   subType: string | null;
   server: string | null;
+  /** WCL petOwner actor id when the actor is a pet. */
+  petOwnerId: number | null;
 }
 
 export interface WclCastEvent {

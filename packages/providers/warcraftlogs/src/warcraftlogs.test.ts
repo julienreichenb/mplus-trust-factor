@@ -8,6 +8,8 @@ import { FixtureWarcraftLogsProvider } from "./fixture/fixture-provider.js";
 import { loadFixtureScenario } from "./fixture/loader.js";
 import {
   dedupeCandidates,
+  isAcceptedWclMatchForAnalysis,
+  isDungeonSlugUnknown,
   matchRunCandidate,
   resolveActorSourceId,
   resolveActorSourceIdStrict,
@@ -191,6 +193,61 @@ describe("Run matching", () => {
     );
     expect(result.confidence).toBe("LOW");
     expect(result.autoMergeAllowed).toBe(false);
+  });
+
+  it("treats empty dungeonSlug as unknown (no known-dungeon match)", () => {
+    expect(isDungeonSlugUnknown("")).toBe(true);
+    expect(isDungeonSlugUnknown("   ")).toBe(true);
+    expect(isDungeonSlugUnknown(null)).toBe(true);
+    expect(isDungeonSlugUnknown("skyreach")).toBe(false);
+
+    const result = matchRunCandidate(
+      baseCandidate({ dungeonSlug: "" }),
+      {
+        dungeonSlug: "skyreach",
+        keyLevel: 22,
+        completedAt: "2026-07-11T16:39:43.000Z",
+        durationMs: 1_557_871,
+        participants: [{ realmSlug: "archimonde", name: "Wallidrixe" }],
+      },
+      [],
+    );
+    expect(result.evidence.dungeonMatch).toBe(false);
+    expect(result.confidence).toBe("NONE");
+    expect(isAcceptedWclMatchForAnalysis(result)).toBe(false);
+  });
+
+  it("accepts Skyreach-style time/duration LOW match for analysis without roster", () => {
+    const result = matchRunCandidate(
+      baseCandidate({
+        reportCode: "7PajSkyreach6KAc",
+        fightId: 1,
+        dungeonSlug: "skyreach",
+        keyLevel: 22,
+        completedAt: "2026-07-11T16:39:44.544Z",
+        durationMs: 1_551_218,
+      }),
+      {
+        dungeonSlug: "skyreach",
+        keyLevel: 22,
+        completedAt: "2026-07-11T16:39:43.000Z",
+        durationMs: 1_557_871,
+        participants: [{ realmSlug: "archimonde", name: "Wallidrixe" }],
+      },
+      [],
+    );
+    expect(result.confidence).toBe("LOW");
+    expect(result.evidence.timeDeltaMs).toBeLessThan(5_000);
+    expect(result.evidence.durationDeltaMs).toBeLessThan(15_000);
+    expect(isAcceptedWclMatchForAnalysis(result)).toBe(true);
+    expect(
+      rejectionReasonFromMatch({
+        confidence: result.confidence,
+        evidence: result.evidence,
+        autoMergeAllowed: result.autoMergeAllowed,
+        acceptedForAnalysis: true,
+      }),
+    ).toBeNull();
   });
 });
 
@@ -554,6 +611,10 @@ describe("Deep smoke sanitization + worker path", () => {
     // Must not stop at summary-only enrichment.
     expect(source).toMatch(/discoverCharacterSummary[\s\S]*discoverCharacterRuns/);
     expect(source).toContain("getReportFightDetails");
+    // Gate A.1: eight-run ScoringRunSelection analysis (not latest+highest only).
+    expect(source).toContain("analyzeScoringRuns");
+    expect(source).toContain("WCL_MAX_ANALYSIS_FIGHTS");
+    expect(source).toContain("listForCharacterSeason");
   });
 });
 

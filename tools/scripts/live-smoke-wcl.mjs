@@ -11,6 +11,7 @@
  * --deep runs the bounded provider diagnostic (discovery, rankings, matching, analysis, persistence).
  */
 import { spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import {
@@ -39,6 +40,43 @@ if (deep) {
   }
 
   const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+  const databaseDist = resolve(root, "packages/database/dist/index.js");
+  const databaseSrc = resolve(root, "packages/database/src/index.ts");
+
+  // Prisma client must exist before @mplus/database can build or be imported.
+  spawnSync("pnpm", ["--filter", "@mplus/database", "exec", "prisma", "generate"], {
+    cwd: root,
+    env: process.env,
+    stdio: "inherit",
+    shell: true,
+  });
+
+  if (!existsSync(databaseDist) && existsSync(databaseSrc)) {
+    const build = spawnSync("pnpm", ["--filter", "@mplus/database", "build"], {
+      cwd: root,
+      env: process.env,
+      stdio: "inherit",
+      shell: true,
+    });
+    if ((build.status ?? 1) !== 0) {
+      console.warn(
+        "WARN: @mplus/database build failed; smoke will try source entry via tsx.",
+      );
+    }
+  }
+
+  // Scoring/contracts must be built so @mplus/scoring exports include WCL identity fields.
+  spawnSync(
+    "pnpm",
+    ["--filter", "@mplus/contracts", "--filter", "@mplus/scoring", "run", "build"],
+    {
+      cwd: root,
+      env: process.env,
+      stdio: "inherit",
+      shell: true,
+    },
+  );
+
   const smokeTs = resolve(root, "packages/providers/warcraftlogs/src/smoke-live.ts");
   // Windows paths may contain spaces; quote every arg for cmd.exe via shell:true.
   const quote = (value) => `"${String(value).replace(/"/g, '\\"')}"`;

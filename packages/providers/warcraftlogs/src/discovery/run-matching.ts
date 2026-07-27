@@ -20,6 +20,34 @@ export const DEFAULT_MATCHING_CONFIG: RunMatchingConfig = {
   rosterOverlapMedium: 0.5,
 };
 
+/** Empty / blank / "unknown" dungeon slugs never participate as known-dungeon matches. */
+export function isDungeonSlugKnown(slug: string | null | undefined): boolean {
+  const normalized = slug?.normalize("NFKC").trim().toLocaleLowerCase("en-US") ?? "";
+  return Boolean(normalized) && normalized !== "unknown";
+}
+
+export function isDungeonSlugUnknown(slug: string | null | undefined): boolean {
+  return !isDungeonSlugKnown(slug);
+}
+
+/**
+ * Accepted WCL match for scoring analysis — aligned with cross-provider persist attach:
+ * known dungeon + key + (time OR duration). Roster is optional for analysis acceptance.
+ * Does not invent a second matcher; uses matchRunCandidate evidence.
+ */
+export function isAcceptedWclMatchForAnalysis(
+  match: Pick<RunMatchResult, "confidence" | "evidence">,
+  config: RunMatchingConfig = DEFAULT_MATCHING_CONFIG,
+): boolean {
+  if (match.confidence === "HIGH" || match.confidence === "MEDIUM") return true;
+  const { dungeonMatch, keyLevelMatch, timeDeltaMs, durationDeltaMs } = match.evidence;
+  if (!dungeonMatch || !keyLevelMatch) return false;
+  const timeMatch = timeDeltaMs !== null && timeDeltaMs <= config.timeToleranceMs;
+  const durationMatch =
+    durationDeltaMs !== null && durationDeltaMs <= config.durationToleranceMs;
+  return timeMatch || durationMatch;
+}
+
 export function matchRunCandidate(
   candidate: WclRunCandidate,
   external: ExternalRunMatchInput,
@@ -27,8 +55,9 @@ export function matchRunCandidate(
   config: RunMatchingConfig = DEFAULT_MATCHING_CONFIG,
 ): RunMatchResult {
   const dungeonMatch =
-    candidate.dungeonSlug !== null &&
-    candidate.dungeonSlug.toLowerCase() === external.dungeonSlug.toLowerCase();
+    isDungeonSlugKnown(candidate.dungeonSlug) &&
+    isDungeonSlugKnown(external.dungeonSlug) &&
+    candidate.dungeonSlug!.toLowerCase() === external.dungeonSlug.toLowerCase();
 
   const keyLevel = candidate.keyLevel;
   const keyLevelDelta =
@@ -105,9 +134,17 @@ function computeRosterOverlap(
 }
 
 export function buildActorMap(
-  actors: Array<{ id: number; name: string; type: string; subType?: string | null; server?: string | null }>,
+  actors: Array<{
+    id: number;
+    name: string;
+    type: string;
+    subType?: string | null;
+    server?: string | null;
+    petOwner?: number | null;
+    petOwnerId?: number | null;
+  }>,
 ): WclActorMap {
-  const byId = new Map<number, { id: number; name: string; type: string; subType: string | null; server: string | null }>();
+  const byId = new Map<number, { id: number; name: string; type: string; subType: string | null; server: string | null; petOwnerId: number | null }>();
   const byName = new Map<string, number[]>();
 
   for (const actor of actors) {
@@ -117,6 +154,7 @@ export function buildActorMap(
       type: actor.type,
       subType: actor.subType ?? null,
       server: actor.server ?? null,
+      petOwnerId: actor.petOwnerId ?? actor.petOwner ?? null,
     });
     const key = actor.name.toLowerCase();
     const existing = byName.get(key) ?? [];
@@ -125,6 +163,22 @@ export function buildActorMap(
   }
 
   return { byId, byName };
+}
+
+/**
+ * Player source id plus owned pet actor ids for interrupt/CC/dispel attribution.
+ */
+export function resolveAttributedSourceIds(
+  actorMap: WclActorMap,
+  playerSourceId: number,
+): Set<number> {
+  const ids = new Set<number>([playerSourceId]);
+  for (const actor of actorMap.byId.values()) {
+    if (actor.petOwnerId === playerSourceId) {
+      ids.add(actor.id);
+    }
+  }
+  return ids;
 }
 
 export function resolveActorSourceId(

@@ -3,6 +3,7 @@ import type { ScoreSnapshotDTO, RedFlagDTO, Grade } from "./scoring.js";
 import type { JobStatusDTO } from "./jobs.js";
 import type { WclContributionType, WclDataState, WclVisibilityState } from "./warcraftlogs.js";
 import type { CharacterProviderStateDTO, SourceDisagreementDTO } from "./fusion.js";
+import type { ScoringRunSelectionProfileDTO } from "./scoring-v3-data.js";
 
 export interface ApiErrorEnvelope {
   error: {
@@ -206,6 +207,11 @@ export interface CharacterProfileResponse {
   /** Character-level provider lifecycle (present even when no runs exist). */
   providerStates?: CharacterProviderStateDTO[];
   sourceDisagreements?: SourceDisagreementDTO[];
+  /**
+   * Frozen Scoring v3 eight-run selection for the active season.
+   * Replaces Agent 26 web-only selectedRuns temporary fields.
+   */
+  scoringRunSelection?: ScoringRunSelectionProfileDTO | null;
 }
 
 export interface CharacterComparisonRequest {

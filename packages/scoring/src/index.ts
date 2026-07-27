@@ -63,3 +63,20 @@ export type {
 } from "./performance/types.js";
 export { calculateScore, calculateScoreEngine } from "./calculate.js";
 export type { CalculateScoreInput } from "./calculate.js";
+
+export {
+  compareSelectableRuns,
+  selectScoringRuns,
+} from "./selection/select-scoring-runs.js";
+export type {
+  SelectableScoringRun,
+  SelectScoringRunsInput,
+} from "./selection/select-scoring-runs.js";
+export {
+  buildProvenance,
+  toSurvivalRawFacts,
+  toUtilityRawFacts,
+  toPerformanceRawInputs,
+  rawFactsToMetricObservations,
+  summarizeFoundationSnapshot,
+} from "./selection/raw-fact-persist.js";

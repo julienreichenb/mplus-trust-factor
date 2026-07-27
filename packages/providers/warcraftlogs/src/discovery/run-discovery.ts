@@ -399,10 +399,10 @@ export function mythicRunPlaceholders(candidate: WclRunCandidate): {
   warnings: string[];
 } {
   const warnings = [...candidate.warnings];
-  if (candidate.seasonSlug == null) {
+  if (candidate.seasonSlug == null || !candidate.seasonSlug.trim()) {
     warnings.push("seasonSlug unknown — using sentinel 'unknown'");
   }
-  if (candidate.dungeonSlug == null) {
+  if (candidate.dungeonSlug == null || !candidate.dungeonSlug.trim()) {
     warnings.push("dungeonSlug unknown — using sentinel 'unknown'");
   }
   if (candidate.timed == null) {
@@ -415,8 +415,8 @@ export function mythicRunPlaceholders(candidate: WclRunCandidate): {
     warnings.push("roster incomplete — fingerprint may be target-only");
   }
   return {
-    seasonSlug: candidate.seasonSlug ?? "unknown",
-    dungeonSlug: candidate.dungeonSlug ?? "unknown",
+    seasonSlug: candidate.seasonSlug?.trim() || "unknown",
+    dungeonSlug: candidate.dungeonSlug?.trim() || "unknown",
     keyLevel: candidate.keyLevel ?? 0,
     timed: candidate.timed ?? false,
     durationMs: candidate.durationMs ?? 0,

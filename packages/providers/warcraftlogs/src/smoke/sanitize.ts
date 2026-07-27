@@ -48,17 +48,33 @@ export function rejectionReasonFromMatch(input: {
   };
   autoMergeAllowed: boolean;
   timeToleranceMs?: number;
+  durationToleranceMs?: number;
+  /** When true, dungeon+key+(time|duration) is enough — roster absence is not a rejection. */
+  acceptedForAnalysis?: boolean;
 }): string | null {
   if (input.autoMergeAllowed || input.confidence === "HIGH") return null;
+  if (input.acceptedForAnalysis) return null;
   const reasons: string[] = [];
   if (!input.evidence.dungeonMatch) reasons.push("dungeon_mismatch_or_unknown");
   if (!input.evidence.keyLevelMatch) reasons.push("key_level_mismatch_or_unknown");
-  const tol = input.timeToleranceMs ?? 120_000;
+  const timeTol = input.timeToleranceMs ?? 120_000;
+  const durationTol = input.durationToleranceMs ?? 15_000;
+  const timeOk =
+    input.evidence.timeDeltaMs != null && input.evidence.timeDeltaMs <= timeTol;
+  const durationOk =
+    input.evidence.durationDeltaMs != null && input.evidence.durationDeltaMs <= durationTol;
   if (input.evidence.timeDeltaMs == null) reasons.push("completed_at_unknown");
-  else if (input.evidence.timeDeltaMs > tol) reasons.push("completed_at_outside_window");
+  else if (!timeOk) reasons.push("completed_at_outside_window");
   if (input.evidence.durationDeltaMs == null) reasons.push("duration_unknown");
-  if (input.evidence.rosterOverlapRatio == null) reasons.push("roster_unavailable");
-  else if (input.evidence.rosterOverlapRatio < 0.5) reasons.push("roster_overlap_too_low");
+  // Roster is only a soft signal once dungeon+key+(time|duration) would accept analysis.
+  if (!(timeOk || durationOk)) {
+    if (input.evidence.rosterOverlapRatio == null) reasons.push("roster_unavailable");
+    else if (input.evidence.rosterOverlapRatio < 0.5) reasons.push("roster_overlap_too_low");
+  } else if (input.evidence.rosterOverlapRatio == null) {
+    reasons.push("roster_unavailable");
+  } else if (input.evidence.rosterOverlapRatio < 0.5) {
+    reasons.push("roster_overlap_too_low");
+  }
   if (reasons.length === 0) reasons.push(`confidence_${input.confidence.toLowerCase()}_below_merge_threshold`);
   return reasons.join(",");
 }

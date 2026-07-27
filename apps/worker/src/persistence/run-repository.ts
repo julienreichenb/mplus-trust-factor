@@ -104,6 +104,8 @@ export interface RunRepository {
   findLatestForCharacter(characterId: string): Promise<MythicRunWithRelations | null>;
   findHighestForCharacter(characterId: string): Promise<MythicRunWithRelations | null>;
   findById(runId: string): Promise<MythicRunWithRelations | null>;
+  /** All target-character runs for a season (post-reconcile scoring selection). */
+  listForCharacterSeason(characterId: string, seasonId: string): Promise<MythicRunWithRelations[]>;
   /**
    * Unique canonical Mythic+ runs the character participated in (target).
    * Counts distinct MythicRun.canonicalFingerprint — never RunSourceReference rows.
@@ -132,6 +134,13 @@ export interface RunRepository {
     characterId: string,
     runId: string,
   ): Promise<number | null>;
+  /**
+   * Latest wcl-combat-facts-v1 analyses for many runs (coverage + summary JSON).
+   */
+  findLatestAnalysesForRuns(
+    characterId: string,
+    runIds: string[],
+  ): Promise<Map<string, { coverage: number | null; summary: unknown }>>;
   upsertRunAnalysis(input: {
     runId: string;
     characterId: string;
@@ -259,6 +268,17 @@ export function createRunRepository(prisma: PrismaClient): RunRepository {
       return prisma.mythicRun.findUnique({
         where: { id: runId },
         include: { dungeon: true, season: true, sources: true },
+      });
+    },
+
+    async listForCharacterSeason(characterId, seasonId) {
+      return prisma.mythicRun.findMany({
+        where: {
+          seasonId,
+          participants: { some: { characterId, isTargetCharacter: true } },
+        },
+        include: { dungeon: true, season: true, sources: true },
+        orderBy: [{ keyLevel: "desc" }, { completedAt: "desc" }],
       });
     },
 
@@ -596,6 +616,28 @@ export function createRunRepository(prisma: PrismaClient): RunRepository {
         select: { coverage: true },
       });
       return analysis?.coverage != null ? Number(analysis.coverage) : null;
+    },
+
+    async findLatestAnalysesForRuns(characterId, runIds) {
+      const out = new Map<string, { coverage: number | null; summary: unknown }>();
+      if (runIds.length === 0) return out;
+      const rows = await prisma.runAnalysis.findMany({
+        where: {
+          characterId,
+          analysisVersion: "wcl-combat-facts-v1",
+          runId: { in: [...new Set(runIds)] },
+        },
+        orderBy: { analyzedAt: "desc" },
+        select: { runId: true, coverage: true, summary: true },
+      });
+      for (const row of rows) {
+        if (out.has(row.runId)) continue;
+        out.set(row.runId, {
+          coverage: row.coverage != null ? Number(row.coverage) : null,
+          summary: row.summary,
+        });
+      }
+      return out;
     },
 
     async upsertRunAnalysis(input) {

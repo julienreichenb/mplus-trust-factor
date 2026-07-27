@@ -35,10 +35,26 @@ export interface GraphQlRequestResult<T> {
 export class WclGraphQlClient {
   private readonly defaultTimeoutMs: number;
   private readonly logger: Pick<Console, "info" | "warn" | "error">;
+  private requestCount = 0;
+  private readonly requestsByOperation = new Map<string, number>();
 
   constructor(private readonly config: GraphQlClientConfig) {
     this.defaultTimeoutMs = config.defaultTimeoutMs ?? 30_000;
     this.logger = config.logger ?? console;
+  }
+
+  /** Total GraphQL requests since last reset (metadata + events). */
+  getRequestCount(): number {
+    return this.requestCount;
+  }
+
+  getRequestCountsByOperation(): Record<string, number> {
+    return Object.fromEntries(this.requestsByOperation);
+  }
+
+  resetRequestCount(): void {
+    this.requestCount = 0;
+    this.requestsByOperation.clear();
   }
 
   async request<T>(options: GraphQlRequestOptions): Promise<GraphQlRequestResult<T>> {
@@ -48,6 +64,12 @@ export class WclGraphQlClient {
       operationName: options.operationName,
       variables,
     });
+
+    this.requestCount += 1;
+    this.requestsByOperation.set(
+      options.operationName,
+      (this.requestsByOperation.get(options.operationName) ?? 0) + 1,
+    );
 
     this.logger.info(
       { operationName: options.operationName, fingerprint },
@@ -286,6 +308,7 @@ export const reportFightSchema = z.object({
                   type: z.string(),
                   subType: z.string().nullable().optional(),
                   server: z.string().nullable().optional(),
+                  petOwner: z.coerce.number().nullable().optional(),
                 }),
               )
               .default([]),

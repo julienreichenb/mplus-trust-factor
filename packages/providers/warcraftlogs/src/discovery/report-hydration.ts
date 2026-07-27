@@ -66,10 +66,12 @@ export function resolveDungeonSlug(
     return ENCOUNTER_DUNGEON_MAP[fight.encounterID]!;
   }
   if (fight.name && fight.name.trim()) {
-    return slugifyDungeonName(fight.name);
+    const fromName = slugifyDungeonName(fight.name);
+    if (fromName) return fromName;
   }
   if (reportZoneName?.trim()) {
-    return slugifyDungeonName(reportZoneName);
+    const fromZone = slugifyDungeonName(reportZoneName);
+    if (fromZone) return fromZone;
   }
   return null;
 }
@@ -160,7 +162,7 @@ export function hydratedFightToCandidate(
   const completedAt = new Date(completedAtMs).toISOString();
 
   // Prefer external hydration hints when encounter→dungeon map misses the season pool.
-  if (dungeonSlug == null && keyLevel != null && hints.length > 0) {
+  if ((dungeonSlug == null || !dungeonSlug.trim()) && keyLevel != null && hints.length > 0) {
     const CLOCK_SKEW_MS = 45 * 60 * 1000;
     let best: { hint: HydrationHint; delta: number } | null = null;
     for (const h of hints) {
@@ -173,6 +175,10 @@ export function hydratedFightToCandidate(
     if (best?.hint.dungeonSlug) {
       dungeonSlug = best.hint.dungeonSlug;
     }
+  }
+
+  if (dungeonSlug != null && !dungeonSlug.trim()) {
+    dungeonSlug = null;
   }
 
   return {
@@ -193,7 +199,7 @@ export function hydratedFightToCandidate(
     matchConfidence: null,
     targetActorId,
     incompleteness: {
-      dungeonUnknown: dungeonSlug == null,
+      dungeonUnknown: dungeonSlug == null || !dungeonSlug.trim(),
       seasonUnknown: true,
       timedUnknown: true,
       keyLevelUnknown: keyLevel == null,
@@ -202,7 +208,9 @@ export function hydratedFightToCandidate(
     },
     warnings: [
       "hydrated from recentReports fight/masterData",
-      ...(dungeonSlug == null ? ["dungeonSlug unresolved from encounter/fight name"] : []),
+      ...(dungeonSlug == null || !dungeonSlug.trim()
+        ? ["dungeonSlug unresolved from encounter/fight name"]
+        : []),
     ],
   };
 }

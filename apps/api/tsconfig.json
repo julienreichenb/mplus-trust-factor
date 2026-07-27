@@ -13,6 +13,7 @@
     { "path": "../../packages/database" },
     { "path": "../../packages/domain" },
     { "path": "../../packages/observability" },
-    { "path": "../../packages/scoring" }
+    { "path": "../../packages/scoring" },
+    { "path": "../../packages/mechanics" }
   ]
 }

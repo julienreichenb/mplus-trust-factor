@@ -5,5 +5,6 @@ export * from "./warcraftlogs.js";
 export * from "./fusion.js";
 export * from "./provider.js";
 export * from "./scoring.js";
+export * from "./scoring-v3-data.js";
 export * from "./jobs.js";
 export * from "./api.js";

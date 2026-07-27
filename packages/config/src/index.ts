@@ -51,6 +51,13 @@ export const envSchema = z
     WCL_RATE_DEFER_PERCENT: z.coerce.number().min(0).max(100).default(80),
     WCL_RATE_STOP_PERCENT: z.coerce.number().min(0).max(100).default(90),
     WCL_CHARACTER_TTL_SECONDS: z.coerce.number().int().positive().default(43_200),
+    /**
+     * Max Scoring v3 selected-run fights to analyze per refresh.
+     * Defaults to active-season dungeon count (8); hard-capped in provider bounds.
+     */
+    WCL_MAX_ANALYSIS_FIGHTS: z.coerce.number().int().positive().max(16).default(8),
+    /** Optional override for the Scoring v3 season slug (defaults to season-midnight-s1). */
+    SCORING_SEASON_SLUG: z.string().optional().default(""),
 
     RAIDERIO_ENABLED: booleanFromString.default(true),
     RAIDERIO_BASE_URL: z.string().url().default("https://raider.io"),
