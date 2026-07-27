@@ -8,7 +8,8 @@
  *   BLIZZARD_SMOKE_REALM (default tarren-mill)
  *   BLIZZARD_SMOKE_CHARACTER (required for a real character probe)
  */
-import { createBlizzardProvider, LiveBlizzardProvider, redactSecrets } from "./index.js";
+import { createBlizzardProvider, redactSecrets } from "./index.js";
+import type { LiveBlizzardProvider } from "./index.js";
 import type { BlizzardRegionKey } from "./config.js";
 import { normalizeRegion } from "@mplus/domain";
 

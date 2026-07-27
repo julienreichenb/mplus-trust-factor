@@ -2,6 +2,7 @@ import type { RegionCode } from "@mplus/contracts";
 import type { WclDataState, WclProvenance } from "@mplus/contracts";
 import type {
   WclCharacterSummary,
+  WclDungeonPerformanceAggregate,
   WclRankingObservation,
   WclRunCandidate,
   WclRunCandidateIncompleteness,
@@ -347,11 +348,11 @@ export function buildCharacterDiscovery(input: {
   rankingCandidates: WclRunCandidate[];
   recentCandidates: WclRunCandidate[];
   privateReportsSkipped?: number;
-  dungeonAggregates?: import("../types.js").WclDungeonPerformanceAggregate[];
+  dungeonAggregates?: WclDungeonPerformanceAggregate[];
 }): {
   summary: WclCharacterSummary;
   rankings: WclRankingObservation[];
-  dungeonAggregates: import("../types.js").WclDungeonPerformanceAggregate[];
+  dungeonAggregates: WclDungeonPerformanceAggregate[];
   candidates: WclRunCandidate[];
   latest: WclRunCandidate | null;
   highest: WclRunCandidate | null;

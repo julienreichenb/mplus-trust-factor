@@ -2,6 +2,7 @@ import type { Character } from "@mplus/database";
 import type {
   CharacterIdentityInput,
   CharacterProfileResponse,
+  PerformanceSummaryDTO,
   ProviderName,
   RefreshStatusResponse,
   ScoreSnapshotDTO,
@@ -10,7 +11,7 @@ import type {
   WclDataState,
   WclVisibilityState,
 } from "@mplus/contracts";
-import { deriveWclContributionTypes, normalizeWclProvenance, parseWclDataState } from "@mplus/contracts";
+import { deriveWclContributionTypes, normalizeWclProvenance } from "@mplus/contracts";
 import type { EnqueueResult } from "@mplus/worker";
 import type { ApiContainer } from "../container.js";
 import { HttpError } from "../errors.js";
@@ -51,19 +52,6 @@ function readFreshness(explanation: unknown): number | null {
   return typeof coverage?.freshness === "number" && Number.isFinite(coverage.freshness)
     ? coverage.freshness
     : null;
-}
-
-function readWclVisibility(value: unknown): WclVisibilityState | null {
-  return normalizeWclProvenance(typeof value === "string" ? value : null).visibility;
-}
-
-function readWclDataState(value: unknown, legacyVisibility?: unknown): WclDataState | null {
-  const fromDirect = parseWclDataState(value);
-  if (fromDirect) return fromDirect;
-  return normalizeWclProvenance(
-    typeof legacyVisibility === "string" ? legacyVisibility : null,
-    typeof value === "string" ? value : null,
-  ).dataState;
 }
 
 function readWclVisibilityFromSummary(summary: unknown): WclVisibilityState | null {
@@ -127,13 +115,11 @@ function readSelectedRunCoverage(explanation: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
-function readPerformanceSummary(
-  explanation: unknown,
-): import("@mplus/contracts").PerformanceSummaryDTO | null {
+function readPerformanceSummary(explanation: unknown): PerformanceSummaryDTO | null {
   if (!explanation || typeof explanation !== "object") return null;
   const summary = (explanation as { performanceSummary?: unknown }).performanceSummary;
   if (!summary || typeof summary !== "object") return null;
-  return summary as import("@mplus/contracts").PerformanceSummaryDTO;
+  return summary as PerformanceSummaryDTO;
 }
 
 export interface CharacterHistoryResponse {

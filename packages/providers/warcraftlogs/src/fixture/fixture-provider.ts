@@ -4,6 +4,7 @@ import type {
   ProviderFetchContext,
   ProviderResult,
   WarcraftLogsProvider,
+  WclDataState,
   WclVisibilityState,
 } from "@mplus/contracts";
 import { ExternalApiError } from "@mplus/contracts";
@@ -153,7 +154,7 @@ export class FixtureWarcraftLogsProvider implements WarcraftLogsProvider {
   ): Promise<
     ProviderResult<{
       visibility: WclVisibilityState | null;
-      dataState: import("@mplus/contracts").WclDataState;
+      dataState: WclDataState;
       warnings: string[];
       dungeonAggregates: WclCharacterDiscoveryResult["dungeonAggregates"];
     }>

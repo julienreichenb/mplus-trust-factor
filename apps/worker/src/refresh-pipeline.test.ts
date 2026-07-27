@@ -462,7 +462,6 @@ describe.skipIf(!dbAvailable)("runRefreshPipeline (fixture mode, real Postgres)"
   it(
     "still produces a score when WCL lacks discoverCharacterSummary and only has async discoverCharacter",
     async () => {
-      const base = buildContainer();
       const asyncDiscover = async () => ({
         summary: {
           visibility: "PUBLIC" as const,

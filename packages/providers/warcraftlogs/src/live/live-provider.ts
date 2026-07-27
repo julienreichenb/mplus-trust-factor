@@ -4,6 +4,7 @@ import type {
   ProviderFetchContext,
   ProviderResult,
   WarcraftLogsProvider,
+  WclDataState,
   WclVisibilityState,
 } from "@mplus/contracts";
 import { ExternalApiError } from "@mplus/contracts";
@@ -56,7 +57,7 @@ import {
   parseRateLimitSnapshot,
   shouldDeferExpensiveWork,
 } from "../rate/rate-budget.js";
-import type { WclCharacterDiscoveryResult, WclReportFightDetails } from "../types.js";
+import type { WclCharacterDiscoveryResult, WclDungeonPerformanceAggregate, WclReportFightDetails } from "../types.js";
 
 export interface LiveWarcraftLogsProviderConfig {
   env: Pick<
@@ -298,9 +299,9 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
   ): Promise<
     ProviderResult<{
       visibility: WclVisibilityState | null;
-      dataState: import("@mplus/contracts").WclDataState;
+      dataState: WclDataState;
       warnings: string[];
-      dungeonAggregates: import("../types.js").WclDungeonPerformanceAggregate[];
+      dungeonAggregates: WclDungeonPerformanceAggregate[];
     }>
   > {
     const discovery = await this.discoverCharacter(identity, ctx);
