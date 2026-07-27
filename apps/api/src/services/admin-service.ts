@@ -68,6 +68,40 @@ export class AdminService {
     return mapAdminScoreModel(model);
   }
 
+  async cloneScoreModel(id: string): Promise<AdminScoreModelDTO> {
+    const source = await this.repositories.score.getModelById(id);
+    if (!source) {
+      throw HttpError.notFound("SCORE_MODEL_NOT_FOUND", `Score model ${id} was not found`);
+    }
+    const model = await this.repositories.score.createDraftModel({
+      key: source.key,
+      name: `${source.name} (draft)`,
+      description: source.description ?? "",
+      config: source.config as unknown as ScoreModelConfig,
+    });
+    return mapAdminScoreModel(model);
+  }
+
+  async updateScoreModel(id: string, config: ScoreModelConfig): Promise<AdminScoreModelDTO> {
+    const errors = this.repositories.score.validateConfig(config);
+    if (errors.length > 0) {
+      throw HttpError.badRequest("INVALID_SCORE_MODEL_CONFIG", "Score model config failed validation", { errors });
+    }
+    try {
+      const model = await this.repositories.score.updateDraftConfig(id, config);
+      return mapAdminScoreModel(model);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.includes("not found")) {
+        throw HttpError.notFound("SCORE_MODEL_NOT_FOUND", message);
+      }
+      if (message.includes("DRAFT")) {
+        throw HttpError.conflict("SCORE_MODEL_NOT_EDITABLE", message);
+      }
+      throw error;
+    }
+  }
+
   async validateScoreModel(id: string): Promise<ValidateScoreModelResult> {
     const model = await this.repositories.score.getModelById(id);
     if (!model) {

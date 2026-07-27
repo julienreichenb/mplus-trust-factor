@@ -30,9 +30,9 @@ entitlements: { detailsUnlocked: boolean; runsUnlocked: boolean; compareExpanded
 warnings: Array<{ code: string; message: string; severity: "INFO" | "WARN" }>;
 ```
 
-## Interim
+## Status
 
-Frontend uses local `CharacterProfileView` in `apps/web` composing contract DTOs + enrichments. Mock mode serves this shape today.
+Applied by Agent 10 — fields added to `CharacterProfileResponse` in `@mplus/contracts`; API mappers populate from persisted character/run/snapshot data.
 
 ## Compatibility
 

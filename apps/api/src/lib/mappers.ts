@@ -11,6 +11,7 @@ import {
   type QueueName,
   type ScoreSnapshotDTO,
 } from "@mplus/contracts";
+import type { RedFlagDTO } from "@mplus/contracts";
 import type { MythicRunWithRelations, ScoreSnapshotWithRelations } from "@mplus/worker";
 
 const QUEUE_NAME_VALUES = new Set<string>(Object.values(QUEUE_NAMES));
@@ -37,8 +38,22 @@ function extractErrorMessage(error: unknown): string | null {
   return null;
 }
 
+function extractRedFlags(explanation: unknown): RedFlagDTO[] {
+  if (!explanation || typeof explanation !== "object") return [];
+  const stored = (explanation as { redFlags?: unknown }).redFlags;
+  if (!Array.isArray(stored)) return [];
+  return stored.filter(
+    (flag): flag is RedFlagDTO =>
+      Boolean(flag) &&
+      typeof flag === "object" &&
+      "key" in flag &&
+      typeof (flag as RedFlagDTO).key === "string",
+  );
+}
+
 /** Maps a persisted `ScoreSnapshot` (+ dimensions/model/season relations) to the public DTO. */
 export function mapScoreSnapshot(snapshot: ScoreSnapshotWithRelations): ScoreSnapshotDTO {
+  const redFlags = extractRedFlags(snapshot.explanation);
   return {
     characterId: snapshot.characterId,
     seasonSlug: snapshot.season.slug,
@@ -60,9 +75,7 @@ export function mapScoreSnapshot(snapshot: ScoreSnapshotWithRelations): ScoreSna
       weight: Number(dimension.weight),
       contributors: dimension.contributors,
     })),
-    // Red-flag detection is Agent 4's scoring/mechanics domain; the placeholder scoring engine
-    // never populates flags yet, so this stays empty until that pipeline writes real rows.
-    redFlags: [],
+    redFlags,
     explanation: snapshot.explanation,
   };
 }

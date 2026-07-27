@@ -52,6 +52,7 @@ export interface ScoreRepository {
   getModelById(id: string): Promise<ScoreModel | null>;
   getModelByKeyVersion(key: string, version: number): Promise<ScoreModel | null>;
   createDraftModel(input: CreateDraftModelInput): Promise<ScoreModel>;
+  updateDraftConfig(id: string, config: ScoreModelConfig): Promise<ScoreModel>;
   validateConfig(config: ScoreModelConfig): string[];
   activateModel(id: string): Promise<ScoreModel>;
   saveScoreSnapshot(input: SaveScoreSnapshotInput): Promise<ScoreSnapshot>;
@@ -102,6 +103,24 @@ export function createScoreRepository(prisma: PrismaClient): ScoreRepository {
       });
     },
 
+    async updateDraftConfig(id, config) {
+      const errors = validateConfig(config);
+      if (errors.length > 0) {
+        throw new Error(`Invalid score model config: ${errors.join("; ")}`);
+      }
+      const existing = await prisma.scoreModel.findUnique({ where: { id } });
+      if (!existing) {
+        throw new Error(`Score model ${id} not found`);
+      }
+      if (existing.status !== "DRAFT") {
+        throw new Error(`Only DRAFT models can be updated (got ${existing.status})`);
+      }
+      return prisma.scoreModel.update({
+        where: { id },
+        data: { config: config as object },
+      });
+    },
+
     validateConfig,
 
     async activateModel(id) {
@@ -141,7 +160,12 @@ export function createScoreRepository(prisma: PrismaClient): ScoreRepository {
           authenticityScore: snapshot.authenticityScore,
           confidence: snapshot.confidence,
           calculatedAt: new Date(snapshot.calculatedAt),
-          explanation: (snapshot.explanation ?? {}) as object,
+          explanation: {
+            ...(typeof snapshot.explanation === "object" && snapshot.explanation !== null
+              ? (snapshot.explanation as Record<string, unknown>)
+              : {}),
+            redFlags: snapshot.redFlags,
+          } as object,
         };
 
         const scoreSnapshot = existing

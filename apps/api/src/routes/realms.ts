@@ -15,6 +15,7 @@ export function buildRealmRoutes(container: ApiContainer): FastifyPluginAsync {
             properties: {
               region: { type: "string", minLength: 1 },
               query: { type: "string" },
+              q: { type: "string" },
             },
             required: ["region"],
           },
@@ -29,8 +30,9 @@ export function buildRealmRoutes(container: ApiContainer): FastifyPluginAsync {
         },
       },
       async (request) => {
-        const { region, query } = request.query as { region: string; query?: string };
-        const realms = await container.worker.repositories.realm.search(region, query ?? "");
+        const { region, query, q } = request.query as { region: string; query?: string; q?: string };
+        const search = query ?? q ?? "";
+        const realms = await container.worker.repositories.realm.search(region, search);
         return { realms };
       },
     );

@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from "fastify";
 import type { ApiContainer } from "../container.js";
 import { createAdminAuthPreHandler } from "../plugins/admin-auth.js";
+import type { ScoreModelConfig } from "@mplus/contracts";
 import { AdminService, type CreateScoreModelInput, type MechanicRuleInput } from "../services/admin-service.js";
 import { adminScoreModelSchema, errorResponseSchema, jobStatusSchema, mechanicRuleSchema, scoreModelConfigSchema } from "./schemas.js";
 
@@ -104,6 +105,35 @@ export function buildAdminRoutes(container: ApiContainer): FastifyPluginAsync {
         const body = request.body as CreateScoreModelInput;
         const model = await service.createScoreModel(body);
         return reply.status(201).send(model);
+      },
+    );
+
+    app.post(
+      "/api/v1/admin/score-models/:id/clone",
+      {
+        schema: { tags: ["admin"], params: idParamsSchema, response: { 201: adminScoreModelSchema, 404: errorResponseSchema } },
+      },
+      async (request, reply) => {
+        const { id } = request.params as { id: string };
+        const model = await service.cloneScoreModel(id);
+        return reply.status(201).send(model);
+      },
+    );
+
+    app.put(
+      "/api/v1/admin/score-models/:id",
+      {
+        schema: {
+          tags: ["admin"],
+          params: idParamsSchema,
+          body: { type: "object", properties: { config: scoreModelConfigSchema }, required: ["config"] },
+          response: { 200: adminScoreModelSchema, 400: errorResponseSchema, 404: errorResponseSchema },
+        },
+      },
+      async (request) => {
+        const { id } = request.params as { id: string };
+        const body = request.body as { config: ScoreModelConfig };
+        return service.updateScoreModel(id, body.config);
       },
     );
 

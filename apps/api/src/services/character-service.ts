@@ -19,6 +19,7 @@ import {
   type CharacterSourceAttribution,
   type RunSummaryDTO,
 } from "../lib/mappers.js";
+import { applyProfileWarnings, buildProfileEnrichments } from "../lib/profile-enrichment.js";
 import { characterCacheKey } from "../lib/response-cache.js";
 
 const ALL_PROVIDERS: ProviderName[] = ["blizzard", "raiderio", "warcraftlogs"];
@@ -92,6 +93,58 @@ export class CharacterService {
     }));
   }
 
+  private async buildEnrichedProfile(
+    identity: CharacterIdentityInput,
+    character: Character,
+    snapshot: Awaited<ReturnType<typeof this.repositories.score.getLatestSnapshot>>,
+    latestRunId: string | null,
+    highestRunId: string | null,
+    sources: CharacterSourceAttribution[],
+    refreshStatus: CharacterProfileResponse["refreshStatus"],
+  ): Promise<CharacterProfileResponse> {
+    const [characterDetail, latestRun, highestRun, latestCharSnapshot, runCount] = await Promise.all([
+      this.container.worker.prisma.character.findUnique({
+        where: { id: character.id },
+        include: { gameClass: true, activeSpec: true },
+      }),
+      latestRunId ? this.repositories.run.findById(latestRunId) : Promise.resolve(null),
+      highestRunId ? this.repositories.run.findById(highestRunId) : Promise.resolve(null),
+      this.container.worker.prisma.characterSnapshot.findFirst({
+        where: { characterId: character.id },
+        orderBy: { capturedAt: "desc" },
+        include: { equipment: true },
+      }),
+      this.repositories.run.countForCharacter(character.id),
+    ]);
+
+    const base = mapCharacterProfile({
+      character,
+      identity,
+      snapshot,
+      latestRunId,
+      highestRunId,
+      sources,
+      refreshStatus,
+    });
+
+    if (!characterDetail) return base;
+
+    const enrichments = applyProfileWarnings(
+      buildProfileEnrichments({
+        character: characterDetail,
+        latestSnapshot: latestCharSnapshot,
+        latestRun,
+        highestRun,
+        runCount,
+        seasonSlug: snapshot?.season.slug ?? null,
+        env: this.container.env,
+      }),
+      base.score,
+    );
+
+    return { ...base, ...enrichments };
+  }
+
   /** SWR profile read. 200 fresh/stale (background refresh enqueued when stale), 202 queued, 404 confirmed absent. */
   async getProfile(identity: CharacterIdentityInput): Promise<GetProfileResult> {
     if (this.container.negativeCache.has(identity)) {
@@ -108,15 +161,15 @@ export class CharacterService {
 
     if (!snapshot) {
       await this.enqueueRefresh(identity, character);
-      const body = mapCharacterProfile({
-        character,
+      const body = await this.buildEnrichedProfile(
         identity,
-        snapshot: null,
-        latestRunId: null,
-        highestRunId: null,
-        sources: [],
-        refreshStatus: "QUEUED",
-      });
+        character,
+        null,
+        null,
+        null,
+        [],
+        "QUEUED",
+      );
       return { statusCode: 202, body };
     }
 
@@ -129,15 +182,15 @@ export class CharacterService {
       this.repositories.run.findHighestForCharacter(character.id),
     ]);
 
-    const body = mapCharacterProfile({
-      character,
+    const body = await this.buildEnrichedProfile(
       identity,
+      character,
       snapshot,
-      latestRunId: latestRun?.id ?? null,
-      highestRunId: highestRun?.id ?? null,
-      sources: this.buildSources(character),
-      refreshStatus: fresh ? "FRESH" : "STALE",
-    });
+      latestRun?.id ?? null,
+      highestRun?.id ?? null,
+      this.buildSources(character),
+      fresh ? "FRESH" : "STALE",
+    );
     const result: GetProfileResult = { statusCode: 200, body };
     if (fresh) {
       this.container.responseCache.set(cacheKey, result);

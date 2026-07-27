@@ -11,16 +11,25 @@
 ```bash
 pnpm install
 cp .env.example .env
-pnpm dev:infra
+pnpm compose:up    # alias for dev:infra — Postgres + Redis
 pnpm db:generate
 pnpm db:migrate
 pnpm db:seed
-pnpm dev
+pnpm dev           # loads .env via tools/scripts/with-env.mjs
 ```
 
 PostgreSQL listens on host port **5433** by default (mapped from container 5432) so it does not collide with a local Windows Postgres install.
 
-Stop infra: `pnpm dev:infra:down`.
+Stop infra: `pnpm compose:down` (alias `pnpm dev:infra:down`).
+
+## Docker Compose from repository root
+
+| Command | Description |
+|---------|-------------|
+| `pnpm compose:up` | Start Postgres + Redis (detached) |
+| `pnpm compose:down` | Stop containers |
+| `pnpm compose:ps` | Show container status |
+| `pnpm dev:infra:logs` | Follow infra logs |
 
 ## Fixture mode
 

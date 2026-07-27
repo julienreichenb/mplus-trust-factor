@@ -4,10 +4,7 @@ import { createPrismaClient, type PrismaClient } from "@mplus/database";
 import { createLogger, type Logger } from "@mplus/observability";
 import type { BlizzardProvider, ProviderName, RaiderIoProvider, WarcraftLogsProvider } from "@mplus/contracts";
 import { calculateScore } from "@mplus/scoring";
-import { createFixtureBlizzardProvider } from "./providers/fixture-providers.js";
-import { createFixtureWarcraftLogsProvider } from "./providers/fixture-providers.js";
-import { createFixtureRaiderIoProvider } from "./providers/fixture-providers.js";
-import { createDisabledProvider } from "./providers/fixture-providers.js";
+import { resolveWorkerProviders } from "./providers/provider-factory.js";
 import { createRepositories, type WorkerRepositories } from "./persistence/index.js";
 
 export interface WorkerProviders {
@@ -37,32 +34,9 @@ export interface WorkerContainerOverrides {
   repositories?: Partial<WorkerRepositories>;
 }
 
-function buildProviders(
-  disabledProviders: Set<ProviderName>,
-  overrides?: Partial<WorkerProviders>,
-): WorkerProviders {
-  return {
-    blizzard:
-      overrides?.blizzard ??
-      (disabledProviders.has("blizzard")
-        ? createDisabledProvider("blizzard")
-        : createFixtureBlizzardProvider()),
-    warcraftlogs:
-      overrides?.warcraftlogs ??
-      (disabledProviders.has("warcraftlogs")
-        ? createDisabledProvider("warcraftlogs")
-        : createFixtureWarcraftLogsProvider()),
-    raiderio:
-      overrides?.raiderio ??
-      (disabledProviders.has("raiderio")
-        ? createDisabledProvider("raiderio")
-        : createFixtureRaiderIoProvider()),
-  };
-}
-
 /**
  * Wires the worker's dependency graph: database, cache/queue connections,
- * fixture provider adapters, scoring, and repositories.
+ * provider adapters (fixture/live via PROVIDER_MODE), scoring, and repositories.
  */
 export function createWorkerContainer(
   env: AppEnv,
@@ -71,7 +45,7 @@ export function createWorkerContainer(
   const prisma = overrides.prisma ?? createPrismaClient(env.DATABASE_URL);
   const logger = overrides.logger ?? createLogger({ level: env.LOG_LEVEL, name: "worker" });
   const disabledProviders = overrides.disabledProviders ?? new Set<ProviderName>();
-  const providers = buildProviders(disabledProviders, overrides.providers);
+  const providers = resolveWorkerProviders(env, disabledProviders, overrides.providers);
   const repositories = {
     ...createRepositories(prisma),
     ...overrides.repositories,

@@ -15,6 +15,7 @@ export default defineConfig({
         __dirname,
         "packages/providers/blizzard/src/index.ts",
       ),
+      "@mplus/addon-exporter": path.resolve(__dirname, "tools/addon-exporter/src/generate-lua.ts"),
       "@mplus/worker": path.resolve(__dirname, "apps/worker/src/public-api.ts"),
     },
   },

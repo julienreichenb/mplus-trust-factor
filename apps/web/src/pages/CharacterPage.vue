@@ -46,6 +46,14 @@ const authFlags = computed(
     ) ?? [],
 );
 
+const entitlements = computed(() => profile.value?.entitlements ?? {
+  detailsUnlocked: true,
+  runsUnlocked: true,
+  compareExpanded: true,
+});
+
+const raiderIoUsed = computed(() => profile.value?.raiderIoUsed ?? false);
+
 async function load(): Promise<void> {
   loading.value = true;
   error.value = null;
@@ -63,7 +71,7 @@ async function load(): Promise<void> {
     recent.add(identity);
     if (data.refreshStatus === "QUEUED") {
       void startPolling({
-        characterId: data.characterId,
+        identity,
         onUpdate: (status) => {
           if (profile.value) {
             profile.value = {
@@ -109,7 +117,7 @@ async function refresh(): Promise<void> {
     await api.refreshCharacter(identity);
     profile.value = { ...profile.value, refreshStatus: "QUEUED" };
     void startPolling({
-      characterId: profile.value.characterId,
+      identity,
       onUpdate: (status) => {
         if (profile.value) {
           profile.value = {
@@ -208,33 +216,33 @@ watch(
       <DimensionCards
         v-if="profile.score"
         :dimensions="profile.score.dimensions"
-        :locked="!profile.entitlements.detailsUnlocked"
+        :locked="!entitlements.detailsUnlocked"
       />
 
       <AuthenticitySection
         :authenticity-score="profile.score?.authenticityScore ?? null"
         :flags="authFlags"
-        :locked="!profile.entitlements.detailsUnlocked"
+        :locked="!entitlements.detailsUnlocked"
       />
 
       <RedFlagsList :flags="profile.redFlags" />
 
       <AnalyzedRunsSection
-        :last="profile.lastAnalyzedRun"
-        :highest="profile.highestAnalyzedRun"
-        :locked="!profile.entitlements.runsUnlocked"
+        :last="profile.lastAnalyzedRun ?? null"
+        :highest="profile.highestAnalyzedRun ?? null"
+        :locked="!entitlements.runsUnlocked"
       />
 
       <EquipmentSeasonSection
-        :equipment="profile.equipment"
-        :talents="profile.talents"
-        :season="profile.seasonSummary"
-        :locked="!profile.entitlements.detailsUnlocked"
+        :equipment="profile.equipment ?? null"
+        :talents="profile.talents ?? null"
+        :season="profile.seasonSummary ?? null"
+        :locked="!entitlements.detailsUnlocked"
       />
 
       <SourcesAttribution
         :sources="profile.sources"
-        :raider-io-used="profile.raiderIoUsed"
+        :raider-io-used="raiderIoUsed"
         :model-key="profile.score?.modelKey"
         :model-version="profile.score?.modelVersion"
         :calculated-at="profile.score?.calculatedAt"

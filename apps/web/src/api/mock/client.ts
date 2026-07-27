@@ -144,9 +144,11 @@ export function createMockApiClient(): MplusApiClient {
       } satisfies RefreshStatusResponse;
     },
 
-    async getRefreshStatus(characterId, signal) {
+    async getRefreshStatus(identity, signal) {
       await delay(30);
       assertNotAborted(signal);
+      const fixture = findFixture(identity);
+      const characterId = fixture?.profile.characterId ?? "unknown";
       const polls = (mockSession.refreshPolls.get(characterId) ?? 0) + 1;
       mockSession.refreshPolls.set(characterId, polls);
       if (polls < 2) {

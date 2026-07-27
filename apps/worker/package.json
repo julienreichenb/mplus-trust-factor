@@ -20,6 +20,8 @@
     "@mplus/database": "workspace:*",
     "@mplus/domain": "workspace:*",
     "@mplus/observability": "workspace:*",
+    "@mplus/addon-exporter": "workspace:*",
+    "@mplus/provider-blizzard": "workspace:*",
     "@mplus/scoring": "workspace:*",
     "bullmq": "^5.56.4",
     "ioredis": "^5.6.1"

@@ -24,6 +24,6 @@ Document OpenAPI routes (suggested):
 
 Auth: `ADMIN_API_KEY` header (MVP).
 
-## Interim
+## Status
 
-Frontend mock implements these operations against in-memory fixtures. Live client will call the same paths when Agent 5 lands.
+Applied by Agent 10 — `POST /api/v1/admin/score-models/:id/clone`, `PUT /api/v1/admin/score-models/:id`.

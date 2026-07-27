@@ -1,9 +1,9 @@
 import { onBeforeUnmount, ref } from "vue";
 import { api } from "../api/client";
-import type { RefreshStatusResponse } from "../api/types";
+import type { CharacterIdentityInput, RefreshStatusResponse } from "../api/types";
 
 export interface RefreshPollingOptions {
-  characterId: string;
+  identity: CharacterIdentityInput;
   onUpdate: (status: RefreshStatusResponse) => void;
   onComplete: (status: RefreshStatusResponse) => void;
   maxDurationMs?: number;
@@ -45,7 +45,7 @@ export function useRefreshPolling() {
         return;
       }
       try {
-        const status = await api.getRefreshStatus(options.characterId);
+        const status = await api.getRefreshStatus(options.identity);
         if (stopped) return;
         options.onUpdate(status);
         if (

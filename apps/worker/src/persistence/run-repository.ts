@@ -60,6 +60,8 @@ export interface RunRepository {
   ): Promise<MythicRun>;
   findLatestForCharacter(characterId: string): Promise<MythicRunWithRelations | null>;
   findHighestForCharacter(characterId: string): Promise<MythicRunWithRelations | null>;
+  findById(runId: string): Promise<MythicRunWithRelations | null>;
+  countForCharacter(characterId: string): Promise<number>;
   findWclSource(runId: string): Promise<{ reportCode: string; fightId: number } | null>;
   upsertRunAnalysis(input: {
     runId: string;
@@ -181,6 +183,19 @@ export function createRunRepository(prisma: PrismaClient): RunRepository {
         orderBy: [{ run: { keyLevel: "desc" } }, { run: { completedAt: "desc" } }],
       });
       return participant?.run ?? null;
+    },
+
+    async findById(runId) {
+      return prisma.mythicRun.findUnique({
+        where: { id: runId },
+        include: { dungeon: true, season: true, sources: true },
+      });
+    },
+
+    async countForCharacter(characterId) {
+      return prisma.runParticipant.count({
+        where: { characterId, isTargetCharacter: true },
+      });
     },
 
     async findWclSource(runId) {

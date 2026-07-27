@@ -1,11 +1,20 @@
 -- MPlusTrust: consumes generated static datasets only. No HTTP from Lua.
 MPlusTrust = MPlusTrust or {}
 
-local ADDON_NAME = ...
+local function normalizeKey(region, realm, name)
+  return string.lower(region .. "|" .. realm .. "|" .. name)
+end
 
-function MPlusTrust.GetGrade(_region, _realm, _name)
-  -- Agent 7 owns lookup against exported shards.
-  return nil
+function MPlusTrust.GetGrade(region, realm, name)
+  if not MPlusTrustDB or not MPlusTrustDB.grades then
+    return nil
+  end
+  local key = normalizeKey(region, realm, name)
+  local entry = MPlusTrustDB.grades[key]
+  if not entry then
+    return nil
+  end
+  return entry.grade, entry.score, entry.confidence
 end
 
 local frame = CreateFrame("Frame")

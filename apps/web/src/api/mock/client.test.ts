@@ -33,9 +33,9 @@ describe("mock API client", () => {
     const first = await api.getCharacterProfile(identity);
     expect(first.refreshStatus).toBe("QUEUED");
     await api.refreshCharacter(identity);
-    const mid = await api.getRefreshStatus(first.characterId);
+    const mid = await api.getRefreshStatus(identity);
     expect(mid.refreshStatus).toBe("IN_PROGRESS");
-    const done = await api.getRefreshStatus(first.characterId);
+    const done = await api.getRefreshStatus(identity);
     expect(done.refreshStatus).toBe("FRESH");
     const after = await api.getCharacterProfile(identity);
     expect(after.refreshStatus).toBe("FRESH");

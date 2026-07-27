@@ -3,7 +3,7 @@ import type {
   CharacterComparisonRequest,
   CharacterComparisonResponse,
   CharacterIdentityInput,
-  CharacterProfileView,
+  CharacterProfileResponse,
   MetaResponse,
   ModelValidationResult,
   MplusApiClient,
@@ -39,6 +39,10 @@ async function parseJson<T>(response: Response): Promise<T> {
     );
   }
   return body as T;
+}
+
+function identityPath(identity: CharacterIdentityInput): string {
+  return `/api/v1/characters/${encodeURIComponent(identity.region)}/${encodeURIComponent(identity.realmSlug)}/${encodeURIComponent(identity.name)}`;
 }
 
 export function createLiveApiClient(options: {
@@ -81,56 +85,61 @@ export function createLiveApiClient(options: {
 
     searchRealms: (region: RegionCode, query: string, signal) =>
       get<{ realms: RealmOption[] }>(
-        `/api/v1/realms?region=${encodeURIComponent(String(region))}&q=${encodeURIComponent(query)}`,
+        `/api/v1/realms?region=${encodeURIComponent(String(region))}&query=${encodeURIComponent(query)}`,
         signal,
       ).then((r) => r.realms),
 
     getCharacterProfile: (identity: CharacterIdentityInput, signal) =>
-      get<CharacterProfileView>(
-        `/api/v1/characters/${encodeURIComponent(identity.region)}/${encodeURIComponent(identity.realmSlug)}/${encodeURIComponent(identity.name)}`,
-        signal,
-      ),
+      get<CharacterProfileResponse>(identityPath(identity), signal),
 
     refreshCharacter: (identity, signal) =>
-      send<RefreshStatusResponse>("POST", "/api/v1/characters/refresh", identity, signal),
+      send<RefreshStatusResponse>("POST", `${identityPath(identity)}/refresh`, undefined, signal),
 
-    getRefreshStatus: (characterId, signal) =>
-      get<RefreshStatusResponse>(
-        `/api/v1/characters/${encodeURIComponent(characterId)}/refresh-status`,
-        signal,
-      ),
+    getRefreshStatus: (identity, signal) =>
+      get<RefreshStatusResponse>(`${identityPath(identity)}/refresh-status`, signal),
 
     compareCharacters: (request: CharacterComparisonRequest, signal) =>
-      send<CharacterComparisonResponse>("POST", "/api/v1/compare", request, signal),
+      send<CharacterComparisonResponse>("POST", "/api/v1/comparisons", request, signal),
 
-    listModels: (signal) => get<AdminScoreModelDTO[]>("/api/v1/admin/models", signal),
+    listModels: (signal) =>
+      get<{ models: AdminScoreModelDTO[] }>("/api/v1/admin/score-models", signal).then((r) => r.models),
 
     cloneModel: (modelId, signal) =>
-      send<AdminScoreModelDTO>("POST", `/api/v1/admin/models/${encodeURIComponent(modelId)}/clone`, {}, signal),
+      send<AdminScoreModelDTO>("POST", `/api/v1/admin/score-models/${encodeURIComponent(modelId)}/clone`, {}, signal),
 
     updateModel: (modelId, config, signal) =>
-      send<AdminScoreModelDTO>("PUT", `/api/v1/admin/models/${encodeURIComponent(modelId)}`, { config }, signal),
+      send<AdminScoreModelDTO>("PUT", `/api/v1/admin/score-models/${encodeURIComponent(modelId)}`, { config }, signal),
 
     validateModel: (modelId, config, signal) =>
       send<ModelValidationResult>(
         "POST",
-        `/api/v1/admin/models/${encodeURIComponent(modelId)}/validate`,
-        { config },
+        `/api/v1/admin/score-models/${encodeURIComponent(modelId)}/validate`,
+        config === undefined ? {} : { config },
         signal,
       ),
 
     backtestModel: (modelId, signal) =>
-      send<BacktestSummary>(
+      send<{
+        sampleSize: number;
+        meanScore: number;
+        gradeDistribution: Record<string, number>;
+        note: string;
+      }>(
         "POST",
-        `/api/v1/admin/models/${encodeURIComponent(modelId)}/backtest`,
+        `/api/v1/admin/score-models/${encodeURIComponent(modelId)}/backtest`,
         {},
         signal,
-      ),
+      ).then((r) => ({
+        cohortSize: r.sampleSize ?? 0,
+        meanOverall: r.meanScore ?? 0,
+        gradeDistribution: r.gradeDistribution ?? {},
+        notes: r.note ?? "",
+      })),
 
     activateModel: (modelId, signal) =>
       send<AdminScoreModelDTO>(
         "POST",
-        `/api/v1/admin/models/${encodeURIComponent(modelId)}/activate`,
+        `/api/v1/admin/score-models/${encodeURIComponent(modelId)}/activate`,
         {},
         signal,
       ),
