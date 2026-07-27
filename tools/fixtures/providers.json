@@ -1,7 +1,8 @@
 {
   "blizzard": {
+    "note": "Sanitized fixtures live under tools/fixtures/blizzard/ — see doc/api/blizzard/fixtures.md",
+    "fixtureRoot": "tools/fixtures/blizzard",
     "characterProfile": {
-      "note": "Sanitized fixture placeholder — Agent 1 replaces with verified shapes",
       "region": "EU",
       "realm": "tarren-mill",
       "name": "Examplecharacter"

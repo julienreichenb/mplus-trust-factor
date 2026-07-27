@@ -1,0 +1,11 @@
+{
+  "current_period": { "id": 952 },
+  "seasons": [{ "id": 12 }, { "id": 13 }],
+  "character": {
+    "name": "Examplecharacter",
+    "realm": { "slug": "tarren-mill" }
+  },
+  "current_mythic_rating": {
+    "rating": 2845.12
+  }
+}

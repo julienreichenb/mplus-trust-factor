@@ -6,5 +6,6 @@
     "composite": true
   },
   "include": ["src/**/*.ts"],
-  "references": [{ "path": "../../contracts" }]
+  "exclude": ["src/**/*.test.ts"],
+  "references": [{ "path": "../../contracts" }, { "path": "../../domain" }]
 }

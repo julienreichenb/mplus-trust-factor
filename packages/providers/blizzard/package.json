@@ -13,10 +13,13 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "smoke:live": "node ./dist/smoke-live.js"
   },
   "dependencies": {
-    "@mplus/contracts": "workspace:*"
+    "@mplus/contracts": "workspace:*",
+    "@mplus/domain": "workspace:*",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "typescript": "^5.8.3"

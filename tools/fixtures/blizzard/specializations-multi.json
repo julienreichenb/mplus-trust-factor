@@ -1,0 +1,38 @@
+{
+  "specializations": [
+    {
+      "specialization": {
+        "id": 63,
+        "name": "Fire",
+        "type": { "type": "DAMAGE", "name": "Damage" }
+      },
+      "loadouts": [
+        {
+          "is_active": true,
+          "talent_loadout_code": "C8DAH"
+        }
+      ]
+    },
+    {
+      "specialization": {
+        "id": 62,
+        "name": "Arcane",
+        "type": { "type": "DAMAGE", "name": "Damage" }
+      },
+      "loadouts": []
+    },
+    {
+      "specialization": {
+        "id": 64,
+        "name": "Frost",
+        "type": { "type": "DAMAGE", "name": "Damage" }
+      },
+      "loadouts": []
+    }
+  ],
+  "active_specialization": {
+    "id": 63,
+    "name": "Fire",
+    "type": { "type": "DAMAGE", "name": "Damage" }
+  }
+}
