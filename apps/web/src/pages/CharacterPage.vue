@@ -19,6 +19,7 @@ import EquipmentGrid from "../components/equipment/EquipmentGrid.vue";
 import TalentBuildPanel from "../components/talents/TalentBuildPanel.vue";
 import MethodologyPanel from "../components/methodology/MethodologyPanel.vue";
 import { resolveDataConfidence } from "../lib/characterViewModel";
+import { useWowheadTooltips } from "../composables/useWowheadTooltips";
 import { ApiClientError } from "../api/live-client";
 
 const props = defineProps<{
@@ -30,6 +31,7 @@ const props = defineProps<{
 const recent = useRecentSearchesStore();
 const { nextSignal } = useAbortableQuery();
 const { polling, start: startPolling, stop: stopPolling } = useRefreshPolling();
+useWowheadTooltips(true);
 
 const loading = ref(true);
 const error = ref<string | null>(null);

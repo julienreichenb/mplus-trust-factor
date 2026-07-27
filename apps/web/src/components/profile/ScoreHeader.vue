@@ -65,13 +65,7 @@ const classSpec = computed(() => {
     </div>
 
     <div class="hero-grid">
-      <CharacterMediaPanel
-        class="media"
-        :class-slug="profile.classSlug"
-        :spec-slug="profile.specSlug"
-        :role="profile.role"
-        :display-name="profile.displayName"
-      />
+      <CharacterMediaPanel class="media" :profile="profile" />
 
       <div class="identity">
         <p class="eyebrow">Character profile</p>

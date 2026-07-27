@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import type { EquipmentSummary } from "../../api/types";
-import { mapEquipmentSlots } from "../../lib/characterViewModel";
+import { toEquipmentViewModel } from "../../lib/equipmentViewModel";
 import EquipmentSlot from "./EquipmentSlot.vue";
 
 const props = defineProps<{
@@ -9,8 +9,7 @@ const props = defineProps<{
   locked?: boolean;
 }>();
 
-const slots = computed(() => mapEquipmentSlots(props.equipment));
-const filledCount = computed(() => slots.value.filter((s) => s.filled).length);
+const view = computed(() => toEquipmentViewModel(props.equipment));
 </script>
 
 <template>
@@ -18,24 +17,25 @@ const filledCount = computed(() => slots.value.filter((s) => s.filled).length);
     <header class="equipment__head">
       <h2 id="equipment-title">Equipped inventory</h2>
       <p v-if="locked" class="muted">Equipment details are locked by entitlement.</p>
-      <p v-else-if="!equipment" class="muted">No equipment snapshot is available for this character.</p>
+      <p v-else-if="!view" class="muted">No equipment snapshot is available for this character.</p>
       <p v-else class="meta">
         Equipped ilvl
-        <span class="mpts-data">{{ equipment.equippedItemLevel ?? "—" }}</span>
-        <template v-if="equipment.averageItemLevel != null">
-          · avg <span class="mpts-data">{{ equipment.averageItemLevel }}</span>
+        <span class="mpts-data">{{ view.equippedItemLevel ?? "—" }}</span>
+        <template v-if="view.averageItemLevel != null">
+          · avg <span class="mpts-data">{{ view.averageItemLevel }}</span>
         </template>
-        · {{ filledCount }} keyed item{{ filledCount === 1 ? "" : "s" }} in snapshot
+        · {{ view.filledCount }} keyed item{{ view.filledCount === 1 ? "" : "s" }} in snapshot
       </p>
     </header>
 
-    <template v-if="!locked && equipment">
+    <template v-if="!locked && view">
       <ul class="equipment__grid">
-        <EquipmentSlot v-for="slot in slots" :key="slot.id" :slot-view="slot" />
+        <EquipmentSlot v-for="item in view.items" :key="item.id" :item="item" />
       </ul>
       <p class="note">
         Only items present in the current API snapshot are named. Empty slots are unavailable, not
-        missing gear accusations. Icons and Wowhead enrichment are not enabled in this phase.
+        missing gear accusations. Icons and Wowhead links appear only when the payload provides trusted
+        media URLs or item IDs.
       </p>
     </template>
   </section>

@@ -1,7 +1,6 @@
 import type { DimensionScoreDTO } from "@mplus/contracts";
 import type {
   CharacterProfileView,
-  EquipmentSummary,
   Grade,
   RedFlagDTO,
 } from "../api/types";
@@ -22,6 +21,7 @@ export interface ContributorSignal {
   dimension?: string;
 }
 
+/** @deprecated Prefer EquipmentItemViewModel from equipmentViewModel. */
 export interface EquipmentSlotView {
   id: string;
   label: string;
@@ -29,25 +29,6 @@ export interface EquipmentSlotView {
   itemLevel: number | null;
   filled: boolean;
 }
-
-const EQUIPMENT_SLOT_DEFS: Array<{ id: string; label: string; match: RegExp }> = [
-  { id: "head", label: "Head", match: /^head$/i },
-  { id: "neck", label: "Neck", match: /^neck$/i },
-  { id: "shoulders", label: "Shoulders", match: /shoulder/i },
-  { id: "back", label: "Back", match: /^(back|cloak)$/i },
-  { id: "chest", label: "Chest", match: /^chest$/i },
-  { id: "wrist", label: "Wrists", match: /wrist/i },
-  { id: "hands", label: "Hands", match: /hand|glove/i },
-  { id: "waist", label: "Waist", match: /waist|belt/i },
-  { id: "legs", label: "Legs", match: /leg/i },
-  { id: "feet", label: "Feet", match: /feet|boot/i },
-  { id: "finger-1", label: "Ring 1", match: /finger|ring/i },
-  { id: "finger-2", label: "Ring 2", match: /finger|ring/i },
-  { id: "trinket-1", label: "Trinket 1", match: /trinket/i },
-  { id: "trinket-2", label: "Trinket 2", match: /trinket/i },
-  { id: "main-hand", label: "Main Hand", match: /main.?hand|weapon/i },
-  { id: "off-hand", label: "Off Hand", match: /off.?hand|shield/i },
-];
 
 const GRADE_INTERPRETATION: Record<Exclude<Grade, "U">, string> = {
   S: "Elite trust profile",
@@ -137,36 +118,7 @@ export function explanationSummary(score: CharacterProfileView["score"]): string
   return typeof summary === "string" && summary.trim() ? summary.trim() : null;
 }
 
-export function mapEquipmentSlots(equipment: EquipmentSummary | null | undefined): EquipmentSlotView[] {
-  const slots: EquipmentSlotView[] = EQUIPMENT_SLOT_DEFS.map((def) => ({
-    id: def.id,
-    label: def.label,
-    name: null,
-    itemLevel: null,
-    filled: false,
-  }));
-
-  if (!equipment?.keyItems?.length) return slots;
-
-  const used = new Set<string>();
-  for (const item of equipment.keyItems) {
-    const candidates = EQUIPMENT_SLOT_DEFS.filter((def) => def.match.test(item.slot));
-    const target = candidates.find((def) => !used.has(def.id)) ?? null;
-    if (!target) continue;
-    used.add(target.id);
-    const index = EQUIPMENT_SLOT_DEFS.findIndex((def) => def.id === target.id);
-    if (index < 0) continue;
-    slots[index] = {
-      id: target.id,
-      label: target.label,
-      name: item.name,
-      itemLevel: item.itemLevel,
-      filled: true,
-    };
-  }
-
-  return slots;
-}
+export { mapEquipmentSlots } from "./equipmentViewModel";
 
 export function dimensionRows(dimensions: DimensionScoreDTO[]) {
   return RADAR_DIMENSIONS.map((dim) => {

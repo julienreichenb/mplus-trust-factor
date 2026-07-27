@@ -1,39 +1,58 @@
 <script setup lang="ts">
-import { computed } from "vue";
-import { humanizeSlug } from "../../lib/characterViewModel";
+import { computed, ref, watch } from "vue";
+import type { CharacterProfileView } from "../../api/types";
+import { toCharacterMediaViewModel } from "../../lib/characterMediaViewModel";
 
 const props = defineProps<{
-  classSlug?: string | null;
-  specSlug?: string | null;
-  role?: string | null;
-  displayName?: string | null;
+  profile: CharacterProfileView;
 }>();
 
-const caption = computed(() => {
-  const parts = [
-    humanizeSlug(props.specSlug),
-    humanizeSlug(props.classSlug),
-    props.role ? props.role.toUpperCase() : null,
-  ].filter(Boolean);
-  return parts.length ? parts.join(" · ") : "Character media unavailable";
-});
+const media = computed(() => toCharacterMediaViewModel(props.profile));
+const imageFailed = ref(false);
+
+watch(
+  () => media.value.url,
+  () => {
+    imageFailed.value = false;
+  },
+);
+
+function onImageError(): void {
+  imageFailed.value = true;
+}
+
+const showImage = computed(
+  () => Boolean(media.value.url) && media.value.type !== "placeholder" && !imageFailed.value,
+);
 </script>
 
 <template>
-  <div class="media-panel" data-testid="character-media">
-    <div class="media-panel__frame" aria-hidden="true">
-      <div class="media-panel__glow" />
-      <div class="media-panel__silhouette" :data-role="role ?? 'unknown'" />
-      <span class="media-panel__mark">M+TS</span>
+  <div class="media-panel" data-testid="character-media" :data-media-type="media.type">
+    <div class="media-panel__frame" :aria-hidden="showImage ? undefined : 'true'">
+      <img
+        v-if="showImage"
+        class="media-panel__image"
+        :src="media.url!"
+        :alt="media.alt"
+        width="320"
+        height="427"
+        loading="lazy"
+        decoding="async"
+        @error="onImageError"
+      />
+      <template v-else>
+        <div class="media-panel__glow" />
+        <div class="media-panel__silhouette" :data-role="profile.role ?? 'unknown'" />
+        <span class="media-panel__mark">M+TS</span>
+      </template>
     </div>
     <p class="media-panel__caption">
-      <span class="media-panel__status">Media placeholder</span>
-      <span>{{ caption }}</span>
+      <span class="media-panel__status">
+        {{ showImage ? (media.type === "avatar" ? "Character avatar" : "Character render") : "Media placeholder" }}
+      </span>
+      <span>{{ media.caption }}</span>
     </p>
-    <p class="sr-only">
-      Character render is not available in this phase. Placeholder shown for
-      {{ displayName ?? "this character" }}.
-    </p>
+    <p v-if="!showImage" class="sr-only">{{ media.alt }}</p>
   </div>
 </template>
 
@@ -53,6 +72,13 @@ const caption = computed(() => {
   background:
     radial-gradient(circle at 50% 18%, rgb(245 158 11 / 16%), transparent 42%),
     linear-gradient(165deg, var(--color-iron-800), var(--color-obsidian-950) 58%);
+}
+
+.media-panel__image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .media-panel__glow {

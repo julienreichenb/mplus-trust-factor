@@ -40,6 +40,9 @@ describe("ScoreHeader", () => {
     expect(wrapper.get("[data-testid='grade']").text()).toContain("Grade A");
     expect(wrapper.get("[data-testid='confidence']").text()).toContain("78");
     expect(wrapper.get("[data-testid='freshness']").text()).toBe("FRESH");
+    expect(wrapper.get("[data-testid='character-media']").attributes("data-media-type")).toBe(
+      "placeholder",
+    );
   });
 });
 
@@ -59,6 +62,7 @@ describe("EquipmentGrid", () => {
     const wrapper = mount(EquipmentGrid, { props: { equipment } });
     expect(wrapper.text()).toContain("Unavailable");
     expect(wrapper.text()).toContain("0 keyed items");
+    expect(wrapper.findAll("a")).toHaveLength(0);
   });
 });
 
