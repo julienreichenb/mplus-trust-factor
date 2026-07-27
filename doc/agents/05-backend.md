@@ -3,7 +3,7 @@
 - Scope: Backend API, persistence services, worker orchestration
 - Branch/worktree: agent/backend
 - Date: 2026-07-27
-- Commit(s): `5359163`
+- Commit(s): `5359163` (implementation), `1671c78` (handoff hash)
 
 # Summary
 Implemented the versioned Fastify API (SWR character profile, refresh, comparison, jobs, public score models, MVP admin) and BullMQ worker orchestration with a staged refresh DAG. Fixture provider adapters live in the worker (DI) so e2e refresh persists a score without Agents 1–3. Repositories keep Prisma out of route handlers. OpenAPI generates from route schemas. Internal docs under `doc/api/internal/`.
