@@ -1,0 +1,101 @@
+/* Canonical M+ Trust Score design tokens.
+ * See doc/architecture/frontend/brand-and-ux-system.md.
+ */
+:root {
+  color-scheme: dark;
+
+  --mpts-void-1000: #050403;
+  --mpts-void-950: #090705;
+  --mpts-void-900: #100c09;
+  --mpts-surface-900: #17110d;
+  --mpts-surface-800: #211810;
+  --mpts-surface-700: #2c2016;
+  --mpts-border-subtle: #3b2b1e;
+  --mpts-border-strong: #654a2b;
+
+  --mpts-text-primary: #f7e8cf;
+  --mpts-text-secondary: #c9b18d;
+  --mpts-text-muted: #927b60;
+  --mpts-text-inverse: #100c09;
+
+  --mpts-brand-amber: #f2ad37;
+  --mpts-brand-amber-hover: #f7c65c;
+  --mpts-brand-ember: #cf7116;
+  --mpts-brand-bronze: #914b12;
+  --mpts-brand-stone: #b2946a;
+  --mpts-brand-ivory: #f0deb7;
+
+  --mpts-tier-s: #f4c653;
+  --mpts-tier-a: #5fd39a;
+  --mpts-tier-b: #65a9e8;
+  --mpts-tier-c: #a58be8;
+  --mpts-tier-d: #e76f65;
+
+  --mpts-success: #5fd39a;
+  --mpts-info: #65a9e8;
+  --mpts-warning: #f2ad37;
+  --mpts-danger: #e76f65;
+  --mpts-focus-ring: #ffcc66;
+
+  --mpts-chart-performance: #f2ad37;
+  --mpts-chart-survival: #58c7a5;
+  --mpts-chart-utility: #65a9e8;
+  --mpts-chart-experience: #a58be8;
+  --mpts-chart-raid: #df7fa5;
+  --mpts-chart-authenticity: #d2b98f;
+
+  --mpts-font-body: "Inter", "Segoe UI", system-ui, sans-serif;
+  --mpts-font-display: "Cinzel", Georgia, serif;
+  --mpts-font-data: "JetBrains Mono", Consolas, monospace;
+
+  --mpts-space-1: .25rem;
+  --mpts-space-2: .5rem;
+  --mpts-space-3: .75rem;
+  --mpts-space-4: 1rem;
+  --mpts-space-6: 1.5rem;
+  --mpts-space-8: 2rem;
+  --mpts-space-12: 3rem;
+  --mpts-space-16: 4rem;
+  --mpts-space-24: 6rem;
+
+  --mpts-radius-sm: .5rem;
+  --mpts-radius-md: .75rem;
+  --mpts-radius-lg: 1rem;
+  --mpts-radius-xl: 1.5rem;
+  --mpts-shadow-card: 0 18px 55px rgb(0 0 0 / 28%);
+  --mpts-glow-amber: 0 0 36px rgb(242 173 55 / 18%);
+  --mpts-duration-fast: 140ms;
+  --mpts-duration-normal: 200ms;
+  --mpts-ease-standard: cubic-bezier(.2, 0, 0, 1);
+  --mpts-content-marketing: 77.5rem;
+  --mpts-content-profile: 85rem;
+  --mpts-touch-target: 2.75rem;
+
+  /* Compatibility aliases during incremental migration. */
+  --bg: var(--mpts-void-950);
+  --bg-accent: var(--mpts-void-900);
+  --panel: var(--mpts-surface-900);
+  --panel-2: var(--mpts-surface-800);
+  --fg: var(--mpts-text-primary);
+  --muted: var(--mpts-text-muted);
+  --border: var(--mpts-border-subtle);
+  --accent: var(--mpts-brand-amber);
+  --accent-2: var(--mpts-brand-stone);
+  --warn: var(--mpts-warning);
+  --danger: var(--mpts-danger);
+  --ok: var(--mpts-success);
+  --font-body: var(--mpts-font-body);
+  --font-display: var(--mpts-font-display);
+}
+
+.mpts-data-value {
+  font-family: var(--mpts-font-data);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --mpts-duration-fast: 0ms;
+    --mpts-duration-normal: 0ms;
+  }
+}
