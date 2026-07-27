@@ -9,7 +9,8 @@ export { DEFAULT_STALE_QUEUED_MS, isStaleQueued } from "../persistence/job-stale
 export function buildBullmqExecutionJobId(dedupeKey: string, executionId = randomUUID()): string {
   // Unique per execution so terminal BullMQ jobs never block a requeue.
   // Logical dedupe remains on the IngestionJob.dedupeKey column.
-  return `${dedupeKey}:${executionId}`;
+  // BullMQ rejects ":" in custom job IDs — use a hyphen separator.
+  return `${dedupeKey}-${executionId}`;
 }
 
 export interface PersistAndEnqueueDeps {

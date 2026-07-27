@@ -142,8 +142,9 @@ describe("persistAndEnqueue", () => {
     expect(order).toEqual(["resolve", "promote"]);
     expect(add).toHaveBeenCalledTimes(1);
     const bullJobId = add.mock.calls[0]![2].jobId as string;
-    expect(bullJobId.startsWith("dedupe-1:")).toBe(true);
+    expect(bullJobId.startsWith("dedupe-1-")).toBe(true);
     expect(bullJobId).not.toBe("dedupe-1");
+    expect(bullJobId).not.toContain(":");
     expect(result.enqueued).toBe(true);
     expect(result.jobId).toBe(queued.id);
     expect(jobRepository.promoteToQueuedAfterEnqueue).toHaveBeenCalled();
