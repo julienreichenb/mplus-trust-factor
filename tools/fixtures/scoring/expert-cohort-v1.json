@@ -1,0 +1,34 @@
+{
+  "cohortVersion": "v1",
+  "description": "Synthetic expert cohort for golden scoring invariant tests",
+  "characters": [
+    {
+      "id": "cohort-char-001",
+      "region": "EU",
+      "realmSlug": "tarren-mill",
+      "name": "Syntheticexpert",
+      "expectedScoreRange": { "min": 0, "max": 100 },
+      "observations": [
+        {
+          "metricKey": "performance.spec_percentile",
+          "dimension": "PERFORMANCE",
+          "rawValue": 88,
+          "normalizedValue": 88,
+          "confidence": 0.85,
+          "observedAt": "2026-07-20T18:00:00.000Z",
+          "sourceProvider": "warcraftlogs",
+          "coverage": { "present": 8, "expected": 10, "ratio": 0.8 },
+          "context": {}
+        }
+      ]
+    },
+    {
+      "id": "cohort-char-002",
+      "region": "EU",
+      "realmSlug": "kazzak",
+      "name": "Syntheticcarry",
+      "expectedScoreRange": { "min": 0, "max": 100 },
+      "observations": []
+    }
+  ]
+}

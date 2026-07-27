@@ -4,7 +4,7 @@ import swagger from "@fastify/swagger";
 import swaggerUi from "@fastify/swagger-ui";
 import { type AppEnv, loadEnv } from "@mplus/config";
 import { checkDatabaseHealth, prisma } from "@mplus/database";
-import { SECRET_REDACT_PATHS, createRequestId } from "@mplus/observability";
+import { SECRET_REDACT_PATHS, createRequestId, getMetricsRegistry } from "@mplus/observability";
 import type { ApiErrorEnvelope, MetaResponse } from "@mplus/contracts";
 
 export interface BuildAppOptions {
@@ -65,6 +65,31 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     };
     void reply.status(statusCode).send(body);
   });
+
+  app.addHook("onResponse", async (request, reply) => {
+    getMetricsRegistry().recordHttpRequest(
+      request.routeOptions.url ?? request.url,
+      request.method,
+      reply.statusCode,
+      reply.elapsedTime,
+    );
+  });
+
+  app.get(
+    "/metrics",
+    {
+      schema: {
+        tags: ["observability"],
+        response: {
+          200: { type: "string" },
+        },
+      },
+    },
+    async (_request, reply) => {
+      const body = getMetricsRegistry().toPrometheusText();
+      return reply.type("text/plain; version=0.0.4; charset=utf-8").send(body);
+    },
+  );
 
   app.get(
     "/health/live",

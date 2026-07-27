@@ -1,0 +1,27 @@
+{
+  "region": "eu",
+  "realm": "tarren-mill",
+  "name": "Syntheticexpert",
+  "mythic_plus_scores": {
+    "all": 3125.4,
+    "dps": 3125.4
+  },
+  "mythic_plus_ranks": {
+    "overall": {
+      "world": 12000,
+      "region": 3500,
+      "realm": 42
+    }
+  },
+  "mythic_plus_recent_runs": [
+    {
+      "dungeon": "ara-kara",
+      "mythic_level": 12,
+      "completed_at": "2026-07-15T20:30:00.000Z",
+      "clear_time_ms": 1980000,
+      "par_time_ms": 2040000,
+      "score": 412.5,
+      "affixes": [10, 9]
+    }
+  ]
+}

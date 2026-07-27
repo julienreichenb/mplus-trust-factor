@@ -1,10 +1,9 @@
-# Testing notes (Agent 0 foundation)
+# Testing notes
 
-- Unit tests: Vitest, `PROVIDER_MODE=fixture`
-- Integration: Compose Postgres via `pnpm test:integration`
-- API health: Fastify inject
-- Queue payloads: Zod schemas in `@mplus/contracts`
-- Web: router smoke test
-- Scoring engine tests: `describe.todo` owned by Agent 4
+See `doc/testing/strategy.md` for the full pyramid and commands.
 
-Agent 9 expands security, Playwright, and broader fixture utilities.
+- Unit + contract + data-quality + security + failure: `pnpm test`
+- Integration: `pnpm test:integration` (Postgres via `pnpm dev:infra`)
+- Load: `pnpm test:load` (local API)
+- Fixture governance: `doc/testing/fixtures.md`
+- Owned by Agent 9 (`@mplus/test-utils`, `tests/**`)

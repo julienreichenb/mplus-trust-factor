@@ -1,0 +1,44 @@
+{
+  "characterCanonicalId": 123456789,
+  "runs": [
+    {
+      "id": "run-synthetic-001",
+      "region": "EU",
+      "seasonSlug": "season-midnight-s1",
+      "dungeonSlug": "ara-kara",
+      "keyLevel": 12,
+      "completedAt": "2026-07-15T20:30:00.000Z",
+      "durationMs": 1980000,
+      "timerMs": 2040000,
+      "timed": true,
+      "scoreValue": 412.5,
+      "canonicalFingerprint": "a1b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef123456",
+      "affixes": ["fortified", "tyrannical"],
+      "participants": [
+        {
+          "providerCharacterKey": "eu|tarren-mill|syntheticexpert",
+          "displayName": "Syntheticexpert",
+          "realmSlug": "tarren-mill",
+          "region": "EU",
+          "classSlug": "mage",
+          "specSlug": "fire",
+          "role": "DPS",
+          "itemLevel": 684,
+          "mythicRatingAtRun": 3100,
+          "isTargetCharacter": true,
+          "characterId": null
+        }
+      ],
+      "sources": [
+        {
+          "provider": "WARCRAFT_LOGS",
+          "externalRunId": "wcl-run-001",
+          "externalUrl": "https://www.warcraftlogs.com/reports/SYNTHETIC01",
+          "reportCode": "SYNTHETIC01",
+          "fightId": 3,
+          "revision": 1
+        }
+      ]
+    }
+  ]
+}

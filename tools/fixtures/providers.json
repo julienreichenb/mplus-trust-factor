@@ -1,5 +1,6 @@
 {
   "blizzard": {
+    "note": "See tools/fixtures/manifest.json — blizzard-character-profile-v1",
     "characterProfile": {
       "note": "Sanitized fixture placeholder — Agent 1 replaces with verified shapes",
       "region": "EU",
@@ -8,7 +9,7 @@
     }
   },
   "warcraftlogs": {
-    "note": "Sanitized GraphQL fixtures — see tools/fixtures/warcraftlogs/",
+    "note": "See tools/fixtures/manifest.json — warcraftlogs-character-runs-v1",
     "scenarios": [
       "character-with-rankings",
       "public-mplus-report",
@@ -26,7 +27,7 @@
     }
   },
   "raiderio": {
-    "note": "Sanitized fixtures — see tools/fixtures/raiderio/",
+    "note": "See tools/fixtures/manifest.json — raiderio-character-profile-v1",
     "fixtures": [
       "character-profile-eu.json",
       "character-profile-partial.json",

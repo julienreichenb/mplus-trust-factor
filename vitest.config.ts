@@ -24,6 +24,9 @@ export default defineConfig({
         "packages/providers/raiderio/src/index.ts",
       ),
       "@mplus/worker": path.resolve(__dirname, "apps/worker/src/public-api.ts"),
+      "@mplus/addon-exporter": path.resolve(__dirname, "tools/addon-exporter/src/generate-lua.ts"),
+      "@mplus/test-utils": path.resolve(__dirname, "packages/test-utils/src/index.ts"),
+      "@mplus/api-app": path.resolve(__dirname, "apps/api/src/app.ts"),
     },
   },
   test: {

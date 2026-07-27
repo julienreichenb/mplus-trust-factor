@@ -43,3 +43,20 @@ export function createRequestId(existing?: string | null): string {
 }
 
 export type { Logger };
+
+export {
+  constantTimeEqual,
+  escapeHtml,
+  isAllowedProviderHost,
+  assertAllowedProviderUrl,
+  redactSecretsInObject,
+  DEFAULT_ALLOWED_PROVIDER_HOSTS,
+} from "./security.js";
+
+export {
+  MetricsRegistry,
+  getMetricsRegistry,
+  resetMetricsRegistry,
+  type ProviderRequestLabels,
+  type WclBudgetSnapshot,
+} from "./metrics.js";
