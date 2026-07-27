@@ -8,8 +8,7 @@
 
 ## Commit
 
-- Feature: `97d346b9d7440f6239255a13c3bd11f6815db9fb`
-- Branch tip: `f72fb8fab259992e8d2d672c785418c41417cded`
+`97d346b9d7440f6239255a13c3bd11f6815db9fb` (feature)
 
 ## Summary
 
