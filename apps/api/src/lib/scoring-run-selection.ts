@@ -56,23 +56,41 @@ export function resolveCombatCoverageState(input: {
 function perfForDungeon(
   performanceSummary: PerformanceSummaryDTO | null | undefined,
   dungeonSlug: string,
-): { parsePercentile: number | null; evidenceSummary: string | null } {
+): {
+  parsePercentile: number | null;
+  keyDifficultyPercentile: number | null;
+  evidenceSummary: string | null;
+} {
   const dungeon = performanceSummary?.currentSeason.dungeons.find(
     (d) => d.dungeonSlug === dungeonSlug,
   );
-  if (!dungeon) return { parsePercentile: null, evidenceSummary: null };
+  if (!dungeon) {
+    return { parsePercentile: null, keyDifficultyPercentile: null, evidenceSummary: null };
+  }
   const parse =
+    dungeon.executionPercentile ??
     dungeon.bestParsePercentile ??
     dungeon.bestRun?.parsePercentile ??
     dungeon.latestRun?.parsePercentile ??
     null;
+  const keyDifficulty = dungeon.keyDifficultyPercentile ?? null;
+  const runPerf = dungeon.runPerformance;
   const evidence =
-    parse != null
-      ? `Best parse ${Math.round(parse)}% across ${dungeon.loggedRunCount} logged run(s).`
-      : dungeon.loggedRunCount > 0
-        ? `${dungeon.loggedRunCount} logged run(s); parse percentile unavailable.`
-        : null;
-  return { parsePercentile: parse, evidenceSummary: evidence };
+    runPerf != null && parse != null && keyDifficulty != null
+      ? `Parse ${Math.round(parse)}% · key difficulty ${Math.round(keyDifficulty)}% · run ${Math.round(runPerf)}%.`
+      : parse != null
+        ? `Selected-run parse ${Math.round(parse)}%` +
+          (keyDifficulty != null
+            ? ` · key difficulty ${Math.round(keyDifficulty)}%.`
+            : ` across ${dungeon.loggedRunCount} logged run(s).`)
+        : dungeon.loggedRunCount > 0
+          ? `${dungeon.loggedRunCount} logged run(s); parse percentile unavailable.`
+          : null;
+  return {
+    parsePercentile: parse,
+    keyDifficultyPercentile: keyDifficulty,
+    evidenceSummary: evidence,
+  };
 }
 
 /**
@@ -169,6 +187,7 @@ export function mapScoringRunSelectionProfile(input: {
       missingMetrics.push("wcl_match", "combat_facts");
     }
     if (perf.parsePercentile == null) missingMetrics.push("parse_percentile");
+    if (perf.keyDifficultyPercentile == null) missingMetrics.push("key_difficulty_percentile");
     if (combatCoverageState === "PARTIAL") missingMetrics.push("combat_coverage");
 
     return {
@@ -186,7 +205,7 @@ export function mapScoringRunSelectionProfile(input: {
       wclReportMatched: selected.wclReportMatched,
       wclCoverageRatio: coverageRatio,
       parsePercentile: perf.parsePercentile,
-      keyDifficultyPercentile: null,
+      keyDifficultyPercentile: perf.keyDifficultyPercentile,
       evidenceSummary,
       missingMetrics: [...new Set(missingMetrics)],
     };

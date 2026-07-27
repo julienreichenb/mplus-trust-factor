@@ -54,6 +54,39 @@ export {
   CURRENT_SEASON_PEAK_WEIGHT,
   CURRENT_SEASON_CONSISTENCY_WEIGHT,
 } from "./performance/aggregate.js";
+export {
+  computeKeyDifficultyPercentile,
+  interpolateKeyDifficultyPercentile,
+  BOUNDED_KEY_DIFFICULTY_ANCHORS,
+  BOUNDED_KEY_DIFFICULTY_SOFT_CAP,
+} from "./performance/key-difficulty.js";
+export type {
+  KeyDifficultyAnchor,
+  KeyDifficultyResult,
+  KeyDifficultyNormalizationSource,
+  SeasonKeyDifficultyContext,
+} from "./performance/key-difficulty.js";
+export { resolveSelectedRunParsePercentile } from "./performance/parse-binding.js";
+export type {
+  RankingParseCandidate,
+  SelectedRunParseBinding,
+  ParseBindingSource,
+} from "./performance/parse-binding.js";
+export {
+  computePerformanceDimensionV3,
+  computeRunPerformance,
+  computePerformanceV3Confidence,
+  resolvePerformanceV3MetricWeights,
+  PERFORMANCE_V3_EXECUTION_WEIGHT,
+  PERFORMANCE_V3_KEY_DIFFICULTY_WEIGHT,
+  PERFORMANCE_V3_FORMULA_VERSION,
+} from "./performance/v3.js";
+export type {
+  PerformanceV3DungeonInput,
+  PerformanceV3DungeonResult,
+  ComputePerformanceV3Input,
+  ComputePerformanceV3Result,
+} from "./performance/v3.js";
 export type {
   PerformanceSummaryDTO,
   ComputePerformanceResult,

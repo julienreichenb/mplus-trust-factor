@@ -46,7 +46,10 @@ export interface WclRankingObservation {
   keyLevel: number | null;
   score: number | null;
   amount: number | null;
+  /** Resolved execution percentile (prefers rankPercent when WCL provides it). */
   percentile: number | null;
+  /** Raw bracket-aware rank percent when present on the ranking row. */
+  rankPercent?: number | null;
   specSlug: string | null;
   roleSlug: string | null;
   durationMs: number | null;
@@ -79,6 +82,11 @@ export interface WclRunCandidate {
   seasonSlug: string | null;
   keyLevel: number | null;
   score: number | null;
+  /** Parse percentile from the ranking row for this report/fight when present. */
+  parsePercentile?: number | null;
+  /** Bracket-aware rank percent when WCL provided it on the row. */
+  rankPercent?: number | null;
+  bracket?: number | null;
   startTimeMs: number | null;
   completedAt: IsoDateTime | null;
   durationMs: number | null;

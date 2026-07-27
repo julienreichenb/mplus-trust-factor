@@ -53,15 +53,31 @@ export interface PerformanceExplanatoryRun {
 export interface PerformanceDungeonSummary {
   dungeonSlug: string;
   dungeonName: string;
+  /** v2: best parse; v3: selected-run execution percentile (same field for DTO compat). */
   bestParsePercentile: number | null;
+  /** v2: median parse; unused as a v3 driver (may be null). */
   medianParsePercentile: number | null;
   loggedRunCount: number;
   bestRun: PerformanceExplanatoryRun | null;
   latestRun: PerformanceExplanatoryRun | null;
+  /** Performance v3 — selected highest-key run execution percentile. */
+  executionPercentile?: number | null;
+  /** Performance v3 — season-relative key difficulty percentile. */
+  keyDifficultyPercentile?: number | null;
+  /** Performance v3 — 65% execution + 35% key difficulty. */
+  runPerformance?: number | null;
+  /** Per-dungeon confidence (missing detail lowers confidence, never invents zeros). */
+  dungeonConfidence?: number | null;
+  /** Provenance label for the dungeon score inputs. */
+  source?: string | null;
+  selectedKeyLevel?: number | null;
+  canonicalRunId?: string | null;
 }
 
 export interface PerformanceCurrentSeasonSummary {
+  /** v2 peak; v3 surfaces mean selected-run execution for explanation continuity. */
   peakScore: number | null;
+  /** v2 consistency; v3 surfaces mean key-difficulty for explanation continuity. */
   consistencyScore: number | null;
   score: number | null;
   confidence: number;
@@ -69,6 +85,8 @@ export interface PerformanceCurrentSeasonSummary {
   expectedDungeonCount: number;
   latestObservedAt: IsoDateTime | null;
   dungeons: PerformanceDungeonSummary[];
+  /** Present when summary was produced by Performance v3. */
+  formulaVersion?: string | null;
 }
 
 export interface PerformanceHistoricalSeasonSummary {
