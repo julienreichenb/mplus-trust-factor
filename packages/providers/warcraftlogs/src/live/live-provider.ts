@@ -31,6 +31,7 @@ import {
   mythicRunPlaceholders,
   rankingsToCandidates,
   recentReportsToCandidates,
+  countParseStyleRankingRows,
 } from "../discovery/run-discovery.js";
 import {
   MAX_RECENT_REPORTS_LIMIT,
@@ -118,6 +119,51 @@ function requireTargetCharacter(ctx: ProviderFetchContext): CharacterIdentityInp
     );
   }
   return ctx.targetCharacter;
+}
+
+/** Live WCL returns friendlyPlayers as actor IDs; fixtures may still embed player objects. */
+function resolveFriendlyPlayers(
+  friendlyPlayers:
+    | Array<
+        | number
+        | {
+            id: number;
+            name: string;
+            server: string;
+            type: string;
+            icon?: string | null;
+          }
+      >
+    | null
+    | undefined,
+  actors: Array<{
+    id: number;
+    name: string;
+    type: string;
+    subType?: string | null;
+    server?: string | null;
+  }>,
+): Array<{ id: number; name: string; server: string; type: string; icon: string | null }> {
+  const byId = new Map(actors.map((a) => [a.id, a]));
+  return (friendlyPlayers ?? []).map((entry) => {
+    if (typeof entry === "number") {
+      const actor = byId.get(entry);
+      return {
+        id: entry,
+        name: actor?.name ?? "",
+        server: actor?.server ?? "",
+        type: actor?.type ?? "Player",
+        icon: null,
+      };
+    }
+    return {
+      id: entry.id,
+      name: entry.name,
+      server: entry.server,
+      type: entry.type,
+      icon: entry.icon ?? null,
+    };
+  });
 }
 
 export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
@@ -324,10 +370,14 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
         rankingsResult.response.data,
         "ZoneRankings",
       );
-      rankings = mapZoneRankings(
-        rankingsParsed.characterData.character?.zoneRankings,
-        this.zoneConfig.zoneId,
-      );
+      const zonePayload = rankingsParsed.characterData.character?.zoneRankings;
+      const rowCounts = countParseStyleRankingRows(zonePayload);
+      if (rowCounts.totalRows > 0 && rowCounts.parseRows === 0) {
+        warnings.push(
+          `zoneRankings returned ${rowCounts.totalRows} aggregate row(s) without report/fightID — Parses compare payload unavailable; falling back to recentReports stubs`,
+        );
+      }
+      rankings = mapZoneRankings(zonePayload, this.zoneConfig.zoneId);
     } else {
       warnings.push(
         `Skipped zoneRankings — configured zone ${this.zoneConfig.zoneId} is expired`,
@@ -436,13 +486,14 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
       });
     }
 
+    const actors = report.masterData?.actors ?? [];
     const combatFacts = await buildRunCombatFactsFromEvents(this.client, {
       reportCode,
       fightId,
       revision: report.revision,
       characterName,
       realmSlug,
-      actors: report.masterData?.actors ?? [],
+      actors,
       includeHealing,
       rateBudget: budget,
     });
@@ -470,13 +521,7 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
         endTime: fight.endTime,
         bracket: fight.keystoneLevel ?? null,
         keystoneLevel: fight.keystoneLevel ?? null,
-        friendlyPlayers: (fight.friendlyPlayers ?? []).map((p) => ({
-          id: p.id,
-          name: p.name,
-          server: p.server,
-          type: p.type,
-          icon: p.icon ?? null,
-        })),
+        friendlyPlayers: resolveFriendlyPlayers(fight.friendlyPlayers, actors),
       },
       combatFacts,
     };

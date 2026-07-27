@@ -146,43 +146,61 @@ export const characterResolveSchema = z.object({
   }),
 });
 
+/** Live API returns zoneRankings as a JSON scalar; fixtures may embed the object directly.
+ * Parse-style rows include report+fightID; aggregate/allStars rows do not and are ignored. */
+export const zoneRankingParseRowSchema = z.object({
+  report: z.object({
+    code: z.string(),
+    startTime: z.number(),
+    endTime: z.number().nullable().optional(),
+  }),
+  fightID: z.number(),
+  encounterID: z.number().nullable().optional(),
+  difficulty: z.number().nullable().optional(),
+  kill: z.boolean().nullable().optional(),
+  duration: z.number().nullable().optional(),
+  bracket: z.number().nullable().optional(),
+  score: z.number().nullable().optional(),
+  total: z.number().nullable().optional(),
+  amount: z.number().nullable().optional(),
+  spec: z.string().nullable().optional(),
+  role: z.string().nullable().optional(),
+  startTime: z.number().nullable().optional(),
+});
+
+export const zoneRankingsPayloadSchema = z
+  .object({
+    metric: z.string().nullable().optional(),
+    difficulty: z.number().nullable().optional(),
+    rankPercent: z.number().nullable().optional(),
+    totalParses: z.number().nullable().optional(),
+    zone: z
+      .union([
+        z.number(),
+        z.object({ id: z.number(), name: z.string().nullable().optional() }),
+      ])
+      .nullable()
+      .optional(),
+    // Accept both parse-style and aggregate ranking rows; mapping filters to parse-style.
+    rankings: z.array(z.unknown()).optional().default([]),
+  })
+  .passthrough()
+  .nullable();
+
 export const zoneRankingsSchema = z.object({
   characterData: z.object({
     character: z
       .object({
-        zoneRankings: z
-          .object({
-            metric: z.string().nullable().optional(),
-            difficulty: z.number().nullable().optional(),
-            rankPercent: z.number().nullable().optional(),
-            totalParses: z.number().nullable().optional(),
-            zone: z.object({ id: z.number(), name: z.string().nullable().optional() }).nullable().optional(),
-            rankings: z
-              .array(
-                z.object({
-                  report: z.object({
-                    code: z.string(),
-                    startTime: z.number(),
-                    endTime: z.number().nullable().optional(),
-                  }),
-                  fightID: z.number(),
-                  encounterID: z.number().nullable().optional(),
-                  difficulty: z.number().nullable().optional(),
-                  kill: z.boolean().nullable().optional(),
-                  duration: z.number().nullable().optional(),
-                  bracket: z.number().nullable().optional(),
-                  score: z.number().nullable().optional(),
-                  total: z.number().nullable().optional(),
-                  amount: z.number().nullable().optional(),
-                  spec: z.string().nullable().optional(),
-                  role: z.string().nullable().optional(),
-                  startTime: z.number().nullable().optional(),
-                }),
-              )
-              .optional()
-              .default([]),
-          })
-          .nullable(),
+        zoneRankings: z.preprocess((value) => {
+          if (typeof value === "string") {
+            try {
+              return JSON.parse(value) as unknown;
+            } catch {
+              return value;
+            }
+          }
+          return value;
+        }, zoneRankingsPayloadSchema),
       })
       .nullable(),
   }),
@@ -236,15 +254,19 @@ export const reportFightSchema = z.object({
             startTime: z.number(),
             endTime: z.number(),
             keystoneLevel: z.number().nullable().optional(),
+            // Live schema: actor ID ints. Legacy fixtures may still embed player objects.
             friendlyPlayers: z
               .array(
-                z.object({
-                  id: z.number(),
-                  name: z.string(),
-                  server: z.string(),
-                  type: z.string(),
-                  icon: z.string().nullable().optional(),
-                }),
+                z.union([
+                  z.number(),
+                  z.object({
+                    id: z.number(),
+                    name: z.string(),
+                    server: z.string(),
+                    type: z.string(),
+                    icon: z.string().nullable().optional(),
+                  }),
+                ]),
               )
               .nullable()
               .optional(),

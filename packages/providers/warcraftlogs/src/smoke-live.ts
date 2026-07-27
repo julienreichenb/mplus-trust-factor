@@ -243,6 +243,11 @@ async function probeRankingsDiagnostics(
   rawRankingRowCount: number;
   totalParsesSum: number | null;
   graphqlErrors: string[];
+  payloadKind: string | null;
+  payloadTopKeys: string[] | null;
+  firstRankingKeys: string[] | null;
+  firstRankingNestedKeys: Record<string, string[] | string> | null;
+  hasReportFightFields: boolean | null;
 }> {
   if (!queried) {
     return {
@@ -250,6 +255,11 @@ async function probeRankingsDiagnostics(
       rawRankingRowCount: 0,
       totalParsesSum: null,
       graphqlErrors: [],
+      payloadKind: null,
+      payloadTopKeys: null,
+      firstRankingKeys: null,
+      firstRankingNestedKeys: null,
+      hasReportFightFields: null,
     };
   }
   const client = provider.getGraphQlClient();
@@ -265,25 +275,74 @@ async function probeRankingsDiagnostics(
       },
       region: identity.region,
     });
-    const zoneRankings = (
+    let zoneRankings = (
       result.response.data as {
         characterData?: {
           character?: {
-            zoneRankings?: {
-              totalParses?: number | null;
-              rankings?: unknown[] | null;
-            } | null;
+            zoneRankings?: unknown;
           } | null;
         };
       }
     )?.characterData?.character?.zoneRankings;
-    const rankings = zoneRankings?.rankings ?? [];
+
+    if (typeof zoneRankings === "string") {
+      try {
+        zoneRankings = JSON.parse(zoneRankings) as unknown;
+      } catch {
+        /* keep string */
+      }
+    }
+
+    const payloadKind =
+      zoneRankings == null
+        ? "null"
+        : Array.isArray(zoneRankings)
+          ? "array"
+          : typeof zoneRankings;
+    const payloadTopKeys =
+      zoneRankings && typeof zoneRankings === "object" && !Array.isArray(zoneRankings)
+        ? Object.keys(zoneRankings as object).slice(0, 20)
+        : null;
+    const asObj = zoneRankings as {
+      totalParses?: number | null;
+      rankings?: unknown;
+    } | null;
+    const rankings = Array.isArray(asObj?.rankings)
+      ? asObj!.rankings
+      : Array.isArray(zoneRankings)
+        ? zoneRankings
+        : [];
+    const first = rankings[0];
+    const firstRankingKeys =
+      first && typeof first === "object" ? Object.keys(first as object).slice(0, 30) : null;
+    const firstRankingNestedKeys: Record<string, string[] | string> = {};
+    if (first && typeof first === "object") {
+      for (const [key, value] of Object.entries(first as Record<string, unknown>).slice(0, 20)) {
+        if (value && typeof value === "object" && !Array.isArray(value)) {
+          firstRankingNestedKeys[key] = Object.keys(value as object).slice(0, 20);
+        } else if (Array.isArray(value)) {
+          firstRankingNestedKeys[key] = `array(${value.length})`;
+        } else {
+          firstRankingNestedKeys[key] = typeof value;
+        }
+      }
+    }
+
     return {
       zoneRankingsQueried: true,
       rawRankingRowCount: rankings.length,
-      totalParsesSum:
-        typeof zoneRankings?.totalParses === "number" ? zoneRankings.totalParses : null,
+      totalParsesSum: typeof asObj?.totalParses === "number" ? asObj.totalParses : null,
       graphqlErrors: (result.response.errors ?? []).map((e) => e.message),
+      payloadKind,
+      payloadTopKeys,
+      firstRankingKeys,
+      firstRankingNestedKeys,
+      hasReportFightFields: Boolean(
+        first &&
+          typeof first === "object" &&
+          (("report" in (first as object) && "fightID" in (first as object)) ||
+            ("fightId" in (first as object) && "reportCode" in (first as object))),
+      ),
     };
   } catch (error) {
     return {
@@ -291,6 +350,11 @@ async function probeRankingsDiagnostics(
       rawRankingRowCount: 0,
       totalParsesSum: null,
       graphqlErrors: [errorMessage(error)],
+      payloadKind: null,
+      payloadTopKeys: null,
+      firstRankingKeys: null,
+      firstRankingNestedKeys: null,
+      hasReportFightFields: null,
     };
   }
 }
@@ -375,10 +439,15 @@ async function probeRecentReportDetails(
             endTime?: number;
             fights?: Array<{
               id: number;
-              friendlyPlayers?: Array<{ name?: string; server?: string }>;
+              friendlyPlayers?: Array<number | { name?: string; server?: string; id?: number }>;
             }>;
             masterData?: {
-              actors?: Array<{ name?: string; server?: string | null; type?: string }>;
+              actors?: Array<{
+                id?: number;
+                name?: string;
+                server?: string | null;
+                type?: string;
+              }>;
             };
           } | null;
         };
@@ -391,8 +460,15 @@ async function probeRecentReportDetails(
         (name ?? "").toLowerCase() === targetName &&
         ((server ?? "").toLowerCase() === targetRealm || !server);
       const inMaster = actors.some((a) => a.type === "Player" && nameMatches(a.name, a.server));
+      const actorsById = new Map(actors.filter((a) => a.id != null).map((a) => [a.id!, a]));
       const inFriendly = (report?.fights ?? []).some((f) =>
-        (f.friendlyPlayers ?? []).some((p) => nameMatches(p.name, p.server)),
+        (f.friendlyPlayers ?? []).some((p) => {
+          if (typeof p === "number") {
+            const actor = actorsById.get(p);
+            return nameMatches(actor?.name, actor?.server);
+          }
+          return nameMatches(p.name, p.server);
+        }),
       );
 
       out.push({
@@ -469,28 +545,26 @@ async function readPersistenceDiagnostics(identity: CharacterIdentityInput): Pro
     return { available: false, reason: "DATABASE_URL unset" };
   }
   try {
-    // Smoke-only: load workspace database package without coupling the provider to it.
-    let createPrismaClient: (url?: string) => {
-      region: { findUnique: (args: unknown) => Promise<{ id: string } | null> };
-      realm: { findUnique: (args: unknown) => Promise<{ id: string } | null> };
-      character: { findUnique: (args: unknown) => Promise<{ id: string } | null> };
-      characterProviderState: {
-        findUnique: (args: unknown) => Promise<Record<string, unknown> | null>;
+    const { createRequire } = await import("node:module");
+    const { resolve: resolvePath } = await import("node:path");
+    const dbPkg = resolvePath(process.cwd(), "packages/database/package.json");
+    const requireFromDb = createRequire(dbPkg);
+    const { createPrismaClient } = requireFromDb("./dist/index.js") as {
+      createPrismaClient: (url?: string) => {
+        region: { findUnique: (args: unknown) => Promise<{ id: string } | null> };
+        realm: { findUnique: (args: unknown) => Promise<{ id: string } | null> };
+        character: { findUnique: (args: unknown) => Promise<{ id: string } | null> };
+        characterProviderState: {
+          findUnique: (args: unknown) => Promise<Record<string, unknown> | null>;
+        };
+        metricObservation: {
+          findMany: (args: unknown) => Promise<
+            Array<{ metricKey: string; sourceProvider: string; confidence: string | null }>
+          >;
+        };
+        $disconnect: () => Promise<void>;
       };
-      metricObservation: {
-        findMany: (args: unknown) => Promise<
-          Array<{ metricKey: string; sourceProvider: string; confidence: string | null }>
-        >;
-      };
-      $disconnect: () => Promise<void>;
     };
-    try {
-      ({ createPrismaClient } = await import(
-        new URL("../../../../database/src/index.ts", import.meta.url).href
-      ));
-    } catch {
-      ({ createPrismaClient } = await import("@mplus/database"));
-    }
     const prisma = createPrismaClient(databaseUrl);
     try {
       const region = await prisma.region.findUnique({ where: { code: identity.region } });
@@ -520,7 +594,11 @@ async function readPersistenceDiagnostics(identity: CharacterIdentityInput): Pro
           where: { characterId: character.id },
           orderBy: { observedAt: "desc" },
           take: 50,
-          select: { metricKey: true, sourceProvider: true, confidence: true },
+          select: {
+            sourceProvider: true,
+            confidence: true,
+            metricDefinition: { select: { key: true } },
+          },
         }),
       ]);
 
@@ -529,6 +607,12 @@ async function readPersistenceDiagnostics(identity: CharacterIdentityInput): Pro
       const excludedReasons = Array.isArray(excludedRaw)
         ? (excludedRaw as Array<{ reason?: string }>).map((e) => e.reason ?? "unknown")
         : [];
+      const metricKeys = observations.map(
+        (o) => (o.metricDefinition as { key?: string } | null)?.key ?? "unknown",
+      );
+      const wclMetricKeys = wclObservations.map(
+        (o) => (o.metricDefinition as { key?: string } | null)?.key ?? "unknown",
+      );
 
       return {
         available: true,
@@ -555,8 +639,8 @@ async function readPersistenceDiagnostics(identity: CharacterIdentityInput): Pro
           : null,
         observationsTotal: observations.length,
         wclObservationsCount: wclObservations.length,
-        metricKeysEmitted: [...new Set(observations.map((o) => o.metricKey))],
-        wclMetricKeys: [...new Set(wclObservations.map((o) => o.metricKey))],
+        metricKeysEmitted: [...new Set(metricKeys)],
+        wclMetricKeys: [...new Set(wclMetricKeys)],
         excludedObservationReasons: excludedReasons,
       };
     } finally {
@@ -607,13 +691,33 @@ async function runDeep(
     discovery = await provider.discoverCharacter(identity, ctx);
   } catch (error) {
     discoveryError = errorMessage(error);
+    const details =
+      error && typeof error === "object" && "details" in error
+        ? (error as { details?: unknown }).details
+        : undefined;
+    // Shape-only fingerprint for Zod failures — no report codes / player payloads.
+    let shapeHint: unknown = null;
+    try {
+      const rankingsProbe = await probeRankingsDiagnostics(
+        provider,
+        identity,
+        zone.zoneId,
+        zoneQueried,
+      );
+      shapeHint = {
+        rankingsProbe,
+        zodDetails: details,
+      };
+    } catch (probeError) {
+      shapeHint = { probeError: errorMessage(probeError), zodDetails: details };
+    }
     print("wcl.smoke.deep", {
       identity: {
         region: identity.region,
         realmSlug: identity.realmSlug,
         name: identity.name,
       },
-      fatal: { stage: "discoverCharacter", error: discoveryError },
+      fatal: { stage: "discoverCharacter", error: discoveryError, shapeHint },
       workerPath: {
         requiredCalls: ["discoverCharacterSummary", "discoverCharacterRuns", "getReportFightDetails"],
         missingFromRefreshPipeline: missingWorkerCalls,

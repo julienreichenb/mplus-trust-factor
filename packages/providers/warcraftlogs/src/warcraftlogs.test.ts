@@ -20,6 +20,8 @@ import {
   mythicRunPlaceholders,
   deriveVisibility,
   capDiscoveryCandidates,
+  mapZoneRankings,
+  countParseStyleRankingRows,
 } from "./discovery/run-discovery.js";
 import { MAX_DISCOVERY_CANDIDATES, MAX_EVENT_PAGES } from "./discovery/bounds.js";
 import {
@@ -290,6 +292,15 @@ describe("RateLimitData live GraphQL selection", () => {
     assertLiveRateLimitSelection(OPERATIONS.RateLimitData.query);
   });
 
+  it("CharacterZoneRankings requests JSON scalar without subselection", () => {
+    expect(OPERATIONS.CharacterZoneRankings.query).toMatch(
+      /zoneRankings\([^)]*\)\s*(?!\{)/,
+    );
+    expect(OPERATIONS.CharacterZoneRankings.query).not.toMatch(
+      /zoneRankings\([^)]*\)\s*\{/,
+    );
+  });
+
   it("live-smoke-wcl.mjs rateLimitData selection matches OPERATIONS (no stale fields)", () => {
     const smokePath = resolve(
       fileURLToPath(new URL(".", import.meta.url)),
@@ -318,6 +329,29 @@ describe("Deep smoke sanitization + worker path", () => {
     expect(ref.maskedCode).toContain("****");
     expect(ref.fingerprint).toHaveLength(12);
     expect(ref.fingerprint).not.toContain(code);
+  });
+
+  it("ignores aggregate zoneRankings rows without report/fightID", () => {
+    const payload = {
+      metric: "playerscore",
+      zone: 47,
+      rankings: [
+        { encounter: { id: 1 }, rankPercent: 90, bestAmount: 12 },
+        {
+          report: { code: "AbCdEf12XyZ3", startTime: 1 },
+          fightID: 3,
+          encounterID: 1201,
+          bracket: 12,
+          score: 100,
+        },
+      ],
+    };
+    expect(countParseStyleRankingRows(payload)).toEqual({ totalRows: 2, parseRows: 1 });
+    const mapped = mapZoneRankings(payload, 47);
+    expect(mapped).toHaveLength(1);
+    expect(mapped[0]?.reportCode).toBe("AbCdEf12XyZ3");
+    expect(mapped[0]?.fightId).toBe(3);
+    expect(mapped[0]?.zoneId).toBe(47);
   });
 
   it("explains match rejection reasons without auto-merge", () => {

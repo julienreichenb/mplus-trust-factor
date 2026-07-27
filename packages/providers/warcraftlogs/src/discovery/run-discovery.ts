@@ -30,22 +30,43 @@ export interface ZoneRankingsPayload {
   difficulty?: number | null;
   rankPercent?: number | null;
   totalParses?: number | null;
-  zone?: { id: number; name?: string | null } | null;
-  rankings?: Array<{
-    report: { code: string; startTime: number; endTime?: number | null };
-    fightID: number;
-    encounterID?: number | null;
-    difficulty?: number | null;
-    kill?: boolean | null;
-    duration?: number | null;
-    bracket?: number | null;
-    score?: number | null;
-    total?: number | null;
-    amount?: number | null;
-    spec?: string | null;
-    role?: string | null;
-    startTime?: number | null;
-  }>;
+  zone?: number | { id: number; name?: string | null } | null;
+  /** May include aggregate rows (no report/fight) or parse rows (report+fightID). */
+  rankings?: unknown[];
+}
+
+function isParseRankingRow(row: unknown): row is {
+  report: { code: string; startTime: number; endTime?: number | null };
+  fightID: number;
+  encounterID?: number | null;
+  difficulty?: number | null;
+  kill?: boolean | null;
+  duration?: number | null;
+  bracket?: number | null;
+  score?: number | null;
+  total?: number | null;
+  amount?: number | null;
+  spec?: string | null;
+  role?: string | null;
+  startTime?: number | null;
+} {
+  if (!row || typeof row !== "object") return false;
+  const r = row as Record<string, unknown>;
+  const report = r.report;
+  if (!report || typeof report !== "object") return false;
+  const code = (report as { code?: unknown }).code;
+  return typeof code === "string" && typeof r.fightID === "number";
+}
+
+export function countParseStyleRankingRows(payload: ZoneRankingsPayload | null | undefined): {
+  totalRows: number;
+  parseRows: number;
+} {
+  const rankings = payload?.rankings ?? [];
+  return {
+    totalRows: rankings.length,
+    parseRows: rankings.filter(isParseRankingRow).length,
+  };
 }
 
 export interface RecentReportsPayload {
@@ -149,11 +170,13 @@ export function mapZoneRankings(
   if (!payload?.rankings) {
     return [];
   }
-  return payload.rankings.map((row) => ({
+  const resolvedZoneId =
+    typeof payload.zone === "number" ? payload.zone : (payload.zone?.id ?? zoneId);
+  return payload.rankings.filter(isParseRankingRow).map((row) => ({
     reportCode: row.report.code,
     fightId: row.fightID,
     encounterId: row.encounterID ?? 0,
-    zoneId: payload.zone?.id ?? zoneId,
+    zoneId: resolvedZoneId,
     bracket: row.bracket ?? null,
     keyLevel: row.bracket ?? null,
     score: row.score ?? null,

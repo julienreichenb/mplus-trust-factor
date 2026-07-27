@@ -30,31 +30,11 @@ export const OPERATIONS = {
 
   CharacterZoneRankings: {
     operationName: "CharacterZoneRankings",
+    // Live WCL types zoneRankings as JSON — no GraphQL subselection allowed.
     query: `query CharacterZoneRankings($name: String!, $serverSlug: String!, $serverRegion: String!, $zoneID: Int!) {
   characterData {
     character(name: $name, serverSlug: $serverSlug, serverRegion: $serverRegion) {
-      zoneRankings(zoneID: $zoneID, metric: playerscore, byBracket: true, compare: Parses) {
-        metric
-        difficulty
-        rankPercent
-        totalParses
-        zone { id name }
-        rankings {
-          report { code startTime endTime }
-          fightID
-          encounterID
-          difficulty
-          kill
-          duration
-          bracket
-          score
-          total
-          amount
-          spec
-          role
-          startTime
-        }
-      }
+      zoneRankings(zoneID: $zoneID, metric: playerscore, byBracket: true, compare: Parses)
     }
   }
 }`,
@@ -103,7 +83,7 @@ export const OPERATIONS = {
         startTime
         endTime
         keystoneLevel
-        friendlyPlayers { id name server type icon }
+        friendlyPlayers
       }
       masterData(translate: false) {
         actors { id name type subType server }
