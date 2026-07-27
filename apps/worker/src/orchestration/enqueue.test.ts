@@ -67,8 +67,8 @@ describe("buildBullmqExecutionJobId", () => {
   it("keeps the logical dedupe key as a prefix and varies per execution", () => {
     const a = buildBullmqExecutionJobId("abc", "exec-1");
     const b = buildBullmqExecutionJobId("abc", "exec-2");
-    expect(a).toBe("abc:exec-1");
-    expect(b).toBe("abc:exec-2");
+    expect(a).toBe("abc-exec-1");
+    expect(b).toBe("abc-exec-2");
     expect(a).not.toBe(b);
   });
 });
