@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { normalizeName } from "@mplus/domain";
 import type { PrismaClient } from "@mplus/database";
@@ -106,6 +107,63 @@ describe.skipIf(!dbAvailable)("character routes", () => {
     const jobResponse = await app.inject({ method: "GET", url: `/api/v1/jobs/${jobId}` });
     expect(jobResponse.statusCode).toBe(200);
     expect(jobResponse.json().status).toBe("completed");
+  });
+
+  it("runs a second manual refresh after COMPLETED (same dedupe, cooldown cleared)", async () => {
+    const name = uniqueName("SecondRefresh");
+    const path = `/api/v1/characters/${REALM_PATH}/${name}/refresh`;
+
+    const first = await app.inject({ method: "POST", url: path });
+    expect(first.statusCode).toBe(200);
+    expect(first.json().job?.status).toBe("completed");
+    const firstJobId = first.json().job?.jobId as string;
+    const firstFinishedAt = first.json().job?.finishedAt as string | null;
+
+    // Clear cooldown without forceRefresh so the same logical dedupe key is reused
+    // (the live regression: terminal BullMQ jobId === dedupeKey blocked requeue).
+    await prisma.character.updateMany({
+      where: { normalizedName: normalizeName(name) },
+      data: { lastPublicRefreshAt: null },
+    });
+
+    const second = await app.inject({ method: "POST", url: path });
+    expect(second.statusCode).toBe(200);
+    expect(second.json().job?.status).toBe("completed");
+    expect(second.json().job?.jobId).toBe(firstJobId);
+    expect(second.json().cooldownSecondsRemaining).toBe(0);
+    // New terminal execution — finishedAt must advance (worker ran again).
+    expect(second.json().job?.finishedAt).toBeTruthy();
+    expect(second.json().job?.finishedAt).not.toBe(firstFinishedAt);
+    expect(second.json().job?.errorMessage).toBeNull();
+  });
+
+  it("collapses concurrent in-flight refresh requests onto one job", async () => {
+    const name = uniqueName("ConcurrentRefresh");
+    // Seed a QUEUED job without completing so the second call hits the active-job short-circuit.
+    const character = await container.worker.repositories.character.upsertCharacter(
+      { region: "EU", realmSlug: "tarren-mill", name },
+      { displayName: name },
+    );
+    const dedupeKey = `concurrent-${randomUUID()}`;
+    const queued = await container.worker.repositories.job.createOrGetByDedupe({
+      jobType: "refresh-character",
+      dedupeKey,
+      characterId: character.id,
+      payload: { region: "EU", realmSlug: "tarren-mill", name },
+    });
+    expect(queued.job.status).toBe("QUEUED");
+
+    const [a, b] = await Promise.all([
+      app.inject({ method: "POST", url: `/api/v1/characters/${REALM_PATH}/${name}/refresh` }),
+      app.inject({ method: "POST", url: `/api/v1/characters/${REALM_PATH}/${name}/refresh` }),
+    ]);
+    expect(a.statusCode).toBe(200);
+    expect(b.statusCode).toBe(200);
+    expect(a.json().job?.jobId).toBe(queued.job.id);
+    expect(b.json().job?.jobId).toBe(queued.job.id);
+    expect(["queued", "QUEUED", "in_progress", "IN_PROGRESS"]).toContain(
+      String(a.json().job?.status).toLowerCase(),
+    );
   });
 
   it("refresh-status reaches a terminal FRESH state after successful inline refresh", async () => {

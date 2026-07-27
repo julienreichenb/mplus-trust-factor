@@ -275,6 +275,33 @@ describe.skipIf(!dbAvailable)("runRefreshPipeline (fixture mode, real Postgres)"
   );
 
   it(
+    "re-runs a second refresh after COMPLETED on the same dedupe key",
+    async () => {
+      const container = buildContainer();
+      const name = `RequeueChar-${randomUUID().slice(0, 8)}`;
+      const job = buildJob(name);
+
+      const first = await runRefreshPipeline(container, job);
+      expect(first.job.status).toBe("COMPLETED");
+      const firstCompletedAt = first.job.completedAt?.getTime() ?? 0;
+
+      // Simulate a later manual refresh (new requestedAt) after the first terminal result.
+      await new Promise((r) => setTimeout(r, 20));
+      const second = await runRefreshPipeline(
+        container,
+        buildJob(name, { requestedAt: new Date().toISOString() }),
+      );
+
+      expect(second.job.id).toBe(first.job.id);
+      expect(second.job.status).toBe("COMPLETED");
+      expect(second.job.startedAt).not.toBeNull();
+      expect(second.job.completedAt?.getTime() ?? 0).toBeGreaterThan(firstCompletedAt);
+      expect(second.score).not.toBeNull();
+    },
+    30_000,
+  );
+
+  it(
     "rejects structurally invalid score snapshots and does not persist them",
     async () => {
       const base = buildContainer();

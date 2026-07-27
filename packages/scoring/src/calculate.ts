@@ -33,17 +33,18 @@ export interface CalculateScoreInput {
 function coerceModel(
   model: CalculateScoreInput["model"],
 ): ScoreModelConfigV1 {
-  if ("metricWeights" in model && model.metricWeights) {
-    return model as ScoreModelConfigV1;
-  }
+  // Always merge through defaults so seeded/slim DB configs (metricWeights without
+  // normalization/confidenceBlend/etc.) remain valid ScoreModelConfigV1 documents.
+  const partial = model as Partial<ScoreModelConfigV1> & ScoreModelConfig;
   return createDefaultModelV1({
-    key: model.key,
-    version: model.version,
-    weights: model.weights,
-    authenticityBlend: model.authenticityBlend,
-    confidenceNeutralScore: model.confidenceNeutralScore,
-    gradeThresholds: model.gradeThresholds,
-    minConfidenceForGrade: model.minConfidenceForGrade,
+    key: partial.key,
+    version: partial.version,
+    weights: partial.weights,
+    authenticityBlend: partial.authenticityBlend,
+    confidenceNeutralScore: partial.confidenceNeutralScore,
+    gradeThresholds: partial.gradeThresholds,
+    minConfidenceForGrade: partial.minConfidenceForGrade,
+    ...(partial.metricWeights ? { metricWeights: partial.metricWeights } : {}),
   });
 }
 

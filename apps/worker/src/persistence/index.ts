@@ -48,6 +48,7 @@ export * from "./addon-export-repository.js";
 export * from "./character-repository.js";
 export * from "./external-request-repository.js";
 export * from "./job-repository.js";
+export * from "./job-staleness.js";
 export * from "./mechanic-rule-repository.js";
 export * from "./metric-repository.js";
 export * from "./provider-state-repository.js";

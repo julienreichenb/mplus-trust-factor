@@ -17,12 +17,15 @@ import {
   recalculateScoreDedupeKey,
   refreshCharacterDedupeKey,
 } from "./dedupe.js";
+import { persistAndEnqueue } from "./orchestration/enqueue.js";
 
 export interface EnqueueResult {
   jobId: string;
   dedupeKey: string;
   /** True when an existing non-terminal IngestionJob row was reused instead of created. */
   reused: boolean;
+  /** True when a new BullMQ message was published for this call. */
+  enqueued?: boolean;
 }
 
 const PRIORITY_WEIGHT: Record<"high" | "normal" | "low", number> = { high: 10, normal: 0, low: -10 };
@@ -42,8 +45,8 @@ export interface QueueProducers {
 }
 
 /**
- * Producers persist an `IngestionJob` row keyed by the queue's dedupe key, then enqueue a BullMQ
- * job with `jobId = dedupeKey` so duplicate refresh/analyze/recalculate/export requests collapse.
+ * Producers reconcile IngestionJob rows with BullMQ. Logical dedupe stays on `dedupeKey`;
+ * each execution gets a unique BullMQ jobId so terminal Redis jobs never block requeue.
  */
 export function createQueueProducers(
   connection: ConnectionOptions,
@@ -56,33 +59,28 @@ export function createQueueProducers(
     [QUEUE_NAMES.generateAddonExport]: new Queue(QUEUE_NAMES.generateAddonExport, { connection }),
   } as const;
 
-  async function persistAndEnqueue(
+  async function enqueue(
     queue: Queue,
     jobType: string,
     dedupeKey: string,
     payload: unknown,
     options: { characterId?: string | null; runId?: string | null; priority?: number } = {},
   ): Promise<EnqueueResult> {
-    const { job, reused } = await container.repositories.job.createOrGetByDedupe({
+    const result = await persistAndEnqueue({
+      queue,
       jobType,
       dedupeKey,
-      characterId: options.characterId ?? null,
-      runId: options.runId ?? null,
       payload,
-      priority: options.priority ?? 0,
+      jobRepository: container.repositories.job,
+      logger: container.logger,
+      options,
     });
-
-    try {
-      await queue.add(jobType, payload, {
-        jobId: dedupeKey,
-        removeOnComplete: 1000,
-        removeOnFail: 1000,
-      });
-    } catch (error) {
-      container.logger.warn({ jobType, dedupeKey, err: error }, "queue.add skipped (job already enqueued)");
-    }
-
-    return { jobId: job.id, dedupeKey, reused };
+    return {
+      jobId: result.jobId,
+      dedupeKey: result.dedupeKey,
+      reused: result.reused,
+      enqueued: result.enqueued,
+    };
   }
 
   return {
@@ -92,13 +90,10 @@ export function createQueueProducers(
         requestedAt: input.requestedAt ?? new Date().toISOString(),
       }) as RefreshCharacterJob;
       const dedupeKey = refreshCharacterDedupeKey(payload);
-      return persistAndEnqueue(
-        queues[QUEUE_NAMES.refreshCharacter],
-        QUEUE_NAMES.refreshCharacter,
-        dedupeKey,
-        payload,
-        { characterId: payload.characterId ?? null, priority: PRIORITY_WEIGHT[payload.priority] },
-      );
+      return enqueue(queues[QUEUE_NAMES.refreshCharacter], QUEUE_NAMES.refreshCharacter, dedupeKey, payload, {
+        characterId: payload.characterId ?? null,
+        priority: PRIORITY_WEIGHT[payload.priority],
+      });
     },
 
     async enqueueAnalyzeRun(input) {
@@ -107,7 +102,7 @@ export function createQueueProducers(
         requestedAt: input.requestedAt ?? new Date().toISOString(),
       });
       const dedupeKey = analyzeRunDedupeKey(payload);
-      return persistAndEnqueue(queues[QUEUE_NAMES.analyzeRun], QUEUE_NAMES.analyzeRun, dedupeKey, payload, {
+      return enqueue(queues[QUEUE_NAMES.analyzeRun], QUEUE_NAMES.analyzeRun, dedupeKey, payload, {
         characterId: payload.characterId,
         runId: payload.runId,
       });
@@ -119,7 +114,7 @@ export function createQueueProducers(
         requestedAt: input.requestedAt ?? new Date().toISOString(),
       });
       const dedupeKey = recalculateScoreDedupeKey(payload);
-      return persistAndEnqueue(
+      return enqueue(
         queues[QUEUE_NAMES.recalculateScore],
         QUEUE_NAMES.recalculateScore,
         dedupeKey,
@@ -134,7 +129,7 @@ export function createQueueProducers(
         requestedAt: input.requestedAt ?? new Date().toISOString(),
       });
       const dedupeKey = generateAddonExportDedupeKey(payload);
-      return persistAndEnqueue(
+      return enqueue(
         queues[QUEUE_NAMES.generateAddonExport],
         QUEUE_NAMES.generateAddonExport,
         dedupeKey,
