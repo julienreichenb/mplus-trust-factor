@@ -1,0 +1,42 @@
+{
+  "version": 1,
+  "updatedAt": "2026-07-27",
+  "fixtures": [
+    {
+      "id": "blizzard-character-profile-v1",
+      "provider": "blizzard",
+      "schemaVersion": "v1",
+      "path": "providers/blizzard/v1/character-profile.json",
+      "origin": "synthetic",
+      "capturedAt": "2026-07-27",
+      "description": "Sanitized synthetic EU character profile for contract tests"
+    },
+    {
+      "id": "warcraftlogs-character-runs-v1",
+      "provider": "warcraftlogs",
+      "schemaVersion": "v1",
+      "path": "providers/warcraftlogs/v1/character-runs.json",
+      "origin": "synthetic",
+      "capturedAt": "2026-07-27",
+      "description": "Sanitized synthetic WCL run discovery payload"
+    },
+    {
+      "id": "raiderio-character-profile-v1",
+      "provider": "raiderio",
+      "schemaVersion": "v1",
+      "path": "providers/raiderio/v1/character-profile.json",
+      "origin": "synthetic",
+      "capturedAt": "2026-07-27",
+      "description": "Sanitized synthetic Raider.IO profile subset"
+    },
+    {
+      "id": "scoring-expert-cohort-v1",
+      "provider": "internal",
+      "schemaVersion": "v1",
+      "path": "scoring/expert-cohort-v1.json",
+      "origin": "synthetic",
+      "capturedAt": "2026-07-27",
+      "description": "Representative expert cohort for scoring golden tests"
+    }
+  ]
+}

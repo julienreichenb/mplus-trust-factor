@@ -41,4 +41,12 @@ describe("API health", () => {
     expect(body.name).toBe("M+ Trust Factor");
     expect(body.providerMode).toBe("fixture");
   });
+
+  it("exposes prometheus metrics", async () => {
+    await app.inject({ method: "GET", url: "/health/live" });
+    const response = await app.inject({ method: "GET", url: "/metrics" });
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["content-type"]).toContain("text/plain");
+    expect(response.body).toContain("http_requests_total");
+  });
 });

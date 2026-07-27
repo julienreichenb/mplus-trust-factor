@@ -10,6 +10,8 @@ export default defineConfig({
       "@mplus/domain": path.resolve(__dirname, "packages/domain/src/index.ts"),
       "@mplus/observability": path.resolve(__dirname, "packages/observability/src/index.ts"),
       "@mplus/scoring": path.resolve(__dirname, "packages/scoring/src/index.ts"),
+      "@mplus/test-utils": path.resolve(__dirname, "packages/test-utils/src/index.ts"),
+      "@mplus/api-app": path.resolve(__dirname, "apps/api/src/app.ts"),
     },
   },
   test: {
