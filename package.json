@@ -10,7 +10,8 @@
   },
   "scripts": {
     "lint": "eslint .",
-    "typecheck": "pnpm -r --if-present run typecheck",
+    "build:libs": "pnpm --filter @mplus/config --filter @mplus/contracts --filter @mplus/domain --filter @mplus/observability --filter @mplus/database --filter @mplus/mechanics --filter @mplus/scoring run build",
+    "typecheck": "pnpm run build:libs && pnpm -r --if-present run typecheck",
     "test": "vitest run",
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "build": "pnpm -r --if-present run build",
