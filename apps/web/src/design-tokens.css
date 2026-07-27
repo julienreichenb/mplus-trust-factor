@@ -73,6 +73,12 @@
 
   --container-page: 80rem;
   --container-reading: 45rem;
+
+  --gutter-mobile: 1.25rem;
+  --gutter-tablet: 2rem;
+  --gutter-desktop: 3rem;
+  --section-gap-mobile: 4rem;
+  --section-gap-desktop: 6rem;
 }
 
 :focus-visible {
