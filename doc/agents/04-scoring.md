@@ -3,7 +3,7 @@
 - Scope: Versioned scoring, confidence, and boost-suspicion engine
 - Branch/worktree: `agent/scoring`
 - Date: 2026-07-27
-- Commit(s): (this commit)
+- Commit(s): `2bac323`
 
 # Summary
 Replaced the neutral scoring placeholder with a pure deterministic Trust Factor engine (`@mplus/scoring`) and mechanic-catalog abstractions (`@mplus/mechanics`). Model v1 is fully data-driven (`ScoreModelConfigV1`), missing metrics shrink toward 50, authenticity emits probabilistic evidence/tags only, and a 10-profile synthetic golden cohort is covered by tests.
