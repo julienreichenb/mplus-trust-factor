@@ -26,7 +26,17 @@ import {
   rejectionReasonFromMatch,
   sanitizeReportRef,
 } from "./smoke/sanitize.js";
+import {
+  buildEightRunRawFactRows,
+  buildScoringDataFoundationSnapshot,
+  type EightRunCombatAnalysis,
+} from "./smoke/eight-run-facts.js";
 import type { ExternalRunMatchInput, WclRunCandidate } from "./types.js";
+import {
+  MIDNIGHT_S1_SEASON,
+  resolveSeasonDungeonSet,
+} from "@mplus/mechanics";
+import { selectScoringRuns, type SelectableScoringRun } from "@mplus/scoring";
 
 function envFlag(value: string | undefined, defaultValue = false): boolean {
   if (value === undefined || value === "") return defaultValue;
@@ -166,9 +176,14 @@ async function fetchBlizzardSelectedRuns(
     }));
 }
 
+type RaiderIoRunHint = ExternalRunMatchInput & {
+  score: number | null;
+  timed: boolean | null;
+};
+
 async function fetchRaiderIoRunHints(
   identity: CharacterIdentityInput,
-): Promise<ExternalRunMatchInput[]> {
+): Promise<RaiderIoRunHint[]> {
   const region = String(identity.region).toLowerCase();
   const url = new URL("https://raider.io/api/v1/characters/profile");
   url.searchParams.set("region", region);
@@ -188,6 +203,8 @@ async function fetchRaiderIoRunHints(
       mythic_level?: number;
       completed_at?: string;
       clear_time_ms?: number;
+      score?: number;
+      num_keystone_upgrades?: number;
     }>;
     mythic_plus_best_runs?: Array<{
       dungeon?: string;
@@ -195,6 +212,8 @@ async function fetchRaiderIoRunHints(
       mythic_level?: number;
       completed_at?: string;
       clear_time_ms?: number;
+      score?: number;
+      num_keystone_upgrades?: number;
     }>;
   };
 
@@ -209,7 +228,7 @@ async function fetchRaiderIoRunHints(
 
   const rows = [...(body.mythic_plus_recent_runs ?? []), ...(body.mythic_plus_best_runs ?? [])];
   const seen = new Set<string>();
-  const out: ExternalRunMatchInput[] = [];
+  const out: RaiderIoRunHint[] = [];
   for (const run of rows) {
     if (!run.completed_at || run.mythic_level == null) continue;
     const dungeonSlug = slugify(run.dungeon ?? run.short_name ?? "unknown");
@@ -222,18 +241,21 @@ async function fetchRaiderIoRunHints(
       completedAt: new Date(run.completed_at).toISOString(),
       durationMs: run.clear_time_ms ?? 0,
       participants: [{ realmSlug: identity.realmSlug, name: identity.name }],
+      score: typeof run.score === "number" ? run.score : null,
+      timed:
+        typeof run.num_keystone_upgrades === "number" ? run.num_keystone_upgrades > 0 : null,
     });
-    if (out.length >= 10) break;
+    if (out.length >= 24) break;
   }
   return out;
 }
 
 /** Keep only runs inside the active scoring window (exclude historical seasons). */
-function filterActiveExternalRuns(
-  runs: ExternalRunMatchInput[],
+function filterActiveExternalRuns<T extends ExternalRunMatchInput>(
+  runs: T[],
   nowMs = Date.now(),
   maxAgeMs = 180 * 24 * 60 * 60 * 1000,
-): ExternalRunMatchInput[] {
+): T[] {
   return runs.filter((run) => {
     const completedMs = Date.parse(run.completedAt);
     if (Number.isNaN(completedMs)) return false;
@@ -799,7 +821,7 @@ async function runDeep(
   }
 
   const blizzardRuns = filterActiveExternalRuns(await fetchBlizzardSelectedRuns(identity));
-  const rioRuns = filterActiveExternalRuns(await fetchRaiderIoRunHints(identity));
+  const rioRuns = filterActiveExternalRuns(await fetchRaiderIoRunHints(identity)) as RaiderIoRunHint[];
   const selectedExternals = [...blizzardRuns, ...rioRuns].slice(0, 12);
 
   const runsResult = await provider.discoverCharacterRuns(identity, {
@@ -962,6 +984,181 @@ async function runDeep(
 
   const persistence = await readPersistenceDiagnostics(identity);
 
+  const season = resolveSeasonDungeonSet({
+    seasonSlug: process.env.SCORING_SEASON_SLUG ?? MIDNIGHT_S1_SEASON.seasonSlug,
+    dungeonSlugs: MIDNIGHT_S1_SEASON.dungeonSlugs,
+    expectedDungeonCount: 8,
+    source: "configured",
+  });
+
+  const selectablePool: SelectableScoringRun[] = [];
+  const pushSelectable = (run: {
+    dungeonSlug: string;
+    keyLevel: number;
+    completedAt: string;
+    durationMs: number;
+    score: number | null;
+    timed: boolean | null;
+    wclMatched: boolean;
+    wclCoverage: number | null;
+    idPrefix: string;
+  }) => {
+    selectablePool.push({
+      id: `${run.idPrefix}:${run.dungeonSlug}:${run.keyLevel}:${run.completedAt}`,
+      dungeonSlug: run.dungeonSlug,
+      seasonSlug: season.seasonSlug,
+      keyLevel: run.keyLevel,
+      timed: run.timed,
+      completedAt: run.completedAt,
+      durationMs: run.durationMs,
+      raiderIoScore: run.score,
+      wclReportMatched: run.wclMatched,
+      wclCoverageRatio: run.wclCoverage,
+    });
+  };
+
+  for (const run of blizzardRuns) {
+    const match = bestCandidateForExternal(run, matchCandidates);
+    pushSelectable({
+      dungeonSlug: run.dungeonSlug,
+      keyLevel: run.keyLevel,
+      completedAt: run.completedAt,
+      durationMs: run.durationMs,
+      score: null,
+      timed: null,
+      wclMatched: match.confidence === "HIGH" || match.confidence === "MEDIUM",
+      wclCoverage: null,
+      idPrefix: "blizzard",
+    });
+  }
+  for (const run of rioRuns) {
+    const match = bestCandidateForExternal(run, matchCandidates);
+    pushSelectable({
+      dungeonSlug: run.dungeonSlug,
+      keyLevel: run.keyLevel,
+      completedAt: run.completedAt,
+      durationMs: run.durationMs,
+      score: run.score,
+      timed: run.timed,
+      wclMatched: match.confidence === "HIGH" || match.confidence === "MEDIUM",
+      wclCoverage: null,
+      idPrefix: "raiderio",
+    });
+  }
+
+  const scoringSelection = selectScoringRuns({
+    season,
+    runs: selectablePool,
+    observedAt: new Date().toISOString(),
+  });
+
+  const eightRunAnalyses: EightRunCombatAnalysis[] = [];
+  const truncatedCategoriesObserved: string[] = [];
+  let eightRunPointCost: number | null = null;
+  try {
+    const rate = await provider.fetchRateLimit(ctx);
+    if (rate && typeof rate === "object" && "pointsSpentThisHour" in rate) {
+      eightRunPointCost = Number((rate as { pointsSpentThisHour?: number }).pointsSpentThisHour ?? 0);
+    }
+  } catch {
+    /* optional */
+  }
+
+  for (const selected of scoringSelection.selectedRuns) {
+    const external: ExternalRunMatchInput = {
+      dungeonSlug: selected.dungeonSlug,
+      keyLevel: selected.keyLevel,
+      completedAt: selected.completedAt,
+      durationMs: selected.durationMs ?? 0,
+      participants: [{ realmSlug: identity.realmSlug, name: identity.name }],
+    };
+    const match = bestCandidateForExternal(external, matchCandidates);
+    const candidate = match.candidate;
+    const selectable: SelectableScoringRun = {
+      id: selected.canonicalRunId,
+      dungeonSlug: selected.dungeonSlug,
+      seasonSlug: season.seasonSlug,
+      keyLevel: selected.keyLevel,
+      timed: selected.timed,
+      completedAt: selected.completedAt,
+      durationMs: selected.durationMs,
+      raiderIoScore: selected.raiderIoScore,
+      wclReportMatched: selected.wclReportMatched,
+      wclCoverageRatio: selected.wclCoverageRatio,
+    };
+
+    if (!candidate || candidate.fightId <= 0 || !selected.wclReportMatched) {
+      eightRunAnalyses.push({
+        selectable,
+        reportCode: null,
+        fightId: null,
+        combatFacts: null,
+        parsePercentile: null,
+        apiPointCost: null,
+        analysisError: match.rejectionReason ?? "wcl_detail_unavailable_on_highest_run",
+        classSlug: "warlock",
+        specSlug: "demonology",
+        region: identity.region,
+      });
+      continue;
+    }
+
+    try {
+      const details = await provider.fetchReportFightDetails(
+        candidate.reportCode,
+        candidate.fightId,
+        identity.name,
+        identity.realmSlug,
+        ctx,
+        `smoke-v3-${selected.dungeonSlug}-${Date.now()}`,
+        true,
+      );
+      truncatedCategoriesObserved.push(...details.combatFacts.limitations.truncatedPages);
+      const ranking = discovery.rankings.find(
+        (r) =>
+          r.reportCode === candidate.reportCode &&
+          r.fightId === candidate.fightId &&
+          typeof r.percentile === "number",
+      );
+      eightRunAnalyses.push({
+        selectable,
+        reportCode: candidate.reportCode,
+        fightId: candidate.fightId,
+        combatFacts: details.combatFacts,
+        parsePercentile: ranking?.percentile ?? null,
+        apiPointCost: null,
+        analysisError: null,
+        classSlug: "warlock",
+        specSlug: "demonology",
+        region: identity.region,
+      });
+    } catch (error) {
+      eightRunAnalyses.push({
+        selectable,
+        reportCode: candidate.reportCode,
+        fightId: candidate.fightId,
+        combatFacts: null,
+        parsePercentile: null,
+        apiPointCost: null,
+        analysisError: errorMessage(error),
+        classSlug: "warlock",
+        specSlug: "demonology",
+        region: identity.region,
+      });
+    }
+  }
+
+  const eightRunRows = buildEightRunRawFactRows({
+    selection: scoringSelection,
+    analyses: eightRunAnalyses,
+  });
+  const scoringV3Foundation = buildScoringDataFoundationSnapshot({
+    selection: scoringSelection,
+    rows: eightRunRows,
+    providerPointCost: eightRunPointCost,
+    truncatedCategoriesObserved: [...new Set(truncatedCategoriesObserved)],
+  });
+
   print("wcl.smoke.deep", {
     identity: {
       region: identity.region,
@@ -1028,6 +1225,53 @@ async function runDeep(
       rows: matchRows,
     },
     detailedAnalysis: analysis,
+    scoringV3Foundation: {
+      seasonSlug: scoringV3Foundation.seasonSlug,
+      expectedDungeonCount: scoringV3Foundation.expectedDungeonCount,
+      selectionConfidence: scoringV3Foundation.selection.selectionConfidence,
+      missingDungeonSlugs: scoringV3Foundation.selection.missingDungeonSlugs,
+      aggregateCoverage: scoringV3Foundation.aggregateCoverage,
+      providerPointCost: scoringV3Foundation.providerPointCost,
+      pagination: scoringV3Foundation.pagination,
+      formulaVersion: scoringV3Foundation.formulaVersion,
+      abilityCatalogVersion: scoringV3Foundation.abilityCatalogVersion,
+      mechanicCatalogVersion: scoringV3Foundation.mechanicCatalogVersion,
+      rows: scoringV3Foundation.rows.map((row) => ({
+        dungeonSlug: row.dungeonSlug,
+        canonicalRunFingerprint: row.canonicalRunFingerprint,
+        keyLevel: row.keyLevel,
+        durationMs: row.durationMs,
+        timed: row.timed,
+        selectionReason: row.selectionReason,
+        wclReportFingerprint: row.wclReportFingerprint,
+        wclFightId: row.wclFightId,
+        detailAvailable: row.detailAvailable,
+        parsePercentile: row.performance.parsePercentile,
+        keyDifficultyInputs: row.performance.keyDifficultyInputs,
+        deaths: row.survival.deaths,
+        totalDamageTaken: row.survival.totalDamageTaken,
+        avoidableDamageTaken: row.survival.avoidableDamageTaken,
+        maxHealth: row.survival.maxHealth,
+        personalDefensiveCasts: row.survival.personalDefensiveCasts,
+        selfHealEffective: row.survival.selfHealEffective,
+        selfHealOverheal: row.survival.selfHealOverheal,
+        healthPotionCasts: row.survival.healthPotionCasts,
+        kickCasts: row.utility.kickCasts,
+        successfulInterrupts: row.utility.successfulInterrupts,
+        effectiveKickCooldownMs: row.utility.effectiveKickCooldownMs,
+        distinctCcTargets: row.utility.distinctCcTargets,
+        groupSupportCasts: row.utility.groupSupportCasts,
+        defensiveDispels: row.utility.defensiveDispels,
+        offensiveDispels: row.utility.offensiveDispels,
+        missingDataReasons: row.missingDataReasons,
+        rejectionReasons: row.rejectionReasons,
+        fieldStatus: {
+          survival: row.survival.fieldStatus,
+          utility: row.utility.fieldStatus,
+          performance: row.performance.fieldStatus,
+        },
+      })),
+    },
     persistence,
   });
 

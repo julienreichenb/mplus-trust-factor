@@ -35,6 +35,7 @@ const DUNGEON_CANONICAL: Record<string, string> = {
   "algeth-ar-academy": "algethar-academy",
   mt: "magisters-terrace",
   "magisters-terrace": "magisters-terrace",
+  "magister-s-terrace": "magisters-terrace",
   pos: "priory-of-the-sacred-flame",
   "priory-of-the-sacred-flame": "priory-of-the-sacred-flame",
   mc: "motherlode",
@@ -48,6 +49,12 @@ const DUNGEON_CANONICAL: Record<string, string> = {
   "seat-of-the-triumvirate": "seat-of-the-triumvirate",
   sr: "skyreach",
   skyreach: "skyreach",
+  maisara: "maisara-caverns",
+  "maisara-caverns": "maisara-caverns",
+  windrunner: "windrunner-spire",
+  "windrunner-spire": "windrunner-spire",
+  posaron: "pit-of-saron",
+  "pit-of-saron": "pit-of-saron",
 };
 
 export function canonicalDungeonKey(slug: string): string {

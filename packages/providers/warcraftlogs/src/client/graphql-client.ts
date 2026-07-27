@@ -286,6 +286,7 @@ export const reportFightSchema = z.object({
                   type: z.string(),
                   subType: z.string().nullable().optional(),
                   server: z.string().nullable().optional(),
+                  petOwner: z.coerce.number().nullable().optional(),
                 }),
               )
               .default([]),

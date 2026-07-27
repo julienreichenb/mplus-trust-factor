@@ -105,9 +105,17 @@ function computeRosterOverlap(
 }
 
 export function buildActorMap(
-  actors: Array<{ id: number; name: string; type: string; subType?: string | null; server?: string | null }>,
+  actors: Array<{
+    id: number;
+    name: string;
+    type: string;
+    subType?: string | null;
+    server?: string | null;
+    petOwner?: number | null;
+    petOwnerId?: number | null;
+  }>,
 ): WclActorMap {
-  const byId = new Map<number, { id: number; name: string; type: string; subType: string | null; server: string | null }>();
+  const byId = new Map<number, { id: number; name: string; type: string; subType: string | null; server: string | null; petOwnerId: number | null }>();
   const byName = new Map<string, number[]>();
 
   for (const actor of actors) {
@@ -117,6 +125,7 @@ export function buildActorMap(
       type: actor.type,
       subType: actor.subType ?? null,
       server: actor.server ?? null,
+      petOwnerId: actor.petOwnerId ?? actor.petOwner ?? null,
     });
     const key = actor.name.toLowerCase();
     const existing = byName.get(key) ?? [];
@@ -125,6 +134,22 @@ export function buildActorMap(
   }
 
   return { byId, byName };
+}
+
+/**
+ * Player source id plus owned pet actor ids for interrupt/CC/dispel attribution.
+ */
+export function resolveAttributedSourceIds(
+  actorMap: WclActorMap,
+  playerSourceId: number,
+): Set<number> {
+  const ids = new Set<number>([playerSourceId]);
+  for (const actor of actorMap.byId.values()) {
+    if (actor.petOwnerId === playerSourceId) {
+      ids.add(actor.id);
+    }
+  }
+  return ids;
 }
 
 export function resolveActorSourceId(

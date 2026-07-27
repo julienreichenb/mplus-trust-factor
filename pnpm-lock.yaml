@@ -318,6 +318,12 @@ importers:
       '@mplus/domain':
         specifier: workspace:*
         version: link:../../domain
+      '@mplus/mechanics':
+        specifier: workspace:*
+        version: link:../../mechanics
+      '@mplus/scoring':
+        specifier: workspace:*
+        version: link:../../scoring
       zod:
         specifier: ^3.25.76
         version: 3.25.76
@@ -334,6 +340,9 @@ importers:
       '@mplus/contracts':
         specifier: workspace:*
         version: link:../contracts
+      '@mplus/mechanics':
+        specifier: workspace:*
+        version: link:../mechanics
     devDependencies:
       typescript:
         specifier: ^5.8.3
