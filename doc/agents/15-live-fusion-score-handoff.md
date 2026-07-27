@@ -20,7 +20,7 @@ Implemented Wave 3 live fusion on top of `integration/wave3`:
 
 ## Commit
 
-See `git log` on `agent/wave3-live-fusion` (this handoff commit).
+`8ed4afe9e90ee41e81ad2920d705a004e04faf73`
 
 ## Tests executed
 
