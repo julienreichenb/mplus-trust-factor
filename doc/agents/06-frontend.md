@@ -3,7 +3,7 @@
 - Scope: Vue 3 MVP website (search, profile, compare, admin) with mock-mode independence
 - Branch/worktree: `agent/frontend`
 - Date: 2026-07-27
-- Commit(s): see branch tip after Agent 6 commit
+- Commit(s): `befe817`
 
 # Summary
 Implemented the full Agent 6 Vue website against `@mplus/contracts`, with a typed **mock API** (`VITE_API_MODE=mock` default) so the app is testable without Agent 5 backend routes. Pages cover search → profile (Trust Factor, grade, radar, dimensions, authenticity, runs, gear, sources), compare (2–10), and admin model draft/validate/backtest/activate. ECharts radar uses fixed 0–100 axes plus an accessible HTML table. No scoring formulas or provider secrets in the browser.
