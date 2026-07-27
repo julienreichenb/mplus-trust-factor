@@ -43,7 +43,7 @@ Gate A data foundation for Scoring v3 without changing the active score model:
 2. **Key difficulty percentile** needs season cutoffs / distribution (Agent 22)
 3. **Mechanic catalog coverage** sparse — avoidable damage PARTIAL until Agent 23 expands rules
 4. **Offensive dispel capability** not seeded for Warlock — Agent 24
-5. **Worker analysis budget** still 2 fights — eight-run persistence not wired into refresh pipeline
+5. ~~**Worker analysis budget** still 2 fights~~ — **Gate A.1 done**: `analyzeScoringRuns` analyzes all selected runs up to `WCL_MAX_ANALYSIS_FIGHTS`
 6. Parse↔selected-fight tying remains best-effort when rankings omit fight IDs
 
 ## Contract freeze recommendation

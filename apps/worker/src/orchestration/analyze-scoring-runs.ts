@@ -1,0 +1,540 @@
+/**
+ * Gate A.1 — analyze all ScoringRunSelection entries (up to season dungeon count).
+ * Selection is highest key → score → timed → latest; never demotes unlogged highest.
+ */
+import type {
+  MetricObservationDTO,
+  MythicRunDTO,
+  ProviderFetchContext,
+  ProviderResult,
+  ScoringRunSelection,
+  ScoringSelectedRun,
+} from "@mplus/contracts";
+import {
+  MIDNIGHT_S1_SEASON,
+  extractSurvivalCounts,
+  extractUtilityCounts,
+  loadSeedAbilityCatalog,
+  loadSeedScoringMechanicCatalog,
+  resolveSeasonDungeonSet,
+  type SeasonDungeonSet,
+} from "@mplus/mechanics";
+import {
+  resolveMaxAnalysisFights,
+  resolveAttributedSourceIds,
+  type RunCombatFacts,
+  type WclReportFightDetails,
+} from "@mplus/provider-warcraftlogs";
+import {
+  buildProvenance,
+  rawFactsToMetricObservations,
+  selectScoringRuns,
+  toPerformanceRawInputs,
+  toSurvivalRawFacts,
+  toUtilityRawFacts,
+  type SelectableScoringRun,
+} from "@mplus/scoring";
+
+export interface ScoringRunWclSource {
+  reportCode: string;
+  fightId: number;
+}
+
+export interface ScoringRunAnalysisCandidate {
+  /** DB MythicRun id used for persistence. */
+  runId: string;
+  dungeonSlug: string;
+  seasonSlug: string;
+  keyLevel: number;
+  timed: boolean | null;
+  completedAt: string;
+  durationMs: number | null;
+  raiderIoScore: number | null;
+  wclSource: ScoringRunWclSource | null;
+  canonicalFingerprint?: string;
+}
+
+export interface ScoringRunAnalysisRow {
+  selected: ScoringSelectedRun;
+  runId: string;
+  dungeonSlug: string;
+  combatFacts: RunCombatFacts | null;
+  detailAvailable: boolean;
+  rejectionReason: string | null;
+  analysisError: string | null;
+  reusedCachedFight: boolean;
+  wclApiCalls: number;
+}
+
+export interface ScoringRunAnalysisDiagnostics {
+  selectedRunCount: number;
+  analyzedFightCount: number;
+  missingCombatFactCount: number;
+  wclApiCallCount: number;
+  deduplicatedFightFetches: number;
+  budget: number;
+  expectedDungeonCount: number;
+  missingDungeonSlugs: string[];
+  rows: Array<{
+    dungeonSlug: string;
+    runId: string;
+    keyLevel: number;
+    detailAvailable: boolean;
+    rejectionReason: string | null;
+    analysisError: string | null;
+    reusedCachedFight: boolean;
+  }>;
+}
+
+export interface AnalyzeScoringRunsResult {
+  selection: ScoringRunSelection;
+  rows: ScoringRunAnalysisRow[];
+  combatFactsList: RunCombatFacts[];
+  v3Observations: MetricObservationDTO[];
+  diagnostics: ScoringRunAnalysisDiagnostics;
+}
+
+export type FetchReportFightDetails = (
+  reportCode: string,
+  fightId: number,
+  ctx: ProviderFetchContext,
+) => Promise<ProviderResult<unknown>>;
+
+function wclSourceFromDto(run: MythicRunDTO): ScoringRunWclSource | null {
+  const source = run.sources.find(
+    (s) =>
+      s.provider === "WARCRAFT_LOGS" &&
+      typeof s.reportCode === "string" &&
+      s.reportCode.length > 0 &&
+      typeof s.fightId === "number" &&
+      s.fightId > 0,
+  );
+  if (!source?.reportCode || source.fightId == null) return null;
+  return { reportCode: source.reportCode, fightId: source.fightId };
+}
+
+/** Map fused DTOs into analysis candidates (WCL source from DTO, not discovery order). */
+export function candidatesFromMythicRunDtos(runs: MythicRunDTO[]): ScoringRunAnalysisCandidate[] {
+  return runs.map((run) => ({
+    runId: run.id,
+    dungeonSlug: run.dungeonSlug,
+    seasonSlug: run.seasonSlug,
+    keyLevel: run.keyLevel,
+    timed: run.timed,
+    completedAt: run.completedAt,
+    durationMs: run.durationMs,
+    raiderIoScore: run.scoreValue,
+    wclSource: wclSourceFromDto(run),
+    canonicalFingerprint: run.canonicalFingerprint,
+  }));
+}
+
+export function resolveScoringSeasonDungeonSet(input: {
+  seasonSlug?: string | null;
+  dungeonCount?: number | null;
+  allowPlaceholder?: boolean;
+}): SeasonDungeonSet {
+  const configured = input.seasonSlug?.trim();
+  if (configured) {
+    try {
+      return resolveSeasonDungeonSet({
+        seasonSlug: configured,
+        dungeonSlugs:
+          configured === MIDNIGHT_S1_SEASON.seasonSlug ||
+          configured.startsWith("blizzard-season-")
+            ? MIDNIGHT_S1_SEASON.dungeonSlugs
+            : undefined,
+        expectedDungeonCount: input.dungeonCount ?? MIDNIGHT_S1_SEASON.expectedDungeonCount,
+        allowPlaceholder: input.allowPlaceholder,
+      });
+    } catch {
+      /* fall through to midnight default */
+    }
+  }
+  return {
+    ...MIDNIGHT_S1_SEASON,
+    expectedDungeonCount: input.dungeonCount && input.dungeonCount > 0
+      ? input.dungeonCount
+      : MIDNIGHT_S1_SEASON.expectedDungeonCount,
+  };
+}
+
+function toSelectable(candidate: ScoringRunAnalysisCandidate): SelectableScoringRun {
+  return {
+    id: candidate.runId,
+    dungeonSlug: candidate.dungeonSlug,
+    seasonSlug: candidate.seasonSlug,
+    keyLevel: candidate.keyLevel,
+    timed: candidate.timed,
+    completedAt: candidate.completedAt,
+    durationMs: candidate.durationMs,
+    raiderIoScore: candidate.raiderIoScore,
+    wclReportMatched: candidate.wclSource != null,
+    wclCoverageRatio: null,
+  };
+}
+
+function fightCacheKey(reportCode: string, fightId: number): string {
+  return `${reportCode}:${fightId}`;
+}
+
+function coverageRatio(facts: RunCombatFacts): number {
+  const flags = Object.values(facts.coverage);
+  if (flags.length === 0) return 0;
+  return flags.filter(Boolean).length / flags.length;
+}
+
+function buildUnavailableObservations(input: {
+  selected: ScoringSelectedRun;
+  observedAt: string;
+  reason: string;
+  seasonSlug: string;
+  classSlug?: string | null;
+  specSlug?: string | null;
+  region?: string | null;
+}): MetricObservationDTO[] {
+  const abilityCatalog = loadSeedAbilityCatalog();
+  const mechanicCatalog = loadSeedScoringMechanicCatalog();
+  const provenance = buildProvenance({
+    sourceProvider: "derived",
+    canonicalRunId: input.selected.canonicalRunId,
+    dungeonSlug: input.selected.dungeonSlug,
+    abilityCatalog,
+    mechanicCatalog,
+    observedAt: input.observedAt,
+  });
+  const survival = toSurvivalRawFacts({
+    provenance,
+    counts: null,
+    detailAvailable: false,
+    missingReasons: [input.reason],
+  });
+  const utility = toUtilityRawFacts({
+    provenance,
+    counts: null,
+    detailAvailable: false,
+    missingReasons: [input.reason],
+  });
+  const performance = toPerformanceRawInputs({
+    provenance,
+    parsePercentile: null,
+    keyLevel: input.selected.keyLevel,
+    timed: input.selected.timed,
+    seasonSlug: input.seasonSlug,
+    region: input.region ?? null,
+    detailAvailable: false,
+  });
+  return rawFactsToMetricObservations({ survival, utility, performance }).map((obs) => ({
+    ...obs,
+    confidence: Math.min(obs.confidence, 0.15),
+    context: {
+      ...(typeof obs.context === "object" && obs.context ? obs.context : {}),
+      detailAvailable: false,
+      rejectionReason: input.reason,
+      classSlug: input.classSlug ?? null,
+      specSlug: input.specSlug ?? null,
+    },
+  }));
+}
+
+function buildAvailableObservations(input: {
+  selected: ScoringSelectedRun;
+  facts: RunCombatFacts;
+  observedAt: string;
+  seasonSlug: string;
+  classSlug?: string | null;
+  specSlug?: string | null;
+  region?: string | null;
+}): MetricObservationDTO[] {
+  const abilityCatalog = loadSeedAbilityCatalog();
+  const mechanicCatalog = loadSeedScoringMechanicCatalog();
+  const attributed = resolveAttributedSourceIds(input.facts.actorMap, input.facts.targetSourceId);
+  const hostileTargetIds = new Set<number>();
+  for (const actor of input.facts.actorMap.byId.values()) {
+    if (actor.type === "NPC" || actor.type === "Boss" || actor.type === "Enemy") {
+      hostileTargetIds.add(actor.id);
+    }
+  }
+  const extractInput = {
+    seasonSlug: input.seasonSlug,
+    dungeonSlug: input.selected.dungeonSlug,
+    targetSourceId: input.facts.targetSourceId,
+    attributedSourceIds: attributed,
+    hostileTargetIds,
+    maxHealth: null as number | null,
+    abilityCatalog,
+    mechanicCatalog,
+    casts: input.facts.casts,
+    interrupts: input.facts.interrupts,
+    deaths: input.facts.deaths,
+    damageTaken: input.facts.damageTaken,
+    healing: input.facts.healing,
+    dispels: input.facts.dispels,
+    auras: input.facts.auras,
+    classSlug: input.classSlug ?? null,
+    specSlug: input.specSlug ?? null,
+  };
+  const survivalCounts = extractSurvivalCounts(extractInput);
+  const utilityCounts = extractUtilityCounts(extractInput);
+  const provenance = buildProvenance({
+    sourceProvider: "warcraftlogs",
+    canonicalRunId: input.selected.canonicalRunId,
+    dungeonSlug: input.selected.dungeonSlug,
+    abilityCatalog,
+    mechanicCatalog,
+    observedAt: input.observedAt,
+  });
+  const survival = toSurvivalRawFacts({
+    provenance,
+    counts: survivalCounts,
+    detailAvailable: true,
+  });
+  const utility = toUtilityRawFacts({
+    provenance,
+    counts: utilityCounts,
+    detailAvailable: true,
+  });
+  const performance = toPerformanceRawInputs({
+    provenance,
+    parsePercentile: null,
+    keyLevel: input.selected.keyLevel,
+    timed: input.selected.timed,
+    seasonSlug: input.seasonSlug,
+    region: input.region ?? null,
+    detailAvailable: true,
+  });
+  return rawFactsToMetricObservations({ survival, utility, performance }).map((obs) => ({
+    ...obs,
+    context: {
+      ...(typeof obs.context === "object" && obs.context ? obs.context : {}),
+      detailAvailable: true,
+      coverageRatio: coverageRatio(input.facts),
+      classSlug: input.classSlug ?? null,
+      specSlug: input.specSlug ?? null,
+    },
+  }));
+}
+
+/**
+ * Analyze every selected canonical scoring run (bounded), with report/fight dedupe.
+ * Partial provider failures mark that dungeon unavailable and continue.
+ */
+export async function analyzeScoringRuns(input: {
+  candidates: ScoringRunAnalysisCandidate[];
+  season: SeasonDungeonSet;
+  ctx: ProviderFetchContext;
+  fetchReportFightDetails: FetchReportFightDetails;
+  configuredMaxAnalysisFights?: number | null;
+  observedAt?: string;
+  classSlug?: string | null;
+  specSlug?: string | null;
+  isSoftSkipError?: (error: unknown) => boolean;
+}): Promise<AnalyzeScoringRunsResult> {
+  const observedAt = input.observedAt ?? new Date().toISOString();
+  const budget = resolveMaxAnalysisFights({
+    expectedDungeonCount: input.season.expectedDungeonCount || input.season.dungeonSlugs.length,
+    configuredMax: input.configuredMaxAnalysisFights,
+  });
+
+  // Align candidate season slugs with the scoring season so out-of-season rows drop.
+  const selectables = input.candidates.map((c) => {
+    const selectable = toSelectable(c);
+    return selectable;
+  });
+
+  const selection = selectScoringRuns({
+    season: input.season,
+    runs: selectables,
+    observedAt,
+  });
+
+  const byId = new Map(input.candidates.map((c) => [c.runId, c]));
+  const targets = selection.selectedRuns.slice(0, budget);
+
+  const fightCache = new Map<
+    string,
+    { result: ProviderResult<unknown>; apiCalls: number }
+ >();
+  let wclApiCallCount = 0;
+  let deduplicatedFightFetches = 0;
+
+  const rows: ScoringRunAnalysisRow[] = [];
+  const combatFactsList: RunCombatFacts[] = [];
+  const v3Observations: MetricObservationDTO[] = [];
+
+  for (const selected of targets) {
+    const candidate = byId.get(selected.canonicalRunId);
+    if (!candidate) {
+      rows.push({
+        selected,
+        runId: selected.canonicalRunId,
+        dungeonSlug: selected.dungeonSlug,
+        combatFacts: null,
+        detailAvailable: false,
+        rejectionReason: "selected_run_missing_from_candidates",
+        analysisError: null,
+        reusedCachedFight: false,
+        wclApiCalls: 0,
+      });
+      v3Observations.push(
+        ...buildUnavailableObservations({
+          selected,
+          observedAt,
+          reason: "selected_run_missing_from_candidates",
+          seasonSlug: input.season.seasonSlug,
+          classSlug: input.classSlug,
+          specSlug: input.specSlug,
+          region: input.ctx.region,
+        }),
+      );
+      continue;
+    }
+
+    if (!candidate.wclSource || !selected.wclReportMatched) {
+      const reason =
+        selected.rejectionReasons[0] ?? "wcl_detail_unavailable_on_highest_run";
+      rows.push({
+        selected,
+        runId: candidate.runId,
+        dungeonSlug: selected.dungeonSlug,
+        combatFacts: null,
+        detailAvailable: false,
+        rejectionReason: reason,
+        analysisError: null,
+        reusedCachedFight: false,
+        wclApiCalls: 0,
+      });
+      v3Observations.push(
+        ...buildUnavailableObservations({
+          selected,
+          observedAt,
+          reason,
+          seasonSlug: input.season.seasonSlug,
+          classSlug: input.classSlug,
+          specSlug: input.specSlug,
+          region: input.ctx.region,
+        }),
+      );
+      continue;
+    }
+
+    const key = fightCacheKey(candidate.wclSource.reportCode, candidate.wclSource.fightId);
+    let reusedCachedFight = false;
+    let rowApiCalls = 0;
+    let details: WclReportFightDetails | null = null;
+    let analysisError: string | null = null;
+
+    try {
+      const cached = fightCache.get(key);
+      if (cached) {
+        reusedCachedFight = true;
+        deduplicatedFightFetches += 1;
+        details = cached.result.data as WclReportFightDetails;
+      } else {
+        const result = await input.fetchReportFightDetails(
+          candidate.wclSource.reportCode,
+          candidate.wclSource.fightId,
+          input.ctx,
+        );
+        rowApiCalls = 1;
+        wclApiCallCount += 1;
+        fightCache.set(key, { result, apiCalls: 1 });
+        details = result.data as WclReportFightDetails;
+      }
+    } catch (error) {
+      const soft = input.isSoftSkipError?.(error) ?? false;
+      analysisError = error instanceof Error ? error.message : String(error);
+      if (!soft) {
+        // Still continue other dungeons — partial failure must not fail all eight.
+        analysisError = `partial_failure:${analysisError}`;
+      }
+    }
+
+    if (!details?.combatFacts) {
+      const reason = analysisError ?? "wcl_fight_details_unavailable";
+      rows.push({
+        selected,
+        runId: candidate.runId,
+        dungeonSlug: selected.dungeonSlug,
+        combatFacts: null,
+        detailAvailable: false,
+        rejectionReason: reason,
+        analysisError,
+        reusedCachedFight,
+        wclApiCalls: rowApiCalls,
+      });
+      v3Observations.push(
+        ...buildUnavailableObservations({
+          selected,
+          observedAt,
+          reason,
+          seasonSlug: input.season.seasonSlug,
+          classSlug: input.classSlug,
+          specSlug: input.specSlug,
+          region: input.ctx.region,
+        }),
+      );
+      continue;
+    }
+
+    combatFactsList.push(details.combatFacts);
+    rows.push({
+      selected: {
+        ...selected,
+        wclReportMatched: true,
+        wclCoverageRatio: coverageRatio(details.combatFacts),
+        detailAvailable: true,
+        rejectionReasons: [],
+      },
+      runId: candidate.runId,
+      dungeonSlug: selected.dungeonSlug,
+      combatFacts: details.combatFacts,
+      detailAvailable: true,
+      rejectionReason: null,
+      analysisError: null,
+      reusedCachedFight,
+      wclApiCalls: rowApiCalls,
+    });
+    v3Observations.push(
+      ...buildAvailableObservations({
+        selected,
+        facts: details.combatFacts,
+        observedAt,
+        seasonSlug: input.season.seasonSlug,
+        classSlug: input.classSlug,
+        specSlug: input.specSlug,
+        region: input.ctx.region,
+      }),
+    );
+  }
+
+  const diagnostics: ScoringRunAnalysisDiagnostics = {
+    selectedRunCount: targets.length,
+    analyzedFightCount: rows.filter((r) => r.detailAvailable).length,
+    missingCombatFactCount: rows.filter((r) => !r.detailAvailable).length,
+    wclApiCallCount,
+    deduplicatedFightFetches,
+    budget,
+    expectedDungeonCount: input.season.expectedDungeonCount,
+    missingDungeonSlugs: selection.missingDungeonSlugs,
+    rows: rows.map((r) => ({
+      dungeonSlug: r.dungeonSlug,
+      runId: r.runId,
+      keyLevel: r.selected.keyLevel,
+      detailAvailable: r.detailAvailable,
+      rejectionReason: r.rejectionReason,
+      analysisError: r.analysisError,
+      reusedCachedFight: r.reusedCachedFight,
+    })),
+  };
+
+  return {
+    selection,
+    rows,
+    combatFactsList,
+    v3Observations,
+    diagnostics,
+  };
+}
+
+export { coverageRatio as scoringRunCoverageRatio };

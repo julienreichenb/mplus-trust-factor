@@ -1055,6 +1055,12 @@ async function runDeep(
   const eightRunAnalyses: EightRunCombatAnalysis[] = [];
   const truncatedCategoriesObserved: string[] = [];
   let eightRunPointCost: number | null = null;
+  let wclApiCallCount = 0;
+  let deduplicatedFightFetches = 0;
+  const fightDetailsCache = new Map<
+    string,
+    Awaited<ReturnType<LiveWarcraftLogsProvider["fetchReportFightDetails"]>>
+  >();
   try {
     const rate = await provider.fetchRateLimit(ctx);
     if (rate && typeof rate === "object" && "pointsSpentThisHour" in rate) {
@@ -1103,16 +1109,24 @@ async function runDeep(
       continue;
     }
 
+    const cacheKey = `${candidate.reportCode}:${candidate.fightId}`;
     try {
-      const details = await provider.fetchReportFightDetails(
-        candidate.reportCode,
-        candidate.fightId,
-        identity.name,
-        identity.realmSlug,
-        ctx,
-        `smoke-v3-${selected.dungeonSlug}-${Date.now()}`,
-        true,
-      );
+      let details = fightDetailsCache.get(cacheKey);
+      if (details) {
+        deduplicatedFightFetches += 1;
+      } else {
+        details = await provider.fetchReportFightDetails(
+          candidate.reportCode,
+          candidate.fightId,
+          identity.name,
+          identity.realmSlug,
+          ctx,
+          `smoke-v3-${selected.dungeonSlug}-${Date.now()}`,
+          true,
+        );
+        fightDetailsCache.set(cacheKey, details);
+        wclApiCallCount += 1;
+      }
       truncatedCategoriesObserved.push(...details.combatFacts.limitations.truncatedPages);
       const ranking = discovery.rankings.find(
         (r) =>
@@ -1158,6 +1172,9 @@ async function runDeep(
     providerPointCost: eightRunPointCost,
     truncatedCategoriesObserved: [...new Set(truncatedCategoriesObserved)],
   });
+  const selectedRunCount = scoringSelection.selectedRuns.length;
+  const analyzedFightCount = eightRunRows.filter((r) => r.detailAvailable).length;
+  const missingCombatFactCount = eightRunRows.filter((r) => !r.detailAvailable).length;
 
   print("wcl.smoke.deep", {
     identity: {
@@ -1228,6 +1245,11 @@ async function runDeep(
     scoringV3Foundation: {
       seasonSlug: scoringV3Foundation.seasonSlug,
       expectedDungeonCount: scoringV3Foundation.expectedDungeonCount,
+      selectedRunCount,
+      analyzedFightCount,
+      missingCombatFactCount,
+      wclApiCallCount,
+      deduplicatedFightFetches,
       selectionConfidence: scoringV3Foundation.selection.selectionConfidence,
       missingDungeonSlugs: scoringV3Foundation.selection.missingDungeonSlugs,
       aggregateCoverage: scoringV3Foundation.aggregateCoverage,
@@ -1246,6 +1268,8 @@ async function runDeep(
         wclReportFingerprint: row.wclReportFingerprint,
         wclFightId: row.wclFightId,
         detailAvailable: row.detailAvailable,
+        rejectionReasons: row.rejectionReasons,
+        missingDataReasons: row.missingDataReasons,
         parsePercentile: row.performance.parsePercentile,
         keyDifficultyInputs: row.performance.keyDifficultyInputs,
         deaths: row.survival.deaths,
@@ -1263,8 +1287,6 @@ async function runDeep(
         groupSupportCasts: row.utility.groupSupportCasts,
         defensiveDispels: row.utility.defensiveDispels,
         offensiveDispels: row.utility.offensiveDispels,
-        missingDataReasons: row.missingDataReasons,
-        rejectionReasons: row.rejectionReasons,
         fieldStatus: {
           survival: row.survival.fieldStatus,
           utility: row.utility.fieldStatus,

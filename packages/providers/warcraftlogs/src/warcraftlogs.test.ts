@@ -554,6 +554,10 @@ describe("Deep smoke sanitization + worker path", () => {
     // Must not stop at summary-only enrichment.
     expect(source).toMatch(/discoverCharacterSummary[\s\S]*discoverCharacterRuns/);
     expect(source).toContain("getReportFightDetails");
+    // Gate A.1: eight-run ScoringRunSelection analysis (not latest+highest only).
+    expect(source).toContain("analyzeScoringRuns");
+    expect(source).toContain("WCL_MAX_ANALYSIS_FIGHTS");
+    expect(source).toContain("listForCharacterSeason");
   });
 });
 

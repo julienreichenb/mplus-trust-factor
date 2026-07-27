@@ -163,6 +163,9 @@ importers:
       '@mplus/domain':
         specifier: workspace:*
         version: link:../../packages/domain
+      '@mplus/mechanics':
+        specifier: workspace:*
+        version: link:../../packages/mechanics
       '@mplus/observability':
         specifier: workspace:*
         version: link:../../packages/observability

@@ -66,8 +66,8 @@ This document records whether each required Wave 4 metric can be collected from 
 | Control | Status | Notes |
 |---|---|---|
 | Event pagination bounds | AVAILABLE | `MAX_EVENT_PAGES=10`, `MAX_EVENTS_PER_CATEGORY=2000`; smoke emits truncated categories. |
-| Eight-run analysis budget | PARTIAL | Production pipeline still `MAX_ANALYSIS_FIGHTS=2` (latest/highest). Deep smoke analyzes up to eight selected fights with unique analysis versions. Raising worker budget is a Gate B decision. |
-| API point cost | PARTIAL | Smoke prints `providerPointCost` from rate snapshot when available. |
+| Eight-run analysis budget | AVAILABLE | Worker analyzes all `ScoringRunSelection` entries up to `WCL_MAX_ANALYSIS_FIGHTS` (default 8, hard cap 16). Bound is selected canonical runs, not first-N reports. |
+| API point cost | PARTIAL | Smoke prints `providerPointCost` + `wclApiCallCount` (deduped report/fight fetches). |
 
 ## Sanitization
 
@@ -87,4 +87,3 @@ Defer until dimension agents:
 - Score model `default@3` weights (Agent 27)
 - Full mechanic/ability catalog expansion
 - Max-health source + key-difficulty interpolation
-- Worker eight-run persistence path replacing latest/highest-only analysis

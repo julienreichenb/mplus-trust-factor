@@ -25,6 +25,7 @@
     "@mplus/provider-warcraftlogs": "workspace:*",
     "@mplus/provider-raiderio": "workspace:*",
     "@mplus/scoring": "workspace:*",
+    "@mplus/mechanics": "workspace:*",
     "@mplus/test-utils": "workspace:*",
     "bullmq": "^5.56.4",
     "ioredis": "^5.6.1"
