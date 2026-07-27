@@ -3,9 +3,12 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadEnv } from "@mplus/config";
 import { buildApp } from "./app.js";
+import { createApiContainer } from "./container.js";
 
 const env = loadEnv();
-const app = await buildApp({ env });
+// `skipQueues` avoids opening a real Redis/BullMQ connection just to generate the OpenAPI document.
+const container = createApiContainer(env, { skipQueues: true });
+const app = await buildApp({ env, container });
 await app.ready();
 const spec = app.swagger();
 const outPath = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "openapi.json");

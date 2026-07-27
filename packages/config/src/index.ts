@@ -57,6 +57,9 @@ export const envSchema = z
     ACTIVE_SCORE_MODEL_VERSION: z.coerce.number().int().positive().default(1),
     MANUAL_REFRESH_COOLDOWN_SECONDS: z.coerce.number().int().positive().default(900),
 
+    /** MVP entitlement flag: when true, the API serializer omits no fields for any client. */
+    PUBLIC_DETAILS_ALL: booleanFromString.default(true),
+
     ADMIN_API_KEY: z.string().min(1),
     SESSION_SECRET: z.string().min(32),
     COOKIE_DOMAIN: z.string().default("localhost"),

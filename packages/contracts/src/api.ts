@@ -7,6 +7,8 @@ export interface ApiErrorEnvelope {
     code: string;
     message: string;
     requestId: string;
+    /** When true, client may retry with backoff. Optional for backward compatibility. */
+    retryable?: boolean;
     details?: unknown;
   };
 }
