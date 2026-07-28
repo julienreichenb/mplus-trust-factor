@@ -567,6 +567,7 @@ export function createRunRepository(prisma: PrismaClient): RunRepository {
         await prisma.$transaction(async (tx) => {
           await tx.runParticipant.deleteMany({ where: { runId: orphan.id } });
           await tx.runAnalysis.deleteMany({ where: { runId: orphan.id } });
+          await tx.scoreAnalysisBatchRun.deleteMany({ where: { runId: orphan.id } });
           await tx.metricObservation.updateMany({
             where: { runId: orphan.id },
             data: { runId: null },
@@ -612,6 +613,7 @@ export function createRunRepository(prisma: PrismaClient): RunRepository {
         await prisma.$transaction(async (tx) => {
           await tx.runSourceReference.deleteMany({ where: { runId } });
           await tx.runAnalysis.deleteMany({ where: { runId } });
+          await tx.scoreAnalysisBatchRun.deleteMany({ where: { runId } });
           await tx.metricObservation.updateMany({ where: { runId }, data: { runId: null } });
           await tx.characterRedFlag.updateMany({ where: { runId }, data: { runId: null } });
           await tx.ingestionJob.updateMany({ where: { runId }, data: { runId: null } });
