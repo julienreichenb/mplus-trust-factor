@@ -2,6 +2,7 @@
 import { RouterLink, useRoute } from "vue-router";
 import { resolveApiMode } from "../../api/client";
 import BrandMark from "../brand/BrandMark.vue";
+import CharacterSearchAutocomplete from "../search/CharacterSearchAutocomplete.vue";
 
 const apiMode = resolveApiMode();
 const route = useRoute();
@@ -29,7 +30,13 @@ function hashHref(hash: string): string {
     </nav>
 
     <div class="actions">
-      <a class="btn secondary search-cta" :href="hashHref('#character-search')">Search a character</a>
+      <CharacterSearchAutocomplete
+        compact
+        :show-recent="false"
+        input-id="navbar-character-search"
+        placeholder="Character-Realm"
+        data-testid="navbar-search"
+      />
       <span class="mode-pill" data-testid="api-mode">API: {{ apiMode }}</span>
     </div>
   </header>
@@ -41,9 +48,15 @@ function hashHref(hash: string): string {
   grid-template-columns: 1fr auto;
   gap: var(--space-4);
   align-items: center;
-  margin-bottom: var(--space-8);
-  padding-bottom: var(--space-5);
+  margin-bottom: var(--space-6);
+  padding-bottom: var(--space-4);
   border-bottom: 1px solid var(--color-border);
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  background: rgb(7 7 7 / 92%);
+  backdrop-filter: blur(8px);
+  padding-top: var(--space-2);
 }
 
 .brand {
@@ -122,33 +135,13 @@ function hashHref(hash: string): string {
   justify-content: flex-end;
   gap: var(--space-3);
   flex-wrap: wrap;
-}
-
-.search-cta {
-  text-decoration: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding-inline: var(--space-4);
-  border-color: rgb(244 213 141 / 45%);
-  color: var(--color-gold-300);
-  background: transparent;
-  box-shadow: none;
-  min-height: 2.5rem;
-  font-size: var(--text-sm);
-}
-
-.search-cta:hover,
-.search-cta:focus-visible {
-  text-decoration: none;
-  border-color: var(--color-gold-300);
-  color: var(--color-text);
-  background: var(--color-surface-hover);
+  min-width: 0;
 }
 
 @media (min-width: 768px) {
   .app-header {
     grid-template-columns: auto 1fr auto;
+    margin-bottom: var(--space-8);
   }
 
   .nav {
@@ -160,10 +153,6 @@ function hashHref(hash: string): string {
 }
 
 @media (max-width: 479px) {
-  .search-cta {
-    padding-inline: var(--space-3);
-  }
-
   .brand__full {
     display: none;
   }

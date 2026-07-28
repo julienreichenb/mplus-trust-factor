@@ -10,7 +10,7 @@ import StatusBanner from "../components/common/StatusBanner.vue";
 import ScoreHeader from "../components/profile/ScoreHeader.vue";
 import DimensionCards from "../components/profile/DimensionCards.vue";
 import AuthenticitySection from "../components/profile/AuthenticitySection.vue";
-import AnalyzedRunsSection from "../components/profile/AnalyzedRunsSection.vue";
+import SelectedRunsSection from "../components/profile/SelectedRunsSection.vue";
 import PerformanceSummaryPanel from "../components/profile/PerformanceSummaryPanel.vue";
 import WclVisibilityBanner from "../components/profile/WclVisibilityBanner.vue";
 import TrustRadarChart from "../components/charts/TrustRadarChart.vue";
@@ -20,6 +20,7 @@ import EquipmentGrid from "../components/equipment/EquipmentGrid.vue";
 import TalentBuildPanel from "../components/talents/TalentBuildPanel.vue";
 import MethodologyPanel from "../components/methodology/MethodologyPanel.vue";
 import { resolveDataConfidence } from "../lib/characterViewModel";
+import { filterDimensionsForModel } from "../lib/format";
 import { useWowheadTooltips } from "../composables/useWowheadTooltips";
 import { ApiClientError } from "../api/live-client";
 
@@ -60,6 +61,10 @@ const entitlements = computed(
       runsUnlocked: true,
       compareExpanded: true,
     },
+);
+
+const visibleDimensions = computed(() =>
+  filterDimensionsForModel(profile.value?.score?.dimensions ?? [], profile.value?.score?.modelVersion),
 );
 
 async function load(): Promise<void> {
@@ -238,20 +243,22 @@ watch(
       <ScoreHeader :profile="profile" :refreshing="polling" @refresh="refresh" />
 
       <TrustRadarChart
-        v-if="profile.score?.dimensions?.length"
+        v-if="visibleDimensions.length"
         :series="[
           {
             id: profile.characterId,
             name: profile.displayName,
-            dimensions: profile.score.dimensions,
+            dimensions: visibleDimensions,
           },
         ]"
+        :model-version="profile.score?.modelVersion"
         :locked="!entitlements.detailsUnlocked"
       />
 
       <DimensionCards
         v-if="profile.score"
-        :dimensions="profile.score.dimensions"
+        :dimensions="visibleDimensions"
+        :model-version="profile.score.modelVersion"
         :locked="!entitlements.detailsUnlocked"
       />
 
@@ -269,9 +276,8 @@ watch(
         :locked="!entitlements.detailsUnlocked"
       />
 
-      <AnalyzedRunsSection
-        :last="profile.lastAnalyzedRun ?? null"
-        :highest="profile.highestAnalyzedRun ?? null"
+      <SelectedRunsSection
+        :selection="profile.scoringRunSelection ?? null"
         :locked="!entitlements.runsUnlocked"
       />
 

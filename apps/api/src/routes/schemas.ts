@@ -238,6 +238,7 @@ export const characterProfileResponseSchema = {
     freshness: { type: ["number", "null"] },
     lastAnalyzedRun: {},
     highestAnalyzedRun: {},
+    scoringRunSelection: {},
     equipment: { anyOf: [equipmentSummarySchema, { type: "null" }] },
     talents: { anyOf: [talentSummarySchema, { type: "null" }] },
     media: { anyOf: [characterMediaSchema, { type: "null" }] },
@@ -275,6 +276,31 @@ export const searchCharacterResponseSchema = {
     score: { anyOf: [scoreSnapshotSchema, { type: "null" }] },
   },
   additionalProperties: true,
+} as const;
+
+export const characterAutocompleteSuggestionSchema = {
+  type: "object",
+  properties: {
+    name: { type: "string" },
+    realmSlug: { type: "string" },
+    region: { type: "string" },
+    classSlug: { type: ["string", "null"] },
+    specSlug: { type: ["string", "null"] },
+    avatarUrl: { type: ["string", "null"] },
+    classIconUrl: { type: ["string", "null"] },
+    source: { type: "string" },
+  },
+  required: ["name", "realmSlug", "region", "classSlug", "specSlug", "avatarUrl", "classIconUrl"],
+  additionalProperties: true,
+} as const;
+
+export const characterAutocompleteResponseSchema = {
+  type: "object",
+  properties: {
+    suggestions: { type: "array", items: characterAutocompleteSuggestionSchema },
+  },
+  required: ["suggestions"],
+  additionalProperties: false,
 } as const;
 
 export const historyResponseSchema = {

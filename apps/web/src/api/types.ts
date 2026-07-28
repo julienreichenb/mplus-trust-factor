@@ -1,5 +1,6 @@
 import type {
   AdminScoreModelDTO,
+  CharacterAutocompleteSuggestion,
   CharacterComparisonRequest,
   CharacterComparisonResponse,
   CharacterIdentityInput,
@@ -13,6 +14,8 @@ import type {
   ScoreModelConfig,
   ScoreSnapshotDTO,
   SearchCharacterResponse,
+  ScoringRunSelection,
+  SelectedRunSummary,
   AnalyzedRunSummary,
   EquipmentSummary,
   TalentSummary,
@@ -70,6 +73,11 @@ export type ApiMode = "mock" | "live";
 export interface MplusApiClient {
   getMeta(signal?: AbortSignal): Promise<MetaResponse>;
   searchRealms(region: RegionCode, query: string, signal?: AbortSignal): Promise<RealmOption[]>;
+  searchCharacters(
+    region: RegionCode,
+    query: string,
+    signal?: AbortSignal,
+  ): Promise<CharacterAutocompleteSuggestion[]>;
   getCharacterProfile(
     identity: CharacterIdentityInput,
     signal?: AbortSignal,
@@ -98,6 +106,7 @@ export interface MplusApiClient {
 export type {
   AdminScoreModelDTO,
   AnalyzedRunSummary,
+  CharacterAutocompleteSuggestion,
   CharacterComparisonRequest,
   CharacterComparisonResponse,
   CharacterIdentityInput,
@@ -112,6 +121,8 @@ export type {
   RegionCode,
   ScoreSnapshotDTO,
   SearchCharacterResponse,
+  ScoringRunSelection,
+  SelectedRunSummary,
   SeasonSummary,
   TalentSummary,
 };

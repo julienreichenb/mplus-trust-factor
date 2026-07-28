@@ -1,11 +1,7 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { nextTick, ref } from "vue";
-import { mount, flushPromises } from "@vue/test-utils";
-import { createPinia, setActivePinia } from "pinia";
-import { createMemoryHistory, createRouter } from "vue-router";
+import { flushPromises } from "@vue/test-utils";
 import { useRealmAutocomplete } from "./useRealmAutocomplete";
-import HomePage from "../pages/HomePage.vue";
-import { routeDefs } from "../routes";
 
 vi.mock("../api/client", () => ({
   api: {
@@ -138,57 +134,3 @@ describe("useRealmAutocomplete", () => {
   });
 });
 
-describe("HomePage realm combobox", () => {
-  async function mountHome() {
-    setActivePinia(createPinia());
-    const router = createRouter({
-      history: createMemoryHistory(),
-      routes: routeDefs,
-    });
-    await router.push("/");
-    await router.isReady();
-    return mount(HomePage, {
-      global: {
-        plugins: [router],
-      },
-    });
-  }
-
-  it("selects a suggestion with mousedown and updates the input", async () => {
-    vi.useRealTimers();
-    const wrapper = await mountHome();
-    const input = wrapper.get('[data-testid="realm-input"]');
-    await input.trigger("focus");
-    await input.setValue("tarren");
-    await flushPromises();
-    await new Promise((r) => setTimeout(r, 300));
-    await flushPromises();
-
-    const option = wrapper.get('[data-testid="realm-option-tarren-mill"]');
-    expect(option.attributes("role")).toBe("option");
-    await option.trigger("mousedown");
-    await flushPromises();
-
-    expect((input.element as HTMLInputElement).value).toBe("Tarren Mill");
-    expect(wrapper.find('[data-testid="realm-suggestions"]').exists()).toBe(false);
-    expect(input.attributes("role")).toBe("combobox");
-  });
-
-  it("selects the active suggestion with Enter", async () => {
-    vi.useRealTimers();
-    const wrapper = await mountHome();
-    const input = wrapper.get('[data-testid="realm-input"]');
-    await input.trigger("focus");
-    await input.setValue("tarren");
-    await flushPromises();
-    await new Promise((r) => setTimeout(r, 300));
-    await flushPromises();
-
-    expect(wrapper.find('[data-testid="realm-suggestions"]').exists()).toBe(true);
-    await input.trigger("keydown", { key: "Enter" });
-    await flushPromises();
-
-    expect((input.element as HTMLInputElement).value).toBe("Tarren Mill");
-    expect(wrapper.find('[data-testid="realm-suggestions"]').exists()).toBe(false);
-  });
-});

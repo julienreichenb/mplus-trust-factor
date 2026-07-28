@@ -7,7 +7,16 @@ export const RADAR_DIMENSIONS = [
   "RAID",
 ] as const;
 
+/** Wave 4 model v3+ — Raid dimension removed from default scoring. */
+export const RADAR_DIMENSIONS_V3 = [
+  "PERFORMANCE",
+  "SURVIVAL",
+  "UTILITY",
+  "EXPERIENCE",
+] as const;
+
 export type RadarDimension = (typeof RADAR_DIMENSIONS)[number];
+export type RadarDimensionV3 = (typeof RADAR_DIMENSIONS_V3)[number];
 
 export const DIMENSION_LABELS: Record<RadarDimension, string> = {
   PERFORMANCE: "Performance",
@@ -16,6 +25,27 @@ export const DIMENSION_LABELS: Record<RadarDimension, string> = {
   EXPERIENCE: "Experience",
   RAID: "Mythic Raid",
 };
+
+/** Returns false for default@3 and newer models where Raid is excluded from the UI. */
+export function includesRaidDimension(modelVersion: number | null | undefined): boolean {
+  return modelVersion == null || modelVersion < 3;
+}
+
+export function resolveRadarDimensions(
+  modelVersion?: number | null,
+): readonly RadarDimension[] {
+  return includesRaidDimension(modelVersion)
+    ? RADAR_DIMENSIONS
+    : (RADAR_DIMENSIONS_V3 as readonly RadarDimension[]);
+}
+
+export function filterDimensionsForModel<T extends { dimension: string }>(
+  dimensions: T[],
+  modelVersion?: number | null,
+): T[] {
+  if (includesRaidDimension(modelVersion)) return dimensions;
+  return dimensions.filter((d) => d.dimension !== "RAID");
+}
 
 export function formatPercent(value: number | null | undefined, digits = 0): string {
   if (value === null || value === undefined || Number.isNaN(value)) return "—";

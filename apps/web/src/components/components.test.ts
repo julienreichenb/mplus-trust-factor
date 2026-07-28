@@ -93,11 +93,13 @@ describe("TrustRadarChart", () => {
     const wrapper = mount(TrustRadarChart, {
       props: {
         series: [{ id: "1", name: "Aleria", dimensions: dims }],
+        modelVersion: 3,
       },
     });
     const table = wrapper.get("[data-testid='radar-fallback']");
     expect(table.text()).toContain("Performance");
     expect(table.text()).toContain("91");
+    expect(table.text()).not.toContain("Mythic Raid");
     expect(wrapper.get("[data-testid='dimension-table']").text()).toContain("Exact dimension values");
     wrapper.unmount();
   });

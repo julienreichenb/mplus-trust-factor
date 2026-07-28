@@ -74,12 +74,13 @@ function baseScore(
   dims: Array<{ dimension: ScoreSnapshotDTO["dimensions"][number]["dimension"]; score: number; weight: number; confidence: number; pos: string; neg: string }>,
   redFlags: RedFlagDTO[],
   calculatedAt: string,
+  modelVersion = 1,
 ): ScoreSnapshotDTO {
   return {
     characterId,
     seasonSlug: "season-tww-3",
     modelKey: "default",
-    modelVersion: 1,
+    modelVersion,
     scopeType: "CHARACTER",
     scopeKey: null,
     overallScore: overall,
@@ -110,11 +111,10 @@ const aleriaScore = baseScore(
   82,
   0.78,
   [
-    { dimension: "PERFORMANCE", score: 91, weight: 0.32, confidence: 0.85, pos: "Strong DPS percentile on +12s", neg: "Slight dip on Tyrannical weeks" },
-    { dimension: "SURVIVAL", score: 84, weight: 0.27, confidence: 0.8, pos: "Low avoidable damage", neg: "Two deaths on first boss pull" },
-    { dimension: "UTILITY", score: 86, weight: 0.23, confidence: 0.75, pos: "Consistent interrupts", neg: "Missed one purge window" },
-    { dimension: "EXPERIENCE", score: 80, weight: 0.13, confidence: 0.9, pos: "42 season runs", neg: "Narrow dungeon spread" },
-    { dimension: "RAID", score: 70, weight: 0.05, confidence: 0.55, pos: "4/8M", neg: "Limited parse sample" },
+    { dimension: "PERFORMANCE", score: 91, weight: 0.35, confidence: 0.85, pos: "Strong DPS percentile on +12s", neg: "Slight dip on Tyrannical weeks" },
+    { dimension: "SURVIVAL", score: 84, weight: 0.3, confidence: 0.8, pos: "Low avoidable damage", neg: "Two deaths on first boss pull" },
+    { dimension: "UTILITY", score: 86, weight: 0.25, confidence: 0.75, pos: "Consistent interrupts", neg: "Missed one purge window" },
+    { dimension: "EXPERIENCE", score: 80, weight: 0.1, confidence: 0.9, pos: "42 season runs", neg: "Narrow dungeon spread" },
   ],
   [
     {
@@ -127,6 +127,7 @@ const aleriaScore = baseScore(
     },
   ],
   now,
+  3,
 );
 
 const lowConfScore = baseScore(
@@ -218,6 +219,33 @@ const sharedRun = {
   coverageRatio: 0.88,
 };
 
+const SEASON_DUNGEON_FIXTURES = [
+  { slug: "priory-of-the-sacred-flame", name: "Priory of the Sacred Flame", keyLevel: 12 },
+  { slug: "operation-floodgate", name: "Operation: Floodgate", keyLevel: 11 },
+  { slug: "darkflame-cleft", name: "Darkflame Cleft", keyLevel: 12 },
+  { slug: "the-rookery", name: "The Rookery", keyLevel: 10 },
+  { slug: "cinderbrew-meadery", name: "Cinderbrew Meadery", keyLevel: 11 },
+  { slug: "the-stonevault", name: "The Stonevault", keyLevel: 12 },
+  { slug: "city-of-threads", name: "City of Threads", keyLevel: 11 },
+  { slug: "arakara-city-of-echoes", name: "Ara-Kara, City of Echoes", keyLevel: 10 },
+] as const;
+
+export const aleriaScoringRunSelection = {
+  seasonSlug: "season-tww-3",
+  expectedDungeonCount: 8,
+  selectedRuns: SEASON_DUNGEON_FIXTURES.map((dungeon, index) => ({
+    dungeonSlug: dungeon.slug,
+    dungeonName: dungeon.name,
+    canonicalRunId: index < 6 ? `run-${dungeon.slug}` : null,
+    keyLevel: index < 6 ? dungeon.keyLevel : null,
+    timed: index < 6 ? true : null,
+    completedAt: index < 6 ? "2026-07-18T21:14:00.000Z" : null,
+    wclReportMatched: index < 6,
+    selectionReason: index < 6 ? ("HIGHEST_KEY" as const) : null,
+    coverageRatio: index < 6 ? 0.82 + index * 0.01 : null,
+  })),
+};
+
 export const FIXTURE_CHARACTERS: FixtureCharacter[] = [
   {
     identity: { region: "EU", realmSlug: "tarren-mill", name: "Aleria" },
@@ -244,6 +272,7 @@ export const FIXTURE_CHARACTERS: FixtureCharacter[] = [
       itemLevel: 668,
       lastAnalyzedRun: { ...sharedRun, kind: "BOTH" },
       highestAnalyzedRun: { ...sharedRun, kind: "BOTH" },
+      scoringRunSelection: aleriaScoringRunSelection,
       equipment: {
         averageItemLevel: 666,
         equippedItemLevel: 668,

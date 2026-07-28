@@ -7,7 +7,7 @@ import { CanvasRenderer } from "echarts/renderers";
 import type { DimensionScoreDTO } from "@mplus/contracts";
 import {
   DIMENSION_LABELS,
-  RADAR_DIMENSIONS,
+  resolveRadarDimensions,
   type RadarDimension,
   formatPercent,
   formatScore,
@@ -28,6 +28,7 @@ const props = defineProps<{
   series: RadarSeries[];
   title?: string;
   locked?: boolean;
+  modelVersion?: number | null;
 }>();
 
 const emit = defineEmits<{
@@ -39,11 +40,13 @@ let chart: echarts.ECharts | null = null;
 
 const primaryDimensions = computed(() => props.series[0]?.dimensions ?? []);
 
+const radarDimensions = computed(() => resolveRadarDimensions(props.modelVersion));
+
 const ordered = computed(() =>
   props.series.map((s) => ({
     ...s,
     visible: s.visible !== false,
-    values: RADAR_DIMENSIONS.map((dim) => {
+    values: radarDimensions.value.map((dim) => {
       const found = s.dimensions.find((d) => d.dimension === dim);
       return {
         dimension: dim,
@@ -107,7 +110,7 @@ function render(): void {
       },
       legend: { show: false },
       radar: {
-        indicator: RADAR_DIMENSIONS.map((dim) => ({
+        indicator: radarDimensions.value.map((dim) => ({
           name: DIMENSION_LABELS[dim],
           max: 100,
           min: 0,
@@ -186,7 +189,11 @@ watch(
         role="img"
         :aria-label="title ?? 'Radar chart of trust dimensions'"
       />
-      <TrustDimensionTable :dimensions="primaryDimensions" :locked="locked" />
+      <TrustDimensionTable
+        :dimensions="primaryDimensions"
+        :model-version="modelVersion"
+        :locked="locked"
+      />
     </div>
 
     <table class="a11y-table" data-testid="radar-fallback">
@@ -196,7 +203,7 @@ watch(
       <thead>
         <tr>
           <th scope="col">Candidate</th>
-          <th v-for="dim in RADAR_DIMENSIONS" :key="dim" scope="col">
+          <th v-for="dim in radarDimensions" :key="dim" scope="col">
             {{ DIMENSION_LABELS[dim] }}
           </th>
         </tr>

@@ -29,6 +29,40 @@ export interface SearchCharacterResponse {
   score: ScoreSnapshotDTO | null;
 }
 
+/** Internal fuzzy character search suggestion — not a Blizzard global search. */
+export interface CharacterAutocompleteSuggestion {
+  name: string;
+  realmSlug: string;
+  region: RegionCode;
+  classSlug: string | null;
+  specSlug: string | null;
+  avatarUrl: string | null;
+  classIconUrl: string | null;
+  source?: "character" | "alias" | "participant";
+}
+
+export interface CharacterAutocompleteResponse {
+  suggestions: CharacterAutocompleteSuggestion[];
+}
+
+export interface SelectedRunSummary {
+  dungeonSlug: string;
+  dungeonName: string;
+  canonicalRunId: string | null;
+  keyLevel: number | null;
+  timed: boolean | null;
+  completedAt: IsoDateTime | null;
+  wclReportMatched: boolean;
+  selectionReason: "HIGHEST_KEY" | "HIGHEST_SCORE_TIEBREAK" | "LATEST_TIEBREAK" | null;
+  coverageRatio: number | null;
+}
+
+export interface ScoringRunSelection {
+  seasonSlug: string;
+  expectedDungeonCount: number;
+  selectedRuns: SelectedRunSummary[];
+}
+
 export interface AnalyzedRunSummary {
   runId: string;
   kind: "LATEST" | "HIGHEST" | "BOTH";
@@ -190,6 +224,8 @@ export interface CharacterProfileResponse {
   freshness?: number | null;
   lastAnalyzedRun?: AnalyzedRunSummary | null;
   highestAnalyzedRun?: AnalyzedRunSummary | null;
+  /** Wave 4 — one highest run per active-season dungeon (typically eight). */
+  scoringRunSelection?: ScoringRunSelection | null;
   equipment?: EquipmentSummary | null;
   talents?: TalentSummary | null;
   media?: CharacterMediaDTO | null;

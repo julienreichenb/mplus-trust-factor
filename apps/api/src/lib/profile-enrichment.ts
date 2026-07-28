@@ -16,7 +16,9 @@ import type {
   PerformanceSummaryDTO,
   ProfileEntitlements,
   ProfileWarning,
+  ScoringRunSelection,
   SeasonSummary,
+  SelectedRunSummary,
   TalentSummary,
   WclDataState,
   WclVisibilityState,
@@ -82,6 +84,40 @@ function coverageForRun(
   if (typeof analyzed === "number") return analyzed;
   if (selectedRunCoverage == null) return 0;
   return selectedRunCoverage;
+}
+
+/** Build the shared eight-dungeon selectedRuns contract from performance summary data. */
+export function buildScoringRunSelection(
+  performanceSummary: PerformanceSummaryDTO | null | undefined,
+  seasonSlug: string | null,
+  runCoverageById?: Record<string, number | null>,
+  selectedRunCoverage?: number | null,
+): ScoringRunSelection | null {
+  const current = performanceSummary?.currentSeason;
+  if (!current || !seasonSlug) return null;
+
+  const selectedRuns: SelectedRunSummary[] = current.dungeons.map((dungeon) => {
+    const run = dungeon.bestRun ?? dungeon.latestRun;
+    return {
+      dungeonSlug: dungeon.dungeonSlug,
+      dungeonName: dungeon.dungeonName,
+      canonicalRunId: run?.runId ?? null,
+      keyLevel: run?.keyLevel ?? null,
+      timed: run?.timed ?? null,
+      completedAt: run?.completedAt ?? null,
+      wclReportMatched: run != null,
+      selectionReason: run?.kind === "LATEST" ? "LATEST_TIEBREAK" : run ? "HIGHEST_KEY" : null,
+      coverageRatio: run
+        ? coverageForRun(run.runId, runCoverageById, selectedRunCoverage)
+        : null,
+    };
+  });
+
+  return {
+    seasonSlug,
+    expectedDungeonCount: current.expectedDungeonCount,
+    selectedRuns,
+  };
 }
 
 function sanitizeHttpsUrl(value: unknown): string | null {
@@ -315,6 +351,7 @@ export function buildProfileEnrichments(input: CharacterEnrichmentInput): Pick<
   | "freshness"
   | "lastAnalyzedRun"
   | "highestAnalyzedRun"
+  | "scoringRunSelection"
   | "equipment"
   | "talents"
   | "media"
@@ -396,6 +433,13 @@ export function buildProfileEnrichments(input: CharacterEnrichmentInput): Pick<
       state.provider === "raiderio" ? (character.raiderioProfileUrl ?? null) : (state.sourceUrl ?? null),
   }));
 
+  const scoringRunSelection = buildScoringRunSelection(
+    performanceSummary,
+    seasonSlug,
+    runCoverageById,
+    selectedRunCoverage,
+  );
+
   return {
     classSlug: character.gameClass?.slug ?? null,
     specSlug: character.activeSpec?.slug ?? null,
@@ -408,6 +452,7 @@ export function buildProfileEnrichments(input: CharacterEnrichmentInput): Pick<
     freshness,
     lastAnalyzedRun,
     highestAnalyzedRun,
+    scoringRunSelection,
     equipment,
     talents,
     media,

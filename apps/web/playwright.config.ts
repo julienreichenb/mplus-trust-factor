@@ -14,7 +14,7 @@ export default defineConfig({
   projects: [
     {
       name: "mock",
-      testMatch: "smoke.spec.ts",
+      testMatch: /(smoke|screenshots)\.spec\.ts/,
       use: { baseURL: "http://127.0.0.1:4173" },
     },
     {

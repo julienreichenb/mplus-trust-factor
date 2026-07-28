@@ -1,5 +1,6 @@
 import type {
   AdminScoreModelDTO,
+  CharacterAutocompleteSuggestion,
   CharacterComparisonRequest,
   CharacterComparisonResponse,
   CharacterIdentityInput,
@@ -88,6 +89,12 @@ export function createLiveApiClient(options: {
         `/api/v1/realms?region=${encodeURIComponent(String(region))}&query=${encodeURIComponent(query)}`,
         signal,
       ).then((r) => normalizeRealmOptions(r.realms)),
+
+    searchCharacters: (region: RegionCode, query: string, signal) =>
+      get<{ suggestions: CharacterAutocompleteSuggestion[] }>(
+        `/api/v1/characters/autocomplete?region=${encodeURIComponent(String(region))}&query=${encodeURIComponent(query)}`,
+        signal,
+      ).then((r) => r.suggestions),
 
     getCharacterProfile: (identity: CharacterIdentityInput, signal) =>
       get<CharacterProfileResponse>(identityPath(identity), signal),

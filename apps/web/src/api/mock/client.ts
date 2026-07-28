@@ -1,5 +1,6 @@
 import type {
   AdminScoreModelDTO,
+  CharacterAutocompleteSuggestion,
   CharacterComparisonRequest,
   CharacterComparisonResponse,
   CharacterIdentityInput,
@@ -11,6 +12,7 @@ import type {
 } from "../types";
 import {
   EU_REALMS,
+  FIXTURE_CHARACTERS,
   allocateModelVersion,
   createJob,
   findFixture,
@@ -20,6 +22,7 @@ import {
   setModelStore,
 } from "./fixtures";
 import { deepClone } from "../../lib/clone";
+import { classIconUrl } from "../../lib/wowClass";
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -100,6 +103,41 @@ export function createMockApiClient(): MplusApiClient {
       return EU_REALMS.filter(
         (r) => r.slug.includes(q) || r.name.toLowerCase().includes(q),
       ).slice(0, 20);
+    },
+
+    async searchCharacters(region: RegionCode, query: string, signal) {
+      await delay(40);
+      assertNotAborted(signal);
+      const q = query.trim().toLowerCase();
+      if (q.length < 3 || String(region).toUpperCase() !== "EU") {
+        return [];
+      }
+
+      const fromFixtures: CharacterAutocompleteSuggestion[] = FIXTURE_CHARACTERS.map((fixture) => ({
+        name: fixture.identity.name,
+        realmSlug: fixture.identity.realmSlug,
+        region: fixture.identity.region as RegionCode,
+        classSlug: fixture.profile.classSlug ?? null,
+        specSlug: fixture.profile.specSlug ?? null,
+        avatarUrl: fixture.profile.media?.avatarUrl ?? null,
+        classIconUrl: classIconUrl(fixture.profile.classSlug),
+        source: "character" as const,
+      }));
+
+      const { namePart, realmPart } = (() => {
+        const dash = q.indexOf("-");
+        if (dash <= 0) return { namePart: q, realmPart: null as string | null };
+        return { namePart: q.slice(0, dash), realmPart: q.slice(dash + 1) || null };
+      })();
+
+      return fromFixtures
+        .filter((entry) => {
+          const haystack = `${entry.name}-${entry.realmSlug}`.toLowerCase();
+          const nameMatch = entry.name.toLowerCase().includes(namePart) || haystack.includes(q);
+          const realmMatch = !realmPart || entry.realmSlug.includes(realmPart);
+          return nameMatch && realmMatch;
+        })
+        .slice(0, 12);
     },
 
     async getCharacterProfile(identity, signal) {

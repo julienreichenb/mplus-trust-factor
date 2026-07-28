@@ -7,16 +7,36 @@ test.describe("M+ Trust Factor web (mock mode)", () => {
 
     await page.goto("/");
     await expect(page.getByTestId("api-mode")).toContainText("mock");
-    await page.getByTestId("realm-input").fill("tarren-mill");
-    await page.getByTestId("name-input").fill("Aleria");
-    await page.getByTestId("search-submit").click();
+    const heroForm = page.getByTestId("hero-search-form");
+    await heroForm.getByTestId("character-autocomplete-input").fill("Aleria-tarren-mill");
+    await heroForm.getByTestId("search-submit").click();
     await expect(page).toHaveURL(/\/character\/EU\/tarren-mill\/Aleria/i);
     await expect(page.getByTestId("score-header")).toBeVisible();
     await expect(page.getByTestId("overall-score")).toHaveText("88");
     await expect(page.getByTestId("grade")).toContainText("A");
     await expect(page.getByTestId("radar-fallback")).toBeVisible();
+    await expect(page.getByTestId("selected-runs-panel")).toBeVisible();
     await expect(page.getByTestId("raiderio-attribution")).toBeVisible();
+    await expect(page.getByText("Mythic Raid")).toHaveCount(0);
     expect(errors).toEqual([]);
+  });
+
+  test("autocomplete keyboard navigation selects a suggestion", async ({ page }) => {
+    await page.goto("/");
+    const input = page.getByTestId("hero-search-form").getByTestId("character-autocomplete-input");
+    await input.fill("Ale");
+    await expect(page.getByTestId("character-suggestions")).toBeVisible({ timeout: 5000 });
+    await input.press("ArrowDown");
+    await input.press("Enter");
+    await expect(page).toHaveURL(/\/character\/EU\/tarren-mill\/Aleria/i);
+  });
+
+  test("navbar autocomplete navigates to profile", async ({ page }) => {
+    await page.goto("/");
+    const navbarInput = page.locator("#navbar-character-search");
+    await navbarInput.fill("Aleria-tarren-mill");
+    await navbarInput.press("Enter");
+    await expect(page).toHaveURL(/\/character\/EU\/tarren-mill\/Aleria/i);
   });
 
   test("queued refresh completes on Carryme", async ({ page }) => {
@@ -54,9 +74,11 @@ test.describe("M+ Trust Factor web (mock mode)", () => {
     await page.goto("/");
     await expect(page.getByRole("navigation", { name: "Primary" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Know who you run with." })).toBeVisible();
-    await expect(page.getByTestId("search-form")).toBeVisible();
+    await expect(page.getByTestId("hero-search-form")).toBeVisible();
     await page.goto("/character/EU/tarren-mill/Aleria");
     await expect(page.getByRole("main")).toBeVisible();
     await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+    await expect(page.getByTestId("selected-runs-panel")).toBeVisible();
+    await expect(page.getByText("Analyzed runs")).toHaveCount(0);
   });
 });

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import CharacterSearchForm from "../components/search/CharacterSearchForm.vue";
+import CharacterSearchAutocomplete from "../components/search/CharacterSearchAutocomplete.vue";
 import HeroProductPreview from "../components/landing/HeroProductPreview.vue";
 import FeatureGrid from "../components/landing/FeatureGrid.vue";
 import MethodologySummary from "../components/landing/MethodologySummary.vue";
@@ -16,7 +16,7 @@ import MethodologySummary from "../components/landing/MethodologySummary.vue";
           public player data.
         </p>
 
-        <CharacterSearchForm />
+        <CharacterSearchAutocomplete />
 
         <p class="trust-line">
           Transparent model. Public data. Versioned scoring.
@@ -67,22 +67,20 @@ import MethodologySummary from "../components/landing/MethodologySummary.vue";
 
 .hero {
   display: grid;
-  gap: var(--space-10);
-  align-items: start;
+  gap: var(--space-8);
+  align-items: center;
 }
 
-.eyebrow {
-  margin: 0 0 var(--space-3);
-  font-family: var(--font-data);
-  font-size: var(--text-xs);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--color-gold-300);
+.hero__copy {
+  display: grid;
+  gap: var(--space-4);
+  align-content: start;
 }
 
 .hero h1 {
-  margin: 0 0 var(--space-4);
-  font-size: clamp(2.25rem, 6vw, 4.25rem);
+  margin: 0;
+  font-size: clamp(2rem, 4.5vw, 3.25rem);
+  line-height: 1.05;
   background: linear-gradient(180deg, var(--color-gold-300) 0%, var(--color-stone-100) 72%);
   -webkit-background-clip: text;
   background-clip: text;
@@ -90,10 +88,19 @@ import MethodologySummary from "../components/landing/MethodologySummary.vue";
 }
 
 .lede {
-  margin: 0 0 var(--space-6);
-  max-width: 36rem;
-  font-size: var(--text-lg);
+  margin: 0;
+  max-width: 34rem;
+  font-size: var(--text-base);
   color: var(--color-text-muted);
+}
+
+.eyebrow {
+  margin: 0;
+  font-family: var(--font-data);
+  font-size: var(--text-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-gold-300);
 }
 
 .trust-line {
@@ -168,14 +175,14 @@ import MethodologySummary from "../components/landing/MethodologySummary.vue";
   }
 
   .hero {
-    grid-template-columns: minmax(0, 1.15fr) minmax(18rem, 0.85fr);
-    gap: var(--space-10);
-    align-items: start;
+    grid-template-columns: minmax(0, 1.05fr) minmax(16rem, 0.95fr);
+    gap: var(--space-8);
+    align-items: center;
+    min-height: min(34rem, calc(100vh - 10rem));
   }
 
   .hero__preview {
-    position: sticky;
-    top: var(--space-6);
+    align-self: center;
   }
 }
 </style>
