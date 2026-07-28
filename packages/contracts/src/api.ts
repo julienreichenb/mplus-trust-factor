@@ -115,6 +115,16 @@ export interface PerformanceDungeonSummaryDTO {
   loggedRunCount: number;
   bestRun: PerformanceExplanatoryRunDTO | null;
   latestRun: PerformanceExplanatoryRunDTO | null;
+  /** Performance v3 — selected-run execution percentile. */
+  executionPercentile?: number | null;
+  /** Performance v3 — season-relative key difficulty percentile. */
+  keyDifficultyPercentile?: number | null;
+  /** Performance v3 — per-dungeon 65/35 blend. */
+  runPerformance?: number | null;
+  dungeonConfidence?: number | null;
+  source?: string | null;
+  selectedKeyLevel?: number | null;
+  canonicalRunId?: string | null;
 }
 
 export interface PerformanceCurrentSeasonSummaryDTO {
@@ -126,6 +136,8 @@ export interface PerformanceCurrentSeasonSummaryDTO {
   expectedDungeonCount: number;
   latestObservedAt: IsoDateTime | null;
   dungeons: PerformanceDungeonSummaryDTO[];
+  /** Present when produced by Performance v3 (`performance-v3-selected-runs-v1`). */
+  formulaVersion?: string | null;
 }
 
 export interface PerformanceHistoricalSeasonSummaryDTO {

@@ -7,6 +7,13 @@ export interface RunSourceRefDTO {
   reportCode: string | null;
   fightId: number | null;
   revision: number | null;
+  /**
+   * WCL parse percentile tied to this report/fight when known.
+   * Never a character-wide best substitute for a different fight.
+   */
+  parsePercentile?: number | null;
+  /** WCL keystone bracket when the ranking row was bracket-aware. */
+  bracket?: number | null;
 }
 
 export interface RunParticipantDTO {

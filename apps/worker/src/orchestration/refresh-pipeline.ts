@@ -36,6 +36,7 @@ import {
   resolveScoringSeasonDungeonSet,
   type ScoringRunAnalysisCandidate,
   type ScoringRunAnalysisDiagnostics,
+  type ScoringRunAnalysisRow,
 } from "./analyze-scoring-runs.js";
 import { fingerprintObservations } from "./fingerprint.js";
 import { buildMythicRatingObservation } from "./performance-metrics.js";
@@ -853,11 +854,40 @@ export async function runRefreshPipeline(
   };
 
   const seasonRuns = await repositories.run.listForCharacterSeason(character.id, season.id);
+
+  // Tie parses to selected fights using in-memory discovery rankings (report+fight), never
+  // character-wide best aggregates. DB sources do not yet persist parsePercentile.
+  const parseRankingsFromRuns = [...discoveredRuns, ...fusedRuns].flatMap((run) =>
+    run.sources
+      .filter(
+        (s) =>
+          s.provider === "WARCRAFT_LOGS" &&
+          typeof s.reportCode === "string" &&
+          s.reportCode.length > 0 &&
+          typeof s.fightId === "number" &&
+          s.fightId > 0,
+      )
+      .map((s) => ({
+        reportCode: s.reportCode!,
+        fightId: s.fightId!,
+        bracket: s.bracket ?? run.keyLevel,
+        keyLevel: run.keyLevel,
+        percentile: s.parsePercentile ?? null,
+        rankPercent: s.parsePercentile ?? null,
+      })),
+  );
+
   const scoringCandidates: ScoringRunAnalysisCandidate[] = seasonRuns.map((run) => {
     const wcl = run.sources.find(
       (s: { provider: string; reportCode: string | null; fightId: number | null }) =>
         s.provider === "WARCRAFT_LOGS" && s.reportCode && s.fightId != null && s.fightId > 0,
     );
+    const ranking =
+      wcl?.reportCode && wcl.fightId != null
+        ? parseRankingsFromRuns.find(
+            (r) => r.reportCode === wcl.reportCode && r.fightId === wcl.fightId,
+          )
+        : undefined;
     return {
       runId: run.id,
       dungeonSlug: run.dungeon.slug,
@@ -872,6 +902,8 @@ export async function runRefreshPipeline(
           ? { reportCode: wcl.reportCode, fightId: wcl.fightId }
           : null,
       canonicalFingerprint: run.canonicalFingerprint,
+      parsePercentile: ranking?.percentile ?? null,
+      bracket: ranking?.bracket ?? null,
     };
   });
 
@@ -879,6 +911,7 @@ export async function runRefreshPipeline(
   const combatFactsList: RunCombatFacts[] = [];
   const v3RawObservations: MetricObservationDTO[] = [];
   const selectedRunIds = new Set<string>();
+  let scoringAnalysisRows: ScoringRunAnalysisRow[] = [];
 
   if (!disabledProviders.has("warcraftlogs") && scoringCandidates.length > 0) {
     const analysis = await analyzeScoringRuns({
@@ -892,6 +925,8 @@ export async function runRefreshPipeline(
       classSlug: blizzardProfile?.classSlug ?? raiderIoProfile?.classSlug ?? null,
       specSlug: blizzardProfile?.specSlug ?? raiderIoProfile?.specSlug ?? null,
       isSoftSkipError: isEnrichmentSoftSkip,
+      parseRankings: parseRankingsFromRuns,
+      top25CutoffScore: seasonCutoffs?.top25Percent?.score ?? null,
       beginWclApiCallAccounting: () => {
         const client = (
           providers.warcraftlogs as { getGraphQlClient?: () => { resetRequestCount: () => void } }
@@ -906,6 +941,7 @@ export async function runRefreshPipeline(
       },
     });
     scoringAnalysisDiagnostics = analysis.diagnostics;
+    scoringAnalysisRows = analysis.rows;
 
     for (const row of analysis.rows) {
       selectedRunIds.add(row.runId);
@@ -1079,7 +1115,28 @@ export async function runRefreshPipeline(
     hasWclSource: run.sources.some((s) => s.provider === "WARCRAFT_LOGS"),
   }));
 
+  const selectedPerformanceRuns = (
+    scoringAnalysisRows.length > 0
+      ? scoringAnalysisRows
+      : []
+  ).map((row) => ({
+    dungeonSlug: row.dungeonSlug,
+    dungeonName: row.dungeonSlug,
+    canonicalRunId: row.runId,
+    keyLevel: row.selected.keyLevel,
+    timed: row.selected.timed,
+    completedAt: row.selected.completedAt,
+    executionPercentile: row.parsePercentile,
+    raiderIoScore: row.selected.raiderIoScore,
+    wclReportMatched: row.selected.wclReportMatched,
+    wclCoverageRatio: row.selected.wclCoverageRatio,
+    parseSource: row.parseBindingSource,
+    bracketMatched: row.parseBindingSource === "selected_fight_bracket_matched",
+  }));
+
   const wclPerformance = buildWclPerformanceObservations({
+    // v3 driver: selected canonical runs only (aggregates kept for legacy fallback when empty).
+    selectedRuns: selectedPerformanceRuns,
     currentSeasonDungeons: wclDungeonAggregates.map((d) => ({
       dungeonSlug: d.dungeonSlug,
       dungeonName: d.dungeonName,
@@ -1104,6 +1161,9 @@ export async function runRefreshPipeline(
         ? 0.85
         : 0.4,
     observedAt,
+    seasonSlug: season.slug,
+    region: identity.region,
+    cutoffs: seasonCutoffs,
   });
   observations.push(...wclPerformance.observations);
 

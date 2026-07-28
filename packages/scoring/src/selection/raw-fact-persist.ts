@@ -177,7 +177,16 @@ export function toPerformanceRawInputs(input: {
   seasonSlug: string | null;
   region: string | null;
   detailAvailable: boolean;
+  /** When set, key-difficulty normalization is considered wired for this run. */
+  keyDifficultyPercentile?: number | null;
+  keyDifficultySource?: string | null;
+  keyDifficultyReason?: string | null;
 }): PerformanceRawInputs {
+  const keyDifficultyPercentile =
+    input.keyDifficultyPercentile != null && Number.isFinite(input.keyDifficultyPercentile)
+      ? input.keyDifficultyPercentile
+      : null;
+  const keyDifficultyAvailable = keyDifficultyPercentile != null;
   return {
     provenance: input.provenance,
     parsePercentile: input.parsePercentile,
@@ -198,11 +207,17 @@ export function toPerformanceRawInputs(input: {
               : "wcl_detail_unavailable",
       },
       keyDifficultyInputs: {
-        availability: input.keyLevel != null ? "PARTIAL" : "BLOCKED",
-        reason:
-          input.keyLevel != null
-            ? "season_cutoff_interpolation_not_wired"
-            : "key_level_missing",
+        availability: keyDifficultyAvailable
+          ? "AVAILABLE"
+          : input.keyLevel != null
+            ? "PARTIAL"
+            : "BLOCKED",
+        reason: keyDifficultyAvailable
+          ? input.keyDifficultySource ?? null
+          : input.keyDifficultyReason ??
+            (input.keyLevel != null
+              ? "season_cutoff_interpolation_pending"
+              : "key_level_missing"),
       },
     },
   };
@@ -278,6 +293,17 @@ export function rawFactsToMetricObservations(input: {
       dimension: "PERFORMANCE",
       rawValue: input.performance.parsePercentile,
       confidence: input.performance.parsePercentile == null ? 0 : 0.6,
+    },
+    {
+      metricKey: "performance.v3.key_difficulty_inputs",
+      dimension: "PERFORMANCE",
+      rawValue: input.performance.keyDifficultyInputs.keyLevel,
+      confidence:
+        input.performance.fieldStatus.keyDifficultyInputs?.availability === "AVAILABLE"
+          ? 0.7
+          : input.performance.keyDifficultyInputs.keyLevel != null
+            ? 0.35
+            : 0,
     },
   ];
 

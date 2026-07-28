@@ -28,11 +28,14 @@ import {
 } from "@mplus/provider-warcraftlogs";
 import {
   buildProvenance,
+  computeKeyDifficultyPercentile,
   rawFactsToMetricObservations,
+  resolveSelectedRunParsePercentile,
   selectScoringRuns,
   toPerformanceRawInputs,
   toSurvivalRawFacts,
   toUtilityRawFacts,
+  type RankingParseCandidate,
   type SelectableScoringRun,
 } from "@mplus/scoring";
 
@@ -53,6 +56,10 @@ export interface ScoringRunAnalysisCandidate {
   raiderIoScore: number | null;
   wclSource: ScoringRunWclSource | null;
   canonicalFingerprint?: string;
+  /** Parse percentile tied to this report/fight when known from rankings. */
+  parsePercentile?: number | null;
+  bracket?: number | null;
+  rankPercent?: number | null;
 }
 
 export interface ScoringRunAnalysisRow {
@@ -65,6 +72,8 @@ export interface ScoringRunAnalysisRow {
   analysisError: string | null;
   reusedCachedFight: boolean;
   wclApiCalls: number;
+  parsePercentile: number | null;
+  parseBindingSource: string | null;
 }
 
 export interface ScoringRunAnalysisDiagnostics {
@@ -114,20 +123,39 @@ function wclSourceFromDto(run: MythicRunDTO): ScoringRunWclSource | null {
   return { reportCode: source.reportCode, fightId: source.fightId };
 }
 
+function parseFromDto(run: MythicRunDTO): {
+  parsePercentile: number | null;
+  bracket: number | null;
+} {
+  const source = run.sources.find((s) => s.provider === "WARCRAFT_LOGS");
+  return {
+    parsePercentile:
+      source?.parsePercentile != null && Number.isFinite(source.parsePercentile)
+        ? source.parsePercentile
+        : null,
+    bracket: source?.bracket ?? null,
+  };
+}
+
 /** Map fused DTOs into analysis candidates (WCL source from DTO, not discovery order). */
 export function candidatesFromMythicRunDtos(runs: MythicRunDTO[]): ScoringRunAnalysisCandidate[] {
-  return runs.map((run) => ({
-    runId: run.id,
-    dungeonSlug: run.dungeonSlug,
-    seasonSlug: run.seasonSlug,
-    keyLevel: run.keyLevel,
-    timed: run.timed,
-    completedAt: run.completedAt,
-    durationMs: run.durationMs,
-    raiderIoScore: run.scoreValue,
-    wclSource: wclSourceFromDto(run),
-    canonicalFingerprint: run.canonicalFingerprint,
-  }));
+  return runs.map((run) => {
+    const parse = parseFromDto(run);
+    return {
+      runId: run.id,
+      dungeonSlug: run.dungeonSlug,
+      seasonSlug: run.seasonSlug,
+      keyLevel: run.keyLevel,
+      timed: run.timed,
+      completedAt: run.completedAt,
+      durationMs: run.durationMs,
+      raiderIoScore: run.scoreValue,
+      wclSource: wclSourceFromDto(run),
+      canonicalFingerprint: run.canonicalFingerprint,
+      parsePercentile: parse.parsePercentile,
+      bracket: parse.bracket,
+    };
+  });
 }
 
 export function resolveScoringSeasonDungeonSet(input: {
@@ -209,6 +237,8 @@ function buildUnavailableObservations(input: {
   classSlug?: string | null;
   specSlug?: string | null;
   region?: string | null;
+  parsePercentile?: number | null;
+  top25CutoffScore?: number | null;
 }): MetricObservationDTO[] {
   const abilityCatalog = loadSeedAbilityCatalog();
   const mechanicCatalog = loadSeedScoringMechanicCatalog();
@@ -232,14 +262,27 @@ function buildUnavailableObservations(input: {
     detailAvailable: false,
     missingReasons: [input.reason],
   });
+  const keyDiff = computeKeyDifficultyPercentile({
+    keyLevel: input.selected.keyLevel,
+    timed: input.selected.timed,
+    context: {
+      seasonSlug: input.seasonSlug,
+      region: input.region ?? null,
+      top25CutoffScore: input.top25CutoffScore ?? null,
+      observedKeyLevels: [input.selected.keyLevel],
+    },
+  });
   const performance = toPerformanceRawInputs({
     provenance,
-    parsePercentile: null,
+    parsePercentile: input.parsePercentile ?? null,
     keyLevel: input.selected.keyLevel,
     timed: input.selected.timed,
     seasonSlug: input.seasonSlug,
     region: input.region ?? null,
     detailAvailable: false,
+    keyDifficultyPercentile: keyDiff.percentile,
+    keyDifficultySource: keyDiff.source,
+    keyDifficultyReason: keyDiff.reason,
   });
   return rawFactsToMetricObservations({ survival, utility, performance }).map((obs) => ({
     ...obs,
@@ -250,6 +293,7 @@ function buildUnavailableObservations(input: {
       rejectionReason: input.reason,
       classSlug: input.classSlug ?? null,
       specSlug: input.specSlug ?? null,
+      keyDifficultyPercentile: keyDiff.percentile,
     },
   }));
 }
@@ -262,6 +306,8 @@ function buildAvailableObservations(input: {
   classSlug?: string | null;
   specSlug?: string | null;
   region?: string | null;
+  parsePercentile?: number | null;
+  top25CutoffScore?: number | null;
 }): MetricObservationDTO[] {
   const abilityCatalog = loadSeedAbilityCatalog();
   const mechanicCatalog = loadSeedScoringMechanicCatalog();
@@ -311,14 +357,27 @@ function buildAvailableObservations(input: {
     counts: utilityCounts,
     detailAvailable: true,
   });
+  const keyDiff = computeKeyDifficultyPercentile({
+    keyLevel: input.selected.keyLevel,
+    timed: input.selected.timed,
+    context: {
+      seasonSlug: input.seasonSlug,
+      region: input.region ?? null,
+      top25CutoffScore: input.top25CutoffScore ?? null,
+      observedKeyLevels: [input.selected.keyLevel],
+    },
+  });
   const performance = toPerformanceRawInputs({
     provenance,
-    parsePercentile: null,
+    parsePercentile: input.parsePercentile ?? null,
     keyLevel: input.selected.keyLevel,
     timed: input.selected.timed,
     seasonSlug: input.seasonSlug,
     region: input.region ?? null,
     detailAvailable: true,
+    keyDifficultyPercentile: keyDiff.percentile,
+    keyDifficultySource: keyDiff.source,
+    keyDifficultyReason: keyDiff.reason,
   });
   return rawFactsToMetricObservations({ survival, utility, performance }).map((obs) => ({
     ...obs,
@@ -328,8 +387,35 @@ function buildAvailableObservations(input: {
       coverageRatio: coverageRatio(input.facts),
       classSlug: input.classSlug ?? null,
       specSlug: input.specSlug ?? null,
+      keyDifficultyPercentile: keyDiff.percentile,
     },
   }));
+}
+
+function resolveParseForCandidate(
+  candidate: ScoringRunAnalysisCandidate,
+  rankings: readonly RankingParseCandidate[],
+): { parsePercentile: number | null; source: string | null } {
+  if (rankings.length > 0 && candidate.wclSource) {
+    const binding = resolveSelectedRunParsePercentile({
+      rankings,
+      reportCode: candidate.wclSource.reportCode,
+      fightId: candidate.wclSource.fightId,
+      selectedKeyLevel: candidate.keyLevel,
+    });
+    if (binding.executionPercentile != null) {
+      return { parsePercentile: binding.executionPercentile, source: binding.source };
+    }
+  }
+  if (candidate.parsePercentile != null && Number.isFinite(candidate.parsePercentile)) {
+    const bracketOk =
+      candidate.bracket == null || candidate.bracket === candidate.keyLevel;
+    return {
+      parsePercentile: candidate.parsePercentile,
+      source: bracketOk ? "selected_fight_bracket_matched" : "selected_fight",
+    };
+  }
+  return { parsePercentile: null, source: "unavailable" };
 }
 
 /**
@@ -349,12 +435,17 @@ export async function analyzeScoringRuns(input: {
   /** Optional GraphQL request accounting around the analysis session. */
   beginWclApiCallAccounting?: () => void;
   endWclApiCallAccounting?: () => number;
+  /** Bracket-aware ranking rows used to tie parses to selected fights. */
+  parseRankings?: readonly RankingParseCandidate[];
+  top25CutoffScore?: number | null;
 }): Promise<AnalyzeScoringRunsResult> {
   const observedAt = input.observedAt ?? new Date().toISOString();
   const budget = resolveMaxAnalysisFights({
     expectedDungeonCount: input.season.expectedDungeonCount || input.season.dungeonSlugs.length,
     configuredMax: input.configuredMaxAnalysisFights,
   });
+  const rankings = input.parseRankings ?? [];
+  const top25CutoffScore = input.top25CutoffScore ?? null;
 
   // Align candidate season slugs with the scoring season so out-of-season rows drop.
   const selectables = input.candidates.map((c) => {
@@ -396,6 +487,8 @@ export async function analyzeScoringRuns(input: {
         analysisError: null,
         reusedCachedFight: false,
         wclApiCalls: 0,
+        parsePercentile: null,
+        parseBindingSource: null,
       });
       v3Observations.push(
         ...buildUnavailableObservations({
@@ -406,10 +499,13 @@ export async function analyzeScoringRuns(input: {
           classSlug: input.classSlug,
           specSlug: input.specSlug,
           region: input.ctx.region,
+          top25CutoffScore,
         }),
       );
       continue;
     }
+
+    const parseBinding = resolveParseForCandidate(candidate, rankings);
 
     if (!candidate.wclSource || !selected.wclReportMatched) {
       const reason =
@@ -424,6 +520,8 @@ export async function analyzeScoringRuns(input: {
         analysisError: null,
         reusedCachedFight: false,
         wclApiCalls: 0,
+        parsePercentile: parseBinding.parsePercentile,
+        parseBindingSource: parseBinding.source,
       });
       v3Observations.push(
         ...buildUnavailableObservations({
@@ -434,6 +532,8 @@ export async function analyzeScoringRuns(input: {
           classSlug: input.classSlug,
           specSlug: input.specSlug,
           region: input.ctx.region,
+          parsePercentile: parseBinding.parsePercentile,
+          top25CutoffScore,
         }),
       );
       continue;
@@ -483,6 +583,8 @@ export async function analyzeScoringRuns(input: {
         analysisError,
         reusedCachedFight,
         wclApiCalls: rowApiCalls,
+        parsePercentile: parseBinding.parsePercentile,
+        parseBindingSource: parseBinding.source,
       });
       v3Observations.push(
         ...buildUnavailableObservations({
@@ -493,6 +595,8 @@ export async function analyzeScoringRuns(input: {
           classSlug: input.classSlug,
           specSlug: input.specSlug,
           region: input.ctx.region,
+          parsePercentile: parseBinding.parsePercentile,
+          top25CutoffScore,
         }),
       );
       continue;
@@ -519,6 +623,8 @@ export async function analyzeScoringRuns(input: {
       analysisError: null,
       reusedCachedFight,
       wclApiCalls: rowApiCalls,
+      parsePercentile: parseBinding.parsePercentile,
+      parseBindingSource: parseBinding.source,
     });
     v3Observations.push(
       ...buildAvailableObservations({
@@ -529,6 +635,8 @@ export async function analyzeScoringRuns(input: {
         classSlug: input.classSlug,
         specSlug: input.specSlug,
         region: input.ctx.region,
+        parsePercentile: parseBinding.parsePercentile,
+        top25CutoffScore,
       }),
     );
   }

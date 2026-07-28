@@ -416,6 +416,8 @@ export class FixtureWarcraftLogsProvider implements WarcraftLogsProvider {
           reportCode: candidate.reportCode,
           fightId: candidate.fightId,
           revision: null,
+          parsePercentile: candidate.parsePercentile ?? null,
+          bracket: candidate.bracket ?? candidate.keyLevel ?? null,
         },
       ],
     };

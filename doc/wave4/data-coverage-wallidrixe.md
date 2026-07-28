@@ -25,9 +25,9 @@ This document records whether each required Wave 4 metric can be collected from 
 
 | Metric | Status | Notes |
 |---|---|---|
-| Selected-run parse percentile | PARTIAL | Zone rankings percentiles exist; tying a percentile to the **selected fight** is still best-effort (`reportCode`+`fightId` match). Aggregate rankings may lack fight IDs. |
-| Bracket-aware parse | PARTIAL | Bracket field present when rankings expose it; not yet required for selection. |
-| Key difficulty percentile | BLOCKED | Key level + timed inputs AVAILABLE; season-cutoff interpolation / regional distribution not wired (Agent 22). |
+| Selected-run parse percentile | AVAILABLE | Tied to selected `reportCode`+`fightId` via `resolveSelectedRunParsePercentile`; never substitutes character-wide best. |
+| Bracket-aware parse | AVAILABLE | Prefers bracket-matched ranking rows + `rankPercent` when present. |
+| Key difficulty percentile | AVAILABLE | Season-relative interpolation with cutoff calibration + documented bounded fallback (`performance/key-difficulty.ts`). |
 | Spec / role | PARTIAL | CombatantInfo / profile identity available; not persisted on every selected run yet. |
 
 ## Survival
@@ -86,4 +86,5 @@ Defer until dimension agents:
 
 - Score model `default@3` weights (Agent 27)
 - Full mechanic/ability catalog expansion
-- Max-health source + key-difficulty interpolation
+- Max-health source (Survival)
+- Score model `default@3` composition (Agent 27) — Performance v3 metric weights documented in Agent 22 handoff

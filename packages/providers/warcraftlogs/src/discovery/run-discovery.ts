@@ -48,6 +48,10 @@ function isParseRankingRow(row: unknown): row is {
   score?: number | null;
   total?: number | null;
   amount?: number | null;
+  /** Prefer when WCL exposes bracket-aware rank percent on the row. */
+  rankPercent?: number | null;
+  historicalPercent?: number | null;
+  percentile?: number | null;
   spec?: string | null;
   role?: string | null;
   startTime?: number | null;
@@ -58,6 +62,32 @@ function isParseRankingRow(row: unknown): row is {
   if (!report || typeof report !== "object") return false;
   const code = (report as { code?: unknown }).code;
   return typeof code === "string" && typeof r.fightID === "number";
+}
+
+function resolveParseRowPercentile(row: {
+  rankPercent?: number | null;
+  historicalPercent?: number | null;
+  percentile?: number | null;
+  total?: number | null;
+  amount?: number | null;
+}): number | null {
+  const prefer = [row.rankPercent, row.historicalPercent, row.percentile];
+  for (const value of prefer) {
+    if (typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 100) {
+      return value;
+    }
+  }
+  if (
+    row.total != null &&
+    row.amount != null &&
+    Number.isFinite(row.total) &&
+    Number.isFinite(row.amount) &&
+    row.total > 0
+  ) {
+    const ratio = (row.amount / row.total) * 100;
+    return Number.isFinite(ratio) && ratio >= 0 && ratio <= 100 ? ratio : null;
+  }
+  return null;
 }
 
 export function countParseStyleRankingRows(payload: ZoneRankingsPayload | null | undefined): {
@@ -189,25 +219,32 @@ export function mapZoneRankings(
   }
   const resolvedZoneId =
     typeof payload.zone === "number" ? payload.zone : (payload.zone?.id ?? zoneId);
-  return payload.rankings.filter(isParseRankingRow).map((row) => ({
-    reportCode: row.report.code,
-    fightId: row.fightID,
-    encounterId: row.encounterID ?? 0,
-    zoneId: resolvedZoneId,
-    bracket: row.bracket ?? null,
-    keyLevel: row.bracket ?? null,
-    score: row.score ?? null,
-    amount: row.amount ?? null,
-    percentile: row.total != null && row.amount != null ? (row.amount / row.total) * 100 : null,
-    specSlug: row.spec ?? null,
-    roleSlug: row.role ?? null,
-    durationMs: row.duration ?? null,
-    startTimeMs: row.startTime ?? null,
-    reportStartTimeMs: row.report.startTime,
-    // kill ≠ timed; WCL rankings do not expose timer success here
-    timed: null,
-    metric: payload.metric ?? null,
-  }));
+  return payload.rankings.filter(isParseRankingRow).map((row) => {
+    const rankPercent =
+      typeof row.rankPercent === "number" && Number.isFinite(row.rankPercent)
+        ? row.rankPercent
+        : null;
+    return {
+      reportCode: row.report.code,
+      fightId: row.fightID,
+      encounterId: row.encounterID ?? 0,
+      zoneId: resolvedZoneId,
+      bracket: row.bracket ?? null,
+      keyLevel: row.bracket ?? null,
+      score: row.score ?? null,
+      amount: row.amount ?? null,
+      percentile: resolveParseRowPercentile(row),
+      rankPercent,
+      specSlug: row.spec ?? null,
+      roleSlug: row.role ?? null,
+      durationMs: row.duration ?? null,
+      startTimeMs: row.startTime ?? null,
+      reportStartTimeMs: row.report.startTime,
+      // kill ≠ timed; WCL rankings do not expose timer success here
+      timed: null,
+      metric: payload.metric ?? null,
+    };
+  });
 }
 
 export function rankingsToCandidates(rankings: WclRankingObservation[]): WclRunCandidate[] {
@@ -226,6 +263,9 @@ export function rankingsToCandidates(rankings: WclRankingObservation[]): WclRunC
       seasonSlug: null,
       keyLevel: r.keyLevel,
       score: r.score,
+      parsePercentile: r.percentile,
+      rankPercent: r.rankPercent ?? null,
+      bracket: r.bracket,
       startTimeMs: r.startTimeMs,
       completedAt:
         r.reportStartTimeMs != null && r.startTimeMs != null
