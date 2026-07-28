@@ -50,5 +50,8 @@ export * from "./analysis/combat-facts.js";
 export { buildRunCombatFactsFromEvents, fetchAllEventPages } from "./analysis/event-fetcher.js";
 export * from "./rate/rate-budget.js";
 export * from "./fixture/loader.js";
+export * from "./probe/performance-probe.js";
+export * from "./probe/performance-probe-logic.js";
+export * from "./probe/types.js";
 
 export type { WarcraftLogsProvider };

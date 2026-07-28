@@ -73,6 +73,50 @@ export const OPERATIONS = {
 }`,
   },
 
+  WorldDataZone: {
+    operationName: "WorldDataZone",
+    query: `query WorldDataZone($id: Int!) {
+  worldData {
+    zone(id: $id) {
+      id
+      name
+      frozen
+      encounters { id name }
+    }
+  }
+}`,
+  },
+
+  ReportFightsForPerformanceProbe: {
+    operationName: "ReportFightsForPerformanceProbe",
+    query: `query ReportFightsForPerformanceProbe($code: String!) {
+  reportData {
+    report(code: $code) {
+      code
+      title
+      startTime
+      endTime
+      visibility
+      zone { id name }
+      fights(translate: false) {
+        id
+        encounterID
+        name
+        difficulty
+        kill
+        inProgress
+        startTime
+        endTime
+        keystoneLevel
+        keystoneTime
+        rating
+        friendlyPlayers
+      }
+    }
+  }
+}`,
+  },
+
   ReportWithFightAndMasterData: {
     operationName: "ReportWithFightAndMasterData",
     query: `query ReportWithFightAndMasterData($code: String!, $fightIDs: [Int!]) {
