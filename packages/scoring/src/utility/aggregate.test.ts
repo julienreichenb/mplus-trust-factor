@@ -246,7 +246,7 @@ describe("computeUtilityDimension — eight-run Wallidrixe set", () => {
     }
     expect(result.confidence).toBeLessThan(
       computeUtilityConfidence({
-        dungeonCount: 8,
+        selectedRunCount: 8,
         expectedDungeonCount: 8,
         detailAvailableCount: 8,
         selectedRunWclCoverage: 0.85,

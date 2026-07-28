@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { Character, IngestionJob } from "@mplus/database";
+import { checkActiveScoreModelVersion, formatActiveScoreModelVersionWarning } from "@mplus/config";
 import { normalizeRegion } from "@mplus/domain";
 import {
   ExternalApiError,
@@ -28,7 +29,7 @@ import { validateScoreSnapshot } from "@mplus/test-utils";
 import type { WorkerContainer } from "../container.js";
 import { refreshCharacterDedupeKey } from "../dedupe.js";
 import { negativeCache } from "../negative-cache.js";
-import { ensureBlizzardCurrentSeason, ensureCurrentSeason } from "../persistence/run-repository.js";
+import { ensureBlizzardCurrentSeason, ensureCanonicalScoringSeason } from "../persistence/run-repository.js";
 import { mapBoostFactsToAuthenticity } from "./boost-authenticity.js";
 import { extractMetricsFromCombatFacts } from "./combat-metrics.js";
 import {
@@ -56,6 +57,7 @@ import {
 import { classifyError, isSoftSkip } from "./retry-classification.js";
 import {
   collectRaiderIoRuns,
+  canonicalDungeonKey,
   ensureTargetParticipant,
   filterRunsToActiveWindow,
   fuseCrossProviderRuns,
@@ -499,7 +501,13 @@ export async function runRefreshPipeline(
       try {
         const seasonSlug =
           profile.data.currentSeason?.seasonSlug ??
-          (await ensureCurrentSeason(container.prisma, character.regionId)).slug;
+          (
+            await ensureCanonicalScoringSeason(
+              container.prisma,
+              character.regionId,
+              container.env.SCORING_SEASON_SLUG,
+            )
+          ).slug;
         const cutoffsResult = await providers.raiderio.getSeasonCutoffs(
           identity.region,
           seasonSlug,
@@ -672,11 +680,19 @@ export async function runRefreshPipeline(
   disagreements.push(...reconcile.disagreements);
   fusionWarnings.push(...reconcile.warnings);
 
-  // Resolve Blizzard current season before persistence so runs/scores share one identity.
-  const season =
-    currentSeasonId != null
-      ? await ensureBlizzardCurrentSeason(container.prisma, character.regionId, currentSeasonId)
-      : await ensureCurrentSeason(container.prisma, character.regionId);
+  // Canonical Scoring v3 season — never placeholder-current for persistence or selection.
+  const scoringSeasonSlug = resolveScoringSeasonDungeonSet({
+    seasonSlug: container.env.SCORING_SEASON_SLUG,
+    dungeonCount: 8,
+  }).seasonSlug;
+  const season = await ensureCanonicalScoringSeason(
+    container.prisma,
+    character.regionId,
+    scoringSeasonSlug,
+  );
+  if (currentSeasonId != null) {
+    await ensureBlizzardCurrentSeason(container.prisma, character.regionId, currentSeasonId);
+  }
 
   // Raider.IO fallback for missing Blizzard class/spec/role/gear/talents.
   if (raiderIoProfile) {
@@ -737,7 +753,8 @@ export async function runRefreshPipeline(
     ensureTargetParticipant(
       {
         ...run,
-        // Current-season refresh always persists under the resolved Blizzard season identity.
+        dungeonSlug: canonicalDungeonKey(run.dungeonSlug),
+        // Current-season refresh always persists under the canonical scoring season.
         seasonSlug: season.slug,
       },
       identity,
@@ -805,6 +822,8 @@ export async function runRefreshPipeline(
     });
   }
 
+  const rehomeResult = await repositories.run.rehomeCharacterRunsToSeason(character.id, season.id);
+
   const reconcileResult = await repositories.run.reconcileDuplicateRunsForCharacter(
     character.id,
     season.id,
@@ -813,12 +832,13 @@ export async function runRefreshPipeline(
     character.id,
     season.id,
   );
-  if (reconcileResult.deletedRunCount > 0 || seasonPrune.deletedRuns > 0) {
+  if (reconcileResult.deletedRunCount > 0 || seasonPrune.deletedRuns > 0 || rehomeResult.updatedRunCount > 0) {
     logger.info(
       {
         identity,
         mergedGroups: reconcileResult.mergedGroups,
         deletedRunCount: reconcileResult.deletedRunCount,
+        rehomeCharacterRuns: rehomeResult.updatedRunCount,
         detachedOtherSeasonParticipations: seasonPrune.detachedParticipations,
         deletedOtherSeasonRuns: seasonPrune.deletedRuns,
       },
@@ -847,14 +867,10 @@ export async function runRefreshPipeline(
 
   // ── Select + analyze Scoring v3 runs (one highest key per dungeon) ──────
   const scoringSeason = resolveScoringSeasonDungeonSet({
-    seasonSlug: container.env.SCORING_SEASON_SLUG || season.slug,
+    seasonSlug: season.slug,
     dungeonCount: season.dungeonCount > 0 ? season.dungeonCount : 8,
   });
-  // Persist under the live Blizzard season slug so out-of-season prune stays consistent.
-  const scoringSeasonForSelection = {
-    ...scoringSeason,
-    seasonSlug: season.slug,
-  };
+  const scoringSeasonForSelection = scoringSeason;
 
   const seasonRuns = await repositories.run.listForCharacterSeason(character.id, season.id);
 
@@ -876,7 +892,7 @@ export async function runRefreshPipeline(
         bracket: s.bracket ?? run.keyLevel,
         keyLevel: run.keyLevel,
         percentile: s.parsePercentile ?? null,
-        rankPercent: s.parsePercentile ?? null,
+        rankPercent: s.rankPercent ?? s.parsePercentile ?? null,
       })),
   );
 
@@ -893,7 +909,7 @@ export async function runRefreshPipeline(
         : undefined;
     return {
       runId: run.id,
-      dungeonSlug: run.dungeon.slug,
+      dungeonSlug: canonicalDungeonKey(run.dungeon.slug),
       seasonSlug: run.season.slug,
       keyLevel: run.keyLevel,
       timed: run.timed,
@@ -905,7 +921,7 @@ export async function runRefreshPipeline(
           ? { reportCode: wcl.reportCode, fightId: wcl.fightId }
           : null,
       canonicalFingerprint: run.canonicalFingerprint,
-      parsePercentile: ranking?.percentile ?? null,
+      parsePercentile: ranking?.rankPercent ?? ranking?.percentile ?? null,
       bracket: ranking?.bracket ?? null,
     };
   });
@@ -1180,6 +1196,7 @@ export async function runRefreshPipeline(
       survival: row.survivalFacts,
     })),
     expectedDungeonCount: season.dungeonCount > 0 ? season.dungeonCount : 8,
+    selectedRunCount: selectedRunsSize,
     selectedRunWclCoverage:
       selectedRunsSize > 0 ? combatFactsList.length / selectedRunsSize : 0,
     classSlug: blizzardProfile?.classSlug ?? raiderIoProfile?.classSlug ?? null,
@@ -1207,6 +1224,7 @@ export async function runRefreshPipeline(
       utility: row.utilityFacts,
     })),
     expectedDungeonCount: season.dungeonCount > 0 ? season.dungeonCount : 8,
+    selectedRunCount: selectedRunsSize,
     selectedRunWclCoverage:
       selectedRunsSize > 0 ? combatFactsList.length / selectedRunsSize : 0,
     classSlug: blizzardProfile?.classSlug ?? raiderIoProfile?.classSlug ?? null,
@@ -1319,6 +1337,16 @@ export async function runRefreshPipeline(
     await repositories.job.markFailed(job.id, error);
     terminalized = true;
     throw error;
+  }
+  const modelVersionCheck = checkActiveScoreModelVersion({
+    envKey: container.env.ACTIVE_SCORE_MODEL_KEY,
+    envVersion: container.env.ACTIVE_SCORE_MODEL_VERSION,
+    dbKey: model.key,
+    dbVersion: model.version,
+  });
+  const modelVersionWarning = formatActiveScoreModelVersionWarning(modelVersionCheck);
+  if (modelVersionWarning) {
+    logger.warn({ identity, ...modelVersionCheck }, modelVersionWarning);
   }
 
   const baseMetricWeights =
@@ -1435,7 +1463,13 @@ export async function runRefreshPipeline(
           disagreements,
           excludedObservations,
           confidence: scoreDto.confidence,
-          coverage: { selectedRunCoverage, freshness },
+          coverage: {
+            selectedRunCoverage,
+            freshness,
+            selectedRunCount: selectedRunsSize,
+            availableRunCount: combatFactsList.length,
+            expectedDungeonCount: scoringSeason.expectedDungeonCount,
+          },
           seasonSlug: season.slug,
           fusedRunCount: fusedRuns.length,
           wclVisibility,

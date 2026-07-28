@@ -418,20 +418,48 @@ async function seed(): Promise<void> {
     },
   });
 
-  const existingCurrent = await prisma.season.findFirst({
+  await prisma.season.upsert({
+    where: {
+      regionId_slug: { regionId: region.id, slug: "season-midnight-s1" },
+    },
+    update: {
+      name: "Midnight Season 1",
+      isCurrent: true,
+      dungeonCount: 8,
+      metadata: {
+        source: "configured",
+        canonical: true,
+        note: "Canonical active scoring season for Wave 4 default@3",
+      },
+    },
+    create: {
+      regionId: region.id,
+      slug: "season-midnight-s1",
+      name: "Midnight Season 1",
+      isCurrent: true,
+      dungeonCount: 8,
+      metadata: {
+        source: "configured",
+        canonical: true,
+        note: "Canonical active scoring season for Wave 4 default@3",
+      },
+    },
+  });
+
+  const existingPlaceholder = await prisma.season.findFirst({
     where: { regionId: region.id, slug: "placeholder-current" },
   });
 
-  if (existingCurrent) {
+  if (existingPlaceholder) {
     await prisma.season.update({
-      where: { id: existingCurrent.id },
+      where: { id: existingPlaceholder.id },
       data: {
-        name: "PLACEHOLDER Current Season (replace with live season)",
-        isCurrent: true,
+        name: "PLACEHOLDER Current Season (bootstrap only — not used for scoring)",
+        isCurrent: false,
         dungeonCount: 8,
         metadata: {
           placeholder: true,
-          note: "Replace with verified current season IDs before production scoring",
+          note: "Bootstrap row only; production scoring uses season-midnight-s1",
         },
       },
     });
@@ -440,12 +468,12 @@ async function seed(): Promise<void> {
       data: {
         regionId: region.id,
         slug: "placeholder-current",
-        name: "PLACEHOLDER Current Season (replace with live season)",
-        isCurrent: true,
+        name: "PLACEHOLDER Current Season (bootstrap only — not used for scoring)",
+        isCurrent: false,
         dungeonCount: 8,
         metadata: {
           placeholder: true,
-          note: "Replace with verified current season IDs before production scoring",
+          note: "Bootstrap row only; production scoring uses season-midnight-s1",
         },
       },
     });

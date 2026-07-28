@@ -327,7 +327,7 @@ function combineRunScore(contributors: UtilityContributorScore[]): number | null
  * Independent UTILITY confidence. Missing detail lowers confidence — never invents zeros.
  */
 export function computeUtilityConfidence(input: {
-  dungeonCount: number;
+  selectedRunCount: number;
   expectedDungeonCount: number;
   detailAvailableCount: number;
   selectedRunWclCoverage: number;
@@ -338,8 +338,9 @@ export function computeUtilityConfidence(input: {
   if (input.detailAvailableCount === 0) return 0;
 
   const expected = Math.max(1, input.expectedDungeonCount);
-  const coverage = clamp01(input.dungeonCount / expected);
-  const detailRatio = clamp01(input.detailAvailableCount / Math.max(1, input.dungeonCount));
+  const selected = Math.max(1, input.selectedRunCount);
+  const selectionCoverage = clamp01(input.selectedRunCount / expected);
+  const detailCoverage = clamp01(input.detailAvailableCount / selected);
   const breadth =
     input.detailAvailableCount <= 1
       ? 0.25
@@ -359,9 +360,9 @@ export function computeUtilityConfidence(input: {
   const contributorCoverage = clamp01(input.contributorCoverage);
 
   const base =
-    0.28 * coverage +
-    0.22 * breadth +
-    0.18 * detailRatio +
+    0.22 * selectionCoverage +
+    0.28 * detailCoverage +
+    0.18 * breadth +
     0.12 * contributorCoverage +
     0.1 * freshness +
     0.1 * wclCoverage;
@@ -441,8 +442,10 @@ export function computeUtilityDimension(input: ComputeUtilityInput): ComputeUtil
           }),
         ) ?? 0;
 
+  const selectedRunCount = input.selectedRunCount ?? input.runs.length;
+
   const confidence = computeUtilityConfidence({
-    dungeonCount: scored.length,
+    selectedRunCount,
     expectedDungeonCount: input.expectedDungeonCount,
     detailAvailableCount: detailedRuns.length,
     selectedRunWclCoverage: input.selectedRunWclCoverage,
@@ -464,6 +467,8 @@ export function computeUtilityDimension(input: ComputeUtilityInput): ComputeUtil
   const summary: UtilitySummaryDTO = {
     score: utilityScore,
     confidence,
+    availableRunCount: scored.length,
+    selectedRunCount,
     dungeonCount: scored.length,
     expectedDungeonCount: input.expectedDungeonCount,
     formulaVersion: UTILITY_V3_FORMULA_VERSION,

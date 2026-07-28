@@ -8,6 +8,7 @@ import type {
   Season,
 } from "@mplus/database";
 import type { MythicRunDTO } from "@mplus/contracts";
+import { MIDNIGHT_S1_SEASON, resolveCanonicalScoringSeasonSlug } from "@mplus/mechanics";
 import { ensureRegion } from "./realm-repository.js";
 import type { PrismaClientOrTx } from "./shared.js";
 import {
@@ -29,27 +30,19 @@ export async function ensureDungeon(client: PrismaClientOrTx, dungeonSlug: strin
 }
 
 export async function ensureCurrentSeason(client: PrismaClientOrTx, regionId: string): Promise<Season> {
-  const current = await client.season.findFirst({ where: { regionId, isCurrent: true } });
-  if (current) return current;
-
-  const globalCurrent = await client.season.findFirst({ where: { regionId: null, isCurrent: true } });
-  if (globalCurrent) return globalCurrent;
-
-  return client.season.create({
-    data: { regionId, slug: "auto-current", name: "Auto-created current season", isCurrent: true },
-  });
+  return ensureCanonicalScoringSeason(client, regionId);
 }
 
 /**
- * Resolve and mark Blizzard's current season as the regional current season.
- * Replaces placeholder-current / auto-current as the active scoring season.
+ * Resolve and mark the canonical Scoring v3 season for a region.
+ * Never returns placeholder-current / auto-current for active scoring.
  */
-export async function ensureBlizzardCurrentSeason(
+export async function ensureCanonicalScoringSeason(
   client: PrismaClientOrTx,
   regionId: string,
-  blizzardSeasonId: number,
+  overrideSlug?: string | null,
 ): Promise<Season> {
-  const slug = `blizzard-season-${blizzardSeasonId}`;
+  const slug = resolveCanonicalScoringSeasonSlug(overrideSlug);
   const existing = await client.season.findFirst({ where: { regionId, slug } });
 
   await client.season.updateMany({
@@ -62,6 +55,41 @@ export async function ensureBlizzardCurrentSeason(
       where: { id: existing.id },
       data: {
         isCurrent: true,
+        name: "Midnight Season 1",
+        dungeonCount: MIDNIGHT_S1_SEASON.expectedDungeonCount,
+        metadata: { source: "configured", canonical: true },
+      },
+    });
+  }
+
+  return client.season.create({
+    data: {
+      regionId,
+      slug,
+      name: "Midnight Season 1",
+      isCurrent: true,
+      dungeonCount: MIDNIGHT_S1_SEASON.expectedDungeonCount,
+      metadata: { source: "configured", canonical: true },
+    },
+  });
+}
+
+/**
+ * Resolve Blizzard's current season row for metadata (API season id, cutoffs context).
+ * Does not replace the canonical Scoring v3 season as `isCurrent`.
+ */
+export async function ensureBlizzardCurrentSeason(
+  client: PrismaClientOrTx,
+  regionId: string,
+  blizzardSeasonId: number,
+): Promise<Season> {
+  const slug = `blizzard-season-${blizzardSeasonId}`;
+  const existing = await client.season.findFirst({ where: { regionId, slug } });
+
+  if (existing) {
+    return client.season.update({
+      where: { id: existing.id },
+      data: {
         name: `Blizzard Season ${blizzardSeasonId}`,
         metadata: { blizzardSeasonId, source: "blizzard" },
       },
@@ -73,7 +101,7 @@ export async function ensureBlizzardCurrentSeason(
       regionId,
       slug,
       name: `Blizzard Season ${blizzardSeasonId}`,
-      isCurrent: true,
+      isCurrent: false,
       metadata: { blizzardSeasonId, source: "blizzard" },
     },
   });
@@ -129,6 +157,11 @@ export interface RunRepository {
     characterId: string,
     activeSeasonId: string,
   ): Promise<{ detachedParticipations: number; deletedRuns: number }>;
+  /** Move all target-character runs onto the canonical scoring season (cross-season re-home). */
+  rehomeCharacterRunsToSeason(
+    characterId: string,
+    seasonId: string,
+  ): Promise<{ updatedRunCount: number }>;
   findWclSource(runId: string): Promise<{ reportCode: string; fightId: number } | null>;
   findLatestAnalysisCoverage(
     characterId: string,
@@ -163,6 +196,7 @@ export function createRunRepository(prisma: PrismaClient): RunRepository {
         const mythicRun = await tx.mythicRun.upsert({
           where: { canonicalFingerprint: run.canonicalFingerprint },
           update: {
+            seasonId: season.id,
             keyLevel: run.keyLevel,
             completedAt: new Date(run.completedAt),
             durationMs: run.durationMs,
@@ -595,6 +629,17 @@ export function createRunRepository(prisma: PrismaClient): RunRepository {
       }
 
       return { detachedParticipations, deletedRuns };
+    },
+
+    async rehomeCharacterRunsToSeason(characterId, seasonId) {
+      const result = await prisma.mythicRun.updateMany({
+        where: {
+          seasonId: { not: seasonId },
+          participants: { some: { characterId, isTargetCharacter: true } },
+        },
+        data: { seasonId },
+      });
+      return { updatedRunCount: result.count };
     },
 
     async findWclSource(runId) {

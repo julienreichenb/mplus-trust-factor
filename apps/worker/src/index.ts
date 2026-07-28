@@ -3,10 +3,12 @@ import { QUEUE_NAMES } from "@mplus/contracts";
 import { createWorkerContainer } from "./container.js";
 import { closeWorkers, createWorkers } from "./processors.js";
 import { createQueueProducers } from "./queues.js";
+import { validateActiveScoreModelAtStartup } from "./startup-validation.js";
 
 async function main(): Promise<void> {
   const env = loadEnv();
   const container = createWorkerContainer(env);
+  await validateActiveScoreModelAtStartup(env, container.prisma, container.logger);
   const connection = container.createRedisConnection();
 
   const producers = createQueueProducers(connection, container);

@@ -28,6 +28,7 @@ export interface SurvivalRunBridgeInput {
 export interface BuildSurvivalObservationsInput {
   runs: SurvivalRunBridgeInput[];
   expectedDungeonCount: number;
+  selectedRunCount?: number;
   selectedRunWclCoverage: number;
   classSlug?: string | null;
   specSlug?: string | null;
@@ -97,6 +98,7 @@ export function buildSurvivalObservations(
   const computed = computeSurvivalDimension({
     runs,
     expectedDungeonCount: input.expectedDungeonCount,
+    selectedRunCount: input.selectedRunCount ?? input.runs.length,
     selectedRunWclCoverage: input.selectedRunWclCoverage,
     hasResolvedSpecAndRole: input.hasResolvedSpecAndRole,
     logFreshness: input.logFreshness,
@@ -106,6 +108,7 @@ export function buildSurvivalObservations(
   const coverage = {
     present: computed.summary.availableRunCount,
     expected: computed.summary.expectedDungeonCount,
+    selectedRunCount: computed.summary.selectedRunCount,
     ratio:
       computed.summary.expectedDungeonCount > 0
         ? computed.summary.availableRunCount / computed.summary.expectedDungeonCount

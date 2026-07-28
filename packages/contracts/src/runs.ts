@@ -12,6 +12,8 @@ export interface RunSourceRefDTO {
    * Never a character-wide best substitute for a different fight.
    */
   parsePercentile?: number | null;
+  /** Bracket-aware rank percent when WCL provided it on the ranking row. */
+  rankPercent?: number | null;
   /** WCL keystone bracket when the ranking row was bracket-aware. */
   bracket?: number | null;
 }

@@ -162,3 +162,36 @@ export function getEnv(): AppEnv {
 export function resetEnvCache(): void {
   cachedEnv = null;
 }
+
+export interface ActiveScoreModelVersionCheck {
+  envKey: string;
+  envVersion: number;
+  dbKey: string;
+  dbVersion: number;
+  matches: boolean;
+}
+
+/** Compare configured ACTIVE_SCORE_MODEL_VERSION against the DB active model row. */
+export function checkActiveScoreModelVersion(input: {
+  envKey: string;
+  envVersion: number;
+  dbKey: string;
+  dbVersion: number;
+}): ActiveScoreModelVersionCheck {
+  return {
+    envKey: input.envKey,
+    envVersion: input.envVersion,
+    dbKey: input.dbKey,
+    dbVersion: input.dbVersion,
+    matches: input.envKey === input.dbKey && input.envVersion === input.dbVersion,
+  };
+}
+
+export function formatActiveScoreModelVersionWarning(check: ActiveScoreModelVersionCheck): string {
+  if (check.matches) return "";
+  return (
+    `ACTIVE_SCORE_MODEL_VERSION mismatch: env requests ${check.envKey}@${check.envVersion} ` +
+    `but database active model is ${check.dbKey}@${check.dbVersion}. ` +
+    `Scores will use the database active model at refresh time; align env and re-seed if needed.`
+  );
+}

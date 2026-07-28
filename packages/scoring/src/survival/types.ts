@@ -93,7 +93,10 @@ export interface SurvivalSummaryDTO {
   formulaVersion: string;
   score: number | null;
   confidence: number;
+  /** Runs with usable combat-derived survival scores. */
   availableRunCount: number;
+  /** Selected canonical runs in the eight-dungeon set. */
+  selectedRunCount: number;
   expectedDungeonCount: number;
   contributorWeights: Array<{ key: SurvivalContributorKey; weight: number; effectiveWeight: number }>;
   runs: SurvivalRunExplanation[];
@@ -103,6 +106,8 @@ export interface SurvivalSummaryDTO {
 export interface ComputeSurvivalInput {
   runs: SurvivalRunInput[];
   expectedDungeonCount: number;
+  /** Selected canonical runs (eight-dungeon set). Defaults to runs.length. */
+  selectedRunCount?: number;
   /** Fraction of selected runs with usable WCL combat detail (0–1). */
   selectedRunWclCoverage: number;
   hasResolvedSpecAndRole: boolean;

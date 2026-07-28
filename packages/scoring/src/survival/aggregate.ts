@@ -435,7 +435,8 @@ export function resolveSurvivalMetricWeights(
  * Independent SURVIVAL confidence. Missing contributors / thin coverage lower confidence only.
  */
 export function computeSurvivalConfidence(input: {
-  availableRunCount: number;
+  detailedRunCount: number;
+  selectedRunCount: number;
   expectedDungeonCount: number;
   selectedRunWclCoverage: number;
   hasResolvedSpecAndRole: boolean;
@@ -447,21 +448,23 @@ export function computeSurvivalConfidence(input: {
   /** Fraction of available runs with max health. */
   maxHealthCoverage: number;
 }): number {
-  if (input.availableRunCount === 0) return 0;
+  if (input.detailedRunCount === 0) return 0;
 
   const expected = Math.max(1, input.expectedDungeonCount);
-  const coverage = clamp01(input.availableRunCount / expected);
+  const selected = Math.max(1, input.selectedRunCount);
+  const selectionCoverage = clamp01(input.selectedRunCount / expected);
+  const detailCoverage = clamp01(input.detailedRunCount / selected);
   const breadth =
-    input.availableRunCount <= 1
+    input.detailedRunCount <= 1
       ? 0.25
-      : input.availableRunCount <= 2
+      : input.detailedRunCount <= 2
         ? 0.45
-        : input.availableRunCount <= 4
+        : input.detailedRunCount <= 4
           ? 0.7
           : clamp01(
               0.7 +
                 0.3 *
-                  ((input.availableRunCount - 4) / Math.max(1, expected - 4)),
+                  ((input.detailedRunCount - 4) / Math.max(1, expected - 4)),
             );
 
   const identity = input.hasResolvedSpecAndRole ? 1 : 0.7;
@@ -472,13 +475,14 @@ export function computeSurvivalConfidence(input: {
   const maxHealth = clamp01(input.maxHealthCoverage);
 
   const base =
-    0.26 * coverage +
-    0.18 * breadth +
-    0.16 * contributorCoverage +
-    0.12 * catalogCoverage +
-    0.12 * maxHealth +
-    0.08 * freshness +
-    0.08 * wclCoverage;
+    0.22 * selectionCoverage +
+    0.28 * detailCoverage +
+    0.14 * breadth +
+    0.14 * contributorCoverage +
+    0.08 * catalogCoverage +
+    0.06 * maxHealth +
+    0.04 * freshness +
+    0.04 * wclCoverage;
 
   return clamp01(base * identity);
 }
@@ -547,8 +551,11 @@ export function computeSurvivalDimension(
       : scored.filter((e) => e.maxHealth != null && e.maxHealth > 0).length /
         scored.length;
 
+  const selectedRunCount = input.selectedRunCount ?? input.runs.length;
+
   const confidence = computeSurvivalConfidence({
-    availableRunCount: scored.length,
+    detailedRunCount: scored.length,
+    selectedRunCount,
     expectedDungeonCount: input.expectedDungeonCount,
     selectedRunWclCoverage: input.selectedRunWclCoverage,
     hasResolvedSpecAndRole: input.hasResolvedSpecAndRole,
@@ -592,6 +599,7 @@ export function computeSurvivalDimension(
     score: survivalScore,
     confidence,
     availableRunCount: scored.length,
+    selectedRunCount,
     expectedDungeonCount: input.expectedDungeonCount,
     contributorWeights,
     runs: explanations,

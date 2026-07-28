@@ -28,6 +28,7 @@ export interface UtilityRunBridgeInput {
 export interface BuildUtilityObservationsInput {
   runs: UtilityRunBridgeInput[];
   expectedDungeonCount: number;
+  selectedRunCount?: number;
   selectedRunWclCoverage: number;
   classSlug?: string | null;
   specSlug?: string | null;
@@ -91,6 +92,7 @@ export function buildUtilityObservations(
   const computed = computeUtilityDimension({
     runs,
     expectedDungeonCount: input.expectedDungeonCount,
+    selectedRunCount: input.selectedRunCount ?? input.runs.length,
     capability,
     hasResolvedSpecAndRole: input.hasResolvedSpecAndRole,
     selectedRunWclCoverage: input.selectedRunWclCoverage,

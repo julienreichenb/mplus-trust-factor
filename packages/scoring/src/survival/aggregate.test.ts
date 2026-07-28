@@ -250,6 +250,7 @@ describe("SURVIVAL v3 scoring", () => {
         }),
       ],
       expectedDungeonCount: 8,
+      selectedRunCount: 8,
       selectedRunWclCoverage: 0.125,
       hasResolvedSpecAndRole: true,
     });
