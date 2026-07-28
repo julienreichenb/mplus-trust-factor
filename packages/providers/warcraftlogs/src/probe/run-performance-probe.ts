@@ -4,8 +4,7 @@
  * Usage:
  *   pnpm wcl:probe:performance -- --region EU --realm archimonde --name Wallidrixe
  *
- * Requires ALLOW_LIVE_PROVIDER_CALLS=true. Never invoked by CI.
- * Uses Character.zoneRankings only (no recentReports / fights / events).
+ * Dual Character.zoneRankings: playerscore + dps. No recentReports / fights / events.
  */
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
@@ -61,14 +60,6 @@ function parseArgs(argv: string[]): PerformanceProbeIdentity & { outputDir: stri
   };
 }
 
-function formatDuration(ms: number | null): string | null {
-  if (ms == null) return null;
-  const totalSec = Math.floor(ms / 1000);
-  const m = Math.floor(totalSec / 60);
-  const s = totalSec % 60;
-  return `${m}:${String(s).padStart(2, "0")}`;
-}
-
 function printSummary(
   dataset: Awaited<ReturnType<typeof runPerformanceProbe>>["dataset"],
   outputFiles: Awaited<ReturnType<typeof runPerformanceProbe>>["outputFiles"],
@@ -96,35 +87,20 @@ function printSummary(
           encounterId: d.encounterId,
           encounterName: d.encounterName,
           keystoneLevel: d.keystoneLevel,
-          completionTime: formatDuration(d.completionTimeMs),
           loggedRunCount: d.loggedRunCount,
           ratingPoints: d.ratingPoints,
           scoreRank: d.scoreRank,
+          scoreRankPercent: d.scoreRankPercent,
           specialization: d.specialization,
-          bestPerformancePercentile: d.bestPerformancePercentile,
-          medianPerformancePercentile: d.medianPerformancePercentile,
+          bestDps: d.bestDps,
+          bestExecutionPercentile: d.bestExecutionPercentile,
+          medianExecutionPercentile: d.medianExecutionPercentile,
+          completionTimeMs: d.completion.completionTimeMs,
+          encodingStatus: d.completion.encodingStatus,
         })),
         unavailableEncounters: dataset.summary.unavailableEncounters,
         diagnostics: dataset.diagnostics,
         graphqlErrorCount: dataset.graphqlErrors.length,
-        rateLimit: {
-          initialUtilization:
-            dataset.rateLimit.initial && dataset.rateLimit.initial.limitPerHour > 0
-              ? (
-                  (dataset.rateLimit.initial.pointsSpentThisHour /
-                    dataset.rateLimit.initial.limitPerHour) *
-                  100
-                ).toFixed(1)
-              : null,
-          finalUtilization:
-            dataset.rateLimit.final && dataset.rateLimit.final.limitPerHour > 0
-              ? (
-                  (dataset.rateLimit.final.pointsSpentThisHour /
-                    dataset.rateLimit.final.limitPerHour) *
-                  100
-                ).toFixed(1)
-              : null,
-        },
         outputFiles,
       },
       null,

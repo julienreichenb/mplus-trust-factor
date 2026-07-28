@@ -89,9 +89,9 @@ export const OPERATIONS = {
   },
 
   /**
-   * Character M+ summary page dataset (Performance probe).
-   * Omits compare:Parses so rows include Best%/Median%/AllStars — same shape as the
-   * Warcraft Logs Mythic+ character page. No report/fight/event fan-out.
+   * Character M+ summary — dual Performance probe queries.
+   * Omit compare:Parses so rows include Best%/Median%/AllStars (character page shape).
+   * metric is parameterized: playerscore (score) vs dps (execution).
    */
   CharacterZoneRankingsPerformanceSummary: {
     operationName: "CharacterZoneRankingsPerformanceSummary",
@@ -101,12 +101,13 @@ export const OPERATIONS = {
   $serverRegion: String!
   $zoneID: Int!
   $partition: Int
+  $metric: CharacterRankingMetricType!
 ) {
   characterData {
     character(name: $name, serverSlug: $serverSlug, serverRegion: $serverRegion) {
       zoneRankings(
         zoneID: $zoneID
-        metric: playerscore
+        metric: $metric
         byBracket: true
         partition: $partition
       )

@@ -21,6 +21,27 @@
 - No final Trust Factor / boost scoring
 - No private `/api/v2/user` access
 
+## Performance probe (read-only, not production)
+
+Dual independent `Character.zoneRankings` queries (same zone + partition, `byBracket: true`):
+
+| Query | metric | Supplies |
+|-------|--------|----------|
+| Score | `playerscore` | total M+ score, rating points, key level, score ranks, logged runs, spec, raw completion metadata |
+| Execution | `dps` | best DPS, best/median execution percentiles, global best/median DPS percentile averages |
+
+Merged by `encounter.id`. Does **not** call `recentReports`, `report.fights`, `masterData`, or events.
+
+### `fastestKill` / `bestRank.speed` encoding
+
+On playerscore aggregate rows these fields are large signed integers, not plain durations:
+
+- Typical relation: `speed - fastestKill === -440_000_000` (not always; Windrunner Spire had equal values).
+- Heuristics such as `|fastestKill| & 0xffffff` produce plausible-looking minute values but **disagree** with `ReportFight.keystoneTime` for the same character (e.g. Algeth'ar Academy 30:13 vs heuristic 32:59; Skyreach 25:57 vs 37:14).
+- Zone ranking HTML exposes duration as positive milliseconds (e.g. `1855296$30:55`); that field is absent from character `zoneRankings` JSON.
+
+Until packing is verified, the probe sets `completionTimeMs: null` and preserves `fastestKillRaw` / `speedRaw` / `fightMetadataRaw` only.
+
 ## Fixture mode
 
 All automated tests use `PROVIDER_MODE=fixture`. Live smoke requires credentials and skips otherwise.

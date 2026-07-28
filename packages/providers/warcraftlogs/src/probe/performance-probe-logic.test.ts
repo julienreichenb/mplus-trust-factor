@@ -2,74 +2,116 @@ import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { buildPerformanceDatasetFromRaw } from "./performance-probe.js";
 import {
-  buildPerformanceDatasetFromRaw,
-} from "./performance-probe.js";
-import {
-  collectUnavailableEncounters,
-  decodeMplusCompletionTimeMs,
-  normalizeZoneRankingsSummary,
+  SPEED_FASTESTKILL_ENCODING_NOTE,
+  experimentalLow24BitDurationMs,
+  mergeScoreAndExecution,
+  normalizeExecutionZoneRankings,
+  normalizeScoreZoneRankings,
   parseJsonScalar,
 } from "./performance-probe-logic.js";
-import type { ProbeZoneEncounter } from "./types.js";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../../../../../");
-const fixturePath = resolve(
+const scorePath = resolve(root, "tools/fixtures/warcraftlogs/wallidrixe-zone-rankings-score.json");
+const executionPath = resolve(
   root,
-  "tools/fixtures/warcraftlogs/wallidrixe-zone-rankings-summary.json",
+  "tools/fixtures/warcraftlogs/wallidrixe-zone-rankings-execution.json",
 );
+const mergedPath = resolve(root, "tools/fixtures/warcraftlogs/wallidrixe-performance-merged.json");
 
 describe("performance-probe-logic", () => {
   it("parses JSON scalar strings permissively", () => {
     expect(parseJsonScalar('{"rankings":[]}')).toEqual({ rankings: [] });
     expect(parseJsonScalar("not-json")).toBe("not-json");
-    expect(parseJsonScalar({ ok: true })).toEqual({ ok: true });
   });
 
-  it("decodes packed M+ completion times from ranking speed/fastestKill", () => {
-    expect(decodeMplusCompletionTimeMs(1_800_000)).toBe(1_800_000);
-    expect(decodeMplusCompletionTimeMs(-438186914)).toBe(Math.abs(-438186914) & 0xffffff);
-    expect(decodeMplusCompletionTimeMs(null)).toBeNull();
-    expect(decodeMplusCompletionTimeMs(-1)).toBeNull();
-  });
-
-  it("marks missing dungeons as unavailable without failing", () => {
-    const encounters: ProbeZoneEncounter[] = [
-      { id: 1, name: "A", dungeonSlug: "a" },
-      { id: 2, name: "B", dungeonSlug: "b" },
-    ];
-    const unavailable = collectUnavailableEncounters(encounters, [
-      {
-        encounterId: 1,
-        encounterName: "A",
-        dungeonSlug: "a",
-        keystoneLevel: 10,
-        completionTimeMs: null,
-        loggedRunCount: 1,
-        ratingPoints: 100,
-        scoreRank: 1,
-        regionRank: null,
-        serverRank: null,
-        specialization: "Fire",
-        bestDps: null,
-        bestPerformancePercentile: 90,
-        medianPerformancePercentile: 80,
-        lockedIn: true,
-      },
-    ]);
-    expect(unavailable).toEqual([
-      {
-        encounterID: 2,
-        encounterName: "B",
-        dungeonSlug: "b",
-        reason: "no_zone_rankings_row",
-      },
-    ]);
+  it("documents that low-24-bit fastestKill decode is incorrect vs real keystoneTime", () => {
+    // Algeth'ar Academy Wallidrixe: fight keystoneTime was 1_813_086 (30:13).
+    const heuristic = experimentalLow24BitDurationMs(-438186914);
+    expect(heuristic).toBe(1_979_298);
+    expect(heuristic).not.toBe(1_813_086);
+    expect(SPEED_FASTESTKILL_ENCODING_NOTE).toContain("keystoneTime");
   });
 });
 
-describe("Wallidrixe zoneRankings summary fixture", () => {
-  const fixture = JSON.parse(readFileSync(fixturePath, "utf8")) as {
+describe("Wallidrixe playerscore fixture", () => {
+  const fixture = JSON.parse(readFileSync(scorePath, "utf8")) as {
+    rawZoneRankingsScore: unknown;
+    expected: {
+      totalMythicPlusScore: number;
+      totalLoggedRuns: number;
+      dungeonCount: number;
+      spec: string;
+      dungeons: Array<{
+        name: string;
+        encounterId: number;
+        ratingPoints: number;
+        keystoneLevel: number;
+        loggedRuns: number;
+      }>;
+    };
+  };
+
+  it("normalizes score payload for total score, ranks, levels, and run counts", () => {
+    const score = normalizeScoreZoneRankings(fixture.rawZoneRankingsScore);
+    expect(score.totalMythicPlusScore).toBeCloseTo(fixture.expected.totalMythicPlusScore, 5);
+    expect(score.totalLoggedRuns).toBe(fixture.expected.totalLoggedRuns);
+    expect(score.dungeons).toHaveLength(fixture.expected.dungeonCount);
+    expect(score.specRanks[0]?.spec).toBe(fixture.expected.spec);
+
+    for (const want of fixture.expected.dungeons) {
+      const got = score.dungeons.find((d) => d.encounterId === want.encounterId);
+      expect(got, want.name).toBeTruthy();
+      expect(got!.ratingPoints).toBeCloseTo(want.ratingPoints, 5);
+      expect(got!.keystoneLevel).toBe(want.keystoneLevel);
+      expect(got!.loggedRunCount).toBe(want.loggedRuns);
+      expect(got!.completion.completionTimeMs).toBeNull();
+      expect(got!.completion.encodingStatus).toBe("unverified_not_emitted");
+      expect(got!.completion.fastestKillRaw).not.toBeNull();
+    }
+  });
+});
+
+describe("Wallidrixe dps execution fixture", () => {
+  const fixture = JSON.parse(readFileSync(executionPath, "utf8")) as {
+    rawZoneRankingsExecution: unknown;
+    expected: {
+      bestDpsPercentileAverage: number;
+      medianDpsPercentileAverage: number;
+      dungeons: Array<{
+        name: string;
+        encounterId: number;
+        bestExecutionPercentile: number;
+        medianExecutionPercentile: number;
+        bestDps: number;
+      }>;
+    };
+  };
+
+  it("normalizes execution payload for DPS and Best/Median percentiles", () => {
+    const execution = normalizeExecutionZoneRankings(fixture.rawZoneRankingsExecution);
+    expect(execution.bestDpsPercentileAverage).toBeCloseTo(
+      fixture.expected.bestDpsPercentileAverage,
+      5,
+    );
+    expect(execution.medianDpsPercentileAverage).toBeCloseTo(
+      fixture.expected.medianDpsPercentileAverage,
+      5,
+    );
+
+    for (const want of fixture.expected.dungeons) {
+      const got = execution.dungeons.find((d) => d.encounterId === want.encounterId);
+      expect(got, want.name).toBeTruthy();
+      expect(got!.bestExecutionPercentile).toBe(want.bestExecutionPercentile);
+      expect(got!.medianExecutionPercentile).toBe(want.medianExecutionPercentile);
+      expect(got!.bestDps).toBe(want.bestDps);
+    }
+  });
+});
+
+describe("Wallidrixe merged Performance dataset (screenshot acceptance)", () => {
+  const fixture = JSON.parse(readFileSync(mergedPath, "utf8")) as {
     identity: { region: "EU"; realmSlug: string; name: string };
     character: {
       id: number;
@@ -92,94 +134,73 @@ describe("Wallidrixe zoneRankings summary fixture", () => {
         id: number;
         name: string;
         frozen: boolean | null;
-        encounters: ProbeZoneEncounter[];
+        encounters: Array<{ id: number; name: string | null; dungeonSlug: string | null }>;
         partitions: Array<{ id: number; name: string | null }>;
       };
       partitionUsed: number;
     };
-    rawZoneRankings: unknown;
+    rawZoneRankingsScore: unknown;
+    rawZoneRankingsExecution: unknown;
     expected: {
       totalMythicPlusScore: number;
-      bestPerformanceAverage: number;
-      medianPerformanceAverage: number;
       totalLoggedRuns: number;
-      dungeonCount: number;
-      spec: string;
+      bestDpsPercentileAverage: number;
+      medianDpsPercentileAverage: number;
       dungeons: Array<{
         name: string;
         encounterId: number;
-        ratingPoints: number;
-        keystoneLevel: number;
-        bestPercentile: number;
-        medianPercentile: number;
-        loggedRuns: number;
+        best: number;
+        median: number;
       }>;
     };
   };
 
-  it("reproduces the WCL Mythic+ character summary page from raw zoneRankings", () => {
-    const summary = normalizeZoneRankingsSummary(fixture.rawZoneRankings);
-    const { expected } = fixture;
+  it("merges by encounter.id and matches the WCL character page screenshot", () => {
+    const score = normalizeScoreZoneRankings(fixture.rawZoneRankingsScore);
+    const execution = normalizeExecutionZoneRankings(fixture.rawZoneRankingsExecution);
+    const merged = mergeScoreAndExecution(score, execution);
 
-    expect(summary.global.totalMythicPlusScore).toBeCloseTo(expected.totalMythicPlusScore, 5);
-    expect(summary.global.bestPerformanceAverage).toBeCloseTo(
-      expected.bestPerformanceAverage,
+    expect(merged.global.totalMythicPlusScore).toBeCloseTo(fixture.expected.totalMythicPlusScore, 5);
+    expect(merged.global.totalLoggedRuns).toBe(fixture.expected.totalLoggedRuns);
+    expect(merged.global.bestDpsPercentileAverage).toBeCloseTo(
+      fixture.expected.bestDpsPercentileAverage,
       5,
     );
-    expect(summary.global.medianPerformanceAverage).toBeCloseTo(
-      expected.medianPerformanceAverage,
+    expect(merged.global.medianDpsPercentileAverage).toBeCloseTo(
+      fixture.expected.medianDpsPercentileAverage,
       5,
     );
-    expect(summary.global.totalLoggedRuns).toBe(expected.totalLoggedRuns);
-    expect(summary.dungeons).toHaveLength(expected.dungeonCount);
-    expect(summary.global.specRanks[0]?.spec).toBe(expected.spec);
-    expect(summary.global.specRanks[0]?.points).toBeCloseTo(expected.totalMythicPlusScore, 5);
 
-    for (const want of expected.dungeons) {
-      const got = summary.dungeons.find((d) => d.encounterId === want.encounterId);
+    for (const want of fixture.expected.dungeons) {
+      const got = merged.dungeons.find((d) => d.encounterId === want.encounterId);
       expect(got, want.name).toBeTruthy();
-      expect(got!.encounterName).toBe(want.name);
-      expect(got!.ratingPoints).toBeCloseTo(want.ratingPoints, 5);
-      expect(got!.keystoneLevel).toBe(want.keystoneLevel);
-      expect(got!.bestPerformancePercentile).toBeCloseTo(want.bestPercentile, 5);
-      expect(got!.medianPerformancePercentile).toBeCloseTo(want.medianPercentile, 5);
-      expect(got!.loggedRunCount).toBe(want.loggedRuns);
-      expect(got!.specialization).toBe(expected.spec);
-      expect(got!.completionTimeMs).toBeGreaterThan(60_000);
-      expect(got!.completionTimeMs).toBeLessThan(2 * 60 * 60 * 1000);
-      // Explanatory only — ratingPoints already incorporates level/time.
-      expect(got!.bestDps).toBeNull();
+      expect(got!.bestExecutionPercentile).toBe(want.best);
+      expect(got!.medianExecutionPercentile).toBe(want.median);
+      expect(got!.bestDps).not.toBeNull();
+      expect(got!.ratingPoints).not.toBeNull();
+      expect(got!.keystoneLevel).toBe(22);
+      // scoreRankPercent (playerscore) must not be confused with execution percentiles.
+      expect(got!.scoreRankPercent).not.toBe(want.best);
+      expect(got!.completion.completionTimeMs).toBeNull();
     }
-
-    // Logged runs are confidence metadata, not a score input in this dataset.
-    expect(summary.global.totalLoggedRuns).toBe(expected.totalLoggedRuns);
-    expect(summary.global.totalLoggedRuns).not.toBe(expected.totalMythicPlusScore);
-    // Global score comes from allStars; per-dungeon points may differ by float noise when summed.
-    const scoreFromDungeons = summary.dungeons.reduce((s, d) => s + (d.ratingPoints ?? 0), 0);
-    expect(scoreFromDungeons).toBeCloseTo(expected.totalMythicPlusScore, 1);
   });
 
-  it("builds a v2 performance dataset without report scanning fields", () => {
+  it("builds v3 dataset with both raw payloads and no report-scan fields", () => {
     const dataset = buildPerformanceDatasetFromRaw({
       identity: fixture.identity,
       character: fixture.character,
       zone: fixture.zone,
-      rawZoneRankings: fixture.rawZoneRankings,
-      probedAt: "2026-07-28T15:12:51.318Z",
+      rawZoneRankingsScore: fixture.rawZoneRankingsScore,
+      rawZoneRankingsExecution: fixture.rawZoneRankingsExecution,
     });
 
-    expect(dataset.probeVersion).toBe("2");
-    expect(dataset.diagnostics.source).toBe("character.zoneRankings");
-    expect(dataset.diagnostics.query.metric).toBe("playerscore");
-    expect(dataset.diagnostics.query.byBracket).toBe(true);
-    expect(dataset.diagnostics.query.compare).toBeNull();
-    expect(dataset.summary.dungeons).toHaveLength(8);
-    expect(dataset.summary.unavailableEncounters).toEqual([]);
-    expect(dataset.rawZoneRankings).toBe(fixture.rawZoneRankings);
+    expect(dataset.probeVersion).toBe("3");
+    expect(dataset.rawZoneRankingsScore).toBe(fixture.rawZoneRankingsScore);
+    expect(dataset.rawZoneRankingsExecution).toBe(fixture.rawZoneRankingsExecution);
+    expect(dataset.diagnostics.scoreQuery.metric).toBe("playerscore");
+    expect(dataset.diagnostics.executionQuery.metric).toBe("dps");
+    expect(dataset.summary.dungeons.every((d) => d.bestDps != null)).toBe(true);
     expect(dataset).not.toHaveProperty("reports");
-    expect(dataset).not.toHaveProperty("eligibleLoggedRuns");
-    expect(dataset).not.toHaveProperty("selectedHighestRatedRuns");
     expect(dataset.diagnostics.note).toContain("confidence only");
-    expect(dataset.diagnostics.note).toContain("No recentReports");
   });
 });

@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { CharacterIdentityInput } from "@mplus/contracts";
 import type { WclGraphQlClient } from "../client/graphql-client.js";
@@ -8,9 +8,12 @@ import { resolveMplusZoneConfig, type MplusZoneConfig } from "../discovery/mplus
 import { OPERATIONS } from "../operations/queries.js";
 import type { WclRateLimitSnapshot } from "../types.js";
 import {
+  SPEED_FASTESTKILL_ENCODING_NOTE,
   buildZoneEncounters,
   collectUnavailableEncounters,
-  normalizeZoneRankingsSummary,
+  mergeScoreAndExecution,
+  normalizeExecutionZoneRankings,
+  normalizeScoreZoneRankings,
   parseJsonScalar,
   resolveCurrentPartition,
 } from "./performance-probe-logic.js";
@@ -28,7 +31,6 @@ export interface PerformanceProbeOptions {
   outputDir: string;
   client: WclGraphQlClient;
   zoneConfig?: MplusZoneConfig;
-  /** Override partition; otherwise resolved from worldData.partitions / WCL default. */
   partition?: number | null;
   now?: Date;
 }
@@ -75,6 +77,17 @@ function rateLimitFromExtensions(
 
 async function writeJson(path: string, payload: unknown): Promise<void> {
   await writeFile(path, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
+}
+
+/** Remove prior probe artifacts so only the current four files remain. */
+export async function cleanProbeOutputDir(outputDir: string): Promise<void> {
+  await mkdir(outputDir, { recursive: true });
+  const entries = await readdir(outputDir, { withFileTypes: true });
+  await Promise.all(
+    entries.map((entry) =>
+      rm(join(outputDir, entry.name), { recursive: true, force: true }),
+    ),
+  );
 }
 
 async function fetchRateLimitData(
@@ -223,19 +236,22 @@ async function resolveCharacterAndZone(
   };
 }
 
-async function fetchZoneRankingsRaw(
+async function fetchZoneRankingsByMetric(
   client: WclGraphQlClient,
   identity: PerformanceProbeIdentity,
   zoneId: number,
   partition: number | null,
+  metric: "playerscore" | "dps",
   graphqlErrors: GraphQlErrorRecord[],
   perOperation: ProbeRateLimitRecord[],
 ): Promise<unknown> {
+  const operationLabel = `${OPERATIONS.CharacterZoneRankingsPerformanceSummary.operationName}:${metric}`;
   const variables: Record<string, unknown> = {
     name: identity.name,
     serverSlug: identity.realmSlug,
     serverRegion: mapRegionToWcl(identity.region),
     zoneID: zoneId,
+    metric,
   };
   if (partition != null) {
     variables.partition = partition;
@@ -253,23 +269,18 @@ async function fetchZoneRankingsRaw(
     variables,
     region: identity.region,
   });
-  collectGraphQlErrors(
-    graphqlErrors,
-    OPERATIONS.CharacterZoneRankingsPerformanceSummary.operationName,
-    result.response.errors,
-  );
+  collectGraphQlErrors(graphqlErrors, operationLabel, result.response.errors);
   perOperation.push({
-    operationName: OPERATIONS.CharacterZoneRankingsPerformanceSummary.operationName,
+    operationName: operationLabel,
     costUnits: result.costUnits,
     durationMs: result.durationMs,
     snapshot: rateLimitFromExtensions(result.response.extensions),
   });
-  const raw = result.response.data?.characterData?.character?.zoneRankings ?? null;
-  return parseJsonScalar(raw);
+  return parseJsonScalar(result.response.data?.characterData?.character?.zoneRankings ?? null);
 }
 
 /**
- * Read-only Performance probe: Character.zoneRankings summary only.
+ * Read-only Performance probe: dual Character.zoneRankings (playerscore + dps).
  * Does not call recentReports, report.fights, masterData, or events.
  */
 export async function runPerformanceProbe(
@@ -323,34 +334,64 @@ export async function runPerformanceProbe(
     },
   };
 
-  const rawZoneRankings = await fetchZoneRankingsRaw(
+  const rawZoneRankingsScore = await fetchZoneRankingsByMetric(
     options.client,
     options.identity,
     zoneConfig.zoneId,
     zone.partitionUsed,
+    "playerscore",
+    graphqlErrors,
+    perOperation,
+  );
+  const rawZoneRankingsExecution = await fetchZoneRankingsByMetric(
+    options.client,
+    options.identity,
+    zoneConfig.zoneId,
+    zone.partitionUsed,
+    "dps",
     graphqlErrors,
     perOperation,
   );
 
-  const normalized = normalizeZoneRankingsSummary(rawZoneRankings);
+  const score = normalizeScoreZoneRankings(rawZoneRankingsScore);
+  const execution = normalizeExecutionZoneRankings(rawZoneRankingsExecution);
+  const merged = mergeScoreAndExecution(score, execution);
+
+  const scoreIds = new Set(
+    score.dungeons.map((d) => d.encounterId).filter((id): id is number => id != null),
+  );
+  const executionIds = new Set(
+    execution.dungeons.map((d) => d.encounterId).filter((id): id is number => id != null),
+  );
   const unavailableEncounters = collectUnavailableEncounters(
     zone.worldData?.encounters ?? [],
-    normalized.dungeons,
+    merged.dungeons,
+    scoreIds,
+    executionIds,
   );
 
-  const zoneRankingsPayload = {
+  const scorePayload = {
     probedAt,
     identity: options.identity,
     zoneId: zoneConfig.zoneId,
     partition: zone.partitionUsed,
-    rawZoneRankings,
-    summary: normalized,
-    graphqlErrors: graphqlErrors.filter(
-      (e) => e.operationName === OPERATIONS.CharacterZoneRankingsPerformanceSummary.operationName,
-    ),
-    rateLimit: perOperation.filter(
-      (r) => r.operationName === OPERATIONS.CharacterZoneRankingsPerformanceSummary.operationName,
-    ),
+    metric: "playerscore" as const,
+    rawZoneRankings: rawZoneRankingsScore,
+    normalized: score,
+    graphqlErrors: graphqlErrors.filter((e) => e.operationName.endsWith(":playerscore")),
+    rateLimit: perOperation.filter((r) => r.operationName.endsWith(":playerscore")),
+  };
+
+  const executionPayload = {
+    probedAt,
+    identity: options.identity,
+    zoneId: zoneConfig.zoneId,
+    partition: zone.partitionUsed,
+    metric: "dps" as const,
+    rawZoneRankings: rawZoneRankingsExecution,
+    normalized: execution,
+    graphqlErrors: graphqlErrors.filter((e) => e.operationName.endsWith(":dps")),
+    rateLimit: perOperation.filter((r) => r.operationName.endsWith(":dps")),
   };
 
   const finalRateLimit = await fetchRateLimitData(
@@ -361,33 +402,39 @@ export async function runPerformanceProbe(
   );
 
   const dataset: PerformanceProbeDataset = {
-    probeVersion: "2",
+    probeVersion: "3",
     probedAt,
     identity: options.identity,
     character,
     zone,
     summary: {
-      global: normalized.global,
-      dungeons: normalized.dungeons,
+      global: merged.global,
+      dungeons: merged.dungeons,
       unavailableEncounters,
     },
-    rawZoneRankings,
+    rawZoneRankingsScore,
+    rawZoneRankingsExecution,
     diagnostics: {
       source: "character.zoneRankings",
-      query: {
+      scoreQuery: {
         zoneID: zoneConfig.zoneId,
         metric: "playerscore",
         byBracket: true,
         partition: zone.partitionUsed,
-        compare: null,
-        specName: null,
       },
-      dungeonRowCount: normalized.dungeons.length,
+      executionQuery: {
+        zoneID: zoneConfig.zoneId,
+        metric: "dps",
+        byBracket: true,
+        partition: zone.partitionUsed,
+      },
+      dungeonRowCount: merged.dungeons.length,
       unavailableEncounterCount: unavailableEncounters.length,
       note:
-        "Performance uses the WCL Mythic+ character summary (zoneRankings). " +
+        "Performance merges independent playerscore + dps zoneRankings by encounter.id. " +
         "Logged run counts affect confidence only. " +
-        "keystoneLevel and completionTimeMs are explanatory; ratingPoints already incorporates them. " +
+        "scoreRankPercent is not an execution percentile. " +
+        `${SPEED_FASTESTKILL_ENCODING_NOTE} ` +
         "No recentReports / report.fights / masterData / events.",
     },
     graphqlErrors,
@@ -398,16 +445,18 @@ export async function runPerformanceProbe(
     },
   };
 
-  await mkdir(options.outputDir, { recursive: true });
+  await cleanProbeOutputDir(options.outputDir);
   const outputFiles = {
     characterZone: join(options.outputDir, "01-character-zone.json"),
-    zoneRankings: join(options.outputDir, "02-zone-rankings.json"),
-    performanceDataset: join(options.outputDir, "05-performance-dataset.json"),
+    zoneRankingsScore: join(options.outputDir, "02-zone-rankings-score.json"),
+    zoneRankingsExecution: join(options.outputDir, "03-zone-rankings-execution.json"),
+    performanceDataset: join(options.outputDir, "04-performance-dataset.json"),
   };
 
   await Promise.all([
     writeJson(outputFiles.characterZone, characterZonePayload),
-    writeJson(outputFiles.zoneRankings, zoneRankingsPayload),
+    writeJson(outputFiles.zoneRankingsScore, scorePayload),
+    writeJson(outputFiles.zoneRankingsExecution, executionPayload),
     writeJson(outputFiles.performanceDataset, dataset),
   ]);
 
@@ -424,55 +473,69 @@ export function toCharacterIdentityInput(
   };
 }
 
-/** Pure offline normalize helper for fixtures / tests (no network). */
+/** Offline merge helper for fixtures / tests (no network). */
 export function buildPerformanceDatasetFromRaw(options: {
   identity: PerformanceProbeIdentity;
   character: ProbeCharacterRecord | null;
   zone: ProbeZoneRecord;
-  rawZoneRankings: unknown;
+  rawZoneRankingsScore: unknown;
+  rawZoneRankingsExecution: unknown;
   probedAt?: string;
 }): PerformanceProbeDataset {
   const probedAt = options.probedAt ?? new Date().toISOString();
-  const normalized = normalizeZoneRankingsSummary(options.rawZoneRankings);
+  const score = normalizeScoreZoneRankings(options.rawZoneRankingsScore);
+  const execution = normalizeExecutionZoneRankings(options.rawZoneRankingsExecution);
+  const merged = mergeScoreAndExecution(score, execution);
+  const scoreIds = new Set(
+    score.dungeons.map((d) => d.encounterId).filter((id): id is number => id != null),
+  );
+  const executionIds = new Set(
+    execution.dungeons.map((d) => d.encounterId).filter((id): id is number => id != null),
+  );
   const unavailableEncounters = collectUnavailableEncounters(
     options.zone.worldData?.encounters ?? [],
-    normalized.dungeons,
+    merged.dungeons,
+    scoreIds,
+    executionIds,
   );
+
   return {
-    probeVersion: "2",
+    probeVersion: "3",
     probedAt,
     identity: options.identity,
     character: options.character,
     zone: options.zone,
     summary: {
-      global: normalized.global,
-      dungeons: normalized.dungeons,
+      global: merged.global,
+      dungeons: merged.dungeons,
       unavailableEncounters,
     },
-    rawZoneRankings: options.rawZoneRankings,
+    rawZoneRankingsScore: options.rawZoneRankingsScore,
+    rawZoneRankingsExecution: options.rawZoneRankingsExecution,
     diagnostics: {
       source: "character.zoneRankings",
-      query: {
+      scoreQuery: {
         zoneID: options.zone.config.zoneId,
         metric: "playerscore",
         byBracket: true,
         partition: options.zone.partitionUsed,
-        compare: null,
-        specName: null,
       },
-      dungeonRowCount: normalized.dungeons.length,
+      executionQuery: {
+        zoneID: options.zone.config.zoneId,
+        metric: "dps",
+        byBracket: true,
+        partition: options.zone.partitionUsed,
+      },
+      dungeonRowCount: merged.dungeons.length,
       unavailableEncounterCount: unavailableEncounters.length,
       note:
-        "Performance uses the WCL Mythic+ character summary (zoneRankings). " +
+        "Performance merges independent playerscore + dps zoneRankings by encounter.id. " +
         "Logged run counts affect confidence only. " +
-        "keystoneLevel and completionTimeMs are explanatory; ratingPoints already incorporates them. " +
+        "scoreRankPercent is not an execution percentile. " +
+        `${SPEED_FASTESTKILL_ENCODING_NOTE} ` +
         "No recentReports / report.fights / masterData / events.",
     },
     graphqlErrors: [],
-    rateLimit: {
-      initial: null,
-      final: null,
-      perOperation: [],
-    },
+    rateLimit: { initial: null, final: null, perOperation: [] },
   };
 }

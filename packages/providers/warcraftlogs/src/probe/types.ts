@@ -50,11 +50,9 @@ export interface ProbeZoneRecord {
     encounters: ProbeZoneEncounter[];
     partitions: ProbeZonePartition[];
   } | null;
-  /** Partition passed to zoneRankings (null = WCL current default). */
   partitionUsed: number | null;
 }
 
-/** Spec-level All Stars row from zoneRankings.allStars. */
 export interface PerformanceSpecRank {
   spec: string | null;
   points: number | null;
@@ -62,56 +60,76 @@ export interface PerformanceSpecRank {
   rank: number | null;
   regionRank: number | null;
   serverRank: number | null;
-  rankPercent: number | null;
+  /** All-stars score percentile — not an execution (DPS) parse. */
+  scoreRankPercent: number | null;
   total: number | null;
   partition: number | null;
 }
 
 /**
- * Global Mythic+ character summary — mirrors the WCL character M+ header.
- * Logged-run counts affect confidence only; they are not score inputs.
+ * Raw run-completion metadata from the playerscore zoneRankings row.
+ * completionTimeMs is intentionally null until WCL's fastestKill/speed packing is confirmed.
+ * See docs in performance-probe-logic.ts (investigateSpeedFastestKillEncoding).
  */
+export interface RunCompletionMetadata {
+  fastestKillRaw: number | null;
+  speedRaw: number | null;
+  fightMetadataRaw: number | null;
+  leaderboardRaw: number | null;
+  affixesRaw: number | null;
+  /**
+   * Always null in v3 until encoding is verified against ReportFight.keystoneTime.
+   * Do not invent a conversion from fastestKill/speed.
+   */
+  completionTimeMs: null;
+  encodingStatus: "unverified_not_emitted";
+  encodingNote: string;
+}
+
 export interface PerformanceGlobalSummary {
   totalMythicPlusScore: number | null;
-  bestPerformanceAverage: number | null;
-  medianPerformanceAverage: number | null;
+  /** From metric:dps zoneRankings.bestPerformanceAverage */
+  bestDpsPercentileAverage: number | null;
+  /** From metric:dps zoneRankings.medianPerformanceAverage */
+  medianDpsPercentileAverage: number | null;
   totalLoggedRuns: number;
   partition: number | null;
-  metric: string | null;
-  difficulty: number | null;
   zoneId: number | null;
+  scoreMetric: "playerscore";
+  executionMetric: "dps";
   specRanks: PerformanceSpecRank[];
 }
 
-/**
- * Per-dungeon row from zoneRankings.rankings (character summary page).
- * keystoneLevel / completionTimeMs are explanatory; ratingPoints already includes them.
- */
 export interface PerformanceDungeonSummary {
   encounterId: number | null;
   encounterName: string | null;
   dungeonSlug: string | null;
+  /** From playerscore bestRank.ilvl when byBracket: true */
   keystoneLevel: number | null;
-  completionTimeMs: number | null;
   loggedRunCount: number;
   ratingPoints: number | null;
   scoreRank: number | null;
   regionRank: number | null;
   serverRank: number | null;
+  /** playerscore row rankPercent / allStars.rankPercent — not DPS execution. */
+  scoreRankPercent: number | null;
   specialization: string | null;
+  /** From dps row bestAmount */
   bestDps: number | null;
-  bestPerformancePercentile: number | null;
-  medianPerformancePercentile: number | null;
+  /** From dps row rankPercent */
+  bestExecutionPercentile: number | null;
+  /** From dps row medianPercent */
+  medianExecutionPercentile: number | null;
   lockedIn: boolean | null;
+  completion: RunCompletionMetadata;
 }
 
 export interface PerformanceProbeDataset {
-  probeVersion: "2";
+  probeVersion: "3";
   probedAt: string;
   identity: PerformanceProbeIdentity;
   character: ProbeCharacterRecord | null;
   zone: ProbeZoneRecord;
-  /** Character-page summary extracted from zoneRankings. */
   summary: {
     global: PerformanceGlobalSummary;
     dungeons: PerformanceDungeonSummary[];
@@ -119,23 +137,24 @@ export interface PerformanceProbeDataset {
       encounterID: number;
       encounterName: string | null;
       dungeonSlug: string | null;
-      reason: "no_zone_rankings_row";
+      reason: "no_score_row" | "no_execution_row" | "no_zone_rankings_row";
     }>;
   };
-  /**
-   * Complete raw zoneRankings payload (JSON scalar parsed when needed).
-   * No assumption about internal structure beyond permissive extraction.
-   */
-  rawZoneRankings: unknown;
+  rawZoneRankingsScore: unknown;
+  rawZoneRankingsExecution: unknown;
   diagnostics: {
     source: "character.zoneRankings";
-    query: {
+    scoreQuery: {
       zoneID: number;
       metric: "playerscore";
       byBracket: true;
       partition: number | null;
-      compare: null;
-      specName: null;
+    };
+    executionQuery: {
+      zoneID: number;
+      metric: "dps";
+      byBracket: true;
+      partition: number | null;
     };
     dungeonRowCount: number;
     unavailableEncounterCount: number;

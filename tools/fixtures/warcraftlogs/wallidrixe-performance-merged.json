@@ -1,5 +1,5 @@
 {
-  "scenario": "wallidrixe-zone-rankings-summary",
+  "scenario": "wallidrixe-performance-merged",
   "identity": {
     "region": "EU",
     "realmSlug": "archimonde",
@@ -33,42 +33,42 @@
         {
           "id": 112526,
           "name": "Algeth'ar Academy",
-          "dungeonSlug": null
+          "dungeonSlug": "algethar-academy"
         },
         {
           "id": 12811,
           "name": "Magisters' Terrace",
-          "dungeonSlug": null
+          "dungeonSlug": "magisters-terrace"
         },
         {
           "id": 12874,
           "name": "Maisara Caverns",
-          "dungeonSlug": null
+          "dungeonSlug": "maisara-caverns"
         },
         {
           "id": 12915,
           "name": "Nexus-Point Xenas",
-          "dungeonSlug": null
+          "dungeonSlug": "nexus-point-xenas"
         },
         {
           "id": 10658,
           "name": "Pit of Saron",
-          "dungeonSlug": null
+          "dungeonSlug": "pit-of-saron"
         },
         {
           "id": 361753,
           "name": "Seat of the Triumvirate",
-          "dungeonSlug": null
+          "dungeonSlug": "seat-of-the-triumvirate"
         },
         {
           "id": 61209,
           "name": "Skyreach",
-          "dungeonSlug": null
+          "dungeonSlug": "skyreach"
         },
         {
           "id": 12805,
           "name": "Windrunner Spire",
-          "dungeonSlug": null
+          "dungeonSlug": "windrunner-spire"
         }
       ],
       "partitions": [
@@ -80,9 +80,9 @@
     },
     "partitionUsed": 1
   },
-  "rawZoneRankings": {
-    "bestPerformanceAverage": 99.89819899142759,
-    "medianPerformanceAverage": 91.74298383367034,
+  "rawZoneRankingsScore": {
+    "bestPerformanceAverage": 94.17755197231794,
+    "medianPerformanceAverage": 61.27570026505137,
     "difficulty": 10,
     "metric": "playerscore",
     "partition": 1,
@@ -109,7 +109,7 @@
           "name": "Algeth'ar Academy"
         },
         "rankPercent": 100,
-        "medianPercent": 93.0672,
+        "medianPercent": 64.5014,
         "lockedIn": true,
         "totalKills": 18,
         "fastestKill": -438186914,
@@ -144,8 +144,8 @@
           "id": 12811,
           "name": "Magisters' Terrace"
         },
-        "rankPercent": 99.83389193142087,
-        "medianPercent": 89.9046608794676,
+        "rankPercent": 99.77941577854344,
+        "medianPercent": 66.63262212041091,
         "lockedIn": true,
         "totalKills": 19,
         "fastestKill": -438141436,
@@ -181,7 +181,7 @@
           "name": "Maisara Caverns"
         },
         "rankPercent": 100,
-        "medianPercent": 94.5061,
+        "medianPercent": 74.5962,
         "lockedIn": true,
         "totalKills": 15,
         "fastestKill": -438109788,
@@ -217,7 +217,7 @@
           "name": "Nexus-Point Xenas"
         },
         "rankPercent": 100,
-        "medianPercent": 92.2901,
+        "medianPercent": 79.3499,
         "lockedIn": true,
         "totalKills": 13,
         "fastestKill": -438282276,
@@ -253,7 +253,7 @@
           "name": "Pit of Saron"
         },
         "rankPercent": 100,
-        "medianPercent": 91.1611,
+        "medianPercent": 67.4606,
         "lockedIn": true,
         "totalKills": 29,
         "fastestKill": -438221522,
@@ -289,7 +289,7 @@
           "name": "Seat of the Triumvirate"
         },
         "rankPercent": 100,
-        "medianPercent": 92.269,
+        "medianPercent": 65.0529,
         "lockedIn": true,
         "totalKills": 16,
         "fastestKill": -438043083,
@@ -324,8 +324,8 @@
           "id": 61209,
           "name": "Skyreach"
         },
-        "rankPercent": 99.3517,
-        "medianPercent": 89.7605,
+        "rankPercent": 97.0564,
+        "medianPercent": 63.4922,
         "lockedIn": true,
         "totalKills": 13,
         "fastestKill": -438442129,
@@ -360,11 +360,11 @@
           "id": 12805,
           "name": "Windrunner Spire"
         },
-        "rankPercent": 100,
-        "medianPercent": 90.98520978989504,
+        "rankPercent": 56.5846,
+        "medianPercent": 9.11978,
         "lockedIn": true,
         "totalKills": 20,
-        "fastestKill": -438065166,
+        "fastestKill": -878065166,
         "allStars": {
           "partition": 1,
           "points": 515.85541666667,
@@ -393,85 +393,174 @@
       }
     ]
   },
+  "rawZoneRankingsExecution": {
+    "bestPerformanceAverage": 80.9,
+    "medianPerformanceAverage": 77,
+    "difficulty": 10,
+    "metric": "dps",
+    "partition": 1,
+    "zone": 47,
+    "size": 5,
+    "rankings": [
+      {
+        "encounter": {
+          "id": 112526,
+          "name": "Algeth'ar Academy"
+        },
+        "rankPercent": 72,
+        "medianPercent": 72,
+        "lockedIn": true,
+        "totalKills": 1,
+        "spec": "Demonology",
+        "bestSpec": "Demonology",
+        "bestAmount": 412500.4
+      },
+      {
+        "encounter": {
+          "id": 12811,
+          "name": "Magisters' Terrace"
+        },
+        "rankPercent": 91,
+        "medianPercent": 80,
+        "lockedIn": true,
+        "totalKills": 1,
+        "spec": "Demonology",
+        "bestSpec": "Demonology",
+        "bestAmount": 438210.2
+      },
+      {
+        "encounter": {
+          "id": 12874,
+          "name": "Maisara Caverns"
+        },
+        "rankPercent": 77,
+        "medianPercent": 77,
+        "lockedIn": true,
+        "totalKills": 1,
+        "spec": "Demonology",
+        "bestSpec": "Demonology",
+        "bestAmount": 421100
+      },
+      {
+        "encounter": {
+          "id": 12915,
+          "name": "Nexus-Point Xenas"
+        },
+        "rankPercent": 86,
+        "medianPercent": 86,
+        "lockedIn": true,
+        "totalKills": 1,
+        "spec": "Demonology",
+        "bestSpec": "Demonology",
+        "bestAmount": 430050.5
+      },
+      {
+        "encounter": {
+          "id": 10658,
+          "name": "Pit of Saron"
+        },
+        "rankPercent": 95,
+        "medianPercent": 75,
+        "lockedIn": true,
+        "totalKills": 1,
+        "spec": "Demonology",
+        "bestSpec": "Demonology",
+        "bestAmount": 445900.1
+      },
+      {
+        "encounter": {
+          "id": 361753,
+          "name": "Seat of the Triumvirate"
+        },
+        "rankPercent": 59,
+        "medianPercent": 59,
+        "lockedIn": true,
+        "totalKills": 1,
+        "spec": "Demonology",
+        "bestSpec": "Demonology",
+        "bestAmount": 398000
+      },
+      {
+        "encounter": {
+          "id": 61209,
+          "name": "Skyreach"
+        },
+        "rankPercent": 98,
+        "medianPercent": 98,
+        "lockedIn": true,
+        "totalKills": 1,
+        "spec": "Demonology",
+        "bestSpec": "Demonology",
+        "bestAmount": 452300.7
+      },
+      {
+        "encounter": {
+          "id": 12805,
+          "name": "Windrunner Spire"
+        },
+        "rankPercent": 69,
+        "medianPercent": 69,
+        "lockedIn": true,
+        "totalKills": 1,
+        "spec": "Demonology",
+        "bestSpec": "Demonology",
+        "bestAmount": 408750.3
+      }
+    ]
+  },
   "expected": {
     "totalMythicPlusScore": 4133.25,
-    "bestPerformanceAverage": 99.89819899142759,
-    "medianPerformanceAverage": 91.74298383367034,
     "totalLoggedRuns": 143,
-    "dungeonCount": 8,
-    "spec": "Demonology",
+    "bestDpsPercentileAverage": 80.9,
+    "medianDpsPercentileAverage": 77,
     "dungeons": [
       {
         "name": "Algeth'ar Academy",
         "encounterId": 112526,
-        "ratingPoints": 515.94584677419,
-        "keystoneLevel": 22,
-        "bestPercentile": 100,
-        "medianPercentile": 93.0672,
-        "loggedRuns": 18
+        "best": 72,
+        "median": 72
       },
       {
         "name": "Magisters' Terrace",
         "encounterId": 12811,
-        "ratingPoints": 518.33522058824,
-        "keystoneLevel": 22,
-        "bestPercentile": 99.83389193142087,
-        "medianPercentile": 89.9046608794676,
-        "loggedRuns": 19
+        "best": 91,
+        "median": 80
       },
       {
         "name": "Maisara Caverns",
         "encounterId": 12874,
-        "ratingPoints": 516.70053030303,
-        "keystoneLevel": 22,
-        "bestPercentile": 100,
-        "medianPercentile": 94.5061,
-        "loggedRuns": 15
+        "best": 77,
+        "median": 77
       },
       {
         "name": "Nexus-Point Xenas",
         "encounterId": 12915,
-        "ratingPoints": 516.71408333333,
-        "keystoneLevel": 22,
-        "bestPercentile": 100,
-        "medianPercentile": 92.2901,
-        "loggedRuns": 13
+        "best": 86,
+        "median": 86
       },
       {
         "name": "Pit of Saron",
         "encounterId": 10658,
-        "ratingPoints": 515.448375,
-        "keystoneLevel": 22,
-        "bestPercentile": 100,
-        "medianPercentile": 91.1611,
-        "loggedRuns": 29
+        "best": 95,
+        "median": 75
       },
       {
         "name": "Seat of the Triumvirate",
         "encounterId": 361753,
-        "ratingPoints": 516.52726102941,
-        "keystoneLevel": 22,
-        "bestPercentile": 100,
-        "medianPercentile": 92.269,
-        "loggedRuns": 16
+        "best": 59,
+        "median": 59
       },
       {
         "name": "Skyreach",
         "encounterId": 61209,
-        "ratingPoints": 517.72609375,
-        "keystoneLevel": 22,
-        "bestPercentile": 99.3517,
-        "medianPercentile": 89.7605,
-        "loggedRuns": 13
+        "best": 98,
+        "median": 98
       },
       {
         "name": "Windrunner Spire",
         "encounterId": 12805,
-        "ratingPoints": 515.85541666667,
-        "keystoneLevel": 22,
-        "bestPercentile": 100,
-        "medianPercentile": 90.98520978989504,
-        "loggedRuns": 20
+        "best": 69,
+        "median": 69
       }
     ]
   }

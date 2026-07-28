@@ -5,6 +5,7 @@ import type {
   PerformanceGlobalSummary,
   PerformanceSpecRank,
   ProbeZoneEncounter,
+  RunCompletionMetadata,
 } from "./types.js";
 
 export function parseJsonScalar<T = unknown>(value: unknown): T | unknown {
@@ -32,15 +33,50 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /**
- * WCL packs M+ completion time into the low 24 bits of |speed| / |fastestKill|
- * when those ranking fields are large signed integers (character summary encoding).
- * Plain positive durations under 2h are accepted as-is.
+ * Investigation notes: WCL playerscore zoneRankings `fastestKill` / `bestRank.speed`
+ *
+ * Observed (Wallidrixe, zone 47, partition 1, metric playerscore):
+ * - Both fields are large negative integers (e.g. fastestKill ≈ -438e6, speed ≈ -878e6).
+ * - For most dungeons: speed - fastestKill === -440_000_000 (constant).
+ * - Windrunner Spire had fastestKill === speed (both ≈ -878e6) — not a plain duration.
+ * - Low-24-bit decode of |fastestKill| yields ~30–37 min values that LOOK plausible for +22
+ *   keys, but fail cross-check against ReportFight.keystoneTime for the same character:
+ *     Algeth'ar Academy: fight keystoneTime 1_813_086 (30:13) vs |fk|&0xffffff = 1_979_298 (32:59)
+ *     Skyreach:          fight keystoneTime 1_557_871 (25:57) vs |fk|&0xffffff = 2_234_513 (37:14)
+ * - WCL zone ranking HTML lists durations as plain positive ms (e.g. "1855296$30:55"),
+ *   but that field is not present on character zoneRankings aggregate JSON rows.
+ * - Real M+ completion time for a fight is ReportFight.keystoneTime — intentionally not
+ *   fetched by this Performance probe (no report/fight/event fan-out).
+ *
+ * Conclusion: do not emit completionTimeMs from fastestKill/speed until WCL documents
+ * or we verify a packing formula against keystoneTime. Preserve raw metadata only.
  */
-export function decodeMplusCompletionTimeMs(value: unknown): number | null {
+export const SPEED_FASTESTKILL_ENCODING_NOTE =
+  "fastestKill/bestRank.speed are opaque signed ranking fields on playerscore zoneRankings; " +
+  "low-24-bit and similar heuristics disagree with ReportFight.keystoneTime. " +
+  "completionTimeMs is not emitted until encoding is verified.";
+
+export function buildRunCompletionMetadata(row: Record<string, unknown>): RunCompletionMetadata {
+  const bestRank = isRecord(row.bestRank) ? row.bestRank : null;
+  return {
+    fastestKillRaw: coerceFiniteNumber(row.fastestKill),
+    speedRaw: coerceFiniteNumber(bestRank?.speed),
+    fightMetadataRaw: coerceFiniteNumber(bestRank?.fight_metadata),
+    leaderboardRaw: coerceFiniteNumber(bestRank?.leaderboard),
+    affixesRaw: coerceFiniteNumber(bestRank?.affixes),
+    completionTimeMs: null,
+    encodingStatus: "unverified_not_emitted",
+    encodingNote: SPEED_FASTESTKILL_ENCODING_NOTE,
+  };
+}
+
+/**
+ * @deprecated Do not use for emitted completionTimeMs — retained only so tests can
+ * assert the heuristic is incorrect vs real keystoneTime.
+ */
+export function experimentalLow24BitDurationMs(value: unknown): number | null {
   const n = coerceFiniteNumber(value);
   if (n == null) return null;
-  if (n > 0 && n <= 2 * 60 * 60 * 1000) return Math.trunc(n);
-
   const packedMs = Math.abs(Math.trunc(n)) & 0xffffff;
   if (packedMs >= 60_000 && packedMs <= 2 * 60 * 60 * 1000) return packedMs;
   return null;
@@ -83,27 +119,61 @@ function mapSpecRank(row: unknown): PerformanceSpecRank | null {
     rank: coerceFiniteNumber(row.rank),
     regionRank: coerceFiniteNumber(row.regionRank),
     serverRank: coerceFiniteNumber(row.serverRank),
-    rankPercent: coerceFiniteNumber(row.rankPercent),
+    scoreRankPercent: coerceFiniteNumber(row.rankPercent),
     total: coerceFiniteNumber(row.total),
     partition: coerceFiniteNumber(row.partition),
   };
 }
 
-function mapDungeonRow(row: unknown): PerformanceDungeonSummary | null {
-  if (!isRecord(row)) return null;
-  // Parse-style discovery rows (report + fightID) are not character-summary rows.
-  if (isRecord(row.report) && typeof row.fightID === "number") return null;
+export interface ScoreDungeonRow {
+  encounterId: number | null;
+  encounterName: string | null;
+  dungeonSlug: string | null;
+  keystoneLevel: number | null;
+  loggedRunCount: number;
+  ratingPoints: number | null;
+  scoreRank: number | null;
+  regionRank: number | null;
+  serverRank: number | null;
+  scoreRankPercent: number | null;
+  specialization: string | null;
+  lockedIn: boolean | null;
+  completion: RunCompletionMetadata;
+}
 
+export interface ExecutionDungeonRow {
+  encounterId: number | null;
+  encounterName: string | null;
+  dungeonSlug: string | null;
+  bestDps: number | null;
+  bestExecutionPercentile: number | null;
+  medianExecutionPercentile: number | null;
+  lockedIn: boolean | null;
+}
+
+function extractEncounter(row: Record<string, unknown>): {
+  encounterId: number | null;
+  encounterName: string | null;
+} {
   const encounter = isRecord(row.encounter) ? row.encounter : null;
-  const encounterId =
-    coerceFiniteNumber(encounter?.id) ?? coerceFiniteNumber(row.encounterID);
-  const encounterName =
-    typeof encounter?.name === "string"
-      ? encounter.name
-      : typeof row.name === "string"
-        ? row.name
-        : null;
+  return {
+    encounterId: coerceFiniteNumber(encounter?.id) ?? coerceFiniteNumber(row.encounterID),
+    encounterName:
+      typeof encounter?.name === "string"
+        ? encounter.name
+        : typeof row.name === "string"
+          ? row.name
+          : null,
+  };
+}
 
+function isParseStyleRow(row: Record<string, unknown>): boolean {
+  return isRecord(row.report) && typeof row.fightID === "number";
+}
+
+export function mapScoreDungeonRow(row: unknown): ScoreDungeonRow | null {
+  if (!isRecord(row) || isParseStyleRow(row)) return null;
+  const { encounterId, encounterName } = extractEncounter(row);
   const allStars = isRecord(row.allStars) ? row.allStars : null;
   const bestRank = isRecord(row.bestRank) ? row.bestRank : null;
 
@@ -113,197 +183,316 @@ function mapDungeonRow(row: unknown): PerformanceDungeonSummary | null {
     coerceFiniteNumber(row.amount) ??
     coerceFiniteNumber(row.score);
 
-  const bestPerformancePercentile =
-    coerceFiniteNumber(row.rankPercent) ??
-    coerceFiniteNumber(row.bestPercentile) ??
-    coerceFiniteNumber(row.percentile);
-
-  const medianPerformancePercentile =
-    coerceFiniteNumber(row.medianPercent) ??
-    coerceFiniteNumber(row.medianPercentile) ??
-    coerceFiniteNumber(row.median);
-
-  // Summary rows without any score/percentile signal are skipped.
-  if (
-    ratingPoints == null &&
-    bestPerformancePercentile == null &&
-    medianPerformancePercentile == null &&
-    encounterId == null
-  ) {
-    return null;
-  }
-
-  const keystoneLevel =
-    coerceFiniteNumber(bestRank?.ilvl) ??
-    coerceFiniteNumber(row.bracket) ??
-    coerceFiniteNumber(row.keystoneLevel);
-
-  const completionTimeMs =
-    decodeMplusCompletionTimeMs(bestRank?.duration) ??
-    decodeMplusCompletionTimeMs(row.duration) ??
-    decodeMplusCompletionTimeMs(row.fastestKill) ??
-    decodeMplusCompletionTimeMs(bestRank?.speed);
-
-  const specialization =
-    (typeof row.bestSpec === "string" ? row.bestSpec : null) ??
-    (typeof row.spec === "string" ? row.spec : null);
-
-  // playerscore metric: bestAmount is rating points, not DPS. Keep DPS null unless a
-  // distinct damage field is present (future metric variants).
-  const bestDps =
-    coerceFiniteNumber(row.bestDps) ??
-    coerceFiniteNumber(row.dps) ??
-    null;
-
-  const loggedRunCount = Math.max(
-    0,
-    coerceFiniteNumber(row.totalKills) ?? coerceFiniteNumber(row.totalParses) ?? 0,
-  );
+  if (encounterId == null && ratingPoints == null) return null;
 
   return {
     encounterId,
     encounterName,
     dungeonSlug: resolveDungeonSlug(encounterId, encounterName),
-    keystoneLevel,
-    completionTimeMs,
-    loggedRunCount,
+    keystoneLevel:
+      coerceFiniteNumber(bestRank?.ilvl) ??
+      coerceFiniteNumber(row.bracket) ??
+      coerceFiniteNumber(row.keystoneLevel),
+    loggedRunCount: Math.max(
+      0,
+      coerceFiniteNumber(row.totalKills) ?? coerceFiniteNumber(row.totalParses) ?? 0,
+    ),
     ratingPoints,
     scoreRank: coerceFiniteNumber(allStars?.rank) ?? coerceFiniteNumber(row.rank),
     regionRank: coerceFiniteNumber(allStars?.regionRank),
     serverRank: coerceFiniteNumber(allStars?.serverRank),
-    specialization,
+    scoreRankPercent:
+      coerceFiniteNumber(allStars?.rankPercent) ?? coerceFiniteNumber(row.rankPercent),
+    specialization:
+      (typeof row.bestSpec === "string" ? row.bestSpec : null) ??
+      (typeof row.spec === "string" ? row.spec : null),
+    lockedIn: typeof row.lockedIn === "boolean" ? row.lockedIn : null,
+    completion: buildRunCompletionMetadata(row),
+  };
+}
+
+export function mapExecutionDungeonRow(row: unknown): ExecutionDungeonRow | null {
+  if (!isRecord(row) || isParseStyleRow(row)) return null;
+  const { encounterId, encounterName } = extractEncounter(row);
+
+  const bestExecutionPercentile =
+    coerceFiniteNumber(row.rankPercent) ??
+    coerceFiniteNumber(row.bestPercentile) ??
+    coerceFiniteNumber(row.percentile);
+  const medianExecutionPercentile =
+    coerceFiniteNumber(row.medianPercent) ??
+    coerceFiniteNumber(row.medianPercentile) ??
+    coerceFiniteNumber(row.median);
+  const bestDps =
+    coerceFiniteNumber(row.bestAmount) ??
+    coerceFiniteNumber(row.amount) ??
+    coerceFiniteNumber(row.dps);
+
+  if (
+    encounterId == null &&
+    bestDps == null &&
+    bestExecutionPercentile == null &&
+    medianExecutionPercentile == null
+  ) {
+    return null;
+  }
+
+  return {
+    encounterId,
+    encounterName,
+    dungeonSlug: resolveDungeonSlug(encounterId, encounterName),
     bestDps,
-    bestPerformancePercentile,
-    medianPerformancePercentile,
+    bestExecutionPercentile,
+    medianExecutionPercentile,
     lockedIn: typeof row.lockedIn === "boolean" ? row.lockedIn : null,
   };
 }
 
-export interface NormalizedZoneRankingsSummary {
+function dedupeByEncounterId<T extends { encounterId: number | null }>(
+  rows: T[],
+  prefer: (a: T, b: T) => T,
+): Map<number, T> {
+  const byId = new Map<number, T>();
+  for (const row of rows) {
+    if (row.encounterId == null) continue;
+    const prev = byId.get(row.encounterId);
+    byId.set(row.encounterId, prev ? prefer(prev, row) : row);
+  }
+  return byId;
+}
+
+export interface NormalizedScorePayload {
+  totalMythicPlusScore: number | null;
+  partition: number | null;
+  zoneId: number | null;
+  totalLoggedRuns: number;
+  specRanks: PerformanceSpecRank[];
+  dungeons: ScoreDungeonRow[];
+}
+
+export interface NormalizedExecutionPayload {
+  bestDpsPercentileAverage: number | null;
+  medianDpsPercentileAverage: number | null;
+  partition: number | null;
+  zoneId: number | null;
+  dungeons: ExecutionDungeonRow[];
+}
+
+export function normalizeScoreZoneRankings(raw: unknown): NormalizedScorePayload {
+  const empty: NormalizedScorePayload = {
+    totalMythicPlusScore: null,
+    partition: null,
+    zoneId: null,
+    totalLoggedRuns: 0,
+    specRanks: [],
+    dungeons: [],
+  };
+  const parsed = parseJsonScalar(raw);
+  if (!isRecord(parsed)) return empty;
+
+  const mapped = (Array.isArray(parsed.rankings) ? parsed.rankings : [])
+    .map(mapScoreDungeonRow)
+    .filter((r): r is ScoreDungeonRow => r != null);
+
+  const byId = dedupeByEncounterId(mapped, (a, b) =>
+    (b.ratingPoints ?? 0) > (a.ratingPoints ?? 0) ? b : a,
+  );
+  const dungeons = [...byId.values()].sort((a, b) =>
+    (a.encounterName ?? "").localeCompare(b.encounterName ?? ""),
+  );
+
+  const specRanks = (Array.isArray(parsed.allStars) ? parsed.allStars : [])
+    .map(mapSpecRank)
+    .filter((r): r is PerformanceSpecRank => r != null);
+
+  const totalFromSpecs = specRanks.reduce((sum, s) => sum + (s.points ?? 0), 0);
+
+  return {
+    totalMythicPlusScore: totalFromSpecs > 0 ? totalFromSpecs : null,
+    partition: coerceFiniteNumber(parsed.partition),
+    zoneId:
+      coerceFiniteNumber(parsed.zone) ??
+      (isRecord(parsed.zone) ? coerceFiniteNumber(parsed.zone.id) : null),
+    totalLoggedRuns: dungeons.reduce((sum, d) => sum + d.loggedRunCount, 0),
+    specRanks,
+    dungeons,
+  };
+}
+
+export function normalizeExecutionZoneRankings(raw: unknown): NormalizedExecutionPayload {
+  const empty: NormalizedExecutionPayload = {
+    bestDpsPercentileAverage: null,
+    medianDpsPercentileAverage: null,
+    partition: null,
+    zoneId: null,
+    dungeons: [],
+  };
+  const parsed = parseJsonScalar(raw);
+  if (!isRecord(parsed)) return empty;
+
+  const mapped = (Array.isArray(parsed.rankings) ? parsed.rankings : [])
+    .map(mapExecutionDungeonRow)
+    .filter((r): r is ExecutionDungeonRow => r != null);
+
+  const byId = dedupeByEncounterId(mapped, (a, b) =>
+    (b.bestExecutionPercentile ?? 0) > (a.bestExecutionPercentile ?? 0) ? b : a,
+  );
+  const dungeons = [...byId.values()].sort((a, b) =>
+    (a.encounterName ?? "").localeCompare(b.encounterName ?? ""),
+  );
+
+  return {
+    bestDpsPercentileAverage: coerceFiniteNumber(parsed.bestPerformanceAverage),
+    medianDpsPercentileAverage: coerceFiniteNumber(parsed.medianPerformanceAverage),
+    partition: coerceFiniteNumber(parsed.partition),
+    zoneId:
+      coerceFiniteNumber(parsed.zone) ??
+      (isRecord(parsed.zone) ? coerceFiniteNumber(parsed.zone.id) : null),
+    dungeons,
+  };
+}
+
+export interface MergedZoneRankingsSummary {
   global: PerformanceGlobalSummary;
   dungeons: PerformanceDungeonSummary[];
 }
 
 /**
- * Normalize raw Character.zoneRankings JSON into the WCL Mythic+ character summary shape.
- * Permissive: unknown fields are ignored; missing dungeons are not invented.
+ * Merge playerscore + dps zoneRankings by encounter.id.
+ * Score fields come only from playerscore; execution fields only from dps.
  */
-export function normalizeZoneRankingsSummary(
-  raw: unknown,
-): NormalizedZoneRankingsSummary {
-  const empty: NormalizedZoneRankingsSummary = {
-    global: {
-      totalMythicPlusScore: null,
-      bestPerformanceAverage: null,
-      medianPerformanceAverage: null,
-      totalLoggedRuns: 0,
-      partition: null,
-      metric: null,
-      difficulty: null,
-      zoneId: null,
-      specRanks: [],
-    },
-    dungeons: [],
-  };
-
-  const parsed = parseJsonScalar(raw);
-  if (!isRecord(parsed)) return empty;
-
-  const rankings = Array.isArray(parsed.rankings) ? parsed.rankings : [];
-  const dungeons: PerformanceDungeonSummary[] = [];
-  for (const row of rankings) {
-    const mapped = mapDungeonRow(row);
-    if (mapped) dungeons.push(mapped);
-  }
-
-  // Prefer encounterId uniqueness; fall back to slug.
-  const byKey = new Map<string, PerformanceDungeonSummary>();
-  for (const dungeon of dungeons) {
-    const key =
-      dungeon.encounterId != null
-        ? `id:${dungeon.encounterId}`
-        : `slug:${dungeon.dungeonSlug ?? dungeon.encounterName ?? "unknown"}`;
-    const prev = byKey.get(key);
-    if (!prev) {
-      byKey.set(key, dungeon);
-      continue;
-    }
-    const prevScore = prev.ratingPoints ?? 0;
-    const nextScore = dungeon.ratingPoints ?? 0;
-    if (
-      nextScore > prevScore ||
-      (nextScore === prevScore && dungeon.loggedRunCount > prev.loggedRunCount)
-    ) {
-      byKey.set(key, dungeon);
-    }
-  }
-
-  const uniqueDungeons = [...byKey.values()].sort((a, b) =>
-    (a.encounterName ?? "").localeCompare(b.encounterName ?? ""),
+export function mergeScoreAndExecution(
+  score: NormalizedScorePayload,
+  execution: NormalizedExecutionPayload,
+): MergedZoneRankingsSummary {
+  const execById = new Map(
+    execution.dungeons
+      .filter((d) => d.encounterId != null)
+      .map((d) => [d.encounterId!, d] as const),
   );
 
-  const allStarsRaw = Array.isArray(parsed.allStars) ? parsed.allStars : [];
-  const specRanks = allStarsRaw
-    .map(mapSpecRank)
-    .filter((row): row is PerformanceSpecRank => row != null);
+  const dungeons: PerformanceDungeonSummary[] = score.dungeons.map((s) => {
+    const e = s.encounterId != null ? execById.get(s.encounterId) : undefined;
+    return {
+      encounterId: s.encounterId,
+      encounterName: s.encounterName,
+      dungeonSlug: s.dungeonSlug,
+      keystoneLevel: s.keystoneLevel,
+      loggedRunCount: s.loggedRunCount,
+      ratingPoints: s.ratingPoints,
+      scoreRank: s.scoreRank,
+      regionRank: s.regionRank,
+      serverRank: s.serverRank,
+      scoreRankPercent: s.scoreRankPercent,
+      specialization: s.specialization,
+      bestDps: e?.bestDps ?? null,
+      bestExecutionPercentile: e?.bestExecutionPercentile ?? null,
+      medianExecutionPercentile: e?.medianExecutionPercentile ?? null,
+      lockedIn: s.lockedIn ?? e?.lockedIn ?? null,
+      completion: s.completion,
+    };
+  });
 
-  const totalFromSpecs = specRanks.reduce((sum, s) => sum + (s.points ?? 0), 0);
-  const totalFromDungeons = uniqueDungeons.reduce((sum, d) => sum + (d.ratingPoints ?? 0), 0);
-  const totalMythicPlusScore =
-    specRanks.length > 0 && totalFromSpecs > 0
-      ? totalFromSpecs
-      : totalFromDungeons > 0
-        ? totalFromDungeons
-        : coerceFiniteNumber(parsed.rankPercent) != null && uniqueDungeons.length === 0
-          ? null
-          : totalFromDungeons || null;
+  // Include execution-only encounters (no score row) so merge is complete.
+  for (const e of execution.dungeons) {
+    if (e.encounterId == null) continue;
+    if (dungeons.some((d) => d.encounterId === e.encounterId)) continue;
+    dungeons.push({
+      encounterId: e.encounterId,
+      encounterName: e.encounterName,
+      dungeonSlug: e.dungeonSlug,
+      keystoneLevel: null,
+      loggedRunCount: 0,
+      ratingPoints: null,
+      scoreRank: null,
+      regionRank: null,
+      serverRank: null,
+      scoreRankPercent: null,
+      specialization: null,
+      bestDps: e.bestDps,
+      bestExecutionPercentile: e.bestExecutionPercentile,
+      medianExecutionPercentile: e.medianExecutionPercentile,
+      lockedIn: e.lockedIn,
+      completion: {
+        fastestKillRaw: null,
+        speedRaw: null,
+        fightMetadataRaw: null,
+        leaderboardRaw: null,
+        affixesRaw: null,
+        completionTimeMs: null,
+        encodingStatus: "unverified_not_emitted",
+        encodingNote: SPEED_FASTESTKILL_ENCODING_NOTE,
+      },
+    });
+  }
 
-  const zoneId =
-    coerceFiniteNumber(parsed.zone) ??
-    (isRecord(parsed.zone) ? coerceFiniteNumber(parsed.zone.id) : null);
+  dungeons.sort((a, b) => (a.encounterName ?? "").localeCompare(b.encounterName ?? ""));
 
   return {
     global: {
-      totalMythicPlusScore:
-        totalMythicPlusScore != null && totalMythicPlusScore > 0
-          ? totalMythicPlusScore
-          : null,
-      bestPerformanceAverage: coerceFiniteNumber(parsed.bestPerformanceAverage),
-      medianPerformanceAverage: coerceFiniteNumber(parsed.medianPerformanceAverage),
-      totalLoggedRuns: uniqueDungeons.reduce((sum, d) => sum + d.loggedRunCount, 0),
-      partition: coerceFiniteNumber(parsed.partition),
-      metric: typeof parsed.metric === "string" ? parsed.metric : null,
-      difficulty: coerceFiniteNumber(parsed.difficulty),
-      zoneId,
-      specRanks,
+      totalMythicPlusScore: score.totalMythicPlusScore,
+      bestDpsPercentileAverage: execution.bestDpsPercentileAverage,
+      medianDpsPercentileAverage: execution.medianDpsPercentileAverage,
+      totalLoggedRuns: score.totalLoggedRuns,
+      partition: score.partition ?? execution.partition,
+      zoneId: score.zoneId ?? execution.zoneId,
+      scoreMetric: "playerscore",
+      executionMetric: "dps",
+      specRanks: score.specRanks,
     },
-    dungeons: uniqueDungeons,
+    dungeons,
   };
 }
 
 export function collectUnavailableEncounters(
   encounters: ProbeZoneEncounter[],
   dungeons: PerformanceDungeonSummary[],
+  scoreIds: Set<number>,
+  executionIds: Set<number>,
 ): Array<{
   encounterID: number;
   encounterName: string | null;
   dungeonSlug: string | null;
-  reason: "no_zone_rankings_row";
+  reason: "no_score_row" | "no_execution_row" | "no_zone_rankings_row";
 }> {
-  const present = new Set(
-    dungeons.map((d) => d.encounterId).filter((id): id is number => id != null),
-  );
-  return encounters
-    .filter((encounter) => !present.has(encounter.id))
-    .map((encounter) => ({
-      encounterID: encounter.id,
-      encounterName: encounter.name,
-      dungeonSlug: encounter.dungeonSlug,
-      reason: "no_zone_rankings_row" as const,
-    }));
+  const out: Array<{
+    encounterID: number;
+    encounterName: string | null;
+    dungeonSlug: string | null;
+    reason: "no_score_row" | "no_execution_row" | "no_zone_rankings_row";
+  }> = [];
+
+  for (const encounter of encounters) {
+    const hasScore = scoreIds.has(encounter.id);
+    const hasExec = executionIds.has(encounter.id);
+    if (hasScore && hasExec) continue;
+    if (!hasScore && !hasExec) {
+      out.push({
+        encounterID: encounter.id,
+        encounterName: encounter.name,
+        dungeonSlug: encounter.dungeonSlug,
+        reason: "no_zone_rankings_row",
+      });
+    } else if (!hasScore) {
+      out.push({
+        encounterID: encounter.id,
+        encounterName: encounter.name,
+        dungeonSlug: encounter.dungeonSlug,
+        reason: "no_score_row",
+      });
+    } else {
+      out.push({
+        encounterID: encounter.id,
+        encounterName: encounter.name,
+        dungeonSlug: encounter.dungeonSlug,
+        reason: "no_execution_row",
+      });
+    }
+  }
+  void dungeons;
+  return out;
 }
 
-/** Pick the current partition id from worldData.partitions when available. */
 export function resolveCurrentPartition(
   partitions: Array<{ id: number; name?: string | null }> | null | undefined,
   preferred?: number | null,
@@ -311,7 +500,6 @@ export function resolveCurrentPartition(
   if (preferred != null && Number.isInteger(preferred) && preferred > 0) return preferred;
   const rows = partitions ?? [];
   if (rows.length === 0) return null;
-  // Prefer highest id as "current" when WCL lists historical partitions ascending.
   const sorted = [...rows].sort((a, b) => b.id - a.id);
   return sorted[0]?.id ?? null;
 }
