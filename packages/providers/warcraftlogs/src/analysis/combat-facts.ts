@@ -12,7 +12,7 @@ import type {
   WclInterruptEvent,
 } from "../types.js";
 import { wclError } from "../client/errors.js";
-import { buildActorMap, resolveActorSourceIdStrict } from "../discovery/run-matching.js";
+import { buildActorMap, resolveActorSourceIdStrict, resolveAttributedSourceIds } from "../discovery/run-matching.js";
 
 export interface BuildCombatFactsInput {
   reportCode: string;
@@ -36,6 +36,12 @@ export function buildRunCombatFacts(input: BuildCombatFactsInput): RunCombatFact
     );
   }
   const targetSourceId = resolved.sourceId;
+  const attributedSourceIds = resolveAttributedSourceIds(
+    actorMap,
+    targetSourceId,
+    input.characterName,
+  );
+  const attributedSet = new Set(attributedSourceIds);
 
   const coverage: RunCombatFactsCoverage = {
     casts: false,
@@ -53,13 +59,21 @@ export function buildRunCombatFacts(input: BuildCombatFactsInput): RunCombatFact
     notes: input.alreadyFetched ? ["Duplicate detailed fetch skipped — revision unchanged"] : [],
   };
 
-  const casts = mapEvents(input.eventsByType.Casts, mapCastEvent);
-  const interrupts = mapEvents(input.eventsByType.Interrupts, mapInterruptEvent);
+  const casts = mapEvents(input.eventsByType.Casts, mapCastEvent).filter((e) =>
+    attributedSet.has(e.sourceId),
+  );
+  const interrupts = mapEvents(input.eventsByType.Interrupts, mapInterruptEvent).filter((e) =>
+    attributedSet.has(e.sourceId),
+  );
   const deaths = mapEvents(input.eventsByType.Deaths, mapDeathEvent);
   const damageTaken = mapEvents(input.eventsByType.DamageTaken, mapDamageTakenEvent);
   const buffs = mapEvents(input.eventsByType.Buffs, (e) => mapAuraEvent(e, "apply"));
-  const debuffs = mapEvents(input.eventsByType.Debuffs, (e) => mapAuraEvent(e, "apply"));
-  const dispels = mapEvents(input.eventsByType.Dispels, mapDispelEvent);
+  const debuffs = mapEvents(input.eventsByType.Debuffs, (e) => mapAuraEvent(e, "apply")).filter(
+    (e) => attributedSet.has(e.sourceId),
+  );
+  const dispels = mapEvents(input.eventsByType.Dispels, mapDispelEvent).filter((e) =>
+    attributedSet.has(e.sourceId),
+  );
   const healing = mapEvents(input.eventsByType.Healing, mapHealingEvent);
 
   if (casts.length) coverage.casts = true;
@@ -96,6 +110,7 @@ export function buildRunCombatFacts(input: BuildCombatFactsInput): RunCombatFact
     fightId: input.fightId,
     revision: input.revision,
     targetSourceId,
+    attributedSourceIds,
     actorMap,
     casts,
     interrupts,

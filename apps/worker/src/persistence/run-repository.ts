@@ -99,10 +99,15 @@ function capitalize(value: string): string {
 export interface RunRepository {
   upsertRunWithSourcesAndParticipants(
     run: MythicRunDTO,
-    options: { regionCode: string; targetCharacterId: string | null },
+    options: { regionCode: string; targetCharacterId: string | null; seasonId?: string },
   ): Promise<MythicRun>;
   findLatestForCharacter(characterId: string): Promise<MythicRunWithRelations | null>;
   findHighestForCharacter(characterId: string): Promise<MythicRunWithRelations | null>;
+  findRunsForCharacterInSeason(
+    characterId: string,
+    seasonId: string,
+  ): Promise<MythicRunWithRelations[]>;
+  findAllTargetRunsForCharacter(characterId: string): Promise<MythicRunWithRelations[]>;
   findById(runId: string): Promise<MythicRunWithRelations | null>;
   /**
    * Unique canonical Mythic+ runs the character participated in (target).
@@ -148,12 +153,15 @@ export function createRunRepository(prisma: PrismaClient): RunRepository {
     async upsertRunWithSourcesAndParticipants(run, options) {
       return prisma.$transaction(async (tx: Prisma.TransactionClient) => {
         const region = await ensureRegion(tx, options.regionCode);
-        const season = await ensureSeasonBySlug(tx, region.id, run.seasonSlug);
+        const season = options.seasonId
+          ? await tx.season.findUniqueOrThrow({ where: { id: options.seasonId } })
+          : await ensureSeasonBySlug(tx, region.id, run.seasonSlug);
         const dungeon = await ensureDungeon(tx, run.dungeonSlug);
 
         const mythicRun = await tx.mythicRun.upsert({
           where: { canonicalFingerprint: run.canonicalFingerprint },
           update: {
+            seasonId: season.id,
             keyLevel: run.keyLevel,
             completedAt: new Date(run.completedAt),
             durationMs: run.durationMs,
@@ -253,6 +261,32 @@ export function createRunRepository(prisma: PrismaClient): RunRepository {
         orderBy: [{ run: { keyLevel: "desc" } }, { run: { completedAt: "desc" } }],
       });
       return participant?.run ?? null;
+    },
+
+    async findRunsForCharacterInSeason(characterId, seasonId) {
+      const participants = await prisma.runParticipant.findMany({
+        where: { characterId, isTargetCharacter: true, run: { seasonId } },
+        include: { run: { include: { dungeon: true, season: true, sources: true } } },
+        orderBy: [{ run: { completedAt: "desc" } }],
+      });
+      const byId = new Map<string, MythicRunWithRelations>();
+      for (const row of participants) {
+        byId.set(row.run.id, row.run);
+      }
+      return [...byId.values()];
+    },
+
+    async findAllTargetRunsForCharacter(characterId) {
+      const participants = await prisma.runParticipant.findMany({
+        where: { characterId, isTargetCharacter: true },
+        include: { run: { include: { dungeon: true, season: true, sources: true } } },
+        orderBy: [{ run: { completedAt: "desc" } }],
+      });
+      const byId = new Map<string, MythicRunWithRelations>();
+      for (const row of participants) {
+        byId.set(row.run.id, row.run);
+      }
+      return [...byId.values()];
     },
 
     async findById(runId) {

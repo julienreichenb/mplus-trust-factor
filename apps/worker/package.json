@@ -21,6 +21,8 @@
     "@mplus/domain": "workspace:*",
     "@mplus/observability": "workspace:*",
     "@mplus/addon-exporter": "workspace:*",
+    "@mplus/abilities": "workspace:*",
+    "@mplus/mechanics": "workspace:*",
     "@mplus/provider-blizzard": "workspace:*",
     "@mplus/provider-warcraftlogs": "workspace:*",
     "@mplus/provider-raiderio": "workspace:*",

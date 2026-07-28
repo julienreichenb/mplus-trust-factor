@@ -180,6 +180,15 @@ export function deriveVisibility(
   return deriveWclProvenance(character, rankings, recentPublicCount, options).visibility;
 }
 
+function asFiniteNumber(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim() !== "") {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
+}
+
 export function mapZoneRankings(
   payload: ZoneRankingsPayload | null | undefined,
   zoneId: number,
@@ -189,25 +198,33 @@ export function mapZoneRankings(
   }
   const resolvedZoneId =
     typeof payload.zone === "number" ? payload.zone : (payload.zone?.id ?? zoneId);
-  return payload.rankings.filter(isParseRankingRow).map((row) => ({
-    reportCode: row.report.code,
-    fightId: row.fightID,
-    encounterId: row.encounterID ?? 0,
-    zoneId: resolvedZoneId,
-    bracket: row.bracket ?? null,
-    keyLevel: row.bracket ?? null,
-    score: row.score ?? null,
-    amount: row.amount ?? null,
-    percentile: row.total != null && row.amount != null ? (row.amount / row.total) * 100 : null,
-    specSlug: row.spec ?? null,
-    roleSlug: row.role ?? null,
-    durationMs: row.duration ?? null,
-    startTimeMs: row.startTime ?? null,
-    reportStartTimeMs: row.report.startTime,
-    // kill ≠ timed; WCL rankings do not expose timer success here
-    timed: null,
-    metric: payload.metric ?? null,
-  }));
+  return payload.rankings.filter(isParseRankingRow).map((row) => {
+    const rankPercent = asFiniteNumber((row as Record<string, unknown>).rankPercent);
+    const bracketPercent = asFiniteNumber((row as Record<string, unknown>).bracketPercent);
+    const amountPercent =
+      row.total != null && row.amount != null ? (row.amount / row.total) * 100 : null;
+    const parsePercentile = rankPercent ?? bracketPercent ?? amountPercent;
+    return {
+      reportCode: row.report.code,
+      fightId: row.fightID,
+      encounterId: row.encounterID ?? 0,
+      zoneId: resolvedZoneId,
+      bracket: row.bracket ?? null,
+      keyLevel: row.bracket ?? null,
+      score: row.score ?? null,
+      amount: row.amount ?? null,
+      percentile: parsePercentile,
+      rankPercent,
+      bracketPercent,
+      specSlug: row.spec ?? null,
+      roleSlug: row.role ?? null,
+      durationMs: row.duration ?? null,
+      startTimeMs: row.startTime ?? null,
+      reportStartTimeMs: row.report.startTime,
+      timed: null,
+      metric: payload.metric ?? null,
+    };
+  });
 }
 
 export function rankingsToCandidates(rankings: WclRankingObservation[]): WclRunCandidate[] {

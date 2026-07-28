@@ -145,7 +145,15 @@ export class FixtureWarcraftLogsProvider implements WarcraftLogsProvider {
     const runs = hydrated.candidates
       .filter((c) => !c.incompleteness.fightUnknown && c.fightId > 0)
       .map((c) => this.candidateToMythicRun(c, identity, ctx));
-    return emptyProviderResult(runs, "discoverCharacterRuns", `fixture-discover-${identity.name}`, ctx);
+    const envelope = emptyProviderResult(
+      runs,
+      "discoverCharacterRuns",
+      `fixture-discover-${identity.name}`,
+      ctx,
+    );
+    return { ...envelope, wclRankings: discovery.rankings } as ProviderResult<MythicRunDTO[]> & {
+      wclRankings: typeof discovery.rankings;
+    };
   }
 
   async discoverCharacterSummary(

@@ -624,6 +624,8 @@ describe("Discovery bounds and placeholders", () => {
         score: 100,
         amount: null,
         percentile: null,
+        rankPercent: null,
+        bracketPercent: null,
         specSlug: null,
         roleSlug: null,
         durationMs: 1000,
@@ -709,7 +711,7 @@ describe("FixtureWarcraftLogsProvider", () => {
     );
     expect(details.combatFacts.interrupts.length).toBe(1);
     expect(details.combatFacts.deaths.length).toBe(1);
-    expect(details.combatFacts.dispels.length).toBe(1);
+    expect(details.combatFacts.dispels.length).toBe(0);
     expect(details.combatFacts.combatantInfo?.specId).toBe(63);
   });
 

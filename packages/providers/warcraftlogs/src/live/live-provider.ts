@@ -242,7 +242,7 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
     const runs = hydrated.candidates
       .filter((c) => !c.incompleteness.fightUnknown && c.fightId > 0)
       .map((c) => this.candidateToMythicRun(c, identity, ctx));
-    return providerEnvelope(
+    const envelope = providerEnvelope(
       runs,
       "discoverCharacterRuns",
       `live-discover-${identity.region}-${identity.realmSlug}-${identity.name}`,
@@ -250,6 +250,9 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
       null,
       this.config.env.WCL_CHARACTER_TTL_SECONDS,
     );
+    return { ...envelope, wclRankings: discovery.rankings } as ProviderResult<MythicRunDTO[]> & {
+      wclRankings: typeof discovery.rankings;
+    };
   }
 
   private async fetchReportPayloadForHydration(

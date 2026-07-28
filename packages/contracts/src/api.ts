@@ -65,7 +65,7 @@ export interface ScoringRunSelection {
 
 export interface AnalyzedRunSummary {
   runId: string;
-  kind: "LATEST" | "HIGHEST" | "BOTH";
+  kind: "LATEST" | "HIGHEST" | "BOTH" | "SELECTED";
   dungeonName: string;
   dungeonSlug: string;
   keyLevel: number;
@@ -73,6 +73,21 @@ export interface AnalyzedRunSummary {
   timed: boolean;
   performanceSummary: string;
   coverageRatio: number;
+}
+
+/** One entry from the eight-run scoring selection exposed on the profile. */
+export interface SelectedRunSummaryDTO {
+  runId: string | null;
+  dungeonSlug: string;
+  dungeonName: string;
+  keyLevel: number | null;
+  completedAt: IsoDateTime | null;
+  timed: boolean;
+  wclReportMatched: boolean;
+  wclCoverageRatio: number | null;
+  selectionReason: "HIGHEST_KEY" | "HIGHEST_SCORE_TIEBREAK" | "LATEST_TIEBREAK" | null;
+  parsePercentile: number | null;
+  hasDetailedAnalysis: boolean;
 }
 
 /** Public equipment item — Blizzard-primary; missing fields stay null. */
@@ -224,8 +239,12 @@ export interface CharacterProfileResponse {
   freshness?: number | null;
   lastAnalyzedRun?: AnalyzedRunSummary | null;
   highestAnalyzedRun?: AnalyzedRunSummary | null;
-  /** Wave 4 — one highest run per active-season dungeon (typically eight). */
+  /** Wave 4 — one highest run per active-season dungeon, typically eight. */
   scoringRunSelection?: ScoringRunSelection | null;
+  /** Serialized current-season eight-run selection for the profile UI. */
+  selectedRuns?: SelectedRunSummaryDTO[];
+  selectedRunCount?: number;
+  detailedRunCount?: number;
   equipment?: EquipmentSummary | null;
   talents?: TalentSummary | null;
   media?: CharacterMediaDTO | null;
