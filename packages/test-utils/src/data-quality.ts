@@ -56,10 +56,15 @@ export function assertGradeMatchesThresholds(
   score: number,
   grade: Grade,
   thresholds: ScoreModelConfig["gradeThresholds"],
-  options?: { confidence?: number; minConfidenceForGrade?: number },
+  options?: {
+    confidence?: number;
+    minConfidenceForGrade?: number;
+    overallState?: "DEFINITIVE" | "PROVISIONAL";
+  },
 ): DataQualityViolation | null {
   const minConfidence = options?.minConfidenceForGrade ?? 0.35;
   if (grade === "U") {
+    if (options?.overallState === "PROVISIONAL") return null;
     if (options?.confidence !== undefined && options.confidence >= minConfidence) {
       return violation(
         "GRADE_MISMATCH",
@@ -208,6 +213,7 @@ export function validateScoreSnapshot(
     assertGradeMatchesThresholds(snapshot.overallScore, snapshot.grade, model.gradeThresholds, {
       confidence: snapshot.confidence,
       minConfidenceForGrade: model.minConfidenceForGrade,
+      overallState: snapshot.overallState,
     }),
     assertSnapshotReferencesModel(snapshot),
   ];

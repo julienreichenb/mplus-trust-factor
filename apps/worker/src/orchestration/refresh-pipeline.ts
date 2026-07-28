@@ -24,7 +24,7 @@ import {
 import { extractBoostSupportFacts } from "@mplus/provider-raiderio";
 import type { RunCombatFacts, WclRankingObservation, WclReportFightDetails } from "@mplus/provider-warcraftlogs";
 import { buildCatalogCoverageDiagnostics, getAbilityCatalog } from "@mplus/abilities";
-import { buildCharacterHistoryExperienceObservations, selectScoringRuns } from "@mplus/scoring";
+import { buildCharacterHistoryExperienceObservations, selectScoringRuns, resolveActiveSeasonDungeonPool, readBlizzardSeasonDungeonSlugsFromMetadata, applyRunMetadataToSelection, toContractScoringRunSelection } from "@mplus/scoring";
 import { OBS_EVENTS, fingerprintIdentifier } from "@mplus/observability";
 import { validateScoreSnapshot } from "@mplus/test-utils";
 import type { WorkerContainer } from "../container.js";
@@ -32,7 +32,7 @@ import { refreshCharacterDedupeKey } from "../dedupe.js";
 import { negativeCache } from "../negative-cache.js";
 import { ensureBlizzardCurrentSeason, ensureCurrentSeason } from "../persistence/run-repository.js";
 import { mapBoostFactsToAuthenticity } from "./boost-authenticity.js";
-import { extractMetricsFromCombatFacts } from "./combat-metrics.js";
+import { extractMetricsFromCombatFacts, isUsableCombatRun, buildRunCombatAdminDiagnostics } from "./combat-metrics.js";
 import { aggregateCombatObservations } from "./aggregate-combat-observations.js";
 import { bindParseToSelectedRun } from "./run-parse-binding.js";
 import { fingerprintObservations } from "./fingerprint.js";
@@ -878,10 +878,41 @@ export async function runRefreshPipeline(
     });
   const scoringCandidates =
     candidateFromPersisted.length > 0 ? candidateFromPersisted : candidateFromFusion;
+  const expectedDungeonCount = season.dungeonCount > 0 ? season.dungeonCount : 8;
+  const seasonDungeonRows = await container.prisma.seasonDungeon.findMany({
+    where: { seasonId: season.id },
+    include: { dungeon: true },
+    orderBy: { sortOrder: "asc" },
+  });
+  const blizzardSeasonDungeonSlugs = readBlizzardSeasonDungeonSlugsFromMetadata(season.metadata);
+  const activeSeasonDungeonPool = resolveActiveSeasonDungeonPool({
+    expectedDungeonCount,
+    seasonDungeonSlugs: seasonDungeonRows.map((row) => canonicalDungeonKey(row.dungeon.slug)),
+    blizzardSeasonDungeonSlugs,
+    wclDungeonSlugs: wclDungeonAggregates.map((d) => d.dungeonSlug),
+  });
+  const activeDungeonSlugs = activeSeasonDungeonPool.canonicalSlugs;
+  const selectionFilter =
+    activeDungeonSlugs.length > 0 ? { allowedDungeonSlugs: activeDungeonSlugs } : {};
   let scoringRunSelection = selectScoringRuns(scoringCandidates, {
     seasonSlug: season.slug,
-    expectedDungeonCount: season.dungeonCount > 0 ? season.dungeonCount : 8,
+    expectedDungeonCount,
+    ...selectionFilter,
   });
+  if (scoringRunSelection.selectedRuns.length !== expectedDungeonCount) {
+    logger.warn(
+      {
+        identity,
+        expectedDungeonCount,
+        selectedRunCount: scoringRunSelection.selectedRuns.length,
+        activeDungeonSlugs,
+        activeSeasonPoolSource: activeSeasonDungeonPool.source,
+        wclOffPoolSlugs: activeSeasonDungeonPool.wclOffPoolSlugs,
+        candidateDungeonCount: new Set(scoringCandidates.map((c) => c.dungeonSlug)).size,
+      },
+      "refresh pipeline: scoring run selection count mismatch after active-season filter",
+    );
+  }
 
   const selectedRunRows = new Map<
     string,
@@ -913,7 +944,8 @@ export async function runRefreshPipeline(
         })),
         {
           seasonSlug: season.slug,
-          expectedDungeonCount: season.dungeonCount > 0 ? season.dungeonCount : 8,
+          expectedDungeonCount,
+          ...selectionFilter,
         },
       );
     }
@@ -923,6 +955,9 @@ export async function runRefreshPipeline(
   const combatFactsByRunId = new Map<string, RunCombatFacts>();
   const runCoverageById: Record<string, number> = {};
   const runDiagnostics: Array<Record<string, unknown>> = [];
+  const earlyClassSlug = blizzardProfile?.classSlug ?? raiderIoProfile?.classSlug ?? null;
+  const earlySpecSlug = blizzardProfile?.specSlug ?? raiderIoProfile?.specSlug ?? null;
+  let analysisAttemptedCount = 0;
 
   if (!disabledProviders.has("warcraftlogs")) {
     let runsToAnalyze = [...selectedRunRows.values()];
@@ -937,6 +972,7 @@ export async function runRefreshPipeline(
       stagesSkipped.push("analyze-run");
     }
     for (const run of runsToAnalyze) {
+      analysisAttemptedCount += 1;
       const source = await repositories.run.findWclSource(run.id);
       const parseBinding = bindParseToSelectedRun({
         runId: run.id,
@@ -973,20 +1009,31 @@ export async function runRefreshPipeline(
         const coverageRatio =
           Object.values(details.combatFacts.coverage).filter(Boolean).length /
           Object.keys(details.combatFacts.coverage).length;
-        runCoverageById[run.id] = coverageRatio;
+        const usableCombat = isUsableCombatRun(details.combatFacts);
+        if (usableCombat) {
+          runCoverageById[run.id] = coverageRatio;
+        }
+
+        const combatAdmin = buildRunCombatAdminDiagnostics(details.combatFacts, {
+          dungeonSlug: run.dungeon.slug,
+          runDurationMs: run.durationMs,
+          classSlug: earlyClassSlug,
+          specSlug: earlySpecSlug,
+        });
 
         await repositories.run.upsertRunAnalysis({
           runId: run.id,
           characterId: character.id,
           analysisVersion: "wcl-combat-facts-v1",
           analyzedAt: now,
-          coverage: coverageRatio,
+          coverage: usableCombat ? coverageRatio : 0,
           summary: {
             wclVisibility,
             combatFacts: toPersistedCombatFacts(details.combatFacts),
             deathCount: details.combatFacts.deaths.length,
             interruptCount: details.combatFacts.interrupts.length,
             parseBinding,
+            ...combatAdmin,
           },
           sourcePayloadIds: payloadId ? [payloadId] : [],
         });
@@ -999,9 +1046,10 @@ export async function runRefreshPipeline(
           fightId: source.fightId,
           wclReportMatched: true,
           parse: parseBinding,
-          detailedAnalysis: true,
-          coverageRatio,
+          detailedAnalysis: usableCombat,
+          coverageRatio: usableCombat ? coverageRatio : null,
           attributedSourceIds: details.combatFacts.attributedSourceIds,
+          ...combatAdmin,
         });
       } catch (error) {
         if (isEnrichmentSoftSkip(error)) {
@@ -1022,11 +1070,40 @@ export async function runRefreshPipeline(
     stagesSkipped.push("analyze-run");
   }
 
-  const selectedRunCount =
-    scoringRunSelection.selectedRuns.length > 0
-      ? scoringRunSelection.selectedRuns.length
-      : selectedRunRows.size;
-  const detailedRunCount = combatFactsList.length;
+  const selectedRunCount = scoringRunSelection.selectedRuns.length;
+  const matchedReportCount = runDiagnostics.filter((d) => d.wclReportMatched === true).length;
+  const usableCombatRunCount = runDiagnostics.filter((d) => d.detailedAnalysis === true).length;
+  const detailedRunCount = usableCombatRunCount;
+
+  const presentationMetaByRunId: Record<
+    string,
+    {
+      dungeonName: string;
+      wclReportMatched: boolean;
+      wclCoverageRatio: number | null;
+      hasDetailedAnalysis: boolean;
+    }
+  > = {};
+  const dungeonNamesBySlug: Record<string, string> = {};
+  for (const entry of scoringRunSelection.selectedRuns) {
+    const row = persistedRuns.find((r) => r.id === entry.canonicalRunId);
+    const diag = runDiagnostics.find((d) => String(d.runId) === entry.canonicalRunId);
+    const coverage = runCoverageById[entry.canonicalRunId];
+    const dungeonName = row?.dungeon.name ?? entry.dungeonSlug;
+    dungeonNamesBySlug[entry.dungeonSlug] = dungeonName;
+    presentationMetaByRunId[entry.canonicalRunId] = {
+      dungeonName,
+      wclReportMatched: Boolean(diag?.wclReportMatched),
+      wclCoverageRatio: typeof coverage === "number" ? coverage : null,
+      hasDetailedAnalysis: Boolean(diag?.detailedAnalysis),
+    };
+  }
+  scoringRunSelection = applyRunMetadataToSelection(scoringRunSelection, presentationMetaByRunId);
+  const contractScoringRunSelection = toContractScoringRunSelection(
+    scoringRunSelection,
+    presentationMetaByRunId,
+    dungeonNamesBySlug,
+  );
 
   const seasonPrune = await repositories.run.pruneOtherSeasonParticipations(
     character.id,
@@ -1146,9 +1223,19 @@ export async function runRefreshPipeline(
           }))
       : [];
 
+  const activeWclAggregates = wclDungeonAggregates.filter((d) =>
+    activeDungeonSlugs.includes(canonicalDungeonKey(d.dungeonSlug)),
+  );
+  const performanceProvenance =
+    activeWclAggregates.length > 0
+      ? "AGGREGATE_ZONE_RANKINGS"
+      : parseDerivedDungeons.length > 0
+        ? "FIGHT_BOUND_PARSES"
+        : "NONE";
+
   const wclPerformance = buildWclPerformanceObservations({
-    currentSeasonDungeons: (wclDungeonAggregates.length > 0
-      ? wclDungeonAggregates
+    currentSeasonDungeons: (activeWclAggregates.length > 0
+      ? activeWclAggregates
       : parseDerivedDungeons
     ).map((d) => ({
       dungeonSlug: d.dungeonSlug,
@@ -1159,7 +1246,7 @@ export async function runRefreshPipeline(
       specSlug: d.specSlug,
       roleSlug: d.roleSlug,
     })),
-    expectedDungeonCount: season.dungeonCount > 0 ? season.dungeonCount : 8,
+    expectedDungeonCount,
     activeSpecSlug: specSlug,
     activeRoleSlug: roleSlug,
     hasResolvedSpecAndRole: Boolean(specSlug && roleSlug),
@@ -1174,6 +1261,7 @@ export async function runRefreshPipeline(
         : 0.4,
     observedAt,
   });
+  wclPerformance.summary.currentSeason.provenance = performanceProvenance;
   observations.push(...wclPerformance.observations);
 
   // Keep Raider.IO score as a separate non-product observation (never fed as product score).
@@ -1239,7 +1327,7 @@ export async function runRefreshPipeline(
   observations.push(
     ...buildCharacterHistoryExperienceObservations({
       observedAt,
-      expectedDungeonCount: season.dungeonCount > 0 ? season.dungeonCount : 8,
+      expectedDungeonCount,
       selectedRuns: scoringRunSelection.selectedRuns.map((r) => ({
         dungeonSlug: r.dungeonSlug,
         keyLevel: r.keyLevel,
@@ -1377,8 +1465,16 @@ export async function runRefreshPipeline(
             freshness,
             selectedRunCount,
             detailedRunCount,
+            analysisAttemptedCount,
+            matchedReportCount,
+            usableCombatRunCount,
+            availableModelWeight: scoreDto.availableModelWeight,
+            totalModelWeight: scoreDto.totalModelWeight,
+            modelCoverageRatio: scoreDto.modelCoverageRatio,
+            overallState: scoreDto.overallState,
+            provisionalReason: scoreDto.provisionalReason,
           },
-          scoringRunSelection,
+          scoringRunSelection: contractScoringRunSelection,
           runDiagnostics,
           runCoverageById,
           seasonSlug: season.slug,

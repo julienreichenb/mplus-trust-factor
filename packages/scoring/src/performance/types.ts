@@ -60,6 +60,11 @@ export interface PerformanceDungeonSummary {
   latestRun: PerformanceExplanatoryRun | null;
 }
 
+export type PerformanceProvenance =
+  | "AGGREGATE_ZONE_RANKINGS"
+  | "FIGHT_BOUND_PARSES"
+  | "NONE";
+
 export interface PerformanceCurrentSeasonSummary {
   peakScore: number | null;
   consistencyScore: number | null;
@@ -68,6 +73,7 @@ export interface PerformanceCurrentSeasonSummary {
   dungeonCount: number;
   expectedDungeonCount: number;
   latestObservedAt: IsoDateTime | null;
+  provenance?: PerformanceProvenance;
   dungeons: PerformanceDungeonSummary[];
 }
 
