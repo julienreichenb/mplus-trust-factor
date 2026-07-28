@@ -63,6 +63,14 @@ export * from "./probe/survival-v1-config.js";
 export * from "./probe/survival-v1-types.js";
 export * from "./probe/survival-v1-logic.js";
 export * from "./probe/survival-v1-score.js";
+export * from "./probe/survival-v1_1-config.js";
+export * from "./probe/survival-v1_1-types.js";
+export * from "./probe/survival-v1_1-health.js";
+export * from "./probe/survival-v1_1-logic.js";
+export {
+  runSurvivalV1_1Pipeline,
+} from "./probe/survival-v1_1-score.js";
+export * from "./probe/survival-v1_1-discovery.js";
 export * from "./probe/types.js";
 
 export type { WarcraftLogsProvider };

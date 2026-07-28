@@ -155,10 +155,12 @@ export const OPERATIONS = {
   $dataType: EventDataType!
   $sourceID: Int
   $startTime: Float
+  $endTime: Float
   $limit: Int
   $translate: Boolean
   $useAbilityIDs: Boolean
   $useActorIDs: Boolean
+  $includeResources: Boolean
 ) {
   reportData {
     report(code: $code) {
@@ -167,10 +169,12 @@ export const OPERATIONS = {
         dataType: $dataType
         sourceID: $sourceID
         startTime: $startTime
+        endTime: $endTime
         limit: $limit
         translate: $translate
         useAbilityIDs: $useAbilityIDs
         useActorIDs: $useActorIDs
+        includeResources: $includeResources
       ) {
         data
         nextPageTimestamp
@@ -179,9 +183,29 @@ export const OPERATIONS = {
   }
 }`,
   },
+
+  /**
+   * Discovery-only: report playerDetails with combatant info for health-field inspection.
+   * Not used by the production refresh pipeline.
+   */
+  ReportPlayerDetails: {
+    operationName: "ReportPlayerDetails",
+    query: `query ReportPlayerDetails(
+  $code: String!
+  $fightIDs: [Int!]
+  $includeCombatantInfo: Boolean
+) {
+  reportData {
+    report(code: $code) {
+      playerDetails(fightIDs: $fightIDs, includeCombatantInfo: $includeCombatantInfo)
+    }
+  }
+}`,
+  },
 } as const;
 
 export type EventDataType =
+  | "All"
   | "Casts"
   | "Interrupts"
   | "Deaths"
@@ -190,8 +214,10 @@ export type EventDataType =
   | "Debuffs"
   | "Dispels"
   | "Healing"
-  | "CombatantInfo";
+  | "CombatantInfo"
+  | "Resources";
 
+/** Production combat-facts event categories — Resources/All are discovery-only. */
 export const DETAILED_EVENT_TYPES: EventDataType[] = [
   "Casts",
   "Interrupts",
