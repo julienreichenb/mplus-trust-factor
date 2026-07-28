@@ -451,12 +451,20 @@ export function normalizeRealm(payload: {
   name: string;
   locale?: string;
   timezone?: string;
+  category?: string | { type?: string; name?: string };
+  is_tournament?: boolean;
   connected_realm?: { id?: number; href?: string };
 }, region: RegionCode): BlizzardRealmDTO {
   let connectedRealmId: number | null = payload.connected_realm?.id ?? null;
   if (connectedRealmId === null && payload.connected_realm?.href) {
     const match = /connected-realm\/(\d+)/.exec(payload.connected_realm.href);
     if (match?.[1]) connectedRealmId = Number(match[1]);
+  }
+  let category: string | null = null;
+  if (typeof payload.category === "string") {
+    category = payload.category;
+  } else if (payload.category && typeof payload.category === "object") {
+    category = payload.category.name ?? payload.category.type ?? null;
   }
   return {
     blizzardRealmId: payload.id,
@@ -466,6 +474,20 @@ export function normalizeRealm(payload: {
     locale: payload.locale ?? null,
     timezone: payload.timezone ?? null,
     connectedRealmId,
+    category,
+    isTournament: payload.is_tournament === true,
+  };
+}
+
+export function normalizeRealmIndexEntry(payload: {
+  id: number;
+  slug: string;
+  name?: string;
+}): import("@mplus/contracts").BlizzardRealmIndexEntryDTO {
+  return {
+    blizzardRealmId: payload.id,
+    slug: normalizeRealmSlug(payload.slug),
+    name: payload.name?.trim() || payload.slug,
   };
 }
 

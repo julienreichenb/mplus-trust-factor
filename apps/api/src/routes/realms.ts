@@ -2,7 +2,7 @@ import type { FastifyPluginAsync } from "fastify";
 import type { ApiContainer } from "../container.js";
 import { errorResponseSchema, realmSchema } from "./schemas.js";
 
-/** GET /api/v1/realms?region=&query= */
+/** GET /api/v1/realms?query=&region=&limit= */
 export function buildRealmRoutes(container: ApiContainer): FastifyPluginAsync {
   return async (app) => {
     app.get(
@@ -16,8 +16,8 @@ export function buildRealmRoutes(container: ApiContainer): FastifyPluginAsync {
               region: { type: "string", minLength: 1 },
               query: { type: "string" },
               q: { type: "string" },
+              limit: { type: "integer", minimum: 1, maximum: 100 },
             },
-            required: ["region"],
           },
           response: {
             200: {
@@ -30,10 +30,21 @@ export function buildRealmRoutes(container: ApiContainer): FastifyPluginAsync {
         },
       },
       async (request) => {
-        const { region, query, q } = request.query as { region: string; query?: string; q?: string };
+        const { region, query, q, limit } = request.query as {
+          region?: string;
+          query?: string;
+          q?: string;
+          limit?: number;
+        };
         const search = query ?? q ?? "";
-        const realms = await container.worker.repositories.realm.search(region, search);
-        return { realms };
+        const rows = await container.worker.repositories.realm.search({
+          query: search,
+          region: region ?? null,
+          limit: limit ?? 25,
+        });
+        return {
+          realms: rows.map((row) => container.worker.repositories.realm.toCatalogOption(row)),
+        };
       },
     );
   };

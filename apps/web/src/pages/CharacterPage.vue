@@ -7,6 +7,7 @@ import { useRefreshPolling } from "../composables/useRefreshPolling";
 import { useRecentSearchesStore } from "../stores/recentSearches";
 import SkeletonBlock from "../components/common/SkeletonBlock.vue";
 import StatusBanner from "../components/common/StatusBanner.vue";
+import CharacterRealmSearch from "../components/search/CharacterRealmSearch.vue";
 import ScoreHeader from "../components/profile/ScoreHeader.vue";
 import DimensionCards from "../components/profile/DimensionCards.vue";
 import AuthenticitySection from "../components/profile/AuthenticitySection.vue";
@@ -32,7 +33,7 @@ const props = defineProps<{
 
 const recent = useRecentSearchesStore();
 const { nextSignal } = useAbortableQuery();
-const { polling, start: startPolling, stop: stopPolling } = useRefreshPolling();
+const { polling, timedOut, start: startPolling, stop: stopPolling } = useRefreshPolling();
 useWowheadTooltips(true);
 
 const loading = ref(true);
@@ -113,6 +114,9 @@ async function load(): Promise<void> {
           const refreshed = await api.getCharacterProfile(identity);
           profile.value = refreshed;
         },
+        onTimeout: () => {
+          error.value = "Refresh is taking longer than expected. Retry or reopen this profile.";
+        },
       });
     }
   } catch (err) {
@@ -187,9 +191,11 @@ watch(
       <SkeletonBlock label="Loading dimensions and sources" :lines="6" />
     </div>
 
-    <StatusBanner v-else-if="notFound" tone="warn" title="Character not found">
-      No fixture or API record for {{ name }} on {{ realm }} ({{ region }}). Try Aleria / tarren-mill in
-      mock mode.
+    <StatusBanner v-else-if="notFound" tone="warn" title="Character not found on this realm">
+      No record for {{ name }} on {{ realm }} ({{ region }}). Search again with a catalog realm.
+      <div class="not-found-search">
+        <CharacterRealmSearch :show-recent="false" submit-label="Search" />
+      </div>
     </StatusBanner>
 
     <StatusBanner v-else-if="error" tone="error" title="Could not load profile">
@@ -205,6 +211,16 @@ watch(
         data-testid="queued-banner"
       >
         Showing the latest available snapshot while a refresh runs. Polling with backoff until complete.
+      </StatusBanner>
+
+      <StatusBanner
+        v-else-if="timedOut"
+        tone="warn"
+        title="Refresh timed out"
+        data-testid="refresh-timeout-banner"
+      >
+        Still waiting on providers. Retry refresh or come back shortly.
+        <button type="button" class="btn" data-testid="refresh-timeout-retry" @click="refresh">Retry</button>
       </StatusBanner>
 
       <StatusBanner
@@ -302,6 +318,11 @@ watch(
 .loading {
   display: grid;
   gap: var(--space-5);
+}
+
+.not-found-search {
+  margin-top: var(--space-4);
+  max-width: 40rem;
 }
 
 .split {

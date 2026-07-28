@@ -1,0 +1,13 @@
+{
+  "id": 9999,
+  "slug": "arena-tournament",
+  "name": "Arena Tournament",
+  "locale": "en_US",
+  "timezone": "America/Los_Angeles",
+  "category": { "type": "TOURNAMENT", "name": "Tournament" },
+  "is_tournament": true,
+  "connected_realm": {
+    "id": 9999,
+    "href": "https://us.api.blizzard.com/data/wow/connected-realm/9999?namespace=dynamic-us"
+  }
+}

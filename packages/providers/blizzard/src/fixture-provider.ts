@@ -37,6 +37,7 @@ import {
   normalizeMythicRuns,
   normalizePeriod,
   normalizeRealm,
+  normalizeRealmIndexEntry,
   normalizeSeason,
   normalizeTalentSnapshot,
   refLabel,
@@ -60,6 +61,7 @@ import {
   periodIndexSchema,
   periodSchema,
   realmSchema,
+  realmIndexSchema,
   seasonIndexSchema,
   seasonSchema,
   specializationsSchema,
@@ -107,6 +109,39 @@ export class FixtureBlizzardProvider implements BlizzardProvider {
       ctx,
       endpointKey: "realm.get",
       sourceUrl: `fixture://blizzard/realm/${slug}`,
+      cacheHit: true,
+      statusCode: 200,
+    });
+  }
+
+  async getRealmIndex(
+    ctx: ProviderFetchContext,
+  ): Promise<ProviderResult<import("@mplus/contracts").BlizzardRealmIndexEntryDTO[]>> {
+    const indexRelative = this.store.manifest.realmIndex;
+    const region = getRegionConfig(String(ctx.region)).regionCode;
+    if (indexRelative) {
+      const raw = parseOrThrow(realmIndexSchema, this.store.readJson(indexRelative), "realm.index");
+      return buildProviderResult({
+        data: raw.realms.map(normalizeRealmIndexEntry),
+        ctx,
+        endpointKey: "realm.index",
+        sourceUrl: `fixture://blizzard/realm-index`,
+        cacheHit: true,
+        statusCode: 200,
+      });
+    }
+    // Fallback: synthesize an index from per-realm fixtures.
+    const entries = Object.keys(this.store.manifest.realms).map((slug) => {
+      const relative = this.store.manifest.realms[slug]!;
+      const raw = parseOrThrow(realmSchema, this.store.readJson(relative), "realm.get");
+      return normalizeRealmIndexEntry({ id: raw.id, slug: raw.slug, name: raw.name });
+    });
+    void region;
+    return buildProviderResult({
+      data: entries,
+      ctx,
+      endpointKey: "realm.index",
+      sourceUrl: "fixture://blizzard/realm-index",
       cacheHit: true,
       statusCode: 200,
     });

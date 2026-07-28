@@ -10,6 +10,7 @@ export {
   generateAddonExportDedupeKey,
   recalculateScoreDedupeKey,
   refreshCharacterDedupeKey,
+  syncRealmCatalogDedupeKey,
 } from "./dedupe.js";
 
 export { closeWorkers, createWorkers } from "./processors.js";

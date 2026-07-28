@@ -6,6 +6,7 @@ export const QUEUE_NAMES = {
   analyzeRun: "analyze-run",
   recalculateScore: "recalculate-score",
   generateAddonExport: "generate-addon-export",
+  syncRealmCatalog: "sync-realm-catalog",
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
@@ -55,6 +56,17 @@ export const generateAddonExportJobSchema = z.object({
 });
 
 export type GenerateAddonExportJob = z.infer<typeof generateAddonExportJobSchema>;
+
+export const syncRealmCatalogJobSchema = z.object({
+  /** When omitted, sync all enabled retail regions (EU/US/KR/TW). */
+  regions: z.array(z.string().min(1).max(8)).optional(),
+  /** When true, re-fetch realm details even if the slug already exists. */
+  forceDetails: z.boolean().default(false),
+  requestedAt: z.string().datetime(),
+  correlationId: z.string().min(1).max(128).nullable().optional(),
+});
+
+export type SyncRealmCatalogJob = z.infer<typeof syncRealmCatalogJobSchema>;
 
 export type JobStatus = "queued" | "active" | "completed" | "failed" | "delayed" | "unknown";
 

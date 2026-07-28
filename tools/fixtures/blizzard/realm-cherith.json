@@ -1,0 +1,13 @@
+{
+  "id": 1091,
+  "slug": "cherith",
+  "name": "Chérith",
+  "locale": "fr_FR",
+  "timezone": "Europe/Paris",
+  "category": { "type": "FRENCH", "name": "French" },
+  "is_tournament": false,
+  "connected_realm": {
+    "id": 1091,
+    "href": "https://eu.api.blizzard.com/data/wow/connected-realm/1091?namespace=dynamic-eu"
+  }
+}
