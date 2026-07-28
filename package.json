@@ -44,6 +44,7 @@
     "wcl:probe:performance": "node tools/scripts/with-env.mjs node tools/scripts/wcl-probe-performance.mjs",
     "wcl:probe:survival": "node tools/scripts/with-env.mjs node tools/scripts/wcl-probe-survival.mjs",
     "wcl:probe:survival:calibration": "node tools/scripts/with-env.mjs node tools/scripts/wcl-probe-survival-calibration.mjs",
+    "wcl:probe:survival:v1": "node tools/scripts/wcl-probe-survival-v1.mjs",
     "realms:sync": "node tools/scripts/with-env.mjs pnpm --filter @mplus/worker run realms:sync --",
     "format": "prettier --write .",
     "abilities:validate": "pnpm --filter @mplus/abilities run abilities:validate",
