@@ -21,33 +21,31 @@
 - No final Trust Factor / boost scoring
 - No private `/api/v2/user` access
 
-## Performance probe (read-only, not production)
+## Performance (production refresh)
 
-Single `Character.zoneRankings` query matching the WCL “Points & Damage (By Level)” page:
+Production uses `Character.zoneRankings(metric: points_and_damage, byBracket: true)` — the WCL “Points & Damage (By Level)” page. Throughput Best%/Median%/DPS come from `throughputRankings` only (never a standalone `dps` query, never fight-bound parse fallback).
 
-```
-metric: points_and_damage
-byBracket: true
-zoneID / partition: configured M+ zone
-```
+| Persisted | Contents |
+|-----------|----------|
+| ExternalPayload / explanation `rawZoneRankingsPointsAndDamage` | Complete raw payload |
+| `explanation.performanceSummary` | Normalized global + per-dungeon summary |
+| Observations | `performance.current_season_peak` / `performance.current_season_consistency` |
 
-| Payload slice | Supplies |
-|---------------|----------|
-| `rankings` | M+ score points, key level (`bestRank.ilvl`), score ranks, displayed run counts (`totalKills`) |
-| `throughputRankings` | Best DPS, Best %, Median % (map keyed by encounter id); sample size when present |
-| Top-level averages | WCL `bestPerformanceAverage` / `medianPerformanceAverage` (compared to mean of the 8 dungeon %) |
-
-Standalone `metric: dps` uses a different ranking sample and must not be used for this page. Displayed run totals are contextual, not the throughput sample denominator. Does **not** call `recentReports`, `report.fights`, `masterData`, or events. Not wired into production scoring.
+Peak/consistency = equal-weight means of available dungeon Best%/Median%. `ratingPoints` / `keystoneLevel` / `scoreRankPercent` stay diagnostic only. `displayedRunCount` is a confidence input; WCL does not expose `throughputSampleCount`. GraphQL failure → Performance unavailable; schema mismatch → `SCHEMA_UNSUPPORTED`. Performance is independent of Survival/Utility combat ingestion. Run discovery still uses `playerscore`+`compare:Parses` / `recentReports` for matching only.
 
 ### `fastestKill` / `bestRank.speed` encoding
 
-On playerscore aggregate rows these fields are large signed integers, not plain durations:
+On score ranking rows these fields are large signed integers, not plain durations:
 
 - Typical relation: `speed - fastestKill === -440_000_000` (not always; Windrunner Spire had equal values).
 - Heuristics such as `|fastestKill| & 0xffffff` produce plausible-looking minute values but **disagree** with `ReportFight.keystoneTime` for the same character (e.g. Algeth'ar Academy 30:13 vs heuristic 32:59; Skyreach 25:57 vs 37:14).
 - Zone ranking HTML exposes duration as positive milliseconds (e.g. `1855296$30:55`); that field is absent from character `zoneRankings` JSON.
 
-Until packing is verified, the probe sets `completionTimeMs: null` and preserves `fastestKillRaw` / `speedRaw` / `fightMetadataRaw` only.
+Until packing is verified, production sets `completionTimeMs: null` and preserves `fastestKillRaw` / `speedRaw` / `fightMetadataRaw` only.
+
+## Performance probe (read-only CLI)
+
+`pnpm wcl:probe:performance` remains available for live validation of the same `points_and_damage` payload.
 
 ## Fixture mode
 

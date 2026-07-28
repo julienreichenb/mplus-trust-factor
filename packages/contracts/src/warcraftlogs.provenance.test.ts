@@ -45,7 +45,7 @@ describe("WCL provenance contract", () => {
       deriveWclContributionTypes([
         {
           sourceProvider: "warcraftlogs",
-          metricKey: "performance.peak",
+          metricKey: "performance.current_season_peak",
           context: { derivedFrom: "wcl_zone_rankings_best_parse" },
         },
         {
@@ -54,6 +54,6 @@ describe("WCL provenance contract", () => {
           context: { derivedFrom: "combat_facts" },
         },
       ]),
-    ).toEqual(["ZONE_RANKINGS", "COMBAT_FACTS"]);
+    ).toEqual(["PERFORMANCE", "ZONE_RANKINGS", "COMBAT_FACTS"]);
   });
 });

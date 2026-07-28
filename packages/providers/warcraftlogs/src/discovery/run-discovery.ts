@@ -1,6 +1,7 @@
 import type { RegionCode } from "@mplus/contracts";
 import type { WclDataState, WclProvenance } from "@mplus/contracts";
 import type {
+  WclCharacterDiscoveryResult,
   WclCharacterSummary,
   WclDungeonPerformanceAggregate,
   WclRankingObservation,
@@ -15,8 +16,9 @@ import { dedupeCandidates, selectLatestAndHighest } from "./run-matching.js";
 /** @deprecated Use FIXTURE_MPLUS_ZONE_ID — live mode must not use this silently. */
 export const DEFAULT_MPLUS_ZONE_ID = FIXTURE_MPLUS_ZONE_ID;
 
-/** Encounter ID → dungeon slug mapping for fixture/MVP season. */
+/** Encounter ID → dungeon slug mapping (fixture season + current M+ zone 47). */
 export const ENCOUNTER_DUNGEON_MAP: Record<number, string> = {
+  // Fixture / prior season
   1201: "ara-kara-city-of-echoes",
   1202: "eco-dome-al'dani",
   1203: "halls-of-atonement",
@@ -25,6 +27,15 @@ export const ENCOUNTER_DUNGEON_MAP: Record<number, string> = {
   1206: "tazavesh-streets-of-wonder",
   1207: "the-dawnbreaker",
   1208: "the-rookery",
+  // Mythic+ Season 1 (WCL zone 47) — Wallidrixe acceptance
+  112526: "algethar-academy",
+  12811: "magisters-terrace",
+  12874: "maisara-caverns",
+  12915: "nexus-point-xenas",
+  10658: "pit-of-saron",
+  361753: "seat-of-the-triumvirate",
+  61209: "skyreach",
+  12805: "windrunner-spire",
 };
 
 export interface ZoneRankingsPayload {
@@ -366,16 +377,8 @@ export function buildCharacterDiscovery(input: {
   recentCandidates: WclRunCandidate[];
   privateReportsSkipped?: number;
   dungeonAggregates?: WclDungeonPerformanceAggregate[];
-}): {
-  summary: WclCharacterSummary;
-  rankings: WclRankingObservation[];
-  dungeonAggregates: WclDungeonPerformanceAggregate[];
-  candidates: WclRunCandidate[];
-  latest: WclRunCandidate | null;
-  highest: WclRunCandidate | null;
-  candidatesTruncated: boolean;
-  privateReportsSkipped: number;
-} {
+  performance?: WclCharacterDiscoveryResult["performance"];
+}): WclCharacterDiscoveryResult {
   const { candidates, truncated } = capDiscoveryCandidates(
     input.rankingCandidates,
     input.recentCandidates,
@@ -391,6 +394,7 @@ export function buildCharacterDiscovery(input: {
     summary: { ...input.summary, warnings },
     rankings: input.rankings,
     dungeonAggregates: input.dungeonAggregates ?? [],
+    performance: input.performance,
     candidates,
     latest,
     highest,

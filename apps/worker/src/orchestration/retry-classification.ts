@@ -15,6 +15,7 @@ const CLASSIFICATION_BY_CODE: Record<ExternalApiErrorCode, RetryClassification> 
   BUDGET_EXCEEDED: { retryable: true, delayMs: 60_000, softSkip: false },
   NOT_FOUND: { retryable: false, softSkip: false },
   INVALID_RESPONSE: { retryable: false, softSkip: false },
+  SCHEMA_UNSUPPORTED: { retryable: false, softSkip: false },
   UNAUTHORIZED: { retryable: false, softSkip: false },
   CIRCUIT_OPEN: { retryable: false, softSkip: true },
   UNKNOWN: { retryable: false, softSkip: false },

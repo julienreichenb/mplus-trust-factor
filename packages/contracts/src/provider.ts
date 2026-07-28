@@ -80,6 +80,7 @@ export type ExternalApiErrorCode =
   | "TIMEOUT"
   | "NETWORK"
   | "INVALID_RESPONSE"
+  | "SCHEMA_UNSUPPORTED"
   | "CIRCUIT_OPEN"
   | "BUDGET_EXCEEDED"
   | "UNKNOWN";

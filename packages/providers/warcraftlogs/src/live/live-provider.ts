@@ -35,7 +35,12 @@ import {
   countParseStyleRankingRows,
   type ZoneRankingsPayload,
 } from "../discovery/run-discovery.js";
-import { mapZoneRankingAggregates } from "../discovery/zone-ranking-aggregates.js";
+import {
+  adaptPointsAndDamagePerformance,
+  pointsAndDamageErrorRecord,
+  type PointsAndDamagePerformanceRecord,
+} from "../discovery/points-and-damage-performance.js";
+import { parseJsonScalar } from "../probe/performance-probe-logic.js";
 import {
   MAX_RECENT_REPORTS_LIMIT,
   MAX_RECENT_REPORT_PAGES,
@@ -305,6 +310,8 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
       dataState: WclDataState;
       warnings: string[];
       dungeonAggregates: WclDungeonPerformanceAggregate[];
+      performance: PointsAndDamagePerformanceRecord | null;
+      rawZoneRankingsPointsAndDamage: unknown;
     }>
   > {
     const discovery = await this.discoverCharacter(identity, ctx);
@@ -314,6 +321,8 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
         dataState: discovery.summary.dataState,
         warnings: discovery.summary.warnings,
         dungeonAggregates: discovery.dungeonAggregates,
+        performance: discovery.performance ?? null,
+        rawZoneRankingsPointsAndDamage: discovery.performance?.raw ?? null,
       },
       "discoverCharacterSummary",
       `live-summary-${identity.region}-${identity.realmSlug}-${identity.name}`,
@@ -399,6 +408,11 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
         },
         rankings: [],
         dungeonAggregates: [],
+        performance: pointsAndDamageErrorRecord(
+          "SKIPPED",
+          null,
+          "WCL rate budget STOP — points_and_damage Performance deferred",
+        ),
         candidates: [],
         latest: null,
         highest: null,
@@ -441,9 +455,13 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
     }
 
     let rankings: ReturnType<typeof mapZoneRankings> = [];
-    let dungeonAggregates: ReturnType<typeof mapZoneRankingAggregates>["dungeons"] = [];
+    let performance: PointsAndDamagePerformanceRecord = pointsAndDamageErrorRecord(
+      "SKIPPED",
+      null,
+      "points_and_damage not queried",
+    );
     if (shouldQueryZoneRankings(this.zoneConfig)) {
-      // Bounded: Parses query for run discovery + aggregate query for PERFORMANCE percentiles.
+      // Bounded: Parses query for run discovery only (not Performance percentiles).
       const rankingsResult = await this.client.request({
         operationName: OPERATIONS.CharacterZoneRankings.operationName,
         query: OPERATIONS.CharacterZoneRankings.query,
@@ -470,10 +488,11 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
       }
       rankings = mapZoneRankings(zonePayload, this.zoneConfig.zoneId);
 
+      // Performance: points_and_damage only (Points & Damage By Level). Never soft-empty on failure.
       try {
-        const aggregatesResult = await this.client.request({
-          operationName: OPERATIONS.CharacterZoneRankingAggregates.operationName,
-          query: OPERATIONS.CharacterZoneRankingAggregates.query,
+        const perfResult = await this.client.request({
+          operationName: OPERATIONS.CharacterZoneRankingsPointsAndDamage.operationName,
+          query: OPERATIONS.CharacterZoneRankingsPointsAndDamage.query,
           variables: {
             name: identity.name,
             serverSlug: identity.realmSlug,
@@ -482,24 +501,52 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
           },
           region: identity.region,
         });
-        const aggregatesParsed = parseWithSchema(
-          zoneRankingsSchema,
-          aggregatesResult.response.data,
-          "ZoneRankingAggregates",
-        );
-        const aggregatePayload = (aggregatesParsed.characterData.character?.zoneRankings ??
-          null) as ZoneRankingsPayload | null;
-        dungeonAggregates = mapZoneRankingAggregates(aggregatePayload).dungeons;
+        if (perfResult.response.errors && perfResult.response.errors.length > 0) {
+          const messages = perfResult.response.errors.map((e) => e.message);
+          performance = pointsAndDamageErrorRecord(
+            "ERROR",
+            null,
+            `CharacterZoneRankingsPointsAndDamage GraphQL error: ${messages.join("; ")}`,
+          );
+          warnings.push(performance.diagnostics.errorMessage ?? "points_and_damage GraphQL error");
+        } else {
+          const data = perfResult.response.data as
+            | { characterData?: { character?: { zoneRankings?: unknown } | null } }
+            | null
+            | undefined;
+          const raw = parseJsonScalar(data?.characterData?.character?.zoneRankings ?? null);
+          performance = adaptPointsAndDamagePerformance({ raw });
+          if (performance.state === "SCHEMA_UNSUPPORTED") {
+            warnings.push(
+              performance.diagnostics.errorMessage ?? "points_and_damage SCHEMA_UNSUPPORTED",
+            );
+          } else if (performance.state === "EMPTY") {
+            warnings.push(
+              performance.diagnostics.errorMessage ?? "points_and_damage payload empty",
+            );
+            // Treat empty as ERROR for scoring — never a fabricated valid dataset.
+            performance = { ...performance, state: "ERROR" };
+          }
+        }
       } catch (error) {
-        warnings.push(
-          `zoneRankings aggregate query failed — PERFORMANCE percentiles unavailable (${
-            error instanceof Error ? error.message : "unknown"
-          })`,
+        const message = error instanceof Error ? error.message : "unknown";
+        const schemaUnsupported =
+          error instanceof ExternalApiError && error.code === "SCHEMA_UNSUPPORTED";
+        performance = pointsAndDamageErrorRecord(
+          schemaUnsupported ? "SCHEMA_UNSUPPORTED" : "ERROR",
+          null,
+          `points_and_damage query failed — PERFORMANCE unavailable (${message})`,
         );
+        warnings.push(performance.diagnostics.errorMessage ?? message);
       }
     } else {
       warnings.push(
         `Skipped zoneRankings — configured zone ${this.zoneConfig.zoneId} is expired`,
+      );
+      performance = pointsAndDamageErrorRecord(
+        "SKIPPED",
+        null,
+        `Skipped points_and_damage — configured zone ${this.zoneConfig.zoneId} is expired`,
       );
     }
 
@@ -546,16 +593,8 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
     return buildCharacterDiscovery({
       summary,
       rankings,
-      dungeonAggregates: dungeonAggregates.map((d) => ({
-        dungeonSlug: d.dungeonSlug,
-        dungeonName: d.dungeonName,
-        encounterId: d.encounterId,
-        bestParsePercentile: d.bestParsePercentile,
-        medianParsePercentile: d.medianParsePercentile,
-        loggedRunCount: d.loggedRunCount,
-        specSlug: d.specSlug,
-        roleSlug: d.roleSlug,
-      })),
+      dungeonAggregates: performance.state === "OK" ? performance.dungeonAggregates : [],
+      performance,
       rankingCandidates: rankingsToCandidates(rankings),
       recentCandidates: recentMapped.candidates,
       privateReportsSkipped: privateSkipped,

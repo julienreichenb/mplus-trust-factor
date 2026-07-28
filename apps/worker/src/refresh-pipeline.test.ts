@@ -385,6 +385,8 @@ describe.skipIf(!dbAvailable)("runRefreshPipeline (fixture mode, real Postgres)"
               dataState: "NO_PUBLIC_LOGS" as const,
               warnings: [],
               dungeonAggregates: [],
+              performance: null,
+              rawZoneRankingsPointsAndDamage: null,
             },
             provenance: {
               provider: "warcraftlogs" as const,
@@ -469,6 +471,7 @@ describe.skipIf(!dbAvailable)("runRefreshPipeline (fixture mode, real Postgres)"
           warnings: [] as string[],
         },
         dungeonAggregates: [],
+        performance: null,
         candidates: [],
       });
       const wcl = {

@@ -226,9 +226,29 @@ export interface PerformanceExplanatoryRunDTO {
 export interface PerformanceDungeonSummaryDTO {
   dungeonSlug: string;
   dungeonName: string;
+  encounterId?: number | null;
   bestParsePercentile: number | null;
   medianParsePercentile: number | null;
   loggedRunCount: number;
+  keystoneLevel?: number | null;
+  throughputBracket?: number | null;
+  ratingPoints?: number | null;
+  scoreRank?: number | null;
+  regionRank?: number | null;
+  serverRank?: number | null;
+  scoreRankPercent?: number | null;
+  specialization?: string | null;
+  bestDps?: number | null;
+  completion?: {
+    fastestKillRaw: number | null;
+    speedRaw: number | null;
+    fightMetadataRaw: number | null;
+    leaderboardRaw: number | null;
+    affixesRaw: number | null;
+    completionTimeMs: null;
+    encodingStatus: "unverified_not_emitted";
+    encodingNote: string;
+  } | null;
   bestRun: PerformanceExplanatoryRunDTO | null;
   latestRun: PerformanceExplanatoryRunDTO | null;
 }
@@ -244,10 +264,39 @@ export interface PerformanceCurrentSeasonSummaryDTO {
   score: number | null;
   confidence: number;
   dungeonCount: number;
+  availableDungeonCount?: number;
   expectedDungeonCount: number;
+  totalMythicPlusScore?: number | null;
+  totalLoggedRuns?: number;
+  partition?: number | null;
+  zoneId?: number | null;
   latestObservedAt: IsoDateTime | null;
   /** Whether percentiles are aggregate zone rankings vs fight-bound selected-run parses. */
   provenance?: PerformanceProvenance;
+  specRanks?: Array<{
+    spec: string | null;
+    points: number | null;
+    possiblePoints: number | null;
+    rank: number | null;
+    regionRank: number | null;
+    serverRank: number | null;
+    scoreRankPercent: number | null;
+    total: number | null;
+    partition: number | null;
+  }>;
+  diagnostics?: {
+    ratingPointsExcludedFromScore: true;
+    keystoneLevelExcludedFromScore: true;
+    scoreRankPercentExcludedFromScore: true;
+    throughputSampleCountUnavailable: true;
+    performanceState?: string | null;
+    unavailableEncounters?: Array<{
+      encounterID: number;
+      encounterName: string | null;
+      dungeonSlug: string | null;
+      reason: string;
+    }>;
+  };
   dungeons: PerformanceDungeonSummaryDTO[];
 }
 
