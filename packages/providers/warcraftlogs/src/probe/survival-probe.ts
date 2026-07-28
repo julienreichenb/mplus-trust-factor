@@ -434,6 +434,10 @@ export async function fetchSurvivalEventDataset(
     sourceId: number | null;
     maxEventPages?: number;
     eventPageLimit?: number;
+    /** When true, request hitPoints/maxHitPoints (DamageTaken/Healing/Deaths). */
+    includeResources?: boolean;
+    startTime?: number;
+    endTime?: number;
   },
   graphqlErrors: GraphQlErrorRecord[],
   perOperation: ProbeRateLimitRecord[],
@@ -443,12 +447,13 @@ export async function fetchSurvivalEventDataset(
   const pages: SurvivalRawEventPage[] = [];
   const events: Array<Record<string, unknown>> = [];
   const datasetErrors: string[] = [];
-  let startTime: number | undefined;
+  let startTime: number | undefined = input.startTime;
   let truncated = false;
   const seenTimestamps = new Set<number>();
+  const resourcesSuffix = input.includeResources ? "+resources" : "";
 
   for (let pageIndex = 0; pageIndex < maxPages; pageIndex += 1) {
-    const opName = `${OPERATIONS.ReportEvents.operationName}:${input.dataType}`;
+    const opName = `${OPERATIONS.ReportEvents.operationName}:${input.dataType}${resourcesSuffix}`;
     const result = await client.requestPermissive<{
       reportData?: {
         report?: {
@@ -467,10 +472,12 @@ export async function fetchSurvivalEventDataset(
         dataType: input.dataType as EventDataType,
         sourceID: input.sourceId ?? undefined,
         startTime,
+        endTime: input.endTime,
         limit: pageLimit,
         translate: false,
         useAbilityIDs: false,
         useActorIDs: false,
+        includeResources: input.includeResources === true ? true : undefined,
       },
       region: input.identity.region,
     });
@@ -914,6 +921,10 @@ export async function runSurvivalProbe(
     for (const dataType of SURVIVAL_EVENT_TYPES) {
       const filterSourceId =
         dataType === "Casts" ? null : selected.playerActorId;
+      const includeResources =
+        dataType === "DamageTaken" ||
+        dataType === "Healing" ||
+        dataType === "Deaths";
 
       const dataset = await fetchSurvivalEventDataset(
         options.client,
@@ -925,6 +936,7 @@ export async function runSurvivalProbe(
           sourceId: filterSourceId,
           maxEventPages: options.maxEventPages ?? PROBE_MAX_EVENT_PAGES,
           eventPageLimit: options.eventPageLimit ?? PROBE_EVENT_PAGE_LIMIT,
+          includeResources,
         },
         graphqlErrors,
         perOperation,

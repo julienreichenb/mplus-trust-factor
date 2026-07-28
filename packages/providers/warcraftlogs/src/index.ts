@@ -50,6 +50,7 @@ export * from "./analysis/revision-cache.js";
 export * from "./analysis/combat-facts.js";
 export * from "./analysis/combat-facts-to-survival-run.js";
 export { buildRunCombatFactsFromEvents, fetchAllEventPages } from "./analysis/event-fetcher.js";
+export * from "./analysis/survival-canonical-analysis.js";
 export * from "./analysis/survival-run-analysis.js";
 export * from "./analysis/survival-request-cost.js";
 export * from "./rate/rate-budget.js";

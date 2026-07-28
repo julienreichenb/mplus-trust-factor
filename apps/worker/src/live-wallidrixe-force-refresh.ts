@@ -165,6 +165,14 @@ const acceptance = {
     result.score?.dimensions?.find((d) => d.dimension === "SURVIVAL") ?? null,
   performanceDimension:
     result.score?.dimensions?.find((d) => d.dimension === "PERFORMANCE") ?? null,
+  survivalCoverage: {
+    defensive: survival?.defensiveCounts ?? null,
+    recovery: survival?.recoveryCounts ?? null,
+    maxHpResolved: survival?.maxHpDiagnostics?.baselineResolvedRunCount ?? null,
+    deathCount: survival?.deathCount ?? null,
+  },
+  explanatoryRuns:
+    (explanation as { survivalSummary?: { dungeons?: unknown } }).survivalSummary ?? null,
 };
 
 console.log(JSON.stringify(acceptance, null, 2));

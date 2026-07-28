@@ -60,13 +60,11 @@ import { buildRefreshContract } from "./build-refresh-contract.js";
 import { buildMythicRatingObservation } from "./performance-metrics.js";
 import { buildWclPerformanceObservations } from "./wcl-performance-metrics.js";
 import {
-  analyzeSurvivalFromCombatFacts,
-  buildWclSurvivalObservations,
   expectedSurvivalCompatibilityKey,
   isCompatibleSurvivalSummary,
-  mapProviderSnapshotsToExplicit,
   type SurvivalRunAnalysisRow,
 } from "./wcl-survival-metrics.js";
+import { buildWclSurvivalObservations } from "./wcl-survival-metrics.js";
 import { recordProviderResult } from "./provider-recording.js";
 import type { WclDungeonPerformanceAggregateDTO } from "@mplus/contracts";
 import {
@@ -1159,6 +1157,10 @@ export async function runRefreshPipeline(
 
   const combatFactsList: RunCombatFacts[] = [];
   const combatFactsByRunId = new Map<string, RunCombatFacts>();
+  const fightMetaByRunId = new Map<
+    string,
+    { startTime: number; endTime: number; encounterId: number | null; encounterName: string | null }
+  >();
   const runCoverageById: Record<string, number> = {};
   const runDiagnostics: Array<Record<string, unknown>> = [];
   const earlyClassSlug = blizzardProfile?.classSlug ?? raiderIoProfile?.classSlug ?? null;
@@ -1211,6 +1213,12 @@ export async function runRefreshPipeline(
         const payloadId = await recordProviderResult(repositories, detailsResult);
         combatFactsList.push(details.combatFacts);
         combatFactsByRunId.set(run.id, details.combatFacts);
+        fightMetaByRunId.set(run.id, {
+          startTime: details.fight.startTime,
+          endTime: details.fight.endTime,
+          encounterId: details.fight.encounterId,
+          encounterName: details.fight.name,
+        });
 
         const coverageRatio =
           Object.values(details.combatFacts.coverage).filter(Boolean).length /
@@ -1328,6 +1336,13 @@ export async function runRefreshPipeline(
           facts = (detailsResult.data as WclReportFightDetails).combatFacts;
           combatFactsByRunId.set(run.id, facts);
           combatFactsList.push(facts);
+          const details = detailsResult.data as WclReportFightDetails;
+          fightMetaByRunId.set(run.id, {
+            startTime: details.fight.startTime,
+            endTime: details.fight.endTime,
+            encounterId: details.fight.encounterId,
+            encounterName: details.fight.name,
+          });
         } catch (error) {
           if (isEnrichmentSoftSkip(error)) {
             survivalCost.rejectedCandidates.push({
@@ -1373,9 +1388,22 @@ export async function runRefreshPipeline(
         continue;
       }
 
-      if (!providers.warcraftlogs.fetchSurvivalHealthSnapshots) {
+      const liveWcl = providers.warcraftlogs as {
+        analyzeSurvivalCanonicalRun?: (
+          input: Record<string, unknown>,
+          ctx: ProviderFetchContext,
+        ) => Promise<{
+          data: {
+            summary: SurvivalRunAnalysisRow["summary"];
+            requestCount: number;
+            maxHpFailureReason: string | null;
+          };
+        }>;
+      };
+
+      if (typeof liveWcl.analyzeSurvivalCanonicalRun !== "function") {
         survivalCost.rejectedCandidates.push({
-          reason: "survival_health_fetch_unsupported",
+          reason: "survival_canonical_analyze_unsupported",
           runId: run.id,
           dungeonSlug: entry.dungeonSlug,
         });
@@ -1384,31 +1412,48 @@ export async function runRefreshPipeline(
       }
 
       try {
-        const healthResult = await providers.warcraftlogs.fetchSurvivalHealthSnapshots(
+        const meta = fightMetaByRunId.get(run.id);
+        const fightStart = meta?.startTime ?? 0;
+        const fightEnd = meta?.endTime ?? fightStart + run.durationMs;
+        const canonicalResult = await liveWcl.analyzeSurvivalCanonicalRun(
           {
+            identity,
+            characterId: character.id,
             reportCode: source.reportCode,
             fightId: source.fightId,
-            sourceId: facts.targetSourceId,
+            reportRevision: facts.revision,
+            dungeonSlug: canonicalDungeonKey(run.dungeon.slug),
+            keyLevel: run.keyLevel,
+            playerActorId: facts.targetSourceId,
+            ownedPetActorIds: facts.attributedSourceIds.filter((id) => id !== facts.targetSourceId),
+            fightStartTime: fightStart,
+            fightEndTime: fightEnd,
+            encounterId: meta?.encounterId ?? null,
+            encounterName: meta?.encounterName ?? null,
+            catalog: survivalCatalog,
+            classSlug: earlyClassSlug,
+            specSlug: earlySpecSlug,
+            timed: run.timed,
+            completed: true,
+            score: run.scoreValue,
           },
           ctx,
         );
-        survivalCost.wclHttpRequestCount += 1;
-        survivalCost.graphqlOperationCount += 1;
-        const payloadId = await recordProviderResult(repositories, healthResult);
-        const snapshots = mapProviderSnapshotsToExplicit(healthResult.data.snapshots);
-        const summary = analyzeSurvivalFromCombatFacts({
-          characterId: character.id,
-          facts,
-          snapshots,
-          dungeonSlug: canonicalDungeonKey(run.dungeon.slug),
-          keyLevel: run.keyLevel,
-          durationMs: run.durationMs,
-          catalog: survivalCatalog,
-          classSlug: earlyClassSlug,
-          specialization: earlySpecSlug,
-          eventPagesComplete: !healthResult.data.truncated,
-          resourceDamageEvents: healthResult.data.events,
-        });
+        survivalCost.wclHttpRequestCount += canonicalResult.data.requestCount;
+        survivalCost.graphqlOperationCount += canonicalResult.data.requestCount;
+        const payloadId = await recordProviderResult(repositories, canonicalResult as never);
+        const summary = canonicalResult.data.summary;
+        if (
+          summary.maxHpResolution.baselineMaxHp == null &&
+          canonicalResult.data.maxHpFailureReason
+        ) {
+          summary.maxHpResolution = {
+            ...summary.maxHpResolution,
+            resolutionFailureReason:
+              summary.maxHpResolution.resolutionFailureReason ??
+              canonicalResult.data.maxHpFailureReason,
+          };
+        }
         await repositories.run.upsertRunAnalysis({
           runId: run.id,
           characterId: character.id,
@@ -1430,7 +1475,7 @@ export async function runRefreshPipeline(
       } catch (error) {
         if (isEnrichmentSoftSkip(error)) {
           survivalCost.rejectedCandidates.push({
-            reason: "survival_health_soft_skip",
+            reason: "survival_canonical_soft_skip",
             runId: run.id,
             dungeonSlug: entry.dungeonSlug,
           });

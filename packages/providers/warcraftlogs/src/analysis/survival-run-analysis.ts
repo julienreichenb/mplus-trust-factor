@@ -139,10 +139,23 @@ export interface SurvivalRunAnalysisSummary {
 
 /**
  * Produce a persistence-ready Survival V1.1.1 summary for one run.
+ * Shared scoring entry — probe and production must both reach scoreSurvivalV1_1_1Run via this path
+ * (or buildCanonicalSurvivalAnalysis which delegates here).
  */
 export function analyzeSurvivalRun(
   input: AnalyzeSurvivalRunInput,
 ): SurvivalRunAnalysisSummary {
+  return analyzeSurvivalRunDetailed(input).summary;
+}
+
+/** Full scored result for parity tests and canonical analysis. */
+export function analyzeSurvivalRunDetailed(
+  input: AnalyzeSurvivalRunInput,
+): {
+  summary: SurvivalRunAnalysisSummary;
+  runScore: SurvivalV1_1_1RunScore;
+  maxHpResolution: HardenedMaxHpResolution;
+} {
   const config = SURVIVAL_STANDALONE_V1_1_1_CONFIG;
   const adapterVersion = input.adapterVersion ?? config.adapterVersion;
   const scoringConfigVersion = input.scoringConfigVersion ?? config.version;
@@ -171,7 +184,7 @@ export function analyzeSurvivalRun(
     darkPactActiveIntervals: input.darkPactActiveIntervals,
   });
 
-  return {
+  const summary: SurvivalRunAnalysisSummary = {
     compatibilityKey,
     configVersion: scoringConfigVersion,
     analysisVersion: SURVIVAL_ANALYSIS_VERSION,
@@ -213,4 +226,6 @@ export function analyzeSurvivalRun(
       eventPagesComplete: input.eventPagesComplete ?? true,
     },
   };
+
+  return { summary, runScore, maxHpResolution };
 }

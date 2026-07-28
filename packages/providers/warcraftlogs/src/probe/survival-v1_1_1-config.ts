@@ -4,8 +4,8 @@
  */
 export const SURVIVAL_STANDALONE_V1_1_1_CONFIG = {
   version: "survival-standalone-v1.1.1",
-  adapterVersion: "survival-adapter-v1.1.1",
-  analysisVersion: "wcl-survival-v1.1.1",
+  adapterVersion: "survival-adapter-v1.1.1-parity",
+  analysisVersion: "wcl-survival-v1.1.1-parity",
   weights: {
     survivalOutcome: 0.55,
     defensiveResponse: 0.3,

@@ -460,11 +460,27 @@ export function scoreSurvivalV1_1Run(input: {
   const consumableRules = rulesForCategory(catalog, "CONSUMABLE", { classSlug });
   const recoveryResources: Array<{ canonicalKey: string; reason: string }> = [];
   for (const rule of selfHealRules) {
-    if (rule.availability === "BASELINE" || talentConfirmed(rule, run, observedSpellIds)) {
-      recoveryResources.push({
-        canonicalKey: rule.canonicalKey,
-        reason: rule.availability === "BASELINE" ? "baseline_self_heal" : "talent_confirmed",
-      });
+    if (rule.availability === "TALENT" || rule.availability === "CHOICE_NODE") {
+      if (talentConfirmed(rule, run, observedSpellIds)) {
+        recoveryResources.push({
+          canonicalKey: rule.canonicalKey,
+          reason: "talent_confirmed",
+        });
+      }
+      continue;
+    }
+    if (rule.availability === "BASELINE") {
+      // Catalog baseline alone is not enough — require observed cast/heal evidence
+      // that the player actually has/used the spell in this fight.
+      const observed =
+        rule.spellIds.some((id) => observedSpellIds.has(id)) ||
+        (rule.aliases ?? []).some((id) => observedSpellIds.has(id));
+      if (observed) {
+        recoveryResources.push({
+          canonicalKey: rule.canonicalKey,
+          reason: "baseline_self_heal_observed",
+        });
+      }
     }
   }
   const healthstone = consumableRules.find(
