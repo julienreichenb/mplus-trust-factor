@@ -654,7 +654,11 @@ export function fingerprintFor(parts: {
     region: parts.region,
     endpointKey: parts.endpointKey,
     pathParams: parts.pathParams,
-    queryParams: parts.queryParams ?? {},
+    queryParams: {
+      ...(parts.queryParams ?? {}),
+      // Adapter/schema bumps must not reuse prior ExternalPayload cache entries.
+      schemaVersion: SCHEMA_VERSION,
+    },
     authScopeType: "client_credentials",
   });
 }

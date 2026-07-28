@@ -111,4 +111,18 @@ describe("dedupe keys", () => {
       generateAddonExportDedupeKey({ ...job, region: "US" }),
     );
   });
+
+  it("refreshCharacterDedupeKey differs by refreshContractHash", () => {
+    const base = {
+      region: "EU",
+      realmSlug: "tarren-mill",
+      name: "Examplecharacter",
+      priority: "normal" as const,
+      requestedAt,
+      forceRefresh: false,
+    };
+    expect(refreshCharacterDedupeKey({ ...base, refreshContractHash: "aaa" })).not.toBe(
+      refreshCharacterDedupeKey({ ...base, refreshContractHash: "bbb" }),
+    );
+  });
 });

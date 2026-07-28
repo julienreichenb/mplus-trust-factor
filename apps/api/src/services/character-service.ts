@@ -27,8 +27,10 @@ import {
   type CharacterSourceAttribution,
   type RunSummaryDTO,
 } from "../lib/mappers.js";
-import { applyProfileWarnings, buildProfileEnrichments, isScoreStaleVersusProviders, toPublicProviderKey } from "../lib/profile-enrichment.js";
+import { applyProfileWarnings, appendRefreshContractWarnings, buildProfileEnrichments, isScoreStaleVersusProviders, scoreSnapshotContractStaleReasons, toPublicProviderKey } from "../lib/profile-enrichment.js";
 import { characterCacheKey } from "../lib/response-cache.js";
+import { buildRefreshContract, buildRefreshContractHash } from "@mplus/worker";
+import { ensureCurrentSeason } from "@mplus/worker";
 
 const ALL_PROVIDERS: ProviderName[] = ["blizzard", "raiderio", "warcraftlogs"];
 const DEFAULT_RETRY_AFTER_MS = 2_000;
@@ -205,6 +207,33 @@ export class CharacterService {
     return character;
   }
 
+  private async resolveActiveRefreshContract(character: Character) {
+    const season = await ensureCurrentSeason(this.container.worker.prisma, character.regionId);
+    const activeModel =
+      (await this.repositories.score.getActiveModel(this.container.env.ACTIVE_SCORE_MODEL_KEY)) ?? {
+        key: this.container.env.ACTIVE_SCORE_MODEL_KEY,
+        version: this.container.env.ACTIVE_SCORE_MODEL_VERSION,
+      };
+    const contract = buildRefreshContract({
+      scoringModelKey: activeModel.key,
+      scoringModelVersion: activeModel.version,
+      activeSeasonId: season.slug,
+      env: process.env,
+      allowFixtureZoneDefault: this.container.env.PROVIDER_MODE === "fixture",
+    });
+    return {
+      contract,
+      hash: buildRefreshContractHash({
+        scoringModelKey: activeModel.key,
+        scoringModelVersion: activeModel.version,
+        activeSeasonId: season.slug,
+        env: process.env,
+        allowFixtureZoneDefault: this.container.env.PROVIDER_MODE === "fixture",
+      }),
+      activeModel: { key: activeModel.key, version: activeModel.version },
+    };
+  }
+
   private async enqueueRefresh(
     identity: CharacterIdentityInput,
     character: Character,
@@ -212,6 +241,7 @@ export class CharacterService {
     correlationId?: string | null,
   ): Promise<EnqueueResult> {
     this.container.responseCache.invalidate(characterCacheKey(identity));
+    const { hash } = await this.resolveActiveRefreshContract(character);
     return this.container.producers.enqueueRefreshCharacter({
       characterId: character.id,
       region: identity.region,
@@ -220,6 +250,7 @@ export class CharacterService {
       priority: "normal",
       forceRefresh,
       correlationId: correlationId ?? null,
+      refreshContractHash: hash,
     });
   }
 
@@ -452,6 +483,37 @@ export class CharacterService {
         ];
       }
       await this.enqueueRefresh(identity, character, false, opts.correlationId);
+    }
+
+    // Model / adapter / schema contract mismatch: never report FRESH for an incompatible snapshot.
+    if (body.score) {
+      const { contract, activeModel } = await this.resolveActiveRefreshContract(character);
+      const contractReasons = scoreSnapshotContractStaleReasons({
+        score: body.score,
+        activeModel,
+        activeContract: contract,
+      });
+      if (contractReasons.length > 0) {
+        body.refreshStatus = "STALE";
+        body.warnings = appendRefreshContractWarnings(body.warnings, contractReasons);
+        await this.enqueueRefresh(identity, character, false, opts.correlationId);
+      }
+    }
+
+    // Failed refresh must keep the last valid snapshot as fallback but never as FRESH.
+    const latestJob = await this.repositories.job.findLatestForCharacter(character.id);
+    if (body.score && latestJob?.status === "FAILED" && body.refreshStatus === "FRESH") {
+      body.refreshStatus = "STALE";
+      if (!body.warnings?.some((w) => w.code === "REFRESH_FAILED")) {
+        body.warnings = [
+          ...(body.warnings ?? []),
+          {
+            code: "REFRESH_FAILED",
+            message: "Last refresh failed — showing previous score as a stale fallback.",
+            severity: "WARN",
+          },
+        ];
+      }
     }
 
     const result: GetProfileResult = { statusCode: 200, body };

@@ -22,6 +22,11 @@ export const refreshCharacterJobSchema = z.object({
   requestedAt: z.string().datetime(),
   /** API request id propagated API → queue → worker for log correlation. */
   correlationId: z.string().min(1).max(128).nullable().optional(),
+  /**
+   * Hash of the active RefreshContractVersions at enqueue time.
+   * Model/adapter/schema bumps must not reuse jobs keyed under an older contract.
+   */
+  refreshContractHash: z.string().min(1).max(128).optional(),
 });
 
 export type RefreshCharacterJob = z.infer<typeof refreshCharacterJobSchema> & {

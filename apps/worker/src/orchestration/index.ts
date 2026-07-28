@@ -1,4 +1,5 @@
 export * from "./analyze-run.js";
+export * from "./build-refresh-contract.js";
 export * from "./enqueue.js";
 export * from "./fingerprint.js";
 export * from "./generate-addon-export.js";

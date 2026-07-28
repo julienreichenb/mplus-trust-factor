@@ -1,10 +1,13 @@
 import { createHash } from "node:crypto";
-import type { MetricObservationDTO } from "@mplus/contracts";
+import type { MetricObservationDTO, RefreshContractVersions } from "@mplus/contracts";
+import { hashRefreshContract } from "@mplus/contracts";
 
 export interface ScoreInputFingerprintOptions {
-  /** Invalidates score snapshots when the WCL Performance adapter contract changes. */
+  /** Full refresh contract — preferred over ad-hoc adapter fields. */
+  refreshContract?: RefreshContractVersions | null;
+  /** @deprecated Prefer refreshContract.wclAdapterVersion */
   performanceAdapterVersion?: string | null;
-  /** Selected-run identity so 9-run Icecrown selections cannot collide with 8-run pools. */
+  /** Selected-run identity so concrete run sets cannot collide across refreshes. */
   scoringRunSelectionKey?: string | null;
   /** When force-refreshing, include the job request time so a new snapshot is always published. */
   forceRefreshToken?: string | null;
@@ -18,10 +21,14 @@ export function fingerprintObservations(
   observations: MetricObservationDTO[],
   options: ScoreInputFingerprintOptions = {},
 ): string {
+  const contractHash = options.refreshContract
+    ? hashRefreshContract(options.refreshContract)
+    : "";
   const material = [
     characterId,
     modelKey,
     String(modelVersion),
+    contractHash,
     options.performanceAdapterVersion ?? "",
     options.scoringRunSelectionKey ?? "",
     options.forceRefreshToken ?? "",

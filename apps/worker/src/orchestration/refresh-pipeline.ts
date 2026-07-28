@@ -3,6 +3,7 @@ import type { Character, IngestionJob } from "@mplus/database";
 import { normalizeRegion } from "@mplus/domain";
 import {
   ExternalApiError,
+  hashRefreshContract,
   type CanonicalCharacter,
   type CharacterIdentityInput,
   type ExcludedObservationDTO,
@@ -50,6 +51,7 @@ import { extractMetricsFromCombatFacts, isUsableCombatRun, buildRunCombatAdminDi
 import { aggregateCombatObservations } from "./aggregate-combat-observations.js";
 import { bindParseToSelectedRun } from "./run-parse-binding.js";
 import { fingerprintObservations, buildScoringRunSelectionKey } from "./fingerprint.js";
+import { buildRefreshContract } from "./build-refresh-contract.js";
 import { buildMythicRatingObservation } from "./performance-metrics.js";
 import { buildWclPerformanceObservations } from "./wcl-performance-metrics.js";
 import { recordProviderResult } from "./provider-recording.js";
@@ -1605,6 +1607,17 @@ export async function runRefreshPipeline(
     },
   } as ScoreModelConfig;
 
+  const refreshContract = buildRefreshContract({
+    scoringModelKey: model.key,
+    scoringModelVersion: model.version,
+    activeSeasonId: season.slug,
+    env: process.env,
+    allowFixtureZoneDefault:
+      container.env.APP_ENV === "test" ||
+      container.env.NODE_ENV === "test" ||
+      container.env.PROVIDER_MODE === "fixture",
+  });
+
   const scoreDto = container.calculateScore({
     characterId: character.id,
     seasonSlug: season.slug,
@@ -1614,7 +1627,7 @@ export async function runRefreshPipeline(
     observations,
     calculatedAt: now.toISOString(),
     inputFingerprint: fingerprintObservations(character.id, model.key, model.version, observations, {
-      performanceAdapterVersion: POINTS_AND_DAMAGE_ADAPTER_VERSION,
+      refreshContract,
       scoringRunSelectionKey: buildScoringRunSelectionKey(scoringRunSelection.selectedRuns),
       forceRefreshToken: jobPayload.forceRefresh ? jobPayload.requestedAt : null,
     }),
@@ -1625,6 +1638,7 @@ export async function runRefreshPipeline(
       wclVisibility,
       matchedWclRunCount: combatFactsList.length,
       authenticity: authenticityFeatures,
+      mechanicCatalogVersion: refreshContract.mechanicCatalogVersion,
     },
   });
   logger.info(
@@ -1715,6 +1729,8 @@ export async function runRefreshPipeline(
           rawZoneRankingsPointsAndDamage: wclPerformanceRecord?.raw ?? null,
           abilityCatalog: catalogDiagnostics,
           historyMode: "CHARACTER_HISTORY",
+          refreshContract,
+          refreshContractHash: hashRefreshContract(refreshContract),
         }
       : scoreDto.explanation;
 
