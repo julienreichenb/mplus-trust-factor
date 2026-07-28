@@ -24,7 +24,7 @@ import {
 import { extractBoostSupportFacts } from "@mplus/provider-raiderio";
 import type { RunCombatFacts, WclRankingObservation, WclReportFightDetails } from "@mplus/provider-warcraftlogs";
 import { buildCatalogCoverageDiagnostics, getAbilityCatalog } from "@mplus/abilities";
-import { buildCharacterHistoryExperienceObservations, selectScoringRuns, resolveActiveSeasonDungeonSlugs, applyRunMetadataToSelection, toContractScoringRunSelection } from "@mplus/scoring";
+import { buildCharacterHistoryExperienceObservations, selectScoringRuns, resolveActiveSeasonDungeonPool, readBlizzardSeasonDungeonSlugsFromMetadata, applyRunMetadataToSelection, toContractScoringRunSelection } from "@mplus/scoring";
 import { OBS_EVENTS, fingerprintIdentifier } from "@mplus/observability";
 import { validateScoreSnapshot } from "@mplus/test-utils";
 import type { WorkerContainer } from "../container.js";
@@ -884,15 +884,16 @@ export async function runRefreshPipeline(
     include: { dungeon: true },
     orderBy: { sortOrder: "asc" },
   });
-  const activeDungeonSlugs = resolveActiveSeasonDungeonSlugs({
+  const blizzardSeasonDungeonSlugs = readBlizzardSeasonDungeonSlugsFromMetadata(season.metadata);
+  const activeSeasonDungeonPool = resolveActiveSeasonDungeonPool({
     expectedDungeonCount,
-    wclDungeonSlugs: wclDungeonAggregates.map((d) => d.dungeonSlug),
     seasonDungeonSlugs: seasonDungeonRows.map((row) => canonicalDungeonKey(row.dungeon.slug)),
+    blizzardSeasonDungeonSlugs,
+    wclDungeonSlugs: wclDungeonAggregates.map((d) => d.dungeonSlug),
   });
+  const activeDungeonSlugs = activeSeasonDungeonPool.canonicalSlugs;
   const selectionFilter =
-    activeDungeonSlugs.length >= expectedDungeonCount
-      ? { allowedDungeonSlugs: activeDungeonSlugs }
-      : {};
+    activeDungeonSlugs.length > 0 ? { allowedDungeonSlugs: activeDungeonSlugs } : {};
   let scoringRunSelection = selectScoringRuns(scoringCandidates, {
     seasonSlug: season.slug,
     expectedDungeonCount,
@@ -905,6 +906,8 @@ export async function runRefreshPipeline(
         expectedDungeonCount,
         selectedRunCount: scoringRunSelection.selectedRuns.length,
         activeDungeonSlugs,
+        activeSeasonPoolSource: activeSeasonDungeonPool.source,
+        wclOffPoolSlugs: activeSeasonDungeonPool.wclOffPoolSlugs,
         candidateDungeonCount: new Set(scoringCandidates.map((c) => c.dungeonSlug)).size,
       },
       "refresh pipeline: scoring run selection count mismatch after active-season filter",

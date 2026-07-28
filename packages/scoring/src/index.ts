@@ -79,9 +79,13 @@ export {
 } from "./selection/scoring-run-selection.js";
 export {
   resolveActiveSeasonDungeonSlugs,
+  resolveActiveSeasonDungeonPool,
   isDungeonInActiveSeasonPool,
   normalizeDungeonSlug,
+  readBlizzardSeasonDungeonSlugsFromMetadata,
   type ResolveActiveSeasonDungeonSlugsInput,
+  type ResolvedActiveSeasonDungeonPool,
+  type ActiveSeasonDungeonPoolSource,
 } from "./selection/active-season-dungeons.js";
 export {
   toContractScoringRunSelection,
