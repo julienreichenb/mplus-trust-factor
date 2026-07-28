@@ -1,8 +1,12 @@
 import type { ScoringMechanicCatalog } from "../scoring-mechanic-types.js";
 
-/** Bounded Wave 4 scoring-mechanic seed — avoidability only via catalog. */
+/**
+ * Wave 4 scoring-mechanic seed expanded by Agent 23 (Survival v3).
+ * Unknown abilities remain non-avoidable. New Midnight-only dungeons still sparse —
+ * see doc/agents/23-survival-v3-handoff.md catalog gaps.
+ */
 export const SEED_SCORING_MECHANIC_CATALOG: ScoringMechanicCatalog = {
-  catalogVersion: "scoring-mechanic-catalog-v1-seed",
+  catalogVersion: "scoring-mechanic-catalog-v1-survival-agent23",
   seasonSlug: "season-midnight-s1",
   rules: [
     {
@@ -25,6 +29,8 @@ export const SEED_SCORING_MECHANIC_CATALOG: ScoringMechanicCatalog = {
       categories: ["tank_buster"],
       notes: "Synthetic mandatory damage — must never count as avoidable",
     },
+
+    // ── Algeth'ar Academy ──────────────────────────────────────────────────
     {
       id: "seed-aa-arcane-rain",
       seasonSlug: "season-midnight-s1",
@@ -33,8 +39,40 @@ export const SEED_SCORING_MECHANIC_CATALOG: ScoringMechanicCatalog = {
       avoidable: true,
       severity: "MEDIUM",
       categories: ["ground_effect"],
-      notes: "Bounded live seed — Algeth'ar Arcane Rain style ground",
+      notes: "Arcane Rain / ground AoE",
     },
+    {
+      id: "seed-aa-detonation-seeds",
+      seasonSlug: "season-midnight-s1",
+      dungeonSlug: "algethar-academy",
+      abilityId: 374352,
+      avoidable: true,
+      severity: "HIGH",
+      categories: ["ground_effect"],
+      notes: "Energy Bomb / detonation seed style ground",
+    },
+    {
+      id: "seed-aa-raging-dive",
+      seasonSlug: "season-midnight-s1",
+      dungeonSlug: "algethar-academy",
+      abilityId: 388923,
+      avoidable: true,
+      severity: "MEDIUM",
+      categories: ["frontal", "dodge"],
+      notes: "Surging Ruination style avoidable",
+    },
+    {
+      id: "seed-aa-mandatory-melee",
+      seasonSlug: "season-midnight-s1",
+      dungeonSlug: "algethar-academy",
+      abilityId: 377004,
+      avoidable: false,
+      severity: "MEDIUM",
+      categories: ["mandatory"],
+      notes: "Deafening Screech — classified mandatory when catalogued",
+    },
+
+    // ── Skyreach ───────────────────────────────────────────────────────────
     {
       id: "seed-skyreach-solar-flare",
       seasonSlug: "season-midnight-s1",
@@ -43,8 +81,30 @@ export const SEED_SCORING_MECHANIC_CATALOG: ScoringMechanicCatalog = {
       avoidable: true,
       severity: "HIGH",
       categories: ["ground_effect"],
-      notes: "Bounded live seed — Skyreach Solar Flare",
+      notes: "Solar Flare",
     },
+    {
+      id: "seed-skyreach-spinning-blade",
+      seasonSlug: "season-midnight-s1",
+      dungeonSlug: "skyreach",
+      abilityId: 153139,
+      avoidable: true,
+      severity: "MEDIUM",
+      categories: ["ground_effect"],
+      notes: "Spinning Blade",
+    },
+    {
+      id: "seed-skyreach-quills",
+      seasonSlug: "season-midnight-s1",
+      dungeonSlug: "skyreach",
+      abilityId: 159382,
+      avoidable: true,
+      severity: "MEDIUM",
+      categories: ["ground_effect"],
+      notes: "Quills",
+    },
+
+    // ── Seat of the Triumvirate ────────────────────────────────────────────
     {
       id: "seed-sot-void-consumption",
       seasonSlug: "season-midnight-s1",
@@ -53,7 +113,103 @@ export const SEED_SCORING_MECHANIC_CATALOG: ScoringMechanicCatalog = {
       avoidable: true,
       severity: "HIGH",
       categories: ["ground_effect"],
-      notes: "Bounded live seed — Seat void ground",
+      notes: "Void Consumption",
+    },
+    {
+      id: "seed-sot-darkened-dreams",
+      seasonSlug: "season-midnight-s1",
+      dungeonSlug: "seat-of-the-triumvirate",
+      abilityId: 245510,
+      avoidable: true,
+      severity: "HIGH",
+      categories: ["ground_effect"],
+      notes: "Corrupting Nova / darkened ground",
+    },
+    {
+      id: "seed-sot-void-lashing",
+      seasonSlug: "season-midnight-s1",
+      dungeonSlug: "seat-of-the-triumvirate",
+      abilityId: 244915,
+      avoidable: true,
+      severity: "MEDIUM",
+      categories: ["dodge"],
+      notes: "Void Lashing",
+    },
+
+    // ── Pit of Saron ───────────────────────────────────────────────────────
+    {
+      id: "seed-pos-toxic-waste",
+      seasonSlug: "season-midnight-s1",
+      dungeonSlug: "pit-of-saron",
+      abilityId: 69024,
+      avoidable: true,
+      severity: "MEDIUM",
+      categories: ["ground_effect"],
+      notes: "Toxic Waste",
+    },
+    {
+      id: "seed-pos-explosive-barrage",
+      seasonSlug: "season-midnight-s1",
+      dungeonSlug: "pit-of-saron",
+      abilityId: 70281,
+      avoidable: true,
+      severity: "HIGH",
+      categories: ["ground_effect"],
+      notes: "Explosive Barrage style",
+    },
+
+    // ── Magisters' Terrace ─────────────────────────────────────────────────
+    {
+      id: "seed-mt-arcane-sphere",
+      seasonSlug: "season-midnight-s1",
+      dungeonSlug: "magisters-terrace",
+      abilityId: 44257,
+      avoidable: true,
+      severity: "MEDIUM",
+      categories: ["ground_effect"],
+      notes: "Arcane Sphere",
+    },
+    {
+      id: "seed-mt-gravity-lapse",
+      seasonSlug: "season-midnight-s1",
+      dungeonSlug: "magisters-terrace",
+      abilityId: 44226,
+      avoidable: true,
+      severity: "HIGH",
+      categories: ["displacement"],
+      notes: "Gravity Lapse related avoidable",
+    },
+
+    // ── Midnight-original dungeons (sparse — expand after live ID harvest) ─
+    {
+      id: "seed-maisara-placeholder-avoidable",
+      seasonSlug: "season-midnight-s1",
+      dungeonSlug: "maisara-caverns",
+      abilityId: 400101,
+      avoidable: true,
+      severity: "MEDIUM",
+      categories: ["ground_effect"],
+      notes: "Placeholder seed ID — replace with live WCL ability IDs",
+    },
+    {
+      id: "seed-xenas-placeholder-avoidable",
+      seasonSlug: "season-midnight-s1",
+      dungeonSlug: "nexus-point-xenas",
+      abilityId: 400102,
+      avoidable: true,
+      severity: "MEDIUM",
+      categories: ["ground_effect"],
+      notes: "Placeholder seed ID — replace with live WCL ability IDs",
+    },
+    {
+      id: "seed-windrunner-placeholder-avoidable",
+      seasonSlug: "season-midnight-s1",
+      dungeonSlug: "windrunner-spire",
+      abilityId: 400103,
+      avoidable: true,
+      severity: "MEDIUM",
+      categories: ["ground_effect"],
+      notes: "Placeholder seed ID — replace with live WCL ability IDs",
     },
   ],
 };

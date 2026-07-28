@@ -74,6 +74,10 @@ export type {
   RawInterruptLike,
 } from "./raw-facts.js";
 export { extractSurvivalCounts, extractUtilityCounts } from "./raw-facts.js";
+export {
+  hasAbilityCategory,
+  estimateAvailableDefensiveUses,
+} from "./defensive-capacity.js";
 
 import type { MechanicRule } from "./types.js";
 import { validateMechanicRule } from "./types.js";

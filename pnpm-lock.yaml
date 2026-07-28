@@ -324,6 +324,9 @@ importers:
       '@mplus/contracts':
         specifier: workspace:*
         version: link:../../contracts
+      '@mplus/database':
+        specifier: workspace:*
+        version: link:../../database
       '@mplus/domain':
         specifier: workspace:*
         version: link:../../domain

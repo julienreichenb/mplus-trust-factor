@@ -74,9 +74,18 @@ export function buildRunCombatFacts(input: BuildCombatFactsInput): RunCombatFact
   const combatantRows = mapEvents(input.eventsByType.CombatantInfo, (e) => e);
   if (combatantRows.length) {
     const row = combatantRows[0]!;
+    const maxHitPointsRaw =
+      typeof row.maxHitPoints === "number"
+        ? row.maxHitPoints
+        : typeof row.maxHitpoints === "number"
+          ? row.maxHitpoints
+          : typeof row.hitPoints === "number"
+            ? row.hitPoints
+            : null;
     combatantInfo = {
       sourceId: targetSourceId,
       specId: typeof row.specID === "number" ? row.specID : null,
+      maxHitPoints: maxHitPointsRaw,
       gear: row.gear ?? null,
       talents: row.talents ?? null,
       artifactTraits: row.artifactTraits ?? null,

@@ -36,10 +36,7 @@ import {
   type EightRunCombatAnalysis,
 } from "./smoke/eight-run-facts.js";
 import type { ExternalRunMatchInput, RunMatchResult, WclRunCandidate } from "./types.js";
-import {
-  MIDNIGHT_S1_SEASON,
-  resolveSeasonDungeonSet,
-} from "@mplus/mechanics";
+import { MIDNIGHT_S1_SEASON, resolveSeasonDungeonSet } from "@mplus/mechanics";
 import { selectScoringRuns, type SelectableScoringRun } from "@mplus/scoring";
 function envFlag(value: string | undefined, defaultValue = false): boolean {
   if (value === undefined || value === "") return defaultValue;
@@ -69,13 +66,15 @@ function parseArgs(argv: string[]): {
     i += 1;
   }
 
-  const region = String(flags.region ?? "").trim().toUpperCase();
-  const realm = String(flags.realm ?? "").trim().toLowerCase();
+  const region = String(flags.region ?? "")
+    .trim()
+    .toUpperCase();
+  const realm = String(flags.realm ?? "")
+    .trim()
+    .toLowerCase();
   const name = String(flags.name ?? "").trim();
   if (!region || !realm || !name) {
-    throw new Error(
-      "Usage: --region <EU|US|KR|TW> --realm <slug> --name <exact-name> [--deep]",
-    );
+    throw new Error("Usage: --region <EU|US|KR|TW> --realm <slug> --name <exact-name> [--deep]");
   }
   if (!["EU", "US", "KR", "TW"].includes(region)) {
     throw new Error(`Unsupported region "${region}"`);
@@ -184,9 +183,7 @@ type RaiderIoRunHint = ExternalRunMatchInput & {
   timed: boolean | null;
 };
 
-async function fetchRaiderIoRunHints(
-  identity: CharacterIdentityInput,
-): Promise<RaiderIoRunHint[]> {
+async function fetchRaiderIoRunHints(identity: CharacterIdentityInput): Promise<RaiderIoRunHint[]> {
   const region = String(identity.region).toLowerCase();
   const url = new URL("https://raider.io/api/v1/characters/profile");
   url.searchParams.set("region", region);
@@ -245,8 +242,7 @@ async function fetchRaiderIoRunHints(
       durationMs: run.clear_time_ms ?? 0,
       participants: [{ realmSlug: identity.realmSlug, name: identity.name }],
       score: typeof run.score === "number" ? run.score : null,
-      timed:
-        typeof run.num_keystone_upgrades === "number" ? run.num_keystone_upgrades > 0 : null,
+      timed: typeof run.num_keystone_upgrades === "number" ? run.num_keystone_upgrades > 0 : null,
     });
     if (out.length >= 24) break;
   }
@@ -332,11 +328,7 @@ async function probeRankingsDiagnostics(
     }
 
     const payloadKind =
-      zoneRankings == null
-        ? "null"
-        : Array.isArray(zoneRankings)
-          ? "array"
-          : typeof zoneRankings;
+      zoneRankings == null ? "null" : Array.isArray(zoneRankings) ? "array" : typeof zoneRankings;
     const payloadTopKeys =
       zoneRankings && typeof zoneRankings === "object" && !Array.isArray(zoneRankings)
         ? Object.keys(zoneRankings as object).slice(0, 20)
@@ -377,9 +369,9 @@ async function probeRankingsDiagnostics(
       firstRankingNestedKeys,
       hasReportFightFields: Boolean(
         first &&
-          typeof first === "object" &&
-          (("report" in (first as object) && "fightID" in (first as object)) ||
-            ("fightId" in (first as object) && "reportCode" in (first as object))),
+        typeof first === "object" &&
+        (("report" in (first as object) && "fightID" in (first as object)) ||
+          ("fightId" in (first as object) && "reportCode" in (first as object))),
       ),
     };
   } catch (error) {
@@ -470,26 +462,28 @@ async function probeRecentReportDetails(
         variables: { code },
         region: identity.region,
       });
-      const report = (result.response.data as {
-        reportData?: {
-          report?: {
-            startTime?: number;
-            endTime?: number;
-            fights?: Array<{
-              id: number;
-              friendlyPlayers?: Array<number | { name?: string; server?: string; id?: number }>;
-            }>;
-            masterData?: {
-              actors?: Array<{
-                id?: number;
-                name?: string;
-                server?: string | null;
-                type?: string;
+      const report = (
+        result.response.data as {
+          reportData?: {
+            report?: {
+              startTime?: number;
+              endTime?: number;
+              fights?: Array<{
+                id: number;
+                friendlyPlayers?: Array<number | { name?: string; server?: string; id?: number }>;
               }>;
-            };
-          } | null;
-        };
-      })?.reportData?.report;
+              masterData?: {
+                actors?: Array<{
+                  id?: number;
+                  name?: string;
+                  server?: string | null;
+                  type?: string;
+                }>;
+              };
+            } | null;
+          };
+        }
+      )?.reportData?.report;
 
       const actors = report?.masterData?.actors ?? [];
       const targetName = identity.name.toLowerCase();
@@ -638,7 +632,7 @@ type PrismaSmokeClient = {
 
 async function loadCreatePrismaClient(): Promise<(url?: string) => PrismaSmokeClient> {
   try {
-    const mod = (await import("@mplus/database")) as {
+    const mod = (await import("@mplus/database")) as unknown as {
       createPrismaClient: (url?: string) => PrismaSmokeClient;
     };
     return mod.createPrismaClient;
@@ -651,8 +645,7 @@ async function loadCreatePrismaClient(): Promise<(url?: string) => PrismaSmokeCl
   const srcEntry = resolvePath(root, "packages/database/src/index.ts");
 
   if (existsSync(distEntry)) {
-    const requireFromDb = createRequire(resolvePath(root, "packages/database/package.json"));
-    const mod = requireFromDb("./dist/index.js") as {
+    const mod = (await import(pathToFileURL(srcEntry).href)) as unknown as {
       createPrismaClient: (url?: string) => PrismaSmokeClient;
     };
     return mod.createPrismaClient;
@@ -698,40 +691,40 @@ async function readPersistenceDiagnostics(identity: CharacterIdentityInput): Pro
 
       const [providerState, observations, canonicalRuns, providerSourceReferenceCount] =
         await Promise.all([
-        prisma.characterProviderState.findUnique({
-          where: {
-            characterId_provider: { characterId: character.id, provider: "WARCRAFT_LOGS" },
-          },
-        }),
-        prisma.metricObservation.findMany({
-          where: { characterId: character.id },
-          orderBy: { observedAt: "desc" },
-          take: 50,
-          select: {
-            sourceProvider: true,
-            confidence: true,
-            metricDefinition: { select: { key: true } },
-          },
-        }),
-        prisma.mythicRun.findMany({
-          where: {
-            participants: {
-              some: { characterId: character.id, isTargetCharacter: true },
+          prisma.characterProviderState.findUnique({
+            where: {
+              characterId_provider: { characterId: character.id, provider: "WARCRAFT_LOGS" },
             },
-          },
-          select: { canonicalFingerprint: true },
-          distinct: ["canonicalFingerprint"],
-        }),
-        prisma.runSourceReference.count({
-          where: {
-            run: {
+          }),
+          prisma.metricObservation.findMany({
+            where: { characterId: character.id },
+            orderBy: { observedAt: "desc" },
+            take: 50,
+            select: {
+              sourceProvider: true,
+              confidence: true,
+              metricDefinition: { select: { key: true } },
+            },
+          }),
+          prisma.mythicRun.findMany({
+            where: {
               participants: {
                 some: { characterId: character.id, isTargetCharacter: true },
               },
             },
-          },
-        }),
-      ]);
+            select: { canonicalFingerprint: true },
+            distinct: ["canonicalFingerprint"],
+          }),
+          prisma.runSourceReference.count({
+            where: {
+              run: {
+                participants: {
+                  some: { characterId: character.id, isTargetCharacter: true },
+                },
+              },
+            },
+          }),
+        ]);
 
       const wclObservations = observations.filter((o) => o.sourceProvider === "WARCRAFT_LOGS");
       const excludedRaw = providerState?.excludedObservations;
@@ -778,14 +771,15 @@ async function readPersistenceDiagnostics(identity: CharacterIdentityInput): Pro
         uniqueCanonicalFingerprintCount,
         providerSourceReferenceCount,
         matchedPairCount:
-          typeof (providerState?.metadata as { matchedPairCount?: unknown } | null)?.matchedPairCount ===
-          "number"
+          typeof (providerState?.metadata as { matchedPairCount?: unknown } | null)
+            ?.matchedPairCount === "number"
             ? (providerState?.metadata as { matchedPairCount: number }).matchedPairCount
             : null,
         mergedCanonicalRunCount:
           typeof (providerState?.metadata as { mergedCanonicalRunCount?: unknown } | null)
             ?.mergedCanonicalRunCount === "number"
-            ? (providerState?.metadata as { mergedCanonicalRunCount: number }).mergedCanonicalRunCount
+            ? (providerState?.metadata as { mergedCanonicalRunCount: number })
+                .mergedCanonicalRunCount
             : uniqueCanonicalFingerprintCount,
         unresolvedCrossProviderMatches:
           typeof (providerState?.metadata as { unresolvedCrossProviderMatches?: unknown } | null)
@@ -872,7 +866,11 @@ async function runDeep(
       },
       fatal: { stage: "discoverCharacter", error: discoveryError, shapeHint },
       workerPath: {
-        requiredCalls: ["discoverCharacterSummary", "discoverCharacterRuns", "getReportFightDetails"],
+        requiredCalls: [
+          "discoverCharacterSummary",
+          "discoverCharacterRuns",
+          "getReportFightDetails",
+        ],
         missingFromRefreshPipeline: missingWorkerCalls,
       },
       rankings: {
@@ -887,7 +885,9 @@ async function runDeep(
   }
 
   const blizzardRuns = filterActiveExternalRuns(await fetchBlizzardSelectedRuns(identity));
-  const rioRuns = filterActiveExternalRuns(await fetchRaiderIoRunHints(identity)) as RaiderIoRunHint[];
+  const rioRuns = filterActiveExternalRuns(
+    await fetchRaiderIoRunHints(identity),
+  ) as RaiderIoRunHint[];
   const selectedExternals = [...blizzardRuns, ...rioRuns].slice(0, 12);
 
   const runsResult = await provider.discoverCharacterRuns(identity, {
@@ -924,32 +924,32 @@ async function runDeep(
               const dungeonUnknown =
                 run.dungeonSlug === "unknown" || isDungeonSlugUnknown(run.dungeonSlug);
               return {
-              reportCode: run.sources[0]?.reportCode ?? run.id,
-              fightId: run.sources[0]?.fightId ?? 0,
-              encounterId: 0,
-              zoneId: null,
-              dungeonSlug: dungeonUnknown ? null : run.dungeonSlug,
-              seasonSlug: run.seasonSlug === "unknown" ? null : run.seasonSlug,
-              keyLevel: run.keyLevel > 0 ? run.keyLevel : null,
-              score: run.scoreValue,
-              startTimeMs: Date.parse(run.completedAt) - (run.durationMs || 0),
-              completedAt: run.completedAt,
-              durationMs: run.durationMs,
-              timed: run.timed,
-              selectionTags: [] as Array<"LATEST" | "HIGHEST">,
-              source: "recentReports" as const,
-              matchConfidence: null,
-              targetActorId: null,
-              incompleteness: {
-                dungeonUnknown,
-                seasonUnknown: run.seasonSlug === "unknown",
-                timedUnknown: false,
-                keyLevelUnknown: run.keyLevel <= 0,
-                rosterIncomplete: true,
-                fightUnknown: false,
-              },
-              warnings: [],
-            };
+                reportCode: run.sources[0]?.reportCode ?? run.id,
+                fightId: run.sources[0]?.fightId ?? 0,
+                encounterId: 0,
+                zoneId: null,
+                dungeonSlug: dungeonUnknown ? null : run.dungeonSlug,
+                seasonSlug: run.seasonSlug === "unknown" ? null : run.seasonSlug,
+                keyLevel: run.keyLevel > 0 ? run.keyLevel : null,
+                score: run.scoreValue,
+                startTimeMs: Date.parse(run.completedAt) - (run.durationMs || 0),
+                completedAt: run.completedAt,
+                durationMs: run.durationMs,
+                timed: run.timed,
+                selectionTags: [] as Array<"LATEST" | "HIGHEST">,
+                source: "recentReports" as const,
+                matchConfidence: null,
+                targetActorId: null,
+                incompleteness: {
+                  dungeonUnknown,
+                  seasonUnknown: run.seasonSlug === "unknown",
+                  timedUnknown: false,
+                  keyLevelUnknown: run.keyLevel <= 0,
+                  rosterIncomplete: true,
+                  fightUnknown: false,
+                },
+                warnings: [],
+              };
             }),
           )
       : discovery.candidates;
@@ -1086,8 +1086,7 @@ async function runDeep(
     analysis = {
       skipped: true,
       reason: "no_candidate_with_known_fight_id",
-      hint:
-        "discoverCharacterRuns filters fightUnknown stubs; empty zoneRankings leaves only recentReports stubs and blocks getReportFightDetails.",
+      hint: "discoverCharacterRuns filters fightUnknown stubs; empty zoneRankings leaves only recentReports stubs and blocks getReportFightDetails.",
     };
   }
 
@@ -1186,7 +1185,9 @@ async function runDeep(
   try {
     const rate = await provider.fetchRateLimit(ctx);
     if (rate && typeof rate === "object" && "pointsSpentThisHour" in rate) {
-      eightRunPointCost = Number((rate as { pointsSpentThisHour?: number }).pointsSpentThisHour ?? 0);
+      eightRunPointCost = Number(
+        (rate as { pointsSpentThisHour?: number }).pointsSpentThisHour ?? 0,
+      );
     }
   } catch {
     /* optional */
@@ -1254,9 +1255,7 @@ async function runDeep(
       truncatedCategoriesObserved.push(...details.combatFacts.limitations.truncatedPages);
       const ranking = discovery.rankings.find(
         (r) =>
-          r.reportCode === reportCode &&
-          r.fightId === fightId &&
-          typeof r.percentile === "number",
+          r.reportCode === reportCode && r.fightId === fightId && typeof r.percentile === "number",
       );
       eightRunAnalyses.push({
         selectable,
@@ -1321,11 +1320,9 @@ async function runDeep(
         ? {
             querySucceeded: true,
             actorPresent: facts.targetSourceId > 0,
-            eventsReturned:
-              facts.casts.length + facts.damageTaken.length + facts.deaths.length > 0,
+            eventsReturned: facts.casts.length + facts.damageTaken.length + facts.deaths.length > 0,
             metricExtractable:
-              facts.targetSourceId > 0 &&
-              (facts.casts.length > 0 || facts.damageTaken.length > 0),
+              facts.targetSourceId > 0 && (facts.casts.length > 0 || facts.damageTaken.length > 0),
             castCount: facts.casts.length,
             damageTakenCount: facts.damageTaken.length,
             petAttributedSourceCount: [...facts.actorMap.byId.values()].filter(
@@ -1351,8 +1348,7 @@ async function runDeep(
     workerPath: {
       requiredCalls: ["discoverCharacterSummary", "discoverCharacterRuns", "getReportFightDetails"],
       missingFromRefreshPipeline: missingWorkerCalls,
-      note:
-        "Worker enrichWarcraftLogs runs after Blizzard/Raider.IO, passes hydration hints, then discoverCharacterRuns hydrates fightUnknown stubs before filtering.",
+      note: "Worker enrichWarcraftLogs runs after Blizzard/Raider.IO, passes hydration hints, then discoverCharacterRuns hydrates fightUnknown stubs before filtering.",
     },
     characterDiscovery: {
       characterId: discovery.summary.wclCharacterId,
@@ -1432,45 +1428,45 @@ async function runDeep(
           (s) => s.dungeonSlug === row.dungeonSlug,
         );
         return {
-        dungeonSlug: row.dungeonSlug,
-        canonicalRunFingerprint: row.canonicalRunFingerprint,
-        keyLevel: row.keyLevel,
-        durationMs: row.durationMs,
-        timed: row.timed,
-        selectionReason: row.selectionReason,
-        wclReportFingerprint: row.wclReportFingerprint ?? selected?.wclReportFingerprint ?? null,
-        wclFightId: row.wclFightId ?? selected?.wclFightId ?? null,
-        detailAvailable: row.detailAvailable,
-        combatCoverageState: row.detailAvailable
-          ? "AVAILABLE"
-          : (selected?.combatCoverageState ?? "UNAVAILABLE"),
-        matchConfidence: selected?.matchConfidence ?? null,
-        matchEvidence: selected?.matchEvidence ?? null,
-        rejectionReasons: row.rejectionReasons,
-        missingDataReasons: row.missingDataReasons,
-        parsePercentile: row.performance.parsePercentile,
-        keyDifficultyInputs: row.performance.keyDifficultyInputs,
-        deaths: row.survival.deaths,
-        totalDamageTaken: row.survival.totalDamageTaken,
-        avoidableDamageTaken: row.survival.avoidableDamageTaken,
-        maxHealth: row.survival.maxHealth,
-        personalDefensiveCasts: row.survival.personalDefensiveCasts,
-        selfHealEffective: row.survival.selfHealEffective,
-        selfHealOverheal: row.survival.selfHealOverheal,
-        healthPotionCasts: row.survival.healthPotionCasts,
-        kickCasts: row.utility.kickCasts,
-        successfulInterrupts: row.utility.successfulInterrupts,
-        effectiveKickCooldownMs: row.utility.effectiveKickCooldownMs,
-        distinctCcTargets: row.utility.distinctCcTargets,
-        groupSupportCasts: row.utility.groupSupportCasts,
-        defensiveDispels: row.utility.defensiveDispels,
-        offensiveDispels: row.utility.offensiveDispels,
-        fieldStatus: {
-          survival: row.survival.fieldStatus,
-          utility: row.utility.fieldStatus,
-          performance: row.performance.fieldStatus,
-        },
-      };
+          dungeonSlug: row.dungeonSlug,
+          canonicalRunFingerprint: row.canonicalRunFingerprint,
+          keyLevel: row.keyLevel,
+          durationMs: row.durationMs,
+          timed: row.timed,
+          selectionReason: row.selectionReason,
+          wclReportFingerprint: row.wclReportFingerprint ?? selected?.wclReportFingerprint ?? null,
+          wclFightId: row.wclFightId ?? selected?.wclFightId ?? null,
+          detailAvailable: row.detailAvailable,
+          combatCoverageState: row.detailAvailable
+            ? "AVAILABLE"
+            : (selected?.combatCoverageState ?? "UNAVAILABLE"),
+          matchConfidence: selected?.matchConfidence ?? null,
+          matchEvidence: selected?.matchEvidence ?? null,
+          rejectionReasons: row.rejectionReasons,
+          missingDataReasons: row.missingDataReasons,
+          parsePercentile: row.performance.parsePercentile,
+          keyDifficultyInputs: row.performance.keyDifficultyInputs,
+          deaths: row.survival.deaths,
+          totalDamageTaken: row.survival.totalDamageTaken,
+          avoidableDamageTaken: row.survival.avoidableDamageTaken,
+          maxHealth: row.survival.maxHealth,
+          personalDefensiveCasts: row.survival.personalDefensiveCasts,
+          selfHealEffective: row.survival.selfHealEffective,
+          selfHealOverheal: row.survival.selfHealOverheal,
+          healthPotionCasts: row.survival.healthPotionCasts,
+          kickCasts: row.utility.kickCasts,
+          successfulInterrupts: row.utility.successfulInterrupts,
+          effectiveKickCooldownMs: row.utility.effectiveKickCooldownMs,
+          distinctCcTargets: row.utility.distinctCcTargets,
+          groupSupportCasts: row.utility.groupSupportCasts,
+          defensiveDispels: row.utility.defensiveDispels,
+          offensiveDispels: row.utility.offensiveDispels,
+          fieldStatus: {
+            survival: row.survival.fieldStatus,
+            utility: row.utility.fieldStatus,
+            performance: row.performance.fieldStatus,
+          },
+        };
       }),
     },
     persistence,

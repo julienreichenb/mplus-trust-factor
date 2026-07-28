@@ -94,6 +94,34 @@ export type {
   HistoricalSeasonAggregateInput,
   PerformanceRunRefInput,
 } from "./performance/types.js";
+export {
+  computeSurvivalDimension,
+  computeSurvivalConfidence,
+  resolveSurvivalMetricWeights,
+  scoreDeaths,
+  scoreAvoidableDamage,
+  scorePersonalDefensives,
+  scoreSelfHealAndPotion,
+  creditDefensiveUses,
+  computeAvoidableDamageRate,
+  explainSurvivalRun,
+} from "./survival/aggregate.js";
+export {
+  SURVIVAL_V3_WEIGHTS,
+  SURVIVAL_V3_FORMULA_VERSION,
+  SURVIVAL_V3_METRIC_KEYS,
+  DEATH_SOFT_CAP,
+  DEFENSIVE_CREDIT_CAP_RATIO,
+} from "./survival/types.js";
+export type {
+  SurvivalSummaryDTO,
+  ComputeSurvivalResult,
+  SurvivalRunInput,
+  SurvivalRunExplanation,
+  SurvivalContributorKey,
+  SurvivalContributorScore,
+  ComputeSurvivalInput,
+} from "./survival/types.js";
 export { calculateScore, calculateScoreEngine } from "./calculate.js";
 export type { CalculateScoreInput } from "./calculate.js";
 

@@ -1,6 +1,7 @@
 import { describe, expect, it, beforeAll, afterAll } from "vitest";
 import { loadEnv, resetEnvCache } from "@mplus/config";
 import { buildApp } from "../../apps/api/src/app.js";
+import { createApiContainer } from "../../apps/api/src/container.js";
 import type { FastifyInstance } from "fastify";
 import {
   loadFixtureManifest,
@@ -15,8 +16,7 @@ import { loadOpenApiSpec, assertResponseMatchesOpenApiSchema } from "@mplus/test
 
 const baseEnv = {
   DATABASE_URL:
-    process.env.DATABASE_URL ??
-    "postgresql://mplus:mplus@localhost:5433/mplus_trust?schema=public",
+    process.env.DATABASE_URL ?? "postgresql://mplus:mplus@localhost:5433/mplus_trust?schema=public",
   REDIS_URL: process.env.REDIS_URL ?? "redis://localhost:6379",
   ADMIN_API_KEY: "test-admin-key",
   SESSION_SECRET: "test-session-secret-at-least-32-chars",
@@ -62,7 +62,8 @@ describe("contract: OpenAPI responses", () => {
   beforeAll(async () => {
     resetEnvCache();
     const env = loadEnv({ ...process.env, ...baseEnv });
-    app = await buildApp({ env });
+    const container = createApiContainer(env, { skipQueues: true });
+    app = await buildApp({ env, container });
     await app.ready();
     openApi = app.swagger() as Record<string, unknown>;
   });
@@ -117,7 +118,8 @@ describe("contract: committed OpenAPI snapshot", () => {
   it("live swagger matches committed snapshot paths", async () => {
     resetEnvCache();
     const env = loadEnv({ ...process.env, ...baseEnv });
-    const app = await buildApp({ env });
+    const container = createApiContainer(env, { skipQueues: true });
+    const app = await buildApp({ env, container });
     await app.ready();
     const live = app.swagger() as Record<string, unknown>;
     const snapshot = loadOpenApiSpec();

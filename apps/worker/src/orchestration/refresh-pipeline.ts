@@ -41,6 +41,7 @@ import {
 import { fingerprintObservations } from "./fingerprint.js";
 import { buildMythicRatingObservation } from "./performance-metrics.js";
 import { buildWclPerformanceObservations } from "./wcl-performance-metrics.js";
+import { buildSurvivalObservations } from "./survival-metrics.js";
 import { recordProviderResult } from "./provider-recording.js";
 import type { WclDungeonPerformanceAggregateDTO } from "@mplus/contracts";
 import {
@@ -908,10 +909,10 @@ export async function runRefreshPipeline(
   });
 
   let scoringAnalysisDiagnostics: ScoringRunAnalysisDiagnostics | null = null;
+  let scoringAnalysisRows: ScoringRunAnalysisRow[] = [];
   const combatFactsList: RunCombatFacts[] = [];
   const v3RawObservations: MetricObservationDTO[] = [];
   const selectedRunIds = new Set<string>();
-  let scoringAnalysisRows: ScoringRunAnalysisRow[] = [];
 
   if (!disabledProviders.has("warcraftlogs") && scoringCandidates.length > 0) {
     const analysis = await analyzeScoringRuns({
@@ -1166,6 +1167,32 @@ export async function runRefreshPipeline(
     cutoffs: seasonCutoffs,
   });
   observations.push(...wclPerformance.observations);
+
+  const survivalV3 = buildSurvivalObservations({
+    runs: scoringAnalysisRows.map((row) => ({
+      dungeonSlug: row.dungeonSlug,
+      canonicalRunId: row.selected.canonicalRunId,
+      keyLevel: row.selected.keyLevel,
+      durationMs: row.selected.durationMs,
+      detailAvailable: row.detailAvailable,
+      survival: row.survivalFacts,
+    })),
+    expectedDungeonCount: season.dungeonCount > 0 ? season.dungeonCount : 8,
+    selectedRunWclCoverage:
+      selectedRunsSize > 0 ? combatFactsList.length / selectedRunsSize : 0,
+    classSlug: blizzardProfile?.classSlug ?? raiderIoProfile?.classSlug ?? null,
+    specSlug,
+    hasResolvedSpecAndRole: Boolean(specSlug && roleSlug),
+    logFreshness:
+      wclVisibility === "PUBLIC" &&
+      (wclDataState === "MATCHED_COMBAT_LOGS" ||
+        wclDataState === "RANKINGS_ONLY" ||
+        wclDataState === "NO_MATCHED_RUN")
+        ? 0.85
+        : 0.4,
+    observedAt,
+  });
+  observations.push(...survivalV3.observations);
 
   // Keep Raider.IO score as a separate non-product observation (never fed as product score).
   const rioScore = raiderIoProfile?.currentSeason?.scores.all ?? null;
