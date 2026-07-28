@@ -4,7 +4,7 @@ import type {
   Grade,
   RedFlagDTO,
 } from "../api/types";
-import { DIMENSION_LABELS, RADAR_DIMENSIONS, type RadarDimension } from "./format";
+import { DIMENSION_LABELS, resolveRadarDimensions, type RadarDimension } from "./format";
 
 export type TrustGrade = Grade;
 
@@ -158,8 +158,8 @@ export function explanationSummary(score: CharacterProfileView["score"]): string
 
 export { mapEquipmentSlots } from "./equipmentViewModel";
 
-export function dimensionRows(dimensions: DimensionScoreDTO[]) {
-  return RADAR_DIMENSIONS.map((dim) => {
+export function dimensionRows(dimensions: DimensionScoreDTO[], modelVersion?: number | null) {
+  return resolveRadarDimensions(modelVersion).map((dim) => {
     const found = dimensions.find((d) => d.dimension === dim);
     return {
       dimension: dim,

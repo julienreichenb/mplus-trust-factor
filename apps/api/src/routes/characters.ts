@@ -12,6 +12,7 @@ import {
   runSummarySchema,
   scoreSnapshotSchema,
   searchCharacterResponseSchema,
+  characterAutocompleteResponseSchema,
 } from "./schemas.js";
 
 interface IdentityParams {
@@ -33,6 +34,41 @@ export function buildCharacterRoutes(container: ApiContainer): FastifyPluginAsyn
   const service = new CharacterService(container);
 
   return async (app) => {
+    app.get(
+      "/api/v1/characters/autocomplete",
+      {
+        config: rateLimitConfig(container, 120),
+        schema: {
+          tags: ["characters"],
+          querystring: {
+            type: "object",
+            properties: {
+              region: { type: "string", minLength: 1, maxLength: 8 },
+              query: { type: "string", minLength: 3, maxLength: 96 },
+              q: { type: "string", minLength: 3, maxLength: 96 },
+            },
+            required: ["region"],
+          },
+          response: {
+            200: characterAutocompleteResponseSchema,
+            400: errorResponseSchema,
+          },
+        },
+      },
+      async (request) => {
+        const { region, query, q } = request.query as { region: string; query?: string; q?: string };
+        const search = (query ?? q ?? "").trim();
+        if (search.length < 3) {
+          return { suggestions: [] };
+        }
+        const suggestions = await container.worker.repositories.character.searchSuggestions(
+          region,
+          search,
+        );
+        return { suggestions };
+      },
+    );
+
     app.get(
       "/api/v1/characters/search",
       {

@@ -1,15 +1,16 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import type { DimensionScoreDTO } from "@mplus/contracts";
-import { DIMENSION_LABELS, type RadarDimension, formatPercent, formatScore, formatWeight } from "../../lib/format";
+import { DIMENSION_LABELS, filterDimensionsForModel, type RadarDimension, formatPercent, formatScore, formatWeight } from "../../lib/format";
 
 const props = defineProps<{
   dimensions: DimensionScoreDTO[];
   locked?: boolean;
+  modelVersion?: number | null;
 }>();
 
 const cards = computed(() =>
-  props.dimensions
+  filterDimensionsForModel(props.dimensions, props.modelVersion)
     .filter((d) => d.dimension !== "AUTHENTICITY")
     .map((d) => {
       const contrib = d.contributors as
