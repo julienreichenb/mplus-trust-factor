@@ -48,11 +48,12 @@ This document records whether each required Wave 4 metric can be collected from 
 |---|---|---|
 | Kick casts | AVAILABLE | Catalog interrupt spell IDs; pet casts attributed via `petOwner`. |
 | Successful interrupts | AVAILABLE | WCL Interrupts with player+pet attribution. |
-| Effective kick cooldown | PARTIAL | Base CD from catalog; talent modifiers supported in schema but loadout talents not fully resolved in smoke. |
-| Distinct CC targets | AVAILABLE | Unique hostile targets from catalogued CC casts/auras. |
-| Group-support casts | AVAILABLE | Demonic Gateway seeded for Warlock. |
-| Defensive dispels | AVAILABLE | Singe Magic / Command Demon seeded. |
-| Offensive dispels / purges | PARTIAL / BLOCKED | No Warlock offensive-dispel seed; classification falls back heuristically — Agent 24 must decide capability matrix. |
+| Effective kick cooldown | PARTIAL | Resolved from catalog + talents/pet via `resolveInterruptAbility`; loadout talents still partial in smoke. |
+| Distinct CC targets | AVAILABLE | Unique hostile targets from catalogued CC casts/auras; reapplications do not inflate. |
+| Group-support casts | AVAILABLE | Demonic Gateway seeded; evidence mode `cast_only` vs `confirmed_party_usage`. |
+| Defensive dispels | AVAILABLE | Singe Magic / Command Demon seeded (Imp). |
+| Offensive dispels / purges | BLOCKED (Demo) | No Warlock offensive-dispel capability; category excluded from Demo weight matrix (defensive keeps Dispels contributor). |
+| Utility v3 formula | AVAILABLE | `utility-v3-1` in `@mplus/scoring` — capability renormalization, interrupt 70/30, per-run evidence. Score model `default@3` composition deferred to Agent 27. |
 
 ## Experience (feasibility only)
 

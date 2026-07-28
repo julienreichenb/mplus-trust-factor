@@ -65,6 +65,7 @@ export type {
   ExtractRawFactsInput,
   ExtractedSurvivalCounts,
   ExtractedUtilityCounts,
+  GroupSupportEvidenceMode,
   RawAuraLike,
   RawCastLike,
   RawDamageTakenLike,
@@ -78,6 +79,18 @@ export {
   hasAbilityCategory,
   estimateAvailableDefensiveUses,
 } from "./defensive-capacity.js";
+
+export type {
+  ResolvedInterrupt,
+  UtilityCapability,
+  UtilityContributorKey,
+} from "./utility-capability.js";
+export {
+  UTILITY_CONTRIBUTOR_KEYS,
+  availableWindows,
+  resolveInterruptAbility,
+  resolveUtilityCapability,
+} from "./utility-capability.js";
 
 import type { MechanicRule } from "./types.js";
 import { validateMechanicRule } from "./types.js";
