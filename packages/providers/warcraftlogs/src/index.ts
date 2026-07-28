@@ -53,6 +53,9 @@ export * from "./rate/rate-budget.js";
 export * from "./fixture/loader.js";
 export * from "./probe/performance-probe.js";
 export * from "./probe/performance-probe-logic.js";
+export * from "./probe/survival-probe.js";
+export * from "./probe/survival-probe-logic.js";
+export * from "./probe/survival-probe-types.js";
 export * from "./probe/types.js";
 
 export type { WarcraftLogsProvider };

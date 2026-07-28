@@ -17,6 +17,7 @@
     "test": "vitest run --config ../../vitest.config.ts packages/providers/warcraftlogs"
   },
   "dependencies": {
+    "@mplus/abilities": "workspace:*",
     "@mplus/config": "workspace:*",
     "@mplus/contracts": "workspace:*",
     "@mplus/domain": "workspace:*",

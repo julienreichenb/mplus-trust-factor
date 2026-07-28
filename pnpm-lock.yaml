@@ -343,6 +343,9 @@ importers:
 
   packages/providers/warcraftlogs:
     dependencies:
+      '@mplus/abilities':
+        specifier: workspace:*
+        version: link:../../abilities
       '@mplus/config':
         specifier: workspace:*
         version: link:../../config

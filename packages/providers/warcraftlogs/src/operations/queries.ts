@@ -139,7 +139,7 @@ export const OPERATIONS = {
         friendlyPlayers
       }
       masterData(translate: false) {
-        actors { id name type subType server }
+        actors { id name type subType server petOwner }
         abilities { gameID type }
       }
     }
