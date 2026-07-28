@@ -8,5 +8,6 @@ describe("web router", () => {
     expect(names).toContain("character");
     expect(names).toContain("compare");
     expect(names).toContain("admin-models");
+    expect(names).toContain("admin-ability-catalog");
   });
 });

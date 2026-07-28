@@ -1,4 +1,6 @@
+import { queryAdminAbilityCatalog } from "@mplus/abilities";
 import type {
+  AdminAbilityCatalogResponse,
   AdminScoreModelDTO,
   CharacterAutocompleteSuggestion,
   CharacterComparisonRequest,
@@ -34,6 +36,35 @@ function assertNotAborted(signal?: AbortSignal): void {
   if (signal?.aborted) {
     throw new DOMException("Aborted", "AbortError");
   }
+}
+
+function mapAbilityCatalogParams(
+  params?: Record<string, string | number | undefined>,
+): Parameters<typeof queryAdminAbilityCatalog>[0] {
+  if (!params) return {};
+  const str = (key: string) => {
+    const v = params[key];
+    return typeof v === "string" && v.length > 0 ? v : undefined;
+  };
+  const num = (key: string) => {
+    const v = params[key];
+    if (v === undefined || v === "") return undefined;
+    const n = typeof v === "number" ? v : Number(v);
+    return Number.isFinite(n) ? n : undefined;
+  };
+  return {
+    query: str("query"),
+    classSlug: str("classSlug"),
+    specSlug: str("specSlug"),
+    role: str("role") as "DPS" | "TANK" | "HEALER" | undefined,
+    category: str("category") as never,
+    ownership: str("ownership") as never,
+    availability: str("availability") as never,
+    version: str("version"),
+    validationState: str("validationState") as never,
+    page: num("page"),
+    limit: num("limit"),
+  };
 }
 
 export function validateModelConfig(config: unknown): ModelValidationResult {
@@ -433,6 +464,12 @@ export function createMockApiClient(): MplusApiClient {
       });
       setModelStore(next);
       return deepClone(next.find((m) => m.id === modelId)!);
+    },
+
+    async getAdminAbilityCatalog(params, signal) {
+      await delay(40);
+      assertNotAborted(signal);
+      return queryAdminAbilityCatalog(mapAbilityCatalogParams(params)) as AdminAbilityCatalogResponse;
     },
   };
 }

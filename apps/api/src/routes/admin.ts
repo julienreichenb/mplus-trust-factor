@@ -1,4 +1,5 @@
 import type { FastifyPluginAsync } from "fastify";
+import { queryAdminAbilityCatalog } from "@mplus/abilities";
 import type { ApiContainer } from "../container.js";
 import { createAdminAuthPreHandler } from "../plugins/admin-auth.js";
 import type { ScoreModelConfig } from "@mplus/contracts";
@@ -267,6 +268,51 @@ export function buildAdminRoutes(container: ApiContainer): FastifyPluginAsync {
       async (request) => {
         const { id } = request.params as { id: string };
         return service.deleteMechanicRule(id);
+      },
+    );
+
+    app.get(
+      "/api/v1/admin/ability-catalog",
+      {
+        schema: {
+          tags: ["admin"],
+          querystring: {
+            type: "object",
+            properties: {
+              query: { type: "string" },
+              classSlug: { type: "string" },
+              specSlug: { type: "string" },
+              role: { type: "string", enum: ["DPS", "TANK", "HEALER"] },
+              category: { type: "string" },
+              ownership: { type: "string" },
+              availability: { type: "string" },
+              version: { type: "string" },
+              validationState: { type: "string" },
+              page: { type: "integer", minimum: 1 },
+              limit: { type: "integer", minimum: 1, maximum: 200 },
+            },
+          },
+          response: {
+            200: { type: "object", additionalProperties: true },
+            401: errorResponseSchema,
+          },
+        },
+      },
+      async (request) => {
+        const q = request.query as Record<string, string | number | undefined>;
+        return queryAdminAbilityCatalog({
+          query: typeof q.query === "string" ? q.query : undefined,
+          classSlug: typeof q.classSlug === "string" ? q.classSlug : undefined,
+          specSlug: typeof q.specSlug === "string" ? q.specSlug : undefined,
+          role: q.role as "DPS" | "TANK" | "HEALER" | undefined,
+          category: q.category as never,
+          ownership: q.ownership as never,
+          availability: q.availability as never,
+          version: typeof q.version === "string" ? q.version : undefined,
+          validationState: q.validationState as never,
+          page: typeof q.page === "number" ? q.page : q.page != null ? Number(q.page) : undefined,
+          limit: typeof q.limit === "number" ? q.limit : q.limit != null ? Number(q.limit) : undefined,
+        });
       },
     );
   };

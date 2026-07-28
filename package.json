@@ -41,7 +41,9 @@
     "live:smoke:raiderio": "node tools/scripts/with-env.mjs node tools/scripts/live-smoke-raiderio.mjs",
     "live:smoke:wcl": "node tools/scripts/with-env.mjs node tools/scripts/live-smoke-wcl.mjs",
     "live:smoke:character": "node tools/scripts/with-env.mjs node tools/scripts/live-smoke-character.mjs",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "abilities:validate": "pnpm --filter @mplus/abilities run abilities:validate",
+    "abilities:coverage": "pnpm --filter @mplus/abilities run abilities:coverage"
   },
   "devDependencies": {
     "@eslint/js": "^9.32.0",

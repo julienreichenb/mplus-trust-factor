@@ -2,6 +2,7 @@ import type { MetricObservationDTO } from "@mplus/contracts";
 import type { RunCombatFacts } from "@mplus/provider-warcraftlogs";
 import type { AbilityCatalog } from "@mplus/abilities";
 import {
+  CURRENT_CATALOG_VERSION,
   effectiveKickCooldownMs,
   rulesForSpell,
   spellIdsForCategory,
@@ -49,7 +50,11 @@ export function extractMetricsFromCombatFacts(
     runDurationMs: context?.runDurationMs ?? 1_800_000,
     classSlug: context?.classSlug ?? "warlock",
     specSlug: context?.specSlug ?? null,
-    catalog: context?.catalog ?? { catalogVersion: "empty", rules: [] },
+    catalog: context?.catalog ?? {
+      catalogVersion: "empty",
+      version: CURRENT_CATALOG_VERSION,
+      rules: [],
+    },
   };
 
   const targetId = facts.targetSourceId;
@@ -141,7 +146,7 @@ export function extractMetricsFromCombatFacts(
     for (const hit of facts.damageTaken.filter((d) => d.targetId === targetId)) {
       totalDamage += hit.amount;
       const rules = rulesForSpell(ctx.catalog, hit.abilityGameId);
-      if (rules.some((r) => r.categories.includes("interrupt"))) continue;
+      if (rules.some((r) => r.category === "INTERRUPT")) continue;
       // Without mechanic catalog coverage, avoidable damage stays unavailable.
     }
   }

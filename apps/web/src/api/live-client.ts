@@ -1,4 +1,5 @@
 import type {
+  AdminAbilityCatalogResponse,
   AdminScoreModelDTO,
   CharacterAutocompleteSuggestion,
   CharacterComparisonRequest,
@@ -43,6 +44,18 @@ async function parseJson<T>(response: Response): Promise<T> {
 
 function identityPath(identity: CharacterIdentityInput): string {
   return `/api/v1/characters/${encodeURIComponent(identity.region)}/${encodeURIComponent(identity.realmSlug)}/${encodeURIComponent(identity.name)}`;
+}
+
+function buildQueryString(params?: Record<string, string | number | undefined>): string {
+  if (!params) return "";
+  const search = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== "") {
+      search.set(key, String(value));
+    }
+  }
+  const qs = search.toString();
+  return qs ? `?${qs}` : "";
 }
 
 export function createLiveApiClient(options: {
@@ -148,6 +161,12 @@ export function createLiveApiClient(options: {
         "POST",
         `/api/v1/admin/score-models/${encodeURIComponent(modelId)}/activate`,
         {},
+        signal,
+      ),
+
+    getAdminAbilityCatalog: (params, signal) =>
+      get<AdminAbilityCatalogResponse>(
+        `/api/v1/admin/ability-catalog${buildQueryString(params)}`,
         signal,
       ),
   };

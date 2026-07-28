@@ -23,7 +23,7 @@ import {
 } from "@mplus/contracts";
 import { extractBoostSupportFacts } from "@mplus/provider-raiderio";
 import type { RunCombatFacts, WclRankingObservation, WclReportFightDetails } from "@mplus/provider-warcraftlogs";
-import { WARLOCK_DEMONOLOGY_CATALOG } from "@mplus/abilities";
+import { getAbilityCatalog, CURRENT_CATALOG_VERSION } from "@mplus/abilities";
 import { selectScoringRuns } from "@mplus/scoring";
 import { OBS_EVENTS, fingerprintIdentifier } from "@mplus/observability";
 import { validateScoreSnapshot } from "@mplus/test-utils";
@@ -1203,7 +1203,20 @@ export async function runRefreshPipeline(
     });
   }
 
-  const abilityCatalog = WARLOCK_DEMONOLOGY_CATALOG;
+  const resolvedCatalog =
+    classSlug && specSlug
+      ? getAbilityCatalog({
+          classSlug,
+          specSlug,
+          includeShared: true,
+          includeRacials: false,
+        })
+      : null;
+  // Never fall back to Warlock for unsupported identities — empty catalog keeps metrics unavailable.
+  const abilityCatalog =
+    resolvedCatalog?.ok === true
+      ? resolvedCatalog.catalog
+      : { catalogVersion: "unsupported", version: CURRENT_CATALOG_VERSION, rules: [] };
 
   const perRunCombatObservations = [...combatFactsByRunId.entries()].map(([runId, facts]) => {
     const runRow = selectedRunRows.get(runId);

@@ -14,4 +14,9 @@ export const routeDefs: RouteRecordRaw[] = [
     name: "admin-models",
     component: () => import("./pages/AdminModelsPage.vue"),
   },
+  {
+    path: "/admin/ability-catalog",
+    name: "admin-ability-catalog",
+    component: () => import("./pages/AdminAbilityCatalogPage.vue"),
+  },
 ];

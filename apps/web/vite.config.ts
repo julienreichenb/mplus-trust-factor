@@ -13,6 +13,7 @@ export default defineConfig(({ mode }) => ({
   resolve: {
     alias: {
       "@mplus/contracts": path.resolve(__dirname, "../../packages/contracts/src/index.ts"),
+      "@mplus/abilities": path.resolve(__dirname, "../../packages/abilities/src/index.ts"),
     },
   },
   build: {
