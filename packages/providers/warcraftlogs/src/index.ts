@@ -56,6 +56,9 @@ export * from "./probe/performance-probe-logic.js";
 export * from "./probe/survival-probe.js";
 export * from "./probe/survival-probe-logic.js";
 export * from "./probe/survival-probe-types.js";
+export * from "./probe/survival-calibration-probe.js";
+export * from "./probe/survival-calibration-logic.js";
+export * from "./probe/survival-calibration-types.js";
 export * from "./probe/types.js";
 
 export type { WarcraftLogsProvider };
