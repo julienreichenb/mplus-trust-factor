@@ -43,6 +43,7 @@ import { buildMythicRatingObservation } from "./performance-metrics.js";
 import { buildExperienceObservations } from "./experience-metrics.js";
 import { buildWclPerformanceObservations } from "./wcl-performance-metrics.js";
 import { buildSurvivalObservations } from "./survival-metrics.js";
+import { buildUtilityObservations } from "./utility-metrics.js";
 import { recordProviderResult } from "./provider-recording.js";
 import type { WclDungeonPerformanceAggregateDTO } from "@mplus/contracts";
 import {
@@ -1195,6 +1196,33 @@ export async function runRefreshPipeline(
   });
   observations.push(...survivalV3.observations);
 
+  const utilityV3 = buildUtilityObservations({
+    runs: scoringAnalysisRows.map((row) => ({
+      dungeonSlug: row.dungeonSlug,
+      canonicalRunId: row.selected.canonicalRunId,
+      keyLevel: row.selected.keyLevel,
+      durationMs: row.selected.durationMs,
+      detailAvailable: row.detailAvailable,
+      wclCoverageRatio: row.selected.wclCoverageRatio,
+      utility: row.utilityFacts,
+    })),
+    expectedDungeonCount: season.dungeonCount > 0 ? season.dungeonCount : 8,
+    selectedRunWclCoverage:
+      selectedRunsSize > 0 ? combatFactsList.length / selectedRunsSize : 0,
+    classSlug: blizzardProfile?.classSlug ?? raiderIoProfile?.classSlug ?? null,
+    specSlug,
+    hasResolvedSpecAndRole: Boolean(specSlug && roleSlug),
+    logFreshness:
+      wclVisibility === "PUBLIC" &&
+      (wclDataState === "MATCHED_COMBAT_LOGS" ||
+        wclDataState === "RANKINGS_ONLY" ||
+        wclDataState === "NO_MATCHED_RUN")
+        ? 0.85
+        : 0.4,
+    observedAt,
+  });
+  observations.push(...utilityV3.observations);
+
   // Experience v3 — public character history only (never invent alts).
   const experience = buildExperienceObservations({
     characterKey: `${identity.region}/${identity.realmSlug}/${identity.name}`.toLowerCase(),
@@ -1293,14 +1321,29 @@ export async function runRefreshPipeline(
     throw error;
   }
 
+  const baseMetricWeights =
+    (model.config as { metricWeights?: Record<string, unknown> }).metricWeights ?? {};
+  const patchedMetricWeights: Record<string, unknown> = {
+    ...baseMetricWeights,
+    PERFORMANCE: wclPerformance.performanceMetricWeights,
+  };
+  if (model.version >= 3) {
+    if (survivalV3.survivalMetricWeights.length > 0) {
+      patchedMetricWeights.SURVIVAL = survivalV3.survivalMetricWeights;
+    }
+    if (utilityV3.utilityMetricWeights.length > 0) {
+      patchedMetricWeights.UTILITY = utilityV3.utilityMetricWeights;
+    }
+    if (experience.experienceMetricWeights.length > 0) {
+      patchedMetricWeights.EXPERIENCE = experience.experienceMetricWeights;
+    }
+  }
+
   const modelConfig = {
     ...(model.config as unknown as ScoreModelConfig & Record<string, unknown>),
     version: model.version,
     key: model.key,
-    metricWeights: {
-      ...((model.config as { metricWeights?: Record<string, unknown> }).metricWeights ?? {}),
-      PERFORMANCE: wclPerformance.performanceMetricWeights,
-    },
+    metricWeights: patchedMetricWeights,
   } as ScoreModelConfig;
 
   const scoreDto = container.calculateScore({
@@ -1350,6 +1393,20 @@ export async function runRefreshPipeline(
     }
   }
 
+  if (model.version >= 3) {
+    for (const dim of scoreDto.dimensions) {
+      if (dim.dimension === "SURVIVAL" && survivalV3.observations.length > 0) {
+        dim.confidence = survivalV3.confidence;
+      }
+      if (dim.dimension === "UTILITY" && utilityV3.observations.length > 0) {
+        dim.confidence = utilityV3.confidence;
+      }
+      if (dim.dimension === "EXPERIENCE" && experience.observations.length > 0) {
+        dim.confidence = experience.confidence;
+      }
+    }
+  }
+
   const providerStates = await repositories.providerState.listForCharacter(character.id);
   const timestampFor = (provider: "blizzard" | "raiderio" | "warcraftlogs") =>
     providerStates.find((s) => s.provider === provider)?.fetchedAt ?? null;
@@ -1384,6 +1441,9 @@ export async function runRefreshPipeline(
           wclVisibility,
           wclDataState,
           performanceSummary: wclPerformance.summary,
+          survivalSummary: model.version >= 3 ? survivalV3.summary : undefined,
+          utilitySummary: model.version >= 3 ? utilityV3.summary : undefined,
+          experienceSummary: model.version >= 3 ? experience.summary : undefined,
         }
       : scoreDto.explanation;
 

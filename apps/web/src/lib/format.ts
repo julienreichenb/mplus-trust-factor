@@ -8,12 +8,12 @@ export const CORE_TRUST_DIMENSIONS = [
 
 export type CoreTrustDimension = (typeof CORE_TRUST_DIMENSIONS)[number];
 
-/** Stable radar dimension order (excludes AUTHENTICITY). */
-export const RADAR_DIMENSIONS = [...CORE_TRUST_DIMENSIONS, "RAID"] as const;
+/** Stable radar dimension order (excludes AUTHENTICITY and RAID for Wave 4 v3). */
+export const RADAR_DIMENSIONS = [...CORE_TRUST_DIMENSIONS] as const;
 
 export type RadarDimension = (typeof RADAR_DIMENSIONS)[number];
 
-export const DIMENSION_LABELS: Record<RadarDimension, string> = {
+export const DIMENSION_LABELS: Record<RadarDimension | "RAID", string> = {
   PERFORMANCE: "Performance",
   SURVIVAL: "Survival",
   UTILITY: "Utility",

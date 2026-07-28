@@ -106,6 +106,44 @@ const defaultModelConfigV2 = {
   },
 } satisfies Prisma.InputJsonValue;
 
+/** v3: Wave 4 — selected-run PERFORMANCE/SURVIVAL/UTILITY + Experience v3; RAID weight 0. */
+const defaultModelConfigV3 = {
+  weights: {
+    performance: 0.35,
+    survival: 0.3,
+    utility: 0.25,
+    experienceConsistency: 0.1,
+    mythicRaid: 0,
+  },
+  authenticityBlend: defaultModelConfigV1.authenticityBlend,
+  confidenceNeutralScore: defaultModelConfigV1.confidenceNeutralScore,
+  gradeThresholds: defaultModelConfigV1.gradeThresholds,
+  minConfidenceForGrade: defaultModelConfigV1.minConfidenceForGrade,
+  metricWeights: {
+    PERFORMANCE: [{ metricKey: "performance.v3.run_performance", weight: 1 }],
+    SURVIVAL: [
+      { metricKey: "survival.v3.deaths", weight: 0.35 },
+      { metricKey: "survival.v3.avoidable_damage", weight: 0.3 },
+      { metricKey: "survival.v3.personal_defensives", weight: 0.2 },
+      { metricKey: "survival.v3.self_heal_and_potion", weight: 0.15 },
+    ],
+    UTILITY: [
+      { metricKey: "utility.v3.interrupts", weight: 0.4 },
+      { metricKey: "utility.v3.crowd_control", weight: 0.25 },
+      { metricKey: "utility.v3.group_support", weight: 0.2 },
+      { metricKey: "utility.v3.dispels", weight: 0.15 },
+    ],
+    EXPERIENCE: [
+      { metricKey: "experience.current_peak", weight: 0.45 },
+      { metricKey: "experience.current_breadth", weight: 0.25 },
+      { metricKey: "experience.historical_peak", weight: 0.2 },
+      { metricKey: "experience.longevity", weight: 0.1 },
+    ],
+    RAID: defaultModelConfigV1.metricWeights.RAID,
+  },
+  eligibility: defaultModelConfigV1.eligibility,
+} satisfies Prisma.InputJsonValue;
+
 const metricDefinitions: Array<{
   key: string;
   dimension: ScoreDimension;
@@ -113,6 +151,98 @@ const metricDefinitions: Array<{
   direction: MetricDirection;
   description: string;
 }> = [
+  {
+    key: "performance.v3.run_performance",
+    dimension: ScoreDimension.PERFORMANCE,
+    valueType: "number",
+    direction: MetricDirection.HIGHER_BETTER,
+    description:
+      "Equal-weight mean of selected-run execution + key difficulty blend (v3 driver)",
+  },
+  {
+    key: "survival.v3.deaths",
+    dimension: ScoreDimension.SURVIVAL,
+    valueType: "number",
+    direction: MetricDirection.HIGHER_BETTER,
+    description: "Survival v3 deaths contributor (identity 0–100)",
+  },
+  {
+    key: "survival.v3.avoidable_damage",
+    dimension: ScoreDimension.SURVIVAL,
+    valueType: "number",
+    direction: MetricDirection.HIGHER_BETTER,
+    description: "Survival v3 avoidable damage contributor (identity 0–100)",
+  },
+  {
+    key: "survival.v3.personal_defensives",
+    dimension: ScoreDimension.SURVIVAL,
+    valueType: "number",
+    direction: MetricDirection.HIGHER_BETTER,
+    description: "Survival v3 personal defensive usage contributor",
+  },
+  {
+    key: "survival.v3.self_heal_and_potion",
+    dimension: ScoreDimension.SURVIVAL,
+    valueType: "number",
+    direction: MetricDirection.HIGHER_BETTER,
+    description: "Survival v3 self-heal and healing potion contributor",
+  },
+  {
+    key: "utility.v3.interrupts",
+    dimension: ScoreDimension.UTILITY,
+    valueType: "number",
+    direction: MetricDirection.HIGHER_BETTER,
+    description: "Utility v3 interrupt activity and success contributor",
+  },
+  {
+    key: "utility.v3.crowd_control",
+    dimension: ScoreDimension.UTILITY,
+    valueType: "number",
+    direction: MetricDirection.HIGHER_BETTER,
+    description: "Utility v3 crowd control coverage contributor",
+  },
+  {
+    key: "utility.v3.group_support",
+    dimension: ScoreDimension.UTILITY,
+    valueType: "number",
+    direction: MetricDirection.HIGHER_BETTER,
+    description: "Utility v3 group support / externals contributor",
+  },
+  {
+    key: "utility.v3.dispels",
+    dimension: ScoreDimension.UTILITY,
+    valueType: "number",
+    direction: MetricDirection.HIGHER_BETTER,
+    description: "Utility v3 defensive/offensive dispels contributor",
+  },
+  {
+    key: "experience.current_peak",
+    dimension: ScoreDimension.EXPERIENCE,
+    valueType: "number",
+    direction: MetricDirection.HIGHER_BETTER,
+    description: "Experience v3 current-season normalized peak",
+  },
+  {
+    key: "experience.current_breadth",
+    dimension: ScoreDimension.EXPERIENCE,
+    valueType: "number",
+    direction: MetricDirection.HIGHER_BETTER,
+    description: "Experience v3 current-season dungeon breadth",
+  },
+  {
+    key: "experience.historical_peak",
+    dimension: ScoreDimension.EXPERIENCE,
+    valueType: "number",
+    direction: MetricDirection.HIGHER_BETTER,
+    description: "Experience v3 age-decayed historical peak",
+  },
+  {
+    key: "experience.longevity",
+    dimension: ScoreDimension.EXPERIENCE,
+    valueType: "number",
+    direction: MetricDirection.HIGHER_BETTER,
+    description: "Experience v3 active-season longevity share",
+  },
   {
     key: "performance.mythic_rating",
     dimension: ScoreDimension.PERFORMANCE,
@@ -349,9 +479,8 @@ async function seed(): Promise<void> {
       name: "Default Trust Factor v2",
       description:
         "PERFORMANCE from current-season WCL parse percentiles (peak/consistency) with optional historical best-average",
-      status: ScoreModelStatus.ACTIVE,
+      status: ScoreModelStatus.ARCHIVED,
       config: defaultModelConfigV2,
-      activatedAt: new Date(),
     },
     create: {
       key: "default",
@@ -359,15 +488,38 @@ async function seed(): Promise<void> {
       name: "Default Trust Factor v2",
       description:
         "PERFORMANCE from current-season WCL parse percentiles (peak/consistency) with optional historical best-average",
-      status: ScoreModelStatus.ACTIVE,
+      status: ScoreModelStatus.ARCHIVED,
       config: defaultModelConfigV2,
+    },
+  });
+
+  await prisma.scoreModel.upsert({
+    where: {
+      key_version: { key: "default", version: 3 },
+    },
+    update: {
+      name: "Default Trust Factor v3",
+      description:
+        "Wave 4 — eight selected-run PERFORMANCE/SURVIVAL/UTILITY + Experience v3; RAID excluded from weighted skill score",
+      status: ScoreModelStatus.ACTIVE,
+      config: defaultModelConfigV3,
+      activatedAt: new Date(),
+    },
+    create: {
+      key: "default",
+      version: 3,
+      name: "Default Trust Factor v3",
+      description:
+        "Wave 4 — eight selected-run PERFORMANCE/SURVIVAL/UTILITY + Experience v3; RAID excluded from weighted skill score",
+      status: ScoreModelStatus.ACTIVE,
+      config: defaultModelConfigV3,
       activatedAt: new Date(),
     },
   });
 
   // Ensure only one ACTIVE model for key=default.
   await prisma.scoreModel.updateMany({
-    where: { key: "default", version: { not: 2 }, status: ScoreModelStatus.ACTIVE },
+    where: { key: "default", version: { not: 3 }, status: ScoreModelStatus.ACTIVE },
     data: { status: ScoreModelStatus.ARCHIVED },
   });
 
@@ -406,7 +558,9 @@ async function seed(): Promise<void> {
     });
   }
 
-  console.log("Seed completed (idempotent): EU region, placeholder season, model v2 ACTIVE (v1 archived), metrics, red flags.");
+  console.log(
+    "Seed completed (idempotent): EU region, placeholder season, model v3 ACTIVE (v1/v2 archived), metrics, red flags.",
+  );
 }
 
 seed()

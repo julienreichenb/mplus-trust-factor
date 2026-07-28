@@ -3,7 +3,7 @@
 Character: `EU/archimonde/Wallidrixe`  
 Catalogs: `ability-catalog-v1-seed`, `scoring-mechanic-catalog-v1-seed`  
 Formula envelope: `scoring-v3-raw-facts-v1`  
-Score model: **unchanged** (`default@2` remains active)
+Score model: **`default@3` ACTIVE** (`default@1`/`default@2` snapshots preserved)
 
 This document records whether each required Wave 4 metric can be collected from public providers + versioned catalogs. Status values:
 

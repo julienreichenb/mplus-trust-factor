@@ -42,6 +42,7 @@ export { computeInputFingerprint } from "./fingerprint.js";
 export {
   createDefaultModelV1,
   createDefaultModelV2,
+  createDefaultModelV3,
   createSurvivalFocusedModel,
   createUtilityFocusedModel,
 } from "./model/defaults.js";

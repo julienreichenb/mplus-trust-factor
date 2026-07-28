@@ -17,13 +17,12 @@ describe("format helpers", () => {
     expect(validateCompareCount(5)).toBeNull();
   });
 
-  it("keeps stable radar dimension order", () => {
+  it("keeps stable radar dimension order (Wave 4 v3 — no RAID)", () => {
     expect([...RADAR_DIMENSIONS]).toEqual([
       "PERFORMANCE",
       "SURVIVAL",
       "UTILITY",
       "EXPERIENCE",
-      "RAID",
     ]);
   });
 
