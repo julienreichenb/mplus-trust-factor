@@ -7,6 +7,16 @@ settings:
 importers:
 
   .:
+    dependencies:
+      '@mplus/config':
+        specifier: workspace:*
+        version: link:packages/config
+      '@mplus/observability':
+        specifier: workspace:*
+        version: link:packages/observability
+      '@mplus/worker':
+        specifier: workspace:*
+        version: link:apps/worker
     devDependencies:
       '@eslint/js':
         specifier: ^9.32.0

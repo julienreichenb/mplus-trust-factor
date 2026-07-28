@@ -12,7 +12,8 @@
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
     "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "realms:sync": "tsx ../../tools/scripts/sync-realm-catalog.mjs"
   },
   "dependencies": {
     "@mplus/config": "workspace:*",
