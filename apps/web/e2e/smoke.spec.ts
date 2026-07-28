@@ -81,4 +81,45 @@ test.describe("M+ Trust Factor web (mock mode)", () => {
     await expect(page.getByTestId("selected-runs-panel")).toBeVisible();
     await expect(page.getByText("Analyzed runs")).toHaveCount(0);
   });
+
+  test("unknown Character-Realm shows synthetic resolve and ingests on navigate", async ({ page }) => {
+    await page.goto("/");
+    const input = page.getByTestId("hero-search-form").getByTestId("character-autocomplete-input");
+    await input.fill("Wallidrixe-Archimonde");
+    await expect(page.getByTestId("character-option-resolve-Wallidrixe-archimonde")).toBeVisible({
+      timeout: 5000,
+    });
+    await expect(page.getByText("Search Wallidrixe — Archimonde")).toBeVisible();
+    await page.getByTestId("character-option-resolve-Wallidrixe-archimonde").click();
+    await expect(page).toHaveURL(/\/character\/EU\/archimonde\/Wallidrixe/i);
+    await expect(page.getByTestId("queued-banner")).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByTestId("queued-banner")).toBeHidden({ timeout: 20_000 });
+    await expect(page.getByTestId("freshness")).toHaveText("FRESH");
+  });
+
+  test("unknown name without realm shows Character-Realm hint", async ({ page }) => {
+    await page.goto("/");
+    const input = page.getByTestId("hero-search-form").getByTestId("character-autocomplete-input");
+    await input.fill("Wallidrixe");
+    await expect(page.getByTestId("character-option-hint")).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText("Add the realm using Character-Realm")).toBeVisible();
+  });
+
+  test("partial realm slug resolves unambiguously", async ({ page }) => {
+    await page.goto("/");
+    const input = page.getByTestId("hero-search-form").getByTestId("character-autocomplete-input");
+    await input.fill("Wallidrixe-arch");
+    await expect(page.getByTestId("character-option-resolve-Wallidrixe-archimonde")).toBeVisible({
+      timeout: 5000,
+    });
+  });
+
+  test("invalid realm does not show a resolve suggestion", async ({ page }) => {
+    await page.goto("/");
+    const input = page.getByTestId("hero-search-form").getByTestId("character-autocomplete-input");
+    await input.fill("Wallidrixe-NoSuchRealmXYZ");
+    await page.waitForTimeout(400);
+    await expect(page.getByTestId("character-option-hint")).toHaveCount(0);
+    await expect(page.locator('[data-kind="resolve"]')).toHaveCount(0);
+  });
 });

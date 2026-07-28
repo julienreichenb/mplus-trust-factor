@@ -29,6 +29,9 @@ export interface SearchCharacterResponse {
   score: ScoreSnapshotDTO | null;
 }
 
+/** Autocomplete row kind: indexed hit, synthetic new-character resolve, or realm-missing hint. */
+export type CharacterAutocompleteKind = "indexed" | "resolve" | "hint";
+
 /** Internal fuzzy character search suggestion — not a Blizzard global search. */
 export interface CharacterAutocompleteSuggestion {
   name: string;
@@ -38,7 +41,13 @@ export interface CharacterAutocompleteSuggestion {
   specSlug: string | null;
   avatarUrl: string | null;
   classIconUrl: string | null;
-  source?: "character" | "alias" | "participant";
+  /** Prefer `kind`; legacy indexed sources remain for known characters. */
+  source?: "character" | "alias" | "participant" | "resolve" | "hint";
+  kind?: CharacterAutocompleteKind;
+  /** Human realm label when resolved from the catalog (e.g. "Archimonde"). */
+  realmName?: string | null;
+  /** Display label override (e.g. "Search Wallidrixe — Archimonde"). */
+  label?: string | null;
 }
 
 export interface CharacterAutocompleteResponse {

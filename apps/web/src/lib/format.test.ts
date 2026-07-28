@@ -50,5 +50,23 @@ describe("parseCharacterQuery", () => {
       name: "Wallidrixe",
       realm: "Archimonde",
     });
+    expect(parseCharacterQuery("Wallidrixe-arch")).toEqual({
+      name: "Wallidrixe",
+      realm: "arch",
+    });
+  });
+
+  it("parses space-separated Character Realm queries", () => {
+    expect(parseCharacterQuery("wallidrixe archimonde")).toEqual({
+      name: "wallidrixe",
+      realm: "archimonde",
+    });
+  });
+
+  it("returns name-only when no realm separator is present", () => {
+    expect(parseCharacterQuery("Wallidrixe")).toEqual({
+      name: "Wallidrixe",
+      realm: null,
+    });
   });
 });

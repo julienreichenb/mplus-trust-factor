@@ -19,6 +19,8 @@ import {
   getModelStore,
   identityKey,
   mockSession,
+  createDynamicQueuedProfile,
+  finalizeDynamicProfile,
   setModelStore,
 } from "./fixtures";
 import { deepClone } from "../../lib/clone";
@@ -122,13 +124,20 @@ export function createMockApiClient(): MplusApiClient {
         avatarUrl: fixture.profile.media?.avatarUrl ?? null,
         classIconUrl: classIconUrl(fixture.profile.classSlug),
         source: "character" as const,
+        kind: "indexed" as const,
       }));
 
-      const { namePart, realmPart } = (() => {
-        const dash = q.indexOf("-");
-        if (dash <= 0) return { namePart: q, realmPart: null as string | null };
-        return { namePart: q.slice(0, dash), realmPart: q.slice(dash + 1) || null };
-      })();
+      const dash = q.indexOf("-");
+      const space = q.search(/\s+/);
+      let namePart = q;
+      let realmPart: string | null = null;
+      if (dash > 0) {
+        namePart = q.slice(0, dash);
+        realmPart = q.slice(dash + 1) || null;
+      } else if (space > 0) {
+        namePart = q.slice(0, space);
+        realmPart = q.slice(space).trim() || null;
+      }
 
       return fromFixtures
         .filter((entry) => {
@@ -144,40 +153,60 @@ export function createMockApiClient(): MplusApiClient {
       await delay(80);
       assertNotAborted(signal);
       const fixture = findFixture(identity);
-      if (!fixture) {
-        const err = new Error("Character not found") as Error & { code?: string; status?: number };
-        err.code = "CHARACTER_NOT_FOUND";
-        err.status = 404;
-        throw err;
+      if (fixture) {
+        const profile = deepClone(fixture.profile);
+        if (fixture.simulateQueuedRefresh) {
+          const polls = mockSession.refreshPolls.get(fixture.profile.characterId) ?? 0;
+          if (polls < 2) {
+            profile.refreshStatus = "QUEUED";
+          } else {
+            profile.refreshStatus = "FRESH";
+          }
+        }
+        return profile;
       }
 
-      const profile = deepClone(fixture.profile);
-      if (fixture.simulateQueuedRefresh) {
-        const polls = mockSession.refreshPolls.get(fixture.profile.characterId) ?? 0;
-        if (polls < 2) {
-          profile.refreshStatus = "QUEUED";
-        } else {
-          profile.refreshStatus = "FRESH";
-        }
+      // Unknown Character-Realm: simulate live ingest (202 QUEUED → FRESH after polls).
+      const key = identityKey(identity);
+      let profile = mockSession.dynamicProfiles.get(key);
+      if (!profile) {
+        profile = createDynamicQueuedProfile(identity);
+        mockSession.dynamicProfiles.set(key, profile);
+        mockSession.refreshPolls.set(profile.characterId, 0);
       }
-      return profile;
+      const polls = mockSession.refreshPolls.get(profile.characterId) ?? 0;
+      if (polls >= 2) {
+        const fresh = finalizeDynamicProfile(profile);
+        mockSession.dynamicProfiles.set(key, fresh);
+        return deepClone(fresh);
+      }
+      return deepClone({ ...profile, refreshStatus: "QUEUED" as const });
     },
 
     async refreshCharacter(identity, signal) {
       await delay(40);
       assertNotAborted(signal);
       const fixture = findFixture(identity);
-      if (!fixture) {
-        const err = new Error("Character not found") as Error & { code?: string; status?: number };
-        err.code = "CHARACTER_NOT_FOUND";
-        err.status = 404;
-        throw err;
+      if (fixture) {
+        mockSession.refreshPolls.set(fixture.profile.characterId, 0);
+        return {
+          characterId: fixture.profile.characterId,
+          refreshStatus: "QUEUED",
+          job: createJob("queued", fixture.profile.characterId),
+          cooldownSecondsRemaining: 0,
+        } satisfies RefreshStatusResponse;
       }
-      mockSession.refreshPolls.set(fixture.profile.characterId, 0);
+      const key = identityKey(identity);
+      let profile = mockSession.dynamicProfiles.get(key);
+      if (!profile) {
+        profile = createDynamicQueuedProfile(identity);
+        mockSession.dynamicProfiles.set(key, profile);
+      }
+      mockSession.refreshPolls.set(profile.characterId, 0);
       return {
-        characterId: fixture.profile.characterId,
+        characterId: profile.characterId,
         refreshStatus: "QUEUED",
-        job: createJob("queued", fixture.profile.characterId),
+        job: createJob("queued", profile.characterId),
         cooldownSecondsRemaining: 0,
       } satisfies RefreshStatusResponse;
     },
@@ -186,7 +215,8 @@ export function createMockApiClient(): MplusApiClient {
       await delay(30);
       assertNotAborted(signal);
       const fixture = findFixture(identity);
-      const characterId = fixture?.profile.characterId ?? "unknown";
+      const dynamic = mockSession.dynamicProfiles.get(identityKey(identity));
+      const characterId = fixture?.profile.characterId ?? dynamic?.characterId ?? "unknown";
       const polls = (mockSession.refreshPolls.get(characterId) ?? 0) + 1;
       mockSession.refreshPolls.set(characterId, polls);
       if (polls < 2) {

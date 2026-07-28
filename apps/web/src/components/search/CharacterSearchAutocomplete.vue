@@ -4,7 +4,7 @@ import { useRouter } from "vue-router";
 import { useCharacterAutocomplete } from "../../composables/useCharacterAutocomplete";
 import { useRecentSearchesStore } from "../../stores/recentSearches";
 import { canonicalCharacterPath } from "../../lib/format";
-import { parseCharacterQuery } from "../../lib/parseCharacterQuery";
+import { parseCharacterQuery, REALM_REQUIRED_HINT } from "../../lib/parseCharacterQuery";
 import { classColor, classIconUrl } from "../../lib/wowClass";
 import type { CharacterAutocompleteSuggestion } from "../../api/types";
 
@@ -78,6 +78,10 @@ const showList = computed(
 );
 
 function navigateTo(suggestion: CharacterAutocompleteSuggestion): void {
+  if (suggestion.kind === "hint" || !suggestion.realmSlug) {
+    error.value = REALM_REQUIRED_HINT;
+    return;
+  }
   error.value = null;
   const params = canonicalCharacterPath(suggestion.region, suggestion.realmSlug, suggestion.name);
   recent.add({
@@ -97,7 +101,14 @@ function submitFromQuery(): void {
     return;
   }
   if (!parsed.realm) {
-    error.value = "Include the realm after a hyphen (e.g. Aleria-tarren-mill).";
+    error.value = REALM_REQUIRED_HINT;
+    return;
+  }
+  const active = displaySuggestions.value.find(
+    (s) => s.kind === "resolve" && s.name.toLowerCase() === parsed.name.toLowerCase(),
+  );
+  if (active) {
+    navigateTo(active);
     return;
   }
   navigateTo({
@@ -108,13 +119,19 @@ function submitFromQuery(): void {
     specSlug: null,
     avatarUrl: null,
     classIconUrl: null,
+    kind: "resolve",
   });
 }
 
 function onSubmit(event: Event): void {
   event.preventDefault();
   if (showList.value && activeIndex.value >= 0 && displaySuggestions.value[activeIndex.value]) {
-    navigateTo(displaySuggestions.value[activeIndex.value]!);
+    const option = displaySuggestions.value[activeIndex.value]!;
+    if (option.kind === "hint") {
+      error.value = REALM_REQUIRED_HINT;
+      return;
+    }
+    navigateTo(option);
     return;
   }
   submitFromQuery();
@@ -123,6 +140,10 @@ function onSubmit(event: Event): void {
 async function onOptionSelect(index: number): Promise<void> {
   const option = displaySuggestions.value[index];
   if (!option) return;
+  if (option.kind === "hint") {
+    error.value = REALM_REQUIRED_HINT;
+    return;
+  }
   await select(option);
   navigateTo(option);
 }
@@ -148,16 +169,29 @@ function handleKeydown(event: KeyboardEvent): void {
     activeIndex.value >= 0 &&
     displaySuggestions.value[activeIndex.value]
   ) {
-    event.preventDefault();
     const option = displaySuggestions.value[activeIndex.value]!;
-    void select(option).then(() => navigateTo(option));
+    if (option.kind === "hint") {
+      event.preventDefault();
+      error.value = REALM_REQUIRED_HINT;
+      return;
+    }
+    event.preventDefault();
+    void select(option).then((selected) => {
+      if (selected) navigateTo(selected);
+    });
     return;
   }
   onKeydown(event);
 }
 
 function iconFor(suggestion: CharacterAutocompleteSuggestion): string | null {
+  if (suggestion.kind === "resolve" || suggestion.kind === "hint") return null;
   return suggestion.avatarUrl ?? suggestion.classIconUrl ?? classIconUrl(suggestion.classSlug);
+}
+
+function optionLabel(suggestion: CharacterAutocompleteSuggestion): string {
+  if (suggestion.label) return suggestion.label;
+  return `${suggestion.name}-${suggestion.realmSlug}`;
 }
 </script>
 
@@ -201,11 +235,19 @@ function iconFor(suggestion: CharacterAutocompleteSuggestion): string | null {
           <li
             v-for="(s, index) in displaySuggestions"
             :id="`${inputId}-option-${index}`"
-            :key="`${s.region}-${s.realmSlug}-${s.name}`"
+            :key="`${s.kind ?? 'indexed'}-${s.region}-${s.realmSlug}-${s.name}-${index}`"
             role="option"
             :aria-selected="index === activeIndex"
-            :data-testid="`character-option-${s.name}-${s.realmSlug}`"
-            :class="{ active: index === activeIndex }"
+            :aria-disabled="s.kind === 'hint' ? 'true' : undefined"
+            :data-testid="
+              s.kind === 'hint'
+                ? 'character-option-hint'
+                : s.kind === 'resolve'
+                  ? `character-option-resolve-${s.name}-${s.realmSlug}`
+                  : `character-option-${s.name}-${s.realmSlug}`
+            "
+            :data-kind="s.kind ?? 'indexed'"
+            :class="{ active: index === activeIndex, hint: s.kind === 'hint', resolve: s.kind === 'resolve' }"
             @mousedown.prevent="onOptionSelect(index)"
           >
             <img
@@ -218,8 +260,13 @@ function iconFor(suggestion: CharacterAutocompleteSuggestion): string | null {
             />
             <span v-else class="class-icon class-icon--placeholder" aria-hidden="true" />
             <span class="label">
-              <span class="name" :style="{ color: classColor(s.classSlug) }">{{ s.name }}</span
-              ><span class="realm">-{{ s.realmSlug }}</span>
+              <template v-if="s.kind === 'hint' || s.kind === 'resolve'">
+                <span class="resolve-label">{{ optionLabel(s) }}</span>
+              </template>
+              <template v-else>
+                <span class="name" :style="{ color: classColor(s.classSlug) }">{{ s.name }}</span
+                ><span class="realm">-{{ s.realmSlug }}</span>
+              </template>
             </span>
           </li>
         </ul>
@@ -368,6 +415,21 @@ input::placeholder {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.suggestions li.hint {
+  color: var(--color-text-muted);
+  font-style: italic;
+  cursor: default;
+}
+
+.resolve-label {
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+.suggestions li.resolve .resolve-label {
+  color: var(--color-gold-300);
 }
 
 .name {

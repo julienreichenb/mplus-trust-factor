@@ -23,6 +23,7 @@ export const EU_REALMS = [
   { slug: "stormscale", name: "Stormscale" },
   { slug: "sylvanas", name: "Sylvanas" },
   { slug: "ghostlands", name: "Ghostlands" },
+  { slug: "archimonde", name: "Archimonde" },
 ] as const;
 
 export const DEFAULT_MODEL_CONFIG: EditableModelConfig = {
@@ -530,10 +531,72 @@ let modelStore: AdminScoreModelDTO[] = [
 
 let nextModelVersion = 2;
 
-/** Mutable mock session state (queued refresh polls). */
+/** Mutable mock session state (queued refresh polls + dynamic ingestions). */
 export const mockSession = {
   refreshPolls: new Map<string, number>(),
+  dynamicProfiles: new Map<string, CharacterProfileView>(),
 };
+
+export function createDynamicQueuedProfile(identity: CharacterIdentityInput): CharacterProfileView {
+  const characterId = `dyn-${identityKey(identity)}`.replace(/[^a-zA-Z0-9-]/g, "-").slice(0, 36);
+  return {
+    characterId,
+    region: identity.region,
+    realmSlug: identity.realmSlug,
+    displayName: identity.name,
+    score: null,
+    redFlags: [],
+    dataConfidence: null,
+    lastAnalyzedRunId: null,
+    highestAnalyzedRunId: null,
+    sources: [{ provider: "BLIZZARD", fetchedAt: now, url: null }],
+    refreshStatus: "QUEUED",
+    classSlug: null,
+    specSlug: null,
+    role: null,
+    entitlements: { detailsUnlocked: true, runsUnlocked: true, compareExpanded: true },
+    warnings: [
+      {
+        code: "INGESTING",
+        message: "Character is being ingested from live providers.",
+        severity: "INFO",
+      },
+    ],
+    scoringRunSelection: null,
+  };
+}
+
+export function finalizeDynamicProfile(profile: CharacterProfileView): CharacterProfileView {
+  return {
+    ...profile,
+    refreshStatus: "FRESH",
+    dataConfidence: 45,
+    score: {
+      characterId: profile.characterId,
+      seasonSlug: "season-tww-3",
+      modelKey: "default",
+      modelVersion: 3,
+      scopeType: "CHARACTER",
+      scopeKey: null,
+      overallScore: 62,
+      grade: "C",
+      skillScore: 65,
+      authenticityScore: 70,
+      confidence: 0.45,
+      calculatedAt: now,
+      inputFingerprint: `fp-${profile.characterId}`,
+      dimensions: [
+        { dimension: "PERFORMANCE", score: 60, confidence: 0.4, weight: 0.35, contributors: null },
+        { dimension: "SURVIVAL", score: 58, confidence: 0.4, weight: 0.3, contributors: null },
+        { dimension: "UTILITY", score: 64, confidence: 0.4, weight: 0.25, contributors: null },
+        { dimension: "EXPERIENCE", score: 55, confidence: 0.5, weight: 0.1, contributors: null },
+      ],
+      redFlags: [],
+      explanation: { summary: "Dynamically ingested fixture character" },
+    },
+    warnings: [],
+  };
+}
 
 export function getModelStore(): AdminScoreModelDTO[] {
   return modelStore;
@@ -551,6 +614,7 @@ export function allocateModelVersion(): number {
 
 export function resetMockState(): void {
   mockSession.refreshPolls.clear();
+  mockSession.dynamicProfiles.clear();
   nextModelVersion = 2;
   modelStore = [
     {
