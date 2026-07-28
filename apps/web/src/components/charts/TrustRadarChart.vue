@@ -48,12 +48,21 @@ const ordered = computed(() =>
     visible: s.visible !== false,
     values: radarDimensions.value.map((dim) => {
       const found = s.dimensions.find((d) => d.dimension === dim);
+      const state = found?.state;
+      const unavailable =
+        !found ||
+        found.score == null ||
+        found.confidence <= 0 ||
+        state === "UNAVAILABLE" ||
+        state === "PROCESSING" ||
+        state === "ERROR";
       return {
         dimension: dim,
-        score: found?.score ?? null,
-        confidence: found?.confidence ?? null,
+        score: unavailable ? null : found!.score,
+        confidence: unavailable ? null : found!.confidence,
         weight: found?.weight ?? null,
-        missing: !found,
+        missing: unavailable,
+        state: state ?? (unavailable ? "UNAVAILABLE" : "AVAILABLE"),
       };
     }),
   })),
@@ -97,7 +106,7 @@ function render(): void {
           if (!point) return "";
           const label = DIMENSION_LABELS[point.dimension as RadarDimension];
           if (point.missing) {
-            return [`<strong>${params.seriesName}</strong>`, label, "Missing from snapshot"].join("<br/>");
+            return [`<strong>${params.seriesName}</strong>`, label, "Unavailable"].join("<br/>");
           }
           return [
             `<strong>${params.seriesName}</strong>`,

@@ -47,17 +47,46 @@ export function extractMetricsFromCombatFacts(
     observedAt,
     dungeonSlug: context?.dungeonSlug ?? "unknown",
     runDurationMs: context?.runDurationMs ?? 1_800_000,
-    classSlug: context?.classSlug ?? "warlock",
+    classSlug: context?.classSlug ?? null,
     specSlug: context?.specSlug ?? null,
-    catalog: context?.catalog ?? { catalogVersion: "empty", rules: [] },
+    catalog: context?.catalog ?? {
+      catalogVersion: "empty",
+      classSlug: null,
+      specSlug: null,
+      supported: false,
+      unsupportedReason: "CLASS_SPEC_UNKNOWN",
+      rules: [],
+    },
   };
+
+  // Unsupported catalog → do not invent zeros from another class's toolkit.
+  if (!ctx.catalog.supported) {
+    return [
+      {
+        metricKey: "utility.catalog_coverage",
+        dimension: "UTILITY",
+        rawValue: null,
+        normalizedValue: null,
+        confidence: 0,
+        observedAt: ctx.observedAt,
+        sourceProvider: "warcraftlogs",
+        coverage: { present: 0, expected: 1, ratio: 0 },
+        context: {
+          state: "UNAVAILABLE",
+          reason: ctx.catalog.unsupportedReason ?? "ABILITY_CATALOG_UNSUPPORTED",
+          classSlug: ctx.classSlug,
+          specSlug: ctx.specSlug,
+        },
+      },
+    ];
+  }
 
   const targetId = facts.targetSourceId;
   const deaths = facts.deaths.filter((event) => event.targetId === targetId).length;
   const coverage = coverageRatio(facts);
 
-  const interruptSpellIds = spellIdsForCategory(ctx.catalog, "interrupt", {
-    classSlug: ctx.classSlug ?? undefined,
+  const interruptSpellIds = spellIdsForCategory(ctx.catalog, "INTERRUPT", {
+    classSlug: ctx.classSlug,
     specSlug: ctx.specSlug,
   });
   const kickCasts = facts.casts.filter(
@@ -67,20 +96,30 @@ export function extractMetricsFromCombatFacts(
     isAttributed(facts, event.sourceId),
   ).length;
 
-  const defensiveSpellIds = spellIdsForCategory(ctx.catalog, "personal_defensive", {
-    classSlug: ctx.classSlug ?? undefined,
-    specSlug: ctx.specSlug,
-  });
+  const defensiveSpellIds = new Set([
+    ...spellIdsForCategory(ctx.catalog, "DEFENSIVE_MAJOR", {
+      classSlug: ctx.classSlug,
+      specSlug: ctx.specSlug,
+    }),
+    ...spellIdsForCategory(ctx.catalog, "DEFENSIVE_MINOR", {
+      classSlug: ctx.classSlug,
+      specSlug: ctx.specSlug,
+    }),
+    ...spellIdsForCategory(ctx.catalog, "IMMUNITY", {
+      classSlug: ctx.classSlug,
+      specSlug: ctx.specSlug,
+    }),
+  ]);
   const defensiveCasts = facts.casts.filter(
     (c) => c.sourceId === targetId && defensiveSpellIds.has(c.abilityGameId),
   ).length;
 
-  const selfHealSpellIds = spellIdsForCategory(ctx.catalog, "self_heal", {
-    classSlug: ctx.classSlug ?? undefined,
+  const selfHealSpellIds = spellIdsForCategory(ctx.catalog, "SELF_HEAL", {
+    classSlug: ctx.classSlug,
     specSlug: ctx.specSlug,
   });
-  const potionSpellIds = spellIdsForCategory(ctx.catalog, "health_potion", {
-    classSlug: ctx.classSlug ?? undefined,
+  const potionSpellIds = spellIdsForCategory(ctx.catalog, "CONSUMABLE", {
+    classSlug: ctx.classSlug,
     specSlug: ctx.specSlug,
   });
   const consumableCasts = facts.casts.filter(
@@ -92,10 +131,16 @@ export function extractMetricsFromCombatFacts(
     .filter((h) => h.sourceId === targetId && h.targetId === targetId)
     .reduce((sum, h) => sum + Math.max(0, h.amount - (h.overheal ?? 0)), 0);
 
-  const ccSpellIds = spellIdsForCategory(ctx.catalog, "crowd_control", {
-    classSlug: ctx.classSlug ?? undefined,
-    specSlug: ctx.specSlug,
-  });
+  const ccSpellIds = new Set([
+    ...spellIdsForCategory(ctx.catalog, "HARD_CC", {
+      classSlug: ctx.classSlug,
+      specSlug: ctx.specSlug,
+    }),
+    ...spellIdsForCategory(ctx.catalog, "SOFT_CC", {
+      classSlug: ctx.classSlug,
+      specSlug: ctx.specSlug,
+    }),
+  ]);
   const ccTargets = new Set<number>();
   for (const cast of facts.casts) {
     if (!isAttributed(facts, cast.sourceId)) continue;
@@ -112,20 +157,30 @@ export function extractMetricsFromCombatFacts(
     }
   }
 
-  const supportSpellIds = spellIdsForCategory(ctx.catalog, "group_support", {
-    classSlug: ctx.classSlug ?? undefined,
-    specSlug: ctx.specSlug,
-  });
+  const supportSpellIds = new Set([
+    ...spellIdsForCategory(ctx.catalog, "GROUP_UTILITY", {
+      classSlug: ctx.classSlug,
+      specSlug: ctx.specSlug,
+    }),
+    ...spellIdsForCategory(ctx.catalog, "MOVEMENT_UTILITY", {
+      classSlug: ctx.classSlug,
+      specSlug: ctx.specSlug,
+    }),
+    ...spellIdsForCategory(ctx.catalog, "EXTERNAL_DEFENSIVE", {
+      classSlug: ctx.classSlug,
+      specSlug: ctx.specSlug,
+    }),
+  ]);
   const supportCasts = facts.casts.filter(
     (c) => c.sourceId === targetId && supportSpellIds.has(c.abilityGameId),
   ).length;
 
-  const defensiveDispelIds = spellIdsForCategory(ctx.catalog, "defensive_dispel", {
-    classSlug: ctx.classSlug ?? undefined,
+  const defensiveDispelIds = spellIdsForCategory(ctx.catalog, "DISPEL", {
+    classSlug: ctx.classSlug,
     specSlug: ctx.specSlug,
   });
-  const offensiveDispelIds = spellIdsForCategory(ctx.catalog, "offensive_dispel", {
-    classSlug: ctx.classSlug ?? undefined,
+  const offensiveDispelIds = spellIdsForCategory(ctx.catalog, "PURGE", {
+    classSlug: ctx.classSlug,
     specSlug: ctx.specSlug,
   });
   const defensiveDispels = facts.dispels.filter(
@@ -141,27 +196,32 @@ export function extractMetricsFromCombatFacts(
     for (const hit of facts.damageTaken.filter((d) => d.targetId === targetId)) {
       totalDamage += hit.amount;
       const rules = rulesForSpell(ctx.catalog, hit.abilityGameId);
-      if (rules.some((r) => r.categories.includes("interrupt"))) continue;
+      if (rules.some((r) => r.category === "INTERRUPT")) continue;
       // Without mechanic catalog coverage, avoidable damage stays unavailable.
     }
   }
 
   const kickCooldownMs = effectiveKickCooldownMs(
     ctx.catalog,
-    ctx.classSlug ?? "warlock",
+    ctx.classSlug ?? null,
     ctx.specSlug ?? null,
   );
+  const hasInterruptToolkit = interruptSpellIds.size > 0;
+  const hasDispelToolkit = defensiveDispelIds.size + offensiveDispelIds.size > 0;
+  const hasDefensiveToolkit = defensiveSpellIds.size > 0;
   const availableKickWindows =
     kickCooldownMs != null ? Math.max(1, ctx.runDurationMs / kickCooldownMs) : null;
   const kickActivity =
     availableKickWindows != null ? clamp01(kickCasts / availableKickWindows) : null;
   const kickSuccess = kickCasts > 0 ? successfulInterrupts / kickCasts : null;
   const interruptScore =
-    kickActivity != null && kickSuccess != null
-      ? clamp01(0.7 * kickActivity + 0.3 * kickSuccess) * 100
-      : kickCasts > 0 && successfulInterrupts > 0
-        ? clamp01(successfulInterrupts / kickCasts) * 100
-        : null;
+    !hasInterruptToolkit
+      ? null
+      : kickActivity != null && kickSuccess != null
+        ? clamp01(0.7 * kickActivity + 0.3 * kickSuccess) * 100
+        : kickCasts > 0 && successfulInterrupts > 0
+          ? clamp01(successfulInterrupts / kickCasts) * 100
+          : null;
 
   const spellAudit = buildSpellAudit(facts, ctx);
 
@@ -209,20 +269,24 @@ export function extractMetricsFromCombatFacts(
     {
       metricKey: "survival.defensive_usage",
       dimension: "SURVIVAL",
-      rawValue: defensiveCasts > 0 ? defensiveCasts : null,
+      rawValue: hasDefensiveToolkit && defensiveCasts > 0 ? defensiveCasts : null,
       normalizedValue:
-        defensiveCasts > 0 && facts.coverage.casts
+        hasDefensiveToolkit && defensiveCasts > 0 && facts.coverage.casts
           ? clamp01(defensiveCasts / Math.max(1, ctx.runDurationMs / 60_000)) * 100
           : null,
-      confidence: facts.coverage.casts ? 0.65 : 0,
+      confidence: hasDefensiveToolkit && facts.coverage.casts ? 0.65 : 0,
       observedAt: ctx.observedAt,
       sourceProvider: "warcraftlogs",
       coverage: {
         present: defensiveCasts,
         expected: 1,
-        ratio: facts.coverage.casts ? 1 : 0,
+        ratio: hasDefensiveToolkit && facts.coverage.casts ? 1 : 0,
       },
-      context: { defensiveCasts, spellAudit: spellAudit.survival },
+      context: {
+        defensiveCasts,
+        toolkitApplicable: hasDefensiveToolkit,
+        spellAudit: spellAudit.survival,
+      },
     },
     {
       metricKey: "survival.consumable_usage",
@@ -248,15 +312,16 @@ export function extractMetricsFromCombatFacts(
     {
       metricKey: "utility.interrupts",
       dimension: "UTILITY",
-      rawValue: kickCasts,
+      rawValue: hasInterruptToolkit ? kickCasts : null,
       normalizedValue: interruptScore,
-      confidence: facts.coverage.interrupts || facts.coverage.casts ? 0.7 : 0,
+      confidence:
+        hasInterruptToolkit && (facts.coverage.interrupts || facts.coverage.casts) ? 0.7 : 0,
       observedAt: ctx.observedAt,
       sourceProvider: "warcraftlogs",
       coverage: {
         present: kickCasts,
         expected: Math.max(1, Math.ceil(availableKickWindows ?? 1)),
-        ratio: coverage,
+        ratio: hasInterruptToolkit ? coverage : 0,
       },
       context: {
         kickCasts,
@@ -264,6 +329,7 @@ export function extractMetricsFromCombatFacts(
         kickActivity,
         kickSuccess,
         availableKickWindows,
+        toolkitApplicable: hasInterruptToolkit,
         spellAudit: spellAudit.utility,
       },
     },
@@ -302,24 +368,37 @@ export function extractMetricsFromCombatFacts(
       metricKey: "utility.dispels",
       dimension: "UTILITY",
       rawValue:
-        defensiveDispels + offensiveDispels > 0 ? defensiveDispels + offensiveDispels : null,
+        hasDispelToolkit && defensiveDispels + offensiveDispels > 0
+          ? defensiveDispels + offensiveDispels
+          : null,
       normalizedValue:
-        defensiveDispels + offensiveDispels > 0
+        hasDispelToolkit && defensiveDispels + offensiveDispels > 0
           ? clamp01((defensiveDispels + offensiveDispels) / 6) * 100
           : null,
-      confidence: facts.coverage.dispels ? 0.65 : 0,
+      confidence: hasDispelToolkit && facts.coverage.dispels ? 0.65 : 0,
       observedAt: ctx.observedAt,
       sourceProvider: "warcraftlogs",
       coverage: {
         present: defensiveDispels + offensiveDispels,
         expected: 1,
-        ratio: facts.coverage.dispels ? 1 : 0,
+        ratio: hasDispelToolkit && facts.coverage.dispels ? 1 : 0,
       },
-      context: { defensiveDispels, offensiveDispels, spellAudit: spellAudit.utility },
+      context: {
+        defensiveDispels,
+        offensiveDispels,
+        toolkitApplicable: hasDispelToolkit,
+        spellAudit: spellAudit.utility,
+      },
     },
   ];
 
-  return observations.filter((obs) => obs.confidence > 0 || obs.normalizedValue != null);
+  // Drop non-applicable toolkit metrics entirely (renormalize upstream) and
+  // never keep confidence-0 placeholders that look like observed zeros.
+  return observations.filter((obs) => {
+    const ctxObj = obs.context as { toolkitApplicable?: boolean } | null;
+    if (ctxObj && ctxObj.toolkitApplicable === false) return false;
+    return obs.confidence > 0 || obs.normalizedValue != null;
+  });
 }
 
 function buildSpellAudit(facts: RunCombatFacts, ctx: CombatMetricsContext) {
@@ -347,15 +426,18 @@ function buildSpellAudit(facts: RunCombatFacts, ctx: CombatMetricsContext) {
   };
 
   const survivalIds = new Set([
-    ...spellIdsForCategory(ctx.catalog, "personal_defensive", { classSlug: ctx.classSlug ?? undefined }),
-    ...spellIdsForCategory(ctx.catalog, "self_heal", { classSlug: ctx.classSlug ?? undefined }),
-    ...spellIdsForCategory(ctx.catalog, "health_potion", { classSlug: ctx.classSlug ?? undefined }),
+    ...spellIdsForCategory(ctx.catalog, "DEFENSIVE_MAJOR", { classSlug: ctx.classSlug }),
+    ...spellIdsForCategory(ctx.catalog, "DEFENSIVE_MINOR", { classSlug: ctx.classSlug }),
+    ...spellIdsForCategory(ctx.catalog, "SELF_HEAL", { classSlug: ctx.classSlug }),
+    ...spellIdsForCategory(ctx.catalog, "CONSUMABLE", { classSlug: ctx.classSlug }),
   ]);
   const utilityIds = new Set([
-    ...spellIdsForCategory(ctx.catalog, "interrupt", { classSlug: ctx.classSlug ?? undefined }),
-    ...spellIdsForCategory(ctx.catalog, "crowd_control", { classSlug: ctx.classSlug ?? undefined }),
-    ...spellIdsForCategory(ctx.catalog, "group_support", { classSlug: ctx.classSlug ?? undefined }),
-    ...spellIdsForCategory(ctx.catalog, "defensive_dispel", { classSlug: ctx.classSlug ?? undefined }),
+    ...spellIdsForCategory(ctx.catalog, "INTERRUPT", { classSlug: ctx.classSlug }),
+    ...spellIdsForCategory(ctx.catalog, "HARD_CC", { classSlug: ctx.classSlug }),
+    ...spellIdsForCategory(ctx.catalog, "SOFT_CC", { classSlug: ctx.classSlug }),
+    ...spellIdsForCategory(ctx.catalog, "GROUP_UTILITY", { classSlug: ctx.classSlug }),
+    ...spellIdsForCategory(ctx.catalog, "MOVEMENT_UTILITY", { classSlug: ctx.classSlug }),
+    ...spellIdsForCategory(ctx.catalog, "DISPEL", { classSlug: ctx.classSlug }),
   ]);
 
   return {
@@ -366,22 +448,29 @@ function buildSpellAudit(facts: RunCombatFacts, ctx: CombatMetricsContext) {
     },
     utility: {
       kicks: countBySpell(
-        spellIdsForCategory(ctx.catalog, "interrupt", { classSlug: ctx.classSlug ?? undefined }),
+        spellIdsForCategory(ctx.catalog, "INTERRUPT", { classSlug: ctx.classSlug }),
         true,
       ),
       cc: countBySpell(
-        spellIdsForCategory(ctx.catalog, "crowd_control", { classSlug: ctx.classSlug ?? undefined }),
+        new Set([
+          ...spellIdsForCategory(ctx.catalog, "HARD_CC", { classSlug: ctx.classSlug }),
+          ...spellIdsForCategory(ctx.catalog, "SOFT_CC", { classSlug: ctx.classSlug }),
+        ]),
         true,
       ),
       support: countBySpell(
-        spellIdsForCategory(ctx.catalog, "group_support", { classSlug: ctx.classSlug ?? undefined }),
+        new Set([
+          ...spellIdsForCategory(ctx.catalog, "GROUP_UTILITY", { classSlug: ctx.classSlug }),
+          ...spellIdsForCategory(ctx.catalog, "MOVEMENT_UTILITY", { classSlug: ctx.classSlug }),
+        ]),
       ),
       dispels: countBySpell(
-        spellIdsForCategory(ctx.catalog, "defensive_dispel", { classSlug: ctx.classSlug ?? undefined }),
+        spellIdsForCategory(ctx.catalog, "DISPEL", { classSlug: ctx.classSlug }),
         true,
       ),
       attributedSourceIds: facts.attributedSourceIds,
       truncatedPages: facts.limitations.truncatedPages,
+      catalogCategories: [...utilityIds].length,
     },
   };
 }

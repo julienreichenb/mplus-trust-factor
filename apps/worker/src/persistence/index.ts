@@ -1,5 +1,9 @@
 import type { PrismaClient } from "@mplus/database";
 import { createAddonExportRepository, type AddonExportRepository } from "./addon-export-repository.js";
+import {
+  createAnalysisBatchRepository,
+  type AnalysisBatchRepository,
+} from "./analysis-batch-repository.js";
 import { createCharacterRepository, type CharacterRepository } from "./character-repository.js";
 import {
   createExternalRequestRepository,
@@ -27,6 +31,7 @@ export interface WorkerRepositories {
   addonExport: AddonExportRepository;
   mechanicRule: MechanicRuleRepository;
   providerState: ProviderStateRepository;
+  analysisBatch: AnalysisBatchRepository;
 }
 
 export function createRepositories(prisma: PrismaClient): WorkerRepositories {
@@ -41,10 +46,12 @@ export function createRepositories(prisma: PrismaClient): WorkerRepositories {
     addonExport: createAddonExportRepository(prisma),
     mechanicRule: createMechanicRuleRepository(prisma),
     providerState: createProviderStateRepository(prisma),
+    analysisBatch: createAnalysisBatchRepository(prisma),
   };
 }
 
 export * from "./addon-export-repository.js";
+export * from "./analysis-batch-repository.js";
 export * from "./character-repository.js";
 export * from "./external-request-repository.js";
 export * from "./job-repository.js";

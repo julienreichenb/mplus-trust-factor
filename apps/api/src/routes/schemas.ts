@@ -52,9 +52,14 @@ export const dimensionScoreSchema = {
   type: "object",
   properties: {
     dimension: { type: "string" },
-    score: { type: "number" },
+    score: { type: ["number", "null"] },
     confidence: { type: "number" },
     weight: { type: "number" },
+    state: {
+      type: "string",
+      enum: ["AVAILABLE", "PARTIAL", "UNAVAILABLE", "PROCESSING", "ERROR"],
+    },
+    reason: { type: ["string", "null"] },
     contributors: {},
   },
   additionalProperties: true,

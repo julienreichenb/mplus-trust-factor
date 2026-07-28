@@ -161,13 +161,33 @@ export { mapEquipmentSlots } from "./equipmentViewModel";
 export function dimensionRows(dimensions: DimensionScoreDTO[], modelVersion?: number | null) {
   return resolveRadarDimensions(modelVersion).map((dim) => {
     const found = dimensions.find((d) => d.dimension === dim);
+    const state = found?.state ?? (found ? (found.confidence <= 0 ? "UNAVAILABLE" : "AVAILABLE") : "UNAVAILABLE");
+    const unavailable =
+      !found ||
+      state === "UNAVAILABLE" ||
+      state === "PROCESSING" ||
+      state === "ERROR" ||
+      found.score == null ||
+      found.confidence <= 0;
     return {
       dimension: dim,
       label: DIMENSION_LABELS[dim],
-      score: found?.score ?? null,
-      confidence: found?.confidence ?? null,
+      score: unavailable ? null : found!.score,
+      confidence: unavailable ? null : found!.confidence,
       weight: found?.weight ?? null,
-      missing: !found,
+      missing: unavailable,
+      state,
+      reason: found?.reason ?? null,
+      stateLabel:
+        state === "AVAILABLE"
+          ? "Available"
+          : state === "PARTIAL"
+            ? "Partial"
+            : state === "PROCESSING"
+              ? "Processing"
+              : state === "ERROR"
+                ? "Error"
+                : "Unavailable",
     };
   });
 }

@@ -106,6 +106,18 @@ const defaultModelConfigV2 = {
   },
 } satisfies Prisma.InputJsonValue;
 
+/** v3: Wave 4 weights — PERFORMANCE 35 / SURVIVAL 30 / UTILITY 25 / EXPERIENCE 10 / RAID 0. */
+const defaultModelConfigV3 = {
+  ...defaultModelConfigV2,
+  weights: {
+    performance: 0.35,
+    survival: 0.3,
+    utility: 0.25,
+    experienceConsistency: 0.1,
+    mythicRaid: 0,
+  },
+} satisfies Prisma.InputJsonValue;
+
 const metricDefinitions: Array<{
   key: string;
   dimension: ScoreDimension;
@@ -349,9 +361,8 @@ async function seed(): Promise<void> {
       name: "Default Trust Factor v2",
       description:
         "PERFORMANCE from current-season WCL parse percentiles (peak/consistency) with optional historical best-average",
-      status: ScoreModelStatus.ACTIVE,
+      status: ScoreModelStatus.ARCHIVED,
       config: defaultModelConfigV2,
-      activatedAt: new Date(),
     },
     create: {
       key: "default",
@@ -359,15 +370,38 @@ async function seed(): Promise<void> {
       name: "Default Trust Factor v2",
       description:
         "PERFORMANCE from current-season WCL parse percentiles (peak/consistency) with optional historical best-average",
-      status: ScoreModelStatus.ACTIVE,
+      status: ScoreModelStatus.ARCHIVED,
       config: defaultModelConfigV2,
+    },
+  });
+
+  await prisma.scoreModel.upsert({
+    where: {
+      key_version: { key: "default", version: 3 },
+    },
+    update: {
+      name: "Default Trust Factor v3",
+      description:
+        "Wave 4 skill weights: Performance 35%, Survival 30%, Utility 25%, Experience 10%, Raid 0%",
+      status: ScoreModelStatus.ACTIVE,
+      config: defaultModelConfigV3,
+      activatedAt: new Date(),
+    },
+    create: {
+      key: "default",
+      version: 3,
+      name: "Default Trust Factor v3",
+      description:
+        "Wave 4 skill weights: Performance 35%, Survival 30%, Utility 25%, Experience 10%, Raid 0%",
+      status: ScoreModelStatus.ACTIVE,
+      config: defaultModelConfigV3,
       activatedAt: new Date(),
     },
   });
 
   // Ensure only one ACTIVE model for key=default.
   await prisma.scoreModel.updateMany({
-    where: { key: "default", version: { not: 2 }, status: ScoreModelStatus.ACTIVE },
+    where: { key: "default", version: { not: 3 }, status: ScoreModelStatus.ACTIVE },
     data: { status: ScoreModelStatus.ARCHIVED },
   });
 
@@ -406,7 +440,7 @@ async function seed(): Promise<void> {
     });
   }
 
-  console.log("Seed completed (idempotent): EU region, placeholder season, model v2 ACTIVE (v1 archived), metrics, red flags.");
+  console.log("Seed completed (idempotent): EU region, placeholder season, model v3 ACTIVE (v1/v2 archived), metrics, red flags.");
 }
 
 seed()

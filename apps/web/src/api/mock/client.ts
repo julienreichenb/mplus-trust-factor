@@ -306,9 +306,13 @@ export function createMockApiClient(): MplusApiClient {
                 : [...peers].sort((a, b) => a - b)[Math.floor((peers.length - 1) / 2)] ?? null;
             const dimBest = peers.length === 0 ? null : Math.max(...peers);
             dimDeltasMedian[d.dimension] =
-              dimMedian === null ? null : Number((d.score - dimMedian).toFixed(1));
+              dimMedian === null || d.score == null
+                ? null
+                : Number((d.score - dimMedian).toFixed(1));
             dimDeltasBest[d.dimension] =
-              dimBest === null ? null : Number((d.score - dimBest).toFixed(1));
+              dimBest === null || d.score == null
+                ? null
+                : Number((d.score - dimBest).toFixed(1));
           }
           return {
             identity: e.identity,

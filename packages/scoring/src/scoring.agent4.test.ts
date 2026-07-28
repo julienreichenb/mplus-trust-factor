@@ -243,13 +243,19 @@ describe("Agent 4: scoring and authenticity engine", () => {
         snapshot.skillScore,
         snapshot.authenticityScore,
         snapshot.confidence,
-        ...snapshot.dimensions.map((d) => d.score),
+        ...snapshot.dimensions.map((d) => d.score).filter((s): s is number => s != null),
         ...snapshot.dimensions.map((d) => d.confidence),
       ];
       for (const n of nums) {
         expect(Number.isFinite(n)).toBe(true);
         expect(n).toBeGreaterThanOrEqual(0);
         expect(n).toBeLessThanOrEqual(100);
+      }
+      for (const d of snapshot.dimensions) {
+        if (d.score == null) {
+          expect(["UNAVAILABLE", "PROCESSING", "ERROR"]).toContain(d.state);
+          expect(d.confidence).toBe(0);
+        }
       }
       expect(snapshot.confidence).toBeLessThanOrEqual(1);
     }
