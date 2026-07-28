@@ -16,7 +16,9 @@ import type {
   PerformanceSummaryDTO,
   ProfileEntitlements,
   ProfileWarning,
+  ScoringRunSelection,
   SeasonSummary,
+  SelectedRunSummaryDTO,
   TalentSummary,
   WclDataState,
   WclVisibilityState,
@@ -48,6 +50,9 @@ export interface CharacterEnrichmentInput {
   selectedRunCoverage?: number | null;
   runCoverageById?: Record<string, number | null>;
   performanceSummary?: PerformanceSummaryDTO | null;
+  scoringRunSelection?: ScoringRunSelection | null;
+  selectedRunCount?: number | null;
+  detailedRunCount?: number | null;
   freshness?: number | null;
   sourceDisagreements?: CharacterProfileResponse["sourceDisagreements"];
   scoreObservationProviders?: string[];
@@ -320,6 +325,9 @@ export function buildProfileEnrichments(input: CharacterEnrichmentInput): Pick<
   | "media"
   | "seasonSummary"
   | "performanceSummary"
+  | "selectedRuns"
+  | "selectedRunCount"
+  | "detailedRunCount"
   | "entitlements"
   | "warnings"
   | "raiderIoUsed"
@@ -342,6 +350,9 @@ export function buildProfileEnrichments(input: CharacterEnrichmentInput): Pick<
     selectedRunCoverage,
     runCoverageById,
     performanceSummary = null,
+    scoringRunSelection = null,
+    selectedRunCount = null,
+    detailedRunCount = null,
     freshness = null,
     sourceDisagreements,
     scoreObservationProviders,
@@ -396,6 +407,41 @@ export function buildProfileEnrichments(input: CharacterEnrichmentInput): Pick<
       state.provider === "raiderio" ? (character.raiderioProfileUrl ?? null) : (state.sourceUrl ?? null),
   }));
 
+  const selectedRuns: SelectedRunSummaryDTO[] = (scoringRunSelection?.selectedRuns ?? []).map(
+    (entry) => {
+      const runRow =
+        latestRun?.id === entry.canonicalRunId
+          ? latestRun
+          : highestRun?.id === entry.canonicalRunId
+            ? highestRun
+            : null;
+      const perfDungeon = performanceSummary?.currentSeason.dungeons.find(
+        (d) => d.dungeonSlug === entry.dungeonSlug,
+      );
+      const parsePercentile =
+        perfDungeon?.bestParsePercentile ??
+        perfDungeon?.bestRun?.parsePercentile ??
+        null;
+      return {
+        runId: entry.canonicalRunId,
+        dungeonSlug: entry.dungeonSlug,
+        dungeonName: runRow?.dungeon.name ?? entry.dungeonSlug,
+        keyLevel: entry.keyLevel,
+        completedAt: entry.completedAt,
+        timed: entry.timed ?? false,
+        wclReportMatched: entry.wclReportMatched,
+        wclCoverageRatio:
+          runCoverageById?.[entry.canonicalRunId] ??
+          (entry.wclReportMatched ? (selectedRunCoverage ?? null) : null),
+        selectionReason: entry.selectionReason,
+        parsePercentile,
+        hasDetailedAnalysis:
+          typeof runCoverageById?.[entry.canonicalRunId] === "number" &&
+          (runCoverageById?.[entry.canonicalRunId] ?? 0) > 0,
+      };
+    },
+  );
+
   return {
     classSlug: character.gameClass?.slug ?? null,
     specSlug: character.activeSpec?.slug ?? null,
@@ -413,6 +459,9 @@ export function buildProfileEnrichments(input: CharacterEnrichmentInput): Pick<
     media,
     seasonSummary,
     performanceSummary: performanceSummary ?? null,
+    selectedRuns,
+    selectedRunCount: selectedRunCount ?? selectedRuns.length,
+    detailedRunCount: detailedRunCount ?? selectedRuns.filter((r) => r.hasDetailedAnalysis).length,
     entitlements: buildEntitlements(env),
     warnings: [],
     raiderIoUsed: Boolean(character.raiderioProfileUrl),

@@ -63,3 +63,10 @@ export type {
 } from "./performance/types.js";
 export { calculateScore, calculateScoreEngine } from "./calculate.js";
 export type { CalculateScoreInput } from "./calculate.js";
+export {
+  selectScoringRuns,
+  type ScoringRunSelection,
+  type ScoringRunSelectionEntry,
+  type ScoringRunCandidateInput,
+  type ScoringRunSelectionReason,
+} from "./selection/scoring-run-selection.js";

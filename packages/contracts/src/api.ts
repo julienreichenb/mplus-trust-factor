@@ -31,7 +31,7 @@ export interface SearchCharacterResponse {
 
 export interface AnalyzedRunSummary {
   runId: string;
-  kind: "LATEST" | "HIGHEST" | "BOTH";
+  kind: "LATEST" | "HIGHEST" | "BOTH" | "SELECTED";
   dungeonName: string;
   dungeonSlug: string;
   keyLevel: number;
@@ -39,6 +39,21 @@ export interface AnalyzedRunSummary {
   timed: boolean;
   performanceSummary: string;
   coverageRatio: number;
+}
+
+/** One entry from the eight-run scoring selection exposed on the profile. */
+export interface SelectedRunSummaryDTO {
+  runId: string;
+  dungeonSlug: string;
+  dungeonName: string;
+  keyLevel: number;
+  completedAt: IsoDateTime;
+  timed: boolean;
+  wclReportMatched: boolean;
+  wclCoverageRatio: number | null;
+  selectionReason: "HIGHEST_KEY" | "HIGHEST_SCORE_TIEBREAK" | "LATEST_TIEBREAK";
+  parsePercentile: number | null;
+  hasDetailedAnalysis: boolean;
 }
 
 /** Public equipment item — Blizzard-primary; missing fields stay null. */
@@ -190,6 +205,10 @@ export interface CharacterProfileResponse {
   freshness?: number | null;
   lastAnalyzedRun?: AnalyzedRunSummary | null;
   highestAnalyzedRun?: AnalyzedRunSummary | null;
+  /** Current-season eight-run scoring selection (one highest key per dungeon). */
+  selectedRuns?: SelectedRunSummaryDTO[];
+  selectedRunCount?: number;
+  detailedRunCount?: number;
   equipment?: EquipmentSummary | null;
   talents?: TalentSummary | null;
   media?: CharacterMediaDTO | null;

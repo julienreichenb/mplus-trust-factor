@@ -250,6 +250,37 @@ export function selectLatestAndHighest(candidates: WclRunCandidate[]): {
   return { latest, highest };
 }
 
+const WARLOCK_PET_SUBTYPES = new Set([
+  "felguard",
+  "felhunter",
+  "imp",
+  "voidwalker",
+  "succubus",
+  "doomguard",
+]);
+
+/**
+ * Player + pet source IDs for utility event attribution.
+ * Pets are included when named after the player or when subType matches a warlock demon.
+ */
+export function resolveAttributedSourceIds(
+  actorMap: WclActorMap,
+  playerSourceId: number,
+  playerName: string,
+): number[] {
+  const ids = new Set<number>([playerSourceId]);
+  const nameLower = playerName.toLowerCase();
+  for (const actor of actorMap.byId.values()) {
+    if (actor.type !== "Pet") continue;
+    const petName = actor.name.toLowerCase();
+    const subType = actor.subType?.toLowerCase() ?? "";
+    if (petName.includes(nameLower) || WARLOCK_PET_SUBTYPES.has(subType)) {
+      ids.add(actor.id);
+    }
+  }
+  return [...ids];
+}
+
 export function dedupeCandidates(candidates: WclRunCandidate[]): WclRunCandidate[] {
   const seen = new Map<string, WclRunCandidate>();
   for (const candidate of candidates) {

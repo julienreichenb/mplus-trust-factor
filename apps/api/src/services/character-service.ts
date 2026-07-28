@@ -122,6 +122,34 @@ function readPerformanceSummary(explanation: unknown): PerformanceSummaryDTO | n
   return summary as PerformanceSummaryDTO;
 }
 
+function readScoringRunSelection(explanation: unknown): import("@mplus/contracts").ScoringRunSelection | null {
+  if (!explanation || typeof explanation !== "object") return null;
+  const selection = (explanation as { scoringRunSelection?: unknown }).scoringRunSelection;
+  if (!selection || typeof selection !== "object") return null;
+  return selection as import("@mplus/contracts").ScoringRunSelection;
+}
+
+function readCoverageCounts(explanation: unknown): {
+  selectedRunCount: number | null;
+  detailedRunCount: number | null;
+  runCoverageById: Record<string, number | null>;
+} {
+  if (!explanation || typeof explanation !== "object") {
+    return { selectedRunCount: null, detailedRunCount: null, runCoverageById: {} };
+  }
+  const record = explanation as {
+    coverage?: { selectedRunCount?: unknown; detailedRunCount?: unknown };
+    runCoverageById?: Record<string, number | null>;
+  };
+  return {
+    selectedRunCount:
+      typeof record.coverage?.selectedRunCount === "number" ? record.coverage.selectedRunCount : null,
+    detailedRunCount:
+      typeof record.coverage?.detailedRunCount === "number" ? record.coverage.detailedRunCount : null,
+    runCoverageById: record.runCoverageById ?? {},
+  };
+}
+
 export interface CharacterHistoryResponse {
   characterId: string;
   snapshots: ScoreSnapshotDTO[];
@@ -238,6 +266,8 @@ export class CharacterService {
     const freshness = readFreshness(snapshot?.explanation);
     const selectedRunCoverage = readSelectedRunCoverage(snapshot?.explanation);
     const performanceSummary = readPerformanceSummary(snapshot?.explanation);
+    const scoringRunSelection = readScoringRunSelection(snapshot?.explanation);
+    const coverageCounts = readCoverageCounts(snapshot?.explanation);
     const wclContributionTypes = deriveWclContributionTypes(
       readScoreObservations(snapshot?.explanation),
     );
@@ -273,8 +303,18 @@ export class CharacterService {
 
     if (!characterDetail) return base;
 
-    const runIds = [latestRun?.id, highestRun?.id].filter((id): id is string => Boolean(id));
-    const runCoverageById: Record<string, number | null> = {};
+    const runIds = [
+      ...new Set(
+        [
+          latestRun?.id,
+          highestRun?.id,
+          ...(scoringRunSelection?.selectedRuns.map((r) => r.canonicalRunId) ?? []),
+        ].filter((id): id is string => Boolean(id)),
+      ),
+    ];
+    const runCoverageById: Record<string, number | null> = {
+      ...coverageCounts.runCoverageById,
+    };
     await Promise.all(
       runIds.map(async (runId) => {
         runCoverageById[runId] = await this.repositories.run.findLatestAnalysisCoverage(
@@ -309,6 +349,9 @@ export class CharacterService {
         selectedRunCoverage,
         runCoverageById,
         performanceSummary,
+        scoringRunSelection,
+        selectedRunCount: coverageCounts.selectedRunCount,
+        detailedRunCount: coverageCounts.detailedRunCount,
         freshness,
         scoreObservationProviders: observationProviders,
         env: this.container.env,

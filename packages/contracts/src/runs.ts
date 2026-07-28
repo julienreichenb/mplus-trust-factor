@@ -51,3 +51,27 @@ export interface DetailedRunSelection {
   /** When true, identical LATEST/HIGHEST runs are analyzed once. Default: true. */
   dedupeIdentical: boolean;
 }
+
+export type ScoringRunSelectionReason =
+  | "HIGHEST_KEY"
+  | "HIGHEST_SCORE_TIEBREAK"
+  | "LATEST_TIEBREAK";
+
+export interface ScoringRunSelectionEntry {
+  dungeonSlug: string;
+  canonicalRunId: string;
+  keyLevel: number;
+  timed: boolean | null;
+  completedAt: IsoDateTime;
+  durationMs: number | null;
+  raiderIoScore: number | null;
+  wclReportMatched: boolean;
+  wclCoverageRatio: number | null;
+  selectionReason: ScoringRunSelectionReason;
+}
+
+export interface ScoringRunSelection {
+  seasonSlug: string;
+  expectedDungeonCount: number;
+  selectedRuns: ScoringRunSelectionEntry[];
+}

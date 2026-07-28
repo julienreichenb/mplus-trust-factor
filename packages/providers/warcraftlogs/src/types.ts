@@ -47,6 +47,10 @@ export interface WclRankingObservation {
   score: number | null;
   amount: number | null;
   percentile: number | null;
+  /** WCL rankPercent for this specific parse row when present. */
+  rankPercent: number | null;
+  /** Bracket-relative percentile when WCL exposes bracketPercent. */
+  bracketPercent: number | null;
   specSlug: string | null;
   roleSlug: string | null;
   durationMs: number | null;
@@ -211,6 +215,8 @@ export interface RunCombatFacts {
   fightId: number;
   revision: number;
   targetSourceId: number;
+  /** Player + attributed pet source IDs used for utility extraction. */
+  attributedSourceIds: number[];
   actorMap: WclActorMap;
   casts: WclCastEvent[];
   interrupts: WclInterruptEvent[];
