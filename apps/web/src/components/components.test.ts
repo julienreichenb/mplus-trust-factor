@@ -40,9 +40,8 @@ describe("ScoreHeader", () => {
     expect(wrapper.get("[data-testid='grade']").text()).toContain("Grade A");
     expect(wrapper.get("[data-testid='confidence']").text()).toContain("78");
     expect(wrapper.get("[data-testid='freshness']").text()).toBe("FRESH");
-    expect(wrapper.get("[data-testid='character-media']").attributes("data-media-type")).toBe(
-      "placeholder",
-    );
+    expect(wrapper.find("[data-testid='trust-dimension-radar']").exists()).toBe(true);
+    expect(wrapper.find("[data-testid='character-media']").exists()).toBe(false);
   });
 });
 
@@ -100,7 +99,9 @@ describe("TrustRadarChart", () => {
     expect(table.text()).toContain("Performance");
     expect(table.text()).toContain("91");
     expect(table.text()).not.toContain("Mythic Raid");
-    expect(wrapper.get("[data-testid='dimension-table']").text()).toContain("Exact dimension values");
+    expect(wrapper.get("[data-testid='dimension-table']").text()).toContain(
+      "Exact dimension values",
+    );
     wrapper.unmount();
   });
 });

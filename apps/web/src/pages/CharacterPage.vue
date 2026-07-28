@@ -9,6 +9,7 @@ import StatusBanner from "../components/common/StatusBanner.vue";
 import AppToast from "../components/common/AppToast.vue";
 import CharacterRealmSearch from "../components/search/CharacterRealmSearch.vue";
 import CharacterLoadingSplash from "../components/character/CharacterLoadingSplash.vue";
+import CharacterPortraitStage from "../components/character/CharacterPortraitStage.vue";
 import CharacterProfileToolbar from "../components/character/CharacterProfileToolbar.vue";
 import ScoreHeader from "../components/profile/ScoreHeader.vue";
 import DimensionCards from "../components/profile/DimensionCards.vue";
@@ -16,7 +17,6 @@ import AuthenticitySection from "../components/profile/AuthenticitySection.vue";
 import SelectedRunsSection from "../components/profile/SelectedRunsSection.vue";
 import PerformanceSummaryPanel from "../components/profile/PerformanceSummaryPanel.vue";
 import WclVisibilityBanner from "../components/profile/WclVisibilityBanner.vue";
-import TrustRadarChart from "../components/charts/TrustRadarChart.vue";
 import KeySignalsPanel from "../components/character/KeySignalsPanel.vue";
 import DataProvenancePanel from "../components/character/DataProvenancePanel.vue";
 import EquipmentGrid from "../components/equipment/EquipmentGrid.vue";
@@ -286,7 +286,6 @@ watch(
       <details
         v-if="showBannerGroup"
         class="character-page__banners"
-        open
         data-testid="character-banners"
       >
         <summary class="character-page__banners-summary">
@@ -348,21 +347,10 @@ watch(
         </div>
       </details>
 
-      <ScoreHeader :profile="profile" />
-
-      <TrustRadarChart
-        v-if="visibleDimensions.length"
-        :series="[
-          {
-            id: profile.characterId,
-            name: profile.displayName,
-            dimensions: visibleDimensions,
-          },
-        ]"
-        :model-version="profile.score?.modelVersion"
-        :locked="!entitlements.detailsUnlocked"
-        :accent-color="rankThemeStyle['--color-brand']"
-      />
+      <div class="character-page__hero">
+        <CharacterPortraitStage :profile="profile" />
+        <ScoreHeader :profile="profile" />
+      </div>
 
       <DimensionCards
         v-if="profile.score"
@@ -422,6 +410,12 @@ watch(
   display: grid;
   gap: var(--space-2);
   position: relative;
+}
+
+.character-page__hero {
+  position: relative;
+  isolation: isolate;
+  overflow: visible;
 }
 
 .character-page--splashing {

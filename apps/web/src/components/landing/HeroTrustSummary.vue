@@ -81,12 +81,26 @@ const dimensionTitles: Record<string, string> = {
         :transform="`translate(${label.x - 5}, ${label.y - 5})`"
       >
         <title>{{ dimensionTitles[label.short] ?? label.short }}</title>
-        <path
-          v-if="label.short === 'P'"
-          d="M9.5 1.5 11.5 6h4.5l-3.6 2.6 1.4 4.4L9.5 10.8 5.2 13l1.4-4.4L3 6h4.5z"
-          transform="scale(0.625)"
-          fill="currentColor"
-        />
+        <!-- Performance: sword -->
+        <g v-if="label.short === 'P'" transform="scale(0.625)">
+          <path
+            d="M8 2v7.5M5.2 9.2h5.6M8 9.5v3.2"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.5"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+          <circle cx="8" cy="13.8" r="1.05" fill="currentColor" />
+          <path
+            d="M7.15 2.9 8 1.55 8.85 2.9"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.35"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </g>
         <path
           v-else-if="label.short === 'S'"
           d="M8 1.5 13 3.5v4.2c0 3.1-2.8 5.6-5 6.8-2.2-1.2-5-3.7-5-6.8V3.5z"

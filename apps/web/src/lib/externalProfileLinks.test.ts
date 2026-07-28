@@ -19,7 +19,7 @@ describe("resolveExternalProfileLinks", () => {
       profileUrl: null,
     };
     const links = resolveExternalProfileLinks(profile);
-    expect(links.map((l) => l.id)).toEqual(["warcraftlogs", "raiderio", "armory"]);
+    expect(links.map((l) => l.label)).toEqual(["warcraftlogs.com", "raider.io", "blizzard.com"]);
     expect(links[0]!.href).toMatch(/warcraftlogs\.com\/character\/eu\/tarren-mill\/aleria/i);
     expect(links[1]!.href).toMatch(/raider\.io\/characters\/eu\/tarren-mill\/Aleria/);
     expect(links[2]!.href).toMatch(/character\/eu\/tarren-mill\/aleria/i);

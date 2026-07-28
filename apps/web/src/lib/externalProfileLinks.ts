@@ -4,8 +4,6 @@ export interface ExternalProfileLink {
   id: "warcraftlogs" | "raiderio" | "armory";
   label: string;
   href: string;
-  logo: string;
-  logoAlt: string;
 }
 
 function normalizeProviderKey(provider: string): string {
@@ -63,26 +61,8 @@ export function resolveExternalProfileLinks(profile: CharacterProfileView): Exte
     `https://worldofwarcraft.blizzard.com/${armoryLocale}/character/${region}/${encodePathSegment(realm)}/${encodePathSegment(nameLower)}`;
 
   return [
-    {
-      id: "warcraftlogs",
-      label: "Warcraft Logs",
-      href: wcl,
-      logo: "/logos/warcraftlogs.png",
-      logoAlt: "Warcraft Logs",
-    },
-    {
-      id: "raiderio",
-      label: "Raider.IO",
-      href: raiderIo,
-      logo: "/logos/raiderio.svg",
-      logoAlt: "Raider.IO",
-    },
-    {
-      id: "armory",
-      label: "Blizzard Armory",
-      href: armory,
-      logo: "/logos/blizzard.svg",
-      logoAlt: "Blizzard Armory",
-    },
+    { id: "warcraftlogs", label: "warcraftlogs.com", href: wcl },
+    { id: "raiderio", label: "raider.io", href: raiderIo },
+    { id: "armory", label: "blizzard.com", href: armory },
   ];
 }

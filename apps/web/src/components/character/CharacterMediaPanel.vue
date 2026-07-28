@@ -98,6 +98,7 @@ const showImage = computed(
   border: none;
   border-radius: 0;
   background: transparent;
+  overflow: visible;
 }
 
 .media-panel__image {

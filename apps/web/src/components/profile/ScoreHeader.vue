@@ -8,10 +8,11 @@ import {
   topSignals,
   parseContributorSignals,
 } from "../../lib/characterViewModel";
-import { formatPercent, formatScore } from "../../lib/format";
+import { filterDimensionsForModel, formatPercent, formatScore } from "../../lib/format";
 import { resolveExternalProfileLinks } from "../../lib/externalProfileLinks";
+import { gradeThemeCssVars } from "../../lib/gradeTheme";
 import TrustTierBadge from "../landing/TrustTierBadge.vue";
-import CharacterMediaPanel from "../character/CharacterMediaPanel.vue";
+import TrustRadarChart from "../charts/TrustRadarChart.vue";
 
 const props = defineProps<{
   profile: CharacterProfileView;
@@ -25,6 +26,11 @@ const signals = computed(() =>
 const positives = computed(() => topSignals(signals.value, "positive", 2));
 const risks = computed(() => topSignals(signals.value, "risk", 2));
 const externalLinks = computed(() => resolveExternalProfileLinks(props.profile));
+const visibleDimensions = computed(() =>
+  filterDimensionsForModel(props.profile.score?.dimensions ?? [], props.profile.score?.modelVersion),
+);
+const detailsLocked = computed(() => !(props.profile.entitlements?.detailsUnlocked ?? true));
+const accentColor = computed(() => gradeThemeCssVars(props.profile.score?.grade)["--color-brand"]);
 
 const gradeLabel = computed(() => {
   const g = props.profile.score?.grade;
@@ -45,11 +51,6 @@ const classSpec = computed(() => {
 <template>
   <header class="score-header" data-testid="score-header">
     <div class="hero-grid">
-      <div class="hero-grid__stage" aria-hidden="true">
-        <div class="hero-grid__glow" />
-        <CharacterMediaPanel class="media" :profile="profile" variant="bare" />
-      </div>
-
       <div class="trust" aria-label="Trust Factor summary">
         <TrustTierBadge
           :tier="profile.score?.grade ?? null"
@@ -100,29 +101,61 @@ const classSpec = computed(() => {
             </dd>
           </div>
         </dl>
+
+        <TrustRadarChart
+          v-if="visibleDimensions.length"
+          class="trust__radar"
+          embedded
+          :series="[
+            {
+              id: profile.characterId,
+              name: profile.displayName,
+              dimensions: visibleDimensions,
+            },
+          ]"
+          :model-version="profile.score?.modelVersion"
+          :locked="detailsLocked"
+          :accent-color="accentColor"
+        />
       </div>
 
       <div class="hero-grid__main">
         <div class="hero-grid__content">
           <div class="identity">
-            <p class="eyebrow">Character profile</p>
-            <div class="identity__title-row">
-              <h1>{{ profile.displayName }}</h1>
+            <div class="identity__eyebrow-row">
+              <p class="eyebrow">Character profile</p>
               <nav class="external-links" aria-label="External character profiles">
-                <a
-                  v-for="link in externalLinks"
-                  :key="link.id"
-                  class="external-links__item"
-                  :href="link.href"
-                  :title="link.label"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  <img :src="link.logo" :alt="link.logoAlt" width="20" height="20" />
-                  <span class="sr-only">{{ link.label }}</span>
-                </a>
+                <template v-for="(link, index) in externalLinks" :key="link.id">
+                  <span v-if="index > 0" class="external-links__sep" aria-hidden="true">·</span>
+                  <a
+                    class="external-links__item"
+                    :href="link.href"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    {{ link.label }}
+                    <svg
+                      class="external-links__arrow"
+                      viewBox="0 0 12 12"
+                      width="11"
+                      height="11"
+                      aria-hidden="true"
+                      focusable="false"
+                    >
+                      <path
+                        d="M3.5 2H10v6.5M10 2 2 10"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="1.5"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      />
+                    </svg>
+                  </a>
+                </template>
               </nav>
             </div>
+            <h1>{{ profile.displayName }}</h1>
             <p class="meta">
               <span>{{ profile.realmSlug }} · {{ profile.region }}</span>
               <span v-if="classSpec"> · {{ classSpec }}</span>
@@ -174,79 +207,15 @@ const classSpec = computed(() => {
 .score-header {
   display: grid;
   gap: var(--space-2);
-  overflow: visible;
 }
 
 .hero-grid {
   position: relative;
+  z-index: 1;
   display: grid;
   gap: var(--space-4);
   align-items: stretch;
-  isolation: isolate;
   min-height: min(62dvh, 32rem);
-  overflow: visible;
-}
-
-/* Right-hand portrait column — glow + model share the same center. */
-.hero-grid__stage {
-  position: absolute;
-  z-index: 0;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  left: 58%;
-  pointer-events: none;
-  display: grid;
-  place-items: center;
-}
-
-.hero-grid__glow {
-  position: absolute;
-  z-index: 0;
-  inset: 8% 4% 4% 8%;
-  border-radius: 50%;
-  background: radial-gradient(
-    circle at 50% 52%,
-    rgb(var(--color-rank-rgb) / 52%) 0%,
-    rgb(var(--color-rank-rgb) / 22%) 38%,
-    transparent 70%
-  );
-  filter: blur(34px);
-}
-
-.media {
-  position: relative;
-  z-index: 1;
-  width: min(100%, 28rem);
-  height: 100%;
-  max-height: 100%;
-  justify-self: center;
-}
-
-.hero-grid__stage :deep(.media-panel--bare),
-.hero-grid__stage :deep(.media-panel--bare .media-panel__frame) {
-  width: 100%;
-  height: 100%;
-  min-height: 0;
-  overflow: visible;
-}
-
-.hero-grid__stage :deep(.media-panel--bare .media-panel__image) {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-  object-position: center bottom;
-  transform: scale(1.45);
-  transform-origin: center bottom;
-}
-
-.hero-grid__stage :deep(.media-panel--bare .media-panel__silhouette) {
-  inset: 8% 22% 2% 22%;
-}
-
-.hero-grid__stage :deep(.media-panel--bare .media-panel__glow) {
-  inset: auto 18% 2% 18%;
-  height: 32%;
 }
 
 .trust,
@@ -257,17 +226,23 @@ const classSpec = computed(() => {
 }
 
 .hero-grid__main {
-  min-height: 100%;
   display: grid;
+  align-self: stretch;
+  min-height: 100%;
+  height: 100%;
 }
 
 .hero-grid__content {
   display: grid;
   gap: var(--space-5);
   align-content: start;
+  align-self: stretch;
+  width: 100%;
   height: 100%;
+  min-height: 100%;
+  min-width: 0;
   padding: var(--space-5) var(--space-5) var(--space-5) 0;
-  max-width: min(100%, 28rem);
+  overflow: visible;
   background: linear-gradient(
     90deg,
     rgb(7 7 7 / 55%) 0%,
@@ -280,48 +255,61 @@ const classSpec = computed(() => {
   display: grid;
   gap: var(--space-3);
   align-content: start;
+  max-width: 36rem;
 }
 
-.identity__title-row {
+.identity__eyebrow-row {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
-  gap: var(--space-3);
+  column-gap: var(--space-10);
+  width: max-content;
+  max-width: min(52rem, calc(100vw - 3rem));
 }
 
 .external-links {
   display: inline-flex;
+  flex-wrap: nowrap;
   align-items: center;
   gap: var(--space-2);
 }
 
+.external-links__sep {
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+  line-height: 1;
+  user-select: none;
+}
+
 .external-links__item {
-  display: grid;
-  place-items: center;
-  width: 2rem;
-  height: 2rem;
-  border-radius: var(--radius-control);
-  border: 1px solid var(--color-border);
-  background: rgb(13 13 15 / 72%);
-  transition:
-    border-color var(--duration-fast) ease,
-    background-color var(--duration-fast) ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-family: var(--font-data);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--color-gold-300);
+  text-decoration: none;
+  white-space: nowrap;
 }
 
 .external-links__item:hover,
 .external-links__item:focus-visible {
-  border-color: var(--color-gold-300);
-  background: var(--color-surface-hover);
+  color: var(--color-brand-hover);
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
 }
 
-.external-links__item img {
-  width: 1.15rem;
-  height: 1.15rem;
-  object-fit: contain;
+.external-links__arrow {
+  flex-shrink: 0;
+  opacity: 0.85;
 }
 
 .eyebrow {
   margin: 0;
+  flex: 0 0 auto;
+  white-space: nowrap;
   font-family: var(--font-data);
   font-size: var(--text-xs);
   letter-spacing: 0.08em;
@@ -364,15 +352,24 @@ const classSpec = computed(() => {
 
 .trust {
   display: grid;
-  gap: var(--space-4);
-  align-content: start;
-  padding: var(--space-5);
+  grid-template-rows: auto auto auto auto minmax(12rem, 1fr);
+  gap: var(--space-3);
+  align-content: stretch;
+  padding: var(--space-5) var(--space-4) var(--space-2);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-hero);
   background:
     linear-gradient(160deg, rgb(var(--color-rank-rgb) / 7%), transparent 45%),
     var(--color-surface);
   min-height: 100%;
+}
+
+.trust__radar {
+  min-height: 12rem;
+  height: 100%;
+  min-width: 0;
+  align-self: stretch;
+  margin-inline: calc(var(--space-2) * -1);
 }
 
 .trust__label {
@@ -442,6 +439,7 @@ const classSpec = computed(() => {
 .key-signals {
   display: grid;
   gap: var(--space-4);
+  max-width: 36rem;
   padding-top: var(--space-3);
   border-top: 1px solid rgb(255 255 255 / 12%);
 }
@@ -474,18 +472,6 @@ const classSpec = computed(() => {
     min-height: min(70dvh, 38rem);
   }
 
-  .hero-grid__stage {
-    left: 52%;
-  }
-
-  .hero-grid__stage :deep(.media-panel--bare .media-panel__image) {
-    transform: scale(1.65);
-  }
-
-  .media {
-    width: min(100%, 34rem);
-  }
-
   .key-signals {
     grid-template-columns: 1fr 1fr;
   }
@@ -496,30 +482,8 @@ const classSpec = computed(() => {
     min-height: min(74dvh, 44rem);
   }
 
-  .hero-grid__stage {
-    left: 50%;
-  }
-
-  .hero-grid__stage :deep(.media-panel--bare .media-panel__image) {
-    transform: scale(1.85);
-  }
-
-  .media {
-    width: min(100%, 40rem);
-  }
-
   .facts {
     grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .hero-grid__glow {
-    filter: blur(14px);
-  }
-
-  .hero-grid__stage :deep(.media-panel--bare .media-panel__image) {
-    transform: scale(1.25);
   }
 }
 </style>
