@@ -29,6 +29,8 @@ const props = defineProps<{
   title?: string;
   locked?: boolean;
   modelVersion?: number | null;
+  /** Primary series stroke/fill; defaults to brand amber. */
+  accentColor?: string;
 }>();
 
 const emit = defineEmits<{
@@ -88,10 +90,11 @@ function render(): void {
   if (!chart) chart = echarts.init(el.value, undefined, { renderer: "canvas" });
 
   const visible = ordered.value.filter((s) => s.visible);
+  const accent = props.accentColor?.trim() || "#F59E0B";
   chart.setOption(
     {
       animation: !prefersReducedMotion(),
-      color: ["#F59E0B", "#38BDF8", "#A3E635", "#A78BFA", "#FB7185", "#F4D58D"],
+      color: [accent, "#38BDF8", "#A3E635", "#A78BFA", "#FB7185", "#F4D58D"],
       tooltip: {
         trigger: "item",
         formatter: (params: {
@@ -169,7 +172,7 @@ onBeforeUnmount(() => {
 });
 
 watch(
-  () => props.series,
+  () => [props.series, props.accentColor],
   () => render(),
   { deep: true },
 );

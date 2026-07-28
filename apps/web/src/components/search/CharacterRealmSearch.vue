@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { api } from "../../api/client";
 import type { CharacterAutocompleteSuggestion, RealmOption } from "../../api/types";
 import { useCharacterResolve } from "../../composables/useCharacterResolve";
 import { useRealmCombobox } from "../../composables/useRealmCombobox";
 import { useRecentSearchesStore } from "../../stores/recentSearches";
+import { resolveRealmDisplayName } from "../../api/realm-options";
 import { classColor, classIconUrl } from "../../lib/wowClass";
 
 const props = withDefaults(
@@ -15,14 +16,18 @@ const props = withDefaults(
     submitLabel?: string;
     /** When true, emit `resolved` instead of navigating (compare flow). */
     emitOnly?: boolean;
+    iconSubmit?: boolean;
   }>(),
   {
     compact: false,
     showRecent: true,
     submitLabel: "Search",
     emitOnly: false,
+    iconSubmit: false,
   },
 );
+
+const showIconSubmit = computed(() => props.compact || props.iconSubmit);
 
 const emit = defineEmits<{
   resolved: [payload: { name: string; realmSlug: string; region: string }];
@@ -35,8 +40,14 @@ const characterName = ref("");
 const realmQuery = ref("");
 const selectedRealm = ref<RealmOption | null>(null);
 const touched = ref({ name: false, realm: false, submit: false });
-const localSuggestions = ref<CharacterAutocompleteSuggestion[]>([]);
-const localLoading = ref(false);
+const nameSuggestions = ref<CharacterAutocompleteSuggestion[]>([]);
+const nameLoading = ref(false);
+const nameOpen = ref(false);
+const nameActiveIndex = ref(-1);
+
+const MAX_NAME_SUGGESTIONS = 3;
+const NAME_SEARCH_DEBOUNCE_MS = 250;
+let nameSearchTimer: ReturnType<typeof setTimeout> | null = null;
 
 const {
   suggestions,
@@ -59,7 +70,13 @@ const { uiState, message, profilePath, resolving, resolve, retry } = useCharacte
 
 const nameId = props.compact ? "navbar-character-name" : "character-name-input";
 const realmId = props.compact ? "navbar-realm-input" : "realm-combobox-input";
+const nameListboxId = `${nameId}-listbox`;
 const listboxId = `${realmId}-listbox`;
+const nameActiveOptionId = computed(() =>
+  nameOpen.value && nameActiveIndex.value >= 0
+    ? `${nameId}-option-${nameActiveIndex.value}`
+    : undefined,
+);
 const activeOptionId = computed(() =>
   realmOpen.value && activeIndex.value >= 0 ? `${realmId}-option-${activeIndex.value}` : undefined,
 );
@@ -106,23 +123,52 @@ watch(realmQuery, (value) => {
   scheduleSearch(value);
 });
 
-watch([characterName, selectedRealm], async ([name, realm]) => {
-  localSuggestions.value = [];
-  if (!realm || name.trim().length < 3) return;
-  localLoading.value = true;
-  try {
-    const hits = await api.searchCharacters(realm.region ?? "EU", name.trim());
-    localSuggestions.value = hits.filter(
-      (h) =>
-        h.realmSlug.toLowerCase() === realm.slug.toLowerCase() &&
-        (h.region ?? "EU").toUpperCase() === (realm.region ?? "EU").toUpperCase(),
-    );
-  } catch {
-    localSuggestions.value = [];
-  } finally {
-    localLoading.value = false;
+watch(characterName, (value) => {
+  if (nameSearchTimer) clearTimeout(nameSearchTimer);
+  const trimmed = value.trim();
+  if (trimmed.length < 3) {
+    nameSuggestions.value = [];
+    nameOpen.value = false;
+    nameActiveIndex.value = -1;
+    return;
   }
+  nameSearchTimer = setTimeout(() => {
+    nameSearchTimer = null;
+    void searchCharactersByName(trimmed);
+  }, NAME_SEARCH_DEBOUNCE_MS);
 });
+
+async function searchCharactersByName(name: string): Promise<void> {
+  nameLoading.value = true;
+  try {
+    const hits = await api.searchCharacters("EU", name);
+    nameSuggestions.value = hits.slice(0, MAX_NAME_SUGGESTIONS);
+    nameOpen.value = nameSuggestions.value.length > 0;
+    nameActiveIndex.value = nameSuggestions.value.length > 0 ? 0 : -1;
+  } catch {
+    nameSuggestions.value = [];
+    nameOpen.value = false;
+    nameActiveIndex.value = -1;
+  } finally {
+    nameLoading.value = false;
+  }
+}
+
+function recentPortraitUrl(item: {
+  classSlug?: string | null;
+  avatarUrl?: string | null;
+}): string | null {
+  return item.avatarUrl ?? classIconUrl(item.classSlug);
+}
+
+function matchingNameSuggestion(name: string): CharacterAutocompleteSuggestion | undefined {
+  const needle = name.trim().toLowerCase();
+  return nameSuggestions.value.find((s) => s.name.toLowerCase() === needle);
+}
+
+function formattedRealmName(s: CharacterAutocompleteSuggestion): string {
+  return resolveRealmDisplayName(s.realmSlug, s.realmName);
+}
 
 function iconFor(suggestion: CharacterAutocompleteSuggestion): string | null {
   return suggestion.avatarUrl ?? suggestion.classIconUrl ?? classIconUrl(suggestion.classSlug);
@@ -151,10 +197,13 @@ async function onSubmit(event?: Event): Promise<void> {
   if (result.status === "READY" || result.status === "QUEUED" || result.status === "PROCESSING") {
     const path = "profilePath" in result ? result.profilePath : profilePath.value;
     if (!path) return;
+    const suggestion = matchingNameSuggestion(characterName.value);
     recent.add({
       region: selectedRealm.value.region ?? "EU",
       realmSlug: selectedRealm.value.slug,
       name: characterName.value.trim(),
+      classSlug: suggestion?.classSlug ?? null,
+      avatarUrl: suggestion?.avatarUrl ?? null,
     });
     const parts = path.replace(/^\//, "").split("/");
     // /character/:region/:realm/:name
@@ -192,7 +241,7 @@ function openRecent(item: { region: string; realmSlug: string; name: string; cla
   });
 }
 
-function pickLocal(suggestion: CharacterAutocompleteSuggestion): void {
+function pickNameSuggestion(suggestion: CharacterAutocompleteSuggestion): void {
   characterName.value = suggestion.name;
   selectedRealm.value = {
     slug: suggestion.realmSlug,
@@ -201,12 +250,86 @@ function pickLocal(suggestion: CharacterAutocompleteSuggestion): void {
     displayLabel: `${suggestion.realmName ?? suggestion.realmSlug} — ${suggestion.region}`,
   };
   realmQuery.value = selectedRealm.value.displayLabel!;
-  localSuggestions.value = [];
+  nameSuggestions.value = [];
+  nameOpen.value = false;
+  nameActiveIndex.value = -1;
   void onSubmit();
+}
+
+function onNameFocus(): void {
+  const trimmed = characterName.value.trim();
+  if (trimmed.length >= 3) {
+    void searchCharactersByName(trimmed);
+  }
+}
+
+function onNameBlur(): void {
+  touched.value.name = true;
+  window.setTimeout(() => {
+    nameOpen.value = false;
+    nameActiveIndex.value = -1;
+  }, 150);
+}
+
+function onNameKeydown(event: KeyboardEvent): void {
+  if (!nameOpen.value || !nameSuggestions.value.length) return;
+  switch (event.key) {
+    case "ArrowDown":
+      event.preventDefault();
+      nameActiveIndex.value = Math.min(
+        nameSuggestions.value.length - 1,
+        nameActiveIndex.value < 0 ? 0 : nameActiveIndex.value + 1,
+      );
+      break;
+    case "ArrowUp":
+      event.preventDefault();
+      nameActiveIndex.value = Math.max(0, nameActiveIndex.value - 1);
+      break;
+    case "Enter":
+      if (nameActiveIndex.value >= 0 && nameSuggestions.value[nameActiveIndex.value]) {
+        event.preventDefault();
+        pickNameSuggestion(nameSuggestions.value[nameActiveIndex.value]!);
+      }
+      break;
+    case "Escape":
+      event.preventDefault();
+      nameOpen.value = false;
+      nameActiveIndex.value = -1;
+      break;
+    default:
+      break;
+  }
 }
 
 function onRealmFocus(): void {
   void searchRealms(realmQuery.value);
+}
+
+onMounted(() => {
+  if (props.compact || !props.showRecent) return;
+  void enrichRecentPortraits();
+});
+
+async function enrichRecentPortraits(): Promise<void> {
+  for (const item of recent.items) {
+    if (item.avatarUrl || item.classSlug) continue;
+    try {
+      const profile = await api.getCharacterProfile({
+        region: item.region,
+        realmSlug: item.realmSlug,
+        name: item.name,
+      });
+      recent.add({
+        region: item.region,
+        realmSlug: item.realmSlug,
+        name: item.name,
+        classSlug: profile.classSlug ?? null,
+        avatarUrl: profile.media?.avatarUrl ?? profile.media?.insetUrl ?? null,
+      });
+    } catch {
+      /* keep entry without portrait metadata */
+    }
+  }
 }
 </script>
 
@@ -225,14 +348,58 @@ function onRealmFocus(): void {
           v-model="characterName"
           type="text"
           name="character"
+          role="combobox"
           autocomplete="off"
           spellcheck="false"
+          aria-autocomplete="list"
+          :aria-expanded="nameOpen"
+          :aria-controls="nameListboxId"
+          :aria-activedescendant="nameActiveOptionId"
           placeholder="e.g. Wallidrixe"
           data-testid="character-name-input"
-          :aria-invalid="nameError ? 'true' : undefined"
-          @blur="touched.name = true"
+          :aria-invalid="!compact && nameError ? 'true' : undefined"
+          @focus="onNameFocus"
+          @blur="onNameBlur"
+          @keydown="onNameKeydown"
         />
-        <span v-if="nameError" class="crs__field-error" role="alert">{{ nameError }}</span>
+        <span v-if="nameLoading" class="crs__hint crs__hint--name" role="status">Searching…</span>
+        <ul
+          v-if="nameOpen && nameSuggestions.length"
+          :id="nameListboxId"
+          class="crs__dropdown crs__dropdown--characters"
+          role="listbox"
+          aria-label="Character suggestions"
+          data-testid="character-name-suggestions"
+        >
+          <li
+            v-for="(s, index) in nameSuggestions"
+            :id="`${nameId}-option-${index}`"
+            :key="`${s.region}-${s.realmSlug}-${s.name}`"
+            role="option"
+            :aria-selected="index === nameActiveIndex"
+            :data-testid="`character-option-${s.realmSlug}-${s.name}`"
+            :class="{ active: index === nameActiveIndex }"
+            @mousedown.prevent="pickNameSuggestion(s)"
+          >
+            <img
+              v-if="iconFor(s)"
+              class="crs__avatar"
+              :src="iconFor(s)!"
+              alt=""
+              width="24"
+              height="24"
+            />
+            <span v-else class="crs__avatar crs__avatar--neutral crs__avatar--sm" aria-hidden="true" />
+            <span class="crs__name-line">
+              <span class="crs__name-nickname" :style="{ color: classColor(s.classSlug) }">
+                {{ s.name }}
+              </span>
+              <span class="crs__name-sep"> - </span>
+              <span class="crs__name-realm">{{ formattedRealmName(s) }}</span>
+            </span>
+          </li>
+        </ul>
+        <span v-if="!compact && nameError" class="crs__field-error" role="alert">{{ nameError }}</span>
       </label>
 
       <div class="crs__field crs__field--realm">
@@ -250,7 +417,7 @@ function onRealmFocus(): void {
           :aria-activedescendant="activeOptionId"
           placeholder="Search realm (e.g. Archimonde)"
           data-testid="realm-combobox-input"
-          :aria-invalid="realmFieldError ? 'true' : undefined"
+          :aria-invalid="!compact && realmFieldError ? 'true' : undefined"
           @focus="onRealmFocus"
           @blur="
             touched.realm = true;
@@ -294,57 +461,52 @@ function onRealmFocus(): void {
             <span class="crs__option-meta">{{ optionSecondary(s) }}</span>
           </li>
         </ul>
-        <span v-if="realmFieldError" class="crs__field-error" role="alert">{{ realmFieldError }}</span>
+        <span v-if="!compact && realmFieldError" class="crs__field-error" role="alert">{{ realmFieldError }}</span>
       </div>
 
       <div class="crs__actions">
         <button
           type="submit"
           class="btn primary crs__submit"
+          :class="{ 'crs__submit--icon': showIconSubmit }"
           data-testid="search-submit"
           :disabled="!canSubmit"
+          :aria-label="showIconSubmit ? 'Search' : undefined"
         >
-          <span v-if="resolving" role="status">{{ uiState === "PROCESSING" ? "Loading…" : "Searching…" }}</span>
-          <span v-else>{{ submitLabel }}</span>
+          <template v-if="showIconSubmit">
+            <span
+              v-if="resolving"
+              class="crs__submit-spinner"
+              role="status"
+              aria-label="Searching"
+            />
+            <svg
+              v-else
+              class="crs__submit-icon"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <circle cx="11" cy="11" r="7" />
+              <path d="M20 20l-4-4" />
+            </svg>
+          </template>
+          <template v-else>
+            <span v-if="resolving" role="status">
+              {{ uiState === "PROCESSING" ? "Loading…" : "Searching…" }}
+            </span>
+            <span v-else>{{ submitLabel }}</span>
+          </template>
         </button>
       </div>
     </form>
 
     <div
-      v-if="localSuggestions.length && selectedRealm && characterName.trim().length >= 3"
-      class="crs__locals"
-      data-testid="local-character-suggestions"
-    >
-      <p class="crs__group-label">Known characters</p>
-      <ul>
-        <li v-for="s in localSuggestions" :key="`${s.region}-${s.realmSlug}-${s.name}`">
-          <button type="button" class="crs__local" @click="pickLocal(s)">
-            <img
-              v-if="iconFor(s)"
-              class="crs__avatar"
-              :src="iconFor(s)!"
-              alt=""
-              width="28"
-              height="28"
-            />
-            <span v-else class="crs__avatar crs__avatar--neutral" aria-hidden="true" />
-            <span class="crs__local-text">
-              <span class="crs__local-name" :style="{ color: classColor(s.classSlug) }">{{ s.name }}</span>
-              <span class="crs__local-meta"
-                >{{ s.realmName ?? s.realmSlug }} · {{ s.region }}</span
-              >
-            </span>
-          </button>
-        </li>
-      </ul>
-      <p class="crs__group-label crs__group-label--remote">
-        Search {{ characterName.trim() }} on
-        {{ selectedRealm.displayLabel ?? `${selectedRealm.name} — ${selectedRealm.region}` }}
-      </p>
-    </div>
-
-    <div
-      v-if="message || uiState === 'QUEUED' || uiState === 'PROCESSING'"
+      v-if="!compact && (message || uiState === 'QUEUED' || uiState === 'PROCESSING')"
       class="crs__status"
       :data-tone="statusTone"
       role="status"
@@ -379,9 +541,9 @@ function onRealmFocus(): void {
         <li v-for="item in recent.items" :key="`${item.region}-${item.realmSlug}-${item.name}`">
           <button type="button" class="btn link crs__recent-btn" @click="openRecent(item)">
             <img
-              v-if="classIconUrl(item.classSlug)"
+              v-if="recentPortraitUrl(item)"
               class="crs__avatar"
-              :src="classIconUrl(item.classSlug)!"
+              :src="recentPortraitUrl(item)!"
               alt=""
               width="20"
               height="20"
@@ -498,6 +660,36 @@ input:focus-visible {
   cursor: pointer;
 }
 
+.crs__dropdown--characters li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.crs__name-line {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.crs__name-nickname {
+  flex-shrink: 0;
+}
+
+.crs__name-sep,
+.crs__name-realm {
+  color: var(--color-text-muted);
+  font-weight: 500;
+}
+
+.crs__name-realm {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .crs__dropdown li:hover,
 .crs__dropdown li.active {
   background: var(--color-surface);
@@ -530,10 +722,21 @@ input:focus-visible {
   top: 0.85rem;
 }
 
+.crs__hint--name {
+  top: 0.85rem;
+}
+
+.crs:not(.crs--compact) .crs__hint--name {
+  top: 2.55rem;
+}
+
 .crs__field-error {
   color: var(--color-danger-500);
   font-size: var(--text-xs);
   margin: 0;
+  position: absolute;
+  top: calc(100% + 0.2rem);
+  left: 0;
 }
 
 .crs__actions {
@@ -559,6 +762,43 @@ input:focus-visible {
   min-height: 2.75rem;
   width: auto;
   padding-inline: 0.9rem;
+}
+
+.crs__submit--icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.75rem;
+  min-width: 2.75rem;
+  padding: 0;
+}
+
+.crs__submit-icon {
+  width: 1.125rem;
+  height: 1.125rem;
+}
+
+.crs__submit-spinner {
+  width: 1rem;
+  height: 1rem;
+  border: 2px solid rgb(7 7 7 / 25%);
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: crs-spin 0.7s linear infinite;
+}
+
+@keyframes crs-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .crs__submit-spinner {
+    animation: none;
+    border-top-color: currentColor;
+    opacity: 0.7;
+  }
 }
 
 .crs__locals {
@@ -685,7 +925,6 @@ input:focus-visible {
 @media (min-width: 768px) {
   .crs:not(.crs--compact) .crs__form {
     grid-template-columns: minmax(10rem, 1fr) minmax(12rem, 1.2fr) auto;
-    align-items: end;
     gap: var(--space-3);
   }
 
@@ -695,13 +934,14 @@ input:focus-visible {
     min-width: 7.5rem;
   }
 
-  .crs:not(.crs--compact) .crs__field-error {
-    position: absolute;
-    top: calc(100% + 0.2rem);
+  .crs:not(.crs--compact) .crs__submit.crs__submit--icon {
+    width: 2.75rem;
+    min-width: 2.75rem;
   }
 
-  .crs:not(.crs--compact) .crs__field {
-    padding-bottom: 1.1rem;
+  .crs:not(.crs--compact) .crs__actions {
+    display: flex;
+    align-items: flex-end;
   }
 }
 
@@ -712,6 +952,11 @@ input:focus-visible {
 
   .crs--compact .crs__submit {
     width: 100%;
+  }
+
+  .crs--compact .crs__submit--icon {
+    width: 2.75rem;
+    min-width: 2.75rem;
   }
 }
 </style>

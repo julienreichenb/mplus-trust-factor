@@ -27,7 +27,6 @@ test.describe("fixture pipeline E2E (live API + inline worker)", () => {
     const nameB = `E2eplayerB-${suffix}`;
 
     await page.goto("/");
-    await expect(page.getByTestId("api-mode")).toContainText("live");
 
     await searchCharacter(page, nameA);
     await expect(page.getByTestId("raiderio-attribution")).toBeVisible();

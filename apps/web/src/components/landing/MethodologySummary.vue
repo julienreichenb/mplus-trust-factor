@@ -25,16 +25,25 @@ const principles = [
 const providers = [
   {
     name: "Blizzard APIs",
+    logo: "/logos/blizzard.svg",
+    logoAlt: "Blizzard Entertainment",
+    href: "https://worldofwarcraft.blizzard.com/en-us/",
     status: "Implemented in the API layer",
     note: "Character, equipment and related profile signals when the live mode is configured.",
   },
   {
     name: "Raider.IO",
+    logo: "/logos/raiderio.svg",
+    logoAlt: "Raider.IO",
+    href: "https://raider.io/",
     status: "Used when attributed",
     note: "Public Mythic+ context with required attribution on character results.",
   },
   {
     name: "Warcraft Logs",
+    logo: "/logos/warcraftlogs.png",
+    logoAlt: "Warcraft Logs",
+    href: "https://www.warcraftlogs.com/",
     status: "Used when available",
     note: "Performance signals when visibility and data allow.",
   },
@@ -47,22 +56,12 @@ const providers = [
       <p class="eyebrow">Methodology</p>
       <h2 id="methodology-title">Transparent by design</h2>
       <p>
-        M+ Trust Factor is an evidence panel for high-key screening. The landing preview shows the
-        intended explainability surface; live character pages already expose score, confidence,
-        freshness and source attribution from the current API contracts.
+        M+ Trust Factor is an evidence panel for high-key screening. Live character pages expose score,
+        confidence, freshness and source attribution from the current API contracts.
       </p>
     </header>
 
     <div class="methodology__panel">
-      <pre class="equation mpts-data" aria-label="Conceptual scoring equation">
-TrustFactor = f(dimensions, weights, evidenceCompleteness)
-Tier ∈ {S, A, B, C, D}
-      </pre>
-      <p class="equation-note">
-        Conceptual model only. Exact weights and thresholds ship with the active score model version
-        on character results.
-      </p>
-
       <ul class="principles">
         <li v-for="item in principles" :key="item.title">
           <h3>{{ item.title }}</h3>
@@ -72,20 +71,32 @@ Tier ∈ {S, A, B, C, D}
     </div>
 
     <div class="sources" aria-labelledby="sources-heading">
-      <h3 id="sources-heading">Data providers in this architecture</h3>
+      <h3 id="sources-heading">Data providers</h3>
       <ul>
         <li v-for="provider in providers" :key="provider.name">
           <div class="sources__head">
-            <strong>{{ provider.name }}</strong>
+            <a
+              class="sources__link"
+              :href="provider.href"
+              target="_blank"
+              rel="noopener noreferrer"
+              :aria-label="`Open ${provider.logoAlt}`"
+            >
+              <img
+                class="sources__logo"
+                :src="provider.logo"
+                :alt="provider.logoAlt"
+                width="160"
+                height="32"
+                loading="lazy"
+                decoding="async"
+              />
+            </a>
             <span class="sources__status">{{ provider.status }}</span>
           </div>
           <p>{{ provider.note }}</p>
         </li>
       </ul>
-      <p class="mode-note">
-        The visible API mode indicator shows whether this build is running against mock fixtures or a
-        live backend. Fixture mode does not claim live World of Warcraft data.
-      </p>
     </div>
   </section>
 </template>
@@ -115,6 +126,7 @@ Tier ∈ {S, A, B, C, D}
 
 .methodology__header p {
   margin: 0;
+  color: var(--color-text-muted);
 }
 
 .methodology__panel {
@@ -124,23 +136,6 @@ Tier ∈ {S, A, B, C, D}
   border: 1px solid var(--color-border);
   border-radius: var(--radius-card);
   background: var(--color-surface);
-}
-
-.equation {
-  margin: 0;
-  padding: var(--space-4);
-  border-radius: var(--radius-control);
-  border: 1px solid var(--color-border);
-  background: var(--color-obsidian-900);
-  color: var(--color-gold-300);
-  font-size: var(--text-sm);
-  white-space: pre-wrap;
-  overflow-x: auto;
-}
-
-.equation-note {
-  margin: 0;
-  font-size: var(--text-sm);
 }
 
 .principles {
@@ -159,6 +154,7 @@ Tier ∈ {S, A, B, C, D}
 .principles p {
   margin: 0;
   font-size: var(--text-sm);
+  color: var(--color-text-muted);
 }
 
 .sources h3 {
@@ -178,12 +174,37 @@ Tier ∈ {S, A, B, C, D}
   border-bottom: 1px solid var(--color-border);
 }
 
+.sources li:last-child {
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
 .sources__head {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2) var(--space-3);
-  align-items: baseline;
+  align-items: center;
   margin-bottom: var(--space-2);
+}
+
+.sources__link {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}
+
+.sources__link:hover .sources__logo,
+.sources__link:focus-visible .sources__logo {
+  opacity: 0.9;
+}
+
+.sources__logo {
+  display: block;
+  height: 1.75rem;
+  width: auto;
+  max-width: 11rem;
+  object-fit: contain;
+  object-position: left center;
 }
 
 .sources__status {
@@ -192,14 +213,9 @@ Tier ∈ {S, A, B, C, D}
   color: var(--color-brand);
 }
 
-.sources p,
-.mode-note {
+.sources p {
   margin: 0;
   font-size: var(--text-sm);
-}
-
-.mode-note {
-  margin-top: var(--space-5);
   color: var(--color-text-muted);
 }
 
@@ -207,6 +223,16 @@ Tier ∈ {S, A, B, C, D}
   .principles {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: var(--space-5) var(--space-6);
+  }
+
+  .sources ul {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--space-5);
+  }
+
+  .sources li {
+    padding-bottom: 0;
+    border-bottom: none;
   }
 }
 

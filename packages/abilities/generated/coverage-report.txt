@@ -1,5 +1,5 @@
 Ability catalog coverage — 12.0.0 / midnight-season-1
-Generated: 2026-07-28T12:41:15.518Z
+Generated: 2026-07-28T13:53:32.967Z
 
 Totals: 13 classes, 40 specs, 189 rules, 194 spell IDs, 4 aliases
 Talent-dependent: 33, pet-dependent: 4, uncertain: 5

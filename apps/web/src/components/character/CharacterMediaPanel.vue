@@ -3,9 +3,14 @@ import { computed, ref, watch } from "vue";
 import type { CharacterProfileView } from "../../api/types";
 import { toCharacterMediaViewModel } from "../../lib/characterMediaViewModel";
 
-const props = defineProps<{
-  profile: CharacterProfileView;
-}>();
+const props = withDefaults(
+  defineProps<{
+    profile: CharacterProfileView;
+    /** Framed card (default) or borderless full-bleed model for the profile hero. */
+    variant?: "default" | "bare";
+  }>(),
+  { variant: "default" },
+);
 
 const media = computed(() => toCharacterMediaViewModel(props.profile));
 const imageFailed = ref(false);
@@ -27,7 +32,12 @@ const showImage = computed(
 </script>
 
 <template>
-  <div class="media-panel" data-testid="character-media" :data-media-type="media.type">
+  <div
+    class="media-panel"
+    :class="{ 'media-panel--bare': variant === 'bare' }"
+    data-testid="character-media"
+    :data-media-type="media.type"
+  >
     <div class="media-panel__frame" :aria-hidden="showImage ? undefined : 'true'">
       <img
         v-if="showImage"
@@ -46,13 +56,13 @@ const showImage = computed(
         <span class="media-panel__mark">M+TS</span>
       </template>
     </div>
-    <p class="media-panel__caption">
+    <p v-if="variant !== 'bare'" class="media-panel__caption">
       <span class="media-panel__status">
         {{ showImage ? (media.type === "avatar" ? "Character avatar" : "Character render") : "Media placeholder" }}
       </span>
       <span>{{ media.caption }}</span>
     </p>
-    <p v-if="!showImage" class="sr-only">{{ media.alt }}</p>
+    <p v-if="!showImage || variant === 'bare'" class="sr-only">{{ media.alt }}</p>
   </div>
 </template>
 
@@ -60,6 +70,13 @@ const showImage = computed(
 .media-panel {
   display: grid;
   gap: var(--space-3);
+}
+
+.media-panel--bare {
+  height: 100%;
+  min-height: 0;
+  gap: 0;
+  grid-template-rows: 1fr;
 }
 
 .media-panel__frame {
@@ -70,8 +87,17 @@ const showImage = computed(
   border: 1px solid var(--color-border);
   overflow: hidden;
   background:
-    radial-gradient(circle at 50% 18%, rgb(245 158 11 / 16%), transparent 42%),
+    radial-gradient(circle at 50% 18%, rgb(var(--color-rank-rgb) / 16%), transparent 42%),
     linear-gradient(165deg, var(--color-iron-800), var(--color-obsidian-950) 58%);
+}
+
+.media-panel--bare .media-panel__frame {
+  aspect-ratio: auto;
+  height: 100%;
+  min-height: 16rem;
+  border: none;
+  border-radius: 0;
+  background: transparent;
 }
 
 .media-panel__image {
@@ -81,12 +107,17 @@ const showImage = computed(
   object-fit: cover;
 }
 
+.media-panel--bare .media-panel__image {
+  object-fit: contain;
+  object-position: center bottom;
+}
+
 .media-panel__glow {
   position: absolute;
   inset: auto 18% 12% 18%;
   height: 28%;
   border-radius: 50%;
-  background: rgb(245 158 11 / 18%);
+  background: rgb(var(--color-rank-rgb) / 18%);
   filter: blur(18px);
 }
 
@@ -112,7 +143,7 @@ const showImage = computed(
   font-family: var(--font-data);
   font-size: var(--text-xs);
   letter-spacing: 0.08em;
-  color: rgb(244 213 141 / 70%);
+  color: color-mix(in srgb, var(--color-gold-300) 70%, transparent);
 }
 
 .media-panel__caption {

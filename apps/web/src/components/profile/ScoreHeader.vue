@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import { RouterLink } from "vue-router";
 import type { CharacterProfileView } from "../../api/types";
 import {
   humanizeSlug,
@@ -10,16 +9,12 @@ import {
   parseContributorSignals,
 } from "../../lib/characterViewModel";
 import { formatPercent, formatScore } from "../../lib/format";
+import { resolveExternalProfileLinks } from "../../lib/externalProfileLinks";
 import TrustTierBadge from "../landing/TrustTierBadge.vue";
 import CharacterMediaPanel from "../character/CharacterMediaPanel.vue";
 
 const props = defineProps<{
   profile: CharacterProfileView;
-  refreshing?: boolean;
-}>();
-
-const emit = defineEmits<{
-  refresh: [];
 }>();
 
 const grade = computed(() => presentGrade(props.profile.score?.grade));
@@ -29,6 +24,7 @@ const signals = computed(() =>
 );
 const positives = computed(() => topSignals(signals.value, "positive", 2));
 const risks = computed(() => topSignals(signals.value, "risk", 2));
+const externalLinks = computed(() => resolveExternalProfileLinks(props.profile));
 
 const gradeLabel = computed(() => {
   const g = props.profile.score?.grade;
@@ -48,51 +44,10 @@ const classSpec = computed(() => {
 
 <template>
   <header class="score-header" data-testid="score-header">
-    <div class="toolbar">
-      <RouterLink class="back" to="/#character-search">← Back to character search</RouterLink>
-      <div class="toolbar__actions">
-        <span class="refresh-state mpts-data">{{ profile.refreshStatus }}</span>
-        <button
-          type="button"
-          class="btn secondary"
-          data-testid="refresh-button"
-          :disabled="refreshing || profile.refreshStatus === 'QUEUED'"
-          @click="emit('refresh')"
-        >
-          {{ refreshing || profile.refreshStatus === "QUEUED" ? "Refreshing…" : "Refresh data" }}
-        </button>
-      </div>
-    </div>
-
     <div class="hero-grid">
-      <CharacterMediaPanel class="media" :profile="profile" />
-
-      <div class="identity">
-        <p class="eyebrow">Character profile</p>
-        <h1>{{ profile.displayName }}</h1>
-        <p class="meta">
-          <span>{{ profile.realmSlug }} · {{ profile.region }}</span>
-          <span v-if="classSpec"> · {{ classSpec }}</span>
-          <span v-if="profile.role"> · {{ profile.role }}</span>
-        </p>
-        <dl class="facts">
-          <div v-if="profile.itemLevel != null">
-            <dt>Item level</dt>
-            <dd class="mpts-data">{{ profile.itemLevel }}</dd>
-          </div>
-          <div v-if="profile.seasonSummary?.mythicRating != null">
-            <dt>Mythic+ rating</dt>
-            <dd class="mpts-data">{{ profile.seasonSummary.mythicRating }}</dd>
-          </div>
-          <div v-if="profile.seasonSummary">
-            <dt>Season runs</dt>
-            <dd class="mpts-data">{{ profile.seasonSummary.runCount }}</dd>
-          </div>
-          <div>
-            <dt>Refresh</dt>
-            <dd>{{ profile.refreshStatus }}</dd>
-          </div>
-        </dl>
+      <div class="hero-grid__stage" aria-hidden="true">
+        <div class="hero-grid__glow" />
+        <CharacterMediaPanel class="media" :profile="profile" variant="bare" />
       </div>
 
       <div class="trust" aria-label="Trust Factor summary">
@@ -145,21 +100,69 @@ const classSpec = computed(() => {
             </dd>
           </div>
         </dl>
+      </div>
 
-        <div class="key-signals" aria-label="Top signals">
-          <div>
-            <h2 class="key-signals__title">Top positives</h2>
-            <ul v-if="positives.length">
-              <li v-for="(item, index) in positives" :key="`p-${index}`">{{ item.label }}</li>
-            </ul>
-            <p v-else class="empty">Unavailable in this snapshot</p>
+      <div class="hero-grid__main">
+        <div class="hero-grid__content">
+          <div class="identity">
+            <p class="eyebrow">Character profile</p>
+            <div class="identity__title-row">
+              <h1>{{ profile.displayName }}</h1>
+              <nav class="external-links" aria-label="External character profiles">
+                <a
+                  v-for="link in externalLinks"
+                  :key="link.id"
+                  class="external-links__item"
+                  :href="link.href"
+                  :title="link.label"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <img :src="link.logo" :alt="link.logoAlt" width="20" height="20" />
+                  <span class="sr-only">{{ link.label }}</span>
+                </a>
+              </nav>
+            </div>
+            <p class="meta">
+              <span>{{ profile.realmSlug }} · {{ profile.region }}</span>
+              <span v-if="classSpec"> · {{ classSpec }}</span>
+              <span v-if="profile.role"> · {{ profile.role }}</span>
+            </p>
+            <dl class="facts">
+              <div v-if="profile.itemLevel != null">
+                <dt>Item level</dt>
+                <dd class="mpts-data">{{ profile.itemLevel }}</dd>
+              </div>
+              <div v-if="profile.seasonSummary?.mythicRating != null">
+                <dt>Mythic+ rating</dt>
+                <dd class="mpts-data">{{ profile.seasonSummary.mythicRating }}</dd>
+              </div>
+              <div v-if="profile.seasonSummary">
+                <dt>Season runs</dt>
+                <dd class="mpts-data">{{ profile.seasonSummary.runCount }}</dd>
+              </div>
+              <div>
+                <dt>Refresh</dt>
+                <dd>{{ profile.refreshStatus }}</dd>
+              </div>
+            </dl>
           </div>
-          <div>
-            <h2 class="key-signals__title">Top risks</h2>
-            <ul v-if="risks.length">
-              <li v-for="(item, index) in risks" :key="`r-${index}`">{{ item.label }}</li>
-            </ul>
-            <p v-else class="empty">Unavailable in this snapshot</p>
+
+          <div class="key-signals" aria-label="Top signals">
+            <div>
+              <h2 class="key-signals__title">Top positives</h2>
+              <ul v-if="positives.length">
+                <li v-for="(item, index) in positives" :key="`p-${index}`">{{ item.label }}</li>
+              </ul>
+              <p v-else class="empty">Unavailable in this snapshot</p>
+            </div>
+            <div>
+              <h2 class="key-signals__title">Top risks</h2>
+              <ul v-if="risks.length">
+                <li v-for="(item, index) in risks" :key="`r-${index}`">{{ item.label }}</li>
+              </ul>
+              <p v-else class="empty">Unavailable in this snapshot</p>
+            </div>
           </div>
         </div>
       </div>
@@ -170,55 +173,151 @@ const classSpec = computed(() => {
 <style scoped>
 .score-header {
   display: grid;
-  gap: var(--space-5);
-}
-
-.toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-3);
-  justify-content: space-between;
-  align-items: center;
-}
-
-.back {
-  font-weight: 600;
-  text-decoration: none;
-  color: var(--color-gold-300);
-}
-
-.back:hover,
-.back:focus-visible {
-  color: var(--color-brand-hover);
-  text-decoration: underline;
-}
-
-.toolbar__actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-3);
-  align-items: center;
-}
-
-.refresh-state {
-  font-size: var(--text-xs);
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--color-text-muted);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-control);
-  padding: 0.25rem 0.5rem;
+  gap: var(--space-2);
+  overflow: visible;
 }
 
 .hero-grid {
+  position: relative;
+  display: grid;
+  gap: var(--space-4);
+  align-items: stretch;
+  isolation: isolate;
+  min-height: min(62dvh, 32rem);
+  overflow: visible;
+}
+
+/* Right-hand portrait column — glow + model share the same center. */
+.hero-grid__stage {
+  position: absolute;
+  z-index: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 58%;
+  pointer-events: none;
+  display: grid;
+  place-items: center;
+}
+
+.hero-grid__glow {
+  position: absolute;
+  z-index: 0;
+  inset: 8% 4% 4% 8%;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle at 50% 52%,
+    rgb(var(--color-rank-rgb) / 52%) 0%,
+    rgb(var(--color-rank-rgb) / 22%) 38%,
+    transparent 70%
+  );
+  filter: blur(34px);
+}
+
+.media {
+  position: relative;
+  z-index: 1;
+  width: min(100%, 28rem);
+  height: 100%;
+  max-height: 100%;
+  justify-self: center;
+}
+
+.hero-grid__stage :deep(.media-panel--bare),
+.hero-grid__stage :deep(.media-panel--bare .media-panel__frame) {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow: visible;
+}
+
+.hero-grid__stage :deep(.media-panel--bare .media-panel__image) {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  object-position: center bottom;
+  transform: scale(1.45);
+  transform-origin: center bottom;
+}
+
+.hero-grid__stage :deep(.media-panel--bare .media-panel__silhouette) {
+  inset: 8% 22% 2% 22%;
+}
+
+.hero-grid__stage :deep(.media-panel--bare .media-panel__glow) {
+  inset: auto 18% 2% 18%;
+  height: 32%;
+}
+
+.trust,
+.hero-grid__main {
+  position: relative;
+  z-index: 1;
+  min-width: 0;
+}
+
+.hero-grid__main {
+  min-height: 100%;
+  display: grid;
+}
+
+.hero-grid__content {
   display: grid;
   gap: var(--space-5);
+  align-content: start;
+  height: 100%;
+  padding: var(--space-5) var(--space-5) var(--space-5) 0;
+  max-width: min(100%, 28rem);
+  background: linear-gradient(
+    90deg,
+    rgb(7 7 7 / 55%) 0%,
+    rgb(7 7 7 / 28%) 55%,
+    transparent 100%
+  );
 }
 
 .identity {
   display: grid;
   gap: var(--space-3);
   align-content: start;
+}
+
+.identity__title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.external-links {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.external-links__item {
+  display: grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: var(--radius-control);
+  border: 1px solid var(--color-border);
+  background: rgb(13 13 15 / 72%);
+  transition:
+    border-color var(--duration-fast) ease,
+    background-color var(--duration-fast) ease;
+}
+
+.external-links__item:hover,
+.external-links__item:focus-visible {
+  border-color: var(--color-gold-300);
+  background: var(--color-surface-hover);
+}
+
+.external-links__item img {
+  width: 1.15rem;
+  height: 1.15rem;
+  object-fit: contain;
 }
 
 .eyebrow {
@@ -234,6 +333,7 @@ const classSpec = computed(() => {
   margin: 0;
   overflow-wrap: anywhere;
   font-size: clamp(2rem, 4vw, 3rem);
+  text-shadow: 0 2px 18px rgb(0 0 0 / 55%);
 }
 
 .meta {
@@ -265,12 +365,14 @@ const classSpec = computed(() => {
 .trust {
   display: grid;
   gap: var(--space-4);
+  align-content: start;
   padding: var(--space-5);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-hero);
   background:
-    linear-gradient(160deg, rgb(245 158 11 / 7%), transparent 45%),
+    linear-gradient(160deg, rgb(var(--color-rank-rgb) / 7%), transparent 45%),
     var(--color-surface);
+  min-height: 100%;
 }
 
 .trust__label {
@@ -309,6 +411,7 @@ const classSpec = computed(() => {
   border-radius: var(--radius-control);
   padding: 0.2rem 0.45rem;
   background: var(--color-obsidian-900);
+  color: var(--color-gold-300);
 }
 
 .grade-text {
@@ -340,7 +443,7 @@ const classSpec = computed(() => {
   display: grid;
   gap: var(--space-4);
   padding-top: var(--space-3);
-  border-top: 1px solid var(--color-border);
+  border-top: 1px solid rgb(255 255 255 / 12%);
 }
 
 .key-signals__title {
@@ -367,34 +470,56 @@ const classSpec = computed(() => {
 
 @media (min-width: 768px) {
   .hero-grid {
-    grid-template-columns: 11rem 1fr;
-    align-items: start;
+    grid-template-columns: minmax(14rem, 33%) minmax(0, 1fr);
+    min-height: min(70dvh, 38rem);
+  }
+
+  .hero-grid__stage {
+    left: 52%;
+  }
+
+  .hero-grid__stage :deep(.media-panel--bare .media-panel__image) {
+    transform: scale(1.65);
   }
 
   .media {
-    grid-row: span 1;
-  }
-
-  .trust {
-    grid-column: 1 / -1;
+    width: min(100%, 34rem);
   }
 
   .key-signals {
     grid-template-columns: 1fr 1fr;
   }
-
-  .stats {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
 }
 
 @media (min-width: 1100px) {
   .hero-grid {
-    grid-template-columns: 14rem minmax(0, 1.1fr) minmax(18rem, 0.95fr);
+    min-height: min(74dvh, 44rem);
   }
 
-  .trust {
-    grid-column: auto;
+  .hero-grid__stage {
+    left: 50%;
+  }
+
+  .hero-grid__stage :deep(.media-panel--bare .media-panel__image) {
+    transform: scale(1.85);
+  }
+
+  .media {
+    width: min(100%, 40rem);
+  }
+
+  .facts {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-grid__glow {
+    filter: blur(14px);
+  }
+
+  .hero-grid__stage :deep(.media-panel--bare .media-panel__image) {
+    transform: scale(1.25);
   }
 }
 </style>

@@ -9,6 +9,15 @@ export function formatRealmDisplayName(slug: string): string {
     .join(" ");
 }
 
+/** Prefer API/catalog display name; fall back to slug formatting. */
+export function resolveRealmDisplayName(slug: string, name?: string | null): string {
+  const rawName = name?.trim();
+  if (rawName && rawName.toLowerCase() !== slug.trim().toLowerCase()) {
+    return rawName;
+  }
+  return formatRealmDisplayName(slug);
+}
+
 export function formatRealmSelectedLabel(name: string, region: string): string {
   return `${name} — ${region.toUpperCase()}`;
 }

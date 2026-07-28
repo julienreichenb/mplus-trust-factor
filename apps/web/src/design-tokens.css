@@ -28,11 +28,15 @@
   --color-brand-hover: var(--color-amber-400);
   --color-focus: var(--color-amber-400);
 
-  --color-tier-s: #f4d58d;
+  --color-tier-s: #38bdf8;
   --color-tier-a: #a3e635;
-  --color-tier-b: #38bdf8;
+  --color-tier-b: #2dd4bf;
   --color-tier-c: #a78bfa;
   --color-tier-d: #fb7185;
+  --color-tier-u: #f4d58d;
+
+  /* Space-separated RGB for `rgb(var(--color-rank-rgb) / a)` glows; remapped per grade on character page. */
+  --color-rank-rgb: 245 158 11;
 
   --font-body: "Inter", "Segoe UI", sans-serif;
   --font-display: "Cinzel", Georgia, serif;
@@ -77,8 +81,8 @@
   --gutter-mobile: 1.25rem;
   --gutter-tablet: 2rem;
   --gutter-desktop: 3rem;
-  --section-gap-mobile: 4rem;
-  --section-gap-desktop: 6rem;
+  --section-gap-mobile: 1.5rem;
+  --section-gap-desktop: 2rem;
 }
 
 :focus-visible {

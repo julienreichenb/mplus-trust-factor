@@ -1,10 +1,8 @@
 <script setup lang="ts">
 import { RouterLink, useRoute } from "vue-router";
-import { resolveApiMode } from "../../api/client";
 import BrandMark from "../brand/BrandMark.vue";
 import CharacterRealmSearch from "../search/CharacterRealmSearch.vue";
 
-const apiMode = resolveApiMode();
 const route = useRoute();
 
 function hashHref(hash: string): string {
@@ -33,10 +31,8 @@ function hashHref(hash: string): string {
       <CharacterRealmSearch
         compact
         :show-recent="false"
-        submit-label="Search"
         data-testid="navbar-search"
       />
-      <span class="mode-pill" data-testid="api-mode">API: {{ apiMode }}</span>
     </div>
   </header>
 </template>
@@ -48,14 +44,18 @@ function hashHref(hash: string): string {
   gap: var(--space-4);
   align-items: center;
   margin-bottom: var(--space-6);
-  padding-bottom: var(--space-4);
-  border-bottom: 1px solid var(--color-border);
+  padding: var(--space-3) var(--space-5);
   position: sticky;
-  top: 0;
+  top: var(--space-3);
   z-index: 40;
-  background: rgb(7 7 7 / 92%);
-  backdrop-filter: blur(8px);
-  padding-top: var(--space-2);
+  border-radius: var(--radius-hero);
+  border: 1px solid rgb(255 255 255 / 8%);
+  background: rgb(13 13 15 / 55%);
+  backdrop-filter: blur(16px) saturate(140%);
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  box-shadow:
+    0 4px 24px rgb(0 0 0 / 25%),
+    inset 0 1px 0 rgb(255 255 255 / 6%);
 }
 
 .brand {

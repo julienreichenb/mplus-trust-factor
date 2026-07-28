@@ -5,9 +5,11 @@ import type { CharacterProfileView } from "../api/types";
 import { useAbortableQuery } from "../composables/useAbortableQuery";
 import { useRefreshPolling } from "../composables/useRefreshPolling";
 import { useRecentSearchesStore } from "../stores/recentSearches";
-import SkeletonBlock from "../components/common/SkeletonBlock.vue";
 import StatusBanner from "../components/common/StatusBanner.vue";
+import AppToast from "../components/common/AppToast.vue";
 import CharacterRealmSearch from "../components/search/CharacterRealmSearch.vue";
+import CharacterLoadingSplash from "../components/character/CharacterLoadingSplash.vue";
+import CharacterProfileToolbar from "../components/character/CharacterProfileToolbar.vue";
 import ScoreHeader from "../components/profile/ScoreHeader.vue";
 import DimensionCards from "../components/profile/DimensionCards.vue";
 import AuthenticitySection from "../components/profile/AuthenticitySection.vue";
@@ -21,6 +23,7 @@ import EquipmentGrid from "../components/equipment/EquipmentGrid.vue";
 import TalentBuildPanel from "../components/talents/TalentBuildPanel.vue";
 import MethodologyPanel from "../components/methodology/MethodologyPanel.vue";
 import { resolveDataConfidence } from "../lib/characterViewModel";
+import { gradeThemeCssVars } from "../lib/gradeTheme";
 import { filterDimensionsForModel } from "../lib/format";
 import { useWowheadTooltips } from "../composables/useWowheadTooltips";
 import { ApiClientError } from "../api/live-client";
@@ -38,8 +41,12 @@ useWowheadTooltips(true);
 
 const loading = ref(true);
 const error = ref<string | null>(null);
+const refreshNotice = ref<string | null>(null);
 const notFound = ref(false);
 const profile = ref<CharacterProfileView | null>(null);
+
+/** Keep splash visible while the first fetch or queued enrichment is in progress. */
+const showSplash = computed(() => loading.value || polling.value);
 
 const confidenceWarning = computed(() => {
   const conf = profile.value ? resolveDataConfidence(profile.value) : null;
@@ -68,11 +75,49 @@ const visibleDimensions = computed(() =>
   filterDimensionsForModel(profile.value?.score?.dimensions ?? [], profile.value?.score?.modelVersion),
 );
 
+const grade = computed(() => profile.value?.score?.grade ?? null);
+const rankThemeStyle = computed(() => gradeThemeCssVars(grade.value));
+
+const hasWclNotice = computed(() => {
+  const p = profile.value;
+  if (!p) return false;
+  const visibility = p.wclVisibility;
+  const dataState = p.wclDataState;
+  if (visibility === "HIDDEN") return true;
+  if (visibility === "PUBLIC" && (dataState === "NO_MATCHED_RUN" || dataState === "RANKINGS_ONLY")) {
+    return true;
+  }
+  return dataState === "NO_PUBLIC_LOGS" || dataState === "RATE_LIMITED" || dataState === "UNAVAILABLE";
+});
+
+/** Profile status / data notices shown in the collapsible banner group. */
+const bannerTitles = computed(() => {
+  if (!profile.value || showSplash.value) return [];
+  const titles: string[] = [];
+  if (profile.value.refreshStatus === "QUEUED" || polling.value) {
+    titles.push("Refresh queued");
+  } else if (timedOut.value) {
+    titles.push("Refresh timed out");
+  } else if (profile.value.refreshStatus === "STALE") {
+    titles.push("Stale data");
+  }
+  if (confidenceWarning.value) titles.push("Low confidence");
+  for (const w of profile.value.warnings ?? []) {
+    titles.push(w.code.replaceAll("_", " "));
+  }
+  if (hasWclNotice.value) titles.push("Warcraft Logs visibility");
+  return titles;
+});
+
+const showBannerGroup = computed(() => bannerTitles.value.length > 0);
+
 async function load(): Promise<void> {
   loading.value = true;
   error.value = null;
+  refreshNotice.value = null;
   notFound.value = false;
   stopPolling();
+  const startedAt = Date.now();
   const signal = nextSignal();
   const identity = {
     region: props.region.toUpperCase(),
@@ -82,7 +127,11 @@ async function load(): Promise<void> {
   try {
     const data = await api.getCharacterProfile(identity, signal);
     profile.value = data;
-    recent.add(identity);
+    recent.add({
+      ...identity,
+      classSlug: data.classSlug ?? null,
+      avatarUrl: data.media?.avatarUrl ?? data.media?.insetUrl ?? null,
+    });
     if (data.refreshStatus === "QUEUED") {
       void startPolling({
         identity,
@@ -130,6 +179,11 @@ async function load(): Promise<void> {
       error.value = (err as Error).message || "Failed to load profile";
     }
   } finally {
+    const minSplashMs = 500;
+    const remaining = minSplashMs - (Date.now() - startedAt);
+    if (remaining > 0) {
+      await new Promise((resolve) => setTimeout(resolve, remaining));
+    }
     loading.value = false;
   }
 }
@@ -142,27 +196,46 @@ async function refresh(): Promise<void> {
     name: props.name,
   };
   try {
-    await api.refreshCharacter(identity);
+    refreshNotice.value = null;
+    const status = await api.refreshCharacter(identity);
+    const inFlight =
+      status.refreshStatus === "QUEUED" || status.refreshStatus === "IN_PROGRESS";
+
+    if (!inFlight && status.cooldownSecondsRemaining > 0) {
+      const minutes = Math.ceil(status.cooldownSecondsRemaining / 60);
+      refreshNotice.value =
+        status.cooldownSecondsRemaining >= 60
+          ? `Refresh is on cooldown. Try again in about ${minutes} min.`
+          : `Refresh is on cooldown. Try again in ${status.cooldownSecondsRemaining}s.`;
+      return;
+    }
+
+    if (status.refreshStatus === "FRESH" && !inFlight) {
+      const refreshed = await api.getCharacterProfile(identity);
+      profile.value = refreshed;
+      return;
+    }
+
     profile.value = { ...profile.value, refreshStatus: "QUEUED" };
     void startPolling({
       identity,
-      onUpdate: (status) => {
+      onUpdate: (statusUpdate) => {
         if (profile.value) {
           profile.value = {
             ...profile.value,
             refreshStatus:
-              status.refreshStatus === "IN_PROGRESS" || status.refreshStatus === "QUEUED"
+              statusUpdate.refreshStatus === "IN_PROGRESS" || statusUpdate.refreshStatus === "QUEUED"
                 ? "QUEUED"
-                : status.refreshStatus === "FAILED"
+                : statusUpdate.refreshStatus === "FAILED"
                   ? "STALE"
                   : "FRESH",
           };
         }
       },
-      onComplete: async (status) => {
-        if (status.refreshStatus === "FAILED" || status.job?.status === "failed") {
-          error.value =
-            status.job?.errorMessage?.trim() ||
+      onComplete: async (statusUpdate) => {
+        if (statusUpdate.refreshStatus === "FAILED" || statusUpdate.job?.status === "failed") {
+          refreshNotice.value =
+            statusUpdate.job?.errorMessage?.trim() ||
             "Refresh failed. You can retry without losing the last available snapshot.";
         }
         const refreshed = await api.getCharacterProfile(identity);
@@ -170,7 +243,7 @@ async function refresh(): Promise<void> {
       },
     });
   } catch (err) {
-    error.value = (err as Error).message || "Refresh failed";
+    refreshNotice.value = (err as Error).message || "Refresh failed";
   }
 }
 
@@ -184,79 +257,98 @@ watch(
 </script>
 
 <template>
-  <section class="character-page" data-testid="character-page">
-    <div v-if="loading" class="loading" role="status" aria-live="polite">
-      <SkeletonBlock label="Loading character identity" :lines="4" />
-      <SkeletonBlock label="Loading trust score" :lines="5" />
-      <SkeletonBlock label="Loading dimensions and sources" :lines="6" />
-    </div>
-
-    <StatusBanner v-else-if="notFound" tone="warn" title="Character not found on this realm">
+  <section
+    class="character-page"
+    :class="{ 'character-page--splashing': showSplash }"
+    :data-tier="grade ?? undefined"
+    :style="rankThemeStyle"
+    data-testid="character-page"
+  >
+    <StatusBanner v-if="notFound && !showSplash" tone="warn" title="Character not found on this realm">
       No record for {{ name }} on {{ realm }} ({{ region }}). Search again with a catalog realm.
       <div class="not-found-search">
         <CharacterRealmSearch :show-recent="false" submit-label="Search" />
       </div>
     </StatusBanner>
 
-    <StatusBanner v-else-if="error" tone="error" title="Could not load profile">
+    <StatusBanner
+      v-else-if="error && !profile && !showSplash"
+      tone="error"
+      title="Could not load profile"
+    >
       {{ error }}
       <button type="button" class="btn" @click="load">Retry</button>
     </StatusBanner>
 
-    <template v-else-if="profile">
-      <StatusBanner
-        v-if="profile.refreshStatus === 'QUEUED' || polling"
-        tone="info"
-        title="Refresh queued"
-        data-testid="queued-banner"
+    <template v-if="profile">
+      <CharacterProfileToolbar :profile="profile" :refreshing="polling" @refresh="refresh" />
+
+      <details
+        v-if="showBannerGroup"
+        class="character-page__banners"
+        open
+        data-testid="character-banners"
       >
-        Showing the latest available snapshot while a refresh runs. Polling with backoff until complete.
-      </StatusBanner>
+        <summary class="character-page__banners-summary">
+          Notices
+          <span class="character-page__banners-count mpts-data">{{ bannerTitles.length }}</span>
+        </summary>
+        <div class="character-page__banners-body">
+          <StatusBanner
+            v-if="profile.refreshStatus === 'QUEUED' || polling"
+            tone="info"
+            title="Refresh queued"
+            data-testid="queued-banner"
+          >
+            Showing the latest available snapshot while a refresh runs. Polling with backoff until complete.
+          </StatusBanner>
 
-      <StatusBanner
-        v-else-if="timedOut"
-        tone="warn"
-        title="Refresh timed out"
-        data-testid="refresh-timeout-banner"
-      >
-        Still waiting on providers. Retry refresh or come back shortly.
-        <button type="button" class="btn" data-testid="refresh-timeout-retry" @click="refresh">Retry</button>
-      </StatusBanner>
+          <StatusBanner
+            v-else-if="timedOut"
+            tone="warn"
+            title="Refresh timed out"
+            data-testid="refresh-timeout-banner"
+          >
+            Still waiting on providers. Retry refresh or come back shortly.
+            <button type="button" class="btn" data-testid="refresh-timeout-retry" @click="refresh">Retry</button>
+          </StatusBanner>
 
-      <StatusBanner
-        v-else-if="profile.refreshStatus === 'STALE'"
-        tone="warn"
-        title="Stale data"
-        data-testid="stale-banner"
-      >
-        This snapshot is usable but may be outdated. Refresh to queue an update.
-      </StatusBanner>
+          <StatusBanner
+            v-else-if="profile.refreshStatus === 'STALE'"
+            tone="warn"
+            title="Stale data"
+            data-testid="stale-banner"
+          >
+            This snapshot is usable but may be outdated. Refresh to queue an update.
+          </StatusBanner>
 
-      <StatusBanner
-        v-if="confidenceWarning"
-        tone="warn"
-        title="Low confidence"
-        data-testid="confidence-warning"
-      >
-        Data confidence is low. The Trust Factor is shrunk toward neutral and should be interpreted
-        cautiously.
-      </StatusBanner>
+          <StatusBanner
+            v-if="confidenceWarning"
+            tone="warn"
+            title="Low confidence"
+            data-testid="confidence-warning"
+          >
+            Data confidence is low. The Trust Factor is shrunk toward neutral and should be interpreted
+            cautiously.
+          </StatusBanner>
 
-      <StatusBanner
-        v-for="w in profile.warnings"
-        :key="w.code"
-        :tone="w.severity === 'WARN' ? 'warn' : 'info'"
-        :title="w.code.replaceAll('_', ' ')"
-      >
-        {{ w.message }}
-      </StatusBanner>
+          <StatusBanner
+            v-for="w in profile.warnings"
+            :key="w.code"
+            :tone="w.severity === 'WARN' ? 'warn' : 'info'"
+            :title="w.code.replaceAll('_', ' ')"
+          >
+            {{ w.message }}
+          </StatusBanner>
 
-      <WclVisibilityBanner
-        :visibility="profile.wclVisibility"
-        :data-state="profile.wclDataState"
-      />
+          <WclVisibilityBanner
+            :visibility="profile.wclVisibility"
+            :data-state="profile.wclDataState"
+          />
+        </div>
+      </details>
 
-      <ScoreHeader :profile="profile" :refreshing="polling" @refresh="refresh" />
+      <ScoreHeader :profile="profile" />
 
       <TrustRadarChart
         v-if="visibleDimensions.length"
@@ -269,6 +361,7 @@ watch(
         ]"
         :model-version="profile.score?.modelVersion"
         :locked="!entitlements.detailsUnlocked"
+        :accent-color="rankThemeStyle['--color-brand']"
       />
 
       <DimensionCards
@@ -306,18 +399,91 @@ watch(
       <TalentBuildPanel :talents="profile.talents" :locked="!entitlements.detailsUnlocked" />
       <MethodologyPanel :profile="profile" />
     </template>
+
+    <CharacterLoadingSplash
+      v-if="showSplash"
+      :name="name"
+      :realm="realm"
+      :region="region"
+      :hint="polling && !loading ? 'Refreshing character data…' : 'Gathering public signals…'"
+    />
+
+    <AppToast
+      :open="Boolean(refreshNotice)"
+      :message="refreshNotice ?? ''"
+      tone="warn"
+      @close="refreshNotice = null"
+    />
   </section>
 </template>
 
 <style scoped>
 .character-page {
   display: grid;
-  gap: var(--space-8);
+  gap: var(--space-2);
+  position: relative;
 }
 
-.loading {
+.character-page--splashing {
+  min-height: 70dvh;
+}
+
+.character-page__banners {
+  border: none;
+  background: transparent;
+  padding: 0;
+}
+
+.character-page__banners-summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) 0;
+  font-family: var(--font-data);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  user-select: none;
+}
+
+.character-page__banners-summary::-webkit-details-marker {
+  display: none;
+}
+
+.character-page__banners-summary::before {
+  content: "";
+  width: 0.4rem;
+  height: 0.4rem;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform var(--duration-fast);
+}
+
+.character-page__banners[open] > .character-page__banners-summary::before {
+  transform: rotate(45deg);
+}
+
+.character-page__banners-count {
+  display: inline-grid;
+  place-items: center;
+  min-width: 1.25rem;
+  height: 1.25rem;
+  padding: 0 0.35rem;
+  border-radius: var(--radius-control);
+  background: var(--color-iron-800);
+  color: var(--color-gold-300);
+  font-size: var(--text-xs);
+}
+
+.character-page__banners-body {
   display: grid;
-  gap: var(--space-5);
+  gap: var(--space-1);
+  padding: 0;
 }
 
 .not-found-search {
@@ -327,7 +493,7 @@ watch(
 
 .split {
   display: grid;
-  gap: var(--space-6);
+  gap: var(--space-2);
 }
 
 @media (min-width: 1024px) {

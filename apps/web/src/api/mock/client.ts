@@ -29,6 +29,7 @@ import {
   setModelStore,
 } from "./fixtures";
 import { deepClone } from "../../lib/clone";
+import { formatRealmDisplayName } from "../realm-options";
 import { classIconUrl } from "../../lib/wowClass";
 
 function delay(ms: number): Promise<void> {
@@ -215,6 +216,7 @@ export function createMockApiClient(): MplusApiClient {
       const fromFixtures: CharacterAutocompleteSuggestion[] = FIXTURE_CHARACTERS.map((fixture) => ({
         name: fixture.identity.name,
         realmSlug: fixture.identity.realmSlug,
+        realmName: formatRealmDisplayName(fixture.identity.realmSlug),
         region: fixture.identity.region as RegionCode,
         classSlug: fixture.profile.classSlug ?? null,
         specSlug: fixture.profile.specSlug ?? null,
@@ -243,7 +245,7 @@ export function createMockApiClient(): MplusApiClient {
           const realmMatch = !realmPart || entry.realmSlug.includes(realmPart);
           return nameMatch && realmMatch;
         })
-        .slice(0, 12);
+        .slice(0, 3);
     },
 
     async getCharacterProfile(identity, signal) {

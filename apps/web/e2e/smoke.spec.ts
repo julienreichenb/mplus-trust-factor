@@ -20,7 +20,6 @@ test.describe("M+ Trust Factor web (mock mode)", () => {
     page.on("pageerror", (err) => errors.push(err.message));
 
     await page.goto("/");
-    await expect(page.getByTestId("api-mode")).toContainText("mock");
     await page.screenshot({ path: path.join(shotDir, "landing-desktop.png"), fullPage: true });
 
     await fillHeroSearch(page, "Aleria", "tarren-mill");
