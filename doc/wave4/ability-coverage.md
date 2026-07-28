@@ -19,6 +19,13 @@ Artifacts:
 | Season | `midnight-season-1` |
 | Generated | `2026-07-28` |
 | Source snapshot | `retail-midnight-s1-curated-2026-07-28` |
+| Canonical rules | **189** |
+| Spell IDs | **194** |
+| Aliases | **4** |
+| Talent-dependent | 33 |
+| Pet-dependent | 4 |
+| Uncertain rules | 5 |
+| Validation | **PASS** (0 errors, 5 warnings) |
 
 ## Matrix
 
