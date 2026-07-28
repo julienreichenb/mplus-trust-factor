@@ -93,6 +93,14 @@ describe("reconcileSources", () => {
           isPreviousSeason: false,
         },
         previousSeason: null,
+        seasons: [
+          {
+            seasonSlug: "season-tww-3",
+            scores: { all: 2100, dps: 2100, healer: null, tank: null },
+            isCurrentSeason: true,
+            isPreviousSeason: false,
+          },
+        ],
         ranks: null,
         recentRuns: [],
         bestRuns: [],

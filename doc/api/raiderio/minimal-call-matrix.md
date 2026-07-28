@@ -13,13 +13,13 @@
 ## Character profile fields (single request)
 
 ```
-gear,talents,mythic_plus_scores_by_season:current,mythic_plus_ranks,mythic_plus_recent_runs,mythic_plus_best_runs
+gear,talents,mythic_plus_scores_by_season:current:previous,mythic_plus_ranks,mythic_plus_recent_runs,mythic_plus_best_runs
 ```
 
 ## Example URL (EU)
 
 ```
-GET https://raider.io/api/v1/characters/profile?region=eu&realm=tarren-mill&name=Example&fields=gear,talents,mythic_plus_scores_by_season:current,mythic_plus_ranks,mythic_plus_recent_runs,mythic_plus_best_runs
+GET https://raider.io/api/v1/characters/profile?region=eu&realm=tarren-mill&name=Example&fields=gear,talents,mythic_plus_scores_by_season:current:previous,mythic_plus_ranks,mythic_plus_recent_runs,mythic_plus_best_runs
 ```
 
 ## Explicitly excluded calls

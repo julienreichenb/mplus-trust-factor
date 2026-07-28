@@ -40,6 +40,7 @@ import {
 } from "./analyze-scoring-runs.js";
 import { fingerprintObservations } from "./fingerprint.js";
 import { buildMythicRatingObservation } from "./performance-metrics.js";
+import { buildExperienceObservations } from "./experience-metrics.js";
 import { buildWclPerformanceObservations } from "./wcl-performance-metrics.js";
 import { buildSurvivalObservations } from "./survival-metrics.js";
 import { recordProviderResult } from "./provider-recording.js";
@@ -1193,6 +1194,27 @@ export async function runRefreshPipeline(
     observedAt,
   });
   observations.push(...survivalV3.observations);
+
+  // Experience v3 — public character history only (never invent alts).
+  const experience = buildExperienceObservations({
+    characterKey: `${identity.region}/${identity.realmSlug}/${identity.name}`.toLowerCase(),
+    displayName: character.displayName,
+    raiderIoProfile,
+    blizzardMythicRating: mythicKeystoneScore,
+    cutoffs: seasonCutoffs,
+    currentSeasonDungeonCount:
+      selectedRunsSize > 0
+        ? selectedRunsSize
+        : raiderIoProfile?.bestRuns
+          ? new Set(raiderIoProfile.bestRuns.map((r) => r.dungeonSlug)).size
+          : volumeRunCount > 0
+            ? Math.min(volumeRunCount, season.dungeonCount > 0 ? season.dungeonCount : 8)
+            : null,
+    expectedDungeonCount: season.dungeonCount > 0 ? season.dungeonCount : 8,
+    observedAt,
+    accountLinkageVerified: false,
+  });
+  observations.push(...experience.observations);
 
   // Keep Raider.IO score as a separate non-product observation (never fed as product score).
   const rioScore = raiderIoProfile?.currentSeason?.scores.all ?? null;

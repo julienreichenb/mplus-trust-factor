@@ -55,12 +55,18 @@ This document records whether each required Wave 4 metric can be collected from 
 | Offensive dispels / purges | BLOCKED (Demo) | No Warlock offensive-dispel capability; category excluded from Demo weight matrix (defensive keeps Dispels contributor). |
 | Utility v3 formula | AVAILABLE | `utility-v3-1` in `@mplus/scoring` — capability renormalization, interrupt 70/30, per-run evidence. Score model `default@3` composition deferred to Agent 27. |
 
-## Experience (feasibility only)
+## Experience
 
 | Metric | Status | Notes |
 |---|---|---|
-| Same-character rename/transfer | AVAILABLE | WCL `canonicalId` (Agent 25). |
-| Public account-wide alts | BLOCKED | Not publicly enumerable via WCL; needs consent / verified linkage. |
+| Same-character rename/transfer | AVAILABLE | WCL `canonicalId`. |
+| Public character current + previous season scores | AVAILABLE | Raider.IO `mythic_plus_scores_by_season:current:previous`; Blizzard current rating. |
+| Season-normalized peak / breadth / longevity | AVAILABLE | `@mplus/scoring` Experience v3; missing contributors renormalized (never zero). |
+| Historical peak with age-decay floor | PARTIAL | Works when season-normalized values exist; older seasons often use heuristic ceiling until Agent 27 calibrates per-season cutoffs. |
+| Public account-wide alts | BLOCKED | Not publicly enumerable; missing metric `account_linked_alts` must not lower score. |
+| Verified account history mode | BLOCKED (product) | Formula + labels ready; requires Battle.net user OAuth / explicit claims. |
+
+See `doc/wave4/experience-feasibility.md`.
 
 ## Provider cost & pagination
 

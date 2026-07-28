@@ -200,3 +200,84 @@ export interface ScoringDataFoundationSnapshot {
 }
 
 export const SCORING_V3_FORMULA_VERSION = "scoring-v3-raw-facts-v1";
+
+/** Experience history scope — never infer alts without verified linkage. */
+export type ExperienceHistoryMode = "CHARACTER_HISTORY" | "VERIFIED_ACCOUNT_HISTORY";
+
+/** How a verified account character list was established. */
+export type ExperienceLinkageSource =
+  | "NONE"
+  | "USER_CLAIM"
+  | "BLIZZARD_OAUTH"
+  | "PROVIDER_PUBLIC_LINK";
+
+/**
+ * Season-scoped Mythic+ progression inputs for Experience v3.
+ * Raw scores from different seasons are never comparable — normalize first.
+ */
+export interface ExperienceSeasonFact {
+  seasonSlug: string;
+  /** 0 = current season, 1 = previous, 2+ = older. */
+  seasonsAgo: number;
+  /** Provider raw score/rating for the season (Raider.IO all-score or Blizzard rating). */
+  rawScore: number | null;
+  /**
+   * Season-local 0–100 scale (percentile, rank-derived, or cutoff-normalized).
+   * Required for cross-season comparison; null → season omitted from peak math.
+   */
+  seasonNormalizedScore: number | null;
+  /** Distinct dungeons with a qualifying run this season (breadth). */
+  dungeonCount: number | null;
+  /** True when this season had meaningful M+ activity. */
+  active: boolean;
+  sourceProvider: "blizzard" | "raiderio" | "derived";
+  fieldStatus?: RawFactFieldStatus;
+}
+
+/** One character's season history for Experience aggregation. */
+export interface ExperienceCharacterHistory {
+  characterKey: string;
+  displayName: string | null;
+  seasons: ExperienceSeasonFact[];
+  /** Explicit verified membership only — never inferred from roster/guild/logs. */
+  verified: boolean;
+}
+
+/**
+ * Public Experience explanation / profile payload.
+ * Missing account graph is labelled unavailable — it must not lower the score.
+ */
+export interface ExperienceSummaryDTO {
+  mode: ExperienceHistoryMode;
+  linkageSource: ExperienceLinkageSource;
+  label: "CHARACTER_HISTORY" | "VERIFIED_ACCOUNT_HISTORY";
+  currentPeak: number | null;
+  currentBreadth: number | null;
+  historicalPeak: number | null;
+  longevity: number | null;
+  score: number | null;
+  confidence: number;
+  formulaVersion: string;
+  contributors: {
+    currentPeakWeight: number;
+    currentBreadthWeight: number;
+    historicalPeakWeight: number;
+    longevityWeight: number;
+  };
+  seasonsUsed: Array<{
+    seasonSlug: string;
+    seasonsAgo: number;
+    seasonNormalizedScore: number | null;
+    decayedScore: number | null;
+    active: boolean;
+    characterKey: string;
+  }>;
+  accountGraph: {
+    availability: MetricAvailability;
+    reason: string;
+    verifiedCharacterCount: number;
+  };
+  missingMetrics: string[];
+}
+
+export const EXPERIENCE_V3_FORMULA_VERSION = "experience-v3-v1";

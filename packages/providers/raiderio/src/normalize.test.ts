@@ -26,7 +26,10 @@ const sampleProfile: RawCharacterProfileResponse = {
     },
   },
   talents: { loadout: [] },
-  mythic_plus_scores_by_season: [{ season: "season-mn-1", scores: { all: 2845.5 } }],
+  mythic_plus_scores_by_season: [
+    { season: "season-mn-1", scores: { all: 2845.5 } },
+    { season: "season-tww-3", scores: { all: 3012.0 } },
+  ],
   mythic_plus_ranks: {
     overall: { world: 89000, region: 12000, realm: 450 },
     class: { world: 2100, region: 800, realm: 40 },
@@ -72,7 +75,11 @@ describe("normalizeCharacterProfile", () => {
   it("maps scores, nested ranks, gear, attribution and freshness", () => {
     const profile = normalizeCharacterProfile(sampleProfile, "EU", Date.parse("2026-07-27T10:00:00.000Z"));
     expect(profile.currentSeason?.scores.all).toBe(2845.5);
-    expect(profile.previousSeason).toBeNull();
+    expect(profile.previousSeason?.seasonSlug).toBe("season-tww-3");
+    expect(profile.previousSeason?.scores.all).toBe(3012.0);
+    expect(profile.seasons).toHaveLength(2);
+    expect(profile.seasons[0]?.isCurrentSeason).toBe(true);
+    expect(profile.seasons[1]?.isPreviousSeason).toBe(true);
     expect(profile.ranks?.overall).toBe(89000);
     expect(profile.ranks?.region).toBe(12000);
     expect(profile.ranks?.server).toBe(450);
@@ -109,6 +116,8 @@ describe("normalizeCharacterProfile", () => {
       Date.parse("2026-07-27T10:00:00.000Z"),
     );
     expect(profile.currentSeason).toBeNull();
+    expect(profile.previousSeason).toBeNull();
+    expect(profile.seasons).toEqual([]);
     expect(profile.ranks).toBeNull();
     expect(profile.gear).toBeNull();
     expect(profile.talents?.shape).toBe("absent");

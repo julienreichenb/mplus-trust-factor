@@ -39,7 +39,18 @@ name={character name}
 fields={comma-separated fields}
 ```
 
-Wave 3 minimum explicit field set:
+Wave 4 Experience field set (includes previous season for public character history):
+
+```text
+gear,
+talents,
+mythic_plus_scores_by_season:current:previous,
+mythic_plus_ranks,
+mythic_plus_recent_runs,
+mythic_plus_best_runs
+```
+
+Wave 3 minimum explicit field set (superseded for Experience):
 
 ```text
 gear,

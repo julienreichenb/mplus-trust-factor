@@ -6,8 +6,8 @@ describe("buildMinimalCharacterFields", () => {
     const fields = buildMinimalCharacterFields();
     expect(fields).toContain("gear");
     expect(fields).toContain("talents");
-    expect(fields).toContain("mythic_plus_scores_by_season:current");
-    expect(fields).not.toContain("previous");
+    expect(fields).toContain("mythic_plus_scores_by_season:current:previous");
+    expect(fields).toContain("previous");
     expect(fields).toContain("mythic_plus_ranks");
     expect(fields).toContain("mythic_plus_recent_runs");
     expect(fields).toContain("mythic_plus_best_runs");
