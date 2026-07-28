@@ -102,6 +102,69 @@ export class WclGraphQlClient {
       clearTimeout(timeout);
     }
   }
+
+  /**
+   * Like {@link request} but returns GraphQL errors in the response instead of throwing.
+   * HTTP and transport failures still throw.
+   */
+  async requestPermissive<T>(options: GraphQlRequestOptions): Promise<GraphQlRequestResult<T>> {
+    const variables = options.variables ?? {};
+    const fingerprint = buildGraphQlFingerprint({
+      region: options.region ?? "global",
+      operationName: options.operationName,
+      variables,
+    });
+
+    this.logger.info(
+      { operationName: options.operationName, fingerprint, permissive: true },
+      "wcl.graphql.request",
+    );
+
+    const token = await this.config.tokenManager.getToken();
+    const controller = new AbortController();
+    const timeoutMs = options.timeoutMs ?? this.defaultTimeoutMs;
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    const started = Date.now();
+
+    try {
+      const response = await fetch(this.config.graphqlUrl, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          operationName: options.operationName,
+          query: options.query,
+          variables,
+        }),
+        signal: controller.signal,
+      });
+
+      const body = (await response.json()) as GraphQlResponse<T>;
+      if (!response.ok) {
+        throw mapHttpStatusToError(response.status, body);
+      }
+
+      const costUnits = body.extensions?.rateLimit?.cost ?? null;
+      return {
+        response: body,
+        fingerprint,
+        costUnits,
+        durationMs: Date.now() - started,
+      };
+    } catch (error) {
+      if (error instanceof ExternalApiError) {
+        throw error;
+      }
+      if (error instanceof Error && error.name === "AbortError") {
+        throw wclError("TIMEOUT", `GraphQL operation ${options.operationName} timed out`);
+      }
+      throw wclError("NETWORK", `GraphQL operation ${options.operationName} failed`, error);
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
 }
 
 export const rateLimitDataSchema = z.object({

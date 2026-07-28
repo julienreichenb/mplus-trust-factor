@@ -73,6 +73,48 @@ export const OPERATIONS = {
 }`,
   },
 
+  WorldDataZone: {
+    operationName: "WorldDataZone",
+    query: `query WorldDataZone($id: Int!) {
+  worldData {
+    zone(id: $id) {
+      id
+      name
+      frozen
+      encounters { id name }
+      partitions { id name }
+    }
+  }
+}`,
+  },
+
+  /**
+   * Character M+ "Points & Damage (By Level)" page dataset (Performance probe).
+   * Literal metric: points_and_damage — CharacterPageRankingMetricType.
+   * Payload includes score rankings plus throughputRankings for DPS Best%/Median%.
+   */
+  CharacterZoneRankingsPointsAndDamage: {
+    operationName: "CharacterZoneRankingsPointsAndDamage",
+    query: `query CharacterZoneRankingsPointsAndDamage(
+  $name: String!
+  $serverSlug: String!
+  $serverRegion: String!
+  $zoneID: Int!
+  $partition: Int
+) {
+  characterData {
+    character(name: $name, serverSlug: $serverSlug, serverRegion: $serverRegion) {
+      zoneRankings(
+        zoneID: $zoneID
+        metric: points_and_damage
+        byBracket: true
+        partition: $partition
+      )
+    }
+  }
+}`,
+  },
+
   ReportWithFightAndMasterData: {
     operationName: "ReportWithFightAndMasterData",
     query: `query ReportWithFightAndMasterData($code: String!, $fightIDs: [Int!]) {

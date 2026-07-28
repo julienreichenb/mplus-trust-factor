@@ -134,6 +134,20 @@ async function resolveWclSummary(
   visibility: WclVisibilityState | null;
   dataState: WclDataState | null;
   dungeonAggregates: WclDungeonPerformanceAggregateDTO[];
+  performance: {
+    state: string;
+    raw: unknown;
+    global: {
+      totalMythicPlusScore: number | null;
+      totalLoggedRuns: number;
+      bestDpsPercentileAverage: number | null;
+      medianDpsPercentileAverage: number | null;
+      partition: number | null;
+      zoneId: number | null;
+      specRanks: unknown[];
+    } | null;
+    diagnostics: Record<string, unknown> | null;
+  } | null;
 }> {
   if (typeof provider.discoverCharacterSummary === "function") {
     const summary = await provider.discoverCharacterSummary(identity, ctx);
@@ -144,10 +158,27 @@ async function resolveWclSummary(
         ? ((summary.data as { dataState: string }).dataState)
         : null,
     );
+    const perf = (summary.data as {
+      performance?: {
+        state: string;
+        raw: unknown;
+        global: {
+          totalMythicPlusScore: number | null;
+          totalLoggedRuns: number;
+          bestDpsPercentileAverage: number | null;
+          medianDpsPercentileAverage: number | null;
+          partition: number | null;
+          zoneId: number | null;
+          specRanks: unknown[];
+        } | null;
+        diagnostics: Record<string, unknown> | null;
+      } | null;
+    }).performance;
     return {
       visibility: normalized.visibility,
       dataState: normalized.dataState ?? parseSummaryDataState(summary.data),
       dungeonAggregates: summary.data.dungeonAggregates ?? [],
+      performance: perf ?? null,
     };
   }
 
@@ -160,10 +191,38 @@ async function resolveWclSummary(
       | {
           summary: { visibility: WclVisibilityState | null; dataState?: WclDataState };
           dungeonAggregates?: WclDungeonPerformanceAggregateDTO[];
+          performance?: {
+            state: string;
+            raw: unknown;
+            global: {
+              totalMythicPlusScore: number | null;
+              totalLoggedRuns: number;
+              bestDpsPercentileAverage: number | null;
+              medianDpsPercentileAverage: number | null;
+              partition: number | null;
+              zoneId: number | null;
+              specRanks: unknown[];
+            } | null;
+            diagnostics: Record<string, unknown> | null;
+          };
         }
       | Promise<{
           summary: { visibility: WclVisibilityState | null; dataState?: WclDataState };
           dungeonAggregates?: WclDungeonPerformanceAggregateDTO[];
+          performance?: {
+            state: string;
+            raw: unknown;
+            global: {
+              totalMythicPlusScore: number | null;
+              totalLoggedRuns: number;
+              bestDpsPercentileAverage: number | null;
+              medianDpsPercentileAverage: number | null;
+              partition: number | null;
+              zoneId: number | null;
+              specRanks: unknown[];
+            } | null;
+            diagnostics: Record<string, unknown> | null;
+          };
         }>;
   };
   if (typeof maybeDiscover.discoverCharacter === "function") {
@@ -176,10 +235,11 @@ async function resolveWclSummary(
       visibility: normalized.visibility,
       dataState: normalized.dataState,
       dungeonAggregates: discovery?.dungeonAggregates ?? [],
+      performance: discovery?.performance ?? null,
     };
   }
 
-  return { visibility: null, dataState: null, dungeonAggregates: [] };
+  return { visibility: null, dataState: null, dungeonAggregates: [], performance: null };
 }
 
 function parseSummaryDataState(summary: { dataState?: unknown; visibility?: unknown }): WclDataState | null {
@@ -458,6 +518,7 @@ export async function runRefreshPipeline(
     runs: MythicRunDTO[];
     dungeonAggregates: WclDungeonPerformanceAggregateDTO[];
     rankings: WclRankingObservation[];
+    performance: Awaited<ReturnType<typeof resolveWclSummary>>["performance"];
   };
 
   const enrichRaiderIo = async (): Promise<RaiderIoEnrichment> => {
@@ -565,7 +626,7 @@ export async function runRefreshPipeline(
         detail: "provider disabled",
         lastAttemptAt: now,
       });
-      return { visibility: null, dataState: null, runs: [], dungeonAggregates: [], rankings: [] };
+      return { visibility: null, dataState: null, runs: [], dungeonAggregates: [], rankings: [], performance: null };
     }
 
     const wclCtx: ProviderFetchContext = {
@@ -576,6 +637,7 @@ export async function runRefreshPipeline(
     let visibility: WclVisibilityState | null = null;
     let dataState: WclDataState | null = null;
     let dungeonAggregates: WclDungeonPerformanceAggregateDTO[] = [];
+    let performance: WclEnrichment["performance"] = null;
     try {
       logger.info(
         { ...logBase, event: OBS_EVENTS.refreshProviderPhaseStarted, provider: "warcraftlogs" },
@@ -592,6 +654,7 @@ export async function runRefreshPipeline(
       visibility = summary.visibility;
       dataState = summary.dataState;
       dungeonAggregates = summary.dungeonAggregates;
+      performance = summary.performance;
 
       const runsResult = await providers.warcraftlogs.discoverCharacterRuns(identity, wclCtx);
       await recordProviderResult(repositories, runsResult);
@@ -613,12 +676,21 @@ export async function runRefreshPipeline(
           discoveredRunCount: runsResult.data.length,
           hydrationHintCount: hydrationHints.length,
           dungeonAggregateCount: dungeonAggregates.length,
+          performanceState: performance?.state ?? null,
         },
       });
-      return { visibility, dataState, runs: runsResult.data, dungeonAggregates, rankings: wclRankings };
+      return {
+        visibility,
+        dataState,
+        runs: runsResult.data,
+        dungeonAggregates,
+        rankings: wclRankings,
+        performance,
+      };
     } catch (error) {
       // WCL is enrichment-only: never block a Blizzard/Raider.IO-backed MVP score.
       // GraphQL schema / invalid-response errors stay UNAVAILABLE with detail.
+      // Performance may already be OK from summary even if combat/report hydration fails later.
       stagesSkipped.push("refresh-warcraftlogs-summary");
       const state = mapErrorToProviderState(error);
       const failedDataState: WclDataState =
@@ -635,10 +707,20 @@ export async function runRefreshPipeline(
         detail: error instanceof Error ? error.message : "enrichment soft-skip",
         wclVisibility: visibility,
         lastAttemptAt: now,
-        metadata: { wclDataState: failedDataState },
+        metadata: {
+          wclDataState: failedDataState,
+          performanceState: performance?.state ?? null,
+        },
       });
       logger.info({ identity, err: error }, "refresh pipeline: WCL soft-skipped");
-      return { visibility, dataState: failedDataState, runs: [], dungeonAggregates, rankings: [] };
+      return {
+        visibility,
+        dataState: failedDataState,
+        runs: [],
+        dungeonAggregates,
+        rankings: [],
+        performance,
+      };
     }
   };
 
@@ -667,6 +749,7 @@ export async function runRefreshPipeline(
   discoveredRuns = wclEnrichment.runs;
   const wclDungeonAggregates = wclEnrichment.dungeonAggregates;
   const wclRankings = wclEnrichment.rankings;
+  const wclPerformanceRecord = wclEnrichment.performance;
 
   // ── Reconcile + fuse runs ───────────────────────────────────────────────
   const reconcile = reconcileSources({
@@ -1214,61 +1297,88 @@ export async function runRefreshPipeline(
   const selectedRunWclCoverage =
     selectedRunCount > 0 ? detailedRunCount / selectedRunCount : 0;
 
-  const parseDerivedDungeons =
-    wclDungeonAggregates.length === 0
-      ? runDiagnostics
-          .map((d) => d.parse as ReturnType<typeof bindParseToSelectedRun> | undefined)
-          .filter((p): p is ReturnType<typeof bindParseToSelectedRun> => Boolean(p?.parseAvailable))
-          .map((p) => ({
-            dungeonSlug: p.dungeonSlug,
-            dungeonName: p.dungeonSlug,
-            bestParsePercentile: p.parsePercentile,
-            medianParsePercentile: p.parsePercentile,
-            loggedRunCount: 1,
-            specSlug: specSlug,
-            roleSlug: roleSlug,
-          }))
-      : [];
-
-  const activeWclAggregates = wclDungeonAggregates.filter((d) =>
-    activeDungeonSlugs.includes(canonicalDungeonKey(d.dungeonSlug)),
-  );
+  // Performance uses points_and_damage aggregates only — never fight-bound parse fallback.
+  // Missing dungeons reduce coverage; never invent zero percentiles.
+  const performanceOk =
+    wclPerformanceRecord?.state === "OK" && wclDungeonAggregates.length > 0;
+  const activeWclAggregates = performanceOk
+    ? wclDungeonAggregates.filter(
+        (d) =>
+          activeDungeonSlugs.length === 0 ||
+          activeDungeonSlugs.includes(canonicalDungeonKey(d.dungeonSlug)),
+      )
+    : [];
   const performanceProvenance =
-    activeWclAggregates.length > 0
-      ? "AGGREGATE_ZONE_RANKINGS"
-      : parseDerivedDungeons.length > 0
-        ? "FIGHT_BOUND_PARSES"
-        : "NONE";
+    activeWclAggregates.length > 0 ? "AGGREGATE_ZONE_RANKINGS" : "NONE";
 
   const wclPerformance = buildWclPerformanceObservations({
-    currentSeasonDungeons: (activeWclAggregates.length > 0
-      ? activeWclAggregates
-      : parseDerivedDungeons
-    ).map((d) => ({
+    currentSeasonDungeons: activeWclAggregates.map((d) => ({
       dungeonSlug: d.dungeonSlug,
       dungeonName: d.dungeonName,
+      encounterId: d.encounterId,
       bestParsePercentile: d.bestParsePercentile,
       medianParsePercentile: d.medianParsePercentile,
       loggedRunCount: d.loggedRunCount,
       specSlug: d.specSlug,
       roleSlug: d.roleSlug,
+      keystoneLevel: d.keystoneLevel,
+      throughputBracket: d.throughputBracket,
+      ratingPoints: d.ratingPoints,
+      scoreRank: d.scoreRank,
+      regionRank: d.regionRank,
+      serverRank: d.serverRank,
+      scoreRankPercent: d.scoreRankPercent,
+      specialization: d.specialization,
+      bestDps: d.bestDps,
+      completion: d.completion,
     })),
     expectedDungeonCount,
     activeSpecSlug: specSlug,
     activeRoleSlug: roleSlug,
     hasResolvedSpecAndRole: Boolean(specSlug && roleSlug),
-    selectedRunWclCoverage,
+    // Aggregate Performance is independent of report matching / combat ingestion.
+    selectedRunWclCoverage:
+      performanceProvenance === "AGGREGATE_ZONE_RANKINGS" ? 1 : selectedRunWclCoverage,
     explanatoryRuns,
     logFreshness:
-      wclVisibility === "PUBLIC" &&
-      (wclDataState === "MATCHED_COMBAT_LOGS" ||
-        wclDataState === "RANKINGS_ONLY" ||
-        wclDataState === "NO_MATCHED_RUN")
+      performanceProvenance === "AGGREGATE_ZONE_RANKINGS"
         ? 0.85
-        : 0.4,
+        : wclVisibility === "PUBLIC" &&
+            (wclDataState === "MATCHED_COMBAT_LOGS" ||
+              wclDataState === "RANKINGS_ONLY" ||
+              wclDataState === "NO_MATCHED_RUN")
+          ? 0.85
+          : 0.4,
     observedAt,
   });
   wclPerformance.summary.currentSeason.provenance = performanceProvenance;
+  wclPerformance.summary.currentSeason.availableDungeonCount =
+    wclPerformance.summary.currentSeason.dungeonCount;
+  if (wclPerformanceRecord?.global) {
+    wclPerformance.summary.currentSeason.totalMythicPlusScore =
+      wclPerformanceRecord.global.totalMythicPlusScore;
+    wclPerformance.summary.currentSeason.totalLoggedRuns =
+      wclPerformanceRecord.global.totalLoggedRuns;
+    wclPerformance.summary.currentSeason.partition = wclPerformanceRecord.global.partition;
+    wclPerformance.summary.currentSeason.zoneId = wclPerformanceRecord.global.zoneId;
+    wclPerformance.summary.currentSeason.specRanks =
+      wclPerformanceRecord.global.specRanks as typeof wclPerformance.summary.currentSeason.specRanks;
+  }
+  wclPerformance.summary.currentSeason.diagnostics = {
+    ratingPointsExcludedFromScore: true,
+    keystoneLevelExcludedFromScore: true,
+    scoreRankPercentExcludedFromScore: true,
+    throughputSampleCountUnavailable: true,
+    performanceState: wclPerformanceRecord?.state ?? null,
+    unavailableEncounters: Array.isArray(wclPerformanceRecord?.diagnostics?.unavailableEncounters)
+      ? (wclPerformanceRecord!.diagnostics!.unavailableEncounters as Array<{
+          encounterID: number;
+          encounterName: string | null;
+          dungeonSlug: string | null;
+          reason: string;
+        }>)
+      : undefined,
+  };
   observations.push(...wclPerformance.observations);
 
   // Keep Raider.IO score as a separate non-product observation (never fed as product score).
@@ -1493,6 +1603,7 @@ export async function runRefreshPipeline(
           wclVisibility,
           wclDataState,
           performanceSummary: wclPerformance.summary,
+          rawZoneRankingsPointsAndDamage: wclPerformanceRecord?.raw ?? null,
           abilityCatalog: catalogDiagnostics,
           historyMode: "CHARACTER_HISTORY",
         }

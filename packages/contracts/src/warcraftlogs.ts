@@ -22,7 +22,7 @@ export type WclDataState =
   | "RATE_LIMITED";
 
 /** How WCL contributed observations to the current score snapshot. */
-export type WclContributionType = "ZONE_RANKINGS" | "COMBAT_FACTS";
+export type WclContributionType = "ZONE_RANKINGS" | "COMBAT_FACTS" | "PERFORMANCE";
 
 export interface WclProvenance {
   /** Explicit profile visibility; null when discovery failed / unknown. */
@@ -65,9 +65,29 @@ export interface WclDungeonPerformanceAggregateDTO {
   encounterId: number | null;
   bestParsePercentile: number | null;
   medianParsePercentile: number | null;
+  /** Displayed contextual run count — confidence input only. */
   loggedRunCount: number;
   specSlug: string | null;
   roleSlug: string | null;
+  keystoneLevel?: number | null;
+  throughputBracket?: number | null;
+  ratingPoints?: number | null;
+  scoreRank?: number | null;
+  regionRank?: number | null;
+  serverRank?: number | null;
+  scoreRankPercent?: number | null;
+  specialization?: string | null;
+  bestDps?: number | null;
+  completion?: {
+    fastestKillRaw: number | null;
+    speedRaw: number | null;
+    fightMetadataRaw: number | null;
+    leaderboardRaw: number | null;
+    affixesRaw: number | null;
+    completionTimeMs: null;
+    encodingStatus: "unverified_not_emitted";
+    encodingNote: string;
+  } | null;
 }
 
 export interface WclCharacterSummaryDTO {
@@ -75,6 +95,9 @@ export interface WclCharacterSummaryDTO {
   dataState: WclDataState;
   warnings: string[];
   dungeonAggregates: WclDungeonPerformanceAggregateDTO[];
+  /** Complete raw points_and_damage payload when fetched. */
+  rawZoneRankingsPointsAndDamage?: unknown;
+  performanceState?: "OK" | "ERROR" | "SCHEMA_UNSUPPORTED" | "SKIPPED" | "EMPTY" | null;
 }
 
 /**
@@ -158,11 +181,15 @@ export function deriveWclContributionTypes(
       obs.context && typeof obs.context === "object"
         ? (obs.context as { derivedFrom?: unknown }).derivedFrom
         : null;
-    if (typeof derivedFrom === "string" && derivedFrom.includes("wcl_zone_rankings")) {
+    const key = obs.metricKey ?? "";
+    if (
+      key.startsWith("performance.") ||
+      (typeof derivedFrom === "string" && derivedFrom.includes("wcl_zone_rankings"))
+    ) {
+      types.add("PERFORMANCE");
       types.add("ZONE_RANKINGS");
       continue;
     }
-    const key = obs.metricKey ?? "";
     if (
       key.startsWith("survival.") ||
       key.startsWith("utility.") ||

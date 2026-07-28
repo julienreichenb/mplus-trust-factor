@@ -20,7 +20,11 @@ import {
   recentReportsToCandidates,
   type ZoneRankingsPayload,
 } from "../discovery/run-discovery.js";
-import { mapZoneRankingAggregates } from "../discovery/zone-ranking-aggregates.js";
+import {
+  adaptPointsAndDamagePerformance,
+  pointsAndDamageErrorRecord,
+} from "../discovery/points-and-damage-performance.js";
+import { parseJsonScalar } from "../probe/performance-probe-logic.js";
 import { FIXTURE_MPLUS_ZONE_ID } from "../discovery/mplus-zone.js";
 import {
   characterResolveSchema,
@@ -165,6 +169,8 @@ export class FixtureWarcraftLogsProvider implements WarcraftLogsProvider {
       dataState: WclDataState;
       warnings: string[];
       dungeonAggregates: WclCharacterDiscoveryResult["dungeonAggregates"];
+      performance: WclCharacterDiscoveryResult["performance"];
+      rawZoneRankingsPointsAndDamage: unknown;
     }>
   > {
     const discovery = this.discoverCharacter(identity, ctx);
@@ -174,6 +180,8 @@ export class FixtureWarcraftLogsProvider implements WarcraftLogsProvider {
         dataState: discovery.summary.dataState,
         warnings: discovery.summary.warnings,
         dungeonAggregates: discovery.dungeonAggregates,
+        performance: discovery.performance,
+        rawZoneRankingsPointsAndDamage: discovery.performance?.raw ?? null,
       },
       "discoverCharacterSummary",
       `fixture-summary-${identity.name}`,
@@ -226,18 +234,19 @@ export class FixtureWarcraftLogsProvider implements WarcraftLogsProvider {
       (rankingsParsed.characterData.character?.zoneRankings ?? null) as ZoneRankingsPayload | null,
       FIXTURE_MPLUS_ZONE_ID,
     );
-    const aggregatePayload = (rankingsParsed.characterData.character?.zoneRankings ??
-      null) as ZoneRankingsPayload | null;
-    const dungeonAggregates = mapZoneRankingAggregates(aggregatePayload).dungeons.map((d) => ({
-      dungeonSlug: d.dungeonSlug,
-      dungeonName: d.dungeonName,
-      encounterId: d.encounterId,
-      bestParsePercentile: d.bestParsePercentile,
-      medianParsePercentile: d.medianParsePercentile,
-      loggedRunCount: d.loggedRunCount,
-      specSlug: d.specSlug,
-      roleSlug: d.roleSlug,
-    }));
+
+    const padEnvelope = fixture.zoneRankingsPointsAndDamage as
+      | { data?: { characterData?: { character?: { zoneRankings?: unknown } } } }
+      | undefined;
+    const performance = padEnvelope
+      ? adaptPointsAndDamagePerformance({
+          raw: parseJsonScalar(padEnvelope.data?.characterData?.character?.zoneRankings ?? null),
+        })
+      : pointsAndDamageErrorRecord(
+          "SKIPPED",
+          null,
+          "Fixture has no zoneRankingsPointsAndDamage — Performance unavailable",
+        );
 
     const recentRaw = (fixture.recentReports as { data: unknown }).data;
     const recentParsed = parseWithSchema(recentReportsSchema, recentRaw, "RecentReports");
@@ -253,14 +262,15 @@ export class FixtureWarcraftLogsProvider implements WarcraftLogsProvider {
       identity.region,
       ctx.now,
       provenance.visibility,
-      [],
+      performance.state === "OK" ? [] : [performance.diagnostics.errorMessage ?? "Performance unavailable"],
       provenance.dataState,
     );
 
     return buildCharacterDiscovery({
       summary,
       rankings,
-      dungeonAggregates,
+      dungeonAggregates: performance.state === "OK" ? performance.dungeonAggregates : [],
+      performance,
       rankingCandidates: rankingsToCandidates(rankings),
       recentCandidates: recentMapped.candidates,
       privateReportsSkipped: recentMapped.privateSkipped + recentMapped.unlistedSkipped,

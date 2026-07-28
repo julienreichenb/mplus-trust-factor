@@ -43,6 +43,7 @@ export * from "./discovery/run-discovery.js";
 export * from "./discovery/run-matching.js";
 export * from "./discovery/mplus-zone.js";
 export * from "./discovery/zone-ranking-aggregates.js";
+export * from "./discovery/points-and-damage-performance.js";
 export * from "./discovery/bounds.js";
 export * from "./discovery/report-hydration.js";
 export * from "./analysis/revision-cache.js";
@@ -50,5 +51,8 @@ export * from "./analysis/combat-facts.js";
 export { buildRunCombatFactsFromEvents, fetchAllEventPages } from "./analysis/event-fetcher.js";
 export * from "./rate/rate-budget.js";
 export * from "./fixture/loader.js";
+export * from "./probe/performance-probe.js";
+export * from "./probe/performance-probe-logic.js";
+export * from "./probe/types.js";
 
 export type { WarcraftLogsProvider };
