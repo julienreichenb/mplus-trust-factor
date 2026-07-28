@@ -4,114 +4,30 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { buildPerformanceDatasetFromRaw } from "./performance-probe.js";
 import {
-  SPEED_FASTESTKILL_ENCODING_NOTE,
-  experimentalLow24BitDurationMs,
-  mergeScoreAndExecution,
-  normalizeExecutionZoneRankings,
-  normalizeScoreZoneRankings,
+  arithmeticMean,
+  mergePointsAndDamage,
+  normalizePointsAndDamage,
   parseJsonScalar,
 } from "./performance-probe-logic.js";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../../../../../");
-const scorePath = resolve(root, "tools/fixtures/warcraftlogs/wallidrixe-zone-rankings-score.json");
-const executionPath = resolve(
-  root,
-  "tools/fixtures/warcraftlogs/wallidrixe-zone-rankings-execution.json",
-);
-const mergedPath = resolve(root, "tools/fixtures/warcraftlogs/wallidrixe-performance-merged.json");
+const fixturePath = resolve(root, "tools/fixtures/warcraftlogs/wallidrixe-points-and-damage.json");
 
-describe("performance-probe-logic", () => {
+describe("performance-probe-logic helpers", () => {
   it("parses JSON scalar strings permissively", () => {
     expect(parseJsonScalar('{"rankings":[]}')).toEqual({ rankings: [] });
     expect(parseJsonScalar("not-json")).toBe("not-json");
   });
 
-  it("documents that low-24-bit fastestKill decode is incorrect vs real keystoneTime", () => {
-    // Algeth'ar Academy Wallidrixe: fight keystoneTime was 1_813_086 (30:13).
-    const heuristic = experimentalLow24BitDurationMs(-438186914);
-    expect(heuristic).toBe(1_979_298);
-    expect(heuristic).not.toBe(1_813_086);
-    expect(SPEED_FASTESTKILL_ENCODING_NOTE).toContain("keystoneTime");
+  it("computes arithmetic means of per-dungeon percentiles", () => {
+    expect(arithmeticMean([72, 91, 77, 86, 95, 59, 98, 69])).toBeCloseTo(80.875, 5);
+    expect(arithmeticMean([72, 80, 77, 86, 75, 59, 98, 69])).toBe(77);
+    expect(arithmeticMean([])).toBeNull();
   });
 });
 
-describe("Wallidrixe playerscore fixture", () => {
-  const fixture = JSON.parse(readFileSync(scorePath, "utf8")) as {
-    rawZoneRankingsScore: unknown;
-    expected: {
-      totalMythicPlusScore: number;
-      totalLoggedRuns: number;
-      dungeonCount: number;
-      spec: string;
-      dungeons: Array<{
-        name: string;
-        encounterId: number;
-        ratingPoints: number;
-        keystoneLevel: number;
-        loggedRuns: number;
-      }>;
-    };
-  };
-
-  it("normalizes score payload for total score, ranks, levels, and run counts", () => {
-    const score = normalizeScoreZoneRankings(fixture.rawZoneRankingsScore);
-    expect(score.totalMythicPlusScore).toBeCloseTo(fixture.expected.totalMythicPlusScore, 5);
-    expect(score.totalLoggedRuns).toBe(fixture.expected.totalLoggedRuns);
-    expect(score.dungeons).toHaveLength(fixture.expected.dungeonCount);
-    expect(score.specRanks[0]?.spec).toBe(fixture.expected.spec);
-
-    for (const want of fixture.expected.dungeons) {
-      const got = score.dungeons.find((d) => d.encounterId === want.encounterId);
-      expect(got, want.name).toBeTruthy();
-      expect(got!.ratingPoints).toBeCloseTo(want.ratingPoints, 5);
-      expect(got!.keystoneLevel).toBe(want.keystoneLevel);
-      expect(got!.loggedRunCount).toBe(want.loggedRuns);
-      expect(got!.completion.completionTimeMs).toBeNull();
-      expect(got!.completion.encodingStatus).toBe("unverified_not_emitted");
-      expect(got!.completion.fastestKillRaw).not.toBeNull();
-    }
-  });
-});
-
-describe("Wallidrixe dps execution fixture", () => {
-  const fixture = JSON.parse(readFileSync(executionPath, "utf8")) as {
-    rawZoneRankingsExecution: unknown;
-    expected: {
-      bestDpsPercentileAverage: number;
-      medianDpsPercentileAverage: number;
-      dungeons: Array<{
-        name: string;
-        encounterId: number;
-        bestExecutionPercentile: number;
-        medianExecutionPercentile: number;
-        bestDps: number;
-      }>;
-    };
-  };
-
-  it("normalizes execution payload for DPS and Best/Median percentiles", () => {
-    const execution = normalizeExecutionZoneRankings(fixture.rawZoneRankingsExecution);
-    expect(execution.bestDpsPercentileAverage).toBeCloseTo(
-      fixture.expected.bestDpsPercentileAverage,
-      5,
-    );
-    expect(execution.medianDpsPercentileAverage).toBeCloseTo(
-      fixture.expected.medianDpsPercentileAverage,
-      5,
-    );
-
-    for (const want of fixture.expected.dungeons) {
-      const got = execution.dungeons.find((d) => d.encounterId === want.encounterId);
-      expect(got, want.name).toBeTruthy();
-      expect(got!.bestExecutionPercentile).toBe(want.bestExecutionPercentile);
-      expect(got!.medianExecutionPercentile).toBe(want.medianExecutionPercentile);
-      expect(got!.bestDps).toBe(want.bestDps);
-    }
-  });
-});
-
-describe("Wallidrixe merged Performance dataset (screenshot acceptance)", () => {
-  const fixture = JSON.parse(readFileSync(mergedPath, "utf8")) as {
+describe("Wallidrixe points_and_damage fixture (screenshot acceptance)", () => {
+  const fixture = JSON.parse(readFileSync(fixturePath, "utf8")) as {
     identity: { region: "EU"; realmSlug: string; name: string };
     character: {
       id: number;
@@ -139,13 +55,14 @@ describe("Wallidrixe merged Performance dataset (screenshot acceptance)", () => 
       };
       partitionUsed: number;
     };
-    rawZoneRankingsScore: unknown;
-    rawZoneRankingsExecution: unknown;
+    rawZoneRankingsPointsAndDamage: unknown;
     expected: {
       totalMythicPlusScore: number;
       totalLoggedRuns: number;
       bestDpsPercentileAverage: number;
       medianDpsPercentileAverage: number;
+      wclBestPerformanceAverage: number;
+      wclMedianPerformanceAverage: number;
       dungeons: Array<{
         name: string;
         encounterId: number;
@@ -155,69 +72,69 @@ describe("Wallidrixe merged Performance dataset (screenshot acceptance)", () => 
     };
   };
 
-  it("merges by encounter.id and matches the WCL character page screenshot", () => {
-    const score = normalizeScoreZoneRankings(fixture.rawZoneRankingsScore);
-    const execution = normalizeExecutionZoneRankings(fixture.rawZoneRankingsExecution);
-    const merged = mergeScoreAndExecution(score, execution);
+  it("reads throughputRankings map and matches screenshot Best/Median per dungeon", () => {
+    const normalized = normalizePointsAndDamage(fixture.rawZoneRankingsPointsAndDamage);
+    const merged = mergePointsAndDamage(normalized);
+    const { expected } = fixture;
 
-    expect(merged.global.totalMythicPlusScore).toBeCloseTo(fixture.expected.totalMythicPlusScore, 5);
-    expect(merged.global.totalLoggedRuns).toBe(fixture.expected.totalLoggedRuns);
+    expect(merged.global.totalMythicPlusScore).toBeCloseTo(expected.totalMythicPlusScore, 5);
+    expect(merged.global.totalLoggedRuns).toBe(expected.totalLoggedRuns);
+    expect(merged.global.wclBestPerformanceAverage).toBeCloseTo(
+      expected.wclBestPerformanceAverage,
+      5,
+    );
+    expect(merged.global.wclMedianPerformanceAverage).toBeCloseTo(
+      expected.wclMedianPerformanceAverage,
+      5,
+    );
     expect(merged.global.bestDpsPercentileAverage).toBeCloseTo(
-      fixture.expected.bestDpsPercentileAverage,
+      expected.bestDpsPercentileAverage,
       5,
     );
     expect(merged.global.medianDpsPercentileAverage).toBeCloseTo(
-      fixture.expected.medianDpsPercentileAverage,
+      expected.medianDpsPercentileAverage,
       5,
     );
+    expect(merged.dungeons).toHaveLength(8);
 
-    for (const want of fixture.expected.dungeons) {
+    for (const want of expected.dungeons) {
       const got = merged.dungeons.find((d) => d.encounterId === want.encounterId);
       expect(got, want.name).toBeTruthy();
+      expect(got!.encounterName).toBe(want.name);
       expect(got!.bestExecutionPercentile).toBe(want.best);
       expect(got!.medianExecutionPercentile).toBe(want.median);
       expect(got!.bestDps).not.toBeNull();
-      expect(got!.ratingPoints).not.toBeNull();
+      expect(got!.bestDps!).toBeGreaterThan(0);
       expect(got!.keystoneLevel).toBe(22);
-      // scoreRankPercent (playerscore) must not be confused with execution percentiles.
-      expect(got!.scoreRankPercent).not.toBe(want.best);
+      expect(got!.throughputBracket).toBe(22);
+      expect(got!.displayedRunCount).toBeGreaterThan(0);
       expect(got!.completion.completionTimeMs).toBeNull();
+      // Score rank percent must not be confused with execution percentiles.
+      expect(got!.scoreRankPercent).not.toBe(want.best);
     }
+
+    // Displayed run total is contextual, not the throughput sample denominator.
+    expect(merged.global.totalLoggedRuns).toBe(143);
   });
 
-  it("builds v3 dataset with both raw payloads and no report-scan fields", () => {
+  it("builds v4 dataset from points_and_damage raw payload", () => {
     const dataset = buildPerformanceDatasetFromRaw({
       identity: fixture.identity,
       character: fixture.character,
       zone: fixture.zone,
-      rawZoneRankingsScore: fixture.rawZoneRankingsScore,
-      rawZoneRankingsExecution: fixture.rawZoneRankingsExecution,
+      rawZoneRankingsPointsAndDamage: fixture.rawZoneRankingsPointsAndDamage,
     });
 
-    expect(dataset.probeVersion).toBe("3");
+    expect(dataset.probeVersion).toBe("4");
     expect(dataset.state).toBe("OK");
-    expect(dataset.rawZoneRankingsScore).toBe(fixture.rawZoneRankingsScore);
-    expect(dataset.rawZoneRankingsExecution).toBe(fixture.rawZoneRankingsExecution);
-    expect(dataset.diagnostics.scoreQuery.metric).toBe("playerscore");
-    expect(dataset.diagnostics.executionQuery.metric).toBe("dps");
-    expect(dataset.diagnostics.scoreQuery.ok).toBe(true);
-    expect(dataset.diagnostics.executionQuery.ok).toBe(true);
+    expect(dataset.diagnostics.query.metric).toBe("points_and_damage");
+    expect(dataset.rawZoneRankingsPointsAndDamage).toBe(fixture.rawZoneRankingsPointsAndDamage);
+    expect(dataset.summary.unavailableEncounters).toEqual([]);
     expect(dataset.summary.dungeons.every((d) => d.bestDps != null)).toBe(true);
-    expect(dataset).not.toHaveProperty("reports");
-    expect(dataset.diagnostics.note).toContain("confidence only");
-  });
-});
-
-describe("Performance probe GraphQL failure handling", () => {
-  it("exposes ERROR without fabricating unavailable encounters when rankings are missing", () => {
-    // Simulated ERROR path: empty summary, no unavailable list from failed queries.
-    const summary = {
-      global: null,
-      dungeons: [] as never[],
-      unavailableEncounters: [] as never[],
-    };
-    expect(summary.global).toBeNull();
-    expect(summary.dungeons).toEqual([]);
-    expect(summary.unavailableEncounters).toEqual([]);
+    expect(dataset.diagnostics.averageComparison?.computedBestAverage).toBeCloseTo(80.875, 5);
+    expect(dataset.diagnostics.averageComparison?.wclBestPerformanceAverage).toBeCloseTo(
+      80.875,
+      5,
+    );
   });
 });

@@ -60,27 +60,17 @@ export interface PerformanceSpecRank {
   rank: number | null;
   regionRank: number | null;
   serverRank: number | null;
-  /** All-stars score percentile — not an execution (DPS) parse. */
   scoreRankPercent: number | null;
   total: number | null;
   partition: number | null;
 }
 
-/**
- * Raw run-completion metadata from the playerscore zoneRankings row.
- * completionTimeMs is intentionally null until WCL's fastestKill/speed packing is confirmed.
- * See docs in performance-probe-logic.ts (investigateSpeedFastestKillEncoding).
- */
 export interface RunCompletionMetadata {
   fastestKillRaw: number | null;
   speedRaw: number | null;
   fightMetadataRaw: number | null;
   leaderboardRaw: number | null;
   affixesRaw: number | null;
-  /**
-   * Always null in v3 until encoding is verified against ReportFight.keystoneTime.
-   * Do not invent a conversion from fastestKill/speed.
-   */
   completionTimeMs: null;
   encodingStatus: "unverified_not_emitted";
   encodingNote: string;
@@ -88,15 +78,28 @@ export interface RunCompletionMetadata {
 
 export interface PerformanceGlobalSummary {
   totalMythicPlusScore: number | null;
-  /** From metric:dps zoneRankings.bestPerformanceAverage */
+  /**
+   * Arithmetic mean of the 8 per-dungeon Best execution % values.
+   * Distinct from WCL payload bestPerformanceAverage (compared in diagnostics).
+   */
   bestDpsPercentileAverage: number | null;
-  /** From metric:dps zoneRankings.medianPerformanceAverage */
+  /**
+   * Arithmetic mean of the 8 per-dungeon Median execution % values.
+   * Distinct from WCL payload medianPerformanceAverage (compared in diagnostics).
+   */
   medianDpsPercentileAverage: number | null;
+  /** WCL-supplied global averages from the points_and_damage payload, when present. */
+  wclBestPerformanceAverage: number | null;
+  wclMedianPerformanceAverage: number | null;
   totalLoggedRuns: number;
   partition: number | null;
   zoneId: number | null;
-  scoreMetric: "playerscore";
-  executionMetric: "dps";
+  metric: "points_and_damage";
+  /** Payload-level filter sentinels (e.g. difficulty/size 5000 = unrestricted). */
+  itemLevelFilter: {
+    difficulty: number | null;
+    size: number | null;
+  } | null;
   specRanks: PerformanceSpecRank[];
 }
 
@@ -104,31 +107,32 @@ export interface PerformanceDungeonSummary {
   encounterId: number | null;
   encounterName: string | null;
   dungeonSlug: string | null;
-  /** From playerscore bestRank.ilvl when byBracket: true */
   keystoneLevel: number | null;
-  loggedRunCount: number;
+  /** Displayed contextual run count from score rankings (e.g. totalKills). */
+  displayedRunCount: number;
+  /** Throughput sample size from throughputRankings when provided. */
+  throughputSampleCount: number | null;
+  /** Bracket / key used for throughput comparison when provided. */
+  throughputBracket: number | null;
+  /** Item-level filter metadata from throughput row when provided. */
+  itemLevelFilter: unknown;
   ratingPoints: number | null;
   scoreRank: number | null;
   regionRank: number | null;
   serverRank: number | null;
-  /** playerscore row rankPercent / allStars.rankPercent — not DPS execution. */
   scoreRankPercent: number | null;
   specialization: string | null;
-  /** From dps row bestAmount */
   bestDps: number | null;
-  /** From dps row rankPercent */
   bestExecutionPercentile: number | null;
-  /** From dps row medianPercent */
   medianExecutionPercentile: number | null;
   lockedIn: boolean | null;
   completion: RunCompletionMetadata;
 }
 
 export interface PerformanceProbeDataset {
-  probeVersion: "3";
+  probeVersion: "4";
   probedAt: string;
   identity: PerformanceProbeIdentity;
-  /** OK when both zoneRankings queries succeed; ERROR when either fails. */
   state: "OK" | "ERROR";
   character: ProbeCharacterRecord | null;
   zone: ProbeZoneRecord;
@@ -139,30 +143,29 @@ export interface PerformanceProbeDataset {
       encounterID: number;
       encounterName: string | null;
       dungeonSlug: string | null;
-      reason: "no_score_row" | "no_execution_row" | "no_zone_rankings_row";
+      reason: "no_score_row" | "no_throughput_row" | "no_zone_rankings_row";
     }>;
   };
-  rawZoneRankingsScore: unknown;
-  rawZoneRankingsExecution: unknown;
+  /** Complete raw points_and_damage zoneRankings JSON. */
+  rawZoneRankingsPointsAndDamage: unknown;
   diagnostics: {
     source: "character.zoneRankings";
     state: "OK" | "ERROR";
-    scoreQuery: {
+    query: {
       zoneID: number;
-      metric: "playerscore";
-      byBracket: true;
-      partition: number | null;
-      ok: boolean;
-    };
-    executionQuery: {
-      zoneID: number;
-      metric: "dps";
+      metric: "points_and_damage";
       byBracket: true;
       partition: number | null;
       ok: boolean;
     };
     dungeonRowCount: number;
     unavailableEncounterCount: number;
+    averageComparison: {
+      computedBestAverage: number | null;
+      wclBestPerformanceAverage: number | null;
+      computedMedianAverage: number | null;
+      wclMedianPerformanceAverage: number | null;
+    } | null;
     note: string;
   };
   graphqlErrors: GraphQlErrorRecord[];

@@ -4,7 +4,7 @@
  * Usage:
  *   pnpm wcl:probe:performance -- --region EU --realm archimonde --name Wallidrixe
  *
- * Dual Character.zoneRankings: playerscore + dps. No recentReports / fights / events.
+ * Uses Character.zoneRankings metric:points_and_damage (Points & Damage By Level).
  */
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
@@ -88,18 +88,17 @@ function printSummary(
           encounterId: d.encounterId,
           encounterName: d.encounterName,
           keystoneLevel: d.keystoneLevel,
-          loggedRunCount: d.loggedRunCount,
+          displayedRunCount: d.displayedRunCount,
+          throughputSampleCount: d.throughputSampleCount,
+          throughputBracket: d.throughputBracket,
           ratingPoints: d.ratingPoints,
-          scoreRank: d.scoreRank,
-          scoreRankPercent: d.scoreRankPercent,
-          specialization: d.specialization,
           bestDps: d.bestDps,
           bestExecutionPercentile: d.bestExecutionPercentile,
           medianExecutionPercentile: d.medianExecutionPercentile,
           completionTimeMs: d.completion.completionTimeMs,
-          encodingStatus: d.completion.encodingStatus,
         })),
         unavailableEncounters: dataset.summary.unavailableEncounters,
+        averageComparison: dataset.diagnostics.averageComparison,
         diagnostics: dataset.diagnostics,
         graphqlErrorCount: dataset.graphqlErrors.length,
         graphqlErrors: dataset.graphqlErrors,

@@ -89,12 +89,13 @@ export const OPERATIONS = {
   },
 
   /**
-   * Character M+ score summary (Performance probe).
-   * Literal metric: playerscore — Character.zoneRankings expects CharacterPageRankingMetricType.
+   * Character M+ "Points & Damage (By Level)" page dataset (Performance probe).
+   * Literal metric: points_and_damage — CharacterPageRankingMetricType.
+   * Payload includes score rankings plus throughputRankings for DPS Best%/Median%.
    */
-  CharacterZoneRankingsPerformanceScore: {
-    operationName: "CharacterZoneRankingsPerformanceScore",
-    query: `query CharacterZoneRankingsPerformanceScore(
+  CharacterZoneRankingsPointsAndDamage: {
+    operationName: "CharacterZoneRankingsPointsAndDamage",
+    query: `query CharacterZoneRankingsPointsAndDamage(
   $name: String!
   $serverSlug: String!
   $serverRegion: String!
@@ -105,33 +106,7 @@ export const OPERATIONS = {
     character(name: $name, serverSlug: $serverSlug, serverRegion: $serverRegion) {
       zoneRankings(
         zoneID: $zoneID
-        metric: playerscore
-        byBracket: true
-        partition: $partition
-      )
-    }
-  }
-}`,
-  },
-
-  /**
-   * Character M+ execution/DPS summary (Performance probe).
-   * Literal metric: dps — Character.zoneRankings expects CharacterPageRankingMetricType.
-   */
-  CharacterZoneRankingsPerformanceExecution: {
-    operationName: "CharacterZoneRankingsPerformanceExecution",
-    query: `query CharacterZoneRankingsPerformanceExecution(
-  $name: String!
-  $serverSlug: String!
-  $serverRegion: String!
-  $zoneID: Int!
-  $partition: Int
-) {
-  characterData {
-    character(name: $name, serverSlug: $serverSlug, serverRegion: $serverRegion) {
-      zoneRankings(
-        zoneID: $zoneID
-        metric: dps
+        metric: points_and_damage
         byBracket: true
         partition: $partition
       )

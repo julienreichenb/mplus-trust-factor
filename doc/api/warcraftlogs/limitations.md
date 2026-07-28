@@ -23,14 +23,21 @@
 
 ## Performance probe (read-only, not production)
 
-Dual independent `Character.zoneRankings` queries (same zone + partition, `byBracket: true`):
+Single `Character.zoneRankings` query matching the WCL “Points & Damage (By Level)” page:
 
-| Query | metric | Supplies |
-|-------|--------|----------|
-| Score | `playerscore` | total M+ score, rating points, key level, score ranks, logged runs, spec, raw completion metadata |
-| Execution | `dps` | best DPS, best/median execution percentiles, global best/median DPS percentile averages |
+```
+metric: points_and_damage
+byBracket: true
+zoneID / partition: configured M+ zone
+```
 
-Merged by `encounter.id`. Does **not** call `recentReports`, `report.fights`, `masterData`, or events.
+| Payload slice | Supplies |
+|---------------|----------|
+| `rankings` | M+ score points, key level (`bestRank.ilvl`), score ranks, displayed run counts (`totalKills`) |
+| `throughputRankings` | Best DPS, Best %, Median % (map keyed by encounter id); sample size when present |
+| Top-level averages | WCL `bestPerformanceAverage` / `medianPerformanceAverage` (compared to mean of the 8 dungeon %) |
+
+Standalone `metric: dps` uses a different ranking sample and must not be used for this page. Displayed run totals are contextual, not the throughput sample denominator. Does **not** call `recentReports`, `report.fights`, `masterData`, or events. Not wired into production scoring.
 
 ### `fastestKill` / `bestRank.speed` encoding
 
