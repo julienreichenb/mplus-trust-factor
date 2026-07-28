@@ -58,19 +58,41 @@ function selectionReasonFor(
  */
 export function selectScoringRuns(
   runs: ScoringRunCandidateInput[],
-  options: { seasonSlug: string; expectedDungeonCount: number },
+  options: {
+    seasonSlug: string;
+    expectedDungeonCount: number;
+    /** Active-season dungeon slugs — off-pool dungeons are excluded before selection. */
+    allowedDungeonSlugs?: string[];
+  },
 ): ScoringRunSelection {
+  const allowed =
+    options.allowedDungeonSlugs != null
+      ? new Set(
+          options.allowedDungeonSlugs
+            .map((slug) => slug.trim().toLowerCase())
+            .filter((slug) => slug.length > 0),
+        )
+      : null;
+
   const byDungeon = new Map<string, ScoringRunCandidateInput[]>();
   for (const run of runs) {
     const slug = run.dungeonSlug.trim().toLowerCase();
     if (!slug) continue;
+    if (allowed && !allowed.has(slug)) continue;
     const bucket = byDungeon.get(slug) ?? [];
     bucket.push(run);
     byDungeon.set(slug, bucket);
   }
 
+  const dungeonSlugsToSelect =
+    allowed != null
+      ? [...allowed].sort((a, b) => a.localeCompare(b))
+      : [...byDungeon.keys()].sort((a, b) => a.localeCompare(b));
+
   const selectedRuns: ScoringRunSelectionEntry[] = [];
-  for (const [dungeonSlug, bucket] of byDungeon) {
+  for (const dungeonSlug of dungeonSlugsToSelect) {
+    const bucket = byDungeon.get(dungeonSlug);
+    if (!bucket || bucket.length === 0) continue;
     const sorted = [...bucket].sort(compareRuns);
     const winner = sorted[0]!;
     selectedRuns.push({
@@ -87,7 +109,6 @@ export function selectScoringRuns(
     });
   }
 
-  selectedRuns.sort((a, b) => a.dungeonSlug.localeCompare(b.dungeonSlug));
   return {
     seasonSlug: options.seasonSlug,
     expectedDungeonCount: options.expectedDungeonCount,

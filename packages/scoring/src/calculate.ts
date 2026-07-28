@@ -17,6 +17,10 @@ import type {
 } from "./types.js";
 import { calculateFinalTrust, calculateOverallConfidence, calculateSkillScore } from "./trust.js";
 import { validateScoreModelConfig } from "./validate.js";
+import {
+  computeModelCoverage,
+  filterPublicSkillDimensions,
+} from "./model-coverage.js";
 
 /** Backward-compatible placeholder input shape used by foundation stubs. */
 export interface CalculateScoreInput {
@@ -102,12 +106,18 @@ export function calculateScoreEngine(input: CalculateScoreEngineInput): ScoreSna
     confidence,
     model,
   });
+  const modelCoverage = computeModelCoverage(dimensions, model);
+  const finalTrust =
+    modelCoverage.overallState === "PROVISIONAL"
+      ? { ...trust, grade: "U" as const }
+      : trust;
   const explanation = explainScore({
     dimensions,
     authenticity,
-    trust,
+    trust: finalTrust,
     model,
     context,
+    modelCoverage,
   });
 
   const fingerprint =
@@ -122,7 +132,9 @@ export function calculateScoreEngine(input: CalculateScoreEngineInput): ScoreSna
       context,
     });
 
-  const dimensionDtos: DimensionScoreDTO[] = presentDimensionScores(dimensions);
+  const dimensionDtos: DimensionScoreDTO[] = presentDimensionScores(
+    filterPublicSkillDimensions(dimensions),
+  );
 
   const redFlags = [...authenticity.redFlags];
   const minConfidence = model.minConfidenceForGrade ?? 0.35;
@@ -134,6 +146,21 @@ export function calculateScoreEngine(input: CalculateScoreEngineInput): ScoreSna
       confidence: 1 - confidence,
       public: true,
       evidence: { confidence, minConfidenceForGrade: minConfidence },
+    });
+  }
+  if (modelCoverage.overallState === "PROVISIONAL") {
+    redFlags.push({
+      key: "provisional_score",
+      label: "Provisional score",
+      severity: "INFO",
+      confidence: 1 - modelCoverage.modelCoverageRatio,
+      public: true,
+      evidence: {
+        availableModelWeight: modelCoverage.availableModelWeight,
+        totalModelWeight: modelCoverage.totalModelWeight,
+        modelCoverageRatio: modelCoverage.modelCoverageRatio,
+        reason: modelCoverage.provisionalReason,
+      },
     });
   }
 
@@ -217,11 +244,16 @@ export function calculateScoreEngine(input: CalculateScoreEngineInput): ScoreSna
     modelVersion: model.version,
     scopeType: input.scopeType,
     scopeKey: input.scopeKey,
-    overallScore: trust.overallScore,
-    grade: trust.grade,
-    skillScore: trust.skillScore,
-    authenticityScore: trust.authenticityScore,
-    confidence: trust.confidence,
+    overallScore: finalTrust.overallScore,
+    grade: finalTrust.grade,
+    skillScore: finalTrust.skillScore,
+    authenticityScore: finalTrust.authenticityScore,
+    confidence: finalTrust.confidence,
+    overallState: modelCoverage.overallState,
+    availableModelWeight: modelCoverage.availableModelWeight,
+    totalModelWeight: modelCoverage.totalModelWeight,
+    modelCoverageRatio: modelCoverage.modelCoverageRatio,
+    provisionalReason: modelCoverage.provisionalReason,
     calculatedAt: input.calculatedAt,
     inputFingerprint: fingerprint,
     dimensions: dimensionDtos,

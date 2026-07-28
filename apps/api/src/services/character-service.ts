@@ -315,12 +315,19 @@ export class CharacterService {
     const runCoverageById: Record<string, number | null> = {
       ...coverageCounts.runCoverageById,
     };
+    const runNamesById: Record<string, { dungeonName: string }> = {};
     await Promise.all(
       runIds.map(async (runId) => {
         runCoverageById[runId] = await this.repositories.run.findLatestAnalysisCoverage(
           character.id,
           runId,
         );
+        const runRow = await this.repositories.run.findById(runId);
+        if (runRow) {
+          runNamesById[runId] = {
+            dungeonName: runRow.dungeon.name ?? runRow.dungeon.slug,
+          };
+        }
       }),
     );
 
@@ -352,6 +359,7 @@ export class CharacterService {
         scoringRunSelection,
         selectedRunCount: coverageCounts.selectedRunCount,
         detailedRunCount: coverageCounts.detailedRunCount,
+        runNamesById,
         freshness,
         scoreObservationProviders: observationProviders,
         env: this.container.env,

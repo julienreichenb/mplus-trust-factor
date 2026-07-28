@@ -91,6 +91,8 @@ export interface RedFlagDTO {
   evidence: unknown;
 }
 
+export type OverallScoreState = "DEFINITIVE" | "PROVISIONAL";
+
 export interface ScoreSnapshotDTO {
   characterId: string;
   seasonSlug: string;
@@ -103,6 +105,12 @@ export interface ScoreSnapshotDTO {
   skillScore: number;
   authenticityScore: number;
   confidence: number;
+  /** Whether the overall grade meets minimum model-weight coverage for a definitive rating. */
+  overallState?: OverallScoreState;
+  availableModelWeight?: number;
+  totalModelWeight?: number;
+  modelCoverageRatio?: number;
+  provisionalReason?: string | null;
   calculatedAt: IsoDateTime;
   inputFingerprint: string;
   dimensions: DimensionScoreDTO[];

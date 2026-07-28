@@ -174,6 +174,11 @@ export interface PerformanceDungeonSummaryDTO {
   latestRun: PerformanceExplanatoryRunDTO | null;
 }
 
+export type PerformanceProvenance =
+  | "AGGREGATE_ZONE_RANKINGS"
+  | "FIGHT_BOUND_PARSES"
+  | "NONE";
+
 export interface PerformanceCurrentSeasonSummaryDTO {
   peakScore: number | null;
   consistencyScore: number | null;
@@ -182,6 +187,8 @@ export interface PerformanceCurrentSeasonSummaryDTO {
   dungeonCount: number;
   expectedDungeonCount: number;
   latestObservedAt: IsoDateTime | null;
+  /** Whether percentiles are aggregate zone rankings vs fight-bound selected-run parses. */
+  provenance?: PerformanceProvenance;
   dungeons: PerformanceDungeonSummaryDTO[];
 }
 

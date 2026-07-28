@@ -18,7 +18,6 @@ import type {
   ProfileWarning,
   ScoringRunSelection,
   SeasonSummary,
-  SelectedRunSummary,
   SelectedRunSummaryDTO,
   TalentSummary,
   WclDataState,
@@ -54,6 +53,7 @@ export interface CharacterEnrichmentInput {
   scoringRunSelection?: ScoringRunSelection | null;
   selectedRunCount?: number | null;
   detailedRunCount?: number | null;
+  runNamesById?: Record<string, { dungeonName: string }>;
   freshness?: number | null;
   sourceDisagreements?: CharacterProfileResponse["sourceDisagreements"];
   scoreObservationProviders?: string[];
@@ -82,46 +82,44 @@ function runToSummary(
 function coverageForRun(
   runId: string,
   runCoverageById: Record<string, number | null> | undefined,
-  selectedRunCoverage: number | null | undefined,
-): number {
+): number | null {
   const analyzed = runCoverageById?.[runId];
-  if (typeof analyzed === "number") return analyzed;
-  if (selectedRunCoverage == null) return 0;
-  return selectedRunCoverage;
+  return typeof analyzed === "number" && Number.isFinite(analyzed) ? analyzed : null;
 }
 
-/** Build the shared eight-dungeon selectedRuns contract from performance summary data. */
-export function buildScoringRunSelection(
-  performanceSummary: PerformanceSummaryDTO | null | undefined,
-  seasonSlug: string | null,
+/** Build selectedRuns DTO from the canonical persisted scoringRunSelection. */
+export function mapSelectedRunsFromCanonicalSelection(
+  scoringRunSelection: ScoringRunSelection | null | undefined,
   runCoverageById?: Record<string, number | null>,
-  selectedRunCoverage?: number | null,
-): ScoringRunSelection | null {
-  const current = performanceSummary?.currentSeason;
-  if (!current || !seasonSlug) return null;
+  runNamesById?: Record<string, { dungeonName: string }>,
+  performanceSummary?: PerformanceSummaryDTO | null,
+): SelectedRunSummaryDTO[] {
+  if (!scoringRunSelection) return [];
 
-  const selectedRuns: SelectedRunSummary[] = current.dungeons.map((dungeon) => {
-    const run = dungeon.bestRun ?? dungeon.latestRun;
+  return scoringRunSelection.selectedRuns.map((entry) => {
+    const runId = entry.canonicalRunId;
+    const coverage = runId != null ? coverageForRun(runId, runCoverageById) : null;
+    const perfDungeon = performanceSummary?.currentSeason.dungeons.find(
+      (d) => d.dungeonSlug === entry.dungeonSlug,
+    );
+    const parsePercentile =
+      perfDungeon?.bestParsePercentile ?? perfDungeon?.bestRun?.parsePercentile ?? null;
+
     return {
-      dungeonSlug: dungeon.dungeonSlug,
-      dungeonName: dungeon.dungeonName,
-      canonicalRunId: run?.runId ?? null,
-      keyLevel: run?.keyLevel ?? null,
-      timed: run?.timed ?? null,
-      completedAt: run?.completedAt ?? null,
-      wclReportMatched: run != null,
-      selectionReason: run?.kind === "LATEST" ? "LATEST_TIEBREAK" : run ? "HIGHEST_KEY" : null,
-      coverageRatio: run
-        ? coverageForRun(run.runId, runCoverageById, selectedRunCoverage)
-        : null,
+      runId,
+      dungeonSlug: entry.dungeonSlug,
+      dungeonName:
+        runNamesById?.[runId ?? ""]?.dungeonName ?? entry.dungeonName ?? entry.dungeonSlug,
+      keyLevel: entry.keyLevel,
+      completedAt: entry.completedAt,
+      timed: entry.timed ?? false,
+      wclReportMatched: entry.wclReportMatched,
+      wclCoverageRatio: entry.coverageRatio ?? coverage,
+      selectionReason: entry.selectionReason,
+      parsePercentile,
+      hasDetailedAnalysis: coverage != null && coverage > 0,
     };
   });
-
-  return {
-    seasonSlug,
-    expectedDungeonCount: current.expectedDungeonCount,
-    selectedRuns,
-  };
 }
 
 function sanitizeHttpsUrl(value: unknown): string | null {
@@ -386,8 +384,10 @@ export function buildProfileEnrichments(input: CharacterEnrichmentInput): Pick<
     selectedRunCoverage,
     runCoverageById,
     performanceSummary = null,
+    scoringRunSelection = null,
     selectedRunCount = null,
     detailedRunCount = null,
+    runNamesById = {},
     freshness = null,
     sourceDisagreements,
     scoreObservationProviders,
@@ -401,14 +401,14 @@ export function buildProfileEnrichments(input: CharacterEnrichmentInput): Pick<
     lastAnalyzedRun = runToSummary(
       latestRun,
       bothSame ? "BOTH" : "LATEST",
-      coverageForRun(latestRun.id, runCoverageById, selectedRunCoverage),
+      coverageForRun(latestRun.id, runCoverageById) ?? 0,
     );
   }
   if (highestRun) {
     highestAnalyzedRun = runToSummary(
       highestRun,
       bothSame ? "BOTH" : "HIGHEST",
-      coverageForRun(highestRun.id, runCoverageById, selectedRunCoverage),
+      coverageForRun(highestRun.id, runCoverageById) ?? 0,
     );
   }
 
@@ -442,51 +442,14 @@ export function buildProfileEnrichments(input: CharacterEnrichmentInput): Pick<
       state.provider === "raiderio" ? (character.raiderioProfileUrl ?? null) : (state.sourceUrl ?? null),
   }));
 
-  const scoringRunSelection = buildScoringRunSelection(
-    performanceSummary,
-    seasonSlug,
+  const canonicalScoringRunSelection = scoringRunSelection;
+
+  const selectedRuns = mapSelectedRunsFromCanonicalSelection(
+    canonicalScoringRunSelection,
     runCoverageById,
-    selectedRunCoverage,
+    runNamesById,
+    performanceSummary,
   );
-
-  const selectedRuns: SelectedRunSummaryDTO[] =
-    (scoringRunSelection?.selectedRuns ?? []).map((entry) => {
-      const runRow =
-        latestRun?.id === entry.canonicalRunId
-          ? latestRun
-          : highestRun?.id === entry.canonicalRunId
-            ? highestRun
-            : null;
-
-      const perfDungeon = performanceSummary?.currentSeason.dungeons.find(
-        (d) => d.dungeonSlug === entry.dungeonSlug,
-      );
-
-      const parsePercentile =
-        perfDungeon?.bestParsePercentile ??
-        perfDungeon?.bestRun?.parsePercentile ??
-        null;
-
-      const coverage =
-        entry.canonicalRunId != null ? runCoverageById?.[entry.canonicalRunId] : undefined;
-
-      return {
-        runId: entry.canonicalRunId,
-        dungeonSlug: entry.dungeonSlug,
-        dungeonName: runRow?.dungeon.name ?? entry.dungeonName,
-        keyLevel: entry.keyLevel,
-        completedAt: entry.completedAt,
-        timed: entry.timed ?? false,
-        wclReportMatched: entry.wclReportMatched,
-        wclCoverageRatio:
-          coverage ??
-          (entry.wclReportMatched ? (selectedRunCoverage ?? null) : null),
-        selectionReason: entry.selectionReason,
-        parsePercentile,
-        hasDetailedAnalysis:
-          typeof coverage === "number" && coverage > 0,
-      };
-    });
 
   return {
     classSlug: character.gameClass?.slug ?? null,
@@ -500,15 +463,16 @@ export function buildProfileEnrichments(input: CharacterEnrichmentInput): Pick<
     freshness,
     lastAnalyzedRun,
     highestAnalyzedRun,
-    scoringRunSelection,
+    scoringRunSelection: canonicalScoringRunSelection,
     equipment,
     talents,
     media,
     seasonSummary,
     performanceSummary: performanceSummary ?? null,
     selectedRuns,
-    selectedRunCount: selectedRunCount ?? selectedRuns.length,
-    detailedRunCount: detailedRunCount ?? selectedRuns.filter((r) => r.hasDetailedAnalysis).length,
+    selectedRunCount: selectedRunCount ?? canonicalScoringRunSelection?.selectedRuns.length ?? selectedRuns.length,
+    detailedRunCount:
+      detailedRunCount ?? selectedRuns.filter((r) => r.hasDetailedAnalysis).length,
     entitlements: buildEntitlements(env),
     warnings: [],
     raiderIoUsed: Boolean(character.raiderioProfileUrl),

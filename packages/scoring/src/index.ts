@@ -77,3 +77,20 @@ export {
   type ScoringRunCandidateInput,
   type ScoringRunSelectionReason,
 } from "./selection/scoring-run-selection.js";
+export {
+  resolveActiveSeasonDungeonSlugs,
+  isDungeonInActiveSeasonPool,
+  normalizeDungeonSlug,
+  type ResolveActiveSeasonDungeonSlugsInput,
+} from "./selection/active-season-dungeons.js";
+export {
+  toContractScoringRunSelection,
+  applyRunMetadataToSelection,
+  type ScoringRunPresentationMeta,
+} from "./selection/scoring-run-selection-present.js";
+export {
+  computeModelCoverage,
+  filterPublicSkillDimensions,
+  MODEL_COVERAGE_PROVISIONAL_THRESHOLD,
+  type ModelCoverageSummary,
+} from "./model-coverage.js";

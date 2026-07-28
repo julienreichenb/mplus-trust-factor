@@ -401,6 +401,49 @@ export function extractMetricsFromCombatFacts(
   });
 }
 
+export const USABLE_COMBAT_EVENT_CATEGORIES = [
+  "deaths",
+  "casts",
+  "interrupts",
+  "dispels",
+  "healing",
+] as const;
+
+export function isUsableCombatRun(facts: RunCombatFacts): boolean {
+  return USABLE_COMBAT_EVENT_CATEGORIES.some((category) => Boolean(facts.coverage[category]));
+}
+
+export function buildRunCombatAdminDiagnostics(
+  facts: RunCombatFacts,
+  context?: Partial<CombatMetricsContext>,
+): Record<string, unknown> {
+  const ctx: CombatMetricsContext = {
+    observedAt: context?.observedAt ?? new Date().toISOString(),
+    dungeonSlug: context?.dungeonSlug ?? "unknown",
+    runDurationMs: context?.runDurationMs ?? 1_800_000,
+    classSlug: context?.classSlug ?? null,
+    specSlug: context?.specSlug ?? null,
+    catalog: context?.catalog ?? {
+      catalogVersion: "empty",
+      classSlug: null,
+      specSlug: null,
+      supported: false,
+      unsupportedReason: "CLASS_SPEC_UNKNOWN",
+      rules: [],
+    },
+  };
+  const spellAudit = buildSpellAudit(facts, ctx);
+  return {
+    eventCategoryCoverage: facts.coverage,
+    spellAudit,
+    limitations: facts.limitations,
+    attributedSourceIds: facts.attributedSourceIds,
+    usableCombatCategories: USABLE_COMBAT_EVENT_CATEGORIES.filter((category) =>
+      Boolean(facts.coverage[category]),
+    ),
+  };
+}
+
 function buildSpellAudit(facts: RunCombatFacts, ctx: CombatMetricsContext) {
   const targetId = facts.targetSourceId;
   const countBySpell = (spellIds: Set<number>, useAttributed = false) => {
