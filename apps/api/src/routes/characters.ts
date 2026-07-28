@@ -13,6 +13,7 @@ import {
   scoreSnapshotSchema,
   searchCharacterResponseSchema,
   characterAutocompleteResponseSchema,
+  characterResolveResponseSchema,
 } from "./schemas.js";
 
 interface IdentityParams {
@@ -66,6 +67,48 @@ export function buildCharacterRoutes(container: ApiContainer): FastifyPluginAsyn
           search,
         );
         return { suggestions };
+      },
+    );
+
+    app.post(
+      "/api/v1/characters/resolve",
+      {
+        config: rateLimitConfig(container, 60),
+        schema: {
+          tags: ["characters"],
+          body: {
+            type: "object",
+            properties: {
+              name: { type: "string", minLength: 1, maxLength: 48 },
+              realmSlug: { type: "string", minLength: 1, maxLength: 64 },
+              region: { type: "string", minLength: 1, maxLength: 8 },
+              forceRetry: { type: "boolean" },
+            },
+            required: ["name", "realmSlug", "region"],
+          },
+          response: {
+            200: characterResolveResponseSchema,
+            202: characterResolveResponseSchema,
+            400: characterResolveResponseSchema,
+            404: characterResolveResponseSchema,
+            502: characterResolveResponseSchema,
+            503: characterResolveResponseSchema,
+          },
+        },
+      },
+      async (request, reply) => {
+        const body = request.body as {
+          name: string;
+          realmSlug: string;
+          region: string;
+          forceRetry?: boolean;
+        };
+        const result = await service.resolveCharacter(
+          { name: body.name, realmSlug: body.realmSlug, region: body.region },
+          { correlationId: request.id, forceRetry: body.forceRetry === true },
+        );
+        const statusCode = result.statusCode as 200 | 202 | 400 | 404 | 502 | 503;
+        return reply.status(statusCode).send(result.body);
       },
     );
 

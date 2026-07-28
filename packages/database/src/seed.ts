@@ -285,20 +285,74 @@ const redFlags: Array<{
 ];
 
 async function seed(): Promise<void> {
-  const region = await prisma.region.upsert({
-    where: { code: "EU" },
-    update: {
-      apiHost: "https://eu.api.blizzard.com",
-      localeDefault: "en_GB",
-      enabled: true,
-    },
-    create: {
-      code: "EU",
-      apiHost: "https://eu.api.blizzard.com",
-      localeDefault: "en_GB",
-      enabled: true,
-    },
-  });
+  const regionDefs = [
+    { code: "EU", apiHost: "https://eu.api.blizzard.com", localeDefault: "en_GB" },
+    { code: "US", apiHost: "https://us.api.blizzard.com", localeDefault: "en_US" },
+    { code: "KR", apiHost: "https://kr.api.blizzard.com", localeDefault: "ko_KR" },
+    { code: "TW", apiHost: "https://tw.api.blizzard.com", localeDefault: "zh_TW" },
+  ] as const;
+
+  const regions = [];
+  for (const def of regionDefs) {
+    regions.push(
+      await prisma.region.upsert({
+        where: { code: def.code },
+        update: {
+          apiHost: def.apiHost,
+          localeDefault: def.localeDefault,
+          enabled: true,
+        },
+        create: {
+          code: def.code,
+          apiHost: def.apiHost,
+          localeDefault: def.localeDefault,
+          enabled: true,
+        },
+      }),
+    );
+  }
+  const region = regions[0]!;
+
+  // Seed a minimal EU realm set so local combobox works before the first Blizzard sync.
+  const seedRealms = [
+    { slug: "tarren-mill", name: "Tarren Mill", locale: "en_GB", blizzardRealmId: 1084n, connectedRealmId: 1084n },
+    { slug: "archimonde", name: "Archimonde", locale: "fr_FR", blizzardRealmId: 1302n, connectedRealmId: 1082n },
+    { slug: "kazzak", name: "Kazzak", locale: "en_GB", blizzardRealmId: 1305n, connectedRealmId: 1082n },
+    { slug: "cherith", name: "Chérith", locale: "fr_FR", blizzardRealmId: 1091n, connectedRealmId: 1091n },
+  ];
+  for (const realm of seedRealms) {
+    await prisma.realm.upsert({
+      where: { regionId_slug: { regionId: region.id, slug: realm.slug } },
+      update: {
+        name: realm.name,
+        nameNormalized: realm.name
+          .normalize("NFKD")
+          .replace(/\p{M}/gu, "")
+          .toLocaleLowerCase("en-US"),
+        locale: realm.locale,
+        blizzardRealmId: realm.blizzardRealmId,
+        connectedRealmId: realm.connectedRealmId,
+        isActive: true,
+        isTournament: false,
+        lastSyncedAt: new Date(),
+      },
+      create: {
+        regionId: region.id,
+        slug: realm.slug,
+        name: realm.name,
+        nameNormalized: realm.name
+          .normalize("NFKD")
+          .replace(/\p{M}/gu, "")
+          .toLocaleLowerCase("en-US"),
+        locale: realm.locale,
+        blizzardRealmId: realm.blizzardRealmId,
+        connectedRealmId: realm.connectedRealmId,
+        isActive: true,
+        isTournament: false,
+        lastSyncedAt: new Date(),
+      },
+    });
+  }
 
   const existingCurrent = await prisma.season.findFirst({
     where: { regionId: region.id, slug: "placeholder-current" },
@@ -440,7 +494,9 @@ async function seed(): Promise<void> {
     });
   }
 
-  console.log("Seed completed (idempotent): EU region, placeholder season, model v3 ACTIVE (v1/v2 archived), metrics, red flags.");
+  console.log(
+    "Seed completed (idempotent): EU/US/KR/TW regions, starter EU realms, placeholder season, model v3 ACTIVE (v1/v2 archived), metrics, red flags.",
+  );
 }
 
 seed()

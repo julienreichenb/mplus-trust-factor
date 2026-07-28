@@ -16,6 +16,8 @@ export interface FixtureManifest {
     }
   >;
   realms: Record<string, string>;
+  /** Optional regional realm index fixture relative path. */
+  realmIndex?: string;
   seasons: {
     index: string;
     byId: Record<string, string>;

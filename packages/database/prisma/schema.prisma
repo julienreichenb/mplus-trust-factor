@@ -156,20 +156,30 @@ model Region {
 }
 
 model Realm {
-  id               String   @id @default(uuid()) @db.Uuid
-  regionId         String   @map("region_id") @db.Uuid
-  blizzardRealmId  BigInt?  @map("blizzard_realm_id")
+  id               String    @id @default(uuid()) @db.Uuid
+  regionId         String    @map("region_id") @db.Uuid
+  blizzardRealmId  BigInt?   @map("blizzard_realm_id")
   slug             String
   name             String
-  connectedRealmId BigInt?  @map("connected_realm_id")
+  /** Accent-folded lowercase name for catalog search (display `name` preserves accents). */
+  nameNormalized   String?   @map("name_normalized")
+  connectedRealmId BigInt?   @map("connected_realm_id")
   locale           String?
-  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  timezone         String?
+  category         String?
+  isTournament     Boolean   @default(false) @map("is_tournament")
+  /** False when omitted from successive Blizzard syncs; never hard-deleted on a single miss. */
+  isActive         Boolean   @default(true) @map("is_active")
+  lastSyncedAt     DateTime? @map("last_synced_at") @db.Timestamptz(3)
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   region     Region      @relation(fields: [regionId], references: [id])
   characters Character[]
 
   @@unique([regionId, slug])
+  @@index([nameNormalized])
+  @@index([isActive, isTournament])
   @@map("realms")
 }
 

@@ -5,12 +5,15 @@ import type {
   CharacterComparisonResponse,
   CharacterIdentityInput,
   CharacterProfileResponse,
+  CharacterResolveRequest,
+  CharacterResolveResponse,
   Grade,
   JobStatusDTO,
   MetaResponse,
   RedFlagDTO,
   RefreshStatusResponse,
   RegionCode,
+  RealmCatalogOption,
   ScoreModelConfig,
   ScoreSnapshotDTO,
   SearchCharacterResponse,
@@ -35,6 +38,12 @@ export type CharacterProfileView = CharacterProfileResponse;
 export interface RealmOption {
   slug: string;
   name: string;
+  region?: RegionCode;
+  locale?: string | null;
+  connectedRealmId?: number | null;
+  displayLabel?: string;
+  category?: string | null;
+  timezone?: string | null;
 }
 
 export interface ModelValidationResult {
@@ -70,14 +79,34 @@ export interface EditableModelConfig extends ScoreModelConfig {
 
 export type ApiMode = "mock" | "live";
 
+export type SearchUiState =
+  | "IDLE"
+  | "VALIDATING"
+  | "RESOLVING"
+  | "QUEUED"
+  | "PROCESSING"
+  | "READY"
+  | "NOT_FOUND"
+  | "RETRYABLE_ERROR"
+  | "TERMINAL_ERROR";
+
 export interface MplusApiClient {
   getMeta(signal?: AbortSignal): Promise<MetaResponse>;
-  searchRealms(region: RegionCode, query: string, signal?: AbortSignal): Promise<RealmOption[]>;
+  searchRealms(
+    region: RegionCode | null | undefined,
+    query: string,
+    signal?: AbortSignal,
+    limit?: number,
+  ): Promise<RealmOption[]>;
   searchCharacters(
     region: RegionCode,
     query: string,
     signal?: AbortSignal,
   ): Promise<CharacterAutocompleteSuggestion[]>;
+  resolveCharacter(
+    request: CharacterResolveRequest & { forceRetry?: boolean },
+    signal?: AbortSignal,
+  ): Promise<CharacterResolveResponse>;
   getCharacterProfile(
     identity: CharacterIdentityInput,
     signal?: AbortSignal,
@@ -111,11 +140,14 @@ export type {
   CharacterComparisonResponse,
   CharacterIdentityInput,
   CharacterProfileResponse,
+  CharacterResolveRequest,
+  CharacterResolveResponse,
   EquipmentSummary,
   Grade,
   JobStatusDTO,
   MetaResponse,
   ProfileWarning,
+  RealmCatalogOption,
   RedFlagDTO,
   RefreshStatusResponse,
   RegionCode,

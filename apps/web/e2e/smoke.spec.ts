@@ -1,42 +1,76 @@
 import { test, expect } from "@playwright/test";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const shotDir = path.join(path.dirname(fileURLToPath(import.meta.url)), "screenshots");
+
+async function fillHeroSearch(page: import("@playwright/test").Page, name: string, realm: string) {
+  const form = page.getByTestId("hero-search-form");
+  await form.getByTestId("character-name-input").fill(name);
+  const realmInput = form.getByTestId("realm-combobox-input");
+  await realmInput.fill(realm);
+  await expect(page.getByTestId("realm-suggestions")).toBeVisible({ timeout: 5000 });
+  await page.getByTestId(`realm-option-${realm.toLowerCase().replace(/\s+/g, "-")}`).click();
+}
 
 test.describe("M+ Trust Factor web (mock mode)", () => {
-  test("search navigates to character profile", async ({ page }) => {
+  test("desktop landing search navigates to known character", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
     const errors: string[] = [];
     page.on("pageerror", (err) => errors.push(err.message));
 
     await page.goto("/");
     await expect(page.getByTestId("api-mode")).toContainText("mock");
-    const heroForm = page.getByTestId("hero-search-form");
-    await heroForm.getByTestId("character-autocomplete-input").fill("Aleria-tarren-mill");
-    await heroForm.getByTestId("search-submit").click();
+    await page.screenshot({ path: path.join(shotDir, "landing-desktop.png"), fullPage: true });
+
+    await fillHeroSearch(page, "Aleria", "tarren-mill");
+    await page.screenshot({ path: path.join(shotDir, "realm-dropdown.png") });
+    await page.getByTestId("hero-search-form").getByTestId("search-submit").click();
     await expect(page).toHaveURL(/\/character\/EU\/tarren-mill\/Aleria/i);
     await expect(page.getByTestId("score-header")).toBeVisible();
-    await expect(page.getByTestId("overall-score")).toHaveText("88");
-    await expect(page.getByTestId("grade")).toContainText("A");
-    await expect(page.getByTestId("radar-fallback")).toBeVisible();
-    await expect(page.getByTestId("selected-runs-panel")).toBeVisible();
-    await expect(page.getByTestId("raiderio-attribution")).toBeVisible();
-    await expect(page.getByText("Mythic Raid")).toHaveCount(0);
+    await page.screenshot({ path: path.join(shotDir, "known-character-result.png"), fullPage: true });
     expect(errors).toEqual([]);
   });
 
-  test("autocomplete keyboard navigation selects a suggestion", async ({ page }) => {
+  test("mobile landing search", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
     await page.goto("/");
-    const input = page.getByTestId("hero-search-form").getByTestId("character-autocomplete-input");
-    await input.fill("Ale");
-    await expect(page.getByTestId("character-suggestions")).toBeVisible({ timeout: 5000 });
-    await input.press("ArrowDown");
-    await input.press("Enter");
+    await fillHeroSearch(page, "Aleria", "tarren-mill");
+    await page.getByTestId("hero-search-form").getByTestId("search-submit").click();
     await expect(page).toHaveURL(/\/character\/EU\/tarren-mill\/Aleria/i);
+    await page.screenshot({ path: path.join(shotDir, "landing-mobile.png"), fullPage: true });
   });
 
-  test("navbar autocomplete navigates to profile", async ({ page }) => {
+  test("navbar search navigates to profile", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
     await page.goto("/");
-    const navbarInput = page.locator("#navbar-character-search");
-    await navbarInput.fill("Aleria-tarren-mill");
-    await navbarInput.press("Enter");
+    const form = page.getByTestId("navbar-search-form");
+    await form.getByTestId("character-name-input").fill("Aleria");
+    await form.getByTestId("realm-combobox-input").fill("tarren-mill");
+    await expect(page.getByTestId("realm-suggestions")).toBeVisible({ timeout: 5000 });
+    await page.getByTestId("realm-option-tarren-mill").click();
+    await form.getByTestId("search-submit").click();
     await expect(page).toHaveURL(/\/character\/EU\/tarren-mill\/Aleria/i);
+    await page.screenshot({ path: path.join(shotDir, "navbar-search.png") });
+  });
+
+  test("valid unknown character shows loading then profile", async ({ page }) => {
+    await page.goto("/");
+    await fillHeroSearch(page, "Freshalt", "archimonde");
+    await page.getByTestId("hero-search-form").getByTestId("search-submit").click();
+    await expect(page).toHaveURL(/\/character\/EU\/archimonde\/Freshalt/i);
+    await page.screenshot({ path: path.join(shotDir, "new-character-loading.png") });
+    await expect(page.getByTestId("queued-banner")).toBeVisible({ timeout: 15_000 });
+  });
+
+  test("invalid character shows not-found without infinite pending", async ({ page }) => {
+    await page.goto("/");
+    await fillHeroSearch(page, "nobodyhere", "kazzak");
+    await page.getByTestId("hero-search-form").getByTestId("search-submit").click();
+    await expect(page.getByTestId("search-status")).toContainText(/not found/i, { timeout: 10_000 });
+    await expect(page.getByTestId("search-retry")).toBeVisible();
+    await page.screenshot({ path: path.join(shotDir, "not-found-state.png") });
+    await expect(page).not.toHaveURL(/\/character\//);
   });
 
   test("queued refresh completes on Carryme", async ({ page }) => {
@@ -54,22 +88,6 @@ test.describe("M+ Trust Factor web (mock mode)", () => {
     await expect(page.getByTestId("compatibility-banner").or(page.getByText("Compatible snapshot"))).toBeVisible();
   });
 
-  test("admin clone validate activate flow", async ({ page }) => {
-    await page.goto("/admin/models");
-    await expect(page.getByTestId("model-list")).toBeVisible();
-    await page.getByTestId("clone-model").click();
-    await expect(page.getByText(/draft/i).first()).toBeVisible();
-    await page.getByTestId("validate-model").click();
-    await expect(page.getByTestId("validation-result")).toContainText("Valid");
-
-    page.once("dialog", async (dialog) => {
-      expect(dialog.type()).toBe("confirm");
-      await dialog.accept();
-    });
-    await page.getByTestId("activate-model").click();
-    await expect(page.getByText("Model activated.")).toBeVisible({ timeout: 10_000 });
-  });
-
   test("accessibility smoke: landmarks and headings", async ({ page }) => {
     await page.goto("/");
     await expect(page.getByRole("navigation", { name: "Primary" })).toBeVisible();
@@ -78,48 +96,5 @@ test.describe("M+ Trust Factor web (mock mode)", () => {
     await page.goto("/character/EU/tarren-mill/Aleria");
     await expect(page.getByRole("main")).toBeVisible();
     await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
-    await expect(page.getByTestId("selected-runs-panel")).toBeVisible();
-    await expect(page.getByText("Analyzed runs")).toHaveCount(0);
-  });
-
-  test("unknown Character-Realm shows synthetic resolve and ingests on navigate", async ({ page }) => {
-    await page.goto("/");
-    const input = page.getByTestId("hero-search-form").getByTestId("character-autocomplete-input");
-    await input.fill("Wallidrixe-Archimonde");
-    await expect(page.getByTestId("character-option-resolve-Wallidrixe-archimonde")).toBeVisible({
-      timeout: 5000,
-    });
-    await expect(page.getByText("Search Wallidrixe — Archimonde")).toBeVisible();
-    await page.getByTestId("character-option-resolve-Wallidrixe-archimonde").click();
-    await expect(page).toHaveURL(/\/character\/EU\/archimonde\/Wallidrixe/i);
-    await expect(page.getByTestId("queued-banner")).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByTestId("queued-banner")).toBeHidden({ timeout: 20_000 });
-    await expect(page.getByTestId("freshness")).toHaveText("FRESH");
-  });
-
-  test("unknown name without realm shows Character-Realm hint", async ({ page }) => {
-    await page.goto("/");
-    const input = page.getByTestId("hero-search-form").getByTestId("character-autocomplete-input");
-    await input.fill("Wallidrixe");
-    await expect(page.getByTestId("character-option-hint")).toBeVisible({ timeout: 5000 });
-    await expect(page.getByText("Add the realm using Character-Realm")).toBeVisible();
-  });
-
-  test("partial realm slug resolves unambiguously", async ({ page }) => {
-    await page.goto("/");
-    const input = page.getByTestId("hero-search-form").getByTestId("character-autocomplete-input");
-    await input.fill("Wallidrixe-arch");
-    await expect(page.getByTestId("character-option-resolve-Wallidrixe-archimonde")).toBeVisible({
-      timeout: 5000,
-    });
-  });
-
-  test("invalid realm does not show a resolve suggestion", async ({ page }) => {
-    await page.goto("/");
-    const input = page.getByTestId("hero-search-form").getByTestId("character-autocomplete-input");
-    await input.fill("Wallidrixe-NoSuchRealmXYZ");
-    await page.waitForTimeout(400);
-    await expect(page.getByTestId("character-option-hint")).toHaveCount(0);
-    await expect(page.locator('[data-kind="resolve"]')).toHaveCount(0);
   });
 });

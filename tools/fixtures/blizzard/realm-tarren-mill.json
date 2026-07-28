@@ -4,7 +4,10 @@
   "name": "Tarren Mill",
   "locale": "en_GB",
   "timezone": "Europe/Paris",
+  "category": { "type": "ENGLISH", "name": "English" },
+  "is_tournament": false,
   "connected_realm": {
+    "id": 1084,
     "href": "https://eu.api.blizzard.com/data/wow/connected-realm/1084?namespace=dynamic-eu"
   }
 }

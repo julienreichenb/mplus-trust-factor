@@ -118,6 +118,15 @@ export interface BlizzardRealmDTO {
   locale: string | null;
   timezone: string | null;
   connectedRealmId: number | null;
+  category: string | null;
+  isTournament: boolean;
+}
+
+/** Lightweight realm index entry from `GET /data/wow/realm/index`. */
+export interface BlizzardRealmIndexEntryDTO {
+  blizzardRealmId: number;
+  slug: string;
+  name: string;
 }
 
 /** Static season / dungeon / item records from Blizzard game data. */
@@ -170,6 +179,8 @@ export interface BlizzardMythicLeaderboardDTO {
 export interface BlizzardProvider {
   readonly name: "blizzard";
   getRealm(realmSlug: string, ctx: ProviderFetchContext): Promise<ProviderResult<BlizzardRealmDTO>>;
+  /** Retail realm index for a region (dynamic namespace). */
+  getRealmIndex(ctx: ProviderFetchContext): Promise<ProviderResult<BlizzardRealmIndexEntryDTO[]>>;
   getCharacterProfile(
     identity: CharacterIdentityInput,
     ctx: ProviderFetchContext,

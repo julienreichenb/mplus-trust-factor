@@ -14,6 +14,24 @@ export function normalizeRegion(value: string): RegionCode {
   return value.normalize("NFKC").trim().toUpperCase();
 }
 
+/**
+ * Fold diacritics for accent-insensitive search while keeping display strings untouched.
+ * Example: "Chérith" → "cherith", "Kazzak" → "kazzak".
+ */
+export function foldDiacritics(value: string): string {
+  return value
+    .normalize("NFKD")
+    .replace(/\p{M}/gu, "")
+    .normalize("NFKC")
+    .trim()
+    .toLocaleLowerCase("en-US");
+}
+
+/** Normalized catalog search key for realm display names (accents folded). */
+export function normalizeRealmSearchKey(value: string): string {
+  return foldDiacritics(value);
+}
+
 export function toCharacterRef(input: CharacterIdentityInput): CharacterRef {
   return {
     region: normalizeRegion(input.region),

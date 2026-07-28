@@ -1,0 +1,39 @@
+{
+  "realms": [
+    {
+      "id": 1084,
+      "slug": "tarren-mill",
+      "name": "Tarren Mill"
+    },
+    {
+      "id": 1302,
+      "slug": "archimonde",
+      "name": "Archimonde"
+    },
+    {
+      "id": 1305,
+      "slug": "kazzak",
+      "name": "Kazzak"
+    },
+    {
+      "id": 1122,
+      "slug": "twisting-nether",
+      "name": "Twisting Nether"
+    },
+    {
+      "id": 1615,
+      "slug": "hyjal",
+      "name": "Hyjal"
+    },
+    {
+      "id": 1091,
+      "slug": "chérith",
+      "name": "Chérith"
+    },
+    {
+      "id": 9999,
+      "slug": "arena-tournament",
+      "name": "Arena Tournament"
+    }
+  ]
+}

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import CharacterSearchAutocomplete from "../components/search/CharacterSearchAutocomplete.vue";
+import CharacterRealmSearch from "../components/search/CharacterRealmSearch.vue";
 import HeroProductPreview from "../components/landing/HeroProductPreview.vue";
 import FeatureGrid from "../components/landing/FeatureGrid.vue";
 import MethodologySummary from "../components/landing/MethodologySummary.vue";
@@ -16,7 +16,7 @@ import MethodologySummary from "../components/landing/MethodologySummary.vue";
           public player data.
         </p>
 
-        <CharacterSearchAutocomplete />
+        <CharacterRealmSearch />
 
         <p class="trust-line">
           Transparent model. Public data. Versioned scoring.

@@ -448,10 +448,32 @@ export const scoreModelConfigSchema = {
 export const realmSchema = {
   type: "object",
   properties: {
+    name: { type: "string" },
+    slug: { type: "string" },
+    region: { type: "string" },
+    locale: { type: ["string", "null"] },
+    connectedRealmId: { type: ["number", "null"] },
+    displayLabel: { type: "string" },
+    timezone: { type: ["string", "null"] },
+    category: { type: ["string", "null"] },
+    // Backward-compatible fields still returned by some callers
     id: { type: "string" },
     regionCode: { type: "string" },
-    slug: { type: "string" },
-    name: { type: "string" },
   },
+  additionalProperties: true,
+} as const;
+
+export const characterResolveResponseSchema = {
+  type: "object",
+  properties: {
+    status: { type: "string" },
+    characterId: { type: "string" },
+    refreshId: { type: "string" },
+    profilePath: { type: "string" },
+    retryAfterMs: { type: "number" },
+    message: { type: "string" },
+    retryable: { type: "boolean" },
+  },
+  required: ["status"],
   additionalProperties: true,
 } as const;
