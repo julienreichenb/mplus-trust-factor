@@ -8,27 +8,18 @@ import { resolveMplusZoneConfig, type MplusZoneConfig } from "../discovery/mplus
 import { OPERATIONS } from "../operations/queries.js";
 import type { WclRateLimitSnapshot } from "../types.js";
 import {
-  PROBE_RECENT_REPORTS_PAGE_LIMIT,
   buildZoneEncounters,
   collectUnavailableEncounters,
-  fightToEligibleRun,
-  isEligibleMplusFight,
-  isPublicAccessibleReport,
-  mapRawFightRow,
+  normalizeZoneRankingsSummary,
   parseJsonScalar,
-  selectHighestRatedRunPerEncounter,
-  zoneEncounterIdSet,
+  resolveCurrentPartition,
 } from "./performance-probe-logic.js";
 import type {
-  EligibleLoggedRun,
   GraphQlErrorRecord,
   PerformanceProbeDataset,
   PerformanceProbeIdentity,
   ProbeCharacterRecord,
   ProbeRateLimitRecord,
-  ProbeReportFightsRecord,
-  ProbeReportPage,
-  ProbeRecentReportRow,
   ProbeZoneRecord,
 } from "./types.js";
 
@@ -37,6 +28,8 @@ export interface PerformanceProbeOptions {
   outputDir: string;
   client: WclGraphQlClient;
   zoneConfig?: MplusZoneConfig;
+  /** Override partition; otherwise resolved from worldData.partitions / WCL default. */
+  partition?: number | null;
   now?: Date;
 }
 
@@ -58,7 +51,16 @@ function collectGraphQlErrors(
 }
 
 function rateLimitFromExtensions(
-  extensions: { rateLimit?: { cost?: number; limitPerHour?: number; pointsSpentThisHour?: number; pointsResetIn?: number } } | undefined,
+  extensions:
+    | {
+        rateLimit?: {
+          cost?: number;
+          limitPerHour?: number;
+          pointsSpentThisHour?: number;
+          pointsResetIn?: number;
+        };
+      }
+    | undefined,
 ): WclRateLimitSnapshot | null {
   const rl = extensions?.rateLimit;
   if (!rl || typeof rl.limitPerHour !== "number" || typeof rl.pointsSpentThisHour !== "number") {
@@ -110,6 +112,7 @@ async function resolveCharacterAndZone(
   client: WclGraphQlClient,
   identity: PerformanceProbeIdentity,
   zoneConfig: MplusZoneConfig,
+  partitionOverride: number | null | undefined,
   graphqlErrors: GraphQlErrorRecord[],
   perOperation: ProbeRateLimitRecord[],
 ): Promise<{ character: ProbeCharacterRecord | null; zone: ProbeZoneRecord }> {
@@ -171,6 +174,7 @@ async function resolveCharacterAndZone(
         name: string;
         frozen?: boolean | null;
         encounters?: Array<{ id: number; name?: string | null }> | null;
+        partitions?: Array<{ id: number; name?: string | null }> | null;
       } | null;
     };
   }>({
@@ -189,6 +193,11 @@ async function resolveCharacterAndZone(
 
   const worldZone = zoneResult.response.data?.worldData?.zone ?? null;
   const encounters = buildZoneEncounters(worldZone?.encounters ?? null);
+  const partitions = (worldZone?.partitions ?? []).map((p) => ({
+    id: p.id,
+    name: p.name ?? null,
+  }));
+  const partitionUsed = resolveCurrentPartition(partitions, partitionOverride);
 
   return {
     character,
@@ -200,13 +209,16 @@ async function resolveCharacterAndZone(
             name: worldZone.name,
             frozen: worldZone.frozen ?? null,
             encounters,
+            partitions,
           }
         : {
             id: zoneConfig.zoneId,
             name: `zone-${zoneConfig.zoneId}`,
             frozen: null,
             encounters,
+            partitions,
           },
+      partitionUsed,
     },
   };
 }
@@ -215,9 +227,20 @@ async function fetchZoneRankingsRaw(
   client: WclGraphQlClient,
   identity: PerformanceProbeIdentity,
   zoneId: number,
+  partition: number | null,
   graphqlErrors: GraphQlErrorRecord[],
   perOperation: ProbeRateLimitRecord[],
 ): Promise<unknown> {
+  const variables: Record<string, unknown> = {
+    name: identity.name,
+    serverSlug: identity.realmSlug,
+    serverRegion: mapRegionToWcl(identity.region),
+    zoneID: zoneId,
+  };
+  if (partition != null) {
+    variables.partition = partition;
+  }
+
   const result = await client.requestPermissive<{
     characterData?: {
       character?: {
@@ -225,23 +248,18 @@ async function fetchZoneRankingsRaw(
       } | null;
     };
   }>({
-    operationName: OPERATIONS.CharacterZoneRankings.operationName,
-    query: OPERATIONS.CharacterZoneRankings.query,
-    variables: {
-      name: identity.name,
-      serverSlug: identity.realmSlug,
-      serverRegion: mapRegionToWcl(identity.region),
-      zoneID: zoneId,
-    },
+    operationName: OPERATIONS.CharacterZoneRankingsPerformanceSummary.operationName,
+    query: OPERATIONS.CharacterZoneRankingsPerformanceSummary.query,
+    variables,
     region: identity.region,
   });
   collectGraphQlErrors(
     graphqlErrors,
-    OPERATIONS.CharacterZoneRankings.operationName,
+    OPERATIONS.CharacterZoneRankingsPerformanceSummary.operationName,
     result.response.errors,
   );
   perOperation.push({
-    operationName: OPERATIONS.CharacterZoneRankings.operationName,
+    operationName: OPERATIONS.CharacterZoneRankingsPerformanceSummary.operationName,
     costUnits: result.costUnits,
     durationMs: result.durationMs,
     snapshot: rateLimitFromExtensions(result.response.extensions),
@@ -250,171 +268,10 @@ async function fetchZoneRankingsRaw(
   return parseJsonScalar(raw);
 }
 
-async function paginateRecentReports(
-  client: WclGraphQlClient,
-  identity: PerformanceProbeIdentity,
-  graphqlErrors: GraphQlErrorRecord[],
-  perOperation: ProbeRateLimitRecord[],
-): Promise<{ pages: ProbeReportPage[]; publicReports: ProbeRecentReportRow[] }> {
-  const pages: ProbeReportPage[] = [];
-  const publicReports: ProbeRecentReportRow[] = [];
-  const wclRegion = mapRegionToWcl(identity.region);
-  let page = 1;
-  let hasMore = true;
-
-  while (hasMore) {
-    const result = await client.requestPermissive<{
-      characterData?: {
-        character?: {
-          recentReports?: {
-            data?: Array<{
-              code: string;
-              title?: string | null;
-              startTime: number;
-              endTime?: number | null;
-              visibility?: string | null;
-              zone?: { id: number; name?: string | null } | null;
-            }>;
-            total?: number | null;
-            has_more_pages?: boolean | null;
-          } | null;
-        } | null;
-      };
-    }>({
-      operationName: OPERATIONS.CharacterRecentReports.operationName,
-      query: OPERATIONS.CharacterRecentReports.query,
-      variables: {
-        name: identity.name,
-        serverSlug: identity.realmSlug,
-        serverRegion: wclRegion,
-        limit: PROBE_RECENT_REPORTS_PAGE_LIMIT,
-        page,
-      },
-      region: identity.region,
-    });
-
-    const messages = collectGraphQlErrors(
-      graphqlErrors,
-      `${OPERATIONS.CharacterRecentReports.operationName}:page${page}`,
-      result.response.errors,
-    );
-    perOperation.push({
-      operationName: `${OPERATIONS.CharacterRecentReports.operationName}:page${page}`,
-      costUnits: result.costUnits,
-      durationMs: result.durationMs,
-      snapshot: rateLimitFromExtensions(result.response.extensions),
-    });
-
-    const recent = result.response.data?.characterData?.character?.recentReports;
-    const rows = (recent?.data ?? []).map((row) => ({
-      code: row.code,
-      title: row.title ?? null,
-      startTime: row.startTime,
-      endTime: row.endTime ?? null,
-      visibility: row.visibility ?? null,
-      zone: row.zone ? { id: row.zone.id, name: row.zone.name ?? null } : null,
-    }));
-
-    pages.push({
-      page,
-      limit: PROBE_RECENT_REPORTS_PAGE_LIMIT,
-      total: recent?.total ?? null,
-      hasMorePages: recent?.has_more_pages ?? null,
-      reports: rows,
-      graphqlErrors: messages,
-      costUnits: result.costUnits,
-      durationMs: result.durationMs,
-    });
-
-    for (const row of rows) {
-      if (isPublicAccessibleReport(row.visibility)) {
-        publicReports.push(row);
-      }
-    }
-
-    hasMore = recent?.has_more_pages === true;
-    page += 1;
-    if (!recent || rows.length === 0) break;
-  }
-
-  return { pages, publicReports };
-}
-
-async function fetchReportFights(
-  client: WclGraphQlClient,
-  identity: PerformanceProbeIdentity,
-  reportCode: string,
-  graphqlErrors: GraphQlErrorRecord[],
-  perOperation: ProbeRateLimitRecord[],
-): Promise<ProbeReportFightsRecord> {
-  try {
-    const result = await client.requestPermissive<{
-      reportData?: {
-        report?: {
-          code: string;
-          title?: string | null;
-          startTime: number;
-          endTime?: number | null;
-          visibility?: string | null;
-          zone?: { id: number; name?: string | null } | null;
-          fights?: Array<Record<string, unknown>>;
-        } | null;
-      };
-    }>({
-      operationName: OPERATIONS.ReportFightsForPerformanceProbe.operationName,
-      query: OPERATIONS.ReportFightsForPerformanceProbe.query,
-      variables: { code: reportCode },
-      region: identity.region,
-    });
-
-    const messages = collectGraphQlErrors(
-      graphqlErrors,
-      `${OPERATIONS.ReportFightsForPerformanceProbe.operationName}:${reportCode}`,
-      result.response.errors,
-    );
-    perOperation.push({
-      operationName: `${OPERATIONS.ReportFightsForPerformanceProbe.operationName}:${reportCode}`,
-      costUnits: result.costUnits,
-      durationMs: result.durationMs,
-      snapshot: rateLimitFromExtensions(result.response.extensions),
-    });
-
-    const report = result.response.data?.reportData?.report ?? null;
-    const reportStartTimeMs = report?.startTime ?? 0;
-    const fights = (report?.fights ?? []).map((fight) => mapRawFightRow(fight, reportStartTimeMs));
-
-    return {
-      reportCode,
-      report: report
-        ? {
-            code: report.code,
-            title: report.title ?? null,
-            startTime: report.startTime,
-            endTime: report.endTime ?? null,
-            visibility: report.visibility ?? null,
-            zone: report.zone ? { id: report.zone.id, name: report.zone.name ?? null } : null,
-          }
-        : null,
-      fights,
-      graphqlErrors: messages,
-      costUnits: result.costUnits,
-      durationMs: result.durationMs,
-      fetchError: null,
-    };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return {
-      reportCode,
-      report: null,
-      fights: [],
-      graphqlErrors: [],
-      costUnits: null,
-      durationMs: 0,
-      fetchError: message,
-    };
-  }
-}
-
+/**
+ * Read-only Performance probe: Character.zoneRankings summary only.
+ * Does not call recentReports, report.fights, masterData, or events.
+ */
 export async function runPerformanceProbe(
   options: PerformanceProbeOptions,
 ): Promise<PerformanceProbeResult> {
@@ -440,6 +297,7 @@ export async function runPerformanceProbe(
     options.client,
     options.identity,
     zoneConfig,
+    options.partition,
     graphqlErrors,
     perOperation,
   );
@@ -469,94 +327,31 @@ export async function runPerformanceProbe(
     options.client,
     options.identity,
     zoneConfig.zoneId,
+    zone.partitionUsed,
     graphqlErrors,
     perOperation,
+  );
+
+  const normalized = normalizeZoneRankingsSummary(rawZoneRankings);
+  const unavailableEncounters = collectUnavailableEncounters(
+    zone.worldData?.encounters ?? [],
+    normalized.dungeons,
   );
 
   const zoneRankingsPayload = {
     probedAt,
     identity: options.identity,
     zoneId: zoneConfig.zoneId,
+    partition: zone.partitionUsed,
     rawZoneRankings,
+    summary: normalized,
     graphqlErrors: graphqlErrors.filter(
-      (e) => e.operationName === OPERATIONS.CharacterZoneRankings.operationName,
+      (e) => e.operationName === OPERATIONS.CharacterZoneRankingsPerformanceSummary.operationName,
     ),
     rateLimit: perOperation.filter(
-      (r) => r.operationName === OPERATIONS.CharacterZoneRankings.operationName,
+      (r) => r.operationName === OPERATIONS.CharacterZoneRankingsPerformanceSummary.operationName,
     ),
   };
-
-  const { pages, publicReports } = await paginateRecentReports(
-    options.client,
-    options.identity,
-    graphqlErrors,
-    perOperation,
-  );
-
-  const reportPagesPayload = {
-    probedAt,
-    identity: options.identity,
-    paginationDiagnostics: {
-      pageLimit: PROBE_RECENT_REPORTS_PAGE_LIMIT,
-      pagesFetched: pages.length,
-      totalReportsListed: pages[0]?.total ?? null,
-      publicReportsKept: publicReports.length,
-    },
-    pages,
-    graphqlErrors: graphqlErrors.filter((e) =>
-      e.operationName.startsWith(OPERATIONS.CharacterRecentReports.operationName),
-    ),
-    rateLimit: perOperation.filter((r) =>
-      r.operationName.startsWith(OPERATIONS.CharacterRecentReports.operationName),
-    ),
-  };
-
-  const zoneEncounterIds = zoneEncounterIdSet(zone.worldData?.encounters ?? []);
-  const reportFightRecords: ProbeReportFightsRecord[] = [];
-  const eligibleLoggedRuns: EligibleLoggedRun[] = [];
-  let totalFightsSeen = 0;
-
-  for (const report of publicReports) {
-    const record = await fetchReportFights(
-      options.client,
-      options.identity,
-      report.code,
-      graphqlErrors,
-      perOperation,
-    );
-    reportFightRecords.push(record);
-    if (!record.report) continue;
-
-    totalFightsSeen += record.fights.length;
-    for (const fight of record.fights) {
-      if (!isEligibleMplusFight(fight, zoneEncounterIds)) continue;
-      const eligible = fightToEligibleRun(
-        fight,
-        record.reportCode,
-        record.report.startTime,
-        zone.worldData?.encounters ?? [],
-      );
-      if (eligible) eligibleLoggedRuns.push(eligible);
-    }
-  }
-
-  const reportFightsPayload = {
-    probedAt,
-    identity: options.identity,
-    reports: reportFightRecords,
-    graphqlErrors: graphqlErrors.filter((e) =>
-      e.operationName.startsWith(OPERATIONS.ReportFightsForPerformanceProbe.operationName),
-    ),
-    rateLimit: perOperation.filter((r) =>
-      r.operationName.startsWith(OPERATIONS.ReportFightsForPerformanceProbe.operationName),
-    ),
-  };
-
-  const selectedHighestRatedRuns = selectHighestRatedRunPerEncounter(eligibleLoggedRuns);
-  const unavailableEncounters = collectUnavailableEncounters(
-    zone.worldData?.encounters ?? [],
-    selectedHighestRatedRuns,
-  );
 
   const finalRateLimit = await fetchRateLimitData(
     options.client,
@@ -566,30 +361,34 @@ export async function runPerformanceProbe(
   );
 
   const dataset: PerformanceProbeDataset = {
-    probeVersion: "1",
+    probeVersion: "2",
     probedAt,
     identity: options.identity,
     character,
     zone,
-    reports: {
-      totalFromApi: pages[0]?.total ?? null,
-      publicAccessibleCount: publicReports.length,
-      pagesFetched: pages.length,
-      rows: publicReports,
+    summary: {
+      global: normalized.global,
+      dungeons: normalized.dungeons,
+      unavailableEncounters,
     },
-    eligibleLoggedRuns,
-    selectedHighestRatedRuns,
-    unavailableEncounters,
     rawZoneRankings,
-    paginationDiagnostics: {
-      pageLimit: PROBE_RECENT_REPORTS_PAGE_LIMIT,
-      pagesFetched: pages.length,
-      totalReportsListed: pages[0]?.total ?? null,
-      publicReportsKept: publicReports.length,
-      reportsWithFightsFetched: reportFightRecords.length,
-      reportsWithFetchErrors: reportFightRecords.filter((r) => r.fetchError != null).length,
-      totalFightsSeen,
-      eligibleFightCount: eligibleLoggedRuns.length,
+    diagnostics: {
+      source: "character.zoneRankings",
+      query: {
+        zoneID: zoneConfig.zoneId,
+        metric: "playerscore",
+        byBracket: true,
+        partition: zone.partitionUsed,
+        compare: null,
+        specName: null,
+      },
+      dungeonRowCount: normalized.dungeons.length,
+      unavailableEncounterCount: unavailableEncounters.length,
+      note:
+        "Performance uses the WCL Mythic+ character summary (zoneRankings). " +
+        "Logged run counts affect confidence only. " +
+        "keystoneLevel and completionTimeMs are explanatory; ratingPoints already incorporates them. " +
+        "No recentReports / report.fights / masterData / events.",
     },
     graphqlErrors,
     rateLimit: {
@@ -603,16 +402,12 @@ export async function runPerformanceProbe(
   const outputFiles = {
     characterZone: join(options.outputDir, "01-character-zone.json"),
     zoneRankings: join(options.outputDir, "02-zone-rankings.json"),
-    reportPages: join(options.outputDir, "03-report-pages.json"),
-    reportFights: join(options.outputDir, "04-report-fights.json"),
     performanceDataset: join(options.outputDir, "05-performance-dataset.json"),
   };
 
   await Promise.all([
     writeJson(outputFiles.characterZone, characterZonePayload),
     writeJson(outputFiles.zoneRankings, zoneRankingsPayload),
-    writeJson(outputFiles.reportPages, reportPagesPayload),
-    writeJson(outputFiles.reportFights, reportFightsPayload),
     writeJson(outputFiles.performanceDataset, dataset),
   ]);
 
@@ -626,5 +421,58 @@ export function toCharacterIdentityInput(
     region: identity.region,
     realmSlug: identity.realmSlug,
     name: identity.name,
+  };
+}
+
+/** Pure offline normalize helper for fixtures / tests (no network). */
+export function buildPerformanceDatasetFromRaw(options: {
+  identity: PerformanceProbeIdentity;
+  character: ProbeCharacterRecord | null;
+  zone: ProbeZoneRecord;
+  rawZoneRankings: unknown;
+  probedAt?: string;
+}): PerformanceProbeDataset {
+  const probedAt = options.probedAt ?? new Date().toISOString();
+  const normalized = normalizeZoneRankingsSummary(options.rawZoneRankings);
+  const unavailableEncounters = collectUnavailableEncounters(
+    options.zone.worldData?.encounters ?? [],
+    normalized.dungeons,
+  );
+  return {
+    probeVersion: "2",
+    probedAt,
+    identity: options.identity,
+    character: options.character,
+    zone: options.zone,
+    summary: {
+      global: normalized.global,
+      dungeons: normalized.dungeons,
+      unavailableEncounters,
+    },
+    rawZoneRankings: options.rawZoneRankings,
+    diagnostics: {
+      source: "character.zoneRankings",
+      query: {
+        zoneID: options.zone.config.zoneId,
+        metric: "playerscore",
+        byBracket: true,
+        partition: options.zone.partitionUsed,
+        compare: null,
+        specName: null,
+      },
+      dungeonRowCount: normalized.dungeons.length,
+      unavailableEncounterCount: unavailableEncounters.length,
+      note:
+        "Performance uses the WCL Mythic+ character summary (zoneRankings). " +
+        "Logged run counts affect confidence only. " +
+        "keystoneLevel and completionTimeMs are explanatory; ratingPoints already incorporates them. " +
+        "No recentReports / report.fights / masterData / events.",
+    },
+    graphqlErrors: [],
+    rateLimit: {
+      initial: null,
+      final: null,
+      perOperation: [],
+    },
   };
 }

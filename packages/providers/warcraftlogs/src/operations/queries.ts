@@ -82,36 +82,34 @@ export const OPERATIONS = {
       name
       frozen
       encounters { id name }
+      partitions { id name }
     }
   }
 }`,
   },
 
-  ReportFightsForPerformanceProbe: {
-    operationName: "ReportFightsForPerformanceProbe",
-    query: `query ReportFightsForPerformanceProbe($code: String!) {
-  reportData {
-    report(code: $code) {
-      code
-      title
-      startTime
-      endTime
-      visibility
-      zone { id name }
-      fights(translate: false) {
-        id
-        encounterID
-        name
-        difficulty
-        kill
-        inProgress
-        startTime
-        endTime
-        keystoneLevel
-        keystoneTime
-        rating
-        friendlyPlayers
-      }
+  /**
+   * Character M+ summary page dataset (Performance probe).
+   * Omits compare:Parses so rows include Best%/Median%/AllStars — same shape as the
+   * Warcraft Logs Mythic+ character page. No report/fight/event fan-out.
+   */
+  CharacterZoneRankingsPerformanceSummary: {
+    operationName: "CharacterZoneRankingsPerformanceSummary",
+    query: `query CharacterZoneRankingsPerformanceSummary(
+  $name: String!
+  $serverSlug: String!
+  $serverRegion: String!
+  $zoneID: Int!
+  $partition: Int
+) {
+  characterData {
+    character(name: $name, serverSlug: $serverSlug, serverRegion: $serverRegion) {
+      zoneRankings(
+        zoneID: $zoneID
+        metric: playerscore
+        byBracket: true
+        partition: $partition
+      )
     }
   }
 }`,

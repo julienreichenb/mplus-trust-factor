@@ -36,6 +36,11 @@ export interface ProbeZoneEncounter {
   dungeonSlug: string | null;
 }
 
+export interface ProbeZonePartition {
+  id: number;
+  name: string | null;
+}
+
 export interface ProbeZoneRecord {
   config: MplusZoneConfig;
   worldData: {
@@ -43,113 +48,98 @@ export interface ProbeZoneRecord {
     name: string;
     frozen: boolean | null;
     encounters: ProbeZoneEncounter[];
+    partitions: ProbeZonePartition[];
   } | null;
+  /** Partition passed to zoneRankings (null = WCL current default). */
+  partitionUsed: number | null;
 }
 
-export interface ProbeRecentReportRow {
-  code: string;
-  title: string | null;
-  startTime: number;
-  endTime: number | null;
-  visibility: string | null;
-  zone: { id: number; name: string | null } | null;
-}
-
-export interface ProbeReportPage {
-  page: number;
-  limit: number;
+/** Spec-level All Stars row from zoneRankings.allStars. */
+export interface PerformanceSpecRank {
+  spec: string | null;
+  points: number | null;
+  possiblePoints: number | null;
+  rank: number | null;
+  regionRank: number | null;
+  serverRank: number | null;
+  rankPercent: number | null;
   total: number | null;
-  hasMorePages: boolean | null;
-  reports: ProbeRecentReportRow[];
-  graphqlErrors: string[];
-  costUnits: number | null;
-  durationMs: number;
+  partition: number | null;
 }
 
-export interface ProbeFightRow {
-  id: number;
-  encounterID: number | null;
-  name: string | null;
+/**
+ * Global Mythic+ character summary — mirrors the WCL character M+ header.
+ * Logged-run counts affect confidence only; they are not score inputs.
+ */
+export interface PerformanceGlobalSummary {
+  totalMythicPlusScore: number | null;
+  bestPerformanceAverage: number | null;
+  medianPerformanceAverage: number | null;
+  totalLoggedRuns: number;
+  partition: number | null;
+  metric: string | null;
   difficulty: number | null;
-  kill: boolean | null;
-  inProgress: boolean | null;
-  startTime: number;
-  endTime: number;
-  keystoneLevel: number | null;
-  keystoneTime: number | null;
-  rating: number | null;
-  startTimeAbsolute: string | null;
-  endTimeAbsolute: string | null;
+  zoneId: number | null;
+  specRanks: PerformanceSpecRank[];
 }
 
-export interface ProbeReportFightsRecord {
-  reportCode: string;
-  report: {
-    code: string;
-    title: string | null;
-    startTime: number;
-    endTime: number | null;
-    visibility: string | null;
-    zone: { id: number; name: string | null } | null;
-  } | null;
-  fights: ProbeFightRow[];
-  graphqlErrors: string[];
-  costUnits: number | null;
-  durationMs: number;
-  fetchError: string | null;
-}
-
-export interface EligibleLoggedRun {
-  reportCode: string;
-  fightID: number;
-  encounterID: number;
+/**
+ * Per-dungeon row from zoneRankings.rankings (character summary page).
+ * keystoneLevel / completionTimeMs are explanatory; ratingPoints already includes them.
+ */
+export interface PerformanceDungeonSummary {
+  encounterId: number | null;
   encounterName: string | null;
   dungeonSlug: string | null;
-  rating: number;
-  keystoneLevel: number;
-  keystoneTime: number | null;
-  kill: true;
-  startTimeMs: number;
-  endTimeMs: number;
-  startTimeAbsolute: string;
-  endTimeAbsolute: string;
-  reportStartTimeMs: number;
-}
-
-export interface SelectedHighestRatedRun extends EligibleLoggedRun {
-  selectionReason: "highest_rating_per_encounter";
+  keystoneLevel: number | null;
+  completionTimeMs: number | null;
+  loggedRunCount: number;
+  ratingPoints: number | null;
+  scoreRank: number | null;
+  regionRank: number | null;
+  serverRank: number | null;
+  specialization: string | null;
+  bestDps: number | null;
+  bestPerformancePercentile: number | null;
+  medianPerformancePercentile: number | null;
+  lockedIn: boolean | null;
 }
 
 export interface PerformanceProbeDataset {
-  probeVersion: "1";
+  probeVersion: "2";
   probedAt: string;
   identity: PerformanceProbeIdentity;
   character: ProbeCharacterRecord | null;
   zone: ProbeZoneRecord;
-  reports: {
-    totalFromApi: number | null;
-    publicAccessibleCount: number;
-    pagesFetched: number;
-    rows: ProbeRecentReportRow[];
+  /** Character-page summary extracted from zoneRankings. */
+  summary: {
+    global: PerformanceGlobalSummary;
+    dungeons: PerformanceDungeonSummary[];
+    unavailableEncounters: Array<{
+      encounterID: number;
+      encounterName: string | null;
+      dungeonSlug: string | null;
+      reason: "no_zone_rankings_row";
+    }>;
   };
-  eligibleLoggedRuns: EligibleLoggedRun[];
-  selectedHighestRatedRuns: SelectedHighestRatedRun[];
-  unavailableEncounters: Array<{
-    encounterID: number;
-    encounterName: string | null;
-    dungeonSlug: string | null;
-    reason: "no_eligible_logged_run";
-  }>;
+  /**
+   * Complete raw zoneRankings payload (JSON scalar parsed when needed).
+   * No assumption about internal structure beyond permissive extraction.
+   */
   rawZoneRankings: unknown;
-  paginationDiagnostics: {
-    pageLimit: number;
-    pagesFetched: number;
-    totalReportsListed: number | null;
-    publicReportsKept: number;
-    reportsWithFightsFetched: number;
-    reportsWithFetchErrors: number;
-    totalFightsSeen: number;
-    eligibleFightCount: number;
+  diagnostics: {
+    source: "character.zoneRankings";
+    query: {
+      zoneID: number;
+      metric: "playerscore";
+      byBracket: true;
+      partition: number | null;
+      compare: null;
+      specName: null;
+    };
+    dungeonRowCount: number;
+    unavailableEncounterCount: number;
+    note: string;
   };
   graphqlErrors: GraphQlErrorRecord[];
   rateLimit: {

@@ -5,6 +5,7 @@
  *   pnpm wcl:probe:performance -- --region EU --realm archimonde --name Wallidrixe
  *
  * Requires ALLOW_LIVE_PROVIDER_CALLS=true. Never invoked by CI.
+ * Uses Character.zoneRankings only (no recentReports / fights / events).
  */
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
@@ -60,6 +61,14 @@ function parseArgs(argv: string[]): PerformanceProbeIdentity & { outputDir: stri
   };
 }
 
+function formatDuration(ms: number | null): string | null {
+  if (ms == null) return null;
+  const totalSec = Math.floor(ms / 1000);
+  const m = Math.floor(totalSec / 60);
+  const s = totalSec % 60;
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
+
 function printSummary(
   dataset: Awaited<ReturnType<typeof runPerformanceProbe>>["dataset"],
   outputFiles: Awaited<ReturnType<typeof runPerformanceProbe>>["outputFiles"],
@@ -79,20 +88,24 @@ function printSummary(
         zone: {
           zoneId: dataset.zone.config.zoneId,
           name: dataset.zone.worldData?.name ?? null,
+          partitionUsed: dataset.zone.partitionUsed,
           encounterCount: dataset.zone.worldData?.encounters.length ?? 0,
         },
-        reports: dataset.paginationDiagnostics,
-        eligibleLoggedRuns: dataset.eligibleLoggedRuns.length,
-        selectedHighestRatedRuns: dataset.selectedHighestRatedRuns.map((run) => ({
-          encounterID: run.encounterID,
-          dungeonSlug: run.dungeonSlug,
-          rating: run.rating,
-          keystoneLevel: run.keystoneLevel,
-          keystoneTime: run.keystoneTime,
-          reportCode: run.reportCode,
-          fightID: run.fightID,
+        global: dataset.summary.global,
+        dungeons: dataset.summary.dungeons.map((d) => ({
+          encounterId: d.encounterId,
+          encounterName: d.encounterName,
+          keystoneLevel: d.keystoneLevel,
+          completionTime: formatDuration(d.completionTimeMs),
+          loggedRunCount: d.loggedRunCount,
+          ratingPoints: d.ratingPoints,
+          scoreRank: d.scoreRank,
+          specialization: d.specialization,
+          bestPerformancePercentile: d.bestPerformancePercentile,
+          medianPerformancePercentile: d.medianPerformancePercentile,
         })),
-        unavailableEncounters: dataset.unavailableEncounters,
+        unavailableEncounters: dataset.summary.unavailableEncounters,
+        diagnostics: dataset.diagnostics,
         graphqlErrorCount: dataset.graphqlErrors.length,
         rateLimit: {
           initialUtilization:
@@ -160,8 +173,6 @@ async function main(): Promise<void> {
     processEnv: process.env,
   });
 
-  const client = provider.getGraphQlClient();
-
   const { dataset, outputFiles } = await runPerformanceProbe({
     identity: {
       region: args.region,
@@ -169,7 +180,7 @@ async function main(): Promise<void> {
       name: args.name,
     },
     outputDir: args.outputDir,
-    client,
+    client: provider.getGraphQlClient(),
     zoneConfig: provider.getZoneConfig(),
   });
 
