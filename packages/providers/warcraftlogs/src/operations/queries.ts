@@ -89,25 +89,49 @@ export const OPERATIONS = {
   },
 
   /**
-   * Character M+ summary — dual Performance probe queries.
-   * Omit compare:Parses so rows include Best%/Median%/AllStars (character page shape).
-   * metric is parameterized: playerscore (score) vs dps (execution).
+   * Character M+ score summary (Performance probe).
+   * Literal metric: playerscore — Character.zoneRankings expects CharacterPageRankingMetricType.
    */
-  CharacterZoneRankingsPerformanceSummary: {
-    operationName: "CharacterZoneRankingsPerformanceSummary",
-    query: `query CharacterZoneRankingsPerformanceSummary(
+  CharacterZoneRankingsPerformanceScore: {
+    operationName: "CharacterZoneRankingsPerformanceScore",
+    query: `query CharacterZoneRankingsPerformanceScore(
   $name: String!
   $serverSlug: String!
   $serverRegion: String!
   $zoneID: Int!
   $partition: Int
-  $metric: CharacterRankingMetricType!
 ) {
   characterData {
     character(name: $name, serverSlug: $serverSlug, serverRegion: $serverRegion) {
       zoneRankings(
         zoneID: $zoneID
-        metric: $metric
+        metric: playerscore
+        byBracket: true
+        partition: $partition
+      )
+    }
+  }
+}`,
+  },
+
+  /**
+   * Character M+ execution/DPS summary (Performance probe).
+   * Literal metric: dps — Character.zoneRankings expects CharacterPageRankingMetricType.
+   */
+  CharacterZoneRankingsPerformanceExecution: {
+    operationName: "CharacterZoneRankingsPerformanceExecution",
+    query: `query CharacterZoneRankingsPerformanceExecution(
+  $name: String!
+  $serverSlug: String!
+  $serverRegion: String!
+  $zoneID: Int!
+  $partition: Int
+) {
+  characterData {
+    character(name: $name, serverSlug: $serverSlug, serverRegion: $serverRegion) {
+      zoneRankings(
+        zoneID: $zoneID
+        metric: dps
         byBracket: true
         partition: $partition
       )

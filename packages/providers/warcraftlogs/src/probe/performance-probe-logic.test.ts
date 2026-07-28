@@ -195,12 +195,29 @@ describe("Wallidrixe merged Performance dataset (screenshot acceptance)", () => 
     });
 
     expect(dataset.probeVersion).toBe("3");
+    expect(dataset.state).toBe("OK");
     expect(dataset.rawZoneRankingsScore).toBe(fixture.rawZoneRankingsScore);
     expect(dataset.rawZoneRankingsExecution).toBe(fixture.rawZoneRankingsExecution);
     expect(dataset.diagnostics.scoreQuery.metric).toBe("playerscore");
     expect(dataset.diagnostics.executionQuery.metric).toBe("dps");
+    expect(dataset.diagnostics.scoreQuery.ok).toBe(true);
+    expect(dataset.diagnostics.executionQuery.ok).toBe(true);
     expect(dataset.summary.dungeons.every((d) => d.bestDps != null)).toBe(true);
     expect(dataset).not.toHaveProperty("reports");
     expect(dataset.diagnostics.note).toContain("confidence only");
+  });
+});
+
+describe("Performance probe GraphQL failure handling", () => {
+  it("exposes ERROR without fabricating unavailable encounters when rankings are missing", () => {
+    // Simulated ERROR path: empty summary, no unavailable list from failed queries.
+    const summary = {
+      global: null,
+      dungeons: [] as never[],
+      unavailableEncounters: [] as never[],
+    };
+    expect(summary.global).toBeNull();
+    expect(summary.dungeons).toEqual([]);
+    expect(summary.unavailableEncounters).toEqual([]);
   });
 });

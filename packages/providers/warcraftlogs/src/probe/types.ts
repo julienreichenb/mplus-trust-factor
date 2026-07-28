@@ -128,10 +128,12 @@ export interface PerformanceProbeDataset {
   probeVersion: "3";
   probedAt: string;
   identity: PerformanceProbeIdentity;
+  /** OK when both zoneRankings queries succeed; ERROR when either fails. */
+  state: "OK" | "ERROR";
   character: ProbeCharacterRecord | null;
   zone: ProbeZoneRecord;
   summary: {
-    global: PerformanceGlobalSummary;
+    global: PerformanceGlobalSummary | null;
     dungeons: PerformanceDungeonSummary[];
     unavailableEncounters: Array<{
       encounterID: number;
@@ -144,17 +146,20 @@ export interface PerformanceProbeDataset {
   rawZoneRankingsExecution: unknown;
   diagnostics: {
     source: "character.zoneRankings";
+    state: "OK" | "ERROR";
     scoreQuery: {
       zoneID: number;
       metric: "playerscore";
       byBracket: true;
       partition: number | null;
+      ok: boolean;
     };
     executionQuery: {
       zoneID: number;
       metric: "dps";
       byBracket: true;
       partition: number | null;
+      ok: boolean;
     };
     dungeonRowCount: number;
     unavailableEncounterCount: number;

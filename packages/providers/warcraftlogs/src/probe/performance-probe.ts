@@ -244,14 +244,17 @@ async function fetchZoneRankingsByMetric(
   metric: "playerscore" | "dps",
   graphqlErrors: GraphQlErrorRecord[],
   perOperation: ProbeRateLimitRecord[],
-): Promise<unknown> {
-  const operationLabel = `${OPERATIONS.CharacterZoneRankingsPerformanceSummary.operationName}:${metric}`;
+): Promise<{ raw: unknown; ok: boolean; messages: string[] }> {
+  const operation =
+    metric === "playerscore"
+      ? OPERATIONS.CharacterZoneRankingsPerformanceScore
+      : OPERATIONS.CharacterZoneRankingsPerformanceExecution;
+  const operationLabel = `${operation.operationName}`;
   const variables: Record<string, unknown> = {
     name: identity.name,
     serverSlug: identity.realmSlug,
     serverRegion: mapRegionToWcl(identity.region),
     zoneID: zoneId,
-    metric,
   };
   if (partition != null) {
     variables.partition = partition;
@@ -264,20 +267,41 @@ async function fetchZoneRankingsByMetric(
       } | null;
     };
   }>({
-    operationName: OPERATIONS.CharacterZoneRankingsPerformanceSummary.operationName,
-    query: OPERATIONS.CharacterZoneRankingsPerformanceSummary.query,
+    operationName: operation.operationName,
+    query: operation.query,
     variables,
     region: identity.region,
   });
-  collectGraphQlErrors(graphqlErrors, operationLabel, result.response.errors);
+  const messages = collectGraphQlErrors(graphqlErrors, operationLabel, result.response.errors);
   perOperation.push({
     operationName: operationLabel,
     costUnits: result.costUnits,
     durationMs: result.durationMs,
     snapshot: rateLimitFromExtensions(result.response.extensions),
   });
-  return parseJsonScalar(result.response.data?.characterData?.character?.zoneRankings ?? null);
+
+  if (messages.length > 0) {
+    return { raw: null, ok: false, messages };
+  }
+
+  const raw = parseJsonScalar(
+    result.response.data?.characterData?.character?.zoneRankings ?? null,
+  );
+  if (raw == null) {
+    const missing = [`${operationLabel}: zoneRankings payload was null`];
+    graphqlErrors.push({ operationName: operationLabel, messages: missing });
+    return { raw: null, ok: false, messages: missing };
+  }
+
+  return { raw, ok: true, messages: [] };
 }
+
+const PROBE_OK_NOTE =
+  "Performance merges independent playerscore + dps zoneRankings by encounter.id. " +
+  "Logged run counts affect confidence only. " +
+  "scoreRankPercent is not an execution percentile. " +
+  `${SPEED_FASTESTKILL_ENCODING_NOTE} ` +
+  "No recentReports / report.fights / masterData / events.";
 
 /**
  * Read-only Performance probe: dual Character.zoneRankings (playerscore + dps).
@@ -334,7 +358,7 @@ export async function runPerformanceProbe(
     },
   };
 
-  const rawZoneRankingsScore = await fetchZoneRankingsByMetric(
+  const scoreFetch = await fetchZoneRankingsByMetric(
     options.client,
     options.identity,
     zoneConfig.zoneId,
@@ -343,7 +367,7 @@ export async function runPerformanceProbe(
     graphqlErrors,
     perOperation,
   );
-  const rawZoneRankingsExecution = await fetchZoneRankingsByMetric(
+  const executionFetch = await fetchZoneRankingsByMetric(
     options.client,
     options.identity,
     zoneConfig.zoneId,
@@ -353,22 +377,36 @@ export async function runPerformanceProbe(
     perOperation,
   );
 
-  const score = normalizeScoreZoneRankings(rawZoneRankingsScore);
-  const execution = normalizeExecutionZoneRankings(rawZoneRankingsExecution);
-  const merged = mergeScoreAndExecution(score, execution);
+  const rankingQueryFailed = !scoreFetch.ok || !executionFetch.ok;
+  const state: "OK" | "ERROR" = rankingQueryFailed ? "ERROR" : "OK";
 
-  const scoreIds = new Set(
-    score.dungeons.map((d) => d.encounterId).filter((id): id is number => id != null),
-  );
-  const executionIds = new Set(
-    execution.dungeons.map((d) => d.encounterId).filter((id): id is number => id != null),
-  );
-  const unavailableEncounters = collectUnavailableEncounters(
-    zone.worldData?.encounters ?? [],
-    merged.dungeons,
-    scoreIds,
-    executionIds,
-  );
+  let summary: PerformanceProbeDataset["summary"] = {
+    global: null,
+    dungeons: [],
+    unavailableEncounters: [],
+  };
+
+  if (!rankingQueryFailed) {
+    const score = normalizeScoreZoneRankings(scoreFetch.raw);
+    const execution = normalizeExecutionZoneRankings(executionFetch.raw);
+    const merged = mergeScoreAndExecution(score, execution);
+    const scoreIds = new Set(
+      score.dungeons.map((d) => d.encounterId).filter((id): id is number => id != null),
+    );
+    const executionIds = new Set(
+      execution.dungeons.map((d) => d.encounterId).filter((id): id is number => id != null),
+    );
+    summary = {
+      global: merged.global,
+      dungeons: merged.dungeons,
+      unavailableEncounters: collectUnavailableEncounters(
+        zone.worldData?.encounters ?? [],
+        merged.dungeons,
+        scoreIds,
+        executionIds,
+      ),
+    };
+  }
 
   const scorePayload = {
     probedAt,
@@ -376,10 +414,15 @@ export async function runPerformanceProbe(
     zoneId: zoneConfig.zoneId,
     partition: zone.partitionUsed,
     metric: "playerscore" as const,
-    rawZoneRankings: rawZoneRankingsScore,
-    normalized: score,
-    graphqlErrors: graphqlErrors.filter((e) => e.operationName.endsWith(":playerscore")),
-    rateLimit: perOperation.filter((r) => r.operationName.endsWith(":playerscore")),
+    state: scoreFetch.ok ? ("OK" as const) : ("ERROR" as const),
+    rawZoneRankings: scoreFetch.raw,
+    normalized: scoreFetch.ok ? normalizeScoreZoneRankings(scoreFetch.raw) : null,
+    graphqlErrors: graphqlErrors.filter(
+      (e) => e.operationName === OPERATIONS.CharacterZoneRankingsPerformanceScore.operationName,
+    ),
+    rateLimit: perOperation.filter(
+      (r) => r.operationName === OPERATIONS.CharacterZoneRankingsPerformanceScore.operationName,
+    ),
   };
 
   const executionPayload = {
@@ -388,10 +431,15 @@ export async function runPerformanceProbe(
     zoneId: zoneConfig.zoneId,
     partition: zone.partitionUsed,
     metric: "dps" as const,
-    rawZoneRankings: rawZoneRankingsExecution,
-    normalized: execution,
-    graphqlErrors: graphqlErrors.filter((e) => e.operationName.endsWith(":dps")),
-    rateLimit: perOperation.filter((r) => r.operationName.endsWith(":dps")),
+    state: executionFetch.ok ? ("OK" as const) : ("ERROR" as const),
+    rawZoneRankings: executionFetch.raw,
+    normalized: executionFetch.ok ? normalizeExecutionZoneRankings(executionFetch.raw) : null,
+    graphqlErrors: graphqlErrors.filter(
+      (e) => e.operationName === OPERATIONS.CharacterZoneRankingsPerformanceExecution.operationName,
+    ),
+    rateLimit: perOperation.filter(
+      (r) => r.operationName === OPERATIONS.CharacterZoneRankingsPerformanceExecution.operationName,
+    ),
   };
 
   const finalRateLimit = await fetchRateLimitData(
@@ -405,37 +453,35 @@ export async function runPerformanceProbe(
     probeVersion: "3",
     probedAt,
     identity: options.identity,
+    state,
     character,
     zone,
-    summary: {
-      global: merged.global,
-      dungeons: merged.dungeons,
-      unavailableEncounters,
-    },
-    rawZoneRankingsScore,
-    rawZoneRankingsExecution,
+    summary,
+    rawZoneRankingsScore: scoreFetch.raw,
+    rawZoneRankingsExecution: executionFetch.raw,
     diagnostics: {
       source: "character.zoneRankings",
+      state,
       scoreQuery: {
         zoneID: zoneConfig.zoneId,
         metric: "playerscore",
         byBracket: true,
         partition: zone.partitionUsed,
+        ok: scoreFetch.ok,
       },
       executionQuery: {
         zoneID: zoneConfig.zoneId,
         metric: "dps",
         byBracket: true,
         partition: zone.partitionUsed,
+        ok: executionFetch.ok,
       },
-      dungeonRowCount: merged.dungeons.length,
-      unavailableEncounterCount: unavailableEncounters.length,
-      note:
-        "Performance merges independent playerscore + dps zoneRankings by encounter.id. " +
-        "Logged run counts affect confidence only. " +
-        "scoreRankPercent is not an execution percentile. " +
-        `${SPEED_FASTESTKILL_ENCODING_NOTE} ` +
-        "No recentReports / report.fights / masterData / events.",
+      dungeonRowCount: summary.dungeons.length,
+      unavailableEncounterCount: summary.unavailableEncounters.length,
+      note: rankingQueryFailed
+        ? "ERROR: one or both zoneRankings queries failed. GraphQL errors are listed; " +
+          "summary is empty (no fabricated unavailable encounters or zeroed rankings)."
+        : PROBE_OK_NOTE,
     },
     graphqlErrors,
     rateLimit: {
@@ -503,6 +549,7 @@ export function buildPerformanceDatasetFromRaw(options: {
     probeVersion: "3",
     probedAt,
     identity: options.identity,
+    state: "OK",
     character: options.character,
     zone: options.zone,
     summary: {
@@ -514,26 +561,24 @@ export function buildPerformanceDatasetFromRaw(options: {
     rawZoneRankingsExecution: options.rawZoneRankingsExecution,
     diagnostics: {
       source: "character.zoneRankings",
+      state: "OK",
       scoreQuery: {
         zoneID: options.zone.config.zoneId,
         metric: "playerscore",
         byBracket: true,
         partition: options.zone.partitionUsed,
+        ok: true,
       },
       executionQuery: {
         zoneID: options.zone.config.zoneId,
         metric: "dps",
         byBracket: true,
         partition: options.zone.partitionUsed,
+        ok: true,
       },
       dungeonRowCount: merged.dungeons.length,
       unavailableEncounterCount: unavailableEncounters.length,
-      note:
-        "Performance merges independent playerscore + dps zoneRankings by encounter.id. " +
-        "Logged run counts affect confidence only. " +
-        "scoreRankPercent is not an execution percentile. " +
-        `${SPEED_FASTESTKILL_ENCODING_NOTE} ` +
-        "No recentReports / report.fights / masterData / events.",
+      note: PROBE_OK_NOTE,
     },
     graphqlErrors: [],
     rateLimit: { initial: null, final: null, perOperation: [] },

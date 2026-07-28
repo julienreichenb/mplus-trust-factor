@@ -69,6 +69,7 @@ function printSummary(
     JSON.stringify(
       {
         identity: dataset.identity,
+        state: dataset.state,
         character: dataset.character
           ? {
               id: dataset.character.id,
@@ -101,6 +102,7 @@ function printSummary(
         unavailableEncounters: dataset.summary.unavailableEncounters,
         diagnostics: dataset.diagnostics,
         graphqlErrorCount: dataset.graphqlErrors.length,
+        graphqlErrors: dataset.graphqlErrors,
         outputFiles,
       },
       null,
@@ -161,6 +163,10 @@ async function main(): Promise<void> {
   });
 
   printSummary(dataset, outputFiles);
+  if (dataset.state === "ERROR") {
+    console.error("FAIL: Performance probe state=ERROR (see graphqlErrors).");
+    process.exit(1);
+  }
   console.log("OK");
 }
 
