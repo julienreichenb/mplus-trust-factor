@@ -71,6 +71,14 @@ export {
   runSurvivalV1_1Pipeline,
 } from "./probe/survival-v1_1-score.js";
 export * from "./probe/survival-v1_1-discovery.js";
+export * from "./probe/survival-v1_1-audit-config.js";
+export {
+  auditFragmentationPairs,
+  auditDefensiveActivations,
+  auditRecoveryDetection,
+  clusterWindowsByCandidateRule,
+} from "./probe/survival-v1_1-audit.js";
+export { runSurvivalV1_1Audit } from "./probe/survival-v1_1-audit-score.js";
 export * from "./probe/types.js";
 
 export type { WarcraftLogsProvider };
