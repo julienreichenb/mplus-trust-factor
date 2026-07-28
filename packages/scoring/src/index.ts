@@ -42,9 +42,16 @@ export { computeInputFingerprint } from "./fingerprint.js";
 export {
   createDefaultModelV1,
   createDefaultModelV2,
+  createDefaultModelV3,
   createSurvivalFocusedModel,
   createUtilityFocusedModel,
 } from "./model/defaults.js";
+export { presentDimensionScore, presentDimensionScores } from "./present.js";
+export {
+  buildCharacterHistoryExperienceObservations,
+  type CharacterHistoryExperienceInput,
+  type CharacterHistoryRunInput,
+} from "./experience/character-history.js";
 export {
   computePerformanceDimension,
   computeCurrentSeasonPeak,

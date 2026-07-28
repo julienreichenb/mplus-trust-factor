@@ -213,12 +213,31 @@ export function validateScoreSnapshot(
   ];
 
   for (const dim of snapshot.dimensions) {
-    const scoreCheck = assertScoreRange(dim.score, `dimensions.${dim.dimension}.score`);
+    if (dim.score != null) {
+      const scoreCheck = assertScoreRange(dim.score, `dimensions.${dim.dimension}.score`);
+      if (scoreCheck) violations.push(scoreCheck);
+    } else if (dim.state === "AVAILABLE" || dim.state === "PARTIAL") {
+      violations.push(
+        violation(
+          "DIMENSION_SCORE_MISSING",
+          `Dimension ${dim.dimension} state ${dim.state} requires a numeric score`,
+          `dimensions.${dim.dimension}.score`,
+        ),
+      );
+    } else if (dim.confidence > 0 && (dim.state === "UNAVAILABLE" || !dim.state)) {
+      // confidence>0 with null score is inconsistent unless explicitly PROCESSING/ERROR
+      violations.push(
+        violation(
+          "DIMENSION_STATE_INCONSISTENT",
+          `Dimension ${dim.dimension} has confidence>0 but null score without PROCESSING/ERROR state`,
+          `dimensions.${dim.dimension}`,
+        ),
+      );
+    }
     const confCheck = assertConfidenceRange(
       dim.confidence,
       `dimensions.${dim.dimension}.confidence`,
     );
-    if (scoreCheck) violations.push(scoreCheck);
     if (confCheck) violations.push(confCheck);
   }
 

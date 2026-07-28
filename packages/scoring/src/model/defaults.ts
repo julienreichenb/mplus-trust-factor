@@ -161,6 +161,26 @@ export function createDefaultModelV2(
   });
 }
 
+/**
+ * Default Trust Factor v3 — Wave 4 weights (do not retune without calibration):
+ * PERFORMANCE 35%, SURVIVAL 30%, UTILITY 25%, EXPERIENCE 10%, RAID 0%.
+ */
+export function createDefaultModelV3(
+  overrides: Partial<ScoreModelConfigV1> = {},
+): ScoreModelConfigV1 {
+  return createDefaultModelV2({
+    version: 3,
+    weights: {
+      performance: 0.35,
+      survival: 0.3,
+      utility: 0.25,
+      experienceConsistency: 0.1,
+      mythicRaid: 0,
+    },
+    ...overrides,
+  });
+}
+
 function deepMerge<T extends object>(base: T, overrides: Partial<T>): T {
   const out = { ...base };
   for (const key of Object.keys(overrides) as Array<keyof T>) {

@@ -95,13 +95,32 @@ export function mapScoreSnapshot(snapshot: ScoreSnapshotWithRelations): ScoreSna
     confidence: Number(snapshot.confidence),
     calculatedAt: snapshot.calculatedAt.toISOString(),
     inputFingerprint: snapshot.inputFingerprint,
-    dimensions: snapshot.dimensionScores.map((dimension) => ({
-      dimension: dimension.dimension,
-      score: Number(dimension.score),
-      confidence: Number(dimension.confidence),
-      weight: Number(dimension.weight),
-      contributors: dimension.contributors,
-    })),
+    dimensions: snapshot.dimensionScores.map((dimension) => {
+      const rawState = (dimension as { state?: string }).state;
+      const confidence = Number(dimension.confidence);
+      const score = dimension.score == null ? null : Number(dimension.score);
+      const state =
+        rawState === "AVAILABLE" ||
+        rawState === "PARTIAL" ||
+        rawState === "UNAVAILABLE" ||
+        rawState === "PROCESSING" ||
+        rawState === "ERROR"
+          ? rawState
+          : confidence <= 0 || score == null
+            ? "UNAVAILABLE"
+            : confidence < 0.35
+              ? "PARTIAL"
+              : "AVAILABLE";
+      return {
+        dimension: dimension.dimension,
+        score,
+        confidence,
+        weight: Number(dimension.weight),
+        state,
+        reason: (dimension as { reason?: string | null }).reason ?? null,
+        contributors: dimension.contributors,
+      };
+    }),
     redFlags,
     explanation: sanitizePublicExplanation(snapshot.explanation),
   };

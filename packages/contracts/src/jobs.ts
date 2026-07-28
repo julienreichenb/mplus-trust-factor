@@ -5,6 +5,7 @@ export const QUEUE_NAMES = {
   refreshCharacter: "refresh-character",
   analyzeRun: "analyze-run",
   recalculateScore: "recalculate-score",
+  finalizeScore: "finalize-score",
   generateAddonExport: "generate-addon-export",
 } as const;
 
@@ -29,9 +30,12 @@ export type RefreshCharacterJob = z.infer<typeof refreshCharacterJobSchema> & {
 export const analyzeRunJobSchema = z.object({
   runId: z.string().uuid(),
   characterId: z.string().uuid(),
-  selectionKind: z.enum(["LATEST", "HIGHEST"]),
+  selectionKind: z.enum(["LATEST", "HIGHEST", "SELECTED"]),
   analysisVersion: z.string().min(1),
   requestedAt: z.string().datetime(),
+  /** Durable fan-in batch this child belongs to. */
+  analysisBatchId: z.string().uuid().optional(),
+  refreshId: z.string().uuid().optional(),
 });
 
 export type AnalyzeRunJob = z.infer<typeof analyzeRunJobSchema>;
@@ -42,9 +46,27 @@ export const recalculateScoreJobSchema = z.object({
   scoreModelKey: z.string().min(1),
   scoreModelVersion: z.number().int().positive(),
   requestedAt: z.string().datetime(),
+  /** When set, only publish when this batch is terminal / ready. */
+  analysisBatchId: z.string().uuid().optional(),
+  /** When true, treat as fan-in finalization (idempotent publish). */
+  finalize: z.boolean().optional(),
 });
 
 export type RecalculateScoreJob = z.infer<typeof recalculateScoreJobSchema>;
+
+export const finalizeScoreJobSchema = z.object({
+  analysisBatchId: z.string().uuid(),
+  characterId: z.string().uuid(),
+  seasonId: z.string().uuid(),
+  scoreModelKey: z.string().min(1),
+  scoreModelVersion: z.number().int().positive(),
+  refreshId: z.string().uuid(),
+  requestedAt: z.string().datetime(),
+  /** Deadline finalization may run even if some children are still RUNNING. */
+  forceDeadline: z.boolean().optional(),
+});
+
+export type FinalizeScoreJob = z.infer<typeof finalizeScoreJobSchema>;
 
 export const generateAddonExportJobSchema = z.object({
   region: z.string().min(1),
@@ -55,6 +77,16 @@ export const generateAddonExportJobSchema = z.object({
 });
 
 export type GenerateAddonExportJob = z.infer<typeof generateAddonExportJobSchema>;
+
+export type AnalysisRunTerminalStatus = "SUCCEEDED" | "UNAVAILABLE" | "FAILED";
+export type AnalysisRunStatus = "PENDING" | "RUNNING" | AnalysisRunTerminalStatus;
+export type FinalizationStatus =
+  | "PENDING"
+  | "READY_TO_FINALIZE"
+  | "FINALIZING"
+  | "FINALIZED"
+  | "FAILED"
+  | "EXPIRED";
 
 export type JobStatus = "queued" | "active" | "completed" | "failed" | "delayed" | "unknown";
 

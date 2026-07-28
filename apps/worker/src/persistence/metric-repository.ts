@@ -76,7 +76,9 @@ export function createMetricRepository(prisma: PrismaClient): MetricRepository {
   };
 }
 
-function mapProviderName(sourceProvider: string): "BLIZZARD" | "WARCRAFT_LOGS" | "RAIDER_IO" {
+function mapProviderName(
+  sourceProvider: string,
+): "BLIZZARD" | "WARCRAFT_LOGS" | "RAIDER_IO" {
   switch (sourceProvider) {
     case "blizzard":
       return "BLIZZARD";
@@ -84,6 +86,9 @@ function mapProviderName(sourceProvider: string): "BLIZZARD" | "WARCRAFT_LOGS" |
       return "WARCRAFT_LOGS";
     case "raiderio":
       return "RAIDER_IO";
+    case "character_history":
+    case "fusion":
+      return "BLIZZARD";
     default:
       return "BLIZZARD";
   }

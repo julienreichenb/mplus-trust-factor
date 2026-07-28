@@ -93,9 +93,16 @@ function baseScore(
     inputFingerprint: `fp-${characterId}`,
     dimensions: dims.map((d) => ({
       dimension: d.dimension,
-      score: d.score,
+      score: d.confidence <= 0 ? null : d.score,
       confidence: d.confidence,
       weight: d.weight,
+      state:
+        d.confidence <= 0
+          ? ("UNAVAILABLE" as const)
+          : d.confidence < 0.35
+            ? ("PARTIAL" as const)
+            : ("AVAILABLE" as const),
+      reason: d.confidence <= 0 ? "FIXTURE_UNAVAILABLE" : null,
       contributors: contributors(d.pos, d.neg),
     })),
     redFlags,
@@ -586,10 +593,10 @@ export function finalizeDynamicProfile(profile: CharacterProfileView): Character
       calculatedAt: now,
       inputFingerprint: `fp-${profile.characterId}`,
       dimensions: [
-        { dimension: "PERFORMANCE", score: 60, confidence: 0.4, weight: 0.35, contributors: null },
-        { dimension: "SURVIVAL", score: 58, confidence: 0.4, weight: 0.3, contributors: null },
-        { dimension: "UTILITY", score: 64, confidence: 0.4, weight: 0.25, contributors: null },
-        { dimension: "EXPERIENCE", score: 55, confidence: 0.5, weight: 0.1, contributors: null },
+        { dimension: "PERFORMANCE", score: 60, confidence: 0.4, weight: 0.35, state: "AVAILABLE", reason: null, contributors: null },
+        { dimension: "SURVIVAL", score: 58, confidence: 0.4, weight: 0.3, state: "AVAILABLE", reason: null, contributors: null },
+        { dimension: "UTILITY", score: 64, confidence: 0.4, weight: 0.25, state: "AVAILABLE", reason: null, contributors: null },
+        { dimension: "EXPERIENCE", score: 55, confidence: 0.5, weight: 0.1, state: "AVAILABLE", reason: null, contributors: null },
       ],
       redFlags: [],
       explanation: { summary: "Dynamically ingested fixture character" },

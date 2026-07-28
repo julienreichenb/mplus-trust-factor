@@ -23,8 +23,8 @@ import {
 } from "@mplus/contracts";
 import { extractBoostSupportFacts } from "@mplus/provider-raiderio";
 import type { RunCombatFacts, WclRankingObservation, WclReportFightDetails } from "@mplus/provider-warcraftlogs";
-import { WARLOCK_DEMONOLOGY_CATALOG } from "@mplus/abilities";
-import { selectScoringRuns } from "@mplus/scoring";
+import { buildCatalogCoverageDiagnostics, getAbilityCatalog } from "@mplus/abilities";
+import { buildCharacterHistoryExperienceObservations, selectScoringRuns } from "@mplus/scoring";
 import { OBS_EVENTS, fingerprintIdentifier } from "@mplus/observability";
 import { validateScoreSnapshot } from "@mplus/test-utils";
 import type { WorkerContainer } from "../container.js";
@@ -1097,15 +1097,8 @@ export async function runRefreshPipeline(
   const observedAt = now.toISOString();
   const observations: MetricObservationDTO[] = [];
 
-  if (mythicKeystoneScore !== null) {
-    observations.push(
-      buildMythicRatingObservation({
-        mythicRating: mythicKeystoneScore,
-        observedAt,
-        cutoffs: seasonCutoffs,
-      }),
-    );
-  }
+  // Mythic rating is emitted later via CHARACTER_HISTORY experience builder.
+  void mythicKeystoneScore;
 
   const roleSlug = (character.role ?? blizzardProfile?.role ?? raiderIoProfile?.role ?? null)
     ?.toString()
@@ -1113,7 +1106,7 @@ export async function runRefreshPipeline(
   const specSlug =
     blizzardProfile?.specSlug ?? raiderIoProfile?.specSlug ?? null;
 
-  const classSlug = blizzardProfile?.classSlug ?? raiderIoProfile?.classSlug ?? "warlock";
+  const classSlug = blizzardProfile?.classSlug ?? raiderIoProfile?.classSlug ?? null;
 
   const parseByRunId = new Map(
     runDiagnostics.map((d) => [String(d.runId), d.parse as { parsePercentile?: number | null } | undefined]),
@@ -1203,7 +1196,18 @@ export async function runRefreshPipeline(
     });
   }
 
-  const abilityCatalog = WARLOCK_DEMONOLOGY_CATALOG;
+  const roleForCatalog =
+    roleSlug === "tank" ? "TANK" : roleSlug === "healer" ? "HEALER" : "DPS";
+  const abilityCatalog = getAbilityCatalog({
+    classSlug,
+    specSlug,
+    role: roleForCatalog,
+  });
+  const catalogDiagnostics = buildCatalogCoverageDiagnostics({
+    classSlug,
+    specSlug,
+    role: roleForCatalog,
+  });
 
   const perRunCombatObservations = [...combatFactsByRunId.entries()].map(([runId, facts]) => {
     const runRow = selectedRunRows.get(runId);
@@ -1222,28 +1226,33 @@ export async function runRefreshPipeline(
     }),
   );
 
-  const runVolume = volumeRunCount;
-  if (runVolume > 0) {
-    observations.push({
-      metricKey: "experience.volume_recency",
-      dimension: "EXPERIENCE",
-      rawValue: runVolume,
-      normalizedValue: clamp01(runVolume / 20) * 100,
-      confidence: runVolume > 0 ? 0.6 : 0.1,
+  const mythicRatingObs =
+    mythicKeystoneScore !== null
+      ? buildMythicRatingObservation({
+          mythicRating: mythicKeystoneScore,
+          observedAt,
+          cutoffs: seasonCutoffs,
+        })
+      : null;
+
+  // EXPERIENCE from CHARACTER_HISTORY only — independent of WCL detailed analysis.
+  observations.push(
+    ...buildCharacterHistoryExperienceObservations({
       observedAt,
-      sourceProvider: discoveredRuns.length > 0 ? "warcraftlogs" : "fusion",
-      coverage: null,
-      context: {
-        discoveredRuns: discoveredRuns.length,
-        fusedRuns: fusion.mergedCanonicalRunCount,
-        canonicalRunCount: volumeRunCount,
-        matchedPairCount: fusion.matchedPairCount,
-        unresolvedCrossProviderMatches: fusion.unresolvedCrossProviderMatches,
-        wclVisibility,
-        derivedFrom: "canonical_run_volume",
-      },
-    });
-  }
+      expectedDungeonCount: season.dungeonCount > 0 ? season.dungeonCount : 8,
+      selectedRuns: scoringRunSelection.selectedRuns.map((r) => ({
+        dungeonSlug: r.dungeonSlug,
+        keyLevel: r.keyLevel,
+        timed: r.timed,
+        completedAt: r.completedAt,
+        scoreValue: r.raiderIoScore ?? null,
+      })),
+      mythicRatingObservation: mythicRatingObs,
+      priorSeasonCount: raiderIoProfile?.previousSeason ? 1 : 0,
+      roleContinuity: character.role ? 1 : null,
+      sourceProvider: "character_history",
+    }),
+  );
 
   const authenticityFeatures = boostFacts ? mapBoostFactsToAuthenticity(boostFacts) : undefined;
   // Coverage is actual combat-facts analysis over selected runs — never invent 1.0 or treat
@@ -1318,13 +1327,19 @@ export async function runRefreshPipeline(
     for (const dim of scoreDto.dimensions) {
       if (dim.dimension === "PERFORMANCE") {
         dim.confidence = wclPerformance.confidence;
+        if (dim.score != null && dim.confidence > 0) {
+          dim.state = dim.confidence < 0.35 ? "PARTIAL" : "AVAILABLE";
+          dim.reason = dim.state === "PARTIAL" ? "INCOMPLETE_COVERAGE" : null;
+        }
       }
     }
   } else {
     for (const dim of scoreDto.dimensions) {
       if (dim.dimension === "PERFORMANCE") {
         dim.confidence = 0;
-        dim.score = (modelConfig as { confidenceNeutralScore?: number }).confidenceNeutralScore ?? 50;
+        dim.score = null;
+        dim.state = "UNAVAILABLE";
+        dim.reason = "NO_WCL_PERFORMANCE_OBSERVATIONS";
       }
     }
   }
@@ -1371,6 +1386,8 @@ export async function runRefreshPipeline(
           wclVisibility,
           wclDataState,
           performanceSummary: wclPerformance.summary,
+          abilityCatalog: catalogDiagnostics,
+          historyMode: "CHARACTER_HISTORY",
         }
       : scoreDto.explanation;
 
@@ -1390,6 +1407,48 @@ export async function runRefreshPipeline(
     throw error;
   }
 
+  // Fan-in batch: record selected-run terminal states then publish once.
+  const analysisBatch = await repositories.analysisBatch.createBatch({
+    characterId: character.id,
+    seasonId: season.id,
+    refreshId: job.id,
+    scoreModelId: model.id,
+    runIds: scoringRunSelection.selectedRuns.map((r) => r.canonicalRunId),
+    deadlineAt: new Date(now.getTime() + 15 * 60_000),
+    metadata: {
+      selectedRunCount,
+      detailedRunCount,
+      catalogVersion: abilityCatalog.catalogVersion,
+      catalogSupported: abilityCatalog.supported,
+    },
+  });
+
+  for (const entry of scoringRunSelection.selectedRuns) {
+    const diag = runDiagnostics.find((d) => String(d.runId) === entry.canonicalRunId);
+    const detailed = Boolean(diag?.detailedAnalysis);
+    const status = detailed
+      ? ("SUCCEEDED" as const)
+      : entry.wclReportMatched
+        ? ("FAILED" as const)
+        : ("UNAVAILABLE" as const);
+    await repositories.analysisBatch.markRunStatus({
+      batchId: analysisBatch.id,
+      runId: entry.canonicalRunId,
+      status,
+      terminalReason: detailed
+        ? null
+        : String(diag?.reason ?? (entry.wclReportMatched ? "ANALYZE_FAILED" : "NO_WCL_SOURCE")),
+    });
+  }
+
+  const claimed = await repositories.analysisBatch.claimFinalization(analysisBatch.id);
+  if (!claimed) {
+    logger.warn(
+      { batchId: analysisBatch.id, characterId: character.id },
+      "refresh pipeline: finalization claim skipped (duplicate or not ready)",
+    );
+  }
+
   await repositories.score.saveScoreSnapshot({
     characterId: character.id,
     seasonId: season.id,
@@ -1397,7 +1456,13 @@ export async function runRefreshPipeline(
     scopeType: "CHARACTER",
     scopeKey: null,
     snapshot: enrichedScore,
+    publish: true,
+    analysisBatchId: analysisBatch.id,
   });
+
+  if (claimed) {
+    await repositories.analysisBatch.markFinalized(analysisBatch.id);
+  }
 
   character = await repositories.character.updateRefreshTimestamps(character.id, {
     lastSeenAt: now,

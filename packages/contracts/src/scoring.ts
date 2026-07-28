@@ -59,11 +59,26 @@ export interface ScoreModelConfig {
   minConfidenceForGrade?: number;
 }
 
+export type DimensionDataState =
+  | "AVAILABLE"
+  | "PARTIAL"
+  | "UNAVAILABLE"
+  | "PROCESSING"
+  | "ERROR";
+
 export interface DimensionScoreDTO {
   dimension: ScoreDimension;
-  score: number;
+  /**
+   * Public numeric score. Null when state is UNAVAILABLE / PROCESSING / ERROR —
+   * never expose the internal confidence-neutral fallback (e.g. 50) as observed.
+   */
+  score: number | null;
   confidence: number;
   weight: number;
+  /** Explicit availability semantics for API/UI (never infer from score alone). */
+  state: DimensionDataState;
+  /** Machine-readable reason when not AVAILABLE. */
+  reason?: string | null;
   contributors: unknown;
 }
 

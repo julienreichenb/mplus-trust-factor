@@ -103,6 +103,29 @@ enum AddonExportStatus {
   FAILED
 }
 
+enum ScorePublicationStatus {
+  DRAFT
+  PUBLIC
+  SUPERSEDED
+}
+
+enum AnalysisRunJobStatus {
+  PENDING
+  RUNNING
+  SUCCEEDED
+  UNAVAILABLE
+  FAILED
+}
+
+enum ScoreFinalizationStatus {
+  PENDING
+  READY_TO_FINALIZE
+  FINALIZING
+  FINALIZED
+  FAILED
+  EXPIRED
+}
+
 enum ProviderLifecycleState {
   OK
   STALE
@@ -173,6 +196,7 @@ model Season {
   scoreSnapshots   ScoreSnapshot[]
   characterRedFlags CharacterRedFlag[]
   addonExports     AddonExport[]
+  analysisBatches  ScoreAnalysisBatch[]
 
   @@unique([regionId, slug])
   @@map("seasons")
@@ -282,6 +306,7 @@ model Character {
   disputes          ScoreDispute[]
   ingestionJobs     IngestionJob[]
   providerStates    CharacterProviderState[]
+  analysisBatches   ScoreAnalysisBatch[]
 
   @@unique([regionId, realmId, normalizedName])
   @@index([lastPublicRefreshAt])
@@ -495,6 +520,7 @@ model MythicRun {
   metricObservations MetricObservation[]
   redFlags     CharacterRedFlag[]
   ingestionJobs IngestionJob[]
+  analysisBatchRuns ScoreAnalysisBatchRun[]
 
   @@index([seasonId, dungeonId, keyLevel, completedAt])
   @@index([completedAt(sort: Desc)])
@@ -639,35 +665,41 @@ model ScoreModel {
   scoreSnapshots    ScoreSnapshot[]
   characterRedFlags CharacterRedFlag[]
   addonExports      AddonExport[]
+  analysisBatches   ScoreAnalysisBatch[]
 
   @@unique([key, version])
   @@map("score_models")
 }
 
 model ScoreSnapshot {
-  id               String    @id @default(uuid()) @db.Uuid
-  characterId      String    @map("character_id") @db.Uuid
-  seasonId         String    @map("season_id") @db.Uuid
-  scoreModelId     String    @map("score_model_id") @db.Uuid
-  scopeType        ScopeType @map("scope_type")
-  scopeKey         String?   @map("scope_key")
-  overallScore     Decimal   @map("overall_score") @db.Decimal(8, 4)
-  grade            String    @db.Char(1)
-  skillScore       Decimal   @map("skill_score") @db.Decimal(8, 4)
-  authenticityScore Decimal  @map("authenticity_score") @db.Decimal(8, 4)
-  confidence       Decimal   @db.Decimal(5, 4)
-  calculatedAt     DateTime  @map("calculated_at") @db.Timestamptz(3)
-  inputFingerprint String    @map("input_fingerprint")
-  explanation      Json      @default("{}")
+  id               String                 @id @default(uuid()) @db.Uuid
+  characterId      String                 @map("character_id") @db.Uuid
+  seasonId         String                 @map("season_id") @db.Uuid
+  scoreModelId     String                 @map("score_model_id") @db.Uuid
+  scopeType        ScopeType              @map("scope_type")
+  scopeKey         String?                @map("scope_key")
+  overallScore     Decimal                @map("overall_score") @db.Decimal(8, 4)
+  grade            String                 @db.Char(1)
+  skillScore       Decimal                @map("skill_score") @db.Decimal(8, 4)
+  authenticityScore Decimal               @map("authenticity_score") @db.Decimal(8, 4)
+  confidence       Decimal                @db.Decimal(5, 4)
+  calculatedAt     DateTime               @map("calculated_at") @db.Timestamptz(3)
+  inputFingerprint String                 @map("input_fingerprint")
+  explanation      Json                   @default("{}")
+  publicationStatus ScorePublicationStatus @default(PUBLIC) @map("publication_status")
+  isPublic         Boolean                @default(true) @map("is_public")
+  analysisBatchId  String?                @map("analysis_batch_id") @db.Uuid
 
-  character      Character        @relation(fields: [characterId], references: [id])
-  season         Season           @relation(fields: [seasonId], references: [id])
-  scoreModel     ScoreModel       @relation(fields: [scoreModelId], references: [id])
+  character      Character         @relation(fields: [characterId], references: [id])
+  season         Season            @relation(fields: [seasonId], references: [id])
+  scoreModel     ScoreModel        @relation(fields: [scoreModelId], references: [id])
   dimensionScores DimensionScore[]
   disputes       ScoreDispute[]
+  analysisBatch  ScoreAnalysisBatch? @relation(fields: [analysisBatchId], references: [id])
 
   @@unique([characterId, seasonId, scoreModelId, scopeType, scopeKey, inputFingerprint])
   @@index([characterId, calculatedAt(sort: Desc)])
+  @@index([characterId, isPublic, calculatedAt(sort: Desc)])
   @@map("score_snapshots")
 }
 
@@ -675,15 +707,65 @@ model DimensionScore {
   id              String         @id @default(uuid()) @db.Uuid
   scoreSnapshotId String         @map("score_snapshot_id") @db.Uuid
   dimension       ScoreDimension
-  score           Decimal        @db.Decimal(8, 4)
+  score           Decimal?       @db.Decimal(8, 4)
   confidence      Decimal        @db.Decimal(5, 4)
   weight          Decimal        @db.Decimal(8, 6)
+  state           String         @default("AVAILABLE")
+  reason          String?
   contributors    Json           @default("[]")
 
   scoreSnapshot ScoreSnapshot @relation(fields: [scoreSnapshotId], references: [id])
 
   @@unique([scoreSnapshotId, dimension])
   @@map("dimension_scores")
+}
+
+model ScoreAnalysisBatch {
+  id                   String                  @id @default(uuid()) @db.Uuid
+  characterId          String                  @map("character_id") @db.Uuid
+  seasonId             String                  @map("season_id") @db.Uuid
+  refreshId            String                  @map("refresh_id") @db.Uuid
+  scoreModelId         String                  @map("score_model_id") @db.Uuid
+  expectedRunCount     Int                     @map("expected_run_count")
+  terminalRunCount     Int                     @default(0) @map("terminal_run_count")
+  successfulRunCount   Int                     @default(0) @map("successful_run_count")
+  unavailableRunCount  Int                     @default(0) @map("unavailable_run_count")
+  failedRunCount       Int                     @default(0) @map("failed_run_count")
+  finalizationStatus   ScoreFinalizationStatus @default(PENDING) @map("finalization_status")
+  finalizedAt          DateTime?               @map("finalized_at") @db.Timestamptz(3)
+  deadlineAt           DateTime?               @map("deadline_at") @db.Timestamptz(3)
+  createdAt            DateTime                @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt            DateTime                @updatedAt @map("updated_at") @db.Timestamptz(3)
+  metadata             Json                    @default("{}")
+
+  character    Character                 @relation(fields: [characterId], references: [id])
+  season       Season                    @relation(fields: [seasonId], references: [id])
+  scoreModel   ScoreModel                @relation(fields: [scoreModelId], references: [id])
+  runs         ScoreAnalysisBatchRun[]
+  snapshots    ScoreSnapshot[]
+
+  @@unique([characterId, seasonId, refreshId, scoreModelId])
+  @@index([finalizationStatus, updatedAt])
+  @@map("score_analysis_batches")
+}
+
+model ScoreAnalysisBatchRun {
+  id             String               @id @default(uuid()) @db.Uuid
+  batchId        String               @map("batch_id") @db.Uuid
+  runId          String               @map("run_id") @db.Uuid
+  status         AnalysisRunJobStatus @default(PENDING)
+  terminalReason String?              @map("terminal_reason")
+  startedAt      DateTime?            @map("started_at") @db.Timestamptz(3)
+  finishedAt     DateTime?            @map("finished_at") @db.Timestamptz(3)
+  attempts       Int                  @default(0)
+  metadata       Json                 @default("{}")
+
+  batch ScoreAnalysisBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  run   MythicRun          @relation(fields: [runId], references: [id])
+
+  @@unique([batchId, runId])
+  @@index([status, finishedAt])
+  @@map("score_analysis_batch_runs")
 }
 
 model RedFlagDefinition {

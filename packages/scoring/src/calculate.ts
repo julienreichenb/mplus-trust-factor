@@ -8,7 +8,8 @@ import { calculateDimensionScores } from "./dimensions.js";
 import { explainScore } from "./explain.js";
 import { computeInputFingerprint } from "./fingerprint.js";
 import { calculateMetricScores } from "./metrics.js";
-import { createDefaultModelV1, createDefaultModelV2 } from "./model/defaults.js";
+import { createDefaultModelV1, createDefaultModelV2, createDefaultModelV3 } from "./model/defaults.js";
+import { presentDimensionScores } from "./present.js";
 import type {
   CalculateScoreEngineInput,
   ScoreModelConfigV1,
@@ -36,7 +37,9 @@ function coerceModel(
   // Always merge through defaults so seeded/slim DB configs (metricWeights without
   // normalization/confidenceBlend/etc.) remain valid ScoreModelConfigV1 documents.
   const partial = model as Partial<ScoreModelConfigV1> & ScoreModelConfig;
-  const factory = (partial.version ?? 1) >= 2 ? createDefaultModelV2 : createDefaultModelV1;
+  const version = partial.version ?? 1;
+  const factory =
+    version >= 3 ? createDefaultModelV3 : version >= 2 ? createDefaultModelV2 : createDefaultModelV1;
   return factory({
     key: partial.key,
     version: partial.version,
@@ -119,18 +122,7 @@ export function calculateScoreEngine(input: CalculateScoreEngineInput): ScoreSna
       context,
     });
 
-  const dimensionDtos: DimensionScoreDTO[] = dimensions.map((d) => ({
-    dimension: d.dimension,
-    score: d.adjustedScore,
-    confidence: d.confidence,
-    weight: d.weight,
-    contributors: {
-      available: d.contributors,
-      missing: d.missing,
-      rawScore: d.rawScore,
-      coverage: d.coverage,
-    },
-  }));
+  const dimensionDtos: DimensionScoreDTO[] = presentDimensionScores(dimensions);
 
   const redFlags = [...authenticity.redFlags];
   const minConfidence = model.minConfidenceForGrade ?? 0.35;

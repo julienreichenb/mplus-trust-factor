@@ -58,6 +58,8 @@ describe("characterViewModel", () => {
         score: 70,
         confidence: 0.8,
         weight: 0.32,
+        state: "AVAILABLE",
+        reason: null,
         contributors: {
           available: [
             { metricKey: "performance.peak", normalizedValue: 80 },
