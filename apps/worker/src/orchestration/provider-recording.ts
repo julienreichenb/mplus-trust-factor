@@ -29,6 +29,7 @@ export async function recordProviderResult(
     cacheHit: result.metadata.cacheHit,
     retryCount: result.metadata.retryCount,
     costUnits: result.metadata.costUnits,
+    expiresAt: result.freshness.expiresAt ? new Date(result.freshness.expiresAt) : null,
     payload: result.data,
     schemaVersion: result.provenance.schemaVersion,
   });

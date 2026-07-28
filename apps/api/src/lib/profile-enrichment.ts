@@ -16,12 +16,19 @@ import type {
   PerformanceSummaryDTO,
   ProfileEntitlements,
   ProfileWarning,
+  RefreshContractStaleReason,
+  RefreshContractVersions,
   ScoringRunSelection,
   SeasonSummary,
   SelectedRunSummaryDTO,
   TalentSummary,
   WclDataState,
   WclVisibilityState,
+} from "@mplus/contracts";
+import {
+  isScoreSnapshotModelStale,
+  readRefreshContractFromExplanation,
+  refreshContractStaleReasons,
 } from "@mplus/contracts";
 import type { AppEnv } from "@mplus/config";
 import type { MythicRunWithRelations } from "@mplus/worker";
@@ -254,6 +261,7 @@ function buildWarnings(
   score: CharacterProfileResponse["score"],
   wclVisibility: WclVisibilityState | null,
   wclDataState: WclDataState | null,
+  providerStates?: CharacterProviderStateDTO[] | null,
 ): ProfileWarning[] {
   const warnings: ProfileWarning[] = [];
   if (score?.grade === "U" || (score && score.confidence < 0.35)) {
@@ -262,6 +270,22 @@ function buildWarnings(
       message: "Data incomplete — confidence is too low for a reliable grade (UNRATED).",
       severity: "WARN",
     });
+  }
+  const scoreCalculatedAtMs = score?.calculatedAt ? Date.parse(score.calculatedAt) : NaN;
+  if (Number.isFinite(scoreCalculatedAtMs) && providerStates && providerStates.length > 0) {
+    const newerProvider = providerStates.find((state) => {
+      if (!state.fetchedAt) return false;
+      const fetchedMs = Date.parse(state.fetchedAt);
+      return Number.isFinite(fetchedMs) && fetchedMs > scoreCalculatedAtMs + 1_000;
+    });
+    if (newerProvider) {
+      warnings.push({
+        code: "SCORE_STALE_VS_PROVIDERS",
+        message:
+          "Provider data is newer than the published score snapshot — score may not reflect the latest Performance refresh.",
+        severity: "WARN",
+      });
+    }
   }
   if (score?.redFlags.some((f) => f.key === "logs_hidden") || wclVisibility === "HIDDEN") {
     warnings.push({
@@ -489,6 +513,65 @@ export function applyProfileWarnings(
 ): ReturnType<typeof buildProfileEnrichments> {
   return {
     ...enrichments,
-    warnings: buildWarnings(score, enrichments.wclVisibility ?? null, enrichments.wclDataState ?? null),
+    warnings: buildWarnings(
+      score,
+      enrichments.wclVisibility ?? null,
+      enrichments.wclDataState ?? null,
+      enrichments.providerStates,
+    ),
   };
+}
+
+/** True when any provider fetch is meaningfully newer than the published score. */
+export function isScoreStaleVersusProviders(
+  scoreCalculatedAt: string | null | undefined,
+  providerStates: Array<{ fetchedAt?: string | null }> | null | undefined,
+): boolean {
+  if (!scoreCalculatedAt || !providerStates?.length) return false;
+  const scoreMs = Date.parse(scoreCalculatedAt);
+  if (!Number.isFinite(scoreMs)) return false;
+  return providerStates.some((state) => {
+    if (!state.fetchedAt) return false;
+    const fetchedMs = Date.parse(state.fetchedAt);
+    return Number.isFinite(fetchedMs) && fetchedMs > scoreMs + 1_000;
+  });
+}
+
+/** Reasons the published snapshot is incompatible with the active refresh contract / model. */
+export function scoreSnapshotContractStaleReasons(input: {
+  score: { modelKey: string; modelVersion: number; explanation?: unknown } | null | undefined;
+  activeModel: { key: string; version: number };
+  activeContract: RefreshContractVersions;
+}): RefreshContractStaleReason[] {
+  if (!input.score) return ["CONTRACT_MISSING"];
+  const reasons: RefreshContractStaleReason[] = [];
+  if (
+    isScoreSnapshotModelStale(
+      { modelKey: input.score.modelKey, modelVersion: input.score.modelVersion },
+      input.activeModel,
+    )
+  ) {
+    reasons.push("SCORING_MODEL_CHANGED");
+  }
+  const stored = readRefreshContractFromExplanation(input.score.explanation);
+  for (const reason of refreshContractStaleReasons(stored, input.activeContract)) {
+    if (!reasons.includes(reason)) reasons.push(reason);
+  }
+  return reasons;
+}
+
+export function appendRefreshContractWarnings(
+  warnings: ProfileWarning[] | undefined,
+  reasons: RefreshContractStaleReason[],
+): ProfileWarning[] {
+  const next = [...(warnings ?? [])];
+  for (const reason of reasons) {
+    if (next.some((w) => w.code === reason)) continue;
+    next.push({
+      code: reason,
+      message: `Published score is stale versus the active refresh contract (${reason}).`,
+      severity: "WARN",
+    });
+  }
+  return next;
 }

@@ -38,6 +38,15 @@ export const ENCOUNTER_DUNGEON_MAP: Record<number, string> = {
   12805: "windrunner-spire",
 };
 
+/** Current configured M+ zone encounter slugs (zone 47) — Icecrown / legacy never included. */
+export const CURRENT_MPLUS_ZONE_ENCOUNTER_IDS = [
+  112526, 12811, 12874, 12915, 10658, 361753, 61209, 12805,
+] as const;
+
+export const CURRENT_MPLUS_ZONE_DUNGEON_SLUGS: string[] = CURRENT_MPLUS_ZONE_ENCOUNTER_IDS.map(
+  (id) => ENCOUNTER_DUNGEON_MAP[id]!,
+);
+
 export interface ZoneRankingsPayload {
   metric?: string | null;
   difficulty?: number | null;

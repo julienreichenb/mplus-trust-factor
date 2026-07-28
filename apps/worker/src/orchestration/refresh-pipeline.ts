@@ -3,6 +3,7 @@ import type { Character, IngestionJob } from "@mplus/database";
 import { normalizeRegion } from "@mplus/domain";
 import {
   ExternalApiError,
+  hashRefreshContract,
   type CanonicalCharacter,
   type CharacterIdentityInput,
   type ExcludedObservationDTO,
@@ -34,6 +35,13 @@ import {
 } from "@mplus/scoring";
 import { OBS_EVENTS, fingerprintIdentifier } from "@mplus/observability";
 import { validateScoreSnapshot } from "@mplus/test-utils";
+import {
+  buildWclSummaryRequestFingerprint,
+  isCompatiblePointsAndDamageSummary,
+  POINTS_AND_DAMAGE_ADAPTER_VERSION,
+  CURRENT_MPLUS_ZONE_DUNGEON_SLUGS,
+  resolveMplusZoneConfig,
+} from "@mplus/provider-warcraftlogs";
 import type { WorkerContainer } from "../container.js";
 import { refreshCharacterDedupeKey } from "../dedupe.js";
 import { negativeCache } from "../negative-cache.js";
@@ -42,7 +50,8 @@ import { mapBoostFactsToAuthenticity } from "./boost-authenticity.js";
 import { extractMetricsFromCombatFacts, isUsableCombatRun, buildRunCombatAdminDiagnostics } from "./combat-metrics.js";
 import { aggregateCombatObservations } from "./aggregate-combat-observations.js";
 import { bindParseToSelectedRun } from "./run-parse-binding.js";
-import { fingerprintObservations } from "./fingerprint.js";
+import { fingerprintObservations, buildScoringRunSelectionKey } from "./fingerprint.js";
+import { buildRefreshContract } from "./build-refresh-contract.js";
 import { buildMythicRatingObservation } from "./performance-metrics.js";
 import { buildWclPerformanceObservations } from "./wcl-performance-metrics.js";
 import { recordProviderResult } from "./provider-recording.js";
@@ -519,6 +528,7 @@ export async function runRefreshPipeline(
     dungeonAggregates: WclDungeonPerformanceAggregateDTO[];
     rankings: WclRankingObservation[];
     performance: Awaited<ReturnType<typeof resolveWclSummary>>["performance"];
+    rejectedLegacyCache: boolean;
   };
 
   const enrichRaiderIo = async (): Promise<RaiderIoEnrichment> => {
@@ -626,7 +636,7 @@ export async function runRefreshPipeline(
         detail: "provider disabled",
         lastAttemptAt: now,
       });
-      return { visibility: null, dataState: null, runs: [], dungeonAggregates: [], rankings: [], performance: null };
+      return { visibility: null, dataState: null, runs: [], dungeonAggregates: [], rankings: [], performance: null, rejectedLegacyCache: false };
     }
 
     const wclCtx: ProviderFetchContext = {
@@ -638,17 +648,80 @@ export async function runRefreshPipeline(
     let dataState: WclDataState | null = null;
     let dungeonAggregates: WclDungeonPerformanceAggregateDTO[] = [];
     let performance: WclEnrichment["performance"] = null;
+    let rejectedLegacyCache = false;
     try {
       logger.info(
         { ...logBase, event: OBS_EVENTS.refreshProviderPhaseStarted, provider: "warcraftlogs" },
         OBS_EVENTS.refreshProviderPhaseStarted,
       );
+
+      const zoneId = resolveMplusZoneConfig({
+        env: process.env,
+        allowFixtureDefault: container.env.APP_ENV === "test" || container.env.NODE_ENV === "test",
+      }).zoneId;
+      const summaryFingerprint = buildWclSummaryRequestFingerprint({
+        region: identity.region,
+        realmSlug: identity.realmSlug,
+        name: identity.name,
+        zoneId,
+        partition: null,
+      });
+
+      // Always inspect the fingerprint cache — even on forceRefresh — so legacy payloads are
+      // explicitly rejected and never treated as a successful points_and_damage dataset.
+      const cached = await repositories.externalRequest.findFreshPayloadByFingerprint({
+        requestFingerprint: summaryFingerprint,
+        now,
+      });
+      if (cached?.payload?.payload != null) {
+        if (!isCompatiblePointsAndDamageSummary(cached.payload.payload)) {
+          rejectedLegacyCache = true;
+          fusionWarnings.push("WCL_LEGACY_SUMMARY_CACHE_REJECTED");
+          logger.warn(
+            {
+              identity,
+              requestFingerprint: summaryFingerprint,
+              schemaVersion: cached.payload.schemaVersion,
+              forceRefresh: jobPayload.forceRefresh,
+            },
+            "refresh pipeline: rejected incompatible legacy WCL summary cache — forcing live points_and_damage fetch",
+          );
+        }
+      }
+
       const summary = await resolveWclSummary(
         providers.warcraftlogs,
         identity,
-        wclCtx,
+        { ...wclCtx, forceRefresh: jobPayload.forceRefresh || rejectedLegacyCache },
         async (result) => {
-          await recordProviderResult(repositories, result);
+          // Never persist an incompatible legacy-shaped summary as a successful cache entry.
+          if (
+            result.metadata.endpointKey === "discoverCharacterSummary" &&
+            !isCompatiblePointsAndDamageSummary(result.data) &&
+            (result.data as { performance?: { state?: string } })?.performance?.state !== "SKIPPED"
+          ) {
+            fusionWarnings.push("WCL_POINTS_AND_DAMAGE_SUMMARY_INCOMPATIBLE");
+            await recordProviderResult(repositories, {
+              ...result,
+              metadata: {
+                ...result.metadata,
+                cacheHit: false,
+                statusCode: result.metadata.statusCode ?? 200,
+              },
+              provenance: {
+                ...result.provenance,
+                schemaVersion: `${POINTS_AND_DAMAGE_ADAPTER_VERSION}:rejected`,
+              },
+            });
+            return;
+          }
+          await recordProviderResult(repositories, {
+            ...result,
+            metadata: {
+              ...result.metadata,
+              cacheHit: false,
+            },
+          });
         },
       );
       visibility = summary.visibility;
@@ -656,19 +729,28 @@ export async function runRefreshPipeline(
       dungeonAggregates = summary.dungeonAggregates;
       performance = summary.performance;
 
+      const performanceOkForSuccess =
+        performance?.state === "OK" || performance?.state === "SKIPPED";
+
       const runsResult = await providers.warcraftlogs.discoverCharacterRuns(identity, wclCtx);
       await recordProviderResult(repositories, runsResult);
       const wclRankings =
         (runsResult as { wclRankings?: WclRankingObservation[] }).wclRankings ?? [];
 
-      // Coverage outcomes live on dataState — visibility stays PUBLIC/HIDDEN/null only.
+      // Do not mark WCL refresh successful when Performance came back incompatible/error.
+      const markSuccess = performanceOkForSuccess || performance == null;
       await repositories.providerState.upsert({
         characterId: character.id,
         provider: "warcraftlogs",
-        state: mapWclVisibilityToState(visibility, dataState),
+        state: markSuccess
+          ? mapWclVisibilityToState(visibility, dataState)
+          : "UNAVAILABLE",
+        detail: markSuccess
+          ? undefined
+          : `points_and_damage Performance unavailable (${performance?.state ?? "missing"})`,
         wclVisibility: visibility,
         lastAttemptAt: now,
-        lastSuccessAt: now,
+        ...(markSuccess ? { lastSuccessAt: now } : {}),
         fetchedAt: now,
         expiresAt: runsResult.freshness.expiresAt ? new Date(runsResult.freshness.expiresAt) : null,
         metadata: {
@@ -677,6 +759,9 @@ export async function runRefreshPipeline(
           hydrationHintCount: hydrationHints.length,
           dungeonAggregateCount: dungeonAggregates.length,
           performanceState: performance?.state ?? null,
+          performanceAdapterVersion: POINTS_AND_DAMAGE_ADAPTER_VERSION,
+          rejectedLegacyCache,
+          summaryFingerprint,
         },
       });
       return {
@@ -686,6 +771,7 @@ export async function runRefreshPipeline(
         dungeonAggregates,
         rankings: wclRankings,
         performance,
+        rejectedLegacyCache,
       };
     } catch (error) {
       // WCL is enrichment-only: never block a Blizzard/Raider.IO-backed MVP score.
@@ -710,6 +796,8 @@ export async function runRefreshPipeline(
         metadata: {
           wclDataState: failedDataState,
           performanceState: performance?.state ?? null,
+          performanceAdapterVersion: POINTS_AND_DAMAGE_ADAPTER_VERSION,
+          rejectedLegacyCache,
         },
       });
       logger.info({ identity, err: error }, "refresh pipeline: WCL soft-skipped");
@@ -720,6 +808,7 @@ export async function runRefreshPipeline(
         dungeonAggregates,
         rankings: [],
         performance,
+        rejectedLegacyCache,
       };
     }
   };
@@ -750,6 +839,7 @@ export async function runRefreshPipeline(
   const wclDungeonAggregates = wclEnrichment.dungeonAggregates;
   const wclRankings = wclEnrichment.rankings;
   const wclPerformanceRecord = wclEnrichment.performance;
+  const wclRejectedLegacyCache = wclEnrichment.rejectedLegacyCache;
 
   // ── Reconcile + fuse runs ───────────────────────────────────────────────
   const reconcile = reconcileSources({
@@ -979,11 +1069,15 @@ export async function runRefreshPipeline(
     expectedDungeonCount,
     seasonDungeonSlugs: seasonDungeonRows.map((row) => canonicalDungeonKey(row.dungeon.slug)),
     blizzardSeasonDungeonSlugs,
+    // Never leave the pool empty — empty allowlists reintroduce Icecrown/legacy 9-run selections.
+    raiderioDungeonSlugs: CURRENT_MPLUS_ZONE_DUNGEON_SLUGS,
     wclDungeonSlugs: wclDungeonAggregates.map((d) => d.dungeonSlug),
   });
   const activeDungeonSlugs = activeSeasonDungeonPool.canonicalSlugs;
   const selectionFilter =
-    activeDungeonSlugs.length > 0 ? { allowedDungeonSlugs: activeDungeonSlugs } : {};
+    activeDungeonSlugs.length > 0
+      ? { allowedDungeonSlugs: activeDungeonSlugs }
+      : { allowedDungeonSlugs: CURRENT_MPLUS_ZONE_DUNGEON_SLUGS };
   let scoringRunSelection = selectScoringRuns(scoringCandidates, {
     seasonSlug: season.slug,
     expectedDungeonCount,
@@ -1219,6 +1313,10 @@ export async function runRefreshPipeline(
       combatFactsCount: combatFactsList.length,
       dungeonAggregateCount: wclDungeonAggregates.length,
     });
+    const performanceOkForSuccess =
+      wclPerformanceRecord?.state === "OK" ||
+      wclPerformanceRecord?.state === "SKIPPED" ||
+      wclPerformanceRecord == null;
     const visibilitySummary = {
       wclVisibility,
       wclDataState,
@@ -1231,15 +1329,24 @@ export async function runRefreshPipeline(
       reconciledDeletedRuns: reconcileResult.deletedRunCount,
       prunedOtherSeasonParticipations: seasonPrune.detachedParticipations,
       prunedOtherSeasonRuns: seasonPrune.deletedRuns,
+      performanceState: wclPerformanceRecord?.state ?? null,
+      performanceAdapterVersion: POINTS_AND_DAMAGE_ADAPTER_VERSION,
+      rejectedLegacyCache: wclRejectedLegacyCache,
     };
     // Always persist character-level provider visibility (including zero matched runs).
+    // Preserve Performance success gating — do not stamp lastSuccessAt over a failed PAD fetch.
     await repositories.providerState.upsert({
       characterId: character.id,
       provider: "warcraftlogs",
-      state: mapWclVisibilityToState(wclVisibility, wclDataState),
+      state: performanceOkForSuccess
+        ? mapWclVisibilityToState(wclVisibility, wclDataState)
+        : "UNAVAILABLE",
+      detail: performanceOkForSuccess
+        ? undefined
+        : `points_and_damage Performance unavailable (${wclPerformanceRecord?.state ?? "missing"})`,
       wclVisibility,
       lastAttemptAt: now,
-      lastSuccessAt: now,
+      ...(performanceOkForSuccess ? { lastSuccessAt: now } : {}),
       fetchedAt: now,
       metadata: visibilitySummary,
     });
@@ -1500,6 +1607,17 @@ export async function runRefreshPipeline(
     },
   } as ScoreModelConfig;
 
+  const refreshContract = buildRefreshContract({
+    scoringModelKey: model.key,
+    scoringModelVersion: model.version,
+    activeSeasonId: season.slug,
+    env: process.env,
+    allowFixtureZoneDefault:
+      container.env.APP_ENV === "test" ||
+      container.env.NODE_ENV === "test" ||
+      container.env.PROVIDER_MODE === "fixture",
+  });
+
   const scoreDto = container.calculateScore({
     characterId: character.id,
     seasonSlug: season.slug,
@@ -1508,7 +1626,11 @@ export async function runRefreshPipeline(
     scopeKey: null,
     observations,
     calculatedAt: now.toISOString(),
-    inputFingerprint: fingerprintObservations(character.id, model.key, model.version, observations),
+    inputFingerprint: fingerprintObservations(character.id, model.key, model.version, observations, {
+      refreshContract,
+      scoringRunSelectionKey: buildScoringRunSelectionKey(scoringRunSelection.selectedRuns),
+      forceRefreshToken: jobPayload.forceRefresh ? jobPayload.requestedAt : null,
+    }),
     context: {
       role: character.role ?? blizzardProfile?.role ?? raiderIoProfile?.role ?? "DPS",
       freshness,
@@ -1516,6 +1638,7 @@ export async function runRefreshPipeline(
       wclVisibility,
       matchedWclRunCount: combatFactsList.length,
       authenticity: authenticityFeatures,
+      mechanicCatalogVersion: refreshContract.mechanicCatalogVersion,
     },
   });
   logger.info(
@@ -1606,6 +1729,8 @@ export async function runRefreshPipeline(
           rawZoneRankingsPointsAndDamage: wclPerformanceRecord?.raw ?? null,
           abilityCatalog: catalogDiagnostics,
           historyMode: "CHARACTER_HISTORY",
+          refreshContract,
+          refreshContractHash: hashRefreshContract(refreshContract),
         }
       : scoreDto.explanation;
 

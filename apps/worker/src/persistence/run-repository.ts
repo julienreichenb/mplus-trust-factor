@@ -58,12 +58,24 @@ export async function ensureBlizzardCurrentSeason(
   });
 
   if (existing) {
+    const previousMeta =
+      existing.metadata && typeof existing.metadata === "object"
+        ? (existing.metadata as Record<string, unknown>)
+        : {};
     return client.season.update({
       where: { id: existing.id },
       data: {
         isCurrent: true,
         name: `Blizzard Season ${blizzardSeasonId}`,
-        metadata: { blizzardSeasonId, source: "blizzard" },
+        metadata: {
+          ...previousMeta,
+          blizzardSeasonId,
+          source: "blizzard",
+          // Preserve or seed active dungeon slugs so Icecrown cannot re-enter selection.
+          dungeonSlugs: Array.isArray(previousMeta.dungeonSlugs)
+            ? previousMeta.dungeonSlugs
+            : undefined,
+        },
       },
     });
   }
@@ -555,6 +567,7 @@ export function createRunRepository(prisma: PrismaClient): RunRepository {
         await prisma.$transaction(async (tx) => {
           await tx.runParticipant.deleteMany({ where: { runId: orphan.id } });
           await tx.runAnalysis.deleteMany({ where: { runId: orphan.id } });
+          await tx.scoreAnalysisBatchRun.deleteMany({ where: { runId: orphan.id } });
           await tx.metricObservation.updateMany({
             where: { runId: orphan.id },
             data: { runId: null },
@@ -600,6 +613,7 @@ export function createRunRepository(prisma: PrismaClient): RunRepository {
         await prisma.$transaction(async (tx) => {
           await tx.runSourceReference.deleteMany({ where: { runId } });
           await tx.runAnalysis.deleteMany({ where: { runId } });
+          await tx.scoreAnalysisBatchRun.deleteMany({ where: { runId } });
           await tx.metricObservation.updateMany({ where: { runId }, data: { runId: null } });
           await tx.characterRedFlag.updateMany({ where: { runId }, data: { runId: null } });
           await tx.ingestionJob.updateMany({ where: { runId }, data: { runId: null } });
