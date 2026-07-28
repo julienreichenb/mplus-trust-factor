@@ -253,6 +253,26 @@ export interface WarcraftLogsProvider {
     fightId: number,
     ctx: ProviderFetchContext,
   ): Promise<ProviderResult<unknown>>;
+  fetchSurvivalHealthSnapshots?(
+    input: { reportCode: string; fightId: number; sourceId: number },
+    ctx: ProviderFetchContext,
+  ): Promise<ProviderResult<{
+    snapshots: Array<{
+      timestamp: number;
+      currentHp: number | null;
+      maxHp: number | null;
+      absorb: number | null;
+      path: string;
+      dataType: string;
+      abilityGameID: number | null;
+      sourceID: number | null;
+      targetID: number | null;
+      eventType: string | null;
+    }>;
+    truncated: boolean;
+    eventCount: number;
+    events?: Array<Record<string, unknown>>;
+  }>>;
   /** Optional Wave 3 character-level discovery summary (visibility without requiring runs). */
   discoverCharacterSummary?(
     identity: CharacterIdentityInput,

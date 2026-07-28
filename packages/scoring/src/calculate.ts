@@ -1,26 +1,20 @@
-import type {
-  DimensionScoreDTO,
-  ScoreModelConfig,
-  ScoreSnapshotDTO,
-} from "@mplus/contracts";
+import type { DimensionScoreDTO, ScoreModelConfig, ScoreSnapshotDTO } from "@mplus/contracts";
 import { calculateAuthenticity } from "./authenticity.js";
 import { calculateDimensionScores } from "./dimensions.js";
 import { explainScore } from "./explain.js";
 import { computeInputFingerprint } from "./fingerprint.js";
 import { calculateMetricScores } from "./metrics.js";
-import { createDefaultModelV1, createDefaultModelV2, createDefaultModelV3 } from "./model/defaults.js";
+import {
+  createDefaultModelV1,
+  createDefaultModelV2,
+  createDefaultModelV3,
+  createDefaultModelV4,
+} from "./model/defaults.js";
 import { presentDimensionScores } from "./present.js";
-import type {
-  CalculateScoreEngineInput,
-  ScoreModelConfigV1,
-  ScoringContext,
-} from "./types.js";
+import type { CalculateScoreEngineInput, ScoreModelConfigV1, ScoringContext } from "./types.js";
 import { calculateFinalTrust, calculateOverallConfidence, calculateSkillScore } from "./trust.js";
 import { validateScoreModelConfig } from "./validate.js";
-import {
-  computeModelCoverage,
-  filterPublicSkillDimensions,
-} from "./model-coverage.js";
+import { computeModelCoverage, filterPublicSkillDimensions } from "./model-coverage.js";
 
 /** Backward-compatible placeholder input shape used by foundation stubs. */
 export interface CalculateScoreInput {
@@ -35,15 +29,19 @@ export interface CalculateScoreInput {
   context?: ScoringContext;
 }
 
-function coerceModel(
-  model: CalculateScoreInput["model"],
-): ScoreModelConfigV1 {
+function coerceModel(model: CalculateScoreInput["model"]): ScoreModelConfigV1 {
   // Always merge through defaults so seeded/slim DB configs (metricWeights without
   // normalization/confidenceBlend/etc.) remain valid ScoreModelConfigV1 documents.
   const partial = model as Partial<ScoreModelConfigV1> & ScoreModelConfig;
   const version = partial.version ?? 1;
   const factory =
-    version >= 3 ? createDefaultModelV3 : version >= 2 ? createDefaultModelV2 : createDefaultModelV1;
+    version >= 4
+      ? createDefaultModelV4
+      : version >= 3
+        ? createDefaultModelV3
+        : version >= 2
+          ? createDefaultModelV2
+          : createDefaultModelV1;
   return factory({
     key: partial.key,
     version: partial.version,
@@ -108,9 +106,7 @@ export function calculateScoreEngine(input: CalculateScoreEngineInput): ScoreSna
   });
   const modelCoverage = computeModelCoverage(dimensions, model);
   const finalTrust =
-    modelCoverage.overallState === "PROVISIONAL"
-      ? { ...trust, grade: "U" as const }
-      : trust;
+    modelCoverage.overallState === "PROVISIONAL" ? { ...trust, grade: "U" as const } : trust;
   const explanation = explainScore({
     dimensions,
     authenticity,
@@ -262,9 +258,7 @@ export function calculateScoreEngine(input: CalculateScoreEngineInput): ScoreSna
   };
 }
 
-function dedupeFlags(
-  flags: ScoreSnapshotDTO["redFlags"],
-): ScoreSnapshotDTO["redFlags"] {
+function dedupeFlags(flags: ScoreSnapshotDTO["redFlags"]): ScoreSnapshotDTO["redFlags"] {
   const seen = new Set<string>();
   const out: ScoreSnapshotDTO["redFlags"] = [];
   for (const flag of flags) {

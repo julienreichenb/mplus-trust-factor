@@ -14,6 +14,7 @@ import type {
   EquipmentItemDTO,
   EquipmentSummary,
   PerformanceSummaryDTO,
+  SurvivalSummaryPublicDTO,
   ProfileEntitlements,
   ProfileWarning,
   RefreshContractStaleReason,
@@ -57,6 +58,7 @@ export interface CharacterEnrichmentInput {
   selectedRunCoverage?: number | null;
   runCoverageById?: Record<string, number | null>;
   performanceSummary?: PerformanceSummaryDTO | null;
+  survivalSummary?: SurvivalSummaryPublicDTO | null;
   scoringRunSelection?: ScoringRunSelection | null;
   selectedRunCount?: number | null;
   detailedRunCount?: number | null;
@@ -383,6 +385,7 @@ export function buildProfileEnrichments(input: CharacterEnrichmentInput): Pick<
   | "media"
   | "seasonSummary"
   | "performanceSummary"
+  | "survivalSummary"
   | "selectedRuns"
   | "selectedRunCount"
   | "detailedRunCount"
@@ -408,6 +411,7 @@ export function buildProfileEnrichments(input: CharacterEnrichmentInput): Pick<
     selectedRunCoverage,
     runCoverageById,
     performanceSummary = null,
+    survivalSummary = null,
     scoringRunSelection = null,
     selectedRunCount = null,
     detailedRunCount = null,
@@ -493,6 +497,7 @@ export function buildProfileEnrichments(input: CharacterEnrichmentInput): Pick<
     media,
     seasonSummary,
     performanceSummary: performanceSummary ?? null,
+    survivalSummary: survivalSummary ?? null,
     selectedRuns,
     selectedRunCount: selectedRunCount ?? canonicalScoringRunSelection?.selectedRuns.length ?? selectedRuns.length,
     detailedRunCount:

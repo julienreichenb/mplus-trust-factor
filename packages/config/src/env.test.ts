@@ -18,7 +18,7 @@ describe("loadEnv", () => {
     expect(env.PROVIDER_MODE).toBe("fixture");
     expect(env.API_PORT).toBe(3000);
     expect(env.ACTIVE_SCORE_MODEL_KEY).toBe("default");
-    expect(env.ACTIVE_SCORE_MODEL_VERSION).toBe(3);
+    expect(env.ACTIVE_SCORE_MODEL_VERSION).toBe(4);
     expect(env.BLIZZARD_ENABLED).toBe(true);
     expect(env.WCL_ENABLED).toBe(true);
     expect(env.RAIDERIO_ENABLED).toBe(true);

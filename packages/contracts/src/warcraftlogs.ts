@@ -22,7 +22,8 @@ export type WclDataState =
   | "RATE_LIMITED";
 
 /** How WCL contributed observations to the current score snapshot. */
-export type WclContributionType = "ZONE_RANKINGS" | "COMBAT_FACTS" | "PERFORMANCE";
+export type WclContributionType =
+  "ZONE_RANKINGS" | "COMBAT_FACTS" | "COMBAT_EVENTS" | "PERFORMANCE" | "SURVIVAL";
 
 export interface WclProvenance {
   /** Explicit profile visibility; null when discovery failed / unknown. */
@@ -172,7 +173,11 @@ export function refineWclDataState(input: {
 
 /** Infer public-safe WCL contribution kinds from score observations. */
 export function deriveWclContributionTypes(
-  observations: Array<{ sourceProvider?: string | null; context?: unknown; metricKey?: string | null }>,
+  observations: Array<{
+    sourceProvider?: string | null;
+    context?: unknown;
+    metricKey?: string | null;
+  }>,
 ): WclContributionType[] {
   const types = new Set<WclContributionType>();
   for (const obs of observations) {
@@ -191,11 +196,21 @@ export function deriveWclContributionTypes(
       continue;
     }
     if (
+      key === "survival.outcome" ||
+      key === "survival.defensive_response" ||
+      key === "survival.emergency_recovery"
+    ) {
+      types.add("SURVIVAL");
+      types.add("COMBAT_EVENTS");
+      continue;
+    }
+    if (
       key.startsWith("survival.") ||
       key.startsWith("utility.") ||
       (typeof derivedFrom === "string" && derivedFrom.includes("combat"))
     ) {
       types.add("COMBAT_FACTS");
+      types.add("COMBAT_EVENTS");
     }
   }
   return [...types];

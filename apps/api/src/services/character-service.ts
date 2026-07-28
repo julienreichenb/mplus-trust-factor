@@ -136,6 +136,15 @@ function readPerformanceSummary(explanation: unknown): PerformanceSummaryDTO | n
   return summary as PerformanceSummaryDTO;
 }
 
+function readSurvivalSummary(
+  explanation: unknown,
+): import("@mplus/contracts").SurvivalSummaryPublicDTO | null {
+  if (!explanation || typeof explanation !== "object") return null;
+  const summary = (explanation as { survivalSummary?: unknown }).survivalSummary;
+  if (!summary || typeof summary !== "object") return null;
+  return summary as import("@mplus/contracts").SurvivalSummaryPublicDTO;
+}
+
 function readScoringRunSelection(explanation: unknown): import("@mplus/contracts").ScoringRunSelection | null {
   if (!explanation || typeof explanation !== "object") return null;
   const selection = (explanation as { scoringRunSelection?: unknown }).scoringRunSelection;
@@ -309,6 +318,7 @@ export class CharacterService {
     const freshness = readFreshness(snapshot?.explanation);
     const selectedRunCoverage = readSelectedRunCoverage(snapshot?.explanation);
     const performanceSummary = readPerformanceSummary(snapshot?.explanation);
+    const survivalSummary = readSurvivalSummary(snapshot?.explanation);
     const scoringRunSelection = readScoringRunSelection(snapshot?.explanation);
     const coverageCounts = readCoverageCounts(snapshot?.explanation);
     const wclContributionTypes = deriveWclContributionTypes(
@@ -399,6 +409,7 @@ export class CharacterService {
         selectedRunCoverage,
         runCoverageById,
         performanceSummary,
+        survivalSummary,
         scoringRunSelection,
         selectedRunCount: coverageCounts.selectedRunCount,
         detailedRunCount: coverageCounts.detailedRunCount,

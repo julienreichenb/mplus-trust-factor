@@ -234,6 +234,23 @@ export class FixtureWarcraftLogsProvider implements WarcraftLogsProvider {
     );
   }
 
+  async fetchSurvivalHealthSnapshots(
+    input: { reportCode: string; fightId: number; sourceId: number },
+    ctx: ProviderFetchContext,
+  ) {
+    return emptyProviderResult(
+      {
+        snapshots: [],
+        truncated: false,
+        eventCount: 0,
+        events: [],
+      },
+      "fetchSurvivalHealthSnapshots",
+      `fixture-survival-health-${input.reportCode}-${input.fightId}-${input.sourceId}`,
+      ctx,
+    );
+  }
+
   discoverCharacter(
     identity: CharacterIdentityInput,
     ctx: ProviderFetchContext,

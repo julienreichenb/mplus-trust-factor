@@ -249,6 +249,7 @@ export const characterProfileResponseSchema = {
     media: { anyOf: [characterMediaSchema, { type: "null" }] },
     seasonSummary: {},
     performanceSummary: {},
+    survivalSummary: {},
     entitlements: {},
     warnings: { type: "array" },
     raiderIoUsed: { type: "boolean" },

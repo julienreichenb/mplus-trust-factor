@@ -40,7 +40,7 @@ describe("WCL provenance contract", () => {
     expect(refined).toBe("NO_MATCHED_RUN");
   });
 
-  it("derives contribution types from zone rankings and combat facts", () => {
+  it("derives contribution types from zone rankings, survival, and combat facts", () => {
     expect(
       deriveWclContributionTypes([
         {
@@ -50,10 +50,15 @@ describe("WCL provenance contract", () => {
         },
         {
           sourceProvider: "warcraftlogs",
-          metricKey: "survival.death_rate",
+          metricKey: "survival.defensive_response",
+          context: { derivedFrom: "combat_facts" },
+        },
+        {
+          sourceProvider: "warcraftlogs",
+          metricKey: "utility.interrupt_success",
           context: { derivedFrom: "combat_facts" },
         },
       ]),
-    ).toEqual(["PERFORMANCE", "ZONE_RANKINGS", "COMBAT_FACTS"]);
+    ).toEqual(["PERFORMANCE", "ZONE_RANKINGS", "SURVIVAL", "COMBAT_EVENTS", "COMBAT_FACTS"]);
   });
 });

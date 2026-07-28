@@ -263,6 +263,8 @@ export function detectV1_1DangerTriggers(input: {
   timeline: HealthTimeline | null;
   deaths: ReturnType<typeof filterInFightPlayerDeaths>;
   config?: SurvivalStandaloneV1_1Config;
+  /** Per-timestamp max HP (e.g. temporary Dark Pact). Falls back to baseline maxHp. */
+  resolveMaxHp?: (timestamp: number) => number | null;
 }): TriggerPoint[] {
   const config = input.config ?? SURVIVAL_STANDALONE_V1_1_CONFIG;
   const triggers: TriggerPoint[] = [];
@@ -271,11 +273,19 @@ export function detectV1_1DangerTriggers(input: {
     .sort((a, b) => (a.timestamp ?? 0) - (b.timestamp ?? 0));
 
   const points = input.timeline?.points ?? [];
+  const resolveMaxHp = (timestamp: number): number | null => {
+    const resolved = input.resolveMaxHp?.(timestamp) ?? input.maxHp;
+    return resolved != null && resolved > 0 ? resolved : null;
+  };
 
-  if (input.maxHp != null && input.maxHp > 0) {
-    const maxHp = input.maxHp;
+  const canDetectHpTriggers =
+    (input.maxHp != null && input.maxHp > 0) || input.resolveMaxHp != null;
+
+  if (canDetectHpTriggers) {
     for (const event of events) {
       const ts = event.timestamp!;
+      const maxHp = resolveMaxHp(ts);
+      if (maxHp == null) continue;
       const amount = Math.max(0, event.amount ?? 0);
       const at = hpAtTimeline(points, ts);
       const before = hpAtTimeline(points, ts - 1);
@@ -320,6 +330,8 @@ export function detectV1_1DangerTriggers(input: {
     let sum = 0;
     for (let right = 0; right < events.length; right += 1) {
       const endTs = events[right]!.timestamp!;
+      const maxHp = resolveMaxHp(endTs);
+      if (maxHp == null) continue;
       sum += Math.max(0, events[right]!.amount ?? 0);
       while (left <= right && endTs - events[left]!.timestamp! > config.danger.rollingWindowMs) {
         sum -= Math.max(0, events[left]!.amount ?? 0);
@@ -345,6 +357,8 @@ export function detectV1_1DangerTriggers(input: {
     }
 
     for (const p of points) {
+      const maxHp = resolveMaxHp(p.timestamp);
+      if (maxHp == null) continue;
       if (p.currentHp <= maxHp * config.danger.lowHpRatio) {
         const already = triggers.some(
           (t) => t.type === "LOW_HP" && Math.abs(t.timestamp - p.timestamp) <= 50,
@@ -400,6 +414,8 @@ export function scoreSurvivalV1_1Run(input: {
   healthTimeline: HealthTimeline | null;
   eventPagesComplete: boolean;
   config?: SurvivalStandaloneV1_1Config;
+  /** Per-timestamp max HP override for danger detection (V1.1.1 hardened path). */
+  resolveMaxHp?: (timestamp: number) => number | null;
 }): {
   runScore: SurvivalV1_1RunScore;
   dangerWindows: SurvivalV1_1DangerWindowAudit[];
@@ -425,6 +441,7 @@ export function scoreSurvivalV1_1Run(input: {
     timeline,
     deaths: inFightDeaths,
     config,
+    resolveMaxHp: input.resolveMaxHp,
   });
   const merged = mergeDangerWindows(triggers, config.danger.mergeGapMs);
 

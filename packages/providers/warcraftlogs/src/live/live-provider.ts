@@ -58,6 +58,7 @@ import {
   type MplusZoneConfig,
 } from "../discovery/mplus-zone.js";
 import { buildRunCombatFactsFromEvents } from "../analysis/event-fetcher.js";
+import { fetchDamageTakenWithResources } from "../analysis/survival-run-analysis.js";
 import { ReportRevisionCache } from "../analysis/revision-cache.js";
 import {
   evaluateRateBudget,
@@ -383,6 +384,26 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
       }
       throw error;
     }
+  }
+
+  async fetchSurvivalHealthSnapshots(
+    input: { reportCode: string; fightId: number; sourceId: number },
+    ctx: ProviderFetchContext,
+  ) {
+    const result = await fetchDamageTakenWithResources(this.client, input);
+    return providerEnvelope(
+      {
+        snapshots: result.snapshots.map(({ rawFragment: _rawFragment, ...snapshot }) => snapshot),
+        truncated: result.truncated,
+        eventCount: result.events.length,
+        events: result.events,
+      },
+      "fetchSurvivalHealthSnapshots",
+      `live-survival-health-${input.reportCode}-${input.fightId}-${input.sourceId}`,
+      ctx,
+      null,
+      this.config.env.WCL_CHARACTER_TTL_SECONDS,
+    );
   }
 
   async fetchRateLimit(_ctx: ProviderFetchContext) {
