@@ -82,7 +82,7 @@ export function createProviderStateRepository(prisma: PrismaClient): ProviderSta
     async upsert(input) {
       const provider = providerNameToDb(input.provider) as Provider;
       const state = input.state as ProviderLifecycleState;
-      const data = {
+      const data: Prisma.CharacterProviderStateUpdateInput = {
         state,
         detail: input.detail ?? null,
         warnings: (input.warnings ?? []) as Prisma.InputJsonValue,
@@ -90,11 +90,13 @@ export function createProviderStateRepository(prisma: PrismaClient): ProviderSta
         excludedObservations: (input.excludedObservations ?? []) as unknown as Prisma.InputJsonValue,
         wclVisibility: input.wclVisibility ?? null,
         lastAttemptAt: input.lastAttemptAt,
-        lastSuccessAt: input.lastSuccessAt ?? null,
         fetchedAt: input.fetchedAt ?? null,
         expiresAt: input.expiresAt ?? null,
         metadata: (input.metadata ?? {}) as Prisma.InputJsonValue,
       };
+      if (input.lastSuccessAt !== undefined) {
+        data.lastSuccessAt = input.lastSuccessAt;
+      }
 
       return prisma.characterProviderState.upsert({
         where: {
@@ -106,7 +108,17 @@ export function createProviderStateRepository(prisma: PrismaClient): ProviderSta
         create: {
           characterId: input.characterId,
           provider,
-          ...data,
+          state,
+          detail: input.detail ?? null,
+          warnings: (input.warnings ?? []) as Prisma.InputJsonValue,
+          disagreements: (input.disagreements ?? []) as unknown as Prisma.InputJsonValue,
+          excludedObservations: (input.excludedObservations ?? []) as unknown as Prisma.InputJsonValue,
+          wclVisibility: input.wclVisibility ?? null,
+          lastAttemptAt: input.lastAttemptAt,
+          lastSuccessAt: input.lastSuccessAt ?? null,
+          fetchedAt: input.fetchedAt ?? null,
+          expiresAt: input.expiresAt ?? null,
+          metadata: (input.metadata ?? {}) as Prisma.InputJsonValue,
         },
         update: data,
       });

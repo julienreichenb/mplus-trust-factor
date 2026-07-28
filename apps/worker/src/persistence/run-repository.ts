@@ -58,12 +58,24 @@ export async function ensureBlizzardCurrentSeason(
   });
 
   if (existing) {
+    const previousMeta =
+      existing.metadata && typeof existing.metadata === "object"
+        ? (existing.metadata as Record<string, unknown>)
+        : {};
     return client.season.update({
       where: { id: existing.id },
       data: {
         isCurrent: true,
         name: `Blizzard Season ${blizzardSeasonId}`,
-        metadata: { blizzardSeasonId, source: "blizzard" },
+        metadata: {
+          ...previousMeta,
+          blizzardSeasonId,
+          source: "blizzard",
+          // Preserve or seed active dungeon slugs so Icecrown cannot re-enter selection.
+          dungeonSlugs: Array.isArray(previousMeta.dungeonSlugs)
+            ? previousMeta.dungeonSlugs
+            : undefined,
+        },
       },
     });
   }

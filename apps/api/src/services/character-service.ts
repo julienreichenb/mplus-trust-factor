@@ -27,7 +27,7 @@ import {
   type CharacterSourceAttribution,
   type RunSummaryDTO,
 } from "../lib/mappers.js";
-import { applyProfileWarnings, buildProfileEnrichments, toPublicProviderKey } from "../lib/profile-enrichment.js";
+import { applyProfileWarnings, buildProfileEnrichments, isScoreStaleVersusProviders, toPublicProviderKey } from "../lib/profile-enrichment.js";
 import { characterCacheKey } from "../lib/response-cache.js";
 
 const ALL_PROVIDERS: ProviderName[] = ["blizzard", "raiderio", "warcraftlogs"];
@@ -433,8 +433,29 @@ export class CharacterService {
       }),
       fresh ? "FRESH" : "STALE",
     );
+
+    // Never present fresh provider timestamps alongside an older score without marking STALE.
+    if (
+      body.refreshStatus === "FRESH" &&
+      isScoreStaleVersusProviders(body.score?.calculatedAt, body.providerStates)
+    ) {
+      body.refreshStatus = "STALE";
+      if (!body.warnings?.some((w) => w.code === "SCORE_STALE_VS_PROVIDERS")) {
+        body.warnings = [
+          ...(body.warnings ?? []),
+          {
+            code: "SCORE_STALE_VS_PROVIDERS",
+            message:
+              "Provider data is newer than the published score snapshot — score may not reflect the latest Performance refresh.",
+            severity: "WARN",
+          },
+        ];
+      }
+      await this.enqueueRefresh(identity, character, false, opts.correlationId);
+    }
+
     const result: GetProfileResult = { statusCode: 200, body };
-    if (fresh) {
+    if (body.refreshStatus === "FRESH") {
       this.container.responseCache.set(cacheKey, result);
     }
     return result;

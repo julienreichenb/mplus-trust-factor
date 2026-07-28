@@ -22,10 +22,12 @@ import {
 } from "../discovery/run-discovery.js";
 import {
   adaptPointsAndDamagePerformance,
+  buildWclSummaryRequestFingerprint,
   pointsAndDamageErrorRecord,
+  POINTS_AND_DAMAGE_ADAPTER_VERSION,
 } from "../discovery/points-and-damage-performance.js";
 import { parseJsonScalar } from "../probe/performance-probe-logic.js";
-import { FIXTURE_MPLUS_ZONE_ID } from "../discovery/mplus-zone.js";
+import { FIXTURE_MPLUS_ZONE_ID, resolveMplusZoneConfig } from "../discovery/mplus-zone.js";
 import {
   characterResolveSchema,
   parseWithSchema,
@@ -174,7 +176,18 @@ export class FixtureWarcraftLogsProvider implements WarcraftLogsProvider {
     }>
   > {
     const discovery = this.discoverCharacter(identity, ctx);
-    return emptyProviderResult(
+    const zoneId = resolveMplusZoneConfig({
+      env: process.env,
+      allowFixtureDefault: true,
+    }).zoneId;
+    const fingerprint = buildWclSummaryRequestFingerprint({
+      region: identity.region,
+      realmSlug: identity.realmSlug,
+      name: identity.name,
+      zoneId,
+      partition: null,
+    });
+    const envelope = emptyProviderResult(
       {
         visibility: discovery.summary.visibility,
         dataState: discovery.summary.dataState,
@@ -184,9 +197,20 @@ export class FixtureWarcraftLogsProvider implements WarcraftLogsProvider {
         rawZoneRankingsPointsAndDamage: discovery.performance?.raw ?? null,
       },
       "discoverCharacterSummary",
-      `fixture-summary-${identity.name}`,
+      fingerprint,
       ctx,
     );
+    return {
+      ...envelope,
+      provenance: {
+        ...envelope.provenance,
+        schemaVersion: POINTS_AND_DAMAGE_ADAPTER_VERSION,
+      },
+      metadata: {
+        ...envelope.metadata,
+        requestFingerprint: fingerprint,
+      },
+    };
   }
 
   async getReportFightDetails(

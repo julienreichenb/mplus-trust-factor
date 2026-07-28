@@ -254,6 +254,7 @@ function buildWarnings(
   score: CharacterProfileResponse["score"],
   wclVisibility: WclVisibilityState | null,
   wclDataState: WclDataState | null,
+  providerStates?: CharacterProviderStateDTO[] | null,
 ): ProfileWarning[] {
   const warnings: ProfileWarning[] = [];
   if (score?.grade === "U" || (score && score.confidence < 0.35)) {
@@ -262,6 +263,22 @@ function buildWarnings(
       message: "Data incomplete — confidence is too low for a reliable grade (UNRATED).",
       severity: "WARN",
     });
+  }
+  const scoreCalculatedAtMs = score?.calculatedAt ? Date.parse(score.calculatedAt) : NaN;
+  if (Number.isFinite(scoreCalculatedAtMs) && providerStates && providerStates.length > 0) {
+    const newerProvider = providerStates.find((state) => {
+      if (!state.fetchedAt) return false;
+      const fetchedMs = Date.parse(state.fetchedAt);
+      return Number.isFinite(fetchedMs) && fetchedMs > scoreCalculatedAtMs + 1_000;
+    });
+    if (newerProvider) {
+      warnings.push({
+        code: "SCORE_STALE_VS_PROVIDERS",
+        message:
+          "Provider data is newer than the published score snapshot — score may not reflect the latest Performance refresh.",
+        severity: "WARN",
+      });
+    }
   }
   if (score?.redFlags.some((f) => f.key === "logs_hidden") || wclVisibility === "HIDDEN") {
     warnings.push({
@@ -489,6 +506,26 @@ export function applyProfileWarnings(
 ): ReturnType<typeof buildProfileEnrichments> {
   return {
     ...enrichments,
-    warnings: buildWarnings(score, enrichments.wclVisibility ?? null, enrichments.wclDataState ?? null),
+    warnings: buildWarnings(
+      score,
+      enrichments.wclVisibility ?? null,
+      enrichments.wclDataState ?? null,
+      enrichments.providerStates,
+    ),
   };
+}
+
+/** True when any provider fetch is meaningfully newer than the published score. */
+export function isScoreStaleVersusProviders(
+  scoreCalculatedAt: string | null | undefined,
+  providerStates: Array<{ fetchedAt?: string | null }> | null | undefined,
+): boolean {
+  if (!scoreCalculatedAt || !providerStates?.length) return false;
+  const scoreMs = Date.parse(scoreCalculatedAt);
+  if (!Number.isFinite(scoreMs)) return false;
+  return providerStates.some((state) => {
+    if (!state.fetchedAt) return false;
+    const fetchedMs = Date.parse(state.fetchedAt);
+    return Number.isFinite(fetchedMs) && fetchedMs > scoreMs + 1_000;
+  });
 }

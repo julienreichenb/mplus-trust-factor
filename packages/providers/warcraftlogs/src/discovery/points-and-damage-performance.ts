@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   mergePointsAndDamage,
   normalizePointsAndDamage,
@@ -10,6 +11,10 @@ import type { WclDungeonPerformanceAggregate } from "../types.js";
  * Throughput Best%/Median%/DPS come from throughputRankings only.
  * WCL does not expose throughputSampleCount on this payload — confidence uses displayedRunCount.
  */
+
+/** Bump when the summary adapter contract changes (cache / fingerprint invalidation). */
+export const POINTS_AND_DAMAGE_ADAPTER_VERSION = "points-and-damage-v1";
+export const POINTS_AND_DAMAGE_METRIC = "points_and_damage" as const;
 
 export type PointsAndDamagePerformanceState =
   | "OK"
@@ -26,7 +31,8 @@ export interface PointsAndDamageUnavailableEncounter {
 }
 
 export interface PointsAndDamagePerformanceDiagnostics {
-  metric: "points_and_damage";
+  adapterVersion: typeof POINTS_AND_DAMAGE_ADAPTER_VERSION;
+  metric: typeof POINTS_AND_DAMAGE_METRIC;
   provenance: "AGGREGATE_ZONE_RANKINGS";
   /** Score calibration fields kept for later; not used in Performance score. */
   ratingPointsExcludedFromScore: true;
@@ -47,6 +53,8 @@ export interface PointsAndDamagePerformanceDiagnostics {
 
 export interface PointsAndDamagePerformanceRecord {
   state: PointsAndDamagePerformanceState;
+  adapterVersion: typeof POINTS_AND_DAMAGE_ADAPTER_VERSION;
+  metric: typeof POINTS_AND_DAMAGE_METRIC;
   /** Complete raw zoneRankings JSON (audit / ExternalPayload). */
   raw: unknown;
   dungeonAggregates: WclDungeonPerformanceAggregate[];
@@ -80,15 +88,71 @@ export function isPointsAndDamageSchema(raw: unknown): boolean {
     isRecord(raw.throughputRankings) || Array.isArray(raw.throughputRankings);
   const hasRankings = Array.isArray(raw.rankings);
   if (metric === "points_and_damage") return hasRankings || hasThroughputMap;
-  // Unlabeled payload: require both score rankings and throughputRankings.
   return hasRankings && hasThroughputMap;
+}
+
+/**
+ * Cached / persisted WCL character-summary envelope is usable for Performance only when
+ * it carries a successful points_and_damage adapter record (or raw that adapts cleanly).
+ */
+export function isCompatiblePointsAndDamageSummary(payload: unknown): boolean {
+  if (!isRecord(payload)) return false;
+
+  const performance = payload.performance;
+  if (isRecord(performance)) {
+    const adapterVersion = performance.adapterVersion;
+    if (
+      adapterVersion != null &&
+      adapterVersion !== POINTS_AND_DAMAGE_ADAPTER_VERSION
+    ) {
+      return false;
+    }
+    if (performance.state === "OK") {
+      const aggregates = performance.dungeonAggregates;
+      if (Array.isArray(aggregates) && aggregates.length > 0) return true;
+    }
+    if (performance.state === "SCHEMA_UNSUPPORTED" || performance.state === "ERROR") {
+      return false;
+    }
+  }
+
+  const raw =
+    payload.rawZoneRankingsPointsAndDamage ??
+    (isRecord(performance) ? performance.raw : null);
+  if (raw == null) return false;
+  if (!isPointsAndDamageSchema(raw)) return false;
+  const adapted = adaptPointsAndDamagePerformance({ raw });
+  return adapted.state === "OK" && adapted.dungeonAggregates.length > 0;
+}
+
+/** Versioned ExternalRequest fingerprint for discoverCharacterSummary cache keys. */
+export function buildWclSummaryRequestFingerprint(input: {
+  region: string;
+  realmSlug: string;
+  name: string;
+  zoneId: number;
+  partition: number | null;
+}): string {
+  const material = [
+    "warcraftlogs",
+    "discoverCharacterSummary",
+    POINTS_AND_DAMAGE_ADAPTER_VERSION,
+    POINTS_AND_DAMAGE_METRIC,
+    String(input.zoneId),
+    input.partition == null ? "partition:current" : `partition:${input.partition}`,
+    input.region.toLowerCase(),
+    input.realmSlug.toLowerCase(),
+    input.name.toLowerCase(),
+  ].join("|");
+  return createHash("sha256").update(material, "utf8").digest("hex");
 }
 
 function emptyDiagnostics(
   overrides: Partial<PointsAndDamagePerformanceDiagnostics> = {},
 ): PointsAndDamagePerformanceDiagnostics {
   return {
-    metric: "points_and_damage",
+    adapterVersion: POINTS_AND_DAMAGE_ADAPTER_VERSION,
+    metric: POINTS_AND_DAMAGE_METRIC,
     provenance: "AGGREGATE_ZONE_RANKINGS",
     ratingPointsExcludedFromScore: true,
     keystoneLevelExcludedFromScore: true,
@@ -117,6 +181,8 @@ export function adaptPointsAndDamagePerformance(input: {
   if (raw == null) {
     return {
       state: "EMPTY",
+      adapterVersion: POINTS_AND_DAMAGE_ADAPTER_VERSION,
+      metric: POINTS_AND_DAMAGE_METRIC,
       raw: null,
       dungeonAggregates: [],
       normalized: null,
@@ -131,6 +197,8 @@ export function adaptPointsAndDamagePerformance(input: {
   if (!isPointsAndDamageSchema(raw)) {
     return {
       state: "SCHEMA_UNSUPPORTED",
+      adapterVersion: POINTS_AND_DAMAGE_ADAPTER_VERSION,
+      metric: POINTS_AND_DAMAGE_METRIC,
       raw,
       dungeonAggregates: [],
       normalized: null,
@@ -147,7 +215,6 @@ export function adaptPointsAndDamagePerformance(input: {
   const normalized = normalizePointsAndDamage(raw);
   const merged = mergePointsAndDamage(normalized);
 
-  // Valid dungeon rows: at least one execution percentile (never zero-fill missing).
   const validDungeons = merged.dungeons.filter(
     (d) =>
       (d.bestExecutionPercentile != null && Number.isFinite(d.bestExecutionPercentile)) ||
@@ -203,13 +270,14 @@ export function adaptPointsAndDamagePerformance(input: {
     });
   }
 
-  // Reject Icecrown / junk if present without valid percentiles (already filtered via validDungeons).
   const withoutIcecrown = dungeonAggregates.filter(
     (d) => !d.dungeonSlug.toLowerCase().includes("icecrown"),
   );
 
   return {
     state: "OK",
+    adapterVersion: POINTS_AND_DAMAGE_ADAPTER_VERSION,
+    metric: POINTS_AND_DAMAGE_METRIC,
     raw,
     dungeonAggregates: withoutIcecrown,
     normalized,
@@ -244,6 +312,8 @@ export function pointsAndDamageErrorRecord(
 ): PointsAndDamagePerformanceRecord {
   return {
     state,
+    adapterVersion: POINTS_AND_DAMAGE_ADAPTER_VERSION,
+    metric: POINTS_AND_DAMAGE_METRIC,
     raw,
     dungeonAggregates: [],
     normalized: null,

@@ -47,6 +47,19 @@ describe("dedupe keys", () => {
     );
   });
 
+  it("force refresh dedupe keys differ by requestedAt", () => {
+    const base = {
+      region: "EU",
+      realmSlug: "tarren-mill",
+      name: "Examplecharacter",
+      priority: "normal" as const,
+      forceRefresh: true,
+    };
+    expect(
+      refreshCharacterDedupeKey({ ...base, requestedAt: "2026-07-28T16:00:00.000Z" }),
+    ).not.toBe(refreshCharacterDedupeKey({ ...base, requestedAt: "2026-07-28T20:02:00.000Z" }));
+  });
+
   it("refreshCharacterDedupeKey differs by identity", () => {
     const base = {
       region: "EU",

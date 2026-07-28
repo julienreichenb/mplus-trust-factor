@@ -37,7 +37,9 @@ import {
 } from "../discovery/run-discovery.js";
 import {
   adaptPointsAndDamagePerformance,
+  buildWclSummaryRequestFingerprint,
   pointsAndDamageErrorRecord,
+  POINTS_AND_DAMAGE_ADAPTER_VERSION,
   type PointsAndDamagePerformanceRecord,
 } from "../discovery/points-and-damage-performance.js";
 import { parseJsonScalar } from "../probe/performance-probe-logic.js";
@@ -315,7 +317,16 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
     }>
   > {
     const discovery = await this.discoverCharacter(identity, ctx);
-    return providerEnvelope(
+    // Partition is part of the logical query identity as "current" — do not bind the
+    // cache key to the response partition value or legacy/current keys diverge.
+    const fingerprint = buildWclSummaryRequestFingerprint({
+      region: identity.region,
+      realmSlug: identity.realmSlug,
+      name: identity.name,
+      zoneId: this.zoneConfig.zoneId,
+      partition: null,
+    });
+    const envelope = providerEnvelope(
       {
         visibility: discovery.summary.visibility,
         dataState: discovery.summary.dataState,
@@ -325,11 +336,18 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
         rawZoneRankingsPointsAndDamage: discovery.performance?.raw ?? null,
       },
       "discoverCharacterSummary",
-      `live-summary-${identity.region}-${identity.realmSlug}-${identity.name}`,
+      fingerprint,
       ctx,
       null,
       this.config.env.WCL_CHARACTER_TTL_SECONDS,
     );
+    return {
+      ...envelope,
+      provenance: {
+        ...envelope.provenance,
+        schemaVersion: POINTS_AND_DAMAGE_ADAPTER_VERSION,
+      },
+    };
   }
 
   async getReportFightDetails(
