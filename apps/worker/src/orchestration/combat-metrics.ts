@@ -2,6 +2,7 @@ import type { MetricObservationDTO } from "@mplus/contracts";
 import type { RunCombatFacts } from "@mplus/provider-warcraftlogs";
 import type { AbilityCatalog } from "@mplus/abilities";
 import {
+  CURRENT_CATALOG_VERSION,
   effectiveKickCooldownMs,
   rulesForSpell,
   spellIdsForCategory,
@@ -51,6 +52,7 @@ export function extractMetricsFromCombatFacts(
     specSlug: context?.specSlug ?? null,
     catalog: context?.catalog ?? {
       catalogVersion: "empty",
+      version: CURRENT_CATALOG_VERSION,
       classSlug: null,
       specSlug: null,
       supported: false,
@@ -425,6 +427,7 @@ export function buildRunCombatAdminDiagnostics(
     specSlug: context?.specSlug ?? null,
     catalog: context?.catalog ?? {
       catalogVersion: "empty",
+      version: CURRENT_CATALOG_VERSION,
       classSlug: null,
       specSlug: null,
       supported: false,

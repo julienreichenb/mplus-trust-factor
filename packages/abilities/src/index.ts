@@ -1,29 +1,89 @@
 export type {
+  AbilityAvailability,
   AbilityCatalog,
   AbilityCatalogLookup,
+  AbilityCatalogVersion,
   AbilityCategory,
+  AbilityExternalMetadata,
+  AbilityProvenance,
   AbilityRole,
   AbilityRule,
+  ApplicableCategoryResult,
   CatalogCoverageDiagnostics,
+  CatalogCoverageReport,
+  CatalogSupportState,
+  CatalogValidationReport,
+  GetAbilityCatalogResult,
   LegacyAbilityCategory,
+  RetailClassDefinition,
+  RetailSpecDefinition,
+  ScoringAbilityCategory,
   SourceOwnership,
+  SpecCoverageRow,
+  ValidationIssue,
 } from "./types.js";
+
+export {
+  CATALOG_GAME_VERSION,
+  CATALOG_GENERATED_AT,
+  CATALOG_SEASON_SLUG,
+  CATALOG_SOURCE_SNAPSHOT,
+  CATALOG_VERIFIED_AT,
+  CURRENT_CATALOG_VERSION,
+  CURRENT_CATALOG_VERSION_ID,
+  HISTORICAL_CATALOG_VERSIONS,
+} from "./version.js";
+
+export {
+  RETAIL_CLASS_MATRIX,
+  findClassDefinition,
+  findSpecDefinition,
+} from "./catalog/classes-matrix.js";
+
+export {
+  RETAIL_ABILITY_CATALOG,
+  WARLOCK_DEMONOLOGY_CATALOG,
+  buildCatalog,
+  buildCatalogCoverageDiagnostics,
+  expandScoringCategory,
+  getAbilityCatalog,
+  getAllRegisteredRules,
+  getCatalogByVersion,
+  getRetailClassMatrix,
+  LEGACY_CATEGORY_MAP,
+  listSupportedCatalogs,
+  listSupportedClassSlugs,
+  normalizeCategory,
+  resolveAbilityCatalog,
+  resolveAbilityRule,
+} from "./registry.js";
+
 export {
   applicableCategories,
   effectiveKickCooldownMs,
-  normalizeCategory,
   ruleMatchesCategory,
   rulesForCategory,
   rulesForSpell,
   spellIdsForCategory,
 } from "./match.js";
-export { SHARED_CONSUMABLE_RULES, withSharedRules } from "./catalogs/shared.js";
-export { WARLOCK_DEMONOLOGY_CATALOG } from "./catalogs/warlock-demonology.js";
-export { WARRIOR_ARMS_CATALOG } from "./catalogs/warrior-arms.js";
-export { WARRIOR_PROTECTION_CATALOG } from "./catalogs/warrior-protection.js";
-export { PRIEST_HOLY_CATALOG } from "./catalogs/priest-holy.js";
+
 export {
-  buildCatalogCoverageDiagnostics,
-  getAbilityCatalog,
-  listSupportedCatalogs,
-} from "./registry.js";
+  filterRulesByAvailability,
+  getApplicableAbilityCategories,
+} from "./applicability.js";
+
+export { validateAbilityCatalog } from "./validation.js";
+export { buildCoverageReport, formatCoverageReport } from "./coverage.js";
+export {
+  buildExternalMetadata,
+  enrichRuleExternalMetadata,
+  wowheadSpellUrl,
+} from "./external-metadata.js";
+
+export {
+  queryAdminAbilityCatalog,
+  type AdminAbilityCatalogQuery,
+  type AdminAbilityCatalogResponse,
+  type AdminAbilityEntry,
+  type AdminSectionKind,
+} from "./admin-query.js";

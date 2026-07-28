@@ -1,3 +1,4 @@
+import type { AdminAbilityCatalogResponse } from "@mplus/abilities";
 import type {
   AdminScoreModelDTO,
   CharacterAutocompleteSuggestion,
@@ -130,7 +131,13 @@ export interface MplusApiClient {
   validateModel(modelId: string, config: unknown, signal?: AbortSignal): Promise<ModelValidationResult>;
   backtestModel(modelId: string, signal?: AbortSignal): Promise<BacktestSummary>;
   activateModel(modelId: string, signal?: AbortSignal): Promise<AdminScoreModelDTO>;
+  getAdminAbilityCatalog(
+    params?: Record<string, string | number | undefined>,
+    signal?: AbortSignal,
+  ): Promise<AdminAbilityCatalogResponse>;
 }
+
+export type { AdminAbilityCatalogResponse };
 
 export type {
   AdminScoreModelDTO,

@@ -42,7 +42,9 @@
     "live:smoke:wcl": "node tools/scripts/with-env.mjs node tools/scripts/live-smoke-wcl.mjs",
     "live:smoke:character": "node tools/scripts/with-env.mjs node tools/scripts/live-smoke-character.mjs",
     "realms:sync": "node tools/scripts/with-env.mjs pnpm --filter @mplus/worker run realms:sync --",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "abilities:validate": "pnpm --filter @mplus/abilities run abilities:validate",
+    "abilities:coverage": "pnpm --filter @mplus/abilities run abilities:coverage"
   },
   "dependencies": {
     "@mplus/config": "workspace:*",

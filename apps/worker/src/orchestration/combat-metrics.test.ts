@@ -54,15 +54,15 @@ describe("extractMetricsFromCombatFacts", () => {
   });
 
   it("does not invent zeros for unsupported class catalogs", () => {
-    const catalog = getAbilityCatalog({ classSlug: "mage", specSlug: "frost" });
+    const catalog = getAbilityCatalog({ classSlug: "not-a-class", specSlug: "frost" });
     const observations = extractMetricsFromCombatFacts(baseFacts, "2026-07-27T12:00:00.000Z", {
       catalog,
-      classSlug: "mage",
+      classSlug: "not-a-class",
       specSlug: "frost",
     });
     expect(observations).toHaveLength(1);
     expect(observations[0]?.context).toMatchObject({
-      reason: "ABILITY_CATALOG_UNSUPPORTED",
+      reason: "UNKNOWN_CLASS",
     });
   });
 });

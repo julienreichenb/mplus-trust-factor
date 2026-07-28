@@ -1,0 +1,37 @@
+{
+  "valid": true,
+  "errors": [],
+  "warnings": [
+    {
+      "severity": "warning",
+      "code": "UNCERTAIN_ABILITY",
+      "message": "Rule shared.racial.stoneform is marked uncertain",
+      "canonicalKey": "shared.racial.stoneform"
+    },
+    {
+      "severity": "warning",
+      "code": "UNCERTAIN_ABILITY",
+      "message": "Rule shared.racial.fireblood is marked uncertain",
+      "canonicalKey": "shared.racial.fireblood"
+    },
+    {
+      "severity": "warning",
+      "code": "UNCERTAIN_ABILITY",
+      "message": "Rule shared.racial.escape-artist is marked uncertain",
+      "canonicalKey": "shared.racial.escape-artist"
+    },
+    {
+      "severity": "warning",
+      "code": "UNCERTAIN_ABILITY",
+      "message": "Rule warlock.interrupt.optical-blast is marked uncertain",
+      "canonicalKey": "warlock.interrupt.optical-blast"
+    },
+    {
+      "severity": "warning",
+      "code": "UNCERTAIN_ABILITY",
+      "message": "Rule warlock.hard-cc.grimoire-of-sacrifice is marked uncertain",
+      "canonicalKey": "warlock.hard-cc.grimoire-of-sacrifice"
+    }
+  ],
+  "generatedAt": "2026-07-28T12:41:14.719Z"
+}

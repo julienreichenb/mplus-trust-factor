@@ -24,7 +24,14 @@ import {
 import { extractBoostSupportFacts } from "@mplus/provider-raiderio";
 import type { RunCombatFacts, WclRankingObservation, WclReportFightDetails } from "@mplus/provider-warcraftlogs";
 import { buildCatalogCoverageDiagnostics, getAbilityCatalog } from "@mplus/abilities";
-import { buildCharacterHistoryExperienceObservations, selectScoringRuns, resolveActiveSeasonDungeonPool, readBlizzardSeasonDungeonSlugsFromMetadata, applyRunMetadataToSelection, toContractScoringRunSelection } from "@mplus/scoring";
+import {
+  applyRunMetadataToSelection,
+  buildCharacterHistoryExperienceObservations,
+  readBlizzardSeasonDungeonSlugsFromMetadata,
+  resolveActiveSeasonDungeonPool,
+  selectScoringRuns,
+  toContractScoringRunSelection,
+} from "@mplus/scoring";
 import { OBS_EVENTS, fingerprintIdentifier } from "@mplus/observability";
 import { validateScoreSnapshot } from "@mplus/test-utils";
 import type { WorkerContainer } from "../container.js";
@@ -1290,11 +1297,15 @@ export async function runRefreshPipeline(
     classSlug,
     specSlug,
     role: roleForCatalog,
+    includeShared: true,
+    includeRacials: false,
   });
   const catalogDiagnostics = buildCatalogCoverageDiagnostics({
     classSlug,
     specSlug,
     role: roleForCatalog,
+    includeShared: true,
+    includeRacials: false,
   });
 
   const perRunCombatObservations = [...combatFactsByRunId.entries()].map(([runId, facts]) => {

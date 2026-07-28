@@ -1,59 +1,63 @@
-import type { AbilityCatalog, AbilityCategory, AbilityRule, LegacyAbilityCategory } from "./types.js";
+import type {
+  AbilityCatalog,
+  AbilityCategory,
+  AbilityRule,
+  LegacyAbilityCategory,
+  ScoringAbilityCategory,
+} from "./types.js";
+import { expandScoringCategory } from "./registry.js";
 
-const LEGACY_CATEGORY_MAP: Record<LegacyAbilityCategory, AbilityCategory | AbilityCategory[]> = {
-  interrupt: "INTERRUPT",
-  crowd_control: ["HARD_CC", "SOFT_CC"],
-  personal_defensive: ["DEFENSIVE_MAJOR", "DEFENSIVE_MINOR"],
-  self_heal: "SELF_HEAL",
-  health_potion: "CONSUMABLE",
-  group_support: ["GROUP_UTILITY", "MOVEMENT_UTILITY", "EXTERNAL_DEFENSIVE"],
-  defensive_dispel: "DISPEL",
-  offensive_dispel: "PURGE",
-};
-
-export function normalizeCategory(category: AbilityCategory | LegacyAbilityCategory): AbilityCategory[] {
-  if (category in LEGACY_CATEGORY_MAP) {
-    const mapped = LEGACY_CATEGORY_MAP[category as LegacyAbilityCategory];
-    return Array.isArray(mapped) ? mapped : [mapped];
-  }
-  return [category as AbilityCategory];
+function ruleSpellIds(rule: AbilityRule): number[] {
+  return [...rule.spellIds, ...(rule.aliases ?? [])];
 }
 
-export function ruleMatchesCategory(rule: AbilityRule, category: AbilityCategory | LegacyAbilityCategory): boolean {
-  const targets = normalizeCategory(category);
-  return targets.includes(rule.category);
+function matchesClassSpec(
+  rule: AbilityRule,
+  options: { classSlug?: string | null; specSlug?: string | null; role?: string | null },
+): boolean {
+  if (options.classSlug) {
+    if (rule.classSlug != null && rule.classSlug !== options.classSlug) return false;
+  }
+  if (options.specSlug && rule.classSlug != null && rule.specSlugs.length > 0) {
+    if (!rule.specSlugs.includes(options.specSlug)) return false;
+  }
+  if (options.role && rule.roles.length > 0 && !rule.roles.includes(options.role as AbilityRule["roles"][number])) {
+    return false;
+  }
+  return true;
+}
+
+export function ruleMatchesCategory(
+  rule: AbilityRule,
+  category: ScoringAbilityCategory,
+): boolean {
+  return expandScoringCategory(category).includes(rule.category);
 }
 
 export function rulesForSpell(catalog: AbilityCatalog, spellId: number): AbilityRule[] {
-  return catalog.rules.filter((r) => r.spellIds.includes(spellId));
+  return catalog.rules.filter((r) => ruleSpellIds(r).includes(spellId));
 }
 
 export function rulesForCategory(
   catalog: AbilityCatalog,
-  category: AbilityCategory | LegacyAbilityCategory,
+  category: ScoringAbilityCategory,
   options: { classSlug?: string | null; specSlug?: string | null; role?: string | null } = {},
 ): AbilityRule[] {
+  const expanded = expandScoringCategory(category);
   return catalog.rules.filter((rule) => {
-    if (!ruleMatchesCategory(rule, category)) return false;
-    if (options.classSlug && rule.classSlug != null && rule.classSlug !== options.classSlug) return false;
-    if (options.specSlug && rule.specSlugs.length > 0 && !rule.specSlugs.includes(options.specSlug)) {
-      return false;
-    }
-    if (options.role && rule.roles.length > 0 && !rule.roles.includes(options.role as AbilityRule["roles"][number])) {
-      return false;
-    }
-    return true;
+    if (!expanded.includes(rule.category)) return false;
+    return matchesClassSpec(rule, options);
   });
 }
 
 export function spellIdsForCategory(
   catalog: AbilityCatalog,
-  category: AbilityCategory | LegacyAbilityCategory,
+  category: ScoringAbilityCategory,
   options: { classSlug?: string | null; specSlug?: string | null; role?: string | null } = {},
 ): Set<number> {
   const ids = new Set<number>();
   for (const rule of rulesForCategory(catalog, category, options)) {
-    for (const id of rule.spellIds) ids.add(id);
+    for (const id of ruleSpellIds(rule)) ids.add(id);
   }
   return ids;
 }
@@ -73,4 +77,9 @@ export function applicableCategories(catalog: AbilityCatalog): Set<AbilityCatego
   const out = new Set<AbilityCategory>();
   for (const rule of catalog.rules) out.add(rule.category);
   return out;
+}
+
+/** @deprecated Use expandScoringCategory — legacy alias for Agent 31 callers. */
+export function normalizeCategory(category: AbilityCategory | LegacyAbilityCategory): AbilityCategory[] {
+  return expandScoringCategory(category);
 }
