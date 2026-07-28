@@ -46,6 +46,18 @@ export function isPlaceholderSeasonSlug(seasonSlug: string): boolean {
 }
 
 /**
+ * Resolve the canonical Scoring v3 season slug.
+ * Rejects placeholder/auto slugs and falls back to Midnight S1.
+ */
+export function resolveCanonicalScoringSeasonSlug(override?: string | null): string {
+  const slug = override?.trim();
+  if (slug && !isPlaceholderSeasonSlug(slug)) {
+    return slug;
+  }
+  return MIDNIGHT_S1_SEASON.seasonSlug;
+}
+
+/**
  * Resolve the dungeon set used for eight-run selection.
  * Rejects placeholder seasons unless `allowPlaceholder` is explicitly true (tests only).
  */

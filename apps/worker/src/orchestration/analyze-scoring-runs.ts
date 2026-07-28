@@ -11,6 +11,7 @@ import type {
   ScoringRunSelection,
   ScoringSelectedRun,
   SurvivalRawFacts,
+  UtilityRawFacts,
 } from "@mplus/contracts";
 import {
   MIDNIGHT_S1_SEASON,
@@ -79,6 +80,8 @@ export interface ScoringRunAnalysisRow {
   parseBindingSource: string | null;
   /** Survival raw facts for the selected run (null when detail unavailable). */
   survivalFacts: SurvivalRawFacts | null;
+  /** Utility raw facts for the selected run (null when detail unavailable). */
+  utilityFacts: UtilityRawFacts | null;
 }
 
 export interface ScoringRunAnalysisDiagnostics {
@@ -244,7 +247,7 @@ function buildUnavailableObservations(input: {
   region?: string | null;
   parsePercentile?: number | null;
   top25CutoffScore?: number | null;
-}): { observations: MetricObservationDTO[]; survival: SurvivalRawFacts } {
+}): { observations: MetricObservationDTO[]; survival: SurvivalRawFacts; utility: UtilityRawFacts } {
   const abilityCatalog = loadSeedAbilityCatalog();
   const mechanicCatalog = loadSeedScoringMechanicCatalog();
   const provenance = buildProvenance({
@@ -291,6 +294,7 @@ function buildUnavailableObservations(input: {
   });
   return {
     survival,
+    utility,
     observations: rawFactsToMetricObservations({ survival, utility, performance }).map((obs) => ({
       ...obs,
       confidence: Math.min(obs.confidence, 0.15),
@@ -316,7 +320,7 @@ function buildAvailableObservations(input: {
   region?: string | null;
   parsePercentile?: number | null;
   top25CutoffScore?: number | null;
-}): { observations: MetricObservationDTO[]; survival: SurvivalRawFacts } {
+}): { observations: MetricObservationDTO[]; survival: SurvivalRawFacts; utility: UtilityRawFacts } {
   const abilityCatalog = loadSeedAbilityCatalog();
   const mechanicCatalog = loadSeedScoringMechanicCatalog();
   const attributed = resolveAttributedSourceIds(input.facts.actorMap, input.facts.targetSourceId);
@@ -389,6 +393,7 @@ function buildAvailableObservations(input: {
   });
   return {
     survival,
+    utility,
     observations: rawFactsToMetricObservations({ survival, utility, performance }).map((obs) => ({
       ...obs,
       context: {
@@ -526,6 +531,7 @@ export async function analyzeScoringRuns(input: {
         parsePercentile: null,
         parseBindingSource: null,
         survivalFacts: built.survival,
+        utilityFacts: built.utility,
       });
       v3Observations.push(...built.observations);
       continue;
@@ -560,6 +566,7 @@ export async function analyzeScoringRuns(input: {
         parsePercentile: parseBinding.parsePercentile,
         parseBindingSource: parseBinding.source,
         survivalFacts: built.survival,
+        utilityFacts: built.utility,
       });
       v3Observations.push(...built.observations);
       continue;
@@ -623,6 +630,7 @@ export async function analyzeScoringRuns(input: {
         parsePercentile: parseBinding.parsePercentile,
         parseBindingSource: parseBinding.source,
         survivalFacts: built.survival,
+        utilityFacts: built.utility,
       });
       v3Observations.push(...built.observations);
       continue;
@@ -663,6 +671,7 @@ export async function analyzeScoringRuns(input: {
       parsePercentile: parseBinding.parsePercentile,
       parseBindingSource: parseBinding.source,
       survivalFacts: built.survival,
+      utilityFacts: built.utility,
     });
     v3Observations.push(...built.observations);
   }

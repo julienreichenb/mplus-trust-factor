@@ -11,6 +11,7 @@
  * --deep runs the bounded provider diagnostic (discovery, rankings, matching, analysis, persistence).
  */
 import { spawnSync } from "node:child_process";
+import { createRequire } from "node:module";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
@@ -78,16 +79,31 @@ if (deep) {
   );
 
   const smokeTs = resolve(root, "packages/providers/warcraftlogs/src/smoke-live.ts");
-  // Windows paths may contain spaces; quote every arg for cmd.exe via shell:true.
-  const quote = (value) => `"${String(value).replace(/"/g, '\\"')}"`;
-  const cmd = ["pnpm", "exec", "tsx", quote(smokeTs), ...filteredArgv.map(quote), "--deep"].join(
-    " ",
-  );
-  const result = spawnSync(cmd, {
+  const require = createRequire(import.meta.url);
+  let tsxCli = null;
+  try {
+    tsxCli = require.resolve("tsx/cli");
+  } catch {
+    const candidates = [
+      resolve(root, "node_modules/tsx/dist/cli.mjs"),
+      resolve(root, "node_modules/.pnpm/tsx@4.23.1/node_modules/tsx/dist/cli.mjs"),
+    ];
+    for (const candidate of candidates) {
+      if (existsSync(candidate)) {
+        tsxCli = candidate;
+        break;
+      }
+    }
+  }
+  if (!tsxCli) {
+    console.error("ERROR: tsx CLI not found. Run pnpm install from the repo root.");
+    process.exit(1);
+  }
+
+  const result = spawnSync(process.execPath, [tsxCli, smokeTs, ...filteredArgv, "--deep"], {
     cwd: root,
     env: process.env,
     stdio: "inherit",
-    shell: true,
   });
   process.exit(result.status ?? 1);
 }

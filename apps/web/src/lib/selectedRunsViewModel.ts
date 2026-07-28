@@ -1,4 +1,5 @@
 import type { CharacterProfileView, SelectedRunView } from "../api/types";
+import type { ScoringSelectedRunProfileDTO } from "@mplus/contracts";
 import { formatPercent, formatScore } from "./format";
 
 export interface SelectedRunsPresentation {
@@ -8,12 +9,43 @@ export interface SelectedRunsPresentation {
   hasAny: boolean;
 }
 
+function mapScoringRunProfile(run: ScoringSelectedRunProfileDTO): SelectedRunView {
+  return {
+    runId: run.canonicalRunId,
+    dungeonName: run.dungeonName,
+    dungeonSlug: run.dungeonSlug,
+    keyLevel: run.keyLevel,
+    completedAt: run.completedAt,
+    timed: run.timed,
+    durationMs: run.durationMs,
+    raiderIoScore: run.raiderIoScore,
+    wclReportMatched: run.wclReportMatched,
+    wclCoverageRatio: run.wclCoverageRatio,
+    selectionReason: run.selectionReason,
+    parsePercentile: run.parsePercentile,
+    keyDifficultyPercentile: run.keyDifficultyPercentile,
+    evidenceSummary: run.evidenceSummary,
+    missingMetrics: run.missingMetrics,
+  };
+}
+
 /** Resolve eight-run selection from profile without computing scores. */
 export function resolveSelectedRuns(profile: CharacterProfileView): SelectedRunsPresentation {
   const expected =
+    profile.scoringRunSelection?.expectedDungeonCount ??
     profile.selectedRunExpectedCount ??
     profile.performanceSummary?.currentSeason.expectedDungeonCount ??
     8;
+
+  if (profile.scoringRunSelection?.selectedRuns?.length) {
+    const runs = profile.scoringRunSelection.selectedRuns.map(mapScoringRunProfile);
+    return {
+      runs,
+      expectedCount: expected,
+      coverageLabel: `${runs.length}/${expected} dungeons`,
+      hasAny: true,
+    };
+  }
 
   if (profile.selectedRuns?.length) {
     return {

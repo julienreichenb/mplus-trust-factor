@@ -46,7 +46,7 @@ function normalizeSeasonScore(
   /** Only apply current-season cutoffs to the current season row. */
   isCurrentSeason: boolean,
 ): { seasonNormalizedScore: number | null; normalization: string; quality: "HIGH" | "LOW" } {
-  if (rawScore == null || !Number.isFinite(rawScore)) {
+  if (rawScore == null || !Number.isFinite(rawScore) || rawScore <= 0) {
     return { seasonNormalizedScore: null, normalization: "missing_raw", quality: "LOW" };
   }
   const top25 = isCurrentSeason ? (cutoffs?.top25Percent?.score ?? null) : null;
@@ -83,6 +83,9 @@ function buildPublicCharacterHistory(input: BuildExperienceObservationsInput): E
     rioSeasons.forEach((entry, index) => {
       const isCurrent = index === 0 || entry.isCurrentSeason;
       const rawScore = entry.scores.all;
+      if (!isCurrent && (rawScore == null || !Number.isFinite(rawScore) || rawScore <= 0)) {
+        return;
+      }
       const { seasonNormalizedScore, normalization, quality } = normalizeSeasonScore(
         rawScore,
         input.cutoffs,

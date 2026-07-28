@@ -50,6 +50,11 @@ export interface UtilityRunScore {
 export interface UtilitySummaryDTO {
   score: number | null;
   confidence: number;
+  /** Runs with usable combat-derived utility scores. */
+  availableRunCount: number;
+  /** Selected canonical runs in the eight-dungeon set. */
+  selectedRunCount: number;
+  /** @deprecated Use availableRunCount — kept for snapshot compatibility. */
   dungeonCount: number;
   expectedDungeonCount: number;
   formulaVersion: string;
@@ -68,6 +73,8 @@ export interface UtilitySummaryDTO {
 export interface ComputeUtilityInput {
   runs: UtilityRunFactsInput[];
   expectedDungeonCount: number;
+  /** Selected canonical runs (eight-dungeon set). Defaults to runs.length. */
+  selectedRunCount?: number;
   capability: UtilityCapability;
   hasResolvedSpecAndRole: boolean;
   selectedRunWclCoverage: number;

@@ -47,6 +47,7 @@ export {
   MIDNIGHT_S1_DUNGEON_SLUGS,
   MIDNIGHT_S1_SEASON,
   isPlaceholderSeasonSlug,
+  resolveCanonicalScoringSeasonSlug,
   resolveSeasonDungeonSet,
 } from "./season-dungeons.js";
 

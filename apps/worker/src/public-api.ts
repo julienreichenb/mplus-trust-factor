@@ -17,6 +17,7 @@ export { createQueueProducers, type EnqueueResult, type QueueProducers } from ".
 
 export { NegativeCache, negativeCache } from "./negative-cache.js";
 export { pruneRawArtifacts, type PruneArtifactsResult } from "./prune-artifacts.js";
+export { validateActiveScoreModelAtStartup } from "./startup-validation.js";
 
 export {
   createDisabledProvider,

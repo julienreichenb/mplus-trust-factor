@@ -103,7 +103,7 @@ describe.skipIf(!dbAvailable)("runRefreshPipeline (fixture mode, real Postgres)"
       expect(persistedSnapshot).not.toBeNull();
 
       const season = await prisma.season.findUnique({ where: { id: persistedSnapshot!.seasonId } });
-      expect(season?.slug).toMatch(/^blizzard-season-\d+$/);
+      expect(season?.slug).toBe("season-midnight-s1");
       expect(season?.isCurrent).toBe(true);
       expect(season?.slug).not.toBe("placeholder-current");
 

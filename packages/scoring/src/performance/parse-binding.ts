@@ -10,6 +10,8 @@ export interface RankingParseCandidate {
   keyLevel?: number | null;
   /** Prefer WCL rankPercent when present. */
   rankPercent?: number | null;
+  /** Alias for bracket-aware rank percent on some WCL payloads. */
+  bracketPercent?: number | null;
   percentile?: number | null;
 }
 
@@ -37,7 +39,7 @@ function rowPercentile(row: RankingParseCandidate): {
   value: number | null;
   usedRankPercent: boolean;
 } {
-  const fromRank = asPercentile(row.rankPercent ?? null);
+  const fromRank = asPercentile(row.rankPercent ?? row.bracketPercent ?? null);
   if (fromRank != null) return { value: fromRank, usedRankPercent: true };
   return { value: asPercentile(row.percentile ?? null), usedRankPercent: false };
 }

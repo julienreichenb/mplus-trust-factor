@@ -1,5 +1,12 @@
 import type { ScoreModelConfigV1 } from "../types.js";
+import { resolveExperienceV3MetricWeights } from "../experience/aggregate.js";
 import { resolvePerformanceMetricWeights } from "../performance/aggregate.js";
+import { resolvePerformanceV3MetricWeights } from "../performance/v3.js";
+import {
+  resolveSurvivalMetricWeights,
+} from "../survival/aggregate.js";
+import { SURVIVAL_V3_METRIC_KEYS } from "../survival/types.js";
+import { UTILITY_V3_METRIC_KEYS } from "../utility/aggregate.js";
 
 export function createDefaultModelV1(
   overrides: Partial<ScoreModelConfigV1> = {},
@@ -155,6 +162,69 @@ export function createDefaultModelV2(
       "performance.current_season_peak": { type: "percentile" },
       "performance.current_season_consistency": { type: "percentile" },
       "performance.historical_best_average": { type: "percentile" },
+      default: { type: "identity" },
+    },
+    ...overrides,
+  });
+}
+
+/** Nominal SURVIVAL v3 metric weights (full contributor set). Runtime renormalizes when contributors are absent. */
+const SURVIVAL_V3_NOMINAL_METRIC_WEIGHTS = resolveSurvivalMetricWeights([
+  "deaths",
+  "avoidableDamage",
+  "personalDefensives",
+  "selfHealAndPotion",
+]);
+
+/** Nominal UTILITY v3 metric weights (capability renormalized at score time). */
+const UTILITY_V3_NOMINAL_METRIC_WEIGHTS = [
+  { metricKey: UTILITY_V3_METRIC_KEYS.interrupts, weight: 0.4 },
+  { metricKey: UTILITY_V3_METRIC_KEYS.crowdControl, weight: 0.25 },
+  { metricKey: UTILITY_V3_METRIC_KEYS.groupSupport, weight: 0.2 },
+  { metricKey: UTILITY_V3_METRIC_KEYS.dispels, weight: 0.15 },
+];
+
+/**
+ * Default Trust Factor v3 — Wave 4 composition.
+ * PERFORMANCE / SURVIVAL / UTILITY / EXPERIENCE on the eight selected runs;
+ * RAID excluded from the weighted skill score (mythicRaid: 0).
+ */
+export function createDefaultModelV3(
+  overrides: Partial<ScoreModelConfigV1> = {},
+): ScoreModelConfigV1 {
+  return createDefaultModelV2({
+    version: 3,
+    weights: {
+      performance: 0.35,
+      survival: 0.3,
+      utility: 0.25,
+      experienceConsistency: 0.1,
+      mythicRaid: 0,
+    },
+    metricWeights: {
+      PERFORMANCE: resolvePerformanceV3MetricWeights(),
+      SURVIVAL: SURVIVAL_V3_NOMINAL_METRIC_WEIGHTS,
+      UTILITY: UTILITY_V3_NOMINAL_METRIC_WEIGHTS,
+      EXPERIENCE: resolveExperienceV3MetricWeights(),
+      RAID: [
+        { metricKey: "raid.mythic_progression", weight: 0.6 },
+        { metricKey: "raid.mythic_parses", weight: 0.4 },
+      ],
+    },
+    normalization: {
+      "performance.v3.run_performance": { type: "percentile" },
+      [SURVIVAL_V3_METRIC_KEYS.deaths]: { type: "identity" },
+      [SURVIVAL_V3_METRIC_KEYS.avoidableDamage]: { type: "identity" },
+      [SURVIVAL_V3_METRIC_KEYS.personalDefensives]: { type: "identity" },
+      [SURVIVAL_V3_METRIC_KEYS.selfHealAndPotion]: { type: "identity" },
+      [UTILITY_V3_METRIC_KEYS.interrupts]: { type: "identity" },
+      [UTILITY_V3_METRIC_KEYS.crowdControl]: { type: "identity" },
+      [UTILITY_V3_METRIC_KEYS.groupSupport]: { type: "identity" },
+      [UTILITY_V3_METRIC_KEYS.dispels]: { type: "identity" },
+      "experience.current_peak": { type: "identity" },
+      "experience.current_breadth": { type: "identity" },
+      "experience.historical_peak": { type: "identity" },
+      "experience.longevity": { type: "identity" },
       default: { type: "identity" },
     },
     ...overrides,
