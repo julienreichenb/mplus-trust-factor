@@ -43,7 +43,7 @@ describe("AdminAbilityCatalogPage", () => {
     vi.useRealTimers();
   });
 
-  it("renders catalog summary after unlock (mock mode is default)", async () => {
+  it("renders catalog summary (development page is unprotected)", async () => {
     const { wrapper } = await mountPage();
     expect(wrapper.find("[data-testid='ability-catalog-page']").exists()).toBe(true);
     expect(wrapper.find("[data-testid='catalog-summary']").exists()).toBe(true);

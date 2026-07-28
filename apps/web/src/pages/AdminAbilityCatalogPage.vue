@@ -74,8 +74,7 @@ interface SharedSection {
   entries: AdminAbilityEntry[];
 }
 
-const unlocked = ref(import.meta.env.VITE_API_MODE !== "live");
-const adminKeyInput = ref("");
+// TODO before production: protect `/admin/ability-catalog` with the future admin auth system.
 const catalog = ref<AdminAbilityCatalogResponse | null>(null);
 const loading = ref(false);
 const error = ref<string | null>(null);
@@ -101,16 +100,6 @@ const router = useRouter();
 let searchTimer: ReturnType<typeof setTimeout> | null = null;
 let loadAbort: AbortController | null = null;
 let syncingRoute = false;
-
-function unlock(): void {
-  if (adminKeyInput.value.trim().length >= 8) {
-    unlocked.value = true;
-    error.value = null;
-    void loadCatalog();
-  } else {
-    error.value = "Enter a valid admin key (mock accepts any 8+ chars).";
-  }
-}
 
 function readQueryParam(key: string): string {
   const raw = route.query[key];
@@ -169,7 +158,6 @@ function requestParams(): Record<string, string | number | undefined> {
 }
 
 async function loadCatalog(): Promise<void> {
-  if (!unlocked.value) return;
   loadAbort?.abort();
   loadAbort = new AbortController();
   loading.value = true;
@@ -259,7 +247,7 @@ function badgeClass(badge: string): string {
 }
 
 function formatCooldown(seconds: number | undefined): string {
-  if (seconds == null) return "—";
+  if (seconds == null) return "�";
   if (seconds >= 60) return `${Math.round(seconds / 60)}m`;
   return `${seconds}s`;
 }
@@ -363,39 +351,28 @@ watch(
   () => {
     if (syncingRoute) return;
     applyRouteQuery();
-    if (unlocked.value) void loadCatalog();
+    void loadCatalog();
   },
 );
 
 onMounted(() => {
   applyRouteQuery();
-  if (unlocked.value) {
-    void loadCatalog();
-    void loadWowheadTooltipScript().catch(() => {
-      /* progressive enhancement */
-    });
-  }
+  void loadCatalog();
+  void loadWowheadTooltipScript().catch(() => {
+    /* progressive enhancement */
+  });
 });
 </script>
 
 <template>
+  <!-- TODO before production: protect this page with the future admin authentication/authorization system. -->
   <section data-testid="ability-catalog-page">
     <h1>Ability catalog explorer</h1>
     <p class="muted">
-      Read-only view of the canonical retail ability registry — search, filter, and inspect validation
-      coverage.
+      Read-only development view of the canonical retail ability registry - search, filter, and inspect
+      validation coverage. Currently unprotected.
     </p>
 
-    <div v-if="!unlocked" class="gate" data-testid="admin-gate">
-      <label>
-        Admin API key
-        <input v-model="adminKeyInput" type="password" autocomplete="off" data-testid="admin-key" />
-      </label>
-      <button type="button" class="btn primary" @click="unlock">Unlock</button>
-      <p v-if="error" class="error">{{ error }}</p>
-    </div>
-
-    <template v-else>
       <StatusBanner v-if="error" tone="error">{{ error }}</StatusBanner>
 
       <div v-if="catalog" class="summary-grid" data-testid="catalog-summary">
@@ -465,7 +442,7 @@ onMounted(() => {
             <input
               v-model="searchInput"
               type="search"
-              placeholder="Name, spell ID, canonical key…"
+              placeholder="Name, spell ID, canonical key�"
               data-testid="catalog-search"
               autocomplete="off"
             />
@@ -521,7 +498,7 @@ onMounted(() => {
         </div>
       </div>
 
-      <p v-if="loading" class="muted loading-hint">Loading catalog…</p>
+      <p v-if="loading" class="muted loading-hint">Loading catalog�</p>
 
       <div v-else-if="catalog && !hasResults" class="empty-state" data-testid="empty-state">
         <p>No abilities match the current search and filters.</p>
@@ -550,7 +527,7 @@ onMounted(() => {
             <span class="section-count">{{
               section.specGroups.reduce((n, g) => n + g.entries.length, 0)
             }}</span>
-            <span class="chevron" :data-expanded="expandedClasses.has(section.key) ? 'true' : 'false'">▸</span>
+            <span class="chevron" :data-expanded="expandedClasses.has(section.key) ? 'true' : 'false'">?</span>
           </button>
 
           <div v-if="expandedClasses.has(section.key)" class="spec-list">
@@ -558,7 +535,7 @@ onMounted(() => {
               <button type="button" class="spec-toggle" @click="toggleSpec(group.key)">
                 <span>{{ group.specName }}</span>
                 <span class="section-count">{{ group.entries.length }}</span>
-                <span class="chevron" :data-expanded="expandedSpecs.has(group.key) ? 'true' : 'false'">▸</span>
+                <span class="chevron" :data-expanded="expandedSpecs.has(group.key) ? 'true' : 'false'">?</span>
               </button>
 
               <div v-if="expandedSpecs.has(group.key)" class="ability-list">
@@ -603,7 +580,7 @@ onMounted(() => {
                             >
                               {{ primarySpellId(entry) }}
                             </a>
-                            <span v-else>—</span>
+                            <span v-else>�</span>
                           </dd>
                         </div>
                         <div v-if="entry.rule.aliases?.length">
@@ -628,7 +605,7 @@ onMounted(() => {
                         </div>
                         <div>
                           <dt>Roles</dt>
-                          <dd>{{ entry.rule.roles.join(", ") || "—" }}</dd>
+                          <dd>{{ entry.rule.roles.join(", ") || "�" }}</dd>
                         </div>
                         <div>
                           <dt>Cooldown</dt>
@@ -637,7 +614,7 @@ onMounted(() => {
                         <div>
                           <dt>Provenance</dt>
                           <dd>
-                            {{ entry.rule.provenance.source }} · {{ entry.rule.provenance.gameVersion }}
+                            {{ entry.rule.provenance.source }} � {{ entry.rule.provenance.gameVersion }}
                           </dd>
                         </div>
                       </dl>
@@ -671,7 +648,7 @@ onMounted(() => {
           <button type="button" class="section-toggle" @click="toggleShared(section.key)">
             <span class="section-title">{{ section.title }}</span>
             <span class="section-count">{{ section.entries.length }}</span>
-            <span class="chevron" :data-expanded="expandedShared.has(section.key) ? 'true' : 'false'">▸</span>
+            <span class="chevron" :data-expanded="expandedShared.has(section.key) ? 'true' : 'false'">?</span>
           </button>
 
           <div v-if="expandedShared.has(section.key)" class="ability-list">
@@ -716,7 +693,7 @@ onMounted(() => {
                         >
                           {{ primarySpellId(entry) }}
                         </a>
-                        <span v-else>—</span>
+                        <span v-else>�</span>
                       </dd>
                     </div>
                     <div v-if="entry.rule.aliases?.length">
@@ -741,7 +718,7 @@ onMounted(() => {
                     </div>
                     <div>
                       <dt>Roles</dt>
-                      <dd>{{ entry.rule.roles.join(", ") || "—" }}</dd>
+                      <dd>{{ entry.rule.roles.join(", ") || "�" }}</dd>
                     </div>
                     <div>
                       <dt>Cooldown</dt>
@@ -749,7 +726,7 @@ onMounted(() => {
                     </div>
                     <div>
                       <dt>Provenance</dt>
-                      <dd>{{ entry.rule.provenance.source }} · {{ entry.rule.provenance.gameVersion }}</dd>
+                      <dd>{{ entry.rule.provenance.source }} � {{ entry.rule.provenance.gameVersion }}</dd>
                     </div>
                   </dl>
                   <p v-if="entry.rule.provenance.notes" class="notes muted">
@@ -789,22 +766,10 @@ onMounted(() => {
           </button>
         </nav>
       </div>
-    </template>
   </section>
 </template>
 
 <style scoped>
-.gate {
-  display: grid;
-  gap: 0.6rem;
-  max-width: 28rem;
-  margin: 1rem 0;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 0.85rem;
-  background: var(--panel);
-}
-
 .muted {
   color: var(--muted);
 }

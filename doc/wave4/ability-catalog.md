@@ -32,8 +32,8 @@ Consumers:
 |---|---|
 | Worker `combat-metrics` | `spellIdsForCategory` with legacy category aliases |
 | Worker `refresh-pipeline` | `getAbilityCatalog({ classSlug, specSlug })` — **never** Warlock fallback |
-| Admin API | `GET /api/v1/admin/ability-catalog` via `queryAdminAbilityCatalog` |
-| Admin UI | `/admin/ability-catalog` |
+| Admin API | `GET /api/v1/admin/ability-catalog` via `queryAdminAbilityCatalog` (dev-unprotected) |
+| Admin UI | `/admin/ability-catalog` (dev-unprotected) |
 
 ## Taxonomy
 
@@ -122,9 +122,17 @@ pnpm abilities:coverage   # coverage matrix → generated/coverage-report.{json,
 ## Admin explorer
 
 - Route: `/admin/ability-catalog`
-- API: `GET /api/v1/admin/ability-catalog` (requires `x-admin-api-key`)
+- API: `GET /api/v1/admin/ability-catalog`
 - Wowhead: public `spell=` links + optional `tooltips.js` progressive enhancement
 - Icon fallback when CDN/metadata missing
+
+**Development-only / currently unprotected.** Do not treat these surfaces as production-safe.
+
+TODO before production:
+
+- protect the admin route `/admin/ability-catalog`
+- protect the admin API endpoint `GET /api/v1/admin/ability-catalog`
+- integrate the future admin authentication/authorization system
 
 ## Integration notes for Agent 31
 

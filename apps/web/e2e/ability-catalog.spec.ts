@@ -4,22 +4,14 @@ import { join } from "node:path";
 
 const SCREENSHOT_DIR = join("e2e", "screenshots", "ability-catalog");
 
-async function unlockIfNeeded(page: import("@playwright/test").Page): Promise<void> {
-  const gate = page.getByTestId("admin-gate");
-  if (await gate.isVisible().catch(() => false)) {
-    await page.getByTestId("admin-key").fill("test-admin-key");
-    await page.getByRole("button", { name: "Unlock" }).click();
-  }
-}
-
 test.describe("Ability catalog explorer", () => {
   test.beforeAll(async () => {
     await mkdir(SCREENSHOT_DIR, { recursive: true });
   });
 
   test("overview, expand class, search, and filter screenshots", async ({ page }) => {
+    // Development-only: page is currently unprotected (no admin unlock gate).
     await page.goto("/admin/ability-catalog");
-    await unlockIfNeeded(page);
     await expect(page.getByTestId("ability-catalog-page")).toBeVisible();
     await expect(page.getByTestId("catalog-summary")).toBeVisible({ timeout: 15_000 });
 
