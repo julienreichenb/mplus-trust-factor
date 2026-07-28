@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildCatalogCoverageDiagnostics,
   getAbilityCatalog,
   getCatalogByVersion,
   getRetailClassMatrix,
+  listSupportedCatalogs,
+  resolveAbilityCatalog,
   resolveAbilityRule,
   WARLOCK_DEMONOLOGY_CATALOG,
 } from "./registry.js";
@@ -28,7 +31,7 @@ const VALID_SUPPORT_STATES = new Set<CatalogSupportState>([
   "UNCERTAIN",
 ]);
 
-describe("registry / getAbilityCatalog", () => {
+describe("registry / resolveAbilityCatalog", () => {
   it("every Retail class and spec declares an explicit supportState", () => {
     for (const cls of RETAIL_CLASS_MATRIX) {
       expect(VALID_SUPPORT_STATES.has(cls.supportState), `${cls.slug} class`).toBe(true);
@@ -47,7 +50,7 @@ describe("registry / getAbilityCatalog", () => {
     ["warrior", "arms", "DPS"],
     ["priest", "holy", "HEALER"],
   ] as const)("resolves catalog for %s/%s (%s)", (classSlug, specSlug, role) => {
-    const result = getAbilityCatalog({ classSlug, specSlug, role });
+    const result = resolveAbilityCatalog({ classSlug, specSlug, role });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.catalog.rules.length).toBeGreaterThan(0);
@@ -55,7 +58,7 @@ describe("registry / getAbilityCatalog", () => {
   });
 
   it("warlock demonology backward-compatible export matches live lookup", () => {
-    const live = getAbilityCatalog({
+    const live = resolveAbilityCatalog({
       classSlug: "warlock",
       specSlug: "demonology",
       role: "DPS",
@@ -70,8 +73,8 @@ describe("registry / getAbilityCatalog", () => {
   });
 
   it("role-aware lookup excludes tank-only defensives for warrior DPS", () => {
-    const dps = getAbilityCatalog({ classSlug: "warrior", specSlug: "arms", role: "DPS" });
-    const tank = getAbilityCatalog({
+    const dps = resolveAbilityCatalog({ classSlug: "warrior", specSlug: "arms", role: "DPS" });
+    const tank = resolveAbilityCatalog({
       classSlug: "warrior",
       specSlug: "protection",
       role: "TANK",
@@ -90,7 +93,7 @@ describe("registry / getAbilityCatalog", () => {
   });
 
   it("returns UNKNOWN_SPEC for invalid spec without warlock fallback", () => {
-    const result = getAbilityCatalog({
+    const result = resolveAbilityCatalog({
       classSlug: "warlock",
       specSlug: "not-a-real-spec",
       role: "DPS",
@@ -107,7 +110,7 @@ describe("registry / getAbilityCatalog", () => {
   });
 
   it("returns UNKNOWN_CLASS for invalid class", () => {
-    const result = getAbilityCatalog({
+    const result = resolveAbilityCatalog({
       classSlug: "not-a-class",
       specSlug: "demonology",
       role: "DPS",
@@ -118,7 +121,7 @@ describe("registry / getAbilityCatalog", () => {
   });
 
   it("returns UNSUPPORTED_VERSION for unknown game version pin", () => {
-    const result = getAbilityCatalog({
+    const result = resolveAbilityCatalog({
       classSlug: "mage",
       specSlug: "fire",
       role: "DPS",
@@ -131,7 +134,7 @@ describe("registry / getAbilityCatalog", () => {
   });
 
   it("mage catalog never includes warlock class rules", () => {
-    const result = getAbilityCatalog({ classSlug: "mage", specSlug: "fire", role: "DPS" });
+    const result = resolveAbilityCatalog({ classSlug: "mage", specSlug: "fire", role: "DPS" });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
 
@@ -142,13 +145,13 @@ describe("registry / getAbilityCatalog", () => {
   });
 
   it("includeRacials toggles shared racial rules", () => {
-    const without = getAbilityCatalog({
+    const without = resolveAbilityCatalog({
       classSlug: "mage",
       specSlug: "fire",
       role: "DPS",
       includeRacials: false,
     });
-    const withRacials = getAbilityCatalog({
+    const withRacials = resolveAbilityCatalog({
       classSlug: "mage",
       specSlug: "fire",
       role: "DPS",
@@ -166,6 +169,54 @@ describe("registry / getAbilityCatalog", () => {
   });
 });
 
+describe("registry / getAbilityCatalog worker surface", () => {
+  it("resolves Demonology Warlock with pet interrupt ownership", () => {
+    const catalog = getAbilityCatalog({ classSlug: "warlock", specSlug: "demonology", role: "DPS" });
+    expect(catalog.supported).toBe(true);
+    const interrupts = catalog.rules.filter((r) => r.category === "INTERRUPT");
+    expect(interrupts.some((r) => r.sourceOwnership === "PET")).toBe(true);
+    expect(spellIdsForCategory(catalog, "INTERRUPT").has(19647)).toBe(true);
+  });
+
+  it("resolves melee Warrior Arms interrupt", () => {
+    const catalog = getAbilityCatalog({ classSlug: "warrior", specSlug: "arms", role: "DPS" });
+    expect(catalog.supported).toBe(true);
+    expect(spellIdsForCategory(catalog, "INTERRUPT").has(6552)).toBe(true);
+  });
+
+  it("resolves tank Warrior Protection defensives", () => {
+    const catalog = getAbilityCatalog({ classSlug: "warrior", specSlug: "protection", role: "TANK" });
+    expect(catalog.supported).toBe(true);
+    expect(spellIdsForCategory(catalog, "DEFENSIVE_MAJOR").has(871)).toBe(true);
+  });
+
+  it("resolves healer Priest Holy dispel without inventing an interrupt", () => {
+    const catalog = getAbilityCatalog({ classSlug: "priest", specSlug: "holy", role: "HEALER" });
+    expect(catalog.supported).toBe(true);
+    expect(spellIdsForCategory(catalog, "DISPEL").has(527)).toBe(true);
+    expect(spellIdsForCategory(catalog, "INTERRUPT").size).toBe(0);
+  });
+
+  it("returns explicit unsupported catalog for unknown class (never Warlock fallback)", () => {
+    const catalog = getAbilityCatalog({ classSlug: "not-a-class", specSlug: "frost", role: "DPS" });
+    expect(catalog.supported).toBe(false);
+    expect(catalog.unsupportedReason).toBe("UNKNOWN_CLASS");
+    expect(catalog.rules.every((r) => r.classSlug == null)).toBe(true);
+    expect(spellIdsForCategory(catalog, "INTERRUPT").size).toBe(0);
+  });
+
+  it("exposes catalog coverage diagnostics for all supported specs", () => {
+    const diag = buildCatalogCoverageDiagnostics({ classSlug: "warlock", specSlug: "demonology", role: "DPS" });
+    expect(diag.supported).toBe(true);
+    expect(diag.categoryCoverage.INTERRUPT).toBeGreaterThan(0);
+    expect(diag.registeredClassSpecs).toEqual(
+      expect.arrayContaining(["priest/holy", "warlock/demonology", "warrior/arms", "warrior/protection"]),
+    );
+    expect(listSupportedCatalogs().length).toBeGreaterThanOrEqual(40);
+    expect(diag.applicableCategories?.some((c) => c.state === "applicable")).toBe(true);
+  });
+});
+
 describe("registry / resolveAbilityRule and match helpers", () => {
   it("resolveAbilityRule finds pummel by spell id", () => {
     const matches = resolveAbilityRule({ spellId: 6552, classSlug: "warrior" });
@@ -173,7 +224,7 @@ describe("registry / resolveAbilityRule and match helpers", () => {
   });
 
   it("rulesForSpell and spellIdsForCategory work on resolved catalog", () => {
-    const resolved = getAbilityCatalog({ classSlug: "mage", specSlug: "fire", role: "DPS" });
+    const resolved = resolveAbilityCatalog({ classSlug: "mage", specSlug: "fire", role: "DPS" });
     expect(resolved.ok).toBe(true);
     if (!resolved.ok) return;
 
@@ -188,7 +239,7 @@ describe("registry / resolveAbilityRule and match helpers", () => {
   });
 
   it("effectiveKickCooldownMs returns minimum interrupt cooldown", () => {
-    const resolved = getAbilityCatalog({ classSlug: "warrior", specSlug: "arms", role: "DPS" });
+    const resolved = resolveAbilityCatalog({ classSlug: "warrior", specSlug: "arms", role: "DPS" });
     expect(resolved.ok).toBe(true);
     if (!resolved.ok) return;
 

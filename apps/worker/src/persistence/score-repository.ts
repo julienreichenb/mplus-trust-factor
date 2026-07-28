@@ -45,6 +45,9 @@ export interface SaveScoreSnapshotInput {
   scopeType: ScoreScope;
   scopeKey: string | null;
   snapshot: ScoreSnapshotDTO;
+  /** When true (default), atomically supersede prior public snapshots. */
+  publish?: boolean;
+  analysisBatchId?: string | null;
 }
 
 export interface ScoreRepository {
@@ -139,9 +142,8 @@ export function createScoreRepository(prisma: PrismaClient): ScoreRepository {
 
     async saveScoreSnapshot(input) {
       const { snapshot } = input;
+      const publish = input.publish !== false;
       return prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-        // Prisma's compound-unique `where` type disallows nullable columns (scopeKey), so
-        // dedupe manually via findFirst + create/update instead of a typed upsert.
         const existing = await tx.scoreSnapshot.findFirst({
           where: {
             characterId: input.characterId,
@@ -166,7 +168,23 @@ export function createScoreRepository(prisma: PrismaClient): ScoreRepository {
               : {}),
             redFlags: snapshot.redFlags,
           } as object,
+          publicationStatus: publish ? ("PUBLIC" as const) : ("DRAFT" as const),
+          isPublic: publish,
+          analysisBatchId: input.analysisBatchId ?? null,
         };
+
+        if (publish) {
+          await tx.scoreSnapshot.updateMany({
+            where: {
+              characterId: input.characterId,
+              seasonId: input.seasonId,
+              scoreModelId: input.scoreModelId,
+              isPublic: true,
+              ...(existing ? { id: { not: existing.id } } : {}),
+            },
+            data: { isPublic: false, publicationStatus: "SUPERSEDED" },
+          });
+        }
 
         const scoreSnapshot = existing
           ? await tx.scoreSnapshot.update({ where: { id: existing.id }, data })
@@ -185,12 +203,17 @@ export function createScoreRepository(prisma: PrismaClient): ScoreRepository {
         for (const dimension of snapshot.dimensions) {
           await tx.dimensionScore.upsert({
             where: {
-              scoreSnapshotId_dimension: { scoreSnapshotId: scoreSnapshot.id, dimension: dimension.dimension },
+              scoreSnapshotId_dimension: {
+                scoreSnapshotId: scoreSnapshot.id,
+                dimension: dimension.dimension,
+              },
             },
             update: {
               score: dimension.score,
               confidence: dimension.confidence,
               weight: dimension.weight,
+              state: dimension.state ?? "AVAILABLE",
+              reason: dimension.reason ?? null,
               contributors: (dimension.contributors ?? []) as object,
             },
             create: {
@@ -199,6 +222,8 @@ export function createScoreRepository(prisma: PrismaClient): ScoreRepository {
               score: dimension.score,
               confidence: dimension.confidence,
               weight: dimension.weight,
+              state: dimension.state ?? "AVAILABLE",
+              reason: dimension.reason ?? null,
               contributors: (dimension.contributors ?? []) as object,
             },
           });
@@ -218,7 +243,7 @@ export function createScoreRepository(prisma: PrismaClient): ScoreRepository {
 
     async getLatestSnapshot(characterId) {
       return prisma.scoreSnapshot.findFirst({
-        where: { characterId },
+        where: { characterId, isPublic: true },
         orderBy: { calculatedAt: "desc" },
         include: { dimensionScores: true, scoreModel: true, season: true },
       });
@@ -226,7 +251,7 @@ export function createScoreRepository(prisma: PrismaClient): ScoreRepository {
 
     async listHistory(characterId, limit = 20) {
       return prisma.scoreSnapshot.findMany({
-        where: { characterId },
+        where: { characterId, isPublic: true },
         orderBy: { calculatedAt: "desc" },
         take: limit,
         include: { dimensionScores: true, scoreModel: true, season: true },

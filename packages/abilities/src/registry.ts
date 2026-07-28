@@ -1,12 +1,17 @@
 import type {
   AbilityCatalog,
+  AbilityCatalogLookup,
+  AbilityCatalogUnsupportedReason,
   AbilityCategory,
   AbilityRole,
   AbilityRule,
+  CatalogCoverageDiagnostics,
+  CatalogSupportState,
   GetAbilityCatalogResult,
   LegacyAbilityCategory,
   ScoringAbilityCategory,
 } from "./types.js";
+import { getApplicableAbilityCategories } from "./applicability.js";
 import { RETAIL_CLASS_MATRIX, findClassDefinition, findSpecDefinition } from "./catalog/classes-matrix.js";
 import { DEATH_KNIGHT_RULES } from "./catalog/classes/death-knight.js";
 import { DEMON_HUNTER_RULES } from "./catalog/classes/demon-hunter.js";
@@ -54,29 +59,21 @@ export function getAllRegisteredRules(): AbilityRule[] {
   ];
 }
 
-export function buildCatalog(rules: AbilityRule[]): AbilityCatalog {
+function emptyUnsupported(
+  classSlug: string | null,
+  specSlug: string | null,
+  reason: AbilityCatalogUnsupportedReason,
+  supportState?: CatalogSupportState,
+): AbilityCatalog {
   return {
     version: CURRENT_CATALOG_VERSION,
-    catalogVersion: CURRENT_CATALOG_VERSION_ID,
-    rules,
-  };
-}
-
-/** Full current Retail ability catalog. */
-export const RETAIL_ABILITY_CATALOG: AbilityCatalog = buildCatalog(getAllRegisteredRules());
-
-/** Historical catalog pins (current + TWW Warlock fixture slice). */
-export function getCatalogByVersion(gameVersion: string): AbilityCatalog | null {
-  const pin = HISTORICAL_CATALOG_VERSIONS.find((v) => v.gameVersion === gameVersion);
-  if (!pin) return null;
-  if (pin.gameVersion === CURRENT_CATALOG_VERSION.gameVersion) {
-    return RETAIL_ABILITY_CATALOG;
-  }
-  // Historical TWW pin: Warlock rules + shared consumables only (reproducibility).
-  return {
-    version: pin,
-    catalogVersion: `${pin.gameVersion}/${pin.seasonSlug ?? "unknown"}`,
-    rules: [...SHARED_CONSUMABLE_RULES, ...WARLOCK_RULES],
+    catalogVersion: "unsupported",
+    classSlug,
+    specSlug,
+    supported: false,
+    supportState,
+    unsupportedReason: reason,
+    rules: [...SHARED_CONSUMABLE_RULES],
   };
 }
 
@@ -92,20 +89,94 @@ function ruleAppliesToRole(rule: AbilityRule, role?: AbilityRole): boolean {
   return rule.roles.includes(role);
 }
 
-export interface GetAbilityCatalogOptions {
-  classSlug: string;
-  specSlug: string;
-  role?: AbilityRole;
-  gameVersion?: string;
-  includeShared?: boolean;
-  includeRacials?: boolean;
+function filterRulesForLookup(
+  rules: AbilityRule[],
+  classSlug: string,
+  specSlug: string,
+  role: AbilityRole | undefined,
+  includeShared: boolean,
+  includeRacials: boolean,
+): AbilityRule[] {
+  return rules.filter((rule) => {
+    if (rule.classSlug == null) {
+      if (rule.availability === "SHARED" && rule.category === "CONSUMABLE") return includeShared;
+      if (rule.canonicalKey.startsWith("shared.racial.")) return includeRacials;
+      return includeShared;
+    }
+    return ruleAppliesToSpec(rule, classSlug, specSlug) && ruleAppliesToRole(rule, role);
+  });
+}
+
+function buildSupportedCatalog(
+  classSlug: string,
+  specSlug: string,
+  supportState: CatalogSupportState,
+  rules: AbilityRule[],
+  catalogVersion: string,
+  version = CURRENT_CATALOG_VERSION,
+): AbilityCatalog {
+  return {
+    version,
+    catalogVersion: catalogVersion,
+    classSlug,
+    specSlug,
+    supported: true,
+    supportState,
+    rules,
+  };
+}
+
+export function buildCatalog(rules: AbilityRule[]): AbilityCatalog {
+  return {
+    version: CURRENT_CATALOG_VERSION,
+    catalogVersion: CURRENT_CATALOG_VERSION_ID,
+    classSlug: null,
+    specSlug: null,
+    supported: true,
+    rules,
+  };
+}
+
+/** Full current Retail ability catalog (all rules). */
+export const RETAIL_ABILITY_CATALOG: AbilityCatalog = buildCatalog(getAllRegisteredRules());
+
+/** Historical catalog pins (current + TWW Warlock fixture slice). */
+export function getCatalogByVersion(gameVersion: string): AbilityCatalog | null {
+  const pin = HISTORICAL_CATALOG_VERSIONS.find((v) => v.gameVersion === gameVersion);
+  if (!pin) return null;
+  if (pin.gameVersion === CURRENT_CATALOG_VERSION.gameVersion) {
+    return RETAIL_ABILITY_CATALOG;
+  }
+  return {
+    version: pin,
+    catalogVersion: `${pin.gameVersion}/${pin.seasonSlug ?? "unknown"}`,
+    classSlug: null,
+    specSlug: null,
+    supported: true,
+    rules: [...SHARED_CONSUMABLE_RULES, ...WARLOCK_RULES],
+  };
 }
 
 /**
- * Resolve a class/spec catalog slice. Never falls back to Warlock for unknown specs.
+ * Detailed catalog resolution with explicit failure reasons.
+ * Never falls back to Warlock for unknown specs.
  */
-export function getAbilityCatalog(options: GetAbilityCatalogOptions): GetAbilityCatalogResult {
-  const { classSlug, specSlug, role, gameVersion, includeShared = true, includeRacials = false } = options;
+export function resolveAbilityCatalog(lookup: AbilityCatalogLookup): GetAbilityCatalogResult {
+  const classSlug = lookup.classSlug?.trim().toLowerCase() || "";
+  const specSlug = lookup.specSlug?.trim().toLowerCase() || "";
+  const role = lookup.role ?? undefined;
+  const { gameVersion, includeShared = true, includeRacials = false } = lookup;
+
+  if (!classSlug || !specSlug) {
+    return {
+      ok: false,
+      reason: "CLASS_SPEC_UNKNOWN",
+      classSlug: classSlug || "unknown",
+      specSlug: specSlug || "unknown",
+      role,
+      gameVersion: gameVersion ?? undefined,
+    };
+  }
 
   if (gameVersion && !HISTORICAL_CATALOG_VERSIONS.some((v) => v.gameVersion === gameVersion)) {
     return {
@@ -120,16 +191,37 @@ export function getAbilityCatalog(options: GetAbilityCatalogOptions): GetAbility
 
   const classDef = findClassDefinition(classSlug);
   if (!classDef) {
-    return { ok: false, reason: "UNKNOWN_CLASS", classSlug, specSlug, role, gameVersion };
+    return {
+      ok: false,
+      reason: "UNKNOWN_CLASS",
+      classSlug,
+      specSlug,
+      role,
+      gameVersion: gameVersion ?? undefined,
+    };
   }
 
   const specDef = findSpecDefinition(classSlug, specSlug);
   if (!specDef) {
-    return { ok: false, reason: "UNKNOWN_SPEC", classSlug, specSlug, role, gameVersion };
+    return {
+      ok: false,
+      reason: "UNKNOWN_SPEC",
+      classSlug,
+      specSlug,
+      role,
+      gameVersion: gameVersion ?? undefined,
+    };
   }
 
   if (specDef.supportState === "UNSUPPORTED" || classDef.supportState === "UNSUPPORTED") {
-    return { ok: false, reason: "UNSUPPORTED_SPEC", classSlug, specSlug, role, gameVersion };
+    return {
+      ok: false,
+      reason: "UNSUPPORTED_SPEC",
+      classSlug,
+      specSlug,
+      role,
+      gameVersion: gameVersion ?? undefined,
+    };
   }
 
   const versioned = gameVersion ? getCatalogByVersion(gameVersion) : RETAIL_ABILITY_CATALOG;
@@ -140,28 +232,51 @@ export function getAbilityCatalog(options: GetAbilityCatalogOptions): GetAbility
       classSlug,
       specSlug,
       role,
-      gameVersion,
+      gameVersion: gameVersion ?? undefined,
     };
   }
 
-  const classRules = versioned.rules.filter((r) => {
-    if (r.classSlug == null) {
-      if (r.availability === "SHARED" && r.category === "CONSUMABLE") return includeShared;
-      if (r.canonicalKey.startsWith("shared.racial.")) return includeRacials;
-      return includeShared;
-    }
-    return ruleAppliesToSpec(r, classSlug, specSlug) && ruleAppliesToRole(r, role);
-  });
+  const rules = filterRulesForLookup(
+    versioned.rules,
+    classSlug,
+    specSlug,
+    role,
+    includeShared,
+    includeRacials,
+  );
 
   return {
     ok: true,
     supportState: specDef.supportState,
-    catalog: {
-      version: versioned.version,
-      catalogVersion: versioned.catalogVersion,
-      rules: classRules,
-    },
+    catalog: buildSupportedCatalog(
+      classSlug,
+      specSlug,
+      specDef.supportState,
+      rules,
+      versioned.catalogVersion,
+      versioned.version,
+    ),
   };
+}
+
+/**
+ * Resolve the ability catalog for a class/spec/role.
+ * Returns a supported catalog slice or an explicit unsupported catalog (never Warlock fallback).
+ */
+export function getAbilityCatalog(lookup: AbilityCatalogLookup): AbilityCatalog {
+  const resolved = resolveAbilityCatalog(lookup);
+  if (resolved.ok) return resolved.catalog;
+
+  const classSlug = lookup.classSlug?.trim().toLowerCase() || null;
+  const specSlug = lookup.specSlug?.trim().toLowerCase() || null;
+  const specDef = classSlug && specSlug ? findSpecDefinition(classSlug, specSlug) : undefined;
+
+  return emptyUnsupported(
+    classSlug,
+    specSlug,
+    resolved.reason,
+    specDef?.supportState,
+  );
 }
 
 export interface ResolveAbilityRuleOptions {
@@ -191,6 +306,75 @@ export function getRetailClassMatrix() {
   return RETAIL_CLASS_MATRIX;
 }
 
+/** Explicit list of class/spec catalogs currently registered in the Retail matrix. */
+export function listSupportedCatalogs(): Array<{
+  classSlug: string;
+  specSlug: string;
+  catalogVersion: string;
+  supportState: CatalogSupportState;
+}> {
+  return RETAIL_CLASS_MATRIX.flatMap((cls) =>
+    cls.specs
+      .filter((spec) => spec.supportState !== "UNSUPPORTED")
+      .map((spec) => ({
+        classSlug: cls.slug,
+        specSlug: spec.slug,
+        catalogVersion: CURRENT_CATALOG_VERSION_ID,
+        supportState: spec.supportState,
+      })),
+  ).sort((a, b) => `${a.classSlug}/${a.specSlug}`.localeCompare(`${b.classSlug}/${b.specSlug}`));
+}
+
+export function buildCatalogCoverageDiagnostics(lookup: AbilityCatalogLookup): CatalogCoverageDiagnostics {
+  const catalog = getAbilityCatalog(lookup);
+  const categoryCoverage = {} as Record<AbilityCategory, number>;
+  const categories: AbilityCategory[] = [
+    "INTERRUPT",
+    "HARD_CC",
+    "SOFT_CC",
+    "DISPEL",
+    "PURGE",
+    "DEFENSIVE_MAJOR",
+    "DEFENSIVE_MINOR",
+    "IMMUNITY",
+    "SELF_HEAL",
+    "EXTERNAL_DEFENSIVE",
+    "GROUP_UTILITY",
+    "MOVEMENT_UTILITY",
+    "BATTLE_REZ",
+    "BLOODLUST",
+    "CONSUMABLE",
+  ];
+  for (const cat of categories) categoryCoverage[cat] = 0;
+  for (const rule of catalog.rules) {
+    const count = rule.spellIds.length + (rule.aliases?.length ?? 0);
+    categoryCoverage[rule.category] = (categoryCoverage[rule.category] ?? 0) + count;
+  }
+
+  const applicableCategories =
+    catalog.supported && lookup.classSlug && lookup.specSlug && lookup.role
+      ? getApplicableAbilityCategories({
+          classSlug: lookup.classSlug,
+          specSlug: lookup.specSlug,
+          role: lookup.role,
+          gameVersion: lookup.gameVersion ?? undefined,
+          includeRacials: lookup.includeRacials,
+        })
+      : undefined;
+
+  return {
+    classSlug: catalog.classSlug,
+    specSlug: catalog.specSlug,
+    supported: catalog.supported,
+    supportState: catalog.supportState,
+    catalogVersion: catalog.supported ? catalog.catalogVersion : null,
+    unsupportedReason: catalog.unsupportedReason,
+    categoryCoverage,
+    registeredClassSpecs: listSupportedCatalogs().map((c) => `${c.classSlug}/${c.specSlug}`),
+    applicableCategories,
+  };
+}
+
 /** Maps legacy combat-metrics category names onto the generic taxonomy. */
 export const LEGACY_CATEGORY_MAP: Record<LegacyAbilityCategory, AbilityCategory[]> = {
   interrupt: ["INTERRUPT"],
@@ -210,20 +394,17 @@ export function expandScoringCategory(category: ScoringAbilityCategory): Ability
   return [category as AbilityCategory];
 }
 
+/** @deprecated Use expandScoringCategory — single compatibility alias. */
+export const normalizeCategory = expandScoringCategory;
+
 /**
  * Backward-compatible Warlock Demonology catalog for existing worker tests.
- * Shared consumables included so health_potion lookups still succeed with classSlug=warlock.
+ * Shared consumables included so consumable lookups still succeed.
  */
-export const WARLOCK_DEMONOLOGY_CATALOG: AbilityCatalog = (() => {
-  const result = getAbilityCatalog({
-    classSlug: "warlock",
-    specSlug: "demonology",
-    role: "DPS",
-    includeShared: true,
-    includeRacials: false,
-  });
-  if (!result.ok) {
-    throw new Error("Warlock Demonology catalog failed to resolve");
-  }
-  return result.catalog;
-})();
+export const WARLOCK_DEMONOLOGY_CATALOG: AbilityCatalog = getAbilityCatalog({
+  classSlug: "warlock",
+  specSlug: "demonology",
+  role: "DPS",
+  includeShared: true,
+  includeRacials: false,
+});

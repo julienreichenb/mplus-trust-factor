@@ -29,6 +29,65 @@ export interface SearchCharacterResponse {
   score: ScoreSnapshotDTO | null;
 }
 
+/** Exact character+realm resolution for the dual-field search flow. */
+export type CharacterResolveStatus =
+  | "READY"
+  | "QUEUED"
+  | "PROCESSING"
+  | "NOT_FOUND"
+  | "PROVIDER_UNAVAILABLE"
+  | "FAILED";
+
+export type CharacterResolveResponse =
+  | {
+      status: "READY";
+      characterId: string;
+      profilePath: string;
+    }
+  | {
+      status: "QUEUED" | "PROCESSING";
+      characterId: string;
+      refreshId: string;
+      profilePath: string;
+      retryAfterMs: number;
+    }
+  | {
+      status: "NOT_FOUND";
+      message: string;
+    }
+  | {
+      status: "PROVIDER_UNAVAILABLE";
+      retryable: true;
+      message: string;
+    }
+  | {
+      status: "FAILED";
+      retryable: boolean;
+      message: string;
+    };
+
+export interface CharacterResolveRequest {
+  name: string;
+  realmSlug: string;
+  region: RegionCode;
+}
+
+/** Combobox row from the retail realm catalog. */
+export interface RealmCatalogOption {
+  name: string;
+  slug: string;
+  region: RegionCode;
+  locale: string | null;
+  connectedRealmId: number | null;
+  displayLabel: string;
+  timezone?: string | null;
+  category?: string | null;
+}
+
+export interface RealmCatalogResponse {
+  realms: RealmCatalogOption[];
+}
+
 /** Autocomplete row kind: indexed hit, synthetic new-character resolve, or realm-missing hint. */
 export type CharacterAutocompleteKind = "indexed" | "resolve" | "hint";
 
@@ -174,6 +233,11 @@ export interface PerformanceDungeonSummaryDTO {
   latestRun: PerformanceExplanatoryRunDTO | null;
 }
 
+export type PerformanceProvenance =
+  | "AGGREGATE_ZONE_RANKINGS"
+  | "FIGHT_BOUND_PARSES"
+  | "NONE";
+
 export interface PerformanceCurrentSeasonSummaryDTO {
   peakScore: number | null;
   consistencyScore: number | null;
@@ -182,6 +246,8 @@ export interface PerformanceCurrentSeasonSummaryDTO {
   dungeonCount: number;
   expectedDungeonCount: number;
   latestObservedAt: IsoDateTime | null;
+  /** Whether percentiles are aggregate zone rankings vs fight-bound selected-run parses. */
+  provenance?: PerformanceProvenance;
   dungeons: PerformanceDungeonSummaryDTO[];
 }
 

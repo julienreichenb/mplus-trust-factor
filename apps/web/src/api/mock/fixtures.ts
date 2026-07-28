@@ -13,17 +13,18 @@ const now = "2026-07-20T12:00:00.000Z";
 const staleAt = "2026-07-19T08:00:00.000Z";
 
 export const EU_REALMS = [
-  { slug: "tarren-mill", name: "Tarren Mill" },
-  { slug: "silvermoon", name: "Silvermoon" },
-  { slug: "draenor", name: "Draenor" },
-  { slug: "kazzak", name: "Kazzak" },
-  { slug: "ravencrest", name: "Ravencrest" },
-  { slug: "twisting-nether", name: "Twisting Nether" },
-  { slug: "outland", name: "Outland" },
-  { slug: "stormscale", name: "Stormscale" },
-  { slug: "sylvanas", name: "Sylvanas" },
-  { slug: "ghostlands", name: "Ghostlands" },
-  { slug: "archimonde", name: "Archimonde" },
+  { slug: "tarren-mill", name: "Tarren Mill", region: "EU", locale: "en_GB", displayLabel: "Tarren Mill — EU" },
+  { slug: "silvermoon", name: "Silvermoon", region: "EU", locale: "en_GB", displayLabel: "Silvermoon — EU" },
+  { slug: "draenor", name: "Draenor", region: "EU", locale: "en_GB", displayLabel: "Draenor — EU" },
+  { slug: "kazzak", name: "Kazzak", region: "EU", locale: "en_GB", displayLabel: "Kazzak — EU" },
+  { slug: "ravencrest", name: "Ravencrest", region: "EU", locale: "en_GB", displayLabel: "Ravencrest — EU" },
+  { slug: "twisting-nether", name: "Twisting Nether", region: "EU", locale: "en_GB", displayLabel: "Twisting Nether — EU" },
+  { slug: "outland", name: "Outland", region: "EU", locale: "en_GB", displayLabel: "Outland — EU" },
+  { slug: "stormscale", name: "Stormscale", region: "EU", locale: "en_GB", displayLabel: "Stormscale — EU" },
+  { slug: "sylvanas", name: "Sylvanas", region: "EU", locale: "en_GB", displayLabel: "Sylvanas — EU" },
+  { slug: "ghostlands", name: "Ghostlands", region: "EU", locale: "en_GB", displayLabel: "Ghostlands — EU" },
+  { slug: "archimonde", name: "Archimonde", region: "EU", locale: "fr_FR", displayLabel: "Archimonde — EU" },
+  { slug: "cherith", name: "Chérith", region: "EU", locale: "fr_FR", displayLabel: "Chérith — EU" },
 ] as const;
 
 export const DEFAULT_MODEL_CONFIG: EditableModelConfig = {
@@ -93,9 +94,16 @@ function baseScore(
     inputFingerprint: `fp-${characterId}`,
     dimensions: dims.map((d) => ({
       dimension: d.dimension,
-      score: d.score,
+      score: d.confidence <= 0 ? null : d.score,
       confidence: d.confidence,
       weight: d.weight,
+      state:
+        d.confidence <= 0
+          ? ("UNAVAILABLE" as const)
+          : d.confidence < 0.35
+            ? ("PARTIAL" as const)
+            : ("AVAILABLE" as const),
+      reason: d.confidence <= 0 ? "FIXTURE_UNAVAILABLE" : null,
       contributors: contributors(d.pos, d.neg),
     })),
     redFlags,
@@ -586,10 +594,10 @@ export function finalizeDynamicProfile(profile: CharacterProfileView): Character
       calculatedAt: now,
       inputFingerprint: `fp-${profile.characterId}`,
       dimensions: [
-        { dimension: "PERFORMANCE", score: 60, confidence: 0.4, weight: 0.35, contributors: null },
-        { dimension: "SURVIVAL", score: 58, confidence: 0.4, weight: 0.3, contributors: null },
-        { dimension: "UTILITY", score: 64, confidence: 0.4, weight: 0.25, contributors: null },
-        { dimension: "EXPERIENCE", score: 55, confidence: 0.5, weight: 0.1, contributors: null },
+        { dimension: "PERFORMANCE", score: 60, confidence: 0.4, weight: 0.35, state: "AVAILABLE", reason: null, contributors: null },
+        { dimension: "SURVIVAL", score: 58, confidence: 0.4, weight: 0.3, state: "AVAILABLE", reason: null, contributors: null },
+        { dimension: "UTILITY", score: 64, confidence: 0.4, weight: 0.25, state: "AVAILABLE", reason: null, contributors: null },
+        { dimension: "EXPERIENCE", score: 55, confidence: 0.5, weight: 0.1, state: "AVAILABLE", reason: null, contributors: null },
       ],
       redFlags: [],
       explanation: { summary: "Dynamically ingested fixture character" },

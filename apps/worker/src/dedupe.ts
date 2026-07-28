@@ -48,3 +48,14 @@ export function generateAddonExportDedupeKey(job: GenerateAddonExportJob): strin
     String(job.scoreModelVersion),
   ]);
 }
+
+export function syncRealmCatalogDedupeKey(parts: {
+  regions?: string[] | null;
+  forceDetails?: boolean;
+}): string {
+  const regions = (parts.regions ?? ["EU", "US", "KR", "TW"]).map((r) => r.toUpperCase()).sort();
+  return buildDedupeKey(QUEUE_NAMES.syncRealmCatalog, [
+    regions.join(","),
+    String(parts.forceDetails === true),
+  ]);
+}

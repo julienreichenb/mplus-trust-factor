@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { RunCombatFacts } from "@mplus/provider-warcraftlogs";
-import { WARLOCK_DEMONOLOGY_CATALOG } from "@mplus/abilities";
+import { getAbilityCatalog, WARLOCK_DEMONOLOGY_CATALOG } from "@mplus/abilities";
 import { extractMetricsFromCombatFacts } from "./combat-metrics.js";
 
 const baseFacts: RunCombatFacts = {
@@ -51,5 +51,18 @@ describe("extractMetricsFromCombatFacts", () => {
     expect(survival?.rawValue).toBe(1);
     expect(interrupts?.context).toMatchObject({ kickCasts: 1, successfulInterrupts: 1 });
     expect(defensives?.rawValue).toBe(1);
+  });
+
+  it("does not invent zeros for unsupported class catalogs", () => {
+    const catalog = getAbilityCatalog({ classSlug: "not-a-class", specSlug: "frost" });
+    const observations = extractMetricsFromCombatFacts(baseFacts, "2026-07-27T12:00:00.000Z", {
+      catalog,
+      classSlug: "not-a-class",
+      specSlug: "frost",
+    });
+    expect(observations).toHaveLength(1);
+    expect(observations[0]?.context).toMatchObject({
+      reason: "UNKNOWN_CLASS",
+    });
   });
 });

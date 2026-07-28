@@ -6,6 +6,7 @@ import type {
   BlizzardMythicKeystoneProfileDTO,
   BlizzardMythicLeaderboardDTO,
   BlizzardRealmDTO,
+  BlizzardRealmIndexEntryDTO,
   BlizzardSeasonDTO,
   CanonicalCharacter,
   CharacterIdentityInput,
@@ -39,6 +40,7 @@ import {
   normalizeMythicRuns,
   normalizePeriod,
   normalizeRealm,
+  normalizeRealmIndexEntry,
   normalizeSeason,
   normalizeTalentSnapshot,
   refLabel,
@@ -62,6 +64,7 @@ import {
   periodIndexSchema,
   periodSchema,
   realmSchema,
+  realmIndexSchema,
   seasonIndexSchema,
   seasonSchema,
   specializationsSchema,
@@ -137,6 +140,41 @@ export class LiveBlizzardProvider implements BlizzardProvider {
     const raw = parseOrThrow(realmSchema, result.data, endpointKey);
     return buildProviderResult({
       data: normalizeRealm(raw, region.regionCode),
+      ctx,
+      endpointKey,
+      sourceUrl: result.sourceUrl,
+      cacheHit: result.cacheHit,
+      statusCode: result.statusCode,
+      retryCount: result.retryCount,
+      etag: result.etag,
+      expiresAt: result.expiresAt,
+    });
+  }
+
+  async getRealmIndex(
+    ctx: ProviderFetchContext,
+  ): Promise<ProviderResult<import("@mplus/contracts").BlizzardRealmIndexEntryDTO[]>> {
+    const region = this.region(ctx);
+    const endpointKey = "realm.index";
+    const path = "data/wow/realm/index";
+    const fingerprint = fingerprintFor({
+      region: region.key,
+      endpointKey,
+      pathParams: {},
+    });
+    const result = await this.http.getJson<unknown>({
+      regionConfig: region,
+      namespaceKind: "dynamic",
+      path,
+      endpointKey,
+      fingerprint,
+      ttlSeconds: DEFAULT_TTL_SECONDS.realm,
+      forceRefresh: ctx.forceRefresh,
+      locale: this.defaultLocale,
+    });
+    const raw = parseOrThrow(realmIndexSchema, result.data, endpointKey);
+    return buildProviderResult({
+      data: raw.realms.map(normalizeRealmIndexEntry),
       ctx,
       endpointKey,
       sourceUrl: result.sourceUrl,

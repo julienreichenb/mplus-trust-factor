@@ -2,7 +2,7 @@
 import { RouterLink, useRoute } from "vue-router";
 import { resolveApiMode } from "../../api/client";
 import BrandMark from "../brand/BrandMark.vue";
-import CharacterSearchAutocomplete from "../search/CharacterSearchAutocomplete.vue";
+import CharacterRealmSearch from "../search/CharacterRealmSearch.vue";
 
 const apiMode = resolveApiMode();
 const route = useRoute();
@@ -30,11 +30,10 @@ function hashHref(hash: string): string {
     </nav>
 
     <div class="actions">
-      <CharacterSearchAutocomplete
+      <CharacterRealmSearch
         compact
         :show-recent="false"
-        input-id="navbar-character-search"
-        placeholder="Character-Realm"
+        submit-label="Search"
         data-testid="navbar-search"
       />
       <span class="mode-pill" data-testid="api-mode">API: {{ apiMode }}</span>

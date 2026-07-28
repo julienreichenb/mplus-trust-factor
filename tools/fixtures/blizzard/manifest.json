@@ -26,8 +26,14 @@
     }
   },
   "realms": {
-    "tarren-mill": "realm-tarren-mill.json"
+    "tarren-mill": "realm-tarren-mill.json",
+    "archimonde": "realm-archimonde.json",
+    "kazzak": "realm-kazzak.json",
+    "cherith": "realm-cherith.json",
+    "chérith": "realm-cherith.json",
+    "arena-tournament": "realm-arena-tournament.json"
   },
+  "realmIndex": "realm-index.json",
   "seasons": {
     "index": "season-index.json",
     "byId": {

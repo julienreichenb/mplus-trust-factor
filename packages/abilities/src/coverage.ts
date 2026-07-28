@@ -52,7 +52,9 @@ export function buildCoverageReport(): CatalogCoverageReport {
         includeShared: true,
         includeRacials: false,
       });
-      const rules = resolved.ok ? resolved.catalog.rules.filter((r) => r.classSlug === cls.slug) : [];
+      const rules = resolved.supported
+        ? resolved.rules.filter((r) => r.classSlug === cls.slug)
+        : [];
       classRuleCount += rules.length;
       const categories = [...new Set(rules.map((r) => r.category))];
       const expected = EXPECTED_BY_ROLE[spec.role] ?? [];

@@ -154,7 +154,7 @@
             },
             "in": "query",
             "name": "region",
-            "required": true
+            "required": false
           },
           {
             "schema": {
@@ -170,6 +170,16 @@
             },
             "in": "query",
             "name": "q",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            },
+            "in": "query",
+            "name": "limit",
             "required": false
           }
         ],
@@ -5124,6 +5134,68 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/api/v1/characters/resolve": {
+      "post": {
+        "tags": [
+          "characters"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 48
+                  },
+                  "realmSlug": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                  },
+                  "region": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 8
+                  },
+                  "forceRetry": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "name",
+                  "realmSlug",
+                  "region"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "READY"
+          },
+          "202": {
+            "description": "QUEUED/PROCESSING"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "404": {
+            "description": "NOT_FOUND"
+          },
+          "502": {
+            "description": "FAILED"
+          },
+          "503": {
+            "description": "PROVIDER_UNAVAILABLE"
           }
         }
       }

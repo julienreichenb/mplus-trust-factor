@@ -5,7 +5,7 @@ import type {
   AbilityRule,
   ApplicableCategoryResult,
 } from "./types.js";
-import { getAbilityCatalog } from "./registry.js";
+import { resolveAbilityCatalog } from "./registry.js";
 
 const ALL_CATEGORIES: AbilityCategory[] = [
   "INTERRUPT",
@@ -48,7 +48,7 @@ function isTalentSatisfied(rule: AbilityRule, knownTalentSpellIds?: number[]): b
 export function getApplicableAbilityCategories(
   options: GetApplicableOptions,
 ): ApplicableCategoryResult[] {
-  const resolved = getAbilityCatalog({
+  const resolved = resolveAbilityCatalog({
     classSlug: options.classSlug,
     specSlug: options.specSlug,
     role: options.role,

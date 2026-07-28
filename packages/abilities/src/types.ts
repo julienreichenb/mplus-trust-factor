@@ -18,7 +18,7 @@ export type AbilityCategory =
 
 /**
  * Legacy category names used by Wave 4 combat-metrics.
- * Prefer AbilityCategory; match helpers accept both.
+ * Prefer AbilityCategory; match helpers accept both via LEGACY_CATEGORY_MAP.
  */
 export type LegacyAbilityCategory =
   | "interrupt"
@@ -87,13 +87,41 @@ export interface AbilityRule {
   provenance: AbilityProvenance;
   /** Optional curator-facing support hint. */
   supportCertainty?: "verified" | "uncertain" | "deprecated";
+  /** @deprecated Legacy fixture field — prefer availability/sourceOwnership. */
+  petRequirement?: string;
+  talentRequirements?: number[];
+  validFromBuild?: string;
+  validToBuild?: string;
 }
+
+export type AbilityCatalogUnsupportedReason =
+  | "ABILITY_CATALOG_UNSUPPORTED"
+  | "CLASS_SPEC_UNKNOWN"
+  | "UNKNOWN_CLASS"
+  | "UNKNOWN_SPEC"
+  | "UNSUPPORTED_SPEC"
+  | "UNSUPPORTED_VERSION";
 
 export interface AbilityCatalog {
   version: AbilityCatalogVersion;
   /** Convenience mirror of version identity for older callers. */
   catalogVersion: string;
+  classSlug: string | null;
+  specSlug: string | null;
+  /** False when no class/spec catalog is registered for the lookup. */
+  supported: boolean;
+  supportState?: CatalogSupportState;
+  unsupportedReason?: AbilityCatalogUnsupportedReason;
   rules: AbilityRule[];
+}
+
+export interface AbilityCatalogLookup {
+  classSlug: string | null | undefined;
+  specSlug?: string | null;
+  role?: AbilityRole | null;
+  gameVersion?: string | null;
+  includeShared?: boolean;
+  includeRacials?: boolean;
 }
 
 export interface RetailSpecDefinition {
@@ -124,7 +152,7 @@ export type GetAbilityCatalogResult =
   | { ok: true; catalog: AbilityCatalog; supportState: CatalogSupportState }
   | {
       ok: false;
-      reason: "UNSUPPORTED_CLASS" | "UNSUPPORTED_SPEC" | "UNSUPPORTED_VERSION" | "UNKNOWN_CLASS" | "UNKNOWN_SPEC";
+      reason: AbilityCatalogUnsupportedReason;
       classSlug: string;
       specSlug: string;
       role?: AbilityRole;
@@ -136,6 +164,18 @@ export interface ApplicableCategoryResult {
   state: "applicable" | "not_applicable" | "uncertain";
   reason?: string;
   rules: AbilityRule[];
+}
+
+export interface CatalogCoverageDiagnostics {
+  classSlug: string | null;
+  specSlug: string | null;
+  supported: boolean;
+  supportState?: CatalogSupportState;
+  catalogVersion: string | null;
+  unsupportedReason?: string;
+  categoryCoverage: Record<AbilityCategory, number>;
+  registeredClassSpecs: string[];
+  applicableCategories?: ApplicableCategoryResult[];
 }
 
 export type ValidationSeverity = "error" | "warning";

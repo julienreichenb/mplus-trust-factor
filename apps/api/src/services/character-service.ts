@@ -2,6 +2,7 @@ import type { Character } from "@mplus/database";
 import type {
   CharacterIdentityInput,
   CharacterProfileResponse,
+  CharacterResolveResponse,
   PerformanceSummaryDTO,
   ProviderName,
   RefreshStatusResponse,
@@ -11,8 +12,10 @@ import type {
   WclDataState,
   WclVisibilityState,
 } from "@mplus/contracts";
-import { deriveWclContributionTypes, normalizeWclProvenance } from "@mplus/contracts";
+import { ExternalApiError, deriveWclContributionTypes, normalizeWclProvenance } from "@mplus/contracts";
+import { normalizeRealmSlug, normalizeRegion } from "@mplus/domain";
 import type { EnqueueResult } from "@mplus/worker";
+import { randomUUID } from "node:crypto";
 import type { ApiContainer } from "../container.js";
 import { HttpError } from "../errors.js";
 import { cooldownSecondsRemaining, determineDetailedRefreshStatus, isFresh } from "../lib/freshness.js";
@@ -28,6 +31,15 @@ import { applyProfileWarnings, buildProfileEnrichments, toPublicProviderKey } fr
 import { characterCacheKey } from "../lib/response-cache.js";
 
 const ALL_PROVIDERS: ProviderName[] = ["blizzard", "raiderio", "warcraftlogs"];
+const DEFAULT_RETRY_AFTER_MS = 2_000;
+const PROFILE_PATH_PREFIX = "/character";
+
+function buildProfilePath(identity: CharacterIdentityInput): string {
+  const region = normalizeRegion(identity.region);
+  const realm = normalizeRealmSlug(identity.realmSlug);
+  const name = identity.name.trim();
+  return `${PROFILE_PATH_PREFIX}/${encodeURIComponent(region)}/${encodeURIComponent(realm)}/${encodeURIComponent(name)}`;
+}
 
 function readScoreObservationProviders(explanation: unknown): string[] {
   return readScoreObservations(explanation)
@@ -315,12 +327,19 @@ export class CharacterService {
     const runCoverageById: Record<string, number | null> = {
       ...coverageCounts.runCoverageById,
     };
+    const runNamesById: Record<string, { dungeonName: string }> = {};
     await Promise.all(
       runIds.map(async (runId) => {
         runCoverageById[runId] = await this.repositories.run.findLatestAnalysisCoverage(
           character.id,
           runId,
         );
+        const runRow = await this.repositories.run.findById(runId);
+        if (runRow) {
+          runNamesById[runId] = {
+            dungeonName: runRow.dungeon.name ?? runRow.dungeon.slug,
+          };
+        }
       }),
     );
 
@@ -352,6 +371,7 @@ export class CharacterService {
         scoringRunSelection,
         selectedRunCount: coverageCounts.selectedRunCount,
         detailedRunCount: coverageCounts.detailedRunCount,
+        runNamesById,
         freshness,
         scoreObservationProviders: observationProviders,
         env: this.container.env,
@@ -452,6 +472,183 @@ export class CharacterService {
       refreshStatus,
       job: jobRow ? mapJobStatus(jobRow) : null,
       score: snapshot ? mapScoreSnapshot(snapshot) : null,
+    };
+  }
+
+  /**
+   * Exact character+realm resolution for the dual-field search UI.
+   * Verifies unknown characters against Blizzard before creating a stable profile resource.
+   */
+  async resolveCharacter(
+    input: CharacterIdentityInput,
+    opts: { correlationId?: string | null; forceRetry?: boolean } = {},
+  ): Promise<{ statusCode: number; body: CharacterResolveResponse }> {
+    const identity: CharacterIdentityInput = {
+      region: normalizeRegion(input.region),
+      realmSlug: normalizeRealmSlug(input.realmSlug),
+      name: input.name.trim(),
+    };
+    if (!identity.name) {
+      return {
+        statusCode: 400,
+        body: { status: "FAILED", retryable: false, message: "Character name is required." },
+      };
+    }
+
+    const realm = await this.repositories.realm.findBySlug(identity.region, identity.realmSlug);
+    if (!realm) {
+      return {
+        statusCode: 400,
+        body: {
+          status: "FAILED",
+          retryable: false,
+          message: "Unknown or inactive realm for this region. Pick a realm from the catalog.",
+        },
+      };
+    }
+
+    // Prefer catalog slug (already normalized) and preserve user capitalization for display/path.
+    identity.realmSlug = realm.slug;
+    const profilePath = buildProfilePath(identity);
+
+    if (this.container.negativeCache.has(identity) && !opts.forceRetry) {
+      return {
+        statusCode: 404,
+        body: {
+          status: "NOT_FOUND",
+          message: `Character not found on ${realm.name} — ${identity.region}.`,
+        },
+      };
+    }
+
+    const existing = await this.repositories.character.findByIdentity(identity);
+    if (existing) {
+      const snapshot = await this.repositories.score.getLatestSnapshot(existing.id);
+      const activeJob = await this.repositories.job.findActiveForCharacter(existing.id);
+      const latestJob = activeJob ?? (await this.repositories.job.findLatestForCharacter(existing.id));
+      const providerStates = await this.repositories.providerState.listForCharacter(existing.id);
+      const blizzardNotFound = providerStates.some(
+        (s) => s.provider === "blizzard" && s.state === "NOT_FOUND",
+      );
+
+      if (blizzardNotFound && !opts.forceRetry) {
+        return {
+          statusCode: 404,
+          body: {
+            status: "NOT_FOUND",
+            message: `Character not found on ${realm.name} — ${identity.region}.`,
+          },
+        };
+      }
+
+      if (snapshot && !activeJob) {
+        return {
+          statusCode: 200,
+          body: { status: "READY", characterId: existing.id, profilePath },
+        };
+      }
+
+      if (activeJob) {
+        return {
+          statusCode: 202,
+          body: {
+            status: activeJob.status === "ACTIVE" ? "PROCESSING" : "QUEUED",
+            characterId: existing.id,
+            refreshId: activeJob.id,
+            profilePath,
+            retryAfterMs: DEFAULT_RETRY_AFTER_MS,
+          },
+        };
+      }
+
+      if (latestJob?.status === "FAILED" || opts.forceRetry || !snapshot) {
+        const enqueueResult = await this.enqueueRefresh(
+          identity,
+          existing,
+          Boolean(opts.forceRetry),
+          opts.correlationId,
+        );
+        return {
+          statusCode: 202,
+          body: {
+            status: "QUEUED",
+            characterId: existing.id,
+            refreshId: enqueueResult.jobId,
+            profilePath,
+            retryAfterMs: DEFAULT_RETRY_AFTER_MS,
+          },
+        };
+      }
+
+      return {
+        statusCode: 200,
+        body: { status: "READY", characterId: existing.id, profilePath },
+      };
+    }
+
+    // New character: verify against Blizzard before creating a stable DB row.
+    try {
+      await this.container.worker.providers.blizzard.getCharacterProfile(identity, {
+        region: identity.region,
+        requestId: opts.correlationId ?? randomUUID(),
+        correlationId: opts.correlationId ?? null,
+        forceRefresh: true,
+        now: new Date().toISOString(),
+      });
+    } catch (error) {
+      if (error instanceof ExternalApiError && error.code === "NOT_FOUND") {
+        this.container.negativeCache.set(identity);
+        return {
+          statusCode: 404,
+          body: {
+            status: "NOT_FOUND",
+            message: `Character not found on ${realm.name} — ${identity.region}.`,
+          },
+        };
+      }
+      if (error instanceof ExternalApiError && error.retryable) {
+        return {
+          statusCode: 503,
+          body: {
+            status: "PROVIDER_UNAVAILABLE",
+            retryable: true,
+            message: "Blizzard is temporarily unavailable. Please retry shortly.",
+          },
+        };
+      }
+      if (error instanceof ExternalApiError && !error.retryable) {
+        return {
+          statusCode: 502,
+          body: {
+            status: "FAILED",
+            retryable: false,
+            message: error.message || "Character verification failed.",
+          },
+        };
+      }
+      return {
+        statusCode: 503,
+        body: {
+          status: "PROVIDER_UNAVAILABLE",
+          retryable: true,
+          message: "Unable to verify character with Blizzard right now.",
+        },
+      };
+    }
+
+    const character = await this.repositories.character.upsertCharacter(identity, {
+      displayName: identity.name,
+    });
+    const enqueueResult = await this.enqueueRefresh(identity, character, false, opts.correlationId);
+    return {
+      statusCode: 202,
+      body: {
+        status: "QUEUED",
+        characterId: character.id,
+        refreshId: enqueueResult.jobId,
+        profilePath,
+        retryAfterMs: DEFAULT_RETRY_AFTER_MS,
+      },
     };
   }
 

@@ -3,10 +3,9 @@ import { getAbilityCatalog } from "./registry.js";
 import { rulesForCategory } from "./match.js";
 
 function expectCatalog(classSlug: string, specSlug: string, role: "DPS" | "TANK" | "HEALER") {
-  const result = getAbilityCatalog({ classSlug, specSlug, role, includeShared: false });
-  expect(result.ok, `${classSlug}/${specSlug}`).toBe(true);
-  if (!result.ok) throw new Error("catalog lookup failed");
-  return result.catalog;
+  const catalog = getAbilityCatalog({ classSlug, specSlug, role, includeShared: false });
+  expect(catalog.supported, `${classSlug}/${specSlug}`).toBe(true);
+  return catalog;
 }
 
 describe("cross-class fixture archetypes", () => {

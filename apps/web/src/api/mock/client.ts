@@ -1,4 +1,5 @@
 import { queryAdminAbilityCatalog } from "@mplus/abilities";
+import { normalizeRealmOptions } from "../realm-options";
 import type {
   AdminAbilityCatalogResponse,
   AdminScoreModelDTO,
@@ -6,6 +7,8 @@ import type {
   CharacterComparisonRequest,
   CharacterComparisonResponse,
   CharacterIdentityInput,
+  CharacterResolveRequest,
+  CharacterResolveResponse,
   EditableModelConfig,
   ModelValidationResult,
   MplusApiClient,
@@ -125,17 +128,80 @@ export function createMockApiClient(): MplusApiClient {
       };
     },
 
-    async searchRealms(region: RegionCode, query: string, signal) {
+    async searchRealms(region: RegionCode | null | undefined, query: string, signal, limit = 25) {
       await delay(40);
       assertNotAborted(signal);
-      if (String(region).toUpperCase() !== "EU") {
+      const regionFilter = region ? String(region).toUpperCase() : null;
+      if (regionFilter && regionFilter !== "EU") {
         return [];
       }
       const q = query.trim().toLowerCase();
-      if (!q) return [...EU_REALMS].slice(0, 8);
-      return EU_REALMS.filter(
-        (r) => r.slug.includes(q) || r.name.toLowerCase().includes(q),
-      ).slice(0, 20);
+      const folded = q.normalize("NFKD").replace(/\p{M}/gu, "");
+      const filtered = EU_REALMS.filter((r) => {
+        if (!q) return true;
+        return (
+          r.slug.includes(q) ||
+          r.name.toLowerCase().includes(q) ||
+          r.name
+            .normalize("NFKD")
+            .replace(/\p{M}/gu, "")
+            .toLowerCase()
+            .includes(folded)
+        );
+      }).slice(0, limit);
+      return normalizeRealmOptions([...filtered]);
+    },
+
+    async resolveCharacter(
+      request: CharacterResolveRequest & { forceRetry?: boolean },
+      signal,
+    ): Promise<CharacterResolveResponse> {
+      await delay(60);
+      assertNotAborted(signal);
+      const identity = {
+        region: String(request.region).toUpperCase() as RegionCode,
+        realmSlug: request.realmSlug.toLowerCase(),
+        name: request.name.trim(),
+      };
+      const profilePath = `/character/${identity.region}/${identity.realmSlug}/${encodeURIComponent(identity.name)}`;
+      const lowered = identity.name.toLowerCase();
+      if (lowered.includes("missing") || lowered.includes("notfound") || lowered === "nobodyhere") {
+        return {
+          status: "NOT_FOUND",
+          message: `Character not found on this realm — ${identity.region}.`,
+        };
+      }
+      if (lowered.includes("outage") || lowered.includes("unavailable")) {
+        return {
+          status: "PROVIDER_UNAVAILABLE",
+          retryable: true,
+          message: "Blizzard is temporarily unavailable. Please retry shortly.",
+        };
+      }
+      const fixture = findFixture(identity);
+      if (fixture && !fixture.simulateQueuedRefresh) {
+        return { status: "READY", characterId: fixture.profile.characterId, profilePath };
+      }
+      if (fixture?.simulateQueuedRefresh) {
+        const job = createJob("queued", fixture.profile.characterId);
+        return {
+          status: "QUEUED",
+          characterId: fixture.profile.characterId,
+          refreshId: job.jobId,
+          profilePath,
+          retryAfterMs: 500,
+        };
+      }
+      const profile = createDynamicQueuedProfile(identity);
+      mockSession.dynamicProfiles.set(identityKey(identity), profile);
+      const job = createJob("queued", profile.characterId);
+      return {
+        status: "QUEUED",
+        characterId: profile.characterId,
+        refreshId: job.jobId,
+        profilePath,
+        retryAfterMs: 500,
+      };
     },
 
     async searchCharacters(region: RegionCode, query: string, signal) {
@@ -337,9 +403,13 @@ export function createMockApiClient(): MplusApiClient {
                 : [...peers].sort((a, b) => a - b)[Math.floor((peers.length - 1) / 2)] ?? null;
             const dimBest = peers.length === 0 ? null : Math.max(...peers);
             dimDeltasMedian[d.dimension] =
-              dimMedian === null ? null : Number((d.score - dimMedian).toFixed(1));
+              dimMedian === null || d.score == null
+                ? null
+                : Number((d.score - dimMedian).toFixed(1));
             dimDeltasBest[d.dimension] =
-              dimBest === null ? null : Number((d.score - dimBest).toFixed(1));
+              dimBest === null || d.score == null
+                ? null
+                : Number((d.score - dimBest).toFixed(1));
           }
           return {
             identity: e.identity,

@@ -42,9 +42,16 @@ export { computeInputFingerprint } from "./fingerprint.js";
 export {
   createDefaultModelV1,
   createDefaultModelV2,
+  createDefaultModelV3,
   createSurvivalFocusedModel,
   createUtilityFocusedModel,
 } from "./model/defaults.js";
+export { presentDimensionScore, presentDimensionScores } from "./present.js";
+export {
+  buildCharacterHistoryExperienceObservations,
+  type CharacterHistoryExperienceInput,
+  type CharacterHistoryRunInput,
+} from "./experience/character-history.js";
 export {
   computePerformanceDimension,
   computeCurrentSeasonPeak,
@@ -70,3 +77,24 @@ export {
   type ScoringRunCandidateInput,
   type ScoringRunSelectionReason,
 } from "./selection/scoring-run-selection.js";
+export {
+  resolveActiveSeasonDungeonSlugs,
+  resolveActiveSeasonDungeonPool,
+  isDungeonInActiveSeasonPool,
+  normalizeDungeonSlug,
+  readBlizzardSeasonDungeonSlugsFromMetadata,
+  type ResolveActiveSeasonDungeonSlugsInput,
+  type ResolvedActiveSeasonDungeonPool,
+  type ActiveSeasonDungeonPoolSource,
+} from "./selection/active-season-dungeons.js";
+export {
+  toContractScoringRunSelection,
+  applyRunMetadataToSelection,
+  type ScoringRunPresentationMeta,
+} from "./selection/scoring-run-selection-present.js";
+export {
+  computeModelCoverage,
+  filterPublicSkillDimensions,
+  MODEL_COVERAGE_PROVISIONAL_THRESHOLD,
+  type ModelCoverageSummary,
+} from "./model-coverage.js";

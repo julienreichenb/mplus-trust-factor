@@ -106,6 +106,18 @@ const defaultModelConfigV2 = {
   },
 } satisfies Prisma.InputJsonValue;
 
+/** v3: Wave 4 weights — PERFORMANCE 35 / SURVIVAL 30 / UTILITY 25 / EXPERIENCE 10 / RAID 0. */
+const defaultModelConfigV3 = {
+  ...defaultModelConfigV2,
+  weights: {
+    performance: 0.35,
+    survival: 0.3,
+    utility: 0.25,
+    experienceConsistency: 0.1,
+    mythicRaid: 0,
+  },
+} satisfies Prisma.InputJsonValue;
+
 const metricDefinitions: Array<{
   key: string;
   dimension: ScoreDimension;
@@ -273,20 +285,74 @@ const redFlags: Array<{
 ];
 
 async function seed(): Promise<void> {
-  const region = await prisma.region.upsert({
-    where: { code: "EU" },
-    update: {
-      apiHost: "https://eu.api.blizzard.com",
-      localeDefault: "en_GB",
-      enabled: true,
-    },
-    create: {
-      code: "EU",
-      apiHost: "https://eu.api.blizzard.com",
-      localeDefault: "en_GB",
-      enabled: true,
-    },
-  });
+  const regionDefs = [
+    { code: "EU", apiHost: "https://eu.api.blizzard.com", localeDefault: "en_GB" },
+    { code: "US", apiHost: "https://us.api.blizzard.com", localeDefault: "en_US" },
+    { code: "KR", apiHost: "https://kr.api.blizzard.com", localeDefault: "ko_KR" },
+    { code: "TW", apiHost: "https://tw.api.blizzard.com", localeDefault: "zh_TW" },
+  ] as const;
+
+  const regions = [];
+  for (const def of regionDefs) {
+    regions.push(
+      await prisma.region.upsert({
+        where: { code: def.code },
+        update: {
+          apiHost: def.apiHost,
+          localeDefault: def.localeDefault,
+          enabled: true,
+        },
+        create: {
+          code: def.code,
+          apiHost: def.apiHost,
+          localeDefault: def.localeDefault,
+          enabled: true,
+        },
+      }),
+    );
+  }
+  const region = regions[0]!;
+
+  // Seed a minimal EU realm set so local combobox works before the first Blizzard sync.
+  const seedRealms = [
+    { slug: "tarren-mill", name: "Tarren Mill", locale: "en_GB", blizzardRealmId: 1084n, connectedRealmId: 1084n },
+    { slug: "archimonde", name: "Archimonde", locale: "fr_FR", blizzardRealmId: 1302n, connectedRealmId: 1082n },
+    { slug: "kazzak", name: "Kazzak", locale: "en_GB", blizzardRealmId: 1305n, connectedRealmId: 1082n },
+    { slug: "cherith", name: "Chérith", locale: "fr_FR", blizzardRealmId: 1091n, connectedRealmId: 1091n },
+  ];
+  for (const realm of seedRealms) {
+    await prisma.realm.upsert({
+      where: { regionId_slug: { regionId: region.id, slug: realm.slug } },
+      update: {
+        name: realm.name,
+        nameNormalized: realm.name
+          .normalize("NFKD")
+          .replace(/\p{M}/gu, "")
+          .toLocaleLowerCase("en-US"),
+        locale: realm.locale,
+        blizzardRealmId: realm.blizzardRealmId,
+        connectedRealmId: realm.connectedRealmId,
+        isActive: true,
+        isTournament: false,
+        lastSyncedAt: new Date(),
+      },
+      create: {
+        regionId: region.id,
+        slug: realm.slug,
+        name: realm.name,
+        nameNormalized: realm.name
+          .normalize("NFKD")
+          .replace(/\p{M}/gu, "")
+          .toLocaleLowerCase("en-US"),
+        locale: realm.locale,
+        blizzardRealmId: realm.blizzardRealmId,
+        connectedRealmId: realm.connectedRealmId,
+        isActive: true,
+        isTournament: false,
+        lastSyncedAt: new Date(),
+      },
+    });
+  }
 
   const existingCurrent = await prisma.season.findFirst({
     where: { regionId: region.id, slug: "placeholder-current" },
@@ -349,9 +415,8 @@ async function seed(): Promise<void> {
       name: "Default Trust Factor v2",
       description:
         "PERFORMANCE from current-season WCL parse percentiles (peak/consistency) with optional historical best-average",
-      status: ScoreModelStatus.ACTIVE,
+      status: ScoreModelStatus.ARCHIVED,
       config: defaultModelConfigV2,
-      activatedAt: new Date(),
     },
     create: {
       key: "default",
@@ -359,15 +424,38 @@ async function seed(): Promise<void> {
       name: "Default Trust Factor v2",
       description:
         "PERFORMANCE from current-season WCL parse percentiles (peak/consistency) with optional historical best-average",
-      status: ScoreModelStatus.ACTIVE,
+      status: ScoreModelStatus.ARCHIVED,
       config: defaultModelConfigV2,
+    },
+  });
+
+  await prisma.scoreModel.upsert({
+    where: {
+      key_version: { key: "default", version: 3 },
+    },
+    update: {
+      name: "Default Trust Factor v3",
+      description:
+        "Wave 4 skill weights: Performance 35%, Survival 30%, Utility 25%, Experience 10%, Raid 0%",
+      status: ScoreModelStatus.ACTIVE,
+      config: defaultModelConfigV3,
+      activatedAt: new Date(),
+    },
+    create: {
+      key: "default",
+      version: 3,
+      name: "Default Trust Factor v3",
+      description:
+        "Wave 4 skill weights: Performance 35%, Survival 30%, Utility 25%, Experience 10%, Raid 0%",
+      status: ScoreModelStatus.ACTIVE,
+      config: defaultModelConfigV3,
       activatedAt: new Date(),
     },
   });
 
   // Ensure only one ACTIVE model for key=default.
   await prisma.scoreModel.updateMany({
-    where: { key: "default", version: { not: 2 }, status: ScoreModelStatus.ACTIVE },
+    where: { key: "default", version: { not: 3 }, status: ScoreModelStatus.ACTIVE },
     data: { status: ScoreModelStatus.ARCHIVED },
   });
 
@@ -406,7 +494,9 @@ async function seed(): Promise<void> {
     });
   }
 
-  console.log("Seed completed (idempotent): EU region, placeholder season, model v2 ACTIVE (v1 archived), metrics, red flags.");
+  console.log(
+    "Seed completed (idempotent): EU/US/KR/TW regions, starter EU realms, placeholder season, model v3 ACTIVE (v1/v2 archived), metrics, red flags.",
+  );
 }
 
 seed()

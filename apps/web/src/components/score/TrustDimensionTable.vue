@@ -41,7 +41,7 @@ const rows = computed(() => dimensionRows(props.dimensions, props.modelVersion))
             <td class="mpts-data">
               {{ row.missing || row.weight == null ? "—" : formatWeight(row.weight) }}
             </td>
-            <td>{{ row.missing ? "Missing" : "Present" }}</td>
+            <td>{{ row.stateLabel }}</td>
           </tr>
         </tbody>
       </table>

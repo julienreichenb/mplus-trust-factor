@@ -53,6 +53,32 @@ function extractRedFlags(explanation: unknown): RedFlagDTO[] {
   );
 }
 
+function readCoverageMeta(explanation: unknown): Pick<
+  ScoreSnapshotDTO,
+  | "overallState"
+  | "availableModelWeight"
+  | "totalModelWeight"
+  | "modelCoverageRatio"
+  | "provisionalReason"
+> {
+  if (!explanation || typeof explanation !== "object") return {};
+  const coverage = (explanation as { coverage?: Record<string, unknown> }).coverage;
+  if (!coverage || typeof coverage !== "object") return {};
+  const overallState = coverage.overallState;
+  return {
+    overallState:
+      overallState === "DEFINITIVE" || overallState === "PROVISIONAL" ? overallState : undefined,
+    availableModelWeight:
+      typeof coverage.availableModelWeight === "number" ? coverage.availableModelWeight : undefined,
+    totalModelWeight:
+      typeof coverage.totalModelWeight === "number" ? coverage.totalModelWeight : undefined,
+    modelCoverageRatio:
+      typeof coverage.modelCoverageRatio === "number" ? coverage.modelCoverageRatio : undefined,
+    provisionalReason:
+      typeof coverage.provisionalReason === "string" ? coverage.provisionalReason : undefined,
+  };
+}
+
 const PUBLIC_EXPLANATION_FORBIDDEN_KEYS = new Set([
   "reportcode",
   "client_secret",
@@ -81,6 +107,7 @@ export function sanitizePublicExplanation(value: unknown): unknown {
 /** Maps a persisted `ScoreSnapshot` (+ dimensions/model/season relations) to the public DTO. */
 export function mapScoreSnapshot(snapshot: ScoreSnapshotWithRelations): ScoreSnapshotDTO {
   const redFlags = extractRedFlags(snapshot.explanation);
+  const coverageMeta = readCoverageMeta(snapshot.explanation);
   return {
     characterId: snapshot.characterId,
     seasonSlug: snapshot.season.slug,
@@ -93,15 +120,41 @@ export function mapScoreSnapshot(snapshot: ScoreSnapshotWithRelations): ScoreSna
     skillScore: Number(snapshot.skillScore),
     authenticityScore: Number(snapshot.authenticityScore),
     confidence: Number(snapshot.confidence),
+    overallState: coverageMeta.overallState,
+    availableModelWeight: coverageMeta.availableModelWeight,
+    totalModelWeight: coverageMeta.totalModelWeight,
+    modelCoverageRatio: coverageMeta.modelCoverageRatio,
+    provisionalReason: coverageMeta.provisionalReason,
     calculatedAt: snapshot.calculatedAt.toISOString(),
     inputFingerprint: snapshot.inputFingerprint,
-    dimensions: snapshot.dimensionScores.map((dimension) => ({
-      dimension: dimension.dimension,
-      score: Number(dimension.score),
-      confidence: Number(dimension.confidence),
-      weight: Number(dimension.weight),
-      contributors: dimension.contributors,
-    })),
+    dimensions: snapshot.dimensionScores
+      .filter((dimension) => Number(dimension.weight) > 0)
+      .map((dimension) => {
+      const rawState = (dimension as { state?: string }).state;
+      const confidence = Number(dimension.confidence);
+      const score = dimension.score == null ? null : Number(dimension.score);
+      const state =
+        rawState === "AVAILABLE" ||
+        rawState === "PARTIAL" ||
+        rawState === "UNAVAILABLE" ||
+        rawState === "PROCESSING" ||
+        rawState === "ERROR"
+          ? rawState
+          : confidence <= 0 || score == null
+            ? "UNAVAILABLE"
+            : confidence < 0.35
+              ? "PARTIAL"
+              : "AVAILABLE";
+      return {
+        dimension: dimension.dimension,
+        score,
+        confidence,
+        weight: Number(dimension.weight),
+        state,
+        reason: (dimension as { reason?: string | null }).reason ?? null,
+        contributors: dimension.contributors,
+      };
+    }),
     redFlags,
     explanation: sanitizePublicExplanation(snapshot.explanation),
   };
