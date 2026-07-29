@@ -16,7 +16,8 @@ export function useWowheadTooltips(enabled: Ref<boolean> | boolean = true) {
   async function ensure(): Promise<WowheadTooltipStatus | "skipped"> {
     const isEnabled = typeof enabled === "boolean" ? enabled : enabled.value;
     if (!isEnabled || !isWowheadTooltipsEnabled()) return "skipped";
-    const status = await loadWowheadTooltipScript();
+    // Keep iconizeLinks off — it tiles tiny GIF backgrounds on links that already have icons.
+    const status = await loadWowheadTooltipScript({ iconizeLinks: false });
     if (!cancelled && status === "ready") {
       refreshWowheadTooltips();
     }

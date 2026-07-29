@@ -61,7 +61,14 @@ export const equipmentSchema = z
             slot: namedRef.optional(),
             name: z.string().optional(),
             quality: namedRef.optional(),
-            level: z.object({ value: z.number().optional() }).passthrough().optional(),
+            level: z
+              .object({
+                value: z.number().optional(),
+                display_string: z.string().optional(),
+              })
+              .passthrough()
+              .optional(),
+            bonus_list: z.array(z.number()).optional(),
           })
           .passthrough(),
       )

@@ -127,6 +127,8 @@ describe("FixtureBlizzardProvider", () => {
     expect(result.data.role).toBe("DPS");
     expect(result.data.blizzardCharacterId).toBe("123456789");
     expect(result.data.wclCanonicalId).toBeNull();
+    expect(result.data.itemLevelEquipped).toBe(632);
+    expect(result.data.itemLevelAverage).toBe(630);
   });
 
   it("emits identity diagnostics and redacted observation envelopes", async () => {
@@ -156,6 +158,16 @@ describe("FixtureBlizzardProvider", () => {
     expect(result.data.equippedItemLevel).toBe(632);
     expect(Array.isArray(result.data.keyItems)).toBe(true);
     expect((result.data.keyItems as unknown[]).length).toBeGreaterThan(0);
+    const items = result.data.items as Array<{
+      itemLevel: number | null;
+      bonusList?: number[];
+      name?: string | null;
+    }>;
+    const trinket = items.find((i) => i.name === "Sample Key Trinket");
+    expect(trinket?.itemLevel).toBe(298);
+    expect(trinket?.bonusList).toEqual([6652, 7932]);
+    const helm = items.find((i) => i.name === "Sample Helm");
+    expect(helm?.itemLevel).toBe(629);
   });
 
   it("sanitizes equipment icon URLs and rejects unsafe schemes", () => {
@@ -191,6 +203,12 @@ describe("FixtureBlizzardProvider", () => {
     const result = await provider.getTalentSnapshot(identity, ctx);
     expect(result.data.specializationSlug).toBe("fire");
     expect(result.data.loadoutCode).toBe("C8DAH");
+    const selected = (result.data.talents as { selectedTalents?: Array<{ spellId: number | null; tree: string }> })
+      .selectedTalents;
+    expect(selected?.length).toBe(3);
+    expect(selected?.some((t) => t.tree === "CLASS" && t.spellId === 2948)).toBe(true);
+    expect(selected?.some((t) => t.tree === "SPEC" && t.spellId === 11366)).toBe(true);
+    expect(selected?.some((t) => t.tree === "HERO" && t.spellId === 123456)).toBe(true);
   });
 
   it("returns media avatar with character-media source path", async () => {

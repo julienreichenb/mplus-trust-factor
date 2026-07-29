@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { Grade } from "../../api/types";
 import { presentGrade } from "../../lib/characterViewModel";
+import TierGradeLetter from "../brand/TierGradeLetter.vue";
 
 export interface HeroTrustPreview {
   grade: Grade;
@@ -60,7 +61,7 @@ const dimensionTitles: Record<string, string> = {
     :aria-label="`${presentation.interpretation}, grade ${preview.grade}`"
   >
     <p class="hero-trust__title">{{ presentation.interpretation }}</p>
-    <span class="hero-trust__letter" aria-hidden="true">{{ preview.grade }}</span>
+    <TierGradeLetter :tier="preview.grade" size="display" />
 
     <svg
       class="hero-trust__radar"
@@ -156,41 +157,6 @@ const dimensionTitles: Record<string, string> = {
   line-height: 1.15;
   max-width: 14rem;
   text-align: right;
-}
-
-.hero-trust__letter {
-  display: grid;
-  place-items: center;
-  width: 5.75rem;
-  height: 5.75rem;
-  clip-path: polygon(50% 0%, 93% 25%, 93% 75%, 50% 100%, 7% 75%, 7% 25%);
-  font-family: var(--font-display);
-  font-weight: 700;
-  font-size: clamp(2.25rem, 4vw, 3rem);
-  background: var(--color-iron-800);
-  border: 1px solid currentColor;
-  color: var(--color-text-muted);
-}
-
-.hero-trust[data-tier="S"] .hero-trust__letter {
-  color: var(--color-tier-s);
-  box-shadow: var(--shadow-brand-glow);
-}
-
-.hero-trust[data-tier="A"] .hero-trust__letter {
-  color: var(--color-tier-a);
-}
-
-.hero-trust[data-tier="B"] .hero-trust__letter {
-  color: var(--color-tier-b);
-}
-
-.hero-trust[data-tier="C"] .hero-trust__letter {
-  color: var(--color-tier-c);
-}
-
-.hero-trust[data-tier="D"] .hero-trust__letter {
-  color: var(--color-tier-d);
 }
 
 .hero-trust__radar {

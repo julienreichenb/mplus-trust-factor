@@ -23,6 +23,8 @@ import type {
   AnalyzedRunSummary,
   EquipmentSummary,
   TalentSummary,
+  SelectedTalentDTO,
+  TalentTreeKind,
   SeasonSummary,
   ProfileEntitlements,
   ProfileWarning,
@@ -163,5 +165,7 @@ export type {
   ScoringRunSelection,
   SelectedRunSummary,
   SeasonSummary,
+  SelectedTalentDTO,
   TalentSummary,
+  TalentTreeKind,
 };

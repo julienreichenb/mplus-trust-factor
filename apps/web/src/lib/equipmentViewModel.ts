@@ -1,6 +1,5 @@
 import type { EquipmentSummary } from "../api/types";
-import { isWowheadLinksEnabled } from "../config/features";
-import { wowheadItemUrl } from "../integrations/wowhead/urls";
+import { wowheadItemQuery, wowheadItemUrl } from "../integrations/wowhead/urls";
 import {
   readOptionalHttpsUrl,
   readOptionalPositiveInt,
@@ -22,11 +21,21 @@ export interface EquipmentItemViewModel {
   quality: string | null;
   iconUrl: string | null;
   externalUrl: string | null;
+  /** Wowhead `data-wowhead` payload (`item=…&ilvl=…&bonus=…`). */
+  wowheadData: string | null;
   enchantment: string | null;
   gems: readonly EquipmentGemViewModel[];
+  bonusList: readonly number[];
   isAvailable: boolean;
   isKnownSlot: boolean;
+  /** Heuristic: enchantment text mentions embellishment (no dedicated DTO field yet). */
+  isEmbellished: boolean;
+  /** Trinkets, weapons, or embellished pieces — larger in hero gear panel. */
+  isHeroHighlight: boolean;
 }
+
+const HERO_HIGHLIGHT_SLOT_IDS = new Set(["trinket-1", "trinket-2", "main-hand", "off-hand"]);
+const HIDDEN_HERO_SLOT_RE = /shirt|tabard/i;
 
 export interface EquipmentViewModel {
   averageItemLevel: number | null;
@@ -42,7 +51,7 @@ const EQUIPMENT_SLOT_DEFS: Array<{ id: string; label: string; match: RegExp }> =
   { id: "back", label: "Back", match: /^(back|cloak)$/i },
   { id: "chest", label: "Chest", match: /^chest$/i },
   { id: "wrist", label: "Wrists", match: /wrist/i },
-  { id: "hands", label: "Hands", match: /hand|glove/i },
+  { id: "hands", label: "Hands", match: /^(hands?|gloves?)$/i },
   { id: "waist", label: "Waist", match: /waist|belt/i },
   { id: "legs", label: "Legs", match: /leg/i },
   { id: "feet", label: "Feet", match: /feet|boot/i },
@@ -50,9 +59,37 @@ const EQUIPMENT_SLOT_DEFS: Array<{ id: string; label: string; match: RegExp }> =
   { id: "finger-2", label: "Ring 2", match: /finger|ring/i },
   { id: "trinket-1", label: "Trinket 1", match: /trinket/i },
   { id: "trinket-2", label: "Trinket 2", match: /trinket/i },
-  { id: "main-hand", label: "Main Hand", match: /main.?hand|weapon/i },
+  { id: "main-hand", label: "Main Hand", match: /main.?hand|^weapon$/i },
   { id: "off-hand", label: "Off Hand", match: /off.?hand|shield/i },
 ];
+
+function detectEmbellished(enchantment: string | null): boolean {
+  return Boolean(enchantment && /embellish/i.test(enchantment));
+}
+
+function isHeroHighlightSlot(slotId: string, isEmbellished: boolean): boolean {
+  return isEmbellished || HERO_HIGHLIGHT_SLOT_IDS.has(slotId);
+}
+
+function parseBonusList(source: object): number[] {
+  const record = source as Record<string, unknown>;
+  const raw = record.bonusList ?? record.bonus_list;
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((id): id is number => typeof id === "number" && Number.isInteger(id) && id > 0);
+}
+
+function buildWowheadFields(
+  itemId: number | null,
+  itemLevel: number | null,
+  bonusList: readonly number[],
+): { externalUrl: string | null; wowheadData: string | null } {
+  if (itemId == null) return { externalUrl: null, wowheadData: null };
+  const options = { itemLevel, bonusList };
+  return {
+    externalUrl: wowheadItemUrl(itemId, options),
+    wowheadData: wowheadItemQuery(itemId, options),
+  };
+}
 
 function emptyKnownSlots(): EquipmentItemViewModel[] {
   return EQUIPMENT_SLOT_DEFS.map((def) => ({
@@ -65,10 +102,14 @@ function emptyKnownSlots(): EquipmentItemViewModel[] {
     quality: null,
     iconUrl: null,
     externalUrl: null,
+    wowheadData: null,
     enchantment: null,
     gems: [],
+    bonusList: [],
     isAvailable: false,
     isKnownSlot: true,
+    isEmbellished: false,
+    isHeroHighlight: isHeroHighlightSlot(def.id, false),
   }));
 }
 
@@ -91,13 +132,18 @@ function parseGems(source: object): EquipmentGemViewModel[] {
   return gems;
 }
 
-function enrichFromRawItem(item: object): {
+function enrichFromRawItem(
+  item: object,
+  itemLevel: number | null,
+): {
   itemId: number | null;
   quality: string | null;
   iconUrl: string | null;
   enchantment: string | null;
   gems: readonly EquipmentGemViewModel[];
+  bonusList: readonly number[];
   externalUrl: string | null;
+  wowheadData: string | null;
 } {
   const itemId = readOptionalPositiveInt(item, ["itemId", "id"]);
   const quality = readOptionalString(item, ["quality", "qualityName"]);
@@ -113,18 +159,20 @@ function enrichFromRawItem(item: object): {
     }
   }
   const gems = parseGems(item);
+  const bonusList = parseBonusList(item);
+  const wowhead = buildWowheadFields(itemId, itemLevel, bonusList);
+  const provided = readOptionalHttpsUrl(item, ["url", "externalUrl", "href"]);
 
-  let externalUrl: string | null = null;
-  if (isWowheadLinksEnabled() && itemId != null) {
-    externalUrl = wowheadItemUrl(itemId);
-  }
-  if (!externalUrl) {
-    const provided = readOptionalHttpsUrl(item, ["url", "externalUrl", "href"]);
-    // Only accept Wowhead-like or already-sanitized https URLs from the payload.
-    externalUrl = provided ? sanitizeHttpsUrl(provided) : null;
-  }
-
-  return { itemId, quality, iconUrl, enchantment, gems, externalUrl };
+  return {
+    itemId,
+    quality,
+    iconUrl,
+    enchantment,
+    gems,
+    bonusList,
+    externalUrl: wowhead.externalUrl ?? (provided ? sanitizeHttpsUrl(provided) : null),
+    wowheadData: wowhead.wowheadData,
+  };
 }
 
 /**
@@ -149,7 +197,7 @@ export function toEquipmentViewModel(
       typeof item.itemLevel === "number" && !Number.isNaN(item.itemLevel) && item.itemLevel > 0
         ? item.itemLevel
         : null;
-    const enrichment = enrichFromRawItem(item);
+    const enrichment = enrichFromRawItem(item, itemLevel);
 
     const candidates = EQUIPMENT_SLOT_DEFS.filter((def) => def.match.test(slotRaw));
     const target = candidates.find((def) => !used.has(def.id)) ?? null;
@@ -157,6 +205,7 @@ export function toEquipmentViewModel(
     if (target) {
       used.add(target.id);
       const index = EQUIPMENT_SLOT_DEFS.findIndex((def) => def.id === target.id);
+      const isEmbellished = detectEmbellished(enrichment.enchantment);
       slots[index] = {
         id: target.id,
         slot: slotRaw || target.id,
@@ -167,15 +216,20 @@ export function toEquipmentViewModel(
         quality: enrichment.quality,
         iconUrl: enrichment.iconUrl,
         externalUrl: enrichment.externalUrl,
+        wowheadData: enrichment.wowheadData,
         enchantment: enrichment.enchantment,
         gems: enrichment.gems,
+        bonusList: enrichment.bonusList,
         isAvailable: Boolean(name),
         isKnownSlot: true,
+        isEmbellished,
+        isHeroHighlight: isHeroHighlightSlot(target.id, isEmbellished),
       };
       continue;
     }
 
     unknownIndex += 1;
+    const isEmbellished = detectEmbellished(enrichment.enchantment);
     unknown.push({
       id: `unknown-${unknownIndex}-${slotRaw || "slot"}`,
       slot: slotRaw || `unknown-${unknownIndex}`,
@@ -186,10 +240,14 @@ export function toEquipmentViewModel(
       quality: enrichment.quality,
       iconUrl: enrichment.iconUrl,
       externalUrl: enrichment.externalUrl,
+      wowheadData: enrichment.wowheadData,
       enchantment: enrichment.enchantment,
       gems: enrichment.gems,
+      bonusList: enrichment.bonusList,
       isAvailable: Boolean(name),
       isKnownSlot: false,
+      isEmbellished,
+      isHeroHighlight: isEmbellished,
     });
   }
 
@@ -214,4 +272,58 @@ export function mapEquipmentSlots(equipment: EquipmentSummary | null | undefined
       itemLevel: item.itemLevel,
       filled: item.isAvailable,
     }));
+}
+
+function heroHighlightRank(item: EquipmentItemViewModel): number {
+  if (item.id === "main-hand" || item.id === "off-hand") return 0;
+  if (item.id === "trinket-1" || item.id === "trinket-2") return 1;
+  if (item.isEmbellished) return 2;
+  if (item.isHeroHighlight) return 3;
+  return 4;
+}
+
+/**
+ * Equipped pieces for the hero gear panel: filled slots only; shirt/tabard hidden.
+ * Order: weapons → trinkets → embellished → remaining gear.
+ */
+export function toHeroGearItems(
+  equipment: EquipmentSummary | null | undefined,
+): EquipmentItemViewModel[] {
+  const view = toEquipmentViewModel(equipment);
+  if (!view) return [];
+
+  const visible = view.items.filter((item) => {
+    if (!item.isAvailable) return false;
+    if (HIDDEN_HERO_SLOT_RE.test(item.slot) || HIDDEN_HERO_SLOT_RE.test(item.slotLabel)) {
+      return false;
+    }
+    return true;
+  });
+
+  return [...visible].sort((a, b) => {
+    const rank = heroHighlightRank(a) - heroHighlightRank(b);
+    if (rank !== 0) return rank;
+    return a.slotLabel.localeCompare(b.slotLabel);
+  });
+}
+
+/** Prefer view-model Wowhead URL; fall back to constructing from itemId + equipped context. */
+export function resolveItemWowheadUrl(item: EquipmentItemViewModel): string | null {
+  if (item.externalUrl) return item.externalUrl;
+  if (item.itemId != null) {
+    return wowheadItemUrl(item.itemId, {
+      itemLevel: item.itemLevel,
+      bonusList: item.bonusList,
+    });
+  }
+  return null;
+}
+
+export function resolveItemWowheadData(item: EquipmentItemViewModel): string | null {
+  if (item.wowheadData) return item.wowheadData;
+  if (item.itemId == null) return null;
+  return wowheadItemQuery(item.itemId, {
+    itemLevel: item.itemLevel,
+    bonusList: item.bonusList,
+  });
 }

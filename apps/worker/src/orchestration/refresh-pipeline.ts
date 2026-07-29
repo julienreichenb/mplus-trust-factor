@@ -388,7 +388,8 @@ export async function runRefreshPipeline(
       await recordProviderResult(repositories, profile);
 
       const equipment = await providers.blizzard.getCharacterEquipment(identity, ctx);
-      blizzardItemLevel = equipment.data.itemLevelEquipped;
+      blizzardItemLevel =
+        equipment.data.itemLevelEquipped ?? blizzardProfile.itemLevelEquipped ?? null;
       const equipmentSnapshot = await providers.blizzard.getEquipmentSnapshot(identity, ctx);
 
       let mediaExtras: {
@@ -425,12 +426,20 @@ export async function runRefreshPipeline(
         logger.info({ identity, err: talentError }, "refresh pipeline: talent snapshot soft-skip");
       }
 
+      const equippedItemLevel =
+        equipmentSnapshot.data.equippedItemLevel ?? blizzardProfile.itemLevelEquipped ?? null;
+      const averageItemLevel =
+        equipmentSnapshot.data.averageItemLevel ?? blizzardProfile.itemLevelAverage ?? null;
+
       await repositories.character.recordSnapshot(
         character.id,
-        equipment.data,
         {
-          averageItemLevel: equipmentSnapshot.data.averageItemLevel,
-          equippedItemLevel: equipmentSnapshot.data.equippedItemLevel,
+          ...equipment.data,
+          itemLevelEquipped: equipment.data.itemLevelEquipped ?? blizzardProfile.itemLevelEquipped ?? null,
+        },
+        {
+          averageItemLevel,
+          equippedItemLevel,
           items: equipmentSnapshot.data.items,
           keyItems: equipmentSnapshot.data.keyItems,
         },

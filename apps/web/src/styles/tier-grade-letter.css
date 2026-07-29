@@ -1,0 +1,120 @@
+/* Shared tier grade glyph — imported globally so landing + character stay in sync.
+   Panel border is an SVG hexagon stroke (solid, or dotted for unrated). */
+.tier-grade-letter {
+  --tier-grade-fill: var(--color-iron-800);
+  --tier-grade-stroke: 3.25;
+
+  box-sizing: border-box;
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  flex-shrink: 0;
+  font-family: var(--font-display);
+  font-weight: 700;
+  line-height: 1;
+  color: var(--color-text-muted);
+}
+
+.tier-grade-letter__ring {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.tier-grade-letter__fill {
+  fill: var(--tier-grade-fill);
+}
+
+.tier-grade-letter__stroke {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: var(--tier-grade-stroke);
+  stroke-linejoin: round;
+}
+
+.tier-grade-letter__stroke--dotted {
+  stroke-linecap: round;
+  stroke-dasharray: 4.5 9;
+}
+
+.tier-grade-letter__glyph {
+  position: relative;
+  z-index: 1;
+}
+
+.tier-grade-letter--ghost {
+  background: transparent;
+}
+
+.tier-grade-letter--sm {
+  width: 2rem;
+  height: 2rem;
+  min-width: 2rem;
+  min-height: 2rem;
+  font-size: var(--text-base);
+  --tier-grade-stroke: 2.75;
+}
+
+.tier-grade-letter--md {
+  width: 2.5rem;
+  height: 2.5rem;
+  min-width: 2.5rem;
+  min-height: 2.5rem;
+  font-size: var(--text-xl);
+  --tier-grade-stroke: 3;
+}
+
+.tier-grade-letter--lg {
+  width: 3.25rem;
+  height: 3.25rem;
+  min-width: 3.25rem;
+  min-height: 3.25rem;
+  font-size: var(--text-2xl);
+  --tier-grade-stroke: 3.25;
+}
+
+.tier-grade-letter--xl {
+  width: 4.5rem;
+  height: 4.5rem;
+  min-width: 4.5rem;
+  min-height: 4.5rem;
+  font-size: clamp(2.1rem, 3.5vw, 2.85rem);
+  --tier-grade-stroke: 3.5;
+}
+
+.tier-grade-letter--display {
+  width: 5.75rem;
+  height: 5.75rem;
+  min-width: 5.75rem;
+  min-height: 5.75rem;
+  font-size: clamp(2.25rem, 4vw, 3rem);
+  --tier-grade-stroke: 3.75;
+}
+
+.tier-grade-letter--S {
+  color: var(--color-tier-s);
+  filter: drop-shadow(var(--shadow-brand-glow));
+}
+
+.tier-grade-letter--A {
+  color: var(--color-tier-a);
+}
+
+.tier-grade-letter--B {
+  color: var(--color-tier-b);
+}
+
+.tier-grade-letter--C {
+  color: var(--color-tier-c);
+}
+
+.tier-grade-letter--D {
+  color: var(--color-tier-d);
+}
+
+.tier-grade-letter--U {
+  color: var(--color-tier-u);
+}

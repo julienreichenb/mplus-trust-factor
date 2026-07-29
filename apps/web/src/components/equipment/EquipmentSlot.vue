@@ -60,6 +60,7 @@ function onIconError(): void {
           class="slot__link"
           :href="item.externalUrl"
           :item-id="item.itemId"
+          :wowhead-data="item.wowheadData"
           :label="`Open ${item.name ?? item.slotLabel} on Wowhead`"
         />
       </template>

@@ -168,6 +168,8 @@ export interface EquipmentItemDTO {
   iconUrl: string | null;
   enchantments: string[];
   gems: Array<{ name: string; itemId?: number | null }>;
+  /** Blizzard equipped-item bonus IDs (scaling / crafted / sockets context). */
+  bonusList?: number[];
 }
 
 export interface EquipmentSummary {
@@ -179,12 +181,27 @@ export interface EquipmentSummary {
   keyItems: EquipmentItemDTO[];
 }
 
+export type TalentTreeKind = "CLASS" | "SPEC" | "HERO" | "UNKNOWN";
+
+/** Selected talent node from an active Blizzard loadout. */
+export interface SelectedTalentDTO {
+  id: number | null;
+  name: string | null;
+  spellId: number | null;
+  rank: number | null;
+  tree: TalentTreeKind;
+  /** HTTPS icon when media enrichment succeeded. */
+  iconUrl: string | null;
+}
+
 export interface TalentSummary {
   specializationSlug: string | null;
   loadoutCode: string | null;
   summary: string | null;
   loadoutName?: string | null;
-  selectedTalents?: Array<{ id: number | null; name: string | null }> | null;
+  /** Active hero talent tree name (e.g. "Slayer"), when known. */
+  heroTalentName?: string | null;
+  selectedTalents?: SelectedTalentDTO[] | null;
   sourceProvider?: string | null;
   fetchedAt?: IsoDateTime | null;
 }

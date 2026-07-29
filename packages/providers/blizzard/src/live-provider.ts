@@ -43,6 +43,7 @@ import {
   normalizeRealmIndexEntry,
   normalizeSeason,
   normalizeTalentSnapshot,
+  attachTalentSpellIcons,
   refLabel,
   resolveCurrentSeasonIdFromIndex,
   roleFromSpecType,
@@ -334,6 +335,18 @@ export class LiveBlizzardProvider implements BlizzardProvider {
     });
     const raw = parseOrThrow(equipmentSchema, result.data, endpointKey);
     let snapshot = normalizeEquipmentSnapshot(identity, raw);
+    if (snapshot.equippedItemLevel == null || snapshot.averageItemLevel == null) {
+      try {
+        const profile = await this.getCharacterProfile(identity, ctx);
+        snapshot = {
+          ...snapshot,
+          equippedItemLevel: snapshot.equippedItemLevel ?? profile.data.itemLevelEquipped ?? null,
+          averageItemLevel: snapshot.averageItemLevel ?? profile.data.itemLevelAverage ?? null,
+        };
+      } catch {
+        // Profile backfill is best-effort; equipment items remain usable without it.
+      }
+    }
     try {
       const itemIds = (Array.isArray(snapshot.items) ? snapshot.items : [])
         .map((entry) =>
@@ -391,8 +404,23 @@ export class LiveBlizzardProvider implements BlizzardProvider {
       locale: this.defaultLocale,
     });
     const raw = parseOrThrow(specializationsSchema, result.data, endpointKey);
+    let snapshot = normalizeTalentSnapshot(identity, raw);
+    try {
+      const selected = (
+        snapshot.talents as { selectedTalents?: Array<{ spellId?: number | null }> } | null
+      )?.selectedTalents;
+      const spellIds = (selected ?? [])
+        .map((talent) => (typeof talent.spellId === "number" ? talent.spellId : null))
+        .filter((id): id is number => id != null);
+      if (spellIds.length > 0) {
+        const iconBySpellId = await this.getSpellIconUrls(spellIds, ctx);
+        snapshot = attachTalentSpellIcons(snapshot, iconBySpellId);
+      }
+    } catch {
+      // Spell-icon enrichment is progressive; loadout code remains usable.
+    }
     return buildProviderResult({
-      data: normalizeTalentSnapshot(identity, raw),
+      data: snapshot,
       ctx,
       endpointKey,
       sourceUrl: result.sourceUrl,
@@ -402,6 +430,55 @@ export class LiveBlizzardProvider implements BlizzardProvider {
       etag: result.etag,
       expiresAt: result.expiresAt,
     });
+  }
+
+  /** Soft-fail per spell — returns only successfully resolved HTTPS icons. */
+  private async getSpellIconUrls(
+    spellIds: number[],
+    ctx: ProviderFetchContext,
+  ): Promise<Map<number, string | null>> {
+    const region = this.region(ctx);
+    const unique = [...new Set(spellIds)].slice(0, 80);
+    const iconBySpellId = new Map<number, string | null>();
+    const concurrency = 5;
+    let cursor = 0;
+
+    const worker = async (): Promise<void> => {
+      while (cursor < unique.length) {
+        const spellId = unique[cursor++]!;
+        try {
+          const fingerprint = fingerprintFor({
+            region: region.key,
+            endpointKey: "spell.media",
+            pathParams: { spellId: String(spellId) },
+          });
+          const mediaResult = await this.http.getJson<unknown>({
+            regionConfig: region,
+            namespaceKind: "static",
+            path: `data/wow/media/spell/${spellId}`,
+            endpointKey: "spell.media",
+            fingerprint,
+            ttlSeconds: DEFAULT_TTL_SECONDS.item,
+            forceRefresh: ctx.forceRefresh,
+            locale: this.defaultLocale,
+          });
+          const media = parseOrThrow(itemMediaSchema, mediaResult.data, "spell.media");
+          const icon =
+            media.assets.find((a) => a.key === "icon")?.value ??
+            media.assets.find((a) => typeof a.value === "string" && a.value.includes("icon"))
+              ?.value ??
+            null;
+          iconBySpellId.set(spellId, sanitizeHttpsUrl(icon));
+        } catch {
+          iconBySpellId.set(spellId, null);
+        }
+      }
+    };
+
+    await Promise.all(
+      Array.from({ length: Math.min(concurrency, unique.length) }, () => worker()),
+    );
+    return iconBySpellId;
   }
 
   async getCharacterMedia(

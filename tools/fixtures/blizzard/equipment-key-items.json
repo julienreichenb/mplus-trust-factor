@@ -12,7 +12,8 @@
       "slot": { "type": "TRINKET_1", "name": "Trinket" },
       "name": "Sample Key Trinket",
       "quality": { "type": "EPIC", "name": "Epic" },
-      "level": { "value": 639 }
+      "level": { "value": 51, "display_string": "Item Level 298" },
+      "bonus_list": [6652, 7932]
     },
     {
       "item": { "id": 194302 },
@@ -33,7 +34,7 @@
       "slot": { "type": "HEAD", "name": "Head" },
       "name": "Sample Helm",
       "quality": { "type": "EPIC", "name": "Epic" },
-      "level": { "value": 629 }
+      "level": { "display_string": "Item Level 629" }
     }
   ]
 }

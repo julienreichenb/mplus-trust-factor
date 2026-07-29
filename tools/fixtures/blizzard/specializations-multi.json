@@ -9,7 +9,43 @@
       "loadouts": [
         {
           "is_active": true,
-          "talent_loadout_code": "C8DAH"
+          "talent_loadout_code": "C8DAH",
+          "selected_class_talents": [
+            {
+              "id": 1001,
+              "rank": 1,
+              "tooltip": {
+                "talent": { "id": 1001, "name": "Improved Scorch" },
+                "spell_tooltip": {
+                  "spell": { "id": 2948, "name": "Improved Scorch" }
+                }
+              }
+            }
+          ],
+          "selected_spec_talents": [
+            {
+              "id": 2001,
+              "rank": 2,
+              "tooltip": {
+                "talent": { "id": 2001, "name": "Pyroblast" },
+                "spell_tooltip": {
+                  "spell": { "id": 11366, "name": "Pyroblast" }
+                }
+              }
+            }
+          ],
+          "selected_hero_talents": [
+            {
+              "id": 3001,
+              "rank": 1,
+              "tooltip": {
+                "talent": { "id": 3001, "name": "Sunfury" },
+                "spell_tooltip": {
+                  "spell": { "id": 123456, "name": "Sunfury" }
+                }
+              }
+            }
+          ]
         }
       ]
     },

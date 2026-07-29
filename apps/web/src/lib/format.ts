@@ -1,18 +1,18 @@
 /** Stable radar dimension order (excludes AUTHENTICITY). */
 export const RADAR_DIMENSIONS = [
   "PERFORMANCE",
-  "SURVIVAL",
-  "UTILITY",
   "EXPERIENCE",
+  "UTILITY",
+  "SURVIVAL",
   "RAID",
 ] as const;
 
 /** Wave 4 model v3+ — Raid dimension removed from default scoring. */
 export const RADAR_DIMENSIONS_V3 = [
   "PERFORMANCE",
-  "SURVIVAL",
-  "UTILITY",
   "EXPERIENCE",
+  "UTILITY",
+  "SURVIVAL",
 ] as const;
 
 export type RadarDimension = (typeof RADAR_DIMENSIONS)[number];

@@ -149,6 +149,7 @@ export const equipmentItemSchema = {
         additionalProperties: true,
       },
     },
+    bonusList: { type: "array", items: { type: "number" } },
   },
   additionalProperties: true,
 } as const;
@@ -171,6 +172,7 @@ export const talentSummarySchema = {
     loadoutCode: { type: ["string", "null"] },
     summary: { type: ["string", "null"] },
     loadoutName: { type: ["string", "null"] },
+    heroTalentName: { type: ["string", "null"] },
     selectedTalents: {
       type: ["array", "null"],
       items: {
@@ -178,6 +180,10 @@ export const talentSummarySchema = {
         properties: {
           id: { type: ["number", "null"] },
           name: { type: ["string", "null"] },
+          spellId: { type: ["number", "null"] },
+          rank: { type: ["number", "null"] },
+          tree: { type: "string" },
+          iconUrl: { type: ["string", "null"] },
         },
         additionalProperties: true,
       },

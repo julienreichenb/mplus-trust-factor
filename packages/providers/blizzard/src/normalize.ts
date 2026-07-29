@@ -114,6 +114,14 @@ export function normalizeCharacterProfile(
     role: roleFromSpecType(payload.active_spec?.type),
     level: typeof payload.level === "number" && payload.level > 0 ? payload.level : null,
     faction: payload.faction?.name ?? null,
+    itemLevelEquipped:
+      typeof payload.equipped_item_level === "number" && payload.equipped_item_level > 0
+        ? payload.equipped_item_level
+        : null,
+    itemLevelAverage:
+      typeof payload.average_item_level === "number" && payload.average_item_level > 0
+        ? payload.average_item_level
+        : null,
     blizzardCharacterId: String(payload.id),
     wclCanonicalId: null,
     raiderioProfileUrl: null,
@@ -225,6 +233,7 @@ export function normalizeEquipmentSnapshot(
       enchantments?: Array<{ display_string?: string; enchantment_id?: number }>;
       sockets?: Array<{ item?: { name?: string; id?: number }; display_string?: string }>;
       media?: { id?: number };
+      bonus_list?: unknown;
     };
     const enchantments = (raw.enchantments ?? [])
       .map((e) => e.display_string?.trim())
@@ -236,16 +245,22 @@ export function normalizeEquipmentSnapshot(
         return { name, itemId: s.item?.id ?? null };
       })
       .filter((g): g is { name: string; itemId: number | null } => g != null);
+    const bonusList = Array.isArray(raw.bonus_list)
+      ? raw.bonus_list.filter(
+          (id): id is number => typeof id === "number" && Number.isInteger(id) && id > 0,
+        )
+      : [];
 
     return {
       itemId: item.item.id,
       slot: refLabel(item.slot),
       name: item.name ?? null,
       quality: refLabel(item.quality),
-      itemLevel: item.level?.value ?? null,
+      itemLevel: resolveEquippedItemLevel(item.level),
       iconUrl: null as string | null,
       enchantments,
       gems,
+      bonusList,
     };
   });
   const keyItems = items.filter((entry) => {
@@ -262,6 +277,29 @@ export function normalizeEquipmentSnapshot(
     keyItems,
     sourcePayloadId: null,
   };
+}
+
+/** Prefer numeric level.value; fall back to parsing "Item Level N" display strings.
+ * When both disagree, keep the higher — scaled/crafted gear sometimes exposes base in `value`.
+ */
+export function resolveEquippedItemLevel(
+  level: { value?: number; display_string?: string } | null | undefined,
+): number | null {
+  const fromValue =
+    typeof level?.value === "number" && Number.isFinite(level.value) && level.value > 0
+      ? level.value
+      : null;
+  let fromDisplay: number | null = null;
+  const display = level?.display_string;
+  if (typeof display === "string") {
+    const match = display.match(/(\d+(?:\.\d+)?)/);
+    if (match) {
+      const parsed = Number(match[1]);
+      if (Number.isFinite(parsed) && parsed > 0) fromDisplay = Math.round(parsed);
+    }
+  }
+  if (fromValue != null && fromDisplay != null) return Math.max(fromValue, fromDisplay);
+  return fromValue ?? fromDisplay;
 }
 
 /** Attach HTTPS icon URLs onto equipment items (mutates a shallow copy). Soft-fail per item. */
@@ -311,7 +349,24 @@ export function normalizeTalentSnapshot(
   const activeEntry = (specs.specializations ?? []).find(
     (entry) => entry.specialization?.id && active?.id && entry.specialization.id === active.id,
   );
-  const loadout = activeEntry?.loadouts?.[0] as { talent_loadout_code?: string } | undefined;
+  const loadouts = (activeEntry?.loadouts ?? []) as Array<{
+    is_active?: boolean;
+    talent_loadout_code?: string;
+    selected_class_talents?: unknown[];
+    selected_spec_talents?: unknown[];
+    selected_hero_talents?: unknown[];
+    selected_hero_talent_tree?: { id?: number; name?: string };
+  }>;
+  const loadout = loadouts.find((entry) => entry.is_active === true) ?? loadouts[0];
+  const selectedTalents = extractSelectedTalentsFromLoadout(loadout);
+  const activeHeroTree =
+    loadout?.selected_hero_talent_tree ??
+    (specs as { active_hero_talent_tree?: { id?: number; name?: string } }).active_hero_talent_tree ??
+    null;
+  const heroTalentName =
+    typeof activeHeroTree?.name === "string" && activeHeroTree.name.trim()
+      ? activeHeroTree.name.trim()
+      : null;
   return {
     id: randomUUID(),
     characterSnapshotId: characterId,
@@ -320,8 +375,106 @@ export function normalizeTalentSnapshot(
     talents: {
       specializations: specs.specializations ?? [],
       activeSpecialization: active ?? null,
+      activeHeroTalentTree: activeHeroTree,
+      heroTalentName,
+      selectedTalents,
     },
     sourcePayloadId: null,
+  };
+}
+
+type TalentTreeKind = "CLASS" | "SPEC" | "HERO" | "UNKNOWN";
+
+export interface NormalizedSelectedTalent {
+  id: number | null;
+  name: string | null;
+  spellId: number | null;
+  rank: number | null;
+  tree: TalentTreeKind;
+  iconUrl: string | null;
+}
+
+function positiveTalentInt(value: unknown): number | null {
+  return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : null;
+}
+
+function mapTalentNode(raw: unknown, tree: TalentTreeKind): NormalizedSelectedTalent | null {
+  if (!raw || typeof raw !== "object") return null;
+  const node = raw as {
+    id?: unknown;
+    rank?: unknown;
+    tooltip?: {
+      talent?: { id?: unknown; name?: unknown };
+      spell_tooltip?: { spell?: { id?: unknown; name?: unknown } };
+    };
+  };
+  const talentId = positiveTalentInt(node.tooltip?.talent?.id) ?? positiveTalentInt(node.id);
+  const spellId = positiveTalentInt(node.tooltip?.spell_tooltip?.spell?.id);
+  const name =
+    (typeof node.tooltip?.talent?.name === "string" && node.tooltip.talent.name.trim()
+      ? node.tooltip.talent.name.trim()
+      : null) ??
+    (typeof node.tooltip?.spell_tooltip?.spell?.name === "string" &&
+    node.tooltip.spell_tooltip.spell.name.trim()
+      ? node.tooltip.spell_tooltip.spell.name.trim()
+      : null);
+  const rank =
+    typeof node.rank === "number" && Number.isFinite(node.rank) && node.rank > 0
+      ? Math.round(node.rank)
+      : null;
+  if (talentId == null && spellId == null && !name) return null;
+  return { id: talentId, name, spellId, rank, tree, iconUrl: null };
+}
+
+export function extractSelectedTalentsFromLoadout(
+  loadout:
+    | {
+        selected_class_talents?: unknown[];
+        selected_spec_talents?: unknown[];
+        selected_hero_talents?: unknown[];
+      }
+    | null
+    | undefined,
+): NormalizedSelectedTalent[] {
+  if (!loadout) return [];
+  const selected = [
+    ...(loadout.selected_class_talents ?? []).map((n) => mapTalentNode(n, "CLASS")),
+    ...(loadout.selected_spec_talents ?? []).map((n) => mapTalentNode(n, "SPEC")),
+    ...(loadout.selected_hero_talents ?? []).map((n) => mapTalentNode(n, "HERO")),
+  ].filter((n): n is NormalizedSelectedTalent => n != null);
+
+  const seen = new Set<string>();
+  const unique: NormalizedSelectedTalent[] = [];
+  for (const talent of selected) {
+    const key = talent.spellId != null ? `s:${talent.spellId}` : `t:${talent.id ?? talent.name}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(talent);
+  }
+  return unique;
+}
+
+/** Attach HTTPS spell icons onto selected talents (mutates a shallow copy of the snapshot). */
+export function attachTalentSpellIcons(
+  snapshot: TalentSnapshotDTO,
+  iconBySpellId: Map<number, string | null>,
+): TalentSnapshotDTO {
+  const blob = snapshot.talents as { selectedTalents?: NormalizedSelectedTalent[] } | null;
+  if (!blob || !Array.isArray(blob.selectedTalents) || blob.selectedTalents.length === 0) {
+    return snapshot;
+  }
+  const selectedTalents = blob.selectedTalents.map((talent) => {
+    if (talent.spellId == null) return talent;
+    const icon = iconBySpellId.get(talent.spellId);
+    if (!icon) return talent;
+    return { ...talent, iconUrl: sanitizeHttpsUrl(icon) };
+  });
+  return {
+    ...snapshot,
+    talents: {
+      ...blob,
+      selectedTalents,
+    },
   };
 }
 

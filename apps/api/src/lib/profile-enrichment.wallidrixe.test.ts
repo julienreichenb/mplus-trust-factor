@@ -100,6 +100,33 @@ describe("Wallidrixe-shaped profile enrichment", () => {
     expect(enrichments.equipment?.equippedItemLevel).toBeNull();
   });
 
+  it("falls back to equipment equipped ilvl when snapshot itemLevelEquipped is null", () => {
+    const snapshot = {
+      itemLevelEquipped: null,
+      mythicRating: 2845,
+      equipment: {
+        averageItemLevel: 290,
+        equippedItemLevel: 293,
+        items: [],
+        keyItems: [],
+      },
+    } as unknown as CharacterSnapshot & { equipment: EquipmentSnapshot };
+
+    const enrichments = buildProfileEnrichments({
+      character: characterStub(),
+      latestSnapshot: snapshot,
+      latestRun: null,
+      highestRun: null,
+      runCount: 0,
+      seasonSlug: "blizzard-season-13",
+      wclVisibility: "PUBLIC",
+      selectedRunCoverage: 0,
+      env,
+    });
+
+    expect(enrichments.itemLevel).toBe(293);
+  });
+
   it("emits LOGS_HIDDEN only for HIDDEN, and distinguishes NO_PUBLIC_LOGS", () => {
     const score = {
       confidence: 0.5,

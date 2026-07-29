@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { mount } from "@vue/test-utils";
 import { presentGrade } from "./characterViewModel";
 import { toCharacterMediaViewModel } from "./characterMediaViewModel";
-import { toEquipmentViewModel } from "./equipmentViewModel";
+import { toEquipmentViewModel, toHeroGearItems } from "./equipmentViewModel";
 import { resetFeatureFlagsCache } from "../config/features";
 import { sanitizeHttpsUrl } from "./safeUrl";
 import { FIXTURE_CHARACTERS } from "../api/mock/fixtures";
@@ -47,6 +47,76 @@ describe("equipmentViewModel", () => {
     expect(view!.items.find((i) => i.slotLabel === "Shirt" || i.id.startsWith("unknown"))).toBeTruthy();
   });
 
+  it("filters hero gear to filled slots and highlights weapons/trinkets/embellished", () => {
+    const items = toHeroGearItems({
+      averageItemLevel: 600,
+      equippedItemLevel: 600,
+      items: [
+        {
+          slot: "Shirt",
+          name: "Fancy Shirt",
+          itemLevel: 1,
+          itemId: 1,
+          quality: null,
+          iconUrl: null,
+          enchantments: [],
+          gems: [],
+        },
+        {
+          slot: "Head",
+          name: "Helm",
+          itemLevel: 670,
+          itemId: 2,
+          quality: "Epic",
+          iconUrl: null,
+          enchantments: [],
+          gems: [],
+        },
+        {
+          slot: "Trinket",
+          name: "Trinket A",
+          itemLevel: 680,
+          itemId: 3,
+          quality: "Epic",
+          iconUrl: null,
+          enchantments: [],
+          gems: [],
+        },
+        {
+          slot: "Main Hand",
+          name: "Staff",
+          itemLevel: 690,
+          itemId: 5,
+          quality: "Epic",
+          iconUrl: null,
+          enchantments: [],
+          gems: [],
+        },
+        {
+          slot: "Chest",
+          name: "Embellished Chest",
+          itemLevel: 675,
+          itemId: 4,
+          quality: "Epic",
+          iconUrl: null,
+          enchantments: ["Embellishment: Shadowflame"],
+          gems: [],
+        },
+      ],
+      keyItems: [],
+    });
+    expect(items.every((i) => i.isAvailable)).toBe(true);
+    expect(items.some((i) => /shirt/i.test(i.slot))).toBe(false);
+    expect(items.find((i) => i.id === "trinket-1")?.isHeroHighlight).toBe(true);
+    expect(items.find((i) => i.id === "chest")?.isEmbellished).toBe(true);
+    expect(items.find((i) => i.id === "chest")?.isHeroHighlight).toBe(true);
+    expect(items.find((i) => i.id === "head")?.isHeroHighlight).toBe(false);
+    const highlightIds = items.filter((i) => i.isHeroHighlight).map((i) => i.id);
+    expect(highlightIds[0]).toBe("main-hand");
+    expect(highlightIds.indexOf("main-hand")).toBeLessThan(highlightIds.indexOf("trinket-1"));
+    expect(highlightIds.indexOf("trinket-1")).toBeLessThan(highlightIds.indexOf("chest"));
+  });
+
   it("builds Wowhead links only for valid item IDs when links are enabled", () => {
     resetFeatureFlagsCache();
     vi.stubEnv("VITE_WOWHEAD_LINKS_ENABLED", "true");
@@ -71,7 +141,8 @@ describe("equipmentViewModel", () => {
     const head = view!.items.find((i) => i.id === "head")!;
     expect(head.itemId).toBe(12345);
     expect(head.iconUrl).toContain("https://");
-    expect(head.externalUrl).toBe("https://www.wowhead.com/item=12345");
+    expect(head.externalUrl).toBe("https://www.wowhead.com/item=12345&ilvl=670");
+    expect(head.wowheadData).toBe("item=12345&ilvl=670");
     expect(head.quality).toBe("Epic");
     vi.unstubAllEnvs();
     resetFeatureFlagsCache();
@@ -188,7 +259,8 @@ describe("equipment UI enrichment", () => {
     const item = view!.items.find((i) => i.id === "neck")!;
     const wrapper = mount(EquipmentSlot, { props: { item } });
     const link = wrapper.get("a");
-    expect(link.attributes("href")).toBe("https://www.wowhead.com/item=19019");
+    expect(link.attributes("href")).toBe("https://www.wowhead.com/item=19019&ilvl=700");
+    expect(link.attributes("data-wowhead")).toBe("item=19019&ilvl=700");
     expect(link.attributes("rel")).toContain("noopener");
     expect(link.text()).toContain("Ashkandi");
   });

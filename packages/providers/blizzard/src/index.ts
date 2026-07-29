@@ -29,6 +29,10 @@ export {
   sanitizeHttpsUrl,
   attachEquipmentIconUrls,
   normalizeEquipmentSnapshot,
+  resolveEquippedItemLevel,
+  normalizeTalentSnapshot,
+  attachTalentSpellIcons,
+  extractSelectedTalentsFromLoadout,
 } from "./normalize.js";
 export type {
   BlizzardIdentityDiagnostics,

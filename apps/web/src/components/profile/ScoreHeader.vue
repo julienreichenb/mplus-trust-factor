@@ -5,14 +5,15 @@ import {
   humanizeSlug,
   presentGrade,
   resolveDataConfidence,
-  topSignals,
-  parseContributorSignals,
 } from "../../lib/characterViewModel";
 import { filterDimensionsForModel, formatPercent, formatScore } from "../../lib/format";
 import { resolveExternalProfileLinks } from "../../lib/externalProfileLinks";
 import { gradeThemeCssVars } from "../../lib/gradeTheme";
-import TrustTierBadge from "../landing/TrustTierBadge.vue";
+import { classColor } from "../../lib/wowClass";
+import TierGradeLetter from "../brand/TierGradeLetter.vue";
+import MetaChip from "../common/MetaChip.vue";
 import TrustRadarChart from "../charts/TrustRadarChart.vue";
+import HeroInsightAccordion from "./HeroInsightAccordion.vue";
 
 const props = defineProps<{
   profile: CharacterProfileView;
@@ -20,11 +21,6 @@ const props = defineProps<{
 
 const grade = computed(() => presentGrade(props.profile.score?.grade));
 const confidence = computed(() => resolveDataConfidence(props.profile));
-const signals = computed(() =>
-  props.profile.score?.dimensions ? parseContributorSignals(props.profile.score.dimensions) : [],
-);
-const positives = computed(() => topSignals(signals.value, "positive", 2));
-const risks = computed(() => topSignals(signals.value, "risk", 2));
 const externalLinks = computed(() => resolveExternalProfileLinks(props.profile));
 const visibleDimensions = computed(() =>
   filterDimensionsForModel(props.profile.score?.dimensions ?? [], props.profile.score?.modelVersion),
@@ -32,13 +28,20 @@ const visibleDimensions = computed(() =>
 const detailsLocked = computed(() => !(props.profile.entitlements?.detailsUnlocked ?? true));
 const accentColor = computed(() => gradeThemeCssVars(props.profile.score?.grade)["--color-brand"]);
 
-const gradeLabel = computed(() => {
-  const g = props.profile.score?.grade;
-  const s = props.profile.score?.overallScore;
-  if (!g) return "Grade unavailable";
-  if (g === "U") return "Grade U (unrated)";
-  return `Grade ${g} (${formatScore(s, 0)} Trust Factor)`;
+const calculatedLabel = computed(() => {
+  const at = props.profile.score?.calculatedAt;
+  return at ? new Date(at).toLocaleString() : "Unavailable";
 });
+
+const modelLabel = computed(() => {
+  const key = props.profile.score?.modelKey ?? "—";
+  const version = props.profile.score?.modelVersion ?? "—";
+  return `${key} v${version}`;
+});
+
+const confidenceLabel = computed(() =>
+  confidence.value == null ? "Unavailable" : formatPercent(confidence.value, 0),
+);
 
 const classSpec = computed(() => {
   const parts = [humanizeSlug(props.profile.specSlug), humanizeSlug(props.profile.classSlug)].filter(
@@ -52,55 +55,28 @@ const classSpec = computed(() => {
   <header class="score-header" data-testid="score-header">
     <div class="hero-grid">
       <div class="trust" aria-label="Trust Factor summary">
-        <TrustTierBadge
-          :tier="profile.score?.grade ?? null"
-          :label="grade.interpretation"
-          size="lg"
-        />
-
-        <div class="trust__score">
-          <span class="trust__label">Trust Factor</span>
-          <div class="trust__value-row">
+        <div
+          class="trust__header"
+          role="img"
+          :aria-label="`${grade.title}: ${grade.interpretation}`"
+        >
+          <TierGradeLetter
+            class="trust__grade"
+            :tier="profile.score?.grade ?? null"
+            size="xl"
+            surface="panel"
+          />
+          <div class="trust__meta">
+            <span class="trust__meta-title">{{ grade.title }}</span>
+            <span class="trust__meta-label">{{ grade.interpretation }}</span>
+          </div>
+          <div v-if="!grade.isUnrated" class="trust__value-row">
             <span class="trust__value mpts-data" data-testid="overall-score">{{
               formatScore(profile.score?.overallScore, 0)
             }}</span>
             <span class="trust__scale">/ 100</span>
           </div>
         </div>
-
-        <div class="grade" data-testid="grade" :aria-label="gradeLabel">
-          <span class="grade-letter">{{ profile.score?.grade ?? "—" }}</span>
-          <span class="grade-text">{{ gradeLabel }}</span>
-        </div>
-
-        <dl class="stats">
-          <div>
-            <dt>Confidence</dt>
-            <dd data-testid="confidence">
-              {{ confidence == null ? "Unavailable" : formatPercent(confidence, 0) }}
-            </dd>
-          </div>
-          <div>
-            <dt>Freshness</dt>
-            <dd data-testid="freshness">{{ profile.refreshStatus }}</dd>
-          </div>
-          <div>
-            <dt>Model</dt>
-            <dd class="mpts-data">
-              {{ profile.score?.modelKey ?? "—" }} v{{ profile.score?.modelVersion ?? "—" }}
-            </dd>
-          </div>
-          <div>
-            <dt>Calculated</dt>
-            <dd>
-              {{
-                profile.score?.calculatedAt
-                  ? new Date(profile.score.calculatedAt).toLocaleString()
-                  : "Unavailable"
-              }}
-            </dd>
-          </div>
-        </dl>
 
         <TrustRadarChart
           v-if="visibleDimensions.length"
@@ -117,85 +93,95 @@ const classSpec = computed(() => {
           :locked="detailsLocked"
           :accent-color="accentColor"
         />
+
+        <div class="trust__stats" role="list" aria-label="Score metadata">
+          <MetaChip
+            role="listitem"
+            label="Confidence"
+            :value="confidenceLabel"
+            data-testid="confidence"
+          />
+          <MetaChip
+            role="listitem"
+            label="Model"
+            :value="modelLabel"
+            value-class="mpts-data"
+          />
+          <MetaChip role="listitem" label="Calculated" :value="calculatedLabel" />
+        </div>
       </div>
 
       <div class="hero-grid__main">
         <div class="hero-grid__content">
-          <div class="identity">
-            <div class="identity__eyebrow-row">
-              <p class="eyebrow">Character profile</p>
-              <nav class="external-links" aria-label="External character profiles">
-                <template v-for="(link, index) in externalLinks" :key="link.id">
-                  <span v-if="index > 0" class="external-links__sep" aria-hidden="true">·</span>
-                  <a
-                    class="external-links__item"
-                    :href="link.href"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    {{ link.label }}
-                    <svg
-                      class="external-links__arrow"
-                      viewBox="0 0 12 12"
-                      width="11"
-                      height="11"
-                      aria-hidden="true"
-                      focusable="false"
+          <div class="hero-grid__body">
+            <div class="identity">
+              <div class="identity__eyebrow-row">
+                <p class="eyebrow">Character profile</p>
+                <nav class="external-links" aria-label="External character profiles">
+                  <template v-for="(link, index) in externalLinks" :key="link.id">
+                    <span v-if="index > 0" class="external-links__sep" aria-hidden="true">·</span>
+                    <a
+                      class="external-links__item"
+                      :href="link.href"
+                      target="_blank"
+                      rel="noopener noreferrer"
                     >
-                      <path
-                        d="M3.5 2H10v6.5M10 2 2 10"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="1.5"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                      />
-                    </svg>
-                  </a>
-                </template>
-              </nav>
+                      {{ link.label }}
+                      <svg
+                        class="external-links__arrow"
+                        viewBox="0 0 12 12"
+                        width="11"
+                        height="11"
+                        aria-hidden="true"
+                        focusable="false"
+                      >
+                        <path
+                          d="M3.5 2H10v6.5M10 2 2 10"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="1.5"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                        />
+                      </svg>
+                    </a>
+                  </template>
+                </nav>
+              </div>
+              <div class="identity__title-row">
+                <h1>{{ profile.displayName }}</h1>
+                <div class="meta">
+                  <p class="meta__server">
+                    {{ profile.realmSlug }} · {{ profile.region }}
+                  </p>
+                  <p
+                    v-if="classSpec"
+                    class="meta__class"
+                    :style="{ color: classColor(profile.classSlug) }"
+                  >
+                    {{ classSpec }}
+                  </p>
+                </div>
+              </div>
+              <dl v-if="profile.itemLevel != null" class="facts">
+                <div>
+                  <dt>Item level</dt>
+                  <dd class="mpts-data">{{ profile.itemLevel }}</dd>
+                </div>
+              </dl>
             </div>
-            <h1>{{ profile.displayName }}</h1>
-            <p class="meta">
-              <span>{{ profile.realmSlug }} · {{ profile.region }}</span>
-              <span v-if="classSpec"> · {{ classSpec }}</span>
-              <span v-if="profile.role"> · {{ profile.role }}</span>
-            </p>
-            <dl class="facts">
-              <div v-if="profile.itemLevel != null">
-                <dt>Item level</dt>
-                <dd class="mpts-data">{{ profile.itemLevel }}</dd>
-              </div>
-              <div v-if="profile.seasonSummary?.mythicRating != null">
-                <dt>Mythic+ rating</dt>
-                <dd class="mpts-data">{{ profile.seasonSummary.mythicRating }}</dd>
-              </div>
-              <div v-if="profile.seasonSummary">
-                <dt>Season runs</dt>
-                <dd class="mpts-data">{{ profile.seasonSummary.runCount }}</dd>
-              </div>
-              <div>
-                <dt>Refresh</dt>
-                <dd>{{ profile.refreshStatus }}</dd>
-              </div>
-            </dl>
+
+            <HeroInsightAccordion :profile="profile" />
           </div>
 
-          <div class="key-signals" aria-label="Top signals">
-            <div>
-              <h2 class="key-signals__title">Top positives</h2>
-              <ul v-if="positives.length">
-                <li v-for="(item, index) in positives" :key="`p-${index}`">{{ item.label }}</li>
-              </ul>
-              <p v-else class="empty">Unavailable in this snapshot</p>
-            </div>
-            <div>
-              <h2 class="key-signals__title">Top risks</h2>
-              <ul v-if="risks.length">
-                <li v-for="(item, index) in risks" :key="`r-${index}`">{{ item.label }}</li>
-              </ul>
-              <p v-else class="empty">Unavailable in this snapshot</p>
-            </div>
+          <div
+            v-if="profile.seasonSummary?.mythicRating != null"
+            class="mythic-score-glass"
+          >
+            <span class="mythic-score-glass__label">Mythic+ score</span>
+            <span class="mythic-score-glass__value mpts-data">{{
+              formatScore(profile.seasonSummary.mythicRating, 2)
+            }}</span>
           </div>
         </div>
       </div>
@@ -234,14 +220,15 @@ const classSpec = computed(() => {
 
 .hero-grid__content {
   display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: var(--space-5);
-  align-content: start;
+  align-items: start;
   align-self: stretch;
   width: 100%;
   height: 100%;
   min-height: 100%;
   min-width: 0;
-  padding: var(--space-5) var(--space-5) var(--space-5) 0;
+  padding: 0 0 var(--space-5) 0;
   overflow: visible;
   background: linear-gradient(
     90deg,
@@ -249,6 +236,44 @@ const classSpec = computed(() => {
     rgb(7 7 7 / 28%) 55%,
     transparent 100%
   );
+}
+
+.hero-grid__body {
+  display: grid;
+  gap: var(--space-5);
+  align-content: start;
+  min-width: 0;
+}
+
+.mythic-score-glass {
+  display: grid;
+  gap: 0.1rem;
+  justify-self: end;
+  align-self: start;
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-card);
+  border: 1px solid rgb(255 255 255 / 12%);
+  background: rgb(13 13 15 / 58%);
+  backdrop-filter: blur(18px) saturate(145%);
+  -webkit-backdrop-filter: blur(18px) saturate(145%);
+  box-shadow:
+    0 10px 28px rgb(0 0 0 / 32%),
+    inset 0 1px 0 rgb(255 255 255 / 8%);
+}
+
+.mythic-score-glass__label {
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--color-gold-300);
+}
+
+.mythic-score-glass__value {
+  font-weight: 600;
+  font-size: clamp(1.35rem, 2.4vw, 1.75rem);
+  color: var(--color-text);
+  line-height: 1.15;
 }
 
 .identity {
@@ -324,10 +349,37 @@ const classSpec = computed(() => {
   text-shadow: 0 2px 18px rgb(0 0 0 / 55%);
 }
 
+.identity__title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem 1.75rem;
+  min-width: 0;
+}
+
 .meta {
+  display: grid;
+  gap: 0.15rem;
   margin: 0;
-  color: var(--color-text-muted);
-  text-transform: capitalize;
+  min-width: 0;
+}
+
+.meta__server {
+  margin: 0;
+  font-family: var(--font-data);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-gold-300);
+  overflow-wrap: anywhere;
+}
+
+.meta__class {
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: 700;
+  line-height: 1.2;
   overflow-wrap: anywhere;
 }
 
@@ -352,7 +404,7 @@ const classSpec = computed(() => {
 
 .trust {
   display: grid;
-  grid-template-rows: auto auto auto auto minmax(12rem, 1fr);
+  grid-template-rows: auto minmax(12rem, 1fr) auto;
   gap: var(--space-3);
   align-content: stretch;
   padding: var(--space-5) var(--space-4) var(--space-2);
@@ -364,6 +416,38 @@ const classSpec = computed(() => {
   min-height: 100%;
 }
 
+.trust__header {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: var(--space-3);
+  align-items: center;
+}
+
+.trust__grade {
+  grid-row: 1 / span 1;
+}
+
+.trust__meta {
+  display: grid;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.trust__meta-title {
+  font-family: var(--font-data);
+  font-size: var(--text-sm);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.trust__meta-label {
+  font-size: var(--text-base);
+  font-weight: 600;
+  color: var(--color-text);
+  line-height: 1.35;
+}
+
 .trust__radar {
   min-height: 12rem;
   height: 100%;
@@ -372,12 +456,12 @@ const classSpec = computed(() => {
   margin-inline: calc(var(--space-2) * -1);
 }
 
-.trust__label {
-  display: block;
-  font-size: var(--text-xs);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--color-text-muted);
+.trust__value-row {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.15rem;
+  line-height: 1;
+  justify-self: end;
 }
 
 .trust__value {
@@ -389,101 +473,27 @@ const classSpec = computed(() => {
 
 .trust__scale {
   color: var(--color-text-muted);
-  margin-left: var(--space-1);
-}
-
-.grade {
-  display: flex;
-  gap: var(--space-3);
-  align-items: center;
-}
-
-.grade-letter {
-  min-width: 2.5rem;
-  text-align: center;
-  font-family: var(--font-display);
-  font-size: var(--text-xl);
-  font-weight: 700;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-control);
-  padding: 0.2rem 0.45rem;
-  background: var(--color-obsidian-900);
-  color: var(--color-gold-300);
-}
-
-.grade-text {
-  font-size: var(--text-sm);
-  color: var(--color-text);
-}
-
-.stats {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--space-3);
-  margin: 0;
-}
-
-.stats dt {
-  font-size: var(--text-xs);
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  color: var(--color-text-muted);
-}
-
-.stats dd {
-  margin: var(--space-1) 0 0;
+  font-size: var(--text-base);
   font-weight: 600;
-  overflow-wrap: anywhere;
 }
 
-.key-signals {
-  display: grid;
-  gap: var(--space-4);
-  max-width: 36rem;
-  padding-top: var(--space-3);
-  border-top: 1px solid rgb(255 255 255 / 12%);
-}
-
-.key-signals__title {
-  margin: 0 0 var(--space-2);
-  font-family: var(--font-body);
-  font-size: var(--text-sm);
-  font-weight: 700;
-}
-
-.key-signals ul {
+.trust__stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
   margin: 0;
-  padding-left: 1.1rem;
-  color: var(--color-text-muted);
-  font-size: var(--text-sm);
-  display: grid;
-  gap: var(--space-1);
-}
-
-.empty {
-  margin: 0;
-  color: var(--color-text-muted);
-  font-size: var(--text-sm);
 }
 
 @media (min-width: 768px) {
   .hero-grid {
-    grid-template-columns: minmax(14rem, 33%) minmax(0, 1fr);
+    grid-template-columns: minmax(14rem, 40%) minmax(0, 1fr);
     min-height: min(70dvh, 38rem);
-  }
-
-  .key-signals {
-    grid-template-columns: 1fr 1fr;
   }
 }
 
 @media (min-width: 1100px) {
   .hero-grid {
     min-height: min(74dvh, 44rem);
-  }
-
-  .facts {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }
 </style>

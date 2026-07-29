@@ -14,19 +14,19 @@ import CharacterProfileToolbar from "../components/character/CharacterProfileToo
 import ScoreHeader from "../components/profile/ScoreHeader.vue";
 import DimensionCards from "../components/profile/DimensionCards.vue";
 import AuthenticitySection from "../components/profile/AuthenticitySection.vue";
-import SelectedRunsSection from "../components/profile/SelectedRunsSection.vue";
-import PerformanceSummaryPanel from "../components/profile/PerformanceSummaryPanel.vue";
 import WclVisibilityBanner from "../components/profile/WclVisibilityBanner.vue";
 import KeySignalsPanel from "../components/character/KeySignalsPanel.vue";
 import DataProvenancePanel from "../components/character/DataProvenancePanel.vue";
-import EquipmentGrid from "../components/equipment/EquipmentGrid.vue";
-import TalentBuildPanel from "../components/talents/TalentBuildPanel.vue";
 import MethodologyPanel from "../components/methodology/MethodologyPanel.vue";
 import { resolveDataConfidence } from "../lib/characterViewModel";
 import { gradeThemeCssVars } from "../lib/gradeTheme";
 import { filterDimensionsForModel } from "../lib/format";
 import { useWowheadTooltips } from "../composables/useWowheadTooltips";
 import { ApiClientError } from "../api/live-client";
+import {
+  loadWowheadTooltipScript,
+  refreshWowheadTooltips,
+} from "../integrations/wowhead/tooltips";
 
 const props = defineProps<{
   region: string;
@@ -38,6 +38,14 @@ const recent = useRecentSearchesStore();
 const { nextSignal } = useAbortableQuery();
 const { polling, timedOut, start: startPolling, stop: stopPolling } = useRefreshPolling();
 useWowheadTooltips(true);
+// Hero gear always needs Wowhead tooltips when item IDs are present.
+void loadWowheadTooltipScript({ iconizeLinks: false })
+  .then((status) => {
+    if (status === "ready") refreshWowheadTooltips();
+  })
+  .catch(() => {
+    /* plain links remain usable */
+  });
 
 const loading = ref(true);
 const error = ref<string | null>(null);
@@ -357,6 +365,9 @@ watch(
         :dimensions="visibleDimensions"
         :model-version="profile.score.modelVersion"
         :locked="!entitlements.detailsUnlocked"
+        :performance-summary="profile.performanceSummary"
+        :run-selection="profile.scoringRunSelection ?? null"
+        :runs-locked="!entitlements.runsUnlocked"
       />
 
       <div class="split">
@@ -373,18 +384,6 @@ watch(
         :locked="!entitlements.detailsUnlocked"
       />
 
-      <SelectedRunsSection
-        :selection="profile.scoringRunSelection ?? null"
-        :locked="!entitlements.runsUnlocked"
-      />
-
-      <PerformanceSummaryPanel
-        :summary="profile.performanceSummary"
-        :locked="!entitlements.detailsUnlocked"
-      />
-
-      <EquipmentGrid :equipment="profile.equipment" :locked="!entitlements.detailsUnlocked" />
-      <TalentBuildPanel :talents="profile.talents" :locked="!entitlements.detailsUnlocked" />
       <MethodologyPanel :profile="profile" />
     </template>
 

@@ -43,12 +43,13 @@ const emit = defineEmits<{
 const el = ref<HTMLDivElement | null>(null);
 let chart: echarts.ECharts | null = null;
 
-/** Match echarts radar center / radius for icon placement (square shell). */
-const RADAR_CENTER_X = 50;
-const RADAR_CENTER_Y = 50;
+/** Match echarts radar center; nudge icons slightly down/right for optical balance. */
+const RADAR_CENTER_X = 51.5;
+const RADAR_CENTER_Y = 51.5;
 /** ECharts radius is % of half-size; vertices sit at radius/2 % of the box. Icons sit just outside. */
 const ECHARTS_RADIUS_PCT = 78;
-const AXIS_ICON_RADIUS = ECHARTS_RADIUS_PCT / 2 + 9;
+/** Icon centers sit just outside the vertices (echarts radius is % of half-size). */
+const AXIS_ICON_RADIUS = ECHARTS_RADIUS_PCT / 2 + 3;
 
 const primaryDimensions = computed(() => props.series[0]?.dimensions ?? []);
 
@@ -57,7 +58,8 @@ const radarDimensions = computed(() => resolveRadarDimensions(props.modelVersion
 const axisIcons = computed(() => {
   const n = radarDimensions.value.length;
   return radarDimensions.value.map((dim, index) => {
-    const angle = -Math.PI / 2 + (index / n) * Math.PI * 2;
+    // ECharts radar places indicators counterclockwise from the top (startAngle 90).
+    const angle = -Math.PI / 2 - (index / n) * Math.PI * 2;
     return {
       dim,
       label: DIMENSION_LABELS[dim],

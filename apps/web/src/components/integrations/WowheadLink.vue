@@ -3,6 +3,8 @@ defineProps<{
   href: string;
   label: string;
   itemId?: number | null;
+  /** Full Wowhead tooltip payload, e.g. `item=123&ilvl=298&bonus=1:2`. */
+  wowheadData?: string | null;
 }>();
 </script>
 
@@ -12,7 +14,7 @@ defineProps<{
     :href="href"
     target="_blank"
     rel="noopener noreferrer"
-    :data-wowhead="itemId != null ? `item=${itemId}` : undefined"
+    :data-wowhead="wowheadData ?? (itemId != null ? `item=${itemId}` : undefined)"
   >
     {{ label }}
   </a>

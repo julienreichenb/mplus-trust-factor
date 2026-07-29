@@ -15,15 +15,18 @@ defineProps<{
 </template>
 
 <style scoped>
-/* Sibling of ScoreHeader — absolute over hero, never clipped by score-header. */
+/* Sibling of ScoreHeader — absolute over hero, never clipped by score-header.
+   Height is fixed so accordion open/close does not reflow the model.
+   Top offset clears the Mythic+ score glass so the head sits well below it. */
 .portrait-stage {
   position: absolute;
   z-index: 0;
-  top: 0;
+  top: 15rem;
   right: 0;
-  bottom: 0;
+  bottom: auto;
   left: auto;
-  width: min(44%, 32rem);
+  width: min(48%, 36rem);
+  height: min(62dvh, 32rem);
   pointer-events: none;
   display: grid;
   align-items: end;

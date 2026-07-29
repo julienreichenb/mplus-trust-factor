@@ -172,8 +172,17 @@ function mapEquipmentItem(raw: unknown): EquipmentItemDTO | null {
         })
         .filter((g): g is { name: string; itemId: number | null } => g != null)
     : [];
+  const bonusList = Array.isArray(item.bonusList)
+    ? item.bonusList.filter(
+        (id): id is number => typeof id === "number" && Number.isInteger(id) && id > 0,
+      )
+    : Array.isArray(item.bonus_list)
+      ? item.bonus_list.filter(
+          (id): id is number => typeof id === "number" && Number.isInteger(id) && id > 0,
+        )
+      : [];
 
-  return { slot, itemId, name, itemLevel, quality, iconUrl, enchantments, gems };
+  return { slot, itemId, name, itemLevel, quality, iconUrl, enchantments, gems, bonusList };
 }
 
 /** Map persisted equipment JSON into the public DTO. Never invent item level 0. */
@@ -227,6 +236,12 @@ export function mapCharacterMedia(rawSummary: unknown): CharacterMediaDTO | null
   return { avatarUrl, insetUrl, mainRawUrl };
 }
 
+import {
+  extractSelectedTalents,
+  heroTalentNameFromTalentsBlob,
+  loadoutCodeFromTalentsBlob,
+} from "./talent-selections.js";
+
 export function mapTalentSummary(
   character: CharacterEnrichmentInput["character"],
   snapshot: CharacterEnrichmentInput["latestSnapshot"],
@@ -241,17 +256,23 @@ export function mapTalentSummary(
 
   if (!talentRow && !specializationSlug) return null;
 
-  const loadoutCode = talentRow?.loadoutCode ?? null;
+  const loadoutCode =
+    talentRow?.loadoutCode ?? loadoutCodeFromTalentsBlob(talentRow?.talents) ?? null;
+  const selectedTalents = talentRow ? extractSelectedTalents(talentRow.talents) : [];
+  const heroTalentName = talentRow ? heroTalentNameFromTalentsBlob(talentRow.talents) : null;
   return {
     specializationSlug: specializationSlug ?? character.activeSpec?.slug ?? null,
     loadoutCode,
     summary: loadoutCode
-      ? "Blizzard talent loadout available"
+      ? selectedTalents.length > 0
+        ? `Blizzard loadout with ${selectedTalents.length} selected talents`
+        : "Blizzard talent loadout available"
       : specializationSlug
         ? "Specialization known; detailed loadout unavailable"
         : null,
     loadoutName: null,
-    selectedTalents: null,
+    heroTalentName,
+    selectedTalents: selectedTalents.length > 0 ? selectedTalents : null,
     sourceProvider: talentRow ? "blizzard" : null,
     fetchedAt: snapshot?.capturedAt?.toISOString?.() ?? null,
   };
@@ -456,8 +477,17 @@ export function buildProfileEnrichments(input: CharacterEnrichmentInput): Pick<
       }
     : null;
 
-  const rawIlvl = latestSnapshot?.itemLevelEquipped ?? null;
-  const itemLevel = rawIlvl != null && rawIlvl > 0 ? rawIlvl : null;
+  const rawIlvl =
+    (latestSnapshot?.itemLevelEquipped != null && latestSnapshot.itemLevelEquipped > 0
+      ? latestSnapshot.itemLevelEquipped
+      : null) ??
+    (equipment?.equippedItemLevel != null && equipment.equippedItemLevel > 0
+      ? equipment.equippedItemLevel
+      : null) ??
+    (equipment?.averageItemLevel != null && equipment.averageItemLevel > 0
+      ? equipment.averageItemLevel
+      : null);
+  const itemLevel = rawIlvl;
 
   const enrichedProviderStates = (providerStates ?? []).map((state) => ({
     ...state,

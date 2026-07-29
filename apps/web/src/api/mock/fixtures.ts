@@ -247,7 +247,7 @@ export const aleriaScoringRunSelection = {
     dungeonName: dungeon.name,
     canonicalRunId: index < 6 ? `run-${dungeon.slug}` : null,
     keyLevel: index < 6 ? dungeon.keyLevel : null,
-    timed: index < 6 ? true : null,
+    timed: index === 1 ? false : index < 6 ? true : null,
     completedAt: index < 6 ? "2026-07-18T21:14:00.000Z" : null,
     wclReportMatched: index < 6,
     selectionReason: index < 6 ? ("HIGHEST_KEY" as const) : null,

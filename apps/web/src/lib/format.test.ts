@@ -21,9 +21,9 @@ describe("format helpers", () => {
   it("keeps stable radar dimension order for legacy models", () => {
     expect([...RADAR_DIMENSIONS]).toEqual([
       "PERFORMANCE",
-      "SURVIVAL",
-      "UTILITY",
       "EXPERIENCE",
+      "UTILITY",
+      "SURVIVAL",
       "RAID",
     ]);
   });
@@ -31,9 +31,9 @@ describe("format helpers", () => {
   it("excludes raid for default@3 models", () => {
     expect([...RADAR_DIMENSIONS_V3]).toEqual([
       "PERFORMANCE",
-      "SURVIVAL",
-      "UTILITY",
       "EXPERIENCE",
+      "UTILITY",
+      "SURVIVAL",
     ]);
     expect(resolveRadarDimensions(3).map((d) => d)).not.toContain("RAID");
     expect(resolveRadarDimensions(2).map((d) => d)).toContain("RAID");
