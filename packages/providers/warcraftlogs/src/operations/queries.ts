@@ -210,6 +210,7 @@ export type EventDataType =
   | "Interrupts"
   | "Deaths"
   | "DamageTaken"
+  | "DamageDone"
   | "Buffs"
   | "Debuffs"
   | "Dispels"
