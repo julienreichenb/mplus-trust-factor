@@ -75,21 +75,22 @@ function buildQueryString(params?: Record<string, string | number | undefined>):
 
 export function createLiveApiClient(options: {
   baseUrl: string;
-  adminApiKey?: string;
 }): MplusApiClient {
   const base = options.baseUrl.replace(/\/$/, "");
 
   function headers(extra?: HeadersInit): Headers {
     const h = new Headers(extra);
     h.set("Accept", "application/json");
-    if (options.adminApiKey) {
-      h.set("X-Admin-Api-Key", options.adminApiKey);
-    }
     return h;
   }
 
   async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
-    const response = await fetch(`${base}${path}`, { method: "GET", headers: headers(), signal });
+    const response = await fetch(`${base}${path}`, {
+      method: "GET",
+      headers: headers(),
+      credentials: "include",
+      signal,
+    });
     return parseJson<T>(response);
   }
 
@@ -104,6 +105,7 @@ export function createLiveApiClient(options: {
       method,
       headers: headers(hasBody ? { "Content-Type": "application/json" } : undefined),
       body: hasBody ? JSON.stringify(body) : undefined,
+      credentials: "include",
       signal,
     });
     return parseJson<T>(response);

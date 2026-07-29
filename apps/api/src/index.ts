@@ -5,6 +5,16 @@ async function main(): Promise<void> {
   const env = loadEnv();
   const app = await buildApp({ env });
   app.log.info({ config: getConfigSummary(env) }, "api configuration summary");
+  if (env.ADMIN_API_KEY_EMERGENCY_FALLBACK) {
+    app.log.warn(
+      {
+        ADMIN_API_KEY_EMERGENCY_FALLBACK: true,
+        guidance:
+          "Shared ADMIN_API_KEY is accepted as an emergency RBAC bypass. Disable after first-admin bootstrap (pnpm iam:grant-admin) by setting ADMIN_API_KEY_EMERGENCY_FALLBACK=false.",
+      },
+      "SECURITY: ADMIN_API_KEY_EMERGENCY_FALLBACK is enabled",
+    );
+  }
   await app.listen({ host: env.API_HOST, port: env.API_PORT });
 
   let shuttingDown = false;

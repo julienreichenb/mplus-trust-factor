@@ -13,7 +13,6 @@ export function createApiClient(): MplusApiClient {
   if (mode === "live") {
     return createLiveApiClient({
       baseUrl: import.meta.env.VITE_API_BASE_URL ?? "http://localhost:3000",
-      adminApiKey: import.meta.env.VITE_ADMIN_API_KEY,
     });
   }
   return createMockApiClient();

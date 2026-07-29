@@ -8,6 +8,9 @@
 # Upstream aliases are created by app compose overrides on network mplus-proxy:
 #   mplus-prod-api / mplus-prod-web
 #   mplus-test-api / mplus-test-web
+#
+# /metrics is intentionally NOT proxied publicly. Prometheus scrapes the API on the
+# private Docker network (e.g. http://mplus-prod-api:3000/metrics).
 
 {
 	email {$ACME_EMAIL}
@@ -23,6 +26,12 @@
 		Referrer-Policy "strict-origin-when-cross-origin"
 		Permissions-Policy "camera=(), microphone=(), geolocation=()"
 		-Server
+	}
+
+	# Block Prometheus exposition at the public edge (private Docker network only).
+	@metrics path /metrics /metrics/*
+	handle @metrics {
+		respond 404
 	}
 
 	@api path /api/* /health/* /docs /docs/*

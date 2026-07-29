@@ -10,7 +10,7 @@ test.describe("Ability catalog explorer", () => {
   });
 
   test("overview, expand class, search, and filter screenshots", async ({ page }) => {
-    // Development-only: page is currently unprotected (no admin unlock gate).
+    // Development-only page historically unprotected; now requires session RBAC via router meta.
     await page.goto("/admin/ability-catalog");
     await expect(page.getByTestId("ability-catalog-page")).toBeVisible();
     await expect(page.getByTestId("catalog-summary")).toBeVisible({ timeout: 15_000 });

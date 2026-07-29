@@ -21,6 +21,7 @@ const env = loadEnv({
     "postgresql://mplus:mplus@localhost:5433/mplus_trust?schema=public",
   REDIS_URL: process.env.REDIS_URL ?? "redis://localhost:6379",
   ADMIN_API_KEY: process.env.ADMIN_API_KEY ?? "test-admin-key",
+  ADMIN_API_KEY_EMERGENCY_FALLBACK: process.env.ADMIN_API_KEY_EMERGENCY_FALLBACK ?? "true",
   SESSION_SECRET: process.env.SESSION_SECRET ?? "test-session-secret-at-least-32-chars",
   WEB_ORIGIN: webOrigin,
   PUBLIC_BASE_URL: `http://127.0.0.1:${port}`,

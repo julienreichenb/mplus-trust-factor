@@ -32,6 +32,10 @@ export class HttpError extends Error {
     return new HttpError({ statusCode: 401, code, message, retryable: false });
   }
 
+  static forbidden(code: string, message: string, details?: unknown): HttpError {
+    return new HttpError({ statusCode: 403, code, message, retryable: false, details });
+  }
+
   static notFound(code: string, message: string, details?: unknown): HttpError {
     return new HttpError({ statusCode: 404, code, message, retryable: false, details });
   }

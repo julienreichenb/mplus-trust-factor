@@ -31,6 +31,8 @@ import {
   type WorkerContainerOverrides,
 } from "@mplus/worker";
 import { ResponseCache } from "./lib/response-cache.js";
+import { createBattleNetOAuthClient, type BattleNetOAuthClient } from "./iam/battlenet-oauth-client.js";
+import { IamAuthService } from "./iam/auth-service.js";
 
 export interface ApiEntitlements {
   /** MVP flag: when true, serializers omit no fields for any client (all details public). */
@@ -47,6 +49,8 @@ export interface ApiContainer {
   negativeCache: NegativeCache;
   /** Whether BullMQ/Redis is required for readiness (false when skipQueues/inline). */
   queueMode: "bullmq" | "inline";
+  oauthClient: BattleNetOAuthClient;
+  authService: IamAuthService;
   close(): Promise<void>;
 }
 
@@ -65,6 +69,7 @@ export interface ApiContainerOverrides {
   skipQueues?: boolean;
   entitlements?: Partial<ApiEntitlements>;
   logger?: Logger;
+  oauthClient?: BattleNetOAuthClient;
 }
 
 /**
@@ -207,6 +212,9 @@ export function createApiContainer(env: AppEnv, overrides: ApiContainerOverrides
     queueMode = "bullmq";
   }
 
+  const oauthClient = overrides.oauthClient ?? createBattleNetOAuthClient(env);
+  const authService = new IamAuthService(worker.prisma, env, oauthClient);
+
   return {
     env,
     logger,
@@ -218,6 +226,8 @@ export function createApiContainer(env: AppEnv, overrides: ApiContainerOverrides
     },
     negativeCache,
     queueMode,
+    oauthClient,
+    authService,
     async close(): Promise<void> {
       if (ownsProducers) {
         await producers.close();

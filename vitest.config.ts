@@ -50,6 +50,7 @@ export default defineConfig({
       PUBLIC_BASE_URL: "http://localhost:3000",
       SESSION_SECRET: "test-session-secret-at-least-32-chars",
       ADMIN_API_KEY: "test-admin-key",
+      ADMIN_API_KEY_EMERGENCY_FALLBACK: "true",
     },
   },
 });

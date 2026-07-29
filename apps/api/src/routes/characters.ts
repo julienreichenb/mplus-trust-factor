@@ -1,8 +1,9 @@
-import type { FastifyPluginAsync, FastifyRequest } from "fastify";
+import type { FastifyPluginAsync } from "fastify";
 import type { CharacterIdentityInput } from "@mplus/contracts";
 import type { ApiContainer } from "../container.js";
-import { isAdminRequest } from "../plugins/admin-auth.js";
 import { CharacterService } from "../services/character-service.js";
+import { writeAuditEvent } from "../iam/audit.js";
+import { resolveRefreshPrivileges } from "../iam/session.js";
 import {
   characterProfileResponseSchema,
   errorResponseSchema,
@@ -179,8 +180,39 @@ export function buildCharacterRoutes(container: ApiContainer): FastifyPluginAsyn
       },
       async (request) => {
         const identity = toIdentity(request.params as IdentityParams);
-        const isAdmin = isAdminRequest(container.env, request as FastifyRequest);
-        return service.requestRefresh(identity, { isAdmin, correlationId: request.id });
+        // Resolve privileges after we know the character id (findOrCreate inside requestRefresh).
+        // Pre-check using identity-scoped lookup for ownership / admin.
+        const preview = await service.getRefreshStatus(identity).catch(() => null);
+        const privileges = await resolveRefreshPrivileges(
+          request,
+          container.env,
+          container.authService,
+          preview?.characterId ?? "",
+        );
+        if (privileges.bypassCooldown) {
+          await writeAuditEvent(container.worker.prisma, {
+            userId: request.auth?.user.id,
+            actorType:
+              privileges.actor === "admin_key"
+                ? "admin_key"
+                : privileges.actor === "session_admin"
+                  ? "user"
+                  : privileges.actor === "owner"
+                    ? "user"
+                    : "anonymous",
+            action: "profile.refresh.cooldown_bypass",
+            resourceType: "character",
+            resourceId: preview?.characterId ?? `${identity.region}/${identity.realmSlug}/${identity.name}`,
+            ip: request.ip,
+            userAgent: request.headers["user-agent"],
+            sessionSecret: container.env.SESSION_SECRET,
+            metadata: { actor: privileges.actor, forceRefresh: privileges.forceRefresh },
+          });
+        }
+        return service.requestRefresh(identity, {
+          isAdmin: privileges.bypassCooldown,
+          correlationId: request.id,
+        });
       },
     );
 

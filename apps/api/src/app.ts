@@ -1,5 +1,6 @@
 import Fastify, { type FastifyInstance } from "fastify";
 import cors from "@fastify/cors";
+import cookie from "@fastify/cookie";
 import rateLimit from "@fastify/rate-limit";
 import swagger from "@fastify/swagger";
 import swaggerUi from "@fastify/swagger-ui";
@@ -16,6 +17,9 @@ import { buildJobRoutes } from "./routes/jobs.js";
 import { buildRealmRoutes } from "./routes/realms.js";
 import { buildPublicScoreModelRoutes } from "./routes/score-models.js";
 import { checkRedisHealth } from "./lib/redis-health.js";
+import { buildAuthRoutes } from "./iam/routes-auth.js";
+import { createSessionPreHandler } from "./iam/session.js";
+import { ensureIamSeed } from "./iam/seed.js";
 
 declare module "fastify" {
   interface FastifyInstance {
@@ -26,6 +30,8 @@ declare module "fastify" {
 export interface BuildAppOptions {
   env?: AppEnv;
   container?: ApiContainer;
+  /** Skip IAM role/permission seed (unit tests that do not need DB roles). */
+  skipIamSeed?: boolean;
 }
 
 export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyInstance> {
@@ -61,6 +67,11 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
 
   await app.register(cors, {
     origin: env.WEB_ORIGIN,
+    credentials: true,
+  });
+
+  await app.register(cookie, {
+    secret: env.SESSION_SECRET,
   });
 
   await app.register(rateLimit, {
@@ -69,15 +80,24 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     timeWindow: "1 minute",
   });
 
+  if (!options.skipIamSeed) {
+    try {
+      await ensureIamSeed(container.worker.prisma);
+    } catch (error) {
+      container.logger.warn({ err: error }, "IAM seed skipped or failed");
+    }
+  }
+
+  app.addHook("preHandler", createSessionPreHandler(container.authService, env));
+
   await app.register(swagger, {
     openapi: {
       info: {
         title: "M+ Trust Factor API",
         version: env.APP_VERSION,
         description:
-          "Agent 5 backend surface: public character/comparison/score-model routes with " +
-          "stale-while-revalidate refresh semantics, plus MVP-protected admin routes for score " +
-          "model and mechanic-rule administration.",
+          "Public character/comparison routes with SWR refresh, Battle.net OAuth IAM, " +
+          "and permission-protected admin routes (shared admin key retained as emergency fallback).",
       },
       servers: [{ url: env.PUBLIC_BASE_URL }],
     },
@@ -277,6 +297,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   await app.register(buildPublicScoreModelRoutes(container));
   await app.register(buildJobRoutes(container));
   await app.register(buildAdminRoutes(container));
+  await app.register(buildAuthRoutes(env, container.authService));
 
   return app;
 }

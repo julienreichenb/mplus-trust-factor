@@ -87,8 +87,32 @@ export const envSchema = z
     PUBLIC_DETAILS_ALL: booleanFromString.default(true),
 
     ADMIN_API_KEY: z.string().min(1),
+    /**
+     * Emergency shared-key fallback for machine/admin recovery.
+     * Default false — must be explicitly enabled. Local `.env.example` sets true for development only.
+     * Never accepted from SPA code; every successful use is audited; startup warns when enabled.
+     */
+    ADMIN_API_KEY_EMERGENCY_FALLBACK: booleanFromString.default(false),
     SESSION_SECRET: z.string().min(32),
+    /**
+     * AES key material for provider OAuth tokens at rest. Defaults to SESSION_SECRET when unset.
+     * Prefer a dedicated value in staging/production.
+     */
+    PROVIDER_TOKEN_ENCRYPTION_SECRET: z.string().min(32).optional(),
     COOKIE_DOMAIN: z.string().default("localhost"),
+    SESSION_COOKIE_NAME: z.string().default("mplus_session"),
+    SESSION_TTL_SECONDS: z.coerce.number().int().positive().default(2_592_000),
+    OAUTH_STATE_TTL_SECONDS: z.coerce.number().int().positive().default(600),
+    /** Comma-separated absolute callback URLs allowlisted for Battle.net OAuth. */
+    BATTLENET_OAUTH_CALLBACK_URLS: z.string().default("http://localhost:3000/api/v1/auth/battlenet/callback"),
+    BATTLENET_OAUTH_SCOPES: z.string().default("openid wow.profile"),
+    BATTLENET_OAUTH_AUTHORIZE_URL: z.string().url().default("https://oauth.battle.net/authorize"),
+    BATTLENET_OAUTH_TOKEN_URL: z.string().url().default("https://oauth.battle.net/token"),
+    BATTLENET_OAUTH_USERINFO_URL: z.string().url().default("https://oauth.battle.net/userinfo"),
+    /** MVP ownership sync region. Only EU is supported; other values are rejected. */
+    BATTLENET_OWNERSHIP_SYNC_REGION: z.string().default("eu"),
+    /** When true, owners may bypass manual refresh cooldown (still subject to WCL global safety). */
+    OWNER_REFRESH_COOLDOWN_BYPASS: booleanFromString.default(false),
     TRUST_PROXY: booleanFromString.default(false),
 
     /** Worker-only HTTP health port (Docker HEALTHCHECK). 0 disables the listener. */
@@ -132,6 +156,7 @@ export interface ConfigSummary {
   blizzardCredentialsConfigured: boolean;
   wclCredentialsConfigured: boolean;
   raiderioAppKeyConfigured: boolean;
+  adminApiKeyEmergencyFallback: boolean;
   logLevel: AppEnv["LOG_LEVEL"];
 }
 
@@ -147,6 +172,7 @@ export function getConfigSummary(env: AppEnv): ConfigSummary {
     blizzardCredentialsConfigured: Boolean(env.BLIZZARD_CLIENT_ID && env.BLIZZARD_CLIENT_SECRET),
     wclCredentialsConfigured: Boolean(env.WCL_CLIENT_ID && env.WCL_CLIENT_SECRET),
     raiderioAppKeyConfigured: Boolean(env.RAIDERIO_APP_KEY),
+    adminApiKeyEmergencyFallback: env.ADMIN_API_KEY_EMERGENCY_FALLBACK,
     logLevel: env.LOG_LEVEL,
   };
 }
@@ -170,6 +196,11 @@ export function getEnv(): AppEnv {
     return loadEnv();
   }
   return cachedEnv;
+}
+
+/** Secret used to encrypt Battle.net provider tokens at rest. */
+export function providerTokenEncryptionSecret(env: AppEnv): string {
+  return env.PROVIDER_TOKEN_ENCRYPTION_SECRET ?? env.SESSION_SECRET;
 }
 
 export function resetEnvCache(): void {

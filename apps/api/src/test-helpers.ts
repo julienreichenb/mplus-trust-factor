@@ -16,6 +16,7 @@ export function buildTestEnv(overrides: Record<string, string> = {}): AppEnv {
     DATABASE_URL: TEST_DATABASE_URL,
     REDIS_URL: TEST_REDIS_URL,
     ADMIN_API_KEY: "test-admin-key",
+    ADMIN_API_KEY_EMERGENCY_FALLBACK: "true",
     SESSION_SECRET: "test-session-secret-at-least-32-chars",
     PROVIDER_MODE: "fixture",
     WEB_ORIGIN: "http://localhost:5173",
