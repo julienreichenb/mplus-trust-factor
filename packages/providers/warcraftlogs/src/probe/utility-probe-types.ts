@@ -313,6 +313,17 @@ export interface UtilityGlobalSummary {
     dungeonsWithRuns: number;
     dungeonsMissingRuns: string[];
     sampleSizeByDungeon: Record<string, number>;
+    /**
+     * Per-dungeon classification for missing dungeons.
+     * Possible values:
+     *  - "no_candidates": zoneRankings had no entry and recentReports found none
+     *  - "actor_absent": candidates found but player actor absent from friendlyPlayers
+     *  - "report_cap_reached": candidates existed but per-dungeon report cap exhausted
+     *  - "report_private": report fetch returned private/unauthorized
+     *  - "outside_report_window": all candidates outside the inspected report window
+     *  - "unknown": rejected for other reasons
+     */
+    missingDungeonReasons: Record<string, string>;
   };
   reliabilityAssessment: {
     reliableEnoughForStandaloneV1: string[];

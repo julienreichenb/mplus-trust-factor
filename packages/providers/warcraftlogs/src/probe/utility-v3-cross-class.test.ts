@@ -13,7 +13,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { getAbilityCatalog, spellIdsForCategory } from "@mplus/abilities";
+import { getAbilityCatalog, spellIdsForCategory, roleForSpec } from "@mplus/abilities";
 
 // -------------------------------------------------------------------------
 // 1. Guardian Druid interrupt alias (93985)
@@ -46,23 +46,44 @@ describe("Guardian Druid interrupt alias — FR locale Skull Bash", () => {
 });
 
 // -------------------------------------------------------------------------
+// 1b. roleForSpec catalog helper
+// -------------------------------------------------------------------------
+
+describe("roleForSpec catalog helper", () => {
+  it("returns 'dps' for arms", () => expect(roleForSpec("arms")).toBe("dps"));
+  it("returns 'dps' for fury", () => expect(roleForSpec("fury")).toBe("dps"));
+  it("returns 'tank' for protection (warrior)", () => expect(roleForSpec("protection")).toBe("tank"));
+  it("returns 'tank' for guardian", () => expect(roleForSpec("guardian")).toBe("tank"));
+  it("returns 'healer' for restoration", () => expect(roleForSpec("restoration")).toBe("healer"));
+  it("returns null for unknown spec", () => expect(roleForSpec("unknown-spec")).toBeNull());
+});
+
+// -------------------------------------------------------------------------
 // 2. Role resolution helpers (mirrors logic in run-utility-cross-class-validation)
 // -------------------------------------------------------------------------
 
 function majorityRoleSlug(
-  runs: Array<{ roleSlug?: string | null }>,
+  runs: Array<{ roleSlug?: string | null; specialization?: string | null }>,
 ): { roleSlug: string | null; mixedRole: boolean; roleSource: string } {
   const counts = new Map<string, number>();
   for (const r of runs) {
     if (r.roleSlug) counts.set(r.roleSlug, (counts.get(r.roleSlug) ?? 0) + 1);
   }
-  if (counts.size === 0) return { roleSlug: null, mixedRole: false, roleSource: "unknown" };
-  let best: string | null = null;
-  let bestCount = 0;
-  for (const [slug, count] of counts) {
-    if (count > bestCount) { best = slug; bestCount = count; }
+  if (counts.size > 0) {
+    let best: string | null = null;
+    let bestCount = 0;
+    for (const [slug, count] of counts) {
+      if (count > bestCount) { best = slug; bestCount = count; }
+    }
+    return { roleSlug: best, mixedRole: counts.size > 1, roleSource: "zone_rankings" };
   }
-  return { roleSlug: best, mixedRole: counts.size > 1, roleSource: "zone_rankings" };
+  // Fallback: infer from specSlug via catalog
+  const specSlug = runs[0]?.specialization ?? null;
+  if (specSlug) {
+    const inferred = roleForSpec(specSlug);
+    if (inferred) return { roleSlug: inferred, mixedRole: false, roleSource: "inferred" };
+  }
+  return { roleSlug: null, mixedRole: false, roleSource: "unknown" };
 }
 
 describe("role resolution", () => {
@@ -89,7 +110,7 @@ describe("role resolution", () => {
     expect(result.mixedRole).toBe(true);
   });
 
-  it("returns null when no runs have roleSlug", () => {
+  it("returns null when no runs have roleSlug and no specSlug available", () => {
     const runs = [
       { roleSlug: null },
       { roleSlug: undefined },
@@ -99,6 +120,31 @@ describe("role resolution", () => {
     expect(result.roleSlug).toBeNull();
     expect(result.mixedRole).toBe(false);
     expect(result.roleSource).toBe("unknown");
+  });
+
+  it("infers 'dps' for Arms Warrior from catalog when WCL returns null roleSlug", () => {
+    const runs = [
+      { roleSlug: null, specialization: "arms" },
+      { roleSlug: null, specialization: "arms" },
+    ];
+    const result = majorityRoleSlug(runs);
+    expect(result.roleSlug).toBe("dps");
+    expect(result.roleSource).toBe("inferred");
+    expect(result.mixedRole).toBe(false);
+  });
+
+  it("infers 'tank' for Guardian Druid from catalog when WCL returns null roleSlug", () => {
+    const runs = [{ roleSlug: null, specialization: "guardian" }];
+    const result = majorityRoleSlug(runs);
+    expect(result.roleSlug).toBe("tank");
+    expect(result.roleSource).toBe("inferred");
+  });
+
+  it("infers 'healer' for Restoration Shaman from catalog when WCL returns null roleSlug", () => {
+    const runs = [{ roleSlug: null, specialization: "restoration" }];
+    const result = majorityRoleSlug(runs);
+    expect(result.roleSlug).toBe("healer");
+    expect(result.roleSource).toBe("inferred");
   });
 
   it("preserves per-run roleSlug distinctions in mixed scenario", () => {
@@ -202,6 +248,33 @@ describe("probe failure diagnosis", () => {
       schemaWarnings: [],
     });
     expect(result).toBe("unknown");
+  });
+});
+
+// retryable flag mirrors the logic in buildProbeFailureDiagnostics
+function isRetryable(diagnosis: Diagnosis): boolean {
+  return diagnosis !== "character_not_found" && diagnosis !== "all_fights_target_absent";
+}
+
+describe("probe failure retryable flag", () => {
+  it("zone_rankings_aggregate_only is retryable (wider page window may find missing dungeons)", () => {
+    expect(isRetryable("zone_rankings_aggregate_only")).toBe(true);
+  });
+
+  it("rate_limited is retryable", () => {
+    expect(isRetryable("rate_limited")).toBe(true);
+  });
+
+  it("unknown is retryable", () => {
+    expect(isRetryable("unknown")).toBe(true);
+  });
+
+  it("character_not_found is not retryable", () => {
+    expect(isRetryable("character_not_found")).toBe(false);
+  });
+
+  it("all_fights_target_absent is not retryable", () => {
+    expect(isRetryable("all_fights_target_absent")).toBe(false);
   });
 });
 

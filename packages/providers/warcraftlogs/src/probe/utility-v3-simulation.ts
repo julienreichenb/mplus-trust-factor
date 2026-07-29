@@ -20,7 +20,10 @@ async function writeJson(path: string, payload: unknown): Promise<void> {
   await writeFile(path, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
 }
 
-/** Derive majority roleSlug from normalized runs (from WCL zoneRankings.role). */
+import { roleForSpec } from "@mplus/abilities";
+
+/** Derive majority roleSlug from normalized runs (from WCL zoneRankings.role).
+ *  Falls back to catalog inference from specSlug when WCL returns null. */
 function resolveRoleFromRuns(runs: import("./utility-probe-types.js").UtilityNormalizedRun[]): {
   roleSlug: string | null;
   mixedRole: boolean;
@@ -30,13 +33,21 @@ function resolveRoleFromRuns(runs: import("./utility-probe-types.js").UtilityNor
   for (const r of runs) {
     if (r.roleSlug) counts.set(r.roleSlug, (counts.get(r.roleSlug) ?? 0) + 1);
   }
-  if (counts.size === 0) return { roleSlug: null, mixedRole: false, roleSource: "unknown" };
-  let best: string | null = null;
-  let bestCount = 0;
-  for (const [slug, count] of counts) {
-    if (count > bestCount) { best = slug; bestCount = count; }
+  if (counts.size > 0) {
+    let best: string | null = null;
+    let bestCount = 0;
+    for (const [slug, count] of counts) {
+      if (count > bestCount) { best = slug; bestCount = count; }
+    }
+    return { roleSlug: best, mixedRole: counts.size > 1, roleSource: "zone_rankings" };
   }
-  return { roleSlug: best, mixedRole: counts.size > 1, roleSource: "zone_rankings" };
+  // Fallback: infer from specSlug via catalog when WCL returns null for all runs
+  const specSlug = runs[0]?.specialization ?? null;
+  if (specSlug) {
+    const inferred = roleForSpec(specSlug);
+    if (inferred) return { roleSlug: inferred, mixedRole: false, roleSource: "inferred" };
+  }
+  return { roleSlug: null, mixedRole: false, roleSource: "unknown" };
 }
 
 export async function runUtilityV3Simulation(

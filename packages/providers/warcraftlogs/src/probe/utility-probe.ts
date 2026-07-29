@@ -82,6 +82,19 @@ export interface UtilityProbeOptions {
   maxReportsInspectedPerDungeon?: number;
   maxEventPages?: number;
   eventPageLimit?: number;
+  /**
+   * Maximum number of recentReports pages to fetch when zoneRankings returns
+   * no direct report links. WCL returns up to 100 reports per page.
+   * Defaults to 1 (first page only). Set higher when a PARTIAL run needs more
+   * report coverage to find missing dungeons.
+   */
+  maxRecentReportPages?: number;
+  /**
+   * When set, the probe will only attempt to collect runs for these dungeon
+   * slugs. Dungeons not in this list are skipped entirely (no event fetching).
+   * Use for PARTIAL resume: pass the list of still-missing dungeons.
+   */
+  focusDungeons?: string[] | null;
 }
 
 export interface UtilityProbeResult {
@@ -567,6 +580,8 @@ export async function runUtilityProbe(options: UtilityProbeOptions): Promise<Uti
   const maxRuns = options.maxRunsPerDungeon ?? DEFAULT_MAX_RUNS_PER_DUNGEON;
   const maxReportsPerDungeon =
     options.maxReportsInspectedPerDungeon ?? DEFAULT_MAX_REPORTS_PER_DUNGEON;
+  const maxRecentReportPages = Math.max(1, options.maxRecentReportPages ?? 1);
+  const focusDungeons = options.focusDungeons?.length ? new Set(options.focusDungeons) : null;
   const zoneConfig =
     options.zoneConfig ??
     resolveMplusZoneConfig({ env: process.env, allowFixtureDefault: false });
@@ -658,9 +673,18 @@ export async function runUtilityProbe(options: UtilityProbeOptions): Promise<Uti
   let byDungeon = rankingsToSurvivalCandidates(rankingObservations, dungeonPool);
   const aggregateHints = extractAggregateDungeonHints(rawZoneRankings);
 
-  if ([...byDungeon.values()].every((b) => b.length === 0)) {
-    bumpOpCount(opCounts, OPERATIONS.CharacterRecentReports.operationName);
-    const recentResult = await options.client.requestPermissive<{
+  // Determine if we need to fall back to recentReports discovery.
+  // When focusDungeons is set, only lack of candidates for those specific dungeons triggers it.
+  // When all queues are empty (full run), always trigger.
+  const allQueuesEmpty = [...byDungeon.values()].every((b) => b.length === 0);
+  const focusDungeonsNeedingCandidates = focusDungeons
+    ? [...focusDungeons].filter((d) => (byDungeon.get(d) ?? []).length === 0)
+    : null;
+  const needsRecentReports =
+    allQueuesEmpty || (focusDungeonsNeedingCandidates != null && focusDungeonsNeedingCandidates.length > 0);
+
+  if (needsRecentReports) {
+    type RecentReportsResponse = {
       characterData?: {
         character?: {
           recentReports?: {
@@ -677,35 +701,77 @@ export async function runUtilityProbe(options: UtilityProbeOptions): Promise<Uti
           } | null;
         } | null;
       };
-    }>({
-      operationName: OPERATIONS.CharacterRecentReports.operationName,
-      query: OPERATIONS.CharacterRecentReports.query,
-      variables: {
-        name: options.identity.name,
-        serverSlug: options.identity.realmSlug,
-        serverRegion: mapRegionToWcl(options.identity.region),
-        limit: MAX_RECENT_REPORTS_LIMIT,
-        page: 1,
-      },
-      region: options.identity.region,
-    });
-    collectGraphQlErrors(
-      graphqlErrors,
-      OPERATIONS.CharacterRecentReports.operationName,
-      recentResult.response.errors,
-    );
-    perOperation.push({
-      operationName: OPERATIONS.CharacterRecentReports.operationName,
-      costUnits: recentResult.costUnits,
-      durationMs: recentResult.durationMs,
-      snapshot: rateLimitFromExtensions(recentResult.response.extensions),
-    });
+    };
 
-    const recentMapped = recentReportsToCandidates(
-      recentResult.response.data?.characterData?.character?.recentReports,
-    );
+    const allRecentCandidates: ReturnType<typeof recentReportsToCandidates>["candidates"] = [];
+    let hasMore = true;
+    let page = 0;
+
+    while (hasMore && page < maxRecentReportPages) {
+      page += 1;
+      bumpOpCount(opCounts, OPERATIONS.CharacterRecentReports.operationName);
+      const recentResult = await options.client.requestPermissive<RecentReportsResponse>({
+        operationName: OPERATIONS.CharacterRecentReports.operationName,
+        query: OPERATIONS.CharacterRecentReports.query,
+        variables: {
+          name: options.identity.name,
+          serverSlug: options.identity.realmSlug,
+          serverRegion: mapRegionToWcl(options.identity.region),
+          limit: MAX_RECENT_REPORTS_LIMIT,
+          page,
+        },
+        region: options.identity.region,
+      });
+      collectGraphQlErrors(
+        graphqlErrors,
+        OPERATIONS.CharacterRecentReports.operationName,
+        recentResult.response.errors,
+      );
+      perOperation.push({
+        operationName: OPERATIONS.CharacterRecentReports.operationName,
+        costUnits: recentResult.costUnits,
+        durationMs: recentResult.durationMs,
+        snapshot: rateLimitFromExtensions(recentResult.response.extensions),
+      });
+
+      const pageData = recentResult.response.data?.characterData?.character?.recentReports;
+      const recentMapped = recentReportsToCandidates(pageData);
+      allRecentCandidates.push(...recentMapped.candidates);
+
+      hasMore = pageData?.has_more_pages === true;
+      // If we already have candidates for all focus dungeons, stop paging early
+      if (focusDungeonsNeedingCandidates != null) {
+        const tempQueues = buildSurvivalCandidateQueuesFromHydrated(
+          allRecentCandidates.map((c) => ({
+            reportCode: c.reportCode,
+            fightId: 0,
+            encounterId: 0,
+            dungeonSlug: null,
+            keyLevel: null,
+            score: null,
+            durationMs: null,
+            startTimeMs: null,
+            completedAt: null,
+          })),
+          aggregateHints,
+          dungeonPool,
+        );
+        // allRecentCandidates are stubs without dungeonSlug yet — can't early-exit here
+        // so we rely on maxRecentReportPages as the stop condition
+        void tempQueues; // unused check; keep loop for pagination
+      }
+    }
+
+    if (allRecentCandidates.length > 0) {
+      schemaWarnings.push(
+        `recentReports discovery: ${allRecentCandidates.length} stubs collected across ${page} page(s)` +
+        (page < maxRecentReportPages && hasMore ? ` (more pages available — increase maxRecentReportPages beyond ${maxRecentReportPages})` : "") +
+        (!hasMore && page < maxRecentReportPages ? ` (all pages exhausted after ${page})` : ""),
+      );
+    }
+
     const prioritized = prioritizeReportsForHydration(
-      recentMapped.candidates,
+      allRecentCandidates,
       [],
       PROBE_MAX_HYDRATION_REPORTS,
     );
@@ -808,6 +874,9 @@ export async function runUtilityProbe(options: UtilityProbeOptions): Promise<Uti
     const classSlug = classSlugFromWclClassId(character.classID);
 
     for (const dungeonSlug of dungeonPool) {
+      // When focusDungeons is set, skip dungeons not in the focus set
+      if (focusDungeons && !focusDungeons.has(dungeonSlug)) continue;
+
       const queue = byDungeon.get(dungeonSlug) ?? [];
       const usable: ReturnType<typeof summarizeUtilityRun>[] = [];
       const reportsTried = new Set<string>();
@@ -1018,7 +1087,38 @@ export async function runUtilityProbe(options: UtilityProbeOptions): Promise<Uti
       utilityRuns.filter((r) => r.dungeonSlug === slug),
     ),
   );
-  const global = buildUtilityGlobalSummary(perDungeon, dungeonPool);
+
+  // Classify why each missing dungeon has no run.
+  const missingDungeonReasons: Record<string, string> = {};
+  for (const slug of dungeonPool) {
+    const hasFocusSkip = focusDungeons && !focusDungeons.has(slug);
+    if (hasFocusSkip) continue; // intentionally skipped — not missing
+    const hasRun = utilityRuns.some((r) => r.dungeonSlug === slug);
+    if (hasRun) continue;
+    const hasCandidates = (byDungeon.get(slug) ?? []).length > 0;
+    if (!hasCandidates) {
+      missingDungeonReasons[slug] = "no_candidates";
+      continue;
+    }
+    // Candidates existed — find the dominant rejection reason
+    const dungeonRejections = runsRejected
+      .filter((r) => r.dungeonSlug === slug)
+      .map((r) => r.reason);
+    if (dungeonRejections.length === 0) {
+      missingDungeonReasons[slug] = "unknown";
+      continue;
+    }
+    const hasActorAbsent = dungeonRejections.some((r) => r.includes("player_actor_not_in_fight"));
+    const hasReportCap = dungeonRejections.some((r) => r.includes("max_reports_inspected_per_dungeon_cap"));
+    const hasPrivate = dungeonRejections.some((r) => r.includes("private") || r.includes("unauthorized"));
+    if (hasPrivate) missingDungeonReasons[slug] = "report_private";
+    else if (hasActorAbsent && !hasReportCap) missingDungeonReasons[slug] = "actor_absent";
+    else if (hasReportCap && !hasActorAbsent) missingDungeonReasons[slug] = "report_cap_reached";
+    else if (hasActorAbsent && hasReportCap) missingDungeonReasons[slug] = "actor_absent_and_cap_reached";
+    else missingDungeonReasons[slug] = dungeonRejections[0] ?? "unknown";
+  }
+
+  const global = buildUtilityGlobalSummary(perDungeon, dungeonPool, missingDungeonReasons);
 
   const catalogMatchedSpellIds = new Set<number>();
   const catalogUnmatchedSpellIds = new Set<number>();

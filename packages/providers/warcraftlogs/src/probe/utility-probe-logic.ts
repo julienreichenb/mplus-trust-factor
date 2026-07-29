@@ -1239,6 +1239,7 @@ export function aggregateUtilityDungeon(
 export function buildUtilityGlobalSummary(
   perDungeon: UtilityDungeonAggregate[],
   expectedDungeonSlugs: string[],
+  missingDungeonReasons?: Record<string, string>,
 ): UtilityGlobalSummary {
   const withRuns = perDungeon.filter((d) => d.runCount > 0);
   const sampleSizeByDungeon: Record<string, number> = {};
@@ -1269,6 +1270,7 @@ export function buildUtilityGlobalSummary(
       dungeonsWithRuns: withRuns.length,
       dungeonsMissingRuns: missing,
       sampleSizeByDungeon,
+      missingDungeonReasons: missingDungeonReasons ?? {},
     },
     reliabilityAssessment: {
       reliableEnoughForStandaloneV1: [

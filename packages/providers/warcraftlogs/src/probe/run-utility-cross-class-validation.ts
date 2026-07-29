@@ -44,6 +44,7 @@ import { classSlugFromWclClassId } from "./survival-probe-logic.js";
 import type { UtilityProbeIdentity } from "./utility-probe-types.js";
 import type { UtilityV3SimulationDataset } from "./utility-v3-types.js";
 import type { WclRateBudgetDecision } from "../types.js";
+import { roleForSpec } from "@mplus/abilities";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -120,6 +121,12 @@ export interface CharacterValidationResult {
   artifactState: "COMPLETE" | "PARTIAL" | "ERROR" | "NONE";
   completedDungeons: string[];
   missingDungeons: string[];
+  /**
+   * Per-dungeon classification for missing dungeons.
+   * Possible values: "no_candidates", "actor_absent", "report_cap_reached",
+   * "actor_absent_and_cap_reached", "report_private", "outside_report_window", "unknown".
+   */
+  missingDungeonReasons: Record<string, string>;
   behaviorScore: number | null;
   confidence: number | null;
   semanticBand: string | null;
@@ -198,6 +205,7 @@ function parseArgs(argv: string[]): {
   outputRoot: string;
   maxRunsPerDungeon: number;
   maxReportsPerDungeon: number;
+  maxRecentReportPages: number;
   resume: boolean;
   resumePartial: boolean;
   retryErrors: boolean;
@@ -236,6 +244,7 @@ function parseArgs(argv: string[]): {
       join(process.cwd(), "raw-artifacts", "wcl-probe-utility"),
     maxRunsPerDungeon: Number(flags["max-runs-per-dungeon"] ?? 3),
     maxReportsPerDungeon: Number(flags["max-reports-per-dungeon"] ?? 8),
+    maxRecentReportPages: Number(flags["max-recent-report-pages"] ?? 1),
     resume: boolFlags.has("resume") || envFlag(flags["resume"]),
     resumePartial: boolFlags.has("resume-partial") || envFlag(flags["resume-partial"]),
     retryErrors: boolFlags.has("retry-errors") || envFlag(flags["retry-errors"]),
@@ -403,7 +412,9 @@ async function buildProbeFailureDiagnostics(
     schemaWarnings,
     characterFound,
     diagnosis,
-    retryable: diagnosis === "rate_limited" || diagnosis === "unknown",
+    // zone_rankings_aggregate_only is retryable: increasing maxRecentReportPages
+    // or wider report window may surface the missing dungeon candidates.
+    retryable: diagnosis !== "character_not_found" && diagnosis !== "all_fights_target_absent",
     partialArtifactPaths: [...new Set(partialArtifactPaths)],
   };
 }
@@ -549,6 +560,7 @@ async function loadCompletedResult(
       artifactState: artifactStatus.state,
       completedDungeons: artifactStatus.completedDungeons,
       missingDungeons: artifactStatus.missingDungeons,
+      missingDungeonReasons: {},
       behaviorScore: summary.behaviorScore ?? null,
       confidence: summary.confidence ?? null,
       semanticBand: summary.semanticBand ?? null,
@@ -636,6 +648,12 @@ async function validateCharacter(
   maxRunsPerDungeon: number,
   maxReportsPerDungeon: number,
   historicalCostPerDungeon: number | null,
+  opts: {
+    /** When set, only probe these dungeons (PARTIAL resume). */
+    focusDungeons?: string[] | null;
+    /** Number of recentReports pages to fetch during discovery. */
+    maxRecentReportPages?: number;
+  } = {},
 ): Promise<CharacterValidationResult> {
   const region = entry.region.trim().toUpperCase();
   const realmSlug = entry.realm.trim().toLowerCase();
@@ -661,6 +679,7 @@ async function validateCharacter(
     artifactState: "NONE",
     completedDungeons: [],
     missingDungeons: ACTIVE_SEASON_DUNGEONS,
+    missingDungeonReasons: {},
     behaviorScore: null,
     confidence: null,
     semanticBand: null,
@@ -681,7 +700,12 @@ async function validateCharacter(
     mkdirSync(artifactDir, { recursive: true });
 
     const artifactStatus = await detectArtifactState(artifactDir);
-    const needsLiveCalls = artifactStatus.state === "NONE" || artifactStatus.state === "ERROR";
+    const hasExplicitFocus = (opts.focusDungeons?.length ?? 0) > 0;
+    // PARTIAL state needs live calls when focusDungeons is set (resume-partial mode)
+    const needsLiveCalls =
+      artifactStatus.state === "NONE" ||
+      artifactStatus.state === "ERROR" ||
+      (artifactStatus.state === "PARTIAL" && hasExplicitFocus);
 
     // Point consumption tracking
     let pointsBefore: number | null = null;
@@ -705,7 +729,6 @@ async function validateCharacter(
         ) as Array<{ classSlug?: string | null; specialization?: string | null; roleSlug?: string | null; dungeonSlug?: string }>;
         resolvedClassSlug = runs[0]?.classSlug ?? null;
         resolvedSpecSlug = runs[0]?.specialization ?? null;
-        // Majority role from per-run roleSlug field (now present after rebuild)
         const roleCounts = new Map<string, number>();
         for (const r of runs) {
           if (r.roleSlug) roleCounts.set(r.roleSlug, (roleCounts.get(r.roleSlug) ?? 0) + 1);
@@ -719,6 +742,11 @@ async function validateCharacter(
           resolvedRoleSlug = best;
           mixedRole = roleCounts.size > 1;
           roleSource = "zone_rankings";
+        }
+        // Fallback: infer role from specSlug via catalog when WCL returned null
+        if (resolvedRoleSlug === null && resolvedSpecSlug) {
+          const inferred = roleForSpec(resolvedSpecSlug);
+          if (inferred) { resolvedRoleSlug = inferred; roleSource = "inferred"; }
         }
         probeState = artifactStatus.state === "PARTIAL" ? "PARTIAL" : "OK";
         characterFound = runs.length > 0;
@@ -739,6 +767,8 @@ async function validateCharacter(
         zoneConfig: provider.getZoneConfig(),
         maxRunsPerDungeon,
         maxReportsInspectedPerDungeon: maxReportsPerDungeon,
+        maxRecentReportPages: opts.maxRecentReportPages ?? 1,
+        focusDungeons: opts.focusDungeons ?? null,
       });
 
       probeState = probeDataset.state;
@@ -767,6 +797,11 @@ async function validateCharacter(
           resolvedRoleSlug = best;
           mixedRole = roleCounts.size > 1;
           roleSource = "zone_rankings";
+        }
+        // Fallback: infer from specSlug when WCL returned null for all runs
+        if (resolvedRoleSlug === null && resolvedSpecSlug) {
+          const inferred = roleForSpec(resolvedSpecSlug);
+          if (inferred) { resolvedRoleSlug = inferred; roleSource = "inferred"; }
         }
       } catch {
         resolvedSpecSlug = probeDataset.runs[0]?.specialization ?? null;
@@ -836,6 +871,18 @@ async function validateCharacter(
     const updatedArtifactStatus = await detectArtifactState(artifactDir);
     const castStopDiag = await buildCastStopDiagnostics(artifactDir, v3Dataset);
 
+    // Load missingDungeonReasons from probe diagnostics (written by the probe to disk)
+    let missingDungeonReasons: Record<string, string> = {};
+    try {
+      const diagPath = join(artifactDir, "09-utility-per-dungeon.json");
+      if (existsSync(diagPath)) {
+        const perDungeon = JSON.parse(await readFile(diagPath, "utf8")) as {
+          global?: { coverage?: { missingDungeonReasons?: Record<string, string> } };
+        };
+        missingDungeonReasons = perDungeon.global?.coverage?.missingDungeonReasons ?? {};
+      }
+    } catch { /* best-effort */ }
+
     const missingCount = updatedArtifactStatus.missingDungeons.length;
     const { estimated: estimatedCost, reason: costReason } = estimateCharacterCost(
       missingCount,
@@ -855,6 +902,7 @@ async function validateCharacter(
       artifactState: updatedArtifactStatus.state,
       completedDungeons: updatedArtifactStatus.completedDungeons,
       missingDungeons: updatedArtifactStatus.missingDungeons,
+      missingDungeonReasons: missingDungeonReasons,
       behaviorScore: v3Dataset.global.behaviorScore,
       confidence: v3Dataset.global.confidence,
       semanticBand: v3Dataset.global.semanticBand,
@@ -1055,6 +1103,7 @@ async function main(): Promise<void> {
         artifactState: "ERROR",
         completedDungeons: [],
         missingDungeons: ACTIVE_SEASON_DUNGEONS,
+        missingDungeonReasons: {},
         behaviorScore: null,
         confidence: null,
         semanticBand: null,
@@ -1123,6 +1172,7 @@ async function main(): Promise<void> {
               mixedRole: false, roleSource: "unknown",
               state: "DEFERRED_RATE_LIMIT",
               artifactState: "NONE", completedDungeons: [], missingDungeons: ACTIVE_SEASON_DUNGEONS,
+              missingDungeonReasons: {},
               behaviorScore: null, confidence: null, semanticBand: null,
               domainScores: {}, redistributedWeights: {}, scoredVsExcludedDomains: null,
               runCount: 0, dungeonCount: 0, castStopDiagnostics: null,
@@ -1149,6 +1199,11 @@ async function main(): Promise<void> {
       measuredCostsPerDungeon.length > 0
         ? measuredCostsPerDungeon.reduce((a, b) => a + b, 0) / measuredCostsPerDungeon.length
         : null;
+    // For PARTIAL resume, pass missingDungeons as focusDungeons
+    const partialFocusDungeons =
+      args.resumePartial && artifactStatus.state === "PARTIAL"
+        ? artifactStatus.missingDungeons
+        : null;
     const result = await validateCharacter(
       entry,
       args.outputRoot,
@@ -1156,6 +1211,10 @@ async function main(): Promise<void> {
       args.maxRunsPerDungeon,
       args.maxReportsPerDungeon,
       historicalCostPerDungeon,
+      {
+        focusDungeons: partialFocusDungeons,
+        maxRecentReportPages: args.maxRecentReportPages,
+      },
     );
     results.push(result);
 

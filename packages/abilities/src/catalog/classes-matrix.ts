@@ -158,3 +158,17 @@ export function findSpecDefinition(classSlug: string, specSlug: string) {
   if (!cls) return undefined;
   return cls.specs.find((s) => s.slug === specSlug);
 }
+
+/**
+ * Infer the canonical role slug ("DPS", "HEALER", "TANK") from a spec slug alone,
+ * searching across all classes. Returns the lowercase role or null when unknown.
+ *
+ * Used as fallback when WCL's zoneRankings does not return a role field.
+ */
+export function roleForSpec(specSlug: string): string | null {
+  for (const cls of RETAIL_CLASS_MATRIX) {
+    const spec = cls.specs.find((s) => s.slug === specSlug);
+    if (spec) return spec.role.toLowerCase();
+  }
+  return null;
+}
