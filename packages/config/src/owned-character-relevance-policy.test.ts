@@ -12,13 +12,13 @@ describe("OWNED_CHARACTER_RELEVANCE_POLICY_V1", () => {
     expect(OWNED_CHARACTER_RELEVANCE_POLICY_V1.maxCharacterLevel).toBe(
       ACTIVE_EXPANSION_METADATA_V1.maxCharacterLevel,
     );
-    expect(OWNED_CHARACTER_RELEVANCE_POLICY_V1.maxCharacterLevel).toBe(80);
+    expect(OWNED_CHARACTER_RELEVANCE_POLICY_V1.maxCharacterLevel).toBe(90);
   });
 
   it("excludes non-CURRENT ownership", () => {
     const result = evaluateOwnedCharacterRelevanceV1({
       ownershipStatus: "HISTORICAL",
-      characterLevel: 80,
+      characterLevel: 90,
       currentSeasonMythicRating: 2500,
       hasValidPublicScore: false,
       hasActiveOrQueuedRefresh: false,
@@ -31,7 +31,7 @@ describe("OWNED_CHARACTER_RELEVANCE_POLICY_V1", () => {
   it("excludes non-max-level characters without rating requests implied", () => {
     const result = evaluateOwnedCharacterRelevanceV1({
       ownershipStatus: "CURRENT",
-      characterLevel: 70,
+      characterLevel: 80,
       currentSeasonMythicRating: null,
       hasValidPublicScore: false,
       hasActiveOrQueuedRefresh: false,
@@ -44,7 +44,7 @@ describe("OWNED_CHARACTER_RELEVANCE_POLICY_V1", () => {
   it("marks rating below threshold irrelevant", () => {
     const result = evaluateOwnedCharacterRelevanceV1({
       ownershipStatus: "CURRENT",
-      characterLevel: 80,
+      characterLevel: 90,
       currentSeasonMythicRating: 999,
       hasValidPublicScore: false,
       hasActiveOrQueuedRefresh: false,
@@ -57,7 +57,7 @@ describe("OWNED_CHARACTER_RELEVANCE_POLICY_V1", () => {
   it("marks rating at threshold relevant", () => {
     const result = evaluateOwnedCharacterRelevanceV1({
       ownershipStatus: "CURRENT",
-      characterLevel: 80,
+      characterLevel: 90,
       currentSeasonMythicRating: 1000,
       hasValidPublicScore: false,
       hasActiveOrQueuedRefresh: false,
@@ -70,7 +70,7 @@ describe("OWNED_CHARACTER_RELEVANCE_POLICY_V1", () => {
   it("keeps explicit primary relevant", () => {
     const result = evaluateOwnedCharacterRelevanceV1({
       ownershipStatus: "CURRENT",
-      characterLevel: 80,
+      characterLevel: 90,
       currentSeasonMythicRating: 0,
       hasValidPublicScore: false,
       hasActiveOrQueuedRefresh: false,
@@ -83,7 +83,7 @@ describe("OWNED_CHARACTER_RELEVANCE_POLICY_V1", () => {
   it("keeps characters with a public score relevant", () => {
     const result = evaluateOwnedCharacterRelevanceV1({
       ownershipStatus: "CURRENT",
-      characterLevel: 80,
+      characterLevel: 90,
       currentSeasonMythicRating: 100,
       hasValidPublicScore: true,
       hasActiveOrQueuedRefresh: false,
@@ -96,7 +96,7 @@ describe("OWNED_CHARACTER_RELEVANCE_POLICY_V1", () => {
   it("keeps queued/active refresh relevant", () => {
     const result = evaluateOwnedCharacterRelevanceV1({
       ownershipStatus: "CURRENT",
-      characterLevel: 80,
+      characterLevel: 90,
       currentSeasonMythicRating: 100,
       hasValidPublicScore: false,
       hasActiveOrQueuedRefresh: true,
@@ -109,7 +109,7 @@ describe("OWNED_CHARACTER_RELEVANCE_POLICY_V1", () => {
   it("returns policy version in diagnostics", () => {
     const result = evaluateOwnedCharacterRelevanceV1({
       ownershipStatus: "CURRENT",
-      characterLevel: 80,
+      characterLevel: 90,
       currentSeasonMythicRating: 1500,
       hasValidPublicScore: false,
       hasActiveOrQueuedRefresh: false,

@@ -47,7 +47,7 @@ function mockOAuth(): BattleNetOAuthClient {
               id: 555001,
               name: "Ownedone",
               realm: { slug: "tarren-mill", name: "Tarren Mill" },
-              level: 80,
+              level: 90,
               playable_class: { id: 8 },
               faction: { type: "HORDE" },
             },
@@ -195,7 +195,7 @@ describe.skipIf(!dbAvailable)("IAM auth routes", () => {
     );
     expect(ownedBody.characters[0]).toMatchObject({
       name: "Ownedone",
-      level: 80,
+      level: 90,
       characterClass: expect.objectContaining({ slug: "mage" }),
     });
     expect(JSON.stringify(ownedBody)).not.toContain("access-token");

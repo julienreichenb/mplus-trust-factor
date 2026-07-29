@@ -12,7 +12,7 @@ describe("runDiscoverOwnedCharacters", () => {
       {
         id: "o-low",
         status: "CURRENT",
-        characterLevel: 10,
+        characterLevel: 80,
         characterName: "Lowbie",
         realmSlug: "tarren-mill",
         playableClassId: 1,
@@ -35,6 +35,24 @@ describe("runDiscoverOwnedCharacters", () => {
         realmSlug: "tarren-mill",
         playableClassId: 8,
         blizzardCharacterId: 2n,
+        isPrimary: false,
+        characterId: null,
+        relevanceReasons: null,
+        relevanceEligible: null,
+        currentSeasonMythicRating: null,
+        currentSeasonMythicFetchedAt: null,
+        currentSeasonMythicSource: null,
+        currentSeasonMythicSeasonId: null,
+        region: { code: "EU" },
+      },
+      {
+        id: "o-89",
+        status: "CURRENT",
+        characterLevel: 89,
+        characterName: "Almost",
+        realmSlug: "tarren-mill",
+        playableClassId: 3,
+        blizzardCharacterId: 3n,
         isPrimary: false,
         characterId: null,
         relevanceReasons: null,
@@ -115,11 +133,16 @@ describe("runDiscoverOwnedCharacters", () => {
     );
 
     expect(getMythicKeystoneProfile).toHaveBeenCalledTimes(1);
+    expect(getMythicKeystoneProfile).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "Main" }),
+      expect.anything(),
+    );
     expect(discoverWcl).not.toHaveBeenCalled();
+    expect(result.counters.ownershipCount).toBe(3);
     expect(result.counters.maxLevelCount).toBe(1);
     expect(result.counters.ratingCheckedCount).toBe(1);
     expect(result.counters.relevantCount).toBe(1);
-    expect(result.counters.irrelevantCount).toBe(1);
+    expect(result.counters.irrelevantCount).toBe(2);
     expect(result.counters.refreshQueuedCount).toBe(1);
     expect(upsertCharacter).toHaveBeenCalled();
     expect(enqueueRefreshCharacter).toHaveBeenCalledWith(
@@ -131,6 +154,9 @@ describe("runDiscoverOwnedCharacters", () => {
 
     const lowUpdate = updates.find((u) => u.id === "o-low");
     expect(lowUpdate?.data.relevanceEligible).toBe(false);
+
+    const almostUpdate = updates.find((u) => u.id === "o-89");
+    expect(almostUpdate?.data.relevanceEligible).toBe(false);
 
     const maxEligible = updates.find((u) => u.id === "o-max" && u.data.relevanceEligible === true);
     expect(maxEligible?.data.relevancePolicyVersion).toBe("v1");
@@ -147,7 +173,7 @@ describe("runDiscoverOwnedCharacters", () => {
       {
         id: "o-scored",
         status: "CURRENT",
-        characterLevel: 80,
+        characterLevel: 90,
         characterName: "Scored",
         realmSlug: "tarren-mill",
         playableClassId: 8,
@@ -230,7 +256,7 @@ describe("runDiscoverOwnedCharacters", () => {
     const ownerships = ["Failing", "Ok"].map((name, i) => ({
       id: `o-${i}`,
       status: "CURRENT",
-      characterLevel: 80,
+      characterLevel: 90,
       characterName: name,
       realmSlug: "tarren-mill",
       playableClassId: 8,

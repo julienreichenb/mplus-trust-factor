@@ -61,7 +61,7 @@ describe("AccountPage", () => {
                 realmSlug: "tarren-mill",
                 realmName: "Tarren Mill",
                 name: "Mainalt",
-                level: 80,
+                level: 90,
                 isPrimary: false,
                 characterClass: { id: 8, slug: "mage", name: "Mage", color: "#3FC7EB" },
                 media: { portraitUrl: null },
