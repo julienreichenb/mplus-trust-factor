@@ -2,7 +2,7 @@
 
 **Branch:** `agent/wave4.3-battlenet-iam`  
 **Implementation commit:** `e200756`  
-**Corrective commit:** `02598d8`  
+**Corrective commit:** `b17791b`  
 
 ## Bootstrap (you = first admin)
 
