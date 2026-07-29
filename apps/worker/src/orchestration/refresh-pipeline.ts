@@ -31,7 +31,10 @@ import {
 import { buildCatalogCoverageDiagnostics, getAbilityCatalog } from "@mplus/abilities";
 import {
   applyRunMetadataToSelection,
-  buildCharacterHistoryExperienceObservations,
+  buildExperienceV2Observations,
+  mergePriorSeasonCount,
+  resolveExperienceProvenance,
+  resolvePriorSeasonSourceDepth,
   readBlizzardSeasonDungeonSlugsFromMetadata,
   resolveActiveSeasonDungeonPool,
   selectScoringRuns,
@@ -66,6 +69,13 @@ import {
   type SurvivalRunAnalysisRow,
 } from "./wcl-survival-metrics.js";
 import { buildWclSurvivalObservations } from "./wcl-survival-metrics.js";
+import { createDurableSharedEvidenceStore } from "./shared-evidence-store.js";
+import { analyzeSurvivalViaSharedEvidence } from "./live-shared-evidence-survival.js";
+import {
+  RefreshCostAccumulator,
+  buildSharedEvidenceCostRecords,
+  recordRefreshCostEntries,
+} from "./refresh-cost-recorder.js";
 import { recordProviderResult } from "./provider-recording.js";
 import type { WclDungeonPerformanceAggregateDTO } from "@mplus/contracts";
 import {
@@ -110,10 +120,30 @@ export interface RefreshPipelineResult {
   notFound: boolean;
   disagreements: SourceDisagreementDTO[];
   excludedObservations: ExcludedObservationDTO[];
+  /** Detailed WCL ReportEvents calls via shared evidence (0 on reused second refresh). */
+  sharedEvidenceDetailedEventCalls?: number;
 }
 
 function toIdentity(job: RefreshCharacterJob): CharacterIdentityInput {
   return { region: job.region, realmSlug: job.realmSlug, name: job.name };
+}
+
+const SUPPORTED_BATTLE_NET_REGIONS = ["EU", "US", "KR", "TW"] as const;
+type SupportedBattleNetRegion = (typeof SUPPORTED_BATTLE_NET_REGIONS)[number];
+
+function isSupportedBattleNetRegion(value: string): value is SupportedBattleNetRegion {
+  return value === "EU" || value === "US" || value === "KR" || value === "TW";
+}
+
+/** Normalize then reject regions outside the Blizzard/WCL typed region union. */
+function requireSupportedBattleNetRegion(region: string): SupportedBattleNetRegion {
+  const normalized = normalizeRegion(region);
+  if (!isSupportedBattleNetRegion(normalized)) {
+    throw new Error(
+      `Unsupported character region "${region}" (normalized: "${normalized}"); expected one of ${SUPPORTED_BATTLE_NET_REGIONS.join(", ")}`,
+    );
+  }
+  return normalized;
 }
 
 function isFixtureDisabledIdentity(identity: CharacterIdentityInput): boolean {
@@ -305,6 +335,8 @@ export async function runRefreshPipeline(
   const disagreements: SourceDisagreementDTO[] = [];
   const excludedObservations: ExcludedObservationDTO[] = [];
   const fusionWarnings: string[] = [];
+  const refreshCostAccumulator = new RefreshCostAccumulator();
+  let sharedEvidenceDetailedEventCalls = 0;
   const identityFingerprint = fingerprintIdentifier(
     `${identity.region}:${identity.realmSlug}:${identity.name}`.toLocaleLowerCase("en-US"),
   );
@@ -1360,7 +1392,10 @@ export async function runRefreshPipeline(
           maxHpFailureReason: string | null;
         };
       }>;
+      getGraphQlClient?: () => import("@mplus/provider-warcraftlogs").WclGraphQlClient;
     };
+    const wclGraphClient =
+      typeof liveWcl.getGraphQlClient === "function" ? liveWcl.getGraphQlClient() : null;
 
     for (const dungeonSlug of [...survivalCandidatesByDungeon.keys()].sort((a, b) =>
       a.localeCompare(b),
@@ -1498,7 +1533,7 @@ export async function runRefreshPipeline(
           continue;
         }
 
-        if (typeof liveWcl.analyzeSurvivalCanonicalRun !== "function") {
+        if (typeof liveWcl.analyzeSurvivalCanonicalRun !== "function" && !wclGraphClient) {
           survivalCost.rejectedCandidates.push({
             reason: "survival_canonical_analyze_unsupported",
             runId: run.id,
@@ -1512,45 +1547,180 @@ export async function runRefreshPipeline(
           const meta = fightMetaByRunId.get(run.id);
           const fightStart = meta?.startTime ?? 0;
           const fightEnd = meta?.endTime ?? fightStart + run.durationMs;
-          const canonicalResult = await liveWcl.analyzeSurvivalCanonicalRun(
-            {
-              identity,
-              characterId: character.id,
-              reportCode: source.reportCode,
-              fightId: source.fightId,
-              reportRevision: facts.revision,
-              dungeonSlug: canonicalDungeonKey(run.dungeon.slug),
-              keyLevel: run.keyLevel,
-              playerActorId: facts.targetSourceId,
-              ownedPetActorIds: facts.attributedSourceIds.filter(
-                (id) => id !== facts.targetSourceId,
-              ),
-              fightStartTime: fightStart,
-              fightEndTime: fightEnd,
-              encounterId: meta?.encounterId ?? null,
-              encounterName: meta?.encounterName ?? null,
-              catalog: survivalCatalog,
-              classSlug: earlyClassSlug,
-              specSlug: earlySpecSlug,
-              timed: run.timed,
-              completed: true,
-              score: run.scoreValue,
-            },
-            ctx,
-          );
-          survivalCost.wclHttpRequestCount += canonicalResult.data.requestCount;
-          survivalCost.graphqlOperationCount += canonicalResult.data.requestCount;
-          const payloadId = await recordProviderResult(repositories, canonicalResult as never);
-          const summary = canonicalResult.data.summary;
+          const sharedStore = createDurableSharedEvidenceStore({
+            runRepository: repositories.run,
+            characterId: character.id,
+            runId: run.id,
+            now,
+          });
+
+          let summary: SurvivalRunAnalysisRow["summary"];
+          let requestCount = 0;
+          let maxHpFailureReason: string | null = null;
+          let payloadId: string | null = null;
+
+          // Preferred path: one shared evidence ingest for Survival (+ Utility datasets for later).
+          // Second compatible refresh reuses RunAnalysis datasets → zero detailed event calls.
+          const preferSharedEvidence = wclGraphClient != null || !jobPayload.forceRefresh;
+          if (preferSharedEvidence) {
+            try {
+              const supportedRegion = requireSupportedBattleNetRegion(identity.region);
+              const sharedIdentity = {
+                region: supportedRegion,
+                realmSlug: identity.realmSlug,
+                name: identity.name,
+              };
+              const sharedResult = await analyzeSurvivalViaSharedEvidence({
+                client: wclGraphClient,
+                store: sharedStore,
+                identity: sharedIdentity,
+                characterId: character.id,
+                reportCode: source.reportCode,
+                fightId: source.fightId,
+                reportRevision:
+                  typeof facts.revision === "number"
+                    ? facts.revision
+                    : Number(facts.revision) || null,
+                dungeonSlug: canonicalDungeonKey(run.dungeon.slug),
+                keyLevel: run.keyLevel,
+                playerActorId: facts.targetSourceId,
+                ownedPetActorIds: facts.attributedSourceIds.filter(
+                  (id) => id !== facts.targetSourceId,
+                ),
+                fightStartTime: fightStart,
+                fightEndTime: fightEnd,
+                encounterId: meta?.encounterId ?? null,
+                encounterName: meta?.encounterName ?? null,
+                catalog: survivalCatalog,
+                classSlug: earlyClassSlug,
+                specSlug: earlySpecSlug,
+                timed: run.timed,
+                completed: true,
+                score: run.scoreValue,
+                forceRefetch: jobPayload.forceRefresh === true,
+                includeUtilityDatasets: true,
+                region: supportedRegion,
+              });
+              summary = sharedResult.summary;
+              requestCount = sharedResult.detailedWclEventCalls;
+              maxHpFailureReason = sharedResult.maxHpFailureReason;
+              sharedEvidenceDetailedEventCalls += sharedResult.detailedWclEventCalls;
+              refreshCostAccumulator.addMany(
+                buildSharedEvidenceCostRecords({
+                  characterId: character.id,
+                  jobId: job.id,
+                  runId: run.id,
+                  refreshReason: jobPayload.forceRefresh
+                    ? "admin_provider_refetch"
+                    : "scheduled_refresh",
+                  reportCode: source.reportCode,
+                  fightId: source.fightId,
+                  providerCalls: sharedResult.bundle.accounting.providerCalls,
+                  pages: sharedResult.bundle.accounting.pages,
+                  pointsConsumed: sharedResult.bundle.accounting.pointsConsumed,
+                  estimatedPointsConsumed:
+                    sharedResult.bundle.accounting.estimatedPointsConsumed,
+                  costSource: sharedResult.bundle.accounting.costSource,
+                  cacheHits: sharedResult.bundle.accounting.cacheHits,
+                  persistedHits: sharedResult.bundle.accounting.persistedHits,
+                }),
+              );
+            } catch (sharedError) {
+              // Fall back to legacy canonical path when GraphQL client exists but shared ingest fails.
+              if (typeof liveWcl.analyzeSurvivalCanonicalRun !== "function") {
+                throw sharedError;
+              }
+              logger.warn(
+                {
+                  ...logBase,
+                  event: "shared_evidence_fallback",
+                  runId: run.id,
+                  err: sharedError,
+                },
+                "shared_evidence_fallback",
+              );
+              const canonicalResult = await liveWcl.analyzeSurvivalCanonicalRun(
+                {
+                  identity,
+                  characterId: character.id,
+                  reportCode: source.reportCode,
+                  fightId: source.fightId,
+                  reportRevision: facts.revision,
+                  dungeonSlug: canonicalDungeonKey(run.dungeon.slug),
+                  keyLevel: run.keyLevel,
+                  playerActorId: facts.targetSourceId,
+                  ownedPetActorIds: facts.attributedSourceIds.filter(
+                    (id) => id !== facts.targetSourceId,
+                  ),
+                  fightStartTime: fightStart,
+                  fightEndTime: fightEnd,
+                  encounterId: meta?.encounterId ?? null,
+                  encounterName: meta?.encounterName ?? null,
+                  catalog: survivalCatalog,
+                  classSlug: earlyClassSlug,
+                  specSlug: earlySpecSlug,
+                  timed: run.timed,
+                  completed: true,
+                  score: run.scoreValue,
+                },
+                ctx,
+              );
+              summary = canonicalResult.data.summary;
+              requestCount = canonicalResult.data.requestCount;
+              maxHpFailureReason = canonicalResult.data.maxHpFailureReason;
+              payloadId = await recordProviderResult(repositories, canonicalResult as never);
+            }
+          } else if (typeof liveWcl.analyzeSurvivalCanonicalRun === "function") {
+            const canonicalResult = await liveWcl.analyzeSurvivalCanonicalRun(
+              {
+                identity,
+                characterId: character.id,
+                reportCode: source.reportCode,
+                fightId: source.fightId,
+                reportRevision: facts.revision,
+                dungeonSlug: canonicalDungeonKey(run.dungeon.slug),
+                keyLevel: run.keyLevel,
+                playerActorId: facts.targetSourceId,
+                ownedPetActorIds: facts.attributedSourceIds.filter(
+                  (id) => id !== facts.targetSourceId,
+                ),
+                fightStartTime: fightStart,
+                fightEndTime: fightEnd,
+                encounterId: meta?.encounterId ?? null,
+                encounterName: meta?.encounterName ?? null,
+                catalog: survivalCatalog,
+                classSlug: earlyClassSlug,
+                specSlug: earlySpecSlug,
+                timed: run.timed,
+                completed: true,
+                score: run.scoreValue,
+              },
+              ctx,
+            );
+            summary = canonicalResult.data.summary;
+            requestCount = canonicalResult.data.requestCount;
+            maxHpFailureReason = canonicalResult.data.maxHpFailureReason;
+            payloadId = await recordProviderResult(repositories, canonicalResult as never);
+          } else {
+            survivalCost.rejectedCandidates.push({
+              reason: "survival_canonical_analyze_unsupported",
+              runId: run.id,
+              dungeonSlug,
+            });
+            survivalRequiredFailed = true;
+            continue;
+          }
+
+          survivalCost.wclHttpRequestCount += requestCount;
+          survivalCost.graphqlOperationCount += requestCount;
           if (
             summary.maxHpResolution.baselineMaxHp == null &&
-            canonicalResult.data.maxHpFailureReason
+            maxHpFailureReason
           ) {
             summary.maxHpResolution = {
               ...summary.maxHpResolution,
               resolutionFailureReason:
-                summary.maxHpResolution.resolutionFailureReason ??
-                canonicalResult.data.maxHpFailureReason,
+                summary.maxHpResolution.resolutionFailureReason ?? maxHpFailureReason,
             };
           }
           await repositories.run.upsertRunAnalysis({
@@ -1910,24 +2080,83 @@ export async function runRefreshPipeline(
         })
       : null;
 
-  // EXPERIENCE from CHARACTER_HISTORY only — independent of WCL detailed analysis.
-  observations.push(
-    ...buildCharacterHistoryExperienceObservations({
-      observedAt,
-      expectedDungeonCount,
-      selectedRuns: scoringRunSelection.selectedRuns.map((r) => ({
-        dungeonSlug: r.dungeonSlug,
-        keyLevel: r.keyLevel,
-        timed: r.timed,
-        completedAt: r.completedAt,
-        scoreValue: r.raiderIoScore ?? null,
-      })),
-      mythicRatingObservation: mythicRatingObs,
-      priorSeasonCount: raiderIoProfile?.previousSeason ? 1 : 0,
-      roleContinuity: character.role ? 1 : null,
-      sourceProvider: "character_history",
+  // EXPERIENCE V2 from CHARACTER_HISTORY only — durable run/season metadata, no WCL combat events.
+  const blizzardOk = !stagesSkipped.includes("refresh-blizzard");
+  const raiderIoOk = !stagesSkipped.includes("refresh-raiderio");
+  const rioPriorSeasonCount = raiderIoProfile?.previousSeason ? 1 : 0;
+  // Durable local prior seasons (snapshots / runs outside the active season).
+  const [localPriorFromSnapshots, localPriorFromRuns] = await Promise.all([
+    container.prisma.scoreSnapshot.findMany({
+      where: { characterId: character.id, seasonId: { not: season.id } },
+      distinct: ["seasonId"],
+      select: { seasonId: true },
     }),
-  );
+    container.prisma.mythicRun.findMany({
+      where: {
+        seasonId: { not: season.id },
+        participants: { some: { characterId: character.id, isTargetCharacter: true } },
+      },
+      distinct: ["seasonId"],
+      select: { seasonId: true },
+    }),
+  ]);
+  const localPriorSeasonCount = new Set([
+    ...localPriorFromSnapshots.map((r) => r.seasonId),
+    ...localPriorFromRuns.map((r) => r.seasonId),
+  ]).size;
+  const priorSeasonCount = mergePriorSeasonCount(rioPriorSeasonCount, localPriorSeasonCount);
+  const priorSeasonSourceDepth = resolvePriorSeasonSourceDepth({
+    rioPriorSeasonCount,
+    localPriorSeasonCount,
+  });
+  const seasonPoolRuns = scoringCandidates.map((r) => ({
+    dungeonSlug: r.dungeonSlug,
+    keyLevel: r.keyLevel,
+    completedAt: r.completedAt,
+  }));
+  const selectedExperienceRuns = scoringRunSelection.selectedRuns.map((r) => ({
+    dungeonSlug: r.dungeonSlug,
+    keyLevel: r.keyLevel,
+    completedAt: r.completedAt,
+  }));
+  const hasExperienceHistorySignal =
+    selectedExperienceRuns.length > 0 ||
+    seasonPoolRuns.length > 0 ||
+    priorSeasonCount > 0;
+  const experienceProvenance = resolveExperienceProvenance({
+    blizzardOk,
+    raiderIoOk,
+    hasAnyHistorySignal: hasExperienceHistorySignal,
+  });
+
+  const experienceObservations =
+    experienceProvenance === "PROVIDER_FAILURE"
+      ? []
+      : buildExperienceV2Observations({
+          observedAt,
+          expectedDungeonCount,
+          selectedRuns: selectedExperienceRuns,
+          seasonRuns: seasonPoolRuns,
+          priorSeasonCount,
+          priorSeasonSourceDepth,
+          provenance: experienceProvenance,
+          sourceProvider: "character_history",
+        });
+  observations.push(...experienceObservations);
+  // Legacy rating kept as non-scoring explanatory observation (not in model v5 Experience weights).
+  if (mythicRatingObs) {
+    observations.push({
+      ...mythicRatingObs,
+      context: {
+        ...(mythicRatingObs.context && typeof mythicRatingObs.context === "object"
+          ? (mythicRatingObs.context as Record<string, unknown>)
+          : {}),
+        retiredFromExperienceV2: true,
+        scoringWeight: 0,
+        independentOfWclDetails: true,
+      },
+    });
+  }
 
   const authenticityFeatures = boostFacts ? mapBoostFactsToAuthenticity(boostFacts) : undefined;
   // Coverage is actual combat-facts analysis over selected runs — never invent 1.0 or treat
@@ -1986,6 +2215,15 @@ export async function runRefreshPipeline(
     failedDimensions.add("SURVIVAL");
   } else {
     for (const obs of wclSurvival.observations) {
+      refreshedMetricKeys.add(obs.metricKey);
+    }
+  }
+
+  if (experienceProvenance === "PROVIDER_FAILURE") {
+    // Preserve last-known-good Experience — do not convert a valid score into UNAVAILABLE.
+    failedDimensions.add("EXPERIENCE");
+  } else {
+    for (const obs of experienceObservations) {
       refreshedMetricKeys.add(obs.metricKey);
     }
   }
@@ -2143,6 +2381,7 @@ export async function runRefreshPipeline(
           rawZoneRankingsPointsAndDamage: wclPerformanceRecord?.raw ?? null,
           abilityCatalog: catalogDiagnostics,
           historyMode: "CHARACTER_HISTORY",
+          experienceModel: "v2",
           refreshContract,
           refreshContractHash: hashRefreshContract(refreshContract),
         }
@@ -2261,6 +2500,18 @@ export async function runRefreshPipeline(
     lastSeenAt: now,
     ...(publication.published ? { lastPublicRefreshAt: now } : {}),
   });
+
+  try {
+    if (refreshCostAccumulator.records.length > 0) {
+      await recordRefreshCostEntries(container.prisma, refreshCostAccumulator.records);
+    }
+  } catch (costErr) {
+    logger.warn(
+      { ...logBase, event: "refresh_cost_ledger_write_failed", err: costErr },
+      "refresh_cost_ledger_write_failed",
+    );
+  }
+
   job = await repositories.job.markCompleted(job.id);
   terminalized = true;
   logger.info(
@@ -2271,6 +2522,7 @@ export async function runRefreshPipeline(
       status: "COMPLETED",
       stagesSkipped,
       publicationRejected: !publication.published,
+      sharedEvidenceDetailedEventCalls,
     },
     OBS_EVENTS.refreshTerminal,
   );
@@ -2287,6 +2539,7 @@ export async function runRefreshPipeline(
     notFound: false,
     disagreements,
     excludedObservations,
+    sharedEvidenceDetailedEventCalls,
   };
   } catch (error) {
     await ensureFailed(error);

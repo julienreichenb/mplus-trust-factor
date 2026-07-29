@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
-  buildCharacterHistoryExperienceObservations,
+  buildExperienceV2Observations,
   calculateScore,
-  createDefaultModelV3,
+  createDefaultModelV5,
   presentDimensionScore,
 } from "./index.js";
 import type { DimensionScoreResult } from "./types.js";
@@ -53,40 +53,30 @@ describe("presentDimensionScore", () => {
 
 describe("Experience CHARACTER_HISTORY independence", () => {
   it("computes Experience without WCL details and without alt inference", () => {
-    const observations = buildCharacterHistoryExperienceObservations({
+    const observations = buildExperienceV2Observations({
       observedAt: "2026-07-28T12:00:00.000Z",
       expectedDungeonCount: 8,
       selectedRuns: Array.from({ length: 8 }, (_, i) => ({
         dungeonSlug: `dungeon-${i + 1}`,
         keyLevel: 10 + (i % 3),
-        timed: true,
         completedAt: "2026-07-20T12:00:00.000Z",
       })),
-      mythicRatingObservation: {
-        metricKey: "experience.mythic_rating",
-        dimension: "EXPERIENCE",
-        rawValue: 2800,
-        normalizedValue: 78,
-        confidence: 0.75,
-        observedAt: "2026-07-28T12:00:00.000Z",
-        sourceProvider: "blizzard",
-        coverage: null,
-        context: { notAParsePercentile: true },
-      },
       priorSeasonCount: 1,
-      roleContinuity: 1,
+      provenance: "HAS_HISTORY",
     });
 
     expect(observations.some((o) => o.metricKey === "experience.dungeon_breadth")).toBe(true);
-    expect(observations.every((o) => (o.context as { independentOfWclDetails?: boolean }).independentOfWclDetails !== false)).toBe(
-      true,
-    );
+    expect(
+      observations.every(
+        (o) => (o.context as { independentOfWclDetails?: boolean }).independentOfWclDetails !== false,
+      ),
+    ).toBe(true);
     expect(JSON.stringify(observations)).not.toContain("alt");
 
     const snapshot = calculateScore({
       characterId: "11111111-1111-1111-1111-111111111111",
       seasonSlug: "season-test",
-      model: createDefaultModelV3(),
+      model: createDefaultModelV5(),
       scopeType: "CHARACTER",
       scopeKey: null,
       observations,
@@ -107,8 +97,9 @@ describe("Experience CHARACTER_HISTORY independence", () => {
     expect(survival.score).toBeNull();
     expect(utility.score).toBeNull();
 
-    expect(snapshot.modelVersion).toBe(3);
-    expect(createDefaultModelV3().weights.mythicRaid).toBe(0);
-    expect(createDefaultModelV3().weights.performance).toBe(0.35);
+    expect(snapshot.modelVersion).toBe(5);
+    expect(createDefaultModelV5().weights.mythicRaid).toBe(0);
+    expect(createDefaultModelV5().weights.performance).toBe(0.35);
+    expect(createDefaultModelV5().weights.experienceConsistency).toBe(0.1);
   });
 });

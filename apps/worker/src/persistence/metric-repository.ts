@@ -8,16 +8,16 @@ export async function ensureMetricDefinition(
   metricKey: string,
   dimension: MetricObservationDTO["dimension"],
 ): Promise<MetricDefinition> {
-  const existing = await client.metricDefinition.findUnique({ where: { key: metricKey } });
-  if (existing) return existing;
-  return client.metricDefinition.create({
-    data: {
+  return client.metricDefinition.upsert({
+    where: { key: metricKey },
+    create: {
       key: metricKey,
       dimension,
       valueType: "number",
       direction: "HIGHER_BETTER",
       description: `Auto-created metric definition for ${metricKey}`,
     },
+    update: {},
   });
 }
 

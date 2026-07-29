@@ -140,7 +140,7 @@ export function collectCanonicalHealthSnapshots(input: {
   return { snapshots, snapshotSourceCounts };
 }
 
-function diagnoseMaxHpFailure(input: {
+export function diagnoseMaxHpFailure(input: {
   snapshots: ExplicitHealthSnapshot[];
   damage: SurvivalRawEventDataset;
   snapshotSourceCounts: Record<string, number>;
