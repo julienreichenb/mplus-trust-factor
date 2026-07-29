@@ -45,4 +45,17 @@ export const SHARED_RACIAL_RULES: AbilityRule[] = [
     supportCertainty: "uncertain",
     notes: "Gnome racial root/snare break — optional scoring input.",
   }),
+  rule({
+    canonicalKey: "shared.racial.shadowmeld",
+    name: "Shadowmeld",
+    spellIds: [58984],
+    classSlug: null,
+    roles: ALL_ROLES,
+    category: "DEFENSIVE_MINOR",
+    availability: "SHARED",
+    sharedAcrossSpecs: true,
+    cooldownSeconds: 120,
+    supportCertainty: "uncertain",
+    notes: "Night Elf racial — Utility V2 mechanic-avoidance domain when enabled.",
+  }),
 ];
