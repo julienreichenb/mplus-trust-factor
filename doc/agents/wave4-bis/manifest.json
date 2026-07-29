@@ -1,0 +1,23 @@
+{
+  "package": "M+ Trust Factor Wave 4.3 Agent Pack",
+  "generated_at": "2026-07-29T17:00:00+02:00",
+  "workstreams": [
+    "Experience dimension rework",
+    "Battle.net OAuth and IAM",
+    "Automatic refresh orchestration",
+    "CI/CD and VPS deployment foundation"
+  ],
+  "baseline_commits": {
+    "persistence_hardening": [
+      "c3cafbd",
+      "c47c339"
+    ],
+    "utility_context": [
+      "2587b14",
+      "d83b39b",
+      "89d0986",
+      "4c7dd4a"
+    ]
+  },
+  "utility_production_ready": false
+}
