@@ -3,8 +3,70 @@
  * Callers remain responsible for dry-run / scheduler enabled gates.
  */
 
-import type { PrismaClient } from "@mplus/database";
+import type { Prisma, PrismaClient } from "@mplus/database";
 import type { SchedulerCheckpoint, SchedulerPlanResult } from "../orchestration/refresh-scheduler.js";
+import { toInputJsonValue } from "./prisma-json.js";
+
+function schedulerCheckpointToJson(checkpoint: SchedulerCheckpoint): Prisma.InputJsonValue {
+  // Field-by-field copy keeps the payload InputJsonValue-compatible without casts.
+  return {
+    cursor: checkpoint.cursor,
+    processedCount: checkpoint.processedCount,
+    enqueuedCount: checkpoint.enqueuedCount,
+    deferredCount: checkpoint.deferredCount,
+    skippedCount: checkpoint.skippedCount,
+    plannedWclPoints: checkpoint.plannedWclPoints,
+    consumedWclPoints: checkpoint.consumedWclPoints,
+    lastCharacterId: checkpoint.lastCharacterId,
+  };
+}
+
+function readFiniteNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+/**
+ * Validate and reconstruct SchedulerCheckpoint from a Prisma JSON column.
+ * Returns null when the stored shape is incomplete or invalid.
+ */
+export function parseSchedulerCheckpoint(value: unknown): SchedulerCheckpoint | null {
+  if (value === null || value === undefined || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  const row = value as Record<string, unknown>;
+  const cursor = readFiniteNumber(row.cursor);
+  const processedCount = readFiniteNumber(row.processedCount);
+  const enqueuedCount = readFiniteNumber(row.enqueuedCount);
+  const deferredCount = readFiniteNumber(row.deferredCount);
+  const skippedCount = readFiniteNumber(row.skippedCount);
+  const plannedWclPoints = readFiniteNumber(row.plannedWclPoints);
+  const consumedWclPoints = readFiniteNumber(row.consumedWclPoints);
+  if (
+    cursor === null ||
+    processedCount === null ||
+    enqueuedCount === null ||
+    deferredCount === null ||
+    skippedCount === null ||
+    plannedWclPoints === null ||
+    consumedWclPoints === null
+  ) {
+    return null;
+  }
+  const lastCharacterId = row.lastCharacterId;
+  if (lastCharacterId !== null && typeof lastCharacterId !== "string") {
+    return null;
+  }
+  return {
+    cursor,
+    processedCount,
+    enqueuedCount,
+    deferredCount,
+    skippedCount,
+    plannedWclPoints,
+    consumedWclPoints,
+    lastCharacterId,
+  };
+}
 
 export async function createScheduleRunFromPlan(
   prisma: PrismaClient,
@@ -16,12 +78,12 @@ export async function createScheduleRunFromPlan(
       status: plan.dryRun ? "COMPLETED" : "PLANNING",
       strategy: plan.strategy,
       dryRun: plan.dryRun,
-      configSnapshot: {
+      configSnapshot: toInputJsonValue({
         estimatedCompletionHours: plan.estimatedCompletionHours,
         cadenceRecommendation: plan.cadenceRecommendation,
         notes: plan.notes,
-      },
-      checkpoint: plan.checkpoint,
+      }),
+      checkpoint: schedulerCheckpointToJson(plan.checkpoint),
       denominatorKey: plan.denominator?.key ?? null,
       denominatorCount: plan.denominator?.count ?? null,
       plannedJobCount: plan.items.filter((i) => i.status === "PLANNED").length,
@@ -29,8 +91,8 @@ export async function createScheduleRunFromPlan(
       skippedCount: plan.items.filter((i) => i.status.startsWith("SKIPPED_")).length,
       deferredCount: plan.items.filter((i) => i.status === "DEFERRED_RATE_LIMIT").length,
       estimatedWclPoints: plan.estimatedWclPoints,
-      regionDistribution: plan.regionDistribution,
-      specDistribution: plan.specDistribution,
+      regionDistribution: toInputJsonValue(plan.regionDistribution),
+      specDistribution: toInputJsonValue(plan.specDistribution),
       notes: plan.notes,
       completedAt: plan.dryRun ? new Date() : null,
       items: {
@@ -62,7 +124,7 @@ export async function saveScheduleCheckpoint(
   await prisma.refreshScheduleRun.update({
     where: { id: scheduleRunId },
     data: {
-      checkpoint,
+      checkpoint: schedulerCheckpointToJson(checkpoint),
       ...(status ? { status } : {}),
       deferredCount: checkpoint.deferredCount,
       selectedCount: checkpoint.enqueuedCount,
@@ -82,6 +144,6 @@ export async function loadScheduleCheckpoint(
     where: { id: scheduleRunId },
     select: { checkpoint: true },
   });
-  if (!run?.checkpoint || typeof run.checkpoint !== "object") return null;
-  return run.checkpoint as SchedulerCheckpoint;
+  if (run?.checkpoint == null) return null;
+  return parseSchedulerCheckpoint(run.checkpoint);
 }

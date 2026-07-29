@@ -3,6 +3,7 @@
  * Unknown measured cost stays null — never coerced to zero.
  */
 import type { PrismaClient, Provider, RefreshCostSource } from "@mplus/database";
+import { toInputJsonValue } from "../persistence/prisma-json.js";
 import type { RefreshCostRecord, CostSource } from "./refresh-cost-ledger.js";
 import { toPrismaCostSource } from "./refresh-cost-ledger.js";
 
@@ -55,7 +56,7 @@ export async function recordRefreshCostEntries(
         costSource: toPrismaCostSource(r.costSource) as RefreshCostSource,
         modelOnly: r.modelOnly,
         providerRefetch: r.providerRefetch,
-        metadata: r.metadata ?? {},
+        metadata: toInputJsonValue(r.metadata ?? {}),
         recordedAt: r.recordedAt ?? new Date(),
       },
     });

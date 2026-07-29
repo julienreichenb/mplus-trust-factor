@@ -128,6 +128,24 @@ function toIdentity(job: RefreshCharacterJob): CharacterIdentityInput {
   return { region: job.region, realmSlug: job.realmSlug, name: job.name };
 }
 
+const SUPPORTED_BATTLE_NET_REGIONS = ["EU", "US", "KR", "TW"] as const;
+type SupportedBattleNetRegion = (typeof SUPPORTED_BATTLE_NET_REGIONS)[number];
+
+function isSupportedBattleNetRegion(value: string): value is SupportedBattleNetRegion {
+  return value === "EU" || value === "US" || value === "KR" || value === "TW";
+}
+
+/** Normalize then reject regions outside the Blizzard/WCL typed region union. */
+function requireSupportedBattleNetRegion(region: string): SupportedBattleNetRegion {
+  const normalized = normalizeRegion(region);
+  if (!isSupportedBattleNetRegion(normalized)) {
+    throw new Error(
+      `Unsupported character region "${region}" (normalized: "${normalized}"); expected one of ${SUPPORTED_BATTLE_NET_REGIONS.join(", ")}`,
+    );
+  }
+  return normalized;
+}
+
 function isFixtureDisabledIdentity(identity: CharacterIdentityInput): boolean {
   return identity.name.toLocaleLowerCase("en-US").includes("disabled-test");
 }
@@ -1546,10 +1564,16 @@ export async function runRefreshPipeline(
           const preferSharedEvidence = wclGraphClient != null || !jobPayload.forceRefresh;
           if (preferSharedEvidence) {
             try {
+              const supportedRegion = requireSupportedBattleNetRegion(identity.region);
+              const sharedIdentity = {
+                region: supportedRegion,
+                realmSlug: identity.realmSlug,
+                name: identity.name,
+              };
               const sharedResult = await analyzeSurvivalViaSharedEvidence({
                 client: wclGraphClient,
                 store: sharedStore,
-                identity,
+                identity: sharedIdentity,
                 characterId: character.id,
                 reportCode: source.reportCode,
                 fightId: source.fightId,
@@ -1575,7 +1599,7 @@ export async function runRefreshPipeline(
                 score: run.scoreValue,
                 forceRefetch: jobPayload.forceRefresh === true,
                 includeUtilityDatasets: true,
-                region: identity.region,
+                region: supportedRegion,
               });
               summary = sharedResult.summary;
               requestCount = sharedResult.detailedWclEventCalls;
