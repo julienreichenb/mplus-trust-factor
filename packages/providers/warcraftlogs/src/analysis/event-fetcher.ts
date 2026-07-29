@@ -50,6 +50,10 @@ export async function fetchAllEventPages(
     maxEventsPerCategory?: number;
     /** When true, request hitPoints/maxHitPoints on events (Survival health path). */
     includeResources?: boolean;
+    /** WCL filterExpression — used for hostile NPC casts without player sourceID. */
+    filterExpression?: string | null;
+    /** Friendlies (default) vs Enemies — required for hostile cast streams. */
+    hostilityType?: "Friendlies" | "Enemies" | null;
   },
 ): Promise<{ events: Array<Record<string, unknown>>; truncated: boolean }> {
   const all: Array<Record<string, unknown>> = [];
@@ -75,6 +79,8 @@ export async function fetchAllEventPages(
         useAbilityIDs: false,
         useActorIDs: false,
         includeResources: input.includeResources === true ? true : undefined,
+        filterExpression: input.filterExpression ?? undefined,
+        hostilityType: input.hostilityType ?? undefined,
       },
     });
 

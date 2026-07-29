@@ -161,6 +161,8 @@ export const OPERATIONS = {
   $useAbilityIDs: Boolean
   $useActorIDs: Boolean
   $includeResources: Boolean
+  $filterExpression: String
+  $hostilityType: HostilityType
 ) {
   reportData {
     report(code: $code) {
@@ -175,6 +177,8 @@ export const OPERATIONS = {
         useAbilityIDs: $useAbilityIDs
         useActorIDs: $useActorIDs
         includeResources: $includeResources
+        filterExpression: $filterExpression
+        hostilityType: $hostilityType
       ) {
         data
         nextPageTimestamp

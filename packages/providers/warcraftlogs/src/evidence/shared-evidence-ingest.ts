@@ -1,0 +1,259 @@
+/**
+ * Shared evidence ingest coordinator.
+ * One logical fetch per compatibility key; analyzers consume bundles only.
+ * Persistence is injected so probe (filesystem) and worker (RunAnalysis/external_payloads) share logic.
+ */
+import type { WclGraphQlClient } from "../client/graphql-client.js";
+import {
+  attachDatasetToBundle,
+  buildEmptyBundle,
+  evidenceDatasetReuseDecision,
+  fetchSharedEventDataset,
+} from "./wcl-run-evidence.js";
+import {
+  WCL_RUN_EVIDENCE_ANALYSIS_VERSION,
+  WCL_RUN_EVIDENCE_PROVIDER_CONTRACT,
+  buildSharedEvidenceCompatibilityKey,
+  unionRequiredDatasets,
+  type SharedEvidenceDatasetKey,
+  type WclRunEvidenceBundle,
+  type WclRunEvidenceDataset,
+} from "./wcl-run-evidence-types.js";
+
+export interface SharedEvidenceStore {
+  loadDataset(compatibilityKey: string): Promise<WclRunEvidenceDataset | null>;
+  saveDataset(
+    compatibilityKey: string,
+    dataset: WclRunEvidenceDataset,
+    meta: {
+      reportCode: string;
+      reportRevision: number | null;
+      fightId: number;
+      dataset: SharedEvidenceDatasetKey;
+    },
+  ): Promise<void>;
+  loadBundleSummary?(
+    reportCode: string,
+    fightId: number,
+    reportRevision: number | null,
+  ): Promise<WclRunEvidenceBundle | null>;
+  saveBundleSummary?(bundle: WclRunEvidenceBundle): Promise<void>;
+}
+
+export class InMemorySharedEvidenceStore implements SharedEvidenceStore {
+  private readonly datasets = new Map<string, WclRunEvidenceDataset>();
+  private readonly bundles = new Map<string, WclRunEvidenceBundle>();
+  private fetchCount = 0;
+
+  get providerFetchCount(): number {
+    return this.fetchCount;
+  }
+
+  bumpFetch(): void {
+    this.fetchCount += 1;
+  }
+
+  async loadDataset(key: string): Promise<WclRunEvidenceDataset | null> {
+    return this.datasets.get(key) ?? null;
+  }
+
+  async saveDataset(
+    key: string,
+    dataset: WclRunEvidenceDataset,
+    _meta?: {
+      reportCode: string;
+      reportRevision: number | null;
+      fightId: number;
+      dataset: SharedEvidenceDatasetKey;
+    },
+  ): Promise<void> {
+    this.datasets.set(key, { ...dataset, source: "persisted", state: "PERSISTED" });
+  }
+
+  async loadBundleSummary(
+    reportCode: string,
+    fightId: number,
+    reportRevision: number | null,
+  ): Promise<WclRunEvidenceBundle | null> {
+    return this.bundles.get(`${reportCode}:${fightId}:${reportRevision}`) ?? null;
+  }
+
+  async saveBundleSummary(bundle: WclRunEvidenceBundle): Promise<void> {
+    this.bundles.set(
+      `${bundle.reportCode}:${bundle.fightId}:${bundle.reportRevision}`,
+      bundle,
+    );
+  }
+}
+
+export interface IngestSharedEvidenceInput {
+  client: WclGraphQlClient | null;
+  store: SharedEvidenceStore;
+  reportCode: string;
+  reportRevision: number | null;
+  fightId: number;
+  playerActorId: number | null;
+  ownedPetActorIds: number[];
+  dungeonSlug: string;
+  startTime: number | null;
+  endTime: number | null;
+  consumers: Array<"survival" | "utility">;
+  datasets?: SharedEvidenceDatasetKey[];
+  forceRefetch?: boolean;
+  region?: string;
+  /** Model recalculation / catalog change — never triggers provider fetch. */
+  localOnly?: boolean;
+  coalesceKey?: string;
+}
+
+/** In-flight coalescing for concurrent refresh requests. */
+const inFlight = new Map<string, Promise<WclRunEvidenceBundle>>();
+
+export async function ingestSharedEvidenceBundle(
+  input: IngestSharedEvidenceInput,
+): Promise<WclRunEvidenceBundle> {
+  const coalesceKey =
+    input.coalesceKey ??
+    [
+      input.reportCode,
+      input.fightId,
+      input.reportRevision ?? "r?",
+      (input.datasets ?? unionRequiredDatasets(input.consumers)).join(","),
+      input.forceRefetch ? "force" : "reuse",
+    ].join("|");
+
+  const existing = inFlight.get(coalesceKey);
+  if (existing) return existing;
+
+  const promise = ingestSharedEvidenceBundleInner(input).finally(() => {
+    inFlight.delete(coalesceKey);
+  });
+  inFlight.set(coalesceKey, promise);
+  return promise;
+}
+
+async function ingestSharedEvidenceBundleInner(
+  input: IngestSharedEvidenceInput,
+): Promise<WclRunEvidenceBundle> {
+  const required = input.datasets ?? unionRequiredDatasets(input.consumers);
+  let bundle = buildEmptyBundle({
+    reportCode: input.reportCode,
+    reportRevision: input.reportRevision,
+    fightId: input.fightId,
+    playerActorId: input.playerActorId,
+    ownedPetActorIds: input.ownedPetActorIds,
+    dungeonSlug: input.dungeonSlug,
+    startTime: input.startTime,
+    endTime: input.endTime,
+    consumers: input.consumers,
+  });
+  bundle.completeness.required = required;
+  bundle.accounting.consumers = input.consumers;
+
+  for (const datasetKey of required) {
+    if (datasetKey === "masterData") {
+      // Master data is loaded separately by callers; mark missing unless provided later.
+      continue;
+    }
+
+    const compatibilityKey = buildSharedEvidenceCompatibilityKey({
+      reportCode: input.reportCode,
+      reportRevision: input.reportRevision,
+      fightId: input.fightId,
+      actorId: input.playerActorId,
+      dataset: datasetKey,
+      startTime: input.startTime,
+      endTime: input.endTime,
+      filterExpression: datasetKey === "HostileCasts" ? "hostile-npc-casts" : null,
+      providerContractVersion: WCL_RUN_EVIDENCE_PROVIDER_CONTRACT,
+      payloadFingerprint: null,
+    });
+
+    const persisted = await input.store.loadDataset(compatibilityKey);
+    const decision = evidenceDatasetReuseDecision({
+      existing: persisted,
+      reportRevision: input.reportRevision,
+      expectedRevision: input.reportRevision,
+      forceRefetch: input.forceRefetch === true,
+    });
+
+    if (decision === "reuse" && persisted) {
+      const reused: WclRunEvidenceDataset = {
+        ...persisted,
+        source: "persisted",
+        state: "PERSISTED",
+        wclRequests: 0,
+        pointsConsumed: 0,
+        costSource: "measured",
+        requestCostUnits: [],
+        consumers: [
+          ...new Set([
+            ...persisted.consumers,
+            ...(input.consumers.includes("survival") ? (["survival"] as const) : []),
+            ...(input.consumers.includes("utility") ? (["utility"] as const) : []),
+          ]),
+        ],
+      };
+      bundle = attachDatasetToBundle(bundle, reused, { fromPersisted: true });
+      continue;
+    }
+
+    if (input.localOnly || !input.client) {
+      const missing: WclRunEvidenceDataset = {
+        key: datasetKey,
+        state: "MISSING",
+        truncated: false,
+        pageCount: 0,
+        eventCount: 0,
+        filterSourceId: null,
+        filterExpression: null,
+        pages: [],
+        events: [],
+        consumers: input.consumers,
+        pointsConsumed: null,
+        costSource: "unknown",
+        requestCostUnits: [],
+        wclRequests: 0,
+        fetchedAt: null,
+        source: "missing",
+      };
+      bundle = attachDatasetToBundle(bundle, missing);
+      continue;
+    }
+
+    const fetched = await fetchSharedEventDataset({
+      client: input.client,
+      reportCode: input.reportCode,
+      fightId: input.fightId,
+      dataset: datasetKey,
+      region: input.region,
+    });
+    await input.store.saveDataset(compatibilityKey, fetched.dataset, {
+      reportCode: input.reportCode,
+      reportRevision: input.reportRevision,
+      fightId: input.fightId,
+      dataset: datasetKey,
+    });
+    bundle = attachDatasetToBundle(bundle, fetched.dataset);
+  }
+
+  if (input.store.saveBundleSummary) {
+    await input.store.saveBundleSummary(bundle);
+  }
+
+  return bundle;
+}
+
+export function modelOnlyRecalculationMakesZeroWclCalls(
+  store: SharedEvidenceStore,
+  input: Omit<IngestSharedEvidenceInput, "client" | "localOnly" | "forceRefetch">,
+): Promise<WclRunEvidenceBundle> {
+  return ingestSharedEvidenceBundle({
+    ...input,
+    client: null,
+    localOnly: true,
+    forceRefetch: false,
+  });
+}
+
+export { WCL_RUN_EVIDENCE_ANALYSIS_VERSION };

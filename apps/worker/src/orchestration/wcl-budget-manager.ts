@@ -39,6 +39,9 @@ export const DEFAULT_WCL_OPERATION_COSTS: Record<string, number> = {
   "getReportFightDetails": 15,
   "getReportMaster": 3,
   "survivalAnalysis": 20,
+  "sharedEvidenceHostileCasts": 12,
+  "sharedEvidenceDeaths": 6,
+  "sharedEvidenceCasts": 10,
 };
 
 export interface WclBudgetManagerOptions {

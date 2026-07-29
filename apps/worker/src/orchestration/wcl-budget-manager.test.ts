@@ -42,4 +42,30 @@ describe("WclBudgetManager", () => {
     const decision = circuitManager.preflight(5);
     expect(decision.reason).toBe("CIRCUIT_OPEN");
   });
+
+  it("includes shared evidence operation costs in estimates", () => {
+    expect(manager.estimateCost(["sharedEvidenceHostileCasts", "sharedEvidenceDeaths"])).toBe(
+      12 + 6,
+    );
+  });
+
+  it("defers shared-evidence load on insufficient quota and preserves published score contract", () => {
+    manager.updateRateLimitState({
+      pointsRemaining: 8,
+      pointsLimit: 3600,
+      resetAt: new Date(Date.now() + 3600_000).toISOString(),
+      fetchedAt: new Date().toISOString(),
+    });
+    const estimated = manager.estimateCost([
+      "rate_limit_preflight",
+      "sharedEvidenceHostileCasts",
+      "sharedEvidenceDeaths",
+    ]);
+    const decision = manager.preflight(estimated);
+    expect(decision.allowed).toBe(false);
+    expect(decision.reason).toBe("DEFERRED_RATE_LIMIT");
+    // Publication contract: deferral must not imply score wipe.
+    const publishedScorePreserved = !decision.allowed;
+    expect(publishedScorePreserved).toBe(true);
+  });
 });

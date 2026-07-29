@@ -355,6 +355,9 @@ importers:
       '@mplus/domain':
         specifier: workspace:*
         version: link:../../domain
+      '@mplus/mechanics':
+        specifier: workspace:*
+        version: link:../../mechanics
       zod:
         specifier: ^3.25.76
         version: 3.25.76

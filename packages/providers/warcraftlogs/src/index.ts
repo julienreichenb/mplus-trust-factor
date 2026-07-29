@@ -95,5 +95,11 @@ export * from "./probe/survival-v1_1_1-config.js";
 export * from "./probe/survival-v1_1_1-maxhp.js";
 export * from "./probe/survival-v1_1_1-logic.js";
 export * from "./probe/types.js";
+export * from "./evidence/wcl-run-evidence-types.js";
+export * from "./evidence/wcl-run-evidence.js";
+export * from "./evidence/wcl-batch-cost-accounting.js";
+export * from "./evidence/shared-run-selection.js";
+export * from "./evidence/shared-evidence-ingest.js";
+export * from "./evidence/interrupt-catalog-coverage.js";
 
 export type { WarcraftLogsProvider };
