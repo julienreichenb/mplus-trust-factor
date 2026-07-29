@@ -133,4 +133,4 @@ Public Experience was CHARACTER_HISTORY only. Builder: `character-history.ts`. O
 ## Commit hashes
 
 - Initial V2: `84a9ed726191a3504e85395fd07d1ca8487698ac`
-- Corrective (formulas + calibration + WCL + rollout): _filled after commit_
+- Corrective (formulas + calibration + WCL + rollout): `09ef3b54c0991a51d964b35a701a22c08684d865`
