@@ -978,6 +978,7 @@ export async function runUtilityProbe(options: UtilityProbeOptions): Promise<Uti
           specialization: specSlug,
           classSlug,
           specSlug,
+          roleSlug: candidate.roleSlug ?? null,
           catalog,
           actorCtx,
           eventDatasets,

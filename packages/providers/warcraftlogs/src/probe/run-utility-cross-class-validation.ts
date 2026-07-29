@@ -4,7 +4,7 @@
  * For each character in the input manifest:
  *   1. Run the full utility probe (live WCL calls) to collect raw artifacts.
  *   2. Run the V3 simulation offline on those artifacts.
- *   3. Resolve classSlug / specSlug / role from provider output — never hardcoded.
+ *   3. Resolve classSlug / specSlug / roleSlug from provider output — never hardcoded.
  *
  * Usage:
  *   pnpm wcl:probe:utility:cross-class-validate -- \
@@ -12,21 +12,26 @@
  *     [--output-root raw-artifacts/wcl-probe-utility] \
  *     [--max-runs-per-dungeon 3] \
  *     [--max-reports-per-dungeon 8] \
- *     [--resume]
+ *     [--resume]             resume all PARTIAL/ERROR characters with complete artifacts
+ *     [--resume-partial]     resume only PARTIAL characters (fetch missing dungeons)
+ *     [--retry-errors]       retry only ERROR characters
+ *     [--only Zam,Serahz]    limit run to a comma-separated list of character names
  *
  * Resumability:
- *   --resume skips characters that already have a completed V3 simulation
- *   (presence of 30-utility-v3-simulation-summary.json in their artifact dir).
- *   Previously successful results are loaded from disk and merged into the report.
- *   The report is persisted after every character, so an interrupted batch can be
- *   continued from the same point.
+ *   --resume skips COMPLETE characters (30-utility-v3-simulation-summary.json present).
+ *   --resume-partial attempts to complete PARTIAL characters without refetching existing runs.
+ *   --retry-errors retries ERROR characters from scratch.
+ *   A failed character never invalidates previously completed characters.
+ *   The report is persisted after every character.
  *
  * Rate-limit behaviour:
- *   A single RateLimitData preflight is done for the whole batch before iterating.
- *   If the quota is exhausted (action === STOP) the batch is marked
- *   DEFERRED_RATE_LIMIT, the partial report is written, and the process exits 3.
- *   The same guard runs before each individual character starts so that a run
- *   that fills the budget mid-batch does not attempt additional characters.
+ *   A single RateLimitData preflight is done for the whole batch.
+ *   If quota is exhausted (action === STOP) the batch is marked DEFERRED_RATE_LIMIT.
+ *   Before each character that requires live calls, a per-character rate guard runs.
+ *   The guard estimates maximum likely cost from: missing dungeon count × per-dungeon cost
+ *   derived from already-processed characters, with a conservative fallback of 500 pts/dungeon.
+ *   A character is not started when: pointsRemaining < estimatedCharacterCost + safetyReserve.
+ *   Actual point consumption is recorded per character.
  */
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
@@ -52,7 +57,47 @@ interface CharacterManifestEntry {
   role?: string;
 }
 
-interface CharacterValidationResult {
+export interface ProbeFailureDiagnostics {
+  probeState: "ERROR" | "PARTIAL";
+  /** WCL-reported error messages from graphqlErrors. */
+  wclErrors: string[];
+  /** Rejection reasons from candidateRunsRejected, grouped. */
+  rejectionReasons: Record<string, number>;
+  /** Total reports inspected. */
+  reportsInspected: number;
+  /** Total fights that passed hydration. */
+  fightsInspected: number;
+  /** Schema or zone warnings. */
+  schemaWarnings: string[];
+  /** Whether the character was found at all on WCL. */
+  characterFound: boolean;
+  /**
+   * Summary diagnosis: why the probe produced zero runs.
+   * One of: "character_not_found", "all_fights_target_absent",
+   * "zone_rankings_aggregate_only", "rate_limited", "unknown".
+   */
+  diagnosis:
+    | "character_not_found"
+    | "all_fights_target_absent"
+    | "zone_rankings_aggregate_only"
+    | "rate_limited"
+    | "unknown";
+  retryable: boolean;
+  /** Files that were successfully written before the failure. */
+  partialArtifactPaths: string[];
+}
+
+export interface CharacterRateCost {
+  pointsBefore: number | null;
+  pointsAfter: number | null;
+  pointsConsumed: number | null;
+  wclRequests: number | null;
+  estimatedCost: number | null;
+  safetyReserve: number;
+  costDecisionReason: string;
+}
+
+export interface CharacterValidationResult {
   region: string;
   realmSlug: string;
   name: string;
@@ -60,9 +105,21 @@ interface CharacterValidationResult {
   classSlug: string | null;
   /** Resolved from zoneRankings spec field — most common spec across selected runs. */
   specSlug: string | null;
-  /** Resolved from zoneRankings role field. */
+  /** Resolved from zoneRankings role field — majority across runs. */
   roleSlug: string | null;
-  state: "OK" | "PARTIAL" | "ERROR" | "SKIPPED" | "DEFERRED_RATE_LIMIT";
+  mixedRole: boolean;
+  roleSource: "zone_rankings" | "inferred" | "unknown";
+  state: "COMPLETE" | "PARTIAL" | "ERROR" | "SKIPPED" | "DEFERRED_RATE_LIMIT";
+  /**
+   * Artifact completeness classification.
+   * COMPLETE: 30-utility-v3-simulation-summary.json present.
+   * PARTIAL: 07-utility-normalized-runs.json present but missing dungeons.
+   * ERROR: probe ran but found no usable runs.
+   * NONE: no artifacts at all.
+   */
+  artifactState: "COMPLETE" | "PARTIAL" | "ERROR" | "NONE";
+  completedDungeons: string[];
+  missingDungeons: string[];
   behaviorScore: number | null;
   confidence: number | null;
   semanticBand: string | null;
@@ -71,8 +128,25 @@ interface CharacterValidationResult {
   scoredVsExcludedDomains: UtilityV3SimulationDataset["global"]["scoredVsExcludedDomains"] | null;
   runCount: number;
   dungeonCount: number;
+  castStopDiagnostics: CastStopDiagnostics | null;
+  rateCost: CharacterRateCost | null;
   artifactDir: string;
   error: string | null;
+  probeFailure: ProbeFailureDiagnostics | null;
+}
+
+export interface CastStopDiagnostics {
+  confirmedCastStops: number;
+  effectivePerHour: number | null;
+  runsScored: number;
+  runsAt90Plus: number;
+  runsAt100: number;
+  uniqueInterruptedSpellIds: number[];
+  uniqueHostileTargets: number;
+  dungeonsCovered: string[];
+  sampleSizeWarning: string | null;
+  curveInput: number | null;
+  domainScore: number | null;
 }
 
 type BatchStatus = "OK" | "PARTIAL" | "DEFERRED_RATE_LIMIT" | "ERROR";
@@ -83,19 +157,19 @@ interface CrossClassValidationReport {
   calibrationCharacter: string;
   rateLimit: {
     preflight: RateLimitSummary | null;
-    /** Snapshot taken just before the last character that was attempted. */
     lastGuard: RateLimitSummary | null;
   };
   characters: CharacterValidationResult[];
   summary: {
     total: number;
-    ok: number;
+    complete: number;
     partial: number;
     error: number;
     skipped: number;
     deferred: number;
     classSlugsResolved: string[];
     specSlugsResolved: string[];
+    roleSlugsResolved: string[];
     behaviorScoreRange: { min: number | null; max: number | null };
   };
 }
@@ -125,6 +199,9 @@ function parseArgs(argv: string[]): {
   maxRunsPerDungeon: number;
   maxReportsPerDungeon: number;
   resume: boolean;
+  resumePartial: boolean;
+  retryErrors: boolean;
+  only: Set<string> | null;
 } {
   const flags: Record<string, string> = {};
   const boolFlags = new Set<string>();
@@ -143,9 +220,15 @@ function parseArgs(argv: string[]): {
   const charactersFile = flags["characters-file"]?.trim();
   if (!charactersFile) {
     throw new Error(
-      "Usage: --characters-file <path.json> [--output-root <dir>] [--max-runs-per-dungeon 3] [--max-reports-per-dungeon 8] [--resume]",
+      "Usage: --characters-file <path.json> [--output-root <dir>] " +
+      "[--max-runs-per-dungeon 3] [--max-reports-per-dungeon 8] " +
+      "[--resume] [--resume-partial] [--retry-errors] [--only Name1,Name2]",
     );
   }
+  const onlyStr = flags["only"]?.trim();
+  const only = onlyStr
+    ? new Set(onlyStr.split(",").map((n) => n.trim().toLowerCase()))
+    : null;
   return {
     charactersFile,
     outputRoot:
@@ -154,6 +237,9 @@ function parseArgs(argv: string[]): {
     maxRunsPerDungeon: Number(flags["max-runs-per-dungeon"] ?? 3),
     maxReportsPerDungeon: Number(flags["max-reports-per-dungeon"] ?? 8),
     resume: boolFlags.has("resume") || envFlag(flags["resume"]),
+    resumePartial: boolFlags.has("resume-partial") || envFlag(flags["resume-partial"]),
+    retryErrors: boolFlags.has("retry-errors") || envFlag(flags["retry-errors"]),
+    only,
   };
 }
 
@@ -185,71 +271,244 @@ function rateLimitSummary(decision: WclRateBudgetDecision): RateLimitSummary {
   };
 }
 
-/**
- * Derive the most frequently occurring spec slug across all normalized runs.
- * Resolved from WCL `zoneRankings.spec` — not hardcoded.
- */
-function dominantSpecSlug(runsJson: unknown): string | null {
-  if (!Array.isArray(runsJson)) return null;
-  const counts = new Map<string, number>();
-  for (const run of runsJson) {
-    const spec = (run as Record<string, unknown>).specialization;
-    if (typeof spec === "string" && spec) {
-      counts.set(spec, (counts.get(spec) ?? 0) + 1);
-    }
-  }
-  let best: string | null = null;
-  let bestCount = 0;
-  for (const [slug, count] of counts) {
-    if (count > bestCount) {
-      best = slug;
-      bestCount = count;
-    }
-  }
-  return best;
+// ---------------------------------------------------------------------------
+// Artifact state detection
+// ---------------------------------------------------------------------------
+
+const ACTIVE_SEASON_DUNGEONS = [
+  "algethar-academy",
+  "magisters-terrace",
+  "maisara-caverns",
+  "nexus-point-xenas",
+  "pit-of-saron",
+  "seat-of-the-triumvirate",
+  "skyreach",
+  "windrunner-spire",
+];
+
+type ArtifactState = "COMPLETE" | "PARTIAL" | "ERROR" | "NONE";
+
+interface ArtifactStatus {
+  state: ArtifactState;
+  completedDungeons: string[];
+  missingDungeons: string[];
 }
 
-/** Derive the most frequently occurring role slug across normalized runs. */
-function dominantRoleSlug(runsJson: unknown): string | null {
-  if (!Array.isArray(runsJson)) return null;
-  const counts = new Map<string, number>();
-  for (const run of runsJson) {
-    const role = (run as Record<string, unknown>).roleSlug;
-    if (typeof role === "string" && role) {
-      counts.set(role, (counts.get(role) ?? 0) + 1);
+async function detectArtifactState(artifactDir: string): Promise<ArtifactStatus> {
+  // COMPLETE: V3 simulation summary present
+  if (existsSync(join(artifactDir, "30-utility-v3-simulation-summary.json"))) {
+    // Still need to classify as PARTIAL if missing dungeons
+    try {
+      const perDungeon = JSON.parse(
+        await readFile(join(artifactDir, "27-utility-v3-per-dungeon.json"), "utf8"),
+      ) as Array<{ dungeonSlug: string; runCount: number }>;
+      const completed = perDungeon.filter((d) => d.runCount > 0).map((d) => d.dungeonSlug);
+      const missing = ACTIVE_SEASON_DUNGEONS.filter((s) => !completed.includes(s));
+      // COMPLETE only when all 8 dungeons covered
+      if (missing.length === 0) return { state: "COMPLETE", completedDungeons: completed, missingDungeons: [] };
+      return { state: "PARTIAL", completedDungeons: completed, missingDungeons: missing };
+    } catch {
+      return { state: "COMPLETE", completedDungeons: [], missingDungeons: [] };
     }
   }
-  let best: string | null = null;
-  let bestCount = 0;
-  for (const [slug, count] of counts) {
-    if (count > bestCount) {
-      best = slug;
-      bestCount = count;
+  // PARTIAL: normalized runs present
+  if (existsSync(join(artifactDir, "07-utility-normalized-runs.json"))) {
+    try {
+      const runs = JSON.parse(
+        await readFile(join(artifactDir, "07-utility-normalized-runs.json"), "utf8"),
+      ) as Array<{ dungeonSlug: string }>;
+      const completed = [...new Set(runs.map((r) => r.dungeonSlug))];
+      const missing = ACTIVE_SEASON_DUNGEONS.filter((s) => !completed.includes(s));
+      if (runs.length === 0) return { state: "ERROR", completedDungeons: [], missingDungeons: ACTIVE_SEASON_DUNGEONS };
+      return { state: "PARTIAL", completedDungeons: completed, missingDungeons: missing };
+    } catch {
+      return { state: "ERROR", completedDungeons: [], missingDungeons: ACTIVE_SEASON_DUNGEONS };
     }
   }
-  return best;
+  return { state: "NONE", completedDungeons: [], missingDungeons: ACTIVE_SEASON_DUNGEONS };
 }
 
-/**
- * Returns true when a character already has a completed V3 simulation.
- * Presence of `30-utility-v3-simulation-summary.json` is the completion marker.
- */
-function isAlreadyComplete(artifactDir: string): boolean {
-  return existsSync(join(artifactDir, "30-utility-v3-simulation-summary.json"));
+// ---------------------------------------------------------------------------
+// Probe failure diagnostics
+// ---------------------------------------------------------------------------
+
+async function buildProbeFailureDiagnostics(
+  artifactDir: string,
+  probeState: "ERROR" | "PARTIAL",
+  characterFound: boolean,
+): Promise<ProbeFailureDiagnostics> {
+  const partialArtifactPaths: string[] = [];
+  for (let i = 1; i <= 10; i += 1) {
+    const n = String(i).padStart(2, "0");
+    const files = [`${n}-utility-run-selection.json`, `${n}-utility-per-dungeon.json`,
+                   `${n}-master-data.json`, `${n}-utility-diagnostics.json`];
+    for (const f of files) {
+      const p = join(artifactDir, f);
+      if (existsSync(p)) partialArtifactPaths.push(p);
+    }
+  }
+
+  let wclErrors: string[] = [];
+  let rejectionReasons: Record<string, number> = {};
+  let reportsInspected = 0;
+  let fightsInspected = 0;
+  let schemaWarnings: string[] = [];
+
+  try {
+    const diag = JSON.parse(
+      await readFile(join(artifactDir, "10-utility-diagnostics.json"), "utf8"),
+    ) as {
+      reportsInspected?: string[];
+      fightsInspected?: unknown[];
+      candidateRunsRejected?: Array<{ reason: string }>;
+      graphqlErrors?: Array<{ message?: string; category?: string }>;
+      schemaWarnings?: string[];
+    };
+    reportsInspected = diag.reportsInspected?.length ?? 0;
+    fightsInspected = diag.fightsInspected?.length ?? 0;
+    wclErrors = (diag.graphqlErrors ?? []).map(
+      (e) => e.message ?? JSON.stringify(e),
+    );
+    schemaWarnings = diag.schemaWarnings ?? [];
+    for (const rej of diag.candidateRunsRejected ?? []) {
+      // Normalize reason: strip fight index suffix (hydrate_fight_N_reason → reason)
+      const normalized = rej.reason.replace(/^hydrate_fight_\d+_/, "");
+      rejectionReasons[normalized] = (rejectionReasons[normalized] ?? 0) + 1;
+    }
+  } catch {
+    // best-effort
+  }
+
+  // Diagnosis
+  let diagnosis: ProbeFailureDiagnostics["diagnosis"] = "unknown";
+  if (!characterFound) {
+    diagnosis = "character_not_found";
+  } else if (wclErrors.some((e) => /rate.limit|rate limit|429/i.test(e))) {
+    diagnosis = "rate_limited";
+  } else if (schemaWarnings.some((w) => /zoneRankings returned.*aggregate row/i.test(w))) {
+    diagnosis = "zone_rankings_aggregate_only";
+  } else if (
+    Object.keys(rejectionReasons).length > 0 &&
+    Object.keys(rejectionReasons).every((k) => k.includes("target_absent"))
+  ) {
+    diagnosis = "all_fights_target_absent";
+  }
+
+  return {
+    probeState,
+    wclErrors,
+    rejectionReasons,
+    reportsInspected,
+    fightsInspected,
+    schemaWarnings,
+    characterFound,
+    diagnosis,
+    retryable: diagnosis === "rate_limited" || diagnosis === "unknown",
+    partialArtifactPaths: [...new Set(partialArtifactPaths)],
+  };
 }
 
-/**
- * Returns true when the utility probe has already run for this character.
- * Presence of `07-utility-normalized-runs.json` is the probe completion marker.
- */
-function hasProbeArtifacts(artifactDir: string): boolean {
-  return existsSync(join(artifactDir, "07-utility-normalized-runs.json"));
+// ---------------------------------------------------------------------------
+// Cast-stop saturation diagnostics
+// ---------------------------------------------------------------------------
+
+async function buildCastStopDiagnostics(
+  artifactDir: string,
+  v3Dataset: UtilityV3SimulationDataset,
+): Promise<CastStopDiagnostics> {
+  const castStopRunScores = v3Dataset.runSimulations.map((r) => ({
+    dungeonSlug: r.dungeonSlug,
+    score: r.domains.castStops?.domainScore ?? null,
+    effectivePerHour: r.domains.castStops?.effectivePerHour ?? null,
+    tierCounts: r.domains.castStops?.tierCounts,
+  }));
+  const scoredRuns = castStopRunScores.filter((r) => r.score !== null && r.score > 50);
+  const runsAt90 = castStopRunScores.filter((r) => (r.score ?? 0) >= 90).length;
+  const runsAt100 = castStopRunScores.filter((r) => (r.score ?? 0) >= 100).length;
+  const dungeonsCovered = [...new Set(scoredRuns.map((r) => r.dungeonSlug))];
+
+  // Confirmed cast stops from evidence inventory
+  const confirmedItems = v3Dataset.evidenceInventory.filter(
+    (e) => e.domain === "castStops" && (e.tier === "CONFIRMED_IMPACT" || e.tier === "CONFIRMED_APPLICATION"),
+  );
+  const confirmedCount = confirmedItems.length;
+
+  // Unique interrupted spell IDs and targets from normalized runs artifact
+  const uniqueInterruptedSpells = new Set<number>();
+  const uniqueTargets = new Set<number | string>();
+  try {
+    const runs = JSON.parse(
+      await readFile(join(artifactDir, "07-utility-normalized-runs.json"), "utf8"),
+    ) as Array<{
+      interruptEvents?: Array<{ interruptedSpellId?: number; targetID?: number; canonical?: unknown }>;
+    }>;
+    for (const run of runs) {
+      for (const evt of run.interruptEvents ?? []) {
+        if (evt.interruptedSpellId) uniqueInterruptedSpells.add(evt.interruptedSpellId);
+        if (evt.targetID) uniqueTargets.add(evt.targetID);
+      }
+    }
+  } catch {
+    // best-effort
+  }
+
+  const avgEffPerHour =
+    scoredRuns.length > 0
+      ? scoredRuns.reduce((s, r) => s + (r.effectivePerHour ?? 0), 0) / scoredRuns.length
+      : null;
+
+  const totalRunCount = v3Dataset.runSimulations.length;
+  let sampleSizeWarning: string | null = null;
+  const globalCastStopScore = v3Dataset.global.domainScores.castStops;
+  if (globalCastStopScore !== null && globalCastStopScore >= 90 && totalRunCount < 8) {
+    sampleSizeWarning =
+      `castStops score ${globalCastStopScore.toFixed(1)} is based on only ${totalRunCount} run(s) ` +
+      `across ${dungeonsCovered.length} dungeon(s). ` +
+      `A score of ${globalCastStopScore >= 100 ? "100" : "90+"} with fewer than 8 dungeons ` +
+      `is insufficient for calibration even when the observed behavior is valid. ` +
+      `Complete all 8 active-season dungeons before treating this score as representative.`;
+  }
+
+  return {
+    confirmedCastStops: confirmedCount,
+    effectivePerHour: avgEffPerHour,
+    runsScored: scoredRuns.length,
+    runsAt90Plus: runsAt90,
+    runsAt100,
+    uniqueInterruptedSpellIds: [...uniqueInterruptedSpells].sort((a, b) => a - b),
+    uniqueHostileTargets: uniqueTargets.size,
+    dungeonsCovered,
+    sampleSizeWarning,
+    curveInput: avgEffPerHour,
+    domainScore: globalCastStopScore,
+  };
 }
 
-/**
- * Load a previously persisted CharacterValidationResult from the V3 simulation summary.
- * Returns null if the summary is absent or cannot be parsed.
- */
+// ---------------------------------------------------------------------------
+// Rate cost helpers
+// ---------------------------------------------------------------------------
+
+const DEFAULT_COST_PER_DUNGEON = 500;
+const SAFETY_RESERVE = 1500;
+
+/** Estimate maximum likely WCL points for a character with `missingDungeons` remaining. */
+function estimateCharacterCost(
+  missingDungeons: number,
+  historicalCostPerDungeon: number | null,
+): { estimated: number; reason: string } {
+  if (missingDungeons === 0) return { estimated: 0, reason: "no_missing_dungeons" };
+  const perDungeon = historicalCostPerDungeon ?? DEFAULT_COST_PER_DUNGEON;
+  const source = historicalCostPerDungeon != null ? "measured_history" : "conservative_fallback";
+  return {
+    estimated: missingDungeons * perDungeon,
+    reason: `${missingDungeons} missing dungeon(s) × ${perDungeon.toFixed(0)} pts/dungeon (${source})`,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Completed result loader
+// ---------------------------------------------------------------------------
+
 async function loadCompletedResult(
   artifactDir: string,
   region: string,
@@ -266,41 +525,30 @@ async function loadCompletedResult(
       redistributedWeights?: Record<string, number>;
       scoredVsExcludedDomains?: UtilityV3SimulationDataset["global"]["scoredVsExcludedDomains"];
       runCount?: number;
-      subject?: { classSlug?: string | null; specSlug?: string | null };
+      subject?: {
+        classSlug?: string | null;
+        specSlug?: string | null;
+        roleSlug?: string | null;
+        mixedRole?: boolean;
+        roleSource?: "zone_rankings" | "inferred" | "unknown";
+      };
     };
 
-    // Resolve roleSlug from the normalized runs file if available
-    let roleSlug: string | null = null;
-    let specSlug: string | null = summary.subject?.specSlug ?? null;
-    try {
-      const runs = JSON.parse(
-        await readFile(join(artifactDir, "07-utility-normalized-runs.json"), "utf8"),
-      );
-      roleSlug = dominantRoleSlug(runs);
-      specSlug = dominantSpecSlug(runs) ?? specSlug;
-    } catch {
-      // best-effort
-    }
-
-    // Infer dungeonCount from per-dungeon file if available
-    let dungeonCount = 0;
-    try {
-      const perDungeon = JSON.parse(
-        await readFile(join(artifactDir, "27-utility-v3-per-dungeon.json"), "utf8"),
-      ) as Array<{ runCount?: number }>;
-      dungeonCount = perDungeon.filter((d) => (d.runCount ?? 0) > 0).length;
-    } catch {
-      // best-effort
-    }
+    const artifactStatus = await detectArtifactState(artifactDir);
 
     return {
       region,
       realmSlug,
       name,
       classSlug: summary.subject?.classSlug ?? null,
-      specSlug,
-      roleSlug,
-      state: "OK",
+      specSlug: summary.subject?.specSlug ?? null,
+      roleSlug: summary.subject?.roleSlug ?? null,
+      mixedRole: summary.subject?.mixedRole ?? false,
+      roleSource: summary.subject?.roleSource ?? "unknown",
+      state: artifactStatus.state === "COMPLETE" ? "COMPLETE" : "PARTIAL",
+      artifactState: artifactStatus.state,
+      completedDungeons: artifactStatus.completedDungeons,
+      missingDungeons: artifactStatus.missingDungeons,
       behaviorScore: summary.behaviorScore ?? null,
       confidence: summary.confidence ?? null,
       semanticBand: summary.semanticBand ?? null,
@@ -308,9 +556,12 @@ async function loadCompletedResult(
       redistributedWeights: summary.redistributedWeights ?? {},
       scoredVsExcludedDomains: summary.scoredVsExcludedDomains ?? null,
       runCount: summary.runCount ?? 0,
-      dungeonCount,
+      dungeonCount: artifactStatus.completedDungeons.length,
+      castStopDiagnostics: null,
+      rateCost: null,
       artifactDir,
       error: null,
+      probeFailure: null,
     };
   } catch {
     return null;
@@ -346,7 +597,7 @@ function buildReport(
     characters: results,
     summary: {
       total: characters.length,
-      ok: results.filter((r) => r.state === "OK").length,
+      complete: results.filter((r) => r.state === "COMPLETE").length,
       partial: results.filter((r) => r.state === "PARTIAL").length,
       error: results.filter((r) => r.state === "ERROR").length,
       skipped: results.filter((r) => r.state === "SKIPPED").length,
@@ -359,6 +610,11 @@ function buildReport(
       specSlugsResolved: [
         ...new Set(
           results.map((r) => r.specSlug).filter((s): s is string => s !== null),
+        ),
+      ].sort(),
+      roleSlugsResolved: [
+        ...new Set(
+          results.map((r) => r.roleSlug).filter((s): s is string => s !== null),
         ),
       ].sort(),
       behaviorScoreRange: {
@@ -379,6 +635,7 @@ async function validateCharacter(
   provider: LiveWarcraftLogsProvider,
   maxRunsPerDungeon: number,
   maxReportsPerDungeon: number,
+  historicalCostPerDungeon: number | null,
 ): Promise<CharacterValidationResult> {
   const region = entry.region.trim().toUpperCase();
   const realmSlug = entry.realm.trim().toLowerCase();
@@ -388,31 +645,22 @@ async function validateCharacter(
     `${region.toLowerCase()}-${realmSlug}-${name.toLowerCase()}`,
   );
 
-  const base: Omit<
-    CharacterValidationResult,
-    | "behaviorScore"
-    | "confidence"
-    | "semanticBand"
-    | "domainScores"
-    | "redistributedWeights"
-    | "scoredVsExcludedDomains"
-    | "runCount"
-    | "dungeonCount"
-    | "error"
-  > = {
+  const errorResult = (
+    msg: string,
+    extras: Partial<CharacterValidationResult> = {},
+  ): CharacterValidationResult => ({
     region,
     realmSlug,
     name,
     classSlug: null,
     specSlug: null,
     roleSlug: null,
+    mixedRole: false,
+    roleSource: "unknown",
     state: "ERROR",
-    artifactDir,
-  };
-
-  const errorResult = (msg: string): CharacterValidationResult => ({
-    ...base,
-    state: "ERROR",
+    artifactState: "NONE",
+    completedDungeons: [],
+    missingDungeons: ACTIVE_SEASON_DUNGEONS,
     behaviorScore: null,
     confidence: null,
     semanticBand: null,
@@ -421,36 +669,64 @@ async function validateCharacter(
     scoredVsExcludedDomains: null,
     runCount: 0,
     dungeonCount: 0,
+    castStopDiagnostics: null,
+    rateCost: null,
+    artifactDir,
     error: msg,
+    probeFailure: null,
+    ...extras,
   });
 
   try {
     mkdirSync(artifactDir, { recursive: true });
 
-    // Step 1 — Utility probe (skipped if probe artifacts already exist)
+    const artifactStatus = await detectArtifactState(artifactDir);
+    const needsLiveCalls = artifactStatus.state === "NONE" || artifactStatus.state === "ERROR";
+
+    // Point consumption tracking
+    let pointsBefore: number | null = null;
+    let pointsAfter: number | null = null;
+    let probeWclRequests: number | null = null;
+
     let resolvedClassSlug: string | null = null;
     let resolvedSpecSlug: string | null = null;
     let resolvedRoleSlug: string | null = null;
+    let mixedRole = false;
+    let roleSource: "zone_rankings" | "inferred" | "unknown" = "unknown";
     let probeState: "OK" | "PARTIAL" | "ERROR" = "OK";
+    let characterFound = false;
 
-    if (hasProbeArtifacts(artifactDir)) {
-      console.log(`    [cache] reusing existing probe artifacts`);
+    if (!needsLiveCalls) {
+      // Re-use existing probe artifacts
+      console.log(`    [cache] reusing probe artifacts (state=${artifactStatus.state})`);
       try {
-        const runsJson = JSON.parse(
+        const runs = JSON.parse(
           await readFile(join(artifactDir, "07-utility-normalized-runs.json"), "utf8"),
-        );
-        resolvedSpecSlug = dominantSpecSlug(runsJson);
-        resolvedRoleSlug = dominantRoleSlug(runsJson);
-        // classSlug is available on UtilityNormalizedRun
-        resolvedClassSlug =
-          (Array.isArray(runsJson) &&
-            typeof (runsJson[0] as Record<string, unknown>)?.classSlug === "string"
-            ? (runsJson[0] as Record<string, unknown>).classSlug as string
-            : null) ?? null;
+        ) as Array<{ classSlug?: string | null; specialization?: string | null; roleSlug?: string | null; dungeonSlug?: string }>;
+        resolvedClassSlug = runs[0]?.classSlug ?? null;
+        resolvedSpecSlug = runs[0]?.specialization ?? null;
+        // Majority role from per-run roleSlug field (now present after rebuild)
+        const roleCounts = new Map<string, number>();
+        for (const r of runs) {
+          if (r.roleSlug) roleCounts.set(r.roleSlug, (roleCounts.get(r.roleSlug) ?? 0) + 1);
+        }
+        if (roleCounts.size > 0) {
+          let best: string | null = null;
+          let bestCount = 0;
+          for (const [slug, count] of roleCounts) {
+            if (count > bestCount) { best = slug; bestCount = count; }
+          }
+          resolvedRoleSlug = best;
+          mixedRole = roleCounts.size > 1;
+          roleSource = "zone_rankings";
+        }
+        probeState = artifactStatus.state === "PARTIAL" ? "PARTIAL" : "OK";
+        characterFound = runs.length > 0;
       } catch {
-        // best-effort; classSlug stays null
+        // best-effort
       }
     } else {
+      // Live probe run
       const identity: UtilityProbeIdentity = {
         region: region as UtilityProbeIdentity["region"],
         realmSlug,
@@ -466,66 +742,119 @@ async function validateCharacter(
       });
 
       probeState = probeDataset.state;
+      characterFound = probeDataset.character != null;
       resolvedClassSlug = classSlugFromWclClassId(probeDataset.character?.classID ?? null);
+      pointsBefore = probeDataset.rateLimit.initial?.pointsSpentThisHour ?? null;
+      pointsAfter = probeDataset.rateLimit.final?.pointsSpentThisHour ?? null;
+      probeWclRequests = probeDataset.diagnostics.wclRequestCount;
 
+      // roleSlug from normalized runs written to disk
       try {
-        const runsJson = JSON.parse(
+        const runs = JSON.parse(
           await readFile(join(artifactDir, "07-utility-normalized-runs.json"), "utf8"),
-        );
-        resolvedSpecSlug = dominantSpecSlug(runsJson);
-        resolvedRoleSlug = dominantRoleSlug(runsJson);
+        ) as Array<{ specialization?: string | null; roleSlug?: string | null }>;
+        resolvedSpecSlug = runs[0]?.specialization ?? null;
+        const roleCounts = new Map<string, number>();
+        for (const r of runs) {
+          if (r.roleSlug) roleCounts.set(r.roleSlug, (roleCounts.get(r.roleSlug) ?? 0) + 1);
+        }
+        if (roleCounts.size > 0) {
+          let best: string | null = null;
+          let bestCount = 0;
+          for (const [slug, count] of roleCounts) {
+            if (count > bestCount) { best = slug; bestCount = count; }
+          }
+          resolvedRoleSlug = best;
+          mixedRole = roleCounts.size > 1;
+          roleSource = "zone_rankings";
+        }
       } catch {
         resolvedSpecSlug = probeDataset.runs[0]?.specialization ?? null;
       }
 
       // Zip probe artifacts
-      const probeZipPath = join(
+      zipDirectoryContents(
         artifactDir,
-        `${region.toLowerCase()}-${realmSlug}-${name.toLowerCase()}-utility-probe.zip`,
+        join(artifactDir, `${region.toLowerCase()}-${realmSlug}-${name.toLowerCase()}-utility-probe.zip`),
       );
-      zipDirectoryContents(artifactDir, probeZipPath);
 
       if (probeDataset.state === "ERROR") {
-        return {
-          ...base,
-          classSlug: resolvedClassSlug,
-          specSlug: resolvedSpecSlug,
-          roleSlug: resolvedRoleSlug,
-          state: "ERROR",
-          behaviorScore: null,
-          confidence: null,
-          semanticBand: null,
-          domainScores: {},
-          redistributedWeights: {},
-          scoredVsExcludedDomains: null,
-          runCount: 0,
-          dungeonCount: 0,
-          error: "Utility probe returned state=ERROR",
-        };
+        const probeFailure = await buildProbeFailureDiagnostics(
+          artifactDir,
+          "ERROR",
+          characterFound,
+        );
+        const pointsConsumed =
+          pointsBefore != null && pointsAfter != null
+            ? pointsAfter - pointsBefore
+            : null;
+        const { estimated, reason } = estimateCharacterCost(ACTIVE_SEASON_DUNGEONS.length, historicalCostPerDungeon);
+        return errorResult(
+          `Probe state=ERROR — diagnosis: ${probeFailure.diagnosis}. ` +
+          `Reports inspected: ${probeFailure.reportsInspected}. ` +
+          `Rejection reasons: ${JSON.stringify(probeFailure.rejectionReasons)}. ` +
+          (probeFailure.schemaWarnings.length > 0
+            ? `Warnings: ${probeFailure.schemaWarnings.join("; ")}.`
+            : ""),
+          {
+            classSlug: resolvedClassSlug,
+            artifactState: "ERROR",
+            probeFailure,
+            rateCost: {
+              pointsBefore,
+              pointsAfter,
+              pointsConsumed,
+              wclRequests: probeWclRequests,
+              estimatedCost: estimated,
+              safetyReserve: SAFETY_RESERVE,
+              costDecisionReason: reason,
+            },
+          },
+        );
       }
     }
 
-    // Step 2 — V3 simulation (offline on artifacts)
+    // V3 simulation
     const { dataset: v3Dataset } = await runUtilityV3Simulation({
       inputDir: artifactDir,
       outputDir: artifactDir,
     });
 
-    const v3ZipPath = join(
+    zipDirectoryContents(
       artifactDir,
-      `${region.toLowerCase()}-${realmSlug}-${name.toLowerCase()}-utility-v3-simulation.zip`,
+      join(artifactDir, `${region.toLowerCase()}-${realmSlug}-${name.toLowerCase()}-utility-v3-simulation.zip`),
     );
-    zipDirectoryContents(artifactDir, v3ZipPath);
 
     const finalClassSlug = v3Dataset.subject.classSlug ?? resolvedClassSlug;
     const finalSpecSlug = v3Dataset.subject.specSlug ?? resolvedSpecSlug;
+    const finalRoleSlug = v3Dataset.subject.roleSlug ?? resolvedRoleSlug;
+    const finalMixedRole = v3Dataset.subject.mixedRole ?? mixedRole;
+    const finalRoleSource = v3Dataset.subject.roleSource ?? roleSource;
+
+    const pointsConsumed =
+      pointsBefore != null && pointsAfter != null ? pointsAfter - pointsBefore : null;
+    const updatedArtifactStatus = await detectArtifactState(artifactDir);
+    const castStopDiag = await buildCastStopDiagnostics(artifactDir, v3Dataset);
+
+    const missingCount = updatedArtifactStatus.missingDungeons.length;
+    const { estimated: estimatedCost, reason: costReason } = estimateCharacterCost(
+      missingCount,
+      historicalCostPerDungeon,
+    );
 
     return {
-      ...base,
+      region,
+      realmSlug,
+      name,
       classSlug: finalClassSlug,
       specSlug: finalSpecSlug,
-      roleSlug: resolvedRoleSlug,
-      state: probeState === "PARTIAL" ? "PARTIAL" : "OK",
+      roleSlug: finalRoleSlug,
+      mixedRole: finalMixedRole,
+      roleSource: finalRoleSource,
+      state: updatedArtifactStatus.state === "COMPLETE" ? "COMPLETE" : "PARTIAL",
+      artifactState: updatedArtifactStatus.state,
+      completedDungeons: updatedArtifactStatus.completedDungeons,
+      missingDungeons: updatedArtifactStatus.missingDungeons,
       behaviorScore: v3Dataset.global.behaviorScore,
       confidence: v3Dataset.global.confidence,
       semanticBand: v3Dataset.global.semanticBand,
@@ -534,7 +863,23 @@ async function validateCharacter(
       scoredVsExcludedDomains: v3Dataset.global.scoredVsExcludedDomains,
       runCount: v3Dataset.global.runCount,
       dungeonCount: v3Dataset.global.dungeonCount,
+      castStopDiagnostics: castStopDiag,
+      rateCost: {
+        pointsBefore,
+        pointsAfter,
+        pointsConsumed,
+        wclRequests: probeWclRequests,
+        estimatedCost,
+        safetyReserve: SAFETY_RESERVE,
+        costDecisionReason: costReason,
+      },
+      artifactDir,
       error: null,
+      probeFailure: probeState === "ERROR"
+        ? await buildProbeFailureDiagnostics(artifactDir, "ERROR", characterFound)
+        : probeState === "PARTIAL"
+          ? await buildProbeFailureDiagnostics(artifactDir, "PARTIAL", characterFound)
+          : null,
     };
   } catch (err) {
     return errorResult(err instanceof Error ? err.message : String(err));
@@ -583,6 +928,15 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
+  // Apply --only filter
+  const activeCharacters = args.only
+    ? characters.filter((c) => args.only!.has(c.name.toLowerCase()))
+    : characters;
+  if (args.only && activeCharacters.length === 0) {
+    console.error(`FAIL: --only filter matched no characters. Available: ${characters.map((c) => c.name).join(", ")}`);
+    process.exit(1);
+  }
+
   await mkdir(args.outputRoot, { recursive: true });
   const reportPath = join(args.outputRoot, "cross-class-validation-report.json");
 
@@ -602,27 +956,33 @@ async function main(): Promise<void> {
     processEnv: process.env,
   });
 
+  const flags: string[] = [];
+  if (args.resume) flags.push("--resume");
+  if (args.resumePartial) flags.push("--resume-partial");
+  if (args.retryErrors) flags.push("--retry-errors");
+  if (args.only) flags.push(`--only ${[...args.only].join(",")}`);
   console.log(
-    `wcl.probe.utility.cross-class-validate — ${characters.length} characters` +
-    (args.resume ? " (--resume)" : ""),
+    `wcl.probe.utility.cross-class-validate — ${activeCharacters.length}/${characters.length} characters` +
+    (flags.length ? ` (${flags.join(", ")})` : ""),
   );
 
   // ------------------------------------------------------------------
-  // Single preflight RateLimitData for the entire batch
+  // Single preflight RateLimitData
   // ------------------------------------------------------------------
   let preflight: WclRateBudgetDecision | null = null;
   const fakeCtx = { now: new Date().toISOString() };
 
   console.log("\n[preflight] RateLimitData…");
   try {
-    preflight = await provider.fetchRateLimit(fakeCtx as Parameters<typeof provider.fetchRateLimit>[0]);
+    preflight = await provider.fetchRateLimit(
+      fakeCtx as Parameters<typeof provider.fetchRateLimit>[0],
+    );
     const pct = preflight.utilizationPercent.toFixed(1);
     console.log(
       `  → action=${preflight.action} utilization=${pct}%` +
       ` remaining=${preflight.snapshot.pointsRemaining}/${preflight.snapshot.limitPerHour}` +
       (preflight.snapshot.resetAt ? ` resetAt=${preflight.snapshot.resetAt}` : ""),
     );
-
     if (preflight.action === "STOP") {
       console.error(
         `  DEFERRED: WCL quota exhausted (${pct}%). ` +
@@ -630,13 +990,10 @@ async function main(): Promise<void> {
       );
       const report = buildReport([], characters, "DEFERRED_RATE_LIMIT", rateLimitSummary(preflight), null);
       await writeReport(reportPath, report);
-      console.log(`  Report written: ${reportPath}`);
       process.exit(3);
     }
   } catch (err) {
-    console.error(
-      `  WARN: preflight RateLimitData failed — proceeding without rate guard. ${err instanceof Error ? err.message : String(err)}`,
-    );
+    console.error(`  WARN: preflight failed — proceeding without rate guard. ${err instanceof Error ? err.message : String(err)}`);
   }
 
   // ------------------------------------------------------------------
@@ -644,10 +1001,12 @@ async function main(): Promise<void> {
   // ------------------------------------------------------------------
   const results: CharacterValidationResult[] = [];
   let lastGuard: WclRateBudgetDecision | null = null;
+  // Track measured cost per dungeon from processed characters for cost estimation
+  const measuredCostsPerDungeon: number[] = [];
 
-  for (let i = 0; i < characters.length; i += 1) {
+  for (let i = 0; i < activeCharacters.length; i += 1) {
     // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-    const entry = characters[i]!;
+    const entry = activeCharacters[i]!;
     const region = entry.region.trim().toUpperCase();
     const realmSlug = entry.realm.trim().toLowerCase();
     const name = entry.name.trim();
@@ -657,114 +1016,171 @@ async function main(): Promise<void> {
       `${region.toLowerCase()}-${realmSlug}-${name.toLowerCase()}`,
     );
 
-    console.log(`\n[${i + 1}/${characters.length}] ${label}`);
+    console.log(`\n[${i + 1}/${activeCharacters.length}] ${label}`);
+
+    // Detect current artifact state
+    const artifactStatus = await detectArtifactState(artifactDir);
+    console.log(`  [artifacts] state=${artifactStatus.state} completed=${artifactStatus.completedDungeons.length}/8 missing=${artifactStatus.missingDungeons.length}`);
 
     // ------------------------------------------------------------------
-    // Resume: skip characters that are already complete
+    // Resume / skip logic
     // ------------------------------------------------------------------
-    if (args.resume && isAlreadyComplete(artifactDir)) {
-      console.log(`  [resume] already complete — loading from disk`);
+    if (args.resume && artifactStatus.state === "COMPLETE") {
+      console.log(`  [resume] COMPLETE — loading from disk`);
       const cached = await loadCompletedResult(artifactDir, region, realmSlug, name);
       if (cached) {
         results.push(cached);
-        console.log(
-          `  → state=OK (cached) class=${cached.classSlug ?? "?"} spec=${cached.specSlug ?? "?"} ` +
-          `score=${cached.behaviorScore ?? "null"}`,
-        );
+        console.log(`  → state=COMPLETE (cached) class=${cached.classSlug ?? "?"} score=${cached.behaviorScore ?? "null"}`);
         continue;
       }
-      console.log(`  [resume] could not load cached result — re-running`);
+    }
+
+    if (args.resumePartial && artifactStatus.state === "PARTIAL") {
+      console.log(`  [resume-partial] PARTIAL — will fetch only missing ${artifactStatus.missingDungeons.join(", ")}`);
+      // Fall through to validateCharacter which will skip the probe (hasProbeArtifacts check inside)
+    }
+
+    if (!args.retryErrors && artifactStatus.state === "ERROR" && !needsRun(args, artifactStatus.state)) {
+      console.log(`  [skip] artifact state=ERROR and --retry-errors not set — marking SKIPPED`);
+      results.push({
+        region,
+        realmSlug,
+        name,
+        classSlug: null,
+        specSlug: null,
+        roleSlug: null,
+        mixedRole: false,
+        roleSource: "unknown",
+        state: "SKIPPED",
+        artifactState: "ERROR",
+        completedDungeons: [],
+        missingDungeons: ACTIVE_SEASON_DUNGEONS,
+        behaviorScore: null,
+        confidence: null,
+        semanticBand: null,
+        domainScores: {},
+        redistributedWeights: {},
+        scoredVsExcludedDomains: null,
+        runCount: 0,
+        dungeonCount: 0,
+        castStopDiagnostics: null,
+        rateCost: null,
+        artifactDir,
+        error: "Artifact state=ERROR — use --retry-errors to retry",
+        probeFailure: await buildProbeFailureDiagnostics(artifactDir, "ERROR", false),
+      });
+      const partialReport = buildReport(results, characters, "PARTIAL", preflight ? rateLimitSummary(preflight) : null, lastGuard ? rateLimitSummary(lastGuard) : null);
+      await writeReport(reportPath, partialReport);
+      continue;
     }
 
     // ------------------------------------------------------------------
-    // Rate-budget guard before each character
+    // Rate-budget guard (only for characters that need live calls)
     // ------------------------------------------------------------------
-    // Characters that have existing probe artifacts don't need live calls
-    // for the probe step; still guard because V3 is offline-only.
-    const needsLiveCalls = !hasProbeArtifacts(artifactDir);
-    if (needsLiveCalls) {
+    const needsLive = artifactStatus.state === "NONE" || artifactStatus.state === "ERROR" || (args.resumePartial && artifactStatus.state === "PARTIAL");
+    if (needsLive) {
+      const historicalCostPerDungeon =
+        measuredCostsPerDungeon.length > 0
+          ? measuredCostsPerDungeon.reduce((a, b) => a + b, 0) / measuredCostsPerDungeon.length
+          : null;
+      const missingCount = artifactStatus.state === "PARTIAL"
+        ? artifactStatus.missingDungeons.length
+        : ACTIVE_SEASON_DUNGEONS.length;
+      const { estimated: estimatedCost, reason: costReason } = estimateCharacterCost(
+        missingCount,
+        historicalCostPerDungeon,
+      );
+
       try {
         const guard = await provider.fetchRateLimit(
           fakeCtx as Parameters<typeof provider.fetchRateLimit>[0],
         );
         lastGuard = guard;
         const pct = guard.utilizationPercent.toFixed(1);
+        const remaining = guard.snapshot.pointsRemaining;
+        const required = estimatedCost + SAFETY_RESERVE;
         console.log(
-          `  [rate-guard] action=${guard.action} utilization=${pct}%` +
-          ` remaining=${guard.snapshot.pointsRemaining}` +
+          `  [rate-guard] action=${guard.action} utilization=${pct}% remaining=${remaining}` +
+          ` estimatedCost=${estimatedCost.toFixed(0)} safetyReserve=${SAFETY_RESERVE} required=${required.toFixed(0)}` +
           (guard.snapshot.resetAt ? ` resetAt=${guard.snapshot.resetAt}` : ""),
         );
 
-        if (guard.action === "STOP" || guard.action === "DEFER") {
-          console.error(
-            `  DEFERRED: WCL quota ${guard.action} at ${pct}%. ` +
-            `Remaining characters will not be attempted.`,
-          );
-          // Mark this and all remaining characters as DEFERRED
-          for (let j = i; j < characters.length; j += 1) {
+        if (guard.action === "STOP" || guard.action === "DEFER" || remaining < required) {
+          const reason = guard.action === "STOP" || guard.action === "DEFER"
+            ? `WCL rate budget ${guard.action} at ${pct}%`
+            : `insufficient quota: ${remaining} remaining < ${required.toFixed(0)} required (${costReason})`;
+          console.error(`  DEFERRED: ${reason}. Remaining characters will not be attempted.`);
+
+          for (let j = i; j < activeCharacters.length; j += 1) {
             // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-            const e = characters[j]!;
+            const e = activeCharacters[j]!;
             const r = e.region.trim().toUpperCase();
             const rl = e.realm.trim().toLowerCase();
             const n = e.name.trim();
-            const dir = join(
-              args.outputRoot,
-              `${r.toLowerCase()}-${rl}-${n.toLowerCase()}`,
-            );
             results.push({
-              region: r,
-              realmSlug: rl,
-              name: n,
-              classSlug: null,
-              specSlug: null,
-              roleSlug: null,
+              region: r, realmSlug: rl, name: n,
+              classSlug: null, specSlug: null, roleSlug: null,
+              mixedRole: false, roleSource: "unknown",
               state: "DEFERRED_RATE_LIMIT",
-              behaviorScore: null,
-              confidence: null,
-              semanticBand: null,
-              domainScores: {},
-              redistributedWeights: {},
-              scoredVsExcludedDomains: null,
-              runCount: 0,
-              dungeonCount: 0,
-              artifactDir: dir,
-              error: `WCL rate budget ${guard.action} at ${pct}% — deferred`,
+              artifactState: "NONE", completedDungeons: [], missingDungeons: ACTIVE_SEASON_DUNGEONS,
+              behaviorScore: null, confidence: null, semanticBand: null,
+              domainScores: {}, redistributedWeights: {}, scoredVsExcludedDomains: null,
+              runCount: 0, dungeonCount: 0, castStopDiagnostics: null,
+              rateCost: {
+                pointsBefore: null, pointsAfter: null, pointsConsumed: null,
+                wclRequests: null, estimatedCost,
+                safetyReserve: SAFETY_RESERVE, costDecisionReason: reason,
+              },
+              artifactDir: join(args.outputRoot, `${r.toLowerCase()}-${rl}-${n.toLowerCase()}`),
+              error: reason, probeFailure: null,
             });
           }
           break;
         }
       } catch (err) {
-        console.warn(
-          `  WARN: rate-guard check failed — proceeding without guard. ${err instanceof Error ? err.message : String(err)}`,
-        );
+        console.warn(`  WARN: rate-guard check failed — proceeding. ${err instanceof Error ? err.message : String(err)}`);
       }
     }
 
     // ------------------------------------------------------------------
     // Run probe + V3
     // ------------------------------------------------------------------
+    const historicalCostPerDungeon =
+      measuredCostsPerDungeon.length > 0
+        ? measuredCostsPerDungeon.reduce((a, b) => a + b, 0) / measuredCostsPerDungeon.length
+        : null;
     const result = await validateCharacter(
       entry,
       args.outputRoot,
       provider,
       args.maxRunsPerDungeon,
       args.maxReportsPerDungeon,
+      historicalCostPerDungeon,
     );
     results.push(result);
+
+    // Update historical cost model
+    if (result.rateCost?.pointsConsumed != null && result.dungeonCount > 0) {
+      measuredCostsPerDungeon.push(result.rateCost.pointsConsumed / result.dungeonCount);
+    }
+
     console.log(
       `  → state=${result.state} class=${result.classSlug ?? "?"} spec=${result.specSlug ?? "?"} ` +
-      `score=${result.behaviorScore ?? "null"} confidence=${result.confidence ?? "null"}`,
+      `role=${result.roleSlug ?? "?"} score=${result.behaviorScore ?? "null"} ` +
+      `cost=${result.rateCost?.pointsConsumed ?? "?"}pts`,
     );
+    if (result.castStopDiagnostics?.sampleSizeWarning) {
+      console.warn(`  [castStops] ${result.castStopDiagnostics.sampleSizeWarning}`);
+    }
+    if (result.probeFailure) {
+      console.log(`  [probeFailure] diagnosis=${result.probeFailure.diagnosis} retryable=${result.probeFailure.retryable}`);
+    }
 
-    // ------------------------------------------------------------------
-    // Persist report after every character
-    // ------------------------------------------------------------------
+    // Persist after every character
     const partialBatchStatus: BatchStatus =
       result.state === "DEFERRED_RATE_LIMIT" ? "DEFERRED_RATE_LIMIT" : "PARTIAL";
     const partialReport = buildReport(
-      results,
-      characters,
-      partialBatchStatus,
+      results, characters, partialBatchStatus,
       preflight ? rateLimitSummary(preflight) : null,
       lastGuard ? rateLimitSummary(lastGuard) : null,
     );
@@ -776,53 +1192,56 @@ async function main(): Promise<void> {
   // ------------------------------------------------------------------
   const hasDeferred = results.some((r) => r.state === "DEFERRED_RATE_LIMIT");
   const hasError = results.some((r) => r.state === "ERROR");
+  const allComplete = results.every((r) => r.state === "COMPLETE" || r.state === "SKIPPED");
   const batchStatus: BatchStatus = hasDeferred
     ? "DEFERRED_RATE_LIMIT"
-    : hasError
-      ? results.every((r) => r.state === "ERROR")
-        ? "ERROR"
-        : "PARTIAL"
-      : "OK";
+    : allComplete ? "OK"
+      : hasError ? (results.every((r) => r.state === "ERROR") ? "ERROR" : "PARTIAL")
+        : results.some((r) => r.state === "PARTIAL") ? "PARTIAL"
+          : "OK";
 
   const finalReport = buildReport(
-    results,
-    characters,
-    batchStatus,
+    results, characters, batchStatus,
     preflight ? rateLimitSummary(preflight) : null,
     lastGuard ? rateLimitSummary(lastGuard) : null,
   );
   await writeReport(reportPath, finalReport);
 
   console.log("\nwcl.probe.utility.cross-class-validate — complete");
-  console.log(
-    JSON.stringify(
-      {
-        validatedAt: finalReport.validatedAt,
-        batchStatus,
-        rateLimit: finalReport.rateLimit,
-        summary: finalReport.summary,
-        characters: results.map((r) => ({
-          character: `${r.region}/${r.realmSlug}/${r.name}`,
-          classSlug: r.classSlug,
-          specSlug: r.specSlug,
-          roleSlug: r.roleSlug,
-          state: r.state,
-          behaviorScore: r.behaviorScore,
-          confidence: r.confidence,
-          semanticBand: r.semanticBand,
-          runCount: r.runCount,
-          error: r.error,
-        })),
-        reportPath,
-      },
-      null,
-      2,
-    ),
-  );
+  console.log(JSON.stringify({
+    validatedAt: finalReport.validatedAt,
+    batchStatus,
+    rateLimit: finalReport.rateLimit,
+    summary: finalReport.summary,
+    characters: results.map((r) => ({
+      character: `${r.region}/${r.realmSlug}/${r.name}`,
+      classSlug: r.classSlug,
+      specSlug: r.specSlug,
+      roleSlug: r.roleSlug,
+      mixedRole: r.mixedRole,
+      state: r.state,
+      artifactState: r.artifactState,
+      completedDungeons: r.completedDungeons.length,
+      missingDungeons: r.missingDungeons,
+      behaviorScore: r.behaviorScore,
+      confidence: r.confidence,
+      semanticBand: r.semanticBand,
+      runCount: r.runCount,
+      castStopWarning: r.castStopDiagnostics?.sampleSizeWarning ?? null,
+      rateCost: r.rateCost ? {
+        pointsConsumed: r.rateCost.pointsConsumed,
+        wclRequests: r.rateCost.wclRequests,
+        estimatedCost: r.rateCost.estimatedCost,
+      } : null,
+      probeDiagnosis: r.probeFailure?.diagnosis ?? null,
+      error: r.error,
+    })),
+    reportPath,
+  }, null, 2));
 
   if (batchStatus === "DEFERRED_RATE_LIMIT") {
     console.error(
-      `\nDEFERRED: ${finalReport.summary.deferred} character(s) deferred due to WCL rate limit. ` +
+      `\nDEFERRED: ${finalReport.summary.deferred} character(s) deferred. ` +
       `Retry with --resume after ${preflight?.snapshot.resetAt ?? lastGuard?.snapshot.resetAt ?? "next hour"}.`,
     );
     process.exit(3);
@@ -832,6 +1251,18 @@ async function main(): Promise<void> {
     process.exit(1);
   }
   console.log("OK");
+}
+
+/** Determine if a character needs to be run given the current CLI flags and artifact state. */
+function needsRun(
+  args: { resume: boolean; resumePartial: boolean; retryErrors: boolean },
+  state: ArtifactState,
+): boolean {
+  if (state === "NONE") return true;
+  if (state === "ERROR") return args.retryErrors;
+  if (state === "PARTIAL") return args.resumePartial || args.resume;
+  if (state === "COMPLETE") return false;
+  return true;
 }
 
 main().catch((err) => {

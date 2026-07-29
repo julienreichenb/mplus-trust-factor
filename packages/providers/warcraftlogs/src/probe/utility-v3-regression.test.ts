@@ -38,6 +38,7 @@ function baseNormalizedRun(overrides: Partial<UtilityNormalizedRun> = {}): Utili
     petActorIds: [2],
     specialization: "demonology",
     classSlug: "warlock",
+    roleSlug: null,
     interruptEvents: [],
     ccEvents: [],
     dispelPurgeEvents: [],

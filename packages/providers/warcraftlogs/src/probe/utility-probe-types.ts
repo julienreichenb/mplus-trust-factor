@@ -242,6 +242,8 @@ export interface UtilityNormalizedRun {
   petActorIds: number[];
   specialization: string | null;
   classSlug: string | null;
+  /** Resolved from WCL zoneRankings.role for this run's candidate. */
+  roleSlug: string | null;
   interruptEvents: UtilityInterruptEvent[];
   ccEvents: UtilityCcEvent[];
   dispelPurgeEvents: UtilityDispelPurgeEvent[];

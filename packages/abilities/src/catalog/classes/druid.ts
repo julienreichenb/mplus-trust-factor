@@ -7,6 +7,8 @@ export const DRUID_RULES: AbilityRule[] = [
     canonicalKey: "druid.interrupt.skull-bash",
     name: "Skull Bash",
     spellIds: [106839],
+    // 93985 is the FR-locale spell ID reported by WCL for the same ability
+    aliases: [93985],
     classSlug: "druid",
     specSlugs: ["feral", "guardian"],
     roles: TANK_DPS,

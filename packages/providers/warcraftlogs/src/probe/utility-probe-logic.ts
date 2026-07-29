@@ -1085,6 +1085,7 @@ export function normalizeUtilityRun(input: {
   specialization: string | null;
   classSlug: string | null;
   specSlug: string | null;
+  roleSlug: string | null;
   catalog: AbilityCatalog;
   actorCtx: UtilityActorContext;
   eventDatasets: Record<UtilityEventDataType, UtilityRawEventDataset>;
@@ -1165,6 +1166,7 @@ export function normalizeUtilityRun(input: {
     petActorIds: [...input.actorCtx.ownedPetActorIds],
     specialization: input.specialization,
     classSlug: input.classSlug,
+    roleSlug: input.roleSlug,
     interruptEvents: interrupts.events,
     ccEvents: cc.events,
     dispelPurgeEvents: dispels.events,

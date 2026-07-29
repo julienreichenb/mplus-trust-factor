@@ -20,6 +20,25 @@ async function writeJson(path: string, payload: unknown): Promise<void> {
   await writeFile(path, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
 }
 
+/** Derive majority roleSlug from normalized runs (from WCL zoneRankings.role). */
+function resolveRoleFromRuns(runs: import("./utility-probe-types.js").UtilityNormalizedRun[]): {
+  roleSlug: string | null;
+  mixedRole: boolean;
+  roleSource: "zone_rankings" | "inferred" | "unknown";
+} {
+  const counts = new Map<string, number>();
+  for (const r of runs) {
+    if (r.roleSlug) counts.set(r.roleSlug, (counts.get(r.roleSlug) ?? 0) + 1);
+  }
+  if (counts.size === 0) return { roleSlug: null, mixedRole: false, roleSource: "unknown" };
+  let best: string | null = null;
+  let bestCount = 0;
+  for (const [slug, count] of counts) {
+    if (count > bestCount) { best = slug; bestCount = count; }
+  }
+  return { roleSlug: best, mixedRole: counts.size > 1, roleSource: "zone_rankings" };
+}
+
 export async function runUtilityV3Simulation(
   options: UtilityV3SimulationOptions,
 ): Promise<UtilityV3SimulationResult> {
@@ -27,6 +46,14 @@ export async function runUtilityV3Simulation(
     options.inputDir,
   );
   const scoredAt = (options.now ?? new Date()).toISOString();
+  const roleResolution = resolveRoleFromRuns(runs);
+
+  const v3Subject = {
+    ...subject,
+    roleSlug: roleResolution.roleSlug,
+    mixedRole: roleResolution.mixedRole,
+    roleSource: roleResolution.roleSource,
+  };
 
   const dataset = buildUtilityV3SimulationDataset({
     runs,
@@ -34,7 +61,7 @@ export async function runUtilityV3Simulation(
     masterByReport: masterByReport as Parameters<
       typeof buildUtilityV3SimulationDataset
     >[0]["masterByReport"],
-    subject,
+    subject: v3Subject,
     scoredAt,
     config: UTILITY_V3_SIMULATION_CONFIG,
   });

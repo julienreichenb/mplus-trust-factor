@@ -63,6 +63,9 @@ export interface UtilityV3SimulationDataset {
     name: string | null;
     classSlug: string | null;
     specSlug: string | null;
+    roleSlug: string | null;
+    mixedRole: boolean;
+    roleSource: "zone_rankings" | "inferred" | "unknown";
   };
   evidenceInventory: UtilityV2EvidenceItem[];
   runSimulations: UtilityV3RunSimulation[];
