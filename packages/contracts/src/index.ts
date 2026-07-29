@@ -8,3 +8,4 @@ export * from "./scoring.js";
 export * from "./jobs.js";
 export * from "./api.js";
 export * from "./refresh-contract.js";
+export * from "./account-characters.js";

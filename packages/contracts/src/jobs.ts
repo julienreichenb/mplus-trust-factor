@@ -8,6 +8,7 @@ export const QUEUE_NAMES = {
   finalizeScore: "finalize-score",
   generateAddonExport: "generate-addon-export",
   syncRealmCatalog: "sync-realm-catalog",
+  discoverOwnedCharacters: "discover-owned-characters",
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
@@ -104,6 +105,19 @@ export const syncRealmCatalogJobSchema = z.object({
 });
 
 export type SyncRealmCatalogJob = z.infer<typeof syncRealmCatalogJobSchema>;
+
+export const discoverOwnedCharactersJobSchema = z.object({
+  battleNetAccountId: z.string().uuid(),
+  userId: z.string().uuid(),
+  /** ISO timestamp of the ownership sync revision this discovery evaluates. */
+  ownershipSyncAt: z.string().datetime(),
+  /** Active season slug / id key used for dedupe with ownership sync revision. */
+  seasonKey: z.string().min(1).max(64),
+  requestedAt: z.string().datetime(),
+  correlationId: z.string().min(1).max(128).nullable().optional(),
+});
+
+export type DiscoverOwnedCharactersJob = z.infer<typeof discoverOwnedCharactersJobSchema>;
 
 export type JobStatus = "queued" | "active" | "completed" | "failed" | "delayed" | "unknown";
 
