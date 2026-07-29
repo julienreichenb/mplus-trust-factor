@@ -7,6 +7,7 @@ import {
 import { UTILITY_STANDALONE_V1_CONFIG } from "./utility-v1-config.js";
 import {
   aggregateUtilityV1Dungeons,
+  assessGroupUtilityEligibility,
   diminishingReturnsScore,
   extractConfirmedActions,
   scoreUtilityV1Run,
@@ -156,7 +157,87 @@ describe("utility-v1-logic", () => {
     expect(runScore.components.dispelsPurges.score).toBe(0);
   });
 
-  it("redistributes weight when a component is NOT_APPLICABLE", () => {
+  it("marks group utility RAW_USE_ONLY casts as NOT_APPLICABLE, not zero contribution", () => {
+    const normalized = baseRun({
+      classSpecificEvents: [
+        {
+          timestamp: 5000,
+          sourceID: 1,
+          targetID: null,
+          abilityGameID: 111771,
+          category: "GROUP_UTILITY",
+          sourceKind: "PLAYER",
+          canonical: null,
+          successfulApplication: null,
+          targetDeathNearby: null,
+          battleRezResult: null,
+          classification: "RAW_USE_ONLY",
+          evidence: ["cast_observed", "value_not_inferable_from_cast_alone"],
+          unmatchedSpellId: false,
+          event: {} as never,
+        },
+      ],
+    });
+    const eligibility = assessGroupUtilityEligibility({
+      normalized,
+      catalog,
+      scoreableActionCount: 0,
+    });
+    expect(eligibility.outcome).toBe("NOT_APPLICABLE");
+    expect(eligibility.reason).toBe("wcl_cannot_confirm_group_utility_application_or_value");
+
+    const { runScore } = scoreUtilityV1Run({ normalized, catalog });
+    expect(runScore.notApplicableComponents).toContain("groupUtility");
+    expect(runScore.zeroContributionComponents).not.toContain("groupUtility");
+    expect(runScore.components.groupUtility.state).toBe("NOT_APPLICABLE");
+    expect(runScore.weightsApplied.groupUtility).toBe(0);
+    expect(runScore.weightsApplied.interrupts).toBeCloseTo(0.5, 2);
+    expect(runScore.weightsApplied.dispelsPurges).toBeCloseTo(0.2778, 2);
+    expect(runScore.weightsApplied.crowdControl).toBeCloseTo(0.2222, 2);
+  });
+
+  it("keeps ZERO_CONFIRMED_CONTRIBUTION when group toolkit exists but no casts observed", () => {
+    const normalized = baseRun();
+    const eligibility = assessGroupUtilityEligibility({
+      normalized,
+      catalog,
+      scoreableActionCount: 0,
+    });
+    expect(eligibility.outcome).toBe("ZERO_CONFIRMED_CONTRIBUTION");
+    const { runScore } = scoreUtilityV1Run({ normalized, catalog });
+    expect(runScore.zeroContributionComponents).toContain("groupUtility");
+    expect(runScore.notApplicableComponents).not.toContain("groupUtility");
+  });
+
+  it("scores POSSIBLY_USEFUL group utility normally", () => {
+    const normalized = baseRun({
+      classSpecificEvents: [
+        {
+          timestamp: 5000,
+          sourceID: 1,
+          targetID: 2,
+          abilityGameID: 111771,
+          category: "GROUP_UTILITY",
+          sourceKind: "PLAYER",
+          canonical: null,
+          successfulApplication: true,
+          targetDeathNearby: null,
+          battleRezResult: null,
+          classification: "POSSIBLY_USEFUL",
+          evidence: ["cast_observed", "buff_or_placeable_application_observed"],
+          unmatchedSpellId: false,
+          event: {} as never,
+        },
+      ],
+    });
+    const actions = extractConfirmedActions({ normalized, catalog });
+    expect(actions.filter((a) => a.component === "groupUtility")).toHaveLength(1);
+    const { runScore } = scoreUtilityV1Run({ normalized, catalog });
+    expect(runScore.components.groupUtility.state).toBe("SCORED");
+    expect(runScore.components.groupUtility.score).toBe(70);
+  });
+
+  it("redistributes weight proportionally when a component is NOT_APPLICABLE", () => {
     const normalized = baseRun({
       datasetStates: {
         ...baseRun().datasetStates,
@@ -167,7 +248,9 @@ describe("utility-v1-logic", () => {
     const { runScore } = scoreUtilityV1Run({ normalized, catalog });
     expect(runScore.notApplicableComponents).toContain("dispelsPurges");
     expect(runScore.weightsApplied.dispelsPurges).toBe(0);
-    expect(runScore.weightsApplied.interrupts).toBeGreaterThan(0.45);
+    expect(runScore.weightsApplied.interrupts).toBeCloseTo(0.6, 2);
+    expect(runScore.weightsApplied.crowdControl).toBeCloseTo(0.2667, 2);
+    expect(runScore.weightsApplied.groupUtility).toBeCloseTo(0.1333, 2);
   });
 
   it("equal-weight aggregates dungeon medians without run-count weighting", () => {

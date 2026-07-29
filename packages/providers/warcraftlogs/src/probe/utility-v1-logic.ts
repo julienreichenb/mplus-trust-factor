@@ -114,16 +114,60 @@ function componentApplicability(
   return { applicable: true, reason: null };
 }
 
-function isScoreableGroupEvent(classification: string, successfulApplication: boolean | null): boolean {
-  if (classification === "CONFIRMED_USEFUL") return true;
-  if (
-    classification === "POSSIBLY_USEFUL" &&
-    successfulApplication === true &&
-    UTILITY_STANDALONE_V1_CONFIG.scoreableGroupClassifications.includes("POSSIBLY_USEFUL")
-  ) {
-    return true;
+function isScoreableGroupEvent(classification: string): boolean {
+  return (
+    classification === "CONFIRMED_USEFUL" ||
+    classification === "POSSIBLY_USEFUL"
+  );
+}
+
+/** Group/class utility eligibility — observability-aware. */
+export function assessGroupUtilityEligibility(input: {
+  normalized: UtilityNormalizedRun;
+  catalog: AbilityCatalog;
+  scoreableActionCount: number;
+}): {
+  outcome: "SCORED" | "ZERO_CONFIRMED_CONTRIBUTION" | "NOT_APPLICABLE";
+  reason: string | null;
+} {
+  const classSlug = input.normalized.classSlug;
+  const specSlug = input.normalized.specialization;
+  const groupIds = new Set(
+    GROUP_CATEGORIES.flatMap((cat) => [
+      ...spellIdsForCategory(input.catalog, cat, { classSlug, specSlug }),
+    ]),
+  );
+
+  const groupEvents = [
+    ...input.normalized.externalGroupUtilityEvents,
+    ...input.normalized.classSpecificEvents,
+  ].filter((e) => groupIds.has(e.abilityGameID));
+
+  if (input.scoreableActionCount > 0) {
+    return { outcome: "SCORED", reason: null };
   }
-  return false;
+
+  if (groupEvents.length === 0) {
+    return {
+      outcome: "ZERO_CONFIRMED_CONTRIBUTION",
+      reason: "applicable_toolkit_no_group_utility_casts_observed",
+    };
+  }
+
+  const observabilityLimited = groupEvents.every(
+    (e) => e.classification === "RAW_USE_ONLY" || e.classification === "UNRESOLVED",
+  );
+  if (observabilityLimited) {
+    return {
+      outcome: "NOT_APPLICABLE",
+      reason: "wcl_cannot_confirm_group_utility_application_or_value",
+    };
+  }
+
+  return {
+    outcome: "ZERO_CONFIRMED_CONTRIBUTION",
+    reason: "applicable_toolkit_no_confirmed_group_utility_actions_observed",
+  };
 }
 
 export function extractConfirmedActions(input: {
@@ -282,7 +326,7 @@ export function extractConfirmedActions(input: {
   ];
   for (const event of groupEvents) {
     if (!groupIds.has(event.abilityGameID)) continue;
-    if (!isScoreableGroupEvent(event.classification, event.successfulApplication)) continue;
+    if (!isScoreableGroupEvent(event.classification)) continue;
     pushAction({
       component: "groupUtility",
       timestamp: event.timestamp,
@@ -365,10 +409,14 @@ function redistributeWeights(
   );
   const removed = notApplicable.reduce((s, k) => s + baseWeights[k], 0);
   if (applicable.length === 0) return { ...baseWeights };
+  const applicableBaseSum = applicable.reduce((s, k) => s + baseWeights[k], 0);
+  if (applicableBaseSum <= 0) return { ...baseWeights };
+
   const out = { ...baseWeights };
   for (const k of notApplicable) out[k] = 0;
-  const bonus = removed / applicable.length;
-  for (const k of applicable) out[k] = baseWeights[k] + bonus;
+  for (const k of applicable) {
+    out[k] = baseWeights[k] + removed * (baseWeights[k] / applicableBaseSum);
+  }
   return out;
 }
 
@@ -404,6 +452,32 @@ export function scoreUtilityV1Run(input: {
         evidence: { confirmedCount: count },
       };
       continue;
+    }
+
+    // Group/class utility: RAW_USE_ONLY-only evidence is an observability limitation → N/A.
+    if (component === "groupUtility") {
+      const groupEligibility = assessGroupUtilityEligibility({
+        normalized: input.normalized,
+        catalog: input.catalog,
+        scoreableActionCount: count,
+      });
+      if (groupEligibility.outcome === "NOT_APPLICABLE") {
+        notApplicableComponents.push(component);
+        components[component] = {
+          component,
+          state: "NOT_APPLICABLE",
+          score: null,
+          baseWeight: config.weights[component],
+          weightUsed: 0,
+          confirmedCount: count,
+          reason: groupEligibility.reason,
+          diminishingReturnsApplied: null,
+          evidence: {
+            note: "WCL cannot confirm application/value — weight redistributed, not scored as zero",
+          },
+        };
+        continue;
+      }
     }
 
     const { score, cappedCount } = diminishingReturnsScore(count, curve);

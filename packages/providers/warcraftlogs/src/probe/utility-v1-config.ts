@@ -54,7 +54,8 @@ export const UTILITY_STANDALONE_V1_CONFIG = {
     "Standalone Utility V1 — confirmed contribution only; no missed-opportunity scoring.",
     "Does not compare the player with other players.",
     "ZERO_CONFIRMED_CONTRIBUTION keeps weight but scores 0 — distinct from NOT_APPLICABLE.",
-    "NOT_APPLICABLE categories have weights redistributed to remaining applicable components.",
+    "NOT_APPLICABLE categories have weights redistributed proportionally to remaining applicable components.",
+    "Group/class utility with only RAW_USE_ONLY casts is NOT_APPLICABLE — WCL observability limitation, not zero contribution.",
     "Cross-stream CC on WCL Interrupts stream (Banish/Shadowfury) is never scored as interrupts.",
   ],
 } as const;
