@@ -88,6 +88,16 @@ export type {
 export { calculateScore, calculateScoreEngine } from "./calculate.js";
 export type { CalculateScoreInput } from "./calculate.js";
 export {
+  validateCoherence,
+  mergeObservationsWithLastKnownGood,
+  buildObservationKey,
+  type CoherenceValidationInput,
+  type CoherenceValidationResult,
+  type CoherenceViolation,
+  type CoverageState,
+  type PublicationStatus,
+} from "./publication/coherence.js";
+export {
   selectScoringRuns,
   type ScoringRunSelection,
   type ScoringRunSelectionEntry,

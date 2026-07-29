@@ -290,7 +290,7 @@ export class CharacterService {
   private async buildEnrichedProfile(
     identity: CharacterIdentityInput,
     character: Character,
-    snapshot: Awaited<ReturnType<typeof this.repositories.score.getLatestSnapshot>>,
+    snapshot: Awaited<ReturnType<typeof this.repositories.score.getPublishedSnapshot>>,
     latestRunId: string | null,
     highestRunId: string | null,
     sources: CharacterSourceAttribution[],
@@ -438,7 +438,7 @@ export class CharacterService {
     if (cached) return cached;
 
     const character = await this.findOrCreateCharacter(identity);
-    const snapshot = await this.repositories.score.getLatestSnapshot(character.id);
+    const snapshot = await this.repositories.score.getPublishedSnapshot(character.id);
     const fresh = isFresh(character.lastPublicRefreshAt, this.freshnessTtlSeconds);
 
     if (!snapshot) {
@@ -544,7 +544,7 @@ export class CharacterService {
     }
 
     const character = await this.findOrCreateCharacter(identity);
-    const snapshot = await this.repositories.score.getLatestSnapshot(character.id);
+    const snapshot = await this.repositories.score.getPublishedSnapshot(character.id);
     const fresh = isFresh(character.lastPublicRefreshAt, this.freshnessTtlSeconds);
 
     let refreshStatus: SearchCharacterResponse["refreshStatus"] = "FRESH";
@@ -617,7 +617,7 @@ export class CharacterService {
 
     const existing = await this.repositories.character.findByIdentity(identity);
     if (existing) {
-      const snapshot = await this.repositories.score.getLatestSnapshot(existing.id);
+      const snapshot = await this.repositories.score.getPublishedSnapshot(existing.id);
       const activeJob = await this.repositories.job.findActiveForCharacter(existing.id);
       const latestJob = activeJob ?? (await this.repositories.job.findLatestForCharacter(existing.id));
       const providerStates = await this.repositories.providerState.listForCharacter(existing.id);
@@ -751,7 +751,7 @@ export class CharacterService {
     const character = await this.requireCharacter(identity);
     const [activeJob, snapshot] = await Promise.all([
       this.repositories.job.findActiveForCharacter(character.id),
-      this.repositories.score.getLatestSnapshot(character.id),
+      this.repositories.score.getPublishedSnapshot(character.id),
     ]);
     const latestJob = activeJob ?? (await this.repositories.job.findLatestForCharacter(character.id));
     const fresh = isFresh(character.lastPublicRefreshAt, this.freshnessTtlSeconds);
@@ -807,7 +807,7 @@ export class CharacterService {
     );
     if (remaining > 0 && !opts.isAdmin) {
       const lastJob = await this.repositories.job.findLatestForCharacter(character.id);
-      const snapshot = await this.repositories.score.getLatestSnapshot(character.id);
+      const snapshot = await this.repositories.score.getPublishedSnapshot(character.id);
       return {
         characterId: character.id,
         refreshStatus: snapshot ? "STALE" : "QUEUED",
@@ -848,7 +848,7 @@ export class CharacterService {
 
   async getLatestScore(identity: CharacterIdentityInput): Promise<ScoreSnapshotDTO> {
     const character = await this.requireCharacter(identity);
-    const snapshot = await this.repositories.score.getLatestSnapshot(character.id);
+    const snapshot = await this.repositories.score.getPublishedSnapshot(character.id);
     if (!snapshot) {
       throw HttpError.notFound("SCORE_NOT_FOUND", "No score has been calculated for this character yet");
     }
