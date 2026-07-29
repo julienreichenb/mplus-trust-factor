@@ -26,6 +26,22 @@ describe("loadEnv", () => {
     expect(env.REFRESH_SCHEDULER_ENABLED).toBe(false);
     expect(env.REFRESH_DRY_RUN_ONLY).toBe(true);
     expect(env.REFRESH_TRACKED_TOP_PERCENT).toBe(25);
+    expect(env.UTILITY_PUBLICATION_MODE).toBe("shadow");
+  });
+
+  it("accepts UTILITY_PUBLICATION_MODE enum values", () => {
+    resetEnvCache();
+    expect(loadEnv({ ...baseEnv, UTILITY_PUBLICATION_MODE: "off" }).UTILITY_PUBLICATION_MODE).toBe(
+      "off",
+    );
+    resetEnvCache();
+    expect(
+      loadEnv({ ...baseEnv, UTILITY_PUBLICATION_MODE: "shadow" }).UTILITY_PUBLICATION_MODE,
+    ).toBe("shadow");
+    resetEnvCache();
+    expect(
+      loadEnv({ ...baseEnv, UTILITY_PUBLICATION_MODE: "published" }).UTILITY_PUBLICATION_MODE,
+    ).toBe("published");
   });
 
   it("rejects live mode without Blizzard credentials when Blizzard is enabled", () => {

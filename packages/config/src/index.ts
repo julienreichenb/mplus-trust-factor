@@ -59,6 +59,13 @@ export const envSchema = z
 
     ACTIVE_SCORE_MODEL_KEY: z.string().default("default"),
     ACTIVE_SCORE_MODEL_VERSION: z.coerce.number().int().positive().default(5),
+    /**
+     * Utility OBSERVED_CONTRIBUTION publication gate.
+     * - off: do not compute shadow diagnostics
+     * - shadow (default): compute admin-only score; public Utility / Trust unchanged
+     * - published: blocked (not implemented) — safety guard refuses publication path
+     */
+    UTILITY_PUBLICATION_MODE: z.enum(["off", "shadow", "published"]).default("shadow"),
     MANUAL_REFRESH_COOLDOWN_SECONDS: z.coerce.number().int().positive().default(900),
 
     /**
