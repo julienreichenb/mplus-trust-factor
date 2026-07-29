@@ -40,6 +40,7 @@ import {
 } from "@mplus/scoring";
 import { OBS_EVENTS, fingerprintIdentifier } from "@mplus/observability";
 import { validateScoreSnapshot } from "@mplus/test-utils";
+import { mergeObservationsWithLastKnownGood } from "@mplus/scoring";
 import {
   buildWclSummaryRequestFingerprint,
   isCompatiblePointsAndDamageSummary,
@@ -86,6 +87,7 @@ import {
   buildSurvivalWclBindPool,
   matchSurvivalWclSource,
 } from "./survival-wcl-late-bind.js";
+import { attemptPublication, mapDbSnapshotToDto } from "./publication-flow.js";
 export const REFRESH_STAGES = [
   "resolve-character",
   "refresh-blizzard",
@@ -1964,7 +1966,38 @@ export async function runRefreshPipeline(
   for (const obs of wclSurvival.observations) {
     obs.observedAt = observedAtForScore;
   }
-  await repositories.metric.replaceObservations(character.id, season.id, observations);
+
+  const persistedObservations = await repositories.metric.listForCharacter(character.id, season.id);
+  const failedDimensions = new Set<string>();
+  const refreshedMetricKeys = new Set<string>();
+
+  const wclSummaryFailed = stagesSkipped.includes("refresh-warcraftlogs-summary");
+  const wclAnalyzeFailed = stagesSkipped.includes("analyze-run");
+
+  if (wclPerformance.observations.length === 0 && (wclSummaryFailed || wclAnalyzeFailed)) {
+    failedDimensions.add("PERFORMANCE");
+  } else {
+    for (const obs of wclPerformance.observations) {
+      refreshedMetricKeys.add(obs.metricKey);
+    }
+  }
+
+  if (wclSurvival.observations.length === 0 && (wclSummaryFailed || wclAnalyzeFailed)) {
+    failedDimensions.add("SURVIVAL");
+  } else {
+    for (const obs of wclSurvival.observations) {
+      refreshedMetricKeys.add(obs.metricKey);
+    }
+  }
+
+  const mergedObservations = mergeObservationsWithLastKnownGood({
+    incoming: observations,
+    persisted: persistedObservations,
+    failedDimensions,
+    refreshedMetricKeys,
+  });
+
+  await repositories.metric.upsertObservations(character.id, season.id, mergedObservations);
 
   // ── Calculate + structurally validate score ─────────────────────────────
   const model = await repositories.score.getActiveModel(container.env.ACTIVE_SCORE_MODEL_KEY);
@@ -2003,9 +2036,9 @@ export async function runRefreshPipeline(
     model: modelConfig,
     scopeType: "CHARACTER",
     scopeKey: null,
-    observations,
+    observations: mergedObservations,
     calculatedAt: scoreCalculatedAt.toISOString(),
-    inputFingerprint: fingerprintObservations(character.id, model.key, model.version, observations, {
+    inputFingerprint: fingerprintObservations(character.id, model.key, model.version, mergedObservations, {
       refreshContract,
       scoringRunSelectionKey: buildScoringRunSelectionKey(scoringRunSelection.selectedRuns),
       forceRefreshToken: jobPayload.forceRefresh ? jobPayload.requestedAt : null,
@@ -2033,7 +2066,8 @@ export async function runRefreshPipeline(
     OBS_EVENTS.refreshScoreCalculated,
   );
 
-  // Override PERFORMANCE dimension confidence with independent WCL confidence when scored.
+  // Override PERFORMANCE dimension confidence with independent WCL confidence when freshly scored.
+  // When WCL failed, merged observations preserve last-known-good — do not force UNAVAILABLE.
   if (wclPerformance.observations.length > 0) {
     for (const dim of scoreDto.dimensions) {
       if (dim.dimension === "PERFORMANCE") {
@@ -2044,7 +2078,7 @@ export async function runRefreshPipeline(
         }
       }
     }
-  } else {
+  } else if (!failedDimensions.has("PERFORMANCE")) {
     for (const dim of scoreDto.dimensions) {
       if (dim.dimension === "PERFORMANCE") {
         dim.confidence = 0;
@@ -2064,7 +2098,7 @@ export async function runRefreshPipeline(
     scoreDto.explanation && typeof scoreDto.explanation === "object"
       ? {
           ...(scoreDto.explanation as Record<string, unknown>),
-          observations: observations.map((o) => ({
+          observations: mergedObservations.map((o) => ({
             metricKey: o.metricKey,
             sourceProvider: o.sourceProvider,
             observedAt: o.observedAt,
@@ -2172,37 +2206,63 @@ export async function runRefreshPipeline(
     );
   }
 
-  await repositories.score.saveScoreSnapshot({
+  const contractHash = hashRefreshContract(refreshContract);
+  const publication = await attemptPublication({
     characterId: character.id,
     seasonId: season.id,
     scoreModelId: model.id,
-    scopeType: "CHARACTER",
-    scopeKey: null,
-    snapshot: enrichedScore,
-    publish: true,
+    model: modelConfig,
+    candidate: enrichedScore,
+    incomingObservations: observations,
+    persistedObservations,
+    failedDimensions,
+    refreshedMetricKeys,
+    refreshContractHash: contractHash,
+    providerDataAsOf: (() => {
+      const warcraftlogsAt = timestampFor("warcraftlogs");
+      return warcraftlogsAt ? new Date(warcraftlogsAt) : now;
+    })(),
     analysisBatchId: analysisBatch.id,
+    scoreRepository: repositories.score,
+    metricRepository: repositories.metric,
   });
+
+  if (!publication.published) {
+    logger.warn(
+      {
+        ...logBase,
+        event: "refresh_publication_rejected",
+        rejectionReason: publication.rejectionReason,
+        violations: publication.coherence.violations,
+        regressedDimensions: publication.coherence.regressedDimensions,
+      },
+      "refresh pipeline: candidate rejected — keeping published snapshot",
+    );
+  } else {
+    logger.info(
+      {
+        ...logBase,
+        event: OBS_EVENTS.refreshPersistenceCompleted,
+        coverageState: publication.coherence.coverageState,
+      },
+      OBS_EVENTS.refreshPersistenceCompleted,
+    );
+  }
 
   if (claimed) {
     await repositories.analysisBatch.markFinalized(analysisBatch.id);
   }
 
+  const publishedForReturn = publication.published
+    ? null
+    : await repositories.score.getPublishedSnapshot(character.id, season.id, model.id);
+
   character = await repositories.character.updateRefreshTimestamps(character.id, {
     lastSeenAt: now,
-    lastPublicRefreshAt: now,
+    ...(publication.published ? { lastPublicRefreshAt: now } : {}),
   });
   job = await repositories.job.markCompleted(job.id);
   terminalized = true;
-  logger.info(
-    {
-      ...logBase,
-      event: OBS_EVENTS.refreshPersistenceCompleted,
-      jobId: job.id,
-      characterId: character.id,
-      fusedRunCount: fusedRuns.length,
-    },
-    OBS_EVENTS.refreshPersistenceCompleted,
-  );
   logger.info(
     {
       ...logBase,
@@ -2210,6 +2270,7 @@ export async function runRefreshPipeline(
       jobId: job.id,
       status: "COMPLETED",
       stagesSkipped,
+      publicationRejected: !publication.published,
     },
     OBS_EVENTS.refreshTerminal,
   );
@@ -2217,7 +2278,11 @@ export async function runRefreshPipeline(
   return {
     character,
     job,
-    score: enrichedScore,
+    score: publication.published
+      ? enrichedScore
+      : publishedForReturn
+        ? mapDbSnapshotToDto(publishedForReturn)
+        : enrichedScore,
     stagesSkipped,
     notFound: false,
     disagreements,

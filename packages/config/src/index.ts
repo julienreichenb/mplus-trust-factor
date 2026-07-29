@@ -150,3 +150,12 @@ export function getEnv(): AppEnv {
 export function resetEnvCache(): void {
   cachedEnv = null;
 }
+
+export {
+  buildFreshnessConfig,
+  ttlForDataset,
+  isDatasetFresh,
+  FRESHNESS_CONFIG_VERSION,
+  type FreshnessConfig,
+  type FreshnessDataset,
+} from "./freshness.js";
