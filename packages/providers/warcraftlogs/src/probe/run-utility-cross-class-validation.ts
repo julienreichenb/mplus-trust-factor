@@ -63,6 +63,12 @@ interface CharacterManifestEntry {
   name: string;
   /** Informational label — never used for scoring logic. */
   role?: string;
+  /**
+   * When false, exclude from automatic validation (keeps artifacts for diagnostics).
+   * Still runnable with --only Name --force-refetch.
+   * Defaults to true when omitted.
+   */
+  enabled?: boolean;
 }
 
 export interface ProbeFailureDiagnostics {
@@ -1302,12 +1308,32 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  // Apply --only filter
-  const activeCharacters = args.only
+  // Active panel = enabled characters (enabled !== false). Disabled diagnostic
+  // profiles (Makmakmak/Sjelelele) keep artifacts but never auto-consume WCL
+  // quota unless selected via --only AND --force-refetch.
+  const isEnabled = (c: CharacterManifestEntry): boolean => c.enabled !== false;
+  const panelCharacters = characters.filter(isEnabled);
+  let activeCharacters = args.only
     ? characters.filter((c) => args.only!.has(c.name.toLowerCase()))
-    : characters;
-  if (args.only && activeCharacters.length === 0) {
-    console.error(`FAIL: --only filter matched no characters. Available: ${characters.map((c) => c.name).join(", ")}`);
+    : panelCharacters;
+
+  if (args.only) {
+    const disabledOnly = activeCharacters.filter((c) => !isEnabled(c) && !args.forceRefetch);
+    if (disabledOnly.length > 0) {
+      console.warn(
+        `WARN: disabled diagnostic character(s) ignored without --force-refetch: ` +
+        disabledOnly.map((c) => c.name).join(", "),
+      );
+    }
+    activeCharacters = activeCharacters.filter((c) => isEnabled(c) || args.forceRefetch);
+  }
+
+  if (activeCharacters.length === 0) {
+    console.error(
+      `FAIL: no runnable characters. ` +
+      `Available (enabled): ${panelCharacters.map((c) => c.name).join(", ")}. ` +
+      `Disabled (need --force-refetch): ${characters.filter((c) => !isEnabled(c)).map((c) => c.name).join(", ") || "(none)"}`,
+    );
     process.exit(1);
   }
 

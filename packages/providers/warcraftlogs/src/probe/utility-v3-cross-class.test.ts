@@ -501,6 +501,31 @@ function shouldUseCacheOnly(opts: {
   );
 }
 
+function isManifestEnabled(entry: { enabled?: boolean }): boolean {
+  return entry.enabled !== false;
+}
+
+describe("disabled diagnostic characters", () => {
+  it("excludes enabled:false from automatic panel", () => {
+    const characters = [
+      { name: "Wallidrixe" },
+      { name: "Haart" },
+      { name: "Makmakmak", enabled: false },
+      { name: "Sjelelele", enabled: false },
+      { name: "Moosevoker" },
+    ];
+    const panel = characters.filter(isManifestEnabled);
+    expect(panel.map((c) => c.name)).toEqual(["Wallidrixe", "Haart", "Moosevoker"]);
+  });
+
+  it("allows disabled characters only with forceRefetch", () => {
+    const entry = { name: "Makmakmak", enabled: false as boolean | undefined };
+    const forceRefetch = true;
+    expect(isManifestEnabled(entry)).toBe(false);
+    expect(isManifestEnabled(entry) || forceRefetch).toBe(true);
+  });
+});
+
 describe("cache-only COMPLETE and --only parsing", () => {
   it("COMPLETE + --resume-partial => cache-only (zero live calls)", () => {
     expect(

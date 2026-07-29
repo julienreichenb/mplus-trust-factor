@@ -1,9 +1,12 @@
 [
-  { "region": "EU", "realm": "archimonde",     "name": "Wallidrixe",  "role": "calibration" },
-  { "region": "EU", "realm": "twisting-nether", "name": "Makmakmak",  "role": "validation" },
-  { "region": "EU", "realm": "ysondre",         "name": "Lfgaddict",  "role": "validation" },
-  { "region": "EU", "realm": "hyjal",           "name": "Zam",        "role": "validation" },
-  { "region": "EU", "realm": "garona",          "name": "Aspha",      "role": "validation" },
-  { "region": "EU", "realm": "sylvanas",        "name": "Serahz",     "role": "validation" },
-  { "region": "EU", "realm": "twisting-nether", "name": "Sjelelele",  "role": "validation" }
+  { "region": "EU", "realm": "archimonde",  "name": "Wallidrixe",  "role": "calibration" },
+  { "region": "EU", "realm": "ysondre",     "name": "Haart",       "role": "validation" },
+  { "region": "EU", "realm": "ysondre",     "name": "Lfgaddict",   "role": "validation" },
+  { "region": "EU", "realm": "hyjal",       "name": "Zam",         "role": "validation" },
+  { "region": "EU", "realm": "garona",      "name": "Aspha",       "role": "validation" },
+  { "region": "EU", "realm": "sylvanas",    "name": "Serahz",      "role": "validation" },
+  { "region": "EU", "realm": "ravencrest",  "name": "Moosevoker",  "role": "validation" },
+
+  { "region": "EU", "realm": "twisting-nether", "name": "Makmakmak",  "role": "diagnostic", "enabled": false },
+  { "region": "EU", "realm": "twisting-nether", "name": "Sjelelele",  "role": "diagnostic", "enabled": false }
 ]
