@@ -1,0 +1,3 @@
+*.sh text eol=lf
+infra/deploy/**/.env.example text eol=lf
+infra/caddy/Caddyfile text eol=lf

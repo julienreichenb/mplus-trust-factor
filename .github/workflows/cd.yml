@@ -1,0 +1,286 @@
+name: CD
+
+# Builds immutable SHA images to GHCR, then optionally deploys to one VPS environment.
+# GitHub Environments: `test` | `production` (separate secrets/variables).
+# VPS is NOT required for image build.
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Deploy target (GitHub Environment + VPS stack)
+        required: true
+        type: choice
+        options:
+          - test
+          - production
+        default: test
+      image_tag:
+        description: Immutable image tag (git SHA). Empty = workflow commit SHA.
+        required: false
+        type: string
+        default: ""
+      skip_deploy:
+        description: Build/push only (no VPS deploy)
+        required: false
+        type: boolean
+        default: false
+  push:
+    branches:
+      - integration/wave4.3
+    paths-ignore:
+      - "doc/**"
+      - "docs/**"
+      - "**.md"
+
+concurrency:
+  # Isolate CD locks per target so test never blocks/cancels production mid-flight
+  group: cd-${{ github.event.inputs.environment || 'test' }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  # Optional policy gate — configurable via Environment variables:
+  #   ALLOWED_REF_PREFIX (e.g. refs/heads/integration/wave4.3 for test)
+  #   REQUIRE_WORKFLOW_DISPATCH (true for production)
+  policy:
+    name: Deployment policy
+    runs-on: ubuntu-latest
+    outputs:
+      deploy_env: ${{ steps.map.outputs.deploy_env }}
+      script_env: ${{ steps.map.outputs.script_env }}
+    steps:
+      - name: Map target
+        id: map
+        run: |
+          RAW="${{ github.event.inputs.environment || 'test' }}"
+          if [ "${{ github.event_name }}" = "push" ]; then
+            RAW="test"
+          fi
+          case "${RAW}" in
+            production|prod)
+              echo "deploy_env=production" >> "${GITHUB_OUTPUT}"
+              echo "script_env=prod" >> "${GITHUB_OUTPUT}"
+              ;;
+            test)
+              echo "deploy_env=test" >> "${GITHUB_OUTPUT}"
+              echo "script_env=test" >> "${GITHUB_OUTPUT}"
+              ;;
+            *)
+              echo "Unknown environment: ${RAW}" >&2
+              exit 1
+              ;;
+          esac
+
+  build-and-push:
+    name: Build & push GHCR images
+    needs: policy
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    outputs:
+      image_tag: ${{ steps.meta.outputs.tag }}
+      owner: ${{ steps.meta.outputs.owner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Image metadata
+        id: meta
+        run: |
+          TAG="${{ github.event.inputs.image_tag }}"
+          if [ -z "${TAG}" ]; then TAG="${GITHUB_SHA}"; fi
+          if [ "${TAG}" = "latest" ]; then echo "refusing latest" >&2; exit 1; fi
+          echo "tag=${TAG}" >> "${GITHUB_OUTPUT}"
+          OWNER="$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
+          echo "owner=${OWNER}" >> "${GITHUB_OUTPUT}"
+
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push api
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: infra/docker/Dockerfile
+          target: api
+          push: true
+          tags: ${{ env.REGISTRY }}/${{ steps.meta.outputs.owner }}/mplus-api:${{ steps.meta.outputs.tag }}
+          build-args: |
+            APP_VERSION=${{ steps.meta.outputs.tag }}
+            GIT_SHA=${{ github.sha }}
+          cache-from: type=gha,scope=mplus-api
+          cache-to: type=gha,mode=max,scope=mplus-api
+          provenance: true
+          sbom: true
+
+      - name: Push worker
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: infra/docker/Dockerfile
+          target: worker
+          push: true
+          tags: ${{ env.REGISTRY }}/${{ steps.meta.outputs.owner }}/mplus-worker:${{ steps.meta.outputs.tag }}
+          build-args: |
+            APP_VERSION=${{ steps.meta.outputs.tag }}
+            GIT_SHA=${{ github.sha }}
+          cache-from: type=gha,scope=mplus-worker
+          cache-to: type=gha,mode=max,scope=mplus-worker
+          provenance: true
+          sbom: true
+
+      - name: Push migrate
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: infra/docker/Dockerfile
+          target: migrate
+          push: true
+          tags: ${{ env.REGISTRY }}/${{ steps.meta.outputs.owner }}/mplus-migrate:${{ steps.meta.outputs.tag }}
+          build-args: |
+            APP_VERSION=${{ steps.meta.outputs.tag }}
+            GIT_SHA=${{ github.sha }}
+          cache-from: type=gha,scope=mplus-migrate
+          cache-to: type=gha,mode=max,scope=mplus-migrate
+          provenance: true
+          sbom: true
+
+      - name: Push web
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: infra/docker/Dockerfile.web
+          target: web
+          push: true
+          tags: ${{ env.REGISTRY }}/${{ steps.meta.outputs.owner }}/mplus-web:${{ steps.meta.outputs.tag }}
+          build-args: |
+            APP_VERSION=${{ steps.meta.outputs.tag }}
+            GIT_SHA=${{ github.sha }}
+            VITE_API_MODE=live
+            VITE_API_BASE_URL=
+          cache-from: type=gha,scope=mplus-web
+          cache-to: type=gha,mode=max,scope=mplus-web
+          provenance: true
+          sbom: true
+
+      - name: Release manifesto
+        run: |
+          cat > release-manifest.json <<EOF
+          {
+            "gitSha": "${{ github.sha }}",
+            "imageTag": "${{ steps.meta.outputs.tag }}",
+            "target": "${{ needs.policy.outputs.deploy_env }}",
+            "images": {
+              "api": "${{ env.REGISTRY }}/${{ steps.meta.outputs.owner }}/mplus-api:${{ steps.meta.outputs.tag }}",
+              "worker": "${{ env.REGISTRY }}/${{ steps.meta.outputs.owner }}/mplus-worker:${{ steps.meta.outputs.tag }}",
+              "web": "${{ env.REGISTRY }}/${{ steps.meta.outputs.owner }}/mplus-web:${{ steps.meta.outputs.tag }}",
+              "migrate": "${{ env.REGISTRY }}/${{ steps.meta.outputs.owner }}/mplus-migrate:${{ steps.meta.outputs.tag }}"
+            }
+          }
+          EOF
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-manifest-${{ needs.policy.outputs.deploy_env }}-${{ steps.meta.outputs.tag }}
+          path: release-manifest.json
+          retention-days: 30
+
+  deploy:
+    name: Deploy (${{ needs.policy.outputs.deploy_env }})
+    needs: [policy, build-and-push]
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.skip_deploy == false }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: ${{ needs.policy.outputs.deploy_env }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Policy checks (Environment variables)
+        env:
+          REQUIRE_WORKFLOW_DISPATCH: ${{ vars.REQUIRE_WORKFLOW_DISPATCH }}
+          ALLOWED_REF_PREFIX: ${{ vars.ALLOWED_REF_PREFIX }}
+        run: |
+          set -euo pipefail
+          if [ "${REQUIRE_WORKFLOW_DISPATCH:-}" = "true" ] && [ "${{ github.event_name }}" != "workflow_dispatch" ]; then
+            echo "This environment requires workflow_dispatch" >&2
+            exit 1
+          fi
+          if [ -n "${ALLOWED_REF_PREFIX:-}" ]; then
+            case "${{ github.ref }}" in
+              ${ALLOWED_REF_PREFIX}*) ;;
+              *)
+                echo "ref ${{ github.ref }} not allowed (need prefix ${ALLOWED_REF_PREFIX})" >&2
+                exit 1
+                ;;
+            esac
+          fi
+          # Recommended defaults (document in ops): 
+          #   test: ALLOWED_REF_PREFIX=refs/heads/integration/wave4.3
+          #   production: REQUIRE_WORKFLOW_DISPATCH=true + required reviewers
+
+      - name: Require deploy secrets
+        env:
+          SSH_HOST: ${{ secrets.VPS_SSH_HOST }}
+          SSH_USER: ${{ secrets.VPS_SSH_USER }}
+          SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+        run: |
+          if [ -z "${SSH_HOST}" ] || [ -z "${SSH_USER}" ] || [ -z "${SSH_KEY}" ]; then
+            echo "VPS SSH secrets not configured for environment ${{ needs.policy.outputs.deploy_env }} — skip deploy."
+            exit 0
+          fi
+          echo "HAS_SECRETS=1" >> "${GITHUB_ENV}"
+
+      - name: SSH deploy (environment-scoped)
+        if: env.HAS_SECRETS == '1'
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VPS_SSH_HOST }}
+          username: ${{ secrets.VPS_SSH_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_SSH_PORT || 22 }}
+          script: |
+            set -euo pipefail
+            MPLUS_ROOT="${{ secrets.VPS_MPLUS_ROOT || '/opt/mplus' }}"
+            REPO_DIR="${{ secrets.VPS_REPO_DIR || '/opt/mplus/repo' }}"
+            cd "${REPO_DIR}"
+            git fetch --all --tags
+            git checkout "${{ github.sha }}" || git pull --ff-only
+            echo "${{ secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+            chmod +x infra/scripts/*.sh
+            export MPLUS_ROOT IMAGE_TAG="${{ needs.build-and-push.outputs.image_tag }}"
+            # IMAGE_TAG / GHCR_OWNER must also be present in the env .env or exported:
+            ENV_FILE="${MPLUS_ROOT}/${{ needs.policy.outputs.script_env }}/.env"
+            sed -i.bak "s/^IMAGE_TAG=.*/IMAGE_TAG=${{ needs.build-and-push.outputs.image_tag }}/" "${ENV_FILE}" || true
+            ./infra/scripts/deploy.sh "${{ needs.policy.outputs.script_env }}"
+
+      - name: Health verify (this environment only)
+        if: env.HAS_SECRETS == '1'
+        env:
+          PUBLIC_URL: ${{ secrets.VPS_PUBLIC_URL }}
+        run: |
+          if [ -z "${PUBLIC_URL}" ]; then
+            echo "VPS_PUBLIC_URL not set for this GitHub Environment — skip"
+            exit 0
+          fi
+          chmod +x infra/scripts/health-wait.sh
+          ./infra/scripts/health-wait.sh "${PUBLIC_URL}/health/live" 180
+
+      - name: Release summary
+        run: |
+          cat <<EOF
+          ## Release summary
+          - github environment: ${{ needs.policy.outputs.deploy_env }}
+          - vps script target: ${{ needs.policy.outputs.script_env }}
+          - compose project: mplus-${{ needs.policy.outputs.script_env }}
+          - imageTag: ${{ needs.build-and-push.outputs.image_tag }}
+          - rollback: ./infra/scripts/rollback.sh ${{ needs.policy.outputs.script_env }} <previous-sha>
+          EOF

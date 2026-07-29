@@ -1,0 +1,55 @@
+# Dependencies & stores
+**/node_modules
+.pnpm-store
+
+# Git / IDE / OS
+.git
+.github
+.idea
+.vscode
+**/.DS_Store
+**/Thumbs.db
+
+# Env & secrets — never bake into images
+.env
+.env.*
+!.env.example
+!.env.production.example
+**/.env
+**/.env.*
+!**/.env.example
+
+# Build artifacts (rebuilt in image)
+**/dist
+**/dist-mock
+**/dist-e2e-live
+**/coverage
+**/*.tsbuildinfo
+openapi.json
+apps/api/openapi.json
+
+# Local data & backups
+data
+raw-artifacts
+logs
+tmp
+.temp
+.cache
+.turbo
+.vitest
+
+# Docs / agent packs (not needed at runtime)
+doc
+docs
+agents
+addon/**/*.zip
+
+# Tests & e2e (not needed in runtime image; builder may still need src tests excluded via build)
+**/playwright-report
+**/test-results
+apps/web/e2e/.e2e-pids.json
+
+# Misc
+*.md
+!package.json
+README.md

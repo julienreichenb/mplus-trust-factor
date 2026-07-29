@@ -1,0 +1,58 @@
+# Test overrides — tighter limits so test cannot starve production.
+#   docker compose -p mplus-test \
+#     -f infra/docker/docker-compose.app.yml \
+#     -f infra/docker/docker-compose.test.yml \
+#     --env-file /opt/mplus/test/.env
+
+x-logging-test: &logging-test
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  web:
+    logging: *logging-test
+    networks:
+      proxy:
+        aliases:
+          - mplus-test-web
+    cpus: 0.50
+    mem_limit: 256m
+
+  api:
+    logging: *logging-test
+    networks:
+      proxy:
+        aliases:
+          - mplus-test-api
+    cpus: 1.0
+    mem_limit: 768m
+
+  worker:
+    logging: *logging-test
+    networks:
+      proxy:
+        aliases:
+          - mplus-test-worker
+    cpus: 1.0
+    mem_limit: 1024m
+
+  postgres:
+    logging: *logging-test
+    command:
+      - postgres
+      - -c
+      - shared_buffers=128MB
+      - -c
+      - max_connections=50
+    cpus: 1.0
+    mem_limit: 768m
+
+  redis:
+    logging: *logging-test
+    cpus: 0.25
+    mem_limit: 192m
+
+  migrate:
+    logging: *logging-test

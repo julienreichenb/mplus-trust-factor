@@ -1,0 +1,70 @@
+# syntax=docker/dockerfile:1.7
+# Static web SPA served by nginx (internal). Public TLS terminates at Caddy.
+#
+# Build:
+#   docker build -f infra/docker/Dockerfile.web \
+#     --build-arg VITE_API_BASE_URL=https://example.com \
+#     --build-arg VITE_API_MODE=live \
+#     -t mplus-web:local .
+
+ARG NODE_VERSION=24
+
+FROM node:${NODE_VERSION}-bookworm-slim AS build
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends openssl ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
+RUN corepack enable && corepack prepare pnpm@10.14.0 --activate
+WORKDIR /app
+
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml .npmrc ./
+COPY apps ./apps
+COPY packages ./packages
+COPY tools ./tools
+COPY tsconfig.base.json tsconfig.json ./
+
+RUN pnpm install --frozen-lockfile
+
+# Web needs contracts (+ abilities) built for typecheck/imports during vite build
+RUN pnpm --filter @mplus/contracts --filter @mplus/abilities --filter @mplus/domain run build
+
+ARG VITE_API_MODE=live
+ARG VITE_API_BASE_URL=
+ARG VITE_WOWHEAD_LINKS_ENABLED=false
+ARG VITE_WOWHEAD_TOOLTIPS_ENABLED=false
+ARG VITE_CHARACTER_MEDIA_ENABLED=true
+ARG APP_VERSION=0.0.0
+ARG GIT_SHA=unknown
+
+ENV VITE_API_MODE=${VITE_API_MODE} \
+    VITE_API_BASE_URL=${VITE_API_BASE_URL} \
+    VITE_WOWHEAD_LINKS_ENABLED=${VITE_WOWHEAD_LINKS_ENABLED} \
+    VITE_WOWHEAD_TOOLTIPS_ENABLED=${VITE_WOWHEAD_TOOLTIPS_ENABLED} \
+    VITE_CHARACTER_MEDIA_ENABLED=${VITE_CHARACTER_MEDIA_ENABLED} \
+    APP_VERSION=${APP_VERSION} \
+    GIT_SHA=${GIT_SHA}
+
+RUN pnpm --filter @mplus/web run build
+
+# -----------------------------------------------------------------------------
+FROM nginx:1.27-alpine AS web
+ARG APP_VERSION=0.0.0
+ARG GIT_SHA=unknown
+ARG BUILD_DATE=unknown
+
+LABEL org.opencontainers.image.title="mplus-trust-factor-web" \
+      org.opencontainers.image.version="${APP_VERSION}" \
+      org.opencontainers.image.revision="${GIT_SHA}" \
+      org.opencontainers.image.created="${BUILD_DATE}"
+
+COPY infra/docker/nginx-web.conf /etc/nginx/conf.d/default.conf
+COPY --from=build /app/apps/web/dist /usr/share/nginx/html
+
+RUN chown -R nginx:nginx /usr/share/nginx/html /var/cache/nginx /var/log/nginx \
+  && touch /var/run/nginx.pid && chown nginx:nginx /var/run/nginx.pid
+
+USER nginx
+EXPOSE 8080
+HEALTHCHECK --interval=15s --timeout=3s --start-period=10s --retries=3 \
+  CMD wget -qO- http://127.0.0.1:8080/healthz || exit 1
+STOPSIGNAL SIGQUIT
+CMD ["nginx", "-g", "daemon off;"]

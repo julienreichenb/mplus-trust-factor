@@ -1,0 +1,253 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - integration/**
+      - agent/**
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: "24"
+  PNPM_VERSION: "10.14.0"
+  PROVIDER_MODE: fixture
+  NODE_ENV: test
+  APP_ENV: test
+  DATABASE_URL: postgresql://mplus:mplus@localhost:5432/mplus_trust?schema=public
+  REDIS_URL: redis://localhost:6379
+  WEB_ORIGIN: http://localhost:5173
+  PUBLIC_BASE_URL: http://localhost:3000
+  SESSION_SECRET: ci-session-secret-at-least-32-chars!!
+  ADMIN_API_KEY: ci-admin-key
+  ALLOW_LIVE_PROVIDER_CALLS: "false"
+
+jobs:
+  quality:
+    name: Lint · typecheck · test · build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: mplus_trust
+          POSTGRES_USER: mplus
+          POSTGRES_PASSWORD: mplus
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U mplus -d mplus_trust"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install (frozen lockfile)
+        run: pnpm install --frozen-lockfile
+
+      - name: Prisma generate (before TypeScript)
+        run: pnpm db:generate
+
+      - name: Format check (infra + workflows; full-repo not yet normalized)
+        run: pnpm exec prettier --check "infra/**/*.{yml,yaml,mjs,conf}" ".github/**/*.{yml,yaml}" ".prettierrc.json" "package.json"
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Build (produces package .d.ts for app typecheck)
+        run: pnpm build
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Validate migrations (deploy against empty DB)
+        run: pnpm db:migrate
+
+      - name: Unit / package tests
+        run: pnpm test
+
+      - name: Abilities validate
+        run: pnpm abilities:validate
+
+      - name: Dependency audit (high+)
+        run: pnpm audit --audit-level=high
+        continue-on-error: true
+
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-logs
+          path: |
+            **/*.log
+            logs/
+          retention-days: 7
+          if-no-files-found: ignore
+
+  docker:
+    name: Docker image builds
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    needs: quality
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build api image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: infra/docker/Dockerfile
+          target: api
+          push: false
+          load: true
+          tags: mplus-api:ci
+          build-args: |
+            APP_VERSION=ci
+            GIT_SHA=${{ github.sha }}
+            BUILD_DATE=${{ github.event.head_commit.timestamp || github.event.repository.updated_at }}
+          cache-from: type=gha,scope=mplus-api
+          cache-to: type=gha,mode=max,scope=mplus-api
+
+      - name: Build worker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: infra/docker/Dockerfile
+          target: worker
+          push: false
+          load: true
+          tags: mplus-worker:ci
+          build-args: |
+            APP_VERSION=ci
+            GIT_SHA=${{ github.sha }}
+          cache-from: type=gha,scope=mplus-worker
+          cache-to: type=gha,mode=max,scope=mplus-worker
+
+      - name: Build migrate image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: infra/docker/Dockerfile
+          target: migrate
+          push: false
+          tags: mplus-migrate:ci
+          build-args: |
+            APP_VERSION=ci
+            GIT_SHA=${{ github.sha }}
+          cache-from: type=gha,scope=mplus-migrate
+          cache-to: type=gha,mode=max,scope=mplus-migrate
+
+      - name: Build web image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: infra/docker/Dockerfile.web
+          target: web
+          push: false
+          load: true
+          tags: mplus-web:ci
+          build-args: |
+            APP_VERSION=ci
+            GIT_SHA=${{ github.sha }}
+            VITE_API_MODE=live
+            VITE_API_BASE_URL=
+          cache-from: type=gha,scope=mplus-web
+          cache-to: type=gha,mode=max,scope=mplus-web
+
+      - name: Secret bake scan (images must not contain .env)
+        run: |
+          set -euo pipefail
+          for img in mplus-api:ci mplus-worker:ci mplus-web:ci; do
+            echo "scanning ${img}"
+            hits="$(docker run --rm --entrypoint sh "${img}" -c 'find /app /usr/share/nginx/html -name ".env" -o -name ".env.production" 2>/dev/null' || true)"
+            if [ -n "${hits}" ]; then
+              echo "ERROR: env file found in ${img}:" >&2
+              echo "${hits}" >&2
+              exit 1
+            fi
+            secret_hits="$(docker run --rm --entrypoint sh "${img}" -c 'grep -R "BLIZZARD_CLIENT_SECRET=" /app 2>/dev/null | head -n 5' || true)"
+            if [ -n "${secret_hits}" ]; then
+              echo "ERROR: possible baked secret in ${img}" >&2
+              exit 1
+            fi
+          done
+          echo "secret bake scan passed"
+
+  migration-guard:
+    name: Invalid migration must fail
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: quality
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: mplus_trust
+          POSTGRES_USER: mplus
+          POSTGRES_PASSWORD: mplus
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U mplus -d mplus_trust"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm db:generate
+      - name: Inject broken migration and expect failure
+        env:
+          DATABASE_URL: postgresql://mplus:mplus@localhost:5432/mplus_trust?schema=public
+        run: |
+          set -euo pipefail
+          BAD_DIR="packages/database/prisma/migrations/20990101000000_ci_invalid_guard"
+          mkdir -p "${BAD_DIR}"
+          printf 'THIS IS NOT VALID SQL;\n' > "${BAD_DIR}/migration.sql"
+          if pnpm db:migrate; then
+            echo "ERROR: migrate succeeded with invalid SQL" >&2
+            exit 1
+          fi
+          echo "invalid migration correctly failed"

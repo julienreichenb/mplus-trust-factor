@@ -57,8 +57,14 @@
     "wcl:probe:survival:v1.1:audit": "node tools/scripts/wcl-probe-survival-v1_1-audit.mjs",
     "realms:sync": "node tools/scripts/with-env.mjs pnpm --filter @mplus/worker run realms:sync --",
     "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "abilities:validate": "pnpm --filter @mplus/abilities run abilities:validate",
-    "abilities:coverage": "pnpm --filter @mplus/abilities run abilities:coverage"
+    "abilities:coverage": "pnpm --filter @mplus/abilities run abilities:coverage",
+    "ops:restore-test": "bash infra/scripts/restore-test-local.sh test",
+    "ops:generate-secrets": "bash infra/scripts/generate-secrets.sh",
+    "ops:validate-dual-env": "bash infra/scripts/validate-dual-env.sh",
+    "ops:deploy:prod": "bash infra/scripts/deploy.sh prod",
+    "ops:deploy:test": "bash infra/scripts/deploy.sh test"
   },
   "dependencies": {
     "@mplus/config": "workspace:*",
@@ -78,5 +84,14 @@
     "typescript-eslint": "^8.38.0",
     "vitest": "^3.2.4",
     "vue-eslint-parser": "^10.2.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@prisma/client",
+      "@prisma/engines",
+      "esbuild",
+      "msgpackr-extract",
+      "prisma"
+    ]
   }
 }

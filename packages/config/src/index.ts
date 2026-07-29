@@ -68,6 +68,9 @@ export const envSchema = z
     SESSION_SECRET: z.string().min(32),
     COOKIE_DOMAIN: z.string().default("localhost"),
     TRUST_PROXY: booleanFromString.default(false),
+
+    /** Worker-only HTTP health port (Docker HEALTHCHECK). 0 disables the listener. */
+    WORKER_HEALTH_PORT: z.coerce.number().int().min(0).default(3001),
   })
   .superRefine((env, ctx) => {
     if (env.PROVIDER_MODE !== "live") {
