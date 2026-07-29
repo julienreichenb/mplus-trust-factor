@@ -61,6 +61,21 @@ export const envSchema = z
     ACTIVE_SCORE_MODEL_VERSION: z.coerce.number().int().positive().default(5),
     MANUAL_REFRESH_COOLDOWN_SECONDS: z.coerce.number().int().positive().default(900),
 
+    /**
+     * Refresh orchestration (Agent 39).
+     * Recurring production enqueue stays disabled by default.
+     */
+    REFRESH_SCHEDULER_ENABLED: booleanFromString.default(false),
+    REFRESH_DRY_RUN_ONLY: booleanFromString.default(true),
+    REFRESH_SAFETY_RESERVE_FRACTION: z.coerce.number().min(0).max(1).default(0.1),
+    REFRESH_BATCH_SIZE: z.coerce.number().int().positive().default(50),
+    REFRESH_GLOBAL_CONCURRENCY: z.coerce.number().int().positive().default(2),
+    REFRESH_PER_CHARACTER_COOLDOWN_SECONDS: z.coerce.number().int().nonnegative().default(3600),
+    REFRESH_SPREAD_HOURS: z.coerce.number().int().positive().default(24),
+    /** Indicative share of the configured tracked denominator — not a global WoW percentile. */
+    REFRESH_TRACKED_TOP_PERCENT: z.coerce.number().min(1).max(100).default(25),
+    REFRESH_RATING_THRESHOLD: z.coerce.number().min(0).default(2500),
+
     /** MVP entitlement flag: when true, the API serializer omits no fields for any client. */
     PUBLIC_DETAILS_ALL: booleanFromString.default(true),
 
@@ -159,3 +174,15 @@ export {
   type FreshnessConfig,
   type FreshnessDataset,
 } from "./freshness.js";
+
+export {
+  buildRefreshPolicyConfig,
+  assignCadenceTier,
+  freshnessTtlMsForTier,
+  DEFAULT_CADENCE_TIERS,
+  REFRESH_POLICY_VERSION,
+  type CadenceTier,
+  type CadenceTierPolicy,
+  type RefreshPolicyConfig,
+  type RefreshPolicyEnv,
+} from "./refresh-policy.js";

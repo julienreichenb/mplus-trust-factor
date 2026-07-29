@@ -60,5 +60,6 @@ export * from "./mechanic-rule-repository.js";
 export * from "./metric-repository.js";
 export * from "./provider-state-repository.js";
 export * from "./realm-repository.js";
+export * from "./refresh-schedule-repository.js";
 export * from "./run-repository.js";
 export * from "./score-repository.js";

@@ -11,16 +11,27 @@ A workable first elite cohort is:
 ```text
 published score exists
 AND current-season rating >= configured threshold
-AND recently active
-AND stale
+AND recently active (lastSeenAt)
+AND stale for assigned cadence tier
 AND provider budget available
 ```
 
-## Candidate cadence
+Denominator key: `tracked_published_current_season_rating`.
 
-- daily: elite, active and high-demand;
-- every 3 days: strong and active;
-- weekly: other active tracked profiles;
-- on demand: inactive or low-priority.
+## Candidate cadence (config hypotheses — validate before live)
 
-The agent must validate this against measured costs before activation.
+| Tier | Who | Interval |
+|------|-----|----------|
+| A | elite, active, high demand | daily (24h) |
+| B | strong and active | every 3 days (72h) |
+| C | other active tracked | weekly (168h) |
+| D | inactive / low priority | on demand |
+
+Implemented in `packages/config/src/refresh-policy.ts` via env-backed `buildRefreshPolicyConfig`.  
+`REFRESH_SCHEDULER_ENABLED` defaults to **false**; `REFRESH_DRY_RUN_ONLY` defaults to **true**.
+
+## Safety
+
+- Never delete the current published score when a job begins or providers fail
+- Admin/premium must not bypass global WCL safety (`preflightWithGlobalSafety`)
+- Percentile strategies require an explicit `CohortDenominator`

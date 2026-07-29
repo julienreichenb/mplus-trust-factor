@@ -157,6 +157,32 @@ export class WclBudgetManager {
     // Exponential moving average for cost calibration.
     this.historicalCosts[key] = prev * 0.8 + record.measuredCost * 0.2;
   }
+
+  /** Consume planned points from the cached rate-limit state (batch accounting). */
+  consumePoints(points: number): void {
+    if (!this.cachedState || !Number.isFinite(points) || points <= 0) return;
+    this.cachedState = {
+      ...this.cachedState,
+      pointsRemaining: Math.max(0, this.cachedState.pointsRemaining - points),
+    };
+  }
+
+  getRateLimitState(): WclRateLimitState | null {
+    return this.cachedState;
+  }
+
+  /**
+   * Admin / premium callers must still pass through preflight.
+   * This helper documents the invariant and always applies the same gate.
+   */
+  preflightWithGlobalSafety(
+    estimatedCost: number,
+    _actor: { isAdmin?: boolean; isPremium?: boolean } = {},
+    nowMs = Date.now(),
+  ): WclBudgetDecision {
+    void _actor;
+    return this.preflight(estimatedCost, nowMs);
+  }
 }
 
 export function createWclBudgetManager(options: WclBudgetManagerOptions): WclBudgetManager {
