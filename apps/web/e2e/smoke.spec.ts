@@ -1,10 +1,10 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const shotDir = path.join(path.dirname(fileURLToPath(import.meta.url)), "screenshots");
 
-async function fillHeroSearch(page: import("@playwright/test").Page, name: string, realm: string) {
+async function fillHeroSearch(page: Page, name: string, realm: string) {
   const form = page.getByTestId("hero-search-form");
   await form.getByTestId("character-name-input").fill(name);
   const realmInput = form.getByTestId("realm-combobox-input");

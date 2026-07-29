@@ -1,5 +1,5 @@
 import type { AbilityRule } from "../../types.js";
-import { ALL_ROLES, DPS, TANK, TANK_DPS, rule } from "../rule.js";
+import { ALL_ROLES, TANK, TANK_DPS, rule } from "../rule.js";
 
 /** Death Knight survival / utility catalog (Retail M+). */
 export const DEATH_KNIGHT_RULES: AbilityRule[] = [

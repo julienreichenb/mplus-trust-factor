@@ -29,17 +29,19 @@ describe("database integration", () => {
     expect(region?.enabled).toBe(true);
   });
 
-  it("has active default score model v2 after seed (v1 archived)", async () => {
-    const v2 = await prisma.scoreModel.findUnique({
-      where: { key_version: { key: "default", version: 2 } },
+  it("has active default score model v5 after seed (older versions archived)", async () => {
+    const v5 = await prisma.scoreModel.findUnique({
+      where: { key_version: { key: "default", version: 5 } },
     });
-    expect(v2).not.toBeNull();
-    expect(v2?.status).toBe("ACTIVE");
+    expect(v5).not.toBeNull();
+    expect(v5?.status).toBe("ACTIVE");
 
-    const v1 = await prisma.scoreModel.findUnique({
-      where: { key_version: { key: "default", version: 1 } },
-    });
-    expect(v1).not.toBeNull();
-    expect(v1?.status).toBe("ARCHIVED");
+    for (const version of [1, 2, 3, 4] as const) {
+      const older = await prisma.scoreModel.findUnique({
+        where: { key_version: { key: "default", version } },
+      });
+      expect(older).not.toBeNull();
+      expect(older?.status).toBe("ARCHIVED");
+    }
   });
 });

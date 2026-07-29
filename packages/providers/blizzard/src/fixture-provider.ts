@@ -6,6 +6,7 @@ import type {
   BlizzardMythicKeystoneProfileDTO,
   BlizzardMythicLeaderboardDTO,
   BlizzardRealmDTO,
+  BlizzardRealmIndexEntryDTO,
   BlizzardSeasonDTO,
   CanonicalCharacter,
   CharacterIdentityInput,
@@ -116,7 +117,7 @@ export class FixtureBlizzardProvider implements BlizzardProvider {
 
   async getRealmIndex(
     ctx: ProviderFetchContext,
-  ): Promise<ProviderResult<import("@mplus/contracts").BlizzardRealmIndexEntryDTO[]>> {
+  ): Promise<ProviderResult<BlizzardRealmIndexEntryDTO[]>> {
     const indexRelative = this.store.manifest.realmIndex;
     const region = getRegionConfig(String(ctx.region)).regionCode;
     if (indexRelative) {

@@ -23,7 +23,13 @@ import {
   normalizeWclProvenance,
 } from "@mplus/contracts";
 import { extractBoostSupportFacts } from "@mplus/provider-raiderio";
-import type { RunCombatFacts, WclRankingObservation, WclReportFightDetails, WclRunEvidenceBundle } from "@mplus/provider-warcraftlogs";
+import type {
+  RunCombatFacts,
+  WclGraphQlClient,
+  WclRankingObservation,
+  WclReportFightDetails,
+  WclRunEvidenceBundle,
+} from "@mplus/provider-warcraftlogs";
 import {
   SURVIVAL_STANDALONE_V1_1_1_CONFIG,
   createSurvivalRequestCost,
@@ -169,10 +175,6 @@ function buildContext(job: RefreshCharacterJob, now: Date): ProviderFetchContext
     now: now.toISOString(),
     targetCharacter: identity,
   };
-}
-
-function clamp01(value: number): number {
-  return Math.min(1, Math.max(0, value));
 }
 
 function isRaiderIoSkipped(container: WorkerContainer): boolean {
@@ -1400,7 +1402,7 @@ export async function runRefreshPipeline(
           maxHpFailureReason: string | null;
         };
       }>;
-      getGraphQlClient?: () => import("@mplus/provider-warcraftlogs").WclGraphQlClient;
+      getGraphQlClient?: () => WclGraphQlClient;
     };
     const wclGraphClient =
       typeof liveWcl.getGraphQlClient === "function" ? liveWcl.getGraphQlClient() : null;

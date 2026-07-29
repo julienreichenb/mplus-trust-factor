@@ -192,7 +192,7 @@ export function extractMetricsFromCombatFacts(
     (d) => isAttributed(facts, d.sourceId) && offensiveDispelIds.has(d.abilityGameId),
   ).length;
 
-  let avoidableDamage = 0;
+  const avoidableDamage = 0;
   let totalDamage = 0;
   if (facts.coverage.damageTaken) {
     for (const hit of facts.damageTaken.filter((d) => d.targetId === targetId)) {

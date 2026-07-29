@@ -213,7 +213,6 @@ export function buildUtilityShadowInputsFromBundles(input: {
     const runId = `${bundle.reportCode}:${bundle.fightId}`;
     const casts = eventDatasets.Casts.events;
     const interrupts = eventDatasets.Interrupts.events;
-    const dispels = eventDatasets.Dispels.events;
     const buffs = eventDatasets.Buffs.events;
     const debuffs = eventDatasets.Debuffs.events;
     const deaths = eventDatasets.Deaths.events;

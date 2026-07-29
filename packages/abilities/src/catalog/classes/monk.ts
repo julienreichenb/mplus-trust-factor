@@ -1,5 +1,5 @@
 import type { AbilityRule } from "../../types.js";
-import { ALL_ROLES, DPS, HEALER, HEALER_DPS, TANK, TANK_DPS, rule } from "../rule.js";
+import { ALL_ROLES, DPS, HEALER, HEALER_DPS, TANK_DPS, rule } from "../rule.js";
 
 /** Monk survival / utility catalog (Retail M+). */
 export const MONK_RULES: AbilityRule[] = [

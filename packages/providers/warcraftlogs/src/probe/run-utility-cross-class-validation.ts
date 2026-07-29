@@ -392,7 +392,7 @@ async function buildProbeFailureDiagnostics(
   }
 
   let wclErrors: string[] = [];
-  let rejectionReasons: Record<string, number> = {};
+  const rejectionReasons: Record<string, number> = {};
   let reportsInspected = 0;
   let fightsInspected = 0;
   let schemaWarnings: string[] = [];
@@ -1406,7 +1406,6 @@ async function main(): Promise<void> {
   const measuredCostsPerDungeon: number[] = [];
 
   for (let i = 0; i < activeCharacters.length; i += 1) {
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     const entry = activeCharacters[i]!;
     const region = entry.region.trim().toUpperCase();
     const realmSlug = entry.realm.trim().toLowerCase();
@@ -1540,7 +1539,6 @@ async function main(): Promise<void> {
           console.error(`  DEFERRED: ${reason}. Remaining characters will not be attempted.`);
 
           for (let j = i; j < activeCharacters.length; j += 1) {
-            // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
             const e = activeCharacters[j]!;
             const r = e.region.trim().toUpperCase();
             const rl = e.realm.trim().toLowerCase();

@@ -1,11 +1,11 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 
 const outDir = join(process.cwd(), "e2e", "screenshots");
 
 async function selectRealm(
-  page: import("@playwright/test").Page,
+  page: Page,
   formTestId: string,
   realmQuery: string,
   realmSlug: string,

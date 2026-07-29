@@ -12,7 +12,6 @@ import {
   buildMissingDungeonReasons,
   classifyMissingDungeonReason,
   mergeProbeArtifacts,
-  PROBE_ARTIFACT_FILES,
   runIdentityKey,
   runIdentityFromNormalized,
   snapshotCanonicalArtifacts,

@@ -471,18 +471,6 @@ function lastCastBefore(
   return last;
 }
 
-function isOnCooldown(
-  uses: AbilityUseEvent[],
-  canonicalKey: string,
-  cooldownSeconds: number | null,
-  atTimestamp: number,
-): boolean {
-  if (cooldownSeconds == null || cooldownSeconds <= 0) return false;
-  const last = lastCastBefore(uses, canonicalKey, atTimestamp);
-  if (last == null) return false;
-  return atTimestamp - last < cooldownSeconds * 1000;
-}
-
 export function redistributeWeights(
   available: {
     outcome: boolean;

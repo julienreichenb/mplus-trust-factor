@@ -5,6 +5,7 @@ import type {
   WclDataState,
   WclVisibilityState,
 } from "@mplus/contracts";
+import type { PointsAndDamagePerformanceRecord } from "./discovery/points-and-damage-performance.js";
 
 export type {
   RunCombatFactsCoverage,
@@ -311,7 +312,7 @@ export interface WclCharacterDiscoveryResult {
    * points_and_damage Performance fetch result (raw + state).
    * GraphQL/schema failures must not appear as an empty valid dataset.
    */
-  performance?: import("./discovery/points-and-damage-performance.js").PointsAndDamagePerformanceRecord;
+  performance?: PointsAndDamagePerformanceRecord;
   candidates: WclRunCandidate[];
   latest: WclRunCandidate | null;
   highest: WclRunCandidate | null;

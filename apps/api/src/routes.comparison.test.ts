@@ -48,32 +48,38 @@ describe.skipIf(!dbAvailable)("comparison routes", () => {
     expect(response.statusCode).toBe(400);
   });
 
-  it("compares two scored characters and computes deltas from median/best", async () => {
-    const nameA = uniqueName("CompareA");
-    const nameB = uniqueName("CompareB");
-    await app.inject({ method: "GET", url: `/api/v1/characters/${REALM_PATH}/${nameA}` });
-    await app.inject({ method: "GET", url: `/api/v1/characters/${REALM_PATH}/${nameB}` });
+  it(
+    "compares two scored characters and computes deltas from median/best",
+    async () => {
+      const nameA = uniqueName("CompareA");
+      const nameB = uniqueName("CompareB");
+      // Each GET runs the full inline fixture pipeline; two sequential pipelines easily exceed
+      // the 5s default timeout — allow 30s.
+      await app.inject({ method: "GET", url: `/api/v1/characters/${REALM_PATH}/${nameA}` });
+      await app.inject({ method: "GET", url: `/api/v1/characters/${REALM_PATH}/${nameB}` });
 
-    const response = await app.inject({
-      method: "POST",
-      url: "/api/v1/comparisons",
-      payload: {
-        characters: [
-          { region: "EU", realmSlug: "tarren-mill", name: nameA },
-          { region: "EU", realmSlug: "tarren-mill", name: nameB },
-        ],
-      },
-    });
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/v1/comparisons",
+        payload: {
+          characters: [
+            { region: "EU", realmSlug: "tarren-mill", name: nameA },
+            { region: "EU", realmSlug: "tarren-mill", name: nameB },
+          ],
+        },
+      });
 
-    expect(response.statusCode).toBe(200);
-    const body = response.json();
-    expect(body.entries).toHaveLength(2);
-    for (const entry of body.entries) {
-      expect(entry.overallScore).not.toBeNull();
-      expect(entry.deltasFromMedian.overall).not.toBeNull();
-      expect(entry.deltasFromBest.overall).not.toBeNull();
-    }
-  });
+      expect(response.statusCode).toBe(200);
+      const body = response.json();
+      expect(body.entries).toHaveLength(2);
+      for (const entry of body.entries) {
+        expect(entry.overallScore).not.toBeNull();
+        expect(entry.deltasFromMedian.overall).not.toBeNull();
+        expect(entry.deltasFromBest.overall).not.toBeNull();
+      }
+    },
+    30_000,
+  );
 
   it("rejects comparisons across mismatched score model versions", async () => {
     const nameA = uniqueName("MismatchA");

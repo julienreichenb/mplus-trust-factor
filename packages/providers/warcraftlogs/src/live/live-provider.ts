@@ -1,3 +1,4 @@
+import type { AbilityCatalog } from "@mplus/abilities";
 import type {
   CharacterIdentityInput,
   MythicRunDTO,
@@ -433,7 +434,7 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
       fightEndTime: number;
       encounterId?: number | null;
       encounterName?: string | null;
-      catalog: import("@mplus/abilities").AbilityCatalog;
+      catalog: AbilityCatalog;
       classSlug: string | null;
       specSlug: string | null;
       timed?: boolean | null;

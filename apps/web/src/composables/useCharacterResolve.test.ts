@@ -1,5 +1,4 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { ref } from "vue";
 import { useCharacterResolve } from "./useCharacterResolve";
 
 const resolveCharacter = vi.fn();

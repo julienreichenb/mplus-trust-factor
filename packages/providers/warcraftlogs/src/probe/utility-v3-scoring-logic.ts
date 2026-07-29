@@ -79,7 +79,7 @@ function hasToolkit(
       return spellIdsForCategory(catalog, "INTERRUPT", opts).size > 0;
     case "casterControl":
       return casterControlSpellIdsFromCatalog(catalog).size > 0;
-    case "strategicCc":
+    case "strategicCc": {
       // Exclude caster-control (Tongues) spells from the strategic CC domain.
       const ccIds = new Set<number>([
         ...spellIdsForCategory(catalog, "HARD_CC", opts),
@@ -87,6 +87,7 @@ function hasToolkit(
       ]);
       for (const id of casterControlSpellIdsFromCatalog(catalog)) ccIds.delete(id);
       return ccIds.size > 0;
+    }
     case "mechanicAvoidance":
       return shadowmeldSpellIdsFromCatalog(catalog).size > 0;
     case "groupMobility":
@@ -201,7 +202,7 @@ export function domainEvidenceContribution(
   domainScore: number,
   config: UtilityV3SimulationConfig = UTILITY_V3_SIMULATION_CONFIG,
 ): Record<UtilityV3EvidenceTier, number> {
-  const totalWeighted = DOMAIN_KEYS.reduce((s, d) => s, 0);
+  const totalWeighted = DOMAIN_KEYS.reduce((s, _d) => s, 0);
   void totalWeighted;
   const tierWeightSum =
     tierCounts.CONFIRMED_IMPACT * config.tierWeights.CONFIRMED_IMPACT +
@@ -235,7 +236,7 @@ export function domainConfidence(input: {
   if (input.eligibility === "NOT_APPLICABLE") return 100;
   if (input.eligibility === "NOT_OBSERVABLE") return 25;
 
-  let obs =
+  const obs =
     input.observability === "FULL"
       ? config.observabilityWeights.FULL
       : input.observability === "PARTIAL"
@@ -367,7 +368,7 @@ export function scoreUtilityV3Run(input: {
     });
   const curveMult = input.options?.curveMultiplier ?? 1;
 
-  let weights: Record<UtilityV3DomainKey, number> = { ...config.domainWeights };
+  const weights: Record<UtilityV3DomainKey, number> = { ...config.domainWeights };
   if (input.options?.weightOverrides) {
     for (const [k, v] of Object.entries(input.options.weightOverrides) as [
       UtilityV3DomainKey,
@@ -762,7 +763,7 @@ function runV3Sensitivity(
       }
 
       if ("weightOverrides" in scenario && scenario.weightOverrides) {
-        let weights: Record<UtilityV3DomainKey, number> = {
+        const weights: Record<UtilityV3DomainKey, number> = {
           ...config.domainWeights,
           ...scenario.weightOverrides,
         };

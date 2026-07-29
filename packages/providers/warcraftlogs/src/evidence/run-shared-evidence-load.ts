@@ -317,7 +317,7 @@ export async function runSharedEvidenceCharacterLoad(options: {
   };
 
   console.log(`\n[shared-evidence] ${label} pass=first (provider fetch)`);
-  let first = { eventCalls: 0, hostileEvents: 0, deathEvents: 0 };
+  const first = { eventCalls: 0, hostileEvents: 0, deathEvents: 0 };
   for (const run of runs) {
     const hostilePath = join(dir, "11-hostile-casts-raw.json");
     const deathsPath = join(dir, "12-deaths-raw.json");

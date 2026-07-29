@@ -54,15 +54,6 @@ function casterControlSpellIdsFromCatalog(catalog: AbilityCatalog): Set<number> 
   return out;
 }
 
-function shadowmeldSpellIdsFromCatalog(catalog: AbilityCatalog): Set<number> {
-  const out = new Set<number>();
-  for (const rule of catalog.rules) {
-    if (rule.name.toLowerCase() !== "shadowmeld") continue;
-    for (const id of ruleSpellIds(rule)) out.add(id);
-  }
-  return out;
-}
-
 function demonicGatewaySpellIdsFromCatalog(catalog: AbilityCatalog): {
   castIds: Set<number>;
   auraIds: Set<number>;

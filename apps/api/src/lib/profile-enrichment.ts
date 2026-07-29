@@ -429,7 +429,6 @@ export function buildProfileEnrichments(input: CharacterEnrichmentInput): Pick<
     wclVisibility,
     wclDataState,
     providerStates,
-    selectedRunCoverage,
     runCoverageById,
     performanceSummary = null,
     survivalSummary = null,

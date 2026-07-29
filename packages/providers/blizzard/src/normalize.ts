@@ -17,6 +17,7 @@ import type {
   BlizzardMythicKeystoneProfileDTO,
   BlizzardMythicLeaderboardDTO,
   BlizzardRealmDTO,
+  BlizzardRealmIndexEntryDTO,
   BlizzardSeasonDTO,
 } from "@mplus/contracts";
 import {
@@ -636,7 +637,7 @@ export function normalizeRealmIndexEntry(payload: {
   id: number;
   slug: string;
   name?: string;
-}): import("@mplus/contracts").BlizzardRealmIndexEntryDTO {
+}): BlizzardRealmIndexEntryDTO {
   return {
     blizzardRealmId: payload.id,
     slug: normalizeRealmSlug(payload.slug),

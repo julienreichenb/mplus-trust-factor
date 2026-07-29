@@ -154,7 +154,7 @@ export class LiveBlizzardProvider implements BlizzardProvider {
 
   async getRealmIndex(
     ctx: ProviderFetchContext,
-  ): Promise<ProviderResult<import("@mplus/contracts").BlizzardRealmIndexEntryDTO[]>> {
+  ): Promise<ProviderResult<BlizzardRealmIndexEntryDTO[]>> {
     const region = this.region(ctx);
     const endpointKey = "realm.index";
     const path = "data/wow/realm/index";

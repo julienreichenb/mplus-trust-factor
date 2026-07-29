@@ -1,5 +1,5 @@
 import type { AbilityRule } from "../../types.js";
-import { ALL_ROLES, DPS, rule } from "../rule.js";
+import { DPS, rule } from "../rule.js";
 
 const WARLOCK_SPECS = ["affliction", "demonology", "destruction"] as const;
 

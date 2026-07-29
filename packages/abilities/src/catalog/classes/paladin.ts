@@ -1,5 +1,5 @@
 import type { AbilityRule } from "../../types.js";
-import { ALL_ROLES, DPS, HEALER, TANK, TANK_DPS, rule } from "../rule.js";
+import { ALL_ROLES, HEALER, TANK, TANK_DPS, rule } from "../rule.js";
 
 /** Paladin survival / utility catalog (Retail M+). */
 export const PALADIN_RULES: AbilityRule[] = [

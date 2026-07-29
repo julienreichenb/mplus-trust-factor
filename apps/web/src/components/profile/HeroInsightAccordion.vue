@@ -98,9 +98,9 @@ async function copyLoadout(): Promise<void> {
     >
       <h2 class="insight-accordion__heading">
         <button
+          :id="`insight-${panel.id}-trigger`"
           type="button"
           class="insight-accordion__trigger"
-          :id="`insight-${panel.id}-trigger`"
           :aria-expanded="isOpen(panel.id)"
           :aria-controls="`insight-${panel.id}-panel`"
           @click="open(panel.id)"

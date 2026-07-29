@@ -1,11 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import type { CharacterProfileView } from "../../api/types";
-import {
-  humanizeSlug,
-  presentGrade,
-  resolveDataConfidence,
-} from "../../lib/characterViewModel";
+import { humanizeSlug, presentGrade, resolveDataConfidence } from "../../lib/characterViewModel";
 import { filterDimensionsForModel, formatPercent, formatScore } from "../../lib/format";
 import { resolveExternalProfileLinks } from "../../lib/externalProfileLinks";
 import { gradeThemeCssVars } from "../../lib/gradeTheme";
@@ -23,7 +19,10 @@ const grade = computed(() => presentGrade(props.profile.score?.grade));
 const confidence = computed(() => resolveDataConfidence(props.profile));
 const externalLinks = computed(() => resolveExternalProfileLinks(props.profile));
 const visibleDimensions = computed(() =>
-  filterDimensionsForModel(props.profile.score?.dimensions ?? [], props.profile.score?.modelVersion),
+  filterDimensionsForModel(
+    props.profile.score?.dimensions ?? [],
+    props.profile.score?.modelVersion,
+  ),
 );
 const detailsLocked = computed(() => !(props.profile.entitlements?.detailsUnlocked ?? true));
 const accentColor = computed(() => gradeThemeCssVars(props.profile.score?.grade)["--color-brand"]);
@@ -44,9 +43,10 @@ const confidenceLabel = computed(() =>
 );
 
 const classSpec = computed(() => {
-  const parts = [humanizeSlug(props.profile.specSlug), humanizeSlug(props.profile.classSlug)].filter(
-    Boolean,
-  );
+  const parts = [
+    humanizeSlug(props.profile.specSlug),
+    humanizeSlug(props.profile.classSlug),
+  ].filter(Boolean);
   return parts.join(" ");
 });
 </script>
@@ -101,12 +101,7 @@ const classSpec = computed(() => {
             :value="confidenceLabel"
             data-testid="confidence"
           />
-          <MetaChip
-            role="listitem"
-            label="Model"
-            :value="modelLabel"
-            value-class="mpts-data"
-          />
+          <MetaChip role="listitem" label="Model" :value="modelLabel" value-class="mpts-data" />
           <MetaChip role="listitem" label="Calculated" :value="calculatedLabel" />
         </div>
       </div>
@@ -151,9 +146,7 @@ const classSpec = computed(() => {
               <div class="identity__title-row">
                 <h1>{{ profile.displayName }}</h1>
                 <div class="meta">
-                  <p class="meta__server">
-                    {{ profile.realmSlug }} · {{ profile.region }}
-                  </p>
+                  <p class="meta__server">{{ profile.realmSlug }} · {{ profile.region }}</p>
                   <p
                     v-if="classSpec"
                     class="meta__class"
@@ -168,10 +161,7 @@ const classSpec = computed(() => {
             <HeroInsightAccordion :profile="profile" />
           </div>
 
-          <div
-            v-if="profile.seasonSummary?.mythicRating != null"
-            class="mythic-score-glass"
-          >
+          <div v-if="profile.seasonSummary?.mythicRating != null" class="mythic-score-glass">
             <span class="mythic-score-glass__label">Mythic+ score</span>
             <span class="mythic-score-glass__value mpts-data">{{
               formatScore(profile.seasonSummary.mythicRating, 2)
@@ -224,12 +214,7 @@ const classSpec = computed(() => {
   min-width: 0;
   padding: 0 0 var(--space-5) 0;
   overflow: visible;
-  background: linear-gradient(
-    90deg,
-    rgb(7 7 7 / 55%) 0%,
-    rgb(7 7 7 / 28%) 55%,
-    transparent 100%
-  );
+  background: transparent;
 }
 
 .hero-grid__body {
@@ -386,8 +371,7 @@ const classSpec = computed(() => {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-hero);
   background:
-    linear-gradient(160deg, rgb(var(--color-rank-rgb) / 7%), transparent 45%),
-    var(--color-surface);
+    linear-gradient(160deg, rgb(var(--color-rank-rgb) / 7%), transparent 45%), var(--color-surface);
   min-height: 100%;
 }
 

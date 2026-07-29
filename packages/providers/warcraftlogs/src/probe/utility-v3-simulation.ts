@@ -1,9 +1,11 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { roleForSpec } from "@mplus/abilities";
 import { buildUtilityV3SimulationDataset } from "./utility-v3-scoring-logic.js";
 import { UTILITY_V3_SIMULATION_CONFIG } from "./utility-v3-config.js";
 import type { UtilityV3SimulationDataset } from "./utility-v3-types.js";
 import { loadUtilityV2AuditInputs } from "./utility-v2-audit.js";
+import type { UtilityNormalizedRun } from "./utility-probe-types.js";
 
 export interface UtilityV3SimulationOptions {
   inputDir: string;
@@ -20,11 +22,9 @@ async function writeJson(path: string, payload: unknown): Promise<void> {
   await writeFile(path, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
 }
 
-import { roleForSpec } from "@mplus/abilities";
-
 /** Derive majority roleSlug from normalized runs (from WCL zoneRankings.role).
  *  Falls back to catalog inference from specSlug when WCL returns null. */
-function resolveRoleFromRuns(runs: import("./utility-probe-types.js").UtilityNormalizedRun[]): {
+function resolveRoleFromRuns(runs: UtilityNormalizedRun[]): {
   roleSlug: string | null;
   mixedRole: boolean;
   roleSource: "zone_rankings" | "inferred" | "unknown";

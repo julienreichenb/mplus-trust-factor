@@ -1,5 +1,5 @@
 import type { AbilityRule } from "../../types.js";
-import { ALL_ROLES, DPS, rule } from "../rule.js";
+import { DPS, rule } from "../rule.js";
 
 /** Hunter survival / utility catalog (Retail M+). */
 export const HUNTER_RULES: AbilityRule[] = [

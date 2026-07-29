@@ -15,10 +15,10 @@ import {
 } from "./cohort-selector.js";
 import { applyFairnessCaps, type FairnessConfig } from "./cohort-fairness.js";
 import { planDatasetRefresh, type RefreshReason } from "./dataset-refresh-planner.js";
-import {
+import type {
   WclBudgetManager,
-  type WclBudgetDecision,
-  type WclRateLimitState,
+  WclBudgetDecision,
+  WclRateLimitState,
 } from "./wcl-budget-manager.js";
 import { BASELINE_COST_SCENARIOS, averageWclPointsFromEstimates, estimateScenariosFromLedger, type RefreshCostRecord } from "./refresh-cost-ledger.js";
 

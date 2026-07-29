@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import type { DimensionScoreDTO } from "@mplus/contracts";
-import { formatPercent, formatScore, formatWeight, resolveRadarDimensions } from "../../lib/format";
+import { formatPercent, formatScore, formatWeight } from "../../lib/format";
 import { dimensionRows } from "../../lib/characterViewModel";
 
 const props = defineProps<{

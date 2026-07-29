@@ -9,6 +9,7 @@ import {
   type BlizzardMythicLeaderboardDTO,
   type BlizzardProvider,
   type BlizzardRealmDTO,
+  type BlizzardRealmIndexEntryDTO,
   type BlizzardSeasonDTO,
   type CanonicalCharacter,
   type CharacterIdentityInput,
@@ -180,7 +181,7 @@ class FixtureBlizzardProvider implements BlizzardProvider {
   }
 
   async getRealmIndex(ctx: ProviderFetchContext): Promise<
-    ProviderResult<import("@mplus/contracts").BlizzardRealmIndexEntryDTO[]>
+    ProviderResult<BlizzardRealmIndexEntryDTO[]>
   > {
     const region = normalizeRegion(ctx.region);
     const fixtures = [

@@ -7,7 +7,9 @@ import type {
   ProviderName,
   RefreshStatusResponse,
   ScoreSnapshotDTO,
+  ScoringRunSelection,
   SearchCharacterResponse,
+  SurvivalSummaryPublicDTO,
   WclContributionType,
   WclDataState,
   WclVisibilityState,
@@ -137,20 +139,18 @@ function readPerformanceSummary(explanation: unknown): PerformanceSummaryDTO | n
   return summary as PerformanceSummaryDTO;
 }
 
-function readSurvivalSummary(
-  explanation: unknown,
-): import("@mplus/contracts").SurvivalSummaryPublicDTO | null {
+function readSurvivalSummary(explanation: unknown): SurvivalSummaryPublicDTO | null {
   if (!explanation || typeof explanation !== "object") return null;
   const summary = (explanation as { survivalSummary?: unknown }).survivalSummary;
   if (!summary || typeof summary !== "object") return null;
-  return summary as import("@mplus/contracts").SurvivalSummaryPublicDTO;
+  return summary as SurvivalSummaryPublicDTO;
 }
 
-function readScoringRunSelection(explanation: unknown): import("@mplus/contracts").ScoringRunSelection | null {
+function readScoringRunSelection(explanation: unknown): ScoringRunSelection | null {
   if (!explanation || typeof explanation !== "object") return null;
   const selection = (explanation as { scoringRunSelection?: unknown }).scoringRunSelection;
   if (!selection || typeof selection !== "object") return null;
-  return selection as import("@mplus/contracts").ScoringRunSelection;
+  return selection as ScoringRunSelection;
 }
 
 function readCoverageCounts(explanation: unknown): {

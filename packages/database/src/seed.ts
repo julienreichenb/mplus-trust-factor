@@ -660,7 +660,7 @@ async function seed(): Promise<void> {
   }
 
   console.log(
-    "Seed completed (idempotent): EU/US/KR/TW regions, starter EU realms, placeholder season, model v4 ACTIVE (v1/v2/v3 archived), metrics, red flags.",
+    "Seed completed (idempotent): EU/US/KR/TW regions, starter EU realms, placeholder season, model v5 ACTIVE (v1–v4 archived), metrics, red flags.",
   );
 }
 

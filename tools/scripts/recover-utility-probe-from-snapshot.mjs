@@ -7,7 +7,7 @@
  *     --artifact-dir raw-artifacts/wcl-probe-utility/eu-ysondre-lfgaddict
  */
 import { existsSync } from "node:fs";
-import { readdir, readFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import {
   atomicPublishProbeArtifacts,

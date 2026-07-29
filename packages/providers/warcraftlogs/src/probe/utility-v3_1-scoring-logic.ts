@@ -7,7 +7,7 @@ import { CURRENT_MPLUS_ZONE_DUNGEON_SLUGS } from "../discovery/run-discovery.js"
 import { equalWeightMean, median } from "./survival-calibration-logic.js";
 import { activeSeasonDungeonPool } from "./survival-probe-logic.js";
 import type { UtilityNormalizedRun } from "./utility-probe-types.js";
-import type { UtilityV2DomainEvidenceSummary, UtilityV2EvidenceItem } from "./utility-v2-types.js";
+import type { UtilityV2EvidenceItem } from "./utility-v2-types.js";
 import {
   UTILITY_V3_SIMULATION_CONFIG,
   type UtilityV3DomainEligibility,
