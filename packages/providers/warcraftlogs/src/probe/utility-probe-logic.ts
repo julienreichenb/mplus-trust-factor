@@ -6,6 +6,7 @@ import {
 } from "@mplus/abilities";
 import { equalWeightMean, median } from "./survival-calibration-logic.js";
 import { asFiniteNumber } from "./survival-probe-logic.js";
+import { auditCatalogSpellOnStream } from "./utility-catalog-audit.js";
 import type {
   UtilityActorContext,
   UtilityCanonicalAbilityRef,
@@ -288,7 +289,13 @@ export function analyzeInterrupts(input: {
     }
     const spellId = preserved.abilityGameID;
     const matched = interruptIds.has(spellId);
-    if (!matched) unmatchedInterruptSpellIds.push(spellId);
+    const streamAudit = auditCatalogSpellOnStream(spellId, "Interrupts", input.catalog, {
+      classSlug: input.classSlug,
+      specSlug: input.specSlug,
+    });
+    if (!matched && streamAudit.kind === "UNRESOLVED") {
+      unmatchedInterruptSpellIds.push(spellId);
+    }
 
     const canonical = matched
       ? resolveCanonicalAbility(
@@ -321,7 +328,7 @@ export function analyzeInterrupts(input: {
       canonical,
       cooldownStateAtCast: cdState,
       repeatedOnSameCast,
-      unmatchedSpellId: !matched,
+      unmatchedSpellId: !matched && streamAudit.kind === "UNRESOLVED",
       event: preserved,
     });
   }

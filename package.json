@@ -45,6 +45,7 @@
     "wcl:probe:survival": "node tools/scripts/with-env.mjs node tools/scripts/wcl-probe-survival.mjs",
     "wcl:probe:survival:calibration": "node tools/scripts/with-env.mjs node tools/scripts/wcl-probe-survival-calibration.mjs",
     "wcl:probe:utility": "node tools/scripts/with-env.mjs node tools/scripts/wcl-probe-utility.mjs",
+    "wcl:probe:utility:v1": "node tools/scripts/wcl-probe-utility-v1.mjs",
     "wcl:probe:survival:v1": "node tools/scripts/wcl-probe-survival-v1.mjs",
     "wcl:probe:survival:v1.1": "node tools/scripts/with-env.mjs node tools/scripts/wcl-probe-survival-v1_1.mjs",
     "wcl:probe:survival:v1.1:audit": "node tools/scripts/wcl-probe-survival-v1_1-audit.mjs",
