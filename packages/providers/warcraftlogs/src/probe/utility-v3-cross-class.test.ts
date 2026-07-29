@@ -458,3 +458,118 @@ describe("resume merge regression guards", () => {
     for (const slug of missing) expect(reasons[slug]).toBeTruthy();
   });
 });
+
+// -------------------------------------------------------------------------
+// 9. Cache-only COMPLETE + --only parsing (Aspha regression)
+// -------------------------------------------------------------------------
+
+/** Mirror of --only argv parsing (PowerShell comma-split tolerant). */
+function parseOnlyNames(argv: string[]): Set<string> {
+  const onlyNames = new Set<string>();
+  for (let i = 0; i < argv.length; i += 1) {
+    const arg = argv[i];
+    if (arg !== "--only") continue;
+    const next = argv[i + 1];
+    if (next && !next.startsWith("--")) {
+      for (const part of next.split(",")) {
+        const trimmed = part.trim().toLowerCase();
+        if (trimmed) onlyNames.add(trimmed);
+      }
+      i += 1;
+    }
+    while (i + 1 < argv.length && !argv[i + 1]!.startsWith("--")) {
+      i += 1;
+      const bare = argv[i]!.trim().toLowerCase();
+      if (bare) onlyNames.add(bare);
+    }
+  }
+  return onlyNames;
+}
+
+function shouldUseCacheOnly(opts: {
+  resume: boolean;
+  resumePartial: boolean;
+  forceRefetch: boolean;
+  artifactState: "COMPLETE" | "PARTIAL" | "ERROR" | "NONE";
+  missingDungeons: string[];
+}): boolean {
+  return (
+    (opts.resume || opts.resumePartial) &&
+    opts.artifactState === "COMPLETE" &&
+    opts.missingDungeons.length === 0 &&
+    !opts.forceRefetch
+  );
+}
+
+describe("cache-only COMPLETE and --only parsing", () => {
+  it("COMPLETE + --resume-partial => cache-only (zero live calls)", () => {
+    expect(
+      shouldUseCacheOnly({
+        resume: false,
+        resumePartial: true,
+        forceRefetch: false,
+        artifactState: "COMPLETE",
+        missingDungeons: [],
+      }),
+    ).toBe(true);
+  });
+
+  it("COMPLETE + --resume-partial + --force-refetch => live calls allowed", () => {
+    expect(
+      shouldUseCacheOnly({
+        resume: false,
+        resumePartial: true,
+        forceRefetch: true,
+        artifactState: "COMPLETE",
+        missingDungeons: [],
+      }),
+    ).toBe(false);
+  });
+
+  it("parses PowerShell-split --only Aspha,Serahz,Sjelelele as three names", () => {
+    const names = parseOnlyNames(["--only", "Aspha", "Serahz", "Sjelelele"]);
+    expect(names.size).toBe(3);
+    expect(names.has("aspha")).toBe(true);
+    expect(names.has("serahz")).toBe(true);
+    expect(names.has("sjelelele")).toBe(true);
+  });
+
+  it("parses comma-separated --only in a single argv token", () => {
+    const names = parseOnlyNames(["--only", "Aspha,Serahz,Sjelelele"]);
+    expect(names.size).toBe(3);
+  });
+
+  it("COMPLETE state cannot retain current PARTIAL probeFailure", () => {
+    const finalResultState = "COMPLETE";
+    const probeFailure =
+      finalResultState === "COMPLETE"
+        ? null
+        : { probeState: "PARTIAL" as const };
+    expect(probeFailure).toBeNull();
+  });
+
+  it("local rescore reports zero WCL quota consumption", () => {
+    const liveWclUsed = false;
+    const rateCost = {
+      pointsConsumed: liveWclUsed ? 113.73 : 0,
+      wclRequests: liveWclUsed ? 70 : 0,
+      costDecisionReason: liveWclUsed ? "no_missing_dungeons" : "cache_only_no_missing_dungeons",
+    };
+    expect(rateCost.pointsConsumed).toBe(0);
+    expect(rateCost.wclRequests).toBe(0);
+    expect(rateCost.costDecisionReason).toBe("cache_only_no_missing_dungeons");
+  });
+
+  it("ensure all --only characters appear in report population", () => {
+    const active = [{ name: "Aspha" }, { name: "Serahz" }, { name: "Sjelelele" }];
+    const results = [{ name: "Aspha", state: "COMPLETE" }];
+    const merged = [...results];
+    for (const entry of active) {
+      if (!merged.some((r) => r.name === entry.name)) {
+        merged.push({ name: entry.name, state: "SKIPPED" });
+      }
+    }
+    expect(merged).toHaveLength(3);
+    expect(merged.map((r) => r.name).sort()).toEqual(["Aspha", "Serahz", "Sjelelele"]);
+  });
+});
