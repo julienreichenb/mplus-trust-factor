@@ -8,6 +8,8 @@ export interface CalibrationProfile {
   selectedRuns: ExperienceV2RunInput[];
   seasonRuns: ExperienceV2RunInput[];
   priorSeasonCount: number;
+  /** Defaults to RIO depth (1). Use 3 when simulating durable local multi-season history. */
+  priorSeasonSourceDepth?: number;
   observedAt: string;
   provenance: ExperienceHistoryProvenance;
 }
@@ -47,6 +49,7 @@ export const EXPERIENCE_V2_CALIBRATION_PANEL: CalibrationProfile[] = [
       dungeonRun(`dungeon-${(i % 8) + 1}`, 8 + (i % 5), RECENT),
     ),
     priorSeasonCount: 1,
+    priorSeasonSourceDepth: 1,
     observedAt: NOW,
     provenance: "HAS_HISTORY",
   },
@@ -55,12 +58,14 @@ export const EXPERIENCE_V2_CALIBRATION_PANEL: CalibrationProfile[] = [
     label: "Long-term multi-season character",
     expectedDungeonCount: 8,
     selectedRuns: Array.from({ length: 8 }, (_, i) =>
-      dungeonRun(`dungeon-${i + 1}`, 12 + (i % 2), RECENT),
+      dungeonRun(`dungeon-${i + 1}`, [5, 8, 10, 12, 14, 15, 11, 7][i]!, RECENT),
     ),
     seasonRuns: Array.from({ length: 20 }, (_, i) =>
-      dungeonRun(`dungeon-${(i % 8) + 1}`, 10 + (i % 6), RECENT),
+      dungeonRun(`dungeon-${(i % 8) + 1}`, 8 + (i % 8), RECENT),
     ),
+    // Durable local prior seasons (3) — not RIO-only depth.
     priorSeasonCount: 3,
+    priorSeasonSourceDepth: 3,
     observedAt: NOW,
     provenance: "HAS_HISTORY",
   },
@@ -79,6 +84,7 @@ export const EXPERIENCE_V2_CALIBRATION_PANEL: CalibrationProfile[] = [
       dungeonRun("dungeon-3", 12, STALE),
     ],
     priorSeasonCount: 3,
+    priorSeasonSourceDepth: 3,
     observedAt: NOW,
     provenance: "HAS_HISTORY",
   },

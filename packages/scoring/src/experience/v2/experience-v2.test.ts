@@ -161,6 +161,7 @@ describe("Experience V2 core", () => {
       selectedRuns: runs,
       seasonRuns: runs,
       priorSeasonCount: 0,
+      priorSeasonSourceDepth: 1,
       observedAt: NOW,
       provenance: "HAS_HISTORY",
     });
@@ -169,6 +170,7 @@ describe("Experience V2 core", () => {
       selectedRuns: runs,
       seasonRuns: runs,
       priorSeasonCount: 3,
+      priorSeasonSourceDepth: 3,
       observedAt: NOW,
       provenance: "HAS_HISTORY",
     });

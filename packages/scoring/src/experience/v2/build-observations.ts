@@ -17,6 +17,8 @@ export interface ExperienceV2ObservationInput {
   /** All current-season pool runs when available; defaults to selectedRuns. */
   seasonRuns?: ExperienceV2RunInput[];
   priorSeasonCount?: number;
+  /** Denominator for historical_seasons; defaults to RIO depth (1). */
+  priorSeasonSourceDepth?: number;
   provenance?: ExperienceHistoryProvenance;
   sourceProvider?: string;
 }
@@ -39,6 +41,7 @@ export function buildExperienceV2Observations(
     selectedRuns: input.selectedRuns,
     seasonRuns: input.seasonRuns ?? input.selectedRuns,
     priorSeasonCount: input.priorSeasonCount ?? 0,
+    priorSeasonSourceDepth: input.priorSeasonSourceDepth,
     observedAt: input.observedAt,
     provenance,
   });
@@ -65,7 +68,7 @@ export function buildExperienceV2Observations(
       independentOfWclDetails: true,
       verifiedAccountHistory: false,
       scoreFiftyMeaning:
-        "Moderate current-season coverage: ~half dungeon pool across ~2 key bands with recent activity or prior-season history",
+        "Moderate current-season coverage: ~half dungeon pool across ~3 of 6 key bands with recent activity or prior-season history",
       ...component.detail,
     },
   }));

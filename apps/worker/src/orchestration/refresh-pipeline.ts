@@ -32,7 +32,9 @@ import { buildCatalogCoverageDiagnostics, getAbilityCatalog } from "@mplus/abili
 import {
   applyRunMetadataToSelection,
   buildExperienceV2Observations,
+  mergePriorSeasonCount,
   resolveExperienceProvenance,
+  resolvePriorSeasonSourceDepth,
   readBlizzardSeasonDungeonSlugsFromMetadata,
   resolveActiveSeasonDungeonPool,
   selectScoringRuns,
@@ -1914,7 +1916,32 @@ export async function runRefreshPipeline(
   // EXPERIENCE V2 from CHARACTER_HISTORY only — durable run/season metadata, no WCL combat events.
   const blizzardOk = !stagesSkipped.includes("refresh-blizzard");
   const raiderIoOk = !stagesSkipped.includes("refresh-raiderio");
-  const priorSeasonCount = raiderIoProfile?.previousSeason ? 1 : 0;
+  const rioPriorSeasonCount = raiderIoProfile?.previousSeason ? 1 : 0;
+  // Durable local prior seasons (snapshots / runs outside the active season).
+  const [localPriorFromSnapshots, localPriorFromRuns] = await Promise.all([
+    container.prisma.scoreSnapshot.findMany({
+      where: { characterId: character.id, seasonId: { not: season.id } },
+      distinct: ["seasonId"],
+      select: { seasonId: true },
+    }),
+    container.prisma.mythicRun.findMany({
+      where: {
+        seasonId: { not: season.id },
+        participants: { some: { characterId: character.id, isTargetCharacter: true } },
+      },
+      distinct: ["seasonId"],
+      select: { seasonId: true },
+    }),
+  ]);
+  const localPriorSeasonCount = new Set([
+    ...localPriorFromSnapshots.map((r) => r.seasonId),
+    ...localPriorFromRuns.map((r) => r.seasonId),
+  ]).size;
+  const priorSeasonCount = mergePriorSeasonCount(rioPriorSeasonCount, localPriorSeasonCount);
+  const priorSeasonSourceDepth = resolvePriorSeasonSourceDepth({
+    rioPriorSeasonCount,
+    localPriorSeasonCount,
+  });
   const seasonPoolRuns = scoringCandidates.map((r) => ({
     dungeonSlug: r.dungeonSlug,
     keyLevel: r.keyLevel,
@@ -1944,6 +1971,7 @@ export async function runRefreshPipeline(
           selectedRuns: selectedExperienceRuns,
           seasonRuns: seasonPoolRuns,
           priorSeasonCount,
+          priorSeasonSourceDepth,
           provenance: experienceProvenance,
           sourceProvider: "character_history",
         });

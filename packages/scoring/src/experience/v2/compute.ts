@@ -1,8 +1,9 @@
 import { clamp01 } from "../../math.js";
 import {
   EXPERIENCE_KEY_BANDS,
-  KEY_BAND_SATURATION,
-  PRIOR_SEASON_SATURATION,
+  KEY_BAND_COUNT,
+  PRIOR_SEASON_LOCAL_CAP,
+  PRIOR_SEASON_RIO_DEPTH,
   RECENCY_DECAY_DAYS,
   RECENCY_FLOOR,
   RECENCY_FULL_DAYS,
@@ -22,8 +23,16 @@ export interface ExperienceV2ComputeInput {
   selectedRuns: ExperienceV2RunInput[];
   /** All current-season pool runs — participation depth (spam-capped). */
   seasonRuns: ExperienceV2RunInput[];
-  /** Distinct prior seasons with public character history (no alts). */
+  /**
+   * Distinct prior seasons with public character history (no alts).
+   * Built from RIO previous ∪ durable local prior seasons.
+   */
   priorSeasonCount: number;
+  /**
+   * Denominator for historical_seasons. Must equal the max count this observation
+   * path can produce (RIO-only → 1; local consolidation → up to PRIOR_SEASON_LOCAL_CAP).
+   */
+  priorSeasonSourceDepth?: number;
   observedAt: string;
   /** How complete / authoritative the history sources were. */
   provenance: ExperienceHistoryProvenance;
@@ -48,6 +57,7 @@ export interface ExperienceV2Result {
     bandsTouched: number;
     seasonRunCount: number;
     priorSeasonCount: number;
+    priorSeasonSourceDepth: number;
     daysSinceLastRun: number | null;
   };
 }
@@ -67,6 +77,39 @@ export function distinctKeyBands(runs: ExperienceV2RunInput[]): string[] {
     if (id) bands.add(id);
   }
   return [...bands].sort();
+}
+
+/**
+ * Resolve historical_seasons denominator from actual source depth.
+ * RIO `current:previous` alone → depth 1 (binary previous).
+ * When durable local prior seasons exist → depth up to PRIOR_SEASON_LOCAL_CAP.
+ */
+export function resolvePriorSeasonSourceDepth(input: {
+  rioPriorSeasonCount: number;
+  localPriorSeasonCount: number;
+}): number {
+  const local = Math.max(0, input.localPriorSeasonCount);
+  if (local > 0) {
+    // Local durable history can credit up to LOCAL_CAP; depth matches what we observed
+    // so a character with N local prior seasons can reach 100 when N fills the depth.
+    return Math.min(PRIOR_SEASON_LOCAL_CAP, Math.max(local, PRIOR_SEASON_RIO_DEPTH));
+  }
+  // RIO `current:previous` alone — binary previous season, depth 1.
+  return PRIOR_SEASON_RIO_DEPTH;
+}
+
+/** Merge RIO + local prior counts (distinct seasons; upper-bounded by local cap). */
+export function mergePriorSeasonCount(rioPrior: number, localPrior: number): number {
+  return Math.min(PRIOR_SEASON_LOCAL_CAP, Math.max(0, rioPrior, localPrior));
+}
+
+export function historicalSeasonsNormalized(
+  priorSeasonCount: number,
+  sourceDepth: number,
+): number {
+  const depth = Math.max(1, sourceDepth);
+  const capped = Math.min(Math.max(0, priorSeasonCount), depth);
+  return clamp01(capped / depth) * 100;
 }
 
 /** Diminishing participation: log curve capped so raw spam cannot saturate alone. */
@@ -111,7 +154,6 @@ function provenanceConfidence(
 ): number {
   switch (provenance) {
     case "CONFIRMED_ABSENCE":
-      // Absence is known — confidence that the low score is meaningful.
       return 0.72;
     case "HAS_HISTORY":
       return hasSignal ? 0.88 : 0.72;
@@ -135,6 +177,7 @@ export function computeExperienceV2(input: ExperienceV2ComputeInput): Experience
   const distinctDungeons = new Set(selected.map((r) => r.dungeonSlug.trim().toLowerCase())).size;
   const bands = distinctKeyBands(selected);
   const prior = Math.max(0, input.priorSeasonCount);
+  const priorDepth = Math.max(1, input.priorSeasonSourceDepth ?? PRIOR_SEASON_RIO_DEPTH);
   const lastCompletedAt =
     seasonRuns.reduce<string | null>((latest, run) => {
       if (!latest || run.completedAt > latest) return run.completedAt;
@@ -150,9 +193,9 @@ export function computeExperienceV2(input: ExperienceV2ComputeInput): Experience
   const baseConf = provenanceConfidence(input.provenance, hasHistory);
 
   const breadthNorm = clamp01(distinctDungeons / expected) * 100;
-  const bandNorm = clamp01(bands.length / KEY_BAND_SATURATION) * 100;
+  const bandNorm = clamp01(bands.length / KEY_BAND_COUNT) * 100;
   const participationNorm = participationDepthNormalized(seasonRuns.length, expected);
-  const historicalNorm = prior > 0 ? clamp01(prior / PRIOR_SEASON_SATURATION) * 100 : 0;
+  const historicalNorm = historicalSeasonsNormalized(prior, priorDepth);
   const recencyNorm = hasHistory ? recency.normalized : 0;
 
   const components: ExperienceV2Component[] = [
@@ -179,12 +222,13 @@ export function computeExperienceV2(input: ExperienceV2ComputeInput): Experience
       confidence: selected.length > 0 ? baseConf * 0.95 : baseConf * 0.85,
       coverage: {
         present: bands.length,
-        expected: KEY_BAND_SATURATION,
-        ratio: clamp01(bands.length / KEY_BAND_SATURATION),
+        expected: KEY_BAND_COUNT,
+        ratio: clamp01(bands.length / KEY_BAND_COUNT),
       },
       detail: {
         bandsTouched: bands,
-        saturation: KEY_BAND_SATURATION,
+        bandCount: KEY_BAND_COUNT,
+        bandDefinitions: EXPERIENCE_KEY_BANDS.map((b) => b.id),
         independentOfPeakKey: true,
       },
     },
@@ -216,7 +260,9 @@ export function computeExperienceV2(input: ExperienceV2ComputeInput): Experience
       },
       detail: {
         priorSeasonCount: prior,
-        saturation: PRIOR_SEASON_SATURATION,
+        priorSeasonSourceDepth: priorDepth,
+        rioFieldDepth: PRIOR_SEASON_RIO_DEPTH,
+        localCap: PRIOR_SEASON_LOCAL_CAP,
         verifiedAccountHistory: false,
         noAltInference: true,
       },
@@ -235,7 +281,10 @@ export function computeExperienceV2(input: ExperienceV2ComputeInput): Experience
     },
   ];
 
-  // Calibration helper: equal-weight raw blend of component norms.
+  for (const component of components) {
+    component.normalizedValue = Math.min(100, Math.max(0, component.normalizedValue));
+  }
+
   const rawScore =
     components.reduce((s, c) => s + c.normalizedValue, 0) / Math.max(1, components.length);
 
@@ -248,6 +297,7 @@ export function computeExperienceV2(input: ExperienceV2ComputeInput): Experience
       bandsTouched: bands.length,
       seasonRunCount: seasonRuns.length,
       priorSeasonCount: prior,
+      priorSeasonSourceDepth: priorDepth,
       daysSinceLastRun: recency.daysSince,
     },
   };

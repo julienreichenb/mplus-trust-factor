@@ -2,12 +2,12 @@
  * Experience V2 — accumulated Mythic+ exposure, independent of execution quality.
  *
  * Score 50 meaning: moderate current-season coverage — roughly half the active
- * dungeon pool completed across ~2 key bands, with either recent activity or
- * at least one prior season of public history. Not a population percentile.
+ * dungeon pool completed across ~3 key bands (half of 6), with either recent
+ * activity or prior-season public history. Not a population percentile.
  */
 
 export const EXPERIENCE_V2_SCHEMA_VERSION = "experience-v2";
-export const EXPERIENCE_V2_ANALYSIS_VERSION = "experience-v2.0";
+export const EXPERIENCE_V2_ANALYSIS_VERSION = "experience-v2.1";
 export const EXPERIENCE_V2_MODEL_LABEL = "v2";
 
 /** Meaningful key-level bands for breadth (not peak-key skill). */
@@ -20,11 +20,26 @@ export const EXPERIENCE_KEY_BANDS = [
   { id: "15+", min: 15, max: 99 },
 ] as const;
 
-/** Touching this many bands saturates key-band breadth (spam in one band cannot). */
-export const KEY_BAND_SATURATION = 4;
+/**
+ * Denominator for key_band_breadth — equals the defined band count (6).
+ * Formula: clamp01(bandsTouched / KEY_BAND_COUNT) * 100 (never exceeds 100).
+ */
+export const KEY_BAND_COUNT = EXPERIENCE_KEY_BANDS.length;
 
-/** Prior seasons that saturate multi-season continuity. */
-export const PRIOR_SEASON_SATURATION = 3;
+/** @deprecated Use KEY_BAND_COUNT — saturation equals the defined band set. */
+export const KEY_BAND_SATURATION = KEY_BAND_COUNT;
+
+/**
+ * Raider.IO public profile prior-season depth when requesting
+ * `mythic_plus_scores_by_season:current:previous` — at most one prior season.
+ */
+export const PRIOR_SEASON_RIO_DEPTH = 1;
+
+/**
+ * Max prior seasons credited when durable local history (snapshots/runs in
+ * non-current seasons) is consolidated with the RIO previous signal.
+ */
+export const PRIOR_SEASON_LOCAL_CAP = 3;
 
 /** Recency: full credit within this many days of last relevant run. */
 export const RECENCY_FULL_DAYS = 14;
