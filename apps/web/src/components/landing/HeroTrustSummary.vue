@@ -112,13 +112,13 @@ const dimensionTitles: Record<string, string> = {
           stroke-linejoin="round"
         />
         <g v-else-if="label.short === 'U'" transform="scale(0.625)">
-          <circle cx="8" cy="8" r="5.5" fill="none" stroke="currentColor" stroke-width="1.4" />
           <path
-            d="M8 5v6M5 8h6"
+            d="M9.1 4.1a2.35 2.35 0 0 1 3.3 0 2.35 2.35 0 0 1 0 3.3l-1.15-1.15-1.4 1.4 1.15 1.15a2.35 2.35 0 0 1-3.3 0L4.2 12.3a1.2 1.2 0 0 1-1.7-1.7L7.7 5.4a2.35 2.35 0 0 1 1.4-1.3z"
             fill="none"
             stroke="currentColor"
             stroke-width="1.4"
             stroke-linecap="round"
+            stroke-linejoin="round"
           />
         </g>
         <path

@@ -1,4 +1,4 @@
-import type { ScoreModelConfigV1 } from "./types.js";
+import type { ScoreModelConfig } from "@mplus/contracts";
 import type { DimensionScoreResult } from "./types.js";
 
 export const MODEL_COVERAGE_PROVISIONAL_THRESHOLD = 0.5;
@@ -13,7 +13,7 @@ export interface ModelCoverageSummary {
 
 export function computeModelCoverage(
   dimensions: DimensionScoreResult[],
-  model: ScoreModelConfigV1,
+  _model: ScoreModelConfig,
 ): ModelCoverageSummary {
   const weightedDimensions = dimensions.filter((d) => d.weight > 0);
   const totalModelWeight = weightedDimensions.reduce((sum, d) => sum + d.weight, 0);

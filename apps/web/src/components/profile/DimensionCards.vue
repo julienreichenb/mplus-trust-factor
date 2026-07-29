@@ -2,13 +2,13 @@
 import { computed } from "vue";
 import type { DimensionScoreDTO, PerformanceSummaryDTO } from "@mplus/contracts";
 import type { ScoringRunSelection } from "../../api/types";
-import type { RadarDimension } from "../../lib/format";
 import {
   DIMENSION_LABELS,
   filterDimensionsForModel,
   formatPercent,
   formatScore,
   formatWeight,
+  type RadarDimension,
 } from "../../lib/format";
 import { parseContributorSignals } from "../../lib/characterViewModel";
 import DimensionAxisIcon from "../charts/DimensionAxisIcon.vue";
@@ -31,6 +31,8 @@ const allSignals = computed(() => parseContributorSignals(props.dimensions));
 const cards = computed(() =>
   filterDimensionsForModel(props.dimensions, props.modelVersion)
     .filter((d) => d.dimension !== "AUTHENTICITY")
+    .slice()
+    .sort((a, b) => (b.weight ?? 0) - (a.weight ?? 0))
     .map((d) => {
       const dimKey = d.dimension as RadarDimension;
       return {
@@ -40,9 +42,9 @@ const cards = computed(() =>
         signals: allSignals.value
           .filter((s) => s.dimensionKey === dimKey)
           .slice()
-          .sort((a, b) => {
-            if (a.kind === b.kind) return 0;
-            return a.kind === "positive" ? -1 : 1;
+          .sort((sigA, sigB) => {
+            if (sigA.kind === sigB.kind) return 0;
+            return sigA.kind === "positive" ? -1 : 1;
           }),
         weightLabel: d.weight != null ? formatWeight(d.weight) : "—",
         confidenceLabel:

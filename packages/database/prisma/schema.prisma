@@ -105,8 +105,11 @@ enum AddonExportStatus {
 
 enum ScorePublicationStatus {
   DRAFT
+  CANDIDATE
   PUBLIC
+  PUBLISHED
   SUPERSEDED
+  REJECTED_INCOMPLETE
 }
 
 enum AnalysisRunJobStatus {
@@ -207,6 +210,7 @@ model Season {
   characterRedFlags CharacterRedFlag[]
   addonExports     AddonExport[]
   analysisBatches  ScoreAnalysisBatch[]
+  publishedScores  CharacterPublishedScore[]
 
   @@unique([regionId, slug])
   @@map("seasons")
@@ -317,6 +321,7 @@ model Character {
   ingestionJobs     IngestionJob[]
   providerStates    CharacterProviderState[]
   analysisBatches   ScoreAnalysisBatch[]
+  publishedScores   CharacterPublishedScore[]
 
   @@unique([regionId, realmId, normalizedName])
   @@index([lastPublicRefreshAt])
@@ -627,12 +632,17 @@ model MetricObservation {
   sourceProvider     Provider       @map("source_provider")
   sourcePayloadId    String?        @map("source_payload_id") @db.Uuid
   context            Json           @default("{}")
+  observationKey     String?        @map("observation_key")
+  analysisVersion    String?        @map("analysis_version")
+  schemaVersion      String?        @map("schema_version")
+  sourcePayloadFingerprint String?    @map("source_payload_fingerprint")
 
   character        Character        @relation(fields: [characterId], references: [id])
   run              MythicRun?       @relation(fields: [runId], references: [id])
   season           Season?          @relation(fields: [seasonId], references: [id])
   metricDefinition MetricDefinition @relation(fields: [metricDefinitionId], references: [id])
 
+  @@unique([characterId, seasonId, observationKey])
   @@index([characterId, seasonId, metricDefinitionId])
   @@map("metric_observations")
 }
@@ -699,6 +709,11 @@ model ScoreSnapshot {
   publicationStatus ScorePublicationStatus @default(PUBLIC) @map("publication_status")
   isPublic         Boolean                @default(true) @map("is_public")
   analysisBatchId  String?                @map("analysis_batch_id") @db.Uuid
+  refreshContractHash String?             @map("refresh_contract_hash")
+  providerDataAsOf DateTime?              @map("provider_data_as_of") @db.Timestamptz(3)
+  coverageState    String?                @map("coverage_state")
+  rejectionReason  String?                @map("rejection_reason")
+  publishedAt      DateTime?              @map("published_at") @db.Timestamptz(3)
 
   character      Character         @relation(fields: [characterId], references: [id])
   season         Season            @relation(fields: [seasonId], references: [id])
@@ -706,11 +721,31 @@ model ScoreSnapshot {
   dimensionScores DimensionScore[]
   disputes       ScoreDispute[]
   analysisBatch  ScoreAnalysisBatch? @relation(fields: [analysisBatchId], references: [id])
+  publishedScorePointers CharacterPublishedScore[] @relation("PublishedSnapshotPointer")
 
   @@unique([characterId, seasonId, scoreModelId, scopeType, scopeKey, inputFingerprint])
   @@index([characterId, calculatedAt(sort: Desc)])
   @@index([characterId, isPublic, calculatedAt(sort: Desc)])
   @@map("score_snapshots")
+}
+
+/** Durable pointer to the current published snapshot per character/season/model/scope. */
+model CharacterPublishedScore {
+  id                  String    @id @default(uuid()) @db.Uuid
+  characterId         String    @map("character_id") @db.Uuid
+  seasonId            String    @map("season_id") @db.Uuid
+  scoreModelId        String    @map("score_model_id") @db.Uuid
+  scopeType           ScopeType @map("scope_type")
+  scopeKey            String?   @map("scope_key")
+  publishedSnapshotId String    @map("published_snapshot_id") @db.Uuid
+  updatedAt           DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  character         Character     @relation(fields: [characterId], references: [id])
+  season            Season        @relation(fields: [seasonId], references: [id])
+  publishedSnapshot ScoreSnapshot @relation("PublishedSnapshotPointer", fields: [publishedSnapshotId], references: [id])
+
+  @@unique([characterId, seasonId, scoreModelId, scopeType, scopeKey])
+  @@map("character_published_scores")
 }
 
 model DimensionScore {

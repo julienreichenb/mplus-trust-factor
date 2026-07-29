@@ -119,6 +119,15 @@ main p {
   color: var(--color-text-muted);
 }
 
+main p.eyebrow {
+  margin: 0;
+  font-family: var(--font-data);
+  font-size: var(--text-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-gold-300);
+}
+
 .btn {
   font: inherit;
   font-weight: 600;

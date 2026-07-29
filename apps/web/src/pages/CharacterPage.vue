@@ -370,13 +370,11 @@ watch(
         :runs-locked="!entitlements.runsUnlocked"
       />
 
-      <div class="split">
-        <KeySignalsPanel
-          :dimensions="profile.score?.dimensions ?? []"
-          :flags="profile.redFlags"
-        />
-        <DataProvenancePanel :profile="profile" />
-      </div>
+      <KeySignalsPanel
+        :dimensions="profile.score?.dimensions ?? []"
+        :flags="profile.redFlags"
+      />
+      <DataProvenancePanel :profile="profile" />
 
       <AuthenticitySection
         :authenticity-score="profile.score?.authenticityScore ?? null"
@@ -482,17 +480,5 @@ watch(
 .not-found-search {
   margin-top: var(--space-4);
   max-width: 40rem;
-}
-
-.split {
-  display: grid;
-  gap: var(--space-2);
-}
-
-@media (min-width: 1024px) {
-  .split {
-    grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
-    align-items: start;
-  }
 }
 </style>

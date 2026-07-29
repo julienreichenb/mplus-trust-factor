@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import CharacterRealmSearch from "../components/search/CharacterRealmSearch.vue";
 import HeroCarousel from "../components/landing/HeroCarousel.vue";
+import HeroParticles from "../components/landing/HeroParticles.vue";
 import FeatureGrid from "../components/landing/FeatureGrid.vue";
+import RanksSection from "../components/landing/RanksSection.vue";
 import MethodologySummary from "../components/landing/MethodologySummary.vue";
 </script>
 
@@ -9,6 +11,7 @@ import MethodologySummary from "../components/landing/MethodologySummary.vue";
   <div class="landing">
     <section class="hero-stage" aria-labelledby="hero-title">
       <div class="hero-panel">
+        <HeroParticles />
         <div class="hero-panel__layout">
           <div class="hero-panel__content">
             <div class="hero__intro">
@@ -37,6 +40,7 @@ import MethodologySummary from "../components/landing/MethodologySummary.vue";
       </div>
     </section>
 
+    <RanksSection />
     <FeatureGrid />
     <MethodologySummary />
 
@@ -113,6 +117,7 @@ import MethodologySummary from "../components/landing/MethodologySummary.vue";
 }
 
 .hero-panel {
+  position: relative;
   border-radius: var(--radius-hero);
   border: 1px solid rgb(255 255 255 / 8%);
   background: rgb(13 13 15 / 55%);
@@ -126,9 +131,12 @@ import MethodologySummary from "../components/landing/MethodologySummary.vue";
 }
 
 .hero-panel__layout {
+  position: relative;
+  z-index: 1;
   display: grid;
   gap: var(--space-8);
   align-items: center;
+  min-width: 0;
 }
 
 .hero-panel__content {
@@ -138,6 +146,8 @@ import MethodologySummary from "../components/landing/MethodologySummary.vue";
 }
 
 .hero-panel__art {
+  width: 100%;
+  max-width: 100%;
   min-width: 0;
   margin: 0 auto;
 }
@@ -322,6 +332,7 @@ import MethodologySummary from "../components/landing/MethodologySummary.vue";
   .hero-panel__layout {
     position: relative;
     width: 100%;
+    height: calc(88dvh - 10rem);
     min-height: calc(88dvh - 10rem);
     display: block;
   }

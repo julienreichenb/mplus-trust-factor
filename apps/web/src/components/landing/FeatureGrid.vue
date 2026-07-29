@@ -114,7 +114,7 @@ const features: Feature[] = [
 }
 
 .eyebrow {
-  margin: 0 0 var(--space-2);
+  margin: 0;
   font-family: var(--font-data);
   font-size: var(--text-xs);
   letter-spacing: 0.08em;
@@ -126,7 +126,7 @@ const features: Feature[] = [
   margin: 0 0 var(--space-3);
 }
 
-.features__header p {
+.features__header p:not(.eyebrow) {
   margin: 0;
   color: var(--color-text-muted);
 }
