@@ -10,7 +10,8 @@
  *     --characters-file tools/fixtures/cross-class-validation-characters.json \
  *     [--output-root raw-artifacts/wcl-probe-utility] \
  *     [--max-runs-per-dungeon 3] \
- *     [--max-reports-per-dungeon 8]
+ *     [--max-reports-per-dungeon 8] \
+ *     [--resume]
  */
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
