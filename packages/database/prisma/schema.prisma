@@ -322,6 +322,9 @@ model Character {
   providerStates    CharacterProviderState[]
   analysisBatches   ScoreAnalysisBatch[]
   publishedScores   CharacterPublishedScore[]
+  profileViews      CharacterProfileView[]
+  refreshScheduleItems RefreshScheduleItem[]
+  refreshCostEntries RefreshCostLedgerEntry[]
 
   @@unique([regionId, realmId, normalizedName])
   @@index([lastPublicRefreshAt])
@@ -943,4 +946,141 @@ model AddonExport {
 
   @@index([regionId, seasonId, generatedAt(sort: Desc)])
   @@map("addon_exports")
+}
+
+enum RefreshScheduleMode {
+  DRY_RUN
+  CACHED_BATCH
+  LIVE_ENQUEUE
+}
+
+enum RefreshScheduleRunStatus {
+  PLANNING
+  RUNNING
+  PAUSED_BUDGET
+  COMPLETED
+  CANCELLED
+  FAILED
+}
+
+enum RefreshScheduleItemStatus {
+  PLANNED
+  SKIPPED_FRESH
+  SKIPPED_COOLDOWN
+  SKIPPED_BUDGET
+  SKIPPED_FAIRNESS
+  DEFERRED_RATE_LIMIT
+  ENQUEUED
+  COMPLETED
+  FAILED
+}
+
+enum RefreshCostSource {
+  MEASURED
+  ESTIMATED
+  UNKNOWN
+}
+
+/// Durable cohort planning run with checkpoint for restart/resume.
+model RefreshScheduleRun {
+  id                   String                   @id @default(uuid()) @db.Uuid
+  mode                 RefreshScheduleMode
+  status               RefreshScheduleRunStatus @default(PLANNING)
+  strategy             String
+  cadenceHint          String?                  @map("cadence_hint")
+  dryRun               Boolean                  @default(true) @map("dry_run")
+  configSnapshot       Json                     @default("{}") @map("config_snapshot")
+  checkpoint           Json                     @default("{}")
+  denominatorKey       String?                  @map("denominator_key")
+  denominatorCount     Int?                     @map("denominator_count")
+  plannedJobCount      Int                      @default(0) @map("planned_job_count")
+  selectedCount        Int                      @default(0) @map("selected_count")
+  skippedCount         Int                      @default(0) @map("skipped_count")
+  deferredCount        Int                      @default(0) @map("deferred_count")
+  estimatedWclPoints   Float?                   @map("estimated_wcl_points")
+  consumedWclPoints    Float?                   @map("consumed_wcl_points")
+  regionDistribution   Json                     @default("{}") @map("region_distribution")
+  specDistribution     Json                     @default("{}") @map("spec_distribution")
+  nextResumeAt         DateTime?                @map("next_resume_at") @db.Timestamptz(3)
+  notes                Json                     @default("[]")
+  startedAt            DateTime                 @default(now()) @map("started_at") @db.Timestamptz(3)
+  completedAt          DateTime?                @map("completed_at") @db.Timestamptz(3)
+  updatedAt            DateTime                 @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  items       RefreshScheduleItem[]
+  costEntries RefreshCostLedgerEntry[]
+
+  @@index([status, startedAt(sort: Desc)])
+  @@map("refresh_schedule_runs")
+}
+
+model RefreshScheduleItem {
+  id                  String                    @id @default(uuid()) @db.Uuid
+  scheduleRunId       String                    @map("schedule_run_id") @db.Uuid
+  characterId         String                    @map("character_id") @db.Uuid
+  cadenceTier         String                    @map("cadence_tier")
+  region              String
+  specRole            String?                   @map("spec_role")
+  plannedDatasets     Json                      @default("[]") @map("planned_datasets")
+  estimatedWclPoints  Float                     @default(0) @map("estimated_wcl_points")
+  status              RefreshScheduleItemStatus @default(PLANNED)
+  deterministicJobKey String                    @map("deterministic_job_key")
+  skipReason          String?                   @map("skip_reason")
+  deferredUntil       DateTime?                 @map("deferred_until") @db.Timestamptz(3)
+  enqueuedJobId       String?                   @map("enqueued_job_id") @db.Uuid
+  priority            Int                       @default(0)
+  createdAt           DateTime                  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt           DateTime                  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  scheduleRun RefreshScheduleRun @relation(fields: [scheduleRunId], references: [id], onDelete: Cascade)
+  character   Character          @relation(fields: [characterId], references: [id], onDelete: Cascade)
+
+  @@unique([scheduleRunId, characterId])
+  @@index([status, deferredUntil])
+  @@index([deterministicJobKey])
+  @@map("refresh_schedule_items")
+}
+
+/// Durable per-provider cost accounting for refresh planning and calibration.
+model RefreshCostLedgerEntry {
+  id               String            @id @default(uuid()) @db.Uuid
+  provider         Provider
+  operation        String
+  dataset          String
+  characterId      String?           @map("character_id") @db.Uuid
+  runId            String?           @map("run_id") @db.Uuid
+  jobId            String?           @map("job_id") @db.Uuid
+  scheduleRunId    String?           @map("schedule_run_id") @db.Uuid
+  refreshReason    String            @map("refresh_reason")
+  cacheHit         Boolean           @default(false) @map("cache_hit")
+  estimatedCost    Float?            @map("estimated_cost")
+  measuredCost     Float?            @map("measured_cost")
+  costSource       RefreshCostSource @map("cost_source")
+  modelOnly        Boolean           @default(false) @map("model_only")
+  providerRefetch  Boolean           @default(false) @map("provider_refetch")
+  metadata         Json              @default("{}")
+  recordedAt       DateTime          @default(now()) @map("recorded_at") @db.Timestamptz(3)
+
+  character   Character?          @relation(fields: [characterId], references: [id], onDelete: SetNull)
+  scheduleRun RefreshScheduleRun? @relation(fields: [scheduleRunId], references: [id], onDelete: SetNull)
+
+  @@index([provider, operation, recordedAt(sort: Desc)])
+  @@index([characterId, recordedAt(sort: Desc)])
+  @@index([refreshReason, recordedAt(sort: Desc)])
+  @@map("refresh_cost_ledger_entries")
+}
+
+/// Profile view events for demand-driven cohort strategies.
+model CharacterProfileView {
+  id          String   @id @default(uuid()) @db.Uuid
+  characterId String   @map("character_id") @db.Uuid
+  viewedAt    DateTime @default(now()) @map("viewed_at") @db.Timestamptz(3)
+  viewerHash  String?  @map("viewer_hash")
+  source      String   @default("public")
+
+  character Character @relation(fields: [characterId], references: [id], onDelete: Cascade)
+
+  @@index([characterId, viewedAt(sort: Desc)])
+  @@index([viewedAt(sort: Desc)])
+  @@map("character_profile_views")
 }

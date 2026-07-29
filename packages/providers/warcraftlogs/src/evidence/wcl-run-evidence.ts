@@ -46,6 +46,17 @@ export function dedupeEventsByIdentity(
   return out;
 }
 
+/** Datasets that need hitPoints/maxHitPoints for Survival max-HP parity. */
+export const SHARED_EVIDENCE_RESOURCE_DATASETS: SharedEvidenceDatasetKey[] = [
+  "DamageTaken",
+  "Healing",
+  "Deaths",
+];
+
+export function sharedEvidenceNeedsResources(dataset: SharedEvidenceDatasetKey): boolean {
+  return SHARED_EVIDENCE_RESOURCE_DATASETS.includes(dataset);
+}
+
 export async function fetchSharedEventDataset(input: {
   client: WclGraphQlClient;
   reportCode: string;
@@ -54,6 +65,8 @@ export async function fetchSharedEventDataset(input: {
   sourceId?: number | null;
   filterExpression?: string | null;
   hostilityType?: "Friendlies" | "Enemies" | null;
+  /** When true, request hitPoints/maxHitPoints (DamageTaken/Healing/Deaths). */
+  includeResources?: boolean;
   maxPages?: number;
   pageLimit?: number;
   region?: string;
@@ -66,6 +79,9 @@ export async function fetchSharedEventDataset(input: {
     throw new Error("Use fetchMasterData for masterData dataset");
   }
 
+  const includeResources =
+    input.includeResources === true ||
+    (input.includeResources !== false && sharedEvidenceNeedsResources(input.dataset));
   const filterExpression =
     input.filterExpression ??
     (input.dataset === "HostileCasts" ? HOSTILE_CAST_FILTER_EXPRESSION : null);
@@ -108,6 +124,7 @@ export async function fetchSharedEventDataset(input: {
         translate: false,
         useAbilityIDs: false,
         useActorIDs: false,
+        includeResources: includeResources ? true : undefined,
         filterExpression: filterExpression ?? undefined,
         hostilityType: hostilityType ?? undefined,
       },
@@ -170,10 +187,13 @@ export async function fetchSharedEventDataset(input: {
       pageCount: pages.length,
       eventCount: deduped.length,
       filterSourceId: input.sourceId ?? null,
-      filterExpression:
-        hostilityType != null
-          ? `hostilityType=${hostilityType};${filterExpression ?? ""}`
-          : filterExpression,
+      filterExpression: [
+        hostilityType != null ? `hostilityType=${hostilityType}` : null,
+        includeResources ? "+resources" : null,
+        filterExpression,
+      ]
+        .filter(Boolean)
+        .join(";") || null,
       pages,
       events: deduped,
       consumers: consumersForDataset(input.dataset),

@@ -101,5 +101,6 @@ export * from "./evidence/wcl-batch-cost-accounting.js";
 export * from "./evidence/shared-run-selection.js";
 export * from "./evidence/shared-evidence-ingest.js";
 export * from "./evidence/interrupt-catalog-coverage.js";
+export * from "./evidence/survival-from-shared-evidence.js";
 
 export type { WarcraftLogsProvider };
