@@ -70,6 +70,12 @@ export interface SurvivalSummaryDTO {
   dungeons: SurvivalDungeonSummary[];
   notes: string[];
   requestCost?: SurvivalRequestCost;
+  /** Prefetch / bind / analyze rejection diagnostics (every reason, not only counts). */
+  diagnostics?: {
+    rejectedCandidates: Array<{ reason: string; runId?: string; dungeonSlug?: string }>;
+    lateBoundRunCount?: number;
+    bindPoolSize?: number;
+  };
 }
 
 export interface ComputeSurvivalInput {
@@ -94,6 +100,7 @@ export interface ComputeSurvivalInput {
   /** 0–1 freshness / coverage hint from WCL selection. */
   selectedRunWclCoverage?: number;
   logFreshness?: number;
+  diagnostics?: SurvivalSummaryDTO["diagnostics"];
 }
 
 export interface ComputeSurvivalResult {
