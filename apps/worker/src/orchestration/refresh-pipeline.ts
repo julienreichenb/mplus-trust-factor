@@ -23,11 +23,18 @@ import {
   normalizeWclProvenance,
 } from "@mplus/contracts";
 import { extractBoostSupportFacts } from "@mplus/provider-raiderio";
-import type { RunCombatFacts, WclRankingObservation, WclReportFightDetails } from "@mplus/provider-warcraftlogs";
+import type { RunCombatFacts, WclRankingObservation, WclReportFightDetails, WclRunEvidenceBundle } from "@mplus/provider-warcraftlogs";
 import {
   SURVIVAL_STANDALONE_V1_1_1_CONFIG,
   createSurvivalRequestCost,
+  getUtilityPublicationMode,
+  buildUtilityShadowInputsFromBundles,
 } from "@mplus/provider-warcraftlogs";
+import {
+  applyUtilityShadowRefreshBoundary,
+  persistUtilityShadowDiagnostics,
+  shadowDiagnosticsForScoreExplanation,
+} from "./utility-shadow-refresh.js";
 import { buildCatalogCoverageDiagnostics, getAbilityCatalog } from "@mplus/abilities";
 import {
   applyRunMetadataToSelection,
@@ -337,6 +344,7 @@ export async function runRefreshPipeline(
   const fusionWarnings: string[] = [];
   const refreshCostAccumulator = new RefreshCostAccumulator();
   let sharedEvidenceDetailedEventCalls = 0;
+  const sharedEvidenceBundlesForUtility: WclRunEvidenceBundle[] = [];
   const identityFingerprint = fingerprintIdentifier(
     `${identity.region}:${identity.realmSlug}:${identity.name}`.toLocaleLowerCase("en-US"),
   );
@@ -1513,6 +1521,27 @@ export async function runRefreshPipeline(
           isCompatibleSurvivalSummary(cached.summary, expectedKey)
         ) {
           survivalCost.reusedRunAnalyses += 1;
+          // Reuse persisted shared evidence for Utility shadow (0 detailed WCL event calls).
+          try {
+            const sharedStore = createDurableSharedEvidenceStore({
+              runRepository: repositories.run,
+              characterId: character.id,
+              runId: run.id,
+              now,
+            });
+            const revision =
+              typeof facts.revision === "number"
+                ? facts.revision
+                : Number(facts.revision) || null;
+            const persistedBundle = sharedStore.loadBundleSummary
+              ? await sharedStore.loadBundleSummary(source.reportCode, source.fightId, revision)
+              : null;
+            if (persistedBundle) {
+              sharedEvidenceBundlesForUtility.push(persistedBundle);
+            }
+          } catch {
+            // Shadow-only best effort — never fail Survival cache reuse.
+          }
           survivalRows.push({
             runId: run.id,
             dungeonSlug: canonicalDungeonKey(run.dungeon.slug),
@@ -1605,6 +1634,7 @@ export async function runRefreshPipeline(
               requestCount = sharedResult.detailedWclEventCalls;
               maxHpFailureReason = sharedResult.maxHpFailureReason;
               sharedEvidenceDetailedEventCalls += sharedResult.detailedWclEventCalls;
+              sharedEvidenceBundlesForUtility.push(sharedResult.bundle);
               refreshCostAccumulator.addMany(
                 buildSharedEvidenceCostRecords({
                   characterId: character.id,
@@ -2188,6 +2218,56 @@ export async function runRefreshPipeline(
   });
   observations.push(...wclSurvival.observations);
 
+  // ── Utility OBSERVED_CONTRIBUTION shadow (admin diagnostics only; default shadow) ──
+  // Reuses Agent 39 shared evidence bundles already fetched/persisted — no extra WCL.
+  const utilityPublicationMode = getUtilityPublicationMode();
+  const shadowInputs = buildUtilityShadowInputsFromBundles({
+    bundles: sharedEvidenceBundlesForUtility,
+    classSlug,
+    specSlug,
+    roleSlug: roleSlug ?? null,
+    detailedWclEventCallsMade: 0,
+  });
+  const utilityShadowBoundary = applyUtilityShadowRefreshBoundary({
+    observations,
+    hasPersistedSharedEvidence: shadowInputs.hasPersistedSharedEvidence,
+    shadowScoreInput: {
+      mode: utilityPublicationMode,
+      hasPersistedSharedEvidence: shadowInputs.hasPersistedSharedEvidence,
+      runs: shadowInputs.runs,
+      rawByRunId: shadowInputs.rawByRunId,
+      masterByReport: shadowInputs.masterByReport,
+      opportunities: shadowInputs.opportunities,
+      hostileCastEventsByRun: shadowInputs.hostileCastEventsByRun,
+      detailedWclEventCallsMade: 0,
+    },
+  });
+  observations.length = 0;
+  observations.push(...utilityShadowBoundary.publicUtilitySafeObservations);
+  const utilityShadow = utilityShadowBoundary.shadow;
+  if (utilityShadow.status === "BLOCKED_PUBLISHED_MODE") {
+    logger.warn(
+      { characterId: character.id, mode: utilityPublicationMode },
+      "UTILITY_PUBLICATION_MODE=published is not implemented — shadow scoring blocked; public Utility unchanged",
+    );
+  }
+  if (scoringRunSelection.selectedRuns[0]?.canonicalRunId) {
+    try {
+      await persistUtilityShadowDiagnostics({
+        runRepository: repositories.run,
+        characterId: character.id,
+        runId: scoringRunSelection.selectedRuns[0]!.canonicalRunId,
+        shadow: utilityShadow,
+        now,
+      });
+    } catch (err) {
+      logger.warn(
+        { characterId: character.id, err },
+        "utility shadow diagnostics persist failed — continuing without altering public Utility",
+      );
+    }
+  }
+
   // Season already resolved above for run persistence.
   const scoreCalculatedAt = new Date();
   const observedAtForScore = scoreCalculatedAt.toISOString();
@@ -2378,6 +2458,7 @@ export async function runRefreshPipeline(
           wclDataState,
           performanceSummary: wclPerformance.summary,
           survivalSummary: wclSurvival.summary,
+          utilityObservedShadow: shadowDiagnosticsForScoreExplanation(utilityShadow),
           rawZoneRankingsPointsAndDamage: wclPerformanceRecord?.raw ?? null,
           abilityCatalog: catalogDiagnostics,
           historyMode: "CHARACTER_HISTORY",

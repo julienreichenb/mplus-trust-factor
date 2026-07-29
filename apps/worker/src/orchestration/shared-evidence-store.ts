@@ -19,6 +19,7 @@ export interface DurableSharedEvidenceStoreOptions {
 }
 
 /** Maps evidence datasets into RunAnalysis summary — no parallel tables. */
+/** Consumed by Survival analysis and Utility OBSERVED_CONTRIBUTION shadow scoring. */
 export function createDurableSharedEvidenceStore(
   options: DurableSharedEvidenceStoreOptions,
 ): SharedEvidenceStore {

@@ -102,5 +102,12 @@ export * from "./evidence/shared-run-selection.js";
 export * from "./evidence/shared-evidence-ingest.js";
 export * from "./evidence/interrupt-catalog-coverage.js";
 export * from "./evidence/survival-from-shared-evidence.js";
+export * from "./evidence/utility-from-shared-evidence.js";
+export * from "./probe/utility-observed-semantics.js";
+export * from "./probe/utility-active-combat.js";
+export * from "./probe/utility-publication-mode.js";
+export * from "./probe/utility-observed-shadow.js";
+export * from "./probe/utility-v3_2-observed-config.js";
+export * from "./probe/utility-v3_2-observed-contribution.js";
 
 export type { WarcraftLogsProvider };
