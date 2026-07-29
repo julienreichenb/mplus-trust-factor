@@ -360,6 +360,8 @@ export const comparisonEntrySchema = {
     grade: { type: ["string", "null"] },
     confidence: { type: ["number", "null"] },
     dimensions: { anyOf: [{ type: "array", items: dimensionScoreSchema }, { type: "null" }] },
+    rankingEligibility: { anyOf: [{ type: "object", additionalProperties: true }, { type: "null" }] },
+    rankingIncluded: { type: "boolean" },
     deltasFromMedian: { type: "object", additionalProperties: true },
     deltasFromBest: { type: "object", additionalProperties: true },
   },

@@ -469,6 +469,9 @@ export interface CharacterComparisonResponse {
     grade: Grade | null;
     confidence: number | null;
     dimensions: ScoreSnapshotDTO["dimensions"] | null;
+    rankingEligibility: ScoreSnapshotDTO["rankingEligibility"];
+    /** True when this entry is included in median/best ranking math. */
+    rankingIncluded: boolean;
     deltasFromMedian: Record<string, number | null>;
     deltasFromBest: Record<string, number | null>;
   }>;

@@ -60,8 +60,8 @@ describe("utility shadow refresh boundary", () => {
     expect(diag.altersPublicTrustScore).toBe(false);
   });
 
-  it("blocks published mode without scoring", () => {
-    const { shadow } = applyUtilityShadowRefreshBoundary({
+  it("published mode scores when evidence present; empty runs skip cleanly", () => {
+    const { shadow, published } = applyUtilityShadowRefreshBoundary({
       observations: [],
       hasPersistedSharedEvidence: true,
       shadowScoreInput: {
@@ -73,7 +73,8 @@ describe("utility shadow refresh boundary", () => {
         opportunities: [],
       },
     });
-    expect(shadow.status).toBe("BLOCKED_PUBLISHED_MODE");
+    expect(shadow.status).toBe("SKIPPED_EMPTY_RUNS");
     expect(shadow.score).toBeNull();
+    expect(published).toBe(false);
   });
 });

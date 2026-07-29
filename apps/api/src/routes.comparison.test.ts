@@ -49,7 +49,7 @@ describe.skipIf(!dbAvailable)("comparison routes", () => {
   });
 
   it(
-    "compares two scored characters and computes deltas from median/best",
+    "compares two scored characters; Utility-ineligible stay visible but excluded from ranking deltas",
     async () => {
       const nameA = uniqueName("CompareA");
       const nameB = uniqueName("CompareB");
@@ -74,9 +74,107 @@ describe.skipIf(!dbAvailable)("comparison routes", () => {
       expect(body.entries).toHaveLength(2);
       for (const entry of body.entries) {
         expect(entry.overallScore).not.toBeNull();
+        // Fixture pipeline has no published Utility → provisional / not ranking-complete.
+        expect(entry.rankingIncluded).toBe(false);
+        expect(entry.rankingEligibility?.utilityEligible).toBe(false);
+        expect(entry.deltasFromMedian.overall).toBeNull();
+        expect(entry.deltasFromBest.overall).toBeNull();
+      }
+    },
+    30_000,
+  );
+
+  it(
+    "includes ranking-eligible v6 profiles in median/best deltas",
+    async () => {
+      const nameA = uniqueName("RankEligA");
+      const nameB = uniqueName("RankEligB");
+      await app.inject({ method: "GET", url: `/api/v1/characters/${REALM_PATH}/${nameA}` });
+      await app.inject({ method: "GET", url: `/api/v1/characters/${REALM_PATH}/${nameB}` });
+
+      const season = await prisma.season.findFirst({ where: { slug: "placeholder-current" } });
+      expect(season).not.toBeNull();
+      const activeModel = await container.worker.repositories.score.getActiveModel("default");
+      expect(activeModel).not.toBeNull();
+
+      for (const [name, overall] of [
+        [nameA, 70],
+        [nameB, 80],
+      ] as const) {
+        const character = await container.worker.repositories.character.findByIdentity({
+          region: "EU",
+          realmSlug: "tarren-mill",
+          name,
+        });
+        expect(character).not.toBeNull();
+        await container.worker.repositories.score.saveScoreSnapshot({
+          characterId: character!.id,
+          seasonId: season!.id,
+          scoreModelId: activeModel!.id,
+          scopeType: "CHARACTER",
+          scopeKey: null,
+          snapshot: {
+            characterId: character!.id,
+            seasonSlug: season!.slug,
+            modelKey: activeModel!.key,
+            modelVersion: activeModel!.version,
+            scopeType: "CHARACTER",
+            scopeKey: null,
+            overallScore: overall,
+            grade: overall >= 80 ? "A" : "B",
+            skillScore: overall,
+            authenticityScore: overall,
+            confidence: 0.9,
+            calculatedAt: new Date().toISOString(),
+            inputFingerprint: `comparison-rank-elig-${name}-${randomUUID()}`,
+            dimensions: [
+              {
+                dimension: "UTILITY",
+                score: 65,
+                confidence: 0.8,
+                weight: 0.25,
+                state: "AVAILABLE",
+                contributors: { strengths: [], risks: [], missing: [] },
+              },
+            ],
+            redFlags: [],
+            explanation: {
+              rankingEligibility: {
+                eligible: true,
+                scoreModelVersion: activeModel!.version,
+                utilityEligible: true,
+                reasons: [],
+              },
+            },
+          },
+        });
+      }
+
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/v1/comparisons",
+        payload: {
+          characters: [
+            { region: "EU", realmSlug: "tarren-mill", name: nameA },
+            { region: "EU", realmSlug: "tarren-mill", name: nameB },
+          ],
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = response.json();
+      expect(body.entries).toHaveLength(2);
+      for (const entry of body.entries) {
+        expect(entry.rankingIncluded).toBe(true);
         expect(entry.deltasFromMedian.overall).not.toBeNull();
         expect(entry.deltasFromBest.overall).not.toBeNull();
       }
+      const entryA = body.entries.find((e: { identity: { name: string } }) => e.identity.name === nameA);
+      const entryB = body.entries.find((e: { identity: { name: string } }) => e.identity.name === nameB);
+      expect(entryA.deltasFromMedian.overall).toBe(-5);
+      expect(entryB.deltasFromMedian.overall).toBe(5);
+      expect(entryA.deltasFromBest.overall).toBe(-10);
+      expect(entryB.deltasFromBest.overall).toBe(0);
     },
     30_000,
   );

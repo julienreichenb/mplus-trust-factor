@@ -1,4 +1,9 @@
-import type { CharacterComparisonRequest, CharacterComparisonResponse, ScoreDimension } from "@mplus/contracts";
+import type {
+  CharacterComparisonRequest,
+  CharacterComparisonResponse,
+  RankingEligibilityDTO,
+  ScoreDimension,
+} from "@mplus/contracts";
 import type { ApiContainer } from "../container.js";
 import { HttpError } from "../errors.js";
 import { mapScoreSnapshot } from "../lib/mappers.js";
@@ -17,6 +22,7 @@ interface ResolvedEntry {
   grade: ComparisonEntry["grade"];
   confidence: number | null;
   dimensions: ComparisonEntry["dimensions"];
+  rankingEligibility: RankingEligibilityDTO | null;
   modelKey: string | null;
   modelVersion: number | null;
   seasonSlug: string | null;
@@ -36,10 +42,16 @@ function median(sortedValues: number[]): number | null {
   return round(value);
 }
 
+function isRankingIncluded(entry: ResolvedEntry, targetModelVersion: number): boolean {
+  if (entry.overallScore == null) return false;
+  if (entry.rankingEligibility) return entry.rankingEligibility.eligible;
+  // Legacy snapshots without metadata: only include when already on the ranking model.
+  return (entry.modelVersion ?? 0) >= 6 && targetModelVersion >= 6;
+}
+
 /**
- * Compares 2–10 character identities on a shared score model/season. Characters without a
- * persisted score are included with null score fields rather than dropped, so callers can
- * distinguish "not yet scored" from "excluded".
+ * Compares 2–10 character identities on a shared score model/season.
+ * Ineligible profiles remain visible but are excluded from median/best ranking math.
  */
 export class ComparisonService {
   constructor(private readonly container: ApiContainer) {}
@@ -67,15 +79,18 @@ export class ComparisonService {
     this.assertModelVersionsMatch(resolved, targetModelKey, targetModelVersion);
     const seasonSlug = this.resolveSeasonSlug(request, resolved);
 
-    const scored = resolved.filter((entry): entry is ResolvedEntry & { overallScore: number } => entry.overallScore !== null);
-    const overallValues = scored.map((entry) => entry.overallScore).sort((a, b) => a - b);
+    const ranked = resolved.filter((entry) => isRankingIncluded(entry, targetModelVersion));
+    const overallValues = ranked
+      .map((entry) => entry.overallScore)
+      .filter((v): v is number => v != null)
+      .sort((a, b) => a - b);
     const overallMedian = median(overallValues);
     const overallBest = overallValues.length > 0 ? Math.max(...overallValues) : null;
 
     const dimensionMedian = new Map<ScoreDimension, number>();
     const dimensionBest = new Map<ScoreDimension, number>();
     for (const dimension of DIMENSIONS) {
-      const values = scored
+      const values = ranked
         .map((entry) => entry.dimensions?.find((d) => d.dimension === dimension)?.score)
         .filter((value): value is number => typeof value === "number")
         .sort((a, b) => a - b);
@@ -86,18 +101,29 @@ export class ComparisonService {
     }
 
     const entries: ComparisonEntry[] = resolved.map((entry) => {
+      const rankingIncluded = isRankingIncluded(entry, targetModelVersion);
       const deltasFromMedian: Record<string, number | null> = {
-        overall: entry.overallScore !== null && overallMedian !== null ? round(entry.overallScore - overallMedian) : null,
+        overall:
+          rankingIncluded && entry.overallScore !== null && overallMedian !== null
+            ? round(entry.overallScore - overallMedian)
+            : null,
       };
       const deltasFromBest: Record<string, number | null> = {
-        overall: entry.overallScore !== null && overallBest !== null ? round(entry.overallScore - overallBest) : null,
+        overall:
+          rankingIncluded && entry.overallScore !== null && overallBest !== null
+            ? round(entry.overallScore - overallBest)
+            : null,
       };
       for (const dimension of DIMENSIONS) {
         const value = entry.dimensions?.find((d) => d.dimension === dimension)?.score ?? null;
         const dimMedian = dimensionMedian.get(dimension);
         const dimBest = dimensionBest.get(dimension);
-        deltasFromMedian[dimension] = value !== null && dimMedian !== undefined ? round(value - dimMedian) : null;
-        deltasFromBest[dimension] = value !== null && dimBest !== undefined ? round(value - dimBest) : null;
+        deltasFromMedian[dimension] =
+          rankingIncluded && value !== null && dimMedian !== undefined
+            ? round(value - dimMedian)
+            : null;
+        deltasFromBest[dimension] =
+          rankingIncluded && value !== null && dimBest !== undefined ? round(value - dimBest) : null;
       }
       return {
         identity: entry.identity,
@@ -106,12 +132,20 @@ export class ComparisonService {
         grade: entry.grade,
         confidence: entry.confidence,
         dimensions: entry.dimensions,
+        rankingEligibility: entry.rankingEligibility,
+        rankingIncluded,
         deltasFromMedian,
         deltasFromBest,
       };
     });
 
-    return { modelKey: targetModelKey, modelVersion: targetModelVersion, seasonSlug, calculatedAt: new Date().toISOString(), entries };
+    return {
+      modelKey: targetModelKey,
+      modelVersion: targetModelVersion,
+      seasonSlug,
+      calculatedAt: new Date().toISOString(),
+      entries,
+    };
   }
 
   private async resolveEntries(request: CharacterComparisonRequest): Promise<ResolvedEntry[]> {
@@ -135,6 +169,7 @@ export class ComparisonService {
         grade: dto.grade,
         confidence: dto.confidence,
         dimensions: dto.dimensions,
+        rankingEligibility: dto.rankingEligibility ?? null,
         modelKey: dto.modelKey,
         modelVersion: dto.modelVersion,
         seasonSlug: dto.seasonSlug,
@@ -187,6 +222,7 @@ function emptyEntry(identity: ComparisonEntry["identity"], characterId: string |
     grade: null,
     confidence: null,
     dimensions: null,
+    rankingEligibility: null,
     modelKey: null,
     modelVersion: null,
     seasonSlug: null,

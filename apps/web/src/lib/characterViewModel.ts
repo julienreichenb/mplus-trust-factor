@@ -80,6 +80,16 @@ export function parseContributorSignals(dimensions: DimensionScoreDTO[]): Contri
   const signals: ContributorSignal[] = [];
   for (const dim of dimensions) {
     if (dim.dimension === "AUTHENTICITY") continue;
+    // Unavailable / processing / error dimensions are missing evidence — not player weaknesses.
+    if (
+      dim.state === "UNAVAILABLE" ||
+      dim.state === "PROCESSING" ||
+      dim.state === "ERROR" ||
+      dim.score == null ||
+      dim.confidence <= 0
+    ) {
+      continue;
+    }
     const dimKey = dim.dimension as RadarDimension;
     const label = DIMENSION_LABELS[dimKey] ?? dim.dimension;
     const contrib = dim.contributors as
@@ -140,18 +150,17 @@ export function parseContributorSignals(dimensions: DimensionScoreDTO[]): Contri
           });
         }
       }
-      for (const item of contrib?.missing ?? []) {
-        if (!item?.metricKey) continue;
-        signals.push({
-          kind: "risk",
-          label: `Missing ${humanizeMetricKey(item.metricKey)}`,
-          dimension: label,
-          dimensionKey: dimKey,
-        });
-      }
+      // Missing metrics on an otherwise scored dimension are data gaps, not poor play.
+      // Surface as informational positives? No — omit from weaknesses/strengths entirely.
     }
   }
   return signals;
+}
+
+/** Human-readable label when a dimension has no usable score. */
+export function unavailableDimensionLabel(dimension?: string | null): string {
+  if (dimension === "UTILITY") return "Utility combat evidence unavailable";
+  return "Data unavailable";
 }
 
 function humanizeMetricKey(metricKey: string): string {

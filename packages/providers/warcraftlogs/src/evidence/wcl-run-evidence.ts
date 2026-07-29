@@ -4,7 +4,11 @@
  * HostileCasts uses filterExpression because Casts dataType alone returns friendly casts.
  */
 import { createHash } from "node:crypto";
-import type { WclGraphQlClient } from "../client/graphql-client.js";
+import {
+  parseWithSchema,
+  reportFightSchema,
+  type WclGraphQlClient,
+} from "../client/graphql-client.js";
 import { OPERATIONS, type EventDataType } from "../operations/queries.js";
 import {
   HOSTILE_CAST_FILTER_EXPRESSION,
@@ -76,7 +80,7 @@ export async function fetchSharedEventDataset(input: {
   wclRequests: number;
 }> {
   if (input.dataset === "masterData") {
-    throw new Error("Use fetchMasterData for masterData dataset");
+    throw new Error("Use fetchSharedMasterData for masterData dataset");
   }
 
   const includeResources =
@@ -204,6 +208,90 @@ export async function fetchSharedEventDataset(input: {
       fetchedAt: new Date().toISOString(),
       source: "provider",
     },
+  };
+}
+
+export async function fetchSharedMasterData(input: {
+  client: WclGraphQlClient;
+  reportCode: string;
+  fightId: number;
+  region?: string;
+}): Promise<{
+  masterData: {
+    actors: Array<{
+      id: number;
+      name?: string;
+      type: string;
+      subType?: string | null;
+      petOwner?: number | null;
+      server?: string | null;
+    }>;
+    abilities?: Array<{ gameID: number; type?: number | null }>;
+  };
+  wclRequests: number;
+  pointsConsumed: number | null;
+  costSource: "measured" | "estimated" | "unknown";
+}> {
+  const result = await input.client.request({
+    operationName: OPERATIONS.ReportWithFightAndMasterData.operationName,
+    query: OPERATIONS.ReportWithFightAndMasterData.query,
+    variables: { code: input.reportCode, fightIDs: [input.fightId] },
+    region: input.region,
+  });
+  const parsed = parseWithSchema(reportFightSchema, result.response.data, "ReportMasterData");
+  const report = parsed.reportData.report;
+  const actors = (report?.masterData?.actors ?? []).map((a) => ({
+    id: a.id,
+    name: a.name,
+    type: a.type,
+    subType: a.subType ?? null,
+    petOwner: a.petOwner ?? null,
+    server: a.server ?? null,
+  }));
+  const cost =
+    typeof result.costUnits === "number" && Number.isFinite(result.costUnits)
+      ? result.costUnits
+      : null;
+  return {
+    masterData: {
+      actors,
+      abilities: (report?.masterData?.abilities ?? []).map((ab) => ({
+        gameID: ab.gameID,
+        type: ab.type ?? null,
+      })),
+    },
+    wclRequests: 1,
+    pointsConsumed: cost,
+    costSource: cost != null ? "measured" : "unknown",
+  };
+}
+
+/**
+ * When WCL masterData was never persisted, synthesize a minimal actor table from
+ * the known target + owned pets so Utility can attribute pet-owned casts.
+ */
+export function synthesizeMasterDataFromActors(input: {
+  playerActorId: number | null;
+  ownedPetActorIds: number[];
+}): { actors: Array<{ id: number; name: string; type: string; subType: null; petOwner: number | null }> } | null {
+  if (input.playerActorId == null) return null;
+  return {
+    actors: [
+      {
+        id: input.playerActorId,
+        name: "target",
+        type: "Player",
+        subType: null,
+        petOwner: null,
+      },
+      ...input.ownedPetActorIds.map((id) => ({
+        id,
+        name: `pet-${id}`,
+        type: "Pet",
+        subType: null,
+        petOwner: input.playerActorId,
+      })),
+    ],
   };
 }
 

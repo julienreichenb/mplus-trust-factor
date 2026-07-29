@@ -12,7 +12,9 @@ import {
   runUtilityObservedShadowPass,
   filterOutObservedContributionFromPublicUtility,
   utilityEvidencePresentInBundle,
+  sharedEvidenceFilterTag,
   HOSTILE_CAST_FILTER_EXPRESSION,
+  UTILITY_EVIDENCE_CONSUMERS,
   type WclRunEvidenceDataset,
 } from "@mplus/provider-warcraftlogs";
 
@@ -169,12 +171,123 @@ describe("utility shadow + shared evidence", () => {
       roleSlug: "dps",
     });
     expect(empty.hasPersistedSharedEvidence).toBe(false);
+    expect(empty.coverage.candidateRunCount).toBe(0);
     const shadow = runUtilityObservedShadowPass({
       mode: "shadow",
       ...empty,
     });
     expect(shadow.status).toBe("SKIPPED_NO_PERSISTED_EVIDENCE");
     expect(shadow.score).toBeNull();
+  });
+
+  it("incomplete evidence (missing masterData) stays unavailable — never fabricated", () => {
+    let bundle = buildEmptyBundle({
+      reportCode: "ABC",
+      reportRevision: 1,
+      fightId: 7,
+      playerActorId: 10,
+      ownedPetActorIds: [],
+      dungeonSlug: "skyreach",
+      startTime: 0,
+      endTime: 600_000,
+      consumers: ["utility"],
+    });
+    for (const key of [
+      "Casts",
+      "HostileCasts",
+      "Interrupts",
+      "Deaths",
+      "Buffs",
+      "Debuffs",
+      "Dispels",
+      "DamageDone",
+      "CombatantInfo",
+    ] as const) {
+      bundle = attachDatasetToBundle(bundle, okDataset(key));
+    }
+    expect(bundle.masterData).toBeNull();
+    expect(utilityEvidencePresentInBundle(bundle).complete).toBe(false);
+    expect(utilityEvidencePresentInBundle(bundle).missing).toContain("masterData");
+
+    const inputs = buildUtilityShadowInputsFromBundles({
+      bundles: [bundle],
+      classSlug: "mage",
+      specSlug: "frost",
+      roleSlug: "dps",
+    });
+    expect(inputs.hasPersistedSharedEvidence).toBe(false);
+    expect(inputs.coverage.missingMasterDataCount).toBe(1);
+    expect(inputs.coverage.incompleteEvidenceCount).toBe(1);
+    const shadow = runUtilityObservedShadowPass({ mode: "shadow", ...inputs });
+    expect(shadow.status).toBe("SKIPPED_NO_PERSISTED_EVIDENCE");
+    expect(shadow.score).toBeNull();
+  });
+
+  it("localOnly utility ingest synthesizes masterData so cached revisions are consumable", async () => {
+    const store = new InMemorySharedEvidenceStore();
+    for (const key of UTILITY_EVIDENCE_CONSUMERS) {
+      if (key === "masterData") continue;
+      // Compatibility keys always use the player actor id (see ingestSharedEvidenceBundle).
+      const filterTag = sharedEvidenceFilterTag(key, false);
+      const compat = buildSharedEvidenceCompatibilityKey({
+        reportCode: "R",
+        reportRevision: 1,
+        fightId: 1,
+        actorId: 10,
+        dataset: key,
+        startTime: null,
+        endTime: null,
+        filterExpression: filterTag,
+        providerContractVersion: "wcl-graphql-v2-events",
+        payloadFingerprint: null,
+      });
+      await store.saveDataset(compat, okDataset(key), {
+        reportCode: "R",
+        reportRevision: 1,
+        fightId: 1,
+        dataset: key,
+      });
+    }
+
+    const bundle = await ingestSharedEvidenceBundle({
+      client: null,
+      store,
+      reportCode: "R",
+      reportRevision: 1,
+      fightId: 1,
+      playerActorId: 10,
+      ownedPetActorIds: [42],
+      dungeonSlug: "ara-kara",
+      startTime: null,
+      endTime: null,
+      consumers: ["utility"],
+      localOnly: true,
+    });
+
+    expect(bundle.masterData).not.toBeNull();
+    expect(utilityEvidencePresentInBundle(bundle).missing).toEqual([]);
+    expect(utilityEvidencePresentInBundle(bundle).complete).toBe(true);
+    expect(bundle.accounting.providerCalls).toBe(0);
+
+    const actors = (
+      bundle.masterData as { actors: Array<{ id: number; type: string; petOwner: number | null }> }
+    ).actors;
+    expect(actors.some((a) => a.id === 10 && a.type === "Player")).toBe(true);
+    expect(actors.some((a) => a.id === 42 && a.petOwner === 10)).toBe(true);
+
+    const inputs = buildUtilityShadowInputsFromBundles({
+      bundles: [bundle],
+      classSlug: "warlock",
+      specSlug: "affliction",
+      roleSlug: "dps",
+      detailedWclEventCallsMade: 0,
+    });
+    expect(inputs.hasPersistedSharedEvidence).toBe(true);
+    expect(inputs.coverage.reusedEvidenceCount).toBeGreaterThan(0);
+    const shadow = runUtilityObservedShadowPass({ mode: "shadow", ...inputs });
+    expect(shadow.status).toBe("SHADOW_SCORED");
+    expect(shadow.altersPublicUtility).toBe(false);
+    expect(shadow.altersPublicTrustScore).toBe(false);
   });
 
   it("provider failure path preserves public Utility (no research leak)", () => {

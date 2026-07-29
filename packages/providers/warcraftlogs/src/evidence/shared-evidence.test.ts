@@ -318,6 +318,34 @@ describe("shared ingest reuse", () => {
     expect(bundle.accounting.providerCalls).toBe(0);
   });
 
+  it("utility consumer ingest synthesizes masterData when localOnly", async () => {
+    const store = new InMemorySharedEvidenceStore();
+    const bundle = await ingestSharedEvidenceBundle({
+      client: null,
+      store,
+      reportCode: "R",
+      reportRevision: 2,
+      fightId: 9,
+      playerActorId: 15,
+      ownedPetActorIds: [99],
+      dungeonSlug: "ara-kara",
+      startTime: 0,
+      endTime: 1000,
+      consumers: ["utility"],
+      datasets: ["masterData", "HostileCasts"],
+      localOnly: true,
+    });
+    expect(bundle.masterData).not.toBeNull();
+    expect(bundle.accounting.providerCalls).toBe(0);
+    const actors = (
+      bundle.masterData as { actors: Array<{ id: number; petOwner: number | null }> }
+    ).actors;
+    expect(actors.some((a) => a.id === 15)).toBe(true);
+    expect(actors.some((a) => a.id === 99 && a.petOwner === 15)).toBe(true);
+    // HostileCasts marked missing (not persisted) — incomplete is explicit, not fabricated OK.
+    expect(bundle.eventDatasets.HostileCasts?.state).toBe("MISSING");
+  });
+
   it("concurrent ingest requests coalesce to one sequence", async () => {
     const store = new InMemorySharedEvidenceStore();
     const key = buildSharedEvidenceCompatibilityKey({

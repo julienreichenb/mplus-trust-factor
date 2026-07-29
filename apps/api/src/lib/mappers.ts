@@ -79,6 +79,23 @@ function readCoverageMeta(explanation: unknown): Pick<
   };
 }
 
+function readRankingEligibility(
+  explanation: unknown,
+): ScoreSnapshotDTO["rankingEligibility"] {
+  if (!explanation || typeof explanation !== "object") return null;
+  const raw = (explanation as { rankingEligibility?: unknown }).rankingEligibility;
+  if (!raw || typeof raw !== "object") return null;
+  const rec = raw as Record<string, unknown>;
+  return {
+    eligible: rec.eligible === true,
+    scoreModelVersion: typeof rec.scoreModelVersion === "number" ? rec.scoreModelVersion : 0,
+    utilityEligible: rec.utilityEligible === true,
+    reasons: Array.isArray(rec.reasons)
+      ? rec.reasons.filter((r): r is string => typeof r === "string")
+      : [],
+  };
+}
+
 const PUBLIC_EXPLANATION_FORBIDDEN_KEYS = new Set([
   "reportcode",
   "client_secret",
@@ -108,6 +125,7 @@ export function sanitizePublicExplanation(value: unknown): unknown {
 export function mapScoreSnapshot(snapshot: ScoreSnapshotWithRelations): ScoreSnapshotDTO {
   const redFlags = extractRedFlags(snapshot.explanation);
   const coverageMeta = readCoverageMeta(snapshot.explanation);
+  const rankingEligibility = readRankingEligibility(snapshot.explanation);
   return {
     characterId: snapshot.characterId,
     seasonSlug: snapshot.season.slug,
@@ -125,6 +143,7 @@ export function mapScoreSnapshot(snapshot: ScoreSnapshotWithRelations): ScoreSna
     totalModelWeight: coverageMeta.totalModelWeight,
     modelCoverageRatio: coverageMeta.modelCoverageRatio,
     provisionalReason: coverageMeta.provisionalReason,
+    rankingEligibility,
     calculatedAt: snapshot.calculatedAt.toISOString(),
     inputFingerprint: snapshot.inputFingerprint,
     dimensions: snapshot.dimensionScores

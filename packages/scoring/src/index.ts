@@ -45,10 +45,16 @@ export {
   createDefaultModelV3,
   createDefaultModelV4,
   createDefaultModelV5,
+  createDefaultModelV6,
   createSurvivalFocusedModel,
   createUtilityFocusedModel,
 } from "./model/defaults.js";
 export { presentDimensionScore, presentDimensionScores } from "./present.js";
+export {
+  buildRankingEligibility,
+  type RankingEligibilityDTO,
+  type BuildRankingEligibilityInput,
+} from "./ranking-eligibility.js";
 export {
   buildCharacterHistoryExperienceObservations,
   type CharacterHistoryExperienceInput,

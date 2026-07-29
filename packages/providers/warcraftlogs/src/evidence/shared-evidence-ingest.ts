@@ -9,6 +9,8 @@ import {
   buildEmptyBundle,
   evidenceDatasetReuseDecision,
   fetchSharedEventDataset,
+  fetchSharedMasterData,
+  synthesizeMasterDataFromActors,
 } from "./wcl-run-evidence.js";
 import {
   WCL_RUN_EVIDENCE_ANALYSIS_VERSION,
@@ -183,7 +185,6 @@ async function ingestSharedEvidenceBundleInner(
 
   for (const datasetKey of required) {
     if (datasetKey === "masterData") {
-      // Master data is loaded separately by callers; mark missing unless provided later.
       continue;
     }
 
@@ -276,6 +277,73 @@ async function ingestSharedEvidenceBundleInner(
       dataset: datasetKey,
     });
     bundle = attachDatasetToBundle(bundle, fetched.dataset);
+  }
+
+  // masterData is required for Utility actor/pet attribution (and Survival). Prefer
+  // persisted bundle, then live fetch, then a synthetic actor table from known IDs.
+  if (required.includes("masterData")) {
+    const existingSummary = input.store.loadBundleSummary
+      ? await input.store.loadBundleSummary(
+          input.reportCode,
+          input.fightId,
+          input.reportRevision,
+        )
+      : null;
+    if (existingSummary?.masterData != null && input.forceRefetch !== true) {
+      bundle = { ...bundle, masterData: existingSummary.masterData };
+      bundle.accounting = {
+        ...bundle.accounting,
+        cacheHits: bundle.accounting.cacheHits + 1,
+        persistedHits: bundle.accounting.persistedHits + 1,
+      };
+    } else if (!input.localOnly && input.client) {
+      try {
+        const master = await fetchSharedMasterData({
+          client: input.client,
+          reportCode: input.reportCode,
+          fightId: input.fightId,
+          region: input.region,
+        });
+        bundle = { ...bundle, masterData: master.masterData };
+        bundle.accounting = {
+          ...bundle.accounting,
+          providerCalls: bundle.accounting.providerCalls + master.wclRequests,
+          pages: bundle.accounting.pages + 1,
+        };
+        if (master.pointsConsumed != null) {
+          bundle.accounting.pointsConsumed =
+            (bundle.accounting.pointsConsumed ?? 0) + master.pointsConsumed;
+          bundle.accounting.costSource = "measured";
+        }
+      } catch {
+        const synthesized = synthesizeMasterDataFromActors({
+          playerActorId: input.playerActorId,
+          ownedPetActorIds: input.ownedPetActorIds,
+        });
+        if (synthesized) {
+          bundle = { ...bundle, masterData: synthesized };
+        }
+      }
+    } else {
+      const synthesized = synthesizeMasterDataFromActors({
+        playerActorId: input.playerActorId,
+        ownedPetActorIds: input.ownedPetActorIds,
+      });
+      if (synthesized) {
+        bundle = { ...bundle, masterData: synthesized };
+      }
+    }
+
+    if (bundle.masterData != null) {
+      const present = [
+        ...new Set([...bundle.completeness.present, "masterData" as SharedEvidenceDatasetKey]),
+      ];
+      bundle.completeness = {
+        ...bundle.completeness,
+        present,
+        missing: bundle.completeness.required.filter((k) => !present.includes(k)),
+      };
+    }
   }
 
   if (input.store.saveBundleSummary) {

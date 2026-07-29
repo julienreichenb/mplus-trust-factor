@@ -233,6 +233,25 @@ export function createDefaultModelV5(
   });
 }
 
+/**
+ * Default Trust Factor v6 — published Utility OBSERVED_CONTRIBUTION.
+ * Weights unchanged: PERFORMANCE 35 / SURVIVAL 30 / UTILITY 25 / EXPERIENCE 10 / RAID 0.
+ * Utility metric is a single reliability-adjusted observed contribution score.
+ */
+export function createDefaultModelV6(
+  overrides: Partial<ScoreModelConfigV1> = {},
+): ScoreModelConfigV1 {
+  const v5 = createDefaultModelV5();
+  return createDefaultModelV5({
+    version: 6,
+    metricWeights: {
+      ...v5.metricWeights,
+      UTILITY: [{ metricKey: "utility.observed_contribution", weight: 1 }],
+    },
+    ...overrides,
+  });
+}
+
 function deepMerge<T extends object>(base: T, overrides: Partial<T>): T {
   const out = { ...base };
   for (const key of Object.keys(overrides) as Array<keyof T>) {

@@ -1,24 +1,18 @@
 /**
- * Shadow-mode OBSERVED_CONTRIBUTION orchestration (production-safe boundary).
+ * OBSERVED_CONTRIBUTION orchestration for shadow + published modes.
  *
- * Call graph (UTILITY_PUBLICATION_MODE=shadow):
- *
+ * Call graph:
  *   refresh-pipeline
- *     ├── legacy combat-facts → UTILITY metrics (UNCHANGED public path)
- *     ├── calculateScore(mergedObservations) → public Trust (UNCHANGED)
- *     └── runUtilityObservedShadowPass  [diagnostics only]
- *           ├── assertUtilityPublicationNotEnabled()  // published → throw
- *           ├── load shared evidence from RunAnalysis / store (0 WCL if cached)
- *           ├── if incomplete → status SKIPPED_NO_PERSISTED_EVIDENCE
- *           ├── else scoreObservedContribution(...)
- *           └── persist summary under utility-observed-shadow-v1
- *                 (never merges into UTILITY observations / Trust)
- *
- * UTILITY_PUBLICATION_MODE=off → no-op
- * UTILITY_PUBLICATION_MODE=published → safety guard only (not implemented)
+ *     ├── combat-facts Utility (legacy; stripped when published)
+ *     ├── runUtilityObservedShadowPass  [compute score]
+ *     │     off → OFF
+ *     │     shadow|published → score when evidence present (SHADOW_SCORED)
+ *     └── applyUtilityPublicationBoundary
+ *           ├── shadow → diagnostics only; public Utility unchanged
+ *           ├── published + eligible → emit utility.observed_contribution
+ *           └── published + ineligible → Utility UNAVAILABLE (no fabricated score)
  */
 import {
-  assertUtilityPublicationNotEnabled,
   getUtilityPublicationMode,
   isUtilityResearchAllowedInPublication,
   UTILITY_OBSERVED_SHADOW_ANALYSIS_VERSION,
@@ -62,12 +56,14 @@ export type UtilityShadowPassStatus =
   | "SHADOW_SCORED"
   | "SKIPPED_NO_PERSISTED_EVIDENCE"
   | "SKIPPED_EMPTY_RUNS"
+  /** @deprecated Published mode now scores; eligibility is a separate gate. */
   | "BLOCKED_PUBLISHED_MODE";
 
 export interface UtilityShadowPassResult {
   analysisVersion: typeof UTILITY_OBSERVED_SHADOW_ANALYSIS_VERSION;
   publicationMode: UtilityPublicationMode;
   status: UtilityShadowPassStatus;
+  /** Always false here — publication boundary sets public mutation flags. */
   altersPublicUtility: false;
   altersPublicTrustScore: false;
   replacesLastKnownGoodUtility: false;
@@ -75,11 +71,12 @@ export interface UtilityShadowPassResult {
   researchModeAllowedInPublication: false;
   semantics: typeof UTILITY_OBSERVED_SCORE_SEMANTICS;
   score: ObservedContributionResult | null;
-  adminDiagnosticsOnly: true;
+  adminDiagnosticsOnly: boolean;
 }
 
 /**
- * Compute shadow OBSERVED_CONTRIBUTION. Never mutates public Trust inputs.
+ * Compute OBSERVED_CONTRIBUTION for shadow or published mode.
+ * Does not mutate public Trust inputs — callers must apply publication eligibility.
  */
 export function runUtilityObservedShadowPass(
   input: UtilityShadowPassInput,
@@ -94,19 +91,12 @@ export function runUtilityObservedShadowPass(
     detailedWclEventCallsMade: input.detailedWclEventCallsMade ?? 0,
     researchModeAllowedInPublication: false,
     semantics: UTILITY_OBSERVED_SCORE_SEMANTICS,
-    adminDiagnosticsOnly: true,
+    adminDiagnosticsOnly: mode !== "published",
   };
 
   if (mode === "off") {
     return { ...base, status: "OFF", score: null };
   }
-
-  if (mode === "published") {
-    return { ...base, status: "BLOCKED_PUBLISHED_MODE", score: null };
-  }
-
-  // mode === "shadow"
-  assertUtilityPublicationNotEnabled(mode);
 
   if (isUtilityResearchAllowedInPublication()) {
     throw new Error("OPPORTUNITY_RESEARCH must never enter publication");
@@ -137,7 +127,7 @@ export function runUtilityObservedShadowPass(
 }
 
 /**
- * Guard used by refresh: OBSERVED_CONTRIBUTION must not appear in public UTILITY observations.
+ * Strip research/observed modes from public Utility unless explicitly publication-approved.
  */
 export function filterOutObservedContributionFromPublicUtility<
   T extends { metricKey: string; context?: unknown },
@@ -147,7 +137,18 @@ export function filterOutObservedContributionFromPublicUtility<
       o.context && typeof o.context === "object"
         ? (o.context as Record<string, unknown>)
         : null;
+    if (ctx?.utilityPublicationApproved === true) return true;
     const mode = ctx?.utilityScoringMode ?? ctx?.scoringMode;
     return mode !== "OBSERVED_CONTRIBUTION" && mode !== "OPPORTUNITY_RESEARCH";
+  });
+}
+
+/** Remove all UTILITY-dimension observations (combat-facts + observed). */
+export function stripAllUtilityObservations<T extends { dimension?: string; metricKey: string }>(
+  observations: T[],
+): T[] {
+  return observations.filter((o) => {
+    if (o.dimension === "UTILITY") return false;
+    return !o.metricKey.startsWith("utility.");
   });
 }

@@ -81,8 +81,8 @@ describe("UTILITY_PUBLICATION_MODE", () => {
     expect(parseUtilityPublicationMode("")).toBe("shadow");
   });
 
-  it("blocks published mode via safety guard", () => {
-    expect(() => assertUtilityPublicationNotEnabled("published")).toThrow(/not implemented/);
+  it("published mode is no longer a hard throw (eligibility gates apply downstream)", () => {
+    expect(() => assertUtilityPublicationNotEnabled("published")).not.toThrow();
   });
 
   it("never allows research mode in publication", () => {
@@ -206,7 +206,7 @@ describe("shadow-mode acceptance", () => {
     expect(result.altersPublicUtility).toBe(false);
   });
 
-  it("blocks published mode and never scores into publication", () => {
+  it("published mode scores OBSERVED_CONTRIBUTION without mutating public flags here", () => {
     const result = runUtilityObservedShadowPass({
       mode: "published",
       hasPersistedSharedEvidence: true,
@@ -215,8 +215,11 @@ describe("shadow-mode acceptance", () => {
       masterByReport: new Map(),
       opportunities: [opp({ id: "1", outcome: "SUCCESS_DIRECT_INTERRUPT" })],
     });
-    expect(result.status).toBe("BLOCKED_PUBLISHED_MODE");
-    expect(result.score).toBeNull();
+    expect(result.status).toBe("SHADOW_SCORED");
+    expect(result.score).not.toBeNull();
+    expect(result.altersPublicUtility).toBe(false);
+    expect(result.altersPublicTrustScore).toBe(false);
+    expect(result.adminDiagnosticsOnly).toBe(false);
   });
 
   it("keeps score and domain contributions bounded", () => {

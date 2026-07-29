@@ -35,21 +35,36 @@ const cards = computed(() =>
     .sort((a, b) => (b.weight ?? 0) - (a.weight ?? 0))
     .map((d) => {
       const dimKey = d.dimension as RadarDimension;
+      const unavailable =
+        d.state === "UNAVAILABLE" ||
+        d.state === "PROCESSING" ||
+        d.state === "ERROR" ||
+        d.score == null ||
+        d.confidence <= 0;
       return {
         ...d,
         dimKey,
         label: DIMENSION_LABELS[dimKey] ?? d.dimension,
-        signals: allSignals.value
-          .filter((s) => s.dimensionKey === dimKey)
-          .slice()
-          .sort((sigA, sigB) => {
-            if (sigA.kind === sigB.kind) return 0;
-            return sigA.kind === "positive" ? -1 : 1;
-          }),
+        unavailable,
+        signals: unavailable
+          ? []
+          : allSignals.value
+              .filter((s) => s.dimensionKey === dimKey)
+              .slice()
+              .sort((sigA, sigB) => {
+                if (sigA.kind === sigB.kind) return 0;
+                return sigA.kind === "positive" ? -1 : 1;
+              }),
         weightLabel: d.weight != null ? formatWeight(d.weight) : "—",
         confidenceLabel:
-          d.confidence != null ? formatPercent(d.confidence * 100, 0) : "—",
-        scoreLabel: formatScore(d.score, 0),
+          unavailable || d.confidence == null ? "—" : formatPercent(d.confidence * 100, 0),
+        scoreLabel: unavailable ? "N/A" : formatScore(d.score, 0),
+        unavailableNote:
+          d.dimension === "UTILITY"
+            ? "Utility combat evidence unavailable"
+            : d.reason === "NO_OBSERVATIONS"
+              ? "No compatible combat logs"
+              : "Data unavailable",
       };
     }),
 );
@@ -65,14 +80,20 @@ const cards = computed(() =>
 
     <p v-if="locked" class="locked">Detailed dimension breakdown is locked by entitlement.</p>
     <div v-else class="dim-grid">
-      <article v-for="card in cards" :key="card.dimension" class="card">
+      <article
+        v-for="card in cards"
+        :key="card.dimension"
+        class="card"
+        :data-unavailable="card.unavailable ? 'true' : 'false'"
+      >
         <div class="card__head">
           <span class="card__icon" aria-hidden="true">
             <DimensionAxisIcon layout="fill" :dimension="card.dimKey" />
           </span>
           <h3 class="card__title">{{ card.label }}</h3>
           <p class="card__score mpts-data">
-            {{ card.scoreLabel }} <span>/ 100</span>
+            <template v-if="card.unavailable">{{ card.scoreLabel }}</template>
+            <template v-else>{{ card.scoreLabel }} <span>/ 100</span></template>
           </p>
         </div>
 
@@ -90,8 +111,9 @@ const cards = computed(() =>
           />
         </div>
 
+        <p v-if="card.unavailable" class="card__empty">{{ card.unavailableNote }}</p>
         <ul
-          v-if="card.signals.length"
+          v-else-if="card.signals.length"
           class="card__signals"
           :aria-label="`${card.label} signals`"
         >
@@ -210,6 +232,11 @@ const cards = computed(() =>
   margin: 0;
   color: var(--color-text-muted);
   font-size: var(--text-xs);
+}
+
+.card[data-unavailable="true"] .card__score {
+  color: var(--color-text-muted);
+  font-weight: 600;
 }
 
 .locked {

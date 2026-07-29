@@ -110,6 +110,18 @@ function buildActorContext(bundle: WclRunEvidenceBundle): UtilityActorContext | 
   };
 }
 
+export interface UtilityShadowEvidenceCoverage {
+  candidateRunCount: number;
+  compatibleEvidenceCount: number;
+  reusedEvidenceCount: number;
+  newlyFetchedEvidenceCount: number;
+  rejectedEvidenceCount: number;
+  analyzedRunCount: number;
+  incompleteEvidenceCount: number;
+  missingMasterDataCount: number;
+  skipReasons: string[];
+}
+
 export interface UtilityShadowInputsFromBundles {
   hasPersistedSharedEvidence: boolean;
   runs: UtilityNormalizedRun[];
@@ -130,6 +142,7 @@ export interface UtilityShadowInputsFromBundles {
   hostileCastEventsByRun: Map<string, Array<Record<string, unknown>>>;
   detailedWclEventCallsMade: number;
   notes: string[];
+  coverage: UtilityShadowEvidenceCoverage;
 }
 
 /**
@@ -143,9 +156,50 @@ export function buildUtilityShadowInputsFromBundles(input: {
   detailedWclEventCallsMade?: number;
 }): UtilityShadowInputsFromBundles {
   const notes: string[] = [];
+  const skipReasons: string[] = [];
+  const candidateRunCount = input.bundles.length;
+  let reusedEvidenceCount = 0;
+  let newlyFetchedEvidenceCount = 0;
+  let incompleteEvidenceCount = 0;
+  let missingMasterDataCount = 0;
+
+  for (const b of input.bundles) {
+    const check = utilityEvidencePresentInBundle(b);
+    if (!check.complete) {
+      incompleteEvidenceCount += 1;
+      if (check.missing.includes("masterData")) missingMasterDataCount += 1;
+      skipReasons.push(
+        `incomplete:${b.reportCode}:${b.fightId}:missing=${check.missing.join(",")}`,
+      );
+    }
+    if (b.accounting.persistedHits > 0 || b.accounting.providerCalls === 0) {
+      reusedEvidenceCount += 1;
+    }
+    if (b.accounting.providerCalls > 0) {
+      newlyFetchedEvidenceCount += 1;
+    }
+  }
+
   const usable = input.bundles.filter((b) => utilityEvidencePresentInBundle(b).complete);
+  const rejectedEvidenceCount = candidateRunCount - usable.length;
+
+  const emptyCoverage = (analyzedRunCount: number): UtilityShadowEvidenceCoverage => ({
+    candidateRunCount,
+    compatibleEvidenceCount: usable.length,
+    reusedEvidenceCount,
+    newlyFetchedEvidenceCount,
+    rejectedEvidenceCount,
+    analyzedRunCount,
+    incompleteEvidenceCount,
+    missingMasterDataCount,
+    skipReasons: skipReasons.slice(0, 40),
+  });
+
   if (usable.length === 0) {
     notes.push("no_complete_utility_shared_evidence_bundles");
+    if (candidateRunCount === 0) {
+      skipReasons.push("no_wcl_shared_evidence_bundles_collected");
+    }
     return {
       hasPersistedSharedEvidence: false,
       runs: [],
@@ -155,6 +209,7 @@ export function buildUtilityShadowInputsFromBundles(input: {
       hostileCastEventsByRun: new Map(),
       detailedWclEventCallsMade: input.detailedWclEventCallsMade ?? 0,
       notes,
+      coverage: emptyCoverage(0),
     };
   }
 
@@ -185,6 +240,7 @@ export function buildUtilityShadowInputsFromBundles(input: {
     const actorCtx = buildActorContext(bundle);
     if (!actorCtx) {
       notes.push(`skip_${bundle.reportCode}:${bundle.fightId}_missing_player_actor`);
+      skipReasons.push(`actor_attribution_failed:${bundle.reportCode}:${bundle.fightId}`);
       continue;
     }
 
@@ -267,5 +323,6 @@ export function buildUtilityShadowInputsFromBundles(input: {
     hostileCastEventsByRun,
     detailedWclEventCallsMade: input.detailedWclEventCallsMade ?? 0,
     notes,
+    coverage: emptyCoverage(runs.length),
   };
 }

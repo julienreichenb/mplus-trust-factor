@@ -420,6 +420,19 @@ export function createMockApiClient(): MplusApiClient {
             grade: e.grade,
             confidence: e.confidence,
             dimensions: e.dimensions,
+            rankingEligibility: {
+              eligible: e.overallScore != null && (request.modelVersion ?? 6) >= 6,
+              scoreModelVersion: request.modelVersion ?? 6,
+              utilityEligible:
+                e.dimensions?.some(
+                  (d) =>
+                    d.dimension === "UTILITY" &&
+                    d.score != null &&
+                    (d.state === "AVAILABLE" || d.state === "PARTIAL"),
+                ) ?? false,
+              reasons: [],
+            },
+            rankingIncluded: e.overallScore != null,
             authenticityScore: e.authenticityScore,
             redFlags: e.redFlags,
             deltasFromMedian: {

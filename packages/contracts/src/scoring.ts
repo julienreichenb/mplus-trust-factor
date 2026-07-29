@@ -93,6 +93,13 @@ export interface RedFlagDTO {
 
 export type OverallScoreState = "DEFINITIVE" | "PROVISIONAL";
 
+export interface RankingEligibilityDTO {
+  eligible: boolean;
+  scoreModelVersion: number;
+  utilityEligible: boolean;
+  reasons: string[];
+}
+
 export interface ScoreSnapshotDTO {
   characterId: string;
   seasonSlug: string;
@@ -111,6 +118,8 @@ export interface ScoreSnapshotDTO {
   totalModelWeight?: number;
   modelCoverageRatio?: number;
   provisionalReason?: string | null;
+  /** Complete-ranking eligibility (v6 + published Utility). Profiles remain viewable when false. */
+  rankingEligibility?: RankingEligibilityDTO | null;
   calculatedAt: IsoDateTime;
   inputFingerprint: string;
   dimensions: DimensionScoreDTO[];

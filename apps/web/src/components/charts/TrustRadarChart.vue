@@ -134,7 +134,7 @@ function render(): void {
           if (!point) return "";
           const label = DIMENSION_LABELS[point.dimension as RadarDimension];
           if (point.missing) {
-            return [`<strong>${params.seriesName}</strong>`, label, "Unavailable"].join("<br/>");
+            return [`<strong>${params.seriesName}</strong>`, label, "Data unavailable"].join("<br/>");
           }
           return [
             `<strong>${params.seriesName}</strong>`,
@@ -169,8 +169,12 @@ function render(): void {
           areaStyle: { opacity: 0.14 },
           data: visible.map((s) => ({
             name: s.name,
-            value: s.values.map((v) => (v.missing ? 0 : (v.score ?? 0))),
+            // Keep geometry continuous, but mark unavailable vertices so the UI never
+            // reads them as a genuine zero. Tooltips / table use `missing` explicitly.
+            value: s.values.map((v) => (v.missing ? null : v.score)),
           })),
+          // ECharts radar treats null as a gap — unavailable axes are not scored zeros.
+          connectNulls: false,
         },
       ],
     },
@@ -261,7 +265,7 @@ watch(
 
     <table class="a11y-table" data-testid="radar-fallback">
       <caption>
-        Textual equivalent of the radar chart (scores 0–100). Missing dimensions are marked explicitly.
+        Textual equivalent of the radar chart (scores 0–100). Unavailable dimensions show N/A — never a fabricated zero.
       </caption>
       <thead>
         <tr>
@@ -275,7 +279,7 @@ watch(
         <tr v-for="s in ordered.filter((x) => x.visible)" :key="s.id">
           <th scope="row">{{ s.name }}</th>
           <td v-for="v in s.values" :key="v.dimension">
-            <template v-if="v.missing">Missing</template>
+            <template v-if="v.missing">N/A</template>
             <template v-else>
               {{ formatScore(v.score, 0) }}
               <span class="sr-meta"

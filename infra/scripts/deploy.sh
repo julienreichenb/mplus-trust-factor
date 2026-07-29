@@ -141,6 +141,11 @@ if ! compose_app --profile migrate run --rm migrate; then
   die "migration failed — aborting before application rollout (other env untouched)"
 fi
 
+log "running idempotent application seed"
+if ! compose_app --profile migrate run --rm --entrypoint sh migrate -lc './node_modules/.bin/tsx src/seed.ts'; then
+  die "application seed failed — aborting before application rollout"
+fi
+
 log "rolling out worker then api/web"
 compose_app up -d --no-deps worker
 wait_healthy worker || {

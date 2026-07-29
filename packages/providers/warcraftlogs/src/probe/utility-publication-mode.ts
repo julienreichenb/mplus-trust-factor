@@ -5,6 +5,7 @@
 export type UtilityPublicationMode = "off" | "shadow" | "published";
 
 export const UTILITY_OBSERVED_SHADOW_ANALYSIS_VERSION = "utility-observed-shadow-v1";
+export const UTILITY_OBSERVED_PUBLIC_ANALYSIS_VERSION = "utility-observed-public-v1";
 
 export function parseUtilityPublicationMode(
   raw: string | undefined | null,
@@ -21,21 +22,24 @@ export function getUtilityPublicationMode(
 }
 
 /**
- * Safety guard — `published` is not implemented.
- * Call before any path that would write OBSERVED_CONTRIBUTION into public Trust metrics.
+ * @deprecated Prefer evaluateUtilityPublicationEligibility. Kept for callers that
+ * historically refused any published-mode path before eligibility was implemented.
  */
 export function assertUtilityPublicationNotEnabled(
   mode: UtilityPublicationMode = getUtilityPublicationMode(),
 ): void {
-  if (mode === "published") {
-    throw new Error(
-      "UTILITY_PUBLICATION_MODE=published is not implemented. Refusing to alter public Utility / Trust Score.",
-    );
-  }
+  void mode;
+  // Publication is gated by evaluateUtilityPublicationEligibility — no hard throw.
 }
 
 export function isUtilityShadowMode(mode: UtilityPublicationMode = getUtilityPublicationMode()): boolean {
   return mode === "shadow";
+}
+
+export function isUtilityPublishedMode(
+  mode: UtilityPublicationMode = getUtilityPublicationMode(),
+): boolean {
+  return mode === "published";
 }
 
 export function isUtilityResearchAllowedInPublication(): boolean {

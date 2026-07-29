@@ -153,6 +153,15 @@ const defaultModelConfigV5 = {
   },
 } satisfies Prisma.InputJsonValue;
 
+/** v6: published Utility OBSERVED_CONTRIBUTION (single reliability-adjusted metric). */
+const defaultModelConfigV6 = {
+  ...defaultModelConfigV5,
+  metricWeights: {
+    ...defaultModelConfigV5.metricWeights,
+    UTILITY: [{ metricKey: "utility.observed_contribution", weight: 1 }],
+  },
+} satisfies Prisma.InputJsonValue;
+
 const metricDefinitions: Array<{
   key: string;
   dimension: ScoreDimension;
@@ -274,6 +283,14 @@ const metricDefinitions: Array<{
     valueType: "number",
     direction: MetricDirection.HIGHER_BETTER,
     description: "Successful relevant interrupts",
+  },
+  {
+    key: "utility.observed_contribution",
+    dimension: ScoreDimension.UTILITY,
+    valueType: "number",
+    direction: MetricDirection.HIGHER_BETTER,
+    description:
+      "Model v6 published Utility: reliability-adjusted OBSERVED_CONTRIBUTION score (0–100)",
   },
   {
     key: "experience.run_volume",
@@ -602,9 +619,9 @@ async function seed(): Promise<void> {
       name: "Default Trust Factor v5",
       description:
         "Experience V2: dungeon breadth, key-band breadth, participation depth, historical seasons, activity recency",
-      status: ScoreModelStatus.ACTIVE,
+      status: ScoreModelStatus.ARCHIVED,
       config: defaultModelConfigV5,
-      activatedAt: new Date(),
+      activatedAt: null,
     },
     create: {
       key: "default",
@@ -612,15 +629,39 @@ async function seed(): Promise<void> {
       name: "Default Trust Factor v5",
       description:
         "Experience V2: dungeon breadth, key-band breadth, participation depth, historical seasons, activity recency",
-      status: ScoreModelStatus.ACTIVE,
+      status: ScoreModelStatus.ARCHIVED,
       config: defaultModelConfigV5,
+      activatedAt: null,
+    },
+  });
+
+  await prisma.scoreModel.upsert({
+    where: {
+      key_version: { key: "default", version: 6 },
+    },
+    update: {
+      name: "Default Trust Factor v6",
+      description:
+        "Published Utility OBSERVED_CONTRIBUTION (reliability-adjusted) with v5 Experience/Performance/Survival weights",
+      status: ScoreModelStatus.ACTIVE,
+      config: defaultModelConfigV6,
+      activatedAt: new Date(),
+    },
+    create: {
+      key: "default",
+      version: 6,
+      name: "Default Trust Factor v6",
+      description:
+        "Published Utility OBSERVED_CONTRIBUTION (reliability-adjusted) with v5 Experience/Performance/Survival weights",
+      status: ScoreModelStatus.ACTIVE,
+      config: defaultModelConfigV6,
       activatedAt: new Date(),
     },
   });
 
   // Ensure only one ACTIVE model for key=default.
   await prisma.scoreModel.updateMany({
-    where: { key: "default", version: { not: 5 }, status: ScoreModelStatus.ACTIVE },
+    where: { key: "default", version: { not: 6 }, status: ScoreModelStatus.ACTIVE },
     data: { status: ScoreModelStatus.ARCHIVED },
   });
 
@@ -660,7 +701,7 @@ async function seed(): Promise<void> {
   }
 
   console.log(
-    "Seed completed (idempotent): EU/US/KR/TW regions, starter EU realms, placeholder season, model v5 ACTIVE (v1–v4 archived), metrics, red flags.",
+    "Seed completed (idempotent): EU/US/KR/TW regions, starter EU realms, placeholder season, model v6 ACTIVE (v1–v5 archived), metrics, red flags.",
   );
 }
 

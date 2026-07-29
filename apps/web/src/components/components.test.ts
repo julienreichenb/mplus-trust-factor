@@ -111,6 +111,66 @@ describe("TrustRadarChart", () => {
     );
     wrapper.unmount();
   });
+
+  it("shows N/A for UNAVAILABLE dimensions and keeps genuine zero distinct", () => {
+    const wrapper = mount(TrustRadarChart, {
+      props: {
+        series: [
+          {
+            id: "1",
+            name: "Wallidrixe",
+            dimensions: [
+              {
+                dimension: "PERFORMANCE",
+                score: 80,
+                confidence: 0.9,
+                weight: 0.35,
+                state: "AVAILABLE",
+                reason: null,
+                contributors: null,
+              },
+              {
+                dimension: "SURVIVAL",
+                score: 0,
+                confidence: 0.8,
+                weight: 0.25,
+                state: "AVAILABLE",
+                reason: null,
+                contributors: null,
+              },
+              {
+                dimension: "UTILITY",
+                score: null,
+                confidence: 0,
+                weight: 0.25,
+                state: "UNAVAILABLE",
+                reason: "NO_OBSERVATIONS",
+                contributors: null,
+              },
+              {
+                dimension: "EXPERIENCE",
+                score: 70,
+                confidence: 0.7,
+                weight: 0.15,
+                state: "AVAILABLE",
+                reason: null,
+                contributors: null,
+              },
+            ],
+          },
+        ],
+        modelVersion: 5,
+      },
+    });
+    const table = wrapper.get("[data-testid='radar-fallback']");
+    const cells = table.findAll("td").map((c) => c.text().trim());
+    // Radar axis order is model-defined (Perf/Exp/Utility/Survival), not input order.
+    expect(cells).toContain("N/A");
+    expect(cells.some((t) => t.startsWith("0"))).toBe(true);
+    expect(cells.filter((t) => t === "N/A")).toHaveLength(1);
+    expect(table.text()).toContain("Utility");
+    wrapper.unmount();
+  });
 });
 
 describe("stale/queued banners", () => {

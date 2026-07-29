@@ -35,6 +35,8 @@ import {
   createSurvivalRequestCost,
   getUtilityPublicationMode,
   buildUtilityShadowInputsFromBundles,
+  ingestSharedEvidenceBundle,
+  utilityEvidencePresentInBundle,
 } from "@mplus/provider-warcraftlogs";
 import {
   applyUtilityShadowRefreshBoundary,
@@ -45,6 +47,7 @@ import { buildCatalogCoverageDiagnostics, getAbilityCatalog } from "@mplus/abili
 import {
   applyRunMetadataToSelection,
   buildExperienceV2Observations,
+  buildRankingEligibility,
   mergePriorSeasonCount,
   resolveExperienceProvenance,
   resolvePriorSeasonSourceDepth,
@@ -1523,7 +1526,8 @@ export async function runRefreshPipeline(
           isCompatibleSurvivalSummary(cached.summary, expectedKey)
         ) {
           survivalCost.reusedRunAnalyses += 1;
-          // Reuse persisted shared evidence for Utility shadow (0 detailed WCL event calls).
+          // Reuse / complete persisted shared evidence for Utility shadow (0 detailed WCL
+          // event calls when datasets already exist; masterData may still need one fill).
           try {
             const sharedStore = createDurableSharedEvidenceStore({
               runRepository: repositories.run,
@@ -1535,9 +1539,37 @@ export async function runRefreshPipeline(
               typeof facts.revision === "number"
                 ? facts.revision
                 : Number(facts.revision) || null;
-            const persistedBundle = sharedStore.loadBundleSummary
+            let persistedBundle = sharedStore.loadBundleSummary
               ? await sharedStore.loadBundleSummary(source.reportCode, source.fightId, revision)
               : null;
+            if (
+              !persistedBundle ||
+              !utilityEvidencePresentInBundle(persistedBundle).complete
+            ) {
+              const meta = fightMetaByRunId.get(run.id);
+              const fightStart = meta?.startTime ?? 0;
+              const fightEnd = meta?.endTime ?? fightStart + run.durationMs;
+              const supportedRegion = requireSupportedBattleNetRegion(identity.region);
+              persistedBundle = await ingestSharedEvidenceBundle({
+                client: wclGraphClient,
+                store: sharedStore,
+                reportCode: source.reportCode,
+                reportRevision: revision,
+                fightId: source.fightId,
+                playerActorId: facts.targetSourceId,
+                ownedPetActorIds: facts.attributedSourceIds.filter(
+                  (id) => id !== facts.targetSourceId,
+                ),
+                dungeonSlug: canonicalDungeonKey(run.dungeon.slug),
+                startTime: fightStart,
+                endTime: fightEnd,
+                consumers: ["survival", "utility"],
+                forceRefetch: false,
+                localOnly: wclGraphClient == null,
+                region: supportedRegion,
+              });
+              sharedEvidenceDetailedEventCalls += persistedBundle.accounting.providerCalls;
+            }
             if (persistedBundle) {
               sharedEvidenceBundlesForUtility.push(persistedBundle);
             }
@@ -2220,19 +2252,29 @@ export async function runRefreshPipeline(
   });
   observations.push(...wclSurvival.observations);
 
-  // ── Utility OBSERVED_CONTRIBUTION shadow (admin diagnostics only; default shadow) ──
-  // Reuses Agent 39 shared evidence bundles already fetched/persisted — no extra WCL.
+  // ── Utility OBSERVED_CONTRIBUTION (shadow diagnostics / published when eligible) ──
+  // Reuses shared evidence bundles already fetched/persisted — no extra WCL when reused.
   const utilityPublicationMode = getUtilityPublicationMode();
   const shadowInputs = buildUtilityShadowInputsFromBundles({
     bundles: sharedEvidenceBundlesForUtility,
     classSlug,
     specSlug,
     roleSlug: roleSlug ?? null,
-    detailedWclEventCallsMade: 0,
+    detailedWclEventCallsMade: sharedEvidenceDetailedEventCalls,
   });
+  const observedAtForUtility = new Date().toISOString();
   const utilityShadowBoundary = applyUtilityShadowRefreshBoundary({
     observations,
     hasPersistedSharedEvidence: shadowInputs.hasPersistedSharedEvidence,
+    observedAt: observedAtForUtility,
+    classSlug,
+    specSlug,
+    coverage: {
+      ...shadowInputs.coverage,
+      classSlug,
+      specSlug,
+      evidenceAnalysisVersion: "wcl-run-evidence-v1",
+    },
     shadowScoreInput: {
       mode: utilityPublicationMode,
       hasPersistedSharedEvidence: shadowInputs.hasPersistedSharedEvidence,
@@ -2241,18 +2283,12 @@ export async function runRefreshPipeline(
       masterByReport: shadowInputs.masterByReport,
       opportunities: shadowInputs.opportunities,
       hostileCastEventsByRun: shadowInputs.hostileCastEventsByRun,
-      detailedWclEventCallsMade: 0,
+      detailedWclEventCallsMade: shadowInputs.detailedWclEventCallsMade,
     },
   });
   observations.length = 0;
   observations.push(...utilityShadowBoundary.publicUtilitySafeObservations);
   const utilityShadow = utilityShadowBoundary.shadow;
-  if (utilityShadow.status === "BLOCKED_PUBLISHED_MODE") {
-    logger.warn(
-      { characterId: character.id, mode: utilityPublicationMode },
-      "UTILITY_PUBLICATION_MODE=published is not implemented — shadow scoring blocked; public Utility unchanged",
-    );
-  }
   if (scoringRunSelection.selectedRuns[0]?.canonicalRunId) {
     try {
       await persistUtilityShadowDiagnostics({
@@ -2261,6 +2297,8 @@ export async function runRefreshPipeline(
         runId: scoringRunSelection.selectedRuns[0]!.canonicalRunId,
         shadow: utilityShadow,
         now,
+        published: utilityShadowBoundary.published,
+        eligibilityReasons: utilityShadowBoundary.eligibilityReasons,
       });
     } catch (err) {
       logger.warn(
@@ -2276,6 +2314,11 @@ export async function runRefreshPipeline(
   // Rebuild survival observations with final freshness, then persist metrics using score clock.
   for (const obs of wclSurvival.observations) {
     obs.observedAt = observedAtForScore;
+  }
+  for (const obs of observations) {
+    if (obs.dimension === "UTILITY" || obs.metricKey.startsWith("utility.")) {
+      obs.observedAt = observedAtForScore;
+    }
   }
 
   const persistedObservations = await repositories.metric.listForCharacter(character.id, season.id);
@@ -2307,6 +2350,40 @@ export async function runRefreshPipeline(
   } else {
     for (const obs of experienceObservations) {
       refreshedMetricKeys.add(obs.metricKey);
+    }
+  }
+
+  // Utility: when published mode runs (eligible or not), mark Utility metrics refreshed so
+  // last-known-good does not resurrect combat-facts Utility under v6.
+  if (utilityPublicationMode === "published") {
+    const utilityProviderFailed =
+      (wclSummaryFailed || wclAnalyzeFailed) && !utilityShadowBoundary.published;
+    if (utilityProviderFailed && utilityShadow.status !== "SHADOW_SCORED") {
+      // Preserve last-known-good Utility on provider failure.
+      failedDimensions.add("UTILITY");
+    } else {
+      for (const obs of observations) {
+        if (obs.dimension === "UTILITY" || obs.metricKey.startsWith("utility.")) {
+          refreshedMetricKeys.add(obs.metricKey);
+        }
+      }
+      refreshedMetricKeys.add("utility.observed_contribution");
+      for (const key of [
+        "utility.interrupts",
+        "utility.crowd_control",
+        "utility.dispels",
+        "utility.externals",
+        "utility.class_specific",
+        "utility.catalog_coverage",
+      ]) {
+        refreshedMetricKeys.add(key);
+      }
+    }
+  } else {
+    for (const obs of observations) {
+      if (obs.dimension === "UTILITY" || obs.metricKey.startsWith("utility.")) {
+        refreshedMetricKeys.add(obs.metricKey);
+      }
     }
   }
 
@@ -2413,6 +2490,30 @@ export async function runRefreshPipeline(
   const timestampFor = (provider: "blizzard" | "raiderio" | "warcraftlogs") =>
     providerStates.find((s) => s.provider === provider)?.fetchedAt ?? null;
 
+  const rankingEligibility = buildRankingEligibility({
+    scoreModelVersion: model.version,
+    dimensions: scoreDto.dimensions,
+    overallState: scoreDto.overallState,
+    provisionalReason: scoreDto.provisionalReason,
+    utilityPublicationEligible: utilityShadowBoundary.utilityPublicationEligible,
+    utilityPublicationReasons: utilityShadowBoundary.eligibilityReasons,
+  });
+  // Profiles without eligible Utility remain viewable but are provisional for ranking.
+  if (!rankingEligibility.eligible && model.version >= 6) {
+    scoreDto.overallState = "PROVISIONAL";
+    scoreDto.provisionalReason = [
+      scoreDto.provisionalReason,
+      "RANKING_INELIGIBLE",
+      ...rankingEligibility.reasons.slice(0, 5),
+    ]
+      .filter(Boolean)
+      .join("; ");
+    if (scoreDto.grade !== "U" && !rankingEligibility.utilityEligible) {
+      // Keep numeric Trust; grade U only when model coverage already forced it.
+    }
+  }
+  scoreDto.rankingEligibility = rankingEligibility;
+
   // Enrich explanation with fusion provenance (model version already present).
   const explanation =
     scoreDto.explanation && typeof scoreDto.explanation === "object"
@@ -2460,7 +2561,20 @@ export async function runRefreshPipeline(
           wclDataState,
           performanceSummary: wclPerformance.summary,
           survivalSummary: wclSurvival.summary,
-          utilityObservedShadow: shadowDiagnosticsForScoreExplanation(utilityShadow),
+          utilityObservedShadow: shadowDiagnosticsForScoreExplanation(
+            utilityShadow,
+            {
+              ...shadowInputs.coverage,
+              matchedReportCount: shadowInputs.coverage.compatibleEvidenceCount,
+              notes: shadowInputs.notes,
+            },
+            {
+              published: utilityShadowBoundary.published,
+              eligibilityReasons: utilityShadowBoundary.eligibilityReasons,
+              utilityPublicationEligible: utilityShadowBoundary.utilityPublicationEligible,
+            },
+          ),
+          rankingEligibility,
           rawZoneRankingsPointsAndDamage: wclPerformanceRecord?.raw ?? null,
           abilityCatalog: catalogDiagnostics,
           historyMode: "CHARACTER_HISTORY",

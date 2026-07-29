@@ -18,7 +18,7 @@ describe("loadEnv", () => {
     expect(env.PROVIDER_MODE).toBe("fixture");
     expect(env.API_PORT).toBe(3000);
     expect(env.ACTIVE_SCORE_MODEL_KEY).toBe("default");
-    expect(env.ACTIVE_SCORE_MODEL_VERSION).toBe(5);
+    expect(env.ACTIVE_SCORE_MODEL_VERSION).toBe(6);
     expect(env.BLIZZARD_ENABLED).toBe(true);
     expect(env.WCL_ENABLED).toBe(true);
     expect(env.RAIDERIO_ENABLED).toBe(true);
@@ -27,6 +27,10 @@ describe("loadEnv", () => {
     expect(env.REFRESH_DRY_RUN_ONLY).toBe(true);
     expect(env.REFRESH_TRACKED_TOP_PERCENT).toBe(25);
     expect(env.UTILITY_PUBLICATION_MODE).toBe("shadow");
+    expect(env.UTILITY_MIN_ANALYZED_RUNS).toBe(3);
+    expect(env.UTILITY_MIN_CONFIDENCE).toBe(0.45);
+    expect(env.UTILITY_MIN_EVIDENCE_COVERAGE).toBe(0.5);
+    expect(env.UTILITY_MIN_OBSERVED_DOMAINS).toBe(2);
     expect(env.ADMIN_API_KEY_EMERGENCY_FALLBACK).toBe(false);
   });
 

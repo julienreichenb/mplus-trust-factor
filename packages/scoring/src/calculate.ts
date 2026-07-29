@@ -9,6 +9,8 @@ import {
   createDefaultModelV2,
   createDefaultModelV3,
   createDefaultModelV4,
+  createDefaultModelV5,
+  createDefaultModelV6,
 } from "./model/defaults.js";
 import { presentDimensionScores } from "./present.js";
 import type { CalculateScoreEngineInput, ScoreModelConfigV1, ScoringContext } from "./types.js";
@@ -35,13 +37,17 @@ function coerceModel(model: CalculateScoreInput["model"]): ScoreModelConfigV1 {
   const partial = model as Partial<ScoreModelConfigV1> & ScoreModelConfig;
   const version = partial.version ?? 1;
   const factory =
-    version >= 4
-      ? createDefaultModelV4
-      : version >= 3
-        ? createDefaultModelV3
-        : version >= 2
-          ? createDefaultModelV2
-          : createDefaultModelV1;
+    version >= 6
+      ? createDefaultModelV6
+      : version >= 5
+        ? createDefaultModelV5
+        : version >= 4
+          ? createDefaultModelV4
+          : version >= 3
+            ? createDefaultModelV3
+            : version >= 2
+              ? createDefaultModelV2
+              : createDefaultModelV1;
   return factory({
     key: partial.key,
     version: partial.version,
