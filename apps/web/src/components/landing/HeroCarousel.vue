@@ -68,10 +68,9 @@ interface HeroSlide extends HeroSlideConfig {
   profile: CharacterProfileView | null;
 }
 
-const slides = ref<HeroSlide[]>(
-  SLIDE_CONFIGS.map((config) => ({ ...config, profile: null })),
-);
+const slides = ref<HeroSlide[]>(SLIDE_CONFIGS.map((config) => ({ ...config, profile: null })));
 const carouselRef = ref<HTMLElement | null>(null);
+const viewportRef = ref<HTMLElement | null>(null);
 const trackRef = ref<HTMLElement | null>(null);
 const trackIndex = ref(0);
 const carouselWidth = ref(0);
@@ -96,16 +95,29 @@ const logicalIndex = computed(() => {
 
 const activeSlide = computed(() => slides.value[logicalIndex.value] ?? slides.value[0]);
 
-const trackStyle = computed(() => ({
-  transform: `translate3d(-${trackIndex.value * carouselWidth.value}px, 0, 0)`,
-}));
+const trackStyle = computed(() => {
+  const width = carouselWidth.value;
+  if (width <= 0) {
+    return { transform: "translate3d(0, 0, 0)" };
+  }
+  return { transform: `translate3d(-${trackIndex.value * width}px, 0, 0)` };
+});
+
+const slideStyle = computed(() => {
+  const width = carouselWidth.value;
+  if (width <= 0) return undefined;
+  return {
+    flex: `0 0 ${width}px`,
+    width: `${width}px`,
+  };
+});
 
 function updateCarouselWidth(): void {
-  const width = carouselRef.value?.clientWidth ?? 0;
-  carouselWidth.value = width;
-  if (carouselRef.value && width > 0) {
-    carouselRef.value.style.setProperty("--slide-width", `${width}px`);
-  }
+  const width = viewportRef.value?.getBoundingClientRect().width ?? 0;
+  const rounded = Math.round(width);
+  if (rounded <= 0 || rounded > 8192) return;
+  if (rounded === carouselWidth.value) return;
+  carouselWidth.value = rounded;
 }
 
 function setTrackTransition(enabled: boolean): void {
@@ -168,7 +180,7 @@ onMounted(async () => {
   prefersReducedMotion.value = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   updateCarouselWidth();
   resizeObserver = new ResizeObserver(() => updateCarouselWidth());
-  if (carouselRef.value) resizeObserver.observe(carouselRef.value);
+  if (viewportRef.value) resizeObserver.observe(viewportRef.value);
 
   slides.value = await Promise.all(
     SLIDE_CONFIGS.map(async (config) => {
@@ -194,42 +206,41 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div
-    ref="carouselRef"
-    class="hero-carousel"
-    data-testid="hero-carousel"
-  >
-    <div
-      ref="trackRef"
-      class="hero-carousel__track"
-      :style="trackStyle"
-      @transitionend="onTrackTransitionEnd"
-    >
-      <article
-        v-for="(slide, index) in displaySlides"
-        :key="
-          index === slides.length
-            ? `${slide.identity.region}-${slide.identity.realmSlug}-${slide.identity.name}-clone`
-            : `${slide.identity.region}-${slide.identity.realmSlug}-${slide.identity.name}`
-        "
-        class="hero-carousel__slide"
-        :data-tier="slide.trust.grade"
-        :aria-hidden="index !== trackIndex"
+  <div ref="carouselRef" class="hero-carousel" data-testid="hero-carousel">
+    <div ref="viewportRef" class="hero-carousel__viewport">
+      <div
+        ref="trackRef"
+        class="hero-carousel__track"
+        :style="trackStyle"
+        @transitionend="onTrackTransitionEnd"
       >
-        <CharacterMediaPanel
-          v-if="slide.profile"
-          class="hero-carousel__media"
-          :profile="slide.profile"
-        />
-        <div v-else class="hero-carousel__placeholder" aria-hidden="true">
-          <div class="hero-carousel__glow" />
-          <div class="hero-carousel__silhouette" />
-        </div>
+        <article
+          v-for="(slide, index) in displaySlides"
+          :key="
+            index === slides.length
+              ? `${slide.identity.region}-${slide.identity.realmSlug}-${slide.identity.name}-clone`
+              : `${slide.identity.region}-${slide.identity.realmSlug}-${slide.identity.name}`
+          "
+          class="hero-carousel__slide"
+          :style="slideStyle"
+          :data-tier="slide.trust.grade"
+          :aria-hidden="index !== trackIndex"
+        >
+          <CharacterMediaPanel
+            v-if="slide.profile"
+            class="hero-carousel__media"
+            :profile="slide.profile"
+          />
+          <div v-else class="hero-carousel__placeholder" aria-hidden="true">
+            <div class="hero-carousel__glow" />
+            <div class="hero-carousel__silhouette" />
+          </div>
 
-        <div class="hero-carousel__trust-zone">
-          <HeroTrustSummary class="hero-carousel__trust" :preview="slide.trust" />
-        </div>
-      </article>
+          <div class="hero-carousel__trust-zone">
+            <HeroTrustSummary class="hero-carousel__trust" :preview="slide.trust" />
+          </div>
+        </article>
+      </div>
     </div>
 
     <p class="sr-only" aria-live="polite">
@@ -240,11 +251,19 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .hero-carousel {
-  overflow: hidden;
   width: 100%;
+  max-width: 100%;
+  min-width: 0;
   height: 100%;
   min-height: 20rem;
   margin: 0;
+}
+
+.hero-carousel__viewport {
+  overflow: hidden;
+  width: 100%;
+  height: 100%;
+  min-height: inherit;
 }
 
 .hero-carousel__track {
@@ -262,8 +281,8 @@ onBeforeUnmount(() => {
 }
 
 .hero-carousel__slide {
-  flex: 0 0 var(--slide-width, 100%);
-  width: var(--slide-width, 100%);
+  flex: 0 0 100%;
+  width: 100%;
   min-width: 0;
   position: relative;
   min-height: 20rem;
@@ -330,12 +349,13 @@ onBeforeUnmount(() => {
   flex-direction: column;
   width: min(62%, 16.5rem);
   padding: var(--space-3) var(--space-2) var(--space-3) var(--space-5);
-  background: linear-gradient(90deg, transparent 0%, rgb(13 13 15 / 52%) 28%, rgb(13 13 15 / 78%) 100%);
+  background: transparent;
 }
 
 .hero-carousel__trust {
   flex: 1;
   min-height: 0;
+  height: 100%;
 }
 
 .hero-carousel__media :deep(.media-panel__caption) {

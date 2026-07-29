@@ -96,7 +96,7 @@
 
 .tier-grade-letter--S {
   color: var(--color-tier-s);
-  filter: drop-shadow(var(--shadow-brand-glow));
+  filter: drop-shadow(0 0 24px rgb(var(--color-tier-s-rgb) / 22%));
 }
 
 .tier-grade-letter--A {

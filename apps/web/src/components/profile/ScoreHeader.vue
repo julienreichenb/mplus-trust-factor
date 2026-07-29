@@ -163,12 +163,6 @@ const classSpec = computed(() => {
                   </p>
                 </div>
               </div>
-              <dl v-if="profile.itemLevel != null" class="facts">
-                <div>
-                  <dt>Item level</dt>
-                  <dd class="mpts-data">{{ profile.itemLevel }}</dd>
-                </div>
-              </dl>
             </div>
 
             <HeroInsightAccordion :profile="profile" />
@@ -381,25 +375,6 @@ const classSpec = computed(() => {
   font-weight: 700;
   line-height: 1.2;
   overflow-wrap: anywhere;
-}
-
-.facts {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--space-3);
-  margin: var(--space-2) 0 0;
-}
-
-.facts dt {
-  font-size: var(--text-xs);
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  color: var(--color-text-muted);
-}
-
-.facts dd {
-  margin: var(--space-1) 0 0;
-  font-weight: 600;
 }
 
 .trust {

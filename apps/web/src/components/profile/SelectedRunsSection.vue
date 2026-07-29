@@ -10,10 +10,6 @@ const props = defineProps<{
   embedded?: boolean;
 }>();
 
-const filledCount = computed(
-  () => props.selection?.selectedRuns.filter((run) => run.canonicalRunId).length ?? 0,
-);
-
 const artBySlug = computed(() => {
   const map = new Map<string, string>();
   for (const run of props.selection?.selectedRuns ?? []) {
@@ -89,11 +85,6 @@ function artStyle(slug: string): Record<string, string> | undefined {
         </div>
       </article>
     </div>
-
-    <p v-if="selection && !locked" class="coverage mpts-data">
-      {{ filledCount }}/{{ selection.expectedDungeonCount }}
-      dungeons with a selected run
-    </p>
   </section>
 </template>
 
@@ -106,8 +97,7 @@ function artStyle(slug: string): Record<string, string> | undefined {
 .empty,
 .locked,
 .meta,
-.missing,
-.coverage {
+.missing {
   margin: 0;
   color: var(--color-text-muted);
   font-size: var(--text-sm);

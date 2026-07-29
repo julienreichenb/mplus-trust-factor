@@ -35,6 +35,9 @@
   --color-tier-d: #fb7185;
   --color-tier-u: #f4d58d;
 
+  /* Space-separated RGB for tier glows — keep in sync with gradeTheme.ts */
+  --color-tier-s-rgb: 56 189 248;
+
   /* Space-separated RGB for `rgb(var(--color-rank-rgb) / a)` glows; remapped per grade on character page. */
   --color-rank-rgb: 245 158 11;
 
@@ -93,6 +96,15 @@
 .mpts-data {
   font-family: var(--font-data);
   font-variant-numeric: tabular-nums;
+}
+
+.eyebrow {
+  margin: 0;
+  font-family: var(--font-data);
+  font-size: var(--text-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-gold-300);
 }
 
 .mpts-display {
