@@ -1,10 +1,12 @@
 import type { FastifyPluginAsync } from "fastify";
 import { queryAdminAbilityCatalog } from "@mplus/abilities";
 import type { ApiContainer } from "../container.js";
-import { createAdminAuthPreHandler } from "../plugins/admin-auth.js";
 import type { ScoreModelConfig } from "@mplus/contracts";
 import { AdminService, type CreateScoreModelInput, type MechanicRuleInput } from "../services/admin-service.js";
 import { adminScoreModelSchema, errorResponseSchema, jobStatusSchema, mechanicRuleSchema, scoreModelConfigSchema } from "./schemas.js";
+import { createPermissionPreHandler } from "../iam/session.js";
+import { PERMISSIONS } from "../iam/permissions.js";
+import { writeAuditEvent } from "../iam/audit.js";
 
 const backtestResponseSchema = {
   type: "object",
@@ -64,28 +66,19 @@ const mechanicRuleBodySchema = {
 } as const;
 
 /**
- * Admin routes.
- *
- * Score-model / mechanic-rule mutations still use MVP `x-admin-api-key` (see `plugins/admin-auth.ts`).
- *
- * Ability catalog explorer is development-only and currently unprotected:
- * - route: `/admin/ability-catalog`
- * - endpoint: `GET /api/v1/admin/ability-catalog`
- *
- * TODO before production:
- * - protect the admin route `/admin/ability-catalog`
- * - protect the admin API endpoint `GET /api/v1/admin/ability-catalog`
- * - integrate the future admin authentication/authorization system
+ * Admin routes — RBAC permissions with documented emergency `x-admin-api-key` fallback.
  */
 export function buildAdminRoutes(container: ApiContainer): FastifyPluginAsync {
   const service = new AdminService(container);
+  const env = container.env;
 
   return async (app) => {
-    // Development-only: currently unprotected. Do not require x-admin-api-key this wave.
-    // TODO before production: protect GET /api/v1/admin/ability-catalog with the future admin auth system.
     app.get(
       "/api/v1/admin/ability-catalog",
       {
+        preHandler: createPermissionPreHandler(env, PERMISSIONS.ADMIN_ABILITY_CATALOG_READ, {
+          auditAction: "admin.ability_catalog.read",
+        }),
         schema: {
           tags: ["admin"],
           querystring: {
@@ -128,7 +121,26 @@ export function buildAdminRoutes(container: ApiContainer): FastifyPluginAsync {
     );
 
     await app.register(async (protectedApp) => {
-      protectedApp.addHook("preHandler", createAdminAuthPreHandler(container.env));
+      protectedApp.addHook(
+        "preHandler",
+        createPermissionPreHandler(env, PERMISSIONS.ADMIN_SCORE_MODELS_MANAGE, {
+          auditAction: "admin.score_models.access",
+        }),
+      );
+
+      protectedApp.addHook("onResponse", async (request, reply) => {
+        if (reply.statusCode < 400 && request.method !== "GET") {
+          await writeAuditEvent(container.worker.prisma, {
+            userId: request.auth?.user.id,
+            actorType: request.authActor === "admin_key" ? "admin_key" : "user",
+            action: `admin.${request.method.toLowerCase()}.${request.routeOptions.url ?? request.url}`,
+            ip: request.ip,
+            userAgent: request.headers["user-agent"],
+            sessionSecret: env.SESSION_SECRET,
+            metadata: { statusCode: reply.statusCode },
+          });
+        }
+      });
 
       protectedApp.get(
         "/api/v1/admin/score-models",

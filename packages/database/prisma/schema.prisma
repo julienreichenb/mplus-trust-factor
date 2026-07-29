@@ -97,6 +97,19 @@ enum UserRole {
   ADMIN
 }
 
+enum OwnershipStatus {
+  CURRENT
+  HISTORICAL
+  STALE
+  REVOKED
+}
+
+enum AuditOutcome {
+  SUCCESS
+  DENIED
+  FAILURE
+}
+
 enum AddonExportStatus {
   PENDING
   READY
@@ -154,6 +167,7 @@ model Region {
   mythicRuns         MythicRun[]
   battleNetAccounts  BattleNetAccount[]
   addonExports       AddonExport[]
+  verifiedOwnerships VerifiedCharacterOwnership[]
 
   @@map("regions")
 }
@@ -311,7 +325,7 @@ model Character {
   activeSpec        GameSpecialization? @relation("ActiveSpec", fields: [activeSpecId], references: [id])
   aliases           CharacterAlias[]
   snapshots         CharacterSnapshot[]
-  accountLinks      AccountCharacter[]
+  verifiedOwnerships VerifiedCharacterOwnership[]
   runParticipants   RunParticipant[]
   runAnalyses       RunAnalysis[]
   metricObservations MetricObservation[]
@@ -374,35 +388,70 @@ model CharacterAlias {
 }
 
 model BattleNetAccount {
-  id              String    @id @default(uuid()) @db.Uuid
-  userId          String?   @map("user_id") @db.Uuid
-  regionId        String    @map("region_id") @db.Uuid
-  battletagHash   String    @map("battletag_hash")
-  claimed         Boolean   @default(false)
-  linkedAt        DateTime? @map("linked_at") @db.Timestamptz(3)
-  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  id                     String    @id @default(uuid()) @db.Uuid
+  userId                 String    @map("user_id") @db.Uuid
+  /** Durable Battle.net account id / OAuth subject — never treat BattleTag as durable. */
+  providerAccountId      String    @unique @map("provider_account_id")
+  regionId               String?   @map("region_id") @db.Uuid
+  battletagHash          String    @map("battletag_hash")
+  battletagDisplay       String?   @map("battletag_display")
+  claimed                Boolean   @default(true)
+  linkedAt               DateTime  @default(now()) @map("linked_at") @db.Timestamptz(3)
+  unlinkedAt             DateTime? @map("unlinked_at") @db.Timestamptz(3)
+  accessTokenEncrypted   String?   @map("access_token_encrypted") @db.Text
+  refreshTokenEncrypted  String?   @map("refresh_token_encrypted") @db.Text
+  tokenExpiresAt         DateTime? @map("token_expires_at") @db.Timestamptz(3)
+  grantedScopes          String?   @map("granted_scopes")
+  lastOwnershipSyncAt    DateTime? @map("last_ownership_sync_at") @db.Timestamptz(3)
+  lastOwnershipSyncError String?   @map("last_ownership_sync_error")
+  createdAt              DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt              DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  user       User?              @relation(fields: [userId], references: [id])
-  region     Region             @relation(fields: [regionId], references: [id])
-  characters AccountCharacter[]
+  user       User                         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  region     Region?                      @relation(fields: [regionId], references: [id])
+  ownerships VerifiedCharacterOwnership[]
 
-  @@unique([regionId, battletagHash])
+  @@index([userId])
+  @@index([battletagHash])
   @@map("battlenet_accounts")
 }
 
-model AccountCharacter {
-  accountId   String                 @map("account_id") @db.Uuid
-  characterId String                 @map("character_id") @db.Uuid
-  confidence  AccountLinkConfidence
-  source      String
-  linkedAt    DateTime               @default(now()) @map("linked_at") @db.Timestamptz(3)
+/** Provider-backed ownership. Private by default — never exposed on public profile APIs. */
+model VerifiedCharacterOwnership {
+  id                   String                 @id @default(uuid()) @db.Uuid
+  battleNetAccountId   String                 @map("battlenet_account_id") @db.Uuid
+  userId               String                 @map("user_id") @db.Uuid
+  characterId          String?                @map("character_id") @db.Uuid
+  blizzardCharacterId  BigInt                 @map("blizzard_character_id")
+  regionId             String                 @map("region_id") @db.Uuid
+  realmSlug            String                 @map("realm_slug")
+  realmName            String?                @map("realm_name")
+  characterName        String                 @map("character_name")
+  normalizedName       String                 @map("normalized_name")
+  playableClassId      Int?                   @map("playable_class_id")
+  playableRaceId       Int?                   @map("playable_race_id")
+  characterLevel       Int?                   @map("character_level")
+  faction              String?
+  confidence           AccountLinkConfidence  @default(CONFIRMED)
+  source               String
+  status               OwnershipStatus        @default(CURRENT)
+  isPrimary            Boolean                @default(false) @map("is_primary")
+  verifiedAt           DateTime               @map("verified_at") @db.Timestamptz(3)
+  lastSeenAt           DateTime               @default(now()) @map("last_seen_at") @db.Timestamptz(3)
+  revokedAt            DateTime?              @map("revoked_at") @db.Timestamptz(3)
+  createdAt            DateTime               @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt            DateTime               @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  account   BattleNetAccount @relation(fields: [accountId], references: [id])
-  character Character        @relation(fields: [characterId], references: [id])
+  battleNetAccount BattleNetAccount @relation(fields: [battleNetAccountId], references: [id], onDelete: Cascade)
+  user             User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  character        Character?       @relation(fields: [characterId], references: [id])
+  region           Region           @relation(fields: [regionId], references: [id])
 
-  @@id([accountId, characterId])
-  @@map("account_characters")
+  @@unique([battleNetAccountId, blizzardCharacterId])
+  @@index([userId, status])
+  @@index([characterId])
+  @@index([regionId, realmSlug, normalizedName])
+  @@map("verified_character_ownerships")
 }
 
 model CharacterSnapshot {
@@ -894,21 +943,140 @@ model IngestionJob {
 }
 
 model User {
-  id              String   @id @default(uuid()) @db.Uuid
-  email           String?  @unique
-  displayName     String?  @map("display_name")
-  role            UserRole @default(USER)
-  authProvider    String   @map("auth_provider")
-  externalSubject String   @map("external_subject")
-  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  id              String    @id @default(uuid()) @db.Uuid
+  email           String?   @unique
+  displayName     String?   @map("display_name")
+  /** Legacy scalar role retained for compatibility; prefer UserRoleAssignment. */
+  role            UserRole  @default(USER)
+  authProvider    String    @map("auth_provider")
+  externalSubject String    @map("external_subject")
+  disabledAt      DateTime? @map("disabled_at") @db.Timestamptz(3)
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   entitlements      Entitlement[]
+  featureGrants     FeatureGrant[]
   battleNetAccounts BattleNetAccount[]
+  externalIdentities ExternalIdentity[]
+  sessions          UserSession[]
+  roleAssignments   UserRoleAssignment[]
+  ownerships        VerifiedCharacterOwnership[]
+  auditEvents       AuditEvent[]
   scoreModels       ScoreModel[]
   disputes          ScoreDispute[]
 
   @@unique([authProvider, externalSubject])
   @@map("users")
+}
+
+model ExternalIdentity {
+  id          String    @id @default(uuid()) @db.Uuid
+  userId      String    @map("user_id") @db.Uuid
+  provider    String
+  subject     String
+  displayName String?   @map("display_name")
+  rawProfile  Json      @default("{}") @map("raw_profile")
+  linkedAt    DateTime  @default(now()) @map("linked_at") @db.Timestamptz(3)
+  lastLoginAt DateTime? @map("last_login_at") @db.Timestamptz(3)
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, subject])
+  @@index([userId])
+  @@map("external_identities")
+}
+
+model UserSession {
+  id               String    @id @default(uuid()) @db.Uuid
+  userId           String    @map("user_id") @db.Uuid
+  /** Opaque random token stored hashed; cookie carries the raw value. */
+  tokenHash        String    @unique @map("token_hash")
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  expiresAt        DateTime  @map("expires_at") @db.Timestamptz(3)
+  rotatedFromId    String?   @map("rotated_from_id") @db.Uuid
+  revokedAt        DateTime? @map("revoked_at") @db.Timestamptz(3)
+  ipHash           String?   @map("ip_hash")
+  userAgentHash    String?   @map("user_agent_hash")
+  lastSeenAt       DateTime  @default(now()) @map("last_seen_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+  @@map("user_sessions")
+}
+
+model Role {
+  id          String   @id @default(uuid()) @db.Uuid
+  key         String   @unique
+  name        String
+  description String?
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  permissions RolePermission[]
+  users       UserRoleAssignment[]
+
+  @@map("roles")
+}
+
+model Permission {
+  id          String   @id @default(uuid()) @db.Uuid
+  key         String   @unique
+  description String?
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  roles RolePermission[]
+
+  @@map("permissions")
+}
+
+model RolePermission {
+  roleId       String @map("role_id") @db.Uuid
+  permissionId String @map("permission_id") @db.Uuid
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+model UserRoleAssignment {
+  id         String    @id @default(uuid()) @db.Uuid
+  userId     String    @map("user_id") @db.Uuid
+  roleId     String    @map("role_id") @db.Uuid
+  grantedBy  String?   @map("granted_by") @db.Uuid
+  grantedAt  DateTime  @default(now()) @map("granted_at") @db.Timestamptz(3)
+  expiresAt  DateTime? @map("expires_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, roleId])
+  @@index([roleId])
+  @@map("user_role_assignments")
+}
+
+model AuditEvent {
+  id           String       @id @default(uuid()) @db.Uuid
+  userId       String?      @map("user_id") @db.Uuid
+  actorType    String       @map("actor_type")
+  action       String
+  resourceType String?      @map("resource_type")
+  resourceId   String?      @map("resource_id")
+  outcome      AuditOutcome @default(SUCCESS)
+  ipHash       String?      @map("ip_hash")
+  userAgentHash String?     @map("user_agent_hash")
+  metadata     Json         @default("{}")
+  createdAt    DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([action, createdAt])
+  @@map("audit_events")
 }
 
 model Entitlement {
@@ -920,10 +1088,32 @@ model Entitlement {
   source    String
   metadata  Json      @default("{}")
 
-  user User @relation(fields: [userId], references: [id])
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, key, startsAt])
+  @@index([userId, key])
   @@map("entitlements")
+}
+
+/** Generic feature grant foundation (no billing). Distinct from Entitlement for usage-cap metadata. */
+model FeatureGrant {
+  id          String    @id @default(uuid()) @db.Uuid
+  userId      String    @map("user_id") @db.Uuid
+  featureKey  String    @map("feature_key")
+  startsAt    DateTime  @default(now()) @map("starts_at") @db.Timestamptz(3)
+  endsAt      DateTime? @map("ends_at") @db.Timestamptz(3)
+  usageLimit  Int?      @map("usage_limit")
+  usageCount  Int       @default(0) @map("usage_count")
+  source      String
+  grantedBy   String?   @map("granted_by") @db.Uuid
+  metadata    Json      @default("{}")
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, featureKey])
+  @@map("feature_grants")
 }
 
 model AddonExport {

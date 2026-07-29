@@ -80,8 +80,24 @@ export const envSchema = z
     PUBLIC_DETAILS_ALL: booleanFromString.default(true),
 
     ADMIN_API_KEY: z.string().min(1),
+    /**
+     * When true, shared ADMIN_API_KEY remains an emergency admin fallback alongside RBAC sessions.
+     * Prefer session permissions in normal operation; key usage is audited.
+     */
+    ADMIN_API_KEY_EMERGENCY_FALLBACK: booleanFromString.default(true),
     SESSION_SECRET: z.string().min(32),
     COOKIE_DOMAIN: z.string().default("localhost"),
+    SESSION_COOKIE_NAME: z.string().default("mplus_session"),
+    SESSION_TTL_SECONDS: z.coerce.number().int().positive().default(2_592_000),
+    OAUTH_STATE_TTL_SECONDS: z.coerce.number().int().positive().default(600),
+    /** Comma-separated absolute callback URLs allowlisted for Battle.net OAuth. */
+    BATTLENET_OAUTH_CALLBACK_URLS: z.string().default("http://localhost:3000/api/v1/auth/battlenet/callback"),
+    BATTLENET_OAUTH_SCOPES: z.string().default("openid wow.profile"),
+    BATTLENET_OAUTH_AUTHORIZE_URL: z.string().url().default("https://oauth.battle.net/authorize"),
+    BATTLENET_OAUTH_TOKEN_URL: z.string().url().default("https://oauth.battle.net/token"),
+    BATTLENET_OAUTH_USERINFO_URL: z.string().url().default("https://oauth.battle.net/userinfo"),
+    /** When true, owners may bypass manual refresh cooldown (still subject to WCL global safety). */
+    OWNER_REFRESH_COOLDOWN_BYPASS: booleanFromString.default(false),
     TRUST_PROXY: booleanFromString.default(false),
 
     /** Worker-only HTTP health port (Docker HEALTHCHECK). 0 disables the listener. */

@@ -12,6 +12,7 @@
     "e2e:fixture-api": "tsx src/e2e-fixture-server.ts"
   },
   "dependencies": {
+    "@fastify/cookie": "^11.1.2",
     "@fastify/cors": "^11.0.1",
     "@fastify/rate-limit": "^11.1.0",
     "@fastify/swagger": "^9.5.1",
