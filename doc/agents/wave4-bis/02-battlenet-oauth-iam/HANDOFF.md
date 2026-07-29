@@ -1,7 +1,8 @@
 # Agent 38 Handoff — Battle.net OAuth / IAM
 
 **Branch:** `agent/wave4.3-battlenet-iam`  
-**Base:** `integration/wave4.3` (re-merged Utility shadow before final validation)  
+**HEAD:** see `git rev-parse HEAD` after merge  
+**Base:** `integration/wave4.3` including Utility production-safe shadow (`44eaf27`) — re-merged before final validation  
 **Do not merge this branch into integration yourself** — leave merge to the integrator.
 
 ## Deliverables
