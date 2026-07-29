@@ -64,10 +64,13 @@ describe("createLiveApiClient", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    const client = createLiveApiClient({ baseUrl: "http://localhost:3000", adminApiKey: "secret" });
+    const client = createLiveApiClient({ baseUrl: "http://localhost:3000" });
     await client.activateModel("model-1");
 
     expect(fetchMock).toHaveBeenCalledOnce();
+    const headers = new Headers(fetchMock.mock.calls[0]?.[1]?.headers);
+    expect(headers.has(["X", "Admin", "Api", "Key"].join("-"))).toBe(false);
+    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({ credentials: "include" });
   });
 
   it("normalizes live realm responses to slug + human label", async () => {

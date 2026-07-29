@@ -55,7 +55,9 @@ Public Game Data / Character Profile APIs use **client credentials** and do **no
 
 - OAuth authorize/token: global `oauth.battle.net` for non-CN regions.
 - Profile API host: `{eu|us|kr|tw}.api.blizzard.com` with matching `namespace=profile-{region}`.
-- A single Battle.net account can own characters across WoW accounts/regions returned by `/profile/user/wow`.
+- **MVP ownership sync is EU-only** (`BATTLENET_OWNERSHIP_SYNC_REGION=eu`).
+  Unsupported configured regions fail with `OWNERSHIP_REGION_UNSUPPORTED`.
+  Multi-region ownership sync is out of scope for Wave 4.3.
 
 ## Tokens
 

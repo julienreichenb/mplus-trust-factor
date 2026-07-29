@@ -1,14 +1,15 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
+import { useRouter } from "vue-router";
 import { api } from "../api/client";
 import type { AdminScoreModelDTO, BacktestSummary, EditableModelConfig, ModelValidationResult } from "../api/types";
 import { DEFAULT_MODEL_CONFIG } from "../api/mock/fixtures";
 import { validateModelConfig } from "../api/mock/client";
 import { deepClone } from "../lib/clone";
 import StatusBanner from "../components/common/StatusBanner.vue";
+import { ApiClientError } from "../api/live-client";
 
-const unlocked = ref(import.meta.env.VITE_API_MODE !== "live");
-const adminKeyInput = ref("");
+const router = useRouter();
 const models = ref<AdminScoreModelDTO[]>([]);
 const selectedId = ref<string | null>(null);
 const draftConfig = ref<EditableModelConfig>(deepClone(DEFAULT_MODEL_CONFIG));
@@ -17,16 +18,17 @@ const backtest = ref<BacktestSummary | null>(null);
 const message = ref<string | null>(null);
 const error = ref<string | null>(null);
 const busy = ref(false);
+const ready = ref(false);
 
 const selected = computed(() => models.value.find((m) => m.id === selectedId.value) ?? null);
 const isDraft = computed(() => selected.value?.status === "DRAFT");
 
-function unlock(): void {
-  if (adminKeyInput.value.trim().length >= 8) {
-    unlocked.value = true;
-  } else {
-    error.value = "Enter a valid admin key (mock accepts any 8+ chars).";
+function handleAuthError(err: unknown): boolean {
+  if (err instanceof ApiClientError && (err.status === 401 || err.status === 403)) {
+    void router.replace(err.status === 401 ? "/auth/signin" : "/access-denied");
+    return true;
   }
+  return false;
 }
 
 async function loadModels(): Promise<void> {
@@ -62,7 +64,7 @@ async function cloneActive(): Promise<void> {
     selectModel(draft.id);
     message.value = `Cloned draft ${draft.name}`;
   } catch (err) {
-    error.value = (err as Error).message;
+    if (!handleAuthError(err)) error.value = (err as Error).message;
   } finally {
     busy.value = false;
   }
@@ -85,7 +87,7 @@ async function saveDraft(): Promise<void> {
     await loadModels();
     message.value = "Draft saved.";
   } catch (err) {
-    error.value = (err as Error).message;
+    if (!handleAuthError(err)) error.value = (err as Error).message;
   } finally {
     busy.value = false;
   }
@@ -98,7 +100,7 @@ async function runBacktest(): Promise<void> {
     backtest.value = await api.backtestModel(selected.value.id);
     message.value = "Fixture backtest complete.";
   } catch (err) {
-    error.value = (err as Error).message;
+    if (!handleAuthError(err)) error.value = (err as Error).message;
   } finally {
     busy.value = false;
   }
@@ -122,32 +124,35 @@ async function activate(): Promise<void> {
     await loadModels();
     message.value = "Model activated.";
   } catch (err) {
-    error.value = (err as Error).message;
+    if (!handleAuthError(err)) error.value = (err as Error).message;
   } finally {
     busy.value = false;
   }
 }
 
 onMounted(() => {
-  if (unlocked.value) void loadModels();
+  void loadModels()
+    .then(() => {
+      ready.value = true;
+    })
+    .catch((err) => {
+      if (!handleAuthError(err)) {
+        error.value = (err as Error).message;
+        ready.value = true;
+      }
+    });
 });
 </script>
 
 <template>
   <section data-testid="admin-page">
     <h1>Admin score models</h1>
-    <p>Draft, validate, backtest, and activate immutable model versions. No scoring math runs in the browser.</p>
+    <p>
+      Draft, validate, backtest, and activate immutable model versions. Requires an authenticated
+      Battle.net session with admin permissions — no API keys in the browser.
+    </p>
 
-    <div v-if="!unlocked" class="gate" data-testid="admin-gate">
-      <label>
-        Admin API key
-        <input v-model="adminKeyInput" type="password" autocomplete="off" data-testid="admin-key" />
-      </label>
-      <button type="button" class="btn primary" @click="unlock">Unlock</button>
-      <p v-if="error" class="error">{{ error }}</p>
-    </div>
-
-    <template v-else>
+    <template v-if="ready">
       <StatusBanner v-if="message" tone="success">{{ message }}</StatusBanner>
       <StatusBanner v-if="error" tone="error">{{ error }}</StatusBanner>
 
@@ -342,7 +347,6 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.gate,
 .editor fieldset {
   display: grid;
   gap: 0.6rem;

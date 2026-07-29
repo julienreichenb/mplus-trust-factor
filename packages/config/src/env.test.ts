@@ -27,6 +27,7 @@ describe("loadEnv", () => {
     expect(env.REFRESH_DRY_RUN_ONLY).toBe(true);
     expect(env.REFRESH_TRACKED_TOP_PERCENT).toBe(25);
     expect(env.UTILITY_PUBLICATION_MODE).toBe("shadow");
+    expect(env.ADMIN_API_KEY_EMERGENCY_FALLBACK).toBe(false);
   });
 
   it("accepts UTILITY_PUBLICATION_MODE enum values", () => {

@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { AppEnv } from "@mplus/config";
+import { providerTokenEncryptionSecret } from "@mplus/config";
 import type { Prisma, PrismaClient, User } from "@mplus/database";
 import { writeAuditEvent } from "./audit.js";
 import type { BattleNetOAuthClient } from "./battlenet-oauth-client.js";
@@ -15,12 +16,29 @@ import { BATTLENET_PROVIDER, ROLE_KEYS } from "./permissions.js";
 import { loadUserPermissionKeys } from "./rbac.js";
 import { isAllowedCallbackUrl, sanitizeReturnTo } from "./redirects.js";
 
+/** MVP: ownership sync is EU-only. */
+export const OWNERSHIP_SYNC_SUPPORTED_REGIONS = ["eu"] as const;
+
+export function resolveOwnershipSyncRegion(env: AppEnv): "eu" {
+  const configured = (env.BATTLENET_OWNERSHIP_SYNC_REGION || "eu").trim().toLowerCase();
+  if (configured !== "eu") {
+    throw Object.assign(
+      new Error(
+        `Ownership sync region '${configured}' is not supported. MVP supports EU only (set BATTLENET_OWNERSHIP_SYNC_REGION=eu).`,
+      ),
+      { code: "OWNERSHIP_REGION_UNSUPPORTED" },
+    );
+  }
+  return "eu";
+}
+
 export interface AuthSessionContext {
   user: User;
   sessionId: string;
   permissions: Set<string>;
   roles: string[];
 }
+
 
 export interface OAuthStartResult {
   authorizeUrl: string;
@@ -175,9 +193,10 @@ export class IamAuthService {
     };
     userInfo: Record<string, unknown>;
   }): Promise<User> {
-    const accessTokenEncrypted = encryptSecret(input.tokens.access_token, this.env.SESSION_SECRET);
+    const tokenSecret = providerTokenEncryptionSecret(this.env);
+    const accessTokenEncrypted = encryptSecret(input.tokens.access_token, tokenSecret);
     const refreshTokenEncrypted = input.tokens.refresh_token
-      ? encryptSecret(input.tokens.refresh_token, this.env.SESSION_SECRET)
+      ? encryptSecret(input.tokens.refresh_token, tokenSecret)
       : null;
     const tokenExpiresAt = new Date(Date.now() + input.tokens.expires_in * 1000);
 
@@ -373,21 +392,22 @@ export class IamAuthService {
       throw Object.assign(new Error("No linked Battle.net account"), { code: "BNET_NOT_LINKED" });
     }
 
-    let accessToken = decryptSecret(account.accessTokenEncrypted, this.env.SESSION_SECRET);
+    const tokenSecret = providerTokenEncryptionSecret(this.env);
+    let accessToken = decryptSecret(account.accessTokenEncrypted, tokenSecret);
     if (account.tokenExpiresAt && account.tokenExpiresAt.getTime() < Date.now() + 60_000) {
       if (!account.refreshTokenEncrypted) {
         throw Object.assign(new Error("Battle.net token expired"), { code: "BNET_TOKEN_EXPIRED" });
       }
       const refreshed = await this.oauth.refreshAccessToken(
-        decryptSecret(account.refreshTokenEncrypted, this.env.SESSION_SECRET),
+        decryptSecret(account.refreshTokenEncrypted, tokenSecret),
       );
       accessToken = refreshed.access_token;
       await this.prisma.battleNetAccount.update({
         where: { id: account.id },
         data: {
-          accessTokenEncrypted: encryptSecret(refreshed.access_token, this.env.SESSION_SECRET),
+          accessTokenEncrypted: encryptSecret(refreshed.access_token, tokenSecret),
           refreshTokenEncrypted: refreshed.refresh_token
-            ? encryptSecret(refreshed.refresh_token, this.env.SESSION_SECRET)
+            ? encryptSecret(refreshed.refresh_token, tokenSecret)
             : account.refreshTokenEncrypted,
           tokenExpiresAt: new Date(Date.now() + refreshed.expires_in * 1000),
           grantedScopes: refreshed.scope ?? account.grantedScopes,
@@ -395,7 +415,7 @@ export class IamAuthService {
       });
     }
 
-    const region = (this.env.BLIZZARD_DEFAULT_REGION || "eu").toLowerCase();
+    const region = resolveOwnershipSyncRegion(this.env);
     try {
       const profile = await this.oauth.fetchWowAccountProfile(accessToken, region);
       const result = await syncVerifiedOwnership({

@@ -1,49 +1,39 @@
-# Agent 38 Handoff — Battle.net OAuth / IAM
+# Agent 38 Handoff — Battle.net OAuth / IAM (corrective)
 
 **Branch:** `agent/wave4.3-battlenet-iam`  
 **Implementation commit:** `e200756`  
-**Commits:** `29b2944` (docs) → `e200756` (IAM) → `210e4d9` (web) → `e4142a2` (re-merge integration) → `d50607c`+ (deploy/docs polish)  
-**Base:** `integration/wave4.3` including Utility production-safe shadow (`44eaf27`) — re-merged before final validation  
-**Do not merge this branch into integration yourself** — leave merge to the integrator.
+**Corrective commit:** `02598d8`  
 
-## Deliverables
+## Bootstrap (you = first admin)
 
-| Artifact | Path |
-|----------|------|
-| Audit | `AUDIT.md` |
-| Official OAuth summary | `OAUTH_FLOW.md` |
-| Data model | `DATA_MODEL.md` |
-| Threat model | `THREAT_MODEL.md` |
-| RBAC + admin-key plan | `RBAC_MATRIX.md` |
-| Entitlements | `ENTITLEMENTS.md` |
-| Migration | `packages/database/prisma/migrations/20260729180000_battlenet_iam/` |
+1. Sign in once via Battle.net OAuth.
+2. Read `user.id` from `GET /api/v1/auth/me` (or `providerAccountId` from `GET /api/v1/me/battlenet`).
+3. Run:
 
-## Implementation summary
+```bash
+pnpm iam:grant-admin -- --user-id <uuid>
+# or
+pnpm iam:grant-admin -- --battlenet-subject <provider-subject>
+```
 
-- Authorization-code OAuth with `state`, PKCE S256, allowlisted callbacks, HttpOnly session cookies (`Secure` in production/staging).
-- Provider tokens encrypted at rest (AES-256-GCM); never returned to clients.
-- Verified ownership from `/profile/user/wow`; private `/api/v1/me/*` APIs; unlink revokes tokens + CURRENT ownership.
-- RBAC roles/permissions seeded on boot; admin routes permission-gated; `ADMIN_API_KEY` emergency fallback (audited).
-- Refresh cooldown bypass requires permission or emergency key; audited; WCL global safety unchanged.
-- UI: `/auth/signin`, `/auth/error`, `/account`, `/access-denied`; admin nav gated by permissions.
+4. Verify admin permissions on `/api/v1/auth/me`.
+5. Set `ADMIN_API_KEY_EMERGENCY_FALLBACK=false` and restart.
 
-## Validation
+Details: `FIRST_ADMIN_BOOTSTRAP.md`, `ENV_MATRIX.md`.
 
-- `pnpm db:migrate` — applied `20260729180000_battlenet_iam`
-- `pnpm build` — pass
-- IAM + admin + security tests — pass
+## Corrective scope
 
-## Remaining IAM blockers
+- Removed all SPA `VITE_ADMIN_API_KEY` / browser admin-key usage; session cookies only.
+- Frontend secret-bake tests.
+- First-admin CLI (immutable ids only).
+- Emergency key default **false**; startup warn when enabled; audited.
+- Test/prod env examples completed for OAuth/session/cookies.
+- Caddy returns 404 for public `/metrics`; private network scrape only.
+- Ownership sync documented and enforced as **EU-only**.
 
-1. Live Battle.net client credentials + registered redirect URIs required for real OAuth (fixture/mocks cover automated tests).
-2. Assign first human admin via `UserRoleAssignment` (role `admin`) before disabling `ADMIN_API_KEY_EMERGENCY_FALLBACK`.
-3. SPA still may use `VITE_ADMIN_API_KEY` for legacy admin models page — migrate fully to session auth before production.
-4. Multi-region ownership sync currently uses `BLIZZARD_DEFAULT_REGION` for `/profile/user/wow`; extend to iterate account regions if CN/multi-host is required.
-5. `/metrics` remains unauthenticated (ops decision).
-6. Do not depend on experimental Utility scoring — only production-safe shadow from integration merge.
+## Remaining deployment-only blockers
 
-## Privacy / scoring
-
-- Alts never exposed on public profile serializers.
-- No scoring semantics or weight changes.
-- No billing.
+1. Register real Blizzard OAuth client + redirect URI for test/prod domains.
+2. Fill secrets via `ops:generate-secrets` (never commit).
+3. Run first OAuth login + `iam:grant-admin` on the target environment.
+4. Confirm Prometheus scrape job targets private API DNS name, not the public hostname.

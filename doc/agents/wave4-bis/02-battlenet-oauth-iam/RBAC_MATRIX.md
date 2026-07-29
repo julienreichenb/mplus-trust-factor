@@ -20,7 +20,8 @@ Owner cooldown bypass is opt-in via `OWNER_REFRESH_COOLDOWN_BYPASS` and never by
 
 ## Admin key migration
 
-1. Wave 4.3: RBAC sessions are primary for humans; `ADMIN_API_KEY` remains emergency fallback (`ADMIN_API_KEY_EMERGENCY_FALLBACK=true`).
-2. Key usage is audited (`actorType=admin_key`).
-3. Do not ship `VITE_ADMIN_API_KEY` in production bundles; use session cookies for SPA admin pages.
-4. Later wave: set fallback false once operators have Battle.net admin role assignments.
+1. Wave 4.3: RBAC sessions are primary. `ADMIN_API_KEY_EMERGENCY_FALLBACK` defaults to **false**.
+2. Local `.env.example` may set fallback `true` for development; staging/prod examples keep `false`.
+3. Key usage is audited (`actorType=admin_key`). SPA must never send the key.
+4. After `pnpm iam:grant-admin`, set `ADMIN_API_KEY_EMERGENCY_FALLBACK=false` and restart.
+5. Never ship admin secrets in frontend bundles (`VITE_ADMIN_API_KEY` removed).

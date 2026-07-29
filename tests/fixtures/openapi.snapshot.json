@@ -3,7 +3,7 @@
   "info": {
     "title": "M+ Trust Factor API",
     "version": "0.1.0",
-    "description": "Agent 5 backend surface: public character/comparison/score-model routes with stale-while-revalidate refresh semantics, plus MVP-protected admin routes for score model and mechanic-rule administration."
+    "description": "Public character/comparison routes with SWR refresh, Battle.net OAuth IAM, and permission-protected admin routes (shared admin key retained as emergency fallback)."
   },
   "components": {
     "schemas": {}
@@ -196,16 +196,46 @@
                       "items": {
                         "type": "object",
                         "properties": {
-                          "id": {
-                            "type": "string"
-                          },
-                          "regionCode": {
+                          "name": {
                             "type": "string"
                           },
                           "slug": {
                             "type": "string"
                           },
-                          "name": {
+                          "region": {
+                            "type": "string"
+                          },
+                          "locale": {
+                            "type": [
+                              "null",
+                              "string"
+                            ]
+                          },
+                          "connectedRealmId": {
+                            "type": [
+                              "null",
+                              "number"
+                            ]
+                          },
+                          "displayLabel": {
+                            "type": "string"
+                          },
+                          "timezone": {
+                            "type": [
+                              "null",
+                              "string"
+                            ]
+                          },
+                          "category": {
+                            "type": [
+                              "null",
+                              "string"
+                            ]
+                          },
+                          "id": {
+                            "type": "string"
+                          },
+                          "regionCode": {
                             "type": "string"
                           }
                         },
@@ -347,6 +377,21 @@
                           },
                           "source": {
                             "type": "string"
+                          },
+                          "kind": {
+                            "type": "string"
+                          },
+                          "realmName": {
+                            "type": [
+                              "null",
+                              "string"
+                            ]
+                          },
+                          "label": {
+                            "type": [
+                              "null",
+                              "string"
+                            ]
                           }
                         },
                         "required": [
@@ -405,6 +450,272 @@
                   "required": [
                     "error"
                   ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/characters/resolve": {
+      "post": {
+        "tags": [
+          "characters"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 48
+                  },
+                  "realmSlug": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                  },
+                  "region": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 8
+                  },
+                  "forceRetry": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "name",
+                  "realmSlug",
+                  "region"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string"
+                    },
+                    "characterId": {
+                      "type": "string"
+                    },
+                    "refreshId": {
+                      "type": "string"
+                    },
+                    "profilePath": {
+                      "type": "string"
+                    },
+                    "retryAfterMs": {
+                      "type": "number"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "retryable": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "status"
+                  ],
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string"
+                    },
+                    "characterId": {
+                      "type": "string"
+                    },
+                    "refreshId": {
+                      "type": "string"
+                    },
+                    "profilePath": {
+                      "type": "string"
+                    },
+                    "retryAfterMs": {
+                      "type": "number"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "retryable": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "status"
+                  ],
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string"
+                    },
+                    "characterId": {
+                      "type": "string"
+                    },
+                    "refreshId": {
+                      "type": "string"
+                    },
+                    "profilePath": {
+                      "type": "string"
+                    },
+                    "retryAfterMs": {
+                      "type": "number"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "retryable": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "status"
+                  ],
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string"
+                    },
+                    "characterId": {
+                      "type": "string"
+                    },
+                    "refreshId": {
+                      "type": "string"
+                    },
+                    "profilePath": {
+                      "type": "string"
+                    },
+                    "retryAfterMs": {
+                      "type": "number"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "retryable": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "status"
+                  ],
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string"
+                    },
+                    "characterId": {
+                      "type": "string"
+                    },
+                    "refreshId": {
+                      "type": "string"
+                    },
+                    "profilePath": {
+                      "type": "string"
+                    },
+                    "retryAfterMs": {
+                      "type": "number"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "retryable": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "status"
+                  ],
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string"
+                    },
+                    "characterId": {
+                      "type": "string"
+                    },
+                    "refreshId": {
+                      "type": "string"
+                    },
+                    "profilePath": {
+                      "type": "string"
+                    },
+                    "retryAfterMs": {
+                      "type": "number"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "retryable": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "status"
+                  ],
+                  "additionalProperties": true
                 }
               }
             }
@@ -591,13 +902,32 @@
                                     "type": "string"
                                   },
                                   "score": {
-                                    "type": "number"
+                                    "type": [
+                                      "null",
+                                      "number"
+                                    ]
                                   },
                                   "confidence": {
                                     "type": "number"
                                   },
                                   "weight": {
                                     "type": "number"
+                                  },
+                                  "state": {
+                                    "type": "string",
+                                    "enum": [
+                                      "AVAILABLE",
+                                      "PARTIAL",
+                                      "UNAVAILABLE",
+                                      "PROCESSING",
+                                      "ERROR"
+                                    ]
+                                  },
+                                  "reason": {
+                                    "type": [
+                                      "null",
+                                      "string"
+                                    ]
                                   },
                                   "contributors": {}
                                 },
@@ -805,13 +1135,32 @@
                                     "type": "string"
                                   },
                                   "score": {
-                                    "type": "number"
+                                    "type": [
+                                      "null",
+                                      "number"
+                                    ]
                                   },
                                   "confidence": {
                                     "type": "number"
                                   },
                                   "weight": {
                                     "type": "number"
+                                  },
+                                  "state": {
+                                    "type": "string",
+                                    "enum": [
+                                      "AVAILABLE",
+                                      "PARTIAL",
+                                      "UNAVAILABLE",
+                                      "PROCESSING",
+                                      "ERROR"
+                                    ]
+                                  },
+                                  "reason": {
+                                    "type": [
+                                      "null",
+                                      "string"
+                                    ]
                                   },
                                   "contributors": {}
                                 },
@@ -1057,6 +1406,12 @@
                                       },
                                       "additionalProperties": true
                                     }
+                                  },
+                                  "bonusList": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "number"
+                                    }
                                   }
                                 },
                                 "additionalProperties": true
@@ -1123,6 +1478,12 @@
                                       },
                                       "additionalProperties": true
                                     }
+                                  },
+                                  "bonusList": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "number"
+                                    }
                                   }
                                 },
                                 "additionalProperties": true
@@ -1165,6 +1526,12 @@
                                 "null"
                               ]
                             },
+                            "heroTalentName": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
                             "selectedTalents": {
                               "type": [
                                 "array",
@@ -1180,6 +1547,27 @@
                                     ]
                                   },
                                   "name": {
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ]
+                                  },
+                                  "spellId": {
+                                    "type": [
+                                      "number",
+                                      "null"
+                                    ]
+                                  },
+                                  "rank": {
+                                    "type": [
+                                      "number",
+                                      "null"
+                                    ]
+                                  },
+                                  "tree": {
+                                    "type": "string"
+                                  },
+                                  "iconUrl": {
                                     "type": [
                                       "string",
                                       "null"
@@ -1242,6 +1630,7 @@
                     },
                     "seasonSummary": {},
                     "performanceSummary": {},
+                    "survivalSummary": {},
                     "entitlements": {},
                     "warnings": {
                       "type": "array"
@@ -1426,13 +1815,32 @@
                                     "type": "string"
                                   },
                                   "score": {
-                                    "type": "number"
+                                    "type": [
+                                      "null",
+                                      "number"
+                                    ]
                                   },
                                   "confidence": {
                                     "type": "number"
                                   },
                                   "weight": {
                                     "type": "number"
+                                  },
+                                  "state": {
+                                    "type": "string",
+                                    "enum": [
+                                      "AVAILABLE",
+                                      "PARTIAL",
+                                      "UNAVAILABLE",
+                                      "PROCESSING",
+                                      "ERROR"
+                                    ]
+                                  },
+                                  "reason": {
+                                    "type": [
+                                      "null",
+                                      "string"
+                                    ]
                                   },
                                   "contributors": {}
                                 },
@@ -1678,6 +2086,12 @@
                                       },
                                       "additionalProperties": true
                                     }
+                                  },
+                                  "bonusList": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "number"
+                                    }
                                   }
                                 },
                                 "additionalProperties": true
@@ -1744,6 +2158,12 @@
                                       },
                                       "additionalProperties": true
                                     }
+                                  },
+                                  "bonusList": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "number"
+                                    }
                                   }
                                 },
                                 "additionalProperties": true
@@ -1786,6 +2206,12 @@
                                 "null"
                               ]
                             },
+                            "heroTalentName": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
                             "selectedTalents": {
                               "type": [
                                 "array",
@@ -1801,6 +2227,27 @@
                                     ]
                                   },
                                   "name": {
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ]
+                                  },
+                                  "spellId": {
+                                    "type": [
+                                      "number",
+                                      "null"
+                                    ]
+                                  },
+                                  "rank": {
+                                    "type": [
+                                      "number",
+                                      "null"
+                                    ]
+                                  },
+                                  "tree": {
+                                    "type": "string"
+                                  },
+                                  "iconUrl": {
                                     "type": [
                                       "string",
                                       "null"
@@ -1863,6 +2310,7 @@
                     },
                     "seasonSummary": {},
                     "performanceSummary": {},
+                    "survivalSummary": {},
                     "entitlements": {},
                     "warnings": {
                       "type": "array"
@@ -2424,13 +2872,32 @@
                                   "type": "string"
                                 },
                                 "score": {
-                                  "type": "number"
+                                  "type": [
+                                    "null",
+                                    "number"
+                                  ]
                                 },
                                 "confidence": {
                                   "type": "number"
                                 },
                                 "weight": {
                                   "type": "number"
+                                },
+                                "state": {
+                                  "type": "string",
+                                  "enum": [
+                                    "AVAILABLE",
+                                    "PARTIAL",
+                                    "UNAVAILABLE",
+                                    "PROCESSING",
+                                    "ERROR"
+                                  ]
+                                },
+                                "reason": {
+                                  "type": [
+                                    "null",
+                                    "string"
+                                  ]
                                 },
                                 "contributors": {}
                               },
@@ -2774,13 +3241,32 @@
                             "type": "string"
                           },
                           "score": {
-                            "type": "number"
+                            "type": [
+                              "null",
+                              "number"
+                            ]
                           },
                           "confidence": {
                             "type": "number"
                           },
                           "weight": {
                             "type": "number"
+                          },
+                          "state": {
+                            "type": "string",
+                            "enum": [
+                              "AVAILABLE",
+                              "PARTIAL",
+                              "UNAVAILABLE",
+                              "PROCESSING",
+                              "ERROR"
+                            ]
+                          },
+                          "reason": {
+                            "type": [
+                              "null",
+                              "string"
+                            ]
                           },
                           "contributors": {}
                         },
@@ -2996,13 +3482,32 @@
                                       "type": "string"
                                     },
                                     "score": {
-                                      "type": "number"
+                                      "type": [
+                                        "null",
+                                        "number"
+                                      ]
                                     },
                                     "confidence": {
                                       "type": "number"
                                     },
                                     "weight": {
                                       "type": "number"
+                                    },
+                                    "state": {
+                                      "type": "string",
+                                      "enum": [
+                                        "AVAILABLE",
+                                        "PARTIAL",
+                                        "UNAVAILABLE",
+                                        "PROCESSING",
+                                        "ERROR"
+                                      ]
+                                    },
+                                    "reason": {
+                                      "type": [
+                                        "null",
+                                        "string"
+                                      ]
                                     },
                                     "contributors": {}
                                   },
@@ -3272,6 +3777,124 @@
                   "required": [
                     "error"
                   ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/ability-catalog": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "query",
+            "name": "query",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "query",
+            "name": "classSlug",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "query",
+            "name": "specSlug",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "DPS",
+                "TANK",
+                "HEALER"
+              ]
+            },
+            "in": "query",
+            "name": "role",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "query",
+            "name": "category",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "query",
+            "name": "ownership",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "query",
+            "name": "availability",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "query",
+            "name": "version",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "query",
+            "name": "validationState",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "in": "query",
+            "name": "page",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200
+            },
+            "in": "query",
+            "name": "limit",
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
                 }
               }
             }
@@ -4276,124 +4899,6 @@
         }
       }
     },
-    "/api/v1/admin/ability-catalog": {
-      "get": {
-        "tags": [
-          "admin"
-        ],
-        "parameters": [
-          {
-            "schema": {
-              "type": "string"
-            },
-            "in": "query",
-            "name": "query",
-            "required": false
-          },
-          {
-            "schema": {
-              "type": "string"
-            },
-            "in": "query",
-            "name": "classSlug",
-            "required": false
-          },
-          {
-            "schema": {
-              "type": "string"
-            },
-            "in": "query",
-            "name": "specSlug",
-            "required": false
-          },
-          {
-            "schema": {
-              "type": "string",
-              "enum": [
-                "DPS",
-                "TANK",
-                "HEALER"
-              ]
-            },
-            "in": "query",
-            "name": "role",
-            "required": false
-          },
-          {
-            "schema": {
-              "type": "string"
-            },
-            "in": "query",
-            "name": "category",
-            "required": false
-          },
-          {
-            "schema": {
-              "type": "string"
-            },
-            "in": "query",
-            "name": "ownership",
-            "required": false
-          },
-          {
-            "schema": {
-              "type": "string"
-            },
-            "in": "query",
-            "name": "availability",
-            "required": false
-          },
-          {
-            "schema": {
-              "type": "string"
-            },
-            "in": "query",
-            "name": "version",
-            "required": false
-          },
-          {
-            "schema": {
-              "type": "string"
-            },
-            "in": "query",
-            "name": "validationState",
-            "required": false
-          },
-          {
-            "schema": {
-              "type": "integer",
-              "minimum": 1
-            },
-            "in": "query",
-            "name": "page",
-            "required": false
-          },
-          {
-            "schema": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 200
-            },
-            "in": "query",
-            "name": "limit",
-            "required": false
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Default Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "additionalProperties": true
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/v1/admin/mechanic-rules": {
       "get": {
         "tags": [
@@ -5138,64 +5643,93 @@
         }
       }
     },
-    "/api/v1/characters/resolve": {
-      "post": {
-        "tags": [
-          "characters"
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "name": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 48
-                  },
-                  "realmSlug": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 64
-                  },
-                  "region": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 8
-                  },
-                  "forceRetry": {
-                    "type": "boolean"
-                  }
-                },
-                "required": [
-                  "name",
-                  "realmSlug",
-                  "region"
-                ]
-              }
-            }
-          }
-        },
+    "/api/v1/auth/battlenet/start": {
+      "get": {
         "responses": {
           "200": {
-            "description": "READY"
-          },
-          "202": {
-            "description": "QUEUED/PROCESSING"
-          },
-          "400": {
-            "description": "Invalid input"
-          },
-          "404": {
-            "description": "NOT_FOUND"
-          },
-          "502": {
-            "description": "FAILED"
-          },
-          "503": {
-            "description": "PROVIDER_UNAVAILABLE"
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/api/v1/auth/battlenet/callback": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/api/v1/auth/logout": {
+      "post": {
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/api/v1/auth/me": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/api/v1/me/battlenet": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/api/v1/me/characters": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/api/v1/me/characters/refresh-ownership": {
+      "post": {
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/api/v1/me/characters/{ownershipId}/primary": {
+      "post": {
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "ownershipId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/api/v1/me/battlenet/unlink": {
+      "post": {
+        "responses": {
+          "200": {
+            "description": "Default Response"
           }
         }
       }
