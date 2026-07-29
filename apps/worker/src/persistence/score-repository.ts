@@ -193,26 +193,32 @@ async function upsertPublishedPointer(
   },
 ): Promise<void> {
   try {
-    await tx.characterPublishedScore.upsert({
+    const existing = await tx.characterPublishedScore.findFirst({
       where: {
-        characterId_seasonId_scoreModelId_scopeType_scopeKey: {
-          characterId: input.characterId,
-          seasonId: input.seasonId,
-          scoreModelId: input.scoreModelId,
-          scopeType: input.scopeType,
-          scopeKey: input.scopeKey,
-        },
-      },
-      update: { publishedSnapshotId: input.publishedSnapshotId },
-      create: {
         characterId: input.characterId,
         seasonId: input.seasonId,
         scoreModelId: input.scoreModelId,
         scopeType: input.scopeType,
         scopeKey: input.scopeKey,
-        publishedSnapshotId: input.publishedSnapshotId,
       },
     });
+    if (existing) {
+      await tx.characterPublishedScore.update({
+        where: { id: existing.id },
+        data: { publishedSnapshotId: input.publishedSnapshotId },
+      });
+    } else {
+      await tx.characterPublishedScore.create({
+        data: {
+          characterId: input.characterId,
+          seasonId: input.seasonId,
+          scoreModelId: input.scoreModelId,
+          scopeType: input.scopeType,
+          scopeKey: input.scopeKey,
+          publishedSnapshotId: input.publishedSnapshotId,
+        },
+      });
+    }
   } catch {
     // Pointer table not migrated yet — publication still works via isPublic.
   }

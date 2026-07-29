@@ -1,5 +1,5 @@
-import type { DimensionScoreDTO, MetricObservationDTO, ScoreSnapshotDTO } from "@mplus/contracts";
-import type { ScoreModelConfigV1 } from "../types.js";
+import type { DimensionScoreDTO, MetricObservationDTO, ScoreDimension, ScoreModelConfig, ScoreSnapshotDTO } from "@mplus/contracts";
+import type { DimensionScoreResult, MetricScoreResult } from "../types.js";
 import { computeModelCoverage } from "../model-coverage.js";
 
 /** Publication states for immutable score snapshots. */
@@ -16,7 +16,7 @@ export type CoverageState = "COMPLETE" | "PARTIAL" | "DEGRADED" | "INSUFFICIENT"
 export interface CoherenceValidationInput {
   candidate: ScoreSnapshotDTO;
   published: ScoreSnapshotDTO | null;
-  model: ScoreModelConfigV1;
+  model: ScoreModelConfig;
   refreshContractHash: string;
   expectedModelKey: string;
   expectedModelVersion: number;
@@ -62,6 +62,59 @@ function readContractHash(explanation: unknown): string | null {
   if (!explanation || typeof explanation !== "object") return null;
   const hash = (explanation as { refreshContractHash?: unknown }).refreshContractHash;
   return typeof hash === "string" ? hash : null;
+}
+
+function isContributorRecord(value: unknown): value is { metricKey?: unknown } {
+  return typeof value === "object" && value !== null;
+}
+
+/** Map public dimension DTOs to internal coverage inputs for `computeModelCoverage`. */
+function contributorsFromDto(
+  contributors: unknown,
+  dimension: ScoreDimension,
+): MetricScoreResult[] {
+  if (!Array.isArray(contributors)) return [];
+  const parsed: MetricScoreResult[] = [];
+  for (const item of contributors) {
+    if (!isContributorRecord(item)) continue;
+    const metricKey = typeof item.metricKey === "string" ? item.metricKey : null;
+    if (!metricKey) continue;
+    parsed.push({
+      metricKey,
+      dimension,
+      rawValue: null,
+      normalizedValue: null,
+      weight: 1,
+      available: true,
+      confidence: 1,
+      contribution: null,
+      sourceProvider: null,
+    });
+  }
+  return parsed;
+}
+
+function toCoverageDimensions(dtos: DimensionScoreDTO[]): DimensionScoreResult[] {
+  return dtos.map((d) => ({
+    dimension: d.dimension,
+    rawScore: d.score ?? 0,
+    adjustedScore: d.score ?? 0,
+    confidence: d.confidence,
+    coverage: d.confidence,
+    weight: d.weight,
+    contributors: contributorsFromDto(d.contributors, d.dimension),
+    missing: [],
+  }));
+}
+
+function resolveModelCoverageRatio(
+  snapshot: ScoreSnapshotDTO,
+  model: ScoreModelConfig,
+): number {
+  if (typeof snapshot.modelCoverageRatio === "number" && Number.isFinite(snapshot.modelCoverageRatio)) {
+    return snapshot.modelCoverageRatio;
+  }
+  return computeModelCoverage(toCoverageDimensions(snapshot.dimensions), model).modelCoverageRatio;
 }
 
 /**
@@ -111,9 +164,10 @@ export function validateCoherence(input: CoherenceValidationInput): CoherenceVal
   }
 
   const candidateDims = dimensionMap(candidate);
-  const publishedDims = published ? dimensionMap(published) : null;
 
-  if (publishedDims) {
+  if (published) {
+    const publishedDims = dimensionMap(published);
+
     for (const dimName of SKILL_DIMENSIONS) {
       const prev = publishedDims.get(dimName);
       const next = candidateDims.get(dimName);
@@ -130,31 +184,8 @@ export function validateCoherence(input: CoherenceValidationInput): CoherenceVal
       }
     }
 
-    const prevCoverage = published.modelCoverageRatio ?? computeModelCoverage(
-      published.dimensions.map((d) => ({
-        dimension: d.dimension,
-        score: d.score,
-        confidence: d.confidence,
-        weight: d.weight,
-        contributors: (d.contributors ?? []) as never[],
-        state: d.state,
-        reason: d.reason,
-      })),
-      model,
-    ).modelCoverageRatio;
-
-    const nextCoverage = candidate.modelCoverageRatio ?? computeModelCoverage(
-      candidate.dimensions.map((d) => ({
-        dimension: d.dimension,
-        score: d.score,
-        confidence: d.confidence,
-        weight: d.weight,
-        contributors: (d.contributors ?? []) as never[],
-        state: d.state,
-        reason: d.reason,
-      })),
-      model,
-    ).modelCoverageRatio;
+    const prevCoverage = resolveModelCoverageRatio(published, model);
+    const nextCoverage = resolveModelCoverageRatio(candidate, model);
 
     if (nextCoverage < prevCoverage - 0.05) {
       violations.push({
@@ -164,18 +195,7 @@ export function validateCoherence(input: CoherenceValidationInput): CoherenceVal
     }
   }
 
-  const coverage = computeModelCoverage(
-    candidate.dimensions.map((d) => ({
-      dimension: d.dimension,
-      score: d.score,
-      confidence: d.confidence,
-      weight: d.weight,
-      contributors: (d.contributors ?? []) as never[],
-      state: d.state,
-      reason: d.reason,
-    })),
-    model,
-  );
+  const coverage = computeModelCoverage(toCoverageDimensions(candidate.dimensions), model);
 
   let coverageState: CoverageState;
   if (coverage.modelCoverageRatio >= 0.9) {

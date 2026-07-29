@@ -2218,7 +2218,10 @@ export async function runRefreshPipeline(
     failedDimensions,
     refreshedMetricKeys,
     refreshContractHash: contractHash,
-    providerDataAsOf: timestampFor("warcraftlogs") ?? now,
+    providerDataAsOf: (() => {
+      const warcraftlogsAt = timestampFor("warcraftlogs");
+      return warcraftlogsAt ? new Date(warcraftlogsAt) : now;
+    })(),
     analysisBatchId: analysisBatch.id,
     scoreRepository: repositories.score,
     metricRepository: repositories.metric,

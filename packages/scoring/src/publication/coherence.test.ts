@@ -156,6 +156,117 @@ describe("validateCoherence", () => {
 
     expect(result.ok).toBe(true);
   });
+
+  it("allows first publish when no published snapshot exists", () => {
+    const candidate = snapshot([
+      dim("PERFORMANCE", 80),
+      dim("SURVIVAL", 75),
+      dim("EXPERIENCE", 70),
+    ]);
+
+    const result = validateCoherence({
+      candidate,
+      published: null,
+      model,
+      refreshContractHash: "contract-v1",
+      expectedModelKey: model.key,
+      expectedModelVersion: model.version,
+      observations: [],
+      isFirstCalculation: false,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.regressedDimensions).toHaveLength(0);
+    expect(result.violations.some((v) => v.code === "DIMENSION_REGRESSION")).toBe(false);
+  });
+
+  it("does not flag regression when published dimension was already unavailable", () => {
+    const published = snapshot([
+      dim("PERFORMANCE", 80),
+      dim("SURVIVAL", null, "UNAVAILABLE"),
+      dim("EXPERIENCE", 70),
+    ]);
+    const candidate = snapshot([
+      dim("PERFORMANCE", 80),
+      dim("SURVIVAL", null, "UNAVAILABLE"),
+      dim("EXPERIENCE", 70),
+    ]);
+
+    const result = validateCoherence({
+      candidate,
+      published,
+      model,
+      refreshContractHash: "contract-v1",
+      expectedModelKey: model.key,
+      expectedModelVersion: model.version,
+      observations: [],
+      isFirstCalculation: false,
+    });
+
+    expect(result.regressedDimensions).not.toContain("SURVIVAL");
+    expect(result.violations.some((v) => v.code === "DIMENSION_REGRESSION")).toBe(false);
+  });
+
+  it("detects regression when candidate omits a previously available dimension", () => {
+    const published = snapshot([
+      dim("PERFORMANCE", 80),
+      dim("SURVIVAL", 75),
+      dim("EXPERIENCE", 70),
+    ]);
+    const candidate = snapshot([
+      dim("PERFORMANCE", 80),
+      dim("EXPERIENCE", 70),
+    ]);
+
+    const result = validateCoherence({
+      candidate,
+      published,
+      model,
+      refreshContractHash: "contract-v1",
+      expectedModelKey: model.key,
+      expectedModelVersion: model.version,
+      observations: [],
+      isFirstCalculation: false,
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.regressedDimensions).toContain("SURVIVAL");
+  });
+
+  it("handles nullable dimension score and reason without false regression", () => {
+    const published = snapshot([
+      {
+        dimension: "SURVIVAL",
+        score: null,
+        confidence: 0,
+        weight: 0.3,
+        state: "UNAVAILABLE",
+        reason: null,
+        contributors: [],
+      },
+      dim("PERFORMANCE", 80),
+      dim("EXPERIENCE", 70),
+    ]);
+    const candidate = snapshot([
+      dim("PERFORMANCE", 80),
+      dim("SURVIVAL", null, "UNAVAILABLE"),
+      dim("EXPERIENCE", 70),
+    ]);
+
+    const result = validateCoherence({
+      candidate,
+      published,
+      model,
+      refreshContractHash: "contract-v1",
+      expectedModelKey: model.key,
+      expectedModelVersion: model.version,
+      observations: [],
+      isFirstCalculation: false,
+    });
+
+    expect(result.regressedDimensions).not.toContain("SURVIVAL");
+    expect(result.ok).toBe(true);
+  });
 });
 
 describe("mergeObservationsWithLastKnownGood", () => {
