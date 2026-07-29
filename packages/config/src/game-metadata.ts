@@ -4,10 +4,10 @@
  */
 export const ACTIVE_EXPANSION_METADATA_V1 = {
   version: "v1",
-  /** The War Within — matches Raider.IO documented expansion id. */
-  expansionId: 11,
-  expansionName: "The War Within",
-  maxCharacterLevel: 80,
+  /** Midnight — successor to The War Within (Raider.IO expansion id 12). */
+  expansionId: 12,
+  expansionName: "Midnight",
+  maxCharacterLevel: 90,
 } as const;
 
 export type ActiveExpansionMetadataV1 = typeof ACTIVE_EXPANSION_METADATA_V1;
