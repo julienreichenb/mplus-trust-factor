@@ -181,6 +181,33 @@ export function createDefaultModelV3(
   });
 }
 
+/**
+ * Default Trust Factor v4 — Survival V1.1.1 outcome and response metrics.
+ */
+export function createDefaultModelV4(
+  overrides: Partial<ScoreModelConfigV1> = {},
+): ScoreModelConfigV1 {
+  const v3 = createDefaultModelV3();
+  return createDefaultModelV3({
+    version: 4,
+    metricWeights: {
+      ...v3.metricWeights,
+      SURVIVAL: [
+        { metricKey: "survival.outcome", weight: 0.55 },
+        { metricKey: "survival.defensive_response", weight: 0.3 },
+        { metricKey: "survival.emergency_recovery", weight: 0.15 },
+      ],
+    },
+    normalization: {
+      "survival.outcome": { type: "identity" },
+      "survival.defensive_response": { type: "identity" },
+      "survival.emergency_recovery": { type: "identity" },
+      "survival.death_rate": { type: "identity" },
+    },
+    ...overrides,
+  });
+}
+
 function deepMerge<T extends object>(base: T, overrides: Partial<T>): T {
   const out = { ...base };
   for (const key of Object.keys(overrides) as Array<keyof T>) {

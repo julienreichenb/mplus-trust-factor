@@ -1,7 +1,14 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { PrismaClient, type Prisma, ScoreModelStatus, RedFlagSeverity, ScoreDimension, MetricDirection } from "@prisma/client";
+import {
+  PrismaClient,
+  type Prisma,
+  ScoreModelStatus,
+  RedFlagSeverity,
+  ScoreDimension,
+  MetricDirection,
+} from "@prisma/client";
 
 function loadRootEnv(): void {
   const rootEnv = resolve(fileURLToPath(new URL(".", import.meta.url)), "../../../.env");
@@ -118,6 +125,19 @@ const defaultModelConfigV3 = {
   },
 } satisfies Prisma.InputJsonValue;
 
+/** v4: Survival V1.1.1 outcome, defensive-response, and emergency-recovery metrics. */
+const defaultModelConfigV4 = {
+  ...defaultModelConfigV3,
+  metricWeights: {
+    ...defaultModelConfigV3.metricWeights,
+    SURVIVAL: [
+      { metricKey: "survival.outcome", weight: 0.55 },
+      { metricKey: "survival.defensive_response", weight: 0.3 },
+      { metricKey: "survival.emergency_recovery", weight: 0.15 },
+    ],
+  },
+} satisfies Prisma.InputJsonValue;
+
 const metricDefinitions: Array<{
   key: string;
   dimension: ScoreDimension;
@@ -152,14 +172,16 @@ const metricDefinitions: Array<{
     dimension: ScoreDimension.PERFORMANCE,
     valueType: "number",
     direction: MetricDirection.HIGHER_BETTER,
-    description: "Recency-weighted mean of prior-season best parse percentile averages (same spec/role)",
+    description:
+      "Recency-weighted mean of prior-season best parse percentile averages (same spec/role)",
   },
   {
     key: "experience.mythic_rating",
     dimension: ScoreDimension.EXPERIENCE,
     valueType: "number",
     direction: MetricDirection.HIGHER_BETTER,
-    description: "Blizzard Mythic+ rating as progression/experience context (not a parse percentile)",
+    description:
+      "Blizzard Mythic+ rating as progression/experience context (not a parse percentile)",
   },
   {
     key: "performance.spec_percentile",
@@ -174,6 +196,27 @@ const metricDefinitions: Array<{
     valueType: "number",
     direction: MetricDirection.LOWER_BETTER,
     description: "Death frequency in analyzed runs",
+  },
+  {
+    key: "survival.outcome",
+    dimension: ScoreDimension.SURVIVAL,
+    valueType: "number",
+    direction: MetricDirection.HIGHER_BETTER,
+    description: "Survival V1.1.1 outcome score from deaths and run outcome",
+  },
+  {
+    key: "survival.defensive_response",
+    dimension: ScoreDimension.SURVIVAL,
+    valueType: "number",
+    direction: MetricDirection.HIGHER_BETTER,
+    description: "Survival V1.1.1 defensive response score during pressure windows",
+  },
+  {
+    key: "survival.emergency_recovery",
+    dimension: ScoreDimension.SURVIVAL,
+    valueType: "number",
+    direction: MetricDirection.HIGHER_BETTER,
+    description: "Survival V1.1.1 emergency recovery score during critical pressure",
   },
   {
     key: "utility.interrupt_success",
@@ -315,10 +358,34 @@ async function seed(): Promise<void> {
 
   // Seed a minimal EU realm set so local combobox works before the first Blizzard sync.
   const seedRealms = [
-    { slug: "tarren-mill", name: "Tarren Mill", locale: "en_GB", blizzardRealmId: 1084n, connectedRealmId: 1084n },
-    { slug: "archimonde", name: "Archimonde", locale: "fr_FR", blizzardRealmId: 1302n, connectedRealmId: 1082n },
-    { slug: "kazzak", name: "Kazzak", locale: "en_GB", blizzardRealmId: 1305n, connectedRealmId: 1082n },
-    { slug: "cherith", name: "Chérith", locale: "fr_FR", blizzardRealmId: 1091n, connectedRealmId: 1091n },
+    {
+      slug: "tarren-mill",
+      name: "Tarren Mill",
+      locale: "en_GB",
+      blizzardRealmId: 1084n,
+      connectedRealmId: 1084n,
+    },
+    {
+      slug: "archimonde",
+      name: "Archimonde",
+      locale: "fr_FR",
+      blizzardRealmId: 1302n,
+      connectedRealmId: 1082n,
+    },
+    {
+      slug: "kazzak",
+      name: "Kazzak",
+      locale: "en_GB",
+      blizzardRealmId: 1305n,
+      connectedRealmId: 1082n,
+    },
+    {
+      slug: "cherith",
+      name: "Chérith",
+      locale: "fr_FR",
+      blizzardRealmId: 1091n,
+      connectedRealmId: 1091n,
+    },
   ];
   for (const realm of seedRealms) {
     await prisma.realm.upsert({
@@ -437,9 +504,9 @@ async function seed(): Promise<void> {
       name: "Default Trust Factor v3",
       description:
         "Wave 4 skill weights: Performance 35%, Survival 30%, Utility 25%, Experience 10%, Raid 0%",
-      status: ScoreModelStatus.ACTIVE,
+      status: ScoreModelStatus.ARCHIVED,
       config: defaultModelConfigV3,
-      activatedAt: new Date(),
+      activatedAt: null,
     },
     create: {
       key: "default",
@@ -447,15 +514,39 @@ async function seed(): Promise<void> {
       name: "Default Trust Factor v3",
       description:
         "Wave 4 skill weights: Performance 35%, Survival 30%, Utility 25%, Experience 10%, Raid 0%",
-      status: ScoreModelStatus.ACTIVE,
+      status: ScoreModelStatus.ARCHIVED,
       config: defaultModelConfigV3,
+      activatedAt: null,
+    },
+  });
+
+  await prisma.scoreModel.upsert({
+    where: {
+      key_version: { key: "default", version: 4 },
+    },
+    update: {
+      name: "Default Trust Factor v4",
+      description:
+        "Survival V1.1.1 metrics: outcome 55%, defensive response 30%, emergency recovery 15%",
+      status: ScoreModelStatus.ACTIVE,
+      config: defaultModelConfigV4,
+      activatedAt: new Date(),
+    },
+    create: {
+      key: "default",
+      version: 4,
+      name: "Default Trust Factor v4",
+      description:
+        "Survival V1.1.1 metrics: outcome 55%, defensive response 30%, emergency recovery 15%",
+      status: ScoreModelStatus.ACTIVE,
+      config: defaultModelConfigV4,
       activatedAt: new Date(),
     },
   });
 
   // Ensure only one ACTIVE model for key=default.
   await prisma.scoreModel.updateMany({
-    where: { key: "default", version: { not: 3 }, status: ScoreModelStatus.ACTIVE },
+    where: { key: "default", version: { not: 4 }, status: ScoreModelStatus.ACTIVE },
     data: { status: ScoreModelStatus.ARCHIVED },
   });
 
@@ -495,7 +586,7 @@ async function seed(): Promise<void> {
   }
 
   console.log(
-    "Seed completed (idempotent): EU/US/KR/TW regions, starter EU realms, placeholder season, model v3 ACTIVE (v1/v2 archived), metrics, red flags.",
+    "Seed completed (idempotent): EU/US/KR/TW regions, starter EU realms, placeholder season, model v4 ACTIVE (v1/v2/v3 archived), metrics, red flags.",
   );
 }
 

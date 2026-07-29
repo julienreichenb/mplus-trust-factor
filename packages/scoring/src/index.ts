@@ -43,6 +43,7 @@ export {
   createDefaultModelV1,
   createDefaultModelV2,
   createDefaultModelV3,
+  createDefaultModelV4,
   createSurvivalFocusedModel,
   createUtilityFocusedModel,
 } from "./model/defaults.js";
@@ -68,6 +69,22 @@ export type {
   HistoricalSeasonAggregateInput,
   PerformanceRunRefInput,
 } from "./performance/types.js";
+export {
+  computeSurvivalDimension,
+  resolveSurvivalMetricWeights,
+  medianSurvivalRunScores,
+  computeSurvivalConfidence,
+  SURVIVAL_OUTCOME_WEIGHT,
+  SURVIVAL_DEFENSIVE_RESPONSE_WEIGHT,
+  SURVIVAL_EMERGENCY_RECOVERY_WEIGHT,
+} from "./survival/aggregate.js";
+export type {
+  SurvivalSummaryDTO,
+  ComputeSurvivalResult,
+  ComputeSurvivalInput,
+  SurvivalDungeonAggregate,
+  SurvivalExplanatoryRun,
+} from "./survival/types.js";
 export { calculateScore, calculateScoreEngine } from "./calculate.js";
 export type { CalculateScoreInput } from "./calculate.js";
 export {
@@ -77,6 +94,13 @@ export {
   type ScoringRunCandidateInput,
   type ScoringRunSelectionReason,
 } from "./selection/scoring-run-selection.js";
+export {
+  selectSurvivalAnalysisRuns,
+  type SurvivalRunSelection,
+  type SurvivalRunSelectionEntry,
+  type SurvivalRunCandidateInput,
+  type SurvivalRunSelectionReason,
+} from "./selection/survival-run-selection.js";
 export {
   resolveActiveSeasonDungeonSlugs,
   resolveActiveSeasonDungeonPool,

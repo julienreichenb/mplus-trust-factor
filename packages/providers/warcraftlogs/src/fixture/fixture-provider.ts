@@ -234,6 +234,131 @@ export class FixtureWarcraftLogsProvider implements WarcraftLogsProvider {
     );
   }
 
+  async fetchSurvivalHealthSnapshots(
+    input: { reportCode: string; fightId: number; sourceId: number },
+    ctx: ProviderFetchContext,
+  ) {
+    return emptyProviderResult(
+      {
+        snapshots: [],
+        truncated: false,
+        eventCount: 0,
+        events: [],
+      },
+      "fetchSurvivalHealthSnapshots",
+      `fixture-survival-health-${input.reportCode}-${input.fightId}-${input.sourceId}`,
+      ctx,
+    );
+  }
+
+  async analyzeSurvivalCanonicalRun(
+    input: {
+      characterId: string;
+      reportCode: string;
+      fightId: number;
+      dungeonSlug: string;
+      keyLevel: number | null;
+      playerActorId: number;
+    },
+    ctx: ProviderFetchContext,
+  ) {
+    // Fixture: outcome-only placeholder (no live event pages).
+    const summary = {
+      compatibilityKey: `fixture:${input.reportCode}:${input.fightId}`,
+      configVersion: "survival-standalone-v1.1.1",
+      analysisVersion: "wcl-survival-v1.1.1-parity",
+      adapterVersion: "survival-adapter-v1.1.1-parity",
+      runId: `${input.reportCode}:${input.fightId}`,
+      dungeonSlug: input.dungeonSlug,
+      reportCode: input.reportCode,
+      fightId: input.fightId,
+      keyLevel: input.keyLevel,
+      deathCount: 0,
+      behavioralSurvivalScore: 100,
+      outcomeOnlyScore: 100,
+      pressureClusterCount: 0,
+      maxHpResolution: {
+        baselineMaxHp: null,
+        baselineConfidence: "NONE" as const,
+        baselineSourcePath: null,
+        invalidOutlierCount: 0,
+        temporaryIntervalCount: 0,
+        rejectionReasons: { fixture_no_events: 1 },
+        resolutionFailureReason: "fixture_no_events",
+      },
+      componentScores: {
+        outcome: {
+          state: "SCORED" as const,
+          score: 100,
+          weightUsed: 1,
+          reason: null,
+          evidence: { deathCount: 0 },
+        },
+        defensiveResponse: {
+          state: "NOT_APPLICABLE" as const,
+          score: null,
+          weightUsed: 0,
+          reason: "fixture_no_events",
+          evidence: {},
+        },
+        emergencyRecovery: {
+          state: "NOT_APPLICABLE" as const,
+          score: null,
+          weightUsed: 0,
+          reason: "fixture_no_events",
+          evidence: {},
+        },
+        weightsApplied: {
+          survivalOutcome: 1,
+          defensiveResponse: 0,
+          emergencyRecovery: 0,
+        },
+      },
+      defensiveCounts: {
+        proactive: 0,
+        reactive: 0,
+        death_only: 0,
+        unavailable: 0,
+        eligible_miss: 0,
+        not_applicable: 0,
+        insufficient_reaction_time: 0,
+      },
+      recoveryCounts: {
+        covered: 0,
+        eligible_miss: 0,
+        not_applicable: 0,
+        insufficient_reaction_time: 0,
+        death_only_health_context_unavailable: 0,
+      },
+      diagnostics: {
+        scoreMode: "OUTCOME_ONLY" as const,
+        invalidOutlierCount: 0,
+        healthTimelineComplete: false,
+        preClusterDangerWindowCount: 0,
+        nonFatalWindowCount: 0,
+        fatalWindowCount: 0,
+        deathOnlyWindowCount: 0,
+        eventPagesComplete: false,
+      },
+    };
+    return emptyProviderResult(
+      {
+        summary,
+        requestCount: 0,
+        maxHpFailureReason: "fixture_no_events",
+        truncated: false,
+        snapshotCount: 0,
+        playerActorId: input.playerActorId,
+        deathCount: 0,
+        pressureClusterCount: 0,
+        behavioralSurvivalScore: 100,
+      },
+      "analyzeSurvivalCanonicalRun",
+      `fixture-survival-canonical-${input.reportCode}-${input.fightId}`,
+      ctx,
+    );
+  }
+
   discoverCharacter(
     identity: CharacterIdentityInput,
     ctx: ProviderFetchContext,

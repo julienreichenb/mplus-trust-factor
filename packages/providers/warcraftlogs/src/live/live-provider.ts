@@ -58,6 +58,11 @@ import {
   type MplusZoneConfig,
 } from "../discovery/mplus-zone.js";
 import { buildRunCombatFactsFromEvents } from "../analysis/event-fetcher.js";
+import { fetchDamageTakenWithResources } from "../analysis/survival-run-analysis.js";
+import {
+  buildCanonicalSurvivalAnalysis,
+  fetchSurvivalCanonicalDatasets,
+} from "../analysis/survival-canonical-analysis.js";
 import { ReportRevisionCache } from "../analysis/revision-cache.js";
 import {
   evaluateRateBudget,
@@ -383,6 +388,113 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
       }
       throw error;
     }
+  }
+
+  async fetchSurvivalHealthSnapshots(
+    input: { reportCode: string; fightId: number; sourceId: number },
+    ctx: ProviderFetchContext,
+  ) {
+    const result = await fetchDamageTakenWithResources(this.client, {
+      ...input,
+      maxEventPages: 200,
+      maxEventsPerCategory: 200_000,
+    });
+    return providerEnvelope(
+      {
+        snapshots: result.snapshots.map(({ rawFragment: _rawFragment, ...snapshot }) => snapshot),
+        truncated: result.truncated,
+        eventCount: result.events.length,
+        events: result.events,
+      },
+      "fetchSurvivalHealthSnapshots",
+      `live-survival-health-${input.reportCode}-${input.fightId}-${input.sourceId}`,
+      ctx,
+      null,
+      this.config.env.WCL_CHARACTER_TTL_SECONDS,
+    );
+  }
+
+  /**
+   * Probe-parity Survival analysis: full Casts/Buffs/Deaths/Healing + DamageTaken resources,
+   * normalized through the shared canonical analyzer.
+   */
+  async analyzeSurvivalCanonicalRun(
+    input: {
+      identity: { region: "EU" | "US" | "KR" | "TW"; realmSlug: string; name: string };
+      characterId: string;
+      reportCode: string;
+      fightId: number;
+      reportRevision: number | string;
+      dungeonSlug: string;
+      keyLevel: number | null;
+      playerActorId: number;
+      ownedPetActorIds: number[];
+      fightStartTime: number;
+      fightEndTime: number;
+      encounterId?: number | null;
+      encounterName?: string | null;
+      catalog: import("@mplus/abilities").AbilityCatalog;
+      classSlug: string | null;
+      specSlug: string | null;
+      timed?: boolean | null;
+      completed?: boolean | null;
+      score?: number | null;
+    },
+    ctx: ProviderFetchContext,
+  ) {
+    const fetched = await fetchSurvivalCanonicalDatasets(this.client, {
+      identity: input.identity,
+      reportCode: input.reportCode,
+      fightId: input.fightId,
+      playerActorId: input.playerActorId,
+      fightStartTime: input.fightStartTime,
+      fightEndTime: input.fightEndTime,
+    });
+    const analyzed = buildCanonicalSurvivalAnalysis({
+      characterId: input.characterId,
+      identity: input.identity,
+      reportCode: input.reportCode,
+      fightId: input.fightId,
+      reportRevision: input.reportRevision,
+      dungeonSlug: input.dungeonSlug,
+      keyLevel: input.keyLevel,
+      playerActorId: input.playerActorId,
+      ownedPetActorIds: input.ownedPetActorIds,
+      fightStartTime: input.fightStartTime,
+      fightEndTime: input.fightEndTime,
+      encounterId: input.encounterId,
+      encounterName: input.encounterName,
+      timed: input.timed,
+      completed: input.completed,
+      score: input.score,
+      datasets: fetched.datasets,
+      snapshots: fetched.snapshots,
+      catalog: input.catalog,
+      classSlug: input.classSlug,
+      specSlug: input.specSlug,
+      eventPagesComplete: !fetched.truncated,
+      maxHpFailureReason: fetched.maxHpFailureReason,
+      snapshotSourceCounts: fetched.snapshotSourceCounts,
+    });
+    return providerEnvelope(
+      {
+        summary: analyzed.summary,
+        requestCount: fetched.requestCount,
+        maxHpFailureReason: fetched.maxHpFailureReason,
+        truncated: fetched.truncated,
+        snapshotCount: fetched.snapshots.length,
+        snapshotSourceCounts: fetched.snapshotSourceCounts,
+        playerActorId: input.playerActorId,
+        deathCount: analyzed.summary.deathCount,
+        pressureClusterCount: analyzed.summary.pressureClusterCount,
+        behavioralSurvivalScore: analyzed.summary.behavioralSurvivalScore,
+      },
+      "analyzeSurvivalCanonicalRun",
+      `live-survival-canonical-${input.reportCode}-${input.fightId}`,
+      ctx,
+      null,
+      this.config.env.WCL_CHARACTER_TTL_SECONDS,
+    );
   }
 
   async fetchRateLimit(_ctx: ProviderFetchContext) {

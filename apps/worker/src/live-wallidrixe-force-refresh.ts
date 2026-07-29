@@ -1,5 +1,5 @@
 /**
- * One-shot live Wallidrixe force refresh + acceptance dump.
+ * One-shot live Wallidrixe force refresh + Survival V1.1.1 acceptance dump.
  * Usage (from repo root):
  *   pnpm --filter @mplus/worker exec tsx src/live-wallidrixe-force-refresh.ts
  */
@@ -8,6 +8,7 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadEnv, resetEnvCache } from "@mplus/config";
 import { createPrismaClient } from "@mplus/database";
+import { deriveWclContributionTypes } from "@mplus/contracts";
 import { createWorkerContainer } from "./container.js";
 import { runRefreshPipeline } from "./orchestration/refresh-pipeline.js";
 import { buildRefreshContractHash } from "./orchestration/build-refresh-contract.js";
@@ -41,6 +42,7 @@ loadDotEnvFile(resolve(repoRoot, ".env"));
 loadDotEnvFile(resolve(here, "../.env"));
 process.env.PROVIDER_MODE = "live";
 process.env.ALLOW_LIVE_PROVIDER_CALLS = "true";
+process.env.ACTIVE_SCORE_MODEL_VERSION = process.env.ACTIVE_SCORE_MODEL_VERSION ?? "4";
 resetEnvCache();
 
 const env = loadEnv();
@@ -83,9 +85,37 @@ const explanation = (latest?.explanation ?? result.score?.explanation ?? {}) as 
       dungeons?: Array<{ dungeonSlug: string }>;
     };
   };
+  survivalSummary?: {
+    score?: number | null;
+    confidence?: number;
+    availableDungeonCount?: number;
+    expectedDungeonCount?: number;
+    scoreMode?: string | null;
+    analyzedRunCount?: number;
+    cachedRunCount?: number;
+    newlyFetchedRunCount?: number;
+    components?: {
+      outcome?: number | null;
+      defensiveResponse?: number | null;
+      emergencyRecovery?: number | null;
+    };
+    pressureClusterCount?: number;
+    deathCount?: number;
+    defensiveCounts?: { covered?: number; missed?: number; na?: number };
+    recoveryCounts?: { covered?: number; missed?: number; na?: number };
+    maxHpDiagnostics?: { invalidOutlierCount?: number; baselineResolvedRunCount?: number };
+    requestCost?: { wclRequestCount?: number; notes?: string[] };
+    dungeons?: Array<{ dungeonSlug: string }>;
+  };
   coverage?: { selectedRunCount?: number };
   scoringRunSelection?: { selectedRuns?: Array<{ dungeonSlug: string }> };
-  observations?: Array<{ metricKey: string; rawValue?: number | null; sourceProvider?: string }>;
+  observations?: Array<{
+    metricKey: string;
+    rawValue?: number | null;
+    sourceProvider?: string;
+    context?: unknown;
+  }>;
+  refreshContract?: { scoringModelVersion?: number };
 };
 
 const scoreCalculatedAt = latest?.calculatedAt?.toISOString?.() ?? result.score?.calculatedAt ?? null;
@@ -94,10 +124,10 @@ const newerProviders = providerStates.filter((s) => {
   return Date.parse(s.fetchedAt) > Date.parse(scoreCalculatedAt) + 1000;
 });
 
-const observationProviders = (explanation.observations ?? []).map((o) => o.sourceProvider);
-const wclContributed = observationProviders.some(
-  (p) => p === "warcraftlogs" || p === "WARCRAFT_LOGS",
-);
+const observations = explanation.observations ?? [];
+const contributionTypes = deriveWclContributionTypes(observations);
+const wclContributed = contributionTypes.length > 0;
+const survival = explanation.survivalSummary ?? null;
 
 const acceptance = {
   refreshStartedAt,
@@ -108,23 +138,43 @@ const acceptance = {
   modelKey: latest?.scoreModel?.key ?? result.score?.modelKey ?? null,
   modelVersion: latest?.scoreModel?.version ?? result.score?.modelVersion ?? null,
   activeModelVersion: env.ACTIVE_SCORE_MODEL_VERSION,
-  selectedRunCount: explanation.coverage?.selectedRunCount ?? null,
+  selectedActiveDungeonCount: survival?.availableDungeonCount ?? null,
+  expectedDungeonCount: survival?.expectedDungeonCount ?? null,
   hasIcecrown: Boolean(
     explanation.scoringRunSelection?.selectedRuns?.some((r) => r.dungeonSlug.includes("icecrown")) ||
       explanation.performanceSummary?.currentSeason?.dungeons?.some((d) =>
         d.dungeonSlug.includes("icecrown"),
-      ),
+      ) ||
+      survival?.dungeons?.some((d) => d.dungeonSlug.includes("icecrown")),
   ),
-  performanceScore: explanation.performanceSummary?.currentSeason?.score ?? null,
-  peak: explanation.performanceSummary?.currentSeason?.peakScore ?? null,
-  consistency: explanation.performanceSummary?.currentSeason?.consistencyScore ?? null,
-  provenance: explanation.performanceSummary?.currentSeason?.provenance ?? null,
+  analyzedRunCount: survival?.analyzedRunCount ?? null,
+  cachedRunCount: survival?.cachedRunCount ?? null,
+  newlyFetchedRunCount: survival?.newlyFetchedRunCount ?? null,
+  survivalScore: survival?.score ?? null,
+  outcome: survival?.components?.outcome ?? null,
+  defensiveResponse: survival?.components?.defensiveResponse ?? null,
+  emergencyRecovery: survival?.components?.emergencyRecovery ?? null,
+  scoreMode: survival?.scoreMode ?? null,
+  pressureClusterCount: survival?.pressureClusterCount ?? null,
+  invalidMaxHpOutliersRejected: survival?.maxHpDiagnostics?.invalidOutlierCount ?? null,
+  survivalConfidence: survival?.confidence ?? null,
   wclContributedToScore: wclContributed,
-  providerFetchedAt: Object.fromEntries(providerStates.map((s) => [s.provider, s.fetchedAt])),
+  contributionTypes,
   hasScoreStaleVsProviders: newerProviders.length > 0,
   staleProviders: newerProviders.map((s) => s.provider),
+  requestCost: survival?.requestCost ?? null,
+  survivalDimension:
+    result.score?.dimensions?.find((d) => d.dimension === "SURVIVAL") ?? null,
   performanceDimension:
     result.score?.dimensions?.find((d) => d.dimension === "PERFORMANCE") ?? null,
+  survivalCoverage: {
+    defensive: survival?.defensiveCounts ?? null,
+    recovery: survival?.recoveryCounts ?? null,
+    maxHpResolved: survival?.maxHpDiagnostics?.baselineResolvedRunCount ?? null,
+    deathCount: survival?.deathCount ?? null,
+  },
+  explanatoryRuns:
+    (explanation as { survivalSummary?: { dungeons?: unknown } }).survivalSummary ?? null,
 };
 
 console.log(JSON.stringify(acceptance, null, 2));

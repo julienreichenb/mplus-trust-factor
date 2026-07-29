@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { computeModelCoverage, MODEL_COVERAGE_PROVISIONAL_THRESHOLD } from "./model-coverage.js";
-import { createDefaultModelV3 } from "./model/defaults.js";
+import { createDefaultModelV3, createDefaultModelV4 } from "./model/defaults.js";
 import type { DimensionScoreResult } from "./types.js";
 
 function dim(
@@ -35,6 +35,14 @@ function dim(
 }
 
 describe("computeModelCoverage", () => {
+  it("uses Survival V1.1.1 metric weights in v4", () => {
+    expect(createDefaultModelV4().metricWeights.SURVIVAL).toEqual([
+      { metricKey: "survival.outcome", weight: 0.55 },
+      { metricKey: "survival.defensive_response", weight: 0.3 },
+      { metricKey: "survival.emergency_recovery", weight: 0.15 },
+    ]);
+  });
+
   it("marks overall provisional when more than half model weight is unavailable", () => {
     const model = createDefaultModelV3();
     const dimensions = [

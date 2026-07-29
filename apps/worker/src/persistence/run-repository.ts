@@ -149,6 +149,11 @@ export interface RunRepository {
     characterId: string,
     runId: string,
   ): Promise<number | null>;
+  findRunAnalysis(
+    runId: string,
+    characterId: string,
+    analysisVersion: string,
+  ): Promise<RunAnalysis | null>;
   upsertRunAnalysis(input: {
     runId: string;
     characterId: string;
@@ -644,6 +649,18 @@ export function createRunRepository(prisma: PrismaClient): RunRepository {
         select: { coverage: true },
       });
       return analysis?.coverage != null ? Number(analysis.coverage) : null;
+    },
+
+    async findRunAnalysis(runId, characterId, analysisVersion) {
+      return prisma.runAnalysis.findUnique({
+        where: {
+          runId_characterId_analysisVersion: {
+            runId,
+            characterId,
+            analysisVersion,
+          },
+        },
+      });
     },
 
     async upsertRunAnalysis(input) {

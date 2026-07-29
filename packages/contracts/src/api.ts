@@ -31,12 +31,7 @@ export interface SearchCharacterResponse {
 
 /** Exact character+realm resolution for the dual-field search flow. */
 export type CharacterResolveStatus =
-  | "READY"
-  | "QUEUED"
-  | "PROCESSING"
-  | "NOT_FOUND"
-  | "PROVIDER_UNAVAILABLE"
-  | "FAILED";
+  "READY" | "QUEUED" | "PROCESSING" | "NOT_FOUND" | "PROVIDER_UNAVAILABLE" | "FAILED";
 
 export type CharacterResolveResponse =
   | {
@@ -270,10 +265,7 @@ export interface PerformanceDungeonSummaryDTO {
   latestRun: PerformanceExplanatoryRunDTO | null;
 }
 
-export type PerformanceProvenance =
-  | "AGGREGATE_ZONE_RANKINGS"
-  | "FIGHT_BOUND_PARSES"
-  | "NONE";
+export type PerformanceProvenance = "AGGREGATE_ZONE_RANKINGS" | "FIGHT_BOUND_PARSES" | "NONE";
 
 export interface PerformanceCurrentSeasonSummaryDTO {
   peakScore: number | null;
@@ -334,6 +326,53 @@ export interface PerformanceSummaryDTO {
   historical: PerformanceHistoricalSummaryDTO | null;
 }
 
+/** Public aggregate-only Survival V1.1.1 explanation. */
+export interface SurvivalSummaryPublicDTO {
+  score: number | null;
+  confidence: number;
+  availableDungeonCount: number;
+  expectedDungeonCount: number;
+  scoreMode: "FULL_BEHAVIORAL" | "PARTIAL_BEHAVIORAL" | "OUTCOME_ONLY" | null;
+  analyzedRunCount?: number;
+  cachedRunCount?: number;
+  newlyFetchedRunCount?: number;
+  components?: {
+    outcome: number | null;
+    defensiveResponse: number | null;
+    emergencyRecovery: number | null;
+  };
+  pressureClusterCount?: number;
+  deathCount?: number;
+  defensiveCounts?: { covered: number; missed: number; na: number };
+  recoveryCounts?: { covered: number; missed: number; na: number };
+  maxHpDiagnostics?: {
+    invalidOutlierCount: number;
+    baselineResolvedRunCount: number;
+  };
+  dungeons: Array<{
+    dungeonSlug: string;
+    dungeonName?: string;
+    medianBehavioralScore: number | null;
+    runCount: number;
+    bestRun: {
+      runId: string;
+      dungeonSlug: string;
+      dungeonName?: string;
+      keyLevel: number | null;
+      behavioralSurvivalScore: number | null;
+      deathCount: number;
+      pressureClusterCount?: number;
+      hasWclSource: boolean;
+    } | null;
+  }>;
+  notes: string[];
+  requestCost?: {
+    wclRequestCount?: number;
+    estimatedPageCountIncreaseVsCalibrationDamageTaken?: number | null;
+    notes?: string[];
+  };
+}
+
 export interface ProfileEntitlements {
   detailsUnlocked: boolean;
   runsUnlocked: boolean;
@@ -392,6 +431,8 @@ export interface CharacterProfileResponse {
   seasonSummary?: SeasonSummary | null;
   /** Current-season WCL execution summary (aggregate only; no private report codes). */
   performanceSummary?: PerformanceSummaryDTO | null;
+  /** Current-season WCL Survival V1.1.1 summary (aggregate only). */
+  survivalSummary?: SurvivalSummaryPublicDTO | null;
   entitlements?: ProfileEntitlements;
   warnings?: ProfileWarning[];
   raiderIoUsed?: boolean;

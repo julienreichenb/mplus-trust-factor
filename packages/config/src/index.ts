@@ -1,11 +1,9 @@
 import { z } from "zod";
 
-const booleanFromString = z
-  .union([z.boolean(), z.string()])
-  .transform((value) => {
-    if (typeof value === "boolean") return value;
-    return ["1", "true", "yes", "on"].includes(value.toLowerCase());
-  });
+const booleanFromString = z.union([z.boolean(), z.string()]).transform((value) => {
+  if (typeof value === "boolean") return value;
+  return ["1", "true", "yes", "on"].includes(value.toLowerCase());
+});
 
 export const envSchema = z
   .object({
@@ -42,10 +40,7 @@ export const envSchema = z
     WCL_ENABLED: booleanFromString.default(true),
     WCL_CLIENT_ID: z.string().optional().default(""),
     WCL_CLIENT_SECRET: z.string().optional().default(""),
-    WCL_PUBLIC_GRAPHQL_URL: z
-      .string()
-      .url()
-      .default("https://www.warcraftlogs.com/api/v2/client"),
+    WCL_PUBLIC_GRAPHQL_URL: z.string().url().default("https://www.warcraftlogs.com/api/v2/client"),
     WCL_TOKEN_URL: z.string().url().default("https://www.warcraftlogs.com/oauth/token"),
     WCL_RATE_WARN_PERCENT: z.coerce.number().min(0).max(100).default(70),
     WCL_RATE_DEFER_PERCENT: z.coerce.number().min(0).max(100).default(80),
@@ -63,7 +58,7 @@ export const envSchema = z
     RAIDERIO_STATIC_DATA_TTL_SECONDS: z.coerce.number().int().positive().default(604_800),
 
     ACTIVE_SCORE_MODEL_KEY: z.string().default("default"),
-    ACTIVE_SCORE_MODEL_VERSION: z.coerce.number().int().positive().default(3),
+    ACTIVE_SCORE_MODEL_VERSION: z.coerce.number().int().positive().default(4),
     MANUAL_REFRESH_COOLDOWN_SECONDS: z.coerce.number().int().positive().default(900),
 
     /** MVP entitlement flag: when true, the API serializer omits no fields for any client. */

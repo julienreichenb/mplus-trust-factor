@@ -72,7 +72,7 @@ describe("model-versioned refresh contract regressions", () => {
   });
 
   it("existing character + new observationSchemaVersion invalidates fingerprints", () => {
-    const bumped = { ...baseContract, observationSchemaVersion: "observations-v2" };
+    const bumped = { ...baseContract, observationSchemaVersion: "observations-v3" };
     expect(
       fingerprintObservations("char-1", "default", 3, observations, { refreshContract: bumped }),
     ).not.toBe(

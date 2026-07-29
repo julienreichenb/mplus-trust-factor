@@ -31,7 +31,7 @@ describe("refresh contract", () => {
     const b = hashRefreshContract({ ...base });
     expect(a).toBe(b);
     expect(hashRefreshContract({ ...base, scoringModelVersion: 4 })).not.toBe(a);
-    expect(hashRefreshContract({ ...base, observationSchemaVersion: "observations-v2" })).not.toBe(
+    expect(hashRefreshContract({ ...base, observationSchemaVersion: "observations-v3" })).not.toBe(
       a,
     );
     expect(hashRefreshContract({ ...base, wclAdapterVersion: "points-and-damage-v2" })).not.toBe(a);
@@ -47,7 +47,7 @@ describe("refresh contract", () => {
     expect(
       refreshContractStaleReasons(base, {
         ...base,
-        observationSchemaVersion: "observations-v2",
+        observationSchemaVersion: "observations-v3",
       }),
     ).toEqual(["OBSERVATION_SCHEMA_CHANGED"]);
     expect(

@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 
 /** Observation row / metric-key contract used by refresh → ScoreSnapshot. */
-export const OBSERVATION_SCHEMA_VERSION = "observations-v1";
+export const OBSERVATION_SCHEMA_VERSION = "observations-v2";
 
 /** Active-season eight-run selection algorithm identity. */
 export const RUN_SELECTION_VERSION = "active-season-eight-v1";
@@ -62,9 +62,7 @@ const FIELD_REASONS: Array<{
   { key: "partition", reason: "ZONE_OR_PARTITION_CHANGED" },
 ];
 
-export function normalizeRefreshContract(
-  input: RefreshContractVersions,
-): RefreshContractVersions {
+export function normalizeRefreshContract(input: RefreshContractVersions): RefreshContractVersions {
   return {
     scoringModelKey: input.scoringModelKey,
     scoringModelVersion: input.scoringModelVersion,
@@ -128,8 +126,7 @@ export function parseRefreshContract(value: unknown): RefreshContractVersions | 
   if (typeof row.abilityCatalogVersion !== "string") return null;
   if (typeof row.mechanicCatalogVersion !== "string") return null;
   if (typeof row.activeSeasonId !== "string") return null;
-  const zoneId =
-    row.zoneId == null ? null : typeof row.zoneId === "number" ? row.zoneId : null;
+  const zoneId = row.zoneId == null ? null : typeof row.zoneId === "number" ? row.zoneId : null;
   const partition =
     row.partition == null ? null : typeof row.partition === "number" ? row.partition : null;
   if (row.zoneId != null && zoneId == null) return null;

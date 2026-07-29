@@ -24,6 +24,10 @@ import {
 } from "@mplus/contracts";
 import { extractBoostSupportFacts } from "@mplus/provider-raiderio";
 import type { RunCombatFacts, WclRankingObservation, WclReportFightDetails } from "@mplus/provider-warcraftlogs";
+import {
+  SURVIVAL_STANDALONE_V1_1_1_CONFIG,
+  createSurvivalRequestCost,
+} from "@mplus/provider-warcraftlogs";
 import { buildCatalogCoverageDiagnostics, getAbilityCatalog } from "@mplus/abilities";
 import {
   applyRunMetadataToSelection,
@@ -31,6 +35,7 @@ import {
   readBlizzardSeasonDungeonSlugsFromMetadata,
   resolveActiveSeasonDungeonPool,
   selectScoringRuns,
+  selectSurvivalAnalysisRuns,
   toContractScoringRunSelection,
 } from "@mplus/scoring";
 import { OBS_EVENTS, fingerprintIdentifier } from "@mplus/observability";
@@ -54,6 +59,12 @@ import { fingerprintObservations, buildScoringRunSelectionKey } from "./fingerpr
 import { buildRefreshContract } from "./build-refresh-contract.js";
 import { buildMythicRatingObservation } from "./performance-metrics.js";
 import { buildWclPerformanceObservations } from "./wcl-performance-metrics.js";
+import {
+  expectedSurvivalCompatibilityKey,
+  isCompatibleSurvivalSummary,
+  type SurvivalRunAnalysisRow,
+} from "./wcl-survival-metrics.js";
+import { buildWclSurvivalObservations } from "./wcl-survival-metrics.js";
 import { recordProviderResult } from "./provider-recording.js";
 import type { WclDungeonPerformanceAggregateDTO } from "@mplus/contracts";
 import {
@@ -1107,11 +1118,20 @@ export async function runRefreshPipeline(
     );
   }
 
+  const survivalRunSelection = selectSurvivalAnalysisRuns(scoringCandidates, {
+    allowedDungeonSlugs: selectionFilter.allowedDungeonSlugs,
+    maxRunsPerDungeon: SURVIVAL_STANDALONE_V1_1_1_CONFIG.selection.maxRunsPerDungeon,
+  });
+
   const selectedRunRows = new Map<
     string,
     (typeof persistedRuns)[number]
   >();
   for (const entry of scoringRunSelection.selectedRuns) {
+    const row = persistedRuns.find((r) => r.id === entry.canonicalRunId);
+    if (row) selectedRunRows.set(row.id, row);
+  }
+  for (const entry of survivalRunSelection.selectedRuns) {
     const row = persistedRuns.find((r) => r.id === entry.canonicalRunId);
     if (row) selectedRunRows.set(row.id, row);
   }
@@ -1146,6 +1166,10 @@ export async function runRefreshPipeline(
 
   const combatFactsList: RunCombatFacts[] = [];
   const combatFactsByRunId = new Map<string, RunCombatFacts>();
+  const fightMetaByRunId = new Map<
+    string,
+    { startTime: number; endTime: number; encounterId: number | null; encounterName: string | null }
+  >();
   const runCoverageById: Record<string, number> = {};
   const runDiagnostics: Array<Record<string, unknown>> = [];
   const earlyClassSlug = blizzardProfile?.classSlug ?? raiderIoProfile?.classSlug ?? null;
@@ -1198,6 +1222,12 @@ export async function runRefreshPipeline(
         const payloadId = await recordProviderResult(repositories, detailsResult);
         combatFactsList.push(details.combatFacts);
         combatFactsByRunId.set(run.id, details.combatFacts);
+        fightMetaByRunId.set(run.id, {
+          startTime: details.fight.startTime,
+          endTime: details.fight.endTime,
+          encounterId: details.fight.encounterId,
+          encounterName: details.fight.name,
+        });
 
         const coverageRatio =
           Object.values(details.combatFacts.coverage).filter(Boolean).length /
@@ -1226,6 +1256,10 @@ export async function runRefreshPipeline(
             deathCount: details.combatFacts.deaths.length,
             interruptCount: details.combatFacts.interrupts.length,
             parseBinding,
+            fightStartTime: details.fight.startTime,
+            fightEndTime: details.fight.endTime,
+            encounterId: details.fight.encounterId,
+            encounterName: details.fight.name,
             ...combatAdmin,
           },
           sourcePayloadIds: payloadId ? [payloadId] : [],
@@ -1261,6 +1295,209 @@ export async function runRefreshPipeline(
     }
   } else {
     stagesSkipped.push("analyze-run");
+  }
+
+  // ── Survival V1.1.1 run analyses (reuse compatible cache; fetch missing only) ──
+  const survivalCost = createSurvivalRequestCost();
+  const survivalRows: SurvivalRunAnalysisRow[] = [];
+  let survivalRequiredFailed = false;
+  const survivalCatalog = getAbilityCatalog({
+    classSlug: earlyClassSlug,
+    specSlug: earlySpecSlug,
+    role:
+      (blizzardProfile?.role ?? raiderIoProfile?.role) === "TANK"
+        ? "TANK"
+        : (blizzardProfile?.role ?? raiderIoProfile?.role) === "HEALER"
+          ? "HEALER"
+          : "DPS",
+    includeShared: true,
+    includeRacials: false,
+  });
+
+  if (!disabledProviders.has("warcraftlogs") && survivalRunSelection.selectedRuns.length > 0) {
+    for (const entry of survivalRunSelection.selectedRuns) {
+      const run = persistedRuns.find((r) => r.id === entry.canonicalRunId);
+      if (!run) {
+        survivalCost.rejectedCandidates.push({
+          reason: "run_row_missing",
+          runId: entry.canonicalRunId,
+          dungeonSlug: entry.dungeonSlug,
+        });
+        continue;
+      }
+      const source = await repositories.run.findWclSource(run.id);
+      if (!source) {
+        survivalCost.rejectedCandidates.push({
+          reason: "no_usable_wcl_report",
+          runId: run.id,
+          dungeonSlug: entry.dungeonSlug,
+        });
+        continue;
+      }
+
+      let facts = combatFactsByRunId.get(run.id) ?? null;
+      if (!facts) {
+        try {
+          const detailsResult = await providers.warcraftlogs.getReportFightDetails(
+            source.reportCode,
+            source.fightId,
+            ctx,
+          );
+          survivalCost.wclHttpRequestCount += 1;
+          survivalCost.graphqlOperationCount += 1;
+          await recordProviderResult(repositories, detailsResult);
+          facts = (detailsResult.data as WclReportFightDetails).combatFacts;
+          combatFactsByRunId.set(run.id, facts);
+          combatFactsList.push(facts);
+          const details = detailsResult.data as WclReportFightDetails;
+          fightMetaByRunId.set(run.id, {
+            startTime: details.fight.startTime,
+            endTime: details.fight.endTime,
+            encounterId: details.fight.encounterId,
+            encounterName: details.fight.name,
+          });
+        } catch (error) {
+          if (isEnrichmentSoftSkip(error)) {
+            survivalCost.rejectedCandidates.push({
+              reason: "fight_details_soft_skip",
+              runId: run.id,
+              dungeonSlug: entry.dungeonSlug,
+            });
+            continue;
+          }
+          survivalRequiredFailed = true;
+          await failHard("analyze-run", error);
+        }
+      }
+      if (!facts) continue;
+
+      const expectedKey = expectedSurvivalCompatibilityKey({
+        characterId: character.id,
+        reportCode: source.reportCode,
+        fightId: source.fightId,
+        reportRevision: facts.revision,
+        abilityCatalogVersion: survivalCatalog.catalogVersion,
+      });
+
+      const cached = await repositories.run.findRunAnalysis(
+        run.id,
+        character.id,
+        SURVIVAL_STANDALONE_V1_1_1_CONFIG.analysisVersion,
+      );
+      if (
+        !jobPayload.forceRefresh &&
+        cached &&
+        isCompatibleSurvivalSummary(cached.summary, expectedKey)
+      ) {
+        survivalCost.reusedRunAnalyses += 1;
+        survivalRows.push({
+          runId: run.id,
+          dungeonSlug: canonicalDungeonKey(run.dungeon.slug),
+          dungeonName: run.dungeon.name,
+          keyLevel: run.keyLevel,
+          summary: cached.summary,
+          fromCache: true,
+        });
+        continue;
+      }
+
+      const liveWcl = providers.warcraftlogs as {
+        analyzeSurvivalCanonicalRun?: (
+          input: Record<string, unknown>,
+          ctx: ProviderFetchContext,
+        ) => Promise<{
+          data: {
+            summary: SurvivalRunAnalysisRow["summary"];
+            requestCount: number;
+            maxHpFailureReason: string | null;
+          };
+        }>;
+      };
+
+      if (typeof liveWcl.analyzeSurvivalCanonicalRun !== "function") {
+        survivalCost.rejectedCandidates.push({
+          reason: "survival_canonical_analyze_unsupported",
+          runId: run.id,
+          dungeonSlug: entry.dungeonSlug,
+        });
+        survivalRequiredFailed = true;
+        continue;
+      }
+
+      try {
+        const meta = fightMetaByRunId.get(run.id);
+        const fightStart = meta?.startTime ?? 0;
+        const fightEnd = meta?.endTime ?? fightStart + run.durationMs;
+        const canonicalResult = await liveWcl.analyzeSurvivalCanonicalRun(
+          {
+            identity,
+            characterId: character.id,
+            reportCode: source.reportCode,
+            fightId: source.fightId,
+            reportRevision: facts.revision,
+            dungeonSlug: canonicalDungeonKey(run.dungeon.slug),
+            keyLevel: run.keyLevel,
+            playerActorId: facts.targetSourceId,
+            ownedPetActorIds: facts.attributedSourceIds.filter((id) => id !== facts.targetSourceId),
+            fightStartTime: fightStart,
+            fightEndTime: fightEnd,
+            encounterId: meta?.encounterId ?? null,
+            encounterName: meta?.encounterName ?? null,
+            catalog: survivalCatalog,
+            classSlug: earlyClassSlug,
+            specSlug: earlySpecSlug,
+            timed: run.timed,
+            completed: true,
+            score: run.scoreValue,
+          },
+          ctx,
+        );
+        survivalCost.wclHttpRequestCount += canonicalResult.data.requestCount;
+        survivalCost.graphqlOperationCount += canonicalResult.data.requestCount;
+        const payloadId = await recordProviderResult(repositories, canonicalResult as never);
+        const summary = canonicalResult.data.summary;
+        if (
+          summary.maxHpResolution.baselineMaxHp == null &&
+          canonicalResult.data.maxHpFailureReason
+        ) {
+          summary.maxHpResolution = {
+            ...summary.maxHpResolution,
+            resolutionFailureReason:
+              summary.maxHpResolution.resolutionFailureReason ??
+              canonicalResult.data.maxHpFailureReason,
+          };
+        }
+        await repositories.run.upsertRunAnalysis({
+          runId: run.id,
+          characterId: character.id,
+          analysisVersion: SURVIVAL_STANDALONE_V1_1_1_CONFIG.analysisVersion,
+          analyzedAt: now,
+          coverage: summary.maxHpResolution.baselineMaxHp != null ? 1 : 0.35,
+          summary,
+          sourcePayloadIds: payloadId ? [payloadId] : [],
+        });
+        survivalCost.newRunAnalyses += 1;
+        survivalRows.push({
+          runId: run.id,
+          dungeonSlug: canonicalDungeonKey(run.dungeon.slug),
+          dungeonName: run.dungeon.name,
+          keyLevel: run.keyLevel,
+          summary,
+          fromCache: false,
+        });
+      } catch (error) {
+        if (isEnrichmentSoftSkip(error)) {
+          survivalCost.rejectedCandidates.push({
+            reason: "survival_canonical_soft_skip",
+            runId: run.id,
+            dungeonSlug: entry.dungeonSlug,
+          });
+          continue;
+        }
+        survivalRequiredFailed = true;
+        await failHard("analyze-run", error);
+      }
+    }
   }
 
   const selectedRunCount = scoringRunSelection.selectedRuns.length;
@@ -1326,6 +1563,13 @@ export async function runRefreshPipeline(
       wclPerformanceRecord?.state === "OK" ||
       wclPerformanceRecord?.state === "SKIPPED" ||
       wclPerformanceRecord == null;
+    const survivalCandidatesWithWcl = survivalRunSelection.selectedRuns.filter(
+      (e) => e.wclReportMatched,
+    );
+    const survivalOkForSuccess =
+      !survivalRequiredFailed &&
+      (survivalCandidatesWithWcl.length === 0 || survivalRows.length > 0);
+    const wclOkForSuccess = performanceOkForSuccess && survivalOkForSuccess;
     const visibilitySummary = {
       wclVisibility,
       wclDataState,
@@ -1341,21 +1585,30 @@ export async function runRefreshPipeline(
       performanceState: wclPerformanceRecord?.state ?? null,
       performanceAdapterVersion: POINTS_AND_DAMAGE_ADAPTER_VERSION,
       rejectedLegacyCache: wclRejectedLegacyCache,
+      survivalAnalyzedRunCount: survivalRows.length,
+      survivalCachedRunCount: survivalRows.filter((r) => r.fromCache).length,
+      survivalNewlyFetchedRunCount: survivalRows.filter((r) => !r.fromCache).length,
+      survivalRequiredFailed,
+      survivalAdapterVersion: SURVIVAL_STANDALONE_V1_1_1_CONFIG.adapterVersion,
+      survivalConfigVersion: SURVIVAL_STANDALONE_V1_1_1_CONFIG.version,
+      survivalRequestCost: survivalCost,
     };
     // Always persist character-level provider visibility (including zero matched runs).
-    // Preserve Performance success gating — do not stamp lastSuccessAt over a failed PAD fetch.
+    // Preserve Performance + Survival success gating — do not stamp lastSuccessAt over a failed required dataset.
     await repositories.providerState.upsert({
       characterId: character.id,
       provider: "warcraftlogs",
-      state: performanceOkForSuccess
+      state: wclOkForSuccess
         ? mapWclVisibilityToState(wclVisibility, wclDataState)
         : "UNAVAILABLE",
-      detail: performanceOkForSuccess
+      detail: wclOkForSuccess
         ? undefined
-        : `points_and_damage Performance unavailable (${wclPerformanceRecord?.state ?? "missing"})`,
+        : !performanceOkForSuccess
+          ? `points_and_damage Performance unavailable (${wclPerformanceRecord?.state ?? "missing"})`
+          : "Survival V1.1.1 required datasets failed",
       wclVisibility,
       lastAttemptAt: now,
-      ...(performanceOkForSuccess ? { lastSuccessAt: now } : {}),
+      ...(wclOkForSuccess ? { lastSuccessAt: now } : {}),
       fetchedAt: now,
       metadata: visibilitySummary,
     });
@@ -1548,7 +1801,7 @@ export async function runRefreshPipeline(
     ...aggregateCombatObservations(perRunCombatObservations, observedAt, {
       selectedRunCount,
       detailedRunCount,
-    }),
+    }).filter((o) => !o.metricKey.startsWith("survival.")),
   );
 
   const mythicRatingObs =
@@ -1594,7 +1847,26 @@ export async function runRefreshPipeline(
           ? 0.55
           : 0.75;
 
+  const wclSurvival = buildWclSurvivalObservations({
+    rows: survivalRows,
+    expectedDungeonCount,
+    observedAt,
+    selectedRunWclCoverage:
+      survivalRunSelection.selectedRuns.length > 0
+        ? survivalRows.length / survivalRunSelection.selectedRuns.length
+        : 0,
+    logFreshness: freshness,
+    requestCost: survivalCost,
+  });
+  observations.push(...wclSurvival.observations);
+
   // Season already resolved above for run persistence.
+  const scoreCalculatedAt = new Date();
+  const observedAtForScore = scoreCalculatedAt.toISOString();
+  // Rebuild survival observations with final freshness, then persist metrics using score clock.
+  for (const obs of wclSurvival.observations) {
+    obs.observedAt = observedAtForScore;
+  }
   await repositories.metric.replaceObservations(character.id, season.id, observations);
 
   // ── Calculate + structurally validate score ─────────────────────────────
@@ -1613,6 +1885,7 @@ export async function runRefreshPipeline(
     metricWeights: {
       ...((model.config as { metricWeights?: Record<string, unknown> }).metricWeights ?? {}),
       PERFORMANCE: wclPerformance.performanceMetricWeights,
+      SURVIVAL: wclSurvival.survivalMetricWeights,
     },
   } as ScoreModelConfig;
 
@@ -1634,7 +1907,7 @@ export async function runRefreshPipeline(
     scopeType: "CHARACTER",
     scopeKey: null,
     observations,
-    calculatedAt: now.toISOString(),
+    calculatedAt: scoreCalculatedAt.toISOString(),
     inputFingerprint: fingerprintObservations(character.id, model.key, model.version, observations, {
       refreshContract,
       scoringRunSelectionKey: buildScoringRunSelectionKey(scoringRunSelection.selectedRuns),
@@ -1735,6 +2008,7 @@ export async function runRefreshPipeline(
           wclVisibility,
           wclDataState,
           performanceSummary: wclPerformance.summary,
+          survivalSummary: wclSurvival.summary,
           rawZoneRankingsPointsAndDamage: wclPerformanceRecord?.raw ?? null,
           abilityCatalog: catalogDiagnostics,
           historyMode: "CHARACTER_HISTORY",

@@ -144,6 +144,8 @@ export interface WclActorEntry {
   type: string;
   subType: string | null;
   server: string | null;
+  /** Report-local owner actor ID when this actor is a pet (null/undefined when unknown). */
+  petOwner: number | null;
 }
 
 export interface WclCastEvent {

@@ -349,6 +349,8 @@ export const reportFightSchema = z.object({
                   type: z.string(),
                   subType: z.string().nullable().optional(),
                   server: z.string().nullable().optional(),
+                  /** Report-local owner actor ID when this actor is a pet. */
+                  petOwner: z.coerce.number().nullable().optional(),
                 }),
               )
               .default([]),
