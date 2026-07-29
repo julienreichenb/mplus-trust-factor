@@ -1,5 +1,9 @@
 # Agent 39 Handoff — Refresh Orchestration
 
+## Commit
+
+`7c6e03d` — feat(refresh): add orchestration planner, cost ledger, and dry-run scheduler
+
 ## Summary
 
 Configurable refresh orchestration: cohort strategies with explicit denominators, adaptive cadence tiers (config), dataset-aware planning, checkpointed dry-run scheduler, durable cost ledger schema, fairness caps, and observability snapshots.
