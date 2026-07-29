@@ -45,6 +45,12 @@ import type { UtilityProbeIdentity } from "./utility-probe-types.js";
 import type { UtilityV3SimulationDataset } from "./utility-v3-types.js";
 import type { WclRateBudgetDecision } from "../types.js";
 import { roleForSpec } from "@mplus/abilities";
+import {
+  atomicPublishProbeArtifacts,
+  mergeProbeArtifacts,
+  persistRejectedMergeCandidate,
+  snapshotCanonicalArtifacts,
+} from "./utility-probe-resume-merge.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -760,15 +766,42 @@ async function validateCharacter(
         realmSlug,
         name,
       };
+
+      const isResumeMerge = hasExplicitFocus && artifactStatus.state === "PARTIAL";
+      const resumeTs = Date.now();
+      const snapshotDir = join(artifactDir, `.resume-snapshot-${resumeTs}`);
+      const stagingDir = join(artifactDir, `.resume-staging-${resumeTs}`);
+      const publishDir = join(artifactDir, `.resume-publish-${resumeTs}`);
+      const rejectedDir = join(artifactDir, `.resume-rejected-${resumeTs}`);
+
+      let probeOutputDir = artifactDir;
+      let priorMissingDungeonReasons: Record<string, string> = {};
+
+      if (isResumeMerge) {
+        console.log(`    [resume] snapshotting ${artifactStatus.completedDungeons.length} existing dungeon(s)`);
+        await snapshotCanonicalArtifacts(artifactDir, snapshotDir);
+        probeOutputDir = stagingDir;
+        try {
+          const perDungeon = JSON.parse(
+            await readFile(join(snapshotDir, "09-utility-per-dungeon.json"), "utf8"),
+          ) as { global?: { coverage?: { missingDungeonReasons?: Record<string, string> } } };
+          priorMissingDungeonReasons =
+            perDungeon.global?.coverage?.missingDungeonReasons ?? {};
+        } catch {
+          // best-effort
+        }
+      }
+
       const { dataset: probeDataset } = await runUtilityProbe({
         identity,
-        outputDir: artifactDir,
+        outputDir: probeOutputDir,
         client: provider.getGraphQlClient(),
         zoneConfig: provider.getZoneConfig(),
         maxRunsPerDungeon,
         maxReportsInspectedPerDungeon: maxReportsPerDungeon,
         maxRecentReportPages: opts.maxRecentReportPages ?? 1,
         focusDungeons: opts.focusDungeons ?? null,
+        cleanOutputDir: true,
       });
 
       probeState = probeDataset.state;
@@ -777,6 +810,71 @@ async function validateCharacter(
       pointsBefore = probeDataset.rateLimit.initial?.pointsSpentThisHour ?? null;
       pointsAfter = probeDataset.rateLimit.final?.pointsSpentThisHour ?? null;
       probeWclRequests = probeDataset.diagnostics.wclRequestCount;
+
+      if (isResumeMerge) {
+        console.log(`    [resume] merging staging into snapshot (${probeDataset.runs.length} new run(s))`);
+        const mergeResult = await mergeProbeArtifacts({
+          snapshotDir,
+          stagingDir,
+          publishDir,
+          expectedDungeons: ACTIVE_SEASON_DUNGEONS,
+          focusDungeons: opts.focusDungeons ?? [],
+          priorMissingDungeonReasons,
+        });
+
+        if (!mergeResult.ok) {
+          const rejectedPath = await persistRejectedMergeCandidate(
+            artifactDir,
+            rejectedDir,
+            mergeResult,
+            stagingDir,
+          );
+          const pointsConsumed =
+            pointsBefore != null && pointsAfter != null ? pointsAfter - pointsBefore : null;
+          return errorResult(
+            `Resume merge rejected: ${mergeResult.violations.map((v) => v.message).join("; ")}`,
+            {
+              classSlug: resolvedClassSlug,
+              specSlug: resolvedSpecSlug,
+              artifactState: "PARTIAL",
+              completedDungeons: artifactStatus.completedDungeons,
+              missingDungeons: artifactStatus.missingDungeons,
+              missingDungeonReasons: priorMissingDungeonReasons,
+              probeFailure: {
+                probeState: "PARTIAL",
+                wclErrors: [],
+                rejectionReasons: {},
+                reportsInspected: 0,
+                fightsInspected: 0,
+                schemaWarnings: mergeResult.violations.map((v) => v.message),
+                characterFound,
+                diagnosis: "unknown",
+                retryable: true,
+                partialArtifactPaths: [rejectedPath, snapshotDir],
+              },
+              rateCost: {
+                pointsBefore,
+                pointsAfter,
+                pointsConsumed,
+                wclRequests: probeWclRequests,
+                estimatedCost: null,
+                safetyReserve: SAFETY_RESERVE,
+                costDecisionReason: "merge_rejected",
+              },
+            },
+          );
+        }
+
+        await atomicPublishProbeArtifacts(publishDir, artifactDir);
+        console.log(
+          `    [resume] published merged artifacts: ${mergeResult.before.runCount} -> ${mergeResult.after.runCount} runs, ` +
+          `${mergeResult.before.completedDungeons.length} -> ${mergeResult.after.completedDungeons.length} dungeons`,
+        );
+        probeState =
+          mergeResult.after.completedDungeons.length >= ACTIVE_SEASON_DUNGEONS.length
+            ? "OK"
+            : "PARTIAL";
+      }
 
       // roleSlug from normalized runs written to disk
       try {
@@ -798,7 +896,6 @@ async function validateCharacter(
           mixedRole = roleCounts.size > 1;
           roleSource = "zone_rankings";
         }
-        // Fallback: infer from specSlug when WCL returned null for all runs
         if (resolvedRoleSlug === null && resolvedSpecSlug) {
           const inferred = roleForSpec(resolvedSpecSlug);
           if (inferred) { resolvedRoleSlug = inferred; roleSource = "inferred"; }
@@ -807,7 +904,6 @@ async function validateCharacter(
         resolvedSpecSlug = probeDataset.runs[0]?.specialization ?? null;
       }
 
-      // Zip probe artifacts
       zipDirectoryContents(
         artifactDir,
         join(artifactDir, `${region.toLowerCase()}-${realmSlug}-${name.toLowerCase()}-utility-probe.zip`),
@@ -871,17 +967,21 @@ async function validateCharacter(
     const updatedArtifactStatus = await detectArtifactState(artifactDir);
     const castStopDiag = await buildCastStopDiagnostics(artifactDir, v3Dataset);
 
-    // Load missingDungeonReasons from probe diagnostics (written by the probe to disk)
+    // Load missingDungeonReasons from merged probe per-dungeon artifact
     let missingDungeonReasons: Record<string, string> = {};
     try {
-      const diagPath = join(artifactDir, "09-utility-per-dungeon.json");
-      if (existsSync(diagPath)) {
-        const perDungeon = JSON.parse(await readFile(diagPath, "utf8")) as {
+      const perDungeonPath = join(artifactDir, "09-utility-per-dungeon.json");
+      if (existsSync(perDungeonPath)) {
+        const perDungeon = JSON.parse(await readFile(perDungeonPath, "utf8")) as {
           global?: { coverage?: { missingDungeonReasons?: Record<string, string> } };
         };
         missingDungeonReasons = perDungeon.global?.coverage?.missingDungeonReasons ?? {};
       }
     } catch { /* best-effort */ }
+    // Ensure every missing dungeon has a reason
+    for (const slug of updatedArtifactStatus.missingDungeons) {
+      if (!missingDungeonReasons[slug]) missingDungeonReasons[slug] = "unknown";
+    }
 
     const missingCount = updatedArtifactStatus.missingDungeons.length;
     const { estimated: estimatedCost, reason: costReason } = estimateCharacterCost(

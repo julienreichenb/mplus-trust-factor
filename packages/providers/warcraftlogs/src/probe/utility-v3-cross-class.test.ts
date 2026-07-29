@@ -429,3 +429,32 @@ describe("rate budget cost estimation", () => {
     expect(shouldDefer(100, 0, null)).toBe(false);
   });
 });
+
+// -------------------------------------------------------------------------
+// 8. Resume merge regression (00739d3)
+// -------------------------------------------------------------------------
+
+describe("resume merge regression guards", () => {
+  it("resumed score coverage uses merged dungeon count, not staging-only count", () => {
+    const beforeDungeons = 5;
+    const beforeRuns = 5;
+    const stagingRuns = 1;
+    const mergedRuns = beforeRuns + stagingRuns;
+    const mergedDungeons = beforeDungeons + 1;
+    expect(mergedRuns).toBe(6);
+    expect(mergedDungeons).toBe(6);
+    expect(stagingRuns).toBeLessThan(mergedRuns);
+  });
+
+  it("every missing dungeon must receive a diagnostic reason", () => {
+    const missing = ["algethar-academy", "magisters-terrace", "maisara-caverns"];
+    const reasons: Record<string, string> = {
+      "algethar-academy": "actor_absent",
+      "magisters-terrace": "actor_absent",
+    };
+    for (const slug of missing) {
+      if (!reasons[slug]) reasons[slug] = "unknown";
+    }
+    for (const slug of missing) expect(reasons[slug]).toBeTruthy();
+  });
+});

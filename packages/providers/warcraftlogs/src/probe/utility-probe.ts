@@ -93,8 +93,15 @@ export interface UtilityProbeOptions {
    * When set, the probe will only attempt to collect runs for these dungeon
    * slugs. Dungeons not in this list are skipped entirely (no event fetching).
    * Use for PARTIAL resume: pass the list of still-missing dungeons.
+   * The caller must merge staging output with a snapshot — never write focus
+   * probe output directly to canonical artifacts.
    */
   focusDungeons?: string[] | null;
+  /**
+   * When false, skip cleaning the output directory before writing artifacts.
+   * Resume staging directories should use the default true on a fresh staging path.
+   */
+  cleanOutputDir?: boolean;
 }
 
 export interface UtilityProbeResult {
@@ -1262,7 +1269,11 @@ export async function runUtilityProbe(options: UtilityProbeOptions): Promise<Uti
     candidatesByDungeon,
   };
 
-  await cleanProbeOutputDir(options.outputDir);
+  if (options.cleanOutputDir !== false) {
+    await cleanProbeOutputDir(options.outputDir);
+  } else {
+    await mkdir(options.outputDir, { recursive: true });
+  }
 
   const selectedRunsIndex = runDetails.map((r) => ({
     runId: r.runId,
