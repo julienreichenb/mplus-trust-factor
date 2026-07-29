@@ -201,6 +201,7 @@ export function computeSurvivalDimension(input: ComputeSurvivalInput): ComputeSu
     dungeons: dungeonSummaries,
     notes,
     requestCost: input.requestCost,
+    diagnostics: input.diagnostics,
   };
 
   // Observations use identity normalization (0–100 already). Component medians

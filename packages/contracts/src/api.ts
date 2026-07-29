@@ -371,6 +371,11 @@ export interface SurvivalSummaryPublicDTO {
     estimatedPageCountIncreaseVsCalibrationDamageTaken?: number | null;
     notes?: string[];
   };
+  diagnostics?: {
+    rejectedCandidates: Array<{ reason: string; runId?: string; dungeonSlug?: string }>;
+    lateBoundRunCount?: number;
+    bindPoolSize?: number;
+  };
 }
 
 export interface ProfileEntitlements {

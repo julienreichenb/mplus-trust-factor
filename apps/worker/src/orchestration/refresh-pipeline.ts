@@ -82,7 +82,10 @@ import {
   filterRunsToActiveWindow,
   fuseCrossProviderRuns,
 } from "./run-fusion.js";
-
+import {
+  buildSurvivalWclBindPool,
+  matchSurvivalWclSource,
+} from "./survival-wcl-late-bind.js";
 export const REFRESH_STAGES = [
   "resolve-character",
   "refresh-blizzard",
@@ -1301,6 +1304,8 @@ export async function runRefreshPipeline(
   const survivalCost = createSurvivalRequestCost();
   const survivalRows: SurvivalRunAnalysisRow[] = [];
   let survivalRequiredFailed = false;
+  let survivalLateBoundRunCount = 0;
+  const survivalBindPool = buildSurvivalWclBindPool(discoveredRuns, wclRankings);
   const survivalCatalog = getAbilityCatalog({
     classSlug: earlyClassSlug,
     specSlug: earlySpecSlug,
@@ -1314,188 +1319,277 @@ export async function runRefreshPipeline(
     includeRacials: false,
   });
 
-  if (!disabledProviders.has("warcraftlogs") && survivalRunSelection.selectedRuns.length > 0) {
-    for (const entry of survivalRunSelection.selectedRuns) {
-      const run = persistedRuns.find((r) => r.id === entry.canonicalRunId);
-      if (!run) {
-        survivalCost.rejectedCandidates.push({
-          reason: "run_row_missing",
-          runId: entry.canonicalRunId,
-          dungeonSlug: entry.dungeonSlug,
-        });
-        continue;
-      }
-      const source = await repositories.run.findWclSource(run.id);
-      if (!source) {
-        survivalCost.rejectedCandidates.push({
-          reason: "no_usable_wcl_report",
-          runId: run.id,
-          dungeonSlug: entry.dungeonSlug,
-        });
-        continue;
-      }
+  if (!disabledProviders.has("warcraftlogs") && scoringCandidates.length > 0) {
+    const maxSurvivalPerDungeon =
+      SURVIVAL_STANDALONE_V1_1_1_CONFIG.selection.maxRunsPerDungeon;
+    const allowedSurvivalDungeons = new Set(
+      (selectionFilter.allowedDungeonSlugs ?? []).map((s) => s.trim().toLowerCase()),
+    );
+    const survivalCandidatesByDungeon = new Map<string, typeof scoringCandidates>();
+    for (const candidate of scoringCandidates) {
+      const slug = canonicalDungeonKey(candidate.dungeonSlug);
+      if (allowedSurvivalDungeons.size > 0 && !allowedSurvivalDungeons.has(slug)) continue;
+      const bucket = survivalCandidatesByDungeon.get(slug) ?? [];
+      bucket.push(candidate);
+      survivalCandidatesByDungeon.set(slug, bucket);
+    }
 
-      let facts = combatFactsByRunId.get(run.id) ?? null;
-      if (!facts) {
+    const compareSurvivalCandidates = (
+      a: (typeof scoringCandidates)[number],
+      b: (typeof scoringCandidates)[number],
+    ): number => {
+      if (a.keyLevel !== b.keyLevel) return b.keyLevel - a.keyLevel;
+      const scoreA = a.scoreValue ?? -1;
+      const scoreB = b.scoreValue ?? -1;
+      if (scoreA !== scoreB) return scoreB - scoreA;
+      return new Date(b.completedAt).getTime() - new Date(a.completedAt).getTime();
+    };
+
+    const usedSurvivalRunIds = new Set<string>();
+    const usedReportFightKeys = new Set<string>();
+    const liveWcl = providers.warcraftlogs as {
+      analyzeSurvivalCanonicalRun?: (
+        input: Record<string, unknown>,
+        ctx: ProviderFetchContext,
+      ) => Promise<{
+        data: {
+          summary: SurvivalRunAnalysisRow["summary"];
+          requestCount: number;
+          maxHpFailureReason: string | null;
+        };
+      }>;
+    };
+
+    for (const dungeonSlug of [...survivalCandidatesByDungeon.keys()].sort((a, b) =>
+      a.localeCompare(b),
+    )) {
+      const bucket = [...(survivalCandidatesByDungeon.get(dungeonSlug) ?? [])].sort(
+        compareSurvivalCandidates,
+      );
+      let acceptedForDungeon = 0;
+
+      for (const candidate of bucket) {
+        if (acceptedForDungeon >= maxSurvivalPerDungeon) break;
+        if (usedSurvivalRunIds.has(candidate.canonicalRunId)) continue;
+
+        const run = persistedRuns.find((r) => r.id === candidate.canonicalRunId);
+        if (!run) {
+          survivalCost.rejectedCandidates.push({
+            reason: "run_row_missing",
+            runId: candidate.canonicalRunId,
+            dungeonSlug,
+          });
+          continue;
+        }
+
+        let source = await repositories.run.findWclSource(run.id);
+        let lateBound = false;
+        if (!source) {
+          const bind = matchSurvivalWclSource(
+            {
+              dungeonSlug: canonicalDungeonKey(run.dungeon.slug),
+              keyLevel: run.keyLevel,
+              completedAt: run.completedAt.toISOString(),
+              durationMs: run.durationMs,
+            },
+            survivalBindPool,
+            { excludeReportFightKeys: usedReportFightKeys },
+          );
+          if (!bind.matched) {
+            survivalCost.rejectedCandidates.push({
+              reason: bind.reason,
+              runId: run.id,
+              dungeonSlug,
+            });
+            continue;
+          }
+          source = await repositories.run.attachWclSource(run.id, {
+            reportCode: bind.reportCode,
+            fightId: bind.fightId,
+          });
+          lateBound = true;
+          survivalLateBoundRunCount += 1;
+        }
+
+        const reportFightKey = `${source.reportCode}:${source.fightId}`;
+        if (usedReportFightKeys.has(reportFightKey)) {
+          survivalCost.rejectedCandidates.push({
+            reason: "wcl_report_fight_already_used",
+            runId: run.id,
+            dungeonSlug,
+          });
+          continue;
+        }
+
+        let facts = combatFactsByRunId.get(run.id) ?? null;
+        if (!facts) {
+          try {
+            const detailsResult = await providers.warcraftlogs.getReportFightDetails(
+              source.reportCode,
+              source.fightId,
+              ctx,
+            );
+            survivalCost.wclHttpRequestCount += 1;
+            survivalCost.graphqlOperationCount += 1;
+            await recordProviderResult(repositories, detailsResult);
+            facts = (detailsResult.data as WclReportFightDetails).combatFacts;
+            combatFactsByRunId.set(run.id, facts);
+            combatFactsList.push(facts);
+            const details = detailsResult.data as WclReportFightDetails;
+            fightMetaByRunId.set(run.id, {
+              startTime: details.fight.startTime,
+              endTime: details.fight.endTime,
+              encounterId: details.fight.encounterId,
+              encounterName: details.fight.name,
+            });
+          } catch (error) {
+            if (isEnrichmentSoftSkip(error)) {
+              survivalCost.rejectedCandidates.push({
+                reason: "fight_details_soft_skip",
+                runId: run.id,
+                dungeonSlug,
+              });
+              continue;
+            }
+            survivalRequiredFailed = true;
+            await failHard("analyze-run", error);
+          }
+        }
+        if (!facts) continue;
+
+        const expectedKey = expectedSurvivalCompatibilityKey({
+          characterId: character.id,
+          reportCode: source.reportCode,
+          fightId: source.fightId,
+          reportRevision: facts.revision,
+          abilityCatalogVersion: survivalCatalog.catalogVersion,
+        });
+
+        const cached = await repositories.run.findRunAnalysis(
+          run.id,
+          character.id,
+          SURVIVAL_STANDALONE_V1_1_1_CONFIG.analysisVersion,
+        );
+        if (
+          !jobPayload.forceRefresh &&
+          cached &&
+          isCompatibleSurvivalSummary(cached.summary, expectedKey)
+        ) {
+          survivalCost.reusedRunAnalyses += 1;
+          survivalRows.push({
+            runId: run.id,
+            dungeonSlug: canonicalDungeonKey(run.dungeon.slug),
+            dungeonName: run.dungeon.name,
+            keyLevel: run.keyLevel,
+            summary: cached.summary,
+            fromCache: true,
+          });
+          usedSurvivalRunIds.add(run.id);
+          usedReportFightKeys.add(reportFightKey);
+          acceptedForDungeon += 1;
+          if (lateBound) {
+            const selected = survivalRunSelection.selectedRuns.find(
+              (e) => e.canonicalRunId === run.id,
+            );
+            if (selected) selected.wclReportMatched = true;
+          }
+          continue;
+        }
+
+        if (typeof liveWcl.analyzeSurvivalCanonicalRun !== "function") {
+          survivalCost.rejectedCandidates.push({
+            reason: "survival_canonical_analyze_unsupported",
+            runId: run.id,
+            dungeonSlug,
+          });
+          survivalRequiredFailed = true;
+          continue;
+        }
+
         try {
-          const detailsResult = await providers.warcraftlogs.getReportFightDetails(
-            source.reportCode,
-            source.fightId,
+          const meta = fightMetaByRunId.get(run.id);
+          const fightStart = meta?.startTime ?? 0;
+          const fightEnd = meta?.endTime ?? fightStart + run.durationMs;
+          const canonicalResult = await liveWcl.analyzeSurvivalCanonicalRun(
+            {
+              identity,
+              characterId: character.id,
+              reportCode: source.reportCode,
+              fightId: source.fightId,
+              reportRevision: facts.revision,
+              dungeonSlug: canonicalDungeonKey(run.dungeon.slug),
+              keyLevel: run.keyLevel,
+              playerActorId: facts.targetSourceId,
+              ownedPetActorIds: facts.attributedSourceIds.filter(
+                (id) => id !== facts.targetSourceId,
+              ),
+              fightStartTime: fightStart,
+              fightEndTime: fightEnd,
+              encounterId: meta?.encounterId ?? null,
+              encounterName: meta?.encounterName ?? null,
+              catalog: survivalCatalog,
+              classSlug: earlyClassSlug,
+              specSlug: earlySpecSlug,
+              timed: run.timed,
+              completed: true,
+              score: run.scoreValue,
+            },
             ctx,
           );
-          survivalCost.wclHttpRequestCount += 1;
-          survivalCost.graphqlOperationCount += 1;
-          await recordProviderResult(repositories, detailsResult);
-          facts = (detailsResult.data as WclReportFightDetails).combatFacts;
-          combatFactsByRunId.set(run.id, facts);
-          combatFactsList.push(facts);
-          const details = detailsResult.data as WclReportFightDetails;
-          fightMetaByRunId.set(run.id, {
-            startTime: details.fight.startTime,
-            endTime: details.fight.endTime,
-            encounterId: details.fight.encounterId,
-            encounterName: details.fight.name,
+          survivalCost.wclHttpRequestCount += canonicalResult.data.requestCount;
+          survivalCost.graphqlOperationCount += canonicalResult.data.requestCount;
+          const payloadId = await recordProviderResult(repositories, canonicalResult as never);
+          const summary = canonicalResult.data.summary;
+          if (
+            summary.maxHpResolution.baselineMaxHp == null &&
+            canonicalResult.data.maxHpFailureReason
+          ) {
+            summary.maxHpResolution = {
+              ...summary.maxHpResolution,
+              resolutionFailureReason:
+                summary.maxHpResolution.resolutionFailureReason ??
+                canonicalResult.data.maxHpFailureReason,
+            };
+          }
+          await repositories.run.upsertRunAnalysis({
+            runId: run.id,
+            characterId: character.id,
+            analysisVersion: SURVIVAL_STANDALONE_V1_1_1_CONFIG.analysisVersion,
+            analyzedAt: now,
+            coverage: summary.maxHpResolution.baselineMaxHp != null ? 1 : 0.35,
+            summary,
+            sourcePayloadIds: payloadId ? [payloadId] : [],
           });
+          survivalCost.newRunAnalyses += 1;
+          survivalRows.push({
+            runId: run.id,
+            dungeonSlug: canonicalDungeonKey(run.dungeon.slug),
+            dungeonName: run.dungeon.name,
+            keyLevel: run.keyLevel,
+            summary,
+            fromCache: false,
+          });
+          usedSurvivalRunIds.add(run.id);
+          usedReportFightKeys.add(reportFightKey);
+          acceptedForDungeon += 1;
+          if (lateBound) {
+            const selected = survivalRunSelection.selectedRuns.find(
+              (e) => e.canonicalRunId === run.id,
+            );
+            if (selected) selected.wclReportMatched = true;
+          }
         } catch (error) {
           if (isEnrichmentSoftSkip(error)) {
             survivalCost.rejectedCandidates.push({
-              reason: "fight_details_soft_skip",
+              reason: "survival_canonical_soft_skip",
               runId: run.id,
-              dungeonSlug: entry.dungeonSlug,
+              dungeonSlug,
             });
             continue;
           }
           survivalRequiredFailed = true;
           await failHard("analyze-run", error);
         }
-      }
-      if (!facts) continue;
-
-      const expectedKey = expectedSurvivalCompatibilityKey({
-        characterId: character.id,
-        reportCode: source.reportCode,
-        fightId: source.fightId,
-        reportRevision: facts.revision,
-        abilityCatalogVersion: survivalCatalog.catalogVersion,
-      });
-
-      const cached = await repositories.run.findRunAnalysis(
-        run.id,
-        character.id,
-        SURVIVAL_STANDALONE_V1_1_1_CONFIG.analysisVersion,
-      );
-      if (
-        !jobPayload.forceRefresh &&
-        cached &&
-        isCompatibleSurvivalSummary(cached.summary, expectedKey)
-      ) {
-        survivalCost.reusedRunAnalyses += 1;
-        survivalRows.push({
-          runId: run.id,
-          dungeonSlug: canonicalDungeonKey(run.dungeon.slug),
-          dungeonName: run.dungeon.name,
-          keyLevel: run.keyLevel,
-          summary: cached.summary,
-          fromCache: true,
-        });
-        continue;
-      }
-
-      const liveWcl = providers.warcraftlogs as {
-        analyzeSurvivalCanonicalRun?: (
-          input: Record<string, unknown>,
-          ctx: ProviderFetchContext,
-        ) => Promise<{
-          data: {
-            summary: SurvivalRunAnalysisRow["summary"];
-            requestCount: number;
-            maxHpFailureReason: string | null;
-          };
-        }>;
-      };
-
-      if (typeof liveWcl.analyzeSurvivalCanonicalRun !== "function") {
-        survivalCost.rejectedCandidates.push({
-          reason: "survival_canonical_analyze_unsupported",
-          runId: run.id,
-          dungeonSlug: entry.dungeonSlug,
-        });
-        survivalRequiredFailed = true;
-        continue;
-      }
-
-      try {
-        const meta = fightMetaByRunId.get(run.id);
-        const fightStart = meta?.startTime ?? 0;
-        const fightEnd = meta?.endTime ?? fightStart + run.durationMs;
-        const canonicalResult = await liveWcl.analyzeSurvivalCanonicalRun(
-          {
-            identity,
-            characterId: character.id,
-            reportCode: source.reportCode,
-            fightId: source.fightId,
-            reportRevision: facts.revision,
-            dungeonSlug: canonicalDungeonKey(run.dungeon.slug),
-            keyLevel: run.keyLevel,
-            playerActorId: facts.targetSourceId,
-            ownedPetActorIds: facts.attributedSourceIds.filter((id) => id !== facts.targetSourceId),
-            fightStartTime: fightStart,
-            fightEndTime: fightEnd,
-            encounterId: meta?.encounterId ?? null,
-            encounterName: meta?.encounterName ?? null,
-            catalog: survivalCatalog,
-            classSlug: earlyClassSlug,
-            specSlug: earlySpecSlug,
-            timed: run.timed,
-            completed: true,
-            score: run.scoreValue,
-          },
-          ctx,
-        );
-        survivalCost.wclHttpRequestCount += canonicalResult.data.requestCount;
-        survivalCost.graphqlOperationCount += canonicalResult.data.requestCount;
-        const payloadId = await recordProviderResult(repositories, canonicalResult as never);
-        const summary = canonicalResult.data.summary;
-        if (
-          summary.maxHpResolution.baselineMaxHp == null &&
-          canonicalResult.data.maxHpFailureReason
-        ) {
-          summary.maxHpResolution = {
-            ...summary.maxHpResolution,
-            resolutionFailureReason:
-              summary.maxHpResolution.resolutionFailureReason ??
-              canonicalResult.data.maxHpFailureReason,
-          };
-        }
-        await repositories.run.upsertRunAnalysis({
-          runId: run.id,
-          characterId: character.id,
-          analysisVersion: SURVIVAL_STANDALONE_V1_1_1_CONFIG.analysisVersion,
-          analyzedAt: now,
-          coverage: summary.maxHpResolution.baselineMaxHp != null ? 1 : 0.35,
-          summary,
-          sourcePayloadIds: payloadId ? [payloadId] : [],
-        });
-        survivalCost.newRunAnalyses += 1;
-        survivalRows.push({
-          runId: run.id,
-          dungeonSlug: canonicalDungeonKey(run.dungeon.slug),
-          dungeonName: run.dungeon.name,
-          keyLevel: run.keyLevel,
-          summary,
-          fromCache: false,
-        });
-      } catch (error) {
-        if (isEnrichmentSoftSkip(error)) {
-          survivalCost.rejectedCandidates.push({
-            reason: "survival_canonical_soft_skip",
-            runId: run.id,
-            dungeonSlug: entry.dungeonSlug,
-          });
-          continue;
-        }
-        survivalRequiredFailed = true;
-        await failHard("analyze-run", error);
       }
     }
   }
@@ -1563,12 +1657,13 @@ export async function runRefreshPipeline(
       wclPerformanceRecord?.state === "OK" ||
       wclPerformanceRecord?.state === "SKIPPED" ||
       wclPerformanceRecord == null;
-    const survivalCandidatesWithWcl = survivalRunSelection.selectedRuns.filter(
-      (e) => e.wclReportMatched,
-    );
+    const survivalCandidatesWithWcl =
+      survivalRows.length > 0 ||
+      survivalBindPool.length > 0 ||
+      survivalRunSelection.selectedRuns.some((e) => e.wclReportMatched);
     const survivalOkForSuccess =
       !survivalRequiredFailed &&
-      (survivalCandidatesWithWcl.length === 0 || survivalRows.length > 0);
+      (!survivalCandidatesWithWcl || survivalRows.length > 0);
     const wclOkForSuccess = performanceOkForSuccess && survivalOkForSuccess;
     const visibilitySummary = {
       wclVisibility,
@@ -1851,12 +1946,14 @@ export async function runRefreshPipeline(
     rows: survivalRows,
     expectedDungeonCount,
     observedAt,
-    selectedRunWclCoverage:
-      survivalRunSelection.selectedRuns.length > 0
-        ? survivalRows.length / survivalRunSelection.selectedRuns.length
-        : 0,
+    selectedRunWclCoverage: (() => {
+      const slots = Math.max(survivalRunSelection.selectedRuns.length, survivalRows.length);
+      return slots > 0 ? survivalRows.length / slots : 0;
+    })(),
     logFreshness: freshness,
     requestCost: survivalCost,
+    lateBoundRunCount: survivalLateBoundRunCount,
+    bindPoolSize: survivalBindPool.length,
   });
   observations.push(...wclSurvival.observations);
 

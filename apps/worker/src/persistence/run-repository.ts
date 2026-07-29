@@ -145,6 +145,14 @@ export interface RunRepository {
     activeSeasonId: string,
   ): Promise<{ detachedParticipations: number; deletedRuns: number }>;
   findWclSource(runId: string): Promise<{ reportCode: string; fightId: number } | null>;
+  /**
+   * Attach (or re-point) a WARCRAFT_LOGS report+fight onto a canonical MythicRun.
+   * Used by Survival late-bind when fusion did not persist the source earlier.
+   */
+  attachWclSource(
+    runId: string,
+    source: { reportCode: string; fightId: number; externalUrl?: string | null },
+  ): Promise<{ reportCode: string; fightId: number }>;
   findLatestAnalysisCoverage(
     characterId: string,
     runId: string,
@@ -634,7 +642,60 @@ export function createRunRepository(prisma: PrismaClient): RunRepository {
       const source = await prisma.runSourceReference.findFirst({
         where: { runId, provider: "WARCRAFT_LOGS" },
       });
-      if (!source?.reportCode || source.fightId === null) return null;
+      if (!source?.reportCode || source.fightId == null || source.fightId <= 0) return null;
+      return { reportCode: source.reportCode, fightId: source.fightId };
+    },
+
+    async attachWclSource(runId, source) {
+      if (!source.reportCode || source.fightId <= 0) {
+        throw new Error("attachWclSource requires reportCode and fightId > 0");
+      }
+      const externalRunId = `${source.reportCode}:${source.fightId}`;
+      const externalUrl =
+        source.externalUrl ??
+        `https://www.warcraftlogs.com/reports/${source.reportCode}?fight=${source.fightId}`;
+
+      // Prefer moving an existing unique (provider, reportCode, fightId) row onto this run.
+      const byReportFight = await prisma.runSourceReference.findFirst({
+        where: {
+          provider: "WARCRAFT_LOGS",
+          reportCode: source.reportCode,
+          fightId: source.fightId,
+        },
+      });
+      if (byReportFight) {
+        if (byReportFight.runId !== runId) {
+          await prisma.runSourceReference.update({
+            where: { id: byReportFight.id },
+            data: { runId, externalUrl, externalRunId },
+          });
+        }
+        return { reportCode: source.reportCode, fightId: source.fightId };
+      }
+
+      await prisma.runSourceReference.upsert({
+        where: {
+          provider_externalRunId: {
+            provider: "WARCRAFT_LOGS",
+            externalRunId,
+          },
+        },
+        update: {
+          runId,
+          externalUrl,
+          reportCode: source.reportCode,
+          fightId: source.fightId,
+        },
+        create: {
+          runId,
+          provider: "WARCRAFT_LOGS",
+          externalRunId,
+          externalUrl,
+          reportCode: source.reportCode,
+          fightId: source.fightId,
+          revision: null,
+        },
+      });
       return { reportCode: source.reportCode, fightId: source.fightId };
     },
 

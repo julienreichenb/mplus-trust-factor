@@ -224,6 +224,8 @@ export interface BuildWclSurvivalInput {
   selectedRunWclCoverage: number;
   logFreshness?: number;
   requestCost?: SurvivalRequestCostBreakdown;
+  lateBoundRunCount?: number;
+  bindPoolSize?: number;
 }
 
 export interface BuildWclSurvivalResult {
@@ -339,9 +341,18 @@ export function buildWclSurvivalObservations(
             `reused=${input.requestCost.reusedRunAnalyses}`,
             `new=${input.requestCost.newRunAnalyses}`,
             `rejected=${input.requestCost.rejectedCandidates.length}`,
+            ...input.requestCost.rejectedCandidates.map(
+              (r) =>
+                `reject:${r.reason}${r.dungeonSlug ? `@${r.dungeonSlug}` : ""}${r.runId ? `/${r.runId}` : ""}`,
+            ),
           ],
         }
       : undefined,
+    diagnostics: {
+      rejectedCandidates: input.requestCost?.rejectedCandidates ?? [],
+      lateBoundRunCount: input.lateBoundRunCount,
+      bindPoolSize: input.bindPoolSize,
+    },
   });
 
   const survivalMetricWeights = resolveSurvivalMetricWeights();
