@@ -36,6 +36,8 @@ export function applyUtilityShadowRefreshBoundary(input: {
   observedAt?: string;
   classSlug?: string | null;
   specSlug?: string | null;
+  scoreModelConfig?: unknown;
+  gates?: Parameters<typeof applyUtilityPublicationBoundary>[0]["gates"];
 }): UtilityShadowRefreshResult {
   const shadow = input.shadowScoreInput
     ? runUtilityObservedShadowPass(input.shadowScoreInput)
@@ -60,6 +62,8 @@ export function applyUtilityShadowRefreshBoundary(input: {
     observedAt: input.observedAt ?? new Date().toISOString(),
     classSlug: input.classSlug,
     specSlug: input.specSlug,
+    scoreModelConfig: input.scoreModelConfig,
+    gates: input.gates,
   });
 
   return {

@@ -35,6 +35,21 @@ describe("database integration", () => {
     });
     expect(v6).not.toBeNull();
     expect(v6?.status).toBe("ACTIVE");
+    const config = v6?.config as {
+      utilityPublicationEligibility?: {
+        minAnalyzedRuns: number;
+        minConfidence: number;
+        minEvidenceCoverage: number;
+        minObservedDomains: number;
+      };
+    };
+    expect(config.utilityPublicationEligibility).toEqual({
+      minAnalyzedRuns: 3,
+      minConfidence: 0.45,
+      minEvidenceCoverage: 0.5,
+      minObservedDomains: 2,
+    });
+    expect((config as { overallFormula?: string }).overallFormula).toBe("WEIGHTED_DIMENSIONS");
 
     for (const version of [1, 2, 3, 4, 5] as const) {
       const older = await prisma.scoreModel.findUnique({
@@ -42,6 +57,14 @@ describe("database integration", () => {
       });
       expect(older).not.toBeNull();
       expect(older?.status).toBe("ARCHIVED");
+      const olderConfig = older?.config as {
+        utilityPublicationEligibility?: unknown;
+        overallFormula?: string;
+      };
+      expect(olderConfig.utilityPublicationEligibility).toBeUndefined();
+      expect(olderConfig.overallFormula ?? "LEGACY_AUTHENTICITY_CONFIDENCE_BLEND").not.toBe(
+        "WEIGHTED_DIMENSIONS",
+      );
     }
   });
 });

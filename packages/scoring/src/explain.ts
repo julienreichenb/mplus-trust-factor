@@ -8,6 +8,7 @@ import type {
   ScoringContext,
 } from "./types.js";
 import type { ModelCoverageSummary } from "./model-coverage.js";
+import { buildOverallCalculationBreakdown } from "./trust.js";
 
 export function explainScore(input: {
   dimensions: DimensionScoreResult[];
@@ -19,6 +20,7 @@ export function explainScore(input: {
 }): ScoreExplanation {
   const { dimensions, authenticity, trust, model, context, modelCoverage } = input;
   const neutral = model.confidenceNeutralScore;
+  const overallCalculation = buildOverallCalculationBreakdown({ dimensions, trust });
 
   const scored = dimensions.flatMap((d) =>
     d.contributors
@@ -65,11 +67,19 @@ export function explainScore(input: {
     .sort((a, b) => Math.abs(b.contribution) - Math.abs(a.contribution))
     .slice(0, 5);
 
-  const publicSummary = buildPublicSummary(trust, authenticity, topPositive, topNegative, modelCoverage);
+  const publicSummary = buildPublicSummary(
+    trust,
+    authenticity,
+    topPositive,
+    topNegative,
+    modelCoverage,
+  );
   const publicDimensions = dimensions.filter((d) => d.weight > 0);
   const adminDetail = [
     `model=${model.key}@${model.version}`,
+    `overallFormula=${trust.overallFormula}`,
     `skill=${trust.skillScore.toFixed(1)} auth=${trust.authenticityScore.toFixed(1)} conf=${(trust.confidence * 100).toFixed(0)}%`,
+    `authApplied=${trust.authenticityAppliedToOverall} confApplied=${trust.globalConfidenceAppliedToOverall}`,
     `observedTrust=${trust.observedTrust.toFixed(1)} final=${trust.overallScore.toFixed(1)} grade=${trust.grade}`,
     modelCoverage
       ? `modelCoverage=${(modelCoverage.modelCoverageRatio * 100).toFixed(0)}% state=${modelCoverage.overallState}`
@@ -92,6 +102,7 @@ export function explainScore(input: {
     modelKey: model.key,
     modelVersion: model.version,
     mechanicCatalogVersion: context.mechanicCatalogVersion ?? null,
+    overallCalculation,
   };
 }
 
@@ -120,6 +131,9 @@ function buildPublicSummary(
   }
   if (authenticity.tags.includes("CONFIRMED_REROLL") || authenticity.tags.includes("PROBABLE_REROLL")) {
     parts.push("Reroll context may explain rapid progression.");
+  }
+  if (trust.overallFormula === "WEIGHTED_DIMENSIONS") {
+    parts.push("Overall score is the weighted sum of available dimension scores.");
   }
   return parts.join(" ");
 }

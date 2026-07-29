@@ -92,6 +92,30 @@ export interface HistoricalDecayWeights {
  * Full v1 model config. Extends the slim public ScoreModelConfig fields.
  * Rich sections are scoring-package-local until a coordinated contract upgrade.
  */
+/** Model-versioned Utility publication gates (v6+). Not overridable via env. */
+export interface UtilityPublicationEligibilityConfig {
+  minAnalyzedRuns: number;
+  /** 0–1 */
+  minConfidence: number;
+  /** compatibleEvidenceCount / candidateRunCount */
+  minEvidenceCoverage: number;
+  minObservedDomains: number;
+}
+
+/**
+ * How overallScore is derived from skill + authenticity + confidence.
+ * - LEGACY_AUTHENTICITY_CONFIDENCE_BLEND: v1–v5 historical formula
+ * - WEIGHTED_DIMENSIONS: overallScore === skillScore (public dimension weights)
+ */
+export type OverallScoreFormula =
+  | "LEGACY_AUTHENTICITY_CONFIDENCE_BLEND"
+  | "WEIGHTED_DIMENSIONS";
+
+export const OVERALL_SCORE_FORMULAS: readonly OverallScoreFormula[] = [
+  "LEGACY_AUTHENTICITY_CONFIDENCE_BLEND",
+  "WEIGHTED_DIMENSIONS",
+] as const;
+
 export interface ScoreModelConfigV1 extends ScoreModelConfig {
   metricWeights: DimensionMetricWeights;
   normalization: Record<string, NormalizationSpec>;
@@ -108,6 +132,16 @@ export interface ScoreModelConfigV1 extends ScoreModelConfig {
   authenticityTags: AuthenticityTagThresholds;
   /** Metric keys suppressed by role (merged with excludeRoles on defs). */
   roleMetricExclusions: Partial<Record<Role, string[]>>;
+  /**
+   * Required for model v6+ published Utility. Absence fails closed (do not publish).
+   * Threshold changes require a new score model version.
+   */
+  utilityPublicationEligibility?: UtilityPublicationEligibilityConfig;
+  /**
+   * Overall Trust aggregation strategy. Defaults to legacy blend when omitted (v1–v5).
+   * v6+ must set WEIGHTED_DIMENSIONS explicitly in the versioned config.
+   */
+  overallFormula?: OverallScoreFormula;
 }
 
 export interface ScoringContext {
@@ -195,6 +229,31 @@ export interface FinalTrustResult {
   confidence: number;
   overallScore: number;
   grade: Grade;
+  overallFormula: OverallScoreFormula;
+  authenticityAppliedToOverall: boolean;
+  globalConfidenceAppliedToOverall: boolean;
+}
+
+export interface OverallDimensionContribution {
+  dimension: ScoreDimension;
+  score: number | null;
+  configuredWeight: number;
+  effectiveWeight: number;
+  weightedContribution: number;
+  confidence: number;
+  state: "AVAILABLE" | "PARTIAL" | "UNAVAILABLE";
+}
+
+export interface OverallCalculationBreakdown {
+  overallFormula: OverallScoreFormula;
+  dimensions: OverallDimensionContribution[];
+  skillScore: number;
+  authenticityScore: number;
+  authenticityAppliedToOverall: boolean;
+  globalConfidence: number;
+  globalConfidenceAppliedToOverall: boolean;
+  overallScore: number;
+  roundingMode: "none_internal_round_for_presentation";
 }
 
 export interface ExplanationContributor {
@@ -216,6 +275,7 @@ export interface ScoreExplanation {
   modelKey: string;
   modelVersion: number;
   mechanicCatalogVersion: string | null;
+  overallCalculation?: OverallCalculationBreakdown;
 }
 
 export interface CalculateScoreEngineInput {

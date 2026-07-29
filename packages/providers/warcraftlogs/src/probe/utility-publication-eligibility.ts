@@ -1,6 +1,6 @@
 /**
  * Utility publication eligibility gates (OBSERVED_CONTRIBUTION → public Trust).
- * Staging defaults match UTILITY_MIN_* env vars.
+ * Thresholds come from the active score model config (v6+), never from environment.
  */
 export const UTILITY_PUBLICATION_METRIC_KEY = "utility.observed_contribution";
 
@@ -13,36 +13,13 @@ export interface UtilityPublicationGateConfig {
   minObservedDomains: number;
 }
 
-export const DEFAULT_UTILITY_PUBLICATION_GATES: UtilityPublicationGateConfig = {
+/** Documented v6 defaults — used only when reading a complete model config object. */
+export const MODEL_V6_UTILITY_PUBLICATION_GATES: UtilityPublicationGateConfig = {
   minAnalyzedRuns: 3,
   minConfidence: 0.45,
   minEvidenceCoverage: 0.5,
   minObservedDomains: 2,
 };
-
-export function parseUtilityPublicationGates(
-  env: NodeJS.ProcessEnv = process.env,
-): UtilityPublicationGateConfig {
-  const num = (key: string, fallback: number): number => {
-    const raw = env[key];
-    if (raw == null || raw.trim() === "") return fallback;
-    const n = Number(raw);
-    return Number.isFinite(n) ? n : fallback;
-  };
-  return {
-    minAnalyzedRuns: Math.max(0, Math.floor(num("UTILITY_MIN_ANALYZED_RUNS", DEFAULT_UTILITY_PUBLICATION_GATES.minAnalyzedRuns))),
-    minConfidence: clamp01(
-      num("UTILITY_MIN_CONFIDENCE", DEFAULT_UTILITY_PUBLICATION_GATES.minConfidence),
-    ),
-    minEvidenceCoverage: clamp01(
-      num("UTILITY_MIN_EVIDENCE_COVERAGE", DEFAULT_UTILITY_PUBLICATION_GATES.minEvidenceCoverage),
-    ),
-    minObservedDomains: Math.max(
-      0,
-      Math.floor(num("UTILITY_MIN_OBSERVED_DOMAINS", DEFAULT_UTILITY_PUBLICATION_GATES.minObservedDomains)),
-    ),
-  };
-}
 
 function clamp01(n: number): number {
   if (!Number.isFinite(n)) return 0;
@@ -58,6 +35,8 @@ export function normalizeUtilityConfidence(confidence: number | null | undefined
 export type UtilityPublicationRejectionReason =
   | "PUBLICATION_MODE_OFF"
   | "PUBLICATION_MODE_SHADOW"
+  | "MODEL_ELIGIBILITY_CONFIG_MISSING"
+  | "MODEL_ELIGIBILITY_CONFIG_INVALID"
   | "SHADOW_STATUS_NOT_SCORED"
   | "NO_RELIABILITY_ADJUSTED_SCORE"
   | "INSUFFICIENT_ANALYZED_RUNS"
@@ -94,23 +73,63 @@ export interface UtilityPublicationEligibilityInput {
   reliabilityAdjustedScore: number | null | undefined;
   confidence: number | null | undefined;
   coverage: UtilityPublicationCoverageInput;
-  gates?: UtilityPublicationGateConfig;
+  /**
+   * Gates from ScoreModel.config.utilityPublicationEligibility.
+   * Required for published mode — missing/invalid fails closed.
+   */
+  gates: UtilityPublicationGateConfig | null | undefined;
 }
 
 export interface UtilityPublicationEligibilityResult {
   eligible: boolean;
   reasons: UtilityPublicationRejectionReason[];
-  gates: UtilityPublicationGateConfig;
+  gates: UtilityPublicationGateConfig | null;
   evidenceCoverage: number;
   confidence01: number;
   analyzedRunCount: number;
   observedDomainCount: number;
 }
 
+/**
+ * Parse and validate utilityPublicationEligibility from a score model config JSON.
+ * Returns null when missing or invalid (caller must fail closed).
+ */
+export function readUtilityPublicationGatesFromModelConfig(
+  config: unknown,
+): UtilityPublicationGateConfig | null {
+  if (config == null || typeof config !== "object" || Array.isArray(config)) return null;
+  const raw = (config as Record<string, unknown>).utilityPublicationEligibility;
+  if (raw == null || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const row = raw as Record<string, unknown>;
+  const minAnalyzedRuns = Number(row.minAnalyzedRuns);
+  const minConfidence = Number(row.minConfidence);
+  const minEvidenceCoverage = Number(row.minEvidenceCoverage);
+  const minObservedDomains = Number(row.minObservedDomains);
+  if (
+    !Number.isFinite(minAnalyzedRuns) ||
+    minAnalyzedRuns < 0 ||
+    !Number.isFinite(minConfidence) ||
+    minConfidence < 0 ||
+    minConfidence > 1 ||
+    !Number.isFinite(minEvidenceCoverage) ||
+    minEvidenceCoverage < 0 ||
+    minEvidenceCoverage > 1 ||
+    !Number.isFinite(minObservedDomains) ||
+    minObservedDomains < 0
+  ) {
+    return null;
+  }
+  return {
+    minAnalyzedRuns: Math.floor(minAnalyzedRuns),
+    minConfidence,
+    minEvidenceCoverage,
+    minObservedDomains: Math.floor(minObservedDomains),
+  };
+}
+
 export function evaluateUtilityPublicationEligibility(
   input: UtilityPublicationEligibilityInput,
 ): UtilityPublicationEligibilityResult {
-  const gates = input.gates ?? DEFAULT_UTILITY_PUBLICATION_GATES;
   const reasons: UtilityPublicationRejectionReason[] = [];
   const coverage = input.coverage ?? {};
 
@@ -118,6 +137,26 @@ export function evaluateUtilityPublicationEligibility(
     reasons.push("PUBLICATION_MODE_OFF");
   } else if (input.publicationMode === "shadow") {
     reasons.push("PUBLICATION_MODE_SHADOW");
+  }
+
+  let gates: UtilityPublicationGateConfig | null = null;
+  if (input.publicationMode === "published") {
+    if (input.gates == null) {
+      reasons.push("MODEL_ELIGIBILITY_CONFIG_MISSING");
+    } else {
+      const validated = readUtilityPublicationGatesFromModelConfig({
+        utilityPublicationEligibility: input.gates,
+      });
+      if (!validated) {
+        reasons.push("MODEL_ELIGIBILITY_CONFIG_INVALID");
+      } else {
+        gates = validated;
+      }
+    }
+  } else if (input.gates != null) {
+    gates = readUtilityPublicationGatesFromModelConfig({
+      utilityPublicationEligibility: input.gates,
+    });
   }
 
   if (input.shadowStatus !== "SHADOW_SCORED") {
@@ -132,26 +171,26 @@ export function evaluateUtilityPublicationEligibility(
   }
 
   const analyzedRunCount = coverage.analyzedRunCount ?? 0;
-  if (analyzedRunCount < gates.minAnalyzedRuns) {
-    reasons.push("INSUFFICIENT_ANALYZED_RUNS");
-  }
-
   const confidence01 = normalizeUtilityConfidence(input.confidence);
-  if (confidence01 < gates.minConfidence) {
-    reasons.push("INSUFFICIENT_CONFIDENCE");
-  }
-
   const candidate = Math.max(coverage.candidateRunCount ?? 0, 1);
   const compatible = coverage.compatibleEvidenceCount ?? 0;
   const evidenceCoverage =
     (coverage.candidateRunCount ?? 0) === 0 ? 0 : compatible / candidate;
-  if (evidenceCoverage < gates.minEvidenceCoverage) {
-    reasons.push("INSUFFICIENT_EVIDENCE_COVERAGE");
-  }
-
   const observedDomainCount = coverage.observedDomainCount ?? 0;
-  if (observedDomainCount < gates.minObservedDomains) {
-    reasons.push("INSUFFICIENT_OBSERVED_DOMAINS");
+
+  if (gates) {
+    if (analyzedRunCount < gates.minAnalyzedRuns) {
+      reasons.push("INSUFFICIENT_ANALYZED_RUNS");
+    }
+    if (confidence01 < gates.minConfidence) {
+      reasons.push("INSUFFICIENT_CONFIDENCE");
+    }
+    if (evidenceCoverage < gates.minEvidenceCoverage) {
+      reasons.push("INSUFFICIENT_EVIDENCE_COVERAGE");
+    }
+    if (observedDomainCount < gates.minObservedDomains) {
+      reasons.push("INSUFFICIENT_OBSERVED_DOMAINS");
+    }
   }
 
   if ((coverage.missingMasterDataCount ?? 0) > 0) {
@@ -187,19 +226,10 @@ export function evaluateUtilityPublicationEligibility(
   ) {
     reasons.push("INCOMPATIBLE_EVIDENCE_VERSION");
   }
-  if (!coverage.classSlug || !coverage.specSlug) {
-    // Soft: only reject when class/spec truly unresolved during published scoring.
-    if (haystack.includes("unsupported_class") || haystack.includes("unsupported_spec")) {
-      reasons.push("UNSUPPORTED_CLASS_SPEC");
-    }
-  }
   if (haystack.includes("unsupported_class") || haystack.includes("unsupported_spec")) {
-    if (!reasons.includes("UNSUPPORTED_CLASS_SPEC")) {
-      reasons.push("UNSUPPORTED_CLASS_SPEC");
-    }
+    reasons.push("UNSUPPORTED_CLASS_SPEC");
   }
 
-  // Eligible only in published mode with zero rejection reasons.
   const finalEligible = input.publicationMode === "published" && reasons.length === 0;
 
   return {

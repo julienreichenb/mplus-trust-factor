@@ -105,6 +105,7 @@ export function createDefaultModelV1(
       HEALER: [],
       DPS: [],
     },
+    overallFormula: "LEGACY_AUTHENTICITY_CONFIDENCE_BLEND",
   };
 
   return deepMerge(base, overrides);
@@ -233,10 +234,19 @@ export function createDefaultModelV5(
   });
 }
 
+/** Canonical v6 Utility publication gates — change only via a new model version. */
+export const DEFAULT_V6_UTILITY_PUBLICATION_ELIGIBILITY = {
+  minAnalyzedRuns: 3,
+  minConfidence: 0.45,
+  minEvidenceCoverage: 0.5,
+  minObservedDomains: 2,
+} as const;
+
 /**
  * Default Trust Factor v6 — published Utility OBSERVED_CONTRIBUTION.
  * Weights unchanged: PERFORMANCE 35 / SURVIVAL 30 / UTILITY 25 / EXPERIENCE 10 / RAID 0.
  * Utility metric is a single reliability-adjusted observed contribution score.
+ * overallScore = weighted public dimensions (no authenticity / global-confidence re-blend).
  */
 export function createDefaultModelV6(
   overrides: Partial<ScoreModelConfigV1> = {},
@@ -248,6 +258,8 @@ export function createDefaultModelV6(
       ...v5.metricWeights,
       UTILITY: [{ metricKey: "utility.observed_contribution", weight: 1 }],
     },
+    utilityPublicationEligibility: { ...DEFAULT_V6_UTILITY_PUBLICATION_ELIGIBILITY },
+    overallFormula: "WEIGHTED_DIMENSIONS",
     ...overrides,
   });
 }

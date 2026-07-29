@@ -775,12 +775,10 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
     }
 
     this.revisionCache.setRevision(reportCode, report.revision);
-    if (this.revisionCache.hasAnalysis(reportCode, fightId, report.revision, analysisVersion)) {
-      throw wclError(
-        "INVALID_RESPONSE",
-        "Detailed analysis already cached for this report revision",
-      );
-    }
+    // Do NOT throw on revision-cache hits. A process-scoped boolean cache must not
+    // soft-skip fight details for later consumers (Survival / shared evidence) in the
+    // same or subsequent refreshes — that wiped Survival when combatFactsByRunId was empty.
+    // Deduplication belongs in the worker (in-memory facts map + persisted run analysis).
 
     const fight = report.fights.find((f) => f.id === fightId);
     if (!fight) {

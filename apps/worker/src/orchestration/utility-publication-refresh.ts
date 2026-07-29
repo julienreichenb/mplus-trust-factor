@@ -1,14 +1,16 @@
 /**
  * Publish eligible OBSERVED_CONTRIBUTION Utility into public Trust observations.
+ * Dimension-scoped: never removes Performance / Survival / Experience observations.
  */
 import type { MetricObservationDTO } from "@mplus/contracts";
 import {
   evaluateUtilityPublicationEligibility,
   normalizeUtilityConfidence,
-  parseUtilityPublicationGates,
+  readUtilityPublicationGatesFromModelConfig,
   UTILITY_PUBLICATION_METRIC_KEY,
   type UtilityPublicationCoverageInput,
   type UtilityPublicationEligibilityResult,
+  type UtilityPublicationGateConfig,
   type UtilityShadowPassResult,
   filterOutObservedContributionFromPublicUtility,
   stripAllUtilityObservations,
@@ -24,6 +26,22 @@ export interface UtilityPublicationBoundaryResult {
   altersPublicTrustScore: boolean;
 }
 
+function isUtilityObservation(o: { dimension?: string; metricKey: string }): boolean {
+  return o.dimension === "UTILITY" || o.metricKey.startsWith("utility.");
+}
+
+/**
+ * Replace only Utility observations; preserve every unrelated dimension observation.
+ */
+export function replaceUtilityObservationsDimensionScoped(
+  observations: MetricObservationDTO[],
+  nextUtilityObservations: MetricObservationDTO[],
+): MetricObservationDTO[] {
+  const preserved = observations.filter((o) => !isUtilityObservation(o));
+  const utilityOnly = nextUtilityObservations.filter((o) => isUtilityObservation(o));
+  return [...preserved, ...utilityOnly];
+}
+
 export function applyUtilityPublicationBoundary(input: {
   observations: MetricObservationDTO[];
   shadow: UtilityShadowPassResult;
@@ -31,12 +49,21 @@ export function applyUtilityPublicationBoundary(input: {
   observedAt: string;
   classSlug?: string | null;
   specSlug?: string | null;
+  /** Active score model config (gates read from utilityPublicationEligibility). */
+  scoreModelConfig?: unknown;
+  /** Explicit gates (tests); otherwise read from scoreModelConfig. */
+  gates?: UtilityPublicationGateConfig | null;
 }): UtilityPublicationBoundaryResult {
   const mode = input.shadow.publicationMode ?? getUtilityPublicationMode();
   const domainBreakdown = input.shadow.score?.domainBreakdown ?? [];
   const observedDomainCount =
     input.coverage.observedDomainCount ??
     domainBreakdown.filter((d) => d.applicable && (d.events ?? 0) > 0).length;
+
+  const gates =
+    input.gates !== undefined
+      ? input.gates
+      : readUtilityPublicationGatesFromModelConfig(input.scoreModelConfig);
 
   const eligibility = evaluateUtilityPublicationEligibility({
     publicationMode: mode,
@@ -50,15 +77,17 @@ export function applyUtilityPublicationBoundary(input: {
       specSlug: input.specSlug ?? input.coverage.specSlug,
       evidenceAnalysisVersion: input.coverage.evidenceAnalysisVersion ?? "wcl-run-evidence-v1",
     },
-    gates: parseUtilityPublicationGates(),
+    gates,
   });
 
-  // Always strip accidental research / unapproved observed modes first.
-  let next = filterOutObservedContributionFromPublicUtility(input.observations);
+  // Strip accidental research / unapproved observed modes from Utility only.
+  const utilityStripped = filterOutObservedContributionFromPublicUtility(
+    input.observations.filter((o) => isUtilityObservation(o)),
+  );
+  let nextUtility = utilityStripped;
 
   if (mode === "published") {
-    // Never mix legacy combat-facts Utility with published observed contribution.
-    next = stripAllUtilityObservations(next);
+    nextUtility = stripAllUtilityObservations(nextUtility);
 
     if (eligibility.eligible && input.shadow.score) {
       const score = input.shadow.score.reliabilityAdjustedScore;
@@ -89,10 +118,13 @@ export function applyUtilityPublicationBoundary(input: {
           gates: eligibility.gates,
         },
       };
-      next.push(publishedObs);
+      nextUtility = [publishedObs];
       return {
         shadow: input.shadow,
-        publicUtilitySafeObservations: next,
+        publicUtilitySafeObservations: replaceUtilityObservationsDimensionScoped(
+          input.observations,
+          nextUtility,
+        ),
         eligibility,
         published: true,
         altersPublicUtility: true,
@@ -103,7 +135,10 @@ export function applyUtilityPublicationBoundary(input: {
     // Ineligible published mode: Utility stays UNAVAILABLE — no fabricated neutral/zero.
     return {
       shadow: input.shadow,
-      publicUtilitySafeObservations: next,
+      publicUtilitySafeObservations: replaceUtilityObservationsDimensionScoped(
+        input.observations,
+        nextUtility,
+      ),
       eligibility,
       published: false,
       altersPublicUtility: false,
@@ -114,7 +149,10 @@ export function applyUtilityPublicationBoundary(input: {
   // shadow / off — public Utility path unchanged (combat-facts only; no observed modes).
   return {
     shadow: input.shadow,
-    publicUtilitySafeObservations: next,
+    publicUtilitySafeObservations: replaceUtilityObservationsDimensionScoped(
+      input.observations,
+      nextUtility,
+    ),
     eligibility,
     published: false,
     altersPublicUtility: false,

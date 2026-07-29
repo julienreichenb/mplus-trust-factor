@@ -21,8 +21,10 @@ import {
   calculateScore,
   createDefaultModelV5,
   createDefaultModelV6,
+  DEFAULT_V6_UTILITY_PUBLICATION_ELIGIBILITY,
 } from "@mplus/scoring";
 
+const V6_GATES = { ...DEFAULT_V6_UTILITY_PUBLICATION_ELIGIBILITY };
 function scoredShadow(partial: Partial<UtilityShadowPassResult["score"]> = {}): UtilityShadowPassResult {
   return {
     analysisVersion: "utility-observed-shadow-v1",
@@ -123,6 +125,7 @@ describe("utility publication eligibility", () => {
       shadowStatus: "SHADOW_SCORED",
       reliabilityAdjustedScore: 61.91,
       confidence: 70,
+      gates: V6_GATES,
       coverage: {
         candidateRunCount: 15,
         compatibleEvidenceCount: 15,
@@ -145,6 +148,7 @@ describe("utility publication eligibility", () => {
       shadowStatus: "SHADOW_SCORED",
       reliabilityAdjustedScore: 55,
       confidence: 50,
+      gates: V6_GATES,
       coverage: {
         candidateRunCount: 2,
         compatibleEvidenceCount: 2,
@@ -166,6 +170,7 @@ describe("utility publication eligibility", () => {
       shadowStatus: "SHADOW_SCORED",
       reliabilityAdjustedScore: 61.91,
       confidence: 70,
+      gates: V6_GATES,
       coverage: {
         candidateRunCount: 15,
         compatibleEvidenceCount: 15,
@@ -194,6 +199,7 @@ describe("utility publication boundary", () => {
       },
     ];
     const result = applyUtilityPublicationBoundary({
+      gates: V6_GATES,
       observations: combatObs,
       shadow: scoredShadow(),
       coverage: {
@@ -224,6 +230,7 @@ describe("utility publication boundary", () => {
     shadow.status = "SKIPPED_NO_PERSISTED_EVIDENCE";
     shadow.score = null;
     const result = applyUtilityPublicationBoundary({
+      gates: V6_GATES,
       observations: [],
       shadow,
       coverage: {
@@ -258,6 +265,7 @@ describe("utility publication boundary", () => {
       },
     ];
     const result = applyUtilityPublicationBoundary({
+      gates: V6_GATES,
       observations: combatObs,
       shadow,
       coverage: {
@@ -440,6 +448,7 @@ describe("published mode scoring pass", () => {
     const { shadow, published, utilityPublicationEligible } = applyUtilityShadowRefreshBoundary({
       observations: [],
       hasPersistedSharedEvidence: false,
+      scoreModelConfig: { utilityPublicationEligibility: V6_GATES },
       shadowScoreInput: {
         mode: "shadow",
         hasPersistedSharedEvidence: false,

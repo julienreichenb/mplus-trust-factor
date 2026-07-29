@@ -160,6 +160,13 @@ const defaultModelConfigV6 = {
     ...defaultModelConfigV5.metricWeights,
     UTILITY: [{ metricKey: "utility.observed_contribution", weight: 1 }],
   },
+  utilityPublicationEligibility: {
+    minAnalyzedRuns: 3,
+    minConfidence: 0.45,
+    minEvidenceCoverage: 0.5,
+    minObservedDomains: 2,
+  },
+  overallFormula: "WEIGHTED_DIMENSIONS",
 } satisfies Prisma.InputJsonValue;
 
 const metricDefinitions: Array<{
@@ -642,7 +649,7 @@ async function seed(): Promise<void> {
     update: {
       name: "Default Trust Factor v6",
       description:
-        "Published Utility OBSERVED_CONTRIBUTION (reliability-adjusted) with v5 Experience/Performance/Survival weights",
+        "Published Utility OBSERVED_CONTRIBUTION; overallScore = weighted public dimensions (WEIGHTED_DIMENSIONS)",
       status: ScoreModelStatus.ACTIVE,
       config: defaultModelConfigV6,
       activatedAt: new Date(),
@@ -652,7 +659,7 @@ async function seed(): Promise<void> {
       version: 6,
       name: "Default Trust Factor v6",
       description:
-        "Published Utility OBSERVED_CONTRIBUTION (reliability-adjusted) with v5 Experience/Performance/Survival weights",
+        "Published Utility OBSERVED_CONTRIBUTION; overallScore = weighted public dimensions (WEIGHTED_DIMENSIONS)",
       status: ScoreModelStatus.ACTIVE,
       config: defaultModelConfigV6,
       activatedAt: new Date(),

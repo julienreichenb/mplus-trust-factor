@@ -102,5 +102,16 @@ export function validateScoreModelConfig(config: ScoreModelConfigV1): Validation
     errors.push("extremeCapLow must be < extremeCapHigh");
   }
 
+  if (
+    config.overallFormula != null &&
+    config.overallFormula !== "LEGACY_AUTHENTICITY_CONFIDENCE_BLEND" &&
+    config.overallFormula !== "WEIGHTED_DIMENSIONS"
+  ) {
+    errors.push(`overallFormula unsupported: ${String(config.overallFormula)}`);
+  }
+  if (config.version >= 6 && config.overallFormula !== "WEIGHTED_DIMENSIONS") {
+    errors.push("model version >= 6 requires overallFormula=WEIGHTED_DIMENSIONS");
+  }
+
   return { ok: errors.length === 0, errors };
 }

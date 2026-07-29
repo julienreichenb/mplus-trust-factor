@@ -14,7 +14,11 @@ import {
 } from "./model/defaults.js";
 import { presentDimensionScores } from "./present.js";
 import type { CalculateScoreEngineInput, ScoreModelConfigV1, ScoringContext } from "./types.js";
-import { calculateFinalTrust, calculateOverallConfidence, calculateSkillScore } from "./trust.js";
+import {
+  calculateFinalTrust,
+  calculateOverallConfidence,
+  calculateSkillScore,
+} from "./trust.js";
 import { validateScoreModelConfig } from "./validate.js";
 import { computeModelCoverage, filterPublicSkillDimensions } from "./model-coverage.js";
 
@@ -57,6 +61,15 @@ function coerceModel(model: CalculateScoreInput["model"]): ScoreModelConfigV1 {
     gradeThresholds: partial.gradeThresholds,
     minConfidenceForGrade: partial.minConfidenceForGrade,
     ...(partial.metricWeights ? { metricWeights: partial.metricWeights } : {}),
+    ...((partial as ScoreModelConfigV1).overallFormula
+      ? { overallFormula: (partial as ScoreModelConfigV1).overallFormula }
+      : {}),
+    ...((partial as ScoreModelConfigV1).utilityPublicationEligibility
+      ? {
+          utilityPublicationEligibility: (partial as ScoreModelConfigV1)
+            .utilityPublicationEligibility,
+        }
+      : {}),
   });
 }
 

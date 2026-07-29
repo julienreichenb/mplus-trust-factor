@@ -27,10 +27,6 @@ describe("loadEnv", () => {
     expect(env.REFRESH_DRY_RUN_ONLY).toBe(true);
     expect(env.REFRESH_TRACKED_TOP_PERCENT).toBe(25);
     expect(env.UTILITY_PUBLICATION_MODE).toBe("shadow");
-    expect(env.UTILITY_MIN_ANALYZED_RUNS).toBe(3);
-    expect(env.UTILITY_MIN_CONFIDENCE).toBe(0.45);
-    expect(env.UTILITY_MIN_EVIDENCE_COVERAGE).toBe(0.5);
-    expect(env.UTILITY_MIN_OBSERVED_DOMAINS).toBe(2);
     expect(env.ADMIN_API_KEY_EMERGENCY_FALLBACK).toBe(false);
   });
 

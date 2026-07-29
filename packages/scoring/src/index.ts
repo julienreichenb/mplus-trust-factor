@@ -36,7 +36,10 @@ export {
   calculateSkillScore,
   calculateOverallConfidence,
   calculateFinalTrust,
+  resolveOverallFormula,
+  buildOverallCalculationBreakdown,
 } from "./trust.js";
+export type { OverallScoreFormula, OverallCalculationBreakdown } from "./types.js";
 export { explainScore } from "./explain.js";
 export { computeInputFingerprint } from "./fingerprint.js";
 export {
@@ -48,6 +51,7 @@ export {
   createDefaultModelV6,
   createSurvivalFocusedModel,
   createUtilityFocusedModel,
+  DEFAULT_V6_UTILITY_PUBLICATION_ELIGIBILITY,
 } from "./model/defaults.js";
 export { presentDimensionScore, presentDimensionScores } from "./present.js";
 export {

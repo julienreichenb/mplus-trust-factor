@@ -62,9 +62,11 @@ const cards = computed(() =>
         unavailableNote:
           d.dimension === "UTILITY"
             ? "Utility combat evidence unavailable"
-            : d.reason === "NO_OBSERVATIONS"
-              ? "No compatible combat logs"
-              : "Data unavailable",
+            : d.dimension === "SURVIVAL"
+              ? "Survival combat evidence unavailable"
+              : d.reason === "NO_OBSERVATIONS"
+                ? "Data unavailable"
+                : "Data unavailable",
       };
     }),
 );

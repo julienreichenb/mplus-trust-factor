@@ -43,6 +43,12 @@ import {
   persistUtilityShadowDiagnostics,
   shadowDiagnosticsForScoreExplanation,
 } from "./utility-shadow-refresh.js";
+import {
+  combatFactsStubFromHandle,
+  readPersistedCombatFactsHandle,
+  WCL_COMBAT_FACTS_ANALYSIS_VERSION,
+} from "./persisted-combat-facts.js";
+import { replaceUtilityObservationsDimensionScoped } from "./utility-publication-refresh.js";
 import { buildCatalogCoverageDiagnostics, getAbilityCatalog } from "@mplus/abilities";
 import {
   applyRunMetadataToSelection,
@@ -322,6 +328,7 @@ function toPersistedCombatFacts(facts: RunCombatFacts) {
     fightId: facts.fightId,
     revision: facts.revision,
     targetSourceId: facts.targetSourceId,
+    attributedSourceIds: facts.attributedSourceIds,
     coverage: facts.coverage,
     limitations: facts.limitations,
   };
@@ -1330,6 +1337,38 @@ export async function runRefreshPipeline(
         });
       } catch (error) {
         if (isEnrichmentSoftSkip(error)) {
+          // Soft-skip must not drop Survival: hydrate actor/revision from persisted combat facts.
+          const persistedCombat = await repositories.run.findRunAnalysis(
+            run.id,
+            character.id,
+            WCL_COMBAT_FACTS_ANALYSIS_VERSION,
+          );
+          const handle = readPersistedCombatFactsHandle(persistedCombat?.summary);
+          if (handle && source) {
+            const stub = combatFactsStubFromHandle(handle);
+            combatFactsByRunId.set(run.id, stub);
+            if (handle.startTime != null && handle.endTime != null) {
+              fightMetaByRunId.set(run.id, {
+                startTime: handle.startTime,
+                endTime: handle.endTime,
+                encounterId: handle.encounterId,
+                encounterName: handle.encounterName,
+              });
+            }
+            runDiagnostics.push({
+              runId: run.id,
+              dungeonSlug: run.dungeon.slug,
+              keyLevel: run.keyLevel,
+              reportCode: source.reportCode,
+              fightId: source.fightId,
+              wclReportMatched: true,
+              parse: parseBinding,
+              detailedAnalysis: false,
+              reason: "fight_details_hydrated_from_persisted_combat_facts",
+              attributedSourceIds: handle.attributedSourceIds,
+            });
+            continue;
+          }
           logger.info({ identity, err: error, runId: run.id }, "refresh pipeline: analyze-run soft-skipped");
           runDiagnostics.push({
             runId: run.id,
@@ -1494,15 +1533,35 @@ export async function runRefreshPipeline(
             });
           } catch (error) {
             if (isEnrichmentSoftSkip(error)) {
-              survivalCost.rejectedCandidates.push({
-                reason: "fight_details_soft_skip",
-                runId: run.id,
-                dungeonSlug,
-              });
-              continue;
+              const persistedCombat = await repositories.run.findRunAnalysis(
+                run.id,
+                character.id,
+                WCL_COMBAT_FACTS_ANALYSIS_VERSION,
+              );
+              const handle = readPersistedCombatFactsHandle(persistedCombat?.summary);
+              if (handle) {
+                facts = combatFactsStubFromHandle(handle);
+                combatFactsByRunId.set(run.id, facts);
+                if (handle.startTime != null && handle.endTime != null) {
+                  fightMetaByRunId.set(run.id, {
+                    startTime: handle.startTime,
+                    endTime: handle.endTime,
+                    encounterId: handle.encounterId,
+                    encounterName: handle.encounterName,
+                  });
+                }
+              } else {
+                survivalCost.rejectedCandidates.push({
+                  reason: "fight_details_soft_skip",
+                  runId: run.id,
+                  dungeonSlug,
+                });
+                continue;
+              }
+            } else {
+              survivalRequiredFailed = true;
+              await failHard("analyze-run", error);
             }
-            survivalRequiredFailed = true;
-            await failHard("analyze-run", error);
           }
         }
         if (!facts) continue;
@@ -2252,6 +2311,15 @@ export async function runRefreshPipeline(
   });
   observations.push(...wclSurvival.observations);
 
+  // Load active model before Utility publication so gates come from ScoreModel.config.
+  const model = await repositories.score.getActiveModel(container.env.ACTIVE_SCORE_MODEL_KEY);
+  if (!model) {
+    const error = new Error(`No active score model found for key "${container.env.ACTIVE_SCORE_MODEL_KEY}"`);
+    await repositories.job.markFailed(job.id, error);
+    terminalized = true;
+    throw error;
+  }
+
   // ── Utility OBSERVED_CONTRIBUTION (shadow diagnostics / published when eligible) ──
   // Reuses shared evidence bundles already fetched/persisted — no extra WCL when reused.
   const utilityPublicationMode = getUtilityPublicationMode();
@@ -2269,6 +2337,7 @@ export async function runRefreshPipeline(
     observedAt: observedAtForUtility,
     classSlug,
     specSlug,
+    scoreModelConfig: model.config,
     coverage: {
       ...shadowInputs.coverage,
       classSlug,
@@ -2286,8 +2355,13 @@ export async function runRefreshPipeline(
       detailedWclEventCallsMade: shadowInputs.detailedWclEventCallsMade,
     },
   });
+  // Dimension-scoped replace — never clear Survival/Performance/Experience.
+  const nextObservations = replaceUtilityObservationsDimensionScoped(
+    observations,
+    utilityShadowBoundary.publicUtilitySafeObservations,
+  );
   observations.length = 0;
-  observations.push(...utilityShadowBoundary.publicUtilitySafeObservations);
+  observations.push(...nextObservations);
   const utilityShadow = utilityShadowBoundary.shadow;
   if (scoringRunSelection.selectedRuns[0]?.canonicalRunId) {
     try {
@@ -2338,6 +2412,20 @@ export async function runRefreshPipeline(
 
   if (wclSurvival.observations.length === 0 && (wclSummaryFailed || wclAnalyzeFailed)) {
     failedDimensions.add("SURVIVAL");
+  } else if (wclSurvival.observations.length === 0) {
+    // Soft-skips / required Survival failure: preserve last-known-good (do not wipe to UNAVAILABLE).
+    // Genuine empty (no usable matches) leaves failedDimensions alone → UNAVAILABLE without fabricating.
+    const softSkipReasons = new Set([
+      "fight_details_soft_skip",
+      "survival_canonical_soft_skip",
+      "analyze_soft_skip",
+    ]);
+    const softSkipped = survivalCost.rejectedCandidates.some(
+      (r) => softSkipReasons.has(r.reason) || r.reason.includes("already cached"),
+    );
+    if (survivalRequiredFailed || softSkipped) {
+      failedDimensions.add("SURVIVAL");
+    }
   } else {
     for (const obs of wclSurvival.observations) {
       refreshedMetricKeys.add(obs.metricKey);
@@ -2394,16 +2482,67 @@ export async function runRefreshPipeline(
     refreshedMetricKeys,
   });
 
+  const survivalLastKnownGoodPreserved =
+    failedDimensions.has("SURVIVAL") &&
+    wclSurvival.observations.length === 0 &&
+    persistedObservations.some((o) => o.dimension === "SURVIVAL");
+  const survivalLkgObservedAt = survivalLastKnownGoodPreserved
+    ? persistedObservations
+        .filter((o) => o.dimension === "SURVIVAL")
+        .map((o) => Date.parse(o.observedAt))
+        .filter((t) => Number.isFinite(t))
+        .sort((a, b) => b - a)[0]
+    : null;
+  const survivalEvidenceDiagnostics = {
+    survivalStatus:
+      wclSurvival.observations.length > 0
+        ? "SCORED"
+        : survivalLastKnownGoodPreserved
+          ? "LAST_KNOWN_GOOD_PRESERVED"
+          : "UNAVAILABLE",
+    candidateRunCount: survivalRunSelection.selectedRuns.length,
+    matchedReportCount: survivalRunSelection.selectedRuns.filter((r) => r.wclReportMatched).length,
+    compatibleEvidenceCount: survivalRows.length,
+    completeSurvivalEvidenceCount: survivalRows.length,
+    incompleteEvidenceCount: survivalCost.rejectedCandidates.filter((r) =>
+      r.reason.includes("incomplete") || r.reason.includes("soft_skip"),
+    ).length,
+    reusedEvidenceCount: survivalCost.reusedRunAnalyses,
+    newlyFetchedEvidenceCount: survivalCost.newRunAnalyses,
+    analyzedRunCount: survivalRows.length,
+    rejectedRunCount: survivalCost.rejectedCandidates.length,
+    missingDatasets: [
+      ...new Set(
+        survivalCost.rejectedCandidates
+          .map((r) => r.reason)
+          .filter((reason) => reason.includes("missing") || reason.includes("incomplete")),
+      ),
+    ],
+    actorAttributionFailures: survivalCost.rejectedCandidates.filter((r) =>
+      r.reason.includes("actor") || r.reason.includes("attribution"),
+    ).length,
+    staleRevisionCount: survivalCost.rejectedCandidates.filter((r) =>
+      r.reason.includes("revision") || r.reason.includes("stale"),
+    ).length,
+    detailedWclEventCallsMade: sharedEvidenceDetailedEventCalls,
+    lastKnownGoodPreserved: survivalLastKnownGoodPreserved,
+    lastKnownGoodAgeSeconds:
+      survivalLkgObservedAt != null
+        ? Math.max(0, Math.round((scoreCalculatedAt.getTime() - survivalLkgObservedAt) / 1000))
+        : null,
+    rejectionReasons: survivalCost.rejectedCandidates.slice(0, 40),
+    reasons:
+      wclSurvival.observations.length > 0
+        ? []
+        : survivalLastKnownGoodPreserved
+          ? ["SURVIVAL_REFRESH_INCOMPLETE_LKG_PRESERVED"]
+          : ["NO_SURVIVAL_OBSERVATIONS"],
+  };
+
   await repositories.metric.upsertObservations(character.id, season.id, mergedObservations);
 
   // ── Calculate + structurally validate score ─────────────────────────────
-  const model = await repositories.score.getActiveModel(container.env.ACTIVE_SCORE_MODEL_KEY);
-  if (!model) {
-    const error = new Error(`No active score model found for key "${container.env.ACTIVE_SCORE_MODEL_KEY}"`);
-    await repositories.job.markFailed(job.id, error);
-    terminalized = true;
-    throw error;
-  }
+  // Active model already loaded before Utility publication.
 
   const modelConfig = {
     ...(model.config as unknown as ScoreModelConfig & Record<string, unknown>),
@@ -2439,6 +2578,12 @@ export async function runRefreshPipeline(
       refreshContract,
       scoringRunSelectionKey: buildScoringRunSelectionKey(scoringRunSelection.selectedRuns),
       forceRefreshToken: jobPayload.forceRefresh ? jobPayload.requestedAt : null,
+      overallFormula:
+        typeof (model.config as { overallFormula?: unknown }).overallFormula === "string"
+          ? String((model.config as { overallFormula: string }).overallFormula)
+          : model.version >= 6
+            ? "WEIGHTED_DIMENSIONS"
+            : "LEGACY_AUTHENTICITY_CONFIDENCE_BLEND",
     }),
     context: {
       role: character.role ?? blizzardProfile?.role ?? raiderIoProfile?.role ?? "DPS",
@@ -2561,6 +2706,7 @@ export async function runRefreshPipeline(
           wclDataState,
           performanceSummary: wclPerformance.summary,
           survivalSummary: wclSurvival.summary,
+          survivalEvidence: survivalEvidenceDiagnostics,
           utilityObservedShadow: shadowDiagnosticsForScoreExplanation(
             utilityShadow,
             {

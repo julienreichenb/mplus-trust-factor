@@ -5,7 +5,7 @@ import type { ScoreModelConfigV1, ScoringContext } from "./types.js";
 export function computeInputFingerprint(parts: {
   characterId: string;
   seasonSlug: string;
-  model: Pick<ScoreModelConfigV1, "key" | "version">;
+  model: Pick<ScoreModelConfigV1, "key" | "version" | "overallFormula">;
   scopeType: string;
   scopeKey: string | null;
   observations: MetricObservationDTO[];
@@ -30,6 +30,7 @@ export function computeInputFingerprint(parts: {
     seasonSlug: parts.seasonSlug,
     modelKey: parts.model.key,
     modelVersion: parts.model.version,
+    overallFormula: parts.model.overallFormula ?? "LEGACY_AUTHENTICITY_CONFIDENCE_BLEND",
     scopeType: parts.scopeType,
     scopeKey: parts.scopeKey,
     observations: obs,

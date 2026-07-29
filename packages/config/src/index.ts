@@ -63,17 +63,10 @@ export const envSchema = z
      * Utility OBSERVED_CONTRIBUTION publication gate.
      * - off: do not compute observed Utility
      * - shadow (default): compute admin diagnostics only; public Utility / Trust unchanged
-     * - published: publish utility.observed_contribution when eligibility gates pass
+     * - published: publish utility.observed_contribution when model v6 eligibility gates pass
+     * Thresholds live on ScoreModel.config.utilityPublicationEligibility — not env.
      */
     UTILITY_PUBLICATION_MODE: z.enum(["off", "shadow", "published"]).default("shadow"),
-    /** Minimum analyzed runs required to publish Utility (staging default 3). */
-    UTILITY_MIN_ANALYZED_RUNS: z.coerce.number().int().nonnegative().default(3),
-    /** Minimum confidence (0–1) required to publish Utility. */
-    UTILITY_MIN_CONFIDENCE: z.coerce.number().min(0).max(1).default(0.45),
-    /** Minimum evidence coverage ratio (compatible/candidate) to publish Utility. */
-    UTILITY_MIN_EVIDENCE_COVERAGE: z.coerce.number().min(0).max(1).default(0.5),
-    /** Minimum observed Utility domains with events to publish. */
-    UTILITY_MIN_OBSERVED_DOMAINS: z.coerce.number().int().nonnegative().default(2),
     MANUAL_REFRESH_COOLDOWN_SECONDS: z.coerce.number().int().positive().default(900),
 
     /**
