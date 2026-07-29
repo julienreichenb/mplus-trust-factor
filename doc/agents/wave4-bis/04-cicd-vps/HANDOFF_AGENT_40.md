@@ -43,4 +43,5 @@ Results (local):
 
 ## Commit hashes
 
-See git log on `agent/wave4.3-cicd-vps`.
+- `b56ea72` — feat(cicd): add dual-env CI/CD and VPS deployment foundation
+- `a157a39` — docs(ops): document dual-environment VPS topology and runbooks
