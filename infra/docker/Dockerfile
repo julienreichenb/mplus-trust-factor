@@ -86,7 +86,10 @@ CMD ["node", "apps/worker/dist/index.js"]
 # -----------------------------------------------------------------------------
 FROM runtime-prep AS migrate
 # One-shot migration image — never use prisma migrate reset in production.
+# Invoke the local Prisma CLI directly (no pnpm/Corepack) so the non-root
+# `mplus` user never needs a writable /app/.cache for Corepack.
 USER root
 RUN mkdir -p /var/lock/mplus && chown mplus:mplus /var/lock/mplus
 USER mplus
-CMD ["pnpm", "--filter", "@mplus/database", "exec", "prisma", "migrate", "deploy"]
+WORKDIR /app/packages/database
+CMD ["./node_modules/.bin/prisma", "migrate", "deploy"]
