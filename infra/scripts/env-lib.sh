@@ -59,6 +59,7 @@ require_env_file() {
 
 compose_app() {
   # Explicit project name — never rely on directory name.
+  # ENV_FILE must already be exported (resolve_mplus_env) for compose interpolation.
   docker compose \
     -p "${COMPOSE_PROJECT}" \
     -f "${APP_COMPOSE}" \

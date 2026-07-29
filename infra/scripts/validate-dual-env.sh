@@ -4,7 +4,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
-# shellcheck source=env-lib.sh
+# shellcheck source=./env-lib.sh
 source "${SCRIPT_DIR}/env-lib.sh"
 
 export MPLUS_ROOT="${ROOT_DIR}/infra/deploy"
@@ -42,12 +42,12 @@ for env in prod test; do
   compose_app config --quiet
 
   CFG="$(compose_app config)"
-  echo "${CFG}" | grep -qi "ports:" && {
-    # Only redis/postgres/api must not publish — scan published host ports
+  if echo "${CFG}" | grep -qi "ports:"; then
+    # App stacks must not publish host ports (edge owns 80/443 only)
     if echo "${CFG}" | grep -E 'published:|"80:|"443:|"5432:|"6379:|"3000:|"3001:|"8080:' | grep -v caddy; then
       die "${env}: unexpected published ports in app stack"
     fi
-  } || true
+  fi
 
   # Ensure no host port bindings on postgres/redis in rendered config
   if echo "${CFG}" | awk '/^  postgres:/{p=1} /^  [a-z]/{if($1!="postgres:")p=0} p && /published:/' | grep -q .; then

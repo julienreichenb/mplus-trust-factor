@@ -55,7 +55,7 @@ services:
     restart: *default-restart
     logging: *default-logging
     env_file:
-      - ${ENV_FILE:-.env}
+      - ${ENV_FILE:?ENV_FILE must point to the environment .env}
     environment:
       NODE_ENV: production
       APP_ENV: ${APP_ENV:?APP_ENV is required}
@@ -94,7 +94,7 @@ services:
     restart: *default-restart
     logging: *default-logging
     env_file:
-      - ${ENV_FILE:-.env}
+      - ${ENV_FILE:?ENV_FILE must point to the environment .env}
     environment:
       NODE_ENV: production
       APP_ENV: ${APP_ENV}

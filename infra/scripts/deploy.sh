@@ -6,7 +6,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=env-lib.sh
+# shellcheck source=./env-lib.sh
 source "${SCRIPT_DIR}/env-lib.sh"
 
 TARGET="${1:-}"
@@ -31,7 +31,10 @@ die() { printf '[deploy:%s] ERROR: %s\n' "${MPLUS_ENV}" "$*" >&2; exit 1; }
 # shellcheck disable=SC1090
 _PRESERVE_IMAGE_TAG="${IMAGE_TAG:-}"
 _PRESERVE_GHCR_OWNER="${GHCR_OWNER:-}"
-set -a; source "${ENV_FILE}"; set +a
+set -a
+# shellcheck disable=SC1090
+source "${ENV_FILE}"
+set +a
 [[ -n "${_PRESERVE_IMAGE_TAG}" ]] && IMAGE_TAG="${_PRESERVE_IMAGE_TAG}"
 [[ -n "${_PRESERVE_GHCR_OWNER}" ]] && GHCR_OWNER="${_PRESERVE_GHCR_OWNER}"
 export IMAGE_TAG GHCR_OWNER

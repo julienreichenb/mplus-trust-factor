@@ -4,7 +4,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=env-lib.sh
+# shellcheck source=./env-lib.sh
 source "${SCRIPT_DIR}/env-lib.sh"
 
 resolve_mplus_env "${1:-}" || exit 2
@@ -13,7 +13,10 @@ TARGET_TAG="${1:-}"
 
 require_env_file
 # shellcheck disable=SC1090
-set -a; source "${ENV_FILE}"; set +a
+set -a
+# shellcheck disable=SC1090
+source "${ENV_FILE}"
+set +a
 
 if [[ -z "${TARGET_TAG}" ]]; then
   if [[ -f "${RELEASE_DIR}/history.tsv" ]]; then
