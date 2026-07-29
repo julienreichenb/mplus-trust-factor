@@ -101,6 +101,8 @@ const explanation = (latest?.explanation ?? result.score?.explanation ?? {}) as 
     };
     pressureClusterCount?: number;
     deathCount?: number;
+    defensiveCounts?: { covered?: number; missed?: number; na?: number };
+    recoveryCounts?: { covered?: number; missed?: number; na?: number };
     maxHpDiagnostics?: { invalidOutlierCount?: number; baselineResolvedRunCount?: number };
     requestCost?: { wclRequestCount?: number; notes?: string[] };
     dungeons?: Array<{ dungeonSlug: string }>;

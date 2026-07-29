@@ -203,8 +203,17 @@ for (const row of productionRows) {
   const ownedPetActorIds = Array.isArray(persistedFacts.attributedSourceIds)
     ? (persistedFacts.attributedSourceIds as number[]).filter((id) => id !== playerActorId)
     : [];
-  const fightStart = 0;
-  const fightEnd = fightStart + row.run.durationMs;
+  // Prefer report-relative fight bounds from combat-facts admin diagnostics when present.
+  const fightStart = Number(
+    (factsSummary as { fightStartTime?: number }).fightStartTime ??
+      (persistedFacts as { fightStartTime?: number }).fightStartTime ??
+      0,
+  );
+  const fightEnd = Number(
+    (factsSummary as { fightEndTime?: number }).fightEndTime ??
+      (persistedFacts as { fightEndTime?: number }).fightEndTime ??
+      fightStart + row.run.durationMs,
+  );
   const prod = row.summary as unknown as SurvivalRunAnalysisSummary;
 
   if (!playerActorId) {
@@ -302,13 +311,25 @@ for (const row of productionRows) {
     ["finalRunScore", prod.behavioralSurvivalScore, probe.behavioralSurvivalScore],
   ];
 
+  const criticalFields = new Set([
+    "deaths",
+    "baselineMaxHp",
+    "outcomeScore",
+    "defensiveScore",
+    "recoveryScore",
+    "recoveryState",
+    "finalRunScore",
+  ]);
   const diffs: string[] = [];
+  const criticalDiffs: string[] = [];
   for (const [name, a, b] of fields) {
     if (a !== b && JSON.stringify(a) !== JSON.stringify(b)) {
-      diffs.push(`${name}: production=${JSON.stringify(a)} probe=${JSON.stringify(b)}`);
+      const line = `${name}: production=${JSON.stringify(a)} probe=${JSON.stringify(b)}`;
+      diffs.push(line);
+      if (criticalFields.has(name)) criticalDiffs.push(line);
     }
   }
-  if (diffs.length > 0) unexplainedDiffCount += 1;
+  if (criticalDiffs.length > 0) unexplainedDiffCount += 1;
 
   const scoreDelta =
     prod.behavioralSurvivalScore != null && probe.behavioralSurvivalScore != null

@@ -38,7 +38,15 @@ resetEnvCache();
 const env = loadEnv();
 const prisma = createPrismaClient(env.DATABASE_URL);
 const worker = createWorkerContainer(env, { prisma });
-const budget = await worker.providers.warcraftlogs.fetchRateLimit({
+const live = worker.providers.warcraftlogs as unknown as {
+  fetchRateLimit: (ctx: {
+    region: "EU";
+    requestId: string;
+    now: string;
+    targetCharacter: { region: "EU"; realmSlug: string; name: string };
+  }) => Promise<unknown>;
+};
+const budget = await live.fetchRateLimit({
   region: "EU",
   requestId: `rl-${Date.now()}`,
   now: new Date().toISOString(),

@@ -474,6 +474,7 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
       specSlug: input.specSlug,
       eventPagesComplete: !fetched.truncated,
       maxHpFailureReason: fetched.maxHpFailureReason,
+      snapshotSourceCounts: fetched.snapshotSourceCounts,
     });
     return providerEnvelope(
       {

@@ -73,6 +73,93 @@ function emptyDataset(
 }
 
 /**
+ * Merge explicit HP evidence from every probe-parity health source.
+ * Used by live canonical fetch and offline artifact / parity tests.
+ */
+export function collectCanonicalHealthSnapshots(input: {
+  playerActorId: number;
+  playerName?: string | null;
+  damageTakenEvents?: Array<Record<string, unknown>>;
+  healingEvents?: Array<Record<string, unknown>>;
+  deathsEvents?: Array<Record<string, unknown>>;
+  combatantInfoEvents?: Array<Record<string, unknown>>;
+  playerDetailsRaw?: unknown;
+}): {
+  snapshots: ExplicitHealthSnapshot[];
+  snapshotSourceCounts: Record<string, number>;
+} {
+  const snapshots: ExplicitHealthSnapshot[] = [];
+  const snapshotSourceCounts: Record<string, number> = {};
+
+  const push = (source: string, more: ExplicitHealthSnapshot[]): void => {
+    snapshotSourceCounts[source] = more.length;
+    snapshots.push(...more);
+  };
+
+  push(
+    "DamageTaken",
+    collectExplicitHealthSnapshots(
+      input.damageTakenEvents ?? [],
+      "DamageTaken",
+      input.playerActorId,
+    ),
+  );
+  push(
+    "Healing",
+    collectExplicitHealthSnapshots(
+      input.healingEvents ?? [],
+      "Healing",
+      input.playerActorId,
+    ),
+  );
+  push(
+    "Deaths",
+    collectExplicitHealthSnapshots(
+      input.deathsEvents ?? [],
+      "Deaths",
+      input.playerActorId,
+    ),
+  );
+  push(
+    "CombatantInfo",
+    collectExplicitHealthSnapshots(
+      input.combatantInfoEvents ?? [],
+      "CombatantInfo",
+      input.playerActorId,
+    ),
+  );
+  push(
+    "playerDetails",
+    collectHealthFromPlayerDetails(
+      input.playerDetailsRaw,
+      input.playerActorId,
+      input.playerName,
+    ),
+  );
+
+  return { snapshots, snapshotSourceCounts };
+}
+
+function diagnoseMaxHpFailure(input: {
+  snapshots: ExplicitHealthSnapshot[];
+  damage: SurvivalRawEventDataset;
+  snapshotSourceCounts: Record<string, number>;
+}): string | null {
+  if (input.snapshots.some((s) => s.maxHp != null && s.maxHp > 0)) return null;
+  if (input.damage.state !== "OK") {
+    return `damage_taken_dataset_${input.damage.state.toLowerCase()}`;
+  }
+  if (input.damage.events.length === 0) return "damage_taken_events_empty";
+  if (input.snapshots.length === 0) {
+    const sources = Object.entries(input.snapshotSourceCounts)
+      .map(([k, v]) => `${k}=${v}`)
+      .join(",");
+    return `no_hitpoints_on_damage_healing_deaths_combatantinfo_or_player_details_for_player_actor:${sources}`;
+  }
+  return "hitpoints_present_but_maxhp_missing_or_nonpositive";
+}
+
+/**
  * Fetch the same core Survival datasets the standalone probe uses, with
  * DamageTaken/Healing/Deaths includeResources + playerDetails for max-HP parity
  * with the V1.1 health discovery path.
@@ -109,52 +196,33 @@ export async function fetchSurvivalCanonicalDatasets(
     );
   }
 
-  const snapshots: ExplicitHealthSnapshot[] = [];
-  const snapshotSourceCounts: Record<string, number> = {};
-  for (const dataType of ["DamageTaken", "Healing", "Deaths"] as const) {
-    const ds = datasets[dataType];
-    if (ds.state !== "OK") continue;
-    const before = snapshots.length;
-    snapshots.push(
-      ...collectExplicitHealthSnapshots(ds.events, dataType, input.playerActorId),
-    );
-    snapshotSourceCounts[dataType] = snapshots.length - before;
-  }
-
   const playerDetails = await fetchPlayerDetails(client, {
     identity: input.identity,
     reportCode: input.reportCode,
     fightId: input.fightId,
   });
-  if (playerDetails.dataset.state === "OK") {
-    const before = snapshots.length;
-    snapshots.push(
-      ...collectHealthFromPlayerDetails(
-        playerDetails.dataset.rawPages[0]?.rawResponseData,
-        input.playerActorId,
-        input.identity.name,
-      ),
-    );
-    snapshotSourceCounts.playerDetails = snapshots.length - before;
-  } else {
-    snapshotSourceCounts.playerDetails = 0;
-  }
+
+  const { snapshots, snapshotSourceCounts } = collectCanonicalHealthSnapshots({
+    playerActorId: input.playerActorId,
+    playerName: input.identity.name,
+    damageTakenEvents:
+      datasets.DamageTaken.state === "OK" ? datasets.DamageTaken.events : [],
+    healingEvents: datasets.Healing.state === "OK" ? datasets.Healing.events : [],
+    deathsEvents: datasets.Deaths.state === "OK" ? datasets.Deaths.events : [],
+    combatantInfoEvents:
+      datasets.CombatantInfo.state === "OK" ? datasets.CombatantInfo.events : [],
+    playerDetailsRaw:
+      playerDetails.dataset.state === "OK"
+        ? playerDetails.dataset.rawPages[0]?.rawResponseData
+        : null,
+  });
 
   const damage = datasets.DamageTaken;
-  let maxHpFailureReason: string | null = null;
-  if (snapshots.length === 0) {
-    if (damage.state !== "OK") {
-      maxHpFailureReason = `damage_taken_dataset_${damage.state.toLowerCase()}`;
-    } else if (damage.events.length === 0) {
-      maxHpFailureReason = "damage_taken_events_empty";
-    } else {
-      maxHpFailureReason =
-        "no_hitpoints_on_damage_healing_deaths_or_player_details_for_player_actor";
-    }
-  } else if (snapshots.every((s) => s.maxHp == null || s.maxHp <= 0)) {
-    maxHpFailureReason = "hitpoints_present_but_maxhp_missing_or_nonpositive";
-  }
-
+  const maxHpFailureReason = diagnoseMaxHpFailure({
+    snapshots,
+    damage,
+    snapshotSourceCounts,
+  });
   const truncated = SURVIVAL_EVENT_TYPES.some((t) => datasets[t].truncated);
 
   return {
@@ -192,6 +260,7 @@ export interface BuildCanonicalSurvivalAnalysisInput {
   specSlug: string | null;
   eventPagesComplete: boolean;
   maxHpFailureReason?: string | null;
+  snapshotSourceCounts?: Record<string, number>;
 }
 
 export interface CanonicalSurvivalAnalysisResult {
@@ -210,6 +279,29 @@ export interface CanonicalSurvivalAnalysisResult {
 export function buildCanonicalSurvivalAnalysis(
   input: BuildCanonicalSurvivalAnalysisInput,
 ): CanonicalSurvivalAnalysisResult {
+  // Report-relative event timestamps must fall inside [fightStart, fightEnd].
+  // If callers pass duration-only bounds (start=0), widen from raw event evidence.
+  let fightStartTime = input.fightStartTime;
+  let fightEndTime = input.fightEndTime;
+  const boundTimes: number[] = input.snapshots.map((s) => s.timestamp);
+  for (const dataType of SURVIVAL_EVENT_TYPES) {
+    const ds = input.datasets[dataType];
+    if (ds.state !== "OK") continue;
+    for (const row of ds.events) {
+      if (typeof row.timestamp === "number" && Number.isFinite(row.timestamp)) {
+        boundTimes.push(row.timestamp);
+      }
+    }
+  }
+  if (boundTimes.length > 0) {
+    const minTs = Math.min(...boundTimes);
+    const maxTs = Math.max(...boundTimes);
+    if (minTs < fightStartTime || maxTs > fightEndTime) {
+      fightStartTime = Math.min(fightStartTime, minTs);
+      fightEndTime = Math.max(fightEndTime, maxTs);
+    }
+  }
+
   const candidate: SurvivalRunCandidate = {
     reportCode: input.reportCode,
     fightId: input.fightId,
@@ -217,8 +309,8 @@ export function buildCanonicalSurvivalAnalysis(
     dungeonSlug: input.dungeonSlug,
     keyLevel: input.keyLevel,
     score: input.score ?? null,
-    durationMs: Math.max(0, input.fightEndTime - input.fightStartTime),
-    startTimeMs: input.fightStartTime,
+    durationMs: Math.max(0, fightEndTime - fightStartTime),
+    startTimeMs: fightStartTime,
     completedAt: null,
     specSlug: input.specSlug,
     roleSlug: null,
@@ -237,8 +329,8 @@ export function buildCanonicalSurvivalAnalysis(
     wclCanonicalId: 0,
     playerActorId: input.playerActorId,
     ownedPetActorIds: input.ownedPetActorIds,
-    fightStartTime: input.fightStartTime,
-    fightEndTime: input.fightEndTime,
+    fightStartTime,
+    fightEndTime,
     keyLevel: input.keyLevel,
     encounterId: input.encounterId ?? null,
     encounterName: input.encounterName ?? null,
@@ -272,14 +364,25 @@ export function buildCanonicalSurvivalAnalysis(
   });
 
   const summary = { ...detailed.summary };
-  if (
-    summary.maxHpResolution.baselineMaxHp == null &&
-    input.maxHpFailureReason &&
-    !summary.maxHpResolution.resolutionFailureReason
-  ) {
+  if (summary.maxHpResolution.baselineMaxHp == null) {
+    const detailedReason =
+      input.maxHpFailureReason ??
+      summary.maxHpResolution.resolutionFailureReason ??
+      "no_explicit_max_hp_for_player_actor";
     summary.maxHpResolution = {
       ...summary.maxHpResolution,
-      resolutionFailureReason: input.maxHpFailureReason,
+      resolutionFailureReason: detailedReason,
+      rejectionReasons: {
+        ...summary.maxHpResolution.rejectionReasons,
+        ...(input.snapshotSourceCounts
+          ? Object.fromEntries(
+              Object.entries(input.snapshotSourceCounts).map(([k, v]) => [
+                `snapshot_source_${k}`,
+                v,
+              ]),
+            )
+          : {}),
+      },
     };
   }
 
