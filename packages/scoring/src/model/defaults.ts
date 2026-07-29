@@ -208,6 +208,31 @@ export function createDefaultModelV4(
   });
 }
 
+/**
+ * Default Trust Factor v5 — Experience V2 (exposure, not skill).
+ * Trust weights unchanged: PERFORMANCE 35 / SURVIVAL 30 / UTILITY 25 / EXPERIENCE 10 / RAID 0.
+ * Removes mythic_rating, top_level_repeat, volume_recency, role_continuity from Experience.
+ */
+export function createDefaultModelV5(
+  overrides: Partial<ScoreModelConfigV1> = {},
+): ScoreModelConfigV1 {
+  const v4 = createDefaultModelV4();
+  return createDefaultModelV4({
+    version: 5,
+    metricWeights: {
+      ...v4.metricWeights,
+      EXPERIENCE: [
+        { metricKey: "experience.dungeon_breadth", weight: 0.3 },
+        { metricKey: "experience.key_band_breadth", weight: 0.22 },
+        { metricKey: "experience.participation_depth", weight: 0.2 },
+        { metricKey: "experience.historical_seasons", weight: 0.18 },
+        { metricKey: "experience.activity_recency", weight: 0.1 },
+      ],
+    },
+    ...overrides,
+  });
+}
+
 function deepMerge<T extends object>(base: T, overrides: Partial<T>): T {
   const out = { ...base };
   for (const key of Object.keys(overrides) as Array<keyof T>) {

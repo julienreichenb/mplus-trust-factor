@@ -44,6 +44,7 @@ export {
   createDefaultModelV2,
   createDefaultModelV3,
   createDefaultModelV4,
+  createDefaultModelV5,
   createSurvivalFocusedModel,
   createUtilityFocusedModel,
 } from "./model/defaults.js";
@@ -53,6 +54,30 @@ export {
   type CharacterHistoryExperienceInput,
   type CharacterHistoryRunInput,
 } from "./experience/character-history.js";
+export {
+  buildExperienceV2Observations,
+  resolveExperienceProvenance,
+  computeExperienceV2,
+  ablateExperienceV2,
+  runCalibrationPanel,
+  participationDepthNormalized,
+  activityRecencyNormalized,
+  historicalSeasonsNormalized,
+  resolvePriorSeasonSourceDepth,
+  mergePriorSeasonCount,
+  EXPERIENCE_V2_CALIBRATION_PANEL,
+  EXPERIENCE_V2_METRIC_WEIGHTS,
+  EXPERIENCE_V2_SCHEMA_VERSION,
+  EXPERIENCE_V2_ANALYSIS_VERSION,
+  KEY_BAND_COUNT,
+  PRIOR_SEASON_RIO_DEPTH,
+  PRIOR_SEASON_LOCAL_CAP,
+  EXPERIENCE_KEY_BANDS,
+  distinctKeyBands,
+  type ExperienceV2ObservationInput,
+  type ExperienceV2RunInput,
+  type ExperienceHistoryProvenance,
+} from "./experience/v2/index.js";
 export {
   computePerformanceDimension,
   computeCurrentSeasonPeak,

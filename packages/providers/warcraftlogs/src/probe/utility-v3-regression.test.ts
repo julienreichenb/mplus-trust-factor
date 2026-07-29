@@ -1,3 +1,4 @@
+import { access } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { UtilityNormalizedRun } from "./utility-probe-types.js";
@@ -139,6 +140,12 @@ describe("utility-v3 regression", () => {
       process.cwd(),
       "raw-artifacts/wcl-probe-utility/eu-archimonde-wallidrixe",
     );
+    try {
+      await access(inputDir);
+    } catch {
+      // Optional offline probe artifact — not shipped in git. Skip when absent.
+      return;
+    }
     const { runs, rawByRunId, masterByReport, subject } = await loadUtilityV2AuditInputs(inputDir);
     const dataset = buildUtilityV3SimulationDataset({
       runs,

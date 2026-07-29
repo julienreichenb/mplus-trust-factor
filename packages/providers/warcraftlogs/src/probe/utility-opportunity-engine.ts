@@ -31,6 +31,27 @@ export interface UtilityMechanicCatalogLike {
 
 const DEFAULT_CAST_WINDOW_MS = 2500;
 
+/**
+ * True when the player is dead at any point overlapping [windowStartMs, windowEndMs].
+ * Death at or before windowStart sticks through the window (simple sticky-death model).
+ */
+export function isPlayerDeadDuringWindow(
+  deathEvents: Array<{ type?: string; timestamp?: number; targetID?: number }>,
+  playerActorId: number,
+  windowStartMs: number,
+  windowEndMs: number,
+): boolean {
+  const deaths = deathEvents
+    .filter((ev) => ev.targetID === playerActorId && typeof ev.timestamp === "number")
+    .map((ev) => ev.timestamp as number)
+    .sort((a, b) => a - b);
+  for (const ts of deaths) {
+    if (ts <= windowEndMs && ts >= Math.min(windowStartMs, windowEndMs)) return true;
+    if (ts <= windowStartMs) return true;
+  }
+  return false;
+}
+
 function isNpcSourceType(type: string | null | undefined): boolean {
   if (!type) return false;
   const t = type.toLowerCase();
@@ -241,6 +262,7 @@ export function extractRunOpportunities(input: {
   raw?: UtilityV2RawRunBundle | null;
   castEvents?: Array<Record<string, unknown>>;
   interruptEvents?: Array<Record<string, unknown>>;
+  deathEvents?: Array<{ type?: string; timestamp?: number; targetID?: number }>;
   catalog?: AbilityCatalog;
   mechanicCatalog?: UtilityMechanicCatalogLike;
 }): UtilityOpportunity[] {
@@ -268,6 +290,11 @@ export function extractRunOpportunities(input: {
     input.interruptEvents ??
     (input.raw?.interrupts as Array<Record<string, unknown>> | undefined) ??
     [];
+  const deathEvents =
+    input.deathEvents ??
+    ((input.raw as { deaths?: Array<{ type?: string; timestamp?: number; targetID?: number }> } | null)
+      ?.deaths ??
+      []);
 
   const hostileWindows = buildHostileCastWindows(castEvents);
   const attributed = new Set<number>([
@@ -301,6 +328,32 @@ export function extractRunOpportunities(input: {
           eligibleActions: kickIds,
           exclusionReasons: ["cast_not_interruptible"],
           evidenceReferences: evidence,
+          derivation: "hostile_cast_window",
+        });
+        continue;
+      }
+
+      if (
+        playerId != null &&
+        isPlayerDeadDuringWindow(deathEvents, playerId, w.start, windowEnd)
+      ) {
+        opportunities.push({
+          id: `${runId}:int-opp:${i}:dead`,
+          runId,
+          dungeonSlug: input.normalized.dungeonSlug,
+          sourceActorId: w.sourceId,
+          targetActorId: null,
+          hostileSpellId: w.abilityGameId,
+          abilityGameId: null,
+          opportunityType: "interrupt",
+          openedAt: w.start,
+          closedAt: w.end,
+          outcome: "NOT_APPLICABLE",
+          confidence: "HIGH",
+          severity: 0,
+          eligibleActions: kickIds,
+          exclusionReasons: ["player_dead_during_window"],
+          evidenceReferences: [...evidence, "player_dead_during_window"],
           derivation: "hostile_cast_window",
         });
         continue;

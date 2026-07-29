@@ -138,6 +138,21 @@ const defaultModelConfigV4 = {
   },
 } satisfies Prisma.InputJsonValue;
 
+/** v5: Experience V2 — exposure metrics (breadth, bands, depth, seasons, recency). */
+const defaultModelConfigV5 = {
+  ...defaultModelConfigV4,
+  metricWeights: {
+    ...defaultModelConfigV4.metricWeights,
+    EXPERIENCE: [
+      { metricKey: "experience.dungeon_breadth", weight: 0.3 },
+      { metricKey: "experience.key_band_breadth", weight: 0.22 },
+      { metricKey: "experience.participation_depth", weight: 0.2 },
+      { metricKey: "experience.historical_seasons", weight: 0.18 },
+      { metricKey: "experience.activity_recency", weight: 0.1 },
+    ],
+  },
+} satisfies Prisma.InputJsonValue;
+
 const metricDefinitions: Array<{
   key: string;
   dimension: ScoreDimension;
@@ -181,7 +196,42 @@ const metricDefinitions: Array<{
     valueType: "number",
     direction: MetricDirection.HIGHER_BETTER,
     description:
-      "Blizzard Mythic+ rating as progression/experience context (not a parse percentile)",
+      "Legacy Experience V1 Blizzard Mythic+ rating (retired from scoring in model v5; not a parse percentile)",
+  },
+  {
+    key: "experience.dungeon_breadth",
+    dimension: ScoreDimension.EXPERIENCE,
+    valueType: "number",
+    direction: MetricDirection.HIGHER_BETTER,
+    description: "Distinct active-season dungeons completed / expected pool size",
+  },
+  {
+    key: "experience.key_band_breadth",
+    dimension: ScoreDimension.EXPERIENCE,
+    valueType: "number",
+    direction: MetricDirection.HIGHER_BETTER,
+    description: "Distinct meaningful key-level bands touched (Experience V2)",
+  },
+  {
+    key: "experience.participation_depth",
+    dimension: ScoreDimension.EXPERIENCE,
+    valueType: "number",
+    direction: MetricDirection.HIGHER_BETTER,
+    description: "Current-season participation with log diminishing returns (Experience V2)",
+  },
+  {
+    key: "experience.historical_seasons",
+    dimension: ScoreDimension.EXPERIENCE,
+    valueType: "number",
+    direction: MetricDirection.HIGHER_BETTER,
+    description: "Prior seasons with public character Mythic+ history (no alt inference)",
+  },
+  {
+    key: "experience.activity_recency",
+    dimension: ScoreDimension.EXPERIENCE,
+    valueType: "number",
+    direction: MetricDirection.HIGHER_BETTER,
+    description: "Gradual recency of last relevant Mythic+ activity (Experience V2)",
   },
   {
     key: "performance.spec_percentile",
@@ -528,9 +578,9 @@ async function seed(): Promise<void> {
       name: "Default Trust Factor v4",
       description:
         "Survival V1.1.1 metrics: outcome 55%, defensive response 30%, emergency recovery 15%",
-      status: ScoreModelStatus.ACTIVE,
+      status: ScoreModelStatus.ARCHIVED,
       config: defaultModelConfigV4,
-      activatedAt: new Date(),
+      activatedAt: null,
     },
     create: {
       key: "default",
@@ -538,15 +588,39 @@ async function seed(): Promise<void> {
       name: "Default Trust Factor v4",
       description:
         "Survival V1.1.1 metrics: outcome 55%, defensive response 30%, emergency recovery 15%",
-      status: ScoreModelStatus.ACTIVE,
+      status: ScoreModelStatus.ARCHIVED,
       config: defaultModelConfigV4,
+      activatedAt: null,
+    },
+  });
+
+  await prisma.scoreModel.upsert({
+    where: {
+      key_version: { key: "default", version: 5 },
+    },
+    update: {
+      name: "Default Trust Factor v5",
+      description:
+        "Experience V2: dungeon breadth, key-band breadth, participation depth, historical seasons, activity recency",
+      status: ScoreModelStatus.ACTIVE,
+      config: defaultModelConfigV5,
+      activatedAt: new Date(),
+    },
+    create: {
+      key: "default",
+      version: 5,
+      name: "Default Trust Factor v5",
+      description:
+        "Experience V2: dungeon breadth, key-band breadth, participation depth, historical seasons, activity recency",
+      status: ScoreModelStatus.ACTIVE,
+      config: defaultModelConfigV5,
       activatedAt: new Date(),
     },
   });
 
   // Ensure only one ACTIVE model for key=default.
   await prisma.scoreModel.updateMany({
-    where: { key: "default", version: { not: 4 }, status: ScoreModelStatus.ACTIVE },
+    where: { key: "default", version: { not: 5 }, status: ScoreModelStatus.ACTIVE },
     data: { status: ScoreModelStatus.ARCHIVED },
   });
 

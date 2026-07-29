@@ -76,6 +76,12 @@ describe.skipIf(!dbAvailable)("runRefreshPipeline (fixture mode, real Postgres)"
         providerTimestamps?: { warcraftlogs?: string | null };
       };
       expect(explanation.modelKey).toBeTruthy();
+      expect(explanation.observations?.some((o) => o.metricKey === "experience.dungeon_breadth")).toBe(
+        true,
+      );
+      expect(explanation.observations?.some((o) => o.metricKey === "experience.key_band_breadth")).toBe(
+        true,
+      );
       expect(explanation.observations?.some((o) => o.metricKey === "experience.mythic_rating")).toBe(
         true,
       );

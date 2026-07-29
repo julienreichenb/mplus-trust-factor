@@ -31,7 +31,10 @@ import {
 import { buildCatalogCoverageDiagnostics, getAbilityCatalog } from "@mplus/abilities";
 import {
   applyRunMetadataToSelection,
-  buildCharacterHistoryExperienceObservations,
+  buildExperienceV2Observations,
+  mergePriorSeasonCount,
+  resolveExperienceProvenance,
+  resolvePriorSeasonSourceDepth,
   readBlizzardSeasonDungeonSlugsFromMetadata,
   resolveActiveSeasonDungeonPool,
   selectScoringRuns,
@@ -2053,24 +2056,83 @@ export async function runRefreshPipeline(
         })
       : null;
 
-  // EXPERIENCE from CHARACTER_HISTORY only — independent of WCL detailed analysis.
-  observations.push(
-    ...buildCharacterHistoryExperienceObservations({
-      observedAt,
-      expectedDungeonCount,
-      selectedRuns: scoringRunSelection.selectedRuns.map((r) => ({
-        dungeonSlug: r.dungeonSlug,
-        keyLevel: r.keyLevel,
-        timed: r.timed,
-        completedAt: r.completedAt,
-        scoreValue: r.raiderIoScore ?? null,
-      })),
-      mythicRatingObservation: mythicRatingObs,
-      priorSeasonCount: raiderIoProfile?.previousSeason ? 1 : 0,
-      roleContinuity: character.role ? 1 : null,
-      sourceProvider: "character_history",
+  // EXPERIENCE V2 from CHARACTER_HISTORY only — durable run/season metadata, no WCL combat events.
+  const blizzardOk = !stagesSkipped.includes("refresh-blizzard");
+  const raiderIoOk = !stagesSkipped.includes("refresh-raiderio");
+  const rioPriorSeasonCount = raiderIoProfile?.previousSeason ? 1 : 0;
+  // Durable local prior seasons (snapshots / runs outside the active season).
+  const [localPriorFromSnapshots, localPriorFromRuns] = await Promise.all([
+    container.prisma.scoreSnapshot.findMany({
+      where: { characterId: character.id, seasonId: { not: season.id } },
+      distinct: ["seasonId"],
+      select: { seasonId: true },
     }),
-  );
+    container.prisma.mythicRun.findMany({
+      where: {
+        seasonId: { not: season.id },
+        participants: { some: { characterId: character.id, isTargetCharacter: true } },
+      },
+      distinct: ["seasonId"],
+      select: { seasonId: true },
+    }),
+  ]);
+  const localPriorSeasonCount = new Set([
+    ...localPriorFromSnapshots.map((r) => r.seasonId),
+    ...localPriorFromRuns.map((r) => r.seasonId),
+  ]).size;
+  const priorSeasonCount = mergePriorSeasonCount(rioPriorSeasonCount, localPriorSeasonCount);
+  const priorSeasonSourceDepth = resolvePriorSeasonSourceDepth({
+    rioPriorSeasonCount,
+    localPriorSeasonCount,
+  });
+  const seasonPoolRuns = scoringCandidates.map((r) => ({
+    dungeonSlug: r.dungeonSlug,
+    keyLevel: r.keyLevel,
+    completedAt: r.completedAt,
+  }));
+  const selectedExperienceRuns = scoringRunSelection.selectedRuns.map((r) => ({
+    dungeonSlug: r.dungeonSlug,
+    keyLevel: r.keyLevel,
+    completedAt: r.completedAt,
+  }));
+  const hasExperienceHistorySignal =
+    selectedExperienceRuns.length > 0 ||
+    seasonPoolRuns.length > 0 ||
+    priorSeasonCount > 0;
+  const experienceProvenance = resolveExperienceProvenance({
+    blizzardOk,
+    raiderIoOk,
+    hasAnyHistorySignal: hasExperienceHistorySignal,
+  });
+
+  const experienceObservations =
+    experienceProvenance === "PROVIDER_FAILURE"
+      ? []
+      : buildExperienceV2Observations({
+          observedAt,
+          expectedDungeonCount,
+          selectedRuns: selectedExperienceRuns,
+          seasonRuns: seasonPoolRuns,
+          priorSeasonCount,
+          priorSeasonSourceDepth,
+          provenance: experienceProvenance,
+          sourceProvider: "character_history",
+        });
+  observations.push(...experienceObservations);
+  // Legacy rating kept as non-scoring explanatory observation (not in model v5 Experience weights).
+  if (mythicRatingObs) {
+    observations.push({
+      ...mythicRatingObs,
+      context: {
+        ...(mythicRatingObs.context && typeof mythicRatingObs.context === "object"
+          ? (mythicRatingObs.context as Record<string, unknown>)
+          : {}),
+        retiredFromExperienceV2: true,
+        scoringWeight: 0,
+        independentOfWclDetails: true,
+      },
+    });
+  }
 
   const authenticityFeatures = boostFacts ? mapBoostFactsToAuthenticity(boostFacts) : undefined;
   // Coverage is actual combat-facts analysis over selected runs — never invent 1.0 or treat
@@ -2129,6 +2191,15 @@ export async function runRefreshPipeline(
     failedDimensions.add("SURVIVAL");
   } else {
     for (const obs of wclSurvival.observations) {
+      refreshedMetricKeys.add(obs.metricKey);
+    }
+  }
+
+  if (experienceProvenance === "PROVIDER_FAILURE") {
+    // Preserve last-known-good Experience — do not convert a valid score into UNAVAILABLE.
+    failedDimensions.add("EXPERIENCE");
+  } else {
+    for (const obs of experienceObservations) {
       refreshedMetricKeys.add(obs.metricKey);
     }
   }
@@ -2286,6 +2357,7 @@ export async function runRefreshPipeline(
           rawZoneRankingsPointsAndDamage: wclPerformanceRecord?.raw ?? null,
           abilityCatalog: catalogDiagnostics,
           historyMode: "CHARACTER_HISTORY",
+          experienceModel: "v2",
           refreshContract,
           refreshContractHash: hashRefreshContract(refreshContract),
         }
