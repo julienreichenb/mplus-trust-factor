@@ -29,6 +29,7 @@ import {
 } from "../lib/mappers.js";
 import { applyProfileWarnings, appendRefreshContractWarnings, buildProfileEnrichments, isScoreStaleVersusProviders, scoreSnapshotContractStaleReasons, toPublicProviderKey } from "../lib/profile-enrichment.js";
 import { characterCacheKey } from "../lib/response-cache.js";
+import { scheduleProfileViewRecording } from "../lib/profile-view-recorder.js";
 import { buildRefreshContract, buildRefreshContractHash } from "@mplus/worker";
 import { ensureCurrentSeason } from "@mplus/worker";
 
@@ -531,6 +532,20 @@ export class CharacterService {
     if (body.refreshStatus === "FRESH") {
       this.container.responseCache.set(cacheKey, result);
     }
+
+    // Aggregated profile view — async, non-blocking, abuse-resistant. Zero provider calls.
+    scheduleProfileViewRecording(
+      this.container.worker.prisma,
+      {
+        characterId: character.id,
+        viewerHash: null,
+        source: "public",
+      },
+      (err) => {
+        this.container.logger.warn({ err, characterId: character.id }, "profile_view_record_failed");
+      },
+    );
+
     return result;
   }
 

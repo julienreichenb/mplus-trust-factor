@@ -104,6 +104,33 @@ export interface IngestSharedEvidenceInput {
   /** Model recalculation / catalog change — never triggers provider fetch. */
   localOnly?: boolean;
   coalesceKey?: string;
+  /** Override pagination (Survival parity defaults when survival is a consumer). */
+  maxPages?: number;
+  pageLimit?: number;
+}
+
+/** Source ID policy matching Survival canonical fetch. */
+export function sharedEvidenceSourceIdForDataset(
+  dataset: SharedEvidenceDatasetKey,
+  playerActorId: number | null,
+): number | null {
+  if (dataset === "Casts" || dataset === "HostileCasts" || dataset === "masterData") {
+    return null;
+  }
+  if (dataset === "Interrupts" || dataset === "Dispels" || dataset === "DamageDone") {
+    return null;
+  }
+  return playerActorId;
+}
+
+export function sharedEvidenceFilterTag(
+  dataset: SharedEvidenceDatasetKey,
+  includeResources: boolean,
+): string | null {
+  if (dataset === "HostileCasts") {
+    return includeResources ? "hostile-npc-casts;+resources" : "hostile-npc-casts";
+  }
+  return includeResources ? "+resources" : null;
 }
 
 /** In-flight coalescing for concurrent refresh requests. */
@@ -136,6 +163,10 @@ async function ingestSharedEvidenceBundleInner(
   input: IngestSharedEvidenceInput,
 ): Promise<WclRunEvidenceBundle> {
   const required = input.datasets ?? unionRequiredDatasets(input.consumers);
+  const survivalParity = input.consumers.includes("survival");
+  const maxPages = input.maxPages ?? (survivalParity ? 200 : 12);
+  const pageLimit = input.pageLimit ?? 1000;
+
   let bundle = buildEmptyBundle({
     reportCode: input.reportCode,
     reportRevision: input.reportRevision,
@@ -156,6 +187,12 @@ async function ingestSharedEvidenceBundleInner(
       continue;
     }
 
+    const includeResources =
+      survivalParity &&
+      (datasetKey === "DamageTaken" || datasetKey === "Healing" || datasetKey === "Deaths");
+    const sourceId = sharedEvidenceSourceIdForDataset(datasetKey, input.playerActorId);
+    const filterTag = sharedEvidenceFilterTag(datasetKey, includeResources);
+
     const compatibilityKey = buildSharedEvidenceCompatibilityKey({
       reportCode: input.reportCode,
       reportRevision: input.reportRevision,
@@ -164,7 +201,7 @@ async function ingestSharedEvidenceBundleInner(
       dataset: datasetKey,
       startTime: input.startTime,
       endTime: input.endTime,
-      filterExpression: datasetKey === "HostileCasts" ? "hostile-npc-casts" : null,
+      filterExpression: filterTag,
       providerContractVersion: WCL_RUN_EVIDENCE_PROVIDER_CONTRACT,
       payloadFingerprint: null,
     });
@@ -206,7 +243,7 @@ async function ingestSharedEvidenceBundleInner(
         pageCount: 0,
         eventCount: 0,
         filterSourceId: null,
-        filterExpression: null,
+        filterExpression: filterTag,
         pages: [],
         events: [],
         consumers: input.consumers,
@@ -226,6 +263,10 @@ async function ingestSharedEvidenceBundleInner(
       reportCode: input.reportCode,
       fightId: input.fightId,
       dataset: datasetKey,
+      sourceId,
+      includeResources,
+      maxPages,
+      pageLimit,
       region: input.region,
     });
     await input.store.saveDataset(compatibilityKey, fetched.dataset, {

@@ -104,6 +104,118 @@ export const BASELINE_COST_SCENARIOS: CostScenarioMeasurement[] = [
   },
 ];
 
+export const MIN_SAMPLES_FOR_MEASURED_ESTIMATE = 5;
+
+export interface MeasuredScenarioEstimate {
+  scenario: CostScenarioMeasurement["scenario"];
+  wclPoints: number;
+  source: "measured" | "fallback";
+  sampleSize: number;
+  notes: string[];
+}
+
+/**
+ * Rolling estimates from durable ledger rows.
+ * Requires MIN_SAMPLES_FOR_MEASURED_ESTIMATE measured samples; otherwise falls back.
+ */
+export function estimateScenariosFromLedger(
+  records: RefreshCostRecord[],
+  minSamples = MIN_SAMPLES_FOR_MEASURED_ESTIMATE,
+): MeasuredScenarioEstimate[] {
+  const measuredShared = records.filter(
+    (r) =>
+      r.provider === "WARCRAFT_LOGS" &&
+      r.operation === "sharedEvidenceBundle" &&
+      r.costSource === "measured" &&
+      r.measuredCost != null &&
+      Number.isFinite(r.measuredCost),
+  );
+  const cold = measuredShared.filter((r) => !r.cacheHit && r.providerRefetch);
+  const warm = measuredShared.filter((r) => r.cacheHit);
+  const rankings = records.filter(
+    (r) =>
+      r.dataset === "wcl.zone_rankings" &&
+      r.costSource === "measured" &&
+      r.measuredCost != null,
+  );
+  const modelOnly = records.filter((r) => r.modelOnly);
+  const partial = measuredShared.filter(
+    (r) =>
+      r.metadata &&
+      typeof r.metadata === "object" &&
+      (r.metadata as { partial?: boolean }).partial === true,
+  );
+
+  const avg = (rows: RefreshCostRecord[]): number | null => {
+    const vals = rows
+      .map((r) => r.measuredCost)
+      .filter((v): v is number => v != null && Number.isFinite(v));
+    if (vals.length === 0) return null;
+    return vals.reduce((a, b) => a + b, 0) / vals.length;
+  };
+
+  const resolve = (
+    scenario: CostScenarioMeasurement["scenario"],
+    samples: RefreshCostRecord[],
+  ): MeasuredScenarioEstimate => {
+    const fallback = BASELINE_COST_SCENARIOS.find((s) => s.scenario === scenario)!;
+    const measuredAvg = avg(samples);
+    if (samples.length >= minSamples && measuredAvg != null) {
+      return {
+        scenario,
+        wclPoints: measuredAvg,
+        source: "measured",
+        sampleSize: samples.length,
+        notes: [`Rolling average from ${samples.length} ledger samples`],
+      };
+    }
+    return {
+      scenario,
+      wclPoints: fallback.wclPoints ?? 0,
+      source: "fallback",
+      sampleSize: samples.length,
+      notes: [
+        ...fallback.notes,
+        `Insufficient samples (${samples.length}/${minSamples}) — using conservative fallback`,
+      ],
+    };
+  };
+
+  return [
+    resolve("cold_new_character", cold),
+    resolve("warm_refresh", warm),
+    resolve("stale_rankings_only", rankings),
+    resolve("detailed_event_backfill", cold),
+    resolve(
+      "model_only_recalculation",
+      modelOnly.length > 0
+        ? modelOnly
+        : [
+            {
+              provider: "WARCRAFT_LOGS",
+              operation: "model_only",
+              dataset: "calculated.score_snapshot",
+              refreshReason: "admin_force_recalculation",
+              cacheHit: true,
+              estimatedCost: 0,
+              measuredCost: 0,
+              costSource: "measured",
+              modelOnly: true,
+              providerRefetch: false,
+            },
+          ],
+    ),
+    resolve("partial_completion", partial.length > 0 ? partial : warm),
+  ];
+}
+
+/** Average WCL points for planner — prefers measured warm refresh. */
+export function averageWclPointsFromEstimates(estimates: MeasuredScenarioEstimate[]): number {
+  const warm = estimates.find((e) => e.scenario === "warm_refresh");
+  if (warm) return warm.wclPoints;
+  return BASELINE_COST_SCENARIOS.find((s) => s.scenario === "warm_refresh")?.wclPoints ?? 35;
+}
+
 export interface CostAggregation {
   byProvider: Record<string, { estimated: number; measured: number; unknownCount: number }>;
   byOperation: Record<string, { estimated: number; measured: number; count: number }>;
@@ -178,4 +290,18 @@ export function toPrismaCostSource(source: CostSource): "MEASURED" | "ESTIMATED"
   if (source === "measured") return "MEASURED";
   if (source === "estimated") return "ESTIMATED";
   return "UNKNOWN";
+}
+
+/** Guard used by ledger writers and tests. */
+export function assertUnknownCostNotZero(
+  costSource: CostSource,
+  measuredCost: number | null,
+): number | null {
+  if (costSource === "unknown") {
+    if (measuredCost === 0) {
+      throw new Error("Unknown cost must never become zero");
+    }
+    return null;
+  }
+  return measuredCost;
 }

@@ -66,6 +66,13 @@ import {
   type SurvivalRunAnalysisRow,
 } from "./wcl-survival-metrics.js";
 import { buildWclSurvivalObservations } from "./wcl-survival-metrics.js";
+import { createDurableSharedEvidenceStore } from "./shared-evidence-store.js";
+import { analyzeSurvivalViaSharedEvidence } from "./live-shared-evidence-survival.js";
+import {
+  RefreshCostAccumulator,
+  buildSharedEvidenceCostRecords,
+  recordRefreshCostEntries,
+} from "./refresh-cost-recorder.js";
 import { recordProviderResult } from "./provider-recording.js";
 import type { WclDungeonPerformanceAggregateDTO } from "@mplus/contracts";
 import {
@@ -110,6 +117,8 @@ export interface RefreshPipelineResult {
   notFound: boolean;
   disagreements: SourceDisagreementDTO[];
   excludedObservations: ExcludedObservationDTO[];
+  /** Detailed WCL ReportEvents calls via shared evidence (0 on reused second refresh). */
+  sharedEvidenceDetailedEventCalls?: number;
 }
 
 function toIdentity(job: RefreshCharacterJob): CharacterIdentityInput {
@@ -305,6 +314,8 @@ export async function runRefreshPipeline(
   const disagreements: SourceDisagreementDTO[] = [];
   const excludedObservations: ExcludedObservationDTO[] = [];
   const fusionWarnings: string[] = [];
+  const refreshCostAccumulator = new RefreshCostAccumulator();
+  let sharedEvidenceDetailedEventCalls = 0;
   const identityFingerprint = fingerprintIdentifier(
     `${identity.region}:${identity.realmSlug}:${identity.name}`.toLocaleLowerCase("en-US"),
   );
@@ -1360,7 +1371,10 @@ export async function runRefreshPipeline(
           maxHpFailureReason: string | null;
         };
       }>;
+      getGraphQlClient?: () => import("@mplus/provider-warcraftlogs").WclGraphQlClient;
     };
+    const wclGraphClient =
+      typeof liveWcl.getGraphQlClient === "function" ? liveWcl.getGraphQlClient() : null;
 
     for (const dungeonSlug of [...survivalCandidatesByDungeon.keys()].sort((a, b) =>
       a.localeCompare(b),
@@ -1498,7 +1512,7 @@ export async function runRefreshPipeline(
           continue;
         }
 
-        if (typeof liveWcl.analyzeSurvivalCanonicalRun !== "function") {
+        if (typeof liveWcl.analyzeSurvivalCanonicalRun !== "function" && !wclGraphClient) {
           survivalCost.rejectedCandidates.push({
             reason: "survival_canonical_analyze_unsupported",
             runId: run.id,
@@ -1512,45 +1526,174 @@ export async function runRefreshPipeline(
           const meta = fightMetaByRunId.get(run.id);
           const fightStart = meta?.startTime ?? 0;
           const fightEnd = meta?.endTime ?? fightStart + run.durationMs;
-          const canonicalResult = await liveWcl.analyzeSurvivalCanonicalRun(
-            {
-              identity,
-              characterId: character.id,
-              reportCode: source.reportCode,
-              fightId: source.fightId,
-              reportRevision: facts.revision,
-              dungeonSlug: canonicalDungeonKey(run.dungeon.slug),
-              keyLevel: run.keyLevel,
-              playerActorId: facts.targetSourceId,
-              ownedPetActorIds: facts.attributedSourceIds.filter(
-                (id) => id !== facts.targetSourceId,
-              ),
-              fightStartTime: fightStart,
-              fightEndTime: fightEnd,
-              encounterId: meta?.encounterId ?? null,
-              encounterName: meta?.encounterName ?? null,
-              catalog: survivalCatalog,
-              classSlug: earlyClassSlug,
-              specSlug: earlySpecSlug,
-              timed: run.timed,
-              completed: true,
-              score: run.scoreValue,
-            },
-            ctx,
-          );
-          survivalCost.wclHttpRequestCount += canonicalResult.data.requestCount;
-          survivalCost.graphqlOperationCount += canonicalResult.data.requestCount;
-          const payloadId = await recordProviderResult(repositories, canonicalResult as never);
-          const summary = canonicalResult.data.summary;
+          const sharedStore = createDurableSharedEvidenceStore({
+            runRepository: repositories.run,
+            characterId: character.id,
+            runId: run.id,
+            now,
+          });
+
+          let summary: SurvivalRunAnalysisRow["summary"];
+          let requestCount = 0;
+          let maxHpFailureReason: string | null = null;
+          let payloadId: string | null = null;
+
+          // Preferred path: one shared evidence ingest for Survival (+ Utility datasets for later).
+          // Second compatible refresh reuses RunAnalysis datasets → zero detailed event calls.
+          const preferSharedEvidence = wclGraphClient != null || !jobPayload.forceRefresh;
+          if (preferSharedEvidence) {
+            try {
+              const sharedResult = await analyzeSurvivalViaSharedEvidence({
+                client: wclGraphClient,
+                store: sharedStore,
+                identity,
+                characterId: character.id,
+                reportCode: source.reportCode,
+                fightId: source.fightId,
+                reportRevision:
+                  typeof facts.revision === "number"
+                    ? facts.revision
+                    : Number(facts.revision) || null,
+                dungeonSlug: canonicalDungeonKey(run.dungeon.slug),
+                keyLevel: run.keyLevel,
+                playerActorId: facts.targetSourceId,
+                ownedPetActorIds: facts.attributedSourceIds.filter(
+                  (id) => id !== facts.targetSourceId,
+                ),
+                fightStartTime: fightStart,
+                fightEndTime: fightEnd,
+                encounterId: meta?.encounterId ?? null,
+                encounterName: meta?.encounterName ?? null,
+                catalog: survivalCatalog,
+                classSlug: earlyClassSlug,
+                specSlug: earlySpecSlug,
+                timed: run.timed,
+                completed: true,
+                score: run.scoreValue,
+                forceRefetch: jobPayload.forceRefresh === true,
+                includeUtilityDatasets: true,
+                region: identity.region,
+              });
+              summary = sharedResult.summary;
+              requestCount = sharedResult.detailedWclEventCalls;
+              maxHpFailureReason = sharedResult.maxHpFailureReason;
+              sharedEvidenceDetailedEventCalls += sharedResult.detailedWclEventCalls;
+              refreshCostAccumulator.addMany(
+                buildSharedEvidenceCostRecords({
+                  characterId: character.id,
+                  jobId: job.id,
+                  runId: run.id,
+                  refreshReason: jobPayload.forceRefresh
+                    ? "admin_provider_refetch"
+                    : "scheduled_refresh",
+                  reportCode: source.reportCode,
+                  fightId: source.fightId,
+                  providerCalls: sharedResult.bundle.accounting.providerCalls,
+                  pages: sharedResult.bundle.accounting.pages,
+                  pointsConsumed: sharedResult.bundle.accounting.pointsConsumed,
+                  estimatedPointsConsumed:
+                    sharedResult.bundle.accounting.estimatedPointsConsumed,
+                  costSource: sharedResult.bundle.accounting.costSource,
+                  cacheHits: sharedResult.bundle.accounting.cacheHits,
+                  persistedHits: sharedResult.bundle.accounting.persistedHits,
+                }),
+              );
+            } catch (sharedError) {
+              // Fall back to legacy canonical path when GraphQL client exists but shared ingest fails.
+              if (typeof liveWcl.analyzeSurvivalCanonicalRun !== "function") {
+                throw sharedError;
+              }
+              logger.warn(
+                {
+                  ...logBase,
+                  event: "shared_evidence_fallback",
+                  runId: run.id,
+                  err: sharedError,
+                },
+                "shared_evidence_fallback",
+              );
+              const canonicalResult = await liveWcl.analyzeSurvivalCanonicalRun(
+                {
+                  identity,
+                  characterId: character.id,
+                  reportCode: source.reportCode,
+                  fightId: source.fightId,
+                  reportRevision: facts.revision,
+                  dungeonSlug: canonicalDungeonKey(run.dungeon.slug),
+                  keyLevel: run.keyLevel,
+                  playerActorId: facts.targetSourceId,
+                  ownedPetActorIds: facts.attributedSourceIds.filter(
+                    (id) => id !== facts.targetSourceId,
+                  ),
+                  fightStartTime: fightStart,
+                  fightEndTime: fightEnd,
+                  encounterId: meta?.encounterId ?? null,
+                  encounterName: meta?.encounterName ?? null,
+                  catalog: survivalCatalog,
+                  classSlug: earlyClassSlug,
+                  specSlug: earlySpecSlug,
+                  timed: run.timed,
+                  completed: true,
+                  score: run.scoreValue,
+                },
+                ctx,
+              );
+              summary = canonicalResult.data.summary;
+              requestCount = canonicalResult.data.requestCount;
+              maxHpFailureReason = canonicalResult.data.maxHpFailureReason;
+              payloadId = await recordProviderResult(repositories, canonicalResult as never);
+            }
+          } else if (typeof liveWcl.analyzeSurvivalCanonicalRun === "function") {
+            const canonicalResult = await liveWcl.analyzeSurvivalCanonicalRun(
+              {
+                identity,
+                characterId: character.id,
+                reportCode: source.reportCode,
+                fightId: source.fightId,
+                reportRevision: facts.revision,
+                dungeonSlug: canonicalDungeonKey(run.dungeon.slug),
+                keyLevel: run.keyLevel,
+                playerActorId: facts.targetSourceId,
+                ownedPetActorIds: facts.attributedSourceIds.filter(
+                  (id) => id !== facts.targetSourceId,
+                ),
+                fightStartTime: fightStart,
+                fightEndTime: fightEnd,
+                encounterId: meta?.encounterId ?? null,
+                encounterName: meta?.encounterName ?? null,
+                catalog: survivalCatalog,
+                classSlug: earlyClassSlug,
+                specSlug: earlySpecSlug,
+                timed: run.timed,
+                completed: true,
+                score: run.scoreValue,
+              },
+              ctx,
+            );
+            summary = canonicalResult.data.summary;
+            requestCount = canonicalResult.data.requestCount;
+            maxHpFailureReason = canonicalResult.data.maxHpFailureReason;
+            payloadId = await recordProviderResult(repositories, canonicalResult as never);
+          } else {
+            survivalCost.rejectedCandidates.push({
+              reason: "survival_canonical_analyze_unsupported",
+              runId: run.id,
+              dungeonSlug,
+            });
+            survivalRequiredFailed = true;
+            continue;
+          }
+
+          survivalCost.wclHttpRequestCount += requestCount;
+          survivalCost.graphqlOperationCount += requestCount;
           if (
             summary.maxHpResolution.baselineMaxHp == null &&
-            canonicalResult.data.maxHpFailureReason
+            maxHpFailureReason
           ) {
             summary.maxHpResolution = {
               ...summary.maxHpResolution,
               resolutionFailureReason:
-                summary.maxHpResolution.resolutionFailureReason ??
-                canonicalResult.data.maxHpFailureReason,
+                summary.maxHpResolution.resolutionFailureReason ?? maxHpFailureReason,
             };
           }
           await repositories.run.upsertRunAnalysis({
@@ -2261,6 +2404,18 @@ export async function runRefreshPipeline(
     lastSeenAt: now,
     ...(publication.published ? { lastPublicRefreshAt: now } : {}),
   });
+
+  try {
+    if (refreshCostAccumulator.records.length > 0) {
+      await recordRefreshCostEntries(container.prisma, refreshCostAccumulator.records);
+    }
+  } catch (costErr) {
+    logger.warn(
+      { ...logBase, event: "refresh_cost_ledger_write_failed", err: costErr },
+      "refresh_cost_ledger_write_failed",
+    );
+  }
+
   job = await repositories.job.markCompleted(job.id);
   terminalized = true;
   logger.info(
@@ -2271,6 +2426,7 @@ export async function runRefreshPipeline(
       status: "COMPLETED",
       stagesSkipped,
       publicationRejected: !publication.published,
+      sharedEvidenceDetailedEventCalls,
     },
     OBS_EVENTS.refreshTerminal,
   );
@@ -2287,6 +2443,7 @@ export async function runRefreshPipeline(
     notFound: false,
     disagreements,
     excludedObservations,
+    sharedEvidenceDetailedEventCalls,
   };
   } catch (error) {
     await ensureFailed(error);

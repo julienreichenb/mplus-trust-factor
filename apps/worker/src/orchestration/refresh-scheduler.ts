@@ -20,7 +20,7 @@ import {
   type WclBudgetDecision,
   type WclRateLimitState,
 } from "./wcl-budget-manager.js";
-import { BASELINE_COST_SCENARIOS } from "./refresh-cost-ledger.js";
+import { BASELINE_COST_SCENARIOS, averageWclPointsFromEstimates, estimateScenariosFromLedger, type RefreshCostRecord } from "./refresh-cost-ledger.js";
 
 export type SchedulerMode = "DRY_RUN" | "CACHED_BATCH" | "LIVE_ENQUEUE";
 
@@ -95,6 +95,8 @@ export interface RunSchedulerPlanInput {
   cooldownCharacterIds?: Set<string>;
   /** Average points per character from measured ledger; falls back to warm_refresh baseline. */
   averageWclPointsPerCharacter?: number;
+  /** Durable ledger samples — when present, replace conservative averages progressively. */
+  ledgerRecords?: RefreshCostRecord[];
 }
 
 function emptyCheckpoint(): SchedulerCheckpoint {
@@ -181,10 +183,22 @@ export function runSchedulerPlan(input: RunSchedulerPlanInput): SchedulerPlanRes
     notes.push("Dry-run mode: zero provider calls, zero score writes, zero enqueue");
   }
 
+  const measuredEstimates = input.ledgerRecords
+    ? estimateScenariosFromLedger(input.ledgerRecords)
+    : null;
   const avgPoints =
     input.averageWclPointsPerCharacter ??
+    (measuredEstimates ? averageWclPointsFromEstimates(measuredEstimates) : null) ??
     BASELINE_COST_SCENARIOS.find((s) => s.scenario === "warm_refresh")?.wclPoints ??
     35;
+  if (measuredEstimates) {
+    const warm = measuredEstimates.find((e) => e.scenario === "warm_refresh");
+    if (warm?.source === "measured") {
+      notes.push(`Using measured warm-refresh average (${warm.wclPoints} pts, n=${warm.sampleSize})`);
+    } else {
+      notes.push("Using conservative warm-refresh fallback (insufficient ledger samples)");
+    }
+  }
 
   // Resume from checkpoint cursor.
   const checkpoint = { ...(input.checkpoint ?? emptyCheckpoint()) };
