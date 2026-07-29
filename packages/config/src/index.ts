@@ -235,3 +235,27 @@ export {
   type RefreshPolicyConfig,
   type RefreshPolicyEnv,
 } from "./refresh-policy.js";
+
+export {
+  ACTIVE_EXPANSION_METADATA_V1,
+  type ActiveExpansionMetadataV1,
+} from "./game-metadata.js";
+
+export {
+  OWNED_CHARACTER_RELEVANCE_POLICY_V1,
+  evaluateOwnedCharacterRelevanceV1,
+  type OwnedCharacterRelevanceInput,
+  type OwnedCharacterRelevancePolicyV1,
+  type OwnedCharacterRelevanceResult,
+  type RelevanceReason,
+} from "./owned-character-relevance-policy.js";
+
+export {
+  BLIZZARD_PLAYABLE_CLASS_ID_TO_SLUG,
+  WOW_CLASS_COLORS,
+  WOW_CLASS_DISPLAY_NAMES,
+  WOW_CLASS_ICON_URLS,
+  presentWowClass,
+  slugFromBlizzardPlayableClassId,
+  type WowClassPresentation,
+} from "./wow-class-presentation.js";

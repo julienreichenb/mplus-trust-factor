@@ -4,10 +4,12 @@ import { createLogger, type Logger } from "@mplus/observability";
 import {
   QUEUE_NAMES,
   analyzeRunJobSchema,
+  discoverOwnedCharactersJobSchema,
   generateAddonExportJobSchema,
   recalculateScoreJobSchema,
   refreshCharacterJobSchema,
   type AnalyzeRunJob,
+  type DiscoverOwnedCharactersJob,
   type GenerateAddonExportJob,
   type RecalculateScoreJob,
   type RefreshCharacterJob,
@@ -16,11 +18,13 @@ import {
   analyzeRunDedupeKey,
   createQueueProducers,
   createWorkerContainer,
+  discoverOwnedCharactersDedupeKey,
   generateAddonExportDedupeKey,
   negativeCache,
   recalculateScoreDedupeKey,
   refreshCharacterDedupeKey,
   runAnalyzeRun,
+  runDiscoverOwnedCharacters,
   runGenerateAddonExport,
   runRecalculateScore,
   runRefreshPipeline,
@@ -82,7 +86,7 @@ export interface ApiContainerOverrides {
 function createInlineQueueProducers(worker: WorkerContainer): QueueProducers {
   const { repositories, logger } = worker;
 
-  return {
+  const inlineProducers: QueueProducers = {
     async enqueueRefreshCharacter(input): Promise<EnqueueResult> {
       const payload = refreshCharacterJobSchema.parse({
         ...input,
@@ -179,10 +183,44 @@ function createInlineQueueProducers(worker: WorkerContainer): QueueProducers {
       return { jobId: job.id, dedupeKey, reused };
     },
 
+    async enqueueDiscoverOwnedCharacters(input): Promise<EnqueueResult> {
+      const payload: DiscoverOwnedCharactersJob = discoverOwnedCharactersJobSchema.parse({
+        ...input,
+        requestedAt: input.requestedAt ?? new Date().toISOString(),
+      });
+      const dedupeKey = discoverOwnedCharactersDedupeKey(payload);
+      const { job, reused } = await repositories.job.createOrGetByDedupe({
+        jobType: QUEUE_NAMES.discoverOwnedCharacters,
+        dedupeKey,
+        payload,
+      });
+      await worker.prisma.battleNetAccount.updateMany({
+        where: { id: payload.battleNetAccountId },
+        data: {
+          lastDiscoveryJobId: job.id,
+          ...(reused ? {} : { lastDiscoveryStatus: "QUEUED" }),
+        },
+      });
+      if (reused) {
+        return { jobId: job.id, dedupeKey, reused, enqueued: false };
+      }
+      try {
+        await repositories.job.markActive(job.id);
+        await runDiscoverOwnedCharacters(worker, payload, inlineProducers);
+        await repositories.job.markCompleted(job.id);
+      } catch (error) {
+        await repositories.job.markFailed(job.id, error);
+        logger.warn({ err: error, dedupeKey }, "inline discover-owned-characters failed");
+      }
+      return { jobId: job.id, dedupeKey, reused, enqueued: true };
+    },
+
     async close(): Promise<void> {
       // No Redis/BullMQ connection is ever opened in inline mode.
     },
   };
+
+  return inlineProducers;
 }
 
 /**
@@ -213,7 +251,18 @@ export function createApiContainer(env: AppEnv, overrides: ApiContainerOverrides
   }
 
   const oauthClient = overrides.oauthClient ?? createBattleNetOAuthClient(env);
-  const authService = new IamAuthService(worker.prisma, env, oauthClient);
+  const authService = new IamAuthService(worker.prisma, env, oauthClient, {
+    enqueueOwnedCharacterDiscovery: async (input) => {
+      const season = await worker.prisma.season.findFirst({ where: { isCurrent: true } });
+      return producers.enqueueDiscoverOwnedCharacters({
+        battleNetAccountId: input.battleNetAccountId,
+        userId: input.userId,
+        ownershipSyncAt: input.ownershipSyncAt,
+        seasonKey: season?.slug ?? "current",
+        correlationId: null,
+      });
+    },
+  });
 
   return {
     env,

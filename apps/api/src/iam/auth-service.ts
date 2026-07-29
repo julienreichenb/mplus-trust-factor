@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { AppEnv } from "@mplus/config";
-import { providerTokenEncryptionSecret } from "@mplus/config";
+import { OWNED_CHARACTER_RELEVANCE_POLICY_V1, providerTokenEncryptionSecret } from "@mplus/config";
 import type { Prisma, PrismaClient, User } from "@mplus/database";
 import { writeAuditEvent } from "./audit.js";
 import type { BattleNetOAuthClient } from "./battlenet-oauth-client.js";
@@ -60,6 +60,13 @@ export class IamAuthService {
     private readonly prisma: PrismaClient,
     private readonly env: AppEnv,
     private readonly oauth: BattleNetOAuthClient,
+    private readonly hooks: {
+      enqueueOwnedCharacterDiscovery?: (input: {
+        battleNetAccountId: string;
+        userId: string;
+        ownershipSyncAt: string;
+      }) => Promise<{ jobId: string; reused: boolean } | void>;
+    } = {},
   ) {}
 
   startOAuth(input: { returnTo?: string; redirectUri: string }): OAuthStartResult {
@@ -429,6 +436,9 @@ export class IamAuthService {
         where: { id: account.id },
         data: { lastOwnershipSyncAt: new Date(), lastOwnershipSyncError: null },
       });
+      const syncedAccount = await this.prisma.battleNetAccount.findUniqueOrThrow({
+        where: { id: account.id },
+      });
       await writeAuditEvent(this.prisma, {
         userId,
         actorType: "user",
@@ -440,6 +450,46 @@ export class IamAuthService {
         sessionSecret: this.env.SESSION_SECRET,
         metadata: result as unknown as Record<string, unknown>,
       });
+
+      // Enqueue discovery only — never await full Trust Score analysis on this path.
+      if (syncedAccount.lastOwnershipSyncAt && this.hooks.enqueueOwnedCharacterDiscovery) {
+        try {
+          const discovery = await this.hooks.enqueueOwnedCharacterDiscovery({
+            battleNetAccountId: account.id,
+            userId,
+            ownershipSyncAt: syncedAccount.lastOwnershipSyncAt.toISOString(),
+          });
+          await writeAuditEvent(this.prisma, {
+            userId,
+            actorType: "user",
+            action: "ownership.discovery.enqueue",
+            resourceType: "battlenet_account",
+            resourceId: account.id,
+            ip: meta.ip,
+            userAgent: meta.userAgent,
+            sessionSecret: this.env.SESSION_SECRET,
+            metadata: {
+              jobId: discovery && "jobId" in discovery ? discovery.jobId : null,
+              reused: discovery && "reused" in discovery ? discovery.reused : null,
+            },
+          });
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "discovery enqueue failed";
+          await writeAuditEvent(this.prisma, {
+            userId,
+            actorType: "user",
+            action: "ownership.discovery.enqueue",
+            resourceType: "battlenet_account",
+            resourceId: account.id,
+            outcome: "FAILURE",
+            ip: meta.ip,
+            userAgent: meta.userAgent,
+            sessionSecret: this.env.SESSION_SECRET,
+            metadata: { error: message },
+          });
+        }
+      }
+
       return result;
     } catch (error) {
       const message = error instanceof Error ? error.message : "ownership sync failed";
@@ -505,6 +555,8 @@ export class IamAuthService {
     if (!ownership) {
       throw Object.assign(new Error("Ownership not found"), { code: "OWNERSHIP_NOT_FOUND" });
     }
+    const atMaxLevel =
+      (ownership.characterLevel ?? 0) >= OWNED_CHARACTER_RELEVANCE_POLICY_V1.maxCharacterLevel;
     await this.prisma.$transaction([
       this.prisma.verifiedCharacterOwnership.updateMany({
         where: { userId, isPrimary: true },
@@ -512,7 +564,18 @@ export class IamAuthService {
       }),
       this.prisma.verifiedCharacterOwnership.update({
         where: { id: ownershipId },
-        data: { isPrimary: true },
+        data: {
+          isPrimary: true,
+          // Primary is a relevance signal only after max-level gate (policy V1).
+          ...(atMaxLevel
+            ? {
+                relevanceEligible: true,
+                relevancePolicyVersion: OWNED_CHARACTER_RELEVANCE_POLICY_V1.version,
+                relevanceReasons: ["CURRENT_OWNERSHIP", "MAX_LEVEL", "EXPLICIT_PRIMARY"],
+                relevanceEvaluatedAt: new Date(),
+              }
+            : {}),
+        },
       }),
     ]);
   }

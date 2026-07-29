@@ -404,6 +404,15 @@ model BattleNetAccount {
   grantedScopes          String?   @map("granted_scopes")
   lastOwnershipSyncAt    DateTime? @map("last_ownership_sync_at") @db.Timestamptz(3)
   lastOwnershipSyncError String?   @map("last_ownership_sync_error")
+  /** Last discover-owned-characters IngestionJob id (logical). */
+  lastDiscoveryJobId       String?   @map("last_discovery_job_id") @db.Uuid
+  lastDiscoveryStatus      String?   @map("last_discovery_status")
+  lastDiscoveryStartedAt   DateTime? @map("last_discovery_started_at") @db.Timestamptz(3)
+  lastDiscoveryFinishedAt  DateTime? @map("last_discovery_finished_at") @db.Timestamptz(3)
+  lastDiscoveryError       String?   @map("last_discovery_error")
+  lastDiscoveryCounters    Json?     @map("last_discovery_counters")
+  /** Ownership sync revision the latest discovery was keyed against. */
+  lastDiscoveryOwnershipSyncAt DateTime? @map("last_discovery_ownership_sync_at") @db.Timestamptz(3)
   createdAt              DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt              DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
 
@@ -439,6 +448,16 @@ model VerifiedCharacterOwnership {
   verifiedAt           DateTime               @map("verified_at") @db.Timestamptz(3)
   lastSeenAt           DateTime               @default(now()) @map("last_seen_at") @db.Timestamptz(3)
   revokedAt            DateTime?              @map("revoked_at") @db.Timestamptz(3)
+  /** Owned-character relevance policy diagnostics (private). */
+  relevancePolicyVersion String?              @map("relevance_policy_version")
+  relevanceEligible      Boolean?             @map("relevance_eligible")
+  relevanceReasons       Json?                @map("relevance_reasons")
+  relevanceEvaluatedAt   DateTime?            @map("relevance_evaluated_at") @db.Timestamptz(3)
+  currentSeasonMythicRating   Float?          @map("current_season_mythic_rating")
+  currentSeasonMythicSeasonId String?         @map("current_season_mythic_season_id")
+  currentSeasonMythicFetchedAt DateTime?      @map("current_season_mythic_fetched_at") @db.Timestamptz(3)
+  currentSeasonMythicSource   String?         @map("current_season_mythic_source")
+  currentSeasonMythicState    String?         @map("current_season_mythic_state")
   createdAt            DateTime               @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt            DateTime               @updatedAt @map("updated_at") @db.Timestamptz(3)
 

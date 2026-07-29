@@ -1,0 +1,268 @@
+import {
+  buildFreshnessConfig,
+  isDatasetFresh,
+  presentWowClass,
+} from "@mplus/config";
+import type {
+  AccountCharactersResponse,
+  AccountOwnedCharacterDTO,
+  AccountTrustScoreStatus,
+} from "@mplus/contracts";
+import type { AppEnv } from "@mplus/config";
+import type { PrismaClient } from "@mplus/database";
+import { QUEUE_NAMES } from "@mplus/contracts";
+
+function readAvatarFromSnapshot(rawSummary: unknown): string | null {
+  if (!rawSummary || typeof rawSummary !== "object") return null;
+  const media = (rawSummary as { media?: { avatarUrl?: unknown } }).media;
+  const avatar = media?.avatarUrl;
+  return typeof avatar === "string" && avatar.startsWith("https://") ? avatar : null;
+}
+
+function mapJobStatusToTrust(
+  jobStatus: string | null | undefined,
+): AccountTrustScoreStatus | null {
+  if (!jobStatus) return null;
+  if (jobStatus === "QUEUED") return "QUEUED";
+  if (jobStatus === "ACTIVE") return "RUNNING";
+  if (jobStatus === "FAILED") return "FAILED";
+  return null;
+}
+
+/**
+ * Server-side account character view: ownership + character + score + job + class/media.
+ * Default list is relevant CURRENT only.
+ */
+export async function buildAccountCharactersView(input: {
+  prisma: PrismaClient;
+  env: AppEnv;
+  userId: string;
+  /** When true, return all CURRENT ownerships (debug). */
+  includeIrrelevant?: boolean;
+}): Promise<AccountCharactersResponse> {
+  const { prisma, env, userId } = input;
+  const freshness = buildFreshnessConfig(env);
+
+  const account = await prisma.battleNetAccount.findFirst({
+    where: { userId, unlinkedAt: null },
+    orderBy: { linkedAt: "desc" },
+  });
+
+  const totalOwnedCharacterCount = await prisma.verifiedCharacterOwnership.count({
+    where: { userId, status: "CURRENT" },
+  });
+
+  const discovery = {
+    status: mapDiscoveryStatus(account?.lastDiscoveryStatus),
+    jobId: account?.lastDiscoveryJobId ?? null,
+    startedAt: account?.lastDiscoveryStartedAt?.toISOString() ?? null,
+    finishedAt: account?.lastDiscoveryFinishedAt?.toISOString() ?? null,
+    error: account?.lastDiscoveryError ?? null,
+  } as const;
+
+  const ownerships = await prisma.verifiedCharacterOwnership.findMany({
+    where: {
+      userId,
+      status: "CURRENT",
+      ...(input.includeIrrelevant
+        ? {}
+        : {
+            OR: [{ relevanceEligible: true }, { isPrimary: true }],
+          }),
+    },
+    include: {
+      region: true,
+      character: {
+        include: {
+          gameClass: true,
+          snapshots: { orderBy: { capturedAt: "desc" }, take: 1 },
+          publishedScores: {
+            include: {
+              publishedSnapshot: { include: { scoreModel: true } },
+              season: true,
+            },
+          },
+        },
+      },
+    },
+  });
+
+  const season = await prisma.season.findFirst({ where: { isCurrent: true } });
+  const scoreModel = await prisma.scoreModel.findFirst({
+    where: { key: env.ACTIVE_SCORE_MODEL_KEY, status: "ACTIVE" },
+    orderBy: { version: "desc" },
+  });
+
+  const characters: AccountOwnedCharacterDTO[] = [];
+
+  for (const row of ownerships) {
+    const classPresentation = presentWowClass({
+      playableClassId: row.playableClassId,
+      classSlug: row.character?.gameClass?.slug ?? null,
+    });
+
+    const portraitFromSnapshot = row.character
+      ? readAvatarFromSnapshot(row.character.snapshots[0]?.rawSummary)
+      : null;
+
+    let trustStatus: AccountTrustScoreStatus = "NOT_REQUESTED";
+    let jobId: string | null = null;
+    let score: number | null = null;
+    let grade: string | null = null;
+    let confidence: number | null = null;
+    let modelVersion: number | null = null;
+    let calculatedAt: string | null = null;
+    let errorCode: string | null = null;
+    let errorMessage: string | null = null;
+
+    if (row.characterId) {
+      const job = await prisma.ingestionJob.findFirst({
+        where: {
+          characterId: row.characterId,
+          jobType: QUEUE_NAMES.refreshCharacter,
+        },
+        orderBy: { scheduledAt: "desc" },
+      });
+      if (job) {
+        jobId = job.id;
+        const mapped = mapJobStatusToTrust(job.status);
+        if (mapped) {
+          trustStatus = mapped;
+          if (job.status === "FAILED") {
+            const err = job.error as { code?: string; message?: string } | null;
+            errorCode = err?.code ?? "REFRESH_FAILED";
+            errorMessage = err?.message ?? "Trust Score refresh failed";
+          }
+        }
+      }
+
+      const published = row.character?.publishedScores.find(
+        (p: { seasonId: string; scoreModelId: string; scopeType: string }) =>
+          p.seasonId === season?.id &&
+          p.scoreModelId === scoreModel?.id &&
+          p.scopeType === "CHARACTER",
+      );
+      const snap = published?.publishedSnapshot;
+      if (snap?.isPublic) {
+        score = Number(snap.overallScore);
+        grade = snap.grade;
+        confidence = Number(snap.confidence);
+        modelVersion = snap.scoreModel?.version ?? env.ACTIVE_SCORE_MODEL_VERSION;
+        calculatedAt = snap.calculatedAt.toISOString();
+        const fresh = isDatasetFresh(snap.calculatedAt, "calculated.score_snapshot", freshness);
+        if (trustStatus === "QUEUED" || trustStatus === "RUNNING") {
+          // keep in-flight status
+        } else if (snap.coverageState === "PARTIAL") {
+          trustStatus = "PARTIAL";
+        } else if (!fresh) {
+          trustStatus = "STALE";
+        } else if (snap.rejectionReason) {
+          trustStatus = "UNAVAILABLE";
+          errorCode = snap.rejectionReason;
+          errorMessage = snap.rejectionReason;
+        } else {
+          trustStatus = "AVAILABLE";
+        }
+      } else if (trustStatus === "NOT_REQUESTED") {
+        if (discovery.status === "QUEUED" || discovery.status === "RUNNING") {
+          trustStatus = "DISCOVERING";
+        }
+      }
+    } else if (discovery.status === "QUEUED" || discovery.status === "RUNNING") {
+      trustStatus = "DISCOVERING";
+    }
+
+    characters.push({
+      ownershipId: row.id,
+      characterId: row.characterId,
+      region: row.region.code,
+      realmSlug: row.realmSlug,
+      realmName: row.realmName,
+      name: row.characterName,
+      level: row.characterLevel,
+      isPrimary: row.isPrimary,
+      characterClass: {
+        id: classPresentation.id,
+        slug: classPresentation.slug,
+        name: classPresentation.name,
+        color: classPresentation.color,
+      },
+      media: {
+        portraitUrl: portraitFromSnapshot,
+      },
+      currentSeasonMythic: {
+        rating: row.currentSeasonMythicRating,
+        seasonId: row.currentSeasonMythicSeasonId,
+        fetchedAt: row.currentSeasonMythicFetchedAt?.toISOString() ?? null,
+        source: row.currentSeasonMythicSource,
+        state: (row.currentSeasonMythicState as AccountOwnedCharacterDTO["currentSeasonMythic"]["state"]) ?? null,
+      },
+      trustScore: {
+        status: trustStatus,
+        jobId,
+        score,
+        grade,
+        confidence,
+        modelVersion,
+        calculatedAt,
+        errorCode,
+        errorMessage,
+      },
+      relevance: {
+        policyVersion: row.relevancePolicyVersion ?? "v1",
+        eligible: row.relevanceEligible ?? false,
+        reasons: Array.isArray(row.relevanceReasons)
+          ? (row.relevanceReasons as string[])
+          : [],
+        evaluatedAt: row.relevanceEvaluatedAt?.toISOString() ?? null,
+      },
+    });
+  }
+
+  characters.sort((a, b) => {
+    if (a.isPrimary !== b.isPrimary) return a.isPrimary ? -1 : 1;
+    const scoreA = a.trustScore.score ?? -1;
+    const scoreB = b.trustScore.score ?? -1;
+    if (scoreA !== scoreB) return scoreB - scoreA;
+    const ratingA = a.currentSeasonMythic.rating ?? -1;
+    const ratingB = b.currentSeasonMythic.rating ?? -1;
+    if (ratingA !== ratingB) return ratingB - ratingA;
+    return a.name.localeCompare(b.name);
+  });
+
+  const relevantCount = await prisma.verifiedCharacterOwnership.count({
+    where: {
+      userId,
+      status: "CURRENT",
+      OR: [{ relevanceEligible: true }, { isPrimary: true }],
+    },
+  });
+  const hiddenCharacterCount = Math.max(0, totalOwnedCharacterCount - relevantCount);
+
+  const hasCurrentPrimary = characters.some((c) => c.isPrimary);
+  const primaryDiagnostic =
+    totalOwnedCharacterCount > 0 && !hasCurrentPrimary
+      ? "No current primary character is selected among relevant owned characters."
+      : null;
+
+  return {
+    characters: input.includeIrrelevant
+      ? characters
+      : characters.filter((c) => c.relevance.eligible || c.isPrimary),
+    discovery,
+    hiddenCharacterCount,
+    totalOwnedCharacterCount,
+    primaryDiagnostic,
+  };
+}
+
+function mapDiscoveryStatus(
+  status: string | null | undefined,
+): AccountCharactersResponse["discovery"]["status"] {
+  if (!status) return "IDLE";
+  if (status === "QUEUED") return "QUEUED";
+  if (status === "RUNNING") return "RUNNING";
+  if (status === "COMPLETED") return "COMPLETED";
+  if (status === "FAILED") return "FAILED";
+  return "IDLE";
+}
