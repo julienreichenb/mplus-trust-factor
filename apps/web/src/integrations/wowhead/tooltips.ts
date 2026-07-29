@@ -36,29 +36,36 @@ function findExistingScript(): HTMLScriptElement | null {
   return document.querySelector<HTMLScriptElement>(`script[${SCRIPT_ATTR}]`);
 }
 
-function applyTooltipConfig(): void {
+function applyTooltipConfig(options: Partial<WowheadTooltipConfig> = {}): void {
   if (typeof window === "undefined") return;
   window.whTooltips = {
     colorLinks: false,
     iconizeLinks: false,
     renameLinks: false,
+    ...options,
   };
 }
 
 /**
  * Idempotent client-side loader. Failures stay failed for the session (no retry loop).
  */
-export function loadWowheadTooltipScript(): Promise<WowheadTooltipStatus> {
+export function loadWowheadTooltipScript(
+  options: Partial<WowheadTooltipConfig> = {},
+): Promise<WowheadTooltipStatus> {
   if (typeof window === "undefined" || typeof document === "undefined") {
     status = "failed";
     return Promise.resolve(status);
   }
 
+  // Always refresh config so later callers can enable iconizeLinks, etc.
+  applyTooltipConfig({
+    ...(window.whTooltips ?? {}),
+    ...options,
+  });
+
   if (status === "ready") return Promise.resolve(status);
   if (status === "failed") return Promise.resolve(status);
   if (loadPromise) return loadPromise;
-
-  applyTooltipConfig();
 
   const existing = findExistingScript();
   if (existing) {

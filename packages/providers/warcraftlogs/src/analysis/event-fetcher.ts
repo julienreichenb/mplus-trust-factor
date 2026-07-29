@@ -20,7 +20,7 @@ import type {
   WclInterruptEvent,
   WclRateBudgetDecision,
 } from "../types.js";
-import { buildActorMap, resolveActorSourceIdStrict } from "../discovery/run-matching.js";
+import { buildActorMap, resolveActorSourceIdStrict, resolveAttributedSourceIds } from "../discovery/run-matching.js";
 import { shouldDeferExpensiveWork } from "../rate/rate-budget.js";
 
 export interface FetchCombatFactsInput {
@@ -48,6 +48,12 @@ export async function fetchAllEventPages(
     eventLimit?: number;
     maxEventPages?: number;
     maxEventsPerCategory?: number;
+    /** When true, request hitPoints/maxHitPoints on events (Survival health path). */
+    includeResources?: boolean;
+    /** WCL filterExpression — used for hostile NPC casts without player sourceID. */
+    filterExpression?: string | null;
+    /** Friendlies (default) vs Enemies — required for hostile cast streams. */
+    hostilityType?: "Friendlies" | "Enemies" | null;
   },
 ): Promise<{ events: Array<Record<string, unknown>>; truncated: boolean }> {
   const all: Array<Record<string, unknown>> = [];
@@ -72,6 +78,9 @@ export async function fetchAllEventPages(
         translate: false,
         useAbilityIDs: false,
         useActorIDs: false,
+        includeResources: input.includeResources === true ? true : undefined,
+        filterExpression: input.filterExpression ?? undefined,
+        hostilityType: input.hostilityType ?? undefined,
       },
     });
 
@@ -122,6 +131,12 @@ export async function buildRunCombatFactsFromEvents(
     );
   }
   const targetSourceId = resolved.sourceId;
+  const attributedSourceIds = resolveAttributedSourceIds(
+    actorMap,
+    targetSourceId,
+    input.characterName,
+  );
+  const attributedSet = new Set(attributedSourceIds);
 
   const coverage: RunCombatFactsCoverage = {
     casts: false,
@@ -152,6 +167,8 @@ export async function buildRunCombatFactsFromEvents(
     ? DETAILED_EVENT_TYPES
     : DETAILED_EVENT_TYPES.filter((t) => t !== "Healing");
 
+  const attributedEventTypes = new Set<EventDataType>(["Casts", "Interrupts", "Dispels", "Debuffs"]);
+
   for (const dataType of typesToFetch) {
     if (input.rateBudget && shouldDeferExpensiveWork(input.rateBudget)) {
       limitations.notes.push(
@@ -161,15 +178,20 @@ export async function buildRunCombatFactsFromEvents(
       break;
     }
 
+    const fetchUnfiltered = attributedEventTypes.has(dataType);
     const { events, truncated } = await fetchAllEventPages(client, {
       reportCode: input.reportCode,
       fightId: input.fightId,
       dataType,
-      sourceId: targetSourceId,
+      sourceId: fetchUnfiltered ? null : targetSourceId,
       eventLimit: input.eventLimit,
       maxEventPages: input.maxEventPages,
       maxEventsPerCategory: input.maxEventsPerCategory,
     });
+
+    const scopedEvents = fetchUnfiltered
+      ? events.filter((row) => attributedSet.has(num(row, "sourceID") ?? -1))
+      : events;
 
     if (truncated) {
       limitations.truncatedPages.push(dataType);
@@ -177,36 +199,38 @@ export async function buildRunCombatFactsFromEvents(
 
     switch (dataType) {
       case "Casts":
-        casts.push(...events.map(mapCastEvent));
-        coverage.casts = true;
+        casts.push(...scopedEvents.map(mapCastEvent));
+        coverage.casts = scopedEvents.length > 0;
         break;
       case "Interrupts":
-        interrupts.push(...events.map(mapInterruptEvent));
-        coverage.interrupts = true;
+        interrupts.push(...scopedEvents.map(mapInterruptEvent));
+        coverage.interrupts = scopedEvents.length > 0;
         break;
       case "Deaths":
-        deaths.push(...events.map(mapDeathEvent));
-        coverage.deaths = true;
+        deaths.push(...scopedEvents.map(mapDeathEvent));
+        coverage.deaths = scopedEvents.length > 0;
         break;
       case "DamageTaken":
-        damageTaken.push(...events.map(mapDamageTakenEvent));
-        coverage.damageTaken = true;
+        damageTaken.push(...scopedEvents.map(mapDamageTakenEvent));
+        coverage.damageTaken = scopedEvents.length > 0;
         break;
       case "Buffs":
       case "Debuffs":
-        auras.push(...events.map((e) => mapAuraEvent(e, dataType === "Buffs" ? "apply" : "apply")));
-        coverage.auras = true;
+        auras.push(
+          ...scopedEvents.map((e) => mapAuraEvent(e, dataType === "Buffs" ? "apply" : "apply")),
+        );
+        coverage.auras = scopedEvents.length > 0;
         break;
       case "Dispels":
-        dispels.push(...events.map(mapDispelEvent));
-        coverage.dispels = true;
+        dispels.push(...scopedEvents.map(mapDispelEvent));
+        coverage.dispels = scopedEvents.length > 0;
         break;
       case "Healing":
-        healing.push(...events.map(mapHealingEvent));
-        coverage.healing = true;
+        healing.push(...scopedEvents.map(mapHealingEvent));
+        coverage.healing = scopedEvents.length > 0;
         break;
       case "CombatantInfo": {
-        const first = events[0];
+        const first = scopedEvents[0];
         if (first) {
           combatantInfo = {
             sourceId: targetSourceId,
@@ -235,6 +259,7 @@ export async function buildRunCombatFactsFromEvents(
     fightId: input.fightId,
     revision: input.revision,
     targetSourceId,
+    attributedSourceIds,
     actorMap,
     casts,
     interrupts,
@@ -254,13 +279,24 @@ function num(row: Record<string, unknown>, key: string): number | null {
   return typeof value === "number" ? value : null;
 }
 
+function resolveEventActorId(row: Record<string, unknown>, flatKey: string, nestedKey: string): number {
+  const flat = num(row, flatKey);
+  if (flat != null) return flat;
+  const nested = row[nestedKey] as Record<string, unknown> | undefined;
+  const nestedId = nested ? num(nested, "id") : null;
+  return nestedId ?? 0;
+}
+
 function mapCastEvent(row: Record<string, unknown>): WclCastEvent {
   const ability = row.ability as Record<string, unknown> | undefined;
   return {
     timestamp: num(row, "timestamp") ?? 0,
     abilityGameId: num(row, "abilityGameID") ?? (ability ? num(ability, "guid") : null) ?? 0,
-    sourceId: num(row, "sourceID") ?? 0,
-    targetId: num(row, "targetID"),
+    sourceId: resolveEventActorId(row, "sourceID", "source"),
+    targetId: (() => {
+      const id = resolveEventActorId(row, "targetID", "target");
+      return id > 0 ? id : null;
+    })(),
   };
 }
 
@@ -278,8 +314,8 @@ function mapInterruptEvent(row: Record<string, unknown>): WclInterruptEvent {
 function mapDeathEvent(row: Record<string, unknown>): WclDeathEvent {
   return {
     timestamp: num(row, "timestamp") ?? 0,
-    sourceId: num(row, "sourceID") ?? 0,
-    targetId: num(row, "targetID") ?? 0,
+    sourceId: resolveEventActorId(row, "sourceID", "source"),
+    targetId: resolveEventActorId(row, "targetID", "target"),
     killerId: num(row, "killerID"),
     abilityGameId: num(row, "abilityGameID"),
   };
@@ -288,9 +324,18 @@ function mapDeathEvent(row: Record<string, unknown>): WclDeathEvent {
 function mapDamageTakenEvent(row: Record<string, unknown>): WclDamageTakenEvent {
   return {
     timestamp: num(row, "timestamp") ?? 0,
-    sourceId: num(row, "sourceID"),
-    targetId: num(row, "targetID") ?? 0,
-    abilityGameId: num(row, "abilityGameID") ?? 0,
+    sourceId: (() => {
+      const id = resolveEventActorId(row, "sourceID", "source");
+      return id > 0 ? id : null;
+    })(),
+    targetId: resolveEventActorId(row, "targetID", "target"),
+    abilityGameId:
+      num(row, "abilityGameID") ??
+      (() => {
+        const ability = row.ability as Record<string, unknown> | undefined;
+        return ability ? num(ability, "guid") : null;
+      })() ??
+      0,
     amount: num(row, "amount") ?? 0,
   };
 }
@@ -298,15 +343,19 @@ function mapDamageTakenEvent(row: Record<string, unknown>): WclDamageTakenEvent 
 function mapAuraEvent(row: Record<string, unknown>, fallbackType: WclAuraEvent["type"]): WclAuraEvent {
   const rawType = row.type;
   let type: WclAuraEvent["type"] = fallbackType;
-  if (rawType === "remove" || rawType === "refresh" || rawType === "apply") {
-    type = rawType;
+  if (typeof rawType === "string") {
+    const lower = rawType.toLowerCase();
+    if (lower.includes("remove")) type = "remove";
+    else if (lower.includes("refresh")) type = "refresh";
+    else if (lower.includes("apply")) type = "apply";
   }
+  const ability = row.ability as Record<string, unknown> | undefined;
   return {
     timestamp: num(row, "timestamp") ?? 0,
     type,
-    abilityGameId: num(row, "abilityGameID") ?? 0,
-    sourceId: num(row, "sourceID") ?? 0,
-    targetId: num(row, "targetID") ?? 0,
+    abilityGameId: num(row, "abilityGameID") ?? (ability ? num(ability, "guid") : null) ?? 0,
+    sourceId: resolveEventActorId(row, "sourceID", "source"),
+    targetId: resolveEventActorId(row, "targetID", "target"),
   };
 }
 

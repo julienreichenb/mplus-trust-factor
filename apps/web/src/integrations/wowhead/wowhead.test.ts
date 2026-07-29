@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { wowheadItemUrl, wowheadSpellUrl, isWowheadItemUrl } from "./urls";
+import { wowheadItemUrl, wowheadSpellUrl, isWowheadItemUrl, wowheadItemQuery } from "./urls";
 import {
   getWowheadTooltipStatus,
   loadWowheadTooltipScript,
@@ -10,6 +10,16 @@ describe("wowhead urls", () => {
   it("generates valid item URLs", () => {
     expect(wowheadItemUrl(19019)).toBe("https://www.wowhead.com/item=19019");
     expect(isWowheadItemUrl("https://www.wowhead.com/item=19019")).toBe(true);
+  });
+
+  it("embeds equipped ilvl and bonus list for scaled/crafted tooltips", () => {
+    expect(
+      wowheadItemUrl(151796, { itemLevel: 298, bonusList: [6652, 1808] }),
+    ).toBe("https://www.wowhead.com/item=151796&ilvl=298&bonus=6652:1808");
+    expect(wowheadItemQuery(171412, { itemLevel: 285 })).toBe("item=171412&ilvl=285");
+    expect(isWowheadItemUrl("https://www.wowhead.com/item=151796&ilvl=298&bonus=6652:1808")).toBe(
+      true,
+    );
   });
 
   it("rejects invalid item IDs", () => {

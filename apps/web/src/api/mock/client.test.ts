@@ -20,11 +20,18 @@ describe("mock API client", () => {
     expect(profile.lastAnalyzedRun?.kind).toBe("BOTH");
   });
 
-  it("throws not found for unknown characters", async () => {
+  it("ingests unknown characters via queued refresh", async () => {
     const api = createMockApiClient();
-    await expect(
-      api.getCharacterProfile({ region: "EU", realmSlug: "tarren-mill", name: "Nope" }),
-    ).rejects.toMatchObject({ code: "CHARACTER_NOT_FOUND" });
+    const identity = { region: "EU" as const, realmSlug: "archimonde", name: "Wallidrixe" };
+    const first = await api.getCharacterProfile(identity);
+    expect(first.refreshStatus).toBe("QUEUED");
+    expect(first.displayName).toBe("Wallidrixe");
+    expect(first.realmSlug).toBe("archimonde");
+    await api.getRefreshStatus(identity);
+    await api.getRefreshStatus(identity);
+    const after = await api.getCharacterProfile(identity);
+    expect(after.refreshStatus).toBe("FRESH");
+    expect(after.score?.overallScore).toBe(62);
   });
 
   it("simulates queued refresh then completes", async () => {

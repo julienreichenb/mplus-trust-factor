@@ -2,6 +2,7 @@ import type { Character } from "@mplus/database";
 import type {
   CharacterIdentityInput,
   CharacterProfileResponse,
+  CharacterResolveResponse,
   PerformanceSummaryDTO,
   ProviderName,
   RefreshStatusResponse,
@@ -11,8 +12,10 @@ import type {
   WclDataState,
   WclVisibilityState,
 } from "@mplus/contracts";
-import { deriveWclContributionTypes, normalizeWclProvenance } from "@mplus/contracts";
+import { ExternalApiError, deriveWclContributionTypes, normalizeWclProvenance } from "@mplus/contracts";
+import { normalizeRealmSlug, normalizeRegion } from "@mplus/domain";
 import type { EnqueueResult } from "@mplus/worker";
+import { randomUUID } from "node:crypto";
 import type { ApiContainer } from "../container.js";
 import { HttpError } from "../errors.js";
 import { cooldownSecondsRemaining, determineDetailedRefreshStatus, isFresh } from "../lib/freshness.js";
@@ -24,10 +27,22 @@ import {
   type CharacterSourceAttribution,
   type RunSummaryDTO,
 } from "../lib/mappers.js";
-import { applyProfileWarnings, buildProfileEnrichments, toPublicProviderKey } from "../lib/profile-enrichment.js";
+import { applyProfileWarnings, appendRefreshContractWarnings, buildProfileEnrichments, isScoreStaleVersusProviders, scoreSnapshotContractStaleReasons, toPublicProviderKey } from "../lib/profile-enrichment.js";
 import { characterCacheKey } from "../lib/response-cache.js";
+import { scheduleProfileViewRecording } from "../lib/profile-view-recorder.js";
+import { buildRefreshContract, buildRefreshContractHash } from "@mplus/worker";
+import { ensureCurrentSeason } from "@mplus/worker";
 
 const ALL_PROVIDERS: ProviderName[] = ["blizzard", "raiderio", "warcraftlogs"];
+const DEFAULT_RETRY_AFTER_MS = 2_000;
+const PROFILE_PATH_PREFIX = "/character";
+
+function buildProfilePath(identity: CharacterIdentityInput): string {
+  const region = normalizeRegion(identity.region);
+  const realm = normalizeRealmSlug(identity.realmSlug);
+  const name = identity.name.trim();
+  return `${PROFILE_PATH_PREFIX}/${encodeURIComponent(region)}/${encodeURIComponent(realm)}/${encodeURIComponent(name)}`;
+}
 
 function readScoreObservationProviders(explanation: unknown): string[] {
   return readScoreObservations(explanation)
@@ -122,6 +137,43 @@ function readPerformanceSummary(explanation: unknown): PerformanceSummaryDTO | n
   return summary as PerformanceSummaryDTO;
 }
 
+function readSurvivalSummary(
+  explanation: unknown,
+): import("@mplus/contracts").SurvivalSummaryPublicDTO | null {
+  if (!explanation || typeof explanation !== "object") return null;
+  const summary = (explanation as { survivalSummary?: unknown }).survivalSummary;
+  if (!summary || typeof summary !== "object") return null;
+  return summary as import("@mplus/contracts").SurvivalSummaryPublicDTO;
+}
+
+function readScoringRunSelection(explanation: unknown): import("@mplus/contracts").ScoringRunSelection | null {
+  if (!explanation || typeof explanation !== "object") return null;
+  const selection = (explanation as { scoringRunSelection?: unknown }).scoringRunSelection;
+  if (!selection || typeof selection !== "object") return null;
+  return selection as import("@mplus/contracts").ScoringRunSelection;
+}
+
+function readCoverageCounts(explanation: unknown): {
+  selectedRunCount: number | null;
+  detailedRunCount: number | null;
+  runCoverageById: Record<string, number | null>;
+} {
+  if (!explanation || typeof explanation !== "object") {
+    return { selectedRunCount: null, detailedRunCount: null, runCoverageById: {} };
+  }
+  const record = explanation as {
+    coverage?: { selectedRunCount?: unknown; detailedRunCount?: unknown };
+    runCoverageById?: Record<string, number | null>;
+  };
+  return {
+    selectedRunCount:
+      typeof record.coverage?.selectedRunCount === "number" ? record.coverage.selectedRunCount : null,
+    detailedRunCount:
+      typeof record.coverage?.detailedRunCount === "number" ? record.coverage.detailedRunCount : null,
+    runCoverageById: record.runCoverageById ?? {},
+  };
+}
+
 export interface CharacterHistoryResponse {
   characterId: string;
   snapshots: ScoreSnapshotDTO[];
@@ -165,6 +217,33 @@ export class CharacterService {
     return character;
   }
 
+  private async resolveActiveRefreshContract(character: Character) {
+    const season = await ensureCurrentSeason(this.container.worker.prisma, character.regionId);
+    const activeModel =
+      (await this.repositories.score.getActiveModel(this.container.env.ACTIVE_SCORE_MODEL_KEY)) ?? {
+        key: this.container.env.ACTIVE_SCORE_MODEL_KEY,
+        version: this.container.env.ACTIVE_SCORE_MODEL_VERSION,
+      };
+    const contract = buildRefreshContract({
+      scoringModelKey: activeModel.key,
+      scoringModelVersion: activeModel.version,
+      activeSeasonId: season.slug,
+      env: process.env,
+      allowFixtureZoneDefault: this.container.env.PROVIDER_MODE === "fixture",
+    });
+    return {
+      contract,
+      hash: buildRefreshContractHash({
+        scoringModelKey: activeModel.key,
+        scoringModelVersion: activeModel.version,
+        activeSeasonId: season.slug,
+        env: process.env,
+        allowFixtureZoneDefault: this.container.env.PROVIDER_MODE === "fixture",
+      }),
+      activeModel: { key: activeModel.key, version: activeModel.version },
+    };
+  }
+
   private async enqueueRefresh(
     identity: CharacterIdentityInput,
     character: Character,
@@ -172,6 +251,7 @@ export class CharacterService {
     correlationId?: string | null,
   ): Promise<EnqueueResult> {
     this.container.responseCache.invalidate(characterCacheKey(identity));
+    const { hash } = await this.resolveActiveRefreshContract(character);
     return this.container.producers.enqueueRefreshCharacter({
       characterId: character.id,
       region: identity.region,
@@ -180,6 +260,7 @@ export class CharacterService {
       priority: "normal",
       forceRefresh,
       correlationId: correlationId ?? null,
+      refreshContractHash: hash,
     });
   }
 
@@ -210,7 +291,7 @@ export class CharacterService {
   private async buildEnrichedProfile(
     identity: CharacterIdentityInput,
     character: Character,
-    snapshot: Awaited<ReturnType<typeof this.repositories.score.getLatestSnapshot>>,
+    snapshot: Awaited<ReturnType<typeof this.repositories.score.getPublishedSnapshot>>,
     latestRunId: string | null,
     highestRunId: string | null,
     sources: CharacterSourceAttribution[],
@@ -238,6 +319,9 @@ export class CharacterService {
     const freshness = readFreshness(snapshot?.explanation);
     const selectedRunCoverage = readSelectedRunCoverage(snapshot?.explanation);
     const performanceSummary = readPerformanceSummary(snapshot?.explanation);
+    const survivalSummary = readSurvivalSummary(snapshot?.explanation);
+    const scoringRunSelection = readScoringRunSelection(snapshot?.explanation);
+    const coverageCounts = readCoverageCounts(snapshot?.explanation);
     const wclContributionTypes = deriveWclContributionTypes(
       readScoreObservations(snapshot?.explanation),
     );
@@ -273,14 +357,31 @@ export class CharacterService {
 
     if (!characterDetail) return base;
 
-    const runIds = [latestRun?.id, highestRun?.id].filter((id): id is string => Boolean(id));
-    const runCoverageById: Record<string, number | null> = {};
+    const runIds = [
+      ...new Set(
+        [
+          latestRun?.id,
+          highestRun?.id,
+          ...(scoringRunSelection?.selectedRuns.map((r) => r.canonicalRunId) ?? []),
+        ].filter((id): id is string => Boolean(id)),
+      ),
+    ];
+    const runCoverageById: Record<string, number | null> = {
+      ...coverageCounts.runCoverageById,
+    };
+    const runNamesById: Record<string, { dungeonName: string }> = {};
     await Promise.all(
       runIds.map(async (runId) => {
         runCoverageById[runId] = await this.repositories.run.findLatestAnalysisCoverage(
           character.id,
           runId,
         );
+        const runRow = await this.repositories.run.findById(runId);
+        if (runRow) {
+          runNamesById[runId] = {
+            dungeonName: runRow.dungeon.name ?? runRow.dungeon.slug,
+          };
+        }
       }),
     );
 
@@ -309,6 +410,11 @@ export class CharacterService {
         selectedRunCoverage,
         runCoverageById,
         performanceSummary,
+        survivalSummary,
+        scoringRunSelection,
+        selectedRunCount: coverageCounts.selectedRunCount,
+        detailedRunCount: coverageCounts.detailedRunCount,
+        runNamesById,
         freshness,
         scoreObservationProviders: observationProviders,
         env: this.container.env,
@@ -333,7 +439,7 @@ export class CharacterService {
     if (cached) return cached;
 
     const character = await this.findOrCreateCharacter(identity);
-    const snapshot = await this.repositories.score.getLatestSnapshot(character.id);
+    const snapshot = await this.repositories.score.getPublishedSnapshot(character.id);
     const fresh = isFresh(character.lastPublicRefreshAt, this.freshnessTtlSeconds);
 
     if (!snapshot) {
@@ -370,10 +476,76 @@ export class CharacterService {
       }),
       fresh ? "FRESH" : "STALE",
     );
+
+    // Never present fresh provider timestamps alongside an older score without marking STALE.
+    if (
+      body.refreshStatus === "FRESH" &&
+      isScoreStaleVersusProviders(body.score?.calculatedAt, body.providerStates)
+    ) {
+      body.refreshStatus = "STALE";
+      if (!body.warnings?.some((w) => w.code === "SCORE_STALE_VS_PROVIDERS")) {
+        body.warnings = [
+          ...(body.warnings ?? []),
+          {
+            code: "SCORE_STALE_VS_PROVIDERS",
+            message:
+              "Provider data is newer than the published score snapshot — score may not reflect the latest Performance refresh.",
+            severity: "WARN",
+          },
+        ];
+      }
+      await this.enqueueRefresh(identity, character, false, opts.correlationId);
+    }
+
+    // Model / adapter / schema contract mismatch: never report FRESH for an incompatible snapshot.
+    if (body.score) {
+      const { contract, activeModel } = await this.resolveActiveRefreshContract(character);
+      const contractReasons = scoreSnapshotContractStaleReasons({
+        score: body.score,
+        activeModel,
+        activeContract: contract,
+      });
+      if (contractReasons.length > 0) {
+        body.refreshStatus = "STALE";
+        body.warnings = appendRefreshContractWarnings(body.warnings, contractReasons);
+        await this.enqueueRefresh(identity, character, false, opts.correlationId);
+      }
+    }
+
+    // Failed refresh must keep the last valid snapshot as fallback but never as FRESH.
+    const latestJob = await this.repositories.job.findLatestForCharacter(character.id);
+    if (body.score && latestJob?.status === "FAILED" && body.refreshStatus === "FRESH") {
+      body.refreshStatus = "STALE";
+      if (!body.warnings?.some((w) => w.code === "REFRESH_FAILED")) {
+        body.warnings = [
+          ...(body.warnings ?? []),
+          {
+            code: "REFRESH_FAILED",
+            message: "Last refresh failed — showing previous score as a stale fallback.",
+            severity: "WARN",
+          },
+        ];
+      }
+    }
+
     const result: GetProfileResult = { statusCode: 200, body };
-    if (fresh) {
+    if (body.refreshStatus === "FRESH") {
       this.container.responseCache.set(cacheKey, result);
     }
+
+    // Aggregated profile view — async, non-blocking, abuse-resistant. Zero provider calls.
+    scheduleProfileViewRecording(
+      this.container.worker.prisma,
+      {
+        characterId: character.id,
+        viewerHash: null,
+        source: "public",
+      },
+      (err) => {
+        this.container.logger.warn({ err, characterId: character.id }, "profile_view_record_failed");
+      },
+    );
+
     return result;
   }
 
@@ -387,7 +559,7 @@ export class CharacterService {
     }
 
     const character = await this.findOrCreateCharacter(identity);
-    const snapshot = await this.repositories.score.getLatestSnapshot(character.id);
+    const snapshot = await this.repositories.score.getPublishedSnapshot(character.id);
     const fresh = isFresh(character.lastPublicRefreshAt, this.freshnessTtlSeconds);
 
     let refreshStatus: SearchCharacterResponse["refreshStatus"] = "FRESH";
@@ -412,12 +584,189 @@ export class CharacterService {
     };
   }
 
+  /**
+   * Exact character+realm resolution for the dual-field search UI.
+   * Verifies unknown characters against Blizzard before creating a stable profile resource.
+   */
+  async resolveCharacter(
+    input: CharacterIdentityInput,
+    opts: { correlationId?: string | null; forceRetry?: boolean } = {},
+  ): Promise<{ statusCode: number; body: CharacterResolveResponse }> {
+    const identity: CharacterIdentityInput = {
+      region: normalizeRegion(input.region),
+      realmSlug: normalizeRealmSlug(input.realmSlug),
+      name: input.name.trim(),
+    };
+    if (!identity.name) {
+      return {
+        statusCode: 400,
+        body: { status: "FAILED", retryable: false, message: "Character name is required." },
+      };
+    }
+
+    const realm = await this.repositories.realm.findBySlug(identity.region, identity.realmSlug);
+    if (!realm) {
+      return {
+        statusCode: 400,
+        body: {
+          status: "FAILED",
+          retryable: false,
+          message: "Unknown or inactive realm for this region. Pick a realm from the catalog.",
+        },
+      };
+    }
+
+    // Prefer catalog slug (already normalized) and preserve user capitalization for display/path.
+    identity.realmSlug = realm.slug;
+    const profilePath = buildProfilePath(identity);
+
+    if (this.container.negativeCache.has(identity) && !opts.forceRetry) {
+      return {
+        statusCode: 404,
+        body: {
+          status: "NOT_FOUND",
+          message: `Character not found on ${realm.name} — ${identity.region}.`,
+        },
+      };
+    }
+
+    const existing = await this.repositories.character.findByIdentity(identity);
+    if (existing) {
+      const snapshot = await this.repositories.score.getPublishedSnapshot(existing.id);
+      const activeJob = await this.repositories.job.findActiveForCharacter(existing.id);
+      const latestJob = activeJob ?? (await this.repositories.job.findLatestForCharacter(existing.id));
+      const providerStates = await this.repositories.providerState.listForCharacter(existing.id);
+      const blizzardNotFound = providerStates.some(
+        (s) => s.provider === "blizzard" && s.state === "NOT_FOUND",
+      );
+
+      if (blizzardNotFound && !opts.forceRetry) {
+        return {
+          statusCode: 404,
+          body: {
+            status: "NOT_FOUND",
+            message: `Character not found on ${realm.name} — ${identity.region}.`,
+          },
+        };
+      }
+
+      if (snapshot && !activeJob) {
+        return {
+          statusCode: 200,
+          body: { status: "READY", characterId: existing.id, profilePath },
+        };
+      }
+
+      if (activeJob) {
+        return {
+          statusCode: 202,
+          body: {
+            status: activeJob.status === "ACTIVE" ? "PROCESSING" : "QUEUED",
+            characterId: existing.id,
+            refreshId: activeJob.id,
+            profilePath,
+            retryAfterMs: DEFAULT_RETRY_AFTER_MS,
+          },
+        };
+      }
+
+      if (latestJob?.status === "FAILED" || opts.forceRetry || !snapshot) {
+        const enqueueResult = await this.enqueueRefresh(
+          identity,
+          existing,
+          Boolean(opts.forceRetry),
+          opts.correlationId,
+        );
+        return {
+          statusCode: 202,
+          body: {
+            status: "QUEUED",
+            characterId: existing.id,
+            refreshId: enqueueResult.jobId,
+            profilePath,
+            retryAfterMs: DEFAULT_RETRY_AFTER_MS,
+          },
+        };
+      }
+
+      return {
+        statusCode: 200,
+        body: { status: "READY", characterId: existing.id, profilePath },
+      };
+    }
+
+    // New character: verify against Blizzard before creating a stable DB row.
+    try {
+      await this.container.worker.providers.blizzard.getCharacterProfile(identity, {
+        region: identity.region,
+        requestId: opts.correlationId ?? randomUUID(),
+        correlationId: opts.correlationId ?? null,
+        forceRefresh: true,
+        now: new Date().toISOString(),
+      });
+    } catch (error) {
+      if (error instanceof ExternalApiError && error.code === "NOT_FOUND") {
+        this.container.negativeCache.set(identity);
+        return {
+          statusCode: 404,
+          body: {
+            status: "NOT_FOUND",
+            message: `Character not found on ${realm.name} — ${identity.region}.`,
+          },
+        };
+      }
+      if (error instanceof ExternalApiError && error.retryable) {
+        return {
+          statusCode: 503,
+          body: {
+            status: "PROVIDER_UNAVAILABLE",
+            retryable: true,
+            message: "Blizzard is temporarily unavailable. Please retry shortly.",
+          },
+        };
+      }
+      if (error instanceof ExternalApiError && !error.retryable) {
+        return {
+          statusCode: 502,
+          body: {
+            status: "FAILED",
+            retryable: false,
+            message: error.message || "Character verification failed.",
+          },
+        };
+      }
+      return {
+        statusCode: 503,
+        body: {
+          status: "PROVIDER_UNAVAILABLE",
+          retryable: true,
+          message: "Unable to verify character with Blizzard right now.",
+        },
+      };
+    }
+
+    const character = await this.repositories.character.upsertCharacter(identity, {
+      displayName: identity.name,
+    });
+    const enqueueResult = await this.enqueueRefresh(identity, character, false, opts.correlationId);
+    return {
+      statusCode: 202,
+      body: {
+        status: "QUEUED",
+        characterId: character.id,
+        refreshId: enqueueResult.jobId,
+        profilePath,
+        retryAfterMs: DEFAULT_RETRY_AFTER_MS,
+      },
+    };
+  }
+
   /** GET refresh-status: pure read, never enqueues, 404 for identities never resolved or negatively cached. */
   async getRefreshStatus(identity: CharacterIdentityInput): Promise<RefreshStatusResponse> {
     const character = await this.requireCharacter(identity);
     const [activeJob, snapshot] = await Promise.all([
       this.repositories.job.findActiveForCharacter(character.id),
-      this.repositories.score.getLatestSnapshot(character.id),
+      this.repositories.score.getPublishedSnapshot(character.id),
     ]);
     const latestJob = activeJob ?? (await this.repositories.job.findLatestForCharacter(character.id));
     const fresh = isFresh(character.lastPublicRefreshAt, this.freshnessTtlSeconds);
@@ -473,7 +822,7 @@ export class CharacterService {
     );
     if (remaining > 0 && !opts.isAdmin) {
       const lastJob = await this.repositories.job.findLatestForCharacter(character.id);
-      const snapshot = await this.repositories.score.getLatestSnapshot(character.id);
+      const snapshot = await this.repositories.score.getPublishedSnapshot(character.id);
       return {
         characterId: character.id,
         refreshStatus: snapshot ? "STALE" : "QUEUED",
@@ -514,7 +863,7 @@ export class CharacterService {
 
   async getLatestScore(identity: CharacterIdentityInput): Promise<ScoreSnapshotDTO> {
     const character = await this.requireCharacter(identity);
-    const snapshot = await this.repositories.score.getLatestSnapshot(character.id);
+    const snapshot = await this.repositories.score.getPublishedSnapshot(character.id);
     if (!snapshot) {
       throw HttpError.notFound("SCORE_NOT_FOUND", "No score has been calculated for this character yet");
     }

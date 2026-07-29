@@ -1,5 +1,6 @@
 import type { MetricDefinition, Prisma, PrismaClient } from "@mplus/database";
 import type { MetricObservationDTO } from "@mplus/contracts";
+import { buildObservationKey } from "@mplus/scoring";
 import type { PrismaClientOrTx } from "./shared.js";
 
 export async function ensureMetricDefinition(
@@ -7,16 +8,16 @@ export async function ensureMetricDefinition(
   metricKey: string,
   dimension: MetricObservationDTO["dimension"],
 ): Promise<MetricDefinition> {
-  const existing = await client.metricDefinition.findUnique({ where: { key: metricKey } });
-  if (existing) return existing;
-  return client.metricDefinition.create({
-    data: {
+  return client.metricDefinition.upsert({
+    where: { key: metricKey },
+    create: {
       key: metricKey,
       dimension,
       valueType: "number",
       direction: "HIGHER_BETTER",
       description: `Auto-created metric definition for ${metricKey}`,
     },
+    update: {},
   });
 }
 
@@ -27,7 +28,87 @@ export interface MetricRepository {
     seasonId: string,
     observations: MetricObservationDTO[],
   ): Promise<void>;
+  /** Upserts observations by deterministic key, preserving compatible persisted data. */
+  upsertObservations(
+    characterId: string,
+    seasonId: string,
+    observations: MetricObservationDTO[],
+  ): Promise<void>;
   listForCharacter(characterId: string, seasonId?: string): Promise<MetricObservationDTO[]>;
+}
+
+function readContextField(context: unknown, key: string): string | null {
+  if (!context || typeof context !== "object") return null;
+  const value = (context as Record<string, unknown>)[key];
+  return typeof value === "string" ? value : null;
+}
+
+function mapProviderName(
+  sourceProvider: string,
+): "BLIZZARD" | "WARCRAFT_LOGS" | "RAIDER_IO" {
+  switch (sourceProvider) {
+    case "blizzard":
+      return "BLIZZARD";
+    case "warcraftlogs":
+      return "WARCRAFT_LOGS";
+    case "raiderio":
+      return "RAIDER_IO";
+    case "character_history":
+    case "fusion":
+      return "BLIZZARD";
+    default:
+      return "BLIZZARD";
+  }
+}
+
+async function writeObservation(
+  tx: Prisma.TransactionClient,
+  characterId: string,
+  seasonId: string,
+  observation: MetricObservationDTO,
+): Promise<void> {
+  const definition = await ensureMetricDefinition(tx, observation.metricKey, observation.dimension);
+  const observationKey = buildObservationKey(observation);
+  const analysisVersion = readContextField(observation.context, "analysisVersion");
+  const schemaVersion = readContextField(observation.context, "schemaVersion");
+  const sourcePayloadFingerprint = readContextField(observation.context, "sourcePayloadFingerprint");
+
+  const data = {
+    characterId,
+    seasonId,
+    scopeType: "CHARACTER" as const,
+    metricDefinitionId: definition.id,
+    rawValue: observation.rawValue,
+    normalizedValue: observation.normalizedValue,
+    confidence: observation.confidence,
+    observedAt: new Date(observation.observedAt),
+    sourceProvider: mapProviderName(observation.sourceProvider),
+    context: (observation.context ?? {}) as object,
+    observationKey,
+    analysisVersion,
+    schemaVersion,
+    sourcePayloadFingerprint,
+  };
+
+  const existing = await tx.metricObservation.findFirst({
+    where: {
+      characterId,
+      seasonId,
+      metricDefinition: { key: observation.metricKey },
+    },
+  });
+
+  if (existing) {
+    await tx.metricObservation.update({
+      where: { id: existing.id },
+      data: {
+        ...data,
+        ...(observationKey ? { observationKey } : {}),
+      },
+    });
+  } else {
+    await tx.metricObservation.create({ data });
+  }
 }
 
 export function createMetricRepository(prisma: PrismaClient): MetricRepository {
@@ -36,21 +117,15 @@ export function createMetricRepository(prisma: PrismaClient): MetricRepository {
       await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
         await tx.metricObservation.deleteMany({ where: { characterId, seasonId } });
         for (const observation of observations) {
-          const definition = await ensureMetricDefinition(tx, observation.metricKey, observation.dimension);
-          await tx.metricObservation.create({
-            data: {
-              characterId,
-              seasonId,
-              scopeType: "CHARACTER",
-              metricDefinitionId: definition.id,
-              rawValue: observation.rawValue,
-              normalizedValue: observation.normalizedValue,
-              confidence: observation.confidence,
-              observedAt: new Date(observation.observedAt),
-              sourceProvider: mapProviderName(observation.sourceProvider),
-              context: (observation.context ?? {}) as object,
-            },
-          });
+          await writeObservation(tx, characterId, seasonId, observation);
+        }
+      });
+    },
+
+    async upsertObservations(characterId, seasonId, observations) {
+      await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+        for (const observation of observations) {
+          await writeObservation(tx, characterId, seasonId, observation);
         }
       });
     },
@@ -74,17 +149,4 @@ export function createMetricRepository(prisma: PrismaClient): MetricRepository {
       }));
     },
   };
-}
-
-function mapProviderName(sourceProvider: string): "BLIZZARD" | "WARCRAFT_LOGS" | "RAIDER_IO" {
-  switch (sourceProvider) {
-    case "blizzard":
-      return "BLIZZARD";
-    case "warcraftlogs":
-      return "WARCRAFT_LOGS";
-    case "raiderio":
-      return "RAIDER_IO";
-    default:
-      return "BLIZZARD";
-  }
 }

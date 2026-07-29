@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import type { CharacterProfileView } from "../../api/types";
-import { DIMENSION_LABELS, formatPercent, formatScore, formatWeight, type RadarDimension } from "../../lib/format";
+import { DIMENSION_LABELS, filterDimensionsForModel, formatPercent, formatScore, formatWeight, type RadarDimension } from "../../lib/format";
 import { explanationSummary } from "../../lib/characterViewModel";
 
 const props = defineProps<{
@@ -12,7 +12,7 @@ const score = computed(() => props.profile.score);
 const summary = computed(() => explanationSummary(score.value));
 
 const weightRows = computed(() =>
-  (score.value?.dimensions ?? [])
+  filterDimensionsForModel(score.value?.dimensions ?? [], score.value?.modelVersion)
     .filter((d) => d.dimension !== "AUTHENTICITY")
     .map((d) => ({
       label: DIMENSION_LABELS[d.dimension as RadarDimension] ?? d.dimension,

@@ -61,7 +61,14 @@ export const equipmentSchema = z
             slot: namedRef.optional(),
             name: z.string().optional(),
             quality: namedRef.optional(),
-            level: z.object({ value: z.number().optional() }).passthrough().optional(),
+            level: z
+              .object({
+                value: z.number().optional(),
+                display_string: z.string().optional(),
+              })
+              .passthrough()
+              .optional(),
+            bonus_list: z.array(z.number()).optional(),
           })
           .passthrough(),
       )
@@ -186,6 +193,18 @@ export const realmSchema = z
     name: z.string(),
     locale: z.string().optional(),
     timezone: z.string().optional(),
+    category: z
+      .union([
+        z.string(),
+        z
+          .object({
+            type: z.string().optional(),
+            name: z.string().optional(),
+          })
+          .passthrough(),
+      ])
+      .optional(),
+    is_tournament: z.boolean().optional(),
     connected_realm: z
       .object({
         href: z.string().optional(),
@@ -193,6 +212,22 @@ export const realmSchema = z
       })
       .passthrough()
       .optional(),
+  })
+  .passthrough();
+
+export const realmIndexSchema = z
+  .object({
+    realms: z
+      .array(
+        z
+          .object({
+            id: z.number(),
+            slug: z.string(),
+            name: z.string().optional(),
+          })
+          .passthrough(),
+      )
+      .default([]),
   })
   .passthrough();
 

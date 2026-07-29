@@ -3,6 +3,7 @@ import { computed, ref } from "vue";
 import { api } from "../api/client";
 import type { CharacterComparisonResponse, CharacterIdentityInput, RedFlagDTO } from "../api/types";
 import StatusBanner from "../components/common/StatusBanner.vue";
+import CharacterRealmSearch from "../components/search/CharacterRealmSearch.vue";
 import TrustRadarChart from "../components/charts/TrustRadarChart.vue";
 import { validateCompareCount, formatPercent, formatScore, DIMENSION_LABELS, RADAR_DIMENSIONS } from "../lib/format";
 
@@ -17,9 +18,6 @@ type CompareResult = CharacterComparisonResponse & {
   entries: CompareEntry[];
 };
 
-const draftRegion = ref("EU");
-const draftRealm = ref("");
-const draftName = ref("");
 const candidates = ref<CharacterIdentityInput[]>([
   { region: "EU", realmSlug: "tarren-mill", name: "Aleria" },
   { region: "EU", realmSlug: "kazzak", name: "Carryme" },
@@ -30,24 +28,18 @@ const result = ref<CompareResult | null>(null);
 const sortKey = ref<"overall" | (typeof RADAR_DIMENSIONS)[number]>("overall");
 const hiddenSeries = ref<Set<string>>(new Set());
 
-function addCandidate(): void {
+function addFromSearch(payload: { name: string; realmSlug: string; region: string }): void {
   formError.value = null;
-  if (!draftRealm.value.trim() || !draftName.value.trim()) {
-    formError.value = "Realm and name are required.";
-    return;
-  }
   const countError = validateCompareCount(candidates.value.length + 1, { minimum: false });
   if (countError) {
     formError.value = countError;
     return;
   }
   candidates.value.push({
-    region: draftRegion.value.toUpperCase(),
-    realmSlug: draftRealm.value.trim().toLowerCase(),
-    name: draftName.value.trim(),
+    region: payload.region.toUpperCase(),
+    realmSlug: payload.realmSlug.toLowerCase(),
+    name: payload.name.trim(),
   });
-  draftRealm.value = "";
-  draftName.value = "";
 }
 
 function removeCandidate(index: number): void {
@@ -112,23 +104,14 @@ function toggleSeries(id: string): void {
     <h1>Compare candidates</h1>
     <p>Compare 2–10 characters on one model/season snapshot with deltas vs median and best.</p>
 
-    <form class="add-form" aria-label="Add comparison candidate" @submit.prevent="addCandidate">
-      <label>
-        Region
-        <select v-model="draftRegion">
-          <option value="EU">EU</option>
-        </select>
-      </label>
-      <label>
-        Realm
-        <input v-model="draftRealm" data-testid="compare-realm" />
-      </label>
-      <label>
-        Name
-        <input v-model="draftName" data-testid="compare-name" />
-      </label>
-      <button type="submit" class="btn" data-testid="compare-add">Add</button>
-    </form>
+    <div class="compare-search" data-testid="compare-search">
+      <CharacterRealmSearch
+        :show-recent="false"
+        submit-label="Add candidate"
+        emit-only
+        @resolved="addFromSearch"
+      />
+    </div>
 
     <ul class="candidates" data-testid="compare-candidates">
       <li v-for="(c, idx) in candidates" :key="`${c.region}-${c.realmSlug}-${c.name}-${idx}`">
@@ -207,29 +190,9 @@ function toggleSeries(id: string): void {
 </template>
 
 <style scoped>
-.add-form {
-  display: grid;
-  gap: 0.6rem;
-  grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
-  max-width: 40rem;
-  align-items: end;
+.compare-search {
   margin-bottom: 1rem;
-}
-
-label {
-  display: grid;
-  gap: 0.25rem;
-  font-weight: 600;
-}
-
-input,
-select {
-  font: inherit;
-  padding: 0.5rem 0.65rem;
-  border-radius: 6px;
-  border: 1px solid var(--border);
-  background: var(--panel);
-  color: var(--fg);
+  max-width: 48rem;
 }
 
 .candidates {

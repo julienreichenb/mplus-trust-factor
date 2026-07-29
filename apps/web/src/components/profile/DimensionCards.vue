@@ -1,124 +1,219 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import type { DimensionScoreDTO } from "@mplus/contracts";
-import { DIMENSION_LABELS, type RadarDimension, formatPercent, formatScore, formatWeight } from "../../lib/format";
+import type { DimensionScoreDTO, PerformanceSummaryDTO } from "@mplus/contracts";
+import type { ScoringRunSelection } from "../../api/types";
+import {
+  DIMENSION_LABELS,
+  filterDimensionsForModel,
+  formatPercent,
+  formatScore,
+  formatWeight,
+  type RadarDimension,
+} from "../../lib/format";
+import { parseContributorSignals } from "../../lib/characterViewModel";
+import DimensionAxisIcon from "../charts/DimensionAxisIcon.vue";
+import MetaChip from "../common/MetaChip.vue";
+import KeySignalRow from "./KeySignalRow.vue";
+import PerformanceSummaryPanel from "./PerformanceSummaryPanel.vue";
+import SelectedRunsSection from "./SelectedRunsSection.vue";
 
 const props = defineProps<{
   dimensions: DimensionScoreDTO[];
   locked?: boolean;
+  modelVersion?: number | null;
+  performanceSummary?: PerformanceSummaryDTO | null;
+  runSelection?: ScoringRunSelection | null;
+  runsLocked?: boolean;
 }>();
 
+const allSignals = computed(() => parseContributorSignals(props.dimensions));
+
 const cards = computed(() =>
-  props.dimensions
+  filterDimensionsForModel(props.dimensions, props.modelVersion)
     .filter((d) => d.dimension !== "AUTHENTICITY")
+    .slice()
+    .sort((a, b) => (b.weight ?? 0) - (a.weight ?? 0))
     .map((d) => {
-      const contrib = d.contributors as
-        | { positive?: Array<{ label: string }>; negative?: Array<{ label: string }> }
-        | null;
+      const dimKey = d.dimension as RadarDimension;
       return {
         ...d,
-        label: DIMENSION_LABELS[d.dimension as RadarDimension] ?? d.dimension,
-        positive: contrib?.positive?.[0]?.label ?? "—",
-        negative: contrib?.negative?.[0]?.label ?? "—",
+        dimKey,
+        label: DIMENSION_LABELS[dimKey] ?? d.dimension,
+        signals: allSignals.value
+          .filter((s) => s.dimensionKey === dimKey)
+          .slice()
+          .sort((sigA, sigB) => {
+            if (sigA.kind === sigB.kind) return 0;
+            return sigA.kind === "positive" ? -1 : 1;
+          }),
+        weightLabel: d.weight != null ? formatWeight(d.weight) : "—",
+        confidenceLabel:
+          d.confidence != null ? formatPercent(d.confidence * 100, 0) : "—",
+        scoreLabel: formatScore(d.score, 0),
       };
     }),
 );
 </script>
 
 <template>
-  <section aria-labelledby="dimensions-title">
-    <h2 id="dimensions-title">Dimensions</h2>
+  <section
+    class="season-perf"
+    aria-labelledby="season-perf-title"
+    data-testid="dimension-cards"
+  >
+    <h2 id="season-perf-title">Current-season performance</h2>
+
     <p v-if="locked" class="locked">Detailed dimension breakdown is locked by entitlement.</p>
-    <div v-else class="grid">
+    <div v-else class="dim-grid">
       <article v-for="card in cards" :key="card.dimension" class="card">
-        <h3>{{ card.label }}</h3>
-        <p class="score">{{ formatScore(card.score, 0) }} <span>/ 100</span></p>
-        <dl>
-          <div>
-            <dt>Weight</dt>
-            <dd>{{ formatWeight(card.weight) }}</dd>
-          </div>
-          <div>
-            <dt>Confidence</dt>
-            <dd>{{ formatPercent(card.confidence * 100, 0) }}</dd>
-          </div>
-        </dl>
-        <p class="contrib"><strong>+</strong> {{ card.positive }}</p>
-        <p class="contrib"><strong>−</strong> {{ card.negative }}</p>
+        <div class="card__head">
+          <span class="card__icon" aria-hidden="true">
+            <DimensionAxisIcon layout="fill" :dimension="card.dimKey" />
+          </span>
+          <h3 class="card__title">{{ card.label }}</h3>
+          <p class="card__score mpts-data">
+            {{ card.scoreLabel }} <span>/ 100</span>
+          </p>
+        </div>
+
+        <div
+          class="card__chips"
+          role="list"
+          :aria-label="`${card.label} metadata`"
+        >
+          <MetaChip role="listitem" label="Weight" :value="card.weightLabel" />
+          <MetaChip
+            role="listitem"
+            label="Confidence"
+            :value="card.confidenceLabel"
+            value-class="mpts-data"
+          />
+        </div>
+
+        <ul
+          v-if="card.signals.length"
+          class="card__signals"
+          :aria-label="`${card.label} signals`"
+        >
+          <KeySignalRow
+            v-for="(signal, index) in card.signals"
+            :key="`${signal.kind}-${signal.label}-${index}`"
+            :signal="signal"
+            hide-dimension
+          />
+        </ul>
+        <p v-else class="card__empty">No key signals for this dimension</p>
       </article>
     </div>
+
+    <SelectedRunsSection
+      embedded
+      :selection="runSelection"
+      :locked="runsLocked"
+    />
+
+    <PerformanceSummaryPanel
+      :summary="performanceSummary"
+      :locked="locked"
+      embedded
+    />
   </section>
 </template>
 
 <style scoped>
-.grid {
+.season-perf {
   display: grid;
-  gap: 0.75rem;
-  grid-template-columns: 1fr;
+  gap: var(--space-4);
 }
 
-@media (min-width: 700px) {
-  .grid {
-    grid-template-columns: repeat(2, 1fr);
-  }
+.dim-grid {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 @media (min-width: 1100px) {
-  .grid {
-    grid-template-columns: repeat(3, 1fr);
+  .dim-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }
 
 .card {
+  display: grid;
+  gap: var(--space-2);
+  align-content: start;
+  min-width: 0;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-card);
-  padding: var(--space-4);
+  padding: var(--space-3);
   background: var(--color-surface);
 }
 
-.card h3 {
-  margin: 0 0 0.35rem;
-  font-size: var(--text-base);
+.card__head {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: var(--space-2);
+  align-items: center;
 }
 
-.score {
-  font-size: var(--text-2xl);
-  font-weight: 700;
-  margin: 0;
-  font-family: var(--font-data);
+.card__icon {
+  display: grid;
+  place-items: center;
   color: var(--color-gold-300);
 }
 
-.score span {
+.card__icon :deep(.dim-icon) {
+  width: 1.75rem;
+  height: 1.75rem;
+}
+
+.card__title {
+  margin: 0;
+  font-family: var(--font-data);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-gold-300);
+  overflow-wrap: anywhere;
+}
+
+.card__score {
+  margin: 0;
+  font-size: var(--text-lg);
+  font-weight: 700;
+  color: var(--color-gold-300);
+  white-space: nowrap;
+}
+
+.card__score span {
   color: var(--color-text-muted);
-  font-size: var(--text-sm);
+  font-size: var(--text-xs);
   font-weight: 500;
 }
 
-dl {
+.card__chips {
   display: flex;
-  gap: 1rem;
-  margin: 0.5rem 0;
+  flex-wrap: wrap;
+  gap: var(--space-2);
 }
 
-dt {
+.card__signals {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0;
+}
+
+.card__empty {
+  margin: 0;
+  color: var(--color-text-muted);
   font-size: var(--text-xs);
-  text-transform: uppercase;
-  color: var(--color-text-muted);
-}
-
-dd {
-  margin: 0.1rem 0 0;
-  font-weight: 600;
-}
-
-.contrib {
-  margin: 0.25rem 0 0;
-  font-size: var(--text-sm);
-  color: var(--color-text-muted);
 }
 
 .locked {
+  margin: 0;
   color: var(--color-text-muted);
 }
 </style>

@@ -127,6 +127,7 @@ describe("Wallidrixe-shaped scoring regressions", () => {
     });
     const performance = snapshot.dimensions.find((d) => d.dimension === "PERFORMANCE")!;
     expect(performance.confidence).toBe(0);
-    expect(performance.score).toBe(50);
+    expect(performance.score).toBeNull();
+    expect(performance.state).toBe("UNAVAILABLE");
   });
 });

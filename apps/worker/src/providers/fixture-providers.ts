@@ -168,12 +168,39 @@ class FixtureBlizzardProvider implements BlizzardProvider {
       locale: "en_GB",
       timezone: "Europe/Paris",
       connectedRealmId: seededInt(`realm|${slug}|cr`, 1, 9_999),
+      category: "English",
+      isTournament: slug.includes("tournament"),
     };
     return {
       data,
       provenance: buildProvenance("blizzard", ctx.now),
       freshness: buildFreshness(ctx.now),
       metadata: buildMetadata("blizzard", "getRealm", ctx.now),
+    };
+  }
+
+  async getRealmIndex(ctx: ProviderFetchContext): Promise<
+    ProviderResult<import("@mplus/contracts").BlizzardRealmIndexEntryDTO[]>
+  > {
+    const region = normalizeRegion(ctx.region);
+    const fixtures = [
+      { slug: "tarren-mill", name: "Tarren Mill", id: 1084 },
+      { slug: "archimonde", name: "Archimonde", id: 1302 },
+      { slug: "kazzak", name: "Kazzak", id: 1305 },
+      { slug: "cherith", name: "Chérith", id: 1091 },
+      { slug: "twisting-nether", name: "Twisting Nether", id: 1122 },
+      { slug: "hyjal", name: "Hyjal", id: 1615 },
+    ];
+    void region;
+    return {
+      data: fixtures.map((r) => ({
+        blizzardRealmId: r.id,
+        slug: r.slug,
+        name: r.name,
+      })),
+      provenance: buildProvenance("blizzard", ctx.now),
+      freshness: buildFreshness(ctx.now),
+      metadata: buildMetadata("blizzard", "getRealmIndex", ctx.now),
     };
   }
 

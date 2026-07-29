@@ -20,8 +20,14 @@ import {
   recentReportsToCandidates,
   type ZoneRankingsPayload,
 } from "../discovery/run-discovery.js";
-import { mapZoneRankingAggregates } from "../discovery/zone-ranking-aggregates.js";
-import { FIXTURE_MPLUS_ZONE_ID } from "../discovery/mplus-zone.js";
+import {
+  adaptPointsAndDamagePerformance,
+  buildWclSummaryRequestFingerprint,
+  pointsAndDamageErrorRecord,
+  POINTS_AND_DAMAGE_ADAPTER_VERSION,
+} from "../discovery/points-and-damage-performance.js";
+import { parseJsonScalar } from "../probe/performance-probe-logic.js";
+import { FIXTURE_MPLUS_ZONE_ID, resolveMplusZoneConfig } from "../discovery/mplus-zone.js";
 import {
   characterResolveSchema,
   parseWithSchema,
@@ -145,7 +151,15 @@ export class FixtureWarcraftLogsProvider implements WarcraftLogsProvider {
     const runs = hydrated.candidates
       .filter((c) => !c.incompleteness.fightUnknown && c.fightId > 0)
       .map((c) => this.candidateToMythicRun(c, identity, ctx));
-    return emptyProviderResult(runs, "discoverCharacterRuns", `fixture-discover-${identity.name}`, ctx);
+    const envelope = emptyProviderResult(
+      runs,
+      "discoverCharacterRuns",
+      `fixture-discover-${identity.name}`,
+      ctx,
+    );
+    return { ...envelope, wclRankings: discovery.rankings } as ProviderResult<MythicRunDTO[]> & {
+      wclRankings: typeof discovery.rankings;
+    };
   }
 
   async discoverCharacterSummary(
@@ -157,20 +171,46 @@ export class FixtureWarcraftLogsProvider implements WarcraftLogsProvider {
       dataState: WclDataState;
       warnings: string[];
       dungeonAggregates: WclCharacterDiscoveryResult["dungeonAggregates"];
+      performance: WclCharacterDiscoveryResult["performance"];
+      rawZoneRankingsPointsAndDamage: unknown;
     }>
   > {
     const discovery = this.discoverCharacter(identity, ctx);
-    return emptyProviderResult(
+    const zoneId = resolveMplusZoneConfig({
+      env: process.env,
+      allowFixtureDefault: true,
+    }).zoneId;
+    const fingerprint = buildWclSummaryRequestFingerprint({
+      region: identity.region,
+      realmSlug: identity.realmSlug,
+      name: identity.name,
+      zoneId,
+      partition: null,
+    });
+    const envelope = emptyProviderResult(
       {
         visibility: discovery.summary.visibility,
         dataState: discovery.summary.dataState,
         warnings: discovery.summary.warnings,
         dungeonAggregates: discovery.dungeonAggregates,
+        performance: discovery.performance,
+        rawZoneRankingsPointsAndDamage: discovery.performance?.raw ?? null,
       },
       "discoverCharacterSummary",
-      `fixture-summary-${identity.name}`,
+      fingerprint,
       ctx,
     );
+    return {
+      ...envelope,
+      provenance: {
+        ...envelope.provenance,
+        schemaVersion: POINTS_AND_DAMAGE_ADAPTER_VERSION,
+      },
+      metadata: {
+        ...envelope.metadata,
+        requestFingerprint: fingerprint,
+      },
+    };
   }
 
   async getReportFightDetails(
@@ -190,6 +230,131 @@ export class FixtureWarcraftLogsProvider implements WarcraftLogsProvider {
       details,
       "getReportFightDetails",
       `fixture-report-${reportCode}-${fightId}`,
+      ctx,
+    );
+  }
+
+  async fetchSurvivalHealthSnapshots(
+    input: { reportCode: string; fightId: number; sourceId: number },
+    ctx: ProviderFetchContext,
+  ) {
+    return emptyProviderResult(
+      {
+        snapshots: [],
+        truncated: false,
+        eventCount: 0,
+        events: [],
+      },
+      "fetchSurvivalHealthSnapshots",
+      `fixture-survival-health-${input.reportCode}-${input.fightId}-${input.sourceId}`,
+      ctx,
+    );
+  }
+
+  async analyzeSurvivalCanonicalRun(
+    input: {
+      characterId: string;
+      reportCode: string;
+      fightId: number;
+      dungeonSlug: string;
+      keyLevel: number | null;
+      playerActorId: number;
+    },
+    ctx: ProviderFetchContext,
+  ) {
+    // Fixture: outcome-only placeholder (no live event pages).
+    const summary = {
+      compatibilityKey: `fixture:${input.reportCode}:${input.fightId}`,
+      configVersion: "survival-standalone-v1.1.1",
+      analysisVersion: "wcl-survival-v1.1.1-parity",
+      adapterVersion: "survival-adapter-v1.1.1-parity",
+      runId: `${input.reportCode}:${input.fightId}`,
+      dungeonSlug: input.dungeonSlug,
+      reportCode: input.reportCode,
+      fightId: input.fightId,
+      keyLevel: input.keyLevel,
+      deathCount: 0,
+      behavioralSurvivalScore: 100,
+      outcomeOnlyScore: 100,
+      pressureClusterCount: 0,
+      maxHpResolution: {
+        baselineMaxHp: null,
+        baselineConfidence: "NONE" as const,
+        baselineSourcePath: null,
+        invalidOutlierCount: 0,
+        temporaryIntervalCount: 0,
+        rejectionReasons: { fixture_no_events: 1 },
+        resolutionFailureReason: "fixture_no_events",
+      },
+      componentScores: {
+        outcome: {
+          state: "SCORED" as const,
+          score: 100,
+          weightUsed: 1,
+          reason: null,
+          evidence: { deathCount: 0 },
+        },
+        defensiveResponse: {
+          state: "NOT_APPLICABLE" as const,
+          score: null,
+          weightUsed: 0,
+          reason: "fixture_no_events",
+          evidence: {},
+        },
+        emergencyRecovery: {
+          state: "NOT_APPLICABLE" as const,
+          score: null,
+          weightUsed: 0,
+          reason: "fixture_no_events",
+          evidence: {},
+        },
+        weightsApplied: {
+          survivalOutcome: 1,
+          defensiveResponse: 0,
+          emergencyRecovery: 0,
+        },
+      },
+      defensiveCounts: {
+        proactive: 0,
+        reactive: 0,
+        death_only: 0,
+        unavailable: 0,
+        eligible_miss: 0,
+        not_applicable: 0,
+        insufficient_reaction_time: 0,
+      },
+      recoveryCounts: {
+        covered: 0,
+        eligible_miss: 0,
+        not_applicable: 0,
+        insufficient_reaction_time: 0,
+        death_only_health_context_unavailable: 0,
+      },
+      diagnostics: {
+        scoreMode: "OUTCOME_ONLY" as const,
+        invalidOutlierCount: 0,
+        healthTimelineComplete: false,
+        preClusterDangerWindowCount: 0,
+        nonFatalWindowCount: 0,
+        fatalWindowCount: 0,
+        deathOnlyWindowCount: 0,
+        eventPagesComplete: false,
+      },
+    };
+    return emptyProviderResult(
+      {
+        summary,
+        requestCount: 0,
+        maxHpFailureReason: "fixture_no_events",
+        truncated: false,
+        snapshotCount: 0,
+        playerActorId: input.playerActorId,
+        deathCount: 0,
+        pressureClusterCount: 0,
+        behavioralSurvivalScore: 100,
+      },
+      "analyzeSurvivalCanonicalRun",
+      `fixture-survival-canonical-${input.reportCode}-${input.fightId}`,
       ctx,
     );
   }
@@ -218,18 +383,19 @@ export class FixtureWarcraftLogsProvider implements WarcraftLogsProvider {
       (rankingsParsed.characterData.character?.zoneRankings ?? null) as ZoneRankingsPayload | null,
       FIXTURE_MPLUS_ZONE_ID,
     );
-    const aggregatePayload = (rankingsParsed.characterData.character?.zoneRankings ??
-      null) as ZoneRankingsPayload | null;
-    const dungeonAggregates = mapZoneRankingAggregates(aggregatePayload).dungeons.map((d) => ({
-      dungeonSlug: d.dungeonSlug,
-      dungeonName: d.dungeonName,
-      encounterId: d.encounterId,
-      bestParsePercentile: d.bestParsePercentile,
-      medianParsePercentile: d.medianParsePercentile,
-      loggedRunCount: d.loggedRunCount,
-      specSlug: d.specSlug,
-      roleSlug: d.roleSlug,
-    }));
+
+    const padEnvelope = fixture.zoneRankingsPointsAndDamage as
+      | { data?: { characterData?: { character?: { zoneRankings?: unknown } } } }
+      | undefined;
+    const performance = padEnvelope
+      ? adaptPointsAndDamagePerformance({
+          raw: parseJsonScalar(padEnvelope.data?.characterData?.character?.zoneRankings ?? null),
+        })
+      : pointsAndDamageErrorRecord(
+          "SKIPPED",
+          null,
+          "Fixture has no zoneRankingsPointsAndDamage — Performance unavailable",
+        );
 
     const recentRaw = (fixture.recentReports as { data: unknown }).data;
     const recentParsed = parseWithSchema(recentReportsSchema, recentRaw, "RecentReports");
@@ -245,14 +411,15 @@ export class FixtureWarcraftLogsProvider implements WarcraftLogsProvider {
       identity.region,
       ctx.now,
       provenance.visibility,
-      [],
+      performance.state === "OK" ? [] : [performance.diagnostics.errorMessage ?? "Performance unavailable"],
       provenance.dataState,
     );
 
     return buildCharacterDiscovery({
       summary,
       rankings,
-      dungeonAggregates,
+      dungeonAggregates: performance.state === "OK" ? performance.dungeonAggregates : [],
+      performance,
       rankingCandidates: rankingsToCandidates(rankings),
       recentCandidates: recentMapped.candidates,
       privateReportsSkipped: recentMapped.privateSkipped + recentMapped.unlistedSkipped,

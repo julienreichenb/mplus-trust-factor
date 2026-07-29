@@ -14,12 +14,22 @@ import type {
   EquipmentItemDTO,
   EquipmentSummary,
   PerformanceSummaryDTO,
+  SurvivalSummaryPublicDTO,
   ProfileEntitlements,
   ProfileWarning,
+  RefreshContractStaleReason,
+  RefreshContractVersions,
+  ScoringRunSelection,
   SeasonSummary,
+  SelectedRunSummaryDTO,
   TalentSummary,
   WclDataState,
   WclVisibilityState,
+} from "@mplus/contracts";
+import {
+  isScoreSnapshotModelStale,
+  readRefreshContractFromExplanation,
+  refreshContractStaleReasons,
 } from "@mplus/contracts";
 import type { AppEnv } from "@mplus/config";
 import type { MythicRunWithRelations } from "@mplus/worker";
@@ -48,6 +58,11 @@ export interface CharacterEnrichmentInput {
   selectedRunCoverage?: number | null;
   runCoverageById?: Record<string, number | null>;
   performanceSummary?: PerformanceSummaryDTO | null;
+  survivalSummary?: SurvivalSummaryPublicDTO | null;
+  scoringRunSelection?: ScoringRunSelection | null;
+  selectedRunCount?: number | null;
+  detailedRunCount?: number | null;
+  runNamesById?: Record<string, { dungeonName: string }>;
   freshness?: number | null;
   sourceDisagreements?: CharacterProfileResponse["sourceDisagreements"];
   scoreObservationProviders?: string[];
@@ -76,12 +91,44 @@ function runToSummary(
 function coverageForRun(
   runId: string,
   runCoverageById: Record<string, number | null> | undefined,
-  selectedRunCoverage: number | null | undefined,
-): number {
+): number | null {
   const analyzed = runCoverageById?.[runId];
-  if (typeof analyzed === "number") return analyzed;
-  if (selectedRunCoverage == null) return 0;
-  return selectedRunCoverage;
+  return typeof analyzed === "number" && Number.isFinite(analyzed) ? analyzed : null;
+}
+
+/** Build selectedRuns DTO from the canonical persisted scoringRunSelection. */
+export function mapSelectedRunsFromCanonicalSelection(
+  scoringRunSelection: ScoringRunSelection | null | undefined,
+  runCoverageById?: Record<string, number | null>,
+  runNamesById?: Record<string, { dungeonName: string }>,
+  performanceSummary?: PerformanceSummaryDTO | null,
+): SelectedRunSummaryDTO[] {
+  if (!scoringRunSelection) return [];
+
+  return scoringRunSelection.selectedRuns.map((entry) => {
+    const runId = entry.canonicalRunId;
+    const coverage = runId != null ? coverageForRun(runId, runCoverageById) : null;
+    const perfDungeon = performanceSummary?.currentSeason.dungeons.find(
+      (d) => d.dungeonSlug === entry.dungeonSlug,
+    );
+    const parsePercentile =
+      perfDungeon?.bestParsePercentile ?? perfDungeon?.bestRun?.parsePercentile ?? null;
+
+    return {
+      runId,
+      dungeonSlug: entry.dungeonSlug,
+      dungeonName:
+        runNamesById?.[runId ?? ""]?.dungeonName ?? entry.dungeonName ?? entry.dungeonSlug,
+      keyLevel: entry.keyLevel,
+      completedAt: entry.completedAt,
+      timed: entry.timed ?? false,
+      wclReportMatched: entry.wclReportMatched,
+      wclCoverageRatio: entry.coverageRatio ?? coverage,
+      selectionReason: entry.selectionReason,
+      parsePercentile,
+      hasDetailedAnalysis: coverage != null && coverage > 0,
+    };
+  });
 }
 
 function sanitizeHttpsUrl(value: unknown): string | null {
@@ -127,8 +174,17 @@ function mapEquipmentItem(raw: unknown): EquipmentItemDTO | null {
         })
         .filter((g): g is { name: string; itemId: number | null } => g != null)
     : [];
+  const bonusList = Array.isArray(item.bonusList)
+    ? item.bonusList.filter(
+        (id): id is number => typeof id === "number" && Number.isInteger(id) && id > 0,
+      )
+    : Array.isArray(item.bonus_list)
+      ? item.bonus_list.filter(
+          (id): id is number => typeof id === "number" && Number.isInteger(id) && id > 0,
+        )
+      : [];
 
-  return { slot, itemId, name, itemLevel, quality, iconUrl, enchantments, gems };
+  return { slot, itemId, name, itemLevel, quality, iconUrl, enchantments, gems, bonusList };
 }
 
 /** Map persisted equipment JSON into the public DTO. Never invent item level 0. */
@@ -182,6 +238,12 @@ export function mapCharacterMedia(rawSummary: unknown): CharacterMediaDTO | null
   return { avatarUrl, insetUrl, mainRawUrl };
 }
 
+import {
+  extractSelectedTalents,
+  heroTalentNameFromTalentsBlob,
+  loadoutCodeFromTalentsBlob,
+} from "./talent-selections.js";
+
 export function mapTalentSummary(
   character: CharacterEnrichmentInput["character"],
   snapshot: CharacterEnrichmentInput["latestSnapshot"],
@@ -196,17 +258,23 @@ export function mapTalentSummary(
 
   if (!talentRow && !specializationSlug) return null;
 
-  const loadoutCode = talentRow?.loadoutCode ?? null;
+  const loadoutCode =
+    talentRow?.loadoutCode ?? loadoutCodeFromTalentsBlob(talentRow?.talents) ?? null;
+  const selectedTalents = talentRow ? extractSelectedTalents(talentRow.talents) : [];
+  const heroTalentName = talentRow ? heroTalentNameFromTalentsBlob(talentRow.talents) : null;
   return {
     specializationSlug: specializationSlug ?? character.activeSpec?.slug ?? null,
     loadoutCode,
     summary: loadoutCode
-      ? "Blizzard talent loadout available"
+      ? selectedTalents.length > 0
+        ? `Blizzard loadout with ${selectedTalents.length} selected talents`
+        : "Blizzard talent loadout available"
       : specializationSlug
         ? "Specialization known; detailed loadout unavailable"
         : null,
     loadoutName: null,
-    selectedTalents: null,
+    heroTalentName,
+    selectedTalents: selectedTalents.length > 0 ? selectedTalents : null,
     sourceProvider: talentRow ? "blizzard" : null,
     fetchedAt: snapshot?.capturedAt?.toISOString?.() ?? null,
   };
@@ -216,6 +284,7 @@ function buildWarnings(
   score: CharacterProfileResponse["score"],
   wclVisibility: WclVisibilityState | null,
   wclDataState: WclDataState | null,
+  providerStates?: CharacterProviderStateDTO[] | null,
 ): ProfileWarning[] {
   const warnings: ProfileWarning[] = [];
   if (score?.grade === "U" || (score && score.confidence < 0.35)) {
@@ -224,6 +293,22 @@ function buildWarnings(
       message: "Data incomplete — confidence is too low for a reliable grade (UNRATED).",
       severity: "WARN",
     });
+  }
+  const scoreCalculatedAtMs = score?.calculatedAt ? Date.parse(score.calculatedAt) : NaN;
+  if (Number.isFinite(scoreCalculatedAtMs) && providerStates && providerStates.length > 0) {
+    const newerProvider = providerStates.find((state) => {
+      if (!state.fetchedAt) return false;
+      const fetchedMs = Date.parse(state.fetchedAt);
+      return Number.isFinite(fetchedMs) && fetchedMs > scoreCalculatedAtMs + 1_000;
+    });
+    if (newerProvider) {
+      warnings.push({
+        code: "SCORE_STALE_VS_PROVIDERS",
+        message:
+          "Provider data is newer than the published score snapshot — score may not reflect the latest Performance refresh.",
+        severity: "WARN",
+      });
+    }
   }
   if (score?.redFlags.some((f) => f.key === "logs_hidden") || wclVisibility === "HIDDEN") {
     warnings.push({
@@ -315,11 +400,16 @@ export function buildProfileEnrichments(input: CharacterEnrichmentInput): Pick<
   | "freshness"
   | "lastAnalyzedRun"
   | "highestAnalyzedRun"
+  | "scoringRunSelection"
   | "equipment"
   | "talents"
   | "media"
   | "seasonSummary"
   | "performanceSummary"
+  | "survivalSummary"
+  | "selectedRuns"
+  | "selectedRunCount"
+  | "detailedRunCount"
   | "entitlements"
   | "warnings"
   | "raiderIoUsed"
@@ -342,6 +432,11 @@ export function buildProfileEnrichments(input: CharacterEnrichmentInput): Pick<
     selectedRunCoverage,
     runCoverageById,
     performanceSummary = null,
+    survivalSummary = null,
+    scoringRunSelection = null,
+    selectedRunCount = null,
+    detailedRunCount = null,
+    runNamesById = {},
     freshness = null,
     sourceDisagreements,
     scoreObservationProviders,
@@ -355,14 +450,14 @@ export function buildProfileEnrichments(input: CharacterEnrichmentInput): Pick<
     lastAnalyzedRun = runToSummary(
       latestRun,
       bothSame ? "BOTH" : "LATEST",
-      coverageForRun(latestRun.id, runCoverageById, selectedRunCoverage),
+      coverageForRun(latestRun.id, runCoverageById) ?? 0,
     );
   }
   if (highestRun) {
     highestAnalyzedRun = runToSummary(
       highestRun,
       bothSame ? "BOTH" : "HIGHEST",
-      coverageForRun(highestRun.id, runCoverageById, selectedRunCoverage),
+      coverageForRun(highestRun.id, runCoverageById) ?? 0,
     );
   }
 
@@ -386,8 +481,17 @@ export function buildProfileEnrichments(input: CharacterEnrichmentInput): Pick<
       }
     : null;
 
-  const rawIlvl = latestSnapshot?.itemLevelEquipped ?? null;
-  const itemLevel = rawIlvl != null && rawIlvl > 0 ? rawIlvl : null;
+  const rawIlvl =
+    (latestSnapshot?.itemLevelEquipped != null && latestSnapshot.itemLevelEquipped > 0
+      ? latestSnapshot.itemLevelEquipped
+      : null) ??
+    (equipment?.equippedItemLevel != null && equipment.equippedItemLevel > 0
+      ? equipment.equippedItemLevel
+      : null) ??
+    (equipment?.averageItemLevel != null && equipment.averageItemLevel > 0
+      ? equipment.averageItemLevel
+      : null);
+  const itemLevel = rawIlvl;
 
   const enrichedProviderStates = (providerStates ?? []).map((state) => ({
     ...state,
@@ -395,6 +499,15 @@ export function buildProfileEnrichments(input: CharacterEnrichmentInput): Pick<
     sourceUrl:
       state.provider === "raiderio" ? (character.raiderioProfileUrl ?? null) : (state.sourceUrl ?? null),
   }));
+
+  const canonicalScoringRunSelection = scoringRunSelection;
+
+  const selectedRuns = mapSelectedRunsFromCanonicalSelection(
+    canonicalScoringRunSelection,
+    runCoverageById,
+    runNamesById,
+    performanceSummary,
+  );
 
   return {
     classSlug: character.gameClass?.slug ?? null,
@@ -408,11 +521,17 @@ export function buildProfileEnrichments(input: CharacterEnrichmentInput): Pick<
     freshness,
     lastAnalyzedRun,
     highestAnalyzedRun,
+    scoringRunSelection: canonicalScoringRunSelection,
     equipment,
     talents,
     media,
     seasonSummary,
     performanceSummary: performanceSummary ?? null,
+    survivalSummary: survivalSummary ?? null,
+    selectedRuns,
+    selectedRunCount: selectedRunCount ?? canonicalScoringRunSelection?.selectedRuns.length ?? selectedRuns.length,
+    detailedRunCount:
+      detailedRunCount ?? selectedRuns.filter((r) => r.hasDetailedAnalysis).length,
     entitlements: buildEntitlements(env),
     warnings: [],
     raiderIoUsed: Boolean(character.raiderioProfileUrl),
@@ -429,6 +548,65 @@ export function applyProfileWarnings(
 ): ReturnType<typeof buildProfileEnrichments> {
   return {
     ...enrichments,
-    warnings: buildWarnings(score, enrichments.wclVisibility ?? null, enrichments.wclDataState ?? null),
+    warnings: buildWarnings(
+      score,
+      enrichments.wclVisibility ?? null,
+      enrichments.wclDataState ?? null,
+      enrichments.providerStates,
+    ),
   };
+}
+
+/** True when any provider fetch is meaningfully newer than the published score. */
+export function isScoreStaleVersusProviders(
+  scoreCalculatedAt: string | null | undefined,
+  providerStates: Array<{ fetchedAt?: string | null }> | null | undefined,
+): boolean {
+  if (!scoreCalculatedAt || !providerStates?.length) return false;
+  const scoreMs = Date.parse(scoreCalculatedAt);
+  if (!Number.isFinite(scoreMs)) return false;
+  return providerStates.some((state) => {
+    if (!state.fetchedAt) return false;
+    const fetchedMs = Date.parse(state.fetchedAt);
+    return Number.isFinite(fetchedMs) && fetchedMs > scoreMs + 1_000;
+  });
+}
+
+/** Reasons the published snapshot is incompatible with the active refresh contract / model. */
+export function scoreSnapshotContractStaleReasons(input: {
+  score: { modelKey: string; modelVersion: number; explanation?: unknown } | null | undefined;
+  activeModel: { key: string; version: number };
+  activeContract: RefreshContractVersions;
+}): RefreshContractStaleReason[] {
+  if (!input.score) return ["CONTRACT_MISSING"];
+  const reasons: RefreshContractStaleReason[] = [];
+  if (
+    isScoreSnapshotModelStale(
+      { modelKey: input.score.modelKey, modelVersion: input.score.modelVersion },
+      input.activeModel,
+    )
+  ) {
+    reasons.push("SCORING_MODEL_CHANGED");
+  }
+  const stored = readRefreshContractFromExplanation(input.score.explanation);
+  for (const reason of refreshContractStaleReasons(stored, input.activeContract)) {
+    if (!reasons.includes(reason)) reasons.push(reason);
+  }
+  return reasons;
+}
+
+export function appendRefreshContractWarnings(
+  warnings: ProfileWarning[] | undefined,
+  reasons: RefreshContractStaleReason[],
+): ProfileWarning[] {
+  const next = [...(warnings ?? [])];
+  for (const reason of reasons) {
+    if (next.some((w) => w.code === reason)) continue;
+    next.push({
+      code: reason,
+      message: `Published score is stale versus the active refresh contract (${reason}).`,
+      severity: "WARN",
+    });
+  }
+  return next;
 }

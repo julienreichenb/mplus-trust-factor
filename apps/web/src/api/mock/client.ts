@@ -1,8 +1,14 @@
+import { queryAdminAbilityCatalog } from "@mplus/abilities";
+import { normalizeRealmOptions } from "../realm-options";
 import type {
+  AdminAbilityCatalogResponse,
   AdminScoreModelDTO,
+  CharacterAutocompleteSuggestion,
   CharacterComparisonRequest,
   CharacterComparisonResponse,
   CharacterIdentityInput,
+  CharacterResolveRequest,
+  CharacterResolveResponse,
   EditableModelConfig,
   ModelValidationResult,
   MplusApiClient,
@@ -11,15 +17,20 @@ import type {
 } from "../types";
 import {
   EU_REALMS,
+  FIXTURE_CHARACTERS,
   allocateModelVersion,
   createJob,
   findFixture,
   getModelStore,
   identityKey,
   mockSession,
+  createDynamicQueuedProfile,
+  finalizeDynamicProfile,
   setModelStore,
 } from "./fixtures";
 import { deepClone } from "../../lib/clone";
+import { formatRealmDisplayName } from "../realm-options";
+import { classIconUrl } from "../../lib/wowClass";
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -29,6 +40,35 @@ function assertNotAborted(signal?: AbortSignal): void {
   if (signal?.aborted) {
     throw new DOMException("Aborted", "AbortError");
   }
+}
+
+function mapAbilityCatalogParams(
+  params?: Record<string, string | number | undefined>,
+): Parameters<typeof queryAdminAbilityCatalog>[0] {
+  if (!params) return {};
+  const str = (key: string) => {
+    const v = params[key];
+    return typeof v === "string" && v.length > 0 ? v : undefined;
+  };
+  const num = (key: string) => {
+    const v = params[key];
+    if (v === undefined || v === "") return undefined;
+    const n = typeof v === "number" ? v : Number(v);
+    return Number.isFinite(n) ? n : undefined;
+  };
+  return {
+    query: str("query"),
+    classSlug: str("classSlug"),
+    specSlug: str("specSlug"),
+    role: str("role") as "DPS" | "TANK" | "HEALER" | undefined,
+    category: str("category") as never,
+    ownership: str("ownership") as never,
+    availability: str("availability") as never,
+    version: str("version"),
+    validationState: str("validationState") as never,
+    page: num("page"),
+    limit: num("limit"),
+  };
 }
 
 export function validateModelConfig(config: unknown): ModelValidationResult {
@@ -89,57 +129,183 @@ export function createMockApiClient(): MplusApiClient {
       };
     },
 
-    async searchRealms(region: RegionCode, query: string, signal) {
+    async searchRealms(region: RegionCode | null | undefined, query: string, signal, limit = 25) {
       await delay(40);
       assertNotAborted(signal);
-      if (String(region).toUpperCase() !== "EU") {
+      const regionFilter = region ? String(region).toUpperCase() : null;
+      if (regionFilter && regionFilter !== "EU") {
         return [];
       }
       const q = query.trim().toLowerCase();
-      if (!q) return [...EU_REALMS].slice(0, 8);
-      return EU_REALMS.filter(
-        (r) => r.slug.includes(q) || r.name.toLowerCase().includes(q),
-      ).slice(0, 20);
+      const folded = q.normalize("NFKD").replace(/\p{M}/gu, "");
+      const filtered = EU_REALMS.filter((r) => {
+        if (!q) return true;
+        return (
+          r.slug.includes(q) ||
+          r.name.toLowerCase().includes(q) ||
+          r.name
+            .normalize("NFKD")
+            .replace(/\p{M}/gu, "")
+            .toLowerCase()
+            .includes(folded)
+        );
+      }).slice(0, limit);
+      return normalizeRealmOptions([...filtered]);
+    },
+
+    async resolveCharacter(
+      request: CharacterResolveRequest & { forceRetry?: boolean },
+      signal,
+    ): Promise<CharacterResolveResponse> {
+      await delay(60);
+      assertNotAborted(signal);
+      const identity = {
+        region: String(request.region).toUpperCase() as RegionCode,
+        realmSlug: request.realmSlug.toLowerCase(),
+        name: request.name.trim(),
+      };
+      const profilePath = `/character/${identity.region}/${identity.realmSlug}/${encodeURIComponent(identity.name)}`;
+      const lowered = identity.name.toLowerCase();
+      if (lowered.includes("missing") || lowered.includes("notfound") || lowered === "nobodyhere") {
+        return {
+          status: "NOT_FOUND",
+          message: `Character not found on this realm — ${identity.region}.`,
+        };
+      }
+      if (lowered.includes("outage") || lowered.includes("unavailable")) {
+        return {
+          status: "PROVIDER_UNAVAILABLE",
+          retryable: true,
+          message: "Blizzard is temporarily unavailable. Please retry shortly.",
+        };
+      }
+      const fixture = findFixture(identity);
+      if (fixture && !fixture.simulateQueuedRefresh) {
+        return { status: "READY", characterId: fixture.profile.characterId, profilePath };
+      }
+      if (fixture?.simulateQueuedRefresh) {
+        const job = createJob("queued", fixture.profile.characterId);
+        return {
+          status: "QUEUED",
+          characterId: fixture.profile.characterId,
+          refreshId: job.jobId,
+          profilePath,
+          retryAfterMs: 500,
+        };
+      }
+      const profile = createDynamicQueuedProfile(identity);
+      mockSession.dynamicProfiles.set(identityKey(identity), profile);
+      const job = createJob("queued", profile.characterId);
+      return {
+        status: "QUEUED",
+        characterId: profile.characterId,
+        refreshId: job.jobId,
+        profilePath,
+        retryAfterMs: 500,
+      };
+    },
+
+    async searchCharacters(region: RegionCode, query: string, signal) {
+      await delay(40);
+      assertNotAborted(signal);
+      const q = query.trim().toLowerCase();
+      if (q.length < 3 || String(region).toUpperCase() !== "EU") {
+        return [];
+      }
+
+      const fromFixtures: CharacterAutocompleteSuggestion[] = FIXTURE_CHARACTERS.map((fixture) => ({
+        name: fixture.identity.name,
+        realmSlug: fixture.identity.realmSlug,
+        realmName: formatRealmDisplayName(fixture.identity.realmSlug),
+        region: fixture.identity.region as RegionCode,
+        classSlug: fixture.profile.classSlug ?? null,
+        specSlug: fixture.profile.specSlug ?? null,
+        avatarUrl: fixture.profile.media?.avatarUrl ?? null,
+        classIconUrl: classIconUrl(fixture.profile.classSlug),
+        source: "character" as const,
+        kind: "indexed" as const,
+      }));
+
+      const dash = q.indexOf("-");
+      const space = q.search(/\s+/);
+      let namePart = q;
+      let realmPart: string | null = null;
+      if (dash > 0) {
+        namePart = q.slice(0, dash);
+        realmPart = q.slice(dash + 1) || null;
+      } else if (space > 0) {
+        namePart = q.slice(0, space);
+        realmPart = q.slice(space).trim() || null;
+      }
+
+      return fromFixtures
+        .filter((entry) => {
+          const haystack = `${entry.name}-${entry.realmSlug}`.toLowerCase();
+          const nameMatch = entry.name.toLowerCase().includes(namePart) || haystack.includes(q);
+          const realmMatch = !realmPart || entry.realmSlug.includes(realmPart);
+          return nameMatch && realmMatch;
+        })
+        .slice(0, 3);
     },
 
     async getCharacterProfile(identity, signal) {
       await delay(80);
       assertNotAborted(signal);
       const fixture = findFixture(identity);
-      if (!fixture) {
-        const err = new Error("Character not found") as Error & { code?: string; status?: number };
-        err.code = "CHARACTER_NOT_FOUND";
-        err.status = 404;
-        throw err;
+      if (fixture) {
+        const profile = deepClone(fixture.profile);
+        if (fixture.simulateQueuedRefresh) {
+          const polls = mockSession.refreshPolls.get(fixture.profile.characterId) ?? 0;
+          if (polls < 2) {
+            profile.refreshStatus = "QUEUED";
+          } else {
+            profile.refreshStatus = "FRESH";
+          }
+        }
+        return profile;
       }
 
-      const profile = deepClone(fixture.profile);
-      if (fixture.simulateQueuedRefresh) {
-        const polls = mockSession.refreshPolls.get(fixture.profile.characterId) ?? 0;
-        if (polls < 2) {
-          profile.refreshStatus = "QUEUED";
-        } else {
-          profile.refreshStatus = "FRESH";
-        }
+      // Unknown Character-Realm: simulate live ingest (202 QUEUED → FRESH after polls).
+      const key = identityKey(identity);
+      let profile = mockSession.dynamicProfiles.get(key);
+      if (!profile) {
+        profile = createDynamicQueuedProfile(identity);
+        mockSession.dynamicProfiles.set(key, profile);
+        mockSession.refreshPolls.set(profile.characterId, 0);
       }
-      return profile;
+      const polls = mockSession.refreshPolls.get(profile.characterId) ?? 0;
+      if (polls >= 2) {
+        const fresh = finalizeDynamicProfile(profile);
+        mockSession.dynamicProfiles.set(key, fresh);
+        return deepClone(fresh);
+      }
+      return deepClone({ ...profile, refreshStatus: "QUEUED" as const });
     },
 
     async refreshCharacter(identity, signal) {
       await delay(40);
       assertNotAborted(signal);
       const fixture = findFixture(identity);
-      if (!fixture) {
-        const err = new Error("Character not found") as Error & { code?: string; status?: number };
-        err.code = "CHARACTER_NOT_FOUND";
-        err.status = 404;
-        throw err;
+      if (fixture) {
+        mockSession.refreshPolls.set(fixture.profile.characterId, 0);
+        return {
+          characterId: fixture.profile.characterId,
+          refreshStatus: "QUEUED",
+          job: createJob("queued", fixture.profile.characterId),
+          cooldownSecondsRemaining: 0,
+        } satisfies RefreshStatusResponse;
       }
-      mockSession.refreshPolls.set(fixture.profile.characterId, 0);
+      const key = identityKey(identity);
+      let profile = mockSession.dynamicProfiles.get(key);
+      if (!profile) {
+        profile = createDynamicQueuedProfile(identity);
+        mockSession.dynamicProfiles.set(key, profile);
+      }
+      mockSession.refreshPolls.set(profile.characterId, 0);
       return {
-        characterId: fixture.profile.characterId,
+        characterId: profile.characterId,
         refreshStatus: "QUEUED",
-        job: createJob("queued", fixture.profile.characterId),
+        job: createJob("queued", profile.characterId),
         cooldownSecondsRemaining: 0,
       } satisfies RefreshStatusResponse;
     },
@@ -148,7 +314,8 @@ export function createMockApiClient(): MplusApiClient {
       await delay(30);
       assertNotAborted(signal);
       const fixture = findFixture(identity);
-      const characterId = fixture?.profile.characterId ?? "unknown";
+      const dynamic = mockSession.dynamicProfiles.get(identityKey(identity));
+      const characterId = fixture?.profile.characterId ?? dynamic?.characterId ?? "unknown";
       const polls = (mockSession.refreshPolls.get(characterId) ?? 0) + 1;
       mockSession.refreshPolls.set(characterId, polls);
       if (polls < 2) {
@@ -238,9 +405,13 @@ export function createMockApiClient(): MplusApiClient {
                 : [...peers].sort((a, b) => a - b)[Math.floor((peers.length - 1) / 2)] ?? null;
             const dimBest = peers.length === 0 ? null : Math.max(...peers);
             dimDeltasMedian[d.dimension] =
-              dimMedian === null ? null : Number((d.score - dimMedian).toFixed(1));
+              dimMedian === null || d.score == null
+                ? null
+                : Number((d.score - dimMedian).toFixed(1));
             dimDeltasBest[d.dimension] =
-              dimBest === null ? null : Number((d.score - dimBest).toFixed(1));
+              dimBest === null || d.score == null
+                ? null
+                : Number((d.score - dimBest).toFixed(1));
           }
           return {
             identity: e.identity,
@@ -365,6 +536,12 @@ export function createMockApiClient(): MplusApiClient {
       });
       setModelStore(next);
       return deepClone(next.find((m) => m.id === modelId)!);
+    },
+
+    async getAdminAbilityCatalog(params, signal) {
+      await delay(40);
+      assertNotAborted(signal);
+      return queryAdminAbilityCatalog(mapAbilityCatalogParams(params)) as AdminAbilityCatalogResponse;
     },
   };
 }

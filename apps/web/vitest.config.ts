@@ -11,6 +11,7 @@ export default defineConfig({
   resolve: {
     alias: {
       "@mplus/contracts": path.resolve(root, "../../packages/contracts/src/index.ts"),
+      "@mplus/abilities": path.resolve(root, "../../packages/abilities/src/index.ts"),
     },
   },
   test: {

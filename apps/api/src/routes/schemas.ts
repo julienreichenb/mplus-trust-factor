@@ -52,9 +52,14 @@ export const dimensionScoreSchema = {
   type: "object",
   properties: {
     dimension: { type: "string" },
-    score: { type: "number" },
+    score: { type: ["number", "null"] },
     confidence: { type: "number" },
     weight: { type: "number" },
+    state: {
+      type: "string",
+      enum: ["AVAILABLE", "PARTIAL", "UNAVAILABLE", "PROCESSING", "ERROR"],
+    },
+    reason: { type: ["string", "null"] },
     contributors: {},
   },
   additionalProperties: true,
@@ -144,6 +149,7 @@ export const equipmentItemSchema = {
         additionalProperties: true,
       },
     },
+    bonusList: { type: "array", items: { type: "number" } },
   },
   additionalProperties: true,
 } as const;
@@ -166,6 +172,7 @@ export const talentSummarySchema = {
     loadoutCode: { type: ["string", "null"] },
     summary: { type: ["string", "null"] },
     loadoutName: { type: ["string", "null"] },
+    heroTalentName: { type: ["string", "null"] },
     selectedTalents: {
       type: ["array", "null"],
       items: {
@@ -173,6 +180,10 @@ export const talentSummarySchema = {
         properties: {
           id: { type: ["number", "null"] },
           name: { type: ["string", "null"] },
+          spellId: { type: ["number", "null"] },
+          rank: { type: ["number", "null"] },
+          tree: { type: "string" },
+          iconUrl: { type: ["string", "null"] },
         },
         additionalProperties: true,
       },
@@ -238,11 +249,13 @@ export const characterProfileResponseSchema = {
     freshness: { type: ["number", "null"] },
     lastAnalyzedRun: {},
     highestAnalyzedRun: {},
+    scoringRunSelection: {},
     equipment: { anyOf: [equipmentSummarySchema, { type: "null" }] },
     talents: { anyOf: [talentSummarySchema, { type: "null" }] },
     media: { anyOf: [characterMediaSchema, { type: "null" }] },
     seasonSummary: {},
     performanceSummary: {},
+    survivalSummary: {},
     entitlements: {},
     warnings: { type: "array" },
     raiderIoUsed: { type: "boolean" },
@@ -275,6 +288,34 @@ export const searchCharacterResponseSchema = {
     score: { anyOf: [scoreSnapshotSchema, { type: "null" }] },
   },
   additionalProperties: true,
+} as const;
+
+export const characterAutocompleteSuggestionSchema = {
+  type: "object",
+  properties: {
+    name: { type: "string" },
+    realmSlug: { type: "string" },
+    region: { type: "string" },
+    classSlug: { type: ["string", "null"] },
+    specSlug: { type: ["string", "null"] },
+    avatarUrl: { type: ["string", "null"] },
+    classIconUrl: { type: ["string", "null"] },
+    source: { type: "string" },
+    kind: { type: "string" },
+    realmName: { type: ["string", "null"] },
+    label: { type: ["string", "null"] },
+  },
+  required: ["name", "realmSlug", "region", "classSlug", "specSlug", "avatarUrl", "classIconUrl"],
+  additionalProperties: true,
+} as const;
+
+export const characterAutocompleteResponseSchema = {
+  type: "object",
+  properties: {
+    suggestions: { type: "array", items: characterAutocompleteSuggestionSchema },
+  },
+  required: ["suggestions"],
+  additionalProperties: false,
 } as const;
 
 export const historyResponseSchema = {
@@ -414,10 +455,32 @@ export const scoreModelConfigSchema = {
 export const realmSchema = {
   type: "object",
   properties: {
+    name: { type: "string" },
+    slug: { type: "string" },
+    region: { type: "string" },
+    locale: { type: ["string", "null"] },
+    connectedRealmId: { type: ["number", "null"] },
+    displayLabel: { type: "string" },
+    timezone: { type: ["string", "null"] },
+    category: { type: ["string", "null"] },
+    // Backward-compatible fields still returned by some callers
     id: { type: "string" },
     regionCode: { type: "string" },
-    slug: { type: "string" },
-    name: { type: "string" },
   },
+  additionalProperties: true,
+} as const;
+
+export const characterResolveResponseSchema = {
+  type: "object",
+  properties: {
+    status: { type: "string" },
+    characterId: { type: "string" },
+    refreshId: { type: "string" },
+    profilePath: { type: "string" },
+    retryAfterMs: { type: "number" },
+    message: { type: "string" },
+    retryable: { type: "boolean" },
+  },
+  required: ["status"],
   additionalProperties: true,
 } as const;

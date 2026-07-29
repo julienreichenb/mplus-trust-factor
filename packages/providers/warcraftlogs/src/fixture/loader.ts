@@ -6,6 +6,7 @@ const FIXTURE_ROOT = join(dirname(fileURLToPath(import.meta.url)), "../../../../
 
 export type WclFixtureScenario =
   | "character-with-rankings"
+  | "wallidrixe-performance"
   | "hidden-character"
   | "no-public-logs"
   | "same-latest-highest"
@@ -23,6 +24,8 @@ export interface WclFixtureBundle {
   scenario: WclFixtureScenario;
   resolveCharacter: unknown;
   zoneRankings: unknown;
+  /** Optional points_and_damage payload for Performance (production path). */
+  zoneRankingsPointsAndDamage?: unknown;
   recentReports: unknown;
   rateLimitData: unknown;
   report?: unknown;
@@ -31,6 +34,7 @@ export interface WclFixtureBundle {
 
 const SCENARIO_FILES: Record<WclFixtureScenario, string> = {
   "character-with-rankings": "character-with-rankings.json",
+  "wallidrixe-performance": "wallidrixe-performance.json",
   "hidden-character": "hidden-character.json",
   "no-public-logs": "no-public-logs.json",
   "same-latest-highest": "same-latest-highest.json",
@@ -73,6 +77,9 @@ export function loadFixtureByIdentity(name: string, realmSlug: string): WclFixtu
   }
   if (normalizedName === "privateplayer") {
     return loadFixtureScenario("private-reports-skipped");
+  }
+  if (normalizedName === "wallidrixe" || normalizedRealm === "archimonde") {
+    return loadFixtureScenario("wallidrixe-performance");
   }
   if (normalizedName === "fixtureplayer" || normalizedRealm === "tarren-mill") {
     return loadFixtureScenario("character-with-rankings");

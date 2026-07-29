@@ -6,14 +6,18 @@ export interface RefreshPollingOptions {
   identity: CharacterIdentityInput;
   onUpdate: (status: RefreshStatusResponse) => void;
   onComplete: (status: RefreshStatusResponse) => void;
+  /** Called when polling hits the bounded timeout without a terminal status. */
+  onTimeout?: () => void;
   maxDurationMs?: number;
 }
 
 /**
  * Queued refresh polling with exponential backoff and stop conditions.
+ * Never leaves an infinite spinner — timeout always clears `polling`.
  */
 export function useRefreshPolling() {
   const polling = ref(false);
+  const timedOut = ref(false);
   let timer: ReturnType<typeof setTimeout> | null = null;
   let stopped = false;
 
@@ -33,15 +37,18 @@ export function useRefreshPolling() {
   async function start(options: RefreshPollingOptions): Promise<void> {
     stop();
     stopped = false;
+    timedOut.value = false;
     polling.value = true;
     const startedAt = Date.now();
-    const maxDuration = options.maxDurationMs ?? 120_000;
+    const maxDuration = options.maxDurationMs ?? 90_000;
     let delayMs = 1000;
 
     const tick = async (): Promise<void> => {
       if (stopped) return;
       if (Date.now() - startedAt > maxDuration) {
         polling.value = false;
+        timedOut.value = true;
+        options.onTimeout?.();
         return;
       }
       try {
@@ -75,5 +82,5 @@ export function useRefreshPolling() {
 
   onBeforeUnmount(stop);
 
-  return { polling, start, stop };
+  return { polling, timedOut, start, stop };
 }

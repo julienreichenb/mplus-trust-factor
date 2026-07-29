@@ -1,0 +1,364 @@
+/**
+ * Shared WCL evidence fetch helpers.
+ * One logical fetch per report/fight/revision/dataset; pagination may use multiple HTTP requests.
+ * HostileCasts uses filterExpression because Casts dataType alone returns friendly casts.
+ */
+import { createHash } from "node:crypto";
+import type { WclGraphQlClient } from "../client/graphql-client.js";
+import { OPERATIONS, type EventDataType } from "../operations/queries.js";
+import {
+  HOSTILE_CAST_FILTER_EXPRESSION,
+  WCL_RUN_EVIDENCE_ANALYSIS_VERSION,
+  WCL_RUN_EVIDENCE_PROVIDER_CONTRACT,
+  WCL_RUN_EVIDENCE_SCHEMA_VERSION,
+  buildSharedEvidenceCompatibilityKey,
+  consumersForDataset,
+  type SharedEvidenceDatasetKey,
+  type WclRunEvidenceBundle,
+  type WclRunEvidenceDataset,
+  type WclRunEvidenceDatasetPage,
+} from "./wcl-run-evidence-types.js";
+import { resolveBatchCostAccounting } from "./wcl-batch-cost-accounting.js";
+
+export function fingerprintPayload(payload: unknown): string {
+  return createHash("sha256").update(JSON.stringify(payload)).digest("hex").slice(0, 32);
+}
+
+export function dedupeEventsByIdentity(
+  events: Array<Record<string, unknown>>,
+): Array<Record<string, unknown>> {
+  const seen = new Set<string>();
+  const out: Array<Record<string, unknown>> = [];
+  for (const ev of events) {
+    const source = ev.source as { id?: number } | undefined;
+    const ability = ev.ability as { guid?: number } | undefined;
+    const key = [
+      ev.timestamp,
+      ev.type,
+      source?.id ?? ev.sourceID,
+      ability?.guid ?? ev.abilityGameID,
+      ev.targetInstance ?? "",
+    ].join(":");
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(ev);
+  }
+  return out;
+}
+
+/** Datasets that need hitPoints/maxHitPoints for Survival max-HP parity. */
+export const SHARED_EVIDENCE_RESOURCE_DATASETS: SharedEvidenceDatasetKey[] = [
+  "DamageTaken",
+  "Healing",
+  "Deaths",
+];
+
+export function sharedEvidenceNeedsResources(dataset: SharedEvidenceDatasetKey): boolean {
+  return SHARED_EVIDENCE_RESOURCE_DATASETS.includes(dataset);
+}
+
+export async function fetchSharedEventDataset(input: {
+  client: WclGraphQlClient;
+  reportCode: string;
+  fightId: number;
+  dataset: SharedEvidenceDatasetKey;
+  sourceId?: number | null;
+  filterExpression?: string | null;
+  hostilityType?: "Friendlies" | "Enemies" | null;
+  /** When true, request hitPoints/maxHitPoints (DamageTaken/Healing/Deaths). */
+  includeResources?: boolean;
+  maxPages?: number;
+  pageLimit?: number;
+  region?: string;
+}): Promise<{
+  dataset: WclRunEvidenceDataset;
+  pointsConsumed: number | null;
+  wclRequests: number;
+}> {
+  if (input.dataset === "masterData") {
+    throw new Error("Use fetchMasterData for masterData dataset");
+  }
+
+  const includeResources =
+    input.includeResources === true ||
+    (input.includeResources !== false && sharedEvidenceNeedsResources(input.dataset));
+  const filterExpression =
+    input.filterExpression ??
+    (input.dataset === "HostileCasts" ? HOSTILE_CAST_FILTER_EXPRESSION : null);
+  const hostilityType =
+    input.hostilityType ?? (input.dataset === "HostileCasts" ? "Enemies" : null);
+  const dataType: EventDataType =
+    input.dataset === "HostileCasts" ? "Casts" : (input.dataset as EventDataType);
+
+  const maxPages = input.maxPages ?? 12;
+  const pageLimit = input.pageLimit ?? 1000;
+  const pages: WclRunEvidenceDatasetPage[] = [];
+  const events: Array<Record<string, unknown>> = [];
+  const requestCostUnits: Array<number | null> = [];
+  const seenPageCursors = new Set<number>();
+  let startTime: number | undefined;
+  let truncated = false;
+  let wclRequests = 0;
+  let state: WclRunEvidenceDataset["state"] = "OK";
+
+  for (let pageIndex = 0; pageIndex < maxPages; pageIndex += 1) {
+    const result = await input.client.requestPermissive<{
+      reportData?: {
+        report?: {
+          events?: {
+            data?: Array<Record<string, unknown>>;
+            nextPageTimestamp?: number | null;
+          } | null;
+        } | null;
+      };
+    }>({
+      operationName: OPERATIONS.ReportEvents.operationName,
+      query: OPERATIONS.ReportEvents.query,
+      variables: {
+        code: input.reportCode,
+        fightIDs: [input.fightId],
+        dataType,
+        sourceID: input.sourceId ?? undefined,
+        startTime,
+        limit: pageLimit,
+        translate: false,
+        useAbilityIDs: false,
+        useActorIDs: false,
+        includeResources: includeResources ? true : undefined,
+        filterExpression: filterExpression ?? undefined,
+        hostilityType: hostilityType ?? undefined,
+      },
+      region: input.region,
+    });
+    wclRequests += 1;
+    requestCostUnits.push(result.costUnits ?? null);
+
+    if (result.response.errors?.length) {
+      state = "ERROR";
+      break;
+    }
+
+    const page = result.response.data?.reportData?.report?.events;
+    const pageEvents = page?.data ?? [];
+    const fp = fingerprintPayload({
+      reportCode: input.reportCode,
+      fightId: input.fightId,
+      dataset: input.dataset,
+      pageIndex,
+      startTime: startTime ?? null,
+      events: pageEvents,
+    });
+    pages.push({
+      pageIndex,
+      startTime: startTime ?? null,
+      nextPageTimestamp: page?.nextPageTimestamp ?? null,
+      eventCount: pageEvents.length,
+      payloadFingerprint: fp,
+    });
+    events.push(...pageEvents);
+
+    const next = page?.nextPageTimestamp ?? null;
+    if (next == null) break;
+    if (seenPageCursors.has(next)) {
+      truncated = true;
+      break;
+    }
+    seenPageCursors.add(next);
+    startTime = next;
+  }
+
+  if (pages.length >= maxPages) truncated = true;
+
+  const deduped = dedupeEventsByIdentity(events);
+  const pageCost = resolveBatchCostAccounting({
+    before: null,
+    after: null,
+    perRequestCostUnits: requestCostUnits,
+    requestCount: wclRequests,
+    pageCount: pages.length,
+  });
+  return {
+    pointsConsumed: pageCost.pointsConsumed,
+    wclRequests,
+    dataset: {
+      key: input.dataset,
+      state,
+      truncated,
+      pageCount: pages.length,
+      eventCount: deduped.length,
+      filterSourceId: input.sourceId ?? null,
+      filterExpression: [
+        hostilityType != null ? `hostilityType=${hostilityType}` : null,
+        includeResources ? "+resources" : null,
+        filterExpression,
+      ]
+        .filter(Boolean)
+        .join(";") || null,
+      pages,
+      events: deduped,
+      consumers: consumersForDataset(input.dataset),
+      pointsConsumed: pageCost.pointsConsumed,
+      costSource: pageCost.costSource,
+      requestCostUnits,
+      wclRequests,
+      fetchedAt: new Date().toISOString(),
+      source: "provider",
+    },
+  };
+}
+
+export function buildEmptyBundle(input: {
+  reportCode: string;
+  reportRevision: number | null;
+  fightId: number;
+  playerActorId: number | null;
+  ownedPetActorIds: number[];
+  dungeonSlug: string;
+  startTime: number | null;
+  endTime: number | null;
+  consumers: Array<"survival" | "utility">;
+}): WclRunEvidenceBundle {
+  return {
+    schemaVersion: WCL_RUN_EVIDENCE_SCHEMA_VERSION,
+    analysisVersion: WCL_RUN_EVIDENCE_ANALYSIS_VERSION,
+    providerContractVersion: WCL_RUN_EVIDENCE_PROVIDER_CONTRACT,
+    reportCode: input.reportCode,
+    reportRevision: input.reportRevision,
+    fightId: input.fightId,
+    playerActorId: input.playerActorId,
+    ownedPetActorIds: input.ownedPetActorIds,
+    dungeonSlug: input.dungeonSlug,
+    startTime: input.startTime,
+    endTime: input.endTime,
+    masterData: null,
+    eventDatasets: {},
+    completeness: {
+      required: [],
+      present: [],
+      missing: [],
+      truncated: [],
+    },
+    fetchedAt: new Date().toISOString(),
+    payloadFingerprints: {},
+    accounting: {
+      datasetsRequested: [],
+      cacheHits: 0,
+      persistedHits: 0,
+      providerCalls: 0,
+      pages: 0,
+      pointsConsumed: null,
+      estimatedPointsConsumed: null,
+      costSource: "unknown",
+      consumers: input.consumers,
+      duplicatedLogicalFetches: 0,
+    },
+  };
+}
+
+export function attachDatasetToBundle(
+  bundle: WclRunEvidenceBundle,
+  dataset: WclRunEvidenceDataset,
+  opts: { fromPersisted?: boolean; fromCache?: boolean } = {},
+): WclRunEvidenceBundle {
+  const next = { ...bundle, eventDatasets: { ...bundle.eventDatasets } };
+  next.eventDatasets[dataset.key] = dataset;
+  next.accounting = { ...bundle.accounting };
+  next.accounting.datasetsRequested = [
+    ...new Set([...bundle.accounting.datasetsRequested, dataset.key]),
+  ];
+  next.accounting.pages += dataset.pageCount;
+  next.accounting.providerCalls += dataset.wclRequests;
+  if (opts.fromPersisted) next.accounting.persistedHits += 1;
+  if (opts.fromCache) next.accounting.cacheHits += 1;
+
+  if (next.accounting.providerCalls === 0) {
+    // Fully persisted/cache reuse — measured zero spend for this ingest.
+    next.accounting.pointsConsumed = 0;
+    next.accounting.estimatedPointsConsumed = 0;
+    next.accounting.costSource = "measured";
+  } else {
+    const requestCosts = Object.values(next.eventDatasets).flatMap(
+      (d) => d?.requestCostUnits ?? [],
+    );
+    const resolved = resolveBatchCostAccounting({
+      before: null,
+      after: null,
+      perRequestCostUnits: requestCosts,
+      requestCount: next.accounting.providerCalls,
+      pageCount: next.accounting.pages,
+    });
+    next.accounting.pointsConsumed = resolved.pointsConsumed;
+    next.accounting.estimatedPointsConsumed = resolved.estimatedPointsConsumed;
+    next.accounting.costSource = resolved.costSource;
+  }
+
+  const fp = fingerprintPayload({
+    key: dataset.key,
+    eventCount: dataset.eventCount,
+    pages: dataset.pages.map((p) => p.payloadFingerprint),
+  });
+  next.payloadFingerprints = { ...bundle.payloadFingerprints, [dataset.key]: fp };
+
+  const present = Object.keys(next.eventDatasets) as SharedEvidenceDatasetKey[];
+  next.completeness = {
+    ...bundle.completeness,
+    present,
+    truncated: present.filter((k) => next.eventDatasets[k]?.truncated),
+    missing: bundle.completeness.required.filter((k) => !present.includes(k)),
+  };
+  next.fetchedAt = new Date().toISOString();
+  return next;
+}
+
+export function evidenceDatasetReuseDecision(input: {
+  existing: WclRunEvidenceDataset | null | undefined;
+  /** Revision recorded with the persisted evidence. */
+  persistedReportRevision?: number | null;
+  /** Current report revision from provider/metadata. */
+  reportRevision: number | null;
+  expectedRevision?: number | null;
+  forceRefetch: boolean;
+}): "reuse" | "refetch_revision_changed" | "refetch_forced" | "fetch_missing" {
+  if (input.forceRefetch) return "refetch_forced";
+  if (!input.existing || input.existing.state === "MISSING" || input.existing.state === "ERROR") {
+    return "fetch_missing";
+  }
+  const persisted =
+    input.persistedReportRevision ??
+    input.expectedRevision ??
+    null;
+  if (
+    persisted != null &&
+    input.reportRevision != null &&
+    persisted !== input.reportRevision
+  ) {
+    return "refetch_revision_changed";
+  }
+  return "reuse";
+}
+
+export function isPlayerDeadAt(
+  deathEvents: Array<Record<string, unknown>>,
+  playerActorId: number,
+  timestamp: number,
+  reviveGraceMs = 0,
+): boolean {
+  const deaths = deathEvents
+    .filter((ev) => {
+      const target = ev.target as { id?: number } | undefined;
+      const tid = typeof ev.targetID === "number" ? ev.targetID : target?.id;
+      return tid === playerActorId && typeof ev.timestamp === "number";
+    })
+    .map((ev) => ev.timestamp as number)
+    .sort((a, b) => a - b);
+
+  let dead = false;
+  for (const ts of deaths) {
+    if (ts <= timestamp) dead = true;
+    // Simple model: death sticks until end unless a later resurrection event is modeled separately
+  }
+  void reviveGraceMs;
+  return dead;
+}
+
+export { buildSharedEvidenceCompatibilityKey };

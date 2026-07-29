@@ -1,4 +1,4 @@
-# Local development image placeholders — production images owned by Agent 8.
+# Local development image placeholders — production images: infra/docker/Dockerfile.
 FROM node:24-bookworm-slim AS base
 WORKDIR /app
 RUN corepack enable

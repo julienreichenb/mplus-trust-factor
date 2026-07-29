@@ -10,6 +10,7 @@ export default defineConfig({
       "@mplus/domain": path.resolve(__dirname, "packages/domain/src/index.ts"),
       "@mplus/observability": path.resolve(__dirname, "packages/observability/src/index.ts"),
       "@mplus/scoring": path.resolve(__dirname, "packages/scoring/src/index.ts"),
+      "@mplus/abilities": path.resolve(__dirname, "packages/abilities/src/index.ts"),
       "@mplus/mechanics": path.resolve(__dirname, "packages/mechanics/src/index.ts"),
       "@mplus/provider-blizzard": path.resolve(
         __dirname,
@@ -49,6 +50,7 @@ export default defineConfig({
       PUBLIC_BASE_URL: "http://localhost:3000",
       SESSION_SECRET: "test-session-secret-at-least-32-chars",
       ADMIN_API_KEY: "test-admin-key",
+      ADMIN_API_KEY_EMERGENCY_FALLBACK: "true",
     },
   },
 });

@@ -6,8 +6,9 @@ import { HttpError } from "../errors.js";
 /**
  * MVP-only admin auth: constant-time comparison of `x-admin-api-key` against `env.ADMIN_API_KEY`.
  * Never expose `ADMIN_API_KEY` to public frontend bundles; this header is server-to-server only.
+ * Retained as documented emergency fallback once RBAC sessions are primary.
  */
-function isValidAdminKey(env: AppEnv, provided: string | undefined): boolean {
+export function isValidAdminKey(env: AppEnv, provided: string | undefined): boolean {
   if (!provided) return false;
   const expected = Buffer.from(env.ADMIN_API_KEY, "utf8");
   const actual = Buffer.from(provided, "utf8");

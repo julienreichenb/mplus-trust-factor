@@ -1,21 +1,30 @@
+import type { AdminAbilityCatalogResponse } from "@mplus/abilities";
 import type {
   AdminScoreModelDTO,
+  CharacterAutocompleteSuggestion,
   CharacterComparisonRequest,
   CharacterComparisonResponse,
   CharacterIdentityInput,
   CharacterProfileResponse,
+  CharacterResolveRequest,
+  CharacterResolveResponse,
   Grade,
   JobStatusDTO,
   MetaResponse,
   RedFlagDTO,
   RefreshStatusResponse,
   RegionCode,
+  RealmCatalogOption,
   ScoreModelConfig,
   ScoreSnapshotDTO,
   SearchCharacterResponse,
+  ScoringRunSelection,
+  SelectedRunSummary,
   AnalyzedRunSummary,
   EquipmentSummary,
   TalentSummary,
+  SelectedTalentDTO,
+  TalentTreeKind,
   SeasonSummary,
   ProfileEntitlements,
   ProfileWarning,
@@ -32,6 +41,12 @@ export type CharacterProfileView = CharacterProfileResponse;
 export interface RealmOption {
   slug: string;
   name: string;
+  region?: RegionCode;
+  locale?: string | null;
+  connectedRealmId?: number | null;
+  displayLabel?: string;
+  category?: string | null;
+  timezone?: string | null;
 }
 
 export interface ModelValidationResult {
@@ -67,9 +82,34 @@ export interface EditableModelConfig extends ScoreModelConfig {
 
 export type ApiMode = "mock" | "live";
 
+export type SearchUiState =
+  | "IDLE"
+  | "VALIDATING"
+  | "RESOLVING"
+  | "QUEUED"
+  | "PROCESSING"
+  | "READY"
+  | "NOT_FOUND"
+  | "RETRYABLE_ERROR"
+  | "TERMINAL_ERROR";
+
 export interface MplusApiClient {
   getMeta(signal?: AbortSignal): Promise<MetaResponse>;
-  searchRealms(region: RegionCode, query: string, signal?: AbortSignal): Promise<RealmOption[]>;
+  searchRealms(
+    region: RegionCode | null | undefined,
+    query: string,
+    signal?: AbortSignal,
+    limit?: number,
+  ): Promise<RealmOption[]>;
+  searchCharacters(
+    region: RegionCode,
+    query: string,
+    signal?: AbortSignal,
+  ): Promise<CharacterAutocompleteSuggestion[]>;
+  resolveCharacter(
+    request: CharacterResolveRequest & { forceRetry?: boolean },
+    signal?: AbortSignal,
+  ): Promise<CharacterResolveResponse>;
   getCharacterProfile(
     identity: CharacterIdentityInput,
     signal?: AbortSignal,
@@ -93,25 +133,39 @@ export interface MplusApiClient {
   validateModel(modelId: string, config: unknown, signal?: AbortSignal): Promise<ModelValidationResult>;
   backtestModel(modelId: string, signal?: AbortSignal): Promise<BacktestSummary>;
   activateModel(modelId: string, signal?: AbortSignal): Promise<AdminScoreModelDTO>;
+  getAdminAbilityCatalog(
+    params?: Record<string, string | number | undefined>,
+    signal?: AbortSignal,
+  ): Promise<AdminAbilityCatalogResponse>;
 }
+
+export type { AdminAbilityCatalogResponse };
 
 export type {
   AdminScoreModelDTO,
   AnalyzedRunSummary,
+  CharacterAutocompleteSuggestion,
   CharacterComparisonRequest,
   CharacterComparisonResponse,
   CharacterIdentityInput,
   CharacterProfileResponse,
+  CharacterResolveRequest,
+  CharacterResolveResponse,
   EquipmentSummary,
   Grade,
   JobStatusDTO,
   MetaResponse,
   ProfileWarning,
+  RealmCatalogOption,
   RedFlagDTO,
   RefreshStatusResponse,
   RegionCode,
   ScoreSnapshotDTO,
   SearchCharacterResponse,
+  ScoringRunSelection,
+  SelectedRunSummary,
   SeasonSummary,
+  SelectedTalentDTO,
   TalentSummary,
+  TalentTreeKind,
 };

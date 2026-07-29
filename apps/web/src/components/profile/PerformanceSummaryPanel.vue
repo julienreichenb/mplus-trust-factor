@@ -5,10 +5,23 @@ import type { PerformanceSummaryDTO } from "@mplus/contracts";
 const props = defineProps<{
   summary: PerformanceSummaryDTO | null | undefined;
   locked?: boolean;
+  /** When true, omit the section heading (parent owns the title). */
+  embedded?: boolean;
 }>();
 
 const current = computed(() => props.summary?.currentSeason ?? null);
 const historical = computed(() => props.summary?.historical ?? null);
+
+const STAT_TOOLTIPS = {
+  peak:
+    "Equal-weighted average of Warcraft Logs Best % (peak parse) across current-season dungeons. Measures ceiling execution.",
+  consistency:
+    "Equal-weighted average of Warcraft Logs Median % across current-season dungeons. Measures typical execution, not the best pull.",
+  score:
+    "Current-season performance blend: 65% Peak + 35% Consistency. Missing dungeons are omitted from the average — never scored as zero.",
+  coverage:
+    "How many of the expected season dungeons have usable WCL percentile data. Lower coverage reduces confidence, not the score itself.",
+} as const;
 
 function formatPct(value: number | null | undefined): string {
   if (value == null || Number.isNaN(value)) return "—";
@@ -26,14 +39,14 @@ function runLabel(
 <template>
   <section
     class="perf"
-    aria-labelledby="perf-title"
+    :class="{ 'perf--embedded': embedded }"
+    :aria-labelledby="embedded ? undefined : 'perf-title'"
+    :aria-label="embedded ? 'Per-dungeon Warcraft Logs performance' : undefined"
     data-testid="performance-summary"
   >
-    <h2 id="perf-title">Current-season performance</h2>
-    <p class="lede">
-      Equal-weighted Warcraft Logs Best % and Median % by dungeon. Missing dungeons lower confidence
-      only — they are never scored as zero.
-    </p>
+    <template v-if="!embedded">
+      <h2 id="perf-title">Current-season performance</h2>
+    </template>
 
     <p v-if="locked" class="locked">Details unlock with entitlements.</p>
     <template v-else-if="!current || current.dungeonCount === 0">
@@ -42,24 +55,28 @@ function runLabel(
       </p>
     </template>
     <template v-else>
-      <dl class="stats">
-        <div>
+      <dl class="cards">
+        <div class="card" tabindex="0">
           <dt>Peak</dt>
           <dd class="mpts-data">{{ formatPct(current.peakScore) }}</dd>
+          <span class="card__tip" role="tooltip">{{ STAT_TOOLTIPS.peak }}</span>
         </div>
-        <div>
+        <div class="card" tabindex="0">
           <dt>Consistency</dt>
           <dd class="mpts-data">{{ formatPct(current.consistencyScore) }}</dd>
+          <span class="card__tip" role="tooltip">{{ STAT_TOOLTIPS.consistency }}</span>
         </div>
-        <div>
+        <div class="card" tabindex="0">
           <dt>Score</dt>
           <dd class="mpts-data">{{ formatPct(current.score) }}</dd>
+          <span class="card__tip" role="tooltip">{{ STAT_TOOLTIPS.score }}</span>
         </div>
-        <div>
+        <div class="card" tabindex="0">
           <dt>Coverage</dt>
           <dd class="mpts-data">
             {{ current.dungeonCount }}/{{ current.expectedDungeonCount }} dungeons
           </dd>
+          <span class="card__tip" role="tooltip">{{ STAT_TOOLTIPS.coverage }}</span>
         </div>
       </dl>
 
@@ -112,39 +129,72 @@ function runLabel(
   gap: var(--space-4);
 }
 
-.lede,
 .empty,
 .locked,
 .hist {
   margin: 0;
   color: var(--color-text-muted);
-  max-width: 68ch;
+  max-width: none;
 }
 
-.stats {
+.cards {
   display: grid;
   gap: var(--space-3);
   margin: 0;
   grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
 }
 
-.stats div {
+.card {
+  position: relative;
   padding: var(--space-3);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-control);
   background: var(--color-surface);
+  outline: none;
 }
 
-.stats dt {
+.card:hover,
+.card:focus-visible {
+  border-color: color-mix(in srgb, var(--color-gold-300) 55%, var(--color-border));
+}
+
+.card dt {
   font-size: var(--text-xs);
   letter-spacing: 0.05em;
   text-transform: uppercase;
   color: var(--color-text-muted);
 }
 
-.stats dd {
+.card dd {
   margin: var(--space-1) 0 0;
   font-weight: 600;
+}
+
+.card__tip {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 0.45rem);
+  z-index: 4;
+  width: max-content;
+  max-width: min(22rem, 80vw);
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  background: var(--color-surface-hover);
+  color: var(--color-text);
+  font-size: var(--text-xs);
+  line-height: 1.4;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 35%);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+
+.card:hover .card__tip,
+.card:focus-visible .card__tip {
+  opacity: 1;
+  visibility: visible;
 }
 
 .table-wrap {

@@ -4,7 +4,7 @@ import type {
   Grade,
   RedFlagDTO,
 } from "../api/types";
-import { DIMENSION_LABELS, RADAR_DIMENSIONS, type RadarDimension } from "./format";
+import { DIMENSION_LABELS, resolveRadarDimensions, type RadarDimension } from "./format";
 
 export type TrustGrade = Grade;
 
@@ -18,7 +18,10 @@ export interface GradePresentation {
 export interface ContributorSignal {
   kind: "positive" | "risk";
   label: string;
+  /** Human-readable dimension name (e.g. Survival). */
   dimension?: string;
+  /** Stable dimension key for icons / filters. */
+  dimensionKey?: RadarDimension;
 }
 
 /** @deprecated Prefer EquipmentItemViewModel from equipmentViewModel. */
@@ -77,7 +80,8 @@ export function parseContributorSignals(dimensions: DimensionScoreDTO[]): Contri
   const signals: ContributorSignal[] = [];
   for (const dim of dimensions) {
     if (dim.dimension === "AUTHENTICITY") continue;
-    const label = DIMENSION_LABELS[dim.dimension as RadarDimension] ?? dim.dimension;
+    const dimKey = dim.dimension as RadarDimension;
+    const label = DIMENSION_LABELS[dimKey] ?? dim.dimension;
     const contrib = dim.contributors as
       | {
           positive?: Array<{ label?: string; metricKey?: string }>;
@@ -95,12 +99,22 @@ export function parseContributorSignals(dimensions: DimensionScoreDTO[]): Contri
     // Preferred shape (mock / legacy explainers).
     for (const item of contrib?.positive ?? []) {
       if (item?.label?.trim()) {
-        signals.push({ kind: "positive", label: item.label.trim(), dimension: label });
+        signals.push({
+          kind: "positive",
+          label: item.label.trim(),
+          dimension: label,
+          dimensionKey: dimKey,
+        });
       }
     }
     for (const item of contrib?.negative ?? []) {
       if (item?.label?.trim()) {
-        signals.push({ kind: "risk", label: item.label.trim(), dimension: label });
+        signals.push({
+          kind: "risk",
+          label: item.label.trim(),
+          dimension: label,
+          dimensionKey: dimKey,
+        });
       }
     }
 
@@ -111,9 +125,19 @@ export function parseContributorSignals(dimensions: DimensionScoreDTO[]): Contri
         const metricLabel = humanizeMetricKey(item.metricKey);
         const value = item.normalizedValue;
         if (typeof value === "number" && value >= 55) {
-          signals.push({ kind: "positive", label: metricLabel, dimension: label });
+          signals.push({
+            kind: "positive",
+            label: metricLabel,
+            dimension: label,
+            dimensionKey: dimKey,
+          });
         } else if (typeof value === "number" && value < 45) {
-          signals.push({ kind: "risk", label: metricLabel, dimension: label });
+          signals.push({
+            kind: "risk",
+            label: metricLabel,
+            dimension: label,
+            dimensionKey: dimKey,
+          });
         }
       }
       for (const item of contrib?.missing ?? []) {
@@ -122,6 +146,7 @@ export function parseContributorSignals(dimensions: DimensionScoreDTO[]): Contri
           kind: "risk",
           label: `Missing ${humanizeMetricKey(item.metricKey)}`,
           dimension: label,
+          dimensionKey: dimKey,
         });
       }
     }
@@ -137,7 +162,7 @@ function humanizeMetricKey(metricKey: string): string {
 export function topSignals(
   signals: ContributorSignal[],
   kind: ContributorSignal["kind"],
-  limit = 2,
+  limit = 5,
 ): ContributorSignal[] {
   return signals.filter((s) => s.kind === kind).slice(0, limit);
 }
@@ -158,16 +183,36 @@ export function explanationSummary(score: CharacterProfileView["score"]): string
 
 export { mapEquipmentSlots } from "./equipmentViewModel";
 
-export function dimensionRows(dimensions: DimensionScoreDTO[]) {
-  return RADAR_DIMENSIONS.map((dim) => {
+export function dimensionRows(dimensions: DimensionScoreDTO[], modelVersion?: number | null) {
+  return resolveRadarDimensions(modelVersion).map((dim) => {
     const found = dimensions.find((d) => d.dimension === dim);
+    const state = found?.state ?? (found ? (found.confidence <= 0 ? "UNAVAILABLE" : "AVAILABLE") : "UNAVAILABLE");
+    const unavailable =
+      !found ||
+      state === "UNAVAILABLE" ||
+      state === "PROCESSING" ||
+      state === "ERROR" ||
+      found.score == null ||
+      found.confidence <= 0;
     return {
       dimension: dim,
       label: DIMENSION_LABELS[dim],
-      score: found?.score ?? null,
-      confidence: found?.confidence ?? null,
+      score: unavailable ? null : found!.score,
+      confidence: unavailable ? null : found!.confidence,
       weight: found?.weight ?? null,
-      missing: !found,
+      missing: unavailable,
+      state,
+      reason: found?.reason ?? null,
+      stateLabel:
+        state === "AVAILABLE"
+          ? "Available"
+          : state === "PARTIAL"
+            ? "Partial"
+            : state === "PROCESSING"
+              ? "Processing"
+              : state === "ERROR"
+                ? "Error"
+                : "Unavailable",
     };
   });
 }

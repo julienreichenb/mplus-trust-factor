@@ -10,8 +10,36 @@ export const routeDefs: RouteRecordRaw[] = [
   },
   { path: "/compare", name: "compare", component: () => import("./pages/ComparePage.vue") },
   {
+    path: "/auth/signin",
+    name: "auth-signin",
+    component: () => import("./pages/AuthSignInPage.vue"),
+  },
+  {
+    path: "/auth/error",
+    name: "auth-error",
+    component: () => import("./pages/AuthErrorPage.vue"),
+  },
+  {
+    path: "/account",
+    name: "account",
+    component: () => import("./pages/AccountPage.vue"),
+    meta: { requiresAuth: true },
+  },
+  {
+    path: "/access-denied",
+    name: "access-denied",
+    component: () => import("./pages/AccessDeniedPage.vue"),
+  },
+  {
     path: "/admin/models",
     name: "admin-models",
     component: () => import("./pages/AdminModelsPage.vue"),
+    meta: { requiresAdmin: true },
+  },
+  {
+    path: "/admin/ability-catalog",
+    name: "admin-ability-catalog",
+    component: () => import("./pages/AdminAbilityCatalogPage.vue"),
+    meta: { requiresAdmin: true },
   },
 ];

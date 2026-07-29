@@ -12,7 +12,8 @@
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
     "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "realms:sync": "tsx ../../tools/scripts/sync-realm-catalog.mjs"
   },
   "dependencies": {
     "@mplus/config": "workspace:*",
@@ -21,6 +22,8 @@
     "@mplus/domain": "workspace:*",
     "@mplus/observability": "workspace:*",
     "@mplus/addon-exporter": "workspace:*",
+    "@mplus/abilities": "workspace:*",
+    "@mplus/mechanics": "workspace:*",
     "@mplus/provider-blizzard": "workspace:*",
     "@mplus/provider-warcraftlogs": "workspace:*",
     "@mplus/provider-raiderio": "workspace:*",

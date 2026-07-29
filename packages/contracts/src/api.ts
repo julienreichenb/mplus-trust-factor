@@ -29,9 +29,106 @@ export interface SearchCharacterResponse {
   score: ScoreSnapshotDTO | null;
 }
 
+/** Exact character+realm resolution for the dual-field search flow. */
+export type CharacterResolveStatus =
+  "READY" | "QUEUED" | "PROCESSING" | "NOT_FOUND" | "PROVIDER_UNAVAILABLE" | "FAILED";
+
+export type CharacterResolveResponse =
+  | {
+      status: "READY";
+      characterId: string;
+      profilePath: string;
+    }
+  | {
+      status: "QUEUED" | "PROCESSING";
+      characterId: string;
+      refreshId: string;
+      profilePath: string;
+      retryAfterMs: number;
+    }
+  | {
+      status: "NOT_FOUND";
+      message: string;
+    }
+  | {
+      status: "PROVIDER_UNAVAILABLE";
+      retryable: true;
+      message: string;
+    }
+  | {
+      status: "FAILED";
+      retryable: boolean;
+      message: string;
+    };
+
+export interface CharacterResolveRequest {
+  name: string;
+  realmSlug: string;
+  region: RegionCode;
+}
+
+/** Combobox row from the retail realm catalog. */
+export interface RealmCatalogOption {
+  name: string;
+  slug: string;
+  region: RegionCode;
+  locale: string | null;
+  connectedRealmId: number | null;
+  displayLabel: string;
+  timezone?: string | null;
+  category?: string | null;
+}
+
+export interface RealmCatalogResponse {
+  realms: RealmCatalogOption[];
+}
+
+/** Autocomplete row kind: indexed hit, synthetic new-character resolve, or realm-missing hint. */
+export type CharacterAutocompleteKind = "indexed" | "resolve" | "hint";
+
+/** Internal fuzzy character search suggestion — not a Blizzard global search. */
+export interface CharacterAutocompleteSuggestion {
+  name: string;
+  realmSlug: string;
+  region: RegionCode;
+  classSlug: string | null;
+  specSlug: string | null;
+  avatarUrl: string | null;
+  classIconUrl: string | null;
+  /** Prefer `kind`; legacy indexed sources remain for known characters. */
+  source?: "character" | "alias" | "participant" | "resolve" | "hint";
+  kind?: CharacterAutocompleteKind;
+  /** Human realm label when resolved from the catalog (e.g. "Archimonde"). */
+  realmName?: string | null;
+  /** Display label override (e.g. "Search Wallidrixe — Archimonde"). */
+  label?: string | null;
+}
+
+export interface CharacterAutocompleteResponse {
+  suggestions: CharacterAutocompleteSuggestion[];
+}
+
+export interface SelectedRunSummary {
+  dungeonSlug: string;
+  dungeonName: string;
+  canonicalRunId: string | null;
+  keyLevel: number | null;
+  timed: boolean | null;
+  completedAt: IsoDateTime | null;
+  wclReportMatched: boolean;
+  selectionReason: "HIGHEST_KEY" | "HIGHEST_SCORE_TIEBREAK" | "LATEST_TIEBREAK" | null;
+  coverageRatio: number | null;
+}
+
+export interface ScoringRunSelection {
+  seasonSlug: string;
+  expectedDungeonCount: number;
+  selectedRuns: SelectedRunSummary[];
+}
+
 export interface AnalyzedRunSummary {
   runId: string;
-  kind: "LATEST" | "HIGHEST" | "BOTH";
+  kind: "LATEST" | "HIGHEST" | "BOTH" | "SELECTED";
   dungeonName: string;
   dungeonSlug: string;
   keyLevel: number;
@@ -39,6 +136,21 @@ export interface AnalyzedRunSummary {
   timed: boolean;
   performanceSummary: string;
   coverageRatio: number;
+}
+
+/** One entry from the eight-run scoring selection exposed on the profile. */
+export interface SelectedRunSummaryDTO {
+  runId: string | null;
+  dungeonSlug: string;
+  dungeonName: string;
+  keyLevel: number | null;
+  completedAt: IsoDateTime | null;
+  timed: boolean;
+  wclReportMatched: boolean;
+  wclCoverageRatio: number | null;
+  selectionReason: "HIGHEST_KEY" | "HIGHEST_SCORE_TIEBREAK" | "LATEST_TIEBREAK" | null;
+  parsePercentile: number | null;
+  hasDetailedAnalysis: boolean;
 }
 
 /** Public equipment item — Blizzard-primary; missing fields stay null. */
@@ -51,6 +163,8 @@ export interface EquipmentItemDTO {
   iconUrl: string | null;
   enchantments: string[];
   gems: Array<{ name: string; itemId?: number | null }>;
+  /** Blizzard equipped-item bonus IDs (scaling / crafted / sockets context). */
+  bonusList?: number[];
 }
 
 export interface EquipmentSummary {
@@ -62,12 +176,27 @@ export interface EquipmentSummary {
   keyItems: EquipmentItemDTO[];
 }
 
+export type TalentTreeKind = "CLASS" | "SPEC" | "HERO" | "UNKNOWN";
+
+/** Selected talent node from an active Blizzard loadout. */
+export interface SelectedTalentDTO {
+  id: number | null;
+  name: string | null;
+  spellId: number | null;
+  rank: number | null;
+  tree: TalentTreeKind;
+  /** HTTPS icon when media enrichment succeeded. */
+  iconUrl: string | null;
+}
+
 export interface TalentSummary {
   specializationSlug: string | null;
   loadoutCode: string | null;
   summary: string | null;
   loadoutName?: string | null;
-  selectedTalents?: Array<{ id: number | null; name: string | null }> | null;
+  /** Active hero talent tree name (e.g. "Slayer"), when known. */
+  heroTalentName?: string | null;
+  selectedTalents?: SelectedTalentDTO[] | null;
   sourceProvider?: string | null;
   fetchedAt?: IsoDateTime | null;
 }
@@ -109,12 +238,34 @@ export interface PerformanceExplanatoryRunDTO {
 export interface PerformanceDungeonSummaryDTO {
   dungeonSlug: string;
   dungeonName: string;
+  encounterId?: number | null;
   bestParsePercentile: number | null;
   medianParsePercentile: number | null;
   loggedRunCount: number;
+  keystoneLevel?: number | null;
+  throughputBracket?: number | null;
+  ratingPoints?: number | null;
+  scoreRank?: number | null;
+  regionRank?: number | null;
+  serverRank?: number | null;
+  scoreRankPercent?: number | null;
+  specialization?: string | null;
+  bestDps?: number | null;
+  completion?: {
+    fastestKillRaw: number | null;
+    speedRaw: number | null;
+    fightMetadataRaw: number | null;
+    leaderboardRaw: number | null;
+    affixesRaw: number | null;
+    completionTimeMs: null;
+    encodingStatus: "unverified_not_emitted";
+    encodingNote: string;
+  } | null;
   bestRun: PerformanceExplanatoryRunDTO | null;
   latestRun: PerformanceExplanatoryRunDTO | null;
 }
+
+export type PerformanceProvenance = "AGGREGATE_ZONE_RANKINGS" | "FIGHT_BOUND_PARSES" | "NONE";
 
 export interface PerformanceCurrentSeasonSummaryDTO {
   peakScore: number | null;
@@ -122,8 +273,39 @@ export interface PerformanceCurrentSeasonSummaryDTO {
   score: number | null;
   confidence: number;
   dungeonCount: number;
+  availableDungeonCount?: number;
   expectedDungeonCount: number;
+  totalMythicPlusScore?: number | null;
+  totalLoggedRuns?: number;
+  partition?: number | null;
+  zoneId?: number | null;
   latestObservedAt: IsoDateTime | null;
+  /** Whether percentiles are aggregate zone rankings vs fight-bound selected-run parses. */
+  provenance?: PerformanceProvenance;
+  specRanks?: Array<{
+    spec: string | null;
+    points: number | null;
+    possiblePoints: number | null;
+    rank: number | null;
+    regionRank: number | null;
+    serverRank: number | null;
+    scoreRankPercent: number | null;
+    total: number | null;
+    partition: number | null;
+  }>;
+  diagnostics?: {
+    ratingPointsExcludedFromScore: true;
+    keystoneLevelExcludedFromScore: true;
+    scoreRankPercentExcludedFromScore: true;
+    throughputSampleCountUnavailable: true;
+    performanceState?: string | null;
+    unavailableEncounters?: Array<{
+      encounterID: number;
+      encounterName: string | null;
+      dungeonSlug: string | null;
+      reason: string;
+    }>;
+  };
   dungeons: PerformanceDungeonSummaryDTO[];
 }
 
@@ -142,6 +324,58 @@ export interface PerformanceHistoricalSummaryDTO {
 export interface PerformanceSummaryDTO {
   currentSeason: PerformanceCurrentSeasonSummaryDTO;
   historical: PerformanceHistoricalSummaryDTO | null;
+}
+
+/** Public aggregate-only Survival V1.1.1 explanation. */
+export interface SurvivalSummaryPublicDTO {
+  score: number | null;
+  confidence: number;
+  availableDungeonCount: number;
+  expectedDungeonCount: number;
+  scoreMode: "FULL_BEHAVIORAL" | "PARTIAL_BEHAVIORAL" | "OUTCOME_ONLY" | null;
+  analyzedRunCount?: number;
+  cachedRunCount?: number;
+  newlyFetchedRunCount?: number;
+  components?: {
+    outcome: number | null;
+    defensiveResponse: number | null;
+    emergencyRecovery: number | null;
+  };
+  pressureClusterCount?: number;
+  deathCount?: number;
+  defensiveCounts?: { covered: number; missed: number; na: number };
+  recoveryCounts?: { covered: number; missed: number; na: number };
+  maxHpDiagnostics?: {
+    invalidOutlierCount: number;
+    baselineResolvedRunCount: number;
+  };
+  dungeons: Array<{
+    dungeonSlug: string;
+    dungeonName?: string;
+    medianBehavioralScore: number | null;
+    runCount: number;
+    bestRun: {
+      runId: string;
+      dungeonSlug: string;
+      dungeonName?: string;
+      keyLevel: number | null;
+      behavioralSurvivalScore: number | null;
+      deathCount: number;
+      pressureClusterCount?: number;
+      hasWclSource: boolean;
+    } | null;
+  }>;
+  notes: string[];
+  requestCost?: {
+    wclRequestCount?: number;
+    estimatedPageCountIncreaseVsCalibrationDamageTaken?: number | null;
+    notes?: string[];
+  };
+  diagnostics?: {
+    rejectedCandidates: Array<{ reason: string; runId?: string; dungeonSlug?: string }>;
+    lateBoundRunCount?: number;
+    bindPoolSize?: number;
+  };
 }
 
 export interface ProfileEntitlements {
@@ -190,12 +424,20 @@ export interface CharacterProfileResponse {
   freshness?: number | null;
   lastAnalyzedRun?: AnalyzedRunSummary | null;
   highestAnalyzedRun?: AnalyzedRunSummary | null;
+  /** Wave 4 — one highest run per active-season dungeon, typically eight. */
+  scoringRunSelection?: ScoringRunSelection | null;
+  /** Serialized current-season eight-run selection for the profile UI. */
+  selectedRuns?: SelectedRunSummaryDTO[];
+  selectedRunCount?: number;
+  detailedRunCount?: number;
   equipment?: EquipmentSummary | null;
   talents?: TalentSummary | null;
   media?: CharacterMediaDTO | null;
   seasonSummary?: SeasonSummary | null;
   /** Current-season WCL execution summary (aggregate only; no private report codes). */
   performanceSummary?: PerformanceSummaryDTO | null;
+  /** Current-season WCL Survival V1.1.1 summary (aggregate only). */
+  survivalSummary?: SurvivalSummaryPublicDTO | null;
   entitlements?: ProfileEntitlements;
   warnings?: ProfileWarning[];
   raiderIoUsed?: boolean;

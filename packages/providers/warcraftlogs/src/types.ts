@@ -47,6 +47,10 @@ export interface WclRankingObservation {
   score: number | null;
   amount: number | null;
   percentile: number | null;
+  /** WCL rankPercent for this specific parse row when present. */
+  rankPercent: number | null;
+  /** Bracket-relative percentile when WCL exposes bracketPercent. */
+  bracketPercent: number | null;
   specSlug: string | null;
   roleSlug: string | null;
   durationMs: number | null;
@@ -140,6 +144,8 @@ export interface WclActorEntry {
   type: string;
   subType: string | null;
   server: string | null;
+  /** Report-local owner actor ID when this actor is a pet (null/undefined when unknown). */
+  petOwner: number | null;
 }
 
 export interface WclCastEvent {
@@ -211,6 +217,8 @@ export interface RunCombatFacts {
   fightId: number;
   revision: number;
   targetSourceId: number;
+  /** Player + attributed pet source IDs used for utility extraction. */
+  attributedSourceIds: number[];
   actorMap: WclActorMap;
   casts: WclCastEvent[];
   interrupts: WclInterruptEvent[];
@@ -255,16 +263,43 @@ export interface WclRateBudgetDecision {
   snapshot: WclRateLimitSnapshot;
 }
 
-/** Per-dungeon Best%/Median% from aggregate zoneRankings (PERFORMANCE input). */
+/** Raw completion metadata from points_and_damage score rows (no completionTimeMs). */
+export interface WclPerformanceCompletionMetadata {
+  fastestKillRaw: number | null;
+  speedRaw: number | null;
+  fightMetadataRaw: number | null;
+  leaderboardRaw: number | null;
+  affixesRaw: number | null;
+  completionTimeMs: null;
+  encodingStatus: "unverified_not_emitted";
+  encodingNote: string;
+}
+
+/**
+ * Per-dungeon Performance row from points_and_damage zoneRankings.
+ * Peak/consistency use best/median execution percentiles only.
+ * ratingPoints / keystoneLevel / scoreRankPercent stay diagnostic (not in score).
+ */
 export interface WclDungeonPerformanceAggregate {
   dungeonSlug: string;
   dungeonName: string;
   encounterId: number | null;
   bestParsePercentile: number | null;
   medianParsePercentile: number | null;
+  /** Displayed contextual run count (totalKills); confidence input only. */
   loggedRunCount: number;
   specSlug: string | null;
   roleSlug: string | null;
+  keystoneLevel?: number | null;
+  throughputBracket?: number | null;
+  ratingPoints?: number | null;
+  scoreRank?: number | null;
+  regionRank?: number | null;
+  serverRank?: number | null;
+  scoreRankPercent?: number | null;
+  specialization?: string | null;
+  bestDps?: number | null;
+  completion?: WclPerformanceCompletionMetadata | null;
 }
 
 export interface WclCharacterDiscoveryResult {
@@ -272,6 +307,11 @@ export interface WclCharacterDiscoveryResult {
   rankings: WclRankingObservation[];
   /** Equal-weight dungeon aggregates for PERFORMANCE (not used for run discovery). */
   dungeonAggregates: WclDungeonPerformanceAggregate[];
+  /**
+   * points_and_damage Performance fetch result (raw + state).
+   * GraphQL/schema failures must not appear as an empty valid dataset.
+   */
+  performance?: import("./discovery/points-and-damage-performance.js").PointsAndDamagePerformanceRecord;
   candidates: WclRunCandidate[];
   latest: WclRunCandidate | null;
   highest: WclRunCandidate | null;

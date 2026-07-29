@@ -80,6 +80,7 @@ export type ExternalApiErrorCode =
   | "TIMEOUT"
   | "NETWORK"
   | "INVALID_RESPONSE"
+  | "SCHEMA_UNSUPPORTED"
   | "CIRCUIT_OPEN"
   | "BUDGET_EXCEEDED"
   | "UNKNOWN";
@@ -118,6 +119,15 @@ export interface BlizzardRealmDTO {
   locale: string | null;
   timezone: string | null;
   connectedRealmId: number | null;
+  category: string | null;
+  isTournament: boolean;
+}
+
+/** Lightweight realm index entry from `GET /data/wow/realm/index`. */
+export interface BlizzardRealmIndexEntryDTO {
+  blizzardRealmId: number;
+  slug: string;
+  name: string;
 }
 
 /** Static season / dungeon / item records from Blizzard game data. */
@@ -170,6 +180,8 @@ export interface BlizzardMythicLeaderboardDTO {
 export interface BlizzardProvider {
   readonly name: "blizzard";
   getRealm(realmSlug: string, ctx: ProviderFetchContext): Promise<ProviderResult<BlizzardRealmDTO>>;
+  /** Retail realm index for a region (dynamic namespace). */
+  getRealmIndex(ctx: ProviderFetchContext): Promise<ProviderResult<BlizzardRealmIndexEntryDTO[]>>;
   getCharacterProfile(
     identity: CharacterIdentityInput,
     ctx: ProviderFetchContext,
@@ -241,6 +253,26 @@ export interface WarcraftLogsProvider {
     fightId: number,
     ctx: ProviderFetchContext,
   ): Promise<ProviderResult<unknown>>;
+  fetchSurvivalHealthSnapshots?(
+    input: { reportCode: string; fightId: number; sourceId: number },
+    ctx: ProviderFetchContext,
+  ): Promise<ProviderResult<{
+    snapshots: Array<{
+      timestamp: number;
+      currentHp: number | null;
+      maxHp: number | null;
+      absorb: number | null;
+      path: string;
+      dataType: string;
+      abilityGameID: number | null;
+      sourceID: number | null;
+      targetID: number | null;
+      eventType: string | null;
+    }>;
+    truncated: boolean;
+    eventCount: number;
+    events?: Array<Record<string, unknown>>;
+  }>>;
   /** Optional Wave 3 character-level discovery summary (visibility without requiring runs). */
   discoverCharacterSummary?(
     identity: CharacterIdentityInput,

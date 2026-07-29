@@ -37,12 +37,15 @@ describe("ScoreHeader", () => {
       global: { plugins: [router] },
     });
     expect(wrapper.get("[data-testid='overall-score']").text()).toBe("88");
-    expect(wrapper.get("[data-testid='grade']").text()).toContain("Grade A");
+    expect(wrapper.get(".tier-grade-letter").classes()).toContain("tier-grade-letter--xl");
+    expect(wrapper.get(".tier-grade-letter").classes()).toContain("tier-grade-letter--A");
+    expect(wrapper.get(".tier-grade-letter").text()).toBe("A");
     expect(wrapper.get("[data-testid='confidence']").text()).toContain("78");
-    expect(wrapper.get("[data-testid='freshness']").text()).toBe("FRESH");
-    expect(wrapper.get("[data-testid='character-media']").attributes("data-media-type")).toBe(
-      "placeholder",
-    );
+    expect(wrapper.find("[data-testid='freshness']").exists()).toBe(false);
+    expect(wrapper.find("[data-testid='trust-dimension-radar']").exists()).toBe(true);
+    expect(wrapper.find("[data-testid='grade']").exists()).toBe(false);
+    expect(wrapper.find("[data-testid='character-media']").exists()).toBe(false);
+    expect(wrapper.find("[data-testid='insight-accordion']").exists()).toBe(true);
   });
 });
 
@@ -53,6 +56,9 @@ describe("TrustTierBadge", () => {
     expect(wrapper.attributes("data-tier")).toBe("U");
     expect(wrapper.text()).toContain("Unrated");
     expect(presentGrade("U").isUnrated).toBe(true);
+    expect(wrapper.get(".tier-grade-letter").classes()).toContain("tier-grade-letter--U");
+    expect(wrapper.get(".tier-grade-letter").classes()).toContain("tier-grade-letter--md");
+    expect(wrapper.get(".tier-grade-letter").classes()).not.toContain("tier-grade-letter--unrated");
   });
 });
 
@@ -93,12 +99,16 @@ describe("TrustRadarChart", () => {
     const wrapper = mount(TrustRadarChart, {
       props: {
         series: [{ id: "1", name: "Aleria", dimensions: dims }],
+        modelVersion: 3,
       },
     });
     const table = wrapper.get("[data-testid='radar-fallback']");
     expect(table.text()).toContain("Performance");
     expect(table.text()).toContain("91");
-    expect(wrapper.get("[data-testid='dimension-table']").text()).toContain("Exact dimension values");
+    expect(table.text()).not.toContain("Mythic Raid");
+    expect(wrapper.get("[data-testid='dimension-table']").text()).toContain(
+      "Exact dimension values",
+    );
     wrapper.unmount();
   });
 });

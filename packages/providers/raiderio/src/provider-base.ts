@@ -191,7 +191,11 @@ export abstract class BaseRaiderIoProvider implements RaiderIoProvider {
       region,
       endpointKey,
       pathParams: {},
-      queryParams,
+      queryParams: {
+        ...queryParams,
+        // Adapter/schema bumps must not reuse prior ExternalPayload cache entries.
+        schemaVersion: RAIDERIO_SCHEMA_VERSION,
+      },
     });
   }
 

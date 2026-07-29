@@ -5,7 +5,8 @@
 export const MINIMAL_CHARACTER_FIELDS = [
   "gear",
   "talents",
-  "mythic_plus_scores_by_season:current",
+  // current + previous in one profile call (no extra request) for Experience continuity.
+  "mythic_plus_scores_by_season:current:previous",
   "mythic_plus_ranks",
   "mythic_plus_recent_runs",
   "mythic_plus_best_runs",

@@ -63,6 +63,7 @@ export {
   RAIDERIO_DOCUMENTED_CURRENT_EXPANSION_ID,
   RAIDERIO_EXPANSION_CATALOG,
   RAIDERIO_EXPANSION_DOCUMENTED_AS_OF,
+  RAIDERIO_SCHEMA_VERSION,
 } from "./constants.js";
 export type { RaiderIoProvider };
 export type { RaiderIoMetrics } from "./metrics.js";

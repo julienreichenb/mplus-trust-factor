@@ -1,8 +1,9 @@
-import type { FastifyPluginAsync, FastifyRequest } from "fastify";
+import type { FastifyPluginAsync } from "fastify";
 import type { CharacterIdentityInput } from "@mplus/contracts";
 import type { ApiContainer } from "../container.js";
-import { isAdminRequest } from "../plugins/admin-auth.js";
 import { CharacterService } from "../services/character-service.js";
+import { writeAuditEvent } from "../iam/audit.js";
+import { resolveRefreshPrivileges } from "../iam/session.js";
 import {
   characterProfileResponseSchema,
   errorResponseSchema,
@@ -12,6 +13,8 @@ import {
   runSummarySchema,
   scoreSnapshotSchema,
   searchCharacterResponseSchema,
+  characterAutocompleteResponseSchema,
+  characterResolveResponseSchema,
 } from "./schemas.js";
 
 interface IdentityParams {
@@ -33,6 +36,83 @@ export function buildCharacterRoutes(container: ApiContainer): FastifyPluginAsyn
   const service = new CharacterService(container);
 
   return async (app) => {
+    app.get(
+      "/api/v1/characters/autocomplete",
+      {
+        config: rateLimitConfig(container, 120),
+        schema: {
+          tags: ["characters"],
+          querystring: {
+            type: "object",
+            properties: {
+              region: { type: "string", minLength: 1, maxLength: 8 },
+              query: { type: "string", minLength: 3, maxLength: 96 },
+              q: { type: "string", minLength: 3, maxLength: 96 },
+            },
+            required: ["region"],
+          },
+          response: {
+            200: characterAutocompleteResponseSchema,
+            400: errorResponseSchema,
+          },
+        },
+      },
+      async (request) => {
+        const { region, query, q } = request.query as { region: string; query?: string; q?: string };
+        const search = (query ?? q ?? "").trim();
+        if (search.length < 3) {
+          return { suggestions: [] };
+        }
+        const suggestions = await container.worker.repositories.character.searchSuggestions(
+          region,
+          search,
+        );
+        return { suggestions };
+      },
+    );
+
+    app.post(
+      "/api/v1/characters/resolve",
+      {
+        config: rateLimitConfig(container, 60),
+        schema: {
+          tags: ["characters"],
+          body: {
+            type: "object",
+            properties: {
+              name: { type: "string", minLength: 1, maxLength: 48 },
+              realmSlug: { type: "string", minLength: 1, maxLength: 64 },
+              region: { type: "string", minLength: 1, maxLength: 8 },
+              forceRetry: { type: "boolean" },
+            },
+            required: ["name", "realmSlug", "region"],
+          },
+          response: {
+            200: characterResolveResponseSchema,
+            202: characterResolveResponseSchema,
+            400: characterResolveResponseSchema,
+            404: characterResolveResponseSchema,
+            502: characterResolveResponseSchema,
+            503: characterResolveResponseSchema,
+          },
+        },
+      },
+      async (request, reply) => {
+        const body = request.body as {
+          name: string;
+          realmSlug: string;
+          region: string;
+          forceRetry?: boolean;
+        };
+        const result = await service.resolveCharacter(
+          { name: body.name, realmSlug: body.realmSlug, region: body.region },
+          { correlationId: request.id, forceRetry: body.forceRetry === true },
+        );
+        const statusCode = result.statusCode as 200 | 202 | 400 | 404 | 502 | 503;
+        return reply.status(statusCode).send(result.body);
+      },
+    );
+
     app.get(
       "/api/v1/characters/search",
       {
@@ -100,8 +180,39 @@ export function buildCharacterRoutes(container: ApiContainer): FastifyPluginAsyn
       },
       async (request) => {
         const identity = toIdentity(request.params as IdentityParams);
-        const isAdmin = isAdminRequest(container.env, request as FastifyRequest);
-        return service.requestRefresh(identity, { isAdmin, correlationId: request.id });
+        // Resolve privileges after we know the character id (findOrCreate inside requestRefresh).
+        // Pre-check using identity-scoped lookup for ownership / admin.
+        const preview = await service.getRefreshStatus(identity).catch(() => null);
+        const privileges = await resolveRefreshPrivileges(
+          request,
+          container.env,
+          container.authService,
+          preview?.characterId ?? "",
+        );
+        if (privileges.bypassCooldown) {
+          await writeAuditEvent(container.worker.prisma, {
+            userId: request.auth?.user.id,
+            actorType:
+              privileges.actor === "admin_key"
+                ? "admin_key"
+                : privileges.actor === "session_admin"
+                  ? "user"
+                  : privileges.actor === "owner"
+                    ? "user"
+                    : "anonymous",
+            action: "profile.refresh.cooldown_bypass",
+            resourceType: "character",
+            resourceId: preview?.characterId ?? `${identity.region}/${identity.realmSlug}/${identity.name}`,
+            ip: request.ip,
+            userAgent: request.headers["user-agent"],
+            sessionSecret: container.env.SESSION_SECRET,
+            metadata: { actor: privileges.actor, forceRefresh: privileges.forceRefresh },
+          });
+        }
+        return service.requestRefresh(identity, {
+          isAdmin: privileges.bypassCooldown,
+          correlationId: request.id,
+        });
       },
     );
 

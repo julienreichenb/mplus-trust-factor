@@ -40,20 +40,25 @@ describe("WCL provenance contract", () => {
     expect(refined).toBe("NO_MATCHED_RUN");
   });
 
-  it("derives contribution types from zone rankings and combat facts", () => {
+  it("derives contribution types from zone rankings, survival, and combat facts", () => {
     expect(
       deriveWclContributionTypes([
         {
           sourceProvider: "warcraftlogs",
-          metricKey: "performance.peak",
+          metricKey: "performance.current_season_peak",
           context: { derivedFrom: "wcl_zone_rankings_best_parse" },
         },
         {
           sourceProvider: "warcraftlogs",
-          metricKey: "survival.death_rate",
+          metricKey: "survival.defensive_response",
+          context: { derivedFrom: "combat_facts" },
+        },
+        {
+          sourceProvider: "warcraftlogs",
+          metricKey: "utility.interrupt_success",
           context: { derivedFrom: "combat_facts" },
         },
       ]),
-    ).toEqual(["ZONE_RANKINGS", "COMBAT_FACTS"]);
+    ).toEqual(["PERFORMANCE", "ZONE_RANKINGS", "SURVIVAL", "COMBAT_EVENTS", "COMBAT_FACTS"]);
   });
 });

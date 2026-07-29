@@ -26,7 +26,7 @@ defineProps({
   padding: 0.75rem 1rem;
   border-radius: 6px;
   background: var(--panel);
-  margin: 0.75rem 0;
+  margin: 0;
 }
 
 .banner[data-tone="info"] {

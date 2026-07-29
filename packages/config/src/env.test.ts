@@ -18,10 +18,31 @@ describe("loadEnv", () => {
     expect(env.PROVIDER_MODE).toBe("fixture");
     expect(env.API_PORT).toBe(3000);
     expect(env.ACTIVE_SCORE_MODEL_KEY).toBe("default");
+    expect(env.ACTIVE_SCORE_MODEL_VERSION).toBe(5);
     expect(env.BLIZZARD_ENABLED).toBe(true);
     expect(env.WCL_ENABLED).toBe(true);
     expect(env.RAIDERIO_ENABLED).toBe(true);
     expect(env.ALLOW_LIVE_PROVIDER_CALLS).toBe(false);
+    expect(env.REFRESH_SCHEDULER_ENABLED).toBe(false);
+    expect(env.REFRESH_DRY_RUN_ONLY).toBe(true);
+    expect(env.REFRESH_TRACKED_TOP_PERCENT).toBe(25);
+    expect(env.UTILITY_PUBLICATION_MODE).toBe("shadow");
+    expect(env.ADMIN_API_KEY_EMERGENCY_FALLBACK).toBe(false);
+  });
+
+  it("accepts UTILITY_PUBLICATION_MODE enum values", () => {
+    resetEnvCache();
+    expect(loadEnv({ ...baseEnv, UTILITY_PUBLICATION_MODE: "off" }).UTILITY_PUBLICATION_MODE).toBe(
+      "off",
+    );
+    resetEnvCache();
+    expect(
+      loadEnv({ ...baseEnv, UTILITY_PUBLICATION_MODE: "shadow" }).UTILITY_PUBLICATION_MODE,
+    ).toBe("shadow");
+    resetEnvCache();
+    expect(
+      loadEnv({ ...baseEnv, UTILITY_PUBLICATION_MODE: "published" }).UTILITY_PUBLICATION_MODE,
+    ).toBe("published");
   });
 
   it("rejects live mode without Blizzard credentials when Blizzard is enabled", () => {

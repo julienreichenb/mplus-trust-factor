@@ -19,6 +19,10 @@ export function refreshCharacterDedupeKey(job: RefreshCharacterJob): string {
     job.realmSlug,
     job.name.toLocaleLowerCase("en-US"),
     String(job.forceRefresh),
+    // Force refreshes must not collapse onto a completed job — each request publishes a new snapshot.
+    job.forceRefresh ? job.requestedAt : "",
+    // Model / adapter / schema bumps must not reuse jobs from a prior refresh contract.
+    job.refreshContractHash ?? "",
   ]);
 }
 
@@ -46,5 +50,16 @@ export function generateAddonExportDedupeKey(job: GenerateAddonExportJob): strin
     job.seasonId,
     job.scoreModelKey,
     String(job.scoreModelVersion),
+  ]);
+}
+
+export function syncRealmCatalogDedupeKey(parts: {
+  regions?: string[] | null;
+  forceDetails?: boolean;
+}): string {
+  const regions = (parts.regions ?? ["EU", "US", "KR", "TW"]).map((r) => r.toUpperCase()).sort();
+  return buildDedupeKey(QUEUE_NAMES.syncRealmCatalog, [
+    regions.join(","),
+    String(parts.forceDetails === true),
   ]);
 }

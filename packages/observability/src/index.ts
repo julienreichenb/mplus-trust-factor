@@ -4,6 +4,8 @@ import pino, { type Logger, type LoggerOptions } from "pino";
 export const SECRET_REDACT_PATHS = [
   "req.headers.authorization",
   "req.headers.cookie",
+  "req.headers[\"x-admin-api-key\"]",
+  "req.headers.x-admin-api-key",
   "*.clientSecret",
   "*.client_secret",
   "*.clientId",

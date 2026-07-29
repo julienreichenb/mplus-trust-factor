@@ -30,11 +30,13 @@ export function presentGrade(
 }
 
 export function calculateSkillScore(dimensions: DimensionScoreResult[]): number {
-  const weightSum = dimensions.reduce((s, d) => s + d.weight, 0);
+  // Renormalize over dimensions that have real evidence (confidence > 0).
+  // Unavailable dimensions must not drag the skill score toward the neutral fallback.
+  const available = dimensions.filter((d) => d.confidence > 0 && d.contributors.length > 0);
+  const pool = available.length > 0 ? available : [];
+  const weightSum = pool.reduce((s, d) => s + d.weight, 0);
   if (weightSum <= 0) return 50;
-  return clamp(
-    dimensions.reduce((s, d) => s + d.adjustedScore * (d.weight / weightSum), 0),
-  );
+  return clamp(pool.reduce((s, d) => s + d.adjustedScore * (d.weight / weightSum), 0));
 }
 
 export function calculateOverallConfidence(

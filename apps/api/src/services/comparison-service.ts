@@ -56,8 +56,12 @@ export class ComparisonService {
       );
     }
 
-    const targetModelKey = request.modelKey ?? this.container.env.ACTIVE_SCORE_MODEL_KEY;
-    const targetModelVersion = request.modelVersion ?? this.container.env.ACTIVE_SCORE_MODEL_VERSION;
+    const activeModel = await this.repositories.score.getActiveModel(
+      request.modelKey ?? this.container.env.ACTIVE_SCORE_MODEL_KEY,
+    );
+    const targetModelKey = request.modelKey ?? activeModel?.key ?? this.container.env.ACTIVE_SCORE_MODEL_KEY;
+    const targetModelVersion =
+      request.modelVersion ?? activeModel?.version ?? this.container.env.ACTIVE_SCORE_MODEL_VERSION;
 
     const resolved = await this.resolveEntries(request);
     this.assertModelVersionsMatch(resolved, targetModelKey, targetModelVersion);

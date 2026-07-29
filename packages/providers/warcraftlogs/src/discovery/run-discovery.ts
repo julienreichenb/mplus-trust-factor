@@ -1,6 +1,7 @@
 import type { RegionCode } from "@mplus/contracts";
 import type { WclDataState, WclProvenance } from "@mplus/contracts";
 import type {
+  WclCharacterDiscoveryResult,
   WclCharacterSummary,
   WclDungeonPerformanceAggregate,
   WclRankingObservation,
@@ -15,8 +16,9 @@ import { dedupeCandidates, selectLatestAndHighest } from "./run-matching.js";
 /** @deprecated Use FIXTURE_MPLUS_ZONE_ID — live mode must not use this silently. */
 export const DEFAULT_MPLUS_ZONE_ID = FIXTURE_MPLUS_ZONE_ID;
 
-/** Encounter ID → dungeon slug mapping for fixture/MVP season. */
+/** Encounter ID → dungeon slug mapping (fixture season + current M+ zone 47). */
 export const ENCOUNTER_DUNGEON_MAP: Record<number, string> = {
+  // Fixture / prior season
   1201: "ara-kara-city-of-echoes",
   1202: "eco-dome-al'dani",
   1203: "halls-of-atonement",
@@ -25,7 +27,25 @@ export const ENCOUNTER_DUNGEON_MAP: Record<number, string> = {
   1206: "tazavesh-streets-of-wonder",
   1207: "the-dawnbreaker",
   1208: "the-rookery",
+  // Mythic+ Season 1 (WCL zone 47) — Wallidrixe acceptance
+  112526: "algethar-academy",
+  12811: "magisters-terrace",
+  12874: "maisara-caverns",
+  12915: "nexus-point-xenas",
+  10658: "pit-of-saron",
+  361753: "seat-of-the-triumvirate",
+  61209: "skyreach",
+  12805: "windrunner-spire",
 };
+
+/** Current configured M+ zone encounter slugs (zone 47) — Icecrown / legacy never included. */
+export const CURRENT_MPLUS_ZONE_ENCOUNTER_IDS = [
+  112526, 12811, 12874, 12915, 10658, 361753, 61209, 12805,
+] as const;
+
+export const CURRENT_MPLUS_ZONE_DUNGEON_SLUGS: string[] = CURRENT_MPLUS_ZONE_ENCOUNTER_IDS.map(
+  (id) => ENCOUNTER_DUNGEON_MAP[id]!,
+);
 
 export interface ZoneRankingsPayload {
   metric?: string | null;
@@ -180,6 +200,15 @@ export function deriveVisibility(
   return deriveWclProvenance(character, rankings, recentPublicCount, options).visibility;
 }
 
+function asFiniteNumber(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim() !== "") {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
+}
+
 export function mapZoneRankings(
   payload: ZoneRankingsPayload | null | undefined,
   zoneId: number,
@@ -189,25 +218,33 @@ export function mapZoneRankings(
   }
   const resolvedZoneId =
     typeof payload.zone === "number" ? payload.zone : (payload.zone?.id ?? zoneId);
-  return payload.rankings.filter(isParseRankingRow).map((row) => ({
-    reportCode: row.report.code,
-    fightId: row.fightID,
-    encounterId: row.encounterID ?? 0,
-    zoneId: resolvedZoneId,
-    bracket: row.bracket ?? null,
-    keyLevel: row.bracket ?? null,
-    score: row.score ?? null,
-    amount: row.amount ?? null,
-    percentile: row.total != null && row.amount != null ? (row.amount / row.total) * 100 : null,
-    specSlug: row.spec ?? null,
-    roleSlug: row.role ?? null,
-    durationMs: row.duration ?? null,
-    startTimeMs: row.startTime ?? null,
-    reportStartTimeMs: row.report.startTime,
-    // kill ≠ timed; WCL rankings do not expose timer success here
-    timed: null,
-    metric: payload.metric ?? null,
-  }));
+  return payload.rankings.filter(isParseRankingRow).map((row) => {
+    const rankPercent = asFiniteNumber((row as Record<string, unknown>).rankPercent);
+    const bracketPercent = asFiniteNumber((row as Record<string, unknown>).bracketPercent);
+    const amountPercent =
+      row.total != null && row.amount != null ? (row.amount / row.total) * 100 : null;
+    const parsePercentile = rankPercent ?? bracketPercent ?? amountPercent;
+    return {
+      reportCode: row.report.code,
+      fightId: row.fightID,
+      encounterId: row.encounterID ?? 0,
+      zoneId: resolvedZoneId,
+      bracket: row.bracket ?? null,
+      keyLevel: row.bracket ?? null,
+      score: row.score ?? null,
+      amount: row.amount ?? null,
+      percentile: parsePercentile,
+      rankPercent,
+      bracketPercent,
+      specSlug: row.spec ?? null,
+      roleSlug: row.role ?? null,
+      durationMs: row.duration ?? null,
+      startTimeMs: row.startTime ?? null,
+      reportStartTimeMs: row.report.startTime,
+      timed: null,
+      metric: payload.metric ?? null,
+    };
+  });
 }
 
 export function rankingsToCandidates(rankings: WclRankingObservation[]): WclRunCandidate[] {
@@ -349,16 +386,8 @@ export function buildCharacterDiscovery(input: {
   recentCandidates: WclRunCandidate[];
   privateReportsSkipped?: number;
   dungeonAggregates?: WclDungeonPerformanceAggregate[];
-}): {
-  summary: WclCharacterSummary;
-  rankings: WclRankingObservation[];
-  dungeonAggregates: WclDungeonPerformanceAggregate[];
-  candidates: WclRunCandidate[];
-  latest: WclRunCandidate | null;
-  highest: WclRunCandidate | null;
-  candidatesTruncated: boolean;
-  privateReportsSkipped: number;
-} {
+  performance?: WclCharacterDiscoveryResult["performance"];
+}): WclCharacterDiscoveryResult {
   const { candidates, truncated } = capDiscoveryCandidates(
     input.rankingCandidates,
     input.recentCandidates,
@@ -374,6 +403,7 @@ export function buildCharacterDiscovery(input: {
     summary: { ...input.summary, warnings },
     rankings: input.rankings,
     dungeonAggregates: input.dungeonAggregates ?? [],
+    performance: input.performance,
     candidates,
     latest,
     highest,

@@ -47,6 +47,19 @@ describe("dedupe keys", () => {
     );
   });
 
+  it("force refresh dedupe keys differ by requestedAt", () => {
+    const base = {
+      region: "EU",
+      realmSlug: "tarren-mill",
+      name: "Examplecharacter",
+      priority: "normal" as const,
+      forceRefresh: true,
+    };
+    expect(
+      refreshCharacterDedupeKey({ ...base, requestedAt: "2026-07-28T16:00:00.000Z" }),
+    ).not.toBe(refreshCharacterDedupeKey({ ...base, requestedAt: "2026-07-28T20:02:00.000Z" }));
+  });
+
   it("refreshCharacterDedupeKey differs by identity", () => {
     const base = {
       region: "EU",
@@ -96,6 +109,20 @@ describe("dedupe keys", () => {
     expect(generateAddonExportDedupeKey(job)).toBe(generateAddonExportDedupeKey({ ...job }));
     expect(generateAddonExportDedupeKey(job)).not.toBe(
       generateAddonExportDedupeKey({ ...job, region: "US" }),
+    );
+  });
+
+  it("refreshCharacterDedupeKey differs by refreshContractHash", () => {
+    const base = {
+      region: "EU",
+      realmSlug: "tarren-mill",
+      name: "Examplecharacter",
+      priority: "normal" as const,
+      requestedAt,
+      forceRefresh: false,
+    };
+    expect(refreshCharacterDedupeKey({ ...base, refreshContractHash: "aaa" })).not.toBe(
+      refreshCharacterDedupeKey({ ...base, refreshContractHash: "bbb" }),
     );
   });
 });

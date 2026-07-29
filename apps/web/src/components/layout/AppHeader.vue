@@ -1,9 +1,8 @@
 <script setup lang="ts">
 import { RouterLink, useRoute } from "vue-router";
-import { resolveApiMode } from "../../api/client";
 import BrandMark from "../brand/BrandMark.vue";
+import CharacterRealmSearch from "../search/CharacterRealmSearch.vue";
 
-const apiMode = resolveApiMode();
 const route = useRoute();
 
 function hashHref(hash: string): string {
@@ -26,11 +25,15 @@ function hashHref(hash: string): string {
       <a :href="hashHref('#features')">Features</a>
       <a :href="hashHref('#methodology')">Methodology</a>
       <RouterLink to="/compare">Compare</RouterLink>
+      <RouterLink to="/account">Account</RouterLink>
     </nav>
 
     <div class="actions">
-      <a class="btn secondary search-cta" :href="hashHref('#character-search')">Search a character</a>
-      <span class="mode-pill" data-testid="api-mode">API: {{ apiMode }}</span>
+      <CharacterRealmSearch
+        compact
+        :show-recent="false"
+        data-testid="navbar-search"
+      />
     </div>
   </header>
 </template>
@@ -41,9 +44,19 @@ function hashHref(hash: string): string {
   grid-template-columns: 1fr auto;
   gap: var(--space-4);
   align-items: center;
-  margin-bottom: var(--space-8);
-  padding-bottom: var(--space-5);
-  border-bottom: 1px solid var(--color-border);
+  margin-bottom: var(--space-6);
+  padding: var(--space-3) var(--space-5);
+  position: sticky;
+  top: var(--space-3);
+  z-index: 40;
+  border-radius: var(--radius-hero);
+  border: 1px solid rgb(255 255 255 / 8%);
+  background: rgb(13 13 15 / 55%);
+  backdrop-filter: blur(16px) saturate(140%);
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  box-shadow:
+    0 4px 24px rgb(0 0 0 / 25%),
+    inset 0 1px 0 rgb(255 255 255 / 6%);
 }
 
 .brand {
@@ -122,33 +135,13 @@ function hashHref(hash: string): string {
   justify-content: flex-end;
   gap: var(--space-3);
   flex-wrap: wrap;
-}
-
-.search-cta {
-  text-decoration: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding-inline: var(--space-4);
-  border-color: rgb(244 213 141 / 45%);
-  color: var(--color-gold-300);
-  background: transparent;
-  box-shadow: none;
-  min-height: 2.5rem;
-  font-size: var(--text-sm);
-}
-
-.search-cta:hover,
-.search-cta:focus-visible {
-  text-decoration: none;
-  border-color: var(--color-gold-300);
-  color: var(--color-text);
-  background: var(--color-surface-hover);
+  min-width: 0;
 }
 
 @media (min-width: 768px) {
   .app-header {
     grid-template-columns: auto 1fr auto;
+    margin-bottom: var(--space-8);
   }
 
   .nav {
@@ -160,10 +153,6 @@ function hashHref(hash: string): string {
 }
 
 @media (max-width: 479px) {
-  .search-cta {
-    padding-inline: var(--space-3);
-  }
-
   .brand__full {
     display: none;
   }

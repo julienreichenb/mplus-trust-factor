@@ -58,12 +58,24 @@ export async function ensureBlizzardCurrentSeason(
   });
 
   if (existing) {
+    const previousMeta =
+      existing.metadata && typeof existing.metadata === "object"
+        ? (existing.metadata as Record<string, unknown>)
+        : {};
     return client.season.update({
       where: { id: existing.id },
       data: {
         isCurrent: true,
         name: `Blizzard Season ${blizzardSeasonId}`,
-        metadata: { blizzardSeasonId, source: "blizzard" },
+        metadata: {
+          ...previousMeta,
+          blizzardSeasonId,
+          source: "blizzard",
+          // Preserve or seed active dungeon slugs so Icecrown cannot re-enter selection.
+          dungeonSlugs: Array.isArray(previousMeta.dungeonSlugs)
+            ? previousMeta.dungeonSlugs
+            : undefined,
+        },
       },
     });
   }
@@ -99,10 +111,15 @@ function capitalize(value: string): string {
 export interface RunRepository {
   upsertRunWithSourcesAndParticipants(
     run: MythicRunDTO,
-    options: { regionCode: string; targetCharacterId: string | null },
+    options: { regionCode: string; targetCharacterId: string | null; seasonId?: string },
   ): Promise<MythicRun>;
   findLatestForCharacter(characterId: string): Promise<MythicRunWithRelations | null>;
   findHighestForCharacter(characterId: string): Promise<MythicRunWithRelations | null>;
+  findRunsForCharacterInSeason(
+    characterId: string,
+    seasonId: string,
+  ): Promise<MythicRunWithRelations[]>;
+  findAllTargetRunsForCharacter(characterId: string): Promise<MythicRunWithRelations[]>;
   findById(runId: string): Promise<MythicRunWithRelations | null>;
   /**
    * Unique canonical Mythic+ runs the character participated in (target).
@@ -128,10 +145,23 @@ export interface RunRepository {
     activeSeasonId: string,
   ): Promise<{ detachedParticipations: number; deletedRuns: number }>;
   findWclSource(runId: string): Promise<{ reportCode: string; fightId: number } | null>;
+  /**
+   * Attach (or re-point) a WARCRAFT_LOGS report+fight onto a canonical MythicRun.
+   * Used by Survival late-bind when fusion did not persist the source earlier.
+   */
+  attachWclSource(
+    runId: string,
+    source: { reportCode: string; fightId: number; externalUrl?: string | null },
+  ): Promise<{ reportCode: string; fightId: number }>;
   findLatestAnalysisCoverage(
     characterId: string,
     runId: string,
   ): Promise<number | null>;
+  findRunAnalysis(
+    runId: string,
+    characterId: string,
+    analysisVersion: string,
+  ): Promise<RunAnalysis | null>;
   upsertRunAnalysis(input: {
     runId: string;
     characterId: string;
@@ -148,12 +178,15 @@ export function createRunRepository(prisma: PrismaClient): RunRepository {
     async upsertRunWithSourcesAndParticipants(run, options) {
       return prisma.$transaction(async (tx: Prisma.TransactionClient) => {
         const region = await ensureRegion(tx, options.regionCode);
-        const season = await ensureSeasonBySlug(tx, region.id, run.seasonSlug);
+        const season = options.seasonId
+          ? await tx.season.findUniqueOrThrow({ where: { id: options.seasonId } })
+          : await ensureSeasonBySlug(tx, region.id, run.seasonSlug);
         const dungeon = await ensureDungeon(tx, run.dungeonSlug);
 
         const mythicRun = await tx.mythicRun.upsert({
           where: { canonicalFingerprint: run.canonicalFingerprint },
           update: {
+            seasonId: season.id,
             keyLevel: run.keyLevel,
             completedAt: new Date(run.completedAt),
             durationMs: run.durationMs,
@@ -253,6 +286,32 @@ export function createRunRepository(prisma: PrismaClient): RunRepository {
         orderBy: [{ run: { keyLevel: "desc" } }, { run: { completedAt: "desc" } }],
       });
       return participant?.run ?? null;
+    },
+
+    async findRunsForCharacterInSeason(characterId, seasonId) {
+      const participants = await prisma.runParticipant.findMany({
+        where: { characterId, isTargetCharacter: true, run: { seasonId } },
+        include: { run: { include: { dungeon: true, season: true, sources: true } } },
+        orderBy: [{ run: { completedAt: "desc" } }],
+      });
+      const byId = new Map<string, MythicRunWithRelations>();
+      for (const row of participants) {
+        byId.set(row.run.id, row.run);
+      }
+      return [...byId.values()];
+    },
+
+    async findAllTargetRunsForCharacter(characterId) {
+      const participants = await prisma.runParticipant.findMany({
+        where: { characterId, isTargetCharacter: true },
+        include: { run: { include: { dungeon: true, season: true, sources: true } } },
+        orderBy: [{ run: { completedAt: "desc" } }],
+      });
+      const byId = new Map<string, MythicRunWithRelations>();
+      for (const row of participants) {
+        byId.set(row.run.id, row.run);
+      }
+      return [...byId.values()];
     },
 
     async findById(runId) {
@@ -521,6 +580,7 @@ export function createRunRepository(prisma: PrismaClient): RunRepository {
         await prisma.$transaction(async (tx) => {
           await tx.runParticipant.deleteMany({ where: { runId: orphan.id } });
           await tx.runAnalysis.deleteMany({ where: { runId: orphan.id } });
+          await tx.scoreAnalysisBatchRun.deleteMany({ where: { runId: orphan.id } });
           await tx.metricObservation.updateMany({
             where: { runId: orphan.id },
             data: { runId: null },
@@ -566,6 +626,7 @@ export function createRunRepository(prisma: PrismaClient): RunRepository {
         await prisma.$transaction(async (tx) => {
           await tx.runSourceReference.deleteMany({ where: { runId } });
           await tx.runAnalysis.deleteMany({ where: { runId } });
+          await tx.scoreAnalysisBatchRun.deleteMany({ where: { runId } });
           await tx.metricObservation.updateMany({ where: { runId }, data: { runId: null } });
           await tx.characterRedFlag.updateMany({ where: { runId }, data: { runId: null } });
           await tx.ingestionJob.updateMany({ where: { runId }, data: { runId: null } });
@@ -581,7 +642,60 @@ export function createRunRepository(prisma: PrismaClient): RunRepository {
       const source = await prisma.runSourceReference.findFirst({
         where: { runId, provider: "WARCRAFT_LOGS" },
       });
-      if (!source?.reportCode || source.fightId === null) return null;
+      if (!source?.reportCode || source.fightId == null || source.fightId <= 0) return null;
+      return { reportCode: source.reportCode, fightId: source.fightId };
+    },
+
+    async attachWclSource(runId, source) {
+      if (!source.reportCode || source.fightId <= 0) {
+        throw new Error("attachWclSource requires reportCode and fightId > 0");
+      }
+      const externalRunId = `${source.reportCode}:${source.fightId}`;
+      const externalUrl =
+        source.externalUrl ??
+        `https://www.warcraftlogs.com/reports/${source.reportCode}?fight=${source.fightId}`;
+
+      // Prefer moving an existing unique (provider, reportCode, fightId) row onto this run.
+      const byReportFight = await prisma.runSourceReference.findFirst({
+        where: {
+          provider: "WARCRAFT_LOGS",
+          reportCode: source.reportCode,
+          fightId: source.fightId,
+        },
+      });
+      if (byReportFight) {
+        if (byReportFight.runId !== runId) {
+          await prisma.runSourceReference.update({
+            where: { id: byReportFight.id },
+            data: { runId, externalUrl, externalRunId },
+          });
+        }
+        return { reportCode: source.reportCode, fightId: source.fightId };
+      }
+
+      await prisma.runSourceReference.upsert({
+        where: {
+          provider_externalRunId: {
+            provider: "WARCRAFT_LOGS",
+            externalRunId,
+          },
+        },
+        update: {
+          runId,
+          externalUrl,
+          reportCode: source.reportCode,
+          fightId: source.fightId,
+        },
+        create: {
+          runId,
+          provider: "WARCRAFT_LOGS",
+          externalRunId,
+          externalUrl,
+          reportCode: source.reportCode,
+          fightId: source.fightId,
+          revision: null,
+        },
+      });
       return { reportCode: source.reportCode, fightId: source.fightId };
     },
 
@@ -596,6 +710,18 @@ export function createRunRepository(prisma: PrismaClient): RunRepository {
         select: { coverage: true },
       });
       return analysis?.coverage != null ? Number(analysis.coverage) : null;
+    },
+
+    async findRunAnalysis(runId, characterId, analysisVersion) {
+      return prisma.runAnalysis.findUnique({
+        where: {
+          runId_characterId_analysisVersion: {
+            runId,
+            characterId,
+            analysisVersion,
+          },
+        },
+      });
     },
 
     async upsertRunAnalysis(input) {

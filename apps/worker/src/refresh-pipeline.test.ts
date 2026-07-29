@@ -76,6 +76,12 @@ describe.skipIf(!dbAvailable)("runRefreshPipeline (fixture mode, real Postgres)"
         providerTimestamps?: { warcraftlogs?: string | null };
       };
       expect(explanation.modelKey).toBeTruthy();
+      expect(explanation.observations?.some((o) => o.metricKey === "experience.dungeon_breadth")).toBe(
+        true,
+      );
+      expect(explanation.observations?.some((o) => o.metricKey === "experience.key_band_breadth")).toBe(
+        true,
+      );
       expect(explanation.observations?.some((o) => o.metricKey === "experience.mythic_rating")).toBe(
         true,
       );
@@ -385,6 +391,8 @@ describe.skipIf(!dbAvailable)("runRefreshPipeline (fixture mode, real Postgres)"
               dataState: "NO_PUBLIC_LOGS" as const,
               warnings: [],
               dungeonAggregates: [],
+              performance: null,
+              rawZoneRankingsPointsAndDamage: null,
             },
             provenance: {
               provider: "warcraftlogs" as const,
@@ -469,6 +477,7 @@ describe.skipIf(!dbAvailable)("runRefreshPipeline (fixture mode, real Postgres)"
           warnings: [] as string[],
         },
         dungeonAggregates: [],
+        performance: null,
         candidates: [],
       });
       const wcl = {

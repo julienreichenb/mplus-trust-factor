@@ -1,11 +1,9 @@
 import { z } from "zod";
 
-const booleanFromString = z
-  .union([z.boolean(), z.string()])
-  .transform((value) => {
-    if (typeof value === "boolean") return value;
-    return ["1", "true", "yes", "on"].includes(value.toLowerCase());
-  });
+const booleanFromString = z.union([z.boolean(), z.string()]).transform((value) => {
+  if (typeof value === "boolean") return value;
+  return ["1", "true", "yes", "on"].includes(value.toLowerCase());
+});
 
 export const envSchema = z
   .object({
@@ -42,10 +40,7 @@ export const envSchema = z
     WCL_ENABLED: booleanFromString.default(true),
     WCL_CLIENT_ID: z.string().optional().default(""),
     WCL_CLIENT_SECRET: z.string().optional().default(""),
-    WCL_PUBLIC_GRAPHQL_URL: z
-      .string()
-      .url()
-      .default("https://www.warcraftlogs.com/api/v2/client"),
+    WCL_PUBLIC_GRAPHQL_URL: z.string().url().default("https://www.warcraftlogs.com/api/v2/client"),
     WCL_TOKEN_URL: z.string().url().default("https://www.warcraftlogs.com/oauth/token"),
     WCL_RATE_WARN_PERCENT: z.coerce.number().min(0).max(100).default(70),
     WCL_RATE_DEFER_PERCENT: z.coerce.number().min(0).max(100).default(80),
@@ -63,16 +58,65 @@ export const envSchema = z
     RAIDERIO_STATIC_DATA_TTL_SECONDS: z.coerce.number().int().positive().default(604_800),
 
     ACTIVE_SCORE_MODEL_KEY: z.string().default("default"),
-    ACTIVE_SCORE_MODEL_VERSION: z.coerce.number().int().positive().default(2),
+    ACTIVE_SCORE_MODEL_VERSION: z.coerce.number().int().positive().default(5),
+    /**
+     * Utility OBSERVED_CONTRIBUTION publication gate.
+     * - off: do not compute shadow diagnostics
+     * - shadow (default): compute admin-only score; public Utility / Trust unchanged
+     * - published: blocked (not implemented) — safety guard refuses publication path
+     */
+    UTILITY_PUBLICATION_MODE: z.enum(["off", "shadow", "published"]).default("shadow"),
     MANUAL_REFRESH_COOLDOWN_SECONDS: z.coerce.number().int().positive().default(900),
+
+    /**
+     * Refresh orchestration (Agent 39).
+     * Recurring production enqueue stays disabled by default.
+     */
+    REFRESH_SCHEDULER_ENABLED: booleanFromString.default(false),
+    REFRESH_DRY_RUN_ONLY: booleanFromString.default(true),
+    REFRESH_SAFETY_RESERVE_FRACTION: z.coerce.number().min(0).max(1).default(0.1),
+    REFRESH_BATCH_SIZE: z.coerce.number().int().positive().default(50),
+    REFRESH_GLOBAL_CONCURRENCY: z.coerce.number().int().positive().default(2),
+    REFRESH_PER_CHARACTER_COOLDOWN_SECONDS: z.coerce.number().int().nonnegative().default(3600),
+    REFRESH_SPREAD_HOURS: z.coerce.number().int().positive().default(24),
+    /** Indicative share of the configured tracked denominator — not a global WoW percentile. */
+    REFRESH_TRACKED_TOP_PERCENT: z.coerce.number().min(1).max(100).default(25),
+    REFRESH_RATING_THRESHOLD: z.coerce.number().min(0).default(2500),
 
     /** MVP entitlement flag: when true, the API serializer omits no fields for any client. */
     PUBLIC_DETAILS_ALL: booleanFromString.default(true),
 
     ADMIN_API_KEY: z.string().min(1),
+    /**
+     * Emergency shared-key fallback for machine/admin recovery.
+     * Default false — must be explicitly enabled. Local `.env.example` sets true for development only.
+     * Never accepted from SPA code; every successful use is audited; startup warns when enabled.
+     */
+    ADMIN_API_KEY_EMERGENCY_FALLBACK: booleanFromString.default(false),
     SESSION_SECRET: z.string().min(32),
+    /**
+     * AES key material for provider OAuth tokens at rest. Defaults to SESSION_SECRET when unset.
+     * Prefer a dedicated value in staging/production.
+     */
+    PROVIDER_TOKEN_ENCRYPTION_SECRET: z.string().min(32).optional(),
     COOKIE_DOMAIN: z.string().default("localhost"),
+    SESSION_COOKIE_NAME: z.string().default("mplus_session"),
+    SESSION_TTL_SECONDS: z.coerce.number().int().positive().default(2_592_000),
+    OAUTH_STATE_TTL_SECONDS: z.coerce.number().int().positive().default(600),
+    /** Comma-separated absolute callback URLs allowlisted for Battle.net OAuth. */
+    BATTLENET_OAUTH_CALLBACK_URLS: z.string().default("http://localhost:3000/api/v1/auth/battlenet/callback"),
+    BATTLENET_OAUTH_SCOPES: z.string().default("openid wow.profile"),
+    BATTLENET_OAUTH_AUTHORIZE_URL: z.string().url().default("https://oauth.battle.net/authorize"),
+    BATTLENET_OAUTH_TOKEN_URL: z.string().url().default("https://oauth.battle.net/token"),
+    BATTLENET_OAUTH_USERINFO_URL: z.string().url().default("https://oauth.battle.net/userinfo"),
+    /** MVP ownership sync region. Only EU is supported; other values are rejected. */
+    BATTLENET_OWNERSHIP_SYNC_REGION: z.string().default("eu"),
+    /** When true, owners may bypass manual refresh cooldown (still subject to WCL global safety). */
+    OWNER_REFRESH_COOLDOWN_BYPASS: booleanFromString.default(false),
     TRUST_PROXY: booleanFromString.default(false),
+
+    /** Worker-only HTTP health port (Docker HEALTHCHECK). 0 disables the listener. */
+    WORKER_HEALTH_PORT: z.coerce.number().int().min(0).default(3001),
   })
   .superRefine((env, ctx) => {
     if (env.PROVIDER_MODE !== "live") {
@@ -112,6 +156,7 @@ export interface ConfigSummary {
   blizzardCredentialsConfigured: boolean;
   wclCredentialsConfigured: boolean;
   raiderioAppKeyConfigured: boolean;
+  adminApiKeyEmergencyFallback: boolean;
   logLevel: AppEnv["LOG_LEVEL"];
 }
 
@@ -127,6 +172,7 @@ export function getConfigSummary(env: AppEnv): ConfigSummary {
     blizzardCredentialsConfigured: Boolean(env.BLIZZARD_CLIENT_ID && env.BLIZZARD_CLIENT_SECRET),
     wclCredentialsConfigured: Boolean(env.WCL_CLIENT_ID && env.WCL_CLIENT_SECRET),
     raiderioAppKeyConfigured: Boolean(env.RAIDERIO_APP_KEY),
+    adminApiKeyEmergencyFallback: env.ADMIN_API_KEY_EMERGENCY_FALLBACK,
     logLevel: env.LOG_LEVEL,
   };
 }
@@ -152,6 +198,32 @@ export function getEnv(): AppEnv {
   return cachedEnv;
 }
 
+/** Secret used to encrypt Battle.net provider tokens at rest. */
+export function providerTokenEncryptionSecret(env: AppEnv): string {
+  return env.PROVIDER_TOKEN_ENCRYPTION_SECRET ?? env.SESSION_SECRET;
+}
+
 export function resetEnvCache(): void {
   cachedEnv = null;
 }
+
+export {
+  buildFreshnessConfig,
+  ttlForDataset,
+  isDatasetFresh,
+  FRESHNESS_CONFIG_VERSION,
+  type FreshnessConfig,
+  type FreshnessDataset,
+} from "./freshness.js";
+
+export {
+  buildRefreshPolicyConfig,
+  assignCadenceTier,
+  freshnessTtlMsForTier,
+  DEFAULT_CADENCE_TIERS,
+  REFRESH_POLICY_VERSION,
+  type CadenceTier,
+  type CadenceTierPolicy,
+  type RefreshPolicyConfig,
+  type RefreshPolicyEnv,
+} from "./refresh-policy.js";

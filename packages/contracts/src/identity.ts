@@ -28,6 +28,10 @@ export interface CanonicalCharacter {
   level?: number | null;
   /** Faction label when Blizzard profile provides it (e.g. Alliance / Horde). */
   faction?: string | null;
+  /** Equipped item level from character profile summary when present. */
+  itemLevelEquipped?: number | null;
+  /** Average item level from character profile summary when present. */
+  itemLevelAverage?: number | null;
   blizzardCharacterId: string | null;
   wclCanonicalId: string | null;
   raiderioProfileUrl: string | null;

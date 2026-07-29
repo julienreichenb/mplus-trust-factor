@@ -4,21 +4,37 @@ import type { CharacterIdentityInput } from "../api/types";
 import { identityKey } from "../api/mock/fixtures";
 
 const STORAGE_KEY = "mplus.recentSearches";
-const MAX_ITEMS = 8;
+const MAX_ITEMS = 5;
 
-function load(): CharacterIdentityInput[] {
+export interface RecentSearchEntry extends CharacterIdentityInput {
+  classSlug?: string | null;
+  avatarUrl?: string | null;
+}
+
+function normalize(items: RecentSearchEntry[]): RecentSearchEntry[] {
+  return items.slice(0, MAX_ITEMS);
+}
+
+function load(): RecentSearchEntry[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return [];
-    const parsed = JSON.parse(raw) as CharacterIdentityInput[];
-    return Array.isArray(parsed) ? parsed.slice(0, MAX_ITEMS) : [];
+    const parsed = JSON.parse(raw) as RecentSearchEntry[];
+    if (!Array.isArray(parsed)) return [];
+    const trimmed = normalize(parsed);
+    if (trimmed.length !== parsed.length) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(trimmed));
+    }
+    return trimmed;
   } catch {
     return [];
   }
 }
 
 export const useRecentSearchesStore = defineStore("recentSearches", () => {
-  const items = ref<CharacterIdentityInput[]>(typeof localStorage === "undefined" ? [] : load());
+  const items = ref<RecentSearchEntry[]>(
+    typeof localStorage === "undefined" ? [] : load(),
+  );
 
   function persist(): void {
     try {
@@ -28,12 +44,18 @@ export const useRecentSearchesStore = defineStore("recentSearches", () => {
     }
   }
 
-  function add(identity: CharacterIdentityInput): void {
-    const next = [
-      identity,
-      ...items.value.filter((i) => identityKey(i) !== identityKey(identity)),
-    ].slice(0, MAX_ITEMS);
-    items.value = next;
+  function add(identity: RecentSearchEntry): void {
+    const key = identityKey(identity);
+    const existing = items.value.find((i) => identityKey(i) === key);
+    const merged: RecentSearchEntry = {
+      region: identity.region,
+      realmSlug: identity.realmSlug,
+      name: identity.name,
+      classSlug: identity.classSlug ?? existing?.classSlug ?? null,
+      avatarUrl: identity.avatarUrl ?? existing?.avatarUrl ?? null,
+    };
+    const next = [merged, ...items.value.filter((i) => identityKey(i) !== key)];
+    items.value = normalize(next);
     persist();
   }
 

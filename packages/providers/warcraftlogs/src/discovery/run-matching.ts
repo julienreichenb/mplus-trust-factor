@@ -2,6 +2,7 @@ import type {
   ExternalRunMatchInput,
   RunMatchConfidence,
   RunMatchResult,
+  WclActorEntry,
   WclActorMap,
   WclRunCandidate,
 } from "../types.js";
@@ -105,9 +106,16 @@ function computeRosterOverlap(
 }
 
 export function buildActorMap(
-  actors: Array<{ id: number; name: string; type: string; subType?: string | null; server?: string | null }>,
+  actors: Array<{
+    id: number;
+    name: string;
+    type: string;
+    subType?: string | null;
+    server?: string | null;
+    petOwner?: number | null;
+  }>,
 ): WclActorMap {
-  const byId = new Map<number, { id: number; name: string; type: string; subType: string | null; server: string | null }>();
+  const byId = new Map<number, WclActorEntry>();
   const byName = new Map<string, number[]>();
 
   for (const actor of actors) {
@@ -117,6 +125,7 @@ export function buildActorMap(
       type: actor.type,
       subType: actor.subType ?? null,
       server: actor.server ?? null,
+      petOwner: actor.petOwner ?? null,
     });
     const key = actor.name.toLowerCase();
     const existing = byName.get(key) ?? [];
@@ -248,6 +257,55 @@ export function selectLatestAndHighest(candidates: WclRunCandidate[]): {
   }
 
   return { latest, highest };
+}
+
+const WARLOCK_PET_SUBTYPES = new Set([
+  "felguard",
+  "felhunter",
+  "imp",
+  "voidwalker",
+  "succubus",
+  "doomguard",
+]);
+
+/**
+ * Player + pet source IDs for utility / survival event attribution.
+ * Prefer explicit petOwner; fall back to name / warlock demon subtype heuristics.
+ */
+export function resolveAttributedSourceIds(
+  actorMap: WclActorMap,
+  playerSourceId: number,
+  playerName: string,
+): number[] {
+  const ids = new Set<number>([playerSourceId]);
+  const nameLower = playerName.toLowerCase();
+  for (const actor of actorMap.byId.values()) {
+    if (actor.type !== "Pet") continue;
+    if (actor.petOwner === playerSourceId) {
+      ids.add(actor.id);
+      continue;
+    }
+    if (actor.petOwner != null && actor.petOwner !== playerSourceId) {
+      continue;
+    }
+    const petName = actor.name.toLowerCase();
+    const subType = actor.subType?.toLowerCase() ?? "";
+    if (petName.includes(nameLower) || WARLOCK_PET_SUBTYPES.has(subType)) {
+      ids.add(actor.id);
+    }
+  }
+  return [...ids];
+}
+
+/** Owned pet actor IDs only (excludes the player). */
+export function resolveOwnedPetActorIds(
+  actorMap: WclActorMap,
+  playerSourceId: number,
+  playerName: string,
+): number[] {
+  return resolveAttributedSourceIds(actorMap, playerSourceId, playerName).filter(
+    (id) => id !== playerSourceId,
+  );
 }
 
 export function dedupeCandidates(candidates: WclRunCandidate[]): WclRunCandidate[] {

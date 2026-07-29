@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { canonicalCharacterPath, validateCompareCount, RADAR_DIMENSIONS } from "../lib/format";
+import { canonicalCharacterPath, validateCompareCount, RADAR_DIMENSIONS, RADAR_DIMENSIONS_V3, resolveRadarDimensions } from "../lib/format";
+import { parseCharacterQuery } from "../lib/parseCharacterQuery";
 
 describe("format helpers", () => {
   it("canonicalizes character path params", () => {
@@ -17,13 +18,55 @@ describe("format helpers", () => {
     expect(validateCompareCount(5)).toBeNull();
   });
 
-  it("keeps stable radar dimension order", () => {
+  it("keeps stable radar dimension order for legacy models", () => {
     expect([...RADAR_DIMENSIONS]).toEqual([
       "PERFORMANCE",
-      "SURVIVAL",
-      "UTILITY",
       "EXPERIENCE",
+      "UTILITY",
+      "SURVIVAL",
       "RAID",
     ]);
+  });
+
+  it("excludes raid for default@3 models", () => {
+    expect([...RADAR_DIMENSIONS_V3]).toEqual([
+      "PERFORMANCE",
+      "EXPERIENCE",
+      "UTILITY",
+      "SURVIVAL",
+    ]);
+    expect(resolveRadarDimensions(3).map((d) => d)).not.toContain("RAID");
+    expect(resolveRadarDimensions(2).map((d) => d)).toContain("RAID");
+  });
+});
+
+describe("parseCharacterQuery", () => {
+  it("parses Name-Realm queries", () => {
+    expect(parseCharacterQuery("Aleria-tarren-mill")).toEqual({
+      name: "Aleria",
+      realm: "tarren-mill",
+    });
+    expect(parseCharacterQuery("Wallidrixe-Archimonde")).toEqual({
+      name: "Wallidrixe",
+      realm: "Archimonde",
+    });
+    expect(parseCharacterQuery("Wallidrixe-arch")).toEqual({
+      name: "Wallidrixe",
+      realm: "arch",
+    });
+  });
+
+  it("parses space-separated Character Realm queries", () => {
+    expect(parseCharacterQuery("wallidrixe archimonde")).toEqual({
+      name: "wallidrixe",
+      realm: "archimonde",
+    });
+  });
+
+  it("returns name-only when no realm separator is present", () => {
+    expect(parseCharacterQuery("Wallidrixe")).toEqual({
+      name: "Wallidrixe",
+      realm: null,
+    });
   });
 });

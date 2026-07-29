@@ -7,6 +7,7 @@ import type {
   ScoreModelConfigV1,
   ScoringContext,
 } from "./types.js";
+import type { ModelCoverageSummary } from "./model-coverage.js";
 
 export function explainScore(input: {
   dimensions: DimensionScoreResult[];
@@ -14,8 +15,9 @@ export function explainScore(input: {
   trust: FinalTrustResult;
   model: ScoreModelConfigV1;
   context: ScoringContext;
+  modelCoverage?: ModelCoverageSummary;
 }): ScoreExplanation {
-  const { dimensions, authenticity, trust, model, context } = input;
+  const { dimensions, authenticity, trust, model, context, modelCoverage } = input;
   const neutral = model.confidenceNeutralScore;
 
   const scored = dimensions.flatMap((d) =>
@@ -63,15 +65,21 @@ export function explainScore(input: {
     .sort((a, b) => Math.abs(b.contribution) - Math.abs(a.contribution))
     .slice(0, 5);
 
-  const publicSummary = buildPublicSummary(trust, authenticity, topPositive, topNegative);
+  const publicSummary = buildPublicSummary(trust, authenticity, topPositive, topNegative, modelCoverage);
+  const publicDimensions = dimensions.filter((d) => d.weight > 0);
   const adminDetail = [
     `model=${model.key}@${model.version}`,
     `skill=${trust.skillScore.toFixed(1)} auth=${trust.authenticityScore.toFixed(1)} conf=${(trust.confidence * 100).toFixed(0)}%`,
     `observedTrust=${trust.observedTrust.toFixed(1)} final=${trust.overallScore.toFixed(1)} grade=${trust.grade}`,
-    `dims=${dimensions.map((d) => `${d.dimension}:${d.adjustedScore.toFixed(0)}@${(d.confidence * 100).toFixed(0)}%`).join(",")}`,
+    modelCoverage
+      ? `modelCoverage=${(modelCoverage.modelCoverageRatio * 100).toFixed(0)}% state=${modelCoverage.overallState}`
+      : null,
+    `dims=${publicDimensions.map((d) => `${d.dimension}:${d.adjustedScore.toFixed(0)}@${(d.confidence * 100).toFixed(0)}%`).join(",")}`,
     `tags=${authenticity.tags.join("|") || "none"}`,
     `missing=${missingHighImpact.map((m) => m.metricKey).join(",") || "none"}`,
-  ].join("; ");
+  ]
+    .filter((line): line is string => line != null)
+    .join("; ");
 
   return {
     topPositive,
@@ -92,9 +100,14 @@ function buildPublicSummary(
   authenticity: AuthenticityResult,
   topPositive: Array<{ metricKey: string }>,
   topNegative: Array<{ metricKey: string }>,
+  modelCoverage?: ModelCoverageSummary,
 ): string {
+  const provisional =
+    modelCoverage?.overallState === "PROVISIONAL"
+      ? ` Provisional — ${modelCoverage.provisionalReason ?? "insufficient model coverage"}.`
+      : "";
   const parts = [
-    `Trust Factor ${trust.overallScore.toFixed(0)} (${trust.grade}) with ${(trust.confidence * 100).toFixed(0)}% confidence.`,
+    `Trust Factor ${trust.overallScore.toFixed(0)} (${trust.grade}) with ${(trust.confidence * 100).toFixed(0)}% confidence.${provisional}`,
   ];
   if (topPositive[0]) parts.push(`Strength: ${humanize(topPositive[0].metricKey)}.`);
   if (topNegative[0]) parts.push(`Watch: ${humanize(topNegative[0].metricKey)}.`);

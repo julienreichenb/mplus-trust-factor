@@ -13,16 +13,18 @@ const now = "2026-07-20T12:00:00.000Z";
 const staleAt = "2026-07-19T08:00:00.000Z";
 
 export const EU_REALMS = [
-  { slug: "tarren-mill", name: "Tarren Mill" },
-  { slug: "silvermoon", name: "Silvermoon" },
-  { slug: "draenor", name: "Draenor" },
-  { slug: "kazzak", name: "Kazzak" },
-  { slug: "ravencrest", name: "Ravencrest" },
-  { slug: "twisting-nether", name: "Twisting Nether" },
-  { slug: "outland", name: "Outland" },
-  { slug: "stormscale", name: "Stormscale" },
-  { slug: "sylvanas", name: "Sylvanas" },
-  { slug: "ghostlands", name: "Ghostlands" },
+  { slug: "tarren-mill", name: "Tarren Mill", region: "EU", locale: "en_GB", displayLabel: "Tarren Mill — EU" },
+  { slug: "silvermoon", name: "Silvermoon", region: "EU", locale: "en_GB", displayLabel: "Silvermoon — EU" },
+  { slug: "draenor", name: "Draenor", region: "EU", locale: "en_GB", displayLabel: "Draenor — EU" },
+  { slug: "kazzak", name: "Kazzak", region: "EU", locale: "en_GB", displayLabel: "Kazzak — EU" },
+  { slug: "ravencrest", name: "Ravencrest", region: "EU", locale: "en_GB", displayLabel: "Ravencrest — EU" },
+  { slug: "twisting-nether", name: "Twisting Nether", region: "EU", locale: "en_GB", displayLabel: "Twisting Nether — EU" },
+  { slug: "outland", name: "Outland", region: "EU", locale: "en_GB", displayLabel: "Outland — EU" },
+  { slug: "stormscale", name: "Stormscale", region: "EU", locale: "en_GB", displayLabel: "Stormscale — EU" },
+  { slug: "sylvanas", name: "Sylvanas", region: "EU", locale: "en_GB", displayLabel: "Sylvanas — EU" },
+  { slug: "ghostlands", name: "Ghostlands", region: "EU", locale: "en_GB", displayLabel: "Ghostlands — EU" },
+  { slug: "archimonde", name: "Archimonde", region: "EU", locale: "fr_FR", displayLabel: "Archimonde — EU" },
+  { slug: "cherith", name: "Chérith", region: "EU", locale: "fr_FR", displayLabel: "Chérith — EU" },
 ] as const;
 
 export const DEFAULT_MODEL_CONFIG: EditableModelConfig = {
@@ -74,12 +76,13 @@ function baseScore(
   dims: Array<{ dimension: ScoreSnapshotDTO["dimensions"][number]["dimension"]; score: number; weight: number; confidence: number; pos: string; neg: string }>,
   redFlags: RedFlagDTO[],
   calculatedAt: string,
+  modelVersion = 1,
 ): ScoreSnapshotDTO {
   return {
     characterId,
     seasonSlug: "season-tww-3",
     modelKey: "default",
-    modelVersion: 1,
+    modelVersion,
     scopeType: "CHARACTER",
     scopeKey: null,
     overallScore: overall,
@@ -91,9 +94,16 @@ function baseScore(
     inputFingerprint: `fp-${characterId}`,
     dimensions: dims.map((d) => ({
       dimension: d.dimension,
-      score: d.score,
+      score: d.confidence <= 0 ? null : d.score,
       confidence: d.confidence,
       weight: d.weight,
+      state:
+        d.confidence <= 0
+          ? ("UNAVAILABLE" as const)
+          : d.confidence < 0.35
+            ? ("PARTIAL" as const)
+            : ("AVAILABLE" as const),
+      reason: d.confidence <= 0 ? "FIXTURE_UNAVAILABLE" : null,
       contributors: contributors(d.pos, d.neg),
     })),
     redFlags,
@@ -110,11 +120,10 @@ const aleriaScore = baseScore(
   82,
   0.78,
   [
-    { dimension: "PERFORMANCE", score: 91, weight: 0.32, confidence: 0.85, pos: "Strong DPS percentile on +12s", neg: "Slight dip on Tyrannical weeks" },
-    { dimension: "SURVIVAL", score: 84, weight: 0.27, confidence: 0.8, pos: "Low avoidable damage", neg: "Two deaths on first boss pull" },
-    { dimension: "UTILITY", score: 86, weight: 0.23, confidence: 0.75, pos: "Consistent interrupts", neg: "Missed one purge window" },
-    { dimension: "EXPERIENCE", score: 80, weight: 0.13, confidence: 0.9, pos: "42 season runs", neg: "Narrow dungeon spread" },
-    { dimension: "RAID", score: 70, weight: 0.05, confidence: 0.55, pos: "4/8M", neg: "Limited parse sample" },
+    { dimension: "PERFORMANCE", score: 91, weight: 0.35, confidence: 0.85, pos: "Strong DPS percentile on +12s", neg: "Slight dip on Tyrannical weeks" },
+    { dimension: "SURVIVAL", score: 84, weight: 0.3, confidence: 0.8, pos: "Low avoidable damage", neg: "Two deaths on first boss pull" },
+    { dimension: "UTILITY", score: 86, weight: 0.25, confidence: 0.75, pos: "Consistent interrupts", neg: "Missed one purge window" },
+    { dimension: "EXPERIENCE", score: 80, weight: 0.1, confidence: 0.9, pos: "42 season runs", neg: "Narrow dungeon spread" },
   ],
   [
     {
@@ -127,6 +136,7 @@ const aleriaScore = baseScore(
     },
   ],
   now,
+  3,
 );
 
 const lowConfScore = baseScore(
@@ -218,6 +228,33 @@ const sharedRun = {
   coverageRatio: 0.88,
 };
 
+const SEASON_DUNGEON_FIXTURES = [
+  { slug: "priory-of-the-sacred-flame", name: "Priory of the Sacred Flame", keyLevel: 12 },
+  { slug: "operation-floodgate", name: "Operation: Floodgate", keyLevel: 11 },
+  { slug: "darkflame-cleft", name: "Darkflame Cleft", keyLevel: 12 },
+  { slug: "the-rookery", name: "The Rookery", keyLevel: 10 },
+  { slug: "cinderbrew-meadery", name: "Cinderbrew Meadery", keyLevel: 11 },
+  { slug: "the-stonevault", name: "The Stonevault", keyLevel: 12 },
+  { slug: "city-of-threads", name: "City of Threads", keyLevel: 11 },
+  { slug: "arakara-city-of-echoes", name: "Ara-Kara, City of Echoes", keyLevel: 10 },
+] as const;
+
+export const aleriaScoringRunSelection = {
+  seasonSlug: "season-tww-3",
+  expectedDungeonCount: 8,
+  selectedRuns: SEASON_DUNGEON_FIXTURES.map((dungeon, index) => ({
+    dungeonSlug: dungeon.slug,
+    dungeonName: dungeon.name,
+    canonicalRunId: index < 6 ? `run-${dungeon.slug}` : null,
+    keyLevel: index < 6 ? dungeon.keyLevel : null,
+    timed: index === 1 ? false : index < 6 ? true : null,
+    completedAt: index < 6 ? "2026-07-18T21:14:00.000Z" : null,
+    wclReportMatched: index < 6,
+    selectionReason: index < 6 ? ("HIGHEST_KEY" as const) : null,
+    coverageRatio: index < 6 ? 0.82 + index * 0.01 : null,
+  })),
+};
+
 export const FIXTURE_CHARACTERS: FixtureCharacter[] = [
   {
     identity: { region: "EU", realmSlug: "tarren-mill", name: "Aleria" },
@@ -244,6 +281,7 @@ export const FIXTURE_CHARACTERS: FixtureCharacter[] = [
       itemLevel: 668,
       lastAnalyzedRun: { ...sharedRun, kind: "BOTH" },
       highestAnalyzedRun: { ...sharedRun, kind: "BOTH" },
+      scoringRunSelection: aleriaScoringRunSelection,
       equipment: {
         averageItemLevel: 666,
         equippedItemLevel: 668,
@@ -501,10 +539,72 @@ let modelStore: AdminScoreModelDTO[] = [
 
 let nextModelVersion = 2;
 
-/** Mutable mock session state (queued refresh polls). */
+/** Mutable mock session state (queued refresh polls + dynamic ingestions). */
 export const mockSession = {
   refreshPolls: new Map<string, number>(),
+  dynamicProfiles: new Map<string, CharacterProfileView>(),
 };
+
+export function createDynamicQueuedProfile(identity: CharacterIdentityInput): CharacterProfileView {
+  const characterId = `dyn-${identityKey(identity)}`.replace(/[^a-zA-Z0-9-]/g, "-").slice(0, 36);
+  return {
+    characterId,
+    region: identity.region,
+    realmSlug: identity.realmSlug,
+    displayName: identity.name,
+    score: null,
+    redFlags: [],
+    dataConfidence: null,
+    lastAnalyzedRunId: null,
+    highestAnalyzedRunId: null,
+    sources: [{ provider: "BLIZZARD", fetchedAt: now, url: null }],
+    refreshStatus: "QUEUED",
+    classSlug: null,
+    specSlug: null,
+    role: null,
+    entitlements: { detailsUnlocked: true, runsUnlocked: true, compareExpanded: true },
+    warnings: [
+      {
+        code: "INGESTING",
+        message: "Character is being ingested from live providers.",
+        severity: "INFO",
+      },
+    ],
+    scoringRunSelection: null,
+  };
+}
+
+export function finalizeDynamicProfile(profile: CharacterProfileView): CharacterProfileView {
+  return {
+    ...profile,
+    refreshStatus: "FRESH",
+    dataConfidence: 45,
+    score: {
+      characterId: profile.characterId,
+      seasonSlug: "season-tww-3",
+      modelKey: "default",
+      modelVersion: 3,
+      scopeType: "CHARACTER",
+      scopeKey: null,
+      overallScore: 62,
+      grade: "C",
+      skillScore: 65,
+      authenticityScore: 70,
+      confidence: 0.45,
+      calculatedAt: now,
+      inputFingerprint: `fp-${profile.characterId}`,
+      dimensions: [
+        { dimension: "PERFORMANCE", score: 60, confidence: 0.4, weight: 0.35, state: "AVAILABLE", reason: null, contributors: null },
+        { dimension: "SURVIVAL", score: 58, confidence: 0.4, weight: 0.3, state: "AVAILABLE", reason: null, contributors: null },
+        { dimension: "UTILITY", score: 64, confidence: 0.4, weight: 0.25, state: "AVAILABLE", reason: null, contributors: null },
+        { dimension: "EXPERIENCE", score: 55, confidence: 0.5, weight: 0.1, state: "AVAILABLE", reason: null, contributors: null },
+      ],
+      redFlags: [],
+      explanation: { summary: "Dynamically ingested fixture character" },
+    },
+    warnings: [],
+  };
+}
 
 export function getModelStore(): AdminScoreModelDTO[] {
   return modelStore;
@@ -522,6 +622,7 @@ export function allocateModelVersion(): number {
 
 export function resetMockState(): void {
   mockSession.refreshPolls.clear();
+  mockSession.dynamicProfiles.clear();
   nextModelVersion = 2;
   modelStore = [
     {

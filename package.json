@@ -41,7 +41,37 @@
     "live:smoke:raiderio": "node tools/scripts/with-env.mjs node tools/scripts/live-smoke-raiderio.mjs",
     "live:smoke:wcl": "node tools/scripts/with-env.mjs node tools/scripts/live-smoke-wcl.mjs",
     "live:smoke:character": "node tools/scripts/with-env.mjs node tools/scripts/live-smoke-character.mjs",
-    "format": "prettier --write ."
+    "wcl:probe:performance": "node tools/scripts/with-env.mjs node tools/scripts/wcl-probe-performance.mjs",
+    "wcl:probe:survival": "node tools/scripts/with-env.mjs node tools/scripts/wcl-probe-survival.mjs",
+    "wcl:probe:survival:calibration": "node tools/scripts/with-env.mjs node tools/scripts/wcl-probe-survival-calibration.mjs",
+    "wcl:probe:utility": "node tools/scripts/with-env.mjs node tools/scripts/wcl-probe-utility.mjs",
+    "wcl:probe:utility:v1": "node tools/scripts/wcl-probe-utility-v1.mjs",
+    "wcl:probe:utility:v2-audit": "node tools/scripts/wcl-probe-utility-v2-audit.mjs",
+    "wcl:probe:utility:v3-simulation": "node tools/scripts/wcl-probe-utility-v3-simulation.mjs",
+    "wcl:probe:utility:v3_1-calibration": "node tools/scripts/wcl-probe-utility-v3_1-calibration.mjs",
+    "wcl:probe:utility:v3_2-calibration": "node tools/scripts/wcl-probe-utility-v3_2-calibration.mjs",
+    "wcl:shared-evidence:load": "node tools/scripts/with-env.mjs node tools/scripts/wcl-shared-evidence-load.mjs",
+    "wcl:probe:utility:cross-class-validate": "node tools/scripts/with-env.mjs node tools/scripts/wcl-probe-utility-cross-class.mjs",
+    "wcl:probe:survival:v1": "node tools/scripts/wcl-probe-survival-v1.mjs",
+    "wcl:probe:survival:v1.1": "node tools/scripts/with-env.mjs node tools/scripts/wcl-probe-survival-v1_1.mjs",
+    "wcl:probe:survival:v1.1:audit": "node tools/scripts/wcl-probe-survival-v1_1-audit.mjs",
+    "realms:sync": "node tools/scripts/with-env.mjs pnpm --filter @mplus/worker run realms:sync --",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "abilities:validate": "pnpm --filter @mplus/abilities run abilities:validate",
+    "abilities:coverage": "pnpm --filter @mplus/abilities run abilities:coverage",
+    "ops:restore-test": "bash infra/scripts/restore-test-local.sh test",
+    "ops:generate-secrets": "bash infra/scripts/generate-secrets.sh",
+    "ops:validate-dual-env": "bash infra/scripts/validate-dual-env.sh",
+    "ops:deploy:prod": "bash infra/scripts/deploy.sh prod",
+    "ops:deploy:test": "bash infra/scripts/deploy.sh test",
+    "iam:grant-admin": "node tools/scripts/with-env.mjs pnpm --filter @mplus/api exec tsx src/iam/grant-admin.cli.ts",
+    "test:frontend-secrets": "vitest run tests/security/frontend-secret-bake.test.ts"
+  },
+  "dependencies": {
+    "@mplus/config": "workspace:*",
+    "@mplus/observability": "workspace:*",
+    "@mplus/worker": "workspace:*"
   },
   "devDependencies": {
     "@eslint/js": "^9.32.0",
@@ -56,5 +86,14 @@
     "typescript-eslint": "^8.38.0",
     "vitest": "^3.2.4",
     "vue-eslint-parser": "^10.2.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@prisma/client",
+      "@prisma/engines",
+      "esbuild",
+      "msgpackr-extract",
+      "prisma"
+    ]
   }
 }

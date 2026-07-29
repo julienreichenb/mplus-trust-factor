@@ -7,13 +7,14 @@ import { CanvasRenderer } from "echarts/renderers";
 import type { DimensionScoreDTO } from "@mplus/contracts";
 import {
   DIMENSION_LABELS,
-  RADAR_DIMENSIONS,
+  resolveRadarDimensions,
   type RadarDimension,
   formatPercent,
   formatScore,
   formatWeight,
 } from "../../lib/format";
 import TrustDimensionTable from "../score/TrustDimensionTable.vue";
+import DimensionAxisIcon from "./DimensionAxisIcon.vue";
 
 echarts.use([RadarChart, TooltipComponent, LegendComponent, CanvasRenderer]);
 
@@ -28,6 +29,11 @@ const props = defineProps<{
   series: RadarSeries[];
   title?: string;
   locked?: boolean;
+  modelVersion?: number | null;
+  /** Primary series stroke/fill; defaults to brand amber. */
+  accentColor?: string;
+  /** Chart-only layout for embedding (e.g. inside ScoreHeader `.trust`). */
+  embedded?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -37,20 +43,53 @@ const emit = defineEmits<{
 const el = ref<HTMLDivElement | null>(null);
 let chart: echarts.ECharts | null = null;
 
+/** Match echarts radar center; nudge icons slightly down/right for optical balance. */
+const RADAR_CENTER_X = 51.5;
+const RADAR_CENTER_Y = 51.5;
+/** ECharts radius is % of half-size; vertices sit at radius/2 % of the box. Icons sit just outside. */
+const ECHARTS_RADIUS_PCT = 78;
+/** Icon centers sit just outside the vertices (echarts radius is % of half-size). */
+const AXIS_ICON_RADIUS = ECHARTS_RADIUS_PCT / 2 + 3;
+
 const primaryDimensions = computed(() => props.series[0]?.dimensions ?? []);
+
+const radarDimensions = computed(() => resolveRadarDimensions(props.modelVersion));
+
+const axisIcons = computed(() => {
+  const n = radarDimensions.value.length;
+  return radarDimensions.value.map((dim, index) => {
+    // ECharts radar places indicators counterclockwise from the top (startAngle 90).
+    const angle = -Math.PI / 2 - (index / n) * Math.PI * 2;
+    return {
+      dim,
+      label: DIMENSION_LABELS[dim],
+      left: `${RADAR_CENTER_X + Math.cos(angle) * AXIS_ICON_RADIUS}%`,
+      top: `${RADAR_CENTER_Y + Math.sin(angle) * AXIS_ICON_RADIUS}%`,
+    };
+  });
+});
 
 const ordered = computed(() =>
   props.series.map((s) => ({
     ...s,
     visible: s.visible !== false,
-    values: RADAR_DIMENSIONS.map((dim) => {
+    values: radarDimensions.value.map((dim) => {
       const found = s.dimensions.find((d) => d.dimension === dim);
+      const state = found?.state;
+      const unavailable =
+        !found ||
+        found.score == null ||
+        found.confidence <= 0 ||
+        state === "UNAVAILABLE" ||
+        state === "PROCESSING" ||
+        state === "ERROR";
       return {
         dimension: dim,
-        score: found?.score ?? null,
-        confidence: found?.confidence ?? null,
+        score: unavailable ? null : found!.score,
+        confidence: unavailable ? null : found!.confidence,
         weight: found?.weight ?? null,
-        missing: !found,
+        missing: unavailable,
+        state: state ?? (unavailable ? "UNAVAILABLE" : "AVAILABLE"),
       };
     }),
   })),
@@ -76,10 +115,11 @@ function render(): void {
   if (!chart) chart = echarts.init(el.value, undefined, { renderer: "canvas" });
 
   const visible = ordered.value.filter((s) => s.visible);
+  const accent = props.accentColor?.trim() || "#F59E0B";
   chart.setOption(
     {
       animation: !prefersReducedMotion(),
-      color: ["#F59E0B", "#38BDF8", "#A3E635", "#A78BFA", "#FB7185", "#F4D58D"],
+      color: [accent, "#38BDF8", "#A3E635", "#A78BFA", "#FB7185", "#F4D58D"],
       tooltip: {
         trigger: "item",
         formatter: (params: {
@@ -94,7 +134,7 @@ function render(): void {
           if (!point) return "";
           const label = DIMENSION_LABELS[point.dimension as RadarDimension];
           if (point.missing) {
-            return [`<strong>${params.seriesName}</strong>`, label, "Missing from snapshot"].join("<br/>");
+            return [`<strong>${params.seriesName}</strong>`, label, "Unavailable"].join("<br/>");
           }
           return [
             `<strong>${params.seriesName}</strong>`,
@@ -107,24 +147,21 @@ function render(): void {
       },
       legend: { show: false },
       radar: {
-        indicator: RADAR_DIMENSIONS.map((dim) => ({
+        indicator: radarDimensions.value.map((dim) => ({
           name: DIMENSION_LABELS[dim],
           max: 100,
           min: 0,
         })),
         axisName: {
-          color: "#C8BDA8",
-          fontSize: 11,
-          overflow: "break",
-          width: 72,
+          show: false,
         },
         splitArea: {
           areaStyle: { color: ["rgba(23,23,25,0.35)", "rgba(32,32,36,0.55)"] },
         },
         axisLine: { lineStyle: { color: "#34343A" } },
         splitLine: { lineStyle: { color: "#34343A" } },
-        center: ["50%", "52%"],
-        radius: "62%",
+        center: ["50%", "50%"],
+        radius: `${ECHARTS_RADIUS_PCT}%`,
       },
       series: [
         {
@@ -145,27 +182,42 @@ function onResize(): void {
   chart?.resize();
 }
 
+let resizeObserver: ResizeObserver | null = null;
+
 onMounted(() => {
   render();
   window.addEventListener("resize", onResize);
+  const shell = el.value?.parentElement;
+  if (shell && typeof ResizeObserver !== "undefined") {
+    resizeObserver = new ResizeObserver(() => onResize());
+    resizeObserver.observe(shell);
+  }
 });
 
 onBeforeUnmount(() => {
   window.removeEventListener("resize", onResize);
+  resizeObserver?.disconnect();
+  resizeObserver = null;
   chart?.dispose();
   chart = null;
 });
 
 watch(
-  () => props.series,
+  () => [props.series, props.accentColor],
   () => render(),
   { deep: true },
 );
 </script>
 
 <template>
-  <section class="radar-wrap" aria-labelledby="radar-title" data-testid="trust-dimension-radar">
-    <div class="radar-head">
+  <section
+    class="radar-wrap"
+    :class="{ 'radar-wrap--embedded': embedded }"
+    :aria-labelledby="embedded ? undefined : 'radar-title'"
+    :aria-label="embedded ? (title ?? 'Trust dimension radar') : undefined"
+    data-testid="trust-dimension-radar"
+  >
+    <div v-if="!embedded" class="radar-head">
       <h2 id="radar-title">{{ title ?? "Trust dimensions" }}</h2>
       <div v-if="series.length > 1" class="toggles" role="group" aria-label="Toggle comparison series">
         <label v-for="s in ordered" :key="s.id" class="toggle">
@@ -179,14 +231,32 @@ watch(
       </div>
     </div>
 
-    <div class="radar-layout">
-      <div
-        ref="el"
-        class="chart"
-        role="img"
-        :aria-label="title ?? 'Radar chart of trust dimensions'"
+    <div class="radar-layout" :class="{ 'radar-layout--embedded': embedded }">
+      <div class="chart-shell">
+        <div
+          ref="el"
+          class="chart"
+          role="img"
+          :aria-label="title ?? 'Radar chart of trust dimensions'"
+        />
+        <ul class="chart-axes" aria-hidden="true">
+          <li
+            v-for="axis in axisIcons"
+            :key="axis.dim"
+            class="chart-axes__item"
+            :style="{ left: axis.left, top: axis.top }"
+            :title="axis.label"
+          >
+            <DimensionAxisIcon :dimension="axis.dim" />
+          </li>
+        </ul>
+      </div>
+      <TrustDimensionTable
+        v-if="!embedded"
+        :dimensions="primaryDimensions"
+        :model-version="modelVersion"
+        :locked="locked"
       />
-      <TrustDimensionTable :dimensions="primaryDimensions" :locked="locked" />
     </div>
 
     <table class="a11y-table" data-testid="radar-fallback">
@@ -196,7 +266,7 @@ watch(
       <thead>
         <tr>
           <th scope="col">Candidate</th>
-          <th v-for="dim in RADAR_DIMENSIONS" :key="dim" scope="col">
+          <th v-for="dim in radarDimensions" :key="dim" scope="col">
             {{ DIMENSION_LABELS[dim] }}
           </th>
         </tr>
@@ -227,6 +297,16 @@ watch(
   margin: 0;
 }
 
+.radar-wrap--embedded {
+  position: relative;
+  container-type: size;
+  display: grid;
+  place-items: center;
+  height: 100%;
+  min-height: 12rem;
+  gap: 0;
+}
+
 .radar-head {
   display: flex;
   flex-wrap: wrap;
@@ -244,13 +324,73 @@ watch(
   gap: var(--space-4);
 }
 
-.chart {
+.radar-layout--embedded {
   width: 100%;
-  height: min(380px, 70vw);
-  min-height: 260px;
+  height: 100%;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  grid-template-columns: 1fr;
+  grid-template-rows: 1fr;
+}
+
+.chart-shell {
+  position: relative;
+  width: min(100%, min(380px, 70vw));
+  aspect-ratio: 1;
+  height: auto;
+  margin-inline: auto;
+}
+
+.radar-wrap--embedded .chart-shell {
+  width: min(100%, 100cqh);
+  height: min(100%, 100cqw);
+  aspect-ratio: 1;
+  max-width: 100%;
+  max-height: 100%;
+  min-height: 0;
+  margin: 0 auto;
+}
+
+.chart {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-card);
   background: var(--color-surface);
+}
+
+.radar-wrap--embedded .chart {
+  border: none;
+  border-radius: 0;
+  background: transparent;
+}
+
+.chart-axes {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  pointer-events: none;
+}
+
+.chart-axes__item {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  transform: translate(-50%, -50%);
+  color: var(--color-text-muted);
+}
+
+.chart-axes__item :deep(.dim-icon) {
+  width: 2.35rem;
+  height: 2.35rem;
 }
 
 .toggles {
@@ -270,6 +410,18 @@ watch(
   width: 100%;
   border-collapse: collapse;
   font-size: var(--text-sm);
+}
+
+.radar-wrap--embedded .a11y-table {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .a11y-table th,
@@ -292,7 +444,7 @@ watch(
 }
 
 @media (min-width: 900px) {
-  .radar-layout {
+  .radar-layout:not(.radar-layout--embedded) {
     grid-template-columns: minmax(16rem, 0.9fr) minmax(0, 1.1fr);
     align-items: center;
   }

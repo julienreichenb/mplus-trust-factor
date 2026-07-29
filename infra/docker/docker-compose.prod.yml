@@ -1,0 +1,44 @@
+# Production overrides — use with:
+#   docker compose -p mplus-prod \
+#     -f infra/docker/docker-compose.app.yml \
+#     -f infra/docker/docker-compose.prod.yml \
+#     --env-file /opt/mplus/prod/.env
+
+services:
+  web:
+    networks:
+      proxy:
+        aliases:
+          - mplus-prod-web
+    cpus: 1.0
+    mem_limit: 512m
+
+  api:
+    networks:
+      proxy:
+        aliases:
+          - mplus-prod-api
+    cpus: 2.0
+    mem_limit: 1536m
+
+  worker:
+    networks:
+      proxy:
+        aliases:
+          - mplus-prod-worker
+    cpus: 2.0
+    mem_limit: 2048m
+
+  postgres:
+    command:
+      - postgres
+      - -c
+      - shared_buffers=256MB
+      - -c
+      - max_connections=100
+    cpus: 2.0
+    mem_limit: 1536m
+
+  redis:
+    cpus: 0.50
+    mem_limit: 384m

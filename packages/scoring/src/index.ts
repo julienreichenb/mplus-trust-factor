@@ -42,9 +42,42 @@ export { computeInputFingerprint } from "./fingerprint.js";
 export {
   createDefaultModelV1,
   createDefaultModelV2,
+  createDefaultModelV3,
+  createDefaultModelV4,
+  createDefaultModelV5,
   createSurvivalFocusedModel,
   createUtilityFocusedModel,
 } from "./model/defaults.js";
+export { presentDimensionScore, presentDimensionScores } from "./present.js";
+export {
+  buildCharacterHistoryExperienceObservations,
+  type CharacterHistoryExperienceInput,
+  type CharacterHistoryRunInput,
+} from "./experience/character-history.js";
+export {
+  buildExperienceV2Observations,
+  resolveExperienceProvenance,
+  computeExperienceV2,
+  ablateExperienceV2,
+  runCalibrationPanel,
+  participationDepthNormalized,
+  activityRecencyNormalized,
+  historicalSeasonsNormalized,
+  resolvePriorSeasonSourceDepth,
+  mergePriorSeasonCount,
+  EXPERIENCE_V2_CALIBRATION_PANEL,
+  EXPERIENCE_V2_METRIC_WEIGHTS,
+  EXPERIENCE_V2_SCHEMA_VERSION,
+  EXPERIENCE_V2_ANALYSIS_VERSION,
+  KEY_BAND_COUNT,
+  PRIOR_SEASON_RIO_DEPTH,
+  PRIOR_SEASON_LOCAL_CAP,
+  EXPERIENCE_KEY_BANDS,
+  distinctKeyBands,
+  type ExperienceV2ObservationInput,
+  type ExperienceV2RunInput,
+  type ExperienceHistoryProvenance,
+} from "./experience/v2/index.js";
 export {
   computePerformanceDimension,
   computeCurrentSeasonPeak,
@@ -61,5 +94,66 @@ export type {
   HistoricalSeasonAggregateInput,
   PerformanceRunRefInput,
 } from "./performance/types.js";
+export {
+  computeSurvivalDimension,
+  resolveSurvivalMetricWeights,
+  medianSurvivalRunScores,
+  computeSurvivalConfidence,
+  SURVIVAL_OUTCOME_WEIGHT,
+  SURVIVAL_DEFENSIVE_RESPONSE_WEIGHT,
+  SURVIVAL_EMERGENCY_RECOVERY_WEIGHT,
+} from "./survival/aggregate.js";
+export type {
+  SurvivalSummaryDTO,
+  ComputeSurvivalResult,
+  ComputeSurvivalInput,
+  SurvivalDungeonAggregate,
+  SurvivalExplanatoryRun,
+} from "./survival/types.js";
 export { calculateScore, calculateScoreEngine } from "./calculate.js";
 export type { CalculateScoreInput } from "./calculate.js";
+export {
+  validateCoherence,
+  mergeObservationsWithLastKnownGood,
+  buildObservationKey,
+  type CoherenceValidationInput,
+  type CoherenceValidationResult,
+  type CoherenceViolation,
+  type CoverageState,
+  type PublicationStatus,
+} from "./publication/coherence.js";
+export {
+  selectScoringRuns,
+  type ScoringRunSelection,
+  type ScoringRunSelectionEntry,
+  type ScoringRunCandidateInput,
+  type ScoringRunSelectionReason,
+} from "./selection/scoring-run-selection.js";
+export {
+  selectSurvivalAnalysisRuns,
+  type SurvivalRunSelection,
+  type SurvivalRunSelectionEntry,
+  type SurvivalRunCandidateInput,
+  type SurvivalRunSelectionReason,
+} from "./selection/survival-run-selection.js";
+export {
+  resolveActiveSeasonDungeonSlugs,
+  resolveActiveSeasonDungeonPool,
+  isDungeonInActiveSeasonPool,
+  normalizeDungeonSlug,
+  readBlizzardSeasonDungeonSlugsFromMetadata,
+  type ResolveActiveSeasonDungeonSlugsInput,
+  type ResolvedActiveSeasonDungeonPool,
+  type ActiveSeasonDungeonPoolSource,
+} from "./selection/active-season-dungeons.js";
+export {
+  toContractScoringRunSelection,
+  applyRunMetadataToSelection,
+  type ScoringRunPresentationMeta,
+} from "./selection/scoring-run-selection-present.js";
+export {
+  computeModelCoverage,
+  filterPublicSkillDimensions,
+  MODEL_COVERAGE_PROVISIONAL_THRESHOLD,
+  type ModelCoverageSummary,
+} from "./model-coverage.js";

@@ -59,11 +59,26 @@ export interface ScoreModelConfig {
   minConfidenceForGrade?: number;
 }
 
+export type DimensionDataState =
+  | "AVAILABLE"
+  | "PARTIAL"
+  | "UNAVAILABLE"
+  | "PROCESSING"
+  | "ERROR";
+
 export interface DimensionScoreDTO {
   dimension: ScoreDimension;
-  score: number;
+  /**
+   * Public numeric score. Null when state is UNAVAILABLE / PROCESSING / ERROR —
+   * never expose the internal confidence-neutral fallback (e.g. 50) as observed.
+   */
+  score: number | null;
   confidence: number;
   weight: number;
+  /** Explicit availability semantics for API/UI (never infer from score alone). */
+  state: DimensionDataState;
+  /** Machine-readable reason when not AVAILABLE. */
+  reason?: string | null;
   contributors: unknown;
 }
 
@@ -75,6 +90,8 @@ export interface RedFlagDTO {
   public: boolean;
   evidence: unknown;
 }
+
+export type OverallScoreState = "DEFINITIVE" | "PROVISIONAL";
 
 export interface ScoreSnapshotDTO {
   characterId: string;
@@ -88,6 +105,12 @@ export interface ScoreSnapshotDTO {
   skillScore: number;
   authenticityScore: number;
   confidence: number;
+  /** Whether the overall grade meets minimum model-weight coverage for a definitive rating. */
+  overallState?: OverallScoreState;
+  availableModelWeight?: number;
+  totalModelWeight?: number;
+  modelCoverageRatio?: number;
+  provisionalReason?: string | null;
   calculatedAt: IsoDateTime;
   inputFingerprint: string;
   dimensions: DimensionScoreDTO[];

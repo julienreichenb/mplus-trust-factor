@@ -100,6 +100,33 @@ describe("Wallidrixe-shaped profile enrichment", () => {
     expect(enrichments.equipment?.equippedItemLevel).toBeNull();
   });
 
+  it("falls back to equipment equipped ilvl when snapshot itemLevelEquipped is null", () => {
+    const snapshot = {
+      itemLevelEquipped: null,
+      mythicRating: 2845,
+      equipment: {
+        averageItemLevel: 290,
+        equippedItemLevel: 293,
+        items: [],
+        keyItems: [],
+      },
+    } as unknown as CharacterSnapshot & { equipment: EquipmentSnapshot };
+
+    const enrichments = buildProfileEnrichments({
+      character: characterStub(),
+      latestSnapshot: snapshot,
+      latestRun: null,
+      highestRun: null,
+      runCount: 0,
+      seasonSlug: "blizzard-season-13",
+      wclVisibility: "PUBLIC",
+      selectedRunCoverage: 0,
+      env,
+    });
+
+    expect(enrichments.itemLevel).toBe(293);
+  });
+
   it("emits LOGS_HIDDEN only for HIDDEN, and distinguishes NO_PUBLIC_LOGS", () => {
     const score = {
       confidence: 0.5,
@@ -314,5 +341,56 @@ describe("Wallidrixe-shaped profile enrichment", () => {
     expect(enrichments.talents?.specializationSlug).toBe("fire");
     expect(enrichments.talents?.loadoutCode).toBeNull();
     expect(enrichments.talents?.selectedTalents).toBeNull();
+  });
+
+  it("uses persisted canonical scoringRunSelection without global WCL coverage fallback", () => {
+    const ACTIVE_EIGHT = [
+      "algethar-academy",
+      "magisters-terrace",
+      "maisara-caverns",
+      "nexus-point-xenas",
+      "pit-of-saron",
+      "seat-of-the-triumvirate",
+      "skyreach",
+      "windrunner-spire",
+    ];
+    const canonicalSelection = {
+      seasonSlug: "blizzard-season-13",
+      expectedDungeonCount: 8,
+      selectedRuns: ACTIVE_EIGHT.map((dungeonSlug, index) => ({
+        dungeonSlug,
+        dungeonName: dungeonSlug,
+        canonicalRunId: `run-${index}`,
+        keyLevel: 12 + index,
+        timed: true,
+        completedAt: "2026-07-20T18:00:00.000Z",
+        wclReportMatched: index < 3,
+        selectionReason: "HIGHEST_KEY" as const,
+        coverageRatio: index < 2 ? 0.75 : null,
+      })),
+    };
+
+    const enrichments = buildProfileEnrichments({
+      character: characterStub(),
+      latestRun: runStub("run-0"),
+      highestRun: runStub("run-7"),
+      runCount: 14,
+      seasonSlug: "blizzard-season-13",
+      wclVisibility: "PUBLIC",
+      selectedRunCoverage: 0.9,
+      runCoverageById: { "run-0": 0.75, "run-1": 0.5 },
+      scoringRunSelection: canonicalSelection,
+      selectedRunCount: 8,
+      detailedRunCount: 2,
+      env,
+    });
+
+    expect(enrichments.scoringRunSelection?.selectedRuns).toHaveLength(8);
+    expect(enrichments.selectedRunCount).toBe(8);
+    expect(enrichments.selectedRuns).toHaveLength(8);
+    expect(enrichments.selectedRuns.some((r) => r.dungeonSlug === "icecrown")).toBe(false);
+    expect(enrichments.selectedRuns.filter((r) => r.hasDetailedAnalysis)).toHaveLength(2);
+    expect(enrichments.detailedRunCount).toBe(2);
+    expect(enrichments.selectedRuns.find((r) => r.runId === "run-3")?.wclCoverageRatio).toBeNull();
   });
 });
