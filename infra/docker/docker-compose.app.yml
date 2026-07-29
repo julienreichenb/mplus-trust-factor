@@ -12,8 +12,7 @@ x-logging: &default-logging
     max-size: "20m"
     max-file: "5"
 
-x-restart: &default-restart
-  unless-stopped
+x-restart: &default-restart unless-stopped
 
 networks:
   app:
@@ -35,9 +34,9 @@ services:
     logging: *default-logging
     read_only: true
     tmpfs:
-      - /var/cache/nginx
-      - /var/run
-      - /tmp
+      - /var/cache/nginx:uid=101,gid=101,mode=0755
+      - /var/run:uid=101,gid=101,mode=0755
+      - /tmp:uid=101,gid=101,mode=1777
     networks:
       - app
       - proxy
