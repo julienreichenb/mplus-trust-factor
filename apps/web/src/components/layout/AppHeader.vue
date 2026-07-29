@@ -25,6 +25,7 @@ function hashHref(hash: string): string {
       <a :href="hashHref('#features')">Features</a>
       <a :href="hashHref('#methodology')">Methodology</a>
       <RouterLink to="/compare">Compare</RouterLink>
+      <RouterLink to="/account">Account</RouterLink>
     </nav>
 
     <div class="actions">
