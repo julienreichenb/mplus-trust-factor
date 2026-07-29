@@ -58,7 +58,7 @@ export const envSchema = z
     RAIDERIO_STATIC_DATA_TTL_SECONDS: z.coerce.number().int().positive().default(604_800),
 
     ACTIVE_SCORE_MODEL_KEY: z.string().default("default"),
-    ACTIVE_SCORE_MODEL_VERSION: z.coerce.number().int().positive().default(4),
+    ACTIVE_SCORE_MODEL_VERSION: z.coerce.number().int().positive().default(5),
     MANUAL_REFRESH_COOLDOWN_SECONDS: z.coerce.number().int().positive().default(900),
 
     /** MVP entitlement flag: when true, the API serializer omits no fields for any client. */
