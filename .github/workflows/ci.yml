@@ -80,7 +80,10 @@ jobs:
         run: pnpm db:generate
 
       - name: Format check (infra + workflows; full-repo not yet normalized)
-        run: pnpm exec prettier --check "infra/**/*.{yml,yaml,mjs,conf}" ".github/**/*.{yml,yaml}" ".prettierrc.json" "package.json"
+        run: pnpm exec prettier --check "infra/**/*.{yml,yaml,mjs}" ".github/**/*.{yml,yaml}" ".prettierrc.json" "package.json"
+
+      - name: Validate nginx configuration
+        run: docker run --rm -v "$PWD/infra/docker/nginx-web.conf:/etc/nginx/conf.d/default.conf:ro" nginx:1.27-alpine nginx -t
 
       - name: Lint
         run: pnpm lint
