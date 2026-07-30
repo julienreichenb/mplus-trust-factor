@@ -1,5 +1,7 @@
 # System architecture
 
+Prefer the canonical overview: [`system-overview.md`](system-overview.md).
+
 ## Components
 
 - **apps/web** — Vue 3 SPA; reads stable API DTOs only

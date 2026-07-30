@@ -1,5 +1,7 @@
 # Production operations — dual environment VPS
 
+**Status:** Production remains out of scope until test is clean. Programme intent is `main` → test automatically, then reviewed promotion to prod — see [`ci-cd.md`](ci-cd.md) and [`test-environment.md`](test-environment.md). Current CD push trigger may still be a stale integration branch.
+
 ## First bootstrap
 
 1. Non-root `deploy` user, SSH keys only, Docker Engine + Compose.

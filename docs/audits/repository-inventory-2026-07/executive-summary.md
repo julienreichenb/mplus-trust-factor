@@ -85,7 +85,8 @@ Do not delete or demote until Agent 11 calibration is reviewed and Agent 12 runs
 
 ### Inputs (read first)
 - This directory, especially `executive-summary.md`, `inventory.md`, `documentation-conflicts.md`, `frontend-pr-consolidation.md`, `proposed-canonical-tree.md`, `safe-delete-list.txt`, `requires-human-review.txt`
-- `.agent-context/PROJECT-DECISIONS.md` (four dimensions, freshness, boost policy)
+- `.cursor-orchestration/2026-07-stabilization/` standalone prompts (embedded decisions: four dimensions, freshness, boost policy)
+- `AGENTS.md` and `doc/product/` after Agent 02
 - Current code for v6 / active model behaviour before writing scoring docs
 
 ### In scope

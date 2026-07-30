@@ -64,7 +64,7 @@ Incomplete mapping: `agents/01,04,05,06,08-*.txt` lack matching top-level `doc/a
 | `AGENTS.md` | **not found** |
 | `.cursor/rules/**` | **not found** (only on PR #1) |
 
-Stabilization context lives under `.agent-context/` and `.cursor-orchestration/` instead.
+Stabilization context lives under `.cursor-orchestration/` (temporary prompts with embedded decisions). Long-term agent entry is `AGENTS.md` + `doc/`.
 
 ## 7. Fixture / artifact docs
 

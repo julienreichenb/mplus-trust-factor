@@ -1,43 +1,45 @@
 {
   "project": "M+ Trust Factor",
+  "note": "Wave-1 starter pack relocated. Canonical agent entry is AGENTS.md; bootstrap copies live under doc/bootstrap/; wave-1 prompts under doc/archive/wave1-agent-prompts/.",
   "generated_files": [
-    "AGENT-OUTPUT-TEMPLATE.txt",
-    "API-SOURCES-AND-REQUEST-BUDGETS.txt",
-    "ARCHITECTURE-AND-DB.txt",
-    "COMMON-CONTEXT.txt",
-    "ENVIRONMENT-AND-SECRETS.txt",
-    "PROCESS-FLOWS.txt",
-    "README-FIRST.txt",
-    "WAVE-EXECUTION-PLAN.txt",
-    "agents/00-agent-zero-foundation.txt",
-    "agents/01-blizzard-integration.txt",
-    "agents/02-warcraftlogs-integration.txt",
-    "agents/03-raiderio-integration.txt",
-    "agents/04-scoring-boost-engine.txt",
-    "agents/05-backend-api-worker.txt",
-    "agents/06-web-frontend.txt",
-    "agents/07-wow-addon-export.txt",
-    "agents/08-cicd-devops.txt",
-    "agents/09-qa-security-observability.txt",
-    "agents/10-final-integration-release.txt"
+    "AGENTS.md",
+    "doc/bootstrap/AGENT-OUTPUT-TEMPLATE.txt",
+    "doc/bootstrap/API-SOURCES-AND-REQUEST-BUDGETS.txt",
+    "doc/bootstrap/ARCHITECTURE-AND-DB.txt",
+    "doc/bootstrap/COMMON-CONTEXT.txt",
+    "doc/bootstrap/ENVIRONMENT-AND-SECRETS.txt",
+    "doc/bootstrap/PROCESS-FLOWS.txt",
+    "doc/bootstrap/README-FIRST.txt",
+    "doc/bootstrap/WAVE-EXECUTION-PLAN.txt",
+    "doc/archive/wave1-agent-prompts/00-agent-zero-foundation.txt",
+    "doc/archive/wave1-agent-prompts/01-blizzard-integration.txt",
+    "doc/archive/wave1-agent-prompts/02-warcraftlogs-integration.txt",
+    "doc/archive/wave1-agent-prompts/03-raiderio-integration.txt",
+    "doc/archive/wave1-agent-prompts/04-scoring-boost-engine.txt",
+    "doc/archive/wave1-agent-prompts/05-backend-api-worker.txt",
+    "doc/archive/wave1-agent-prompts/06-web-frontend.txt",
+    "doc/archive/wave1-agent-prompts/07-wow-addon-export.txt",
+    "doc/archive/wave1-agent-prompts/08-cicd-devops.txt",
+    "doc/archive/wave1-agent-prompts/09-qa-security-observability.txt",
+    "doc/archive/wave1-agent-prompts/10-final-integration-release.txt"
   ],
   "execution_order": {
     "wave_0": [
-      "agents/00-agent-zero-foundation.txt"
+      "doc/archive/wave1-agent-prompts/00-agent-zero-foundation.txt"
     ],
     "wave_1_parallel": [
-      "agents/01-blizzard-integration.txt",
-      "agents/02-warcraftlogs-integration.txt",
-      "agents/03-raiderio-integration.txt",
-      "agents/04-scoring-boost-engine.txt",
-      "agents/05-backend-api-worker.txt",
-      "agents/06-web-frontend.txt",
-      "agents/07-wow-addon-export.txt",
-      "agents/08-cicd-devops.txt",
-      "agents/09-qa-security-observability.txt"
+      "doc/archive/wave1-agent-prompts/01-blizzard-integration.txt",
+      "doc/archive/wave1-agent-prompts/02-warcraftlogs-integration.txt",
+      "doc/archive/wave1-agent-prompts/03-raiderio-integration.txt",
+      "doc/archive/wave1-agent-prompts/04-scoring-boost-engine.txt",
+      "doc/archive/wave1-agent-prompts/05-backend-api-worker.txt",
+      "doc/archive/wave1-agent-prompts/06-web-frontend.txt",
+      "doc/archive/wave1-agent-prompts/07-wow-addon-export.txt",
+      "doc/archive/wave1-agent-prompts/08-cicd-devops.txt",
+      "doc/archive/wave1-agent-prompts/09-qa-security-observability.txt"
     ],
     "wave_2": [
-      "agents/10-final-integration-release.txt"
+      "doc/archive/wave1-agent-prompts/10-final-integration-release.txt"
     ]
   }
 }
