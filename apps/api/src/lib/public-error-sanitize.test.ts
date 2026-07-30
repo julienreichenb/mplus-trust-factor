@@ -46,4 +46,19 @@ describe("public error sanitization", () => {
       ),
     ).toBe(PUBLIC_REFRESH_FAILED_MESSAGE);
   });
+
+  it("sanitizes preflight mismatch without leaking hashes", () => {
+    const safe = toPublicRefreshErrorMessage(
+      {
+        code: "REFRESH_CONTRACT_PREFLIGHT_MISMATCH",
+        message:
+          "REFRESH_CONTRACT_PREFLIGHT_MISMATCH: requested=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa computed=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      },
+      { hasPublishedScore: true },
+    );
+    expect(safe.errorCode).toBe("REFRESH_FAILED");
+    expect(safe.errorMessage).toBe(PUBLIC_REFRESH_FAILED_MESSAGE);
+    expect(JSON.stringify(safe)).not.toContain("REFRESH_CONTRACT_PREFLIGHT");
+    expect(JSON.stringify(safe)).not.toMatch(/[a-f0-9]{64}/);
+  });
 });

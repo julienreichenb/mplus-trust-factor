@@ -86,6 +86,10 @@ import {
   allowFixtureZoneDefaultsForProviderMode,
   resolveActiveRefreshContract,
 } from "./build-refresh-contract.js";
+import {
+  RefreshContractPreflightError,
+  runRefreshContractPreflight,
+} from "./refresh-contract-preflight.js";
 import { buildMythicRatingObservation } from "./performance-metrics.js";
 import { buildWclPerformanceObservations } from "./wcl-performance-metrics.js";
 import {
@@ -397,6 +401,57 @@ export async function runRefreshPipeline(
   };
 
   try {
+  // ── Contract preflight barrier (fail-fast, before any provider work) ─────
+  // Guarantees zero Blizzard / Raider.IO / WCL calls, zero run/metric/
+  // provider-state/snapshot writes, and zero WCL budget on mismatch.
+  try {
+    await runRefreshContractPreflight(
+      {
+        prisma: container.prisma,
+        blizzard: providers.blizzard,
+        logger,
+        env: container.env,
+        getActiveModel: (key) => repositories.score.getActiveModel(key),
+      },
+      jobPayload,
+      {
+        jobId: job.id,
+        correlationId: ctx.correlationId ?? ctx.requestId,
+      },
+    );
+  } catch (preflightError) {
+    if (preflightError instanceof RefreshContractPreflightError) {
+      job = await repositories.job.markFailed(job.id, preflightError.toJobError());
+      terminalized = true;
+      logger.info(
+        {
+          ...logBase,
+          event: OBS_EVENTS.refreshTerminal,
+          jobId: job.id,
+          status: "FAILED",
+          stage: "preflight",
+          providerCalls: 0,
+          costLedgerRecords: refreshCostAccumulator.records.length,
+          errorCode: preflightError.code,
+        },
+        OBS_EVENTS.refreshTerminal,
+      );
+      // Diagnostic: preflight must leave the in-memory cost ledger empty.
+      if (refreshCostAccumulator.records.length !== 0) {
+        logger.error(
+          {
+            ...logBase,
+            event: "refresh_contract_preflight_cost_invariant_violated",
+            costLedgerRecords: refreshCostAccumulator.records.length,
+          },
+          "preflight mismatch recorded provider cost — invariant violated",
+        );
+      }
+      throw preflightError;
+    }
+    throw preflightError;
+  }
+
   if (negativeCache.has(identity) && !jobPayload.forceRefresh) {
     job = await repositories.job.markFailed(job.id, new Error("negative cache hit: identity not found"));
     terminalized = true;
@@ -2637,6 +2692,10 @@ export async function runRefreshPipeline(
     },
   } as ScoreModelConfig;
 
+  // ── Final publication / TOCTOU contract barrier ─────────────────────────
+  // Re-resolve immediately before score calculation/publication. Protects
+  // against contract changes that occur after the job-start preflight.
+  // Do not remove or weaken this guard.
   const { contract: refreshContract, hash: computedContractHash } = resolveActiveRefreshContract({
     scoringModelKey: model.key,
     scoringModelVersion: model.version,
@@ -2653,6 +2712,8 @@ export async function runRefreshPipeline(
       {
         ...logBase,
         event: "refresh_contract_hash_mismatch",
+        barrier: "publication_toctou",
+        stage: "publication",
         requestedRefreshContractHash: jobPayload.refreshContractHash,
         currentRefreshContractHash: computedContractHash,
         refreshContract,
@@ -2660,7 +2721,7 @@ export async function runRefreshPipeline(
         contractSeasonSlug: season.slug,
         triggerSource: jobPayload.triggerSource ?? "UNKNOWN",
       },
-      "refresh contract hash mismatch — refusing to publish divergent snapshot",
+      "refresh contract publication/TOCTOU mismatch — refusing to publish divergent snapshot",
     );
     const mismatchError = {
       code: "REFRESH_CONTRACT_HASH_MISMATCH",

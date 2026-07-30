@@ -40,6 +40,7 @@ export type ScoreRefreshReason =
   | "PROVIDER_EVIDENCE_INCOMPATIBLE"
   | "ACTIVE_JOB_EXISTS"
   | "RECENT_FAILURE"
+  | "STALE_CONTRACT"
   | "PROVIDER_NEWER_DIAGNOSTIC_ONLY"
   | "FORCE_REFRESH"
   | "GRADE_U_ELIGIBILITY";
@@ -82,12 +83,34 @@ export type ScoreRefreshDecisionInput = {
   activeJobStatus: "QUEUED" | "ACTIVE" | null;
   latestJobStatus: "QUEUED" | "ACTIVE" | "COMPLETED" | "FAILED" | string | null;
   latestJobFinishedAt: Date | string | null | undefined;
+  /**
+   * Durable job.error.code from the latest terminal job, when present.
+   * Used to distinguish stale-contract preflight failures from provider/ops failures.
+   */
+  latestJobErrorCode?: string | null;
   /** Contract mismatch reasons vs active model/adapters (empty = compatible). */
   contractReasons: readonly ScoreContractStaleReason[];
   /** Diagnostic only — must not force enqueue. */
   providerNewerThanScore?: boolean;
   nowMs?: number;
 };
+
+/** Preflight contract failures — not provider failures and not generic backoff. */
+export const STALE_CONTRACT_FAILURE_CODES: ReadonlySet<string> = new Set([
+  "REFRESH_CONTRACT_PREFLIGHT_MISMATCH",
+  "REFRESH_CONTRACT_PREFLIGHT_MISSING_HASH",
+]);
+
+export function isStaleContractFailureCode(code: string | null | undefined): boolean {
+  return typeof code === "string" && STALE_CONTRACT_FAILURE_CODES.has(code);
+}
+
+/** Read durable IngestionJob.error.code when present. */
+export function extractJobErrorCode(error: unknown): string | null {
+  if (!error || typeof error !== "object") return null;
+  const code = (error as { code?: unknown }).code;
+  return typeof code === "string" && code.length > 0 ? code : null;
+}
 
 /** Reasons that invalidate persisted provider evidence → full refresh required. */
 const PROVIDER_INVALIDATING_REASONS: ReadonlySet<string> = new Set([
@@ -122,8 +145,11 @@ export function isWithinFailureBackoff(
   latestJobFinishedAt: Date | string | null | undefined,
   backoffSeconds: number,
   nowMs = Date.now(),
+  latestJobErrorCode?: string | null,
 ): boolean {
   if (latestJobStatus !== "FAILED") return false;
+  // Stale-contract preflight failures must not drive provider/ops failure cooldown.
+  if (isStaleContractFailureCode(latestJobErrorCode)) return false;
   if (!latestJobFinishedAt) return true;
   const at =
     typeof latestJobFinishedAt === "string"
@@ -172,11 +198,14 @@ export function decideScoreRefresh(input: ScoreRefreshDecisionInput): ScoreRefre
   const nowMs = input.nowMs ?? Date.now();
   const providerNewer = Boolean(input.providerNewerThanScore);
   const ttlFresh = isScoreWithinTtl(input.scoreCalculatedAt, input.scoreTtlSeconds, nowMs);
+  const staleContractFailure =
+    input.latestJobStatus === "FAILED" && isStaleContractFailureCode(input.latestJobErrorCode);
   const inBackoff = isWithinFailureBackoff(
     input.latestJobStatus,
     input.latestJobFinishedAt,
     input.failureBackoffSeconds,
     nowMs,
+    input.latestJobErrorCode,
   );
 
   if (input.activeJobStatus) {
@@ -200,6 +229,33 @@ export function decideScoreRefresh(input: ScoreRefreshDecisionInput): ScoreRefre
       profileRefreshStatus: "QUEUED",
       detailedRefreshStatus: input.activeJobStatus === "ACTIVE" ? "IN_PROGRESS" : "QUEUED",
       warningCodes: [],
+    };
+  }
+
+  // Obsolete/stale contract on the terminal job: keep last score, never auto-enqueue from
+  // profile/account polling, and never apply provider/ops failure backoff. Explicit refresh
+  // (POST) bypasses this decision and may enqueue a replacement under the current contract.
+  if (staleContractFailure) {
+    if (input.hasPublishedScore) {
+      return withProviderDiagnostic(
+        {
+          action: "NONE",
+          publicState: "STALE_USABLE",
+          reason: "STALE_CONTRACT",
+          profileRefreshStatus: "STALE",
+          detailedRefreshStatus: "STALE",
+          warningCodes: ["STALE_CONTRACT"],
+        },
+        providerNewer,
+      );
+    }
+    return {
+      action: "NONE",
+      publicState: "UNAVAILABLE",
+      reason: "STALE_CONTRACT",
+      profileRefreshStatus: "QUEUED",
+      detailedRefreshStatus: "FAILED",
+      warningCodes: ["STALE_CONTRACT"],
     };
   }
 

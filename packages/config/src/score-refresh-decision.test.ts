@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   decideScoreRefresh,
+  isWithinFailureBackoff,
   preferRecalculateOnly,
   toAccountTrustStatus,
   DEFAULT_SCORE_TTL_SECONDS,
@@ -78,12 +79,48 @@ describe("decideScoreRefresh", () => {
       scoreCalculatedAt: staleAt,
       latestJobStatus: "FAILED",
       latestJobFinishedAt: new Date(now - 60_000),
+      latestJobErrorCode: "REFRESH_FAILED",
     });
     expect(d.action).toBe("BACKOFF");
     expect(d.publicState).toBe("FAILED_FALLBACK");
     expect(d.reason).toBe("RECENT_FAILURE");
     expect(d.profileRefreshStatus).toBe("STALE");
     expect(toAccountTrustStatus(d)).toBe("STALE");
+  });
+
+  it("contract preflight mismatch is STALE_CONTRACT, not generic BACKOFF", () => {
+    const d = decideScoreRefresh({
+      ...base,
+      hasPublishedScore: true,
+      scoreCalculatedAt: staleAt,
+      latestJobStatus: "FAILED",
+      latestJobFinishedAt: new Date(now - 60_000),
+      latestJobErrorCode: "REFRESH_CONTRACT_PREFLIGHT_MISMATCH",
+    });
+    expect(d.action).toBe("NONE");
+    expect(d.action).not.toBe("BACKOFF");
+    expect(d.reason).toBe("STALE_CONTRACT");
+    expect(d.publicState).toBe("STALE_USABLE");
+    expect(d.profileRefreshStatus).toBe("STALE");
+    expect(d.warningCodes).toContain("STALE_CONTRACT");
+    expect(d.warningCodes).not.toContain("REFRESH_FAILED");
+    expect(toAccountTrustStatus(d)).toBe("STALE");
+  });
+
+  it("contract preflight missing hash is STALE_CONTRACT without provider backoff", () => {
+    const d = decideScoreRefresh({
+      ...base,
+      hasPublishedScore: true,
+      scoreCalculatedAt: staleAt,
+      latestJobStatus: "FAILED",
+      latestJobFinishedAt: new Date(now - 60_000),
+      latestJobErrorCode: "REFRESH_CONTRACT_PREFLIGHT_MISSING_HASH",
+    });
+    expect(d.action).toBe("NONE");
+    expect(d.reason).toBe("STALE_CONTRACT");
+    expect(isWithinFailureBackoff("FAILED", new Date(now - 60_000), 3_600, now, "REFRESH_CONTRACT_PREFLIGHT_MISSING_HASH")).toBe(
+      false,
+    );
   });
 
   it("stale score remains visible during refresh", () => {

@@ -25,7 +25,8 @@ Authority: `packages/config/src/score-refresh-decision.ts`, `apps/api/src/servic
 | `ENQUEUE` | No score, TTL expired, or provider-evidence-incompatible contract |
 | `RECALCULATE` | Scoring model changed only (persisted evidence still compatible) |
 | `REUSE_ACTIVE_JOB` | QUEUED/ACTIVE job already exists |
-| `BACKOFF` | Recent FAILED job within failure backoff |
+| `BACKOFF` | Recent FAILED job within failure backoff (provider/ops failures only) |
+| `NONE` + `STALE_CONTRACT` | Latest job failed at contract preflight; last score kept; polling does not enqueue; explicit refresh may |
 
 ## Public score lifecycle
 
@@ -53,6 +54,8 @@ API profile reads, manual refreshes, account discovery, the worker refresh pipel
 - Fixture zone defaults are allowed **only** when `PROVIDER_MODE=fixture`.
 - `APP_ENV=test` / `NODE_ENV=test` must **not** enable fixture zone defaults when providers are live.
 - Prefer passing explicit `zoneId` / `partition` when known.
+- **Preflight barrier (worker job start):** before any Blizzard / Raider.IO / WCL call, provider-state mutation, run ingestion, metric write, or WCL budget use, the worker resolves verified season authority + active model + the canonical contract and compares `job.payload.refreshContractHash`. Mismatch → terminal non-retryable `REFRESH_CONTRACT_PREFLIGHT_MISMATCH` (`refresh_contract_preflight_mismatch`), zero provider cost, last published score preserved. Live jobs without a hash fail closed; fixture mode keeps minimum legacy compatibility. Decision layer maps these codes to `STALE_CONTRACT` (not `RECENT_FAILURE` / `BACKOFF`): profile/account polling stays read-only; explicit POST refresh may enqueue a replacement under the current contract.
+- **Final publication / TOCTOU barrier:** immediately before score publication, the worker re-resolves the active contract and compares again (`REFRESH_CONTRACT_HASH_MISMATCH`, log barrier `publication_toctou`). This catches contract changes that occur after preflight but before publish. Do not remove or weaken it.
 - After a successful refresh: `job.payload.refreshContractHash` must equal the published snapshot hash and `hash(explanation.refreshContract)`. Mismatches fail the job (no silent divergent publish).
 
 ## Utility fallback boundary (Agent 07)

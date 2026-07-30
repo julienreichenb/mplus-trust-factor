@@ -39,6 +39,8 @@ export const refreshCharacterJobSchema = z.object({
   /**
    * Hash of the active RefreshContractVersions at enqueue time.
    * Model/adapter/schema bumps must not reuse jobs keyed under an older contract.
+   * Mandatory for newly enqueued production/live jobs; optional only for legacy
+   * fixture/test payloads (worker fail-closed when PROVIDER_MODE=live).
    */
   refreshContractHash: z.string().min(1).max(128).optional(),
   /** Optional enqueue boundary label; absent on older persisted jobs. */

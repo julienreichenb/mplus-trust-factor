@@ -339,6 +339,85 @@ describe("CharacterService — centralized 7-day refresh policy", () => {
     expect(mockEnqueue).not.toHaveBeenCalled();
   });
 
+  it("contract preflight mismatch keeps last score and does not enqueue polling loops", async () => {
+    mockGetPublishedSnapshot.mockResolvedValue(publishedSnapshot(staleCalculatedAt));
+    mockFindLatest.mockResolvedValue({
+      id: "job-preflight-fail",
+      status: "FAILED",
+      completedAt: new Date(),
+      scheduledAt: new Date(),
+      startedAt: new Date(),
+      dedupeKey: "d",
+      jobType: "refresh-character",
+      error: {
+        code: "REFRESH_CONTRACT_PREFLIGHT_MISMATCH",
+        message: "Refresh contract preflight mismatch",
+        requestedHash: "a".repeat(64),
+        computedHash: "b".repeat(64),
+        retryable: false,
+        providerFailure: false,
+      },
+    });
+    const service = new CharacterService(buildContainer());
+    const first = await service.getProfile(identity);
+    const second = await service.getProfile(identity);
+    expect(first.body.score).not.toBeNull();
+    expect(second.body.score).not.toBeNull();
+    expect(first.body.refreshStatus).toBe("STALE");
+    expect(first.body.warnings?.some((w) => w.code === "REFRESH_FAILED")).toBeFalsy();
+    expect(mockEnqueue).not.toHaveBeenCalled();
+  });
+
+  it("after preflight mismatch, explicit refresh enqueues one replacement under current contract", async () => {
+    mockGetPublishedSnapshot.mockResolvedValue(publishedSnapshot(staleCalculatedAt));
+    mockFindLatest.mockResolvedValue({
+      id: "job-preflight-fail",
+      status: "FAILED",
+      completedAt: new Date(),
+      scheduledAt: new Date(),
+      startedAt: new Date(),
+      dedupeKey: "d",
+      jobType: "refresh-character",
+      error: {
+        code: "REFRESH_CONTRACT_PREFLIGHT_MISMATCH",
+        message: "Refresh contract preflight mismatch",
+        retryable: false,
+        providerFailure: false,
+      },
+    });
+    mockFindActive.mockResolvedValue(null);
+    mockEnqueue.mockResolvedValue({ jobId: "job-replacement", reused: false, enqueued: true });
+    mockFindById.mockResolvedValue({
+      id: "job-replacement",
+      status: "QUEUED",
+      dedupeKey: "d2",
+      scheduledAt: new Date(),
+      createdAt: new Date(),
+      startedAt: null,
+      completedAt: null,
+      error: null,
+      jobType: "refresh-character",
+    });
+
+    const service = new CharacterService(buildContainer());
+    // Polling remains read-only.
+    await service.getProfile(identity);
+    await service.getProfile(identity);
+    expect(mockEnqueue).not.toHaveBeenCalled();
+
+    // Explicit refresh may enqueue exactly one replacement with the current hash.
+    const result = await service.requestRefresh(identity, {
+      bypassCooldown: true,
+      forceRefresh: false,
+    });
+    expect(mockEnqueue).toHaveBeenCalledTimes(1);
+    expect(mockEnqueue.mock.calls[0]![0].refreshContractHash).toBe(matchingHash);
+    expect(result.job?.jobId).toBe("job-replacement");
+
+    // Stale failed job remains terminal in history; replacement is a distinct enqueue.
+    expect(mockFindLatest.mock.results.length).toBeGreaterThan(0);
+  });
+
   it("search and profile use the same policy", async () => {
     mockGetPublishedSnapshot.mockResolvedValue(publishedSnapshot(staleCalculatedAt));
     mockEnqueue.mockImplementation(async () => {

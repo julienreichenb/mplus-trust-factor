@@ -1,6 +1,7 @@
 import {
   buildFreshnessConfig,
   decideScoreRefresh,
+  extractJobErrorCode,
   isDatasetFresh,
   presentWowClass,
   toAccountTrustStatus,
@@ -171,6 +172,7 @@ export async function buildAccountCharactersView(input: {
         activeJobStatus: activeJob ? (activeJob.status as "QUEUED" | "ACTIVE") : null,
         latestJobStatus: latestJob?.status ?? null,
         latestJobFinishedAt: latestJob?.completedAt ?? null,
+        latestJobErrorCode: extractJobErrorCode(latestJob?.error),
         contractReasons: [],
       });
 

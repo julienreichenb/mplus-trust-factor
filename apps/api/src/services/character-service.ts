@@ -20,6 +20,7 @@ import { ExternalApiError, deriveWclContributionTypes, normalizeWclProvenance } 
 import { normalizeRealmSlug, normalizeRegion } from "@mplus/domain";
 import {
   decideScoreRefresh,
+  extractJobErrorCode,
   type ScoreRefreshDecision,
 } from "@mplus/config";
 import type { EnqueueResult } from "@mplus/worker";
@@ -521,6 +522,7 @@ export class CharacterService {
       activeJobStatus: activeJob ? (activeJob.status as "QUEUED" | "ACTIVE") : null,
       latestJobStatus: latestJobBefore?.status ?? null,
       latestJobFinishedAt: latestJobBefore?.completedAt ?? null,
+      latestJobErrorCode: extractJobErrorCode(latestJobBefore?.error),
       contractReasons: seasonAuthorityUnavailable ? [] : contractReasons,
       providerNewerThanScore: false,
     });
@@ -634,7 +636,7 @@ export class CharacterService {
   ): void {
     if (decision.warningCodes.length === 0) return;
     const contractCodes = decision.warningCodes.filter(
-      (c) => c !== "SCORE_STALE_VS_PROVIDERS" && c !== "REFRESH_FAILED",
+      (c) => c !== "SCORE_STALE_VS_PROVIDERS" && c !== "REFRESH_FAILED" && c !== "STALE_CONTRACT",
     );
     if (contractCodes.length > 0) {
       body.warnings = appendRefreshContractWarnings(
