@@ -1,0 +1,58 @@
+# Safe delete list — strong evidence only
+# Agent 01 did NOT delete these.
+# Classification DELETE_SAFE requires ALL of:
+#   - no production import
+#   - no test import
+#   - no package.json script reference
+#   - identified replacement OR explicit reason the artifact is obsolete
+#
+# Scope gate (see executive-summary.md):
+#   Agent 02 = docs canonicalization only (historical doc clutter).
+#   Agent 12 = deferred deep cleanup (scripts, zip, probe retirement after calibration).
+# Format: path | evidence checklist
+
+## A. Agent 02 eligible (docs / bootstrap clutter only)
+
+# None of the technical orphans below are Agent 02 defaults.
+# Agent 02 may remove the following ONLY after the archive/canonical steps land in the same PR:
+
+# ROOT_BOOTSTRAP_DUPLICATES (8 files) — after keeping doc/bootstrap/* as sole copy:
+#   AGENT-OUTPUT-TEMPLATE.txt
+#   API-SOURCES-AND-REQUEST-BUDGETS.txt
+#   ARCHITECTURE-AND-DB.txt
+#   COMMON-CONTEXT.txt
+#   ENVIRONMENT-AND-SECRETS.txt
+#   PROCESS-FLOWS.txt
+#   README-FIRST.txt
+#   WAVE-EXECUTION-PLAN.txt
+# Evidence: byte-identical to doc/bootstrap/*; no production/test/script import;
+#   replacement = doc/bootstrap/; reason = duplicate entry points.
+# Gate: update README-FIRST / any pointers first; human ack that nothing external requires root paths.
+
+# docs/frontend/*.md — ONLY after content migrated to canonical docs tree (Agent 02 consolidation):
+#   docs/frontend/BRAND_AND_UI_SYSTEM.md
+#   docs/frontend/LANDING_AND_PLAYER_UX.md
+#   docs/frontend/WOWHEAD_INTEGRATION.md
+# Evidence: product docs, not runtime; no production/test/script import of these paths;
+#   replacement = consolidated doc/architecture/frontend/* (or Agent 02 docs/architecture/frontend/*);
+#   reason = duplicate brand/UX guidance after migration.
+# Gate: migration + link repair complete; do not delete pre-migration.
+
+## B. DELETE_SAFE candidates deferred to Agent 12 (or explicit human ack)
+
+# Proven unused by import/script search, but NOT docs-canonicalization scope.
+# Treat cautiously: do not auto-delete in Agent 02.
+
+wallidrixe-wcl-performance.zip | no_prod_import=yes; no_test_import=yes; no_package_script=yes; replacement=tools/fixtures/warcraftlogs/* (and gitignored raw-artifacts workflow); reason=tracked probe-era snapshot (commit 6b4ba9e) with zero code/doc consumers outside this audit; rg across repo finds only audit docs; defer=Agent_12
+
+tools/scripts/write-points-and-damage-fixture.mjs | no_prod_import=yes; no_test_import=yes; no_package_script=yes; replacement=existing tools/fixtures/warcraftlogs outputs; reason=generator depends on absent gitignored raw-artifacts/; no repo references outside this audit; defer=Agent_12
+
+tools/scripts/wallidrixe-reconciliation-summary.mjs | no_prod_import=yes; no_test_import=yes; no_package_script=yes; replacement=none needed (ad-hoc ops dump); reason=one-shot Prisma Wallidrixe dump; no repo references outside this audit; defer=Agent_12
+
+## C. Explicitly NOT on this list
+
+# All Utility/Survival probe sources under packages/providers/warcraftlogs/src/probe/
+# All evidence/* production path modules
+# Any file with prod_import=yes in probe-matrix.csv
+# concurrency-hardening-test.mjs, recover-utility-probe-from-snapshot.mjs (ARCHIVE / review)
+# Wired package.json wcl:probe:* scripts and their run-*.ts entrypoints
