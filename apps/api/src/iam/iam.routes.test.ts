@@ -47,7 +47,16 @@ function mockOAuth(): BattleNetOAuthClient {
               id: 555001,
               name: "Ownedone",
               realm: { slug: "tarren-mill", name: "Tarren Mill" },
-              level: 80,
+              level: 90,
+              playable_class: { id: 8 },
+              faction: { type: "HORDE" },
+            },
+            {
+              id: 555002,
+              name: "Lowbie",
+              realm: { slug: "tarren-mill", name: "Tarren Mill" },
+              level: 10,
+              playable_class: { id: 1 },
               faction: { type: "HORDE" },
             },
           ],
@@ -71,7 +80,20 @@ describe.skipIf(!dbAvailable)("IAM auth routes", () => {
       APP_ENV: "production",
     });
     container = createApiContainer(env, {
-      workerOverrides: { prisma: prisma as PrismaClient },
+      workerOverrides: {
+        prisma: prisma as PrismaClient,
+        providers: {
+          blizzard: {
+            name: "blizzard",
+            getMythicKeystoneProfile: vi.fn(async () => ({
+              data: { currentMythicRating: 2100 },
+              provenance: { sourceUrl: "test", fetchedAt: new Date().toISOString() },
+              metadata: { cacheHit: false, statusCode: 200 },
+              freshness: { expiresAt: new Date(Date.now() + 86_400_000).toISOString() },
+            })),
+          } as never,
+        },
+      },
       skipQueues: true,
       oauthClient: oauth,
     });
@@ -164,7 +186,20 @@ describe.skipIf(!dbAvailable)("IAM auth routes", () => {
       headers: { cookie: sessionPair! },
     });
     expect(owned.statusCode).toBe(200);
-    expect(owned.json().characters.length).toBeGreaterThan(0);
+    const ownedBody = owned.json();
+    expect(ownedBody.totalOwnedCharacterCount).toBeGreaterThanOrEqual(2);
+    expect(ownedBody.hiddenCharacterCount).toBeGreaterThanOrEqual(1);
+    expect(ownedBody.characters.length).toBeGreaterThan(0);
+    expect(ownedBody.characters.every((c: { relevance: { eligible: boolean } }) => c.relevance.eligible)).toBe(
+      true,
+    );
+    expect(ownedBody.characters[0]).toMatchObject({
+      name: "Ownedone",
+      level: 90,
+      characterClass: expect.objectContaining({ slug: "mage" }),
+    });
+    expect(JSON.stringify(ownedBody)).not.toContain("access-token");
+    expect(ownedBody.discovery).toBeTruthy();
 
     const bnet = await app.inject({
       method: "GET",

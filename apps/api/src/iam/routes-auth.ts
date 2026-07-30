@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from "fastify";
 import type { AppEnv } from "@mplus/config";
 import { HttpError } from "../errors.js";
 import type { IamAuthService } from "../iam/auth-service.js";
+import { buildAccountCharactersView } from "../iam/account-characters-view.js";
 import {
   clearSessionCookie,
   requireAuth,
@@ -140,26 +141,14 @@ export function buildAuthRoutes(env: AppEnv, authService: IamAuthService): Fasti
 
     app.get("/api/v1/me/characters", async (request) => {
       const auth = requireAuth(request);
-      const rows = await app.container.worker.prisma.verifiedCharacterOwnership.findMany({
-        where: { userId: auth.user.id, status: { in: ["CURRENT", "HISTORICAL"] } },
-        include: { region: true },
-        orderBy: [{ status: "asc" }, { isPrimary: "desc" }, { characterName: "asc" }],
+      const query = request.query as { includeIrrelevant?: string };
+      const includeIrrelevant = query.includeIrrelevant === "1" || query.includeIrrelevant === "true";
+      return buildAccountCharactersView({
+        prisma: app.container.worker.prisma,
+        env,
+        userId: auth.user.id,
+        includeIrrelevant,
       });
-      return {
-        characters: rows.map((row) => ({
-          id: row.id,
-          characterId: row.characterId,
-          blizzardCharacterId: row.blizzardCharacterId.toString(),
-          region: row.region.code,
-          realmSlug: row.realmSlug,
-          realmName: row.realmName,
-          name: row.characterName,
-          status: row.status,
-          isPrimary: row.isPrimary,
-          verifiedAt: row.verifiedAt.toISOString(),
-          lastSeenAt: row.lastSeenAt.toISOString(),
-        })),
-      };
     });
 
     app.post("/api/v1/me/characters/refresh-ownership", async (request) => {

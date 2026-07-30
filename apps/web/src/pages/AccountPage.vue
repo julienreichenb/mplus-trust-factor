@@ -1,21 +1,13 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { RouterLink, useRouter } from "vue-router";
+import type { AccountCharactersResponse, AccountOwnedCharacterDTO } from "@mplus/contracts";
+import TrustTierBadge from "../components/landing/TrustTierBadge.vue";
+import type { Grade } from "../api/types";
+import { classIconUrl } from "../lib/wowClass";
 
 const apiBase = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:3000";
 const router = useRouter();
-
-interface OwnedCharacter {
-  id: string;
-  characterId: string | null;
-  blizzardCharacterId: string;
-  region: string;
-  realmSlug: string;
-  name: string;
-  status: string;
-  isPrimary: boolean;
-  verifiedAt: string;
-}
 
 const me = ref<{
   authenticated: boolean;
@@ -31,10 +23,14 @@ const linked = ref<{
     lastOwnershipSyncError: string | null;
   };
 } | null>(null);
-const characters = ref<OwnedCharacter[]>([]);
+const accountChars = ref<AccountCharactersResponse | null>(null);
 const message = ref<string | null>(null);
 const confirmUnlink = ref(false);
 const busy = ref(false);
+
+let pollTimer: ReturnType<typeof setTimeout> | null = null;
+let pollInFlight = false;
+let stopped = false;
 
 const canAdmin = () =>
   Boolean(
@@ -43,6 +39,77 @@ const canAdmin = () =>
     ),
   );
 
+const characters = computed(() => accountChars.value?.characters ?? []);
+const discoveryActive = computed(() => {
+  const status = accountChars.value?.discovery.status;
+  return status === "QUEUED" || status === "RUNNING";
+});
+const needsPolling = computed(() => {
+  if (discoveryActive.value) return true;
+  return characters.value.some(
+    (c) =>
+      c.trustScore.status === "QUEUED" ||
+      c.trustScore.status === "RUNNING" ||
+      c.trustScore.status === "DISCOVERING",
+  );
+});
+
+function statusLabel(status: AccountOwnedCharacterDTO["trustScore"]["status"]): string {
+  switch (status) {
+    case "DISCOVERING":
+      return "Discovering";
+    case "QUEUED":
+      return "Queued";
+    case "RUNNING":
+      return "Analysing";
+    case "AVAILABLE":
+      return "Available";
+    case "PARTIAL":
+      return "Partial data";
+    case "FAILED":
+      return "Failed";
+    case "STALE":
+      return "Stale";
+    case "UNAVAILABLE":
+      return "Unavailable";
+    default:
+      return "Not requested";
+  }
+}
+
+function clearPoll(): void {
+  if (pollTimer) {
+    clearTimeout(pollTimer);
+    pollTimer = null;
+  }
+}
+
+function schedulePoll(): void {
+  clearPoll();
+  if (stopped || !needsPolling.value) return;
+  pollTimer = setTimeout(() => {
+    void pollCharacters();
+  }, 4000);
+}
+
+async function fetchCharactersOnly(): Promise<void> {
+  const charsRes = await fetch(`${apiBase}/api/v1/me/characters`, { credentials: "include" });
+  accountChars.value = await charsRes.json();
+}
+
+async function pollCharacters(): Promise<void> {
+  if (stopped || pollInFlight) return;
+  pollInFlight = true;
+  try {
+    await fetchCharactersOnly();
+  } catch {
+    /* keep polling on transient errors */
+  } finally {
+    pollInFlight = false;
+    schedulePoll();
+  }
+}
+
 async function load(): Promise<void> {
   const meRes = await fetch(`${apiBase}/api/v1/auth/me`, { credentials: "include" });
   me.value = await meRes.json();
@@ -50,19 +117,24 @@ async function load(): Promise<void> {
     await router.replace("/auth/signin");
     return;
   }
-  const [bnetRes, charsRes] = await Promise.all([
+  const [bnetRes] = await Promise.all([
     fetch(`${apiBase}/api/v1/me/battlenet`, { credentials: "include" }),
-    fetch(`${apiBase}/api/v1/me/characters`, { credentials: "include" }),
+    fetchCharactersOnly(),
   ]);
   linked.value = await bnetRes.json();
-  const body = await charsRes.json();
-  characters.value = body.characters ?? [];
+  schedulePoll();
 }
 
 onMounted(() => {
+  stopped = false;
   void load().catch(() => {
     message.value = "Failed to load account.";
   });
+});
+
+onBeforeUnmount(() => {
+  stopped = true;
+  clearPoll();
 });
 
 async function refreshOwnership(): Promise<void> {
@@ -78,19 +150,20 @@ async function refreshOwnership(): Promise<void> {
       message.value = body?.error?.message ?? "Ownership refresh failed";
       return;
     }
-    await load();
-    message.value = "Ownership refreshed from Battle.net.";
+    await fetchCharactersOnly();
+    schedulePoll();
+    message.value = "Ownership refreshed. Analysing relevant characters…";
   } finally {
     busy.value = false;
   }
 }
 
-async function setPrimary(id: string): Promise<void> {
-  await fetch(`${apiBase}/api/v1/me/characters/${id}/primary`, {
+async function setPrimary(ownershipId: string): Promise<void> {
+  await fetch(`${apiBase}/api/v1/me/characters/${ownershipId}/primary`, {
     method: "POST",
     credentials: "include",
   });
-  await load();
+  await fetchCharactersOnly();
 }
 
 async function unlink(): Promise<void> {
@@ -111,6 +184,21 @@ async function unlink(): Promise<void> {
 async function signOut(): Promise<void> {
   await fetch(`${apiBase}/api/v1/auth/logout`, { method: "POST", credentials: "include" });
   await router.push("/auth/signin");
+}
+
+function characterRoute(c: AccountOwnedCharacterDTO) {
+  return {
+    name: "character" as const,
+    params: {
+      region: c.region.toLowerCase(),
+      realm: c.realmSlug,
+      name: c.name,
+    },
+  };
+}
+
+function portraitSrc(c: AccountOwnedCharacterDTO): string | null {
+  return c.media.portraitUrl ?? classIconUrl(c.characterClass.slug);
 }
 </script>
 
@@ -170,25 +258,109 @@ async function signOut(): Promise<void> {
 
     <section class="block">
       <h2>Owned characters</h2>
-      <p class="muted">Private list — never shown on public profiles.</p>
+      <p class="muted">Private list — only relevant max-level characters are shown.</p>
+
+      <p v-if="discoveryActive" class="discovering" role="status">Analysing your characters…</p>
+
+      <p v-if="accountChars" class="counts muted">
+        {{ characters.length }} relevant
+        <template v-if="accountChars.hiddenCharacterCount > 0">
+          · {{ accountChars.hiddenCharacterCount }} hidden (below relevance policy)
+        </template>
+        · {{ accountChars.totalOwnedCharacterCount }} owned total
+      </p>
+
+      <p v-if="accountChars?.primaryDiagnostic" class="diagnostic" role="status">
+        {{ accountChars.primaryDiagnostic }}
+      </p>
+
       <ul v-if="characters.length" class="char-list">
-        <li v-for="c in characters" :key="c.id">
-          <div>
-            <strong>{{ c.name }}</strong>
-            <span class="muted"> — {{ c.realmSlug }} ({{ c.region }}) · {{ c.status }}</span>
-            <span v-if="c.isPrimary" class="badge">Primary</span>
+        <li v-for="c in characters" :key="c.ownershipId" class="char-row">
+          <div class="char-row__body">
+            <RouterLink
+              class="char-row__link"
+              :to="characterRoute(c)"
+              :aria-label="`${c.name} on ${c.realmSlug}`"
+            />
+            <div class="char-row__left">
+              <img
+                class="portrait"
+                :src="portraitSrc(c) ?? undefined"
+                :alt="`${c.name} portrait`"
+                width="48"
+                height="48"
+              />
+              <div class="identity">
+                <span
+                  class="name"
+                  :style="c.characterClass.color ? { color: c.characterClass.color } : undefined"
+                >
+                  {{ c.name }}
+                </span>
+                <span class="meta muted">
+                  {{ c.realmName ?? c.realmSlug }} · {{ c.region }}
+                  <template v-if="c.level != null"> · {{ c.level }}</template>
+                  <template v-if="c.currentSeasonMythic.rating != null">
+                    · {{ Math.round(c.currentSeasonMythic.rating) }} M+
+                  </template>
+                </span>
+              </div>
+            </div>
+
+            <div class="char-row__center">
+              <span class="lifecycle" :data-status="c.trustScore.status">
+                {{ statusLabel(c.trustScore.status) }}
+              </span>
+              <span
+                v-if="c.trustScore.status === 'FAILED' && c.trustScore.errorMessage"
+                class="fail-reason"
+              >
+                {{ c.trustScore.errorMessage }}
+              </span>
+            </div>
+
+            <div class="char-row__right">
+              <TrustTierBadge
+                v-if="c.trustScore.status === 'AVAILABLE' && c.trustScore.grade"
+                :tier="(c.trustScore.grade as Grade)"
+                size="sm"
+                letter-only
+                flush
+              />
+              <span
+                v-else-if="
+                  c.trustScore.status === 'QUEUED' ||
+                  c.trustScore.status === 'RUNNING' ||
+                  c.trustScore.status === 'DISCOVERING'
+                "
+                class="spinner"
+                aria-hidden="true"
+              />
+              <span v-else class="status-pill" :data-status="c.trustScore.status">
+                {{ statusLabel(c.trustScore.status) }}
+              </span>
+              <span v-if="c.isPrimary" class="badge">Primary</span>
+            </div>
           </div>
-          <button
-            v-if="c.status === 'CURRENT' && !c.isPrimary"
-            type="button"
-            class="btn btn--ghost"
-            @click="setPrimary(c.id)"
-          >
-            Set primary
-          </button>
+
+          <div class="char-row__actions">
+            <button
+              v-if="!c.isPrimary"
+              type="button"
+              class="btn btn--ghost"
+              @click.prevent.stop="setPrimary(c.ownershipId)"
+            >
+              Set primary
+            </button>
+          </div>
         </li>
       </ul>
-      <p v-else class="muted">No verified characters yet.</p>
+
+      <p v-else-if="accountChars && !discoveryActive" class="muted empty">
+        No characters meet the relevance policy yet. Link Battle.net and refresh ownership after
+        reaching max level with Mythic+ activity, or set a primary character.
+      </p>
+      <p v-else-if="!accountChars" class="muted">Loading characters…</p>
     </section>
 
     <section v-if="canAdmin()" class="block">
@@ -203,7 +375,7 @@ async function signOut(): Promise<void> {
 
 <style scoped>
 .account-page {
-  max-width: 44rem;
+  max-width: 52rem;
   margin: 0 auto;
   padding: var(--space-6) var(--space-4);
 }
@@ -228,6 +400,18 @@ async function signOut(): Promise<void> {
   margin-top: var(--space-3);
   color: #86efac;
 }
+.discovering {
+  margin: var(--space-3) 0;
+  color: #93c5fd;
+}
+.counts {
+  margin: var(--space-2) 0 var(--space-3);
+  font-size: 0.9rem;
+}
+.diagnostic {
+  margin-bottom: var(--space-3);
+  color: #fbbf24;
+}
 .actions {
   display: flex;
   flex-wrap: wrap;
@@ -245,6 +429,8 @@ async function signOut(): Promise<void> {
   text-decoration: none;
   cursor: pointer;
   font: inherit;
+  position: relative;
+  z-index: 1;
 }
 .btn--ghost {
   background: transparent;
@@ -257,21 +443,123 @@ async function signOut(): Promise<void> {
   padding: 0;
   margin: var(--space-3) 0 0;
 }
-.char-list li {
+.char-row {
   display: flex;
-  justify-content: space-between;
+  flex-wrap: wrap;
+  align-items: center;
   gap: var(--space-3);
   padding: var(--space-3) 0;
   border-bottom: 1px solid rgb(255 255 255 / 6%);
 }
+.char-row__body {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) auto;
+  gap: var(--space-3);
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+}
+.char-row__link {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: 0.35rem;
+}
+.char-row__link:focus-visible {
+  outline: 2px solid #93c5fd;
+  outline-offset: 2px;
+}
+.char-row__left {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+}
+.portrait {
+  width: 48px;
+  height: 48px;
+  border-radius: 0.35rem;
+  object-fit: cover;
+  background: rgb(255 255 255 / 6%);
+  flex-shrink: 0;
+}
+.identity {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+.name {
+  font-weight: 650;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.meta {
+  font-size: 0.85rem;
+}
+.char-row__center {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+}
+.lifecycle {
+  font-size: 0.9rem;
+}
+.lifecycle[data-status="FAILED"] {
+  color: #f87171;
+}
+.fail-reason {
+  font-size: 0.8rem;
+  color: #fca5a5;
+}
+.char-row__right {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  justify-content: flex-end;
+}
+.char-row__actions {
+  position: relative;
+  z-index: 1;
+}
 .badge {
-  margin-left: 0.5rem;
   font-size: 0.75rem;
   color: #86efac;
+}
+.status-pill {
+  font-size: 0.8rem;
+  color: var(--color-text-muted, #a8a8b3);
+}
+.spinner {
+  width: 1rem;
+  height: 1rem;
+  border: 2px solid rgb(255 255 255 / 20%);
+  border-top-color: #93c5fd;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 .confirm {
   border: 1px solid rgb(248 113 113 / 35%);
   border-radius: 0.5rem;
   padding: var(--space-4);
+}
+.empty {
+  margin-top: var(--space-3);
+}
+@media (max-width: 720px) {
+  .char-row__body {
+    grid-template-columns: 1fr;
+  }
+  .char-row__right {
+    justify-content: flex-start;
+  }
 }
 </style>

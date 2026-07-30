@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import {
   QUEUE_NAMES,
   type AnalyzeRunJob,
+  type DiscoverOwnedCharactersJob,
   type GenerateAddonExportJob,
   type QueueName,
   type RecalculateScoreJob,
@@ -61,5 +62,14 @@ export function syncRealmCatalogDedupeKey(parts: {
   return buildDedupeKey(QUEUE_NAMES.syncRealmCatalog, [
     regions.join(","),
     String(parts.forceDetails === true),
+  ]);
+}
+
+/** Deduped by Battle.net account + current season + ownership sync revision. */
+export function discoverOwnedCharactersDedupeKey(job: DiscoverOwnedCharactersJob): string {
+  return buildDedupeKey(QUEUE_NAMES.discoverOwnedCharacters, [
+    job.battleNetAccountId,
+    job.seasonKey,
+    job.ownershipSyncAt,
   ]);
 }

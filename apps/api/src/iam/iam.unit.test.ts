@@ -111,7 +111,7 @@ describe("ownership sync", () => {
                 id: 42,
                 name: "Newname",
                 realm: { slug: "tarren-mill", name: "Tarren Mill" },
-                level: 80,
+                level: 90,
               },
             ],
           },
