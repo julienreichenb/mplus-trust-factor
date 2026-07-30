@@ -9,6 +9,7 @@ describe("web router", () => {
     expect(names).toContain("compare");
     expect(names).toContain("admin-models");
     expect(names).toContain("admin-ability-catalog");
+    expect(names).toContain("admin-users");
     expect(names).toContain("auth-signin");
     expect(names).toContain("auth-error");
     expect(names).toContain("account");

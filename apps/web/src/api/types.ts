@@ -117,6 +117,7 @@ export interface MplusApiClient {
   refreshCharacter(
     identity: CharacterIdentityInput,
     signal?: AbortSignal,
+    opts?: { force?: boolean },
   ): Promise<RefreshStatusResponse>;
   getRefreshStatus(identity: CharacterIdentityInput, signal?: AbortSignal): Promise<RefreshStatusResponse>;
   compareCharacters(

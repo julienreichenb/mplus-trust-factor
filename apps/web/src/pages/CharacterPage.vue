@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { api } from "../api/client";
 import type { CharacterProfileView } from "../api/types";
 import { useAbortableQuery } from "../composables/useAbortableQuery";
+import { useAuthSession } from "../composables/useAuthSession";
 import { useRefreshPolling } from "../composables/useRefreshPolling";
 import { useRecentSearchesStore } from "../stores/recentSearches";
 import StatusBanner from "../components/common/StatusBanner.vue";
@@ -37,6 +38,10 @@ const props = defineProps<{
 const recent = useRecentSearchesStore();
 const { nextSignal } = useAbortableQuery();
 const { polling, timedOut, start: startPolling, stop: stopPolling } = useRefreshPolling();
+const { canForceRefresh, fetchAuthMe } = useAuthSession();
+onMounted(() => {
+  void fetchAuthMe();
+});
 useWowheadTooltips(true);
 // Hero gear always needs Wowhead tooltips when item IDs are present.
 void loadWowheadTooltipScript({ iconizeLinks: false })
@@ -196,7 +201,7 @@ async function load(): Promise<void> {
   }
 }
 
-async function refresh(): Promise<void> {
+async function refresh(opts: { force?: boolean } = {}): Promise<void> {
   if (!profile.value) return;
   const identity = {
     region: props.region.toUpperCase(),
@@ -205,7 +210,7 @@ async function refresh(): Promise<void> {
   };
   try {
     refreshNotice.value = null;
-    const status = await api.refreshCharacter(identity);
+    const status = await api.refreshCharacter(identity, undefined, { force: opts.force === true });
     const inFlight =
       status.refreshStatus === "QUEUED" || status.refreshStatus === "IN_PROGRESS";
 
@@ -216,6 +221,10 @@ async function refresh(): Promise<void> {
           ? `Refresh is on cooldown. Try again in about ${minutes} min.`
           : `Refresh is on cooldown. Try again in ${status.cooldownSecondsRemaining}s.`;
       return;
+    }
+
+    if (opts.force) {
+      refreshNotice.value = "Force refresh queued.";
     }
 
     if (status.refreshStatus === "FRESH" && !inFlight) {
@@ -289,7 +298,13 @@ watch(
     </StatusBanner>
 
     <template v-if="profile">
-      <CharacterProfileToolbar :profile="profile" :refreshing="polling" @refresh="refresh" />
+      <CharacterProfileToolbar
+        :profile="profile"
+        :refreshing="polling"
+        :can-force-refresh="canForceRefresh"
+        @refresh="refresh()"
+        @force-refresh="refresh({ force: true })"
+      />
 
       <details
         v-if="showBannerGroup"
@@ -317,7 +332,7 @@ watch(
             data-testid="refresh-timeout-banner"
           >
             Still waiting on providers. Retry refresh or come back shortly.
-            <button type="button" class="btn" data-testid="refresh-timeout-retry" @click="refresh">Retry</button>
+            <button type="button" class="btn" data-testid="refresh-timeout-retry" @click="refresh()">Retry</button>
           </StatusBanner>
 
           <StatusBanner

@@ -89,6 +89,18 @@ describe.skipIf(!dbAvailable)("grantAdminRole bootstrap", () => {
       ),
     ).rejects.toMatchObject({ code: "BNET_SUBJECT_NOT_FOUND" });
   });
+
+  it("startup bootstrap fails visibly for missing target", async () => {
+    const { runAdminBootstrap } = await import("./bootstrap-admin.js");
+    const env = buildTestEnv({
+      ADMIN_BOOTSTRAP_BATTLENET_SUBJECT: `missing-bootstrap-${randomUUID()}`,
+      ADMIN_API_KEY_EMERGENCY_FALLBACK: "false",
+      APP_ENV: "development",
+    });
+    await expect(runAdminBootstrap(prisma as PrismaClient, env)).rejects.toMatchObject({
+      code: "BNET_SUBJECT_NOT_FOUND",
+    });
+  });
 });
 
 describe("ownership sync region MVP", () => {

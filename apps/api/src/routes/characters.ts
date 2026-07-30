@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from "fastify";
 import type { CharacterIdentityInput } from "@mplus/contracts";
 import type { ApiContainer } from "../container.js";
 import { CharacterService } from "../services/character-service.js";
+import { HttpError } from "../errors.js";
 import { writeAuditEvent } from "../iam/audit.js";
 import { resolveRefreshPrivileges } from "../iam/session.js";
 import {
@@ -172,14 +173,23 @@ export function buildCharacterRoutes(container: ApiContainer): FastifyPluginAsyn
         schema: {
           tags: ["characters"],
           params: identityParamsSchema,
+          querystring: {
+            type: "object",
+            properties: {
+              force: { type: "boolean" },
+            },
+          },
           response: {
             200: refreshStatusResponseSchema,
+            403: errorResponseSchema,
             404: errorResponseSchema,
           },
         },
       },
       async (request) => {
         const identity = toIdentity(request.params as IdentityParams);
+        const query = request.query as { force?: boolean };
+        const wantForce = query.force === true;
         // Resolve privileges after we know the character id (findOrCreate inside requestRefresh).
         // Pre-check using identity-scoped lookup for ownership / admin.
         const preview = await service.getRefreshStatus(identity).catch(() => null);
@@ -189,7 +199,15 @@ export function buildCharacterRoutes(container: ApiContainer): FastifyPluginAsyn
           container.authService,
           preview?.characterId ?? "",
         );
-        if (privileges.bypassCooldown) {
+        if (wantForce && !privileges.forceRefresh) {
+          if (!request.auth && !request.headers["x-admin-api-key"]) {
+            throw HttpError.unauthorized("UNAUTHORIZED", "Authentication required");
+          }
+          throw HttpError.forbidden("FORBIDDEN", "Force refresh requires admin permission");
+        }
+        const forceRefresh = wantForce && privileges.forceRefresh;
+        const bypassCooldown = privileges.bypassCooldown || forceRefresh;
+        if (bypassCooldown || forceRefresh) {
           await writeAuditEvent(container.worker.prisma, {
             userId: request.auth?.user.id,
             actorType:
@@ -200,18 +218,20 @@ export function buildCharacterRoutes(container: ApiContainer): FastifyPluginAsyn
                   : privileges.actor === "owner"
                     ? "user"
                     : "anonymous",
-            action: "profile.refresh.cooldown_bypass",
+            action: forceRefresh ? "profile.refresh.force" : "profile.refresh.cooldown_bypass",
             resourceType: "character",
             resourceId: preview?.characterId ?? `${identity.region}/${identity.realmSlug}/${identity.name}`,
             ip: request.ip,
             userAgent: request.headers["user-agent"],
             sessionSecret: container.env.SESSION_SECRET,
-            metadata: { actor: privileges.actor, forceRefresh: privileges.forceRefresh },
+            metadata: { actor: privileges.actor, forceRefresh, bypassCooldown },
           });
         }
         return service.requestRefresh(identity, {
-          bypassCooldown: privileges.bypassCooldown,
-          forceRefresh: privileges.forceRefresh,
+          // Authorization boundary: force only when ?force=true AND permitted.
+          // Cooldown bypass alone must not imply provider forceRefresh.
+          bypassCooldown,
+          forceRefresh,
           correlationId: request.id,
         });
       },

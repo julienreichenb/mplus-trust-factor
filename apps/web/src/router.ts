@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from "vue-router";
+import { hasAdminNavPermission } from "./composables/useAuthSession";
 import { routeDefs } from "./routes";
 
 const apiBase = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:3000";
@@ -23,14 +24,7 @@ router.beforeEach(async (to) => {
     }
     if (to.meta.requiresAdmin) {
       const permissions = body.user?.permissions ?? [];
-      const allowed = permissions.some(
-        (p) =>
-          p.startsWith("admin.") ||
-          p === "score.recalculate" ||
-          p === "admin.ability_catalog.read" ||
-          p === "admin.score_models.manage",
-      );
-      if (!allowed) {
+      if (!hasAdminNavPermission(permissions)) {
         return { name: "access-denied" };
       }
     }

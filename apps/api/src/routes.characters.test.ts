@@ -324,4 +324,113 @@ describe.skipIf(!dbAvailable)("character routes", () => {
     const response = await app.inject({ method: "GET", url: "/api/v1/jobs/00000000-0000-0000-0000-000000000000" });
     expect(response.statusCode).toBe(404);
   });
+
+  it("allows normal POST /refresh without force permission", async () => {
+    const name = uniqueName("NormalRefreshOk");
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/v1/characters/${REALM_PATH}/${name}/refresh`,
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json().cooldownSecondsRemaining).toBe(0);
+  });
+
+  it("denies ?force=true for authenticated users without profile.refresh.force", async () => {
+    const name = uniqueName("ForceDenied");
+    const user = await prisma.user.create({
+      data: {
+        id: randomUUID(),
+        authProvider: "battlenet",
+        externalSubject: `force-denied-${randomUUID()}`,
+        displayName: "ForceDenied",
+        role: "USER",
+      },
+    });
+    const token = await container.authService.createSession({ userId: user.id });
+    const denied = await app.inject({
+      method: "POST",
+      url: `/api/v1/characters/${REALM_PATH}/${name}/refresh?force=true`,
+      headers: { cookie: `mplus_session=${token}` },
+    });
+    expect(denied.statusCode).toBe(403);
+    expect(denied.json().error.code).toBe("FORBIDDEN");
+  });
+
+  it("admin-key ?force=true succeeds and concurrent forced posts reuse one active job", async () => {
+    const name = uniqueName("ForceAdminOk");
+    const character = await container.worker.repositories.character.upsertCharacter(
+      { region: "EU", realmSlug: "tarren-mill", name },
+      { displayName: name },
+    );
+    const active = await prisma.ingestionJob.create({
+      data: {
+        jobType: "refresh-character",
+        status: "QUEUED",
+        characterId: character.id,
+        dedupeKey: `force-reuse-${character.id}`,
+        payload: { forceRefresh: true },
+        priority: 0,
+        scheduledAt: new Date(),
+      },
+    });
+
+    const [a, b] = await Promise.all([
+      app.inject({
+        method: "POST",
+        url: `/api/v1/characters/${REALM_PATH}/${name}/refresh?force=true`,
+        headers: { "x-admin-api-key": "test-admin-key" },
+      }),
+      app.inject({
+        method: "POST",
+        url: `/api/v1/characters/${REALM_PATH}/${name}/refresh?force=true`,
+        headers: { "x-admin-api-key": "test-admin-key" },
+      }),
+    ]);
+    expect(a.statusCode).toBe(200);
+    expect(b.statusCode).toBe(200);
+    expect(a.json().job?.jobId).toBe(active.id);
+    expect(b.json().job?.jobId).toBe(active.id);
+
+    const activeCount = await prisma.ingestionJob.count({
+      where: {
+        characterId: character.id,
+        jobType: "refresh-character",
+        status: { in: ["QUEUED", "ACTIVE"] },
+      },
+    });
+    expect(activeCount).toBe(1);
+  });
+
+  it("stale GET still returns published score and enqueues at most once", async () => {
+    const name = uniqueName("StaleOnceMore");
+    const path = `/api/v1/characters/${REALM_PATH}/${name}`;
+    await app.inject({ method: "GET", url: path });
+    await app.inject({ method: "GET", url: path });
+
+    const character = await prisma.character.findFirst({ where: { normalizedName: normalizeName(name) } });
+    expect(character).not.toBeNull();
+    const published = await prisma.characterPublishedScore.findFirst({
+      where: { characterId: character!.id },
+    });
+    expect(published).not.toBeNull();
+    await prisma.scoreSnapshot.update({
+      where: { id: published!.publishedSnapshotId },
+      data: { calculatedAt: new Date(Date.now() - 8 * 86_400_000) },
+    });
+    container.responseCache.clear();
+
+    const before = await prisma.ingestionJob.count({
+      where: { characterId: character!.id, jobType: "refresh-character" },
+    });
+    const first = await app.inject({ method: "GET", url: path });
+    const second = await app.inject({ method: "GET", url: path });
+    expect(first.statusCode).toBe(200);
+    expect(first.json().score).not.toBeNull();
+    expect(first.json().refreshStatus).toBe("STALE");
+    expect(second.json().score).not.toBeNull();
+    const after = await prisma.ingestionJob.count({
+      where: { characterId: character!.id, jobType: "refresh-character" },
+    });
+    expect(after - before).toBeLessThanOrEqual(1);
+  });
 });

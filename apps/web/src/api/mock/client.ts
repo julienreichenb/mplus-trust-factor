@@ -282,7 +282,7 @@ export function createMockApiClient(): MplusApiClient {
       return deepClone({ ...profile, refreshStatus: "QUEUED" as const });
     },
 
-    async refreshCharacter(identity, signal) {
+    async refreshCharacter(identity, signal, _opts) {
       await delay(40);
       assertNotAborted(signal);
       const fixture = findFixture(identity);

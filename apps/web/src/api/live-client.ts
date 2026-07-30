@@ -136,8 +136,15 @@ export function createLiveApiClient(options: {
     getCharacterProfile: (identity: CharacterIdentityInput, signal) =>
       get<CharacterProfileResponse>(identityPath(identity), signal),
 
-    refreshCharacter: (identity, signal) =>
-      send<RefreshStatusResponse>("POST", `${identityPath(identity)}/refresh`, undefined, signal),
+    refreshCharacter: (identity, signal, opts) => {
+      const forceQs = opts?.force ? "?force=true" : "";
+      return send<RefreshStatusResponse>(
+        "POST",
+        `${identityPath(identity)}/refresh${forceQs}`,
+        undefined,
+        signal,
+      );
+    },
 
     getRefreshStatus: (identity, signal) =>
       get<RefreshStatusResponse>(`${identityPath(identity)}/refresh-status`, signal),

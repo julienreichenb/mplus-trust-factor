@@ -14,6 +14,7 @@ describe("CharacterService — centralized 7-day refresh policy", () => {
     id: "job-1",
     status: "QUEUED",
     dedupeKey: "d",
+    scheduledAt: new Date(),
     createdAt: new Date(),
     startedAt: null,
     completedAt: null,
@@ -300,6 +301,73 @@ describe("CharacterService — centralized 7-day refresh policy", () => {
     const service = new CharacterService(buildContainer());
     const result = await service.getProfile(identity);
     expect(result.body.refreshStatus).toBe("STALE");
+    expect(mockRecalc).toHaveBeenCalledTimes(1);
+    expect(mockEnqueue).not.toHaveBeenCalled();
+  });
+
+  it("authorized forceRefresh uses the centralized enqueue path with forceRefresh=true", async () => {
+    const service = new CharacterService(buildContainer());
+    await service.requestRefresh(identity, {
+      bypassCooldown: true,
+      forceRefresh: true,
+      correlationId: "force-1",
+    });
+    expect(mockEnqueue).toHaveBeenCalledTimes(1);
+    expect(mockEnqueue).toHaveBeenCalledWith(
+      expect.objectContaining({
+        characterId: "char-1",
+        forceRefresh: true,
+        correlationId: "force-1",
+      }),
+    );
+    expect(mockRecalc).not.toHaveBeenCalled();
+  });
+
+  it("cooldown bypass without forceRefresh enqueues with forceRefresh=false", async () => {
+    const service = new CharacterService(buildContainer());
+    await service.requestRefresh(identity, {
+      bypassCooldown: true,
+      forceRefresh: false,
+    });
+    expect(mockEnqueue).toHaveBeenCalledWith(
+      expect.objectContaining({ forceRefresh: false }),
+    );
+  });
+
+  it("force refresh reuses an active job instead of creating a duplicate", async () => {
+    mockFindActive.mockResolvedValue({
+      id: "job-active",
+      status: "QUEUED",
+      completedAt: null,
+      scheduledAt: new Date(),
+      startedAt: null,
+      dedupeKey: "d",
+      jobType: "refresh-character",
+      error: null,
+    });
+    const service = new CharacterService(buildContainer());
+    const first = await service.requestRefresh(identity, {
+      bypassCooldown: true,
+      forceRefresh: true,
+    });
+    const second = await service.requestRefresh(identity, {
+      bypassCooldown: true,
+      forceRefresh: true,
+    });
+    expect(first.job?.jobId).toBe("job-active");
+    expect(second.job?.jobId).toBe("job-active");
+    expect(mockEnqueue).not.toHaveBeenCalled();
+  });
+
+  it("model-only mismatch still recalculates after force-refresh helpers exist", async () => {
+    mockGetPublishedSnapshot.mockResolvedValue(
+      publishedSnapshot(recentCalculatedAt, {
+        modelVersion: 3,
+        contract: { ...matchingContract, scoringModelVersion: 3 },
+      }),
+    );
+    const service = new CharacterService(buildContainer());
+    await service.getProfile(identity);
     expect(mockRecalc).toHaveBeenCalledTimes(1);
     expect(mockEnqueue).not.toHaveBeenCalled();
   });

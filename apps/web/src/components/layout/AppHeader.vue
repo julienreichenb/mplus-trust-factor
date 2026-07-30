@@ -1,9 +1,16 @@
 <script setup lang="ts">
+import { onMounted } from "vue";
 import { RouterLink, useRoute } from "vue-router";
 import BrandMark from "../brand/BrandMark.vue";
 import CharacterRealmSearch from "../search/CharacterRealmSearch.vue";
+import { useAuthSession } from "../../composables/useAuthSession";
 
 const route = useRoute();
+const { canSeeAdminNav, fetchAuthMe } = useAuthSession();
+
+onMounted(() => {
+  void fetchAuthMe();
+});
 
 function hashHref(hash: string): string {
   return route.name === "home" ? hash : `/${hash}`;
@@ -26,6 +33,11 @@ function hashHref(hash: string): string {
       <a :href="hashHref('#methodology')">Methodology</a>
       <RouterLink to="/compare">Compare</RouterLink>
       <RouterLink to="/account">Account</RouterLink>
+      <template v-if="canSeeAdminNav">
+        <RouterLink to="/admin/models">Score models</RouterLink>
+        <RouterLink to="/admin/ability-catalog">Ability catalog</RouterLink>
+        <RouterLink to="/admin/users">Admin users</RouterLink>
+      </template>
     </nav>
 
     <div class="actions">

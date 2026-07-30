@@ -104,6 +104,24 @@ export const envSchema = z
      * Never accepted from SPA code; every successful use is audited; startup warns when enabled.
      */
     ADMIN_API_KEY_EMERGENCY_FALLBACK: booleanFromString.default(false),
+    /**
+     * Optional first-admin bootstrap (immutable id only). Exactly one may be set.
+     * Applied on API startup when present; never accepts BattleTag/email.
+     * Leave unset for local until the operator has completed first OAuth login, then use
+     * `pnpm iam:grant-admin` or set one of these and restart.
+     */
+    ADMIN_BOOTSTRAP_USER_ID: z.preprocess(
+      (value) => (typeof value === "string" && value.trim() === "" ? undefined : value),
+      z.string().uuid().optional(),
+    ),
+    ADMIN_BOOTSTRAP_BATTLENET_SUBJECT: z.preprocess(
+      (value) => {
+        if (typeof value !== "string") return value;
+        const trimmed = value.trim();
+        return trimmed === "" ? undefined : trimmed;
+      },
+      z.string().min(1).optional(),
+    ),
     SESSION_SECRET: z.string().min(32),
     /**
      * AES key material for provider OAuth tokens at rest. Defaults to SESSION_SECRET when unset.
@@ -130,6 +148,15 @@ export const envSchema = z
     WORKER_HEALTH_PORT: z.coerce.number().int().min(0).default(3001),
   })
   .superRefine((env, ctx) => {
+    if (env.ADMIN_BOOTSTRAP_USER_ID && env.ADMIN_BOOTSTRAP_BATTLENET_SUBJECT) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "Provide at most one of ADMIN_BOOTSTRAP_USER_ID or ADMIN_BOOTSTRAP_BATTLENET_SUBJECT (immutable identity only)",
+        path: ["ADMIN_BOOTSTRAP_USER_ID"],
+      });
+    }
+
     if (env.PROVIDER_MODE !== "live") {
       return;
     }

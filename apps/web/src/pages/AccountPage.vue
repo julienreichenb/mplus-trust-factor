@@ -389,6 +389,7 @@ function portraitSrc(c: AccountOwnedCharacterDTO): string | null {
       <nav class="actions">
         <RouterLink class="btn btn--ghost" to="/admin/models">Score models</RouterLink>
         <RouterLink class="btn btn--ghost" to="/admin/ability-catalog">Ability catalog</RouterLink>
+        <RouterLink class="btn btn--ghost" to="/admin/users">Admin users</RouterLink>
       </nav>
     </section>
   </section>
