@@ -97,6 +97,11 @@ jobs:
       - name: Validate migrations (deploy against empty DB)
         run: pnpm db:migrate
 
+      # Bootstrap empty CI Postgres only (workflow DATABASE_URL → service :5432).
+      # Idempotent fixture score model for unit tests — not production model activation.
+      - name: Seed database (idempotent score model + fixtures)
+        run: pnpm db:seed
+
       - name: Unit / package tests
         run: pnpm test
 

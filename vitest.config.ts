@@ -44,8 +44,11 @@ export default defineConfig({
       PROVIDER_MODE: "fixture",
       NODE_ENV: "test",
       APP_ENV: "test",
-      DATABASE_URL: "postgresql://mplus:mplus@localhost:5433/mplus_trust?schema=public",
-      REDIS_URL: "redis://localhost:6379",
+      // Prefer an explicit DATABASE_URL (CI uses :5432). Local compose maps Postgres to :5433.
+      DATABASE_URL:
+        process.env.DATABASE_URL ??
+        "postgresql://mplus:mplus@localhost:5433/mplus_trust?schema=public",
+      REDIS_URL: process.env.REDIS_URL ?? "redis://localhost:6379",
       WEB_ORIGIN: "http://localhost:5173",
       PUBLIC_BASE_URL: "http://localhost:3000",
       SESSION_SECRET: "test-session-secret-at-least-32-chars",
