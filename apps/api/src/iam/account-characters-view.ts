@@ -1,7 +1,9 @@
 import {
   buildFreshnessConfig,
+  decideScoreRefresh,
   isDatasetFresh,
   presentWowClass,
+  toAccountTrustStatus,
 } from "@mplus/config";
 import type {
   AccountCharactersResponse,
@@ -19,19 +21,10 @@ function readAvatarFromSnapshot(rawSummary: unknown): string | null {
   return typeof avatar === "string" && avatar.startsWith("https://") ? avatar : null;
 }
 
-function mapJobStatusToTrust(
-  jobStatus: string | null | undefined,
-): AccountTrustScoreStatus | null {
-  if (!jobStatus) return null;
-  if (jobStatus === "QUEUED") return "QUEUED";
-  if (jobStatus === "ACTIVE") return "RUNNING";
-  if (jobStatus === "FAILED") return "FAILED";
-  return null;
-}
-
 /**
  * Server-side account character view: ownership + character + score + job + class/media.
  * Default list is relevant CURRENT only.
+ * Completed scores stay visible during refresh (REFRESHING); never flip to loading-only.
  */
 export async function buildAccountCharactersView(input: {
   prisma: PrismaClient;
@@ -116,24 +109,25 @@ export async function buildAccountCharactersView(input: {
     let errorMessage: string | null = null;
 
     if (row.characterId) {
-      const job = await prisma.ingestionJob.findFirst({
+      const activeJob = await prisma.ingestionJob.findFirst({
         where: {
           characterId: row.characterId,
           jobType: QUEUE_NAMES.refreshCharacter,
+          status: { in: ["QUEUED", "ACTIVE"] },
         },
         orderBy: { scheduledAt: "desc" },
       });
-      if (job) {
-        jobId = job.id;
-        const mapped = mapJobStatusToTrust(job.status);
-        if (mapped) {
-          trustStatus = mapped;
-          if (job.status === "FAILED") {
-            const err = job.error as { code?: string; message?: string } | null;
-            errorCode = err?.code ?? "REFRESH_FAILED";
-            errorMessage = err?.message ?? "Trust Score refresh failed";
-          }
-        }
+      const latestJob =
+        activeJob ??
+        (await prisma.ingestionJob.findFirst({
+          where: {
+            characterId: row.characterId,
+            jobType: QUEUE_NAMES.refreshCharacter,
+          },
+          orderBy: { scheduledAt: "desc" },
+        }));
+      if (latestJob) {
+        jobId = latestJob.id;
       }
 
       const published = row.character?.publishedScores.find(
@@ -143,30 +137,56 @@ export async function buildAccountCharactersView(input: {
           p.scopeType === "CHARACTER",
       );
       const snap = published?.publishedSnapshot;
-      if (snap?.isPublic) {
+      const hasPublished = Boolean(snap?.isPublic);
+
+      if (hasPublished && snap) {
         score = Number(snap.overallScore);
         grade = snap.grade;
         confidence = Number(snap.confidence);
         modelVersion = snap.scoreModel?.version ?? env.ACTIVE_SCORE_MODEL_VERSION;
         calculatedAt = snap.calculatedAt.toISOString();
-        const fresh = isDatasetFresh(snap.calculatedAt, "calculated.score_snapshot", freshness);
-        if (trustStatus === "QUEUED" || trustStatus === "RUNNING") {
-          // keep in-flight status
-        } else if (snap.coverageState === "PARTIAL") {
-          trustStatus = "PARTIAL";
-        } else if (!fresh) {
-          trustStatus = "STALE";
-        } else if (snap.rejectionReason) {
+      }
+
+      const decision = decideScoreRefresh({
+        hasPublishedScore: hasPublished,
+        scoreCalculatedAt: snap?.calculatedAt ?? null,
+        gradeIsU: snap?.grade === "U",
+        scoreTtlSeconds: env.SCORE_TTL_SECONDS,
+        failureBackoffSeconds: env.REFRESH_FAILURE_BACKOFF_SECONDS,
+        activeJobStatus: activeJob ? (activeJob.status as "QUEUED" | "ACTIVE") : null,
+        latestJobStatus: latestJob?.status ?? null,
+        latestJobFinishedAt: latestJob?.completedAt ?? null,
+        contractReasons: [],
+      });
+
+      // Account navigation is read-only — never enqueue from this view.
+      // Completed jobs must not flip a usable score back to loading.
+      if (hasPublished) {
+        const fresh = isDatasetFresh(snap!.calculatedAt, "calculated.score_snapshot", freshness);
+        trustStatus = toAccountTrustStatus(decision, {
+          partial: snap!.coverageState === "PARTIAL",
+        }) as AccountTrustScoreStatus;
+        if (snap!.rejectionReason && decision.action === "NONE" && fresh) {
           trustStatus = "UNAVAILABLE";
-          errorCode = snap.rejectionReason;
-          errorMessage = snap.rejectionReason;
-        } else {
-          trustStatus = "AVAILABLE";
+          errorCode = snap!.rejectionReason;
+          errorMessage = snap!.rejectionReason;
         }
-      } else if (trustStatus === "NOT_REQUESTED") {
-        if (discovery.status === "QUEUED" || discovery.status === "RUNNING") {
-          trustStatus = "DISCOVERING";
+        if (decision.reason === "RECENT_FAILURE") {
+          const err = latestJob?.error as { code?: string; message?: string } | null;
+          errorCode = err?.code ?? "REFRESH_FAILED";
+          errorMessage = err?.message ?? "Trust Score refresh failed";
         }
+      } else if (decision.publicState === "UNAVAILABLE") {
+        trustStatus = "UNAVAILABLE";
+        const err = latestJob?.error as { code?: string; message?: string } | null;
+        errorCode = err?.code ?? "REFRESH_FAILED";
+        errorMessage = err?.message ?? "Trust Score refresh failed";
+      } else if (decision.publicState === "CALCULATING" || decision.publicState === "NO_SCORE_QUEUED") {
+        trustStatus = toAccountTrustStatus(decision, {
+          discovering: discovery.status === "QUEUED" || discovery.status === "RUNNING",
+        }) as AccountTrustScoreStatus;
+      } else if (discovery.status === "QUEUED" || discovery.status === "RUNNING") {
+        trustStatus = "DISCOVERING";
       }
     } else if (discovery.status === "QUEUED" || discovery.status === "RUNNING") {
       trustStatus = "DISCOVERING";

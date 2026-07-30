@@ -22,7 +22,15 @@ export interface FreshnessConfig {
 export const FRESHNESS_CONFIG_VERSION = "2026-07-29";
 
 /** Centralized dataset-specific TTLs (seconds). Immutable report data gets long TTLs. */
-export function buildFreshnessConfig(env: Pick<AppEnv, "BLIZZARD_CHARACTER_TTL_SECONDS" | "WCL_CHARACTER_TTL_SECONDS" | "RAIDERIO_CHARACTER_TTL_SECONDS">): FreshnessConfig {
+export function buildFreshnessConfig(
+  env: Pick<
+    AppEnv,
+    | "BLIZZARD_CHARACTER_TTL_SECONDS"
+    | "WCL_CHARACTER_TTL_SECONDS"
+    | "RAIDERIO_CHARACTER_TTL_SECONDS"
+    | "SCORE_TTL_SECONDS"
+  >,
+): FreshnessConfig {
   return {
     version: FRESHNESS_CONFIG_VERSION,
     datasets: {
@@ -36,7 +44,8 @@ export function buildFreshnessConfig(env: Pick<AppEnv, "BLIZZARD_CHARACTER_TTL_S
       "wcl.report_master": 2_592_000, // 30 days — report metadata is immutable
       "wcl.combat_events": 2_592_000, // 30 days — fight events are immutable
       "normalized.run_analysis": 604_800, // 7 days — invalidated by analyzer/catalog version
-      "calculated.score_snapshot": env.BLIZZARD_CHARACTER_TTL_SECONDS,
+      // Published Trust Score freshness — distinct from provider TTLs (default 7 days).
+      "calculated.score_snapshot": env.SCORE_TTL_SECONDS,
     },
   };
 }

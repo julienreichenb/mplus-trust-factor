@@ -101,6 +101,8 @@ describe("runDiscoverOwnedCharacters", () => {
         BLIZZARD_CHARACTER_TTL_SECONDS: 86_400,
         WCL_CHARACTER_TTL_SECONDS: 43_200,
         RAIDERIO_CHARACTER_TTL_SECONDS: 43_200,
+        SCORE_TTL_SECONDS: 604_800,
+        REFRESH_FAILURE_BACKOFF_SECONDS: 3_600,
       },
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
       providers: {
@@ -190,6 +192,7 @@ describe("runDiscoverOwnedCharacters", () => {
       },
     ];
 
+    const freshCalculatedAt = new Date();
     const prisma = {
       battleNetAccount: {
         findUnique: vi.fn(async () => ({ id: "bnet-1", unlinkedAt: null })),
@@ -204,7 +207,7 @@ describe("runDiscoverOwnedCharacters", () => {
         findFirst: vi.fn(async () => ({
           publishedSnapshot: {
             isPublic: true,
-            calculatedAt: new Date(),
+            calculatedAt: freshCalculatedAt,
           },
         })),
       },
@@ -219,6 +222,8 @@ describe("runDiscoverOwnedCharacters", () => {
         BLIZZARD_CHARACTER_TTL_SECONDS: 86_400,
         WCL_CHARACTER_TTL_SECONDS: 43_200,
         RAIDERIO_CHARACTER_TTL_SECONDS: 43_200,
+        SCORE_TTL_SECONDS: 604_800,
+        REFRESH_FAILURE_BACKOFF_SECONDS: 3_600,
       },
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
       providers: { blizzard: { getMythicKeystoneProfile }, warcraftlogs: {} },
@@ -227,6 +232,24 @@ describe("runDiscoverOwnedCharacters", () => {
         character: { upsertCharacter: vi.fn(async () => ({ id: "char-scored" })) },
       },
     } as unknown as WorkerContainer;
+
+    // Discovery freshness is SCORE_TTL via calculatedAt (buildFreshnessConfig), not lastPublicRefreshAt.
+    // A TTL-fresh published snapshot must count even without refreshContract metadata on the pointer.
+    const { decideScoreRefresh, isDatasetFresh, buildFreshnessConfig } = await import("@mplus/config");
+    const freshness = buildFreshnessConfig(container.env as never);
+    expect(isDatasetFresh(freshCalculatedAt, "calculated.score_snapshot", freshness)).toBe(true);
+    expect(
+      decideScoreRefresh({
+        hasPublishedScore: true,
+        scoreCalculatedAt: freshCalculatedAt,
+        scoreTtlSeconds: 604_800,
+        failureBackoffSeconds: 3_600,
+        activeJobStatus: null,
+        latestJobStatus: "COMPLETED",
+        latestJobFinishedAt: freshCalculatedAt,
+        contractReasons: [],
+      }).action,
+    ).toBe("NONE");
 
     const result = await runDiscoverOwnedCharacters(
       container,
@@ -244,6 +267,95 @@ describe("runDiscoverOwnedCharacters", () => {
     expect(result.counters.existingFreshScoreCount).toBe(1);
     expect(enqueueRefreshCharacter).not.toHaveBeenCalled();
     expect(QUEUE_NAMES.discoverOwnedCharacters).toBe("discover-owned-characters");
+  });
+
+  it("enqueues refresh when published score calculatedAt is past SCORE_TTL", async () => {
+    const getMythicKeystoneProfile = vi.fn(async () => ({
+      data: { currentMythicRating: 500 },
+      provenance: {},
+      metadata: {},
+      freshness: {},
+    }));
+    const ownerships = [
+      {
+        id: "o-stale",
+        status: "CURRENT",
+        characterLevel: 90,
+        characterName: "Stale",
+        realmSlug: "tarren-mill",
+        playableClassId: 8,
+        blizzardCharacterId: 10n,
+        isPrimary: false,
+        characterId: "char-stale",
+        relevanceReasons: null,
+        relevanceEligible: null,
+        currentSeasonMythicRating: null,
+        currentSeasonMythicFetchedAt: null,
+        currentSeasonMythicSource: null,
+        currentSeasonMythicSeasonId: null,
+        region: { code: "EU" },
+      },
+    ];
+
+    const prisma = {
+      battleNetAccount: {
+        findUnique: vi.fn(async () => ({ id: "bnet-1", unlinkedAt: null })),
+        update: vi.fn(async () => ({})),
+      },
+      season: { findFirst: vi.fn(async () => ({ id: "season-1", slug: "season-tww-3" })) },
+      verifiedCharacterOwnership: {
+        findMany: vi.fn(async () => ownerships),
+        update: vi.fn(async () => ({})),
+      },
+      characterPublishedScore: {
+        findFirst: vi.fn(async () => ({
+          publishedSnapshot: {
+            isPublic: true,
+            calculatedAt: new Date(Date.now() - 8 * 86_400_000),
+          },
+        })),
+      },
+      ingestionJob: { findFirst: vi.fn(async () => null) },
+    };
+
+    const enqueueRefreshCharacter = vi.fn(async () => ({
+      jobId: "job-stale",
+      dedupeKey: "d",
+      reused: false,
+      enqueued: true,
+    }));
+    const container = {
+      prisma,
+      env: {
+        ACTIVE_SCORE_MODEL_KEY: "default",
+        BLIZZARD_CHARACTER_TTL_SECONDS: 86_400,
+        WCL_CHARACTER_TTL_SECONDS: 43_200,
+        RAIDERIO_CHARACTER_TTL_SECONDS: 43_200,
+        SCORE_TTL_SECONDS: 604_800,
+        REFRESH_FAILURE_BACKOFF_SECONDS: 3_600,
+      },
+      logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      providers: { blizzard: { getMythicKeystoneProfile }, warcraftlogs: {} },
+      repositories: {
+        score: { getActiveModel: vi.fn(async () => ({ id: "model-1" })) },
+        character: { upsertCharacter: vi.fn(async () => ({ id: "char-stale" })) },
+      },
+    } as unknown as WorkerContainer;
+
+    const result = await runDiscoverOwnedCharacters(
+      container,
+      {
+        battleNetAccountId: "bnet-1",
+        userId: "user-1",
+        ownershipSyncAt: new Date().toISOString(),
+        seasonKey: "season-tww-3",
+        requestedAt: new Date().toISOString(),
+      },
+      { enqueueRefreshCharacter },
+    );
+
+    expect(result.counters.existingFreshScoreCount).toBe(0);
+    expect(enqueueRefreshCharacter).toHaveBeenCalledTimes(1);
   });
 
   it("continues when one character refresh enqueue fails", async () => {
@@ -298,6 +410,8 @@ describe("runDiscoverOwnedCharacters", () => {
         BLIZZARD_CHARACTER_TTL_SECONDS: 86_400,
         WCL_CHARACTER_TTL_SECONDS: 43_200,
         RAIDERIO_CHARACTER_TTL_SECONDS: 43_200,
+        SCORE_TTL_SECONDS: 604_800,
+        REFRESH_FAILURE_BACKOFF_SECONDS: 3_600,
       },
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
       providers: { blizzard: { getMythicKeystoneProfile }, warcraftlogs: {} },

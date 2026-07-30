@@ -210,7 +210,8 @@ export function buildCharacterRoutes(container: ApiContainer): FastifyPluginAsyn
           });
         }
         return service.requestRefresh(identity, {
-          isAdmin: privileges.bypassCooldown,
+          bypassCooldown: privileges.bypassCooldown,
+          forceRefresh: privileges.forceRefresh,
           correlationId: request.id,
         });
       },

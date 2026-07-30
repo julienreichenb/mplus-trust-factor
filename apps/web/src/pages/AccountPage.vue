@@ -50,6 +50,7 @@ const needsPolling = computed(() => {
     (c) =>
       c.trustScore.status === "QUEUED" ||
       c.trustScore.status === "RUNNING" ||
+      c.trustScore.status === "REFRESHING" ||
       c.trustScore.status === "DISCOVERING",
   );
 });
@@ -62,6 +63,8 @@ function statusLabel(status: AccountOwnedCharacterDTO["trustScore"]["status"]): 
       return "Queued";
     case "RUNNING":
       return "Analysing";
+    case "REFRESHING":
+      return "Refreshing";
     case "AVAILABLE":
       return "Available";
     case "PARTIAL":
@@ -321,22 +324,40 @@ function portraitSrc(c: AccountOwnedCharacterDTO): string | null {
 
             <div class="char-row__right">
               <TrustTierBadge
-                v-if="c.trustScore.status === 'AVAILABLE' && c.trustScore.grade"
+                v-if="
+                  (c.trustScore.status === 'AVAILABLE' ||
+                    c.trustScore.status === 'REFRESHING' ||
+                    c.trustScore.status === 'STALE' ||
+                    c.trustScore.status === 'FAILED') &&
+                  c.trustScore.grade
+                "
                 :tier="(c.trustScore.grade as Grade)"
                 size="sm"
                 letter-only
                 flush
               />
               <span
-                v-else-if="
+                v-if="
                   c.trustScore.status === 'QUEUED' ||
                   c.trustScore.status === 'RUNNING' ||
+                  c.trustScore.status === 'REFRESHING' ||
                   c.trustScore.status === 'DISCOVERING'
                 "
                 class="spinner"
                 aria-hidden="true"
               />
-              <span v-else class="status-pill" :data-status="c.trustScore.status">
+              <span
+                v-else-if="
+                  !(
+                    (c.trustScore.status === 'AVAILABLE' ||
+                      c.trustScore.status === 'STALE' ||
+                      c.trustScore.status === 'FAILED') &&
+                    c.trustScore.grade
+                  )
+                "
+                class="status-pill"
+                :data-status="c.trustScore.status"
+              >
                 {{ statusLabel(c.trustScore.status) }}
               </span>
               <span v-if="c.isPrimary" class="badge">Primary</span>

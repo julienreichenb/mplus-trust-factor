@@ -68,6 +68,16 @@ export const envSchema = z
      */
     UTILITY_PUBLICATION_MODE: z.enum(["off", "shadow", "published"]).default("shadow"),
     MANUAL_REFRESH_COOLDOWN_SECONDS: z.coerce.number().int().positive().default(900),
+    /**
+     * Published Trust Score freshness window (calculation/publication time).
+     * Distinct from provider TTLs. Default 7 days.
+     */
+    SCORE_TTL_SECONDS: z.coerce.number().int().positive().default(604_800),
+    /**
+     * After a failed refresh, ordinary profile/search/account reads must not
+     * re-enqueue until this backoff elapses. Last published score remains visible.
+     */
+    REFRESH_FAILURE_BACKOFF_SECONDS: z.coerce.number().int().nonnegative().default(3_600),
 
     /**
      * Refresh orchestration (Agent 39).
@@ -228,6 +238,26 @@ export {
   type RefreshPolicyConfig,
   type RefreshPolicyEnv,
 } from "./refresh-policy.js";
+
+export {
+  decideScoreRefresh,
+  isScoreWithinTtl,
+  isWithinFailureBackoff,
+  preferRecalculateOnly,
+  toAccountTrustStatus,
+  scoreAgeMs,
+  DEFAULT_SCORE_TTL_SECONDS,
+  DEFAULT_REFRESH_FAILURE_BACKOFF_SECONDS,
+  type ScoreRefreshAction,
+  type PublicScoreState,
+  type ScoreRefreshReason,
+  type ScoreRefreshDecision,
+  type ScoreRefreshDecisionInput,
+  type ScoreContractStaleReason,
+  type CoarseRefreshStatus,
+  type DetailedRefreshStatus as ScoreDetailedRefreshStatus,
+  type AccountTrustLifecycleStatus,
+} from "./score-refresh-decision.js";
 
 export {
   ACTIVE_EXPANSION_METADATA_V1,

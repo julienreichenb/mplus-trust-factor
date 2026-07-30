@@ -1,11 +1,17 @@
-export type ProfileRefreshStatus = "FRESH" | "STALE" | "QUEUED";
-export type DetailedRefreshStatus = "FRESH" | "QUEUED" | "STALE" | "IN_PROGRESS" | "FAILED";
+import {
+  decideScoreRefresh,
+  isScoreWithinTtl,
+  type ScoreDetailedRefreshStatus,
+  type PublicScoreState,
+  type ScoreRefreshDecision,
+} from "@mplus/config";
 
-/** True when `lastPublicRefreshAt` is within `ttlSeconds` of now. */
+export type ProfileRefreshStatus = "FRESH" | "STALE" | "QUEUED";
+export type DetailedRefreshStatus = ScoreDetailedRefreshStatus;
+
+/** @deprecated Prefer isScoreWithinTtl(scoreCalculatedAt, scoreTtlSeconds). Kept for cooldown helpers. */
 export function isFresh(lastPublicRefreshAt: Date | null | undefined, ttlSeconds: number): boolean {
-  if (!lastPublicRefreshAt) return false;
-  const ageMs = Date.now() - lastPublicRefreshAt.getTime();
-  return ageMs <= ttlSeconds * 1000;
+  return isScoreWithinTtl(lastPublicRefreshAt, ttlSeconds);
 }
 
 /** Seconds remaining in the manual-refresh cooldown window (0 when elapsed or never refreshed). */
@@ -18,7 +24,7 @@ export function cooldownSecondsRemaining(
   return Math.max(0, Math.ceil(cooldownSeconds - elapsedSeconds));
 }
 
-/** SWR status for the character profile GET route (no in-flight job distinction needed). */
+/** SWR status for the character profile GET route (legacy helper — prefer decideScoreRefresh). */
 export function determineProfileRefreshStatus(params: {
   hasScore: boolean;
   fresh: boolean;
@@ -27,18 +33,24 @@ export function determineProfileRefreshStatus(params: {
   return params.fresh ? "FRESH" : "STALE";
 }
 
-/** SWR status for the dedicated refresh-status route, aware of active/failed jobs. */
+/** SWR status for the dedicated refresh-status route (legacy helper — prefer decideScoreRefresh). */
 export function determineDetailedRefreshStatus(params: {
   hasScore: boolean;
   fresh: boolean;
   activeJobStatus: "QUEUED" | "ACTIVE" | null;
   lastJobFailed: boolean;
 }): DetailedRefreshStatus {
-  if (params.activeJobStatus) {
-    return params.activeJobStatus === "ACTIVE" ? "IN_PROGRESS" : "QUEUED";
-  }
-  if (!params.hasScore) {
-    return params.lastJobFailed ? "FAILED" : "QUEUED";
-  }
-  return params.fresh ? "FRESH" : "STALE";
+  const decision = decideScoreRefresh({
+    hasPublishedScore: params.hasScore,
+    scoreCalculatedAt: params.fresh ? new Date() : new Date(0),
+    scoreTtlSeconds: params.fresh ? 604_800 : 1,
+    failureBackoffSeconds: params.lastJobFailed ? 3_600 : 0,
+    activeJobStatus: params.activeJobStatus,
+    latestJobStatus: params.lastJobFailed ? "FAILED" : params.hasScore ? "COMPLETED" : null,
+    latestJobFinishedAt: params.lastJobFailed ? new Date() : null,
+    contractReasons: [],
+  });
+  return decision.detailedRefreshStatus;
 }
+
+export type { PublicScoreState, ScoreRefreshDecision };

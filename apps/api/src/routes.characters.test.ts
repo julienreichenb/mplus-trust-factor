@@ -56,9 +56,57 @@ describe.skipIf(!dbAvailable)("character routes", () => {
 
   it("marks a score STALE once past the freshness TTL and re-enqueues a refresh", async () => {
     const name = uniqueName("Stalecharacter");
+    const path = `/api/v1/characters/${REALM_PATH}/${name}`;
 
-    await app.inject({ method: "GET", url: `/api/v1/characters/${REALM_PATH}/${name}` });
-    await app.inject({ method: "GET", url: `/api/v1/characters/${REALM_PATH}/${name}` });
+    await app.inject({ method: "GET", url: path });
+    const fresh = await app.inject({ method: "GET", url: path });
+    expect(fresh.statusCode).toBe(200);
+    expect(fresh.json().refreshStatus).toBe("FRESH");
+    expect(fresh.json().score).not.toBeNull();
+
+    const character = await prisma.character.findFirst({ where: { normalizedName: normalizeName(name) } });
+    expect(character).not.toBeNull();
+
+    // Canonical score freshness is ScoreSnapshot.calculatedAt (not lastPublicRefreshAt).
+    const published = await prisma.characterPublishedScore.findFirst({
+      where: { characterId: character!.id },
+    });
+    expect(published).not.toBeNull();
+    const staleCalculatedAt = new Date(Date.now() - 8 * 86_400_000);
+    await prisma.scoreSnapshot.update({
+      where: { id: published!.publishedSnapshotId },
+      data: { calculatedAt: staleCalculatedAt },
+    });
+    // Keep lastPublicRefreshAt recent to prove it alone does not drive STALE.
+    await prisma.character.update({
+      where: { id: character!.id },
+      data: { lastPublicRefreshAt: new Date() },
+    });
+    container.responseCache.clear();
+
+    const jobsBefore = await prisma.ingestionJob.count({
+      where: { characterId: character!.id, jobType: "refresh-character" },
+    });
+
+    const response = await app.inject({ method: "GET", url: path });
+    expect(response.statusCode).toBe(200);
+    expect(response.json().refreshStatus).toBe("STALE");
+    expect(response.json().score).not.toBeNull();
+    expect(response.json().score.overallScore).toBe(fresh.json().score.overallScore);
+
+    const jobsAfterStale = await prisma.ingestionJob.count({
+      where: { characterId: character!.id, jobType: "refresh-character" },
+    });
+    // Inline queue may complete immediately; at most one additional refresh arming.
+    expect(jobsAfterStale - jobsBefore).toBeLessThanOrEqual(1);
+  });
+
+  it("does not mark STALE when only lastPublicRefreshAt is aged", async () => {
+    const name = uniqueName("LastPublicOnly");
+    const path = `/api/v1/characters/${REALM_PATH}/${name}`;
+
+    await app.inject({ method: "GET", url: path });
+    await app.inject({ method: "GET", url: path });
 
     const character = await prisma.character.findFirst({ where: { normalizedName: normalizeName(name) } });
     expect(character).not.toBeNull();
@@ -68,9 +116,78 @@ describe.skipIf(!dbAvailable)("character routes", () => {
     });
     container.responseCache.clear();
 
-    const response = await app.inject({ method: "GET", url: `/api/v1/characters/${REALM_PATH}/${name}` });
+    const response = await app.inject({ method: "GET", url: path });
     expect(response.statusCode).toBe(200);
-    expect(response.json().refreshStatus).toBe("STALE");
+    expect(response.json().refreshStatus).toBe("FRESH");
+    expect(response.json().score).not.toBeNull();
+  });
+
+  it("reuses an active refresh job on repeated stale reads", async () => {
+    const name = uniqueName("ReuseStaleJob");
+    const path = `/api/v1/characters/${REALM_PATH}/${name}`;
+
+    await app.inject({ method: "GET", url: path });
+    await app.inject({ method: "GET", url: path });
+
+    const character = await prisma.character.findFirst({ where: { normalizedName: normalizeName(name) } });
+    expect(character).not.toBeNull();
+
+    const published = await prisma.characterPublishedScore.findFirst({
+      where: { characterId: character!.id },
+    });
+    expect(published).not.toBeNull();
+    await prisma.scoreSnapshot.update({
+      where: { id: published!.publishedSnapshotId },
+      data: { calculatedAt: new Date(Date.now() - 8 * 86_400_000) },
+    });
+
+    // Simulate an in-flight job so policy must REUSE_ACTIVE_JOB (no second enqueue).
+    await prisma.ingestionJob.updateMany({
+      where: { characterId: character!.id, jobType: "refresh-character" },
+      data: { status: "COMPLETED", completedAt: new Date() },
+    });
+    const active = await prisma.ingestionJob.create({
+      data: {
+        jobType: "refresh-character",
+        status: "QUEUED",
+        characterId: character!.id,
+        dedupeKey: `test-reuse-${character!.id}`,
+        payload: {},
+        priority: 0,
+        scheduledAt: new Date(),
+      },
+    });
+    container.responseCache.clear();
+
+    const first = await app.inject({ method: "GET", url: path });
+    expect(first.statusCode).toBe(200);
+    expect(first.json().refreshStatus).toBe("STALE");
+    expect(first.json().score).not.toBeNull();
+
+    const queuedCount = await prisma.ingestionJob.count({
+      where: {
+        characterId: character!.id,
+        jobType: "refresh-character",
+        status: { in: ["QUEUED", "ACTIVE"] },
+      },
+    });
+    expect(queuedCount).toBe(1);
+
+    container.responseCache.clear();
+    const second = await app.inject({ method: "GET", url: path });
+    expect(second.statusCode).toBe(200);
+    expect(second.json().refreshStatus).toBe("STALE");
+    expect(second.json().score).not.toBeNull();
+
+    const queuedAgain = await prisma.ingestionJob.count({
+      where: {
+        characterId: character!.id,
+        jobType: "refresh-character",
+        status: { in: ["QUEUED", "ACTIVE"] },
+      },
+    });
+    expect(queuedAgain).toBe(1);
+    expect(active.id).toBeTruthy();
   });
 
   it("returns 404 for a confirmed not-found identity on the second request", async () => {
