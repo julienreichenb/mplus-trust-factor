@@ -40,6 +40,13 @@ export async function ensureCurrentSeason(client: PrismaClientOrTx, regionId: st
   });
 }
 
+export interface EnsureBlizzardCurrentSeasonOptions {
+  /** Authoritative Blizzard season-index source when known. */
+  authoritySource?: "season_index.current_season" | "blizzard";
+  /** When set, stamps metadata.authorityVerifiedAt for enqueue-safety TTL checks. */
+  authorityVerifiedAt?: Date;
+}
+
 /**
  * Resolve and mark Blizzard's current season as the regional current season.
  * Replaces placeholder-current / auto-current as the active scoring season.
@@ -48,9 +55,12 @@ export async function ensureBlizzardCurrentSeason(
   client: PrismaClientOrTx,
   regionId: string,
   blizzardSeasonId: number,
+  options: EnsureBlizzardCurrentSeasonOptions = {},
 ): Promise<Season> {
   const slug = `blizzard-season-${blizzardSeasonId}`;
   const existing = await client.season.findFirst({ where: { regionId, slug } });
+  const verifiedAtIso = options.authorityVerifiedAt?.toISOString();
+  const authoritySource = options.authoritySource ?? "blizzard";
 
   await client.season.updateMany({
     where: { regionId, isCurrent: true, NOT: { slug } },
@@ -72,6 +82,8 @@ export async function ensureBlizzardCurrentSeason(
           ...previousMeta,
           blizzardSeasonId,
           source: "blizzard",
+          authoritySource,
+          ...(verifiedAtIso ? { authorityVerifiedAt: verifiedAtIso } : {}),
           // Preserve or seed active dungeon slugs so Icecrown cannot re-enter selection.
           dungeonSlugs: Array.isArray(previousMeta.dungeonSlugs)
             ? previousMeta.dungeonSlugs
@@ -88,7 +100,12 @@ export async function ensureBlizzardCurrentSeason(
       name: `Blizzard Season ${blizzardSeasonId}`,
       isCurrent: true,
       blizzardSeasonId,
-      metadata: { blizzardSeasonId, source: "blizzard" },
+      metadata: {
+        blizzardSeasonId,
+        source: "blizzard",
+        authoritySource,
+        ...(verifiedAtIso ? { authorityVerifiedAt: verifiedAtIso } : {}),
+      },
     },
   });
 }

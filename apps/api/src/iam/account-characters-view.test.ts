@@ -122,4 +122,111 @@ describe("buildAccountCharactersView read-only semantics", () => {
       }),
     );
   });
+
+  it("keeps published grade B when latest refresh FAILED and sanitizes error", async () => {
+    const failedAt = new Date();
+    const { prisma } = buildPrisma();
+    prisma.verifiedCharacterOwnership.findMany = vi.fn(async () => [
+      {
+        id: "own-1",
+        regionId: "region-eu",
+        characterId: "char-1",
+        characterName: "Main",
+        realmSlug: "tarren-mill",
+        realmName: "Tarren Mill",
+        characterLevel: 90,
+        isPrimary: true,
+        playableClassId: 8,
+        relevancePolicyVersion: "v1",
+        relevanceEligible: true,
+        relevanceReasons: ["MYTHIC_RATING_THRESHOLD"],
+        relevanceEvaluatedAt: new Date(),
+        currentSeasonMythicRating: 1500,
+        currentSeasonMythicSeasonId: "blizzard-season-17",
+        currentSeasonMythicFetchedAt: new Date(),
+        currentSeasonMythicSource: "blizzard",
+        currentSeasonMythicState: "OK",
+        region: { code: "EU" },
+        character: {
+          gameClass: { slug: "mage" },
+          snapshots: [],
+          publishedScores: [
+            {
+              seasonId: "season-17",
+              scoreModelId: "model-1",
+              scopeType: "CHARACTER",
+              publishedSnapshot: {
+                isPublic: true,
+                overallScore: 72,
+                grade: "B",
+                confidence: 0.8,
+                calculatedAt: new Date(Date.now() - 2 * 86_400_000),
+                coverageState: "COMPLETE",
+                rejectionReason: null,
+                scoreModel: { version: 6 },
+              },
+            },
+          ],
+        },
+      },
+    ]);
+    prisma.ingestionJob.findFirst = vi.fn(async ({ where }: { where?: { status?: { in?: string[] } } }) => {
+      if (where?.status?.in) return null;
+      return {
+        id: "job-fail",
+        status: "FAILED",
+        completedAt: failedAt,
+        scheduledAt: failedAt,
+        error: {
+          code: "REFRESH_CONTRACT_HASH_MISMATCH",
+          message:
+            "REFRESH_CONTRACT_HASH_MISMATCH: requested=2e8ff99743bee2aa68d8ab3fb80bf3cf136da5144ba521efeb24a8c01cccd997 computed=bff6e03d2fc5b4bd1f114ca49c872df25eaac33e8cc16c17952e894b9197adbd",
+        },
+      };
+    });
+
+    const view = await buildAccountCharactersView({
+      prisma: prisma as never,
+      env: env as never,
+      userId: "user-1",
+    });
+
+    const character = view.characters[0]!;
+    expect(character.trustScore.grade).toBe("B");
+    expect(character.trustScore.score).toBe(72);
+    expect(character.trustScore.status).toBe("STALE");
+    expect(character.trustScore.errorMessage).toBe("La dernière actualisation a échoué.");
+    const serialized = JSON.stringify(view);
+    expect(serialized).not.toContain("REFRESH_CONTRACT_HASH_MISMATCH");
+    expect(serialized).not.toContain("2e8ff99743bee2aa68d8ab3fb80bf3cf136da5144ba521efeb24a8c01cccd997");
+    expect(serialized).not.toContain("bff6e03d2fc5b4bd1f114ca49c872df25eaac33e8cc16c17952e894b9197adbd");
+  });
+
+  it("maps no published score + FAILED refresh to FAILED with generic message only", async () => {
+    const { prisma } = buildPrisma();
+    prisma.ingestionJob.findFirst = vi.fn(async ({ where }: { where?: { status?: { in?: string[] } } }) => {
+      if (where?.status?.in) return null;
+      return {
+        id: "job-fail",
+        status: "FAILED",
+        completedAt: new Date(),
+        scheduledAt: new Date(),
+        error: {
+          code: "REFRESH_CONTRACT_HASH_MISMATCH",
+          message: "REFRESH_CONTRACT_HASH_MISMATCH: requested=aaa computed=bbb",
+        },
+      };
+    });
+
+    const view = await buildAccountCharactersView({
+      prisma: prisma as never,
+      env: env as never,
+      userId: "user-1",
+    });
+    const character = view.characters[0]!;
+    expect(character.trustScore.grade).toBeNull();
+    expect(character.trustScore.status).toBe("FAILED");
+    expect(character.trustScore.errorMessage).toBe("Trust Score is temporarily unavailable.");
+    expect(JSON.stringify(character)).not.toContain("REFRESH_CONTRACT_HASH_MISMATCH");
+  });
 });

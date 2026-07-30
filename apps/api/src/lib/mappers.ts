@@ -15,6 +15,7 @@ import {
 import type { RedFlagDTO } from "@mplus/contracts";
 import { sanitizeSensitiveDeep } from "@mplus/observability";
 import type { MythicRunWithRelations, ScoreSnapshotWithRelations } from "@mplus/worker";
+import { toPublicJobErrorMessage } from "./public-error-sanitize.js";
 
 const QUEUE_NAME_VALUES = new Set<string>(Object.values(QUEUE_NAMES));
 
@@ -37,7 +38,7 @@ function extractErrorMessage(error: unknown): string | null {
   const message = (error as { message?: unknown }).message;
   if (typeof message !== "string") return null;
   const sanitized = sanitizeSensitiveDeep({ message }) as { message: string };
-  return sanitized.message;
+  return toPublicJobErrorMessage(sanitized.message);
 }
 
 function extractRedFlags(explanation: unknown): RedFlagDTO[] {

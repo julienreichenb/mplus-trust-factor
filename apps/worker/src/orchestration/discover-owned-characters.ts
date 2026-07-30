@@ -15,7 +15,8 @@ import {
 import type { Prisma, Season } from "@mplus/database";
 import type { WorkerContainer } from "../container.js";
 import type { QueueProducers } from "../queues.js";
-import { ensureBlizzardCurrentSeason } from "../persistence/run-repository.js";
+import { resolveActiveRefreshContract } from "./build-refresh-contract.js";
+import { synchronizeSeasonAuthority } from "./season-authority.js";
 import { mapWithConcurrency } from "./concurrency.js";
 
 export interface DiscoveryCounters {
@@ -60,8 +61,9 @@ function asReasonArray(value: unknown): RelevanceReason[] {
 type RegionalSeasonCache = {
   seasonId: number;
   slug: string;
-  source: "season_index.current_season" | "season_index.last";
+  source: "season_index.current_season";
   season: Season;
+  authorityVerifiedAt: Date;
 };
 
 /**
@@ -124,27 +126,32 @@ export async function runDiscoverOwnedCharacters(
           select: { id: true, slug: true, blizzardSeasonId: true },
         });
 
-        const ctx = {
-          region: regionCode.toLowerCase() as RegionCode,
-          requestId,
-          correlationId: job.correlationId ?? null,
-          forceRefresh: false,
-          now: new Date().toISOString(),
-        };
-        const authoritative = await providers.blizzard.resolveAuthoritativeCurrentSeasonId(ctx);
-        counters.providerRequestCount += 1;
-
-        const season = await ensureBlizzardCurrentSeason(
-          prisma,
+        const authority = await synchronizeSeasonAuthority(
+          { prisma, blizzard: providers.blizzard, logger },
+          regionCode,
           regionId,
-          authoritative.data.seasonId,
+          { correlationId: requestId },
         );
+        if (authority.resolution === "provider") {
+          counters.providerRequestCount += 1;
+        }
 
+        const season =
+          (await prisma.season.findFirst({
+            where: { id: authority.seasonRowId },
+          })) ??
+          (await prisma.season.findFirst({
+            where: { regionId, slug: authority.slug },
+          }));
+        if (!season) {
+          throw new Error(`Season row missing after authority sync (${authority.slug})`);
+        }
         const entry: RegionalSeasonCache = {
-          seasonId: authoritative.data.seasonId,
-          slug: authoritative.data.slug,
-          source: authoritative.data.source,
+          seasonId: authority.blizzardSeasonId,
+          slug: authority.slug,
+          source: "season_index.current_season",
           season,
+          authorityVerifiedAt: authority.authorityVerifiedAt,
         };
         regionalSeasonByCode.set(key, entry);
 
@@ -154,7 +161,8 @@ export async function runDiscoverOwnedCharacters(
             region: key,
             authoritativeSeasonId: entry.seasonId,
             authoritativeSeasonSlug: entry.slug,
-            seasonResolutionSource: entry.source,
+            authoritySource: entry.source,
+            authorityVerifiedAt: entry.authorityVerifiedAt.toISOString(),
             previousDatabaseSeasonId: previous?.id ?? null,
             previousDatabaseSeasonSlug: previous?.slug ?? null,
             resultingDatabaseSeasonId: season.id,
@@ -513,15 +521,37 @@ export async function runDiscoverOwnedCharacters(
             ? "normal"
             : "low";
 
+        const regionCode = candidate.ownership.region.code;
+        const regional = await resolveRegionalSeason(
+          regionCode,
+          candidate.ownership.region.id,
+          job.correlationId ?? job.battleNetAccountId,
+        );
+        const activeModel = scoreModel ?? {
+          key: env.ACTIVE_SCORE_MODEL_KEY,
+          version: env.ACTIVE_SCORE_MODEL_VERSION,
+        };
+        const { hash } = resolveActiveRefreshContract({
+          scoringModelKey: activeModel.key ?? env.ACTIVE_SCORE_MODEL_KEY,
+          scoringModelVersion: activeModel.version ?? env.ACTIVE_SCORE_MODEL_VERSION,
+          activeSeasonId: regional.slug,
+          providerMode: env.PROVIDER_MODE ?? process.env.PROVIDER_MODE ?? "fixture",
+          env: process.env,
+        });
+
         const enqueued = await producers.enqueueRefreshCharacter({
           characterId: character.id,
-          region: candidate.ownership.region.code.toLowerCase() as RegionCode,
+          region: regionCode.toLowerCase() as RegionCode,
           realmSlug: candidate.ownership.realmSlug,
           name: candidate.ownership.characterName,
           priority,
           forceRefresh: false,
           correlationId: job.correlationId ?? null,
           triggerSource: "ACCOUNT_DISCOVERY",
+          refreshContractHash: hash,
+          authoritativeSeasonId: regional.seasonId,
+          authoritativeSeasonSlug: regional.slug,
+          authoritySource: regional.source,
         });
 
         if (enqueued.reused && !enqueued.enqueued) {
@@ -531,6 +561,9 @@ export async function runDiscoverOwnedCharacters(
               triggerSource: "ACCOUNT_DISCOVERY",
               characterId: character.id,
               refresh: "reused",
+              requestedRefreshContractHash: hash,
+              authoritativeSeasonId: regional.seasonId,
+              authoritativeSeasonSlug: regional.slug,
             },
             "discover_refresh_enqueue",
           );
@@ -541,6 +574,11 @@ export async function runDiscoverOwnedCharacters(
               triggerSource: "ACCOUNT_DISCOVERY",
               characterId: character.id,
               refresh: "enqueued",
+              requestedRefreshContractHash: hash,
+              authoritativeSeasonId: regional.seasonId,
+              authoritativeSeasonSlug: regional.slug,
+              reused: enqueued.reused,
+              enqueued: enqueued.enqueued ?? false,
             },
             "discover_refresh_enqueue",
           );

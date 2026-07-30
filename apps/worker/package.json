@@ -13,7 +13,8 @@
     "start": "node dist/index.js",
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "realms:sync": "tsx ../../tools/scripts/sync-realm-catalog.mjs"
+    "realms:sync": "tsx ../../tools/scripts/sync-realm-catalog.mjs",
+    "season:sync-authority": "tsx src/orchestration/sync-season-authority.cli.ts"
   },
   "dependencies": {
     "@mplus/config": "workspace:*",

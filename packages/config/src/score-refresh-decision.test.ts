@@ -83,6 +83,7 @@ describe("decideScoreRefresh", () => {
     expect(d.publicState).toBe("FAILED_FALLBACK");
     expect(d.reason).toBe("RECENT_FAILURE");
     expect(d.profileRefreshStatus).toBe("STALE");
+    expect(toAccountTrustStatus(d)).toBe("STALE");
   });
 
   it("stale score remains visible during refresh", () => {

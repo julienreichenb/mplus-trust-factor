@@ -48,6 +48,10 @@ export class HttpError extends Error {
     return new HttpError({ statusCode: 429, code, message, retryable: true, details });
   }
 
+  static serviceUnavailable(code: string, message: string, details?: unknown): HttpError {
+    return new HttpError({ statusCode: 503, code, message, retryable: true, details });
+  }
+
   static internal(message = "Internal server error"): HttpError {
     return new HttpError({ statusCode: 500, code: "INTERNAL_ERROR", message, retryable: false });
   }

@@ -322,8 +322,9 @@ export function toAccountTrustStatus(
       return "STALE";
     case "REFRESHING":
       return "REFRESHING";
+    // Published score + failed refresh must not collapse to public FAILED.
     case "FAILED_FALLBACK":
-      return "FAILED";
+      return "STALE";
     case "UNAVAILABLE":
       return "UNAVAILABLE";
     case "CALCULATING":

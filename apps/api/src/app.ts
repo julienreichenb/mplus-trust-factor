@@ -118,6 +118,42 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
         "SECURITY: emergency admin API key fallback still enabled after bootstrap configuration",
       );
     }
+
+    // Season authority sync — prefer DB cache within TTL; fail soft for ordinary reads.
+    try {
+      const { bootstrapSeasonAuthorityForRegions, listPersistedRegionsForAuthority } =
+        await import("@mplus/worker");
+      const regions = await listPersistedRegionsForAuthority(container.worker.prisma);
+      if (regions.length > 0) {
+        const results = await bootstrapSeasonAuthorityForRegions(
+          {
+            prisma: container.worker.prisma,
+            blizzard: container.worker.providers.blizzard,
+            logger: container.logger,
+          },
+          regions,
+        );
+        for (const result of results) {
+          container.logger.info(
+            {
+              event: "season_authority_ready",
+              readiness: result.status,
+              region: result.region,
+              authoritativeSeasonId: result.authority?.blizzardSeasonId ?? null,
+              authoritativeSeasonSlug: result.authority?.slug ?? null,
+              authoritySource: result.authority?.authoritySource ?? null,
+              authorityVerifiedAt: result.authority?.authorityVerifiedAt?.toISOString() ?? null,
+            },
+            `season authority bootstrap: ${result.status}`,
+          );
+        }
+      }
+    } catch (error) {
+      container.logger.warn(
+        { err: error, event: "season_authority_ready", readiness: "unavailable" },
+        "season authority bootstrap failed — refresh enqueue will fail closed until verified",
+      );
+    }
   }
 
   app.addHook("preHandler", createSessionPreHandler(container.authService, env));
@@ -145,6 +181,16 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
         request.log.error({ err: error }, "request failed");
       } else {
         request.log.warn({ err: error }, "request rejected");
+      }
+      const retryAfter =
+        error.details &&
+        typeof error.details === "object" &&
+        "retryAfterSeconds" in error.details &&
+        typeof (error.details as { retryAfterSeconds?: unknown }).retryAfterSeconds === "number"
+          ? (error.details as { retryAfterSeconds: number }).retryAfterSeconds
+          : null;
+      if (retryAfter != null && error.statusCode === 503) {
+        void reply.header("Retry-After", String(retryAfter));
       }
       void reply.status(error.statusCode).send(error.toEnvelope(request.id));
       return;

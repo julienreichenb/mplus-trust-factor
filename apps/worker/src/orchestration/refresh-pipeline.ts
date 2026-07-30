@@ -949,9 +949,50 @@ export async function runRefreshPipeline(
     where: { regionId: character.regionId, isCurrent: true },
     select: { id: true, slug: true, blizzardSeasonId: true },
   });
+
+  // Real season transition after enqueue: supersede obsolete jobs without a public technical failure.
+  if (
+    jobPayload.authoritativeSeasonId != null &&
+    currentSeasonId != null &&
+    jobPayload.authoritativeSeasonId !== currentSeasonId
+  ) {
+    logger.info(
+      {
+        ...logBase,
+        event: "refresh_season_authority",
+        reason: "job_season_superseded",
+        authoritativeSeasonId: currentSeasonId,
+        jobAuthoritativeSeasonId: jobPayload.authoritativeSeasonId,
+        previousDatabaseSeasonId: previousDatabaseSeason?.blizzardSeasonId ?? null,
+        previousDatabaseSeasonSlug: previousDatabaseSeason?.slug ?? null,
+      },
+      "refresh job superseded by season authority change",
+    );
+    await repositories.job.markFailed(job.id, {
+      code: "SEASON_AUTHORITY_SUPERSEDED",
+      message: "Refresh superseded by season authority change",
+    });
+    terminalized = true;
+    return {
+      character,
+      job: (await repositories.job.findById(job.id)) ?? job,
+      score: null,
+      stagesSkipped,
+      notFound: false,
+      disagreements,
+      excludedObservations,
+    };
+  }
+
   const season =
     currentSeasonId != null
-      ? await ensureBlizzardCurrentSeason(container.prisma, character.regionId, currentSeasonId)
+      ? await ensureBlizzardCurrentSeason(container.prisma, character.regionId, currentSeasonId, {
+          authoritySource:
+            authoritativeSeasonSource === "season_index.current_season"
+              ? "season_index.current_season"
+              : "blizzard",
+          authorityVerifiedAt: new Date(),
+        })
       : await ensureCurrentSeason(container.prisma, character.regionId);
   logger.info(
     {
@@ -960,6 +1001,7 @@ export async function runRefreshPipeline(
       region: identity.region,
       authoritativeSeasonId: currentSeasonId,
       authoritativeSeasonSlug: currentSeasonId != null ? `blizzard-season-${currentSeasonId}` : null,
+      authoritySource: authoritativeSeasonSource,
       seasonResolutionSource: authoritativeSeasonSource,
       characterProfileSeasonIds,
       characterProfileContainsCurrentSeason:
@@ -968,6 +1010,8 @@ export async function runRefreshPipeline(
       previousDatabaseSeasonSlug: previousDatabaseSeason?.slug ?? null,
       resultingDatabaseSeasonId: season.id,
       resultingDatabaseSeasonSlug: season.slug,
+      jobAuthoritativeSeasonId: jobPayload.authoritativeSeasonId ?? null,
+      jobAuthoritativeSeasonSlug: jobPayload.authoritativeSeasonSlug ?? null,
     },
     "refresh_season_authority",
   );
@@ -2605,24 +2649,26 @@ export async function runRefreshPipeline(
     jobPayload.refreshContractHash &&
     jobPayload.refreshContractHash !== computedContractHash
   ) {
-    const mismatchError = new Error(
-      `REFRESH_CONTRACT_HASH_MISMATCH: requested=${jobPayload.refreshContractHash} computed=${computedContractHash}`,
-    );
     logger.error(
       {
         ...logBase,
         event: "refresh_contract_hash_mismatch",
         requestedRefreshContractHash: jobPayload.refreshContractHash,
-        computedRefreshContractHash: computedContractHash,
+        currentRefreshContractHash: computedContractHash,
         refreshContract,
         characterId: character.id,
+        contractSeasonSlug: season.slug,
         triggerSource: jobPayload.triggerSource ?? "UNKNOWN",
       },
       "refresh contract hash mismatch — refusing to publish divergent snapshot",
     );
+    const mismatchError = {
+      code: "REFRESH_CONTRACT_HASH_MISMATCH",
+      message: "Refresh contract mismatch",
+    };
     await repositories.job.markFailed(job.id, mismatchError);
     terminalized = true;
-    throw mismatchError;
+    throw Object.assign(new Error("Refresh contract mismatch"), mismatchError);
   }
 
   const scoreDto = container.calculateScore({

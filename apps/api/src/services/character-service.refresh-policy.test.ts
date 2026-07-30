@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { buildRefreshContract } from "@mplus/worker";
+import { hashRefreshContract } from "@mplus/contracts";
+import { buildRefreshContract, clearSeasonAuthorityCacheForTests } from "@mplus/worker";
 import { CharacterService } from "./character-service.js";
 import type { ApiContainer } from "../container.js";
 
@@ -35,8 +36,10 @@ describe("CharacterService — centralized 7-day refresh policy", () => {
     env: process.env,
     allowFixtureZoneDefault: true,
   });
+  const matchingHash = hashRefreshContract(matchingContract);
 
   function buildContainer(): ApiContainer {
+    const verifiedAt = new Date().toISOString();
     return {
       env: {
         BLIZZARD_CHARACTER_TTL_SECONDS: 86_400,
@@ -61,12 +64,35 @@ describe("CharacterService — centralized 7-day refresh policy", () => {
       },
       worker: {
         disabledProviders: new Set(),
+        providers: {
+          blizzard: {
+            resolveAuthoritativeCurrentSeasonId: vi.fn(async () => ({
+              data: {
+                seasonId: 13,
+                slug: "blizzard-season-13",
+                source: "season_index.current_season",
+              },
+            })),
+          },
+        },
         prisma: {
+          region: {
+            findUnique: vi.fn().mockResolvedValue({ id: "reg-1", code: "EU" }),
+            findUniqueOrThrow: vi.fn().mockResolvedValue({ id: "reg-1", code: "EU" }),
+          },
           season: {
             findFirst: vi.fn().mockResolvedValue({
               id: "season-1",
               slug: "blizzard-season-13",
+              regionId: "reg-1",
+              blizzardSeasonId: 13,
               isCurrent: true,
+              metadata: {
+                blizzardSeasonId: 13,
+                source: "blizzard",
+                authoritySource: "season_index.current_season",
+                authorityVerifiedAt: verifiedAt,
+              },
             }),
           },
           scoreModel: {
@@ -108,6 +134,7 @@ describe("CharacterService — centralized 7-day refresh policy", () => {
             findActiveForCharacter: mockFindActive,
             findLatestForCharacter: mockFindLatest,
             findById: mockFindById,
+            markFailed: vi.fn(),
           },
           providerState: { listForCharacter: vi.fn().mockResolvedValue([]) },
         },
@@ -134,6 +161,7 @@ describe("CharacterService — centralized 7-day refresh policy", () => {
       inputFingerprint: "fp-1",
       explanation: {
         refreshContract: contract,
+        refreshContractHash: hashRefreshContract(contract),
         coverage: { freshness: 0.8, selectedRunCoverage: 0.5 },
         observations: [],
       },
@@ -150,6 +178,7 @@ describe("CharacterService — centralized 7-day refresh policy", () => {
   const identity = { region: "EU" as const, realmSlug: "archimonde", name: "Wallidrixe" };
 
   beforeEach(() => {
+    clearSeasonAuthorityCacheForTests();
     vi.clearAllMocks();
     mockCacheGet.mockReturnValue(null);
     mockFindByIdentity.mockResolvedValue({
@@ -215,6 +244,10 @@ describe("CharacterService — centralized 7-day refresh policy", () => {
       id: "job-active",
       status: "QUEUED",
       completedAt: null,
+      payload: {
+        refreshContractHash: matchingHash,
+        authoritativeSeasonId: 13,
+      },
     });
     const service = new CharacterService(buildContainer());
     const a = await service.getProfile(identity);
@@ -223,6 +256,50 @@ describe("CharacterService — centralized 7-day refresh policy", () => {
     expect(b.body.refreshStatus).toBe("REFRESHING");
     expect(a.body.score).not.toBeNull();
     expect(mockEnqueue).not.toHaveBeenCalled();
+  });
+
+  it("does not reuse active job under a different contract hash", async () => {
+    mockGetPublishedSnapshot.mockResolvedValue(publishedSnapshot(staleCalculatedAt));
+    mockFindActive.mockResolvedValue({
+      id: "job-obsolete",
+      status: "QUEUED",
+      completedAt: null,
+      payload: {
+        refreshContractHash: "obsolete-hash",
+        authoritativeSeasonId: 3,
+      },
+    });
+    mockEnqueue.mockResolvedValue({ jobId: "job-new", reused: false, enqueued: true });
+    const service = new CharacterService(buildContainer());
+    await service.getProfile(identity);
+    expect(mockEnqueue).toHaveBeenCalledTimes(1);
+    expect(mockEnqueue.mock.calls[0]![0].authoritativeSeasonId).toBe(13);
+    expect(mockEnqueue.mock.calls[0]![0].refreshContractHash).toBe(matchingHash);
+  });
+
+  it("unavailable season authority returns score with zero jobs", async () => {
+    mockGetPublishedSnapshot.mockResolvedValue(publishedSnapshot(staleCalculatedAt));
+    const container = buildContainer();
+    (container.worker.prisma.season.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue({
+      id: "season-3",
+      slug: "blizzard-season-3",
+      regionId: "reg-1",
+      blizzardSeasonId: 3,
+      isCurrent: true,
+      metadata: { source: "legacy" },
+    });
+    clearSeasonAuthorityCacheForTests();
+    const service = new CharacterService(container);
+    const results = [];
+    for (let i = 0; i < 50; i++) {
+      results.push(await service.getProfile(identity));
+    }
+    expect(results.every((r) => r.body.score != null)).toBe(true);
+    expect(mockEnqueue).not.toHaveBeenCalled();
+    expect(
+      (container.worker.providers.blizzard.resolveAuthoritativeCurrentSeasonId as ReturnType<typeof vi.fn>)
+        .mock.calls.length,
+    ).toBe(0);
   });
 
   it("reading after job completion does not enqueue again before 7 days", async () => {
@@ -289,6 +366,7 @@ describe("CharacterService — centralized 7-day refresh policy", () => {
       dedupeKey: "d",
       jobType: "refresh-character",
       error: null,
+      payload: { refreshContractHash: matchingHash, authoritativeSeasonId: 13 },
     });
     const search = await service.searchCharacter(identity);
     expect(profile.body.refreshStatus).toBe("REFRESHING");
@@ -302,6 +380,7 @@ describe("CharacterService — centralized 7-day refresh policy", () => {
       id: "job-active",
       status: "ACTIVE",
       completedAt: null,
+      payload: { refreshContractHash: matchingHash, authoritativeSeasonId: 13 },
     });
     const service = new CharacterService(buildContainer());
     const result = await service.getProfile(identity);
@@ -428,6 +507,7 @@ describe("CharacterService — centralized 7-day refresh policy", () => {
       dedupeKey: "d",
       jobType: "refresh-character",
       error: null,
+      payload: { refreshContractHash: matchingHash, authoritativeSeasonId: 13 },
     });
     const service = new CharacterService(buildContainer());
     const first = await service.requestRefresh(identity, {
