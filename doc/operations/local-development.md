@@ -22,6 +22,13 @@ pnpm dev
 
 PostgreSQL listens on host port **5433** by default (mapped from container 5432) so it does not collide with a local Windows Postgres install.
 
+### CI vs local Postgres port
+
+GitHub Actions exposes the Postgres service on host **5432** and sets `DATABASE_URL` accordingly.
+Local Compose uses **5433**. Vitest must **not** hard-override `DATABASE_URL`: an explicitly supplied value (CI) wins; otherwise tests fall back to the local `:5433` URL. Forcing `:5433` in `vitest.config.ts` previously made `/health/ready` return 503 in CI because tests connected to the wrong port.
+
+CI runs `pnpm db:migrate` then `pnpm db:seed` before `pnpm test` against the isolated Actions Postgres service (`DATABASE_URL` on `:5432`). Seed bootstraps an empty CI database with the idempotent fixture score model so Postgres-backed suites can run; it is **not** a production (or shared-environment) model-activation path. Without seed, those suites fail after the URL fix (previously many were effectively skipped when Vitest forced the unreachable `:5433` port).
+
 Stop infra: `pnpm dev:infra:down`.
 
 ## Fixture mode
