@@ -4,11 +4,13 @@ import { createLogger, type Logger } from "@mplus/observability";
 import {
   QUEUE_NAMES,
   analyzeRunJobSchema,
+  bulkOrchestratorJobSchema,
   discoverOwnedCharactersJobSchema,
   generateAddonExportJobSchema,
   recalculateScoreJobSchema,
   refreshCharacterJobSchema,
   type AnalyzeRunJob,
+  type BulkOrchestratorJob,
   type DiscoverOwnedCharactersJob,
   type GenerateAddonExportJob,
   type RecalculateScoreJob,
@@ -16,6 +18,7 @@ import {
 } from "@mplus/contracts";
 import {
   analyzeRunDedupeKey,
+  bulkCharacterProcessingDedupeKey,
   createQueueProducers,
   createWorkerContainer,
   discoverOwnedCharactersDedupeKey,
@@ -24,6 +27,7 @@ import {
   recalculateScoreDedupeKey,
   refreshCharacterDedupeKey,
   runAnalyzeRun,
+  runBulkCharacterProcessing,
   runDiscoverOwnedCharacters,
   runGenerateAddonExport,
   runRecalculateScore,
@@ -211,6 +215,31 @@ function createInlineQueueProducers(worker: WorkerContainer): QueueProducers {
       } catch (error) {
         await repositories.job.markFailed(job.id, error);
         logger.warn({ err: error, dedupeKey }, "inline discover-owned-characters failed");
+      }
+      return { jobId: job.id, dedupeKey, reused, enqueued: true };
+    },
+
+    async enqueueBulkCharacterProcessing(input): Promise<EnqueueResult> {
+      const payload: BulkOrchestratorJob = bulkOrchestratorJobSchema.parse({
+        ...input,
+        requestedAt: input.requestedAt ?? new Date().toISOString(),
+      });
+      const dedupeKey = bulkCharacterProcessingDedupeKey(payload);
+      const { job, reused } = await repositories.job.createOrGetByDedupe({
+        jobType: QUEUE_NAMES.bulkCharacterProcessing,
+        dedupeKey,
+        payload,
+      });
+      if (reused) {
+        return { jobId: job.id, dedupeKey, reused, enqueued: false };
+      }
+      try {
+        await repositories.job.markActive(job.id);
+        await runBulkCharacterProcessing(worker, payload, inlineProducers);
+        await repositories.job.markCompleted(job.id);
+      } catch (error) {
+        await repositories.job.markFailed(job.id, error);
+        logger.warn({ err: error, dedupeKey }, "inline bulk-character-processing failed");
       }
       return { jobId: job.id, dedupeKey, reused, enqueued: true };
     },

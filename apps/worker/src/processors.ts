@@ -2,6 +2,7 @@ import { Queue, Worker, type ConnectionOptions, type Job } from "bullmq";
 import {
   QUEUE_NAMES,
   analyzeRunJobSchema,
+  bulkOrchestratorJobSchema,
   discoverOwnedCharactersJobSchema,
   generateAddonExportJobSchema,
   recalculateScoreJobSchema,
@@ -9,15 +10,20 @@ import {
 } from "@mplus/contracts";
 import { toJsonSafeSanitized } from "@mplus/observability";
 import type { WorkerContainer } from "./container.js";
-import { refreshCharacterDedupeKey } from "./dedupe.js";
+import {
+  bulkCharacterProcessingDedupeKey,
+  recalculateScoreDedupeKey,
+  refreshCharacterDedupeKey,
+} from "./dedupe.js";
 import { persistAndEnqueue } from "./orchestration/enqueue.js";
 import { runAnalyzeRun } from "./orchestration/analyze-run.js";
+import { runBulkCharacterProcessing } from "./orchestration/bulk-character-processing.js";
 import { runDiscoverOwnedCharacters } from "./orchestration/discover-owned-characters.js";
 import { runGenerateAddonExport } from "./orchestration/generate-addon-export.js";
 import { runRecalculateScore } from "./orchestration/recalculate-score.js";
 import { runRefreshPipeline } from "./orchestration/refresh-pipeline.js";
 import { classifyError } from "./orchestration/retry-classification.js";
-import type { DiscoveryRefreshProducers } from "./queues.js";
+import type { BulkOrchestratorProducers, DiscoveryRefreshProducers } from "./queues.js";
 
 /** BullMQ JSON-encodes job return values; Prisma may include BigInt. Secrets/report codes are stripped. */
 export function toBullmqReturnValue(value: unknown): unknown {
@@ -35,6 +41,95 @@ async function withRetryClassification<T>(job: Job, fn: () => Promise<T>): Promi
     }
     throw error;
   }
+}
+
+function createBulkOrchestratorProducers(
+  connection: ConnectionOptions,
+  container: WorkerContainer,
+): BulkOrchestratorProducers & { close(): Promise<void> } {
+  const refreshQueue = new Queue(QUEUE_NAMES.refreshCharacter, { connection });
+  const recalculateQueue = new Queue(QUEUE_NAMES.recalculateScore, { connection });
+  const bulkQueue = new Queue(QUEUE_NAMES.bulkCharacterProcessing, { connection });
+  const PRIORITY_WEIGHT: Record<"high" | "normal" | "low", number> = {
+    high: 10,
+    normal: 0,
+    low: -10,
+  };
+
+  return {
+    async enqueueRefreshCharacter(input) {
+      const payload = refreshCharacterJobSchema.parse({
+        ...input,
+        requestedAt: input.requestedAt ?? new Date().toISOString(),
+      });
+      const dedupeKey = refreshCharacterDedupeKey(payload);
+      const result = await persistAndEnqueue({
+        queue: refreshQueue,
+        jobType: QUEUE_NAMES.refreshCharacter,
+        dedupeKey,
+        payload,
+        jobRepository: container.repositories.job,
+        logger: container.logger,
+        options: {
+          characterId: payload.characterId ?? null,
+          priority: PRIORITY_WEIGHT[payload.priority],
+        },
+      });
+      return {
+        jobId: result.jobId,
+        dedupeKey: result.dedupeKey,
+        reused: result.reused,
+        enqueued: result.enqueued,
+      };
+    },
+    async enqueueRecalculateScore(input) {
+      const payload = recalculateScoreJobSchema.parse({
+        ...input,
+        requestedAt: input.requestedAt ?? new Date().toISOString(),
+      });
+      const dedupeKey = recalculateScoreDedupeKey(payload);
+      const result = await persistAndEnqueue({
+        queue: recalculateQueue,
+        jobType: QUEUE_NAMES.recalculateScore,
+        dedupeKey,
+        payload,
+        jobRepository: container.repositories.job,
+        logger: container.logger,
+        options: { characterId: payload.characterId },
+      });
+      return {
+        jobId: result.jobId,
+        dedupeKey: result.dedupeKey,
+        reused: result.reused,
+        enqueued: result.enqueued,
+      };
+    },
+    async enqueueBulkCharacterProcessing(input) {
+      const payload = bulkOrchestratorJobSchema.parse({
+        ...input,
+        requestedAt: input.requestedAt ?? new Date().toISOString(),
+      });
+      const dedupeKey = bulkCharacterProcessingDedupeKey(payload);
+      const result = await persistAndEnqueue({
+        queue: bulkQueue,
+        jobType: QUEUE_NAMES.bulkCharacterProcessing,
+        dedupeKey,
+        payload,
+        jobRepository: container.repositories.job,
+        logger: container.logger,
+        options: { priority: PRIORITY_WEIGHT.low },
+      });
+      return {
+        jobId: result.jobId,
+        dedupeKey: result.dedupeKey,
+        reused: result.reused,
+        enqueued: result.enqueued,
+      };
+    },
+    async close() {
+      await Promise.all([refreshQueue.close(), recalculateQueue.close(), bulkQueue.close()]);
+    },
+  };
 }
 
 function createRefreshOnlyProducers(
@@ -81,6 +176,7 @@ function createRefreshOnlyProducers(
 
 export function createWorkers(connection: ConnectionOptions, container: WorkerContainer): Worker[] {
   const refreshProducers = createRefreshOnlyProducers(connection, container);
+  const bulkProducers = createBulkOrchestratorProducers(connection, container);
 
   const refresh = new Worker(
     QUEUE_NAMES.refreshCharacter,
@@ -136,19 +232,37 @@ export function createWorkers(connection: ConnectionOptions, container: WorkerCo
     { connection, autorun: false, concurrency: 1 },
   );
 
-  for (const worker of [refresh, analyze, recalculate, addonExport, discover]) {
+  const bulk = new Worker(
+    QUEUE_NAMES.bulkCharacterProcessing,
+    async (job) => {
+      const payload = bulkOrchestratorJobSchema.parse(job.data);
+      const result = await withRetryClassification(job, () =>
+        runBulkCharacterProcessing(container, payload, bulkProducers),
+      );
+      return toBullmqReturnValue(result);
+    },
+    { connection, autorun: false, concurrency: 1 },
+  );
+
+  for (const worker of [refresh, analyze, recalculate, addonExport, discover, bulk]) {
     worker.on("failed", (job, error) => {
       container.logger.error({ jobId: job?.id, queue: worker.name, err: error }, "job failed");
     });
   }
 
-  const originalClose = discover.close.bind(discover);
+  const originalDiscoverClose = discover.close.bind(discover);
   discover.close = async (force?: boolean) => {
     await refreshProducers.close();
-    return originalClose(force);
+    return originalDiscoverClose(force);
   };
 
-  return [refresh, analyze, recalculate, addonExport, discover];
+  const originalBulkClose = bulk.close.bind(bulk);
+  bulk.close = async (force?: boolean) => {
+    await bulkProducers.close();
+    return originalBulkClose(force);
+  };
+
+  return [refresh, analyze, recalculate, addonExport, discover, bulk];
 }
 
 /** Gracefully closes all workers; safe to call even if some workers never started running. */

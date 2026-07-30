@@ -48,4 +48,10 @@ export const routeDefs: RouteRecordRaw[] = [
     component: () => import("./pages/AdminUsersPage.vue"),
     meta: { requiresAdmin: true },
   },
+  {
+    path: "/admin/bulk-processing",
+    name: "admin-bulk-processing",
+    component: () => import("./pages/AdminBulkProcessingPage.vue"),
+    meta: { requiresAdmin: true },
+  },
 ];

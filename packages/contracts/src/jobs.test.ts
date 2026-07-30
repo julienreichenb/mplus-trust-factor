@@ -4,6 +4,8 @@ import {
   analyzeRunJobSchema,
   recalculateScoreJobSchema,
   generateAddonExportJobSchema,
+  bulkCharacterProcessingInputSchema,
+  bulkOrchestratorJobSchema,
 } from "./jobs.js";
 
 describe("job payload schemas", () => {
@@ -58,5 +60,19 @@ describe("job payload schemas", () => {
       requestedAt: new Date().toISOString(),
     });
     expect(true).toBe(true);
+  });
+
+  it("validates BulkCharacterProcessingInput and BulkOrchestratorJob", () => {
+    const parsed = bulkCharacterProcessingInputSchema.parse({
+      mode: "RECALCULATE_ONLY",
+      minMythicPlusScore: null,
+      batchSize: 25,
+    });
+    expect(parsed.dryRun).toBe(false);
+    expect(parsed.allowFullRefreshOnIncompatible).toBe(false);
+    bulkOrchestratorJobSchema.parse({
+      bulkOperationId: "44444444-4444-4444-4444-444444444444",
+      requestedAt: new Date().toISOString(),
+    });
   });
 });

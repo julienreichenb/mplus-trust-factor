@@ -339,6 +339,7 @@ model Character {
   profileViews      CharacterProfileView[]
   refreshScheduleItems RefreshScheduleItem[]
   refreshCostEntries RefreshCostLedgerEntry[]
+  bulkOperationItems BulkOperationItem[]
 
   @@unique([regionId, realmId, normalizedName])
   @@index([lastPublicRefreshAt])
@@ -757,6 +758,7 @@ model ScoreModel {
   characterRedFlags CharacterRedFlag[]
   addonExports      AddonExport[]
   analysisBatches   ScoreAnalysisBatch[]
+  bulkOperations    BulkOperation[]
 
   @@unique([key, version])
   @@map("score_models")
@@ -983,6 +985,7 @@ model User {
   auditEvents       AuditEvent[]
   scoreModels       ScoreModel[]
   disputes          ScoreDispute[]
+  bulkOperations    BulkOperation[]
 
   @@unique([authProvider, externalSubject])
   @@map("users")
@@ -1292,4 +1295,105 @@ model CharacterProfileView {
   @@index([characterId, viewedAt(sort: Desc)])
   @@index([viewedAt(sort: Desc)])
   @@map("character_profile_views")
+}
+
+enum BulkOperationMode {
+  FULL_REFRESH
+  RECALCULATE_ONLY
+}
+
+enum BulkOperationStatus {
+  PENDING
+  SELECTING
+  RUNNING
+  PAUSED
+  CANCELLED
+  COMPLETED
+  FAILED
+  DRY_RUN_COMPLETED
+}
+
+enum BulkOperationItemStatus {
+  PENDING
+  ENQUEUED
+  SKIPPED_INCOMPATIBLE
+  SKIPPED_BUDGET
+  SKIPPED_CANCELLED
+  SKIPPED_DRY_RUN
+  SKIPPED_CHARACTER_DELETED
+}
+
+/// Admin-controlled resumable mass refresh / recalculate cohort.
+/// Status COMPLETED means child-job dispatch finished (see completionSemantics in API DTO).
+model BulkOperation {
+  id                             String              @id @default(uuid()) @db.Uuid
+  mode                           BulkOperationMode
+  status                         BulkOperationStatus @default(PENDING)
+  logicalKey                     String              @map("logical_key")
+  minMythicPlusScore             Float?              @map("min_mythic_plus_score")
+  scoreModelId                   String?             @map("score_model_id") @db.Uuid
+  batchSize                      Int                 @map("batch_size")
+  maxCharacters                  Int?                @map("max_characters")
+  maxWclCalls                    Int?                @map("max_wcl_calls")
+  dryRun                         Boolean             @default(false) @map("dry_run")
+  allowFullRefreshOnIncompatible Boolean             @default(false) @map("allow_full_refresh_on_incompatible")
+  configSnapshot                 Json                @default("{}") @map("config_snapshot")
+  checkpoint                     Json                @default("{}")
+  selectionFingerprint           String?             @map("selection_fingerprint")
+  selectedCount                  Int                 @default(0) @map("selected_count")
+  enqueuedCount                  Int                 @default(0) @map("enqueued_count")
+  dispatchedCount                Int                 @default(0) @map("dispatched_count")
+  dispatchFailedCount            Int                 @default(0) @map("dispatch_failed_count")
+  skippedCount                   Int                 @default(0) @map("skipped_count")
+  estimatedWclCalls              Float?              @map("estimated_wcl_calls")
+  consumedWclCalls               Float?              @map("consumed_wcl_calls")
+  createdByUserId                String?             @map("created_by_user_id") @db.Uuid
+  cancelRequestedAt              DateTime?           @map("cancel_requested_at") @db.Timestamptz(3)
+  pauseRequestedAt               DateTime?           @map("pause_requested_at") @db.Timestamptz(3)
+  error                          Json?
+  startedAt                      DateTime?           @map("started_at") @db.Timestamptz(3)
+  completedAt                    DateTime?           @map("completed_at") @db.Timestamptz(3)
+  createdAt                      DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt                      DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  items       BulkOperationItem[]
+  createdBy   User?               @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+  scoreModel  ScoreModel?         @relation(fields: [scoreModelId], references: [id], onDelete: SetNull)
+
+  @@index([status, createdAt(sort: Desc)])
+  @@index([logicalKey])
+  @@map("bulk_operations")
+}
+
+model BulkOperationItem {
+  id                 String                   @id @default(uuid()) @db.Uuid
+  bulkOperationId    String                   @map("bulk_operation_id") @db.Uuid
+  /** Nullable so character hard-delete preserves administrative history (ON DELETE SET NULL). */
+  characterId        String?                  @map("character_id") @db.Uuid
+  position           Int
+  status             BulkOperationItemStatus  @default(PENDING)
+  region             String
+  realmSlug          String                   @map("realm_slug")
+  characterName      String                   @map("character_name")
+  mythicPlusScore    Float?                   @map("mythic_plus_score")
+  evidenceCompatible Boolean?                 @map("evidence_compatible")
+  skipReason         String?                  @map("skip_reason")
+  error              Json?
+  /**
+   * IngestionJob.id of the dispatched child (UUID). Not the BullMQ execution id
+   * (`dedupeKey-executionUuid`); producers return the durable IngestionJob primary key.
+   */
+  childJobId         String?                  @map("child_job_id") @db.Uuid
+  childJobType       String?                  @map("child_job_type")
+  processedAt        DateTime?                @map("processed_at") @db.Timestamptz(3)
+  createdAt          DateTime                 @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt          DateTime                 @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  bulkOperation BulkOperation @relation(fields: [bulkOperationId], references: [id], onDelete: Cascade)
+  character     Character?    @relation(fields: [characterId], references: [id], onDelete: SetNull)
+
+  @@unique([bulkOperationId, characterId])
+  @@unique([bulkOperationId, position])
+  @@index([bulkOperationId, status, position])
+  @@map("bulk_operation_items")
 }

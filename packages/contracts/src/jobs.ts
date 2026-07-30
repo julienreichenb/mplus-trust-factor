@@ -9,6 +9,7 @@ export const QUEUE_NAMES = {
   generateAddonExport: "generate-addon-export",
   syncRealmCatalog: "sync-realm-catalog",
   discoverOwnedCharacters: "discover-owned-characters",
+  bulkCharacterProcessing: "bulk-character-processing",
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
@@ -142,6 +143,42 @@ export const discoverOwnedCharactersJobSchema = z.object({
 });
 
 export type DiscoverOwnedCharactersJob = z.infer<typeof discoverOwnedCharactersJobSchema>;
+
+/** Mass refresh vs model-only recalculation for the bulk orchestrator. */
+export const bulkModeSchema = z.enum(["FULL_REFRESH", "RECALCULATE_ONLY"]);
+export type BulkMode = z.infer<typeof bulkModeSchema>;
+
+/**
+ * Admin / Agent-08 input for creating a bulk character processing operation.
+ * `minMythicPlusScore = null` selects every persisted character.
+ */
+export const bulkCharacterProcessingInputSchema = z.object({
+  mode: bulkModeSchema,
+  minMythicPlusScore: z.number().finite().nullable(),
+  scoreModelId: z.string().uuid().nullable().optional(),
+  batchSize: z.number().int().positive().max(500).default(25),
+  maxCharacters: z.number().int().positive().nullable().optional(),
+  maxWclCalls: z.number().int().positive().nullable().optional(),
+  dryRun: z.boolean().default(false),
+  /**
+   * When false (default), incompatible RECALCULATE_ONLY evidence is reported and skipped.
+   * When true, those items may enqueue FULL_REFRESH instead.
+   */
+  allowFullRefreshOnIncompatible: z.boolean().default(false),
+  /** Dedupes concurrent active operations; defaults to a stable mode/threshold/model key. */
+  logicalKey: z.string().min(1).max(160).optional(),
+});
+
+export type BulkCharacterProcessingInput = z.infer<typeof bulkCharacterProcessingInputSchema>;
+
+/** Parent tick job — resumes from persisted operation checkpoint. */
+export const bulkOrchestratorJobSchema = z.object({
+  bulkOperationId: z.string().uuid(),
+  requestedAt: z.string().datetime(),
+  correlationId: z.string().min(1).max(128).nullable().optional(),
+});
+
+export type BulkOrchestratorJob = z.infer<typeof bulkOrchestratorJobSchema>;
 
 export type JobStatus = "queued" | "active" | "completed" | "failed" | "delayed" | "unknown";
 

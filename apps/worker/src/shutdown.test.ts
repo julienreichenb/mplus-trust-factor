@@ -13,6 +13,7 @@ const EXPECTED_WORKER_QUEUES = [
   QUEUE_NAMES.recalculateScore,
   QUEUE_NAMES.generateAddonExport,
   QUEUE_NAMES.discoverOwnedCharacters,
+  QUEUE_NAMES.bulkCharacterProcessing,
 ] as const;
 
 describe("worker shutdown", () => {
