@@ -1,25 +1,60 @@
 # CI / CD
 
+## Required flow (programme intent = current CD)
+
+```text
+PR / feature branch
+  → CI
+
+merge to main
+  → CI
+  → CD: immutable SHA images → GHCR
+  → migrate test DB (once, fail-closed)
+  → deploy test stack
+  → /health/ready + /api/v1/meta revision check
+  → explicit success / failure (missing secrets fail the job)
+```
+
 ## CI (`.github/workflows/ci.yml`)
 
-Triggers include `main`, `integration/**`, and `agent/**`.
+Triggers: `pull_request`, push to `main` / `integration/**` / `agent/**`.
 
-Typical quality path: install → migrate → seed → lint / typecheck / test / build (exact steps in the workflow file).
+Quality path: install → format → shellcheck (deploy scripts) → dual-env dry-run → lint / build / typecheck → migrate → seed → test → docker builds + secret bake scan → invalid migration guard.
 
-Local Postgres uses host **5433**; GitHub Actions Postgres uses **5432** via `DATABASE_URL`. Vitest must respect an explicit `DATABASE_URL` (CI) instead of hard-forcing `:5433`.
+Local Postgres uses host **5433**; GitHub Actions Postgres uses **5432** via `DATABASE_URL`.
 
-## CD (`.github/workflows/cd.yml`) — current vs intent
+## CD (`.github/workflows/cd.yml`)
 
-| Topic | Current | Programme intent |
-|-------|---------|------------------|
-| Push deploy source | `integration/wave4.3` | `main` → test |
-| Deploy env on push | Forced `test` | test |
-| Production | `workflow_dispatch` | Reviewed `main` → prod later |
-| Missing secrets | May skip without failing | Should fail closed (Agent 05) |
-| Health probe | `/health/live` | Prefer readiness |
+| Topic | Behaviour |
+|-------|-----------|
+| Push `main` | Build SHA images + deploy **test** |
+| Push `prod` | Build SHA images + deploy **production** (prepared; do not create/push `prod` until test is clean and Environment protection is on) |
+| `workflow_dispatch` | Build + optional deploy; **production only when ref is `refs/heads/prod`** |
+| Missing deploy secrets | **Fail** the deploy job (no green no-op) |
+| Health gate | `/health/ready` then `/api/v1/meta` `version` == image SHA |
+| Concurrency | Per-environment group; production deploys are never cancelled mid-flight |
+| Model activation | **Not** CD — DB/admin only (see [`model-lifecycle.md`](model-lifecycle.md)) |
 
-Do **not** treat environment-variable edits in CD as “model activation”. Score models activate via DB/admin (see [`model-lifecycle.md`](model-lifecycle.md)).
+### GitHub Environment variables (configure in UI)
 
-## Agent ownership
+| Variable | `test` | `production` |
+|----------|--------|--------------|
+| `ALLOWED_REF_PREFIX` | `refs/heads/main` | `refs/heads/prod` |
+| `REQUIRE_WORKFLOW_DISPATCH` | `false` | `true` (optional extra gate) |
 
-CD hardening is Agent 05 scope. Do not change CD triggers in docs-only PRs beyond documenting the gap.
+Enable **required reviewers** on the `production` Environment before first use.
+
+### Secrets (per Environment)
+
+See [`production.md`](production.md). Required for deploy: `VPS_SSH_HOST`, `VPS_SSH_USER`, `VPS_SSH_KEY`, `VPS_PUBLIC_URL`.
+
+## Production policy (prepared, not activated)
+
+- Source branch: **`prod`** (reviewed merges from `main`).
+- No feature-branch production deploys.
+- No production deployment as part of Agent 05 — do not create or push `prod` until test is clean.
+- Rollback uses the previous immutable SHA only: `./infra/scripts/rollback.sh prod <sha>`.
+
+## Manual process inventory
+
+See [`manual-process-inventory.md`](manual-process-inventory.md).

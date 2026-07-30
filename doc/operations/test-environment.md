@@ -1,25 +1,34 @@
 # Test environment
 
-## Current state
+## Current behaviour
 
-- The only automated CD push deploy path today targets the **test** environment.
-- Push trigger branch in `.github/workflows/cd.yml` is currently `integration/wave4.3` (stale vs programme intent).
-- Programme intent (Agent 05): **`main` automatically deploys test**. That is **not** yet current behaviour — document intent separately from runtime.
+- Push/merge to **`main`** runs CI, then CD builds immutable SHA images and deploys **test**.
+- Missing GitHub Environment deploy secrets **fail** the deploy job (no green no-op).
+- Post-deploy gate: `/health/ready` + `/api/v1/meta` `version` equals the deployed image SHA.
 
 ## Production
 
 - Production remains out of scope until test is clean.
 - No direct production deployment from feature branches.
-- Future: reviewed merges to a `prod` policy from `main`.
+- Future: reviewed merges to **`prod`** deploy production (workflow prepared; branch not activated in Agent 05).
 
 ## Health checks
 
-CD currently verifies `/health/live` rather than full readiness. Prefer `/health/ready` for stronger gates when Agent 05 hardens CD.
+| Probe | Use |
+|-------|-----|
+| `/health/live` | Process up (liveness) |
+| `/health/ready` | DB + Redis ready — **CD gate** |
+| `/api/v1/meta` | `version` must match `IMAGE_TAG` |
 
 ## Local vs test
 
 | Concern | Local | Test |
 |---------|-------|------|
-| Postgres host port | Compose **5433** | Environment-specific |
+| Postgres host port | Compose **5433** | Environment-specific (no host publish) |
 | Battle.net login | May be absent | Present for the project owner |
-| Secrets | Root `.env` only | CD / host secrets — never commit |
+| Secrets | Root `.env` only | VPS `/opt/mplus/test/.env` — never commit |
+| Model activation | Seed / admin | Admin/DB; CD seeds only empty ScoreModel catalog |
+
+## Manual inventory
+
+See [`manual-process-inventory.md`](manual-process-inventory.md).

@@ -82,6 +82,24 @@ jobs:
       - name: Format check (infra + workflows; full-repo not yet normalized)
         run: pnpm exec prettier --check "infra/**/*.{yml,yaml,mjs}" ".github/**/*.{yml,yaml}" ".prettierrc.json" "package.json"
 
+      - name: ShellCheck deploy scripts
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD:/src" -w /src koalaman/shellcheck:v0.10.0 \
+            -x -e SC1091 \
+            infra/scripts/deploy.sh \
+            infra/scripts/rollback.sh \
+            infra/scripts/validate-env.sh \
+            infra/scripts/validate-dual-env.sh \
+            infra/scripts/smoke-deploy.sh \
+            infra/scripts/health-wait.sh \
+            infra/scripts/set-image-tag.sh \
+            infra/scripts/generate-secrets.sh \
+            infra/scripts/backup-postgres.sh
+
+      - name: Validate dual-env deploy dry-run
+        run: bash infra/scripts/validate-dual-env.sh
+
       - name: Validate nginx configuration
         run: docker run --rm -v "$PWD/infra/docker/nginx-web.conf:/etc/nginx/conf.d/default.conf:ro" nginx:1.27-alpine nginx -t
 

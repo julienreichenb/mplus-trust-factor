@@ -63,8 +63,10 @@
     "ops:restore-test": "bash infra/scripts/restore-test-local.sh test",
     "ops:generate-secrets": "bash infra/scripts/generate-secrets.sh",
     "ops:validate-dual-env": "bash infra/scripts/validate-dual-env.sh",
+    "ops:validate-env": "bash infra/scripts/validate-env.sh",
     "ops:deploy:prod": "bash infra/scripts/deploy.sh prod",
     "ops:deploy:test": "bash infra/scripts/deploy.sh test",
+    "ops:smoke": "bash infra/scripts/smoke-deploy.sh",
     "iam:grant-admin": "node tools/scripts/with-env.mjs pnpm --filter @mplus/api exec tsx src/iam/grant-admin.cli.ts",
     "test:frontend-secrets": "vitest run tests/security/frontend-secret-bake.test.ts"
   },
