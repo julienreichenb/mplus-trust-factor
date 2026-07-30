@@ -44,8 +44,12 @@ export type ScoreRefreshReason =
   | "FORCE_REFRESH"
   | "GRADE_U_ELIGIBILITY";
 
-/** Coarse profile/search refreshStatus (backward-compatible wire enum). */
-export type CoarseRefreshStatus = "FRESH" | "QUEUED" | "STALE";
+/**
+ * Coarse profile/search refreshStatus.
+ * REFRESHING = usable published score + in-flight job (not STALE).
+ * STALE = usable published score that requires updating.
+ */
+export type CoarseRefreshStatus = "FRESH" | "QUEUED" | "STALE" | "REFRESHING";
 
 /** Dedicated refresh-status route enum. */
 export type DetailedRefreshStatus =
@@ -182,7 +186,7 @@ export function decideScoreRefresh(input: ScoreRefreshDecisionInput): ScoreRefre
           action: "REUSE_ACTIVE_JOB",
           publicState: "REFRESHING",
           reason: "ACTIVE_JOB_EXISTS",
-          profileRefreshStatus: "STALE",
+          profileRefreshStatus: "REFRESHING",
           detailedRefreshStatus: input.activeJobStatus === "ACTIVE" ? "IN_PROGRESS" : "QUEUED",
           warningCodes: [],
         },

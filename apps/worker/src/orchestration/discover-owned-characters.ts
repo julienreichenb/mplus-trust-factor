@@ -362,6 +362,7 @@ export async function runDiscoverOwnedCharacters(
           priority,
           forceRefresh: false,
           correlationId: job.correlationId ?? null,
+          triggerSource: "ACCOUNT_DISCOVERY",
         });
 
         if (enqueued.reused && !enqueued.enqueued) {

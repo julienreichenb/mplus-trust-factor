@@ -24,7 +24,7 @@ export interface SearchCharacterRequest {
 export interface SearchCharacterResponse {
   characterId: string | null;
   identity: CharacterIdentityInput;
-  refreshStatus: "FRESH" | "QUEUED" | "STALE" | "NOT_FOUND";
+  refreshStatus: "FRESH" | "QUEUED" | "STALE" | "REFRESHING" | "NOT_FOUND";
   job: JobStatusDTO | null;
   score: ScoreSnapshotDTO | null;
 }
@@ -411,7 +411,14 @@ export interface CharacterProfileResponse {
     /** How this provider contributed (WCL: zone rankings and/or combat facts). */
     contributionTypes?: WclContributionType[];
   }>;
-  refreshStatus: "FRESH" | "QUEUED" | "STALE";
+  /**
+   * Coarse profile status.
+   * - FRESH: within score TTL
+   * - QUEUED: no usable published score yet (or first calculation)
+   * - STALE: published score usable but requires updating
+   * - REFRESHING: published score usable while an in-flight refresh runs
+   */
+  refreshStatus: "FRESH" | "QUEUED" | "STALE" | "REFRESHING";
   /** Profile enrichments (Agent 6 / CR-06 / Agent 16) */
   classSlug?: string | null;
   specSlug?: string | null;

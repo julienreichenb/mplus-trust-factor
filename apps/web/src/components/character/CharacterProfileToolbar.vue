@@ -1,8 +1,9 @@
 <script setup lang="ts">
+import { computed } from "vue";
 import { RouterLink } from "vue-router";
 import type { CharacterProfileView } from "../../api/types";
 
-defineProps<{
+const props = defineProps<{
   profile: CharacterProfileView;
   refreshing?: boolean;
   canForceRefresh?: boolean;
@@ -12,6 +13,28 @@ const emit = defineEmits<{
   refresh: [];
   forceRefresh: [];
 }>();
+
+const refreshLabel = computed(() => {
+  switch (props.profile.refreshStatus) {
+    case "REFRESHING":
+      return "Actualisation en cours";
+    case "STALE":
+      return "Données à actualiser";
+    case "QUEUED":
+      return "Actualisation en cours";
+    case "FRESH":
+      return "FRESH";
+    default:
+      return props.profile.refreshStatus;
+  }
+});
+
+const refreshInFlight = computed(
+  () =>
+    Boolean(props.refreshing) ||
+    props.profile.refreshStatus === "QUEUED" ||
+    props.profile.refreshStatus === "REFRESHING",
+);
 </script>
 
 <template>
@@ -19,23 +42,23 @@ const emit = defineEmits<{
     <RouterLink class="back" to="/#character-search">← Back to character search</RouterLink>
     <div class="toolbar__actions">
       <span class="refresh-state mpts-data" :data-status="profile.refreshStatus">{{
-        profile.refreshStatus
+        refreshLabel
       }}</span>
       <button
         type="button"
         class="btn secondary"
         data-testid="refresh-button"
-        :disabled="refreshing || profile.refreshStatus === 'QUEUED'"
+        :disabled="refreshInFlight"
         @click="emit('refresh')"
       >
-        {{ refreshing || profile.refreshStatus === "QUEUED" ? "Refreshing…" : "Refresh data" }}
+        {{ refreshInFlight ? "Refreshing…" : "Refresh data" }}
       </button>
       <button
         v-if="canForceRefresh"
         type="button"
         class="btn secondary"
         data-testid="force-refresh-button"
-        :disabled="refreshing || profile.refreshStatus === 'QUEUED'"
+        :disabled="refreshInFlight"
         @click="emit('forceRefresh')"
       >
         Force refresh
@@ -88,7 +111,8 @@ const emit = defineEmits<{
   background: rgb(34 197 94 / 10%);
 }
 
-.refresh-state[data-status="QUEUED"] {
+.refresh-state[data-status="QUEUED"],
+.refresh-state[data-status="REFRESHING"] {
   color: var(--color-amber-400);
   border-color: rgb(251 191 36 / 40%);
   background: rgb(251 191 36 / 10%);

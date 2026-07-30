@@ -37,8 +37,9 @@ export interface JobRepository {
    */
   resolveForEnqueue(input: CreateOrGetJobInput): Promise<ResolveForEnqueueResult>;
   /**
-   * After BullMQ add succeeds: create or CAS-promote the row to QUEUED.
+   * Claim the IngestionJob row to QUEUED before BullMQ publish.
    * `wonClaim` is false when a concurrent producer already owns an in-flight execution.
+   * Callers must not publish a BullMQ message when wonClaim is false.
    */
   promoteToQueuedAfterEnqueue(
     input: PromoteToQueuedInput,

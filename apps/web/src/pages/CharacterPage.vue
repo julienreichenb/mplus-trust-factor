@@ -110,12 +110,16 @@ const hasWclNotice = computed(() => {
 const bannerTitles = computed(() => {
   if (!profile.value || showSplash.value) return [];
   const titles: string[] = [];
-  if (profile.value.refreshStatus === "QUEUED" || polling.value) {
-    titles.push("Refresh queued");
+  if (
+    profile.value.refreshStatus === "QUEUED" ||
+    profile.value.refreshStatus === "REFRESHING" ||
+    polling.value
+  ) {
+    titles.push("Actualisation en cours");
   } else if (timedOut.value) {
     titles.push("Refresh timed out");
   } else if (profile.value.refreshStatus === "STALE") {
-    titles.push("Stale data");
+    titles.push("Données à actualiser");
   }
   if (confidenceWarning.value) titles.push("Low confidence");
   for (const w of profile.value.warnings ?? []) {
@@ -148,7 +152,7 @@ async function load(): Promise<void> {
       classSlug: data.classSlug ?? null,
       avatarUrl: data.media?.avatarUrl ?? data.media?.insetUrl ?? null,
     });
-    if (data.refreshStatus === "QUEUED") {
+    if (data.refreshStatus === "QUEUED" || data.refreshStatus === "REFRESHING") {
       void startPolling({
         identity,
         onUpdate: (status) => {
@@ -160,12 +164,15 @@ async function load(): Promise<void> {
               status.refreshStatus === "QUEUED" ||
               status.job?.status === "queued" ||
               status.job?.status === "active";
+            const hasScore = Boolean(profile.value.score);
             profile.value = {
               ...profile.value,
               refreshStatus: terminalFailed
                 ? "STALE"
                 : inProgress
-                  ? "QUEUED"
+                  ? hasScore
+                    ? "REFRESHING"
+                    : "QUEUED"
                   : "FRESH",
             };
           }
@@ -332,9 +339,9 @@ onMounted(() => {
         </summary>
         <div class="character-page__banners-body">
           <StatusBanner
-            v-if="profile.refreshStatus === 'QUEUED' || polling"
+            v-if="profile.refreshStatus === 'QUEUED' || profile.refreshStatus === 'REFRESHING' || polling"
             tone="info"
-            title="Refresh queued"
+            title="Actualisation en cours"
             data-testid="queued-banner"
           >
             Showing the latest available snapshot while a refresh runs. Polling with backoff until complete.
@@ -353,7 +360,7 @@ onMounted(() => {
           <StatusBanner
             v-else-if="profile.refreshStatus === 'STALE'"
             tone="warn"
-            title="Stale data"
+            title="Données à actualiser"
             data-testid="stale-banner"
           >
             This snapshot is usable but may be outdated. Refresh to queue an update.

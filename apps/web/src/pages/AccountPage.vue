@@ -64,7 +64,7 @@ function statusLabel(status: AccountOwnedCharacterDTO["trustScore"]["status"]): 
     case "RUNNING":
       return "Analysing";
     case "REFRESHING":
-      return "Refreshing";
+      return "Actualisation en cours";
     case "AVAILABLE":
       return "Available";
     case "PARTIAL":
@@ -72,7 +72,7 @@ function statusLabel(status: AccountOwnedCharacterDTO["trustScore"]["status"]): 
     case "FAILED":
       return "Failed";
     case "STALE":
-      return "Stale";
+      return "Données à actualiser";
     case "UNAVAILABLE":
       return "Unavailable";
     default:

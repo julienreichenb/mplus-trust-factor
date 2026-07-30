@@ -36,8 +36,10 @@ export interface PersistAndEnqueueResult {
  * Reconcile IngestionJob rows with BullMQ:
  * - In-flight (QUEUED/ACTIVE) jobs collapse concurrent callers without a new queue message.
  * - Stale QUEUED (no startedAt) is marked FAILED, then a new execution may proceed.
- * - Terminal jobs are requeued with a unique BullMQ jobId; DB is reset to QUEUED only after add succeeds.
- * - If add fails, terminal rows stay terminal (or newly created rows become FAILED).
+ * - Claim the DB row to QUEUED before `queue.add` so concurrent losers never publish
+ *   a duplicate BullMQ message (avoids locked-job removal races).
+ * - Terminal jobs remain requeueable when a legitimate new refresh is required.
+ * - If add fails after claim, the row is marked FAILED (stale recovery covers crash gaps).
  */
 export async function persistAndEnqueue(deps: PersistAndEnqueueDeps): Promise<PersistAndEnqueueResult> {
   const {
@@ -71,6 +73,27 @@ export async function persistAndEnqueue(deps: PersistAndEnqueueDeps): Promise<Pe
     };
   }
 
+  // Claim before BullMQ publish: only one producer may own the in-flight execution.
+  const claimed = await jobRepository.promoteToQueuedAfterEnqueue({
+    jobId: resolved.job.id,
+    dedupeKey,
+    jobType,
+    characterId: options.characterId ?? null,
+    runId: options.runId ?? null,
+    payload,
+    priority: options.priority ?? 0,
+  });
+
+  if (!claimed.wonClaim) {
+    return {
+      jobId: claimed.job.id,
+      dedupeKey,
+      reused: true,
+      enqueued: false,
+      bullmqJobId: null,
+    };
+  }
+
   const bullmqJobId = buildBullmqExecutionJobId(dedupeKey);
 
   try {
@@ -81,9 +104,9 @@ export async function persistAndEnqueue(deps: PersistAndEnqueueDeps): Promise<Pe
     });
   } catch (error) {
     logger.error({ jobType, dedupeKey, bullmqJobId, err: error }, "queue.add failed");
-    await jobRepository.markEnqueueFailed(resolved.job.id, error);
+    await jobRepository.markEnqueueFailed(claimed.job.id, error);
     return {
-      jobId: resolved.job.id,
+      jobId: claimed.job.id,
       dedupeKey,
       reused: resolved.reused,
       enqueued: false,
@@ -91,31 +114,11 @@ export async function persistAndEnqueue(deps: PersistAndEnqueueDeps): Promise<Pe
     };
   }
 
-  const promoted = await jobRepository.promoteToQueuedAfterEnqueue({
-    jobId: resolved.job.id,
-    dedupeKey,
-    jobType,
-    characterId: options.characterId ?? null,
-    runId: options.runId ?? null,
-    payload,
-    priority: options.priority ?? 0,
-  });
-
-  if (!promoted.wonClaim) {
-    // Another concurrent producer already owns an in-flight execution — drop our duplicate message.
-    try {
-      const bullJob = await queue.getJob(bullmqJobId);
-      if (bullJob) await bullJob.remove();
-    } catch (error) {
-      logger.warn({ dedupeKey, bullmqJobId, err: error }, "failed to remove duplicate BullMQ job");
-    }
-  }
-
   return {
-    jobId: promoted.job.id,
+    jobId: claimed.job.id,
     dedupeKey,
-    reused: resolved.reused || !promoted.wonClaim,
-    enqueued: promoted.wonClaim,
-    bullmqJobId: promoted.wonClaim ? bullmqJobId : null,
+    reused: resolved.reused,
+    enqueued: true,
+    bullmqJobId,
   };
 }

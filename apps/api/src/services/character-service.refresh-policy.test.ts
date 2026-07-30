@@ -48,7 +48,7 @@ describe("CharacterService — centralized 7-day refresh policy", () => {
         MANUAL_REFRESH_COOLDOWN_SECONDS: 900,
         PUBLIC_DETAILS_ALL: true,
       },
-      logger: { warn: vi.fn() },
+      logger: { warn: vi.fn(), info: vi.fn() },
       negativeCache: { has: () => false, clear: vi.fn() },
       responseCache: {
         get: mockCacheGet,
@@ -188,10 +188,23 @@ describe("CharacterService — centralized 7-day refresh policy", () => {
 
   it("stale profile creates exactly one job", async () => {
     mockGetPublishedSnapshot.mockResolvedValue(publishedSnapshot(staleCalculatedAt));
+    mockEnqueue.mockImplementation(async () => {
+      mockFindActive.mockResolvedValue({
+        id: "job-1",
+        status: "QUEUED",
+        completedAt: null,
+        scheduledAt: new Date(),
+        startedAt: null,
+        dedupeKey: "d",
+        jobType: "refresh-character",
+        error: null,
+      });
+      return { jobId: "job-1", reused: false, enqueued: true };
+    });
     const service = new CharacterService(buildContainer());
     const result = await service.getProfile(identity);
     expect(result.statusCode).toBe(200);
-    expect(result.body.refreshStatus).toBe("STALE");
+    expect(result.body.refreshStatus).toBe("REFRESHING");
     expect(result.body.score).not.toBeNull();
     expect(mockEnqueue).toHaveBeenCalledTimes(1);
   });
@@ -204,8 +217,11 @@ describe("CharacterService — centralized 7-day refresh policy", () => {
       completedAt: null,
     });
     const service = new CharacterService(buildContainer());
-    await service.getProfile(identity);
-    await service.getProfile(identity);
+    const a = await service.getProfile(identity);
+    const b = await service.getProfile(identity);
+    expect(a.body.refreshStatus).toBe("REFRESHING");
+    expect(b.body.refreshStatus).toBe("REFRESHING");
+    expect(a.body.score).not.toBeNull();
     expect(mockEnqueue).not.toHaveBeenCalled();
   });
 
@@ -248,6 +264,19 @@ describe("CharacterService — centralized 7-day refresh policy", () => {
 
   it("search and profile use the same policy", async () => {
     mockGetPublishedSnapshot.mockResolvedValue(publishedSnapshot(staleCalculatedAt));
+    mockEnqueue.mockImplementation(async () => {
+      mockFindActive.mockResolvedValue({
+        id: "job-1",
+        status: "QUEUED",
+        completedAt: null,
+        scheduledAt: new Date(),
+        startedAt: null,
+        dedupeKey: "d",
+        jobType: "refresh-character",
+        error: null,
+      });
+      return { jobId: "job-1", reused: false, enqueued: true };
+    });
     const service = new CharacterService(buildContainer());
     const profile = await service.getProfile(identity);
     mockEnqueue.mockClear();
@@ -262,9 +291,64 @@ describe("CharacterService — centralized 7-day refresh policy", () => {
       error: null,
     });
     const search = await service.searchCharacter(identity);
-    expect(profile.body.refreshStatus).toBe("STALE");
-    expect(search.refreshStatus).toBe("STALE");
+    expect(profile.body.refreshStatus).toBe("REFRESHING");
+    expect(search.refreshStatus).toBe("REFRESHING");
     expect(mockEnqueue).not.toHaveBeenCalled();
+  });
+
+  it("stale score remains visible during refresh with REFRESHING status", async () => {
+    mockGetPublishedSnapshot.mockResolvedValue(publishedSnapshot(staleCalculatedAt));
+    mockFindActive.mockResolvedValue({
+      id: "job-active",
+      status: "ACTIVE",
+      completedAt: null,
+    });
+    const service = new CharacterService(buildContainer());
+    const result = await service.getProfile(identity);
+    expect(result.body.score?.grade).toBe("B");
+    expect(result.body.refreshStatus).toBe("REFRESHING");
+    expect(result.body.refreshStatus).not.toBe("STALE");
+    expect(mockEnqueue).not.toHaveBeenCalled();
+  });
+
+  it("three sequential fresh GETs stay NONE with zero enqueue", async () => {
+    const service = new CharacterService(buildContainer());
+    for (let i = 0; i < 3; i++) {
+      const result = await service.getProfile(identity);
+      expect(result.body.refreshStatus).toBe("FRESH");
+    }
+    expect(mockEnqueue).not.toHaveBeenCalled();
+    expect(mockRecalc).not.toHaveBeenCalled();
+  });
+
+  it("profile enqueue carries PROFILE_READ triggerSource and contract hash", async () => {
+    mockGetPublishedSnapshot.mockResolvedValue(publishedSnapshot(staleCalculatedAt));
+    const service = new CharacterService(buildContainer());
+    await service.getProfile(identity);
+    expect(mockEnqueue).toHaveBeenCalledWith(
+      expect.objectContaining({
+        triggerSource: "PROFILE_READ",
+        refreshContractHash: expect.any(String),
+      }),
+    );
+  });
+
+  it("manual force refresh carries MANUAL_FORCE_REFRESH triggerSource", async () => {
+    const service = new CharacterService(buildContainer());
+    await service.requestRefresh(identity, {
+      bypassCooldown: true,
+      forceRefresh: true,
+      correlationId: "force-1",
+    });
+    expect(mockEnqueue).toHaveBeenCalledWith(
+      expect.objectContaining({
+        characterId: "char-1",
+        forceRefresh: true,
+        correlationId: "force-1",
+        triggerSource: "MANUAL_FORCE_REFRESH",
+      }),
+    );
+    expect(mockRecalc).not.toHaveBeenCalled();
   });
 
   it("cache invalidation does not bypass policy for fresh scores", async () => {
@@ -277,20 +361,6 @@ describe("CharacterService — centralized 7-day refresh policy", () => {
     expect(mockEnqueue).not.toHaveBeenCalled();
   });
 
-  it("stale score remains visible during refresh", async () => {
-    mockGetPublishedSnapshot.mockResolvedValue(publishedSnapshot(staleCalculatedAt));
-    mockFindActive.mockResolvedValue({
-      id: "job-active",
-      status: "ACTIVE",
-      completedAt: null,
-    });
-    const service = new CharacterService(buildContainer());
-    const result = await service.getProfile(identity);
-    expect(result.body.score?.grade).toBe("B");
-    expect(result.body.refreshStatus).toBe("STALE");
-    expect(mockEnqueue).not.toHaveBeenCalled();
-  });
-
   it("model-only mismatch chooses recalculate", async () => {
     mockGetPublishedSnapshot.mockResolvedValue(
       publishedSnapshot(recentCalculatedAt, {
@@ -298,9 +368,22 @@ describe("CharacterService — centralized 7-day refresh policy", () => {
         contract: { ...matchingContract, scoringModelVersion: 3 },
       }),
     );
+    mockRecalc.mockImplementation(async () => {
+      mockFindActive.mockResolvedValue({
+        id: "recalc-1",
+        status: "QUEUED",
+        completedAt: null,
+        scheduledAt: new Date(),
+        startedAt: null,
+        dedupeKey: "d",
+        jobType: "recalculate-score",
+        error: null,
+      });
+      return { jobId: "recalc-1", reused: false, enqueued: true };
+    });
     const service = new CharacterService(buildContainer());
     const result = await service.getProfile(identity);
-    expect(result.body.refreshStatus).toBe("STALE");
+    expect(result.body.refreshStatus).toBe("REFRESHING");
     expect(mockRecalc).toHaveBeenCalledTimes(1);
     expect(mockEnqueue).not.toHaveBeenCalled();
   });
@@ -318,6 +401,7 @@ describe("CharacterService — centralized 7-day refresh policy", () => {
         characterId: "char-1",
         forceRefresh: true,
         correlationId: "force-1",
+        triggerSource: "MANUAL_FORCE_REFRESH",
       }),
     );
     expect(mockRecalc).not.toHaveBeenCalled();
@@ -330,7 +414,7 @@ describe("CharacterService — centralized 7-day refresh policy", () => {
       forceRefresh: false,
     });
     expect(mockEnqueue).toHaveBeenCalledWith(
-      expect.objectContaining({ forceRefresh: false }),
+      expect.objectContaining({ forceRefresh: false, triggerSource: "MANUAL_REFRESH" }),
     );
   });
 

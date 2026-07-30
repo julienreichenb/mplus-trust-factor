@@ -56,7 +56,7 @@ describe("decideScoreRefresh", () => {
     });
     expect(d.action).toBe("REUSE_ACTIVE_JOB");
     expect(d.publicState).toBe("REFRESHING");
-    expect(d.profileRefreshStatus).toBe("STALE");
+    expect(d.profileRefreshStatus).toBe("REFRESHING");
   });
 
   it("reading after completion within TTL does not enqueue", () => {
@@ -93,7 +93,7 @@ describe("decideScoreRefresh", () => {
       activeJobStatus: "ACTIVE",
     });
     expect(d.publicState).toBe("REFRESHING");
-    expect(d.profileRefreshStatus).toBe("STALE");
+    expect(d.profileRefreshStatus).toBe("REFRESHING");
     expect(d.detailedRefreshStatus).toBe("IN_PROGRESS");
   });
 

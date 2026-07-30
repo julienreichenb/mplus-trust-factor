@@ -38,11 +38,26 @@ Provider states remain separate (`CharacterProviderState`).
 | `FRESH` | `FRESH` | Within TTL |
 | `GRADE_U` | `FRESH` | Published grade U; eligibility, not missing score |
 | `STALE_USABLE` | `STALE` | Last score shown; refresh may be enqueued |
-| `REFRESHING` | `STALE` | Last score shown + in-flight job |
+| `REFRESHING` | `REFRESHING` | Last score shown + in-flight job (not STALE) |
 | `FAILED_FALLBACK` | `STALE` | Last score shown; backoff |
 | `UNAVAILABLE` | `QUEUED` | No score after failed refresh |
 
 Account list uses `AccountTrustScoreStatus`, including `REFRESHING` so polling does not hide a completed score behind a loading-only state.
+
+French UI-facing wording: `REFRESHING` → « Actualisation en cours »; `STALE` → « Données à actualiser ».
+
+## Canonical refresh contract
+
+API profile reads, manual refreshes, account discovery, the worker refresh pipeline, and recalculation must resolve the active refresh contract through one shared helper (`resolveActiveRefreshContract` in `@mplus/worker`).
+
+- Fixture zone defaults are allowed **only** when `PROVIDER_MODE=fixture`.
+- `APP_ENV=test` / `NODE_ENV=test` must **not** enable fixture zone defaults when providers are live.
+- Prefer passing explicit `zoneId` / `partition` when known.
+- After a successful refresh: `job.payload.refreshContractHash` must equal the published snapshot hash and `hash(explanation.refreshContract)`. Mismatches fail the job (no silent divergent publish).
+
+## Utility fallback boundary (Agent 07)
+
+Utility fallback / extra WCL evidence collection must run **only inside one legitimate `refresh-character` execution**. It must never enqueue a second top-level character refresh. Agent 07 implements Utility fallback on top of this stable boundary; this hotfix does not change Utility eligibility, confidence, or scoring.
 
 ## Config
 
