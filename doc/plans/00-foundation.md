@@ -1,8 +1,10 @@
 # Agent 0 — Foundation Plan
 
-## Current state
+> Historical plan. Canonical onboarding is [`AGENTS.md`](../../AGENTS.md) and [`../README.md`](../README.md). Starter-pack files now live under `doc/bootstrap/` and `doc/archive/wave1-agent-prompts/`.
 
-The repository contains only the Cursor multi-agent starter pack (root `*.txt`, `agents/*`, `manifest.json`) on `master`. No `apps/`, `packages/`, `doc/`, or `infra/` yet. Local machine may be on Node 22; Active LTS is Node 24. pnpm is pinned via `packageManager` and Corepack (or local install).
+## Current state (at plan time — superseded)
+
+The repository originally contained only the Cursor multi-agent starter pack (root `*.txt`, `agents/*`, `manifest.json`) on `master`. That empty-repo state no longer applies. Local machine may be on Node 22; Active LTS is Node 24. pnpm is pinned via `packageManager` and Corepack (or local install).
 
 ## Exact repository tree
 

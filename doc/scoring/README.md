@@ -1,3 +1,11 @@
 # Scoring docs
 
-Placeholder for Agent 4. Seeded model config lives in the database (`ScoreModel` key `default` version `1`).
+Canonical product scoring documentation:
+
+- [`../product/scoring-model-v6.md`](../product/scoring-model-v6.md)
+- [`../product/ranking-confidence-and-missing-data.md`](../product/ranking-confidence-and-missing-data.md)
+- [`../architecture/scoring-publication.md`](../architecture/scoring-publication.md)
+- [`../operations/model-lifecycle.md`](../operations/model-lifecycle.md)
+
+Runtime defaults: `packages/scoring/src/model/defaults.ts` (`createDefaultModelV6`).  
+Active model is a database row (seeded `default@6`); env vars are lookup/bootstrap aids, not normal activation.

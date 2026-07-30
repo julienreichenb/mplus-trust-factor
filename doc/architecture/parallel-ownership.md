@@ -1,6 +1,8 @@
 # Parallel file ownership
 
-From WAVE-EXECUTION-PLAN. Agents 1–9 run only after Agent 0 is merged, on isolated branches.
+For the **2026-07 stabilization programme**, use [`../agents/file-ownership-map.md`](../agents/file-ownership-map.md).
+
+Below is the historical WAVE-EXECUTION-PLAN map (Agents 1–9 after Agent 0), retained for lineage.
 
 | Agent | Owns |
 |-------|------|

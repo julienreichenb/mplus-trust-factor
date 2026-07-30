@@ -1,5 +1,9 @@
 M+ TRUST FACTOR — SHARED PRODUCT CONTEXT
 ========================================
+ARCHIVE — Historical wave-1 bootstrap. Not current product truth.
+Canonical: doc/product/scoring-model-v6.md and AGENTS.md / doc/README.md
+(Public skill dimensions = Performance, Survival, Utility, Experience; Raid weight 0.)
+========================================
 
 1. Product mission
 ------------------

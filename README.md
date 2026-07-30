@@ -38,8 +38,17 @@ PostgreSQL is published on host port **5433** (see `.env.example`) to avoid clas
 
 ## Documentation
 
-See `doc/` — start with `doc/operations/local-development.md` and `doc/plans/00-foundation.md`.
+**Start here:** [`AGENTS.md`](AGENTS.md) → [`doc/README.md`](doc/README.md).
+
+Key product docs:
+
+- [`doc/product/product-scope.md`](doc/product/product-scope.md)
+- [`doc/product/scoring-model-v6.md`](doc/product/scoring-model-v6.md)
+- [`doc/architecture/system-overview.md`](doc/architecture/system-overview.md)
+- [`doc/operations/local-development.md`](doc/operations/local-development.md)
+
+Front-end brand/UX: [`doc/architecture/frontend/`](doc/architecture/frontend/).
 
 ## Agent ownership
 
-Parallel agents must stay inside paths declared in `doc/architecture/parallel-ownership.md`.
+See [`doc/agents/file-ownership-map.md`](doc/agents/file-ownership-map.md) and [`doc/architecture/parallel-ownership.md`](doc/architecture/parallel-ownership.md).

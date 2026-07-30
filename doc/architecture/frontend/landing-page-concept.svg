@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 1024" role="img" aria-labelledby="title desc">
+  <title id="title">M+ Trust Score landing page concept</title>
+  <desc id="desc">Desktop concept with navigation, hero copy, character search, live profile preview and six-dimension teaser.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#100C09"/><stop offset=".6" stop-color="#090705"/><stop offset="1" stop-color="#050403"/></linearGradient>
+    <linearGradient id="cta"><stop stop-color="#F7C65C"/><stop offset="1" stop-color="#CF7116"/></linearGradient>
+    <radialGradient id="glow"><stop stop-color="#F2AD37" stop-opacity=".28"/><stop offset="1" stop-color="#F2AD37" stop-opacity="0"/></radialGradient>
+    <filter id="shadow"><feDropShadow dy="20" stdDeviation="24" flood-opacity=".42"/></filter>
+  </defs>
+  <rect width="1440" height="1024" fill="url(#bg)"/>
+  <circle cx="1130" cy="290" r="350" fill="url(#glow)"/>
+
+  <g transform="translate(80 38)">
+    <rect width="42" height="42" rx="10" fill="#17110D" stroke="#B2946A"/>
+    <path d="M21 7 35 15v12L21 35 7 27V15Z" fill="none" stroke="#F2AD37" stroke-width="2"/>
+    <path d="m14 21 4 4 9-10" fill="none" stroke="#F7E8CF" stroke-width="2.2" stroke-linecap="round"/>
+    <text x="56" y="28" fill="#F7E8CF" font-family="Inter,Arial" font-size="20" font-weight="700">M+ Trust Score</text>
+    <text x="800" y="27" fill="#C9B18D" font-family="Inter,Arial" font-size="15">Methodology</text>
+    <text x="920" y="27" fill="#C9B18D" font-family="Inter,Arial" font-size="15">Compare</text>
+    <text x="1005" y="27" fill="#C9B18D" font-family="Inter,Arial" font-size="15">About</text>
+    <rect x="1080" width="160" height="42" rx="10" fill="#211810" stroke="#654A2B"/>
+    <text x="1160" y="27" text-anchor="middle" fill="#F7E8CF" font-family="Inter,Arial" font-size="14" font-weight="700">Check a player</text>
+  </g>
+  <line x1="80" y1="105" x2="1360" y2="105" stroke="#3B2B1E"/>
+
+  <g transform="translate(80 180)">
+    <text fill="#F2AD37" font-family="JetBrains Mono,monospace" font-size="14" font-weight="700" letter-spacing="2">EXPLAINABLE MYTHIC+ TRUST SIGNALS</text>
+    <text y="72" fill="#F7E8CF" font-family="Cinzel,Georgia" font-size="58" font-weight="700"><tspan x="0">Know who you are</tspan><tspan x="0" dy="68">inviting before the</tspan><tspan x="0" dy="68">key starts.</tspan></text>
+    <text y="300" fill="#C9B18D" font-family="Inter,Arial" font-size="19"><tspan x="0">Turn public character, run and combat data into a transparent</tspan><tspan x="0" dy="30">SÔÇôD trust tier ÔÇö with the evidence and model behind it.</tspan></text>
+
+    <g transform="translate(0 380)" filter="url(#shadow)">
+      <rect width="650" height="150" rx="18" fill="#17110D" stroke="#654A2B"/>
+      <text x="24" y="28" fill="#927B60" font-family="Inter,Arial" font-size="12" font-weight="700">FIND A CHARACTER</text>
+      <rect x="24" y="46" width="84" height="52" rx="10" fill="#211810" stroke="#3B2B1E"/><text x="43" y="78" fill="#F7E8CF" font-family="Inter,Arial" font-size="14">EU Ôû¥</text>
+      <rect x="120" y="46" width="205" height="52" rx="10" fill="#211810" stroke="#3B2B1E"/><text x="140" y="78" fill="#927B60" font-family="Inter,Arial" font-size="14">Realm</text>
+      <rect x="337" y="46" width="170" height="52" rx="10" fill="#211810" stroke="#3B2B1E"/><text x="357" y="78" fill="#927B60" font-family="Inter,Arial" font-size="14">Character</text>
+      <rect x="519" y="46" width="107" height="52" rx="10" fill="url(#cta)"/><text x="572" y="78" text-anchor="middle" fill="#100C09" font-family="Inter,Arial" font-size="13" font-weight="800">Analyze</text>
+      <text x="24" y="128" fill="#927B60" font-family="Inter,Arial" font-size="12">Public data only ┬À Explainable scoring ┬À No login required</text>
+    </g>
+  </g>
+
+  <g transform="translate(790 165)" filter="url(#shadow)">
+    <rect width="570" height="570" rx="26" fill="#17110D" stroke="#654A2B"/>
+    <rect x="20" y="20" width="530" height="92" rx="18" fill="#211810"/>
+    <circle cx="65" cy="66" r="28" fill="#2C2016" stroke="#B2946A"/>
+    <text x="108" y="54" fill="#F7E8CF" font-family="Inter,Arial" font-size="22" font-weight="800">Aleria</text>
+    <text x="108" y="80" fill="#C9B18D" font-family="Inter,Arial" font-size="13">Restoration Druid ┬À Tarren Mill</text>
+    <text x="520" y="52" text-anchor="end" fill="#927B60" font-family="Inter,Arial" font-size="11">UPDATED 4M AGO</text>
+    <text x="520" y="80" text-anchor="end" fill="#F7E8CF" font-family="JetBrains Mono" font-size="14">3,184 M+ SCORE</text>
+
+    <path d="M75 150h90l24 24v90l-24 24H75l-24-24v-90Z" fill="#211810" stroke="#F4C653" stroke-width="2"/>
+    <text x="120" y="245" text-anchor="middle" fill="#F4C653" font-family="Cinzel,Georgia" font-size="78" font-weight="700">S</text>
+    <text x="120" y="273" text-anchor="middle" fill="#C9B18D" font-family="JetBrains Mono" font-size="13">91.4 / 100</text>
+    <text x="120" y="320" text-anchor="middle" fill="#927B60" font-family="Inter,Arial" font-size="11">CONFIDENCE 89%</text>
+    <rect x="64" y="334" width="112" height="8" rx="4" fill="#2C2016"/><rect x="64" y="334" width="100" height="8" rx="4" fill="#F2AD37"/>
+
+    <g transform="translate(375 275)">
+      <polygon points="0,-100 87,-50 87,50 0,100 -87,50 -87,-50" fill="none" stroke="#3B2B1E"/>
+      <polygon points="0,-66 57,-33 57,33 0,66 -57,33 -57,-33" fill="none" stroke="#3B2B1E"/>
+      <polygon points="0,-86 72,-42 63,36 0,75 -70,40 -64,-37" fill="#F2AD37" fill-opacity=".18" stroke="#F2AD37" stroke-width="2.5"/>
+      <text x="0" y="-114" text-anchor="middle" fill="#C9B18D" font-family="Inter,Arial" font-size="10">Performance</text>
+      <text x="99" y="-48" fill="#C9B18D" font-family="Inter,Arial" font-size="10">Survival</text>
+      <text x="100" y="58" fill="#C9B18D" font-family="Inter,Arial" font-size="10">Utility</text>
+      <text x="0" y="119" text-anchor="middle" fill="#C9B18D" font-family="Inter,Arial" font-size="10">Experience</text>
+    </g>
+
+    <g transform="translate(25 395)">
+      <rect width="520" height="54" rx="12" fill="#211810"/><circle cx="27" cy="27" r="7" fill="#5FD39A"/><text x="47" y="23" fill="#F7E8CF" font-family="Inter,Arial" font-size="13" font-weight="700">Strong survival consistency</text><text x="47" y="40" fill="#927B60" font-family="Inter,Arial" font-size="10">Public logs ┬À 14 recent runs</text>
+      <rect y="65" width="520" height="54" rx="12" fill="#211810"/><circle cx="27" cy="92" r="7" fill="#F2AD37"/><text x="47" y="88" fill="#F7E8CF" font-family="Inter,Arial" font-size="13" font-weight="700">High-key experience verified</text><text x="47" y="105" fill="#927B60" font-family="Inter,Arial" font-size="10">Raider.IO progression context</text>
+      <text x="500" y="145" text-anchor="end" fill="#F2AD37" font-family="Inter,Arial" font-size="11" font-weight="700">VIEW FULL PROFILE ÔåÆ</text>
+    </g>
+  </g>
+
+  <g transform="translate(80 835)">
+    <text fill="#F7E8CF" font-family="Cinzel,Georgia" font-size="28" font-weight="700">One signal. Six inspectable dimensions.</text>
+    <g transform="translate(0 52)" fill="#17110D" stroke="#3B2B1E">
+      <rect width="190" height="58" rx="12"/><rect x="205" width="190" height="58" rx="12"/><rect x="410" width="190" height="58" rx="12"/><rect x="615" width="190" height="58" rx="12"/><rect x="820" width="190" height="58" rx="12"/><rect x="1025" width="190" height="58" rx="12"/>
+    </g>
+    <g transform="translate(20 87)" fill="#F7E8CF" font-family="Inter,Arial" font-size="13"><text>Performance</text><text x="205">Survival</text><text x="410">Utility</text><text x="615">Experience</text><text x="820">Raid evidence</text><text x="1025">Authenticity</text></g>
+  </g>
+</svg>

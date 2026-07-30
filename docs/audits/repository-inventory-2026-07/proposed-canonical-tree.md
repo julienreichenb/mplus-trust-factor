@@ -5,8 +5,8 @@ Target layout after cleanup PRs (not applied by Agent 01).
 ```text
 /
 ├── README.md                          # CANONICAL — monorepo quickstart
-├── AGENTS.md                          # ADD — pointer to .agent-context + doc/architecture/parallel-ownership.md
-├── .agent-context/                    # CANONICAL — programme decisions/rules (stabilization)
+├── AGENTS.md                          # ADD — pointer to doc/README.md + doc/architecture/parallel-ownership.md
+├── .cursor-orchestration/             # KEEP — temporary programme prompts (stabilization)
 ├── .cursor/
 │   └── rules/
 │       └── mpts-frontend-brand.mdc    # ADD from PR#1 consolidation

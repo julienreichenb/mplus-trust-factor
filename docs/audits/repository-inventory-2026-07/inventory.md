@@ -55,8 +55,7 @@ Agent 02 must **not** delete Utility/Survival probes. Agent 12 must **not** star
 | `docs/audits/` | `TEMPORARY_ACTIVE` | This audit |
 | `agents/*.txt` | `ARCHIVE` | Wave-1 starter prompts; handoffs live under `doc/agents/**` |
 | `doc/agents/wave3|wave4|wave4-bis/**` | `KEEP_RESEARCH` / historical | Wave execution packs; some still referenced by open worktrees |
-| `.agent-context/` | `CANONICAL` (programme) | Stabilization agent rules/decisions (worktree-local / orchestration) |
-| `.cursor-orchestration/` | `KEEP_RESEARCH` | Stabilization programme prompts |
+| `.cursor-orchestration/` | `KEEP_RESEARCH` / programme | Stabilization programme prompts (temporary; decisions embedded in standalone prompts) |
 | `.cursor/rules/` | **not found** on main | Present only on PR #1 branch |
 | `AGENTS.md` | **not found** | Prompt expected it; absent on main |
 | `apps/{api,web,worker}` | `CANONICAL` | Runtime |
@@ -79,7 +78,7 @@ Agent 02 must **not** delete Utility/Survival probes. Agent 12 must **not** star
 | Public skill dimensions | Wave4 + `createDefaultModelV3`: Perf/Surv/Util/Exp; `mythicRaid: 0` | Bootstrap `COMMON-CONTEXT.txt` still lists Raid 5%; brand docs invent alternate six-axis sets |
 | Contract enums | `packages/contracts/src/scoring.ts` still has `RAID` + `AUTHENTICITY` | Correct as schema; RAID weight 0 in v3+ |
 
-Programme decision (`.agent-context` / prompt): **four** public dimensions — Performance, Survival, Utility, Experience. Authenticity/boost is separate. Align docs/UI to that.
+Programme decision (stabilization prompts / `doc/product/`): **four** public dimensions — Performance, Survival, Utility, Experience. Authenticity/boost is separate. Align docs/UI to that.
 
 ---
 
