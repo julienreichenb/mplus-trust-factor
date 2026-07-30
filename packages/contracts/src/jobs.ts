@@ -13,6 +13,19 @@ export const QUEUE_NAMES = {
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
 
+/** Why a refresh-character job was enqueued. Optional for backward-compatible persisted jobs. */
+export const refreshTriggerSourceSchema = z.enum([
+  "PROFILE_READ",
+  "MANUAL_REFRESH",
+  "MANUAL_FORCE_REFRESH",
+  "ACCOUNT_DISCOVERY",
+  "BULK_REFRESH",
+  "SYSTEM",
+  "UNKNOWN",
+]);
+
+export type RefreshTriggerSource = z.infer<typeof refreshTriggerSourceSchema>;
+
 export const refreshCharacterJobSchema = z.object({
   characterId: z.string().uuid().optional(),
   region: z.string().min(1).max(8),
@@ -28,6 +41,8 @@ export const refreshCharacterJobSchema = z.object({
    * Model/adapter/schema bumps must not reuse jobs keyed under an older contract.
    */
   refreshContractHash: z.string().min(1).max(128).optional(),
+  /** Optional enqueue boundary label; absent on older persisted jobs. */
+  triggerSource: refreshTriggerSourceSchema.optional(),
 });
 
 export type RefreshCharacterJob = z.infer<typeof refreshCharacterJobSchema> & {

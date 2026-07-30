@@ -83,7 +83,8 @@ Do not modify worker queue topology (`processors.ts`, new queue names, bulk job 
 - no scoring-weight or grade-threshold changes;
 - no mass live calls;
 - no hidden penalty for unobservable actions;
-- preserve one-sided observed-contribution semantics unless explicit model-version approval is obtained.
+- preserve one-sided observed-contribution semantics unless explicit model-version approval is obtained;
+- **Utility fallback must never create a second top-level character refresh** — extra evidence work stays inside the single legitimate `refresh-character` execution that already owns the job (stable boundary prepared by the refresh-contract-stability hotfix).
 
 
 

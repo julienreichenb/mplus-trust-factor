@@ -6,7 +6,7 @@ import {
   type ScoreRefreshDecision,
 } from "@mplus/config";
 
-export type ProfileRefreshStatus = "FRESH" | "STALE" | "QUEUED";
+export type ProfileRefreshStatus = "FRESH" | "STALE" | "QUEUED" | "REFRESHING";
 export type DetailedRefreshStatus = ScoreDetailedRefreshStatus;
 
 /** @deprecated Prefer isScoreWithinTtl(scoreCalculatedAt, scoreTtlSeconds). Kept for cooldown helpers. */

@@ -20,7 +20,7 @@ function jobStub(overrides: Partial<IngestionJob> = {}): IngestionJob {
     attempts: 1,
     payload: {},
     scheduledAt: new Date("2026-07-20T10:00:00.000Z"),
-    startedAt: new Date("2026-07-20T10:00:01.000Z"),
+    startedAt: new Date("2026-07-20T10:01:00.000Z"),
     completedAt: new Date("2026-07-20T10:01:00.000Z"),
     error: null,
     ...overrides,
@@ -99,9 +99,10 @@ describe("persistAndEnqueue", () => {
     expect(result.enqueued).toBe(false);
     expect(result.reused).toBe(true);
     expect(add).not.toHaveBeenCalled();
+    expect(jobRepository.promoteToQueuedAfterEnqueue).not.toHaveBeenCalled();
   });
 
-  it("requeues after COMPLETED with a unique BullMQ id and only then promotes DB to QUEUED", async () => {
+  it("claims DB then requeues after COMPLETED with a unique BullMQ id", async () => {
     const add = vi.fn(async () => ({ id: "bull-1" }));
     const remove = vi.fn();
     const queue = {
@@ -124,7 +125,7 @@ describe("persistAndEnqueue", () => {
         return { job: completed, reused: true, skipEnqueue: false };
       }),
       promoteToQueuedAfterEnqueue: vi.fn(async () => {
-        order.push("promote");
+        order.push("claim");
         return { job: queued, wonClaim: true };
       }),
       markEnqueueFailed: vi.fn(),
@@ -139,7 +140,7 @@ describe("persistAndEnqueue", () => {
       logger: mockLogger(),
     });
 
-    expect(order).toEqual(["resolve", "promote"]);
+    expect(order).toEqual(["resolve", "claim"]);
     expect(add).toHaveBeenCalledTimes(1);
     const bullJobId = add.mock.calls[0]![2].jobId as string;
     expect(bullJobId.startsWith("dedupe-1-")).toBe(true);
@@ -147,11 +148,10 @@ describe("persistAndEnqueue", () => {
     expect(bullJobId).not.toContain(":");
     expect(result.enqueued).toBe(true);
     expect(result.jobId).toBe(queued.id);
-    expect(jobRepository.promoteToQueuedAfterEnqueue).toHaveBeenCalled();
     expect(remove).not.toHaveBeenCalled();
   });
 
-  it("does not promote DB when queue.add fails after a terminal job", async () => {
+  it("does not leave QUEUED when queue.add fails after claim", async () => {
     const add = vi.fn(async () => {
       throw new Error("Job already exists");
     });
@@ -162,8 +162,11 @@ describe("persistAndEnqueue", () => {
         reused: true,
         skipEnqueue: false,
       })),
-      promoteToQueuedAfterEnqueue: vi.fn(),
-      markEnqueueFailed: vi.fn(async () => jobStub({ status: "COMPLETED" })),
+      promoteToQueuedAfterEnqueue: vi.fn(async () => ({
+        job: jobStub({ status: "QUEUED", startedAt: null, completedAt: null }),
+        wonClaim: true,
+      })),
+      markEnqueueFailed: vi.fn(async () => jobStub({ status: "FAILED" })),
     } as unknown as JobRepository;
 
     const result = await persistAndEnqueue({
@@ -176,11 +179,11 @@ describe("persistAndEnqueue", () => {
     });
 
     expect(result.enqueued).toBe(false);
-    expect(jobRepository.promoteToQueuedAfterEnqueue).not.toHaveBeenCalled();
+    expect(jobRepository.promoteToQueuedAfterEnqueue).toHaveBeenCalled();
     expect(jobRepository.markEnqueueFailed).toHaveBeenCalled();
   });
 
-  it("removes duplicate BullMQ work when losing the promote claim", async () => {
+  it("does not add or remove BullMQ work when losing the claim race", async () => {
     const add = vi.fn(async () => ({ id: "bull-dup" }));
     const remove = vi.fn(async () => undefined);
     const queue = {
@@ -212,6 +215,63 @@ describe("persistAndEnqueue", () => {
 
     expect(result.enqueued).toBe(false);
     expect(result.reused).toBe(true);
-    expect(remove).toHaveBeenCalled();
+    expect(add).not.toHaveBeenCalled();
+    expect(remove).not.toHaveBeenCalled();
+    expect(queue.getJob).not.toHaveBeenCalled();
+  });
+
+  it("concurrent producers: at most one BullMQ add and no locked-job remove path", async () => {
+    let claimCount = 0;
+    const add = vi.fn(async () => ({ id: "bull-1" }));
+    const remove = vi.fn();
+    const queue = {
+      add,
+      getJob: vi.fn(async () => ({ remove })),
+    } as unknown as Queue;
+
+    const terminal = jobStub({ status: "FAILED", completedAt: new Date() });
+    const queued = jobStub({
+      id: "job-winner",
+      status: "QUEUED",
+      startedAt: null,
+      completedAt: null,
+    });
+
+    const jobRepository = {
+      resolveForEnqueue: vi.fn(async () => ({
+        job: terminal,
+        reused: true,
+        skipEnqueue: false,
+      })),
+      promoteToQueuedAfterEnqueue: vi.fn(async () => {
+        claimCount += 1;
+        if (claimCount === 1) return { job: queued, wonClaim: true };
+        return { job: queued, wonClaim: false };
+      }),
+      markEnqueueFailed: vi.fn(),
+    } as unknown as JobRepository;
+
+    const [a, b] = await Promise.all([
+      persistAndEnqueue({
+        queue,
+        jobType: "refresh-character",
+        dedupeKey: "dedupe-1",
+        payload: {},
+        jobRepository,
+        logger: mockLogger(),
+      }),
+      persistAndEnqueue({
+        queue,
+        jobType: "refresh-character",
+        dedupeKey: "dedupe-1",
+        payload: {},
+        jobRepository,
+        logger: mockLogger(),
+      }),
+    ]);
+
+    expect([a.enqueued, b.enqueued].filter(Boolean)).toHaveLength(1);
+    expect(add).toHaveBeenCalledTimes(1);
+    expect(remove).not.toHaveBeenCalled();
   });
 });

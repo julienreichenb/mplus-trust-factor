@@ -6,6 +6,7 @@ import type {
   PerformanceSummaryDTO,
   ProviderName,
   RefreshStatusResponse,
+  RefreshTriggerSource,
   ScoreSnapshotDTO,
   ScoringRunSelection,
   SearchCharacterResponse,
@@ -36,8 +37,7 @@ import {
 import { applyProfileWarnings, appendRefreshContractWarnings, buildProfileEnrichments, isScoreStaleVersusProviders, scoreSnapshotContractStaleReasons, toPublicProviderKey } from "../lib/profile-enrichment.js";
 import { characterCacheKey } from "../lib/response-cache.js";
 import { scheduleProfileViewRecording } from "../lib/profile-view-recorder.js";
-import { buildRefreshContract, buildRefreshContractHash } from "@mplus/worker";
-import { ensureCurrentSeason } from "@mplus/worker";
+import { resolveActiveRefreshContract, ensureCurrentSeason } from "@mplus/worker";
 
 const ALL_PROVIDERS: ProviderName[] = ["blizzard", "raiderio", "warcraftlogs"];
 const DEFAULT_RETRY_AFTER_MS = 2_000;
@@ -232,22 +232,16 @@ export class CharacterService {
         key: this.container.env.ACTIVE_SCORE_MODEL_KEY,
         version: this.container.env.ACTIVE_SCORE_MODEL_VERSION,
       };
-    const contract = buildRefreshContract({
+    const resolved = resolveActiveRefreshContract({
       scoringModelKey: activeModel.key,
       scoringModelVersion: activeModel.version,
       activeSeasonId: season.slug,
+      providerMode: this.container.env.PROVIDER_MODE,
       env: process.env,
-      allowFixtureZoneDefault: this.container.env.PROVIDER_MODE === "fixture",
     });
     return {
-      contract,
-      hash: buildRefreshContractHash({
-        scoringModelKey: activeModel.key,
-        scoringModelVersion: activeModel.version,
-        activeSeasonId: season.slug,
-        env: process.env,
-        allowFixtureZoneDefault: this.container.env.PROVIDER_MODE === "fixture",
-      }),
+      contract: resolved.contract,
+      hash: resolved.hash,
       activeModel: { key: activeModel.key, version: activeModel.version },
     };
   }
@@ -255,21 +249,40 @@ export class CharacterService {
   private async enqueueRefresh(
     identity: CharacterIdentityInput,
     character: Character,
-    forceRefresh = false,
-    correlationId?: string | null,
+    opts: {
+      forceRefresh?: boolean;
+      correlationId?: string | null;
+      triggerSource: RefreshTriggerSource;
+    },
   ): Promise<EnqueueResult> {
     this.container.responseCache.invalidate(characterCacheKey(identity));
-    const { hash } = await this.resolveActiveRefreshContract(character);
-    return this.container.producers.enqueueRefreshCharacter({
+    const { hash, contract } = await this.resolveActiveRefreshContract(character);
+    const result = await this.container.producers.enqueueRefreshCharacter({
       characterId: character.id,
       region: identity.region,
       realmSlug: identity.realmSlug,
       name: identity.name,
       priority: "normal",
-      forceRefresh,
-      correlationId: correlationId ?? null,
+      forceRefresh: opts.forceRefresh ?? false,
+      correlationId: opts.correlationId ?? null,
       refreshContractHash: hash,
+      triggerSource: opts.triggerSource,
     });
+    this.container.logger.info(
+      {
+        event: "refresh_enqueue",
+        characterId: character.id,
+        triggerSource: opts.triggerSource,
+        requestedRefreshContractHash: hash,
+        zoneId: contract.zoneId,
+        partition: contract.partition,
+        reused: result.reused,
+        enqueued: result.enqueued ?? false,
+        jobId: result.jobId,
+      },
+      "refresh enqueue",
+    );
+    return result;
   }
 
   private async enqueueRecalculate(
@@ -309,9 +322,17 @@ export class CharacterService {
     ]);
 
     let contractReasons: string[] = [];
+    let storedContractHash: string | null = null;
+    let currentContractHash: string | null = null;
     if (snapshot) {
       const mapped = mapScoreSnapshot(snapshot);
-      const { contract, activeModel } = await this.resolveActiveRefreshContract(character);
+      const { contract, activeModel, hash } = await this.resolveActiveRefreshContract(character);
+      currentContractHash = hash;
+      const stored =
+        mapped.explanation && typeof mapped.explanation === "object"
+          ? (mapped.explanation as { refreshContractHash?: unknown }).refreshContractHash
+          : null;
+      storedContractHash = typeof stored === "string" ? stored : null;
       contractReasons = scoreSnapshotContractStaleReasons({
         score: mapped,
         activeModel,
@@ -319,7 +340,7 @@ export class CharacterService {
       });
     }
 
-    const decision = decideScoreRefresh({
+    const decisionBase = decideScoreRefresh({
       hasPublishedScore: Boolean(snapshot),
       scoreCalculatedAt: snapshot?.calculatedAt ?? null,
       gradeIsU: snapshot?.grade === "U",
@@ -331,11 +352,16 @@ export class CharacterService {
       contractReasons,
       providerNewerThanScore: false,
     });
+    let decision: ScoreRefreshDecision = decisionBase;
 
     let enqueueResult: EnqueueResult | null = null;
     if (!readOnly) {
       if (decision.action === "ENQUEUE") {
-        enqueueResult = await this.enqueueRefresh(identity, character, false, correlationId);
+        enqueueResult = await this.enqueueRefresh(identity, character, {
+          forceRefresh: false,
+          correlationId,
+          triggerSource: "PROFILE_READ",
+        });
       } else if (decision.action === "RECALCULATE" && snapshot) {
         enqueueResult = await this.enqueueRecalculate(character, snapshot);
       }
@@ -346,12 +372,44 @@ export class CharacterService {
         ? ((await this.repositories.job.findById(enqueueResult.jobId)) ?? latestJobBefore)
         : latestJobBefore;
 
+    const activeJobAfter =
+      enqueueResult != null && decision.action !== "REUSE_ACTIVE_JOB"
+        ? ((await this.repositories.job.findActiveForCharacter(character.id)) ?? activeJob)
+        : activeJob;
+
+    // Usable published score + in-flight work is REFRESHING (not coarse STALE).
+    if (snapshot && (decision.action === "REUSE_ACTIVE_JOB" || activeJobAfter != null)) {
+      decision = {
+        ...decision,
+        publicState: "REFRESHING",
+        profileRefreshStatus: "REFRESHING",
+        detailedRefreshStatus:
+          activeJobAfter?.status === "ACTIVE" || decision.detailedRefreshStatus === "IN_PROGRESS"
+            ? "IN_PROGRESS"
+            : "QUEUED",
+      };
+    }
+
+    this.container.logger.info(
+      {
+        event: "refresh_decision",
+        characterId: character.id,
+        triggerSource: readOnly ? "UNKNOWN" : "PROFILE_READ",
+        action: decision.action,
+        reason: decision.reason,
+        contractReasons,
+        storedContractHash,
+        currentContractHash,
+        reused: enqueueResult?.reused ?? decision.action === "REUSE_ACTIVE_JOB",
+        enqueued: enqueueResult?.enqueued ?? false,
+        readOnly,
+      },
+      "refresh decision",
+    );
+
     return {
       decision,
-      activeJob:
-        enqueueResult != null && decision.action !== "REUSE_ACTIVE_JOB"
-          ? ((await this.repositories.job.findActiveForCharacter(character.id)) ?? activeJob)
-          : activeJob,
+      activeJob: activeJobAfter,
       latestJob,
       enqueueResult,
     };
@@ -763,12 +821,11 @@ export class CharacterService {
       }
 
       if (latestJob?.status === "FAILED" || opts.forceRetry || !snapshot) {
-        const enqueueResult = await this.enqueueRefresh(
-          identity,
-          existing,
-          Boolean(opts.forceRetry),
-          opts.correlationId,
-        );
+        const enqueueResult = await this.enqueueRefresh(identity, existing, {
+          forceRefresh: Boolean(opts.forceRetry),
+          correlationId: opts.correlationId,
+          triggerSource: "SYSTEM",
+        });
         return {
           statusCode: 202,
           body: {
@@ -840,7 +897,11 @@ export class CharacterService {
     const character = await this.repositories.character.upsertCharacter(identity, {
       displayName: identity.name,
     });
-    const enqueueResult = await this.enqueueRefresh(identity, character, false, opts.correlationId);
+    const enqueueResult = await this.enqueueRefresh(identity, character, {
+      forceRefresh: false,
+      correlationId: opts.correlationId,
+      triggerSource: "SYSTEM",
+    });
     return {
       statusCode: 202,
       body: {
@@ -924,12 +985,11 @@ export class CharacterService {
     }
 
     // Single centralized enqueue path (same as Agent 03 policy path).
-    const enqueueResult = await this.enqueueRefresh(
-      identity,
-      character,
-      opts.forceRefresh,
-      opts.correlationId,
-    );
+    const enqueueResult = await this.enqueueRefresh(identity, character, {
+      forceRefresh: opts.forceRefresh,
+      correlationId: opts.correlationId,
+      triggerSource: opts.forceRefresh ? "MANUAL_FORCE_REFRESH" : "MANUAL_REFRESH",
+    });
     const job = await this.repositories.job.findById(enqueueResult.jobId);
     return {
       characterId: character.id,

@@ -22,7 +22,7 @@ describe("CharacterService — public read path invariants", () => {
       negativeCache: { has: () => false },
       responseCache: { get: () => null, set: () => {}, invalidate: () => {} },
       producers: { enqueueRefreshCharacter: mockEnqueue, enqueueRecalculateScore: vi.fn() },
-      logger: { warn: vi.fn() },
+      logger: { warn: vi.fn(), info: vi.fn() },
       worker: {
         disabledProviders: new Set(),
         prisma: {

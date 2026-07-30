@@ -151,6 +151,7 @@ describe("runDiscoverOwnedCharacters", () => {
       expect.objectContaining({
         name: "Main",
         priority: expect.any(String),
+        triggerSource: "ACCOUNT_DISCOVERY",
       }),
     );
 

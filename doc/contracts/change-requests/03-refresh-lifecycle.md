@@ -41,8 +41,10 @@ Profile and search execute at most one side effect from that decision.
 | `UNAVAILABLE` | No score + failed (terminal until backoff ends) |
 | `GRADE_U` | Published grade U (eligibility); still TTL-fresh |
 
-Coarse wire enum for profile/search remains `FRESH | QUEUED | STALE`
-(`REFRESHING` / `FAILED_FALLBACK` map to `STALE`).
+Coarse wire enum for profile/search is `FRESH | QUEUED | STALE | REFRESHING`.
+`REFRESHING` is used when a usable published score exists with an in-flight job.
+`STALE` means the published score is usable but requires updating.
+`FAILED_FALLBACK` still maps to coarse `STALE`.
 
 ### Account list
 

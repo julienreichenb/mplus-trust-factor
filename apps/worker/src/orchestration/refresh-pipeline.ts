@@ -82,7 +82,10 @@ import { extractMetricsFromCombatFacts, isUsableCombatRun, buildRunCombatAdminDi
 import { aggregateCombatObservations } from "./aggregate-combat-observations.js";
 import { bindParseToSelectedRun } from "./run-parse-binding.js";
 import { fingerprintObservations, buildScoringRunSelectionKey } from "./fingerprint.js";
-import { buildRefreshContract } from "./build-refresh-contract.js";
+import {
+  allowFixtureZoneDefaultsForProviderMode,
+  resolveActiveRefreshContract,
+} from "./build-refresh-contract.js";
 import { buildMythicRatingObservation } from "./performance-metrics.js";
 import { buildWclPerformanceObservations } from "./wcl-performance-metrics.js";
 import {
@@ -364,6 +367,9 @@ export async function runRefreshPipeline(
     correlationId: ctx.correlationId ?? ctx.requestId,
     identityFingerprint,
     region: identity.region,
+    characterId: jobPayload.characterId ?? null,
+    triggerSource: jobPayload.triggerSource ?? "UNKNOWN",
+    requestedRefreshContractHash: jobPayload.refreshContractHash ?? null,
   };
 
   logger.info({ ...logBase, event: OBS_EVENTS.refreshWorkerStarted }, OBS_EVENTS.refreshWorkerStarted);
@@ -734,7 +740,7 @@ export async function runRefreshPipeline(
 
       const zoneId = resolveMplusZoneConfig({
         env: process.env,
-        allowFixtureDefault: container.env.APP_ENV === "test" || container.env.NODE_ENV === "test",
+        allowFixtureDefault: allowFixtureZoneDefaultsForProviderMode(container.env.PROVIDER_MODE),
       }).zoneId;
       const summaryFingerprint = buildWclSummaryRequestFingerprint({
         region: identity.region,
@@ -2555,16 +2561,37 @@ export async function runRefreshPipeline(
     },
   } as ScoreModelConfig;
 
-  const refreshContract = buildRefreshContract({
+  const { contract: refreshContract, hash: computedContractHash } = resolveActiveRefreshContract({
     scoringModelKey: model.key,
     scoringModelVersion: model.version,
     activeSeasonId: season.slug,
+    providerMode: container.env.PROVIDER_MODE,
     env: process.env,
-    allowFixtureZoneDefault:
-      container.env.APP_ENV === "test" ||
-      container.env.NODE_ENV === "test" ||
-      container.env.PROVIDER_MODE === "fixture",
   });
+
+  if (
+    jobPayload.refreshContractHash &&
+    jobPayload.refreshContractHash !== computedContractHash
+  ) {
+    const mismatchError = new Error(
+      `REFRESH_CONTRACT_HASH_MISMATCH: requested=${jobPayload.refreshContractHash} computed=${computedContractHash}`,
+    );
+    logger.error(
+      {
+        ...logBase,
+        event: "refresh_contract_hash_mismatch",
+        requestedRefreshContractHash: jobPayload.refreshContractHash,
+        computedRefreshContractHash: computedContractHash,
+        refreshContract,
+        characterId: character.id,
+        triggerSource: jobPayload.triggerSource ?? "UNKNOWN",
+      },
+      "refresh contract hash mismatch — refusing to publish divergent snapshot",
+    );
+    await repositories.job.markFailed(job.id, mismatchError);
+    terminalized = true;
+    throw mismatchError;
+  }
 
   const scoreDto = container.calculateScore({
     characterId: character.id,
@@ -2789,6 +2816,50 @@ export async function runRefreshPipeline(
   }
 
   const contractHash = hashRefreshContract(refreshContract);
+  const explanationContractHash =
+    explanation && typeof explanation === "object"
+      ? (explanation as { refreshContractHash?: unknown }).refreshContractHash
+      : null;
+  if (
+    typeof explanationContractHash === "string" &&
+    explanationContractHash !== contractHash
+  ) {
+    const mismatchError = new Error(
+      `REFRESH_CONTRACT_EXPLANATION_HASH_MISMATCH: published=${contractHash} explanation=${explanationContractHash}`,
+    );
+    logger.error(
+      {
+        ...logBase,
+        event: "refresh_contract_explanation_hash_mismatch",
+        publishedRefreshContractHash: contractHash,
+        explanationRefreshContractHash: explanationContractHash,
+        characterId: character.id,
+      },
+      "refresh contract explanation hash mismatch — refusing to publish",
+    );
+    await repositories.job.markFailed(job.id, mismatchError);
+    terminalized = true;
+    throw mismatchError;
+  }
+  if (jobPayload.refreshContractHash && jobPayload.refreshContractHash !== contractHash) {
+    const mismatchError = new Error(
+      `REFRESH_CONTRACT_JOB_PUBLISH_HASH_MISMATCH: requested=${jobPayload.refreshContractHash} published=${contractHash}`,
+    );
+    logger.error(
+      {
+        ...logBase,
+        event: "refresh_contract_job_publish_hash_mismatch",
+        requestedRefreshContractHash: jobPayload.refreshContractHash,
+        publishedRefreshContractHash: contractHash,
+        characterId: character.id,
+      },
+      "job requested contract hash differs from publish hash — refusing to publish",
+    );
+    await repositories.job.markFailed(job.id, mismatchError);
+    terminalized = true;
+    throw mismatchError;
+  }
+
   const publication = await attemptPublication({
     characterId: character.id,
     seasonId: season.id,
