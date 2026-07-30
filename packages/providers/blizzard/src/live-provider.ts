@@ -526,6 +526,7 @@ export class LiveBlizzardProvider implements BlizzardProvider {
     identity: CharacterIdentityInput,
     ctx: ProviderFetchContext,
   ): Promise<ProviderResult<BlizzardMythicKeystoneProfileDTO>> {
+    const authoritative = await this.resolveAuthoritativeCurrentSeasonId(ctx);
     const region = this.region(ctx);
     const endpointKey = "character.mplus.index";
     const charPath = encodeCharacterPath(identity.realmSlug, identity.name);
@@ -550,9 +551,51 @@ export class LiveBlizzardProvider implements BlizzardProvider {
     });
     const raw = parseOrThrow(mythicKeystoneProfileIndexSchema, result.data, endpointKey);
     return buildProviderResult({
-      data: normalizeMythicProfileIndex(raw, identity),
+      data: normalizeMythicProfileIndex(raw, identity, authoritative.data.seasonId),
       ctx,
       endpointKey,
+      sourceUrl: result.sourceUrl,
+      cacheHit: result.cacheHit && authoritative.metadata.cacheHit,
+      statusCode: result.statusCode,
+      retryCount: result.retryCount,
+      etag: result.etag,
+      expiresAt: result.expiresAt,
+    });
+  }
+
+  async resolveAuthoritativeCurrentSeasonId(
+    ctx: ProviderFetchContext,
+  ): Promise<
+    ProviderResult<{
+      seasonId: number;
+      slug: string;
+      source: "season_index.current_season" | "season_index.last";
+    }>
+  > {
+    const region = this.region(ctx);
+    const endpointKey = "mplus.season.index";
+    const path = "data/wow/mythic-keystone/season/index";
+    const fingerprint = fingerprintFor({ region: region.key, endpointKey, pathParams: {} });
+    const result = await this.http.getJson<unknown>({
+      regionConfig: region,
+      namespaceKind: "dynamic",
+      path,
+      endpointKey,
+      fingerprint,
+      ttlSeconds: DEFAULT_TTL_SECONDS.seasonIndex,
+      forceRefresh: ctx.forceRefresh,
+      locale: this.defaultLocale,
+    });
+    const raw = parseOrThrow(seasonIndexSchema, result.data, endpointKey);
+    const { seasonId, source } = resolveCurrentSeasonIdFromIndex(raw);
+    return buildProviderResult({
+      data: {
+        seasonId,
+        slug: `blizzard-season-${seasonId}`,
+        source,
+      },
+      ctx,
+      endpointKey: "mplus.season.authoritative_current",
       sourceUrl: result.sourceUrl,
       cacheHit: result.cacheHit,
       statusCode: result.statusCode,
@@ -598,6 +641,7 @@ export class LiveBlizzardProvider implements BlizzardProvider {
         character: raw.character,
       },
       identity,
+      seasonId,
     );
     return buildProviderResult({
       data: {

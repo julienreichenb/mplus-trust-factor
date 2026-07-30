@@ -15,6 +15,8 @@ import {
   resolveCurrentSeasonIdFromIndex,
   sanitizeHttpsUrl,
   attachEquipmentIconUrls,
+  characterProfileContainsSeason,
+  normalizeMythicProfileIndex,
 } from "./index.js";
 import type { FixtureBlizzardProvider } from "./fixture-provider.js";
 import { fingerprintFor } from "./normalize.js";
@@ -104,6 +106,64 @@ describe("MVP response-shape contracts", () => {
     const resolved = resolveCurrentSeasonIdFromIndex(index);
     expect(resolved.seasonId).toBe(13);
     expect(resolved.source).toBe("season_index.current_season");
+  });
+});
+
+describe("normalizeMythicProfileIndex season authority", () => {
+  const identity = {
+    region: "EU" as const,
+    realmSlug: "tarren-mill",
+    name: "Example",
+  };
+
+  it("uses authoritative season 17 when character seasons are [17, 3] in any order", () => {
+    const a = normalizeMythicProfileIndex(
+      {
+        seasons: [{ id: 17 }, { id: 3 }],
+        current_mythic_rating: { rating: 1200 },
+        character: { name: "Example", realm: { slug: "tarren-mill" } },
+      },
+      identity,
+      17,
+    );
+    const b = normalizeMythicProfileIndex(
+      {
+        seasons: [{ id: 3 }, { id: 17 }],
+        current_mythic_rating: { rating: 1200 },
+        character: { name: "Example", realm: { slug: "tarren-mill" } },
+      },
+      identity,
+      17,
+    );
+    expect(a.currentSeasonId).toBe(17);
+    expect(b.currentSeasonId).toBe(17);
+  });
+
+  it("keeps regional current season 17 when character only lists historical season 3", () => {
+    const normalized = normalizeMythicProfileIndex(
+      {
+        seasons: [{ id: 3 }],
+        current_mythic_rating: { rating: 0 },
+        character: { name: "Example", realm: { slug: "tarren-mill" } },
+      },
+      identity,
+      17,
+    );
+    expect(normalized.currentSeasonId).toBe(17);
+    expect(normalized.seasons.map((s) => s.seasonId)).toEqual([3]);
+    expect(characterProfileContainsSeason(normalized.seasons, 17)).toBe(false);
+  });
+
+  it("does not silently declare last seasons[] element authoritative without preferred id", () => {
+    const normalized = normalizeMythicProfileIndex(
+      {
+        seasons: [{ id: 17 }, { id: 3 }],
+        current_mythic_rating: { rating: 900 },
+        character: { name: "Example", realm: { slug: "tarren-mill" } },
+      },
+      identity,
+    );
+    expect(normalized.currentSeasonId).toBeNull();
   });
 });
 
@@ -221,6 +281,12 @@ describe("FixtureBlizzardProvider", () => {
   it("returns mythic keystone profile and season runs", async () => {
     const index = await provider.getMythicKeystoneProfile(identity, ctx);
     expect(index.data.currentMythicRating).toBeCloseTo(2845.12);
+    // Authoritative current season comes from season index, not character seasons[] order.
+    expect(index.data.currentSeasonId).toBe(13);
+    const authoritative = await provider.resolveAuthoritativeCurrentSeasonId(ctx);
+    expect(authoritative.data.seasonId).toBe(13);
+    expect(authoritative.data.slug).toBe("blizzard-season-13");
+    expect(authoritative.data.source).toBe("season_index.current_season");
     const season = await provider.getMythicKeystoneSeasonProfile(identity, 13, ctx);
     expect(season.data.runs.length).toBe(1);
     expect(season.data.runs[0]?.keyLevel).toBe(12);

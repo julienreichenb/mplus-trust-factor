@@ -96,3 +96,44 @@ export function evaluateOwnedCharacterRelevanceV1(
   reasons.push("BELOW_RATING_THRESHOLD");
   return { policyVersion: policy.version, eligible: false, reasons };
 }
+
+/**
+ * Strict automatic refresh eligibility for Account discovery triggers.
+ * Display relevance may still use primary / public-score / active-job signals;
+ * those must never bypass this gate for enqueue decisions.
+ */
+export function evaluateOwnedCharacterAutoRefreshEligibilityV1(
+  input: Pick<
+    OwnedCharacterRelevanceInput,
+    "ownershipStatus" | "characterLevel" | "currentSeasonMythicRating"
+  >,
+  policy: OwnedCharacterRelevancePolicyV1 = OWNED_CHARACTER_RELEVANCE_POLICY_V1,
+): OwnedCharacterRelevanceResult {
+  const reasons: RelevanceReason[] = [];
+
+  if (input.ownershipStatus !== "CURRENT") {
+    reasons.push("HISTORICAL_OR_INACTIVE");
+    return { policyVersion: policy.version, eligible: false, reasons };
+  }
+  reasons.push("CURRENT_OWNERSHIP");
+
+  const level = input.characterLevel ?? 0;
+  if (level < policy.maxCharacterLevel) {
+    reasons.push("BELOW_MAX_LEVEL");
+    return { policyVersion: policy.version, eligible: false, reasons };
+  }
+  reasons.push("MAX_LEVEL");
+
+  if (input.currentSeasonMythicRating == null) {
+    reasons.push("RATING_UNAVAILABLE");
+    return { policyVersion: policy.version, eligible: false, reasons };
+  }
+
+  if (input.currentSeasonMythicRating >= policy.minCurrentSeasonMythicRating) {
+    reasons.push("MYTHIC_RATING_THRESHOLD");
+    return { policyVersion: policy.version, eligible: true, reasons };
+  }
+
+  reasons.push("BELOW_RATING_THRESHOLD");
+  return { policyVersion: policy.version, eligible: false, reasons };
+}

@@ -212,6 +212,21 @@ export interface BlizzardProvider {
     seasonId: number,
     ctx: ProviderFetchContext,
   ): Promise<ProviderResult<{ profile: BlizzardMythicKeystoneProfileDTO; runs: MythicRunDTO[] }>>;
+  /**
+   * Resolve the region-authoritative Mythic+ season from
+   * `data/wow/mythic-keystone/season/index` → `current_season.id`.
+   * Must never invent a season from a character profile seasons array.
+   * Results are cached via the provider season-index TTL.
+   */
+  resolveAuthoritativeCurrentSeasonId(
+    ctx: ProviderFetchContext,
+  ): Promise<
+    ProviderResult<{
+      seasonId: number;
+      slug: string;
+      source: "season_index.current_season" | "season_index.last";
+    }>
+  >;
   getMythicKeystoneSeasonIndex(
     ctx: ProviderFetchContext,
   ): Promise<ProviderResult<BlizzardSeasonDTO[]>>;

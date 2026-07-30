@@ -80,11 +80,23 @@ export async function buildAccountCharactersView(input: {
     },
   });
 
-  const season = await prisma.season.findFirst({ where: { isCurrent: true } });
   const scoreModel = await prisma.scoreModel.findFirst({
     where: { key: env.ACTIVE_SCORE_MODEL_KEY, status: "ACTIVE" },
     orderBy: { version: "desc" },
   });
+
+  /** Region-scoped current seasons only — never invent via provider calls. */
+  const currentSeasonByRegionId = new Map<string, { id: string; slug: string }>();
+  const resolveCurrentSeasonForRegion = async (regionId: string) => {
+    const cached = currentSeasonByRegionId.get(regionId);
+    if (cached) return cached;
+    const season = await prisma.season.findFirst({
+      where: { regionId, isCurrent: true },
+      select: { id: true, slug: true },
+    });
+    if (season) currentSeasonByRegionId.set(regionId, season);
+    return season;
+  };
 
   const characters: AccountOwnedCharacterDTO[] = [];
 
@@ -109,6 +121,7 @@ export async function buildAccountCharactersView(input: {
     let errorMessage: string | null = null;
 
     if (row.characterId) {
+      const season = await resolveCurrentSeasonForRegion(row.regionId);
       const activeJob = await prisma.ingestionJob.findFirst({
         where: {
           characterId: row.characterId,

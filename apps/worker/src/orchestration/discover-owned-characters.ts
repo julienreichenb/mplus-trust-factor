@@ -1,6 +1,7 @@
 import {
   OWNED_CHARACTER_RELEVANCE_POLICY_V1,
   buildFreshnessConfig,
+  evaluateOwnedCharacterAutoRefreshEligibilityV1,
   evaluateOwnedCharacterRelevanceV1,
   isDatasetFresh,
   slugFromBlizzardPlayableClassId,
@@ -11,9 +12,10 @@ import {
   type DiscoverOwnedCharactersJob,
   type RegionCode,
 } from "@mplus/contracts";
-import type { Prisma } from "@mplus/database";
+import type { Prisma, Season } from "@mplus/database";
 import type { WorkerContainer } from "../container.js";
 import type { QueueProducers } from "../queues.js";
+import { ensureBlizzardCurrentSeason } from "../persistence/run-repository.js";
 import { mapWithConcurrency } from "./concurrency.js";
 
 export interface DiscoveryCounters {
@@ -22,6 +24,7 @@ export interface DiscoveryCounters {
   ratingCheckedCount: number;
   relevantCount: number;
   irrelevantCount: number;
+  autoRefreshEligibleCount: number;
   existingFreshScoreCount: number;
   refreshQueuedCount: number;
   alreadyQueuedCount: number;
@@ -40,6 +43,7 @@ function emptyCounters(): DiscoveryCounters {
     ratingCheckedCount: 0,
     relevantCount: 0,
     irrelevantCount: 0,
+    autoRefreshEligibleCount: 0,
     existingFreshScoreCount: 0,
     refreshQueuedCount: 0,
     alreadyQueuedCount: 0,
@@ -53,9 +57,17 @@ function asReasonArray(value: unknown): RelevanceReason[] {
   return value.filter((v): v is RelevanceReason => typeof v === "string") as RelevanceReason[];
 }
 
+type RegionalSeasonCache = {
+  seasonId: number;
+  slug: string;
+  source: "season_index.current_season" | "season_index.last";
+  season: Season;
+};
+
 /**
  * Account-character discovery: cheap relevance evaluation → ensure Character rows →
- * enqueue refresh-character for relevant characters. Never calls WCL.
+ * enqueue refresh-character only for strictly auto-refresh-eligible characters.
+ * Never calls WCL. Never mutates regional season from character profile seasons[].
  */
 export async function runDiscoverOwnedCharacters(
   container: WorkerContainer,
@@ -90,9 +102,76 @@ export async function runDiscoverOwnedCharacters(
   });
 
   try {
-    const season = await prisma.season.findFirst({ where: { isCurrent: true } });
-    const seasonKey = season?.slug ?? job.seasonKey;
     const scoreModel = await repositories.score.getActiveModel(env.ACTIVE_SCORE_MODEL_KEY);
+    const regionalSeasonByCode = new Map<string, RegionalSeasonCache>();
+    const regionalSeasonInflight = new Map<string, Promise<RegionalSeasonCache>>();
+
+    const resolveRegionalSeason = async (
+      regionCode: string,
+      regionId: string,
+      requestId: string,
+    ): Promise<RegionalSeasonCache> => {
+      const key = regionCode.toUpperCase();
+      const cached = regionalSeasonByCode.get(key);
+      if (cached) return cached;
+
+      const inflight = regionalSeasonInflight.get(key);
+      if (inflight) return inflight;
+
+      const pending = (async (): Promise<RegionalSeasonCache> => {
+        const previous = await prisma.season.findFirst({
+          where: { regionId, isCurrent: true },
+          select: { id: true, slug: true, blizzardSeasonId: true },
+        });
+
+        const ctx = {
+          region: regionCode.toLowerCase() as RegionCode,
+          requestId,
+          correlationId: job.correlationId ?? null,
+          forceRefresh: false,
+          now: new Date().toISOString(),
+        };
+        const authoritative = await providers.blizzard.resolveAuthoritativeCurrentSeasonId(ctx);
+        counters.providerRequestCount += 1;
+
+        const season = await ensureBlizzardCurrentSeason(
+          prisma,
+          regionId,
+          authoritative.data.seasonId,
+        );
+
+        const entry: RegionalSeasonCache = {
+          seasonId: authoritative.data.seasonId,
+          slug: authoritative.data.slug,
+          source: authoritative.data.source,
+          season,
+        };
+        regionalSeasonByCode.set(key, entry);
+
+        logger.info(
+          {
+            triggerSource: "ACCOUNT_DISCOVERY",
+            region: key,
+            authoritativeSeasonId: entry.seasonId,
+            authoritativeSeasonSlug: entry.slug,
+            seasonResolutionSource: entry.source,
+            previousDatabaseSeasonId: previous?.id ?? null,
+            previousDatabaseSeasonSlug: previous?.slug ?? null,
+            resultingDatabaseSeasonId: season.id,
+            resultingDatabaseSeasonSlug: season.slug,
+            battleNetAccountId: account.id,
+          },
+          "discover_season_authority",
+        );
+
+        return entry;
+      })().finally(() => {
+        regionalSeasonInflight.delete(key);
+      });
+
+      regionalSeasonInflight.set(key, pending);
+      return pending;
+    };
 
     const ownerships = await prisma.verifiedCharacterOwnership.findMany({
       where: { battleNetAccountId: account.id, status: "CURRENT" },
@@ -136,9 +215,44 @@ export async function runDiscoverOwnedCharacters(
         Date.now() - priorFetchedAt.getTime() <= RATING_STALE_RETENTION_MS &&
         ownership.currentSeasonMythicRating != null;
 
+      const regionCode = ownership.region.code;
+      let regional: RegionalSeasonCache;
+      try {
+        regional = await resolveRegionalSeason(
+          regionCode,
+          ownership.region.id,
+          `discover-season-${regionCode}-${account.id}`,
+        );
+      } catch (error) {
+        logger.warn(
+          { err: error, ownershipId: ownership.id, region: regionCode },
+          "discover-owned-characters regional season resolve failed",
+        );
+        return {
+          ownershipId: ownership.id,
+          rating: priorFreshEnough ? ownership.currentSeasonMythicRating : null,
+          state: priorFreshEnough ? ("STALE" as const) : ("ERROR" as const),
+          source: priorFreshEnough
+            ? ownership.currentSeasonMythicSource
+            : "blizzard.season.index",
+          seasonId: priorFreshEnough
+            ? ownership.currentSeasonMythicSeasonId
+            : (job.seasonKey ?? null),
+          seasonRowId: null as string | null,
+          fetchedAt: priorFreshEnough ? priorFetchedAt : new Date(),
+          retainedPriorEligible: priorFreshEnough && ownership.relevanceEligible === true,
+          priorReasons: asReasonArray(ownership.relevanceReasons),
+          providerRequest: true,
+          ratingChecked: true,
+          failed: true,
+          characterProfileSeasonIds: [] as number[],
+          characterProfileContainsCurrentSeason: false,
+        };
+      }
+
       try {
         const ctx = {
-          region: ownership.region.code.toLowerCase() as RegionCode,
+          region: regionCode.toLowerCase() as RegionCode,
           requestId: `discover-${ownership.id}`,
           correlationId: job.correlationId ?? null,
           forceRefresh: false,
@@ -146,24 +260,28 @@ export async function runDiscoverOwnedCharacters(
         };
         const result = await providers.blizzard.getMythicKeystoneProfile(
           {
-            region: ownership.region.code.toLowerCase() as RegionCode,
+            region: regionCode.toLowerCase() as RegionCode,
             realmSlug: ownership.realmSlug,
             name: ownership.characterName,
           },
           ctx,
         );
+        const profileSeasonIds = result.data.seasons.map((s) => s.seasonId);
         return {
           ownershipId: ownership.id,
           rating: result.data.currentMythicRating,
           state: result.data.currentMythicRating == null ? ("UNAVAILABLE" as const) : ("OK" as const),
           source: "blizzard.character.mplus.index",
-          seasonId: seasonKey,
+          seasonId: regional.slug,
+          seasonRowId: regional.season.id,
           fetchedAt: new Date(),
           retainedPriorEligible: false,
           priorReasons: asReasonArray(ownership.relevanceReasons),
           providerRequest: true,
           ratingChecked: true,
           failed: false,
+          characterProfileSeasonIds: profileSeasonIds,
+          characterProfileContainsCurrentSeason: profileSeasonIds.includes(regional.seasonId),
         };
       } catch (error) {
         logger.warn(
@@ -176,13 +294,16 @@ export async function runDiscoverOwnedCharacters(
             rating: ownership.currentSeasonMythicRating,
             state: "STALE" as const,
             source: ownership.currentSeasonMythicSource,
-            seasonId: ownership.currentSeasonMythicSeasonId,
+            seasonId: ownership.currentSeasonMythicSeasonId ?? regional.slug,
+            seasonRowId: regional.season.id,
             fetchedAt: priorFetchedAt,
             retainedPriorEligible: ownership.relevanceEligible === true,
             priorReasons: asReasonArray(ownership.relevanceReasons),
             providerRequest: true,
             ratingChecked: true,
             failed: true,
+            characterProfileSeasonIds: [] as number[],
+            characterProfileContainsCurrentSeason: false,
           };
         }
         return {
@@ -190,13 +311,16 @@ export async function runDiscoverOwnedCharacters(
           rating: null,
           state: "ERROR" as const,
           source: "blizzard.character.mplus.index",
-          seasonId: seasonKey,
+          seasonId: regional.slug,
+          seasonRowId: regional.season.id,
           fetchedAt: new Date(),
           retainedPriorEligible: false,
           priorReasons: [] as RelevanceReason[],
           providerRequest: true,
           ratingChecked: true,
           failed: true,
+          characterProfileSeasonIds: [] as number[],
+          characterProfileContainsCurrentSeason: false,
         };
       }
     });
@@ -208,14 +332,16 @@ export async function runDiscoverOwnedCharacters(
     }
     const ratingById = new Map(ratingOutcomes.map((r) => [r.ownershipId, r]));
 
-    type RelevantCandidate = {
+    type RefreshCandidate = {
       ownership: (typeof maxLevel)[number];
       rating: number | null;
       isPrimary: boolean;
       hasFreshScore: boolean;
       hasActiveJob: boolean;
+      autoRefreshEligible: boolean;
+      seasonRowId: string | null;
     };
-    const relevant: RelevantCandidate[] = [];
+    const refreshCandidates: RefreshCandidate[] = [];
 
     for (const ownership of maxLevel) {
       const ratingInfo = ratingById.get(ownership.id)!;
@@ -234,12 +360,13 @@ export async function runDiscoverOwnedCharacters(
       let hasPublicScore = false;
       let hasFreshScore = false;
       let hasActiveJob = false;
+      const seasonRowId = ratingInfo.seasonRowId;
 
-      if (ownership.characterId && season && scoreModel) {
+      if (ownership.characterId && seasonRowId && scoreModel) {
         const published = await prisma.characterPublishedScore.findFirst({
           where: {
             characterId: ownership.characterId,
-            seasonId: season.id,
+            seasonId: seasonRowId,
             scoreModelId: scoreModel.id,
             scopeType: "CHARACTER",
           },
@@ -273,7 +400,7 @@ export async function runDiscoverOwnedCharacters(
         isPrimary: ownership.isPrimary,
       });
 
-      // Retain prior eligible when rating fetch failed but prior result was fresh enough.
+      // Retain prior display-eligible when rating fetch failed but prior result was fresh enough.
       const eligible =
         evaluation.eligible ||
         (ratingInfo.retainedPriorEligible && ratingInfo.state === "STALE");
@@ -289,27 +416,51 @@ export async function runDiscoverOwnedCharacters(
         },
       });
 
-      if (eligible) {
-        counters.relevantCount += 1;
-        relevant.push({
+      if (eligible) counters.relevantCount += 1;
+      else counters.irrelevantCount += 1;
+
+      const autoRefresh = evaluateOwnedCharacterAutoRefreshEligibilityV1({
+        ownershipStatus: ownership.status,
+        characterLevel: ownership.characterLevel,
+        currentSeasonMythicRating: ratingInfo.rating,
+      });
+      if (autoRefresh.eligible) counters.autoRefreshEligibleCount += 1;
+
+      logger.info(
+        {
+          triggerSource: "ACCOUNT_DISCOVERY",
+          ownershipId: ownership.id,
+          region: ownership.region.code,
+          authoritativeSeasonSlug: ratingInfo.seasonId,
+          characterProfileSeasonIds: ratingInfo.characterProfileSeasonIds,
+          characterProfileContainsCurrentSeason: ratingInfo.characterProfileContainsCurrentSeason,
+          displayRelevant: eligible,
+          autoRefreshEligible: autoRefresh.eligible,
+          autoRefreshReasons: autoRefresh.reasons,
+        },
+        "discover_character_eligibility",
+      );
+
+      if (autoRefresh.eligible) {
+        refreshCandidates.push({
           ownership,
           rating: ratingInfo.rating,
           isPrimary: ownership.isPrimary,
           hasFreshScore,
           hasActiveJob,
+          autoRefreshEligible: true,
+          seasonRowId,
         });
-      } else {
-        counters.irrelevantCount += 1;
       }
     }
 
-    // Priority: primary → highest rating → remainder
-    relevant.sort((a, b) => {
+    // Priority: primary → highest rating → remainder (among auto-refresh-eligible only)
+    refreshCandidates.sort((a, b) => {
       if (a.isPrimary !== b.isPrimary) return a.isPrimary ? -1 : 1;
       return (b.rating ?? -1) - (a.rating ?? -1);
     });
 
-    for (const candidate of relevant) {
+    for (const candidate of refreshCandidates) {
       try {
         const classSlug = slugFromBlizzardPlayableClassId(candidate.ownership.playableClassId);
         const character = await repositories.character.upsertCharacter(
@@ -345,6 +496,14 @@ export async function runDiscoverOwnedCharacters(
         });
         if (activeJob || candidate.hasActiveJob) {
           counters.alreadyQueuedCount += 1;
+          logger.info(
+            {
+              triggerSource: "ACCOUNT_DISCOVERY",
+              characterId: character.id,
+              refresh: "reused",
+            },
+            "discover_refresh_enqueue",
+          );
           continue;
         }
 
@@ -367,8 +526,24 @@ export async function runDiscoverOwnedCharacters(
 
         if (enqueued.reused && !enqueued.enqueued) {
           counters.alreadyQueuedCount += 1;
+          logger.info(
+            {
+              triggerSource: "ACCOUNT_DISCOVERY",
+              characterId: character.id,
+              refresh: "reused",
+            },
+            "discover_refresh_enqueue",
+          );
         } else {
           counters.refreshQueuedCount += 1;
+          logger.info(
+            {
+              triggerSource: "ACCOUNT_DISCOVERY",
+              characterId: character.id,
+              refresh: "enqueued",
+            },
+            "discover_refresh_enqueue",
+          );
         }
       } catch (error) {
         counters.failedCount += 1;

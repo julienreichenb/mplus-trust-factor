@@ -66,6 +66,7 @@ export async function ensureBlizzardCurrentSeason(
       where: { id: existing.id },
       data: {
         isCurrent: true,
+        blizzardSeasonId,
         name: `Blizzard Season ${blizzardSeasonId}`,
         metadata: {
           ...previousMeta,
@@ -86,6 +87,7 @@ export async function ensureBlizzardCurrentSeason(
       slug,
       name: `Blizzard Season ${blizzardSeasonId}`,
       isCurrent: true,
+      blizzardSeasonId,
       metadata: { blizzardSeasonId, source: "blizzard" },
     },
   });
