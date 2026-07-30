@@ -12,9 +12,75 @@ import { randomUUID } from "node:crypto";
 
 const { prisma, dbAvailable } = await createTestPrismaClient();
 
+/** Unique per suite so clean CI DBs and reused local DBs cannot collide. */
+const TEST_RUN_ID = randomUUID().replace(/-/g, "").slice(0, 12);
+const BNET_SUBJECT = `bnet-sub-${TEST_RUN_ID}`;
+const BNET_NUMERIC_ID = Number.parseInt(TEST_RUN_ID.slice(0, 8), 16) % 1_000_000_000;
+const OWNED_BLIZZARD_CHAR_ID = 700_000_000 + (BNET_NUMERIC_ID % 90_000_000);
+const LOWBIE_BLIZZARD_CHAR_ID = OWNED_BLIZZARD_CHAR_ID + 1;
+const OWNED_CHAR_NAME = `Owned${TEST_RUN_ID.slice(0, 6)}`;
+const LOWBIE_CHAR_NAME = `Low${TEST_RUN_ID.slice(0, 6)}`;
+
 afterAll(async () => {
   await prisma.$disconnect();
 });
+
+function providerResultNow<T>(
+  data: T,
+  endpointKey: string,
+): {
+  data: T;
+  provenance: {
+    provider: "blizzard";
+    externalRequestId: null;
+    sourcePayloadId: null;
+    sourceUrl: string;
+    fetchedAt: string;
+    schemaVersion: string;
+  };
+  freshness: { fetchedAt: string; expiresAt: string; stale: false };
+  metadata: {
+    provider: "blizzard";
+    endpointKey: string;
+    requestFingerprint: string;
+    requestedAt: string;
+    completedAt: string;
+    statusCode: number;
+    cacheHit: boolean;
+    retryCount: number;
+    costUnits: null;
+    etag: null;
+    expiresAt: string;
+  };
+} {
+  const now = new Date().toISOString();
+  const expiresAt = new Date(Date.now() + 86_400_000).toISOString();
+  return {
+    data,
+    provenance: {
+      provider: "blizzard",
+      externalRequestId: null,
+      sourcePayloadId: null,
+      sourceUrl: `test://blizzard/${endpointKey}`,
+      fetchedAt: now,
+      schemaVersion: "test",
+    },
+    freshness: { fetchedAt: now, expiresAt, stale: false },
+    metadata: {
+      provider: "blizzard",
+      endpointKey,
+      requestFingerprint: `test-fp-${endpointKey}-${TEST_RUN_ID}`,
+      requestedAt: now,
+      completedAt: now,
+      statusCode: 200,
+      cacheHit: false,
+      retryCount: 0,
+      costUnits: null,
+      etag: null,
+      expiresAt,
+    },
+  };
+}
 
 function mockOAuth(): BattleNetOAuthClient {
   return {
@@ -34,9 +100,9 @@ function mockOAuth(): BattleNetOAuthClient {
       refresh_token: "refresh-token-value",
     })),
     fetchUserInfo: vi.fn(async () => ({
-      sub: "bnet-sub-123",
-      id: 123,
-      battletag: "Tester#1234",
+      sub: BNET_SUBJECT,
+      id: BNET_NUMERIC_ID,
+      battletag: `Tester#${BNET_NUMERIC_ID % 10_000}`,
     })),
     fetchWowAccountProfile: vi.fn(async () => ({
       wow_accounts: [
@@ -44,16 +110,16 @@ function mockOAuth(): BattleNetOAuthClient {
           id: 9,
           characters: [
             {
-              id: 555001,
-              name: "Ownedone",
+              id: OWNED_BLIZZARD_CHAR_ID,
+              name: OWNED_CHAR_NAME,
               realm: { slug: "tarren-mill", name: "Tarren Mill" },
               level: 90,
               playable_class: { id: 8 },
               faction: { type: "HORDE" },
             },
             {
-              id: 555002,
-              name: "Lowbie",
+              id: LOWBIE_BLIZZARD_CHAR_ID,
+              name: LOWBIE_CHAR_NAME,
               realm: { slug: "tarren-mill", name: "Tarren Mill" },
               level: 10,
               playable_class: { id: 1 },
@@ -85,12 +151,32 @@ describe.skipIf(!dbAvailable)("IAM auth routes", () => {
         providers: {
           blizzard: {
             name: "blizzard",
-            getMythicKeystoneProfile: vi.fn(async () => ({
-              data: { currentMythicRating: 2100 },
-              provenance: { sourceUrl: "test", fetchedAt: new Date().toISOString() },
-              metadata: { cacheHit: false, statusCode: 200 },
-              freshness: { expiresAt: new Date(Date.now() + 86_400_000).toISOString() },
-            })),
+            resolveAuthoritativeCurrentSeasonId: vi.fn(async () =>
+              providerResultNow(
+                {
+                  seasonId: 17,
+                  slug: "blizzard-season-17",
+                  source: "season_index.current_season" as const,
+                },
+                "mplus.season.authoritative_current",
+              ),
+            ),
+            getMythicKeystoneProfile: vi.fn(
+              async (identity: { region: string; realmSlug: string; name: string }) =>
+                providerResultNow(
+                  {
+                    currentMythicRating: 2100,
+                    currentSeasonId: 17,
+                    seasons: [{ seasonId: 17 }],
+                    character: {
+                      region: identity.region,
+                      realmSlug: identity.realmSlug,
+                      name: identity.name,
+                    },
+                  },
+                  "character.mplus.index",
+                ),
+            ),
           } as never,
         },
       },
@@ -194,7 +280,7 @@ describe.skipIf(!dbAvailable)("IAM auth routes", () => {
       true,
     );
     expect(ownedBody.characters[0]).toMatchObject({
-      name: "Ownedone",
+      name: OWNED_CHAR_NAME,
       level: 90,
       characterClass: expect.objectContaining({ slug: "mage" }),
     });
@@ -208,12 +294,12 @@ describe.skipIf(!dbAvailable)("IAM auth routes", () => {
     });
     expect(bnet.statusCode).toBe(200);
     expect(JSON.stringify(bnet.json())).not.toContain("access-token-value");
-    expect(bnet.json().account.providerAccountId).toBe("bnet-sub-123");
+    expect(bnet.json().account.providerAccountId).toBe(BNET_SUBJECT);
   });
 
   it("unlinks and invalidates future private sync tokens", async () => {
     const account = await prisma.battleNetAccount.findFirst({
-      where: { providerAccountId: "bnet-sub-123" },
+      where: { providerAccountId: BNET_SUBJECT },
     });
     expect(account).toBeTruthy();
     const userId = account!.userId;
