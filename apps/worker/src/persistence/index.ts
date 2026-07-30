@@ -4,6 +4,10 @@ import {
   createAnalysisBatchRepository,
   type AnalysisBatchRepository,
 } from "./analysis-batch-repository.js";
+import {
+  createBulkOperationRepository,
+  type BulkOperationRepository,
+} from "./bulk-operation-repository.js";
 import { createCharacterRepository, type CharacterRepository } from "./character-repository.js";
 import {
   createExternalRequestRepository,
@@ -32,6 +36,7 @@ export interface WorkerRepositories {
   mechanicRule: MechanicRuleRepository;
   providerState: ProviderStateRepository;
   analysisBatch: AnalysisBatchRepository;
+  bulkOperation: BulkOperationRepository;
 }
 
 export function createRepositories(prisma: PrismaClient): WorkerRepositories {
@@ -47,11 +52,13 @@ export function createRepositories(prisma: PrismaClient): WorkerRepositories {
     mechanicRule: createMechanicRuleRepository(prisma),
     providerState: createProviderStateRepository(prisma),
     analysisBatch: createAnalysisBatchRepository(prisma),
+    bulkOperation: createBulkOperationRepository(prisma),
   };
 }
 
 export * from "./addon-export-repository.js";
 export * from "./analysis-batch-repository.js";
+export * from "./bulk-operation-repository.js";
 export * from "./character-repository.js";
 export * from "./external-request-repository.js";
 export * from "./job-repository.js";

@@ -1,9 +1,10 @@
 import type { FastifyPluginAsync } from "fastify";
 import { queryAdminAbilityCatalog } from "@mplus/abilities";
 import type { ApiContainer } from "../container.js";
-import type { ScoreModelConfig } from "@mplus/contracts";
+import type { BulkCharacterProcessingInput, ScoreModelConfig } from "@mplus/contracts";
 import { AdminService, type CreateScoreModelInput, type MechanicRuleInput } from "../services/admin-service.js";
 import { AdminUsersService } from "../services/admin-users-service.js";
+import { BulkCharacterProcessingService } from "../services/bulk-character-processing-service.js";
 import { adminScoreModelSchema, errorResponseSchema, jobStatusSchema, mechanicRuleSchema, scoreModelConfigSchema } from "./schemas.js";
 import { createPermissionPreHandler } from "../iam/session.js";
 import { PERMISSIONS } from "../iam/permissions.js";
@@ -72,6 +73,7 @@ const mechanicRuleBodySchema = {
 export function buildAdminRoutes(container: ApiContainer): FastifyPluginAsync {
   const service = new AdminService(container);
   const usersService = new AdminUsersService(container.worker.prisma, container.env.SESSION_SECRET);
+  const bulkService = new BulkCharacterProcessingService(container);
   const env = container.env;
 
   return async (app) => {
@@ -512,6 +514,139 @@ export function buildAdminRoutes(container: ApiContainer): FastifyPluginAsync {
         async (request) => {
           const { id } = request.params as { id: string };
           return service.deleteMechanicRule(id);
+        },
+      );
+    });
+
+    await app.register(async (protectedApp) => {
+      protectedApp.addHook(
+        "preHandler",
+        createPermissionPreHandler(env, PERMISSIONS.ADMIN_JOBS_MANAGE, {
+          auditAction: "admin.jobs.access",
+          allowEmergencyAdminKey: true,
+        }),
+      );
+
+      protectedApp.addHook("onResponse", async (request, reply) => {
+        if (reply.statusCode < 400 && request.method !== "GET") {
+          await writeAuditEvent(container.worker.prisma, {
+            userId: request.auth?.user.id,
+            actorType: request.authActor === "admin_key" ? "admin_key" : "user",
+            action: `admin.bulk_operations.${request.method.toLowerCase()}`,
+            resourceType: "bulk_operation",
+            ip: request.ip,
+            userAgent: request.headers["user-agent"],
+            sessionSecret: env.SESSION_SECRET,
+            metadata: { statusCode: reply.statusCode, url: request.url },
+          });
+        }
+      });
+
+      protectedApp.get(
+        "/api/v1/admin/bulk-operations",
+        {
+          schema: {
+            tags: ["admin"],
+            response: {
+              200: {
+                type: "object",
+                properties: { operations: { type: "array", items: { type: "object", additionalProperties: true } } },
+              },
+            },
+          },
+        },
+        async () => ({ operations: await bulkService.list() }),
+      );
+
+      protectedApp.post(
+        "/api/v1/admin/bulk-operations",
+        {
+          schema: {
+            tags: ["admin"],
+            body: {
+              type: "object",
+              properties: {
+                mode: { type: "string", enum: ["FULL_REFRESH", "RECALCULATE_ONLY"] },
+                minMythicPlusScore: { type: ["number", "null"] },
+                scoreModelId: { type: ["string", "null"] },
+                batchSize: { type: "integer", minimum: 1, maximum: 500 },
+                maxCharacters: { type: ["integer", "null"] },
+                maxWclCalls: { type: ["integer", "null"] },
+                dryRun: { type: "boolean" },
+                allowFullRefreshOnIncompatible: { type: "boolean" },
+                logicalKey: { type: "string" },
+              },
+              required: ["mode", "minMythicPlusScore"],
+            },
+            response: { 201: { type: "object", additionalProperties: true }, 400: errorResponseSchema, 409: errorResponseSchema },
+          },
+        },
+        async (request, reply) => {
+          const body = request.body as BulkCharacterProcessingInput;
+          const operation = await bulkService.create(body, {
+            createdByUserId: request.auth?.user.id ?? null,
+          });
+          return reply.status(201).send(operation);
+        },
+      );
+
+      protectedApp.get(
+        "/api/v1/admin/bulk-operations/:id",
+        {
+          schema: {
+            tags: ["admin"],
+            params: idParamsSchema,
+            response: { 200: { type: "object", additionalProperties: true }, 404: errorResponseSchema },
+          },
+        },
+        async (request) => {
+          const { id } = request.params as { id: string };
+          return bulkService.get(id);
+        },
+      );
+
+      protectedApp.post(
+        "/api/v1/admin/bulk-operations/:id/pause",
+        {
+          schema: {
+            tags: ["admin"],
+            params: idParamsSchema,
+            response: { 200: { type: "object", additionalProperties: true }, 404: errorResponseSchema, 409: errorResponseSchema },
+          },
+        },
+        async (request) => {
+          const { id } = request.params as { id: string };
+          return bulkService.pause(id);
+        },
+      );
+
+      protectedApp.post(
+        "/api/v1/admin/bulk-operations/:id/resume",
+        {
+          schema: {
+            tags: ["admin"],
+            params: idParamsSchema,
+            response: { 200: { type: "object", additionalProperties: true }, 404: errorResponseSchema, 409: errorResponseSchema },
+          },
+        },
+        async (request) => {
+          const { id } = request.params as { id: string };
+          return bulkService.resume(id);
+        },
+      );
+
+      protectedApp.post(
+        "/api/v1/admin/bulk-operations/:id/cancel",
+        {
+          schema: {
+            tags: ["admin"],
+            params: idParamsSchema,
+            response: { 200: { type: "object", additionalProperties: true }, 404: errorResponseSchema, 409: errorResponseSchema },
+          },
+        },
+        async (request) => {
+          const { id } = request.params as { id: string };
+          return bulkService.cancel(id);
         },
       );
     });

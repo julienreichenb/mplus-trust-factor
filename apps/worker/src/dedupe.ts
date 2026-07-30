@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import {
   QUEUE_NAMES,
   type AnalyzeRunJob,
+  type BulkOrchestratorJob,
   type DiscoverOwnedCharactersJob,
   type GenerateAddonExportJob,
   type QueueName,
@@ -71,5 +72,17 @@ export function discoverOwnedCharactersDedupeKey(job: DiscoverOwnedCharactersJob
     job.battleNetAccountId,
     job.seasonKey,
     job.ownershipSyncAt,
+  ]);
+}
+
+/**
+ * Orchestrator ticks share a logical dedupe key per operation, but each follow-up tick
+ * must not be blocked by a completed prior tick — append requestedAt for uniqueness of
+ * successive ticks while create/resume uses a stable key until terminal.
+ */
+export function bulkCharacterProcessingDedupeKey(job: BulkOrchestratorJob): string {
+  return buildDedupeKey(QUEUE_NAMES.bulkCharacterProcessing, [
+    job.bulkOperationId,
+    job.requestedAt,
   ]);
 }

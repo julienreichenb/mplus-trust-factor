@@ -37,6 +37,7 @@ function hashHref(hash: string): string {
         <RouterLink to="/admin/models">Score models</RouterLink>
         <RouterLink to="/admin/ability-catalog">Ability catalog</RouterLink>
         <RouterLink to="/admin/users">Admin users</RouterLink>
+        <RouterLink to="/admin/bulk-processing">Bulk processing</RouterLink>
       </template>
     </nav>
 

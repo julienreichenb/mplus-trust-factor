@@ -6,6 +6,7 @@ export * from "./fusion.js";
 export * from "./provider.js";
 export * from "./scoring.js";
 export * from "./jobs.js";
+export * from "./bulk-processing.js";
 export * from "./api.js";
 export * from "./refresh-contract.js";
 export * from "./account-characters.js";

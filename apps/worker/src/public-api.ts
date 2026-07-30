@@ -7,6 +7,7 @@ export { createWorkerContainer, type WorkerContainer, type WorkerContainerOverri
 export {
   analyzeRunDedupeKey,
   buildDedupeKey,
+  bulkCharacterProcessingDedupeKey,
   discoverOwnedCharactersDedupeKey,
   generateAddonExportDedupeKey,
   recalculateScoreDedupeKey,

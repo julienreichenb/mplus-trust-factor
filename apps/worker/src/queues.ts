@@ -2,11 +2,13 @@ import { Queue, type ConnectionOptions } from "bullmq";
 import {
   QUEUE_NAMES,
   analyzeRunJobSchema,
+  bulkOrchestratorJobSchema,
   discoverOwnedCharactersJobSchema,
   generateAddonExportJobSchema,
   recalculateScoreJobSchema,
   refreshCharacterJobSchema,
   type AnalyzeRunJob,
+  type BulkOrchestratorJob,
   type DiscoverOwnedCharactersJob,
   type GenerateAddonExportJob,
   type RecalculateScoreJob,
@@ -15,6 +17,7 @@ import {
 import type { WorkerContainer } from "./container.js";
 import {
   analyzeRunDedupeKey,
+  bulkCharacterProcessingDedupeKey,
   discoverOwnedCharactersDedupeKey,
   generateAddonExportDedupeKey,
   recalculateScoreDedupeKey,
@@ -48,6 +51,9 @@ export interface QueueProducers {
   enqueueDiscoverOwnedCharacters(
     input: Omit<DiscoverOwnedCharactersJob, "requestedAt"> & { requestedAt?: string },
   ): Promise<EnqueueResult>;
+  enqueueBulkCharacterProcessing(
+    input: Omit<BulkOrchestratorJob, "requestedAt"> & { requestedAt?: string },
+  ): Promise<EnqueueResult>;
   close(): Promise<void>;
 }
 
@@ -65,6 +71,9 @@ export function createQueueProducers(
     [QUEUE_NAMES.recalculateScore]: new Queue(QUEUE_NAMES.recalculateScore, { connection }),
     [QUEUE_NAMES.generateAddonExport]: new Queue(QUEUE_NAMES.generateAddonExport, { connection }),
     [QUEUE_NAMES.discoverOwnedCharacters]: new Queue(QUEUE_NAMES.discoverOwnedCharacters, {
+      connection,
+    }),
+    [QUEUE_NAMES.bulkCharacterProcessing]: new Queue(QUEUE_NAMES.bulkCharacterProcessing, {
       connection,
     }),
   } as const;
@@ -171,6 +180,21 @@ export function createQueueProducers(
       return result;
     },
 
+    async enqueueBulkCharacterProcessing(input) {
+      const payload = bulkOrchestratorJobSchema.parse({
+        ...input,
+        requestedAt: input.requestedAt ?? new Date().toISOString(),
+      });
+      const dedupeKey = bulkCharacterProcessingDedupeKey(payload);
+      return enqueue(
+        queues[QUEUE_NAMES.bulkCharacterProcessing],
+        QUEUE_NAMES.bulkCharacterProcessing,
+        dedupeKey,
+        payload,
+        { priority: PRIORITY_WEIGHT.low },
+      );
+    },
+
     async close() {
       await Promise.all(Object.values(queues).map((queue) => queue.close()));
     },
@@ -181,6 +205,11 @@ export function createQueueProducers(
 
 /** Used by discovery worker: producers need enqueueRefreshCharacter only. */
 export type DiscoveryRefreshProducers = Pick<QueueProducers, "enqueueRefreshCharacter">;
+
+export type BulkOrchestratorProducers = Pick<
+  QueueProducers,
+  "enqueueRefreshCharacter" | "enqueueRecalculateScore" | "enqueueBulkCharacterProcessing"
+>;
 
 export async function processDiscoverOwnedCharactersJob(
   container: WorkerContainer,
