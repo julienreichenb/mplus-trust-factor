@@ -3,6 +3,11 @@ import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { normalizeName } from "@mplus/domain";
 import type { PrismaClient } from "@mplus/database";
+import {
+  clearSeasonAuthorityCacheForTests,
+  resolveActiveRefreshContract,
+  synchronizeSeasonAuthority,
+} from "@mplus/worker";
 import { buildApp } from "./app.js";
 import { createApiContainer, type ApiContainer } from "./container.js";
 import { buildTestEnv, createTestPrismaClient, uniqueName } from "./test-helpers.js";
@@ -16,14 +21,39 @@ afterAll(async () => {
 describe.skipIf(!dbAvailable)("character routes", () => {
   let app: FastifyInstance;
   let container: ApiContainer;
+  let verifiedContractHash: string;
+  let verifiedSeasonId: number;
 
   beforeAll(async () => {
+    clearSeasonAuthorityCacheForTests();
     const env = buildTestEnv();
     // `skipQueues: true` runs the refresh pipeline inline (no Redis/BullMQ worker required) so
     // `inject()` tests can observe a persisted score synchronously.
     container = createApiContainer(env, { workerOverrides: { prisma: prisma as PrismaClient }, skipQueues: true });
     app = await buildApp({ env, container });
     await app.ready();
+
+    const region = await prisma.region.findFirst({ where: { code: "EU" } });
+    if (region) {
+      const authority = await synchronizeSeasonAuthority(
+        {
+          prisma: container.worker.prisma,
+          blizzard: container.worker.providers.blizzard,
+          logger: container.logger,
+        },
+        "EU",
+        region.id,
+        { forceRefresh: true },
+      );
+      verifiedSeasonId = authority.blizzardSeasonId;
+      verifiedContractHash = resolveActiveRefreshContract({
+        scoringModelKey: env.ACTIVE_SCORE_MODEL_KEY,
+        scoringModelVersion: env.ACTIVE_SCORE_MODEL_VERSION,
+        activeSeasonId: authority.slug,
+        providerMode: env.PROVIDER_MODE,
+        env: process.env,
+      }).hash;
+    }
   });
 
   afterAll(async () => {
@@ -154,7 +184,13 @@ describe.skipIf(!dbAvailable)("character routes", () => {
         status: "QUEUED",
         characterId: character!.id,
         dedupeKey: `test-reuse-${character!.id}`,
-        payload: {},
+        payload: {
+          region: "EU",
+          realmSlug: "tarren-mill",
+          name,
+          refreshContractHash: verifiedContractHash,
+          authoritativeSeasonId: verifiedSeasonId,
+        },
         priority: 0,
         scheduledAt: new Date(),
       },
@@ -268,7 +304,13 @@ describe.skipIf(!dbAvailable)("character routes", () => {
       jobType: "refresh-character",
       dedupeKey,
       characterId: character.id,
-      payload: { region: "EU", realmSlug: "tarren-mill", name },
+      payload: {
+        region: "EU",
+        realmSlug: "tarren-mill",
+        name,
+        refreshContractHash: verifiedContractHash,
+        authoritativeSeasonId: verifiedSeasonId,
+      },
     });
     expect(queued.job.status).toBe("QUEUED");
 
@@ -370,7 +412,11 @@ describe.skipIf(!dbAvailable)("character routes", () => {
         status: "QUEUED",
         characterId: character.id,
         dedupeKey: `force-reuse-${character.id}`,
-        payload: { forceRefresh: true },
+        payload: {
+          forceRefresh: true,
+          refreshContractHash: verifiedContractHash,
+          authoritativeSeasonId: verifiedSeasonId,
+        },
         priority: 0,
         scheduledAt: new Date(),
       },

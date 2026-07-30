@@ -39,6 +39,44 @@ async function main(): Promise<void> {
   const producers = createQueueProducers(connection, container);
   const workers = createWorkers(connection, container);
 
+  // Prefer DB-cached season authority within TTL so API+worker do not double-call Blizzard.
+  try {
+    const {
+      bootstrapSeasonAuthorityForRegions,
+      listPersistedRegionsForAuthority,
+    } = await import("./orchestration/season-authority.js");
+    const regions = await listPersistedRegionsForAuthority(container.prisma);
+    if (regions.length > 0) {
+      const results = await bootstrapSeasonAuthorityForRegions(
+        {
+          prisma: container.prisma,
+          blizzard: container.providers.blizzard,
+          logger: container.logger,
+        },
+        regions,
+      );
+      for (const result of results) {
+        container.logger.info(
+          {
+            event: "season_authority_ready",
+            readiness: result.status,
+            region: result.region,
+            authoritativeSeasonId: result.authority?.blizzardSeasonId ?? null,
+            authoritativeSeasonSlug: result.authority?.slug ?? null,
+            authoritySource: result.authority?.authoritySource ?? null,
+            authorityVerifiedAt: result.authority?.authorityVerifiedAt?.toISOString() ?? null,
+          },
+          `season authority bootstrap: ${result.status}`,
+        );
+      }
+    }
+  } catch (error) {
+    container.logger.warn(
+      { err: error, event: "season_authority_ready", readiness: "unavailable" },
+      "season authority bootstrap failed — refresh jobs will verify or defer at execution",
+    );
+  }
+
   // `run()` resolves only once the worker is closed, so it must not be awaited here.
   for (const worker of workers) {
     void worker.run().catch((error) => {

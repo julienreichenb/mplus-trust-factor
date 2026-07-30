@@ -22,3 +22,4 @@ export * from "./refresh-phases.js";
 export * from "./publication-flow.js";
 export * from "./discover-owned-characters.js";
 export * from "./concurrency.js";
+export * from "./season-authority.js";

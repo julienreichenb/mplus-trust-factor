@@ -13,6 +13,7 @@ import type {
 import type { AppEnv } from "@mplus/config";
 import type { PrismaClient } from "@mplus/database";
 import { QUEUE_NAMES } from "@mplus/contracts";
+import { toPublicRefreshErrorMessage } from "../lib/public-error-sanitize.js";
 
 function readAvatarFromSnapshot(rawSummary: unknown): string | null {
   if (!rawSummary || typeof rawSummary !== "object") return null;
@@ -25,6 +26,7 @@ function readAvatarFromSnapshot(rawSummary: unknown): string | null {
  * Server-side account character view: ownership + character + score + job + class/media.
  * Default list is relevant CURRENT only.
  * Completed scores stay visible during refresh (REFRESHING); never flip to loading-only.
+ * Failed background refreshes never replace a usable published grade with public FAILED.
  */
 export async function buildAccountCharactersView(input: {
   prisma: PrismaClient;
@@ -181,20 +183,34 @@ export async function buildAccountCharactersView(input: {
         }) as AccountTrustScoreStatus;
         if (snap!.rejectionReason && decision.action === "NONE" && fresh) {
           trustStatus = "UNAVAILABLE";
-          errorCode = snap!.rejectionReason;
-          errorMessage = snap!.rejectionReason;
+          errorCode = "UNAVAILABLE";
+          errorMessage = "Trust Score is temporarily unavailable.";
         }
         if (decision.reason === "RECENT_FAILURE") {
-          const err = latestJob?.error as { code?: string; message?: string } | null;
-          errorCode = err?.code ?? "REFRESH_FAILED";
-          errorMessage = err?.message ?? "Trust Score refresh failed";
+          const safe = toPublicRefreshErrorMessage(latestJob?.error, {
+            hasPublishedScore: true,
+          });
+          errorCode = safe.errorCode;
+          errorMessage = safe.errorMessage;
         }
       } else if (decision.publicState === "UNAVAILABLE") {
-        trustStatus = "UNAVAILABLE";
-        const err = latestJob?.error as { code?: string; message?: string } | null;
-        errorCode = err?.code ?? "REFRESH_FAILED";
-        errorMessage = err?.message ?? "Trust Score refresh failed";
-      } else if (decision.publicState === "CALCULATING" || decision.publicState === "NO_SCORE_QUEUED") {
+        trustStatus = "FAILED";
+        const safe = toPublicRefreshErrorMessage(latestJob?.error, {
+          hasPublishedScore: false,
+        });
+        errorCode = safe.errorCode;
+        errorMessage = safe.errorMessage;
+      } else if (decision.detailedRefreshStatus === "FAILED" && !hasPublished) {
+        trustStatus = "FAILED";
+        const safe = toPublicRefreshErrorMessage(latestJob?.error, {
+          hasPublishedScore: false,
+        });
+        errorCode = safe.errorCode;
+        errorMessage = safe.errorMessage;
+      } else if (
+        decision.publicState === "CALCULATING" ||
+        decision.publicState === "NO_SCORE_QUEUED"
+      ) {
         trustStatus = toAccountTrustStatus(decision, {
           discovering: discovery.status === "QUEUED" || discovery.status === "RUNNING",
         }) as AccountTrustScoreStatus;
@@ -228,7 +244,9 @@ export async function buildAccountCharactersView(input: {
         seasonId: row.currentSeasonMythicSeasonId,
         fetchedAt: row.currentSeasonMythicFetchedAt?.toISOString() ?? null,
         source: row.currentSeasonMythicSource,
-        state: (row.currentSeasonMythicState as AccountOwnedCharacterDTO["currentSeasonMythic"]["state"]) ?? null,
+        state:
+          (row.currentSeasonMythicState as AccountOwnedCharacterDTO["currentSeasonMythic"]["state"]) ??
+          null,
       },
       trustScore: {
         status: trustStatus,
@@ -244,9 +262,7 @@ export async function buildAccountCharactersView(input: {
       relevance: {
         policyVersion: row.relevancePolicyVersion ?? "v1",
         eligible: row.relevanceEligible ?? false,
-        reasons: Array.isArray(row.relevanceReasons)
-          ? (row.relevanceReasons as string[])
-          : [],
+        reasons: Array.isArray(row.relevanceReasons) ? (row.relevanceReasons as string[]) : [],
         evaluatedAt: row.relevanceEvaluatedAt?.toISOString() ?? null,
       },
     });

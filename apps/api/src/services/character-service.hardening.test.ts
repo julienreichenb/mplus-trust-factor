@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { CharacterService } from "./character-service.js";
 import type { ApiContainer } from "../container.js";
+import { clearSeasonAuthorityCacheForTests } from "@mplus/worker";
 
 describe("CharacterService — public read path invariants", () => {
   const mockEnqueue = vi.fn().mockResolvedValue({ jobId: "job-1", reused: false });
@@ -8,6 +9,7 @@ describe("CharacterService — public read path invariants", () => {
   const mockFindByIdentity = vi.fn();
 
   function buildContainer(): ApiContainer {
+    const verifiedAt = new Date().toISOString();
     return {
       env: {
         BLIZZARD_CHARACTER_TTL_SECONDS: 86_400,
@@ -25,12 +27,35 @@ describe("CharacterService — public read path invariants", () => {
       logger: { warn: vi.fn(), info: vi.fn() },
       worker: {
         disabledProviders: new Set(),
+        providers: {
+          blizzard: {
+            resolveAuthoritativeCurrentSeasonId: vi.fn(async () => ({
+              data: {
+                seasonId: 13,
+                slug: "blizzard-season-13",
+                source: "season_index.current_season",
+              },
+            })),
+          },
+        },
         prisma: {
+          region: {
+            findUnique: vi.fn().mockResolvedValue({ id: "reg-1", code: "EU" }),
+            findUniqueOrThrow: vi.fn().mockResolvedValue({ id: "reg-1", code: "EU" }),
+          },
           season: {
             findFirst: vi.fn().mockResolvedValue({
               id: "season-1",
               slug: "blizzard-season-13",
+              regionId: "reg-1",
+              blizzardSeasonId: 13,
               isCurrent: true,
+              metadata: {
+                blizzardSeasonId: 13,
+                source: "blizzard",
+                authoritySource: "season_index.current_season",
+                authorityVerifiedAt: verifiedAt,
+              },
             }),
           },
           scoreModel: {
@@ -112,6 +137,7 @@ describe("CharacterService — public read path invariants", () => {
   };
 
   beforeEach(() => {
+    clearSeasonAuthorityCacheForTests();
     vi.clearAllMocks();
     mockFindByIdentity.mockResolvedValue({
       id: "char-1",

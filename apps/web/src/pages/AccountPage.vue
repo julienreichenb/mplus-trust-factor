@@ -315,7 +315,7 @@ function portraitSrc(c: AccountOwnedCharacterDTO): string | null {
                 {{ statusLabel(c.trustScore.status) }}
               </span>
               <span
-                v-if="c.trustScore.status === 'FAILED' && c.trustScore.errorMessage"
+                v-if="c.trustScore.errorMessage && (c.trustScore.status === 'FAILED' || c.trustScore.status === 'STALE' || c.trustScore.status === 'AVAILABLE')"
                 class="fail-reason"
               >
                 {{ c.trustScore.errorMessage }}

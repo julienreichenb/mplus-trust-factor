@@ -43,6 +43,13 @@ export const refreshCharacterJobSchema = z.object({
   refreshContractHash: z.string().min(1).max(128).optional(),
   /** Optional enqueue boundary label; absent on older persisted jobs. */
   triggerSource: refreshTriggerSourceSchema.optional(),
+  /**
+   * Immutable regional season identity attached at enqueue from verified Blizzard authority.
+   * Optional for backward-compatible persisted jobs.
+   */
+  authoritativeSeasonId: z.number().int().positive().optional(),
+  authoritativeSeasonSlug: z.string().min(1).max(64).optional(),
+  authoritySource: z.string().min(1).max(64).optional(),
 });
 
 export type RefreshCharacterJob = z.infer<typeof refreshCharacterJobSchema> & {

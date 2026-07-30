@@ -56,6 +56,7 @@
     "wcl:probe:survival:v1.1": "node tools/scripts/with-env.mjs node tools/scripts/wcl-probe-survival-v1_1.mjs",
     "wcl:probe:survival:v1.1:audit": "node tools/scripts/wcl-probe-survival-v1_1-audit.mjs",
     "realms:sync": "node tools/scripts/with-env.mjs pnpm --filter @mplus/worker run realms:sync --",
+    "season:sync-authority": "node tools/scripts/with-env.mjs pnpm --filter @mplus/worker run season:sync-authority --",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "abilities:validate": "pnpm --filter @mplus/abilities run abilities:validate",

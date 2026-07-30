@@ -5,6 +5,7 @@ import type {
   CharacterResolveResponse,
   PerformanceSummaryDTO,
   ProviderName,
+  RefreshCharacterJob,
   RefreshStatusResponse,
   RefreshTriggerSource,
   ScoreSnapshotDTO,
@@ -37,11 +38,35 @@ import {
 import { applyProfileWarnings, appendRefreshContractWarnings, buildProfileEnrichments, isScoreStaleVersusProviders, scoreSnapshotContractStaleReasons, toPublicProviderKey } from "../lib/profile-enrichment.js";
 import { characterCacheKey } from "../lib/response-cache.js";
 import { scheduleProfileViewRecording } from "../lib/profile-view-recorder.js";
-import { resolveActiveRefreshContract, ensureCurrentSeason } from "@mplus/worker";
+import {
+  resolveActiveRefreshContract,
+  SeasonAuthorityUnavailableError,
+  requireVerifiedSeasonAuthority,
+  type VerifiedSeasonAuthority,
+} from "@mplus/worker";
 
 const ALL_PROVIDERS: ProviderName[] = ["blizzard", "raiderio", "warcraftlogs"];
 const DEFAULT_RETRY_AFTER_MS = 2_000;
 const PROFILE_PATH_PREFIX = "/character";
+
+function jobMatchesRefreshContract(
+  job: IngestionJob,
+  hash: string,
+  authoritativeSeasonId: number,
+): boolean {
+  const payload = job.payload as Partial<RefreshCharacterJob> | null;
+  if (!payload || typeof payload !== "object") return false;
+  if (payload.refreshContractHash && payload.refreshContractHash !== hash) return false;
+  if (
+    typeof payload.authoritativeSeasonId === "number" &&
+    payload.authoritativeSeasonId !== authoritativeSeasonId
+  ) {
+    return false;
+  }
+  // Legacy active jobs without hash: do not treat as matching a verified contract.
+  if (!payload.refreshContractHash) return false;
+  return payload.refreshContractHash === hash;
+}
 
 function buildProfilePath(identity: CharacterIdentityInput): string {
   const region = normalizeRegion(identity.region);
@@ -225,8 +250,36 @@ export class CharacterService {
     return character;
   }
 
-  private async resolveActiveRefreshContract(character: Character) {
-    const season = await ensureCurrentSeason(this.container.worker.prisma, character.regionId);
+  private seasonAuthorityDeps() {
+    return {
+      prisma: this.container.worker.prisma,
+      blizzard: this.container.worker.providers.blizzard,
+      logger: this.container.logger,
+    };
+  }
+
+  private async resolveActiveRefreshContract(
+    character: Character,
+    opts: { allowProviderSync?: boolean; correlationId?: string | null } = {},
+  ) {
+    const region = await this.container.worker.prisma.region.findUnique({
+      where: { id: character.regionId },
+      select: { id: true, code: true },
+    });
+    if (!region) {
+      throw new SeasonAuthorityUnavailableError("UNKNOWN", "Character region is missing");
+    }
+
+    const authority = await requireVerifiedSeasonAuthority(
+      this.seasonAuthorityDeps(),
+      region.code,
+      region.id,
+      {
+        allowProviderSync: opts.allowProviderSync ?? false,
+        correlationId: opts.correlationId,
+      },
+    );
+
     const activeModel =
       (await this.repositories.score.getActiveModel(this.container.env.ACTIVE_SCORE_MODEL_KEY)) ?? {
         key: this.container.env.ACTIVE_SCORE_MODEL_KEY,
@@ -235,7 +288,7 @@ export class CharacterService {
     const resolved = resolveActiveRefreshContract({
       scoringModelKey: activeModel.key,
       scoringModelVersion: activeModel.version,
-      activeSeasonId: season.slug,
+      activeSeasonId: authority.slug,
       providerMode: this.container.env.PROVIDER_MODE,
       env: process.env,
     });
@@ -243,9 +296,14 @@ export class CharacterService {
       contract: resolved.contract,
       hash: resolved.hash,
       activeModel: { key: activeModel.key, version: activeModel.version },
+      authority,
     };
   }
 
+  /**
+   * Atomic: verified season → contract → re-check authority → enqueue.
+   * Never enqueues from an unverified/stale DB season.
+   */
   private async enqueueRefresh(
     identity: CharacterIdentityInput,
     character: Character,
@@ -253,10 +311,72 @@ export class CharacterService {
       forceRefresh?: boolean;
       correlationId?: string | null;
       triggerSource: RefreshTriggerSource;
+      /** Manual paths may attempt one provider sync; profile reads must not. */
+      allowProviderSync?: boolean;
     },
   ): Promise<EnqueueResult> {
     this.container.responseCache.invalidate(characterCacheKey(identity));
-    const { hash, contract } = await this.resolveActiveRefreshContract(character);
+
+    const buildOnce = async () => {
+      const resolved = await this.resolveActiveRefreshContract(character, {
+        allowProviderSync: opts.allowProviderSync ?? false,
+        correlationId: opts.correlationId,
+      });
+      return resolved;
+    };
+
+    let { hash, contract, authority } = await buildOnce();
+
+    // TOCTOU: if authority moved between resolve and enqueue prep, rebuild once.
+    const region = await this.container.worker.prisma.region.findUniqueOrThrow({
+      where: { id: character.regionId },
+      select: { id: true, code: true },
+    });
+    const recheck = await requireVerifiedSeasonAuthority(
+      this.seasonAuthorityDeps(),
+      region.code,
+      region.id,
+      {
+        allowProviderSync: opts.allowProviderSync ?? false,
+        correlationId: opts.correlationId,
+      },
+    );
+    if (recheck.blizzardSeasonId !== authority.blizzardSeasonId || recheck.slug !== authority.slug) {
+      this.container.logger.info(
+        {
+          event: "refresh_enqueue_deferred",
+          characterId: character.id,
+          triggerSource: opts.triggerSource,
+          reason: "season_authority_changed_before_enqueue",
+          previousAuthoritativeSeasonId: authority.blizzardSeasonId,
+          authoritativeSeasonId: recheck.blizzardSeasonId,
+        },
+        "season authority changed before enqueue — rebuilding contract once",
+      );
+      ({ hash, contract, authority } = await buildOnce());
+    }
+
+    // Do not reuse an active job under a different contract / season identity.
+    const activeJob = await this.repositories.job.findActiveForCharacter(character.id);
+    if (activeJob && !jobMatchesRefreshContract(activeJob, hash, authority.blizzardSeasonId)) {
+      await this.repositories.job.markFailed(activeJob.id, {
+        code: "SEASON_AUTHORITY_SUPERSEDED",
+        message: "Active refresh superseded by verified season authority change",
+      });
+      this.container.logger.info(
+        {
+          event: "refresh_enqueue",
+          characterId: character.id,
+          triggerSource: opts.triggerSource,
+          reason: "superseded_obsolete_active_job",
+          obsoleteJobId: activeJob.id,
+          requestedRefreshContractHash: hash,
+          authoritativeSeasonId: authority.blizzardSeasonId,
+        },
+        "superseded obsolete active refresh job",
+      );
+    }
+
     const result = await this.container.producers.enqueueRefreshCharacter({
       characterId: character.id,
       region: identity.region,
@@ -267,12 +387,22 @@ export class CharacterService {
       correlationId: opts.correlationId ?? null,
       refreshContractHash: hash,
       triggerSource: opts.triggerSource,
+      authoritativeSeasonId: authority.blizzardSeasonId,
+      authoritativeSeasonSlug: authority.slug,
+      authoritySource: authority.authoritySource,
     });
     this.container.logger.info(
       {
         event: "refresh_enqueue",
         characterId: character.id,
         triggerSource: opts.triggerSource,
+        region: region.code,
+        authoritativeSeasonId: authority.blizzardSeasonId,
+        authoritativeSeasonSlug: authority.slug,
+        authoritySource: authority.authoritySource,
+        authorityVerifiedAt: authority.authorityVerifiedAt.toISOString(),
+        contractSeasonId: authority.blizzardSeasonId,
+        contractSeasonSlug: authority.slug,
         requestedRefreshContractHash: hash,
         zoneId: contract.zoneId,
         partition: contract.partition,
@@ -289,7 +419,9 @@ export class CharacterService {
     character: Character,
     snapshot: { seasonId: string },
   ): Promise<EnqueueResult> {
-    const { activeModel } = await this.resolveActiveRefreshContract(character);
+    const { activeModel } = await this.resolveActiveRefreshContract(character, {
+      allowProviderSync: false,
+    });
     return this.container.producers.enqueueRecalculateScore({
       characterId: character.id,
       seasonId: snapshot.seasonId,
@@ -316,7 +448,7 @@ export class CharacterService {
     enqueueResult: EnqueueResult | null;
   }> {
     const { identity, character, snapshot, correlationId, readOnly = false } = params;
-    const [activeJob, latestJobBefore] = await Promise.all([
+    const [activeJobRaw, latestJobBefore] = await Promise.all([
       this.repositories.job.findActiveForCharacter(character.id),
       this.repositories.job.findLatestForCharacter(character.id),
     ]);
@@ -324,21 +456,61 @@ export class CharacterService {
     let contractReasons: string[] = [];
     let storedContractHash: string | null = null;
     let currentContractHash: string | null = null;
-    if (snapshot) {
-      const mapped = mapScoreSnapshot(snapshot);
-      const { contract, activeModel, hash } = await this.resolveActiveRefreshContract(character);
-      currentContractHash = hash;
-      const stored =
-        mapped.explanation && typeof mapped.explanation === "object"
-          ? (mapped.explanation as { refreshContractHash?: unknown }).refreshContractHash
-          : null;
-      storedContractHash = typeof stored === "string" ? stored : null;
-      contractReasons = scoreSnapshotContractStaleReasons({
-        score: mapped,
-        activeModel,
-        activeContract: contract,
-      });
+    let authority: VerifiedSeasonAuthority | null = null;
+    let seasonAuthorityUnavailable = false;
+
+    try {
+      if (snapshot) {
+        const mapped = mapScoreSnapshot(snapshot);
+        const resolved = await this.resolveActiveRefreshContract(character, {
+          allowProviderSync: false,
+          correlationId,
+        });
+        authority = resolved.authority;
+        currentContractHash = resolved.hash;
+        const stored =
+          mapped.explanation && typeof mapped.explanation === "object"
+            ? (mapped.explanation as { refreshContractHash?: unknown }).refreshContractHash
+            : null;
+        storedContractHash = typeof stored === "string" ? stored : null;
+        contractReasons = scoreSnapshotContractStaleReasons({
+          score: mapped,
+          activeModel: resolved.activeModel,
+          activeContract: resolved.contract,
+        });
+      } else {
+        // Still need authority for matching active jobs / enqueue gating.
+        const resolved = await this.resolveActiveRefreshContract(character, {
+          allowProviderSync: false,
+          correlationId,
+        });
+        authority = resolved.authority;
+        currentContractHash = resolved.hash;
+      }
+    } catch (error) {
+      if (error instanceof SeasonAuthorityUnavailableError) {
+        seasonAuthorityUnavailable = true;
+        this.container.logger.info(
+          {
+            event: "refresh_decision",
+            characterId: character.id,
+            reason: "season_authority_unavailable",
+            triggerSource: readOnly ? "UNKNOWN" : "PROFILE_READ",
+          },
+          "season authority unavailable — skipping refresh enqueue",
+        );
+      } else {
+        throw error;
+      }
     }
+
+    const activeJob =
+      authority &&
+      activeJobRaw &&
+      currentContractHash &&
+      jobMatchesRefreshContract(activeJobRaw, currentContractHash, authority.blizzardSeasonId)
+        ? activeJobRaw
+        : null;
 
     const decisionBase = decideScoreRefresh({
       hasPublishedScore: Boolean(snapshot),
@@ -349,21 +521,59 @@ export class CharacterService {
       activeJobStatus: activeJob ? (activeJob.status as "QUEUED" | "ACTIVE") : null,
       latestJobStatus: latestJobBefore?.status ?? null,
       latestJobFinishedAt: latestJobBefore?.completedAt ?? null,
-      contractReasons,
+      contractReasons: seasonAuthorityUnavailable ? [] : contractReasons,
       providerNewerThanScore: false,
     });
     let decision: ScoreRefreshDecision = decisionBase;
 
+    // Fail closed: never enqueue without verified season authority.
+    if (seasonAuthorityUnavailable && (decision.action === "ENQUEUE" || decision.action === "RECALCULATE")) {
+      decision = {
+        ...decision,
+        action: "NONE",
+        reason: decision.reason,
+        warningCodes: decision.warningCodes,
+      };
+    }
+
     let enqueueResult: EnqueueResult | null = null;
-    if (!readOnly) {
+    if (!readOnly && !seasonAuthorityUnavailable) {
       if (decision.action === "ENQUEUE") {
-        enqueueResult = await this.enqueueRefresh(identity, character, {
-          forceRefresh: false,
-          correlationId,
-          triggerSource: "PROFILE_READ",
-        });
+        try {
+          enqueueResult = await this.enqueueRefresh(identity, character, {
+            forceRefresh: false,
+            correlationId,
+            triggerSource: "PROFILE_READ",
+            allowProviderSync: false,
+          });
+        } catch (error) {
+          if (error instanceof SeasonAuthorityUnavailableError) {
+            this.container.logger.info(
+              {
+                event: "refresh_enqueue",
+                characterId: character.id,
+                triggerSource: "PROFILE_READ",
+                reason: "season_authority_unavailable",
+                enqueued: false,
+                reused: false,
+              },
+              "refresh enqueue denied — season authority unavailable",
+            );
+            decision = { ...decision, action: "NONE" };
+          } else {
+            throw error;
+          }
+        }
       } else if (decision.action === "RECALCULATE" && snapshot) {
-        enqueueResult = await this.enqueueRecalculate(character, snapshot);
+        try {
+          enqueueResult = await this.enqueueRecalculate(character, snapshot);
+        } catch (error) {
+          if (error instanceof SeasonAuthorityUnavailableError) {
+            decision = { ...decision, action: "NONE" };
+          } else {
+            throw error;
+          }
+        }
       }
     }
 
@@ -400,6 +610,9 @@ export class CharacterService {
         contractReasons,
         storedContractHash,
         currentContractHash,
+        authoritativeSeasonId: authority?.blizzardSeasonId ?? null,
+        authoritativeSeasonSlug: authority?.slug ?? null,
+        seasonAuthorityUnavailable,
         reused: enqueueResult?.reused ?? decision.action === "REUSE_ACTIVE_JOB",
         enqueued: enqueueResult?.enqueued ?? false,
         readOnly,
@@ -448,7 +661,7 @@ export class CharacterService {
             ...(body.warnings ?? []),
             {
               code: "REFRESH_FAILED",
-              message: "Last refresh failed — showing previous score as a stale fallback.",
+              message: "La dernière actualisation a échoué.",
               severity: "WARN",
             },
           ];
@@ -821,21 +1034,36 @@ export class CharacterService {
       }
 
       if (latestJob?.status === "FAILED" || opts.forceRetry || !snapshot) {
-        const enqueueResult = await this.enqueueRefresh(identity, existing, {
-          forceRefresh: Boolean(opts.forceRetry),
-          correlationId: opts.correlationId,
-          triggerSource: "SYSTEM",
-        });
-        return {
-          statusCode: 202,
-          body: {
-            status: "QUEUED",
-            characterId: existing.id,
-            refreshId: enqueueResult.jobId,
-            profilePath,
-            retryAfterMs: DEFAULT_RETRY_AFTER_MS,
-          },
-        };
+        try {
+          const enqueueResult = await this.enqueueRefresh(identity, existing, {
+            forceRefresh: Boolean(opts.forceRetry),
+            correlationId: opts.correlationId,
+            triggerSource: "SYSTEM",
+            allowProviderSync: true,
+          });
+          return {
+            statusCode: 202,
+            body: {
+              status: "QUEUED",
+              characterId: existing.id,
+              refreshId: enqueueResult.jobId,
+              profilePath,
+              retryAfterMs: DEFAULT_RETRY_AFTER_MS,
+            },
+          };
+        } catch (error) {
+          if (error instanceof SeasonAuthorityUnavailableError) {
+            return {
+              statusCode: 503,
+              body: {
+                status: "PROVIDER_UNAVAILABLE",
+                retryable: true,
+                message: "Season authority is temporarily unavailable. Please retry shortly.",
+              },
+            };
+          }
+          throw error;
+        }
       }
 
       return {
@@ -897,21 +1125,36 @@ export class CharacterService {
     const character = await this.repositories.character.upsertCharacter(identity, {
       displayName: identity.name,
     });
-    const enqueueResult = await this.enqueueRefresh(identity, character, {
-      forceRefresh: false,
-      correlationId: opts.correlationId,
-      triggerSource: "SYSTEM",
-    });
-    return {
-      statusCode: 202,
-      body: {
-        status: "QUEUED",
-        characterId: character.id,
-        refreshId: enqueueResult.jobId,
-        profilePath,
-        retryAfterMs: DEFAULT_RETRY_AFTER_MS,
-      },
-    };
+    try {
+      const enqueueResult = await this.enqueueRefresh(identity, character, {
+        forceRefresh: false,
+        correlationId: opts.correlationId,
+        triggerSource: "SYSTEM",
+        allowProviderSync: true,
+      });
+      return {
+        statusCode: 202,
+        body: {
+          status: "QUEUED",
+          characterId: character.id,
+          refreshId: enqueueResult.jobId,
+          profilePath,
+          retryAfterMs: DEFAULT_RETRY_AFTER_MS,
+        },
+      };
+    } catch (error) {
+      if (error instanceof SeasonAuthorityUnavailableError) {
+        return {
+          statusCode: 503,
+          body: {
+            status: "PROVIDER_UNAVAILABLE",
+            retryable: true,
+            message: "Season authority is temporarily unavailable. Please retry shortly.",
+          },
+        };
+      }
+      throw error;
+    }
   }
 
   /** GET refresh-status: pure read, never enqueues, 404 for identities never resolved or negatively cached. */
@@ -958,9 +1201,34 @@ export class CharacterService {
     }
 
     const character = await this.findOrCreateCharacter(identity);
-    // Active-job reuse: never create a second concurrent refresh/force job.
+
+    let resolvedContract: Awaited<ReturnType<CharacterService["resolveActiveRefreshContract"]>>;
+    try {
+      resolvedContract = await this.resolveActiveRefreshContract(character, {
+        allowProviderSync: true,
+        correlationId: opts.correlationId,
+      });
+    } catch (error) {
+      if (error instanceof SeasonAuthorityUnavailableError) {
+        throw HttpError.serviceUnavailable(
+          "SEASON_AUTHORITY_UNAVAILABLE",
+          "Season authority is temporarily unavailable. Please retry shortly.",
+          { retryAfterSeconds: error.retryAfterSeconds },
+        );
+      }
+      throw error;
+    }
+
+    // Active-job reuse only when the in-flight job matches the verified contract.
     const activeJob = await this.repositories.job.findActiveForCharacter(character.id);
-    if (activeJob) {
+    if (
+      activeJob &&
+      jobMatchesRefreshContract(
+        activeJob,
+        resolvedContract.hash,
+        resolvedContract.authority.blizzardSeasonId,
+      )
+    ) {
       return {
         characterId: character.id,
         refreshStatus: activeJob.status === "ACTIVE" ? "IN_PROGRESS" : "QUEUED",
@@ -984,12 +1252,24 @@ export class CharacterService {
       };
     }
 
-    // Single centralized enqueue path (same as Agent 03 policy path).
-    const enqueueResult = await this.enqueueRefresh(identity, character, {
-      forceRefresh: opts.forceRefresh,
-      correlationId: opts.correlationId,
-      triggerSource: opts.forceRefresh ? "MANUAL_FORCE_REFRESH" : "MANUAL_REFRESH",
-    });
+    let enqueueResult: EnqueueResult;
+    try {
+      enqueueResult = await this.enqueueRefresh(identity, character, {
+        forceRefresh: opts.forceRefresh,
+        correlationId: opts.correlationId,
+        triggerSource: opts.forceRefresh ? "MANUAL_FORCE_REFRESH" : "MANUAL_REFRESH",
+        allowProviderSync: true,
+      });
+    } catch (error) {
+      if (error instanceof SeasonAuthorityUnavailableError) {
+        throw HttpError.serviceUnavailable(
+          "SEASON_AUTHORITY_UNAVAILABLE",
+          "Season authority is temporarily unavailable. Please retry shortly.",
+          { retryAfterSeconds: error.retryAfterSeconds },
+        );
+      }
+      throw error;
+    }
     const job = await this.repositories.job.findById(enqueueResult.jobId);
     return {
       characterId: character.id,

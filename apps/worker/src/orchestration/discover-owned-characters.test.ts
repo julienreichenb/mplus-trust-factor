@@ -1,7 +1,8 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi, beforeEach } from "vitest";
 import { OWNED_CHARACTER_RELEVANCE_POLICY_V1 } from "@mplus/config";
 import { QUEUE_NAMES } from "@mplus/contracts";
 import { runDiscoverOwnedCharacters } from "./discover-owned-characters.js";
+import { clearSeasonAuthorityCacheForTests } from "./season-authority.js";
 import type { WorkerContainer } from "../container.js";
 
 const EU_REGION = { id: "region-eu", code: "EU" };
@@ -26,12 +27,22 @@ function seasonPrismaMocks() {
     blizzardSeasonId: 17,
     regionId: EU_REGION.id,
     isCurrent: true,
-    metadata: {},
+    metadata: {
+      blizzardSeasonId: 17,
+      source: "blizzard",
+    },
   };
   return {
     findFirst: vi.fn(async () => seasonRow),
     updateMany: vi.fn(async () => ({ count: 0 })),
-    update: vi.fn(async () => seasonRow),
+    update: vi.fn(async ({ data }: { data?: Record<string, unknown> } = {}) => ({
+      ...seasonRow,
+      ...data,
+      metadata: {
+        ...seasonRow.metadata,
+        ...((data?.metadata as Record<string, unknown> | undefined) ?? {}),
+      },
+    })),
     create: vi.fn(async () => seasonRow),
   };
 }
@@ -56,6 +67,10 @@ function baseProviders(getMythicKeystoneProfile: ReturnType<typeof vi.fn>) {
 }
 
 describe("runDiscoverOwnedCharacters", () => {
+  beforeEach(() => {
+    clearSeasonAuthorityCacheForTests();
+  });
+
   it("skips Mythic+ rating for non-max-level and does not call WCL", async () => {
     const getMythicKeystoneProfile = vi.fn();
     const ownerships = [
@@ -146,6 +161,8 @@ describe("runDiscoverOwnedCharacters", () => {
       prisma,
       env: {
         ACTIVE_SCORE_MODEL_KEY: "default",
+        ACTIVE_SCORE_MODEL_VERSION: 6,
+        PROVIDER_MODE: "fixture",
         BLIZZARD_CHARACTER_TTL_SECONDS: 86_400,
         WCL_CHARACTER_TTL_SECONDS: 43_200,
         RAIDERIO_CHARACTER_TTL_SECONDS: 43_200,
@@ -271,6 +288,8 @@ describe("runDiscoverOwnedCharacters", () => {
       prisma,
       env: {
         ACTIVE_SCORE_MODEL_KEY: "default",
+        ACTIVE_SCORE_MODEL_VERSION: 6,
+        PROVIDER_MODE: "fixture",
         BLIZZARD_CHARACTER_TTL_SECONDS: 86_400,
         WCL_CHARACTER_TTL_SECONDS: 43_200,
         RAIDERIO_CHARACTER_TTL_SECONDS: 43_200,
@@ -353,6 +372,8 @@ describe("runDiscoverOwnedCharacters", () => {
       prisma,
       env: {
         ACTIVE_SCORE_MODEL_KEY: "default",
+        ACTIVE_SCORE_MODEL_VERSION: 6,
+        PROVIDER_MODE: "fixture",
         BLIZZARD_CHARACTER_TTL_SECONDS: 86_400,
         WCL_CHARACTER_TTL_SECONDS: 43_200,
         RAIDERIO_CHARACTER_TTL_SECONDS: 43_200,
@@ -439,6 +460,8 @@ describe("runDiscoverOwnedCharacters", () => {
       prisma,
       env: {
         ACTIVE_SCORE_MODEL_KEY: "default",
+        ACTIVE_SCORE_MODEL_VERSION: 6,
+        PROVIDER_MODE: "fixture",
         BLIZZARD_CHARACTER_TTL_SECONDS: 86_400,
         WCL_CHARACTER_TTL_SECONDS: 43_200,
         RAIDERIO_CHARACTER_TTL_SECONDS: 43_200,
@@ -508,6 +531,8 @@ describe("runDiscoverOwnedCharacters", () => {
       },
       env: {
         ACTIVE_SCORE_MODEL_KEY: "default",
+        ACTIVE_SCORE_MODEL_VERSION: 6,
+        PROVIDER_MODE: "fixture",
         BLIZZARD_CHARACTER_TTL_SECONDS: 86_400,
         WCL_CHARACTER_TTL_SECONDS: 43_200,
         RAIDERIO_CHARACTER_TTL_SECONDS: 43_200,
@@ -584,6 +609,8 @@ describe("runDiscoverOwnedCharacters", () => {
       prisma,
       env: {
         ACTIVE_SCORE_MODEL_KEY: "default",
+        ACTIVE_SCORE_MODEL_VERSION: 6,
+        PROVIDER_MODE: "fixture",
         BLIZZARD_CHARACTER_TTL_SECONDS: 86_400,
         WCL_CHARACTER_TTL_SECONDS: 43_200,
         RAIDERIO_CHARACTER_TTL_SECONDS: 43_200,
@@ -753,6 +780,8 @@ describe("runDiscoverOwnedCharacters", () => {
       prisma,
       env: {
         ACTIVE_SCORE_MODEL_KEY: "default",
+        ACTIVE_SCORE_MODEL_VERSION: 6,
+        PROVIDER_MODE: "fixture",
         BLIZZARD_CHARACTER_TTL_SECONDS: 86_400,
         WCL_CHARACTER_TTL_SECONDS: 43_200,
         RAIDERIO_CHARACTER_TTL_SECONDS: 43_200,
