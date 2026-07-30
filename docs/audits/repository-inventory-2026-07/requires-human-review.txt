@@ -1,0 +1,76 @@
+# Requires human review
+# Distinguish: not found ≠ unused. Items below need a product/ops decision.
+# Agent 02 = docs canonicalization. Agent 12 = deep cleanup after Utility/calibration.
+
+## Product / schema
+
+1. RAID dimension enum in packages/contracts/src/scoring.ts
+   - Runtime: createDefaultModelV3 sets mythicRaid weight 0
+   - Wave4 docs say remove Raid from public model
+   - Decision: keep enum for compatibility vs hard-remove + migration
+   - Owner: not Agent 02 (contracts); defer schema change past Agent 12 unless product mandates
+
+2. AUTHENTICITY as ScoreDimension vs separate boost suspicion pillar
+   - Programme: probabilistic flag must not alter numeric score until calibrated
+   - Confirm UI/docs language never presents authenticity as a skill dimension
+   - Owner: Agent 02 must document correctly; schema change is separate
+
+3. docs/frontend LANDING invented dimensions (Consistency, Preparedness, …)
+   - Clear conflict with four public skill dims — confirm replacement copy before UI build
+   - Owner: Agent 02 frontend consolidation (must fix; do not merge PR #1/#2 as-is)
+
+## Probe / exports
+
+4. packages/providers/warcraftlogs/src/evidence/interrupt-catalog-coverage.ts
+   - Exported from index.ts; only test importer found (shared-evidence.test.ts)
+   - Unused in worker/scripts — not "not found"; file exists and is tested
+   - Decide: promote to runtime or un-export/archive
+   - Owner: Agent 12 (not Agent 02)
+
+5. Broad package exports of research probes from index.ts (utility-v1-*, survival-v1-score, etc.)
+   - Still used by CLI via dist/; trimming exports may break scripts that import package symbols
+   - Retire scripts first, then exports
+   - Owner: Agent 12 after calibration
+
+6. When to ARCHIVE/DELETE utility v1/v2 and survival v1 CLI scripts
+   - Still wired in package.json; scientific lineage valuable until Agent 11 calibration closes
+   - Do not delete while TEMPORARY_ACTIVE / KEEP_RESEARCH
+   - Owner: Agent 12 only; Agent 02 forbidden from probe deletion
+
+## Ops / git hygiene
+
+7. CD still deploys from integration/wave4.3 (.github/workflows/cd.yml)
+   - Current behaviour: push deploy does NOT track main
+   - Local branch exists; remote origin/integration/wave4.3 not found (branch missing on origin ≠ unused workflow file)
+   - Align with programme intent: main → test deploy (Agent 05)
+   - Do not claim CD already deploys main
+
+8. 30+ stale local worktrees (agent/blizzard … agent/wave4.*)
+   - Safe to remove worktrees only after confirming no unmerged unique commits
+   - Prefer human-driven git worktree remove
+   - Owner: human / Agent 12 docs of commands only
+
+9. Open PR #1 and #2 both CONFLICTING
+   - Consolidation plan in frontend-pr-consolidation.md
+   - Do not merge either as-is
+   - Closing requires human/gh after replacement PR from Agent 02
+
+10. concurrency-hardening-test.mjs and recover-utility-probe-from-snapshot.mjs
+    - Not DELETE_SAFE; decide ARCHIVE+document vs add package.json scripts
+    - Owner: Agent 12 / human
+
+11. AGENTS.md absence
+    - Path not found on main (absence ≠ unused file)
+    - Decide whether Agent 02 should add pointer file (Agent 02 prompt expects it)
+
+12. Dual fixture trees tools/fixtures/{provider} vs tools/fixtures/providers/*/v1
+    - Documented dual layout; unify only with fixture-consumer audit
+    - Owner: Agent 12
+
+13. packages/abilities/generated/*
+    - Tracked generated reports — confirm regeneration policy vs hand-edits
+    - Owner: Agent 12 / human
+
+14. DELETE_SAFE technical orphans (ZIP + two scripts in safe-delete-list.txt section B)
+    - Evidence of no prod/test/package-script refs is strong
+    - Still require human ack before delete; default owner Agent 12 (outside Agent 02 docs scope)

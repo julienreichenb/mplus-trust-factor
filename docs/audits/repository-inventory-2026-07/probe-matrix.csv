@@ -1,0 +1,80 @@
+file,exported,prod_import,test_import,script_invoke,scientific_value,superseded_by,classification,deletion_risk,notes
+probe/performance-probe-logic.ts,yes,yes,yes,none,shared JSON/rate helpers for WCL aggregates,n/a,KEEP_RUNTIME,none,prod: live/live-provider.ts; discovery/points-and-damage-performance.ts; fixture/fixture-provider.ts
+probe/performance-probe.ts,yes,no,yes,indirect:wcl:probe:performance,live performance probe fetch,n/a,TEMPORARY_ACTIVE,low,used by run-performance-probe; unused outside probe path
+probe/run-performance-probe.ts,no,no,no,wcl:probe:performance,CLI entry,n/a,TEMPORARY_ACTIVE,low,direct script entry only
+probe/types.ts,yes,yes,yes,none,probe GraphQL/rate/identity shared types,n/a,KEEP_RUNTIME,none,prod path: analysis/survival-canonical-analysis.ts (probe/types not package root types)
+probe/survival-probe-types.ts,yes,yes,yes,indirect:survival probes,survival event dataset contracts,n/a,KEEP_RUNTIME,none,prod: analysis/combat-facts-to-survival-run.ts; survival-canonical-analysis.ts; evidence/survival-from-shared-evidence.ts
+probe/survival-probe-logic.ts,yes,yes,yes,indirect:survival/utility probes,normalize survival datasets + dungeon pool helpers,n/a,KEEP_RUNTIME,none,prod: analysis/survival-canonical-analysis.ts
+probe/survival-probe.ts,yes,yes,no,indirect:wcl:probe:survival,fetch survival event pages,n/a,KEEP_RUNTIME,none,prod: analysis/survival-canonical-analysis.ts (fetchSurvivalEventDataset)
+probe/run-survival-probe.ts,no,no,no,wcl:probe:survival,CLI entry,n/a,TEMPORARY_ACTIVE,low,script entry only
+probe/survival-calibration-types.ts,yes,yes,yes,indirect:calibration/v1 pipelines,SurvivalCalibrationRun shape,n/a,KEEP_RUNTIME,none,prod: analysis/combat-facts-to-survival-run.ts; survival-canonical-analysis.ts; survival-run-analysis.ts
+probe/survival-calibration-logic.ts,yes,yes,yes,indirect:calibration,enrich/median helpers for survival,n/a,KEEP_RUNTIME,none,prod: analysis/survival-canonical-analysis.ts
+probe/survival-calibration-probe.ts,yes,no,no,indirect:wcl:probe:survival:calibration,calibration probe runner,n/a,TEMPORARY_ACTIVE,low,exported but no outside-probe path import
+probe/run-survival-calibration-probe.ts,no,no,no,wcl:probe:survival:calibration,CLI entry,n/a,TEMPORARY_ACTIVE,low,script entry only
+probe/survival-v1-config.ts,yes,no,yes,indirect:wcl:probe:survival:v1,Survival standalone v1 thresholds,survival-v1.1 / v1.1.1,KEEP_RESEARCH,medium,still dep of survival-v1-logic (helpers reused by v1.1.1)
+probe/survival-v1-types.ts,yes,no,no,indirect:wcl:probe:survival:v1,v1 score types,v1.1 types,KEEP_RESEARCH,medium,probe-internal only
+probe/survival-v1-logic.ts,yes,no,yes,indirect:wcl:probe:survival:v1,v1 scoring core; helpers reused by v1.1.1,v1.1.1 for full pipeline,KEEP_RUNTIME,low,v1.1.1-logic imports redistributeWeights/scoreOutcomeFromDeaths
+probe/survival-v1-score.ts,yes,no,no,indirect:wcl:probe:survival:v1,v1 pipeline orchestrator,v1.1.1 production analysis,KEEP_RESEARCH,medium,only run-survival-v1-score
+probe/run-survival-v1-score.ts,no,no,no,wcl:probe:survival:v1,CLI entry,v1.1.1,ARCHIVE,medium,script still wired in package.json
+probe/survival-v1_1-config.ts,yes,no,yes,indirect:v1.1 scripts,v1.1 thresholds,v1.1.1 config for production tip,KEEP_RUNTIME,low,still imported by v1.1.1-logic and v1.1 stack
+probe/survival-v1_1-types.ts,yes,yes,yes,none,ExplicitHealthSnapshot + v1.1 score types,partially extended by v1.1.1,KEEP_RUNTIME,none,prod: analysis/survival-canonical-analysis.ts; survival-run-analysis.ts
+probe/survival-v1_1-health.ts,yes,yes,yes,indirect:v1.1,explicit HP snapshot collection,n/a,KEEP_RUNTIME,none,prod: analysis/survival-canonical-analysis.ts; survival-run-analysis.ts
+probe/survival-v1_1-discovery.ts,yes,yes,no,indirect:wcl:probe:survival:v1.1,playerDetails fetch for v1.1,n/a,KEEP_RUNTIME,none,prod: analysis/survival-canonical-analysis.ts
+probe/survival-v1_1-logic.ts,yes,no,yes,indirect:v1.1,v1.1 scoring; base for v1.1.1,v1.1.1 for production tip,KEEP_RUNTIME,low,imported by survival-v1_1_1-logic
+probe/survival-v1_1-score.ts,yes,no,no,indirect:wcl:probe:survival:v1.1,v1.1 pipeline (exported runSurvivalV1_1Pipeline),v1.1.1 analysis path,KEEP_RESEARCH,medium,only run-survival-v1_1; analysis uses v1.1.1
+probe/run-survival-v1_1.ts,no,no,no,wcl:probe:survival:v1.1,CLI entry,v1.1.1,TEMPORARY_ACTIVE,low,active npm script
+probe/survival-v1_1-audit-config.ts,yes,no,no,indirect:wcl:probe:survival:v1.1:audit,audit diagnostic config,n/a,KEEP_RESEARCH,medium,no tests; probe-internal
+probe/survival-v1_1-audit.ts,yes,no,yes,indirect:audit+v1.1.1,fragmentation/defensive/recovery audits; clusterWindows used by v1.1.1,n/a,KEEP_RUNTIME,low,survival-v1_1_1-logic imports clusterWindowsByCandidateRule
+probe/survival-v1_1-audit-score.ts,yes,no,no,indirect:wcl:probe:survival:v1.1:audit,audit pipeline orchestrator,n/a,KEEP_RESEARCH,medium,only run-survival-v1_1-audit
+probe/run-survival-v1_1-audit.ts,no,no,no,wcl:probe:survival:v1.1:audit,CLI entry,n/a,TEMPORARY_ACTIVE,low,script entry
+probe/survival-v1_1_1-config.ts,yes,yes,yes,none,SURVIVAL_STANDALONE_V1_1_1_CONFIG production tip,n/a,CANONICAL,none,worker: refresh-pipeline/wcl-survival-metrics; analysis/survival-run-analysis.ts
+probe/survival-v1_1_1-maxhp.ts,yes,yes,yes,none,hardened max-HP resolution,n/a,CANONICAL,none,prod: analysis/survival-canonical-analysis.ts; survival-run-analysis.ts
+probe/survival-v1_1_1-logic.ts,yes,yes,yes,none,v1.1.1 survival scoring tip,n/a,CANONICAL,none,prod: analysis/survival-canonical-analysis.ts; survival-run-analysis.ts
+probe/utility-probe-types.ts,yes,yes,yes,indirect:utility probes,utility normalized run contracts,n/a,KEEP_RUNTIME,none,prod: evidence/utility-from-shared-evidence.ts
+probe/utility-probe-logic.ts,yes,yes,yes,indirect:utility probes,normalizeUtilityRun,n/a,KEEP_RUNTIME,none,prod: evidence/utility-from-shared-evidence.ts
+probe/utility-probe.ts,yes,no,no,indirect:wcl:probe:utility,utility raw probe fetch,n/a,TEMPORARY_ACTIVE,low,run-utility-probe + cross-class; exported unused outside probe
+probe/run-utility-probe.ts,no,no,no,wcl:probe:utility,CLI entry,n/a,TEMPORARY_ACTIVE,low,script entry
+probe/utility-probe-resume-merge.ts,no,no,yes,indirect:wcl:probe:utility:cross-class-validate + recover script,resume merge for cross-class runs,n/a,KEEP_RESEARCH,medium,also recover-utility-probe-from-snapshot.mjs
+probe/utility-catalog-audit.ts,yes,no,yes,indirect:v1/v2,catalog spell-on-stream audit,n/a,KEEP_RESEARCH,medium,shared by v1/v2; not outside-probe
+probe/utility-v1-config.ts,yes,no,yes,indirect:wcl:probe:utility:v1,utility v1 config,v2/v3/v3.2-observed,KEEP_RESEARCH,medium,rejectedVersions in utility-v3-config cites v1
+probe/utility-v1-types.ts,yes,no,no,indirect:wcl:probe:utility:v1,v1 types,later utility types,KEEP_RESEARCH,medium,no dedicated test
+probe/utility-v1-logic.ts,yes,no,yes,indirect:wcl:probe:utility:v1,v1 scoring,v3.2 observed,KEEP_RESEARCH,medium,utility-v1-logic.test.ts
+probe/utility-v1-score.ts,yes,no,no,indirect:wcl:probe:utility:v1,v1 pipeline,v3.2 observed,KEEP_RESEARCH,medium,only run-utility-v1-score; still exported
+probe/run-utility-v1-score.ts,no,no,no,wcl:probe:utility:v1,CLI entry,v3.2 observed,ARCHIVE,medium,script still wired
+probe/utility-v2-config.ts,no,no,yes,indirect:v2/v3 scripts,v2 audit config,v3+ for scoring tip,KEEP_RESEARCH,low,feeds v2 audit used by later calibrations
+probe/utility-v2-types.ts,no,yes,yes,indirect:v2/v3/shadow,UtilityV2RawRunBundle etc.,partially by opportunity types,KEEP_RUNTIME,none,prod: evidence/utility-from-shared-evidence.ts
+probe/utility-v2-audit-logic.ts,no,no,yes,indirect:v2/v3,v2 evidence audit logic,v3 evidence-logic for tiers,KEEP_RESEARCH,low,utility-v2-audit.test.ts
+probe/utility-v2-audit.ts,no,no,yes,indirect:v2/v3/v3.1/v3.2 scripts,loadUtilityV2AuditInputs shared loader,n/a as loader,KEEP_RESEARCH,low,used by run-utility-v2-audit; v3/v3.1/v3.2 calibration runners
+probe/run-utility-v2-audit.ts,no,no,no,wcl:probe:utility:v2-audit,CLI entry,scoring superseded; audit still useful,TEMPORARY_ACTIVE,low,script entry
+probe/utility-v3-config.ts,no,no,yes,indirect:v3/v3.1/v3.2,v3 sim config; rejects v1/v2,v3.1/v3.2 opportunity; observed separate,KEEP_RESEARCH,low,still imported by v3.1/v3.2 scoring-logic
+probe/utility-v3-types.ts,no,no,no,indirect:wcl:probe:utility:v3-simulation,v3 sim dataset types,v3.2 types,KEEP_RESEARCH,medium,no direct test import found
+probe/utility-v3-evidence-logic.ts,no,no,no,indirect:v3 family + observed,auditUtilityV3Evidence,n/a,KEEP_RUNTIME,low,used by utility-v3_2-observed-contribution (production shadow path)
+probe/utility-v3-scoring-logic.ts,no,no,yes,indirect:v3/v3.1/v3.2,v3 absolute curves; helpers reused,v3.2 opportunity scoring,KEEP_RESEARCH,low,v3.2-scoring-logic imports interpolate helpers
+probe/utility-v3-simulation.ts,no,no,no,indirect:wcl:probe:utility:v3-simulation,v3 sim runner,v3.2 calibration,KEEP_RESEARCH,medium,also cross-class validation
+probe/run-utility-v3-simulation.ts,no,no,no,wcl:probe:utility:v3-simulation,CLI entry,v3.2,TEMPORARY_ACTIVE,low,script entry
+probe/run-utility-cross-class-validation.ts,no,no,no,wcl:probe:utility:cross-class-validate,CLI multi-class validation,n/a,TEMPORARY_ACTIVE,low,script entry
+probe/utility-v3_1-config.ts,no,no,yes,indirect:wcl:probe:utility:v3_1-calibration,v3.1 calibration config,v3.2 opportunity + observed,KEEP_RESEARCH,medium,offline experiment
+probe/utility-v3_1-scoring-logic.ts,no,no,yes,indirect:v3_1+v3_2 calibration,v3.1 scoring; compared in v3.2 runner,v3.2,KEEP_RESEARCH,medium,imported by run-utility-v3_2-calibration for comparison
+probe/run-utility-v3_1-calibration.ts,no,no,no,wcl:probe:utility:v3_1-calibration,CLI entry,v3.2,TEMPORARY_ACTIVE,low,script entry
+probe/utility-v3_2-config.ts,no,no,no,indirect:wcl:probe:utility:v3_2-calibration,v3.2 opportunity-calibration config,OBSERVED_CONTRIBUTION for public score,KEEP_RESEARCH,low,OPPORTUNITY_RESEARCH lane
+probe/utility-v3_2-scoring-logic.ts,no,no,yes,indirect:wcl:probe:utility:v3_2-calibration,v3.2 opportunity scoring,observed-contribution for prod,KEEP_RESEARCH,low,must not feed public score per observed-contribution header
+probe/utility-v3_2-fixtures.ts,no,no,yes,indirect:wcl:probe:utility:v3_2-calibration,synthetic fixtures for v3.2,n/a,KEEP_RESEARCH,low,utility-v3_2-scoring.test.ts
+probe/run-utility-v3_2-calibration.ts,no,no,no,wcl:probe:utility:v3_2-calibration,CLI entry (opportunity research),observed for prod,TEMPORARY_ACTIVE,low,script entry
+probe/utility-opportunity-types.ts,no,yes,yes,indirect:v3.2/observed,opportunity model types,n/a,KEEP_RUNTIME,none,prod: evidence/utility-from-shared-evidence.ts
+probe/utility-opportunity-engine.ts,no,yes,yes,indirect:v3.2/observed,extractRunOpportunities,n/a,KEEP_RUNTIME,none,prod: evidence/utility-from-shared-evidence.ts; also observed-contribution
+probe/utility-v3_2-observed-config.ts,yes,no,no,none,OBSERVED_CONTRIBUTION weights/config,n/a,CANONICAL,none,production via observed-contribution->observed-shadow->worker
+probe/utility-v3_2-observed-contribution.ts,yes,no,yes,none,production-candidate OBSERVED_CONTRIBUTION scorer,n/a,CANONICAL,none,used by utility-observed-shadow; worker does not import file directly
+probe/utility-active-combat.ts,yes,no,yes,none,active combat duration estimate for observed score,n/a,KEEP_RUNTIME,low,dep of observed-contribution
+probe/utility-observed-semantics.ts,yes,no,yes,none,observed score semantics constants,n/a,KEEP_RUNTIME,low,dep of observed-shadow/contribution
+probe/utility-publication-mode.ts,yes,yes,yes,none,getUtilityPublicationMode + shadow analysis version,n/a,CANONICAL,none,worker: refresh-pipeline; utility-shadow-refresh; utility-publication-refresh
+probe/utility-publication-eligibility.ts,yes,yes,yes,none,publication gates for utility metric,n/a,CANONICAL,none,worker: utility-publication-refresh.ts
+probe/utility-observed-shadow.ts,yes,yes,yes,none,runUtilityObservedShadowPass production shadow path,n/a,CANONICAL,none,worker: utility-shadow-refresh.ts
+evidence/wcl-run-evidence-types.ts,yes,yes,yes,indirect:wcl:shared-evidence:load,evidence schema/version/consumer keys,n/a,CANONICAL,none,worker: shared-evidence-store.ts; utility-publication-backfill.ts
+evidence/wcl-run-evidence.ts,yes,no,yes,indirect:wcl:shared-evidence:load,fetch/build evidence datasets,n/a,KEEP_RUNTIME,none,used by shared-evidence-ingest + run-shared-evidence-load
+evidence/wcl-batch-cost-accounting.ts,yes,no,yes,indirect:wcl:shared-evidence:load,batch cost/rate accounting for evidence fetch,n/a,KEEP_RUNTIME,low,used by wcl-run-evidence + run-shared-evidence-load
+evidence/shared-run-selection.ts,yes,no,yes,indirect:wcl:shared-evidence:load,run selection for shared load CLI,n/a,TEMPORARY_ACTIVE,low,only run-shared-evidence-load among non-tests
+evidence/shared-evidence-ingest.ts,yes,yes,yes,indirect:wcl:shared-evidence:load,ingestSharedEvidenceBundle + SharedEvidenceStore,n/a,CANONICAL,none,worker: refresh-pipeline.ts; live-shared-evidence-survival.ts
+evidence/survival-from-shared-evidence.ts,yes,yes,no,none,buildSurvivalAnalysisFromSharedEvidence,n/a,CANONICAL,none,worker: live-shared-evidence-survival.ts; no local *.test.ts
+evidence/utility-from-shared-evidence.ts,yes,yes,yes,none,utilityEvidencePresentInBundle + buildUtilityShadowInputsFromBundles,n/a,CANONICAL,none,worker: refresh-pipeline.ts
+evidence/interrupt-catalog-coverage.ts,yes,no,yes,none,interrupt catalog coverage helpers,n/a,UNKNOWN_REQUIRES_REVIEW,medium,exported; ONLY importers found: shared-evidence.test.ts — unused in prod/scripts (file exists and is tested)
+evidence/run-shared-evidence-load.ts,no,no,no,wcl:shared-evidence:load,CLI shared evidence load,n/a,TEMPORARY_ACTIVE,low,script entry; not exported
