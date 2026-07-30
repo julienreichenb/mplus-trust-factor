@@ -5,10 +5,12 @@ import type { CharacterProfileView } from "../../api/types";
 defineProps<{
   profile: CharacterProfileView;
   refreshing?: boolean;
+  canForceRefresh?: boolean;
 }>();
 
 const emit = defineEmits<{
   refresh: [];
+  forceRefresh: [];
 }>();
 </script>
 
@@ -27,6 +29,16 @@ const emit = defineEmits<{
         @click="emit('refresh')"
       >
         {{ refreshing || profile.refreshStatus === "QUEUED" ? "Refreshing…" : "Refresh data" }}
+      </button>
+      <button
+        v-if="canForceRefresh"
+        type="button"
+        class="btn secondary"
+        data-testid="force-refresh-button"
+        :disabled="refreshing || profile.refreshStatus === 'QUEUED'"
+        @click="emit('forceRefresh')"
+      >
+        Force refresh
       </button>
     </div>
   </div>

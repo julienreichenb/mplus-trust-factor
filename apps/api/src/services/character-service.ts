@@ -884,6 +884,7 @@ export class CharacterService {
     identity: CharacterIdentityInput,
     opts: {
       bypassCooldown: boolean;
+      /** Already authorized at the route boundary; do not re-check IAM here. */
       forceRefresh: boolean;
       correlationId?: string | null;
     },
@@ -896,6 +897,7 @@ export class CharacterService {
     }
 
     const character = await this.findOrCreateCharacter(identity);
+    // Active-job reuse: never create a second concurrent refresh/force job.
     const activeJob = await this.repositories.job.findActiveForCharacter(character.id);
     if (activeJob) {
       return {
@@ -921,6 +923,7 @@ export class CharacterService {
       };
     }
 
+    // Single centralized enqueue path (same as Agent 03 policy path).
     const enqueueResult = await this.enqueueRefresh(
       identity,
       character,

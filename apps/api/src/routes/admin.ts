@@ -3,6 +3,7 @@ import { queryAdminAbilityCatalog } from "@mplus/abilities";
 import type { ApiContainer } from "../container.js";
 import type { ScoreModelConfig } from "@mplus/contracts";
 import { AdminService, type CreateScoreModelInput, type MechanicRuleInput } from "../services/admin-service.js";
+import { AdminUsersService } from "../services/admin-users-service.js";
 import { adminScoreModelSchema, errorResponseSchema, jobStatusSchema, mechanicRuleSchema, scoreModelConfigSchema } from "./schemas.js";
 import { createPermissionPreHandler } from "../iam/session.js";
 import { PERMISSIONS } from "../iam/permissions.js";
@@ -70,6 +71,7 @@ const mechanicRuleBodySchema = {
  */
 export function buildAdminRoutes(container: ApiContainer): FastifyPluginAsync {
   const service = new AdminService(container);
+  const usersService = new AdminUsersService(container.worker.prisma, container.env.SESSION_SECRET);
   const env = container.env;
 
   return async (app) => {
@@ -119,6 +121,179 @@ export function buildAdminRoutes(container: ApiContainer): FastifyPluginAsync {
         });
       },
     );
+
+    await app.register(async (usersApp) => {
+      usersApp.addHook(
+        "preHandler",
+        createPermissionPreHandler(env, PERMISSIONS.ADMIN_USERS_READ, {
+          auditAction: "admin.users.access",
+        }),
+      );
+
+      usersApp.get(
+        "/api/v1/admin/users",
+        {
+          schema: {
+            tags: ["admin"],
+            querystring: {
+              type: "object",
+              properties: {
+                q: { type: "string", minLength: 2 },
+                limit: { type: "integer", minimum: 1, maximum: 50 },
+              },
+              required: ["q"],
+            },
+            response: {
+              200: { type: "object", additionalProperties: true },
+              400: errorResponseSchema,
+              401: errorResponseSchema,
+              403: errorResponseSchema,
+            },
+          },
+        },
+        async (request) => {
+          const query = request.query as { q: string; limit?: number };
+          return usersService.searchUsers(query.q, query.limit);
+        },
+      );
+
+      usersApp.get(
+        "/api/v1/admin/users/:id",
+        {
+          schema: {
+            tags: ["admin"],
+            params: idParamsSchema,
+            response: {
+              200: { type: "object", additionalProperties: true },
+              401: errorResponseSchema,
+              403: errorResponseSchema,
+              404: errorResponseSchema,
+            },
+          },
+        },
+        async (request) => {
+          const { id } = request.params as { id: string };
+          return usersService.getUser(id);
+        },
+      );
+
+      usersApp.get(
+        "/api/v1/admin/roles",
+        {
+          schema: {
+            tags: ["admin"],
+            response: {
+              200: {
+                type: "object",
+                properties: {
+                  roles: {
+                    type: "array",
+                    items: {
+                      type: "object",
+                      properties: {
+                        key: { type: "string" },
+                        name: { type: "string" },
+                        description: { type: ["string", "null"] },
+                      },
+                    },
+                  },
+                },
+              },
+              401: errorResponseSchema,
+              403: errorResponseSchema,
+            },
+          },
+        },
+        async () => ({ roles: await usersService.listManageableRoles() }),
+      );
+    });
+
+    await app.register(async (manageUsersApp) => {
+      manageUsersApp.addHook(
+        "preHandler",
+        createPermissionPreHandler(env, PERMISSIONS.ADMIN_USERS_MANAGE, {
+          auditAction: "admin.users.manage",
+        }),
+      );
+
+      manageUsersApp.post(
+        "/api/v1/admin/users/:id/roles",
+        {
+          schema: {
+            tags: ["admin"],
+            params: idParamsSchema,
+            body: {
+              type: "object",
+              properties: { roleKey: { type: "string", minLength: 1 } },
+              required: ["roleKey"],
+            },
+            response: {
+              200: { type: "object", additionalProperties: true },
+              400: errorResponseSchema,
+              401: errorResponseSchema,
+              403: errorResponseSchema,
+              404: errorResponseSchema,
+            },
+          },
+        },
+        async (request) => {
+          const { id } = request.params as { id: string };
+          const body = request.body as { roleKey: string };
+          return usersService.grantRole({
+            actorUserId: request.auth?.user.id ?? null,
+            actorType: request.authActor === "admin_key" ? "admin_key" : "user",
+            targetUserId: id,
+            roleKey: body.roleKey,
+            ip: request.ip,
+            userAgent: request.headers["user-agent"],
+          });
+        },
+      );
+
+      manageUsersApp.delete(
+        "/api/v1/admin/users/:id/roles/:roleKey",
+        {
+          schema: {
+            tags: ["admin"],
+            params: {
+              type: "object",
+              properties: {
+                id: { type: "string", minLength: 1 },
+                roleKey: { type: "string", minLength: 1 },
+              },
+              required: ["id", "roleKey"],
+            },
+            querystring: {
+              type: "object",
+              properties: {
+                allowLastAdminRemoval: { type: "boolean" },
+              },
+            },
+            response: {
+              200: { type: "object", additionalProperties: true },
+              400: errorResponseSchema,
+              401: errorResponseSchema,
+              403: errorResponseSchema,
+              404: errorResponseSchema,
+              409: errorResponseSchema,
+            },
+          },
+        },
+        async (request) => {
+          const { id, roleKey } = request.params as { id: string; roleKey: string };
+          const query = request.query as { allowLastAdminRemoval?: boolean };
+          return usersService.revokeRole({
+            actorUserId: request.auth?.user.id ?? null,
+            actorType: request.authActor === "admin_key" ? "admin_key" : "user",
+            targetUserId: id,
+            roleKey,
+            allowLastAdminRemoval: query.allowLastAdminRemoval === true,
+            ip: request.ip,
+            userAgent: request.headers["user-agent"],
+          });
+        },
+      );
+    });
 
     await app.register(async (protectedApp) => {
       protectedApp.addHook(

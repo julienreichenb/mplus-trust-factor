@@ -20,6 +20,11 @@ import { checkRedisHealth } from "./lib/redis-health.js";
 import { buildAuthRoutes } from "./iam/routes-auth.js";
 import { createSessionPreHandler } from "./iam/session.js";
 import { ensureIamSeed } from "./iam/seed.js";
+import {
+  assertEmergencyFallbackPolicy,
+  resolveBootstrapLookup,
+  runAdminBootstrap,
+} from "./iam/bootstrap-admin.js";
 
 declare module "fastify" {
   interface FastifyInstance {
@@ -85,6 +90,33 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       await ensureIamSeed(container.worker.prisma);
     } catch (error) {
       container.logger.warn({ err: error }, "IAM seed skipped or failed");
+    }
+
+    const bootstrap = await runAdminBootstrap(container.worker.prisma, env);
+    if (bootstrap.status === "granted" || bootstrap.status === "already_admin") {
+      container.logger.info(
+        {
+          status: bootstrap.status,
+          userId: bootstrap.result.userId,
+          alreadyAdmin: bootstrap.result.alreadyAdmin,
+        },
+        "Admin bootstrap completed",
+      );
+    }
+    const bootstrapConfigured = resolveBootstrapLookup(env) != null;
+    const fallbackPolicy = assertEmergencyFallbackPolicy(env, bootstrapConfigured);
+    if (!fallbackPolicy.ok) {
+      throw new Error(fallbackPolicy.message);
+    }
+    if (bootstrapConfigured && env.ADMIN_API_KEY_EMERGENCY_FALLBACK) {
+      container.logger.warn(
+        {
+          ADMIN_API_KEY_EMERGENCY_FALLBACK: true,
+          guidance:
+            "Bootstrap identity is configured. Set ADMIN_API_KEY_EMERGENCY_FALLBACK=false after verifying admin access.",
+        },
+        "SECURITY: emergency admin API key fallback still enabled after bootstrap configuration",
+      );
     }
   }
 

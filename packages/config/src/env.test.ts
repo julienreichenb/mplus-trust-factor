@@ -105,6 +105,17 @@ describe("loadEnv", () => {
     ).toThrow(/SESSION_SECRET/);
   });
 
+  it("rejects both admin bootstrap identities together", () => {
+    resetEnvCache();
+    expect(() =>
+      loadEnv({
+        ...baseEnv,
+        ADMIN_BOOTSTRAP_USER_ID: "11111111-1111-4111-8111-111111111111",
+        ADMIN_BOOTSTRAP_BATTLENET_SUBJECT: "bnet-sub",
+      }),
+    ).toThrow(/ADMIN_BOOTSTRAP/);
+  });
+
   it("returns a credential-free config summary", () => {
     resetEnvCache();
     const env = loadEnv({

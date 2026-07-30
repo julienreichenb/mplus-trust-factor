@@ -42,4 +42,10 @@ export const routeDefs: RouteRecordRaw[] = [
     component: () => import("./pages/AdminAbilityCatalogPage.vue"),
     meta: { requiresAdmin: true },
   },
+  {
+    path: "/admin/users",
+    name: "admin-users",
+    component: () => import("./pages/AdminUsersPage.vue"),
+    meta: { requiresAdmin: true },
+  },
 ];
