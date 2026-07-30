@@ -91,6 +91,54 @@ describe("evaluateUtilityPublicationEligibility", () => {
     expect(result.reasons).toContain("MISSING_MASTER_DATA");
   });
 
+  it("rejects complete-zero contribution (Option A — Utility U, no fabricated score)", () => {
+    const result = evaluateUtilityPublicationEligibility({
+      publicationMode: "published",
+      shadowStatus: "SHADOW_SCORED",
+      reliabilityAdjustedScore: 50,
+      confidence: 30,
+      gates: GATES,
+      baselineState: "COMPLETE_ZERO_CONTRIBUTION",
+      coverage: {
+        candidateRunCount: 8,
+        compatibleEvidenceCount: 5,
+        analyzedRunCount: 5,
+        observedDomainCount: 0,
+        attributableEvents: 0,
+        missingMasterDataCount: 0,
+        incompleteEvidenceCount: 0,
+        evidenceAnalysisVersion: "wcl-run-evidence-v1",
+      },
+    });
+    expect(result.eligible).toBe(false);
+    expect(result.reasons).toContain("COMPLETE_ZERO_CONTRIBUTION");
+  });
+
+  it("does not fail closed on incomplete siblings when enough complete runs exist", () => {
+    const result = evaluateUtilityPublicationEligibility({
+      publicationMode: "published",
+      shadowStatus: "SHADOW_SCORED",
+      reliabilityAdjustedScore: 61.91,
+      confidence: 70,
+      gates: GATES,
+      baselineState: "PUBLISHABLE",
+      coverage: {
+        candidateRunCount: 8,
+        compatibleEvidenceCount: 5,
+        analyzedRunCount: 5,
+        observedDomainCount: 3,
+        attributableEvents: 12,
+        missingMasterDataCount: 0,
+        incompleteEvidenceCount: 3,
+        evidenceAnalysisVersion: "wcl-run-evidence-v1",
+        classSlug: "warlock",
+        specSlug: "affliction",
+      },
+    });
+    expect(result.eligible).toBe(true);
+    expect(result.reasons).not.toContain("INCOMPLETE_REQUIRED_DATASETS");
+  });
+
   it("reads gates from score model config and ignores env-shaped overrides", () => {
     process.env.UTILITY_MIN_ANALYZED_RUNS = "99";
     const gates = readUtilityPublicationGatesFromModelConfig({

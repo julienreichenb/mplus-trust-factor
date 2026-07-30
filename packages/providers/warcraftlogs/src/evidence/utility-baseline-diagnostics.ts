@@ -199,8 +199,12 @@ export interface UtilityBaselineDiagnosticResult {
   state: UtilityBaselineState;
   /** True only for INSUFFICIENT_EVIDENCE_RETRYABLE. */
   fallbackAllowed: boolean;
+  /**
+   * True only for PUBLISHABLE (observed positive contribution).
+   * Option A: COMPLETE_ZERO_CONTRIBUTION is non-calculable (Utility U) — never publishable.
+   */
   publishable: boolean;
-  /** Neutral 50 + low confidence path — must not fallback. */
+  /** Complete analyzable sample with zero attributable positives — must not fallback; do not synthesize a score. */
   completeZeroContribution: boolean;
   evidenceCoverage: number;
   confidence01: number;
@@ -384,7 +388,7 @@ export function classifyUtilityBaselineState(
     attributableEvents === 0 &&
     (input.shadowStatus === "SHADOW_SCORED" || analyzedRunCount > 0)
   ) {
-    // Complete analyzable sample with zero attributable positives — publish neutral, no fallback.
+    // Complete analyzable sample with zero attributable positives — Utility U, no fabricated score, no fallback.
     state = "COMPLETE_ZERO_CONTRIBUTION";
     reasons.push("complete_sample_zero_attributable_events");
     absenceCauses.add("truly_zero_observed_contribution");
@@ -401,15 +405,11 @@ export function classifyUtilityBaselineState(
     state = "PUBLISHABLE";
     reasons.push("publication_gates_met");
   } else if (
-    meetsPublicationGates({
-      analyzedRunCount,
-      confidence01,
-      evidenceCoverage,
-      observedDomainCount,
-      gates,
-    })
+    analyzedRunCount >= gates.minAnalyzedRuns &&
+    evidenceCoverage >= gates.minEvidenceCoverage &&
+    attributableEvents === 0
   ) {
-    // Gates met but zero events — still complete-zero (confidence may be capped ≤35).
+    // Floors met but zero events (e.g. confidence capped ≤35) — still complete-zero / non-calculable.
     state = "COMPLETE_ZERO_CONTRIBUTION";
     reasons.push("gates_met_but_zero_attributable");
     absenceCauses.add("truly_zero_observed_contribution");
@@ -448,7 +448,8 @@ export function classifyUtilityBaselineState(
   }
 
   const completeZeroContribution = state === "COMPLETE_ZERO_CONTRIBUTION";
-  const publishable = state === "PUBLISHABLE" || completeZeroContribution;
+  // Option A: only observed positive contribution publishes; complete-zero → Utility U / non-calculable.
+  const publishable = state === "PUBLISHABLE";
   const fallbackAllowed = state === "INSUFFICIENT_EVIDENCE_RETRYABLE";
 
   // Survival-only bundles never satisfy Utility without Utility-only datasets.
@@ -679,4 +680,59 @@ export function diagnoseUtilityBaselineRun(
     absenceCauses,
     selectionReason: opts?.selectionReason ?? null,
   };
+}
+
+/** Stop fallback as soon as the sample is no longer retryable (publishable or terminal). */
+export function shouldStopUtilityFallback(state: UtilityBaselineState): boolean {
+  return state !== "INSUFFICIENT_EVIDENCE_RETRYABLE";
+}
+
+/**
+ * Build baseline diagnostic from shared-evidence coverage + shadow score context.
+ * Pure — no I/O.
+ */
+export function classifyUtilityBaselineFromShadowCoverage(input: {
+  coverage: {
+    candidateRunCount?: number;
+    compatibleEvidenceCount?: number;
+    analyzedRunCount?: number;
+    incompleteEvidenceCount?: number;
+    missingMasterDataCount?: number;
+    observedDomainCount?: number | null;
+    skipReasons?: string[];
+    notes?: string[];
+  };
+  shadowStatus?: string | null;
+  attributableEvents?: number | null;
+  confidence?: number | null;
+  reliabilityAdjustedScore?: number | null;
+  dungeonCount?: number;
+  expectedDungeonCount?: number;
+  gates?: UtilityPublicationGateConfig | null;
+  wclDataState?: string | null;
+  rateBudgetAction?: "ALLOW" | "DEFER" | "STOP" | null;
+  identityOrMatchFailure?: boolean;
+  runDiagnostics?: UtilityBaselineRunDiagnostic[];
+}): UtilityBaselineDiagnosticResult {
+  return classifyUtilityBaselineState({
+    candidateRunCount: input.coverage.candidateRunCount ?? 0,
+    compatibleEvidenceCount: input.coverage.compatibleEvidenceCount ?? 0,
+    analyzedRunCount: input.coverage.analyzedRunCount ?? 0,
+    incompleteEvidenceCount: input.coverage.incompleteEvidenceCount,
+    missingMasterDataCount: input.coverage.missingMasterDataCount,
+    dungeonCount: input.dungeonCount,
+    expectedDungeonCount: input.expectedDungeonCount,
+    attributableEvents: input.attributableEvents,
+    observedDomainCount: input.coverage.observedDomainCount,
+    confidence: input.confidence,
+    reliabilityAdjustedScore: input.reliabilityAdjustedScore,
+    shadowStatus: input.shadowStatus,
+    gates: input.gates,
+    wclDataState: input.wclDataState,
+    rateBudgetAction: input.rateBudgetAction,
+    identityOrMatchFailure: input.identityOrMatchFailure,
+    skipReasons: input.coverage.skipReasons,
+    notes: input.coverage.notes,
+    runDiagnostics: input.runDiagnostics,
+  });
 }

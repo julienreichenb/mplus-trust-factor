@@ -38,6 +38,7 @@ export function applyUtilityShadowRefreshBoundary(input: {
   specSlug?: string | null;
   scoreModelConfig?: unknown;
   gates?: Parameters<typeof applyUtilityPublicationBoundary>[0]["gates"];
+  baselineState?: Parameters<typeof applyUtilityPublicationBoundary>[0]["baselineState"];
 }): UtilityShadowRefreshResult {
   const shadow = input.shadowScoreInput
     ? runUtilityObservedShadowPass(input.shadowScoreInput)
@@ -64,6 +65,7 @@ export function applyUtilityShadowRefreshBoundary(input: {
     specSlug: input.specSlug,
     scoreModelConfig: input.scoreModelConfig,
     gates: input.gates,
+    baselineState: input.baselineState,
   });
 
   return {
@@ -111,6 +113,8 @@ export async function persistUtilityShadowDiagnostics(input: {
   now?: Date;
   published?: boolean;
   eligibilityReasons?: string[];
+  baselineDiagnostic?: Record<string, unknown> | null;
+  fallbackDiagnostics?: Record<string, unknown> | null;
 }): Promise<void> {
   const now = input.now ?? new Date();
   await input.runRepository.upsertRunAnalysis({
@@ -131,6 +135,8 @@ export async function persistUtilityShadowDiagnostics(input: {
       published: input.published === true,
       eligibilityReasons: input.eligibilityReasons ?? [],
       detailedWclEventCallsMade: input.shadow.detailedWclEventCallsMade,
+      baselineDiagnostic: input.baselineDiagnostic ?? null,
+      fallbackDiagnostics: input.fallbackDiagnostics ?? null,
       score: input.shadow.score
         ? {
             rawBehaviorEstimate: input.shadow.score.rawBehaviorEstimate,
@@ -170,6 +176,8 @@ export function shadowDiagnosticsForScoreExplanation(
     published?: boolean;
     eligibilityReasons?: string[];
     utilityPublicationEligible?: boolean;
+    baselineDiagnostic?: Record<string, unknown> | null;
+    fallbackDiagnostics?: Record<string, unknown> | null;
   },
 ): Record<string, unknown> {
   const domainBreakdown = shadow.score?.domainBreakdown ?? null;
@@ -215,6 +223,8 @@ export function shadowDiagnosticsForScoreExplanation(
     missingMasterDataCount: coverage?.missingMasterDataCount ?? 0,
     skipReasons: coverage?.skipReasons ?? [],
     notes: coverage?.notes ?? [],
+    baselineDiagnostic: publication?.baselineDiagnostic ?? null,
+    fallbackDiagnostics: publication?.fallbackDiagnostics ?? null,
   };
 }
 

@@ -248,6 +248,57 @@ describe("utility publication boundary", () => {
     );
   });
 
+  it("Option A: complete-zero contribution stays Utility U — does not synthesize 50", () => {
+    const shadow = scoredShadow({
+      reliabilityAdjustedScore: 50,
+      confidence: 30,
+      rawBehaviorEstimate: 50,
+      context: {
+        runCount: 5,
+        dungeonCount: 5,
+        dungeons: [],
+        combatHours: 1,
+        fightDurationHours: 1,
+        activeCombatEstimate: null,
+        hostileCastWindows: 0,
+        playerInterruptSuccesses: 0,
+        playerDispelPurgeSuccesses: 0,
+        playerStrategicCcSuccesses: 0,
+        playerSupportEvents: 0,
+        attributableEvents: 0,
+        toolkit: {
+          hasInterrupt: true,
+          hasDispel: false,
+          hasPurge: false,
+          hasHardCc: true,
+        },
+      },
+    });
+    const result = applyUtilityPublicationBoundary({
+      gates: V6_GATES,
+      observations: [],
+      shadow,
+      baselineState: "COMPLETE_ZERO_CONTRIBUTION",
+      coverage: {
+        candidateRunCount: 8,
+        compatibleEvidenceCount: 5,
+        analyzedRunCount: 5,
+        observedDomainCount: 0,
+        attributableEvents: 0,
+        missingMasterDataCount: 0,
+        incompleteEvidenceCount: 0,
+      },
+      observedAt: new Date().toISOString(),
+    });
+    expect(result.published).toBe(false);
+    expect(result.eligibility.reasons).toContain("COMPLETE_ZERO_CONTRIBUTION");
+    expect(
+      result.publicUtilitySafeObservations.some(
+        (o) => o.metricKey === UTILITY_PUBLICATION_METRIC_KEY,
+      ),
+    ).toBe(false);
+  });
+
   it("rollback to shadow leaves public Utility unchanged (no observed publication)", () => {
     const shadow = scoredShadow();
     shadow.publicationMode = "shadow";

@@ -138,7 +138,7 @@ describe("classifyUtilityBaselineState", () => {
     expect(result.publishable).toBe(true);
   });
 
-  it("marks COMPLETE_ZERO_CONTRIBUTION and never allows fallback", () => {
+  it("marks COMPLETE_ZERO_CONTRIBUTION as non-calculable without fallback (Option A)", () => {
     const result = classifyUtilityBaselineState({
       candidateRunCount: 8,
       compatibleEvidenceCount: 5,
@@ -151,7 +151,7 @@ describe("classifyUtilityBaselineState", () => {
     expect(result.state).toBe("COMPLETE_ZERO_CONTRIBUTION");
     expect(result.fallbackAllowed).toBe(false);
     expect(result.completeZeroContribution).toBe(true);
-    expect(result.publishable).toBe(true);
+    expect(result.publishable).toBe(false);
     expect(result.absenceCauses).toContain("truly_zero_observed_contribution");
   });
 

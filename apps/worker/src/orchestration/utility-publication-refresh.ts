@@ -9,6 +9,7 @@ import {
   readUtilityPublicationGatesFromModelConfig,
   UTILITY_PUBLICATION_METRIC_KEY,
   type UtilityPublicationCoverageInput,
+  type UtilityPublicationEligibilityInput,
   type UtilityPublicationEligibilityResult,
   type UtilityPublicationGateConfig,
   type UtilityShadowPassResult,
@@ -53,12 +54,19 @@ export function applyUtilityPublicationBoundary(input: {
   scoreModelConfig?: unknown;
   /** Explicit gates (tests); otherwise read from scoreModelConfig. */
   gates?: UtilityPublicationGateConfig | null;
+  /** Agent 06/07 baseline classifier — Option A: only PUBLISHABLE publishes. */
+  baselineState?: UtilityPublicationEligibilityInput["baselineState"];
 }): UtilityPublicationBoundaryResult {
   const mode = input.shadow.publicationMode ?? getUtilityPublicationMode();
   const domainBreakdown = input.shadow.score?.domainBreakdown ?? [];
   const observedDomainCount =
     input.coverage.observedDomainCount ??
     domainBreakdown.filter((d) => d.applicable && (d.events ?? 0) > 0).length;
+  const attributableEvents =
+    input.coverage.attributableEvents ??
+    (typeof input.shadow.score?.context?.attributableEvents === "number"
+      ? input.shadow.score.context.attributableEvents
+      : null);
 
   const gates =
     input.gates !== undefined
@@ -73,11 +81,13 @@ export function applyUtilityPublicationBoundary(input: {
     coverage: {
       ...input.coverage,
       observedDomainCount,
+      attributableEvents,
       classSlug: input.classSlug ?? input.coverage.classSlug,
       specSlug: input.specSlug ?? input.coverage.specSlug,
       evidenceAnalysisVersion: input.coverage.evidenceAnalysisVersion ?? "wcl-run-evidence-v1",
     },
     gates,
+    baselineState: input.baselineState,
   });
 
   // Strip accidental research / unapproved observed modes from Utility only.

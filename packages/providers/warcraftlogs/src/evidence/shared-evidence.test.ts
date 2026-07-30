@@ -145,6 +145,14 @@ describe("shared evidence compatibility", () => {
     expect(consumersForDataset("Deaths")).toEqual(["survival", "utility"]);
   });
 
+  it("utility-only consumers omit Survival-only DamageTaken/Healing fetches", () => {
+    const utilityOnly = unionRequiredDatasets(["utility"]);
+    expect(utilityOnly).toContain("HostileCasts");
+    expect(utilityOnly).toContain("Interrupts");
+    expect(utilityOnly).not.toContain("DamageTaken");
+    expect(utilityOnly).not.toContain("Healing");
+  });
+
   it("reuses persisted complete dataset and forces refetch only on force/revision", () => {
     const existing = okDataset("HostileCasts");
     expect(
