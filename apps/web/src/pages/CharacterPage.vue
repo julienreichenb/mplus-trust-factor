@@ -6,12 +6,14 @@ import { useAbortableQuery } from "../composables/useAbortableQuery";
 import { useAuthSession } from "../composables/useAuthSession";
 import { useRefreshPolling } from "../composables/useRefreshPolling";
 import { useRecentSearchesStore } from "../stores/recentSearches";
+import { useAccountCharactersStore } from "../stores/accountCharacters";
 import StatusBanner from "../components/common/StatusBanner.vue";
 import AppToast from "../components/common/AppToast.vue";
 import CharacterRealmSearch from "../components/search/CharacterRealmSearch.vue";
 import CharacterLoadingSplash from "../components/character/CharacterLoadingSplash.vue";
 import CharacterPortraitStage from "../components/character/CharacterPortraitStage.vue";
 import CharacterProfileToolbar from "../components/character/CharacterProfileToolbar.vue";
+import BattleNetCharacterSwitcher from "../components/character/BattleNetCharacterSwitcher.vue";
 import ScoreHeader from "../components/profile/ScoreHeader.vue";
 import DimensionCards from "../components/profile/DimensionCards.vue";
 import AuthenticitySection from "../components/profile/AuthenticitySection.vue";
@@ -36,6 +38,7 @@ const props = defineProps<{
 }>();
 
 const recent = useRecentSearchesStore();
+const accountCharacters = useAccountCharactersStore();
 const { nextSignal } = useAbortableQuery();
 const { polling, timedOut, start: startPolling, stop: stopPolling } = useRefreshPolling();
 const { canForceRefresh, fetchAuthMe } = useAuthSession();
@@ -271,6 +274,10 @@ watch(
   },
   { immediate: true },
 );
+
+onMounted(() => {
+  void accountCharacters.ensureLoaded();
+});
 </script>
 
 <template>
@@ -304,6 +311,14 @@ watch(
         :can-force-refresh="canForceRefresh"
         @refresh="refresh()"
         @force-refresh="refresh({ force: true })"
+      />
+
+      <BattleNetCharacterSwitcher
+        v-if="accountCharacters.showSwitcher"
+        :characters="accountCharacters.characters"
+        :region="profile.region"
+        :realm="profile.realmSlug"
+        :name="profile.displayName"
       />
 
       <details

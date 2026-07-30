@@ -35,6 +35,15 @@
   --color-tier-d: #fb7185;
   --color-tier-u: #f4d58d;
 
+  /* WCL / Raider.IO parse percentile spectrum — value text only */
+  --color-parse-grey: #9ca3af;
+  --color-parse-green: #4ade80;
+  --color-parse-blue: #60a5fa;
+  --color-parse-purple: #c084fc;
+  --color-parse-orange: #fb923c;
+  --color-parse-pink: #f472b6;
+  --color-parse-gold: #e5cc80;
+
   /* Space-separated RGB for tier glows — keep in sync with gradeTheme.ts */
   --color-tier-s-rgb: 56 189 248;
 

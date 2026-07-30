@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import type { PerformanceSummaryDTO } from "@mplus/contracts";
+import { resolveParsePercentileColor } from "../../lib/parsePercentileColor";
 
 const props = defineProps<{
   summary: PerformanceSummaryDTO | null | undefined;
@@ -26,6 +27,10 @@ const STAT_TOOLTIPS = {
 function formatPct(value: number | null | undefined): string {
   if (value == null || Number.isNaN(value)) return "—";
   return `${value.toFixed(1)}%`;
+}
+
+function parsePctClass(value: number | null | undefined): string {
+  return resolveParsePercentileColor(value).className;
 }
 
 function runLabel(
@@ -95,8 +100,18 @@ function runLabel(
           <tbody>
             <tr v-for="d in current.dungeons" :key="d.dungeonSlug">
               <th scope="row">{{ d.dungeonName }}</th>
-              <td class="mpts-data">{{ formatPct(d.bestParsePercentile) }}</td>
-              <td class="mpts-data">{{ formatPct(d.medianParsePercentile) }}</td>
+              <td class="mpts-data">
+                <span
+                  class="parse-pct"
+                  :class="parsePctClass(d.bestParsePercentile)"
+                >{{ formatPct(d.bestParsePercentile) }}</span>
+              </td>
+              <td class="mpts-data">
+                <span
+                  class="parse-pct"
+                  :class="parsePctClass(d.medianParsePercentile)"
+                >{{ formatPct(d.medianParsePercentile) }}</span>
+              </td>
               <td class="mpts-data">{{ d.loggedRunCount }}</td>
               <td>
                 <template v-if="d.bestRun && (!d.latestRun || d.bestRun.runId === d.latestRun.runId)">
@@ -213,5 +228,41 @@ td {
   padding: var(--space-2) var(--space-3);
   border-bottom: 1px solid var(--color-border);
   vertical-align: top;
+}
+
+.parse-pct {
+  font-variant-numeric: tabular-nums;
+}
+
+.parse-pct--neutral {
+  color: var(--color-text-muted);
+}
+
+.parse-pct--grey {
+  color: var(--color-parse-grey);
+}
+
+.parse-pct--green {
+  color: var(--color-parse-green);
+}
+
+.parse-pct--blue {
+  color: var(--color-parse-blue);
+}
+
+.parse-pct--purple {
+  color: var(--color-parse-purple);
+}
+
+.parse-pct--orange {
+  color: var(--color-parse-orange);
+}
+
+.parse-pct--pink {
+  color: var(--color-parse-pink);
+}
+
+.parse-pct--gold {
+  color: var(--color-parse-gold);
 }
 </style>
