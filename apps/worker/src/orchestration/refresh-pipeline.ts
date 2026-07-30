@@ -37,6 +37,8 @@ import {
   buildUtilityShadowInputsFromBundles,
   ingestSharedEvidenceBundle,
   utilityEvidencePresentInBundle,
+  readUtilityPublicationGatesFromModelConfig,
+  type UtilityFallbackCandidateRun,
 } from "@mplus/provider-warcraftlogs";
 import {
   applyUtilityShadowRefreshBoundary,
@@ -49,6 +51,12 @@ import {
   WCL_COMBAT_FACTS_ANALYSIS_VERSION,
 } from "./persisted-combat-facts.js";
 import { replaceUtilityObservationsDimensionScoped } from "./utility-publication-refresh.js";
+import {
+  classifyUtilitySampleState,
+  emptyUtilityFallbackDiagnostics,
+  runUtilityFallbackEvidencePass,
+  buildUtilityFallbackIngestConsumers,
+} from "./utility-fallback-refresh.js";
 import { buildCatalogCoverageDiagnostics, getAbilityCatalog } from "@mplus/abilities";
 import {
   applyRunMetadataToSelection,
@@ -2459,16 +2467,20 @@ export async function runRefreshPipeline(
 
   // ── Utility OBSERVED_CONTRIBUTION (shadow diagnostics / published when eligible) ──
   // Reuses shared evidence bundles already fetched/persisted — no extra WCL when reused.
+  // Bounded fallback (≤4) stays inside this refresh-character execution only (Option A).
   const utilityPublicationMode = getUtilityPublicationMode();
-  const shadowInputs = buildUtilityShadowInputsFromBundles({
-    bundles: sharedEvidenceBundlesForUtility,
+  const utilityGates = readUtilityPublicationGatesFromModelConfig(model.config);
+  let utilityBundles = [...sharedEvidenceBundlesForUtility];
+  let utilityDetailedCalls = sharedEvidenceDetailedEventCalls;
+  let shadowInputs = buildUtilityShadowInputsFromBundles({
+    bundles: utilityBundles,
     classSlug,
     specSlug,
     roleSlug: roleSlug ?? null,
-    detailedWclEventCallsMade: sharedEvidenceDetailedEventCalls,
+    detailedWclEventCallsMade: utilityDetailedCalls,
   });
   const observedAtForUtility = new Date().toISOString();
-  const utilityShadowBoundary = applyUtilityShadowRefreshBoundary({
+  const utilityShadowPreview = applyUtilityShadowRefreshBoundary({
     observations,
     hasPersistedSharedEvidence: shadowInputs.hasPersistedSharedEvidence,
     observedAt: observedAtForUtility,
@@ -2492,7 +2504,301 @@ export async function runRefreshPipeline(
       detailedWclEventCallsMade: shadowInputs.detailedWclEventCallsMade,
     },
   });
+
+  let utilityBaseline = classifyUtilitySampleState({
+    coverage: {
+      ...shadowInputs.coverage,
+      notes: shadowInputs.notes,
+    },
+    shadow: utilityShadowPreview.shadow,
+    gates: utilityGates,
+    expectedDungeonCount,
+    wclDataState,
+    bundles: utilityBundles,
+  });
+  let utilityFallbackDiagnostics = emptyUtilityFallbackDiagnostics(
+    utilityBaseline.state,
+    utilityBaseline.fallbackAllowed ? "pending" : "not_triggered",
+  );
+
+  if (utilityBaseline.fallbackAllowed && !disabledProviders.has("warcraftlogs")) {
+    const liveWclForUtility = providers.warcraftlogs as {
+      getGraphQlClient?: () => WclGraphQlClient;
+      getRateLimit?: () => Promise<{
+        pointsSpentThisHour?: number;
+        limitPerHour?: number;
+        pointsRemaining?: number;
+      } | null>;
+    };
+    const utilityGraphClient =
+      typeof liveWclForUtility.getGraphQlClient === "function"
+        ? liveWclForUtility.getGraphQlClient()
+        : null;
+
+    const baselineKeys = new Set(
+      utilityBundles.map((b) => `${b.reportCode}:${b.fightId}`),
+    );
+    const baselineDungeonSlugs = utilityBundles.map((b) =>
+      canonicalDungeonKey(b.dungeonSlug),
+    );
+    const fallbackCandidates: UtilityFallbackCandidateRun[] = [];
+    for (const candidate of scoringCandidates) {
+      const run = persistedRuns.find((r) => r.id === candidate.canonicalRunId);
+      if (!run) continue;
+      const source = await repositories.run.findWclSource(run.id);
+      if (!source?.reportCode || source.fightId == null || source.fightId <= 0) {
+        const bind = matchSurvivalWclSource(
+          {
+            dungeonSlug: canonicalDungeonKey(run.dungeon.slug),
+            keyLevel: run.keyLevel,
+            completedAt: run.completedAt.toISOString(),
+            durationMs: run.durationMs,
+          },
+          survivalBindPool,
+        );
+        if (!bind.matched) continue;
+        const key = `${bind.reportCode}:${bind.fightId}`;
+        if (baselineKeys.has(key)) continue;
+        fallbackCandidates.push({
+          dungeonSlug: canonicalDungeonKey(run.dungeon.slug),
+          reportCode: bind.reportCode,
+          fightId: bind.fightId,
+          reportRevision: null,
+          scoreValue: run.scoreValue,
+          completedAt: run.completedAt.toISOString(),
+          hasPublicReport: true,
+          alreadyInBaseline: false,
+          predictedUtilityEvidenceComplete: false,
+          predictedProviderCalls: null,
+        });
+        continue;
+      }
+      const key = `${source.reportCode}:${source.fightId}`;
+      if (baselineKeys.has(key)) continue;
+      const meta = fightMetaByRunId.get(run.id);
+      const facts = combatFactsByRunId.get(run.id);
+      fallbackCandidates.push({
+        dungeonSlug: canonicalDungeonKey(run.dungeon.slug),
+        reportCode: source.reportCode,
+        fightId: source.fightId,
+        reportRevision:
+          typeof facts?.revision === "number"
+            ? facts.revision
+            : facts?.revision != null
+              ? Number(facts.revision) || null
+              : null,
+        scoreValue: run.scoreValue,
+        completedAt: run.completedAt.toISOString(),
+        hasPublicReport: true,
+        alreadyInBaseline: false,
+        predictedUtilityEvidenceComplete: false,
+        predictedProviderCalls: meta ? 0 : null,
+      });
+    }
+
+    try {
+      const fallbackPass = await runUtilityFallbackEvidencePass({
+        baselineState: utilityBaseline.state,
+        baselineBundles: utilityBundles,
+        baselineDungeonSlugs,
+        activeDungeonPool: activeDungeonSlugs,
+        candidates: fallbackCandidates,
+        classSlug,
+        specSlug,
+        roleSlug: roleSlug ?? null,
+        detailedWclEventCallsMade: utilityDetailedCalls,
+        gates: utilityGates,
+        expectedDungeonCount,
+        wclDataState,
+        ingestExtraRun: async ({ candidate, selectionReason }) => {
+          // Resolve / attach WCL source onto a persisted run when possible.
+          let runRow =
+            persistedRuns.find((r) => {
+              const src = r.sources?.find((s) => s.provider === "WARCRAFT_LOGS");
+              return (
+                src &&
+                src.reportCode === candidate.reportCode &&
+                src.fightId === candidate.fightId
+              );
+            }) ?? null;
+          if (!runRow) {
+            for (const c of scoringCandidates) {
+              if (canonicalDungeonKey(c.dungeonSlug) !== canonicalDungeonKey(candidate.dungeonSlug)) {
+                continue;
+              }
+              const row = persistedRuns.find((r) => r.id === c.canonicalRunId);
+              if (!row) continue;
+              const existing = await repositories.run.findWclSource(row.id);
+              if (
+                existing?.reportCode === candidate.reportCode &&
+                existing.fightId === candidate.fightId
+              ) {
+                runRow = row;
+                break;
+              }
+              if (!existing) {
+                await repositories.run.attachWclSource(row.id, {
+                  reportCode: candidate.reportCode,
+                  fightId: candidate.fightId,
+                });
+                runRow = row;
+                break;
+              }
+            }
+          }
+          if (!runRow) {
+            return { bundle: null, skippedReason: "no_persisted_run_for_fallback_candidate" };
+          }
+
+          let facts = combatFactsByRunId.get(runRow.id) ?? null;
+          let meta = fightMetaByRunId.get(runRow.id);
+          if (!facts || !meta) {
+            try {
+              const detailsResult = await providers.warcraftlogs.getReportFightDetails(
+                candidate.reportCode,
+                candidate.fightId,
+                ctx,
+              );
+              const details = detailsResult.data as WclReportFightDetails;
+              facts = details.combatFacts;
+              combatFactsByRunId.set(runRow.id, facts);
+              meta = {
+                startTime: details.fight.startTime,
+                endTime: details.fight.endTime,
+                encounterId: details.fight.encounterId,
+                encounterName: details.fight.name,
+              };
+              fightMetaByRunId.set(runRow.id, meta);
+            } catch {
+              return { bundle: null, skippedReason: "fight_details_unavailable" };
+            }
+          }
+          if (!facts || !meta || facts.targetSourceId == null) {
+            return { bundle: null, skippedReason: "actor_or_fight_meta_missing" };
+          }
+
+          const revision =
+            typeof facts.revision === "number"
+              ? facts.revision
+              : Number(facts.revision) || null;
+          const sharedStore = createDurableSharedEvidenceStore({
+            runRepository: repositories.run,
+            characterId: character.id,
+            runId: runRow.id,
+            now,
+          });
+          const supportedRegion = requireSupportedBattleNetRegion(identity.region);
+          const bundle = await ingestSharedEvidenceBundle({
+            client: utilityGraphClient,
+            store: sharedStore,
+            reportCode: candidate.reportCode,
+            reportRevision: revision,
+            fightId: candidate.fightId,
+            playerActorId: facts.targetSourceId,
+            ownedPetActorIds: facts.attributedSourceIds.filter(
+              (id) => id !== facts!.targetSourceId,
+            ),
+            dungeonSlug: canonicalDungeonKey(candidate.dungeonSlug),
+            startTime: meta.startTime,
+            endTime: meta.endTime,
+            // Utility-evidence-only: never tag/fetch as Survival scoring evidence.
+            consumers: buildUtilityFallbackIngestConsumers(),
+            forceRefetch: false,
+            localOnly: utilityGraphClient == null,
+            region: supportedRegion,
+          });
+          void selectionReason;
+          refreshCostAccumulator.addMany(
+            buildSharedEvidenceCostRecords({
+              characterId: character.id,
+              jobId: job.id,
+              runId: runRow.id,
+              refreshReason: jobPayload.forceRefresh
+                ? "admin_provider_refetch"
+                : "utility_fallback_extra_run",
+              reportCode: candidate.reportCode,
+              fightId: candidate.fightId,
+              providerCalls: bundle.accounting.providerCalls,
+              pages: bundle.accounting.pages,
+              pointsConsumed: bundle.accounting.pointsConsumed,
+              estimatedPointsConsumed: bundle.accounting.estimatedPointsConsumed,
+              costSource: bundle.accounting.costSource,
+              cacheHits: bundle.accounting.cacheHits,
+              persistedHits: bundle.accounting.persistedHits,
+            }),
+          );
+          return { bundle };
+        },
+      });
+
+      utilityBundles = fallbackPass.bundles;
+      utilityDetailedCalls = fallbackPass.detailedWclEventCallsMade;
+      sharedEvidenceDetailedEventCalls = utilityDetailedCalls;
+      sharedEvidenceBundlesForUtility.length = 0;
+      sharedEvidenceBundlesForUtility.push(...utilityBundles);
+      utilityBaseline = fallbackPass.baseline;
+      utilityFallbackDiagnostics = fallbackPass.diagnostics;
+      shadowInputs = buildUtilityShadowInputsFromBundles({
+        bundles: utilityBundles,
+        classSlug,
+        specSlug,
+        roleSlug: roleSlug ?? null,
+        detailedWclEventCallsMade: utilityDetailedCalls,
+      });
+    } catch (err) {
+      logger.warn(
+        { characterId: character.id, err },
+        "utility fallback pass failed — continuing with baseline evidence only",
+      );
+      utilityFallbackDiagnostics = {
+        ...utilityFallbackDiagnostics,
+        triggered: true,
+        stoppedReason: "ingest_error",
+        remainingEvidenceGaps: [...utilityBaseline.reasons, "fallback_ingest_error"],
+      };
+    }
+  }
+
+  // Apply publication once with the final baseline state (Option A: only PUBLISHABLE publishes).
+  const utilityShadowBoundary = applyUtilityShadowRefreshBoundary({
+    observations,
+    hasPersistedSharedEvidence: shadowInputs.hasPersistedSharedEvidence,
+    observedAt: observedAtForUtility,
+    classSlug,
+    specSlug,
+    scoreModelConfig: model.config,
+    baselineState: utilityBaseline.state,
+    coverage: {
+      ...shadowInputs.coverage,
+      classSlug,
+      specSlug,
+      evidenceAnalysisVersion: "wcl-run-evidence-v1",
+    },
+    shadowScoreInput: {
+      mode: utilityPublicationMode,
+      hasPersistedSharedEvidence: shadowInputs.hasPersistedSharedEvidence,
+      runs: shadowInputs.runs,
+      rawByRunId: shadowInputs.rawByRunId,
+      masterByReport: shadowInputs.masterByReport,
+      opportunities: shadowInputs.opportunities,
+      hostileCastEventsByRun: shadowInputs.hostileCastEventsByRun,
+      detailedWclEventCallsMade: shadowInputs.detailedWclEventCallsMade,
+    },
+  });
+  // Align classifier with the scored shadow used for publication.
+  utilityBaseline = classifyUtilitySampleState({
+    coverage: {
+      ...shadowInputs.coverage,
+      notes: shadowInputs.notes,
+    },
+    shadow: utilityShadowBoundary.shadow,
+    gates: utilityGates,
+    expectedDungeonCount,
+    wclDataState,
+    bundles: utilityBundles,
+  });
   // Dimension-scoped replace — never clear Survival/Performance/Experience.
+  // Eligibility already fails closed for non-PUBLISHABLE baseline states (Option A).
   const nextObservations = replaceUtilityObservationsDimensionScoped(
     observations,
     utilityShadowBoundary.publicUtilitySafeObservations,
@@ -2500,6 +2806,10 @@ export async function runRefreshPipeline(
   observations.length = 0;
   observations.push(...nextObservations);
   const utilityShadow = utilityShadowBoundary.shadow;
+  const utilityBaselineDiagnosticRecord = {
+    ...utilityBaseline,
+    fallbackTriggered: utilityFallbackDiagnostics.triggered,
+  };
   if (scoringRunSelection.selectedRuns[0]?.canonicalRunId) {
     try {
       await persistUtilityShadowDiagnostics({
@@ -2510,6 +2820,8 @@ export async function runRefreshPipeline(
         now,
         published: utilityShadowBoundary.published,
         eligibilityReasons: utilityShadowBoundary.eligibilityReasons,
+        baselineDiagnostic: utilityBaselineDiagnosticRecord as Record<string, unknown>,
+        fallbackDiagnostics: utilityFallbackDiagnostics as unknown as Record<string, unknown>,
       });
     } catch (err) {
       logger.warn(
@@ -2884,6 +3196,8 @@ export async function runRefreshPipeline(
               published: utilityShadowBoundary.published,
               eligibilityReasons: utilityShadowBoundary.eligibilityReasons,
               utilityPublicationEligible: utilityShadowBoundary.utilityPublicationEligible,
+              baselineDiagnostic: utilityBaselineDiagnosticRecord as Record<string, unknown>,
+              fallbackDiagnostics: utilityFallbackDiagnostics as unknown as Record<string, unknown>,
             },
           ),
           rankingEligibility,

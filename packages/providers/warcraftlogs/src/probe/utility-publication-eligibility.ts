@@ -43,6 +43,8 @@ export type UtilityPublicationRejectionReason =
   | "INSUFFICIENT_CONFIDENCE"
   | "INSUFFICIENT_EVIDENCE_COVERAGE"
   | "INSUFFICIENT_OBSERVED_DOMAINS"
+  | "COMPLETE_ZERO_CONTRIBUTION"
+  | "BASELINE_NOT_PUBLISHABLE"
   | "MISSING_MASTER_DATA"
   | "INCOMPLETE_REQUIRED_DATASETS"
   | "ACTOR_ATTRIBUTION_FAILED"
@@ -60,6 +62,8 @@ export interface UtilityPublicationCoverageInput {
   applicableDomainCount?: number;
   incompleteEvidenceCount?: number;
   missingMasterDataCount?: number;
+  /** Observed positive attributable events across the analyzed sample. */
+  attributableEvents?: number | null;
   skipReasons?: string[];
   notes?: string[];
   evidenceAnalysisVersion?: string | null;
@@ -78,6 +82,20 @@ export interface UtilityPublicationEligibilityInput {
    * Required for published mode — missing/invalid fails closed.
    */
   gates: UtilityPublicationGateConfig | null | undefined;
+  /**
+   * Explicit baseline classifier state (Agent 06/07).
+   * Option A: only PUBLISHABLE may become eligible; COMPLETE_ZERO → Utility U.
+   */
+  baselineState?:
+    | "PUBLISHABLE"
+    | "COMPLETE_ZERO_CONTRIBUTION"
+    | "INSUFFICIENT_EVIDENCE_RETRYABLE"
+    | "WCL_UNAVAILABLE"
+    | "RATE_LIMITED"
+    | "BUDGET_EXHAUSTED"
+    | "NO_PUBLIC_LOGS"
+    | "IDENTITY_OR_MATCH_FAILURE"
+    | null;
 }
 
 export interface UtilityPublicationEligibilityResult {
@@ -178,10 +196,25 @@ export function evaluateUtilityPublicationEligibility(
     (coverage.candidateRunCount ?? 0) === 0 ? 0 : compatible / candidate;
   const observedDomainCount = coverage.observedDomainCount ?? 0;
 
+  const attributableEvents =
+    coverage.attributableEvents == null || !Number.isFinite(coverage.attributableEvents)
+      ? null
+      : Math.max(0, coverage.attributableEvents);
+
+  if (input.baselineState === "COMPLETE_ZERO_CONTRIBUTION") {
+    reasons.push("COMPLETE_ZERO_CONTRIBUTION");
+  } else if (
+    input.baselineState != null &&
+    input.baselineState !== "PUBLISHABLE"
+  ) {
+    reasons.push("BASELINE_NOT_PUBLISHABLE");
+  }
+
   if (gates) {
     if (analyzedRunCount < gates.minAnalyzedRuns) {
       reasons.push("INSUFFICIENT_ANALYZED_RUNS");
     }
+    // Option A: never waive confidence to publish a fabricated neutral/zero score.
     if (confidence01 < gates.minConfidence) {
       reasons.push("INSUFFICIENT_CONFIDENCE");
     }
@@ -191,13 +224,24 @@ export function evaluateUtilityPublicationEligibility(
     if (observedDomainCount < gates.minObservedDomains) {
       reasons.push("INSUFFICIENT_OBSERVED_DOMAINS");
     }
+    if (
+      attributableEvents === 0 &&
+      analyzedRunCount >= gates.minAnalyzedRuns &&
+      evidenceCoverage >= gates.minEvidenceCoverage
+    ) {
+      reasons.push("COMPLETE_ZERO_CONTRIBUTION");
+    }
   }
 
   if ((coverage.missingMasterDataCount ?? 0) > 0) {
     reasons.push("MISSING_MASTER_DATA");
   }
+  // Incomplete sibling rows must not fail the character when enough complete runs exist.
   if ((coverage.incompleteEvidenceCount ?? 0) > 0) {
-    reasons.push("INCOMPLETE_REQUIRED_DATASETS");
+    const minRuns = gates?.minAnalyzedRuns ?? MODEL_V6_UTILITY_PUBLICATION_GATES.minAnalyzedRuns;
+    if ((coverage.compatibleEvidenceCount ?? 0) < minRuns) {
+      reasons.push("INCOMPLETE_REQUIRED_DATASETS");
+    }
   }
   if ((coverage.compatibleEvidenceCount ?? 0) <= 0 && input.shadowStatus !== "SHADOW_SCORED") {
     reasons.push("NO_COMPATIBLE_EVIDENCE");
