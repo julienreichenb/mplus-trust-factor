@@ -253,14 +253,28 @@ export function createApiContainer(env: AppEnv, overrides: ApiContainerOverrides
   const oauthClient = overrides.oauthClient ?? createBattleNetOAuthClient(env);
   const authService = new IamAuthService(worker.prisma, env, oauthClient, {
     enqueueOwnedCharacterDiscovery: async (input) => {
-      const season = await worker.prisma.season.findFirst({ where: { isCurrent: true } });
-      return producers.enqueueDiscoverOwnedCharacters({
+      // seasonKey is a soft hint only; discovery resolves authoritative season per region.
+      const season = await worker.prisma.season.findFirst({
+        where: { isCurrent: true },
+        orderBy: { updatedAt: "desc" },
+      });
+      const discovery = await producers.enqueueDiscoverOwnedCharacters({
         battleNetAccountId: input.battleNetAccountId,
         userId: input.userId,
         ownershipSyncAt: input.ownershipSyncAt,
         seasonKey: season?.slug ?? "current",
         correlationId: null,
       });
+      worker.logger.info(
+        {
+          triggerSource: "BATTLE_NET_LINK_OR_REFRESH_OWNERSHIP",
+          battleNetAccountId: input.battleNetAccountId,
+          discovery: discovery.reused && !discovery.enqueued ? "reused" : "enqueued",
+          jobId: discovery.jobId,
+        },
+        "ownership_discovery_enqueue",
+      );
+      return discovery;
     },
   });
 

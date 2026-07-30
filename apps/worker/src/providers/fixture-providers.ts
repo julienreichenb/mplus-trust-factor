@@ -337,11 +337,12 @@ class FixtureBlizzardProvider implements BlizzardProvider {
     ctx: ProviderFetchContext,
   ): Promise<ProviderResult<BlizzardMythicKeystoneProfileDTO>> {
     assertFixtureAvailable("blizzard", identity);
+    const authoritative = await this.resolveAuthoritativeCurrentSeasonId(ctx);
     const key = identityKey(identity);
     const data: BlizzardMythicKeystoneProfileDTO = {
       currentMythicRating: seededInt(`${key}|mplus-score`, 800, 3200),
-      currentSeasonId: 1,
-      seasons: [{ seasonId: 1 }],
+      currentSeasonId: authoritative.data.seasonId,
+      seasons: [{ seasonId: authoritative.data.seasonId }],
       character: {
         region: normalizeRegion(identity.region),
         realmSlug: normalizeRealmSlug(identity.realmSlug),
@@ -354,6 +355,29 @@ class FixtureBlizzardProvider implements BlizzardProvider {
       provenance: buildProvenance("blizzard", ctx.now),
       freshness: buildFreshness(ctx.now),
       metadata: buildMetadata("blizzard", "getMythicKeystoneProfile", ctx.now),
+    };
+  }
+
+  async resolveAuthoritativeCurrentSeasonId(
+    ctx: ProviderFetchContext,
+  ): Promise<
+    ProviderResult<{
+      seasonId: number;
+      slug: string;
+      source: "season_index.current_season" | "season_index.last";
+    }>
+  > {
+    // Deterministic fixture season — never derived from character seasons[].
+    const seasonId = 1;
+    return {
+      data: {
+        seasonId,
+        slug: `blizzard-season-${seasonId}`,
+        source: "season_index.current_season",
+      },
+      provenance: buildProvenance("blizzard", ctx.now),
+      freshness: buildFreshness(ctx.now),
+      metadata: buildMetadata("blizzard", "resolveAuthoritativeCurrentSeasonId", ctx.now),
     };
   }
 

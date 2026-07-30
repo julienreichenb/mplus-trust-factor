@@ -188,12 +188,13 @@ export function normalizePeriod(payload: {
 
 /**
  * Resolve current season id from the season index without hardcoding.
- * Prefer `current_season`; fall back to the last listed season id only as a last resort.
+ * Prefer `current_season`; fall back to the last listed season id only as a last resort
+ * for the season *index* (never for character profile seasons arrays).
  */
 export function resolveCurrentSeasonIdFromIndex(payload: {
   seasons: Array<{ id: number }>;
   current_season?: { id: number } | null;
-}): { seasonId: number; source: BlizzardCurrentSeasonPeriod["source"] } {
+}): { seasonId: number; source: "season_index.current_season" | "season_index.last" } {
   if (payload.current_season?.id != null) {
     return { seasonId: payload.current_season.id, source: "season_index.current_season" };
   }
@@ -493,18 +494,26 @@ export function normalizeMedia(payload: MediaPayload): BlizzardCharacterMediaDTO
   };
 }
 
+/**
+ * Normalize a character Mythic+ profile index.
+ *
+ * `preferredCurrentSeasonId` must be the region-authoritative season from
+ * `data/wow/mythic-keystone/season/index` → `current_season.id`.
+ * Never infer the regional current season from character `seasons` array order.
+ * A character missing the authoritative season keeps rating as reported (may be
+ * null/zero) but `currentSeasonId` still reflects the official regional season.
+ */
 export function normalizeMythicProfileIndex(
   payload: MythicKeystoneProfileIndexPayload,
   identity: CharacterIdentityInput,
   preferredCurrentSeasonId?: number | null,
 ): BlizzardMythicKeystoneProfileDTO {
   const seasons = (payload.seasons ?? []).map((s) => ({ seasonId: s.id }));
-  const fromPreferred =
-    preferredCurrentSeasonId != null && seasons.some((s) => s.seasonId === preferredCurrentSeasonId)
+  // Authoritative regional season only — never fall back to last array element.
+  const currentSeasonId =
+    preferredCurrentSeasonId != null && Number.isFinite(preferredCurrentSeasonId)
       ? preferredCurrentSeasonId
       : null;
-  const currentSeasonId =
-    fromPreferred ?? (seasons.length > 0 ? (seasons[seasons.length - 1]?.seasonId ?? null) : null);
   return {
     currentMythicRating: payload.current_mythic_rating?.rating ?? null,
     currentSeasonId,
@@ -515,6 +524,14 @@ export function normalizeMythicProfileIndex(
       name: identity.name,
     },
   };
+}
+
+/** Whether the character profile lists a given Blizzard season id. */
+export function characterProfileContainsSeason(
+  seasons: Array<{ seasonId: number }>,
+  seasonId: number,
+): boolean {
+  return seasons.some((s) => s.seasonId === seasonId);
 }
 
 export function normalizeMythicRuns(

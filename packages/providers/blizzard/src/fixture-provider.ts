@@ -282,16 +282,47 @@ export class FixtureBlizzardProvider implements BlizzardProvider {
     identity: CharacterIdentityInput,
     ctx: ProviderFetchContext,
   ): Promise<ProviderResult<BlizzardMythicKeystoneProfileDTO>> {
+    const authoritative = await this.resolveAuthoritativeCurrentSeasonId(ctx);
     const bundle = this.bundle(identity);
     const raw = parseOrThrow(mythicKeystoneProfileIndexSchema, bundle.mythicIndex, "character.mplus.index");
     return buildProviderResult({
-      data: normalizeMythicProfileIndex(raw, identity),
+      data: normalizeMythicProfileIndex(raw, identity, authoritative.data.seasonId),
       ctx,
       endpointKey: "character.mplus.index",
       sourceUrl: this.characterSource(identity, "/mythic-keystone-profile"),
       cacheHit: true,
       statusCode: 200,
       expiresAt: ttlExpiry(DEFAULT_TTL_SECONDS.characterMplusIndex),
+    });
+  }
+
+  async resolveAuthoritativeCurrentSeasonId(
+    ctx: ProviderFetchContext,
+  ): Promise<
+    ProviderResult<{
+      seasonId: number;
+      slug: string;
+      source: "season_index.current_season" | "season_index.last";
+    }>
+  > {
+    const raw = parseOrThrow(
+      seasonIndexSchema,
+      this.store.readJson(this.store.manifest.seasons.index),
+      "mplus.season.index",
+    );
+    const { seasonId, source } = resolveCurrentSeasonIdFromIndex(raw);
+    return buildProviderResult({
+      data: {
+        seasonId,
+        slug: `blizzard-season-${seasonId}`,
+        source,
+      },
+      ctx,
+      endpointKey: "mplus.season.authoritative_current",
+      sourceUrl: "fixture://blizzard/mythic-keystone/season/index",
+      cacheHit: true,
+      statusCode: 200,
+      expiresAt: ttlExpiry(DEFAULT_TTL_SECONDS.seasonIndex),
     });
   }
 
@@ -313,6 +344,7 @@ export class FixtureBlizzardProvider implements BlizzardProvider {
         character: raw.character,
       },
       identity,
+      seasonId,
     );
     return buildProviderResult({
       data: {

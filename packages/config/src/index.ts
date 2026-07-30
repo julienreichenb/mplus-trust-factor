@@ -294,6 +294,7 @@ export {
 export {
   OWNED_CHARACTER_RELEVANCE_POLICY_V1,
   evaluateOwnedCharacterRelevanceV1,
+  evaluateOwnedCharacterAutoRefreshEligibilityV1,
   type OwnedCharacterRelevanceInput,
   type OwnedCharacterRelevancePolicyV1,
   type OwnedCharacterRelevanceResult,

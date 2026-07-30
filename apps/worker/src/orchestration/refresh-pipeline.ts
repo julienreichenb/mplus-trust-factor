@@ -432,6 +432,8 @@ export async function runRefreshPipeline(
   let blizzardItemLevel: number | null = null;
   let mythicKeystoneScore: number | null = null;
   let currentSeasonId: number | null = null;
+  let authoritativeSeasonSource: "season_index.current_season" | "season_index.last" | null = null;
+  let characterProfileSeasonIds: number[] = [];
   let blizzardRuns: MythicRunDTO[] = [];
   let raiderIoProfile: RaiderIoCharacterProfile | null = null;
   let seasonCutoffs: RaiderIoSeasonCutoffs | null = null;
@@ -539,9 +541,16 @@ export async function runRefreshPipeline(
         };
       }
 
+      const authoritativeSeason = await providers.blizzard.resolveAuthoritativeCurrentSeasonId(ctx);
+      currentSeasonId = authoritativeSeason.data.seasonId;
+      authoritativeSeasonSource = authoritativeSeason.data.source;
+      await recordProviderResult(repositories, authoritativeSeason);
+
       const keystoneProfile = await providers.blizzard.getMythicKeystoneProfile(identity, ctx);
       mythicKeystoneScore = keystoneProfile.data.currentMythicRating;
-      currentSeasonId = keystoneProfile.data.currentSeasonId;
+      characterProfileSeasonIds = keystoneProfile.data.seasons.map((s) => s.seasonId);
+      // Prefer authoritative regional season — never character seasons[] order.
+      currentSeasonId = authoritativeSeason.data.seasonId;
       await recordProviderResult(repositories, keystoneProfile);
 
       if (currentSeasonId != null) {
@@ -934,11 +943,34 @@ export async function runRefreshPipeline(
   disagreements.push(...reconcile.disagreements);
   fusionWarnings.push(...reconcile.warnings);
 
-  // Resolve Blizzard current season before persistence so runs/scores share one identity.
+  // Resolve Blizzard current season from the regional season index — never from
+  // a character profile seasons[] array — before persistence so runs/scores share one identity.
+  const previousDatabaseSeason = await container.prisma.season.findFirst({
+    where: { regionId: character.regionId, isCurrent: true },
+    select: { id: true, slug: true, blizzardSeasonId: true },
+  });
   const season =
     currentSeasonId != null
       ? await ensureBlizzardCurrentSeason(container.prisma, character.regionId, currentSeasonId)
       : await ensureCurrentSeason(container.prisma, character.regionId);
+  logger.info(
+    {
+      ...logBase,
+      event: "refresh_season_authority",
+      region: identity.region,
+      authoritativeSeasonId: currentSeasonId,
+      authoritativeSeasonSlug: currentSeasonId != null ? `blizzard-season-${currentSeasonId}` : null,
+      seasonResolutionSource: authoritativeSeasonSource,
+      characterProfileSeasonIds,
+      characterProfileContainsCurrentSeason:
+        currentSeasonId != null && characterProfileSeasonIds.includes(currentSeasonId),
+      previousDatabaseSeasonId: previousDatabaseSeason?.id ?? null,
+      previousDatabaseSeasonSlug: previousDatabaseSeason?.slug ?? null,
+      resultingDatabaseSeasonId: season.id,
+      resultingDatabaseSeasonSlug: season.slug,
+    },
+    "refresh_season_authority",
+  );
 
   // Raider.IO fallback for missing Blizzard class/spec/role/gear/talents.
   if (raiderIoProfile) {

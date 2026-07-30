@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   OWNED_CHARACTER_RELEVANCE_POLICY_V1,
+  evaluateOwnedCharacterAutoRefreshEligibilityV1,
   evaluateOwnedCharacterRelevanceV1,
 } from "./owned-character-relevance-policy.js";
 import { ACTIVE_EXPANSION_METADATA_V1 } from "./game-metadata.js";
@@ -116,5 +117,47 @@ describe("OWNED_CHARACTER_RELEVANCE_POLICY_V1", () => {
       isPrimary: false,
     });
     expect(result.policyVersion).toBe("v1");
+  });
+});
+
+describe("evaluateOwnedCharacterAutoRefreshEligibilityV1", () => {
+  it("allows CURRENT max-level rating >= 1000", () => {
+    const result = evaluateOwnedCharacterAutoRefreshEligibilityV1({
+      ownershipStatus: "CURRENT",
+      characterLevel: 90,
+      currentSeasonMythicRating: 1000,
+    });
+    expect(result.eligible).toBe(true);
+  });
+
+  it("rejects level 89", () => {
+    expect(
+      evaluateOwnedCharacterAutoRefreshEligibilityV1({
+        ownershipStatus: "CURRENT",
+        characterLevel: 89,
+        currentSeasonMythicRating: 3000,
+      }).eligible,
+    ).toBe(false);
+  });
+
+  it("rejects rating 999", () => {
+    expect(
+      evaluateOwnedCharacterAutoRefreshEligibilityV1({
+        ownershipStatus: "CURRENT",
+        characterLevel: 90,
+        currentSeasonMythicRating: 999,
+      }).eligible,
+    ).toBe(false);
+  });
+
+  it("does not bypass for primary or public-score signals (not accepted as input)", () => {
+    // Auto-refresh gate has no primary/publicScore knobs — only ownership/level/rating.
+    expect(
+      evaluateOwnedCharacterAutoRefreshEligibilityV1({
+        ownershipStatus: "CURRENT",
+        characterLevel: 90,
+        currentSeasonMythicRating: 100,
+      }).eligible,
+    ).toBe(false);
   });
 });
