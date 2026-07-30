@@ -11,6 +11,8 @@ describe("CharacterService — public read path invariants", () => {
     return {
       env: {
         BLIZZARD_CHARACTER_TTL_SECONDS: 86_400,
+        SCORE_TTL_SECONDS: 604_800,
+        REFRESH_FAILURE_BACKOFF_SECONDS: 3_600,
         ACTIVE_SCORE_MODEL_KEY: "default",
         ACTIVE_SCORE_MODEL_VERSION: 4,
         PROVIDER_MODE: "fixture",
@@ -19,7 +21,8 @@ describe("CharacterService — public read path invariants", () => {
       },
       negativeCache: { has: () => false },
       responseCache: { get: () => null, set: () => {}, invalidate: () => {} },
-      producers: { enqueueRefreshCharacter: mockEnqueue },
+      producers: { enqueueRefreshCharacter: mockEnqueue, enqueueRecalculateScore: vi.fn() },
+      logger: { warn: vi.fn() },
       worker: {
         disabledProviders: new Set(),
         prisma: {
@@ -58,17 +61,19 @@ describe("CharacterService — public read path invariants", () => {
             getPublishedSnapshot: mockGetPublishedSnapshot,
             getActiveModel: vi.fn().mockResolvedValue({ key: "default", version: 4 }),
           },
+          job: {
+            findActiveForCharacter: vi.fn().mockResolvedValue(null),
+            findLatestForCharacter: vi.fn().mockResolvedValue(null),
+            findById: vi.fn().mockResolvedValue({ id: "job-1", status: "QUEUED" }),
+          },
+          providerState: { listForCharacter: vi.fn().mockResolvedValue([]) },
           run: {
             findLatestForCharacter: vi.fn().mockResolvedValue(null),
             findHighestForCharacter: vi.fn().mockResolvedValue(null),
             countForCharacter: vi.fn().mockResolvedValue(0),
             findById: vi.fn(),
+            findLatestAnalysisCoverage: vi.fn().mockResolvedValue(null),
           },
-          job: {
-            findActiveForCharacter: vi.fn().mockResolvedValue(null),
-            findLatestForCharacter: vi.fn().mockResolvedValue(null),
-          },
-          providerState: { listForCharacter: vi.fn().mockResolvedValue([]) },
         },
       },
     } as unknown as ApiContainer;

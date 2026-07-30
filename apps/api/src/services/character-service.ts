@@ -1,4 +1,4 @@
-import type { Character } from "@mplus/database";
+import type { Character, IngestionJob } from "@mplus/database";
 import type {
   CharacterIdentityInput,
   CharacterProfileResponse,
@@ -16,11 +16,15 @@ import type {
 } from "@mplus/contracts";
 import { ExternalApiError, deriveWclContributionTypes, normalizeWclProvenance } from "@mplus/contracts";
 import { normalizeRealmSlug, normalizeRegion } from "@mplus/domain";
+import {
+  decideScoreRefresh,
+  type ScoreRefreshDecision,
+} from "@mplus/config";
 import type { EnqueueResult } from "@mplus/worker";
 import { randomUUID } from "node:crypto";
 import type { ApiContainer } from "../container.js";
 import { HttpError } from "../errors.js";
-import { cooldownSecondsRemaining, determineDetailedRefreshStatus, isFresh } from "../lib/freshness.js";
+import { cooldownSecondsRemaining } from "../lib/freshness.js";
 import {
   mapCharacterProfile,
   mapJobStatus,
@@ -196,8 +200,12 @@ export class CharacterService {
   }
 
   private get freshnessTtlSeconds(): number {
-    // Overall character-profile freshness window; individual providers expose their own TTLs.
-    return this.container.env.BLIZZARD_CHARACTER_TTL_SECONDS;
+    // Published Trust Score TTL (calculation time). Provider TTLs remain separate.
+    return this.container.env.SCORE_TTL_SECONDS;
+  }
+
+  private get failureBackoffSeconds(): number {
+    return this.container.env.REFRESH_FAILURE_BACKOFF_SECONDS;
   }
 
   private async findOrCreateCharacter(identity: CharacterIdentityInput): Promise<Character> {
@@ -262,6 +270,133 @@ export class CharacterService {
       correlationId: correlationId ?? null,
       refreshContractHash: hash,
     });
+  }
+
+  private async enqueueRecalculate(
+    character: Character,
+    snapshot: { seasonId: string },
+  ): Promise<EnqueueResult> {
+    const { activeModel } = await this.resolveActiveRefreshContract(character);
+    return this.container.producers.enqueueRecalculateScore({
+      characterId: character.id,
+      seasonId: snapshot.seasonId,
+      scoreModelKey: activeModel.key,
+      scoreModelVersion: activeModel.version,
+    });
+  }
+
+  /**
+   * Single policy evaluation for profile/search reads.
+   * At most one enqueue/recalculate side effect per call.
+   */
+  private async evaluateAndApplyRefreshPolicy(params: {
+    identity: CharacterIdentityInput;
+    character: Character;
+    snapshot: Parameters<typeof mapScoreSnapshot>[0] | null;
+    correlationId?: string | null;
+    /** When true, skip side effects (status-only reads). */
+    readOnly?: boolean;
+  }): Promise<{
+    decision: ScoreRefreshDecision;
+    activeJob: IngestionJob | null;
+    latestJob: IngestionJob | null;
+    enqueueResult: EnqueueResult | null;
+  }> {
+    const { identity, character, snapshot, correlationId, readOnly = false } = params;
+    const [activeJob, latestJobBefore] = await Promise.all([
+      this.repositories.job.findActiveForCharacter(character.id),
+      this.repositories.job.findLatestForCharacter(character.id),
+    ]);
+
+    let contractReasons: string[] = [];
+    if (snapshot) {
+      const mapped = mapScoreSnapshot(snapshot);
+      const { contract, activeModel } = await this.resolveActiveRefreshContract(character);
+      contractReasons = scoreSnapshotContractStaleReasons({
+        score: mapped,
+        activeModel,
+        activeContract: contract,
+      });
+    }
+
+    const decision = decideScoreRefresh({
+      hasPublishedScore: Boolean(snapshot),
+      scoreCalculatedAt: snapshot?.calculatedAt ?? null,
+      gradeIsU: snapshot?.grade === "U",
+      scoreTtlSeconds: this.freshnessTtlSeconds,
+      failureBackoffSeconds: this.failureBackoffSeconds,
+      activeJobStatus: activeJob ? (activeJob.status as "QUEUED" | "ACTIVE") : null,
+      latestJobStatus: latestJobBefore?.status ?? null,
+      latestJobFinishedAt: latestJobBefore?.completedAt ?? null,
+      contractReasons,
+      providerNewerThanScore: false,
+    });
+
+    let enqueueResult: EnqueueResult | null = null;
+    if (!readOnly) {
+      if (decision.action === "ENQUEUE") {
+        enqueueResult = await this.enqueueRefresh(identity, character, false, correlationId);
+      } else if (decision.action === "RECALCULATE" && snapshot) {
+        enqueueResult = await this.enqueueRecalculate(character, snapshot);
+      }
+    }
+
+    const latestJob =
+      enqueueResult != null
+        ? ((await this.repositories.job.findById(enqueueResult.jobId)) ?? latestJobBefore)
+        : latestJobBefore;
+
+    return {
+      decision,
+      activeJob:
+        enqueueResult != null && decision.action !== "REUSE_ACTIVE_JOB"
+          ? ((await this.repositories.job.findActiveForCharacter(character.id)) ?? activeJob)
+          : activeJob,
+      latestJob,
+      enqueueResult,
+    };
+  }
+
+  private applyDecisionWarnings(
+    body: CharacterProfileResponse,
+    decision: ScoreRefreshDecision,
+  ): void {
+    if (decision.warningCodes.length === 0) return;
+    const contractCodes = decision.warningCodes.filter(
+      (c) => c !== "SCORE_STALE_VS_PROVIDERS" && c !== "REFRESH_FAILED",
+    );
+    if (contractCodes.length > 0) {
+      body.warnings = appendRefreshContractWarnings(
+        body.warnings,
+        contractCodes as Parameters<typeof appendRefreshContractWarnings>[1],
+      );
+    }
+    for (const code of decision.warningCodes) {
+      if (code === "SCORE_STALE_VS_PROVIDERS") {
+        if (!body.warnings?.some((w) => w.code === "SCORE_STALE_VS_PROVIDERS")) {
+          body.warnings = [
+            ...(body.warnings ?? []),
+            {
+              code: "SCORE_STALE_VS_PROVIDERS",
+              message:
+                "Provider data is newer than the published score snapshot — diagnostic only; score TTL unchanged.",
+              severity: "WARN",
+            },
+          ];
+        }
+      } else if (code === "REFRESH_FAILED") {
+        if (!body.warnings?.some((w) => w.code === "REFRESH_FAILED")) {
+          body.warnings = [
+            ...(body.warnings ?? []),
+            {
+              code: "REFRESH_FAILED",
+              message: "Last refresh failed — showing previous score as a stale fallback.",
+              severity: "WARN",
+            },
+          ];
+        }
+      }
+    }
   }
 
   private buildSources(
@@ -440,10 +575,15 @@ export class CharacterService {
 
     const character = await this.findOrCreateCharacter(identity);
     const snapshot = await this.repositories.score.getPublishedSnapshot(character.id);
-    const fresh = isFresh(character.lastPublicRefreshAt, this.freshnessTtlSeconds);
+
+    const { decision } = await this.evaluateAndApplyRefreshPolicy({
+      identity,
+      character,
+      snapshot,
+      correlationId: opts.correlationId,
+    });
 
     if (!snapshot) {
-      await this.enqueueRefresh(identity, character, false, opts.correlationId);
       const body = await this.buildEnrichedProfile(
         identity,
         character,
@@ -451,13 +591,10 @@ export class CharacterService {
         null,
         null,
         [],
-        "QUEUED",
+        decision.profileRefreshStatus,
       );
+      this.applyDecisionWarnings(body, decision);
       return { statusCode: 202, body };
-    }
-
-    if (!fresh) {
-      await this.enqueueRefresh(identity, character, false, opts.correlationId);
     }
 
     const [latestRun, highestRun] = await Promise.all([
@@ -474,62 +611,18 @@ export class CharacterService {
       this.buildSources(character, readScoreObservationProviders(snapshot.explanation), {
         WARCRAFT_LOGS: deriveWclContributionTypes(readScoreObservations(snapshot.explanation)),
       }),
-      fresh ? "FRESH" : "STALE",
+      decision.profileRefreshStatus,
     );
 
-    // Never present fresh provider timestamps alongside an older score without marking STALE.
-    if (
-      body.refreshStatus === "FRESH" &&
-      isScoreStaleVersusProviders(body.score?.calculatedAt, body.providerStates)
-    ) {
-      body.refreshStatus = "STALE";
-      if (!body.warnings?.some((w) => w.code === "SCORE_STALE_VS_PROVIDERS")) {
-        body.warnings = [
-          ...(body.warnings ?? []),
-          {
-            code: "SCORE_STALE_VS_PROVIDERS",
-            message:
-              "Provider data is newer than the published score snapshot — score may not reflect the latest Performance refresh.",
-            severity: "WARN",
-          },
-        ];
-      }
-      await this.enqueueRefresh(identity, character, false, opts.correlationId);
+    // Provider-newer-than-score is diagnostic only — never an enqueue trigger.
+    if (isScoreStaleVersusProviders(body.score?.calculatedAt, body.providerStates)) {
+      decision.warningCodes = [...new Set([...decision.warningCodes, "SCORE_STALE_VS_PROVIDERS"])];
     }
-
-    // Model / adapter / schema contract mismatch: never report FRESH for an incompatible snapshot.
-    if (body.score) {
-      const { contract, activeModel } = await this.resolveActiveRefreshContract(character);
-      const contractReasons = scoreSnapshotContractStaleReasons({
-        score: body.score,
-        activeModel,
-        activeContract: contract,
-      });
-      if (contractReasons.length > 0) {
-        body.refreshStatus = "STALE";
-        body.warnings = appendRefreshContractWarnings(body.warnings, contractReasons);
-        await this.enqueueRefresh(identity, character, false, opts.correlationId);
-      }
-    }
-
-    // Failed refresh must keep the last valid snapshot as fallback but never as FRESH.
-    const latestJob = await this.repositories.job.findLatestForCharacter(character.id);
-    if (body.score && latestJob?.status === "FAILED" && body.refreshStatus === "FRESH") {
-      body.refreshStatus = "STALE";
-      if (!body.warnings?.some((w) => w.code === "REFRESH_FAILED")) {
-        body.warnings = [
-          ...(body.warnings ?? []),
-          {
-            code: "REFRESH_FAILED",
-            message: "Last refresh failed — showing previous score as a stale fallback.",
-            severity: "WARN",
-          },
-        ];
-      }
-    }
+    this.applyDecisionWarnings(body, decision);
 
     const result: GetProfileResult = { statusCode: 200, body };
-    if (body.refreshStatus === "FRESH") {
+    // Cache only strictly fresh reads — never cache STALE/QUEUED (would bypass policy on hit).
+    if (decision.action === "NONE" && decision.profileRefreshStatus === "FRESH") {
       this.container.responseCache.set(cacheKey, result);
     }
 
@@ -560,25 +653,24 @@ export class CharacterService {
 
     const character = await this.findOrCreateCharacter(identity);
     const snapshot = await this.repositories.score.getPublishedSnapshot(character.id);
-    const fresh = isFresh(character.lastPublicRefreshAt, this.freshnessTtlSeconds);
 
-    let refreshStatus: SearchCharacterResponse["refreshStatus"] = "FRESH";
-    let jobId: string | null = null;
-    if (!snapshot) {
-      const enqueueResult = await this.enqueueRefresh(identity, character, false, opts.correlationId);
-      jobId = enqueueResult.jobId;
-      refreshStatus = "QUEUED";
-    } else if (!fresh) {
-      const enqueueResult = await this.enqueueRefresh(identity, character, false, opts.correlationId);
-      jobId = enqueueResult.jobId;
-      refreshStatus = "STALE";
-    }
+    const { decision, enqueueResult, latestJob, activeJob } = await this.evaluateAndApplyRefreshPolicy({
+      identity,
+      character,
+      snapshot,
+      correlationId: opts.correlationId,
+    });
 
-    const jobRow = jobId ? await this.repositories.job.findById(jobId) : null;
+    const jobRow = enqueueResult
+      ? await this.repositories.job.findById(enqueueResult.jobId)
+      : decision.action === "REUSE_ACTIVE_JOB"
+        ? (activeJob ?? latestJob)
+        : null;
+
     return {
       characterId: character.id,
       identity,
-      refreshStatus,
+      refreshStatus: decision.profileRefreshStatus,
       job: jobRow ? mapJobStatus(jobRow) : null,
       score: snapshot ? mapScoreSnapshot(snapshot) : null,
     };
@@ -764,23 +856,17 @@ export class CharacterService {
   /** GET refresh-status: pure read, never enqueues, 404 for identities never resolved or negatively cached. */
   async getRefreshStatus(identity: CharacterIdentityInput): Promise<RefreshStatusResponse> {
     const character = await this.requireCharacter(identity);
-    const [activeJob, snapshot] = await Promise.all([
-      this.repositories.job.findActiveForCharacter(character.id),
-      this.repositories.score.getPublishedSnapshot(character.id),
-    ]);
-    const latestJob = activeJob ?? (await this.repositories.job.findLatestForCharacter(character.id));
-    const fresh = isFresh(character.lastPublicRefreshAt, this.freshnessTtlSeconds);
-
-    const refreshStatus = determineDetailedRefreshStatus({
-      hasScore: Boolean(snapshot),
-      fresh,
-      activeJobStatus: activeJob ? (activeJob.status as "QUEUED" | "ACTIVE") : null,
-      lastJobFailed: latestJob?.status === "FAILED",
+    const snapshot = await this.repositories.score.getPublishedSnapshot(character.id);
+    const { decision, latestJob } = await this.evaluateAndApplyRefreshPolicy({
+      identity,
+      character,
+      snapshot,
+      readOnly: true,
     });
 
     return {
       characterId: character.id,
-      refreshStatus,
+      refreshStatus: decision.detailedRefreshStatus,
       job: latestJob ? mapJobStatus(latestJob) : null,
       cooldownSecondsRemaining: cooldownSecondsRemaining(
         character.lastPublicRefreshAt,
@@ -790,18 +876,22 @@ export class CharacterService {
   }
 
   /**
-   * POST refresh: dedupes onto any active job, otherwise enforces the manual cooldown (bypassed by
-   * admin callers), then enqueues. Never throws for a busy/cooling-down character — the cooldown
-   * state is communicated via `cooldownSecondsRemaining` in the 200 response.
+   * POST refresh: dedupes onto any active job, otherwise enforces the manual cooldown
+   * (bypassed by admin cooldown_bypass), then enqueues.
+   * True provider forceRefresh requires profile.refresh.force (Agent 04 IAM contract).
    */
   async requestRefresh(
     identity: CharacterIdentityInput,
-    opts: { isAdmin: boolean; correlationId?: string | null },
+    opts: {
+      bypassCooldown: boolean;
+      forceRefresh: boolean;
+      correlationId?: string | null;
+    },
   ): Promise<RefreshStatusResponse> {
-    if (this.container.negativeCache.has(identity) && !opts.isAdmin) {
+    if (this.container.negativeCache.has(identity) && !opts.bypassCooldown && !opts.forceRefresh) {
       throw HttpError.notFound("CHARACTER_NOT_FOUND", "Character is confirmed not found upstream");
     }
-    if (opts.isAdmin) {
+    if (opts.forceRefresh || opts.bypassCooldown) {
       this.container.negativeCache.clear(identity);
     }
 
@@ -820,7 +910,7 @@ export class CharacterService {
       character.lastPublicRefreshAt,
       this.container.env.MANUAL_REFRESH_COOLDOWN_SECONDS,
     );
-    if (remaining > 0 && !opts.isAdmin) {
+    if (remaining > 0 && !opts.bypassCooldown && !opts.forceRefresh) {
       const lastJob = await this.repositories.job.findLatestForCharacter(character.id);
       const snapshot = await this.repositories.score.getPublishedSnapshot(character.id);
       return {
@@ -834,7 +924,7 @@ export class CharacterService {
     const enqueueResult = await this.enqueueRefresh(
       identity,
       character,
-      opts.isAdmin,
+      opts.forceRefresh,
       opts.correlationId,
     );
     const job = await this.repositories.job.findById(enqueueResult.jobId);

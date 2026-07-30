@@ -8,6 +8,8 @@ export const accountTrustScoreStatusSchema = z.enum([
   "AVAILABLE",
   "PARTIAL",
   "STALE",
+  /** Published score visible while a background refresh is in flight. */
+  "REFRESHING",
   "FAILED",
   "UNAVAILABLE",
 ]);
