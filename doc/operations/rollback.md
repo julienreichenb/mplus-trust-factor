@@ -5,7 +5,13 @@
 ./infra/scripts/rollback.sh test <previous-sha>
 ```
 
-Rolls back **web/api/worker** for that Compose project only. The other environment keeps running its current SHA.
+- Rolls back **web/api/worker** for that Compose project only to an **immutable previous SHA**.
+- Refuses `latest`.
+- Validates env, waits for `/health/ready` container health, checks running image tag, runs public ready/revision smoke.
+- Updates `/opt/mplus/{env}/.env` `IMAGE_TAG` and `releases/current`.
+- The other environment keeps running its current SHA.
+
+If `<previous-sha>` is omitted, the script reads the previous column from `releases/history.tsv` when present.
 
 ## Database limits
 

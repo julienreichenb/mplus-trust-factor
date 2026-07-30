@@ -1,8 +1,17 @@
 name: CD
 
-# Builds immutable SHA images to GHCR, then optionally deploys to one VPS environment.
+# Builds immutable SHA images to GHCR, then deploys the matching environment.
+#
+# Policy (programme intent):
+#   - push to `main`  → build + deploy **test** (fail-closed if secrets missing)
+#   - push to `prod`  → build + deploy **production** (prepared; activate only when
+#                       the `prod` branch exists and GitHub Environment protection
+#                       + required reviewers are configured — do not use until test is clean)
+#   - workflow_dispatch → build + optional deploy; production only from `refs/heads/prod`
+#   - No feature-branch production deploys
+#   - Score-model activation is NOT a CD concern (DB/admin only)
+#
 # GitHub Environments: `test` | `production` (separate secrets/variables).
-# VPS is NOT required for image build.
 
 on:
   workflow_dispatch:
@@ -27,16 +36,22 @@ on:
         default: false
   push:
     branches:
-      - integration/wave4.3
+      - main
+      - prod
     paths-ignore:
       - "doc/**"
       - "docs/**"
       - "**.md"
 
 concurrency:
-  # Isolate CD locks per target so test never blocks/cancels production mid-flight
-  group: cd-${{ github.event.inputs.environment || 'test' }}
-  cancel-in-progress: false
+  # Isolate locks per target so test never cancels an in-progress production deploy.
+  group: >-
+    cd-${{
+      github.event.inputs.environment
+      || (github.ref == 'refs/heads/prod' && 'production')
+      || 'test'
+    }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/prod' && github.event.inputs.environment != 'production' }}
 
 permissions:
   contents: read
@@ -47,37 +62,70 @@ env:
   REGISTRY: ghcr.io
 
 jobs:
-  # Optional policy gate — configurable via Environment variables:
-  #   ALLOWED_REF_PREFIX (e.g. refs/heads/integration/wave4.3 for test)
-  #   REQUIRE_WORKFLOW_DISPATCH (true for production)
   policy:
     name: Deployment policy
     runs-on: ubuntu-latest
     outputs:
       deploy_env: ${{ steps.map.outputs.deploy_env }}
       script_env: ${{ steps.map.outputs.script_env }}
+      should_deploy: ${{ steps.map.outputs.should_deploy }}
+      image_tag: ${{ steps.map.outputs.image_tag }}
     steps:
-      - name: Map target
+      - name: Map target and enforce branch policy
         id: map
         run: |
-          RAW="${{ github.event.inputs.environment || 'test' }}"
+          set -euo pipefail
+
+          RAW="${{ github.event.inputs.environment || '' }}"
+          SHOULD_DEPLOY="true"
+
           if [ "${{ github.event_name }}" = "push" ]; then
-            RAW="test"
+            if [ "${{ github.ref }}" = "refs/heads/prod" ]; then
+              RAW="production"
+            else
+              RAW="test"
+            fi
           fi
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.skip_deploy }}" = "true" ]; then
+            SHOULD_DEPLOY="false"
+          fi
+
           case "${RAW}" in
             production|prod)
               echo "deploy_env=production" >> "${GITHUB_OUTPUT}"
               echo "script_env=prod" >> "${GITHUB_OUTPUT}"
+              # Production only from the prod branch (push or dispatch on that ref).
+              if [ "${{ github.ref }}" != "refs/heads/prod" ]; then
+                echo "::error::production deploy refused: ref must be refs/heads/prod (got ${{ github.ref }})"
+                exit 1
+              fi
               ;;
             test)
               echo "deploy_env=test" >> "${GITHUB_OUTPUT}"
               echo "script_env=test" >> "${GITHUB_OUTPUT}"
+              # Automatic test deploys only from main (dispatch may use any ref for rebuilds).
+              if [ "${{ github.event_name }}" = "push" ] && [ "${{ github.ref }}" != "refs/heads/main" ]; then
+                echo "::error::test push deploy refused: expected refs/heads/main"
+                exit 1
+              fi
               ;;
             *)
-              echo "Unknown environment: ${RAW}" >&2
+              echo "::error::Unknown environment: ${RAW}"
               exit 1
               ;;
           esac
+
+          TAG="${{ github.event.inputs.image_tag }}"
+          if [ -z "${TAG}" ]; then TAG="${GITHUB_SHA}"; fi
+          if [ "${TAG}" = "latest" ]; then
+            echo "::error::refusing mutable tag latest"
+            exit 1
+          fi
+
+          echo "should_deploy=${SHOULD_DEPLOY}" >> "${GITHUB_OUTPUT}"
+          echo "image_tag=${TAG}" >> "${GITHUB_OUTPUT}"
+          echo "Mapped deploy_env=${RAW} should_deploy=${SHOULD_DEPLOY} image_tag=${TAG}"
 
   build-and-push:
     name: Build & push GHCR images
@@ -93,9 +141,8 @@ jobs:
       - name: Image metadata
         id: meta
         run: |
-          TAG="${{ github.event.inputs.image_tag }}"
-          if [ -z "${TAG}" ]; then TAG="${GITHUB_SHA}"; fi
-          if [ "${TAG}" = "latest" ]; then echo "refusing latest" >&2; exit 1; fi
+          set -euo pipefail
+          TAG="${{ needs.policy.outputs.image_tag }}"
           echo "tag=${TAG}" >> "${GITHUB_OUTPUT}"
           OWNER="$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
           echo "owner=${OWNER}" >> "${GITHUB_OUTPUT}"
@@ -197,7 +244,7 @@ jobs:
   deploy:
     name: Deploy (${{ needs.policy.outputs.deploy_env }})
     needs: [policy, build-and-push]
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.skip_deploy == false }}
+    if: needs.policy.outputs.should_deploy == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment: ${{ needs.policy.outputs.deploy_env }}
@@ -211,76 +258,126 @@ jobs:
         run: |
           set -euo pipefail
           if [ "${REQUIRE_WORKFLOW_DISPATCH:-}" = "true" ] && [ "${{ github.event_name }}" != "workflow_dispatch" ]; then
-            echo "This environment requires workflow_dispatch" >&2
+            echo "::error::Environment ${{ needs.policy.outputs.deploy_env }} requires workflow_dispatch"
             exit 1
           fi
           if [ -n "${ALLOWED_REF_PREFIX:-}" ]; then
             case "${{ github.ref }}" in
               ${ALLOWED_REF_PREFIX}*) ;;
               *)
-                echo "ref ${{ github.ref }} not allowed (need prefix ${ALLOWED_REF_PREFIX})" >&2
+                echo "::error::ref ${{ github.ref }} not allowed (need prefix ${ALLOWED_REF_PREFIX})"
                 exit 1
                 ;;
             esac
           fi
-          # Recommended defaults (document in ops): 
-          #   test: ALLOWED_REF_PREFIX=refs/heads/integration/wave4.3
-          #   production: REQUIRE_WORKFLOW_DISPATCH=true + required reviewers
+          # Recommended Environment configuration (configure in GitHub UI — not activated here):
+          #   test:       ALLOWED_REF_PREFIX=refs/heads/main
+          #   production: ALLOWED_REF_PREFIX=refs/heads/prod
+          #               REQUIRE_WORKFLOW_DISPATCH=true (optional extra gate)
+          #               Required reviewers enabled on the Environment
 
-      - name: Require deploy secrets
+      - name: Require deploy secrets (fail-closed)
         env:
           SSH_HOST: ${{ secrets.VPS_SSH_HOST }}
           SSH_USER: ${{ secrets.VPS_SSH_USER }}
           SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          PUBLIC_URL: ${{ secrets.VPS_PUBLIC_URL }}
         run: |
-          if [ -z "${SSH_HOST}" ] || [ -z "${SSH_USER}" ] || [ -z "${SSH_KEY}" ]; then
-            echo "VPS SSH secrets not configured for environment ${{ needs.policy.outputs.deploy_env }} — skip deploy."
-            exit 0
+          set -euo pipefail
+          missing=()
+          [ -n "${SSH_HOST}" ] || missing+=(VPS_SSH_HOST)
+          [ -n "${SSH_USER}" ] || missing+=(VPS_SSH_USER)
+          [ -n "${SSH_KEY}" ] || missing+=(VPS_SSH_KEY)
+          [ -n "${PUBLIC_URL}" ] || missing+=(VPS_PUBLIC_URL)
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "::error::Missing required deploy secrets for environment ${{ needs.policy.outputs.deploy_env }}: ${missing[*]}"
+            echo "::error::Configure GitHub Environment secrets — refusing green no-op."
+            exit 1
           fi
-          echo "HAS_SECRETS=1" >> "${GITHUB_ENV}"
+          echo "Deploy secrets present for ${{ needs.policy.outputs.deploy_env }} (values not logged)"
 
       - name: SSH deploy (environment-scoped)
-        if: env.HAS_SECRETS == '1'
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.VPS_SSH_HOST }}
           username: ${{ secrets.VPS_SSH_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           port: ${{ secrets.VPS_SSH_PORT || 22 }}
+          # Do not enable debug — avoids secret leakage into logs
+          script_stop: true
+          envs: IMAGE_TAG,SCRIPT_ENV,EXPECTED_SHA,GHCR_OWNER,MPLUS_ROOT,REPO_DIR,GHCR_USER,GHCR_TOKEN
           script: |
             set -euo pipefail
-            MPLUS_ROOT="${{ secrets.VPS_MPLUS_ROOT || '/opt/mplus' }}"
-            REPO_DIR="${{ secrets.VPS_REPO_DIR || '/opt/mplus/repo' }}"
+            # Never enable xtrace — secrets and tokens must not enter logs
+            if [ -z "${MPLUS_ROOT:-}" ]; then MPLUS_ROOT=/opt/mplus; fi
+            if [ -z "${REPO_DIR:-}" ]; then REPO_DIR=/opt/mplus/repo; fi
+            ENV_FILE="${MPLUS_ROOT}/${SCRIPT_ENV}/.env"
             cd "${REPO_DIR}"
-            git fetch --all --tags
-            git checkout "${{ github.sha }}" || git pull --ff-only
-            echo "${{ secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
-            chmod +x infra/scripts/*.sh
-            export MPLUS_ROOT IMAGE_TAG="${{ needs.build-and-push.outputs.image_tag }}"
-            # IMAGE_TAG / GHCR_OWNER must also be present in the env .env or exported:
-            ENV_FILE="${MPLUS_ROOT}/${{ needs.policy.outputs.script_env }}/.env"
-            sed -i.bak "s/^IMAGE_TAG=.*/IMAGE_TAG=${{ needs.build-and-push.outputs.image_tag }}/" "${ENV_FILE}" || true
-            ./infra/scripts/deploy.sh "${{ needs.policy.outputs.script_env }}"
 
-      - name: Health verify (this environment only)
-        if: env.HAS_SECRETS == '1'
+            echo "[cd] fetching ${EXPECTED_SHA}"
+            git fetch --prune origin
+            # Exact immutable SHA only — never fall back to pull / branch tip
+            if ! git rev-parse --verify "${EXPECTED_SHA}^{commit}" >/dev/null 2>&1; then
+              echo "[cd] ERROR: SHA ${EXPECTED_SHA} not found after fetch" >&2
+              exit 1
+            fi
+            git checkout --detach "${EXPECTED_SHA}"
+            HEAD_SHA="$(git rev-parse HEAD)"
+            if [ "${HEAD_SHA}" != "${EXPECTED_SHA}" ]; then
+              echo "[cd] ERROR: detached HEAD ${HEAD_SHA} != expected ${EXPECTED_SHA}" >&2
+              exit 1
+            fi
+
+            echo "[cd] GHCR login"
+            echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GHCR_USER}" --password-stdin
+
+            chmod +x infra/scripts/*.sh
+            export MPLUS_ROOT IMAGE_TAG GHCR_OWNER
+            export STRICT_SECRETS=1
+
+            echo "[cd] set IMAGE_TAG=${IMAGE_TAG} in ${ENV_FILE}"
+            ./infra/scripts/set-image-tag.sh "${ENV_FILE}" "${IMAGE_TAG}"
+
+            echo "[cd] validate env before touching stack"
+            ./infra/scripts/validate-env.sh "${SCRIPT_ENV}"
+
+            echo "[cd] deploy ${SCRIPT_ENV}"
+            ./infra/scripts/deploy.sh "${SCRIPT_ENV}"
+        env:
+          IMAGE_TAG: ${{ needs.build-and-push.outputs.image_tag }}
+          SCRIPT_ENV: ${{ needs.policy.outputs.script_env }}
+          EXPECTED_SHA: ${{ github.sha }}
+          GHCR_OWNER: ${{ needs.build-and-push.outputs.owner }}
+          MPLUS_ROOT: ${{ secrets.VPS_MPLUS_ROOT }}
+          REPO_DIR: ${{ secrets.VPS_REPO_DIR }}
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN != '' && secrets.GHCR_TOKEN || github.token }}
+
+      - name: Health + revision verify (fail-closed)
         env:
           PUBLIC_URL: ${{ secrets.VPS_PUBLIC_URL }}
+          IMAGE_TAG: ${{ needs.build-and-push.outputs.image_tag }}
         run: |
-          if [ -z "${PUBLIC_URL}" ]; then
-            echo "VPS_PUBLIC_URL not set for this GitHub Environment — skip"
-            exit 0
-          fi
-          chmod +x infra/scripts/health-wait.sh
-          ./infra/scripts/health-wait.sh "${PUBLIC_URL}/health/live" 180
+          set -euo pipefail
+          chmod +x infra/scripts/health-wait.sh infra/scripts/smoke-deploy.sh
+          BASE="${PUBLIC_URL%/}"
+          echo "Verifying ${BASE}/health/ready and revision ${IMAGE_TAG}"
+          ./infra/scripts/health-wait.sh "${BASE}/health/ready" 180
+          ./infra/scripts/health-wait.sh "${BASE}/api/v1/meta" 60 \
+            --expect-json-field version "${IMAGE_TAG}"
+          echo "Deploy verification PASSED"
 
       - name: Release summary
+        if: always()
         run: |
           cat <<EOF
           ## Release summary
+          - outcome: ${{ job.status }}
           - github environment: ${{ needs.policy.outputs.deploy_env }}
           - vps script target: ${{ needs.policy.outputs.script_env }}
           - compose project: mplus-${{ needs.policy.outputs.script_env }}
           - imageTag: ${{ needs.build-and-push.outputs.image_tag }}
+          - gitSha: ${{ github.sha }}
           - rollback: ./infra/scripts/rollback.sh ${{ needs.policy.outputs.script_env }} <previous-sha>
+          - model activation: admin/DB only — CD does not flip ACTIVE_SCORE_MODEL_*
           EOF

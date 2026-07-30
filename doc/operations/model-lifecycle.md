@@ -15,6 +15,8 @@
 
 **Normal model activation is not an env-var change.** Env may initialize an empty database only. Residual KEY lookup dependence is technical debt for Agent 08, not the product activation UX.
 
+CD (`deploy.sh`) runs seed **only when the ScoreModel catalog is empty**. It must never treat editing `ACTIVE_SCORE_MODEL_*` on the VPS as activation.
+
 ## Activation behaviour (target)
 
 1. Admin activates a validated draft.

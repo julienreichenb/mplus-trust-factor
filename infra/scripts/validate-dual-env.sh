@@ -57,10 +57,49 @@ for env in prod test; do
     die "${env}: redis publishes a host port"
   fi
 
+  log "validate-env (${env})"
+  IMAGE_TAG=deadbeefcafebabe1234567890abcdef12345678 \
+    STRICT_SECRETS=0 \
+    "${SCRIPT_DIR}/validate-env.sh" "${env}"
+
   log "deploy dry-run (${env})"
   IMAGE_TAG=deadbeefcafebabe1234567890abcdef12345678 \
+    STRICT_SECRETS=0 \
     "${SCRIPT_DIR}/deploy.sh" "${env}" --dry-run
 done
+
+log "invalid env must fail before deploy"
+BAD_ENV="${DEPLOY_STUB}/test/.env.invalid-missing"
+cp "${DEPLOY_STUB}/test/.env" "${BAD_ENV}"
+# Remove a required key from the file under test
+grep -vE '^SESSION_SECRET=' "${BAD_ENV}" > "${BAD_ENV}.tmp" && mv "${BAD_ENV}.tmp" "${BAD_ENV}"
+# Isolate from inherited CI/shell secrets (SESSION_SECRET is exported by GitHub Actions).
+# Only this negative invocation unsets secrets — valid prod/test checks above keep process env.
+# IMAGE_TAG override is intentional; other required keys must come from BAD_ENV after source.
+if env -u SESSION_SECRET -u ADMIN_API_KEY -u POSTGRES_PASSWORD -u REDIS_PASSWORD \
+  ENV_FILE_OVERRIDE="${BAD_ENV}" \
+  IMAGE_TAG=deadbeefcafebabe1234567890abcdef12345678 \
+  STRICT_SECRETS=0 \
+  "${SCRIPT_DIR}/validate-env.sh" test; then
+  rm -f "${BAD_ENV}" "${BAD_ENV}.tmp"
+  die "validate-env should have failed without SESSION_SECRET"
+fi
+rm -f "${BAD_ENV}" "${BAD_ENV}.tmp"
+log "invalid env correctly failed"
+
+log "set-image-tag updates file"
+TAG_FILE="${DEPLOY_STUB}/test/.env"
+BEFORE_TAG="$(grep -E '^IMAGE_TAG=' "${TAG_FILE}" | head -n1 | cut -d= -f2-)"
+"${SCRIPT_DIR}/set-image-tag.sh" "${TAG_FILE}" "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+grep -qE '^IMAGE_TAG=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa$' "${TAG_FILE}" || die "set-image-tag failed"
+"${SCRIPT_DIR}/set-image-tag.sh" "${TAG_FILE}" "${BEFORE_TAG:-deadbeefcafebabe1234567890abcdef12345678}"
+rm -f "${TAG_FILE}.bak"
+
+log "rollback usage rejects latest"
+if "${SCRIPT_DIR}/rollback.sh" test latest 2>/dev/null; then
+  die "rollback should refuse latest"
+fi
+log "rollback correctly refused latest"
 
 log "distinct project names"
 resolve_mplus_env prod
@@ -74,8 +113,10 @@ resolve_mplus_env prod
 
 log "different IMAGE_TAG dry-runs"
 IMAGE_TAG=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+  STRICT_SECRETS=0 \
   "${SCRIPT_DIR}/deploy.sh" prod --dry-run
 IMAGE_TAG=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb \
+  STRICT_SECRETS=0 \
   "${SCRIPT_DIR}/deploy.sh" test --dry-run
 
 log "simulate: test failure must not touch prod release dir"

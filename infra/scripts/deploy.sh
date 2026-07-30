@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # Migration-safe deploy for one isolated environment (prod|test).
 # Usage: ./deploy.sh <prod|test> [--dry-run]
-# Order: lock → backup → migrate → worker → api/web → health → record release
+# Order: validate env → lock → backup → migrate → optional empty-DB seed →
+#        worker → api/web → health/ready → revision smoke → record release
 # Never runs prisma migrate reset. Never touches the other environment.
+# Never mutates the active score model via env flips (seed only on empty DB).
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -24,11 +26,12 @@ require_env_file
 
 HEALTH_TIMEOUT_SEC="${HEALTH_TIMEOUT_SEC:-180}"
 SKIP_BACKUP="${SKIP_BACKUP:-0}"
+SKIP_PUBLIC_SMOKE="${SKIP_PUBLIC_SMOKE:-0}"
+STRICT_SECRETS="${STRICT_SECRETS:-0}"
 
 log() { printf '[deploy:%s] %s\n' "${MPLUS_ENV}" "$*"; }
 die() { printf '[deploy:%s] ERROR: %s\n' "${MPLUS_ENV}" "$*" >&2; exit 1; }
 
-# shellcheck disable=SC1090
 _PRESERVE_IMAGE_TAG="${IMAGE_TAG:-}"
 _PRESERVE_GHCR_OWNER="${GHCR_OWNER:-}"
 set -a
@@ -37,7 +40,7 @@ source "${ENV_FILE}"
 set +a
 [[ -n "${_PRESERVE_IMAGE_TAG}" ]] && IMAGE_TAG="${_PRESERVE_IMAGE_TAG}"
 [[ -n "${_PRESERVE_GHCR_OWNER}" ]] && GHCR_OWNER="${_PRESERVE_GHCR_OWNER}"
-export IMAGE_TAG GHCR_OWNER
+export IMAGE_TAG GHCR_OWNER STRICT_SECRETS
 
 [[ -n "${IMAGE_TAG:-}" ]] || die "IMAGE_TAG is required (immutable git SHA)"
 [[ -n "${GHCR_OWNER:-}" ]] || die "GHCR_OWNER is required"
@@ -47,7 +50,6 @@ export IMAGE_TAG GHCR_OWNER
 [[ -n "${POSTGRES_PASSWORD:-}" ]] || die "POSTGRES_PASSWORD is required"
 [[ -n "${REDIS_PASSWORD:-}" ]] || die "REDIS_PASSWORD is required"
 
-# Guard: test must not accidentally point at prod DB hostnames in URL if set explicitly
 if [[ "${MPLUS_ENV}" == "test" && "${DATABASE_URL:-}" == *prod* && "${ALLOW_TEST_PROD_DB_URL:-}" != "1" ]]; then
   die "refusing test deploy: DATABASE_URL looks production-related (set ALLOW_TEST_PROD_DB_URL=1 to override)"
 fi
@@ -71,7 +73,7 @@ wait_healthy() {
   local service="$1"
   local deadline=$((SECONDS + HEALTH_TIMEOUT_SEC))
   log "waiting for ${service} healthy (timeout ${HEALTH_TIMEOUT_SEC}s)"
-  while (( SECONDS < deadline )); do
+  while ((SECONDS < deadline)); do
     local status
     status="$(compose_app ps --format json "${service}" 2>/dev/null | head -n1 || true)"
     if echo "${status}" | grep -q '"Health":"healthy"'; then
@@ -85,6 +87,19 @@ wait_healthy() {
     sleep 5
   done
   return 1
+}
+
+verify_running_image_tag() {
+  local service="$1"
+  local image
+  image="$(compose_app ps --format '{{.Image}}' "${service}" 2>/dev/null | head -n1 || true)"
+  if [[ -z "${image}" ]]; then
+    die "could not read running image for ${service}"
+  fi
+  if [[ "${image}" != *":${IMAGE_TAG}" ]]; then
+    die "${service} image '${image}' does not end with :${IMAGE_TAG}"
+  fi
+  log "${service} revision OK (${image})"
 }
 
 rollback_apps() {
@@ -103,19 +118,43 @@ rollback_apps() {
   log "rollback complete → ${tag}"
 }
 
+empty_db_needs_seed() {
+  # Returns 0 when ScoreModel count is 0 (truly empty scoring catalog).
+  # The node snippet is intentionally single-quoted so the host shell does not expand it.
+  local out
+  # shellcheck disable=SC2016
+  out="$(
+    compose_app --profile migrate run --rm --entrypoint sh migrate -lc \
+      'node --input-type=module -e "
+import { PrismaClient } from \"@prisma/client\";
+const p = new PrismaClient();
+try {
+  const n = await p.scoreModel.count();
+  process.stdout.write(n === 0 ? \"empty\" : \"seeded\");
+} finally {
+  await p.\$disconnect();
+}
+"' 2>/dev/null || true
+  )"
+  [[ "${out}" == *empty* ]]
+}
+
+# Fail closed on env/compose before acquiring lock or touching the stack
+log "preflight validate-env"
+STRICT_SECRETS="${STRICT_SECRETS}" IMAGE_TAG="${IMAGE_TAG}" GHCR_OWNER="${GHCR_OWNER}" \
+  "${SCRIPT_DIR}/validate-env.sh" "${MPLUS_ENV}"
+
 if [[ "${DRY_RUN}" == "1" ]]; then
   log "DRY RUN — would deploy IMAGE_TAG=${IMAGE_TAG} project=${COMPOSE_PROJECT}"
   log "env_file=${ENV_FILE} backup_dir=${BACKUP_DIR} release_dir=${RELEASE_DIR} lock=${LOCK_FILE}"
   log "compose files: ${APP_COMPOSE} + ${APP_OVERRIDE}"
-  compose_app config --quiet
-  log "compose config OK"
+  log "seed policy: empty ScoreModel catalog only (no env-based model activation)"
   exit 0
 fi
 
 acquire_lock
 log "deploying IMAGE_TAG=${IMAGE_TAG} project=${COMPOSE_PROJECT} (previous=${PREVIOUS_TAG:-none})"
 
-# Ensure proxy network exists (edge stack owns it)
 if ! docker network inspect mplus-proxy >/dev/null 2>&1; then
   log "creating edge stack (mplus-proxy network)"
   [[ -f "${EDGE_ENV_FILE}" ]] || die "missing edge env ${EDGE_ENV_FILE} — bootstrap shared Caddy first"
@@ -141,9 +180,13 @@ if ! compose_app --profile migrate run --rm migrate; then
   die "migration failed — aborting before application rollout (other env untouched)"
 fi
 
-log "running idempotent application seed"
-if ! compose_app --profile migrate run --rm --entrypoint sh migrate -lc './node_modules/.bin/tsx src/seed.ts'; then
-  die "application seed failed — aborting before application rollout"
+if empty_db_needs_seed; then
+  log "empty ScoreModel catalog — running idempotent bootstrap seed (not model activation)"
+  if ! compose_app --profile migrate run --rm --entrypoint sh migrate -lc './node_modules/.bin/tsx src/seed.ts'; then
+    die "empty-database bootstrap seed failed — aborting before application rollout"
+  fi
+else
+  log "ScoreModel rows present — skipping seed (active model is DB/admin-driven)"
 fi
 
 log "rolling out worker then api/web"
@@ -164,14 +207,20 @@ wait_healthy web || {
   die "web unhealthy after deploy"
 }
 
-# Public smoke for this environment's domain only
-if command -v curl >/dev/null 2>&1; then
-  if curl -fsSk --max-time 20 "https://${APP_DOMAIN}/health/live" >/dev/null 2>&1 \
-    || curl -fsS --max-time 20 "http://${APP_DOMAIN}/health/live" >/dev/null 2>&1; then
-    log "public health smoke ok (${APP_DOMAIN})"
-  else
-    log "WARN: public health smoke failed for ${APP_DOMAIN} (DNS/TLS may still be propagating)"
+verify_running_image_tag api
+verify_running_image_tag worker
+verify_running_image_tag web
+
+if [[ "${SKIP_PUBLIC_SMOKE}" != "1" ]] && command -v curl >/dev/null 2>&1; then
+  if ! "${SCRIPT_DIR}/smoke-deploy.sh" "${MPLUS_ENV}" "${IMAGE_TAG}" "https://${APP_DOMAIN}"; then
+    log "public smoke failed — attempting http fallback then rollback"
+    if ! "${SCRIPT_DIR}/smoke-deploy.sh" "${MPLUS_ENV}" "${IMAGE_TAG}" "http://${APP_DOMAIN}"; then
+      rollback_apps "${PREVIOUS_TAG}"
+      die "public /health/ready or revision smoke failed for ${APP_DOMAIN}"
+    fi
   fi
+else
+  log "SKIP_PUBLIC_SMOKE=1 or curl missing — container health + image tag checks only"
 fi
 
 printf '%s\n' "${IMAGE_TAG}" > "${RELEASE_DIR}/current"
@@ -194,3 +243,4 @@ cat > "${RELEASE_DIR}/manifest-${IMAGE_TAG}.json" <<EOF
 EOF
 
 log "deploy complete → ${IMAGE_TAG} (${COMPOSE_PROJECT})"
+log "rollback: ${SCRIPT_DIR}/rollback.sh ${MPLUS_ENV} ${PREVIOUS_TAG:-<previous-sha>}"
