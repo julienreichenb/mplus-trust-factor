@@ -217,10 +217,15 @@ export class IamAuthService {
     const userRole = await this.prisma.role.findUnique({ where: { key: ROLE_KEYS.USER } });
 
     if (existingIdentity) {
+      const email =
+        typeof input.userInfo.email === "string" && input.userInfo.email.includes("@")
+          ? input.userInfo.email.trim()
+          : undefined;
       const user = await this.prisma.user.update({
         where: { id: existingIdentity.userId },
         data: {
           displayName: input.battletag ?? existingIdentity.user.displayName,
+          ...(email ? { email } : {}),
           updatedAt: new Date(),
         },
       });
@@ -271,10 +276,15 @@ export class IamAuthService {
       return user;
     }
 
+    const email =
+      typeof input.userInfo.email === "string" && input.userInfo.email.includes("@")
+        ? input.userInfo.email.trim()
+        : undefined;
     const user = await this.prisma.user.create({
       data: {
         id: randomUUID(),
         displayName: input.battletag,
+        ...(email ? { email } : {}),
         role: "USER",
         authProvider: BATTLENET_PROVIDER,
         externalSubject: input.providerAccountId,

@@ -88,10 +88,12 @@ describe("ActiveRerolls", () => {
     expect(options).toHaveLength(2);
 
     const first = options[0]!;
-    expect(first.find(".active-rerolls__portrait").attributes("src")).toBe("https://cdn.example/high.png");
-    expect(first.find(".active-rerolls__region").text()).toBe("EU");
-    expect(first.find(".active-rerolls__name").text()).toBe("Highalt-Silvermoon");
-    expect(first.find(".active-rerolls__name").attributes("style")).toMatch(/#C69B6D|rgb\(198,\s*155,\s*109\)/i);
+    const identity = first.get("[data-testid='character-identity']");
+    expect(identity.find(".char-identity__portrait").attributes("src")).toBe("https://cdn.example/high.png");
+    expect(identity.find(".char-identity__region").text()).toBe("EU");
+    expect(identity.find(".char-identity__nickname").text()).toBe("Highalt");
+    expect(identity.find(".char-identity__server").text()).toBe("Silvermoon");
+    expect(identity.find(".char-identity__nickname").attributes("style")).toMatch(/#C69B6D|rgb\(198,\s*155,\s*109\)/i);
     expect(first.find(".active-rerolls__score").text()).toBe("2800");
     expect(first.find(".active-rerolls__score").classes()).toContain("mpts-data");
     expect(first.find("[data-testid='reroll-main-chip']").text()).toBe("MAIN");
@@ -101,7 +103,7 @@ describe("ActiveRerolls", () => {
     expect(firstGrade.find(".tier-badge").exists()).toBe(true);
 
     const second = options[1]!;
-    expect(second.find(".active-rerolls__portrait").attributes("src")).toContain("classicon_mage");
+    expect(second.find(".char-identity__portrait").attributes("src")).toContain("classicon_mage");
     expect(second.find("[data-testid='reroll-main-chip']").exists()).toBe(false);
     expect(second.find("[data-testid='reroll-grade']").text()).toMatch(/B/);
   });

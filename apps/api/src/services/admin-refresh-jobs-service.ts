@@ -47,6 +47,26 @@ export interface AdminRefreshJobRow {
   avatarUrl: string | null;
   classIconUrl: string | null;
   mythicPlusScore: number | null;
+  /**
+   * Admin-only (requires admin.users.read). Null when unlinked, ambiguous, or
+   * caller lacks user-read permission.
+   */
+  battleTag: string | null;
+  /**
+   * Admin-only (requires admin.users.read). Null when unlinked, ambiguous, or
+   * caller lacks user-read permission.
+   */
+  battleNetEmail: string | null;
+  /**
+   * Exact scoring model key persisted on the job payload. Never inferred from
+   * the currently active model. Null when unavailable.
+   */
+  scoringModelKey: string | null;
+  /**
+   * Exact scoring model version persisted on the job payload. Never inferred.
+   * Null when unavailable.
+   */
+  scoringModelVersion: number | null;
   databaseStatus: string;
   queueState: string;
   triggerSource: string | null;
@@ -75,12 +95,32 @@ export interface AdminCharacterSearchRow {
   refreshJobId: string | null;
 }
 
+function readScoringModelFromPayload(payload: Record<string, unknown>): {
+  scoringModelKey: string | null;
+  scoringModelVersion: number | null;
+} {
+  const key =
+    typeof payload.scoringModelKey === "string" && payload.scoringModelKey.trim()
+      ? payload.scoringModelKey.trim()
+      : null;
+  const versionRaw = payload.scoringModelVersion;
+  const version =
+    typeof versionRaw === "number" && Number.isFinite(versionRaw)
+      ? versionRaw
+      : typeof versionRaw === "string" && versionRaw.trim() && Number.isFinite(Number(versionRaw))
+        ? Number(versionRaw)
+        : null;
+  return { scoringModelKey: key, scoringModelVersion: version };
+}
+
 function mapJobRow(
   job: IngestionJob,
   extras: {
     classSlug?: string | null;
     avatarUrl?: string | null;
     mythicPlusScore?: number | null;
+    battleTag?: string | null;
+    battleNetEmail?: string | null;
   } = {},
 ): AdminRefreshJobRow {
   const payload = payloadOf(job);
@@ -104,6 +144,7 @@ function mapJobRow(
     errorCode === "CHARACTER_NO_CURRENT_SEASON_MYTHIC_SCORE" ||
     errorCode === "CHARACTER_REFRESH_ELIGIBILITY_UNKNOWN";
   const retryable = terminal && job.status === "FAILED" && !nonRetryableEligibility;
+  const scoring = readScoringModelFromPayload(payload);
 
   return {
     ingestionJobId: job.id,
@@ -118,6 +159,10 @@ function mapJobRow(
     avatarUrl: extras.avatarUrl ?? null,
     classIconUrl: presented?.iconUrl ?? null,
     mythicPlusScore: extras.mythicPlusScore ?? null,
+    battleTag: extras.battleTag ?? null,
+    battleNetEmail: extras.battleNetEmail ?? null,
+    scoringModelKey: scoring.scoringModelKey,
+    scoringModelVersion: scoring.scoringModelVersion,
     databaseStatus: job.status,
     queueState: job.status === "QUEUED" ? "queued" : job.status === "ACTIVE" ? "active" : job.status.toLowerCase(),
     triggerSource,
@@ -168,6 +213,8 @@ export class AdminRefreshJobsService {
     showHistoricalFailures?: boolean;
     page?: number;
     pageSize?: number;
+    /** When true, include BattleTag/email for unambiguously linked characters. */
+    includeAccountIdentity?: boolean;
   }): Promise<{ jobs: AdminRefreshJobRow[]; total: number; page: number; pageSize: number }> {
     const result = await this.container.worker.repositories.job.listRefreshJobs({
       status: (input.status as never) ?? null,
@@ -197,13 +244,64 @@ export class AdminRefreshJobsService {
           });
     const byId = new Map(characters.map((c) => [c.id, c]));
 
+    const accountByCharacterId = new Map<
+      string,
+      { battleTag: string | null; battleNetEmail: string | null }
+    >();
+    if (input.includeAccountIdentity && characterIds.length > 0) {
+      const ownerships = await this.prisma().verifiedCharacterOwnership.findMany({
+        where: {
+          characterId: { in: characterIds },
+          status: "CURRENT",
+          revokedAt: null,
+        },
+        include: {
+          user: { select: { id: true, email: true } },
+          battleNetAccount: {
+            select: {
+              id: true,
+              battletagDisplay: true,
+              unlinkedAt: true,
+            },
+          },
+        },
+      });
+
+      const grouped = new Map<string, typeof ownerships>();
+      for (const row of ownerships) {
+        if (!row.characterId) continue;
+        const list = grouped.get(row.characterId) ?? [];
+        list.push(row);
+        grouped.set(row.characterId, list);
+      }
+
+      for (const [characterId, rows] of grouped) {
+        const linked = rows.filter((r) => r.battleNetAccount.unlinkedAt == null);
+        const distinctUsers = new Set(linked.map((r) => r.userId));
+        const distinctAccounts = new Set(linked.map((r) => r.battleNetAccountId));
+        // Ambiguous ownership → omit identity rather than guessing.
+        if (distinctUsers.size !== 1 || distinctAccounts.size !== 1 || linked.length === 0) {
+          accountByCharacterId.set(characterId, { battleTag: null, battleNetEmail: null });
+          continue;
+        }
+        const owner = linked[0]!;
+        accountByCharacterId.set(characterId, {
+          battleTag: owner.battleNetAccount.battletagDisplay,
+          battleNetEmail: owner.user.email ?? null,
+        });
+      }
+    }
+
     return {
       jobs: result.jobs.map((job) => {
         const character = job.characterId ? byId.get(job.characterId) : null;
+        const account = job.characterId ? accountByCharacterId.get(job.characterId) : undefined;
         return mapJobRow(job, {
           classSlug: character?.gameClass?.slug ?? null,
           avatarUrl: readAvatar(character?.snapshots[0]?.rawSummary),
           mythicPlusScore: character?.snapshots[0]?.mythicRating ?? null,
+          battleTag: account?.battleTag ?? null,
+          battleNetEmail: account?.battleNetEmail ?? null,
         });
       }),
       total: result.total,
@@ -421,6 +519,8 @@ export class AdminRefreshJobsService {
       priority: "high",
       forceRefresh: true,
       refreshContractHash: hash,
+      scoringModelKey: activeModel.key,
+      scoringModelVersion: activeModel.version,
       triggerSource: "SYSTEM" as RefreshTriggerSource,
       authoritativeSeasonId: authority.blizzardSeasonId,
       authoritativeSeasonSlug: authority.slug,

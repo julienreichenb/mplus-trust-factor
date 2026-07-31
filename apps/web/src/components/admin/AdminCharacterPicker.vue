@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import type { AdminCharacterSearchHit } from "@mplus/contracts";
+import CharacterIdentity from "../character/CharacterIdentity.vue";
 import { ApiClientError } from "../../api/live-client";
 import { useSuggestionCombobox } from "../../composables/useSuggestionCombobox";
-import { classColor, classIconUrl as classIconFromSlug } from "../../lib/wowClass";
+import { classIconUrl as classIconFromSlug } from "../../lib/wowClass";
 
 const MAX_SELECTED = 500;
 
@@ -77,10 +78,6 @@ const activeOptionId = computed(() =>
 );
 
 const atLimit = computed(() => props.modelValue.length >= MAX_SELECTED);
-
-function portraitUrl(hit: AdminCharacterSearchHit): string | null {
-  return hit.avatarUrl || hit.classIconUrl || classIconFromSlug(hit.classSlug);
-}
 
 function addCharacter(hit: AdminCharacterSearchHit): void {
   if (selectedIds.value.has(hit.characterId) || atLimit.value) return;
@@ -179,24 +176,20 @@ function isSelected(hit: AdminCharacterSearchHit): boolean {
             }"
             @mousedown.prevent="onSelectSuggestion(hit)"
           >
-            <img
-              v-if="portraitUrl(hit)"
-              class="admin-picker__avatar"
-              :src="portraitUrl(hit)!"
-              alt=""
-              width="28"
-              height="28"
+            <CharacterIdentity
+              compact
+              :region="hit.region"
+              :name="hit.name"
+              :realm-slug="hit.realmSlug"
+              :realm-name="hit.realmName"
+              :class-slug="hit.classSlug"
+              :avatar-url="hit.avatarUrl"
+              :class-icon-url="hit.classIconUrl || classIconFromSlug(hit.classSlug)"
+              :size="28"
             />
-            <span v-else class="admin-picker__avatar admin-picker__avatar--fallback" aria-hidden="true" />
-            <span class="admin-picker__meta">
-              <span class="admin-picker__name" :style="{ color: classColor(hit.classSlug) }">
-                {{ hit.name }}-{{ hit.realmName || hit.realmSlug }}
-              </span>
-              <span class="admin-picker__sub">
-                <span class="admin-badge">{{ hit.region }}</span>
-                <span v-if="hit.mythicPlusScore != null">{{ hit.mythicPlusScore.toFixed(0) }} M+</span>
-                <span v-if="isSelected(hit)">Selected</span>
-              </span>
+            <span class="admin-picker__sub">
+              <span v-if="hit.mythicPlusScore != null">{{ hit.mythicPlusScore.toFixed(0) }} M+</span>
+              <span v-if="isSelected(hit)">Selected</span>
             </span>
           </li>
         </ul>
@@ -224,27 +217,23 @@ function isSelected(hit: AdminCharacterSearchHit): boolean {
       :class="{ 'is-scrollable': modelValue.length > 6 }"
     >
       <li v-for="hit in modelValue" :key="hit.characterId" class="admin-picker__row">
-        <img
-          v-if="portraitUrl(hit)"
-          class="admin-picker__avatar"
-          :src="portraitUrl(hit)!"
-          alt=""
-          width="32"
-          height="32"
+        <CharacterIdentity
+          compact
+          :region="hit.region"
+          :name="hit.name"
+          :realm-slug="hit.realmSlug"
+          :realm-name="hit.realmName"
+          :class-slug="hit.classSlug"
+          :avatar-url="hit.avatarUrl"
+          :class-icon-url="hit.classIconUrl || classIconFromSlug(hit.classSlug)"
+          :size="32"
         />
-        <span v-else class="admin-picker__avatar admin-picker__avatar--fallback" aria-hidden="true" />
-        <span class="admin-picker__meta">
-          <span class="admin-badge">{{ hit.region }}</span>
-          <span class="admin-picker__name" :style="{ color: classColor(hit.classSlug) }">
-            {{ hit.name }}-{{ hit.realmName || hit.realmSlug }}
-          </span>
-          <span v-if="hit.mythicPlusScore != null" class="admin-picker__score mpts-data">
-            {{ hit.mythicPlusScore.toFixed(0) }}
-          </span>
+        <span v-if="hit.mythicPlusScore != null" class="admin-picker__score mpts-data">
+          {{ hit.mythicPlusScore.toFixed(0) }}
         </span>
         <button
           type="button"
-          class="btn link"
+          class="btn admin-picker__remove"
           :disabled="disabled"
           :aria-label="`Remove ${hit.name}`"
           data-testid="admin-picker-remove"
@@ -374,6 +363,24 @@ function isSelected(hit: AdminCharacterSearchHit): boolean {
 .admin-picker__score {
   color: var(--color-text-muted);
   font-size: var(--text-sm);
+  margin-left: auto;
+}
+.admin-picker__remove {
+  margin-left: auto;
+  min-height: 2.25rem;
+  align-self: center;
+  flex-shrink: 0;
+  background: #b91c1c;
+  border-color: #991b1b;
+  color: #fff;
+}
+.admin-picker__remove:hover:not(:disabled),
+.admin-picker__remove:focus-visible:not(:disabled) {
+  background: #dc2626;
+  border-color: #b91c1c;
+}
+.admin-picker__row:has(.admin-picker__score) .admin-picker__remove {
+  margin-left: 0;
 }
 .admin-badge {
   display: inline-flex;

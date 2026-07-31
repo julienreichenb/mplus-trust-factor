@@ -181,7 +181,7 @@ describe("AccountPage", () => {
 
     const wrapper = await mountAccount(fetchMock);
     await vi.waitFor(() => {
-      expect(wrapper.text()).toContain("Admin Tester");
+      expect(wrapper.find("[data-testid='admin-role-chip']").exists()).toBe(true);
     });
 
     const chip = wrapper.get("[data-testid='admin-role-chip']");
@@ -241,10 +241,101 @@ describe("AccountPage", () => {
     });
     const wrapper = await mountAccount(fetchMock);
     await vi.waitFor(() => {
-      expect(wrapper.text()).toContain("Mystery");
+      expect(wrapper.text()).toContain("Profile");
     });
     expect(wrapper.find("[data-testid='admin-role-chip']").exists()).toBe(false);
     expect(wrapper.findAll(".role-chip")).toHaveLength(0);
+  });
+
+  it("shows masked email once, without duplicating BattleTag or leaking full email", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo) => {
+      const url = String(input);
+      if (url.includes("/auth/me")) {
+        return new Response(
+          JSON.stringify({
+            authenticated: true,
+            user: { id: "u1", displayName: "Tester#1", roles: ["user"], permissions: [] },
+          }),
+          { status: 200 },
+        );
+      }
+      if (url.includes("/me/battlenet")) {
+        return new Response(
+          JSON.stringify({
+            linked: true,
+            account: {
+              providerAccountId: "1",
+              battletag: "Tester#1",
+              emailMasked: "te******45@gmail.com",
+              linkedAt: new Date().toISOString(),
+              lastOwnershipSyncAt: null,
+              lastOwnershipSyncError: null,
+            },
+          }),
+          { status: 200 },
+        );
+      }
+      if (url.includes("/me/characters")) {
+        return new Response(
+          JSON.stringify({
+            characters: [characterPayload("AVAILABLE")],
+            discovery: {
+              status: "COMPLETED",
+              jobId: "j1",
+              startedAt: null,
+              finishedAt: null,
+              error: null,
+            },
+            hiddenCharacterCount: 0,
+            totalOwnedCharacterCount: 1,
+            primaryDiagnostic: null,
+          }),
+          { status: 200 },
+        );
+      }
+      return new Response("{}", { status: 200 });
+    });
+    const wrapper = await mountAccount(fetchMock);
+    await vi.waitFor(() => {
+      expect(wrapper.find("[data-testid='account-email-masked']").exists()).toBe(true);
+    });
+    expect(wrapper.findAll("[data-testid='account-battletag']")).toHaveLength(1);
+    expect(wrapper.get("[data-testid='account-email-masked']").text()).toBe("te******45@gmail.com");
+    expect(wrapper.html()).not.toContain("test45@gmail.com");
+    expect(wrapper.html()).not.toMatch(/title="[^"]*@gmail\.com"/i);
+    expect(wrapper.html()).not.toMatch(/aria-label="[^"]*@gmail\.com"/i);
+    expect(wrapper.text()).not.toContain("Score models");
+    expect(wrapper.text()).not.toContain("Ability catalog");
+  });
+
+  it("keeps Primary and Set primary action widths equal", async () => {
+    const primary = {
+      ...characterPayload("AVAILABLE"),
+      ownershipId: "own-primary",
+      isPrimary: true,
+      name: "Primarychar",
+    };
+    const secondary = {
+      ...characterPayload("AVAILABLE"),
+      ownershipId: "own-secondary",
+      isPrimary: false,
+      name: "Altchar",
+    };
+    const fetchMock = baseFetch({
+      characters: [primary, secondary],
+      discovery: { status: "COMPLETED", jobId: "j1", startedAt: null, finishedAt: null, error: null },
+      hiddenCharacterCount: 0,
+      totalOwnedCharacterCount: 2,
+      primaryDiagnostic: null,
+    });
+    const wrapper = await mountAccount(fetchMock);
+    await vi.waitFor(() => {
+      expect(wrapper.find("[data-testid='primary-state']").exists()).toBe(true);
+    });
+    const primaryEl = wrapper.get("[data-testid='primary-state']");
+    const setPrimaryEl = wrapper.get("[data-testid='set-primary']");
+    expect(primaryEl.classes()).toContain("primary-slot");
+    expect(setPrimaryEl.classes()).toContain("primary-slot");
   });
 
   it("preserves link and unlink Battle.net flows after the profile merge", async () => {
@@ -448,11 +539,11 @@ describe("AccountPage", () => {
     const link = wrapper.find("a.char-row__link");
     expect(link.exists()).toBe(true);
     expect(link.attributes("href")).toContain("/character/eu/tarren-mill/Mainalt");
-    expect(wrapper.find(".name").attributes("style")).toContain("color");
+    expect(wrapper.find(".char-identity__nickname").attributes("style")).toContain("color");
     expect(wrapper.text()).toContain("3 hidden");
     expect(wrapper.find(".tier-badge-stub").exists()).toBe(true);
 
-    const setPrimary = wrapper.find("button.btn--ghost");
+    const setPrimary = wrapper.find("[data-testid='set-primary']");
     expect(setPrimary.exists()).toBe(true);
     expect(setPrimary.attributes("class")).toContain("btn--ghost");
   });

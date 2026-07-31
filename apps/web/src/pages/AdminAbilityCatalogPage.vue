@@ -547,13 +547,39 @@ onMounted(() => {
                 tabindex="-1"
               >
                 <div class="ability-card">
-                  <WowIcon
-                    :icon-name="spellIconName(entry)"
-                    :alt="''"
-                    :width="40"
-                    :height="40"
-                    class="spell-icon"
-                  />
+                  <a
+                    v-if="primarySpellId(entry) && wowheadSpellUrl(primarySpellId(entry)!)"
+                    class="spell-icon-link"
+                    :href="wowheadSpellUrl(primarySpellId(entry)!)!"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    :data-wowhead="`spell=${primarySpellId(entry)}`"
+                    :aria-label="`${entry.rule.name} spell tooltip`"
+                    data-testid="spell-icon-tooltip"
+                  >
+                    <WowIcon
+                      :icon-name="spellIconName(entry)"
+                      :alt="''"
+                      :width="40"
+                      :height="40"
+                      class="spell-icon"
+                    />
+                  </a>
+                  <span
+                    v-else
+                    class="spell-icon-link spell-icon-link--static"
+                    tabindex="0"
+                    role="img"
+                    :aria-label="entry.rule.name"
+                  >
+                    <WowIcon
+                      :icon-name="spellIconName(entry)"
+                      :alt="''"
+                      :width="40"
+                      :height="40"
+                      class="spell-icon"
+                    />
+                  </span>
                   <div class="ability-main">
                     <div class="ability-header">
                       <h3 class="ability-name">{{ entry.rule.name }}</h3>
@@ -664,13 +690,39 @@ onMounted(() => {
             tabindex="-1"
           >
             <div class="ability-card">
-              <WowIcon
-                :icon-name="spellIconName(entry)"
-                :alt="''"
-                :width="40"
-                :height="40"
-                class="spell-icon"
-              />
+              <a
+                v-if="primarySpellId(entry) && wowheadSpellUrl(primarySpellId(entry)!)"
+                class="spell-icon-link"
+                :href="wowheadSpellUrl(primarySpellId(entry)!)!"
+                target="_blank"
+                rel="noopener noreferrer"
+                :data-wowhead="`spell=${primarySpellId(entry)}`"
+                :aria-label="`${entry.rule.name} spell tooltip`"
+                data-testid="spell-icon-tooltip"
+              >
+                <WowIcon
+                  :icon-name="spellIconName(entry)"
+                  :alt="''"
+                  :width="40"
+                  :height="40"
+                  class="spell-icon"
+                />
+              </a>
+              <span
+                v-else
+                class="spell-icon-link spell-icon-link--static"
+                tabindex="0"
+                role="img"
+                :aria-label="entry.rule.name"
+              >
+                <WowIcon
+                  :icon-name="spellIconName(entry)"
+                  :alt="''"
+                  :width="40"
+                  :height="40"
+                  class="spell-icon"
+                />
+              </span>
               <div class="ability-main">
                 <div class="ability-header">
                   <h3 class="ability-name">{{ entry.rule.name }}</h3>
@@ -964,6 +1016,24 @@ select:focus-visible {
 .spell-icon {
   width: 40px;
   height: 40px;
+}
+
+.spell-icon-link {
+  display: inline-flex;
+  flex-shrink: 0;
+  border-radius: 4px;
+  line-height: 0;
+  text-decoration: none;
+  color: inherit;
+}
+
+.spell-icon-link:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.spell-icon-link--static {
+  cursor: default;
 }
 
 .ability-main {

@@ -2,6 +2,9 @@
 import { computed, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { ApiClientError } from "../api/live-client";
+import CharacterIdentity from "../components/character/CharacterIdentity.vue";
+import StatusChip from "../components/character/StatusChip.vue";
+import HelpTooltip from "../components/common/HelpTooltip.vue";
 import StatusBanner from "../components/common/StatusBanner.vue";
 import { useAuthSession } from "../composables/useAuthSession";
 
@@ -46,6 +49,10 @@ interface AdminRefreshJobRow {
   avatarUrl: string | null;
   classIconUrl: string | null;
   mythicPlusScore: number | null;
+  battleTag: string | null;
+  battleNetEmail: string | null;
+  scoringModelKey: string | null;
+  scoringModelVersion: number | null;
   databaseStatus: string;
   queueState: string;
   triggerSource: string | null;
@@ -64,19 +71,16 @@ const message = ref<string | null>(null);
 const error = ref<string | null>(null);
 const busy = ref(false);
 
-// Accounts
 const query = ref("");
 const users = ref<AdminUserRow[]>([]);
 const roles = ref<Array<{ key: string; name: string }>>([]);
 const allowLastAdminRemoval = ref(false);
 
-// Characters
 const charRegion = ref("EU");
 const charNickname = ref("");
 const charRealm = ref("");
 const characters = ref<AdminCharacterRow[]>([]);
 
-// Refresh jobs
 const jobs = ref<AdminRefreshJobRow[]>([]);
 const jobsTotal = ref(0);
 const jobsPage = ref(1);
@@ -90,6 +94,9 @@ const showHistoricalFailures = ref(false);
 const inFlightCount = ref(0);
 const killConfirm = ref(false);
 const actionBusyId = ref<string | null>(null);
+
+const historicalFailuresHelp =
+  "When unchecked, only the latest FAILED job per character is listed. When checked, all past FAILED rows for matching characters are included.";
 
 function handleAuthError(err: unknown): boolean {
   if (err instanceof ApiClientError && (err.status === 401 || err.status === 403)) {
@@ -132,6 +139,15 @@ function formatTs(value: string | null): string {
   } catch {
     return value;
   }
+}
+
+function formatModelVersion(job: AdminRefreshJobRow): string {
+  if (job.scoringModelKey && job.scoringModelVersion != null) {
+    return `${job.scoringModelKey}@${job.scoringModelVersion}`;
+  }
+  if (job.scoringModelVersion != null) return `v${job.scoringModelVersion}`;
+  if (job.scoringModelKey) return job.scoringModelKey;
+  return "—";
 }
 
 async function loadRoles(): Promise<void> {
@@ -310,6 +326,8 @@ async function killAll(): Promise<void> {
 }
 
 const totalPages = computed(() => Math.max(1, Math.ceil(jobsTotal.value / jobsPageSize.value)));
+const bannerText = computed(() => error.value || message.value || "");
+const bannerTone = computed(() => (error.value ? "error" : "success"));
 
 watch(activeTab, (tab) => {
   error.value = null;
@@ -366,10 +384,8 @@ onMounted(async () => {
       </button>
     </nav>
 
-    <StatusBanner v-if="error" tone="error" :message="error" />
-    <StatusBanner v-else-if="message" tone="success" :message="message" />
+    <StatusBanner v-if="bannerText" :tone="bannerTone" :message="bannerText" />
 
-    <!-- Accounts -->
     <div v-if="activeTab === 'accounts'" data-testid="panel-accounts">
       <p class="muted">
         Search by BattleTag or email. Authorization uses immutable user ID / Battle.net subject only.
@@ -377,14 +393,14 @@ onMounted(async () => {
       <form class="search" @submit.prevent="searchUsers">
         <label>
           <span class="label">BattleTag or email</span>
-          <input v-model="query" type="search" name="q" autocomplete="off" placeholder="Name#1234" />
+          <input v-model="query" class="admin-control" type="search" name="q" autocomplete="off" placeholder="Name#1234" />
         </label>
         <button type="submit" class="btn" :disabled="busy">Search</button>
       </form>
 
-      <label v-if="canManageUsers" class="override">
+      <label v-if="canManageUsers" class="admin-checkbox override">
         <input v-model="allowLastAdminRemoval" type="checkbox" />
-        Allow removing the last active admin (explicit override)
+        <span>Allow removing the last active admin (explicit override)</span>
       </label>
 
       <ul class="results" data-testid="admin-users-results">
@@ -423,12 +439,11 @@ onMounted(async () => {
       </p>
     </div>
 
-    <!-- Characters -->
     <div v-else-if="activeTab === 'characters'" data-testid="panel-characters">
       <form class="search search--grid" @submit.prevent="searchCharacters">
         <label>
           <span class="label">Region</span>
-          <select v-model="charRegion">
+          <select v-model="charRegion" class="admin-control">
             <option value="EU">EU</option>
             <option value="US">US</option>
             <option value="KR">KR</option>
@@ -437,49 +452,38 @@ onMounted(async () => {
         </label>
         <label>
           <span class="label">Nickname</span>
-          <input v-model="charNickname" type="search" autocomplete="off" placeholder="Character" />
+          <input v-model="charNickname" class="admin-control" type="search" autocomplete="off" placeholder="Character" />
         </label>
         <label>
           <span class="label">Realm / server</span>
-          <input v-model="charRealm" type="search" autocomplete="off" placeholder="tarren-mill" />
+          <input v-model="charRealm" class="admin-control" type="search" autocomplete="off" placeholder="tarren-mill" />
         </label>
         <button type="submit" class="btn" :disabled="busy">Search</button>
       </form>
 
       <ul class="results" data-testid="admin-characters-results">
         <li v-for="c in characters" :key="c.id" class="char-row">
-          <img
-            v-if="c.avatarUrl"
-            class="portrait"
-            :src="c.avatarUrl"
-            :alt="c.name"
-            width="40"
-            height="40"
+          <CharacterIdentity
+            compact
+            :region="c.region"
+            :name="c.name"
+            :realm-slug="c.realmSlug"
+            :class-slug="c.classSlug"
+            :class-color="c.classColor"
+            :avatar-url="c.avatarUrl"
+            :class-icon-url="c.classIconUrl"
+            :size="32"
           />
-          <img
-            v-else-if="c.classIconUrl"
-            class="portrait"
-            :src="c.classIconUrl"
-            :alt="c.classSlug ?? 'class'"
-            width="40"
-            height="40"
-          />
-          <div v-else class="portrait portrait--empty" aria-hidden="true" />
-          <div>
-            <p class="muted">{{ c.region }}</p>
-            <strong :style="c.classColor ? { color: c.classColor } : undefined">
-              {{ c.name }}-{{ c.realmSlug }}
-            </strong>
-            <p class="muted">
-              M+ score: {{ c.mythicPlusScore != null ? Math.round(c.mythicPlusScore) : "—" }} · refresh:
-              {{ c.refreshStatus ?? "—" }}
-            </p>
+          <div class="char-row__meta">
+            <span class="muted">
+              M+ {{ c.mythicPlusScore != null ? Math.round(c.mythicPlusScore) : "—" }}
+            </span>
+            <StatusChip :status="c.refreshStatus" />
           </div>
         </li>
       </ul>
     </div>
 
-    <!-- Refresh jobs -->
     <div v-else data-testid="panel-refresh-jobs">
       <div v-if="!canManageJobs" class="muted">Requires admin.jobs.manage permission.</div>
       <template v-else>
@@ -489,9 +493,9 @@ onMounted(async () => {
             active ones in this environment only. Does not touch ownership discovery, bulk
             orchestrator, or addon jobs.
           </p>
-          <label class="override">
+          <label class="admin-checkbox override">
             <input v-model="killConfirm" type="checkbox" />
-            I understand this is destructive
+            <span>I understand this is destructive</span>
           </label>
           <button
             type="button"
@@ -504,10 +508,10 @@ onMounted(async () => {
           </button>
         </div>
 
-        <form class="search search--grid" @submit.prevent="loadJobs">
+        <form class="search search--grid" data-testid="refresh-jobs-filters" @submit.prevent="loadJobs">
           <label>
             <span class="label">Status</span>
-            <select v-model="jobStatus">
+            <select v-model="jobStatus" class="admin-control">
               <option value="">Any</option>
               <option value="QUEUED">Queued</option>
               <option value="ACTIVE">Active</option>
@@ -518,15 +522,15 @@ onMounted(async () => {
           </label>
           <label>
             <span class="label">Region</span>
-            <input v-model="jobRegion" type="text" placeholder="EU" />
+            <input v-model="jobRegion" class="admin-control" type="text" placeholder="EU" />
           </label>
           <label>
             <span class="label">Character</span>
-            <input v-model="jobCharacter" type="text" placeholder="name" />
+            <input v-model="jobCharacter" class="admin-control" type="text" placeholder="name" />
           </label>
           <label>
             <span class="label">Trigger</span>
-            <select v-model="jobTrigger">
+            <select v-model="jobTrigger" class="admin-control">
               <option value="">Any</option>
               <option value="PROFILE_READ">PROFILE_READ</option>
               <option value="MANUAL_REFRESH">MANUAL_REFRESH</option>
@@ -538,54 +542,56 @@ onMounted(async () => {
           </label>
           <label>
             <span class="label">Bulk vs direct</span>
-            <select v-model="jobFromBulk">
+            <select v-model="jobFromBulk" class="admin-control">
               <option value="">Any</option>
               <option value="true">Bulk</option>
               <option value="false">Direct</option>
             </select>
           </label>
-          <label class="override">
-            <input v-model="showHistoricalFailures" type="checkbox" />
-            Show historical failures
-          </label>
+          <div class="historical-failures">
+            <label class="admin-checkbox" data-testid="historical-failures-control">
+              <input
+                v-model="showHistoricalFailures"
+                type="checkbox"
+                data-testid="show-historical-failures"
+              />
+              <span>Include past failures</span>
+            </label>
+            <HelpTooltip :text="historicalFailuresHelp" label="About including past failures" />
+          </div>
           <button type="submit" class="btn" :disabled="busy">Apply filters</button>
         </form>
 
         <ul class="results" data-testid="admin-refresh-jobs-results">
-          <li v-for="job in jobs" :key="job.id" class="job-row">
-            <img
-              v-if="job.avatarUrl"
-              class="portrait"
-              :src="job.avatarUrl"
-              :alt="job.name ?? 'character'"
-              width="40"
-              height="40"
-            />
-            <img
-              v-else-if="job.classIconUrl"
-              class="portrait"
-              :src="job.classIconUrl"
-              alt="class"
-              width="40"
-              height="40"
-            />
-            <div v-else class="portrait portrait--empty" aria-hidden="true" />
+          <li v-for="job in jobs" :key="job.id" class="job-row" data-testid="job-row">
             <div class="job-main">
-              <p class="muted">{{ job.region ?? "—" }}</p>
-              <strong :style="job.classColor ? { color: job.classColor } : undefined">
-                {{ job.name ?? "?" }}-{{ job.realmSlug ?? "?" }}
-              </strong>
-              <p class="muted mono">job: {{ job.id }}</p>
-              <p class="muted">
-                queue {{ job.queueState }} · db {{ job.databaseStatus }}
-                <span v-if="job.cancelRequested"> · cancel requested</span>
-                · trigger {{ job.triggerSource ?? "—" }}
-                · {{ job.fromBulk ? "bulk" : "direct" }}
-                · prio {{ job.priority }}
-              </p>
-              <p class="muted">
-                created {{ formatTs(job.createdAt) }} · started {{ formatTs(job.startedAt) }} ·
-                finished {{ formatTs(job.finishedAt) }}
+              <CharacterIdentity
+                compact
+                :region="job.region"
+                :name="job.name"
+                :realm-slug="job.realmSlug"
+                :class-slug="job.classSlug"
+                :class-color="job.classColor"
+                :avatar-url="job.avatarUrl"
+                :class-icon-url="job.classIconUrl"
+                :size="32"
+              />
+              <div class="job-meta">
+                <StatusChip :status="job.databaseStatus" />
+                <span v-if="job.cancelRequested" class="muted">cancel requested</span>
+                <span class="muted mono" title="Job id">{{ job.id.slice(0, 8) }}…</span>
+                <span class="muted">model {{ formatModelVersion(job) }}</span>
+                <span class="muted">{{ job.fromBulk ? "bulk" : "direct" }} · prio {{ job.priority }}</span>
+                <span v-if="job.triggerSource" class="muted">{{ job.triggerSource }}</span>
+              </div>
+              <div v-if="job.battleTag || job.battleNetEmail" class="job-account muted">
+                <span v-if="job.battleTag">BattleTag {{ job.battleTag }}</span>
+                <span v-if="job.battleNetEmail"> · {{ job.battleNetEmail }}</span>
+              </div>
+              <p class="job-times muted">
+                created {{ formatTs(job.createdAt) }}
+                <template v-if="job.startedAt"> · started {{ formatTs(job.startedAt) }}</template>
+                <template v-if="job.finishedAt"> · finished {{ formatTs(job.finishedAt) }}</template>
               </p>
               <p v-if="job.latestError" class="error-line">
                 {{ job.latestError.code ?? "ERROR" }}: {{ job.latestError.message }}
@@ -658,8 +664,12 @@ onMounted(async () => {
   color: var(--color-text-muted, #a8a8b3);
 }
 .mono {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-family: var(--font-data);
   font-size: 0.85em;
+}
+.label {
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
 }
 .tabs {
   display: flex;
@@ -694,20 +704,16 @@ onMounted(async () => {
   flex: 1;
   min-width: 10rem;
 }
-.search input,
-.search select {
-  padding: 0.6rem 0.75rem;
-  border-radius: 0.4rem;
-  border: 1px solid rgb(255 255 255 / 16%);
-  background: rgb(0 0 0 / 25%);
-  color: inherit;
-}
 .override {
-  display: flex;
-  gap: 0.5rem;
-  align-items: center;
   margin-bottom: var(--space-4);
-  font-size: 0.9rem;
+}
+.historical-failures {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 12rem;
+  flex: 1;
+  padding-bottom: 0.35rem;
 }
 .results {
   list-style: none;
@@ -715,52 +721,68 @@ onMounted(async () => {
   margin: 0;
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
+  gap: var(--space-2);
 }
 .user-card,
 .char-row,
 .job-row {
   display: flex;
   justify-content: space-between;
-  gap: var(--space-4);
+  gap: var(--space-3);
   flex-wrap: wrap;
-  padding: var(--space-4);
+  padding: var(--space-2) var(--space-3);
   border: 1px solid rgb(255 255 255 / 12%);
-  border-radius: 0.5rem;
-  align-items: flex-start;
+  border-radius: 0.45rem;
+  align-items: center;
 }
 .char-row,
 .job-row {
   justify-content: flex-start;
 }
-.portrait {
-  width: 40px;
-  height: 40px;
-  border-radius: 0.35rem;
-  object-fit: cover;
-  flex-shrink: 0;
-}
-.portrait--empty {
-  background: rgb(255 255 255 / 8%);
+.char-row__meta {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-left: auto;
+  flex-wrap: wrap;
 }
 .job-main {
   flex: 1;
   min-width: 14rem;
+  display: grid;
+  gap: 0.25rem;
+}
+.job-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.65rem;
+  font-size: 0.85rem;
+}
+.job-account,
+.job-times {
+  margin: 0;
+  font-size: 0.8rem;
 }
 .actions {
   display: flex;
   gap: var(--space-2);
-  align-items: start;
+  align-items: center;
   flex-wrap: wrap;
+  margin-left: auto;
 }
 .btn {
   display: inline-flex;
-  padding: 0.65rem 1rem;
+  align-items: center;
+  min-height: 2.25rem;
+  padding: 0.4rem 0.85rem;
   border-radius: 0.4rem;
   border: none;
   background: #1f6feb;
   color: #fff;
   cursor: pointer;
+  font: inherit;
+  align-self: center;
 }
 .btn:disabled {
   opacity: 0.6;
@@ -780,8 +802,9 @@ onMounted(async () => {
   margin-bottom: var(--space-4);
 }
 .error-line {
+  margin: 0;
   color: #fca5a5;
-  font-size: 0.9rem;
+  font-size: 0.85rem;
 }
 .pager {
   display: flex;

@@ -10,6 +10,7 @@ import {
 } from "../iam/session.js";
 import { isAllowedCallbackUrl, sanitizeReturnTo } from "../iam/redirects.js";
 import { parseCallbackAllowlist } from "../iam/redirects.js";
+import { maskEmail } from "../lib/maskEmail.js";
 
 const OAUTH_STATE_COOKIE = "mplus_oauth_state";
 
@@ -118,6 +119,7 @@ export function buildAuthRoutes(env: AppEnv, authService: IamAuthService): Fasti
           lastOwnershipSyncError: true,
           grantedScopes: true,
           tokenExpiresAt: true,
+          user: { select: { email: true } },
         },
       });
       if (!account) {
@@ -129,12 +131,14 @@ export function buildAuthRoutes(env: AppEnv, authService: IamAuthService): Fasti
           id: account.id,
           providerAccountId: account.providerAccountId,
           battletag: account.battletagDisplay,
+          /** Masked only — never expose the full email to the Account UI. */
+          emailMasked: maskEmail(account.user.email),
           linkedAt: account.linkedAt.toISOString(),
           lastOwnershipSyncAt: account.lastOwnershipSyncAt?.toISOString() ?? null,
           lastOwnershipSyncError: account.lastOwnershipSyncError,
           scopes: account.grantedScopes,
           tokenExpiresAt: account.tokenExpiresAt?.toISOString() ?? null,
-          // Explicitly never include provider tokens.
+          // Explicitly never include provider tokens or full email.
         },
       };
     });
