@@ -1,15 +1,18 @@
 export {
   CALIBRATION_REPORT_SCHEMA_VERSION,
   COHORT_MANIFEST_SCHEMA_VERSION,
+  CALIBRATION_INPUT_BUNDLE_SCHEMA_VERSION,
 } from "./types.js";
 export type {
   CalibrationBacktestMode,
+  UnsupportedCalibrationMode,
   QualitativeLabel,
   CohortMemberSource,
   CalibrationRole,
   PublicBoostFlag,
   UtilityCostSummary,
   CoverageRefreshState,
+  CalibrationEvidenceCoverage,
   CalibrationMemberEvidence,
   CalibrationModelRef,
   CalibrationRunOptions,
@@ -23,6 +26,13 @@ export type {
   CalibrationStatistics,
   CalibrationReport,
   CalibrationArtifacts,
+  CalibrationInputBundleV1,
+  EvidenceValidationCode,
+  EvidenceValidationIssue,
+  ActiveDraftComparisonResult,
+  ActiveDraftCharacterComparison,
+  ActiveDraftComparisonAggregate,
+  DimensionDelta,
 } from "./types.js";
 
 export {
@@ -50,6 +60,34 @@ export {
   createSeededRng,
 } from "./stats.js";
 
+export { spearmanRankCorrelation, averageRanksAscending } from "./ranking.js";
+
+export {
+  validateMemberEvidence,
+  hasReplayableScoringContext,
+} from "./evidence-validation.js";
+
+export {
+  createAblatedModel,
+  computeEngineWeightAblation,
+} from "./ablation.js";
+
+export { buildActiveDraftComparison } from "./comparison.js";
+
+export {
+  validateCalibrationInputBundle,
+  buildCalibrationInputBundle,
+  type BundleValidationResult,
+} from "./bundle.js";
+
+export {
+  runCalibrationHarnessFromBundle,
+  runCalibrationHarnessFromExport,
+  type CalibrationBundleExportPort,
+  type RunCalibrationFromExportInput,
+  type RunCalibrationFromExportResult,
+} from "./async-boundary.js";
+
 export {
   buildCalibrationArtifacts,
   reportToCsv,
@@ -69,5 +107,8 @@ export {
 
 export {
   buildSyntheticFixtureCohort,
+  buildSyntheticFixtureBundle,
   createFixtureEvidencePort,
+  V6_CANONICAL_METRIC_KEYS,
+  RETIRED_PERFORMANCE_METRIC_KEYS,
 } from "./fixture-cohort.js";
