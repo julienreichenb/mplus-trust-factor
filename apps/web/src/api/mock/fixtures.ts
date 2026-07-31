@@ -2,12 +2,12 @@ import type {
   AdminScoreModelDTO,
   CharacterIdentityInput,
   CharacterProfileView,
-  EditableModelConfig,
   JobStatusDTO,
   RedFlagDTO,
   ScoreSnapshotDTO,
 } from "../types";
 import { deepClone } from "../../lib/clone";
+import { PERSISTED_V6_SCORE_MODEL_CONFIG } from "../model-config/persisted-v6-fixture";
 
 const now = "2026-07-20T12:00:00.000Z";
 const staleAt = "2026-07-19T08:00:00.000Z";
@@ -27,38 +27,10 @@ export const EU_REALMS = [
   { slug: "cherith", name: "Chérith", region: "EU", locale: "fr_FR", displayLabel: "Chérith — EU" },
 ] as const;
 
-export const DEFAULT_MODEL_CONFIG: EditableModelConfig = {
-  key: "default",
-  version: 1,
-  weights: {
-    performance: 0.32,
-    survival: 0.27,
-    utility: 0.23,
-    experienceConsistency: 0.13,
-    mythicRaid: 0.05,
-  },
-  authenticityBlend: {
-    skillWeight: 0.6,
-    authenticityWeight: 0.4,
-  },
-  confidenceNeutralScore: 50,
-  gradeThresholds: { S: 90, A: 80, B: 65, C: 50 },
-  nestedMetricWeights: {
-    performance: { spec_percentile: 0.5, consistency: 0.3, contribution: 0.2 },
-    survival: { deaths: 0.4, avoidable: 0.35, defensives: 0.25 },
-    utility: { interrupts: 0.4, cc: 0.3, dispels: 0.3 },
-    experienceConsistency: { volume: 0.4, breadth: 0.3, progression: 0.3 },
-    mythicRaid: { progression: 0.6, parses: 0.4 },
-  },
-  confidenceParameters: {
-    minRunsForFullConfidence: 20,
-    shrinkageFloor: 0.35,
-  },
-  boostThresholds: {
-    suspicionSoft: 0.45,
-    suspicionHard: 0.7,
-  },
-};
+/** Seed-matched persisted v6 config used by the mock admin catalog. */
+export const DEFAULT_MODEL_CONFIG: Record<string, unknown> = deepClone(
+  PERSISTED_V6_SCORE_MODEL_CONFIG,
+);
 
 function contributors(positive: string, negative: string): unknown {
   return {
@@ -516,28 +488,28 @@ export function createJob(status: JobStatusDTO["status"], characterId: string): 
 
 let modelStore: AdminScoreModelDTO[] = [
   {
-    id: "model-active-1",
+    id: "model-active-6",
     key: "default",
-    version: 1,
-    name: "Default Trust Model",
+    version: 6,
+    name: "Default Trust Factor v6",
     status: "ACTIVE",
-    config: DEFAULT_MODEL_CONFIG,
+    config: deepClone(DEFAULT_MODEL_CONFIG),
     createdAt: "2026-07-01T00:00:00.000Z",
     activatedAt: "2026-07-01T00:00:00.000Z",
   },
   {
-    id: "model-archived-0",
+    id: "model-archived-5",
     key: "default",
-    version: 0,
-    name: "Default Trust Model (archived)",
+    version: 5,
+    name: "Default Trust Factor v5",
     status: "ARCHIVED",
-    config: { ...DEFAULT_MODEL_CONFIG, version: 0 },
+    config: deepClone(DEFAULT_MODEL_CONFIG),
     createdAt: "2026-06-01T00:00:00.000Z",
     activatedAt: "2026-06-01T00:00:00.000Z",
   },
 ];
 
-let nextModelVersion = 2;
+let nextModelVersion = 7;
 
 /** Mutable mock session state (queued refresh polls + dynamic ingestions). */
 export const mockSession = {
@@ -623,25 +595,25 @@ export function allocateModelVersion(): number {
 export function resetMockState(): void {
   mockSession.refreshPolls.clear();
   mockSession.dynamicProfiles.clear();
-  nextModelVersion = 2;
+  nextModelVersion = 7;
   modelStore = [
     {
-      id: "model-active-1",
+      id: "model-active-6",
       key: "default",
-      version: 1,
-      name: "Default Trust Model",
+      version: 6,
+      name: "Default Trust Factor v6",
       status: "ACTIVE",
       config: deepClone(DEFAULT_MODEL_CONFIG),
       createdAt: "2026-07-01T00:00:00.000Z",
       activatedAt: "2026-07-01T00:00:00.000Z",
     },
     {
-      id: "model-archived-0",
+      id: "model-archived-5",
       key: "default",
-      version: 0,
-      name: "Default Trust Model (archived)",
+      version: 5,
+      name: "Default Trust Factor v5",
       status: "ARCHIVED",
-      config: { ...deepClone(DEFAULT_MODEL_CONFIG), version: 0 },
+      config: deepClone(DEFAULT_MODEL_CONFIG),
       createdAt: "2026-06-01T00:00:00.000Z",
       activatedAt: "2026-06-01T00:00:00.000Z",
     },

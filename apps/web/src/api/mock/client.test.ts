@@ -82,18 +82,22 @@ describe("admin model validation", () => {
   });
 
   it("rejects invalid weight sums", () => {
-    const bad = structuredClone(DEFAULT_MODEL_CONFIG);
+    const bad = structuredClone(DEFAULT_MODEL_CONFIG) as {
+      weights: { performance: number; survival: number; utility: number; experienceConsistency: number; mythicRaid: number };
+    };
     bad.weights.performance = 0.9;
     const result = validateModelConfig(bad);
     expect(result.valid).toBe(false);
-    expect(result.errors[0]).toMatch(/sum to 1/);
+    expect(result.errors[0]).toMatch(/sum/);
   });
 
   it("blocks activate when invalid", async () => {
     const api = createMockApiClient();
     const active = (await api.listModels()).find((m) => m.status === "ACTIVE")!;
     const draft = await api.cloneModel(active.id);
-    const bad = structuredClone(DEFAULT_MODEL_CONFIG);
+    const bad = structuredClone(DEFAULT_MODEL_CONFIG) as {
+      weights: { performance: number };
+    };
     bad.weights.performance = 0.99;
     await api.updateModel(draft.id, bad);
     await expect(api.activateModel(draft.id)).rejects.toMatchObject({ code: "INVALID_MODEL" });

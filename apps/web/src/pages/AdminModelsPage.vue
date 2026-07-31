@@ -6,11 +6,15 @@ import type {
   ActivateScoreModelResult,
   AdminScoreModelDTO,
   BacktestSummary,
-  EditableModelConfig,
   ModelValidationResult,
 } from "../api/types";
-import { DEFAULT_MODEL_CONFIG } from "../api/mock/fixtures";
-import { validateModelConfig } from "../api/mock/client";
+import {
+  METRIC_WEIGHT_DIMENSIONS,
+  parsePersistedModelConfig,
+  toPersistedConfig,
+  validateModelConfigForm,
+  type ModelConfigFormState,
+} from "../api/model-config";
 import { deepClone } from "../lib/clone";
 import StatusBanner from "../components/common/StatusBanner.vue";
 import { ApiClientError } from "../api/live-client";
@@ -18,14 +22,17 @@ import { ApiClientError } from "../api/live-client";
 const router = useRouter();
 const models = ref<AdminScoreModelDTO[]>([]);
 const selectedId = ref<string | null>(null);
-const draftConfig = ref<EditableModelConfig>(deepClone(DEFAULT_MODEL_CONFIG));
+const draftForm = ref<ModelConfigFormState | null>(null);
+const draftBase = ref<Record<string, unknown> | null>(null);
+const configDiagnostic = ref<string | null>(null);
 const validation = ref<ModelValidationResult | null>(null);
 const backtest = ref<BacktestSummary | null>(null);
 const activationResult = ref<ActivateScoreModelResult | null>(null);
 const message = ref<string | null>(null);
 const error = ref<string | null>(null);
+const loadError = ref<string | null>(null);
 const busy = ref(false);
-const ready = ref(false);
+const loading = ref(true);
 const showActivateConfirm = ref(false);
 const activating = ref(false);
 
@@ -33,16 +40,30 @@ const selected = computed(() => models.value.find((m) => m.id === selectedId.val
 const isDraft = computed(() => selected.value?.status === "DRAFT");
 const activeModel = computed(() => models.value.find((m) => m.status === "ACTIVE") ?? null);
 const archivedModels = computed(() => models.value.filter((m) => m.status === "ARCHIVED"));
+const configEditable = computed(() => draftForm.value !== null && draftBase.value !== null);
+const isEmptyCatalog = computed(() => !loading.value && !loadError.value && models.value.length === 0);
 
 const weightSum = computed(() => {
-  const w = draftConfig.value.weights;
+  const w = draftForm.value?.weights;
+  if (!w) return 0;
   return (
-    w.performance +
-    w.survival +
-    w.utility +
-    w.experienceConsistency +
-    w.mythicRaid
+    w.performance + w.survival + w.utility + w.experienceConsistency + w.mythicRaid
   );
+});
+
+const readOnlyOverallFormula = computed(() => {
+  const v = draftBase.value?.overallFormula;
+  return typeof v === "string" ? v : null;
+});
+
+const readOnlyEligibility = computed(() => {
+  const v = draftBase.value?.eligibility;
+  return v !== null && typeof v === "object" ? (v as Record<string, unknown>) : null;
+});
+
+const readOnlyUtilityEligibility = computed(() => {
+  const v = draftBase.value?.utilityPublicationEligibility;
+  return v !== null && typeof v === "object" ? (v as Record<string, unknown>) : null;
 });
 
 function statusClass(status: string): string {
@@ -59,6 +80,27 @@ function handleAuthError(err: unknown): boolean {
   return false;
 }
 
+function buildPersistedPayload(): Record<string, unknown> | null {
+  if (!draftForm.value || !draftBase.value || !selected.value) return null;
+  return toPersistedConfig(draftForm.value, draftBase.value, {
+    key: selected.value.key,
+    version: selected.value.version,
+  });
+}
+
+function applyParsedConfig(raw: unknown): void {
+  const parsed = parsePersistedModelConfig(raw);
+  if (!parsed.ok) {
+    draftForm.value = null;
+    draftBase.value = null;
+    configDiagnostic.value = parsed.diagnostic;
+    return;
+  }
+  draftForm.value = deepClone(parsed.form);
+  draftBase.value = parsed.base;
+  configDiagnostic.value = null;
+}
+
 async function loadModels(): Promise<void> {
   models.value = await api.listModels();
   if (!selectedId.value && models.value[0]) {
@@ -66,15 +108,14 @@ async function loadModels(): Promise<void> {
   } else if (selectedId.value) {
     const still = models.value.find((m) => m.id === selectedId.value);
     if (!still && models.value[0]) selectModel(models.value[0].id);
+    else if (still) selectModel(still.id);
   }
 }
 
 function selectModel(id: string): void {
   selectedId.value = id;
   const model = models.value.find((m) => m.id === id);
-  draftConfig.value = deepClone(
-    (model?.config as EditableModelConfig | undefined) ?? DEFAULT_MODEL_CONFIG,
-  );
+  applyParsedConfig(model?.config);
   validation.value = null;
   backtest.value = null;
   activationResult.value = null;
@@ -104,18 +145,31 @@ async function cloneActive(): Promise<void> {
 }
 
 function runLocalValidate(): void {
-  validation.value = validateModelConfig(draftConfig.value);
+  if (!draftForm.value) {
+    validation.value = {
+      valid: false,
+      errors: [configDiagnostic.value ?? "No editable configuration"],
+      weightSum: 0,
+    };
+    return;
+  }
+  validation.value = validateModelConfigForm(draftForm.value);
 }
 
 async function runServerValidate(): Promise<void> {
   if (!selected.value) return;
+  const payload = buildPersistedPayload();
+  if (!payload) {
+    error.value = configDiagnostic.value ?? "Cannot validate malformed configuration.";
+    return;
+  }
   busy.value = true;
   error.value = null;
   try {
     if (isDraft.value) {
-      await api.updateModel(selected.value.id, draftConfig.value);
+      await api.updateModel(selected.value.id, payload);
     }
-    const result = await api.validateModel(selected.value.id, draftConfig.value);
+    const result = await api.validateModel(selected.value.id, payload);
     validation.value = {
       valid: result.valid,
       errors: result.errors,
@@ -131,6 +185,11 @@ async function runServerValidate(): Promise<void> {
 
 async function saveDraft(): Promise<void> {
   if (!selected.value || !isDraft.value) return;
+  const payload = buildPersistedPayload();
+  if (!payload || !draftForm.value) {
+    error.value = configDiagnostic.value ?? "Cannot save malformed configuration.";
+    return;
+  }
   runLocalValidate();
   if (!validation.value?.valid) {
     error.value = "Fix validation errors before saving.";
@@ -138,7 +197,7 @@ async function saveDraft(): Promise<void> {
   }
   busy.value = true;
   try {
-    await api.updateModel(selected.value.id, draftConfig.value);
+    await api.updateModel(selected.value.id, payload);
     await loadModels();
     message.value = "Draft saved.";
   } catch (err) {
@@ -150,11 +209,16 @@ async function saveDraft(): Promise<void> {
 
 async function runBacktest(): Promise<void> {
   if (!selected.value) return;
+  const payload = buildPersistedPayload();
+  if (!payload && isDraft.value) {
+    error.value = configDiagnostic.value ?? "Cannot backtest malformed configuration.";
+    return;
+  }
   busy.value = true;
   error.value = null;
   try {
-    if (isDraft.value) {
-      await api.updateModel(selected.value.id, draftConfig.value);
+    if (isDraft.value && payload) {
+      await api.updateModel(selected.value.id, payload);
     }
     backtest.value = await api.backtestModel(selected.value.id);
     message.value = `Cohort backtest complete (${backtest.value.cohortSize} characters, mode ${backtest.value.mode ?? "unknown"}).`;
@@ -177,11 +241,16 @@ function openActivateConfirm(): void {
 
 async function confirmActivate(): Promise<void> {
   if (!selected.value || !isDraft.value || activating.value) return;
+  const payload = buildPersistedPayload();
+  if (!payload) {
+    error.value = configDiagnostic.value ?? "Cannot activate malformed configuration.";
+    return;
+  }
   activating.value = true;
   busy.value = true;
   error.value = null;
   try {
-    await api.updateModel(selected.value.id, draftConfig.value);
+    await api.updateModel(selected.value.id, payload);
     const result = await api.activateModel(selected.value.id, {
       confirm: true,
       expectedPreviousActiveId: activeModel.value?.id ?? null,
@@ -210,13 +279,15 @@ async function confirmActivate(): Promise<void> {
 onMounted(() => {
   void loadModels()
     .then(() => {
-      ready.value = true;
+      loadError.value = null;
     })
     .catch((err) => {
       if (!handleAuthError(err)) {
-        error.value = (err as Error).message;
-        ready.value = true;
+        loadError.value = (err as Error).message;
       }
+    })
+    .finally(() => {
+      loading.value = false;
     });
 });
 </script>
@@ -230,12 +301,26 @@ onMounted(() => {
       row is authoritative; no VPS <code>.env</code> edit is required for activation.
     </p>
 
-    <template v-if="ready">
+    <StatusBanner v-if="loading" tone="info" data-testid="models-loading">Loading score models…</StatusBanner>
+    <StatusBanner v-else-if="loadError" tone="error" data-testid="models-load-error">
+      {{ loadError }}
+    </StatusBanner>
+    <StatusBanner v-else-if="isEmptyCatalog" tone="warn" data-testid="models-empty">
+      No score models in the catalog. Seed the database or create a draft via the API.
+    </StatusBanner>
+
+    <template v-if="!loading && !loadError">
       <StatusBanner v-if="message" tone="success">{{ message }}</StatusBanner>
       <StatusBanner v-if="error" tone="error">{{ error }}</StatusBanner>
 
       <div class="toolbar">
-        <button type="button" class="btn" data-testid="clone-model" :disabled="busy" @click="cloneActive">
+        <button
+          type="button"
+          class="btn"
+          data-testid="clone-model"
+          :disabled="busy || !activeModel"
+          @click="cloneActive"
+        >
           Clone active → draft
         </button>
         <RouterLink class="btn link" to="/admin/bulk-processing">Bulk processing</RouterLink>
@@ -262,154 +347,244 @@ onMounted(() => {
           </p>
         </aside>
 
-        <div v-if="selected" class="editor">
+        <div v-if="selected" class="editor" data-testid="model-editor">
           <h2>{{ selected.name }}</h2>
           <p class="muted">
-            <span class="badge" :class="statusClass(selected.status)">{{ selected.status }}</span>
+            <span class="badge" :class="statusClass(selected.status)" data-testid="selected-status">
+              {{ selected.status }}
+            </span>
             · key {{ selected.key }} · version {{ selected.version }}
             <template v-if="selected.activatedAt"> · activated {{ selected.activatedAt }}</template>
           </p>
           <p v-if="!isDraft" class="muted">This version is immutable. Clone the active model to edit.</p>
 
-          <fieldset :disabled="!isDraft">
-            <legend>Dimension weights</legend>
-            <label>
-              performance
-              <input
-                v-model.number="draftConfig.weights.performance"
-                type="number"
-                step="0.01"
-                min="0"
-                max="1"
-                data-testid="weight-performance"
-              />
-            </label>
-            <label>
-              survival
-              <input v-model.number="draftConfig.weights.survival" type="number" step="0.01" min="0" max="1" />
-            </label>
-            <label>
-              utility
-              <input v-model.number="draftConfig.weights.utility" type="number" step="0.01" min="0" max="1" />
-            </label>
-            <label>
-              experienceConsistency
-              <input
-                v-model.number="draftConfig.weights.experienceConsistency"
-                type="number"
-                step="0.01"
-                min="0"
-                max="1"
-              />
-            </label>
-            <label>
-              mythicRaid
-              <input v-model.number="draftConfig.weights.mythicRaid" type="number" step="0.01" min="0" max="1" />
-            </label>
-          </fieldset>
+          <StatusBanner
+            v-if="configDiagnostic"
+            tone="warn"
+            data-testid="config-malformed"
+          >
+            {{ configDiagnostic }}
+          </StatusBanner>
 
-          <fieldset :disabled="!isDraft">
-            <legend>Nested metric weights (performance)</legend>
-            <label v-for="(_val, key) in draftConfig.nestedMetricWeights.performance" :key="key">
-              {{ key }}
-              <input
-                v-model.number="draftConfig.nestedMetricWeights.performance[key]"
-                type="number"
-                step="0.01"
-                min="0"
-                max="1"
-              />
-            </label>
-          </fieldset>
+          <template v-if="configEditable && draftForm">
+            <fieldset :disabled="!isDraft">
+              <legend>Dimension weights</legend>
+              <label>
+                performance
+                <input
+                  v-model.number="draftForm.weights.performance"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  max="1"
+                  data-testid="weight-performance"
+                />
+              </label>
+              <label>
+                survival
+                <input
+                  v-model.number="draftForm.weights.survival"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  max="1"
+                />
+              </label>
+              <label>
+                utility
+                <input
+                  v-model.number="draftForm.weights.utility"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  max="1"
+                />
+              </label>
+              <label>
+                experienceConsistency
+                <input
+                  v-model.number="draftForm.weights.experienceConsistency"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  max="1"
+                />
+              </label>
+              <label>
+                mythicRaid
+                <input
+                  v-model.number="draftForm.weights.mythicRaid"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  max="1"
+                />
+              </label>
+            </fieldset>
 
-          <fieldset :disabled="!isDraft">
-            <legend>Grade thresholds</legend>
-            <label>
-              S
-              <input v-model.number="draftConfig.gradeThresholds.S" type="number" step="1" min="0" max="100" />
-            </label>
-            <label>
-              A
-              <input v-model.number="draftConfig.gradeThresholds.A" type="number" step="1" min="0" max="100" />
-            </label>
-            <label>
-              B
-              <input v-model.number="draftConfig.gradeThresholds.B" type="number" step="1" min="0" max="100" />
-            </label>
-            <label>
-              C
-              <input v-model.number="draftConfig.gradeThresholds.C" type="number" step="1" min="0" max="100" />
-            </label>
-          </fieldset>
-
-          <fieldset :disabled="!isDraft">
-            <legend>Confidence parameters</legend>
-            <label>
-              Min runs for full confidence
-              <input
-                v-model.number="draftConfig.confidenceParameters.minRunsForFullConfidence"
-                type="number"
-                min="1"
-              />
-            </label>
-            <label>
-              Shrinkage floor
-              <input
-                v-model.number="draftConfig.confidenceParameters.shrinkageFloor"
-                type="number"
-                step="0.01"
-                min="0"
-                max="1"
-              />
-            </label>
-          </fieldset>
-
-          <fieldset :disabled="!isDraft">
-            <legend>Boost thresholds (suspicion)</legend>
-            <label>
-              Soft
-              <input
-                v-model.number="draftConfig.boostThresholds.suspicionSoft"
-                type="number"
-                step="0.01"
-                min="0"
-                max="1"
-                data-testid="boost-soft"
-              />
-            </label>
-            <label>
-              Hard
-              <input
-                v-model.number="draftConfig.boostThresholds.suspicionHard"
-                type="number"
-                step="0.01"
-                min="0"
-                max="1"
-              />
-            </label>
-          </fieldset>
-
-          <div class="actions">
-            <button type="button" class="btn" data-testid="validate-model" @click="runLocalValidate">
-              Validate local
-            </button>
-            <button type="button" class="btn" data-testid="server-validate-model" :disabled="busy" @click="runServerValidate">
-              Server validate
-            </button>
-            <button type="button" class="btn" :disabled="!isDraft || busy" @click="saveDraft">Save draft</button>
-            <button type="button" class="btn" data-testid="backtest-model" :disabled="busy" @click="runBacktest">
-              Cohort backtest
-            </button>
-            <button
-              type="button"
-              class="btn primary"
-              data-testid="activate-model"
-              :disabled="!isDraft || busy || activating"
-              @click="openActivateConfirm"
+            <fieldset
+              v-for="dim in METRIC_WEIGHT_DIMENSIONS"
+              :key="dim"
+              :disabled="!isDraft"
+              :data-testid="`metric-weights-${dim}`"
             >
-              Activate…
-            </button>
-          </div>
+              <legend>Metric weights ({{ dim }})</legend>
+              <label v-for="(entry, idx) in draftForm.metricWeights[dim]" :key="`${dim}-${entry.metricKey}-${idx}`">
+                {{ entry.metricKey }}
+                <input
+                  v-model.number="entry.weight"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  max="1"
+                />
+              </label>
+            </fieldset>
+
+            <fieldset :disabled="!isDraft">
+              <legend>Grade thresholds</legend>
+              <label>
+                S
+                <input v-model.number="draftForm.gradeThresholds.S" type="number" step="1" min="0" max="100" />
+              </label>
+              <label>
+                A
+                <input v-model.number="draftForm.gradeThresholds.A" type="number" step="1" min="0" max="100" />
+              </label>
+              <label>
+                B
+                <input v-model.number="draftForm.gradeThresholds.B" type="number" step="1" min="0" max="100" />
+              </label>
+              <label>
+                C
+                <input v-model.number="draftForm.gradeThresholds.C" type="number" step="1" min="0" max="100" />
+              </label>
+            </fieldset>
+
+            <fieldset v-if="draftForm.minConfidenceForGrade !== null" :disabled="!isDraft">
+              <legend>Confidence for grade</legend>
+              <label>
+                minConfidenceForGrade
+                <input
+                  v-model.number="draftForm.minConfidenceForGrade"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  max="1"
+                  data-testid="min-confidence-for-grade"
+                />
+              </label>
+            </fieldset>
+
+            <fieldset :disabled="!isDraft">
+              <legend>Authenticity blend</legend>
+              <label>
+                skillWeight
+                <input
+                  v-model.number="draftForm.authenticityBlend.skillWeight"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  max="1"
+                />
+              </label>
+              <label>
+                authenticityWeight
+                <input
+                  v-model.number="draftForm.authenticityBlend.authenticityWeight"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  max="1"
+                />
+              </label>
+              <label>
+                confidenceNeutralScore
+                <input
+                  v-model.number="draftForm.confidenceNeutralScore"
+                  type="number"
+                  step="1"
+                  min="0"
+                  max="100"
+                />
+              </label>
+            </fieldset>
+
+            <fieldset v-if="draftForm.authenticityTags" :disabled="!isDraft" data-testid="authenticity-tags">
+              <legend>Authenticity tags (persisted)</legend>
+              <label>
+                boostSuspectedBelow
+                <input
+                  v-model.number="draftForm.authenticityTags.boostSuspectedBelow"
+                  type="number"
+                  step="1"
+                  data-testid="boost-soft"
+                />
+              </label>
+              <label>
+                atypicalBelow
+                <input
+                  v-model.number="draftForm.authenticityTags.atypicalBelow"
+                  type="number"
+                  step="1"
+                />
+              </label>
+            </fieldset>
+            <p v-else class="muted tiny" data-testid="authenticity-tags-absent">
+              Authenticity tag thresholds are not configured on this persisted model (scoring
+              runtime may apply package defaults at calculate time).
+            </p>
+
+            <div class="readonly-meta" data-testid="canonical-readonly">
+              <h3>Canonical (read-only)</h3>
+              <p v-if="readOnlyOverallFormula" class="muted tiny">
+                overallFormula: <code>{{ readOnlyOverallFormula }}</code>
+              </p>
+              <p v-if="readOnlyUtilityEligibility" class="muted tiny">
+                utilityPublicationEligibility:
+                <code>{{ JSON.stringify(readOnlyUtilityEligibility) }}</code>
+              </p>
+              <p v-if="readOnlyEligibility" class="muted tiny">
+                eligibility: <code>{{ JSON.stringify(readOnlyEligibility) }}</code>
+              </p>
+            </div>
+
+            <div class="actions">
+              <button type="button" class="btn" data-testid="validate-model" @click="runLocalValidate">
+                Validate local
+              </button>
+              <button
+                type="button"
+                class="btn"
+                data-testid="server-validate-model"
+                :disabled="busy"
+                @click="runServerValidate"
+              >
+                Server validate
+              </button>
+              <button type="button" class="btn" :disabled="!isDraft || busy" @click="saveDraft">
+                Save draft
+              </button>
+              <button
+                type="button"
+                class="btn"
+                data-testid="backtest-model"
+                :disabled="busy"
+                @click="runBacktest"
+              >
+                Cohort backtest
+              </button>
+              <button
+                type="button"
+                class="btn primary"
+                data-testid="activate-model"
+                :disabled="!isDraft || busy || activating"
+                @click="openActivateConfirm"
+              >
+                Activate…
+              </button>
+            </div>
+          </template>
 
           <div v-if="showActivateConfirm" class="confirm" data-testid="activate-confirm">
             <h3>Confirm activation</h3>
@@ -495,30 +670,6 @@ onMounted(() => {
                 {{ grade }}: {{ count }}
               </li>
             </ul>
-            <template v-if="backtest.outliers?.length">
-              <h4>Outliers</h4>
-              <ul>
-                <li v-for="(o, idx) in backtest.outliers.slice(0, 8)" :key="idx">
-                  {{ typeof o === "object" ? JSON.stringify(o) : o }}
-                </li>
-              </ul>
-            </template>
-            <template v-if="backtest.confidenceVersusCoverage?.length">
-              <h4>Confidence / coverage</h4>
-              <p class="muted">{{ backtest.confidenceVersusCoverage.length }} points</p>
-            </template>
-            <template v-if="backtest.activeDraftComparison">
-              <h4>Draft vs active</h4>
-              <p>{{ backtest.activeDraftComparison.note }}</p>
-              <p v-if="backtest.activeDraftComparison.aggregate">
-                Comparable {{ backtest.activeDraftComparison.aggregate.comparableCount }} ·
-                mean Δ overall
-                {{
-                  backtest.activeDraftComparison.aggregate.meanScoreDelta?.toFixed?.(3) ??
-                  backtest.activeDraftComparison.aggregate.meanScoreDelta
-                }}
-              </p>
-            </template>
           </div>
         </div>
       </div>
@@ -625,7 +776,8 @@ input {
 
 .confirm,
 .backtest,
-.activation-result {
+.activation-result,
+.readonly-meta {
   margin-top: 1rem;
   padding: 0.85rem;
   border: 1px solid var(--border);

@@ -289,4 +289,75 @@ describe.skipIf(!dbAvailable)("admin score model lifecycle (Agent 08)", { timeou
     expect(typeof active.key).toBe("string");
     expect(typeof active.version).toBe("number");
   });
+
+  it("accepts a seed-shaped v6 persisted config on PUT without key/version or mock-only fields", async () => {
+    const key = `life-v6-${randomUUID().slice(0, 8)}`;
+    const draft = await createDraft(key);
+    const seededV6Config = {
+      weights: {
+        performance: 0.35,
+        survival: 0.3,
+        utility: 0.25,
+        experienceConsistency: 0.1,
+        mythicRaid: 0,
+      },
+      authenticityBlend: { skillWeight: 0.6, authenticityWeight: 0.4 },
+      confidenceNeutralScore: 50,
+      gradeThresholds: { S: 90, A: 80, B: 65, C: 50 },
+      minConfidenceForGrade: 0.35,
+      metricWeights: {
+        PERFORMANCE: [
+          { metricKey: "performance.current_season_peak", weight: 0.5525 },
+          { metricKey: "performance.current_season_consistency", weight: 0.2975 },
+          { metricKey: "performance.historical_best_average", weight: 0.15 },
+        ],
+        SURVIVAL: [
+          { metricKey: "survival.outcome", weight: 0.55 },
+          { metricKey: "survival.defensive_response", weight: 0.3 },
+          { metricKey: "survival.emergency_recovery", weight: 0.15 },
+        ],
+        UTILITY: [{ metricKey: "utility.observed_contribution", weight: 1 }],
+        EXPERIENCE: [
+          { metricKey: "experience.dungeon_breadth", weight: 0.3 },
+          { metricKey: "experience.key_band_breadth", weight: 0.22 },
+          { metricKey: "experience.participation_depth", weight: 0.2 },
+          { metricKey: "experience.historical_seasons", weight: 0.18 },
+          { metricKey: "experience.activity_recency", weight: 0.1 },
+        ],
+        RAID: [
+          { metricKey: "raid.mythic_progression", weight: 0.6 },
+          { metricKey: "raid.mythic_parses", weight: 0.4 },
+        ],
+      },
+      eligibility: { minKnownRuns: 20, baselineKeyLevel: 10, topPopulationPercent: 25 },
+      utilityPublicationEligibility: {
+        minAnalyzedRuns: 3,
+        minConfidence: 0.45,
+        minEvidenceCoverage: 0.5,
+        minObservedDomains: 2,
+      },
+      overallFormula: "WEIGHTED_DIMENSIONS",
+    };
+
+    const put = await app.inject({
+      method: "PUT",
+      url: `/api/v1/admin/score-models/${draft.id}`,
+      headers: adminHeaders(),
+      payload: { config: seededV6Config },
+    });
+    expect(put.statusCode).toBe(200);
+    const body = put.json() as { config: Record<string, unknown> };
+    expect(body.config.metricWeights).toEqual(seededV6Config.metricWeights);
+    expect(body.config).not.toHaveProperty("nestedMetricWeights");
+    expect(body.config.overallFormula).toBe("WEIGHTED_DIMENSIONS");
+
+    const validated = await app.inject({
+      method: "POST",
+      url: `/api/v1/admin/score-models/${draft.id}/validate`,
+      headers: adminHeaders(),
+      payload: {},
+    });
+    expect(validated.statusCode).toBe(200);
+    expect(validated.json()).toMatchObject({ valid: true, errors: [] });
+  });
 });

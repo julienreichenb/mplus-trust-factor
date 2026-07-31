@@ -15,7 +15,6 @@ import type {
   RefreshStatusResponse,
   RegionCode,
   RealmCatalogOption,
-  ScoreModelConfig,
   ScoreSnapshotDTO,
   SearchCharacterResponse,
   ScoringRunSelection,
@@ -88,23 +87,8 @@ export interface ActivateScoreModelResult extends AdminScoreModelDTO {
   bulkEnqueueError: string | null;
 }
 
-export interface EditableModelConfig extends ScoreModelConfig {
-  nestedMetricWeights: {
-    performance: Record<string, number>;
-    survival: Record<string, number>;
-    utility: Record<string, number>;
-    experienceConsistency: Record<string, number>;
-    mythicRaid: Record<string, number>;
-  };
-  confidenceParameters: {
-    minRunsForFullConfidence: number;
-    shrinkageFloor: number;
-  };
-  boostThresholds: {
-    suspicionSoft: number;
-    suspicionHard: number;
-  };
-}
+/** @deprecated Use ModelConfigFormState from ./model-config — kept as alias for gradual migration. */
+export type { ModelConfigFormState as EditableModelConfig } from "./model-config";
 
 export type ApiMode = "mock" | "live";
 
