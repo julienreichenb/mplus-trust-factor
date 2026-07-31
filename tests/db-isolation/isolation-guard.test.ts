@@ -13,19 +13,23 @@ import {
   DISPOSABLE_DB_PREFIX,
   ISOLATED_TEST_DB_MARKER,
   TEST_SCORE_MODEL_KEY_PREFIXES,
+  TEST_SERVER_CONFIRMED_MARKER,
   assertSafeTestDatabaseTarget,
+  assertSafeTestServer,
   assertTestDatabaseAllowed,
   createDisposableDatabaseName,
   formatGuardFailure,
   isCanonicalScoreModelKey,
   isDisposableDatabaseName,
   isTestOwnedScoreModelKey,
+  resolveIsolatedTestServer,
   sanitizeDatabaseUrl,
 } from "../../tools/scripts/lib/test-db-isolation.mjs";
 import {
   assertCleanupTargetAllowed,
   parseArgs as parseCleanupArgs,
-} from "../../tools/scripts/cleanup-test-score-models.mjs";
+} from "../../tools/scripts/cleanup-test-artifacts.mjs";
+import { buildChildEnv } from "../../tools/scripts/run-tests-isolated.mjs";
 
 const root = resolve(fileURLToPath(new URL(".", import.meta.url)), "../..");
 
@@ -240,4 +244,96 @@ describe("isolated runner lifecycle", () => {
       }
     },
   );
+});
+
+describe("isolated test server safety matrix", () => {
+  it("rejects production APP_ENV before connection", () => {
+    const resolved = resolveIsolatedTestServer({
+      APP_ENV: "production",
+      NODE_ENV: "test",
+      DATABASE_URL: "postgresql://mplus:mplus@localhost:5433/mplus_trust?schema=public",
+    });
+    expect(resolved.ok).toBe(false);
+    if (!resolved.ok) expect(resolved.reason).toMatch(/APP_ENV/);
+  });
+
+  it("rejects production NODE_ENV before connection", () => {
+    const resolved = resolveIsolatedTestServer({
+      APP_ENV: "test",
+      NODE_ENV: "production",
+      DATABASE_URL: "postgresql://mplus:mplus@localhost:5433/mplus_trust?schema=public",
+    });
+    expect(resolved.ok).toBe(false);
+    if (!resolved.ok) expect(resolved.reason).toMatch(/NODE_ENV/);
+  });
+
+  it("rejects remote ordinary DATABASE_URL", () => {
+    const resolved = resolveIsolatedTestServer({
+      APP_ENV: "test",
+      NODE_ENV: "test",
+      DATABASE_URL: "postgresql://mplus:secret@db.example.com:5432/mplus_trust?schema=public",
+    });
+    expect(resolved.ok).toBe(false);
+    if (!resolved.ok) {
+      expect(resolved.reason).toMatch(/MPLUS_TEST_SERVER_DATABASE_URL/);
+      expect(resolved.sanitized).not.toContain("secret");
+    }
+  });
+
+  it("accepts explicit remote test server only with all markers", () => {
+    const refused = assertSafeTestServer({
+      serverUrl: "postgresql://mplus:x@db.example.com:5432/mplus_trust?schema=public",
+      env: { APP_ENV: "test", NODE_ENV: "test" },
+      source: "explicit-test-server",
+    });
+    expect(refused.ok).toBe(false);
+
+    const accepted = assertSafeTestServer({
+      serverUrl: "postgresql://mplus:x@db.example.com:5432/mplus_trust?schema=public",
+      env: {
+        APP_ENV: "test",
+        NODE_ENV: "test",
+        [TEST_SERVER_CONFIRMED_MARKER]: "true",
+      },
+      source: "explicit-test-server",
+    });
+    expect(accepted.ok).toBe(true);
+  });
+
+  it("never rewrites production APP_ENV to test in child env", () => {
+    expect(() =>
+      buildChildEnv(
+        { APP_ENV: "production", NODE_ENV: "test" },
+        "postgresql://mplus:mplus@localhost:5433/mplus_itest_abcd1234abcd1234?schema=public",
+      ),
+    ).toThrow(/never rewritten/);
+  });
+
+  it("supports local loopback DATABASE_URL and default", () => {
+    const fromDb = resolveIsolatedTestServer({
+      APP_ENV: "development",
+      NODE_ENV: "test",
+      DATABASE_URL: "postgresql://mplus:mplus@127.0.0.1:5433/mplus_trust?schema=public",
+    });
+    expect(fromDb.ok).toBe(true);
+    if (fromDb.ok) expect(fromDb.source).toBe("database-url");
+
+    const fallback = resolveIsolatedTestServer({
+      APP_ENV: "test",
+      NODE_ENV: "test",
+    });
+    expect(fallback.ok).toBe(true);
+    if (fallback.ok) expect(fallback.source).toBe("default-loopback");
+  });
+
+  it("does not invoke CREATE DATABASE when server guard rejects (resolve fails first)", () => {
+    const resolved = resolveIsolatedTestServer({
+      APP_ENV: "prod",
+      NODE_ENV: "test",
+      MPLUS_TEST_SERVER_DATABASE_URL: "postgresql://mplus:x@db.example.com:5432/mplus_trust?schema=public",
+    });
+    expect(resolved.ok).toBe(false);
+    // No serverUrl is returned — callers must not call createDatabase.
+    expect("serverUrl" in resolved).toBe(false);
+  });
 });

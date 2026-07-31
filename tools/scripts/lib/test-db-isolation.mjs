@@ -24,6 +24,7 @@ export {
   TEST_USER_EXTERNAL_SUBJECT_PREFIXES,
   matchPrefix,
   matchScoreModelKey,
+  matchExactCharacterIdentity,
   matchTestCharacterIdentity,
   matchIngestionDedupeKey,
   matchIngestionPayloadName,
@@ -31,6 +32,8 @@ export {
   matchTestRealmSlug,
   matchTestDungeonSlug,
   isTestSeasonSlug,
+  isModelActivateLogicalKey,
+  isDiscoverDedupeKey,
 } from "./test-artifact-registry.mjs";
 
 import {
@@ -142,6 +145,155 @@ export function looksLikeRemoteDeployedHost(host) {
   // GitHub Actions / compose service names used in CI
   if (h === "postgres" || h === "db" || h.endsWith(".local")) return false;
   return true;
+}
+
+export const TEST_SERVER_CONFIRMED_MARKER = "MPLUS_TEST_SERVER_CONFIRMED";
+
+/**
+ * Guard the PostgreSQL *server* used to CREATE disposable test databases.
+ * Must run before any CREATE DATABASE / network connection.
+ *
+ * @param {object} opts
+ * @param {string} [opts.serverUrl] Resolved server URL (not the disposable DB URL).
+ * @param {NodeJS.ProcessEnv | Record<string, string | undefined>} [opts.env]
+ * @param {"explicit-test-server"|"database-url"|"default-loopback"} [opts.source]
+ * @returns {{ ok: true, sanitized: string, source: string } | { ok: false, reason: string, sanitized: string }}
+ */
+export function assertSafeTestServer(opts = {}) {
+  const env = opts.env ?? process.env;
+  const serverUrl = opts.serverUrl ?? "";
+  const source = opts.source ?? "unknown";
+  const sanitized = sanitizeDatabaseUrl(serverUrl);
+  const nodeEnv = String(env.NODE_ENV ?? "").toLowerCase();
+  const appEnv = String(env.APP_ENV ?? "").toLowerCase();
+
+  if (appEnv === "production" || appEnv === "prod") {
+    return {
+      ok: false,
+      reason: `Blocked: APP_ENV=${JSON.stringify(env.APP_ENV)} — refusing CREATE DATABASE on any server.`,
+      sanitized,
+    };
+  }
+
+  if (nodeEnv === "production") {
+    return {
+      ok: false,
+      reason: `Blocked: NODE_ENV=production — refusing CREATE DATABASE on any server.`,
+      sanitized,
+    };
+  }
+
+  const parsed = parseDatabaseUrl(serverUrl);
+  if (!parsed) {
+    return {
+      ok: false,
+      reason: "Blocked: test server URL is missing or not a valid PostgreSQL URL.",
+      sanitized,
+    };
+  }
+
+  const remote = looksLikeRemoteDeployedHost(parsed.host);
+
+  if (source === "database-url" && remote) {
+    return {
+      ok: false,
+      reason:
+        "Blocked: remote DATABASE_URL cannot be used as the isolated test server. " +
+        "Set MPLUS_TEST_SERVER_DATABASE_URL explicitly with APP_ENV=test|ci and " +
+        `${TEST_SERVER_CONFIRMED_MARKER}=true.`,
+      sanitized,
+    };
+  }
+
+  if (remote) {
+    if (appEnv !== "test" && appEnv !== "ci") {
+      return {
+        ok: false,
+        reason:
+          `Blocked: remote test server requires APP_ENV=test|ci (got ${JSON.stringify(env.APP_ENV ?? "")}).`,
+        sanitized,
+      };
+    }
+    if (String(env[TEST_SERVER_CONFIRMED_MARKER] ?? "").toLowerCase() !== "true") {
+      return {
+        ok: false,
+        reason:
+          `Blocked: remote test server requires ${TEST_SERVER_CONFIRMED_MARKER}=true ` +
+          `and an explicit MPLUS_TEST_SERVER_DATABASE_URL.`,
+        sanitized,
+      };
+    }
+    if (source !== "explicit-test-server") {
+      return {
+        ok: false,
+        reason:
+          "Blocked: remote servers require an explicit MPLUS_TEST_SERVER_DATABASE_URL (not inherited DATABASE_URL).",
+        sanitized,
+      };
+    }
+  }
+
+  return { ok: true, sanitized, source };
+}
+
+/**
+ * Resolve which URL to use as the Postgres server for disposable DB creation.
+ * Does not rewrite APP_ENV. Never connects.
+ *
+ * @param {NodeJS.ProcessEnv | Record<string, string | undefined>} [env]
+ * @param {() => void} [loadDotEnvFn]
+ * @returns {{ ok: true, serverUrl: string, source: string } | { ok: false, reason: string, sanitized: string }}
+ */
+export function resolveIsolatedTestServer(env = process.env, loadDotEnvFn) {
+  if (typeof loadDotEnvFn === "function") loadDotEnvFn();
+
+  const appEnv = String(env.APP_ENV ?? "").toLowerCase();
+  const nodeEnv = String(env.NODE_ENV ?? "").toLowerCase();
+  if (appEnv === "production" || appEnv === "prod") {
+    return {
+      ok: false,
+      reason: `Blocked: APP_ENV=${JSON.stringify(env.APP_ENV)} — refusing before server resolution.`,
+      sanitized: "(no server selected)",
+    };
+  }
+  if (nodeEnv === "production") {
+    return {
+      ok: false,
+      reason: "Blocked: NODE_ENV=production — refusing before server resolution.",
+      sanitized: "(no server selected)",
+    };
+  }
+
+  const explicit = env.MPLUS_TEST_SERVER_DATABASE_URL;
+  if (typeof explicit === "string" && explicit.trim() && parseDatabaseUrl(explicit)) {
+    const gate = assertSafeTestServer({
+      serverUrl: explicit.trim(),
+      env,
+      source: "explicit-test-server",
+    });
+    if (!gate.ok) return gate;
+    return { ok: true, serverUrl: explicit.trim(), source: "explicit-test-server" };
+  }
+
+  const inherited = env.DATABASE_URL;
+  if (typeof inherited === "string" && inherited.trim() && parseDatabaseUrl(inherited)) {
+    const gate = assertSafeTestServer({
+      serverUrl: inherited.trim(),
+      env,
+      source: "database-url",
+    });
+    if (!gate.ok) return gate;
+    return { ok: true, serverUrl: inherited.trim(), source: "database-url" };
+  }
+
+  const fallback = "postgresql://mplus:mplus@localhost:5433/mplus_trust?schema=public";
+  const gate = assertSafeTestServer({
+    serverUrl: fallback,
+    env,
+    source: "default-loopback",
+  });
+  if (!gate.ok) return gate;
+  return { ok: true, serverUrl: fallback, source: "default-loopback" };
 }
 
 /**

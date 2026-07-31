@@ -1,22 +1,20 @@
 /**
- * Deprecated alias — use cleanup-test-artifacts.mjs.
+ * Retired — score-model-only cleanup is now one part of the general
+ * test-artifacts cleanup (score models + ingestion jobs + characters + bulk
+ * operations + realms/dungeons/seasons + mechanic rules + Redis/BullMQ).
  *
- * Score-model cleanup is now one part of the general test-artifacts cleanup
- * (score models + ingestion jobs + characters + bulk operations + realms/
- * dungeons/seasons + mechanic rules + Redis/BullMQ). Kept as a thin forwarder
- * so existing tooling/CI references keep working.
+ * This file no longer forwards to the general purge automatically: silently
+ * running the full cleanup under the old model-only command name could
+ * surprise a caller who only wanted to touch score models. It fails loudly
+ * with migration guidance instead.
  *
  * Usage:
- *   pnpm db:cleanup:test-score-models -- --dry-run
- *   pnpm db:cleanup:test-score-models -- --confirm
+ *   pnpm db:cleanup:test-artifacts -- --dry-run
+ *   pnpm db:cleanup:test-artifacts -- --dry-run --models-only   (score models only)
  */
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import {
-  assertCleanupTargetAllowed,
-  parseArgs,
-  runCleanup,
-} from "./cleanup-test-artifacts.mjs";
+import { assertCleanupTargetAllowed, parseArgs } from "./cleanup-test-artifacts.mjs";
 
 function isMainModule() {
   const entry = process.argv[1];
@@ -29,10 +27,10 @@ function isMainModule() {
 }
 
 if (isMainModule()) {
-  runCleanup(process.argv.slice(2)).catch((err) => {
-    console.error(err);
-    process.exit(1);
-  });
+  console.error("db:cleanup:test-score-models is retired.");
+  console.error("Use: pnpm db:cleanup:test-artifacts -- --dry-run");
+  console.error("Or for models-only: pnpm db:cleanup:test-artifacts -- --dry-run --models-only");
+  process.exit(2);
 }
 
-export { assertCleanupTargetAllowed, parseArgs, runCleanup };
+export { assertCleanupTargetAllowed, parseArgs };

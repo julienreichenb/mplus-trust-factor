@@ -9,6 +9,7 @@
  * Usage:
  *   pnpm db:cleanup:test-artifacts -- --dry-run
  *   pnpm db:cleanup:test-artifacts -- --confirm
+ *   pnpm db:cleanup:test-artifacts -- --confirm --models-only   (score models only)
  *
  * Deployed test environment (required assertion):
  *   MPLUS_CLEANUP_TARGET=deployed-test pnpm db:cleanup:test-artifacts -- --confirm
@@ -17,9 +18,16 @@
  *   - Production (APP_ENV/NODE_ENV) is categorically refused.
  *   - Remote/non-loopback targets require MPLUS_CLEANUP_TARGET=deployed-test.
  *   - Never deletes the canonical seeded score model key (`default`).
- *   - Candidates are selected exclusively from the registry of known
- *     automated-test markers (tools/scripts/lib/test-artifact-registry.mjs) —
- *     never by status, date, or a bare "Test" substring match.
+ *   - Candidates are selected exclusively via the compound classifiers below,
+ *     backed by the authoritative marker registry
+ *     (tools/scripts/lib/test-artifact-registry.mjs) — never by status, date,
+ *     or a bare substring match. A single weak marker (e.g. `discover:` alone,
+ *     or a character id alone) is never sufficient; ownership requires at
+ *     least two independent signals.
+ *   - BullMQ removal is fail-closed: if Redis/BullMQ is unavailable, or the
+ *     queue job cannot be verified as removed, the corresponding IngestionJob
+ *     row (and any Character that still references it) is refused, not
+ *     silently skipped.
  *   - Never prints credentials (all DATABASE_URL/REDIS_URL logging is sanitized).
  */
 import { resolve } from "node:path";
@@ -28,8 +36,6 @@ import { createRequire } from "node:module";
 import {
   CANONICAL_SCORE_MODEL_KEYS,
   TEST_SCORE_MODEL_KEY_PREFIXES,
-  TEST_CHARACTER_DISPLAY_NAME_PREFIXES,
-  TEST_CHARACTER_NORMALIZED_NAME_PREFIXES,
   TEST_REALM_SLUGS,
   TEST_REALM_SLUG_PREFIXES,
   TEST_DUNGEON_SLUG_PREFIXES,
@@ -37,12 +43,16 @@ import {
   TEST_BULK_LOGICAL_KEY_PREFIXES,
   TEST_MECHANIC_RULE_SOURCES,
   matchScoreModelKey,
-  matchTestCharacterIdentity,
+  matchExactCharacterIdentity,
   matchIngestionDedupeKey,
   matchIngestionPayloadName,
   matchBulkLogicalKey,
   matchTestRealmSlug,
   matchTestDungeonSlug,
+  isModelActivateLogicalKey,
+  isDiscoverDedupeKey,
+} from "./lib/test-artifact-registry.mjs";
+import {
   isCanonicalScoreModelKey,
   isTestOwnedScoreModelKey,
   parseDatabaseUrl,
@@ -57,7 +67,8 @@ const root = resolve(fileURLToPath(new URL(".", import.meta.url)), "../..");
 
 function parseArgs(argv) {
   const confirm = argv.includes("--confirm");
-  return { confirm, dryRun: !confirm };
+  const modelsOnly = argv.includes("--models-only");
+  return { confirm, dryRun: !confirm, modelsOnly };
 }
 
 function assertCleanupTargetAllowed(databaseUrl, env = process.env) {
@@ -173,10 +184,38 @@ function parseRedisConnectionOptions(redisUrl) {
   return options;
 }
 
+/** Strips credentials from Redis connection errors before they hit the console. */
+function sanitizeErrorMessage(err) {
+  const message = err instanceof Error ? err.message : String(err);
+  return message.replace(/redis(s)?:\/\/[^@\s]*@/gi, "redis$1://***@");
+}
+
 /**
- * Best-effort BullMQ context. Never throws — callers fall back to
- * DB-only cleanup (queue_skipped) when Redis/BullMQ is unavailable.
- * @returns {Promise<null | { removeJob(jobType: string, queueJobId: string): Promise<{removed: boolean, reason?: string}>, close(): Promise<void> }>}
+ * A job's `jobType` must equal a known BullMQ queue name exactly. There is
+ * intentionally NO fallback to `refresh-character` (or any other queue) for
+ * unrecognized job types — an unknown job type means we cannot prove the
+ * queue job was removed, so the caller must refuse instead of guessing.
+ * @param {string} jobType
+ * @param {Set<string>} queueNamesSet
+ * @returns {Promise<string | null>}
+ */
+async function resolveQueueNameForJobType(jobType, queueNamesSet) {
+  if (typeof jobType === "string" && queueNamesSet.has(jobType)) return jobType;
+  return null;
+}
+
+/**
+ * Fail-closed BullMQ context. Returns `null` only when Redis/BullMQ itself is
+ * unavailable — callers must treat that as a reason to REFUSE deletion of any
+ * ingestion job that still has a `queueJobId`, never as permission to skip
+ * the queue check and delete anyway.
+ * @param {NodeJS.ProcessEnv} [env]
+ * @returns {Promise<null | {
+ *   knownQueueNames: Set<string>,
+ *   getJob(queueName: string, queueJobId: string): Promise<unknown>,
+ *   removeJob(jobType: string, queueJobId: string, jobStatus?: string): Promise<{ ok: boolean, state?: string, reason?: string, blocked?: boolean }>,
+ *   close(): Promise<void>,
+ * }>}
  */
 async function createBullMqContext(env = process.env) {
   const redisUrl = env.REDIS_URL;
@@ -198,18 +237,34 @@ async function createBullMqContext(env = process.env) {
   }
 
   return {
+    knownQueueNames,
+
+    async getJob(queueName, queueJobId) {
+      const queue = queueFor(queueName);
+      return queue.getJob(queueJobId);
+    },
+
     async removeJob(jobType, queueJobId) {
-      const queueName = knownQueueNames.has(jobType) ? jobType : "refresh-character";
+      const queueName = await resolveQueueNameForJobType(jobType, knownQueueNames);
+      if (!queueName) return { ok: false, reason: `unknown_job_type:${jobType}` };
       try {
         const queue = queueFor(queueName);
         const job = await queue.getJob(queueJobId);
-        if (!job) return { removed: false, reason: "not-found" };
+        if (!job) return { ok: true, state: "not-found" }; // nothing to remove — DB delete permitted
+        const state = await job.getState();
+        if (state === "active") {
+          // Do NOT force-remove a job a worker currently holds a lock on.
+          return { ok: false, reason: `active_locked:${state}`, blocked: true };
+        }
         await job.remove();
-        return { removed: true };
+        const again = await queue.getJob(queueJobId);
+        if (again) return { ok: false, reason: "still_present_after_remove" };
+        return { ok: true, state: "removed" };
       } catch (err) {
-        return { removed: false, reason: err instanceof Error ? err.message : String(err) };
+        return { ok: false, reason: sanitizeErrorMessage(err) };
       }
     },
+
     async close() {
       await Promise.all([...queues.values()].map((q) => q.close().catch(() => {})));
     },
@@ -217,26 +272,122 @@ async function createBullMqContext(env = process.env) {
 }
 
 /* ---------------------------------------------------------------------- *
- * isTestOwnedIngestionJob — pure classifier (exported for unit tests)
+ * Compound ownership classifiers (pure — exported for unit tests)
  * ---------------------------------------------------------------------- */
 
 /**
+ * No single weak marker (a lone `discover:` dedupe key, a lone payload name,
+ * or a lone reference to a test character id) is sufficient evidence of test
+ * ownership on its own — each of those can, in principle, coincide with real
+ * data. Ownership requires at least two independent signals to line up.
+ *
  * @param {{ characterId?: string | null, dedupeKey?: string | null, payload?: unknown }} job
- * @param {Set<string>} testCharacterIds
- * @returns {{ owned: boolean, evidence: string | null }}
+ * @param {{ testCharacterIds: Set<string>, testModelKeys?: Set<string>, testRealmSlugs?: Set<string> }} ctx
+ * @returns {{ owned: boolean, ambiguous?: boolean, evidence: string[], reason?: string }}
  */
-function isTestOwnedIngestionJob(job, testCharacterIds = new Set()) {
-  const dedupeMatch = matchIngestionDedupeKey(job.dedupeKey ?? null);
-  if (dedupeMatch) return { owned: true, evidence: `dedupe:${dedupeMatch}` };
+function classifyIngestionJob(job, ctx) {
+  const evidence = [];
+  const dedupe = matchIngestionDedupeKey(job.dedupeKey ?? null);
+  const payload = matchIngestionPayloadName(job.payload ?? null);
+  const payloadRealm =
+    job.payload && typeof job.payload === "object" ? /** @type {{realmSlug?: unknown}} */ (job.payload).realmSlug : null;
+  const realmMatch = matchTestRealmSlug(typeof payloadRealm === "string" ? payloadRealm : null);
+  const onTestChar = Boolean(job.characterId && ctx.testCharacterIds.has(job.characterId));
 
-  const payloadMatch = matchIngestionPayloadName(job.payload ?? null);
-  if (payloadMatch) return { owned: true, evidence: `payload:${payloadMatch}` };
+  if (dedupe) evidence.push(`dedupe:${dedupe.id}`);
+  if (payload) evidence.push(`payload:${payload.id}`);
+  if (realmMatch) evidence.push(`payloadRealm:${realmMatch}`);
+  if (onTestChar) evidence.push(`character:${job.characterId}`);
 
-  if (job.characterId && testCharacterIds.has(job.characterId)) {
-    return { owned: true, evidence: `character:${job.characterId}` };
+  // discover:* alone → not owned (ambiguous unless another signal)
+  if (isDiscoverDedupeKey(job.dedupeKey ?? null)) {
+    if (onTestChar || (payload && realmMatch)) {
+      evidence.push("discover+compound");
+      return { owned: true, evidence };
+    }
+    return { owned: false, ambiguous: true, evidence: ["discover:alone"], reason: "discover without compound test signal" };
   }
 
-  return { owned: false, evidence: null };
+  // Compound rules:
+  // - dedupe exclusive AND payload exclusive
+  // - dedupe exclusive AND test character
+  // - payload exclusive AND (test character OR test realm in payload)
+  if (dedupe && payload) return { owned: true, evidence };
+  if (dedupe && onTestChar) return { owned: true, evidence };
+  if (payload && onTestChar) return { owned: true, evidence };
+  if (payload && realmMatch) return { owned: true, evidence };
+
+  // Single exclusive dedupe without second signal → ambiguous retain
+  if (dedupe && !payload && !onTestChar) {
+    return { owned: false, ambiguous: true, evidence, reason: "dedupe without second independent marker" };
+  }
+  if (payload && !dedupe && !onTestChar && !realmMatch) {
+    return { owned: false, ambiguous: true, evidence, reason: "payload without second independent marker" };
+  }
+
+  return { owned: false, evidence };
+}
+
+/**
+ * @param {{ logicalKey: string, scoreModelId?: string | null, scoreModel?: { key: string } | null }} bulkOperation
+ * @returns {{ owned: boolean, evidence: string[], reason?: string }}
+ */
+function classifyBulkOperation(bulkOperation) {
+  const exclusive = matchBulkLogicalKey(bulkOperation.logicalKey);
+  if (exclusive) return { owned: true, evidence: [`logicalKey:${exclusive.id}`] };
+
+  if (isModelActivateLogicalKey(bulkOperation.logicalKey)) {
+    const modelKey = bulkOperation.scoreModel?.key ?? null;
+    if (modelKey && !isCanonicalScoreModelKey(modelKey)) {
+      const scoreMatch = matchScoreModelKey(modelKey);
+      if (scoreMatch) return { owned: true, evidence: [`modelActivate:${scoreMatch.id}`] };
+    }
+    return {
+      owned: false,
+      evidence: [],
+      reason:
+        modelKey && isCanonicalScoreModelKey(modelKey)
+          ? "model-activate references the canonical default model"
+          : "model-activate references a non-test-owned or missing model",
+    };
+  }
+
+  return { owned: false, evidence: [], reason: "no exclusive marker matched" };
+}
+
+/**
+ * Pure classifier for a character that already has an exact identity match.
+ * All DB lookups (ownership, canonical published score, non-test job count)
+ * are performed by the caller and passed in as pre-computed signals so the
+ * decision logic stays testable without a database.
+ *
+ * @param {{ identity: {id: string, field: string} | null, isTestRealm: boolean, ownershipCount: number, canonicalPublishedScoreCount: number, nonTestJobCount: number }} signals
+ * @returns {{ owned: boolean, evidence: string[], reason?: string }}
+ */
+function classifyCharacter(signals) {
+  const { identity, isTestRealm, ownershipCount, canonicalPublishedScoreCount, nonTestJobCount } = signals;
+  if (!identity) return { owned: false, evidence: [], reason: "no exact identity match" };
+
+  const evidence = [`identity:${identity.field}:${identity.id}`];
+
+  // A character created exclusively inside a test-owned realm is test data by
+  // construction — any ownership/publication rows on it are test fixtures too.
+  if (isTestRealm) {
+    evidence.push("realm:test");
+    return { owned: true, evidence };
+  }
+
+  if (ownershipCount > 0) {
+    return { owned: false, evidence, reason: `has ${ownershipCount} verified ownership record(s)` };
+  }
+  if (canonicalPublishedScoreCount > 0) {
+    return { owned: false, evidence, reason: "has published score on canonical model" };
+  }
+  if (nonTestJobCount > 0) {
+    return { owned: false, evidence, reason: `has ${nonTestJobCount} non-test ingestion job(s)` };
+  }
+
+  return { owned: true, evidence };
 }
 
 /* ---------------------------------------------------------------------- *
@@ -273,37 +424,48 @@ async function inventoryScoreModels(prisma) {
     candidates.push({
       model,
       deps: { scoreSnapshots, analysisBatches, characterRedFlags, addonExports, bulkOperations },
-      evidence: `key:${matchScoreModelKey(model.key)}`,
+      evidence: `key:${matchScoreModelKey(model.key).id}`,
     });
   }
   return { candidates, retained };
 }
 
 /**
+ * Exact-identity classification requires the full regex (including the
+ * random/UUID suffix shape tests generate), which cannot be expressed as a
+ * SQL prefix filter for every pattern — so this loads the (expected-small,
+ * test/CI-scoped) Character table once and classifies in memory.
  * @param {import("@prisma/client").PrismaClient} prisma
- * @returns {Promise<{ id: string, displayName: string, normalizedName: string, realmId: string }[]>}
+ * @returns {Promise<{ character: { id: string, displayName: string, normalizedName: string, realmId: string, realm: { slug: string } | null }, identity: {id: string, field: string} }[]>}
  */
 async function findIdentityMatchedCharacters(prisma) {
-  return prisma.character.findMany({
-    where: {
-      OR: [
-        ...TEST_CHARACTER_DISPLAY_NAME_PREFIXES.map((prefix) => ({ displayName: { startsWith: prefix } })),
-        ...TEST_CHARACTER_NORMALIZED_NAME_PREFIXES.map((prefix) => ({ normalizedName: { startsWith: prefix } })),
-      ],
+  const all = await prisma.character.findMany({
+    select: {
+      id: true,
+      displayName: true,
+      normalizedName: true,
+      realmId: true,
+      createdAt: true,
+      realm: { select: { slug: true } },
     },
-    select: { id: true, displayName: true, normalizedName: true, realmId: true, createdAt: true },
   });
+  const matched = [];
+  for (const character of all) {
+    const identity = matchExactCharacterIdentity(character.displayName, character.normalizedName);
+    if (identity) matched.push({ character, identity });
+  }
+  return matched;
 }
 
 /**
  * Fetch + classify every IngestionJob. The table is expected to stay small in
  * practice for test/CI environments; classification is done in-memory so the
- * dedupeKey/payload-name/character-identity rules stay in one place
- * (isTestOwnedIngestionJob) instead of being re-expressed as SQL.
+ * dedupeKey/payload-name/character-identity compound rules stay in one place
+ * (classifyIngestionJob) instead of being re-expressed as SQL.
  * @param {import("@prisma/client").PrismaClient} prisma
- * @param {Set<string>} testCharacterIds
+ * @param {{ testCharacterIds: Set<string>, testModelKeys: Set<string>, testRealmSlugs: Set<string> }} ctx
  */
-async function inventoryIngestionJobs(prisma, testCharacterIds) {
+async function inventoryIngestionJobs(prisma, ctx) {
   const jobs = await prisma.ingestionJob.findMany({
     select: {
       id: true,
@@ -318,68 +480,73 @@ async function inventoryIngestionJobs(prisma, testCharacterIds) {
   });
 
   const testOwned = [];
+  const ambiguousRetained = [];
   /** @type {Map<string, { total: number, testOwned: number }>} */
   const byCharacterId = new Map();
 
   for (const job of jobs) {
-    const { owned, evidence } = isTestOwnedIngestionJob(job, testCharacterIds);
+    const verdict = classifyIngestionJob(job, ctx);
     if (job.characterId) {
       const bucket = byCharacterId.get(job.characterId) ?? { total: 0, testOwned: 0 };
       bucket.total += 1;
-      if (owned) bucket.testOwned += 1;
+      if (verdict.owned) bucket.testOwned += 1;
       byCharacterId.set(job.characterId, bucket);
     }
-    if (owned) testOwned.push({ job, evidence });
+    if (verdict.owned) {
+      testOwned.push({ job, evidence: verdict.evidence.join(",") });
+    } else if (verdict.ambiguous) {
+      ambiguousRetained.push({ job, reason: verdict.reason, evidence: verdict.evidence.join(",") });
+    }
   }
 
-  return { testOwned, totalJobs: jobs.length, byCharacterId };
+  return { testOwned, ambiguousRetained, totalJobs: jobs.length, byCharacterId };
 }
 
 /**
  * @param {import("@prisma/client").PrismaClient} prisma
- * @param {{ id: string, displayName: string, normalizedName: string, realmId: string }[]} identityMatched
+ * @param {Awaited<ReturnType<typeof findIdentityMatchedCharacters>>} identityMatched
  * @param {Map<string, { total: number, testOwned: number }>} jobsByCharacterId
  * @param {string[]} canonicalModelIds
+ * @param {Set<string>} testCharacterIds
  */
-async function inventoryCharacters(prisma, identityMatched, jobsByCharacterId, canonicalModelIds) {
-  const testCharacterIds = new Set(identityMatched.map((c) => c.id));
+async function inventoryCharacters(prisma, identityMatched, jobsByCharacterId, canonicalModelIds, testCharacterIds) {
   const candidates = [];
   const retained = [];
 
-  for (const character of identityMatched) {
-    const identity = matchTestCharacterIdentity(character.displayName, character.normalizedName);
-    const evidence = `${identity.kind}:${identity.prefix}`;
-
-    const ownershipCount = await prisma.verifiedCharacterOwnership.count({
-      where: { characterId: character.id },
-    });
-    if (ownershipCount > 0) {
-      retained.push({ character, reason: `has ${ownershipCount} verified ownership record(s)`, evidence });
-      continue;
-    }
-
-    if (canonicalModelIds.length > 0) {
-      const canonicalPublished = await prisma.characterPublishedScore.count({
-        where: { characterId: character.id, scoreModelId: { in: canonicalModelIds } },
-      });
-      if (canonicalPublished > 0) {
-        retained.push({
-          character,
-          reason: "has published score on canonical model",
-          evidence,
-        });
-        continue;
-      }
-    }
+  for (const { character, identity } of identityMatched) {
+    const isTestRealm = Boolean(matchTestRealmSlug(character.realm?.slug ?? null));
 
     const jobBucket = jobsByCharacterId.get(character.id);
     const nonTestJobCount = jobBucket ? jobBucket.total - jobBucket.testOwned : 0;
-    if (nonTestJobCount > 0) {
-      retained.push({ character, reason: `has ${nonTestJobCount} non-test ingestion job(s)`, evidence });
+
+    let ownershipCount = 0;
+    let canonicalPublishedScoreCount = 0;
+    // Test-realm characters are test data by construction; skip the extra
+    // round-trips (and avoid retaining test rows over their own test fixtures).
+    if (!isTestRealm) {
+      ownershipCount = await prisma.verifiedCharacterOwnership.count({ where: { characterId: character.id } });
+      if (ownershipCount === 0 && canonicalModelIds.length > 0) {
+        canonicalPublishedScoreCount = await prisma.characterPublishedScore.count({
+          where: { characterId: character.id, scoreModelId: { in: canonicalModelIds } },
+        });
+      }
+    }
+
+    const verdict = classifyCharacter({
+      identity,
+      isTestRealm,
+      ownershipCount,
+      canonicalPublishedScoreCount,
+      nonTestJobCount,
+    });
+
+    if (!verdict.owned) {
+      retained.push({ character, reason: verdict.reason ?? "not classified as test-owned", evidence: verdict.evidence.join(",") });
       continue;
     }
 
-    // Runs shared with a non-test-owned participant must not lose their linkage.
+    // Extra defense-in-depth beyond the compound rule: never break a shared
+    // mythic run that still has a non-test-owned participant.
     const participants = await prisma.runParticipant.findMany({
       where: { characterId: character.id },
       select: { id: true, runId: true },
@@ -402,32 +569,55 @@ async function inventoryCharacters(prisma, identityMatched, jobsByCharacterId, c
       retained.push({
         character,
         reason: `shared mythic run ${ambiguousRun} has a non-test participant`,
-        evidence,
+        evidence: verdict.evidence.join(","),
       });
       continue;
     }
 
-    candidates.push({ character, evidence });
+    candidates.push({ character, evidence: verdict.evidence.join(",") });
   }
 
   return { candidates, retained };
 }
 
 /**
+ * `model-activate:` bulk ops are included in the query (in addition to the
+ * exclusive prefixes) purely so they can be classified and RETAINED by
+ * default — they are never test-owned unless the ScoreModel they reference is
+ * itself test-owned (never the canonical `default`).
  * @param {import("@prisma/client").PrismaClient} prisma
  */
 async function inventoryBulkOperations(prisma) {
   const all = await prisma.bulkOperation.findMany({
     where: {
-      OR: TEST_BULK_LOGICAL_KEY_PREFIXES.map((prefix) => ({ logicalKey: { startsWith: prefix } })),
+      OR: [
+        ...TEST_BULK_LOGICAL_KEY_PREFIXES.map((prefix) => ({ logicalKey: { startsWith: prefix } })),
+        { logicalKey: { startsWith: "model-activate:" } },
+      ],
     },
-    select: { id: true, logicalKey: true, status: true, mode: true, createdAt: true },
+    select: {
+      id: true,
+      logicalKey: true,
+      status: true,
+      mode: true,
+      createdAt: true,
+      scoreModelId: true,
+      scoreModel: { select: { key: true } },
+    },
     orderBy: { createdAt: "asc" },
   });
-  return all.map((bulkOperation) => ({
-    bulkOperation,
-    evidence: `logicalKey:${matchBulkLogicalKey(bulkOperation.logicalKey)}`,
-  }));
+
+  const candidates = [];
+  const retained = [];
+  for (const bulkOperation of all) {
+    const verdict = classifyBulkOperation(bulkOperation);
+    if (verdict.owned) {
+      candidates.push({ bulkOperation, evidence: verdict.evidence.join(",") });
+    } else {
+      retained.push({ bulkOperation, reason: verdict.reason, evidence: verdict.evidence.join(",") });
+    }
+  }
+  return { candidates, retained };
 }
 
 /**
@@ -520,22 +710,42 @@ async function inventoryMechanicRules(prisma) {
  * Structured, read-only inventory used by both the CLI dry-run/confirm flow
  * and by unit/integration tests.
  * @param {import("@prisma/client").PrismaClient} prisma
+ * @param {{ modelsOnly?: boolean }} [opts]
  */
-async function inventoryTestArtifacts(prisma) {
+async function inventoryTestArtifacts(prisma, opts = {}) {
+  const modelsOnly = Boolean(opts.modelsOnly);
+
   const scoreModels = await inventoryScoreModels(prisma);
   const canonicalModelIds = scoreModels.retained
     .filter((r) => r.reason === "canonical")
     .map((r) => r.model.id);
 
-  const identityMatched = await findIdentityMatchedCharacters(prisma);
-  const identityMatchedIds = new Set(identityMatched.map((c) => c.id));
+  if (modelsOnly) {
+    return {
+      scoreModels,
+      ingestionJobs: { testOwned: [], ambiguousRetained: [], totalJobs: 0, byCharacterId: new Map() },
+      characters: { candidates: [], retained: [] },
+      bulkOperations: { candidates: [], retained: [] },
+      realms: [],
+      dungeons: [],
+      seasons: [],
+      mechanicRules: [],
+      redis: { queueJobIds: [] },
+    };
+  }
 
-  const ingestionJobs = await inventoryIngestionJobs(prisma, identityMatchedIds);
+  const identityMatched = await findIdentityMatchedCharacters(prisma);
+  const testCharacterIds = new Set(identityMatched.map((m) => m.character.id));
+  const testModelKeys = new Set(scoreModels.candidates.map((c) => c.model.key));
+  const testRealmSlugs = new Set(TEST_REALM_SLUGS);
+
+  const ingestionJobs = await inventoryIngestionJobs(prisma, { testCharacterIds, testModelKeys, testRealmSlugs });
   const characters = await inventoryCharacters(
     prisma,
     identityMatched,
     ingestionJobs.byCharacterId,
     canonicalModelIds,
+    testCharacterIds,
   );
   const bulkOperations = await inventoryBulkOperations(prisma);
   const realms = await inventoryRealms(prisma);
@@ -613,9 +823,9 @@ async function deleteScoreModelTransactionally(prisma, modelId) {
  */
 async function deleteCharacterTransactionally(prisma, characterId) {
   await prisma.$transaction(async (tx) => {
-    // Any ingestion jobs left referencing this character are, by construction
-    // of the caller's retain checks, test-owned (non-test jobs block the
-    // character from ever becoming a candidate).
+    // Callers must have already verified zero remaining ingestion jobs for
+    // this character (queue removal proven or not-applicable); this is a
+    // defensive no-op in the normal case.
     await tx.ingestionJob.deleteMany({ where: { characterId } });
 
     await tx.characterAlias.deleteMany({ where: { characterId } });
@@ -665,13 +875,15 @@ async function deleteCharacterTransactionally(prisma, characterId) {
 
 /**
  * @param {import("@prisma/client").PrismaClient} prisma
- * @param {ReturnType<typeof inventoryTestArtifacts>} inventoryPromise
+ * @param {Awaited<ReturnType<typeof inventoryTestArtifacts>>} inventory
  * @param {Awaited<ReturnType<typeof createBullMqContext>>} bullmq
+ * @param {{ modelsOnly?: boolean }} [opts]
  */
-async function applyCleanup(prisma, inventory, bullmq) {
+async function applyCleanup(prisma, inventory, bullmq, opts = {}) {
+  const modelsOnly = Boolean(opts.modelsOnly);
   const results = {
     scoreModels: { deleted: 0, refused: 0 },
-    ingestionJobs: { deleted: 0, refused: 0, queueRemoved: 0, queueNotFound: 0, queueSkipped: 0 },
+    ingestionJobs: { deleted: 0, refused: 0, queueRemoved: 0, queueNotFound: 0 },
     characters: { deleted: 0, refused: 0 },
     bulkOperations: { deleted: 0, refused: 0 },
     realms: { deleted: 0, retained: 0 },
@@ -680,6 +892,8 @@ async function applyCleanup(prisma, inventory, bullmq) {
     mechanicRules: { deleted: 0, refused: 0 },
   };
   const deletedIds = [];
+  const removedQueueJobIds = [];
+  const refusedJobCharacterIds = new Set();
 
   for (const { model } of inventory.scoreModels.candidates) {
     try {
@@ -693,22 +907,46 @@ async function applyCleanup(prisma, inventory, bullmq) {
     }
   }
 
+  if (modelsOnly) {
+    results.auditEventsReferencingDeleted =
+      deletedIds.length > 0 ? await prisma.auditEvent.count({ where: { resourceId: { in: deletedIds } } }) : 0;
+    return { results, removedQueueJobIds, refusedJobCharacterIds };
+  }
+
   const hasRedisUrl = Boolean(process.env.REDIS_URL);
   for (const { job, evidence } of inventory.ingestionJobs.testOwned) {
-    try {
-      if (job.queueJobId) {
-        if (bullmq) {
-          const outcome = await bullmq.removeJob(job.jobType, job.queueJobId);
-          if (outcome.removed) results.ingestionJobs.queueRemoved += 1;
-          else if (outcome.reason === "not-found") results.ingestionJobs.queueNotFound += 1;
-          else results.ingestionJobs.queueSkipped += 1;
-        } else {
-          if (!hasRedisUrl) {
-            console.warn(`WARN ingestion job ${job.id}: REDIS_URL not set, skipping queue removal (queue_skipped)`);
-          }
-          results.ingestionJobs.queueSkipped += 1;
-        }
+    if (job.queueJobId) {
+      if (!hasRedisUrl) {
+        console.error(
+          `REFUSED ingestion_job ${job.id}: REDIS_URL not set — refusing to delete a job with a live queue reference (queueJobId=${job.queueJobId})`,
+        );
+        results.ingestionJobs.refused += 1;
+        if (job.characterId) refusedJobCharacterIds.add(job.characterId);
+        continue;
       }
+      if (!bullmq) {
+        console.error(
+          `REFUSED ingestion_job ${job.id}: BullMQ unavailable — refusing to delete a job with a live queue reference (queueJobId=${job.queueJobId})`,
+        );
+        results.ingestionJobs.refused += 1;
+        if (job.characterId) refusedJobCharacterIds.add(job.characterId);
+        continue;
+      }
+      const outcome = await bullmq.removeJob(job.jobType, job.queueJobId, job.status);
+      if (!outcome.ok) {
+        console.error(`REFUSED ingestion_job ${job.id}: queue removal refused (${outcome.reason})`);
+        results.ingestionJobs.refused += 1;
+        if (job.characterId) refusedJobCharacterIds.add(job.characterId);
+        continue;
+      }
+      if (outcome.state === "removed") {
+        results.ingestionJobs.queueRemoved += 1;
+        removedQueueJobIds.push({ queueJobId: job.queueJobId, jobType: job.jobType });
+      } else {
+        results.ingestionJobs.queueNotFound += 1;
+      }
+    }
+    try {
       await prisma.ingestionJob.delete({ where: { id: job.id } });
       console.log(`DELETED ingestion_job ${job.id} evidence=${evidence}`);
       results.ingestionJobs.deleted += 1;
@@ -716,10 +954,24 @@ async function applyCleanup(prisma, inventory, bullmq) {
     } catch (err) {
       console.error(`REFUSED ingestion_job ${job.id}: ${err instanceof Error ? err.message : err}`);
       results.ingestionJobs.refused += 1;
+      if (job.characterId) refusedJobCharacterIds.add(job.characterId);
     }
   }
 
   for (const { character } of inventory.characters.candidates) {
+    if (refusedJobCharacterIds.has(character.id)) {
+      console.error(
+        `REFUSED character ${character.displayName} (${character.id}): an ingestion job for this character was not safely removed from the queue`,
+      );
+      results.characters.refused += 1;
+      continue;
+    }
+    const remainingJobs = await prisma.ingestionJob.count({ where: { characterId: character.id } });
+    if (remainingJobs > 0) {
+      console.error(`REFUSED character ${character.displayName} (${character.id}): ${remainingJobs} ingestion job(s) still remain`);
+      results.characters.refused += 1;
+      continue;
+    }
     try {
       await deleteCharacterTransactionally(prisma, character.id);
       console.log(`DELETED character ${character.displayName} (${character.id})`);
@@ -733,7 +985,7 @@ async function applyCleanup(prisma, inventory, bullmq) {
     }
   }
 
-  for (const { bulkOperation } of inventory.bulkOperations) {
+  for (const { bulkOperation } of inventory.bulkOperations.candidates) {
     try {
       await prisma.bulkOperationItem.deleteMany({ where: { bulkOperationId: bulkOperation.id } });
       await prisma.bulkOperation.delete({ where: { id: bulkOperation.id } });
@@ -816,22 +1068,85 @@ async function applyCleanup(prisma, inventory, bullmq) {
     }
   }
 
-  if (deletedIds.length > 0) {
-    const referencingAuditEvents = await prisma.auditEvent.count({ where: { resourceId: { in: deletedIds } } });
-    results.auditEventsReferencingDeleted = referencingAuditEvents;
-  } else {
-    results.auditEventsReferencingDeleted = 0;
+  results.auditEventsReferencingDeleted =
+    deletedIds.length > 0 ? await prisma.auditEvent.count({ where: { resourceId: { in: deletedIds } } }) : 0;
+
+  return { results, removedQueueJobIds, refusedJobCharacterIds };
+}
+
+/* ---------------------------------------------------------------------- *
+ * Post-cleanup verification (confirm mode only)
+ * ---------------------------------------------------------------------- */
+
+/**
+ * Re-runs the inventory after `applyCleanup` and proves:
+ *   - no deletable candidate remains in any category (classification, not deletion, was the only barrier)
+ *   - at least one ACTIVE canonical `default` ScoreModel still exists
+ *   - every bulk_operation we deliberately retained pre-cleanup is still present
+ *   - every BullMQ job we reported as "removed" is actually gone from Redis
+ * @param {import("@prisma/client").PrismaClient} prisma
+ * @param {Awaited<ReturnType<typeof createBullMqContext>>} bullmq
+ * @param {{ removedQueueJobIds: {queueJobId: string, jobType: string}[], preservedBulkOperationIds: string[] }} verifyCtx
+ * @param {{ modelsOnly?: boolean }} [opts]
+ */
+async function verifyPostCleanup(prisma, bullmq, verifyCtx, opts = {}) {
+  const modelsOnly = Boolean(opts.modelsOnly);
+  const { removedQueueJobIds, preservedBulkOperationIds } = verifyCtx;
+  const failures = [];
+
+  const post = await inventoryTestArtifacts(prisma, { modelsOnly });
+
+  if (post.scoreModels.candidates.length > 0) {
+    failures.push(`score_models still classified test-owned and deletable: ${post.scoreModels.candidates.length}`);
+  }
+  if (!modelsOnly) {
+    if (post.ingestionJobs.testOwned.length > 0) {
+      failures.push(`ingestion_jobs still classified test-owned: ${post.ingestionJobs.testOwned.length}`);
+    }
+    if (post.characters.candidates.length > 0) {
+      failures.push(`characters still classified deletable: ${post.characters.candidates.length}`);
+    }
+    if (post.bulkOperations.candidates.length > 0) {
+      failures.push(`bulk_operations still classified test-owned: ${post.bulkOperations.candidates.length}`);
+    }
   }
 
-  return results;
+  const activeCanonical = await prisma.scoreModel.count({
+    where: { key: { in: [...CANONICAL_SCORE_MODEL_KEYS] }, status: "ACTIVE" },
+  });
+  if (activeCanonical < 1) {
+    failures.push(`canonical default ScoreModel missing or not ACTIVE (found ${activeCanonical})`);
+  }
+
+  if (preservedBulkOperationIds.length > 0) {
+    const stillPresent = await prisma.bulkOperation.count({ where: { id: { in: preservedBulkOperationIds } } });
+    if (stillPresent !== preservedBulkOperationIds.length) {
+      failures.push(
+        `expected ${preservedBulkOperationIds.length} retained bulk_operation(s) (e.g. model-activate on canonical models) to remain untouched, found ${stillPresent}`,
+      );
+    }
+  }
+
+  if (bullmq && removedQueueJobIds.length > 0) {
+    for (const { queueJobId, jobType } of removedQueueJobIds) {
+      const queueName = await resolveQueueNameForJobType(jobType, bullmq.knownQueueNames);
+      if (!queueName) continue;
+      const stillThere = await bullmq.getJob(queueName, queueJobId);
+      if (stillThere) {
+        failures.push(`queueJobId ${queueJobId} (queue=${queueName}) still present in Redis after removal`);
+      }
+    }
+  }
+
+  return { post, failures };
 }
 
 /* ---------------------------------------------------------------------- *
  * Output formatting
  * ---------------------------------------------------------------------- */
 
-function printInventory(inventory, { mode, sanitized, dryRun }) {
-  console.log(`cleanup-test-artifacts: mode=${mode} dryRun=${dryRun}`);
+function printInventory(inventory, { mode, sanitized, dryRun, modelsOnly }) {
+  console.log(`cleanup-test-artifacts: mode=${mode} dryRun=${dryRun} modelsOnly=${Boolean(modelsOnly)}`);
   console.log(`Target (sanitized): ${sanitized}`);
 
   console.log(`\n=== score_models (${inventory.scoreModels.candidates.length}) ===`);
@@ -849,6 +1164,12 @@ function printInventory(inventory, { mode, sanitized, dryRun }) {
         `dedupeKey=${job.dedupeKey ?? "null"} evidence=${evidence}`,
     );
   }
+  if (inventory.ingestionJobs.ambiguousRetained.length > 0) {
+    console.log(`  ambiguous / retained (${inventory.ingestionJobs.ambiguousRetained.length}):`);
+    for (const { job, reason } of inventory.ingestionJobs.ambiguousRetained) {
+      console.log(`    keep ${job.id} — ${reason}`);
+    }
+  }
 
   console.log(`\n=== characters (${inventory.characters.candidates.length}) ===`);
   for (const { character, evidence } of inventory.characters.candidates) {
@@ -861,9 +1182,15 @@ function printInventory(inventory, { mode, sanitized, dryRun }) {
     }
   }
 
-  console.log(`\n=== bulk_operations (${inventory.bulkOperations.length}) ===`);
-  for (const { bulkOperation, evidence } of inventory.bulkOperations) {
+  console.log(`\n=== bulk_operations (${inventory.bulkOperations.candidates.length}) ===`);
+  for (const { bulkOperation, evidence } of inventory.bulkOperations.candidates) {
     console.log(`  id=${bulkOperation.id} logicalKey=${bulkOperation.logicalKey} evidence=${evidence}`);
+  }
+  if (inventory.bulkOperations.retained.length > 0) {
+    console.log(`  retained (${inventory.bulkOperations.retained.length}):`);
+    for (const { bulkOperation, reason } of inventory.bulkOperations.retained) {
+      console.log(`    keep ${bulkOperation.logicalKey} (${bulkOperation.id}) — ${reason}`);
+    }
   }
 
   console.log(`\n=== realms / dungeons / seasons ===`);
@@ -890,9 +1217,14 @@ function printInventory(inventory, { mode, sanitized, dryRun }) {
 
   console.log(
     `\nSummary: candidates by table — score_models=${inventory.scoreModels.candidates.length} ` +
-      `ingestion_jobs=${inventory.ingestionJobs.testOwned.length} characters=${inventory.characters.candidates.length} ` +
-      `bulk_operations=${inventory.bulkOperations.length} realms=${inventory.realms.length} ` +
-      `dungeons=${inventory.dungeons.length} seasons=${inventory.seasons.length} mechanic_rules=${inventory.mechanicRules.length}`,
+      `ingestion_jobs=${inventory.ingestionJobs.testOwned.length} ` +
+      `ingestion_jobs_ambiguous=${inventory.ingestionJobs.ambiguousRetained.length} ` +
+      `characters=${inventory.characters.candidates.length} ` +
+      `characters_retained=${inventory.characters.retained.length} ` +
+      `bulk_operations=${inventory.bulkOperations.candidates.length} ` +
+      `bulk_operations_retained=${inventory.bulkOperations.retained.length} ` +
+      `realms=${inventory.realms.length} dungeons=${inventory.dungeons.length} ` +
+      `seasons=${inventory.seasons.length} mechanic_rules=${inventory.mechanicRules.length}`,
   );
 }
 
@@ -901,8 +1233,7 @@ function printResults(results) {
   console.log(`score_models: deleted=${results.scoreModels.deleted} refused=${results.scoreModels.refused}`);
   console.log(
     `ingestion_jobs: deleted=${results.ingestionJobs.deleted} refused=${results.ingestionJobs.refused} ` +
-      `queueRemoved=${results.ingestionJobs.queueRemoved} queueNotFound=${results.ingestionJobs.queueNotFound} ` +
-      `queueSkipped=${results.ingestionJobs.queueSkipped}`,
+      `queueRemoved=${results.ingestionJobs.queueRemoved} queueNotFound=${results.ingestionJobs.queueNotFound}`,
   );
   console.log(`characters: deleted=${results.characters.deleted} refused=${results.characters.refused}`);
   console.log(`bulk_operations: deleted=${results.bulkOperations.deleted} refused=${results.bulkOperations.refused}`);
@@ -913,12 +1244,22 @@ function printResults(results) {
   console.log(`audit_events referencing deleted ids (not deleted): ${results.auditEventsReferencingDeleted}`);
 }
 
+function totalRefused(results) {
+  return (
+    results.scoreModels.refused +
+    results.ingestionJobs.refused +
+    results.characters.refused +
+    results.bulkOperations.refused +
+    results.mechanicRules.refused
+  );
+}
+
 /* ---------------------------------------------------------------------- *
  * Entry point
  * ---------------------------------------------------------------------- */
 
 async function runCleanup(argv = process.argv.slice(2)) {
-  const { confirm, dryRun } = parseArgs(argv);
+  const { confirm, dryRun, modelsOnly } = parseArgs(argv);
   const databaseUrl = process.env.DATABASE_URL;
   if (!databaseUrl) {
     console.error("cleanup-test-artifacts: DATABASE_URL is required");
@@ -933,22 +1274,44 @@ async function runCleanup(argv = process.argv.slice(2)) {
 
   const prisma = await loadPrisma(databaseUrl);
   try {
-    const inventory = await inventoryTestArtifacts(prisma);
-    printInventory(inventory, { mode: gate.mode, sanitized: gate.sanitized, dryRun: dryRun || !confirm });
+    const inventory = await inventoryTestArtifacts(prisma, { modelsOnly });
+    printInventory(inventory, { mode: gate.mode, sanitized: gate.sanitized, dryRun: dryRun || !confirm, modelsOnly });
 
     if (!confirm) {
       console.log("\nDry-run only. No rows deleted.");
-      console.log("To delete: pnpm db:cleanup:test-artifacts -- --confirm");
+      console.log(`To delete: pnpm db:cleanup:test-artifacts -- --confirm${modelsOnly ? " --models-only" : ""}`);
       console.log(
         "Deployed test: MPLUS_CLEANUP_TARGET=deployed-test pnpm db:cleanup:test-artifacts -- --confirm",
       );
       return;
     }
 
+    const preservedBulkOperationIds = inventory.bulkOperations.retained.map((r) => r.bulkOperation.id);
+
     const bullmq = await createBullMqContext();
     try {
-      const results = await applyCleanup(prisma, inventory, bullmq);
+      const { results, removedQueueJobIds } = await applyCleanup(prisma, inventory, bullmq, { modelsOnly });
       printResults(results);
+
+      const { failures } = await verifyPostCleanup(
+        prisma,
+        bullmq,
+        { removedQueueJobIds, preservedBulkOperationIds },
+        { modelsOnly },
+      );
+
+      if (failures.length > 0) {
+        console.error("\n=== post-cleanup verification FAILED ===");
+        for (const failure of failures) console.error(`  - ${failure}`);
+      }
+
+      const refused = totalRefused(results);
+      if (refused > 0 || failures.length > 0) {
+        console.error(
+          `\ncleanup-test-artifacts: refused=${refused} verificationFailures=${failures.length} — exiting non-zero.`,
+        );
+        process.exitCode = 1;
+      }
     } finally {
       if (bullmq) await bullmq.close();
     }
@@ -979,9 +1342,15 @@ export {
   parseArgs,
   runCleanup,
   inventoryTestArtifacts,
-  isTestOwnedIngestionJob,
+  applyCleanup,
+  createBullMqContext,
+  classifyIngestionJob,
+  classifyCharacter,
+  classifyBulkOperation,
+  resolveQueueNameForJobType,
   deleteScoreModelTransactionally,
   deleteCharacterTransactionally,
+  totalRefused,
   CANONICAL_SCORE_MODEL_KEYS,
   TEST_SCORE_MODEL_KEY_PREFIXES,
   isCanonicalScoreModelKey,

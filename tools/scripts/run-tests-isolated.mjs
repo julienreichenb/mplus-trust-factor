@@ -5,11 +5,8 @@
  * runs the requested Vitest command with MPLUS_ISOLATED_TEST_DB=true,
  * then drops the database in a finally block.
  *
- * Usage (via package.json):
- *   node tools/scripts/run-tests-isolated.mjs -- vitest run ...
- *   node tools/scripts/run-tests-isolated.mjs --seed -- vitest run ...
- *
  * Never mutates the development database (mplus_trust).
+ * Never CREATE DATABASE on production or an inherited remote DATABASE_URL.
  */
 import { spawn } from "node:child_process";
 import { resolve } from "node:path";
@@ -21,6 +18,7 @@ import {
   createDisposableDatabaseName,
   isDisposableDatabaseName,
   parseDatabaseUrl,
+  resolveIsolatedTestServer,
   rewriteDatabaseUrl,
   sanitizeDatabaseUrl,
   toMaintenanceDatabaseUrl,
@@ -43,12 +41,23 @@ function loadDotEnv() {
   }
 }
 
-function resolveServerUrl() {
-  loadDotEnv();
-  const fromEnv = process.env.MPLUS_TEST_SERVER_DATABASE_URL || process.env.DATABASE_URL;
-  if (fromEnv && parseDatabaseUrl(fromEnv)) return fromEnv.trim();
-  // Default: local compose Postgres (same server as dev; we never write to mplus_trust).
-  return "postgresql://mplus:mplus@localhost:5433/mplus_trust?schema=public";
+/**
+ * @param {NodeJS.ProcessEnv} [env]
+ */
+export function resolveServerUrl(env = process.env) {
+  const resolved = resolveIsolatedTestServer(env, loadDotEnv);
+  if (!resolved.ok) {
+    const err = new Error(
+      [
+        "run-tests-isolated: TEST SERVER SAFETY GUARD — refused before CREATE DATABASE.",
+        resolved.reason,
+        `Target (sanitized): ${resolved.sanitized}`,
+      ].join("\n"),
+    );
+    err.code = "TEST_SERVER_REFUSED";
+    throw err;
+  }
+  return { serverUrl: resolved.serverUrl, source: resolved.source };
 }
 
 /**
@@ -75,7 +84,7 @@ async function execSql(databaseUrl, sql) {
  * @param {string} serverUrl
  * @param {string} dbName
  */
-async function createDatabase(serverUrl, dbName) {
+export async function createDatabase(serverUrl, dbName) {
   if (!isDisposableDatabaseName(dbName)) {
     throw new Error(`Refusing to create non-disposable database name: ${dbName}`);
   }
@@ -87,7 +96,7 @@ async function createDatabase(serverUrl, dbName) {
  * @param {string} serverUrl
  * @param {string} dbName
  */
-async function dropDatabase(serverUrl, dbName) {
+export async function dropDatabase(serverUrl, dbName) {
   if (!isDisposableDatabaseName(dbName)) {
     throw new Error(`Refusing to drop non-disposable database name: ${dbName}`);
   }
@@ -126,7 +135,7 @@ function runCommand(args, env) {
   });
 }
 
-function parseArgs(argv) {
+export function parseArgs(argv) {
   const dash = argv.indexOf("--");
   const flags = dash === -1 ? argv : argv.slice(0, dash);
   const command = dash === -1 ? ["vitest", "run"] : argv.slice(dash + 1);
@@ -137,21 +146,60 @@ function parseArgs(argv) {
   };
 }
 
+/**
+ * Build child env. Never rewrites production APP_ENV into test — caller must refuse first.
+ * @param {NodeJS.ProcessEnv} parentEnv
+ * @param {string} isolatedUrl
+ */
+export function buildChildEnv(parentEnv, isolatedUrl) {
+  const appEnv = String(parentEnv.APP_ENV ?? "").toLowerCase();
+  if (appEnv === "production" || appEnv === "prod") {
+    throw new Error(
+      "run-tests-isolated: refusing to spawn tests — APP_ENV is production/prod (never rewritten to test).",
+    );
+  }
+  const nodeEnv = String(parentEnv.NODE_ENV ?? "").toLowerCase();
+  if (nodeEnv === "production") {
+    throw new Error(
+      "run-tests-isolated: refusing to spawn tests — NODE_ENV is production.",
+    );
+  }
+
+  return {
+    ...parentEnv,
+    DATABASE_URL: isolatedUrl,
+    [ISOLATED_TEST_DB_MARKER]: "true",
+    NODE_ENV: "test",
+    APP_ENV: parentEnv.APP_ENV || "test",
+    PROVIDER_MODE: parentEnv.PROVIDER_MODE || "fixture",
+  };
+}
+
 async function main() {
   const { seed, migrate, command } = parseArgs(process.argv.slice(2));
-  const serverUrl = resolveServerUrl();
+
+  let serverUrl;
+  let source;
+  try {
+    ({ serverUrl, source } = resolveServerUrl(process.env));
+  } catch (err) {
+    console.error(err instanceof Error ? err.message : String(err));
+    process.exit(1);
+  }
+
   const parsed = parseDatabaseUrl(serverUrl);
   if (!parsed) {
-    console.error("run-tests-isolated: invalid server DATABASE_URL");
+    console.error("run-tests-isolated: invalid server URL after guard");
     process.exit(1);
   }
 
   const dbName = createDisposableDatabaseName();
   const isolatedUrl = rewriteDatabaseUrl(serverUrl, dbName, "public");
   let cleaned = false;
+  let created = false;
 
   const cleanup = async () => {
-    if (cleaned) return;
+    if (cleaned || !created) return;
     cleaned = true;
     try {
       console.log(`run-tests-isolated: dropping disposable database ${dbName}`);
@@ -173,22 +221,13 @@ async function main() {
   let exitCode = 1;
   try {
     console.log(
-      `run-tests-isolated: creating disposable database ${dbName} on ${parsed.host}:${parsed.port}`,
+      `run-tests-isolated: creating disposable database ${dbName} on ${parsed.host}:${parsed.port} (source=${source})`,
     );
     await createDatabase(serverUrl, dbName);
+    created = true;
     console.log(`run-tests-isolated: target ${sanitizeDatabaseUrl(isolatedUrl)}`);
 
-    const childEnv = {
-      ...process.env,
-      DATABASE_URL: isolatedUrl,
-      [ISOLATED_TEST_DB_MARKER]: "true",
-      NODE_ENV: "test",
-      APP_ENV:
-        process.env.APP_ENV === "production" || process.env.APP_ENV === "prod"
-          ? "test"
-          : process.env.APP_ENV || "test",
-      PROVIDER_MODE: process.env.PROVIDER_MODE || "fixture",
-    };
+    const childEnv = buildChildEnv(process.env, isolatedUrl);
 
     if (migrate) {
       console.log("run-tests-isolated: applying Prisma migrations to disposable database");
@@ -241,9 +280,4 @@ if (isMainModule()) {
   });
 }
 
-export {
-  createDatabase,
-  dropDatabase,
-  resolveServerUrl,
-  parseArgs,
-};
+export { resolveIsolatedTestServer };
