@@ -183,6 +183,55 @@ describe("refresh eligibility gate", () => {
     }
   });
 
+  it("fails closed when ownership rating is scoped to a mismatched season row id", async () => {
+    const prisma = {
+      character: {
+        findUnique: vi.fn(async () => ({ id: "c1", level: 90, regionId: "reg-eu" })),
+      },
+      verifiedCharacterOwnership: {
+        // Gate filters by authority.seasonRowId — slug / old row never matches.
+        findFirst: vi.fn(async () => null),
+      },
+      metricObservation: { findFirst: vi.fn(async () => null) },
+      characterSnapshot: { findMany: vi.fn(async () => []) },
+    };
+
+    await expect(
+      runRefreshEligibilityGate(
+        { prisma: prisma as never, logger },
+        { characterId: "c1", authority, jobId: "job-mismatch" },
+      ),
+    ).rejects.toMatchObject({ code: CHARACTER_NO_CURRENT_SEASON_MYTHIC_SCORE, providerCalls: 0 });
+
+    expect(prisma.verifiedCharacterOwnership.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          currentSeasonMythicSeasonId: authority.seasonRowId,
+        }),
+      }),
+    );
+  });
+
+  it("never invokes providers from the eligibility gate", async () => {
+    const providerCalls = {
+      blizzard: vi.fn(),
+      raiderio: vi.fn(),
+      warcraftlogs: vi.fn(),
+    };
+    const prisma = prismaEligible();
+    await runRefreshEligibilityGate(
+      { prisma: prisma as never, logger },
+      { characterId: "c1", authority, jobId: "job-no-provider" },
+    );
+    expect(providerCalls.blizzard).not.toHaveBeenCalled();
+    expect(providerCalls.raiderio).not.toHaveBeenCalled();
+    expect(providerCalls.warcraftlogs).not.toHaveBeenCalled();
+    expect(logger.info).toHaveBeenCalledWith(
+      expect.objectContaining({ providerCalls: 0, eligible: true }),
+      expect.any(String),
+    );
+  });
+
   it("accepts season-tagged snapshot evidence", async () => {
     const prisma = prismaEligible();
     prisma.verifiedCharacterOwnership.findFirst = vi.fn(async () => null);

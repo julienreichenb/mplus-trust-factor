@@ -25,7 +25,7 @@ const TECHNICAL_PATTERNS: RegExp[] = [
 export const PUBLIC_REFRESH_FAILED_MESSAGE = "La dernière actualisation a échoué.";
 export const PUBLIC_GENERIC_UNAVAILABLE_MESSAGE = "Trust Score is temporarily unavailable.";
 export const PUBLIC_NOT_REFRESH_ELIGIBLE_MESSAGE =
-  "Ce personnage n'est pas éligible à l'actualisation (niveau ou score Mythic+ de saison).";
+  "This character is not eligible for refresh (level or current-season Mythic+ score).";
 
 const ELIGIBILITY_PUBLIC_CODES = new Set([
   "CHARACTER_BELOW_MAX_LEVEL",
