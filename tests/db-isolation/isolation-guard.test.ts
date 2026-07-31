@@ -197,33 +197,36 @@ describe("isolated runner lifecycle", () => {
     "run-tests-isolated creates, migrates against disposable DB only, and drops after failure",
     { timeout: 180_000 },
     () => {
-      // Probe: run a failing vitest file inside the isolated runner; disposable DB must be gone after.
+      // Probe: failing child inside the isolated runner; disposable DB must be gone after.
+      // Use a fixture script (not `node -e` with parentheses) so Linux shells cannot mangle args.
       const serverUrl =
         process.env.MPLUS_TEST_SERVER_DATABASE_URL ||
         process.env.DATABASE_URL ||
         "postgresql://mplus:mplus@localhost:5433/mplus_trust?schema=public";
 
       const result = spawnSync(
-        "node",
+        process.execPath,
         [
           "tools/scripts/run-tests-isolated.mjs",
           "--seed",
           "--",
-          "pnpm",
-          "exec",
-          "node",
-          "-e",
-          "console.log('ISO_OK'); console.log(process.env.MPLUS_ISOLATED_TEST_DB); console.log((process.env.DATABASE_URL||'').split('/').pop()); process.exit(1)",
+          process.execPath,
+          "tests/db-isolation/fixtures/iso-child-exit.mjs",
         ],
         {
           cwd: root,
           encoding: "utf8",
           env: {
             ...process.env,
+            APP_ENV: "test",
+            NODE_ENV: "test",
             DATABASE_URL: serverUrl,
+            MPLUS_TEST_SERVER_DATABASE_URL: serverUrl,
+            MPLUS_TEST_SERVER_CONFIRMED: "true",
             MPLUS_ISOLATED_TEST_DB: "",
+            MPLUS_ISO_CHILD_EXIT: "1",
           },
-          shell: true,
+          shell: false,
         },
       );
 
@@ -235,13 +238,9 @@ describe("isolated runner lifecycle", () => {
       // Should mention disposable DB creation/drop
       expect(combined).toMatch(/mplus_itest_/);
       expect(combined).toMatch(/dropping disposable database|creating disposable database/);
-
-      // Child should have received isolated marker (printed before exit 1)
-      if (combined.includes("ISO_OK")) {
-        expect(combined).toMatch(/MPLUS_ISOLATED_TEST_DB|ISO_OK/);
-        expect(combined).toMatch(/mplus_itest_/);
-        expect(combined).not.toMatch(new RegExp(`ISO_OK.*${DEV_DATABASE_NAME}`));
-      }
+      expect(combined).toMatch(/ISO_OK/);
+      expect(combined).toMatch(/mplus_itest_/);
+      expect(combined).not.toMatch(new RegExp(`ISO_OK[\\s\\S]*${DEV_DATABASE_NAME}`));
     },
   );
 });

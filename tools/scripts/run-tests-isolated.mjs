@@ -7,6 +7,8 @@
  *
  * Never mutates the development database (mplus_trust).
  * Never CREATE DATABASE on production or an inherited remote DATABASE_URL.
+ * Cleanup always connects to the administrative `postgres` database — never
+ * to the disposable target — and fails the wrapper if DROP fails.
  */
 import { spawn } from "node:child_process";
 import { resolve } from "node:path";
@@ -26,6 +28,55 @@ import {
 
 const root = resolve(fileURLToPath(new URL(".", import.meta.url)), "../..");
 const { Client } = pg;
+
+/** @param {unknown} err */
+export function sanitizePgError(err) {
+  const code = err && typeof err === "object" && "code" in err ? String(/** @type {{code?: unknown}} */ (err).code ?? "") : "";
+  const message = err instanceof Error ? err.message : String(err);
+  const safe = message
+    .replace(/postgresql:\/\/[^@\s]+@/gi, "postgresql://***@")
+    .replace(/postgres:\/\/[^@\s]+@/gi, "postgres://***@");
+  return code ? `SQLSTATE ${code}: ${safe}` : safe;
+}
+
+/**
+ * Quote a disposable database identifier for DDL. Names are already restricted
+ * to `mplus_itest_[a-z0-9]{8,24}` — never interpolate unvalidated input.
+ * @param {string} dbName
+ */
+export function quoteDisposableIdent(dbName) {
+  if (!isDisposableDatabaseName(dbName)) {
+    throw new Error(`Refusing to quote non-disposable database name: ${dbName}`);
+  }
+  // Safe: disposable names contain only [a-z0-9_]; double-quote for DDL.
+  return `"${dbName.toLowerCase()}"`;
+}
+
+/**
+ * Administrative URL must target `postgres` (or another non-disposable DB),
+ * never the disposable database being created/dropped.
+ * @param {string} serverUrl
+ * @param {string} disposableName
+ */
+export function resolveAdminUrl(serverUrl, disposableName) {
+  if (!isDisposableDatabaseName(disposableName)) {
+    throw new Error(`Refusing admin URL for non-disposable name: ${disposableName}`);
+  }
+  const adminUrl = toMaintenanceDatabaseUrl(serverUrl);
+  const parsed = parseDatabaseUrl(adminUrl);
+  if (!parsed) {
+    throw new Error("Invalid administrative database URL after rewrite");
+  }
+  if (parsed.database.toLowerCase() === disposableName.toLowerCase()) {
+    throw new Error("Refusing cleanup: administrative URL targets the disposable database");
+  }
+  if (isDisposableDatabaseName(parsed.database)) {
+    throw new Error(
+      `Refusing cleanup: administrative database looks disposable (${parsed.database})`,
+    );
+  }
+  return { adminUrl, adminDatabase: parsed.database };
+}
 
 function loadDotEnv() {
   const envPath = resolve(root, ".env");
@@ -54,30 +105,17 @@ export function resolveServerUrl(env = process.env) {
         `Target (sanitized): ${resolved.sanitized}`,
       ].join("\n"),
     );
-    err.code = "TEST_SERVER_REFUSED";
+    /** @type {Error & { code?: string }} */ (err).code = "TEST_SERVER_REFUSED";
     throw err;
   }
   return { serverUrl: resolved.serverUrl, source: resolved.source };
 }
 
 /**
- * @param {string} databaseUrl
- * @param {string} sql
+ * @param {number} ms
  */
-async function execSql(databaseUrl, sql) {
-  const client = new Client({ connectionString: databaseUrl });
-  try {
-    await client.connect();
-    await client.query(sql);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    const safe = message
-      .replace(/postgresql:\/\/[^@\s]+@/gi, "postgresql://***@")
-      .replace(/postgres:\/\/[^@\s]+@/gi, "postgres://***@");
-    throw new Error(`SQL failed: ${safe}`);
-  } finally {
-    await client.end().catch(() => undefined);
-  }
+function sleep(ms) {
+  return new Promise((r) => setTimeout(r, ms));
 }
 
 /**
@@ -88,49 +126,133 @@ export async function createDatabase(serverUrl, dbName) {
   if (!isDisposableDatabaseName(dbName)) {
     throw new Error(`Refusing to create non-disposable database name: ${dbName}`);
   }
-  const maintenanceUrl = toMaintenanceDatabaseUrl(serverUrl);
-  await execSql(maintenanceUrl, `CREATE DATABASE "${dbName}"`);
+  const { adminUrl } = resolveAdminUrl(serverUrl, dbName);
+  const client = new Client({ connectionString: adminUrl });
+  try {
+    await client.connect();
+    await client.query(`CREATE DATABASE ${quoteDisposableIdent(dbName)}`);
+  } catch (err) {
+    throw new Error(`CREATE DATABASE failed: ${sanitizePgError(err)}`);
+  } finally {
+    await client.end().catch(() => undefined);
+  }
 }
 
 /**
+ * Deterministic disposable-database teardown (PostgreSQL 16+).
+ *
+ * Always connects to the administrative database (never the disposable target),
+ * terminates remaining backends with a parameterized query, then DROP DATABASE
+ * WITH (FORCE) with a small bounded retry for transient object-in-use errors.
+ *
  * @param {string} serverUrl
  * @param {string} dbName
+ * @param {{ maxAttempts?: number, retryDelayMs?: number }} [opts]
+ * @returns {Promise<{ ok: true, attempts: number }>}
  */
-export async function dropDatabase(serverUrl, dbName) {
+export async function dropDatabase(serverUrl, dbName, opts = {}) {
   if (!isDisposableDatabaseName(dbName)) {
     throw new Error(`Refusing to drop non-disposable database name: ${dbName}`);
   }
-  const maintenanceUrl = toMaintenanceDatabaseUrl(serverUrl);
-  await execSql(
-    maintenanceUrl,
-    `SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '${dbName}' AND pid <> pg_backend_pid()`,
-  ).catch(() => undefined);
+  const { adminUrl } = resolveAdminUrl(serverUrl, dbName);
+  const maxAttempts = Math.max(1, opts.maxAttempts ?? 5);
+  const retryDelayMs = Math.max(0, opts.retryDelayMs ?? 75);
+  const ident = quoteDisposableIdent(dbName);
+  const client = new Client({ connectionString: adminUrl });
+
   try {
-    await execSql(maintenanceUrl, `DROP DATABASE IF EXISTS "${dbName}" WITH (FORCE)`);
-  } catch {
-    await execSql(maintenanceUrl, `DROP DATABASE IF EXISTS "${dbName}"`);
+    await client.connect();
+
+    let lastError = /** @type {unknown} */ (null);
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        await client.query(
+          `SELECT pg_terminate_backend(pid)
+           FROM pg_stat_activity
+           WHERE datname = $1
+             AND pid <> pg_backend_pid()`,
+          [dbName],
+        );
+      } catch (err) {
+        // Termination failures are logged via the eventual DROP error path;
+        // continue — WITH (FORCE) can still succeed on PG13+.
+        lastError = err;
+      }
+
+      try {
+        await client.query(`DROP DATABASE IF EXISTS ${ident} WITH (FORCE)`);
+        return { ok: true, attempts: attempt };
+      } catch (err) {
+        lastError = err;
+        const code =
+          err && typeof err === "object" && "code" in err
+            ? String(/** @type {{ code?: unknown }} */ (err).code ?? "")
+            : "";
+        // 55006 = object_in_use; 42501 = insufficient privilege (don't retry forever)
+        const retryable = code === "55006" || /being accessed|is being used/i.test(String(err));
+        if (!retryable || attempt === maxAttempts) {
+          throw new Error(`DROP DATABASE failed: ${sanitizePgError(err)}`);
+        }
+        await sleep(retryDelayMs * attempt);
+      }
+    }
+
+    throw new Error(`DROP DATABASE failed: ${sanitizePgError(lastError)}`);
+  } finally {
+    await client.end().catch(() => undefined);
   }
 }
 
 /**
+ * Spawn a child and resolve only after the process has exited *and* its
+ * stdio streams have closed (`close` event), so Prisma/pg handles are gone
+ * before DROP DATABASE runs.
+ *
+ * Shell is used only on Windows for bare commands (e.g. `pnpm`). Absolute
+ * paths / `process.execPath` must not go through `cmd.exe` — spaces in
+ * `C:\Program Files\...` would otherwise break argument parsing. On Unix,
+ * `shell:true` also mangles metacharacters in `-e` scripts.
+ *
  * @param {string[]} args
  * @param {NodeJS.ProcessEnv} env
  * @returns {Promise<number>}
  */
-function runCommand(args, env) {
+export function runCommand(args, env) {
   return new Promise((resolvePromise) => {
-    const child = spawn(args[0], args.slice(1), {
+    if (!args.length) {
+      resolvePromise(1);
+      return;
+    }
+    const command = args[0];
+    const isAbsoluteOrNode =
+      command === process.execPath ||
+      /[\\/]/.test(command) ||
+      /\.(exe|cmd|bat)$/i.test(command);
+    const useShell = process.platform === "win32" && !isAbsoluteOrNode;
+    const child = spawn(command, args.slice(1), {
       cwd: root,
       env,
       stdio: "inherit",
-      shell: true,
+      shell: useShell,
+      windowsHide: true,
     });
-    child.on("exit", (code, signal) => {
+    let settled = false;
+    const finish = (code) => {
+      if (settled) return;
+      settled = true;
+      resolvePromise(code);
+    };
+    child.on("error", (err) => {
+      console.error(`run-tests-isolated: failed to spawn ${command}: ${err.message}`);
+      finish(1);
+    });
+    // `close` fires after `exit` once stdio streams are closed.
+    child.on("close", (code, signal) => {
       if (signal) {
-        resolvePromise(1);
+        finish(1);
         return;
       }
-      resolvePromise(code ?? 1);
+      finish(code ?? 1);
     });
   });
 }
@@ -175,6 +297,21 @@ export function buildChildEnv(parentEnv, isolatedUrl) {
   };
 }
 
+/**
+ * Combine child + cleanup outcomes.
+ * - child pass + cleanup pass => 0
+ * - child fail + cleanup pass => child code
+ * - child pass + cleanup fail => 1
+ * - child fail + cleanup fail => child code (cleanup error already printed)
+ * @param {number} childExitCode
+ * @param {{ ok: boolean }} cleanupOutcome
+ */
+export function resolveWrapperExitCode(childExitCode, cleanupOutcome) {
+  if (cleanupOutcome.ok) return childExitCode;
+  if (childExitCode === 0) return 1;
+  return childExitCode;
+}
+
 async function main() {
   const { seed, migrate, command } = parseArgs(process.argv.slice(2));
 
@@ -195,23 +332,31 @@ async function main() {
 
   const dbName = createDisposableDatabaseName();
   const isolatedUrl = rewriteDatabaseUrl(serverUrl, dbName, "public");
-  let cleaned = false;
   let created = false;
+  /** @type {Promise<{ ok: boolean, error?: string, skipped?: boolean }> | null} */
+  let cleanupPromise = null;
+  let signalShutdown = false;
 
-  const cleanup = async () => {
-    if (cleaned || !created) return;
-    cleaned = true;
-    try {
-      console.log(`run-tests-isolated: dropping disposable database ${dbName}`);
-      await dropDatabase(serverUrl, dbName);
-    } catch (err) {
-      console.error(
-        `run-tests-isolated: cleanup failed: ${err instanceof Error ? err.message : String(err)}`,
-      );
-    }
+  const cleanup = () => {
+    if (cleanupPromise) return cleanupPromise;
+    cleanupPromise = (async () => {
+      if (!created) return { ok: true, skipped: true };
+      try {
+        console.log(`run-tests-isolated: dropping disposable database ${dbName}`);
+        await dropDatabase(serverUrl, dbName);
+        return { ok: true };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.error(`run-tests-isolated: cleanup failed: ${message}`);
+        return { ok: false, error: message };
+      }
+    })();
+    return cleanupPromise;
   };
 
   const onSignal = (sig) => {
+    if (signalShutdown) return;
+    signalShutdown = true;
     console.error(`run-tests-isolated: received ${sig}, cleaning up…`);
     void cleanup().finally(() => process.exit(1));
   };
@@ -256,11 +401,14 @@ async function main() {
   } catch (err) {
     console.error(`run-tests-isolated: ${err instanceof Error ? err.message : String(err)}`);
     exitCode = 1;
-  } finally {
-    await cleanup();
   }
 
-  process.exit(exitCode);
+  // Always await cleanup after the child has fully closed (runCommand uses `close`).
+  // Skip if a signal handler already owns shutdown — it will exit itself.
+  if (!signalShutdown) {
+    const cleanupOutcome = await cleanup();
+    process.exit(resolveWrapperExitCode(exitCode, cleanupOutcome));
+  }
 }
 
 function isMainModule() {
