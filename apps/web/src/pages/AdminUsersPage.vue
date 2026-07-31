@@ -509,11 +509,11 @@ onMounted(async () => {
             <span class="label">Status</span>
             <select v-model="jobStatus">
               <option value="">Any</option>
-              <option value="QUEUED">QUEUED</option>
-              <option value="ACTIVE">ACTIVE</option>
-              <option value="FAILED">FAILED</option>
-              <option value="COMPLETED">COMPLETED</option>
-              <option value="CANCELLED">CANCELLED</option>
+              <option value="QUEUED">Queued</option>
+              <option value="ACTIVE">Active</option>
+              <option value="FAILED">Failed</option>
+              <option value="COMPLETED">Completed</option>
+              <option value="CANCELLED">Cancelled</option>
             </select>
           </label>
           <label>

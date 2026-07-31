@@ -28,6 +28,18 @@ const isUpdating = computed(
 );
 
 const showQueued = computed(() => props.profile.refreshStatus === "QUEUED");
+
+/** User-visible refresh chip label (enums stay unchanged). */
+const idleRefreshLabel = computed(() => {
+  switch (props.profile.refreshStatus) {
+    case "STALE":
+      return "Stale";
+    case "FRESH":
+      return "Up to date";
+    default:
+      return props.profile.refreshStatus;
+  }
+});
 </script>
 
 <template>
@@ -40,7 +52,7 @@ const showQueued = computed(() => props.profile.refreshStatus === "QUEUED");
         data-status="QUEUED"
         data-testid="refresh-status-queued"
       >
-        QUEUED
+        Queued
       </span>
       <span
         v-else-if="isUpdating || refreshInFlight"
@@ -49,14 +61,14 @@ const showQueued = computed(() => props.profile.refreshStatus === "QUEUED");
         data-testid="refresh-status-updating"
       >
         <span class="refresh-spinner" aria-hidden="true" />
-        Updating profile
+        Refreshing
       </span>
       <span
         v-else
         class="refresh-state mpts-data"
         :data-status="profile.refreshStatus"
       >
-        {{ profile.refreshStatus === "STALE" ? "Needs refresh" : profile.refreshStatus }}
+        {{ idleRefreshLabel }}
       </span>
       <button
         type="button"

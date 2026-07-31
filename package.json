@@ -12,6 +12,7 @@
     "lint": "eslint .",
     "typecheck": "pnpm -r --if-present run typecheck",
     "test": "vitest run",
+    "check:english": "pnpm --filter @mplus/web check:english",
     "test:contract": "vitest run tests/contract",
     "test:data-quality": "vitest run tests/data-quality",
     "test:security": "vitest run tests/security",

@@ -1,0 +1,13 @@
+{
+  "$schema_comment": "Exact approved substrings for apps/web English-only scanner. Prefer exact tokens over regex. Remove unused entries (scanner fails on unused). Fixture-only proper nouns are out of scope (api/mock excluded).",
+  "entries": [
+    {
+      "text": "Français",
+      "reason": "Locale autonym for fr_FR in realm language chips (intentionally localized language name)"
+    },
+    {
+      "text": "Português",
+      "reason": "Locale autonym for pt_BR in realm language chips (contains ê)"
+    }
+  ]
+}

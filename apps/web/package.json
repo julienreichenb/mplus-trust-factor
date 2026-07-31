@@ -8,6 +8,7 @@
     "build": "vue-tsc -p tsconfig.json --noEmit && vite build",
     "preview": "vite preview --port 4173",
     "typecheck": "vue-tsc -p tsconfig.json --noEmit",
+    "check:english": "node --test ./scripts/check-english-only.test.mjs && node ./scripts/check-english-only.mjs",
     "test": "vitest run",
     "test:e2e": "playwright test",
     "test:e2e:install": "playwright install chromium",
