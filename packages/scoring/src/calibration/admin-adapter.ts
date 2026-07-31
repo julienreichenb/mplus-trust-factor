@@ -7,6 +7,7 @@ import type {
   CalibrationReport,
   CalibrationRunOptions,
 } from "./types.js";
+import { CALIBRATION_REPORT_SCHEMA_VERSION } from "./types.js";
 
 /**
  * Admin backtest summary compatible with the existing fixture endpoint shape
@@ -33,6 +34,7 @@ export interface AdminBacktestSummaryV1 {
   roleSlices: CalibrationReport["statistics"]["roleSlices"];
   metaVersusNonMeta: CalibrationReport["statistics"]["metaVersusNonMeta"];
   disclaimer: string;
+  validationFailureCount: number;
 }
 
 export interface RunAdminCalibrationBacktestInput {
@@ -56,6 +58,18 @@ function meanOf(values: number[]): number {
   return values.reduce((a, b) => a + b, 0) / values.length;
 }
 
+function emptySlice(key: string) {
+  return {
+    key,
+    count: 0,
+    scoredCount: 0,
+    meanScore: null,
+    meanConfidence: null,
+    gradeDistribution: {},
+    labelDistribution: {},
+  };
+}
+
 /**
  * Convert a calibration report into the admin backtest summary DTO.
  * Does not write to the database or activate models.
@@ -64,10 +78,11 @@ export function toAdminBacktestSummary(
   scoreModelId: string,
   report: CalibrationReport,
 ): AdminBacktestSummaryV1 {
-  const scores = report.characters
-    .map((c) => c.overallScore)
-    .filter((s): s is number => typeof s === "number");
-  const confs = report.characters
+  const scored = report.characters.filter(
+    (c) => c.overallScore != null && !c.error && !c.validationFailure,
+  );
+  const scores = scored.map((c) => c.overallScore!);
+  const confs = scored
     .map((c) => c.confidence)
     .filter((c): c is number => typeof c === "number");
 
@@ -88,7 +103,7 @@ export function toAdminBacktestSummary(
     generatedAt: report.generatedAt,
     note:
       "Calibration harness summary — not a final calibration conclusion. " +
-      "Wire full artifacts via Agent 10 runAdminCalibrationBacktest.",
+      "Prefer CalibrationInputBundle export → runCalibrationHarnessFromBundle for Agent 08.",
     calibrationSchemaVersion: report.schemaVersion,
     cohortId: report.cohortId,
     mode: report.mode,
@@ -99,18 +114,83 @@ export function toAdminBacktestSummary(
     roleSlices: report.statistics.roleSlices,
     metaVersusNonMeta: report.statistics.metaVersusNonMeta,
     disclaimer: report.disclaimer,
+    validationFailureCount: report.validationFailureCount,
   };
+}
+
+function emptyInvalidArtifacts(options: CalibrationRunOptions): CalibrationArtifacts {
+  return buildCalibrationArtifacts({
+    schemaVersion: CALIBRATION_REPORT_SCHEMA_VERSION,
+    generatedAt: options.calculatedAt ?? "1970-01-01T00:00:00.000Z",
+    mode:
+      options.mode === "refresh-then-evaluate"
+        ? "persisted-snapshot-only"
+        : options.mode,
+    cohortId: "invalid",
+    cohortSchemaVersion: "1.0.0",
+    cohortSize: 0,
+    evaluatedCount: 0,
+    errorCount: 0,
+    validationFailureCount: 0,
+    activeModel: {
+      key: null,
+      version: null,
+      status: null,
+      isActive: false,
+    },
+    evaluationModel: {
+      key: null,
+      version: null,
+      status: null,
+      isActive: false,
+    },
+    modelActivated: false,
+    providerCallsMade: false,
+    disclaimer: "Invalid cohort — no evaluation performed.",
+    characters: [],
+    statistics: {
+      monotonicOrdering: {
+        labelScoreSpearman: null,
+        tieMethod: "average-ranks",
+        pairwiseConcordance: null,
+        pairwiseDiscordance: null,
+        pairwiseTies: null,
+        sampleSize: 0,
+        inversions: [],
+      },
+      outliers: [],
+      dimensionSaturation: [],
+      confidenceVersusCoverage: [],
+      metaVersusNonMeta: {
+        meta: emptySlice("meta"),
+        nonMeta: emptySlice("non-meta"),
+      },
+      roleSlices: [],
+      classSpecSlices: [],
+      missingDataSlices: [],
+      gradeDistribution: {},
+      gradeDistributionNote: "No data",
+      weightAblation: [],
+      bootstrapIntervals: [],
+      failedMemberCount: 0,
+      scoredMemberCount: 0,
+    },
+    activeDraftComparison: null,
+    validationFailures: [],
+    utilityCostAggregate: {
+      totalBaseline: 0,
+      totalFallback: 0,
+      fallbackTriggeredCount: 0,
+    },
+  });
 }
 
 /**
  * Service entry point for Agent 08 admin backtest endpoint.
  *
- * Contract:
- * - Validates cohort manifest
- * - Runs harness in the requested mode (default should be persisted-snapshot-only)
- * - Never activates the evaluation model
- * - Never performs provider calls (refresh mode remains disabled unless explicitly allowed,
- *   and even then this package ships no provider port)
+ * Preferred Agent 08 path: async DB export → CalibrationInputBundle →
+ * `runCalibrationHarnessFromBundle` / `runCalibrationHarnessFromExport`.
+ * This adapter remains for manifest+evidence-port callers.
  */
 export function runAdminCalibrationBacktest(
   input: RunAdminCalibrationBacktestInput,
@@ -127,7 +207,7 @@ export function runAdminCalibrationBacktest(
         meanConfidence: null,
         generatedAt: input.options.calculatedAt ?? new Date().toISOString(),
         note: `Invalid cohort manifest: ${validated.errors.join("; ")}`,
-        calibrationSchemaVersion: "1.0.0",
+        calibrationSchemaVersion: CALIBRATION_REPORT_SCHEMA_VERSION,
         cohortId: "invalid",
         mode: input.options.mode,
         modelActivated: false,
@@ -136,93 +216,13 @@ export function runAdminCalibrationBacktest(
         monotonicSpearman: null,
         roleSlices: [],
         metaVersusNonMeta: {
-          meta: {
-            key: "meta",
-            count: 0,
-            meanScore: null,
-            meanConfidence: null,
-            gradeDistribution: {},
-            labelDistribution: {},
-          },
-          nonMeta: {
-            key: "non-meta",
-            count: 0,
-            meanScore: null,
-            meanConfidence: null,
-            gradeDistribution: {},
-            labelDistribution: {},
-          },
+          meta: emptySlice("meta"),
+          nonMeta: emptySlice("non-meta"),
         },
         disclaimer: "Invalid cohort — no evaluation performed.",
+        validationFailureCount: 0,
       },
-      artifacts: buildCalibrationArtifacts({
-        schemaVersion: "1.0.0",
-        generatedAt: input.options.calculatedAt ?? "1970-01-01T00:00:00.000Z",
-        mode: input.options.mode,
-        cohortId: "invalid",
-        cohortSchemaVersion: "1.0.0",
-        cohortSize: 0,
-        evaluatedCount: 0,
-        errorCount: 0,
-        activeModel: {
-          key: null,
-          version: null,
-          status: null,
-          isActive: false,
-        },
-        evaluationModel: {
-          key: null,
-          version: null,
-          status: null,
-          isActive: false,
-        },
-        modelActivated: false,
-        providerCallsMade: false,
-        disclaimer: "Invalid cohort — no evaluation performed.",
-        characters: [],
-        statistics: {
-          monotonicOrdering: {
-            labelScoreSpearman: null,
-            pairwiseConcordance: null,
-            pairwiseDiscordance: null,
-            pairwiseTies: null,
-            inversions: [],
-          },
-          outliers: [],
-          dimensionSaturation: [],
-          confidenceVersusCoverage: [],
-          metaVersusNonMeta: {
-            meta: {
-              key: "meta",
-              count: 0,
-              meanScore: null,
-              meanConfidence: null,
-              gradeDistribution: {},
-              labelDistribution: {},
-            },
-            nonMeta: {
-              key: "non-meta",
-              count: 0,
-              meanScore: null,
-              meanConfidence: null,
-              gradeDistribution: {},
-              labelDistribution: {},
-            },
-          },
-          roleSlices: [],
-          classSpecSlices: [],
-          missingDataSlices: [],
-          gradeDistribution: {},
-          gradeDistributionNote: "No data",
-          weightAblation: [],
-          bootstrapIntervals: [],
-        },
-        utilityCostAggregate: {
-          totalBaseline: 0,
-          totalFallback: 0,
-          fallbackTriggeredCount: 0,
-        },
-      }),
+      artifacts: emptyInvalidArtifacts(input.options),
       validationErrors: validated.errors,
     };
   }

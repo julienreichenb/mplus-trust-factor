@@ -1,116 +1,127 @@
-# Calibration / backtest harness (Agent 10)
+# Calibration / backtest harness (Agents 10 / 10B)
 
 Reproducible cohort evaluation without activating score models or calling live providers.
 
 Runtime code: `packages/scoring/src/calibration/`.
 
+Report schema: **`1.1.0`**. Input bundle schema: **`1.0.0`**.
+
 ## Modes
 
 | Mode | Default | Behaviour |
 |------|---------|-----------|
-| `persisted-snapshot-only` | **yes** | Score from provided immutable snapshots / fixture snapshots. No providers. |
-| `draft-model-evaluate` | opt-in | Recalculate from persisted/fixture observations with a **DRAFT** model config. Never activates. |
-| `refresh-then-evaluate` | **disabled** | Requires `allowRefreshThenEvaluate=true` and a provider port. This package ships **no** provider port; the mode always errors. |
+| `persisted-snapshot-only` | **yes** | Score from provided immutable snapshots. Snapshot provenance is validated; scores stay attributed to the snapshot's model. |
+| `draft-model-evaluate` | opt-in | Recalculate from **replayable** observations + explicit `scoringContext`. Never activates. |
+| `active-versus-draft` | opt-in | Recalculate **both** active and draft models on identical observations/context/`calculatedAt`. |
+| `refresh-then-evaluate` | **unsupported** | Rejected with `UNSUPPORTED_MODE`. No provider refresh port ships in this package. |
+
+## Portable input bundle
+
+```ts
+interface CalibrationInputBundleV1 {
+  schemaVersion: "1.0.0";
+  manifest: CohortManifest;
+  evidenceByMemberId: Record<string, CalibrationMemberEvidence>;
+  activeModel?: CalibrationModelRef;
+  evaluationModel?: CalibrationModelRef;
+  generatedAt: string;
+  source: "fixture" | "persisted-export";
+  mode?: CalibrationBacktestMode;
+}
+```
+
+Validate with `validateCalibrationInputBundle`. Run with `runCalibrationHarnessFromBundle` or async `runCalibrationHarnessFromExport`.
+
+Evidence for draft / active-versus-draft **must** include:
+
+- non-empty `observations`
+- explicit `scoringContext` (`role`, `freshness`, `selectedRunCoverage`, plus class/spec/authenticity as applicable)
+- optional `calculatedAt` / `inputFingerprint`
+
+The harness **does not invent** freshness or coverage defaults during draft evaluation.
 
 ## Cohort manifest (`schemaVersion: 1.0.0`)
 
-Required per member:
-
-- `region`, `realm`, `character`
-- `role` (`DPS` \| `TANK` \| `HEALER`), `classSlug`, `specSlug`
-- `expectedLabel` (`excellent` \| `good` \| `average` \| `weak` \| `overrated`)
-- `meta` (boolean)
-- `rationale`
-- `suspectedBoost` (boolean)
-- `source` (`user-selected` \| `stratified-auto`)
-- optional `snapshotIds[]`, `seasonSlug`
+Required per member: `region`, `realm`, `character`, `role`, `classSlug`, `specSlug`, `expectedLabel`, `meta`, `rationale`, `suspectedBoost`, `source`; optional `snapshotIds[]`, `seasonSlug`.
 
 Validate with `validateCohortManifest`.
 
-**Live cohorts are out of scope until the user provides/approves characters.** Use `buildSyntheticFixtureCohort()` for deterministic local/CI runs.
+Synthetic fixtures: `buildSyntheticFixtureCohort()` / `buildSyntheticFixtureBundle()` use **canonical v6 metric keys**.
 
-## Outputs (`schemaVersion: 1.0.0`)
+## Outputs (`schemaVersion: 1.1.0`)
 
-`buildCalibrationArtifacts(report)` produces:
+`buildCalibrationArtifacts(report)` produces JSON, CSV, Markdown, and public-safe (identity-redacted) variants.
 
-- JSON report (full)
-- CSV (per-character)
-- Markdown (human-readable)
-- Public-safe JSON/Markdown (`anonymizeReport`)
+Includes: overall/dimension scores, grades, confidence, **explicit evidence coverage** (selected-run / model / utility — distinct from dimension-availability), boost flags, active vs evaluation model refs, **scoreModelKey/Version provenance**, expected vs actual label, tie-aware Spearman (label strength vs score → +1 on agreement), grade distribution (no forced quotas), role/class/spec/meta slices, missing-data / U / low-confidence slices, Utility cost, **engine weight ablation**, exploratory bootstrap CIs, **activeDraftComparison**, structured `validationFailures`.
 
-Includes: overall/dimension scores, grades, confidence, coverage/refresh state, boost flags (generic public-safe interface), active vs evaluation model refs, expected vs actual label, rank confusion, grade distribution (no forced quotas), role/class/spec/meta slices, missing-data slices, Utility baseline/fallback cost, weight ablation, exploratory bootstrap CIs.
+## Agent 08 integration boundary
 
-## Agent 08 admin adapter
+**Do not** add Prisma to `@mplus/scoring`. Preferred flow:
 
-Do **not** edit Admin Models UI in this agent. Wire the API as follows:
+```text
+async DB/export adapter (Agent 08)
+  → builds validated CalibrationInputBundleV1
+  → runCalibrationHarnessFromExport / runCalibrationHarnessFromBundle
+  → pure synchronous calibration core
+```
 
 ```ts
 import {
+  runCalibrationHarnessFromExport,
   runAdminCalibrationBacktest,
-  createFixtureEvidencePort,
-  buildSyntheticFixtureCohort,
-  type CalibrationEvidencePort,
+  type CalibrationBundleExportPort,
 } from "@mplus/scoring";
 
-// Production: implement CalibrationEvidencePort against persisted ScoreSnapshot + observations.
-// Must not enqueue provider refresh from the backtest path.
-
-const result = runAdminCalibrationBacktest({
-  scoreModelId: model.id,
-  manifest: cohortManifestJson,
-  options: {
-    mode: "persisted-snapshot-only", // or draft-model-evaluate with DRAFT ref
-    evaluationModel: draftRef,       // status DRAFT, isActive false
-    activeModel: activeRef,
-    calculatedAt: fixedIsoForReplay, // optional but recommended
+const port: CalibrationBundleExportPort = {
+  async exportBundle() {
+    // Preload ScoreSnapshot + observations + ScoringContext from PostgreSQL.
+    // Never enqueue provider refresh from the backtest path.
+    return portableBundleJson;
   },
-  deps: { evidence: dbEvidencePort },
+};
+
+const result = await runCalibrationHarnessFromExport({
+  port,
+  options: { mode: "active-versus-draft", calculatedAt: fixedIso },
   publicSafe: true,
 });
-
-// result.summary ≈ existing BacktestResultDTO (+ richer fields)
-// result.artifacts.json|csv|markdown for download / storage
 ```
+
+Legacy sync adapter `runAdminCalibrationBacktest({ manifest, deps.evidence })` remains for tests/fixtures.
 
 ### Adapter guarantees
 
 - `modelActivated` is always `false`
 - `providerCallsMade` is always `false` for shipped modes
-- Malformed manifests return `validationErrors` without throwing
+- Malformed manifests/bundles return validation errors
 - Draft evaluation rejects `status: "ACTIVE"` / `isActive: true`
-
-### Suggested API evolution (Agent 08)
-
-Keep `/api/v1/admin/score-models/:id/backtest` response backward compatible:
-
-- Continue returning `scoreModelId`, `sampleSize`, `gradeDistribution`, `meanScore`, `generatedAt`, `note`
-- Optionally attach `calibrationSchemaVersion`, `outliers`, `roleSlices`, `artifactsUri`
-
-Replace the fixture placeholder in `AdminService.backtestScoreModel` by calling `runAdminCalibrationBacktest` with a DB-backed `CalibrationEvidencePort`.
+- Invalid evidence is recorded in `validationFailures` and excluded from score denominators
 
 ## CLI
 
 ```bash
 pnpm --filter @mplus/scoring run build
-pnpm --filter @mplus/scoring run calibration:harness -- --mode persisted-snapshot-only --out ./tmp/calibration-harness
+pnpm --filter @mplus/scoring run calibration:harness -- --fixture --mode persisted-snapshot-only --out ./tmp/calibration-harness
+pnpm --filter @mplus/scoring run calibration:harness -- --bundle ./path/to/bundle.json --mode active-versus-draft --out ./tmp/calibration-harness --public-safe
 ```
 
-(From source with a TS runner: `pnpm exec tsx packages/scoring/src/calibration/cli.ts` if `tsx` is available.)
+`--bundle` never falls back to synthetic fixtures. `--fixture` is explicit. `refresh-then-evaluate` exits non-zero with `UNSUPPORTED_MODE`.
 
-Writes `report.json`, `report.csv`, `report.md`, public-safe variants, and the fixture cohort manifest.
+## Statistics notes
+
+- Spearman uses average ranks for ties; constant vectors → `null`
+- Outlier thresholds are exploratory heuristics
+- Bootstrap iterations are bounded (1–5000); seed is deterministic
+- Coverage statistics prefer `selectedRunCoverage` / `modelCoverageRatio`; dimension-availability is named separately
 
 ## Boost flags
 
-`BoostFlagSource` / `PublicBoostFlag` consume only:
-
-- manifest `suspectedBoost`, and/or
-- persisted **public-safe** flags
-
-No dependency on the unmerged `feat/boost-shadow-phase1` branch.
+`BoostFlagSource` / `PublicBoostFlag` consume manifest `suspectedBoost` and/or persisted public-safe flags. Boost suspicion does not alter numeric scores.
 
 ## Constraints (honoured)
 
 - No conclusion about final calibration
 - No score-model activation
-- No live cohort until user approval
+- No live cohort until user provides/approves characters
 - No live provider requests from this harness
+- No production weight/threshold changes

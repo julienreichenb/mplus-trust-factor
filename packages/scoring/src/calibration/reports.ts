@@ -93,7 +93,9 @@ export function reportToMarkdown(report: CalibrationReport): string {
   lines.push(`- Generated at: \`${report.generatedAt}\``);
   lines.push(`- Mode: \`${report.mode}\``);
   lines.push(`- Cohort: \`${report.cohortId}\` (n=${report.cohortSize})`);
-  lines.push(`- Evaluated: ${report.evaluatedCount} · errors: ${report.errorCount}`);
+  lines.push(
+    `- Evaluated: ${report.evaluatedCount} · errors: ${report.errorCount} · validationFailures: ${report.validationFailureCount}`,
+  );
   lines.push(
     `- Active model: \`${report.activeModel.key ?? "n/a"}@${report.activeModel.version ?? "n/a"}\` (status=${report.activeModel.status ?? "n/a"})`,
   );
@@ -114,12 +116,19 @@ export function reportToMarkdown(report: CalibrationReport): string {
   lines.push(`## Monotonic ordering`);
   lines.push("");
   const mo = report.statistics.monotonicOrdering;
-  lines.push(`- Spearman (label vs score rank): ${fmtNum(mo.labelScoreSpearman, 3)}`);
+  lines.push(
+    `- Spearman (label strength vs score, ${mo.tieMethod}): ${fmtNum(mo.labelScoreSpearman, 3)} (n=${mo.sampleSize})`,
+  );
   lines.push(`- Pairwise concordance: ${fmtNum(mo.pairwiseConcordance, 3)}`);
   lines.push(`- Pairwise discordance: ${fmtNum(mo.pairwiseDiscordance, 3)}`);
   lines.push(`- Inversions listed: ${mo.inversions.length}`);
+  lines.push(
+    `- Scored members: ${report.statistics.scoredMemberCount}; failed: ${report.statistics.failedMemberCount}`,
+  );
   lines.push("");
   lines.push(`## Outliers`);
+  lines.push("");
+  lines.push("_Exploratory heuristics — not production calibration significance._");
   lines.push("");
   if (report.statistics.outliers.length === 0) {
     lines.push("_None_");
@@ -131,20 +140,33 @@ export function reportToMarkdown(report: CalibrationReport): string {
     }
   }
   lines.push("");
+  if (report.activeDraftComparison) {
+    lines.push(`## Active versus draft`);
+    lines.push("");
+    lines.push(`- Comparable: **${report.activeDraftComparison.comparable}**`);
+    lines.push(`- ${report.activeDraftComparison.note}`);
+    if (report.activeDraftComparison.aggregate) {
+      const agg = report.activeDraftComparison.aggregate;
+      lines.push(
+        `- Mean score delta: ${fmtNum(agg.meanScoreDelta)}; median: ${fmtNum(agg.medianScoreDelta)}; changed grades: ${agg.changedGradeCount}/${agg.comparableCount}`,
+      );
+    }
+    lines.push("");
+  }
   lines.push(`## Meta vs non-meta`);
   lines.push("");
   lines.push(
-    `- Meta n=${report.statistics.metaVersusNonMeta.meta.count} meanScore=${fmtNum(report.statistics.metaVersusNonMeta.meta.meanScore)}`,
+    `- Meta n=${report.statistics.metaVersusNonMeta.meta.count} scored=${report.statistics.metaVersusNonMeta.meta.scoredCount} meanScore=${fmtNum(report.statistics.metaVersusNonMeta.meta.meanScore)}`,
   );
   lines.push(
-    `- Non-meta n=${report.statistics.metaVersusNonMeta.nonMeta.count} meanScore=${fmtNum(report.statistics.metaVersusNonMeta.nonMeta.meanScore)}`,
+    `- Non-meta n=${report.statistics.metaVersusNonMeta.nonMeta.count} scored=${report.statistics.metaVersusNonMeta.nonMeta.scoredCount} meanScore=${fmtNum(report.statistics.metaVersusNonMeta.nonMeta.meanScore)}`,
   );
   lines.push("");
   lines.push(`## Role slices`);
   lines.push("");
   for (const slice of report.statistics.roleSlices) {
     lines.push(
-      `- ${slice.key}: n=${slice.count} meanScore=${fmtNum(slice.meanScore)} meanConf=${fmtNum(slice.meanConfidence)}`,
+      `- ${slice.key}: n=${slice.count} scored=${slice.scoredCount} meanScore=${fmtNum(slice.meanScore)} meanConf=${fmtNum(slice.meanConfidence)}`,
     );
   }
   lines.push("");
@@ -162,11 +184,11 @@ export function reportToMarkdown(report: CalibrationReport): string {
     `- Baseline total: ${report.utilityCostAggregate.totalBaseline}; fallback total: ${report.utilityCostAggregate.totalFallback}; fallback triggered: ${report.utilityCostAggregate.fallbackTriggeredCount}`,
   );
   lines.push("");
-  lines.push(`## Weight ablation (exploratory)`);
+  lines.push(`## Weight ablation (exploratory, engine-evaluated)`);
   lines.push("");
   for (const w of report.statistics.weightAblation) {
     lines.push(
-      `- ${w.weightKey}: meanScoreDelta=${fmtNum(w.meanScoreDelta)} gradeChangeCount=${w.gradeChangeCount}`,
+      `- ${w.weightKey}: meanScoreDelta=${fmtNum(w.meanScoreDelta)} median=${fmtNum(w.medianScoreDelta)} gradeChangeCount=${w.gradeChangeCount} (n=${w.sampleSize}, method=${w.method})`,
     );
   }
   lines.push("");

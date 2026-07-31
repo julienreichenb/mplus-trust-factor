@@ -1,5 +1,6 @@
 import type { Grade } from "@mplus/contracts";
 import { LABEL_RANK } from "./manifest.js";
+import { spearmanRankCorrelation } from "./ranking.js";
 import type {
   BootstrapInterval,
   CalibrationStatistics,
@@ -15,9 +16,17 @@ import type {
 const FLOOR = 5;
 const CEILING = 95;
 
+/** Exploratory outlier heuristics — not production calibration significance. */
+const OUTLIER_HIGH_LABEL_LOW_SCORE = 45;
+const OUTLIER_LOW_LABEL_HIGH_SCORE = 75;
+
 function mean(values: number[]): number | null {
   if (values.length === 0) return null;
   return values.reduce((a, b) => a + b, 0) / values.length;
+}
+
+function isScored(row: PerCharacterCalibrationResult): boolean {
+  return row.overallScore != null && !row.error && !row.validationFailure;
 }
 
 function gradeDist(rows: PerCharacterCalibrationResult[]): Partial<Record<Grade, number>> {
@@ -40,17 +49,17 @@ function labelDist(
 }
 
 function sliceOf(key: string, rows: PerCharacterCalibrationResult[]): SliceSummary {
-  const scores = rows
-    .map((r) => r.overallScore)
-    .filter((s): s is number => typeof s === "number");
-  const confs = rows
+  const scored = rows.filter(isScored);
+  const scores = scored.map((r) => r.overallScore!);
+  const confs = scored
     .map((r) => r.confidence)
     .filter((c): c is number => typeof c === "number");
   return {
     key,
     count: rows.length,
+    scoredCount: scored.length,
     meanScore: mean(scores),
-    meanConfidence: mean(confs),
+    meanConfidence: confs.length === 0 ? null : mean(confs),
     gradeDistribution: gradeDist(rows),
     labelDistribution: labelDist(rows),
   };
@@ -70,7 +79,7 @@ export function createSeededRng(seed: number): () => number {
 export function computeRankConfusion(
   rows: PerCharacterCalibrationResult[],
 ): RankConfusionSummary {
-  const scored = rows.filter((r) => r.overallScore != null && !r.error);
+  const scored = rows.filter(isScored);
   let concordant = 0;
   let discordant = 0;
   let ties = 0;
@@ -106,37 +115,19 @@ export function computeRankConfusion(
 
   const denom = concordant + discordant;
   const pairwiseConcordance = denom === 0 ? null : concordant / denom;
-  // Spearman via rank correlation of label-rank vs score-rank
-  const n = scored.length;
-  let spearman: number | null = null;
-  if (n >= 2) {
-    const byScore = [...scored].sort(
-      (a, b) => (b.overallScore ?? 0) - (a.overallScore ?? 0),
-    );
-    const scoreRank = new Map(byScore.map((r, idx) => [r.memberId, idx + 1]));
-    const labelRanks = scored.map((r) => LABEL_RANK[r.expectedLabel]);
-    const scoreRanks = scored.map((r) => scoreRank.get(r.memberId)!);
-    const meanL = mean(labelRanks)!;
-    const meanS = mean(scoreRanks)!;
-    let num = 0;
-    let denL = 0;
-    let denS = 0;
-    for (let i = 0; i < n; i++) {
-      const dl = labelRanks[i]! - meanL;
-      const ds = scoreRanks[i]! - meanS;
-      num += dl * ds;
-      denL += dl * dl;
-      denS += ds * ds;
-    }
-    const den = Math.sqrt(denL * denS);
-    spearman = den === 0 ? null : num / den;
-  }
+
+  // Spearman: qualitative strength vs score values (ascending midranks on both).
+  const labelValues = scored.map((r) => LABEL_RANK[r.expectedLabel]);
+  const scoreValues = scored.map((r) => r.overallScore!);
+  const spearman = spearmanRankCorrelation(labelValues, scoreValues);
 
   return {
     labelScoreSpearman: spearman,
+    tieMethod: "average-ranks",
     pairwiseConcordance,
     pairwiseDiscordance: denom === 0 ? null : discordant / denom,
     pairwiseTies: scored.length < 2 ? null : ties,
+    sampleSize: scored.length,
     inversions: inversions.slice(0, 50),
   };
 }
@@ -146,9 +137,9 @@ export function detectOutliers(
 ): CalibrationStatistics["outliers"] {
   const outliers: CalibrationStatistics["outliers"] = [];
   for (const row of rows) {
-    if (row.error || row.overallScore == null) continue;
+    if (!isScored(row)) continue;
     const rank = LABEL_RANK[row.expectedLabel];
-    if (rank >= 4 && row.overallScore < 45) {
+    if (rank >= 4 && row.overallScore! < OUTLIER_HIGH_LABEL_LOW_SCORE) {
       outliers.push({
         memberId: row.memberId,
         reason: "high_expected_label_low_score",
@@ -157,7 +148,7 @@ export function detectOutliers(
         actualScore: row.overallScore,
       });
     }
-    if (rank <= 2 && row.overallScore > 75) {
+    if (rank <= 2 && row.overallScore! > OUTLIER_LOW_LABEL_HIGH_SCORE) {
       outliers.push({
         memberId: row.memberId,
         reason: "low_expected_label_high_score",
@@ -188,6 +179,7 @@ export function computeDimensionSaturation(
   >();
 
   for (const row of rows) {
+    if (row.error || row.validationFailure) continue;
     for (const dim of row.dimensions) {
       let bucket = byDim.get(dim.dimension);
       if (!bucket) {
@@ -226,14 +218,21 @@ export function confidenceVersusCoverage(
   rows: PerCharacterCalibrationResult[],
 ): ConfidenceCoveragePoint[] {
   return rows
-    .filter((r) => r.confidence != null)
+    .filter((r) => r.confidence != null && !r.error && !r.validationFailure)
     .map((r) => {
-      const present = r.dimensions.filter((d) => d.score != null).length;
-      const expected = r.dimensions.length || 1;
+      const selectedRunCoverage = r.evidenceCoverage?.selectedRunCoverage ?? null;
+      const modelCoverageRatio = r.evidenceCoverage?.modelCoverageRatio ?? null;
+      const dimensionAvailabilityRatio =
+        r.evidenceCoverage?.dimensionAvailabilityRatio ?? null;
+      const coverageRatio =
+        selectedRunCoverage ?? modelCoverageRatio ?? dimensionAvailabilityRatio;
       return {
         memberId: r.memberId,
         confidence: r.confidence!,
-        coverageRatio: present / expected,
+        selectedRunCoverage,
+        modelCoverageRatio,
+        dimensionAvailabilityRatio,
+        coverageRatio,
         grade: r.grade,
       };
     });
@@ -268,10 +267,9 @@ export function computeBootstrapIntervals(
 ): BootstrapInterval[] {
   const note =
     "Exploratory bootstrap percentile interval — not a production calibration claim.";
-  const scores = rows
-    .map((r) => r.overallScore)
-    .filter((s): s is number => typeof s === "number");
-  const confs = rows
+  const scored = rows.filter(isScored);
+  const scores = scored.map((r) => r.overallScore!);
+  const confs = scored
     .map((r) => r.confidence)
     .filter((c): c is number => typeof c === "number");
 
@@ -305,62 +303,13 @@ export function computeBootstrapIntervals(
   return out;
 }
 
-/**
- * Lightweight weight ablation: re-score deltas are supplied by caller via
- * precomputed alternate mean scores, or computed here as dimension-weight
- * leave-one-out sensitivity on already-scored rows (no model mutation).
- */
-export function computeWeightAblationFromRows(
-  rows: PerCharacterCalibrationResult[],
-): WeightAblationResult[] {
-  const dims = new Set<string>();
-  for (const row of rows) {
-    for (const d of row.dimensions) dims.add(d.dimension);
-  }
-
-  const baselineScores = rows
-    .filter((r) => r.overallScore != null)
-    .map((r) => ({ id: r.memberId, score: r.overallScore!, grade: r.grade }));
-
-  const results: WeightAblationResult[] = [];
-  for (const dimension of [...dims].sort()) {
-    // Approximate leave-one-out by renormalizing remaining dimension scores.
-    let deltaSum = 0;
-    let gradeChanges = 0;
-    let n = 0;
-    for (const row of rows) {
-      if (row.overallScore == null) continue;
-      const available = row.dimensions.filter(
-        (d) => d.dimension !== dimension && d.score != null && d.weight > 0,
-      );
-      const weightSum = available.reduce((s, d) => s + d.weight, 0);
-      if (weightSum <= 0) continue;
-      const ablated =
-        available.reduce((s, d) => s + (d.score ?? 0) * (d.weight / weightSum), 0);
-      deltaSum += ablated - row.overallScore;
-      n += 1;
-      // Grade change heuristic vs original letter (ignore U transitions detail).
-      const base = baselineScores.find((b) => b.id === row.memberId);
-      if (base && base.grade && base.grade !== "U") {
-        const shifted = Math.abs(ablated - row.overallScore) >= 5;
-        if (shifted) gradeChanges += 1;
-      }
-    }
-    if (n === 0) continue;
-    results.push({
-      weightKey: dimension,
-      delta: -1,
-      meanScoreDelta: deltaSum / n,
-      gradeChangeCount: gradeChanges,
-      exploratory: true,
-    });
-  }
-  return results;
-}
-
 export function buildCalibrationStatistics(
   rows: PerCharacterCalibrationResult[],
-  opts: { bootstrapSeed: number; bootstrapIterations: number },
+  opts: {
+    bootstrapSeed: number;
+    bootstrapIterations: number;
+    weightAblation?: WeightAblationResult[];
+  },
 ): CalibrationStatistics {
   const meta = rows.filter((r) => r.meta);
   const nonMeta = rows.filter((r) => !r.meta);
@@ -378,10 +327,13 @@ export function buildCalibrationStatistics(
     const hasMissingDim = row.dimensions.some(
       (d) => d.score == null || d.state === "UNAVAILABLE" || d.state === "PARTIAL",
     );
-    if (hasMissingDim || row.error) missing.push(row);
+    if (hasMissingDim || row.error || row.validationFailure) missing.push(row);
     if (row.isUnrated) unrated.push(row);
     if (row.lowConfidence) lowConf.push(row);
   }
+
+  const scoredMemberCount = rows.filter(isScored).length;
+  const failedMemberCount = rows.filter((r) => r.error || r.validationFailure).length;
 
   return {
     monotonicOrdering: computeRankConfusion(rows),
@@ -403,14 +355,17 @@ export function buildCalibrationStatistics(
       sliceOf("unrated-U", unrated),
       sliceOf("low-confidence", lowConf),
     ],
-    gradeDistribution: gradeDist(rows),
+    // Grade distribution retains U; failed rows without grade are omitted from counts.
+    gradeDistribution: gradeDist(rows.filter((r) => !r.error && !r.validationFailure)),
     gradeDistributionNote:
-      "Observed grade counts only — no forced quotas at grade assignment time.",
-    weightAblation: computeWeightAblationFromRows(rows),
+      "Observed grade counts only — no forced quotas at grade assignment time. U retained when present.",
+    weightAblation: opts.weightAblation ?? [],
     bootstrapIntervals: computeBootstrapIntervals(
       rows,
       opts.bootstrapSeed,
       opts.bootstrapIterations,
     ),
+    failedMemberCount,
+    scoredMemberCount,
   };
 }

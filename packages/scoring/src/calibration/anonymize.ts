@@ -1,11 +1,28 @@
-import type { CalibrationReport, PerCharacterCalibrationResult } from "./types.js";
+import type {
+  ActiveDraftComparisonResult,
+  CalibrationReport,
+  PerCharacterCalibrationResult,
+} from "./types.js";
 
-/** Strip PII / character identity for public-safe artifacts. */
+/** Strip identity for public-safe artifacts (identity-redacted, not legal PII claims). */
 export function anonymizeReport(report: CalibrationReport): CalibrationReport {
-  const characters: PerCharacterCalibrationResult[] = report.characters.map((row, index) => {
-    const alias = `member-${String(index + 1).padStart(3, "0")}`;
+  // Sort-stable aliases: characters are expected sorted by memberId before anonymize.
+  const ordered = [...report.characters].sort((a, b) =>
+    a.memberId.localeCompare(b.memberId),
+  );
+  const idMap = new Map(
+    ordered.map((row, index) => [
+      row.memberId,
+      `member-${String(index + 1).padStart(3, "0")}`,
+    ]),
+  );
+  const remapId = (id: string) => idMap.get(id) ?? id;
+
+  const characters: PerCharacterCalibrationResult[] = ordered.map((row) => {
+    const alias = remapId(row.memberId);
     return {
       ...row,
+      memberId: alias,
       region: "REDACTED",
       realm: "redacted",
       character: alias,
@@ -15,21 +32,16 @@ export function anonymizeReport(report: CalibrationReport): CalibrationReport {
     };
   });
 
-  const idMap = new Map(
-    report.characters.map((row, index) => [
-      row.memberId,
-      `member-${String(index + 1).padStart(3, "0")}`,
-    ]),
-  );
-
-  const remapId = (id: string) => idMap.get(id) ?? id;
+  const comparison = anonymizeComparison(report.activeDraftComparison, remapId);
 
   return {
     ...report,
-    characters: characters.map((c, index) => ({
-      ...c,
-      memberId: `member-${String(index + 1).padStart(3, "0")}`,
+    characters,
+    validationFailures: report.validationFailures.map((v) => ({
+      ...v,
+      memberId: v.memberId ? remapId(v.memberId) : null,
     })),
+    activeDraftComparison: comparison,
     statistics: {
       ...report.statistics,
       monotonicOrdering: {
@@ -49,5 +61,32 @@ export function anonymizeReport(report: CalibrationReport): CalibrationReport {
         memberId: remapId(p.memberId),
       })),
     },
+  };
+}
+
+function anonymizeComparison(
+  comparison: ActiveDraftComparisonResult | null,
+  remapId: (id: string) => string,
+): ActiveDraftComparisonResult | null {
+  if (!comparison) return null;
+  return {
+    ...comparison,
+    characters: comparison.characters.map((c) => ({
+      ...c,
+      memberId: remapId(c.memberId),
+    })),
+    aggregate: comparison.aggregate
+      ? {
+          ...comparison.aggregate,
+          largestPositiveMovers: comparison.aggregate.largestPositiveMovers.map((m) => ({
+            ...m,
+            memberId: remapId(m.memberId),
+          })),
+          largestNegativeMovers: comparison.aggregate.largestNegativeMovers.map((m) => ({
+            ...m,
+            memberId: remapId(m.memberId),
+          })),
+        }
+      : null,
   };
 }
