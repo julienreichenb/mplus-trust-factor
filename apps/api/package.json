@@ -24,6 +24,7 @@
     "@mplus/domain": "workspace:*",
     "@mplus/observability": "workspace:*",
     "@mplus/scoring": "workspace:*",
+    "@mplus/test-utils": "workspace:*",
     "@mplus/worker": "workspace:*",
     "fastify": "^5.4.0",
     "ioredis": "^5.6.1",

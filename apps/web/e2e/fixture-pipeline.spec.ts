@@ -63,14 +63,17 @@ test.describe("fixture pipeline E2E (live API + inline worker)", () => {
     await expect(page.getByTestId("compare-table").getByRole("rowheader", { name: nameA })).toBeVisible();
     await expect(page.getByTestId("compare-table").getByRole("rowheader", { name: nameB })).toBeVisible();
 
+    if (!process.env.DATABASE_URL?.trim()) {
+      throw new Error(
+        "addon:export in E2E requires DATABASE_URL (no mplus_trust fallback).",
+      );
+    }
     execFileSync("pnpm", ["addon:export"], {
       cwd: REPO_ROOT,
       shell: true,
       env: {
         ...process.env,
-        DATABASE_URL:
-          process.env.DATABASE_URL ??
-          "postgresql://mplus:mplus@localhost:5433/mplus_trust?schema=public",
+        DATABASE_URL: process.env.DATABASE_URL,
         PROVIDER_MODE: "fixture",
       },
       stdio: "pipe",

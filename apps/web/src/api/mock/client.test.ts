@@ -102,4 +102,33 @@ describe("admin model validation", () => {
     await api.updateModel(draft.id, bad);
     await expect(api.activateModel(draft.id)).rejects.toMatchObject({ code: "INVALID_MODEL" });
   });
+
+  it("deletes a DRAFT model and removes it from the catalog", async () => {
+    const api = createMockApiClient();
+    const active = (await api.listModels()).find((m) => m.status === "ACTIVE")!;
+    const draft = await api.cloneModel(active.id);
+
+    const result = await api.deleteModel(draft.id);
+    expect(result).toMatchObject({ id: draft.id, status: "DRAFT" });
+
+    const models = await api.listModels();
+    expect(models.some((m) => m.id === draft.id)).toBe(false);
+  });
+
+  it("refuses to delete a non-DRAFT model", async () => {
+    const api = createMockApiClient();
+    const active = (await api.listModels()).find((m) => m.status === "ACTIVE")!;
+    await expect(api.deleteModel(active.id)).rejects.toMatchObject({
+      status: 409,
+      code: "SCORE_MODEL_NOT_DELETABLE",
+    });
+  });
+
+  it("returns 404 when deleting a missing model", async () => {
+    const api = createMockApiClient();
+    await expect(api.deleteModel("does-not-exist")).rejects.toMatchObject({
+      status: 404,
+      code: "SCORE_MODEL_NOT_FOUND",
+    });
+  });
 });

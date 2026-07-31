@@ -164,7 +164,8 @@ export function unavailableDimensionLabel(dimension?: string | null): string {
   return "Data unavailable";
 }
 
-function humanizeMetricKey(metricKey: string): string {
+/** Humanize a dotted metric key leaf (e.g. `utility.observed_contribution` -> `Observed Contribution`). */
+export function humanizeMetricKey(metricKey: string): string {
   const leaf = metricKey.includes(".") ? metricKey.slice(metricKey.lastIndexOf(".") + 1) : metricKey;
   return leaf.replace(/[_-]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }

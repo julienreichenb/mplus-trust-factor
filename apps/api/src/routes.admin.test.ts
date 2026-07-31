@@ -5,12 +5,20 @@ import type { PrismaClient } from "@mplus/database";
 import { ensureCurrentSeason, ensureDungeon } from "@mplus/worker";
 import { buildApp } from "./app.js";
 import { createApiContainer, type ApiContainer } from "./container.js";
-import { buildScoreModelConfig, buildTestEnv, createTestPrismaClient, uniqueName } from "./test-helpers.js";
+import {
+  buildScoreModelConfig,
+  buildTestEnv,
+  cleanupTrackedScoreModels,
+  createTestPrismaClient,
+  uniqueName,
+} from "./test-helpers.js";
 
 const { prisma, dbAvailable } = await createTestPrismaClient();
 const ADMIN_KEY = "test-admin-key";
+const createdScoreModelIds: string[] = [];
 
 afterAll(async () => {
+  await cleanupTrackedScoreModels(prisma, createdScoreModelIds);
   await prisma.$disconnect();
 });
 
@@ -66,6 +74,7 @@ describe.skipIf(!dbAvailable)("admin routes", { timeout: 30_000 }, () => {
     });
     expect(createResponse.statusCode).toBe(201);
     const model = createResponse.json();
+    createdScoreModelIds.push(model.id);
     expect(model.status).toBe("DRAFT");
 
     const listResponse = await app.inject({

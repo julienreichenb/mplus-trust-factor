@@ -21,6 +21,7 @@
     "@prisma/client": "^6.13.0"
   },
   "devDependencies": {
+    "@mplus/test-utils": "workspace:*",
     "prisma": "^6.13.0",
     "tsx": "^4.20.3",
     "typescript": "^5.8.3",

@@ -13,8 +13,9 @@ import {
 } from "./refresh-admission-policy.js";
 import { loadEnv, resetEnvCache } from "./index.js";
 
+/** Disposable-looking URL for env parsing only — this suite does not open Prisma. */
 const baseEnv = {
-  DATABASE_URL: "postgresql://mplus:mplus@localhost:5433/mplus_trust?schema=public",
+  DATABASE_URL: "postgresql://mplus:mplus@localhost:5433/mplus_itest_fixture0001?schema=public",
   REDIS_URL: "redis://localhost:6379",
   ADMIN_API_KEY: "test-admin-key",
   SESSION_SECRET: "test-session-secret-at-least-32-chars",

@@ -8,12 +8,13 @@ import {
   POINTS_AND_DAMAGE_ADAPTER_VERSION,
   resolveMplusZoneConfig,
 } from "@mplus/provider-warcraftlogs";
+import { assertTestDatabaseAllowed, sanitizeDatabaseUrl } from "@mplus/test-utils";
 import { createWorkerContainer } from "./container.js";
 import { runRefreshPipeline } from "./orchestration/refresh-pipeline.js";
 import { seedRefreshEligibilityEvidenceForTest } from "./test-eligibility-seed.js";
 
-const databaseUrl =
-  process.env.DATABASE_URL ?? "postgresql://mplus:mplus@localhost:5433/mplus_trust?schema=public";
+const databaseUrl = process.env.DATABASE_URL ?? "";
+assertTestDatabaseAllowed(databaseUrl);
 
 const prisma: PrismaClient = createPrismaClient(databaseUrl);
 const health = await checkDatabaseHealth(prisma);
@@ -21,7 +22,7 @@ const dbAvailable = health.ok;
 
 if (!dbAvailable) {
   console.warn(
-    `Skipping Wallidrixe legacy-cache regression: PostgreSQL not reachable at ${databaseUrl}.`,
+    `Skipping Wallidrixe legacy-cache regression: PostgreSQL not reachable at ${sanitizeDatabaseUrl(databaseUrl)}.`,
   );
 }
 

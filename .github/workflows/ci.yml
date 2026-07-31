@@ -117,13 +117,15 @@ jobs:
       - name: Validate migrations (deploy against empty DB)
         run: pnpm db:migrate
 
-      # Bootstrap empty CI Postgres only (workflow DATABASE_URL → service :5432).
-      # Idempotent fixture score model for unit tests — not production model activation.
-      - name: Seed database (idempotent score model + fixtures)
-        run: pnpm db:seed
-
-      - name: Unit / package tests
+      # Migration validation above uses the service DB (mplus_trust).
+      # `pnpm test` creates a disposable mplus_itest_* database, migrates, seeds, runs, then drops it.
+      # Workflow DATABASE_URL is only the Postgres *server* connection for the isolated runner.
+      - name: Unit / package tests (isolated disposable database)
         run: pnpm test
+        env:
+          # Server URL for CREATE DATABASE; child processes receive mplus_itest_* + MPLUS_ISOLATED_TEST_DB.
+          MPLUS_TEST_SERVER_DATABASE_URL: postgresql://mplus:mplus@localhost:5432/mplus_trust?schema=public
+          DATABASE_URL: postgresql://mplus:mplus@localhost:5432/mplus_trust?schema=public
 
       - name: Frontend English-only copy
         run: pnpm check:english

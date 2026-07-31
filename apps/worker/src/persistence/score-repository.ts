@@ -1,5 +1,10 @@
 import type { DimensionScore, Prisma, PrismaClient, ScoreModel, ScoreSnapshot, Season } from "@mplus/database";
-import type { ScoreModelConfig, ScoreScope, ScoreSnapshotDTO } from "@mplus/contracts";
+import type {
+  ScoreModelConfig,
+  ScoreModelDependencyCounts,
+  ScoreScope,
+  ScoreSnapshotDTO,
+} from "@mplus/contracts";
 import type { CoherenceValidationResult } from "@mplus/scoring";
 
 /** Read shape used by API mappers: adds the relations needed to build a full `ScoreSnapshotDTO`. */
@@ -102,6 +107,21 @@ export interface ActivateModelResult {
   previousActive: ScoreModel | null;
 }
 
+/**
+ * Thrown by `deleteDraftModel` when the draft is referenced by durable history
+ * (snapshots, batches, addon exports, ...). Carries safe count-only details —
+ * never row-level data — so the API can surface a precise 409 without a blind cascade.
+ */
+export class ScoreModelDraftInUseError extends Error {
+  constructor(
+    message: string,
+    public readonly counts: ScoreModelDependencyCounts,
+  ) {
+    super(message);
+    this.name = "ScoreModelDraftInUseError";
+  }
+}
+
 export interface ScoreRepository {
   /**
    * Resolve the DB-authoritative ACTIVE model.
@@ -116,6 +136,11 @@ export interface ScoreRepository {
   updateDraftConfig(id: string, config: ScoreModelConfig): Promise<ScoreModel>;
   validateConfig(config: ScoreModelConfig): string[];
   activateModel(id: string, opts?: ActivateModelOptions): Promise<ActivateModelResult>;
+  /**
+   * Delete a DRAFT model. Throws on missing / non-DRAFT / durable-history-referenced models.
+   * Never cascades: dependency rows are counted, not deleted.
+   */
+  deleteDraftModel(id: string): Promise<ScoreModel>;
   saveScoreSnapshot(input: SaveScoreSnapshotInput): Promise<ScoreSnapshot>;
   /** Save as CANDIDATE without publishing. */
   saveCandidateSnapshot(input: SaveScoreSnapshotInput): Promise<ScoreSnapshot>;
@@ -374,6 +399,44 @@ export function createScoreRepository(prisma: PrismaClient): ScoreRepository {
         }
         throw error;
       }
+    },
+
+    async deleteDraftModel(id) {
+      return prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+        const target = await tx.scoreModel.findUnique({ where: { id } });
+        if (!target) {
+          throw new Error(`Score model ${id} not found`);
+        }
+        if (target.status !== "DRAFT") {
+          throw new Error(`Only DRAFT models can be deleted (got ${target.status})`);
+        }
+
+        const [scoreSnapshots, characterRedFlags, addonExports, analysisBatches, bulkOperations] =
+          await Promise.all([
+            tx.scoreSnapshot.count({ where: { scoreModelId: id } }),
+            tx.characterRedFlag.count({ where: { scoreModelId: id } }),
+            tx.addonExport.count({ where: { scoreModelId: id } }),
+            tx.scoreAnalysisBatch.count({ where: { scoreModelId: id } }),
+            tx.bulkOperation.count({ where: { scoreModelId: id } }),
+          ]);
+        const counts: ScoreModelDependencyCounts = {
+          scoreSnapshots,
+          characterRedFlags,
+          addonExports,
+          analysisBatches,
+          bulkOperations,
+        };
+        const totalDependencies = Object.values(counts).reduce((sum, count) => sum + count, 0);
+        if (totalDependencies > 0) {
+          throw new ScoreModelDraftInUseError(
+            `Draft ${target.key} v${target.version} is referenced by durable history and cannot be deleted`,
+            counts,
+          );
+        }
+
+        await tx.scoreModel.delete({ where: { id } });
+        return target;
+      });
     },
 
     async saveCandidateSnapshot(input) {

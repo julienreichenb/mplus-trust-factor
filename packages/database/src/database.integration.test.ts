@@ -1,9 +1,9 @@
 import { describe, expect, it, beforeAll } from "vitest";
+import { assertTestDatabaseAllowed, sanitizeDatabaseUrl } from "@mplus/test-utils";
 import { createPrismaClient, checkDatabaseHealth } from "./index.js";
 
-const databaseUrl =
-  process.env.DATABASE_URL ??
-  "postgresql://mplus:mplus@localhost:5433/mplus_trust?schema=public";
+const databaseUrl = process.env.DATABASE_URL ?? "";
+assertTestDatabaseAllowed(databaseUrl);
 
 describe("database integration", () => {
   const prisma = createPrismaClient(databaseUrl);
@@ -12,7 +12,7 @@ describe("database integration", () => {
     const health = await checkDatabaseHealth(prisma);
     if (!health.ok) {
       throw new Error(
-        `PostgreSQL is not reachable at ${databaseUrl}. Run pnpm dev:infra first. ${health.error ?? ""}`,
+        `PostgreSQL is not reachable at ${sanitizeDatabaseUrl(databaseUrl)}. Run pnpm dev:infra first. ${health.error ?? ""}`,
       );
     }
   });

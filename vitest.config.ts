@@ -35,6 +35,7 @@ export default defineConfig({
     environment: "node",
     // Integration-style API/worker tests run inline refresh against shared Postgres;
     // under parallel load the default 5s is too tight after eligibility seeding.
+    // DB-backed Fastify inject suites regularly exceed the 5s Vitest default under load.
     testTimeout: 30_000,
     include: ["**/src/**/*.test.ts", "**/tests/**/*.test.ts"],
     exclude: [
@@ -43,17 +44,17 @@ export default defineConfig({
       "**/*.integration.test.ts",
       "apps/web/**",
     ],
-    // DB-backed Fastify inject suites regularly exceed the 5s Vitest default under load.
-    testTimeout: 30_000,
     hookTimeout: 60_000,
     env: {
       PROVIDER_MODE: "fixture",
       NODE_ENV: "test",
       APP_ENV: "test",
-      // Prefer an explicit DATABASE_URL (CI uses :5432). Local compose maps Postgres to :5433.
-      DATABASE_URL:
-        process.env.DATABASE_URL ??
-        "postgresql://mplus:mplus@localhost:5433/mplus_trust?schema=public",
+      // DATABASE_URL + MPLUS_ISOLATED_TEST_DB must be set by `pnpm test` (run-tests-isolated.mjs).
+      // No fallback to the development database (mplus_trust).
+      ...(process.env.DATABASE_URL ? { DATABASE_URL: process.env.DATABASE_URL } : {}),
+      ...(process.env.MPLUS_ISOLATED_TEST_DB
+        ? { MPLUS_ISOLATED_TEST_DB: process.env.MPLUS_ISOLATED_TEST_DB }
+        : {}),
       REDIS_URL: process.env.REDIS_URL ?? "redis://localhost:6379",
       WEB_ORIGIN: "http://localhost:5173",
       PUBLIC_BASE_URL: "http://localhost:3000",

@@ -94,6 +94,50 @@ describe("createLiveApiClient", () => {
     expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({ credentials: "include" });
   });
 
+  it("sends a DELETE request with no body for deleteModel", async () => {
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      expect(init?.method).toBe("DELETE");
+      expect(init?.body).toBeUndefined();
+      return new Response(
+        JSON.stringify({ id: "model-1", key: "default", version: 7, name: "Draft", status: "DRAFT" }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = createLiveApiClient({ baseUrl: "http://localhost:3000" });
+    const result = await client.deleteModel("model-1");
+
+    expect(result).toMatchObject({ id: "model-1", status: "DRAFT" });
+    expect(fetchMock.mock.calls[0]?.[0]).toContain("/api/v1/admin/score-models/model-1");
+  });
+
+  it("surfaces 409 SCORE_MODEL_DRAFT_IN_USE dependency counts from deleteModel", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json(
+          {
+            error: {
+              code: "SCORE_MODEL_DRAFT_IN_USE",
+              message: "Draft default v7 is referenced by durable history and cannot be deleted",
+              requestId: "req-1",
+              details: { counts: { scoreSnapshots: 0, characterRedFlags: 0, addonExports: 0, analysisBatches: 0, bulkOperations: 2 } },
+            },
+          },
+          { status: 409 },
+        ),
+      ),
+    );
+
+    const client = createLiveApiClient({ baseUrl: "http://localhost:3000" });
+    await expect(client.deleteModel("model-1")).rejects.toMatchObject({
+      status: 409,
+      code: "SCORE_MODEL_DRAFT_IN_USE",
+      details: { counts: { bulkOperations: 2 } },
+    });
+  });
+
   it("normalizes live realm responses to slug + human label", async () => {
     vi.stubGlobal(
       "fetch",

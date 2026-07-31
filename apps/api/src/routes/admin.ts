@@ -32,6 +32,19 @@ const validateResponseSchema = {
   },
 } as const;
 
+const deleteScoreModelResponseSchema = {
+  type: "object",
+  properties: {
+    id: { type: "string" },
+    key: { type: "string" },
+    version: { type: "number" },
+    name: { type: "string" },
+    status: { type: "string" },
+  },
+  required: ["id", "key", "version", "name", "status"],
+  additionalProperties: false,
+} as const;
+
 const idParamsSchema = {
   type: "object",
   properties: { id: { type: "string", minLength: 1 } },
@@ -383,6 +396,30 @@ export function buildAdminRoutes(container: ApiContainer): FastifyPluginAsync {
           const { id } = request.params as { id: string };
           const body = request.body as { config: ScoreModelConfig };
           return service.updateScoreModel(id, body.config);
+        },
+      );
+
+      protectedApp.delete(
+        "/api/v1/admin/score-models/:id",
+        {
+          schema: {
+            tags: ["admin"],
+            params: idParamsSchema,
+            response: {
+              200: deleteScoreModelResponseSchema,
+              404: errorResponseSchema,
+              409: errorResponseSchema,
+            },
+          },
+        },
+        async (request) => {
+          const { id } = request.params as { id: string };
+          return service.deleteScoreModel(id, {
+            actorUserId: request.auth?.user.id ?? null,
+            actorType: request.authActor === "admin_key" ? "admin_key" : "user",
+            ip: request.ip,
+            userAgent: request.headers["user-agent"],
+          });
         },
       );
 

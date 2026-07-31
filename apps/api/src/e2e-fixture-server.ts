@@ -1,6 +1,8 @@
 /**
  * Fixture-mode API for Playwright E2E (inline refresh pipeline, no Redis worker).
- * Requires PostgreSQL on DATABASE_URL (default :5433).
+ * Requires DATABASE_URL from the environment (prefer an isolated disposable test DB).
+ * Never falls back to the shared mplus_trust development database — set DATABASE_URL
+ * explicitly (e.g. via the isolated test runner or E2E harness).
  */
 import { loadEnv, resetEnvCache } from "@mplus/config";
 import { checkDatabaseHealth, createPrismaClient } from "@mplus/database";
@@ -10,15 +12,20 @@ import { createApiContainer } from "./container.js";
 const port = Number(process.env.E2E_API_PORT ?? 3099);
 const webOrigin = process.env.E2E_WEB_ORIGIN ?? "http://127.0.0.1:4199";
 
+if (!process.env.DATABASE_URL?.trim()) {
+  console.error(
+    "E2E fixture API: DATABASE_URL is required (do not use the shared mplus_trust fallback).",
+  );
+  process.exit(1);
+}
+
 resetEnvCache();
 const env = loadEnv({
   ...process.env,
   API_HOST: "127.0.0.1",
   API_PORT: String(port),
   PROVIDER_MODE: "fixture",
-  DATABASE_URL:
-    process.env.DATABASE_URL ??
-    "postgresql://mplus:mplus@localhost:5433/mplus_trust?schema=public",
+  DATABASE_URL: process.env.DATABASE_URL,
   REDIS_URL: process.env.REDIS_URL ?? "redis://localhost:6379",
   ADMIN_API_KEY: process.env.ADMIN_API_KEY ?? "test-admin-key",
   ADMIN_API_KEY_EMERGENCY_FALLBACK: process.env.ADMIN_API_KEY_EMERGENCY_FALLBACK ?? "true",

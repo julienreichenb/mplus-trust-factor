@@ -271,11 +271,11 @@ jobs:
       - name: Validate migrations (empty DB)
         run: pnpm db:migrate
 
-      - name: Seed database
-        run: pnpm db:seed
-
-      - name: Unit / package tests
+      - name: Unit / package tests (isolated disposable database)
         run: pnpm test
+        env:
+          MPLUS_TEST_SERVER_DATABASE_URL: postgresql://mplus:mplus@localhost:5432/mplus_trust?schema=public
+          DATABASE_URL: postgresql://mplus:mplus@localhost:5432/mplus_trust?schema=public
 
       - name: Frontend English-only copy
         run: pnpm check:english

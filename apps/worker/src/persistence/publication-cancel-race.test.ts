@@ -5,12 +5,13 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, describe, expect, it } from "vitest";
 import { checkDatabaseHealth, createPrismaClient, type PrismaClient } from "@mplus/database";
+import { assertTestDatabaseAllowed, sanitizeDatabaseUrl } from "@mplus/test-utils";
 import { createScoreRepository } from "./score-repository.js";
 import { createJobRepository } from "./job-repository.js";
 import { isRefreshCancellationRequested } from "../orchestration/refresh-job-control.js";
 
-const databaseUrl =
-  process.env.DATABASE_URL ?? "postgresql://mplus:mplus@localhost:5433/mplus_trust?schema=public";
+const databaseUrl = process.env.DATABASE_URL ?? "";
+assertTestDatabaseAllowed(databaseUrl);
 
 const prisma: PrismaClient = createPrismaClient(databaseUrl);
 const health = await checkDatabaseHealth(prisma);
@@ -18,7 +19,7 @@ const dbAvailable = health.ok;
 
 if (!dbAvailable) {
   console.warn(
-    `Skipping publication-cancel race tests: PostgreSQL not reachable at ${databaseUrl}. ${health.error ?? ""}`,
+    `Skipping publication-cancel race tests: PostgreSQL not reachable at ${sanitizeDatabaseUrl(databaseUrl)}. ${health.error ?? ""}`,
   );
 }
 
