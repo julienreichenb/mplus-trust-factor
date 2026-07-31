@@ -76,6 +76,9 @@ export interface BacktestSummary {
     [key: string]: unknown;
   } | null;
   source?: string;
+  /** Present only for genuine non-replayable snapshot-only responses. */
+  degradedReason?: string | null;
+  cohortId?: string;
 }
 
 export interface ActivateScoreModelResult extends AdminScoreModelDTO {

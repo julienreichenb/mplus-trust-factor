@@ -34,6 +34,13 @@ export interface ValidateScoreModelResult {
   errors: string[];
 }
 
+/** Machine-readable reason when backtest cannot run active-versus-draft replay. */
+export type BacktestDegradedReason =
+  | "NO_PUBLIC_SNAPSHOTS"
+  | "NO_REPLAYABLE_EVIDENCE"
+  | "EVALUATION_NOT_DRAFT"
+  | "NO_ACTIVE_MODEL";
+
 export interface BacktestResultDTO extends AdminBacktestSummaryV1 {
   /** Absolute grade counts when available. */
   gradeCounts: Partial<Record<Grade, number>>;
@@ -41,6 +48,12 @@ export interface BacktestResultDTO extends AdminBacktestSummaryV1 {
   activeDraftComparison: ActiveDraftComparisonResult | null;
   exportNotes: string[];
   source: "persisted-export";
+  /**
+   * Set only when the response is genuinely snapshot-only because persisted
+   * evidence cannot support replay. Never used to hide harness/integration defects.
+   */
+  degradedReason?: BacktestDegradedReason | null;
+  cohortId: string;
 }
 
 export interface MechanicRuleInput {
@@ -141,6 +154,7 @@ export class AdminService {
   /**
    * Real cohort backtest via Agent 10 calibration harness.
    * Uses persisted public snapshots (+ observations when available). Never activates or calls providers.
+   * Does not fall back from active-versus-draft to snapshot-only to hide harness defects.
    */
   async backtestScoreModel(
     id: string,
@@ -151,11 +165,21 @@ export class AdminService {
       throw HttpError.notFound("SCORE_MODEL_NOT_FOUND", `Score model ${id} was not found`);
     }
 
+    const configErrors = this.repositories.score.validateConfig(
+      model.config as unknown as ScoreModelConfig,
+    );
+    if (configErrors.length > 0) {
+      throw HttpError.badRequest(
+        "SCORE_MODEL_INVALID",
+        `Invalid score model configuration: ${configErrors.join("; ")}`,
+      );
+    }
+
     const activeModel =
       (await this.repositories.score.getActiveModel(model.key)) ??
       (await this.repositories.score.getActiveModel());
 
-    const { bundle, mode, notes } = await buildPersistedCalibrationBundle(
+    const { bundle, mode, notes, degradedReason } = await buildPersistedCalibrationBundle(
       {
         prisma: this.container.worker.prisma,
         listObservations: (characterId, seasonId) =>
@@ -170,11 +194,9 @@ export class AdminService {
     );
 
     let report;
-    let effectiveMode = mode;
-    let effectiveNotes = [...notes];
     try {
       ({ report } = runCalibrationHarnessFromBundle(bundle, {
-        mode: effectiveMode,
+        mode,
         evaluationModel: bundle.evaluationModel,
         activeModel: bundle.activeModel ?? null,
         calculatedAt: bundle.generatedAt,
@@ -183,47 +205,23 @@ export class AdminService {
       }));
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      if (effectiveMode !== "persisted-snapshot-only") {
-        // Agent 10 ablation currently rejects ablated v6 weights that keep mythicRaid
-        // (public weights renormalize to 1 → total 1.05). Fall back to snapshot-only
-        // so admin still gets a real persisted cohort distribution.
-        effectiveMode = "persisted-snapshot-only";
-        effectiveNotes.push(
-          `Fell back to persisted-snapshot-only after ${mode} failed: ${message}`,
-        );
-        try {
-          ({ report } = runCalibrationHarnessFromBundle(bundle, {
-            mode: "persisted-snapshot-only",
-            activeModel: bundle.activeModel ?? null,
-            calculatedAt: bundle.generatedAt,
-            anonymize: true,
-            bootstrapIterations: 50,
-          }));
-        } catch (fallbackError) {
-          const fallbackMessage =
-            fallbackError instanceof Error ? fallbackError.message : String(fallbackError);
-          throw HttpError.badRequest(
-            "SCORE_MODEL_BACKTEST_FAILED",
-            `Cohort backtest failed: ${fallbackMessage}`,
-          );
-        }
-      } else {
-        throw HttpError.badRequest(
-          "SCORE_MODEL_BACKTEST_FAILED",
-          `Cohort backtest failed: ${message}`,
-        );
-      }
+      throw HttpError.badRequest(
+        "SCORE_MODEL_BACKTEST_FAILED",
+        `Cohort backtest failed: ${message}`,
+      );
     }
 
     const summary = toAdminBacktestSummary(model.id, report);
     return {
       ...summary,
-      mode: effectiveMode,
-      note: [summary.note, ...effectiveNotes].filter(Boolean).join(" "),
+      mode,
+      note: [summary.note, ...notes].filter(Boolean).join(" "),
       confidenceVersusCoverage: report.statistics.confidenceVersusCoverage,
       activeDraftComparison: report.activeDraftComparison,
-      exportNotes: effectiveNotes,
+      exportNotes: notes,
       source: "persisted-export",
+      degradedReason: mode === "persisted-snapshot-only" ? degradedReason : null,
+      cohortId: report.cohortId,
     };
   }
 

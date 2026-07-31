@@ -483,6 +483,10 @@ onMounted(() => {
                 · mean confidence {{ backtest.meanConfidence.toFixed(3) }}
               </template>
               <template v-if="backtest.mode"> · mode {{ backtest.mode }}</template>
+              <template v-if="backtest.cohortId"> · cohort {{ backtest.cohortId }}</template>
+            </p>
+            <p v-if="backtest.degradedReason" class="muted" data-testid="backtest-degraded-reason">
+              Degraded: {{ backtest.degradedReason }}
             </p>
             <p class="muted">{{ backtest.notes }}</p>
             <h4>Grade distribution</h4>

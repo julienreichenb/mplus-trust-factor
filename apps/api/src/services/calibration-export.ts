@@ -91,10 +91,24 @@ function roleOf(character: { role?: string | null }): CalibrationRole {
  * Build a portable CalibrationInputBundle from persisted public snapshots + observations.
  * Never enqueues providers. Prefers active-versus-draft when replay context is available.
  */
+export type CalibrationExportDegradedReason =
+  | "NO_PUBLIC_SNAPSHOTS"
+  | "NO_REPLAYABLE_EVIDENCE"
+  | "EVALUATION_NOT_DRAFT"
+  | "NO_ACTIVE_MODEL";
+
+export interface BuildPersistedCalibrationBundleResult {
+  bundle: CalibrationInputBundleV1;
+  mode: CalibrationBacktestMode;
+  notes: string[];
+  /** Present only when mode is persisted-snapshot-only for a genuine evidence reason. */
+  degradedReason: CalibrationExportDegradedReason | null;
+}
+
 export async function buildPersistedCalibrationBundle(
   deps: CalibrationExportDeps,
   input: BuildPersistedCalibrationBundleInput,
-): Promise<{ bundle: CalibrationInputBundleV1; mode: CalibrationBacktestMode; notes: string[] }> {
+): Promise<BuildPersistedCalibrationBundleResult> {
   const limit = input.limit ?? DEFAULT_COHORT_LIMIT;
   const generatedAt = input.generatedAt ?? new Date().toISOString();
   const notes: string[] = [];
@@ -154,7 +168,12 @@ export async function buildPersistedCalibrationBundle(
       source: "persisted-export",
       mode: "persisted-snapshot-only",
     });
-    return { bundle, mode: "persisted-snapshot-only", notes };
+    return {
+      bundle,
+      mode: "persisted-snapshot-only",
+      notes,
+      degradedReason: "NO_PUBLIC_SNAPSHOTS",
+    };
   }
 
   const evidenceByMemberId: Record<string, CalibrationMemberEvidence> = {};
@@ -245,6 +264,17 @@ export async function buildPersistedCalibrationBundle(
     input.evaluationModel.status === "DRAFT" &&
     replayableCount > 0;
 
+  let degradedReason: CalibrationExportDegradedReason | null = null;
+  if (!canCompare) {
+    if (replayableCount === 0) {
+      degradedReason = "NO_REPLAYABLE_EVIDENCE";
+    } else if (!input.activeModel) {
+      degradedReason = "NO_ACTIVE_MODEL";
+    } else if (input.evaluationModel.status !== "DRAFT") {
+      degradedReason = "EVALUATION_NOT_DRAFT";
+    }
+  }
+
   const mode: CalibrationBacktestMode = canCompare
     ? "active-versus-draft"
     : "persisted-snapshot-only";
@@ -253,12 +283,14 @@ export async function buildPersistedCalibrationBundle(
     notes.push(
       `Real cohort export: ${members.length} characters, ${replayableCount} replayable for active-versus-draft.`,
     );
-  } else if (replayableCount === 0) {
+  } else if (degradedReason === "NO_REPLAYABLE_EVIDENCE") {
     notes.push(
       `Real cohort export: ${members.length} public snapshots (persisted-snapshot-only; no replayable scoringContext/observations for draft compare).`,
     );
   } else {
-    notes.push(`Real cohort export: ${members.length} public snapshots (persisted-snapshot-only).`);
+    notes.push(
+      `Real cohort export: ${members.length} public snapshots (persisted-snapshot-only; ${degradedReason ?? "unspecified"}).`,
+    );
   }
 
   const bundle = buildCalibrationInputBundle({
@@ -279,5 +311,5 @@ export async function buildPersistedCalibrationBundle(
     mode,
   });
 
-  return { bundle, mode, notes };
+  return { bundle, mode, notes, degradedReason };
 }

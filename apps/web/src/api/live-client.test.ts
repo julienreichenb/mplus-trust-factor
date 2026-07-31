@@ -7,6 +7,12 @@ describe("realm-options", () => {
     expect(normalizeRealmOption({ slug: "tarren-mill", name: "tarren-mill" })).toEqual({
       slug: "tarren-mill",
       name: "Tarren Mill",
+      region: "EU",
+      locale: null,
+      connectedRealmId: null,
+      displayLabel: "Tarren Mill — EU",
+      category: null,
+      timezone: null,
     });
   });
 
@@ -14,6 +20,12 @@ describe("realm-options", () => {
     expect(normalizeRealmOption({ slug: "tarren-mill", name: "Tarren Mill" })).toEqual({
       slug: "tarren-mill",
       name: "Tarren Mill",
+      region: "EU",
+      locale: null,
+      connectedRealmId: null,
+      displayLabel: "Tarren Mill — EU",
+      category: null,
+      timezone: null,
     });
   });
 
@@ -99,8 +111,26 @@ describe("createLiveApiClient", () => {
     const realms = await client.searchRealms("EU", "tar");
 
     expect(realms).toEqual([
-      { slug: "tarren-mill", name: "Tarren Mill" },
-      { slug: "kazzak", name: "Kazzak" },
+      {
+        slug: "tarren-mill",
+        name: "Tarren Mill",
+        region: "EU",
+        locale: null,
+        connectedRealmId: null,
+        displayLabel: "Tarren Mill — EU",
+        category: null,
+        timezone: null,
+      },
+      {
+        slug: "kazzak",
+        name: "Kazzak",
+        region: "EU",
+        locale: null,
+        connectedRealmId: null,
+        displayLabel: "Kazzak — EU",
+        category: null,
+        timezone: null,
+      },
     ]);
     expect(normalizeRealmOptions(realms)).toEqual(realms);
   });

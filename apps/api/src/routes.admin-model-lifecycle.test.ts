@@ -221,9 +221,53 @@ describe.skipIf(!dbAvailable)("admin score model lifecycle (Agent 08)", { timeou
     expect(body.modelActivated).toBe(false);
     expect(body.providerCallsMade).toBe(false);
     expect(String(body.note ?? "")).not.toContain("Fixture placeholder");
+    expect(String(body.note ?? "")).not.toContain("Fell back to persisted-snapshot-only");
+    expect(body.gradeDistribution).toBeTypeOf("object");
+    expect(body.outliers).toBeDefined();
+    expect(body.confidenceVersusCoverage).toBeDefined();
+    expect(body.cohortId).toBeTruthy();
+    if (body.mode === "persisted-snapshot-only") {
+      expect(body.degradedReason).toMatch(
+        /^(NO_PUBLIC_SNAPSHOTS|NO_REPLAYABLE_EVIDENCE|NO_ACTIVE_MODEL|EVALUATION_NOT_DRAFT)$/,
+      );
+    } else {
+      expect(body.mode).toBe("active-versus-draft");
+      expect(body.degradedReason == null).toBe(true);
+      expect(body.activeDraftComparison).toBeTruthy();
+    }
     if (body.sampleSize === 0) {
       expect(body.meanScore).toBe(0);
     }
+  });
+
+  it("rejects backtest of an invalid draft with a clear validation error", async () => {
+    const key = `life-bad-${randomUUID().slice(0, 8)}`;
+    const draft = await createDraft(key);
+    await prisma.scoreModel.update({
+      where: { id: draft.id },
+      data: {
+        config: {
+          ...buildScoreModelConfig(key),
+          weights: {
+            performance: 0.9,
+            survival: 0.27,
+            utility: 0.23,
+            experienceConsistency: 0.13,
+            mythicRaid: 0.05,
+          },
+        },
+      },
+    });
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/v1/admin/score-models/${draft.id}/backtest`,
+      headers: adminHeaders(),
+      payload: {},
+    });
+    expect(response.statusCode).toBe(400);
+    const body = response.json();
+    expect(body.error.code).toBe("SCORE_MODEL_INVALID");
+    expect(String(body.error.message)).toMatch(/weight/i);
   });
 
   it("restart-style lookup preserves ACTIVE without env key dependence", async () => {

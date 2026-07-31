@@ -295,11 +295,70 @@ describe("calibration harness", () => {
     const ablated = createAblatedModel(model, "performance");
     expect(JSON.stringify(model)).toBe(before);
     expect(ablated.weights.performance).toBe(0);
-    const sum =
+    expect(ablated.weights.mythicRaid).toBe(model.weights.mythicRaid);
+    const publicSum =
       ablated.weights.survival +
       ablated.weights.utility +
       ablated.weights.experienceConsistency;
-    expect(sum).toBeCloseTo(1, 10);
+    expect(publicSum).toBeCloseTo(1 - model.weights.mythicRaid, 10);
+    const total =
+      publicSum + ablated.weights.performance + ablated.weights.mythicRaid;
+    expect(total).toBeCloseTo(1, 10);
+  });
+
+  it("ablates v6 configs that retain a non-zero mythicRaid weight without invalid totals", () => {
+    const draftConfig = createDefaultModelV6({
+      key: "default",
+      version: 6,
+      weights: {
+        performance: 0.32,
+        survival: 0.27,
+        utility: 0.23,
+        experienceConsistency: 0.13,
+        mythicRaid: 0.05,
+      },
+    });
+    const ablated = createAblatedModel(draftConfig, "utility");
+    expect(ablated.weights.utility).toBe(0);
+    expect(ablated.weights.mythicRaid).toBe(0.05);
+    const weightSum =
+      ablated.weights.performance +
+      ablated.weights.survival +
+      ablated.weights.utility +
+      ablated.weights.experienceConsistency +
+      ablated.weights.mythicRaid;
+    expect(weightSum).toBeCloseTo(1, 10);
+
+    const evaluationModel: CalibrationModelRef = {
+      id: "draft-mythic-raid",
+      key: draftConfig.key,
+      version: draftConfig.version,
+      status: "DRAFT",
+      config: draftConfig,
+      isActive: false,
+    };
+    const report = runCalibrationHarness(
+      fixture.manifest,
+      {
+        mode: "active-versus-draft",
+        activeModel,
+        evaluationModel,
+        calculatedAt: "2026-07-31T12:00:00.000Z",
+      },
+      { evidence },
+    );
+    expect(report.modelActivated).toBe(false);
+    expect(report.providerCallsMade).toBe(false);
+    expect(report.errorCount).toBe(0);
+    expect(report.activeDraftComparison?.comparable).toBe(true);
+    expect(report.activeDraftComparison?.aggregate?.comparableCount).toBeGreaterThan(0);
+    expect(report.statistics.weightAblation.length).toBeGreaterThan(0);
+    expect(report.statistics.gradeDistribution).toBeTruthy();
+    expect(report.statistics.outliers).toBeDefined();
+    expect(report.statistics.confidenceVersusCoverage.length).toBeGreaterThan(0);
+    expect(report.cohortId).toBe(fixture.manifest.cohortId);
+    const firstPair = report.activeDraftComparison!.characters.find((c) => c.comparable);
+    expect(firstPair?.dimensionDeltas.length).toBeGreaterThan(0);
   });
 
   it("rejects refresh-then-evaluate as unsupported", () => {

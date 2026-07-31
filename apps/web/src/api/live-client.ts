@@ -183,6 +183,8 @@ export function createLiveApiClient(options: {
         confidenceVersusCoverage?: unknown[];
         activeDraftComparison?: BacktestSummary["activeDraftComparison"];
         source?: string;
+        degradedReason?: string | null;
+        cohortId?: string;
       }>(
         "POST",
         `/api/v1/admin/score-models/${encodeURIComponent(modelId)}/backtest`,
@@ -199,6 +201,8 @@ export function createLiveApiClient(options: {
         confidenceVersusCoverage: r.confidenceVersusCoverage ?? [],
         activeDraftComparison: r.activeDraftComparison ?? null,
         source: r.source,
+        degradedReason: r.degradedReason ?? null,
+        cohortId: r.cohortId,
       })),
 
     activateModel: (modelId, opts) =>

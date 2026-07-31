@@ -19,14 +19,23 @@ function deepCloneModel(model: ScoreModelConfigV1): ScoreModelConfigV1 {
 }
 
 /**
- * Zero one public dimension weight and renormalize remaining public weights.
- * Does not mutate the original model. RAID / mythicRaid left unchanged.
+ * Zero one public dimension weight and renormalize remaining public weights
+ * so they sum to `(1 - mythicRaid)`. Does not mutate the original model.
+ * RAID / mythicRaid is preserved unchanged — never silently dropped or
+ * renormalized into the public skill dimensions.
  */
 export function createAblatedModel(
   model: ScoreModelConfigV1,
   zeroWeightKey: PublicWeightKey,
 ): ScoreModelConfigV1 {
   const next = deepCloneModel(model);
+  const mythicRaid = next.weights.mythicRaid;
+  const targetPublicSum = 1 - mythicRaid;
+  if (targetPublicSum < 0) {
+    throw new Error(
+      `Cannot ablate weights: mythicRaid=${mythicRaid} leaves no public-weight budget`,
+    );
+  }
   const weights = { ...next.weights, [zeroWeightKey]: 0 };
   let sum = 0;
   for (const key of PUBLIC_WEIGHT_KEYS) {
@@ -36,8 +45,9 @@ export function createAblatedModel(
     throw new Error(`Cannot renormalize weights after zeroing ${zeroWeightKey}`);
   }
   for (const key of PUBLIC_WEIGHT_KEYS) {
-    weights[key] = weights[key] / sum;
+    weights[key] = (weights[key] / sum) * targetPublicSum;
   }
+  weights.mythicRaid = mythicRaid;
   next.weights = weights;
   return next;
 }
