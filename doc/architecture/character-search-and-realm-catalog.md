@@ -39,14 +39,16 @@ After `name_search_key` was first added, run `pnpm db:backfill:character-name-se
 
 ## Realm catalog
 
-- Source of truth: Blizzard `GET /data/wow/realm/index` (`dynamic-{region}`) for EU, US, KR, TW
-- Local API: `GET /api/v1/realms` — database only; never Blizzard per keystroke
-- Sync is **index-first**: every index entry is upserted immediately; detail enrichment is optional, best-effort, bounded-concurrency (`REALM_CATALOG_DETAIL_CONCURRENCY`)
-- Soft-omit: a single provider omission does not hard-delete realms (last-known-good)
+- Discovery: Blizzard `GET /data/wow/realm/index` (`dynamic-{region}`) for EU, US, KR, TW
+- Public visibility: classified Realm detail only — see [`../research/providers/blizzard-realm-visibility.md`](../research/providers/blizzard-realm-visibility.md)
+- Local API: `GET /api/v1/realms` — database only; never Blizzard per keystroke; returns **active** non-tournament rows
+- Sync discovers via the index, early-rejects unmistakable technical names/slugs, fetches details with bounded concurrency (`REALM_CATALOG_DETAIL_CONCURRENCY`), and activates **only eligible** player-facing realms
+- Technical/tournament rows are stored inactive (not hard-deleted); index-only rows are never publicly activated
+- Soft-omit / last-known-good: transient detail failures retain previously validated active realms; empty/partial index does not wipe a region
 - Worker bootstrap (`ensureRealmCatalogReady`) checks catalog freshness (`REALM_CATALOG_STALE_SECONDS`, default 7 days):
-  - empty → index-first sync before ready; fail closed in **live** mode if still empty
+  - empty → sync with detail classification before ready; fail closed in **live** mode if still empty
   - stale but non-empty → attempt refresh; remain ready on temporary Blizzard failure
-- Manual `pnpm realms:sync` remains available for maintenance (`--force-details` for enrichment)
+- Manual `pnpm realms:sync` remains available for maintenance (`--force-details` forces cache refresh on provider fetches)
 - Not coupled to score-model seeding
 
 ## UI copy

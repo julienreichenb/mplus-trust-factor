@@ -178,6 +178,20 @@ describe("FixtureBlizzardProvider", () => {
     expect(result.provenance.provider).toBe("blizzard");
   });
 
+  it("exposes legitimate and technical realms in the fixture index", async () => {
+    const index = await provider.getRealmIndex(ctx);
+    const names = index.data.map((r) => r.name);
+    expect(names).toContain("Kazzak");
+    expect(names).toContain("EU1A1-INST");
+    expect(names).toContain("EU1A Account Realm");
+    expect(names).toContain("Arena Tournament");
+    const inst = await provider.getRealm("eu1a1inst", ctx);
+    expect(inst.data.isTournament).toBe(false);
+    expect(inst.data.name).toContain("INST");
+    const tourney = await provider.getRealm("arena-tournament", ctx);
+    expect(tourney.data.isTournament).toBe(true);
+  });
+
   it("returns CanonicalCharacter for normal max-level EU character", async () => {
     const result = await provider.getCharacterProfile(identity, ctx);
     expect(result.data.displayName).toBe("Examplecharacter");

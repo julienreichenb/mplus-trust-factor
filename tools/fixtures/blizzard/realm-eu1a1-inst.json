@@ -1,0 +1,13 @@
+{
+  "id": 9001,
+  "slug": "eu1a1inst",
+  "name": "EU1A1-INST",
+  "locale": "en_US",
+  "timezone": "Europe/Paris",
+  "category": { "type": "ENGLISH", "name": "English" },
+  "is_tournament": false,
+  "connected_realm": {
+    "id": 9001,
+    "href": "https://eu.api.blizzard.com/data/wow/connected-realm/9001?namespace=dynamic-eu"
+  }
+}

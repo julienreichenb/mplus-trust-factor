@@ -6,6 +6,9 @@
  *   pnpm realms:sync
  *   pnpm realms:sync -- --region EU
  *   pnpm realms:sync -- --region EU --region US --force-details
+ *
+ * Detail fetches always run for public activation; `--force-details` forces
+ * provider cache refresh on those requests.
  */
 import { loadEnv } from "@mplus/config";
 import { createLogger } from "@mplus/observability";

@@ -1,0 +1,13 @@
+{
+  "id": 9003,
+  "slug": "eu7a1inst-bfa",
+  "name": "EU7A1-INST-BFA",
+  "locale": "en_US",
+  "timezone": "Europe/Paris",
+  "category": { "type": "ENGLISH", "name": "English" },
+  "is_tournament": false,
+  "connected_realm": {
+    "id": 9003,
+    "href": "https://eu.api.blizzard.com/data/wow/connected-realm/9003?namespace=dynamic-eu"
+  }
+}

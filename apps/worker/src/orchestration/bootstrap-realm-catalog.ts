@@ -50,7 +50,8 @@ function classifyRegion(
  * Ensure EU/US/KR/TW realm catalogs are present for public search.
  *
  * Live policy:
- * - Empty or stale regions trigger index-first synchronization (no detail burst).
+ * - Empty or stale regions trigger synchronization with detail classification
+ *   (index discovery + detail eligibility — not index-only activation).
  * - Empty + sync failure → failClosed (worker must not report ready).
  * - Non-empty last-known-good + sync failure → ready with warning.
  *

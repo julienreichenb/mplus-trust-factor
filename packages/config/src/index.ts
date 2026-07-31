@@ -186,12 +186,12 @@ export const envSchema = z
      * Realm catalog freshness window for worker bootstrap (lastSyncedAt).
      * Stale-but-non-empty catalogs remain usable if a refresh fails (last-known-good).
      * Empty catalogs must be bootstrapped before the worker reports ready in live mode.
-     * Default 7 days. Index-first sync only — not coupled to score-model seeding.
+     * Default 7 days. Sync classifies details before public activation — not coupled to score-model seeding.
      */
     REALM_CATALOG_STALE_SECONDS: z.coerce.number().int().positive().default(604_800),
     /**
-     * Bounded concurrency for optional Blizzard realm detail enrichment
-     * (`forceDetails` / maintenance sync). Bootstrap uses index-only sync.
+     * Bounded concurrency for Blizzard realm detail fetches during catalog sync.
+     * Details are required to activate public catalog rows.
      */
     REALM_CATALOG_DETAIL_CONCURRENCY: z.coerce.number().int().positive().max(16).default(4),
   })
