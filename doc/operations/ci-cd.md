@@ -1,25 +1,42 @@
 # CI / CD
 
-## Required flow (programme intent = current CD)
+Canonical promotion policy: [`release-promotion-flow.md`](release-promotion-flow.md).
+
+## Required flow
 
 ```text
-PR / feature branch
-  → CI
+feature PR → main
+  → fast CI (quality + migration guard; no Docker images; no deploy)
 
-merge to main
-  → CI
-  → CD: immutable SHA images → GHCR
-  → migrate test DB (once, fail-closed)
+when ready:
+  pnpm promote:test   # fast-forward main → test
+
+push to test
+  → verify SHA ∈ main
+  → release quality gate
+  → build + push immutable SHA images (GHCR)
+  → secret bake scan
   → deploy test stack
   → /health/ready + /api/v1/meta revision check
-  → explicit success / failure (missing secrets fail the job)
+
+future: push to prod
+  → verify SHA ∈ test
+  → verify four SHA images already in GHCR (no rebuild)
+  → deploy production
 ```
 
 ## CI (`.github/workflows/ci.yml`)
 
-Triggers: `pull_request`, push to `main` / `integration/**` / `agent/**`.
+Triggers: pull requests targeting **`main`**; optional `workflow_dispatch`.
 
-Quality path: install → format → shellcheck (deploy scripts) → dual-env dry-run → lint / build / typecheck → migrate → seed → test → docker builds + secret bake scan → invalid migration guard.
+**Does not** run on push to `main`. **Does not** build Docker images.
+
+| Required check (exact name) | Purpose |
+|-----------------------------|---------|
+| `Lint · typecheck · test · build` | Frozen install, Prisma generate, format, shellcheck, dual-env dry-run, nginx, lint, build, typecheck, migrate, seed, tests, English, abilities, audit |
+| `Invalid migration must fail` | Migration safety guard |
+
+Fixture provider mode; `ALLOW_LIVE_PROVIDER_CALLS=false`. Fail-closed for required validation.
 
 Local Postgres uses host **5433**; GitHub Actions Postgres uses **5432** via `DATABASE_URL`.
 
@@ -27,10 +44,12 @@ Local Postgres uses host **5433**; GitHub Actions Postgres uses **5432** via `DA
 
 | Topic | Behaviour |
 |-------|-----------|
-| Push `main` | Build SHA images + deploy **test** |
-| Push `prod` | Build SHA images + deploy **production** (prepared; do not create/push `prod` until test is clean and Environment protection is on) |
-| `workflow_dispatch` | Build + optional deploy; **production only when ref is `refs/heads/prod`** |
+| Push `test` | Ancestry(main) → quality → build SHA images → scan → deploy **test** |
+| Push `prod` | Ancestry(test) → verify existing GHCR images → deploy **production** (no rebuild) |
+| Push `main` | **No CD** |
+| `workflow_dispatch` | Same rules; **production only when ref is `refs/heads/prod`**; `skip_deploy` for build/verify only |
 | Missing deploy secrets | **Fail** the deploy job (no green no-op) |
+| Missing production images | **Fail** closed (no rebuild on prod) |
 | Health gate | `/health/ready` then `/api/v1/meta` `version` == image SHA |
 | Concurrency | Per-environment group; production deploys are never cancelled mid-flight |
 | Model activation | **Not** CD — DB/admin only (see [`model-lifecycle.md`](model-lifecycle.md)) |
@@ -39,7 +58,7 @@ Local Postgres uses host **5433**; GitHub Actions Postgres uses **5432** via `DA
 
 | Variable | `test` | `production` |
 |----------|--------|--------------|
-| `ALLOWED_REF_PREFIX` | `refs/heads/main` | `refs/heads/prod` |
+| `ALLOWED_REF_PREFIX` | `refs/heads/test` | `refs/heads/prod` |
 | `REQUIRE_WORKFLOW_DISPATCH` | `false` | `true` (optional extra gate) |
 
 Enable **required reviewers** on the `production` Environment before first use.
@@ -50,9 +69,9 @@ See [`production.md`](production.md). Required for deploy: `VPS_SSH_HOST`, `VPS_
 
 ## Production policy (prepared, not activated)
 
-- Source branch: **`prod`** (reviewed merges from `main`).
+- Source branch: **`prod`** (commit already promoted through `test`).
 - No feature-branch production deploys.
-- No production deployment as part of Agent 05 — do not create or push `prod` until test is clean.
+- Do not create or push `prod` until test is clean and Environment protection is on.
 - Rollback uses the previous immutable SHA only: `./infra/scripts/rollback.sh prod <sha>`.
 
 ## Manual process inventory

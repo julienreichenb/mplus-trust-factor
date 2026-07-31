@@ -2,15 +2,19 @@
 
 ## Current behaviour
 
-- Push/merge to **`main`** runs CI, then CD builds immutable SHA images and deploys **test**.
+- `main` is integration only (fast PR CI; no deploy).
+- Promote when ready: `pnpm promote:test` (fast-forward `main` → `test`).
+- Push to **`test`** runs CD: verify SHA ∈ main → quality gate → immutable SHA images → deploy **test**.
 - Missing GitHub Environment deploy secrets **fail** the deploy job (no green no-op).
 - Post-deploy gate: `/health/ready` + `/api/v1/meta` `version` equals the deployed image SHA.
+
+Canonical policy: [`release-promotion-flow.md`](release-promotion-flow.md).
 
 ## Production
 
 - Production remains out of scope until test is clean.
 - No direct production deployment from feature branches.
-- Future: reviewed merges to **`prod`** deploy production (workflow prepared; branch not activated in Agent 05).
+- Future: promote a SHA already on **`test`** to **`prod`** (deploy existing images; no rebuild).
 
 ## Health checks
 

@@ -10,7 +10,7 @@ What still needs a human once vs what CD/scripts automate.
 | GHCR login on VPS | **Automated in CD** | SSH deploy logs in with `GHCR_TOKEN` / `GITHUB_TOKEN` before pull. |
 | Migrations | **Automated** | One-shot `migrate` container per env; fails closed before app rollout. Never `migrate reset`. |
 | Image tag update | **Automated in CD** | `set-image-tag.sh` writes immutable SHA into env `.env`. |
-| Deploy | **Automated on `main`→test** | `deploy.sh`: validate → lock → backup → migrate → empty-DB seed only → rollout → ready/revision smoke. |
+| Deploy | **Automated on `test` promotion** (`pnpm promote:test`) | `deploy.sh`: validate → lock → backup → migrate → empty-DB seed only → rollout → ready/revision smoke. |
 | Readiness wait | **Automated** | Compose healthchecks + `health-wait.sh` / `smoke-deploy.sh` on `/health/ready`. |
 | Smoke checks | **Automated** | Ready + `/api/v1/meta` version == SHA + web shell. |
 | Rollback | **Manual / on-call** (scripted) | `./infra/scripts/rollback.sh <env> <previous-sha>` — immutable SHA only. |
