@@ -1,12 +1,14 @@
 name: CI
 
+# Fast mandatory checks for pull requests into main.
+# Does not build Docker images — release images are built only on the `test` CD path.
+# Push to main does not re-run this workflow (avoids duplicate work after PR CI).
+
 on:
   pull_request:
-  push:
     branches:
       - main
-      - integration/**
-      - agent/**
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -143,99 +145,6 @@ jobs:
             logs/
           retention-days: 7
           if-no-files-found: ignore
-
-  docker:
-    name: Docker image builds
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    needs: quality
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build api image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: infra/docker/Dockerfile
-          target: api
-          push: false
-          load: true
-          tags: mplus-api:ci
-          build-args: |
-            APP_VERSION=ci
-            GIT_SHA=${{ github.sha }}
-            BUILD_DATE=${{ github.event.head_commit.timestamp || github.event.repository.updated_at }}
-          cache-from: type=gha,scope=mplus-api
-          cache-to: type=gha,mode=max,scope=mplus-api
-
-      - name: Build worker image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: infra/docker/Dockerfile
-          target: worker
-          push: false
-          load: true
-          tags: mplus-worker:ci
-          build-args: |
-            APP_VERSION=ci
-            GIT_SHA=${{ github.sha }}
-          cache-from: type=gha,scope=mplus-worker
-          cache-to: type=gha,mode=max,scope=mplus-worker
-
-      - name: Build migrate image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: infra/docker/Dockerfile
-          target: migrate
-          push: false
-          tags: mplus-migrate:ci
-          build-args: |
-            APP_VERSION=ci
-            GIT_SHA=${{ github.sha }}
-          cache-from: type=gha,scope=mplus-migrate
-          cache-to: type=gha,mode=max,scope=mplus-migrate
-
-      - name: Build web image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: infra/docker/Dockerfile.web
-          target: web
-          push: false
-          load: true
-          tags: mplus-web:ci
-          build-args: |
-            APP_VERSION=ci
-            GIT_SHA=${{ github.sha }}
-            VITE_API_MODE=live
-            VITE_API_BASE_URL=
-          cache-from: type=gha,scope=mplus-web
-          cache-to: type=gha,mode=max,scope=mplus-web
-
-      - name: Secret bake scan (images must not contain .env)
-        run: |
-          set -euo pipefail
-          for img in mplus-api:ci mplus-worker:ci mplus-web:ci; do
-            echo "scanning ${img}"
-            hits="$(docker run --rm --entrypoint sh "${img}" -c 'find /app /usr/share/nginx/html -name ".env" -o -name ".env.production" 2>/dev/null' || true)"
-            if [ -n "${hits}" ]; then
-              echo "ERROR: env file found in ${img}:" >&2
-              echo "${hits}" >&2
-              exit 1
-            fi
-            secret_hits="$(docker run --rm --entrypoint sh "${img}" -c 'grep -R "BLIZZARD_CLIENT_SECRET=" /app 2>/dev/null | head -n 5' || true)"
-            if [ -n "${secret_hits}" ]; then
-              echo "ERROR: possible baked secret in ${img}" >&2
-              exit 1
-            fi
-          done
-          echo "secret bake scan passed"
 
   migration-guard:
     name: Invalid migration must fail
