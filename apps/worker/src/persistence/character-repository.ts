@@ -128,6 +128,8 @@ export interface AdminCharacterSearchResult {
 export interface CharacterRepository {
   findByIdentity(identity: CharacterIdentityInput): Promise<Character | null>;
   findById(characterId: string): Promise<Character | null>;
+  /** Lookup by immutable Blizzard character id (region-agnostic). */
+  findByBlizzardCharacterId(blizzardCharacterId: string): Promise<Character | null>;
   searchSuggestions(region: string, query: string, limit?: number): Promise<CharacterSearchResult[]>;
   /**
    * Admin-only search over persisted characters (returns durable characterId + M+ score).
@@ -139,6 +141,15 @@ export interface CharacterRepository {
   ): Promise<AdminCharacterSearchResult[]>;
   upsertCharacter(identity: CharacterIdentityInput, patch?: UpsertCharacterPatch): Promise<Character>;
   applyProviderProfile(characterId: string, profile: CanonicalCharacter): Promise<Character>;
+  /**
+   * Reassign an existing character onto the catalog realm identity in a transaction.
+   * Creates an alias for the previous identity. Never merges two blizzard IDs.
+   */
+  reassignToCatalogIdentity(
+    characterId: string,
+    identity: CharacterIdentityInput,
+    opts?: { displayName?: string },
+  ): Promise<Character>;
   recordSnapshot(
     characterId: string,
     snapshot: CharacterSnapshotDTO,
@@ -186,6 +197,18 @@ export function createCharacterRepository(prisma: PrismaClient): CharacterReposi
 
     async findById(characterId) {
       return prisma.character.findUnique({ where: { id: characterId } });
+    },
+
+    async findByBlizzardCharacterId(blizzardCharacterId) {
+      const id = blizzardCharacterId.trim();
+      if (!id) return null;
+      try {
+        return prisma.character.findFirst({
+          where: { blizzardCharacterId: BigInt(id) },
+        });
+      } catch {
+        return null;
+      }
     },
 
     async searchSuggestions(region, query, limit = PUBLIC_CHARACTER_AUTOCOMPLETE_LIMIT) {
@@ -639,6 +662,93 @@ export function createCharacterRepository(prisma: PrismaClient): CharacterReposi
             ...(profile.level != null ? { level: profile.level } : {}),
             ...(profile.faction ? { faction: profile.faction } : {}),
             ...(profile.blizzardCharacterId ? { blizzardCharacterId: BigInt(profile.blizzardCharacterId) } : {}),
+            lastSeenAt: new Date(),
+          },
+        });
+      });
+    },
+
+    async reassignToCatalogIdentity(characterId, identity, opts) {
+      return prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+        const character = await tx.character.findUnique({
+          where: { id: characterId },
+          include: { realm: true },
+        });
+        if (!character) {
+          throw new Error(`Character ${characterId} not found for realm reassignment`);
+        }
+
+        const region = await ensureRegion(tx, identity.region);
+        const realm = await ensureRealmRecord(tx, region.id, identity.realmSlug);
+        const normalizedName = normalizeName(identity.name);
+        const displayName = opts?.displayName ?? identity.name;
+
+        if (
+          character.regionId === region.id &&
+          character.realmId === realm.id &&
+          character.normalizedName === normalizedName
+        ) {
+          return tx.character.update({
+            where: { id: characterId },
+            data: {
+              displayName,
+              nameSearchKey: normalizeCharacterSearchKey(displayName),
+              lastSeenAt: new Date(),
+            },
+          });
+        }
+
+        const occupant = await tx.character.findUnique({
+          where: {
+            regionId_realmId_normalizedName: {
+              regionId: region.id,
+              realmId: realm.id,
+              normalizedName,
+            },
+          },
+        });
+        if (occupant && occupant.id !== characterId) {
+          throw new Error(
+            `CHARACTER_IDENTITY_COLLISION: catalog identity already occupied by ${occupant.id}`,
+          );
+        }
+
+        // Preserve prior identity as an alias when the realm/name changes.
+        if (
+          character.realm.slug !== realm.slug ||
+          character.normalizedName !== normalizedName
+        ) {
+          await tx.characterAlias.upsert({
+            where: {
+              regionId_realmSlug_normalizedName: {
+                regionId: character.regionId,
+                realmSlug: character.realm.slug,
+                normalizedName: character.normalizedName,
+              },
+            },
+            create: {
+              characterId,
+              regionId: character.regionId,
+              realmSlug: character.realm.slug,
+              normalizedName: character.normalizedName,
+              sourceProvider: "BLIZZARD",
+            },
+            update: {
+              characterId,
+              validTo: null,
+              sourceProvider: "BLIZZARD",
+            },
+          });
+        }
+
+        return tx.character.update({
+          where: { id: characterId },
+          data: {
+            regionId: region.id,
+            realmId: realm.id,
+            normalizedName,
+            displayName,
+            nameSearchKey: normalizeCharacterSearchKey(displayName),
             lastSeenAt: new Date(),
           },
         });

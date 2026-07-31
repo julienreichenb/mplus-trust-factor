@@ -11,17 +11,42 @@ describe("CharacterService.resolveCharacter — shared eligibility", () => {
   const mockFindBySlug = vi.fn();
   const mockGetProfile = vi.fn();
   const mockGetKeystone = vi.fn();
+  const mockApplyProviderProfile = vi.fn();
+  const mockFindById = vi.fn();
+  const mockFindByBlizzardCharacterId = vi.fn();
 
   const verifiedAt = new Date().toISOString();
 
   function buildContainer(level: number, mythicRating: number | null): ApiContainer {
-    mockUpsert.mockResolvedValue({
+    const shell = {
       id: "char-new",
       regionId: "reg-1",
       realmId: "realm-1",
       displayName: "Newchar",
-      level: null,
-    });
+      level: null as number | null,
+      blizzardCharacterId: null as bigint | null,
+      classId: null as string | null,
+      activeSpecId: null as string | null,
+      role: null as string | null,
+    };
+    mockUpsert.mockResolvedValue({ ...shell });
+    mockApplyProviderProfile.mockImplementation(async () => ({
+      ...shell,
+      level,
+      blizzardCharacterId: 99n,
+      classId: "class-1",
+      activeSpecId: "spec-1",
+      role: "DPS",
+    }));
+    mockFindById.mockImplementation(async () => ({
+      ...shell,
+      level,
+      blizzardCharacterId: 99n,
+      classId: "class-1",
+      activeSpecId: "spec-1",
+      role: "DPS",
+    }));
+    mockFindByBlizzardCharacterId.mockResolvedValue(null);
     return {
       env: {
         MAX_CHARACTER_LEVEL: 90,
@@ -101,7 +126,11 @@ describe("CharacterService.resolveCharacter — shared eligibility", () => {
         repositories: {
           character: {
             findByIdentity: mockFindByIdentity,
+            findById: mockFindById,
+            findByBlizzardCharacterId: mockFindByBlizzardCharacterId,
             upsertCharacter: mockUpsert,
+            applyProviderProfile: mockApplyProviderProfile,
+            reassignToCatalogIdentity: vi.fn(),
           },
           realm: { findBySlug: mockFindBySlug },
           score: {
@@ -123,8 +152,18 @@ describe("CharacterService.resolveCharacter — shared eligibility", () => {
     clearSeasonAuthorityCacheForTests();
     vi.clearAllMocks();
     mockFindByIdentity.mockResolvedValue(null);
-    mockFindBySlug.mockResolvedValue({ slug: "archimonde", name: "Archimonde" });
-    mockGetProfile.mockResolvedValue({ data: { level: 90, displayName: "Newchar" } });
+    mockFindBySlug.mockResolvedValue({ id: "realm-1", slug: "archimonde", name: "Archimonde" });
+    mockGetProfile.mockResolvedValue({
+      data: {
+        level: 90,
+        displayName: "Newchar",
+        classSlug: "mage",
+        specSlug: "fire",
+        role: "DPS",
+        faction: "Horde",
+        blizzardCharacterId: "99",
+      },
+    });
     mockGetKeystone.mockResolvedValue({ data: { currentMythicRating: 2500 } });
   });
 

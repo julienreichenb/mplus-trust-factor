@@ -96,6 +96,7 @@ export function buildCharacterRoutes(container: ApiContainer): FastifyPluginAsyn
             202: characterResolveResponseSchema,
             400: characterResolveResponseSchema,
             404: characterResolveResponseSchema,
+            409: characterResolveResponseSchema,
             502: characterResolveResponseSchema,
             503: characterResolveResponseSchema,
           },
@@ -112,7 +113,7 @@ export function buildCharacterRoutes(container: ApiContainer): FastifyPluginAsyn
           { name: body.name, realmSlug: body.realmSlug, region: body.region },
           { correlationId: request.id, forceRetry: body.forceRetry === true },
         );
-        const statusCode = result.statusCode as 200 | 202 | 400 | 404 | 502 | 503;
+        const statusCode = result.statusCode as 200 | 202 | 400 | 404 | 409 | 502 | 503;
         return reply.status(statusCode).send(result.body);
       },
     );

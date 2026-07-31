@@ -1,5 +1,6 @@
 import type { Character, IngestionJob } from "@mplus/database";
 import type {
+  CanonicalCharacter,
   CharacterIdentityInput,
   CharacterProfileResponse,
   CharacterResolveResponse,
@@ -50,6 +51,11 @@ import {
   loadCharacterRefreshEligibilitySignals,
   type VerifiedSeasonAuthority,
 } from "@mplus/worker";
+import {
+  CHARACTER_IDENTITY_COLLISION,
+  formatIdentityCollisionMessage,
+  shouldRepairCharacterBootstrap,
+} from "./character-bootstrap-repair.js";
 
 const ALL_PROVIDERS: ProviderName[] = ["blizzard", "raiderio", "warcraftlogs"];
 const DEFAULT_RETRY_AFTER_MS = 2_000;
@@ -433,7 +439,7 @@ export class CharacterService {
    */
   private async persistEligibilityEvidenceFromResolvedProfile(
     character: Character,
-    identity: CharacterIdentityInput,
+    _identity: CharacterIdentityInput,
     authority: VerifiedSeasonAuthority,
     opts: {
       correlationId?: string | null;
@@ -447,6 +453,165 @@ export class CharacterService {
       mythicRating: opts.mythicRating,
       authoritativeSeasonRowId: authority.seasonRowId,
     });
+  }
+
+  /**
+   * Bounded Blizzard profile + current-season Mythic+ reads for resolve bootstrap.
+   * Never invents eligibility evidence on NOT_FOUND.
+   */
+  private async fetchBlizzardBootstrap(
+    identity: CharacterIdentityInput,
+    opts: { correlationId?: string | null },
+    notFoundMessage: string,
+  ): Promise<
+    | { ok: true; profile: CanonicalCharacter; mythicRating: number | null }
+    | { ok: false; statusCode: number; body: CharacterResolveResponse }
+  > {
+    const ctx = {
+      region: identity.region,
+      requestId: opts.correlationId ?? randomUUID(),
+      correlationId: opts.correlationId ?? null,
+      forceRefresh: true,
+      now: new Date().toISOString(),
+    };
+    try {
+      const profileResult = await this.container.worker.providers.blizzard.getCharacterProfile(
+        identity,
+        ctx,
+      );
+      let mythicRating: number | null = null;
+      try {
+        const keystone = await this.container.worker.providers.blizzard.getMythicKeystoneProfile(
+          identity,
+          ctx,
+        );
+        mythicRating = keystone.data.currentMythicRating ?? null;
+      } catch {
+        mythicRating = null;
+      }
+      return { ok: true, profile: profileResult.data, mythicRating };
+    } catch (error) {
+      if (error instanceof ExternalApiError && error.code === "NOT_FOUND") {
+        this.container.negativeCache.set(identity);
+        return {
+          ok: false,
+          statusCode: 404,
+          body: {
+            status: "NOT_FOUND",
+            message: notFoundMessage,
+          },
+        };
+      }
+      if (error instanceof ExternalApiError && error.retryable) {
+        return {
+          ok: false,
+          statusCode: 503,
+          body: {
+            status: "PROVIDER_UNAVAILABLE",
+            retryable: true,
+            message: "Blizzard is temporarily unavailable. Please retry shortly.",
+          },
+        };
+      }
+      if (error instanceof ExternalApiError && !error.retryable) {
+        return {
+          ok: false,
+          statusCode: 502,
+          body: {
+            status: "FAILED",
+            retryable: false,
+            message: error.message || "Character verification failed.",
+          },
+        };
+      }
+      return {
+        ok: false,
+        statusCode: 503,
+        body: {
+          status: "PROVIDER_UNAVAILABLE",
+          retryable: true,
+          message: "Unable to verify character with Blizzard right now.",
+        },
+      };
+    }
+  }
+
+  /**
+   * Fail visibly when two persisted rows claim conflicting non-null Blizzard IDs.
+   * Never silently merges ownerships / snapshots / jobs.
+   */
+  private async assertBlizzardIdentitySafe(
+    target: Character,
+    profile: CanonicalCharacter,
+  ): Promise<{ ok: true } | { ok: false; statusCode: number; body: CharacterResolveResponse }> {
+    const incomingId = profile.blizzardCharacterId?.trim() || null;
+    if (!incomingId) return { ok: true };
+
+    if (
+      target.blizzardCharacterId != null &&
+      target.blizzardCharacterId.toString() !== incomingId
+    ) {
+      return {
+        ok: false,
+        statusCode: 409,
+        body: {
+          status: "FAILED",
+          retryable: false,
+          message: formatIdentityCollisionMessage({
+            existingCharacterId: target.id,
+            conflictingCharacterId: target.id,
+            blizzardCharacterId: `${target.blizzardCharacterId.toString()} vs ${incomingId}`,
+          }),
+        },
+      };
+    }
+
+    const other = await this.repositories.character.findByBlizzardCharacterId(incomingId);
+    if (other && other.id !== target.id) {
+      this.container.logger.warn(
+        {
+          event: "character_identity_collision",
+          code: CHARACTER_IDENTITY_COLLISION,
+          targetCharacterId: target.id,
+          conflictingCharacterId: other.id,
+          blizzardCharacterId: incomingId,
+        },
+        "refusing silent character merge on conflicting Blizzard identity",
+      );
+      return {
+        ok: false,
+        statusCode: 409,
+        body: {
+          status: "FAILED",
+          retryable: false,
+          message: formatIdentityCollisionMessage({
+            existingCharacterId: target.id,
+            conflictingCharacterId: other.id,
+            blizzardCharacterId: incomingId,
+          }),
+        },
+      };
+    }
+    return { ok: true };
+  }
+
+  /**
+   * Persist authoritative Blizzard bootstrap metadata + season-scoped Mythic+ evidence.
+   * Exact resolve / forceRetry only — never GET profile or background admission.
+   */
+  private async persistBootstrapFromBlizzardProfile(
+    character: Character,
+    identity: CharacterIdentityInput,
+    authority: VerifiedSeasonAuthority,
+    profile: CanonicalCharacter,
+    mythicRating: number | null,
+  ): Promise<Character> {
+    const updated = await this.repositories.character.applyProviderProfile(character.id, profile);
+    await this.persistEligibilityEvidenceFromResolvedProfile(updated, identity, authority, {
+      level: profile.level ?? updated.level ?? null,
+      mythicRating,
+    });
+    return (await this.repositories.character.findById(updated.id)) ?? updated;
   }
 
   /**
@@ -1068,11 +1233,15 @@ export class CharacterService {
       };
     }
 
+    if (opts.forceRetry) {
+      this.container.negativeCache.clear(identity);
+    }
+
     const existing = await this.repositories.character.findByIdentity(identity);
     if (existing) {
       const snapshot = await this.repositories.score.getPublishedSnapshot(existing.id);
       const activeJob = await this.repositories.job.findActiveForCharacter(existing.id);
-      const latestJob = activeJob ?? (await this.repositories.job.findLatestForCharacter(existing.id));
+      const latestJob = await this.repositories.job.findLatestForCharacter(existing.id);
       const providerStates = await this.repositories.providerState.listForCharacter(existing.id);
       const blizzardNotFound = providerStates.some(
         (s) => s.provider === "blizzard" && s.state === "NOT_FOUND",
@@ -1088,14 +1257,15 @@ export class CharacterService {
         };
       }
 
-      if (snapshot && !activeJob) {
+      // Fully published + idle: no provider repair on ordinary resolve.
+      if (snapshot && !activeJob && !opts.forceRetry) {
         return {
           statusCode: 200,
           body: { status: "READY", characterId: existing.id, profilePath },
         };
       }
 
-      if (activeJob) {
+      if (activeJob && !opts.forceRetry) {
         return {
           statusCode: 202,
           body: {
@@ -1110,19 +1280,82 @@ export class CharacterService {
 
       if (latestJob?.status === "FAILED" || opts.forceRetry || !snapshot) {
         try {
-          const { authority } = await this.resolveActiveRefreshContract(existing, {
+          let character = existing;
+          const { authority } = await this.resolveActiveRefreshContract(character, {
             allowProviderSync: true,
             correlationId: opts.correlationId,
           });
-          const eligibility = await this.evaluateSharedRefreshEligibility(existing, authority);
+
+          const signalsBefore = await loadCharacterRefreshEligibilitySignals(
+            this.container.worker.prisma,
+            { characterId: character.id, authority },
+          );
+          const needsRepair = shouldRepairCharacterBootstrap({
+            character,
+            latestJob,
+            forceRetry: Boolean(opts.forceRetry),
+            missingSeasonMythicEvidence: signalsBefore.evidenceSource == null,
+          });
+
+          if (needsRepair) {
+            const fetched = await this.fetchBlizzardBootstrap(
+              identity,
+              { correlationId: opts.correlationId },
+              `Character not found on ${realm.name} — ${identity.region}.`,
+            );
+            if (!fetched.ok) return fetched;
+
+            const identitySafe = await this.assertBlizzardIdentitySafe(character, fetched.profile);
+            if (!identitySafe.ok) return identitySafe;
+
+            // Canonicalize onto the active catalog realm without creating a duplicate row.
+            if (character.realmId !== realm.id) {
+              try {
+                character = await this.repositories.character.reassignToCatalogIdentity(
+                  character.id,
+                  identity,
+                  { displayName: fetched.profile.displayName },
+                );
+              } catch (error) {
+                const message =
+                  error instanceof Error ? error.message : "Character identity reconciliation failed.";
+                return {
+                  statusCode: 409,
+                  body: { status: "FAILED", retryable: false, message },
+                };
+              }
+            }
+
+            character = await this.persistBootstrapFromBlizzardProfile(
+              character,
+              identity,
+              authority,
+              fetched.profile,
+              fetched.mythicRating,
+            );
+
+            this.container.logger.info(
+              {
+                event: "character_bootstrap_repair",
+                characterId: character.id,
+                blizzardCharacterId: fetched.profile.blizzardCharacterId,
+                level: fetched.profile.level ?? null,
+                mythicRating: fetched.mythicRating,
+                forceRetry: Boolean(opts.forceRetry),
+              },
+              "repaired incomplete character bootstrap evidence via exact resolve",
+            );
+          }
+
+          const eligibility = await this.evaluateSharedRefreshEligibility(character, authority);
           if (!eligibility.eligible) {
             // Profile-only success: identity known, shell navigable, no refresh enqueue.
             return {
               statusCode: 200,
-              body: { status: "READY", characterId: existing.id, profilePath },
+              body: { status: "READY", characterId: character.id, profilePath },
             };
           }
-          const enqueueResult = await this.enqueueRefresh(identity, existing, {
+          const enqueueResult = await this.enqueueRefresh(identity, character, {
             forceRefresh: Boolean(opts.forceRetry),
             correlationId: opts.correlationId,
             triggerSource: "SYSTEM",
@@ -1132,7 +1365,7 @@ export class CharacterService {
             statusCode: 202,
             body: {
               status: "QUEUED",
-              characterId: existing.id,
+              characterId: character.id,
               refreshId: enqueueResult.jobId,
               profilePath,
               retryAfterMs: DEFAULT_RETRY_AFTER_MS,
@@ -1162,84 +1395,80 @@ export class CharacterService {
     // New character: verify against Blizzard before creating a stable DB row.
     // Resolve may fetch identity/level/current-season rating and persist evidence
     // before enqueue — the worker gate remains provider-free.
-    let resolvedLevel: number | null = null;
-    let resolvedMythicRating: number | null = null;
-    try {
-      const ctx = {
-        region: identity.region,
-        requestId: opts.correlationId ?? randomUUID(),
-        correlationId: opts.correlationId ?? null,
-        forceRefresh: true,
-        now: new Date().toISOString(),
-      };
-      const profile = await this.container.worker.providers.blizzard.getCharacterProfile(
-        identity,
-        ctx,
+    const fetched = await this.fetchBlizzardBootstrap(
+      identity,
+      { correlationId: opts.correlationId },
+      `Character not found on ${realm.name} — ${identity.region}.`,
+    );
+    if (!fetched.ok) return fetched;
+
+    // Prefer immutable Blizzard ID when an earlier malformed row exists under another realm.
+    let character: Character | null = null;
+    if (fetched.profile.blizzardCharacterId) {
+      const byBlizzard = await this.repositories.character.findByBlizzardCharacterId(
+        fetched.profile.blizzardCharacterId,
       );
-      resolvedLevel = profile.data.level ?? null;
-      try {
-        const keystone = await this.container.worker.providers.blizzard.getMythicKeystoneProfile(
-          identity,
-          ctx,
-        );
-        resolvedMythicRating = keystone.data.currentMythicRating ?? null;
-      } catch {
-        resolvedMythicRating = null;
+      if (byBlizzard) {
+        if (
+          byBlizzard.blizzardCharacterId != null &&
+          fetched.profile.blizzardCharacterId &&
+          byBlizzard.blizzardCharacterId.toString() !== fetched.profile.blizzardCharacterId
+        ) {
+          return {
+            statusCode: 409,
+            body: {
+              status: "FAILED",
+              retryable: false,
+              message: formatIdentityCollisionMessage({
+                existingCharacterId: byBlizzard.id,
+                conflictingCharacterId: byBlizzard.id,
+                blizzardCharacterId: fetched.profile.blizzardCharacterId,
+              }),
+            },
+          };
+        }
+        try {
+          character = await this.repositories.character.reassignToCatalogIdentity(
+            byBlizzard.id,
+            identity,
+            { displayName: fetched.profile.displayName },
+          );
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : "Character identity reconciliation failed.";
+          return {
+            statusCode: 409,
+            body: { status: "FAILED", retryable: false, message },
+          };
+        }
       }
-    } catch (error) {
-      if (error instanceof ExternalApiError && error.code === "NOT_FOUND") {
-        this.container.negativeCache.set(identity);
-        return {
-          statusCode: 404,
-          body: {
-            status: "NOT_FOUND",
-            message: `Character not found on ${realm.name} — ${identity.region}.`,
-          },
-        };
-      }
-      if (error instanceof ExternalApiError && error.retryable) {
-        return {
-          statusCode: 503,
-          body: {
-            status: "PROVIDER_UNAVAILABLE",
-            retryable: true,
-            message: "Blizzard is temporarily unavailable. Please retry shortly.",
-          },
-        };
-      }
-      if (error instanceof ExternalApiError && !error.retryable) {
-        return {
-          statusCode: 502,
-          body: {
-            status: "FAILED",
-            retryable: false,
-            message: error.message || "Character verification failed.",
-          },
-        };
-      }
-      return {
-        statusCode: 503,
-        body: {
-          status: "PROVIDER_UNAVAILABLE",
-          retryable: true,
-          message: "Unable to verify character with Blizzard right now.",
-        },
-      };
     }
 
-    const character = await this.repositories.character.upsertCharacter(identity, {
-      displayName: identity.name,
-    });
+    if (!character) {
+      character = await this.repositories.character.upsertCharacter(identity, {
+        displayName: fetched.profile.displayName || identity.name,
+        classSlug: fetched.profile.classSlug,
+        specSlug: fetched.profile.specSlug,
+        role: fetched.profile.role,
+        blizzardCharacterId: fetched.profile.blizzardCharacterId,
+      });
+    }
+
+    const identitySafe = await this.assertBlizzardIdentitySafe(character, fetched.profile);
+    if (!identitySafe.ok) return identitySafe;
+
     try {
       const { authority } = await this.resolveActiveRefreshContract(character, {
         allowProviderSync: true,
         correlationId: opts.correlationId,
       });
-      await this.persistEligibilityEvidenceFromResolvedProfile(character, identity, authority, {
-        correlationId: opts.correlationId,
-        level: resolvedLevel,
-        mythicRating: resolvedMythicRating,
-      });
+      character = await this.persistBootstrapFromBlizzardProfile(
+        character,
+        identity,
+        authority,
+        fetched.profile,
+        fetched.mythicRating,
+      );
       const eligibility = await this.evaluateSharedRefreshEligibility(character, authority);
       if (!eligibility.eligible) {
         // Profile-only: shell persisted, no refresh-character, no WCL budget.
