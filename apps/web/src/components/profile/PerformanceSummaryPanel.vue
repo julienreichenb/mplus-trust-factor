@@ -2,6 +2,7 @@
 import { computed } from "vue";
 import type { PerformanceSummaryDTO } from "@mplus/contracts";
 import { resolveParsePercentileColor } from "../../lib/parsePercentileColor";
+import { sanitizeWarcraftLogsUrl } from "../../lib/warcraftLogsUrl";
 
 const props = defineProps<{
   summary: PerformanceSummaryDTO | null | undefined;
@@ -33,11 +34,27 @@ function parsePctClass(value: number | null | undefined): string {
   return resolveParsePercentileColor(value).className;
 }
 
-function runLabel(
-  run: NonNullable<NonNullable<PerformanceSummaryDTO["currentSeason"]>["dungeons"][number]["bestRun"]>,
-): string {
-  const when = new Date(run.completedAt).toLocaleDateString();
-  return `+${run.keyLevel} · ${when}${run.kind === "BOTH" ? " · best & latest" : ""}`;
+type ExplanatoryRun = NonNullable<
+  NonNullable<PerformanceSummaryDTO["currentSeason"]>["dungeons"][number]["bestRun"]
+>;
+
+/** Preserve best → latest order; collapse identical BOTH entries to one numbered link. */
+function selectedRunEntries(
+  dungeon: NonNullable<PerformanceSummaryDTO["currentSeason"]>["dungeons"][number],
+): Array<{ index: number; run: ExplanatoryRun }> {
+  const runs: ExplanatoryRun[] = [];
+  if (dungeon.bestRun) runs.push(dungeon.bestRun);
+  if (
+    dungeon.latestRun &&
+    (!dungeon.bestRun || dungeon.latestRun.runId !== dungeon.bestRun.runId)
+  ) {
+    runs.push(dungeon.latestRun);
+  }
+  return runs.map((run, i) => ({ index: i + 1, run }));
+}
+
+function safeWclUrl(url: string | null | undefined): string | null {
+  return sanitizeWarcraftLogsUrl(url);
 }
 </script>
 
@@ -114,15 +131,28 @@ function runLabel(
               </td>
               <td class="mpts-data">{{ d.loggedRunCount }}</td>
               <td>
-                <template v-if="d.bestRun && (!d.latestRun || d.bestRun.runId === d.latestRun.runId)">
-                  {{ runLabel(d.bestRun) }}
-                </template>
-                <template v-else>
-                  <span v-if="d.bestRun">Best: {{ runLabel(d.bestRun) }}</span>
-                  <span v-if="d.bestRun && d.latestRun"> · </span>
-                  <span v-if="d.latestRun">Latest: {{ runLabel(d.latestRun) }}</span>
-                  <span v-if="!d.bestRun && !d.latestRun">—</span>
-                </template>
+                <span
+                  v-if="selectedRunEntries(d).length === 0"
+                  class="selected-runs selected-runs--empty"
+                >—</span>
+                <span v-else class="selected-runs" data-testid="selected-run-links">
+                  <template v-for="(entry, i) in selectedRunEntries(d)" :key="entry.run.runId + entry.index">
+                    <span v-if="i > 0" class="selected-runs__sep" aria-hidden="true">, </span>
+                    <a
+                      v-if="safeWclUrl(entry.run.wclUrl)"
+                      class="selected-runs__link"
+                      :href="safeWclUrl(entry.run.wclUrl)!"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      :aria-label="`Open selected Warcraft Logs run ${entry.index}`"
+                    >{{ entry.index }}</a>
+                    <span
+                      v-else
+                      class="selected-runs__plain"
+                      :aria-label="`Selected run ${entry.index} (no Warcraft Logs URL)`"
+                    >{{ entry.index }}</span>
+                  </template>
+                </span>
               </td>
             </tr>
           </tbody>
@@ -264,5 +294,31 @@ td {
 
 .parse-pct--gold {
   color: var(--color-parse-gold);
+}
+
+.selected-runs {
+  display: inline;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.selected-runs__link {
+  color: var(--color-gold-300);
+  text-decoration: none;
+}
+
+.selected-runs__link:hover,
+.selected-runs__link:focus-visible {
+  color: var(--color-brand-hover);
+  text-decoration: underline;
+  outline: none;
+}
+
+.selected-runs__plain {
+  color: var(--color-text-muted);
+}
+
+.selected-runs--empty {
+  color: var(--color-text-muted);
 }
 </style>

@@ -30,6 +30,7 @@ import {
   isScoreSnapshotModelStale,
   readRefreshContractFromExplanation,
   refreshContractStaleReasons,
+  sanitizeWarcraftLogsUrl,
 } from "@mplus/contracts";
 import type { AppEnv } from "@mplus/config";
 import type { MythicRunWithRelations } from "@mplus/worker";
@@ -63,6 +64,8 @@ export interface CharacterEnrichmentInput {
   selectedRunCount?: number | null;
   detailedRunCount?: number | null;
   runNamesById?: Record<string, { dungeonName: string }>;
+  /** Real WCL report URLs keyed by canonical run id — never fabricated. */
+  wclUrlByRunId?: Record<string, string | null>;
   freshness?: number | null;
   sourceDisagreements?: CharacterProfileResponse["sourceDisagreements"];
   scoreObservationProviders?: string[];
@@ -102,6 +105,7 @@ export function mapSelectedRunsFromCanonicalSelection(
   runCoverageById?: Record<string, number | null>,
   runNamesById?: Record<string, { dungeonName: string }>,
   performanceSummary?: PerformanceSummaryDTO | null,
+  wclUrlByRunId?: Record<string, string | null>,
 ): SelectedRunSummaryDTO[] {
   if (!scoringRunSelection) return [];
 
@@ -113,6 +117,8 @@ export function mapSelectedRunsFromCanonicalSelection(
     );
     const parsePercentile =
       perfDungeon?.bestParsePercentile ?? perfDungeon?.bestRun?.parsePercentile ?? null;
+    const wclUrl =
+      runId != null ? sanitizeWarcraftLogsUrl(wclUrlByRunId?.[runId] ?? null) : null;
 
     return {
       runId,
@@ -127,8 +133,51 @@ export function mapSelectedRunsFromCanonicalSelection(
       selectionReason: entry.selectionReason,
       parsePercentile,
       hasDetailedAnalysis: coverage != null && coverage > 0,
+      wclUrl,
     };
   });
+}
+
+/** Extract a public WCL report URL from run source refs — never invents URLs. */
+export function resolveWclUrlFromSources(
+  sources: Array<{ provider: string; externalUrl: string | null }> | null | undefined,
+): string | null {
+  if (!sources?.length) return null;
+  for (const source of sources) {
+    if (source.provider !== "WARCRAFT_LOGS" && source.provider !== "warcraftlogs") continue;
+    const url = sanitizeWarcraftLogsUrl(source.externalUrl);
+    if (url) return url;
+  }
+  return null;
+}
+
+/** Attach real WCL URLs onto performance explanatory runs when known. */
+export function attachWclUrlsToPerformanceSummary(
+  summary: PerformanceSummaryDTO | null | undefined,
+  wclUrlByRunId: Record<string, string | null>,
+): PerformanceSummaryDTO | null {
+  if (!summary) return null;
+  return {
+    ...summary,
+    currentSeason: {
+      ...summary.currentSeason,
+      dungeons: summary.currentSeason.dungeons.map((d) => ({
+        ...d,
+        bestRun: d.bestRun
+          ? {
+              ...d.bestRun,
+              wclUrl: sanitizeWarcraftLogsUrl(wclUrlByRunId[d.bestRun.runId] ?? null),
+            }
+          : null,
+        latestRun: d.latestRun
+          ? {
+              ...d.latestRun,
+              wclUrl: sanitizeWarcraftLogsUrl(wclUrlByRunId[d.latestRun.runId] ?? null),
+            }
+          : null,
+      })),
+    },
+  };
 }
 
 function sanitizeHttpsUrl(value: unknown): string | null {
@@ -436,6 +485,7 @@ export function buildProfileEnrichments(input: CharacterEnrichmentInput): Pick<
     selectedRunCount = null,
     detailedRunCount = null,
     runNamesById = {},
+    wclUrlByRunId = {},
     freshness = null,
     sourceDisagreements,
     scoreObservationProviders,
@@ -506,6 +556,12 @@ export function buildProfileEnrichments(input: CharacterEnrichmentInput): Pick<
     runCoverageById,
     runNamesById,
     performanceSummary,
+    wclUrlByRunId,
+  );
+
+  const performanceSummaryWithUrls = attachWclUrlsToPerformanceSummary(
+    performanceSummary,
+    wclUrlByRunId,
   );
 
   return {
@@ -525,7 +581,7 @@ export function buildProfileEnrichments(input: CharacterEnrichmentInput): Pick<
     talents,
     media,
     seasonSummary,
-    performanceSummary: performanceSummary ?? null,
+    performanceSummary: performanceSummaryWithUrls,
     survivalSummary: survivalSummary ?? null,
     selectedRuns,
     selectedRunCount: selectedRunCount ?? canonicalScoringRunSelection?.selectedRuns.length ?? selectedRuns.length,

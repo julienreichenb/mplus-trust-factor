@@ -10,9 +10,13 @@ import TierGradeLetter from "../brand/TierGradeLetter.vue";
 import MetaChip from "../common/MetaChip.vue";
 import TrustRadarChart from "../charts/TrustRadarChart.vue";
 import HeroInsightAccordion from "./HeroInsightAccordion.vue";
+import ActiveRerolls from "../character/ActiveRerolls.vue";
+import type { ActiveRerollCharacterDTO } from "@mplus/contracts";
 
 const props = defineProps<{
   profile: CharacterProfileView;
+  activeRerolls?: ActiveRerollCharacterDTO[];
+  displayedCharacterIsMain?: boolean;
 }>();
 
 const grade = computed(() => presentGrade(props.profile.score?.grade));
@@ -145,6 +149,11 @@ const classSpec = computed(() => {
               </div>
               <div class="identity__title-row">
                 <h1>{{ profile.displayName }}</h1>
+                <span
+                  v-if="displayedCharacterIsMain"
+                  class="main-chip"
+                  data-testid="displayed-main-chip"
+                >MAIN</span>
                 <div class="meta">
                   <p class="meta__server">{{ profile.realmSlug }} · {{ profile.region }}</p>
                   <p
@@ -156,6 +165,10 @@ const classSpec = computed(() => {
                   </p>
                 </div>
               </div>
+              <ActiveRerolls
+                v-if="activeRerolls?.length"
+                :characters="activeRerolls"
+              />
             </div>
 
             <HeroInsightAccordion :profile="profile" />
@@ -334,6 +347,21 @@ const classSpec = computed(() => {
   align-items: center;
   gap: 0.55rem 1.75rem;
   min-width: 0;
+}
+
+.main-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.15rem 0.4rem;
+  border: 1px solid color-mix(in srgb, var(--color-gold-300) 55%, var(--color-border));
+  border-radius: var(--radius-control);
+  background: color-mix(in srgb, var(--color-gold-300) 14%, transparent);
+  color: var(--color-gold-300);
+  font-family: var(--font-data);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  line-height: 1.2;
 }
 
 .meta {

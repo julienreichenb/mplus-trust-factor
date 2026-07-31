@@ -151,6 +151,11 @@ export interface SelectedRunSummaryDTO {
   selectionReason: "HIGHEST_KEY" | "HIGHEST_SCORE_TIEBREAK" | "LATEST_TIEBREAK" | null;
   parsePercentile: number | null;
   hasDetailedAnalysis: boolean;
+  /**
+   * Public Warcraft Logs report URL when a real source exists.
+   * Never fabricated — null when unmatched or URL unknown.
+   */
+  wclUrl?: string | null;
 }
 
 /** Public equipment item — Blizzard-primary; missing fields stay null. */
@@ -233,6 +238,11 @@ export interface PerformanceExplanatoryRunDTO {
   timed: boolean;
   parsePercentile: number | null;
   scoreValue: number | null;
+  /**
+   * Public Warcraft Logs report URL when a real source exists.
+   * Never fabricated — null when unmatched or URL unknown.
+   */
+  wclUrl?: string | null;
 }
 
 export interface PerformanceDungeonSummaryDTO {

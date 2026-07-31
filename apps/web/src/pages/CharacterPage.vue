@@ -2,18 +2,22 @@
 import { computed, onMounted, ref, watch } from "vue";
 import { api } from "../api/client";
 import type { CharacterProfileView } from "../api/types";
+import type { ActiveRerollCharacterDTO, ActiveRerollsResponse } from "@mplus/contracts";
 import { useAbortableQuery } from "../composables/useAbortableQuery";
 import { useAuthSession } from "../composables/useAuthSession";
-import { useRefreshPolling } from "../composables/useRefreshPolling";
+import {
+  ADMIN_REFRESH_POLL_INTERVAL_MS,
+  ADMIN_REFRESH_POLL_MAX_MS,
+  NORMAL_REFRESH_POLL_INTERVAL_MS,
+  NORMAL_REFRESH_POLL_MAX_MS,
+  useRefreshPolling,
+} from "../composables/useRefreshPolling";
 import { useRecentSearchesStore } from "../stores/recentSearches";
-import { useAccountCharactersStore } from "../stores/accountCharacters";
 import StatusBanner from "../components/common/StatusBanner.vue";
 import AppToast from "../components/common/AppToast.vue";
 import CharacterRealmSearch from "../components/search/CharacterRealmSearch.vue";
-import CharacterLoadingSplash from "../components/character/CharacterLoadingSplash.vue";
 import CharacterPortraitStage from "../components/character/CharacterPortraitStage.vue";
 import CharacterProfileToolbar from "../components/character/CharacterProfileToolbar.vue";
-import BattleNetCharacterSwitcher from "../components/character/BattleNetCharacterSwitcher.vue";
 import ScoreHeader from "../components/profile/ScoreHeader.vue";
 import DimensionCards from "../components/profile/DimensionCards.vue";
 import AuthenticitySection from "../components/profile/AuthenticitySection.vue";
@@ -38,15 +42,15 @@ const props = defineProps<{
 }>();
 
 const recent = useRecentSearchesStore();
-const accountCharacters = useAccountCharactersStore();
 const { nextSignal } = useAbortableQuery();
 const { polling, timedOut, start: startPolling, stop: stopPolling } = useRefreshPolling();
-const { canForceRefresh, fetchAuthMe } = useAuthSession();
+const { canForceRefresh, authenticated, fetchAuthMe } = useAuthSession();
+const apiBase = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:3000";
+
 onMounted(() => {
   void fetchAuthMe();
 });
 useWowheadTooltips(true);
-// Hero gear always needs Wowhead tooltips when item IDs are present.
 void loadWowheadTooltipScript({ iconizeLinks: false })
   .then((status) => {
     if (status === "ready") refreshWowheadTooltips();
@@ -60,9 +64,8 @@ const error = ref<string | null>(null);
 const refreshNotice = ref<string | null>(null);
 const notFound = ref(false);
 const profile = ref<CharacterProfileView | null>(null);
-
-/** Keep splash visible while the first fetch or queued enrichment is in progress. */
-const showSplash = computed(() => loading.value || polling.value);
+const activeRerolls = ref<ActiveRerollCharacterDTO[]>([]);
+const displayedCharacterIsMain = ref(false);
 
 const confidenceWarning = computed(() => {
   const conf = profile.value ? resolveDataConfidence(profile.value) : null;
@@ -108,18 +111,12 @@ const hasWclNotice = computed(() => {
 
 /** Profile status / data notices shown in the collapsible banner group. */
 const bannerTitles = computed(() => {
-  if (!profile.value || showSplash.value) return [];
+  if (!profile.value) return [];
   const titles: string[] = [];
-  if (
-    profile.value.refreshStatus === "QUEUED" ||
-    profile.value.refreshStatus === "REFRESHING" ||
-    polling.value
-  ) {
-    titles.push("Actualisation en cours");
-  } else if (timedOut.value) {
+  if (timedOut.value) {
     titles.push("Refresh timed out");
-  } else if (profile.value.refreshStatus === "STALE") {
-    titles.push("Données à actualiser");
+  } else if (profile.value.refreshStatus === "STALE" && !polling.value) {
+    titles.push("Needs refresh");
   }
   if (confidenceWarning.value) titles.push("Low confidence");
   for (const w of profile.value.warnings ?? []) {
@@ -131,13 +128,49 @@ const bannerTitles = computed(() => {
 
 const showBannerGroup = computed(() => bannerTitles.value.length > 0);
 
+function pollingOptions(identity: {
+  region: string;
+  realmSlug: string;
+  name: string;
+}) {
+  const admin = canForceRefresh.value;
+  return {
+    identity,
+    intervalMs: admin ? ADMIN_REFRESH_POLL_INTERVAL_MS : NORMAL_REFRESH_POLL_INTERVAL_MS,
+    maxDurationMs: admin ? ADMIN_REFRESH_POLL_MAX_MS : NORMAL_REFRESH_POLL_MAX_MS,
+  };
+}
+
+async function loadActiveRerolls(): Promise<void> {
+  activeRerolls.value = [];
+  displayedCharacterIsMain.value = false;
+  // Anonymous viewers must never call the Active Rerolls endpoint.
+  if (!authenticated.value) return;
+  try {
+    const path = `/api/v1/characters/${encodeURIComponent(props.region)}/${encodeURIComponent(props.realm)}/${encodeURIComponent(props.name)}/active-rerolls`;
+    const response = await fetch(`${apiBase}${path}`, { credentials: "include" });
+    if (!response.ok) {
+      activeRerolls.value = [];
+      displayedCharacterIsMain.value = false;
+      return;
+    }
+    const body = (await response.json()) as ActiveRerollsResponse;
+    activeRerolls.value = Array.isArray(body.rerolls) ? body.rerolls : [];
+    displayedCharacterIsMain.value = body.displayedCharacterIsMain === true;
+  } catch {
+    activeRerolls.value = [];
+    displayedCharacterIsMain.value = false;
+  }
+}
+
 async function load(): Promise<void> {
   loading.value = true;
   error.value = null;
   refreshNotice.value = null;
   notFound.value = false;
   stopPolling();
-  const startedAt = Date.now();
+  activeRerolls.value = [];
+  displayedCharacterIsMain.value = false;
   const signal = nextSignal();
   const identity = {
     region: props.region.toUpperCase(),
@@ -145,6 +178,7 @@ async function load(): Promise<void> {
     name: props.name,
   };
   try {
+    await fetchAuthMe();
     const data = await api.getCharacterProfile(identity, signal);
     profile.value = data;
     recent.add({
@@ -152,33 +186,45 @@ async function load(): Promise<void> {
       classSlug: data.classSlug ?? null,
       avatarUrl: data.media?.avatarUrl ?? data.media?.insetUrl ?? null,
     });
+    void loadActiveRerolls();
     if (data.refreshStatus === "QUEUED" || data.refreshStatus === "REFRESHING") {
       void startPolling({
-        identity,
+        ...pollingOptions(identity),
         onUpdate: (status) => {
           if (profile.value) {
+            const cancelled = status.job?.status === "cancelled";
             const terminalFailed =
-              status.refreshStatus === "FAILED" || status.job?.status === "failed";
+              !cancelled &&
+              (status.refreshStatus === "FAILED" || status.job?.status === "failed");
             const inProgress =
-              status.refreshStatus === "IN_PROGRESS" ||
-              status.refreshStatus === "QUEUED" ||
-              status.job?.status === "queued" ||
-              status.job?.status === "active";
+              !cancelled &&
+              (status.refreshStatus === "IN_PROGRESS" ||
+                status.refreshStatus === "QUEUED" ||
+                status.job?.status === "queued" ||
+                status.job?.status === "active");
             const hasScore = Boolean(profile.value.score);
             profile.value = {
               ...profile.value,
               refreshStatus: terminalFailed
                 ? "STALE"
-                : inProgress
-                  ? hasScore
-                    ? "REFRESHING"
-                    : "QUEUED"
-                  : "FRESH",
+                : cancelled
+                  ? status.refreshStatus === "STALE"
+                    ? "STALE"
+                    : "FRESH"
+                  : inProgress
+                    ? hasScore
+                      ? "REFRESHING"
+                      : "QUEUED"
+                    : "FRESH",
             };
           }
         },
         onComplete: async (status) => {
-          if (status.refreshStatus === "FAILED" || status.job?.status === "failed") {
+          // CANCELLED is terminal but not a provider failure — no retry/backoff banner.
+          if (
+            status.job?.status !== "cancelled" &&
+            (status.refreshStatus === "FAILED" || status.job?.status === "failed")
+          ) {
             error.value =
               status.job?.errorMessage?.trim() ||
               "Refresh failed. You can retry without losing the last available snapshot.";
@@ -202,11 +248,6 @@ async function load(): Promise<void> {
       error.value = (err as Error).message || "Failed to load profile";
     }
   } finally {
-    const minSplashMs = 500;
-    const remaining = minSplashMs - (Date.now() - startedAt);
-    if (remaining > 0) {
-      await new Promise((resolve) => setTimeout(resolve, remaining));
-    }
     loading.value = false;
   }
 }
@@ -243,24 +284,43 @@ async function refresh(opts: { force?: boolean } = {}): Promise<void> {
       return;
     }
 
-    profile.value = { ...profile.value, refreshStatus: "QUEUED" };
+    profile.value = {
+      ...profile.value,
+      refreshStatus: profile.value.score ? "REFRESHING" : "QUEUED",
+    };
     void startPolling({
-      identity,
+      ...pollingOptions(identity),
       onUpdate: (statusUpdate) => {
         if (profile.value) {
+          const cancelled = statusUpdate.job?.status === "cancelled";
+          const inProgress =
+            !cancelled &&
+            (statusUpdate.refreshStatus === "IN_PROGRESS" ||
+              statusUpdate.refreshStatus === "QUEUED" ||
+              statusUpdate.job?.status === "queued" ||
+              statusUpdate.job?.status === "active");
           profile.value = {
             ...profile.value,
             refreshStatus:
-              statusUpdate.refreshStatus === "IN_PROGRESS" || statusUpdate.refreshStatus === "QUEUED"
-                ? "QUEUED"
-                : statusUpdate.refreshStatus === "FAILED"
-                  ? "STALE"
-                  : "FRESH",
+              !cancelled && statusUpdate.refreshStatus === "FAILED"
+                ? "STALE"
+                : cancelled
+                  ? statusUpdate.refreshStatus === "STALE"
+                    ? "STALE"
+                    : "FRESH"
+                  : inProgress
+                    ? profile.value.score
+                      ? "REFRESHING"
+                      : "QUEUED"
+                    : "FRESH",
           };
         }
       },
       onComplete: async (statusUpdate) => {
-        if (statusUpdate.refreshStatus === "FAILED" || statusUpdate.job?.status === "failed") {
+        if (
+          statusUpdate.job?.status !== "cancelled" &&
+          (statusUpdate.refreshStatus === "FAILED" || statusUpdate.job?.status === "failed")
+        ) {
           refreshNotice.value =
             statusUpdate.job?.errorMessage?.trim() ||
             "Refresh failed. You can retry without losing the last available snapshot.";
@@ -281,21 +341,16 @@ watch(
   },
   { immediate: true },
 );
-
-onMounted(() => {
-  void accountCharacters.ensureLoaded();
-});
 </script>
 
 <template>
   <section
     class="character-page"
-    :class="{ 'character-page--splashing': showSplash }"
     :data-tier="grade ?? undefined"
     :style="rankThemeStyle"
     data-testid="character-page"
   >
-    <StatusBanner v-if="notFound && !showSplash" tone="warn" title="Character not found on this realm">
+    <StatusBanner v-if="notFound && !loading" tone="warn" title="Character not found on this realm">
       No record for {{ name }} on {{ realm }} ({{ region }}). Search again with a catalog realm.
       <div class="not-found-search">
         <CharacterRealmSearch :show-recent="false" submit-label="Search" />
@@ -303,13 +358,17 @@ onMounted(() => {
     </StatusBanner>
 
     <StatusBanner
-      v-else-if="error && !profile && !showSplash"
+      v-else-if="error && !profile && !loading"
       tone="error"
       title="Could not load profile"
     >
       {{ error }}
       <button type="button" class="btn" @click="load">Retry</button>
     </StatusBanner>
+
+    <p v-if="loading && !profile" class="character-page__loading" data-testid="character-loading">
+      Loading profile…
+    </p>
 
     <template v-if="profile">
       <CharacterProfileToolbar
@@ -318,14 +377,6 @@ onMounted(() => {
         :can-force-refresh="canForceRefresh"
         @refresh="refresh()"
         @force-refresh="refresh({ force: true })"
-      />
-
-      <BattleNetCharacterSwitcher
-        v-if="accountCharacters.showSwitcher"
-        :characters="accountCharacters.characters"
-        :region="profile.region"
-        :realm="profile.realmSlug"
-        :name="profile.displayName"
       />
 
       <details
@@ -339,16 +390,7 @@ onMounted(() => {
         </summary>
         <div class="character-page__banners-body">
           <StatusBanner
-            v-if="profile.refreshStatus === 'QUEUED' || profile.refreshStatus === 'REFRESHING' || polling"
-            tone="info"
-            title="Actualisation en cours"
-            data-testid="queued-banner"
-          >
-            Showing the latest available snapshot while a refresh runs. Polling with backoff until complete.
-          </StatusBanner>
-
-          <StatusBanner
-            v-else-if="timedOut"
+            v-if="timedOut"
             tone="warn"
             title="Refresh timed out"
             data-testid="refresh-timeout-banner"
@@ -358,9 +400,9 @@ onMounted(() => {
           </StatusBanner>
 
           <StatusBanner
-            v-else-if="profile.refreshStatus === 'STALE'"
+            v-else-if="profile.refreshStatus === 'STALE' && !polling"
             tone="warn"
-            title="Données à actualiser"
+            title="Needs refresh"
             data-testid="stale-banner"
           >
             This snapshot is usable but may be outdated. Refresh to queue an update.
@@ -394,7 +436,11 @@ onMounted(() => {
 
       <div class="character-page__hero">
         <CharacterPortraitStage :profile="profile" />
-        <ScoreHeader :profile="profile" />
+        <ScoreHeader
+          :profile="profile"
+          :active-rerolls="activeRerolls"
+          :displayed-character-is-main="displayedCharacterIsMain"
+        />
       </div>
 
       <DimensionCards
@@ -422,14 +468,6 @@ onMounted(() => {
       <MethodologyPanel :profile="profile" />
     </template>
 
-    <CharacterLoadingSplash
-      v-if="showSplash"
-      :name="name"
-      :realm="realm"
-      :region="region"
-      :hint="polling && !loading ? 'Refreshing character data…' : 'Gathering public signals…'"
-    />
-
     <AppToast
       :open="Boolean(refreshNotice)"
       :message="refreshNotice ?? ''"
@@ -452,8 +490,10 @@ onMounted(() => {
   overflow: visible;
 }
 
-.character-page--splashing {
-  min-height: 70dvh;
+.character-page__loading {
+  margin: var(--space-6) 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
 }
 
 .character-page__banners {

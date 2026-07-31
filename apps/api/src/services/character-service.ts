@@ -36,7 +36,7 @@ import {
   type CharacterSourceAttribution,
   type RunSummaryDTO,
 } from "../lib/mappers.js";
-import { applyProfileWarnings, appendRefreshContractWarnings, buildProfileEnrichments, isScoreStaleVersusProviders, scoreSnapshotContractStaleReasons, toPublicProviderKey } from "../lib/profile-enrichment.js";
+import { applyProfileWarnings, appendRefreshContractWarnings, buildProfileEnrichments, isScoreStaleVersusProviders, resolveWclUrlFromSources, scoreSnapshotContractStaleReasons, toPublicProviderKey } from "../lib/profile-enrichment.js";
 import { characterCacheKey } from "../lib/response-cache.js";
 import { scheduleProfileViewRecording } from "../lib/profile-view-recorder.js";
 import {
@@ -798,6 +798,10 @@ export class CharacterService {
           latestRun?.id,
           highestRun?.id,
           ...(scoringRunSelection?.selectedRuns.map((r) => r.canonicalRunId) ?? []),
+          ...(performanceSummary?.currentSeason.dungeons.flatMap((d) => [
+            d.bestRun?.runId,
+            d.latestRun?.runId,
+          ]) ?? []),
         ].filter((id): id is string => Boolean(id)),
       ),
     ];
@@ -805,6 +809,7 @@ export class CharacterService {
       ...coverageCounts.runCoverageById,
     };
     const runNamesById: Record<string, { dungeonName: string }> = {};
+    const wclUrlByRunId: Record<string, string | null> = {};
     await Promise.all(
       runIds.map(async (runId) => {
         runCoverageById[runId] = await this.repositories.run.findLatestAnalysisCoverage(
@@ -816,6 +821,7 @@ export class CharacterService {
           runNamesById[runId] = {
             dungeonName: runRow.dungeon.name ?? runRow.dungeon.slug,
           };
+          wclUrlByRunId[runId] = resolveWclUrlFromSources(runRow.sources);
         }
       }),
     );
@@ -850,6 +856,7 @@ export class CharacterService {
         selectedRunCount: coverageCounts.selectedRunCount,
         detailedRunCount: coverageCounts.detailedRunCount,
         runNamesById,
+        wclUrlByRunId,
         freshness,
         scoreObservationProviders: observationProviders,
         env: this.container.env,

@@ -19,6 +19,7 @@ afterAll(async () => {
   await prisma.$disconnect();
 });
 
+// Inline refresh fixtures can exceed the default 5s under parallel suite load.
 describe.skipIf(!dbAvailable)("character routes", { timeout: 30_000 }, () => {
   let app: FastifyInstance;
   let container: ApiContainer;
@@ -551,5 +552,188 @@ describe.skipIf(!dbAvailable)("character routes", { timeout: 30_000 }, () => {
       where: { characterId: character!.id, jobType: "refresh-character" },
     });
     expect(after - before).toBeLessThanOrEqual(1);
+  });
+
+  it("rejects anonymous Active rerolls requests", async () => {
+    const name = uniqueName("RerollAnon");
+    const response = await app.inject({
+      method: "GET",
+      url: `/api/v1/characters/${REALM_PATH}/${name}/active-rerolls`,
+    });
+    expect(response.statusCode).toBe(401);
+    expect(response.json().error.code).toBe("UNAUTHORIZED");
+  });
+
+  it("allows any authenticated viewer to read Active rerolls for a character they do not own", async () => {
+    const name = uniqueName("RerollViewer");
+    const viewer = await prisma.user.create({
+      data: {
+        id: randomUUID(),
+        authProvider: "battlenet",
+        externalSubject: `reroll-viewer-${randomUUID()}`,
+        displayName: "RerollViewer",
+        role: "USER",
+      },
+    });
+    const token = await container.authService.createSession({ userId: viewer.id });
+    const response = await app.inject({
+      method: "GET",
+      url: `/api/v1/characters/${REALM_PATH}/${name}/active-rerolls`,
+      headers: { cookie: `mplus_session=${token}` },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ displayedCharacterIsMain: false, rerolls: [] });
+    const serialized = JSON.stringify(response.json());
+    expect(serialized).not.toMatch(/battletag|providerAccountId|userId|ownershipId|email|relevanceEligible/i);
+  });
+
+  it("returns owner A rerolls to authenticated non-owner B without mixing B roster", async () => {
+    const region = await prisma.region.findFirst({ where: { code: "EU" } });
+    expect(region).not.toBeNull();
+    const realm = await prisma.realm.findFirst({
+      where: { regionId: region!.id, slug: "tarren-mill" },
+    });
+    expect(realm).not.toBeNull();
+
+    const ownerA = await prisma.user.create({
+      data: {
+        id: randomUUID(),
+        authProvider: "battlenet",
+        externalSubject: `reroll-a-${randomUUID()}`,
+        displayName: "OwnerA",
+        role: "USER",
+      },
+    });
+    const viewerB = await prisma.user.create({
+      data: {
+        id: randomUUID(),
+        authProvider: "battlenet",
+        externalSubject: `reroll-b-${randomUUID()}`,
+        displayName: "ViewerB",
+        role: "USER",
+      },
+    });
+
+    const accountA = await prisma.battleNetAccount.create({
+      data: {
+        id: randomUUID(),
+        userId: ownerA.id,
+        providerAccountId: `bnet-a-${randomUUID()}`,
+        battletagHash: `hash-a-${randomUUID()}`,
+        battletagDisplay: "OwnerA#1",
+        claimed: true,
+        unlinkedAt: null,
+      },
+    });
+    const accountB = await prisma.battleNetAccount.create({
+      data: {
+        id: randomUUID(),
+        userId: viewerB.id,
+        providerAccountId: `bnet-b-${randomUUID()}`,
+        battletagHash: `hash-b-${randomUUID()}`,
+        battletagDisplay: "ViewerB#2",
+        claimed: true,
+        unlinkedAt: null,
+      },
+    });
+
+    const mainName = uniqueName("MainA");
+    const altName = uniqueName("AltA");
+    const bOnlyName = uniqueName("OnlyB");
+
+    const mainChar = await container.worker.repositories.character.upsertCharacter(
+      { region: "EU", realmSlug: "tarren-mill", name: mainName },
+      { displayName: mainName },
+    );
+    const altChar = await container.worker.repositories.character.upsertCharacter(
+      { region: "EU", realmSlug: "tarren-mill", name: altName },
+      { displayName: altName },
+    );
+    const bChar = await container.worker.repositories.character.upsertCharacter(
+      { region: "EU", realmSlug: "tarren-mill", name: bOnlyName },
+      { displayName: bOnlyName },
+    );
+
+    const now = new Date();
+    await prisma.verifiedCharacterOwnership.createMany({
+      data: [
+        {
+          id: randomUUID(),
+          battleNetAccountId: accountA.id,
+          userId: ownerA.id,
+          characterId: mainChar.id,
+          blizzardCharacterId: BigInt(800_000_000 + Math.floor(Math.random() * 1_000_000)),
+          regionId: region!.id,
+          realmSlug: "tarren-mill",
+          realmName: "Tarren Mill",
+          characterName: mainName,
+          normalizedName: normalizeName(mainName),
+          confidence: "CONFIRMED",
+          source: "test",
+          status: "CURRENT",
+          isPrimary: true,
+          verifiedAt: now,
+          revokedAt: null,
+          relevanceEligible: true,
+          currentSeasonMythicRating: 3200,
+        },
+        {
+          id: randomUUID(),
+          battleNetAccountId: accountA.id,
+          userId: ownerA.id,
+          characterId: altChar.id,
+          blizzardCharacterId: BigInt(810_000_000 + Math.floor(Math.random() * 1_000_000)),
+          regionId: region!.id,
+          realmSlug: "tarren-mill",
+          realmName: "Tarren Mill",
+          characterName: altName,
+          normalizedName: normalizeName(altName),
+          confidence: "CONFIRMED",
+          source: "test",
+          status: "CURRENT",
+          isPrimary: false,
+          verifiedAt: now,
+          revokedAt: null,
+          relevanceEligible: true,
+          currentSeasonMythicRating: 2100,
+        },
+        {
+          id: randomUUID(),
+          battleNetAccountId: accountB.id,
+          userId: viewerB.id,
+          characterId: bChar.id,
+          blizzardCharacterId: BigInt(820_000_000 + Math.floor(Math.random() * 1_000_000)),
+          regionId: region!.id,
+          realmSlug: "tarren-mill",
+          realmName: "Tarren Mill",
+          characterName: bOnlyName,
+          normalizedName: normalizeName(bOnlyName),
+          confidence: "CONFIRMED",
+          source: "test",
+          status: "CURRENT",
+          isPrimary: true,
+          verifiedAt: now,
+          revokedAt: null,
+          relevanceEligible: true,
+          currentSeasonMythicRating: 9999,
+        },
+      ],
+    });
+
+    const tokenB = await container.authService.createSession({ userId: viewerB.id });
+    const response = await app.inject({
+      method: "GET",
+      url: `/api/v1/characters/${REALM_PATH}/${mainName}/active-rerolls`,
+      headers: { cookie: `mplus_session=${tokenB}` },
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+    expect(body.displayedCharacterIsMain).toBe(true);
+    expect(body.rerolls).toHaveLength(1);
+    expect(body.rerolls[0].name).toBe(altName);
+    expect(body.rerolls[0].isMain).toBe(false);
+    expect(body.rerolls.map((r: { name: string }) => r.name)).not.toContain(bOnlyName);
+    expect(JSON.stringify(body)).not.toMatch(/OwnerA#1|ViewerB#2|battletag|providerAccountId|ownershipId/i);
   });
 });

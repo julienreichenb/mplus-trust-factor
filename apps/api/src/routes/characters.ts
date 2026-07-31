@@ -4,7 +4,8 @@ import type { ApiContainer } from "../container.js";
 import { CharacterService } from "../services/character-service.js";
 import { HttpError } from "../errors.js";
 import { writeAuditEvent } from "../iam/audit.js";
-import { resolveRefreshPrivileges } from "../iam/session.js";
+import { buildActiveRerollsView } from "../iam/active-rerolls-view.js";
+import { requireAuth, resolveRefreshPrivileges } from "../iam/session.js";
 import {
   characterProfileResponseSchema,
   errorResponseSchema,
@@ -252,6 +253,81 @@ export function buildCharacterRoutes(container: ApiContainer): FastifyPluginAsyn
       async (request) => {
         const identity = toIdentity(request.params as IdentityParams);
         return service.getRefreshStatus(identity);
+      },
+    );
+
+    app.get(
+      "/api/v1/characters/:region/:realm/:name/active-rerolls",
+      {
+        config: rateLimitConfig(container, 60),
+        schema: {
+          tags: ["characters"],
+          params: identityParamsSchema,
+          response: {
+            200: {
+              type: "object",
+              properties: {
+                displayedCharacterIsMain: { type: "boolean" },
+                rerolls: {
+                  type: "array",
+                  maxItems: 24,
+                  items: {
+                    type: "object",
+                    properties: {
+                      characterId: { type: "string", format: "uuid" },
+                      region: { type: "string" },
+                      realmSlug: { type: "string" },
+                      realmName: { type: ["string", "null"] },
+                      name: { type: "string" },
+                      classSlug: { type: ["string", "null"] },
+                      className: { type: ["string", "null"] },
+                      classColor: { type: ["string", "null"] },
+                      portraitUrl: { type: ["string", "null"] },
+                      mythicPlusScore: { type: ["number", "null"] },
+                      grade: {
+                        anyOf: [
+                          { type: "string", enum: ["S", "A", "B", "C", "D", "U"] },
+                          { type: "null" },
+                        ],
+                      },
+                      isMain: { type: "boolean" },
+                    },
+                    required: [
+                      "characterId",
+                      "region",
+                      "realmSlug",
+                      "realmName",
+                      "name",
+                      "classSlug",
+                      "className",
+                      "classColor",
+                      "portraitUrl",
+                      "mythicPlusScore",
+                      "grade",
+                      "isMain",
+                    ],
+                    additionalProperties: false,
+                  },
+                },
+              },
+              required: ["displayedCharacterIsMain", "rerolls"],
+              additionalProperties: false,
+            },
+            401: errorResponseSchema,
+          },
+        },
+      },
+      async (request) => {
+        requireAuth(request);
+        const identity = toIdentity(request.params as IdentityParams);
+        return buildActiveRerollsView({
+          prisma: container.worker.prisma,
+          env: container.env,
+          region: identity.region,
+          realmSlug: identity.realmSlug,
+          name: identity.name,
+          logger: container.logger,
+        });
       },
     );
 

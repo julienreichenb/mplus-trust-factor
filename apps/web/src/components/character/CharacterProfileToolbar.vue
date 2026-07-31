@@ -14,36 +14,50 @@ const emit = defineEmits<{
   forceRefresh: [];
 }>();
 
-const refreshLabel = computed(() => {
-  switch (props.profile.refreshStatus) {
-    case "REFRESHING":
-      return "Actualisation en cours";
-    case "STALE":
-      return "Données à actualiser";
-    case "QUEUED":
-      return "Actualisation en cours";
-    case "FRESH":
-      return "FRESH";
-    default:
-      return props.profile.refreshStatus;
-  }
-});
-
 const refreshInFlight = computed(
   () =>
     Boolean(props.refreshing) ||
     props.profile.refreshStatus === "QUEUED" ||
     props.profile.refreshStatus === "REFRESHING",
 );
+
+const isUpdating = computed(
+  () =>
+    props.profile.refreshStatus === "REFRESHING" ||
+    (Boolean(props.refreshing) && props.profile.refreshStatus !== "QUEUED"),
+);
+
+const showQueued = computed(() => props.profile.refreshStatus === "QUEUED");
 </script>
 
 <template>
   <div class="toolbar" data-testid="character-toolbar">
     <RouterLink class="back" to="/#character-search">← Back to character search</RouterLink>
     <div class="toolbar__actions">
-      <span class="refresh-state mpts-data" :data-status="profile.refreshStatus">{{
-        refreshLabel
-      }}</span>
+      <span
+        v-if="showQueued && !isUpdating"
+        class="refresh-state refresh-state--queued mpts-data"
+        data-status="QUEUED"
+        data-testid="refresh-status-queued"
+      >
+        QUEUED
+      </span>
+      <span
+        v-else-if="isUpdating || refreshInFlight"
+        class="refresh-state refresh-state--updating mpts-data"
+        data-status="REFRESHING"
+        data-testid="refresh-status-updating"
+      >
+        <span class="refresh-spinner" aria-hidden="true" />
+        Updating profile
+      </span>
+      <span
+        v-else
+        class="refresh-state mpts-data"
+        :data-status="profile.refreshStatus"
+      >
+        {{ profile.refreshStatus === "STALE" ? "Needs refresh" : profile.refreshStatus }}
+      </span>
       <button
         type="button"
         class="btn secondary"
@@ -96,6 +110,9 @@ const refreshInFlight = computed(
 }
 
 .refresh-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
   font-size: var(--text-xs);
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -111,7 +128,14 @@ const refreshInFlight = computed(
   background: rgb(34 197 94 / 10%);
 }
 
-.refresh-state[data-status="QUEUED"],
+.refresh-state--queued,
+.refresh-state[data-status="QUEUED"] {
+  color: var(--color-amber-400);
+  border-color: rgb(251 191 36 / 40%);
+  background: rgb(251 191 36 / 10%);
+}
+
+.refresh-state--updating,
 .refresh-state[data-status="REFRESHING"] {
   color: var(--color-amber-400);
   border-color: rgb(251 191 36 / 40%);
@@ -122,5 +146,20 @@ const refreshInFlight = computed(
   color: var(--color-danger-500);
   border-color: rgb(239 68 68 / 40%);
   background: rgb(239 68 68 / 10%);
+}
+
+.refresh-spinner {
+  width: 0.7rem;
+  height: 0.7rem;
+  border: 1.5px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: refresh-spin 0.7s linear infinite;
+}
+
+@keyframes refresh-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 </style>
