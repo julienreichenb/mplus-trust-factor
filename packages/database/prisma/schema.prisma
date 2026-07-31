@@ -767,6 +767,7 @@ model ScoreModel {
   bulkOperations    BulkOperation[]
 
   @@unique([key, version])
+  @@index([status])
   @@map("score_models")
 }
 

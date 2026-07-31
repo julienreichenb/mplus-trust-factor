@@ -130,7 +130,7 @@ export async function runRefreshContractPreflight(
   });
 
   const activeModel =
-    (await deps.getActiveModel(deps.env.ACTIVE_SCORE_MODEL_KEY)) ?? {
+    (await deps.getActiveModel()) ?? {
       key: deps.env.ACTIVE_SCORE_MODEL_KEY,
       version: deps.env.ACTIVE_SCORE_MODEL_VERSION,
     };

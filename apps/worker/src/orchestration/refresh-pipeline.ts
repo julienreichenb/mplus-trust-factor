@@ -2553,9 +2553,9 @@ export async function runRefreshPipeline(
   observations.push(...wclSurvival.observations);
 
   // Load active model before Utility publication so gates come from ScoreModel.config.
-  const model = await repositories.score.getActiveModel(container.env.ACTIVE_SCORE_MODEL_KEY);
+  const model = await repositories.score.getActiveModel();
   if (!model) {
-    const error = new Error(`No active score model found for key "${container.env.ACTIVE_SCORE_MODEL_KEY}"`);
+    const error = new Error(`No active score model found in the database`);
     await repositories.job.markFailed(job.id, error);
     terminalized = true;
     throw error;

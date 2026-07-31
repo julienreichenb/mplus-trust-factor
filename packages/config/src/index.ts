@@ -57,6 +57,10 @@ export const envSchema = z
     RAIDERIO_CUTOFFS_TTL_SECONDS: z.coerce.number().int().positive().default(86_400),
     RAIDERIO_STATIC_DATA_TTL_SECONDS: z.coerce.number().int().positive().default(604_800),
 
+    /**
+     * Empty-DB / seed bootstrap defaults only. Runtime active model comes from DB.
+     * Do not edit these on the VPS to activate a new formula (see model-lifecycle.md).
+     */
     ACTIVE_SCORE_MODEL_KEY: z.string().default("default"),
     ACTIVE_SCORE_MODEL_VERSION: z.coerce.number().int().positive().default(6),
     /**

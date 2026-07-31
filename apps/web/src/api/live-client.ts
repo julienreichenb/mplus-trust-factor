@@ -1,6 +1,8 @@
 import type {
+  ActivateScoreModelResult,
   AdminAbilityCatalogResponse,
   AdminScoreModelDTO,
+  BacktestSummary,
   CharacterAutocompleteSuggestion,
   CharacterComparisonRequest,
   CharacterComparisonResponse,
@@ -173,8 +175,14 @@ export function createLiveApiClient(options: {
       send<{
         sampleSize: number;
         meanScore: number;
+        meanConfidence?: number | null;
         gradeDistribution: Record<string, number>;
         note: string;
+        mode?: string;
+        outliers?: unknown[];
+        confidenceVersusCoverage?: unknown[];
+        activeDraftComparison?: BacktestSummary["activeDraftComparison"];
+        source?: string;
       }>(
         "POST",
         `/api/v1/admin/score-models/${encodeURIComponent(modelId)}/backtest`,
@@ -183,16 +191,25 @@ export function createLiveApiClient(options: {
       ).then((r) => ({
         cohortSize: r.sampleSize ?? 0,
         meanOverall: r.meanScore ?? 0,
+        meanConfidence: r.meanConfidence ?? null,
         gradeDistribution: r.gradeDistribution ?? {},
         notes: r.note ?? "",
+        mode: r.mode,
+        outliers: r.outliers ?? [],
+        confidenceVersusCoverage: r.confidenceVersusCoverage ?? [],
+        activeDraftComparison: r.activeDraftComparison ?? null,
+        source: r.source,
       })),
 
-    activateModel: (modelId, signal) =>
-      send<AdminScoreModelDTO>(
+    activateModel: (modelId, opts) =>
+      send<ActivateScoreModelResult>(
         "POST",
         `/api/v1/admin/score-models/${encodeURIComponent(modelId)}/activate`,
-        {},
-        signal,
+        {
+          confirm: opts?.confirm ?? true,
+          expectedPreviousActiveId: opts?.expectedPreviousActiveId,
+        },
+        opts?.signal,
       ),
 
     getAdminAbilityCatalog: (params, signal) =>

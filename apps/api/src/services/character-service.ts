@@ -287,7 +287,7 @@ export class CharacterService {
     );
 
     const activeModel =
-      (await this.repositories.score.getActiveModel(this.container.env.ACTIVE_SCORE_MODEL_KEY)) ?? {
+      (await this.repositories.score.getActiveModel()) ?? {
         key: this.container.env.ACTIVE_SCORE_MODEL_KEY,
         version: this.container.env.ACTIVE_SCORE_MODEL_VERSION,
       };

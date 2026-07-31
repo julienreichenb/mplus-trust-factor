@@ -1,9 +1,26 @@
 import type { MechanicRuleType } from "@mplus/database";
-import type { AdminScoreModelDTO, Grade, JobStatusDTO, ScoreModelConfig } from "@mplus/contracts";
+import type {
+  ActivateScoreModelResponse,
+  AdminScoreModelDTO,
+  BulkOperationDTO,
+  Grade,
+  JobStatusDTO,
+  ScoreModelConfig,
+} from "@mplus/contracts";
+import {
+  runCalibrationHarnessFromBundle,
+  toAdminBacktestSummary,
+  type ActiveDraftComparisonResult,
+  type AdminBacktestSummaryV1,
+  type ConfidenceCoveragePoint,
+} from "@mplus/scoring";
 import { ensureCurrentSeason } from "@mplus/worker";
 import type { ApiContainer } from "../container.js";
 import { HttpError } from "../errors.js";
 import { mapAdminScoreModel, mapJobStatus, mapMechanicRule, type MechanicRuleDTO } from "../lib/mappers.js";
+import { writeAuditEvent } from "../iam/audit.js";
+import { BulkCharacterProcessingService } from "./bulk-character-processing-service.js";
+import { buildPersistedCalibrationBundle } from "./calibration-export.js";
 
 export interface CreateScoreModelInput {
   key: string;
@@ -17,13 +34,13 @@ export interface ValidateScoreModelResult {
   errors: string[];
 }
 
-export interface BacktestResultDTO {
-  scoreModelId: string;
-  sampleSize: number;
-  gradeDistribution: Record<Grade, number>;
-  meanScore: number;
-  generatedAt: string;
-  note: string;
+export interface BacktestResultDTO extends AdminBacktestSummaryV1 {
+  /** Absolute grade counts when available. */
+  gradeCounts: Partial<Record<Grade, number>>;
+  confidenceVersusCoverage: ConfidenceCoveragePoint[];
+  activeDraftComparison: ActiveDraftComparisonResult | null;
+  exportNotes: string[];
+  source: "persisted-export";
 }
 
 export interface MechanicRuleInput {
@@ -39,6 +56,16 @@ export interface MechanicRuleInput {
   source: string;
   version: string;
   active?: boolean;
+}
+
+export interface ActivateScoreModelOptions {
+  characterId?: string;
+  expectedPreviousActiveId?: string | null;
+  confirm?: boolean;
+  actorUserId?: string | null;
+  actorType?: "user" | "admin_key" | "system";
+  ip?: string | null;
+  userAgent?: string | null;
 }
 
 /** Admin-only score model / mechanic rule administration, and character recalculation triggers. */
@@ -111,26 +138,217 @@ export class AdminService {
     return { valid: errors.length === 0, errors };
   }
 
-  /** Fixture stub: full cohort backtesting is owned by Agent 4's scoring engine. */
-  async backtestScoreModel(id: string): Promise<BacktestResultDTO> {
+  /**
+   * Real cohort backtest via Agent 10 calibration harness.
+   * Uses persisted public snapshots (+ observations when available). Never activates or calls providers.
+   */
+  async backtestScoreModel(
+    id: string,
+    opts: { characterIds?: string[] | null; limit?: number } = {},
+  ): Promise<BacktestResultDTO> {
     const model = await this.repositories.score.getModelById(id);
     if (!model) {
       throw HttpError.notFound("SCORE_MODEL_NOT_FOUND", `Score model ${id} was not found`);
     }
-    const sampleSize = await this.container.worker.prisma.scoreSnapshot.count();
+
+    const activeModel =
+      (await this.repositories.score.getActiveModel(model.key)) ??
+      (await this.repositories.score.getActiveModel());
+
+    const { bundle, mode, notes } = await buildPersistedCalibrationBundle(
+      {
+        prisma: this.container.worker.prisma,
+        listObservations: (characterId, seasonId) =>
+          this.repositories.metric.listForCharacter(characterId, seasonId),
+      },
+      {
+        evaluationModel: model,
+        activeModel: activeModel && activeModel.id !== model.id ? activeModel : activeModel,
+        characterIds: opts.characterIds,
+        limit: opts.limit,
+      },
+    );
+
+    let report;
+    let effectiveMode = mode;
+    let effectiveNotes = [...notes];
+    try {
+      ({ report } = runCalibrationHarnessFromBundle(bundle, {
+        mode: effectiveMode,
+        evaluationModel: bundle.evaluationModel,
+        activeModel: bundle.activeModel ?? null,
+        calculatedAt: bundle.generatedAt,
+        anonymize: true,
+        bootstrapIterations: 50,
+      }));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (effectiveMode !== "persisted-snapshot-only") {
+        // Agent 10 ablation currently rejects ablated v6 weights that keep mythicRaid
+        // (public weights renormalize to 1 → total 1.05). Fall back to snapshot-only
+        // so admin still gets a real persisted cohort distribution.
+        effectiveMode = "persisted-snapshot-only";
+        effectiveNotes.push(
+          `Fell back to persisted-snapshot-only after ${mode} failed: ${message}`,
+        );
+        try {
+          ({ report } = runCalibrationHarnessFromBundle(bundle, {
+            mode: "persisted-snapshot-only",
+            activeModel: bundle.activeModel ?? null,
+            calculatedAt: bundle.generatedAt,
+            anonymize: true,
+            bootstrapIterations: 50,
+          }));
+        } catch (fallbackError) {
+          const fallbackMessage =
+            fallbackError instanceof Error ? fallbackError.message : String(fallbackError);
+          throw HttpError.badRequest(
+            "SCORE_MODEL_BACKTEST_FAILED",
+            `Cohort backtest failed: ${fallbackMessage}`,
+          );
+        }
+      } else {
+        throw HttpError.badRequest(
+          "SCORE_MODEL_BACKTEST_FAILED",
+          `Cohort backtest failed: ${message}`,
+        );
+      }
+    }
+
+    const summary = toAdminBacktestSummary(model.id, report);
     return {
-      scoreModelId: model.id,
-      sampleSize,
-      gradeDistribution: { S: 0.05, A: 0.15, B: 0.35, C: 0.3, D: 0.15, U: 0 },
-      meanScore: 62.5,
-      generatedAt: new Date().toISOString(),
-      note: "Fixture placeholder distribution — full backtest cohort analysis is owned by Agent 4 scoring.",
+      ...summary,
+      mode: effectiveMode,
+      note: [summary.note, ...effectiveNotes].filter(Boolean).join(" "),
+      confidenceVersusCoverage: report.statistics.confidenceVersusCoverage,
+      activeDraftComparison: report.activeDraftComparison,
+      exportNotes: effectiveNotes,
+      source: "persisted-export",
     };
   }
 
-  async activateScoreModel(id: string, opts: { characterId?: string } = {}): Promise<AdminScoreModelDTO> {
-    const activated = await this.repositories.score.activateModel(id);
+  /**
+   * Transactional draft activation: archive previous ACTIVE for the key, audit, then enqueue
+   * RECALCULATE_ONLY for all persisted characters. No provider calls during the request.
+   */
+  async activateScoreModel(
+    id: string,
+    opts: ActivateScoreModelOptions = {},
+  ): Promise<ActivateScoreModelResponse> {
+    if (opts.confirm === false) {
+      throw HttpError.badRequest(
+        "ACTIVATION_NOT_CONFIRMED",
+        "Explicit confirmation is required to activate a score model",
+      );
+    }
 
+    const draft = await this.repositories.score.getModelById(id);
+    if (!draft) {
+      throw HttpError.notFound("SCORE_MODEL_NOT_FOUND", `Score model ${id} was not found`);
+    }
+    if (draft.status !== "DRAFT") {
+      throw HttpError.conflict(
+        "SCORE_MODEL_NOT_ACTIVATABLE",
+        `Only DRAFT models can be activated (got ${draft.status})`,
+      );
+    }
+    const configErrors = this.repositories.score.validateConfig(
+      draft.config as unknown as ScoreModelConfig,
+    );
+    if (configErrors.length > 0) {
+      throw HttpError.badRequest(
+        "INVALID_SCORE_MODEL_CONFIG",
+        "Invalid draft cannot be activated",
+        { errors: configErrors },
+      );
+    }
+
+    let activated;
+    let previousActive;
+    try {
+      const result = await this.repositories.score.activateModel(id, {
+        expectedPreviousActiveId: opts.expectedPreviousActiveId,
+      });
+      activated = result.model;
+      previousActive = result.previousActive;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.includes("ACTIVE_MODEL_CONFLICT")) {
+        throw HttpError.conflict("ACTIVE_MODEL_CONFLICT", message);
+      }
+      if (message.includes("Only DRAFT")) {
+        throw HttpError.conflict("SCORE_MODEL_NOT_ACTIVATABLE", message);
+      }
+      if (message.includes("Invalid score model config")) {
+        throw HttpError.badRequest("INVALID_SCORE_MODEL_CONFIG", message);
+      }
+      throw error;
+    }
+
+    await writeAuditEvent(this.container.worker.prisma, {
+      userId: opts.actorUserId ?? null,
+      actorType: opts.actorType ?? "system",
+      action: "admin.score_models.activate",
+      resourceType: "score_model",
+      resourceId: activated.id,
+      outcome: "SUCCESS",
+      ip: opts.ip,
+      userAgent: opts.userAgent,
+      sessionSecret: this.container.env.SESSION_SECRET,
+      metadata: {
+        key: activated.key,
+        version: activated.version,
+        previousActiveId: previousActive?.id ?? null,
+        previousActiveVersion: previousActive?.version ?? null,
+      },
+    });
+
+    let bulkOperation: BulkOperationDTO | null = null;
+    let bulkEnqueueError: string | null = null;
+    try {
+      const bulkService = new BulkCharacterProcessingService(this.container);
+      bulkOperation = await bulkService.enqueueRecalculateAllForModel(activated.id, {
+        createdByUserId: opts.actorUserId ?? null,
+        logicalKey: `model-activate:${activated.id}`,
+      });
+      await writeAuditEvent(this.container.worker.prisma, {
+        userId: opts.actorUserId ?? null,
+        actorType: opts.actorType ?? "system",
+        action: "admin.score_models.activate_recalculate_enqueued",
+        resourceType: "bulk_operation",
+        resourceId: bulkOperation.id,
+        outcome: "SUCCESS",
+        ip: opts.ip,
+        userAgent: opts.userAgent,
+        sessionSecret: this.container.env.SESSION_SECRET,
+        metadata: {
+          scoreModelId: activated.id,
+          mode: "RECALCULATE_ONLY",
+          logicalKey: `model-activate:${activated.id}`,
+        },
+      });
+    } catch (error) {
+      bulkEnqueueError = error instanceof Error ? error.message : String(error);
+      await writeAuditEvent(this.container.worker.prisma, {
+        userId: opts.actorUserId ?? null,
+        actorType: opts.actorType ?? "system",
+        action: "admin.score_models.activate_recalculate_enqueued",
+        resourceType: "score_model",
+        resourceId: activated.id,
+        outcome: "FAILURE",
+        ip: opts.ip,
+        userAgent: opts.userAgent,
+        sessionSecret: this.container.env.SESSION_SECRET,
+        metadata: {
+          scoreModelId: activated.id,
+          error: bulkEnqueueError,
+          recovery:
+            "Activation committed. Retry RECALCULATE_ONLY via Admin Bulk Processing using scoreModelId.",
+        },
+      });
+    }
+
+    // Optional single-character recalculate remains available for focused smoke tests.
     if (opts.characterId) {
       const character = await this.repositories.character.findById(opts.characterId);
       if (!character) {
@@ -145,7 +363,13 @@ export class AdminService {
       });
     }
 
-    return mapAdminScoreModel(activated);
+    return {
+      ...mapAdminScoreModel(activated),
+      previousActiveId: previousActive?.id ?? null,
+      previousActiveVersion: previousActive?.version ?? null,
+      bulkOperationId: bulkOperation?.id ?? null,
+      bulkEnqueueError,
+    };
   }
 
   async recalculateCharacter(characterId: string): Promise<JobStatusDTO> {
@@ -153,9 +377,9 @@ export class AdminService {
     if (!character) {
       throw HttpError.notFound("CHARACTER_NOT_FOUND", `Character ${characterId} was not found`);
     }
-    const model = await this.repositories.score.getActiveModel(this.container.env.ACTIVE_SCORE_MODEL_KEY);
+    const model = await this.repositories.score.getActiveModel();
     if (!model) {
-      throw HttpError.internal(`No active score model found for key "${this.container.env.ACTIVE_SCORE_MODEL_KEY}"`);
+      throw HttpError.internal("No active score model found in the database");
     }
     const season = await ensureCurrentSeason(this.container.worker.prisma, character.regionId);
     const enqueueResult = await this.container.producers.enqueueRecalculateScore({

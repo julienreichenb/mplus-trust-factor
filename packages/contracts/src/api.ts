@@ -512,6 +512,19 @@ export interface AdminScoreModelDTO {
   activatedAt: IsoDateTime | null;
 }
 
+/** Response after transactional activation (includes bulk recalculation hook). */
+export interface ActivateScoreModelResponse extends AdminScoreModelDTO {
+  previousActiveId: string | null;
+  previousActiveVersion: number | null;
+  /** Enqueued RECALCULATE_ONLY bulk operation id, when enqueue succeeded. */
+  bulkOperationId: string | null;
+  /**
+   * When set, activation committed but bulk enqueue failed.
+   * Retry via Admin Bulk Processing with this score model id.
+   */
+  bulkEnqueueError: string | null;
+}
+
 export interface MetaResponse {
   name: string;
   version: string;

@@ -233,14 +233,22 @@ function createInlineQueueProducers(worker: WorkerContainer): QueueProducers {
       if (reused) {
         return { jobId: job.id, dedupeKey, reused, enqueued: false };
       }
-      try {
-        await repositories.job.markActive(job.id);
-        await runBulkCharacterProcessing(worker, payload, inlineProducers);
-        await repositories.job.markCompleted(job.id);
-      } catch (error) {
-        await repositories.job.markFailed(job.id, error);
-        logger.warn({ err: error, dedupeKey }, "inline bulk-character-processing failed");
-      }
+      // Match BullMQ: accept the job and return immediately. Inline execution must not
+      // block admin activation (RECALCULATE_ONLY over the full character table).
+      void (async () => {
+        try {
+          await repositories.job.markActive(job.id);
+          await runBulkCharacterProcessing(worker, payload, inlineProducers);
+          await repositories.job.markCompleted(job.id);
+        } catch (error) {
+          try {
+            await repositories.job.markFailed(job.id, error);
+          } catch {
+            // Prisma may already be disconnected when the suite tears down.
+          }
+          logger.warn({ err: error, dedupeKey }, "inline bulk-character-processing failed");
+        }
+      })();
       return { jobId: job.id, dedupeKey, reused, enqueued: true };
     },
 

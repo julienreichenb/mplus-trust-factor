@@ -343,16 +343,20 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
         },
       },
     },
-    async (): Promise<MetaResponse> => ({
-      name: "M+ Trust Factor",
-      version: env.APP_VERSION,
-      environment: env.APP_ENV,
-      providerMode: env.PROVIDER_MODE,
-      activeScoreModel: {
-        key: env.ACTIVE_SCORE_MODEL_KEY,
-        version: env.ACTIVE_SCORE_MODEL_VERSION,
-      },
-    }),
+    async (): Promise<MetaResponse> => {
+      const active =
+        (await container.worker.repositories.score.getActiveModel()) ?? null;
+      return {
+        name: "M+ Trust Factor",
+        version: env.APP_VERSION,
+        environment: env.APP_ENV,
+        providerMode: env.PROVIDER_MODE,
+        activeScoreModel: {
+          key: active?.key ?? env.ACTIVE_SCORE_MODEL_KEY,
+          version: active?.version ?? env.ACTIVE_SCORE_MODEL_VERSION,
+        },
+      };
+    },
   );
 
   app.get(

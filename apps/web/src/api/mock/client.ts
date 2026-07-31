@@ -518,9 +518,9 @@ export function createMockApiClient(): MplusApiClient {
       };
     },
 
-    async activateModel(modelId, signal) {
+    async activateModel(modelId, opts) {
       await delay(50);
-      assertNotAborted(signal);
+      assertNotAborted(opts?.signal);
       const models = getModelStore();
       const target = models.find((m) => m.id === modelId);
       if (!target) throw Object.assign(new Error("Model not found"), { status: 404 });
@@ -534,6 +534,7 @@ export function createMockApiClient(): MplusApiClient {
           code: "INVALID_MODEL",
         });
       }
+      const previous = models.find((m) => m.status === "ACTIVE" && m.key === target.key) ?? null;
       const next = models.map((m) => {
         if (m.id === modelId) {
           return {
@@ -548,7 +549,14 @@ export function createMockApiClient(): MplusApiClient {
         return m;
       });
       setModelStore(next);
-      return deepClone(next.find((m) => m.id === modelId)!);
+      const activated = deepClone(next.find((m) => m.id === modelId)!);
+      return {
+        ...activated,
+        previousActiveId: previous?.id ?? null,
+        previousActiveVersion: previous?.version ?? null,
+        bulkOperationId: `mock-bulk-${modelId}`,
+        bulkEnqueueError: null,
+      };
     },
 
     async getAdminAbilityCatalog(params, signal) {

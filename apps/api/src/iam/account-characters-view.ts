@@ -84,8 +84,8 @@ export async function buildAccountCharactersView(input: {
   });
 
   const scoreModel = await prisma.scoreModel.findFirst({
-    where: { key: env.ACTIVE_SCORE_MODEL_KEY, status: "ACTIVE" },
-    orderBy: { version: "desc" },
+    where: { status: "ACTIVE" },
+    orderBy: [{ key: "asc" }, { version: "desc" }],
   });
 
   /** Region-scoped current seasons only — never invent via provider calls. */
