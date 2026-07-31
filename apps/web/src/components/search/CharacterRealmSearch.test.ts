@@ -107,4 +107,85 @@ describe("CharacterRealmSearch", () => {
     await new Promise((r) => setTimeout(r, 300));
     expect(searchCharacters).toHaveBeenCalledWith("EU", "Wa", expect.any(AbortSignal));
   });
+
+  it("shows local-suggestion helper and still submits when autocomplete is empty", async () => {
+    resolveCharacter.mockResolvedValue({
+      status: "READY",
+      characterId: "c1",
+      profilePath: "/character/EU/archimonde/Unknownexact",
+    });
+    searchCharacters.mockResolvedValue([]);
+    const wrapper = await mountSearch();
+    expect(wrapper.get('[data-testid="character-search-helper"]').text()).toContain(
+      "indexed M+ Trust Factor profiles",
+    );
+    expect(wrapper.text()).not.toMatch(/character not found/i);
+
+    await wrapper.get('[data-testid="character-name-input"]').setValue("Unknownexact");
+    await wrapper.get('[data-testid="realm-combobox-input"]').setValue("Arch");
+    await new Promise((r) => setTimeout(r, 250));
+    await wrapper.get('[data-testid="realm-option-archimonde"]').trigger("mousedown");
+    await wrapper.get("form").trigger("submit");
+    await new Promise((r) => setTimeout(r, 50));
+    expect(resolveCharacter).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: "Unknownexact",
+        realmSlug: "archimonde",
+        region: "EU",
+      }),
+    );
+  });
+
+  it("clears a realm from another region when region changes", async () => {
+    const wrapper = await mountSearch();
+    await wrapper.get('[data-testid="realm-combobox-input"]').setValue("Arch");
+    await new Promise((r) => setTimeout(r, 250));
+    await wrapper.get('[data-testid="realm-option-archimonde"]').trigger("mousedown");
+    expect((wrapper.get('[data-testid="realm-combobox-input"]').element as HTMLInputElement).value).toContain(
+      "Archimonde",
+    );
+    await wrapper.get('[data-testid="region-select"]').setValue("US");
+    await wrapper.vm.$nextTick();
+    expect((wrapper.get('[data-testid="realm-combobox-input"]').element as HTMLInputElement).value).toBe("");
+  });
+
+  it("loads realm options on focus", async () => {
+    const wrapper = await mountSearch();
+    await wrapper.get('[data-testid="realm-combobox-input"]').trigger("focus");
+    await new Promise((r) => setTimeout(r, 50));
+    expect(searchRealms).toHaveBeenCalled();
+  });
+
+  it("selects a fuzzy persisted character suggestion", async () => {
+    searchCharacters.mockResolvedValue([
+      {
+        name: "Wallidrixe",
+        realmSlug: "archimonde",
+        realmName: "Archimonde",
+        region: "EU",
+        classSlug: "mage",
+        specSlug: null,
+        avatarUrl: null,
+        classIconUrl: null,
+      },
+    ]);
+    resolveCharacter.mockResolvedValue({
+      status: "READY",
+      characterId: "c1",
+      profilePath: "/character/EU/archimonde/Wallidrixe",
+    });
+    const wrapper = await mountSearch();
+    await wrapper.get('[data-testid="character-name-input"]').setValue("wallidrxie");
+    await new Promise((r) => setTimeout(r, 300));
+    await wrapper.get('[data-testid="character-option-archimonde-Wallidrixe"]').trigger("mousedown");
+    await wrapper.get("form").trigger("submit");
+    await new Promise((r) => setTimeout(r, 50));
+    expect(resolveCharacter).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: "Wallidrixe",
+        realmSlug: "archimonde",
+        region: "EU",
+      }),
+    );
+  });
 });

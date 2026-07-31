@@ -36,9 +36,6 @@ async function main(): Promise<void> {
   const container = createWorkerContainer(env);
   const connection = container.createRedisConnection();
 
-  const producers = createQueueProducers(connection, container);
-  const workers = createWorkers(connection, container);
-
   // Prefer DB-cached season authority within TTL so API+worker do not double-call Blizzard.
   try {
     const {
@@ -77,6 +74,50 @@ async function main(): Promise<void> {
     );
   }
 
+  // Realm catalog readiness (index-first). Independent of score-model seeding.
+  // Empty catalog + failed bootstrap fails closed before queues report ready.
+  let realmCatalogReady = true;
+  try {
+    const { ensureRealmCatalogReady } = await import("./orchestration/bootstrap-realm-catalog.js");
+    const catalog = await ensureRealmCatalogReady({
+      blizzard: container.providers.blizzard,
+      realms: container.repositories.realm,
+      logger: container.logger,
+      staleAfterSeconds: env.REALM_CATALOG_STALE_SECONDS,
+    });
+    realmCatalogReady = catalog.ready;
+    if (catalog.failClosed) {
+      container.logger.error(
+        {
+          event: "realm_catalog_ready",
+          readiness: "unavailable",
+          providerMode: env.PROVIDER_MODE,
+          errors: catalog.errors,
+        },
+        "realm catalog bootstrap failed closed — worker will not report ready",
+      );
+      if (env.PROVIDER_MODE === "live") {
+        await connection.quit();
+        await container.prisma.$disconnect();
+        process.exit(1);
+      }
+    }
+  } catch (error) {
+    container.logger.error(
+      { err: error, event: "realm_catalog_ready", readiness: "unavailable" },
+      "realm catalog bootstrap threw",
+    );
+    if (env.PROVIDER_MODE === "live") {
+      await connection.quit();
+      await container.prisma.$disconnect();
+      process.exit(1);
+    }
+    realmCatalogReady = false;
+  }
+
+  const producers = createQueueProducers(connection, container);
+  const workers = createWorkers(connection, container);
+
   // `run()` resolves only once the worker is closed, so it must not be awaited here.
   for (const worker of workers) {
     void worker.run().catch((error) => {
@@ -88,6 +129,9 @@ async function main(): Promise<void> {
   if (env.WORKER_HEALTH_PORT > 0) {
     healthServer = startHealthServer(env.WORKER_HEALTH_PORT, async () => {
       try {
+        if (!realmCatalogReady && env.PROVIDER_MODE === "live") {
+          return { ok: false, detail: "realm_catalog_not_ready" };
+        }
         const pong = await connection.ping();
         if (pong !== "PONG") {
           return { ok: false, detail: "redis_ping_failed" };
@@ -108,6 +152,7 @@ async function main(): Promise<void> {
     {
       queues: Object.values(QUEUE_NAMES),
       status: "ready",
+      realmCatalogReady,
       config: getConfigSummary(env),
     },
     "worker started",

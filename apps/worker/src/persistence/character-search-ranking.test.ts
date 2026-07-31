@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  CHARACTER_NAME_FUZZY_MIN_QUERY_LENGTH,
   foldDiacritics,
   normalizeCharacterSearchKey,
   rankCharacterNameMatch,
@@ -16,7 +17,7 @@ describe("character search ranking helpers", () => {
     expect(normalizeCharacterSearchKey("Chérith")).toBe("cherith");
   });
 
-  it("applies deterministic ladder: exact < alias < prefix < contains", () => {
+  it("applies deterministic ladder: exact < alias < prefix < substring < fuzzy", () => {
     const exact = rankCharacterNameMatch({
       queryFolded: "wall",
       nameFolded: "wall",
@@ -33,13 +34,25 @@ describe("character search ranking helpers", () => {
       nameFolded: "wallidrixe",
       source: "character",
     });
-    const contains = rankCharacterNameMatch({
+    const substring = rankCharacterNameMatch({
       queryFolded: "all",
       nameFolded: "wallidrixe",
       source: "character",
     });
+    const fuzzy = rankCharacterNameMatch({
+      queryFolded: "wallidrxie",
+      nameFolded: "wallidrixe",
+      source: "character",
+      fuzzyMatched: true,
+    });
     expect(exact).toBeLessThan(alias);
     expect(alias).toBeLessThan(prefix);
-    expect(prefix).toBeLessThan(contains);
+    expect(prefix).toBeLessThan(substring);
+    expect(substring).toBeLessThan(fuzzy);
+  });
+
+  it("keeps two-character queries below the fuzzy gate", () => {
+    expect(CHARACTER_NAME_FUZZY_MIN_QUERY_LENGTH).toBe(4);
+    expect(2).toBeLessThan(CHARACTER_NAME_FUZZY_MIN_QUERY_LENGTH);
   });
 });

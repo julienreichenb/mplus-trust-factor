@@ -1,7 +1,10 @@
 # Character research / search experience — architecture plan
 
-**Status:** implementation-ready plan (documentation only)  
-**Branch:** `plan/search-experience`  
+**Status:** largely implemented on `main` / `fix/character-search-realm-catalog`. Canonical runtime behaviour: [`../../doc/architecture/character-search-and-realm-catalog.md`](../../doc/architecture/character-search-and-realm-catalog.md).
+
+**Historical note:** sections below that say trigram is deferred or autocomplete min length is 3 describe the pre-implementation plan and are superseded by the canonical doc (pg_trgm fuzzy path, min length 2, worker realm bootstrap).
+
+**Branch (historical):** `plan/search-experience`  
 **Audience:** implementers of the public Research / character search UX  
 **Non-goals for this commit:** production code, contracts, migrations, shared search Vue components
 

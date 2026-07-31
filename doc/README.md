@@ -11,7 +11,7 @@ Agents: read root [`AGENTS.md`](../AGENTS.md) first.
 | Area | Path | Purpose |
 |------|------|---------|
 | Product | [`product/`](product/) | Scope, v6 scoring, ranking/confidence/U |
-| Architecture | [`architecture/`](architecture/) | System, refresh, WCL, publication, IAM, addon, frontend |
+| Architecture | [`architecture/`](architecture/) | System, refresh, WCL, publication, IAM, addon, frontend, [character search / realm catalog](architecture/character-search-and-realm-catalog.md) |
 | Operations | [`operations/`](operations/) | Local, test env, [release promotion](operations/release-promotion-flow.md), CI/CD, model lifecycle |
 | Agents | [`agents/`](agents/) | Workflow, DoD, ownership (+ historical wave packs) |
 | ADRs | [`adr/`](adr/) | Architecture decision records |

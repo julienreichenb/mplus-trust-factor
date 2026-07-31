@@ -1,5 +1,7 @@
 import type { Character, CharacterRole, GameClass, GameSpecialization, Prisma, PrismaClient } from "@mplus/database";
 import {
+  CHARACTER_NAME_FUZZY_MIN_QUERY_LENGTH,
+  CHARACTER_NAME_FUZZY_SIMILARITY_THRESHOLD,
   normalizeCharacterSearchKey,
   normalizeName,
   normalizeRealmSlug,
@@ -222,6 +224,7 @@ export function createCharacterRepository(prisma: PrismaClient): CharacterReposi
         lastSeenAt: Date | null | undefined;
         characterId: string;
         normalizedName: string;
+        fuzzyMatched?: boolean;
       }): void => {
         const key = suggestionKey(input.result.name, input.result.realmSlug, input.result.region);
         const rank = rankCharacterNameMatch({
@@ -229,7 +232,9 @@ export function createCharacterRepository(prisma: PrismaClient): CharacterReposi
           nameFolded: input.nameFolded,
           aliasFolded: input.aliasFolded,
           source: input.result.source,
+          fuzzyMatched: input.fuzzyMatched === true,
         });
+        if (rank >= 10) return;
         const hit: RankedHit = {
           result: input.result,
           rank,
@@ -382,6 +387,108 @@ export function createCharacterRepository(prisma: PrismaClient): CharacterReposi
             lastSeenAt: participant.character.lastSeenAt,
             characterId: participant.characterId,
             normalizedName: normalizeName(participant.displayName),
+          });
+        }
+      }
+
+      // Bounded pg_trgm fuzzy path — only for longer queries; never Blizzard.
+      // Uses the GIN trigram index on name_search_key (`%` operator + similarity floor).
+      if (foldedQuery.length >= CHARACTER_NAME_FUZZY_MIN_QUERY_LENGTH) {
+        type FuzzyRow = {
+          id: string;
+          display_name: string;
+          normalized_name: string;
+          name_search_key: string | null;
+          last_seen_at: Date | null;
+          realm_slug: string;
+          realm_name: string;
+          class_slug: string | null;
+          spec_slug: string | null;
+          raw_summary: unknown;
+        };
+
+        const fuzzyRows = realmQuery
+          ? await prisma.$queryRaw<FuzzyRow[]>`
+              SELECT
+                c.id,
+                c.display_name,
+                c.normalized_name,
+                c.name_search_key,
+                c.last_seen_at,
+                r.slug AS realm_slug,
+                r.name AS realm_name,
+                gc.slug AS class_slug,
+                gs.slug AS spec_slug,
+                (
+                  SELECT cs.raw_summary
+                  FROM character_snapshots cs
+                  WHERE cs.character_id = c.id
+                  ORDER BY cs.captured_at DESC
+                  LIMIT 1
+                ) AS raw_summary
+              FROM characters c
+              INNER JOIN realms r ON r.id = c.realm_id
+              LEFT JOIN game_classes gc ON gc.id = c.class_id
+              LEFT JOIN game_specializations gs ON gs.id = c.active_spec_id
+              WHERE c.region_id = CAST(${regionRow.id} AS uuid)
+                AND c.name_search_key IS NOT NULL
+                AND c.name_search_key % ${foldedQuery}
+                AND similarity(c.name_search_key, ${foldedQuery}) >= ${CHARACTER_NAME_FUZZY_SIMILARITY_THRESHOLD}
+                AND position(${realmQuery} in r.slug) > 0
+              ORDER BY similarity(c.name_search_key, ${foldedQuery}) DESC,
+                c.last_seen_at DESC NULLS LAST
+              LIMIT ${candidateTake}
+            `
+          : await prisma.$queryRaw<FuzzyRow[]>`
+              SELECT
+                c.id,
+                c.display_name,
+                c.normalized_name,
+                c.name_search_key,
+                c.last_seen_at,
+                r.slug AS realm_slug,
+                r.name AS realm_name,
+                gc.slug AS class_slug,
+                gs.slug AS spec_slug,
+                (
+                  SELECT cs.raw_summary
+                  FROM character_snapshots cs
+                  WHERE cs.character_id = c.id
+                  ORDER BY cs.captured_at DESC
+                  LIMIT 1
+                ) AS raw_summary
+              FROM characters c
+              INNER JOIN realms r ON r.id = c.realm_id
+              LEFT JOIN game_classes gc ON gc.id = c.class_id
+              LEFT JOIN game_specializations gs ON gs.id = c.active_spec_id
+              WHERE c.region_id = CAST(${regionRow.id} AS uuid)
+                AND c.name_search_key IS NOT NULL
+                AND c.name_search_key % ${foldedQuery}
+                AND similarity(c.name_search_key, ${foldedQuery}) >= ${CHARACTER_NAME_FUZZY_SIMILARITY_THRESHOLD}
+              ORDER BY similarity(c.name_search_key, ${foldedQuery}) DESC,
+                c.last_seen_at DESC NULLS LAST
+              LIMIT ${candidateTake}
+            `;
+
+        for (const row of fuzzyRows) {
+          const nameFolded = row.name_search_key ?? normalizeCharacterSearchKey(row.display_name);
+          consider({
+            result: {
+              name: row.display_name,
+              realmSlug: row.realm_slug,
+              realmName: row.realm_name,
+              region: code as RegionCode,
+              classSlug: row.class_slug,
+              specSlug: row.spec_slug,
+              avatarUrl: readAvatarFromSnapshot(row.raw_summary),
+              classIconUrl: classIconUrl(row.class_slug),
+              source: "character",
+            },
+            nameFolded,
+            lastSeenAt: row.last_seen_at,
+            characterId: row.id,
+            normalizedName: row.normalized_name,
+            fuzzyMatched: true,
           });
         }
       }

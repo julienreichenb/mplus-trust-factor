@@ -39,6 +39,7 @@ try {
       blizzard: container.providers.blizzard,
       realms: container.repositories.realm,
       logger,
+      detailConcurrency: env.REALM_CATALOG_DETAIL_CONCURRENCY,
     },
     {
       regions: regions.length ? regions : undefined,
@@ -47,7 +48,7 @@ try {
     },
   );
   console.log(JSON.stringify({ ok: true, results }, null, 2));
-  const failed = results.some((r) => r.errors.length > 0 && r.upserted === 0);
+  const failed = results.some((r) => r.errors.length > 0 && r.minimallyUpserted === 0);
   process.exit(failed ? 1 : 0);
 } catch (error) {
   logger.error({ err: error }, "realm catalog sync failed");

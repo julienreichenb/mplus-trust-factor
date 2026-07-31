@@ -38,9 +38,23 @@ export function normalizeCharacterSearchKey(value: string): string {
 }
 
 /**
+ * Minimum folded query length before PostgreSQL trigram fuzzy matching is used.
+ * Length-2 queries stay exact/prefix/substring only (no noisy broad matches).
+ */
+export const CHARACTER_NAME_FUZZY_MIN_QUERY_LENGTH = 4;
+
+/**
+ * Deterministic pg_trgm similarity floor for typo-tolerant public autocomplete.
+ * Conservative enough that short accidental overlaps do not flood results.
+ */
+export const CHARACTER_NAME_FUZZY_SIMILARITY_THRESHOLD = 0.35;
+
+/**
  * Deterministic public character-name match rank (lower wins).
- * V1 ladder: exact name → exact alias → prefix → contains.
- * `fuzzyMatched` is reserved for a future gated trgm path (unused in V1).
+ * Ladder: exact name → exact alias → prefix → substring → trigram-only fuzzy.
+ *
+ * Blizzard has no supported global/fuzzy character search API. Fuzzy matching
+ * applies only to characters already persisted in M+ Trust Factor.
  */
 export function rankCharacterNameMatch(input: {
   queryFolded: string;
@@ -48,7 +62,10 @@ export function rankCharacterNameMatch(input: {
   /** When the hit came from an alias row, the folded alias name. */
   aliasFolded?: string | null;
   source: "character" | "alias" | "participant";
-  /** Reserved — only set when a future trigram/fuzzy mode actually ran. */
+  /**
+   * True only when the row was retrieved via trigram similarity and is not
+   * already an exact/prefix/substring hit.
+   */
   fuzzyMatched?: boolean;
 }): number {
   const q = input.queryFolded;
@@ -56,8 +73,8 @@ export function rankCharacterNameMatch(input: {
   if (input.nameFolded === q) return 0;
   if (input.source === "alias" && input.aliasFolded != null && input.aliasFolded === q) return 1;
   if (input.nameFolded.startsWith(q) || (input.aliasFolded?.startsWith(q) ?? false)) return 2;
-  if (input.fuzzyMatched) return 3;
-  if (input.nameFolded.includes(q) || (input.aliasFolded?.includes(q) ?? false)) return 4;
+  if (input.nameFolded.includes(q) || (input.aliasFolded?.includes(q) ?? false)) return 3;
+  if (input.fuzzyMatched) return 4;
   return 10;
 }
 

@@ -31,6 +31,21 @@ CI runs `pnpm db:migrate` then `pnpm db:seed` before `pnpm test` against the iso
 
 Stop infra: `pnpm dev:infra:down`.
 
+## Realm catalog
+
+Public realm comboboxes read the local `realms` table (`GET /api/v1/realms`), not Blizzard per keystroke.
+
+In **live** provider mode the worker bootstraps an index-first catalog sync for EU/US/KR/TW when a region is empty or stale (`REALM_CATALOG_STALE_SECONDS`, default 7 days). Empty catalog + failed bootstrap fails closed. A usable last-known-good catalog survives temporary Blizzard outages.
+
+Fixture mode syncs from fixture Blizzard data (no live credentials). Manual maintenance:
+
+```bash
+pnpm realms:sync
+pnpm realms:sync -- --force-details   # optional detail enrichment
+```
+
+See [`../architecture/character-search-and-realm-catalog.md`](../architecture/character-search-and-realm-catalog.md).
+
 ## Fixture mode
 
 `PROVIDER_MODE=fixture` is the default. Live provider credentials are **not** required.

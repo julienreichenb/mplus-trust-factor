@@ -122,6 +122,21 @@ export interface RealmCatalogUpsertInput {
   syncedAt: Date;
 }
 
+/** Minimal index-row upsert — detail fields left null/unchanged. */
+export interface RealmCatalogIndexUpsertInput {
+  regionCode: RegionCode;
+  blizzardRealmId: number;
+  slug: string;
+  name: string;
+  syncedAt: Date;
+}
+
+export interface RealmCatalogRegionStats {
+  regionCode: RegionCode;
+  activeCount: number;
+  lastSyncedAt: Date | null;
+}
+
 export interface RealmRepository {
   search(options: {
     query?: string;
@@ -135,7 +150,11 @@ export interface RealmRepository {
   /** Catalog lookup including inactive/tournament rows (used by sync). */
   findCatalogBySlug(regionCode: string, realmSlug: string): Promise<(Realm & { region: Region }) | null>;
   upsertCatalogEntry(input: RealmCatalogUpsertInput): Promise<Realm>;
+  /** Index-first upsert: persists slug/name/id without requiring detail enrichment. */
+  upsertCatalogIndexEntry(input: RealmCatalogIndexUpsertInput): Promise<Realm>;
   markMissingInactive(regionCode: string, presentSlugs: string[], syncedAt: Date): Promise<number>;
+  countActiveByRegion(regionCode: string): Promise<number>;
+  getRegionCatalogStats(regionCode: string): Promise<RealmCatalogRegionStats>;
   toCatalogOption(row: RealmSearchResult): RealmCatalogOption;
 }
 
@@ -281,10 +300,62 @@ export function createRealmRepository(prisma: PrismaClient): RealmRepository {
       });
     },
 
+    async upsertCatalogIndexEntry(input) {
+      const region = await ensureRegion(prisma, input.regionCode);
+      const slug = normalizeRealmSlug(input.slug);
+      const nameNormalized = normalizeRealmSearchKey(input.name);
+      return prisma.realm.upsert({
+        where: { regionId_slug: { regionId: region.id, slug } },
+        create: {
+          regionId: region.id,
+          blizzardRealmId: BigInt(input.blizzardRealmId),
+          slug,
+          name: input.name,
+          nameNormalized,
+          isTournament: false,
+          isActive: true,
+          lastSyncedAt: input.syncedAt,
+        },
+        update: {
+          blizzardRealmId: BigInt(input.blizzardRealmId),
+          name: input.name,
+          nameNormalized,
+          isActive: true,
+          lastSyncedAt: input.syncedAt,
+        },
+      });
+    },
+
     async markMissingInactive(_regionCode, _presentSlugs, _syncedAt) {
       // Soft-omit policy: never delete and never deactivate on a single provider omission.
       // Absent realms keep their lastSyncedAt; a later scheduled refresh may add multi-miss logic.
       return 0;
+    },
+
+    async countActiveByRegion(regionCode) {
+      const code = normalizeRegion(regionCode);
+      return prisma.realm.count({
+        where: { region: { code }, isActive: true, isTournament: false },
+      });
+    },
+
+    async getRegionCatalogStats(regionCode) {
+      const code = normalizeRegion(regionCode);
+      const [activeCount, latest] = await Promise.all([
+        prisma.realm.count({
+          where: { region: { code }, isActive: true, isTournament: false },
+        }),
+        prisma.realm.findFirst({
+          where: { region: { code }, lastSyncedAt: { not: null } },
+          orderBy: { lastSyncedAt: "desc" },
+          select: { lastSyncedAt: true },
+        }),
+      ]);
+      return {
+        regionCode: code as RegionCode,
+        activeCount,
+        lastSyncedAt: latest?.lastSyncedAt ?? null,
+      };
     },
 
     toCatalogOption(row) {
