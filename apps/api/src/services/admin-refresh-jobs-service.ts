@@ -578,6 +578,7 @@ export class AdminRefreshJobsService {
         queuedCancelled: result.queuedCancelled,
         delayedCancelled: result.delayedCancelled,
         activeCancellationRequested: result.activeCancellationRequested,
+        activeForceCancelled: result.activeForceCancelled,
         alreadyCancellationRequested: result.alreadyCancellationRequested,
         alreadyTerminal: result.alreadyTerminal,
         cancellationFailed: result.cancellationFailed,

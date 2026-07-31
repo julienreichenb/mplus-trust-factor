@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, afterEach } from "vitest";
 import { mount, flushPromises } from "@vue/test-utils";
+import { createPinia, setActivePinia } from "pinia";
 import { createRouter, createMemoryHistory } from "vue-router";
 import AccountPage from "./AccountPage.vue";
 
@@ -47,6 +48,8 @@ function characterPayload(status: string) {
 }
 
 function mountAccount(fetchMock: ReturnType<typeof vi.fn>) {
+  const pinia = createPinia();
+  setActivePinia(pinia);
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [
@@ -70,7 +73,7 @@ function mountAccount(fetchMock: ReturnType<typeof vi.fn>) {
   return router.push("/account").then(() =>
     router.isReady().then(() =>
       mount(AccountPage, {
-        global: { plugins: [router] },
+        global: { plugins: [router, pinia] },
       }),
     ),
   );
@@ -467,7 +470,8 @@ describe("AccountPage", () => {
     expect(wrapper.text()).toContain("Refreshing");
     expect(wrapper.text()).toContain("Sync error: token expired");
     expect(wrapper.text()).not.toContain("REFRESHING");
-    expect(wrapper.find(".spinner").exists()).toBe(true);
+    expect(wrapper.find(".spinner").exists()).toBe(false);
+    expect(wrapper.find("[data-testid='status-chip-spinner']").exists()).toBe(true);
     wrapper.unmount();
   });
 

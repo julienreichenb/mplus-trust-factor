@@ -9,10 +9,10 @@ import DisclosureChevron from "../components/ability-catalog/DisclosureChevron.v
 import IconSelect from "../components/ability-catalog/IconSelect.vue";
 import type { IconSelectOption } from "../components/ability-catalog/IconSelect.vue";
 import ValidationIssuesPanel from "../components/ability-catalog/ValidationIssuesPanel.vue";
+import AbilityCard from "../components/ability-catalog/AbilityCard.vue";
 import WowIcon from "../components/ability-catalog/WowIcon.vue";
 import { loadWowheadTooltipScript, refreshWowheadTooltips } from "../integrations/wowhead/tooltips";
-import { wowheadSpellUrl } from "../integrations/wowhead/urls";
-import { classIconName, filterOptionIconName } from "../lib/wowIcons";
+import { classIconName, filterOptionIconName, specIconName } from "../lib/wowIcons";
 
 const CATEGORY_OPTIONS = [
   "INTERRUPT",
@@ -54,8 +54,10 @@ const VALIDATION_PRESETS = [
 
 interface SpecGroup {
   key: string;
+  classSlug: string;
   specSlug: string;
   specName: string;
+  iconName: string | null;
   entries: AdminAbilityEntry[];
 }
 
@@ -162,7 +164,7 @@ async function loadCatalog(): Promise<void> {
   error.value = null;
   try {
     catalog.value = await api.getAdminAbilityCatalog(requestParams(), loadAbort.signal);
-    expandAllVisible();
+    collapseAll();
     await nextTick();
     refreshWowheadTooltips();
   } catch (err) {
@@ -173,10 +175,10 @@ async function loadCatalog(): Promise<void> {
   }
 }
 
-function expandAllVisible(): void {
-  expandedClasses.value = new Set(classSections.value.map((s) => s.key));
-  expandedSpecs.value = new Set(classSections.value.flatMap((s) => s.specGroups.map((g) => g.key)));
-  expandedShared.value = new Set(sharedSections.value.map((s) => s.key));
+function collapseAll(): void {
+  expandedClasses.value = new Set();
+  expandedSpecs.value = new Set();
+  expandedShared.value = new Set();
 }
 
 function resetPageAndLoad(): void {
@@ -218,29 +220,30 @@ function toggleShared(key: string): void {
 
 function scrollToAbility(canonicalKey: string | undefined): void {
   if (!canonicalKey) return;
-  const el = document.getElementById(`ability-${canonicalKey}`);
-  el?.scrollIntoView({ behavior: "smooth", block: "center" });
-}
 
-function primarySpellId(entry: AdminAbilityEntry): number | null {
-  return entry.rule.spellIds[0] ?? null;
-}
+  for (const section of classSections.value) {
+    for (const group of section.specGroups) {
+      if (group.entries.some((e) => e.rule.canonicalKey === canonicalKey)) {
+        expandedClasses.value = new Set(expandedClasses.value).add(section.key);
+        expandedSpecs.value = new Set(expandedSpecs.value).add(group.key);
+        break;
+      }
+    }
+  }
+  for (const section of sharedSections.value) {
+    if (section.entries.some((e) => e.rule.canonicalKey === canonicalKey)) {
+      expandedShared.value = new Set(expandedShared.value).add(section.key);
+      break;
+    }
+  }
 
-function spellIconName(entry: AdminAbilityEntry): string | null {
-  return entry.external.iconName ?? entry.rule.iconName ?? null;
-}
-
-function badgeClass(badge: string): string {
-  if (badge === "validation-error") return "badge badge-error";
-  if (badge === "verified") return "badge badge-ok";
-  if (badge === "uncertain") return "badge badge-warn";
-  return "badge";
-}
-
-function formatCooldown(seconds: number | undefined): string {
-  if (seconds == null) return "—";
-  if (seconds >= 60) return `${Math.round(seconds / 60)}m`;
-  return `${seconds}s`;
+  void nextTick(() => {
+    const el = document.getElementById(`ability-${canonicalKey}`);
+    if (!el) return;
+    const details = el.querySelector("details.ability-card");
+    if (details instanceof HTMLDetailsElement) details.open = true;
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+  });
 }
 
 const classSections = computed((): ClassSection[] => {
@@ -275,8 +278,10 @@ const classSections = computed((): ClassSection[] => {
       if (matched.length) {
         specGroups.push({
           key: `${cls.classSlug}:${spec.specSlug}`,
+          classSlug: cls.classSlug,
           specSlug: spec.specSlug,
           specName: spec.specName,
+          iconName: specIconName(cls.classSlug, spec.specSlug),
           entries: matched,
         });
       }
@@ -286,8 +291,10 @@ const classSections = computed((): ClassSection[] => {
     if (classWide.length) {
       specGroups.unshift({
         key: `${cls.classSlug}:all-specs`,
+        classSlug: cls.classSlug,
         specSlug: "",
         specName: "All specs",
+        iconName: classIconName(cls.classSlug),
         entries: classWide,
       });
     }
@@ -379,41 +386,6 @@ onMounted(() => {
     </p>
 
     <StatusBanner v-if="error" tone="error">{{ error }}</StatusBanner>
-
-    <dl v-if="catalog" class="catalog-summary" data-testid="catalog-summary">
-      <div>
-        <dt>Catalog version</dt>
-        <dd>{{ catalog.catalogSummary.catalogVersion }}</dd>
-      </div>
-      <div>
-        <dt>Classes</dt>
-        <dd>{{ catalog.catalogSummary.classesCovered }}</dd>
-      </div>
-      <div>
-        <dt>Specs</dt>
-        <dd>{{ catalog.catalogSummary.specializationsCovered }}</dd>
-      </div>
-      <div>
-        <dt>Rules</dt>
-        <dd>{{ catalog.catalogSummary.canonicalRules }}</dd>
-      </div>
-      <div>
-        <dt>Spell IDs</dt>
-        <dd>{{ catalog.catalogSummary.spellIds }}</dd>
-      </div>
-      <div>
-        <dt>Aliases</dt>
-        <dd>{{ catalog.catalogSummary.aliases }}</dd>
-      </div>
-      <div :class="{ 'has-errors': catalog.validationSummary.errorCount > 0 }">
-        <dt>Validation errors</dt>
-        <dd>{{ catalog.validationSummary.errorCount }}</dd>
-      </div>
-      <div>
-        <dt>Warnings</dt>
-        <dd>{{ catalog.validationSummary.warningCount }}</dd>
-      </div>
-    </dl>
 
     <ValidationIssuesPanel
       v-if="catalog && catalog.validationSummary.issues.length"
@@ -516,10 +488,12 @@ onMounted(() => {
             class="class-icon"
           />
           <span v-else class="class-icon-fallback" aria-hidden="true" />
-          <span class="section-title">{{ section.className }}</span>
-          <span class="section-count">{{
-            section.specGroups.reduce((n, g) => n + g.entries.length, 0)
-          }}</span>
+          <span class="section-heading">
+            <span class="section-title">{{ section.className }}</span>
+            <span class="section-count">{{
+              section.specGroups.reduce((n, g) => n + g.entries.length, 0)
+            }}</span>
+          </span>
           <DisclosureChevron :expanded="expandedClasses.has(section.key)" />
         </button>
 
@@ -532,8 +506,19 @@ onMounted(() => {
               :aria-label="`${group.specName}, ${group.entries.length} abilities`"
               @click="toggleSpec(group.key)"
             >
-              <span>{{ group.specName }}</span>
-              <span class="section-count">{{ group.entries.length }}</span>
+              <WowIcon
+                v-if="group.iconName"
+                :icon-name="group.iconName"
+                :alt="''"
+                :width="20"
+                :height="20"
+                class="spec-icon"
+              />
+              <span v-else class="spec-icon-fallback" aria-hidden="true" />
+              <span class="section-heading">
+                <span class="section-title">{{ group.specName }}</span>
+                <span class="section-count">{{ group.entries.length }}</span>
+              </span>
               <DisclosureChevron :expanded="expandedSpecs.has(group.key)" />
             </button>
 
@@ -546,115 +531,7 @@ onMounted(() => {
                 data-testid="ability-row"
                 tabindex="-1"
               >
-                <div class="ability-card">
-                  <a
-                    v-if="primarySpellId(entry) && wowheadSpellUrl(primarySpellId(entry)!)"
-                    class="spell-icon-link"
-                    :href="wowheadSpellUrl(primarySpellId(entry)!)!"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    :data-wowhead="`spell=${primarySpellId(entry)}`"
-                    :aria-label="`${entry.rule.name} spell tooltip`"
-                    data-testid="spell-icon-tooltip"
-                  >
-                    <WowIcon
-                      :icon-name="spellIconName(entry)"
-                      :alt="''"
-                      :width="40"
-                      :height="40"
-                      class="spell-icon"
-                    />
-                  </a>
-                  <span
-                    v-else
-                    class="spell-icon-link spell-icon-link--static"
-                    tabindex="0"
-                    role="img"
-                    :aria-label="entry.rule.name"
-                  >
-                    <WowIcon
-                      :icon-name="spellIconName(entry)"
-                      :alt="''"
-                      :width="40"
-                      :height="40"
-                      class="spell-icon"
-                    />
-                  </span>
-                  <div class="ability-main">
-                    <div class="ability-header">
-                      <h3 class="ability-name">{{ entry.rule.name }}</h3>
-                      <div class="badges">
-                        <span v-for="badge in entry.badges" :key="badge" :class="badgeClass(badge)">{{
-                          badge
-                        }}</span>
-                      </div>
-                    </div>
-                    <dl class="ability-meta">
-                      <div>
-                        <dt>Spell ID</dt>
-                        <dd>
-                          <a
-                            v-if="primarySpellId(entry) && wowheadSpellUrl(primarySpellId(entry)!)"
-                            :href="wowheadSpellUrl(primarySpellId(entry)!)!"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            :data-wowhead="`spell=${primarySpellId(entry)}`"
-                            class="wowhead-link"
-                          >
-                            {{ primarySpellId(entry) }}
-                          </a>
-                          <span v-else>—</span>
-                        </dd>
-                      </div>
-                      <div v-if="entry.rule.aliases?.length">
-                        <dt>Aliases</dt>
-                        <dd>{{ entry.rule.aliases.join(", ") }}</dd>
-                      </div>
-                      <div>
-                        <dt>Key</dt>
-                        <dd class="mono">{{ entry.rule.canonicalKey }}</dd>
-                      </div>
-                      <div>
-                        <dt>Category</dt>
-                        <dd>{{ entry.rule.category }}</dd>
-                      </div>
-                      <div>
-                        <dt>Ownership</dt>
-                        <dd>{{ entry.rule.sourceOwnership }}</dd>
-                      </div>
-                      <div>
-                        <dt>Availability</dt>
-                        <dd>{{ entry.rule.availability }}</dd>
-                      </div>
-                      <div>
-                        <dt>Roles</dt>
-                        <dd>{{ entry.rule.roles.join(", ") || "—" }}</dd>
-                      </div>
-                      <div>
-                        <dt>Cooldown</dt>
-                        <dd>{{ formatCooldown(entry.rule.cooldownSeconds) }}</dd>
-                      </div>
-                      <div>
-                        <dt>Provenance</dt>
-                        <dd>
-                          {{ entry.rule.provenance.source }} — {{ entry.rule.provenance.gameVersion }}
-                        </dd>
-                      </div>
-                    </dl>
-                    <p v-if="entry.rule.provenance.notes" class="notes muted">
-                      {{ entry.rule.provenance.notes }}
-                    </p>
-                    <ul v-if="entry.validationIssues.length" class="entry-issues">
-                      <li
-                        v-for="(issue, i) in entry.validationIssues"
-                        :key="i"
-                        :data-severity="issue.severity"
-                      >
-                        {{ issue.message }}
-                      </li>
-                    </ul>
-                  </div>
-                </div>
+                <AbilityCard :entry="entry" />
               </article>
             </div>
           </div>
@@ -675,8 +552,10 @@ onMounted(() => {
           :aria-label="`${section.title}, ${section.entries.length} abilities`"
           @click="toggleShared(section.key)"
         >
-          <span class="section-title">{{ section.title }}</span>
-          <span class="section-count">{{ section.entries.length }}</span>
+          <span class="section-heading">
+            <span class="section-title">{{ section.title }}</span>
+            <span class="section-count">{{ section.entries.length }}</span>
+          </span>
           <DisclosureChevron :expanded="expandedShared.has(section.key)" />
         </button>
 
@@ -689,109 +568,7 @@ onMounted(() => {
             data-testid="ability-row"
             tabindex="-1"
           >
-            <div class="ability-card">
-              <a
-                v-if="primarySpellId(entry) && wowheadSpellUrl(primarySpellId(entry)!)"
-                class="spell-icon-link"
-                :href="wowheadSpellUrl(primarySpellId(entry)!)!"
-                target="_blank"
-                rel="noopener noreferrer"
-                :data-wowhead="`spell=${primarySpellId(entry)}`"
-                :aria-label="`${entry.rule.name} spell tooltip`"
-                data-testid="spell-icon-tooltip"
-              >
-                <WowIcon
-                  :icon-name="spellIconName(entry)"
-                  :alt="''"
-                  :width="40"
-                  :height="40"
-                  class="spell-icon"
-                />
-              </a>
-              <span
-                v-else
-                class="spell-icon-link spell-icon-link--static"
-                tabindex="0"
-                role="img"
-                :aria-label="entry.rule.name"
-              >
-                <WowIcon
-                  :icon-name="spellIconName(entry)"
-                  :alt="''"
-                  :width="40"
-                  :height="40"
-                  class="spell-icon"
-                />
-              </span>
-              <div class="ability-main">
-                <div class="ability-header">
-                  <h3 class="ability-name">{{ entry.rule.name }}</h3>
-                  <div class="badges">
-                    <span v-for="badge in entry.badges" :key="badge" :class="badgeClass(badge)">{{
-                      badge
-                    }}</span>
-                  </div>
-                </div>
-                <dl class="ability-meta">
-                  <div>
-                    <dt>Spell ID</dt>
-                    <dd>
-                      <a
-                        v-if="primarySpellId(entry) && wowheadSpellUrl(primarySpellId(entry)!)"
-                        :href="wowheadSpellUrl(primarySpellId(entry)!)!"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        :data-wowhead="`spell=${primarySpellId(entry)}`"
-                        class="wowhead-link"
-                      >
-                        {{ primarySpellId(entry) }}
-                      </a>
-                      <span v-else>—</span>
-                    </dd>
-                  </div>
-                  <div v-if="entry.rule.aliases?.length">
-                    <dt>Aliases</dt>
-                    <dd>{{ entry.rule.aliases.join(", ") }}</dd>
-                  </div>
-                  <div>
-                    <dt>Key</dt>
-                    <dd class="mono">{{ entry.rule.canonicalKey }}</dd>
-                  </div>
-                  <div>
-                    <dt>Category</dt>
-                    <dd>{{ entry.rule.category }}</dd>
-                  </div>
-                  <div>
-                    <dt>Ownership</dt>
-                    <dd>{{ entry.rule.sourceOwnership }}</dd>
-                  </div>
-                  <div>
-                    <dt>Availability</dt>
-                    <dd>{{ entry.rule.availability }}</dd>
-                  </div>
-                  <div>
-                    <dt>Roles</dt>
-                    <dd>{{ entry.rule.roles.join(", ") || "—" }}</dd>
-                  </div>
-                  <div>
-                    <dt>Cooldown</dt>
-                    <dd>{{ formatCooldown(entry.rule.cooldownSeconds) }}</dd>
-                  </div>
-                  <div>
-                    <dt>Provenance</dt>
-                    <dd>{{ entry.rule.provenance.source }} — {{ entry.rule.provenance.gameVersion }}</dd>
-                  </div>
-                </dl>
-                <p v-if="entry.rule.provenance.notes" class="notes muted">
-                  {{ entry.rule.provenance.notes }}
-                </p>
-                <ul v-if="entry.validationIssues.length" class="entry-issues">
-                  <li v-for="(issue, i) in entry.validationIssues" :key="i" :data-severity="issue.severity">
-                    {{ issue.message }}
-                  </li>
-                </ul>
-              </div>
-            </div>
+            <AbilityCard :entry="entry" />
           </article>
         </div>
       </section>
@@ -825,39 +602,6 @@ onMounted(() => {
 <style scoped>
 .muted {
   color: var(--muted);
-}
-
-.catalog-summary {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.75rem 1.25rem;
-  margin: 1rem 0;
-  padding: 0;
-}
-
-.catalog-summary > div {
-  display: grid;
-  gap: 0.15rem;
-  min-width: 6.5rem;
-}
-
-.catalog-summary dt {
-  margin: 0;
-  font-size: 0.75rem;
-  color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  font-weight: 600;
-}
-
-.catalog-summary dd {
-  margin: 0;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-}
-
-.catalog-summary .has-errors dd {
-  color: var(--danger);
 }
 
 .sticky-bar {
@@ -931,6 +675,7 @@ select:focus-visible {
   background: var(--panel);
   overflow: visible;
   min-width: 0;
+  padding: 0.35rem 0.65rem 0.5rem;
 }
 
 .section-toggle,
@@ -939,9 +684,9 @@ select:focus-visible {
   align-items: center;
   gap: 0.5rem;
   width: 100%;
-  padding: 0.65rem 0.85rem;
+  padding: 0.45rem 0.2rem;
   border: none;
-  background: var(--panel-2);
+  background: transparent;
   color: var(--fg);
   font: inherit;
   font-weight: 600;
@@ -952,51 +697,75 @@ select:focus-visible {
 .section-toggle:focus-visible,
 .spec-toggle:focus-visible {
   outline: 2px solid var(--accent);
-  outline-offset: -2px;
+  outline-offset: 2px;
   z-index: 1;
   position: relative;
+  border-radius: 4px;
 }
 
 .spec-toggle {
-  padding-left: 1.5rem;
-  background: var(--panel);
-  border-top: 1px solid var(--border);
+  padding-left: 0.35rem;
   font-weight: 500;
 }
 
 .class-icon,
-.class-icon-fallback {
+.class-icon-fallback,
+.spec-icon,
+.spec-icon-fallback {
   width: 24px;
   height: 24px;
   border-radius: 4px;
   flex-shrink: 0;
 }
 
-.class-icon-fallback {
+.spec-icon,
+.spec-icon-fallback {
+  width: 20px;
+  height: 20px;
+}
+
+.class-icon-fallback,
+.spec-icon-fallback {
   background: var(--border);
 }
 
-.section-title {
+.section-heading {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.45rem;
   flex: 1;
   min-width: 0;
+}
+
+.section-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .section-count {
   color: var(--muted);
   font-size: 0.85rem;
+  font-weight: 500;
+  flex-shrink: 0;
+}
+
+.spec-list {
+  display: grid;
+  gap: 0.15rem;
+  padding-left: 0.5rem;
+  min-width: 0;
 }
 
 .ability-list {
   display: grid;
-  gap: 0.5rem;
-  padding: 0.65rem;
+  gap: 0.35rem;
+  padding: 0.25rem 0 0.5rem 0.35rem;
   min-width: 0;
 }
 
 .ability-row {
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--panel-2);
   min-width: 0;
   scroll-margin-top: 6rem;
 }
@@ -1004,129 +773,7 @@ select:focus-visible {
 .ability-row:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
-}
-
-.ability-card {
-  display: flex;
-  gap: 0.75rem;
-  padding: 0.75rem;
-  min-width: 0;
-}
-
-.spell-icon {
-  width: 40px;
-  height: 40px;
-}
-
-.spell-icon-link {
-  display: inline-flex;
-  flex-shrink: 0;
-  border-radius: 4px;
-  line-height: 0;
-  text-decoration: none;
-  color: inherit;
-}
-
-.spell-icon-link:focus-visible {
-  outline: 2px solid var(--color-focus);
-  outline-offset: 2px;
-}
-
-.spell-icon-link--static {
-  cursor: default;
-}
-
-.ability-main {
-  flex: 1;
-  min-width: 0;
-}
-
-.ability-header {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0.5rem;
-  margin-bottom: 0.35rem;
-}
-
-.ability-name {
-  margin: 0;
-  font-size: 1rem;
-}
-
-.badges {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.3rem;
-}
-
-.badge {
-  font-size: 0.65rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-  padding: 0.15rem 0.4rem;
-  border-radius: 4px;
-  background: var(--border);
-  color: var(--muted);
-}
-
-.badge-ok {
-  background: color-mix(in srgb, var(--ok) 25%, transparent);
-  color: var(--ok);
-}
-
-.badge-warn {
-  background: color-mix(in srgb, var(--warn) 25%, transparent);
-  color: var(--warn);
-}
-
-.badge-error {
-  background: color-mix(in srgb, var(--danger) 25%, transparent);
-  color: var(--danger);
-}
-
-.ability-meta {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr));
-  gap: 0.35rem 0.75rem;
-  margin: 0;
-  font-size: 0.85rem;
-}
-
-.ability-meta dt {
-  color: var(--muted);
-  font-weight: 600;
-  font-size: 0.7rem;
-  text-transform: uppercase;
-}
-
-.ability-meta dd {
-  margin: 0;
-  word-break: break-word;
-}
-
-.mono {
-  font-family: ui-monospace, monospace;
-  font-size: 0.8em;
-}
-
-.wowhead-link {
-  color: var(--accent);
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
-
-.wowhead-link:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-
-.entry-issues {
-  margin: 0.5rem 0 0;
-  padding-left: 1.1rem;
-  color: var(--danger);
-  font-size: 0.85rem;
+  border-radius: 8px;
 }
 
 .pagination {
@@ -1146,10 +793,6 @@ select:focus-visible {
   .sticky-bar {
     padding-left: var(--space-3);
     padding-right: var(--space-3);
-  }
-
-  .catalog-summary > div {
-    min-width: 5.5rem;
   }
 
   .filters {

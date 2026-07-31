@@ -1,14 +1,14 @@
 const WOWHEAD_ICON_BASE = "https://wow.zamimg.com/images/wow/icons/large";
-const iconCache = new Map<number, string | null>();
+const iconNameCache = new Map<number, string | null>();
 const inflight = new Map<number, Promise<string | null>>();
 
 /**
- * Resolve a spell icon via Wowhead's public tooltip endpoint (CORS-friendly CDN).
- * Returns a zamimg HTTPS URL, or null when unavailable.
+ * Resolve a spell icon name via Wowhead's public tooltip endpoint.
+ * Returns a safe icon identifier (no extension), or null when unavailable.
  */
-export async function resolveWowheadSpellIconUrl(spellId: number): Promise<string | null> {
+export async function resolveWowheadSpellIconName(spellId: number): Promise<string | null> {
   if (!Number.isInteger(spellId) || spellId <= 0) return null;
-  if (iconCache.has(spellId)) return iconCache.get(spellId) ?? null;
+  if (iconNameCache.has(spellId)) return iconNameCache.get(spellId) ?? null;
   const pending = inflight.get(spellId);
   if (pending) return pending;
 
@@ -21,7 +21,7 @@ export async function resolveWowheadSpellIconUrl(spellId: number): Promise<strin
         { method: "GET", mode: "cors", credentials: "omit" },
       );
       if (!response.ok) {
-        iconCache.set(spellId, null);
+        iconNameCache.set(spellId, null);
         return null;
       }
       const body = await response.text();
@@ -29,16 +29,15 @@ export async function resolveWowheadSpellIconUrl(spellId: number): Promise<strin
         body.match(/"icon"\s*:\s*"([^"]+)"/i) ??
         body.match(/icon\s*:\s*'([^']+)'/i) ??
         body.match(/icon:\s*"([^"]+)"/i);
-      const iconName = match?.[1]?.trim();
+      const iconName = match?.[1]?.trim().replace(/\.(jpg|jpeg|png|webp)$/i, "");
       if (!iconName || !/^[a-z0-9_-]+$/i.test(iconName)) {
-        iconCache.set(spellId, null);
+        iconNameCache.set(spellId, null);
         return null;
       }
-      const url = `${WOWHEAD_ICON_BASE}/${iconName}.jpg`;
-      iconCache.set(spellId, url);
-      return url;
+      iconNameCache.set(spellId, iconName);
+      return iconName;
     } catch {
-      iconCache.set(spellId, null);
+      iconNameCache.set(spellId, null);
       return null;
     } finally {
       inflight.delete(spellId);
@@ -47,6 +46,15 @@ export async function resolveWowheadSpellIconUrl(spellId: number): Promise<strin
 
   inflight.set(spellId, request);
   return request;
+}
+
+/**
+ * Resolve a spell icon via Wowhead's public tooltip endpoint (CORS-friendly CDN).
+ * Returns a zamimg HTTPS URL, or null when unavailable.
+ */
+export async function resolveWowheadSpellIconUrl(spellId: number): Promise<string | null> {
+  const iconName = await resolveWowheadSpellIconName(spellId);
+  return iconName ? `${WOWHEAD_ICON_BASE}/${iconName}.jpg` : null;
 }
 
 /** Resolve many spell icons with a small concurrency limit. */

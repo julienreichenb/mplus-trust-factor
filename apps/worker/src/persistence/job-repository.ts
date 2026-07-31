@@ -1,5 +1,10 @@
 import { Prisma, type IngestionJob, type JobStatus, type PrismaClient } from "@mplus/database";
-import { DEFAULT_STALE_QUEUED_MS, isStaleQueued } from "./job-staleness.js";
+import {
+  DEFAULT_STALE_ACTIVE_MS,
+  DEFAULT_STALE_QUEUED_MS,
+  isStaleActive,
+  isStaleQueued,
+} from "./job-staleness.js";
 
 export interface CreateOrGetJobInput {
   jobType: string;
@@ -9,9 +14,48 @@ export interface CreateOrGetJobInput {
   payload: unknown;
   priority?: number;
   staleQueuedMs?: number;
+  staleActiveMs?: number;
 }
 
 const TERMINAL_STATUSES = new Set(["COMPLETED", "FAILED", "CANCELLED"]);
+
+async function terminalizeIfStaleActive(
+  prisma: PrismaClient,
+  job: IngestionJob,
+  staleActiveMs: number,
+): Promise<IngestionJob | null> {
+  if (!isStaleActive(job, Date.now(), staleActiveMs)) return null;
+  if (job.cancelRequestedAt) {
+    return prisma.ingestionJob.update({
+      where: { id: job.id },
+      data: {
+        status: "CANCELLED",
+        completedAt: new Date(),
+        cancelledAt: new Date(),
+        cancelReason: job.cancelReason ?? "stale_active",
+        error: {
+          code: "CANCELLED",
+          message: "Stale ACTIVE job force-cancelled (abandoned worker)",
+          retryable: false,
+          providerFailure: false,
+        },
+      },
+    });
+  }
+  return prisma.ingestionJob.update({
+    where: { id: job.id },
+    data: {
+      status: "FAILED",
+      completedAt: new Date(),
+      error: {
+        code: "STALE_ACTIVE",
+        message: "Stale ACTIVE job — abandoned worker / no progress",
+        retryable: true,
+        providerFailure: false,
+      },
+    },
+  });
+}
 
 export interface ResolveForEnqueueResult {
   job: IngestionJob;
@@ -147,6 +191,7 @@ export function createJobRepository(prisma: PrismaClient): JobRepository {
 
     async resolveForEnqueue(input) {
       const staleMs = input.staleQueuedMs ?? DEFAULT_STALE_QUEUED_MS;
+      const staleActiveMs = input.staleActiveMs ?? DEFAULT_STALE_ACTIVE_MS;
       let existing = await prisma.ingestionJob.findUnique({ where: { dedupeKey: input.dedupeKey } });
 
       if (existing && isStaleQueued(existing, Date.now(), staleMs)) {
@@ -161,6 +206,11 @@ export function createJobRepository(prisma: PrismaClient): JobRepository {
             },
           },
         });
+      }
+
+      if (existing) {
+        const staleActive = await terminalizeIfStaleActive(prisma, existing, staleActiveMs);
+        if (staleActive) existing = staleActive;
       }
 
       if (existing && !TERMINAL_STATUSES.has(existing.status)) {
@@ -243,6 +293,7 @@ export function createJobRepository(prisma: PrismaClient): JobRepository {
 
     async createOrGetByDedupe(input) {
       const staleMs = input.staleQueuedMs ?? DEFAULT_STALE_QUEUED_MS;
+      const staleActiveMs = input.staleActiveMs ?? DEFAULT_STALE_ACTIVE_MS;
       let existing = await prisma.ingestionJob.findUnique({ where: { dedupeKey: input.dedupeKey } });
 
       if (existing && isStaleQueued(existing, Date.now(), staleMs)) {
@@ -257,6 +308,11 @@ export function createJobRepository(prisma: PrismaClient): JobRepository {
             },
           },
         });
+      }
+
+      if (existing) {
+        const staleActive = await terminalizeIfStaleActive(prisma, existing, staleActiveMs);
+        if (staleActive) existing = staleActive;
       }
 
       if (existing && !TERMINAL_STATUSES.has(existing.status)) {
@@ -463,6 +519,10 @@ export function createJobRepository(prisma: PrismaClient): JobRepository {
             },
           },
         });
+        return null;
+      }
+      if (isStaleActive(job)) {
+        await terminalizeIfStaleActive(prisma, job, DEFAULT_STALE_ACTIVE_MS);
         return null;
       }
       return job;

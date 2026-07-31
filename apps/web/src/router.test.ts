@@ -27,6 +27,7 @@ describe("web router registration", () => {
     expect(names).toContain("admin-ability-catalog");
     expect(names).toContain("admin-users");
     expect(names).toContain("admin-bulk-processing");
+    expect(names).toContain("admin-misc");
     expect(names).toContain("auth-signin");
     expect(names).toContain("auth-error");
     expect(names).toContain("account");

@@ -1,19 +1,22 @@
 import { describe, expect, it, vi, afterEach, beforeEach } from "vitest";
 import { mount, flushPromises } from "@vue/test-utils";
+import { createPinia, setActivePinia } from "pinia";
 import { createMemoryHistory, createRouter, type Router } from "vue-router";
 import { computed, nextTick, ref } from "vue";
 import NavDropdown from "../common/NavDropdown.vue";
 import AppHeader from "./AppHeader.vue";
 
 const permissions = ref<string[]>([]);
+const authenticated = ref(false);
 
 vi.mock("../../composables/useAuthSession", async (importOriginal) => {
   const actual = (await importOriginal()) as Record<string, unknown>;
   return {
     ...actual,
     useAuthSession: () => ({
+      authenticated: computed(() => authenticated.value),
       permissions: computed(() => permissions.value),
-      fetchAuthMe: vi.fn().mockResolvedValue({ authenticated: false }),
+      fetchAuthMe: vi.fn().mockResolvedValue({ authenticated: authenticated.value }),
     }),
   };
 });
@@ -26,11 +29,20 @@ vi.mock("../brand/BrandMark.vue", () => ({
   default: { name: "BrandMark", template: "<span />" },
 }));
 
+vi.mock("../../stores/accountCharacters", () => ({
+  useAccountCharactersStore: () => ({
+    characters: [],
+    ensureLoaded: vi.fn().mockResolvedValue(undefined),
+    reset: vi.fn(),
+  }),
+}));
+
 const adminItems = [
   { to: "/admin/models", label: "Score models" },
   { to: "/admin/ability-catalog", label: "Ability catalog" },
   { to: "/admin/users", label: "Admin users" },
   { to: "/admin/bulk-processing", label: "Bulk processing" },
+  { to: "/admin/misc", label: "Misc tools" },
 ];
 
 const FULL_ADMIN_PERMS = [
@@ -38,6 +50,7 @@ const FULL_ADMIN_PERMS = [
   "admin.ability_catalog.read",
   "admin.users.read",
   "admin.jobs.manage",
+  "admin.settings.manage",
 ];
 
 function headerRoutes() {
@@ -59,10 +72,13 @@ function headerRoutes() {
       name: "admin-bulk-processing",
       component: { template: "<div />" },
     },
+    { path: "/admin/misc", name: "admin-misc", component: { template: "<div />" } },
   ];
 }
 
 async function mountHeader(path = "/") {
+  const pinia = createPinia();
+  setActivePinia(pinia);
   const router = createRouter({
     history: createMemoryHistory(),
     routes: headerRoutes(),
@@ -70,7 +86,7 @@ async function mountHeader(path = "/") {
   await router.push(path);
   await router.isReady();
   const wrapper = mount(AppHeader, {
-    global: { plugins: [router] },
+    global: { plugins: [router, pinia] },
   });
   return { wrapper, router };
 }
@@ -117,7 +133,7 @@ describe("NavDropdown disclosure", () => {
     const panel = wrapper.get("[data-testid='nav-dropdown-menu']");
     expect(panel.attributes("role")).toBeUndefined();
     expect(panel.findAll('[role="menuitem"]')).toHaveLength(0);
-    expect(panel.findAll("a")).toHaveLength(4);
+    expect(panel.findAll("a")).toHaveLength(5);
     wrapper.unmount();
   });
 
@@ -157,7 +173,7 @@ describe("NavDropdown disclosure", () => {
 
     await trigger.trigger("keydown", { key: "ArrowUp" });
     await nextTick();
-    expect(document.activeElement?.textContent).toContain("Bulk processing");
+    expect(document.activeElement?.textContent).toContain("Misc tools");
     wrapper.unmount();
   });
 
@@ -252,18 +268,53 @@ describe("NavDropdown disclosure", () => {
 describe("AppHeader admin navigation", () => {
   beforeEach(() => {
     permissions.value = [];
+    authenticated.value = false;
   });
 
   afterEach(() => {
     permissions.value = [];
+    authenticated.value = false;
   });
 
   it("hides the Admin dropdown when no destinations are authorized", async () => {
-    permissions.value = ["profile.refresh.request", "admin.settings.manage"];
+    permissions.value = ["profile.refresh.request", "score.recalculate"];
     const { wrapper } = await mountHeader();
     expect(wrapper.find("[data-testid='admin-nav-dropdown']").exists()).toBe(false);
     expect(wrapper.text()).not.toContain("Score models");
+    const searchTrigger = wrapper.get("[data-testid='navbar-search-trigger']");
+    expect(searchTrigger.attributes("aria-expanded")).toBe("false");
+    await searchTrigger.trigger("click");
+    await nextTick();
+    expect(searchTrigger.attributes("aria-expanded")).toBe("true");
     expect(wrapper.find("[data-testid='navbar-search']").exists()).toBe(true);
+    expect(wrapper.find("[data-testid='navbar-battlenet-sync']").exists()).toBe(true);
+    expect(wrapper.find("[data-testid='navbar-account']").exists()).toBe(false);
+    wrapper.unmount();
+  });
+
+  it("shows Misc tools when settings permission is granted", async () => {
+    permissions.value = ["profile.refresh.request", "admin.settings.manage"];
+    const { wrapper } = await mountHeader();
+    expect(wrapper.find("[data-testid='admin-nav-dropdown']").exists()).toBe(true);
+    expect(wrapper.text()).toContain("Misc tools");
+    wrapper.unmount();
+  });
+
+  it("shows Account with portrait slot when authenticated", async () => {
+    authenticated.value = true;
+    const { wrapper } = await mountHeader();
+    expect(wrapper.find("[data-testid='navbar-battlenet-sync']").exists()).toBe(false);
+    const account = wrapper.get("[data-testid='navbar-account']");
+    expect(account.text()).toContain("Account");
+    expect(account.attributes("href")).toBe("/account");
+    wrapper.unmount();
+  });
+
+  it("shows Battle.net sync CTA when logged out", async () => {
+    const { wrapper } = await mountHeader();
+    const sync = wrapper.get("[data-testid='navbar-battlenet-sync']");
+    expect(sync.text()).toContain("Sync with Battle.net");
+    expect(wrapper.find("[data-testid='navbar-account']").exists()).toBe(false);
     wrapper.unmount();
   });
 
@@ -292,6 +343,7 @@ describe("AppHeader admin navigation", () => {
     expect(text).toContain("Ability catalog");
     expect(text).toContain("Admin users");
     expect(text).toContain("Bulk processing");
+    expect(text).toContain("Misc tools");
     wrapper.unmount();
   });
 
@@ -311,6 +363,7 @@ describe("AppHeader admin navigation", () => {
       "/admin/ability-catalog",
       "/admin/users",
       "/admin/bulk-processing",
+      "/admin/misc",
       "/admin/users?tab=roles",
       "/admin/models#draft",
     ]) {

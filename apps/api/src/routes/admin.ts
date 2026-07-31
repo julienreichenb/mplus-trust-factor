@@ -4,6 +4,7 @@ import type { ApiContainer } from "../container.js";
 import type { BulkCharacterProcessingInput, ScoreModelConfig } from "@mplus/contracts";
 import { AdminService, type CreateScoreModelInput, type MechanicRuleInput } from "../services/admin-service.js";
 import { AdminUsersService } from "../services/admin-users-service.js";
+import { AdminMiscService } from "../services/admin-misc-service.js";
 import { BulkCharacterProcessingService } from "../services/bulk-character-processing-service.js";
 import { adminScoreModelSchema, errorResponseSchema, jobStatusSchema, mechanicRuleSchema, scoreModelConfigSchema } from "./schemas.js";
 import { createPermissionPreHandler } from "../iam/session.js";
@@ -74,6 +75,7 @@ export function buildAdminRoutes(container: ApiContainer): FastifyPluginAsync {
   const service = new AdminService(container);
   const usersService = new AdminUsersService(container.worker.prisma, container.env.SESSION_SECRET);
   const bulkService = new BulkCharacterProcessingService(container);
+  const miscService = new AdminMiscService(container);
   const env = container.env;
 
   return async (app) => {
@@ -780,6 +782,176 @@ export function buildAdminRoutes(container: ApiContainer): FastifyPluginAsync {
         async (request) => {
           const { id } = request.params as { id: string };
           return bulkService.cancel(id);
+        },
+      );
+    });
+
+    await app.register(async (protectedApp) => {
+      protectedApp.addHook(
+        "preHandler",
+        createPermissionPreHandler(env, PERMISSIONS.ADMIN_SETTINGS_MANAGE, {
+          auditAction: "admin.settings.access",
+          allowEmergencyAdminKey: true,
+        }),
+      );
+
+      protectedApp.addHook("onResponse", async (request, reply) => {
+        if (reply.statusCode < 400 && request.method !== "GET") {
+          await writeAuditEvent(container.worker.prisma, {
+            userId: request.auth?.user.id,
+            actorType: request.authActor === "admin_key" ? "admin_key" : "user",
+            action: `admin.misc.${request.method.toLowerCase()}`,
+            resourceType: "admin_misc",
+            ip: request.ip,
+            userAgent: request.headers["user-agent"],
+            sessionSecret: env.SESSION_SECRET,
+            metadata: { statusCode: reply.statusCode, url: request.url },
+          });
+        }
+      });
+
+      protectedApp.post(
+        "/api/v1/admin/misc/realms/sync",
+        {
+          schema: {
+            tags: ["admin"],
+            body: {
+              type: "object",
+              additionalProperties: false,
+              properties: {
+                regions: {
+                  type: "array",
+                  items: { type: "string", enum: ["EU", "US", "KR", "TW"] },
+                  minItems: 1,
+                  maxItems: 4,
+                },
+                forceDetails: { type: "boolean" },
+              },
+            },
+            response: {
+              200: {
+                type: "object",
+                properties: {
+                  ok: { type: "boolean" },
+                  results: {
+                    type: "array",
+                    items: {
+                      type: "object",
+                      properties: {
+                        region: { type: "string" },
+                        indexed: { type: "integer" },
+                        upserted: { type: "integer" },
+                        detailsFetched: { type: "integer" },
+                        skippedDetails: { type: "integer" },
+                        errors: { type: "array", items: { type: "string" } },
+                      },
+                      required: [
+                        "region",
+                        "indexed",
+                        "upserted",
+                        "detailsFetched",
+                        "skippedDetails",
+                        "errors",
+                      ],
+                      additionalProperties: false,
+                    },
+                  },
+                },
+                required: ["ok", "results"],
+                additionalProperties: false,
+              },
+              400: errorResponseSchema,
+              401: errorResponseSchema,
+              403: errorResponseSchema,
+            },
+          },
+        },
+        async (request) => {
+          const body = (request.body ?? {}) as {
+            regions?: Array<"EU" | "US" | "KR" | "TW">;
+            forceDetails?: boolean;
+          };
+          return miscService.syncRealmCatalog({
+            regions: body.regions,
+            forceDetails: body.forceDetails,
+          });
+        },
+      );
+
+      protectedApp.post(
+        "/api/v1/admin/misc/season/sync-authority",
+        {
+          schema: {
+            tags: ["admin"],
+            body: {
+              type: "object",
+              additionalProperties: false,
+              properties: {
+                regions: {
+                  type: "array",
+                  items: { type: "string", enum: ["EU", "US", "KR", "TW"] },
+                  minItems: 1,
+                  maxItems: 4,
+                },
+              },
+            },
+            response: {
+              200: {
+                type: "object",
+                properties: {
+                  ok: { type: "boolean" },
+                  results: {
+                    type: "array",
+                    items: {
+                      type: "object",
+                      properties: {
+                        region: { type: "string" },
+                        previous: {
+                          type: "object",
+                          properties: {
+                            blizzardSeasonId: { type: ["integer", "null"] },
+                            slug: { type: ["string", "null"] },
+                          },
+                          required: ["blizzardSeasonId", "slug"],
+                          additionalProperties: false,
+                        },
+                        current: {
+                          type: "object",
+                          properties: {
+                            blizzardSeasonId: { type: "integer" },
+                            slug: { type: "string" },
+                            authoritySource: { type: "string" },
+                            authorityVerifiedAt: { type: "string" },
+                          },
+                          required: [
+                            "blizzardSeasonId",
+                            "slug",
+                            "authoritySource",
+                            "authorityVerifiedAt",
+                          ],
+                          additionalProperties: false,
+                        },
+                        changed: { type: "boolean" },
+                      },
+                      required: ["region", "previous", "current", "changed"],
+                      additionalProperties: false,
+                    },
+                  },
+                },
+                required: ["ok", "results"],
+                additionalProperties: false,
+              },
+              400: errorResponseSchema,
+              401: errorResponseSchema,
+              403: errorResponseSchema,
+            },
+          },
+        },
+        async (request) => {
+          const body = (request.body ?? {}) as {
+            regions?: Array<"EU" | "US" | "KR" | "TW">;
+          };
+          return miscService.syncSeasonAuthority({ regions: body.regions });
         },
       );
     });

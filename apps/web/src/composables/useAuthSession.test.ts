@@ -5,7 +5,7 @@ describe("useAuthSession helpers", () => {
   it("hides admin navigation for users without destination permissions", () => {
     expect(hasAdminNavPermission([])).toBe(false);
     expect(hasAdminNavPermission(["profile.refresh.request"])).toBe(false);
-    expect(hasAdminNavPermission(["admin.settings.manage"])).toBe(false);
+    expect(hasAdminNavPermission(["admin.settings.manage"])).toBe(true);
     expect(hasAdminNavPermission(["score.recalculate"])).toBe(false);
   });
 

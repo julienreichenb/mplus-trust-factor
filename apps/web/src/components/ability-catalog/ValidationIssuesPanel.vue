@@ -75,7 +75,7 @@ function onIssueClick(issue: ValidationIssue): void {
       >
         <p class="eyebrow">Validation warnings</p>
         <span class="validation-issues__count" data-testid="validation-issue-count">
-          {{ warningCount }} {{ warningCount === 1 ? "warning" : "warnings" }}
+          {{ warningCount }}
         </span>
         <DisclosureChevron :expanded="expanded" />
       </button>
@@ -169,10 +169,23 @@ function onIssueClick(issue: ValidationIssue): void {
 }
 
 .validation-issues__count {
-  flex: 1;
-  min-width: 0;
-  color: var(--muted);
-  font-size: 0.9rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.5rem;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--warn) 22%, transparent);
+  color: var(--warn);
+  font-size: 0.75rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.25;
+  flex-shrink: 0;
+}
+
+.validation-issues__trigger :deep(.disclosure-chevron) {
+  margin-left: auto;
 }
 
 .issue-link {

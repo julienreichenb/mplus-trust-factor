@@ -152,8 +152,10 @@ function remember(authority: VerifiedSeasonAuthority, validitySeconds: number, n
 }
 
 /**
- * Read-only peek: memory then DB. Never calls Blizzard.
- * Returns null when no verified authority exists within the validity window.
+ * Read-only peek: prefer a still-valid DB authority over process memory so
+ * another process (e.g. API admin season sync) can repair seasons without
+ * requiring a worker restart. Memory is only a same-process fast path when it
+ * matches the current DB row. Never calls Blizzard.
  */
 export async function peekVerifiedSeasonAuthority(
   deps: Pick<SeasonAuthorityDeps, "prisma" | "now" | "validitySeconds">,
@@ -163,17 +165,41 @@ export async function peekVerifiedSeasonAuthority(
   const now = deps.now?.() ?? new Date();
   const validitySeconds = deps.validitySeconds ?? SEASON_AUTHORITY_VALIDITY_SECONDS;
   const key = regionKey(regionCode);
-
   const mem = memoryByRegion.get(key);
-  if (mem && mem.expiresAtMs > now.getTime() && mem.authority.regionId === regionId) {
-    return { ...mem.authority, resolution: "memory" };
-  }
 
   const season = await deps.prisma.season.findFirst({
     where: { regionId, isCurrent: true },
   });
-  if (!season) return null;
 
+  const dbAuthority = season ? authorityFromSeasonRow(season, regionCode, now, validitySeconds) : null;
+  if (dbAuthority) {
+    const memoryStale =
+      !mem ||
+      mem.expiresAtMs <= now.getTime() ||
+      mem.authority.regionId !== regionId ||
+      mem.authority.blizzardSeasonId !== dbAuthority.blizzardSeasonId ||
+      mem.authority.slug !== dbAuthority.slug ||
+      mem.authority.authorityVerifiedAt.getTime() < dbAuthority.authorityVerifiedAt.getTime();
+
+    if (memoryStale) {
+      remember(dbAuthority, validitySeconds, now);
+      return { ...dbAuthority, resolution: "database" };
+    }
+    return { ...mem!.authority, resolution: "memory" };
+  }
+
+  if (mem && mem.expiresAtMs > now.getTime() && mem.authority.regionId === regionId) {
+    return { ...mem.authority, resolution: "memory" };
+  }
+  return null;
+}
+
+function authorityFromSeasonRow(
+  season: Season,
+  regionCode: string,
+  now: Date,
+  validitySeconds: number,
+): VerifiedSeasonAuthority | null {
   const parsed = parseSeasonAuthorityMetadata(season);
   if (
     parsed.blizzardSeasonId == null ||
@@ -184,12 +210,11 @@ export async function peekVerifiedSeasonAuthority(
     return null;
   }
 
-  // Reject non-blizzard slugs even if metadata looks authoritative.
   if (season.slug !== seasonAuthoritySlug(parsed.blizzardSeasonId)) {
     return null;
   }
 
-  const authority = toAuthority(
+  return toAuthority(
     season,
     regionCode,
     {
@@ -199,8 +224,6 @@ export async function peekVerifiedSeasonAuthority(
     },
     "database",
   );
-  remember(authority, validitySeconds, now);
-  return authority;
 }
 
 /**

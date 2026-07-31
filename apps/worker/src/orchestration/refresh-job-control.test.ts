@@ -137,6 +137,8 @@ describe("refresh job control", () => {
     const active = jobStub({ status: "ACTIVE", startedAt: new Date() });
     const requested = jobStub({
       status: "ACTIVE",
+      startedAt: active.startedAt,
+      scheduledAt: active.scheduledAt,
       cancelRequestedAt: new Date(),
       cancelReason: "admin_cancel",
     });
@@ -163,16 +165,22 @@ describe("refresh job control", () => {
     expect(remove).not.toHaveBeenCalled();
   });
 
-  it("returns already_cancellation_requested on second ACTIVE cancel", async () => {
+  it("force-cancels ACTIVE jobs when cancellation was already requested (zombie)", async () => {
     const active = jobStub({
       status: "ACTIVE",
+      startedAt: new Date(),
       cancelRequestedAt: new Date(),
       cancelReason: "admin_cancel",
+    });
+    const cancelled = jobStub({
+      status: "CANCELLED",
+      cancelledAt: new Date(),
+      cancelRequestedAt: active.cancelRequestedAt,
     });
     const jobRepository = {
       findById: vi.fn(async () => active),
       requestCancel: vi.fn(async () => active),
-      markCancelled: vi.fn(),
+      markCancelled: vi.fn(async () => cancelled),
       markCancelledIfQueued: vi.fn(),
     } as unknown as JobRepository;
 
@@ -180,7 +188,35 @@ describe("refresh job control", () => {
       { jobRepository, refreshQueue: null, logger: mockLogger() },
       active.id,
     );
-    expect(result.outcome).toBe("already_cancellation_requested");
+    expect(result.outcome).toBe("active_force_cancelled");
+    expect(result.databaseStatus).toBe("CANCELLED");
+    expect(jobRepository.markCancelled).toHaveBeenCalled();
+  });
+
+  it("force-cancels ACTIVE jobs on kill-all reason", async () => {
+    const active = jobStub({ status: "ACTIVE", startedAt: new Date() });
+    const requested = jobStub({
+      status: "ACTIVE",
+      startedAt: active.startedAt,
+      scheduledAt: active.scheduledAt,
+      cancelRequestedAt: new Date(),
+      cancelReason: "admin_kill_all",
+    });
+    const cancelled = jobStub({ status: "CANCELLED", cancelledAt: new Date() });
+    const jobRepository = {
+      findById: vi.fn(async () => active),
+      requestCancel: vi.fn(async () => requested),
+      markCancelled: vi.fn(async () => cancelled),
+      markCancelledIfQueued: vi.fn(),
+    } as unknown as JobRepository;
+
+    const result = await cancelRefreshJob(
+      { jobRepository, refreshQueue: null, logger: mockLogger() },
+      active.id,
+      "admin_kill_all",
+    );
+    expect(result.outcome).toBe("active_force_cancelled");
+    expect(jobRepository.markCancelled).toHaveBeenCalledWith(active.id, { reason: "admin_kill_all" });
   });
 
   it("is idempotent for already CANCELLED / COMPLETED", async () => {
@@ -286,7 +322,7 @@ describe("refresh job control", () => {
     expect(cancelRequestedRepo.updatePriority).not.toHaveBeenCalled();
   });
 
-  it("kill-all is point-in-time and idempotent on a second call", async () => {
+  it("kill-all is point-in-time and force-cancels ACTIVE jobs", async () => {
     const queued = jobStub({ id: "q1", status: "QUEUED", queueJobId: "bull-waiting" });
     const delayed = jobStub({ id: "d1", status: "QUEUED", queueJobId: "bull-delayed" });
     const active = jobStub({ id: "a1", status: "ACTIVE", startedAt: new Date() });
@@ -297,8 +333,6 @@ describe("refresh job control", () => {
     const jobRepository = {
       listInFlightRefreshJobs: vi.fn(async () => {
         call += 1;
-        // Second kill-all sees empty in-flight set (jobs already cancelled / requested).
-        // Jobs enqueued after the first snapshot are intentionally absent.
         return call === 1 ? snapshot : [];
       }),
       findById: vi.fn(async (id: string) => cancelledById.get(id) ?? snapshot.find((j) => j.id === id) ?? null),
@@ -307,6 +341,16 @@ describe("refresh job control", () => {
         const withRequest = { ...job, cancelRequestedAt: new Date(), cancelReason: "admin_kill_all" };
         cancelledById.set(id, withRequest);
         return withRequest;
+      }),
+      markCancelled: vi.fn(async (id: string) => {
+        const cancelled = jobStub({
+          id,
+          status: "CANCELLED",
+          cancelledAt: new Date(),
+          cancelRequestedAt: new Date(),
+        });
+        cancelledById.set(id, cancelled);
+        return cancelled;
       }),
       markCancelledIfQueued: vi.fn(async (id: string) => {
         const cancelled = jobStub({
@@ -334,44 +378,30 @@ describe("refresh job control", () => {
       { jobRepository, refreshQueue: queue as never, logger: mockLogger() },
       "admin_kill_all",
     );
-    const totalFirst =
-      first.queuedCancelled +
-      first.delayedCancelled +
-      first.activeCancellationRequested +
-      first.alreadyCancellationRequested +
-      first.alreadyTerminal +
-      first.cancellationFailed;
-    expect(totalFirst).toBe(3);
     expect(first.queuedCancelled).toBe(1);
     expect(first.delayedCancelled).toBe(1);
-    expect(first.activeCancellationRequested).toBe(1);
+    expect(first.activeForceCancelled).toBe(1);
+    expect(first.activeCancellationRequested).toBe(0);
     expect(first.results).toHaveLength(3);
 
     const second = await killAllRefreshJobs(
       { jobRepository, refreshQueue: queue as never, logger: mockLogger() },
       "admin_kill_all",
     );
-    expect(second.queuedCancelled).toBe(0);
-    expect(second.delayedCancelled).toBe(0);
-    expect(second.activeCancellationRequested).toBe(0);
     expect(second.results).toEqual([]);
     expect(jobRepository.listInFlightRefreshJobs).toHaveBeenCalledTimes(2);
   });
 
-  it("kill-all counts already-terminal and already-requested without double-counting", async () => {
+  it("kill-all force-cancels already-requested ACTIVE zombies", async () => {
     const queued = jobStub({ id: "q1", status: "QUEUED" });
     const active = jobStub({ id: "a1", status: "ACTIVE", startedAt: new Date() });
     const already = jobStub({
       id: "a2",
       status: "ACTIVE",
+      startedAt: new Date(),
       cancelRequestedAt: new Date(),
     });
     const cancelledQueued = jobStub({ id: "q1", status: "CANCELLED" });
-    const requestedActive = jobStub({
-      id: "a1",
-      status: "ACTIVE",
-      cancelRequestedAt: new Date(),
-    });
 
     const jobRepository = {
       listInFlightRefreshJobs: vi.fn(async () => [queued, active, already]),
@@ -382,10 +412,21 @@ describe("refresh job control", () => {
       }),
       requestCancel: vi.fn(async (id: string) => {
         if (id === "q1") return jobStub({ id: "q1", status: "QUEUED", cancelRequestedAt: new Date() });
-        if (id === "a1") return requestedActive;
+        if (id === "a1") {
+          return jobStub({
+            id: "a1",
+            status: "ACTIVE",
+            startedAt: active.startedAt,
+            scheduledAt: active.scheduledAt,
+            cancelRequestedAt: new Date(),
+          });
+        }
         return already;
       }),
       markCancelledIfQueued: vi.fn(async () => cancelledQueued),
+      markCancelled: vi.fn(async (id: string) =>
+        jobStub({ id, status: "CANCELLED", cancelledAt: new Date() }),
+      ),
     } as unknown as JobRepository;
 
     const result = await killAllRefreshJobs(
@@ -393,16 +434,9 @@ describe("refresh job control", () => {
       "admin_kill_all",
     );
     expect(result.queuedCancelled).toBe(1);
-    expect(result.activeCancellationRequested).toBe(1);
-    expect(result.alreadyCancellationRequested).toBe(1);
-    expect(result.cancellationFailed).toBe(0);
-    const total =
-      result.queuedCancelled +
-      result.delayedCancelled +
-      result.activeCancellationRequested +
-      result.alreadyCancellationRequested +
-      result.alreadyTerminal +
-      result.cancellationFailed;
-    expect(total).toBe(result.results.length);
+    expect(result.activeForceCancelled).toBe(2);
+    expect(result.activeCancellationRequested).toBe(0);
+    expect(result.alreadyCancellationRequested).toBe(0);
+    expect(result.results).toHaveLength(3);
   });
 });

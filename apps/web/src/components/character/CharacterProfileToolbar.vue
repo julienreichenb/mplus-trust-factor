@@ -2,7 +2,7 @@
 import { computed } from "vue";
 import { RouterLink } from "vue-router";
 import type { CharacterProfileView } from "../../api/types";
-import StatusChip from "./StatusChip.vue";
+import { presentStatusChip } from "../../lib/statusChip";
 
 const props = defineProps<{
   profile: CharacterProfileView;
@@ -30,16 +30,21 @@ const isUpdating = computed(
 
 const showQueued = computed(() => props.profile.refreshStatus === "QUEUED");
 
-const chipStatus = computed(() => {
+const busyStatus = computed(() => {
   if (showQueued.value && !isUpdating.value) return "QUEUED";
   if (isUpdating.value || refreshInFlight.value) return "REFRESHING";
-  return props.profile.refreshStatus;
+  return null;
 });
 
-const chipTestId = computed(() => {
+const refreshButtonLabel = computed(() => {
+  if (!busyStatus.value) return "Refresh data";
+  return presentStatusChip(busyStatus.value).label;
+});
+
+const refreshButtonTestId = computed(() => {
   if (showQueued.value && !isUpdating.value) return "refresh-status-queued";
   if (isUpdating.value || refreshInFlight.value) return "refresh-status-updating";
-  return "refresh-status-idle";
+  return "refresh-button";
 });
 </script>
 
@@ -47,15 +52,22 @@ const chipTestId = computed(() => {
   <div class="toolbar" data-testid="character-toolbar">
     <RouterLink class="back" to="/#character-search">← Back to character search</RouterLink>
     <div class="toolbar__actions">
-      <StatusChip :status="chipStatus" :data-testid="chipTestId" />
       <button
         type="button"
-        class="btn secondary"
-        data-testid="refresh-button"
+        class="btn secondary refresh-btn"
+        :class="{ 'refresh-btn--busy': refreshInFlight }"
+        :data-testid="refreshButtonTestId"
         :disabled="refreshInFlight"
+        :aria-busy="refreshInFlight ? 'true' : 'false'"
         @click="emit('refresh')"
       >
-        {{ refreshInFlight ? "Refreshing…" : "Refresh data" }}
+        <span
+          v-if="refreshInFlight"
+          class="refresh-btn__spinner"
+          data-testid="refresh-button-spinner"
+          aria-hidden="true"
+        />
+        {{ refreshButtonLabel }}
       </button>
       <button
         v-if="canForceRefresh"
@@ -97,5 +109,47 @@ const chipTestId = computed(() => {
   flex-wrap: wrap;
   gap: var(--space-3);
   align-items: center;
+}
+
+.refresh-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.refresh-btn--busy {
+  color: #fde68a;
+  background: rgb(245 158 11 / 18%);
+  border-color: rgb(245 158 11 / 48%);
+  cursor: not-allowed;
+  opacity: 1;
+}
+
+.refresh-btn--busy:disabled {
+  opacity: 1;
+}
+
+.refresh-btn__spinner {
+  width: 0.75rem;
+  height: 0.75rem;
+  flex-shrink: 0;
+  border: 1.5px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: refresh-btn-spin 0.75s linear infinite;
+}
+
+@keyframes refresh-btn-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .refresh-btn__spinner {
+    animation: none;
+    border-right-color: currentColor;
+    opacity: 0.55;
+  }
 }
 </style>

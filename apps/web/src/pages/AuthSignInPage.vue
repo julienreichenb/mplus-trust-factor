@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
 import { RouterLink } from "vue-router";
+import { applyAuthMe, clearAuthSession } from "../composables/useAuthSession";
+import { useAccountCharactersStore } from "../stores/accountCharacters";
 
 const apiBase = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:3000";
 const me = ref<{
@@ -12,7 +14,13 @@ const error = ref<string | null>(null);
 onMounted(async () => {
   try {
     const response = await fetch(`${apiBase}/api/v1/auth/me`, { credentials: "include" });
-    me.value = await response.json();
+    const body = await response.json();
+    me.value = applyAuthMe(body);
+    if (me.value.authenticated) {
+      await useAccountCharactersStore().ensureLoaded({ force: true });
+    } else {
+      useAccountCharactersStore().reset();
+    }
   } catch {
     error.value = "Unable to reach the API.";
   }
@@ -25,6 +33,8 @@ function signIn(): void {
 
 async function signOut(): Promise<void> {
   await fetch(`${apiBase}/api/v1/auth/logout`, { method: "POST", credentials: "include" });
+  clearAuthSession();
+  useAccountCharactersStore().reset();
   me.value = { authenticated: false };
 }
 </script>

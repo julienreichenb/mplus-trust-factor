@@ -5,6 +5,7 @@ import {
   filterOptionIconName,
   normalizeWowIconName,
   roleIconName,
+  specIconName,
   wowIconSrc,
   wowIconUrl,
 } from "./wowIcons";
@@ -28,6 +29,13 @@ describe("wowIcons", () => {
     expect(roleIconName("DPS")).toBe("ability_dualwield");
     expect(filterOptionIconName("class", "")).toBeNull();
     expect(filterOptionIconName("role", "UNKNOWN")).toBeNull();
+  });
+
+  it("maps spec icons and falls back to class icon", () => {
+    expect(specIconName("warrior", "arms")).toBe("ability_warrior_savageblow");
+    expect(specIconName("mage", "fire")).toBe("spell_fire_firebolt02");
+    expect(specIconName("warrior", "")).toBe("classicon_warrior");
+    expect(specIconName("warrior", "not-a-spec")).toBe("classicon_warrior");
   });
 
   it("rejects URL pass-through", () => {

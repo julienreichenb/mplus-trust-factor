@@ -109,6 +109,9 @@ describe("AdminUsersPage UI consistency", () => {
 
     const row = wrapper.get("[data-testid='job-row']");
     expect(row.find("[data-testid='character-identity']").exists()).toBe(true);
+    const link = row.get("[data-testid='job-character-link']");
+    expect(link.attributes("href")).toContain("/character/eu/tarren-mill/");
+    expect(link.attributes("href")?.toLowerCase()).toContain("aleria");
     expect(row.text()).toMatch(/EU/);
     expect(row.text()).toMatch(/Aleria/i);
     expect(row.text()).toMatch(/default@6/);
@@ -122,6 +125,143 @@ describe("AdminUsersPage UI consistency", () => {
     const filters = wrapper.get("[data-testid='refresh-jobs-filters']");
     expect(filters.findAll("select.admin-control").length).toBeGreaterThan(0);
     expect(filters.findAll("input.admin-control").length).toBeGreaterThan(0);
+  });
+
+  it("updates the job row immediately after cancel", async () => {
+    const jobId = "11111111-1111-4111-8111-111111111111";
+    let listCalls = 0;
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("/admin/roles")) return jsonResponse({ roles: [] });
+      if (url.includes("/admin/refresh-jobs/count")) return jsonResponse({ count: listCalls === 0 ? 1 : 0 });
+      if (url.includes("/cancel") && init?.method === "POST") {
+        return jsonResponse({
+          ingestionJobId: jobId,
+          jobId,
+          queueJobId: null,
+          outcome: "queued_cancelled",
+          previousStatus: "QUEUED",
+          databaseStatus: "CANCELLED",
+          queueRemoved: true,
+          message: "Queued refresh job cancelled",
+        });
+      }
+      if (url.includes("/admin/refresh-jobs?")) {
+        listCalls += 1;
+        if (listCalls === 1) {
+          return jsonResponse({
+            jobs: [
+              {
+                id: jobId,
+                characterId: "c1",
+                region: "EU",
+                realmSlug: "tarren-mill",
+                name: "Aleria",
+                classSlug: "mage",
+                classColor: "#3FC7EB",
+                avatarUrl: null,
+                classIconUrl: null,
+                mythicPlusScore: 3000,
+                battleTag: null,
+                battleNetEmail: null,
+                scoringModelKey: "default",
+                scoringModelVersion: 6,
+                databaseStatus: "QUEUED",
+                queueState: "queued",
+                triggerSource: "MANUAL",
+                fromBulk: false,
+                priority: 0,
+                retryable: false,
+                latestError: null,
+                cancelRequested: false,
+                createdAt: "2026-07-30T12:00:00.000Z",
+                startedAt: null,
+                finishedAt: null,
+                actions: { rerun: false, prioritize: true, cancel: true },
+              },
+            ],
+            total: 1,
+            page: 1,
+            pageSize: 25,
+          });
+        }
+        // Simulate a slow/stale list that still returns QUEUED — local cancel patch must win until a fresh list arrives.
+        await new Promise((r) => setTimeout(r, 30));
+        return jsonResponse({
+          jobs: [
+            {
+              id: jobId,
+              characterId: "c1",
+              region: "EU",
+              realmSlug: "tarren-mill",
+              name: "Aleria",
+              classSlug: "mage",
+              classColor: "#3FC7EB",
+              avatarUrl: null,
+              classIconUrl: null,
+              mythicPlusScore: 3000,
+              battleTag: null,
+              battleNetEmail: null,
+              scoringModelKey: "default",
+              scoringModelVersion: 6,
+              databaseStatus: "CANCELLED",
+              queueState: "cancelled",
+              triggerSource: "MANUAL",
+              fromBulk: false,
+              priority: 0,
+              retryable: false,
+              latestError: null,
+              cancelRequested: true,
+              createdAt: "2026-07-30T12:00:00.000Z",
+              startedAt: null,
+              finishedAt: "2026-07-30T12:00:05.000Z",
+              actions: { rerun: true, prioritize: false, cancel: false },
+            },
+          ],
+          total: 1,
+          page: 1,
+          pageSize: 25,
+        });
+      }
+      return jsonResponse({});
+    });
+
+    const wrapper = await mountPage();
+    await wrapper.get("[data-testid='tab-refresh-jobs']").trigger("click");
+    await flushPromises();
+    await vi.waitFor(() => {
+      expect(wrapper.find("[data-testid='job-row']").exists()).toBe(true);
+    });
+    expect(wrapper.get("[data-testid='job-row']").text()).toMatch(/Queued/i);
+
+    const cancelBtn = wrapper
+      .findAll("button")
+      .find((b) => b.text() === "Cancel");
+    expect(cancelBtn).toBeTruthy();
+    await cancelBtn!.trigger("click");
+    await flushPromises();
+
+    await vi.waitFor(() => {
+      expect(wrapper.get("[data-testid='job-row']").text()).toMatch(/Cancelled/i);
+    });
+    expect(wrapper.findAll("button").some((b) => b.text() === "Cancel")).toBe(false);
+  });
+
+  it("loads realm options into a select on the characters tab", async () => {
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/admin/roles")) return jsonResponse({ roles: [] });
+      return jsonResponse({});
+    });
+    const wrapper = await mountPage();
+    await wrapper.get("[data-testid='tab-characters']").trigger("click");
+    await flushPromises();
+    const realmSelect = wrapper.get("[data-testid='admin-character-realm']");
+    expect(realmSelect.element.tagName).toBe("SELECT");
+    expect(realmSelect.text()).toMatch(/Any realm/i);
+    await vi.waitFor(() => {
+      expect(wrapper.get("[data-testid='admin-character-realm']").text()).toMatch(/Tarren Mill/i);
+    });
   });
 
   it("shows a banner only when message content is present", async () => {
