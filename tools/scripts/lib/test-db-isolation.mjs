@@ -8,30 +8,39 @@
  */
 
 import { randomBytes } from "node:crypto";
+export {
+  CANONICAL_SCORE_MODEL_KEYS,
+  TEST_SCORE_MODEL_KEY_PREFIXES,
+  TEST_CHARACTER_DISPLAY_NAME_PREFIXES,
+  TEST_CHARACTER_NORMALIZED_NAME_PREFIXES,
+  TEST_REALM_SLUGS,
+  TEST_REALM_SLUG_PREFIXES,
+  TEST_DUNGEON_SLUG_PREFIXES,
+  TEST_SEASON_SLUGS,
+  TEST_INGESTION_DEDUPE_KEY_PREFIXES,
+  TEST_INGESTION_PAYLOAD_NAME_PREFIXES,
+  TEST_BULK_LOGICAL_KEY_PREFIXES,
+  TEST_MECHANIC_RULE_SOURCES,
+  TEST_USER_EXTERNAL_SUBJECT_PREFIXES,
+  matchPrefix,
+  matchScoreModelKey,
+  matchTestCharacterIdentity,
+  matchIngestionDedupeKey,
+  matchIngestionPayloadName,
+  matchBulkLogicalKey,
+  matchTestRealmSlug,
+  matchTestDungeonSlug,
+  isTestSeasonSlug,
+} from "./test-artifact-registry.mjs";
+
+import {
+  CANONICAL_SCORE_MODEL_KEYS,
+  TEST_SCORE_MODEL_KEY_PREFIXES,
+} from "./test-artifact-registry.mjs";
 
 export const ISOLATED_TEST_DB_MARKER = "MPLUS_ISOLATED_TEST_DB";
 export const DISPOSABLE_DB_PREFIX = "mplus_itest_";
 export const DEV_DATABASE_NAME = "mplus_trust";
-
-/** Explicit score-model key prefixes created by automated tests (exact allowlist). */
-export const TEST_SCORE_MODEL_KEY_PREFIXES = Object.freeze([
-  "admin-test-",
-  "life-arch-",
-  "life-inv-",
-  "life-act-",
-  "life-race-",
-  "life-bt-",
-  "life-bad-",
-  "life-boot-",
-  "life-v6-",
-  "life-del-",
-  "alt-model-",
-  "bulk-model-",
-  "pub-cancel-model-",
-]);
-
-/** Canonical seeded score model key — never deleted by cleanup. */
-export const CANONICAL_SCORE_MODEL_KEYS = Object.freeze(["default"]);
 
 const DISPOSABLE_DB_RE = /^mplus_itest_[a-z0-9]{8,24}$/;
 

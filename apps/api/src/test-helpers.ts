@@ -138,3 +138,106 @@ export async function cleanupTrackedScoreModels(
     }
   }
 }
+
+/**
+ * Best-effort cleanup of IngestionJobs + Characters created by a suite.
+ * Deletes only the given IDs. Jobs first (Restrict FK), then characters.
+ * Isolation remains primary protection.
+ */
+export async function cleanupTrackedIngestionJobs(
+  prisma: PrismaClient,
+  jobIds: readonly string[],
+): Promise<void> {
+  for (const id of jobIds) {
+    try {
+      await prisma.refreshAdmission.deleteMany({ where: { jobId: id } });
+      await prisma.ingestionJob.delete({ where: { id } });
+    } catch (err) {
+      console.warn(
+        `Best-effort ingestion job cleanup failed for id=${id}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+  }
+}
+
+/**
+ * Best-effort cleanup of Characters created by a suite (and remaining jobs).
+ * Never deletes characters with verified ownership.
+ */
+export async function cleanupTrackedCharacters(
+  prisma: PrismaClient,
+  characterIds: readonly string[],
+): Promise<void> {
+  for (const id of characterIds) {
+    try {
+      const ownership = await prisma.verifiedCharacterOwnership.count({
+        where: { characterId: id },
+      });
+      if (ownership > 0) {
+        console.warn(`Refusing to delete character id=${id}: verified ownership present`);
+        continue;
+      }
+
+      const jobs = await prisma.ingestionJob.findMany({
+        where: { characterId: id },
+        select: { id: true },
+      });
+      await cleanupTrackedIngestionJobs(
+        prisma,
+        jobs.map((j) => j.id),
+      );
+
+      await prisma.characterProviderState.deleteMany({ where: { characterId: id } });
+      await prisma.characterProfileView.deleteMany({ where: { characterId: id } });
+      await prisma.refreshScheduleItem.deleteMany({ where: { characterId: id } });
+      await prisma.bulkOperationItem.updateMany({
+        where: { characterId: id },
+        data: { characterId: null },
+      });
+      await prisma.characterAlias.deleteMany({ where: { characterId: id } });
+      await prisma.metricObservation.deleteMany({ where: { characterId: id } });
+      await prisma.characterRedFlag.deleteMany({ where: { characterId: id } });
+      await prisma.scoreDispute.deleteMany({ where: { characterId: id } });
+      await prisma.characterPublishedScore.deleteMany({ where: { characterId: id } });
+
+      const snapshots = await prisma.scoreSnapshot.findMany({
+        where: { characterId: id },
+        select: { id: true },
+      });
+      if (snapshots.length > 0) {
+        const snapshotIds = snapshots.map((s) => s.id);
+        await prisma.dimensionScore.deleteMany({
+          where: { scoreSnapshotId: { in: snapshotIds } },
+        });
+        await prisma.scoreSnapshot.deleteMany({ where: { characterId: id } });
+      }
+
+      await prisma.equipmentSnapshot.deleteMany({
+        where: { characterSnapshot: { characterId: id } },
+      });
+      await prisma.talentSnapshot.deleteMany({
+        where: { characterSnapshot: { characterId: id } },
+      });
+      await prisma.characterSnapshot.deleteMany({ where: { characterId: id } });
+      await prisma.scoreAnalysisBatch.deleteMany({ where: { characterId: id } });
+      await prisma.refreshCostLedgerEntry.updateMany({
+        where: { characterId: id },
+        data: { characterId: null },
+      });
+      await prisma.refreshAdmission.updateMany({
+        where: { characterId: id },
+        data: { characterId: null },
+      });
+
+      await prisma.character.delete({ where: { id } });
+    } catch (err) {
+      console.warn(
+        `Best-effort character cleanup failed for id=${id}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+  }
+}
