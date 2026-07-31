@@ -7,6 +7,7 @@ export const WARRIOR_RULES: AbilityRule[] = [
     canonicalKey: "warrior.interrupt.pummel",
     name: "Pummel",
     spellIds: [6552],
+    iconName: "ability_warrior_shieldbash",
     classSlug: "warrior",
     roles: ALL_ROLES,
     category: "INTERRUPT",

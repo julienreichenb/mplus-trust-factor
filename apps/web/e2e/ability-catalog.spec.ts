@@ -42,7 +42,7 @@ test.describe("Ability catalog explorer", () => {
     await page.getByTestId("catalog-search").fill("");
     await page.waitForTimeout(400);
 
-    const validationFilter = page.locator("[data-testid='catalog-filters'] select").last();
+    const validationFilter = page.getByTestId("validation-filter");
     await validationFilter.selectOption("uncertain");
     await page.waitForTimeout(500);
     await page.screenshot({ path: join(SCREENSHOT_DIR, "filter-uncertain.png"), fullPage: true });

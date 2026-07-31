@@ -82,6 +82,15 @@ export {
 } from "./external-metadata.js";
 
 export {
+  WOW_ICON_CDN_BASE,
+  WOW_ICON_CDN_ORIGIN,
+  WOW_ICON_FALLBACK_DATA_URI,
+  normalizeWowIconName,
+  wowIconSrc,
+  wowIconUrl,
+} from "./wow-icons.js";
+
+export {
   queryAdminAbilityCatalog,
   type AdminAbilityCatalogQuery,
   type AdminAbilityCatalogResponse,
