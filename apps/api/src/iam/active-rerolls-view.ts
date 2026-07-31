@@ -137,7 +137,7 @@ export async function buildActiveRerollsView(input: {
   name: string;
   logger?: Logger | null;
 }): Promise<ActiveRerollsResponse> {
-  const { prisma, env, logger } = input;
+  const { prisma, logger } = input;
   const regionCode = normalizeRegion(input.region);
   const realmSlug = normalizeRealmSlug(input.realmSlug);
   const normalizedName = normalizeName(input.name);
@@ -244,8 +244,8 @@ export async function buildActiveRerollsView(input: {
   const displayedCharacterIsMain = primaryOwnershipId === displayedOwnership.id;
 
   const scoreModel = await prisma.scoreModel.findFirst({
-    where: { key: env.ACTIVE_SCORE_MODEL_KEY, status: "ACTIVE" },
-    orderBy: { version: "desc" },
+    where: { status: "ACTIVE" },
+    orderBy: [{ key: "asc" }, { version: "desc" }],
     select: { id: true },
   });
 

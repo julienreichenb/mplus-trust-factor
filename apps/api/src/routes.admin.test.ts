@@ -20,7 +20,18 @@ describe.skipIf(!dbAvailable)("admin routes", { timeout: 30_000 }, () => {
 
   beforeAll(async () => {
     const env = buildTestEnv({ ADMIN_API_KEY: ADMIN_KEY });
-    container = createApiContainer(env, { workerOverrides: { prisma: prisma as PrismaClient }, skipQueues: true });
+    container = createApiContainer(env, {
+      workerOverrides: { prisma: prisma as PrismaClient },
+      skipQueues: true,
+    });
+    // Activation enqueues RECALCULATE_ONLY for all characters; do not run that cohort
+    // inline during this suite (avoids post-teardown Prisma races).
+    container.producers.enqueueBulkCharacterProcessing = async () => ({
+      jobId: randomUUID(),
+      dedupeKey: `stub-bulk-${randomUUID()}`,
+      reused: false,
+      enqueued: true,
+    });
     app = await buildApp({ env, container });
     await app.ready();
   });
@@ -77,6 +88,7 @@ describe.skipIf(!dbAvailable)("admin routes", { timeout: 30_000 }, () => {
       method: "POST",
       url: `/api/v1/admin/score-models/${model.id}/backtest`,
       headers: { "x-admin-api-key": ADMIN_KEY },
+      payload: {},
     });
     expect(backtestResponse.statusCode).toBe(200);
     expect(backtestResponse.json().scoreModelId).toBe(model.id);
@@ -85,10 +97,15 @@ describe.skipIf(!dbAvailable)("admin routes", { timeout: 30_000 }, () => {
       method: "POST",
       url: `/api/v1/admin/score-models/${model.id}/activate`,
       headers: { "x-admin-api-key": ADMIN_KEY },
-      payload: {},
+      payload: { confirm: true },
     });
     expect(activateResponse.statusCode).toBe(200);
     expect(activateResponse.json().status).toBe("ACTIVE");
+    expect(activateResponse.json().bulkOperationId).toBeTruthy();
+
+    const backtestBody = backtestResponse.json();
+    expect(backtestBody.source).toBe("persisted-export");
+    expect(String(backtestBody.note ?? "")).not.toContain("Fixture placeholder");
   });
 
   it("manages mechanic rules end-to-end (create, get, patch, deactivate)", async () => {

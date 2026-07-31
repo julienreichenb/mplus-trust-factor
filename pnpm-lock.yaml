@@ -90,6 +90,9 @@ importers:
       '@mplus/observability':
         specifier: workspace:*
         version: link:../../packages/observability
+      '@mplus/scoring':
+        specifier: workspace:*
+        version: link:../../packages/scoring
       '@mplus/worker':
         specifier: workspace:*
         version: link:../worker

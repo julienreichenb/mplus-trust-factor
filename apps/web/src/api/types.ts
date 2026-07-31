@@ -58,8 +58,34 @@ export interface ModelValidationResult {
 export interface BacktestSummary {
   cohortSize: number;
   meanOverall: number;
-  gradeDistribution: Record<Grade, number>;
+  gradeDistribution: Record<Grade, number> | Partial<Record<Grade, number>>;
   notes: string;
+  meanConfidence?: number | null;
+  mode?: string;
+  outliers?: unknown[];
+  confidenceVersusCoverage?: unknown[];
+  activeDraftComparison?: {
+    comparable?: boolean;
+    note?: string;
+    aggregate?: {
+      comparableCount?: number;
+      meanScoreDelta?: number | null;
+      meanOverallDelta?: number | null;
+      [key: string]: unknown;
+    } | null;
+    [key: string]: unknown;
+  } | null;
+  source?: string;
+  /** Present only for genuine non-replayable snapshot-only responses. */
+  degradedReason?: string | null;
+  cohortId?: string;
+}
+
+export interface ActivateScoreModelResult extends AdminScoreModelDTO {
+  previousActiveId: string | null;
+  previousActiveVersion: number | null;
+  bulkOperationId: string | null;
+  bulkEnqueueError: string | null;
 }
 
 export interface EditableModelConfig extends ScoreModelConfig {
@@ -133,7 +159,14 @@ export interface MplusApiClient {
   ): Promise<AdminScoreModelDTO>;
   validateModel(modelId: string, config: unknown, signal?: AbortSignal): Promise<ModelValidationResult>;
   backtestModel(modelId: string, signal?: AbortSignal): Promise<BacktestSummary>;
-  activateModel(modelId: string, signal?: AbortSignal): Promise<AdminScoreModelDTO>;
+  activateModel(
+    modelId: string,
+    opts?: {
+      confirm?: boolean;
+      expectedPreviousActiveId?: string | null;
+      signal?: AbortSignal;
+    },
+  ): Promise<ActivateScoreModelResult>;
   getAdminAbilityCatalog(
     params?: Record<string, string | number | undefined>,
     signal?: AbortSignal,

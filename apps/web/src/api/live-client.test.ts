@@ -7,6 +7,12 @@ describe("realm-options", () => {
     expect(normalizeRealmOption({ slug: "tarren-mill", name: "tarren-mill" })).toEqual({
       slug: "tarren-mill",
       name: "Tarren Mill",
+      region: "EU",
+      locale: null,
+      connectedRealmId: null,
+      displayLabel: "Tarren Mill — EU",
+      category: null,
+      timezone: null,
     });
   });
 
@@ -14,6 +20,12 @@ describe("realm-options", () => {
     expect(normalizeRealmOption({ slug: "tarren-mill", name: "Tarren Mill" })).toEqual({
       slug: "tarren-mill",
       name: "Tarren Mill",
+      region: "EU",
+      locale: null,
+      connectedRealmId: null,
+      displayLabel: "Tarren Mill — EU",
+      category: null,
+      timezone: null,
     });
   });
 
@@ -54,13 +66,22 @@ describe("createLiveApiClient", () => {
 
   it("sets Content-Type when a JSON body is provided", async () => {
     const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
-      expect(init?.body).toBe(JSON.stringify({}));
+      expect(init?.body).toBe(JSON.stringify({ confirm: true }));
       const headers = new Headers(init?.headers);
       expect(headers.get("Content-Type")).toBe("application/json");
-      return new Response(JSON.stringify({ id: "model-1" }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      });
+      return new Response(
+        JSON.stringify({
+          id: "model-1",
+          previousActiveId: null,
+          previousActiveVersion: null,
+          bulkOperationId: "bulk-1",
+          bulkEnqueueError: null,
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      );
     });
     vi.stubGlobal("fetch", fetchMock);
 
@@ -90,8 +111,26 @@ describe("createLiveApiClient", () => {
     const realms = await client.searchRealms("EU", "tar");
 
     expect(realms).toEqual([
-      { slug: "tarren-mill", name: "Tarren Mill" },
-      { slug: "kazzak", name: "Kazzak" },
+      {
+        slug: "tarren-mill",
+        name: "Tarren Mill",
+        region: "EU",
+        locale: null,
+        connectedRealmId: null,
+        displayLabel: "Tarren Mill — EU",
+        category: null,
+        timezone: null,
+      },
+      {
+        slug: "kazzak",
+        name: "Kazzak",
+        region: "EU",
+        locale: null,
+        connectedRealmId: null,
+        displayLabel: "Kazzak — EU",
+        category: null,
+        timezone: null,
+      },
     ]);
     expect(normalizeRealmOptions(realms)).toEqual(realms);
   });

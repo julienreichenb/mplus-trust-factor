@@ -105,7 +105,7 @@ export async function runDiscoverOwnedCharacters(
   });
 
   try {
-    const scoreModel = await repositories.score.getActiveModel(env.ACTIVE_SCORE_MODEL_KEY);
+    const scoreModel = await repositories.score.getActiveModel();
     const regionalSeasonByCode = new Map<string, RegionalSeasonCache>();
     const regionalSeasonInflight = new Map<string, Promise<RegionalSeasonCache>>();
 

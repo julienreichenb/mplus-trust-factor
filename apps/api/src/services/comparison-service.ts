@@ -68,10 +68,8 @@ export class ComparisonService {
       );
     }
 
-    const activeModel = await this.repositories.score.getActiveModel(
-      request.modelKey ?? this.container.env.ACTIVE_SCORE_MODEL_KEY,
-    );
-    const targetModelKey = request.modelKey ?? activeModel?.key ?? this.container.env.ACTIVE_SCORE_MODEL_KEY;
+    const activeModel = await this.repositories.score.getActiveModel(request.modelKey);
+    const targetModelKey = request.modelKey ?? activeModel?.key ?? "default";
     const targetModelVersion =
       request.modelVersion ?? activeModel?.version ?? this.container.env.ACTIVE_SCORE_MODEL_VERSION;
 

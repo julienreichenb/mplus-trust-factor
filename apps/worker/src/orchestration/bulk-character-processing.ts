@@ -54,11 +54,9 @@ async function resolveScoreModel(
     }
     return { key: model.key, version: model.version, id: model.id };
   }
-  const active = await container.repositories.score.getActiveModel(
-    container.env.ACTIVE_SCORE_MODEL_KEY,
-  );
+  const active = await container.repositories.score.getActiveModel();
   if (!active) {
-    throw new Error(`No active score model for key "${container.env.ACTIVE_SCORE_MODEL_KEY}"`);
+    throw new Error(`No active score model found in the database`);
   }
   return { key: active.key, version: active.version, id: active.id };
 }

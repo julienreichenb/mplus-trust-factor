@@ -89,14 +89,33 @@ export interface RejectCandidateInput {
   coherence: CoherenceValidationResult;
 }
 
+export interface ActivateModelOptions {
+  /**
+   * Optimistic concurrency token: expected id of the currently ACTIVE sibling for the same key.
+   * Pass `null` when confirming there is no ACTIVE model. Omit to skip the check.
+   */
+  expectedPreviousActiveId?: string | null;
+}
+
+export interface ActivateModelResult {
+  model: ScoreModel;
+  previousActive: ScoreModel | null;
+}
+
 export interface ScoreRepository {
+  /**
+   * Resolve the DB-authoritative ACTIVE model.
+   * - With `key`: ACTIVE row for that key.
+   * - Without `key`: prefer `default`, else any ACTIVE (highest version).
+   * Env `ACTIVE_SCORE_MODEL_KEY` must not be required for normal runtime lookup.
+   */
   getActiveModel(key?: string): Promise<ScoreModel | null>;
   getModelById(id: string): Promise<ScoreModel | null>;
   getModelByKeyVersion(key: string, version: number): Promise<ScoreModel | null>;
   createDraftModel(input: CreateDraftModelInput): Promise<ScoreModel>;
   updateDraftConfig(id: string, config: ScoreModelConfig): Promise<ScoreModel>;
   validateConfig(config: ScoreModelConfig): string[];
-  activateModel(id: string): Promise<ScoreModel>;
+  activateModel(id: string, opts?: ActivateModelOptions): Promise<ActivateModelResult>;
   saveScoreSnapshot(input: SaveScoreSnapshotInput): Promise<ScoreSnapshot>;
   /** Save as CANDIDATE without publishing. */
   saveCandidateSnapshot(input: SaveScoreSnapshotInput): Promise<ScoreSnapshot>;
@@ -235,10 +254,21 @@ async function upsertPublishedPointer(
 
 export function createScoreRepository(prisma: PrismaClient): ScoreRepository {
   return {
-    async getActiveModel(key = "default") {
-      return prisma.scoreModel.findFirst({
-        where: { key, status: "ACTIVE" },
+    async getActiveModel(key) {
+      if (key !== undefined) {
+        return prisma.scoreModel.findFirst({
+          where: { key, status: "ACTIVE" },
+          orderBy: { version: "desc" },
+        });
+      }
+      const preferred = await prisma.scoreModel.findFirst({
+        where: { key: "default", status: "ACTIVE" },
         orderBy: { version: "desc" },
+      });
+      if (preferred) return preferred;
+      return prisma.scoreModel.findFirst({
+        where: { status: "ACTIVE" },
+        orderBy: [{ key: "asc" }, { version: "desc" }],
       });
     },
 
@@ -293,18 +323,57 @@ export function createScoreRepository(prisma: PrismaClient): ScoreRepository {
 
     validateConfig,
 
-    async activateModel(id) {
-      return prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-        const target = await tx.scoreModel.findUniqueOrThrow({ where: { id } });
-        await tx.scoreModel.updateMany({
-          where: { key: target.key, status: "ACTIVE", id: { not: id } },
-          data: { status: "ARCHIVED" },
+    async activateModel(id, opts = {}) {
+      try {
+        return await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+          const target = await tx.scoreModel.findUniqueOrThrow({ where: { id } });
+          if (target.status !== "DRAFT") {
+            throw new Error(`Only DRAFT models can be activated (got ${target.status})`);
+          }
+          const errors = validateConfig(target.config as unknown as ScoreModelConfig);
+          if (errors.length > 0) {
+            throw new Error(`Invalid score model config: ${errors.join("; ")}`);
+          }
+
+          const previousActive = await tx.scoreModel.findFirst({
+            where: { key: target.key, status: "ACTIVE" },
+            orderBy: { version: "desc" },
+          });
+
+          if (opts.expectedPreviousActiveId !== undefined) {
+            const actualId = previousActive?.id ?? null;
+            if (actualId !== opts.expectedPreviousActiveId) {
+              throw new Error(
+                "ACTIVE_MODEL_CONFLICT: expected previous active model no longer matches (concurrent activation or stale confirmation)",
+              );
+            }
+          }
+
+          if (previousActive) {
+            await tx.scoreModel.update({
+              where: { id: previousActive.id },
+              data: { status: "ARCHIVED" },
+            });
+          }
+
+          const model = await tx.scoreModel.update({
+            where: { id },
+            data: { status: "ACTIVE", activatedAt: new Date() },
+          });
+          return { model, previousActive };
         });
-        return tx.scoreModel.update({
-          where: { id },
-          data: { status: "ACTIVE", activatedAt: new Date() },
-        });
-      });
+      } catch (error) {
+        const code =
+          error && typeof error === "object" && "code" in error
+            ? String((error as { code: unknown }).code)
+            : "";
+        if (code === "P2002") {
+          throw new Error(
+            "ACTIVE_MODEL_CONFLICT: another model is already ACTIVE for this key (concurrent activation)",
+          );
+        }
+        throw error;
+      }
     },
 
     async saveCandidateSnapshot(input) {

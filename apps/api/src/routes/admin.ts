@@ -398,11 +398,22 @@ export function buildAdminRoutes(container: ApiContainer): FastifyPluginAsync {
       protectedApp.post(
         "/api/v1/admin/score-models/:id/backtest",
         {
-          schema: { tags: ["admin"], params: idParamsSchema, response: { 200: backtestResponseSchema, 404: errorResponseSchema } },
+          schema: {
+            tags: ["admin"],
+            params: idParamsSchema,
+            response: { 200: backtestResponseSchema, 404: errorResponseSchema },
+          },
         },
         async (request) => {
           const { id } = request.params as { id: string };
-          return service.backtestScoreModel(id);
+          const body =
+            request.body && typeof request.body === "object"
+              ? (request.body as { characterIds?: string[]; limit?: number })
+              : {};
+          return service.backtestScoreModel(id, {
+            characterIds: body.characterIds ?? null,
+            limit: body.limit,
+          });
         },
       );
 
@@ -414,15 +425,54 @@ export function buildAdminRoutes(container: ApiContainer): FastifyPluginAsync {
             params: idParamsSchema,
             body: {
               type: "object",
-              properties: { characterId: { type: "string" } },
+              properties: {
+                characterId: { type: "string" },
+                expectedPreviousActiveId: { type: ["string", "null"] },
+                confirm: { type: "boolean" },
+              },
             },
-            response: { 200: adminScoreModelSchema, 404: errorResponseSchema },
+            response: {
+              200: {
+                type: "object",
+                properties: {
+                  id: { type: "string" },
+                  key: { type: "string" },
+                  version: { type: "number" },
+                  name: { type: "string" },
+                  status: { type: "string" },
+                  config: { type: "object", additionalProperties: true },
+                  createdAt: { type: "string" },
+                  activatedAt: { type: ["string", "null"] },
+                  previousActiveId: { type: ["string", "null"] },
+                  previousActiveVersion: { type: ["integer", "null"] },
+                  bulkOperationId: { type: ["string", "null"] },
+                  bulkEnqueueError: { type: ["string", "null"] },
+                },
+                additionalProperties: true,
+              },
+              400: errorResponseSchema,
+              404: errorResponseSchema,
+              409: errorResponseSchema,
+            },
           },
         },
         async (request) => {
           const { id } = request.params as { id: string };
-          const body = (request.body as { characterId?: string } | undefined) ?? {};
-          return service.activateScoreModel(id, { characterId: body.characterId });
+          const body =
+            (request.body as {
+              characterId?: string;
+              expectedPreviousActiveId?: string | null;
+              confirm?: boolean;
+            } | undefined) ?? {};
+          return service.activateScoreModel(id, {
+            characterId: body.characterId,
+            expectedPreviousActiveId: body.expectedPreviousActiveId,
+            confirm: body.confirm ?? true,
+            actorUserId: request.auth?.user.id ?? null,
+            actorType: request.authActor === "admin_key" ? "admin_key" : "user",
+            ip: request.ip,
+            userAgent: request.headers["user-agent"],
+          });
         },
       );
 
