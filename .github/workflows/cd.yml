@@ -38,10 +38,6 @@ on:
     branches:
       - test
       - prod
-    paths-ignore:
-      - "doc/**"
-      - "docs/**"
-      - "**.md"
 
 concurrency:
   # Isolate locks per target so test never cancels an in-progress production deploy.
