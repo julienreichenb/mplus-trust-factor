@@ -1,4 +1,4 @@
-import type { Character, CharacterRole, GameClass, GameSpecialization, PrismaClient } from "@mplus/database";
+import type { Character, CharacterRole, GameClass, GameSpecialization, Prisma, PrismaClient } from "@mplus/database";
 import {
   CHARACTER_NAME_FUZZY_MIN_QUERY_LENGTH,
   CHARACTER_NAME_FUZZY_SIMILARITY_THRESHOLD,

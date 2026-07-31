@@ -1,4 +1,4 @@
-import { Prisma, type MetricDefinition, type PrismaClient } from "@mplus/database";
+import type { MetricDefinition, Prisma, PrismaClient } from "@mplus/database";
 import type { MetricObservationDTO } from "@mplus/contracts";
 import { buildObservationKey } from "@mplus/scoring";
 import type { PrismaClientOrTx } from "./shared.js";
