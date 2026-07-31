@@ -6,6 +6,7 @@ Canonical product scoring documentation:
 - [`../product/ranking-confidence-and-missing-data.md`](../product/ranking-confidence-and-missing-data.md)
 - [`../architecture/scoring-publication.md`](../architecture/scoring-publication.md)
 - [`../operations/model-lifecycle.md`](../operations/model-lifecycle.md)
+- [`calibration-harness.md`](calibration-harness.md) — Agent 10 reproducible backtest/calibration harness + Agent 08 adapter
 
 Runtime defaults: `packages/scoring/src/model/defaults.ts` (`createDefaultModelV6`).  
 Active model is a database row (seeded `default@6`); env vars are lookup/bootstrap aids, not normal activation.
