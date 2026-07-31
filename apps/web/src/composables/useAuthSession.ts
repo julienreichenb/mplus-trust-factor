@@ -1,4 +1,8 @@
 import { computed, ref } from "vue";
+import { hasAnyAuthorizedAdminDestination } from "../lib/adminNav";
+import { hasPermission } from "../lib/permissions";
+
+export { hasPermission } from "../lib/permissions";
 
 const apiBase = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:3000";
 
@@ -18,22 +22,9 @@ const me = ref<AuthMeResponse | null>(null);
 const loading = ref(false);
 let inflight: Promise<AuthMeResponse> | null = null;
 
+/** True when the user may see at least one Admin destination. */
 export function hasAdminNavPermission(permissions: string[] | undefined): boolean {
-  return Boolean(
-    permissions?.some(
-      (p) =>
-        p.startsWith("admin.") ||
-        p === "score.recalculate" ||
-        p === "admin.ability_catalog.read" ||
-        p === "admin.score_models.manage",
-    ),
-  );
-}
-
-export function hasPermission(permissions: string[] | undefined, required: string | string[]): boolean {
-  if (!permissions?.length) return false;
-  const needed = Array.isArray(required) ? required : [required];
-  return needed.every((key) => permissions.includes(key));
+  return hasAnyAuthorizedAdminDestination(permissions);
 }
 
 export async function fetchAuthMe(force = false): Promise<AuthMeResponse> {
@@ -61,7 +52,7 @@ export function useAuthSession() {
   const authenticated = computed(() => Boolean(me.value?.authenticated));
   const user = computed(() => me.value?.user ?? null);
   const permissions = computed(() => me.value?.user?.permissions ?? []);
-  const canSeeAdminNav = computed(() => hasAdminNavPermission(permissions.value));
+  const canSeeAdminNav = computed(() => hasAnyAuthorizedAdminDestination(permissions.value));
   const canForceRefresh = computed(() =>
     hasPermission(permissions.value, "profile.refresh.force"),
   );

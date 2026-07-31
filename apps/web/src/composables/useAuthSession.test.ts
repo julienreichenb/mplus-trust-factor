@@ -2,14 +2,18 @@ import { describe, expect, it } from "vitest";
 import { hasAdminNavPermission, hasPermission } from "./useAuthSession";
 
 describe("useAuthSession helpers", () => {
-  it("hides admin navigation for users without admin permissions", () => {
+  it("hides admin navigation for users without destination permissions", () => {
     expect(hasAdminNavPermission([])).toBe(false);
     expect(hasAdminNavPermission(["profile.refresh.request"])).toBe(false);
+    expect(hasAdminNavPermission(["admin.settings.manage"])).toBe(false);
+    expect(hasAdminNavPermission(["score.recalculate"])).toBe(false);
   });
 
-  it("shows admin navigation when admin permissions are present", () => {
+  it("shows admin navigation when a destination permission is present", () => {
     expect(hasAdminNavPermission(["admin.users.read"])).toBe(true);
     expect(hasAdminNavPermission(["admin.score_models.manage"])).toBe(true);
+    expect(hasAdminNavPermission(["admin.ability_catalog.read"])).toBe(true);
+    expect(hasAdminNavPermission(["admin.jobs.manage"])).toBe(true);
   });
 
   it("checks force refresh permission explicitly", () => {

@@ -1,4 +1,12 @@
 import type { RouteRecordRaw } from "vue-router";
+import type { AdminDestinationId } from "./lib/adminNav";
+
+declare module "vue-router" {
+  interface RouteMeta {
+    requiresAuth?: boolean;
+    adminDestinationId?: AdminDestinationId;
+  }
+}
 
 export const routeDefs: RouteRecordRaw[] = [
   { path: "/", name: "home", component: () => import("./pages/HomePage.vue") },
@@ -34,24 +42,24 @@ export const routeDefs: RouteRecordRaw[] = [
     path: "/admin/models",
     name: "admin-models",
     component: () => import("./pages/AdminModelsPage.vue"),
-    meta: { requiresAdmin: true },
+    meta: { adminDestinationId: "score-models" },
   },
   {
     path: "/admin/ability-catalog",
     name: "admin-ability-catalog",
     component: () => import("./pages/AdminAbilityCatalogPage.vue"),
-    meta: { requiresAdmin: true },
+    meta: { adminDestinationId: "ability-catalog" },
   },
   {
     path: "/admin/users",
     name: "admin-users",
     component: () => import("./pages/AdminUsersPage.vue"),
-    meta: { requiresAdmin: true },
+    meta: { adminDestinationId: "admin-users" },
   },
   {
     path: "/admin/bulk-processing",
     name: "admin-bulk-processing",
     component: () => import("./pages/AdminBulkProcessingPage.vue"),
-    meta: { requiresAdmin: true },
+    meta: { adminDestinationId: "bulk-processing" },
   },
 ];
