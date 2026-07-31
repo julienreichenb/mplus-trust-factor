@@ -188,7 +188,6 @@ onBeforeUnmount(() => {
         :height="18"
         class="icon-select__icon"
       />
-      <span v-else class="icon-select__icon icon-select__icon--empty" aria-hidden="true" />
       <span :id="`${controlId}-value`" class="icon-select__text">{{ displayLabel }}</span>
       <svg
         class="icon-select__chevron"
@@ -239,8 +238,8 @@ onBeforeUnmount(() => {
           :alt="''"
           :width="18"
           :height="18"
+          class="icon-select__icon"
         />
-        <span v-else class="icon-select__icon icon-select__icon--empty" aria-hidden="true" />
         <span>{{ item.label }}</span>
       </li>
     </ul>
@@ -294,16 +293,11 @@ onBeforeUnmount(() => {
   white-space: nowrap;
 }
 
-.icon-select__icon,
-.icon-select__icon--empty {
+.icon-select__icon {
   width: 18px;
   height: 18px;
   border-radius: 3px;
   flex-shrink: 0;
-}
-
-.icon-select__icon--empty {
-  background: var(--border);
 }
 
 .icon-select__chevron {

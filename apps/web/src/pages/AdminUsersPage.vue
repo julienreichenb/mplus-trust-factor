@@ -1,12 +1,15 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
+import { api } from "../api/client";
 import { ApiClientError } from "../api/live-client";
+import type { RealmOption, RegionCode } from "../api/types";
 import CharacterIdentity from "../components/character/CharacterIdentity.vue";
 import StatusChip from "../components/character/StatusChip.vue";
 import HelpTooltip from "../components/common/HelpTooltip.vue";
 import StatusBanner from "../components/common/StatusBanner.vue";
 import { useAuthSession } from "../composables/useAuthSession";
+import { canonicalCharacterPath } from "../lib/format";
 
 const apiBase = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:3000";
 const router = useRouter();
@@ -80,6 +83,34 @@ const charRegion = ref("EU");
 const charNickname = ref("");
 const charRealm = ref("");
 const characters = ref<AdminCharacterRow[]>([]);
+const charRealms = ref<RealmOption[]>([]);
+const charRealmsLoading = ref(false);
+let charRealmsAbort: AbortController | null = null;
+
+async function loadCharacterRealms(): Promise<void> {
+  charRealmsAbort?.abort();
+  charRealmsAbort = new AbortController();
+  const signal = charRealmsAbort.signal;
+  const region = charRegion.value as RegionCode;
+  const previousSlug = charRealm.value;
+  charRealmsLoading.value = true;
+  try {
+    const realms = await api.searchRealms(region, "", signal, 500);
+    if (signal.aborted) return;
+    charRealms.value = [...realms].sort((a, b) => a.name.localeCompare(b.name));
+    if (previousSlug && !charRealms.value.some((r) => r.slug === previousSlug)) {
+      charRealm.value = "";
+    }
+  } catch (err) {
+    if ((err as Error).name === "AbortError") return;
+    if (!handleAuthError(err)) {
+      charRealms.value = [];
+      error.value = (err as Error).message;
+    }
+  } finally {
+    if (!signal.aborted) charRealmsLoading.value = false;
+  }
+}
 
 const jobs = ref<AdminRefreshJobRow[]>([]);
 const jobsTotal = ref(0);
@@ -94,6 +125,8 @@ const showHistoricalFailures = ref(false);
 const inFlightCount = ref(0);
 const killConfirm = ref(false);
 const actionBusyId = ref<string | null>(null);
+/** Monotonic token so a slow list response cannot overwrite a newer loadJobs / local patch. */
+let jobsLoadGeneration = 0;
 
 const historicalFailuresHelp =
   "When unchecked, only the latest FAILED job per character is listed. When checked, all past FAILED rows for matching characters are included.";
@@ -139,6 +172,19 @@ function formatTs(value: string | null): string {
   } catch {
     return value;
   }
+}
+
+function characterRoute(job: Pick<AdminRefreshJobRow, "region" | "realmSlug" | "name">) {
+  if (!job.region || !job.realmSlug || !job.name) return null;
+  const path = canonicalCharacterPath(job.region, job.realmSlug, job.name);
+  return {
+    name: "character" as const,
+    params: {
+      region: path.region.toLowerCase(),
+      realm: path.realm,
+      name: path.name,
+    },
+  };
 }
 
 function formatModelVersion(job: AdminRefreshJobRow): string {
@@ -245,7 +291,58 @@ async function loadJobCount(): Promise<void> {
   inFlightCount.value = body.count;
 }
 
+function queueStateForStatus(status: string): string {
+  if (status === "QUEUED") return "queued";
+  if (status === "ACTIVE") return "active";
+  return status.toLowerCase();
+}
+
+function applyCancelResultToJob(
+  id: string,
+  result: {
+    databaseStatus: string;
+    outcome: string;
+  },
+): void {
+  const terminalCancel =
+    result.databaseStatus === "CANCELLED" ||
+    result.outcome === "queued_cancelled" ||
+    result.outcome === "delayed_cancelled" ||
+    result.outcome === "active_force_cancelled";
+  const cancelRequested =
+    terminalCancel ||
+    result.outcome === "active_cancel_requested" ||
+    result.outcome === "already_cancellation_requested" ||
+    result.outcome === "already_terminal";
+
+  jobs.value = jobs.value.map((job) => {
+    if (job.id !== id) return job;
+    const databaseStatus =
+      result.databaseStatus && result.databaseStatus !== "MISSING" && result.databaseStatus !== "UNKNOWN"
+        ? result.databaseStatus
+        : job.databaseStatus;
+    const cancelled = databaseStatus === "CANCELLED";
+    return {
+      ...job,
+      databaseStatus,
+      queueState: queueStateForStatus(databaseStatus),
+      cancelRequested: cancelRequested || job.cancelRequested,
+      finishedAt: cancelled ? (job.finishedAt ?? new Date().toISOString()) : job.finishedAt,
+      actions: {
+        rerun: cancelled || databaseStatus === "FAILED" || databaseStatus === "COMPLETED",
+        prioritize: databaseStatus === "QUEUED" && !cancelRequested,
+        cancel:
+          (databaseStatus === "QUEUED" || databaseStatus === "ACTIVE") &&
+          !cancelled &&
+          result.outcome !== "active_cancel_requested" &&
+          result.outcome !== "already_cancellation_requested",
+      },
+    };
+  });
+}
+
 async function loadJobs(): Promise<void> {
+  const generation = ++jobsLoadGeneration;
   busy.value = true;
   error.value = null;
   try {
@@ -267,14 +364,16 @@ async function loadJobs(): Promise<void> {
       page: number;
       pageSize: number;
     }>(`/api/v1/admin/refresh-jobs?${params}`);
+    if (generation !== jobsLoadGeneration) return;
     jobs.value = body.jobs;
     jobsTotal.value = body.total;
     jobsPage.value = body.page;
     await loadJobCount();
   } catch (err) {
+    if (generation !== jobsLoadGeneration) return;
     if (!handleAuthError(err)) error.value = (err as Error).message;
   } finally {
-    busy.value = false;
+    if (generation === jobsLoadGeneration) busy.value = false;
   }
 }
 
@@ -284,11 +383,28 @@ async function jobAction(id: string, action: "cancel" | "prioritize" | "rerun"):
   error.value = null;
   message.value = null;
   try {
-    await apiJson(`/api/v1/admin/refresh-jobs/${encodeURIComponent(id)}/${action}`, {
-      method: "POST",
-      body: "{}",
-    });
-    message.value = `Job ${action} succeeded.`;
+    if (action === "cancel") {
+      const result = await apiJson<{
+        databaseStatus: string;
+        outcome: string;
+        message?: string;
+      }>(`/api/v1/admin/refresh-jobs/${encodeURIComponent(id)}/cancel`, {
+        method: "POST",
+        body: "{}",
+      });
+      applyCancelResultToJob(id, result);
+      if (result.outcome === "failed_to_cancel") {
+        error.value = result.message ?? "Failed to cancel job.";
+      } else {
+        message.value = result.message ?? "Job cancel succeeded.";
+      }
+    } else {
+      await apiJson(`/api/v1/admin/refresh-jobs/${encodeURIComponent(id)}/${action}`, {
+        method: "POST",
+        body: "{}",
+      });
+      message.value = `Job ${action} succeeded.`;
+    }
     await loadJobs();
   } catch (err) {
     if (!handleAuthError(err)) error.value = (err as Error).message;
@@ -307,6 +423,7 @@ async function killAll(): Promise<void> {
       queuedCancelled: number;
       delayedCancelled: number;
       activeCancellationRequested: number;
+      activeForceCancelled: number;
       alreadyCancellationRequested: number;
       alreadyTerminal: number;
       cancellationFailed: number;
@@ -315,7 +432,7 @@ async function killAll(): Promise<void> {
       method: "POST",
       body: JSON.stringify({ confirm: true }),
     });
-    message.value = `Kill all (point-in-time): queued ${body.queuedCancelled}, delayed ${body.delayedCancelled}, active requested ${body.activeCancellationRequested}, already requested ${body.alreadyCancellationRequested}, already terminal ${body.alreadyTerminal}, failed ${body.cancellationFailed} (snapshot ${body.countBefore}). Bulk may still enqueue new refreshes unless paused.`;
+    message.value = `Kill all (point-in-time): queued ${body.queuedCancelled}, delayed ${body.delayedCancelled}, active force-cancelled ${body.activeForceCancelled ?? 0}, active requested ${body.activeCancellationRequested}, already requested ${body.alreadyCancellationRequested}, already terminal ${body.alreadyTerminal}, failed ${body.cancellationFailed} (snapshot ${body.countBefore}). Bulk may still enqueue new refreshes unless paused.`;
     killConfirm.value = false;
     await loadJobs();
   } catch (err) {
@@ -332,8 +449,17 @@ const bannerTone = computed(() => (error.value ? "error" : "success"));
 watch(activeTab, (tab) => {
   error.value = null;
   message.value = null;
+  if (tab === "characters") {
+    void loadCharacterRealms();
+  }
   if (tab === "refresh-jobs" && canManageJobs.value) {
     void loadJobs();
+  }
+});
+
+watch(charRegion, () => {
+  if (activeTab.value === "characters") {
+    void loadCharacterRealms();
   }
 });
 
@@ -440,8 +566,8 @@ onMounted(async () => {
     </div>
 
     <div v-else-if="activeTab === 'characters'" data-testid="panel-characters">
-      <form class="search search--grid" @submit.prevent="searchCharacters">
-        <label>
+      <form class="search search--grid search--characters" @submit.prevent="searchCharacters">
+        <label class="search__region">
           <span class="label">Region</span>
           <select v-model="charRegion" class="admin-control">
             <option value="EU">EU</option>
@@ -450,13 +576,23 @@ onMounted(async () => {
             <option value="TW">TW</option>
           </select>
         </label>
-        <label>
+        <label class="search__nickname">
           <span class="label">Nickname</span>
           <input v-model="charNickname" class="admin-control" type="search" autocomplete="off" placeholder="Character" />
         </label>
-        <label>
+        <label class="search__realm">
           <span class="label">Realm / server</span>
-          <input v-model="charRealm" class="admin-control" type="search" autocomplete="off" placeholder="tarren-mill" />
+          <select
+            v-model="charRealm"
+            class="admin-control"
+            data-testid="admin-character-realm"
+            :disabled="charRealmsLoading"
+          >
+            <option value="">Any realm</option>
+            <option v-for="realm in charRealms" :key="realm.slug" :value="realm.slug">
+              {{ realm.name }}
+            </option>
+          </select>
         </label>
         <button type="submit" class="btn" :disabled="busy">Search</button>
       </form>
@@ -489,9 +625,9 @@ onMounted(async () => {
       <template v-else>
         <div class="kill-all">
           <p class="muted">
-            Cancels queued/delayed refresh-character jobs and requests cooperative cancellation for
-            active ones in this environment only. Does not touch ownership discovery, bulk
-            orchestrator, or addon jobs.
+            Cancels queued/delayed refresh-character jobs and force-cancels active ones (including
+            zombies stuck after a prior cancel request) in this environment only. Does not touch
+            ownership discovery, bulk orchestrator, or addon jobs.
           </p>
           <label class="admin-checkbox override">
             <input v-model="killConfirm" type="checkbox" />
@@ -565,7 +701,27 @@ onMounted(async () => {
         <ul class="results" data-testid="admin-refresh-jobs-results">
           <li v-for="job in jobs" :key="job.id" class="job-row" data-testid="job-row">
             <div class="job-main">
+              <RouterLink
+                v-if="job.region && job.realmSlug && job.name"
+                class="job-row__character"
+                data-testid="job-character-link"
+                :to="characterRoute(job)!"
+                :aria-label="`Open ${job.name} on ${job.realmSlug}`"
+              >
+                <CharacterIdentity
+                  compact
+                  :region="job.region"
+                  :name="job.name"
+                  :realm-slug="job.realmSlug"
+                  :class-slug="job.classSlug"
+                  :class-color="job.classColor"
+                  :avatar-url="job.avatarUrl"
+                  :class-icon-url="job.classIconUrl"
+                  :size="32"
+                />
+              </RouterLink>
               <CharacterIdentity
+                v-else
                 compact
                 :region="job.region"
                 :name="job.name"
@@ -704,6 +860,42 @@ onMounted(async () => {
   flex: 1;
   min-width: 10rem;
 }
+.search > .btn {
+  align-self: end;
+  flex: 0 0 auto;
+  min-height: 2.5rem;
+  height: 2.5rem;
+  box-sizing: border-box;
+}
+.search--characters {
+  flex-wrap: nowrap;
+}
+.search--characters .search__region {
+  flex: 0 0 4.75rem;
+  min-width: 4.75rem;
+  max-width: 4.75rem;
+}
+.search--characters .search__nickname {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.search--characters .search__realm {
+  flex: 0 0 25%;
+  min-width: 8rem;
+  max-width: 25%;
+}
+@media (max-width: 640px) {
+  .search--characters {
+    flex-wrap: wrap;
+  }
+  .search--characters .search__region,
+  .search--characters .search__nickname,
+  .search--characters .search__realm {
+    flex: 1 1 100%;
+    max-width: none;
+    min-width: 0;
+  }
+}
 .override {
   margin-bottom: var(--space-4);
 }
@@ -752,6 +944,19 @@ onMounted(async () => {
   display: grid;
   gap: 0.25rem;
 }
+.job-row__character {
+  display: inline-flex;
+  width: fit-content;
+  max-width: 100%;
+  text-decoration: none;
+  color: inherit;
+  border-radius: 0.3rem;
+}
+.job-row__character:hover,
+.job-row__character:focus-visible {
+  outline: 2px solid rgb(245 158 11 / 45%);
+  outline-offset: 2px;
+}
 .job-meta {
   display: flex;
   flex-wrap: wrap;
@@ -782,7 +987,6 @@ onMounted(async () => {
   color: #fff;
   cursor: pointer;
   font: inherit;
-  align-self: center;
 }
 .btn:disabled {
   opacity: 0.6;
@@ -795,11 +999,21 @@ onMounted(async () => {
   margin-top: var(--space-5);
 }
 .kill-all {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-3);
   padding: var(--space-4);
   border: 1px solid rgb(185 28 28 / 45%);
   border-radius: 0.5rem;
   background: rgb(185 28 28 / 10%);
   margin-bottom: var(--space-4);
+}
+.kill-all .override {
+  margin: 0;
+}
+.kill-all [data-testid="kill-all-refresh"] {
+  margin-top: var(--space-2);
 }
 .error-line {
   margin: 0;

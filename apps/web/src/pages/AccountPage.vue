@@ -7,6 +7,8 @@ import StatusChip from "../components/character/StatusChip.vue";
 import TrustTierBadge from "../components/landing/TrustTierBadge.vue";
 import type { Grade } from "../api/types";
 import { accountCharacterRoute } from "../lib/accountCharacters";
+import { clearAuthSession, applyAuthMe } from "../composables/useAuthSession";
+import { useAccountCharactersStore } from "../stores/accountCharacters";
 
 const apiBase = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:3000";
 const router = useRouter();
@@ -92,12 +94,16 @@ async function load(): Promise<void> {
   const meRes = await fetch(`${apiBase}/api/v1/auth/me`, { credentials: "include" });
   me.value = await meRes.json();
   if (!me.value?.authenticated) {
+    clearAuthSession();
+    useAccountCharactersStore().reset();
     await router.replace("/auth/signin");
     return;
   }
+  applyAuthMe(me.value);
   const [bnetRes] = await Promise.all([
     fetch(`${apiBase}/api/v1/me/battlenet`, { credentials: "include" }),
     fetchCharactersOnly(),
+    useAccountCharactersStore().ensureLoaded({ force: true }),
   ]);
   linked.value = await bnetRes.json();
   schedulePoll();
@@ -161,6 +167,8 @@ async function unlink(): Promise<void> {
 
 async function signOut(): Promise<void> {
   await fetch(`${apiBase}/api/v1/auth/logout`, { method: "POST", credentials: "include" });
+  clearAuthSession();
+  useAccountCharactersStore().reset();
   await router.push("/auth/signin");
 }
 
@@ -272,13 +280,19 @@ function characterRoute(c: AccountOwnedCharacterDTO) {
                 :class-color="c.characterClass.color"
                 :portrait-url="c.media.portraitUrl"
                 :size="48"
-              />
-              <span class="extra-meta muted">
-                <template v-if="c.level != null">{{ c.level }}</template>
-                <template v-if="c.currentSeasonMythic.rating != null">
-                  · {{ Math.round(c.currentSeasonMythic.rating) }} M+
+              >
+                <template
+                  v-if="c.level != null || c.currentSeasonMythic.rating != null"
+                  #meta
+                >
+                  <span class="extra-meta muted">
+                    <template v-if="c.level != null">{{ c.level }}</template>
+                    <template v-if="c.currentSeasonMythic.rating != null">
+                      · {{ Math.round(c.currentSeasonMythic.rating) }} M+
+                    </template>
+                  </span>
                 </template>
-              </span>
+              </CharacterIdentity>
             </div>
 
             <div class="char-row__center">
@@ -304,16 +318,6 @@ function characterRoute(c: AccountOwnedCharacterDTO) {
                 size="sm"
                 letter-only
                 flush
-              />
-              <span
-                v-if="
-                  c.trustScore.status === 'QUEUED' ||
-                  c.trustScore.status === 'RUNNING' ||
-                  c.trustScore.status === 'REFRESHING' ||
-                  c.trustScore.status === 'DISCOVERING'
-                "
-                class="spinner"
-                aria-hidden="true"
               />
             </div>
           </div>
@@ -493,13 +497,11 @@ function characterRoute(c: AccountOwnedCharacterDTO) {
 }
 .char-row__left {
   display: flex;
-  flex-direction: column;
-  gap: 0.2rem;
   min-width: 0;
 }
 .extra-meta {
   font-size: 0.85rem;
-  padding-left: calc(48px + var(--space-2));
+  line-height: 1.2;
 }
 .char-row__center {
   display: flex;
@@ -539,19 +541,6 @@ function characterRoute(c: AccountOwnedCharacterDTO) {
   font-size: 0.85rem;
   font-weight: 600;
   pointer-events: none;
-}
-.spinner {
-  width: 1rem;
-  height: 1rem;
-  border: 2px solid rgb(255 255 255 / 20%);
-  border-top-color: #93c5fd;
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-}
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
 }
 .confirm {
   border: 1px solid rgb(248 113 113 / 35%);

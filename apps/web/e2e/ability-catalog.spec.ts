@@ -13,7 +13,7 @@ test.describe("Ability catalog explorer", () => {
     // Development-only page historically unprotected; now requires session RBAC via router meta.
     await page.goto("/admin/ability-catalog");
     await expect(page.getByTestId("ability-catalog-page")).toBeVisible();
-    await expect(page.getByTestId("catalog-summary")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId("catalog-sticky-bar")).toBeVisible({ timeout: 15_000 });
 
     await page.screenshot({ path: join(SCREENSHOT_DIR, "overview.png"), fullPage: true });
 
@@ -36,6 +36,12 @@ test.describe("Ability catalog explorer", () => {
 
     await page.getByTestId("catalog-search").fill("6552");
     await page.waitForTimeout(400);
+    const searchSection = page.getByTestId("class-section").first();
+    await searchSection.getByRole("button").first().click();
+    const searchSpec = searchSection.locator(".spec-toggle").first();
+    if (await searchSpec.count()) {
+      await searchSpec.click();
+    }
     await expect(page.getByTestId("ability-row").first()).toBeVisible({ timeout: 10_000 });
     await page.screenshot({ path: join(SCREENSHOT_DIR, "search-spell-id.png"), fullPage: true });
 

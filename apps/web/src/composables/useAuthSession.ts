@@ -21,31 +21,55 @@ export interface AuthMeResponse {
 const me = ref<AuthMeResponse | null>(null);
 const loading = ref(false);
 let inflight: Promise<AuthMeResponse> | null = null;
+let fetchGeneration = 0;
 
 /** True when the user may see at least one Admin destination. */
 export function hasAdminNavPermission(permissions: string[] | undefined): boolean {
   return hasAnyAuthorizedAdminDestination(permissions);
 }
 
+/** Apply a known /auth/me payload into the shared session (e.g. after page-local fetch). */
+export function applyAuthMe(body: AuthMeResponse): AuthMeResponse {
+  me.value = body.authenticated ? body : { authenticated: false };
+  return me.value;
+}
+
+/** Clear cached session immediately (logout / session loss). */
+export function clearAuthSession(): void {
+  fetchGeneration += 1;
+  inflight = null;
+  me.value = { authenticated: false };
+  loading.value = false;
+}
+
 export async function fetchAuthMe(force = false): Promise<AuthMeResponse> {
   if (!force && me.value) return me.value;
   if (!force && inflight) return inflight;
+
+  const generation = ++fetchGeneration;
   loading.value = true;
-  inflight = (async () => {
+  const request = (async () => {
     try {
       const response = await fetch(`${apiBase}/api/v1/auth/me`, { credentials: "include" });
       const body = (await response.json()) as AuthMeResponse;
-      me.value = body.authenticated ? body : { authenticated: false };
-      return me.value;
+      if (generation !== fetchGeneration) {
+        return me.value ?? { authenticated: false };
+      }
+      return applyAuthMe(body);
     } catch {
-      me.value = { authenticated: false };
-      return me.value;
+      if (generation !== fetchGeneration) {
+        return me.value ?? { authenticated: false };
+      }
+      return applyAuthMe({ authenticated: false });
     } finally {
-      loading.value = false;
-      inflight = null;
+      if (generation === fetchGeneration) {
+        loading.value = false;
+        inflight = null;
+      }
     }
   })();
-  return inflight;
+  inflight = request;
+  return request;
 }
 
 export function useAuthSession() {
@@ -72,6 +96,8 @@ export function useAuthSession() {
     canManageUsers,
     canReadUsers,
     fetchAuthMe,
+    applyAuthMe,
+    clearAuthSession,
     hasPermission: (required: string | string[]) => hasPermission(permissions.value, required),
   };
 }

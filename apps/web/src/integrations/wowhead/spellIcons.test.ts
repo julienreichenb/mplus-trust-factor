@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, afterEach } from "vitest";
-import { resolveWowheadSpellIconUrl } from "./spellIcons";
+import { resolveWowheadSpellIconName, resolveWowheadSpellIconUrl } from "./spellIcons";
 
 describe("resolveWowheadSpellIconUrl", () => {
   afterEach(() => {
@@ -18,12 +18,14 @@ describe("resolveWowheadSpellIconUrl", () => {
         };
       }),
     );
+    await expect(resolveWowheadSpellIconName(386164)).resolves.toBe("ability_warrior_offensivestance");
     await expect(resolveWowheadSpellIconUrl(386164)).resolves.toBe(
       "https://wow.zamimg.com/images/wow/icons/large/ability_warrior_offensivestance.jpg",
     );
   });
 
   it("returns null for invalid spell ids", async () => {
+    await expect(resolveWowheadSpellIconName(0)).resolves.toBeNull();
     await expect(resolveWowheadSpellIconUrl(0)).resolves.toBeNull();
   });
 });

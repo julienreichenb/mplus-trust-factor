@@ -12,7 +12,8 @@
  *
  * Active:
  *  - Idempotently set cancelRequestedAt; never BullMQ remove() as if queued.
- *  - Worker terminalizes CANCELLED at checkpoints (never FAILED from cancel).
+ *  - Healthy first cancel: cooperative (worker terminalizes at checkpoints).
+ *  - Kill-all, re-cancel after request, or stale ACTIVE (zombie): force CANCELLED.
  *
  * Terminal:
  *  - Repeated cancel is idempotent; timestamps/status are not rewritten incorrectly.
@@ -26,6 +27,7 @@ import type { IngestionJob } from "@mplus/database";
 import type { Logger } from "@mplus/observability";
 import { QUEUE_NAMES } from "@mplus/contracts";
 import type { JobRepository } from "../persistence/job-repository.js";
+import { isStaleActive } from "../persistence/job-staleness.js";
 
 const HIGH_PRIORITY_WEIGHT = 10;
 /** Strict bound for legacy null-queueJobId reconciliation — no unbounded scan. */
@@ -35,6 +37,7 @@ export type CancelOutcome =
   | "queued_cancelled"
   | "delayed_cancelled"
   | "active_cancel_requested"
+  | "active_force_cancelled"
   | "already_cancellation_requested"
   | "already_terminal"
   | "failed_to_cancel";
@@ -56,6 +59,8 @@ export interface KillAllRefreshJobsResult {
   queuedCancelled: number;
   delayedCancelled: number;
   activeCancellationRequested: number;
+  /** ACTIVE rows force-terminalized (kill-all, re-cancel zombie, or stale ACTIVE). */
+  activeForceCancelled: number;
   alreadyCancellationRequested: number;
   alreadyTerminal: number;
   cancellationFailed: number;
@@ -108,6 +113,37 @@ async function findBullJob(
     }
   }
   return null;
+}
+
+function shouldForceCancelActive(
+  job: Pick<IngestionJob, "status" | "startedAt" | "scheduledAt" | "cancelRequestedAt">,
+  reason: string,
+  alreadyRequested: boolean,
+): boolean {
+  if (reason === "admin_kill_all") return true;
+  if (alreadyRequested) return true;
+  return isStaleActive(job);
+}
+
+async function forceCancelActiveJob(
+  deps: RefreshJobControlDeps,
+  job: IngestionJob,
+  reason: string,
+  previousStatus: string,
+  queueRemoved: boolean,
+  message: string,
+): Promise<CancelRefreshJobResult> {
+  const cancelled = await deps.jobRepository.markCancelled(job.id, { reason });
+  return {
+    ingestionJobId: cancelled.id,
+    jobId: cancelled.id,
+    queueJobId: cancelled.queueJobId,
+    outcome: "active_force_cancelled",
+    previousStatus,
+    databaseStatus: cancelled.status,
+    queueRemoved,
+    message,
+  };
 }
 
 async function inspectAndRemoveQueuedBullJob(
@@ -205,17 +241,29 @@ export async function cancelRefreshJob(
         message: "Job already cancelled",
       };
     }
+    if (shouldForceCancelActive(afterRequest, reason, alreadyRequested)) {
+      return forceCancelActiveJob(
+        deps,
+        afterRequest,
+        reason,
+        previousStatus,
+        false,
+        reason === "admin_kill_all"
+          ? "Active job force-cancelled by kill-all"
+          : alreadyRequested
+            ? "Stale active job force-cancelled (cancellation was already requested)"
+            : "Stale active job force-cancelled",
+      );
+    }
     return {
       ingestionJobId: afterRequest.id,
       jobId: afterRequest.id,
       queueJobId: afterRequest.queueJobId,
-      outcome: alreadyRequested ? "already_cancellation_requested" : "active_cancel_requested",
+      outcome: "active_cancel_requested",
       previousStatus,
       databaseStatus: afterRequest.status,
       queueRemoved: false,
-      message: alreadyRequested
-        ? "Cancellation was already requested — worker will stop at the next safe checkpoint"
-        : "Cancellation requested — worker will stop at the next safe checkpoint",
+      message: "Cancellation requested — worker will stop at the next safe checkpoint",
     };
   }
 
@@ -227,12 +275,26 @@ export async function cancelRefreshJob(
   );
 
   if (becameActive) {
-    // Race: worker claimed the job — cooperative cancel only.
+    const latest =
+      (await deps.jobRepository.findById(afterRequest.id)) ??
+      ({ ...afterRequest, status: "ACTIVE" as const } satisfies IngestionJob);
+    if (shouldForceCancelActive(latest, reason, alreadyRequested)) {
+      return forceCancelActiveJob(
+        deps,
+        latest,
+        reason,
+        previousStatus,
+        false,
+        reason === "admin_kill_all"
+          ? "Active job force-cancelled by kill-all"
+          : "Job became active during cancel — force-cancelled",
+      );
+    }
     return {
       ingestionJobId: afterRequest.id,
       jobId: afterRequest.id,
       queueJobId: afterRequest.queueJobId,
-      outcome: alreadyRequested ? "already_cancellation_requested" : "active_cancel_requested",
+      outcome: "active_cancel_requested",
       previousStatus,
       databaseStatus: "ACTIVE",
       queueRemoved: false,
@@ -245,11 +307,23 @@ export async function cancelRefreshJob(
     // Raced to ACTIVE (or other non-QUEUED) between remove and CAS.
     const latest = await deps.jobRepository.findById(afterRequest.id);
     if (latest?.status === "ACTIVE") {
+      if (shouldForceCancelActive(latest, reason, alreadyRequested)) {
+        return forceCancelActiveJob(
+          deps,
+          latest,
+          reason,
+          previousStatus,
+          removed,
+          reason === "admin_kill_all"
+            ? "Active job force-cancelled by kill-all"
+            : "Job became active before CANCELLED transition — force-cancelled",
+        );
+      }
       return {
         ingestionJobId: afterRequest.id,
         jobId: afterRequest.id,
         queueJobId: afterRequest.queueJobId,
-        outcome: alreadyRequested ? "already_cancellation_requested" : "active_cancel_requested",
+        outcome: "active_cancel_requested",
         previousStatus,
         databaseStatus: "ACTIVE",
         queueRemoved: removed,
@@ -360,6 +434,7 @@ export async function killAllRefreshJobs(
   let queuedCancelled = 0;
   let delayedCancelled = 0;
   let activeCancellationRequested = 0;
+  let activeForceCancelled = 0;
   let alreadyCancellationRequested = 0;
   let alreadyTerminal = 0;
   let cancellationFailed = 0;
@@ -377,6 +452,9 @@ export async function killAllRefreshJobs(
       case "active_cancel_requested":
         activeCancellationRequested += 1;
         break;
+      case "active_force_cancelled":
+        activeForceCancelled += 1;
+        break;
       case "already_cancellation_requested":
         alreadyCancellationRequested += 1;
         break;
@@ -393,6 +471,7 @@ export async function killAllRefreshJobs(
     queuedCancelled,
     delayedCancelled,
     activeCancellationRequested,
+    activeForceCancelled,
     alreadyCancellationRequested,
     alreadyTerminal,
     cancellationFailed,

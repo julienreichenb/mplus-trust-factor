@@ -139,6 +139,52 @@ describe("season authority barrier", () => {
     ).rejects.toBeInstanceOf(SeasonAuthorityUnavailableError);
   });
 
+  it("prefers a newer DB authority over stale process memory", async () => {
+    const oldVerifiedAt = new Date(Date.now() - 60_000).toISOString();
+    const prisma = buildPrisma({
+      id: "s13",
+      slug: "blizzard-season-13",
+      blizzardSeasonId: 13,
+      metadata: {
+        blizzardSeasonId: 13,
+        authoritySource: "season_index.current_season",
+        authorityVerifiedAt: oldVerifiedAt,
+      },
+    });
+
+    const first = await peekVerifiedSeasonAuthority(
+      { prisma: prisma as never },
+      "EU",
+      "region-eu",
+    );
+    expect(first?.blizzardSeasonId).toBe(13);
+
+    // Simulate another process repairing EU to season 17 in the shared DB.
+    prisma._seasons.clear();
+    prisma._seasons.set("blizzard-season-17", {
+      id: "s17",
+      regionId: "region-eu",
+      slug: "blizzard-season-17",
+      blizzardSeasonId: 17,
+      isCurrent: true,
+      name: "Blizzard Season 17",
+      metadata: {
+        blizzardSeasonId: 17,
+        authoritySource: "season_index.current_season",
+        authorityVerifiedAt: new Date().toISOString(),
+      },
+    });
+
+    const second = await peekVerifiedSeasonAuthority(
+      { prisma: prisma as never },
+      "EU",
+      "region-eu",
+    );
+    expect(second?.blizzardSeasonId).toBe(17);
+    expect(second?.slug).toBe("blizzard-season-17");
+    expect(second?.resolution).toBe("database");
+  });
+
   it("reuses still-valid cached authority without a provider call", async () => {
     const verifiedAt = new Date().toISOString();
     const prisma = buildPrisma({

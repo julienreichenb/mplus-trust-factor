@@ -62,4 +62,10 @@ export const routeDefs: RouteRecordRaw[] = [
     component: () => import("./pages/AdminBulkProcessingPage.vue"),
     meta: { adminDestinationId: "bulk-processing" },
   },
+  {
+    path: "/admin/misc",
+    name: "admin-misc",
+    component: () => import("./pages/AdminMiscPage.vue"),
+    meta: { adminDestinationId: "admin-misc" },
+  },
 ];

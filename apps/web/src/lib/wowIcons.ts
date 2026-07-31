@@ -40,11 +40,70 @@ export const ROLE_ICON_NAMES = {
   DPS: "ability_dualwield",
 } as const;
 
+/**
+ * Spec icons keyed by `classSlug:specSlug` (Retail specialization media names).
+ * Used for admin catalog disclosure toggles — not remote lookups.
+ */
+export const SPEC_ICON_NAMES: Readonly<Record<string, string>> = {
+  "death-knight:blood": "spell_deathknight_bloodpresence",
+  "death-knight:frost": "spell_deathknight_frostpresence",
+  "death-knight:unholy": "spell_deathknight_unholypresence",
+  "demon-hunter:havoc": "ability_demonhunter_specdps",
+  "demon-hunter:vengeance": "ability_demonhunter_spectank",
+  "demon-hunter:devourer": "ability_demonhunter_eyebeam",
+  "druid:balance": "spell_nature_starfall",
+  "druid:feral": "ability_druid_catform",
+  "druid:guardian": "ability_racial_bearform",
+  "druid:restoration": "spell_nature_healingtouch",
+  "evoker:devastation": "classicon_evoker_devastation",
+  "evoker:preservation": "classicon_evoker_preservation",
+  "evoker:augmentation": "classicon_evoker_augmentation",
+  "hunter:beast-mastery": "ability_hunter_bestialdiscipline",
+  "hunter:marksmanship": "ability_hunter_focusedaim",
+  "hunter:survival": "ability_hunter_camouflage",
+  "mage:arcane": "spell_holy_magicalsentry",
+  "mage:fire": "spell_fire_firebolt02",
+  "mage:frost": "spell_frost_frostbolt02",
+  "monk:brewmaster": "spell_monk_brewmaster_spec",
+  "monk:mistweaver": "spell_monk_mistweaver_spec",
+  "monk:windwalker": "spell_monk_windwalker_spec",
+  "paladin:holy": "spell_holy_holybolt",
+  "paladin:protection": "ability_paladin_shieldofthetemplar",
+  "paladin:retribution": "spell_holy_auraoflight",
+  "priest:discipline": "spell_holy_powerwordshield",
+  "priest:holy": "spell_holy_guardianspirit",
+  "priest:shadow": "spell_shadow_shadowwordpain",
+  "rogue:assassination": "ability_rogue_deadlybrew",
+  "rogue:outlaw": "ability_rogue_waylay",
+  "rogue:subtlety": "ability_stealth",
+  "shaman:elemental": "spell_nature_lightning",
+  "shaman:enhancement": "spell_shaman_improvedstormstrike",
+  "shaman:restoration": "spell_nature_magicimmunity",
+  "warlock:affliction": "spell_shadow_deathcoil",
+  "warlock:demonology": "spell_shadow_metamorphosis",
+  "warlock:destruction": "spell_shadow_rainoffire",
+  "warrior:arms": "ability_warrior_savageblow",
+  "warrior:fury": "ability_warrior_innerrage",
+  "warrior:protection": "ability_warrior_defensivestance",
+};
+
 export type AbilityRoleFilter = keyof typeof ROLE_ICON_NAMES;
 
 export function classIconName(classSlug: string | null | undefined): string | null {
   if (!classSlug) return null;
   return CLASS_ICON_NAMES[classSlug.toLowerCase()] ?? null;
+}
+
+/** Spec icon for a class+spec pair; falls back to class icon when unknown / class-wide. */
+export function specIconName(
+  classSlug: string | null | undefined,
+  specSlug: string | null | undefined,
+): string | null {
+  const cls = classSlug?.toLowerCase() ?? "";
+  const spec = specSlug?.toLowerCase() ?? "";
+  if (!cls) return null;
+  if (!spec) return classIconName(cls);
+  return SPEC_ICON_NAMES[`${cls}:${spec}`] ?? classIconName(cls);
 }
 
 export function roleIconName(role: string | null | undefined): string | null {

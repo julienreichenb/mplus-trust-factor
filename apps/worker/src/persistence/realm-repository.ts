@@ -187,7 +187,7 @@ export function createRealmRepository(prisma: PrismaClient): RealmRepository {
       includeInactive = false,
       includeTournament = false,
     }) {
-      const take = Math.min(Math.max(limit, 1), 100);
+      const take = Math.min(Math.max(limit, 1), 500);
       const code = region ? normalizeRegion(region) : null;
       const q = query.trim();
       const folded = q ? foldDiacritics(q) : "";
@@ -211,7 +211,7 @@ export function createRealmRepository(prisma: PrismaClient): RealmRepository {
             : {}),
         },
         include: { region: true },
-        take: Math.min(take * 4, 200),
+        take: Math.min(Math.max(take * 4, take), 2000),
         orderBy: { name: "asc" },
       });
 

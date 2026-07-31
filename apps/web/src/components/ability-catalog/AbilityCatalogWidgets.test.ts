@@ -32,7 +32,7 @@ describe("ValidationIssuesPanel", () => {
     const wrapper = mount(ValidationIssuesPanel, { props: { issues: warningOnly } });
     expect(wrapper.get("[data-testid='validation-toggle']").attributes("aria-expanded")).toBe("false");
     expect(wrapper.get("[data-testid='validation-panel-body']").attributes("hidden")).toBeDefined();
-    expect(wrapper.get("[data-testid='validation-issue-count']").text()).toMatch(/1 warning/i);
+    expect(wrapper.get("[data-testid='validation-issue-count']").text()).toBe("1");
     expect(wrapper.find(".eyebrow").text()).toBe("Validation warnings");
   });
 
@@ -52,7 +52,7 @@ describe("ValidationIssuesPanel", () => {
     expect(fatal.text()).toContain("Missing spell");
     expect(wrapper.get("[data-testid='validation-fatal-list']").text()).toContain("Missing spell");
     expect(wrapper.get("[data-testid='validation-panel-body']").text()).not.toContain("Missing spell");
-    expect(wrapper.get("[data-testid='validation-issue-count']").text()).toMatch(/1 warning/i);
+    expect(wrapper.get("[data-testid='validation-issue-count']").text()).toBe("1");
   });
 
   it("does not render an empty disclosure when there are zero issues", () => {
@@ -95,6 +95,9 @@ describe("IconSelect", () => {
     const list = wrapper.get("[data-testid='icon-select-list']");
     expect(list.text()).toContain("TANK");
     expect(list.findAll("[role='option']").every((opt) => opt.text().trim().length > 0)).toBe(true);
+    const allOption = list.findAll("[role='option']")[0]!;
+    expect(allOption.text()).toContain("All classes");
+    expect(allOption.find("[data-testid='wow-icon']").exists()).toBe(false);
   });
 
   it("supports keyboard open, navigate, select, and escape", async () => {

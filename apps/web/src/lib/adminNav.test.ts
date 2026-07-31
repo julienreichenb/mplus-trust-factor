@@ -33,6 +33,11 @@ const CASES = [
     id: "bulk-processing" as const,
     path: "/admin/bulk-processing",
   },
+  {
+    permissions: ["admin.settings.manage"],
+    id: "admin-misc" as const,
+    path: "/admin/misc",
+  },
 ];
 
 describe("admin destination registry", () => {
@@ -51,8 +56,7 @@ describe("admin destination registry", () => {
   );
 
   it("hides Admin trigger when no destination is authorized", () => {
-    expect(visibleAdminNavDestinations(["admin.settings.manage"])).toEqual([]);
-    expect(hasAnyAuthorizedAdminDestination(["admin.settings.manage"])).toBe(false);
+    expect(visibleAdminNavDestinations(["score.recalculate"])).toEqual([]);
     expect(hasAnyAuthorizedAdminDestination(["score.recalculate"])).toBe(false);
     expect(hasAnyAuthorizedAdminDestination([])).toBe(false);
   });
@@ -63,6 +67,7 @@ describe("admin destination registry", () => {
       "admin.ability_catalog.read",
       "admin.users.read",
       "admin.jobs.manage",
+      "admin.settings.manage",
     ];
     expect(visibleAdminNavDestinations(full).map((d) => d.path)).toEqual(
       ADMIN_DESTINATIONS.map((d) => d.path),

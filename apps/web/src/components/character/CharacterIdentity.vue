@@ -86,12 +86,15 @@ const nameStyle = computed(() =>
       :style="{ width: `${size}px`, height: `${size}px` }"
     />
     <span class="char-identity__text">
-      <span class="char-identity__region mpts-data">{{ display.region }}</span>
-      <span class="char-identity__pair">
-        <span class="char-identity__nickname" :style="nameStyle">{{ display.nickname }}</span>
-        <span class="char-identity__hyphen" aria-hidden="true">-</span>
-        <span class="char-identity__server">{{ display.server }}</span>
+      <span class="char-identity__primary">
+        <span class="char-identity__region mpts-data">{{ display.region }}</span>
+        <span class="char-identity__pair">
+          <span class="char-identity__nickname" :style="nameStyle">{{ display.nickname }}</span>
+          <span class="char-identity__hyphen" aria-hidden="true">-</span>
+          <span class="char-identity__server">{{ display.server }}</span>
+        </span>
       </span>
+      <slot name="meta" />
       <span v-if="display.className" class="visually-hidden">{{ display.className }}</span>
     </span>
   </span>
@@ -123,11 +126,20 @@ const nameStyle = computed(() =>
 }
 
 .char-identity__text {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.char-identity__primary {
   display: inline-flex;
   align-items: baseline;
   flex-wrap: wrap;
   gap: 0.35rem 0.45rem;
   min-width: 0;
+  max-width: 100%;
 }
 
 .char-identity__region {

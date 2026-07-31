@@ -4,7 +4,8 @@ export type AdminDestinationId =
   | "score-models"
   | "ability-catalog"
   | "admin-users"
-  | "bulk-processing";
+  | "bulk-processing"
+  | "admin-misc";
 
 export interface AdminDestination {
   id: AdminDestinationId;
@@ -50,6 +51,13 @@ export const ADMIN_DESTINATIONS: readonly AdminDestination[] = [
     path: "/admin/bulk-processing",
     label: "Bulk processing",
     isAuthorized: (permissions) => hasPermission(permissions, "admin.jobs.manage"),
+  },
+  {
+    id: "admin-misc",
+    name: "admin-misc",
+    path: "/admin/misc",
+    label: "Misc tools",
+    isAuthorized: (permissions) => hasPermission(permissions, "admin.settings.manage"),
   },
 ];
 
