@@ -34,6 +34,26 @@
       "id": 9999,
       "slug": "arena-tournament",
       "name": "Arena Tournament"
+    },
+    {
+      "id": 9001,
+      "slug": "eu1a1inst",
+      "name": "EU1A1-INST"
+    },
+    {
+      "id": 9002,
+      "slug": "eu1a-account-realm",
+      "name": "EU1A Account Realm"
+    },
+    {
+      "id": 9003,
+      "slug": "eu7a1inst-bfa",
+      "name": "EU7A1-INST-BFA"
+    },
+    {
+      "id": 9004,
+      "slug": "eu-auxiliary",
+      "name": "EU Auxiliary"
     }
   ]
 }

@@ -99,8 +99,8 @@ describe.skipIf(!dbAvailable)("admin refresh-jobs routes", () => {
         status: "FAILED",
         dedupeKey: `refresh:old:${randomUUID()}`,
         payload: { region: "EU", realmSlug: "admin-refresh-realm", name, triggerSource: "SYSTEM" },
-        completedAt: new Date("2026-07-01T00:00:00.000Z"),
-        scheduledAt: new Date("2026-07-01T00:00:00.000Z"),
+        completedAt: new Date(),
+        scheduledAt: new Date(Date.now() - 60_000),
         error: { code: "OLD_FAIL", message: "older" },
       },
     });
@@ -112,8 +112,8 @@ describe.skipIf(!dbAvailable)("admin refresh-jobs routes", () => {
         status: "FAILED",
         dedupeKey: `refresh:new:${randomUUID()}`,
         payload: { region: "EU", realmSlug: "admin-refresh-realm", name, triggerSource: "SYSTEM" },
-        completedAt: new Date("2026-07-02T00:00:00.000Z"),
-        scheduledAt: new Date("2026-07-02T00:00:00.000Z"),
+        completedAt: new Date(),
+        scheduledAt: new Date(),
         error: { code: "NEW_FAIL", message: "newer" },
       },
     });
@@ -256,7 +256,7 @@ describe.skipIf(!dbAvailable)("admin refresh-jobs routes", () => {
     const character = await prisma.character.findUniqueOrThrow({ where: { id: characterId } });
     const response = await app.inject({
       method: "GET",
-      url: `/api/v1/admin/refresh-jobs/characters/search?region=EU&nickname=${encodeURIComponent(character.displayName.slice(0, 6))}`,
+      url: `/api/v1/admin/refresh-jobs/characters/search?region=EU&nickname=${encodeURIComponent(character.displayName)}`,
       headers: { "x-admin-api-key": ADMIN_KEY },
     });
     expect(response.statusCode).toBe(200);

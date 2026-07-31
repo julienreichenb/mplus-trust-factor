@@ -15,4 +15,4 @@ There is **no** supported Blizzard global or fuzzy character-name search. Extern
 
 `profile/wow/character/{realmSlug}/{characterName}`
 
-Realm catalog uses Game Data `data/wow/realm/index` (and optional `data/wow/realm/{slug}` enrichment).
+Realm catalog discovers candidates via Game Data `data/wow/realm/index` and activates only detail-validated player-facing realms (`data/wow/realm/{slug}` + eligibility classifier). Technical index entries are not public.

@@ -138,3 +138,11 @@ export function buildRequestFingerprint(parts: {
   ].join("|");
   return createHash("sha256").update(payload, "utf8").digest("hex");
 }
+
+export {
+  classifyRealmCatalogEntry,
+  classifyRealmIndexEntry,
+  type RealmCatalogClassifyInput,
+  type RealmCatalogEligibility,
+  type RealmCatalogRejectionReason,
+} from "./realm-catalog-eligibility.js";

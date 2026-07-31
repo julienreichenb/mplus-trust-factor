@@ -5,7 +5,12 @@ import type {
   RegionCode,
   SyncRealmCatalogJob,
 } from "@mplus/contracts";
-import { normalizeRegion } from "@mplus/domain";
+import {
+  classifyRealmCatalogEntry,
+  classifyRealmIndexEntry,
+  normalizeRegion,
+  type RealmCatalogRejectionReason,
+} from "@mplus/domain";
 import type { Logger } from "@mplus/observability";
 import {
   catalogInputFromBlizzardRealm,
@@ -14,20 +19,30 @@ import {
 
 export const RETAIL_REGION_CODES: RegionCode[] = ["EU", "US", "KR", "TW"];
 
+/** Guard: never deactivate a whole region on an empty/partial index response. */
+export const MIN_PLAUSIBLE_REALM_INDEX_COUNT = 5;
+
 export interface RealmSyncResult {
   region: RegionCode;
-  indexed: number;
-  /** Index rows written or refreshed (minimal upsert). */
+  indexEntries: number;
+  rejectedAtIndex: number;
+  detailCandidates: number;
+  detailsFetched: number;
+  eligible: number;
+  rejectedTournament: number;
+  rejectedInternal: number;
+  detailFailures: number;
+  retainedLastKnownGood: number;
+  newlyDeactivated: number;
+  activeCatalogCount: number;
+  /** @deprecated Prefer `eligible` — kept for script compatibility. */
+  upserted: number;
   minimallyUpserted: number;
-  /** Successfully detail-enriched rows. */
   enriched: number;
   enrichmentFailures: number;
-  activeCatalogCount: number;
-  /** @deprecated Prefer `minimallyUpserted` — kept for script compatibility. */
-  upserted: number;
-  detailsFetched: number;
   skippedDetails: number;
   errors: string[];
+  rejectedSamples: string[];
 }
 
 export interface SyncRealmCatalogDeps {
@@ -35,7 +50,7 @@ export interface SyncRealmCatalogDeps {
   realms: RealmRepository;
   logger: Logger;
   now?: () => Date;
-  /** Bounded concurrency for optional detail enrichment (default 4). */
+  /** Bounded concurrency for detail fetches (default 4). */
   detailConcurrency?: number;
 }
 
@@ -68,15 +83,24 @@ async function mapPool<T>(
   await Promise.all(runners);
 }
 
+function bumpRejection(
+  result: RealmSyncResult,
+  reason: RealmCatalogRejectionReason,
+  sampleName: string,
+): void {
+  if (reason === "TOURNAMENT") result.rejectedTournament += 1;
+  else if (reason.startsWith("INTERNAL_")) result.rejectedInternal += 1;
+  if (result.rejectedSamples.length < 8) {
+    result.rejectedSamples.push(`${sampleName} (${reason})`);
+  }
+}
+
 /**
  * Synchronize the retail realm catalog for one or more regions from Blizzard Game Data.
  *
- * Index-first: every realm index entry is upserted immediately (slug/name/id).
- * Detail enrichment (`getRealm`) is optional, best-effort, and bounded-concurrency.
- * A failed detail request never removes or blocks the minimal catalog row.
- * Idempotent; does not hard-delete omitted realms (last-known-good).
- *
- * Normal bootstrap requires only the index request per region.
+ * Index discovers candidates; only detail-validated eligible realms become active/public.
+ * Technical/tournament realms are stored inactive. Transient detail failures retain
+ * last-known-good validated rows and never activate new unvalidated rows.
  */
 export async function syncRealmCatalog(
   deps: SyncRealmCatalogDeps,
@@ -93,25 +117,144 @@ export async function syncRealmCatalog(
   for (const region of regions) {
     const result: RealmSyncResult = {
       region,
-      indexed: 0,
+      indexEntries: 0,
+      rejectedAtIndex: 0,
+      detailCandidates: 0,
+      detailsFetched: 0,
+      eligible: 0,
+      rejectedTournament: 0,
+      rejectedInternal: 0,
+      detailFailures: 0,
+      retainedLastKnownGood: 0,
+      newlyDeactivated: 0,
+      activeCatalogCount: 0,
+      upserted: 0,
       minimallyUpserted: 0,
       enriched: 0,
       enrichmentFailures: 0,
-      activeCatalogCount: 0,
-      upserted: 0,
-      detailsFetched: 0,
       skippedDetails: 0,
       errors: [],
+      rejectedSamples: [],
     };
+
     try {
       const index = await deps.blizzard.getRealmIndex(
         buildCtx(region, forceDetails, job.correlationId),
       );
-      result.indexed = index.data.length;
+      result.indexEntries = index.data.length;
 
-      // Phase 1 — persist every index entry (exhaustive catalog).
+      if (index.data.length < MIN_PLAUSIBLE_REALM_INDEX_COUNT) {
+        result.errors.push(
+          `index too small (${index.data.length}); retaining last-known-good catalog`,
+        );
+        deps.logger.error(
+          { region, indexed: index.data.length },
+          "realm index response not plausible — skipping visibility changes",
+        );
+        result.activeCatalogCount = await deps.realms.countActiveByRegion(region);
+        results.push(result);
+        continue;
+      }
+
+      const earlyRejected: typeof index.data = [];
+      const candidates: typeof index.data = [];
       for (const entry of index.data) {
+        const early = classifyRealmIndexEntry({ name: entry.name, slug: entry.slug });
+        if (!early.eligible) {
+          earlyRejected.push(entry);
+          result.rejectedAtIndex += 1;
+          bumpRejection(result, early.reason, entry.name);
+        } else {
+          candidates.push(entry);
+        }
+      }
+      result.detailCandidates = candidates.length;
+
+      // Persist early-rejected technical rows as inactive (cleans polluted DB rows).
+      for (const entry of earlyRejected) {
+        const existing = await deps.realms.findCatalogBySlug(region, entry.slug);
+        const wasActive = existing?.isActive === true;
+        await deps.realms.upsertCatalogEntry({
+          regionCode: region,
+          blizzardRealmId: entry.blizzardRealmId,
+          slug: entry.slug,
+          name: entry.name || entry.slug,
+          connectedRealmId:
+            existing?.connectedRealmId == null ? null : Number(existing.connectedRealmId),
+          locale: existing?.locale ?? null,
+          timezone: existing?.timezone ?? null,
+          category: existing?.category ?? null,
+          isTournament: existing?.isTournament === true,
+          isActive: false,
+          syncedAt,
+        });
+        result.minimallyUpserted += 1;
+        if (wasActive) result.newlyDeactivated += 1;
+      }
+
+      // Detail-fetch remaining candidates (always required for public activation).
+      await mapPool(candidates, detailConcurrency, async (entry) => {
+        const existing = await deps.realms.findCatalogBySlug(region, entry.slug);
+        const previouslyValidated =
+          existing?.isActive === true &&
+          existing.blizzardRealmId != null &&
+          existing.connectedRealmId != null &&
+          existing.isTournament !== true;
+
         try {
+          const detail = await deps.blizzard.getRealm(
+            entry.slug,
+            buildCtx(region, forceDetails, job.correlationId),
+          );
+          result.detailsFetched += 1;
+          result.enriched += 1;
+
+          const dto = detail.data;
+          const eligibility = classifyRealmCatalogEntry({
+            name: dto.name,
+            slug: dto.slug,
+            blizzardRealmId: dto.blizzardRealmId,
+            region: dto.region,
+            isTournament: dto.isTournament,
+            connectedRealmId: dto.connectedRealmId,
+            requireConnectedRealm: true,
+          });
+
+          if (eligibility.eligible) {
+            await deps.realms.upsertCatalogEntry({
+              ...catalogInputFromBlizzardRealm(dto, syncedAt),
+              isActive: true,
+            });
+            result.eligible += 1;
+            result.upserted += 1;
+            return;
+          }
+
+          bumpRejection(result, eligibility.reason, dto.name);
+          const wasActive = existing?.isActive === true;
+          await deps.realms.upsertCatalogEntry({
+            ...catalogInputFromBlizzardRealm(dto, syncedAt),
+            isActive: false,
+            isTournament: dto.isTournament === true || eligibility.reason === "TOURNAMENT",
+          });
+          if (wasActive) result.newlyDeactivated += 1;
+        } catch (error) {
+          result.detailFailures += 1;
+          result.enrichmentFailures += 1;
+          const message = error instanceof Error ? error.message : String(error);
+          result.errors.push(`${entry.slug}: ${message}`);
+          deps.logger.warn(
+            { err: error, region, slug: entry.slug },
+            "realm detail fetch failed",
+          );
+
+          if (previouslyValidated) {
+            // Retain last-known-good public row; refresh sync stamp only via inactive-safe path.
+            result.retainedLastKnownGood += 1;
+            return;
+          }
+
+          // New / never-validated: stage inactive index row — never activate.
           await deps.realms.upsertCatalogIndexEntry({
             regionCode: region,
             blizzardRealmId: entry.blizzardRealmId,
@@ -120,46 +263,8 @@ export async function syncRealmCatalog(
             syncedAt,
           });
           result.minimallyUpserted += 1;
-          result.upserted += 1;
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          result.errors.push(`${entry.slug}: index upsert failed: ${message}`);
-          deps.logger.warn({ err: error, region, slug: entry.slug }, "realm index upsert failed");
         }
-      }
-
-      await deps.realms.markMissingInactive(
-        region,
-        index.data.map((e) => e.slug),
-        syncedAt,
-      );
-
-      // Phase 2 — optional best-effort detail enrichment (maintenance / forceDetails).
-      if (forceDetails && index.data.length > 0) {
-        await mapPool(index.data, detailConcurrency, async (entry) => {
-          try {
-            const detail = await deps.blizzard.getRealm(
-              entry.slug,
-              buildCtx(region, forceDetails, job.correlationId),
-            );
-            result.detailsFetched += 1;
-            await deps.realms.upsertCatalogEntry(
-              catalogInputFromBlizzardRealm(detail.data, syncedAt),
-            );
-            result.enriched += 1;
-          } catch (error) {
-            result.enrichmentFailures += 1;
-            const message = error instanceof Error ? error.message : String(error);
-            result.errors.push(`${entry.slug}: ${message}`);
-            deps.logger.warn(
-              { err: error, region, slug: entry.slug },
-              "realm detail enrichment failed — minimal catalog row retained",
-            );
-          }
-        });
-      } else {
-        result.skippedDetails = index.data.length;
-      }
+      });
 
       result.activeCatalogCount = await deps.realms.countActiveByRegion(region);
     } catch (error) {
@@ -169,20 +274,26 @@ export async function syncRealmCatalog(
       try {
         result.activeCatalogCount = await deps.realms.countActiveByRegion(region);
       } catch {
-        /* ignore secondary failure */
+        /* ignore */
       }
     }
+
     results.push(result);
     deps.logger.info(
       {
         region: result.region,
-        indexed: result.indexed,
-        minimallyUpserted: result.minimallyUpserted,
-        enriched: result.enriched,
-        enrichmentFailures: result.enrichmentFailures,
+        indexEntries: result.indexEntries,
+        rejectedAtIndex: result.rejectedAtIndex,
+        detailCandidates: result.detailCandidates,
+        detailsFetched: result.detailsFetched,
+        eligible: result.eligible,
+        rejectedTournament: result.rejectedTournament,
+        rejectedInternal: result.rejectedInternal,
+        detailFailures: result.detailFailures,
+        retainedLastKnownGood: result.retainedLastKnownGood,
+        newlyDeactivated: result.newlyDeactivated,
         activeCatalogCount: result.activeCatalogCount,
-        skippedDetails: result.skippedDetails,
-        errorCount: result.errors.length,
+        rejectedSamples: result.rejectedSamples,
       },
       "realm catalog region sync finished",
     );

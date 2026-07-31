@@ -1,0 +1,13 @@
+{
+  "id": 9002,
+  "slug": "eu1a-account-realm",
+  "name": "EU1A Account Realm",
+  "locale": "en_US",
+  "timezone": "Europe/Paris",
+  "category": { "type": "ENGLISH", "name": "English" },
+  "is_tournament": false,
+  "connected_realm": {
+    "id": 9002,
+    "href": "https://eu.api.blizzard.com/data/wow/connected-realm/9002?namespace=dynamic-eu"
+  }
+}

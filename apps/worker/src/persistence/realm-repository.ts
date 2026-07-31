@@ -119,6 +119,8 @@ export interface RealmCatalogUpsertInput {
   timezone: string | null;
   category: string | null;
   isTournament: boolean;
+  /** Public catalog visibility. Defaults to true for backward-compatible callers. */
+  isActive?: boolean;
   syncedAt: Date;
 }
 
@@ -269,6 +271,8 @@ export function createRealmRepository(prisma: PrismaClient): RealmRepository {
       const region = await ensureRegion(prisma, input.regionCode);
       const slug = normalizeRealmSlug(input.slug);
       const nameNormalized = normalizeRealmSearchKey(input.name);
+      // Fail closed: only activate when the caller explicitly sets isActive true.
+      const isActive = input.isActive === true;
       return prisma.realm.upsert({
         where: { regionId_slug: { regionId: region.id, slug } },
         create: {
@@ -282,7 +286,7 @@ export function createRealmRepository(prisma: PrismaClient): RealmRepository {
           timezone: input.timezone,
           category: input.category,
           isTournament: input.isTournament,
-          isActive: true,
+          isActive,
           lastSyncedAt: input.syncedAt,
         },
         update: {
@@ -294,7 +298,7 @@ export function createRealmRepository(prisma: PrismaClient): RealmRepository {
           timezone: input.timezone,
           category: input.category,
           isTournament: input.isTournament,
-          isActive: true,
+          isActive,
           lastSyncedAt: input.syncedAt,
         },
       });
@@ -304,6 +308,7 @@ export function createRealmRepository(prisma: PrismaClient): RealmRepository {
       const region = await ensureRegion(prisma, input.regionCode);
       const slug = normalizeRealmSlug(input.slug);
       const nameNormalized = normalizeRealmSearchKey(input.name);
+      // Staging-only: never claim public/tournament status without detail evidence.
       return prisma.realm.upsert({
         where: { regionId_slug: { regionId: region.id, slug } },
         create: {
@@ -313,14 +318,14 @@ export function createRealmRepository(prisma: PrismaClient): RealmRepository {
           name: input.name,
           nameNormalized,
           isTournament: false,
-          isActive: true,
+          isActive: false,
           lastSyncedAt: input.syncedAt,
         },
         update: {
           blizzardRealmId: BigInt(input.blizzardRealmId),
           name: input.name,
           nameNormalized,
-          isActive: true,
+          // Do not flip an existing validated public row inactive from index staging alone.
           lastSyncedAt: input.syncedAt,
         },
       });

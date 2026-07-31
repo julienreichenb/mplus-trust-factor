@@ -31,7 +31,13 @@
     "kazzak": "realm-kazzak.json",
     "cherith": "realm-cherith.json",
     "chérith": "realm-cherith.json",
-    "arena-tournament": "realm-arena-tournament.json"
+    "twisting-nether": "realm-twisting-nether.json",
+    "hyjal": "realm-hyjal.json",
+    "arena-tournament": "realm-arena-tournament.json",
+    "eu1a1inst": "realm-eu1a1-inst.json",
+    "eu1a-account-realm": "realm-eu1a-account-realm.json",
+    "eu7a1inst-bfa": "realm-eu7a1-inst-bfa.json",
+    "eu-auxiliary": "realm-eu-auxiliary.json"
   },
   "realmIndex": "realm-index.json",
   "seasons": {
