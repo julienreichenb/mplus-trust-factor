@@ -9,6 +9,14 @@ import { persistRefreshEligibilityEvidence } from "./orchestration/refresh-eligi
 import { requireVerifiedSeasonAuthority } from "./orchestration/season-authority.js";
 import type { WorkerContainer } from "./container.js";
 
+function hashString(value: string): number {
+  let hash = 0;
+  for (let i = 0; i < value.length; i += 1) {
+    hash = (hash * 31 + value.charCodeAt(i)) | 0;
+  }
+  return hash;
+}
+
 export async function seedRefreshEligibilityEvidenceForTest(
   container: WorkerContainer,
   input: {
@@ -28,6 +36,14 @@ export async function seedRefreshEligibilityEvidenceForTest(
   };
   const character = await container.repositories.character.upsertCharacter(identity, {
     displayName: input.name,
+    // Complete bootstrap metadata so exact-resolve repair does not overwrite
+    // intentionally seeded ineligible levels with live/fixture Blizzard profiles.
+    classSlug: "mage",
+    specSlug: "fire",
+    role: "DPS",
+    blizzardCharacterId: String(
+      1_000_000_000n + BigInt(Math.abs(hashString(input.name)) % 1_000_000_000),
+    ),
   });
   const region = await container.prisma.region.findUniqueOrThrow({
     where: { id: character.regionId },

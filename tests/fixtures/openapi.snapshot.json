@@ -646,6 +646,43 @@
               }
             }
           },
+          "409": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string"
+                    },
+                    "characterId": {
+                      "type": "string"
+                    },
+                    "refreshId": {
+                      "type": "string"
+                    },
+                    "profilePath": {
+                      "type": "string"
+                    },
+                    "retryAfterMs": {
+                      "type": "number"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "retryable": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "status"
+                  ],
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
           "502": {
             "description": "Default Response",
             "content": {
