@@ -52,6 +52,7 @@ export function useSuggestionCombobox<T>(options: UseSuggestionComboboxOptions<T
   async function search(q: string): Promise<void> {
     const trimmed = q.trim();
     if (trimmed.length < minLength) {
+      clearPendingSearch();
       suggestions.value = [];
       open.value = false;
       activeIndex.value = -1;

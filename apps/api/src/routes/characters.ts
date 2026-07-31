@@ -18,6 +18,7 @@ import {
   characterAutocompleteResponseSchema,
   characterResolveResponseSchema,
 } from "./schemas.js";
+import { PUBLIC_CHARACTER_AUTOCOMPLETE_LIMIT } from "@mplus/worker";
 
 interface IdentityParams {
   region: string;
@@ -48,8 +49,8 @@ export function buildCharacterRoutes(container: ApiContainer): FastifyPluginAsyn
             type: "object",
             properties: {
               region: { type: "string", minLength: 1, maxLength: 8 },
-              query: { type: "string", minLength: 3, maxLength: 96 },
-              q: { type: "string", minLength: 3, maxLength: 96 },
+              query: { type: "string", minLength: 2, maxLength: 96 },
+              q: { type: "string", minLength: 2, maxLength: 96 },
             },
             required: ["region"],
           },
@@ -62,12 +63,13 @@ export function buildCharacterRoutes(container: ApiContainer): FastifyPluginAsyn
       async (request) => {
         const { region, query, q } = request.query as { region: string; query?: string; q?: string };
         const search = (query ?? q ?? "").trim();
-        if (search.length < 3) {
+        if (search.length < 2) {
           return { suggestions: [] };
         }
         const suggestions = await container.worker.repositories.character.searchSuggestions(
           region,
           search,
+          PUBLIC_CHARACTER_AUTOCOMPLETE_LIMIT,
         );
         return { suggestions };
       },
@@ -184,6 +186,7 @@ export function buildCharacterRoutes(container: ApiContainer): FastifyPluginAsyn
             200: refreshStatusResponseSchema,
             403: errorResponseSchema,
             404: errorResponseSchema,
+            409: errorResponseSchema,
           },
         },
       },

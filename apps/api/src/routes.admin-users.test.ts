@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import type { PrismaClient } from "@mplus/database";
+import { seedRefreshEligibilityEvidenceForTest } from "@mplus/worker";
 import { buildApp } from "./app.js";
 import { createApiContainer, type ApiContainer } from "./container.js";
 import { buildTestEnv, createTestPrismaClient } from "./test-helpers.js";
@@ -172,31 +173,11 @@ describe.skipIf(!dbAvailable)("admin users RBAC", { timeout: 30_000 }, () => {
   });
 
   it("rejects force refresh for normal users and allows admin key with ?force=true", async () => {
-    const region = await prisma.region.upsert({
-      where: { code: "EU" },
-      update: {},
-      create: { code: "EU", apiHost: "https://eu.api.blizzard.com", localeDefault: "en_GB", enabled: true },
-    });
-    let realm = await prisma.realm.findFirst({ where: { regionId: region.id, slug: "tarren-mill" } });
-    if (!realm) {
-      realm = await prisma.realm.create({
-        data: {
-          id: randomUUID(),
-          regionId: region.id,
-          slug: "tarren-mill",
-          name: "Tarren Mill",
-        },
-      });
-    }
     const name = `Force${randomUUID().slice(0, 6)}`;
-    await prisma.character.create({
-      data: {
-        id: randomUUID(),
-        regionId: region.id,
-        realmId: realm.id,
-        normalizedName: name.toLowerCase(),
-        displayName: name,
-      },
+    await seedRefreshEligibilityEvidenceForTest(container.worker, {
+      region: "EU",
+      realmSlug: "tarren-mill",
+      name,
     });
 
     const normal = await createUser({

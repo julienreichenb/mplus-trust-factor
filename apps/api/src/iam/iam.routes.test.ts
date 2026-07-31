@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { FastifyInstance } from "fastify";
 import type { PrismaClient } from "@mplus/database";
+import { seedRefreshEligibilityEvidenceForTest } from "@mplus/worker";
 import { buildApp } from "../app.js";
 import { createApiContainer, type ApiContainer } from "../container.js";
 import { buildTestEnv, createTestPrismaClient } from "../test-helpers.js";
@@ -340,15 +341,14 @@ describe.skipIf(!dbAvailable)("IAM auth routes", () => {
       });
     }
     const charName = `Iamcd${randomUUID().slice(0, 6)}`;
-    const character = await prisma.character.create({
-      data: {
-        id: randomUUID(),
-        regionId: region!.id,
-        realmId: realm.id,
-        normalizedName: charName.toLowerCase(),
-        displayName: charName,
-        lastPublicRefreshAt: new Date(),
-      },
+    const seeded = await seedRefreshEligibilityEvidenceForTest(container.worker, {
+      region: region!.code,
+      realmSlug: realm.slug,
+      name: charName,
+    });
+    await prisma.character.update({
+      where: { id: seeded.characterId },
+      data: { lastPublicRefreshAt: new Date() },
     });
 
     const denied = await app.inject({
@@ -366,7 +366,7 @@ describe.skipIf(!dbAvailable)("IAM auth routes", () => {
     expect(bypass.statusCode).toBe(200);
 
     const audit = await prisma.auditEvent.findFirst({
-      where: { action: "profile.refresh.cooldown_bypass", resourceId: character.id },
+      where: { action: "profile.refresh.cooldown_bypass", resourceId: seeded.characterId },
       orderBy: { createdAt: "desc" },
     });
     expect(audit).toBeTruthy();

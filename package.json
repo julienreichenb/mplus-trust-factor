@@ -30,6 +30,7 @@
     "db:seed": "node tools/scripts/with-env.mjs pnpm --filter @mplus/database run seed",
     "db:studio": "node tools/scripts/with-env.mjs pnpm --filter @mplus/database exec prisma studio",
     "db:generate": "pnpm --filter @mplus/database exec prisma generate",
+    "db:backfill:character-name-search-key": "node tools/scripts/with-env.mjs node tools/scripts/backfill-character-name-search-key.mjs",
     "openapi:generate": "node tools/scripts/with-env.mjs pnpm --filter @mplus/api run openapi:generate",
     "addon:export": "node tools/scripts/addon.mjs export",
     "addon:test": "node tools/scripts/addon.mjs test",

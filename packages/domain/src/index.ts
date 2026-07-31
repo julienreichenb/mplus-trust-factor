@@ -32,6 +32,35 @@ export function normalizeRealmSearchKey(value: string): string {
   return foldDiacritics(value);
 }
 
+/** Folded search key for character display / normalized names (accents folded). */
+export function normalizeCharacterSearchKey(value: string): string {
+  return foldDiacritics(value);
+}
+
+/**
+ * Deterministic public character-name match rank (lower wins).
+ * V1 ladder: exact name → exact alias → prefix → contains.
+ * `fuzzyMatched` is reserved for a future gated trgm path (unused in V1).
+ */
+export function rankCharacterNameMatch(input: {
+  queryFolded: string;
+  nameFolded: string;
+  /** When the hit came from an alias row, the folded alias name. */
+  aliasFolded?: string | null;
+  source: "character" | "alias" | "participant";
+  /** Reserved — only set when a future trigram/fuzzy mode actually ran. */
+  fuzzyMatched?: boolean;
+}): number {
+  const q = input.queryFolded;
+  if (!q) return 100;
+  if (input.nameFolded === q) return 0;
+  if (input.source === "alias" && input.aliasFolded != null && input.aliasFolded === q) return 1;
+  if (input.nameFolded.startsWith(q) || (input.aliasFolded?.startsWith(q) ?? false)) return 2;
+  if (input.fuzzyMatched) return 3;
+  if (input.nameFolded.includes(q) || (input.aliasFolded?.includes(q) ?? false)) return 4;
+  return 10;
+}
+
 export function toCharacterRef(input: CharacterIdentityInput): CharacterRef {
   return {
     region: normalizeRegion(input.region),

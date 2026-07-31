@@ -1,16 +1,12 @@
-import {
-  getCurrentInstance,
-  nextTick,
-  onBeforeUnmount,
-  ref,
-  type Ref,
-} from "vue";
+import { nextTick, type Ref } from "vue";
 import { api } from "../api/client";
 import { formatRealmSecondaryLabel } from "../api/realm-options";
 import type { RealmOption } from "../api/types";
+import { useSuggestionCombobox } from "./useSuggestionCombobox";
 
 /**
  * Searchable realm combobox backed by GET /api/v1/realms.
+ * Delegates debounce/keyboard/ARIA/abort to useSuggestionCombobox.
  * Region is optional — when omitted, results may span enabled retail regions.
  */
 export function useRealmCombobox(options: {
@@ -20,77 +16,25 @@ export function useRealmCombobox(options: {
   debounceMs?: number;
 }) {
   const { query, selected, debounceMs = 200 } = options;
-  const suggestions = ref<RealmOption[]>([]);
-  const loading = ref(false);
-  const error = ref<string | null>(null);
-  const open = ref(false);
-  const activeIndex = ref(-1);
 
-  let timer: ReturnType<typeof setTimeout> | null = null;
-  let controller: AbortController | null = null;
-  let selecting = false;
-
-  function clearPending(): void {
-    if (timer) {
-      clearTimeout(timer);
-      timer = null;
-    }
-    controller?.abort();
-    controller = null;
-  }
-
-  async function search(q: string): Promise<void> {
-    clearPending();
-    controller = new AbortController();
-    const signal = controller.signal;
-    loading.value = true;
-    error.value = null;
-    try {
+  const combobox = useSuggestionCombobox<RealmOption>({
+    query,
+    watchSources: options.region ? [options.region as Ref<unknown>] : [],
+    fetchSuggestions: async (q, signal) => {
       const region = options.region?.value ?? null;
-      const results = await api.searchRealms(
-        region as never,
-        q,
-        signal,
-        40,
-      );
-      if (signal.aborted) return;
-      suggestions.value = results;
-      open.value = true;
-      activeIndex.value = results.length > 0 ? 0 : -1;
-    } catch (err) {
-      if ((err as Error).name !== "AbortError") {
-        suggestions.value = [];
-        error.value = "Unable to load realms. Retry.";
-        open.value = true;
-        activeIndex.value = -1;
-      }
-    } finally {
-      if (!signal.aborted) loading.value = false;
-    }
-  }
-
-  function scheduleSearch(value: string): void {
-    if (timer) clearTimeout(timer);
-    timer = setTimeout(() => {
-      timer = null;
-      void search(value);
-    }, debounceMs);
-  }
+      return api.searchRealms(region as never, q, signal, 40);
+    },
+    debounceMs,
+    minLength: 0,
+  });
 
   async function select(option: RealmOption): Promise<RealmOption> {
-    clearPending();
-    selecting = true;
-    selected.value = option;
-    query.value = option.displayLabel ?? `${option.name} — ${option.region ?? "EU"}`;
-    suggestions.value = [];
-    open.value = false;
-    activeIndex.value = -1;
-    loading.value = false;
+    const picked = await combobox.select(option);
+    if (!picked) return option;
+    selected.value = picked;
+    query.value = picked.displayLabel ?? `${picked.name} — ${picked.region ?? "EU"}`;
     await nextTick();
-    window.setTimeout(() => {
-      selecting = false;
-    }, 180);
-    return option;
+    return picked;
   }
 
   function clearSelection(): void {
@@ -98,81 +42,30 @@ export function useRealmCombobox(options: {
     query.value = "";
   }
 
-  function close(): void {
-    if (selecting) return;
-    open.value = false;
-    activeIndex.value = -1;
-  }
-
-  function onBlur(): void {
-    window.setTimeout(() => close(), 150);
-  }
-
-  function moveActive(delta: number): void {
-    if (!suggestions.value.length) return;
-    if (!open.value) open.value = true;
-    const max = suggestions.value.length - 1;
-    if (activeIndex.value < 0) {
-      activeIndex.value = delta > 0 ? 0 : max;
-      return;
-    }
-    activeIndex.value = Math.max(0, Math.min(max, activeIndex.value + delta));
-  }
-
-  function onKeydown(event: KeyboardEvent): void {
-    switch (event.key) {
-      case "ArrowDown":
-        event.preventDefault();
-        if (!open.value) void search(query.value);
-        else moveActive(1);
-        break;
-      case "ArrowUp":
-        event.preventDefault();
-        if (!open.value) void search(query.value);
-        else moveActive(-1);
-        break;
-      case "Enter":
-        if (open.value && activeIndex.value >= 0 && suggestions.value[activeIndex.value]) {
-          event.preventDefault();
-          void select(suggestions.value[activeIndex.value]!);
-        }
-        break;
-      case "Escape":
-        if (open.value) {
-          event.preventDefault();
-          close();
-        }
-        break;
-      default:
-        break;
-    }
-  }
-
   function optionSecondary(option: RealmOption): string {
     return formatRealmSecondaryLabel(option);
   }
 
-  function dispose(): void {
-    clearPending();
-  }
-
-  if (getCurrentInstance()) {
-    onBeforeUnmount(dispose);
+  function onKeydown(event: KeyboardEvent): void {
+    combobox.onKeydown(event, (item) => {
+      void select(item);
+    });
   }
 
   return {
-    suggestions,
-    loading,
-    error,
-    open,
-    activeIndex,
-    search,
-    scheduleSearch,
+    suggestions: combobox.suggestions,
+    loading: combobox.loading,
+    error: combobox.error,
+    open: combobox.open,
+    activeIndex: combobox.activeIndex,
+    search: combobox.search,
+    scheduleSearch: combobox.scheduleSearch,
     select,
     clearSelection,
-    close,
-    onBlur,
+    close: combobox.close,
+    onBlur: combobox.onBlur,
     onKeydown,
     optionSecondary,
+    dispose: combobox.dispose,
   };
 }
