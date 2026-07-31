@@ -36,6 +36,11 @@ export interface RefreshPolicyConfig {
   dryRunOnly: boolean;
   safetyReserveFraction: number;
   batchSize: number;
+  /**
+   * Mapped from REFRESH_GLOBAL_CONCURRENCY (environment admitted-pipeline cap).
+   * Not applied to BullMQ Worker concurrency; unused for live admission until
+   * REFRESH_CONCURRENCY_ENABLED + enforce mode on a later branch.
+   */
   globalConcurrency: number;
   perCharacterCooldownSeconds: number;
   /** Spread planned work across this many hours. */

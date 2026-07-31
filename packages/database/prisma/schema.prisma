@@ -339,6 +339,7 @@ model Character {
   profileViews      CharacterProfileView[]
   refreshScheduleItems RefreshScheduleItem[]
   refreshCostEntries RefreshCostLedgerEntry[]
+  refreshAdmissions RefreshAdmission[]
   bulkOperationItems BulkOperationItem[]
 
   @@unique([regionId, realmId, normalizedName])
@@ -964,6 +965,7 @@ model IngestionJob {
 
   character Character? @relation(fields: [characterId], references: [id])
   run       MythicRun? @relation(fields: [runId], references: [id])
+  refreshAdmission RefreshAdmission?
 
   @@index([status, scheduledAt])
   @@index([jobType, status, scheduledAt])
@@ -1259,6 +1261,41 @@ model RefreshScheduleItem {
   @@index([status, deferredUntil])
   @@index([deterministicJobKey])
   @@map("refresh_schedule_items")
+}
+
+enum RefreshAdmissionStatus {
+  RESERVED
+  SETTLED
+  RELEASED
+  EXPIRED
+  CANCELLED
+}
+
+/// Durable audit for refresh admission (Redis remains live authority when enforce is on).
+/// Foundation/shadow: rows may record predictions; Redis mutation stays off by default.
+model RefreshAdmission {
+  id                  String                 @id @default(uuid()) @db.Uuid
+  jobId               String                 @unique @map("job_id") @db.Uuid
+  characterId         String?                @map("character_id") @db.Uuid
+  status              RefreshAdmissionStatus
+  estimatedWclPoints  Int                    @map("estimated_wcl_points")
+  measuredWclPoints   Int?                   @map("measured_wcl_points")
+  emergencyOverride   Boolean                @default(false) @map("emergency_override")
+  windowId            String                 @map("window_id")
+  reservedAt          DateTime               @map("reserved_at") @db.Timestamptz(3)
+  leaseExpiresAt      DateTime               @map("lease_expires_at") @db.Timestamptz(3)
+  settledAt           DateTime?              @map("settled_at") @db.Timestamptz(3)
+  metadata            Json                   @default("{}")
+  createdAt           DateTime               @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt           DateTime               @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  job       IngestionJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  character Character?   @relation(fields: [characterId], references: [id], onDelete: SetNull)
+
+  @@index([status, reservedAt])
+  @@index([windowId, status])
+  @@index([characterId, reservedAt(sort: Desc)])
+  @@map("refresh_admissions")
 }
 
 /// Durable per-provider cost accounting for refresh planning and calibration.
