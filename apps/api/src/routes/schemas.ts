@@ -450,8 +450,16 @@ export const scoreModelConfigSchema = {
       },
       required: ["S", "A", "B", "C"],
     },
+    /** Canonical per-dimension metric weights (seeded v6 shape). */
+    metricWeights: { type: "object", additionalProperties: true },
+    minConfidenceForGrade: { type: "number" },
+    eligibility: { type: "object", additionalProperties: true },
+    utilityPublicationEligibility: { type: "object", additionalProperties: true },
+    overallFormula: { type: "string" },
   },
-  required: ["key", "version", "weights", "authenticityBlend", "confidenceNeutralScore", "gradeThresholds"],
+  // key/version live on the ScoreModel row; seeded persisted JSON often omits them.
+  required: ["weights", "authenticityBlend", "confidenceNeutralScore", "gradeThresholds"],
+  additionalProperties: true,
 } as const;
 
 export const realmSchema = {

@@ -9,12 +9,12 @@ import type {
   CharacterIdentityInput,
   CharacterResolveRequest,
   CharacterResolveResponse,
-  EditableModelConfig,
   ModelValidationResult,
   MplusApiClient,
   RefreshStatusResponse,
   RegionCode,
 } from "../types";
+import { validateModelConfig as validatePersistedOrFormConfig } from "../model-config";
 import {
   EU_REALMS,
   FIXTURE_CHARACTERS,
@@ -72,47 +72,7 @@ function mapAbilityCatalogParams(
 }
 
 export function validateModelConfig(config: unknown): ModelValidationResult {
-  const errors: string[] = [];
-  const cfg = config as EditableModelConfig | null;
-  if (!cfg || typeof cfg !== "object" || !cfg.weights) {
-    return { valid: false, errors: ["Config is missing weights"], weightSum: 0 };
-  }
-
-  const { performance, survival, utility, experienceConsistency, mythicRaid } = cfg.weights;
-  const weightSum =
-    Number(performance) +
-    Number(survival) +
-    Number(utility) +
-    Number(experienceConsistency) +
-    Number(mythicRaid);
-
-  if (Math.abs(weightSum - 1) > 0.001) {
-    errors.push(`Dimension weights must sum to 1 (got ${weightSum.toFixed(4)})`);
-  }
-
-  const t = cfg.gradeThresholds;
-  if (!t) {
-    errors.push("Grade thresholds are required");
-  } else if (!(t.S >= t.A && t.A >= t.B && t.B >= t.C)) {
-    errors.push("Grade thresholds must be ordered S ≥ A ≥ B ≥ C");
-  }
-
-  if (cfg.nestedMetricWeights) {
-    for (const [dim, weights] of Object.entries(cfg.nestedMetricWeights)) {
-      const sum = Object.values(weights).reduce((a, b) => a + Number(b), 0);
-      if (Object.keys(weights).length > 0 && Math.abs(sum - 1) > 0.001) {
-        errors.push(`Nested weights for ${dim} must sum to 1 (got ${sum.toFixed(4)})`);
-      }
-    }
-  }
-
-  if (cfg.boostThresholds) {
-    if (cfg.boostThresholds.suspicionSoft > cfg.boostThresholds.suspicionHard) {
-      errors.push("Boost soft threshold must be ≤ hard threshold");
-    }
-  }
-
-  return { valid: errors.length === 0, errors, weightSum };
+  return validatePersistedOrFormConfig(config);
 }
 
 export function createMockApiClient(): MplusApiClient {

@@ -22,5 +22,5 @@ export function createApiClient(): MplusApiClient {
 export const api = createApiClient();
 
 export { createMockApiClient } from "./mock/client";
-export { validateModelConfig } from "./mock/client";
+export { validateModelConfig } from "./model-config";
 export { resetMockState } from "./mock/fixtures";

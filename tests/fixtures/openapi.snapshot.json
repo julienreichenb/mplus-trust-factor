@@ -5226,16 +5226,33 @@
                           "B",
                           "C"
                         ]
+                      },
+                      "metricWeights": {
+                        "type": "object",
+                        "additionalProperties": true
+                      },
+                      "minConfidenceForGrade": {
+                        "type": "number"
+                      },
+                      "eligibility": {
+                        "type": "object",
+                        "additionalProperties": true
+                      },
+                      "utilityPublicationEligibility": {
+                        "type": "object",
+                        "additionalProperties": true
+                      },
+                      "overallFormula": {
+                        "type": "string"
                       }
                     },
                     "required": [
-                      "key",
-                      "version",
                       "weights",
                       "authenticityBlend",
                       "confidenceNeutralScore",
                       "gradeThresholds"
-                    ]
+                    ],
+                    "additionalProperties": true
                   }
                 },
                 "required": [
@@ -5520,16 +5537,33 @@
                           "B",
                           "C"
                         ]
+                      },
+                      "metricWeights": {
+                        "type": "object",
+                        "additionalProperties": true
+                      },
+                      "minConfidenceForGrade": {
+                        "type": "number"
+                      },
+                      "eligibility": {
+                        "type": "object",
+                        "additionalProperties": true
+                      },
+                      "utilityPublicationEligibility": {
+                        "type": "object",
+                        "additionalProperties": true
+                      },
+                      "overallFormula": {
+                        "type": "string"
                       }
                     },
                     "required": [
-                      "key",
-                      "version",
                       "weights",
                       "authenticityBlend",
                       "confidenceNeutralScore",
                       "gradeThresholds"
-                    ]
+                    ],
+                    "additionalProperties": true
                   }
                 },
                 "required": [
