@@ -10,6 +10,7 @@ import {
 } from "@mplus/provider-warcraftlogs";
 import { createWorkerContainer } from "./container.js";
 import { runRefreshPipeline } from "./orchestration/refresh-pipeline.js";
+import { seedRefreshEligibilityEvidenceForTest } from "./test-eligibility-seed.js";
 
 const databaseUrl =
   process.env.DATABASE_URL ?? "postgresql://mplus:mplus@localhost:5433/mplus_trust?schema=public";
@@ -38,6 +39,7 @@ describe.skipIf(!dbAvailable)("Wallidrixe legacy ExternalPayload → force refre
       const name = `Wallidrixe-${suffix}`;
       const realmSlug = "archimonde";
       const region = "EU";
+      await seedRefreshEligibilityEvidenceForTest(container, { region, realmSlug, name });
       const zoneId = resolveMplusZoneConfig({
         env: process.env,
         allowFixtureDefault: true,

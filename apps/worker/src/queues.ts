@@ -54,6 +54,8 @@ export interface QueueProducers {
   enqueueBulkCharacterProcessing(
     input: Omit<BulkOrchestratorJob, "requestedAt"> & { requestedAt?: string },
   ): Promise<EnqueueResult>;
+  /** Refresh-character queue for admin cancel/prioritize/kill-all. Null in inline mode. */
+  getRefreshCharacterQueue(): Queue | null;
   close(): Promise<void>;
 }
 
@@ -193,6 +195,10 @@ export function createQueueProducers(
         payload,
         { priority: PRIORITY_WEIGHT.low },
       );
+    },
+
+    getRefreshCharacterQueue() {
+      return queues[QUEUE_NAMES.refreshCharacter] ?? null;
     },
 
     async close() {

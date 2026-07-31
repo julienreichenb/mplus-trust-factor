@@ -41,6 +41,7 @@ export type ScoreRefreshReason =
   | "ACTIVE_JOB_EXISTS"
   | "RECENT_FAILURE"
   | "STALE_CONTRACT"
+  | "NOT_REFRESH_ELIGIBLE"
   | "PROVIDER_NEWER_DIAGNOSTIC_ONLY"
   | "FORCE_REFRESH"
   | "GRADE_U_ELIGIBILITY";
@@ -101,8 +102,19 @@ export const STALE_CONTRACT_FAILURE_CODES: ReadonlySet<string> = new Set([
   "REFRESH_CONTRACT_PREFLIGHT_MISSING_HASH",
 ]);
 
+/** Eligibility gate failures — not provider failures and not generic backoff. */
+export const ELIGIBILITY_FAILURE_CODES: ReadonlySet<string> = new Set([
+  "CHARACTER_BELOW_MAX_LEVEL",
+  "CHARACTER_NO_CURRENT_SEASON_MYTHIC_SCORE",
+  "CHARACTER_REFRESH_ELIGIBILITY_UNKNOWN",
+]);
+
 export function isStaleContractFailureCode(code: string | null | undefined): boolean {
   return typeof code === "string" && STALE_CONTRACT_FAILURE_CODES.has(code);
+}
+
+export function isEligibilityFailureCode(code: string | null | undefined): boolean {
+  return typeof code === "string" && ELIGIBILITY_FAILURE_CODES.has(code);
 }
 
 /** Read durable IngestionJob.error.code when present. */
@@ -150,6 +162,8 @@ export function isWithinFailureBackoff(
   if (latestJobStatus !== "FAILED") return false;
   // Stale-contract preflight failures must not drive provider/ops failure cooldown.
   if (isStaleContractFailureCode(latestJobErrorCode)) return false;
+  // Eligibility gate failures are non-retryable and must not enter BACKOFF.
+  if (isEligibilityFailureCode(latestJobErrorCode)) return false;
   if (!latestJobFinishedAt) return true;
   const at =
     typeof latestJobFinishedAt === "string"
@@ -200,6 +214,8 @@ export function decideScoreRefresh(input: ScoreRefreshDecisionInput): ScoreRefre
   const ttlFresh = isScoreWithinTtl(input.scoreCalculatedAt, input.scoreTtlSeconds, nowMs);
   const staleContractFailure =
     input.latestJobStatus === "FAILED" && isStaleContractFailureCode(input.latestJobErrorCode);
+  const eligibilityFailure =
+    input.latestJobStatus === "FAILED" && isEligibilityFailureCode(input.latestJobErrorCode);
   const inBackoff = isWithinFailureBackoff(
     input.latestJobStatus,
     input.latestJobFinishedAt,
@@ -256,6 +272,36 @@ export function decideScoreRefresh(input: ScoreRefreshDecisionInput): ScoreRefre
       profileRefreshStatus: "QUEUED",
       detailedRefreshStatus: "FAILED",
       warningCodes: ["STALE_CONTRACT"],
+    };
+  }
+
+  // Eligibility gate: keep last score, never auto-enqueue / BACKOFF. Explicit refresh may
+  // re-enqueue but the worker gate will fail-fast identically (cannot bypass).
+  if (eligibilityFailure) {
+    const warning =
+      typeof input.latestJobErrorCode === "string" && input.latestJobErrorCode.length > 0
+        ? input.latestJobErrorCode
+        : "NOT_REFRESH_ELIGIBLE";
+    if (input.hasPublishedScore) {
+      return withProviderDiagnostic(
+        {
+          action: "NONE",
+          publicState: "STALE_USABLE",
+          reason: "NOT_REFRESH_ELIGIBLE",
+          profileRefreshStatus: "STALE",
+          detailedRefreshStatus: "FAILED",
+          warningCodes: [warning],
+        },
+        providerNewer,
+      );
+    }
+    return {
+      action: "NONE",
+      publicState: "UNAVAILABLE",
+      reason: "NOT_REFRESH_ELIGIBLE",
+      profileRefreshStatus: "QUEUED",
+      detailedRefreshStatus: "FAILED",
+      warningCodes: [warning],
     };
   }
 

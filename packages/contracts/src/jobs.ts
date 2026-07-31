@@ -247,7 +247,7 @@ export const bulkOrchestratorJobSchema = z.object({
 
 export type BulkOrchestratorJob = z.infer<typeof bulkOrchestratorJobSchema>;
 
-export type JobStatus = "queued" | "active" | "completed" | "failed" | "delayed" | "unknown";
+export type JobStatus = "queued" | "active" | "completed" | "failed" | "cancelled" | "delayed" | "unknown";
 
 export interface JobStatusDTO {
   jobId: string;

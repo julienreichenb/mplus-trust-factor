@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { AppEnv } from "@mplus/config";
-import { OWNED_CHARACTER_RELEVANCE_POLICY_V1, providerTokenEncryptionSecret } from "@mplus/config";
+import { buildOwnedCharacterRelevancePolicy, providerTokenEncryptionSecret } from "@mplus/config";
 import type { Prisma, PrismaClient, User } from "@mplus/database";
 import { writeAuditEvent } from "./audit.js";
 import type { BattleNetOAuthClient } from "./battlenet-oauth-client.js";
@@ -555,8 +555,9 @@ export class IamAuthService {
     if (!ownership) {
       throw Object.assign(new Error("Ownership not found"), { code: "OWNERSHIP_NOT_FOUND" });
     }
+    const relevancePolicy = buildOwnedCharacterRelevancePolicy(this.env.MAX_CHARACTER_LEVEL);
     const atMaxLevel =
-      (ownership.characterLevel ?? 0) >= OWNED_CHARACTER_RELEVANCE_POLICY_V1.maxCharacterLevel;
+      (ownership.characterLevel ?? 0) >= relevancePolicy.maxCharacterLevel;
     await this.prisma.$transaction([
       this.prisma.verifiedCharacterOwnership.updateMany({
         where: { userId, isPrimary: true },
@@ -570,7 +571,7 @@ export class IamAuthService {
           ...(atMaxLevel
             ? {
                 relevanceEligible: true,
-                relevancePolicyVersion: OWNED_CHARACTER_RELEVANCE_POLICY_V1.version,
+                relevancePolicyVersion: relevancePolicy.version,
                 relevanceReasons: ["CURRENT_OWNERSHIP", "MAX_LEVEL", "EXPLICIT_PRIMARY"],
                 relevanceEvaluatedAt: new Date(),
               }

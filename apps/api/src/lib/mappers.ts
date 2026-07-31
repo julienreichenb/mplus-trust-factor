@@ -28,15 +28,20 @@ const JOB_STATUS_MAP: Record<IngestionJob["status"], JobStatus> = {
   ACTIVE: "active",
   COMPLETED: "completed",
   FAILED: "failed",
-  // The JobStatusDTO union has no dedicated "cancelled" value; "failed" is the closest terminal,
-  // unsuccessful state a client should react to the same way.
-  CANCELLED: "failed",
+  CANCELLED: "cancelled",
 };
 
 function extractErrorMessage(error: unknown): string | null {
   if (!error || typeof error !== "object" || !("message" in error)) return null;
+  const code =
+    "code" in error && typeof (error as { code?: unknown }).code === "string"
+      ? (error as { code: string }).code
+      : null;
+  // Never expose internal cancellation reasons publicly.
+  if (code === "CANCELLED") return null;
   const message = (error as { message?: unknown }).message;
   if (typeof message !== "string") return null;
+  if (/cancel/i.test(message)) return null;
   const sanitized = sanitizeSensitiveDeep({ message }) as { message: string };
   return toPublicJobErrorMessage(sanitized.message);
 }

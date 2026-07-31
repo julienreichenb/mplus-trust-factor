@@ -244,6 +244,10 @@ function createInlineQueueProducers(worker: WorkerContainer): QueueProducers {
       return { jobId: job.id, dedupeKey, reused, enqueued: true };
     },
 
+    getRefreshCharacterQueue() {
+      return null;
+    },
+
     async close(): Promise<void> {
       // No Redis/BullMQ connection is ever opened in inline mode.
     },

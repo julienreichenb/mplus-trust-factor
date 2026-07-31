@@ -94,6 +94,13 @@ export const envSchema = z
     REFRESH_TRACKED_TOP_PERCENT: z.coerce.number().min(1).max(100).default(25),
     REFRESH_RATING_THRESHOLD: z.coerce.number().min(0).default(2500),
 
+    /**
+     * Maximum retail character level for refresh eligibility and owned-character relevance.
+     * Single runtime authority. Default is ACTIVE_EXPANSION_METADATA_V1.maxCharacterLevel (90).
+     * Expansion metadata must not independently override this value.
+     */
+    MAX_CHARACTER_LEVEL: z.coerce.number().int().positive().max(120).default(90),
+
     /** MVP entitlement flag: when true, the API serializer omits no fields for any client. */
     PUBLIC_DETAILS_ALL: booleanFromString.default(true),
 
@@ -278,6 +285,8 @@ export {
   DEFAULT_SCORE_TTL_SECONDS,
   DEFAULT_REFRESH_FAILURE_BACKOFF_SECONDS,
   STALE_CONTRACT_FAILURE_CODES,
+  ELIGIBILITY_FAILURE_CODES,
+  isEligibilityFailureCode,
   type ScoreRefreshAction,
   type PublicScoreState,
   type ScoreRefreshReason,
@@ -296,6 +305,7 @@ export {
 
 export {
   OWNED_CHARACTER_RELEVANCE_POLICY_V1,
+  buildOwnedCharacterRelevancePolicy,
   evaluateOwnedCharacterRelevanceV1,
   evaluateOwnedCharacterAutoRefreshEligibilityV1,
   type OwnedCharacterRelevanceInput,
@@ -303,6 +313,23 @@ export {
   type OwnedCharacterRelevanceResult,
   type RelevanceReason,
 } from "./owned-character-relevance-policy.js";
+
+export {
+  CHARACTER_REFRESH_ELIGIBILITY_POLICY_V1,
+  CHARACTER_BELOW_MAX_LEVEL,
+  CHARACTER_NO_CURRENT_SEASON_MYTHIC_SCORE,
+  CHARACTER_REFRESH_ELIGIBILITY_UNKNOWN,
+  CHARACTER_REFRESH_ELIGIBILITY_CODES,
+  MAX_CHARACTER_LEVEL_CONFIG_KEY,
+  buildCharacterRefreshEligibilityPolicy,
+  evaluateCharacterRefreshEligibility,
+  getConfiguredMaxCharacterLevel,
+  isCharacterRefreshEligibilityCode,
+  type CharacterRefreshEligibilityPolicyV1,
+  type CharacterRefreshEligibilityCode,
+  type CharacterRefreshEligibilityInput,
+  type CharacterRefreshEligibilityResult,
+} from "./character-refresh-eligibility.js";
 
 export {
   BLIZZARD_PLAYABLE_CLASS_ID_TO_SLUG,

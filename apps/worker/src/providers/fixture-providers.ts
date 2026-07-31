@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { getConfiguredMaxCharacterLevel } from "@mplus/config";
 import { normalizeName, normalizeRealmSlug, normalizeRegion } from "@mplus/domain";
 import {
   ExternalApiError,
@@ -222,6 +223,7 @@ class FixtureBlizzardProvider implements BlizzardProvider {
       classSlug,
       specSlug,
       role,
+      level: getConfiguredMaxCharacterLevel(),
       blizzardCharacterId: String(seededInt(`${key}|blizzard-id`, 1_000_000, 9_999_999)),
       wclCanonicalId: null,
       raiderioProfileUrl: null,

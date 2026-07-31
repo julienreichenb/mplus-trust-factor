@@ -6,6 +6,7 @@ import type { PrismaClient } from "@mplus/database";
 import {
   clearSeasonAuthorityCacheForTests,
   resolveActiveRefreshContract,
+  seedRefreshEligibilityEvidenceForTest,
   synchronizeSeasonAuthority,
 } from "@mplus/worker";
 import { buildApp } from "./app.js";
@@ -18,7 +19,7 @@ afterAll(async () => {
   await prisma.$disconnect();
 });
 
-describe.skipIf(!dbAvailable)("character routes", () => {
+describe.skipIf(!dbAvailable)("character routes", { timeout: 30_000 }, () => {
   let app: FastifyInstance;
   let container: ApiContainer;
   let verifiedContractHash: string;
@@ -64,6 +65,11 @@ describe.skipIf(!dbAvailable)("character routes", () => {
 
   it("returns 202 QUEUED for a never-seen character, then 200 FRESH on the next request", async () => {
     const name = uniqueName("Freshcharacter");
+    await seedRefreshEligibilityEvidenceForTest(container.worker, {
+      region: "EU",
+      realmSlug: "tarren-mill",
+      name,
+    });
 
     const first = await app.inject({ method: "GET", url: `/api/v1/characters/${REALM_PATH}/${name}` });
     expect(first.statusCode).toBe(202);
@@ -82,11 +88,16 @@ describe.skipIf(!dbAvailable)("character routes", () => {
     // No secrets, tokens, or raw provider payloads should ever leak through the API.
     const raw = JSON.stringify(secondBody);
     expect(raw).not.toMatch(/clientSecret|client_secret|admin_api_key|session_secret/i);
-  });
+  }, 30_000);
 
   it("marks a score past TTL as needing refresh and arms at most one job", async () => {
     const name = uniqueName("Stalecharacter");
     const path = `/api/v1/characters/${REALM_PATH}/${name}`;
+    await seedRefreshEligibilityEvidenceForTest(container.worker, {
+      region: "EU",
+      realmSlug: "tarren-mill",
+      name,
+    });
 
     await app.inject({ method: "GET", url: path });
     const fresh = await app.inject({ method: "GET", url: path });
@@ -131,11 +142,16 @@ describe.skipIf(!dbAvailable)("character routes", () => {
     });
     // Inline queue may complete immediately; at most one additional refresh arming.
     expect(jobsAfterStale - jobsBefore).toBeLessThanOrEqual(1);
-  });
+  }, 30_000);
 
   it("does not mark STALE when only lastPublicRefreshAt is aged", async () => {
     const name = uniqueName("LastPublicOnly");
     const path = `/api/v1/characters/${REALM_PATH}/${name}`;
+    await seedRefreshEligibilityEvidenceForTest(container.worker, {
+      region: "EU",
+      realmSlug: "tarren-mill",
+      name,
+    });
 
     await app.inject({ method: "GET", url: path });
     await app.inject({ method: "GET", url: path });
@@ -157,6 +173,11 @@ describe.skipIf(!dbAvailable)("character routes", () => {
   it("reuses an active refresh job on repeated stale reads", async () => {
     const name = uniqueName("ReuseStaleJob");
     const path = `/api/v1/characters/${REALM_PATH}/${name}`;
+    await seedRefreshEligibilityEvidenceForTest(container.worker, {
+      region: "EU",
+      realmSlug: "tarren-mill",
+      name,
+    });
 
     await app.inject({ method: "GET", url: path });
     await app.inject({ method: "GET", url: path });
@@ -231,8 +252,12 @@ describe.skipIf(!dbAvailable)("character routes", () => {
   it("returns 404 for a confirmed not-found identity on the second request", async () => {
     const name = uniqueName("MissingCharacter");
 
-    const first = await app.inject({ method: "GET", url: `/api/v1/characters/${REALM_PATH}/${name}` });
-    expect(first.statusCode).toBe(202);
+    const first = await app.inject({
+      method: "POST",
+      url: "/api/v1/characters/resolve",
+      payload: { name, realmSlug: "tarren-mill", region: "EU" },
+    });
+    expect(first.statusCode).toBe(404);
 
     const second = await app.inject({ method: "GET", url: `/api/v1/characters/${REALM_PATH}/${name}` });
     expect(second.statusCode).toBe(404);
@@ -242,6 +267,11 @@ describe.skipIf(!dbAvailable)("character routes", () => {
 
   it("enforces the manual refresh cooldown on repeated POST /refresh calls", async () => {
     const name = uniqueName("Cooldowncharacter");
+    await seedRefreshEligibilityEvidenceForTest(container.worker, {
+      region: "EU",
+      realmSlug: "tarren-mill",
+      name,
+    });
 
     const first = await app.inject({ method: "POST", url: `/api/v1/characters/${REALM_PATH}/${name}/refresh` });
     expect(first.statusCode).toBe(200);
@@ -254,6 +284,11 @@ describe.skipIf(!dbAvailable)("character routes", () => {
 
   it("exposes job status via GET /jobs/:id after a refresh completes", async () => {
     const name = uniqueName("JobLookupCharacter");
+    await seedRefreshEligibilityEvidenceForTest(container.worker, {
+      region: "EU",
+      realmSlug: "tarren-mill",
+      name,
+    });
 
     const refreshResponse = await app.inject({ method: "POST", url: `/api/v1/characters/${REALM_PATH}/${name}/refresh` });
     const jobId = refreshResponse.json().job?.jobId as string | undefined;
@@ -267,6 +302,11 @@ describe.skipIf(!dbAvailable)("character routes", () => {
   it("runs a second manual refresh after COMPLETED (same dedupe, cooldown cleared)", async () => {
     const name = uniqueName("SecondRefresh");
     const path = `/api/v1/characters/${REALM_PATH}/${name}/refresh`;
+    await seedRefreshEligibilityEvidenceForTest(container.worker, {
+      region: "EU",
+      realmSlug: "tarren-mill",
+      name,
+    });
 
     const first = await app.inject({ method: "POST", url: path });
     expect(first.statusCode).toBe(200);
@@ -294,6 +334,11 @@ describe.skipIf(!dbAvailable)("character routes", () => {
 
   it("collapses concurrent in-flight refresh requests onto one job", async () => {
     const name = uniqueName("ConcurrentRefresh");
+    await seedRefreshEligibilityEvidenceForTest(container.worker, {
+      region: "EU",
+      realmSlug: "tarren-mill",
+      name,
+    });
     // Seed a QUEUED job without completing so the second call hits the active-job short-circuit.
     const character = await container.worker.repositories.character.upsertCharacter(
       { region: "EU", realmSlug: "tarren-mill", name },
@@ -329,6 +374,11 @@ describe.skipIf(!dbAvailable)("character routes", () => {
 
   it("exposes public enrichment fields without inventing item level zero", async () => {
     const name = uniqueName("EnrichmentFields");
+    await seedRefreshEligibilityEvidenceForTest(container.worker, {
+      region: "EU",
+      realmSlug: "tarren-mill",
+      name,
+    });
     await app.inject({ method: "GET", url: `/api/v1/characters/${REALM_PATH}/${name}` });
     const response = await app.inject({ method: "GET", url: `/api/v1/characters/${REALM_PATH}/${name}` });
     expect(response.statusCode).toBe(200);
@@ -350,6 +400,11 @@ describe.skipIf(!dbAvailable)("character routes", () => {
 
   it("refresh-status reaches a terminal FRESH state after successful inline refresh", async () => {
     const name = uniqueName("RefreshPollTerminal");
+    await seedRefreshEligibilityEvidenceForTest(container.worker, {
+      region: "EU",
+      realmSlug: "tarren-mill",
+      name,
+    });
 
     await app.inject({ method: "GET", url: `/api/v1/characters/${REALM_PATH}/${name}` });
 
@@ -371,6 +426,11 @@ describe.skipIf(!dbAvailable)("character routes", () => {
 
   it("allows normal POST /refresh without force permission", async () => {
     const name = uniqueName("NormalRefreshOk");
+    await seedRefreshEligibilityEvidenceForTest(container.worker, {
+      region: "EU",
+      realmSlug: "tarren-mill",
+      name,
+    });
     const response = await app.inject({
       method: "POST",
       url: `/api/v1/characters/${REALM_PATH}/${name}/refresh`,
@@ -402,6 +462,11 @@ describe.skipIf(!dbAvailable)("character routes", () => {
 
   it("admin-key ?force=true succeeds and concurrent forced posts reuse one active job", async () => {
     const name = uniqueName("ForceAdminOk");
+    await seedRefreshEligibilityEvidenceForTest(container.worker, {
+      region: "EU",
+      realmSlug: "tarren-mill",
+      name,
+    });
     const character = await container.worker.repositories.character.upsertCharacter(
       { region: "EU", realmSlug: "tarren-mill", name },
       { displayName: name },
@@ -452,6 +517,11 @@ describe.skipIf(!dbAvailable)("character routes", () => {
   it("stale GET still returns published score and enqueues at most once", async () => {
     const name = uniqueName("StaleOnceMore");
     const path = `/api/v1/characters/${REALM_PATH}/${name}`;
+    await seedRefreshEligibilityEvidenceForTest(container.worker, {
+      region: "EU",
+      realmSlug: "tarren-mill",
+      name,
+    });
     await app.inject({ method: "GET", url: path });
     await app.inject({ method: "GET", url: path });
 

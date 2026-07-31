@@ -98,6 +98,11 @@ import {
   RefreshContractPreflightError,
   runRefreshContractPreflight,
 } from "./refresh-contract-preflight.js";
+import {
+  RefreshEligibilityError,
+  runRefreshEligibilityGate,
+} from "./refresh-eligibility-gate.js";
+import { isRefreshCancellationRequested } from "./refresh-job-control.js";
 import { buildMythicRatingObservation } from "./performance-metrics.js";
 import { buildWclPerformanceObservations } from "./wcl-performance-metrics.js";
 import {
@@ -403,17 +408,59 @@ export async function runRefreshPipeline(
     if (terminalized) return;
     const current = await repositories.job.findById(job.id);
     if (current && (current.status === "QUEUED" || current.status === "ACTIVE")) {
-      job = await repositories.job.markFailed(job.id, error);
+      if (current.cancelRequestedAt || (error as { code?: string })?.code === "CANCELLED") {
+        job = await repositories.job.markCancelled(job.id, {
+          reason: current.cancelReason ?? "admin_cancel",
+          error:
+            error && typeof error === "object"
+              ? error
+              : {
+                  code: "CANCELLED",
+                  message: "Refresh cancelled",
+                  retryable: false,
+                  providerFailure: false,
+                },
+        });
+      } else {
+        job = await repositories.job.markFailed(job.id, error);
+      }
     }
     terminalized = true;
   };
+
+  const assertNotCancelled = async (checkpoint: string): Promise<void> => {
+    if (terminalized) return;
+    const requested = await isRefreshCancellationRequested(repositories.job, job.id);
+    if (!requested) return;
+    const current = await repositories.job.findById(job.id);
+    job = await repositories.job.markCancelled(job.id, {
+      reason: current?.cancelReason ?? "admin_cancel",
+      error: {
+        code: "CANCELLED",
+        message: `Cancelled at checkpoint ${checkpoint}`,
+        retryable: false,
+        providerFailure: false,
+        checkpoint,
+      },
+    });
+    terminalized = true;
+    const err = Object.assign(new Error(`Refresh cancelled at ${checkpoint}`), {
+      code: "CANCELLED",
+      retryable: false,
+      providerFailure: false,
+    });
+    throw err;
+  };
+
+  await assertNotCancelled("post_mark_active");
 
   try {
   // ── Contract preflight barrier (fail-fast, before any provider work) ─────
   // Guarantees zero Blizzard / Raider.IO / WCL calls, zero run/metric/
   // provider-state/snapshot writes, and zero WCL budget on mismatch.
+  let preflightAuthority: Awaited<ReturnType<typeof runRefreshContractPreflight>>["authority"];
   try {
-    await runRefreshContractPreflight(
+    const preflight = await runRefreshContractPreflight(
       {
         prisma: container.prisma,
         blizzard: providers.blizzard,
@@ -427,6 +474,7 @@ export async function runRefreshPipeline(
         correlationId: ctx.correlationId ?? ctx.requestId,
       },
     );
+    preflightAuthority = preflight.authority;
   } catch (preflightError) {
     if (preflightError instanceof RefreshContractPreflightError) {
       job = await repositories.job.markFailed(job.id, preflightError.toJobError());
@@ -460,6 +508,8 @@ export async function runRefreshPipeline(
     throw preflightError;
   }
 
+  await assertNotCancelled("post_preflight");
+
   if (negativeCache.has(identity) && !jobPayload.forceRefresh) {
     job = await repositories.job.markFailed(job.id, new Error("negative cache hit: identity not found"));
     terminalized = true;
@@ -473,6 +523,43 @@ export async function runRefreshPipeline(
 
   let character = await repositories.character.upsertCharacter(identity, { displayName: jobPayload.name });
   job = await repositories.job.attachCharacter(job.id, character.id);
+
+  // ── Eligibility gate (fail-fast, after contract preflight, before providers) ─
+  // Uses persisted Character + season-scoped evidence only — zero provider calls.
+  // Identical fail-closed behavior in live / fixture / mock / inline / BullMQ.
+  try {
+    await runRefreshEligibilityGate(
+      { prisma: container.prisma, logger, maxCharacterLevel: container.env.MAX_CHARACTER_LEVEL },
+      {
+        characterId: character.id,
+        authority: preflightAuthority,
+        jobId: job.id,
+        triggerSource: jobPayload.triggerSource ?? null,
+      },
+    );
+  } catch (eligibilityError) {
+    if (eligibilityError instanceof RefreshEligibilityError) {
+      job = await repositories.job.markFailed(job.id, eligibilityError.toJobError());
+      terminalized = true;
+      logger.info(
+        {
+          ...logBase,
+          event: OBS_EVENTS.refreshTerminal,
+          jobId: job.id,
+          status: "FAILED",
+          stage: "eligibility",
+          providerCalls: 0,
+          costLedgerRecords: refreshCostAccumulator.records.length,
+          errorCode: eligibilityError.code,
+        },
+        OBS_EVENTS.refreshTerminal,
+      );
+      throw eligibilityError;
+    }
+    throw eligibilityError;
+  }
+
+  await assertNotCancelled("post_eligibility");
 
   const failHard = async (stage: RefreshStage, error: unknown): Promise<never> => {
     if (error instanceof ExternalApiError && error.code === "NOT_FOUND") {
@@ -506,6 +593,7 @@ export async function runRefreshPipeline(
   let discoveredRuns: MythicRunDTO[] = [];
 
   // ── Blizzard identity gate ──────────────────────────────────────────────
+  await assertNotCancelled("pre_blizzard");
   if (disabledProviders.has("blizzard") || isFixtureDisabledIdentity(identity)) {
     stagesSkipped.push("refresh-blizzard");
     await repositories.providerState.upsert({
@@ -669,6 +757,8 @@ export async function runRefreshPipeline(
       }
     }
   }
+
+  await assertNotCancelled("post_blizzard");
 
   // ── Concurrent Raider.IO + WCL enrichment ───────────────────────────────
   type RaiderIoEnrichment = {
@@ -969,10 +1059,12 @@ export async function runRefreshPipeline(
   };
 
   // Raider.IO first so current-season run hints can prioritize WCL report hydration.
+  await assertNotCancelled("pre_raiderio");
   const rioEnrichment = await enrichRaiderIo();
   raiderIoProfile = rioEnrichment.profile;
   seasonCutoffs = rioEnrichment.cutoffs;
   boostFacts = rioEnrichment.boost;
+  await assertNotCancelled("post_raiderio");
 
   const rioRunsRaw =
     raiderIoProfile != null
@@ -987,6 +1079,7 @@ export async function runRefreshPipeline(
     keyLevel: run.keyLevel,
   }));
 
+  await assertNotCancelled("pre_warcraftlogs");
   const wclEnrichment = await enrichWarcraftLogs(hydrationHints);
   wclVisibility = wclEnrichment.visibility;
   wclDataState = wclEnrichment.dataState;
@@ -995,6 +1088,7 @@ export async function runRefreshPipeline(
   const wclRankings = wclEnrichment.rankings;
   const wclPerformanceRecord = wclEnrichment.performance;
   const wclRejectedLegacyCache = wclEnrichment.rejectedLegacyCache;
+  await assertNotCancelled("post_warcraftlogs");
 
   // ── Reconcile + fuse runs ───────────────────────────────────────────────
   const reconcile = reconcileSources({
@@ -1390,7 +1484,9 @@ export async function runRefreshPipeline(
     if (runsToAnalyze.length === 0) {
       stagesSkipped.push("analyze-run");
     }
+    await assertNotCancelled("pre_analyze_run");
     for (const run of runsToAnalyze) {
+      await assertNotCancelled("analyze_run_iteration");
       analysisAttemptedCount += 1;
       const source = await repositories.run.findWclSource(run.id);
       const parseBinding = bindParseToSelectedRun({
@@ -2521,6 +2617,7 @@ export async function runRefreshPipeline(
     utilityBaseline.fallbackAllowed ? "pending" : "not_triggered",
   );
 
+  await assertNotCancelled("pre_utility_fallback");
   if (utilityBaseline.fallbackAllowed && !disabledProviders.has("warcraftlogs")) {
     const liveWclForUtility = providers.warcraftlogs as {
       getGraphQlClient?: () => WclGraphQlClient;
@@ -2992,6 +3089,7 @@ export async function runRefreshPipeline(
 
   // ── Calculate + structurally validate score ─────────────────────────────
   // Active model already loaded before Utility publication.
+  await assertNotCancelled("pre_recalculation");
 
   const modelConfig = {
     ...(model.config as unknown as ScoreModelConfig & Record<string, unknown>),
@@ -3007,7 +3105,10 @@ export async function runRefreshPipeline(
   // ── Final publication / TOCTOU contract barrier ─────────────────────────
   // Re-resolve immediately before score calculation/publication. Protects
   // against contract changes that occur after the job-start preflight.
-  // Do not remove or weaken this guard.
+  // Do not remove or weaken this guard. Cancellation is re-checked atomically
+  // inside the publication transaction (publicationGuard).
+  await assertNotCancelled("pre_publication");
+
   const { contract: refreshContract, hash: computedContractHash } = resolveActiveRefreshContract({
     scoringModelKey: model.key,
     scoringModelVersion: model.version,
@@ -3331,7 +3432,22 @@ export async function runRefreshPipeline(
     analysisBatchId: analysisBatch.id,
     scoreRepository: repositories.score,
     metricRepository: repositories.metric,
+    publicationGuard: { ingestionJobId: job.id },
   });
+
+  if (publication.cancelled) {
+    await assertNotCancelled("publication_atomic");
+  }
+
+  if (publication.rejectionReason === "REFRESH_CONTRACT_HASH_MISMATCH") {
+    const mismatchError = {
+      code: "REFRESH_CONTRACT_HASH_MISMATCH",
+      message: "Refresh contract mismatch at atomic publication barrier",
+    };
+    await repositories.job.markFailed(job.id, mismatchError);
+    terminalized = true;
+    throw Object.assign(new Error(mismatchError.message), mismatchError);
+  }
 
   if (!publication.published) {
     logger.warn(
@@ -3410,12 +3526,15 @@ export async function runRefreshPipeline(
   };
   } catch (error) {
     await ensureFailed(error);
+    const cancelled =
+      (error as { code?: string })?.code === "CANCELLED" ||
+      (await repositories.job.findById(job.id))?.status === "CANCELLED";
     logger.warn(
       {
         ...logBase,
         event: OBS_EVENTS.refreshTerminal,
         jobId: job.id,
-        status: "FAILED",
+        status: cancelled ? "CANCELLED" : "FAILED",
       },
       OBS_EVENTS.refreshTerminal,
     );

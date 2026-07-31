@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
 import type { PrismaClient } from "@mplus/database";
+import { seedRefreshEligibilityEvidenceForTest } from "@mplus/worker";
 import { buildApp } from "./app.js";
 import { createApiContainer, type ApiContainer } from "./container.js";
 import { buildScoreModelConfig, buildTestEnv, createTestPrismaClient, uniqueName } from "./test-helpers.js";
@@ -12,7 +13,7 @@ afterAll(async () => {
   await prisma.$disconnect();
 });
 
-describe.skipIf(!dbAvailable)("comparison routes", () => {
+describe.skipIf(!dbAvailable)("comparison routes", { timeout: 30_000 }, () => {
   let app: FastifyInstance;
   let container: ApiContainer;
 
@@ -55,6 +56,16 @@ describe.skipIf(!dbAvailable)("comparison routes", () => {
       const nameB = uniqueName("CompareB");
       // Each GET runs the full inline fixture pipeline; two sequential pipelines easily exceed
       // the 5s default timeout — allow 30s.
+      await seedRefreshEligibilityEvidenceForTest(container.worker, {
+        region: "EU",
+        realmSlug: "tarren-mill",
+        name: nameA,
+      });
+      await seedRefreshEligibilityEvidenceForTest(container.worker, {
+        region: "EU",
+        realmSlug: "tarren-mill",
+        name: nameB,
+      });
       await app.inject({ method: "GET", url: `/api/v1/characters/${REALM_PATH}/${nameA}` });
       await app.inject({ method: "GET", url: `/api/v1/characters/${REALM_PATH}/${nameB}` });
 
@@ -89,6 +100,16 @@ describe.skipIf(!dbAvailable)("comparison routes", () => {
     async () => {
       const nameA = uniqueName("RankEligA");
       const nameB = uniqueName("RankEligB");
+      await seedRefreshEligibilityEvidenceForTest(container.worker, {
+        region: "EU",
+        realmSlug: "tarren-mill",
+        name: nameA,
+      });
+      await seedRefreshEligibilityEvidenceForTest(container.worker, {
+        region: "EU",
+        realmSlug: "tarren-mill",
+        name: nameB,
+      });
       await app.inject({ method: "GET", url: `/api/v1/characters/${REALM_PATH}/${nameA}` });
       await app.inject({ method: "GET", url: `/api/v1/characters/${REALM_PATH}/${nameB}` });
 
@@ -182,6 +203,16 @@ describe.skipIf(!dbAvailable)("comparison routes", () => {
   it("rejects comparisons across mismatched score model versions", async () => {
     const nameA = uniqueName("MismatchA");
     const nameB = uniqueName("MismatchB");
+    await seedRefreshEligibilityEvidenceForTest(container.worker, {
+      region: "EU",
+      realmSlug: "tarren-mill",
+      name: nameA,
+    });
+    await seedRefreshEligibilityEvidenceForTest(container.worker, {
+      region: "EU",
+      realmSlug: "tarren-mill",
+      name: nameB,
+    });
     await app.inject({ method: "GET", url: `/api/v1/characters/${REALM_PATH}/${nameA}` });
     await app.inject({ method: "GET", url: `/api/v1/characters/${REALM_PATH}/${nameB}` });
 

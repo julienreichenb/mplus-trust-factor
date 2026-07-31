@@ -955,11 +955,19 @@ model IngestionJob {
   startedAt   DateTime? @map("started_at") @db.Timestamptz(3)
   completedAt DateTime? @map("completed_at") @db.Timestamptz(3)
   error       Json?
+  /** BullMQ execution job id (unique per publish). Used for cancel / prioritize. */
+  queueJobId         String?   @map("queue_job_id")
+  /** Cooperative cancellation request for ACTIVE refresh jobs. */
+  cancelRequestedAt  DateTime? @map("cancel_requested_at") @db.Timestamptz(3)
+  cancelledAt        DateTime? @map("cancelled_at") @db.Timestamptz(3)
+  cancelReason       String?   @map("cancel_reason")
 
   character Character? @relation(fields: [characterId], references: [id])
   run       MythicRun? @relation(fields: [runId], references: [id])
 
   @@index([status, scheduledAt])
+  @@index([jobType, status, scheduledAt])
+  @@index([cancelRequestedAt])
   @@map("ingestion_jobs")
 }
 
