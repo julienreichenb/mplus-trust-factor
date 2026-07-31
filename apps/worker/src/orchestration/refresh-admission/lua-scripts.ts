@@ -5,6 +5,14 @@
  * or REFRESH_CONCURRENCY_ENABLED is false. Kept here so later stages can EVAL
  * the same script without inventing a parallel primitive.
  *
+ * Ownership / idempotency (must match classifyAdmissionOwnership +
+ * simulateReserveLuaOwnershipBranch):
+ * - reservation + slot → IDEMPOTENT_EXISTING (ok)
+ * - reservation without slot → INCONSISTENT_RESERVATION_WITHOUT_SLOT (reject)
+ * - slot without reservation → continue WCL capacity checks; acquire reservation
+ *   if needed (do not treat as idempotent success)
+ * - non-WCL (estimated==0): slot-only is fine; no reservation written
+ *
  * KEYS:
  *  1 sched:state
  *  2 wcl:snap
@@ -15,17 +23,35 @@
  *  7 slot:lease
  *  8 slot:count
  *
- * ARGV:
- *  1 ingestionJobId
- *  2 estimatedPoints (int)
- *  3 emergency (0|1)
- *  4 globalLimit (int)
- *  5 leaseExpiryMs (int)
- *  6 expectedWindowId
- *  7 nowMs
- *  8 maxSnapshotAgeMs
- *  9 allowSchedulingStates (comma-separated, e.g. RUNNING)
+ * ARGV: see REFRESH_ADMISSION_RESERVE_ARGV
  */
+
+/** Documented ARGV contract for REFRESH_ADMISSION_RESERVE_LUA (1-based). */
+export const REFRESH_ADMISSION_RESERVE_ARGV = [
+  { index: 1, name: "ingestionJobId", description: "IngestionJob.id (slot/reservation owner)" },
+  { index: 2, name: "estimatedPoints", description: "Integer WCL points to reserve (0 = non-WCL)" },
+  { index: 3, name: "emergency", description: "0 = normal lane, 1 = emergency lane" },
+  { index: 4, name: "globalLimit", description: "REFRESH_GLOBAL_CONCURRENCY clamp" },
+  { index: 5, name: "leaseExpiryMs", description: "Lease expiry timestamp (ms)" },
+  { index: 6, name: "expectedWindowId", description: "Window id derived from WCL resetAt" },
+  { index: 7, name: "nowMs", description: "Current time (ms)" },
+  { index: 8, name: "maxSnapshotAgeMs", description: "Fail closed when snapshot older than this" },
+  {
+    index: 9,
+    name: "allowSchedulingStates",
+    description: "Comma-separated allow-set (e.g. RUNNING)",
+  },
+  {
+    index: 10,
+    name: "safetyReserveFraction",
+    description: "Fraction of pointsLimit used for emergency reserve (e.g. 0.1)",
+  },
+  {
+    index: 11,
+    name: "minEmergencyReservePoints",
+    description: "Integer floor for emergency reserve points",
+  },
+] as const;
 
 export const REFRESH_ADMISSION_RESERVE_LUA = `
 local schedKey = KEYS[1]
@@ -46,6 +72,10 @@ local expectedWindow = ARGV[6]
 local nowMs = tonumber(ARGV[7])
 local maxAgeMs = tonumber(ARGV[8])
 local allowStates = ARGV[9]
+local safetyReserveFraction = tonumber(ARGV[10])
+local minEmergencyReservePoints = tonumber(ARGV[11])
+if safetyReserveFraction == nil then safetyReserveFraction = 0.1 end
+if minEmergencyReservePoints == nil then minEmergencyReservePoints = 50 end
 
 local state = redis.call('GET', schedKey)
 if not state then state = 'RUNNING' end
@@ -75,16 +105,20 @@ if pointsLimit ~= pointsLimit or pointsLimit <= 0 then
   return {0, 'POINTS_LIMIT_INVALID', ''}
 end
 
+-- Ownership branch (aligned with classifyAdmissionOwnership):
+-- full pair → idempotent; reservation without slot → reject; bare slot → continue.
 local existing = redis.call('HGET', resKey, jobId)
 if existing then
   local heldSlot = redis.call('HEXISTS', slotOwners, jobId)
-  return {1, 'IDEMPOTENT_EXISTING', tonumber(existing), heldSlot}
+  if heldSlot == 1 then
+    return {1, 'IDEMPOTENT_EXISTING', tonumber(existing), 1}
+  end
+  return {0, 'INCONSISTENT_RESERVATION_WITHOUT_SLOT', tonumber(existing), 0}
 end
 
 local activeReserved = tonumber(redis.call('GET', totalKey) or '0') or 0
-local fractionReserve = math.floor(pointsLimit * tonumber(ARGV[10] or '0.1'))
-local minReserve = tonumber(ARGV[11] or '50') or 50
-local emergencyReserve = math.max(fractionReserve, minReserve)
+local fractionReserve = math.floor(pointsLimit * safetyReserveFraction)
+local emergencyReserve = math.max(fractionReserve, minEmergencyReservePoints)
 local available
 if emergency == 1 then
   available = math.max(0, pointsRemaining - activeReserved)

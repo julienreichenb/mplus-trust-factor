@@ -17,6 +17,7 @@ import type {
   RefreshAdmissionPredictInput,
   RefreshAdmissionPrediction,
 } from "./types.js";
+import { classifyAdmissionOwnership } from "./ownership.js";
 
 function basePrediction(
   config: RefreshAdmissionConfig,
@@ -109,7 +110,14 @@ export function predictRefreshAdmission(
     config.globalConcurrency - Math.max(0, Math.floor(input.activeGlobalSlots)),
   );
 
-  if (input.existingGlobalSlot || input.existingReservationPoints != null) {
+  const ownership = classifyAdmissionOwnership({
+    wclRequired: input.wclRequired,
+    estimatedWclPoints: estimated,
+    existingReservationPoints: input.existingReservationPoints,
+    existingGlobalSlot: input.existingGlobalSlot,
+  });
+
+  if (ownership.kind === "idempotent_full") {
     const windowId =
       input.snapshot?.windowId ?? deriveWclWindowId(input.snapshot?.resetAt ?? null);
     return basePrediction(config, input, {
@@ -117,16 +125,55 @@ export function predictRefreshAdmission(
       reason: "IDEMPOTENT_EXISTING",
       lane,
       windowId,
-      estimatedWclPoints: input.existingReservationPoints ?? estimated,
+      estimatedWclPoints: ownership.reservationPoints,
       emergencyReservePoints: 0,
       normalAvailablePoints: 0,
       emergencyAvailablePoints: 0,
       globalSlotsRemaining,
-      metadata: { idempotent: true },
+      metadata: { idempotent: true, ownership: ownership.kind },
     });
   }
 
-  if (!input.existingGlobalSlot && globalSlotsRemaining <= 0) {
+  if (ownership.kind === "inconsistent_reservation_without_slot") {
+    const windowId =
+      input.snapshot?.windowId ?? deriveWclWindowId(input.snapshot?.resetAt ?? null);
+    return basePrediction(config, input, {
+      admitted: false,
+      reason: "INCONSISTENT_RESERVATION_WITHOUT_SLOT",
+      lane,
+      windowId,
+      estimatedWclPoints: ownership.reservationPoints,
+      emergencyReservePoints: 0,
+      normalAvailablePoints: 0,
+      emergencyAvailablePoints: 0,
+      globalSlotsRemaining,
+      metadata: {
+        idempotent: false,
+        ownership: ownership.kind,
+        note: "Reservation without global slot is rejected until reconcile repairs or releases",
+      },
+    });
+  }
+
+  if (ownership.kind === "non_wcl_idempotent_slot") {
+    return basePrediction(config, input, {
+      admitted: true,
+      reason: "IDEMPOTENT_EXISTING",
+      lane: "non_wcl",
+      windowId: null,
+      estimatedWclPoints: 0,
+      emergencyReservePoints: 0,
+      normalAvailablePoints: 0,
+      emergencyAvailablePoints: 0,
+      globalSlotsRemaining,
+      metadata: { idempotent: true, ownership: ownership.kind },
+    });
+  }
+
+  // slot_without_reservation: continue into WCL capacity checks (do not short-circuit).
+  // none: acquire path.
+
+  if (ownership.kind !== "slot_without_reservation" && globalSlotsRemaining <= 0) {
     return basePrediction(config, input, {
       admitted: false,
       reason: "INSUFFICIENT_GLOBAL_SLOTS",
@@ -149,6 +196,7 @@ export function predictRefreshAdmission(
       normalAvailablePoints: 0,
       emergencyAvailablePoints: 0,
       globalSlotsRemaining,
+      metadata: { ownership: ownership.kind },
     });
   }
 
@@ -235,6 +283,10 @@ export function predictRefreshAdmission(
       normalAvailablePoints,
       emergencyAvailablePoints,
       globalSlotsRemaining,
+      metadata: {
+        ownership: ownership.kind,
+        repairReservation: ownership.kind === "slot_without_reservation",
+      },
     });
   }
 
@@ -255,10 +307,14 @@ export function predictRefreshAdmission(
     emergencyAvailablePoints,
     globalSlotsRemaining,
     metadata: {
+      ownership: ownership.kind,
+      repairReservation: ownership.kind === "slot_without_reservation",
       note:
         reason === "ENFORCE_NOT_ACTIVATED"
           ? "Prediction only; Redis mutation requires concurrency activation on a later branch"
-          : undefined,
+          : ownership.kind === "slot_without_reservation"
+            ? "Global slot held without WCL reservation; capacity checks applied before admit"
+            : undefined,
     },
   });
 }

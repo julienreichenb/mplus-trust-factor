@@ -7,8 +7,11 @@ import {
   createRefreshAdmissionGate,
   predictRefreshAdmission,
   refreshAdmissionKeys,
+  classifyAdmissionOwnership,
+  simulateReserveLuaOwnershipBranch,
   REFRESH_ADMISSION_RELEASE_LUA,
   REFRESH_ADMISSION_RESERVE_LUA,
+  REFRESH_ADMISSION_RESERVE_ARGV,
 } from "./index.js";
 import type { RefreshAdmissionPredictInput } from "./types.js";
 
@@ -143,7 +146,7 @@ describe("refresh admission foundation", () => {
     expect(result.reason).toBe("NON_WCL_SLOT_ONLY");
   });
 
-  it("idempotent existing reservation / slot (M3)", () => {
+  it("idempotent only when reservation and global slot both exist (M3)", () => {
     const config = buildRefreshAdmissionConfig(baseEnv);
     const result = predictRefreshAdmission(
       config,
@@ -151,6 +154,179 @@ describe("refresh admission foundation", () => {
     );
     expect(result.admitted).toBe(true);
     expect(result.reason).toBe("IDEMPOTENT_EXISTING");
+    expect(result.metadata.ownership).toBe("idempotent_full");
+  });
+
+  it("rejects WCL reservation without global slot (partial state)", () => {
+    const config = buildRefreshAdmissionConfig(baseEnv);
+    const result = predictRefreshAdmission(
+      config,
+      baseInput({
+        existingReservationPoints: 80,
+        existingGlobalSlot: false,
+        // Would be ample capacity if inconsistently admitted:
+        estimatedWclPoints: 80,
+        snapshot: freshSnapshot({ pointsRemaining: 500 }),
+      }),
+    );
+    expect(result.admitted).toBe(false);
+    expect(result.reason).toBe("INCONSISTENT_RESERVATION_WITHOUT_SLOT");
+    expect(result.estimatedWclPoints).toBe(80);
+    expect(result.metadata.ownership).toBe("inconsistent_reservation_without_slot");
+
+    const ownership = classifyAdmissionOwnership({
+      wclRequired: true,
+      estimatedWclPoints: 80,
+      existingReservationPoints: 80,
+      existingGlobalSlot: false,
+    });
+    expect(ownership).toEqual({
+      kind: "inconsistent_reservation_without_slot",
+      reservationPoints: 80,
+    });
+
+    const lua = simulateReserveLuaOwnershipBranch({
+      existingReservation: 80,
+      hasSlot: false,
+      estimatedPoints: 80,
+    });
+    expect(lua.ok).toBe(0);
+    expect(lua.reason).toBe("INCONSISTENT_RESERVATION_WITHOUT_SLOT");
+    expect(lua.payload).toEqual([80, 0]);
+  });
+
+  it("slot without WCL reservation still applies capacity checks (partial state)", () => {
+    const config = buildRefreshAdmissionConfig(baseEnv);
+
+    const deferred = predictRefreshAdmission(
+      config,
+      baseInput({
+        existingGlobalSlot: true,
+        existingReservationPoints: null,
+        estimatedWclPoints: 350,
+        snapshot: freshSnapshot({ pointsRemaining: 400 }),
+        // activeGlobalSlots already counts this job's held slot
+        activeGlobalSlots: 1,
+      }),
+    );
+    // normalAvailable = 400 - 100 - 0 = 300 < 350 — must NOT bypass via slot-only idempotent
+    expect(deferred.admitted).toBe(false);
+    expect(deferred.reason).toBe("INSUFFICIENT_RESERVED_CAPACITY");
+    expect(deferred.metadata.ownership).toBe("slot_without_reservation");
+
+    const admitted = predictRefreshAdmission(
+      config,
+      baseInput({
+        existingGlobalSlot: true,
+        existingReservationPoints: null,
+        estimatedWclPoints: 80,
+        activeGlobalSlots: 1,
+      }),
+    );
+    expect(admitted.admitted).toBe(true);
+    expect(admitted.reason).toBe("OK");
+    expect(admitted.metadata.ownership).toBe("slot_without_reservation");
+    expect(admitted.metadata.repairReservation).toBe(true);
+
+    expect(
+      classifyAdmissionOwnership({
+        wclRequired: true,
+        estimatedWclPoints: 80,
+        existingGlobalSlot: true,
+        existingReservationPoints: null,
+      }).kind,
+    ).toBe("slot_without_reservation");
+
+    const lua = simulateReserveLuaOwnershipBranch({
+      existingReservation: null,
+      hasSlot: true,
+      estimatedPoints: 80,
+    });
+    expect(lua.ok).toBe(1);
+    expect(lua.reason).toBe("CONTINUE_CAPACITY_CHECKS");
+  });
+
+  it("non-WCL jobs may be idempotent on global slot alone", () => {
+    const config = buildRefreshAdmissionConfig(baseEnv);
+    const result = predictRefreshAdmission(
+      config,
+      baseInput({
+        wclRequired: false,
+        estimatedWclPoints: 0,
+        existingGlobalSlot: true,
+        existingReservationPoints: null,
+        snapshot: null,
+        activeGlobalSlots: 1,
+      }),
+    );
+    expect(result.admitted).toBe(true);
+    expect(result.reason).toBe("IDEMPOTENT_EXISTING");
+    expect(result.lane).toBe("non_wcl");
+    expect(result.metadata.ownership).toBe("non_wcl_idempotent_slot");
+  });
+
+  it("Lua ownership branch matches classifier for full and partial pairs", () => {
+    const full = simulateReserveLuaOwnershipBranch({
+      existingReservation: 80,
+      hasSlot: true,
+      estimatedPoints: 80,
+    });
+    expect(full).toEqual({ ok: 1, reason: "IDEMPOTENT_EXISTING", payload: [80, 1] });
+    expect(
+      classifyAdmissionOwnership({
+        wclRequired: true,
+        estimatedWclPoints: 80,
+        existingReservationPoints: 80,
+        existingGlobalSlot: true,
+      }).kind,
+    ).toBe("idempotent_full");
+
+    const resOnly = simulateReserveLuaOwnershipBranch({
+      existingReservation: 42,
+      hasSlot: false,
+      estimatedPoints: 42,
+    });
+    expect(resOnly.ok).toBe(0);
+    expect(resOnly.reason).toBe("INCONSISTENT_RESERVATION_WITHOUT_SLOT");
+
+    const slotOnly = simulateReserveLuaOwnershipBranch({
+      existingReservation: null,
+      hasSlot: true,
+      estimatedPoints: 42,
+    });
+    expect(slotOnly.reason).toBe("CONTINUE_CAPACITY_CHECKS");
+  });
+
+  it("documents ARGV[10]/ARGV[11] reserve math knobs in the Lua contract", () => {
+    expect(REFRESH_ADMISSION_RESERVE_ARGV.map((a) => a.index)).toEqual([
+      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11,
+    ]);
+    expect(REFRESH_ADMISSION_RESERVE_ARGV[9]).toMatchObject({
+      index: 10,
+      name: "safetyReserveFraction",
+    });
+    expect(REFRESH_ADMISSION_RESERVE_ARGV[10]).toMatchObject({
+      index: 11,
+      name: "minEmergencyReservePoints",
+    });
+
+    // Script must bind documented ARGV slots and use them for pointsLimit reserve math.
+    expect(REFRESH_ADMISSION_RESERVE_LUA).toMatch(
+      /local safetyReserveFraction = tonumber\(ARGV\[10\]\)/,
+    );
+    expect(REFRESH_ADMISSION_RESERVE_LUA).toMatch(
+      /local minEmergencyReservePoints = tonumber\(ARGV\[11\]\)/,
+    );
+    expect(REFRESH_ADMISSION_RESERVE_LUA).toMatch(
+      /math\.floor\(pointsLimit \* safetyReserveFraction\)/,
+    );
+    expect(REFRESH_ADMISSION_RESERVE_LUA).toMatch(
+      /math\.max\(fractionReserve, minEmergencyReservePoints\)/,
+    );
+    // Must not silently read ARGV[10]/[11] via unnamed tonumber(ARGV[10] or '0.1') only.
+    expect(REFRESH_ADMISSION_RESERVE_LUA).not.toMatch(
+      /tonumber\(ARGV\[10\] or /,
+    );
   });
 
   it("gate tryAdmit never enables Redis mutation on foundation defaults", async () => {
