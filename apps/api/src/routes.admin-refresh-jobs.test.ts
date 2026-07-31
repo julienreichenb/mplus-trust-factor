@@ -262,4 +262,72 @@ describe.skipIf(!dbAvailable)("admin refresh-jobs routes", () => {
     expect(response.statusCode).toBe(200);
     expect(response.json().characters.some((c: { id: string }) => c.id === characterId)).toBe(true);
   });
+
+  it("returns exact persisted scoring model fields and admin account identity keys", async () => {
+    const jobId = randomUUID();
+    await prisma.ingestionJob.create({
+      data: {
+        id: jobId,
+        jobType: "refresh-character",
+        characterId,
+        status: "COMPLETED",
+        dedupeKey: `refresh:model:${randomUUID()}`,
+        payload: {
+          region: "EU",
+          realmSlug: "admin-refresh-realm",
+          name: "ModelChar",
+          triggerSource: "SYSTEM",
+          scoringModelKey: "default",
+          scoringModelVersion: 6,
+        },
+        completedAt: new Date(),
+        scheduledAt: new Date(),
+      },
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: `/api/v1/admin/refresh-jobs?characterId=${characterId}&pageSize=50`,
+      headers: { "x-admin-api-key": ADMIN_KEY },
+    });
+    expect(response.statusCode).toBe(200);
+    const row = response.json().jobs.find((j: { id: string }) => j.id === jobId);
+    expect(row).toBeTruthy();
+    expect(row.scoringModelKey).toBe("default");
+    expect(row.scoringModelVersion).toBe(6);
+    expect(Object.prototype.hasOwnProperty.call(row, "battleTag")).toBe(true);
+    expect(Object.prototype.hasOwnProperty.call(row, "battleNetEmail")).toBe(true);
+    // Unlinked / ambiguous → null rather than inferred identity.
+    expect(row.battleTag).toBeNull();
+    expect(row.battleNetEmail).toBeNull();
+  });
+
+  it("shows — semantics for missing scoring model by returning null fields", async () => {
+    const jobId = randomUUID();
+    await prisma.ingestionJob.create({
+      data: {
+        id: jobId,
+        jobType: "refresh-character",
+        characterId,
+        status: "COMPLETED",
+        dedupeKey: `refresh:nomodel:${randomUUID()}`,
+        payload: {
+          region: "EU",
+          realmSlug: "admin-refresh-realm",
+          name: "NoModelChar",
+          triggerSource: "SYSTEM",
+        },
+        completedAt: new Date(),
+        scheduledAt: new Date(),
+      },
+    });
+    const response = await app.inject({
+      method: "GET",
+      url: `/api/v1/admin/refresh-jobs?characterId=${characterId}&pageSize=50`,
+      headers: { "x-admin-api-key": ADMIN_KEY },
+    });
+    const row = response.json().jobs.find((j: { id: string }) => j.id === jobId);
+    expect(row.scoringModelKey).toBeNull();
+    expect(row.scoringModelVersion).toBeNull();
+  });
 });

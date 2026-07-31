@@ -388,6 +388,8 @@ export class CharacterService {
       forceRefresh: opts.forceRefresh ?? false,
       correlationId: opts.correlationId ?? null,
       refreshContractHash: hash,
+      scoringModelKey: contract.scoringModelKey,
+      scoringModelVersion: contract.scoringModelVersion,
       triggerSource: opts.triggerSource,
       authoritativeSeasonId: authority.blizzardSeasonId,
       authoritativeSeasonSlug: authority.slug,

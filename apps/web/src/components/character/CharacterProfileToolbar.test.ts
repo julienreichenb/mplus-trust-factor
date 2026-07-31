@@ -17,20 +17,17 @@ describe("CharacterProfileToolbar refresh labels", () => {
     const cases: Array<[CharacterProfileView["refreshStatus"], string, string]> = [
       ["QUEUED", "Queued", "refresh-status-queued"],
       ["REFRESHING", "Refreshing", "refresh-status-updating"],
-      ["STALE", "Stale", "refresh-state"],
-      ["FRESH", "Up to date", "refresh-state"],
+      ["STALE", "Stale", "refresh-status-idle"],
+      ["FRESH", "Up to date", "refresh-status-idle"],
     ];
-    for (const [status, label, testIdOrClass] of cases) {
+    for (const [status, label, testId] of cases) {
       const wrapper = mount(CharacterProfileToolbar, {
         props: { profile: profile(status) },
         global: {
           stubs: { RouterLink: { template: "<a><slot /></a>" } },
         },
       });
-      const chip =
-        testIdOrClass.startsWith("refresh-status")
-          ? wrapper.get(`[data-testid='${testIdOrClass}']`)
-          : wrapper.get(".refresh-state");
+      const chip = wrapper.get(`[data-testid='${testId}']`);
       expect(chip.text()).toContain(label);
       wrapper.unmount();
     }

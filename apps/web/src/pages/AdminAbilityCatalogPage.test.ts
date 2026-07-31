@@ -148,4 +148,28 @@ describe("AdminAbilityCatalogPage", () => {
     expect(wrapper.find(".sticky-bar .filters").exists()).toBe(true);
     expect(wrapper.find(".catalog-summary").exists()).toBe(true);
   });
+
+  it("exposes spell icon tooltip wrappers with the same wowhead authority as Spell ID", async () => {
+    const { wrapper } = await mountPage();
+    const firstSection = wrapper.get("[data-testid='class-section']");
+    await firstSection.get(".section-toggle").trigger("click");
+    await flushPromises();
+    const firstSpec = firstSection.find(".spec-toggle");
+    if (firstSpec.exists()) {
+      await firstSpec.trigger("click");
+      await flushPromises();
+    }
+    await vi.waitFor(() => {
+      expect(wrapper.find("[data-testid='ability-row']").exists()).toBe(true);
+    });
+    const iconTip = wrapper.find("[data-testid='spell-icon-tooltip']");
+    expect(iconTip.exists()).toBe(true);
+    expect(iconTip.attributes("data-wowhead")).toMatch(/^spell=\d+/);
+    expect(iconTip.attributes("tabindex")).toBeUndefined();
+    await iconTip.trigger("focus");
+    expect(iconTip.attributes("data-wowhead")).toMatch(/^spell=\d+/);
+    const spellIdLink = wrapper.find(".ability-meta a.wowhead-link");
+    expect(spellIdLink.exists()).toBe(true);
+    expect(spellIdLink.attributes("data-wowhead")).toBe(iconTip.attributes("data-wowhead"));
+  });
 });

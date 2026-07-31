@@ -44,6 +44,12 @@ export const refreshCharacterJobSchema = z.object({
    * fixture/test payloads (worker fail-closed when PROVIDER_MODE=live).
    */
   refreshContractHash: z.string().min(1).max(128).optional(),
+  /**
+   * Exact scoring model identity at enqueue time. Optional additive fields for
+   * admin display — never inferred later from the currently active model.
+   */
+  scoringModelKey: z.string().min(1).max(64).optional(),
+  scoringModelVersion: z.number().int().positive().optional(),
   /** Optional enqueue boundary label; absent on older persisted jobs. */
   triggerSource: refreshTriggerSourceSchema.optional(),
   /**

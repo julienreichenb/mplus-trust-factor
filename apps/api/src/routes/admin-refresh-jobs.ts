@@ -3,6 +3,7 @@ import type { ApiContainer } from "../container.js";
 import { AdminRefreshJobsService } from "../services/admin-refresh-jobs-service.js";
 import { createPermissionPreHandler } from "../iam/session.js";
 import { PERMISSIONS } from "../iam/permissions.js";
+import { hasPermission } from "../iam/rbac.js";
 import { errorResponseSchema } from "./schemas.js";
 
 const jobRowSchema = {
@@ -13,6 +14,7 @@ const jobRowSchema = {
 /**
  * Admin refresh-job control center routes.
  * Permission: admin.jobs.manage (emergency admin key allowed).
+ * Additive BattleTag/email fields require admin.users.read (or emergency key).
  */
 export function buildAdminRefreshJobRoutes(container: ApiContainer): FastifyPluginAsync {
   const service = new AdminRefreshJobsService(container);
@@ -63,6 +65,12 @@ export function buildAdminRefreshJobRoutes(container: ApiContainer): FastifyPlug
         },
         async (request) => {
           const q = request.query as Record<string, string | undefined>;
+          const includeAccountIdentity =
+            request.authActor === "admin_key" ||
+            Boolean(
+              request.auth &&
+                hasPermission(request.auth.permissions, PERMISSIONS.ADMIN_USERS_READ),
+            );
           return service.list({
             status: q.status ?? null,
             region: q.region ?? null,
@@ -74,6 +82,7 @@ export function buildAdminRefreshJobRoutes(container: ApiContainer): FastifyPlug
             showHistoricalFailures: q.showHistoricalFailures === "true",
             page: q.page ? Number(q.page) : 1,
             pageSize: q.pageSize ? Number(q.pageSize) : 25,
+            includeAccountIdentity,
           });
         },
       );

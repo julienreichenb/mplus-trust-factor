@@ -5,6 +5,7 @@ import { useCharacterAutocomplete } from "../../composables/useCharacterAutocomp
 import { useRecentSearchesStore } from "../../stores/recentSearches";
 import { canonicalCharacterPath } from "../../lib/format";
 import { parseCharacterQuery, REALM_REQUIRED_HINT } from "../../lib/parseCharacterQuery";
+import { formatCharacterIdentityDisplay } from "../../lib/characterIdentity";
 import { classColor, classIconUrl } from "../../lib/wowClass";
 import type { CharacterAutocompleteSuggestion } from "../../api/types";
 
@@ -189,6 +190,18 @@ function iconFor(suggestion: CharacterAutocompleteSuggestion): string | null {
   return suggestion.avatarUrl ?? suggestion.classIconUrl ?? classIconUrl(suggestion.classSlug);
 }
 
+function identityDisplay(suggestion: {
+  region: string;
+  name: string;
+  realmSlug?: string | null;
+}) {
+  return formatCharacterIdentityDisplay({
+    region: suggestion.region,
+    name: suggestion.name,
+    realmSlug: suggestion.realmSlug,
+  });
+}
+
 function optionLabel(suggestion: CharacterAutocompleteSuggestion): string {
   if (suggestion.label) return suggestion.label;
   return `${suggestion.name}-${suggestion.realmSlug}`;
@@ -264,8 +277,11 @@ function optionLabel(suggestion: CharacterAutocompleteSuggestion): string {
                 <span class="resolve-label">{{ optionLabel(s) }}</span>
               </template>
               <template v-else>
-                <span class="name" :style="{ color: classColor(s.classSlug) }">{{ s.name }}</span
-                ><span class="realm">-{{ s.realmSlug }}</span>
+                <span class="region-tag">{{ identityDisplay(s).region }}</span>
+                <span class="name" :style="{ color: classColor(s.classSlug) }">{{
+                  identityDisplay(s).nickname
+                }}</span
+                ><span class="realm">-{{ identityDisplay(s).server }}</span>
               </template>
             </span>
           </li>

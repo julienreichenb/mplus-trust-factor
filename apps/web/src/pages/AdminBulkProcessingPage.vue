@@ -4,8 +4,14 @@ import { useRouter } from "vue-router";
 import type { AdminCharacterSearchHit, AdminScoreModelDTO, BulkMode } from "@mplus/contracts";
 import { ApiClientError } from "../api/live-client";
 import StatusBanner from "../components/common/StatusBanner.vue";
+import HelpTooltip from "../components/common/HelpTooltip.vue";
+import StatusChip from "../components/character/StatusChip.vue";
+import CharacterIdentity from "../components/character/CharacterIdentity.vue";
 import AdminCharacterPicker from "../components/admin/AdminCharacterPicker.vue";
 import { parseOptionalNumber } from "../lib/parseOptionalNumber";
+
+const DRY_RUN_TOOLTIP =
+  "Dry run validates character selection, estimates WCL call cost, and persists the bulk operation plus selection rows, but does not enqueue child refresh or recalculate jobs. Turn Dry run off to dispatch child jobs that can update character scores and refresh data.";
 
 const apiBase = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:3000";
 const router = useRouter();
@@ -308,12 +314,6 @@ function formatDate(iso: string): string {
   }
 }
 
-function itemStatusClass(status: string): string {
-  if (status === "ENQUEUED") return "chip chip--enqueued";
-  if (status.startsWith("SKIPPED_")) return `chip chip--skipped ${status.toLowerCase()}`;
-  return "chip";
-}
-
 function modelLabel(model: AdminScoreModelDTO): string {
   return `${model.key} · v${model.version} · ${model.status}${model.name ? ` · ${model.name}` : ""}`;
 }
@@ -484,7 +484,10 @@ onUnmounted(() => {
         </section>
 
         <section class="admin-card" data-testid="bulk-section-execute">
-          <h2>Dry-run / execution</h2>
+          <h2>
+            Dry-run / execution
+            <HelpTooltip :text="DRY_RUN_TOOLTIP" label="About dry run" />
+          </h2>
           <label class="switch" data-testid="bulk-dry-run-switch">
             <input v-model="dryRun" type="checkbox" data-testid="bulk-dry-run" />
             <span class="switch__track" aria-hidden="true" />
@@ -499,9 +502,11 @@ onUnmounted(() => {
               </span>
             </span>
           </label>
-          <button class="btn primary" type="submit" :disabled="busy" data-testid="bulk-create">
-            {{ dryRun ? "Run dry-run estimate" : "Start bulk operation" }}
-          </button>
+          <div class="admin-card__actions">
+            <button class="btn primary" type="submit" :disabled="busy" data-testid="bulk-create">
+              {{ dryRun ? "Run dry-run estimate" : "Start bulk operation" }}
+            </button>
+          </div>
         </section>
       </div>
     </form>
@@ -522,7 +527,7 @@ onUnmounted(() => {
             <span class="op-card__title">
               <strong>{{ op.mode === "FULL_REFRESH" ? "Full refresh" : "Recalculate only" }}</strong>
               <span class="chip">{{ op.selectionMode === "EXPLICIT" ? "Explicit" : "Cohort" }}</span>
-              <span class="chip" :data-status="op.status" data-testid="bulk-status-chip">{{ op.status }}</span>
+              <StatusChip :status="op.status" data-testid="bulk-status-chip" />
               <span class="chip" :class="op.dryRun ? 'chip--dry' : 'chip--live'">
                 {{ op.dryRun ? "Dry-run" : "Live" }}
               </span>
@@ -616,9 +621,14 @@ onUnmounted(() => {
                   </p>
                   <ul class="op-items__list" data-testid="bulk-items-list">
                     <li v-for="item in detailById[op.id]!.items" :key="item.id" class="op-items__row">
-                      <span class="admin-badge">{{ item.region }}</span>
-                      <span class="op-items__name">{{ item.characterName }}-{{ item.realmSlug }}</span>
-                      <span :class="itemStatusClass(item.status)" data-testid="bulk-item-status">{{ item.status }}</span>
+                      <CharacterIdentity
+                        compact
+                        :region="item.region"
+                        :name="item.characterName"
+                        :realm-slug="item.realmSlug"
+                        :size="28"
+                      />
+                      <StatusChip :status="item.status" data-testid="bulk-item-status" />
                       <span v-if="item.childJobType" class="op-items__muted">{{ item.childJobType }}</span>
                       <span v-if="item.skipReason" class="op-items__muted">{{ item.skipReason }}</span>
                       <span v-if="item.errorMessage" class="admin-field__error">{{ item.errorMessage }}</span>
@@ -658,6 +668,7 @@ onUnmounted(() => {
 .admin-card {
   display: grid;
   gap: var(--space-3);
+  align-content: start;
   padding: var(--space-5);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-card);
@@ -666,6 +677,25 @@ onUnmounted(() => {
 .admin-card h2 {
   margin: 0;
   font-size: var(--text-lg);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.admin-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+.admin-card__actions .btn,
+.admin-card > .btn,
+.admin-card .btn.primary,
+.admin-card .btn.secondary {
+  align-self: start;
+  flex: 0 0 auto;
+  height: 2.75rem;
+  min-height: 2.75rem;
+  max-height: 2.75rem;
 }
 .admin-card__help,
 .admin-field__help {

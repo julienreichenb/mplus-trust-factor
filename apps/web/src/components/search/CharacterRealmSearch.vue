@@ -8,6 +8,7 @@ import { useRealmCombobox } from "../../composables/useRealmCombobox";
 import { useRecentSearchesStore } from "../../stores/recentSearches";
 import { resolveRealmDisplayName } from "../../api/realm-options";
 import { classColor, classIconUrl } from "../../lib/wowClass";
+import { displayCapitalize, formatCharacterIdentityDisplay } from "../../lib/characterIdentity";
 
 const props = withDefaults(
   defineProps<{
@@ -167,7 +168,16 @@ function matchingNameSuggestion(name: string): CharacterAutocompleteSuggestion |
 }
 
 function formattedRealmName(s: CharacterAutocompleteSuggestion): string {
-  return resolveRealmDisplayName(s.realmSlug, s.realmName);
+  return formatCharacterIdentityDisplay({
+    region: s.region,
+    name: s.name,
+    realmSlug: s.realmSlug,
+    realmName: resolveRealmDisplayName(s.realmSlug, s.realmName),
+  }).server;
+}
+
+function formattedNickname(s: CharacterAutocompleteSuggestion): string {
+  return displayCapitalize(s.name);
 }
 
 function iconFor(suggestion: CharacterAutocompleteSuggestion): string | null {
@@ -391,10 +401,11 @@ async function enrichRecentPortraits(): Promise<void> {
             />
             <span v-else class="crs__avatar crs__avatar--neutral crs__avatar--sm" aria-hidden="true" />
             <span class="crs__name-line">
+              <span class="crs__region mpts-data">{{ s.region.toUpperCase() }}</span>
               <span class="crs__name-nickname" :style="{ color: classColor(s.classSlug) }">
-                {{ s.name }}
+                {{ formattedNickname(s) }}
               </span>
-              <span class="crs__name-sep"> - </span>
+              <span class="crs__name-sep">-</span>
               <span class="crs__name-realm">{{ formattedRealmName(s) }}</span>
             </span>
           </li>
@@ -669,9 +680,19 @@ input:focus-visible {
 .crs__name-line {
   display: flex;
   align-items: center;
+  gap: 0.35rem;
   min-width: 0;
   font-size: var(--text-sm);
   font-weight: 600;
+}
+
+.crs__region {
+  font-family: var(--font-data);
+  font-size: var(--text-xs);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  flex-shrink: 0;
 }
 
 .crs__name-nickname {

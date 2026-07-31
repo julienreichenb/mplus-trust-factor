@@ -3,6 +3,7 @@ import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import { RouterLink } from "vue-router";
 import type { ActiveRerollCharacterDTO, Grade } from "@mplus/contracts";
 import TrustTierBadge from "../landing/TrustTierBadge.vue";
+import CharacterIdentity from "./CharacterIdentity.vue";
 import { presentGrade } from "../../lib/characterViewModel";
 import { classColor, classIconUrl } from "../../lib/wowClass";
 import { canonicalCharacterPath } from "../../lib/format";
@@ -18,10 +19,6 @@ const listEl = ref<HTMLUListElement | null>(null);
 const activeIndex = ref(0);
 
 const show = computed(() => props.characters.length > 0);
-
-function portraitSrc(c: ActiveRerollCharacterDTO): string | null {
-  return c.portraitUrl ?? classIconUrl(c.classSlug);
-}
 
 function nameColor(c: ActiveRerollCharacterDTO): string {
   return c.classColor ?? classColor(c.classSlug);
@@ -61,11 +58,6 @@ function optionLabel(c: ActiveRerollCharacterDTO): string {
   const gradeLabel = gradeAccessibleLabel(c.grade);
   const main = c.isMain ? " MAIN" : "";
   return `${c.name} – ${realm} (${c.region.toUpperCase()}) – ${score}${main} – ${gradeLabel}`;
-}
-
-function nicknameServer(c: ActiveRerollCharacterDTO): string {
-  const realm = c.realmName ?? c.realmSlug;
-  return `${c.name}-${realm}`;
 }
 
 function close(): void {
@@ -206,18 +198,18 @@ onBeforeUnmount(() => {
             @click="close"
             @mouseenter="activeIndex = index"
           >
-            <img
-              class="active-rerolls__portrait"
-              :src="portraitSrc(c) ?? undefined"
-              alt=""
-              width="28"
-              height="28"
+            <CharacterIdentity
+              compact
+              :region="c.region"
+              :name="c.name"
+              :realm-slug="c.realmSlug"
+              :realm-name="c.realmName"
+              :class-slug="c.classSlug"
+              :class-color="nameColor(c)"
+              :portrait-url="c.portraitUrl"
+              :class-icon-url="classIconUrl(c.classSlug)"
+              :size="28"
             />
-            <span class="active-rerolls__region mpts-data">{{ c.region.toUpperCase() }}</span>
-            <span
-              class="active-rerolls__name"
-              :style="{ color: nameColor(c) }"
-            >{{ nicknameServer(c) }}</span>
             <span class="active-rerolls__score-group">
               <span class="active-rerolls__score mpts-data">{{ formatScore(c.mythicPlusScore) }}</span>
               <span

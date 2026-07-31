@@ -263,6 +263,31 @@ describe("AdminBulkProcessingPage", () => {
     expect(wrapper.get("[data-testid='admin-picker-count']").text()).toContain("0 selected");
   });
 
+  it("places Remove as a far-right destructive action and keeps dry-run tooltip", async () => {
+    vi.useFakeTimers();
+    const { wrapper } = await mountPage();
+    await wrapper.get("[data-testid='bulk-selection-explicit']").trigger("click");
+    await wrapper.get("[data-testid='admin-picker-search']").setValue("ale");
+    await vi.advanceTimersByTimeAsync(250);
+    await flushPromises();
+    await wrapper.get("[data-testid='admin-picker-suggestions'] li").trigger("mousedown");
+    await flushPromises();
+    const row = wrapper.get(".admin-picker__row");
+    expect(row.find("[data-testid='character-identity']").exists()).toBe(true);
+    const remove = row.get("[data-testid='admin-picker-remove']");
+    expect(remove.classes()).toContain("admin-picker__remove");
+    const children = Array.from(row.element.children) as HTMLElement[];
+    expect(children[children.length - 1]).toBe(remove.element);
+
+    expect(wrapper.find("[data-testid='help-tooltip']").exists()).toBe(true);
+    await wrapper.get("[data-testid='help-tooltip'] button").trigger("focus");
+    expect(wrapper.get("[data-testid='help-tooltip']").text()).toMatch(/does not enqueue child/i);
+    expect(wrapper.get("[data-testid='help-tooltip']").text()).toMatch(/persists the bulk operation/i);
+
+    const createBtn = wrapper.get("[data-testid='bulk-create']");
+    expect(createBtn.classes()).toContain("btn");
+  });
+
   it("keeps operation cards collapsed by default and loads detail on expand", async () => {
     const { wrapper } = await mountPage();
     expect(wrapper.find("[data-testid='bulk-operation-detail']").exists()).toBe(false);

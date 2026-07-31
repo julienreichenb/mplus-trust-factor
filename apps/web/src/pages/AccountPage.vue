@@ -2,9 +2,11 @@
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { RouterLink, useRouter } from "vue-router";
 import type { AccountCharactersResponse, AccountOwnedCharacterDTO } from "@mplus/contracts";
+import CharacterIdentity from "../components/character/CharacterIdentity.vue";
+import StatusChip from "../components/character/StatusChip.vue";
 import TrustTierBadge from "../components/landing/TrustTierBadge.vue";
 import type { Grade } from "../api/types";
-import { classIconUrl } from "../lib/wowClass";
+import { accountCharacterRoute } from "../lib/accountCharacters";
 
 const apiBase = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:3000";
 const router = useRouter();
@@ -18,6 +20,7 @@ const linked = ref<{
   account?: {
     providerAccountId: string;
     battletag: string | null;
+    emailMasked?: string | null;
     linkedAt: string;
     lastOwnershipSyncAt: string | null;
     lastOwnershipSyncError: string | null;
@@ -31,13 +34,6 @@ const busy = ref(false);
 let pollTimer: ReturnType<typeof setTimeout> | null = null;
 let pollInFlight = false;
 let stopped = false;
-
-const canAdmin = () =>
-  Boolean(
-    me.value?.user?.permissions?.some(
-      (p) => p.startsWith("admin.") || p === "score.recalculate" || p === "admin.ability_catalog.read",
-    ),
-  );
 
 const isAdminRole = computed(() =>
   Boolean(me.value?.user?.roles?.some((role) => role.toLowerCase() === "admin")),
@@ -58,31 +54,6 @@ const needsPolling = computed(() => {
       c.trustScore.status === "DISCOVERING",
   );
 });
-
-function statusLabel(status: AccountOwnedCharacterDTO["trustScore"]["status"]): string {
-  switch (status) {
-    case "DISCOVERING":
-      return "Discovering";
-    case "QUEUED":
-      return "Queued";
-    case "RUNNING":
-      return "Analyzing";
-    case "REFRESHING":
-      return "Refreshing";
-    case "AVAILABLE":
-      return "Available";
-    case "PARTIAL":
-      return "Partial data";
-    case "FAILED":
-      return "Failed";
-    case "STALE":
-      return "Stale";
-    case "UNAVAILABLE":
-      return "Unavailable";
-    default:
-      return "Not requested";
-  }
-}
 
 function clearPoll(): void {
   if (pollTimer) {
@@ -194,18 +165,7 @@ async function signOut(): Promise<void> {
 }
 
 function characterRoute(c: AccountOwnedCharacterDTO) {
-  return {
-    name: "character" as const,
-    params: {
-      region: c.region.toLowerCase(),
-      realm: c.realmSlug,
-      name: c.name,
-    },
-  };
-}
-
-function portraitSrc(c: AccountOwnedCharacterDTO): string | null {
-  return c.media.portraitUrl ?? classIconUrl(c.characterClass.slug);
+  return accountCharacterRoute(c);
 }
 </script>
 
@@ -228,13 +188,18 @@ function portraitSrc(c: AccountOwnedCharacterDTO): string | null {
         <h2>Profile</h2>
       </div>
 
-      <p class="display-name">{{ me?.user?.displayName ?? "—" }}</p>
-
       <div class="linked">
         <h3 class="linked__title">Battle.net</h3>
         <template v-if="linked?.linked && linked.account">
-          <p>
+          <p class="battletag" data-testid="account-battletag">
             <strong>{{ linked.account.battletag ?? linked.account.providerAccountId }}</strong>
+          </p>
+          <p
+            v-if="linked.account.emailMasked"
+            class="email-masked muted"
+            data-testid="account-email-masked"
+          >
+            {{ linked.account.emailMasked }}
           </p>
           <p class="muted">Linked {{ new Date(linked.account.linkedAt).toLocaleString() }}</p>
           <p v-if="linked.account.lastOwnershipSyncError" class="error">
@@ -297,34 +262,27 @@ function portraitSrc(c: AccountOwnedCharacterDTO): string | null {
               :aria-label="`${c.name} on ${c.realmSlug}`"
             />
             <div class="char-row__left">
-              <img
-                class="portrait"
-                :src="portraitSrc(c) ?? undefined"
-                :alt="`${c.name} portrait`"
-                width="48"
-                height="48"
+              <CharacterIdentity
+                :region="c.region"
+                :name="c.name"
+                :realm-slug="c.realmSlug"
+                :realm-name="c.realmName"
+                :class-slug="c.characterClass.slug"
+                :class-name="c.characterClass.name"
+                :class-color="c.characterClass.color"
+                :portrait-url="c.media.portraitUrl"
+                :size="48"
               />
-              <div class="identity">
-                <span
-                  class="name"
-                  :style="c.characterClass.color ? { color: c.characterClass.color } : undefined"
-                >
-                  {{ c.name }}
-                </span>
-                <span class="meta muted">
-                  {{ c.realmName ?? c.realmSlug }} · {{ c.region }}
-                  <template v-if="c.level != null"> · {{ c.level }}</template>
-                  <template v-if="c.currentSeasonMythic.rating != null">
-                    · {{ Math.round(c.currentSeasonMythic.rating) }} M+
-                  </template>
-                </span>
-              </div>
+              <span class="extra-meta muted">
+                <template v-if="c.level != null">{{ c.level }}</template>
+                <template v-if="c.currentSeasonMythic.rating != null">
+                  · {{ Math.round(c.currentSeasonMythic.rating) }} M+
+                </template>
+              </span>
             </div>
 
             <div class="char-row__center">
-              <span class="lifecycle" :data-status="c.trustScore.status">
-                {{ statusLabel(c.trustScore.status) }}
-              </span>
+              <StatusChip :status="c.trustScore.status" />
               <span
                 v-if="c.trustScore.errorMessage && (c.trustScore.status === 'FAILED' || c.trustScore.status === 'STALE' || c.trustScore.status === 'AVAILABLE')"
                 class="fail-reason"
@@ -357,29 +315,20 @@ function portraitSrc(c: AccountOwnedCharacterDTO): string | null {
                 class="spinner"
                 aria-hidden="true"
               />
-              <span
-                v-else-if="
-                  !(
-                    (c.trustScore.status === 'AVAILABLE' ||
-                      c.trustScore.status === 'STALE' ||
-                      c.trustScore.status === 'FAILED') &&
-                    c.trustScore.grade
-                  )
-                "
-                class="status-pill"
-                :data-status="c.trustScore.status"
-              >
-                {{ statusLabel(c.trustScore.status) }}
-              </span>
-              <span v-if="c.isPrimary" class="badge">Primary</span>
             </div>
           </div>
 
           <div class="char-row__actions">
+            <span
+              v-if="c.isPrimary"
+              class="primary-slot primary-slot--state"
+              data-testid="primary-state"
+            >Primary</span>
             <button
-              v-if="!c.isPrimary"
+              v-else
               type="button"
-              class="btn btn--ghost"
+              class="btn btn--ghost primary-slot"
+              data-testid="set-primary"
               @click.prevent.stop="setPrimary(c.ownershipId)"
             >
               Set primary
@@ -393,15 +342,6 @@ function portraitSrc(c: AccountOwnedCharacterDTO): string | null {
         reaching max level with Mythic+ activity, or set a primary character.
       </p>
       <p v-else-if="!accountChars" class="muted">Loading characters…</p>
-    </section>
-
-    <section v-if="canAdmin()" class="block">
-      <h2>Admin</h2>
-      <nav class="actions">
-        <RouterLink class="btn btn--ghost" to="/admin/models">Score models</RouterLink>
-        <RouterLink class="btn btn--ghost" to="/admin/ability-catalog">Ability catalog</RouterLink>
-        <RouterLink class="btn btn--ghost" to="/admin/users">Admin users</RouterLink>
-      </nav>
     </section>
   </section>
 </template>
@@ -447,11 +387,6 @@ function portraitSrc(c: AccountOwnedCharacterDTO): string | null {
   text-transform: uppercase;
   line-height: 1.2;
 }
-.display-name {
-  margin: 0 0 var(--space-4);
-  font-size: var(--text-lg);
-  font-weight: 650;
-}
 .linked {
   display: grid;
   gap: var(--space-2);
@@ -464,6 +399,14 @@ function portraitSrc(c: AccountOwnedCharacterDTO): string | null {
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--color-text-muted, #a8a8b3);
+}
+.battletag {
+  margin: 0;
+}
+.email-masked {
+  margin: 0;
+  font-family: var(--font-data);
+  font-size: var(--text-sm);
 }
 .muted {
   color: var(--color-text-muted, #a8a8b3);
@@ -496,6 +439,7 @@ function portraitSrc(c: AccountOwnedCharacterDTO): string | null {
 .btn {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   padding: 0.55rem 0.9rem;
   border-radius: 0.4rem;
   border: 1px solid rgb(255 255 255 / 16%);
@@ -506,6 +450,8 @@ function portraitSrc(c: AccountOwnedCharacterDTO): string | null {
   font: inherit;
   position: relative;
   z-index: 1;
+  min-height: 2.5rem;
+  box-sizing: border-box;
 }
 .btn--ghost {
   background: transparent;
@@ -547,44 +493,19 @@ function portraitSrc(c: AccountOwnedCharacterDTO): string | null {
 }
 .char-row__left {
   display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  min-width: 0;
-}
-.portrait {
-  width: 48px;
-  height: 48px;
-  border-radius: 0.35rem;
-  object-fit: cover;
-  background: rgb(255 255 255 / 6%);
-  flex-shrink: 0;
-}
-.identity {
-  display: flex;
   flex-direction: column;
-  gap: 0.15rem;
+  gap: 0.2rem;
   min-width: 0;
 }
-.name {
-  font-weight: 650;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.meta {
+.extra-meta {
   font-size: 0.85rem;
+  padding-left: calc(48px + var(--space-2));
 }
 .char-row__center {
   display: flex;
   flex-direction: column;
   gap: 0.2rem;
   min-width: 0;
-}
-.lifecycle {
-  font-size: 0.9rem;
-}
-.lifecycle[data-status="FAILED"] {
-  color: #f87171;
 }
 .fail-reason {
   font-size: 0.8rem;
@@ -599,14 +520,24 @@ function portraitSrc(c: AccountOwnedCharacterDTO): string | null {
 .char-row__actions {
   position: relative;
   z-index: 1;
+  flex: 0 0 7.5rem;
+  width: 7.5rem;
 }
-.badge {
-  font-size: 0.75rem;
+.primary-slot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 7.5rem;
+  min-height: 2.5rem;
+  box-sizing: border-box;
+}
+.primary-slot--state {
+  border: 1px solid rgb(134 239 172 / 35%);
+  border-radius: 0.4rem;
   color: #86efac;
-}
-.status-pill {
-  font-size: 0.8rem;
-  color: var(--color-text-muted, #a8a8b3);
+  font-size: 0.85rem;
+  font-weight: 600;
+  pointer-events: none;
 }
 .spinner {
   width: 1rem;
@@ -635,6 +566,13 @@ function portraitSrc(c: AccountOwnedCharacterDTO): string | null {
   }
   .char-row__right {
     justify-content: flex-start;
+  }
+  .char-row__actions {
+    flex-basis: 100%;
+    width: 100%;
+  }
+  .primary-slot {
+    width: 7.5rem;
   }
 }
 </style>
