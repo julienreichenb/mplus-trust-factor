@@ -13,6 +13,7 @@ describe("character search ranking helpers", () => {
 
   it("folds accents for name_search_key parity", () => {
     expect(normalizeCharacterSearchKey("Chérith")).toBe(foldDiacritics("Chérith"));
+    expect(normalizeCharacterSearchKey("Chérith")).toBe("cherith");
   });
 
   it("applies deterministic ladder: exact < alias < prefix < contains", () => {
@@ -40,16 +41,5 @@ describe("character search ranking helpers", () => {
     expect(exact).toBeLessThan(alias);
     expect(alias).toBeLessThan(prefix);
     expect(prefix).toBeLessThan(contains);
-  });
-
-  it("does not treat length-2 queries as fuzzy when fuzzyMatched is unset", () => {
-    expect(
-      rankCharacterNameMatch({
-        queryFolded: "wa",
-        nameFolded: "wallidrixe",
-        source: "character",
-        fuzzyMatched: false,
-      }),
-    ).toBe(2);
   });
 });

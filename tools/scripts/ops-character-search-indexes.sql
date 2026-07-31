@@ -1,14 +1,16 @@
--- Production ops (non-transactional). Run only when explicitly approved.
+-- Optional character-search indexes (non-transactional). Run only when explicitly approved.
 -- CREATE INDEX CONCURRENTLY cannot run inside Prisma migrate deploy transactions.
--- Application search works with the Prisma-migrated name_search_key column + btree
--- even if these concurrent builds are pending or skipped.
+--
+-- The Prisma migration already creates a normal btree on name_search_key
+-- (characters_name_search_key_idx). Do not recreate that btree here.
+--
+-- Application search works with the migrated column + Prisma btree even if these
+-- optional concurrent builds are pending or skipped.
+--
+-- Trigram / pg_trgm is deferred (not part of V1). Enable only after a dedicated
+-- product/ops change that ships a gated query path and tests.
 
--- Optional: enable only when the environment supports pg_trgm and product enables
--- CHARACTER_SEARCH_TRGM_ENABLED=true at deploy time.
 -- CREATE EXTENSION IF NOT EXISTS pg_trgm;
-
-CREATE INDEX CONCURRENTLY IF NOT EXISTS characters_name_search_key_btree
-  ON characters (name_search_key);
 
 -- CREATE INDEX CONCURRENTLY IF NOT EXISTS characters_name_search_key_trgm
 --   ON characters USING gin (name_search_key gin_trgm_ops);

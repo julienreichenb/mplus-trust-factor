@@ -53,4 +53,50 @@ describe("useSuggestionCombobox", () => {
     box.onKeydown(new KeyboardEvent("keydown", { key: "Escape" }));
     expect(box.open.value).toBe(false);
   });
+
+  it("aborts in-flight search when query drops below minLength and ignores late results", async () => {
+    const deferred: {
+      resolve?: (value: Array<{ id: string }>) => void;
+      signal?: AbortSignal;
+    } = {};
+    const fetchSuggestions = vi.fn(
+      (_q: string, signal: AbortSignal) =>
+        new Promise<Array<{ id: string }>>((resolve, reject) => {
+          deferred.signal = signal;
+          deferred.resolve = resolve;
+          signal.addEventListener("abort", () => {
+            reject(new DOMException("Aborted", "AbortError"));
+          });
+        }),
+    );
+
+    const query = ref("");
+    const box = useSuggestionCombobox({
+      query,
+      fetchSuggestions,
+      debounceMs: 250,
+      minLength: 2,
+    });
+
+    query.value = "wa";
+    await vi.advanceTimersByTimeAsync(250);
+    expect(fetchSuggestions).toHaveBeenCalledTimes(1);
+    expect(box.loading.value).toBe(true);
+
+    query.value = "w";
+    await vi.advanceTimersByTimeAsync(250);
+    await nextTick();
+
+    expect(deferred.signal?.aborted).toBe(true);
+    expect(box.suggestions.value).toEqual([]);
+    expect(box.open.value).toBe(false);
+    expect(box.loading.value).toBe(false);
+
+    deferred.resolve?.([{ id: "stale" }]);
+    await nextTick();
+    await Promise.resolve();
+
+    expect(box.suggestions.value).toEqual([]);
+    expect(box.open.value).toBe(false);
+  });
 });

@@ -39,7 +39,8 @@ export function normalizeCharacterSearchKey(value: string): string {
 
 /**
  * Deterministic public character-name match rank (lower wins).
- * Ladder: exact name → exact alias → prefix → fuzzy → contains.
+ * V1 ladder: exact name → exact alias → prefix → contains.
+ * `fuzzyMatched` is reserved for a future gated trgm path (unused in V1).
  */
 export function rankCharacterNameMatch(input: {
   queryFolded: string;
@@ -47,7 +48,7 @@ export function rankCharacterNameMatch(input: {
   /** When the hit came from an alias row, the folded alias name. */
   aliasFolded?: string | null;
   source: "character" | "alias" | "participant";
-  /** Set only when a trigram/fuzzy mode actually ran for this candidate. */
+  /** Reserved — only set when a future trigram/fuzzy mode actually ran. */
   fuzzyMatched?: boolean;
 }): number {
   const q = input.queryFolded;

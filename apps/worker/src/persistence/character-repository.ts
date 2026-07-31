@@ -111,11 +111,6 @@ export interface CharacterSearchResult {
   source: "character" | "alias" | "participant";
 }
 
-export interface CharacterSearchSuggestionsOpts {
-  /** When true and query length ≥ 3, fuzzy/trgm mode may run (requires ops indexes). */
-  trgmEnabled?: boolean;
-}
-
 export interface AdminCharacterSearchResult {
   characterId: string;
   name: string;
@@ -131,12 +126,7 @@ export interface AdminCharacterSearchResult {
 export interface CharacterRepository {
   findByIdentity(identity: CharacterIdentityInput): Promise<Character | null>;
   findById(characterId: string): Promise<Character | null>;
-  searchSuggestions(
-    region: string,
-    query: string,
-    limit?: number,
-    opts?: CharacterSearchSuggestionsOpts,
-  ): Promise<CharacterSearchResult[]>;
+  searchSuggestions(region: string, query: string, limit?: number): Promise<CharacterSearchResult[]>;
   /**
    * Admin-only search over persisted characters (returns durable characterId + M+ score).
    * Region is optional — omit to search all regions.
@@ -196,21 +186,13 @@ export function createCharacterRepository(prisma: PrismaClient): CharacterReposi
       return prisma.character.findUnique({ where: { id: characterId } });
     },
 
-    async searchSuggestions(
-      region,
-      query,
-      limit = PUBLIC_CHARACTER_AUTOCOMPLETE_LIMIT,
-      opts: CharacterSearchSuggestionsOpts = {},
-    ) {
+    async searchSuggestions(region, query, limit = PUBLIC_CHARACTER_AUTOCOMPLETE_LIMIT) {
       const code = normalizeRegion(region);
       const trimmed = query.trim();
       if (trimmed.length < PUBLIC_CHARACTER_AUTOCOMPLETE_MIN_LENGTH) return [];
 
       const take = Math.min(Math.max(limit, 1), PUBLIC_CHARACTER_AUTOCOMPLETE_LIMIT);
       const candidateTake = Math.min(Math.max(take * 4, take), PUBLIC_CHARACTER_CANDIDATE_CAP);
-      // Length-2 never uses trgm/fuzzy; ≥3 may only when deploy config enables it.
-      const allowFuzzy = trimmed.length >= 3 && opts.trgmEnabled === true;
-      void allowFuzzy; // reserved for raw trgm path when ops indexes exist
 
       const { namePart, realmPart } = parseNameRealmQuery(trimmed);
       if (namePart.length < PUBLIC_CHARACTER_AUTOCOMPLETE_MIN_LENGTH && !realmPart) return [];
@@ -240,7 +222,6 @@ export function createCharacterRepository(prisma: PrismaClient): CharacterReposi
         lastSeenAt: Date | null | undefined;
         characterId: string;
         normalizedName: string;
-        fuzzyMatched?: boolean;
       }): void => {
         const key = suggestionKey(input.result.name, input.result.realmSlug, input.result.region);
         const rank = rankCharacterNameMatch({
@@ -248,7 +229,6 @@ export function createCharacterRepository(prisma: PrismaClient): CharacterReposi
           nameFolded: input.nameFolded,
           aliasFolded: input.aliasFolded,
           source: input.result.source,
-          fuzzyMatched: input.fuzzyMatched === true,
         });
         const hit: RankedHit = {
           result: input.result,
@@ -633,4 +613,48 @@ export function createCharacterRepository(prisma: PrismaClient): CharacterReposi
       return prisma.character.update({ where: { id: characterId }, data: { raiderioProfileUrl } });
     },
   };
+}
+
+/**
+ * Batched backfill of characters.name_search_key using normalizeCharacterSearchKey
+ * (foldDiacritics). Required after the additive migration's provisional lower()/trim()
+ * SQL seed, which does not fold accents.
+ *
+ * Run via: pnpm db:backfill:character-name-search-key
+ * Safe to re-run; only updates rows whose key differs from the folded value.
+ */
+export async function backfillCharacterNameSearchKeys(
+  prisma: PrismaClient,
+  opts: { batchSize?: number } = {},
+): Promise<{ scanned: number; updated: number }> {
+  const batchSize = Math.min(Math.max(opts.batchSize ?? 500, 1), 2_000);
+  let scanned = 0;
+  let updated = 0;
+  let cursor: string | undefined;
+
+  for (;;) {
+    const rows = await prisma.character.findMany({
+      select: { id: true, displayName: true, normalizedName: true, nameSearchKey: true },
+      orderBy: { id: "asc" },
+      take: batchSize,
+      ...(cursor ? { skip: 1, cursor: { id: cursor } } : {}),
+    });
+    if (rows.length === 0) break;
+
+    for (const row of rows) {
+      scanned += 1;
+      const nextKey = normalizeCharacterSearchKey(row.displayName || row.normalizedName);
+      if (row.nameSearchKey === nextKey) continue;
+      await prisma.character.update({
+        where: { id: row.id },
+        data: { nameSearchKey: nextKey },
+      });
+      updated += 1;
+    }
+
+    cursor = rows[rows.length - 1]!.id;
+    if (rows.length < batchSize) break;
+  }
+
+  return { scanned, updated };
 }

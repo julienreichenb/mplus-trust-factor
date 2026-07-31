@@ -1,8 +1,13 @@
 -- Additive folded search key for public character autocomplete (Scenario A).
--- Concurrent / trigram indexes are created by ops scripts outside this transaction.
+-- Concurrent / optional trigram indexes are created by ops scripts outside this transaction.
 ALTER TABLE "characters" ADD COLUMN "name_search_key" TEXT;
 
--- ASCII-safe backfill; write path maintains foldDiacritics-compatible keys going forward.
+-- Provisional ASCII-only seed (lower/trim). This is NOT foldDiacritics-compatible:
+-- accented names such as "Chérith" stay "chérith" here and will miss folded queries
+-- like "cherith" until the app backfill runs.
+-- Required after migrate deploy:
+--   pnpm db:backfill:character-name-search-key
+-- Write paths (upsertCharacter / applyProviderProfile) maintain normalizeCharacterSearchKey().
 UPDATE "characters"
 SET "name_search_key" = lower(trim(both from COALESCE("display_name", "normalized_name")))
 WHERE "name_search_key" IS NULL;

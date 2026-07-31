@@ -70,7 +70,6 @@ export function buildCharacterRoutes(container: ApiContainer): FastifyPluginAsyn
           region,
           search,
           PUBLIC_CHARACTER_AUTOCOMPLETE_LIMIT,
-          { trgmEnabled: container.env.CHARACTER_SEARCH_TRGM_ENABLED },
         );
         return { suggestions };
       },
