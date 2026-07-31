@@ -39,6 +39,7 @@ const presentation = computed(() => {
 .status-chip {
   display: inline-flex;
   align-items: center;
+  width: fit-content;
   max-width: 100%;
   padding: 0.12rem 0.45rem;
   border-radius: 0.3rem;
