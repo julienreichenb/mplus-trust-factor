@@ -12,6 +12,8 @@ export interface RuleInput {
   canonicalKey: string;
   name: string;
   spellIds: number[];
+  /** Optional Wow icon CDN stem (with or without extension). */
+  iconName?: string | null;
   classSlug: string | null;
   specSlugs?: string[];
   roles: AbilityRole[];
@@ -48,6 +50,7 @@ export function rule(input: RuleInput): AbilityRule {
     canonicalKey: input.canonicalKey,
     name: input.name,
     spellIds: [...input.spellIds],
+    iconName: input.iconName ?? null,
     classSlug: input.classSlug,
     specSlugs: input.specSlugs ? [...input.specSlugs] : [],
     roles: [...input.roles],

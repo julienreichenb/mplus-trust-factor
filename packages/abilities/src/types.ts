@@ -71,6 +71,11 @@ export interface AbilityRule {
   name: string;
   /** Primary and replacement spell IDs for one logical ability. */
   spellIds: number[];
+  /**
+   * Optional Wow icon file stem (CDN identifier), with or without extension.
+   * Presentation only — used to build approved zamimg icon URLs.
+   */
+  iconName?: string | null;
   classSlug: string | null;
   specSlugs: string[];
   roles: AbilityRole[];
@@ -143,6 +148,9 @@ export interface RetailClassDefinition {
 export interface AbilityExternalMetadata {
   spellId: number;
   wowheadUrl: string | null;
+  /** Normalized CDN icon stem when known. */
+  iconName: string | null;
+  /** Approved zamimg large-icon URL, or null when no identifier is available. */
   iconUrl: string | null;
   tooltipAvailable: boolean;
   metadataSource: "WOWHEAD" | "BLIZZARD" | "FALLBACK";

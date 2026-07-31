@@ -5,15 +5,14 @@ import type { AdminAbilityEntry } from "@mplus/abilities";
 import { api } from "../api/client";
 import type { AdminAbilityCatalogResponse } from "../api/types";
 import StatusBanner from "../components/common/StatusBanner.vue";
+import DisclosureChevron from "../components/ability-catalog/DisclosureChevron.vue";
+import IconSelect from "../components/ability-catalog/IconSelect.vue";
+import type { IconSelectOption } from "../components/ability-catalog/IconSelect.vue";
+import ValidationIssuesPanel from "../components/ability-catalog/ValidationIssuesPanel.vue";
+import WowIcon from "../components/ability-catalog/WowIcon.vue";
 import { loadWowheadTooltipScript, refreshWowheadTooltips } from "../integrations/wowhead/tooltips";
 import { wowheadSpellUrl } from "../integrations/wowhead/urls";
-import { classIconUrl } from "../lib/wowClass";
-
-const SPELL_ICON_FALLBACK =
-  "data:image/svg+xml," +
-  encodeURIComponent(
-    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 56 56"><rect width="56" height="56" fill="#3a3a42" rx="4"/></svg>',
-  );
+import { classIconName, filterOptionIconName } from "../lib/wowIcons";
 
 const CATEGORY_OPTIONS = [
   "INTERRUPT",
@@ -64,7 +63,7 @@ interface ClassSection {
   key: string;
   classSlug: string;
   className: string;
-  iconUrl: string | null;
+  iconName: string | null;
   specGroups: SpecGroup[];
 }
 
@@ -78,7 +77,6 @@ interface SharedSection {
 const catalog = ref<AdminAbilityCatalogResponse | null>(null);
 const loading = ref(false);
 const error = ref<string | null>(null);
-
 const searchInput = ref("");
 const debouncedQuery = ref("");
 const classSlug = ref("");
@@ -228,15 +226,8 @@ function primarySpellId(entry: AdminAbilityEntry): number | null {
   return entry.rule.spellIds[0] ?? null;
 }
 
-function spellIconSrc(entry: AdminAbilityEntry): string {
-  return entry.external.iconUrl ?? SPELL_ICON_FALLBACK;
-}
-
-function onIconError(event: Event): void {
-  const img = event.target as HTMLImageElement;
-  if (img.src !== SPELL_ICON_FALLBACK) {
-    img.src = SPELL_ICON_FALLBACK;
-  }
+function spellIconName(entry: AdminAbilityEntry): string | null {
+  return entry.external.iconName ?? entry.rule.iconName ?? null;
 }
 
 function badgeClass(badge: string): string {
@@ -247,7 +238,7 @@ function badgeClass(badge: string): string {
 }
 
 function formatCooldown(seconds: number | undefined): string {
-  if (seconds == null) return "�";
+  if (seconds == null) return "—";
   if (seconds >= 60) return `${Math.round(seconds / 60)}m`;
   return `${seconds}s`;
 }
@@ -305,7 +296,7 @@ const classSections = computed((): ClassSection[] => {
       key: cls.classSlug,
       classSlug: cls.classSlug,
       className: cls.className,
-      iconUrl: classIconUrl(cls.classSlug),
+      iconName: classIconName(cls.classSlug),
       specGroups,
     });
   }
@@ -336,7 +327,21 @@ const hasResults = computed(
     sharedSections.value.length > 0,
 );
 
-const classFilterOptions = computed(() => catalog.value?.classes ?? []);
+const classFilterOptions = computed((): IconSelectOption[] =>
+  (catalog.value?.classes ?? []).map((cls) => ({
+    value: cls.classSlug,
+    label: cls.className,
+    iconName: filterOptionIconName("class", cls.classSlug),
+  })),
+);
+
+const roleFilterOptions = computed((): IconSelectOption[] =>
+  ROLE_OPTIONS.map((r) => ({
+    value: r,
+    label: r,
+    iconName: filterOptionIconName("role", r),
+  })),
+);
 
 watch(searchInput, (val) => {
   if (searchTimer) clearTimeout(searchTimer);
@@ -369,403 +374,399 @@ onMounted(() => {
   <section data-testid="ability-catalog-page">
     <h1>Ability catalog explorer</h1>
     <p class="muted">
-      Read-only development view of the canonical retail ability registry - search, filter, and inspect
+      Read-only development view of the canonical retail ability registry — search, filter, and inspect
       validation coverage. Currently unprotected.
     </p>
 
-      <StatusBanner v-if="error" tone="error">{{ error }}</StatusBanner>
+    <StatusBanner v-if="error" tone="error">{{ error }}</StatusBanner>
 
-      <div v-if="catalog" class="summary-grid" data-testid="catalog-summary">
-        <article class="summary-card">
-          <span class="summary-label">Catalog version</span>
-          <strong>{{ catalog.catalogSummary.catalogVersion }}</strong>
-        </article>
-        <article class="summary-card">
-          <span class="summary-label">Classes</span>
-          <strong>{{ catalog.catalogSummary.classesCovered }}</strong>
-        </article>
-        <article class="summary-card">
-          <span class="summary-label">Specs</span>
-          <strong>{{ catalog.catalogSummary.specializationsCovered }}</strong>
-        </article>
-        <article class="summary-card">
-          <span class="summary-label">Rules</span>
-          <strong>{{ catalog.catalogSummary.canonicalRules }}</strong>
-        </article>
-        <article class="summary-card">
-          <span class="summary-label">Spell IDs</span>
-          <strong>{{ catalog.catalogSummary.spellIds }}</strong>
-        </article>
-        <article class="summary-card">
-          <span class="summary-label">Aliases</span>
-          <strong>{{ catalog.catalogSummary.aliases }}</strong>
-        </article>
-        <article class="summary-card" :class="{ 'has-errors': catalog.validationSummary.errorCount > 0 }">
-          <span class="summary-label">Validation errors</span>
-          <strong>{{ catalog.validationSummary.errorCount }}</strong>
-        </article>
-        <article class="summary-card">
-          <span class="summary-label">Warnings</span>
-          <strong>{{ catalog.validationSummary.warningCount }}</strong>
-        </article>
+    <dl v-if="catalog" class="catalog-summary" data-testid="catalog-summary">
+      <div>
+        <dt>Catalog version</dt>
+        <dd>{{ catalog.catalogSummary.catalogVersion }}</dd>
+      </div>
+      <div>
+        <dt>Classes</dt>
+        <dd>{{ catalog.catalogSummary.classesCovered }}</dd>
+      </div>
+      <div>
+        <dt>Specs</dt>
+        <dd>{{ catalog.catalogSummary.specializationsCovered }}</dd>
+      </div>
+      <div>
+        <dt>Rules</dt>
+        <dd>{{ catalog.catalogSummary.canonicalRules }}</dd>
+      </div>
+      <div>
+        <dt>Spell IDs</dt>
+        <dd>{{ catalog.catalogSummary.spellIds }}</dd>
+      </div>
+      <div>
+        <dt>Aliases</dt>
+        <dd>{{ catalog.catalogSummary.aliases }}</dd>
+      </div>
+      <div :class="{ 'has-errors': catalog.validationSummary.errorCount > 0 }">
+        <dt>Validation errors</dt>
+        <dd>{{ catalog.validationSummary.errorCount }}</dd>
+      </div>
+      <div>
+        <dt>Warnings</dt>
+        <dd>{{ catalog.validationSummary.warningCount }}</dd>
+      </div>
+    </dl>
+
+    <ValidationIssuesPanel
+      v-if="catalog && catalog.validationSummary.issues.length"
+      :issues="catalog.validationSummary.issues"
+      @select="scrollToAbility"
+    />
+
+    <div class="sticky-bar" data-testid="catalog-sticky-bar">
+      <div class="search-row">
+        <label class="search-label">
+          Search
+          <input
+            v-model="searchInput"
+            type="search"
+            placeholder="Name, spell ID, canonical key…"
+            data-testid="catalog-search"
+            autocomplete="off"
+          />
+        </label>
       </div>
 
-      <div
-        v-if="catalog && catalog.validationSummary.issues.length"
-        class="validation-panel"
-        data-testid="validation-summary"
+      <div class="filters" data-testid="catalog-filters">
+        <IconSelect
+          id="catalog-filter-class"
+          v-model="classSlug"
+          :options="classFilterOptions"
+          label="Class"
+          empty-label="All classes"
+          data-testid="class-filter"
+          @change="onFilterChange"
+        />
+        <IconSelect
+          id="catalog-filter-role"
+          v-model="role"
+          :options="roleFilterOptions"
+          label="Role"
+          empty-label="Any role"
+          data-testid="role-filter"
+          @change="onFilterChange"
+        />
+        <label>
+          Category
+          <select v-model="category" data-testid="category-filter" @change="onFilterChange">
+            <option value="">Any category</option>
+            <option v-for="c in CATEGORY_OPTIONS" :key="c" :value="c">{{ c }}</option>
+          </select>
+        </label>
+        <label>
+          Ownership
+          <select v-model="ownership" @change="onFilterChange">
+            <option value="">Any ownership</option>
+            <option v-for="o in OWNERSHIP_OPTIONS" :key="o" :value="o">{{ o }}</option>
+          </select>
+        </label>
+        <label>
+          Availability
+          <select v-model="availability" @change="onFilterChange">
+            <option value="">Any availability</option>
+            <option v-for="a in AVAILABILITY_OPTIONS" :key="a" :value="a">{{ a }}</option>
+          </select>
+        </label>
+        <label>
+          Validation
+          <select v-model="validationState" data-testid="validation-filter" @change="onFilterChange">
+            <option v-for="preset in VALIDATION_PRESETS" :key="preset.value" :value="preset.value">
+              {{ preset.label }}
+            </option>
+          </select>
+        </label>
+      </div>
+    </div>
+
+    <p v-if="loading" class="muted loading-hint">Loading catalog…</p>
+
+    <div v-else-if="catalog && !hasResults" class="empty-state" data-testid="empty-state">
+      <p>No abilities match the current search and filters.</p>
+    </div>
+
+    <div v-else-if="catalog" class="catalog-body">
+      <section
+        v-for="section in classSections"
+        :key="section.key"
+        class="class-section"
+        data-testid="class-section"
+        :data-class-slug="section.classSlug"
       >
-        <h2>Validation issues</h2>
-        <ul class="validation-list">
-          <li v-for="(issue, idx) in catalog.validationSummary.issues.slice(0, 40)" :key="idx">
+        <button
+          type="button"
+          class="section-toggle"
+          :aria-expanded="expandedClasses.has(section.key) ? 'true' : 'false'"
+          :aria-label="`${section.className}, ${section.specGroups.reduce((n, g) => n + g.entries.length, 0)} abilities`"
+          @click="toggleClass(section.key)"
+        >
+          <WowIcon
+            v-if="section.iconName"
+            :icon-name="section.iconName"
+            :alt="''"
+            :width="24"
+            :height="24"
+            class="class-icon"
+          />
+          <span v-else class="class-icon-fallback" aria-hidden="true" />
+          <span class="section-title">{{ section.className }}</span>
+          <span class="section-count">{{
+            section.specGroups.reduce((n, g) => n + g.entries.length, 0)
+          }}</span>
+          <DisclosureChevron :expanded="expandedClasses.has(section.key)" />
+        </button>
+
+        <div v-if="expandedClasses.has(section.key)" class="spec-list">
+          <div v-for="group in section.specGroups" :key="group.key" class="spec-group">
             <button
               type="button"
-              class="btn link issue-link"
-              :data-severity="issue.severity"
-              @click="scrollToAbility(issue.canonicalKey)"
+              class="spec-toggle"
+              :aria-expanded="expandedSpecs.has(group.key) ? 'true' : 'false'"
+              :aria-label="`${group.specName}, ${group.entries.length} abilities`"
+              @click="toggleSpec(group.key)"
             >
-              <span class="issue-severity">{{ issue.severity }}</span>
-              {{ issue.message }}
-              <span v-if="issue.canonicalKey" class="issue-key">({{ issue.canonicalKey }})</span>
+              <span>{{ group.specName }}</span>
+              <span class="section-count">{{ group.entries.length }}</span>
+              <DisclosureChevron :expanded="expandedSpecs.has(group.key)" />
             </button>
-          </li>
-        </ul>
-        <p v-if="catalog.validationSummary.issues.length > 40" class="muted">
-          Showing first 40 of {{ catalog.validationSummary.issues.length }} issues.
-        </p>
-      </div>
 
-      <div class="sticky-bar">
-        <div class="search-row">
-          <label class="search-label">
-            Search
-            <input
-              v-model="searchInput"
-              type="search"
-              placeholder="Name, spell ID, canonical key�"
-              data-testid="catalog-search"
-              autocomplete="off"
-            />
-          </label>
-        </div>
-
-        <div class="filters" data-testid="catalog-filters">
-          <label>
-            Class
-            <select v-model="classSlug" @change="onFilterChange">
-              <option value="">All classes</option>
-              <option v-for="cls in classFilterOptions" :key="cls.classSlug" :value="cls.classSlug">
-                {{ cls.className }}
-              </option>
-            </select>
-          </label>
-          <label>
-            Role
-            <select v-model="role" @change="onFilterChange">
-              <option value="">Any role</option>
-              <option v-for="r in ROLE_OPTIONS" :key="r" :value="r">{{ r }}</option>
-            </select>
-          </label>
-          <label>
-            Category
-            <select v-model="category" @change="onFilterChange">
-              <option value="">Any category</option>
-              <option v-for="c in CATEGORY_OPTIONS" :key="c" :value="c">{{ c }}</option>
-            </select>
-          </label>
-          <label>
-            Ownership
-            <select v-model="ownership" @change="onFilterChange">
-              <option value="">Any ownership</option>
-              <option v-for="o in OWNERSHIP_OPTIONS" :key="o" :value="o">{{ o }}</option>
-            </select>
-          </label>
-          <label>
-            Availability
-            <select v-model="availability" @change="onFilterChange">
-              <option value="">Any availability</option>
-              <option v-for="a in AVAILABILITY_OPTIONS" :key="a" :value="a">{{ a }}</option>
-            </select>
-          </label>
-          <label>
-            Validation
-            <select v-model="validationState" @change="onFilterChange">
-              <option v-for="preset in VALIDATION_PRESETS" :key="preset.value" :value="preset.value">
-                {{ preset.label }}
-              </option>
-            </select>
-          </label>
-        </div>
-      </div>
-
-      <p v-if="loading" class="muted loading-hint">Loading catalog�</p>
-
-      <div v-else-if="catalog && !hasResults" class="empty-state" data-testid="empty-state">
-        <p>No abilities match the current search and filters.</p>
-      </div>
-
-      <div v-else-if="catalog" class="catalog-body">
-        <section
-          v-for="section in classSections"
-          :key="section.key"
-          class="class-section"
-          data-testid="class-section"
-          :data-class-slug="section.classSlug"
-        >
-          <button type="button" class="section-toggle" @click="toggleClass(section.key)">
-            <img
-              v-if="section.iconUrl"
-              :src="section.iconUrl"
-              :alt="`${section.className} icon`"
-              class="class-icon"
-              width="24"
-              height="24"
-              loading="lazy"
-            />
-            <span v-else class="class-icon-fallback" aria-hidden="true" />
-            <span class="section-title">{{ section.className }}</span>
-            <span class="section-count">{{
-              section.specGroups.reduce((n, g) => n + g.entries.length, 0)
-            }}</span>
-            <span class="chevron" :data-expanded="expandedClasses.has(section.key) ? 'true' : 'false'">?</span>
-          </button>
-
-          <div v-if="expandedClasses.has(section.key)" class="spec-list">
-            <div v-for="group in section.specGroups" :key="group.key" class="spec-group">
-              <button type="button" class="spec-toggle" @click="toggleSpec(group.key)">
-                <span>{{ group.specName }}</span>
-                <span class="section-count">{{ group.entries.length }}</span>
-                <span class="chevron" :data-expanded="expandedSpecs.has(group.key) ? 'true' : 'false'">?</span>
-              </button>
-
-              <div v-if="expandedSpecs.has(group.key)" class="ability-list">
-                <article
-                  v-for="entry in group.entries"
-                  :id="`ability-${entry.rule.canonicalKey}`"
-                  :key="entry.rule.canonicalKey"
-                  class="ability-row"
-                  data-testid="ability-row"
-                  tabindex="-1"
-                >
-                  <div class="ability-card">
-                    <img
-                      :src="spellIconSrc(entry)"
-                      :alt="`${entry.rule.name} icon`"
-                      class="spell-icon"
-                      width="40"
-                      height="40"
-                      loading="lazy"
-                      @error="onIconError"
-                    />
-                    <div class="ability-main">
-                      <div class="ability-header">
-                        <h3 class="ability-name">{{ entry.rule.name }}</h3>
-                        <div class="badges">
-                          <span v-for="badge in entry.badges" :key="badge" :class="badgeClass(badge)">{{
-                            badge
-                          }}</span>
-                        </div>
+            <div v-if="expandedSpecs.has(group.key)" class="ability-list">
+              <article
+                v-for="entry in group.entries"
+                :id="`ability-${entry.rule.canonicalKey}`"
+                :key="entry.rule.canonicalKey"
+                class="ability-row"
+                data-testid="ability-row"
+                tabindex="-1"
+              >
+                <div class="ability-card">
+                  <WowIcon
+                    :icon-name="spellIconName(entry)"
+                    :alt="''"
+                    :width="40"
+                    :height="40"
+                    class="spell-icon"
+                  />
+                  <div class="ability-main">
+                    <div class="ability-header">
+                      <h3 class="ability-name">{{ entry.rule.name }}</h3>
+                      <div class="badges">
+                        <span v-for="badge in entry.badges" :key="badge" :class="badgeClass(badge)">{{
+                          badge
+                        }}</span>
                       </div>
-                      <dl class="ability-meta">
-                        <div>
-                          <dt>Spell ID</dt>
-                          <dd>
-                            <a
-                              v-if="primarySpellId(entry) && wowheadSpellUrl(primarySpellId(entry)!)"
-                              :href="wowheadSpellUrl(primarySpellId(entry)!)!"
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              :data-wowhead="`spell=${primarySpellId(entry)}`"
-                              class="wowhead-link"
-                            >
-                              {{ primarySpellId(entry) }}
-                            </a>
-                            <span v-else>�</span>
-                          </dd>
-                        </div>
-                        <div v-if="entry.rule.aliases?.length">
-                          <dt>Aliases</dt>
-                          <dd>{{ entry.rule.aliases.join(", ") }}</dd>
-                        </div>
-                        <div>
-                          <dt>Key</dt>
-                          <dd class="mono">{{ entry.rule.canonicalKey }}</dd>
-                        </div>
-                        <div>
-                          <dt>Category</dt>
-                          <dd>{{ entry.rule.category }}</dd>
-                        </div>
-                        <div>
-                          <dt>Ownership</dt>
-                          <dd>{{ entry.rule.sourceOwnership }}</dd>
-                        </div>
-                        <div>
-                          <dt>Availability</dt>
-                          <dd>{{ entry.rule.availability }}</dd>
-                        </div>
-                        <div>
-                          <dt>Roles</dt>
-                          <dd>{{ entry.rule.roles.join(", ") || "�" }}</dd>
-                        </div>
-                        <div>
-                          <dt>Cooldown</dt>
-                          <dd>{{ formatCooldown(entry.rule.cooldownSeconds) }}</dd>
-                        </div>
-                        <div>
-                          <dt>Provenance</dt>
-                          <dd>
-                            {{ entry.rule.provenance.source }} � {{ entry.rule.provenance.gameVersion }}
-                          </dd>
-                        </div>
-                      </dl>
-                      <p v-if="entry.rule.provenance.notes" class="notes muted">
-                        {{ entry.rule.provenance.notes }}
-                      </p>
-                      <ul v-if="entry.validationIssues.length" class="entry-issues">
-                        <li
-                          v-for="(issue, i) in entry.validationIssues"
-                          :key="i"
-                          :data-severity="issue.severity"
-                        >
-                          {{ issue.message }}
-                        </li>
-                      </ul>
                     </div>
+                    <dl class="ability-meta">
+                      <div>
+                        <dt>Spell ID</dt>
+                        <dd>
+                          <a
+                            v-if="primarySpellId(entry) && wowheadSpellUrl(primarySpellId(entry)!)"
+                            :href="wowheadSpellUrl(primarySpellId(entry)!)!"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            :data-wowhead="`spell=${primarySpellId(entry)}`"
+                            class="wowhead-link"
+                          >
+                            {{ primarySpellId(entry) }}
+                          </a>
+                          <span v-else>—</span>
+                        </dd>
+                      </div>
+                      <div v-if="entry.rule.aliases?.length">
+                        <dt>Aliases</dt>
+                        <dd>{{ entry.rule.aliases.join(", ") }}</dd>
+                      </div>
+                      <div>
+                        <dt>Key</dt>
+                        <dd class="mono">{{ entry.rule.canonicalKey }}</dd>
+                      </div>
+                      <div>
+                        <dt>Category</dt>
+                        <dd>{{ entry.rule.category }}</dd>
+                      </div>
+                      <div>
+                        <dt>Ownership</dt>
+                        <dd>{{ entry.rule.sourceOwnership }}</dd>
+                      </div>
+                      <div>
+                        <dt>Availability</dt>
+                        <dd>{{ entry.rule.availability }}</dd>
+                      </div>
+                      <div>
+                        <dt>Roles</dt>
+                        <dd>{{ entry.rule.roles.join(", ") || "—" }}</dd>
+                      </div>
+                      <div>
+                        <dt>Cooldown</dt>
+                        <dd>{{ formatCooldown(entry.rule.cooldownSeconds) }}</dd>
+                      </div>
+                      <div>
+                        <dt>Provenance</dt>
+                        <dd>
+                          {{ entry.rule.provenance.source }} — {{ entry.rule.provenance.gameVersion }}
+                        </dd>
+                      </div>
+                    </dl>
+                    <p v-if="entry.rule.provenance.notes" class="notes muted">
+                      {{ entry.rule.provenance.notes }}
+                    </p>
+                    <ul v-if="entry.validationIssues.length" class="entry-issues">
+                      <li
+                        v-for="(issue, i) in entry.validationIssues"
+                        :key="i"
+                        :data-severity="issue.severity"
+                      >
+                        {{ issue.message }}
+                      </li>
+                    </ul>
                   </div>
-                </article>
-              </div>
+                </div>
+              </article>
             </div>
           </div>
-        </section>
+        </div>
+      </section>
 
-        <section
-          v-for="section in sharedSections"
-          :key="section.key"
-          class="class-section shared-section"
-          data-testid="class-section"
-          :data-section="section.key"
+      <section
+        v-for="section in sharedSections"
+        :key="section.key"
+        class="class-section shared-section"
+        data-testid="class-section"
+        :data-section="section.key"
+      >
+        <button
+          type="button"
+          class="section-toggle"
+          :aria-expanded="expandedShared.has(section.key) ? 'true' : 'false'"
+          :aria-label="`${section.title}, ${section.entries.length} abilities`"
+          @click="toggleShared(section.key)"
         >
-          <button type="button" class="section-toggle" @click="toggleShared(section.key)">
-            <span class="section-title">{{ section.title }}</span>
-            <span class="section-count">{{ section.entries.length }}</span>
-            <span class="chevron" :data-expanded="expandedShared.has(section.key) ? 'true' : 'false'">?</span>
-          </button>
+          <span class="section-title">{{ section.title }}</span>
+          <span class="section-count">{{ section.entries.length }}</span>
+          <DisclosureChevron :expanded="expandedShared.has(section.key)" />
+        </button>
 
-          <div v-if="expandedShared.has(section.key)" class="ability-list">
-            <article
-              v-for="entry in section.entries"
-              :id="`ability-${entry.rule.canonicalKey}`"
-              :key="entry.rule.canonicalKey"
-              class="ability-row"
-              data-testid="ability-row"
-              tabindex="-1"
-            >
-              <div class="ability-card">
-                <img
-                  :src="spellIconSrc(entry)"
-                  :alt="`${entry.rule.name} icon`"
-                  class="spell-icon"
-                  width="40"
-                  height="40"
-                  loading="lazy"
-                  @error="onIconError"
-                />
-                <div class="ability-main">
-                  <div class="ability-header">
-                    <h3 class="ability-name">{{ entry.rule.name }}</h3>
-                    <div class="badges">
-                      <span v-for="badge in entry.badges" :key="badge" :class="badgeClass(badge)">{{
-                        badge
-                      }}</span>
-                    </div>
+        <div v-if="expandedShared.has(section.key)" class="ability-list">
+          <article
+            v-for="entry in section.entries"
+            :id="`ability-${entry.rule.canonicalKey}`"
+            :key="entry.rule.canonicalKey"
+            class="ability-row"
+            data-testid="ability-row"
+            tabindex="-1"
+          >
+            <div class="ability-card">
+              <WowIcon
+                :icon-name="spellIconName(entry)"
+                :alt="''"
+                :width="40"
+                :height="40"
+                class="spell-icon"
+              />
+              <div class="ability-main">
+                <div class="ability-header">
+                  <h3 class="ability-name">{{ entry.rule.name }}</h3>
+                  <div class="badges">
+                    <span v-for="badge in entry.badges" :key="badge" :class="badgeClass(badge)">{{
+                      badge
+                    }}</span>
                   </div>
-                  <dl class="ability-meta">
-                    <div>
-                      <dt>Spell ID</dt>
-                      <dd>
-                        <a
-                          v-if="primarySpellId(entry) && wowheadSpellUrl(primarySpellId(entry)!)"
-                          :href="wowheadSpellUrl(primarySpellId(entry)!)!"
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          :data-wowhead="`spell=${primarySpellId(entry)}`"
-                          class="wowhead-link"
-                        >
-                          {{ primarySpellId(entry) }}
-                        </a>
-                        <span v-else>�</span>
-                      </dd>
-                    </div>
-                    <div v-if="entry.rule.aliases?.length">
-                      <dt>Aliases</dt>
-                      <dd>{{ entry.rule.aliases.join(", ") }}</dd>
-                    </div>
-                    <div>
-                      <dt>Key</dt>
-                      <dd class="mono">{{ entry.rule.canonicalKey }}</dd>
-                    </div>
-                    <div>
-                      <dt>Category</dt>
-                      <dd>{{ entry.rule.category }}</dd>
-                    </div>
-                    <div>
-                      <dt>Ownership</dt>
-                      <dd>{{ entry.rule.sourceOwnership }}</dd>
-                    </div>
-                    <div>
-                      <dt>Availability</dt>
-                      <dd>{{ entry.rule.availability }}</dd>
-                    </div>
-                    <div>
-                      <dt>Roles</dt>
-                      <dd>{{ entry.rule.roles.join(", ") || "�" }}</dd>
-                    </div>
-                    <div>
-                      <dt>Cooldown</dt>
-                      <dd>{{ formatCooldown(entry.rule.cooldownSeconds) }}</dd>
-                    </div>
-                    <div>
-                      <dt>Provenance</dt>
-                      <dd>{{ entry.rule.provenance.source }} � {{ entry.rule.provenance.gameVersion }}</dd>
-                    </div>
-                  </dl>
-                  <p v-if="entry.rule.provenance.notes" class="notes muted">
-                    {{ entry.rule.provenance.notes }}
-                  </p>
-                  <ul v-if="entry.validationIssues.length" class="entry-issues">
-                    <li v-for="(issue, i) in entry.validationIssues" :key="i" :data-severity="issue.severity">
-                      {{ issue.message }}
-                    </li>
-                  </ul>
                 </div>
+                <dl class="ability-meta">
+                  <div>
+                    <dt>Spell ID</dt>
+                    <dd>
+                      <a
+                        v-if="primarySpellId(entry) && wowheadSpellUrl(primarySpellId(entry)!)"
+                        :href="wowheadSpellUrl(primarySpellId(entry)!)!"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        :data-wowhead="`spell=${primarySpellId(entry)}`"
+                        class="wowhead-link"
+                      >
+                        {{ primarySpellId(entry) }}
+                      </a>
+                      <span v-else>—</span>
+                    </dd>
+                  </div>
+                  <div v-if="entry.rule.aliases?.length">
+                    <dt>Aliases</dt>
+                    <dd>{{ entry.rule.aliases.join(", ") }}</dd>
+                  </div>
+                  <div>
+                    <dt>Key</dt>
+                    <dd class="mono">{{ entry.rule.canonicalKey }}</dd>
+                  </div>
+                  <div>
+                    <dt>Category</dt>
+                    <dd>{{ entry.rule.category }}</dd>
+                  </div>
+                  <div>
+                    <dt>Ownership</dt>
+                    <dd>{{ entry.rule.sourceOwnership }}</dd>
+                  </div>
+                  <div>
+                    <dt>Availability</dt>
+                    <dd>{{ entry.rule.availability }}</dd>
+                  </div>
+                  <div>
+                    <dt>Roles</dt>
+                    <dd>{{ entry.rule.roles.join(", ") || "—" }}</dd>
+                  </div>
+                  <div>
+                    <dt>Cooldown</dt>
+                    <dd>{{ formatCooldown(entry.rule.cooldownSeconds) }}</dd>
+                  </div>
+                  <div>
+                    <dt>Provenance</dt>
+                    <dd>{{ entry.rule.provenance.source }} — {{ entry.rule.provenance.gameVersion }}</dd>
+                  </div>
+                </dl>
+                <p v-if="entry.rule.provenance.notes" class="notes muted">
+                  {{ entry.rule.provenance.notes }}
+                </p>
+                <ul v-if="entry.validationIssues.length" class="entry-issues">
+                  <li v-for="(issue, i) in entry.validationIssues" :key="i" :data-severity="issue.severity">
+                    {{ issue.message }}
+                  </li>
+                </ul>
               </div>
-            </article>
-          </div>
-        </section>
+            </div>
+          </article>
+        </div>
+      </section>
 
-        <nav v-if="catalog.pagination.totalPages > 1" class="pagination" aria-label="Catalog pagination">
-          <button
-            type="button"
-            class="btn"
-            :disabled="catalog.pagination.page <= 1"
-            @click="onPageChange(catalog.pagination.page - 1)"
-          >
-            Previous
-          </button>
-          <span class="page-info">
-            Page {{ catalog.pagination.page }} of {{ catalog.pagination.totalPages }}
-            ({{ catalog.pagination.total }} abilities)
-          </span>
-          <button
-            type="button"
-            class="btn"
-            :disabled="catalog.pagination.page >= catalog.pagination.totalPages"
-            @click="onPageChange(catalog.pagination.page + 1)"
-          >
-            Next
-          </button>
-        </nav>
-      </div>
+      <nav v-if="catalog.pagination.totalPages > 1" class="pagination" aria-label="Catalog pagination">
+        <button
+          type="button"
+          class="btn"
+          :disabled="catalog.pagination.page <= 1"
+          @click="onPageChange(catalog.pagination.page - 1)"
+        >
+          Previous
+        </button>
+        <span class="page-info">
+          Page {{ catalog.pagination.page }} of {{ catalog.pagination.totalPages }}
+          ({{ catalog.pagination.total }} abilities)
+        </span>
+        <button
+          type="button"
+          class="btn"
+          :disabled="catalog.pagination.page >= catalog.pagination.totalPages"
+          @click="onPageChange(catalog.pagination.page + 1)"
+        >
+          Next
+        </button>
+      </nav>
+    </div>
   </section>
 </template>
 
@@ -774,79 +775,37 @@ onMounted(() => {
   color: var(--muted);
 }
 
-.error {
-  color: var(--danger);
-}
-
-.summary-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr));
-  gap: 0.65rem;
+.catalog-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.25rem;
   margin: 1rem 0;
+  padding: 0;
 }
 
-.summary-card {
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 0.65rem 0.75rem;
-  background: var(--panel);
+.catalog-summary > div {
   display: grid;
-  gap: 0.2rem;
+  gap: 0.15rem;
+  min-width: 6.5rem;
 }
 
-.summary-card.has-errors strong {
-  color: var(--danger);
-}
-
-.summary-label {
+.catalog-summary dt {
+  margin: 0;
   font-size: 0.75rem;
   color: var(--muted);
   text-transform: uppercase;
   letter-spacing: 0.04em;
+  font-weight: 600;
 }
 
-.validation-panel {
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 0.85rem 1rem;
-  background: var(--panel);
-  margin-bottom: 1rem;
-}
-
-.validation-list {
-  list-style: none;
-  padding: 0;
-  margin: 0.5rem 0 0;
-  display: grid;
-  gap: 0.35rem;
-  max-height: 12rem;
-  overflow-y: auto;
-}
-
-.issue-link {
-  text-align: left;
-  width: 100%;
-  font-weight: 500;
-}
-
-.issue-severity {
-  text-transform: uppercase;
-  font-size: 0.7rem;
+.catalog-summary dd {
+  margin: 0;
   font-weight: 700;
-  margin-right: 0.35rem;
+  font-variant-numeric: tabular-nums;
 }
 
-.issue-link[data-severity="error"] .issue-severity {
+.catalog-summary .has-errors dd {
   color: var(--danger);
-}
-
-.issue-link[data-severity="warning"] .issue-severity {
-  color: var(--warn);
-}
-
-.issue-key {
-  color: var(--muted);
-  font-size: 0.85em;
 }
 
 .sticky-bar {
@@ -855,21 +814,24 @@ onMounted(() => {
   z-index: 10;
   background: var(--bg);
   border-bottom: 1px solid var(--border);
-  padding: 0.75rem 0 1rem;
-  margin-bottom: 1rem;
+  padding: var(--space-3) var(--space-4) var(--space-4);
+  margin: 0 0 var(--space-4);
+  overflow: visible;
 }
 
 .search-row,
 .filters {
   display: grid;
-  gap: 0.65rem;
+  gap: var(--space-3);
 }
 
 .filters {
   grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr));
+  align-items: end;
 }
 
-label {
+label,
+.search-label {
   display: grid;
   gap: 0.25rem;
   font-weight: 600;
@@ -885,6 +847,12 @@ select {
   background: var(--panel-2);
   color: var(--fg);
   min-width: 0;
+}
+
+input:focus-visible,
+select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .loading-hint {
@@ -909,7 +877,7 @@ select {
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--panel);
-  overflow: hidden;
+  overflow: visible;
   min-width: 0;
 }
 
@@ -927,6 +895,14 @@ select {
   font-weight: 600;
   text-align: left;
   cursor: pointer;
+}
+
+.section-toggle:focus-visible,
+.spec-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  z-index: 1;
+  position: relative;
 }
 
 .spec-toggle {
@@ -956,15 +932,6 @@ select {
 .section-count {
   color: var(--muted);
   font-size: 0.85rem;
-}
-
-.chevron {
-  transition: transform 0.15s ease;
-  color: var(--muted);
-}
-
-.chevron[data-expanded="true"] {
-  transform: rotate(90deg);
 }
 
 .ability-list {
@@ -997,10 +964,6 @@ select {
 .spell-icon {
   width: 40px;
   height: 40px;
-  border-radius: 4px;
-  flex-shrink: 0;
-  object-fit: cover;
-  background: var(--border);
 }
 
 .ability-main {
@@ -1107,5 +1070,20 @@ select {
 .page-info {
   color: var(--muted);
   font-size: 0.9rem;
+}
+
+@media (max-width: 767px) {
+  .sticky-bar {
+    padding-left: var(--space-3);
+    padding-right: var(--space-3);
+  }
+
+  .catalog-summary > div {
+    min-width: 5.5rem;
+  }
+
+  .filters {
+    grid-template-columns: 1fr 1fr;
+  }
 }
 </style>
