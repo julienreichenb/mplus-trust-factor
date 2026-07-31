@@ -101,6 +101,7 @@ export async function persistAndEnqueue(deps: PersistAndEnqueueDeps): Promise<Pe
       jobId: bullmqJobId,
       removeOnComplete: 1000,
       removeOnFail: 1000,
+      priority: options.priority ?? 0,
     });
   } catch (error) {
     logger.error({ jobType, dedupeKey, bullmqJobId, err: error }, "queue.add failed");
@@ -112,6 +113,15 @@ export async function persistAndEnqueue(deps: PersistAndEnqueueDeps): Promise<Pe
       enqueued: false,
       bullmqJobId,
     };
+  }
+
+  try {
+    await jobRepository.setQueueJobId(claimed.job.id, bullmqJobId);
+  } catch (error) {
+    logger.warn(
+      { jobType, dedupeKey, bullmqJobId, jobId: claimed.job.id, err: error },
+      "failed to persist queueJobId after enqueue",
+    );
   }
 
   return {

@@ -29,3 +29,4 @@ export {
 
 export * from "./persistence/index.js";
 export * from "./orchestration/index.js";
+export { seedRefreshEligibilityEvidenceForTest } from "./test-eligibility-seed.js";

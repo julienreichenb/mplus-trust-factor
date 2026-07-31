@@ -33,6 +33,9 @@ export default defineConfig({
   test: {
     globals: false,
     environment: "node",
+    // Integration-style API/worker tests run inline refresh against shared Postgres;
+    // under parallel load the default 5s is too tight after eligibility seeding.
+    testTimeout: 30_000,
     include: ["**/src/**/*.test.ts", "**/tests/**/*.test.ts"],
     exclude: [
       "**/node_modules/**",

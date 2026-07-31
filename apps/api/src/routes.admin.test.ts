@@ -14,7 +14,7 @@ afterAll(async () => {
   await prisma.$disconnect();
 });
 
-describe.skipIf(!dbAvailable)("admin routes", () => {
+describe.skipIf(!dbAvailable)("admin routes", { timeout: 30_000 }, () => {
   let app: FastifyInstance;
   let container: ApiContainer;
 
@@ -157,5 +157,5 @@ describe.skipIf(!dbAvailable)("admin routes", () => {
     });
     expect(recalcResponse.statusCode).toBe(200);
     expect(recalcResponse.json().status).toBe("completed");
-  });
+  }, 30_000);
 });

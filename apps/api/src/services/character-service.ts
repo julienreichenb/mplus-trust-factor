@@ -43,6 +43,7 @@ import {
   resolveActiveRefreshContract,
   SeasonAuthorityUnavailableError,
   requireVerifiedSeasonAuthority,
+  persistRefreshEligibilityEvidence,
   type VerifiedSeasonAuthority,
 } from "@mplus/worker";
 
@@ -414,6 +415,32 @@ export class CharacterService {
       "refresh enqueue",
     );
     return result;
+  }
+
+  /**
+   * Persist cheap season-scoped eligibility evidence from an already-fetched
+   * Blizzard resolve/discovery response. Provider-free at the worker gate.
+   *
+   * Allowed only on resolve/discovery paths — never call Blizzard from admin
+   * rerun, bulk FULL_REFRESH, profile auto-enqueue, or scheduled refresh merely
+   * to decide eligibility. Insufficient persisted evidence → UNKNOWN → fail closed.
+   */
+  private async persistEligibilityEvidenceFromResolvedProfile(
+    character: Character,
+    identity: CharacterIdentityInput,
+    authority: VerifiedSeasonAuthority,
+    opts: {
+      correlationId?: string | null;
+      level: number | null;
+      mythicRating: number | null;
+    },
+  ): Promise<void> {
+    await persistRefreshEligibilityEvidence(this.container.worker.prisma, {
+      characterId: character.id,
+      level: opts.level,
+      mythicRating: opts.mythicRating,
+      authoritativeSeasonRowId: authority.seasonRowId,
+    });
   }
 
   private async enqueueRecalculate(
@@ -1075,14 +1102,32 @@ export class CharacterService {
     }
 
     // New character: verify against Blizzard before creating a stable DB row.
+    // Resolve may fetch identity/level/current-season rating and persist evidence
+    // before enqueue — the worker gate remains provider-free.
+    let resolvedLevel: number | null = null;
+    let resolvedMythicRating: number | null = null;
     try {
-      await this.container.worker.providers.blizzard.getCharacterProfile(identity, {
+      const ctx = {
         region: identity.region,
         requestId: opts.correlationId ?? randomUUID(),
         correlationId: opts.correlationId ?? null,
         forceRefresh: true,
         now: new Date().toISOString(),
-      });
+      };
+      const profile = await this.container.worker.providers.blizzard.getCharacterProfile(
+        identity,
+        ctx,
+      );
+      resolvedLevel = profile.data.level ?? null;
+      try {
+        const keystone = await this.container.worker.providers.blizzard.getMythicKeystoneProfile(
+          identity,
+          ctx,
+        );
+        resolvedMythicRating = keystone.data.currentMythicRating ?? null;
+      } catch {
+        resolvedMythicRating = null;
+      }
     } catch (error) {
       if (error instanceof ExternalApiError && error.code === "NOT_FOUND") {
         this.container.negativeCache.set(identity);
@@ -1128,6 +1173,15 @@ export class CharacterService {
       displayName: identity.name,
     });
     try {
+      const { authority } = await this.resolveActiveRefreshContract(character, {
+        allowProviderSync: true,
+        correlationId: opts.correlationId,
+      });
+      await this.persistEligibilityEvidenceFromResolvedProfile(character, identity, authority, {
+        correlationId: opts.correlationId,
+        level: resolvedLevel,
+        mythicRating: resolvedMythicRating,
+      });
       const enqueueResult = await this.enqueueRefresh(identity, character, {
         forceRefresh: false,
         correlationId: opts.correlationId,

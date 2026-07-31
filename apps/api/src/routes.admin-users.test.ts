@@ -51,7 +51,7 @@ async function createUser(opts: {
   });
 }
 
-describe.skipIf(!dbAvailable)("admin users RBAC", () => {
+describe.skipIf(!dbAvailable)("admin users RBAC", { timeout: 30_000 }, () => {
   let app: FastifyInstance;
   let container: ApiContainer;
   let sessionSecret: string;
@@ -221,7 +221,7 @@ describe.skipIf(!dbAvailable)("admin users RBAC", () => {
   });
 });
 
-describe.skipIf(!dbAvailable)("AdminUsersService last-admin unit", () => {
+describe.skipIf(!dbAvailable)("AdminUsersService last-admin unit", { timeout: 30_000 }, () => {
   it("counts active admins", async () => {
     await ensureIamSeed(prisma as PrismaClient);
     const service = new AdminUsersService(prisma as PrismaClient, "test-session-secret-at-least-32-chars");

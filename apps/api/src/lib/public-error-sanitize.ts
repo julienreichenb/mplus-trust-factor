@@ -24,6 +24,15 @@ const TECHNICAL_PATTERNS: RegExp[] = [
 
 export const PUBLIC_REFRESH_FAILED_MESSAGE = "La dernière actualisation a échoué.";
 export const PUBLIC_GENERIC_UNAVAILABLE_MESSAGE = "Trust Score is temporarily unavailable.";
+export const PUBLIC_NOT_REFRESH_ELIGIBLE_MESSAGE =
+  "Ce personnage n'est pas éligible à l'actualisation (niveau ou score Mythic+ de saison).";
+
+const ELIGIBILITY_PUBLIC_CODES = new Set([
+  "CHARACTER_BELOW_MAX_LEVEL",
+  "CHARACTER_NO_CURRENT_SEASON_MYTHIC_SCORE",
+  "CHARACTER_REFRESH_ELIGIBILITY_UNKNOWN",
+  "NOT_REFRESH_ELIGIBLE",
+]);
 
 export function isTechnicalPublicErrorMessage(message: string | null | undefined): boolean {
   if (!message) return false;
@@ -48,6 +57,20 @@ export function toPublicRefreshErrorMessage(
     error && typeof error === "object" ? (error as { code?: unknown; message?: unknown }) : null;
   const rawCode = typeof record?.code === "string" ? record.code : null;
   const rawMessage = typeof record?.message === "string" ? record.message : null;
+
+  if (rawCode === "CANCELLED") {
+    return {
+      errorCode: null,
+      errorMessage: null,
+    };
+  }
+
+  if (rawCode && ELIGIBILITY_PUBLIC_CODES.has(rawCode)) {
+    return {
+      errorCode: "NOT_REFRESH_ELIGIBLE",
+      errorMessage: PUBLIC_NOT_REFRESH_ELIGIBLE_MESSAGE,
+    };
+  }
 
   if (
     (rawCode && isTechnicalPublicErrorMessage(rawCode)) ||

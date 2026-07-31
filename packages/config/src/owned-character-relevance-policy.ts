@@ -1,22 +1,37 @@
 import { ACTIVE_EXPANSION_METADATA_V1 } from "./game-metadata.js";
+import { getConfiguredMaxCharacterLevel } from "./character-refresh-eligibility.js";
 
 /**
  * Centralized, versioned Account owned-character relevance policy.
- * Thresholds live in code — not environment variables.
+ * maxCharacterLevel always resolves through getConfiguredMaxCharacterLevel —
+ * expansion metadata supplies the default only, never an independent override.
  */
-export const OWNED_CHARACTER_RELEVANCE_POLICY_V1 = {
-  version: "v1",
-  /**
-   * Minimum current-season Mythic+ rating for relevance when no other
-   * qualifying signal exists. Chosen as V1 product default (1000) because no
-   * prior owned-character relevance policy existed in this repo.
-   */
-  minCurrentSeasonMythicRating: 1000,
-  maxCharacterLevel: ACTIVE_EXPANSION_METADATA_V1.maxCharacterLevel,
-  expansionMetadataVersion: ACTIVE_EXPANSION_METADATA_V1.version,
-} as const;
+export interface OwnedCharacterRelevancePolicyV1 {
+  version: string;
+  minCurrentSeasonMythicRating: number;
+  maxCharacterLevel: number;
+  expansionMetadataVersion: string;
+}
 
-export type OwnedCharacterRelevancePolicyV1 = typeof OWNED_CHARACTER_RELEVANCE_POLICY_V1;
+export function buildOwnedCharacterRelevancePolicy(
+  runtimeMaxCharacterLevel?: number | null,
+): OwnedCharacterRelevancePolicyV1 {
+  return {
+    version: "v1",
+    /**
+     * Minimum current-season Mythic+ rating for relevance when no other
+     * qualifying signal exists. Chosen as V1 product default (1000) because no
+     * prior owned-character relevance policy existed in this repo.
+     */
+    minCurrentSeasonMythicRating: 1000,
+    maxCharacterLevel: getConfiguredMaxCharacterLevel(runtimeMaxCharacterLevel),
+    expansionMetadataVersion: ACTIVE_EXPANSION_METADATA_V1.version,
+  };
+}
+
+/** Default policy snapshot (max level = expansion metadata default). */
+export const OWNED_CHARACTER_RELEVANCE_POLICY_V1: OwnedCharacterRelevancePolicyV1 =
+  buildOwnedCharacterRelevancePolicy();
 
 export type RelevanceReason =
   | "CURRENT_OWNERSHIP"
@@ -54,6 +69,7 @@ export function evaluateOwnedCharacterRelevanceV1(
   policy: OwnedCharacterRelevancePolicyV1 = OWNED_CHARACTER_RELEVANCE_POLICY_V1,
 ): OwnedCharacterRelevanceResult {
   const reasons: RelevanceReason[] = [];
+  const maxCharacterLevel = getConfiguredMaxCharacterLevel(policy.maxCharacterLevel);
 
   if (input.ownershipStatus !== "CURRENT") {
     reasons.push("HISTORICAL_OR_INACTIVE");
@@ -62,7 +78,7 @@ export function evaluateOwnedCharacterRelevanceV1(
   reasons.push("CURRENT_OWNERSHIP");
 
   const level = input.characterLevel ?? 0;
-  if (level < policy.maxCharacterLevel) {
+  if (level < maxCharacterLevel) {
     reasons.push("BELOW_MAX_LEVEL");
     return { policyVersion: policy.version, eligible: false, reasons };
   }
@@ -110,6 +126,7 @@ export function evaluateOwnedCharacterAutoRefreshEligibilityV1(
   policy: OwnedCharacterRelevancePolicyV1 = OWNED_CHARACTER_RELEVANCE_POLICY_V1,
 ): OwnedCharacterRelevanceResult {
   const reasons: RelevanceReason[] = [];
+  const maxCharacterLevel = getConfiguredMaxCharacterLevel(policy.maxCharacterLevel);
 
   if (input.ownershipStatus !== "CURRENT") {
     reasons.push("HISTORICAL_OR_INACTIVE");
@@ -118,7 +135,7 @@ export function evaluateOwnedCharacterAutoRefreshEligibilityV1(
   reasons.push("CURRENT_OWNERSHIP");
 
   const level = input.characterLevel ?? 0;
-  if (level < policy.maxCharacterLevel) {
+  if (level < maxCharacterLevel) {
     reasons.push("BELOW_MAX_LEVEL");
     return { policyVersion: policy.version, eligible: false, reasons };
   }

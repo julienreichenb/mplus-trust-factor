@@ -145,4 +145,40 @@ describe("useRefreshPolling", () => {
     expect(getRefreshStatus).toHaveBeenCalledTimes(1);
     wrapper.unmount();
   });
+
+  it("stops on cancelled job status without treating it as active", async () => {
+    const getRefreshStatus = vi.mocked(api.getRefreshStatus);
+    getRefreshStatus.mockResolvedValue(
+      status({
+        refreshStatus: "STALE",
+        job: {
+          jobId: "3",
+          queue: "refresh-character",
+          status: "cancelled",
+          dedupeKey: null,
+          createdAt: "",
+          startedAt: "",
+          finishedAt: "",
+          errorMessage: null,
+        },
+      }),
+    );
+
+    const { api: pollingApi, wrapper } = mountPollingHarness();
+    await new Promise<void>((resolve) => {
+      void pollingApi.start({
+        identity,
+        onUpdate: () => undefined,
+        onComplete: (s) => {
+          expect(s.job?.status).toBe("cancelled");
+          expect(s.job?.errorMessage).toBeNull();
+          resolve();
+        },
+        maxDurationMs: 5_000,
+      });
+    });
+    expect(pollingApi.polling.value).toBe(false);
+    expect(getRefreshStatus).toHaveBeenCalledTimes(1);
+    wrapper.unmount();
+  });
 });

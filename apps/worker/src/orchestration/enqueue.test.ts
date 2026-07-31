@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+﻿import { describe, expect, it, vi } from "vitest";
 import type { IngestionJob } from "@mplus/database";
 import type { Queue } from "bullmq";
 import {
@@ -23,6 +23,10 @@ function jobStub(overrides: Partial<IngestionJob> = {}): IngestionJob {
     startedAt: new Date("2026-07-20T10:01:00.000Z"),
     completedAt: new Date("2026-07-20T10:01:00.000Z"),
     error: null,
+    queueJobId: null,
+    cancelRequestedAt: null,
+    cancelledAt: null,
+    cancelReason: null,
     ...overrides,
   } as IngestionJob;
 }
@@ -85,6 +89,7 @@ describe("persistAndEnqueue", () => {
       })),
       promoteToQueuedAfterEnqueue: vi.fn(),
       markEnqueueFailed: vi.fn(),
+      setQueueJobId: vi.fn(),
     } as unknown as JobRepository;
 
     const result = await persistAndEnqueue({
@@ -129,6 +134,7 @@ describe("persistAndEnqueue", () => {
         return { job: queued, wonClaim: true };
       }),
       markEnqueueFailed: vi.fn(),
+      setQueueJobId: vi.fn(),
     } as unknown as JobRepository;
 
     const result = await persistAndEnqueue({
@@ -167,6 +173,7 @@ describe("persistAndEnqueue", () => {
         wonClaim: true,
       })),
       markEnqueueFailed: vi.fn(async () => jobStub({ status: "FAILED" })),
+      setQueueJobId: vi.fn(),
     } as unknown as JobRepository;
 
     const result = await persistAndEnqueue({
@@ -202,6 +209,7 @@ describe("persistAndEnqueue", () => {
         wonClaim: false,
       })),
       markEnqueueFailed: vi.fn(),
+      setQueueJobId: vi.fn(),
     } as unknown as JobRepository;
 
     const result = await persistAndEnqueue({
@@ -249,6 +257,7 @@ describe("persistAndEnqueue", () => {
         return { job: queued, wonClaim: false };
       }),
       markEnqueueFailed: vi.fn(),
+      setQueueJobId: vi.fn(),
     } as unknown as JobRepository;
 
     const [a, b] = await Promise.all([
@@ -275,3 +284,4 @@ describe("persistAndEnqueue", () => {
     expect(remove).not.toHaveBeenCalled();
   });
 });
+

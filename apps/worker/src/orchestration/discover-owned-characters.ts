@@ -1,6 +1,6 @@
 import {
-  OWNED_CHARACTER_RELEVANCE_POLICY_V1,
   buildFreshnessConfig,
+  buildOwnedCharacterRelevancePolicy,
   evaluateOwnedCharacterAutoRefreshEligibilityV1,
   evaluateOwnedCharacterRelevanceV1,
   isDatasetFresh,
@@ -78,7 +78,7 @@ export async function runDiscoverOwnedCharacters(
 ): Promise<{ counters: DiscoveryCounters }> {
   const { prisma, providers, env, logger, repositories } = container;
   const counters = emptyCounters();
-  const policy = OWNED_CHARACTER_RELEVANCE_POLICY_V1;
+  const policy = buildOwnedCharacterRelevancePolicy(env.MAX_CHARACTER_LEVEL);
   const freshness = buildFreshnessConfig(env);
   const startedAt = new Date();
 

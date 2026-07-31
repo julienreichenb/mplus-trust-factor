@@ -66,6 +66,14 @@ export interface PublishCandidateInput {
   providerDataAsOf?: Date | null;
   coverageState: string;
   coherence: CoherenceValidationResult;
+  /**
+   * Atomic publication barrier: same transaction verifies job still ACTIVE,
+   * cancellation not requested, and job payload contract hash still matches.
+   * Extends publication_toctou — does not replace the pre-tx hash re-resolve.
+   */
+  publicationGuard?: {
+    ingestionJobId: string;
+  };
 }
 
 export interface RejectCandidateInput {
@@ -95,8 +103,9 @@ export interface ScoreRepository {
   /** Validate coherence and atomically publish or reject. */
   publishOrRejectCandidate(input: PublishCandidateInput): Promise<{
     published: boolean;
-    snapshot: ScoreSnapshot;
+    snapshot: ScoreSnapshot | null;
     rejectionReason?: string;
+    cancelled?: boolean;
   }>;
   listPublicModels(): Promise<ScoreModel[]>;
   listAllModels(): Promise<ScoreModel[]>;
@@ -364,6 +373,41 @@ export function createScoreRepository(prisma: PrismaClient): ScoreRepository {
       }
 
       return prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+        // Atomic publication_toctou extension: cancel + contract + ACTIVE in the same TX.
+        if (input.publicationGuard?.ingestionJobId) {
+          const job = await tx.ingestionJob.findUnique({
+            where: { id: input.publicationGuard.ingestionJobId },
+            select: {
+              id: true,
+              status: true,
+              cancelRequestedAt: true,
+              payload: true,
+            },
+          });
+          if (
+            !job ||
+            job.status !== "ACTIVE" ||
+            job.cancelRequestedAt != null
+          ) {
+            return {
+              published: false,
+              snapshot: null,
+              cancelled: true,
+              rejectionReason: "CANCELLED",
+            };
+          }
+          const payload = (job.payload ?? {}) as Record<string, unknown>;
+          const jobHash =
+            typeof payload.refreshContractHash === "string" ? payload.refreshContractHash : null;
+          if (jobHash && jobHash !== input.refreshContractHash) {
+            return {
+              published: false,
+              snapshot: null,
+              rejectionReason: "REFRESH_CONTRACT_HASH_MISMATCH",
+            };
+          }
+        }
+
         const existing = await tx.scoreSnapshot.findFirst({
           where: {
             characterId: input.characterId,

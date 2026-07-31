@@ -56,7 +56,9 @@ export function useRefreshPolling() {
         if (stopped) return;
         options.onUpdate(status);
         const jobTerminal =
-          status.job?.status === "completed" || status.job?.status === "failed";
+          status.job?.status === "completed" ||
+          status.job?.status === "failed" ||
+          status.job?.status === "cancelled";
         if (
           status.refreshStatus === "FRESH" ||
           status.refreshStatus === "FAILED" ||

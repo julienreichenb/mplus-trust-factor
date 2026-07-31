@@ -1,5 +1,6 @@
 import { ExternalApiError, type ExternalApiErrorCode } from "@mplus/contracts";
 import { isRefreshContractPreflightError } from "./refresh-contract-preflight.js";
+import { isRefreshEligibilityError } from "./refresh-eligibility-gate.js";
 
 export interface RetryClassification {
   retryable: boolean;
@@ -26,7 +27,10 @@ const CLASSIFICATION_BY_CODE: Record<ExternalApiErrorCode, RetryClassification> 
 
 /** Maps provider/job failures to a retry decision for BullMQ backoff configuration. */
 export function classifyError(error: unknown): RetryClassification {
-  if (isRefreshContractPreflightError(error)) {
+  if (isRefreshContractPreflightError(error) || isRefreshEligibilityError(error)) {
+    return { retryable: false, softSkip: false, providerFailure: false };
+  }
+  if (error && typeof error === "object" && (error as { code?: string }).code === "CANCELLED") {
     return { retryable: false, softSkip: false, providerFailure: false };
   }
   if (error instanceof ExternalApiError) {

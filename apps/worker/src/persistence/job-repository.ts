@@ -1,4 +1,4 @@
-import { Prisma, type IngestionJob, type PrismaClient } from "@mplus/database";
+import { Prisma, type IngestionJob, type JobStatus, type PrismaClient } from "@mplus/database";
 import { DEFAULT_STALE_QUEUED_MS, isStaleQueued } from "./job-staleness.js";
 
 export interface CreateOrGetJobInput {
@@ -30,6 +30,24 @@ export interface PromoteToQueuedInput {
   priority?: number;
 }
 
+export interface ListRefreshJobsFilter {
+  status?: JobStatus | "delayed" | null;
+  region?: string | null;
+  characterName?: string | null;
+  realmSlug?: string | null;
+  characterId?: string | null;
+  triggerSource?: string | null;
+  /** true = bulk only, false = direct only, null = all */
+  fromBulk?: boolean | null;
+  /**
+   * When false (default), only the latest FAILED job per character is returned among failures.
+   * When true, all historical FAILED rows are included.
+   */
+  showHistoricalFailures?: boolean;
+  page?: number;
+  pageSize?: number;
+}
+
 export interface JobRepository {
   /**
    * Resolve the ingestion row for enqueue without moving terminal jobs to QUEUED.
@@ -54,12 +72,35 @@ export interface JobRepository {
   markActive(id: string): Promise<IngestionJob>;
   markCompleted(id: string): Promise<IngestionJob>;
   markFailed(id: string, error: unknown): Promise<IngestionJob>;
+  /** Terminalize as CANCELLED (never FAILED). Idempotent for already-CANCELLED rows. */
+  markCancelled(
+    id: string,
+    input?: { reason?: string | null; error?: unknown },
+  ): Promise<IngestionJob>;
+  /**
+   * CAS: QUEUED → CANCELLED only. Returns null if status raced away (e.g. ACTIVE).
+   * Used after BullMQ remove confirmation.
+   */
+  markCancelledIfQueued(
+    id: string,
+    input?: { reason?: string | null; error?: unknown },
+  ): Promise<IngestionJob | null>;
+  /** Cooperative cancel request for QUEUED/ACTIVE jobs. Idempotent. */
+  requestCancel(id: string, reason?: string | null): Promise<IngestionJob>;
+  setQueueJobId(id: string, queueJobId: string): Promise<IngestionJob>;
+  updatePriority(id: string, priority: number): Promise<IngestionJob>;
   findById(id: string): Promise<IngestionJob | null>;
   findByDedupeKey(dedupeKey: string): Promise<IngestionJob | null>;
   findActiveForCharacter(characterId: string): Promise<IngestionJob | null>;
   /** Most recent job for a character regardless of status — used to report last-known outcome. */
   findLatestForCharacter(characterId: string): Promise<IngestionJob | null>;
   attachCharacter(id: string, characterId: string): Promise<IngestionJob>;
+  /** Count non-terminal refresh-character jobs (QUEUED + ACTIVE). */
+  countInFlightRefreshJobs(): Promise<number>;
+  listInFlightRefreshJobs(): Promise<IngestionJob[]>;
+  listRefreshJobs(
+    filter: ListRefreshJobsFilter,
+  ): Promise<{ jobs: IngestionJob[]; total: number; page: number; pageSize: number }>;
 }
 
 function errorPayload(error: unknown): object {
@@ -84,7 +125,18 @@ function queuedResetData(input: {
     startedAt: null,
     completedAt: null,
     error: Prisma.DbNull,
+    queueJobId: null,
+    cancelRequestedAt: null,
+    cancelledAt: null,
+    cancelReason: null,
   };
+}
+
+function payloadRecord(payload: unknown): Record<string, unknown> {
+  if (payload && typeof payload === "object" && !Array.isArray(payload)) {
+    return payload as Record<string, unknown>;
+  }
+  return {};
 }
 
 export function createJobRepository(prisma: PrismaClient): JobRepository {
@@ -244,6 +296,27 @@ export function createJobRepository(prisma: PrismaClient): JobRepository {
     },
 
     async markFailed(id, error) {
+      const current = await prisma.ingestionJob.findUnique({ where: { id } });
+      if (current?.status === "CANCELLED") {
+        return current;
+      }
+      if (current?.cancelRequestedAt && (current.status === "ACTIVE" || current.status === "QUEUED")) {
+        return prisma.ingestionJob.update({
+          where: { id },
+          data: {
+            status: "CANCELLED",
+            completedAt: new Date(),
+            cancelledAt: new Date(),
+            cancelReason: current.cancelReason ?? "cancellation_requested",
+            error: {
+              code: "CANCELLED",
+              message: "Job cancelled before failure terminalization",
+              retryable: false,
+              providerFailure: false,
+            },
+          },
+        });
+      }
       return prisma.ingestionJob.update({
         where: { id },
         data: {
@@ -251,6 +324,120 @@ export function createJobRepository(prisma: PrismaClient): JobRepository {
           completedAt: new Date(),
           error: errorPayload(error),
         },
+      });
+    },
+
+    async markCancelled(id, input = {}) {
+      const current = await prisma.ingestionJob.findUnique({ where: { id } });
+      if (!current) {
+        throw new Error(`IngestionJob ${id} not found`);
+      }
+      if (current.status === "CANCELLED") {
+        return current;
+      }
+      if (current.status === "COMPLETED" || current.status === "FAILED") {
+        return current;
+      }
+      const reason = input.reason ?? current.cancelReason ?? "admin_cancel";
+      return prisma.ingestionJob.update({
+        where: { id },
+        data: {
+          status: "CANCELLED",
+          completedAt: new Date(),
+          cancelledAt: new Date(),
+          cancelReason: reason,
+          cancelRequestedAt: current.cancelRequestedAt ?? new Date(),
+          error: input.error
+            ? errorPayload(input.error)
+            : {
+                code: "CANCELLED",
+                message: reason,
+                retryable: false,
+                providerFailure: false,
+              },
+        },
+      });
+    },
+
+    async markCancelledIfQueued(id, input = {}) {
+      const current = await prisma.ingestionJob.findUnique({ where: { id } });
+      if (!current) {
+        throw new Error(`IngestionJob ${id} not found`);
+      }
+      if (current.status === "CANCELLED") {
+        return current;
+      }
+      if (current.status !== "QUEUED") {
+        return null;
+      }
+      const reason = input.reason ?? current.cancelReason ?? "admin_cancel";
+      const updated = await prisma.ingestionJob.updateMany({
+        where: { id, status: "QUEUED" },
+        data: {
+          status: "CANCELLED",
+          completedAt: new Date(),
+          cancelledAt: new Date(),
+          cancelReason: reason,
+          cancelRequestedAt: current.cancelRequestedAt ?? new Date(),
+          error: input.error
+            ? errorPayload(input.error)
+            : {
+                code: "CANCELLED",
+                message: reason,
+                retryable: false,
+                providerFailure: false,
+              },
+        },
+      });
+      if (updated.count === 0) {
+        return null;
+      }
+      return prisma.ingestionJob.findUniqueOrThrow({ where: { id } });
+    },
+
+    async requestCancel(id, reason = null) {
+      const current = await prisma.ingestionJob.findUnique({ where: { id } });
+      if (!current) {
+        throw new Error(`IngestionJob ${id} not found`);
+      }
+      if (current.status === "CANCELLED") {
+        return current;
+      }
+      if (current.status === "COMPLETED" || current.status === "FAILED") {
+        return current;
+      }
+      if (current.cancelRequestedAt) {
+        return current;
+      }
+      // CAS: only set cancelRequestedAt while still QUEUED or ACTIVE.
+      const updated = await prisma.ingestionJob.updateMany({
+        where: {
+          id,
+          status: { in: ["QUEUED", "ACTIVE"] },
+          cancelRequestedAt: null,
+        },
+        data: {
+          cancelRequestedAt: new Date(),
+          cancelReason: reason ?? "admin_cancel",
+        },
+      });
+      if (updated.count === 0) {
+        return prisma.ingestionJob.findUniqueOrThrow({ where: { id } });
+      }
+      return prisma.ingestionJob.findUniqueOrThrow({ where: { id } });
+    },
+
+    async setQueueJobId(id, queueJobId) {
+      return prisma.ingestionJob.update({
+        where: { id },
+        data: { queueJobId },
+      });
+    },
+
+    async updatePriority(id, priority) {
+      return prisma.ingestionJob.update({
+        where: { id },
+        data: { priority },
       });
     },
 
@@ -290,6 +477,90 @@ export function createJobRepository(prisma: PrismaClient): JobRepository {
 
     async attachCharacter(id, characterId) {
       return prisma.ingestionJob.update({ where: { id }, data: { characterId } });
+    },
+
+    async countInFlightRefreshJobs() {
+      return prisma.ingestionJob.count({
+        where: {
+          jobType: "refresh-character",
+          status: { in: ["QUEUED", "ACTIVE"] },
+        },
+      });
+    },
+
+    async listInFlightRefreshJobs() {
+      return prisma.ingestionJob.findMany({
+        where: {
+          jobType: "refresh-character",
+          status: { in: ["QUEUED", "ACTIVE"] },
+        },
+        orderBy: { scheduledAt: "asc" },
+      });
+    },
+
+    async listRefreshJobs(filter) {
+      const page = Math.max(1, filter.page ?? 1);
+      const pageSize = Math.min(100, Math.max(1, filter.pageSize ?? 25));
+      const showHistoricalFailures = Boolean(filter.showHistoricalFailures);
+
+      const jobs = await prisma.ingestionJob.findMany({
+        where: { jobType: "refresh-character" },
+        orderBy: { scheduledAt: "desc" },
+        take: 5_000,
+      });
+
+      const latestFailedByCharacter = new Map<string, string>();
+      for (const job of jobs) {
+        if (job.status !== "FAILED") continue;
+        const key = job.characterId ?? `anon:${job.id}`;
+        if (!latestFailedByCharacter.has(key)) {
+          latestFailedByCharacter.set(key, job.id);
+        }
+      }
+
+      const filtered = jobs.filter((job) => {
+        if (filter.status && filter.status !== "delayed") {
+          if (job.status !== filter.status) return false;
+        }
+        if (filter.characterId && job.characterId !== filter.characterId) return false;
+
+        const payload = payloadRecord(job.payload);
+        if (filter.region) {
+          const region = typeof payload.region === "string" ? payload.region : null;
+          if (!region || region.toUpperCase() !== filter.region.toUpperCase()) return false;
+        }
+        if (filter.characterName) {
+          const name = typeof payload.name === "string" ? payload.name : "";
+          if (!name.toLowerCase().includes(filter.characterName.toLowerCase())) return false;
+        }
+        if (filter.realmSlug) {
+          const realm = typeof payload.realmSlug === "string" ? payload.realmSlug : "";
+          if (!realm.toLowerCase().includes(filter.realmSlug.toLowerCase())) return false;
+        }
+        if (filter.triggerSource) {
+          const source = typeof payload.triggerSource === "string" ? payload.triggerSource : "UNKNOWN";
+          if (source !== filter.triggerSource) return false;
+        }
+        if (filter.fromBulk != null) {
+          const source = typeof payload.triggerSource === "string" ? payload.triggerSource : null;
+          const isBulk = source === "BULK_REFRESH";
+          if (filter.fromBulk !== isBulk) return false;
+        }
+        if (!showHistoricalFailures && job.status === "FAILED") {
+          const key = job.characterId ?? `anon:${job.id}`;
+          if (latestFailedByCharacter.get(key) !== job.id) return false;
+        }
+        return true;
+      });
+
+      const total = filtered.length;
+      const start = (page - 1) * pageSize;
+      return {
+        jobs: filtered.slice(start, start + pageSize),
+        total,
+        page,
+        pageSize,
+      };
     },
   };
 }

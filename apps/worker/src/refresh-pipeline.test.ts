@@ -13,6 +13,7 @@ import {
 import { createWorkerContainer, type WorkerContainer } from "./container.js";
 import { negativeCache } from "./negative-cache.js";
 import { runRefreshPipeline } from "./orchestration/refresh-pipeline.js";
+import { seedRefreshEligibilityEvidenceForTest } from "./test-eligibility-seed.js";
 
 const databaseUrl =
   process.env.DATABASE_URL ?? "postgresql://mplus:mplus@localhost:5433/mplus_trust?schema=public";
@@ -49,546 +50,562 @@ function buildContainer(disabledProviders?: Set<ProviderName>): WorkerContainer 
 }
 
 describe.skipIf(!dbAvailable)("runRefreshPipeline (fixture mode, real Postgres)", () => {
-  it(
-    "flows a happy-path refresh through to a persisted ScoreSnapshot",
-    async () => {
-      const container = buildContainer();
-      const name = `Examplecharacter-${randomUUID().slice(0, 8)}`;
-      const job = buildJob(name);
+  it("flows a happy-path refresh through to a persisted ScoreSnapshot", async () => {
+    const container = buildContainer();
+    const name = `Examplecharacter-${randomUUID().slice(0, 8)}`;
+    await seedRefreshEligibilityEvidenceForTest(container, {
+      region: "EU",
+      realmSlug: "tarren-mill",
+      name,
+    });
+    const job = buildJob(name);
 
-      const result = await runRefreshPipeline(container, job);
+    const result = await runRefreshPipeline(container, job);
 
-      expect(result.notFound).toBe(false);
-      expect(result.character.displayName).toBe(name);
-      expect(result.job.status).toBe("COMPLETED");
-      expect(result.stagesSkipped).toEqual([]);
-      expect(result.score).not.toBeNull();
-      expect(result.score?.overallScore).toBeGreaterThanOrEqual(0);
-      expect(result.score?.overallScore).toBeLessThanOrEqual(100);
-      expect(["S", "A", "B", "C", "D", "U"]).toContain(result.score?.grade);
+    expect(result.notFound).toBe(false);
+    expect(result.character.displayName).toBe(name);
+    expect(result.job.status).toBe("COMPLETED");
+    expect(result.stagesSkipped).toEqual([]);
+    expect(result.score).not.toBeNull();
+    expect(result.score?.overallScore).toBeGreaterThanOrEqual(0);
+    expect(result.score?.overallScore).toBeLessThanOrEqual(100);
+    expect(["S", "A", "B", "C", "D", "U"]).toContain(result.score?.grade);
 
-      const explanation = result.score?.explanation as {
-        observations?: Array<{ metricKey: string }>;
-        modelKey?: string;
-        coverage?: { selectedRunCoverage?: number };
-        wclVisibility?: string;
-        fusedRunCount?: number;
-        providerTimestamps?: { warcraftlogs?: string | null };
-      };
-      expect(explanation.modelKey).toBeTruthy();
-      expect(explanation.observations?.some((o) => o.metricKey === "experience.dungeon_breadth")).toBe(
-        true,
-      );
-      expect(explanation.observations?.some((o) => o.metricKey === "experience.key_band_breadth")).toBe(
-        true,
-      );
-      expect(explanation.observations?.some((o) => o.metricKey === "experience.mythic_rating")).toBe(
-        true,
-      );
-      expect(
-        explanation.observations?.some((o) => o.metricKey === "performance.mythic_rating"),
-      ).toBeFalsy();
-      expect(
-        explanation.observations?.some((o) => o.metricKey === "performance.spec_percentile"),
-      ).toBeFalsy();
-      // PERFORMANCE must not be driven by Mythic+ rating as a percentile.
-      const perfObs = explanation.observations?.filter((o) =>
-        o.metricKey.startsWith("performance."),
-      );
-      expect(perfObs?.every((o) => o.metricKey !== "performance.mythic_rating")).toBe(true);
+    const explanation = result.score?.explanation as {
+      observations?: Array<{ metricKey: string }>;
+      modelKey?: string;
+      coverage?: { selectedRunCoverage?: number };
+      wclVisibility?: string;
+      fusedRunCount?: number;
+      providerTimestamps?: { warcraftlogs?: string | null };
+    };
+    expect(explanation.modelKey).toBeTruthy();
+    expect(
+      explanation.observations?.some((o) => o.metricKey === "experience.dungeon_breadth"),
+    ).toBe(true);
+    expect(
+      explanation.observations?.some((o) => o.metricKey === "experience.key_band_breadth"),
+    ).toBe(true);
+    expect(explanation.observations?.some((o) => o.metricKey === "experience.mythic_rating")).toBe(
+      true,
+    );
+    expect(
+      explanation.observations?.some((o) => o.metricKey === "performance.mythic_rating"),
+    ).toBeFalsy();
+    expect(
+      explanation.observations?.some((o) => o.metricKey === "performance.spec_percentile"),
+    ).toBeFalsy();
+    // PERFORMANCE must not be driven by Mythic+ rating as a percentile.
+    const perfObs = explanation.observations?.filter((o) => o.metricKey.startsWith("performance."));
+    expect(perfObs?.every((o) => o.metricKey !== "performance.mythic_rating")).toBe(true);
 
-      const providerStates = await prisma.characterProviderState.findMany({
-        where: { characterId: result.character.id },
+    const providerStates = await prisma.characterProviderState.findMany({
+      where: { characterId: result.character.id },
+    });
+    expect(providerStates.length).toBeGreaterThanOrEqual(1);
+    expect(providerStates.some((s) => s.provider === "BLIZZARD" && s.state === "OK")).toBe(true);
+
+    const persistedSnapshot = await prisma.scoreSnapshot.findFirst({
+      where: { characterId: result.character.id },
+    });
+    expect(persistedSnapshot).not.toBeNull();
+
+    const season = await prisma.season.findUnique({ where: { id: persistedSnapshot!.seasonId } });
+    expect(season?.slug).toMatch(/^blizzard-season-\d+$/);
+    expect(season?.isCurrent).toBe(true);
+    expect(season?.slug).not.toBe("placeholder-current");
+
+    expect(explanation.coverage?.selectedRunCoverage).toBeGreaterThanOrEqual(0);
+    expect(explanation.coverage?.selectedRunCoverage).toBeLessThanOrEqual(1);
+    expect(explanation.wclVisibility).toBeTruthy();
+    expect(explanation.providerTimestamps?.warcraftlogs).toBeTruthy();
+
+    const runParticipants = await prisma.runParticipant.count({
+      where: { characterId: result.character.id, isTargetCharacter: true },
+    });
+    expect(runParticipants).toBeGreaterThan(0);
+    // Fused run count and persisted target participants should agree after dedupe.
+    if (typeof explanation.fusedRunCount === "number") {
+      expect(runParticipants).toBe(explanation.fusedRunCount);
+    }
+
+    const runAnalyses = await prisma.runAnalysis.count({
+      where: { characterId: result.character.id },
+    });
+    expect(runAnalyses).toBeGreaterThan(0);
+
+    const externalRequests = await prisma.externalRequest.count({
+      where: { provider: { in: ["BLIZZARD", "WARCRAFT_LOGS", "RAIDER_IO"] } },
+    });
+    expect(externalRequests).toBeGreaterThan(0);
+
+    const combatAnalysis = await prisma.runAnalysis.findFirst({
+      where: { characterId: result.character.id, analysisVersion: "wcl-combat-facts-v1" },
+    });
+    const visibilityAnalysis = await prisma.runAnalysis.findFirst({
+      where: { characterId: result.character.id, analysisVersion: "wcl-visibility-v1" },
+    });
+    const analysis = combatAnalysis ?? visibilityAnalysis;
+    expect(analysis).not.toBeNull();
+    if (combatAnalysis) {
+      expect(combatAnalysis.summary).toMatchObject({
+        wclVisibility: "PUBLIC",
+        combatFacts: expect.objectContaining({
+          reportCode: expect.any(String),
+          fightId: expect.any(Number),
+        }),
       });
-      expect(providerStates.length).toBeGreaterThanOrEqual(1);
-      expect(providerStates.some((s) => s.provider === "BLIZZARD" && s.state === "OK")).toBe(true);
-
-      const persistedSnapshot = await prisma.scoreSnapshot.findFirst({
-        where: { characterId: result.character.id },
+    } else {
+      // Public profile with zero matched selected-run combat analyses → dataState NO_MATCHED_RUN.
+      expect(visibilityAnalysis?.summary).toMatchObject({
+        wclVisibility: "PUBLIC",
+        wclDataState: expect.stringMatching(/^(NO_MATCHED_RUN|RANKINGS_ONLY|NO_PUBLIC_LOGS)$/),
       });
-      expect(persistedSnapshot).not.toBeNull();
+    }
+  }, 30_000);
 
-      const season = await prisma.season.findUnique({ where: { id: persistedSnapshot!.seasonId } });
-      expect(season?.slug).toMatch(/^blizzard-season-\d+$/);
-      expect(season?.isCurrent).toBe(true);
-      expect(season?.slug).not.toBe("placeholder-current");
+  it("marks the job FAILED and negative-caches identities that resolve to NOT_FOUND", async () => {
+    const container = buildContainer();
+    const name = `MissingCharacter-${randomUUID().slice(0, 8)}`;
+    await seedRefreshEligibilityEvidenceForTest(container, {
+      region: "EU",
+      realmSlug: "tarren-mill",
+      name,
+    });
+    const job = buildJob(name);
 
-      expect(explanation.coverage?.selectedRunCoverage).toBeGreaterThanOrEqual(0);
-      expect(explanation.coverage?.selectedRunCoverage).toBeLessThanOrEqual(1);
-      expect(explanation.wclVisibility).toBeTruthy();
-      expect(explanation.providerTimestamps?.warcraftlogs).toBeTruthy();
+    await expect(runRefreshPipeline(container, job)).rejects.toThrow(ExternalApiError);
+    expect(negativeCache.has({ region: job.region, realmSlug: job.realmSlug, name })).toBe(true);
+  }, 30_000);
 
-      const runParticipants = await prisma.runParticipant.count({
-        where: { characterId: result.character.id, isTargetCharacter: true },
-      });
-      expect(runParticipants).toBeGreaterThan(0);
-      // Fused run count and persisted target participants should agree after dedupe.
-      if (typeof explanation.fusedRunCount === "number") {
-        expect(runParticipants).toBe(explanation.fusedRunCount);
-      }
+  it("soft-skips a container-disabled provider and still produces a neutral score", async () => {
+    const container = buildContainer(new Set<ProviderName>(["warcraftlogs"]));
+    const name = `DisabledProviderChar-${randomUUID().slice(0, 8)}`;
+    const job = buildJob(name);
+    await seedRefreshEligibilityEvidenceForTest(container, {
+      region: "EU",
+      realmSlug: "tarren-mill",
+      name,
+    });
 
-      const runAnalyses = await prisma.runAnalysis.count({
-        where: { characterId: result.character.id },
-      });
-      expect(runAnalyses).toBeGreaterThan(0);
+    const result = await runRefreshPipeline(container, job);
 
-      const externalRequests = await prisma.externalRequest.count({
-        where: { provider: { in: ["BLIZZARD", "WARCRAFT_LOGS", "RAIDER_IO"] } },
-      });
-      expect(externalRequests).toBeGreaterThan(0);
+    expect(result.stagesSkipped).toContain("refresh-warcraftlogs-summary");
+    expect(result.stagesSkipped).toContain("analyze-run");
+    expect(result.score).not.toBeNull();
 
-      const combatAnalysis = await prisma.runAnalysis.findFirst({
-        where: { characterId: result.character.id, analysisVersion: "wcl-combat-facts-v1" },
-      });
-      const visibilityAnalysis = await prisma.runAnalysis.findFirst({
-        where: { characterId: result.character.id, analysisVersion: "wcl-visibility-v1" },
-      });
-      const analysis = combatAnalysis ?? visibilityAnalysis;
-      expect(analysis).not.toBeNull();
-      if (combatAnalysis) {
-        expect(combatAnalysis.summary).toMatchObject({
-          wclVisibility: "PUBLIC",
-          combatFacts: expect.objectContaining({
-            reportCode: expect.any(String),
-            fightId: expect.any(Number),
-          }),
+    const wclState = await prisma.characterProviderState.findFirst({
+      where: { characterId: result.character.id, provider: "WARCRAFT_LOGS" },
+    });
+    expect(wclState?.state).toBe("UNAVAILABLE");
+
+    const wclSources = await prisma.runSourceReference.count({
+      where: {
+        provider: "WARCRAFT_LOGS",
+        run: { participants: { some: { characterId: result.character.id } } },
+      },
+    });
+    expect(wclSources).toBe(0);
+  }, 30_000);
+
+  it("returns a Blizzard-backed score when Raider.IO is unavailable", async () => {
+    const container = buildContainer(new Set<ProviderName>(["raiderio"]));
+    const name = `NoRaiderIo-${randomUUID().slice(0, 8)}`;
+    await seedRefreshEligibilityEvidenceForTest(container, {
+      region: "EU",
+      realmSlug: "tarren-mill",
+      name,
+    });
+    const result = await runRefreshPipeline(container, buildJob(name));
+
+    expect(result.stagesSkipped).toContain("refresh-raiderio");
+    expect(result.score).not.toBeNull();
+    expect(result.job.status).toBe("COMPLETED");
+
+    const rioState = await prisma.characterProviderState.findFirst({
+      where: { characterId: result.character.id, provider: "RAIDER_IO" },
+    });
+    expect(rioState?.state).toBe("UNAVAILABLE");
+  }, 30_000);
+
+  it("soft-skips live-shaped Raider.IO 500/rate-limit failures without failing the job", async () => {
+    const base = buildContainer();
+    const failingRaiderIo = {
+      ...base.providers.raiderio,
+      enabled: true,
+      async getCharacterProfile(): Promise<ProviderResult<RaiderIoCharacterProfile>> {
+        throw new ExternalApiError({
+          message: "Raider.IO upstream 500",
+          code: "UNKNOWN",
+          provider: "raiderio",
+          retryable: true,
+          statusCode: 500,
         });
-      } else {
-        // Public profile with zero matched selected-run combat analyses → dataState NO_MATCHED_RUN.
-        expect(visibilityAnalysis?.summary).toMatchObject({
-          wclVisibility: "PUBLIC",
-          wclDataState: expect.stringMatching(/^(NO_MATCHED_RUN|RANKINGS_ONLY|NO_PUBLIC_LOGS)$/),
-        });
-      }
-    },
-    30_000,
-  );
+      },
+    };
+    const container = createWorkerContainer(loadEnv(), {
+      prisma,
+      providers: { raiderio: failingRaiderIo },
+    });
+    const name = `RioFail-${randomUUID().slice(0, 8)}`;
+    await seedRefreshEligibilityEvidenceForTest(container, {
+      region: "EU",
+      realmSlug: "tarren-mill",
+      name,
+    });
+    const result = await runRefreshPipeline(container, buildJob(name));
 
-  it(
-    "marks the job FAILED and negative-caches identities that resolve to NOT_FOUND",
-    async () => {
-      const container = buildContainer();
-      const name = `MissingCharacter-${randomUUID().slice(0, 8)}`;
-      const job = buildJob(name);
+    expect(result.stagesSkipped).toContain("refresh-raiderio");
+    expect(result.score).not.toBeNull();
+    expect(result.job.status).toBe("COMPLETED");
+  }, 30_000);
 
-      await expect(runRefreshPipeline(container, job)).rejects.toThrow(ExternalApiError);
-      expect(negativeCache.has({ region: job.region, realmSlug: job.realmSlug, name })).toBe(true);
-    },
-    30_000,
-  );
+  it("soft-skips all providers for identities flagged with 'disabled-test'", async () => {
+    const container = buildContainer();
+    const name = `disabled-test-${randomUUID().slice(0, 8)}`;
+    await seedRefreshEligibilityEvidenceForTest(container, {
+      region: "EU",
+      realmSlug: "tarren-mill",
+      name,
+    });
+    const job = buildJob(name);
 
-  it(
-    "soft-skips a container-disabled provider and still produces a neutral score",
-    async () => {
-      const container = buildContainer(new Set<ProviderName>(["warcraftlogs"]));
-      const name = `DisabledProviderChar-${randomUUID().slice(0, 8)}`;
-      const job = buildJob(name);
+    const result = await runRefreshPipeline(container, job);
 
-      const result = await runRefreshPipeline(container, job);
+    expect(result.stagesSkipped).toContain("refresh-blizzard");
+    expect(result.stagesSkipped).toContain("refresh-raiderio");
+    expect(result.stagesSkipped).toContain("refresh-warcraftlogs-summary");
+    expect(result.job.status).toBe("COMPLETED");
+    expect(result.score).not.toBeNull();
+  }, 30_000);
 
-      expect(result.stagesSkipped).toContain("refresh-warcraftlogs-summary");
-      expect(result.stagesSkipped).toContain("analyze-run");
-      expect(result.score).not.toBeNull();
+  it("collapses duplicate refresh requests onto the same IngestionJob dedupe key", async () => {
+    const container = buildContainer();
+    const name = `DedupeChar-${randomUUID().slice(0, 8)}`;
+    const job = buildJob(name);
+    await seedRefreshEligibilityEvidenceForTest(container, {
+      region: "EU",
+      realmSlug: "tarren-mill",
+      name,
+    });
 
-      const wclState = await prisma.characterProviderState.findFirst({
-        where: { characterId: result.character.id, provider: "WARCRAFT_LOGS" },
-      });
-      expect(wclState?.state).toBe("UNAVAILABLE");
+    const first = await runRefreshPipeline(container, job);
+    const second = await runRefreshPipeline(
+      container,
+      buildJob(name, { requestedAt: job.requestedAt }),
+    );
 
-      const wclSources = await prisma.runSourceReference.count({
-        where: {
-          provider: "WARCRAFT_LOGS",
-          run: { participants: { some: { characterId: result.character.id } } },
+    expect(first.job.dedupeKey).toBe(second.job.dedupeKey);
+    expect(first.job.id).toBe(second.job.id);
+    const jobCount = await prisma.ingestionJob.count({
+      where: { dedupeKey: first.job.dedupeKey ?? undefined },
+    });
+    expect(jobCount).toBe(1);
+  }, 30_000);
+
+  it("re-runs a second refresh after COMPLETED on the same dedupe key", async () => {
+    const container = buildContainer();
+    const name = `RequeueChar-${randomUUID().slice(0, 8)}`;
+    const job = buildJob(name);
+    await seedRefreshEligibilityEvidenceForTest(container, {
+      region: "EU",
+      realmSlug: "tarren-mill",
+      name,
+    });
+
+    const first = await runRefreshPipeline(container, job);
+    expect(first.job.status).toBe("COMPLETED");
+    const firstCompletedAt = first.job.completedAt?.getTime() ?? 0;
+
+    // Simulate a later manual refresh (new requestedAt) after the first terminal result.
+    await new Promise((r) => setTimeout(r, 20));
+    const second = await runRefreshPipeline(
+      container,
+      buildJob(name, { requestedAt: new Date().toISOString() }),
+    );
+
+    expect(second.job.id).toBe(first.job.id);
+    expect(second.job.status).toBe("COMPLETED");
+    expect(second.job.startedAt).not.toBeNull();
+    expect(second.job.completedAt?.getTime() ?? 0).toBeGreaterThan(firstCompletedAt);
+    expect(second.score).not.toBeNull();
+  }, 30_000);
+
+  it("rejects structurally invalid score snapshots and does not persist them", async () => {
+    const base = buildContainer();
+    const container = createWorkerContainer(loadEnv(), {
+      prisma,
+      calculateScore: () =>
+        ({
+          characterId: "x",
+          seasonSlug: "s",
+          modelKey: "default",
+          modelVersion: 1,
+          scopeType: "CHARACTER",
+          scopeKey: null,
+          overallScore: 999,
+          grade: "S",
+          skillScore: 50,
+          authenticityScore: 50,
+          confidence: 0.5,
+          calculatedAt: new Date().toISOString(),
+          inputFingerprint: "bad",
+          dimensions: [],
+          redFlags: [],
+          explanation: { modelKey: "default", modelVersion: 1 },
+        }) as ScoreSnapshotDTO,
+    });
+    // keep providers from base
+    Object.assign(container.providers, base.providers);
+
+    const name = `InvalidSnap-${randomUUID().slice(0, 8)}`;
+    await seedRefreshEligibilityEvidenceForTest(container, {
+      region: "EU",
+      realmSlug: "tarren-mill",
+      name,
+    });
+    await expect(runRefreshPipeline(container, buildJob(name))).rejects.toThrow(
+      /structural validation/i,
+    );
+
+    const snaps = await prisma.scoreSnapshot.count({
+      where: {
+        character: {
+          normalizedName: name.toLocaleLowerCase("en-US"),
         },
-      });
-      expect(wclSources).toBe(0);
-    },
-    30_000,
-  );
+      },
+    });
+    expect(snaps).toBe(0);
 
-  it(
-    "returns a Blizzard-backed score when Raider.IO is unavailable",
-    async () => {
-      const container = buildContainer(new Set<ProviderName>(["raiderio"]));
-      const name = `NoRaiderIo-${randomUUID().slice(0, 8)}`;
-      const result = await runRefreshPipeline(container, buildJob(name));
+    const failedJob = await prisma.ingestionJob.findFirst({
+      where: {
+        character: { normalizedName: name.toLocaleLowerCase("en-US") },
+      },
+      orderBy: { scheduledAt: "desc" },
+    });
+    expect(failedJob?.status).toBe("FAILED");
+    expect(failedJob?.error).toMatchObject({
+      message: expect.stringMatching(/structural validation/i),
+    });
+  }, 30_000);
 
-      expect(result.stagesSkipped).toContain("refresh-raiderio");
-      expect(result.score).not.toBeNull();
-      expect(result.job.status).toBe("COMPLETED");
-
-      const rioState = await prisma.characterProviderState.findFirst({
-        where: { characterId: result.character.id, provider: "RAIDER_IO" },
-      });
-      expect(rioState?.state).toBe("UNAVAILABLE");
-    },
-    30_000,
-  );
-
-  it(
-    "soft-skips live-shaped Raider.IO 500/rate-limit failures without failing the job",
-    async () => {
-      const base = buildContainer();
-      const failingRaiderIo = {
-        ...base.providers.raiderio,
-        enabled: true,
-        async getCharacterProfile(): Promise<ProviderResult<RaiderIoCharacterProfile>> {
-          throw new ExternalApiError({
-            message: "Raider.IO upstream 500",
-            code: "UNKNOWN",
-            provider: "raiderio",
-            retryable: true,
-            statusCode: 500,
-          });
-        },
-      };
-      const container = createWorkerContainer(loadEnv(), {
-        prisma,
-        providers: { raiderio: failingRaiderIo },
-      });
-      const name = `RioFail-${randomUUID().slice(0, 8)}`;
-      const result = await runRefreshPipeline(container, buildJob(name));
-
-      expect(result.stagesSkipped).toContain("refresh-raiderio");
-      expect(result.score).not.toBeNull();
-      expect(result.job.status).toBe("COMPLETED");
-    },
-    30_000,
-  );
-
-  it(
-    "soft-skips all providers for identities flagged with 'disabled-test'",
-    async () => {
-      const container = buildContainer();
-      const name = `disabled-test-${randomUUID().slice(0, 8)}`;
-      const job = buildJob(name);
-
-      const result = await runRefreshPipeline(container, job);
-
-      expect(result.stagesSkipped).toContain("refresh-blizzard");
-      expect(result.stagesSkipped).toContain("refresh-raiderio");
-      expect(result.stagesSkipped).toContain("refresh-warcraftlogs-summary");
-      expect(result.job.status).toBe("COMPLETED");
-      expect(result.score).not.toBeNull();
-    },
-    30_000,
-  );
-
-  it(
-    "collapses duplicate refresh requests onto the same IngestionJob dedupe key",
-    async () => {
-      const container = buildContainer();
-      const name = `DedupeChar-${randomUUID().slice(0, 8)}`;
-      const job = buildJob(name);
-
-      const first = await runRefreshPipeline(container, job);
-      const second = await runRefreshPipeline(container, buildJob(name, { requestedAt: job.requestedAt }));
-
-      expect(first.job.dedupeKey).toBe(second.job.dedupeKey);
-      expect(first.job.id).toBe(second.job.id);
-      const jobCount = await prisma.ingestionJob.count({
-        where: { dedupeKey: first.job.dedupeKey ?? undefined },
-      });
-      expect(jobCount).toBe(1);
-    },
-    30_000,
-  );
-
-  it(
-    "re-runs a second refresh after COMPLETED on the same dedupe key",
-    async () => {
-      const container = buildContainer();
-      const name = `RequeueChar-${randomUUID().slice(0, 8)}`;
-      const job = buildJob(name);
-
-      const first = await runRefreshPipeline(container, job);
-      expect(first.job.status).toBe("COMPLETED");
-      const firstCompletedAt = first.job.completedAt?.getTime() ?? 0;
-
-      // Simulate a later manual refresh (new requestedAt) after the first terminal result.
-      await new Promise((r) => setTimeout(r, 20));
-      const second = await runRefreshPipeline(
-        container,
-        buildJob(name, { requestedAt: new Date().toISOString() }),
-      );
-
-      expect(second.job.id).toBe(first.job.id);
-      expect(second.job.status).toBe("COMPLETED");
-      expect(second.job.startedAt).not.toBeNull();
-      expect(second.job.completedAt?.getTime() ?? 0).toBeGreaterThan(firstCompletedAt);
-      expect(second.score).not.toBeNull();
-    },
-    30_000,
-  );
-
-  it(
-    "rejects structurally invalid score snapshots and does not persist them",
-    async () => {
-      const base = buildContainer();
-      const container = createWorkerContainer(loadEnv(), {
-        prisma,
-        calculateScore: () =>
-          ({
-            characterId: "x",
-            seasonSlug: "s",
-            modelKey: "default",
-            modelVersion: 1,
-            scopeType: "CHARACTER",
-            scopeKey: null,
-            overallScore: 999,
-            grade: "S",
-            skillScore: 50,
-            authenticityScore: 50,
-            confidence: 0.5,
-            calculatedAt: new Date().toISOString(),
-            inputFingerprint: "bad",
-            dimensions: [],
-            redFlags: [],
-            explanation: { modelKey: "default", modelVersion: 1 },
-          }) as ScoreSnapshotDTO,
-      });
-      // keep providers from base
-      Object.assign(container.providers, base.providers);
-
-      const name = `InvalidSnap-${randomUUID().slice(0, 8)}`;
-      await expect(runRefreshPipeline(container, buildJob(name))).rejects.toThrow(
-        /structural validation/i,
-      );
-
-      const snaps = await prisma.scoreSnapshot.count({
-        where: {
-          character: {
-            normalizedName: name.toLocaleLowerCase("en-US"),
+  it("completes with a Blizzard-backed score when WCL reports NO_PUBLIC_LOGS", async () => {
+    const base = buildContainer();
+    const wcl = {
+      ...base.providers.warcraftlogs,
+      async discoverCharacterSummary() {
+        return {
+          data: {
+            visibility: "PUBLIC" as const,
+            dataState: "NO_PUBLIC_LOGS" as const,
+            warnings: [],
+            dungeonAggregates: [],
+            performance: null,
+            rawZoneRankingsPointsAndDamage: null,
           },
-        },
-      });
-      expect(snaps).toBe(0);
+          provenance: {
+            provider: "warcraftlogs" as const,
+            externalRequestId: null,
+            sourcePayloadId: null,
+            sourceUrl: null,
+            fetchedAt: new Date().toISOString(),
+            schemaVersion: "test",
+          },
+          freshness: { fetchedAt: new Date().toISOString(), expiresAt: null, stale: false },
+          metadata: {
+            provider: "warcraftlogs" as const,
+            endpointKey: "discoverCharacterSummary",
+            requestFingerprint: "test-no-logs",
+            requestedAt: new Date().toISOString(),
+            completedAt: new Date().toISOString(),
+            statusCode: 200,
+            cacheHit: false,
+            retryCount: 0,
+            costUnits: 0,
+            etag: null,
+            expiresAt: null,
+          },
+        };
+      },
+      async discoverCharacterRuns() {
+        return {
+          data: [],
+          provenance: {
+            provider: "warcraftlogs" as const,
+            externalRequestId: null,
+            sourcePayloadId: null,
+            sourceUrl: null,
+            fetchedAt: new Date().toISOString(),
+            schemaVersion: "test",
+          },
+          freshness: { fetchedAt: new Date().toISOString(), expiresAt: null, stale: false },
+          metadata: {
+            provider: "warcraftlogs" as const,
+            endpointKey: "discoverCharacterRuns",
+            requestFingerprint: "test-no-runs",
+            requestedAt: new Date().toISOString(),
+            completedAt: new Date().toISOString(),
+            statusCode: 200,
+            cacheHit: false,
+            retryCount: 0,
+            costUnits: 0,
+            etag: null,
+            expiresAt: null,
+          },
+        };
+      },
+    };
+    const container = createWorkerContainer(loadEnv(), {
+      prisma,
+      providers: { warcraftlogs: wcl },
+    });
+    const name = `NoPublicLogs-${randomUUID().slice(0, 8)}`;
+    await seedRefreshEligibilityEvidenceForTest(container, {
+      region: "EU",
+      realmSlug: "tarren-mill",
+      name,
+    });
+    const result = await runRefreshPipeline(container, buildJob(name));
 
-      const failedJob = await prisma.ingestionJob.findFirst({
-        where: {
-          character: { normalizedName: name.toLocaleLowerCase("en-US") },
-        },
-        orderBy: { scheduledAt: "desc" },
-      });
-      expect(failedJob?.status).toBe("FAILED");
-      expect(failedJob?.error).toMatchObject({
-        message: expect.stringMatching(/structural validation/i),
-      });
-    },
-    30_000,
-  );
+    expect(result.job.status).toBe("COMPLETED");
+    expect(result.score).not.toBeNull();
+    const wclState = await prisma.characterProviderState.findFirst({
+      where: { characterId: result.character.id, provider: "WARCRAFT_LOGS" },
+    });
+    expect(wclState?.wclVisibility).toBe("PUBLIC");
+    expect((wclState?.metadata as { wclDataState?: string } | null)?.wclDataState).toBe(
+      "NO_PUBLIC_LOGS",
+    );
+    expect(wclState?.state).toBe("PRIVATE_OR_HIDDEN");
+  }, 30_000);
 
-  it(
-    "completes with a Blizzard-backed score when WCL reports NO_PUBLIC_LOGS",
-    async () => {
-      const base = buildContainer();
-      const wcl = {
-        ...base.providers.warcraftlogs,
-        async discoverCharacterSummary() {
-          return {
-            data: {
-              visibility: "PUBLIC" as const,
-              dataState: "NO_PUBLIC_LOGS" as const,
-              warnings: [],
-              dungeonAggregates: [],
-              performance: null,
-              rawZoneRankingsPointsAndDamage: null,
-            },
-            provenance: {
-              provider: "warcraftlogs" as const,
-              externalRequestId: null,
-              sourcePayloadId: null,
-              sourceUrl: null,
-              fetchedAt: new Date().toISOString(),
-              schemaVersion: "test",
-            },
-            freshness: { fetchedAt: new Date().toISOString(), expiresAt: null, stale: false },
-            metadata: {
-              provider: "warcraftlogs" as const,
-              endpointKey: "discoverCharacterSummary",
-              requestFingerprint: "test-no-logs",
-              requestedAt: new Date().toISOString(),
-              completedAt: new Date().toISOString(),
-              statusCode: 200,
-              cacheHit: false,
-              retryCount: 0,
-              costUnits: 0,
-              etag: null,
-              expiresAt: null,
-            },
-          };
-        },
-        async discoverCharacterRuns() {
-          return {
-            data: [],
-            provenance: {
-              provider: "warcraftlogs" as const,
-              externalRequestId: null,
-              sourcePayloadId: null,
-              sourceUrl: null,
-              fetchedAt: new Date().toISOString(),
-              schemaVersion: "test",
-            },
-            freshness: { fetchedAt: new Date().toISOString(), expiresAt: null, stale: false },
-            metadata: {
-              provider: "warcraftlogs" as const,
-              endpointKey: "discoverCharacterRuns",
-              requestFingerprint: "test-no-runs",
-              requestedAt: new Date().toISOString(),
-              completedAt: new Date().toISOString(),
-              statusCode: 200,
-              cacheHit: false,
-              retryCount: 0,
-              costUnits: 0,
-              etag: null,
-              expiresAt: null,
-            },
-          };
-        },
-      };
-      const container = createWorkerContainer(loadEnv(), {
-        prisma,
-        providers: { warcraftlogs: wcl },
-      });
-      const name = `NoPublicLogs-${randomUUID().slice(0, 8)}`;
-      const result = await runRefreshPipeline(container, buildJob(name));
+  it("still produces a score when WCL lacks discoverCharacterSummary and only has async discoverCharacter", async () => {
+    const asyncDiscover = async () => ({
+      summary: {
+        visibility: "PUBLIC" as const,
+        dataState: "NO_MATCHED_RUN" as const,
+        warnings: [] as string[],
+      },
+      dungeonAggregates: [],
+      performance: null,
+      candidates: [],
+    });
+    const wcl = {
+      name: "warcraftlogs" as const,
+      discoverCharacter: asyncDiscover,
+      async discoverCharacterRuns(_identity: unknown, ctx: { now: string }) {
+        const discovery = await asyncDiscover();
+        expect(discovery.summary.visibility).toBe("PUBLIC");
+        return {
+          data: [],
+          provenance: {
+            provider: "warcraftlogs" as const,
+            externalRequestId: null,
+            sourcePayloadId: null,
+            sourceUrl: null,
+            fetchedAt: ctx.now,
+            schemaVersion: "test",
+          },
+          freshness: { fetchedAt: ctx.now, expiresAt: null, stale: false },
+          metadata: {
+            provider: "warcraftlogs" as const,
+            endpointKey: "discoverCharacterRuns",
+            requestFingerprint: "async-only",
+            requestedAt: ctx.now,
+            completedAt: ctx.now,
+            statusCode: 200,
+            cacheHit: false,
+            retryCount: 0,
+            costUnits: 0,
+            etag: null,
+            expiresAt: null,
+          },
+        };
+      },
+      async getReportFightDetails() {
+        throw new ExternalApiError({
+          message: "no fights",
+          code: "NOT_FOUND",
+          provider: "warcraftlogs",
+          retryable: false,
+        });
+      },
+    };
+    // No discoverCharacterSummary — exercises Promise-safe fallback path.
+    const container = createWorkerContainer(loadEnv(), {
+      prisma,
+      providers: { warcraftlogs: wcl as never },
+    });
+    const name = `AsyncWclOnly-${randomUUID().slice(0, 8)}`;
+    await seedRefreshEligibilityEvidenceForTest(container, {
+      region: "EU",
+      realmSlug: "tarren-mill",
+      name,
+    });
+    const result = await runRefreshPipeline(container, buildJob(name));
+    expect(result.job.status).toBe("COMPLETED");
+    expect(result.score).not.toBeNull();
+  }, 30_000);
 
-      expect(result.job.status).toBe("COMPLETED");
-      expect(result.score).not.toBeNull();
-      const wclState = await prisma.characterProviderState.findFirst({
-        where: { characterId: result.character.id, provider: "WARCRAFT_LOGS" },
-      });
-      expect(wclState?.wclVisibility).toBe("PUBLIC");
-      expect((wclState?.metadata as { wclDataState?: string } | null)?.wclDataState).toBe(
-        "NO_PUBLIC_LOGS",
-      );
-      expect(wclState?.state).toBe("PRIVATE_OR_HIDDEN");
-    },
-    30_000,
-  );
+  it("soft-skips WCL parsing failures and completes a Blizzard-backed score (never stuck QUEUED)", async () => {
+    const base = buildContainer();
+    const wcl = {
+      ...base.providers.warcraftlogs,
+      async discoverCharacterSummary() {
+        throw new TypeError("Cannot read properties of undefined (reading 'visibility')");
+      },
+      async discoverCharacterRuns() {
+        throw new TypeError("Cannot read properties of undefined (reading 'visibility')");
+      },
+    };
+    const container = createWorkerContainer(loadEnv(), {
+      prisma,
+      providers: { warcraftlogs: wcl },
+    });
+    const name = `WclParseFail-${randomUUID().slice(0, 8)}`;
+    await seedRefreshEligibilityEvidenceForTest(container, {
+      region: "EU",
+      realmSlug: "tarren-mill",
+      name,
+    });
+    const result = await runRefreshPipeline(container, buildJob(name));
 
-  it(
-    "still produces a score when WCL lacks discoverCharacterSummary and only has async discoverCharacter",
-    async () => {
-      const asyncDiscover = async () => ({
-        summary: {
-          visibility: "PUBLIC" as const,
-          dataState: "NO_MATCHED_RUN" as const,
-          warnings: [] as string[],
-        },
-        dungeonAggregates: [],
-        performance: null,
-        candidates: [],
-      });
-      const wcl = {
-        name: "warcraftlogs" as const,
-        discoverCharacter: asyncDiscover,
-        async discoverCharacterRuns(_identity: unknown, ctx: { now: string }) {
-          const discovery = await asyncDiscover();
-          expect(discovery.summary.visibility).toBe("PUBLIC");
-          return {
-            data: [],
-            provenance: {
-              provider: "warcraftlogs" as const,
-              externalRequestId: null,
-              sourcePayloadId: null,
-              sourceUrl: null,
-              fetchedAt: ctx.now,
-              schemaVersion: "test",
-            },
-            freshness: { fetchedAt: ctx.now, expiresAt: null, stale: false },
-            metadata: {
-              provider: "warcraftlogs" as const,
-              endpointKey: "discoverCharacterRuns",
-              requestFingerprint: "async-only",
-              requestedAt: ctx.now,
-              completedAt: ctx.now,
-              statusCode: 200,
-              cacheHit: false,
-              retryCount: 0,
-              costUnits: 0,
-              etag: null,
-              expiresAt: null,
-            },
-          };
-        },
-        async getReportFightDetails() {
-          throw new ExternalApiError({
-            message: "no fights",
-            code: "NOT_FOUND",
-            provider: "warcraftlogs",
-            retryable: false,
-          });
-        },
-      };
-      // No discoverCharacterSummary — exercises Promise-safe fallback path.
-      const container = createWorkerContainer(loadEnv(), {
-        prisma,
-        providers: { warcraftlogs: wcl as never },
-      });
-      const name = `AsyncWclOnly-${randomUUID().slice(0, 8)}`;
-      const result = await runRefreshPipeline(container, buildJob(name));
-      expect(result.job.status).toBe("COMPLETED");
-      expect(result.score).not.toBeNull();
-    },
-    30_000,
-  );
+    expect(result.stagesSkipped).toContain("refresh-warcraftlogs-summary");
+    expect(result.job.status).toBe("COMPLETED");
+    expect(result.score).not.toBeNull();
+    expect(["queued", "QUEUED"]).not.toContain(result.job.status);
+  }, 30_000);
 
-  it(
-    "soft-skips WCL parsing failures and completes a Blizzard-backed score (never stuck QUEUED)",
-    async () => {
-      const base = buildContainer();
-      const wcl = {
-        ...base.providers.warcraftlogs,
-        async discoverCharacterSummary() {
-          throw new TypeError("Cannot read properties of undefined (reading 'visibility')");
-        },
-        async discoverCharacterRuns() {
-          throw new TypeError("Cannot read properties of undefined (reading 'visibility')");
-        },
-      };
-      const container = createWorkerContainer(loadEnv(), {
-        prisma,
-        providers: { warcraftlogs: wcl },
-      });
-      const name = `WclParseFail-${randomUUID().slice(0, 8)}`;
-      const result = await runRefreshPipeline(container, buildJob(name));
+  it("marks unexpected pipeline failures FAILED (never QUEUED with an errorMessage)", async () => {
+    const base = buildContainer();
+    const container = createWorkerContainer(loadEnv(), {
+      prisma,
+      calculateScore: () => {
+        throw new Error("unexpected scoring boom");
+      },
+    });
+    Object.assign(container.providers, base.providers);
 
-      expect(result.stagesSkipped).toContain("refresh-warcraftlogs-summary");
-      expect(result.job.status).toBe("COMPLETED");
-      expect(result.score).not.toBeNull();
-      expect(["queued", "QUEUED"]).not.toContain(result.job.status);
-    },
-    30_000,
-  );
+    const name = `UnexpectedFail-${randomUUID().slice(0, 8)}`;
+    await seedRefreshEligibilityEvidenceForTest(container, {
+      region: "EU",
+      realmSlug: "tarren-mill",
+      name,
+    });
+    await expect(runRefreshPipeline(container, buildJob(name))).rejects.toThrow(
+      /unexpected scoring boom/i,
+    );
 
-  it(
-    "marks unexpected pipeline failures FAILED (never QUEUED with an errorMessage)",
-    async () => {
-      const base = buildContainer();
-      const container = createWorkerContainer(loadEnv(), {
-        prisma,
-        calculateScore: () => {
-          throw new Error("unexpected scoring boom");
-        },
-      });
-      Object.assign(container.providers, base.providers);
-
-      const name = `UnexpectedFail-${randomUUID().slice(0, 8)}`;
-      await expect(runRefreshPipeline(container, buildJob(name))).rejects.toThrow(
-        /unexpected scoring boom/i,
-      );
-
-      const job = await prisma.ingestionJob.findFirst({
-        where: {
-          character: { normalizedName: name.toLocaleLowerCase("en-US") },
-        },
-        orderBy: { scheduledAt: "desc" },
-      });
-      expect(job?.status).toBe("FAILED");
-      expect(job?.status).not.toBe("QUEUED");
-      expect(job?.error).toMatchObject({ message: expect.stringMatching(/unexpected scoring boom/i) });
-    },
-    30_000,
-  );
+    const job = await prisma.ingestionJob.findFirst({
+      where: {
+        character: { normalizedName: name.toLocaleLowerCase("en-US") },
+      },
+      orderBy: { scheduledAt: "desc" },
+    });
+    expect(job?.status).toBe("FAILED");
+    expect(job?.status).not.toBe("QUEUED");
+    expect(job?.error).toMatchObject({
+      message: expect.stringMatching(/unexpected scoring boom/i),
+    });
+  }, 30_000);
 });

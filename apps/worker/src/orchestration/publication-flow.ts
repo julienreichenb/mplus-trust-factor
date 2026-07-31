@@ -23,12 +23,17 @@ export interface PublicationAttemptInput {
   analysisBatchId?: string | null;
   scoreRepository: ScoreRepository;
   metricRepository: MetricRepository;
+  /** Atomic cancel + contract barrier inside the publish transaction. */
+  publicationGuard?: {
+    ingestionJobId: string;
+  };
 }
 
 export interface PublicationAttemptResult {
   published: boolean;
   coherence: CoherenceValidationResult;
   rejectionReason?: string;
+  cancelled?: boolean;
   mergedObservations: MetricObservationDTO[];
   finalCandidate: ScoreSnapshotDTO;
 }
@@ -85,12 +90,14 @@ export async function attemptPublication(
     providerDataAsOf: input.providerDataAsOf,
     coverageState: coherence.coverageState,
     coherence,
+    publicationGuard: input.publicationGuard,
   });
 
   return {
     published: result.published,
     coherence,
     rejectionReason: result.rejectionReason,
+    cancelled: result.cancelled,
     mergedObservations,
     finalCandidate: input.candidate,
   };

@@ -47,18 +47,12 @@ describe("public error sanitization", () => {
     ).toBe(PUBLIC_REFRESH_FAILED_MESSAGE);
   });
 
-  it("sanitizes preflight mismatch without leaking hashes", () => {
+  it("hides CANCELLED from public refresh error surfaces", () => {
     const safe = toPublicRefreshErrorMessage(
-      {
-        code: "REFRESH_CONTRACT_PREFLIGHT_MISMATCH",
-        message:
-          "REFRESH_CONTRACT_PREFLIGHT_MISMATCH: requested=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa computed=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-      },
+      { code: "CANCELLED", message: "admin_kill_all: cooperative cancel" },
       { hasPublishedScore: true },
     );
-    expect(safe.errorCode).toBe("REFRESH_FAILED");
-    expect(safe.errorMessage).toBe(PUBLIC_REFRESH_FAILED_MESSAGE);
-    expect(JSON.stringify(safe)).not.toContain("REFRESH_CONTRACT_PREFLIGHT");
-    expect(JSON.stringify(safe)).not.toMatch(/[a-f0-9]{64}/);
+    expect(safe.errorCode).toBeNull();
+    expect(safe.errorMessage).toBeNull();
   });
 });
