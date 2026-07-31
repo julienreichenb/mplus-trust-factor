@@ -1,24 +1,42 @@
-import type { MetricDefinition, Prisma, PrismaClient } from "@mplus/database";
+import { Prisma, type MetricDefinition, type PrismaClient } from "@mplus/database";
 import type { MetricObservationDTO } from "@mplus/contracts";
 import { buildObservationKey } from "@mplus/scoring";
 import type { PrismaClientOrTx } from "./shared.js";
 
+/**
+ * Ensure a MetricDefinition row exists for the key.
+ * Concurrent pipeline/test workers can race on first create; Prisma upsert may
+ * still raise P2002 under parallel interactive transactions — recover by re-read.
+ */
 export async function ensureMetricDefinition(
   client: PrismaClientOrTx,
   metricKey: string,
   dimension: MetricObservationDTO["dimension"],
 ): Promise<MetricDefinition> {
-  return client.metricDefinition.upsert({
-    where: { key: metricKey },
-    create: {
-      key: metricKey,
-      dimension,
-      valueType: "number",
-      direction: "HIGHER_BETTER",
-      description: `Auto-created metric definition for ${metricKey}`,
-    },
-    update: {},
-  });
+  try {
+    return await client.metricDefinition.upsert({
+      where: { key: metricKey },
+      create: {
+        key: metricKey,
+        dimension,
+        valueType: "number",
+        direction: "HIGHER_BETTER",
+        description: `Auto-created metric definition for ${metricKey}`,
+      },
+      update: {},
+    });
+  } catch (error) {
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === "P2002"
+    ) {
+      const existing = await client.metricDefinition.findUnique({
+        where: { key: metricKey },
+      });
+      if (existing) return existing;
+    }
+    throw error;
+  }
 }
 
 export interface MetricRepository {
