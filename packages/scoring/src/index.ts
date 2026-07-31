@@ -167,3 +167,42 @@ export {
   MODEL_COVERAGE_PROVISIONAL_THRESHOLD,
   type ModelCoverageSummary,
 } from "./model-coverage.js";
+
+/** Boost shadow Phase 1 — private offline extractors only (no production scoring effect). */
+export {
+  BOOST_FEATURE_SCHEMA_VERSION,
+  BOOST_EXTRACTOR_VERSION,
+  HIGH_KEY_POLICY_VERSION,
+  BOOST_SHADOW_ISOLATION,
+  extractBoostFeatureFactsV1,
+  buildOfflineEvaluation,
+  computeProgressionVelocity,
+  computeTeammateScoreGap,
+  computeRepeatedStrongerTeammateCohort,
+  computeHighKeyGroupConcentration,
+  computeVerifiedAltExperienceMitigation,
+  selectHighKeySet,
+  resolveCanonicalTeammateIdentity,
+  resolveTimeAlignedRating,
+  buildAlignedRunGaps,
+  isEligibleVerifiedSubjectAtT,
+  isEligibleVerifiedAltAtT,
+  assertShadowOnlyFacts,
+  isOmittedNotZero,
+} from "./boost-shadow/index.js";
+export type {
+  BoostFeatureEvidenceV1,
+  BoostFeatureFactsV1,
+  BoostFeatureKeyV1,
+  BoostFeatureMissingV1,
+  BoostFeatureDiagnosticsV1,
+  BoostFeatureExtractorInput,
+  BoostShadowRunInput,
+  BoostShadowRunParticipantInput,
+  BoostShadowRatingSnapshotInput,
+  VerifiedOwnershipEvidenceInput,
+  BoostShadowIsolationGuarantees,
+  BoostShadowOfflineEvaluationV1,
+  CanonicalTeammateIdentity,
+  FeatureComputeResult,
+} from "./boost-shadow/index.js";
