@@ -2,7 +2,7 @@
 
 **Status:** Production remains out of scope until test is clean. CD is prepared for a protected `prod` branch; do **not** create or push `prod` until Environment reviewers and secrets are configured.
 
-Programme flow: feature → PR/CI → `main` (auto test deploy) → reviewed merge to `prod` (production). See [`ci-cd.md`](ci-cd.md) and [`test-environment.md`](test-environment.md).
+Programme flow: feature → PR/CI → `main` → `pnpm promote:test` → CD on `test` → later promote the exact tested SHA to `prod` (deploy existing images, no rebuild). See [`release-promotion-flow.md`](release-promotion-flow.md), [`ci-cd.md`](ci-cd.md) and [`test-environment.md`](test-environment.md).
 
 ## First bootstrap
 
@@ -55,17 +55,18 @@ SSH host/user/key may be identical across Environments; **application secrets li
 
 | Variable | test (recommended) | production (recommended) |
 |----------|--------------------|--------------------------|
-| `ALLOWED_REF_PREFIX` | `refs/heads/main` | `refs/heads/prod` |
+| `ALLOWED_REF_PREFIX` | `refs/heads/test` | `refs/heads/prod` |
 | `REQUIRE_WORKFLOW_DISPATCH` | `false` | `true` (optional) |
 
 Enable **required reviewers** on **production** before first production deploy.
 
+For simultaneous test + production deploys, use distinct `VPS_REPO_DIR` values (e.g. `/opt/mplus/repo-test` and `/opt/mplus/repo-prod`) to avoid detached-checkout races. See [`release-promotion-flow.md`](release-promotion-flow.md).
+
 ## Test deployment
 
-Automatic on every push/merge to `main` (CD). Manual:
+Promote when ready: `pnpm promote:test` (push to `test` triggers CD). Manual on VPS:
 
 ```bash
-# Actions: environment=test (any ref), or on VPS:
 export MPLUS_ROOT=/opt/mplus
 ./infra/scripts/deploy.sh test
 ```
@@ -77,15 +78,16 @@ Failed test deploy rolls back **test only**.
 When ready:
 
 1. Protect `production` Environment (reviewers + secrets).
-2. Create `prod` from a known-good `main` SHA.
-3. Merge `main` → `prod` (or push to `prod`) to build + deploy, **or** `workflow_dispatch` with environment=`production` while checked out on `prod`.
+2. Ensure the candidate SHA already ran successfully on **test** (images published).
+3. Create/advance `prod` to that SHA (controlled promotion — CD does **not** rebuild images).
+4. Or `workflow_dispatch` with environment=`production` while checked out on `prod`.
 
 ```bash
 # Actions: workflow_dispatch → environment=production → approval (ref must be prod)
 ./infra/scripts/deploy.sh prod
 ```
 
-No direct production deploy from feature branches — CD policy rejects non-`prod` refs.
+No direct production deploy from feature branches — CD policy rejects non-`prod` refs. Production fails closed if any of the four SHA-tagged GHCR images is missing.
 
 ## Observability
 

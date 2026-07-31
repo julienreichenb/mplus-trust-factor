@@ -12,7 +12,7 @@ Agents: read root [`AGENTS.md`](../AGENTS.md) first.
 |------|------|---------|
 | Product | [`product/`](product/) | Scope, v6 scoring, ranking/confidence/U |
 | Architecture | [`architecture/`](architecture/) | System, refresh, WCL, publication, IAM, addon, frontend |
-| Operations | [`operations/`](operations/) | Local, test env, CI/CD, model lifecycle |
+| Operations | [`operations/`](operations/) | Local, test env, [release promotion](operations/release-promotion-flow.md), CI/CD, model lifecycle |
 | Agents | [`agents/`](agents/) | Workflow, DoD, ownership (+ historical wave packs) |
 | ADRs | [`adr/`](adr/) | Architecture decision records |
 | Archive | [`archive/`](archive/) | Superseded prompts and bootstrap notes |

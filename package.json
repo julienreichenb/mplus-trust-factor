@@ -69,6 +69,7 @@
     "ops:deploy:prod": "bash infra/scripts/deploy.sh prod",
     "ops:deploy:test": "bash infra/scripts/deploy.sh test",
     "ops:smoke": "bash infra/scripts/smoke-deploy.sh",
+    "promote:test": "node tools/scripts/promote-test.mjs",
     "iam:grant-admin": "node tools/scripts/with-env.mjs pnpm --filter @mplus/api exec tsx src/iam/grant-admin.cli.ts",
     "test:frontend-secrets": "vitest run tests/security/frontend-secret-bake.test.ts"
   },

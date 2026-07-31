@@ -14,8 +14,8 @@ Worktree commands: [`.cursor-orchestration/2026-07-stabilization/WORKTREE-COMMAN
 
 ## Git policy
 
-- Feature worktree → PR / CI → `main`.
-- `main` should deploy **test** (intent; CD may still lag — [`../operations/ci-cd.md`](../operations/ci-cd.md)).
+- Feature worktree → PR / fast CI → `main`.
+- Promote when ready: `pnpm promote:test` (`main` → `test` → CD). See [`../operations/release-promotion-flow.md`](../operations/release-promotion-flow.md).
 - No production deploys from feature branches.
 
 ## Historical waves
