@@ -24,7 +24,7 @@ export function accountCharacterRoute(c: AccountOwnedCharacterDTO) {
 }
 
 export function formatAccountMythicScore(rating: number | null | undefined): string {
-  if (rating == null || !Number.isFinite(rating)) return "Non calculé";
+  if (rating == null || !Number.isFinite(rating)) return "No score";
   return String(Math.round(rating));
 }
 

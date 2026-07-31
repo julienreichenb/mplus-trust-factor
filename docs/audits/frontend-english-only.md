@@ -3,8 +3,75 @@
 **Branch tip inspected:** `9dccc57` (`audit/frontend-english` ≡ `origin/main` at audit time)  
 **Scope:** `apps/web` user-visible copy (validation, buttons, headings, placeholders, empty states, banners, frontend-mapped errors, a11y labels; mock/demo only when UI-visible)  
 **Method:** Accent / French-lexeme scan of `apps/web/src` (`.vue`, `.ts`, `.html`); manual review of hits; worktree diffs for five parallel frontend branches  
-**Production code modified by this audit:** none  
+**Production code modified by this audit:** none (historical audit commit)  
 **Finding count:** **15** user-visible non-English strings
+
+## Implementation status (post-audit fix)
+
+**Implementation branch:** `fix/frontend-english-only` (rebased onto current `origin/main`)  
+**Terminology locked for this fix:**
+
+| Concept | Selected English |
+|---------|------------------|
+| Missing Mythic+ score | `No score` |
+| Refresh in progress (`REFRESHING`) | `Refreshing` |
+| Queued refresh (`QUEUED`) | `Queued` (distinct from refreshing) |
+| Cancelled job filter label | `Cancelled` (enum value unchanged) |
+| Stale chip / account status | `Stale` |
+| Stale banner / notice title | `Data may be outdated` |
+| Fresh chip (user-visible) | `Up to date` (internal enum remains `FRESH`) |
+| Product locale | American English (`Analyzing`, not `Analysing`) |
+
+### Findings fixed on this branch
+
+| # | Location | Replacement |
+|---|----------|-------------|
+| 1–5 | `BattleNetCharacterSwitcher.vue` | **Obsolete on current main** — component deleted; Active Rerolls owns related UX |
+| 6–7 | `AccountPage.vue` `statusLabel` | `Refreshing` / `Stale` (+ `Analyzing`) |
+| 8–10 | `CharacterProfileToolbar.vue` | Quiet main chrome + English chips (`Queued` / `Refreshing` / `Stale` / `Up to date`) |
+| 11–14 | `CharacterPage.vue` banners | Preserve quiet refresh UX from main; stale banner `Data may be outdated` |
+| 15 | `accountCharacters.ts` | `No score` |
+
+Related unit tests: `accountCharacters.test.ts`, `CharacterProfileToolbar.test.ts` (switcher tests removed with the component).
+
+### Findings whose source no longer exists
+
+| # | Former location | Notes |
+|---|-----------------|-------|
+| 1–5 | `BattleNetCharacterSwitcher.vue` (+ tests) | Deleted on `origin/main` (Character Page Experience / Active Rerolls). Not resurrected. |
+
+### Findings deferred (other branch ownership)
+
+None deferred for copy replacement on the post-rebase tree. **A consolidated English-only re-audit is still required after further parallel merges.** This document does **not** claim the whole frontend is permanently English-only.
+
+### Newly scanned current-main UI areas (post-rebase)
+
+- Refresh Control Center (`AdminUsersPage` refresh jobs): English filter labels for Queued/Active/Failed/Completed/Cancelled; cancel/re-run copy already English
+- Character Page Experience: Active Rerolls English labels + grade a11y (`Grade X` / `Grade unavailable`); quieter refresh chips/banners
+- Admin Shell / Account: nav labels English; Account status labels English
+- Ability Catalog: validation/icon controls already English
+
+### Regression scanner (roles)
+
+| Layer | Path / command | Responsibility |
+|-------|----------------|----------------|
+| Scanner | `apps/web/scripts/check-english-only.mjs` | Source-tree inspection of string literals + Vue template static text |
+| Allowlist | `apps/web/english-allowlist.json` | Exact justified exceptions (`Français`, `Português`) |
+| Scanner unit tests | `apps/web/scripts/check-english-only.test.mjs` | Behavior + false-positive protection |
+| Package / CI | `pnpm check:english` → CI step **Frontend English-only copy** | Dedicated language-policy enforcement |
+| Package `test` | `@mplus/web` `test` = Vitest only | Does **not** chain `check:english` |
+
+Scope: `apps/web/src/**/*.{vue,ts,tsx}` excluding tests, `api/mock`, snapshots, `node_modules`, `dist`. Candidates are quoted literals and Vue template text/selected attrs — not identifiers, comments, or `{{ interpolations }}`.
+
+### Remaining known findings
+
+- Locale **autonyms** (`Français`, `Português`) remain on the allowlist by design; other autonyms without French diacritics need no entry.
+- Fixture-only proper nouns (e.g. `Chérith` in `api/mock`) are out of scanner scope (mocks excluded).
+- Parallel feature branches may reintroduce non-English copy — re-run `pnpm check:english` after merge.
+- E2E may still assert raw `FRESH` as an API refresh **status** value (not UI chrome); that is the public enum, not a display label.
+- Some admin selects still show technical trigger enum values (`PROFILE_READ`, etc.) as option text — intentional API identifiers, not product French.
+
+---
 
 ## Active branches checked
 
@@ -22,10 +89,10 @@
 |----------|------|--------------|
 | `apps/web/src/api/mock/fixtures.ts` ~L27 | `Chérith` | WoW realm proper noun |
 | `apps/web/src/api/realm-options.ts` ~L41–51 | `Français`, `Deutsch`, `Español`, `Português`, `Русский`, `한국어`, `繁體中文`, … | Locale **autonyms** for realm language chips — intentionally localized labels for external locale codes |
-| `*.test.ts` descriptions / expects that only mirror production French | e.g. `Non calculé` asserts | Not user-visible; **must be updated with production replacements** |
+| `*.test.ts` descriptions / expects that only mirror production French | e.g. historical `Non calculé` asserts | Not user-visible; updated with production replacements |
 | Comments, identifiers, API payload examples | — | Out of scope |
 
-No other non-English user-visible copy was found under `apps/web` (landing, admin bulk/models/catalog on `main`, auth pages, search, score headers, mock English fixtures).
+No other non-English user-visible copy was found under `apps/web` at audit time (landing, admin bulk/models/catalog on `main`, auth pages, search, score headers, mock English fixtures).
 
 ---
 
@@ -158,4 +225,5 @@ English-only product → **do not** introduce a full i18n framework yet. Prefer:
 | Document path | `docs/audits/frontend-english-only.md` |
 | Base SHA inspected | `9dccc57` |
 | Findings | 15 |
-| Frontend production edits in this change | none |
+| Frontend production edits in historical audit commit | none |
+| Implementation | See **Implementation status** above |

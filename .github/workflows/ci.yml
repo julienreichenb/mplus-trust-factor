@@ -123,6 +123,9 @@ jobs:
       - name: Unit / package tests
         run: pnpm test
 
+      - name: Frontend English-only copy
+        run: pnpm check:english
+
       - name: Abilities validate
         run: pnpm abilities:validate
 

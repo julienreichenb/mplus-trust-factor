@@ -54,8 +54,8 @@ describe("accountCharacters helpers", () => {
     expect(src).toContain("classicon_mage");
   });
 
-  it("formats missing Mythic+ score as Non calculé", () => {
-    expect(formatAccountMythicScore(null)).toBe("Non calculé");
+  it("formats missing Mythic+ score as No score", () => {
+    expect(formatAccountMythicScore(null)).toBe("No score");
     expect(formatAccountMythicScore(2145.6)).toBe("2146");
   });
 

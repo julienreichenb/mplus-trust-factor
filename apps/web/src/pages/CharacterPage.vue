@@ -113,10 +113,11 @@ const hasWclNotice = computed(() => {
 const bannerTitles = computed(() => {
   if (!profile.value) return [];
   const titles: string[] = [];
+  // Quiet refresh UX (main): no in-flight queued/refreshing banners — chips cover those states.
   if (timedOut.value) {
     titles.push("Refresh timed out");
   } else if (profile.value.refreshStatus === "STALE" && !polling.value) {
-    titles.push("Needs refresh");
+    titles.push("Data may be outdated");
   }
   if (confidenceWarning.value) titles.push("Low confidence");
   for (const w of profile.value.warnings ?? []) {
@@ -402,7 +403,7 @@ watch(
           <StatusBanner
             v-else-if="profile.refreshStatus === 'STALE' && !polling"
             tone="warn"
-            title="Needs refresh"
+            title="Data may be outdated"
             data-testid="stale-banner"
           >
             This snapshot is usable but may be outdated. Refresh to queue an update.
