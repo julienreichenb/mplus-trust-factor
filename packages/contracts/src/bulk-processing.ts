@@ -1,6 +1,12 @@
 import type { IsoDateTime } from "./identity.js";
 import type { BulkMode } from "./jobs.js";
 
+/** How characters were chosen for the operation. */
+export type BulkSelectionMode = "COHORT" | "EXPLICIT";
+
+/** Default max items returned on operation detail (API truncates beyond this). */
+export const BULK_OPERATION_ITEMS_DETAIL_LIMIT = 200;
+
 export type BulkOperationStatus =
   | "PENDING"
   | "SELECTING"
@@ -52,6 +58,8 @@ export interface BulkOperationDTO {
   completionSemantics: BulkCompletionSemantics;
   /** Always false for this orchestrator — do not treat COMPLETED as score/publish success. */
   childOutcomesTracked: false;
+  /** Cohort filters vs explicit character ID list (from durable config snapshot). */
+  selectionMode: BulkSelectionMode;
   logicalKey: string;
   minMythicPlusScore: number | null;
   scoreModelId: string | null;
@@ -93,6 +101,25 @@ export interface BulkOperationItemDTO {
 
 export interface BulkOperationDetailDTO extends BulkOperationDTO {
   items: BulkOperationItemDTO[];
+  /** Total persisted items for the operation (may exceed `items.length`). */
+  itemsTotal: number;
+  /** Cap applied when loading detail items. */
+  itemsLimit: number;
+  /** True when `itemsTotal` exceeds the returned `items` page. */
+  itemsTruncated: boolean;
+}
+
+/** Admin-only persisted character search hit (includes durable characterId). */
+export interface AdminCharacterSearchHit {
+  characterId: string;
+  name: string;
+  realmSlug: string;
+  realmName: string;
+  region: string;
+  classSlug: string | null;
+  avatarUrl: string | null;
+  classIconUrl: string | null;
+  mythicPlusScore: number | null;
 }
 
 export interface BulkDryRunEstimateDTO {

@@ -99,10 +99,30 @@ export interface CharacterSearchResult {
   source: "character" | "alias" | "participant";
 }
 
+export interface AdminCharacterSearchResult {
+  characterId: string;
+  name: string;
+  realmSlug: string;
+  realmName: string;
+  region: RegionCode;
+  classSlug: string | null;
+  avatarUrl: string | null;
+  classIconUrl: string | null;
+  mythicPlusScore: number | null;
+}
+
 export interface CharacterRepository {
   findByIdentity(identity: CharacterIdentityInput): Promise<Character | null>;
   findById(characterId: string): Promise<Character | null>;
   searchSuggestions(region: string, query: string, limit?: number): Promise<CharacterSearchResult[]>;
+  /**
+   * Admin-only search over persisted characters (returns durable characterId + M+ score).
+   * Region is optional — omit to search all regions.
+   */
+  searchPersistedForAdmin(
+    query: string,
+    opts?: { region?: string | null; limit?: number },
+  ): Promise<AdminCharacterSearchResult[]>;
   upsertCharacter(identity: CharacterIdentityInput, patch?: UpsertCharacterPatch): Promise<Character>;
   applyProviderProfile(characterId: string, profile: CanonicalCharacter): Promise<Character>;
   recordSnapshot(
@@ -287,6 +307,61 @@ export function createCharacterRepository(prisma: PrismaClient): CharacterReposi
       }
 
       return Array.from(results.values()).slice(0, limit);
+    },
+
+    async searchPersistedForAdmin(query, opts = {}) {
+      const trimmed = query.trim();
+      const limit = opts.limit ?? 8;
+      if (trimmed.length < 3) return [];
+
+      const { namePart, realmPart } = parseNameRealmQuery(trimmed);
+      const normalizedNameQuery = normalizeName(namePart);
+      const realmQuery = realmPart ? normalizeRealmSlug(realmPart) : null;
+      const regionCode = opts.region ? normalizeRegion(opts.region) : null;
+
+      let regionId: string | undefined;
+      if (regionCode) {
+        const regionRow = await prisma.region.findUnique({ where: { code: regionCode } });
+        if (!regionRow) return [];
+        regionId = regionRow.id;
+      }
+
+      const characters = await prisma.character.findMany({
+        where: {
+          ...(regionId ? { regionId } : {}),
+          AND: [
+            {
+              OR: [
+                { normalizedName: { contains: normalizedNameQuery, mode: "insensitive" } },
+                { displayName: { contains: namePart, mode: "insensitive" } },
+              ],
+            },
+            ...(realmQuery
+              ? [{ realm: { slug: { contains: realmQuery, mode: "insensitive" as const } } }]
+              : []),
+          ],
+        },
+        include: {
+          realm: true,
+          region: true,
+          gameClass: true,
+          snapshots: { orderBy: { capturedAt: "desc" }, take: 1 },
+        },
+        take: limit,
+        orderBy: [{ lastSeenAt: "desc" }, { displayName: "asc" }],
+      });
+
+      return characters.map((character) => ({
+        characterId: character.id,
+        name: character.displayName,
+        realmSlug: character.realm.slug,
+        realmName: character.realm.name,
+        region: character.region.code as RegionCode,
+        classSlug: character.gameClass?.slug ?? null,
+        avatarUrl: readAvatarFromSnapshot(character.snapshots[0]?.rawSummary),
+        classIconUrl: classIconUrl(character.gameClass?.slug),
+        mythicPlusScore: character.snapshots[0]?.mythicRating ?? null,
+      }));
     },
 
     async upsertCharacter(identity, patch) {

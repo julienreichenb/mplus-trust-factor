@@ -3,6 +3,7 @@ import {
   ESTIMATED_WCL_CALLS_PER_FULL_REFRESH,
   buildBulkLogicalKey,
   filterByMythicPlusThreshold,
+  fingerprintCharacterIds,
   selectBulkCharacters,
   type BulkSelectableCharacter,
 } from "./bulk-character-selection.js";
@@ -116,5 +117,49 @@ describe("bulk character selection", () => {
         allowFullRefreshOnIncompatible: true,
       }),
     ).toBe("bulk:FULL_REFRESH:2500:active:dry:convert");
+  });
+
+  it("builds an order-independent explicit logical-key fingerprint", () => {
+    const a = buildBulkLogicalKey({
+      mode: "RECALCULATE_ONLY",
+      minMythicPlusScore: null,
+      characterIds: ["b", "a", "c"],
+      dryRun: true,
+    });
+    const b = buildBulkLogicalKey({
+      mode: "RECALCULATE_ONLY",
+      minMythicPlusScore: null,
+      characterIds: ["c", "a", "b"],
+      dryRun: true,
+    });
+    expect(a).toBe(b);
+    expect(a).toMatch(/^bulk:RECALCULATE_ONLY:explicit:[a-f0-9]{64}:active:dry:skip-incompat$/);
+    expect(fingerprintCharacterIds(["b", "a"])).toBe(fingerprintCharacterIds(["a", "b"]));
+    expect(fingerprintCharacterIds(["a", "b"])).toHaveLength(64);
+    expect(fingerprintCharacterIds(["a", "b"])).toBe(fingerprintCharacterIds(["a", "b"]).toLowerCase());
+  });
+
+  it("selects explicit characters in picker order without cohort filters", () => {
+    const result = selectBulkCharacters({
+      mode: "FULL_REFRESH",
+      minMythicPlusScore: 9999,
+      maxCharacters: 1,
+      characterIds: ["c", "a"],
+      characters: chars,
+    });
+    expect(result.items.map((i) => i.characterId)).toEqual(["c", "a"]);
+    expect(result.items.map((i) => i.position)).toEqual([0, 1]);
+    expect(result.selectedCount).toBe(2);
+  });
+
+  it("never includes unrelated characters in explicit selection", () => {
+    const result = selectBulkCharacters({
+      mode: "FULL_REFRESH",
+      minMythicPlusScore: null,
+      characterIds: ["a"],
+      characters: chars,
+    });
+    expect(result.items.map((i) => i.characterId)).toEqual(["a"]);
+    expect(result.selectedCount).toBe(1);
   });
 });

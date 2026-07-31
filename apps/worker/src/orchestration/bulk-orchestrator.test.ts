@@ -516,5 +516,240 @@ describe("runBulkCharacterProcessing hardening", () => {
       expect.objectContaining({ status: "SKIPPED_CHARACTER_DELETED", skipReason: "CHARACTER_DELETED" }),
     );
   });
+
+  it("resumes explicit selection from configSnapshot after simulated process restart", async () => {
+    const idC = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+    const idA = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const operation = makeOperation({
+      status: "PENDING",
+      dryRun: true,
+      configSnapshot: {
+        mode: "RECALCULATE_ONLY",
+        minMythicPlusScore: null,
+        characterIds: [idC, idA],
+      },
+    });
+    const saved = { ...operation, status: "DRY_RUN_COMPLETED", selectedCount: 2 };
+    const listSelectableCharacters = vi.fn().mockResolvedValue([
+      {
+        characterId: idA,
+        region: "EU",
+        regionId: "region-1",
+        realmSlug: "tarren-mill",
+        name: "Alpha",
+        mythicPlusScore: 3000,
+        seasonId: "season-1",
+        seasonSlug: "blizzard-season-13",
+        hasSeasonObservations: true,
+        observationSchemaVersions: ["observations-v2"],
+        storedRefreshContract: null,
+      },
+      {
+        characterId: idC,
+        region: "US",
+        regionId: "region-2",
+        realmSlug: "area-52",
+        name: "Charlie",
+        mythicPlusScore: 2800,
+        seasonId: "season-1",
+        seasonSlug: "blizzard-season-13",
+        hasSeasonObservations: true,
+        observationSchemaVersions: ["observations-v2"],
+        storedRefreshContract: null,
+      },
+      {
+        characterId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        region: "EU",
+        regionId: "region-1",
+        realmSlug: "twisting-nether",
+        name: "Unrelated",
+        mythicPlusScore: 9999,
+        seasonId: "season-1",
+        seasonSlug: "blizzard-season-13",
+        hasSeasonObservations: true,
+        observationSchemaVersions: ["observations-v2"],
+        storedRefreshContract: null,
+      },
+    ]);
+    const saveSelection = vi.fn().mockResolvedValue(saved);
+    const repo = {
+      findById: vi.fn().mockResolvedValueOnce(operation).mockResolvedValue(saved),
+      parseCheckpoint: vi.fn().mockReturnValue(emptyBulkCheckpoint()),
+      markSelecting: vi.fn().mockResolvedValue({ ...operation, status: "SELECTING" }),
+      listSelectableCharacters,
+      saveSelection,
+    };
+    const producers = {
+      enqueueRefreshCharacter: vi.fn(),
+      enqueueRecalculateScore: vi.fn(),
+      enqueueBulkCharacterProcessing: vi.fn(),
+    };
+    const container = {
+      repositories: {
+        bulkOperation: repo,
+        score: { getActiveModel: vi.fn().mockResolvedValue({ id: "m", key: "default", version: 6 }) },
+        character: {},
+      },
+      env: { ACTIVE_SCORE_MODEL_KEY: "default", PROVIDER_MODE: "fixture" },
+      prisma: {},
+      logger: { warn: vi.fn() },
+    } as never;
+
+    const result = await runBulkCharacterProcessing(
+      container,
+      { bulkOperationId: operation.id, requestedAt: new Date().toISOString() },
+      producers,
+    );
+    expect(result.status).toBe("DRY_RUN_COMPLETED");
+    expect(listSelectableCharacters).toHaveBeenCalledWith([idC, idA]);
+    const savedItems = saveSelection.mock.calls[0]![0] as never;
+    // saveSelection(id, input) — second arg holds items
+    const selectionInput = saveSelection.mock.calls[0]![1] as {
+      items: Array<{ characterId: string; position: number }>;
+    };
+    expect(selectionInput.items.map((i) => i.characterId)).toEqual([idC, idA]);
+    expect(selectionInput.items.map((i) => i.position)).toEqual([0, 1]);
+    expect(selectionInput.items.some((i) => i.characterId.startsWith("bbbb"))).toBe(false);
+    void savedItems;
+  });
+
+  it("loads legacy cohort operations without characterIds in configSnapshot", async () => {
+    const operation = makeOperation({
+      status: "PENDING",
+      dryRun: true,
+      configSnapshot: {
+        mode: "RECALCULATE_ONLY",
+        minMythicPlusScore: null,
+      },
+    });
+    const saved = { ...operation, status: "DRY_RUN_COMPLETED", selectedCount: 1 };
+    const listSelectableCharacters = vi.fn().mockResolvedValue([
+      {
+        characterId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        region: "EU",
+        regionId: "region-1",
+        realmSlug: "tarren-mill",
+        name: "Alpha",
+        mythicPlusScore: 3000,
+        seasonId: "season-1",
+        seasonSlug: "blizzard-season-13",
+        hasSeasonObservations: true,
+        observationSchemaVersions: ["observations-v2"],
+        storedRefreshContract: null,
+      },
+    ]);
+    const repo = {
+      findById: vi.fn().mockResolvedValueOnce(operation).mockResolvedValue(saved),
+      parseCheckpoint: vi.fn().mockReturnValue(emptyBulkCheckpoint()),
+      markSelecting: vi.fn().mockResolvedValue({ ...operation, status: "SELECTING" }),
+      listSelectableCharacters,
+      saveSelection: vi.fn().mockResolvedValue(saved),
+    };
+    const producers = {
+      enqueueRefreshCharacter: vi.fn(),
+      enqueueRecalculateScore: vi.fn(),
+      enqueueBulkCharacterProcessing: vi.fn(),
+    };
+    const container = {
+      repositories: {
+        bulkOperation: repo,
+        score: { getActiveModel: vi.fn().mockResolvedValue({ id: "m", key: "default", version: 6 }) },
+        character: {},
+      },
+      env: { ACTIVE_SCORE_MODEL_KEY: "default", PROVIDER_MODE: "fixture" },
+      prisma: {},
+      logger: { warn: vi.fn() },
+    } as never;
+
+    await runBulkCharacterProcessing(
+      container,
+      { bulkOperationId: operation.id, requestedAt: new Date().toISOString() },
+      producers,
+    );
+    expect(listSelectableCharacters).toHaveBeenCalledWith(null);
+  });
+
+  it("fails closed when explicit characterIds in configSnapshot are corrupt", async () => {
+    const operation = makeOperation({
+      status: "PENDING",
+      configSnapshot: {
+        mode: "RECALCULATE_ONLY",
+        characterIds: { not: "an-array" },
+      },
+    });
+    const repo = {
+      findById: vi.fn().mockResolvedValue(operation),
+      parseCheckpoint: vi.fn().mockReturnValue(emptyBulkCheckpoint()),
+      markSelecting: vi.fn().mockResolvedValue({ ...operation, status: "SELECTING" }),
+      listSelectableCharacters: vi.fn(),
+      saveSelection: vi.fn(),
+    };
+    const producers = {
+      enqueueRefreshCharacter: vi.fn(),
+      enqueueRecalculateScore: vi.fn(),
+      enqueueBulkCharacterProcessing: vi.fn(),
+    };
+    const container = {
+      repositories: {
+        bulkOperation: repo,
+        score: { getActiveModel: vi.fn().mockResolvedValue({ id: "m", key: "default", version: 6 }) },
+        character: {},
+      },
+      env: { ACTIVE_SCORE_MODEL_KEY: "default", PROVIDER_MODE: "fixture" },
+      prisma: {},
+      logger: { warn: vi.fn() },
+    } as never;
+
+    await expect(
+      runBulkCharacterProcessing(
+        container,
+        { bulkOperationId: operation.id, requestedAt: new Date().toISOString() },
+        producers,
+      ),
+    ).rejects.toThrow(/corrupt|refusing cohort fallback/i);
+    expect(repo.listSelectableCharacters).not.toHaveBeenCalled();
+    expect(repo.saveSelection).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when explicit characterIds array is empty in configSnapshot", async () => {
+    const operation = makeOperation({
+      status: "PENDING",
+      configSnapshot: {
+        mode: "RECALCULATE_ONLY",
+        characterIds: [],
+      },
+    });
+    const repo = {
+      findById: vi.fn().mockResolvedValue(operation),
+      parseCheckpoint: vi.fn().mockReturnValue(emptyBulkCheckpoint()),
+      markSelecting: vi.fn().mockResolvedValue({ ...operation, status: "SELECTING" }),
+      listSelectableCharacters: vi.fn(),
+      saveSelection: vi.fn(),
+    };
+    const producers = {
+      enqueueRefreshCharacter: vi.fn(),
+      enqueueRecalculateScore: vi.fn(),
+      enqueueBulkCharacterProcessing: vi.fn(),
+    };
+    const container = {
+      repositories: {
+        bulkOperation: repo,
+        score: { getActiveModel: vi.fn().mockResolvedValue({ id: "m", key: "default", version: 6 }) },
+        character: {},
+      },
+      env: { ACTIVE_SCORE_MODEL_KEY: "default", PROVIDER_MODE: "fixture" },
+      prisma: {},
+      logger: { warn: vi.fn() },
+    } as never;
+
+    await expect(
+      runBulkCharacterProcessing(
+        container,
+        { bulkOperationId: operation.id, requestedAt: new Date().toISOString() },
+        producers,
+      ),
+    ).rejects.toThrow(/empty|refusing cohort fallback/i);
+    expect(repo.listSelectableCharacters).not.toHaveBeenCalled();
+  });
 });
 

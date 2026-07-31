@@ -148,28 +148,95 @@ export type DiscoverOwnedCharactersJob = z.infer<typeof discoverOwnedCharactersJ
 export const bulkModeSchema = z.enum(["FULL_REFRESH", "RECALCULATE_ONLY"]);
 export type BulkMode = z.infer<typeof bulkModeSchema>;
 
+/** Max explicit character IDs accepted on a bulk operation. */
+export const BULK_EXPLICIT_CHARACTER_IDS_MAX = 500;
+
+/** Deduplicate UUIDs while preserving first-seen (picker) order. */
+export function dedupeCharacterIdsPreservingOrder(ids: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const id of ids) {
+    if (!seen.has(id)) {
+      seen.add(id);
+      out.push(id);
+    }
+  }
+  return out;
+}
+
 /**
  * Admin / Agent-08 input for creating a bulk character processing operation.
- * `minMythicPlusScore = null` selects every persisted character.
+ * `minMythicPlusScore = null` selects every persisted character (cohort mode).
+ * Non-empty `characterIds` selects exactly those characters (explicit mode).
  */
-export const bulkCharacterProcessingInputSchema = z.object({
-  mode: bulkModeSchema,
-  minMythicPlusScore: z.number().finite().nullable(),
-  scoreModelId: z.string().uuid().nullable().optional(),
-  batchSize: z.number().int().positive().max(500).default(25),
-  maxCharacters: z.number().int().positive().nullable().optional(),
-  maxWclCalls: z.number().int().positive().nullable().optional(),
-  dryRun: z.boolean().default(false),
-  /**
-   * When false (default), incompatible RECALCULATE_ONLY evidence is reported and skipped.
-   * When true, those items may enqueue FULL_REFRESH instead.
-   */
-  allowFullRefreshOnIncompatible: z.boolean().default(false),
-  /** Dedupes concurrent active operations; defaults to a stable mode/threshold/model key. */
-  logicalKey: z.string().min(1).max(160).optional(),
-});
+export const bulkCharacterProcessingInputSchema = z
+  .object({
+    mode: bulkModeSchema,
+    minMythicPlusScore: z.number().finite().nullable(),
+    scoreModelId: z.string().uuid().nullable().optional(),
+    batchSize: z.number().int().positive().max(500).default(25),
+    maxCharacters: z.number().int().positive().nullable().optional(),
+    maxWclCalls: z.number().int().positive().nullable().optional(),
+    dryRun: z.boolean().default(false),
+    /**
+     * When false (default), incompatible RECALCULATE_ONLY evidence is reported and skipped.
+     * When true, those items may enqueue FULL_REFRESH instead.
+     */
+    allowFullRefreshOnIncompatible: z.boolean().default(false),
+    /** Dedupes concurrent active operations; defaults to a stable mode/threshold/model key. */
+    logicalKey: z.string().min(1).max(200).optional(),
+    /**
+     * Explicit persisted character UUIDs. Null = cohort mode.
+     * Non-empty array = explicit mode. Empty arrays are rejected.
+     * Must not be combined with minMythicPlusScore or maxCharacters.
+     */
+    characterIds: z.array(z.string().uuid()).max(BULK_EXPLICIT_CHARACTER_IDS_MAX).nullable().optional(),
+  })
+  .superRefine((data, ctx) => {
+    if (Array.isArray(data.characterIds) && data.characterIds.length === 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["characterIds"],
+        message: "characterIds must be null (cohort) or a non-empty array (explicit selection)",
+      });
+      return;
+    }
+    const explicit =
+      data.characterIds != null &&
+      dedupeCharacterIdsPreservingOrder(data.characterIds).length > 0;
+    if (!explicit) return;
+    if (data.minMythicPlusScore !== null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["minMythicPlusScore"],
+        message:
+          "minMythicPlusScore must be null when characterIds are provided (explicit selection mode)",
+      });
+    }
+    if (data.maxCharacters != null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["maxCharacters"],
+        message:
+          "maxCharacters must be null when characterIds are provided (explicit selection mode)",
+      });
+    }
+  })
+  .transform((data) => ({
+    ...data,
+    characterIds:
+      data.characterIds == null || data.characterIds.length === 0
+        ? null
+        : dedupeCharacterIdsPreservingOrder(data.characterIds),
+  }));
 
 export type BulkCharacterProcessingInput = z.infer<typeof bulkCharacterProcessingInputSchema>;
+
+export function isExplicitBulkCharacterSelection(
+  input: Pick<BulkCharacterProcessingInput, "characterIds">,
+): boolean {
+  return input.characterIds != null && input.characterIds.length > 0;
+}
 
 /** Parent tick job — resumes from persisted operation checkpoint. */
 export const bulkOrchestratorJobSchema = z.object({

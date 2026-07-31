@@ -6,6 +6,7 @@ import {
   generateAddonExportJobSchema,
   bulkCharacterProcessingInputSchema,
   bulkOrchestratorJobSchema,
+  dedupeCharacterIdsPreservingOrder,
 } from "./jobs.js";
 
 describe("job payload schemas", () => {
@@ -70,9 +71,77 @@ describe("job payload schemas", () => {
     });
     expect(parsed.dryRun).toBe(false);
     expect(parsed.allowFullRefreshOnIncompatible).toBe(false);
+    expect(parsed.characterIds).toBeNull();
     bulkOrchestratorJobSchema.parse({
       bulkOperationId: "44444444-4444-4444-4444-444444444444",
       requestedAt: new Date().toISOString(),
     });
+  });
+
+  it("accepts explicit characterIds and rejects ambiguous cohort filters", () => {
+    const idA = "11111111-1111-4111-8111-111111111111";
+    const idB = "22222222-2222-4222-8222-222222222222";
+    const parsed = bulkCharacterProcessingInputSchema.parse({
+      mode: "FULL_REFRESH",
+      minMythicPlusScore: null,
+      characterIds: [idA, idB, idA],
+    });
+    expect(parsed.characterIds).toEqual([idA, idB]);
+
+    expect(() =>
+      bulkCharacterProcessingInputSchema.parse({
+        mode: "FULL_REFRESH",
+        minMythicPlusScore: 2000,
+        characterIds: [idA],
+      }),
+    ).toThrow(/minMythicPlusScore/);
+
+    expect(() =>
+      bulkCharacterProcessingInputSchema.parse({
+        mode: "FULL_REFRESH",
+        minMythicPlusScore: null,
+        maxCharacters: 10,
+        characterIds: [idA],
+      }),
+    ).toThrow(/maxCharacters/);
+
+    expect(() =>
+      bulkCharacterProcessingInputSchema.parse({
+        mode: "RECALCULATE_ONLY",
+        minMythicPlusScore: null,
+        characterIds: [],
+      }),
+    ).toThrow(/non-empty array/);
+
+    const exactly500 = Array.from({ length: 500 }, (_, i) => {
+      const hex = i.toString(16).padStart(12, "0");
+      return `00000000-0000-4000-8000-${hex}`;
+    });
+    expect(
+      bulkCharacterProcessingInputSchema.parse({
+        mode: "RECALCULATE_ONLY",
+        minMythicPlusScore: null,
+        characterIds: exactly500,
+      }).characterIds,
+    ).toHaveLength(500);
+
+    const tooMany = Array.from({ length: 501 }, (_, i) => {
+      const hex = i.toString(16).padStart(12, "0");
+      return `00000000-0000-4000-8000-${hex}`;
+    });
+    expect(() =>
+      bulkCharacterProcessingInputSchema.parse({
+        mode: "RECALCULATE_ONLY",
+        minMythicPlusScore: null,
+        characterIds: tooMany,
+      }),
+    ).toThrow();
+  });
+
+  it("dedupeCharacterIdsPreservingOrder keeps the first input position", () => {
+    const idA = "11111111-1111-4111-8111-111111111111";
+    const idB = "22222222-2222-4222-8222-222222222222";
+    const idC = "33333333-3333-4333-8333-333333333333";
+    expect(dedupeCharacterIdsPreservingOrder([idB, idA, idB, idC, idA])).toEqual([idB, idA, idC]);
   });
 });

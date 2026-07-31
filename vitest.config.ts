@@ -40,6 +40,9 @@ export default defineConfig({
       "**/*.integration.test.ts",
       "apps/web/**",
     ],
+    // DB-backed Fastify inject suites regularly exceed the 5s Vitest default under load.
+    testTimeout: 30_000,
+    hookTimeout: 60_000,
     env: {
       PROVIDER_MODE: "fixture",
       NODE_ENV: "test",

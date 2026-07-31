@@ -28,6 +28,7 @@ describe("BulkCharacterProcessingService Agent 08 hook", () => {
         dryRun: false,
         allowFullRefreshOnIncompatible: false,
         logicalKey: "model-activate:model-uuid",
+        characterIds: null,
       },
       { createdByUserId: "user-1" },
     );
