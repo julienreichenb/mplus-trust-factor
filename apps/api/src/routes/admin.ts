@@ -558,6 +558,80 @@ export function buildAdminRoutes(container: ApiContainer): FastifyPluginAsync {
         async () => ({ operations: await bulkService.list() }),
       );
 
+      protectedApp.get(
+        "/api/v1/admin/characters/search",
+        {
+          schema: {
+            tags: ["admin"],
+            querystring: {
+              type: "object",
+              properties: {
+                query: { type: "string", minLength: 3, maxLength: 96 },
+                q: { type: "string", minLength: 3, maxLength: 96 },
+                region: { type: "string", minLength: 1, maxLength: 8 },
+                limit: { type: "integer", minimum: 1, maximum: 8 },
+              },
+            },
+            response: {
+              200: {
+                type: "object",
+                properties: {
+                  suggestions: {
+                    type: "array",
+                    items: {
+                      type: "object",
+                      properties: {
+                        characterId: { type: "string" },
+                        name: { type: "string" },
+                        realmSlug: { type: "string" },
+                        realmName: { type: "string" },
+                        region: { type: "string" },
+                        classSlug: { type: ["string", "null"] },
+                        avatarUrl: { type: ["string", "null"] },
+                        classIconUrl: { type: ["string", "null"] },
+                        mythicPlusScore: { type: ["number", "null"] },
+                      },
+                      required: [
+                        "characterId",
+                        "name",
+                        "realmSlug",
+                        "realmName",
+                        "region",
+                        "classSlug",
+                        "avatarUrl",
+                        "classIconUrl",
+                        "mythicPlusScore",
+                      ],
+                      additionalProperties: false,
+                    },
+                  },
+                },
+                required: ["suggestions"],
+                additionalProperties: false,
+              },
+              400: errorResponseSchema,
+            },
+          },
+        },
+        async (request) => {
+          const { query, q, region, limit } = request.query as {
+            query?: string;
+            q?: string;
+            region?: string;
+            limit?: number;
+          };
+          const search = (query ?? q ?? "").trim();
+          if (search.length < 3) {
+            return { suggestions: [] };
+          }
+          const suggestions = await container.worker.repositories.character.searchPersistedForAdmin(search, {
+            region: region ?? null,
+            limit: limit ?? 8,
+          });
+          return { suggestions };
+        },
+      );
+
       protectedApp.post(
         "/api/v1/admin/bulk-operations",
         {
@@ -575,10 +649,19 @@ export function buildAdminRoutes(container: ApiContainer): FastifyPluginAsync {
                 dryRun: { type: "boolean" },
                 allowFullRefreshOnIncompatible: { type: "boolean" },
                 logicalKey: { type: "string" },
+                characterIds: {
+                  type: ["array", "null"],
+                  items: { type: "string", format: "uuid" },
+                  maxItems: 500,
+                },
               },
               required: ["mode", "minMythicPlusScore"],
             },
-            response: { 201: { type: "object", additionalProperties: true }, 400: errorResponseSchema, 409: errorResponseSchema },
+            response: {
+              201: { type: "object", additionalProperties: true },
+              400: errorResponseSchema,
+              409: errorResponseSchema,
+            },
           },
         },
         async (request, reply) => {

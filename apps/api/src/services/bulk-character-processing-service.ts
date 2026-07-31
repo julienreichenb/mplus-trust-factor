@@ -6,8 +6,13 @@ import type {
   BulkOperationItemStatus,
   BulkOperationStatus,
   BulkMode,
+  BulkSelectionMode,
 } from "@mplus/contracts";
-import { bulkCharacterProcessingInputSchema } from "@mplus/contracts";
+import {
+  BULK_OPERATION_ITEMS_DETAIL_LIMIT,
+  bulkCharacterProcessingInputSchema,
+  isExplicitBulkCharacterSelection,
+} from "@mplus/contracts";
 import { Prisma, type BulkOperation, type BulkOperationItem } from "@mplus/database";
 import type { ApiContainer } from "../container.js";
 import { HttpError } from "../errors.js";
@@ -39,6 +44,14 @@ function errorMessage(error: unknown): string | null {
   return typeof message === "string" ? message : null;
 }
 
+export function selectionModeFromConfigSnapshot(snapshot: unknown): BulkSelectionMode {
+  if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) {
+    return "COHORT";
+  }
+  const ids = (snapshot as { characterIds?: unknown }).characterIds;
+  return Array.isArray(ids) && ids.length > 0 ? "EXPLICIT" : "COHORT";
+}
+
 export function mapBulkOperation(operation: BulkOperation): BulkOperationDTO {
   return {
     id: operation.id,
@@ -46,6 +59,7 @@ export function mapBulkOperation(operation: BulkOperation): BulkOperationDTO {
     status: operation.status as BulkOperationStatus,
     completionSemantics: "CHILD_DISPATCH_FINISHED",
     childOutcomesTracked: false,
+    selectionMode: selectionModeFromConfigSnapshot(operation.configSnapshot),
     logicalKey: operation.logicalKey,
     minMythicPlusScore: operation.minMythicPlusScore,
     scoreModelId: operation.scoreModelId,
@@ -110,7 +124,33 @@ export class BulkCharacterProcessingService {
     rawInput: BulkCharacterProcessingInput,
     opts: { createdByUserId?: string | null } = {},
   ): Promise<BulkOperationDTO> {
-    const input = bulkCharacterProcessingInputSchema.parse(rawInput);
+    let input: BulkCharacterProcessingInput;
+    try {
+      input = bulkCharacterProcessingInputSchema.parse(rawInput);
+    } catch (error) {
+      const issues =
+        error && typeof error === "object" && "issues" in error
+          ? (error as { issues: Array<{ message: string }> }).issues
+          : null;
+      throw HttpError.badRequest(
+        "BULK_OPERATION_INVALID_INPUT",
+        issues?.map((issue) => issue.message).join("; ") ||
+          (error instanceof Error ? error.message : "Invalid bulk operation input"),
+        error,
+      );
+    }
+
+    if (isExplicitBulkCharacterSelection(input)) {
+      const missing = await this.repo.findMissingCharacterIds(input.characterIds!);
+      if (missing.length > 0) {
+        throw HttpError.badRequest(
+          "BULK_CHARACTERS_NOT_FOUND",
+          `Selected characters were not found: ${missing.slice(0, 20).join(", ")}${missing.length > 20 ? "…" : ""}`,
+          { missingCharacterIds: missing },
+        );
+      }
+    }
+
     const logicalKey = buildBulkLogicalKey({
       mode: input.mode,
       minMythicPlusScore: input.minMythicPlusScore,
@@ -118,6 +158,7 @@ export class BulkCharacterProcessingService {
       dryRun: input.dryRun,
       allowFullRefreshOnIncompatible: input.allowFullRefreshOnIncompatible,
       logicalKey: input.logicalKey,
+      characterIds: input.characterIds,
     });
 
     const existing = await this.repo.findActiveByLogicalKey(logicalKey);
@@ -145,7 +186,7 @@ export class BulkCharacterProcessingService {
         dryRun: input.dryRun,
         allowFullRefreshOnIncompatible: input.allowFullRefreshOnIncompatible,
         createdByUserId: opts.createdByUserId ?? null,
-        configSnapshot: input,
+        configSnapshot: input as unknown as Record<string, unknown>,
       });
     } catch (error) {
       // Concurrent create raced past the pre-check; partial unique index enforces one active key.
@@ -195,6 +236,7 @@ export class BulkCharacterProcessingService {
         dryRun: opts.dryRun ?? false,
         allowFullRefreshOnIncompatible: false,
         logicalKey: opts.logicalKey ?? `model-activate:${scoreModelId}`,
+        characterIds: null,
       },
       { createdByUserId: opts.createdByUserId ?? null },
     );
@@ -205,14 +247,21 @@ export class BulkCharacterProcessingService {
     return rows.map(mapBulkOperation);
   }
 
-  async get(id: string): Promise<BulkOperationDetailDTO> {
-    const row = await this.repo.findByIdWithItems(id);
+  async get(
+    id: string,
+    itemLimit = BULK_OPERATION_ITEMS_DETAIL_LIMIT,
+  ): Promise<BulkOperationDetailDTO> {
+    const row = await this.repo.findByIdWithItems(id, itemLimit);
     if (!row) {
       throw HttpError.notFound("BULK_OPERATION_NOT_FOUND", `Bulk operation ${id} was not found`);
     }
+    const itemsTotal = row.itemsTotal;
     return {
       ...mapBulkOperation(row),
       items: row.items.map(mapBulkOperationItem),
+      itemsTotal,
+      itemsLimit: itemLimit,
+      itemsTruncated: itemsTotal > row.items.length,
     };
   }
 

@@ -25,6 +25,11 @@ export interface BulkSelectionInput {
   maxCharacters?: number | null;
   allowFullRefreshOnIncompatible?: boolean;
   characters: BulkSelectableCharacter[];
+  /**
+   * When non-empty, process exactly these IDs in picker order.
+   * Cohort threshold / maxCharacters filters are ignored.
+   */
+  characterIds?: string[] | null;
 }
 
 export type BulkSelectionDisposition =
@@ -86,6 +91,12 @@ export function filterByMythicPlusThreshold(
   );
 }
 
+/** Order-independent fingerprint of unique character IDs (SHA-256 hex). */
+export function fingerprintCharacterIds(ids: string[]): string {
+  const sorted = [...new Set(ids)].sort((a, b) => a.localeCompare(b));
+  return createHash("sha256").update(sorted.join("|"), "utf8").digest("hex");
+}
+
 export function buildBulkLogicalKey(input: {
   mode: BulkMode;
   minMythicPlusScore: number | null;
@@ -93,25 +104,48 @@ export function buildBulkLogicalKey(input: {
   dryRun?: boolean;
   allowFullRefreshOnIncompatible?: boolean;
   logicalKey?: string | null;
+  characterIds?: string[] | null;
 }): string {
   if (input.logicalKey && input.logicalKey.trim().length > 0) {
     return input.logicalKey.trim();
   }
-  const threshold = input.minMythicPlusScore === null ? "all" : String(input.minMythicPlusScore);
   const model = input.scoreModelId ?? "active";
   const dry = input.dryRun === true ? "dry" : "live";
   const convert = input.allowFullRefreshOnIncompatible === true ? "convert" : "skip-incompat";
+  if (input.characterIds != null && input.characterIds.length > 0) {
+    const fp = fingerprintCharacterIds(input.characterIds);
+    return `bulk:${input.mode}:explicit:${fp}:${model}:${dry}:${convert}`;
+  }
+  const threshold = input.minMythicPlusScore === null ? "all" : String(input.minMythicPlusScore);
   return `bulk:${input.mode}:${threshold}:${model}:${dry}:${convert}`;
 }
 
-export function selectBulkCharacters(input: BulkSelectionInput): BulkSelectionResult {
+function resolveCohortCandidates(input: BulkSelectionInput): BulkSelectableCharacter[] {
   const filtered = filterByMythicPlusThreshold(input.characters, input.minMythicPlusScore).sort(
     compareCharacters,
   );
-  const capped =
-    input.maxCharacters != null && input.maxCharacters > 0
-      ? filtered.slice(0, input.maxCharacters)
-      : filtered;
+  if (input.maxCharacters != null && input.maxCharacters > 0) {
+    return filtered.slice(0, input.maxCharacters);
+  }
+  return filtered;
+}
+
+function resolveExplicitCandidates(input: BulkSelectionInput): BulkSelectableCharacter[] {
+  const ids = input.characterIds ?? [];
+  const byId = new Map(input.characters.map((c) => [c.characterId, c]));
+  const ordered: BulkSelectableCharacter[] = [];
+  for (const id of ids) {
+    const character = byId.get(id);
+    if (character) {
+      ordered.push(character);
+    }
+  }
+  return ordered;
+}
+
+export function selectBulkCharacters(input: BulkSelectionInput): BulkSelectionResult {
+  const explicit = input.characterIds != null && input.characterIds.length > 0;
+  const capped = explicit ? resolveExplicitCandidates(input) : resolveCohortCandidates(input);
 
   const allowConvert = input.allowFullRefreshOnIncompatible === true;
   const items: BulkSelectedItem[] = [];
@@ -177,8 +211,13 @@ export function selectBulkCharacters(input: BulkSelectionInput): BulkSelectionRe
 
   const fingerprintMaterial = [
     input.mode,
-    input.minMythicPlusScore === null ? "null" : String(input.minMythicPlusScore),
-    String(input.maxCharacters ?? ""),
+    explicit ? "explicit" : "cohort",
+    explicit
+      ? fingerprintCharacterIds(input.characterIds ?? [])
+      : input.minMythicPlusScore === null
+        ? "null"
+        : String(input.minMythicPlusScore),
+    explicit ? "" : String(input.maxCharacters ?? ""),
     String(allowConvert),
     ...items.map((item) => `${item.position}:${item.characterId}:${item.disposition}`),
   ].join("|");

@@ -157,6 +157,85 @@ describe.skipIf(!dbAvailable)("admin bulk-operations routes", () => {
     expect(cancelResponse.json().cancelRequestedAt).toBeTruthy();
   });
 
+  it("rejects unauthenticated admin character search", async () => {
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/v1/admin/characters/search?query=ale",
+    });
+    expect(response.statusCode).toBe(401);
+  });
+
+  it("rejects ambiguous explicit + cohort payloads and missing character ids", async () => {
+    const ambiguous = await app.inject({
+      method: "POST",
+      url: "/api/v1/admin/bulk-operations",
+      headers: { "x-admin-api-key": ADMIN_KEY },
+      payload: {
+        mode: "RECALCULATE_ONLY",
+        minMythicPlusScore: 1000,
+        characterIds: ["11111111-1111-4111-8111-111111111111"],
+        dryRun: true,
+      },
+    });
+    expect(ambiguous.statusCode).toBe(400);
+
+    const missing = await app.inject({
+      method: "POST",
+      url: "/api/v1/admin/bulk-operations",
+      headers: { "x-admin-api-key": ADMIN_KEY },
+      payload: {
+        mode: "RECALCULATE_ONLY",
+        minMythicPlusScore: null,
+        characterIds: ["11111111-1111-4111-8111-111111111111"],
+        dryRun: true,
+        logicalKey: `missing-chars-${Date.now()}`,
+      },
+    });
+    expect(missing.statusCode).toBe(400);
+    expect(missing.json().error.code).toBe("BULK_CHARACTERS_NOT_FOUND");
+  });
+
+  it("creates an explicit-selection dry-run with selectionMode EXPLICIT", async () => {
+    const region =
+      (await prisma.region.findFirst()) ??
+      (await prisma.region.create({ data: { code: "EU", name: "Europe" } }));
+    const realm =
+      (await prisma.realm.findFirst({ where: { regionId: region.id } })) ??
+      (await prisma.realm.create({
+        data: { regionId: region.id, slug: `bulk-ux-${Date.now()}`, name: "Bulk UX" },
+      }));
+    const character = await prisma.character.create({
+      data: {
+        regionId: region.id,
+        realmId: realm.id,
+        normalizedName: `bulkux${Date.now()}`,
+        displayName: `BulkUx${Date.now()}`,
+      },
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/v1/admin/bulk-operations",
+      headers: { "x-admin-api-key": ADMIN_KEY },
+      payload: {
+        mode: "RECALCULATE_ONLY",
+        minMythicPlusScore: null,
+        characterIds: [character.id, character.id],
+        dryRun: true,
+        logicalKey: `explicit-${Date.now()}`,
+      },
+    });
+    expect(response.statusCode).toBe(201);
+    const created = response.json();
+    expect(created.selectionMode).toBe("EXPLICIT");
+    // Custom logicalKey is preserved when provided; default fingerprint path is covered by unit tests.
+    expect(created.logicalKey.startsWith("explicit-")).toBe(true);
+    const snapshot = await prisma.bulkOperation.findUnique({ where: { id: created.id } });
+    expect(snapshot?.configSnapshot).toEqual(
+      expect.objectContaining({ characterIds: [character.id] }),
+    );
+  });
+
   it("translates concurrent create races into BULK_OPERATION_ACTIVE", async () => {
     const logicalKey = `race-bulk-${Date.now()}-${Math.random().toString(16).slice(2)}`;
     const payload = {

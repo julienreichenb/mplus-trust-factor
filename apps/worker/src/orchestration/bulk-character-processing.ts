@@ -70,6 +70,44 @@ class CharacterDeletedError extends Error {
   }
 }
 
+function readCharacterIdsFromSnapshot(snapshot: unknown): string[] | null {
+  if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) {
+    return null;
+  }
+  const record = snapshot as Record<string, unknown>;
+  // Legacy cohort ops have no characterIds key — keep cohort selection.
+  if (!Object.prototype.hasOwnProperty.call(record, "characterIds")) {
+    return null;
+  }
+  const raw = record.characterIds;
+  if (raw === null || raw === undefined) {
+    return null;
+  }
+  if (!Array.isArray(raw)) {
+    throw new Error(
+      "Bulk operation configSnapshot.characterIds is corrupt; refusing cohort fallback for explicit selection",
+    );
+  }
+  if (raw.length === 0) {
+    throw new Error(
+      "Bulk operation configSnapshot.characterIds is empty; refusing cohort fallback for explicit selection",
+    );
+  }
+  const ids: string[] = [];
+  for (const entry of raw) {
+    if (typeof entry !== "string" || entry.trim().length === 0) {
+      throw new Error(
+        "Bulk operation configSnapshot.characterIds contains invalid entries; refusing cohort fallback",
+      );
+    }
+    ids.push(entry);
+  }
+  return ids;
+}
+
+/** Exported for unit tests — durable explicit ID resume from configSnapshot. */
+export { readCharacterIdsFromSnapshot };
+
 async function enqueueChildForItem(
   container: WorkerContainer,
   producers: BulkChildProducers,
@@ -224,7 +262,8 @@ export async function runBulkCharacterProcessing(
 
   if (!checkpoint.selectionComplete) {
     await repo.markSelecting(operation.id);
-    const rows = await repo.listSelectableCharacters();
+    const characterIds = readCharacterIdsFromSnapshot(operation.configSnapshot);
+    const rows = await repo.listSelectableCharacters(characterIds);
     const characters = toSelectableCharacters(container, scoreModel, rows, operation.mode);
     const selection = selectBulkCharacters({
       mode: operation.mode,
@@ -232,6 +271,7 @@ export async function runBulkCharacterProcessing(
       maxCharacters: operation.maxCharacters,
       allowFullRefreshOnIncompatible: operation.allowFullRefreshOnIncompatible,
       characters,
+      characterIds,
     });
     checkpoint = {
       ...emptyBulkCheckpoint(),

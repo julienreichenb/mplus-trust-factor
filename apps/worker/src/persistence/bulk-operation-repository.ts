@@ -34,7 +34,22 @@ export interface CreateBulkOperationRecordInput {
 
 export interface BulkOperationWithItems extends BulkOperation {
   items: BulkOperationItem[];
+  itemsTotal: number;
 }
+
+export type BulkSelectableCharacterRow = {
+  characterId: string;
+  region: string;
+  regionId: string;
+  realmSlug: string;
+  name: string;
+  mythicPlusScore: number | null;
+  seasonId: string | null;
+  seasonSlug: string | null;
+  hasSeasonObservations: boolean;
+  observationSchemaVersions: Array<string | null>;
+  storedRefreshContract: unknown | null;
+};
 
 export interface BulkOperationRepository {
   findById(id: string): Promise<BulkOperation | null>;
@@ -87,21 +102,13 @@ export interface BulkOperationRepository {
     error?: Record<string, unknown> | null,
   ): Promise<BulkOperation>;
   parseCheckpoint(operation: BulkOperation): BulkOrchestratorCheckpoint;
-  listSelectableCharacters(): Promise<
-    Array<{
-      characterId: string;
-      region: string;
-      regionId: string;
-      realmSlug: string;
-      name: string;
-      mythicPlusScore: number | null;
-      seasonId: string | null;
-      seasonSlug: string | null;
-      hasSeasonObservations: boolean;
-      observationSchemaVersions: Array<string | null>;
-      storedRefreshContract: unknown | null;
-    }>
-  >;
+  /**
+   * Load selectable character rows. When `characterIds` is non-empty, only those IDs are loaded
+   * (order of the returned array is undefined — callers reorder by picker order).
+   */
+  listSelectableCharacters(characterIds?: string[] | null): Promise<BulkSelectableCharacterRow[]>;
+  /** Returns which of the given IDs are missing from the character table. */
+  findMissingCharacterIds(characterIds: string[]): Promise<string[]>;
 }
 
 export function createBulkOperationRepository(prisma: PrismaClient): BulkOperationRepository {
@@ -118,9 +125,12 @@ export function createBulkOperationRepository(prisma: PrismaClient): BulkOperati
             orderBy: { position: "asc" },
             take: itemLimit,
           },
+          _count: { select: { items: true } },
         },
       });
-      return operation;
+      if (!operation) return null;
+      const { _count, ...rest } = operation;
+      return { ...rest, itemsTotal: _count.items };
     },
 
     listRecent(limit = 50) {
@@ -314,8 +324,20 @@ export function createBulkOperationRepository(prisma: PrismaClient): BulkOperati
       return parseBulkCheckpoint(operation.checkpoint);
     },
 
-    async listSelectableCharacters() {
+    async findMissingCharacterIds(characterIds) {
+      if (characterIds.length === 0) return [];
+      const found = await prisma.character.findMany({
+        where: { id: { in: characterIds } },
+        select: { id: true },
+      });
+      const foundSet = new Set(found.map((row) => row.id));
+      return characterIds.filter((id) => !foundSet.has(id));
+    },
+
+    async listSelectableCharacters(characterIds) {
+      const explicit = characterIds != null && characterIds.length > 0;
       const characters = await prisma.character.findMany({
+        where: explicit ? { id: { in: characterIds } } : undefined,
         select: {
           id: true,
           displayName: true,
@@ -347,19 +369,7 @@ export function createBulkOperationRepository(prisma: PrismaClient): BulkOperati
       }
       const globalSeason = seasons.find((s) => s.regionId == null) ?? null;
 
-      const result: Array<{
-        characterId: string;
-        region: string;
-        regionId: string;
-        realmSlug: string;
-        name: string;
-        mythicPlusScore: number | null;
-        seasonId: string | null;
-        seasonSlug: string | null;
-        hasSeasonObservations: boolean;
-        observationSchemaVersions: Array<string | null>;
-        storedRefreshContract: unknown | null;
-      }> = [];
+      const result: BulkSelectableCharacterRow[] = [];
 
       for (const character of characters) {
         const season =
