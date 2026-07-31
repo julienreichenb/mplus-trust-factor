@@ -87,7 +87,35 @@ export const envSchema = z
     REFRESH_DRY_RUN_ONLY: booleanFromString.default(true),
     REFRESH_SAFETY_RESERVE_FRACTION: z.coerce.number().min(0).max(1).default(0.1),
     REFRESH_BATCH_SIZE: z.coerce.number().int().positive().default(50),
+    /**
+     * Environment-wide admitted refresh pipeline cap (distributed semaphore).
+     * Not applied to BullMQ Worker concurrency. Unused until REFRESH_CONCURRENCY_ENABLED
+     * and REFRESH_ADMISSION_MODE=enforce (later rollout stages).
+     */
     REFRESH_GLOBAL_CONCURRENCY: z.coerce.number().int().positive().default(2),
+    /**
+     * Process-local BullMQ Worker concurrency for refresh-character.
+     * Unused until REFRESH_CONCURRENCY_ENABLED (foundation keeps effective concurrency 1).
+     */
+    REFRESH_WORKER_CONCURRENCY: z.coerce.number().int().positive().default(1),
+    REFRESH_WORKER_HARD_MAX: z.coerce.number().int().positive().default(8),
+    REFRESH_GLOBAL_HARD_MAX: z.coerce.number().int().positive().default(8),
+    REFRESH_MIN_EMERGENCY_RESERVE_POINTS: z.coerce.number().int().nonnegative().default(50),
+    REFRESH_WCL_SNAPSHOT_MAX_AGE_SECONDS: z.coerce.number().int().positive().default(60),
+    REFRESH_LEASE_TTL_MS: z.coerce.number().int().positive().default(45_000),
+    REFRESH_LEASE_HEARTBEAT_MS: z.coerce.number().int().positive().default(15_000),
+    /**
+     * Admission gate mode:
+     * - off (default): no predict, no Redis mutation
+     * - shadow: predict vs serial reality only (no Redis reservation/slot holds)
+     * - enforce: reserved for later branches; foundation still refuses Redis mutation
+     *   unless REFRESH_CONCURRENCY_ENABLED is also true (activation is a later stage)
+     */
+    REFRESH_ADMISSION_MODE: z.enum(["off", "shadow", "enforce"]).default("off"),
+    REFRESH_ETA_ENABLED: booleanFromString.default(false),
+    REFRESH_PRIORITY_IN_BULLMQ: booleanFromString.default(false),
+    /** Master switch for applying global/local concurrency caps. Default false. */
+    REFRESH_CONCURRENCY_ENABLED: booleanFromString.default(false),
     REFRESH_PER_CHARACTER_COOLDOWN_SECONDS: z.coerce.number().int().nonnegative().default(3600),
     REFRESH_SPREAD_HOURS: z.coerce.number().int().positive().default(24),
     /** Indicative share of the configured tracked denominator — not a global WoW percentile. */
@@ -272,6 +300,29 @@ export {
   type RefreshPolicyConfig,
   type RefreshPolicyEnv,
 } from "./refresh-policy.js";
+
+export {
+  buildRefreshAdmissionConfig,
+  clampWorkerConcurrency,
+  clampGlobalConcurrency,
+  isRefreshAdmissionRedisMutationEnabled,
+  isRefreshAdmissionShadowEnabled,
+  computeEmergencyReservePoints,
+  computeNormalAvailablePoints,
+  computeEmergencyAvailablePoints,
+  deriveWclWindowId,
+  isWclSnapshotFresh,
+  REFRESH_ADMISSION_POLICY_VERSION,
+  DEFAULT_REFRESH_WORKER_HARD_MAX,
+  DEFAULT_REFRESH_GLOBAL_HARD_MAX,
+  DEFAULT_REFRESH_MIN_EMERGENCY_RESERVE_POINTS,
+  DEFAULT_REFRESH_WCL_SNAPSHOT_MAX_AGE_SECONDS,
+  DEFAULT_REFRESH_LEASE_TTL_MS,
+  DEFAULT_REFRESH_LEASE_HEARTBEAT_MS,
+  type RefreshAdmissionMode,
+  type RefreshAdmissionEnv,
+  type RefreshAdmissionConfig,
+} from "./refresh-admission-policy.js";
 
 export {
   decideScoreRefresh,

@@ -26,6 +26,9 @@ describe("loadEnv", () => {
     expect(env.REFRESH_SCHEDULER_ENABLED).toBe(false);
     expect(env.REFRESH_DRY_RUN_ONLY).toBe(true);
     expect(env.REFRESH_TRACKED_TOP_PERCENT).toBe(25);
+    expect(env.REFRESH_ADMISSION_MODE).toBe("off");
+    expect(env.REFRESH_CONCURRENCY_ENABLED).toBe(false);
+    expect(env.REFRESH_WORKER_CONCURRENCY).toBe(1);
     expect(env.UTILITY_PUBLICATION_MODE).toBe("shadow");
     expect(env.ADMIN_API_KEY_EMERGENCY_FALLBACK).toBe(false);
   });
