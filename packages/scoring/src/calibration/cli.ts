@@ -134,7 +134,7 @@ function main(): void {
       }
 
       let evaluationModel = validated.bundle.evaluationModel;
-      let activeModel = validated.bundle.activeModel;
+      const activeModel = validated.bundle.activeModel;
       if (args.mode === "draft-model-evaluate" || args.mode === "active-versus-draft") {
         if (!evaluationModel) {
           const draftConfig = createDefaultModelV6({ version: 6 });

@@ -1,5 +1,6 @@
 import type { Grade, MetricObservationDTO, ScoreSnapshotDTO } from "@mplus/contracts";
 import type { ScoreModelConfigV1, ScoringContext } from "../types.js";
+import type { CohortManifest } from "./manifest.js";
 
 /** Output artifact schema version — bump when JSON/CSV/MD shapes change. */
 export const CALIBRATION_REPORT_SCHEMA_VERSION = "1.1.0" as const;
@@ -445,7 +446,7 @@ export interface CalibrationArtifacts {
  */
 export interface CalibrationInputBundleV1 {
   schemaVersion: typeof CALIBRATION_INPUT_BUNDLE_SCHEMA_VERSION;
-  manifest: import("./manifest.js").CohortManifest;
+  manifest: CohortManifest;
   evidenceByMemberId: Record<string, CalibrationMemberEvidence>;
   activeModel?: CalibrationModelRef;
   evaluationModel?: CalibrationModelRef;
