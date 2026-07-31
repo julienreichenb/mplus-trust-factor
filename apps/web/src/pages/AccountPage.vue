@@ -39,6 +39,10 @@ const canAdmin = () =>
     ),
   );
 
+const isAdminRole = computed(() =>
+  Boolean(me.value?.user?.roles?.some((role) => role.toLowerCase() === "admin")),
+);
+
 const characters = computed(() => accountChars.value?.characters ?? []);
 const discoveryActive = computed(() => {
   const status = accountChars.value?.discovery.status;
@@ -62,9 +66,9 @@ function statusLabel(status: AccountOwnedCharacterDTO["trustScore"]["status"]): 
     case "QUEUED":
       return "Queued";
     case "RUNNING":
-      return "Analysing";
+      return "Analyzing";
     case "REFRESHING":
-      return "Actualisation en cours";
+      return "Refreshing";
     case "AVAILABLE":
       return "Available";
     case "PARTIAL":
@@ -72,7 +76,7 @@ function statusLabel(status: AccountOwnedCharacterDTO["trustScore"]["status"]): 
     case "FAILED":
       return "Failed";
     case "STALE":
-      return "Données à actualiser";
+      return "Stale";
     case "UNAVAILABLE":
       return "Unavailable";
     default:
@@ -155,7 +159,7 @@ async function refreshOwnership(): Promise<void> {
     }
     await fetchCharactersOnly();
     schedulePoll();
-    message.value = "Ownership refreshed. Analysing relevant characters…";
+    message.value = "Ownership refreshed. Analyzing relevant characters…";
   } finally {
     busy.value = false;
   }
@@ -214,35 +218,42 @@ function portraitSrc(c: AccountOwnedCharacterDTO): string | null {
 
     <p v-if="message" class="message" role="status">{{ message }}</p>
 
-    <section class="block">
-      <h2>Profile</h2>
-      <p>{{ me?.user?.displayName ?? "—" }}</p>
-      <p class="muted">Roles: {{ me?.user?.roles?.join(", ") || "none" }}</p>
-    </section>
+    <section class="block" data-testid="account-profile">
+      <div class="profile-heading">
+        <span
+          v-if="isAdminRole"
+          class="role-chip"
+          data-testid="admin-role-chip"
+        >ADMIN</span>
+        <h2>Profile</h2>
+      </div>
 
-    <section class="block">
-      <h2>Linked Battle.net</h2>
-      <template v-if="linked?.linked && linked.account">
-        <p>
-          <strong>{{ linked.account.battletag ?? linked.account.providerAccountId }}</strong>
-        </p>
-        <p class="muted">Linked {{ new Date(linked.account.linkedAt).toLocaleString() }}</p>
-        <p v-if="linked.account.lastOwnershipSyncError" class="error">
-          Sync error: {{ linked.account.lastOwnershipSyncError }}
-        </p>
-        <div class="actions">
-          <button type="button" class="btn" :disabled="busy" @click="refreshOwnership">
-            Refresh ownership
-          </button>
-          <button type="button" class="btn btn--danger" :disabled="busy" @click="confirmUnlink = true">
-            Unlink
-          </button>
-        </div>
-      </template>
-      <template v-else>
-        <p class="muted">No Battle.net account linked.</p>
-        <RouterLink class="btn" to="/auth/signin">Link Battle.net</RouterLink>
-      </template>
+      <p class="display-name">{{ me?.user?.displayName ?? "—" }}</p>
+
+      <div class="linked">
+        <h3 class="linked__title">Battle.net</h3>
+        <template v-if="linked?.linked && linked.account">
+          <p>
+            <strong>{{ linked.account.battletag ?? linked.account.providerAccountId }}</strong>
+          </p>
+          <p class="muted">Linked {{ new Date(linked.account.linkedAt).toLocaleString() }}</p>
+          <p v-if="linked.account.lastOwnershipSyncError" class="error">
+            Sync error: {{ linked.account.lastOwnershipSyncError }}
+          </p>
+          <div class="actions">
+            <button type="button" class="btn" :disabled="busy" @click="refreshOwnership">
+              Refresh ownership
+            </button>
+            <button type="button" class="btn btn--danger" :disabled="busy" @click="confirmUnlink = true">
+              Unlink
+            </button>
+          </div>
+        </template>
+        <template v-else>
+          <p class="muted">No Battle.net account linked.</p>
+          <RouterLink class="btn" to="/auth/signin">Link Battle.net</RouterLink>
+        </template>
+      </div>
     </section>
 
     <section v-if="confirmUnlink" class="block confirm" role="dialog" aria-labelledby="unlink-title">
@@ -263,7 +274,7 @@ function portraitSrc(c: AccountOwnedCharacterDTO): string | null {
       <h2>Owned characters</h2>
       <p class="muted">Private list — only relevant max-level characters are shown.</p>
 
-      <p v-if="discoveryActive" class="discovering" role="status">Analysing your characters…</p>
+      <p v-if="discoveryActive" class="discovering" role="status">Analyzing your characters…</p>
 
       <p v-if="accountChars" class="counts muted">
         {{ characters.length }} relevant
@@ -411,6 +422,48 @@ function portraitSrc(c: AccountOwnedCharacterDTO): string | null {
   margin-top: var(--space-6);
   padding-top: var(--space-4);
   border-top: 1px solid rgb(255 255 255 / 10%);
+}
+.profile-heading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+.profile-heading h2 {
+  margin: 0;
+}
+.role-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.2rem 0.55rem;
+  border: 1px solid color-mix(in srgb, var(--color-brand) 45%, transparent);
+  border-radius: var(--radius-control);
+  background: color-mix(in srgb, var(--color-brand) 14%, transparent);
+  color: var(--color-brand);
+  font-family: var(--font-data);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  line-height: 1.2;
+}
+.display-name {
+  margin: 0 0 var(--space-4);
+  font-size: var(--text-lg);
+  font-weight: 650;
+}
+.linked {
+  display: grid;
+  gap: var(--space-2);
+}
+.linked__title {
+  margin: 0;
+  font-family: var(--font-data);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-muted, #a8a8b3);
 }
 .muted {
   color: var(--color-text-muted, #a8a8b3);

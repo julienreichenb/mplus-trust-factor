@@ -1,12 +1,20 @@
 <script setup lang="ts">
-import { onMounted } from "vue";
+import { computed, onMounted } from "vue";
 import { RouterLink, useRoute } from "vue-router";
 import BrandMark from "../brand/BrandMark.vue";
+import NavDropdown from "../common/NavDropdown.vue";
 import CharacterRealmSearch from "../search/CharacterRealmSearch.vue";
 import { useAuthSession } from "../../composables/useAuthSession";
+import { isAdminRoutePath, visibleAdminNavDestinations } from "../../lib/adminNav";
 
 const route = useRoute();
-const { canSeeAdminNav, fetchAuthMe } = useAuthSession();
+const { permissions, fetchAuthMe } = useAuthSession();
+
+const adminNavItems = computed(() =>
+  visibleAdminNavDestinations(permissions.value).map(({ path, label }) => ({ to: path, label })),
+);
+const showAdminNav = computed(() => adminNavItems.value.length > 0);
+const adminNavActive = computed(() => isAdminRoutePath(route.path));
 
 onMounted(() => {
   void fetchAuthMe();
@@ -33,12 +41,14 @@ function hashHref(hash: string): string {
       <a :href="hashHref('#methodology')">Methodology</a>
       <RouterLink to="/compare">Compare</RouterLink>
       <RouterLink to="/account">Account</RouterLink>
-      <template v-if="canSeeAdminNav">
-        <RouterLink to="/admin/models">Score models</RouterLink>
-        <RouterLink to="/admin/ability-catalog">Ability catalog</RouterLink>
-        <RouterLink to="/admin/users">Admin users</RouterLink>
-        <RouterLink to="/admin/bulk-processing">Bulk processing</RouterLink>
-      </template>
+      <NavDropdown
+        v-if="showAdminNav"
+        label="Admin"
+        panel-id="admin-nav-menu"
+        :items="adminNavItems"
+        :active="adminNavActive"
+        data-testid="admin-nav-dropdown"
+      />
     </nav>
 
     <div class="actions">
@@ -62,6 +72,7 @@ function hashHref(hash: string): string {
   position: sticky;
   top: var(--space-3);
   z-index: 40;
+  overflow: visible;
   border-radius: var(--radius-hero);
   border: 1px solid rgb(255 255 255 / 8%);
   background: rgb(13 13 15 / 55%);
@@ -120,6 +131,8 @@ function hashHref(hash: string): string {
   align-items: center;
   grid-column: 1 / -1;
   order: 3;
+  overflow: visible;
+  min-width: 0;
 }
 
 .nav a {
