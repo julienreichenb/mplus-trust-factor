@@ -2,13 +2,18 @@
 import { computed, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { api } from "../../api/client";
-import type { CharacterAutocompleteSuggestion, RealmOption } from "../../api/types";
+import type { CharacterAutocompleteSuggestion, RealmOption, RegionCode } from "../../api/types";
 import { useCharacterResolve } from "../../composables/useCharacterResolve";
 import { useRealmCombobox } from "../../composables/useRealmCombobox";
+import { useSuggestionCombobox } from "../../composables/useSuggestionCombobox";
 import { useRecentSearchesStore } from "../../stores/recentSearches";
 import { resolveRealmDisplayName } from "../../api/realm-options";
-import { classColor, classIconUrl } from "../../lib/wowClass";
-import { displayCapitalize, formatCharacterIdentityDisplay } from "../../lib/characterIdentity";
+import CharacterIdentity from "../character/CharacterIdentity.vue";
+
+const REGION_OPTIONS: RegionCode[] = ["EU", "US", "KR", "TW"];
+const MAX_NAME_SUGGESTIONS = 8;
+const NAME_SEARCH_DEBOUNCE_MS = 250;
+const NAME_MIN_LENGTH = 2;
 
 const props = withDefaults(
   defineProps<{
@@ -37,18 +42,32 @@ const emit = defineEmits<{
 const router = useRouter();
 const recent = useRecentSearchesStore();
 
+const region = ref<RegionCode>("EU");
 const characterName = ref("");
 const realmQuery = ref("");
 const selectedRealm = ref<RealmOption | null>(null);
 const touched = ref({ name: false, realm: false, submit: false });
-const nameSuggestions = ref<CharacterAutocompleteSuggestion[]>([]);
-const nameLoading = ref(false);
-const nameOpen = ref(false);
-const nameActiveIndex = ref(-1);
 
-const MAX_NAME_SUGGESTIONS = 3;
-const NAME_SEARCH_DEBOUNCE_MS = 250;
-let nameSearchTimer: ReturnType<typeof setTimeout> | null = null;
+const {
+  suggestions: nameSuggestions,
+  loading: nameLoading,
+  error: nameSearchError,
+  open: nameOpen,
+  activeIndex: nameActiveIndex,
+  select: selectNameSuggestion,
+  onBlur: onNameComboboxBlur,
+  onKeydown: onNameComboboxKeydown,
+  search: searchCharactersByName,
+} = useSuggestionCombobox<CharacterAutocompleteSuggestion>({
+  query: characterName,
+  watchSources: [region],
+  fetchSuggestions: async (q, signal) => {
+    const hits = await api.searchCharacters(region.value, q, signal);
+    return hits.slice(0, MAX_NAME_SUGGESTIONS);
+  },
+  debounceMs: NAME_SEARCH_DEBOUNCE_MS,
+  minLength: NAME_MIN_LENGTH,
+});
 
 const {
   suggestions,
@@ -62,15 +81,18 @@ const {
   onBlur: onRealmBlur,
   onKeydown: onRealmKeydown,
   optionSecondary,
+  clearSelection: clearRealmSelection,
 } = useRealmCombobox({
   query: realmQuery,
   selected: selectedRealm,
+  region,
 });
 
 const { uiState, message, profilePath, resolving, resolve, retry } = useCharacterResolve();
 
 const nameId = props.compact ? "navbar-character-name" : "character-name-input";
 const realmId = props.compact ? "navbar-realm-input" : "realm-combobox-input";
+const regionId = props.compact ? "navbar-region-select" : "region-select";
 const nameListboxId = `${nameId}-listbox`;
 const listboxId = `${realmId}-listbox`;
 const nameActiveOptionId = computed(() =>
@@ -112,6 +134,12 @@ const statusTone = computed(() => {
   }
 });
 
+watch(region, () => {
+  if (selectedRealm.value && selectedRealm.value.region !== region.value) {
+    clearRealmSelection();
+  }
+});
+
 watch(realmQuery, (value) => {
   if (selectedRealm.value) {
     const label = selectedRealm.value.displayLabel ?? selectedRealm.value.name;
@@ -124,64 +152,9 @@ watch(realmQuery, (value) => {
   scheduleSearch(value);
 });
 
-watch(characterName, (value) => {
-  if (nameSearchTimer) clearTimeout(nameSearchTimer);
-  const trimmed = value.trim();
-  if (trimmed.length < 3) {
-    nameSuggestions.value = [];
-    nameOpen.value = false;
-    nameActiveIndex.value = -1;
-    return;
-  }
-  nameSearchTimer = setTimeout(() => {
-    nameSearchTimer = null;
-    void searchCharactersByName(trimmed);
-  }, NAME_SEARCH_DEBOUNCE_MS);
-});
-
-async function searchCharactersByName(name: string): Promise<void> {
-  nameLoading.value = true;
-  try {
-    const hits = await api.searchCharacters("EU", name);
-    nameSuggestions.value = hits.slice(0, MAX_NAME_SUGGESTIONS);
-    nameOpen.value = nameSuggestions.value.length > 0;
-    nameActiveIndex.value = nameSuggestions.value.length > 0 ? 0 : -1;
-  } catch {
-    nameSuggestions.value = [];
-    nameOpen.value = false;
-    nameActiveIndex.value = -1;
-  } finally {
-    nameLoading.value = false;
-  }
-}
-
-function recentPortraitUrl(item: {
-  classSlug?: string | null;
-  avatarUrl?: string | null;
-}): string | null {
-  return item.avatarUrl ?? classIconUrl(item.classSlug);
-}
-
 function matchingNameSuggestion(name: string): CharacterAutocompleteSuggestion | undefined {
   const needle = name.trim().toLowerCase();
   return nameSuggestions.value.find((s) => s.name.toLowerCase() === needle);
-}
-
-function formattedRealmName(s: CharacterAutocompleteSuggestion): string {
-  return formatCharacterIdentityDisplay({
-    region: s.region,
-    name: s.name,
-    realmSlug: s.realmSlug,
-    realmName: resolveRealmDisplayName(s.realmSlug, s.realmName),
-  }).server;
-}
-
-function formattedNickname(s: CharacterAutocompleteSuggestion): string {
-  return displayCapitalize(s.name);
-}
-
-function iconFor(suggestion: CharacterAutocompleteSuggestion): string | null {
-  return suggestion.avatarUrl ?? suggestion.classIconUrl ?? classIconUrl(suggestion.classSlug);
 }
 
 async function onSubmit(event?: Event): Promise<void> {
@@ -189,18 +162,20 @@ async function onSubmit(event?: Event): Promise<void> {
   touched.value = { name: true, realm: true, submit: true };
   if (!canSubmit.value || !selectedRealm.value) return;
 
+  const resolveRegion = selectedRealm.value.region ?? region.value;
+
   if (props.emitOnly) {
     emit("resolved", {
       name: characterName.value.trim(),
       realmSlug: selectedRealm.value.slug,
-      region: selectedRealm.value.region ?? "EU",
+      region: resolveRegion,
     });
     return;
   }
 
   const result = await resolve({
     name: characterName.value,
-    realm: selectedRealm.value,
+    realm: { ...selectedRealm.value, region: resolveRegion },
   });
   if (!result) return;
 
@@ -209,7 +184,7 @@ async function onSubmit(event?: Event): Promise<void> {
     if (!path) return;
     const suggestion = matchingNameSuggestion(characterName.value);
     recent.add({
-      region: selectedRealm.value.region ?? "EU",
+      region: resolveRegion,
       realmSlug: selectedRealm.value.slug,
       name: characterName.value.trim(),
       classSlug: suggestion?.classSlug ?? null,
@@ -251,8 +226,12 @@ function openRecent(item: { region: string; realmSlug: string; name: string; cla
   });
 }
 
-function pickNameSuggestion(suggestion: CharacterAutocompleteSuggestion): void {
+async function pickNameSuggestion(suggestion: CharacterAutocompleteSuggestion): Promise<void> {
+  await selectNameSuggestion(suggestion);
   characterName.value = suggestion.name;
+  if (suggestion.region) {
+    region.value = suggestion.region;
+  }
   selectedRealm.value = {
     slug: suggestion.realmSlug,
     name: suggestion.realmName ?? suggestion.realmSlug,
@@ -260,55 +239,25 @@ function pickNameSuggestion(suggestion: CharacterAutocompleteSuggestion): void {
     displayLabel: `${suggestion.realmName ?? suggestion.realmSlug} — ${suggestion.region}`,
   };
   realmQuery.value = selectedRealm.value.displayLabel!;
-  nameSuggestions.value = [];
-  nameOpen.value = false;
-  nameActiveIndex.value = -1;
   void onSubmit();
 }
 
 function onNameFocus(): void {
   const trimmed = characterName.value.trim();
-  if (trimmed.length >= 3) {
+  if (trimmed.length >= NAME_MIN_LENGTH) {
     void searchCharactersByName(trimmed);
   }
 }
 
 function onNameBlur(): void {
   touched.value.name = true;
-  window.setTimeout(() => {
-    nameOpen.value = false;
-    nameActiveIndex.value = -1;
-  }, 150);
+  onNameComboboxBlur();
 }
 
 function onNameKeydown(event: KeyboardEvent): void {
-  if (!nameOpen.value || !nameSuggestions.value.length) return;
-  switch (event.key) {
-    case "ArrowDown":
-      event.preventDefault();
-      nameActiveIndex.value = Math.min(
-        nameSuggestions.value.length - 1,
-        nameActiveIndex.value < 0 ? 0 : nameActiveIndex.value + 1,
-      );
-      break;
-    case "ArrowUp":
-      event.preventDefault();
-      nameActiveIndex.value = Math.max(0, nameActiveIndex.value - 1);
-      break;
-    case "Enter":
-      if (nameActiveIndex.value >= 0 && nameSuggestions.value[nameActiveIndex.value]) {
-        event.preventDefault();
-        pickNameSuggestion(nameSuggestions.value[nameActiveIndex.value]!);
-      }
-      break;
-    case "Escape":
-      event.preventDefault();
-      nameOpen.value = false;
-      nameActiveIndex.value = -1;
-      break;
-    default:
-      break;
-  }
+  onNameComboboxKeydown(event, (item) => {
+    void pickNameSuggestion(item);
+  });
 }
 
 function onRealmFocus(): void {
@@ -351,6 +300,18 @@ async function enrichRecentPortraits(): Promise<void> {
       :data-testid="compact ? 'navbar-search-form' : 'hero-search-form'"
       @submit="onSubmit"
     >
+      <label class="crs__field crs__field--region" :for="regionId">
+        <span class="crs__label">Region</span>
+        <select
+          :id="regionId"
+          v-model="region"
+          name="region"
+          data-testid="region-select"
+        >
+          <option v-for="code in REGION_OPTIONS" :key="code" :value="code">{{ code }}</option>
+        </select>
+      </label>
+
       <label class="crs__field crs__field--name" :for="nameId">
         <span class="crs__label">Character</span>
         <input
@@ -391,26 +352,21 @@ async function enrichRecentPortraits(): Promise<void> {
             :class="{ active: index === nameActiveIndex }"
             @mousedown.prevent="pickNameSuggestion(s)"
           >
-            <img
-              v-if="iconFor(s)"
-              class="crs__avatar"
-              :src="iconFor(s)!"
-              alt=""
-              width="24"
-              height="24"
+            <CharacterIdentity
+              :region="s.region"
+              :name="s.name"
+              :realm-slug="s.realmSlug"
+              :realm-name="resolveRealmDisplayName(s.realmSlug, s.realmName)"
+              :class-slug="s.classSlug"
+              :avatar-url="s.avatarUrl"
+              :class-icon-url="s.classIconUrl"
+              :size="24"
+              compact
             />
-            <span v-else class="crs__avatar crs__avatar--neutral crs__avatar--sm" aria-hidden="true" />
-            <span class="crs__name-line">
-              <span class="crs__region mpts-data">{{ s.region.toUpperCase() }}</span>
-              <span class="crs__name-nickname" :style="{ color: classColor(s.classSlug) }">
-                {{ formattedNickname(s) }}
-              </span>
-              <span class="crs__name-sep">-</span>
-              <span class="crs__name-realm">{{ formattedRealmName(s) }}</span>
-            </span>
           </li>
         </ul>
-        <span v-if="!compact && nameError" class="crs__field-error" role="alert">{{ nameError }}</span>
+        <span v-if="nameSearchError" class="crs__field-error" role="alert">{{ nameSearchError }}</span>
+        <span v-else-if="!compact && nameError" class="crs__field-error" role="alert">{{ nameError }}</span>
       </label>
 
       <div class="crs__field crs__field--realm">
@@ -551,19 +507,15 @@ async function enrichRecentPortraits(): Promise<void> {
       <ul>
         <li v-for="item in recent.items" :key="`${item.region}-${item.realmSlug}-${item.name}`">
           <button type="button" class="btn link crs__recent-btn" @click="openRecent(item)">
-            <img
-              v-if="recentPortraitUrl(item)"
-              class="crs__avatar"
-              :src="recentPortraitUrl(item)!"
-              alt=""
-              width="20"
-              height="20"
+            <CharacterIdentity
+              :region="item.region"
+              :name="item.name"
+              :realm-slug="item.realmSlug"
+              :class-slug="item.classSlug"
+              :avatar-url="item.avatarUrl"
+              :size="20"
+              compact
             />
-            <span v-else class="crs__avatar crs__avatar--neutral crs__avatar--sm" aria-hidden="true" />
-            <span :style="{ color: classColor(item.classSlug) }">{{ item.name }}</span>
-            <span class="crs__recent-meta"
-              >{{ item.realmSlug }} · {{ item.region }}</span
-            >
           </button>
         </li>
       </ul>
@@ -591,7 +543,7 @@ async function enrichRecentPortraits(): Promise<void> {
   border: 0;
   background: transparent;
   gap: var(--space-2);
-  grid-template-columns: minmax(7rem, 1fr) minmax(8rem, 1.1fr) auto;
+  grid-template-columns: auto minmax(6rem, 1fr) minmax(7rem, 1.1fr) auto;
   align-items: end;
 }
 
@@ -600,6 +552,10 @@ async function enrichRecentPortraits(): Promise<void> {
   gap: var(--space-2);
   position: relative;
   min-width: 0;
+}
+
+.crs__field--region {
+  min-width: 4.5rem;
 }
 
 .crs__label {
@@ -620,7 +576,8 @@ async function enrichRecentPortraits(): Promise<void> {
   border: 0;
 }
 
-input {
+input,
+select {
   font: inherit;
   min-height: 3rem;
   padding: 0.65rem 0.85rem;
@@ -631,7 +588,8 @@ input {
   width: 100%;
 }
 
-.crs--compact input {
+.crs--compact input,
+.crs--compact select {
   min-height: 2.75rem;
   font-size: var(--text-sm);
   padding: 0.5rem 0.7rem;
@@ -641,7 +599,8 @@ input::placeholder {
   color: rgb(200 189 168 / 55%);
 }
 
-input:focus-visible {
+input:focus-visible,
+select:focus-visible {
   outline: none;
   box-shadow: var(--shadow-focus);
   border-color: var(--color-focus);
@@ -675,40 +634,6 @@ input:focus-visible {
   display: flex;
   align-items: center;
   gap: var(--space-3);
-}
-
-.crs__name-line {
-  display: flex;
-  align-items: center;
-  gap: 0.35rem;
-  min-width: 0;
-  font-size: var(--text-sm);
-  font-weight: 600;
-}
-
-.crs__region {
-  font-family: var(--font-data);
-  font-size: var(--text-xs);
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--color-text-muted);
-  flex-shrink: 0;
-}
-
-.crs__name-nickname {
-  flex-shrink: 0;
-}
-
-.crs__name-sep,
-.crs__name-realm {
-  color: var(--color-text-muted);
-  font-weight: 500;
-}
-
-.crs__name-realm {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .crs__dropdown li:hover,
@@ -822,27 +747,6 @@ input:focus-visible {
   }
 }
 
-.crs__locals {
-  display: grid;
-  gap: var(--space-2);
-}
-
-.crs__group-label {
-  margin: 0;
-  font-size: var(--text-xs);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--color-text-muted);
-}
-
-.crs__group-label--remote {
-  color: var(--color-gold-300);
-  text-transform: none;
-  letter-spacing: 0;
-  font-size: var(--text-sm);
-}
-
-.crs__locals ul,
 .crs__recent ul {
   list-style: none;
   margin: 0;
@@ -851,7 +755,6 @@ input:focus-visible {
   gap: var(--space-2);
 }
 
-.crs__local,
 .crs__recent-btn {
   display: inline-flex;
   align-items: center;
@@ -863,41 +766,6 @@ input:focus-visible {
   color: inherit;
   cursor: pointer;
   padding: 0.35rem 0;
-}
-
-.crs__avatar {
-  width: 1.75rem;
-  height: 1.75rem;
-  border-radius: var(--radius-pill);
-  object-fit: cover;
-  flex-shrink: 0;
-}
-
-.crs__avatar--neutral {
-  display: inline-block;
-  background: linear-gradient(145deg, var(--color-iron-700), var(--color-iron-800));
-  border: 1px solid var(--color-border);
-}
-
-.crs__avatar--sm {
-  width: 1.25rem;
-  height: 1.25rem;
-}
-
-.crs__local-text {
-  display: grid;
-  gap: 0.1rem;
-  min-width: 0;
-}
-
-.crs__local-name {
-  font-weight: 600;
-}
-
-.crs__local-meta,
-.crs__recent-meta {
-  color: var(--color-text-muted);
-  font-size: var(--text-xs);
 }
 
 .crs__status {
@@ -945,7 +813,7 @@ input:focus-visible {
 
 @media (min-width: 768px) {
   .crs:not(.crs--compact) .crs__form {
-    grid-template-columns: minmax(10rem, 1fr) minmax(12rem, 1.2fr) auto;
+    grid-template-columns: auto minmax(9rem, 1fr) minmax(11rem, 1.2fr) auto;
     gap: var(--space-3);
   }
 
@@ -967,6 +835,7 @@ input:focus-visible {
 }
 
 @media (max-width: 767px) {
+  .crs:not(.crs--compact) .crs__form,
   .crs--compact .crs__form {
     grid-template-columns: 1fr;
   }

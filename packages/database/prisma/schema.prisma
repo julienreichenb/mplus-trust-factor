@@ -305,6 +305,8 @@ model Character {
   realmId              String         @map("realm_id") @db.Uuid
   normalizedName       String         @map("normalized_name")
   displayName          String         @map("display_name")
+  /** Accent-folded search key (mirrors realm nameNormalized). Maintained on write. */
+  nameSearchKey        String?        @map("name_search_key")
   level                Int?
   faction              String?
   classId              String?        @map("class_id") @db.Uuid
@@ -344,6 +346,7 @@ model Character {
 
   @@unique([regionId, realmId, normalizedName])
   @@index([lastPublicRefreshAt])
+  @@index([nameSearchKey])
   @@map("characters")
 }
 

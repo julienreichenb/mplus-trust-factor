@@ -736,4 +736,78 @@ describe.skipIf(!dbAvailable)("character routes", { timeout: 30_000 }, () => {
     expect(body.rerolls.map((r: { name: string }) => r.name)).not.toContain(bOnlyName);
     expect(JSON.stringify(body)).not.toMatch(/OwnerA#1|ViewerB#2|battletag|providerAccountId|ownershipId/i);
   });
+
+  it("public autocomplete starts at 2 chars, caps at 8, and omits characterId/ownership", async () => {
+    const names = Array.from({ length: 10 }, (_, i) => uniqueName(`Ac${i}xx`));
+    for (const name of names) {
+      await seedRefreshEligibilityEvidenceForTest(container.worker, {
+        region: "EU",
+        realmSlug: "tarren-mill",
+        name,
+      });
+    }
+
+    const tooShort = await app.inject({
+      method: "GET",
+      url: "/api/v1/characters/autocomplete?region=EU&query=A",
+    });
+    expect(tooShort.statusCode).toBe(400);
+
+    const prefix = names[0]!.slice(0, 2);
+    const ok = await app.inject({
+      method: "GET",
+      url: `/api/v1/characters/autocomplete?region=EU&query=${encodeURIComponent(prefix)}`,
+    });
+    expect(ok.statusCode).toBe(200);
+    const body = ok.json() as { suggestions: Array<Record<string, unknown>> };
+    expect(body.suggestions.length).toBeGreaterThan(0);
+    expect(body.suggestions.length).toBeLessThanOrEqual(8);
+    for (const suggestion of body.suggestions) {
+      expect(suggestion).not.toHaveProperty("characterId");
+      expect(suggestion).not.toHaveProperty("battletag");
+      expect(suggestion).not.toHaveProperty("mythicPlusScore");
+      expect(suggestion).not.toHaveProperty("overallScore");
+      expect(typeof suggestion.name).toBe("string");
+      expect(typeof suggestion.realmSlug).toBe("string");
+      expect(suggestion.region).toBe("EU");
+    }
+  });
+
+  it("resolve profile-only path does not enqueue when character is ineligible", async () => {
+    const name = uniqueName("LowLevelResolve");
+    // Seed below max level with no mythic rating eligibility.
+    await seedRefreshEligibilityEvidenceForTest(container.worker, {
+      region: "EU",
+      realmSlug: "tarren-mill",
+      name,
+      level: 80,
+      mythicRating: null,
+    });
+
+    const before = await prisma.ingestionJob.count({
+      where: { jobType: "refresh-character" },
+    });
+
+    const resolved = await app.inject({
+      method: "POST",
+      url: "/api/v1/characters/resolve",
+      payload: { name, realmSlug: "tarren-mill", region: "EU" },
+    });
+    expect(resolved.statusCode).toBe(200);
+    expect(resolved.json().status).toBe("READY");
+    expect(resolved.json().refreshId).toBeUndefined();
+    expect(resolved.json().profilePath).toContain(name);
+
+    const after = await prisma.ingestionJob.count({
+      where: { jobType: "refresh-character" },
+    });
+    expect(after).toBe(before);
+
+    const refresh = await app.inject({
+      method: "POST",
+      url: `/api/v1/characters/${REALM_PATH}/${name}/refresh`,
+    });
+    expect(refresh.statusCode).toBe(409);
+    expect(refresh.json().error.code).toBe("CHARACTER_BELOW_MAX_LEVEL");
+  });
 });

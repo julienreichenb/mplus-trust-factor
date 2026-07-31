@@ -20,6 +20,7 @@ describe("CharacterService — public read path invariants", () => {
         PROVIDER_MODE: "fixture",
         MANUAL_REFRESH_COOLDOWN_SECONDS: 900,
         PUBLIC_DETAILS_ALL: true,
+        MAX_CHARACTER_LEVEL: 90,
       },
       negativeCache: { has: () => false },
       responseCache: { get: () => null, set: () => {}, invalidate: () => {} },
@@ -64,13 +65,25 @@ describe("CharacterService — public read path invariants", () => {
           character: {
             findUnique: vi.fn().mockResolvedValue({
               id: "char-1",
+              level: 90,
+              regionId: "reg-1",
               displayName: "Wallidrixe",
               gameClass: { slug: "mage", name: "Mage" },
               activeSpec: { slug: "fire", name: "Fire", role: "DPS" },
               realm: { slug: "archimonde", name: "Archimonde" },
             }),
           },
-          characterSnapshot: { findFirst: vi.fn().mockResolvedValue(null) },
+          verifiedCharacterOwnership: {
+            findFirst: vi.fn().mockResolvedValue({
+              currentSeasonMythicRating: 2500,
+              currentSeasonMythicSeasonId: "season-1",
+            }),
+          },
+          metricObservation: { findFirst: vi.fn().mockResolvedValue(null) },
+          characterSnapshot: {
+            findFirst: vi.fn().mockResolvedValue(null),
+            findMany: vi.fn().mockResolvedValue([]),
+          },
           characterProviderState: {
             findUnique: vi.fn().mockResolvedValue(null),
             findMany: vi.fn().mockResolvedValue([]),
@@ -145,6 +158,7 @@ describe("CharacterService — public read path invariants", () => {
       regionId: "reg-1",
       realmId: "realm-1",
       role: "DPS",
+      level: 90,
       lastPublicRefreshAt: new Date(),
       lastSeenAt: new Date(),
     });

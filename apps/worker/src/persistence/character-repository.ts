@@ -1,8 +1,19 @@
 import type { Character, CharacterRole, GameClass, GameSpecialization, Prisma, PrismaClient } from "@mplus/database";
-import { normalizeName, normalizeRealmSlug, normalizeRegion } from "@mplus/domain";
+import {
+  normalizeCharacterSearchKey,
+  normalizeName,
+  normalizeRealmSlug,
+  normalizeRegion,
+  rankCharacterNameMatch,
+} from "@mplus/domain";
 import type { CanonicalCharacter, CharacterIdentityInput, CharacterSnapshotDTO, RegionCode } from "@mplus/contracts";
 import { ensureRealmRecord, ensureRegion } from "./realm-repository.js";
 import type { PrismaClientOrTx } from "./shared.js";
+
+/** Public autocomplete default / product bound (plan V1). */
+export const PUBLIC_CHARACTER_AUTOCOMPLETE_LIMIT = 8;
+const PUBLIC_CHARACTER_AUTOCOMPLETE_MIN_LENGTH = 2;
+const PUBLIC_CHARACTER_CANDIDATE_CAP = 64;
 
 export async function ensureGameClass(client: PrismaClientOrTx, slug: string): Promise<GameClass> {
   const existing = await client.gameClass.findUnique({ where: { slug } });
@@ -91,12 +102,18 @@ export interface UpsertCharacterPatch {
 export interface CharacterSearchResult {
   name: string;
   realmSlug: string;
+  realmName?: string | null;
   region: RegionCode;
   classSlug: string | null;
   specSlug: string | null;
   avatarUrl: string | null;
   classIconUrl: string | null;
   source: "character" | "alias" | "participant";
+}
+
+export interface CharacterSearchSuggestionsOpts {
+  /** When true and query length ≥ 3, fuzzy/trgm mode may run (requires ops indexes). */
+  trgmEnabled?: boolean;
 }
 
 export interface AdminCharacterSearchResult {
@@ -114,7 +131,12 @@ export interface AdminCharacterSearchResult {
 export interface CharacterRepository {
   findByIdentity(identity: CharacterIdentityInput): Promise<Character | null>;
   findById(characterId: string): Promise<Character | null>;
-  searchSuggestions(region: string, query: string, limit?: number): Promise<CharacterSearchResult[]>;
+  searchSuggestions(
+    region: string,
+    query: string,
+    limit?: number,
+    opts?: CharacterSearchSuggestionsOpts,
+  ): Promise<CharacterSearchResult[]>;
   /**
    * Admin-only search over persisted characters (returns durable characterId + M+ score).
    * Region is optional — omit to search all regions.
@@ -174,24 +196,75 @@ export function createCharacterRepository(prisma: PrismaClient): CharacterReposi
       return prisma.character.findUnique({ where: { id: characterId } });
     },
 
-    async searchSuggestions(region, query, limit = 12) {
+    async searchSuggestions(
+      region,
+      query,
+      limit = PUBLIC_CHARACTER_AUTOCOMPLETE_LIMIT,
+      opts: CharacterSearchSuggestionsOpts = {},
+    ) {
       const code = normalizeRegion(region);
       const trimmed = query.trim();
-      if (trimmed.length < 3) return [];
+      if (trimmed.length < PUBLIC_CHARACTER_AUTOCOMPLETE_MIN_LENGTH) return [];
+
+      const take = Math.min(Math.max(limit, 1), PUBLIC_CHARACTER_AUTOCOMPLETE_LIMIT);
+      const candidateTake = Math.min(Math.max(take * 4, take), PUBLIC_CHARACTER_CANDIDATE_CAP);
+      // Length-2 never uses trgm/fuzzy; ≥3 may only when deploy config enables it.
+      const allowFuzzy = trimmed.length >= 3 && opts.trgmEnabled === true;
+      void allowFuzzy; // reserved for raw trgm path when ops indexes exist
 
       const { namePart, realmPart } = parseNameRealmQuery(trimmed);
+      if (namePart.length < PUBLIC_CHARACTER_AUTOCOMPLETE_MIN_LENGTH && !realmPart) return [];
+
+      const foldedQuery = normalizeCharacterSearchKey(namePart);
       const normalizedNameQuery = normalizeName(namePart);
       const realmQuery = realmPart ? normalizeRealmSlug(realmPart) : null;
 
       const regionRow = await prisma.region.findUnique({ where: { code } });
       if (!regionRow) return [];
 
-      const results = new Map<SuggestionKey, CharacterSearchResult>();
+      type RankedHit = {
+        result: CharacterSearchResult;
+        rank: number;
+        lastSeenAt: number;
+        characterId: string;
+        realmSlug: string;
+        normalizedName: string;
+      };
 
-      const addResult = (entry: CharacterSearchResult): void => {
-        const key = suggestionKey(entry.name, entry.realmSlug, entry.region);
-        if (!results.has(key)) {
-          results.set(key, entry);
+      const ranked = new Map<SuggestionKey, RankedHit>();
+
+      const consider = (input: {
+        result: CharacterSearchResult;
+        nameFolded: string;
+        aliasFolded?: string | null;
+        lastSeenAt: Date | null | undefined;
+        characterId: string;
+        normalizedName: string;
+        fuzzyMatched?: boolean;
+      }): void => {
+        const key = suggestionKey(input.result.name, input.result.realmSlug, input.result.region);
+        const rank = rankCharacterNameMatch({
+          queryFolded: foldedQuery,
+          nameFolded: input.nameFolded,
+          aliasFolded: input.aliasFolded,
+          source: input.result.source,
+          fuzzyMatched: input.fuzzyMatched === true,
+        });
+        const hit: RankedHit = {
+          result: input.result,
+          rank,
+          lastSeenAt: input.lastSeenAt?.getTime() ?? 0,
+          characterId: input.characterId,
+          realmSlug: input.result.realmSlug,
+          normalizedName: input.normalizedName,
+        };
+        const existing = ranked.get(key);
+        if (
+          !existing ||
+          hit.rank < existing.rank ||
+          (hit.rank === existing.rank && hit.lastSeenAt > existing.lastSeenAt)
+        ) {
+          ranked.set(key, hit);
         }
       };
 
@@ -201,6 +274,7 @@ export function createCharacterRepository(prisma: PrismaClient): CharacterReposi
           AND: [
             {
               OR: [
+                { nameSearchKey: { contains: foldedQuery } },
                 { normalizedName: { contains: normalizedNameQuery, mode: "insensitive" } },
                 { displayName: { contains: namePart, mode: "insensitive" } },
               ],
@@ -216,60 +290,78 @@ export function createCharacterRepository(prisma: PrismaClient): CharacterReposi
           activeSpec: true,
           snapshots: { orderBy: { capturedAt: "desc" }, take: 1 },
         },
-        take: limit,
+        take: candidateTake,
         orderBy: [{ lastSeenAt: "desc" }, { displayName: "asc" }],
       });
 
       for (const character of characters) {
-        addResult({
-          name: character.displayName,
-          realmSlug: character.realm.slug,
-          region: code as RegionCode,
-          classSlug: character.gameClass?.slug ?? null,
-          specSlug: character.activeSpec?.slug ?? null,
-          avatarUrl: readAvatarFromSnapshot(character.snapshots[0]?.rawSummary),
-          classIconUrl: classIconUrl(character.gameClass?.slug),
-          source: "character",
+        const nameFolded =
+          character.nameSearchKey ?? normalizeCharacterSearchKey(character.displayName);
+        consider({
+          result: {
+            name: character.displayName,
+            realmSlug: character.realm.slug,
+            realmName: character.realm.name,
+            region: code as RegionCode,
+            classSlug: character.gameClass?.slug ?? null,
+            specSlug: character.activeSpec?.slug ?? null,
+            avatarUrl: readAvatarFromSnapshot(character.snapshots[0]?.rawSummary),
+            classIconUrl: classIconUrl(character.gameClass?.slug),
+            source: "character",
+          },
+          nameFolded,
+          lastSeenAt: character.lastSeenAt,
+          characterId: character.id,
+          normalizedName: character.normalizedName,
         });
       }
 
-      if (results.size < limit) {
-        const aliases = await prisma.characterAlias.findMany({
-          where: {
-            regionId: regionRow.id,
-            normalizedName: { contains: normalizedNameQuery, mode: "insensitive" },
-            ...(realmQuery ? { realmSlug: { contains: realmQuery, mode: "insensitive" } } : {}),
-            validTo: null,
-          },
-          include: {
-            character: {
-              include: {
-                realm: true,
-                gameClass: true,
-                activeSpec: true,
-                snapshots: { orderBy: { capturedAt: "desc" }, take: 1 },
-              },
+      const aliases = await prisma.characterAlias.findMany({
+        where: {
+          regionId: regionRow.id,
+          normalizedName: { contains: normalizedNameQuery, mode: "insensitive" },
+          ...(realmQuery ? { realmSlug: { contains: realmQuery, mode: "insensitive" } } : {}),
+          validTo: null,
+        },
+        include: {
+          character: {
+            include: {
+              realm: true,
+              gameClass: true,
+              activeSpec: true,
+              snapshots: { orderBy: { capturedAt: "desc" }, take: 1 },
             },
           },
-          take: limit,
-        });
+        },
+        take: candidateTake,
+      });
 
-        for (const alias of aliases) {
-          const character = alias.character;
-          addResult({
+      for (const alias of aliases) {
+        const character = alias.character;
+        const aliasFolded = normalizeCharacterSearchKey(alias.normalizedName);
+        const nameFolded =
+          character.nameSearchKey ?? normalizeCharacterSearchKey(character.displayName);
+        consider({
+          result: {
             name: character.displayName,
             realmSlug: alias.realmSlug,
+            realmName: character.realm.name,
             region: code as RegionCode,
             classSlug: character.gameClass?.slug ?? null,
             specSlug: character.activeSpec?.slug ?? null,
             avatarUrl: readAvatarFromSnapshot(character.snapshots[0]?.rawSummary),
             classIconUrl: classIconUrl(character.gameClass?.slug),
             source: "alias",
-          });
-        }
+          },
+          nameFolded,
+          aliasFolded,
+          lastSeenAt: character.lastSeenAt,
+          characterId: character.id,
+          normalizedName: character.normalizedName,
+        });
       }
 
-      if (results.size < limit) {
+      if (ranked.size < candidateTake) {
         const participants = await prisma.runParticipant.findMany({
           where: {
             regionCode: code,
@@ -282,31 +374,53 @@ export function createCharacterRepository(prisma: PrismaClient): CharacterReposi
             spec: true,
             character: {
               include: {
+                realm: true,
                 snapshots: { orderBy: { capturedAt: "desc" }, take: 1 },
               },
             },
           },
-          take: limit,
+          take: candidateTake,
           orderBy: { displayName: "asc" },
         });
 
         for (const participant of participants) {
-          addResult({
-            name: participant.displayName,
-            realmSlug: participant.realmSlug,
-            region: code as RegionCode,
-            classSlug: participant.gameClass?.slug ?? null,
-            specSlug: participant.spec?.slug ?? null,
-            avatarUrl: participant.character
-              ? readAvatarFromSnapshot(participant.character.snapshots[0]?.rawSummary)
-              : null,
-            classIconUrl: classIconUrl(participant.gameClass?.slug),
-            source: "participant",
+          if (!participant.characterId || !participant.character) continue;
+          const nameFolded = normalizeCharacterSearchKey(participant.displayName);
+          consider({
+            result: {
+              name: participant.displayName,
+              realmSlug: participant.realmSlug,
+              realmName: participant.character.realm?.name ?? null,
+              region: code as RegionCode,
+              classSlug: participant.gameClass?.slug ?? null,
+              specSlug: participant.spec?.slug ?? null,
+              avatarUrl: readAvatarFromSnapshot(participant.character.snapshots[0]?.rawSummary),
+              classIconUrl: classIconUrl(participant.gameClass?.slug),
+              source: "participant",
+            },
+            nameFolded,
+            lastSeenAt: participant.character.lastSeenAt,
+            characterId: participant.characterId,
+            normalizedName: normalizeName(participant.displayName),
           });
         }
       }
 
-      return Array.from(results.values()).slice(0, limit);
+      return Array.from(ranked.values())
+        .sort((a, b) => {
+          if (a.rank !== b.rank) return a.rank - b.rank;
+          if (a.lastSeenAt !== b.lastSeenAt) return b.lastSeenAt - a.lastSeenAt;
+          if (a.result.region !== b.result.region) {
+            return a.result.region.localeCompare(b.result.region);
+          }
+          if (a.realmSlug !== b.realmSlug) return a.realmSlug.localeCompare(b.realmSlug);
+          if (a.normalizedName !== b.normalizedName) {
+            return a.normalizedName.localeCompare(b.normalizedName);
+          }
+          return a.characterId.localeCompare(b.characterId);
+        })
+        .slice(0, take)
+        .map((hit) => hit.result);
     },
 
     async searchPersistedForAdmin(query, opts = {}) {
@@ -369,6 +483,8 @@ export function createCharacterRepository(prisma: PrismaClient): CharacterReposi
         const region = await ensureRegion(tx, identity.region);
         const realm = await ensureRealmRecord(tx, region.id, identity.realmSlug);
         const normalizedName = normalizeName(identity.name);
+        const displayName = patch?.displayName ?? identity.name;
+        const nameSearchKey = normalizeCharacterSearchKey(displayName);
 
         let classId: string | null = null;
         let activeSpecId: string | null = null;
@@ -386,7 +502,8 @@ export function createCharacterRepository(prisma: PrismaClient): CharacterReposi
             regionId_realmId_normalizedName: { regionId: region.id, realmId: realm.id, normalizedName },
           },
           update: {
-            displayName: patch?.displayName ?? identity.name,
+            displayName,
+            nameSearchKey,
             ...(classId ? { classId } : {}),
             ...(activeSpecId ? { activeSpecId } : {}),
             ...(patch?.role ? { role: patch.role } : {}),
@@ -398,7 +515,8 @@ export function createCharacterRepository(prisma: PrismaClient): CharacterReposi
             regionId: region.id,
             realmId: realm.id,
             normalizedName,
-            displayName: patch?.displayName ?? identity.name,
+            displayName,
+            nameSearchKey,
             classId,
             activeSpecId,
             role: patch?.role ?? null,
@@ -427,6 +545,7 @@ export function createCharacterRepository(prisma: PrismaClient): CharacterReposi
           where: { id: characterId },
           data: {
             displayName: profile.displayName,
+            nameSearchKey: normalizeCharacterSearchKey(profile.displayName),
             ...(classId ? { classId } : {}),
             ...(activeSpecId ? { activeSpecId } : {}),
             ...(profile.role ? { role: profile.role } : {}),

@@ -21,6 +21,9 @@ import { normalizeRealmSlug, normalizeRegion } from "@mplus/domain";
 import {
   decideScoreRefresh,
   extractJobErrorCode,
+  buildCharacterRefreshEligibilityPolicy,
+  evaluateCharacterRefreshEligibility,
+  type CharacterRefreshEligibilityResult,
   type ScoreRefreshDecision,
 } from "@mplus/config";
 import type { EnqueueResult } from "@mplus/worker";
@@ -44,6 +47,7 @@ import {
   SeasonAuthorityUnavailableError,
   requireVerifiedSeasonAuthority,
   persistRefreshEligibilityEvidence,
+  loadCharacterRefreshEligibilitySignals,
   type VerifiedSeasonAuthority,
 } from "@mplus/worker";
 
@@ -445,6 +449,22 @@ export class CharacterService {
     });
   }
 
+  /**
+   * Shared refresh eligibility decision (CHARACTER_REFRESH_ELIGIBILITY_POLICY_V1).
+   * Identical for resolve, manual refresh, profile auto-enqueue, admin, and bulk.
+   */
+  private async evaluateSharedRefreshEligibility(
+    character: Character,
+    authority: VerifiedSeasonAuthority | null,
+  ): Promise<CharacterRefreshEligibilityResult> {
+    const policy = buildCharacterRefreshEligibilityPolicy(this.container.env.MAX_CHARACTER_LEVEL);
+    const signals = await loadCharacterRefreshEligibilitySignals(this.container.worker.prisma, {
+      characterId: character.id,
+      authority,
+    });
+    return evaluateCharacterRefreshEligibility(signals, policy);
+  }
+
   private async enqueueRecalculate(
     character: Character,
     snapshot: { seasonId: string },
@@ -570,29 +590,46 @@ export class CharacterService {
     let enqueueResult: EnqueueResult | null = null;
     if (!readOnly && !seasonAuthorityUnavailable) {
       if (decision.action === "ENQUEUE") {
-        try {
-          enqueueResult = await this.enqueueRefresh(identity, character, {
-            forceRefresh: false,
-            correlationId,
-            triggerSource: "PROFILE_READ",
-            allowProviderSync: false,
-          });
-        } catch (error) {
-          if (error instanceof SeasonAuthorityUnavailableError) {
-            this.container.logger.info(
-              {
-                event: "refresh_enqueue",
-                characterId: character.id,
-                triggerSource: "PROFILE_READ",
-                reason: "season_authority_unavailable",
-                enqueued: false,
-                reused: false,
-              },
-              "refresh enqueue denied — season authority unavailable",
-            );
-            decision = { ...decision, action: "NONE" };
-          } else {
-            throw error;
+        const eligibility = await this.evaluateSharedRefreshEligibility(character, authority);
+        if (!eligibility.eligible) {
+          this.container.logger.info(
+            {
+              event: "refresh_enqueue",
+              characterId: character.id,
+              triggerSource: "PROFILE_READ",
+              reason: "refresh_eligibility_blocked",
+              code: eligibility.code,
+              enqueued: false,
+              reused: false,
+            },
+            "refresh enqueue denied — character not refresh-eligible",
+          );
+          decision = { ...decision, action: "NONE" };
+        } else {
+          try {
+            enqueueResult = await this.enqueueRefresh(identity, character, {
+              forceRefresh: false,
+              correlationId,
+              triggerSource: "PROFILE_READ",
+              allowProviderSync: false,
+            });
+          } catch (error) {
+            if (error instanceof SeasonAuthorityUnavailableError) {
+              this.container.logger.info(
+                {
+                  event: "refresh_enqueue",
+                  characterId: character.id,
+                  triggerSource: "PROFILE_READ",
+                  reason: "season_authority_unavailable",
+                  enqueued: false,
+                  reused: false,
+                },
+                "refresh enqueue denied — season authority unavailable",
+              );
+              decision = { ...decision, action: "NONE" };
+            } else {
+              throw error;
+            }
           }
         }
       } else if (decision.action === "RECALCULATE" && snapshot) {
@@ -1073,6 +1110,18 @@ export class CharacterService {
 
       if (latestJob?.status === "FAILED" || opts.forceRetry || !snapshot) {
         try {
+          const { authority } = await this.resolveActiveRefreshContract(existing, {
+            allowProviderSync: true,
+            correlationId: opts.correlationId,
+          });
+          const eligibility = await this.evaluateSharedRefreshEligibility(existing, authority);
+          if (!eligibility.eligible) {
+            // Profile-only success: identity known, shell navigable, no refresh enqueue.
+            return {
+              statusCode: 200,
+              body: { status: "READY", characterId: existing.id, profilePath },
+            };
+          }
           const enqueueResult = await this.enqueueRefresh(identity, existing, {
             forceRefresh: Boolean(opts.forceRetry),
             correlationId: opts.correlationId,
@@ -1191,6 +1240,14 @@ export class CharacterService {
         level: resolvedLevel,
         mythicRating: resolvedMythicRating,
       });
+      const eligibility = await this.evaluateSharedRefreshEligibility(character, authority);
+      if (!eligibility.eligible) {
+        // Profile-only: shell persisted, no refresh-character, no WCL budget.
+        return {
+          statusCode: 200,
+          body: { status: "READY", characterId: character.id, profilePath },
+        };
+      }
       const enqueueResult = await this.enqueueRefresh(identity, character, {
         forceRefresh: false,
         correlationId: opts.correlationId,
@@ -1315,6 +1372,21 @@ export class CharacterService {
         job: lastJob ? mapJobStatus(lastJob) : null,
         cooldownSecondsRemaining: remaining,
       };
+    }
+
+    const eligibility = await this.evaluateSharedRefreshEligibility(
+      character,
+      resolvedContract.authority,
+    );
+    if (!eligibility.eligible) {
+      throw HttpError.conflict(
+        eligibility.code ?? "CHARACTER_REFRESH_ELIGIBILITY_UNKNOWN",
+        eligibility.message ?? "Character is not eligible for refresh",
+        {
+          maxCharacterLevel: eligibility.maxCharacterLevel,
+          policyVersion: eligibility.policyVersion,
+        },
+      );
     }
 
     let enqueueResult: EnqueueResult;

@@ -129,6 +129,13 @@ export const envSchema = z
      */
     MAX_CHARACTER_LEVEL: z.coerce.number().int().positive().max(120).default(90),
 
+    /**
+     * When true, public character autocomplete may use pg_trgm similarity for query length ≥ 3.
+     * Requires ops-created trigram indexes. Default false — prefix/contains path always works.
+     * Do not probe or CREATE EXTENSION on application boot.
+     */
+    CHARACTER_SEARCH_TRGM_ENABLED: booleanFromString.default(false),
+
     /** MVP entitlement flag: when true, the API serializer omits no fields for any client. */
     PUBLIC_DETAILS_ALL: booleanFromString.default(true),
 

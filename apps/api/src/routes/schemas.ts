@@ -306,7 +306,7 @@ export const characterAutocompleteSuggestionSchema = {
     label: { type: ["string", "null"] },
   },
   required: ["name", "realmSlug", "region", "classSlug", "specSlug", "avatarUrl", "classIconUrl"],
-  additionalProperties: true,
+  additionalProperties: false,
 } as const;
 
 export const characterAutocompleteResponseSchema = {

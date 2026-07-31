@@ -61,7 +61,7 @@ describe("CharacterRealmSearch", () => {
 
   it("validates required fields after submit", async () => {
     const wrapper = await mountSearch();
-    await wrapper.get('[data-testid="search-submit"]').trigger("submit");
+    await wrapper.get("form").trigger("submit");
     expect(wrapper.text()).toContain("Enter a character name");
     expect(resolveCharacter).not.toHaveBeenCalled();
   });
@@ -73,6 +73,7 @@ describe("CharacterRealmSearch", () => {
       profilePath: "/character/EU/archimonde/Wallidrixe",
     });
     const wrapper = await mountSearch();
+    expect(wrapper.get('[data-testid="region-select"]').element).toBeTruthy();
     await wrapper.get('[data-testid="character-name-input"]').setValue("Wallidrixe");
     await wrapper.get('[data-testid="realm-combobox-input"]').setValue("Arch");
     await new Promise((r) => setTimeout(r, 250));
@@ -85,7 +86,25 @@ describe("CharacterRealmSearch", () => {
         realmSlug: "archimonde",
         region: "EU",
       }),
-      undefined,
     );
+  });
+
+  it("requests name autocomplete with selected region after 2 characters", async () => {
+    searchCharacters.mockResolvedValue([
+      {
+        name: "Wallidrixe",
+        realmSlug: "archimonde",
+        realmName: "Archimonde",
+        region: "EU",
+        classSlug: "mage",
+        specSlug: null,
+        avatarUrl: null,
+        classIconUrl: null,
+      },
+    ]);
+    const wrapper = await mountSearch();
+    await wrapper.get('[data-testid="character-name-input"]').setValue("Wa");
+    await new Promise((r) => setTimeout(r, 300));
+    expect(searchCharacters).toHaveBeenCalledWith("EU", "Wa", expect.any(AbortSignal));
   });
 });

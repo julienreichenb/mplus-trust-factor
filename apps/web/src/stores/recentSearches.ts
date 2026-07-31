@@ -4,7 +4,7 @@ import type { CharacterIdentityInput } from "../api/types";
 import { identityKey } from "../api/mock/fixtures";
 
 const STORAGE_KEY = "mplus.recentSearches";
-const MAX_ITEMS = 5;
+const MAX_ITEMS = 8;
 
 export interface RecentSearchEntry extends CharacterIdentityInput {
   classSlug?: string | null;
