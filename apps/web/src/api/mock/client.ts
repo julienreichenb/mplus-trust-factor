@@ -519,6 +519,28 @@ export function createMockApiClient(): MplusApiClient {
       };
     },
 
+    async deleteModel(modelId, signal) {
+      await delay(40);
+      assertNotAborted(signal);
+      const models = getModelStore();
+      const target = models.find((m) => m.id === modelId);
+      if (!target) throw Object.assign(new Error("Model not found"), { status: 404, code: "SCORE_MODEL_NOT_FOUND" });
+      if (target.status !== "DRAFT") {
+        throw Object.assign(
+          new Error(`Only DRAFT models can be deleted (got ${target.status})`),
+          { status: 409, code: "SCORE_MODEL_NOT_DELETABLE" },
+        );
+      }
+      setModelStore(models.filter((m) => m.id !== modelId));
+      return {
+        id: target.id,
+        key: target.key,
+        version: target.version,
+        name: target.name,
+        status: target.status,
+      };
+    },
+
     async getAdminAbilityCatalog(params, signal) {
       await delay(40);
       assertNotAborted(signal);

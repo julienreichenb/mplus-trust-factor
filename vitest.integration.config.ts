@@ -40,9 +40,11 @@ export default defineConfig({
       PROVIDER_MODE: "fixture",
       NODE_ENV: "test",
       APP_ENV: "test",
-      DATABASE_URL:
-        process.env.DATABASE_URL ??
-        "postgresql://mplus:mplus@localhost:5433/mplus_trust?schema=public",
+      // DATABASE_URL + MPLUS_ISOLATED_TEST_DB must be set by `pnpm test:integration`.
+      ...(process.env.DATABASE_URL ? { DATABASE_URL: process.env.DATABASE_URL } : {}),
+      ...(process.env.MPLUS_ISOLATED_TEST_DB
+        ? { MPLUS_ISOLATED_TEST_DB: process.env.MPLUS_ISOLATED_TEST_DB }
+        : {}),
       REDIS_URL: process.env.REDIS_URL ?? "redis://localhost:6379",
       WEB_ORIGIN: "http://localhost:5173",
       PUBLIC_BASE_URL: "http://localhost:3000",

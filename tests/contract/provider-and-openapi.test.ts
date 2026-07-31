@@ -11,13 +11,15 @@ import {
   warcraftlogsCharacterRunsFixtureSchema,
   raiderioCharacterFixtureSchema,
   expertCohortFixtureSchema,
+  assertTestDatabaseAllowed,
 } from "@mplus/test-utils";
 import { loadOpenApiSpec, assertResponseMatchesOpenApiSchema } from "@mplus/test-utils";
 
+const databaseUrl = process.env.DATABASE_URL ?? "";
+assertTestDatabaseAllowed(databaseUrl);
+
 const baseEnv = {
-  DATABASE_URL:
-    process.env.DATABASE_URL ??
-    "postgresql://mplus:mplus@localhost:5433/mplus_trust?schema=public",
+  DATABASE_URL: databaseUrl,
   REDIS_URL: process.env.REDIS_URL ?? "redis://localhost:6379",
   ADMIN_API_KEY: "test-admin-key",
   ADMIN_API_KEY_EMERGENCY_FALLBACK: "true",

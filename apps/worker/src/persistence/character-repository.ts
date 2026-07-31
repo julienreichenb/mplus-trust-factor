@@ -17,10 +17,18 @@ export const PUBLIC_CHARACTER_AUTOCOMPLETE_LIMIT = 8;
 const PUBLIC_CHARACTER_AUTOCOMPLETE_MIN_LENGTH = 2;
 const PUBLIC_CHARACTER_CANDIDATE_CAP = 64;
 
+/**
+ * Ensure a GameClass row exists.
+ * Concurrent pipeline/test workers can race on first insert. Prefer
+ * createMany(skipDuplicates) so a conflict does not abort an interactive transaction
+ * (unlike upsert/create, which raise P2002 and poison the tx).
+ */
 export async function ensureGameClass(client: PrismaClientOrTx, slug: string): Promise<GameClass> {
-  const existing = await client.gameClass.findUnique({ where: { slug } });
-  if (existing) return existing;
-  return client.gameClass.create({ data: { slug, name: capitalize(slug) } });
+  await client.gameClass.createMany({
+    data: [{ slug, name: capitalize(slug) }],
+    skipDuplicates: true,
+  });
+  return client.gameClass.findUniqueOrThrow({ where: { slug } });
 }
 
 export async function ensureGameSpecialization(
@@ -29,12 +37,12 @@ export async function ensureGameSpecialization(
   slug: string,
   role: CharacterRole,
 ): Promise<GameSpecialization> {
-  const existing = await client.gameSpecialization.findUnique({
-    where: { classId_slug: { classId, slug } },
+  await client.gameSpecialization.createMany({
+    data: [{ classId, slug, name: capitalize(slug), role }],
+    skipDuplicates: true,
   });
-  if (existing) return existing;
-  return client.gameSpecialization.create({
-    data: { classId, slug, name: capitalize(slug), role },
+  return client.gameSpecialization.findUniqueOrThrow({
+    where: { classId_slug: { classId, slug } },
   });
 }
 

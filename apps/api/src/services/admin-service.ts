@@ -3,6 +3,7 @@ import type {
   ActivateScoreModelResponse,
   AdminScoreModelDTO,
   BulkOperationDTO,
+  DeleteScoreModelResponse,
   Grade,
   JobStatusDTO,
   ScoreModelConfig,
@@ -15,6 +16,7 @@ import {
   type ConfidenceCoveragePoint,
 } from "@mplus/scoring";
 import { ensureCurrentSeason } from "@mplus/worker";
+import { ScoreModelDraftInUseError } from "@mplus/worker";
 import type { ApiContainer } from "../container.js";
 import { HttpError } from "../errors.js";
 import { mapAdminScoreModel, mapJobStatus, mapMechanicRule, type MechanicRuleDTO } from "../lib/mappers.js";
@@ -75,6 +77,13 @@ export interface ActivateScoreModelOptions {
   characterId?: string;
   expectedPreviousActiveId?: string | null;
   confirm?: boolean;
+  actorUserId?: string | null;
+  actorType?: "user" | "admin_key" | "system";
+  ip?: string | null;
+  userAgent?: string | null;
+}
+
+export interface DeleteScoreModelOptions {
   actorUserId?: string | null;
   actorType?: "user" | "admin_key" | "system";
   ip?: string | null;
@@ -367,6 +376,56 @@ export class AdminService {
       previousActiveVersion: previousActive?.version ?? null,
       bulkOperationId: bulkOperation?.id ?? null,
       bulkEnqueueError,
+    };
+  }
+
+  /**
+   * Delete a DRAFT score model. Status is re-checked transactionally at delete time
+   * (never trusts a stale client read). Never cascades: a draft referenced by durable
+   * history (snapshots, batches, addon exports, ...) is rejected with safe counts.
+   */
+  async deleteScoreModel(
+    id: string,
+    opts: DeleteScoreModelOptions = {},
+  ): Promise<DeleteScoreModelResponse> {
+    let deleted;
+    try {
+      deleted = await this.repositories.score.deleteDraftModel(id);
+    } catch (error) {
+      if (error instanceof ScoreModelDraftInUseError) {
+        throw HttpError.conflict("SCORE_MODEL_DRAFT_IN_USE", error.message, {
+          counts: error.counts,
+        });
+      }
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.includes("not found")) {
+        throw HttpError.notFound("SCORE_MODEL_NOT_FOUND", message);
+      }
+      if (message.includes("Only DRAFT")) {
+        throw HttpError.conflict("SCORE_MODEL_NOT_DELETABLE", message);
+      }
+      throw error;
+    }
+
+    await writeAuditEvent(this.container.worker.prisma, {
+      userId: opts.actorUserId ?? null,
+      actorType: opts.actorType ?? "system",
+      action: "admin.score_models.delete",
+      resourceType: "score_model",
+      resourceId: deleted.id,
+      outcome: "SUCCESS",
+      ip: opts.ip,
+      userAgent: opts.userAgent,
+      sessionSecret: this.container.env.SESSION_SECRET,
+      metadata: { key: deleted.key, version: deleted.version },
+    });
+
+    return {
+      id: deleted.id,
+      key: deleted.key,
+      version: deleted.version,
+      name: deleted.name,
+      status: deleted.status,
     };
   }
 

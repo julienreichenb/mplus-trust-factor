@@ -10,6 +10,7 @@ import type {
   CharacterProfileResponse,
   CharacterResolveRequest,
   CharacterResolveResponse,
+  DeleteModelResult,
   MetaResponse,
   ModelValidationResult,
   MplusApiClient,
@@ -204,6 +205,14 @@ export function createLiveApiClient(options: {
         degradedReason: r.degradedReason ?? null,
         cohortId: r.cohortId,
       })),
+
+    deleteModel: (modelId, signal) =>
+      send<DeleteModelResult>(
+        "DELETE",
+        `/api/v1/admin/score-models/${encodeURIComponent(modelId)}`,
+        undefined,
+        signal,
+      ),
 
     activateModel: (modelId, opts) =>
       send<ActivateScoreModelResult>(

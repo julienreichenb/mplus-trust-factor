@@ -9,14 +9,21 @@ import {
   repairSeasonAuthority,
   seedRefreshEligibilityEvidenceForTest,
 } from "@mplus/worker";
+import { assertTestDatabaseAllowed, sanitizeDatabaseUrl } from "@mplus/test-utils";
 import { buildApp } from "../../apps/api/src/app.js";
 import { createApiContainer } from "../../apps/api/src/container.js";
 
-const databaseUrl =
-  process.env.DATABASE_URL ?? "postgresql://mplus:mplus@localhost:5433/mplus_trust?schema=public";
+const databaseUrl = process.env.DATABASE_URL ?? "";
+assertTestDatabaseAllowed(databaseUrl);
 
 const prisma = createPrismaClient(databaseUrl);
 const health = await checkDatabaseHealth(prisma);
+
+if (!health.ok) {
+  console.warn(
+    `Skipping fixture pipeline integration: PostgreSQL not reachable at ${sanitizeDatabaseUrl(databaseUrl)}. ${health.error ?? ""}`,
+  );
+}
 
 const PROFILE_POLL_INTERVAL_MS = 50;
 const PROFILE_READY_TIMEOUT_MS = 10_000;

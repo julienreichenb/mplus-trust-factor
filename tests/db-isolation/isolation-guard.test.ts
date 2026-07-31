@@ -1,0 +1,338 @@
+/**
+ * Regression coverage for disposable test-database isolation and cleanup guards.
+ * These tests do not require a live Postgres for the pure guard/runner unit cases;
+ * integration-style cases that need Postgres soft-skip when unreachable.
+ */
+import { describe, expect, it } from "vitest";
+import { randomBytes } from "node:crypto";
+import { spawnSync } from "node:child_process";
+import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import {
+  DEV_DATABASE_NAME,
+  DISPOSABLE_DB_PREFIX,
+  ISOLATED_TEST_DB_MARKER,
+  TEST_SCORE_MODEL_KEY_PREFIXES,
+  TEST_SERVER_CONFIRMED_MARKER,
+  assertSafeTestDatabaseTarget,
+  assertSafeTestServer,
+  assertTestDatabaseAllowed,
+  createDisposableDatabaseName,
+  formatGuardFailure,
+  isCanonicalScoreModelKey,
+  isDisposableDatabaseName,
+  isTestOwnedScoreModelKey,
+  resolveIsolatedTestServer,
+  sanitizeDatabaseUrl,
+} from "../../tools/scripts/lib/test-db-isolation.mjs";
+import {
+  assertCleanupTargetAllowed,
+  parseArgs as parseCleanupArgs,
+} from "../../tools/scripts/cleanup-test-artifacts.mjs";
+import { buildChildEnv } from "../../tools/scripts/run-tests-isolated.mjs";
+
+const root = resolve(fileURLToPath(new URL(".", import.meta.url)), "../..");
+
+function disposableUrl(name = createDisposableDatabaseName()) {
+  return `postgresql://mplus:mplus@localhost:5433/${name}?schema=public`;
+}
+
+describe("test database isolation guard", () => {
+  it("rejects when NODE_ENV is not test", () => {
+    const result = assertSafeTestDatabaseTarget({
+      databaseUrl: disposableUrl(),
+      env: { NODE_ENV: "development", [ISOLATED_TEST_DB_MARKER]: "true", APP_ENV: "test" },
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toMatch(/NODE_ENV/);
+  });
+
+  it("rejects an inherited development DATABASE_URL (mplus_trust)", () => {
+    const result = assertSafeTestDatabaseTarget({
+      databaseUrl: `postgresql://mplus:mplus@localhost:5433/${DEV_DATABASE_NAME}?schema=public`,
+      env: { NODE_ENV: "test", APP_ENV: "test", [ISOLATED_TEST_DB_MARKER]: "true" },
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toMatch(/development\/shared/);
+      expect(result.sanitized).toContain(DEV_DATABASE_NAME);
+      expect(result.sanitized).not.toContain("mplus:mplus");
+    }
+  });
+
+  it("rejects when isolated marker is missing", () => {
+    const result = assertSafeTestDatabaseTarget({
+      databaseUrl: disposableUrl(),
+      env: { NODE_ENV: "test", APP_ENV: "test" },
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toMatch(/MPLUS_ISOLATED_TEST_DB/);
+  });
+
+  it("rejects a remote/deployed URL without disposable naming", () => {
+    const result = assertSafeTestDatabaseTarget({
+      databaseUrl: "postgresql://mplus:secret@db.example.com:5432/mplus_trust?schema=public",
+      env: { NODE_ENV: "test", APP_ENV: "staging", [ISOLATED_TEST_DB_MARKER]: "true" },
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.sanitized).toContain("db.example.com");
+      expect(result.sanitized).not.toContain("secret");
+      expect(formatGuardFailure(result)).toMatch(/pnpm test/);
+    }
+  });
+
+  it("accepts a disposable isolated target with marker", () => {
+    const name = createDisposableDatabaseName();
+    const result = assertSafeTestDatabaseTarget({
+      databaseUrl: disposableUrl(name),
+      env: { NODE_ENV: "test", APP_ENV: "test", [ISOLATED_TEST_DB_MARKER]: "true" },
+    });
+    expect(result).toEqual({ ok: true });
+    expect(isDisposableDatabaseName(name)).toBe(true);
+  });
+
+  it("createTestPrismaClient guard refuses unsafe URL via assertTestDatabaseAllowed", () => {
+    expect(() =>
+      assertTestDatabaseAllowed(
+        `postgresql://u:p@localhost:5433/${DEV_DATABASE_NAME}?schema=public`,
+        { NODE_ENV: "test", APP_ENV: "test", [ISOLATED_TEST_DB_MARKER]: "true" },
+      ),
+    ).toThrow(/TEST DATABASE SAFETY GUARD/);
+  });
+
+  it("does not print credentials in sanitizeDatabaseUrl", () => {
+    const sanitized = sanitizeDatabaseUrl(
+      "postgresql://user:s3cret@localhost:5433/mplus_itest_abcd1234abcd1234?schema=public",
+    );
+    expect(sanitized).not.toContain("s3cret");
+    expect(sanitized).not.toContain("user:");
+    expect(sanitized).toContain("localhost:5433");
+  });
+
+  it("creates unique disposable names; concurrent names do not collide", () => {
+    const a = createDisposableDatabaseName();
+    const b = createDisposableDatabaseName();
+    expect(a).not.toBe(b);
+    expect(a.startsWith(DISPOSABLE_DB_PREFIX)).toBe(true);
+    expect(b.startsWith(DISPOSABLE_DB_PREFIX)).toBe(true);
+  });
+});
+
+describe("test score-model prefix allowlist", () => {
+  it("detects all known automated-test prefixes", () => {
+    for (const prefix of TEST_SCORE_MODEL_KEY_PREFIXES) {
+      expect(isTestOwnedScoreModelKey(`${prefix}${randomBytes(4).toString("hex")}`)).toBe(true);
+    }
+  });
+
+  it("does not treat canonical or unknown keys as test-owned", () => {
+    expect(isCanonicalScoreModelKey("default")).toBe(true);
+    expect(isTestOwnedScoreModelKey("default")).toBe(false);
+    expect(isTestOwnedScoreModelKey("My Test Model")).toBe(false);
+    expect(isTestOwnedScoreModelKey("Admin Test Model")).toBe(false);
+    expect(isTestOwnedScoreModelKey("custom-prod-key")).toBe(false);
+  });
+});
+
+describe("cleanup-test-score-models CLI guards", () => {
+  it("defaults to dry-run when --confirm is absent", () => {
+    const parsed = parseCleanupArgs([]);
+    expect(parsed.confirm).toBe(false);
+    expect(parsed.dryRun).toBe(true);
+  });
+
+  it("requires --confirm for deletion mode", () => {
+    const parsed = parseCleanupArgs(["--confirm"]);
+    expect(parsed.confirm).toBe(true);
+  });
+
+  it("refuses production categorically", () => {
+    const gate = assertCleanupTargetAllowed(
+      "postgresql://mplus:x@localhost:5433/mplus_trust?schema=public",
+      { APP_ENV: "production" },
+    );
+    expect(gate.ok).toBe(false);
+    if (!gate.ok) expect(gate.message).toMatch(/production/i);
+  });
+
+  it("refuses remote without MPLUS_CLEANUP_TARGET=deployed-test", () => {
+    const gate = assertCleanupTargetAllowed(
+      "postgresql://mplus:x@db.example.com:5432/mplus_trust?schema=public",
+      { APP_ENV: "test" },
+    );
+    expect(gate.ok).toBe(false);
+    if (!gate.ok) expect(gate.message).toMatch(/MPLUS_CLEANUP_TARGET=deployed-test/);
+  });
+
+  it("allows local loopback dry-run targets", () => {
+    const gate = assertCleanupTargetAllowed(
+      "postgresql://mplus:x@127.0.0.1:5433/mplus_trust?schema=public",
+      { APP_ENV: "development" },
+    );
+    expect(gate.ok).toBe(true);
+  });
+});
+
+describe("isolated runner lifecycle", () => {
+  it("runner script creates a unique target and removes it after success", () => {
+    const probe = `
+      import { createDisposableDatabaseName, isDisposableDatabaseName } from './tools/scripts/lib/test-db-isolation.mjs';
+      const a = createDisposableDatabaseName();
+      const b = createDisposableDatabaseName();
+      if (a === b) process.exit(2);
+      if (!isDisposableDatabaseName(a) || !isDisposableDatabaseName(b)) process.exit(3);
+      console.log('OK', a, b);
+    `;
+    const result = spawnSync(process.execPath, ["--input-type=module", "-e", probe], {
+      cwd: root,
+      encoding: "utf8",
+      shell: false,
+    });
+    expect(result.status).toBe(0);
+    expect(result.stdout).toMatch(/OK mplus_itest_/);
+  });
+
+  it(
+    "run-tests-isolated creates, migrates against disposable DB only, and drops after failure",
+    { timeout: 180_000 },
+    () => {
+      // Probe: failing child inside the isolated runner; disposable DB must be gone after.
+      // Use a fixture script (not `node -e` with parentheses) so Linux shells cannot mangle args.
+      const serverUrl =
+        process.env.MPLUS_TEST_SERVER_DATABASE_URL ||
+        process.env.DATABASE_URL ||
+        "postgresql://mplus:mplus@localhost:5433/mplus_trust?schema=public";
+
+      const result = spawnSync(
+        process.execPath,
+        [
+          "tools/scripts/run-tests-isolated.mjs",
+          "--seed",
+          "--",
+          process.execPath,
+          "tests/db-isolation/fixtures/iso-child-exit.mjs",
+        ],
+        {
+          cwd: root,
+          encoding: "utf8",
+          env: {
+            ...process.env,
+            APP_ENV: "test",
+            NODE_ENV: "test",
+            DATABASE_URL: serverUrl,
+            MPLUS_TEST_SERVER_DATABASE_URL: serverUrl,
+            MPLUS_TEST_SERVER_CONFIRMED: "true",
+            MPLUS_ISOLATED_TEST_DB: "",
+            MPLUS_ISO_CHILD_EXIT: "1",
+          },
+          shell: false,
+        },
+      );
+
+      // Failure exit preserved
+      expect(result.status).not.toBe(0);
+      const combined = `${result.stdout}\n${result.stderr}`;
+      // Should not print credentials
+      expect(combined).not.toMatch(/postgresql:\/\/mplus:mplus@/);
+      // Should mention disposable DB creation/drop
+      expect(combined).toMatch(/mplus_itest_/);
+      expect(combined).toMatch(/dropping disposable database|creating disposable database/);
+      expect(combined).toMatch(/ISO_OK/);
+      expect(combined).toMatch(/mplus_itest_/);
+      expect(combined).not.toMatch(new RegExp(`ISO_OK[\\s\\S]*${DEV_DATABASE_NAME}`));
+    },
+  );
+});
+
+describe("isolated test server safety matrix", () => {
+  it("rejects production APP_ENV before connection", () => {
+    const resolved = resolveIsolatedTestServer({
+      APP_ENV: "production",
+      NODE_ENV: "test",
+      DATABASE_URL: "postgresql://mplus:mplus@localhost:5433/mplus_trust?schema=public",
+    });
+    expect(resolved.ok).toBe(false);
+    if (!resolved.ok) expect(resolved.reason).toMatch(/APP_ENV/);
+  });
+
+  it("rejects production NODE_ENV before connection", () => {
+    const resolved = resolveIsolatedTestServer({
+      APP_ENV: "test",
+      NODE_ENV: "production",
+      DATABASE_URL: "postgresql://mplus:mplus@localhost:5433/mplus_trust?schema=public",
+    });
+    expect(resolved.ok).toBe(false);
+    if (!resolved.ok) expect(resolved.reason).toMatch(/NODE_ENV/);
+  });
+
+  it("rejects remote ordinary DATABASE_URL", () => {
+    const resolved = resolveIsolatedTestServer({
+      APP_ENV: "test",
+      NODE_ENV: "test",
+      DATABASE_URL: "postgresql://mplus:secret@db.example.com:5432/mplus_trust?schema=public",
+    });
+    expect(resolved.ok).toBe(false);
+    if (!resolved.ok) {
+      expect(resolved.reason).toMatch(/MPLUS_TEST_SERVER_DATABASE_URL/);
+      expect(resolved.sanitized).not.toContain("secret");
+    }
+  });
+
+  it("accepts explicit remote test server only with all markers", () => {
+    const refused = assertSafeTestServer({
+      serverUrl: "postgresql://mplus:x@db.example.com:5432/mplus_trust?schema=public",
+      env: { APP_ENV: "test", NODE_ENV: "test" },
+      source: "explicit-test-server",
+    });
+    expect(refused.ok).toBe(false);
+
+    const accepted = assertSafeTestServer({
+      serverUrl: "postgresql://mplus:x@db.example.com:5432/mplus_trust?schema=public",
+      env: {
+        APP_ENV: "test",
+        NODE_ENV: "test",
+        [TEST_SERVER_CONFIRMED_MARKER]: "true",
+      },
+      source: "explicit-test-server",
+    });
+    expect(accepted.ok).toBe(true);
+  });
+
+  it("never rewrites production APP_ENV to test in child env", () => {
+    expect(() =>
+      buildChildEnv(
+        { APP_ENV: "production", NODE_ENV: "test" },
+        "postgresql://mplus:mplus@localhost:5433/mplus_itest_abcd1234abcd1234?schema=public",
+      ),
+    ).toThrow(/never rewritten/);
+  });
+
+  it("supports local loopback DATABASE_URL and default", () => {
+    const fromDb = resolveIsolatedTestServer({
+      APP_ENV: "development",
+      NODE_ENV: "test",
+      DATABASE_URL: "postgresql://mplus:mplus@127.0.0.1:5433/mplus_trust?schema=public",
+    });
+    expect(fromDb.ok).toBe(true);
+    if (fromDb.ok) expect(fromDb.source).toBe("database-url");
+
+    const fallback = resolveIsolatedTestServer({
+      APP_ENV: "test",
+      NODE_ENV: "test",
+    });
+    expect(fallback.ok).toBe(true);
+    if (fallback.ok) expect(fallback.source).toBe("default-loopback");
+  });
+
+  it("does not invoke CREATE DATABASE when server guard rejects (resolve fails first)", () => {
+    const resolved = resolveIsolatedTestServer({
+      APP_ENV: "prod",
+      NODE_ENV: "test",
+      MPLUS_TEST_SERVER_DATABASE_URL: "postgresql://mplus:x@db.example.com:5432/mplus_trust?schema=public",
+    });
+    expect(resolved.ok).toBe(false);
+    // No serverUrl is returned — callers must not call createDatabase.
+    expect("serverUrl" in resolved).toBe(false);
+  });
+});

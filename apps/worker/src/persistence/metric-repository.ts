@@ -1,42 +1,32 @@
-import { Prisma, type MetricDefinition, type PrismaClient } from "@mplus/database";
+import type { MetricDefinition, Prisma, PrismaClient } from "@mplus/database";
 import type { MetricObservationDTO } from "@mplus/contracts";
 import { buildObservationKey } from "@mplus/scoring";
 import type { PrismaClientOrTx } from "./shared.js";
 
 /**
  * Ensure a MetricDefinition row exists for the key.
- * Concurrent pipeline/test workers can race on first create; Prisma upsert may
- * still raise P2002 under parallel interactive transactions — recover by re-read.
+ * Concurrent pipeline/test workers can race on first insert. Prefer
+ * createMany(skipDuplicates) so a conflict does not abort an interactive transaction
+ * (unlike upsert/create, which raise P2002 and poison the tx).
  */
 export async function ensureMetricDefinition(
   client: PrismaClientOrTx,
   metricKey: string,
   dimension: MetricObservationDTO["dimension"],
 ): Promise<MetricDefinition> {
-  try {
-    return await client.metricDefinition.upsert({
-      where: { key: metricKey },
-      create: {
+  await client.metricDefinition.createMany({
+    data: [
+      {
         key: metricKey,
         dimension,
         valueType: "number",
         direction: "HIGHER_BETTER",
         description: `Auto-created metric definition for ${metricKey}`,
       },
-      update: {},
-    });
-  } catch (error) {
-    if (
-      error instanceof Prisma.PrismaClientKnownRequestError &&
-      error.code === "P2002"
-    ) {
-      const existing = await client.metricDefinition.findUnique({
-        where: { key: metricKey },
-      });
-      if (existing) return existing;
-    }
-    throw error;
-  }
+    ],
+    skipDuplicates: true,
+  });
+  return client.metricDefinition.findUniqueOrThrow({ where: { key: metricKey } });
 }
 
 export interface MetricRepository {

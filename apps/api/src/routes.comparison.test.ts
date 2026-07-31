@@ -5,11 +5,19 @@ import type { PrismaClient } from "@mplus/database";
 import { seedRefreshEligibilityEvidenceForTest } from "@mplus/worker";
 import { buildApp } from "./app.js";
 import { createApiContainer, type ApiContainer } from "./container.js";
-import { buildScoreModelConfig, buildTestEnv, createTestPrismaClient, uniqueName } from "./test-helpers.js";
+import {
+  buildScoreModelConfig,
+  buildTestEnv,
+  cleanupTrackedScoreModels,
+  createTestPrismaClient,
+  uniqueName,
+} from "./test-helpers.js";
 
 const { prisma, dbAvailable } = await createTestPrismaClient();
+const createdScoreModelIds: string[] = [];
 
 afterAll(async () => {
+  await cleanupTrackedScoreModels(prisma, createdScoreModelIds);
   await prisma.$disconnect();
 });
 
@@ -229,6 +237,7 @@ describe.skipIf(!dbAvailable)("comparison routes", { timeout: 30_000 }, () => {
       name: "Alternate comparison test model",
       config: buildScoreModelConfig(altKey),
     });
+    createdScoreModelIds.push(altModel.id);
     const season = await prisma.season.findFirst({ where: { slug: "placeholder-current" } });
     expect(season).not.toBeNull();
 

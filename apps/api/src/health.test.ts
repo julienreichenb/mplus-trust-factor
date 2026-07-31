@@ -1,8 +1,12 @@
 import { describe, expect, it, beforeAll, afterAll } from "vitest";
 import { loadEnv, resetEnvCache } from "@mplus/config";
+import { assertTestDatabaseAllowed } from "@mplus/test-utils";
 import { buildApp } from "./app.js";
 import { createApiContainer } from "./container.js";
 import type { FastifyInstance } from "fastify";
+
+const databaseUrl = process.env.DATABASE_URL ?? "";
+assertTestDatabaseAllowed(databaseUrl);
 
 describe("API health", () => {
   let app: FastifyInstance;
@@ -11,7 +15,7 @@ describe("API health", () => {
     resetEnvCache();
     const env = loadEnv({
       ...process.env,
-      DATABASE_URL: process.env.DATABASE_URL ?? "postgresql://mplus:mplus@localhost:5433/mplus_trust?schema=public",
+      DATABASE_URL: databaseUrl,
       REDIS_URL: process.env.REDIS_URL ?? "redis://localhost:6379",
       ADMIN_API_KEY: "test-admin-key",
       ADMIN_API_KEY_EMERGENCY_FALLBACK: "true",

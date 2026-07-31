@@ -512,6 +512,24 @@ export interface AdminScoreModelDTO {
   activatedAt: IsoDateTime | null;
 }
 
+/** Response after deleting a DRAFT score model. */
+export interface DeleteScoreModelResponse {
+  id: string;
+  key: string;
+  version: number;
+  name: string;
+  status: "DRAFT" | "ACTIVE" | "ARCHIVED";
+}
+
+/** Safe (count-only) dependency breakdown surfaced on 409 SCORE_MODEL_DRAFT_IN_USE. */
+export interface ScoreModelDependencyCounts {
+  scoreSnapshots: number;
+  characterRedFlags: number;
+  addonExports: number;
+  analysisBatches: number;
+  bulkOperations: number;
+}
+
 /** Response after transactional activation (includes bulk recalculation hook). */
 export interface ActivateScoreModelResponse extends AdminScoreModelDTO {
   previousActiveId: string | null;

@@ -8,6 +8,7 @@ import type {
   CharacterProfileResponse,
   CharacterResolveRequest,
   CharacterResolveResponse,
+  DeleteScoreModelResponse,
   Grade,
   JobStatusDTO,
   MetaResponse,
@@ -15,6 +16,7 @@ import type {
   RefreshStatusResponse,
   RegionCode,
   RealmCatalogOption,
+  ScoreModelDependencyCounts,
   ScoreSnapshotDTO,
   SearchCharacterResponse,
   ScoringRunSelection,
@@ -87,6 +89,8 @@ export interface ActivateScoreModelResult extends AdminScoreModelDTO {
   bulkEnqueueError: string | null;
 }
 
+export type DeleteModelResult = DeleteScoreModelResponse;
+
 /** @deprecated Use ModelConfigFormState from ./model-config — kept as alias for gradual migration. */
 export type { ModelConfigFormState as EditableModelConfig } from "./model-config";
 
@@ -151,6 +155,8 @@ export interface MplusApiClient {
       signal?: AbortSignal;
     },
   ): Promise<ActivateScoreModelResult>;
+  /** Deletes a DRAFT model. Never deletes ACTIVE/ARCHIVED — server enforces this transactionally. */
+  deleteModel(modelId: string, signal?: AbortSignal): Promise<DeleteModelResult>;
   getAdminAbilityCatalog(
     params?: Record<string, string | number | undefined>,
     signal?: AbortSignal,
@@ -169,6 +175,7 @@ export type {
   CharacterProfileResponse,
   CharacterResolveRequest,
   CharacterResolveResponse,
+  DeleteScoreModelResponse,
   EquipmentSummary,
   Grade,
   JobStatusDTO,
@@ -178,6 +185,7 @@ export type {
   RedFlagDTO,
   RefreshStatusResponse,
   RegionCode,
+  ScoreModelDependencyCounts,
   ScoreSnapshotDTO,
   SearchCharacterResponse,
   ScoringRunSelection,

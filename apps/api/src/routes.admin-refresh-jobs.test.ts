@@ -5,12 +5,29 @@ import type { PrismaClient } from "@mplus/database";
 import type { QueueProducers } from "@mplus/worker";
 import { buildApp } from "./app.js";
 import { createApiContainer, type ApiContainer } from "./container.js";
-import { buildTestEnv, createTestPrismaClient } from "./test-helpers.js";
+import { buildTestEnv, cleanupTrackedCharacters, cleanupTrackedIngestionJobs, createTestPrismaClient } from "./test-helpers.js";
 
 const { prisma, dbAvailable } = await createTestPrismaClient();
 const ADMIN_KEY = "test-admin-key";
 
+const trackedJobIds: string[] = [];
+const trackedCharacterIds: string[] = [];
+
 afterAll(async () => {
+  const related = await prisma.ingestionJob.findMany({
+    where: {
+      OR: [
+        { id: { in: trackedJobIds } },
+        { characterId: { in: trackedCharacterIds } },
+      ],
+    },
+    select: { id: true },
+  });
+  await cleanupTrackedIngestionJobs(
+    prisma,
+    [...new Set([...trackedJobIds, ...related.map((j) => j.id)])],
+  );
+  await cleanupTrackedCharacters(prisma, trackedCharacterIds);
   await prisma.$disconnect();
 });
 
@@ -78,6 +95,7 @@ describe.skipIf(!dbAvailable)("admin refresh-jobs routes", () => {
       },
     });
     characterId = character.id;
+    trackedCharacterIds.push(characterId);
   });
 
   afterAll(async () => {
@@ -227,6 +245,7 @@ describe.skipIf(!dbAvailable)("admin refresh-jobs routes", () => {
     expect(denied.statusCode).toBe(400);
 
     const discoveryId = randomUUID();
+    trackedJobIds.push(discoveryId);
     await prisma.ingestionJob.create({
       data: {
         id: discoveryId,

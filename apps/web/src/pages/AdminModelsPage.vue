@@ -7,8 +7,10 @@ import type {
   AdminScoreModelDTO,
   BacktestSummary,
   ModelValidationResult,
+  ScoreModelDependencyCounts,
 } from "../api/types";
 import {
+  getMetricMetadata,
   METRIC_WEIGHT_DIMENSIONS,
   parsePersistedModelConfig,
   toPersistedConfig,
@@ -17,7 +19,9 @@ import {
 } from "../api/model-config";
 import { deepClone } from "../lib/clone";
 import StatusBanner from "../components/common/StatusBanner.vue";
+import FieldTooltip from "../components/common/FieldTooltip.vue";
 import { ApiClientError } from "../api/live-client";
+import * as tip from "./adminModelsTooltips";
 
 const router = useRouter();
 const models = ref<AdminScoreModelDTO[]>([]);
@@ -36,12 +40,58 @@ const loading = ref(true);
 const showActivateConfirm = ref(false);
 const activating = ref(false);
 
+type StatusFilter = "ALL" | "ACTIVE" | "DRAFT" | "ARCHIVED";
+const catalogQuery = ref("");
+const catalogStatus = ref<StatusFilter>("ALL");
+const rowEls = ref<Record<string, HTMLTableRowElement | null>>({});
+
+const deleteTarget = ref<AdminScoreModelDTO | null>(null);
+const showDeleteConfirm = ref(false);
+const deleting = ref(false);
+const deleteError = ref<string | null>(null);
+const deleteConflictCounts = ref<ScoreModelDependencyCounts | null>(null);
+
 const selected = computed(() => models.value.find((m) => m.id === selectedId.value) ?? null);
 const isDraft = computed(() => selected.value?.status === "DRAFT");
 const activeModel = computed(() => models.value.find((m) => m.status === "ACTIVE") ?? null);
 const archivedModels = computed(() => models.value.filter((m) => m.status === "ARCHIVED"));
 const configEditable = computed(() => draftForm.value !== null && draftBase.value !== null);
 const isEmptyCatalog = computed(() => !loading.value && !loadError.value && models.value.length === 0);
+
+const STATUS_RANK: Record<AdminScoreModelDTO["status"], number> = { ACTIVE: 0, DRAFT: 1, ARCHIVED: 2 };
+
+/** Text search (name/key/version) + status filter, then ACTIVE → DRAFT newest → ARCHIVED newest. */
+const filteredModels = computed(() => {
+  const q = catalogQuery.value.trim().toLowerCase();
+  return models.value.filter((m) => {
+    if (catalogStatus.value !== "ALL" && m.status !== catalogStatus.value) return false;
+    if (!q) return true;
+    return (
+      m.name.toLowerCase().includes(q) ||
+      m.key.toLowerCase().includes(q) ||
+      `v${m.version}`.toLowerCase().includes(q) ||
+      String(m.version).includes(q)
+    );
+  });
+});
+
+const sortedModels = computed(() =>
+  [...filteredModels.value].sort((a, b) => {
+    const rankDiff = STATUS_RANK[a.status] - STATUS_RANK[b.status];
+    if (rankDiff !== 0) return rankDiff;
+    return b.createdAt.localeCompare(a.createdAt) || b.version - a.version;
+  }),
+);
+
+const hasActiveFilters = computed(() => catalogQuery.value.trim().length > 0 || catalogStatus.value !== "ALL");
+const selectedHiddenByFilters = computed(
+  () => selected.value !== null && !sortedModels.value.some((m) => m.id === selected.value!.id),
+);
+
+function resetFilters(): void {
+  catalogQuery.value = "";
+  catalogStatus.value = "ALL";
+}
 
 const weightSum = computed(() => {
   const w = draftForm.value?.weights;
@@ -70,6 +120,15 @@ function statusClass(status: string): string {
   if (status === "ACTIVE") return "status-active";
   if (status === "DRAFT") return "status-draft";
   return "status-archived";
+}
+
+function formatDate(value: string | null): string {
+  if (!value) return "—";
+  try {
+    return new Date(value).toLocaleDateString();
+  } catch {
+    return value;
+  }
 }
 
 function handleAuthError(err: unknown): boolean {
@@ -101,8 +160,13 @@ function applyParsedConfig(raw: unknown): void {
   configDiagnostic.value = null;
 }
 
-async function loadModels(): Promise<void> {
+/** Fetch models only — no selection side effects (used by delete's custom reselect logic). */
+async function fetchModels(): Promise<void> {
   models.value = await api.listModels();
+}
+
+async function loadModels(): Promise<void> {
+  await fetchModels();
   if (!selectedId.value && models.value[0]) {
     selectModel(models.value[0].id);
   } else if (selectedId.value) {
@@ -110,6 +174,17 @@ async function loadModels(): Promise<void> {
     if (!still && models.value[0]) selectModel(models.value[0].id);
     else if (still) selectModel(still.id);
   }
+}
+
+function clearEditorState(): void {
+  selectedId.value = null;
+  draftForm.value = null;
+  draftBase.value = null;
+  configDiagnostic.value = null;
+  validation.value = null;
+  backtest.value = null;
+  activationResult.value = null;
+  showActivateConfirm.value = false;
 }
 
 function selectModel(id: string): void {
@@ -122,6 +197,35 @@ function selectModel(id: string): void {
   showActivateConfirm.value = false;
   message.value = null;
   error.value = null;
+}
+
+function focusRow(id: string): void {
+  rowEls.value[id]?.focus();
+}
+
+function onRowKeydown(event: KeyboardEvent, index: number): void {
+  const rows = sortedModels.value;
+  if (event.key === "ArrowDown") {
+    event.preventDefault();
+    const next = rows[index + 1];
+    if (next) focusRow(next.id);
+  } else if (event.key === "ArrowUp") {
+    event.preventDefault();
+    const prev = rows[index - 1];
+    if (prev) focusRow(prev.id);
+  } else if (event.key === "Home") {
+    event.preventDefault();
+    const first = rows[0];
+    if (first) focusRow(first.id);
+  } else if (event.key === "End") {
+    event.preventDefault();
+    const last = rows[rows.length - 1];
+    if (last) focusRow(last.id);
+  } else if (event.key === "Enter" || event.key === " ") {
+    event.preventDefault();
+    const row = rows[index];
+    if (row) selectModel(row.id);
+  }
 }
 
 async function cloneActive(): Promise<void> {
@@ -276,6 +380,64 @@ async function confirmActivate(): Promise<void> {
   }
 }
 
+function openDeleteConfirm(model: AdminScoreModelDTO): void {
+  if (model.status !== "DRAFT" || deleting.value) return;
+  deleteTarget.value = model;
+  deleteError.value = null;
+  deleteConflictCounts.value = null;
+  showDeleteConfirm.value = true;
+}
+
+function cancelDelete(): void {
+  if (deleting.value) return;
+  showDeleteConfirm.value = false;
+  deleteTarget.value = null;
+  deleteError.value = null;
+  deleteConflictCounts.value = null;
+}
+
+function formatDependencyCounts(counts: ScoreModelDependencyCounts): string {
+  const parts: string[] = [];
+  if (counts.scoreSnapshots) parts.push(`${counts.scoreSnapshots} score snapshot(s)`);
+  if (counts.characterRedFlags) parts.push(`${counts.characterRedFlags} red flag record(s)`);
+  if (counts.addonExports) parts.push(`${counts.addonExports} addon export(s)`);
+  if (counts.analysisBatches) parts.push(`${counts.analysisBatches} analysis batch(es)`);
+  if (counts.bulkOperations) parts.push(`${counts.bulkOperations} bulk operation(s)`);
+  return parts.length ? parts.join(", ") : "durable history";
+}
+
+async function confirmDelete(): Promise<void> {
+  if (!deleteTarget.value || deleting.value) return;
+  const target = deleteTarget.value;
+  deleting.value = true;
+  deleteError.value = null;
+  deleteConflictCounts.value = null;
+  try {
+    const result = await api.deleteModel(target.id);
+    const wasSelected = selectedId.value === target.id;
+    showDeleteConfirm.value = false;
+    deleteTarget.value = null;
+    await fetchModels();
+    if (wasSelected || !models.value.some((m) => m.id === selectedId.value)) {
+      const preferred = models.value.find((m) => m.status === "ACTIVE") ?? sortedModels.value[0] ?? models.value[0];
+      if (preferred) selectModel(preferred.id);
+      else clearEditorState();
+    }
+    message.value = `Deleted draft ${result.name} (v${result.version}).`;
+    error.value = null;
+  } catch (err) {
+    const details = err as { status?: number; code?: string; details?: { counts?: ScoreModelDependencyCounts }; message?: string };
+    if (details.code === "SCORE_MODEL_DRAFT_IN_USE" && details.details?.counts) {
+      deleteConflictCounts.value = details.details.counts;
+      deleteError.value = `This draft is referenced by durable history and cannot be deleted: ${formatDependencyCounts(details.details.counts)}.`;
+    } else if (!handleAuthError(err)) {
+      deleteError.value = (err as Error).message;
+    }
+  } finally {
+    deleting.value = false;
+  }
+}
+
 onMounted(() => {
   void loadModels()
     .then(() => {
@@ -310,8 +472,8 @@ onMounted(() => {
     </StatusBanner>
 
     <template v-if="!loading && !loadError">
-      <StatusBanner v-if="message" tone="success">{{ message }}</StatusBanner>
-      <StatusBanner v-if="error" tone="error">{{ error }}</StatusBanner>
+      <StatusBanner v-if="message" tone="success" data-testid="page-message">{{ message }}</StatusBanner>
+      <StatusBanner v-if="error" tone="error" data-testid="page-error">{{ error }}</StatusBanner>
 
       <div class="toolbar">
         <button
@@ -323,25 +485,139 @@ onMounted(() => {
         >
           Clone active → draft
         </button>
+        <FieldTooltip
+          :what-it-means="tip.ACTION_CLONE.whatItMeans"
+          :technical="tip.ACTION_CLONE.technical"
+          label="About cloning the active model"
+        />
         <RouterLink class="btn link" to="/admin/bulk-processing">Bulk processing</RouterLink>
       </div>
 
       <div class="layout">
-        <aside>
-          <h2>Version history</h2>
-          <ul class="model-list" data-testid="model-list">
-            <li v-for="m in models" :key="m.id">
-              <button
-                type="button"
-                class="btn link model-row"
-                :aria-current="m.id === selectedId ? 'true' : undefined"
-                @click="selectModel(m.id)"
-              >
-                <span class="badge" :class="statusClass(m.status)">{{ m.status }}</span>
-                <span>v{{ m.version }} · {{ m.name }}</span>
-              </button>
-            </li>
-          </ul>
+        <aside class="catalog" data-testid="model-catalog">
+          <h2>Catalog</h2>
+
+          <div class="catalog-filters">
+            <label class="catalog-search">
+              <span class="label-row">
+                <span class="label">Search</span>
+                <FieldTooltip
+                  :what-it-means="tip.CATALOG_SEARCH.whatItMeans"
+                  :technical="tip.CATALOG_SEARCH.technical"
+                  label="About catalog search"
+                />
+              </span>
+              <input
+                v-model="catalogQuery"
+                class="admin-control"
+                type="search"
+                placeholder="Name, key, or version"
+                data-testid="catalog-search"
+                autocomplete="off"
+              />
+            </label>
+            <label class="catalog-status">
+              <span class="label-row">
+                <span class="label">Status</span>
+                <FieldTooltip
+                  :what-it-means="tip.CATALOG_STATUS_FILTER.whatItMeans"
+                  :technical="tip.CATALOG_STATUS_FILTER.technical"
+                  label="About the status filter"
+                />
+              </span>
+              <select v-model="catalogStatus" class="admin-control" data-testid="catalog-status-filter">
+                <option value="ALL">All statuses</option>
+                <option value="ACTIVE">Active</option>
+                <option value="DRAFT">Draft</option>
+                <option value="ARCHIVED">Archived</option>
+              </select>
+            </label>
+            <button
+              type="button"
+              class="btn secondary catalog-reset"
+              data-testid="catalog-reset"
+              :disabled="!hasActiveFilters"
+              @click="resetFilters"
+            >
+              Clear filters
+            </button>
+          </div>
+
+          <p class="muted tiny catalog-count" data-testid="catalog-result-count">
+            Showing {{ sortedModels.length }} of {{ models.length }} model(s)
+            <FieldTooltip
+              :what-it-means="tip.CATALOG_ORDER.whatItMeans"
+              :technical="tip.CATALOG_ORDER.technical"
+              label="About catalog ordering"
+            />
+          </p>
+
+          <p v-if="selectedHiddenByFilters" class="muted tiny catalog-hidden-note" data-testid="selected-hidden-note">
+            Selected model is hidden by the current filters.
+            <button type="button" class="btn link" @click="resetFilters">Clear filters</button>
+            to see it in the catalog.
+          </p>
+
+          <div class="catalog-table-scroll" data-testid="model-list">
+            <table v-if="sortedModels.length" class="catalog-table">
+              <thead>
+                <tr>
+                  <th scope="col">Status</th>
+                  <th scope="col">Name</th>
+                  <th scope="col">Key</th>
+                  <th scope="col">Version</th>
+                  <th scope="col">Created</th>
+                  <th scope="col">Activated</th>
+                  <th scope="col">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr
+                  v-for="(m, index) in sortedModels"
+                  :key="m.id"
+                  :ref="(el) => { rowEls[m.id] = el as HTMLTableRowElement | null }"
+                  class="catalog-row"
+                  :class="{ 'catalog-row--selected': m.id === selectedId }"
+                  tabindex="0"
+                  data-testid="catalog-row"
+                  :aria-selected="m.id === selectedId ? 'true' : 'false'"
+                  @click="selectModel(m.id)"
+                  @keydown="onRowKeydown($event, index)"
+                >
+                  <td>
+                    <span class="badge" :class="statusClass(m.status)">{{ m.status }}</span>
+                    <FieldTooltip
+                      :what-it-means="tip.STATUS_BADGE[m.status].whatItMeans"
+                      :technical="tip.STATUS_BADGE[m.status].technical"
+                      :label="`About ${m.status} status`"
+                    />
+                  </td>
+                  <td>{{ m.name }}</td>
+                  <td class="catalog-key">{{ m.key }}</td>
+                  <td>v{{ m.version }}</td>
+                  <td>{{ formatDate(m.createdAt) }}</td>
+                  <td>{{ formatDate(m.activatedAt) }}</td>
+                  <td>
+                    <button
+                      v-if="m.status === 'DRAFT'"
+                      type="button"
+                      class="btn danger small"
+                      data-testid="delete-draft-row"
+                      :disabled="deleting"
+                      @click.stop="openDeleteConfirm(m)"
+                    >
+                      Delete draft
+                    </button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+            <p v-else class="muted tiny catalog-empty" data-testid="catalog-empty-filters">
+              No models match the current filters.
+              <button type="button" class="btn link" @click="resetFilters">Clear filters</button>
+            </p>
+          </div>
+
           <p v-if="archivedModels.length" class="muted tiny">
             {{ archivedModels.length }} archived version(s) — immutable.
           </p>
@@ -368,9 +644,23 @@ onMounted(() => {
 
           <template v-if="configEditable && draftForm">
             <fieldset :disabled="!isDraft">
-              <legend>Dimension weights</legend>
+              <legend>
+                Dimension weights
+                <FieldTooltip
+                  :what-it-means="tip.WEIGHTS_GROUP.whatItMeans"
+                  :technical="tip.WEIGHTS_GROUP.technical"
+                  label="About dimension weights"
+                />
+              </legend>
               <label>
-                performance
+                <span class="label-row">
+                  performance
+                  <FieldTooltip
+                    :what-it-means="tip.WEIGHT_FIELD.performance.whatItMeans"
+                    :technical="tip.WEIGHT_FIELD.performance.technical"
+                    label="About the performance weight"
+                  />
+                </span>
                 <input
                   v-model.number="draftForm.weights.performance"
                   type="number"
@@ -381,7 +671,14 @@ onMounted(() => {
                 />
               </label>
               <label>
-                survival
+                <span class="label-row">
+                  survival
+                  <FieldTooltip
+                    :what-it-means="tip.WEIGHT_FIELD.survival.whatItMeans"
+                    :technical="tip.WEIGHT_FIELD.survival.technical"
+                    label="About the survival weight"
+                  />
+                </span>
                 <input
                   v-model.number="draftForm.weights.survival"
                   type="number"
@@ -391,7 +688,14 @@ onMounted(() => {
                 />
               </label>
               <label>
-                utility
+                <span class="label-row">
+                  utility
+                  <FieldTooltip
+                    :what-it-means="tip.WEIGHT_FIELD.utility.whatItMeans"
+                    :technical="tip.WEIGHT_FIELD.utility.technical"
+                    label="About the utility weight"
+                  />
+                </span>
                 <input
                   v-model.number="draftForm.weights.utility"
                   type="number"
@@ -401,7 +705,14 @@ onMounted(() => {
                 />
               </label>
               <label>
-                experienceConsistency
+                <span class="label-row">
+                  experienceConsistency
+                  <FieldTooltip
+                    :what-it-means="tip.WEIGHT_FIELD.experienceConsistency.whatItMeans"
+                    :technical="tip.WEIGHT_FIELD.experienceConsistency.technical"
+                    label="About the experience weight"
+                  />
+                </span>
                 <input
                   v-model.number="draftForm.weights.experienceConsistency"
                   type="number"
@@ -411,7 +722,14 @@ onMounted(() => {
                 />
               </label>
               <label>
-                mythicRaid
+                <span class="label-row">
+                  mythicRaid
+                  <FieldTooltip
+                    :what-it-means="tip.WEIGHT_FIELD.mythicRaid.whatItMeans"
+                    :technical="tip.WEIGHT_FIELD.mythicRaid.technical"
+                    label="About the mythic raid weight"
+                  />
+                </span>
                 <input
                   v-model.number="draftForm.weights.mythicRaid"
                   type="number"
@@ -428,9 +746,23 @@ onMounted(() => {
               :disabled="!isDraft"
               :data-testid="`metric-weights-${dim}`"
             >
-              <legend>Metric weights ({{ dim }})</legend>
+              <legend>
+                Metric weights ({{ dim }})
+                <FieldTooltip
+                  :what-it-means="tip.METRIC_WEIGHTS_GROUP[dim].whatItMeans"
+                  :technical="tip.METRIC_WEIGHTS_GROUP[dim].technical"
+                  :label="`About ${dim} metric weights`"
+                />
+              </legend>
               <label v-for="(entry, idx) in draftForm.metricWeights[dim]" :key="`${dim}-${entry.metricKey}-${idx}`">
-                {{ entry.metricKey }}
+                <span class="label-row">
+                  {{ entry.metricKey }}
+                  <FieldTooltip
+                    :what-it-means="getMetricMetadata(entry.metricKey, dim).whatItMeans"
+                    :technical="getMetricMetadata(entry.metricKey, dim).technical"
+                    :label="`About ${getMetricMetadata(entry.metricKey, dim).label}`"
+                  />
+                </span>
                 <input
                   v-model.number="entry.weight"
                   type="number"
@@ -442,29 +774,73 @@ onMounted(() => {
             </fieldset>
 
             <fieldset :disabled="!isDraft">
-              <legend>Grade thresholds</legend>
+              <legend>
+                Grade thresholds
+                <FieldTooltip
+                  :what-it-means="tip.GRADE_THRESHOLDS_GROUP.whatItMeans"
+                  :technical="tip.GRADE_THRESHOLDS_GROUP.technical"
+                  label="About grade thresholds"
+                />
+              </legend>
               <label>
-                S
+                <span class="label-row">
+                  S
+                  <FieldTooltip
+                    :what-it-means="tip.GRADE_THRESHOLD_FIELD.S.whatItMeans"
+                    :technical="tip.GRADE_THRESHOLD_FIELD.S.technical"
+                    label="About the S grade threshold"
+                  />
+                </span>
                 <input v-model.number="draftForm.gradeThresholds.S" type="number" step="1" min="0" max="100" />
               </label>
               <label>
-                A
+                <span class="label-row">
+                  A
+                  <FieldTooltip
+                    :what-it-means="tip.GRADE_THRESHOLD_FIELD.A.whatItMeans"
+                    :technical="tip.GRADE_THRESHOLD_FIELD.A.technical"
+                    label="About the A grade threshold"
+                  />
+                </span>
                 <input v-model.number="draftForm.gradeThresholds.A" type="number" step="1" min="0" max="100" />
               </label>
               <label>
-                B
+                <span class="label-row">
+                  B
+                  <FieldTooltip
+                    :what-it-means="tip.GRADE_THRESHOLD_FIELD.B.whatItMeans"
+                    :technical="tip.GRADE_THRESHOLD_FIELD.B.technical"
+                    label="About the B grade threshold"
+                  />
+                </span>
                 <input v-model.number="draftForm.gradeThresholds.B" type="number" step="1" min="0" max="100" />
               </label>
               <label>
-                C
+                <span class="label-row">
+                  C
+                  <FieldTooltip
+                    :what-it-means="tip.GRADE_THRESHOLD_FIELD.C.whatItMeans"
+                    :technical="tip.GRADE_THRESHOLD_FIELD.C.technical"
+                    label="About the C grade threshold"
+                  />
+                </span>
                 <input v-model.number="draftForm.gradeThresholds.C" type="number" step="1" min="0" max="100" />
               </label>
             </fieldset>
 
             <fieldset v-if="draftForm.minConfidenceForGrade !== null" :disabled="!isDraft">
-              <legend>Confidence for grade</legend>
+              <legend>
+                Confidence for grade
+                <FieldTooltip
+                  :what-it-means="tip.CONFIDENCE_FOR_GRADE.whatItMeans"
+                  :technical="tip.CONFIDENCE_FOR_GRADE.technical"
+                  label="About confidence for grade"
+                />
+              </legend>
               <label>
-                minConfidenceForGrade
+                <span class="label-row">
+                  minConfidenceForGrade
+                </span>
                 <input
                   v-model.number="draftForm.minConfidenceForGrade"
                   type="number"
@@ -477,9 +853,23 @@ onMounted(() => {
             </fieldset>
 
             <fieldset :disabled="!isDraft">
-              <legend>Authenticity blend</legend>
+              <legend>
+                Authenticity blend
+                <FieldTooltip
+                  :what-it-means="tip.AUTHENTICITY_BLEND_GROUP.whatItMeans"
+                  :technical="tip.AUTHENTICITY_BLEND_GROUP.technical"
+                  label="About the authenticity blend"
+                />
+              </legend>
               <label>
-                skillWeight
+                <span class="label-row">
+                  skillWeight
+                  <FieldTooltip
+                    :what-it-means="tip.AUTHENTICITY_BLEND_FIELD.skillWeight.whatItMeans"
+                    :technical="tip.AUTHENTICITY_BLEND_FIELD.skillWeight.technical"
+                    label="About skill weight"
+                  />
+                </span>
                 <input
                   v-model.number="draftForm.authenticityBlend.skillWeight"
                   type="number"
@@ -489,7 +879,14 @@ onMounted(() => {
                 />
               </label>
               <label>
-                authenticityWeight
+                <span class="label-row">
+                  authenticityWeight
+                  <FieldTooltip
+                    :what-it-means="tip.AUTHENTICITY_BLEND_FIELD.authenticityWeight.whatItMeans"
+                    :technical="tip.AUTHENTICITY_BLEND_FIELD.authenticityWeight.technical"
+                    label="About authenticity weight"
+                  />
+                </span>
                 <input
                   v-model.number="draftForm.authenticityBlend.authenticityWeight"
                   type="number"
@@ -499,7 +896,14 @@ onMounted(() => {
                 />
               </label>
               <label>
-                confidenceNeutralScore
+                <span class="label-row">
+                  confidenceNeutralScore
+                  <FieldTooltip
+                    :what-it-means="tip.AUTHENTICITY_BLEND_FIELD.confidenceNeutralScore.whatItMeans"
+                    :technical="tip.AUTHENTICITY_BLEND_FIELD.confidenceNeutralScore.technical"
+                    label="About confidence-neutral score"
+                  />
+                </span>
                 <input
                   v-model.number="draftForm.confidenceNeutralScore"
                   type="number"
@@ -511,9 +915,23 @@ onMounted(() => {
             </fieldset>
 
             <fieldset v-if="draftForm.authenticityTags" :disabled="!isDraft" data-testid="authenticity-tags">
-              <legend>Authenticity tags (persisted)</legend>
+              <legend>
+                Authenticity tags (persisted)
+                <FieldTooltip
+                  :what-it-means="tip.AUTHENTICITY_TAGS_GROUP.whatItMeans"
+                  :technical="tip.AUTHENTICITY_TAGS_GROUP.technical"
+                  label="About authenticity tags"
+                />
+              </legend>
               <label>
-                boostSuspectedBelow
+                <span class="label-row">
+                  boostSuspectedBelow
+                  <FieldTooltip
+                    :what-it-means="tip.AUTHENTICITY_TAGS_FIELD.boostSuspectedBelow.whatItMeans"
+                    :technical="tip.AUTHENTICITY_TAGS_FIELD.boostSuspectedBelow.technical"
+                    label="About boost-suspected threshold"
+                  />
+                </span>
                 <input
                   v-model.number="draftForm.authenticityTags.boostSuspectedBelow"
                   type="number"
@@ -522,7 +940,14 @@ onMounted(() => {
                 />
               </label>
               <label>
-                atypicalBelow
+                <span class="label-row">
+                  atypicalBelow
+                  <FieldTooltip
+                    :what-it-means="tip.AUTHENTICITY_TAGS_FIELD.atypicalBelow.whatItMeans"
+                    :technical="tip.AUTHENTICITY_TAGS_FIELD.atypicalBelow.technical"
+                    label="About atypical-progression threshold"
+                  />
+                </span>
                 <input
                   v-model.number="draftForm.authenticityTags.atypicalBelow"
                   type="number"
@@ -539,13 +964,28 @@ onMounted(() => {
               <h3>Canonical (read-only)</h3>
               <p v-if="readOnlyOverallFormula" class="muted tiny">
                 overallFormula: <code>{{ readOnlyOverallFormula }}</code>
+                <FieldTooltip
+                  :what-it-means="tip.CANONICAL_OVERALL_FORMULA.whatItMeans"
+                  :technical="tip.CANONICAL_OVERALL_FORMULA.technical"
+                  label="About the overall formula"
+                />
               </p>
               <p v-if="readOnlyUtilityEligibility" class="muted tiny">
                 utilityPublicationEligibility:
                 <code>{{ JSON.stringify(readOnlyUtilityEligibility) }}</code>
+                <FieldTooltip
+                  :what-it-means="tip.CANONICAL_UTILITY_ELIGIBILITY.whatItMeans"
+                  :technical="tip.CANONICAL_UTILITY_ELIGIBILITY.technical"
+                  label="About utility publication eligibility"
+                />
               </p>
               <p v-if="readOnlyEligibility" class="muted tiny">
                 eligibility: <code>{{ JSON.stringify(readOnlyEligibility) }}</code>
+                <FieldTooltip
+                  :what-it-means="tip.CANONICAL_ELIGIBILITY.whatItMeans"
+                  :technical="tip.CANONICAL_ELIGIBILITY.technical"
+                  label="About scoring eligibility"
+                />
               </p>
             </div>
 
@@ -553,6 +993,11 @@ onMounted(() => {
               <button type="button" class="btn" data-testid="validate-model" @click="runLocalValidate">
                 Validate local
               </button>
+              <FieldTooltip
+                :what-it-means="tip.ACTION_VALIDATE_LOCAL.whatItMeans"
+                :technical="tip.ACTION_VALIDATE_LOCAL.technical"
+                label="About local validation"
+              />
               <button
                 type="button"
                 class="btn"
@@ -562,9 +1007,19 @@ onMounted(() => {
               >
                 Server validate
               </button>
+              <FieldTooltip
+                :what-it-means="tip.ACTION_VALIDATE_SERVER.whatItMeans"
+                :technical="tip.ACTION_VALIDATE_SERVER.technical"
+                label="About server validation"
+              />
               <button type="button" class="btn" :disabled="!isDraft || busy" @click="saveDraft">
                 Save draft
               </button>
+              <FieldTooltip
+                :what-it-means="tip.ACTION_SAVE_DRAFT.whatItMeans"
+                :technical="tip.ACTION_SAVE_DRAFT.technical"
+                label="About saving the draft"
+              />
               <button
                 type="button"
                 class="btn"
@@ -574,6 +1029,11 @@ onMounted(() => {
               >
                 Cohort backtest
               </button>
+              <FieldTooltip
+                :what-it-means="tip.ACTION_BACKTEST.whatItMeans"
+                :technical="tip.ACTION_BACKTEST.technical"
+                label="About cohort backtest"
+              />
               <button
                 type="button"
                 class="btn primary"
@@ -583,6 +1043,27 @@ onMounted(() => {
               >
                 Activate…
               </button>
+              <FieldTooltip
+                :what-it-means="tip.ACTION_ACTIVATE.whatItMeans"
+                :technical="tip.ACTION_ACTIVATE.technical"
+                label="About activation"
+              />
+              <button
+                v-if="isDraft"
+                type="button"
+                class="btn danger"
+                data-testid="delete-draft"
+                :disabled="busy || deleting"
+                @click="openDeleteConfirm(selected)"
+              >
+                Delete draft
+              </button>
+              <FieldTooltip
+                v-if="isDraft"
+                :what-it-means="tip.ACTION_DELETE_DRAFT.whatItMeans"
+                :technical="tip.ACTION_DELETE_DRAFT.technical"
+                label="About deleting this draft"
+              />
             </div>
           </template>
 
@@ -673,6 +1154,45 @@ onMounted(() => {
           </div>
         </div>
       </div>
+
+      <div v-if="showDeleteConfirm && deleteTarget" class="modal-overlay" data-testid="delete-confirm-overlay">
+        <div class="modal delete-confirm" role="dialog" aria-modal="true" aria-labelledby="delete-confirm-title" data-testid="delete-confirm">
+          <h3 id="delete-confirm-title">Delete draft?</h3>
+          <p>
+            <span class="badge" :class="statusClass(deleteTarget.status)">{{ deleteTarget.status }}</span>
+            <strong> {{ deleteTarget.name }}</strong> · key {{ deleteTarget.key }} · version {{ deleteTarget.version }}
+          </p>
+          <ul>
+            <li>{{ tip.DELETE_CONFIRM_INTRO.whatItMeans }}</li>
+            <li>This draft was never activated — deleting it does not affect any live scores.</li>
+            <li>ACTIVE and ARCHIVED models can never be deleted from this page.</li>
+          </ul>
+          <StatusBanner v-if="deleteError" tone="error" data-testid="delete-conflict-error">
+            {{ deleteError }}
+            <ul v-if="deleteConflictCounts" data-testid="delete-conflict-counts">
+              <li v-if="deleteConflictCounts.scoreSnapshots">Score snapshots: {{ deleteConflictCounts.scoreSnapshots }}</li>
+              <li v-if="deleteConflictCounts.characterRedFlags">Character red flags: {{ deleteConflictCounts.characterRedFlags }}</li>
+              <li v-if="deleteConflictCounts.addonExports">Addon exports: {{ deleteConflictCounts.addonExports }}</li>
+              <li v-if="deleteConflictCounts.analysisBatches">Analysis batches: {{ deleteConflictCounts.analysisBatches }}</li>
+              <li v-if="deleteConflictCounts.bulkOperations">Bulk operations: {{ deleteConflictCounts.bulkOperations }}</li>
+            </ul>
+          </StatusBanner>
+          <div class="actions">
+            <button type="button" class="btn" :disabled="deleting" @click="cancelDelete">
+              Cancel
+            </button>
+            <button
+              type="button"
+              class="btn danger"
+              data-testid="confirm-delete-draft"
+              :disabled="deleting"
+              @click="confirmDelete"
+            >
+              {{ deleting ? "Deleting…" : "Delete draft permanently" }}
+            </button>
+          </div>
+        </div>
+      </div>
     </template>
   </section>
 </template>
@@ -680,8 +1200,8 @@ onMounted(() => {
 <style scoped>
 .editor fieldset {
   display: grid;
+  grid-template-columns: 1fr;
   gap: 0.6rem;
-  max-width: 28rem;
   margin: 1rem 0;
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -689,10 +1209,35 @@ onMounted(() => {
   background: var(--panel);
 }
 
+@media (min-width: 720px) {
+  .editor fieldset {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .editor fieldset > legend {
+    grid-column: 1 / -1;
+  }
+}
+
 label {
   display: grid;
   gap: 0.25rem;
   font-weight: 600;
+  min-width: 0;
+}
+
+.label-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+
+legend {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-weight: 700;
 }
 
 input {
@@ -702,24 +1247,113 @@ input {
   border: 1px solid var(--border);
   background: var(--panel-2);
   color: var(--fg);
+  min-width: 0;
 }
 
 .layout {
   display: grid;
   gap: 1.25rem;
+  max-width: 100%;
 }
 
 @media (min-width: 900px) {
   .layout {
-    grid-template-columns: 16rem 1fr;
+    grid-template-columns: minmax(20rem, 34rem) minmax(0, 1fr);
+    align-items: start;
   }
 }
 
-.model-list {
-  list-style: none;
-  padding: 0;
+.catalog {
+  min-width: 0;
+}
+
+.catalog-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  align-items: end;
+  margin: 0.5rem 0;
+}
+
+.catalog-search,
+.catalog-status {
   display: grid;
+  gap: 0.25rem;
+  flex: 1 1 10rem;
+  min-width: 8rem;
+}
+
+.catalog-reset {
+  flex: 0 0 auto;
+}
+
+.catalog-count {
+  display: flex;
+  align-items: center;
   gap: 0.35rem;
+  margin: 0.35rem 0;
+}
+
+.catalog-hidden-note {
+  margin: 0.35rem 0;
+}
+
+.catalog-table-scroll {
+  max-height: 24rem;
+  overflow-y: auto;
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.catalog-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.catalog-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--panel-2);
+  text-align: left;
+  padding: 0.5rem 0.6rem;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.catalog-table td {
+  padding: 0.45rem 0.6rem;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+
+.catalog-key {
+  overflow-wrap: anywhere;
+  max-width: 10rem;
+}
+
+.catalog-row {
+  cursor: pointer;
+}
+
+.catalog-row:hover {
+  background: var(--panel-2);
+}
+
+.catalog-row:focus-visible {
+  outline: 2px solid var(--accent, var(--color-focus));
+  outline-offset: -2px;
+}
+
+.catalog-row--selected {
+  background: color-mix(in srgb, var(--accent, #f59e0b) 14%, transparent);
+}
+
+.catalog-empty {
+  padding: 0.85rem;
+  margin: 0;
 }
 
 .model-row {
@@ -733,6 +1367,7 @@ input {
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
+  align-items: center;
   margin: 1rem 0;
 }
 
@@ -785,11 +1420,49 @@ input {
   background: var(--panel);
 }
 
+.readonly-meta p {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+
 .toolbar {
   display: flex;
   flex-wrap: wrap;
   gap: 0.75rem;
   align-items: center;
   margin-bottom: 1rem;
+}
+
+.btn.danger {
+  background: var(--color-danger-500, #b91c1c);
+  color: #fff;
+  border-color: transparent;
+}
+
+.btn.danger.small {
+  padding: 0.25rem 0.55rem;
+  font-size: 0.8rem;
+}
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgb(0 0 0 / 55%);
+  padding: 1rem;
+}
+
+.modal {
+  max-width: 32rem;
+  width: 100%;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 1.25rem;
 }
 </style>

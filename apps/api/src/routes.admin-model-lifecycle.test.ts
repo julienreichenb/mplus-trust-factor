@@ -5,12 +5,19 @@ import type { PrismaClient } from "@mplus/database";
 import type { QueueProducers } from "@mplus/worker";
 import { buildApp } from "./app.js";
 import { createApiContainer, type ApiContainer } from "./container.js";
-import { buildScoreModelConfig, buildTestEnv, createTestPrismaClient } from "./test-helpers.js";
+import {
+  buildScoreModelConfig,
+  buildTestEnv,
+  cleanupTrackedScoreModels,
+  createTestPrismaClient,
+} from "./test-helpers.js";
 
 const { prisma, dbAvailable } = await createTestPrismaClient();
 const ADMIN_KEY = "test-admin-key-lifecycle";
+const createdScoreModelIds: string[] = [];
 
 afterAll(async () => {
+  await cleanupTrackedScoreModels(prisma, createdScoreModelIds);
   await prisma.$disconnect();
 });
 
@@ -68,7 +75,9 @@ describe.skipIf(!dbAvailable)("admin score model lifecycle (Agent 08)", { timeou
       },
     });
     expect(response.statusCode).toBe(201);
-    return response.json() as { id: string; key: string; version: number; status: string };
+    const model = response.json() as { id: string; key: string; version: number; status: string };
+    createdScoreModelIds.push(model.id);
+    return model;
   }
 
   it("denies normal users without admin credentials", async () => {
@@ -359,5 +368,118 @@ describe.skipIf(!dbAvailable)("admin score model lifecycle (Agent 08)", { timeou
     });
     expect(validated.statusCode).toBe(200);
     expect(validated.json()).toMatchObject({ valid: true, errors: [] });
+  });
+
+  describe("DELETE /api/v1/admin/score-models/:id", () => {
+    it("returns 404 for a missing model", async () => {
+      const response = await app.inject({
+        method: "DELETE",
+        url: `/api/v1/admin/score-models/${randomUUID()}`,
+        headers: adminHeaders(),
+      });
+      expect(response.statusCode).toBe(404);
+      expect(response.json().error.code).toBe("SCORE_MODEL_NOT_FOUND");
+    });
+
+    it("refuses to delete an ACTIVE model", async () => {
+      const key = `life-del-act-${randomUUID().slice(0, 8)}`;
+      const draft = await createDraft(key);
+      const activate = await app.inject({
+        method: "POST",
+        url: `/api/v1/admin/score-models/${draft.id}/activate`,
+        headers: adminHeaders(),
+        payload: { confirm: true },
+      });
+      expect(activate.statusCode).toBe(200);
+
+      const del = await app.inject({
+        method: "DELETE",
+        url: `/api/v1/admin/score-models/${draft.id}`,
+        headers: adminHeaders(),
+      });
+      expect(del.statusCode).toBe(409);
+      expect(del.json().error.code).toBe("SCORE_MODEL_NOT_DELETABLE");
+
+      const stillThere = await prisma.scoreModel.findUnique({ where: { id: draft.id } });
+      expect(stillThere).not.toBeNull();
+    });
+
+    it("refuses to delete an ARCHIVED model", async () => {
+      const key = `life-del-arch-${randomUUID().slice(0, 8)}`;
+      const first = await createDraft(key);
+      await app.inject({
+        method: "POST",
+        url: `/api/v1/admin/score-models/${first.id}/activate`,
+        headers: adminHeaders(),
+        payload: { confirm: true },
+      });
+      const second = await createDraft(key);
+      await app.inject({
+        method: "POST",
+        url: `/api/v1/admin/score-models/${second.id}/activate`,
+        headers: adminHeaders(),
+        payload: { confirm: true, expectedPreviousActiveId: first.id },
+      });
+
+      const archived = await prisma.scoreModel.findUnique({ where: { id: first.id } });
+      expect(archived?.status).toBe("ARCHIVED");
+
+      const del = await app.inject({
+        method: "DELETE",
+        url: `/api/v1/admin/score-models/${first.id}`,
+        headers: adminHeaders(),
+      });
+      expect(del.statusCode).toBe(409);
+      expect(del.json().error.code).toBe("SCORE_MODEL_NOT_DELETABLE");
+    });
+
+    it("deletes an unused DRAFT and writes an audit event", async () => {
+      const key = `life-del-draft-${randomUUID().slice(0, 8)}`;
+      const draft = await createDraft(key);
+
+      const del = await app.inject({
+        method: "DELETE",
+        url: `/api/v1/admin/score-models/${draft.id}`,
+        headers: adminHeaders(),
+      });
+      expect(del.statusCode).toBe(200);
+      const body = del.json();
+      expect(body).toMatchObject({ id: draft.id, key, version: draft.version, status: "DRAFT" });
+
+      const gone = await prisma.scoreModel.findUnique({ where: { id: draft.id } });
+      expect(gone).toBeNull();
+
+      const audits = await prisma.auditEvent.findMany({
+        where: { action: "admin.score_models.delete", resourceId: draft.id },
+      });
+      expect(audits.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it("returns 409 SCORE_MODEL_DRAFT_IN_USE with safe dependency counts when durable history references the draft", async () => {
+      const key = `life-del-inuse-${randomUUID().slice(0, 8)}`;
+      const draft = await createDraft(key);
+
+      await prisma.bulkOperation.create({
+        data: {
+          mode: "RECALCULATE_ONLY",
+          logicalKey: `test-in-use-${randomUUID()}`,
+          batchSize: 10,
+          scoreModelId: draft.id,
+        },
+      });
+
+      const del = await app.inject({
+        method: "DELETE",
+        url: `/api/v1/admin/score-models/${draft.id}`,
+        headers: adminHeaders(),
+      });
+      expect(del.statusCode).toBe(409);
+      const body = del.json();
+      expect(body.error.code).toBe("SCORE_MODEL_DRAFT_IN_USE");
+      expect(body.error.details.counts.bulkOperations).toBeGreaterThanOrEqual(1);
+
+      const stillThere = await prisma.scoreModel.findUnique({ where: { id: draft.id } });
+      expect(stillThere).not.toBeNull();
+    });
   });
 });
