@@ -2,6 +2,10 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import { OWNED_CHARACTER_RELEVANCE_POLICY_V1 } from "@mplus/config";
 import { QUEUE_NAMES } from "@mplus/contracts";
 import { runDiscoverOwnedCharacters } from "./discover-owned-characters.js";
+import {
+  loadCharacterRefreshEligibilitySignals,
+  runRefreshEligibilityGate,
+} from "./refresh-eligibility-gate.js";
 import { clearSeasonAuthorityCacheForTests } from "./season-authority.js";
 import type { WorkerContainer } from "../container.js";
 
@@ -44,6 +48,23 @@ function seasonPrismaMocks() {
       },
     })),
     create: vi.fn(async () => seasonRow),
+  };
+}
+
+/** Prisma stubs required once discovery persists eligibility evidence. */
+function eligibilityPersistPrismaMocks() {
+  return {
+    character: {
+      update: vi.fn(async () => ({})),
+      findUnique: vi.fn(async () => null),
+    },
+    characterSnapshot: {
+      create: vi.fn(async () => ({})),
+      findMany: vi.fn(async () => []),
+    },
+    metricObservation: {
+      findFirst: vi.fn(async () => null),
+    },
   };
 }
 
@@ -146,6 +167,7 @@ describe("runDiscoverOwnedCharacters", () => {
       },
       characterPublishedScore: { findFirst: vi.fn(async () => null) },
       ingestionJob: { findFirst: vi.fn(async () => null) },
+      ...eligibilityPersistPrismaMocks(),
     };
 
     const upsertCharacter = vi.fn(async () => ({ id: "char-1" }));
@@ -214,6 +236,15 @@ describe("runDiscoverOwnedCharacters", () => {
     expect(updates.find((u) => u.id === "o-89")?.data.relevanceEligible).toBe(false);
     expect(updates.find((u) => u.id === "o-max" && u.data.relevanceEligible === true)?.data.relevancePolicyVersion).toBe(
       "v1",
+    );
+    expect(
+      updates.find((u) => u.id === "o-max" && u.data.currentSeasonMythicSeasonId != null)?.data
+        .currentSeasonMythicSeasonId,
+    ).toBe("season-1");
+    expect(prisma.character.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: { level: OWNED_CHARACTER_RELEVANCE_POLICY_V1.maxCharacterLevel },
+      }),
     );
   });
 
@@ -365,6 +396,7 @@ describe("runDiscoverOwnedCharacters", () => {
         })),
       },
       ingestionJob: { findFirst: vi.fn(async () => null) },
+      ...eligibilityPersistPrismaMocks(),
     };
 
     const enqueueRefreshCharacter = vi.fn();
@@ -448,6 +480,7 @@ describe("runDiscoverOwnedCharacters", () => {
         })),
       },
       ingestionJob: { findFirst: vi.fn(async () => null) },
+      ...eligibilityPersistPrismaMocks(),
     };
 
     const enqueueRefreshCharacter = vi.fn(async () => ({
@@ -598,6 +631,7 @@ describe("runDiscoverOwnedCharacters", () => {
       },
       characterPublishedScore: { findFirst: vi.fn(async () => null) },
       ingestionJob: { findFirst: vi.fn(async () => null) },
+      ...eligibilityPersistPrismaMocks(),
     };
 
     const enqueueRefreshCharacter = vi
@@ -774,6 +808,7 @@ describe("runDiscoverOwnedCharacters", () => {
       },
       characterPublishedScore: { findFirst: vi.fn(async () => null) },
       ingestionJob: { findFirst: vi.fn(async () => null) },
+      ...eligibilityPersistPrismaMocks(),
     };
 
     const container = {
@@ -828,5 +863,297 @@ describe("runDiscoverOwnedCharacters", () => {
       (c: [{ region: string }]) => c[0].region,
     );
     expect(regions.sort()).toEqual(["eu", "us"]);
+  });
+
+  it("persists Character.level + season-row rating evidence before enqueue so the gate passes", async () => {
+    const getMythicKeystoneProfile = vi.fn(async () => mythicProfile(2100));
+    const ownerships = [
+      {
+        id: "o-evidence",
+        status: "CURRENT",
+        characterLevel: OWNED_CHARACTER_RELEVANCE_POLICY_V1.maxCharacterLevel,
+        characterName: "Evidence",
+        realmSlug: "tarren-mill",
+        playableClassId: 8,
+        blizzardCharacterId: 42n,
+        isPrimary: false,
+        characterId: null,
+        relevanceReasons: null,
+        relevanceEligible: null,
+        currentSeasonMythicRating: null,
+        currentSeasonMythicFetchedAt: null,
+        currentSeasonMythicSource: null,
+        currentSeasonMythicSeasonId: null,
+        region: EU_REGION,
+      },
+    ];
+
+    const characterState = { id: "char-evidence", level: null as number | null, regionId: EU_REGION.id };
+    const ownershipRows: Array<{
+      characterId: string | null;
+      currentSeasonMythicRating: number | null;
+      currentSeasonMythicSeasonId: string | null;
+      currentSeasonMythicFetchedAt: Date | null;
+    }> = [];
+    const snapshots: Array<{ mythicRating: number | null; rawSummary: unknown }> = [];
+    const callOrder: string[] = [];
+
+    const characterUpdate = vi.fn(async ({ data }: { data: { level?: number } }) => {
+      callOrder.push("persist.level");
+      if (data.level != null) characterState.level = data.level;
+      return characterState;
+    });
+    const snapshotCreate = vi.fn(async ({ data }: { data: { mythicRating: number; rawSummary: unknown } }) => {
+      callOrder.push("persist.snapshot");
+      snapshots.push({ mythicRating: data.mythicRating, rawSummary: data.rawSummary });
+      return data;
+    });
+    const enqueueRefreshCharacter = vi.fn(async () => {
+      callOrder.push("enqueue");
+      return { jobId: "job-evidence", dedupeKey: "d", reused: false, enqueued: true };
+    });
+
+    const prisma = {
+      battleNetAccount: {
+        findUnique: vi.fn(async () => ({ id: "bnet-1", unlinkedAt: null })),
+        update: vi.fn(async () => ({})),
+      },
+      season: seasonPrismaMocks(),
+      verifiedCharacterOwnership: {
+        findMany: vi.fn(async () => ownerships),
+        update: vi.fn(
+          async ({
+            data,
+          }: {
+            where: { id: string };
+            data: Record<string, unknown>;
+          }) => {
+            if (data.currentSeasonMythicSeasonId != null || data.currentSeasonMythicRating != null) {
+              ownershipRows.push({
+                characterId: (data.characterId as string | null | undefined) ?? null,
+                currentSeasonMythicRating: (data.currentSeasonMythicRating as number | null) ?? null,
+                currentSeasonMythicSeasonId: (data.currentSeasonMythicSeasonId as string | null) ?? null,
+                currentSeasonMythicFetchedAt: (data.currentSeasonMythicFetchedAt as Date | null) ?? null,
+              });
+            }
+            if (data.characterId != null) {
+              ownerships[0].characterId = data.characterId as string;
+            }
+            return {};
+          },
+        ),
+        findFirst: vi.fn(async ({ where }: { where: Record<string, unknown> }) => {
+          const seasonId = where.currentSeasonMythicSeasonId;
+          const match = ownershipRows.find(
+            (row) =>
+              row.currentSeasonMythicSeasonId === seasonId &&
+              row.currentSeasonMythicRating != null,
+          );
+          return match
+            ? {
+                currentSeasonMythicRating: match.currentSeasonMythicRating,
+                currentSeasonMythicSeasonId: match.currentSeasonMythicSeasonId,
+              }
+            : null;
+        }),
+      },
+      characterPublishedScore: { findFirst: vi.fn(async () => null) },
+      ingestionJob: { findFirst: vi.fn(async () => null) },
+      character: {
+        update: characterUpdate,
+        findUnique: vi.fn(async () => ({
+          id: characterState.id,
+          level: characterState.level,
+          regionId: characterState.regionId,
+        })),
+      },
+      characterSnapshot: {
+        create: snapshotCreate,
+        findMany: vi.fn(async () => snapshots),
+      },
+      metricObservation: { findFirst: vi.fn(async () => null) },
+    };
+
+    const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+    const container = {
+      prisma,
+      env: {
+        ACTIVE_SCORE_MODEL_KEY: "default",
+        ACTIVE_SCORE_MODEL_VERSION: 6,
+        PROVIDER_MODE: "fixture",
+        BLIZZARD_CHARACTER_TTL_SECONDS: 86_400,
+        WCL_CHARACTER_TTL_SECONDS: 43_200,
+        RAIDERIO_CHARACTER_TTL_SECONDS: 43_200,
+        SCORE_TTL_SECONDS: 604_800,
+        REFRESH_FAILURE_BACKOFF_SECONDS: 3_600,
+      },
+      logger,
+      providers: baseProviders(getMythicKeystoneProfile),
+      repositories: {
+        score: { getActiveModel: vi.fn(async () => ({ id: "model-1", key: "default", version: 6 })) },
+        character: {
+          upsertCharacter: vi.fn(async () => ({ id: characterState.id })),
+        },
+      },
+    } as unknown as WorkerContainer;
+
+    const result = await runDiscoverOwnedCharacters(
+      container,
+      {
+        battleNetAccountId: "bnet-1",
+        userId: "user-1",
+        ownershipSyncAt: new Date().toISOString(),
+        seasonKey: "blizzard-season-17",
+        requestedAt: new Date().toISOString(),
+      },
+      { enqueueRefreshCharacter },
+    );
+
+    expect(result.counters.refreshQueuedCount).toBe(1);
+    expect(characterUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: characterState.id },
+        data: { level: OWNED_CHARACTER_RELEVANCE_POLICY_V1.maxCharacterLevel },
+      }),
+    );
+    expect(ownershipRows.some((row) => row.currentSeasonMythicSeasonId === "season-1")).toBe(true);
+    expect(ownershipRows.some((row) => row.currentSeasonMythicSeasonId === "blizzard-season-17")).toBe(
+      false,
+    );
+    expect(snapshotCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          characterId: characterState.id,
+          mythicRating: 2100,
+          rawSummary: {
+            eligibility: { authoritativeSeasonId: "season-1" },
+          },
+        }),
+      }),
+    );
+    expect(callOrder.indexOf("persist.level")).toBeGreaterThanOrEqual(0);
+    expect(callOrder.indexOf("persist.snapshot")).toBeGreaterThan(callOrder.indexOf("persist.level"));
+    expect(callOrder.indexOf("enqueue")).toBeGreaterThan(callOrder.indexOf("persist.snapshot"));
+
+    const authority = {
+      regionCode: "EU",
+      regionId: EU_REGION.id,
+      seasonRowId: "season-1",
+      blizzardSeasonId: 17,
+      slug: "blizzard-season-17",
+      authoritySource: "season_index.current_season" as const,
+      authorityVerifiedAt: new Date(),
+      resolution: "memory" as const,
+    };
+
+    // Link ownership characterId for gate ownership lookup (discovery already did).
+    prisma.verifiedCharacterOwnership.findFirst = vi.fn(async ({ where }: { where: Record<string, unknown> }) => {
+      if (where.characterId !== characterState.id) return null;
+      if (where.currentSeasonMythicSeasonId !== "season-1") return null;
+      return {
+        currentSeasonMythicRating: 2100,
+        currentSeasonMythicSeasonId: "season-1",
+      };
+    });
+
+    const signals = await loadCharacterRefreshEligibilitySignals(prisma as never, {
+      characterId: characterState.id,
+      authority,
+    });
+    expect(signals.characterLevel).toBe(OWNED_CHARACTER_RELEVANCE_POLICY_V1.maxCharacterLevel);
+    expect(signals.currentSeasonMythicScore).toBe(2100);
+    expect(signals.evidenceSource).toBe("ownership");
+
+    const gate = await runRefreshEligibilityGate(
+      { prisma: prisma as never, logger },
+      {
+        characterId: characterState.id,
+        authority,
+        jobId: "job-evidence",
+        triggerSource: "ACCOUNT_DISCOVERY",
+      },
+    );
+    expect(gate.eligible).toBe(true);
+  });
+
+  it("does not enqueue when eligibility persistence fails", async () => {
+    const getMythicKeystoneProfile = vi.fn(async () => mythicProfile(2100));
+    const ownerships = [
+      {
+        id: "o-persist-fail",
+        status: "CURRENT",
+        characterLevel: 90,
+        characterName: "PersistFail",
+        realmSlug: "tarren-mill",
+        playableClassId: 8,
+        blizzardCharacterId: 7n,
+        isPrimary: false,
+        characterId: null,
+        relevanceReasons: null,
+        relevanceEligible: null,
+        currentSeasonMythicRating: null,
+        currentSeasonMythicFetchedAt: null,
+        currentSeasonMythicSource: null,
+        currentSeasonMythicSeasonId: null,
+        region: EU_REGION,
+      },
+    ];
+
+    const enqueueRefreshCharacter = vi.fn();
+    const prisma = {
+      battleNetAccount: {
+        findUnique: vi.fn(async () => ({ id: "bnet-1", unlinkedAt: null })),
+        update: vi.fn(async () => ({})),
+      },
+      season: seasonPrismaMocks(),
+      verifiedCharacterOwnership: {
+        findMany: vi.fn(async () => ownerships),
+        update: vi.fn(async () => ({})),
+      },
+      characterPublishedScore: { findFirst: vi.fn(async () => null) },
+      ingestionJob: { findFirst: vi.fn(async () => null) },
+      character: {
+        update: vi.fn(async () => {
+          throw new Error("level persist failed");
+        }),
+      },
+      characterSnapshot: { create: vi.fn(async () => ({})) },
+    };
+
+    const container = {
+      prisma,
+      env: {
+        ACTIVE_SCORE_MODEL_KEY: "default",
+        ACTIVE_SCORE_MODEL_VERSION: 6,
+        PROVIDER_MODE: "fixture",
+        BLIZZARD_CHARACTER_TTL_SECONDS: 86_400,
+        WCL_CHARACTER_TTL_SECONDS: 43_200,
+        RAIDERIO_CHARACTER_TTL_SECONDS: 43_200,
+        SCORE_TTL_SECONDS: 604_800,
+        REFRESH_FAILURE_BACKOFF_SECONDS: 3_600,
+      },
+      logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      providers: baseProviders(getMythicKeystoneProfile),
+      repositories: {
+        score: { getActiveModel: vi.fn(async () => ({ id: "model-1", key: "default", version: 6 })) },
+        character: { upsertCharacter: vi.fn(async () => ({ id: "char-persist-fail" })) },
+      },
+    } as unknown as WorkerContainer;
+
+    const result = await runDiscoverOwnedCharacters(
+      container,
+      {
+        battleNetAccountId: "bnet-1",
+        userId: "user-1",
+        ownershipSyncAt: new Date().toISOString(),
+        seasonKey: "blizzard-season-17",
+        requestedAt: new Date().toISOString(),
+      },
+      { enqueueRefreshCharacter },
+    );
+
+    expect(enqueueRefreshCharacter).not.toHaveBeenCalled();
+    expect(result.counters.refreshQueuedCount).toBe(0);
+    expect(result.counters.failedCount).toBeGreaterThanOrEqual(1);
   });
 });

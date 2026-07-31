@@ -5,6 +5,7 @@ import {
   toPublicRefreshErrorMessage,
   PUBLIC_REFRESH_FAILED_MESSAGE,
   PUBLIC_GENERIC_UNAVAILABLE_MESSAGE,
+  PUBLIC_NOT_REFRESH_ELIGIBLE_MESSAGE,
 } from "./public-error-sanitize.js";
 
 describe("public error sanitization", () => {
@@ -47,12 +48,14 @@ describe("public error sanitization", () => {
     ).toBe(PUBLIC_REFRESH_FAILED_MESSAGE);
   });
 
-  it("hides CANCELLED from public refresh error surfaces", () => {
+  it("maps eligibility failures to English public copy", () => {
     const safe = toPublicRefreshErrorMessage(
-      { code: "CANCELLED", message: "admin_kill_all: cooperative cancel" },
-      { hasPublishedScore: true },
+      { code: "CHARACTER_REFRESH_ELIGIBILITY_UNKNOWN", message: "internal" },
+      { hasPublishedScore: false },
     );
-    expect(safe.errorCode).toBeNull();
-    expect(safe.errorMessage).toBeNull();
+    expect(safe.errorCode).toBe("NOT_REFRESH_ELIGIBLE");
+    expect(safe.errorMessage).toBe(PUBLIC_NOT_REFRESH_ELIGIBLE_MESSAGE);
+    expect(safe.errorMessage).toMatch(/not eligible for refresh/i);
+    expect(safe.errorMessage).not.toMatch(/éligible|actualisation/i);
   });
 });

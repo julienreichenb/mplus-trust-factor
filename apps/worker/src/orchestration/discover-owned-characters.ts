@@ -16,6 +16,7 @@ import type { Prisma, Season } from "@mplus/database";
 import type { WorkerContainer } from "../container.js";
 import type { QueueProducers } from "../queues.js";
 import { resolveActiveRefreshContract } from "./build-refresh-contract.js";
+import { persistRefreshEligibilityEvidence } from "./refresh-eligibility-gate.js";
 import { synchronizeSeasonAuthority } from "./season-authority.js";
 import { mapWithConcurrency } from "./concurrency.js";
 
@@ -354,11 +355,12 @@ export async function runDiscoverOwnedCharacters(
     for (const ownership of maxLevel) {
       const ratingInfo = ratingById.get(ownership.id)!;
 
+      // Gate queries ownership by authoritative Season.id (seasonRowId), not slug.
       await prisma.verifiedCharacterOwnership.update({
         where: { id: ownership.id },
         data: {
           currentSeasonMythicRating: ratingInfo.rating,
-          currentSeasonMythicSeasonId: ratingInfo.seasonId,
+          currentSeasonMythicSeasonId: ratingInfo.seasonRowId ?? ratingInfo.seasonId,
           currentSeasonMythicFetchedAt: ratingInfo.fetchedAt,
           currentSeasonMythicSource: ratingInfo.source,
           currentSeasonMythicState: ratingInfo.state,
@@ -470,6 +472,18 @@ export async function runDiscoverOwnedCharacters(
 
     for (const candidate of refreshCandidates) {
       try {
+        if (!candidate.seasonRowId) {
+          counters.failedCount += 1;
+          logger.warn(
+            {
+              triggerSource: "ACCOUNT_DISCOVERY",
+              ownershipId: candidate.ownership.id,
+            },
+            "discover-owned-characters skip enqueue: missing authoritative season row id",
+          );
+          continue;
+        }
+
         const classSlug = slugFromBlizzardPlayableClassId(candidate.ownership.playableClassId);
         const character = await repositories.character.upsertCharacter(
           {
@@ -490,6 +504,15 @@ export async function runDiscoverOwnedCharacters(
             data: { characterId: character.id },
           });
         }
+
+        // Persist Character.level + season-tagged rating evidence before any
+        // early-continue or enqueue — required by runRefreshEligibilityGate.
+        await persistRefreshEligibilityEvidence(prisma, {
+          characterId: character.id,
+          level: candidate.ownership.characterLevel,
+          mythicRating: candidate.rating,
+          authoritativeSeasonRowId: candidate.seasonRowId,
+        });
 
         if (candidate.hasFreshScore) {
           continue;
