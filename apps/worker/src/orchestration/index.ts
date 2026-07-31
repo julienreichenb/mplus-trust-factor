@@ -13,6 +13,7 @@ export * from "./refresh-contract-preflight.js";
 export * from "./retry-classification.js";
 export * from "./run-fusion.js";
 export * from "./sync-realm-catalog.js";
+export * from "./bootstrap-realm-catalog.js";
 export * from "./wcl-budget-manager.js";
 export * from "./cohort-selector.js";
 export * from "./cohort-fairness.js";

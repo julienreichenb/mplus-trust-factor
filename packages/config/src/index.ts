@@ -181,6 +181,19 @@ export const envSchema = z
 
     /** Worker-only HTTP health port (Docker HEALTHCHECK). 0 disables the listener. */
     WORKER_HEALTH_PORT: z.coerce.number().int().min(0).default(3001),
+
+    /**
+     * Realm catalog freshness window for worker bootstrap (lastSyncedAt).
+     * Stale-but-non-empty catalogs remain usable if a refresh fails (last-known-good).
+     * Empty catalogs must be bootstrapped before the worker reports ready in live mode.
+     * Default 7 days. Index-first sync only — not coupled to score-model seeding.
+     */
+    REALM_CATALOG_STALE_SECONDS: z.coerce.number().int().positive().default(604_800),
+    /**
+     * Bounded concurrency for optional Blizzard realm detail enrichment
+     * (`forceDetails` / maintenance sync). Bootstrap uses index-only sync.
+     */
+    REALM_CATALOG_DETAIL_CONCURRENCY: z.coerce.number().int().positive().max(16).default(4),
   })
   .superRefine((env, ctx) => {
     if (env.ADMIN_BOOTSTRAP_USER_ID && env.ADMIN_BOOTSTRAP_BATTLENET_SUBJECT) {

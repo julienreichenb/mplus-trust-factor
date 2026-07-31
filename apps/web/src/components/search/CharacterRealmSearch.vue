@@ -365,6 +365,14 @@ async function enrichRecentPortraits(): Promise<void> {
             />
           </li>
         </ul>
+        <p
+          v-if="!compact"
+          class="crs__helper"
+          data-testid="character-search-helper"
+        >
+          Suggestions come from indexed M+ Trust Factor profiles. Exact Region + Realm + Name can
+          still be searched on Blizzard.
+        </p>
         <span v-if="nameSearchError" class="crs__field-error" role="alert">{{ nameSearchError }}</span>
         <span v-else-if="!compact && nameError" class="crs__field-error" role="alert">{{ nameError }}</span>
       </label>
@@ -674,6 +682,13 @@ select:focus-visible {
 
 .crs:not(.crs--compact) .crs__hint--name {
   top: 2.55rem;
+}
+
+.crs__helper {
+  margin: 0.35rem 0 0;
+  font-size: var(--text-xs);
+  line-height: 1.35;
+  color: var(--color-text-muted);
 }
 
 .crs__field-error {

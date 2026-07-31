@@ -305,7 +305,9 @@ model Character {
   realmId              String         @map("realm_id") @db.Uuid
   normalizedName       String         @map("normalized_name")
   displayName          String         @map("display_name")
-  /** Accent-folded search key (mirrors realm nameNormalized). Maintained on write. */
+  /** Accent-folded search key (mirrors realm nameNormalized). Maintained on write.
+   * GIN trigram index (`characters_name_search_key_trgm`) supports bounded fuzzy autocomplete.
+   */
   nameSearchKey        String?        @map("name_search_key")
   level                Int?
   faction              String?

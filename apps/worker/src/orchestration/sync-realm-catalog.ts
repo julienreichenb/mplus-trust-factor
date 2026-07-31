@@ -17,6 +17,13 @@ export const RETAIL_REGION_CODES: RegionCode[] = ["EU", "US", "KR", "TW"];
 export interface RealmSyncResult {
   region: RegionCode;
   indexed: number;
+  /** Index rows written or refreshed (minimal upsert). */
+  minimallyUpserted: number;
+  /** Successfully detail-enriched rows. */
+  enriched: number;
+  enrichmentFailures: number;
+  activeCatalogCount: number;
+  /** @deprecated Prefer `minimallyUpserted` — kept for script compatibility. */
   upserted: number;
   detailsFetched: number;
   skippedDetails: number;
@@ -28,6 +35,8 @@ export interface SyncRealmCatalogDeps {
   realms: RealmRepository;
   logger: Logger;
   now?: () => Date;
+  /** Bounded concurrency for optional detail enrichment (default 4). */
+  detailConcurrency?: number;
 }
 
 function buildCtx(region: RegionCode, forceRefresh: boolean, correlationId?: string | null): ProviderFetchContext {
@@ -42,9 +51,32 @@ function buildCtx(region: RegionCode, forceRefresh: boolean, correlationId?: str
   };
 }
 
+async function mapPool<T>(
+  items: T[],
+  concurrency: number,
+  worker: (item: T) => Promise<void>,
+): Promise<void> {
+  const limit = Math.max(1, concurrency);
+  let next = 0;
+  const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (next < items.length) {
+      const index = next;
+      next += 1;
+      await worker(items[index]!);
+    }
+  });
+  await Promise.all(runners);
+}
+
 /**
  * Synchronize the retail realm catalog for one or more regions from Blizzard Game Data.
- * Idempotent upsert by (region, slug). Does not hard-delete omitted realms.
+ *
+ * Index-first: every realm index entry is upserted immediately (slug/name/id).
+ * Detail enrichment (`getRealm`) is optional, best-effort, and bounded-concurrency.
+ * A failed detail request never removes or blocks the minimal catalog row.
+ * Idempotent; does not hard-delete omitted realms (last-known-good).
+ *
+ * Normal bootstrap requires only the index request per region.
  */
 export async function syncRealmCatalog(
   deps: SyncRealmCatalogDeps,
@@ -54,6 +86,7 @@ export async function syncRealmCatalog(
     normalizeRegion(r),
   ) as RegionCode[];
   const forceDetails = job.forceDetails === true;
+  const detailConcurrency = deps.detailConcurrency ?? 4;
   const syncedAt = deps.now?.() ?? new Date();
   const results: RealmSyncResult[] = [];
 
@@ -61,6 +94,10 @@ export async function syncRealmCatalog(
     const result: RealmSyncResult = {
       region,
       indexed: 0,
+      minimallyUpserted: 0,
+      enriched: 0,
+      enrichmentFailures: 0,
+      activeCatalogCount: 0,
       upserted: 0,
       detailsFetched: 0,
       skippedDetails: 0,
@@ -72,46 +109,22 @@ export async function syncRealmCatalog(
       );
       result.indexed = index.data.length;
 
+      // Phase 1 — persist every index entry (exhaustive catalog).
       for (const entry of index.data) {
         try {
-          const existing = await deps.realms.findCatalogBySlug(region, entry.slug);
-          const needsDetails =
-            forceDetails ||
-            !existing ||
-            existing.blizzardRealmId == null ||
-            existing.connectedRealmId == null ||
-            existing.locale == null;
-
-          if (needsDetails) {
-            const detail = await deps.blizzard.getRealm(
-              entry.slug,
-              buildCtx(region, forceDetails, job.correlationId),
-            );
-            result.detailsFetched += 1;
-            await deps.realms.upsertCatalogEntry(
-              catalogInputFromBlizzardRealm(detail.data, syncedAt),
-            );
-          } else {
-            result.skippedDetails += 1;
-            await deps.realms.upsertCatalogEntry({
-              regionCode: region,
-              blizzardRealmId: Number(existing.blizzardRealmId),
-              slug: entry.slug,
-              name: entry.name || existing.name,
-              connectedRealmId:
-                existing.connectedRealmId == null ? null : Number(existing.connectedRealmId),
-              locale: existing.locale,
-              timezone: existing.timezone,
-              category: existing.category,
-              isTournament: existing.isTournament,
-              syncedAt,
-            });
-          }
+          await deps.realms.upsertCatalogIndexEntry({
+            regionCode: region,
+            blizzardRealmId: entry.blizzardRealmId,
+            slug: entry.slug,
+            name: entry.name || entry.slug,
+            syncedAt,
+          });
+          result.minimallyUpserted += 1;
           result.upserted += 1;
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
-          result.errors.push(`${entry.slug}: ${message}`);
-          deps.logger.warn({ err: error, region, slug: entry.slug }, "realm detail sync failed");
+          result.errors.push(`${entry.slug}: index upsert failed: ${message}`);
+          deps.logger.warn({ err: error, region, slug: entry.slug }, "realm index upsert failed");
         }
       }
 
@@ -120,13 +133,59 @@ export async function syncRealmCatalog(
         index.data.map((e) => e.slug),
         syncedAt,
       );
+
+      // Phase 2 — optional best-effort detail enrichment (maintenance / forceDetails).
+      if (forceDetails && index.data.length > 0) {
+        await mapPool(index.data, detailConcurrency, async (entry) => {
+          try {
+            const detail = await deps.blizzard.getRealm(
+              entry.slug,
+              buildCtx(region, forceDetails, job.correlationId),
+            );
+            result.detailsFetched += 1;
+            await deps.realms.upsertCatalogEntry(
+              catalogInputFromBlizzardRealm(detail.data, syncedAt),
+            );
+            result.enriched += 1;
+          } catch (error) {
+            result.enrichmentFailures += 1;
+            const message = error instanceof Error ? error.message : String(error);
+            result.errors.push(`${entry.slug}: ${message}`);
+            deps.logger.warn(
+              { err: error, region, slug: entry.slug },
+              "realm detail enrichment failed — minimal catalog row retained",
+            );
+          }
+        });
+      } else {
+        result.skippedDetails = index.data.length;
+      }
+
+      result.activeCatalogCount = await deps.realms.countActiveByRegion(region);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       result.errors.push(message);
       deps.logger.error({ err: error, region }, "realm index sync failed");
+      try {
+        result.activeCatalogCount = await deps.realms.countActiveByRegion(region);
+      } catch {
+        /* ignore secondary failure */
+      }
     }
     results.push(result);
-    deps.logger.info({ ...result }, "realm catalog region sync finished");
+    deps.logger.info(
+      {
+        region: result.region,
+        indexed: result.indexed,
+        minimallyUpserted: result.minimallyUpserted,
+        enriched: result.enriched,
+        enrichmentFailures: result.enrichmentFailures,
+        activeCatalogCount: result.activeCatalogCount,
+        skippedDetails: result.skippedDetails,
+        errorCount: result.errors.length,
+      },
+      "realm catalog region sync finished",
+    );
   }
 
   return results;
