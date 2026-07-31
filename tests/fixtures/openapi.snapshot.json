@@ -2805,6 +2805,200 @@
         }
       }
     },
+    "/api/v1/characters/{region}/{realm}/{name}/active-rerolls": {
+      "get": {
+        "tags": [
+          "characters"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 8
+            },
+            "in": "path",
+            "name": "region",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "in": "path",
+            "name": "realm",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 48
+            },
+            "in": "path",
+            "name": "name",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "displayedCharacterIsMain": {
+                      "type": "boolean"
+                    },
+                    "rerolls": {
+                      "type": "array",
+                      "maxItems": 24,
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "characterId": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "region": {
+                            "type": "string"
+                          },
+                          "realmSlug": {
+                            "type": "string"
+                          },
+                          "realmName": {
+                            "type": [
+                              "null",
+                              "string"
+                            ]
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "classSlug": {
+                            "type": [
+                              "null",
+                              "string"
+                            ]
+                          },
+                          "className": {
+                            "type": [
+                              "null",
+                              "string"
+                            ]
+                          },
+                          "classColor": {
+                            "type": [
+                              "null",
+                              "string"
+                            ]
+                          },
+                          "portraitUrl": {
+                            "type": [
+                              "null",
+                              "string"
+                            ]
+                          },
+                          "mythicPlusScore": {
+                            "type": [
+                              "null",
+                              "number"
+                            ]
+                          },
+                          "grade": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "S",
+                                  "A",
+                                  "B",
+                                  "C",
+                                  "D",
+                                  "U"
+                                ]
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "isMain": {
+                            "type": "boolean"
+                          }
+                        },
+                        "required": [
+                          "characterId",
+                          "region",
+                          "realmSlug",
+                          "realmName",
+                          "name",
+                          "classSlug",
+                          "className",
+                          "classColor",
+                          "portraitUrl",
+                          "mythicPlusScore",
+                          "grade",
+                          "isMain"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "displayedCharacterIsMain",
+                    "rerolls"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        },
+                        "details": {}
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "requestId"
+                      ],
+                      "additionalProperties": true
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/characters/{region}/{realm}/{name}/history": {
       "get": {
         "tags": [
