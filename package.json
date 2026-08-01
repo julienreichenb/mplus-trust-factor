@@ -61,6 +61,7 @@
     "wcl:probe:utility:v3_1-calibration": "node tools/scripts/wcl-probe-utility-v3_1-calibration.mjs",
     "wcl:probe:utility:v3_2-calibration": "node tools/scripts/wcl-probe-utility-v3_2-calibration.mjs",
     "wcl:shared-evidence:load": "node tools/scripts/with-env.mjs node tools/scripts/wcl-shared-evidence-load.mjs",
+    "wcl:probe:planner": "node tools/scripts/with-env.mjs node tools/scripts/wcl-probe-planner.mjs",
     "wcl:probe:utility:cross-class-validate": "node tools/scripts/with-env.mjs node tools/scripts/wcl-probe-utility-cross-class.mjs",
     "wcl:probe:survival:v1": "node tools/scripts/wcl-probe-survival-v1.mjs",
     "wcl:probe:survival:v1.1": "node tools/scripts/with-env.mjs node tools/scripts/wcl-probe-survival-v1_1.mjs",
