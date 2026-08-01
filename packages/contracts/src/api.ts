@@ -24,14 +24,20 @@ export interface SearchCharacterRequest {
 export interface SearchCharacterResponse {
   characterId: string | null;
   identity: CharacterIdentityInput;
-  refreshStatus: "FRESH" | "QUEUED" | "STALE" | "REFRESHING" | "NOT_FOUND";
+  refreshStatus: "FRESH" | "QUEUED" | "STALE" | "REFRESHING" | "FAILED" | "NOT_FOUND";
   job: JobStatusDTO | null;
   score: ScoreSnapshotDTO | null;
 }
 
 /** Exact character+realm resolution for the dual-field search flow. */
 export type CharacterResolveStatus =
-  "READY" | "QUEUED" | "PROCESSING" | "NOT_FOUND" | "PROVIDER_UNAVAILABLE" | "FAILED";
+  | "READY"
+  | "QUEUED"
+  | "PROCESSING"
+  | "PROFILE_ONLY"
+  | "NOT_FOUND"
+  | "PROVIDER_UNAVAILABLE"
+  | "FAILED";
 
 export type CharacterResolveResponse =
   | {
@@ -45,6 +51,18 @@ export type CharacterResolveResponse =
       refreshId: string;
       profilePath: string;
       retryAfterMs: number;
+    }
+  | {
+      /**
+       * Navigable shell without a score refresh. Used when bootstrap is incomplete
+       * (repairable) or when required Blizzard fields are present but refresh is
+       * ineligible. Never means an active QUEUED job.
+       */
+      status: "PROFILE_ONLY";
+      characterId: string;
+      profilePath: string;
+      reason: "BOOTSTRAP_INCOMPLETE" | "NOT_REFRESH_ELIGIBLE";
+      bootstrapRepairRequired: boolean;
     }
   | {
       status: "NOT_FOUND";
@@ -65,6 +83,11 @@ export interface CharacterResolveRequest {
   name: string;
   realmSlug: string;
   region: RegionCode;
+  /**
+   * Exact resolve retry — also the canonical Blizzard bootstrap repair trigger
+   * for incomplete persisted shells / prior eligibility-UNKNOWN failures.
+   */
+  forceRetry?: boolean;
 }
 
 /** Combobox row from the retail realm catalog. */
@@ -422,13 +445,19 @@ export interface CharacterProfileResponse {
     contributionTypes?: WclContributionType[];
   }>;
   /**
-   * Coarse profile status.
+   * Coarse profile status (must agree with `/refresh-status` terminal semantics).
    * - FRESH: within score TTL
-   * - QUEUED: no usable published score yet (or first calculation)
+   * - QUEUED: an active durable refresh job exists (or was just enqueued) and no usable score yet
    * - STALE: published score usable but requires updating
    * - REFRESHING: published score usable while an in-flight refresh runs
+   * - FAILED: latest refresh terminal-failed / blocked with no active job (repairable when bootstrap incomplete)
    */
-  refreshStatus: "FRESH" | "QUEUED" | "STALE" | "REFRESHING";
+  refreshStatus: "FRESH" | "QUEUED" | "STALE" | "REFRESHING" | "FAILED";
+  /**
+   * When true, exact `POST /characters/resolve` with `forceRetry: true` can repair
+   * Blizzard bootstrap evidence for this character. Never set from GET provider work.
+   */
+  bootstrapRepairRequired?: boolean;
   /** Profile enrichments (Agent 6 / CR-06 / Agent 16) */
   classSlug?: string | null;
   specSlug?: string | null;
@@ -499,6 +528,11 @@ export interface RefreshStatusResponse {
   refreshStatus: "FRESH" | "QUEUED" | "STALE" | "IN_PROGRESS" | "FAILED";
   job: JobStatusDTO | null;
   cooldownSecondsRemaining: number;
+  /**
+   * When true, call exact resolve with `forceRetry: true` (canonical repair path).
+   * Admin rerun routes through the same repair for incomplete / UNKNOWN shells.
+   */
+  bootstrapRepairRequired?: boolean;
 }
 
 export interface AdminScoreModelDTO {

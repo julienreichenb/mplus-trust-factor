@@ -131,6 +131,7 @@ describe("CharacterService.resolveCharacter — shared eligibility", () => {
             upsertCharacter: mockUpsert,
             applyProviderProfile: mockApplyProviderProfile,
             reassignToCatalogIdentity: vi.fn(),
+            deleteUnreferencedBootstrapShell: vi.fn().mockResolvedValue(false),
           },
           realm: { findBySlug: mockFindBySlug },
           score: {

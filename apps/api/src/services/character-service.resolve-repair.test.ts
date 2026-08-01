@@ -161,6 +161,7 @@ describe("CharacterService.resolveCharacter — existing incomplete repair", () 
             upsertCharacter: mockUpsert,
             applyProviderProfile: mockApplyProviderProfile,
             reassignToCatalogIdentity: mockReassign,
+            deleteUnreferencedBootstrapShell: vi.fn().mockResolvedValue(false),
           },
           realm: { findBySlug: mockFindBySlug },
           score: {

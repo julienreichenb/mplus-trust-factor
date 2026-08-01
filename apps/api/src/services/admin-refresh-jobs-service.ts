@@ -17,6 +17,11 @@ import type { ApiContainer } from "../container.js";
 import { HttpError } from "../errors.js";
 import { writeAuditEvent } from "../iam/audit.js";
 import { extractJobErrorCode } from "@mplus/config";
+import {
+  characterLacksBootstrapEvidence,
+  latestJobIsEligibilityUnknown,
+} from "./character-bootstrap-repair.js";
+import { CharacterService } from "./character-service.js";
 
 function payloadOf(job: IngestionJob): Record<string, unknown> {
   if (job.payload && typeof job.payload === "object" && !Array.isArray(job.payload)) {
@@ -78,7 +83,7 @@ export interface AdminRefreshJobRow {
   createdAt: string;
   startedAt: string | null;
   finishedAt: string | null;
-  actions: { rerun: boolean; prioritize: boolean; cancel: boolean };
+  actions: { rerun: boolean; repairBootstrap: boolean; prioritize: boolean; cancel: boolean };
 }
 
 export interface AdminCharacterSearchRow {
@@ -145,6 +150,10 @@ function mapJobRow(
     errorCode === "CHARACTER_REFRESH_ELIGIBILITY_UNKNOWN";
   const retryable = terminal && job.status === "FAILED" && !nonRetryableEligibility;
   const scoring = readScoringModelFromPayload(payload);
+  const bootstrapRepair =
+    terminal &&
+    (errorCode === "CHARACTER_REFRESH_ELIGIBILITY_UNKNOWN" ||
+      latestJobIsEligibilityUnknown(job));
 
   return {
     ingestionJobId: job.id,
@@ -175,7 +184,9 @@ function mapJobRow(
     startedAt: job.startedAt?.toISOString() ?? null,
     finishedAt: job.completedAt?.toISOString() ?? null,
     actions: {
-      rerun: terminal,
+      // Generic rerun stays provider-free; UNKNOWN / incomplete shells use repairBootstrap.
+      rerun: terminal && !bootstrapRepair,
+      repairBootstrap: bootstrapRepair,
       prioritize: queued && !job.cancelRequestedAt,
       cancel: (queued || active) && job.status !== "CANCELLED",
     },
@@ -457,7 +468,16 @@ export class AdminRefreshJobsService {
   async rerun(
     jobId: string,
     actor: { userId?: string | null; actorType: "user" | "admin_key"; ip?: string; userAgent?: string },
-  ): Promise<{ jobId: string; reused: boolean; enqueued: boolean; refreshContractHash: string }> {
+  ): Promise<{
+    jobId: string;
+    reused: boolean;
+    enqueued: boolean;
+    refreshContractHash: string;
+    bootstrapRepaired?: boolean;
+    resolveStatus?: string;
+    characterId?: string | null;
+    historicalJobId?: string;
+  }> {
     const existing = await this.container.worker.repositories.job.findById(jobId);
     if (!existing || existing.jobType !== QUEUE_NAMES.refreshCharacter) {
       throw HttpError.notFound("REFRESH_JOB_NOT_FOUND", `Refresh job ${jobId} was not found`);
@@ -495,6 +515,67 @@ export class AdminRefreshJobsService {
     );
 
     // Re-evaluate eligibility from persisted evidence only (no Blizzard level/rating fetch).
+    // Incomplete / UNKNOWN shells cannot be fixed here — route through exact resolve repair.
+    const needsBootstrapRepair =
+      characterLacksBootstrapEvidence(character) || latestJobIsEligibilityUnknown(existing);
+    if (needsBootstrapRepair) {
+      if (!region || !realmSlug || !name) {
+        throw HttpError.badRequest(
+          "REFRESH_JOB_PAYLOAD_INVALID",
+          "Job payload lacks character identity required for bootstrap repair",
+        );
+      }
+      const characterService = new CharacterService(this.container);
+      const repair = await characterService.resolveCharacter(
+        { region, realmSlug, name },
+        { correlationId: null, forceRetry: true },
+      );
+      await writeAuditEvent(this.prisma(), {
+        userId: actor.userId ?? undefined,
+        actorType: actor.actorType,
+        action: "admin.refresh_jobs.repair_bootstrap",
+        resourceType: "ingestion_job",
+        resourceId: jobId,
+        ip: actor.ip,
+        userAgent: actor.userAgent,
+        sessionSecret: this.container.env.SESSION_SECRET,
+        metadata: {
+          characterId,
+          resolveStatus: repair.body.status,
+          statusCode: repair.statusCode,
+          historicalJobId: existing.id,
+        },
+      });
+      if (repair.statusCode >= 400) {
+        const body = repair.body as { message?: string; status?: string };
+        throw HttpError.conflict(
+          body.status === "PROVIDER_UNAVAILABLE"
+            ? "PROVIDER_UNAVAILABLE"
+            : "CHARACTER_BOOTSTRAP_REPAIR_FAILED",
+          body.message ?? "Bootstrap repair failed",
+          {
+            bootstrapRepairRequired: true,
+            repairAction: "resolve_force_retry",
+            resolve: repair.body,
+          },
+        );
+      }
+      const refreshId =
+        "refreshId" in repair.body && typeof repair.body.refreshId === "string"
+          ? repair.body.refreshId
+          : null;
+      return {
+        jobId: refreshId ?? existing.id,
+        reused: false,
+        enqueued: repair.statusCode === 202,
+        refreshContractHash: "",
+        bootstrapRepaired: true,
+        resolveStatus: repair.body.status,
+        characterId,
+        historicalJobId: existing.id,
+      };
+    }
+
     try {
       await runRefreshEligibilityGate(
         {
@@ -514,6 +595,9 @@ export class AdminRefreshJobsService {
         throw HttpError.conflict(
           error.result.code ?? error.code,
           error.result.message ?? error.message,
+          {
+            bootstrapRepairRequired: false,
+          },
         );
       }
       throw error;

@@ -136,6 +136,8 @@ export interface JobRepository {
   findById(id: string): Promise<IngestionJob | null>;
   findByDedupeKey(dedupeKey: string): Promise<IngestionJob | null>;
   findActiveForCharacter(characterId: string): Promise<IngestionJob | null>;
+  /** All non-terminal refresh-character jobs for a character (cross-process dedupe). */
+  listActiveRefreshJobsForCharacter(characterId: string): Promise<IngestionJob[]>;
   /** Most recent job for a character regardless of status — used to report last-known outcome. */
   findLatestForCharacter(characterId: string): Promise<IngestionJob | null>;
   attachCharacter(id: string, characterId: string): Promise<IngestionJob>;
@@ -320,6 +322,15 @@ export function createJobRepository(prisma: PrismaClient): JobRepository {
       }
 
       if (existing) {
+        // Cross-process forceRefresh collapse: never resurrect a superseded loser.
+        // Worker must refuse terminal jobs before provider work (see refresh-pipeline).
+        const existingError = existing.error as { code?: string } | null;
+        if (
+          existing.status === "FAILED" &&
+          existingError?.code === "REFRESH_SUPERSEDED_DEDUPED"
+        ) {
+          return { job: existing, reused: true };
+        }
         // Direct/inline execution path: promoting is allowed because work starts immediately.
         const reset = await prisma.ingestionJob.update({
           where: { id: existing.id },
@@ -356,6 +367,24 @@ export function createJobRepository(prisma: PrismaClient): JobRepository {
       if (current?.status === "CANCELLED") {
         return current;
       }
+      const payload = errorPayload(error) as { code?: string };
+      // Explicit supersede wins over cooperative-cancel → CANCELLED mapping.
+      if (payload.code === "REFRESH_SUPERSEDED_DEDUPED") {
+        if (current?.status === "FAILED") {
+          const existingError = current.error as { code?: string } | null;
+          if (existingError?.code === "REFRESH_SUPERSEDED_DEDUPED") {
+            return current;
+          }
+        }
+        return prisma.ingestionJob.update({
+          where: { id },
+          data: {
+            status: "FAILED",
+            completedAt: new Date(),
+            error: payload,
+          },
+        });
+      }
       if (current?.cancelRequestedAt && (current.status === "ACTIVE" || current.status === "QUEUED")) {
         return prisma.ingestionJob.update({
           where: { id },
@@ -378,7 +407,7 @@ export function createJobRepository(prisma: PrismaClient): JobRepository {
         data: {
           status: "FAILED",
           completedAt: new Date(),
-          error: errorPayload(error),
+          error: payload,
         },
       });
     },
@@ -526,6 +555,40 @@ export function createJobRepository(prisma: PrismaClient): JobRepository {
         return null;
       }
       return job;
+    },
+
+    async listActiveRefreshJobsForCharacter(characterId) {
+      const jobs = await prisma.ingestionJob.findMany({
+        where: {
+          characterId,
+          jobType: "refresh-character",
+          status: { in: ["QUEUED", "ACTIVE"] },
+        },
+        orderBy: [{ scheduledAt: "asc" }, { id: "asc" }],
+      });
+      const live: IngestionJob[] = [];
+      for (const job of jobs) {
+        if (isStaleQueued(job)) {
+          await prisma.ingestionJob.update({
+            where: { id: job.id },
+            data: {
+              status: "FAILED",
+              completedAt: new Date(),
+              error: {
+                message: "Stale QUEUED job with no startedAt — abandoned before worker pickup",
+                code: "STALE_QUEUED",
+              },
+            },
+          });
+          continue;
+        }
+        if (isStaleActive(job)) {
+          await terminalizeIfStaleActive(prisma, job, DEFAULT_STALE_ACTIVE_MS);
+          continue;
+        }
+        live.push(job);
+      }
+      return live;
     },
 
     async findLatestForCharacter(characterId) {

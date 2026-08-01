@@ -512,3 +512,133 @@ export async function isRefreshCancellationRequested(
   if (job.status === "CANCELLED") return true;
   return Boolean(job.cancelRequestedAt);
 }
+
+/** Cooperative-cancel reason used by cross-process forceRefresh collapse. */
+export const REFRESH_SUPERSEDED_DEDUPED_CANCEL_REASON = "refresh_superseded_deduped";
+
+export type SupersedeDuplicateRefreshOutcome =
+  | "queued_superseded"
+  | "active_cancel_requested"
+  | "already_terminal"
+  | "became_active_cancel_requested";
+
+export interface SupersedeDuplicateRefreshResult {
+  ingestionJobId: string;
+  winnerJobId: string;
+  outcome: SupersedeDuplicateRefreshOutcome;
+  queueRemoved: boolean;
+  databaseStatus: string;
+}
+
+export function pickEarliestActiveRefreshJob<T extends { id: string; scheduledAt: Date }>(
+  jobs: T[],
+): T | null {
+  if (jobs.length === 0) return null;
+  return [...jobs].sort((a, b) => {
+    const byTime = a.scheduledAt.getTime() - b.scheduledAt.getTime();
+    if (byTime !== 0) return byTime;
+    return a.id.localeCompare(b.id);
+  })[0]!;
+}
+
+/**
+ * Terminalize a duplicate in-flight refresh after a concurrent forceRefresh enqueue race.
+ *
+ * QUEUED: remove the BullMQ message (by queueJobId), then mark FAILED REFRESH_SUPERSEDED_DEDUPED.
+ * ACTIVE: cooperative cancel only — never markFailed while the worker is still executing;
+ *         the worker refuses at the provider-free supersede guard / cancel checkpoint.
+ * Admission release is best-effort and idempotent.
+ */
+export async function supersedeDuplicateRefreshJob(
+  deps: RefreshJobControlDeps,
+  jobId: string,
+  winnerJobId: string,
+): Promise<SupersedeDuplicateRefreshResult> {
+  const job = await deps.jobRepository.findById(jobId);
+  if (!job) {
+    return {
+      ingestionJobId: jobId,
+      winnerJobId,
+      outcome: "already_terminal",
+      queueRemoved: false,
+      databaseStatus: "MISSING",
+    };
+  }
+
+  if (job.status === "CANCELLED" || job.status === "COMPLETED" || job.status === "FAILED") {
+    await releaseAdmissionBestEffort(deps, job.id);
+    return {
+      ingestionJobId: job.id,
+      winnerJobId,
+      outcome: "already_terminal",
+      queueRemoved: false,
+      databaseStatus: job.status,
+    };
+  }
+
+  const supersededError = {
+    code: "REFRESH_SUPERSEDED_DEDUPED",
+    message: "Superseded by an earlier in-flight refresh for the same character",
+    winnerJobId,
+    retryable: false,
+    providerFailure: false,
+  };
+
+  if (job.status === "ACTIVE") {
+    await deps.jobRepository.requestCancel(job.id, REFRESH_SUPERSEDED_DEDUPED_CANCEL_REASON);
+    await releaseAdmissionBestEffort(deps, job.id);
+    return {
+      ingestionJobId: job.id,
+      winnerJobId,
+      outcome: "active_cancel_requested",
+      queueRemoved: false,
+      databaseStatus: "ACTIVE",
+    };
+  }
+
+  // QUEUED / delayed: remove BullMQ first so the loser cannot start, then terminalize.
+  const { removed, becameActive } = await inspectAndRemoveQueuedBullJob(
+    deps.refreshQueue,
+    job,
+    deps.logger,
+  );
+
+  if (becameActive) {
+    await deps.jobRepository.requestCancel(job.id, REFRESH_SUPERSEDED_DEDUPED_CANCEL_REASON);
+    await releaseAdmissionBestEffort(deps, job.id);
+    return {
+      ingestionJobId: job.id,
+      winnerJobId,
+      outcome: "became_active_cancel_requested",
+      queueRemoved: false,
+      databaseStatus: "ACTIVE",
+    };
+  }
+
+  const latest = await deps.jobRepository.findById(job.id);
+  if (latest?.status === "ACTIVE") {
+    await deps.jobRepository.requestCancel(job.id, REFRESH_SUPERSEDED_DEDUPED_CANCEL_REASON);
+    await releaseAdmissionBestEffort(deps, job.id);
+    return {
+      ingestionJobId: job.id,
+      winnerJobId,
+      outcome: "became_active_cancel_requested",
+      queueRemoved: removed,
+      databaseStatus: "ACTIVE",
+    };
+  }
+
+  if (latest?.status === "QUEUED") {
+    await deps.jobRepository.markFailed(job.id, supersededError);
+  }
+
+  await releaseAdmissionBestEffort(deps, job.id);
+  const finalStatus = (await deps.jobRepository.findById(job.id))?.status ?? "FAILED";
+  return {
+    ingestionJobId: job.id,
+    winnerJobId,
+    outcome: "queued_superseded",
+    queueRemoved: removed,
+    databaseStatus: finalStatus,
+  };
+}

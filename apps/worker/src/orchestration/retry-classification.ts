@@ -41,8 +41,11 @@ export function classifyError(error: unknown): RetryClassification {
       delayMs: error.delayMs,
     };
   }
-  if (error && typeof error === "object" && (error as { code?: string }).code === "CANCELLED") {
-    return { retryable: false, softSkip: false, providerFailure: false };
+  if (error && typeof error === "object") {
+    const code = (error as { code?: string }).code;
+    if (code === "CANCELLED" || code === "REFRESH_SUPERSEDED_DEDUPED") {
+      return { retryable: false, softSkip: false, providerFailure: false };
+    }
   }
   if (error instanceof ExternalApiError) {
     return CLASSIFICATION_BY_CODE[error.code];

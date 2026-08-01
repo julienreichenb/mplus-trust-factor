@@ -51,7 +51,12 @@ export type ScoreRefreshReason =
  * REFRESHING = usable published score + in-flight job (not STALE).
  * STALE = usable published score that requires updating.
  */
-export type CoarseRefreshStatus = "FRESH" | "QUEUED" | "STALE" | "REFRESHING";
+/**
+ * Coarse profile status. `QUEUED` / in-flight states must only appear when an
+ * active durable job exists (or was just enqueued). Terminal no-score failures
+ * use `FAILED` so profile and `/refresh-status` agree.
+ */
+export type CoarseRefreshStatus = "FRESH" | "QUEUED" | "STALE" | "REFRESHING" | "FAILED";
 
 /** Dedicated refresh-status route enum. */
 export type DetailedRefreshStatus =
@@ -269,7 +274,7 @@ export function decideScoreRefresh(input: ScoreRefreshDecisionInput): ScoreRefre
       action: "NONE",
       publicState: "UNAVAILABLE",
       reason: "STALE_CONTRACT",
-      profileRefreshStatus: "QUEUED",
+      profileRefreshStatus: "FAILED",
       detailedRefreshStatus: "FAILED",
       warningCodes: ["STALE_CONTRACT"],
     };
@@ -299,7 +304,7 @@ export function decideScoreRefresh(input: ScoreRefreshDecisionInput): ScoreRefre
       action: "NONE",
       publicState: "UNAVAILABLE",
       reason: "NOT_REFRESH_ELIGIBLE",
-      profileRefreshStatus: "QUEUED",
+      profileRefreshStatus: "FAILED",
       detailedRefreshStatus: "FAILED",
       warningCodes: [warning],
     };
@@ -311,7 +316,7 @@ export function decideScoreRefresh(input: ScoreRefreshDecisionInput): ScoreRefre
         action: "BACKOFF",
         publicState: "UNAVAILABLE",
         reason: "RECENT_FAILURE",
-        profileRefreshStatus: "QUEUED",
+        profileRefreshStatus: "FAILED",
         detailedRefreshStatus: "FAILED",
         warningCodes: ["REFRESH_FAILED"],
       };

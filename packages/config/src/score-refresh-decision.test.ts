@@ -172,6 +172,23 @@ describe("decideScoreRefresh", () => {
     expect(d.profileRefreshStatus).toBe("FRESH");
   });
 
+  it("no published score + eligibility failure is FAILED (not false QUEUED)", () => {
+    const d = decideScoreRefresh({
+      ...base,
+      hasPublishedScore: false,
+      scoreCalculatedAt: null,
+      latestJobStatus: "FAILED",
+      latestJobFinishedAt: new Date(now - 60_000),
+      latestJobErrorCode: "CHARACTER_REFRESH_ELIGIBILITY_UNKNOWN",
+    });
+    expect(d.action).toBe("NONE");
+    expect(d.publicState).toBe("UNAVAILABLE");
+    expect(d.reason).toBe("NOT_REFRESH_ELIGIBLE");
+    expect(d.profileRefreshStatus).toBe("FAILED");
+    expect(d.detailedRefreshStatus).toBe("FAILED");
+    expect(d.warningCodes).toContain("CHARACTER_REFRESH_ELIGIBILITY_UNKNOWN");
+  });
+
   it("no published score enqueues", () => {
     const d = decideScoreRefresh({
       ...base,

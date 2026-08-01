@@ -103,6 +103,8 @@ export interface UpsertCharacterPatch {
   classSlug?: string | null;
   specSlug?: string | null;
   role?: CharacterRole | null;
+  level?: number | null;
+  faction?: string | null;
   blizzardCharacterId?: string | null;
   wclCanonicalId?: string | null;
   raiderioProfileUrl?: string | null;
@@ -149,6 +151,12 @@ export interface CharacterRepository {
   ): Promise<AdminCharacterSearchResult[]>;
   upsertCharacter(identity: CharacterIdentityInput, patch?: UpsertCharacterPatch): Promise<Character>;
   applyProviderProfile(characterId: string, profile: CanonicalCharacter): Promise<Character>;
+  /**
+   * Compensating cleanup for a freshly created resolve shell that never finished
+   * bootstrap and has no durable dependents (jobs, scores, ownership, runs).
+   * Returns true when the row was deleted.
+   */
+  deleteUnreferencedBootstrapShell(characterId: string): Promise<boolean>;
   /**
    * Reassign an existing character onto the catalog realm identity in a transaction.
    * Creates an alias for the previous identity. Never merges two blizzard IDs.
@@ -625,6 +633,8 @@ export function createCharacterRepository(prisma: PrismaClient): CharacterReposi
             ...(classId ? { classId } : {}),
             ...(activeSpecId ? { activeSpecId } : {}),
             ...(patch?.role ? { role: patch.role } : {}),
+            ...(patch?.level != null ? { level: patch.level } : {}),
+            ...(patch?.faction ? { faction: patch.faction } : {}),
             ...(patch?.blizzardCharacterId ? { blizzardCharacterId: BigInt(patch.blizzardCharacterId) } : {}),
             ...(patch?.raiderioProfileUrl ? { raiderioProfileUrl: patch.raiderioProfileUrl } : {}),
             lastSeenAt: patch?.lastSeenAt ?? new Date(),
@@ -638,6 +648,8 @@ export function createCharacterRepository(prisma: PrismaClient): CharacterReposi
             classId,
             activeSpecId,
             role: patch?.role ?? null,
+            level: patch?.level ?? null,
+            faction: patch?.faction ?? null,
             blizzardCharacterId: patch?.blizzardCharacterId ? BigInt(patch.blizzardCharacterId) : null,
             raiderioProfileUrl: patch?.raiderioProfileUrl ?? null,
             lastSeenAt: patch?.lastSeenAt ?? new Date(),
@@ -674,6 +686,40 @@ export function createCharacterRepository(prisma: PrismaClient): CharacterReposi
           },
         });
       });
+    },
+
+    async deleteUnreferencedBootstrapShell(characterId) {
+      const [
+        jobCount,
+        publishedCount,
+        ownershipCount,
+        participantCount,
+        scoreCount,
+      ] = await Promise.all([
+        prisma.ingestionJob.count({ where: { characterId } }),
+        prisma.characterPublishedScore.count({ where: { characterId } }),
+        prisma.verifiedCharacterOwnership.count({ where: { characterId } }),
+        prisma.runParticipant.count({ where: { characterId } }),
+        prisma.scoreSnapshot.count({ where: { characterId } }),
+      ]);
+      if (
+        jobCount > 0 ||
+        publishedCount > 0 ||
+        ownershipCount > 0 ||
+        participantCount > 0 ||
+        scoreCount > 0
+      ) {
+        return false;
+      }
+      // Cascade removes snapshots / provider states / aliases via FK where configured;
+      // delete aliases explicitly when present without cascade dependents above.
+      await prisma.$transaction(async (tx) => {
+        await tx.characterAlias.deleteMany({ where: { characterId } });
+        await tx.characterSnapshot.deleteMany({ where: { characterId } });
+        await tx.characterProviderState.deleteMany({ where: { characterId } });
+        await tx.character.delete({ where: { id: characterId } });
+      });
+      return true;
     },
 
     async reassignToCatalogIdentity(characterId, identity, opts) {

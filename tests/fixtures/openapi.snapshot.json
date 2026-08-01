@@ -525,6 +525,12 @@
                     },
                     "retryable": {
                       "type": "boolean"
+                    },
+                    "reason": {
+                      "type": "string"
+                    },
+                    "bootstrapRepairRequired": {
+                      "type": "boolean"
                     }
                   },
                   "required": [
@@ -561,6 +567,12 @@
                       "type": "string"
                     },
                     "retryable": {
+                      "type": "boolean"
+                    },
+                    "reason": {
+                      "type": "string"
+                    },
+                    "bootstrapRepairRequired": {
                       "type": "boolean"
                     }
                   },
@@ -599,6 +611,12 @@
                     },
                     "retryable": {
                       "type": "boolean"
+                    },
+                    "reason": {
+                      "type": "string"
+                    },
+                    "bootstrapRepairRequired": {
+                      "type": "boolean"
                     }
                   },
                   "required": [
@@ -635,6 +653,12 @@
                       "type": "string"
                     },
                     "retryable": {
+                      "type": "boolean"
+                    },
+                    "reason": {
+                      "type": "string"
+                    },
+                    "bootstrapRepairRequired": {
                       "type": "boolean"
                     }
                   },
@@ -673,6 +697,12 @@
                     },
                     "retryable": {
                       "type": "boolean"
+                    },
+                    "reason": {
+                      "type": "string"
+                    },
+                    "bootstrapRepairRequired": {
+                      "type": "boolean"
                     }
                   },
                   "required": [
@@ -710,6 +740,12 @@
                     },
                     "retryable": {
                       "type": "boolean"
+                    },
+                    "reason": {
+                      "type": "string"
+                    },
+                    "bootstrapRepairRequired": {
+                      "type": "boolean"
                     }
                   },
                   "required": [
@@ -746,6 +782,12 @@
                       "type": "string"
                     },
                     "retryable": {
+                      "type": "boolean"
+                    },
+                    "reason": {
+                      "type": "string"
+                    },
+                    "bootstrapRepairRequired": {
                       "type": "boolean"
                     }
                   },
@@ -1672,6 +1714,9 @@
                     "warnings": {
                       "type": "array"
                     },
+                    "bootstrapRepairRequired": {
+                      "type": "boolean"
+                    },
                     "raiderIoUsed": {
                       "type": "boolean"
                     },
@@ -2352,6 +2397,9 @@
                     "warnings": {
                       "type": "array"
                     },
+                    "bootstrapRepairRequired": {
+                      "type": "boolean"
+                    },
                     "raiderIoUsed": {
                       "type": "boolean"
                     },
@@ -2603,6 +2651,9 @@
                     },
                     "cooldownSecondsRemaining": {
                       "type": "number"
+                    },
+                    "bootstrapRepairRequired": {
+                      "type": "boolean"
                     }
                   },
                   "additionalProperties": true
@@ -2832,6 +2883,9 @@
                     },
                     "cooldownSecondsRemaining": {
                       "type": "number"
+                    },
+                    "bootstrapRepairRequired": {
+                      "type": "boolean"
                     }
                   },
                   "additionalProperties": true

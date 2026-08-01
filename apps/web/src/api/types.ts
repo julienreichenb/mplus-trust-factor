@@ -121,7 +121,7 @@ export interface MplusApiClient {
     signal?: AbortSignal,
   ): Promise<CharacterAutocompleteSuggestion[]>;
   resolveCharacter(
-    request: CharacterResolveRequest & { forceRetry?: boolean },
+    request: CharacterResolveRequest,
     signal?: AbortSignal,
   ): Promise<CharacterResolveResponse>;
   getCharacterProfile(
