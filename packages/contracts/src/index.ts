@@ -12,3 +12,4 @@ export * from "./api.js";
 export * from "./refresh-contract.js";
 export * from "./account-characters.js";
 export * from "./active-rerolls.js";
+export * from "./evidence-v2.js";

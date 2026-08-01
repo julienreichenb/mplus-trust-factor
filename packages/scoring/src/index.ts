@@ -162,6 +162,29 @@ export {
   type ScoringRunPresentationMeta,
 } from "./selection/scoring-run-selection-present.js";
 export {
+  EVIDENCE_V2_MAX_REJECTED_SUMMARIES,
+  compareEvidenceCandidatesV2,
+  orderEvidenceCandidatesV2,
+  computeEvidenceCoverageV2,
+  buildEvidenceAcquisitionPlanContentHashInput,
+  computeEvidenceAcquisitionPlanContentHash,
+  buildEvidenceManifestContentHashInput,
+  computeEvidenceManifestContentHash,
+  deepFreezeEvidenceAcquisitionPlan,
+  deepFreezeEvidenceManifest,
+  buildEvidenceAcquisitionPlanV2,
+  finalizeEvidenceManifestV2,
+  evidenceAccessStateToMissingSlot,
+  type BuildEvidenceAcquisitionPlanV2Input,
+  type BuildEvidenceAcquisitionPlanV2Result,
+  type FinalizeEvidenceManifestV2Input,
+  type FinalizeEvidenceManifestV2Result,
+} from "./selection/evidence-v2-selector.js";
+export {
+  mythicRunToEvidenceCandidateMetadata,
+  scoringRunCandidateToEvidenceMetadata,
+} from "./selection/evidence-v2-adapters.js";
+export {
   computeModelCoverage,
   filterPublicSkillDimensions,
   MODEL_COVERAGE_PROVISIONAL_THRESHOLD,
