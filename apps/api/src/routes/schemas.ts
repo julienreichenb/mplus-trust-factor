@@ -112,6 +112,14 @@ export const jobStatusSchema = {
     startedAt: { type: ["string", "null"] },
     finishedAt: { type: ["string", "null"] },
     errorMessage: { type: ["string", "null"] },
+    // Stage 4 additive ETA / scheduling read-model (nullable when disabled or unavailable).
+    activeRefreshCount: { type: ["number", "null"] },
+    effectiveWorkerCapacity: { type: ["number", "null"] },
+    observedThroughput: { type: ["number", "null"] },
+    queuePosition: { type: ["number", "null"] },
+    estimatedWaitSeconds: { type: ["number", "null"] },
+    estimateConfidence: { type: ["string", "null"] },
+    schedulingState: { type: ["string", "null"] },
   },
   additionalProperties: true,
 } as const;
