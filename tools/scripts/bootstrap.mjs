@@ -20,6 +20,23 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 export const ROOT_ENV_RELATIVE = ".env";
 export const ROOT_ENV_EXAMPLE_RELATIVE = ".env.example";
+export const WEB_ENV_RELATIVE = "apps/web/.env";
+export const WEB_ENV_EXAMPLE_RELATIVE = "apps/web/.env.example";
+
+/** Live local-dev flags written into the root `.env` during bootstrap. */
+export const BOOTSTRAP_LIVE_ROOT_DEFAULTS = Object.freeze({
+  PROVIDER_MODE: "live",
+  BLIZZARD_ENABLED: "true",
+  WCL_ENABLED: "true",
+  UTILITY_PUBLICATION_MODE: "published",
+  // Documented here for operators; Vite reads apps/web/.env (see BOOTSTRAP_LIVE_WEB_DEFAULTS).
+  VITE_API_MODE: "live",
+});
+
+/** Vite-only flags written into `apps/web/.env` (required for the SPA to use the live API). */
+export const BOOTSTRAP_LIVE_WEB_DEFAULTS = Object.freeze({
+  VITE_API_MODE: "live",
+});
 
 /** Packages that export `dist/` and are imported by api/worker at runtime. */
 export const DEV_PACKAGE_FILTER = "./packages/**";
@@ -178,6 +195,122 @@ export function envExamplePath(root) {
   return resolve(root, ROOT_ENV_EXAMPLE_RELATIVE);
 }
 
+export function webEnvPath(root) {
+  return resolve(root, WEB_ENV_RELATIVE);
+}
+
+export function webEnvExamplePath(root) {
+  return resolve(root, WEB_ENV_EXAMPLE_RELATIVE);
+}
+
+/**
+ * Upsert KEY=value lines. Overwrites existing keys when the value differs.
+ * Preserves comments and unrelated lines. Does not log values.
+ *
+ * @param {string} contents
+ * @param {Record<string, string>} overrides
+ * @returns {{ contents: string, changedKeys: string[] }}
+ */
+export function upsertEnvKeys(contents, overrides) {
+  const entries = Object.entries(overrides);
+  if (entries.length === 0) {
+    return { contents, changedKeys: [] };
+  }
+
+  const wanted = new Map(entries);
+  /** @type {string[]} */
+  const changedKeys = [];
+  const seen = new Set();
+  const eol = contents.includes("\r\n") ? "\r\n" : "\n";
+  const lines = (contents.length ? contents.split(/\r?\n/) : []).map((line) => {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) return line;
+    const eq = trimmed.indexOf("=");
+    if (eq <= 0) return line;
+    const key = trimmed.slice(0, eq).trim();
+    if (!wanted.has(key)) return line;
+    const next = wanted.get(key);
+    seen.add(key);
+    const current = trimmed.slice(eq + 1).trim();
+    if (current === next) return `${key}=${next}`;
+    changedKeys.push(key);
+    return `${key}=${next}`;
+  });
+
+  for (const [key, value] of wanted) {
+    if (seen.has(key)) continue;
+    lines.push(`${key}=${value}`);
+    changedKeys.push(key);
+  }
+
+  let nextContents = lines.join(eol);
+  if ((contents.endsWith("\n") || contents.length === 0) && !nextContents.endsWith("\n")) {
+    nextContents += eol;
+  }
+  return { contents: nextContents, changedKeys };
+}
+
+/**
+ * Apply bootstrap live-mode defaults to root `.env` and `apps/web/.env`.
+ * Root gets PROVIDER_MODE / provider enables / UTILITY_PUBLICATION_MODE / VITE_API_MODE;
+ * web gets VITE_API_MODE so Vite actually loads live API mode.
+ * Never invents credentials.
+ */
+export function applyBootstrapLiveDefaults(options) {
+  const {
+    root,
+    log = console.log,
+    exists = existsSync,
+    readFile = (p) => readFileSync(p, "utf8"),
+    writeFile = (p, contents) => writeFileSync(p, contents, "utf8"),
+    copyFile = copyFileSync,
+  } = options;
+
+  const rootEnv = envPath(root);
+  if (!exists(rootEnv)) {
+    throw new Error(`bootstrap: cannot apply live defaults; missing ${rootEnv}`);
+  }
+
+  const rootBefore = readFile(rootEnv);
+  const rootUpsert = upsertEnvKeys(rootBefore, BOOTSTRAP_LIVE_ROOT_DEFAULTS);
+  if (rootUpsert.changedKeys.length > 0) {
+    writeFile(rootEnv, rootUpsert.contents);
+    log(
+      `bootstrap: set live defaults in ${ROOT_ENV_RELATIVE}: ${rootUpsert.changedKeys.join(", ")}`,
+    );
+  } else {
+    log(`bootstrap: live defaults already set in ${ROOT_ENV_RELATIVE}`);
+  }
+
+  const webEnv = webEnvPath(root);
+  const webExample = webEnvExamplePath(root);
+  if (!exists(webEnv)) {
+    if (exists(webExample)) {
+      copyFile(webExample, webEnv);
+      log(`bootstrap: created ${WEB_ENV_RELATIVE} from ${WEB_ENV_EXAMPLE_RELATIVE}`);
+    } else {
+      writeFile(webEnv, "VITE_API_MODE=live\nVITE_API_BASE_URL=http://localhost:3000\n");
+      log(`bootstrap: created ${WEB_ENV_RELATIVE} (minimal live defaults)`);
+    }
+  }
+
+  const webBefore = readFile(webEnv);
+  const webUpsert = upsertEnvKeys(webBefore, BOOTSTRAP_LIVE_WEB_DEFAULTS);
+  if (webUpsert.changedKeys.length > 0) {
+    writeFile(webEnv, webUpsert.contents);
+    log(
+      `bootstrap: set live defaults in ${WEB_ENV_RELATIVE}: ${webUpsert.changedKeys.join(", ")}`,
+    );
+  } else {
+    log(`bootstrap: live defaults already set in ${WEB_ENV_RELATIVE}`);
+  }
+
+  return {
+    rootChangedKeys: rootUpsert.changedKeys,
+    webChangedKeys: webUpsert.changedKeys,
+  };
+}
+
 /** Non-empty trimmed string. Never logs the value. */
 export function hasEnvValue(env, key) {
   const raw = env[key];
@@ -249,9 +382,13 @@ export function summarizeCapabilities(env) {
   const blizzardPair =
     hasEnvValue(env, "BLIZZARD_CLIENT_ID") && hasEnvValue(env, "BLIZZARD_CLIENT_SECRET");
   const wclPair = hasEnvValue(env, "WCL_CLIENT_ID") && hasEnvValue(env, "WCL_CLIENT_SECRET");
+  const providerMode = (env.PROVIDER_MODE ?? "").trim().toLowerCase() || "unset";
+  const viteApiMode = (env.VITE_API_MODE ?? "").trim().toLowerCase() || "unset";
   return {
     postgres: hasEnvValue(env, "DATABASE_URL"),
     redis: hasEnvValue(env, "REDIS_URL"),
+    providerMode,
+    viteApiMode,
     battleNetOauth: blizzardPair,
     blizzardLive: blizzardPair,
     warcraftLogs: wclPair,
@@ -264,6 +401,8 @@ export function formatCapabilitySummary(caps) {
     "bootstrap: capabilities",
     `  PostgreSQL configured: ${yn(caps.postgres)}`,
     `  Redis configured: ${yn(caps.redis)}`,
+    `  PROVIDER_MODE: ${caps.providerMode}`,
+    `  VITE_API_MODE: ${caps.viteApiMode}`,
     `  Battle.net OAuth configured: ${yn(caps.battleNetOauth)}`,
     `  Blizzard live provider configured: ${yn(caps.blizzardLive)}`,
     `  Warcraft Logs configured: ${yn(caps.warcraftLogs)}`,
@@ -536,9 +675,23 @@ export async function runBootstrap(options) {
     fail(missingEnvGuidance(root));
   }
 
+  applyBootstrapLiveDefaults({
+    root,
+    log,
+    exists,
+    readFile,
+    writeFile,
+    copyFile,
+  });
+
   const fileEnv = parseEnvFile(readFile(dest));
+  const webFileEnv = exists(webEnvPath(root)) ? parseEnvFile(readFile(webEnvPath(root))) : {};
   /** @type {Record<string, string>} */
-  const effectiveEnv = { ...fileEnv };
+  const effectiveEnv = {
+    ...fileEnv,
+    // Prefer web Vite mode for capability display when present.
+    VITE_API_MODE: webFileEnv.VITE_API_MODE ?? fileEnv.VITE_API_MODE,
+  };
   for (const key of [
     "DATABASE_URL",
     "REDIS_URL",

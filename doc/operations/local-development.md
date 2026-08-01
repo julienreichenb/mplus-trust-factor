@@ -6,7 +6,49 @@
 - pnpm 10 (`packageManager` field; prefer Corepack)
 - Docker Desktop for PostgreSQL 16 and Redis 7
 
-## Boot (fixture mode)
+## Boot
+
+```bash
+pnpm bootstrap
+pnpm dev
+```
+
+`pnpm bootstrap` (`tools/scripts/bootstrap.mjs`) is idempotent and cross-platform (including git worktrees). It ensures a root `.env`, applies live local-dev defaults, installs dependencies, starts Compose infra, generates the Prisma client, builds workspace packages that export `dist/`, then runs `pnpm db:migrate` and `pnpm db:seed`. It never invents credentials, never targets a non-local `DATABASE_URL`, never prints secret values, and does not start the app.
+
+### Worktree `.env` behaviour
+
+Each Git worktree has its own filesystem, so the untracked root `.env` is **not** shared automatically. Bootstrap uses `git worktree list --porcelain` to find the primary worktree:
+
+1. If this worktree already has `.env` → keep non-empty values (never clobber secrets). Empty keys may be filled from the primary worktree after approval.
+2. If this worktree has no `.env` but the primary worktree does → ask before copying (default **No**). Non-interactive approval:
+
+   ```bash
+   pnpm bootstrap -- --copy-env
+   ```
+
+   The same flag fills empty keys in an existing `.env` from primary (for example `BLIZZARD_CLIENT_ID` / `BLIZZARD_CLIENT_SECRET` left blank after copying `.env.example`).
+3. If neither has `.env` → explain that `.env.example` must be copied (never invent credentials). Optional non-interactive template create:
+
+   ```bash
+   pnpm bootstrap -- --from-example
+   ```
+
+4. After `.env` is present, bootstrap applies live local-dev defaults (idempotent; overwrites mode/enable flags only):
+
+   - root `.env`: `PROVIDER_MODE=live`, `BLIZZARD_ENABLED=true`, `WCL_ENABLED=true`, `UTILITY_PUBLICATION_MODE=published`, `VITE_API_MODE=live`
+   - `apps/web/.env`: `VITE_API_MODE=live` (Vite only reads this file for the SPA)
+
+After loading `.env`, bootstrap prints a capability summary (yes/no and mode labels only — never secret values): PostgreSQL, Redis, `PROVIDER_MODE`, `VITE_API_MODE`, Battle.net OAuth, Blizzard live provider, Warcraft Logs. Battle.net OAuth requires both `BLIZZARD_CLIENT_ID` and `BLIZZARD_CLIENT_SECRET`. Missing OAuth credentials do **not** fail bootstrap; you will see guidance to configure them.
+
+On success:
+
+```text
+bootstrap: ready.
+  pnpm dev     — local application (development database)
+  pnpm test    — isolated disposable mplus_itest_* database (never mutates mplus_trust)
+```
+
+Equivalent manual steps (same order as bootstrap after `.env` exists):
 
 ```bash
 pnpm install
@@ -48,7 +90,7 @@ See [`../architecture/character-search-and-realm-catalog.md`](../architecture/ch
 
 ## Fixture mode
 
-`PROVIDER_MODE=fixture` is the default. Live provider credentials are **not** required.
+`.env.example` defaults to `PROVIDER_MODE=fixture`. After `pnpm bootstrap`, local `.env` is switched to live defaults (`PROVIDER_MODE=live`, providers enabled, `UTILITY_PUBLICATION_MODE=published`). Set `PROVIDER_MODE=fixture` again if you want fixture providers without live credentials.
 
 Optional disable flags (still valid in fixture mode):
 
