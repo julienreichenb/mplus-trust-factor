@@ -2,6 +2,9 @@
  * Read-only persisted evidence loader for boost-shadow Phase 2.
  * Uses Prisma find* only — never writes ScoreSnapshot / CharacterRedFlag / authenticity.
  * Verified ownership is intentionally not loaded (Phase 4).
+ *
+ * CharacterSnapshot fallback is season-bound via authoritative Season.startsAt/endsAt.
+ * Production authenticity is selected as-of each member's evaluationCutoff.
  */
 
 import type { PrismaClient } from "@mplus/database";
@@ -15,6 +18,7 @@ import type {
 import {
   BOOST_SHADOW_EVIDENCE_BUNDLE_SCHEMA,
   createReadOnlyPrismaProxy,
+  mapPersistedCharacterSnapshotsToSeasonBound,
 } from "@mplus/scoring";
 
 export interface LoadPersistedBoostShadowEvidenceInput {
@@ -79,8 +83,21 @@ export async function loadPersistedBoostShadowEvidenceBundle(
   const prisma = createReadOnlyPrismaProxy(input.prisma, input.guard);
   const evidenceByMemberId: Record<string, BoostShadowMemberEvidenceV1> = {};
 
+  const season = await prisma.season.findUnique({
+    where: { id: input.manifest.seasonId },
+    select: { id: true, startsAt: true, endsAt: true },
+  });
+
+  const seasonBounds = {
+    seasonId: input.manifest.seasonId,
+    startsAt: season?.startsAt?.toISOString() ?? null,
+    endsAt: season?.endsAt?.toISOString() ?? null,
+  };
+
   for (const member of input.manifest.members) {
     input.guard.recordEvidenceRead(member.memberId);
+    const cutoff = member.evaluationCutoff ?? input.generatedAt;
+    const cutoffDate = new Date(cutoff);
 
     const character = await prisma.character.findUnique({
       where: { id: member.characterId },
@@ -109,7 +126,10 @@ export async function loadPersistedBoostShadowEvidenceBundle(
     const participations = await prisma.runParticipant.findMany({
       where: {
         characterId: member.characterId,
-        run: { seasonId: input.manifest.seasonId },
+        run: {
+          seasonId: input.manifest.seasonId,
+          completedAt: { lte: cutoffDate },
+        },
       },
       select: {
         runId: true,
@@ -142,7 +162,9 @@ export async function loadPersistedBoostShadowEvidenceBundle(
       },
     });
 
-    const snapshots = await prisma.characterSnapshot.findMany({
+    // CharacterSnapshot has no seasonId — load candidates then season-bound filter.
+    // Prefer RunParticipant.mythicRatingAtRun at feature time; snapshots are fallback only.
+    const rawSnapshots = await prisma.characterSnapshot.findMany({
       where: {
         characterId: member.characterId,
         mythicRating: { not: null },
@@ -153,14 +175,26 @@ export async function loadPersistedBoostShadowEvidenceBundle(
         capturedAt: true,
       },
       orderBy: { capturedAt: "desc" },
-      take: 200,
+      take: 500,
     });
 
+    const ratingSnapshots = mapPersistedCharacterSnapshotsToSeasonBound({
+      snapshots: rawSnapshots.map((s) => ({
+        characterId: s.characterId,
+        mythicRating: s.mythicRating,
+        capturedAt: s.capturedAt,
+      })),
+      seasonBounds,
+      evaluationCutoff: cutoff,
+    });
+
+    // As-of authenticity: latest public ScoreSnapshot at or before cutoff.
     const scoreSnapshot = await prisma.scoreSnapshot.findFirst({
       where: {
         characterId: member.characterId,
         seasonId: input.manifest.seasonId,
         isPublic: true,
+        calculatedAt: { lte: cutoffDate },
       },
       orderBy: { calculatedAt: "desc" },
       select: {
@@ -203,14 +237,7 @@ export async function loadPersistedBoostShadowEvidenceBundle(
       runs: [...runsById.values()].sort((a, b) =>
         (a.completedAt ?? "").localeCompare(b.completedAt ?? ""),
       ),
-      ratingSnapshots: snapshots
-        .filter((s) => s.mythicRating != null && s.mythicRating > 0)
-        .map((s) => ({
-          characterId: s.characterId,
-          mythicRating: s.mythicRating!,
-          capturedAt: s.capturedAt.toISOString(),
-          seasonId: input.manifest.seasonId,
-        })),
+      ratingSnapshots,
       productionAuthenticity: mapAuthenticity(scoreSnapshot),
     };
   }

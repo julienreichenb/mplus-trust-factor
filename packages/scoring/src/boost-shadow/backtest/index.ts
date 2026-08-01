@@ -45,6 +45,10 @@ export type {
 export {
   createMapEvidencePort,
   filterEvidenceAtCutoff,
+  filterMemberEvidenceAsOf,
+  filterProductionAuthenticityAsOf,
+  mapPersistedCharacterSnapshotsToSeasonBound,
+  emptyProductionAuthenticity,
   toExtractorInput,
   validateBoostShadowEvidenceBundle,
 } from "./evidence.js";
@@ -53,6 +57,7 @@ export type {
   BoostShadowEvidenceBundleV1,
   BoostShadowEvidencePort,
   EvidenceBundleValidationResult,
+  SeasonTimeBounds,
 } from "./evidence.js";
 
 export {

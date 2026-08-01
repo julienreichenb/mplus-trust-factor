@@ -1,11 +1,17 @@
 /**
  * Leakage-safe train / evaluation splits for boost-shadow Phase 2.
  * Prefer temporal + grouped evaluation over random row splitting.
+ *
+ * Split metadata is computed only from as-of filtered evidence so future runs
+ * cannot influence latestRunAt, cohort fingerprints, duplicates, or coverage.
  */
 
 import { createHash } from "node:crypto";
 import type { BoostShadowCohortMemberV1 } from "./manifest.js";
-import type { BoostShadowMemberEvidenceV1 } from "./evidence.js";
+import {
+  filterMemberEvidenceAsOf,
+  type BoostShadowMemberEvidenceV1,
+} from "./evidence.js";
 import type { BoostShadowExperimentParamsV1 } from "./experiment-params.js";
 import type { BoostShadowSplitAssignmentV1, BoostShadowSplitName } from "./types.js";
 import { resolveCanonicalTeammateIdentity } from "../identity.js";
@@ -56,39 +62,41 @@ export function computeTeammateCohortFingerprint(
 
 interface SplitCandidate {
   member: BoostShadowCohortMemberV1;
+  /** Evidence filtered to the member's evaluationCutoff. */
   evidence: BoostShadowMemberEvidenceV1 | null;
   latestRunAt: string | null;
   cohortFp: string | null;
+  evaluationCutoff: string;
 }
 
 /**
- * Assign leakage-safe splits:
- * - same character never crosses train/evaluation (manifest forbids duplicate characterIds)
- * - same stable teammate cohort fingerprint stays in one split family
- * - temporal holdout: later members → evaluation
- * - unlabeled rows stay available for coverage (may land in any split; supervised metrics exclude them)
- * - duplicate run IDs across members are detected and force coverage_only
+ * Assign leakage-safe splits using only as-of filtered evidence per member.
  */
 export function assignLeakageSafeSplits(args: {
   members: BoostShadowCohortMemberV1[];
   evidenceByMemberId: Record<string, BoostShadowMemberEvidenceV1>;
   seasonId: string;
   params: BoostShadowExperimentParamsV1;
+  /** Fallback cutoff when member.evaluationCutoff is omitted. */
+  defaultEvaluationCutoff: string;
 }): {
   assignments: BoostShadowSplitAssignmentV1[];
   duplicateRunIds: string[];
 } {
   const candidates: SplitCandidate[] = args.members.map((member) => {
-    const evidence = args.evidenceByMemberId[member.memberId] ?? null;
+    const cutoff = member.evaluationCutoff ?? args.defaultEvaluationCutoff;
+    const raw = args.evidenceByMemberId[member.memberId] ?? null;
+    const filtered = raw ? filterMemberEvidenceAsOf(raw, cutoff) : null;
     return {
       member,
-      evidence,
-      latestRunAt: latestRunAt(evidence),
-      cohortFp: computeTeammateCohortFingerprint(evidence, args.seasonId),
+      evidence: filtered,
+      latestRunAt: latestRunAt(filtered),
+      cohortFp: computeTeammateCohortFingerprint(filtered, args.seasonId),
+      evaluationCutoff: cutoff,
     };
   });
 
-  // Detect duplicate run IDs across the cohort.
+  // Duplicate run IDs — only among as-of-visible runs.
   const runOwner = new Map<string, string>();
   const duplicateRunIds: string[] = [];
   for (const c of candidates) {
@@ -104,7 +112,7 @@ export function assignLeakageSafeSplits(args: {
   }
   const dupSet = new Set(duplicateRunIds);
 
-  // Temporal sort: earlier → train candidate; later → evaluation.
+  // Temporal sort on filtered latestRunAt.
   const ordered = [...candidates].sort((a, b) => {
     const aMs = a.latestRunAt ? Date.parse(a.latestRunAt) : 0;
     const bMs = b.latestRunAt ? Date.parse(b.latestRunAt) : 0;
@@ -126,7 +134,6 @@ export function assignLeakageSafeSplits(args: {
     provisional.set(ordered[i]!.member.memberId, i >= evalStart ? "evaluation" : "train");
   }
 
-  // Group by teammate cohort fingerprint — keep entire group in the later split if mixed.
   const byCohort = new Map<string, string[]>();
   for (const c of candidates) {
     if (!c.cohortFp) continue;
@@ -162,12 +169,11 @@ export function assignLeakageSafeSplits(args: {
       split,
       teammateCohortFingerprint: c.cohortFp,
       latestRunAt: c.latestRunAt,
-      evaluationCutoff: c.member.evaluationCutoff ?? null,
+      evaluationCutoff: c.evaluationCutoff,
       exclusionReason,
     };
   });
 
-  // Deterministic order
   assignments.sort((a, b) => a.memberId.localeCompare(b.memberId));
 
   return { assignments, duplicateRunIds: [...dupSet].sort() };

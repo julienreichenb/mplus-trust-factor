@@ -85,8 +85,9 @@ Experimental classifier is labelled `OFFLINE_NON_PRODUCT` — not a production b
 ## Known evidence limitations
 
 - `RunParticipant.mythicRatingAtRun` is often sparse; missing stays omitted (not zero).
-- CharacterSnapshot ratings are only used when captured at or before the run (and evaluation cutoff).
-- Production authenticity is compare-only — **never** ground truth.
+- `CharacterSnapshot` has no native `seasonId`; Phase 2 attaches the manifest season **only after** authoritative `Season.startsAt`/`endsAt` window filtering (and `evaluationCutoff`). Missing `startsAt` fails closed (snapshot fallback omitted).
+- Production authenticity is compare-only and **as-of** each member's cutoff (`calculatedAt <= evaluationCutoff`) — **never** ground truth.
+- Split metadata (`latestRunAt`, cohort fingerprint, duplicates, coverage) uses the same as-of filter so future runs cannot influence assignment.
 - Verified-alt mitigation is out of scope until Phase 4.
 - Historical ownership link/unlink reconstruction is incomplete in the live schema.
 

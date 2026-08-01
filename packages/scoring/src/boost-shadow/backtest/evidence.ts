@@ -14,6 +14,7 @@ import {
   type ResearchLabelV1,
 } from "./types.js";
 import type { BoostShadowCohortManifestV1 } from "./manifest.js";
+import { validateBoostShadowCohortManifest } from "./manifest.js";
 
 export interface BoostShadowMemberEvidenceV1 {
   memberId: string;
@@ -55,6 +56,14 @@ export interface EvidenceBundleValidationResult {
   bundle: BoostShadowEvidenceBundleV1 | null;
 }
 
+/** Authoritative season window used to bound CharacterSnapshot fallback. */
+export interface SeasonTimeBounds {
+  seasonId: string;
+  /** Required — missing/invalid startsAt fails closed (omit snapshot fallback). */
+  startsAt: string | null;
+  endsAt: string | null;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -69,36 +78,154 @@ export function createMapEvidencePort(
   };
 }
 
+export function emptyProductionAuthenticity(): ProductionAuthenticityCompareV1 {
+  return {
+    authenticityScore: null,
+    boostSuspected: null,
+    atypicalProgression: null,
+    redFlagKeys: [],
+    snapshotId: null,
+    calculatedAt: null,
+    source: "none",
+  };
+}
+
+function parseValidMs(iso: string | null | undefined): number | null {
+  if (typeof iso !== "string" || iso.trim().length === 0) return null;
+  const ms = Date.parse(iso);
+  return Number.isFinite(ms) ? ms : null;
+}
+
 /**
- * Filter runs and snapshots to those observed at or before evaluationCutoff.
- * Future evidence cannot leak into earlier evaluation.
+ * Filter production authenticity to as-of cutoff.
+ * Post-cutoff authenticity becomes empty/none — never used for comparison.
+ */
+export function filterProductionAuthenticityAsOf(
+  auth: ProductionAuthenticityCompareV1 | null | undefined,
+  evaluationCutoff: string,
+): ProductionAuthenticityCompareV1 {
+  if (!auth || auth.source === "none") return emptyProductionAuthenticity();
+  const cutoffMs = parseValidMs(evaluationCutoff);
+  if (cutoffMs === null) return emptyProductionAuthenticity();
+  const calcMs = parseValidMs(auth.calculatedAt);
+  if (calcMs === null || calcMs > cutoffMs) return emptyProductionAuthenticity();
+  return auth;
+}
+
+/**
+ * Canonical Phase 2 as-of evidence filter.
+ *
+ * - runs: seasonId exact + completedAt valid + completedAt <= cutoff
+ * - ratingSnapshots: seasonId exact (null rejected) + capturedAt valid + <= cutoff
+ * - productionAuthenticity: calculatedAt valid + <= cutoff else empty/none
+ * - ownership always stripped
+ *
+ * Missing evidence stays omitted — never coerced to zero or reassigned season.
+ */
+export function filterMemberEvidenceAsOf(
+  evidence: BoostShadowMemberEvidenceV1,
+  evaluationCutoff: string,
+): BoostShadowMemberEvidenceV1 {
+  const cutoffMs = parseValidMs(evaluationCutoff);
+  if (cutoffMs === null) {
+    throw new Error(`Invalid evaluationCutoff: ${evaluationCutoff}`);
+  }
+
+  const seasonId = evidence.seasonId;
+
+  const runs = evidence.runs.filter((run) => {
+    if (run.seasonId !== seasonId) return false;
+    const at = parseValidMs(run.completedAt);
+    return at !== null && at <= cutoffMs;
+  });
+
+  const ratingSnapshots = (evidence.ratingSnapshots ?? []).filter((snap) => {
+    // Phase 2: missing/null seasonId must not silently pass.
+    if (snap.seasonId == null || snap.seasonId === "") return false;
+    if (snap.seasonId !== seasonId) return false;
+    const at = parseValidMs(snap.capturedAt);
+    return at !== null && at <= cutoffMs;
+  });
+
+  const productionAuthenticity = filterProductionAuthenticityAsOf(
+    evidence.productionAuthenticity,
+    evaluationCutoff,
+  );
+
+  // Strip any accidental ownership field without preserving it.
+  const {
+    ownershipEvidence: _ownershipIgnored,
+    ...rest
+  } = evidence as BoostShadowMemberEvidenceV1 & { ownershipEvidence?: unknown };
+
+  return {
+    ...rest,
+    runs,
+    ratingSnapshots,
+    productionAuthenticity,
+    ownershipEvidenceForbidden: true,
+  };
+}
+
+/**
+ * @deprecated Prefer filterMemberEvidenceAsOf — kept as alias for callers.
  */
 export function filterEvidenceAtCutoff(
   evidence: BoostShadowMemberEvidenceV1,
   evaluationCutoff: string,
 ): BoostShadowMemberEvidenceV1 {
-  const cutoffMs = Date.parse(evaluationCutoff);
-  if (!Number.isFinite(cutoffMs)) {
-    throw new Error(`Invalid evaluationCutoff: ${evaluationCutoff}`);
+  return filterMemberEvidenceAsOf(evidence, evaluationCutoff);
+}
+
+/**
+ * Map persisted CharacterSnapshot rows into season-bound portable snapshots.
+ *
+ * Requires authoritative season.startsAt. Fail closed (omit all) when startsAt
+ * is absent/invalid. Does not infer season from current date, score, or nearby runs.
+ * Attaches manifest seasonId only after the window check passes.
+ */
+export function mapPersistedCharacterSnapshotsToSeasonBound(args: {
+  snapshots: Array<{
+    characterId: string;
+    mythicRating: number | null;
+    capturedAt: string | Date;
+  }>;
+  seasonBounds: SeasonTimeBounds;
+  evaluationCutoff: string;
+}): BoostShadowRatingSnapshotInput[] {
+  const startsAtMs = parseValidMs(args.seasonBounds.startsAt);
+  if (startsAtMs === null) {
+    // Fail closed: no CharacterSnapshot fallback without authoritative startsAt.
+    return [];
   }
 
-  const runs = evidence.runs.filter((run) => {
-    if (!run.completedAt) return false;
-    const at = Date.parse(run.completedAt);
-    return Number.isFinite(at) && at <= cutoffMs;
-  });
+  const cutoffMs = parseValidMs(args.evaluationCutoff);
+  if (cutoffMs === null) return [];
 
-  const ratingSnapshots = (evidence.ratingSnapshots ?? []).filter((snap) => {
-    const at = Date.parse(snap.capturedAt);
-    return Number.isFinite(at) && at <= cutoffMs;
-  });
+  const endsAtMs = parseValidMs(args.seasonBounds.endsAt);
+  const upperBoundMs =
+    endsAtMs === null ? cutoffMs : Math.min(endsAtMs, cutoffMs);
 
-  return {
-    ...evidence,
-    runs,
-    ratingSnapshots,
-    // Phase 2: never pass ownership into extractors.
-  };
+  const out: BoostShadowRatingSnapshotInput[] = [];
+  for (const snap of args.snapshots) {
+    if (snap.mythicRating == null || !(snap.mythicRating > 0)) continue;
+    const capturedIso =
+      snap.capturedAt instanceof Date
+        ? snap.capturedAt.toISOString()
+        : snap.capturedAt;
+    const capturedMs = parseValidMs(capturedIso);
+    if (capturedMs === null) continue;
+    if (capturedMs < startsAtMs) continue;
+    if (capturedMs > upperBoundMs) continue;
+
+    out.push({
+      characterId: snap.characterId,
+      mythicRating: snap.mythicRating,
+      capturedAt: capturedIso,
+      seasonId: args.seasonBounds.seasonId,
+    });
+  }
+  return out;
 }
 
 export function toExtractorInput(
@@ -130,6 +257,29 @@ function countRunSources(runs: BoostShadowRunInput[]): Record<string, number> {
   return counts;
 }
 
+function validateProductionAuthenticityShape(
+  raw: unknown,
+  prefix: string,
+  errors: string[],
+): void {
+  if (raw == null) return;
+  if (!isRecord(raw)) {
+    errors.push(`${prefix} must be an object when provided`);
+    return;
+  }
+  if (raw.source === "none") return;
+  if (raw.calculatedAt != null) {
+    if (typeof raw.calculatedAt !== "string" || parseValidMs(raw.calculatedAt) === null) {
+      errors.push(`${prefix}.calculatedAt must be a valid ISO timestamp when present`);
+    }
+  }
+}
+
+/**
+ * Deep validation for Phase 2 evidence bundles.
+ * Rejects cross-season runs/snapshots, missing snapshot seasonIds, ownership, and
+ * invalid evaluationCutoff / authenticity timestamps.
+ */
 export function validateBoostShadowEvidenceBundle(
   input: unknown,
 ): EvidenceBundleValidationResult {
@@ -144,7 +294,7 @@ export function validateBoostShadowEvidenceBundle(
     );
   }
 
-  if (typeof input.generatedAt !== "string" || !Number.isFinite(Date.parse(input.generatedAt))) {
+  if (typeof input.generatedAt !== "string" || parseValidMs(input.generatedAt) === null) {
     errors.push("generatedAt must be an ISO timestamp");
   }
 
@@ -157,10 +307,20 @@ export function validateBoostShadowEvidenceBundle(
     return { ok: false, errors, bundle: null };
   }
 
-  // Manifest validated separately by callers; shallow check here.
-  if (!isRecord(input.manifest)) {
-    errors.push("manifest must be an object");
+  const manifestResult = validateBoostShadowCohortManifest(input.manifest);
+  if (!manifestResult.ok || !manifestResult.manifest) {
+    errors.push(...manifestResult.errors.map((e) => `manifest: ${e}`));
+    return { ok: false, errors, bundle: null };
   }
+  const manifest = manifestResult.manifest;
+
+  for (const member of manifest.members) {
+    if (member.evaluationCutoff != null && parseValidMs(member.evaluationCutoff) === null) {
+      errors.push(`members[${member.memberId}].evaluationCutoff must be a valid ISO timestamp`);
+    }
+  }
+
+  const memberById = new Map(manifest.members.map((m) => [m.memberId, m]));
 
   for (const [memberId, raw] of Object.entries(input.evidenceByMemberId)) {
     if (!isRecord(raw)) {
@@ -173,13 +333,84 @@ export function validateBoostShadowEvidenceBundle(
     if (typeof raw.characterId !== "string" || !raw.characterId) {
       errors.push(`evidenceByMemberId[${memberId}].characterId required`);
     }
+    if (typeof raw.seasonId !== "string" || !raw.seasonId) {
+      errors.push(`evidenceByMemberId[${memberId}].seasonId required`);
+    } else if (raw.seasonId !== manifest.seasonId) {
+      errors.push(
+        `evidenceByMemberId[${memberId}].seasonId must match manifest.seasonId`,
+      );
+    }
+
+    const member = memberById.get(memberId);
+    if (member && typeof raw.characterId === "string" && raw.characterId !== member.characterId) {
+      errors.push(
+        `evidenceByMemberId[${memberId}].characterId must match manifest member characterId`,
+      );
+    }
+
     if (!Array.isArray(raw.runs)) {
       errors.push(`evidenceByMemberId[${memberId}].runs must be an array`);
+    } else {
+      for (let i = 0; i < raw.runs.length; i++) {
+        const run = raw.runs[i];
+        if (!isRecord(run)) {
+          errors.push(`evidenceByMemberId[${memberId}].runs[${i}] must be an object`);
+          continue;
+        }
+        if (typeof run.seasonId === "string" && run.seasonId !== raw.seasonId) {
+          errors.push(
+            `evidenceByMemberId[${memberId}].runs[${i}].seasonId must equal evidence.seasonId`,
+          );
+        }
+      }
     }
+
+    if (raw.ratingSnapshots !== undefined) {
+      if (!Array.isArray(raw.ratingSnapshots)) {
+        errors.push(`evidenceByMemberId[${memberId}].ratingSnapshots must be an array`);
+      } else {
+        for (let i = 0; i < raw.ratingSnapshots.length; i++) {
+          const snap = raw.ratingSnapshots[i];
+          if (!isRecord(snap)) {
+            errors.push(
+              `evidenceByMemberId[${memberId}].ratingSnapshots[${i}] must be an object`,
+            );
+            continue;
+          }
+          if (snap.seasonId == null || snap.seasonId === "") {
+            errors.push(
+              `evidenceByMemberId[${memberId}].ratingSnapshots[${i}].seasonId is required in Phase 2`,
+            );
+          } else if (
+            typeof snap.seasonId === "string" &&
+            typeof raw.seasonId === "string" &&
+            snap.seasonId !== raw.seasonId
+          ) {
+            errors.push(
+              `evidenceByMemberId[${memberId}].ratingSnapshots[${i}].seasonId must equal evidence.seasonId`,
+            );
+          }
+        }
+      }
+    }
+
     if (Array.isArray(raw.ownershipEvidence) && raw.ownershipEvidence.length > 0) {
       errors.push(
         `evidenceByMemberId[${memberId}] must not include ownershipEvidence in Phase 2`,
       );
+    }
+
+    validateProductionAuthenticityShape(
+      raw.productionAuthenticity,
+      `evidenceByMemberId[${memberId}].productionAuthenticity`,
+      errors,
+    );
+  }
+
+  // Every manifest member should have evidence (may be empty runs).
+  for (const member of manifest.members) {
+    if (!(member.memberId in input.evidenceByMemberId)) {
+      errors.push(`missing evidence for manifest member ${member.memberId}`);
     }
   }
 
@@ -190,6 +421,9 @@ export function validateBoostShadowEvidenceBundle(
   return {
     ok: true,
     errors: [],
-    bundle: input as unknown as BoostShadowEvidenceBundleV1,
+    bundle: {
+      ...(input as unknown as BoostShadowEvidenceBundleV1),
+      manifest,
+    },
   };
 }

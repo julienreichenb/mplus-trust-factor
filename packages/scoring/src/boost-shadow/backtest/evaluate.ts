@@ -12,7 +12,8 @@ import {
 } from "./analyze.js";
 import {
   createMapEvidencePort,
-  filterEvidenceAtCutoff,
+  emptyProductionAuthenticity,
+  filterMemberEvidenceAsOf,
   toExtractorInput,
   type BoostShadowEvidencePort,
   type BoostShadowMemberEvidenceV1,
@@ -41,18 +42,6 @@ const DISCLAIMER =
   "No production score effect, no authenticity write-back, no public flags, " +
   "no addon change, no provider calls, no database migration, no verified ownership usage, " +
   "no model activation. Experimental classifier is OFFLINE_NON_PRODUCT only.";
-
-function emptyAuthenticity(): ProductionAuthenticityCompareV1 {
-  return {
-    authenticityScore: null,
-    boostSuspected: null,
-    atypicalProgression: null,
-    redFlagKeys: [],
-    snapshotId: null,
-    calculatedAt: null,
-    source: "none",
-  };
-}
 
 function emptyFactsStub(
   characterId: string,
@@ -172,6 +161,7 @@ export function runBoostShadowBacktest(
     evidenceByMemberId,
     seasonId: manifest.seasonId,
     params,
+    defaultEvaluationCutoff: options.generatedAt,
   });
   assertNoCharacterLeakage(assignments);
   assertNoCohortLeakage(assignments);
@@ -201,7 +191,7 @@ export function runBoostShadowBacktest(
         label,
         labeledForSupervised: false,
         facts,
-        productionAuthenticity: emptyAuthenticity(),
+        productionAuthenticity: emptyProductionAuthenticity(),
         params,
         error: "NO_EVIDENCE",
       });
@@ -216,11 +206,13 @@ export function runBoostShadowBacktest(
       );
     }
 
-    const filtered = filterEvidenceAtCutoff(raw, cutoff);
+    // Canonical as-of filter: season + cutoff on runs/snapshots/authenticity.
+    const filtered = filterMemberEvidenceAsOf(raw, cutoff);
     const extractorInput = toExtractorInput(filtered, cutoff);
     const facts = extractBoostFeatureFactsV1(extractorInput);
 
     // Phase 1 semantics: missing ratings stay omitted — never coerced to 0 by harness.
+    // Authenticity compare uses filtered (post-cutoff authenticity → none).
     const row = buildFeatureRow({
       memberId: member.memberId,
       characterId: member.characterId,
@@ -231,7 +223,8 @@ export function runBoostShadowBacktest(
       label,
       labeledForSupervised: false,
       facts,
-      productionAuthenticity: raw.productionAuthenticity ?? emptyAuthenticity(),
+      productionAuthenticity:
+        filtered.productionAuthenticity ?? emptyProductionAuthenticity(),
       params,
       error: null,
     });

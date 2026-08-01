@@ -133,6 +133,7 @@ describe("boost-shadow Phase 2 backtest harness", () => {
       evidenceByMemberId: bundle.evidenceByMemberId,
       seasonId: bundle.manifest.seasonId,
       params,
+      defaultEvaluationCutoff: bundle.generatedAt,
     });
     expect(() => assertNoCharacterLeakage(assignments)).not.toThrow();
     expect(() => assertNoCohortLeakage(assignments)).not.toThrow();
