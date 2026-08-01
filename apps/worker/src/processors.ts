@@ -185,6 +185,8 @@ export function createWorkers(connection: ConnectionOptions, container: WorkerCo
       const result = await withRetryClassification(job, () => runRefreshPipeline(container, payload));
       return toBullmqReturnValue(result);
     },
+    // Stage 3: keep effective refresh concurrency at 1 (BullMQ default).
+    // Do not wire REFRESH_WORKER_CONCURRENCY until REFRESH_CONCURRENCY_ENABLED.
     { connection, autorun: false },
   );
 

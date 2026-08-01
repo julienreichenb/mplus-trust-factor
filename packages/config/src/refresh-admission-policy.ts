@@ -1,8 +1,10 @@
 /**
- * Refresh admission / concurrency policy (foundation).
+ * Refresh admission / concurrency policy.
  *
- * Defaults keep live admission, Redis reservations, Worker concurrency wiring,
- * BullMQ priority, ETA population, and multi-attempt retries disabled.
+ * Defaults keep live admission off, Worker concurrency unwired, BullMQ priority,
+ * ETA population, and multi-attempt retries disabled.
+ * Stage 3: REFRESH_ADMISSION_MODE=enforce enables Redis admit/release at serial
+ * concurrency 1. REFRESH_CONCURRENCY_ENABLED raises caps later (Stage 6+).
  * See docs/plans/parallel-refresh-scheduling.md §§4, 17–19.
  */
 
@@ -27,7 +29,7 @@ export type RefreshAdmissionEnv = {
 
 export interface RefreshAdmissionConfig {
   version: string;
-  /** off = no predict/enforce; shadow = predict only; enforce = live Redis admit (later branch). */
+  /** off = no predict/enforce; shadow = predict only; enforce = live Redis admit. */
   mode: RefreshAdmissionMode;
   /** Process-local BullMQ Worker concurrency (unused until concurrency activation). */
   workerConcurrency: number;
@@ -96,16 +98,34 @@ export function buildRefreshAdmissionConfig(env: RefreshAdmissionEnv): RefreshAd
 }
 
 /**
- * Whether foundation code may mutate Redis reservation / slot state.
- * Foundation defaults keep this false even if mode is mis-set to enforce.
+ * Whether enforce mode may mutate Redis reservation / slot state.
+ * Stage 3: `REFRESH_ADMISSION_MODE=enforce` alone enables live admit/release.
+ * `REFRESH_CONCURRENCY_ENABLED` only raises admitted/worker caps above serial 1.
  */
 export function isRefreshAdmissionRedisMutationEnabled(config: RefreshAdmissionConfig): boolean {
-  return config.mode === "enforce" && config.concurrencyEnabled;
+  return config.mode === "enforce";
 }
 
-/** Shadow prediction is allowed only in shadow mode (not off, not enforce activation). */
+/** Shadow prediction is allowed only in shadow mode (not off, not enforce). */
 export function isRefreshAdmissionShadowEnabled(config: RefreshAdmissionConfig): boolean {
   return config.mode === "shadow";
+}
+
+/**
+ * Effective global admitted-slot limit for the live gate.
+ * Until concurrency activation, enforce keeps serial capacity (1).
+ */
+export function effectiveAdmissionGlobalConcurrency(config: RefreshAdmissionConfig): number {
+  if (!config.concurrencyEnabled) return 1;
+  return clampGlobalConcurrency(config.globalConcurrency, config.globalHardMax);
+}
+
+/**
+ * Whether BullMQ Worker concurrency may be wired above the default of 1.
+ * Stage 3 keeps this false — do not raise Worker concurrency here.
+ */
+export function isRefreshWorkerConcurrencyWiringEnabled(config: RefreshAdmissionConfig): boolean {
+  return config.concurrencyEnabled;
 }
 
 /**

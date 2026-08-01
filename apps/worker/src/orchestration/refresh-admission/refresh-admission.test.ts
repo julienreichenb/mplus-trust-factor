@@ -338,23 +338,25 @@ describe("refresh admission foundation", () => {
       },
     });
     const result = await gate.tryAdmit(baseInput());
-    expect(result.wouldMutateRedis).toBe(false);
-    expect(result.metadata.admitPath).toBe("foundation_no_redis_mutation");
+    expect(result.prediction.wouldMutateRedis).toBe(false);
+    expect(result.outcome).toBe("shadow");
     expect(observed).toEqual(["OK"]);
 
     const release = await gate.tryRelease("11111111-1111-4111-8111-111111111111");
-    expect(release).toEqual({ released: false, reason: "redis_mutation_disabled" });
+    expect(release.released).toBe(false);
+    expect(release.reason).toBe("redis_mutation_disabled");
   });
 
-  it("enforce without concurrency flag still refuses Redis mutation", async () => {
+  it("enforce without concurrency flag enables Redis mutation at serial capacity 1", async () => {
     const gate = createRefreshAdmissionGate({
       env: { ...baseEnv, REFRESH_ADMISSION_MODE: "enforce", REFRESH_CONCURRENCY_ENABLED: false },
     });
     expect(gate.config.mode).toBe("enforce");
+    // Without Redis connection, enforce fails closed (does not proceed unrestricted).
     const result = await gate.tryAdmit(baseInput());
-    expect(result.wouldMutateRedis).toBe(false);
-    const release = await gate.tryRelease("x");
-    expect(release.released).toBe(false);
+    expect(result.prediction.admitted).toBe(false);
+    expect(result.prediction.reason).toBe("REDIS_UNAVAILABLE");
+    expect(result.providerCallsAvoided).toBe(true);
   });
 
   it("shadow divergence when prediction would defer but serial reality proceeds", () => {

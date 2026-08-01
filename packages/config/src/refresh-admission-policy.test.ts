@@ -7,8 +7,10 @@ import {
   computeEmergencyReservePoints,
   computeNormalAvailablePoints,
   deriveWclWindowId,
+  effectiveAdmissionGlobalConcurrency,
   isRefreshAdmissionRedisMutationEnabled,
   isRefreshAdmissionShadowEnabled,
+  isRefreshWorkerConcurrencyWiringEnabled,
   isWclSnapshotFresh,
 } from "./refresh-admission-policy.js";
 import { loadEnv, resetEnvCache } from "./index.js";
@@ -53,11 +55,28 @@ describe("refresh admission policy", () => {
     expect(isRefreshAdmissionRedisMutationEnabled(config)).toBe(false);
   });
 
-  it("enforce alone does not enable Redis mutation without concurrency flag", () => {
+  it("enforce alone enables Redis mutation at serial concurrency 1", () => {
     resetEnvCache();
     const env = loadEnv({ ...baseEnv, REFRESH_ADMISSION_MODE: "enforce" });
     const config = buildRefreshAdmissionConfig(env);
-    expect(isRefreshAdmissionRedisMutationEnabled(config)).toBe(false);
+    expect(isRefreshAdmissionRedisMutationEnabled(config)).toBe(true);
+    expect(config.concurrencyEnabled).toBe(false);
+    expect(effectiveAdmissionGlobalConcurrency(config)).toBe(1);
+    expect(isRefreshWorkerConcurrencyWiringEnabled(config)).toBe(false);
+    expect(config.globalConcurrency).toBe(2); // configured default unused until concurrency flag
+  });
+
+  it("concurrency flag applies configured global cap for admission", () => {
+    resetEnvCache();
+    const env = loadEnv({
+      ...baseEnv,
+      REFRESH_ADMISSION_MODE: "enforce",
+      REFRESH_CONCURRENCY_ENABLED: "true",
+      REFRESH_GLOBAL_CONCURRENCY: "2",
+    });
+    const config = buildRefreshAdmissionConfig(env);
+    expect(effectiveAdmissionGlobalConcurrency(config)).toBe(2);
+    expect(isRefreshWorkerConcurrencyWiringEnabled(config)).toBe(true);
   });
 
   it("clamps concurrency knobs to hard maxima", () => {

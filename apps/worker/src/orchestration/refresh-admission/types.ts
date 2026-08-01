@@ -19,7 +19,45 @@ export type RefreshAdmissionDecisionReason =
   | "IDEMPOTENT_EXISTING"
   | "INCONSISTENT_RESERVATION_WITHOUT_SLOT"
   | "NON_WCL_SLOT_ONLY"
-  | "ENFORCE_NOT_ACTIVATED";
+  | "ENFORCE_NOT_ACTIVATED"
+  | "REDIS_UNAVAILABLE"
+  | "LEASE_NOT_OWNED";
+
+export type RefreshAdmissionOutcomeKind = "admitted" | "deferred" | "denied" | "shadow" | "off";
+
+/** Reasons that should delay a new durable execution (not BullMQ multi-attempt). */
+export const REFRESH_ADMISSION_DEFER_REASONS: ReadonlySet<RefreshAdmissionDecisionReason> = new Set([
+  "INSUFFICIENT_RESERVED_CAPACITY",
+  "INSUFFICIENT_GLOBAL_SLOTS",
+  "SNAPSHOT_STALE",
+  "SNAPSHOT_MISSING",
+  "REDIS_UNAVAILABLE",
+  "SCHEDULING_PAUSED",
+]);
+
+export interface RefreshAdmissionLiveResult {
+  prediction: RefreshAdmissionPrediction;
+  outcome: RefreshAdmissionOutcomeKind;
+  reservedPoints: number;
+  leaseExpiresAt: Date | null;
+  windowId: string | null;
+  idempotent: boolean;
+  providerCallsAvoided: boolean;
+}
+
+export interface RefreshAdmissionSettleInput {
+  ingestionJobId: string;
+  measuredWclPoints: number | null;
+  status: "SETTLED" | "RELEASED" | "CANCELLED" | "EXPIRED";
+  metadata?: Record<string, unknown>;
+}
+
+export interface RefreshAdmissionReleaseResult {
+  released: boolean;
+  reason: string;
+  releasedPoints: number;
+  hadSlot: boolean;
+}
 
 export type RefreshSchedulingState =
   | "RUNNING"

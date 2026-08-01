@@ -44,7 +44,8 @@ import { runUtilityV3Simulation } from "./utility-v3-simulation.js";
 import { classSlugFromWclClassId } from "./survival-probe-logic.js";
 import type { UtilityProbeIdentity } from "./utility-probe-types.js";
 import type { UtilityV3SimulationDataset } from "./utility-v3-types.js";
-import type { WclRateBudgetDecision } from "../types.js";
+import type { WclRateBudgetDecisionDTO } from "@mplus/contracts";
+import { buildWclRateLimitFetchContext } from "@mplus/contracts";
 import { roleForSpec } from "@mplus/abilities";
 import {
   atomicPublishProbeArtifacts,
@@ -302,13 +303,15 @@ function zipDirectoryContents(sourceDir: string, zipPath: string): void {
   if (tar.status !== 0) throw new Error("Failed to create ZIP");
 }
 
-function rateLimitSummary(decision: WclRateBudgetDecision): RateLimitSummary {
+function rateLimitSummary(decision: WclRateBudgetDecisionDTO): RateLimitSummary {
+  const pointsLimit = decision.snapshot.pointsLimit;
+  const pointsRemaining = decision.snapshot.pointsRemaining;
   return {
     action: decision.action,
     utilizationPercent: decision.utilizationPercent,
-    limitPerHour: decision.snapshot.limitPerHour,
-    pointsSpentThisHour: decision.snapshot.pointsSpentThisHour,
-    pointsRemaining: decision.snapshot.pointsRemaining,
+    limitPerHour: pointsLimit,
+    pointsSpentThisHour: Math.max(0, pointsLimit - pointsRemaining),
+    pointsRemaining,
     resetAt: decision.snapshot.resetAt,
     fetchedAt: decision.snapshot.fetchedAt,
   };
@@ -1370,18 +1373,21 @@ async function main(): Promise<void> {
   // ------------------------------------------------------------------
   // Single preflight RateLimitData
   // ------------------------------------------------------------------
-  let preflight: WclRateBudgetDecision | null = null;
-  const fakeCtx = { now: new Date().toISOString() };
+  let preflight: WclRateBudgetDecisionDTO | null = null;
+  const rateLimitCtx = buildWclRateLimitFetchContext({
+    requestId: "utility-cross-class-preflight",
+  });
 
   console.log("\n[preflight] RateLimitData…");
   try {
-    preflight = await provider.fetchRateLimit(
-      fakeCtx as Parameters<typeof provider.fetchRateLimit>[0],
-    );
+    preflight = await provider.fetchRateLimit(rateLimitCtx);
+    if (!preflight) {
+      throw new Error("fetchRateLimit returned null");
+    }
     const pct = preflight.utilizationPercent.toFixed(1);
     console.log(
       `  → action=${preflight.action} utilization=${pct}%` +
-      ` remaining=${preflight.snapshot.pointsRemaining}/${preflight.snapshot.limitPerHour}` +
+      ` remaining=${preflight.snapshot.pointsRemaining}/${preflight.snapshot.pointsLimit}` +
       (preflight.snapshot.resetAt ? ` resetAt=${preflight.snapshot.resetAt}` : ""),
     );
     if (preflight.action === "STOP") {
@@ -1401,7 +1407,7 @@ async function main(): Promise<void> {
   // Iterate characters
   // ------------------------------------------------------------------
   const results: CharacterValidationResult[] = [];
-  let lastGuard: WclRateBudgetDecision | null = null;
+  let lastGuard: WclRateBudgetDecisionDTO | null = null;
   // Track measured cost per dungeon from processed characters for cost estimation
   const measuredCostsPerDungeon: number[] = [];
 
@@ -1520,7 +1526,9 @@ async function main(): Promise<void> {
 
       try {
         const guard = await provider.fetchRateLimit(
-          fakeCtx as Parameters<typeof provider.fetchRateLimit>[0],
+          buildWclRateLimitFetchContext({
+            requestId: `utility-cross-class-guard-${i}`,
+          }),
         );
         lastGuard = guard;
         const pct = guard.utilizationPercent.toFixed(1);

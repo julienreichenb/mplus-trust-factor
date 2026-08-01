@@ -35,6 +35,9 @@ async function main(): Promise<void> {
   const env = loadEnv();
   const container = createWorkerContainer(env);
   const connection = container.createRedisConnection();
+  // Separate Redis connection for admission snapshot maintenance so shutdown
+  // can stop the refresher before quitting the queue connection.
+  const admissionRedis = container.createRedisConnection();
 
   // Prefer DB-cached season authority within TTL so API+worker do not double-call Blizzard.
   try {
@@ -97,6 +100,7 @@ async function main(): Promise<void> {
         "realm catalog bootstrap failed closed — worker will not report ready",
       );
       if (env.PROVIDER_MODE === "live") {
+        await admissionRedis.quit();
         await connection.quit();
         await container.prisma.$disconnect();
         process.exit(1);
@@ -108,11 +112,49 @@ async function main(): Promise<void> {
       "realm catalog bootstrap threw",
     );
     if (env.PROVIDER_MODE === "live") {
+      await admissionRedis.quit();
       await connection.quit();
       await container.prisma.$disconnect();
       process.exit(1);
     }
     realmCatalogReady = false;
+  }
+
+  const { bootstrapWclAdmissionSnapshotRefresher } = await import(
+    "./orchestration/refresh-admission/snapshot-refresher.js"
+  );
+  const { checkAdmissionSnapshotReadiness } = await import(
+    "./orchestration/refresh-admission/snapshot-readiness.js"
+  );
+
+  const snapshotRefresher = await bootstrapWclAdmissionSnapshotRefresher({
+    redis: admissionRedis,
+    appEnv: env.APP_ENV,
+    warcraftlogs: container.providers.warcraftlogs,
+    logger: container.logger,
+    intervalMs: Math.max(10_000, env.REFRESH_WCL_SNAPSHOT_MAX_AGE_SECONDS * 500),
+    maxAgeSeconds: env.REFRESH_WCL_SNAPSHOT_MAX_AGE_SECONDS,
+    admissionMode: env.REFRESH_ADMISSION_MODE,
+    wclEnabled: env.WCL_ENABLED,
+    wclDisabledBySet: container.disabledProviders.has("warcraftlogs"),
+  });
+
+  const enforceNeedsSnapshot = env.REFRESH_ADMISSION_MODE === "enforce" && env.WCL_ENABLED;
+  const refresherUnavailable =
+    enforceNeedsSnapshot &&
+    (snapshotRefresher.reason === "capability_missing" ||
+      snapshotRefresher.reason === "initial_refresh_failed" ||
+      !snapshotRefresher.started);
+
+  if (enforceNeedsSnapshot && refresherUnavailable) {
+    container.logger.error(
+      {
+        event: "admission_snapshot_ready",
+        readiness: "unavailable",
+        reason: snapshotRefresher.reason,
+      },
+      "admission snapshot refresher unavailable — worker will not report ready",
+    );
   }
 
   const producers = createQueueProducers(connection, container);
@@ -137,6 +179,16 @@ async function main(): Promise<void> {
           return { ok: false, detail: "redis_ping_failed" };
         }
         await container.prisma.$queryRaw`SELECT 1`;
+
+        const admissionReady = await checkAdmissionSnapshotReadiness({
+          env,
+          redis: admissionRedis,
+          refresherUnavailable,
+        });
+        if (!admissionReady.ok) {
+          return { ok: false, detail: admissionReady.detail };
+        }
+
         return { ok: true };
       } catch (error) {
         return {
@@ -151,11 +203,18 @@ async function main(): Promise<void> {
   container.logger.info(
     {
       queues: Object.values(QUEUE_NAMES),
-      status: "ready",
+      status: refresherUnavailable ? "not_ready" : "ready",
       realmCatalogReady,
+      admissionSnapshotRefresher: {
+        started: snapshotRefresher.started,
+        reason: snapshotRefresher.reason,
+        hasInitialSnapshot: snapshotRefresher.initialSnapshot != null,
+      },
       config: getConfigSummary(env),
     },
-    "worker started",
+    refresherUnavailable
+      ? "worker started — admission snapshot not ready (enforce+WCL)"
+      : "worker started",
   );
 
   let shuttingDown = false;
@@ -166,8 +225,15 @@ async function main(): Promise<void> {
     if (healthServer) {
       await new Promise<void>((resolve) => healthServer!.close(() => resolve()));
     }
+    // Stop snapshot refresher before closing Redis so no tick uses a quit connection.
+    await snapshotRefresher.stop();
     await closeWorkers(workers);
     await producers.close();
+    try {
+      await admissionRedis.quit();
+    } catch {
+      /* ignore */
+    }
     await connection.quit();
     await container.prisma.$disconnect();
     process.exit(0);

@@ -1,6 +1,7 @@
 import { ExternalApiError, type ExternalApiErrorCode } from "@mplus/contracts";
 import { isRefreshContractPreflightError } from "./refresh-contract-preflight.js";
 import { isRefreshEligibilityError } from "./refresh-eligibility-gate.js";
+import { isRefreshAdmissionError } from "./refresh-admission/errors.js";
 
 export interface RetryClassification {
   retryable: boolean;
@@ -29,6 +30,16 @@ const CLASSIFICATION_BY_CODE: Record<ExternalApiErrorCode, RetryClassification> 
 export function classifyError(error: unknown): RetryClassification {
   if (isRefreshContractPreflightError(error) || isRefreshEligibilityError(error)) {
     return { retryable: false, softSkip: false, providerFailure: false };
+  }
+  if (isRefreshAdmissionError(error)) {
+    // Admission deferral is distinguishable from provider failure.
+    // Do not enable BullMQ multi-attempt retries; durable re-enqueue is separate.
+    return {
+      retryable: false,
+      softSkip: false,
+      providerFailure: false,
+      delayMs: error.delayMs,
+    };
   }
   if (error && typeof error === "object" && (error as { code?: string }).code === "CANCELLED") {
     return { retryable: false, softSkip: false, providerFailure: false };

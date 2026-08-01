@@ -259,6 +259,18 @@ export interface BlizzardProvider {
 
 export interface WarcraftLogsProvider {
   readonly name: "warcraftlogs";
+  /**
+   * Explicit opt-in for the rate-limit admission capability.
+   * Disabled/proxied providers must leave this unset/false so type guards cannot
+   * mistake a catch-all proxy method for a real capability.
+   */
+  readonly rateLimitSupported?: boolean;
+  /**
+   * Optional WCL rate-limit capability used by refresh admission snapshot refreshers.
+   * Returns only normalized budget fields — never raw GraphQL payloads.
+   * Present only when `rateLimitSupported === true` (see `hasWarcraftLogsRateLimitCapability`).
+   */
+  fetchRateLimit?(ctx: ProviderFetchContext): Promise<WclRateBudgetDecisionDTO>;
   discoverCharacterRuns(
     identity: CharacterIdentityInput,
     ctx: ProviderFetchContext,
@@ -294,6 +306,70 @@ export interface WarcraftLogsProvider {
     ctx: ProviderFetchContext,
   ): Promise<ProviderResult<WclCharacterSummaryDTO>>;
 }
+
+/** Normalized WCL rate snapshot for admission / budget gates (no GraphQL payload). */
+export interface WclRateLimitSnapshotDTO {
+  pointsRemaining: number;
+  /** Window points limit (from provider `limitPerHour`). */
+  pointsLimit: number;
+  resetAt: IsoDateTime | null;
+  fetchedAt: IsoDateTime;
+}
+
+export type WclRateBudgetAction = "OK" | "WARN" | "DEFER" | "STOP";
+
+export interface WclRateBudgetDecisionDTO {
+  action: WclRateBudgetAction;
+  utilizationPercent: number;
+  snapshot: WclRateLimitSnapshotDTO;
+}
+
+/** Providers that implement the typed rate-limit capability for admission. */
+export interface WarcraftLogsRateLimitCapability {
+  readonly rateLimitSupported: true;
+  fetchRateLimit(ctx: ProviderFetchContext): Promise<WclRateBudgetDecisionDTO>;
+}
+
+/**
+ * Type guard for the WCL rate-limit capability.
+ * Requires the explicit `rateLimitSupported` flag so disabled provider proxies
+ * (which return functions for every property) cannot pass falsely.
+ */
+export function hasWarcraftLogsRateLimitCapability(
+  provider: WarcraftLogsProvider,
+): provider is WarcraftLogsProvider & WarcraftLogsRateLimitCapability {
+  return (
+    provider.rateLimitSupported === true &&
+    typeof provider.fetchRateLimit === "function"
+  );
+}
+
+/**
+ * WCL `rateLimitData` is account-global (GraphQL transport region `"global"`).
+ * `ProviderFetchContext.region` is still required by the canonical context contract;
+ * admission uses `EU` as a synthetic placeholder and must not be treated as a
+ * character-scoped region for this call.
+ */
+export const WCL_RATE_LIMIT_CONTEXT_REGION: RegionCode = "EU";
+
+/** Build a canonical ProviderFetchContext for the global WCL rate-limit query. */
+export function buildWclRateLimitFetchContext(input?: {
+  requestId?: string;
+  correlationId?: string | null;
+  now?: IsoDateTime;
+  forceRefresh?: boolean;
+}): ProviderFetchContext {
+  const now = input?.now ?? new Date().toISOString();
+  const requestId = input?.requestId ?? `wcl-rate-limit-${Date.now()}`;
+  return {
+    region: WCL_RATE_LIMIT_CONTEXT_REGION,
+    requestId,
+    correlationId: input?.correlationId ?? requestId,
+    forceRefresh: input?.forceRefresh ?? true,
+    now,
+  };
+}
+
 
 export interface RaiderIoProvider {
   readonly name: "raiderio";

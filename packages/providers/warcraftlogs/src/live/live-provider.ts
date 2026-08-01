@@ -6,6 +6,7 @@ import type {
   ProviderResult,
   WarcraftLogsProvider,
   WclDataState,
+  WclRateBudgetDecisionDTO,
   WclVisibilityState,
 } from "@mplus/contracts";
 import { ExternalApiError } from "@mplus/contracts";
@@ -191,6 +192,8 @@ function resolveFriendlyPlayers(
 
 export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
   readonly name = "warcraftlogs" as const;
+  /** Explicit opt-in for admission rate-limit capability (see contracts type guard). */
+  readonly rateLimitSupported = true as const;
   private readonly client: WclGraphQlClient;
   private readonly revisionCache = new ReportRevisionCache();
   private readonly zoneConfig: MplusZoneConfig;
@@ -498,7 +501,18 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
     );
   }
 
-  async fetchRateLimit(_ctx: ProviderFetchContext) {
+  /**
+   * Fetch the account-global WCL rate-limit snapshot.
+   * `ProviderFetchContext.region` is a synthetic placeholder (see
+   * `WCL_RATE_LIMIT_CONTEXT_REGION`); GraphQL always uses transport region `"global"`.
+   * `ctx.now` becomes the admission-facing `fetchedAt`; request/correlation ids are
+   * accepted for call-site tracing even though the GraphQL client has no metadata hook.
+   */
+  async fetchRateLimit(ctx: ProviderFetchContext): Promise<WclRateBudgetDecisionDTO> {
+    void ctx.requestId;
+    void ctx.correlationId;
+    void ctx.forceRefresh;
+    void ctx.region;
     const result = await this.client.request({
       operationName: OPERATIONS.RateLimitData.operationName,
       query: OPERATIONS.RateLimitData.query,
@@ -506,11 +520,21 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
     });
     const parsed = parseWithSchema(rateLimitDataSchema, result.response.data, "RateLimitData");
     const snapshot = parseRateLimitSnapshot(parsed.rateLimitData);
-    return evaluateRateBudget(snapshot, {
+    const decision = evaluateRateBudget(snapshot, {
       warnPercent: this.config.env.WCL_RATE_WARN_PERCENT,
       deferPercent: this.config.env.WCL_RATE_DEFER_PERCENT,
       stopPercent: this.config.env.WCL_RATE_STOP_PERCENT,
     });
+    return {
+      action: decision.action,
+      utilizationPercent: decision.utilizationPercent,
+      snapshot: {
+        pointsRemaining: snapshot.pointsRemaining,
+        pointsLimit: snapshot.limitPerHour,
+        resetAt: snapshot.resetAt,
+        fetchedAt: ctx.now,
+      },
+    };
   }
 
   async discoverCharacter(
