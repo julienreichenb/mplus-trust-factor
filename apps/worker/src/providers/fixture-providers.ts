@@ -103,10 +103,15 @@ export class ProviderDisabledError extends ExternalApiError {
 
 /** Wraps a provider port so every call soft-skips with a ProviderDisabledError. */
 export function createDisabledProvider<T extends { name: ProviderName }>(name: T["name"]): T {
-  const target = { name } as Record<string, unknown>;
+  const target = {
+    name,
+    // Explicit: disabled WCL must not pass hasWarcraftLogsRateLimitCapability.
+    ...(name === "warcraftlogs" ? { rateLimitSupported: false as const } : {}),
+  } as Record<string, unknown>;
   const handler: ProxyHandler<Record<string, unknown>> = {
     get(obj, prop) {
       if (prop === "name") return name;
+      if (prop === "rateLimitSupported") return obj.rateLimitSupported;
       if (typeof prop !== "string") return undefined;
       return async () => {
         throw new ProviderDisabledError(name);

@@ -27,7 +27,7 @@ export function evaluateRateBudget(
   return { action, utilizationPercent, snapshot };
 }
 
-export function shouldDeferExpensiveWork(decision: WclRateBudgetDecision): boolean {
+export function shouldDeferExpensiveWork(decision: { action: string }): boolean {
   return decision.action === "DEFER" || decision.action === "STOP";
 }
 

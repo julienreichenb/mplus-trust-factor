@@ -21,6 +21,7 @@ import type {
   RefreshAdmissionReleaseResult,
   RefreshSchedulingState,
 } from "./types.js";
+import { validateAdmissionRateSnapshot } from "./snapshot-validation.js";
 
 export type AdmissionRedis = {
   eval(...args: unknown[]): Promise<unknown>;
@@ -85,28 +86,37 @@ export async function writeSchedulingState(
 /**
  * Persist WCL rate snapshot into Redis for the Lua admit path.
  * Call from background refreshers only — never from character-refresh admit.
+ * Rejects malformed snapshots and never overwrites a still-valid Redis row with bad data.
  */
 export async function writeWclAdmissionSnapshot(
   redis: AdmissionRedis,
   appEnv: string,
   snapshot: RefreshAdmissionRateSnapshot,
-): Promise<void> {
+  options?: { nowMs?: number },
+): Promise<{ written: boolean; reason: string }> {
+  const validated = validateAdmissionRateSnapshot(snapshot, { nowMs: options?.nowMs });
+  if (!validated.ok || !validated.snapshot) {
+    return { written: false, reason: validated.reason };
+  }
+
   const keys = refreshAdmissionKeys(appEnv);
-  const windowId = snapshot.windowId ?? deriveWclWindowId(snapshot.resetAt) ?? "";
-  const fetchedAtMs = Date.parse(snapshot.fetchedAt);
+  const normalized = validated.snapshot;
+  const windowId = normalized.windowId ?? deriveWclWindowId(normalized.resetAt) ?? "";
+  const fetchedAtMs = Date.parse(normalized.fetchedAt);
   await redis.hmset(
     keys.wclSnapshot,
     "pointsRemaining",
-    String(Math.floor(snapshot.pointsRemaining)),
+    String(Math.floor(normalized.pointsRemaining)),
     "pointsLimit",
-    String(Math.floor(snapshot.pointsLimit)),
+    String(Math.floor(normalized.pointsLimit)),
     "fetchedAt",
-    String(Number.isFinite(fetchedAtMs) ? fetchedAtMs : Date.now()),
+    String(fetchedAtMs),
     "windowId",
     windowId,
     "resetAt",
-    snapshot.resetAt ?? "",
+    normalized.resetAt ?? "",
   );
+  return { written: true, reason: "ok" };
 }
 
 export async function readWclAdmissionSnapshot(

@@ -18,7 +18,6 @@ import type {
   WclDispelEvent,
   WclHealingEvent,
   WclInterruptEvent,
-  WclRateBudgetDecision,
 } from "../types.js";
 import { buildActorMap, resolveActorSourceIdStrict, resolveAttributedSourceIds } from "../discovery/run-matching.js";
 import { shouldDeferExpensiveWork } from "../rate/rate-budget.js";
@@ -33,7 +32,7 @@ export interface FetchCombatFactsInput {
   eventLimit?: number;
   includeHealing?: boolean;
   /** Optional rate budget gate checked before each event category. */
-  rateBudget?: WclRateBudgetDecision | null;
+  rateBudget?: { action: string } | null;
   maxEventPages?: number;
   maxEventsPerCategory?: number;
 }

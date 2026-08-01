@@ -5,6 +5,7 @@ import type {
   ProviderResult,
   WarcraftLogsProvider,
   WclDataState,
+  WclRateBudgetDecisionDTO,
   WclVisibilityState,
 } from "@mplus/contracts";
 import { ExternalApiError } from "@mplus/contracts";
@@ -98,6 +99,8 @@ function requireTargetCharacter(ctx: ProviderFetchContext): CharacterIdentityInp
 
 export class FixtureWarcraftLogsProvider implements WarcraftLogsProvider {
   readonly name = "warcraftlogs" as const;
+  /** Explicit opt-in: fixture returns a deterministic rate-limit snapshot. */
+  readonly rateLimitSupported = true as const;
   private readonly revisionCache = new ReportRevisionCache();
   private readonly fetchedReports = new Set<string>();
 
@@ -436,6 +439,25 @@ export class FixtureWarcraftLogsProvider implements WarcraftLogsProvider {
       deferPercent: 80,
       stopPercent: 90,
     });
+  }
+
+  /**
+   * Deterministic fixture rate-limit capability for admission snapshot refreshers.
+   * Uses canonical ProviderFetchContext; rateLimitData itself is account-global.
+   * `ctx.now` is the admission-facing fetchedAt (fixture body timestamps are ignored).
+   */
+  async fetchRateLimit(ctx: ProviderFetchContext): Promise<WclRateBudgetDecisionDTO> {
+    const decision = this.getRateBudgetDecision(ctx);
+    return {
+      action: decision.action,
+      utilizationPercent: decision.utilizationPercent,
+      snapshot: {
+        pointsRemaining: decision.snapshot.pointsRemaining,
+        pointsLimit: decision.snapshot.limitPerHour,
+        resetAt: decision.snapshot.resetAt,
+        fetchedAt: ctx.now,
+      },
+    };
   }
 
   async fetchReportFightDetails(

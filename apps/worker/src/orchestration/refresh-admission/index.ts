@@ -10,6 +10,8 @@ export * from "./redis-ops.js";
 export * from "./estimate.js";
 export * from "./lease-heartbeat.js";
 export * from "./reconcile.js";
+export * from "./snapshot-validation.js";
+export * from "./snapshot-readiness.js";
 export * from "./snapshot-refresher.js";
 export * from "./pipeline-admission.js";
 export * from "./in-memory-redis.js";
