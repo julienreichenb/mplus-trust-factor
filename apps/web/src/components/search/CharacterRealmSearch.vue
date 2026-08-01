@@ -320,128 +320,125 @@ async function enrichRecentPortraits(): Promise<void> {
 
       <label class="crs__field crs__field--name" :for="nameId">
         <span class="crs__label">Character</span>
-        <input
-          :id="nameId"
-          v-model="characterName"
-          type="text"
-          name="character"
-          role="combobox"
-          autocomplete="off"
-          spellcheck="false"
-          aria-autocomplete="list"
-          :aria-expanded="nameOpen"
-          :aria-controls="nameListboxId"
-          :aria-activedescendant="nameActiveOptionId"
-          placeholder="e.g. Wallidrixe"
-          data-testid="character-name-input"
-          :aria-invalid="!compact && nameError ? 'true' : undefined"
-          @focus="onNameFocus"
-          @blur="onNameBlur"
-          @keydown="onNameKeydown"
-        />
-        <span v-if="nameLoading" class="crs__hint crs__hint--name" role="status">Searching…</span>
-        <ul
-          v-if="nameOpen && nameSuggestions.length"
-          :id="nameListboxId"
-          class="crs__dropdown crs__dropdown--characters"
-          role="listbox"
-          aria-label="Character suggestions"
-          data-testid="character-name-suggestions"
-        >
-          <li
-            v-for="(s, index) in nameSuggestions"
-            :id="`${nameId}-option-${index}`"
-            :key="`${s.region}-${s.realmSlug}-${s.name}`"
-            role="option"
-            :aria-selected="index === nameActiveIndex"
-            :data-testid="`character-option-${s.realmSlug}-${s.name}`"
-            :class="{ active: index === nameActiveIndex }"
-            @mousedown.prevent="pickNameSuggestion(s)"
+        <span class="crs__control">
+          <input
+            :id="nameId"
+            v-model="characterName"
+            type="text"
+            name="character"
+            role="combobox"
+            autocomplete="off"
+            spellcheck="false"
+            aria-autocomplete="list"
+            :aria-expanded="nameOpen"
+            :aria-controls="nameListboxId"
+            :aria-activedescendant="nameActiveOptionId"
+            :aria-describedby="!compact ? `${nameId}-helper` : undefined"
+            placeholder="e.g. Wallidrixe"
+            data-testid="character-name-input"
+            :aria-invalid="!compact && nameError ? 'true' : undefined"
+            @focus="onNameFocus"
+            @blur="onNameBlur"
+            @keydown="onNameKeydown"
+          />
+          <span v-if="nameLoading" class="crs__hint" role="status">Searching…</span>
+          <ul
+            v-if="nameOpen && nameSuggestions.length"
+            :id="nameListboxId"
+            class="crs__dropdown crs__dropdown--characters"
+            role="listbox"
+            aria-label="Character suggestions"
+            data-testid="character-name-suggestions"
           >
-            <CharacterIdentity
-              :region="s.region"
-              :name="s.name"
-              :realm-slug="s.realmSlug"
-              :realm-name="resolveRealmDisplayName(s.realmSlug, s.realmName)"
-              :class-slug="s.classSlug"
-              :avatar-url="s.avatarUrl"
-              :class-icon-url="s.classIconUrl"
-              :size="24"
-              compact
-            />
-          </li>
-        </ul>
-        <p
-          v-if="!compact"
-          class="crs__helper"
-          data-testid="character-search-helper"
-        >
-          Suggestions come from indexed M+ Trust Factor profiles. Exact Region + Realm + Name can
-          still be searched on Blizzard.
-        </p>
+            <li
+              v-for="(s, index) in nameSuggestions"
+              :id="`${nameId}-option-${index}`"
+              :key="`${s.region}-${s.realmSlug}-${s.name}`"
+              role="option"
+              :aria-selected="index === nameActiveIndex"
+              :data-testid="`character-option-${s.realmSlug}-${s.name}`"
+              :class="{ active: index === nameActiveIndex }"
+              @mousedown.prevent="pickNameSuggestion(s)"
+            >
+              <CharacterIdentity
+                :region="s.region"
+                :name="s.name"
+                :realm-slug="s.realmSlug"
+                :realm-name="resolveRealmDisplayName(s.realmSlug, s.realmName)"
+                :class-slug="s.classSlug"
+                :avatar-url="s.avatarUrl"
+                :class-icon-url="s.classIconUrl"
+                :size="24"
+                compact
+              />
+            </li>
+          </ul>
+        </span>
         <span v-if="nameSearchError" class="crs__field-error" role="alert">{{ nameSearchError }}</span>
         <span v-else-if="!compact && nameError" class="crs__field-error" role="alert">{{ nameError }}</span>
       </label>
 
       <div class="crs__field crs__field--realm">
         <label class="crs__label" :for="realmId">Realm</label>
-        <input
-          :id="realmId"
-          v-model="realmQuery"
-          type="text"
-          name="realm"
-          role="combobox"
-          autocomplete="off"
-          aria-autocomplete="list"
-          :aria-expanded="realmOpen"
-          :aria-controls="listboxId"
-          :aria-activedescendant="activeOptionId"
-          placeholder="Search realm (e.g. Archimonde)"
-          data-testid="realm-combobox-input"
-          :aria-invalid="!compact && realmFieldError ? 'true' : undefined"
-          @focus="onRealmFocus"
-          @blur="
-            touched.realm = true;
-            onRealmBlur();
-          "
-          @keydown="onRealmKeydown"
-        />
-        <span v-if="realmLoading" class="crs__hint" role="status">Loading realms…</span>
-        <ul
-          v-if="realmOpen && (suggestions.length || realmError)"
-          :id="listboxId"
-          class="crs__dropdown"
-          role="listbox"
-          aria-label="Realm suggestions"
-          data-testid="realm-suggestions"
-        >
-          <li v-if="realmError" class="crs__dropdown-empty" role="presentation">
-            {{ realmError }}
-            <button type="button" class="btn link" @mousedown.prevent="searchRealms(realmQuery)">
-              Retry
-            </button>
-          </li>
-          <li
-            v-else-if="!suggestions.length"
-            class="crs__dropdown-empty"
-            role="presentation"
+        <span class="crs__control">
+          <input
+            :id="realmId"
+            v-model="realmQuery"
+            type="text"
+            name="realm"
+            role="combobox"
+            autocomplete="off"
+            aria-autocomplete="list"
+            :aria-expanded="realmOpen"
+            :aria-controls="listboxId"
+            :aria-activedescendant="activeOptionId"
+            placeholder="Search realm (e.g. Archimonde)"
+            data-testid="realm-combobox-input"
+            :aria-invalid="!compact && realmFieldError ? 'true' : undefined"
+            @focus="onRealmFocus"
+            @blur="
+              touched.realm = true;
+              onRealmBlur();
+            "
+            @keydown="onRealmKeydown"
+          />
+          <span v-if="realmLoading" class="crs__hint" role="status">Loading realms…</span>
+          <ul
+            v-if="realmOpen && (suggestions.length || realmError)"
+            :id="listboxId"
+            class="crs__dropdown"
+            role="listbox"
+            aria-label="Realm suggestions"
+            data-testid="realm-suggestions"
           >
-            No realms match that search.
-          </li>
-          <li
-            v-for="(s, index) in suggestions"
-            :id="`${realmId}-option-${index}`"
-            :key="`${s.region}-${s.slug}`"
-            role="option"
-            :aria-selected="index === activeIndex"
-            :data-testid="`realm-option-${s.slug}`"
-            :class="{ active: index === activeIndex }"
-            @mousedown.prevent="selectRealm(s)"
-          >
-            <span class="crs__option-name">{{ s.name }}</span>
-            <span class="crs__option-meta">{{ optionSecondary(s) }}</span>
-          </li>
-        </ul>
+            <li v-if="realmError" class="crs__dropdown-empty" role="presentation">
+              {{ realmError }}
+              <button type="button" class="btn link" @mousedown.prevent="searchRealms(realmQuery)">
+                Retry
+              </button>
+            </li>
+            <li
+              v-else-if="!suggestions.length"
+              class="crs__dropdown-empty"
+              role="presentation"
+            >
+              No realms match that search.
+            </li>
+            <li
+              v-for="(s, index) in suggestions"
+              :id="`${realmId}-option-${index}`"
+              :key="`${s.region}-${s.slug}`"
+              role="option"
+              :aria-selected="index === activeIndex"
+              :data-testid="`realm-option-${s.slug}`"
+              :class="{ active: index === activeIndex }"
+              @mousedown.prevent="selectRealm(s)"
+            >
+              <span class="crs__option-name">{{ s.name }}</span>
+              <span class="crs__option-meta">{{ optionSecondary(s) }}</span>
+            </li>
+          </ul>
+        </span>
         <span v-if="!compact && realmFieldError" class="crs__field-error" role="alert">{{ realmFieldError }}</span>
       </div>
 
@@ -484,6 +481,16 @@ async function enrichRecentPortraits(): Promise<void> {
           </template>
         </button>
       </div>
+
+      <p
+        v-if="!compact"
+        :id="`${nameId}-helper`"
+        class="crs__helper"
+        data-testid="character-search-helper"
+      >
+        Suggestions come from indexed M+ Trust Factor profiles. Exact Region + Realm + Name can
+        still be searched on Blizzard.
+      </p>
     </form>
 
     <div
@@ -566,10 +573,17 @@ async function enrichRecentPortraits(): Promise<void> {
   gap: var(--space-2);
   position: relative;
   min-width: 0;
+  align-content: start;
 }
 
 .crs__field--region {
   min-width: 4.5rem;
+}
+
+.crs__control {
+  position: relative;
+  display: block;
+  min-width: 0;
 }
 
 .crs__label {
@@ -672,29 +686,20 @@ select:focus-visible {
 .crs__hint {
   position: absolute;
   right: 0.75rem;
-  top: 2.55rem;
+  top: 50%;
+  transform: translateY(-50%);
   font-size: var(--text-xs);
   color: var(--color-text-muted);
   pointer-events: none;
 }
 
-.crs--compact .crs__hint {
-  top: 0.85rem;
-}
-
-.crs__hint--name {
-  top: 0.85rem;
-}
-
-.crs:not(.crs--compact) .crs__hint--name {
-  top: 2.55rem;
-}
-
 .crs__helper {
-  margin: 0.35rem 0 0;
+  margin: 1.25rem 0 0;
   font-size: var(--text-xs);
   line-height: 1.35;
   color: var(--color-text-muted);
+  width: 100%;
+  max-width: none;
 }
 
 .crs__field-error {
@@ -702,8 +707,9 @@ select:focus-visible {
   font-size: var(--text-xs);
   margin: 0;
   position: absolute;
-  top: calc(100% + 0.2rem);
   left: 0;
+  top: calc(100% + 0.2rem);
+  z-index: 1;
 }
 
 .crs__actions {
@@ -835,7 +841,34 @@ select:focus-visible {
 @media (min-width: 768px) {
   .crs:not(.crs--compact) .crs__form {
     grid-template-columns: auto minmax(9rem, 1fr) minmax(11rem, 1.2fr) auto;
+    grid-template-areas:
+      "region name realm actions"
+      "helper helper helper helper";
     gap: var(--space-3);
+    align-items: end;
+  }
+
+  .crs:not(.crs--compact) .crs__field--region {
+    grid-area: region;
+  }
+
+  .crs:not(.crs--compact) .crs__field--name {
+    grid-area: name;
+  }
+
+  .crs:not(.crs--compact) .crs__field--realm {
+    grid-area: realm;
+  }
+
+  .crs:not(.crs--compact) .crs__actions {
+    grid-area: actions;
+    display: flex;
+    align-items: flex-end;
+  }
+
+  .crs:not(.crs--compact) .crs__helper {
+    grid-area: helper;
+    align-self: start;
   }
 
   .crs:not(.crs--compact) .crs__submit {
@@ -848,15 +881,39 @@ select:focus-visible {
     width: 2.75rem;
     min-width: 2.75rem;
   }
-
-  .crs:not(.crs--compact) .crs__actions {
-    display: flex;
-    align-items: flex-end;
-  }
 }
 
 @media (max-width: 767px) {
-  .crs:not(.crs--compact) .crs__form,
+  .crs:not(.crs--compact) .crs__form {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "region"
+      "name"
+      "helper"
+      "realm"
+      "actions";
+  }
+
+  .crs:not(.crs--compact) .crs__field--region {
+    grid-area: region;
+  }
+
+  .crs:not(.crs--compact) .crs__field--name {
+    grid-area: name;
+  }
+
+  .crs:not(.crs--compact) .crs__helper {
+    grid-area: helper;
+  }
+
+  .crs:not(.crs--compact) .crs__field--realm {
+    grid-area: realm;
+  }
+
+  .crs:not(.crs--compact) .crs__actions {
+    grid-area: actions;
+  }
+
   .crs--compact .crs__form {
     grid-template-columns: 1fr;
   }
