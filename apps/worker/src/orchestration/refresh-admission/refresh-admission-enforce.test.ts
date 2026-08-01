@@ -355,7 +355,7 @@ describe("refresh admission enforce (serial concurrency 1)", () => {
     expect(src).not.toMatch(/concurrency:\s*[2-9]/);
   });
 
-  it("18. no priority, ETA or retry-state-machine behavior introduced", () => {
+  it("18. ETA / priority / retry remain disabled by default (Stage 4 wires ETA behind flag)", () => {
     const config = buildRefreshAdmissionConfig(baseEnv);
     expect(config.etaEnabled).toBe(false);
     expect(config.priorityInBullmq).toBe(false);

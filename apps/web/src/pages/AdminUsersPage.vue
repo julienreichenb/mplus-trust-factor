@@ -10,6 +10,12 @@ import HelpTooltip from "../components/common/HelpTooltip.vue";
 import StatusBanner from "../components/common/StatusBanner.vue";
 import { useAuthSession } from "../composables/useAuthSession";
 import { canonicalCharacterPath } from "../lib/format";
+import {
+  extractRefreshEta,
+  formatCoarseWaitRange,
+  formatJobsAhead,
+  schedulingExplanation,
+} from "../lib/refreshEta";
 
 const apiBase = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:3000";
 const router = useRouter();
@@ -68,6 +74,13 @@ interface AdminRefreshJobRow {
   startedAt: string | null;
   finishedAt: string | null;
   actions: { rerun: boolean; repairBootstrap: boolean; prioritize: boolean; cancel: boolean };
+  activeRefreshCount?: number | null;
+  effectiveWorkerCapacity?: number | null;
+  observedThroughput?: number | null;
+  queuePosition?: number | null;
+  estimatedWaitSeconds?: number | null;
+  estimateConfidence?: "LOW" | "MEDIUM" | "HIGH" | null;
+  schedulingState?: "RUNNING" | "PAUSED" | "RATE_LIMITED" | "CIRCUIT_OPEN" | "DRAINING" | null;
 }
 
 const message = ref<string | null>(null);
@@ -194,6 +207,33 @@ function formatModelVersion(job: AdminRefreshJobRow): string {
   if (job.scoringModelVersion != null) return `v${job.scoringModelVersion}`;
   if (job.scoringModelKey) return job.scoringModelKey;
   return "—";
+}
+
+/** Reuse CharacterPage ETA formatting — no second algorithm. */
+function formatJobEta(job: AdminRefreshJobRow): string | null {
+  const eta = extractRefreshEta(job);
+  if (!eta) return null;
+  const parts: string[] = [];
+  if (eta.schedulingState && eta.schedulingState !== "RUNNING") {
+    parts.push(eta.schedulingState.replaceAll("_", " ").toLowerCase());
+  }
+  const ahead = formatJobsAhead(eta.queuePosition);
+  if (ahead) parts.push(ahead);
+  const wait = formatCoarseWaitRange(eta.estimatedWaitSeconds);
+  if (wait) {
+    parts.push(`wait ${wait}`);
+  } else if (eta.estimatedWaitSeconds == null) {
+    const explanation = schedulingExplanation(eta.schedulingState);
+    if (explanation) parts.push(explanation);
+  }
+  if (eta.estimateConfidence) parts.push(`confidence ${eta.estimateConfidence.toLowerCase()}`);
+  if (eta.activeRefreshCount != null) {
+    parts.push(`active ${eta.activeRefreshCount}`);
+  }
+  if (eta.effectiveWorkerCapacity != null) {
+    parts.push(`capacity ${eta.effectiveWorkerCapacity}`);
+  }
+  return parts.length > 0 ? parts.join(" · ") : null;
 }
 
 async function loadRoles(): Promise<void> {
@@ -754,6 +794,13 @@ onMounted(async () => {
                 <span class="muted">{{ job.fromBulk ? "bulk" : "direct" }} · prio {{ job.priority }}</span>
                 <span v-if="job.triggerSource" class="muted">{{ job.triggerSource }}</span>
               </div>
+              <p
+                v-if="formatJobEta(job)"
+                class="job-eta muted"
+                data-testid="job-eta"
+              >
+                {{ formatJobEta(job) }}
+              </p>
               <div v-if="job.battleTag || job.battleNetEmail" class="job-account muted">
                 <span v-if="job.battleTag">BattleTag {{ job.battleTag }}</span>
                 <span v-if="job.battleNetEmail"> · {{ job.battleNetEmail }}</span>

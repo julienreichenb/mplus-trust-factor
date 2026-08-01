@@ -255,7 +255,40 @@ export type BulkOrchestratorJob = z.infer<typeof bulkOrchestratorJobSchema>;
 
 export type JobStatus = "queued" | "active" | "completed" | "failed" | "cancelled" | "delayed" | "unknown";
 
-export interface JobStatusDTO {
+/** Approximate wait-estimate confidence (Stage 4 refresh ETA read model). */
+export type EstimateConfidence = "LOW" | "MEDIUM" | "HIGH";
+
+/**
+ * Global refresh scheduling state mirrored from Redis admission.
+ * See docs/plans/parallel-refresh-scheduling.md §12.
+ */
+export type RefreshSchedulingState =
+  | "RUNNING"
+  | "PAUSED"
+  | "RATE_LIMITED"
+  | "CIRCUIT_OPEN"
+  | "DRAINING";
+
+/**
+ * Additive scheduling / ETA fields on job status (nullable when unavailable).
+ * Populated only when REFRESH_ETA_ENABLED=true; omitted or null when disabled.
+ */
+export interface RefreshEtaFields {
+  /** Admitted refresh pipelines holding a global slot (or ACTIVE count fallback). */
+  activeRefreshCount: number | null;
+  /** Free global slots under healthy scheduling (not activeRefreshCount alone). */
+  effectiveWorkerCapacity: number | null;
+  /** Completions per second from a bounded recent window (null when insufficient). */
+  observedThroughput: number | null;
+  /** Approximate eligible jobs ahead under DB priority then scheduledAt. */
+  queuePosition: number | null;
+  /** Coarse bucketed wait in seconds; null when estimate is unavailable. */
+  estimatedWaitSeconds: number | null;
+  estimateConfidence: EstimateConfidence | null;
+  schedulingState: RefreshSchedulingState | null;
+}
+
+export interface JobStatusDTO extends Partial<RefreshEtaFields> {
   jobId: string;
   queue: QueueName;
   status: JobStatus;

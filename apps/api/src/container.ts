@@ -57,6 +57,11 @@ export interface ApiContainer {
   negativeCache: NegativeCache;
   /** Whether BullMQ/Redis is required for readiness (false when skipQueues/inline). */
   queueMode: "bullmq" | "inline";
+  /**
+   * Shared Redis connection when queueMode is bullmq; null in inline/skipQueues tests.
+   * Used for read-only refresh ETA / admission scheduling state (never for provider calls).
+   */
+  getAdmissionRedis(): Redis | null;
   oauthClient: BattleNetOAuthClient;
   authService: IamAuthService;
   close(): Promise<void>;
@@ -330,6 +335,7 @@ export function createApiContainer(env: AppEnv, overrides: ApiContainerOverrides
     },
     negativeCache,
     queueMode,
+    getAdmissionRedis: () => redisConnection ?? null,
     oauthClient,
     authService,
     async close(): Promise<void> {

@@ -1,7 +1,7 @@
 import type { JobStatusDTO } from "@mplus/contracts";
 import type { ApiContainer } from "../container.js";
 import { HttpError } from "../errors.js";
-import { mapJobStatus } from "../lib/mappers.js";
+import { mapJobStatusWithEta } from "./refresh-eta-service.js";
 
 export class JobService {
   constructor(private readonly container: ApiContainer) {}
@@ -11,6 +11,10 @@ export class JobService {
     if (!job) {
       throw HttpError.notFound("JOB_NOT_FOUND", `Job ${id} was not found`);
     }
-    return mapJobStatus(job);
+    const dto = await mapJobStatusWithEta(this.container, job);
+    if (!dto) {
+      throw HttpError.notFound("JOB_NOT_FOUND", `Job ${id} was not found`);
+    }
+    return dto;
   }
 }

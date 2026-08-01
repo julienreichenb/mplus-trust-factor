@@ -1,5 +1,5 @@
 import type { IngestionJob, PrismaClient } from "@mplus/database";
-import { QUEUE_NAMES, type RefreshTriggerSource } from "@mplus/contracts";
+import { QUEUE_NAMES, type RefreshEtaFields, type RefreshTriggerSource } from "@mplus/contracts";
 import { presentWowClass, WOW_CLASS_COLORS } from "@mplus/config";
 import {
   cancelRefreshJob,
@@ -22,6 +22,7 @@ import {
   latestJobIsEligibilityUnknown,
 } from "./character-bootstrap-repair.js";
 import { CharacterService } from "./character-service.js";
+import { createAdminEtaApplier } from "./refresh-eta-service.js";
 
 function payloadOf(job: IngestionJob): Record<string, unknown> {
   if (job.payload && typeof job.payload === "object" && !Array.isArray(job.payload)) {
@@ -84,6 +85,14 @@ export interface AdminRefreshJobRow {
   startedAt: string | null;
   finishedAt: string | null;
   actions: { rerun: boolean; repairBootstrap: boolean; prioritize: boolean; cancel: boolean };
+  /** Stage 4 additive ETA fields — null/omitted when REFRESH_ETA_ENABLED=false. */
+  activeRefreshCount?: number | null;
+  effectiveWorkerCapacity?: number | null;
+  observedThroughput?: number | null;
+  queuePosition?: number | null;
+  estimatedWaitSeconds?: number | null;
+  estimateConfidence?: RefreshEtaFields["estimateConfidence"];
+  schedulingState?: RefreshEtaFields["schedulingState"];
 }
 
 export interface AdminCharacterSearchRow {
@@ -126,6 +135,7 @@ function mapJobRow(
     mythicPlusScore?: number | null;
     battleTag?: string | null;
     battleNetEmail?: string | null;
+    eta?: RefreshEtaFields | null;
   } = {},
 ): AdminRefreshJobRow {
   const payload = payloadOf(job);
@@ -154,6 +164,7 @@ function mapJobRow(
     terminal &&
     (errorCode === "CHARACTER_REFRESH_ELIGIBILITY_UNKNOWN" ||
       latestJobIsEligibilityUnknown(job));
+  const eta = extras.eta ?? null;
 
   return {
     ingestionJobId: job.id,
@@ -190,6 +201,17 @@ function mapJobRow(
       prioritize: queued && !job.cancelRequestedAt,
       cancel: (queued || active) && job.status !== "CANCELLED",
     },
+    ...(eta
+      ? {
+          activeRefreshCount: eta.activeRefreshCount,
+          effectiveWorkerCapacity: eta.effectiveWorkerCapacity,
+          observedThroughput: eta.observedThroughput,
+          queuePosition: eta.queuePosition,
+          estimatedWaitSeconds: eta.estimatedWaitSeconds,
+          estimateConfidence: eta.estimateConfidence,
+          schedulingState: eta.schedulingState,
+        }
+      : {}),
   };
 }
 
@@ -327,6 +349,8 @@ export class AdminRefreshJobsService {
       }
     }
 
+    const etaApply = await createAdminEtaApplier(this.container);
+
     return {
       jobs: result.jobs.map((job) => {
         const character = job.characterId ? byId.get(job.characterId) : null;
@@ -337,6 +361,7 @@ export class AdminRefreshJobsService {
           mythicPlusScore: character?.snapshots[0]?.mythicRating ?? null,
           battleTag: account?.battleTag ?? null,
           battleNetEmail: account?.battleNetEmail ?? null,
+          eta: etaApply ? etaApply(job) : null,
         });
       }),
       total: result.total,

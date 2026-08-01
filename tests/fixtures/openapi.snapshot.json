@@ -916,6 +916,48 @@
                                 "null",
                                 "string"
                               ]
+                            },
+                            "activeRefreshCount": {
+                              "type": [
+                                "null",
+                                "number"
+                              ]
+                            },
+                            "effectiveWorkerCapacity": {
+                              "type": [
+                                "null",
+                                "number"
+                              ]
+                            },
+                            "observedThroughput": {
+                              "type": [
+                                "null",
+                                "number"
+                              ]
+                            },
+                            "queuePosition": {
+                              "type": [
+                                "null",
+                                "number"
+                              ]
+                            },
+                            "estimatedWaitSeconds": {
+                              "type": [
+                                "null",
+                                "number"
+                              ]
+                            },
+                            "estimateConfidence": {
+                              "type": [
+                                "null",
+                                "string"
+                              ]
+                            },
+                            "schedulingState": {
+                              "type": [
+                                "null",
+                                "string"
+                              ]
                             }
                           },
                           "additionalProperties": true
@@ -2640,6 +2682,48 @@
                                 "null",
                                 "string"
                               ]
+                            },
+                            "activeRefreshCount": {
+                              "type": [
+                                "null",
+                                "number"
+                              ]
+                            },
+                            "effectiveWorkerCapacity": {
+                              "type": [
+                                "null",
+                                "number"
+                              ]
+                            },
+                            "observedThroughput": {
+                              "type": [
+                                "null",
+                                "number"
+                              ]
+                            },
+                            "queuePosition": {
+                              "type": [
+                                "null",
+                                "number"
+                              ]
+                            },
+                            "estimatedWaitSeconds": {
+                              "type": [
+                                "null",
+                                "number"
+                              ]
+                            },
+                            "estimateConfidence": {
+                              "type": [
+                                "null",
+                                "string"
+                              ]
+                            },
+                            "schedulingState": {
+                              "type": [
+                                "null",
+                                "string"
+                              ]
                             }
                           },
                           "additionalProperties": true
@@ -2868,6 +2952,48 @@
                               ]
                             },
                             "errorMessage": {
+                              "type": [
+                                "null",
+                                "string"
+                              ]
+                            },
+                            "activeRefreshCount": {
+                              "type": [
+                                "null",
+                                "number"
+                              ]
+                            },
+                            "effectiveWorkerCapacity": {
+                              "type": [
+                                "null",
+                                "number"
+                              ]
+                            },
+                            "observedThroughput": {
+                              "type": [
+                                "null",
+                                "number"
+                              ]
+                            },
+                            "queuePosition": {
+                              "type": [
+                                "null",
+                                "number"
+                              ]
+                            },
+                            "estimatedWaitSeconds": {
+                              "type": [
+                                "null",
+                                "number"
+                              ]
+                            },
+                            "estimateConfidence": {
+                              "type": [
+                                "null",
+                                "string"
+                              ]
+                            },
+                            "schedulingState": {
                               "type": [
                                 "null",
                                 "string"
@@ -4116,6 +4242,48 @@
                       ]
                     },
                     "errorMessage": {
+                      "type": [
+                        "null",
+                        "string"
+                      ]
+                    },
+                    "activeRefreshCount": {
+                      "type": [
+                        "null",
+                        "number"
+                      ]
+                    },
+                    "effectiveWorkerCapacity": {
+                      "type": [
+                        "null",
+                        "number"
+                      ]
+                    },
+                    "observedThroughput": {
+                      "type": [
+                        "null",
+                        "number"
+                      ]
+                    },
+                    "queuePosition": {
+                      "type": [
+                        "null",
+                        "number"
+                      ]
+                    },
+                    "estimatedWaitSeconds": {
+                      "type": [
+                        "null",
+                        "number"
+                      ]
+                    },
+                    "estimateConfidence": {
+                      "type": [
+                        "null",
+                        "string"
+                      ]
+                    },
+                    "schedulingState": {
                       "type": [
                         "null",
                         "string"
@@ -6381,6 +6549,48 @@
                       ]
                     },
                     "errorMessage": {
+                      "type": [
+                        "null",
+                        "string"
+                      ]
+                    },
+                    "activeRefreshCount": {
+                      "type": [
+                        "null",
+                        "number"
+                      ]
+                    },
+                    "effectiveWorkerCapacity": {
+                      "type": [
+                        "null",
+                        "number"
+                      ]
+                    },
+                    "observedThroughput": {
+                      "type": [
+                        "null",
+                        "number"
+                      ]
+                    },
+                    "queuePosition": {
+                      "type": [
+                        "null",
+                        "number"
+                      ]
+                    },
+                    "estimatedWaitSeconds": {
+                      "type": [
+                        "null",
+                        "number"
+                      ]
+                    },
+                    "estimateConfidence": {
+                      "type": [
+                        "null",
+                        "string"
+                      ]
+                    },
+                    "schedulingState": {
                       "type": [
                         "null",
                         "string"

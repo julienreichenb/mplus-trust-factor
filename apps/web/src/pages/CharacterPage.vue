@@ -2,7 +2,7 @@
 import { computed, onMounted, ref, watch } from "vue";
 import { api } from "../api/client";
 import type { CharacterProfileView } from "../api/types";
-import type { ActiveRerollCharacterDTO, ActiveRerollsResponse } from "@mplus/contracts";
+import type { ActiveRerollCharacterDTO, ActiveRerollsResponse, RefreshStatusResponse } from "@mplus/contracts";
 import { useAbortableQuery } from "../composables/useAbortableQuery";
 import { useAuthSession } from "../composables/useAuthSession";
 import {
@@ -18,6 +18,7 @@ import AppToast from "../components/common/AppToast.vue";
 import CharacterRealmSearch from "../components/search/CharacterRealmSearch.vue";
 import CharacterPortraitStage from "../components/character/CharacterPortraitStage.vue";
 import CharacterProfileToolbar from "../components/character/CharacterProfileToolbar.vue";
+import CharacterRefreshEta from "../components/character/CharacterRefreshEta.vue";
 import ScoreHeader from "../components/profile/ScoreHeader.vue";
 import DimensionCards from "../components/profile/DimensionCards.vue";
 import AuthenticitySection from "../components/profile/AuthenticitySection.vue";
@@ -67,6 +68,8 @@ const profile = ref<CharacterProfileView | null>(null);
 const activeRerolls = ref<ActiveRerollCharacterDTO[]>([]);
 const displayedCharacterIsMain = ref(false);
 const repairing = ref(false);
+/** Latest refresh-status poll payload (ETA / job phase). Cleared when idle. */
+const lastRefreshStatus = ref<RefreshStatusResponse | null>(null);
 
 const confidenceWarning = computed(() => {
   const conf = profile.value ? resolveDataConfidence(profile.value) : null;
@@ -178,6 +181,7 @@ async function load(): Promise<void> {
   refreshNotice.value = null;
   notFound.value = false;
   stopPolling();
+  lastRefreshStatus.value = null;
   activeRerolls.value = [];
   displayedCharacterIsMain.value = false;
   const signal = nextSignal();
@@ -200,6 +204,7 @@ async function load(): Promise<void> {
       void startPolling({
         ...pollingOptions(identity),
         onUpdate: (status) => {
+          lastRefreshStatus.value = status;
           if (profile.value) {
             const cancelled = status.job?.status === "cancelled";
             const terminalFailed =
@@ -235,6 +240,7 @@ async function load(): Promise<void> {
           }
         },
         onComplete: async (status) => {
+          lastRefreshStatus.value = status;
           // CANCELLED is terminal but not a provider failure — no retry/backoff banner.
           if (
             status.job?.status !== "cancelled" &&
@@ -246,6 +252,13 @@ async function load(): Promise<void> {
           }
           const refreshed = await api.getCharacterProfile(identity);
           profile.value = refreshed;
+          if (
+            status.refreshStatus === "FRESH" ||
+            status.job?.status === "completed" ||
+            status.job?.status === "cancelled"
+          ) {
+            lastRefreshStatus.value = null;
+          }
         },
         onTimeout: () => {
           error.value = "Refresh is taking longer than expected. Retry or reopen this profile.";
@@ -410,9 +423,11 @@ async function refresh(opts: { force?: boolean } = {}): Promise<void> {
       ...profile.value,
       refreshStatus: profile.value.score ? "REFRESHING" : "QUEUED",
     };
+    lastRefreshStatus.value = status;
     void startPolling({
       ...pollingOptions(identity),
       onUpdate: (statusUpdate) => {
+        lastRefreshStatus.value = statusUpdate;
         if (profile.value) {
           const cancelled = statusUpdate.job?.status === "cancelled";
           const inProgress =
@@ -439,6 +454,7 @@ async function refresh(opts: { force?: boolean } = {}): Promise<void> {
         }
       },
       onComplete: async (statusUpdate) => {
+        lastRefreshStatus.value = statusUpdate;
         if (
           statusUpdate.job?.status !== "cancelled" &&
           (statusUpdate.refreshStatus === "FAILED" || statusUpdate.job?.status === "failed")
@@ -449,6 +465,13 @@ async function refresh(opts: { force?: boolean } = {}): Promise<void> {
         }
         const refreshed = await api.getCharacterProfile(identity);
         profile.value = refreshed;
+        if (
+          statusUpdate.refreshStatus === "FRESH" ||
+          statusUpdate.job?.status === "completed" ||
+          statusUpdate.job?.status === "cancelled"
+        ) {
+          lastRefreshStatus.value = null;
+        }
       },
     });
   } catch (err) {
@@ -501,6 +524,14 @@ watch(
         @refresh="refresh()"
         @force-refresh="refresh({ force: true })"
         @repair-bootstrap="repairBootstrap"
+      />
+      <CharacterRefreshEta
+        v-if="polling || lastRefreshStatus"
+        :job="lastRefreshStatus?.job ?? null"
+        :refresh-status="lastRefreshStatus?.refreshStatus ?? profile.refreshStatus"
+        :failed="
+          lastRefreshStatus?.refreshStatus === 'FAILED' || lastRefreshStatus?.job?.status === 'failed'
+        "
       />
 
       <StatusBanner

@@ -46,12 +46,12 @@ import { HttpError } from "../errors.js";
 import { cooldownSecondsRemaining } from "../lib/freshness.js";
 import {
   mapCharacterProfile,
-  mapJobStatus,
   mapRunSummary,
   mapScoreSnapshot,
   type CharacterSourceAttribution,
   type RunSummaryDTO,
 } from "../lib/mappers.js";
+import { mapJobStatusWithEta } from "./refresh-eta-service.js";
 import { applyProfileWarnings, appendRefreshContractWarnings, buildProfileEnrichments, isScoreStaleVersusProviders, resolveWclUrlFromSources, scoreSnapshotContractStaleReasons, toPublicProviderKey } from "../lib/profile-enrichment.js";
 import { characterCacheKey } from "../lib/response-cache.js";
 import { scheduleProfileViewRecording } from "../lib/profile-view-recorder.js";
@@ -1407,7 +1407,7 @@ export class CharacterService {
       characterId: character.id,
       identity,
       refreshStatus: decision.profileRefreshStatus,
-      job: jobRow ? mapJobStatus(jobRow) : null,
+      job: await mapJobStatusWithEta(this.container, jobRow),
       score: snapshot ? mapScoreSnapshot(snapshot) : null,
     };
   }
@@ -1861,7 +1861,7 @@ export class CharacterService {
     return {
       characterId: character.id,
       refreshStatus: decision.detailedRefreshStatus,
-      job: latestJob ? mapJobStatus(latestJob) : null,
+      job: await mapJobStatusWithEta(this.container, latestJob),
       cooldownSecondsRemaining: cooldownSecondsRemaining(
         character.lastPublicRefreshAt,
         this.container.env.MANUAL_REFRESH_COOLDOWN_SECONDS,
@@ -1923,7 +1923,7 @@ export class CharacterService {
       return {
         characterId: character.id,
         refreshStatus: activeJob.status === "ACTIVE" ? "IN_PROGRESS" : "QUEUED",
-        job: mapJobStatus(activeJob),
+        job: await mapJobStatusWithEta(this.container, activeJob),
         cooldownSecondsRemaining: 0,
         bootstrapRepairRequired: false,
       };
@@ -1945,7 +1945,7 @@ export class CharacterService {
       return {
         characterId: character.id,
         refreshStatus,
-        job: lastJob ? mapJobStatus(lastJob) : null,
+        job: await mapJobStatusWithEta(this.container, lastJob),
         cooldownSecondsRemaining: remaining,
         bootstrapRepairRequired: repairRequired,
       };
@@ -1994,7 +1994,7 @@ export class CharacterService {
     return {
       characterId: character.id,
       refreshStatus: job?.status === "COMPLETED" ? "FRESH" : "QUEUED",
-      job: job ? mapJobStatus(job) : null,
+      job: await mapJobStatusWithEta(this.container, job),
       cooldownSecondsRemaining: 0,
       bootstrapRepairRequired: false,
     };

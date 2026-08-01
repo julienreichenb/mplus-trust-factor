@@ -975,6 +975,8 @@ model IngestionJob {
 
   @@index([status, scheduledAt])
   @@index([jobType, status, scheduledAt])
+  /** Bounded ETA throughput reads: recent COMPLETED rows by completedAt. */
+  @@index([jobType, status, completedAt])
   @@index([cancelRequestedAt])
   @@map("ingestion_jobs")
 }
