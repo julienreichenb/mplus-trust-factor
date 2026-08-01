@@ -577,6 +577,62 @@ export interface ActivateScoreModelResponse extends AdminScoreModelDTO {
   bulkEnqueueError: string | null;
 }
 
+/**
+ * Canonical HTTP response row for POST /api/v1/admin/misc/realms/sync.
+ * Distinct from the worker's internal `RealmSyncResult` — always mapped explicitly.
+ * Uses `indexEntries` (not ambiguous `indexed`).
+ */
+export interface AdminRealmSyncResult {
+  region: string;
+  indexEntries: number;
+  rejectedAtIndex: number;
+  detailCandidates: number;
+  detailsFetched: number;
+  eligible: number;
+  rejectedTournament: number;
+  rejectedInternal: number;
+  detailFailures: number;
+  retainedLastKnownGood: number;
+  newlyDeactivated: number;
+  activeCatalogCount: number;
+  rejectedSamples: string[];
+  /** Prefer `eligible` for new callers; retained for compatibility. */
+  upserted: number;
+  minimallyUpserted: number;
+  enriched: number;
+  enrichmentFailures: number;
+  skippedDetails: number;
+  errors: string[];
+}
+
+export interface AdminRealmSyncResponse {
+  ok: true;
+  results: AdminRealmSyncResult[];
+}
+
+/** Property names required on every AdminRealmSyncResult (API + OpenAPI + Fastify serialize). */
+export const ADMIN_REALM_SYNC_RESULT_FIELDS = [
+  "region",
+  "indexEntries",
+  "rejectedAtIndex",
+  "detailCandidates",
+  "detailsFetched",
+  "eligible",
+  "rejectedTournament",
+  "rejectedInternal",
+  "detailFailures",
+  "retainedLastKnownGood",
+  "newlyDeactivated",
+  "activeCatalogCount",
+  "rejectedSamples",
+  "upserted",
+  "minimallyUpserted",
+  "enriched",
+  "enrichmentFailures",
+  "skippedDetails",
+  "errors",
+] as const satisfies ReadonlyArray<keyof AdminRealmSyncResult>;
+
 export interface MetaResponse {
   name: string;
   version: string;

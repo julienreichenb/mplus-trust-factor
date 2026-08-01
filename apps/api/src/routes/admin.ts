@@ -6,7 +6,7 @@ import { AdminService, type CreateScoreModelInput, type MechanicRuleInput } from
 import { AdminUsersService } from "../services/admin-users-service.js";
 import { AdminMiscService } from "../services/admin-misc-service.js";
 import { BulkCharacterProcessingService } from "../services/bulk-character-processing-service.js";
-import { adminScoreModelSchema, errorResponseSchema, jobStatusSchema, mechanicRuleSchema, scoreModelConfigSchema } from "./schemas.js";
+import { adminRealmSyncResponseSchema, adminScoreModelSchema, errorResponseSchema, jobStatusSchema, mechanicRuleSchema, scoreModelConfigSchema } from "./schemas.js";
 import { createPermissionPreHandler } from "../iam/session.js";
 import { PERMISSIONS } from "../iam/permissions.js";
 import { writeAuditEvent } from "../iam/audit.js";
@@ -866,37 +866,7 @@ export function buildAdminRoutes(container: ApiContainer): FastifyPluginAsync {
               },
             },
             response: {
-              200: {
-                type: "object",
-                properties: {
-                  ok: { type: "boolean" },
-                  results: {
-                    type: "array",
-                    items: {
-                      type: "object",
-                      properties: {
-                        region: { type: "string" },
-                        indexed: { type: "integer" },
-                        upserted: { type: "integer" },
-                        detailsFetched: { type: "integer" },
-                        skippedDetails: { type: "integer" },
-                        errors: { type: "array", items: { type: "string" } },
-                      },
-                      required: [
-                        "region",
-                        "indexed",
-                        "upserted",
-                        "detailsFetched",
-                        "skippedDetails",
-                        "errors",
-                      ],
-                      additionalProperties: false,
-                    },
-                  },
-                },
-                required: ["ok", "results"],
-                additionalProperties: false,
-              },
+              200: adminRealmSyncResponseSchema,
               400: errorResponseSchema,
               401: errorResponseSchema,
               403: errorResponseSchema,

@@ -5,11 +5,11 @@ import {
   listPersistedRegionsForAuthority,
   repairSeasonAuthority,
   syncRealmCatalog,
-  type RealmSyncResult,
 } from "@mplus/worker";
-import type { RegionCode } from "@mplus/contracts";
+import type { AdminRealmSyncResponse, RegionCode } from "@mplus/contracts";
 import type { ApiContainer } from "../container.js";
 import { HttpError } from "../errors.js";
+import { toAdminRealmSyncResponse } from "./admin-realm-sync-response.js";
 
 const REGION_SET = new Set<string>(RETAIL_REGION_CODES);
 
@@ -31,7 +31,7 @@ export class AdminMiscService {
   async syncRealmCatalog(input: {
     regions?: string[] | null;
     forceDetails?: boolean;
-  }): Promise<{ ok: true; results: RealmSyncResult[] }> {
+  }): Promise<AdminRealmSyncResponse> {
     const regions = this.normalizeRegions(input.regions);
     const logger = createLogger({
       level: this.container.env.LOG_LEVEL,
@@ -51,7 +51,7 @@ export class AdminMiscService {
       },
     );
 
-    return { ok: true, results };
+    return toAdminRealmSyncResponse(results);
   }
 
   async syncSeasonAuthority(input: {
