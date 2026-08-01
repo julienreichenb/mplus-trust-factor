@@ -11,6 +11,7 @@ describe("feature flags", () => {
       wowheadLinksEnabled: false,
       wowheadTooltipsEnabled: false,
       characterMediaEnabled: true,
+      adminCalibrationEnabled: false,
     });
   });
 
@@ -20,11 +21,13 @@ describe("feature flags", () => {
         VITE_WOWHEAD_LINKS_ENABLED: "false",
         VITE_WOWHEAD_TOOLTIPS_ENABLED: "1",
         VITE_CHARACTER_MEDIA_ENABLED: "off",
+        VITE_ADMIN_CALIBRATION_ENABLED: "true",
       }),
     ).toEqual({
       wowheadLinksEnabled: false,
       wowheadTooltipsEnabled: true,
       characterMediaEnabled: false,
+      adminCalibrationEnabled: true,
     });
   });
 
@@ -34,11 +37,13 @@ describe("feature flags", () => {
         VITE_WOWHEAD_LINKS_ENABLED: "maybe",
         VITE_WOWHEAD_TOOLTIPS_ENABLED: "maybe",
         VITE_CHARACTER_MEDIA_ENABLED: "maybe",
+        VITE_ADMIN_CALIBRATION_ENABLED: "maybe",
       }),
     ).toEqual({
       wowheadLinksEnabled: false,
       wowheadTooltipsEnabled: false,
       characterMediaEnabled: true,
+      adminCalibrationEnabled: false,
     });
   });
 });

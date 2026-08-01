@@ -10,6 +10,11 @@ export const QUEUE_NAMES = {
   syncRealmCatalog: "sync-realm-catalog",
   discoverOwnedCharacters: "discover-owned-characters",
   bulkCharacterProcessing: "bulk-character-processing",
+  /**
+   * Dedicated calibration execution queue — not an IngestionJob / refresh-character job.
+   * Must never affect refresh admission, concurrency, ETA, throughput, or priority.
+   */
+  calibrationRun: "calibration-run",
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];

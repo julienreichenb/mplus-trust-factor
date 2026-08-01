@@ -112,3 +112,10 @@ export {
   V6_CANONICAL_METRIC_KEYS,
   RETIRED_PERFORMANCE_METRIC_KEYS,
 } from "./fixture-cohort.js";
+
+export {
+  CALIBRATION_DIGEST_ALGORITHM_VERSION,
+  buildCalibrationDigestV1,
+  type CalibrationDigestV1,
+  type DigestFinding,
+} from "./digest.js";

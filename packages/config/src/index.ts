@@ -141,6 +141,12 @@ export const envSchema = z
 
     ADMIN_API_KEY: z.string().min(1),
     /**
+     * Admin calibration platform (cohorts / preflight / durable reports).
+     * Default false — fail closed on API routes, worker acceptance, and Admin nav.
+     * Existing study CLIs remain available when disabled.
+     */
+    ADMIN_CALIBRATION_ENABLED: booleanFromString.default(false),
+    /**
      * Emergency shared-key fallback for machine/admin recovery.
      * Default false — must be explicitly enabled. Local `.env.example` sets true for development only.
      * Never accepted from SPA code; every successful use is audited; startup warns when enabled.

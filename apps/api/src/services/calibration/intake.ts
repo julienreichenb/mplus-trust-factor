@@ -160,7 +160,7 @@ export function validateCohortIntake(input: unknown): IntakeValidationResult {
       if (id) missingRoleMemberIds.push(id);
     } else if (raw.providedRole === "DPS" || raw.providedRole === "TANK" || raw.providedRole === "HEALER") {
       providedRole = raw.providedRole;
-      providedRoleCounts[providedRole] += 1;
+      providedRoleCounts[providedRole] = (providedRoleCounts[providedRole] ?? 0) + 1;
     } else {
       errors.push(`${prefix}.providedRole must be DPS|TANK|HEALER|null`);
     }

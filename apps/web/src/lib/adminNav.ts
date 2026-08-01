@@ -1,10 +1,12 @@
 import { hasPermission } from "./permissions";
+import { isAdminCalibrationEnabled } from "../config/features";
 
 export type AdminDestinationId =
   | "score-models"
   | "ability-catalog"
   | "admin-users"
   | "bulk-processing"
+  | "calibration"
   | "admin-misc";
 
 export interface AdminDestination {
@@ -51,6 +53,14 @@ export const ADMIN_DESTINATIONS: readonly AdminDestination[] = [
     path: "/admin/bulk-processing",
     label: "Bulk processing",
     isAuthorized: (permissions) => hasPermission(permissions, "admin.jobs.manage"),
+  },
+  {
+    id: "calibration",
+    name: "admin-calibration",
+    path: "/admin/calibration",
+    label: "Calibration",
+    isAuthorized: (permissions) =>
+      isAdminCalibrationEnabled() && hasPermission(permissions, "admin.calibration.manage"),
   },
   {
     id: "admin-misc",

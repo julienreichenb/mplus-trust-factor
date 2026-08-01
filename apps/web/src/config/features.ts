@@ -17,6 +17,8 @@ export interface FeatureFlags {
   wowheadLinksEnabled: boolean;
   wowheadTooltipsEnabled: boolean;
   characterMediaEnabled: boolean;
+  /** Mirrors server ADMIN_CALIBRATION_ENABLED — nav/routes hidden when false (API still fail-closed). */
+  adminCalibrationEnabled: boolean;
 }
 
 export function resolveFeatureFlags(
@@ -26,6 +28,7 @@ export function resolveFeatureFlags(
     wowheadLinksEnabled: parseBooleanFlag(env.VITE_WOWHEAD_LINKS_ENABLED, false),
     wowheadTooltipsEnabled: parseBooleanFlag(env.VITE_WOWHEAD_TOOLTIPS_ENABLED, false),
     characterMediaEnabled: parseBooleanFlag(env.VITE_CHARACTER_MEDIA_ENABLED, true),
+    adminCalibrationEnabled: parseBooleanFlag(env.VITE_ADMIN_CALIBRATION_ENABLED, false),
   };
 }
 
@@ -51,4 +54,8 @@ export function isWowheadTooltipsEnabled(): boolean {
 
 export function isCharacterMediaEnabled(): boolean {
   return getFeatureFlags().characterMediaEnabled;
+}
+
+export function isAdminCalibrationEnabled(): boolean {
+  return getFeatureFlags().adminCalibrationEnabled;
 }

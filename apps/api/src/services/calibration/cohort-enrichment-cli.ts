@@ -25,6 +25,7 @@ import {
 import {
   resolveIntakeMember,
   toStrictManifestMember,
+  type BlizzardProfileEnrichment,
   type PersistedCharacterLookup,
   type ResolvedMember,
   type ExclusionRecord,
@@ -255,7 +256,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   }
 
   let ledger: ProviderCallLedgerEntry[] = [];
-  const blizzardByKey = new Map<string, import("./resolve-member.js").BlizzardProfileEnrichment>();
+  const blizzardByKey = new Map<string, BlizzardProfileEnrichment>();
 
   if (liveBlizzard) {
     const clientId = process.env.BLIZZARD_CLIENT_ID ?? "";

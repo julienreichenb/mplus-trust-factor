@@ -29,7 +29,9 @@ function stubProducers(): QueueProducers {
     enqueueGenerateAddonExport: ok,
     enqueueDiscoverOwnedCharacters: ok,
     enqueueBulkCharacterProcessing: ok,
+    enqueueCalibrationRun: ok,
     getRefreshCharacterQueue: () => null,
+    getCalibrationRunQueue: () => null,
     close: async () => undefined,
   } as QueueProducers;
 }

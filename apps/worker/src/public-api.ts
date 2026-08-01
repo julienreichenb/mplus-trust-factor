@@ -17,6 +17,11 @@ export {
 
 export { closeWorkers, createWorkers } from "./processors.js";
 export { createQueueProducers, type EnqueueResult, type QueueProducers } from "./queues.js";
+export {
+  runCalibrationRunJob,
+  type CalibrationRunProcessorDeps,
+  type CalibrationRunProcessorResult,
+} from "./orchestration/calibration-run.js";
 
 export { NegativeCache, negativeCache } from "./negative-cache.js";
 export { pruneRawArtifacts, type PruneArtifactsResult } from "./prune-artifacts.js";

@@ -225,6 +225,8 @@ model Season {
   addonExports     AddonExport[]
   analysisBatches  ScoreAnalysisBatch[]
   publishedScores  CharacterPublishedScore[]
+  calibrationCohorts CalibrationCohort[]
+  calibrationRuns    CalibrationRun[]
 
   @@unique([regionId, slug])
   @@map("seasons")
@@ -345,6 +347,7 @@ model Character {
   refreshCostEntries RefreshCostLedgerEntry[]
   refreshAdmissions RefreshAdmission[]
   bulkOperationItems BulkOperationItem[]
+  calibrationCohortMembers CalibrationCohortMember[]
 
   @@unique([regionId, realmId, normalizedName])
   @@index([lastPublicRefreshAt])
@@ -765,6 +768,8 @@ model ScoreModel {
   addonExports      AddonExport[]
   analysisBatches   ScoreAnalysisBatch[]
   bulkOperations    BulkOperation[]
+  calibrationRunsAsActive      CalibrationRun[] @relation("CalibrationRunActiveModel")
+  calibrationRunsAsEvaluation  CalibrationRun[] @relation("CalibrationRunEvaluationModel")
 
   @@unique([key, version])
   @@index([status])
@@ -1004,6 +1009,8 @@ model User {
   scoreModels       ScoreModel[]
   disputes          ScoreDispute[]
   bulkOperations    BulkOperation[]
+  calibrationCohorts CalibrationCohort[]
+  calibrationRuns    CalibrationRun[]
 
   @@unique([authProvider, externalSubject])
   @@map("users")
@@ -1449,4 +1456,176 @@ model BulkOperationItem {
   @@unique([bulkOperationId, position])
   @@index([bulkOperationId, status, position])
   @@map("bulk_operation_items")
+}
+
+// ---------------------------------------------------------------------------
+// Admin calibration platform (Phase 1) — provider-free cohort evaluation
+// ---------------------------------------------------------------------------
+
+enum CalibrationCohortStatus {
+  DRAFT
+  READY
+  ARCHIVED
+}
+
+enum CalibrationRunStatus {
+  QUEUED
+  RUNNING
+  SUCCEEDED
+  FAILED
+  CANCELLED
+}
+
+enum CalibrationRunMode {
+  PERSISTED_SNAPSHOT_ONLY
+  DRAFT_MODEL_EVALUATE
+  ACTIVE_VERSUS_DRAFT
+}
+
+enum CalibrationExpectedLabel {
+  EXCELLENT
+  GOOD
+  AVERAGE
+  WEAK
+  OVERRATED
+}
+
+enum CalibrationMemberSource {
+  USER_SELECTED
+  IMPORTED_STUDY
+  STRATIFIED_AUTO
+}
+
+model CalibrationCohort {
+  id              String                  @id @default(uuid()) @db.Uuid
+  name            String
+  description     String                  @default("")
+  seasonId        String                  @map("season_id") @db.Uuid
+  status          CalibrationCohortStatus @default(DRAFT)
+  /** Monotonic revision; incremented on every member/cohort mutation while editable. */
+  revision        Int                     @default(1)
+  /** Idempotent import key (e.g. Agent 11 cohortId / content hash). */
+  externalKey     String?                 @unique @map("external_key")
+  createdByUserId String                  @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime                @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime                @updatedAt @map("updated_at") @db.Timestamptz(3)
+  archivedAt      DateTime?               @map("archived_at") @db.Timestamptz(3)
+
+  season    Season                    @relation(fields: [seasonId], references: [id])
+  createdBy User                      @relation(fields: [createdByUserId], references: [id])
+  members   CalibrationCohortMember[]
+  runs      CalibrationRun[]
+
+  @@index([status, updatedAt(sort: Desc)])
+  @@index([createdByUserId, updatedAt(sort: Desc)])
+  @@map("calibration_cohorts")
+}
+
+model CalibrationCohortMember {
+  id                   String                   @id @default(uuid()) @db.Uuid
+  cohortId             String                   @map("cohort_id") @db.Uuid
+  characterId          String?                  @map("character_id") @db.Uuid
+  region               String
+  realmSlug            String                   @map("realm_slug")
+  characterName        String                   @map("character_name")
+  expectedLabel        CalibrationExpectedLabel @map("expected_label")
+  providedRole         CharacterRole?           @map("provided_role")
+  classSlug            String?                  @map("class_slug")
+  specSlug             String?                  @map("spec_slug")
+  evidenceCutoffAt     DateTime?                @map("evidence_cutoff_at") @db.Timestamptz(3)
+  rationale            String
+  source               CalibrationMemberSource  @default(USER_SELECTED)
+  included             Boolean                  @default(true)
+  exclusionCode        String?                  @map("exclusion_code")
+  exclusionDetail      String?                  @map("exclusion_detail")
+  /** Immutable identity/profile snapshot captured by latest preflight (JSON). */
+  preflightSnapshot    Json                     @default("{}") @map("preflight_snapshot")
+  /** Stable member key within a cohort (intake id or generated). */
+  externalMemberKey    String?                  @map("external_member_key")
+  createdAt            DateTime                 @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt            DateTime                 @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  cohort    CalibrationCohort @relation(fields: [cohortId], references: [id], onDelete: Cascade)
+  character Character?        @relation(fields: [characterId], references: [id], onDelete: SetNull)
+
+  @@unique([cohortId, externalMemberKey])
+  @@index([cohortId, included])
+  @@index([cohortId, region, realmSlug, characterName])
+  @@index([characterId])
+  @@map("calibration_cohort_members")
+}
+
+model CalibrationRun {
+  id                       String              @id @default(uuid()) @db.Uuid
+  cohortId                 String              @map("cohort_id") @db.Uuid
+  /** Frozen cohort revision at run creation — never updated after enqueue. */
+  cohortRevision           Int                 @map("cohort_revision")
+  seasonId                 String              @map("season_id") @db.Uuid
+  mode                     CalibrationRunMode
+  status                   CalibrationRunStatus @default(QUEUED)
+  activeModelId            String?             @map("active_model_id") @db.Uuid
+  evaluationModelId        String?             @map("evaluation_model_id") @db.Uuid
+  /** Frozen active model config JSON at run creation. */
+  activeModelConfig        Json?               @map("active_model_config")
+  /** Frozen evaluation/draft model config JSON at run creation. */
+  evaluationModelConfig    Json?               @map("evaluation_model_config")
+  evidencePolicy           String              @default("STRICT") @map("evidence_policy")
+  inputBundleSchemaVersion String              @map("input_bundle_schema_version")
+  /** SHA-256 hex of canonical serialized frozen bundle. */
+  inputBundleContentHash   String              @map("input_bundle_content_hash")
+  /** Frozen CalibrationInputBundleV1 JSON (bounded; fail closed over size limit). */
+  inputBundle              Json                @map("input_bundle")
+  inputBundleByteLength    Int                 @map("input_bundle_byte_length")
+  snapshotIds              Json                @default("[]") @map("snapshot_ids")
+  evidenceFingerprint      String?             @map("evidence_fingerprint")
+  deterministicSeed        Int                 @default(0) @map("deterministic_seed")
+  algorithmVersions        Json                @default("{}") @map("algorithm_versions")
+  cancelRequestedAt        DateTime?           @map("cancel_requested_at") @db.Timestamptz(3)
+  errorCode                String?             @map("error_code")
+  errorMessage             String?             @map("error_message")
+  createdByUserId          String              @map("created_by_user_id") @db.Uuid
+  createdAt                DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+  startedAt                DateTime?           @map("started_at") @db.Timestamptz(3)
+  completedAt              DateTime?           @map("completed_at") @db.Timestamptz(3)
+  /** BullMQ job id when enqueued (not an IngestionJob). */
+  bullmqJobId              String?             @map("bullmq_job_id")
+
+  cohort          CalibrationCohort   @relation(fields: [cohortId], references: [id], onDelete: Restrict)
+  season          Season              @relation(fields: [seasonId], references: [id])
+  activeModel     ScoreModel?         @relation("CalibrationRunActiveModel", fields: [activeModelId], references: [id])
+  evaluationModel ScoreModel?         @relation("CalibrationRunEvaluationModel", fields: [evaluationModelId], references: [id])
+  createdBy       User                @relation(fields: [createdByUserId], references: [id])
+  report          CalibrationReport?
+
+  @@index([status, createdAt(sort: Desc)])
+  @@index([cohortId, createdAt(sort: Desc)])
+  @@index([createdByUserId, createdAt(sort: Desc)])
+  @@map("calibration_runs")
+}
+
+model CalibrationReport {
+  id                           String   @id @default(uuid()) @db.Uuid
+  runId                        String   @unique @map("run_id") @db.Uuid
+  schemaVersion                String   @map("schema_version")
+  digestAlgorithmVersion       String   @map("digest_algorithm_version")
+  recommendationAlgorithmVersion String? @map("recommendation_algorithm_version")
+  summaryJson                  Json     @map("summary_json")
+  reportJson                   Json     @map("report_json")
+  digestJson                   Json     @map("digest_json")
+  limitationsJson              Json     @default("[]") @map("limitations_json")
+  cohortSize                   Int      @map("cohort_size")
+  evaluatedCount               Int      @map("evaluated_count")
+  failedOrExcludedCount        Int      @map("failed_or_excluded_count")
+  spearman                     Float?
+  pairwiseConcordance          Float?   @map("pairwise_concordance")
+  meanScore                    Float?   @map("mean_score")
+  meanConfidence               Float?   @map("mean_confidence")
+  outlierCount                 Int      @default(0) @map("outlier_count")
+  contentHash                  String   @map("content_hash")
+  generatedAt                  DateTime @map("generated_at") @db.Timestamptz(3)
+  createdAt                    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  run CalibrationRun @relation(fields: [runId], references: [id], onDelete: Restrict)
+
+  @@map("calibration_reports")
 }
