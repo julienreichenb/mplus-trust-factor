@@ -23,6 +23,7 @@
     "@mplus/database": "workspace:*",
     "@mplus/domain": "workspace:*",
     "@mplus/observability": "workspace:*",
+    "@mplus/provider-blizzard": "workspace:*",
     "@mplus/scoring": "workspace:*",
     "@mplus/test-utils": "workspace:*",
     "@mplus/worker": "workspace:*",

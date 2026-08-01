@@ -1,0 +1,55 @@
+{
+  "schemaVersion": "1.0.0",
+  "policyId": "midnight-season-1-meta-v1",
+  "seasonSlug": "midnight-season-1",
+  "evaluatedAt": "2026-08-01T13:21:00+02:00",
+  "unlistedStatus": "NON_META",
+  "authoritativeSeasonBindings": [
+    {
+      "provider": "BLIZZARD",
+      "providerSeasonId": 17,
+      "catalogSlug": "blizzard-season-17"
+    }
+  ],
+  "metaSpecializations": [
+    {
+      "classSlug": "demon-hunter",
+      "specSlug": "devourer",
+      "role": "DPS"
+    },
+    {
+      "classSlug": "evoker",
+      "specSlug": "augmentation",
+      "role": "DPS"
+    },
+    {
+      "classSlug": "death-knight",
+      "specSlug": "unholy",
+      "role": "DPS"
+    },
+    {
+      "classSlug": "monk",
+      "specSlug": "mistweaver",
+      "role": "HEALER"
+    },
+    {
+      "classSlug": "monk",
+      "specSlug": "brewmaster",
+      "role": "TANK"
+    },
+    {
+      "classSlug": "warrior",
+      "specSlug": "arms",
+      "role": "DPS"
+    },
+    {
+      "classSlug": "shaman",
+      "specSlug": "restoration",
+      "role": "HEALER"
+    }
+  ],
+  "source": {
+    "type": "manual-expert-selection",
+    "description": "User-approved meta specializations for Midnight Season 1. authoritativeSeasonBindings added before Agent 11 evidence freeze to bind product seasonSlug midnight-season-1 to Blizzard season 17 / catalog slug blizzard-season-17 without renaming the policy seasonSlug."
+  }
+}

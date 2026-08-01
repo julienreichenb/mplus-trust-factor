@@ -11,6 +11,7 @@ import type { ApiErrorEnvelope, MetaResponse } from "@mplus/contracts";
 import { createApiContainer, type ApiContainer } from "./container.js";
 import { isHttpError } from "./errors.js";
 import { buildAdminRoutes } from "./routes/admin.js";
+import { buildAdminCalibrationRoutes } from "./routes/admin-calibration.js";
 import { buildAdminRefreshJobRoutes } from "./routes/admin-refresh-jobs.js";
 import { buildCharacterRoutes } from "./routes/characters.js";
 import { buildComparisonRoutes } from "./routes/comparisons.js";
@@ -380,6 +381,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   await app.register(buildPublicScoreModelRoutes(container));
   await app.register(buildJobRoutes(container));
   await app.register(buildAdminRoutes(container));
+  await app.register(buildAdminCalibrationRoutes(container));
   await app.register(buildAdminRefreshJobRoutes(container));
   await app.register(buildAuthRoutes(env, container.authService));
 

@@ -257,7 +257,23 @@ function createInlineQueueProducers(worker: WorkerContainer): QueueProducers {
       return { jobId: job.id, dedupeKey, reused, enqueued: true };
     },
 
+    async enqueueCalibrationRun(input): Promise<EnqueueResult> {
+      // Inline mode intentionally does NOT execute the calibration harness — the worker
+      // (apps/worker/src/orchestration/calibration-run.ts) owns that. Tests using skipQueues
+      // must drive the run to completion explicitly (e.g. by calling the worker function).
+      return {
+        jobId: input.calibrationRunId,
+        dedupeKey: input.calibrationRunId,
+        reused: false,
+        enqueued: true,
+      };
+    },
+
     getRefreshCharacterQueue() {
+      return null;
+    },
+
+    getCalibrationRunQueue() {
       return null;
     },
 

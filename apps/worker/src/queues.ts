@@ -3,12 +3,14 @@ import {
   QUEUE_NAMES,
   analyzeRunJobSchema,
   bulkOrchestratorJobSchema,
+  calibrationRunJobSchema,
   discoverOwnedCharactersJobSchema,
   generateAddonExportJobSchema,
   recalculateScoreJobSchema,
   refreshCharacterJobSchema,
   type AnalyzeRunJob,
   type BulkOrchestratorJob,
+  type CalibrationRunJob,
   type DiscoverOwnedCharactersJob,
   type GenerateAddonExportJob,
   type RecalculateScoreJob,
@@ -54,8 +56,18 @@ export interface QueueProducers {
   enqueueBulkCharacterProcessing(
     input: Omit<BulkOrchestratorJob, "requestedAt"> & { requestedAt?: string },
   ): Promise<EnqueueResult>;
+  /**
+   * Dedicated calibration-run queue — NOT an IngestionJob / refresh-character job.
+   * Deduped by CalibrationRun UUID (jobId = calibrationRunId); never affects refresh
+   * admission, concurrency, ETA, throughput, or priority.
+   */
+  enqueueCalibrationRun(
+    input: { calibrationRunId: string; requestedAt?: string; correlationId?: string | null },
+  ): Promise<EnqueueResult>;
   /** Refresh-character queue for admin cancel/prioritize/kill-all. Null in inline mode. */
   getRefreshCharacterQueue(): Queue | null;
+  /** Calibration-run queue for admin cancel (QUEUED jobs). Null in inline mode. */
+  getCalibrationRunQueue(): Queue | null;
   close(): Promise<void>;
 }
 
@@ -78,6 +90,7 @@ export function createQueueProducers(
     [QUEUE_NAMES.bulkCharacterProcessing]: new Queue(QUEUE_NAMES.bulkCharacterProcessing, {
       connection,
     }),
+    [QUEUE_NAMES.calibrationRun]: new Queue(QUEUE_NAMES.calibrationRun, { connection }),
   } as const;
 
   async function enqueue(
@@ -197,8 +210,33 @@ export function createQueueProducers(
       );
     },
 
+    async enqueueCalibrationRun(input) {
+      const payload: CalibrationRunJob = calibrationRunJobSchema.parse({
+        calibrationRunId: input.calibrationRunId,
+        requestedAt: input.requestedAt ?? new Date().toISOString(),
+        correlationId: input.correlationId ?? null,
+      });
+      // Deliberately bypasses persistAndEnqueue/IngestionJob — dedicated queue, deduped by
+      // CalibrationRun UUID as the BullMQ jobId (no dedupeKey/IngestionJob row involved).
+      const job = await queues[QUEUE_NAMES.calibrationRun].add(
+        QUEUE_NAMES.calibrationRun,
+        payload,
+        { jobId: payload.calibrationRunId },
+      );
+      return {
+        jobId: job.id ?? payload.calibrationRunId,
+        dedupeKey: payload.calibrationRunId,
+        reused: false,
+        enqueued: true,
+      };
+    },
+
     getRefreshCharacterQueue() {
       return queues[QUEUE_NAMES.refreshCharacter] ?? null;
+    },
+
+    getCalibrationRunQueue() {
+      return queues[QUEUE_NAMES.calibrationRun] ?? null;
     },
 
     async close() {

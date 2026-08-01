@@ -1,0 +1,8 @@
+{
+  "schemaVersion": "1.0.0",
+  "cohortId": "agent11-user-cohort-2026-08-01-strict",
+  "description": "Strict CohortManifest 1.0.0 generated from Agent 11 resolved intake (expert labels preserved).",
+  "createdAt": "2026-08-01T12:54:00+02:00",
+  "members": [],
+  "notes": "Reapplied role-context rules 2026-08-01T12:01:01.113Z; excluded 5 members"
+}

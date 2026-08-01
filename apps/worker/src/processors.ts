@@ -3,6 +3,7 @@ import {
   QUEUE_NAMES,
   analyzeRunJobSchema,
   bulkOrchestratorJobSchema,
+  calibrationRunJobSchema,
   discoverOwnedCharactersJobSchema,
   generateAddonExportJobSchema,
   recalculateScoreJobSchema,
@@ -18,6 +19,7 @@ import {
 import { persistAndEnqueue } from "./orchestration/enqueue.js";
 import { runAnalyzeRun } from "./orchestration/analyze-run.js";
 import { runBulkCharacterProcessing } from "./orchestration/bulk-character-processing.js";
+import { runCalibrationRunJob } from "./orchestration/calibration-run.js";
 import { runDiscoverOwnedCharacters } from "./orchestration/discover-owned-characters.js";
 import { runGenerateAddonExport } from "./orchestration/generate-addon-export.js";
 import { runRecalculateScore } from "./orchestration/recalculate-score.js";
@@ -246,7 +248,29 @@ export function createWorkers(connection: ConnectionOptions, container: WorkerCo
     { connection, autorun: false, concurrency: 1 },
   );
 
-  for (const worker of [refresh, analyze, recalculate, addonExport, discover, bulk]) {
+  // Dedicated calibration-run worker. Deliberately constructed with only prisma/logger/flag —
+  // never given access to producers or Blizzard/WCL/RaiderIO providers — so calibration jobs
+  // cannot enqueue refresh work or call external providers.
+  const calibration = new Worker(
+    QUEUE_NAMES.calibrationRun,
+    async (job) => {
+      const payload = calibrationRunJobSchema.parse(job.data);
+      const result = await withRetryClassification(job, () =>
+        runCalibrationRunJob(
+          {
+            prisma: container.prisma,
+            logger: container.logger,
+            calibrationEnabled: container.env.ADMIN_CALIBRATION_ENABLED,
+          },
+          payload,
+        ),
+      );
+      return toBullmqReturnValue(result);
+    },
+    { connection, autorun: false, concurrency: 1 },
+  );
+
+  for (const worker of [refresh, analyze, recalculate, addonExport, discover, bulk, calibration]) {
     worker.on("failed", (job, error) => {
       container.logger.error({ jobId: job?.id, queue: worker.name, err: error }, "job failed");
     });
@@ -264,7 +288,7 @@ export function createWorkers(connection: ConnectionOptions, container: WorkerCo
     return originalBulkClose(force);
   };
 
-  return [refresh, analyze, recalculate, addonExport, discover, bulk];
+  return [refresh, analyze, recalculate, addonExport, discover, bulk, calibration];
 }
 
 /** Gracefully closes all workers; safe to call even if some workers never started running. */

@@ -32,6 +32,7 @@ describe("loadEnv", () => {
     expect(env.REFRESH_WORKER_CONCURRENCY).toBe(1);
     expect(env.UTILITY_PUBLICATION_MODE).toBe("shadow");
     expect(env.ADMIN_API_KEY_EMERGENCY_FALLBACK).toBe(false);
+    expect(env.ADMIN_CALIBRATION_ENABLED).toBe(false);
   });
 
   it("accepts UTILITY_PUBLICATION_MODE enum values", () => {

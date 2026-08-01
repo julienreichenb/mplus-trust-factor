@@ -297,6 +297,8 @@ export {
   createFixtureEvidencePort,
   V6_CANONICAL_METRIC_KEYS,
   RETIRED_PERFORMANCE_METRIC_KEYS,
+  CALIBRATION_DIGEST_ALGORITHM_VERSION,
+  buildCalibrationDigestV1,
 } from "./calibration/index.js";
 export type {
   CalibrationBacktestMode,
@@ -338,4 +340,6 @@ export type {
   RunAdminCalibrationBacktestInput,
   CalibrationBundleExportPort,
   BundleValidationResult,
+  CalibrationDigestV1,
+  DigestFinding,
 } from "./calibration/index.js";

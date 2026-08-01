@@ -63,6 +63,18 @@ export const routeDefs: RouteRecordRaw[] = [
     meta: { adminDestinationId: "bulk-processing" },
   },
   {
+    path: "/admin/calibration/runs/:runId",
+    name: "admin-calibration-report",
+    component: () => import("./pages/AdminCalibrationReportPage.vue"),
+    meta: { adminDestinationId: "calibration" },
+  },
+  {
+    path: "/admin/calibration/:cohortId?",
+    name: "admin-calibration",
+    component: () => import("./pages/AdminCalibrationPage.vue"),
+    meta: { adminDestinationId: "calibration" },
+  },
+  {
     path: "/admin/misc",
     name: "admin-misc",
     component: () => import("./pages/AdminMiscPage.vue"),

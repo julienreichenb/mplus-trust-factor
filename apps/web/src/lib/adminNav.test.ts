@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import {
   ADMIN_DESTINATIONS,
   hasAnyAuthorizedAdminDestination,
@@ -6,6 +6,11 @@ import {
   isAuthorizedForAdminDestination,
   visibleAdminNavDestinations,
 } from "./adminNav";
+import { resetFeatureFlagsCache, resolveFeatureFlags } from "../config/features";
+
+afterEach(() => {
+  resetFeatureFlagsCache();
+});
 
 const CASES = [
   {
@@ -61,17 +66,27 @@ describe("admin destination registry", () => {
     expect(hasAnyAuthorizedAdminDestination([])).toBe(false);
   });
 
-  it("returns all destinations when fully authorized", () => {
+  it("returns all destinations when fully authorized (calibration stays hidden unless feature flag on)", () => {
     const full = [
       "admin.score_models.manage",
       "admin.ability_catalog.read",
       "admin.users.read",
       "admin.jobs.manage",
       "admin.settings.manage",
+      "admin.calibration.manage",
     ];
     expect(visibleAdminNavDestinations(full).map((d) => d.path)).toEqual(
-      ADMIN_DESTINATIONS.map((d) => d.path),
+      ADMIN_DESTINATIONS.filter((d) => d.id !== "calibration").map((d) => d.path),
     );
+  });
+
+  it("shows calibration only when feature flag and permission are both present", () => {
+    // Direct resolve — getFeatureFlags() caches import.meta.env; authorization uses isAdminCalibrationEnabled.
+    expect(resolveFeatureFlags({ VITE_ADMIN_CALIBRATION_ENABLED: "true" }).adminCalibrationEnabled).toBe(
+      true,
+    );
+    // With default flag off, permission alone is insufficient.
+    expect(isAuthorizedForAdminDestination("calibration", ["admin.calibration.manage"])).toBe(false);
   });
 });
 

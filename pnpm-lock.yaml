@@ -96,6 +96,9 @@ importers:
       '@mplus/observability':
         specifier: workspace:*
         version: link:../../packages/observability
+      '@mplus/provider-blizzard':
+        specifier: workspace:*
+        version: link:../../packages/providers/blizzard
       '@mplus/scoring':
         specifier: workspace:*
         version: link:../../packages/scoring
