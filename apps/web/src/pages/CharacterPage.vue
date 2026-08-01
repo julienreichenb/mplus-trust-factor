@@ -66,6 +66,7 @@ const notFound = ref(false);
 const profile = ref<CharacterProfileView | null>(null);
 const activeRerolls = ref<ActiveRerollCharacterDTO[]>([]);
 const displayedCharacterIsMain = ref(false);
+const repairing = ref(false);
 
 const confidenceWarning = computed(() => {
   const conf = profile.value ? resolveDataConfidence(profile.value) : null;
@@ -118,6 +119,13 @@ const bannerTitles = computed(() => {
     titles.push("Refresh timed out");
   } else if (profile.value.refreshStatus === "STALE" && !polling.value) {
     titles.push("Data may be outdated");
+  } else if (
+    profile.value.bootstrapRepairRequired ||
+    (profile.value.warnings ?? []).some((w) => w.code === "CHARACTER_BOOTSTRAP_INCOMPLETE")
+  ) {
+    titles.push("Profile data incomplete");
+  } else if (profile.value.refreshStatus === "FAILED" && !polling.value) {
+    titles.push("Refresh failed");
   }
   if (confidenceWarning.value) titles.push("Low confidence");
   for (const w of profile.value.warnings ?? []) {
@@ -207,7 +215,9 @@ async function load(): Promise<void> {
             profile.value = {
               ...profile.value,
               refreshStatus: terminalFailed
-                ? "STALE"
+                ? hasScore
+                  ? "STALE"
+                  : "FAILED"
                 : cancelled
                   ? status.refreshStatus === "STALE"
                     ? "STALE"
@@ -217,6 +227,10 @@ async function load(): Promise<void> {
                       ? "REFRESHING"
                       : "QUEUED"
                     : "FRESH",
+              bootstrapRepairRequired:
+                status.bootstrapRepairRequired === true
+                  ? true
+                  : profile.value.bootstrapRepairRequired,
             };
           }
         },
@@ -250,6 +264,113 @@ async function load(): Promise<void> {
     }
   } finally {
     loading.value = false;
+  }
+}
+
+async function repairBootstrap(): Promise<void> {
+  if (!profile.value || repairing.value) return;
+  const identity = {
+    region: props.region.toUpperCase(),
+    realmSlug: props.realm.toLowerCase(),
+    name: props.name,
+  };
+  repairing.value = true;
+  error.value = null;
+  refreshNotice.value = null;
+  try {
+    const result = await api.resolveCharacter(
+      {
+        region: identity.region as "EU" | "US" | "KR" | "TW",
+        realmSlug: identity.realmSlug,
+        name: identity.name,
+        forceRetry: true,
+      },
+      undefined,
+    );
+    if (result.status === "NOT_FOUND") {
+      error.value = result.message || "Character not found on Blizzard.";
+      return;
+    }
+    if (result.status === "PROVIDER_UNAVAILABLE") {
+      error.value = result.message || "Blizzard is temporarily unavailable. Retry shortly.";
+      return;
+    }
+    if (result.status === "FAILED") {
+      error.value = result.message || "Blizzard profile lookup failed.";
+      return;
+    }
+
+    const refreshed = await api.getCharacterProfile(identity);
+    profile.value = refreshed;
+    if (
+      result.status === "QUEUED" ||
+      result.status === "PROCESSING" ||
+      result.status === "READY" ||
+      result.status === "PROFILE_ONLY"
+    ) {
+      refreshNotice.value =
+        result.status === "QUEUED" || result.status === "PROCESSING"
+          ? "Profile repaired — score refresh queued."
+          : "Profile data restored.";
+    } else {
+      refreshNotice.value = "Profile data restored.";
+    }
+
+    if (refreshed.refreshStatus === "QUEUED" || refreshed.refreshStatus === "REFRESHING") {
+      void startPolling({
+        ...pollingOptions(identity),
+        onUpdate: (statusUpdate) => {
+          if (profile.value) {
+            const cancelled = statusUpdate.job?.status === "cancelled";
+            const terminalFailed =
+              !cancelled &&
+              (statusUpdate.refreshStatus === "FAILED" || statusUpdate.job?.status === "failed");
+            const inProgress =
+              !cancelled &&
+              (statusUpdate.refreshStatus === "IN_PROGRESS" ||
+                statusUpdate.refreshStatus === "QUEUED" ||
+                statusUpdate.job?.status === "queued" ||
+                statusUpdate.job?.status === "active");
+            profile.value = {
+              ...profile.value,
+              refreshStatus: terminalFailed
+                ? profile.value.score
+                  ? "STALE"
+                  : "FAILED"
+                : cancelled
+                  ? statusUpdate.refreshStatus === "STALE"
+                    ? "STALE"
+                    : "FRESH"
+                  : inProgress
+                    ? profile.value.score
+                      ? "REFRESHING"
+                      : "QUEUED"
+                    : "FRESH",
+              bootstrapRepairRequired: statusUpdate.bootstrapRepairRequired === true,
+            };
+          }
+        },
+        onComplete: async (statusUpdate) => {
+          if (
+            statusUpdate.job?.status !== "cancelled" &&
+            (statusUpdate.refreshStatus === "FAILED" || statusUpdate.job?.status === "failed")
+          ) {
+            refreshNotice.value =
+              statusUpdate.job?.errorMessage?.trim() ||
+              "Refresh failed after profile repair. You can retry without losing restored metadata.";
+          }
+          const again = await api.getCharacterProfile(identity);
+          profile.value = again;
+        },
+        onTimeout: () => {
+          error.value = "Refresh is taking longer than expected. Retry or reopen this profile.";
+        },
+      });
+    }
+  } catch (err) {
+    error.value = (err as Error).message || "Blizzard profile lookup failed";
+  } finally {
+    repairing.value = false;
   }
 }
 
@@ -375,10 +496,34 @@ watch(
       <CharacterProfileToolbar
         :profile="profile"
         :refreshing="polling"
+        :repairing="repairing"
         :can-force-refresh="canForceRefresh"
         @refresh="refresh()"
         @force-refresh="refresh({ force: true })"
+        @repair-bootstrap="repairBootstrap"
       />
+
+      <StatusBanner
+        v-if="
+          profile.bootstrapRepairRequired ||
+          (profile.warnings ?? []).some((w) => w.code === 'CHARACTER_BOOTSTRAP_INCOMPLETE')
+        "
+        tone="warn"
+        title="Profile data incomplete"
+        data-testid="bootstrap-incomplete-banner"
+      >
+        Required Blizzard character metadata is missing. Retry Blizzard profile lookup to restore
+        level, class, spec and role — then a score refresh can run when eligible.
+        <button
+          type="button"
+          class="btn"
+          data-testid="bootstrap-repair-banner-button"
+          :disabled="repairing"
+          @click="repairBootstrap"
+        >
+          Retry Blizzard profile lookup
+        </button>
+      </StatusBanner>
 
       <details
         v-if="showBannerGroup"
@@ -420,7 +565,9 @@ watch(
           </StatusBanner>
 
           <StatusBanner
-            v-for="w in profile.warnings"
+            v-for="w in (profile.warnings ?? []).filter(
+              (w) => w.code !== 'CHARACTER_BOOTSTRAP_INCOMPLETE',
+            )"
             :key="w.code"
             :tone="w.severity === 'WARN' ? 'warn' : 'info'"
             :title="w.code.replaceAll('_', ' ')"

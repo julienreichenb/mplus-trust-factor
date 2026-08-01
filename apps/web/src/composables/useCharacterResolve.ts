@@ -84,7 +84,7 @@ export function useCharacterResolve(): CharacterResolveController {
       });
       if (aborted) return null;
 
-      if (result.status === "READY") {
+      if (result.status === "READY" || result.status === "PROFILE_ONLY") {
         uiState.value = "READY";
         profilePath.value = result.profilePath;
         resolving.value = false;

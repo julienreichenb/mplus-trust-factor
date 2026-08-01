@@ -36,7 +36,7 @@ describe("CharacterProfileToolbar refresh labels", () => {
   });
 
   it("shows idle refresh label without spinner", () => {
-    for (const status of ["STALE", "FRESH"] as const) {
+    for (const status of ["STALE", "FRESH", "FAILED"] as const) {
       const wrapper = mount(CharacterProfileToolbar, {
         props: { profile: profile(status) },
         global: {
@@ -49,5 +49,32 @@ describe("CharacterProfileToolbar refresh labels", () => {
       expect(button.classes()).not.toContain("refresh-btn--busy");
       wrapper.unmount();
     }
+  });
+
+  it("exposes bootstrap repair when incomplete and not in-flight", () => {
+    const wrapper = mount(CharacterProfileToolbar, {
+      props: {
+        profile: {
+          ...profile("FAILED"),
+          bootstrapRepairRequired: true,
+          warnings: [
+            {
+              code: "CHARACTER_BOOTSTRAP_INCOMPLETE",
+              message: "Profile data incomplete",
+              severity: "WARN",
+            },
+          ],
+        },
+      },
+      global: {
+        stubs: { RouterLink: { template: "<a><slot /></a>" } },
+      },
+    });
+    expect(wrapper.get("[data-testid='bootstrap-repair-button']").text()).toContain(
+      "Retry Blizzard profile lookup",
+    );
+    expect(wrapper.get("[data-testid='refresh-button']").attributes("disabled")).toBeDefined();
+    expect(wrapper.find("[data-testid='force-refresh-button']").exists()).toBe(false);
+    wrapper.unmount();
   });
 });

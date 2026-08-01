@@ -4,6 +4,7 @@ import {
   cancelRefreshJob,
   killAllRefreshJobs,
   prioritizeRefreshJob,
+  supersedeDuplicateRefreshJob,
 } from "./refresh-job-control.js";
 import type { JobRepository } from "../persistence/job-repository.js";
 
@@ -77,6 +78,98 @@ describe("refresh job control", () => {
       queued.id,
     );
     expect(second.outcome).toBe("already_terminal");
+  });
+
+  it("supersedes queued duplicates by removing BullMQ then FAILED REFRESH_SUPERSEDED_DEDUPED", async () => {
+    let status: string = "QUEUED";
+    const queued = jobStub({ status: "QUEUED", queueJobId: "bull-loser" });
+    const releaseAdmission = vi.fn(async () => undefined);
+    const jobRepository = {
+      findById: vi.fn(async () =>
+        status === "FAILED"
+          ? jobStub({
+              status: "FAILED",
+              queueJobId: "bull-loser",
+              error: { code: "REFRESH_SUPERSEDED_DEDUPED" },
+            })
+          : queued,
+      ),
+      markFailed: vi.fn(async () => {
+        status = "FAILED";
+        return jobStub({
+          status: "FAILED",
+          queueJobId: "bull-loser",
+          error: { code: "REFRESH_SUPERSEDED_DEDUPED" },
+        });
+      }),
+      requestCancel: vi.fn(),
+    } as unknown as JobRepository;
+
+    const remove = vi.fn();
+    const queue = {
+      getJob: vi.fn(async () => ({
+        id: "bull-loser",
+        getState: async () => "waiting",
+        remove,
+      })),
+      getJobs: vi.fn(async () => []),
+    };
+
+    const result = await supersedeDuplicateRefreshJob(
+      { jobRepository, refreshQueue: queue as never, logger: mockLogger(), releaseAdmission },
+      queued.id,
+      "winner-1",
+    );
+    expect(result.outcome).toBe("queued_superseded");
+    expect(result.queueRemoved).toBe(true);
+    expect(remove).toHaveBeenCalled();
+    expect(jobRepository.markFailed).toHaveBeenCalledWith(
+      queued.id,
+      expect.objectContaining({ code: "REFRESH_SUPERSEDED_DEDUPED", winnerJobId: "winner-1" }),
+    );
+    expect(releaseAdmission).toHaveBeenCalledWith(queued.id);
+    expect(jobRepository.requestCancel).not.toHaveBeenCalled();
+  });
+
+  it("cooperatively cancels ACTIVE duplicates without markFailed and releases admission", async () => {
+    const active = jobStub({ status: "ACTIVE", queueJobId: "bull-active" });
+    const releaseAdmission = vi.fn(async () => undefined);
+    const jobRepository = {
+      findById: vi.fn(async () => active),
+      requestCancel: vi.fn(async () => ({
+        ...active,
+        cancelRequestedAt: new Date(),
+        cancelReason: "refresh_superseded_deduped",
+      })),
+      markFailed: vi.fn(),
+    } as unknown as JobRepository;
+
+    const result = await supersedeDuplicateRefreshJob(
+      { jobRepository, refreshQueue: null, logger: mockLogger(), releaseAdmission },
+      active.id,
+      "winner-1",
+    );
+    expect(result.outcome).toBe("active_cancel_requested");
+    expect(jobRepository.requestCancel).toHaveBeenCalledWith(
+      active.id,
+      "refresh_superseded_deduped",
+    );
+    expect(jobRepository.markFailed).not.toHaveBeenCalled();
+    expect(releaseAdmission).toHaveBeenCalledWith(active.id);
+
+    // Idempotent second call after terminalization.
+    const terminal = jobStub({
+      status: "FAILED",
+      error: { code: "REFRESH_SUPERSEDED_DEDUPED" },
+    });
+    (jobRepository.findById as ReturnType<typeof vi.fn>).mockResolvedValue(terminal);
+    const second = await supersedeDuplicateRefreshJob(
+      { jobRepository, refreshQueue: null, logger: mockLogger(), releaseAdmission },
+      active.id,
+      "winner-1",
+    );
+    expect(second.outcome).toBe("already_terminal");
+    expect(releaseAdmission).toHaveBeenCalledTimes(2);
   });
 
   it("does not falsely mark CANCELLED when queued job becomes active before remove", async () => {

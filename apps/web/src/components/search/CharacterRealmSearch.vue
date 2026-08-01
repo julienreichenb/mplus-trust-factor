@@ -179,7 +179,7 @@ async function onSubmit(event?: Event): Promise<void> {
   });
   if (!result) return;
 
-  if (result.status === "READY" || result.status === "QUEUED" || result.status === "PROCESSING") {
+  if (result.status === "READY" || result.status === "PROFILE_ONLY" || result.status === "QUEUED" || result.status === "PROCESSING") {
     const path = "profilePath" in result ? result.profilePath : profilePath.value;
     if (!path) return;
     const suggestion = matchingNameSuggestion(characterName.value);
@@ -209,7 +209,13 @@ async function onSubmit(event?: Event): Promise<void> {
 
 async function onRetry(): Promise<void> {
   const result = await retry();
-  if (result && (result.status === "READY" || result.status === "QUEUED" || result.status === "PROCESSING")) {
+  if (
+    result &&
+    (result.status === "READY" ||
+      result.status === "PROFILE_ONLY" ||
+      result.status === "QUEUED" ||
+      result.status === "PROCESSING")
+  ) {
     const path = "profilePath" in result ? result.profilePath : profilePath.value;
     if (path) await router.push(path);
   }

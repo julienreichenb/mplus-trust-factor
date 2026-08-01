@@ -114,7 +114,7 @@ export function createMockApiClient(): MplusApiClient {
     },
 
     async resolveCharacter(
-      request: CharacterResolveRequest & { forceRetry?: boolean },
+      request: CharacterResolveRequest,
       signal,
     ): Promise<CharacterResolveResponse> {
       await delay(60);

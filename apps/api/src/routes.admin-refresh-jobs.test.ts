@@ -181,7 +181,12 @@ describe.skipIf(!dbAvailable)("admin refresh-jobs routes", () => {
       headers: { "x-admin-api-key": ADMIN_KEY },
     });
     const row = list.json().jobs.find((j: { id: string }) => j.id === queued.id);
-    expect(row.actions).toEqual({ rerun: false, prioritize: true, cancel: true });
+    expect(row.actions).toEqual({
+      rerun: false,
+      repairBootstrap: false,
+      prioritize: true,
+      cancel: true,
+    });
 
     const cancel1 = await app.inject({
       method: "POST",
@@ -222,7 +227,12 @@ describe.skipIf(!dbAvailable)("admin refresh-jobs routes", () => {
     const cancelReqRow = listCancelReq
       .json()
       .jobs.find((j: { id: string }) => j.id === cancelRequestedQueued.id);
-    expect(cancelReqRow.actions).toEqual({ rerun: false, prioritize: false, cancel: true });
+    expect(cancelReqRow.actions).toEqual({
+      rerun: false,
+      repairBootstrap: false,
+      prioritize: false,
+      cancel: true,
+    });
 
     const prioritizeDenied = await app.inject({
       method: "POST",

@@ -8,12 +8,20 @@ const props = defineProps<{
   profile: CharacterProfileView;
   refreshing?: boolean;
   canForceRefresh?: boolean;
+  repairing?: boolean;
 }>();
 
 const emit = defineEmits<{
   refresh: [];
   forceRefresh: [];
+  repairBootstrap: [];
 }>();
+
+const bootstrapRepairRequired = computed(
+  () =>
+    props.profile.bootstrapRepairRequired === true ||
+    (props.profile.warnings ?? []).some((w) => w.code === "CHARACTER_BOOTSTRAP_INCOMPLETE"),
+);
 
 const refreshInFlight = computed(
   () =>
@@ -46,6 +54,10 @@ const refreshButtonTestId = computed(() => {
   if (isUpdating.value || refreshInFlight.value) return "refresh-status-updating";
   return "refresh-button";
 });
+
+const showRepairAction = computed(
+  () => bootstrapRepairRequired.value && !refreshInFlight.value,
+);
 </script>
 
 <template>
@@ -53,11 +65,22 @@ const refreshButtonTestId = computed(() => {
     <RouterLink class="back" to="/#character-search">← Back to character search</RouterLink>
     <div class="toolbar__actions">
       <button
+        v-if="showRepairAction"
+        type="button"
+        class="btn secondary"
+        data-testid="bootstrap-repair-button"
+        :disabled="repairing"
+        :aria-busy="repairing ? 'true' : 'false'"
+        @click="emit('repairBootstrap')"
+      >
+        Retry Blizzard profile lookup
+      </button>
+      <button
         type="button"
         class="btn secondary refresh-btn"
         :class="{ 'refresh-btn--busy': refreshInFlight }"
         :data-testid="refreshButtonTestId"
-        :disabled="refreshInFlight"
+        :disabled="refreshInFlight || showRepairAction"
         :aria-busy="refreshInFlight ? 'true' : 'false'"
         @click="emit('refresh')"
       >
@@ -70,7 +93,7 @@ const refreshButtonTestId = computed(() => {
         {{ refreshButtonLabel }}
       </button>
       <button
-        v-if="canForceRefresh"
+        v-if="canForceRefresh && !showRepairAction"
         type="button"
         class="btn secondary"
         data-testid="force-refresh-button"

@@ -47,6 +47,7 @@ const LABEL_OVERRIDES: Record<string, string> = {
   RUNNING: "Analyzing",
   DRY_RUN_COMPLETED: "Dry-run completed",
   PARTIAL: "Partial data",
+  FAILED: "Failed",
 };
 
 /**

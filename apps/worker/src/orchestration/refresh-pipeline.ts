@@ -102,7 +102,7 @@ import {
   RefreshEligibilityError,
   runRefreshEligibilityGate,
 } from "./refresh-eligibility-gate.js";
-import { isRefreshCancellationRequested } from "./refresh-job-control.js";
+import { isRefreshCancellationRequested, pickEarliestActiveRefreshJob, REFRESH_SUPERSEDED_DEDUPED_CANCEL_REASON } from "./refresh-job-control.js";
 import {
   createPipelineAdmissionGate,
   runPipelineAdmission,
@@ -409,6 +409,40 @@ export async function runRefreshPipeline(
     { ...logBase, event: OBS_EVENTS.refreshDedupe, dedupeKey, reused, jobId: createdJob.id },
     OBS_EVENTS.refreshDedupe,
   );
+
+  // Provider-free terminal-state guard: refuse before markActive / provider work.
+  // Covers QUEUED losers collapsed to REFRESH_SUPERSEDED_DEDUPED whose BullMQ message
+  // still arrived (createOrGetByDedupe will not resurrect that error code).
+  if (
+    createdJob.status === "FAILED" ||
+    createdJob.status === "CANCELLED" ||
+    createdJob.status === "COMPLETED"
+  ) {
+    const terminalCode =
+      (createdJob.error as { code?: string } | null)?.code ?? createdJob.status;
+    logger.info(
+      {
+        ...logBase,
+        event: OBS_EVENTS.refreshTerminal,
+        jobId: createdJob.id,
+        status: createdJob.status,
+        stage: "terminal_guard_pre_mark_active",
+        providerCalls: 0,
+        errorCode: terminalCode,
+      },
+      OBS_EVENTS.refreshTerminal,
+    );
+    const err = Object.assign(
+      new Error(`Refresh refused — job already terminal (${createdJob.status})`),
+      {
+        code: terminalCode,
+        retryable: false,
+        providerFailure: false,
+      },
+    );
+    throw err;
+  }
+
   let job = await repositories.job.markActive(createdJob.id);
   let terminalized = false;
   let admissionSession: PipelineAdmissionSession | null = null;
@@ -476,6 +510,25 @@ export async function runRefreshPipeline(
     const requested = await isRefreshCancellationRequested(repositories.job, job.id);
     if (!requested) return;
     const current = await repositories.job.findById(job.id);
+    // Cross-process collapse uses cooperative cancel with a dedicated reason —
+    // terminalize as REFRESH_SUPERSEDED_DEDUPED (not generic CANCELLED).
+    if (current?.cancelReason === REFRESH_SUPERSEDED_DEDUPED_CANCEL_REASON) {
+      await releaseAdmission("CANCELLED");
+      job = await repositories.job.markFailed(job.id, {
+        code: "REFRESH_SUPERSEDED_DEDUPED",
+        message: "Superseded by an earlier in-flight refresh for the same character",
+        retryable: false,
+        providerFailure: false,
+        checkpoint,
+      });
+      terminalized = true;
+      const err = Object.assign(new Error(`Refresh superseded at ${checkpoint}`), {
+        code: "REFRESH_SUPERSEDED_DEDUPED",
+        retryable: false,
+        providerFailure: false,
+      });
+      throw err;
+    }
     await releaseAdmission("CANCELLED");
     job = await repositories.job.markCancelled(job.id, {
       reason: current?.cancelReason ?? "admin_cancel",
@@ -496,7 +549,52 @@ export async function runRefreshPipeline(
     throw err;
   };
 
+  /**
+   * Provider-free character-scoped winner guard (defense in depth after collapse).
+   * If another ACTIVE/QUEUED refresh is earlier, refuse before contract preflight.
+   */
+  const assertStillWinningRefresh = async (checkpoint: string): Promise<void> => {
+    if (terminalized) return;
+    const characterId = job.characterId ?? jobPayload.characterId ?? null;
+    if (!characterId || typeof repositories.job.listActiveRefreshJobsForCharacter !== "function") {
+      return;
+    }
+    const actives = await repositories.job.listActiveRefreshJobsForCharacter(characterId);
+    const winner = pickEarliestActiveRefreshJob(actives);
+    if (!winner || winner.id === job.id) return;
+    await releaseAdmission("CANCELLED");
+    job = await repositories.job.markFailed(job.id, {
+      code: "REFRESH_SUPERSEDED_DEDUPED",
+      message: "Superseded by an earlier in-flight refresh for the same character",
+      winnerJobId: winner.id,
+      retryable: false,
+      providerFailure: false,
+      checkpoint,
+    });
+    terminalized = true;
+    logger.info(
+      {
+        ...logBase,
+        event: OBS_EVENTS.refreshTerminal,
+        jobId: job.id,
+        status: "FAILED",
+        stage: checkpoint,
+        providerCalls: 0,
+        errorCode: "REFRESH_SUPERSEDED_DEDUPED",
+        winnerJobId: winner.id,
+      },
+      OBS_EVENTS.refreshTerminal,
+    );
+    const err = Object.assign(new Error(`Refresh superseded at ${checkpoint}`), {
+      code: "REFRESH_SUPERSEDED_DEDUPED",
+      retryable: false,
+      providerFailure: false,
+    });
+    throw err;
+  };
+
   await assertNotCancelled("post_mark_active");
+  await assertStillWinningRefresh("post_mark_active_winner_guard");
 
   try {
   // ── Contract preflight barrier (fail-fast, before any provider work) ─────

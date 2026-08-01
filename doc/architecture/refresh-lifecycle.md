@@ -34,16 +34,35 @@ Provider states remain separate (`CharacterProviderState`).
 
 | State | Coarse profile `refreshStatus` | Notes |
 |-------|--------------------------------|-------|
-| `NO_SCORE_QUEUED` | `QUEUED` | HTTP 202 when no snapshot |
+| `NO_SCORE_QUEUED` | `QUEUED` | HTTP 202 when an active job exists / was just enqueued |
 | `CALCULATING` | `QUEUED` | Job ACTIVE, no score yet |
 | `FRESH` | `FRESH` | Within TTL |
 | `GRADE_U` | `FRESH` | Published grade U; eligibility, not missing score |
 | `STALE_USABLE` | `STALE` | Last score shown; refresh may be enqueued |
 | `REFRESHING` | `REFRESHING` | Last score shown + in-flight job (not STALE) |
 | `FAILED_FALLBACK` | `STALE` | Last score shown; backoff |
-| `UNAVAILABLE` | `QUEUED` | No score after failed refresh |
+| `UNAVAILABLE` | `FAILED` | No score after failed/blocked refresh; not a fabricated `QUEUED` |
+
+`QUEUED` / `REFRESHING` require an actual active durable/BullMQ job (or a just-enqueued job). Latest `FAILED` with no active job must render `FAILED` (repairable when bootstrap incomplete via exact resolve `forceRetry`).
 
 Account list uses `AccountTrustScoreStatus`, including `REFRESHING` so polling does not hide a completed score behind a loading-only state.
+
+### Cross-process bootstrap repair / enqueue idempotency
+
+Process-local resolve serialization does not span API replicas. Persistent guarantees:
+
+| Layer | Guarantee |
+|-------|-----------|
+| Character identity | `@@unique([regionId, realmId, normalizedName])` + upsert → one canonical row; no duplicate shell from concurrent resolve |
+| Blizzard ID | App-level collision check → visible `409`; never silent merge |
+| Job dedupe key | `IngestionJob.dedupeKey` is `@unique`; stable (non-force) enqueues reuse/collapse on that key |
+| Force refresh | Unique `requestedAt` preserves historical `FAILED` rows as separate jobs |
+| Active-job collapse | After enqueue, earliest active refresh-character job wins; extras superseded via `supersedeDuplicateRefreshJob` (`REFRESH_SUPERSEDED_DEDUPED`) |
+| Queue reconciliation | QUEUED losers: BullMQ `remove` by `queueJobId` then mark FAILED. ACTIVE losers: cooperative cancel (`refresh_superseded_deduped`) — never markFailed while executing |
+| Worker terminal guard | Before `markActive` / preflight: refuse already-terminal jobs (incl. SUPERSEDED). After `markActive`: sibling winner check + supersede cancel reason → provider-free refuse |
+| Admission cleanup | Collapse releases any admission reservation/slot for losers (idempotent best-effort) |
+
+Duplicate Blizzard profile/keystone calls across replicas are bounded but possible without a distributed lock. Duplicate Character rows or lasting duplicate active refresh jobs are not acceptable.
 
 French UI-facing wording: `REFRESHING` → « Actualisation en cours »; `STALE` → « Données à actualiser ».
 

@@ -67,7 +67,7 @@ interface AdminRefreshJobRow {
   createdAt: string;
   startedAt: string | null;
   finishedAt: string | null;
-  actions: { rerun: boolean; prioritize: boolean; cancel: boolean };
+  actions: { rerun: boolean; repairBootstrap: boolean; prioritize: boolean; cancel: boolean };
 }
 
 const message = ref<string | null>(null);
@@ -329,6 +329,7 @@ function applyCancelResultToJob(
       cancelRequested: cancelRequested || job.cancelRequested,
       finishedAt: cancelled ? (job.finishedAt ?? new Date().toISOString()) : job.finishedAt,
       actions: {
+        repairBootstrap: false,
         rerun: cancelled || databaseStatus === "FAILED" || databaseStatus === "COMPLETED",
         prioritize: databaseStatus === "QUEUED" && !cancelRequested,
         cancel:
@@ -377,7 +378,10 @@ async function loadJobs(): Promise<void> {
   }
 }
 
-async function jobAction(id: string, action: "cancel" | "prioritize" | "rerun"): Promise<void> {
+async function jobAction(
+  id: string,
+  action: "cancel" | "prioritize" | "rerun" | "repairBootstrap",
+): Promise<void> {
   if (actionBusyId.value) return;
   actionBusyId.value = id;
   error.value = null;
@@ -399,11 +403,21 @@ async function jobAction(id: string, action: "cancel" | "prioritize" | "rerun"):
         message.value = result.message ?? "Job cancel succeeded.";
       }
     } else {
-      await apiJson(`/api/v1/admin/refresh-jobs/${encodeURIComponent(id)}/${action}`, {
+      const endpoint = action === "repairBootstrap" ? "rerun" : action;
+      const result = await apiJson<{
+        bootstrapRepaired?: boolean;
+        enqueued?: boolean;
+        resolveStatus?: string;
+      }>(`/api/v1/admin/refresh-jobs/${encodeURIComponent(id)}/${endpoint}`, {
         method: "POST",
         body: "{}",
       });
-      message.value = `Job ${action} succeeded.`;
+      message.value =
+        action === "repairBootstrap" || result.bootstrapRepaired
+          ? result.enqueued
+            ? "Bootstrap repaired — refresh queued."
+            : "Bootstrap repaired."
+          : `Job ${action} succeeded.`;
     }
     await loadJobs();
   } catch (err) {
@@ -755,6 +769,16 @@ onMounted(async () => {
               </p>
             </div>
             <div class="actions">
+              <button
+                v-if="job.actions.repairBootstrap"
+                type="button"
+                class="btn"
+                data-testid="job-repair-bootstrap"
+                :disabled="Boolean(actionBusyId)"
+                @click="jobAction(job.id, 'repairBootstrap')"
+              >
+                Repair bootstrap
+              </button>
               <button
                 v-if="job.actions.rerun"
                 type="button"

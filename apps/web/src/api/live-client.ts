@@ -133,7 +133,7 @@ export function createLiveApiClient(options: {
         signal,
       ).then((r) => r.suggestions),
 
-    resolveCharacter: (request: CharacterResolveRequest & { forceRetry?: boolean }, signal) =>
+    resolveCharacter: (request: CharacterResolveRequest, signal) =>
       send<CharacterResolveResponse>("POST", "/api/v1/characters/resolve", request, signal),
 
     getCharacterProfile: (identity: CharacterIdentityInput, signal) =>

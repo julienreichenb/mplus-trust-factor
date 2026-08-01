@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   characterLacksBootstrapEvidence,
+  eligibilityConflictNeedsBootstrapRepair,
+  isBootstrapRepairRequired,
   shouldRepairCharacterBootstrap,
 } from "./character-bootstrap-repair.js";
 
@@ -13,6 +15,15 @@ describe("character bootstrap repair triggers", () => {
     role: "DPS" as const,
   };
 
+  /** Myzouth production shape: shell row with null bootstrap fields. */
+  const myzouthShape = {
+    level: null as number | null,
+    blizzardCharacterId: null as bigint | null,
+    classId: null as string | null,
+    activeSpecId: null as string | null,
+    role: null as "DPS" | null,
+  };
+
   it("detects incomplete bootstrap evidence", () => {
     expect(characterLacksBootstrapEvidence({ ...complete, level: null })).toBe(true);
     expect(characterLacksBootstrapEvidence({ ...complete, blizzardCharacterId: null })).toBe(true);
@@ -20,6 +31,24 @@ describe("character bootstrap repair triggers", () => {
     expect(characterLacksBootstrapEvidence({ ...complete, activeSpecId: null })).toBe(true);
     expect(characterLacksBootstrapEvidence({ ...complete, role: null })).toBe(true);
     expect(characterLacksBootstrapEvidence(complete)).toBe(false);
+    expect(characterLacksBootstrapEvidence(myzouthShape)).toBe(true);
+  });
+
+  it("flags Myzouth-shaped rows as repair-required even without a job", () => {
+    expect(isBootstrapRepairRequired({ character: myzouthShape, latestJob: null })).toBe(true);
+    expect(
+      isBootstrapRepairRequired({
+        character: myzouthShape,
+        latestJob: {
+          status: "FAILED",
+          error: {
+            code: "CHARACTER_REFRESH_ELIGIBILITY_UNKNOWN",
+            message: "Character level is missing — refusing refresh (fail closed)",
+          },
+        },
+      }),
+    ).toBe(true);
+    expect(isBootstrapRepairRequired({ character: complete, latestJob: null })).toBe(false);
   });
 
   it("repairs incomplete shells and prior UNKNOWN failures", () => {
@@ -74,5 +103,26 @@ describe("character bootstrap repair triggers", () => {
         missingSeasonMythicEvidence: true,
       }),
     ).toBe(true);
+  });
+
+  it("maps refresh conflicts to repair when bootstrap incomplete or UNKNOWN", () => {
+    expect(
+      eligibilityConflictNeedsBootstrapRepair({
+        character: myzouthShape,
+        eligibilityCode: "CHARACTER_BELOW_MAX_LEVEL",
+      }),
+    ).toBe(true);
+    expect(
+      eligibilityConflictNeedsBootstrapRepair({
+        character: complete,
+        eligibilityCode: "CHARACTER_REFRESH_ELIGIBILITY_UNKNOWN",
+      }),
+    ).toBe(true);
+    expect(
+      eligibilityConflictNeedsBootstrapRepair({
+        character: complete,
+        eligibilityCode: "CHARACTER_BELOW_MAX_LEVEL",
+      }),
+    ).toBe(false);
   });
 });

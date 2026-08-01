@@ -24,10 +24,22 @@ import {
   extractJobErrorCode,
   buildCharacterRefreshEligibilityPolicy,
   evaluateCharacterRefreshEligibility,
+  isEligibilityFailureCode,
   type CharacterRefreshEligibilityResult,
   type ScoreRefreshDecision,
 } from "@mplus/config";
 import type { EnqueueResult } from "@mplus/worker";
+import {
+  pickEarliestActiveRefreshJob,
+  supersedeDuplicateRefreshJob,
+  resolveActiveRefreshContract,
+  SeasonAuthorityUnavailableError,
+  requireVerifiedSeasonAuthority,
+  persistRefreshEligibilityEvidence,
+  loadCharacterRefreshEligibilitySignals,
+  type RefreshJobControlDeps,
+  type VerifiedSeasonAuthority,
+} from "@mplus/worker";
 import { randomUUID } from "node:crypto";
 import type { ApiContainer } from "../container.js";
 import { HttpError } from "../errors.js";
@@ -44,22 +56,50 @@ import { applyProfileWarnings, appendRefreshContractWarnings, buildProfileEnrich
 import { characterCacheKey } from "../lib/response-cache.js";
 import { scheduleProfileViewRecording } from "../lib/profile-view-recorder.js";
 import {
-  resolveActiveRefreshContract,
-  SeasonAuthorityUnavailableError,
-  requireVerifiedSeasonAuthority,
-  persistRefreshEligibilityEvidence,
-  loadCharacterRefreshEligibilitySignals,
-  type VerifiedSeasonAuthority,
-} from "@mplus/worker";
-import {
+  CHARACTER_BOOTSTRAP_INCOMPLETE,
   CHARACTER_IDENTITY_COLLISION,
+  characterLacksBootstrapEvidence,
+  eligibilityConflictNeedsBootstrapRepair,
   formatIdentityCollisionMessage,
+  isBootstrapRepairRequired,
   shouldRepairCharacterBootstrap,
 } from "./character-bootstrap-repair.js";
 
 const ALL_PROVIDERS: ProviderName[] = ["blizzard", "raiderio", "warcraftlogs"];
 const DEFAULT_RETRY_AFTER_MS = 2_000;
 const PROFILE_PATH_PREFIX = "/character";
+
+/** Process-local serialize exact-resolve bootstrap/repair per identity (tests + single API instance). */
+const resolveIdentityLocks = new Map<string, Promise<void>>();
+
+function resolveIdentityLockKey(identity: CharacterIdentityInput): string {
+  return `${normalizeRegion(identity.region)}|${normalizeRealmSlug(identity.realmSlug)}|${identity.name
+    .trim()
+    .toLocaleLowerCase("en-US")}`;
+}
+
+async function withResolveIdentityLock<T>(
+  identity: CharacterIdentityInput,
+  run: () => Promise<T>,
+): Promise<T> {
+  const key = resolveIdentityLockKey(identity);
+  const previous = resolveIdentityLocks.get(key) ?? Promise.resolve();
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const tail = previous.catch(() => undefined).then(() => gate);
+  resolveIdentityLocks.set(key, tail);
+  await previous.catch(() => undefined);
+  try {
+    return await run();
+  } finally {
+    release();
+    if (resolveIdentityLocks.get(key) === tail) {
+      resolveIdentityLocks.delete(key);
+    }
+  }
+}
 
 function jobMatchesRefreshContract(
   job: IngestionJob,
@@ -387,6 +427,14 @@ export class CharacterService {
         },
         "superseded obsolete active refresh job",
       );
+    } else if (activeJob && jobMatchesRefreshContract(activeJob, hash, authority.blizzardSeasonId)) {
+      // Cross-process race: another replica already published an in-flight job.
+      return {
+        jobId: activeJob.id,
+        dedupeKey: "",
+        reused: true,
+        enqueued: false,
+      };
     }
 
     const result = await this.container.producers.enqueueRefreshCharacter({
@@ -405,6 +453,11 @@ export class CharacterService {
       authoritativeSeasonSlug: authority.slug,
       authoritySource: authority.authoritySource,
     });
+
+    // forceRefresh:true uses unique dedupe keys — collapse replica races to one active job.
+    const winnerJobId = await this.collapseSupersededActiveRefreshJobs(character.id, result.jobId);
+    const collapsed = winnerJobId !== result.jobId;
+
     this.container.logger.info(
       {
         event: "refresh_enqueue",
@@ -420,13 +473,96 @@ export class CharacterService {
         requestedRefreshContractHash: hash,
         zoneId: contract.zoneId,
         partition: contract.partition,
-        reused: result.reused,
-        enqueued: result.enqueued ?? false,
-        jobId: result.jobId,
+        reused: result.reused || collapsed,
+        enqueued: collapsed ? false : (result.enqueued ?? false),
+        jobId: winnerJobId,
+        collapsedFromJobId: collapsed ? result.jobId : undefined,
       },
       "refresh enqueue",
     );
-    return result;
+    return {
+      ...result,
+      jobId: winnerJobId,
+      reused: result.reused || collapsed,
+      enqueued: collapsed ? false : result.enqueued,
+    };
+  }
+
+  /**
+   * Cross-process safety net: when concurrent forceRefresh enqueues create multiple
+   * active jobs for one character, keep the earliest and supersede the rest.
+   * QUEUED losers: BullMQ remove + FAILED REFRESH_SUPERSEDED_DEDUPED + admission release.
+   * ACTIVE losers: cooperative cancel (worker refuses before provider work) + admission release.
+   * Preserves historical FAILED rows (they are not active).
+   */
+  private async collapseSupersededActiveRefreshJobs(
+    characterId: string,
+    preferredJobId: string,
+  ): Promise<string> {
+    const listFn = this.repositories.job.listActiveRefreshJobsForCharacter;
+    if (typeof listFn !== "function") {
+      return preferredJobId;
+    }
+    const actives = await listFn.call(this.repositories.job, characterId);
+    if (actives.length <= 1) {
+      return actives[0]?.id ?? preferredJobId;
+    }
+    const winner = pickEarliestActiveRefreshJob(actives);
+    if (!winner) {
+      return preferredJobId;
+    }
+    const controlDeps = this.refreshJobControlDeps();
+    for (const job of actives) {
+      if (job.id === winner.id) continue;
+      const result = await supersedeDuplicateRefreshJob(controlDeps, job.id, winner.id);
+      this.container.logger.info(
+        {
+          event: "refresh_enqueue",
+          characterId,
+          reason: "collapsed_duplicate_active_refresh",
+          winnerJobId: winner.id,
+          supersededJobId: job.id,
+          outcome: result.outcome,
+          queueRemoved: result.queueRemoved,
+          databaseStatus: result.databaseStatus,
+        },
+        "collapsed duplicate active refresh job",
+      );
+    }
+    return winner.id;
+  }
+
+  /** Shared cancel/supersede deps — admission release is idempotent best-effort. */
+  private refreshJobControlDeps(): RefreshJobControlDeps {
+    const env = this.container.env;
+    const releaseAdmission =
+      env.REFRESH_ADMISSION_MODE === "enforce"
+        ? async (ingestionJobId: string) => {
+            const redis = this.container.worker.createRedisConnection();
+            try {
+              const { createPipelineAdmissionGate } = await import("@mplus/worker");
+              const { gate } = createPipelineAdmissionGate({
+                env,
+                redis,
+                prisma: this.container.worker.prisma,
+                logger: this.container.logger,
+              });
+              await gate.tryRelease(ingestionJobId, { status: "CANCELLED" });
+            } finally {
+              try {
+                await redis.quit();
+              } catch {
+                /* ignore */
+              }
+            }
+          }
+        : undefined;
+    return {
+      jobRepository: this.repositories.job,
+      refreshQueue: this.container.producers.getRefreshCharacterQueue?.() ?? null,
+      logger: this.container.logger,
+      releaseAdmission,
+    };
   }
 
   /**
@@ -769,7 +905,20 @@ export class CharacterService {
             },
             "refresh enqueue denied — character not refresh-eligible",
           );
-          decision = { ...decision, action: "NONE" };
+          const warning =
+            eligibility.code ??
+            (characterLacksBootstrapEvidence(character)
+              ? "CHARACTER_REFRESH_ELIGIBILITY_UNKNOWN"
+              : "NOT_REFRESH_ELIGIBLE");
+          decision = {
+            ...decision,
+            action: "NONE",
+            reason: "NOT_REFRESH_ELIGIBLE",
+            publicState: snapshot ? "STALE_USABLE" : "UNAVAILABLE",
+            profileRefreshStatus: snapshot ? "STALE" : "FAILED",
+            detailedRefreshStatus: "FAILED",
+            warningCodes: [...new Set([...decision.warningCodes, warning])],
+          };
         } else {
           try {
             enqueueResult = await this.enqueueRefresh(identity, character, {
@@ -833,6 +982,22 @@ export class CharacterService {
       };
     }
 
+    // Never present QUEUED without an active durable job — incomplete / blocked shells
+    // must surface as FAILED so CharacterPage does not disable controls forever.
+    if (
+      !snapshot &&
+      activeJobAfter == null &&
+      decision.profileRefreshStatus === "QUEUED" &&
+      decision.action !== "ENQUEUE"
+    ) {
+      decision = {
+        ...decision,
+        publicState: "UNAVAILABLE",
+        profileRefreshStatus: "FAILED",
+        detailedRefreshStatus: "FAILED",
+      };
+    }
+
     this.container.logger.info(
       {
         event: "refresh_decision",
@@ -867,7 +1032,13 @@ export class CharacterService {
   ): void {
     if (decision.warningCodes.length === 0) return;
     const contractCodes = decision.warningCodes.filter(
-      (c) => c !== "SCORE_STALE_VS_PROVIDERS" && c !== "REFRESH_FAILED" && c !== "STALE_CONTRACT",
+      (c) =>
+        c !== "SCORE_STALE_VS_PROVIDERS" &&
+        c !== "REFRESH_FAILED" &&
+        c !== "STALE_CONTRACT" &&
+        !isEligibilityFailureCode(c) &&
+        c !== "NOT_REFRESH_ELIGIBLE" &&
+        c !== CHARACTER_BOOTSTRAP_INCOMPLETE,
     );
     if (contractCodes.length > 0) {
       body.warnings = appendRefreshContractWarnings(
@@ -899,7 +1070,57 @@ export class CharacterService {
             },
           ];
         }
+      } else if (code === "STALE_CONTRACT") {
+        if (!body.warnings?.some((w) => w.code === "STALE_CONTRACT")) {
+          body.warnings = [
+            ...(body.warnings ?? []),
+            {
+              code: "STALE_CONTRACT",
+              message:
+                "Published score contract is obsolete. Explicit refresh may enqueue under the current contract.",
+              severity: "WARN",
+            },
+          ];
+        }
+      } else if (isEligibilityFailureCode(code) || code === "NOT_REFRESH_ELIGIBLE") {
+        if (!body.warnings?.some((w) => w.code === code)) {
+          body.warnings = [
+            ...(body.warnings ?? []),
+            {
+              code,
+              message:
+                code === "CHARACTER_REFRESH_ELIGIBILITY_UNKNOWN"
+                  ? "Profile data incomplete — refresh eligibility cannot be decided from local evidence alone."
+                  : code === "CHARACTER_BELOW_MAX_LEVEL"
+                    ? "Character is below the maximum level required for Trust Score refresh."
+                    : code === "CHARACTER_NO_CURRENT_SEASON_MYTHIC_SCORE"
+                      ? "No current-season Mythic+ score evidence — character is not refresh-eligible."
+                      : "Character is not eligible for Trust Score refresh.",
+              severity: "WARN",
+            },
+          ];
+        }
       }
+    }
+  }
+
+  private applyBootstrapRepairSignal(
+    body: CharacterProfileResponse,
+    character: Character,
+    latestJob: IngestionJob | null,
+  ): void {
+    const repairRequired = isBootstrapRepairRequired({ character, latestJob });
+    body.bootstrapRepairRequired = repairRequired;
+    if (!repairRequired) return;
+    if (!body.warnings?.some((w) => w.code === CHARACTER_BOOTSTRAP_INCOMPLETE)) {
+      body.warnings = [
+        ...(body.warnings ?? []),
+        {
+          code: CHARACTER_BOOTSTRAP_INCOMPLETE,
+          message: "Profile data incomplete. Retry Blizzard profile lookup to restore character metadata.",
+          severity: "WARN",
+        },
+      ];
     }
   }
 
@@ -1087,7 +1308,7 @@ export class CharacterService {
     const character = await this.findOrCreateCharacter(identity);
     const snapshot = await this.repositories.score.getPublishedSnapshot(character.id);
 
-    const { decision } = await this.evaluateAndApplyRefreshPolicy({
+    const { decision, latestJob } = await this.evaluateAndApplyRefreshPolicy({
       identity,
       character,
       snapshot,
@@ -1105,7 +1326,10 @@ export class CharacterService {
         decision.profileRefreshStatus,
       );
       this.applyDecisionWarnings(body, decision);
-      return { statusCode: 202, body };
+      this.applyBootstrapRepairSignal(body, character, latestJob);
+      // 202 only when an actual queue admission happened / is in flight.
+      const statusCode = decision.profileRefreshStatus === "QUEUED" ? 202 : 200;
+      return { statusCode, body };
     }
 
     const [latestRun, highestRun] = await Promise.all([
@@ -1130,6 +1354,7 @@ export class CharacterService {
       decision.warningCodes = [...new Set([...decision.warningCodes, "SCORE_STALE_VS_PROVIDERS"])];
     }
     this.applyDecisionWarnings(body, decision);
+    this.applyBootstrapRepairSignal(body, character, latestJob);
 
     const result: GetProfileResult = { statusCode: 200, body };
     // Cache only strictly fresh reads — never cache STALE/QUEUED (would bypass policy on hit).
@@ -1207,6 +1432,56 @@ export class CharacterService {
       };
     }
 
+    return withResolveIdentityLock(identity, () => this.resolveCharacterLocked(identity, opts));
+  }
+
+  private profileOnlyResolve(
+    characterId: string,
+    profilePath: string,
+    reason: "BOOTSTRAP_INCOMPLETE" | "NOT_REFRESH_ELIGIBLE",
+    character: Pick<
+      Character,
+      "level" | "blizzardCharacterId" | "classId" | "activeSpecId" | "role"
+    >,
+  ): { statusCode: number; body: CharacterResolveResponse } {
+    const incomplete = characterLacksBootstrapEvidence(character);
+    return {
+      statusCode: 200,
+      body: {
+        status: "PROFILE_ONLY",
+        characterId,
+        profilePath,
+        reason: incomplete ? "BOOTSTRAP_INCOMPLETE" : reason,
+        bootstrapRepairRequired: incomplete,
+      },
+    };
+  }
+
+  private async compensateFailedNewShell(
+    characterId: string,
+    createdFresh: boolean,
+  ): Promise<void> {
+    if (!createdFresh) return;
+    try {
+      const deleted = await this.repositories.character.deleteUnreferencedBootstrapShell(characterId);
+      if (deleted) {
+        this.container.logger.info(
+          { event: "character_bootstrap_compensate_delete", characterId },
+          "deleted unreferenced shell after bootstrap failure",
+        );
+      }
+    } catch (error) {
+      this.container.logger.warn(
+        { err: error, event: "character_bootstrap_compensate_delete_failed", characterId },
+        "failed to compensate-delete incomplete resolve shell",
+      );
+    }
+  }
+
+  private async resolveCharacterLocked(
+    identity: CharacterIdentityInput,
+    opts: { correlationId?: string | null; forceRetry?: boolean },
+  ): Promise<{ statusCode: number; body: CharacterResolveResponse }> {
     const realm = await this.repositories.realm.findBySlug(identity.region, identity.realmSlug);
     if (!realm) {
       return {
@@ -1257,15 +1532,8 @@ export class CharacterService {
         };
       }
 
-      // Fully published + idle: no provider repair on ordinary resolve.
-      if (snapshot && !activeJob && !opts.forceRetry) {
-        return {
-          statusCode: 200,
-          body: { status: "READY", characterId: existing.id, profilePath },
-        };
-      }
-
-      if (activeJob && !opts.forceRetry) {
+      // Always reuse in-flight refresh — forceRetry must not stack concurrent score jobs.
+      if (activeJob) {
         return {
           statusCode: 202,
           body: {
@@ -1275,6 +1543,14 @@ export class CharacterService {
             profilePath,
             retryAfterMs: DEFAULT_RETRY_AFTER_MS,
           },
+        };
+      }
+
+      // Fully published + idle: no provider repair on ordinary resolve.
+      if (snapshot && !opts.forceRetry) {
+        return {
+          statusCode: 200,
+          body: { status: "READY", characterId: existing.id, profilePath },
         };
       }
 
@@ -1347,16 +1623,42 @@ export class CharacterService {
             );
           }
 
+          if (characterLacksBootstrapEvidence(character)) {
+            return this.profileOnlyResolve(
+              character.id,
+              profilePath,
+              "BOOTSTRAP_INCOMPLETE",
+              character,
+            );
+          }
+
           const eligibility = await this.evaluateSharedRefreshEligibility(character, authority);
           if (!eligibility.eligible) {
-            // Profile-only success: identity known, shell navigable, no refresh enqueue.
+            // Profile-only success: complete bootstrap, navigable, no refresh enqueue.
             return {
               statusCode: 200,
               body: { status: "READY", characterId: character.id, profilePath },
             };
           }
+
+          // Re-check active job after bootstrap (concurrent winner may have enqueued).
+          const activeAfter = await this.repositories.job.findActiveForCharacter(character.id);
+          if (activeAfter) {
+            return {
+              statusCode: 202,
+              body: {
+                status: activeAfter.status === "ACTIVE" ? "PROCESSING" : "QUEUED",
+                characterId: character.id,
+                refreshId: activeAfter.id,
+                profilePath,
+                retryAfterMs: DEFAULT_RETRY_AFTER_MS,
+              },
+            };
+          }
+
+          // forceRefresh:true keeps the prior FAILED IngestionJob row historical (new dedupe key).
           const enqueueResult = await this.enqueueRefresh(identity, character, {
-            forceRefresh: Boolean(opts.forceRetry),
+            forceRefresh: true,
             correlationId: opts.correlationId,
             triggerSource: "SYSTEM",
             allowProviderSync: true,
@@ -1404,6 +1706,7 @@ export class CharacterService {
 
     // Prefer immutable Blizzard ID when an earlier malformed row exists under another realm.
     let character: Character | null = null;
+    let createdFresh = false;
     if (fetched.profile.blizzardCharacterId) {
       const byBlizzard = await this.repositories.character.findByBlizzardCharacterId(
         fetched.profile.blizzardCharacterId,
@@ -1445,17 +1748,25 @@ export class CharacterService {
     }
 
     if (!character) {
+      // Persist required bootstrap fields on the first write so a later
+      // applyProviderProfile/eligibility failure cannot leave a level-null shell.
       character = await this.repositories.character.upsertCharacter(identity, {
         displayName: fetched.profile.displayName || identity.name,
         classSlug: fetched.profile.classSlug,
         specSlug: fetched.profile.specSlug,
         role: fetched.profile.role,
+        level: fetched.profile.level ?? null,
+        faction: fetched.profile.faction ?? null,
         blizzardCharacterId: fetched.profile.blizzardCharacterId,
       });
+      createdFresh = true;
     }
 
     const identitySafe = await this.assertBlizzardIdentitySafe(character, fetched.profile);
-    if (!identitySafe.ok) return identitySafe;
+    if (!identitySafe.ok) {
+      await this.compensateFailedNewShell(character.id, createdFresh);
+      return identitySafe;
+    }
 
     try {
       const { authority } = await this.resolveActiveRefreshContract(character, {
@@ -1469,14 +1780,40 @@ export class CharacterService {
         fetched.profile,
         fetched.mythicRating,
       );
+
+      if (characterLacksBootstrapEvidence(character)) {
+        // Keep the shell (Blizzard confirmed identity) but never advertise READY/QUEUED.
+        return this.profileOnlyResolve(
+          character.id,
+          profilePath,
+          "BOOTSTRAP_INCOMPLETE",
+          character,
+        );
+      }
+
       const eligibility = await this.evaluateSharedRefreshEligibility(character, authority);
       if (!eligibility.eligible) {
-        // Profile-only: shell persisted, no refresh-character, no WCL budget.
+        // Profile-only: complete bootstrap, shell persisted, no refresh-character, no WCL budget.
         return {
           statusCode: 200,
           body: { status: "READY", characterId: character.id, profilePath },
         };
       }
+
+      const activeAfter = await this.repositories.job.findActiveForCharacter(character.id);
+      if (activeAfter) {
+        return {
+          statusCode: 202,
+          body: {
+            status: activeAfter.status === "ACTIVE" ? "PROCESSING" : "QUEUED",
+            characterId: character.id,
+            refreshId: activeAfter.id,
+            profilePath,
+            retryAfterMs: DEFAULT_RETRY_AFTER_MS,
+          },
+        };
+      }
+
       const enqueueResult = await this.enqueueRefresh(identity, character, {
         forceRefresh: false,
         correlationId: opts.correlationId,
@@ -1495,6 +1832,7 @@ export class CharacterService {
       };
     } catch (error) {
       if (error instanceof SeasonAuthorityUnavailableError) {
+        await this.compensateFailedNewShell(character.id, createdFresh);
         return {
           statusCode: 503,
           body: {
@@ -1504,6 +1842,7 @@ export class CharacterService {
           },
         };
       }
+      await this.compensateFailedNewShell(character.id, createdFresh);
       throw error;
     }
   }
@@ -1527,6 +1866,7 @@ export class CharacterService {
         character.lastPublicRefreshAt,
         this.container.env.MANUAL_REFRESH_COOLDOWN_SECONDS,
       ),
+      bootstrapRepairRequired: isBootstrapRepairRequired({ character, latestJob }),
     };
   }
 
@@ -1585,6 +1925,7 @@ export class CharacterService {
         refreshStatus: activeJob.status === "ACTIVE" ? "IN_PROGRESS" : "QUEUED",
         job: mapJobStatus(activeJob),
         cooldownSecondsRemaining: 0,
+        bootstrapRepairRequired: false,
       };
     }
 
@@ -1595,11 +1936,18 @@ export class CharacterService {
     if (remaining > 0 && !opts.bypassCooldown && !opts.forceRefresh) {
       const lastJob = await this.repositories.job.findLatestForCharacter(character.id);
       const snapshot = await this.repositories.score.getPublishedSnapshot(character.id);
+      const repairRequired = isBootstrapRepairRequired({ character, latestJob: lastJob });
+      const refreshStatus = snapshot
+        ? "STALE"
+        : lastJob?.status === "FAILED" || repairRequired
+          ? "FAILED"
+          : "QUEUED";
       return {
         characterId: character.id,
-        refreshStatus: snapshot ? "STALE" : "QUEUED",
+        refreshStatus,
         job: lastJob ? mapJobStatus(lastJob) : null,
         cooldownSecondsRemaining: remaining,
+        bootstrapRepairRequired: repairRequired,
       };
     }
 
@@ -1608,12 +1956,18 @@ export class CharacterService {
       resolvedContract.authority,
     );
     if (!eligibility.eligible) {
+      const repairRequired = eligibilityConflictNeedsBootstrapRepair({
+        character,
+        eligibilityCode: eligibility.code,
+      });
       throw HttpError.conflict(
         eligibility.code ?? "CHARACTER_REFRESH_ELIGIBILITY_UNKNOWN",
         eligibility.message ?? "Character is not eligible for refresh",
         {
           maxCharacterLevel: eligibility.maxCharacterLevel,
           policyVersion: eligibility.policyVersion,
+          bootstrapRepairRequired: repairRequired,
+          repairAction: repairRequired ? "resolve_force_retry" : undefined,
         },
       );
     }
@@ -1642,6 +1996,7 @@ export class CharacterService {
       refreshStatus: job?.status === "COMPLETED" ? "FRESH" : "QUEUED",
       job: job ? mapJobStatus(job) : null,
       cooldownSecondsRemaining: 0,
+      bootstrapRepairRequired: false,
     };
   }
 
