@@ -1,0 +1,97 @@
+---
+status: proposed
+normative: true
+last_reviewed: 2026-08-01
+repository: julienreichenb/mplus-trust-factor
+baseline_main: 0b0d911f9c4f3ec771bd8f2390e972da01595f99
+checkpoint_commit: 87ccefc329e64f6cc2b7d00c9d4f6b0c5e263188
+code_baseline: bfc2c2dfc18416549b185f594de82cf965c92041
+calibration_status: merged on main via feat(calibration) admin calibration platform (#48)
+---
+
+
+# M+ Trust Factor â€” Scoring V2 documentation set
+
+This directory is the normative context for the redesign of data collection, evidence selection, scoring, calibration, publication, and progressive rollout.
+
+**Code-backed planning artifacts (Prompt 01):**
+
+- [`IMPLEMENTATION_BASELINE.md`](./IMPLEMENTATION_BASELINE.md) â€” reuse map and conflict register
+- [`IMPLEMENTATION_DEPENDENCY_GRAPH.md`](./IMPLEMENTATION_DEPENDENCY_GRAPH.md) â€” workstream DAG, file conflicts, merge order, probes
+- [`IMPLEMENTATION_STATUS.md`](./IMPLEMENTATION_STATUS.md) â€” coordination board
+- ADRs: [`doc/architecture/adr/`](../../doc/architecture/adr/)
+
+## Why this redesign exists
+
+The current system can calculate dimension scores from an evidence sample that is thinner than the public profile suggests. A Warcraft Logs profile may display a large run count while M+ Trust Factor has only analyzed one detailed log for some dungeons. A score is not trustworthy unless the exact evidence sample is explicit, reproducible, sufficiently broad, and shared across dimensions.
+
+The target system therefore establishes these primary invariants:
+
+1. **One immutable evidence selection per character, season, specialization/role scope, and refresh contract.**
+2. **Two distinct public WCL runs per active dungeon whenever available.**
+3. **The same selected runs feed Performance, Survival, and Utility.**
+4. **Missing evidence reduces confidence or blocks publication; it never becomes a fabricated bad score.**
+5. **Raw provider data, normalized facts, metrics, dimension aggregates, and public snapshots are separate layers.**
+6. **No scoring or calibration replay performs external provider calls.**
+7. **Every published result is reproducible from frozen inputs and versioned algorithms.**
+8. **Population-relative features remain disabled or shadow-only until critical-mass gates are met.**
+
+## Document map
+
+| File | Purpose |
+|---|---|
+| [01_SCORING_PRINCIPLES_AND_GOVERNANCE.md](01_SCORING_PRINCIPLES_AND_GOVERNANCE.md) | Trust model, ownership, invariants, versioning |
+| [02_EXTERNAL_DATA_SOURCES_AND_CONTRACTS.md](02_EXTERNAL_DATA_SOURCES_AND_CONTRACTS.md) | WCL, Blizzard, Raider.IO contracts and limitations |
+| [03_WCL_EVIDENCE_SELECTION_CONTRACT.md](03_WCL_EVIDENCE_SELECTION_CONTRACT.md) | Deterministic 2Ã—8 run selection and fallback |
+| [04_WCL_QUERY_PLANNER_AND_COST_CONTROL.md](04_WCL_QUERY_PLANNER_AND_COST_CONTROL.md) | Query planning, caching, rate budget, batching |
+| [05_PIPELINE_ORCHESTRATION_AND_PARALLELISM.md](05_PIPELINE_ORCHESTRATION_AND_PARALLELISM.md) | DAG, queues, idempotency, fan-out/fan-in |
+| [06_DATA_MODEL_PERSISTENCE_RETENTION.md](06_DATA_MODEL_PERSISTENCE_RETENTION.md) | Target DB model, artifacts, retention, destructive migration |
+| [07_PERFORMANCE_SCORING_SPEC.md](07_PERFORMANCE_SCORING_SPEC.md) | Performance Phase 1â€“3 model |
+| [08_SURVIVAL_SCORING_SPEC.md](08_SURVIVAL_SCORING_SPEC.md) | Survival Phase 1â€“3 model |
+| [09_UTILITY_SCORING_SPEC.md](09_UTILITY_SCORING_SPEC.md) | Utility Phase 1â€“3 model |
+| [10_EXPERIENCE_SCORING_SPEC.md](10_EXPERIENCE_SCORING_SPEC.md) | Experience Phase 1â€“2 model |
+| [11_CONFIDENCE_COVERAGE_PUBLICATION.md](11_CONFIDENCE_COVERAGE_PUBLICATION.md) | Confidence, quality gates, publication semantics |
+| [12_CALIBRATION_INTEGRATION.md](12_CALIBRATION_INTEGRATION.md) | Adaptation of the admin calibration platform |
+| [13_REFERENCE_COHORTS_AND_PHASE3_COMPARISONS.md](13_REFERENCE_COHORTS_AND_PHASE3_COMPARISONS.md) | Critical mass and population-relative scoring |
+| [14_MIGRATION_ROLLOUT_AND_FEATURE_FLAGS.md](14_MIGRATION_ROLLOUT_AND_FEATURE_FLAGS.md) | Test reset, progressive rollout, rollback |
+| [15_TESTING_VALIDATION_OBSERVABILITY.md](15_TESTING_VALIDATION_OBSERVABILITY.md) | Test matrix, probes, SLOs, diagnostics |
+| [16_ABILITY_CATALOG_AND_MECHANICS_GOVERNANCE.md](16_ABILITY_CATALOG_AND_MECHANICS_GOVERNANCE.md) | Ability taxonomy and seasonal mechanic catalog |
+| [17_SECURITY_PRIVACY_AND_PROVIDER_COMPLIANCE.md](17_SECURITY_PRIVACY_AND_PROVIDER_COMPLIANCE.md) | Secrets, account links, raw logs, attribution |
+| [18_DECISIONS_AND_OPEN_QUESTIONS.md](18_DECISIONS_AND_OPEN_QUESTIONS.md) | Accepted decisions and unresolved items |
+
+## Normative language
+
+- **MUST / MUST NOT**: required for correctness or safety.
+- **SHOULD / SHOULD NOT**: expected default; deviations require an architecture decision.
+- **MAY**: optional.
+- **Shadow-only**: computed and persisted for research but excluded from public scoring.
+- **Fail closed**: do not publish or silently downgrade semantics when an invariant cannot be proven.
+
+## Baseline audit
+
+The main branch already contains:
+
+- WCL `points_and_damage` profile aggregation;
+- run discovery and report/fight hydration;
+- shared WCL evidence bundles;
+- Survival V1.1.1 pressure-cluster analysis;
+- Utility observed-contribution research logic;
+- Experience V2;
+- versioned score snapshots and run analyses;
+- refresh admission and WCL rate-limit snapshots.
+
+The calibration platform is **merged** (Phase 1â€“2): durable cohorts, frozen input bundles, a dedicated `calibration-run` queue, immutable reports, active-versus-draft, DRAFT-only model creation, and an admin UI. The redesign must adapt these capabilities rather than duplicate them. See baseline Â§2 and ADR-0005.
+
+## Required implementation sequence
+
+1. Freeze this specification and record unresolved decisions.
+2. Implement Evidence Contract V2 without changing public scores.
+3. Implement query planner, artifacts, normalized fact sets, and asynchronous analysis.
+4. Integrate Phase 1 dimension models behind feature flags.
+5. Adapt calibration to frozen V2 evidence.
+6. Shadow-run V1 versus V2 and calibrate.
+7. Publish V2 only after quality gates.
+8. Implement Phase 2 contextual analysis.
+9. Enable Phase 3 comparisons only after critical-mass gates.
+
+No agent may skip directly to a scoring formula before the evidence and reproducibility layers exist.
