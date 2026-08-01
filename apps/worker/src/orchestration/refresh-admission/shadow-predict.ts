@@ -12,7 +12,6 @@ import {
   type RefreshAdmissionConfig,
 } from "@mplus/config";
 import type {
-  RefreshAdmissionDecisionReason,
   RefreshAdmissionLane,
   RefreshAdmissionPredictInput,
   RefreshAdmissionPrediction,
@@ -290,15 +289,9 @@ export function predictRefreshAdmission(
     });
   }
 
-  let reason: RefreshAdmissionDecisionReason = "OK";
-  if (config.mode === "enforce" && !isRefreshAdmissionRedisMutationEnabled(config)) {
-    reason = "ENFORCE_NOT_ACTIVATED";
-  }
-
   return basePrediction(config, input, {
     admitted: true,
-    reason: reason === "ENFORCE_NOT_ACTIVATED" ? "ENFORCE_NOT_ACTIVATED" : "OK",
-    // Foundation never claims Redis mutation even when prediction says admit.
+    reason: "OK",
     lane,
     windowId,
     estimatedWclPoints: estimated,
@@ -310,11 +303,9 @@ export function predictRefreshAdmission(
       ownership: ownership.kind,
       repairReservation: ownership.kind === "slot_without_reservation",
       note:
-        reason === "ENFORCE_NOT_ACTIVATED"
-          ? "Prediction only; Redis mutation requires concurrency activation on a later branch"
-          : ownership.kind === "slot_without_reservation"
-            ? "Global slot held without WCL reservation; capacity checks applied before admit"
-            : undefined,
+        ownership.kind === "slot_without_reservation"
+          ? "Global slot held without WCL reservation; capacity checks applied before admit"
+          : undefined,
     },
   });
 }

@@ -93,13 +93,13 @@ export const envSchema = z
     REFRESH_BATCH_SIZE: z.coerce.number().int().positive().default(50),
     /**
      * Environment-wide admitted refresh pipeline cap (distributed semaphore).
-     * Not applied to BullMQ Worker concurrency. Unused until REFRESH_CONCURRENCY_ENABLED
-     * and REFRESH_ADMISSION_MODE=enforce (later rollout stages).
+     * Not applied to BullMQ Worker concurrency. Applied only when
+     * REFRESH_CONCURRENCY_ENABLED=true. Stage 3 enforce keeps effective global=1.
      */
     REFRESH_GLOBAL_CONCURRENCY: z.coerce.number().int().positive().default(2),
     /**
      * Process-local BullMQ Worker concurrency for refresh-character.
-     * Unused until REFRESH_CONCURRENCY_ENABLED (foundation keeps effective concurrency 1).
+     * Unused until REFRESH_CONCURRENCY_ENABLED (Stage 3 keeps effective concurrency 1).
      */
     REFRESH_WORKER_CONCURRENCY: z.coerce.number().int().positive().default(1),
     REFRESH_WORKER_HARD_MAX: z.coerce.number().int().positive().default(8),
@@ -112,13 +112,16 @@ export const envSchema = z
      * Admission gate mode:
      * - off (default): no predict, no Redis mutation
      * - shadow: predict vs serial reality only (no Redis reservation/slot holds)
-     * - enforce: reserved for later branches; foundation still refuses Redis mutation
-     *   unless REFRESH_CONCURRENCY_ENABLED is also true (activation is a later stage)
+     * - enforce: live Redis admit/release at serial concurrency 1 until
+     *   REFRESH_CONCURRENCY_ENABLED raises admitted/worker caps
      */
     REFRESH_ADMISSION_MODE: z.enum(["off", "shadow", "enforce"]).default("off"),
     REFRESH_ETA_ENABLED: booleanFromString.default(false),
     REFRESH_PRIORITY_IN_BULLMQ: booleanFromString.default(false),
-    /** Master switch for applying global/local concurrency caps. Default false. */
+    /**
+     * Master switch for applying configured global/local concurrency caps (>1).
+     * Default false — Stage 3 enforce admits at serial capacity 1 without this flag.
+     */
     REFRESH_CONCURRENCY_ENABLED: booleanFromString.default(false),
     REFRESH_PER_CHARACTER_COOLDOWN_SECONDS: z.coerce.number().int().nonnegative().default(3600),
     REFRESH_SPREAD_HOURS: z.coerce.number().int().positive().default(24),
@@ -324,6 +327,8 @@ export {
   clampGlobalConcurrency,
   isRefreshAdmissionRedisMutationEnabled,
   isRefreshAdmissionShadowEnabled,
+  effectiveAdmissionGlobalConcurrency,
+  isRefreshWorkerConcurrencyWiringEnabled,
   computeEmergencyReservePoints,
   computeNormalAvailablePoints,
   computeEmergencyAvailablePoints,

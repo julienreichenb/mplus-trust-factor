@@ -1,7 +1,6 @@
 /**
  * Environment-scoped Redis key helpers for refresh admission.
  * Prefix: mplus:{env}:refresh:
- * Mutations remain disabled unless admission enforce + concurrency flags are on.
  */
 
 export function refreshAdmissionKeyPrefix(appEnv: string): string {
@@ -21,6 +20,8 @@ export function refreshAdmissionKeys(appEnv: string) {
     slotOwners: `${prefix}slot:owners`,
     slotLeaseZset: `${prefix}slot:lease`,
     slotCount: `${prefix}slot:count`,
+    /** Maps IngestionJob.id → windowId for release when Postgres row is missing. */
+    jobWindow: (jobId: string) => `${prefix}job:${jobId}:window`,
     emaPrefix: `${prefix}ema:`,
   } as const;
 }

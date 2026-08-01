@@ -186,10 +186,34 @@ export class AdminRefreshJobsService {
   constructor(private readonly container: ApiContainer) {}
 
   private controlDeps() {
+    const env = this.container.env;
+    const releaseAdmission =
+      env.REFRESH_ADMISSION_MODE === "enforce"
+        ? async (ingestionJobId: string) => {
+            const redis = this.container.worker.createRedisConnection();
+            try {
+              const { createPipelineAdmissionGate } = await import("@mplus/worker");
+              const { gate } = createPipelineAdmissionGate({
+                env,
+                redis,
+                prisma: this.container.worker.prisma,
+                logger: this.container.logger,
+              });
+              await gate.tryRelease(ingestionJobId, { status: "CANCELLED" });
+            } finally {
+              try {
+                await redis.quit();
+              } catch {
+                /* ignore */
+              }
+            }
+          }
+        : undefined;
     return {
       jobRepository: this.container.worker.repositories.job,
       refreshQueue: this.container.producers.getRefreshCharacterQueue(),
       logger: this.container.logger,
+      releaseAdmission,
     };
   }
 

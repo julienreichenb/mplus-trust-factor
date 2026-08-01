@@ -1,9 +1,7 @@
 /**
- * Atomic admission Lua (foundation artifact).
+ * Atomic admission Lua scripts.
  *
- * Not executed on the live refresh path while REFRESH_ADMISSION_MODE != enforce
- * or REFRESH_CONCURRENCY_ENABLED is false. Kept here so later stages can EVAL
- * the same script without inventing a parallel primitive.
+ * Executed when REFRESH_ADMISSION_MODE=enforce.
  *
  * Ownership / idempotency (must match classifyAdmissionOwnership +
  * simulateReserveLuaOwnershipBranch):
@@ -11,9 +9,9 @@
  * - reservation without slot → INCONSISTENT_RESERVATION_WITHOUT_SLOT (reject)
  * - slot without reservation → continue WCL capacity checks; acquire reservation
  *   if needed (do not treat as idempotent success)
- * - non-WCL (estimated==0): slot-only is fine; no reservation written
+ * - non-WCL (estimated==0): slot-only; snapshot not required
  *
- * KEYS:
+ * KEYS (reserve):
  *  1 sched:state
  *  2 wcl:snap
  *  3 wcl:{windowId}:reserved:total
@@ -22,6 +20,7 @@
  *  6 slot:owners
  *  7 slot:lease
  *  8 slot:count
+ *  9 job:{id}:window
  *
  * ARGV: see REFRESH_ADMISSION_RESERVE_ARGV
  */
@@ -31,9 +30,9 @@ export const REFRESH_ADMISSION_RESERVE_ARGV = [
   { index: 1, name: "ingestionJobId", description: "IngestionJob.id (slot/reservation owner)" },
   { index: 2, name: "estimatedPoints", description: "Integer WCL points to reserve (0 = non-WCL)" },
   { index: 3, name: "emergency", description: "0 = normal lane, 1 = emergency lane" },
-  { index: 4, name: "globalLimit", description: "REFRESH_GLOBAL_CONCURRENCY clamp" },
+  { index: 4, name: "globalLimit", description: "Effective global concurrency clamp" },
   { index: 5, name: "leaseExpiryMs", description: "Lease expiry timestamp (ms)" },
-  { index: 6, name: "expectedWindowId", description: "Window id derived from WCL resetAt" },
+  { index: 6, name: "expectedWindowId", description: "Window id derived from WCL resetAt (empty for non-WCL)" },
   { index: 7, name: "nowMs", description: "Current time (ms)" },
   { index: 8, name: "maxSnapshotAgeMs", description: "Fail closed when snapshot older than this" },
   {
@@ -62,6 +61,7 @@ local leaseZ = KEYS[5]
 local slotOwners = KEYS[6]
 local slotLease = KEYS[7]
 local slotCountKey = KEYS[8]
+local jobWindowKey = KEYS[9]
 
 local jobId = ARGV[1]
 local estimated = tonumber(ARGV[2])
@@ -76,6 +76,7 @@ local safetyReserveFraction = tonumber(ARGV[10])
 local minEmergencyReservePoints = tonumber(ARGV[11])
 if safetyReserveFraction == nil then safetyReserveFraction = 0.1 end
 if minEmergencyReservePoints == nil then minEmergencyReservePoints = 50 end
+if estimated == nil then estimated = 0 end
 
 local state = redis.call('GET', schedKey)
 if not state then state = 'RUNNING' end
@@ -85,6 +86,24 @@ for token in string.gmatch(allowStates, '[^,]+') do
 end
 if not allowed then
   return {0, 'SCHEDULING_PAUSED', state}
+end
+
+-- Non-WCL / zero-estimate: global slot only (no snapshot / no reservation).
+if estimated <= 0 then
+  local hasSlot = redis.call('HEXISTS', slotOwners, jobId) == 1
+  if hasSlot then
+    redis.call('HSET', slotOwners, jobId, tostring(leaseExpiry))
+    redis.call('ZADD', slotLease, leaseExpiry, jobId)
+    return {1, 'IDEMPOTENT_EXISTING', 0, 1}
+  end
+  local currentSlots = tonumber(redis.call('GET', slotCountKey) or '0') or 0
+  if currentSlots >= globalLimit then
+    return {0, 'INSUFFICIENT_GLOBAL_SLOTS', currentSlots}
+  end
+  redis.call('HSET', slotOwners, jobId, tostring(leaseExpiry))
+  redis.call('ZADD', slotLease, leaseExpiry, jobId)
+  redis.call('INCR', slotCountKey)
+  return {1, 'OK', 0, 0, 0}
 end
 
 local snap = redis.call('HMGET', snapKey, 'pointsRemaining', 'pointsLimit', 'fetchedAt', 'windowId')
@@ -111,6 +130,10 @@ local existing = redis.call('HGET', resKey, jobId)
 if existing then
   local heldSlot = redis.call('HEXISTS', slotOwners, jobId)
   if heldSlot == 1 then
+    redis.call('HSET', slotOwners, jobId, tostring(leaseExpiry))
+    redis.call('ZADD', slotLease, leaseExpiry, jobId)
+    redis.call('ZADD', leaseZ, leaseExpiry, jobId)
+    redis.call('SET', jobWindowKey, windowId)
     return {1, 'IDEMPOTENT_EXISTING', tonumber(existing), 1}
   end
   return {0, 'INCONSISTENT_RESERVATION_WITHOUT_SLOT', tonumber(existing), 0}
@@ -140,15 +163,29 @@ if not hasSlot then
   redis.call('INCR', slotCountKey)
 end
 
-if estimated > 0 then
-  redis.call('HSET', resKey, jobId, tostring(estimated))
-  redis.call('INCRBY', totalKey, estimated)
-  redis.call('ZADD', leaseZ, leaseExpiry, jobId)
-end
+redis.call('HSET', resKey, jobId, tostring(estimated))
+redis.call('INCRBY', totalKey, estimated)
+redis.call('ZADD', leaseZ, leaseExpiry, jobId)
+redis.call('SET', jobWindowKey, windowId)
 
 return {1, 'OK', estimated, emergencyReserve, available}
 `.trim();
 
+/**
+ * KEYS (release):
+ *  1 wcl:{windowId}:reserved:total
+ *  2 wcl:{windowId}:res
+ *  3 wcl:lease
+ *  4 slot:owners
+ *  5 slot:lease
+ *  6 slot:count
+ *  7 job:{id}:window
+ *
+ * ARGV: 1 = ingestionJobId
+ *
+ * Releases estimated hold only — never subtracts measured provider spend from
+ * the live WCL snapshot.
+ */
 export const REFRESH_ADMISSION_RELEASE_LUA = `
 local totalKey = KEYS[1]
 local resKey = KEYS[2]
@@ -156,6 +193,7 @@ local leaseZ = KEYS[3]
 local slotOwners = KEYS[4]
 local slotLease = KEYS[5]
 local slotCountKey = KEYS[6]
+local jobWindowKey = KEYS[7]
 local jobId = ARGV[1]
 
 local existing = redis.call('HGET', resKey, jobId)
@@ -178,5 +216,77 @@ if hadSlot == 1 then
   end
 end
 
+redis.call('DEL', jobWindowKey)
+
 return {1, 'RELEASED', releasedPoints, hadSlot}
+`.trim();
+
+/**
+ * KEYS (renew):
+ *  1 wcl:lease
+ *  2 slot:owners
+ *  3 slot:lease
+ *  4 wcl:{windowId}:res (optional — may be empty key when non-WCL)
+ *
+ * ARGV: 1=jobId, 2=leaseExpiryMs, 3=nowMs
+ *
+ * Renews only when this job still owns the slot (and reservation when present).
+ */
+export const REFRESH_ADMISSION_RENEW_LUA = `
+local leaseZ = KEYS[1]
+local slotOwners = KEYS[2]
+local slotLease = KEYS[3]
+local resKey = KEYS[4]
+local jobId = ARGV[1]
+local leaseExpiry = tonumber(ARGV[2])
+local nowMs = tonumber(ARGV[3])
+
+local hasSlot = redis.call('HEXISTS', slotOwners, jobId)
+if hasSlot ~= 1 then
+  return {0, 'SLOT_NOT_OWNED', 0}
+end
+
+redis.call('HSET', slotOwners, jobId, tostring(leaseExpiry))
+redis.call('ZADD', slotLease, leaseExpiry, jobId)
+
+local existing = redis.call('HGET', resKey, jobId)
+if existing then
+  redis.call('ZADD', leaseZ, leaseExpiry, jobId)
+end
+
+return {1, 'RENEWED', leaseExpiry, nowMs}
+`.trim();
+
+/**
+ * KEYS (expire sweep batch):
+ *  1 wcl:lease
+ *  2 slot:lease
+ *
+ * ARGV: 1=nowMs, 2=limit
+ * Returns up to N expired job ids from either lease zset (union via two ranges).
+ */
+export const REFRESH_ADMISSION_EXPIRED_OWNERS_LUA = `
+local wclLease = KEYS[1]
+local slotLease = KEYS[2]
+local nowMs = tonumber(ARGV[1])
+local limit = tonumber(ARGV[2])
+if limit == nil or limit < 1 then limit = 50 end
+
+local fromWcl = redis.call('ZRANGEBYSCORE', wclLease, '-inf', nowMs, 'LIMIT', 0, limit)
+local fromSlot = redis.call('ZRANGEBYSCORE', slotLease, '-inf', nowMs, 'LIMIT', 0, limit)
+local seen = {}
+local out = {}
+for _, id in ipairs(fromWcl) do
+  if not seen[id] then
+    seen[id] = true
+    table.insert(out, id)
+  end
+end
+for _, id in ipairs(fromSlot) do
+  if not seen[id] then
+    seen[id] = true
+    table.insert(out, id)
+  end
+end
+return out
 `.trim();

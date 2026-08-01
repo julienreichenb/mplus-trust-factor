@@ -520,9 +520,13 @@ describe("runBootstrap orchestration", () => {
     const previous = process.env.DATABASE_URL;
     const previousBlizzardId = process.env.BLIZZARD_CLIENT_ID;
     const previousBlizzardSecret = process.env.BLIZZARD_CLIENT_SECRET;
+    const previousWclId = process.env.WCL_CLIENT_ID;
+    const previousWclSecret = process.env.WCL_CLIENT_SECRET;
     delete process.env.DATABASE_URL;
     delete process.env.BLIZZARD_CLIENT_ID;
     delete process.env.BLIZZARD_CLIENT_SECRET;
+    delete process.env.WCL_CLIENT_ID;
+    delete process.env.WCL_CLIENT_SECRET;
     try {
       await runBootstrap({
         root: "/repo",
@@ -549,6 +553,10 @@ describe("runBootstrap orchestration", () => {
       else process.env.BLIZZARD_CLIENT_ID = previousBlizzardId;
       if (previousBlizzardSecret === undefined) delete process.env.BLIZZARD_CLIENT_SECRET;
       else process.env.BLIZZARD_CLIENT_SECRET = previousBlizzardSecret;
+      if (previousWclId === undefined) delete process.env.WCL_CLIENT_ID;
+      else process.env.WCL_CLIENT_ID = previousWclId;
+      if (previousWclSecret === undefined) delete process.env.WCL_CLIENT_SECRET;
+      else process.env.WCL_CLIENT_SECRET = previousWclSecret;
     }
     expect(logs.some((l) => l.includes("Battle.net OAuth configured: no"))).toBe(true);
     expect(

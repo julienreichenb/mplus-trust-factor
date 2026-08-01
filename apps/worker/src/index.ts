@@ -118,6 +118,23 @@ async function main(): Promise<void> {
   const producers = createQueueProducers(connection, container);
   const workers = createWorkers(connection, container);
 
+  // Background WCL snapshot mirror for admission (not part of character-refresh admit).
+  let stopSnapshotRefresher: (() => void) | null = null;
+  if (env.REFRESH_ADMISSION_MODE === "enforce" || env.REFRESH_ADMISSION_MODE === "shadow") {
+    const { startWclAdmissionSnapshotRefresher } = await import(
+      "./orchestration/refresh-admission/snapshot-refresher.js"
+    );
+    const refresher = startWclAdmissionSnapshotRefresher({
+      redis: connection,
+      appEnv: env.APP_ENV,
+      warcraftlogs: container.providers.warcraftlogs,
+      logger: container.logger,
+      intervalMs: Math.max(10_000, env.REFRESH_WCL_SNAPSHOT_MAX_AGE_SECONDS * 500),
+      enabled: env.WCL_ENABLED && !container.disabledProviders.has("warcraftlogs"),
+    });
+    stopSnapshotRefresher = () => refresher.stop();
+  }
+
   // `run()` resolves only once the worker is closed, so it must not be awaited here.
   for (const worker of workers) {
     void worker.run().catch((error) => {
@@ -167,6 +184,7 @@ async function main(): Promise<void> {
       await new Promise<void>((resolve) => healthServer!.close(() => resolve()));
     }
     await closeWorkers(workers);
+    stopSnapshotRefresher?.();
     await producers.close();
     await connection.quit();
     await container.prisma.$disconnect();

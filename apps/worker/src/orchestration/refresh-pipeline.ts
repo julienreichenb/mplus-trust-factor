@@ -103,6 +103,14 @@ import {
   runRefreshEligibilityGate,
 } from "./refresh-eligibility-gate.js";
 import { isRefreshCancellationRequested } from "./refresh-job-control.js";
+import {
+  createPipelineAdmissionGate,
+  runPipelineAdmission,
+  settlePipelineAdmission,
+  sumMeasuredWclPoints,
+  type PipelineAdmissionSession,
+} from "./refresh-admission/pipeline-admission.js";
+import { RefreshAdmissionError } from "./refresh-admission/errors.js";
 import { buildMythicRatingObservation } from "./performance-metrics.js";
 import { buildWclPerformanceObservations } from "./wcl-performance-metrics.js";
 import {
@@ -403,12 +411,44 @@ export async function runRefreshPipeline(
   );
   let job = await repositories.job.markActive(createdJob.id);
   let terminalized = false;
+  let admissionSession: PipelineAdmissionSession | null = null;
+  let admissionRedis: ReturnType<WorkerContainer["createRedisConnection"]> | null = null;
+
+  const releaseAdmission = async (
+    status: "SETTLED" | "RELEASED" | "CANCELLED" | "EXPIRED",
+  ): Promise<void> => {
+    try {
+      await settlePipelineAdmission({
+        session: admissionSession,
+        ingestionJobId: job.id,
+        measuredWclPoints: sumMeasuredWclPoints(refreshCostAccumulator.records),
+        status,
+        logger,
+      });
+    } catch (err) {
+      logger.warn(
+        { ...logBase, event: "refresh_admission_settle_failed", err, status },
+        "refresh_admission_settle_failed",
+      );
+    } finally {
+      admissionSession = null;
+      if (admissionRedis) {
+        try {
+          await admissionRedis.quit();
+        } catch {
+          /* ignore */
+        }
+        admissionRedis = null;
+      }
+    }
+  };
 
   const ensureFailed = async (error: unknown): Promise<void> => {
     if (terminalized) return;
     const current = await repositories.job.findById(job.id);
     if (current && (current.status === "QUEUED" || current.status === "ACTIVE")) {
       if (current.cancelRequestedAt || (error as { code?: string })?.code === "CANCELLED") {
+        await releaseAdmission("CANCELLED");
         job = await repositories.job.markCancelled(job.id, {
           reason: current.cancelReason ?? "admin_cancel",
           error:
@@ -422,6 +462,9 @@ export async function runRefreshPipeline(
                 },
         });
       } else {
+        const status =
+          error instanceof RefreshAdmissionError && error.deferred ? "RELEASED" : "RELEASED";
+        await releaseAdmission(status);
         job = await repositories.job.markFailed(job.id, error);
       }
     }
@@ -433,6 +476,7 @@ export async function runRefreshPipeline(
     const requested = await isRefreshCancellationRequested(repositories.job, job.id);
     if (!requested) return;
     const current = await repositories.job.findById(job.id);
+    await releaseAdmission("CANCELLED");
     job = await repositories.job.markCancelled(job.id, {
       reason: current?.cancelReason ?? "admin_cancel",
       error: {
@@ -560,6 +604,66 @@ export async function runRefreshPipeline(
   }
 
   await assertNotCancelled("post_eligibility");
+
+  // ── Admission gate (Stage 3: enforce @ serial concurrency 1) ───────────────
+  // After cancel / contract / eligibility; before any Blizzard / RIO / WCL work.
+  if (container.env.REFRESH_ADMISSION_MODE !== "off") {
+    try {
+      admissionRedis = container.createRedisConnection();
+    } catch {
+      admissionRedis = null;
+    }
+    const { gate, repository } = createPipelineAdmissionGate({
+      env: container.env,
+      redis: admissionRedis,
+      prisma: container.prisma,
+      logger,
+    });
+    try {
+      admissionSession = await runPipelineAdmission({
+        env: container.env,
+        gate,
+        repository,
+        ingestionJobId: job.id,
+        characterId: character.id,
+        wclEnabled: !disabledProviders.has("warcraftlogs") && container.env.WCL_ENABLED,
+        logger,
+        correlationId: ctx.correlationId ?? ctx.requestId,
+      });
+    } catch (admissionError) {
+      if (admissionError instanceof RefreshAdmissionError) {
+        job = await repositories.job.markFailed(job.id, admissionError.toJobError());
+        terminalized = true;
+        logger.info(
+          {
+            ...logBase,
+            event: OBS_EVENTS.refreshTerminal,
+            jobId: job.id,
+            status: "FAILED",
+            stage: "admission",
+            providerCalls: 0,
+            costLedgerRecords: refreshCostAccumulator.records.length,
+            errorCode: admissionError.code,
+            admissionReason: admissionError.reason,
+            deferred: admissionError.deferred,
+          },
+          OBS_EVENTS.refreshTerminal,
+        );
+        if (admissionRedis) {
+          try {
+            await admissionRedis.quit();
+          } catch {
+            /* ignore */
+          }
+          admissionRedis = null;
+        }
+        throw admissionError;
+      }
+      throw admissionError;
+    }
+  }
+
+  await assertNotCancelled("post_admission");
 
   const failHard = async (stage: RefreshStage, error: unknown): Promise<never> => {
     if (error instanceof ExternalApiError && error.code === "NOT_FOUND") {
@@ -3497,6 +3601,7 @@ export async function runRefreshPipeline(
 
   job = await repositories.job.markCompleted(job.id);
   terminalized = true;
+  await releaseAdmission("SETTLED");
   logger.info(
     {
       ...logBase,

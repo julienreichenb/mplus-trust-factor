@@ -82,6 +82,11 @@ export interface RefreshJobControlDeps {
   /** Null in inline/test mode — DB-only control. */
   refreshQueue: Queue | null;
   logger: Logger;
+  /**
+   * Optional hook to release Redis admission reservation/slot after durable cancel.
+   * Must be idempotent. Cancel remains durable even when this fails.
+   */
+  releaseAdmission?: (ingestionJobId: string) => Promise<void>;
 }
 
 async function findBullJob(
@@ -125,6 +130,21 @@ function shouldForceCancelActive(
   return isStaleActive(job);
 }
 
+async function releaseAdmissionBestEffort(
+  deps: RefreshJobControlDeps,
+  ingestionJobId: string,
+): Promise<void> {
+  if (!deps.releaseAdmission) return;
+  try {
+    await deps.releaseAdmission(ingestionJobId);
+  } catch (error) {
+    deps.logger.warn(
+      { err: error, ingestionJobId },
+      "admission release after cancel failed — cancel remains durable",
+    );
+  }
+}
+
 async function forceCancelActiveJob(
   deps: RefreshJobControlDeps,
   job: IngestionJob,
@@ -134,6 +154,7 @@ async function forceCancelActiveJob(
   message: string,
 ): Promise<CancelRefreshJobResult> {
   const cancelled = await deps.jobRepository.markCancelled(job.id, { reason });
+  await releaseAdmissionBestEffort(deps, cancelled.id);
   return {
     ingestionJobId: cancelled.id,
     jobId: cancelled.id,
@@ -331,6 +352,7 @@ export async function cancelRefreshJob(
       };
     }
     if (latest?.status === "CANCELLED") {
+      await releaseAdmissionBestEffort(deps, latest.id);
       return {
         ingestionJobId: afterRequest.id,
         jobId: afterRequest.id,
@@ -354,6 +376,7 @@ export async function cancelRefreshJob(
     };
   }
 
+  await releaseAdmissionBestEffort(deps, cancelled.id);
   return {
     ingestionJobId: cancelled.id,
     jobId: cancelled.id,
