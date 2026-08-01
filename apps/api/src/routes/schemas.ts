@@ -506,3 +506,64 @@ export const characterResolveResponseSchema = {
   required: ["status"],
   additionalProperties: true,
 } as const;
+
+/** Canonical Fastify/OpenAPI schema for POST /api/v1/admin/misc/realms/sync result rows. */
+export const adminRealmSyncResultSchema = {
+  type: "object",
+  properties: {
+    region: { type: "string" },
+    indexEntries: { type: "integer" },
+    rejectedAtIndex: { type: "integer" },
+    detailCandidates: { type: "integer" },
+    detailsFetched: { type: "integer" },
+    eligible: { type: "integer" },
+    rejectedTournament: { type: "integer" },
+    rejectedInternal: { type: "integer" },
+    detailFailures: { type: "integer" },
+    retainedLastKnownGood: { type: "integer" },
+    newlyDeactivated: { type: "integer" },
+    activeCatalogCount: { type: "integer" },
+    rejectedSamples: { type: "array", items: { type: "string" } },
+    upserted: { type: "integer" },
+    minimallyUpserted: { type: "integer" },
+    enriched: { type: "integer" },
+    enrichmentFailures: { type: "integer" },
+    skippedDetails: { type: "integer" },
+    errors: { type: "array", items: { type: "string" } },
+  },
+  required: [
+    "region",
+    "indexEntries",
+    "rejectedAtIndex",
+    "detailCandidates",
+    "detailsFetched",
+    "eligible",
+    "rejectedTournament",
+    "rejectedInternal",
+    "detailFailures",
+    "retainedLastKnownGood",
+    "newlyDeactivated",
+    "activeCatalogCount",
+    "rejectedSamples",
+    "upserted",
+    "minimallyUpserted",
+    "enriched",
+    "enrichmentFailures",
+    "skippedDetails",
+    "errors",
+  ],
+  additionalProperties: false,
+} as const;
+
+export const adminRealmSyncResponseSchema = {
+  type: "object",
+  properties: {
+    ok: { type: "boolean" },
+    results: {
+      type: "array",
+      items: adminRealmSyncResultSchema,
+    },
+  },
+  required: ["ok", "results"],
+  additionalProperties: false,
+} as const;

@@ -1,7 +1,10 @@
 import { join, resolve } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
+  BOOTSTRAP_LIVE_ROOT_DEFAULTS,
+  BOOTSTRAP_LIVE_WEB_DEFAULTS,
   DEV_PACKAGE_FILTER,
+  applyBootstrapLiveDefaults,
   detectWorktreeContext,
   ensureWorktreeEnv,
   envExamplePath,
@@ -19,6 +22,9 @@ import {
   resolveRepoRoot,
   runBootstrap,
   summarizeCapabilities,
+  upsertEnvKeys,
+  webEnvExamplePath,
+  webEnvPath,
 } from "../tools/scripts/bootstrap.mjs";
 
 const LOCAL_DB =
@@ -181,6 +187,8 @@ describe("capabilities", () => {
     const caps = summarizeCapabilities({
       DATABASE_URL: "postgresql://mplus:mplus@localhost:5433/mplus_trust",
       REDIS_URL: "redis://localhost:6379",
+      PROVIDER_MODE: "live",
+      VITE_API_MODE: "live",
       BLIZZARD_CLIENT_ID: "client-id",
       BLIZZARD_CLIENT_SECRET: secret,
       WCL_CLIENT_ID: "wcl-id",
@@ -188,6 +196,8 @@ describe("capabilities", () => {
     });
     const text = formatCapabilitySummary(caps);
     expect(text).toContain("Battle.net OAuth configured: yes");
+    expect(text).toContain("PROVIDER_MODE: live");
+    expect(text).toContain("VITE_API_MODE: live");
     expect(text).not.toContain(secret);
     expect(text).not.toContain("client-id");
     expect(text).not.toContain("wcl-id");
@@ -241,6 +251,69 @@ describe("capabilities", () => {
     expect(parsed.BLIZZARD_CLIENT_ID).toBe("client-from-primary");
     expect(parsed.BLIZZARD_CLIENT_SECRET).toBe(secret);
     expect(parsed.WCL_CLIENT_ID).toBe("wcl");
+  });
+
+  it("upserts live defaults including overwriting fixture/mock modes", () => {
+    const before = [
+      "PROVIDER_MODE=fixture",
+      "BLIZZARD_ENABLED=false",
+      "WCL_ENABLED=false",
+      "VITE_API_MODE=mock",
+      "DATABASE_URL=postgresql://mplus:mplus@localhost:5433/mplus_trust",
+      "",
+    ].join("\n");
+    const { contents, changedKeys } = upsertEnvKeys(before, BOOTSTRAP_LIVE_ROOT_DEFAULTS);
+    expect(changedKeys.sort()).toEqual(
+      [
+        "BLIZZARD_ENABLED",
+        "PROVIDER_MODE",
+        "UTILITY_PUBLICATION_MODE",
+        "VITE_API_MODE",
+        "WCL_ENABLED",
+      ].sort(),
+    );
+    const parsed = parseEnvFile(contents);
+    expect(parsed.PROVIDER_MODE).toBe("live");
+    expect(parsed.BLIZZARD_ENABLED).toBe("true");
+    expect(parsed.WCL_ENABLED).toBe("true");
+    expect(parsed.UTILITY_PUBLICATION_MODE).toBe("published");
+    expect(parsed.VITE_API_MODE).toBe("live");
+    expect(parsed.DATABASE_URL).toContain("localhost:5433");
+  });
+
+  it("applies live defaults to root and apps/web .env", () => {
+    const root = join("/tmp", "live defaults wt");
+    const files = new Map([
+      [
+        envPath(root),
+        "PROVIDER_MODE=fixture\nBLIZZARD_ENABLED=true\nWCL_ENABLED=true\nDATABASE_URL=postgresql://mplus:mplus@localhost:5433/mplus_trust\n",
+      ],
+      [webEnvExamplePath(root), "VITE_API_MODE=mock\nVITE_API_BASE_URL=http://localhost:3000\n"],
+    ]);
+    const result = applyBootstrapLiveDefaults({
+      root,
+      exists: (p) => files.has(p),
+      readFile: (p) => {
+        const value = files.get(p);
+        if (value === undefined) throw new Error(`missing ${p}`);
+        return value;
+      },
+      writeFile: (p, contents) => {
+        files.set(p, contents);
+      },
+      copyFile: (src, dest) => {
+        files.set(dest, files.get(src) ?? "");
+      },
+      log: () => undefined,
+    });
+    expect(result.rootChangedKeys).toContain("PROVIDER_MODE");
+    expect(result.rootChangedKeys).toContain("UTILITY_PUBLICATION_MODE");
+    expect(result.webChangedKeys).toContain("VITE_API_MODE");
+    expect(parseEnvFile(files.get(envPath(root))!).PROVIDER_MODE).toBe("live");
+    expect(parseEnvFile(files.get(envPath(root))!).UTILITY_PUBLICATION_MODE).toBe("published");
+    expect(parseEnvFile(files.get(webEnvPath(root))!).VITE_API_MODE).toBe(
+      BOOTSTRAP_LIVE_WEB_DEFAULTS.VITE_API_MODE,
+    );
   });
 });
 
@@ -515,8 +588,31 @@ describe("ensureWorktreeEnv", () => {
 });
 
 describe("runBootstrap orchestration", () => {
+  function bootstrapFs(rootContents: string) {
+    const files = new Map<string, string>([
+      [envPath("/repo"), rootContents],
+      [webEnvPath("/repo"), "VITE_API_MODE=mock\nVITE_API_BASE_URL=http://localhost:3000\n"],
+    ]);
+    return {
+      exists: (p: string) => files.has(p),
+      readFile: (p: string) => {
+        const value = files.get(p);
+        if (value === undefined) throw new Error(`missing ${p}`);
+        return value;
+      },
+      writeFile: (p: string, contents: string) => {
+        files.set(p, contents);
+      },
+      copyFile: (src: string, dest: string) => {
+        files.set(dest, files.get(src) ?? "");
+      },
+      files,
+    };
+  }
+
   it("prints OAuth disabled without failing when credentials are missing", async () => {
     const logs: string[] = [];
+    const fs = bootstrapFs(LOCAL_DB);
     const previous = process.env.DATABASE_URL;
     const previousBlizzardId = process.env.BLIZZARD_CLIENT_ID;
     const previousBlizzardSecret = process.env.BLIZZARD_CLIENT_SECRET;
@@ -533,9 +629,7 @@ describe("runBootstrap orchestration", () => {
         runPnpm: vi.fn(),
         waitForTcp: vi.fn(async () => undefined),
         argv: [],
-        exists: (p: string) => p.endsWith(".env") || p.endsWith(".env.example"),
-        readFile: () => LOCAL_DB,
-        copyFile: vi.fn(),
+        ...fs,
         runGit: vi.fn(),
         detectContext: () => ({
           primaryPath: "/repo",
@@ -558,7 +652,14 @@ describe("runBootstrap orchestration", () => {
       if (previousWclSecret === undefined) delete process.env.WCL_CLIENT_SECRET;
       else process.env.WCL_CLIENT_SECRET = previousWclSecret;
     }
+    expect(parseEnvFile(fs.files.get(envPath("/repo"))!).PROVIDER_MODE).toBe("live");
+    expect(parseEnvFile(fs.files.get(envPath("/repo"))!).UTILITY_PUBLICATION_MODE).toBe(
+      "published",
+    );
+    expect(parseEnvFile(fs.files.get(webEnvPath("/repo"))!).VITE_API_MODE).toBe("live");
     expect(logs.some((l) => l.includes("Battle.net OAuth configured: no"))).toBe(true);
+    expect(logs.some((l) => l.includes("PROVIDER_MODE: live"))).toBe(true);
+    expect(logs.some((l) => l.includes("VITE_API_MODE: live"))).toBe(true);
     expect(
       logs.some((l) =>
         l.includes(
@@ -575,6 +676,9 @@ describe("runBootstrap orchestration", () => {
 
   it("refuses non-local DATABASE_URL before install/migrate/seed", async () => {
     const runPnpm = vi.fn();
+    const fs = bootstrapFs(
+      "DATABASE_URL=postgresql://mplus:mplus@db.prod.internal:5432/mplus_trust\nPROVIDER_MODE=fixture\n",
+    );
     const previous = process.env.DATABASE_URL;
     delete process.env.DATABASE_URL;
     try {
@@ -583,10 +687,7 @@ describe("runBootstrap orchestration", () => {
           root: "/repo",
           runPnpm,
           waitForTcp: vi.fn(),
-          exists: (p: string) => p.endsWith(".env"),
-          readFile: () =>
-            "DATABASE_URL=postgresql://mplus:mplus@db.prod.internal:5432/mplus_trust\n",
-          copyFile: vi.fn(),
+          ...fs,
           runGit: vi.fn(),
           detectContext: () => ({
             primaryPath: "/repo",
@@ -607,6 +708,7 @@ describe("runBootstrap orchestration", () => {
 
   it("runs setup steps in order and does not start pnpm dev", async () => {
     const calls: string[][] = [];
+    const fs = bootstrapFs(LOCAL_DB);
     const previous = process.env.DATABASE_URL;
     delete process.env.DATABASE_URL;
     try {
@@ -616,9 +718,7 @@ describe("runBootstrap orchestration", () => {
           calls.push(args);
         },
         waitForTcp: vi.fn(async () => undefined),
-        exists: (p: string) => p.endsWith(".env"),
-        readFile: () => LOCAL_DB,
-        copyFile: vi.fn(),
+        ...fs,
         runGit: vi.fn(),
         detectContext: () => ({
           primaryPath: "/repo",
@@ -633,6 +733,8 @@ describe("runBootstrap orchestration", () => {
       if (previous === undefined) delete process.env.DATABASE_URL;
       else process.env.DATABASE_URL = previous;
     }
+    expect(parseEnvFile(fs.files.get(envPath("/repo"))!).PROVIDER_MODE).toBe("live");
+    expect(parseEnvFile(fs.files.get(webEnvPath("/repo"))!).VITE_API_MODE).toBe("live");
     expect(calls).toEqual([
       ["install"],
       ["run", "dev:infra"],

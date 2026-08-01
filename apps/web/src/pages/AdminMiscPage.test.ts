@@ -1,8 +1,17 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
 import { createMemoryHistory, createRouter } from "vue-router";
-import AdminMiscPage from "./AdminMiscPage.vue";
 import { routeDefs } from "../routes";
+
+const syncRealmCatalog = vi.fn();
+
+vi.mock("../api/client", () => ({
+  api: {
+    syncRealmCatalog: (...args: unknown[]) => syncRealmCatalog(...args),
+  },
+}));
+
+import AdminMiscPage from "./AdminMiscPage.vue";
 
 const fetchMock = vi.fn();
 
@@ -33,44 +42,54 @@ describe("AdminMiscPage", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
+    syncRealmCatalog.mockReset();
+    fetchMock.mockReset();
   });
 
-  it("posts a realm catalog sync for the selected regions", async () => {
-    fetchMock.mockResolvedValue(
-      jsonResponse({
-        ok: true,
-        results: [
-          {
-            region: "EU",
-            indexed: 10,
-            upserted: 10,
-            detailsFetched: 0,
-            skippedDetails: 10,
-            errors: [],
-          },
-        ],
-      }),
-    );
+  it("posts a realm catalog sync for the selected regions once and renders indexEntries", async () => {
+    syncRealmCatalog.mockResolvedValue({
+      ok: true,
+      results: [
+        {
+          region: "EU",
+          indexEntries: 10,
+          rejectedAtIndex: 0,
+          detailCandidates: 10,
+          detailsFetched: 0,
+          eligible: 10,
+          rejectedTournament: 0,
+          rejectedInternal: 0,
+          detailFailures: 0,
+          retainedLastKnownGood: 0,
+          newlyDeactivated: 0,
+          activeCatalogCount: 10,
+          rejectedSamples: [],
+          upserted: 10,
+          minimallyUpserted: 0,
+          enriched: 0,
+          enrichmentFailures: 0,
+          skippedDetails: 10,
+          errors: [],
+        },
+      ],
+    });
 
     const wrapper = await mountPage();
     expect(wrapper.find("[data-testid='admin-misc-page']").exists()).toBe(true);
     await wrapper.get("[data-testid='sync-realms-button']").trigger("click");
     await flushPromises();
 
-    expect(fetchMock).toHaveBeenCalledWith(
-      expect.stringContaining("/api/v1/admin/misc/realms/sync"),
-      expect.objectContaining({
-        method: "POST",
-        credentials: "include",
-      }),
-    );
-    const init = fetchMock.mock.calls[0]![1] as RequestInit;
-    expect(JSON.parse(String(init.body))).toEqual({
+    expect(syncRealmCatalog).toHaveBeenCalledTimes(1);
+    expect(syncRealmCatalog).toHaveBeenCalledWith({
       regions: ["EU"],
       forceDetails: false,
     });
     expect(wrapper.get("[data-testid='realm-sync-results']").text()).toMatch(/EU/);
+    expect(wrapper.get("[data-testid='realm-sync-results']").text()).toMatch(/index 10/);
+    expect(wrapper.get("[data-testid='realm-sync-results']").text()).toMatch(/eligible 10/);
     expect(wrapper.get("[data-testid='status-banner']").text()).toMatch(/refreshed/i);
+    // Successful parse must not trigger a second sync.
+    expect(syncRealmCatalog).toHaveBeenCalledTimes(1);
   });
 
   it("posts a season authority sync for the selected regions", async () => {

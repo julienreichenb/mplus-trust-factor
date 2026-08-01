@@ -38,25 +38,19 @@ Wowhead tooltips remain **off by default** (`VITE_WOWHEAD_ENABLED`).
 From a clean clone (or after deleting package `dist/` trees):
 
 ```bash
-pnpm install
-cp .env.example .env   # then fill secrets locally; never commit .env
-pnpm dev:infra
-pnpm db:generate
-pnpm db:migrate
-pnpm db:seed
+pnpm bootstrap
 pnpm build
 pnpm typecheck
 ```
+
+`pnpm bootstrap` covers worktree-aware `.env` setup, live local-dev defaults (`PROVIDER_MODE=live`, provider enable flags, `UTILITY_PUBLICATION_MODE=published`, and `VITE_API_MODE=live` in `apps/web/.env`), install, Compose infra, Prisma generate, workspace package `dist` builds, migrate and seed. For a full monorepo emit (apps included), still run `pnpm build` afterward.
 
 Workspace packages export from `dist/`. `pnpm build` (`pnpm -r --if-present run build`) builds packages in dependency order via pnpm workspace graph. Do not commit `dist/` or `openapi.json` (gitignored).
 
 ## Local startup
 
 ```bash
-pnpm install
-cp .env.example .env
-pnpm dev:infra
-pnpm db:generate && pnpm db:migrate && pnpm db:seed
+pnpm bootstrap
 pnpm dev
 ```
 

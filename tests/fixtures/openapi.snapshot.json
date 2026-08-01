@@ -8200,13 +8200,55 @@
                           "region": {
                             "type": "string"
                           },
-                          "indexed": {
+                          "indexEntries": {
                             "type": "integer"
+                          },
+                          "rejectedAtIndex": {
+                            "type": "integer"
+                          },
+                          "detailCandidates": {
+                            "type": "integer"
+                          },
+                          "detailsFetched": {
+                            "type": "integer"
+                          },
+                          "eligible": {
+                            "type": "integer"
+                          },
+                          "rejectedTournament": {
+                            "type": "integer"
+                          },
+                          "rejectedInternal": {
+                            "type": "integer"
+                          },
+                          "detailFailures": {
+                            "type": "integer"
+                          },
+                          "retainedLastKnownGood": {
+                            "type": "integer"
+                          },
+                          "newlyDeactivated": {
+                            "type": "integer"
+                          },
+                          "activeCatalogCount": {
+                            "type": "integer"
+                          },
+                          "rejectedSamples": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
                           },
                           "upserted": {
                             "type": "integer"
                           },
-                          "detailsFetched": {
+                          "minimallyUpserted": {
+                            "type": "integer"
+                          },
+                          "enriched": {
+                            "type": "integer"
+                          },
+                          "enrichmentFailures": {
                             "type": "integer"
                           },
                           "skippedDetails": {
@@ -8221,9 +8263,22 @@
                         },
                         "required": [
                           "region",
-                          "indexed",
-                          "upserted",
+                          "indexEntries",
+                          "rejectedAtIndex",
+                          "detailCandidates",
                           "detailsFetched",
+                          "eligible",
+                          "rejectedTournament",
+                          "rejectedInternal",
+                          "detailFailures",
+                          "retainedLastKnownGood",
+                          "newlyDeactivated",
+                          "activeCatalogCount",
+                          "rejectedSamples",
+                          "upserted",
+                          "minimallyUpserted",
+                          "enriched",
+                          "enrichmentFailures",
                           "skippedDetails",
                           "errors"
                         ],

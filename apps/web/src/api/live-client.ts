@@ -1,6 +1,7 @@
 import type {
   ActivateScoreModelResult,
   AdminAbilityCatalogResponse,
+  AdminRealmSyncResponse,
   AdminScoreModelDTO,
   BacktestSummary,
   CharacterAutocompleteSuggestion,
@@ -228,6 +229,17 @@ export function createLiveApiClient(options: {
     getAdminAbilityCatalog: (params, signal) =>
       get<AdminAbilityCatalogResponse>(
         `/api/v1/admin/ability-catalog${buildQueryString(params)}`,
+        signal,
+      ),
+
+    syncRealmCatalog: (input, signal) =>
+      send<AdminRealmSyncResponse>(
+        "POST",
+        "/api/v1/admin/misc/realms/sync",
+        {
+          regions: input?.regions,
+          forceDetails: input?.forceDetails,
+        },
         signal,
       ),
   };

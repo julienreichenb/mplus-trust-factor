@@ -32,6 +32,7 @@ import type {
   SeasonSummary,
   ProfileEntitlements,
   ProfileWarning,
+  AdminRealmSyncResponse,
 } from "@mplus/contracts";
 
 /** Field visibility flags — launch may unlock everything. */
@@ -164,6 +165,13 @@ export interface MplusApiClient {
     params?: Record<string, string | number | undefined>,
     signal?: AbortSignal,
   ): Promise<AdminAbilityCatalogResponse>;
+  syncRealmCatalog(
+    input?: {
+      regions?: RegionCode[];
+      forceDetails?: boolean;
+    },
+    signal?: AbortSignal,
+  ): Promise<AdminRealmSyncResponse>;
 }
 
 export type { AdminAbilityCatalogResponse };
@@ -200,4 +208,5 @@ export type {
   SelectedTalentDTO,
   TalentSummary,
   TalentTreeKind,
+  AdminRealmSyncResponse,
 };

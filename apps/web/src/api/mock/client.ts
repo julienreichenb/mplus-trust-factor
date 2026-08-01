@@ -546,6 +546,36 @@ export function createMockApiClient(): MplusApiClient {
       assertNotAborted(signal);
       return queryAdminAbilityCatalog(mapAbilityCatalogParams(params)) as AdminAbilityCatalogResponse;
     },
+
+    async syncRealmCatalog(input, signal) {
+      await delay(40);
+      assertNotAborted(signal);
+      const regions = input?.regions?.length ? input.regions : (["EU"] as const);
+      return {
+        ok: true as const,
+        results: regions.map((region) => ({
+          region,
+          indexEntries: 10,
+          rejectedAtIndex: 0,
+          detailCandidates: 10,
+          detailsFetched: input?.forceDetails ? 10 : 0,
+          eligible: 10,
+          rejectedTournament: 0,
+          rejectedInternal: 0,
+          detailFailures: 0,
+          retainedLastKnownGood: 0,
+          newlyDeactivated: 0,
+          activeCatalogCount: 10,
+          rejectedSamples: [] as string[],
+          upserted: 10,
+          minimallyUpserted: 0,
+          enriched: input?.forceDetails ? 10 : 0,
+          enrichmentFailures: 0,
+          skippedDetails: input?.forceDetails ? 0 : 10,
+          errors: [] as string[],
+        })),
+      };
+    },
   };
 }
 

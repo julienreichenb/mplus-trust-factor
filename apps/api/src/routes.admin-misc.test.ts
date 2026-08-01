@@ -16,9 +16,22 @@ vi.mock("@mplus/worker", async (importOriginal) => {
     syncRealmCatalog: vi.fn(async () => [
       {
         region: "EU",
-        indexed: 3,
-        upserted: 3,
+        indexEntries: 3,
+        rejectedAtIndex: 0,
+        detailCandidates: 3,
         detailsFetched: 0,
+        eligible: 3,
+        rejectedTournament: 0,
+        rejectedInternal: 0,
+        detailFailures: 0,
+        retainedLastKnownGood: 0,
+        newlyDeactivated: 0,
+        activeCatalogCount: 3,
+        rejectedSamples: [],
+        upserted: 3,
+        minimallyUpserted: 0,
+        enriched: 0,
+        enrichmentFailures: 0,
         skippedDetails: 3,
         errors: [],
       },
@@ -85,14 +98,28 @@ describe.skipIf(!dbAvailable)("admin misc routes", { timeout: 30_000 }, () => {
       results: [
         {
           region: "EU",
-          indexed: 3,
-          upserted: 3,
+          indexEntries: 3,
+          rejectedAtIndex: 0,
+          detailCandidates: 3,
           detailsFetched: 0,
+          eligible: 3,
+          rejectedTournament: 0,
+          rejectedInternal: 0,
+          detailFailures: 0,
+          retainedLastKnownGood: 0,
+          newlyDeactivated: 0,
+          activeCatalogCount: 3,
+          rejectedSamples: [],
+          upserted: 3,
+          minimallyUpserted: 0,
+          enriched: 0,
+          enrichmentFailures: 0,
           skippedDetails: 3,
           errors: [],
         },
       ],
     });
+    expect(response.json().results[0]).not.toHaveProperty("indexed");
   });
 
   it("syncs season authority with a valid admin API key", async () => {

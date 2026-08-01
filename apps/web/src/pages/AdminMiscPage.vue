@@ -1,25 +1,17 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import { useRouter } from "vue-router";
+import type { AdminRealmSyncResult, RegionCode } from "@mplus/contracts";
+import { api } from "../api/client";
 import { ApiClientError } from "../api/live-client";
 import StatusBanner from "../components/common/StatusBanner.vue";
 
-const apiBase = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:3000";
 const router = useRouter();
 
-const REGION_OPTIONS = ["EU", "US", "KR", "TW"] as const;
+const REGION_OPTIONS = ["EU", "US", "KR", "TW"] as const satisfies ReadonlyArray<RegionCode>;
 
 type RegionOption = (typeof REGION_OPTIONS)[number];
 type BusyAction = "realms" | "season" | null;
-
-interface RealmSyncResultRow {
-  region: string;
-  indexed: number;
-  upserted: number;
-  detailsFetched: number;
-  skippedDetails: number;
-  errors: string[];
-}
 
 interface SeasonSyncResultRow {
   region: string;
@@ -38,7 +30,7 @@ const forceDetails = ref(false);
 const busyAction = ref<BusyAction>(null);
 const error = ref<string | null>(null);
 const message = ref<string | null>(null);
-const realmResults = ref<RealmSyncResultRow[]>([]);
+const realmResults = ref<AdminRealmSyncResult[]>([]);
 const seasonResults = ref<SeasonSyncResultRow[]>([]);
 
 const bannerText = computed(() => error.value || message.value || "");
@@ -64,8 +56,9 @@ function toggleRegion(region: RegionOption): void {
   selectedRegions.value = REGION_OPTIONS.filter((r) => next.has(r));
 }
 
-async function postJson<T>(path: string, body: unknown): Promise<T> {
-  const response = await fetch(`${apiBase}${path}`, {
+async function postSeasonJson(body: unknown): Promise<{ ok?: boolean; results?: SeasonSyncResultRow[] }> {
+  const apiBase = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:3000";
+  const response = await fetch(`${apiBase}/api/v1/admin/misc/season/sync-authority`, {
     method: "POST",
     credentials: "include",
     headers: {
@@ -74,7 +67,9 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
     },
     body: JSON.stringify(body),
   });
-  const payload = (await response.json().catch(() => ({}))) as T & {
+  const payload = (await response.json().catch(() => ({}))) as {
+    ok?: boolean;
+    results?: SeasonSyncResultRow[];
     error?: { message?: string };
   };
   if (!response.ok) {
@@ -98,20 +93,17 @@ async function syncRealms(): Promise<void> {
   message.value = null;
   realmResults.value = [];
   try {
-    const body = await postJson<{ ok?: boolean; results?: RealmSyncResultRow[] }>(
-      "/api/v1/admin/misc/realms/sync",
-      {
-        regions: selectedRegions.value,
-        forceDetails: forceDetails.value,
-      },
-    );
-    realmResults.value = body.results ?? [];
-    const totalUpserted = realmResults.value.reduce((n, r) => n + r.upserted, 0);
+    const body = await api.syncRealmCatalog({
+      regions: selectedRegions.value,
+      forceDetails: forceDetails.value,
+    });
+    realmResults.value = body.results;
+    const totalEligible = realmResults.value.reduce((n, r) => n + r.eligible, 0);
     const totalErrors = realmResults.value.reduce((n, r) => n + r.errors.length, 0);
     message.value =
       totalErrors > 0
-        ? `Realm sync finished with ${totalErrors} error(s). Upserted ${totalUpserted} realm(s).`
-        : `Realm catalog refreshed. Upserted ${totalUpserted} realm(s).`;
+        ? `Realm sync finished with ${totalErrors} error(s). Eligible ${totalEligible} realm(s).`
+        : `Realm catalog refreshed. Eligible ${totalEligible} realm(s).`;
   } catch (err) {
     if (!handleAuthError(err)) error.value = (err as Error).message;
   } finally {
@@ -126,10 +118,7 @@ async function syncSeasonAuthority(): Promise<void> {
   message.value = null;
   seasonResults.value = [];
   try {
-    const body = await postJson<{ ok?: boolean; results?: SeasonSyncResultRow[] }>(
-      "/api/v1/admin/misc/season/sync-authority",
-      { regions: selectedRegions.value },
-    );
+    const body = await postSeasonJson({ regions: selectedRegions.value });
     seasonResults.value = body.results ?? [];
     const changed = seasonResults.value.filter((r) => r.changed).length;
     message.value =
@@ -191,8 +180,8 @@ async function syncSeasonAuthority(): Promise<void> {
       <ul v-if="realmResults.length" class="results" data-testid="realm-sync-results">
         <li v-for="row in realmResults" :key="row.region">
           <strong>{{ row.region }}</strong>
-          — indexed {{ row.indexed }}, upserted {{ row.upserted }}, details
-          {{ row.detailsFetched }}, skipped {{ row.skippedDetails }}
+          — index {{ row.indexEntries }}, eligible {{ row.eligible }}, details
+          {{ row.detailsFetched }}, active {{ row.activeCatalogCount }}
           <span v-if="row.errors.length" class="errors"> · {{ row.errors.length }} error(s)</span>
         </li>
       </ul>

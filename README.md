@@ -11,13 +11,16 @@ Explainable, versioned Mythic+ Trust Factor from public game data (Retail, regio
 ## Quick start
 
 ```bash
-pnpm install
-cp .env.example .env
-pnpm dev:infra
-pnpm db:generate
-pnpm db:migrate
-pnpm db:seed
+pnpm bootstrap
 pnpm dev
+```
+
+`pnpm bootstrap` prepares a fresh clone/worktree (worktree-aware `.env` setup, live local-dev defaults, install, local infra, Prisma generate, package `dist` builds, migrate, seed). It does not start the app. Details: [`doc/operations/local-development.md`](doc/operations/local-development.md).
+
+Linked worktrees do not inherit the primary `.env`. To copy it (or fill empty keys such as Battle.net credentials) non-interactively:
+
+```bash
+pnpm bootstrap -- --copy-env
 ```
 
 PostgreSQL is published on host port **5433** (see `.env.example`) to avoid clashing with a local Postgres on 5432.
@@ -29,6 +32,7 @@ PostgreSQL is published on host port **5433** (see `.env.example`) to avoid clas
 
 | Command | Purpose |
 |---------|---------|
+| `pnpm bootstrap` | Prepare local worktree for `pnpm dev` |
 | `pnpm lint` | ESLint |
 | `pnpm typecheck` | Strict TypeScript across packages |
 | `pnpm test` | Unit tests (fixture mode) |
