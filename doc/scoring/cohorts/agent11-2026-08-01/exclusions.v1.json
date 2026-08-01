@@ -1,0 +1,42 @@
+{
+  "schemaVersion": "agent11-exclusions-v1",
+  "cohortId": "agent11-user-cohort-2026-08-01",
+  "generatedAt": "2026-08-01T12:01:01.113Z",
+  "exclusions": [
+    {
+      "memberId": "user-s-eu-burning-legion-myzouth-dps",
+      "identity": "EU/burning-legion/Myzouth",
+      "reason": "MYZOUTH_BOOTSTRAP_DEFERRED",
+      "detail": "Myzouth deferred until bootstrap recovery is merged and deployed to test; preserve Character ID 4e2e51ee-9e77-44a0-ba82-4d24a68b4486.",
+      "deferred": true
+    },
+    {
+      "memberId": "user-a-eu-eredar-joefreckles-tank",
+      "identity": "EU/eredar/Joefreckles",
+      "reason": "ROLE_CONTEXT_MISMATCH",
+      "detail": "providedRole TANK does not match current active profile role DPS (monk/windwalker). Current Blizzard active specialization is not enough to reinterpret the user-labelled role context.",
+      "deferred": true
+    },
+    {
+      "memberId": "user-a-eu-draenor-essetxd-healer",
+      "identity": "EU/draenor/Essetxd",
+      "reason": "ROLE_CONTEXT_MISMATCH",
+      "detail": "providedRole HEALER does not match current active profile role DPS (monk/windwalker). Current Blizzard active specialization is not enough to reinterpret the user-labelled role context.",
+      "deferred": true
+    },
+    {
+      "memberId": "user-c-eu-outland-petbear-tank",
+      "identity": "EU/outland/Petbear",
+      "reason": "ROLE_CONTEXT_CONFLICT",
+      "detail": "Same identity appears as TANK/C and DPS/D without immutable distinct role/spec evidence for the evaluation cutoff. Current active specialization is not enough to reinterpret either labelled role context.",
+      "deferred": false
+    },
+    {
+      "memberId": "user-d-eu-outland-petbear-dps",
+      "identity": "EU/outland/Petbear",
+      "reason": "ROLE_CONTEXT_CONFLICT",
+      "detail": "Same identity appears as TANK/C and DPS/D without immutable distinct role/spec evidence for the evaluation cutoff. Current active specialization is not enough to reinterpret either labelled role context.",
+      "deferred": false
+    }
+  ]
+}
