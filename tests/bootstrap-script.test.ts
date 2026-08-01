@@ -518,7 +518,11 @@ describe("runBootstrap orchestration", () => {
   it("prints OAuth disabled without failing when credentials are missing", async () => {
     const logs: string[] = [];
     const previous = process.env.DATABASE_URL;
+    const previousBlizzardId = process.env.BLIZZARD_CLIENT_ID;
+    const previousBlizzardSecret = process.env.BLIZZARD_CLIENT_SECRET;
     delete process.env.DATABASE_URL;
+    delete process.env.BLIZZARD_CLIENT_ID;
+    delete process.env.BLIZZARD_CLIENT_SECRET;
     try {
       await runBootstrap({
         root: "/repo",
@@ -541,6 +545,10 @@ describe("runBootstrap orchestration", () => {
     } finally {
       if (previous === undefined) delete process.env.DATABASE_URL;
       else process.env.DATABASE_URL = previous;
+      if (previousBlizzardId === undefined) delete process.env.BLIZZARD_CLIENT_ID;
+      else process.env.BLIZZARD_CLIENT_ID = previousBlizzardId;
+      if (previousBlizzardSecret === undefined) delete process.env.BLIZZARD_CLIENT_SECRET;
+      else process.env.BLIZZARD_CLIENT_SECRET = previousBlizzardSecret;
     }
     expect(logs.some((l) => l.includes("Battle.net OAuth configured: no"))).toBe(true);
     expect(

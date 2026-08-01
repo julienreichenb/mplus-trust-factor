@@ -17,7 +17,8 @@ describe("runRecalculateScore — contract stability", () => {
       scoringModelVersion: model.version,
       activeSeasonId: season.slug,
       providerMode: "fixture",
-      env: { PROVIDER_MODE: "fixture" },
+      // Match runRecalculateScore: contract resolution reads process.env for zone pins.
+      env: process.env,
     });
 
     const saveScoreSnapshot = vi.fn(async (input: { snapshot: { explanation: unknown }; refreshContractHash?: string }) => {
