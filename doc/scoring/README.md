@@ -7,6 +7,7 @@ Canonical product scoring documentation:
 - [`../architecture/scoring-publication.md`](../architecture/scoring-publication.md)
 - [`../operations/model-lifecycle.md`](../operations/model-lifecycle.md)
 - [`calibration-harness.md`](calibration-harness.md) — Agents 10/10B reproducible backtest/calibration harness, portable bundles, Agent 08 async export boundary
+- [`boost-shadow-phase2-backtest.md`](boost-shadow-phase2-backtest.md) — Boost detection Phase 2 offline/backtest harness (shadow-only)
 
 Runtime defaults: `packages/scoring/src/model/defaults.ts` (`createDefaultModelV6`).  
 Active model is a database row (seeded `default@6`); env vars are lookup/bootstrap aids, not normal activation.

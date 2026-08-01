@@ -14,7 +14,8 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "calibration:harness": "node ./dist/calibration/cli.js"
+    "calibration:harness": "node ./dist/calibration/cli.js",
+    "boost-shadow:backtest": "node ./dist/boost-shadow/backtest/cli.js"
   },
   "dependencies": {
     "@mplus/contracts": "workspace:*"
