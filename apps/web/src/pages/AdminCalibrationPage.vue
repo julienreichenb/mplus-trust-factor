@@ -2,11 +2,13 @@
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import type {
+  AdminScoreModelDTO,
   CalibrationCohortDTO,
   CalibrationCohortMemberDTO,
   CalibrationExpectedLabel,
   CalibrationPreflightResultDTO,
   CalibrationRunDTO,
+  CalibrationRunMode,
 } from "@mplus/contracts";
 import StatusBanner from "../components/common/StatusBanner.vue";
 
@@ -21,7 +23,15 @@ const cohorts = ref<CalibrationCohortDTO[]>([]);
 const cohort = ref<CalibrationCohortDTO | null>(null);
 const preflight = ref<CalibrationPreflightResultDTO | null>(null);
 const runs = ref<CalibrationRunDTO[]>([]);
+const scoreModels = ref<AdminScoreModelDTO[]>([]);
 const pollTimer = ref<ReturnType<typeof setInterval> | null>(null);
+
+const runMode = ref<CalibrationRunMode>("PERSISTED_SNAPSHOT_ONLY");
+const activeModelId = ref("");
+const evaluationModelId = ref("");
+const draftSourceModelId = ref("");
+const draftName = ref("");
+const draftWeightsJson = ref("");
 
 const newName = ref("");
 const newSeasonId = ref("");
@@ -34,6 +44,19 @@ const memberForm = ref({
   providedRole: "" as "" | "DPS" | "TANK" | "HEALER",
   rationale: "Admin-selected calibration member",
 });
+
+const activeModels = computed(() => scoreModels.value.filter((m) => m.status === "ACTIVE"));
+const draftModels = computed(() => scoreModels.value.filter((m) => m.status === "DRAFT"));
+const selectedActive = computed(
+  () => scoreModels.value.find((m) => m.id === activeModelId.value) ?? null,
+);
+const selectedDraft = computed(
+  () => scoreModels.value.find((m) => m.id === evaluationModelId.value) ?? null,
+);
+const needsDraft = computed(
+  () =>
+    runMode.value === "DRAFT_MODEL_EVALUATE" || runMode.value === "ACTIVE_VERSUS_DRAFT",
+);
 
 const selectedCohortId = computed(() => {
   const id = route.params.cohortId;
@@ -66,6 +89,19 @@ async function refreshList() {
   cohorts.value = data.cohorts;
 }
 
+async function loadScoreModels() {
+  const data = await apiJson<{ models: AdminScoreModelDTO[] }>(
+    "/api/v1/admin/calibration/score-models",
+  );
+  scoreModels.value = data.models;
+  if (!activeModelId.value) {
+    activeModelId.value = activeModels.value[0]?.id ?? "";
+  }
+  if (!draftSourceModelId.value) {
+    draftSourceModelId.value = activeModelId.value || activeModels.value[0]?.id || "";
+  }
+}
+
 async function loadCohort(id: string) {
   cohort.value = await apiJson<CalibrationCohortDTO>(`/api/v1/admin/calibration/cohorts/${id}`);
   const runData = await apiJson<{ runs: CalibrationRunDTO[] }>(
@@ -79,6 +115,7 @@ async function bootstrap() {
   error.value = null;
   try {
     await refreshList();
+    await loadScoreModels();
     if (selectedCohortId.value) await loadCohort(selectedCohortId.value);
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e);
@@ -159,7 +196,14 @@ async function runPreflight() {
   try {
     preflight.value = await apiJson<CalibrationPreflightResultDTO>(
       `/api/v1/admin/calibration/cohorts/${cohort.value.id}/preflight`,
-      { method: "POST", body: JSON.stringify({ mode: "PERSISTED_SNAPSHOT_ONLY" }) },
+      {
+        method: "POST",
+        body: JSON.stringify({
+          mode: runMode.value,
+          activeModelId: activeModelId.value || null,
+          evaluationModelId: needsDraft.value ? evaluationModelId.value || null : null,
+        }),
+      },
     );
     message.value = `Preflight: ${preflight.value.blockingCount} blocking, ${preflight.value.warningCount} warnings`;
   } catch (e) {
@@ -179,14 +223,45 @@ async function startRun() {
       {
         method: "POST",
         body: JSON.stringify({
-          mode: "PERSISTED_SNAPSHOT_ONLY",
+          mode: runMode.value,
+          activeModelId: activeModelId.value || null,
+          evaluationModelId: needsDraft.value ? evaluationModelId.value || null : null,
           expectedCohortRevision: cohort.value.revision,
         }),
       },
     );
-    message.value = `Run ${run.id} queued (frozen revision ${run.cohortRevision})`;
+    message.value = `Run ${run.id} queued (${run.mode}, frozen rev ${run.cohortRevision})`;
     await loadCohort(cohort.value.id);
     startPolling();
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : String(e);
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function createDraftModel() {
+  busy.value = true;
+  error.value = null;
+  try {
+    let config: Record<string, unknown> | undefined;
+    if (draftWeightsJson.value.trim()) {
+      config = JSON.parse(draftWeightsJson.value) as Record<string, unknown>;
+    }
+    const created = await apiJson<AdminScoreModelDTO>(
+      "/api/v1/admin/calibration/score-models/draft",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          sourceModelId: draftSourceModelId.value,
+          name: draftName.value || undefined,
+          config,
+        }),
+      },
+    );
+    message.value = `Created DRAFT ${created.key}@${created.version} (source unchanged; not activated)`;
+    evaluationModelId.value = created.id;
+    await loadScoreModels();
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e);
   } finally {
@@ -302,6 +377,66 @@ onUnmounted(stopPolling);
       </section>
 
       <section class="panel">
+        <h2>Models &amp; run mode</h2>
+        <p class="muted">
+          Calibration never activates models. Creating a draft clones config into a new DRAFT version
+          and leaves the source untouched.
+        </p>
+        <div class="form-row">
+          <label>
+            Mode
+            <select v-model="runMode">
+              <option value="PERSISTED_SNAPSHOT_ONLY">PERSISTED_SNAPSHOT_ONLY</option>
+              <option value="DRAFT_MODEL_EVALUATE">DRAFT_MODEL_EVALUATE</option>
+              <option value="ACTIVE_VERSUS_DRAFT">ACTIVE_VERSUS_DRAFT</option>
+            </select>
+          </label>
+          <label>
+            ACTIVE reference
+            <select v-model="activeModelId">
+              <option value="">(default active)</option>
+              <option v-for="m in activeModels" :key="m.id" :value="m.id">
+                {{ m.key }}@{{ m.version }} — {{ m.name }}
+              </option>
+            </select>
+          </label>
+          <label>
+            DRAFT evaluation
+            <select v-model="evaluationModelId" :disabled="!needsDraft">
+              <option value="">(required for draft modes)</option>
+              <option v-for="m in draftModels" :key="m.id" :value="m.id">
+                {{ m.key }}@{{ m.version }} — {{ m.name }}
+              </option>
+            </select>
+          </label>
+        </div>
+        <details v-if="selectedActive || selectedDraft">
+          <summary>Read-only config preview</summary>
+          <pre v-if="selectedActive">ACTIVE {{ selectedActive.key }}@{{ selectedActive.version }}
+{{ JSON.stringify(selectedActive.config, null, 2) }}</pre>
+          <pre v-if="selectedDraft">DRAFT {{ selectedDraft.key }}@{{ selectedDraft.version }}
+{{ JSON.stringify(selectedDraft.config, null, 2) }}</pre>
+        </details>
+        <h3>Create DRAFT from source (no activation)</h3>
+        <div class="form-row">
+          <select v-model="draftSourceModelId">
+            <option v-for="m in scoreModels" :key="m.id" :value="m.id">
+              {{ m.status }} {{ m.key }}@{{ m.version }}
+            </option>
+          </select>
+          <input v-model="draftName" placeholder="Optional draft name" />
+          <button type="button" :disabled="busy || !draftSourceModelId" @click="createDraftModel">
+            Create draft from edited weights
+          </button>
+        </div>
+        <textarea
+          v-model="draftWeightsJson"
+          rows="4"
+          placeholder='Optional full ScoreModelConfig JSON (omit to clone source verbatim)'
+        />
+      </section>
+
+      <section class="panel">
         <h2>Preflight (DB-only)</h2>
         <button type="button" :disabled="busy" @click="runPreflight">Run preflight</button>
         <table v-if="preflight" class="table">
@@ -334,9 +469,10 @@ onUnmounted(stopPolling);
 
       <section class="panel">
         <h2>Runs</h2>
-        <button type="button" :disabled="busy" @click="startRun">
-          Start PERSISTED_SNAPSHOT_ONLY run
+        <button type="button" :disabled="busy || (needsDraft && !evaluationModelId)" @click="startRun">
+          Start {{ runMode }} run
         </button>
+        <p class="muted">No model is activated by this action.</p>
         <ul class="list">
           <li v-for="r in runs" :key="r.id">
             <RouterLink :to="{ name: 'admin-calibration-report', params: { runId: r.id } }">

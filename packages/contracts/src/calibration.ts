@@ -312,6 +312,20 @@ export const createCalibrationRunBodySchema = z.object({
 
 export type CreateCalibrationRunBody = z.infer<typeof createCalibrationRunBodySchema>;
 
+/** Create a new DRAFT ScoreModel from a source model (never mutates/activates the source). */
+export const createCalibrationDraftModelBodySchema = z.object({
+  sourceModelId: z.string().uuid(),
+  name: z.string().min(1).max(200).optional(),
+  description: z.string().max(4000).optional(),
+  /**
+   * Optional full config for the new DRAFT. When omitted, the source config is cloned
+   * verbatim. The source model is never updated.
+   */
+  config: z.record(z.string(), z.unknown()).optional(),
+});
+
+export type CreateCalibrationDraftModelBody = z.infer<typeof createCalibrationDraftModelBodySchema>;
+
 /** BullMQ payload for dedicated `calibration-run` queue — not an IngestionJob. */
 export const calibrationRunJobSchema = z.object({
   calibrationRunId: z.string().uuid(),

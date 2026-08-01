@@ -4,7 +4,7 @@ import { createMemoryHistory, createRouter } from "vue-router";
 import AdminCalibrationPage from "./AdminCalibrationPage.vue";
 
 describe("AdminCalibrationPage", () => {
-  it("renders cohort list shell and expert-label framing", async () => {
+  it("renders cohort list shell, model selectors, and expert-label framing", async () => {
     const router = createRouter({
       history: createMemoryHistory(),
       routes: [
@@ -19,18 +19,27 @@ describe("AdminCalibrationPage", () => {
     await router.push({ name: "admin-calibration" });
     await router.isReady();
 
-    globalThis.fetch = async () =>
-      new Response(JSON.stringify({ cohorts: [] }), {
+    globalThis.fetch = async (input: RequestInfo | URL) => {
+      const url = String(input);
+      const body = url.includes("/score-models")
+        ? { models: [] }
+        : { cohorts: [] };
+      return new Response(JSON.stringify(body), {
         status: 200,
         headers: { "content-type": "application/json" },
-      }) as unknown as Promise<Response>;
+      }) as unknown as Response;
+    };
 
     const wrapper = mount(AdminCalibrationPage, {
       global: { plugins: [router] },
     });
     await wrapper.vm.$nextTick();
+    await Promise.resolve();
     expect(wrapper.text()).toContain("Calibration");
     expect(wrapper.text()).toContain("Expert labels are authoritative");
     expect(wrapper.text()).toContain("Create cohort");
+    expect(wrapper.text()).toContain("Models & run mode");
+    expect(wrapper.text()).toContain("Create draft from edited weights");
+    expect(wrapper.text()).toContain("ACTIVE_VERSUS_DRAFT");
   });
 });

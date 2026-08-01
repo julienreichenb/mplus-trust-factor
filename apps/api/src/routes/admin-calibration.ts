@@ -37,9 +37,10 @@ async function resolveActorUserId(
 }
 
 /**
- * Admin calibration platform routes (Phase 1).
+ * Admin calibration platform routes (Phase 1–2).
  * Fail closed when ADMIN_CALIBRATION_ENABLED=false (service throws NOT_FOUND).
  * Permission: admin.calibration.manage.
+ * No activate endpoints — draft creation only.
  */
 export function buildAdminCalibrationRoutes(container: ApiContainer): FastifyPluginAsync {
   const service = new AdminCalibrationService(container);
@@ -343,6 +344,40 @@ export function buildAdminCalibrationRoutes(container: ApiContainer): FastifyPlu
         async (request) => {
           const { runId } = request.params as { runId: string };
           return service.getReport(runId);
+        },
+      );
+
+      protectedApp.get(
+        "/api/v1/admin/calibration/score-models",
+        {
+          schema: {
+            tags: ["admin-calibration"],
+            response: { 200: { type: "object", additionalProperties: true }, 404: errorResponseSchema },
+          },
+        },
+        async () => service.listScoreModels(),
+      );
+
+      protectedApp.post(
+        "/api/v1/admin/calibration/score-models/draft",
+        {
+          schema: {
+            tags: ["admin-calibration"],
+            body: { type: "object", additionalProperties: true },
+            response: {
+              201: { type: "object", additionalProperties: true },
+              404: errorResponseSchema,
+            },
+          },
+        },
+        async (request, reply) => {
+          const userId = await resolveActorUserId(request, container);
+          const model = await service.createDraftScoreModel(
+            request.body,
+            userId,
+            auditCtx(request),
+          );
+          return reply.code(201).send(model);
         },
       );
     });

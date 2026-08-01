@@ -12,7 +12,14 @@ const error = ref<string | null>(null);
 const run = ref<CalibrationRunDTO | null>(null);
 const report = ref<CalibrationReportDTO | null>(null);
 const tab = ref<
-  "overview" | "ordering" | "dimensions" | "slices" | "characters" | "coverage" | "provenance"
+  | "overview"
+  | "comparison"
+  | "ordering"
+  | "dimensions"
+  | "slices"
+  | "characters"
+  | "coverage"
+  | "provenance"
 >("overview");
 const pollTimer = ref<ReturnType<typeof setInterval> | null>(null);
 
@@ -20,6 +27,18 @@ const fullReport = computed(() => (report.value?.report ?? null) as Record<strin
 const statistics = computed(() => (fullReport.value?.statistics as Record<string, unknown> | undefined) ?? null);
 const characters = computed(() => {
   const rows = fullReport.value?.characters;
+  return Array.isArray(rows) ? rows : [];
+});
+const comparison = computed(() => {
+  const fromSummary = report.value?.summary?.activeDraftComparison;
+  if (fromSummary) return fromSummary as Record<string, unknown>;
+  return (fullReport.value?.activeDraftComparison as Record<string, unknown> | null) ?? null;
+});
+const comparisonAggregate = computed(
+  () => (comparison.value?.aggregate as Record<string, unknown> | undefined) ?? null,
+);
+const comparisonCharacters = computed(() => {
+  const rows = comparison.value?.characters;
   return Array.isArray(rows) ? rows : [];
 });
 
@@ -96,6 +115,7 @@ onUnmounted(stopPolling);
       <button
         v-for="t in [
           'overview',
+          'comparison',
           'ordering',
           'dimensions',
           'slices',
@@ -145,6 +165,62 @@ onUnmounted(stopPolling);
       <ul>
         <li v-for="f in report.digest.nextActions" :key="f.code">{{ f.title }} — {{ f.body }}</li>
       </ul>
+    </section>
+
+    <section v-else-if="report && tab === 'comparison'" class="panel">
+      <h2>Active versus draft</h2>
+      <p class="muted">
+        modelActivated={{ report.summary?.modelActivated ?? false }} · providerCallsMade={{
+          report.summary?.providerCallsMade ?? false
+        }}
+        — calibration never activates a model.
+      </p>
+      <template v-if="comparison">
+        <p>{{ comparison.note }}</p>
+        <h3>Aggregate deltas</h3>
+        <pre>{{ JSON.stringify(comparisonAggregate, null, 2) }}</pre>
+        <h3>Per-character score / grade / confidence / dimension deltas</h3>
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Member</th>
+              <th>Expert label</th>
+              <th>Active score</th>
+              <th>Draft score</th>
+              <th>Δ score</th>
+              <th>Grade</th>
+              <th>Δ confidence</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="row in comparisonCharacters" :key="String((row as any).memberId)">
+              <td>{{ (row as any).memberId }}</td>
+              <td>{{ (row as any).expectedLabel }}</td>
+              <td>{{ (row as any).activeOverallScore ?? "—" }}</td>
+              <td>{{ (row as any).draftOverallScore ?? "—" }}</td>
+              <td>{{ (row as any).scoreDelta ?? "—" }}</td>
+              <td>{{ (row as any).gradeTransition ?? "—" }}</td>
+              <td>{{ (row as any).confidenceDelta ?? "—" }}</td>
+            </tr>
+          </tbody>
+        </table>
+        <h3>Role / class / meta slice regressions</h3>
+        <pre>{{
+          JSON.stringify(
+            {
+              roleSlices: comparisonAggregate?.roleSlices,
+              classSpecSlices: comparisonAggregate?.classSpecSlices,
+              metaVersusNonMeta: comparisonAggregate?.metaVersusNonMeta,
+              meanDimensionDeltas: comparisonAggregate?.meanDimensionDeltas,
+            },
+            null,
+            2,
+          )
+        }}</pre>
+      </template>
+      <p v-else class="muted">
+        No active-versus-draft comparison on this report (snapshot-only or incomplete replay).
+      </p>
     </section>
 
     <section v-else-if="report && tab === 'ordering'" class="panel">

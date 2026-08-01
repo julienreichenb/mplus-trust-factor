@@ -16,6 +16,7 @@ import {
   CALIBRATION_INPUT_BUNDLE_MAX_BYTES,
   CALIBRATION_LABEL_TO_QUALITATIVE,
   createCalibrationCohortBodySchema,
+  createCalibrationDraftModelBodySchema,
   createCalibrationMemberBodySchema,
   createCalibrationRunBodySchema,
   patchCalibrationCohortBodySchema,
@@ -23,6 +24,7 @@ import {
   bulkCalibrationMembersBodySchema,
   calibrationPreflightBodySchema,
 } from "@mplus/contracts";
+import type { AdminScoreModelDTO, ScoreModelConfig, ScoreSnapshotDTO } from "@mplus/contracts";
 import type {
   CalibrationCohort,
   CalibrationCohortMember,
@@ -37,13 +39,13 @@ import {
   CALIBRATION_INPUT_BUNDLE_SCHEMA_VERSION,
   COHORT_MANIFEST_SCHEMA_VERSION,
   hasReplayableScoringContext,
+  type CalibrationBacktestMode,
   type CalibrationInputBundleV1,
   type CalibrationMemberEvidence,
   type CalibrationRole,
   type CohortManifest,
   type QualitativeLabel,
 } from "@mplus/scoring";
-import type { ScoreSnapshotDTO } from "@mplus/contracts";
 import type { ScoreSnapshotWithRelations } from "@mplus/worker";
 import type { ApiContainer } from "../container.js";
 import { HttpError } from "../errors.js";
@@ -60,6 +62,33 @@ type AuditCtx = {
 };
 
 type CohortWithMembers = CalibrationCohort & { members: CalibrationCohortMember[] };
+
+const MODE_TO_BUNDLE: Record<CalibrationRunMode, CalibrationBacktestMode> = {
+  PERSISTED_SNAPSHOT_ONLY: "persisted-snapshot-only",
+  DRAFT_MODEL_EVALUATE: "draft-model-evaluate",
+  ACTIVE_VERSUS_DRAFT: "active-versus-draft",
+};
+
+function modeRequiresReplay(mode: CalibrationRunMode): boolean {
+  return mode === "DRAFT_MODEL_EVALUATE" || mode === "ACTIVE_VERSUS_DRAFT";
+}
+
+function hashJson(value: unknown): string {
+  return createHash("sha256").update(JSON.stringify(value), "utf8").digest("hex");
+}
+
+function mapAdminModel(model: ScoreModel): AdminScoreModelDTO {
+  return {
+    id: model.id,
+    key: model.key,
+    version: model.version,
+    name: model.name,
+    status: model.status as AdminScoreModelDTO["status"],
+    config: model.config,
+    createdAt: model.createdAt.toISOString(),
+    activatedAt: model.activatedAt?.toISOString() ?? null,
+  };
+}
 
 function assertEnabled(container: ApiContainer): void {
   if (!container.env.ADMIN_CALIBRATION_ENABLED) {
@@ -660,12 +689,7 @@ export class AdminCalibrationService {
   async preflight(cohortId: string, body: unknown): Promise<CalibrationPreflightResultDTO> {
     assertEnabled(this.container);
     const input = calibrationPreflightBodySchema.parse(body);
-    if (input.mode !== "PERSISTED_SNAPSHOT_ONLY") {
-      throw HttpError.badRequest(
-        "UNSUPPORTED_CALIBRATION_MODE",
-        `Phase 1 only supports PERSISTED_SNAPSHOT_ONLY (got ${input.mode})`,
-      );
-    }
+    const needsReplay = modeRequiresReplay(input.mode);
     const cohort = (await this.requireCohort(cohortId, true)) as CohortWithMembers;
     const seasonId = input.seasonId ?? cohort.seasonId;
     const season = await this.prisma().season.findUnique({ where: { id: seasonId } });
@@ -673,18 +697,12 @@ export class AdminCalibrationService {
       throw HttpError.badRequest("SEASON_NOT_FOUND", `Season ${seasonId} was not found`);
     }
 
-    let activeModel: ScoreModel | null = null;
-    if (input.activeModelId) {
-      activeModel = await this.prisma().scoreModel.findUnique({ where: { id: input.activeModelId } });
-      if (!activeModel) {
-        throw HttpError.badRequest("SCORE_MODEL_NOT_FOUND", `Active model ${input.activeModelId} not found`);
-      }
-    } else {
-      activeModel = await this.prisma().scoreModel.findFirst({
-        where: { status: "ACTIVE" },
-        orderBy: { activatedAt: "desc" },
-      });
-    }
+    const { activeModel, evaluationModel } = await this.resolveModelsForMode({
+      mode: input.mode,
+      activeModelId: input.activeModelId,
+      evaluationModelId: input.evaluationModelId,
+      requireEvaluation: needsReplay,
+    });
 
     const members: CalibrationPreflightMemberDTO[] = [];
     const issues: CalibrationPreflightIssueDTO[] = [];
@@ -786,14 +804,18 @@ export class AdminCalibrationService {
                   selectedRunCoverage,
                 }
               : null;
-          replayable = hasReplayableScoringContext(scoringContext);
-          if (!replayable && input.mode !== "PERSISTED_SNAPSHOT_ONLY") {
+          const observations = characterId
+            ? await this.container.worker.repositories.metric.listForCharacter(characterId, seasonId)
+            : [];
+          replayable = hasReplayableScoringContext(scoringContext) && observations.length > 0;
+          if (needsReplay && member.included && !replayable) {
             memberIssues.push({
               code: "REPLAY_EVIDENCE_MISSING",
-              severity: "WARNING",
+              severity: "BLOCKING",
               memberId: member.id,
-              message: "Replayable scoring context is incomplete",
-              nextActionHint: null,
+              message:
+                "Draft/active-versus-draft modes require observations and scoringContext (role, freshness, selectedRunCoverage)",
+              nextActionHint: "Refresh evidence is a separate admin workflow outside calibration",
             });
           }
         }
@@ -862,7 +884,7 @@ export class AdminCalibrationService {
       seasonId,
       mode: input.mode,
       activeModelId: activeModel?.id ?? null,
-      evaluationModelId: input.evaluationModelId ?? null,
+      evaluationModelId: evaluationModel?.id ?? input.evaluationModelId ?? null,
       generatedAt: new Date().toISOString(),
       blockingCount: issues.filter((i) => i.severity === "BLOCKING").length,
       warningCount: issues.filter((i) => i.severity === "WARNING").length,
@@ -879,12 +901,8 @@ export class AdminCalibrationService {
   ): Promise<CalibrationRunDTO> {
     assertEnabled(this.container);
     const input = createCalibrationRunBodySchema.parse(body);
-    if (input.mode !== "PERSISTED_SNAPSHOT_ONLY") {
-      throw HttpError.badRequest(
-        "UNSUPPORTED_CALIBRATION_MODE",
-        `Phase 1 only supports PERSISTED_SNAPSHOT_ONLY (got ${input.mode})`,
-      );
-    }
+    const needsReplay = modeRequiresReplay(input.mode);
+    const bundleMode = MODE_TO_BUNDLE[input.mode];
 
     const cohort = (await this.requireCohort(cohortId, true)) as CohortWithMembers;
     if (cohort.status === "ARCHIVED") {
@@ -902,20 +920,24 @@ export class AdminCalibrationService {
       throw HttpError.badRequest("SEASON_NOT_FOUND", `Season ${cohort.seasonId} was not found`);
     }
 
-    let activeModel: ScoreModel | null = null;
-    if (input.activeModelId) {
-      activeModel = await this.prisma().scoreModel.findUnique({ where: { id: input.activeModelId } });
-      if (!activeModel) {
-        throw HttpError.badRequest("SCORE_MODEL_NOT_FOUND", `Active model ${input.activeModelId} not found`);
-      }
-    } else {
-      activeModel = await this.prisma().scoreModel.findFirst({
-        where: { status: "ACTIVE" },
-        orderBy: { activatedAt: "desc" },
-      });
-    }
+    const { activeModel, evaluationModel } = await this.resolveModelsForMode({
+      mode: input.mode,
+      activeModelId: input.activeModelId,
+      evaluationModelId: input.evaluationModelId,
+      requireEvaluation: needsReplay,
+    });
     if (!activeModel) {
-      throw HttpError.badRequest("ACTIVE_MODEL_REQUIRED", "An active score model is required for Phase 1 runs");
+      throw HttpError.badRequest(
+        "ACTIVE_MODEL_REQUIRED",
+        "An ACTIVE reference score model is required for calibration runs",
+      );
+    }
+    const evalModel = evaluationModel ?? activeModel;
+    if (needsReplay && !evaluationModel) {
+      throw HttpError.badRequest(
+        "EVALUATION_MODEL_REQUIRED",
+        `${input.mode} requires a DRAFT evaluationModelId`,
+      );
     }
 
     const generatedAt = new Date().toISOString();
@@ -923,6 +945,7 @@ export class AdminCalibrationService {
     const evidenceByMemberId: Record<string, CalibrationMemberEvidence> = {};
     const manifestMembers: CohortManifest["members"] = [];
     const snapshotIds: string[] = [];
+    const evidenceCutoffs: string[] = [];
 
     for (const member of included) {
       const character = await this.resolveCharacterForMember(member);
@@ -942,7 +965,6 @@ export class AdminCalibrationService {
         }
         continue;
       }
-      snapshotIds.push(snap.id);
       const dto = mapScoreSnapshot(snap as ScoreSnapshotWithRelations);
       const observations = await this.container.worker.repositories.metric.listForCharacter(
         character.id,
@@ -962,7 +984,25 @@ export class AdminCalibrationService {
             }
           : null;
 
+      const replayable =
+        hasReplayableScoringContext(scoringContext) && observations.length > 0;
+      if (needsReplay && !replayable) {
+        if (input.evidencePolicy === "STRICT") {
+          throw HttpError.badRequest(
+            "REPLAY_EVIDENCE_MISSING",
+            `Included member ${member.id} lacks replayable observations/scoringContext for ${input.mode}`,
+          );
+        }
+        continue;
+      }
+
+      snapshotIds.push(snap.id);
+      evidenceCutoffs.push(
+        member.evidenceCutoffAt?.toISOString() ?? snap.calculatedAt.toISOString(),
+      );
+
       const memberKey = member.externalMemberKey ?? member.id;
+      // Identical frozen evidence is shared by active and draft evaluations.
       evidenceByMemberId[memberKey] = {
         memberId: memberKey,
         characterId: character.id,
@@ -996,32 +1036,47 @@ export class AdminCalibrationService {
     }
 
     if (manifestMembers.length === 0) {
-      throw HttpError.badRequest("EMPTY_CALIBRATION_COHORT", "No included members with usable snapshots");
+      throw HttpError.badRequest(
+        "EMPTY_CALIBRATION_COHORT",
+        needsReplay
+          ? "No included members with replayable evidence"
+          : "No included members with usable snapshots",
+      );
     }
 
     const activeRef = toCalibrationModelRef(activeModel, true);
+    const evaluationRef = toCalibrationModelRef(evalModel, evalModel.status === "ACTIVE");
     const manifest: CohortManifest = {
       schemaVersion: COHORT_MANIFEST_SCHEMA_VERSION,
       cohortId: cohort.id,
       description: cohort.description || cohort.name,
       createdAt: generatedAt,
       members: manifestMembers,
-      notes: `Frozen at cohort revision ${cohort.revision}`,
+      notes: `Frozen at cohort revision ${cohort.revision}; mode=${input.mode}`,
     };
 
     const bundle = buildCalibrationInputBundle({
       manifest,
       evidenceByMemberId,
       activeModel: activeRef,
-      evaluationModel: activeRef,
+      evaluationModel: evaluationRef,
       generatedAt,
       source: "persisted-export",
-      mode: "persisted-snapshot-only",
+      mode: bundleMode,
     });
 
     const { hash, byteLength } = freezeBundleJson(bundle);
     const evidenceFingerprint = createHash("sha256")
-      .update(snapshotIds.slice().sort().join("|"), "utf8")
+      .update(
+        [
+          ...snapshotIds.slice().sort(),
+          ...Object.keys(evidenceByMemberId).sort().map((id) => {
+            const ev = evidenceByMemberId[id]!;
+            return `${id}:${ev.snapshotId ?? ""}:${ev.inputFingerprint ?? ""}:${ev.observations?.length ?? 0}`;
+          }),
+        ].join("|"),
+        "utf8",
+      )
       .digest("hex");
 
     const runId = randomUUID();
@@ -1031,12 +1086,12 @@ export class AdminCalibrationService {
         cohortId: cohort.id,
         cohortRevision: cohort.revision,
         seasonId: cohort.seasonId,
-        mode: "PERSISTED_SNAPSHOT_ONLY",
+        mode: input.mode,
         status: "QUEUED",
         activeModelId: activeModel.id,
-        evaluationModelId: activeModel.id,
+        evaluationModelId: evalModel.id,
         activeModelConfig: activeRef.config as unknown as Prisma.InputJsonValue,
-        evaluationModelConfig: activeRef.config as unknown as Prisma.InputJsonValue,
+        evaluationModelConfig: evaluationRef.config as unknown as Prisma.InputJsonValue,
         evidencePolicy: input.evidencePolicy,
         inputBundleSchemaVersion: CALIBRATION_INPUT_BUNDLE_SCHEMA_VERSION,
         inputBundleContentHash: hash,
@@ -1048,6 +1103,11 @@ export class AdminCalibrationService {
         algorithmVersions: {
           harness: "runCalibrationHarnessFromBundle",
           digest: "1.0.0",
+          mode: bundleMode,
+          activeModelConfigHash: hashJson(activeRef.config),
+          evaluationModelConfigHash: hashJson(evaluationRef.config),
+          seasonSlug: season.slug,
+          evidenceCutoffs,
         },
         createdByUserId,
       },
@@ -1066,8 +1126,12 @@ export class AdminCalibrationService {
     await this.audit("admin.calibration.run.create", run.id, ctx, {
       cohortId,
       cohortRevision: cohort.revision,
+      mode: input.mode,
       contentHash: hash,
       byteLength,
+      activeModelId: activeModel.id,
+      evaluationModelId: evalModel.id,
+      evidenceFingerprint,
     });
 
     return mapRun(updated);
@@ -1150,5 +1214,131 @@ export class AdminCalibrationService {
       throw HttpError.notFound("CALIBRATION_REPORT_NOT_FOUND", `No report for run ${runId}`);
     }
     return mapReport(report);
+  }
+
+  /** ACTIVE + DRAFT models for calibration selectors — never activates. */
+  async listScoreModels(): Promise<{ models: AdminScoreModelDTO[] }> {
+    assertEnabled(this.container);
+    const models = await this.prisma().scoreModel.findMany({
+      where: { status: { in: ["ACTIVE", "DRAFT"] } },
+      orderBy: [{ status: "asc" }, { key: "asc" }, { version: "desc" }],
+      take: 200,
+    });
+    return { models: models.map(mapAdminModel) };
+  }
+
+  /**
+   * Create a new DRAFT ScoreModel from a source model + optional config.
+   * Never mutates the source; never activates.
+   */
+  async createDraftScoreModel(
+    body: unknown,
+    createdByUserId: string,
+    ctx: AuditCtx,
+  ): Promise<AdminScoreModelDTO> {
+    assertEnabled(this.container);
+    const input = createCalibrationDraftModelBodySchema.parse(body);
+    const source = await this.prisma().scoreModel.findUnique({ where: { id: input.sourceModelId } });
+    if (!source) {
+      throw HttpError.notFound("SCORE_MODEL_NOT_FOUND", `Source model ${input.sourceModelId} was not found`);
+    }
+    const sourceConfigSnapshot = JSON.stringify(source.config);
+    const config = (input.config ?? source.config) as unknown as ScoreModelConfig;
+    const created = await this.container.worker.repositories.score.createDraftModel({
+      key: source.key,
+      name: input.name ?? `${source.name} (calibration draft)`,
+      description: input.description ?? source.description ?? "",
+      config,
+      createdByUserId,
+    });
+
+    // Prove source immutability after create.
+    const sourceAfter = await this.prisma().scoreModel.findUniqueOrThrow({
+      where: { id: source.id },
+    });
+    if (JSON.stringify(sourceAfter.config) !== sourceConfigSnapshot) {
+      throw HttpError.internal("Source score model was mutated during draft creation — aborting");
+    }
+    if (sourceAfter.status !== source.status) {
+      throw HttpError.internal("Source score model status changed during draft creation — aborting");
+    }
+    if (created.status !== "DRAFT") {
+      throw HttpError.internal("Calibration draft create must yield status=DRAFT");
+    }
+
+    await this.audit("admin.calibration.score_model.create_draft", created.id, ctx, {
+      sourceModelId: source.id,
+      sourceKey: source.key,
+      sourceVersion: source.version,
+      draftVersion: created.version,
+      configProvided: Boolean(input.config),
+    });
+    return mapAdminModel(created);
+  }
+
+  private async resolveModelsForMode(input: {
+    mode: CalibrationRunMode;
+    activeModelId?: string | null;
+    evaluationModelId?: string | null;
+    requireEvaluation: boolean;
+  }): Promise<{ activeModel: ScoreModel | null; evaluationModel: ScoreModel | null }> {
+    let activeModel: ScoreModel | null = null;
+    if (input.activeModelId) {
+      activeModel = await this.prisma().scoreModel.findUnique({ where: { id: input.activeModelId } });
+      if (!activeModel) {
+        throw HttpError.badRequest(
+          "SCORE_MODEL_NOT_FOUND",
+          `Active/reference model ${input.activeModelId} not found`,
+        );
+      }
+    } else {
+      activeModel = await this.prisma().scoreModel.findFirst({
+        where: { status: "ACTIVE" },
+        orderBy: { activatedAt: "desc" },
+      });
+    }
+
+    if (input.mode === "ACTIVE_VERSUS_DRAFT" && activeModel && activeModel.status !== "ACTIVE") {
+      throw HttpError.badRequest(
+        "ACTIVE_MODEL_REQUIRED",
+        `ACTIVE_VERSUS_DRAFT requires an ACTIVE reference model (got ${activeModel.status})`,
+      );
+    }
+
+    let evaluationModel: ScoreModel | null = null;
+    if (input.evaluationModelId) {
+      evaluationModel = await this.prisma().scoreModel.findUnique({
+        where: { id: input.evaluationModelId },
+      });
+      if (!evaluationModel) {
+        throw HttpError.badRequest(
+          "SCORE_MODEL_NOT_FOUND",
+          `Evaluation model ${input.evaluationModelId} not found`,
+        );
+      }
+    }
+
+    if (input.requireEvaluation) {
+      if (!evaluationModel) {
+        throw HttpError.badRequest(
+          "EVALUATION_MODEL_REQUIRED",
+          `${input.mode} requires evaluationModelId pointing to a DRAFT model`,
+        );
+      }
+      if (evaluationModel.status !== "DRAFT") {
+        throw HttpError.badRequest(
+          "EVALUATION_MODEL_NOT_DRAFT",
+          `Evaluation model must be DRAFT (got ${evaluationModel.status})`,
+        );
+      }
+      if (activeModel && evaluationModel.id === activeModel.id) {
+        throw HttpError.badRequest(
+          "EVALUATION_MODEL_SAME_AS_ACTIVE",
+          "Evaluation draft must be distinct from the ACTIVE reference model",
+        );
+      }
+    }
+
+    return { activeModel, evaluationModel };
   }
 }
