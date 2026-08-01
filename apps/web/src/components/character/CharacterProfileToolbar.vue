@@ -3,6 +3,7 @@ import { computed } from "vue";
 import { RouterLink } from "vue-router";
 import type { CharacterProfileView } from "../../api/types";
 import { presentStatusChip } from "../../lib/statusChip";
+import { inferBootstrapRepairRequired } from "../../lib/bootstrapRepair";
 
 const props = defineProps<{
   profile: CharacterProfileView;
@@ -17,11 +18,7 @@ const emit = defineEmits<{
   repairBootstrap: [];
 }>();
 
-const bootstrapRepairRequired = computed(
-  () =>
-    props.profile.bootstrapRepairRequired === true ||
-    (props.profile.warnings ?? []).some((w) => w.code === "CHARACTER_BOOTSTRAP_INCOMPLETE"),
-);
+const bootstrapRepairRequired = computed(() => inferBootstrapRepairRequired(props.profile));
 
 const refreshInFlight = computed(
   () =>

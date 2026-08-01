@@ -77,4 +77,103 @@ describe("CharacterProfileToolbar refresh labels", () => {
     expect(wrapper.find("[data-testid='force-refresh-button']").exists()).toBe(false);
     wrapper.unmount();
   });
+
+  it("exposes repair via CHARACTER_BOOTSTRAP_INCOMPLETE without the boolean flag", () => {
+    const wrapper = mount(CharacterProfileToolbar, {
+      props: {
+        profile: {
+          ...profile("FAILED"),
+          warnings: [
+            {
+              code: "CHARACTER_BOOTSTRAP_INCOMPLETE",
+              message: "Profile data incomplete",
+              severity: "WARN",
+            },
+          ],
+        },
+      },
+      global: {
+        stubs: { RouterLink: { template: "<a><slot /></a>" } },
+      },
+    });
+    expect(wrapper.find("[data-testid='bootstrap-repair-button']").exists()).toBe(true);
+    wrapper.unmount();
+  });
+
+  it("applies the narrow version-skew fallback for incomplete + eligibility-unknown", () => {
+    const wrapper = mount(CharacterProfileToolbar, {
+      props: {
+        profile: {
+          ...profile("QUEUED"),
+          score: null,
+          level: null,
+          role: null,
+          classSlug: null,
+          specSlug: null,
+          warnings: [
+            {
+              code: "CHARACTER_REFRESH_ELIGIBILITY_UNKNOWN",
+              message: "unknown",
+              severity: "WARN",
+            },
+          ],
+        },
+      },
+      global: {
+        stubs: { RouterLink: { template: "<a><slot /></a>" } },
+      },
+    });
+    // Still in-flight from status, so repair stays hidden until status is reconciled.
+    expect(wrapper.find("[data-testid='bootstrap-repair-button']").exists()).toBe(false);
+    wrapper.unmount();
+
+    const failed = mount(CharacterProfileToolbar, {
+      props: {
+        profile: {
+          ...profile("FAILED"),
+          score: null,
+          level: null,
+          role: null,
+          classSlug: null,
+          specSlug: null,
+          warnings: [
+            {
+              code: "CHARACTER_REFRESH_ELIGIBILITY_UNKNOWN",
+              message: "unknown",
+              severity: "WARN",
+            },
+          ],
+        },
+      },
+      global: {
+        stubs: { RouterLink: { template: "<a><slot /></a>" } },
+      },
+    });
+    expect(failed.find("[data-testid='bootstrap-repair-button']").exists()).toBe(true);
+    failed.unmount();
+  });
+
+  it("hides repair CTA while a real in-flight refresh is shown", () => {
+    const wrapper = mount(CharacterProfileToolbar, {
+      props: {
+        profile: {
+          ...profile("QUEUED"),
+          bootstrapRepairRequired: true,
+          warnings: [
+            {
+              code: "CHARACTER_BOOTSTRAP_INCOMPLETE",
+              message: "incomplete",
+              severity: "WARN",
+            },
+          ],
+        },
+      },
+      global: {
+        stubs: { RouterLink: { template: "<a><slot /></a>" } },
+      },
+    });
+    expect(wrapper.find("[data-testid='bootstrap-repair-button']").exists()).toBe(false);
+    expect(wrapper.find("[data-testid='refresh-status-queued']").exists()).toBe(true);
+    wrapper.unmount();
+  });
 });

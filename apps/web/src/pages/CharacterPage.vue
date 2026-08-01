@@ -35,6 +35,11 @@ import {
   loadWowheadTooltipScript,
   refreshWowheadTooltips,
 } from "../integrations/wowhead/tooltips";
+import {
+  inferBootstrapRepairRequired,
+  reconcileProfileRefreshStatus,
+  refreshStatusHasRealInFlightJob,
+} from "../lib/bootstrapRepair";
 
 const props = defineProps<{
   region: string;
@@ -122,10 +127,7 @@ const bannerTitles = computed(() => {
     titles.push("Refresh timed out");
   } else if (profile.value.refreshStatus === "STALE" && !polling.value) {
     titles.push("Data may be outdated");
-  } else if (
-    profile.value.bootstrapRepairRequired ||
-    (profile.value.warnings ?? []).some((w) => w.code === "CHARACTER_BOOTSTRAP_INCOMPLETE")
-  ) {
+  } else if (inferBootstrapRepairRequired(profile.value)) {
     titles.push("Profile data incomplete");
   } else if (profile.value.refreshStatus === "FAILED" && !polling.value) {
     titles.push("Refresh failed");
@@ -139,6 +141,33 @@ const bannerTitles = computed(() => {
 });
 
 const showBannerGroup = computed(() => bannerTitles.value.length > 0);
+
+function withBootstrapRepairSignal(data: CharacterProfileView): CharacterProfileView {
+  if (inferBootstrapRepairRequired(data) && data.bootstrapRepairRequired !== true) {
+    return { ...data, bootstrapRepairRequired: true };
+  }
+  return data;
+}
+
+function applyRefreshStatusToProfile(
+  current: CharacterProfileView,
+  status: RefreshStatusResponse,
+): CharacterProfileView {
+  const next = {
+    ...current,
+    refreshStatus: reconcileProfileRefreshStatus({
+      hasScore: Boolean(current.score),
+      status,
+    }),
+    bootstrapRepairRequired:
+      status.bootstrapRepairRequired === true
+        ? true
+        : current.bootstrapRepairRequired === true
+          ? true
+          : inferBootstrapRepairRequired(current),
+  };
+  return withBootstrapRepairSignal(next);
+}
 
 function pollingOptions(identity: {
   region: string;
@@ -192,7 +221,7 @@ async function load(): Promise<void> {
   };
   try {
     await fetchAuthMe();
-    const data = await api.getCharacterProfile(identity, signal);
+    const data = withBootstrapRepairSignal(await api.getCharacterProfile(identity, signal));
     profile.value = data;
     recent.add({
       ...identity,
@@ -201,42 +230,38 @@ async function load(): Promise<void> {
     });
     void loadActiveRerolls();
     if (data.refreshStatus === "QUEUED" || data.refreshStatus === "REFRESHING") {
+      // Reconcile once with refresh-status so a stale false QUEUED cannot start a poll loop.
+      let initialStatus: RefreshStatusResponse;
+      try {
+        initialStatus = await api.getRefreshStatus(identity, signal);
+      } catch {
+        initialStatus = {
+          characterId: data.characterId,
+          refreshStatus: data.refreshStatus === "REFRESHING" ? "IN_PROGRESS" : "QUEUED",
+          job: null,
+          cooldownSecondsRemaining: 0,
+          bootstrapRepairRequired: data.bootstrapRepairRequired === true,
+        };
+      }
+      const reconciled = applyRefreshStatusToProfile(data, initialStatus);
+      profile.value = reconciled;
+      lastRefreshStatus.value = initialStatus;
+
+      const shouldPoll =
+        refreshStatusHasRealInFlightJob(initialStatus) &&
+        (initialStatus.refreshStatus === "QUEUED" ||
+          initialStatus.refreshStatus === "IN_PROGRESS");
+
+      if (!shouldPoll) {
+        return;
+      }
+
       void startPolling({
         ...pollingOptions(identity),
         onUpdate: (status) => {
           lastRefreshStatus.value = status;
           if (profile.value) {
-            const cancelled = status.job?.status === "cancelled";
-            const terminalFailed =
-              !cancelled &&
-              (status.refreshStatus === "FAILED" || status.job?.status === "failed");
-            const inProgress =
-              !cancelled &&
-              (status.refreshStatus === "IN_PROGRESS" ||
-                status.refreshStatus === "QUEUED" ||
-                status.job?.status === "queued" ||
-                status.job?.status === "active");
-            const hasScore = Boolean(profile.value.score);
-            profile.value = {
-              ...profile.value,
-              refreshStatus: terminalFailed
-                ? hasScore
-                  ? "STALE"
-                  : "FAILED"
-                : cancelled
-                  ? status.refreshStatus === "STALE"
-                    ? "STALE"
-                    : "FRESH"
-                  : inProgress
-                    ? hasScore
-                      ? "REFRESHING"
-                      : "QUEUED"
-                    : "FRESH",
-              bootstrapRepairRequired:
-                status.bootstrapRepairRequired === true
-                  ? true
-                  : profile.value.bootstrapRepairRequired,
-            };
+            profile.value = applyRefreshStatusToProfile(profile.value, status);
           }
         },
         onComplete: async (status) => {
@@ -250,7 +275,7 @@ async function load(): Promise<void> {
               status.job?.errorMessage?.trim() ||
               "Refresh failed. You can retry without losing the last available snapshot.";
           }
-          const refreshed = await api.getCharacterProfile(identity);
+          const refreshed = withBootstrapRepairSignal(await api.getCharacterProfile(identity));
           profile.value = refreshed;
           if (
             status.refreshStatus === "FRESH" ||
@@ -313,7 +338,7 @@ async function repairBootstrap(): Promise<void> {
       return;
     }
 
-    const refreshed = await api.getCharacterProfile(identity);
+    const refreshed = withBootstrapRepairSignal(await api.getCharacterProfile(identity));
     profile.value = refreshed;
     if (
       result.status === "QUEUED" ||
@@ -330,37 +355,27 @@ async function repairBootstrap(): Promise<void> {
     }
 
     if (refreshed.refreshStatus === "QUEUED" || refreshed.refreshStatus === "REFRESHING") {
+      let statusCheck: RefreshStatusResponse;
+      try {
+        statusCheck = await api.getRefreshStatus(identity);
+      } catch {
+        statusCheck = {
+          characterId: refreshed.characterId,
+          refreshStatus: refreshed.refreshStatus === "REFRESHING" ? "IN_PROGRESS" : "QUEUED",
+          job: null,
+          cooldownSecondsRemaining: 0,
+          bootstrapRepairRequired: false,
+        };
+      }
+      profile.value = applyRefreshStatusToProfile(refreshed, statusCheck);
+      if (!refreshStatusHasRealInFlightJob(statusCheck)) {
+        return;
+      }
       void startPolling({
         ...pollingOptions(identity),
         onUpdate: (statusUpdate) => {
           if (profile.value) {
-            const cancelled = statusUpdate.job?.status === "cancelled";
-            const terminalFailed =
-              !cancelled &&
-              (statusUpdate.refreshStatus === "FAILED" || statusUpdate.job?.status === "failed");
-            const inProgress =
-              !cancelled &&
-              (statusUpdate.refreshStatus === "IN_PROGRESS" ||
-                statusUpdate.refreshStatus === "QUEUED" ||
-                statusUpdate.job?.status === "queued" ||
-                statusUpdate.job?.status === "active");
-            profile.value = {
-              ...profile.value,
-              refreshStatus: terminalFailed
-                ? profile.value.score
-                  ? "STALE"
-                  : "FAILED"
-                : cancelled
-                  ? statusUpdate.refreshStatus === "STALE"
-                    ? "STALE"
-                    : "FRESH"
-                  : inProgress
-                    ? profile.value.score
-                      ? "REFRESHING"
-                      : "QUEUED"
-                    : "FRESH",
-              bootstrapRepairRequired: statusUpdate.bootstrapRepairRequired === true,
-            };
+            profile.value = applyRefreshStatusToProfile(profile.value, statusUpdate);
           }
         },
         onComplete: async (statusUpdate) => {
@@ -372,7 +387,7 @@ async function repairBootstrap(): Promise<void> {
               statusUpdate.job?.errorMessage?.trim() ||
               "Refresh failed after profile repair. You can retry without losing restored metadata.";
           }
-          const again = await api.getCharacterProfile(identity);
+          const again = withBootstrapRepairSignal(await api.getCharacterProfile(identity));
           profile.value = again;
         },
         onTimeout: () => {
@@ -397,8 +412,7 @@ async function refresh(opts: { force?: boolean } = {}): Promise<void> {
   try {
     refreshNotice.value = null;
     const status = await api.refreshCharacter(identity, undefined, { force: opts.force === true });
-    const inFlight =
-      status.refreshStatus === "QUEUED" || status.refreshStatus === "IN_PROGRESS";
+    const inFlight = refreshStatusHasRealInFlightJob(status);
 
     if (!inFlight && status.cooldownSecondsRemaining > 0) {
       const minutes = Math.ceil(status.cooldownSecondsRemaining / 60);
@@ -414,43 +428,24 @@ async function refresh(opts: { force?: boolean } = {}): Promise<void> {
     }
 
     if (status.refreshStatus === "FRESH" && !inFlight) {
-      const refreshed = await api.getCharacterProfile(identity);
+      const refreshed = withBootstrapRepairSignal(await api.getCharacterProfile(identity));
       profile.value = refreshed;
       return;
     }
 
-    profile.value = {
-      ...profile.value,
-      refreshStatus: profile.value.score ? "REFRESHING" : "QUEUED",
-    };
+    if (!inFlight) {
+      profile.value = applyRefreshStatusToProfile(profile.value, status);
+      return;
+    }
+
+    profile.value = applyRefreshStatusToProfile(profile.value, status);
     lastRefreshStatus.value = status;
     void startPolling({
       ...pollingOptions(identity),
       onUpdate: (statusUpdate) => {
         lastRefreshStatus.value = statusUpdate;
         if (profile.value) {
-          const cancelled = statusUpdate.job?.status === "cancelled";
-          const inProgress =
-            !cancelled &&
-            (statusUpdate.refreshStatus === "IN_PROGRESS" ||
-              statusUpdate.refreshStatus === "QUEUED" ||
-              statusUpdate.job?.status === "queued" ||
-              statusUpdate.job?.status === "active");
-          profile.value = {
-            ...profile.value,
-            refreshStatus:
-              !cancelled && statusUpdate.refreshStatus === "FAILED"
-                ? "STALE"
-                : cancelled
-                  ? statusUpdate.refreshStatus === "STALE"
-                    ? "STALE"
-                    : "FRESH"
-                  : inProgress
-                    ? profile.value.score
-                      ? "REFRESHING"
-                      : "QUEUED"
-                    : "FRESH",
-          };
+          profile.value = applyRefreshStatusToProfile(profile.value, statusUpdate);
         }
       },
       onComplete: async (statusUpdate) => {
@@ -463,7 +458,7 @@ async function refresh(opts: { force?: boolean } = {}): Promise<void> {
             statusUpdate.job?.errorMessage?.trim() ||
             "Refresh failed. You can retry without losing the last available snapshot.";
         }
-        const refreshed = await api.getCharacterProfile(identity);
+        const refreshed = withBootstrapRepairSignal(await api.getCharacterProfile(identity));
         profile.value = refreshed;
         if (
           statusUpdate.refreshStatus === "FRESH" ||
@@ -535,10 +530,7 @@ watch(
       />
 
       <StatusBanner
-        v-if="
-          profile.bootstrapRepairRequired ||
-          (profile.warnings ?? []).some((w) => w.code === 'CHARACTER_BOOTSTRAP_INCOMPLETE')
-        "
+        v-if="inferBootstrapRepairRequired(profile)"
         tone="warn"
         title="Profile data incomplete"
         data-testid="bootstrap-incomplete-banner"
