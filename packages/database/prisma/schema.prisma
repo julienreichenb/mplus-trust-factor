@@ -220,13 +220,15 @@ model Season {
   mythicRuns       MythicRun[]
   metricObservations MetricObservation[]
   mechanicRules    MechanicRule[]
-  scoreSnapshots   ScoreSnapshot[]
-  characterRedFlags CharacterRedFlag[]
-  addonExports     AddonExport[]
-  analysisBatches  ScoreAnalysisBatch[]
-  publishedScores  CharacterPublishedScore[]
-  calibrationCohorts CalibrationCohort[]
-  calibrationRuns    CalibrationRun[]
+  scoreSnapshots         ScoreSnapshot[]
+  characterRedFlags      CharacterRedFlag[]
+  addonExports           AddonExport[]
+  analysisBatches        ScoreAnalysisBatch[]
+  publishedScores        CharacterPublishedScore[]
+  calibrationCohorts     CalibrationCohort[]
+  calibrationRuns        CalibrationRun[]
+  evidenceManifests      EvidenceManifest[]
+  dimensionComputations  DimensionComputation[]
 
   @@unique([regionId, slug])
   @@map("seasons")
@@ -244,9 +246,10 @@ model Dungeon {
   createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt          DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  seasonDungeons SeasonDungeon[]
-  mythicRuns     MythicRun[]
-  mechanicRules  MechanicRule[]
+  seasonDungeons         SeasonDungeon[]
+  mythicRuns             MythicRun[]
+  mechanicRules          MechanicRule[]
+  evidenceManifestSlots  EvidenceManifestSlot[]
 
   @@map("dungeons")
 }
@@ -296,6 +299,7 @@ model GameSpecialization {
   characterSnapshots  CharacterSnapshot[]
   talentSnapshots     TalentSnapshot[]
   runParticipants     RunParticipant[]
+  evidenceManifests   EvidenceManifest[]
 
   @@unique([classId, slug])
   @@map("game_specializations")
@@ -348,6 +352,9 @@ model Character {
   refreshAdmissions RefreshAdmission[]
   bulkOperationItems BulkOperationItem[]
   calibrationCohortMembers CalibrationCohortMember[]
+  evidenceManifests        EvidenceManifest[]
+  runFactSets              RunFactSet[]
+  dimensionComputations    DimensionComputation[]
 
   @@unique([regionId, realmId, normalizedName])
   @@index([lastPublicRefreshAt])
@@ -574,20 +581,47 @@ model ExternalPayload {
 }
 
 model RawArtifact {
-  id             String              @id @default(uuid()) @db.Uuid
-  provider       Provider
-  storageUri     String              @map("storage_uri")
-  compression    ArtifactCompression @default(NONE)
-  contentHash    String              @map("content_hash")
-  sizeBytes      BigInt              @map("size_bytes")
-  createdAt      DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
-  retentionUntil DateTime?           @map("retention_until") @db.Timestamptz(3)
+  id                    String              @id @default(uuid()) @db.Uuid
+  provider              Provider
+  storageUri            String              @map("storage_uri")
+  compression           ArtifactCompression @default(NONE)
+  /** SHA-256 hex of uncompressed bytes — content-addressed identity. */
+  contentHash           String              @unique @map("content_hash")
+  /** On-disk / stored (possibly compressed) size. */
+  sizeBytes             BigInt              @map("size_bytes")
+  /** Uncompressed payload size when known. */
+  uncompressedSizeBytes BigInt?             @map("uncompressed_size_bytes")
+  /** Logical artifact class (raw_provider_response, wcl_event_page, …). */
+  artifactClass         String?             @map("artifact_class")
+  /** Soft reference count; refuse delete while > 0. */
+  refCount              Int                 @default(0) @map("ref_count")
+  createdAt             DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+  retentionUntil        DateTime?           @map("retention_until") @db.Timestamptz(3)
 
-  payloads     ExternalPayload[]
-  addonExports AddonExport[]
+  payloads           ExternalPayload[]
+  addonExports       AddonExport[]
+  evidenceDatasets   EvidenceDataset[]
+  wclReportRevisions WclReportRevision[]
+  artifactReferences ArtifactReference[]
 
-  @@index([contentHash])
+  @@index([provider, createdAt(sort: Desc)])
+  @@index([refCount, retentionUntil])
   @@map("raw_artifacts")
+}
+
+/** Tracks owners that keep a RawArtifact alive (orphan prevention). */
+model ArtifactReference {
+  id         String   @id @default(uuid()) @db.Uuid
+  artifactId String   @map("artifact_id") @db.Uuid
+  ownerType  String   @map("owner_type")
+  ownerId    String   @map("owner_id") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  artifact RawArtifact @relation(fields: [artifactId], references: [id], onDelete: Restrict)
+
+  @@unique([ownerType, ownerId, artifactId])
+  @@index([artifactId])
+  @@map("artifact_references")
 }
 
 model MythicRun {
@@ -612,11 +646,13 @@ model MythicRun {
   region       Region               @relation(fields: [regionId], references: [id])
   sources      RunSourceReference[]
   participants RunParticipant[]
-  analyses     RunAnalysis[]
-  metricObservations MetricObservation[]
-  redFlags     CharacterRedFlag[]
-  ingestionJobs IngestionJob[]
-  analysisBatchRuns ScoreAnalysisBatchRun[]
+  analyses              RunAnalysis[]
+  metricObservations    MetricObservation[]
+  redFlags              CharacterRedFlag[]
+  ingestionJobs         IngestionJob[]
+  analysisBatchRuns     ScoreAnalysisBatchRun[]
+  evidenceManifestSlots EvidenceManifestSlot[]
+  runFactSets           RunFactSet[]
 
   @@index([seasonId, dungeonId, keyLevel, completedAt])
   @@index([completedAt(sort: Desc)])
@@ -766,10 +802,11 @@ model ScoreModel {
   scoreSnapshots    ScoreSnapshot[]
   characterRedFlags CharacterRedFlag[]
   addonExports      AddonExport[]
-  analysisBatches   ScoreAnalysisBatch[]
-  bulkOperations    BulkOperation[]
+  analysisBatches              ScoreAnalysisBatch[]
+  bulkOperations               BulkOperation[]
   calibrationRunsAsActive      CalibrationRun[] @relation("CalibrationRunActiveModel")
   calibrationRunsAsEvaluation  CalibrationRun[] @relation("CalibrationRunEvaluationModel")
+  dimensionComputations        DimensionComputation[]
 
   @@unique([key, version])
   @@index([status])
@@ -797,20 +834,24 @@ model ScoreSnapshot {
   refreshContractHash String?             @map("refresh_contract_hash")
   providerDataAsOf DateTime?              @map("provider_data_as_of") @db.Timestamptz(3)
   coverageState    String?                @map("coverage_state")
-  rejectionReason  String?                @map("rejection_reason")
-  publishedAt      DateTime?              @map("published_at") @db.Timestamptz(3)
+  rejectionReason     String?                @map("rejection_reason")
+  publishedAt         DateTime?              @map("published_at") @db.Timestamptz(3)
+  /** Optional V2 evidence manifest this snapshot was computed from. */
+  evidenceManifestId  String?                @map("evidence_manifest_id") @db.Uuid
 
-  character      Character         @relation(fields: [characterId], references: [id])
-  season         Season            @relation(fields: [seasonId], references: [id])
-  scoreModel     ScoreModel        @relation(fields: [scoreModelId], references: [id])
-  dimensionScores DimensionScore[]
-  disputes       ScoreDispute[]
-  analysisBatch  ScoreAnalysisBatch? @relation(fields: [analysisBatchId], references: [id])
-  publishedScorePointers CharacterPublishedScore[] @relation("PublishedSnapshotPointer")
+  character              Character                   @relation(fields: [characterId], references: [id])
+  season                 Season                      @relation(fields: [seasonId], references: [id])
+  scoreModel             ScoreModel                  @relation(fields: [scoreModelId], references: [id])
+  dimensionScores        DimensionScore[]
+  disputes               ScoreDispute[]
+  analysisBatch          ScoreAnalysisBatch?         @relation(fields: [analysisBatchId], references: [id])
+  publishedScorePointers CharacterPublishedScore[]   @relation("PublishedSnapshotPointer")
+  evidenceManifest       EvidenceManifest?           @relation(fields: [evidenceManifestId], references: [id])
 
   @@unique([characterId, seasonId, scoreModelId, scopeType, scopeKey, inputFingerprint])
   @@index([characterId, calculatedAt(sort: Desc)])
   @@index([characterId, isPublic, calculatedAt(sort: Desc)])
+  @@index([evidenceManifestId])
   @@map("score_snapshots")
 }
 
@@ -867,15 +908,19 @@ model ScoreAnalysisBatch {
   createdAt            DateTime                @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt            DateTime                @updatedAt @map("updated_at") @db.Timestamptz(3)
   metadata             Json                    @default("{}")
+  /** Optional V2 evidence manifest driving this analysis batch lifecycle. */
+  evidenceManifestId   String?                 @map("evidence_manifest_id") @db.Uuid
 
-  character    Character                 @relation(fields: [characterId], references: [id])
-  season       Season                    @relation(fields: [seasonId], references: [id])
-  scoreModel   ScoreModel                @relation(fields: [scoreModelId], references: [id])
-  runs         ScoreAnalysisBatchRun[]
-  snapshots    ScoreSnapshot[]
+  character          Character                 @relation(fields: [characterId], references: [id])
+  season             Season                    @relation(fields: [seasonId], references: [id])
+  scoreModel         ScoreModel                @relation(fields: [scoreModelId], references: [id])
+  runs               ScoreAnalysisBatchRun[]
+  snapshots          ScoreSnapshot[]
+  evidenceManifest   EvidenceManifest?         @relation(fields: [evidenceManifestId], references: [id])
 
   @@unique([characterId, seasonId, refreshId, scoreModelId])
   @@index([finalizationStatus, updatedAt])
+  @@index([evidenceManifestId])
   @@map("score_analysis_batches")
 }
 
@@ -1628,4 +1673,169 @@ model CalibrationReport {
   run CalibrationRun @relation(fields: [runId], references: [id], onDelete: Restrict)
 
   @@map("calibration_reports")
+}
+
+// ---------------------------------------------------------------------------
+// Scoring V2 evidence / fact / dimension persistence (additive; V1 retained)
+// ---------------------------------------------------------------------------
+
+model EvidenceManifest {
+  id                  String        @id @default(uuid()) @db.Uuid
+  characterId         String        @map("character_id") @db.Uuid
+  seasonId            String        @map("season_id") @db.Uuid
+  specializationId    String?       @map("specialization_id") @db.Uuid
+  role                CharacterRole
+  refreshContractHash String        @map("refresh_contract_hash")
+  selectorVersion     String        @map("selector_version")
+  highKeyPolicyId     String        @map("high_key_policy_id")
+  evidenceCutoffAt    DateTime      @map("evidence_cutoff_at") @db.Timestamptz(3)
+  expectedSlotCount   Int           @map("expected_slot_count")
+  selectedSlotCount   Int           @map("selected_slot_count")
+  coverageState       String        @map("coverage_state")
+  schemaVersion       String        @map("schema_version")
+  /** SHA-256 of canonical frozen document (immutable identity). */
+  contentHash         String        @unique @map("content_hash")
+  /** Bounded EvidenceManifestV2 JSON document — no raw event arrays. */
+  document            Json
+  frozenAt            DateTime      @map("frozen_at") @db.Timestamptz(3)
+  createdAt           DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  character             Character              @relation(fields: [characterId], references: [id])
+  season                Season                 @relation(fields: [seasonId], references: [id])
+  specialization        GameSpecialization?    @relation(fields: [specializationId], references: [id])
+  slots                 EvidenceManifestSlot[]
+  dimensionComputations DimensionComputation[]
+  scoreSnapshots        ScoreSnapshot[]
+  analysisBatches       ScoreAnalysisBatch[]
+
+  @@index([characterId, seasonId, frozenAt(sort: Desc)])
+  @@index([frozenAt(sort: Desc)])
+  @@map("evidence_manifests")
+}
+
+model EvidenceManifestSlot {
+  id                String    @id @default(uuid()) @db.Uuid
+  manifestId        String    @map("manifest_id") @db.Uuid
+  dungeonId         String    @map("dungeon_id") @db.Uuid
+  slotIndex         Int       @map("slot_index")
+  runId             String?   @map("run_id") @db.Uuid
+  reportCode        String?   @map("report_code")
+  fightId           Int?      @map("fight_id")
+  reportRevision    Int?      @map("report_revision")
+  keyLevel          Int?      @map("key_level")
+  candidateRank     Int?      @map("candidate_rank")
+  state             String
+  selectionReason   String?   @map("selection_reason")
+  dimensionValidity Json      @default("{}") @map("dimension_validity")
+  invalidReasons    Json      @default("[]") @map("invalid_reasons")
+  providerDataAsOf  DateTime? @map("provider_data_as_of") @db.Timestamptz(3)
+
+  manifest  EvidenceManifest  @relation(fields: [manifestId], references: [id], onDelete: Restrict)
+  dungeon   Dungeon           @relation(fields: [dungeonId], references: [id])
+  run       MythicRun?        @relation(fields: [runId], references: [id])
+  datasets  EvidenceDataset[]
+  factSets  RunFactSet[]
+
+  @@unique([manifestId, dungeonId, slotIndex])
+  @@index([manifestId, state])
+  @@index([reportCode, fightId])
+  @@map("evidence_manifest_slots")
+}
+
+model WclReportRevision {
+  id                   String   @id @default(uuid()) @db.Uuid
+  reportCode           String   @map("report_code")
+  revision             Int
+  visibility           String
+  archiveState         String?  @map("archive_state")
+  startTimeMs          BigInt   @map("start_time_ms")
+  endTimeMs            BigInt   @map("end_time_ms")
+  zoneId               Int?     @map("zone_id")
+  masterDataArtifactId String?  @map("master_data_artifact_id") @db.Uuid
+  metadataHash         String   @map("metadata_hash")
+  fetchedAt            DateTime @map("fetched_at") @db.Timestamptz(3)
+
+  masterDataArtifact RawArtifact? @relation(fields: [masterDataArtifactId], references: [id])
+
+  @@unique([reportCode, revision])
+  @@index([reportCode])
+  @@map("wcl_report_revisions")
+}
+
+model EvidenceDataset {
+  id                      String    @id @default(uuid()) @db.Uuid
+  manifestSlotId          String    @map("manifest_slot_id") @db.Uuid
+  datasetKey              String    @map("dataset_key")
+  /** Stable key for cache/reuse across refreshes (unique). */
+  compatibilityKey        String    @unique @map("compatibility_key")
+  artifactId              String?   @map("artifact_id") @db.Uuid
+  schemaVersion           String    @map("schema_version")
+  providerContractVersion String    @map("provider_contract_version")
+  state                   String
+  eventCount              Int       @default(0) @map("event_count")
+  pageCount               Int       @default(0) @map("page_count")
+  truncated               Boolean   @default(false)
+  pointsConsumed          Float?    @map("points_consumed")
+  costSource              String?   @map("cost_source")
+  payloadFingerprint      String?   @map("payload_fingerprint")
+  fetchedAt               DateTime? @map("fetched_at") @db.Timestamptz(3)
+  createdAt               DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  manifestSlot EvidenceManifestSlot @relation(fields: [manifestSlotId], references: [id], onDelete: Restrict)
+  artifact     RawArtifact?         @relation(fields: [artifactId], references: [id])
+
+  @@unique([manifestSlotId, datasetKey])
+  @@index([artifactId])
+  @@map("evidence_datasets")
+}
+
+model RunFactSet {
+  id               String   @id @default(uuid()) @db.Uuid
+  manifestSlotId   String   @map("manifest_slot_id") @db.Uuid
+  characterId      String   @map("character_id") @db.Uuid
+  runId            String?  @map("run_id") @db.Uuid
+  extractorFamily  String   @map("extractor_family")
+  extractorVersion String   @map("extractor_version")
+  schemaVersion    String   @map("schema_version")
+  inputFingerprint String   @map("input_fingerprint")
+  /** Bounded normalized facts — never raw WCL event pages. */
+  facts            Json
+  coverage         Json     @default("{}")
+  limitations      Json     @default("[]")
+  computedAt       DateTime @map("computed_at") @db.Timestamptz(3)
+
+  manifestSlot EvidenceManifestSlot @relation(fields: [manifestSlotId], references: [id], onDelete: Restrict)
+  character    Character            @relation(fields: [characterId], references: [id])
+  run          MythicRun?           @relation(fields: [runId], references: [id])
+
+  @@unique([manifestSlotId, extractorFamily, extractorVersion, inputFingerprint])
+  @@index([characterId, computedAt(sort: Desc)])
+  @@map("run_fact_sets")
+}
+
+model DimensionComputation {
+  id               String         @id @default(uuid()) @db.Uuid
+  characterId      String         @map("character_id") @db.Uuid
+  seasonId         String         @map("season_id") @db.Uuid
+  manifestId       String         @map("manifest_id") @db.Uuid
+  scoreModelId     String         @map("score_model_id") @db.Uuid
+  dimension        ScoreDimension
+  algorithmVersion String         @map("algorithm_version")
+  inputFingerprint String         @map("input_fingerprint")
+  score            Decimal?       @db.Decimal(8, 4)
+  confidence       Decimal        @db.Decimal(5, 4)
+  state            String
+  metrics          Json           @default("{}")
+  explanation      Json           @default("{}")
+  computedAt       DateTime       @map("computed_at") @db.Timestamptz(3)
+
+  character  Character        @relation(fields: [characterId], references: [id])
+  season     Season           @relation(fields: [seasonId], references: [id])
+  manifest   EvidenceManifest @relation(fields: [manifestId], references: [id], onDelete: Restrict)
+  scoreModel ScoreModel       @relation(fields: [scoreModelId], references: [id])
+
+  @@unique([characterId, seasonId, manifestId, scoreModelId, dimension, inputFingerprint])
+  @@index([characterId, seasonId, scoreModelId, computedAt(sort: Desc)])
+  @@index([manifestId, dimension])
+  @@map("dimension_computations")
 }

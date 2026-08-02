@@ -25,6 +25,7 @@ export const TEST_SCORE_MODEL_KEY_PREFIXES = [
   "alt-model-",
   "bulk-model-",
   "pub-cancel-model-",
+  "v2-persist-model-",
 ] as const;
 
 export const CANONICAL_SCORE_MODEL_KEYS = ["default"] as const;

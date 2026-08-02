@@ -17,3 +17,9 @@ Persist large payloads as `RawArtifact` records pointing at a storage URI. MVP s
 - `ExternalPayload.payload` remains optional for small JSON.
 - Retention is controlled by `RAW_ARTIFACT_RETENTION_DAYS`.
 - Agent 8 may introduce cloud object storage behind the same URI abstraction.
+
+## Supersession note
+
+Scoring V2 (ADR 0006) implements the filesystem content-addressed store as
+`@mplus/artifact-store` (`cas://sha256/…`), adds unique `contentHash` / `refCount`
+on `RawArtifact`, and keeps the same compression enum (`NONE` | `GZIP` | `ZSTD`).
