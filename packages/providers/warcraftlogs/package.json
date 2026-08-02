@@ -22,6 +22,7 @@
     "@mplus/contracts": "workspace:*",
     "@mplus/domain": "workspace:*",
     "@mplus/mechanics": "workspace:*",
+    "@mplus/scoring": "workspace:*",
     "zod": "^3.25.76"
   },
   "devDependencies": {
