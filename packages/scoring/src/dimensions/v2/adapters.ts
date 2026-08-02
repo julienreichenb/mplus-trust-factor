@@ -1,0 +1,519 @@
+/**
+ * Provider-free adapters: validate persisted facts / history for Scoring V2
+ * dimension finalization. Does not extract WCL events or call providers.
+ */
+
+import { createHash } from "node:crypto";
+import type { CharacterSeasonEvidenceManifestV2 } from "@mplus/contracts";
+import {
+  PERFORMANCE_V2_ALGORITHM_VERSION,
+  type PerformanceRunParseFactV2,
+  type PerformanceV2ComputeInput,
+  type SeasonDifficultyPolicyV2,
+} from "../../performance/v2/index.js";
+import {
+  EXPERIENCE_V3_ALGORITHM_VERSION,
+  type ExperienceV3ComputeInput,
+  type ExperienceV3CurrentExposureFact,
+  type ExperienceV3EliteHistoryFact,
+  type ExperienceV3HistoricalRankFact,
+  type ExperienceV3PreviousSeasonFact,
+  type HistoricalRankPolicyV3,
+  type PreviousSeasonNormalizationPolicyV3,
+} from "../../experience/v3/index.js";
+import {
+  SURVIVAL_V2_ALGORITHM_VERSION,
+  SURVIVAL_V2_EXTRACTOR_FAMILY,
+  parseSurvivalFactDocumentV2,
+  type SurvivalFactDocumentV2,
+  type SurvivalV2ComputeInput,
+  type SurvivalV2RelativeDamageMode,
+} from "../../survival/v2/index.js";
+import {
+  UTILITY_V2_ALGORITHM_VERSION,
+  UTILITY_V2_EXTRACTOR_FAMILY,
+  UTILITY_V2_SCHEMA_VERSION,
+  type UtilityV2ComputeInput,
+  type UtilityV2FrozenManifestRef,
+  type UtilityV2RunFactSet,
+} from "../../utility/v2/index.js";
+import type { ScoringV2PublicDimension } from "./shadow-record.js";
+
+export interface PersistedFactSetRef {
+  extractorFamily: string;
+  extractorVersion: string;
+  schemaVersion: string;
+  inputFingerprint: string;
+  facts: unknown;
+  limitations?: unknown;
+  manifestSlotId?: string;
+  reportCode?: string | null;
+  fightId?: number | null;
+  reportRevision?: number | null;
+  dungeonSlug?: string | null;
+  slotIndex?: number | null;
+}
+
+export interface FrozenSlotIdentityIssue {
+  slotId: string;
+  code:
+    | "MISSING_IDENTITY"
+    | "MISSING_REPORT_CODE"
+    | "MISSING_FIGHT_ID"
+    | "MISSING_REPORT_REVISION"
+    | "DUPLICATE_FROZEN_IDENTITY";
+  message: string;
+}
+
+export interface FactReadinessResult {
+  ready: boolean;
+  limitations: string[];
+  failureReasons: string[];
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** Detect acquisition shadow_placeholder fact documents (not calculator-ready). */
+export function isShadowPlaceholderFact(facts: unknown): boolean {
+  if (!isRecord(facts)) return false;
+  return facts.kind === "shadow_placeholder";
+}
+
+export function limitationsFromFact(facts: unknown, limitations?: unknown): string[] {
+  const out: string[] = [];
+  if (isShadowPlaceholderFact(facts)) out.push("shadow_placeholder");
+  if (Array.isArray(limitations)) {
+    for (const item of limitations) {
+      if (typeof item === "string" && item.length > 0) out.push(item);
+    }
+  }
+  if (isRecord(facts) && Array.isArray(facts.limitations)) {
+    for (const item of facts.limitations) {
+      if (typeof item === "string" && item.length > 0) out.push(item);
+    }
+  }
+  return [...new Set(out)];
+}
+
+/**
+ * Validate selected slots carry frozen identity: reportCode + fightId + reportRevision.
+ * Also detects duplicate frozen identities within the manifest.
+ */
+export function validateFrozenManifestIdentities(
+  manifest: CharacterSeasonEvidenceManifestV2,
+): FrozenSlotIdentityIssue[] {
+  const issues: FrozenSlotIdentityIssue[] = [];
+  const seen = new Map<string, string>();
+
+  for (const slot of manifest.slots) {
+    if (slot.state !== "SELECTED") continue;
+    const slotId = `${slot.dungeonSlug}:${slot.slotIndex}`;
+    if (slot.identity == null) {
+      issues.push({
+        slotId,
+        code: "MISSING_IDENTITY",
+        message: `selected slot ${slotId} missing frozen identity`,
+      });
+      continue;
+    }
+    const { reportCode, fightId, reportRevision } = slot.identity;
+    if (!reportCode) {
+      issues.push({
+        slotId,
+        code: "MISSING_REPORT_CODE",
+        message: `selected slot ${slotId} missing reportCode`,
+      });
+    }
+    if (fightId == null || !Number.isFinite(fightId)) {
+      issues.push({
+        slotId,
+        code: "MISSING_FIGHT_ID",
+        message: `selected slot ${slotId} missing fightId`,
+      });
+    }
+    if (reportRevision == null || !Number.isFinite(reportRevision)) {
+      issues.push({
+        slotId,
+        code: "MISSING_REPORT_REVISION",
+        message: `selected slot ${slotId} missing reportRevision`,
+      });
+    }
+    if (reportCode && fightId != null && reportRevision != null) {
+      const key = `${reportCode}:${fightId}:${reportRevision}`;
+      const prior = seen.get(key);
+      if (prior) {
+        issues.push({
+          slotId,
+          code: "DUPLICATE_FROZEN_IDENTITY",
+          message: `frozen identity ${key} duplicated on slots ${prior} and ${slotId}`,
+        });
+      } else {
+        seen.set(key, slotId);
+      }
+    }
+  }
+  return issues;
+}
+
+export function verifyManifestContentHash(
+  manifest: CharacterSeasonEvidenceManifestV2,
+  expectedContentHash: string,
+): { ok: true } | { ok: false; reason: string } {
+  if (!expectedContentHash || expectedContentHash !== manifest.contentHash) {
+    return {
+      ok: false,
+      reason: `manifest_content_hash_mismatch: expected=${expectedContentHash} actual=${manifest.contentHash}`,
+    };
+  }
+  return { ok: true };
+}
+
+export function buildUnavailableInputFingerprint(input: {
+  dimension: ScoringV2PublicDimension;
+  algorithmVersion: string;
+  manifestContentHash: string;
+  reasons: string[];
+}): string {
+  const payload = {
+    kind: "unavailable",
+    dimension: input.dimension,
+    algorithmVersion: input.algorithmVersion,
+    manifestContentHash: input.manifestContentHash,
+    reasons: [...input.reasons].sort(),
+  };
+  return createHash("sha256").update(JSON.stringify(payload)).digest("hex");
+}
+
+export function algorithmVersionForDimension(
+  dimension: ScoringV2PublicDimension,
+): string {
+  switch (dimension) {
+    case "PERFORMANCE":
+      return PERFORMANCE_V2_ALGORITHM_VERSION;
+    case "SURVIVAL":
+      return SURVIVAL_V2_ALGORITHM_VERSION;
+    case "UTILITY":
+      return UTILITY_V2_ALGORITHM_VERSION;
+    case "EXPERIENCE":
+      return EXPERIENCE_V3_ALGORITHM_VERSION;
+  }
+}
+
+function classifyPersistedFacts(
+  factSets: PersistedFactSetRef[],
+  expectedFamily: string,
+): FactReadinessResult {
+  const limitations: string[] = [];
+  const failureReasons: string[] = [];
+
+  if (factSets.length === 0) {
+    failureReasons.push("missing_fact_sets");
+    return { ready: false, limitations, failureReasons };
+  }
+
+  let anyFamilyMatch = false;
+  for (const fs of factSets) {
+    const lim = limitationsFromFact(fs.facts, fs.limitations);
+    limitations.push(...lim);
+    if (isShadowPlaceholderFact(fs.facts)) {
+      failureReasons.push("shadow_placeholder_facts");
+      continue;
+    }
+    if (fs.extractorFamily !== expectedFamily) {
+      continue;
+    }
+    anyFamilyMatch = true;
+  }
+
+  if (!anyFamilyMatch) {
+    failureReasons.push(`missing_extractor_family:${expectedFamily}`);
+  }
+
+  const uniqueLimits = [...new Set(limitations)];
+  const uniqueFails = [...new Set(failureReasons)];
+  const ready =
+    uniqueFails.length === 0 &&
+    !uniqueLimits.includes("shadow_placeholder") &&
+    anyFamilyMatch;
+
+  return {
+    ready,
+    limitations: uniqueLimits,
+    failureReasons: uniqueFails,
+  };
+}
+
+export type PerformanceAdapterResult =
+  | { ok: true; input: PerformanceV2ComputeInput }
+  | { ok: false; limitations: string[]; failureReasons: string[] };
+
+export function adaptPerformanceComputeInput(input: {
+  manifest: CharacterSeasonEvidenceManifestV2;
+  factSets: PersistedFactSetRef[];
+  /** Calculator-ready parse facts when available (fixture / future extractors). */
+  runParseFacts?: PerformanceRunParseFactV2[];
+  profileAggregate?: PerformanceV2ComputeInput["profileAggregate"];
+  difficultyPolicy?: SeasonDifficultyPolicyV2 | null;
+  expectedPartition?: number | null;
+  logFreshness?: number;
+  computedAt: string;
+}): PerformanceAdapterResult {
+  const readiness = classifyPersistedFacts(input.factSets, "performance");
+  const runParseFacts = input.runParseFacts ?? [];
+
+  // Live pipeline currently only has shadow_placeholder facts — UNAVAILABLE.
+  // Fixture path may supply typed runParseFacts directly.
+  if (runParseFacts.length === 0) {
+    const failureReasons = [
+      ...readiness.failureReasons,
+      ...(readiness.ready ? ["missing_performance_parse_facts"] : []),
+    ];
+    if (failureReasons.length === 0) failureReasons.push("missing_performance_parse_facts");
+    return {
+      ok: false,
+      limitations: readiness.limitations,
+      failureReasons: [...new Set(failureReasons)],
+    };
+  }
+
+  if (!input.difficultyPolicy) {
+    return {
+      ok: false,
+      limitations: readiness.limitations,
+      failureReasons: ["missing_difficulty_policy"],
+    };
+  }
+
+  return {
+    ok: true,
+    input: {
+      manifest: {
+        contentHash: input.manifest.contentHash,
+        schemaVersion: input.manifest.schemaVersion,
+        selectorVersion: input.manifest.selectorVersion,
+        characterId: input.manifest.characterId,
+        seasonId: input.manifest.seasonId,
+        seasonSlug: input.manifest.seasonSlug,
+        specSlug: input.manifest.specSlug,
+        role: input.manifest.role,
+        highKeyPolicyId: input.manifest.highKeyPolicyId,
+        activeDungeonSlugs: input.manifest.activeDungeonSlugs,
+        expectedSlotCount: input.manifest.expectedSlotCount,
+        selectedSlotCount: input.manifest.selectedSlotCount,
+        evidenceCutoffAt: input.manifest.evidenceCutoffAt,
+      },
+      runParseFacts,
+      profileAggregate: input.profileAggregate ?? null,
+      difficultyPolicy: input.difficultyPolicy,
+      expectedPartition: input.expectedPartition ?? null,
+      logFreshness: input.logFreshness ?? 0,
+      computedAt: input.computedAt,
+    },
+  };
+}
+
+export type SurvivalAdapterResult =
+  | { ok: true; input: SurvivalV2ComputeInput }
+  | { ok: false; limitations: string[]; failureReasons: string[] };
+
+export function adaptSurvivalComputeInput(input: {
+  manifest: CharacterSeasonEvidenceManifestV2;
+  factSets: PersistedFactSetRef[];
+  /** Optional pre-parsed documents (fixtures). */
+  parsedDocuments?: SurvivalFactDocumentV2[];
+  relativeDamageMode?: SurvivalV2RelativeDamageMode;
+  scoreModelId?: string | null;
+}): SurvivalAdapterResult {
+  const familyFacts = input.factSets.filter(
+    (f) => f.extractorFamily === SURVIVAL_V2_EXTRACTOR_FAMILY,
+  );
+  const readiness = classifyPersistedFacts(
+    familyFacts.length > 0 ? familyFacts : input.factSets,
+    SURVIVAL_V2_EXTRACTOR_FAMILY,
+  );
+
+  const documents: SurvivalFactDocumentV2[] = [...(input.parsedDocuments ?? [])];
+  const parseFailures: string[] = [];
+
+  for (const fs of familyFacts) {
+    if (isShadowPlaceholderFact(fs.facts)) continue;
+    const parsed = parseSurvivalFactDocumentV2(fs.facts);
+    if (!parsed.ok) {
+      parseFailures.push(`survival_fact_parse:${parsed.reason}`);
+      continue;
+    }
+    documents.push(parsed.document);
+  }
+
+  if (documents.length === 0) {
+    return {
+      ok: false,
+      limitations: readiness.limitations,
+      failureReasons: [
+        ...new Set([
+          ...readiness.failureReasons,
+          ...parseFailures,
+          ...(readiness.failureReasons.length === 0 ? ["missing_survival_fact_documents"] : []),
+        ]),
+      ],
+    };
+  }
+
+  if (parseFailures.length > 0 && documents.length === 0) {
+    return {
+      ok: false,
+      limitations: readiness.limitations,
+      failureReasons: [...new Set([...readiness.failureReasons, ...parseFailures])],
+    };
+  }
+
+  return {
+    ok: true,
+    input: {
+      manifest: input.manifest,
+      factSets: documents,
+      relativeDamageMode: input.relativeDamageMode ?? "off",
+      scoreModelId: input.scoreModelId ?? null,
+    },
+  };
+}
+
+function isUtilityRunFactSet(value: unknown): value is UtilityV2RunFactSet {
+  if (!isRecord(value)) return false;
+  if (value.schemaVersion !== UTILITY_V2_SCHEMA_VERSION) return false;
+  if (value.extractorFamily !== UTILITY_V2_EXTRACTOR_FAMILY) return false;
+  if (typeof value.slotId !== "string") return false;
+  if (typeof value.runId !== "string") return false;
+  if (typeof value.dungeonSlug !== "string") return false;
+  return true;
+}
+
+export type UtilityAdapterResult =
+  | { ok: true; input: UtilityV2ComputeInput }
+  | { ok: false; limitations: string[]; failureReasons: string[] };
+
+export function adaptUtilityComputeInput(input: {
+  manifest: CharacterSeasonEvidenceManifestV2;
+  factSets: PersistedFactSetRef[];
+  /** Optional typed fact sets (fixtures). */
+  typedFactSets?: UtilityV2RunFactSet[];
+}): UtilityAdapterResult {
+  const familyFacts = input.factSets.filter(
+    (f) => f.extractorFamily === UTILITY_V2_EXTRACTOR_FAMILY,
+  );
+  const readiness = classifyPersistedFacts(
+    familyFacts.length > 0 ? familyFacts : input.factSets,
+    UTILITY_V2_EXTRACTOR_FAMILY,
+  );
+
+  const typed: UtilityV2RunFactSet[] = [...(input.typedFactSets ?? [])];
+  const parseFailures: string[] = [];
+
+  for (const fs of familyFacts) {
+    if (isShadowPlaceholderFact(fs.facts)) continue;
+    if (!isUtilityRunFactSet(fs.facts)) {
+      parseFailures.push("utility_fact_parse:invalid_shape");
+      continue;
+    }
+    typed.push(fs.facts);
+  }
+
+  if (typed.length === 0) {
+    return {
+      ok: false,
+      limitations: readiness.limitations,
+      failureReasons: [
+        ...new Set([
+          ...readiness.failureReasons,
+          ...parseFailures,
+          ...(readiness.failureReasons.length === 0 ? ["missing_utility_fact_sets"] : []),
+        ]),
+      ],
+    };
+  }
+
+  const manifestRef: UtilityV2FrozenManifestRef = {
+    contentHash: input.manifest.contentHash,
+    schemaVersion: input.manifest.schemaVersion,
+    selectorVersion: input.manifest.selectorVersion,
+    expectedSlotCount: input.manifest.expectedSlotCount,
+    selectedSlotCount: input.manifest.selectedSlotCount,
+    activeDungeonSlugs: input.manifest.activeDungeonSlugs,
+    slots: input.manifest.slots.map((s) => ({
+      slotId: `${s.dungeonSlug}:${s.slotIndex}`,
+      dungeonSlug: s.dungeonSlug,
+      slotIndex: s.slotIndex as 0 | 1,
+      state: s.state,
+      identity: s.identity
+        ? {
+            reportCode: s.identity.reportCode,
+            fightId: s.identity.fightId,
+            reportRevision: s.identity.reportRevision,
+          }
+        : null,
+    })),
+  };
+
+  return {
+    ok: true,
+    input: {
+      manifest: manifestRef,
+      factSets: typed,
+    },
+  };
+}
+
+export type ExperienceAdapterResult =
+  | { ok: true; input: ExperienceV3ComputeInput }
+  | { ok: false; limitations: string[]; failureReasons: string[] };
+
+export interface ExperienceHistoryInputs {
+  currentExposure: ExperienceV3CurrentExposureFact;
+  previousSeason: ExperienceV3PreviousSeasonFact;
+  previousSeasonPolicy: PreviousSeasonNormalizationPolicyV3;
+  eliteHistory: ExperienceV3EliteHistoryFact;
+  historicalRank: ExperienceV3HistoricalRankFact | null;
+  historicalRankPolicy: HistoricalRankPolicyV3;
+}
+
+/**
+ * Experience is WCL-independent. Requires frozen history inputs from persisted
+ * Blizzard/local facts (supplied by the worker). Missing history → UNAVAILABLE.
+ */
+export function adaptExperienceComputeInput(input: {
+  manifest: CharacterSeasonEvidenceManifestV2;
+  history: ExperienceHistoryInputs | null;
+  computedAt: string;
+}): ExperienceAdapterResult {
+  if (!input.history) {
+    return {
+      ok: false,
+      limitations: ["missing_experience_history"],
+      failureReasons: ["missing_experience_history_inputs"],
+    };
+  }
+  return {
+    ok: true,
+    input: {
+      manifest: {
+        contentHash: input.manifest.contentHash,
+        schemaVersion: input.manifest.schemaVersion,
+        selectorVersion: input.manifest.selectorVersion,
+        characterId: input.manifest.characterId,
+        seasonId: input.manifest.seasonId,
+        seasonSlug: input.manifest.seasonSlug,
+        highKeyPolicyId: input.manifest.highKeyPolicyId,
+        evidenceCutoffAt: input.manifest.evidenceCutoffAt,
+      },
+      currentExposure: input.history.currentExposure,
+      previousSeason: input.history.previousSeason,
+      previousSeasonPolicy: input.history.previousSeasonPolicy,
+      eliteHistory: input.history.eliteHistory,
+      historicalRank: input.history.historicalRank,
+      historicalRankPolicy: input.history.historicalRankPolicy,
+      computedAt: input.computedAt,
+    },
+  };
+}

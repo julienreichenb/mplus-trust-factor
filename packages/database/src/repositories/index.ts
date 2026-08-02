@@ -6,6 +6,7 @@ export {
 } from "./artifact-repository.js";
 export {
   EvidenceRepository,
+  dimensionComputationContentMatches,
   type CreateEvidenceManifestInput,
   type CreateEvidenceDatasetInput,
   type CreateRunFactSetInput,

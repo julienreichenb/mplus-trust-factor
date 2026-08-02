@@ -6,13 +6,17 @@ import {
   assertPublicationBlocked,
   collectAcquisitionResultsForFinalize,
 } from "./acquisition.js";
+import {
+  persistShadowDimensionComputations,
+  resolveEnabledShadowDimensions,
+} from "./dimension-finalizer.js";
 
 /**
  * Provider-free fan-in finalizer:
  * 1. CAS claim finalization
  * 2. finalizeEvidenceManifestV2 from acquisition results
  * 3. persist frozen manifest
- * 4. optional dimension computation placeholders (shadow)
+ * 4. shadow dimension finalization (UNAVAILABLE when facts not calculator-ready)
  * 5. NEVER mutate CharacterPublishedScore / public pointer
  */
 export async function runFinalizeEvidenceBatchV2(
@@ -137,43 +141,36 @@ export async function runFinalizeEvidenceBatchV2(
     manifestContentHash: manifest.contentHash,
   });
 
-  // Shadow dimension placeholders — provider-free; no public publication.
+  // Shadow dimension finalization — provider-free; no public publication.
   if (container.env.SCORING_V2_DIMENSIONS_ENABLED) {
-    const now = new Date();
-    const dimensions = [
-      { dim: "PERFORMANCE" as const, enabled: container.env.SCORING_V2_PERFORMANCE_ENABLED },
-      { dim: "SURVIVAL" as const, enabled: container.env.SCORING_V2_SURVIVAL_ENABLED },
-      { dim: "UTILITY" as const, enabled: container.env.SCORING_V2_UTILITY_ENABLED },
-      { dim: "EXPERIENCE" as const, enabled: container.env.SCORING_V2_EXPERIENCE_ENABLED },
-    ];
-    for (const { dim, enabled } of dimensions) {
-      if (!enabled) continue;
-      try {
-        await container.repositories.evidence.createDimensionComputation({
+    const enabledDimensions = resolveEnabledShadowDimensions(container.env);
+    if (enabledDimensions.length > 0) {
+      const { finalization, persisted: dimRows } = await persistShadowDimensionComputations(
+        container,
+        {
           characterId: claimed.batch.characterId,
           seasonId: claimed.batch.seasonId,
-          manifestId: persisted.id,
           scoreModelId: claimed.batch.scoreModelId,
-          dimension: dim,
-          algorithmVersion: "scoring-v2-shadow-placeholder-0.1.0",
-          inputFingerprint: `${manifest.contentHash}:${dim}`,
-          score: null,
-          confidence: 0,
-          state: "SHADOW",
-          metrics: {
-            selectedSlotCount: manifest.selectedSlotCount,
-            expectedSlotCount: manifest.expectedSlotCount,
-            persistedSlotRows: persistedSlots.length,
-          },
-          explanation: {
-            mode: "shadow_placeholder",
-            publicationBlocked: true,
-          },
-          computedAt: now,
-        });
-      } catch {
-        // Unique fingerprint — idempotent redelivery.
-      }
+          manifestId: persisted.id,
+          manifestDocument: manifest,
+          expectedManifestContentHash: manifest.contentHash,
+          enabledDimensions,
+          relativeDamageMode: container.env.SCORING_V2_RELATIVE_DAMAGE_MODE,
+        },
+      );
+
+      container.logger.info(
+        {
+          event: "scoring_v2_dimensions_finalized",
+          analysisBatchId: job.analysisBatchId,
+          manifestId: persisted.id,
+          blockedReason: finalization.blockedReason,
+          dimensions: dimRows,
+          persistedSlotRows: persistedSlots.length,
+          publicationBlocked: true,
+        },
+        "scoring v2 shadow dimensions persisted",
+      );
     }
   }
 

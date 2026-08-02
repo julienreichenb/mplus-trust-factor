@@ -1,11 +1,53 @@
 import type {
   CharacterRole,
+  DimensionComputation,
   EvidenceManifest,
   EvidenceManifestSlot,
   Prisma,
   PrismaClient,
   ScoreDimension,
 } from "@prisma/client";
+
+function jsonStableStringify(value: unknown): string {
+  if (value === null || typeof value !== "object") {
+    return JSON.stringify(value);
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map((v) => jsonStableStringify(v)).join(",")}]`;
+  }
+  const obj = value as Record<string, unknown>;
+  const keys = Object.keys(obj).sort();
+  return `{${keys.map((k) => `${JSON.stringify(k)}:${jsonStableStringify(obj[k])}`).join(",")}}`;
+}
+
+function decimalOrNumberEquals(
+  left: { toString(): string } | number | null | undefined,
+  right: { toString(): string } | number | null | undefined,
+): boolean {
+  if (left == null && right == null) return true;
+  if (left == null || right == null) return false;
+  return Number(left.toString()) === Number(right.toString());
+}
+
+/** Compare persisted DimensionComputation against an idempotent write intent. */
+export function dimensionComputationContentMatches(
+  existing: Pick<
+    DimensionComputation,
+    "algorithmVersion" | "score" | "confidence" | "state" | "metrics" | "explanation"
+  >,
+  incoming: CreateDimensionComputationInput,
+): boolean {
+  if (existing.algorithmVersion !== incoming.algorithmVersion) return false;
+  if (existing.state !== incoming.state) return false;
+  if (!decimalOrNumberEquals(existing.score, incoming.score ?? null)) return false;
+  if (!decimalOrNumberEquals(existing.confidence, incoming.confidence)) return false;
+  const existingMetrics = jsonStableStringify(existing.metrics ?? {});
+  const incomingMetrics = jsonStableStringify(incoming.metrics ?? {});
+  if (existingMetrics !== incomingMetrics) return false;
+  const existingExplanation = jsonStableStringify(existing.explanation ?? {});
+  const incomingExplanation = jsonStableStringify(incoming.explanation ?? {});
+  return existingExplanation === incomingExplanation;
+}
 
 export interface CreateEvidenceManifestInput {
   characterId: string;
@@ -215,6 +257,101 @@ export class EvidenceRepository {
         computedAt: input.computedAt,
       },
     });
+  }
+
+  /**
+   * Load fact sets for all slots of a frozen manifest (provider-free).
+   */
+  async listFactSetsForManifest(manifestId: string) {
+    const slots = await this.prisma.evidenceManifestSlot.findMany({
+      where: { manifestId },
+      select: {
+        id: true,
+        reportCode: true,
+        fightId: true,
+        reportRevision: true,
+        dungeonId: true,
+        slotIndex: true,
+        factSets: true,
+        dungeon: { select: { slug: true } },
+      },
+    });
+    return slots.flatMap((slot) =>
+      slot.factSets.map((fs) => ({
+        ...fs,
+        manifestSlotId: slot.id,
+        reportCode: slot.reportCode,
+        fightId: slot.fightId,
+        reportRevision: slot.reportRevision,
+        dungeonSlug: slot.dungeon.slug,
+        slotIndex: slot.slotIndex,
+      })),
+    );
+  }
+
+  /**
+   * Idempotent DimensionComputation write.
+   * - No existing row for (character, season, manifest, model, dimension) → create
+   * - Existing with same fingerprint + identical content → return existing
+   * - Existing with same fingerprint but conflicting payload → fail closed
+   * - Existing with different fingerprint → fail closed (no duplicate dims)
+   */
+  async createDimensionComputationIdempotent(
+    input: CreateDimensionComputationInput,
+  ): Promise<{
+    row: Awaited<ReturnType<EvidenceRepository["createDimensionComputation"]>>;
+    created: boolean;
+  }> {
+    const existingForDimension = await this.prisma.dimensionComputation.findFirst({
+      where: {
+        characterId: input.characterId,
+        seasonId: input.seasonId,
+        manifestId: input.manifestId,
+        scoreModelId: input.scoreModelId,
+        dimension: input.dimension,
+      },
+      orderBy: { computedAt: "desc" },
+    });
+
+    if (existingForDimension) {
+      if (existingForDimension.inputFingerprint !== input.inputFingerprint) {
+        throw new Error(
+          `dimension_computation_fingerprint_conflict: dimension=${input.dimension} existing=${existingForDimension.inputFingerprint} incoming=${input.inputFingerprint}`,
+        );
+      }
+      if (!dimensionComputationContentMatches(existingForDimension, input)) {
+        throw new Error(
+          `dimension_computation_content_conflict: dimension=${input.dimension} fingerprint=${input.inputFingerprint}`,
+        );
+      }
+      return { row: existingForDimension, created: false };
+    }
+
+    try {
+      const row = await this.createDimensionComputation(input);
+      return { row, created: true };
+    } catch (error) {
+      // Concurrent insert — re-read and compare.
+      const raced = await this.prisma.dimensionComputation.findFirst({
+        where: {
+          characterId: input.characterId,
+          seasonId: input.seasonId,
+          manifestId: input.manifestId,
+          scoreModelId: input.scoreModelId,
+          dimension: input.dimension,
+          inputFingerprint: input.inputFingerprint,
+        },
+      });
+      if (raced && dimensionComputationContentMatches(raced, input)) {
+        return { row: raced, created: false };
+      }
+      if (raced) {
+        throw new Error(
+          `dimension_computation_content_conflict: dimension=${input.dimension} fingerprint=${input.inputFingerprint}`,
+        );
+      }
+      throw error;
+    }
   }
 
   async upsertWclReportRevision(input: {

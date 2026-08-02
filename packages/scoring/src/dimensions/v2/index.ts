@@ -13,3 +13,32 @@ export {
   type NormalizeShadowDimensionRecordInput,
   type BuildUnavailableShadowDimensionRecordInput,
 } from "./shadow-record.js";
+
+export {
+  isShadowPlaceholderFact,
+  limitationsFromFact,
+  validateFrozenManifestIdentities,
+  verifyManifestContentHash,
+  buildUnavailableInputFingerprint,
+  algorithmVersionForDimension,
+  adaptPerformanceComputeInput,
+  adaptSurvivalComputeInput,
+  adaptUtilityComputeInput,
+  adaptExperienceComputeInput,
+  type PersistedFactSetRef,
+  type FrozenSlotIdentityIssue,
+  type FactReadinessResult,
+  type PerformanceAdapterResult,
+  type SurvivalAdapterResult,
+  type UtilityAdapterResult,
+  type ExperienceAdapterResult,
+  type ExperienceHistoryInputs,
+} from "./adapters.js";
+
+export {
+  finalizeShadowDimensions,
+  type ShadowDimensionFinalizerOutcomeStatus,
+  type ShadowDimensionFinalizerOutcome,
+  type FinalizeShadowDimensionsInput,
+  type FinalizeShadowDimensionsResult,
+} from "./finalize-shadow.js";
