@@ -15,9 +15,15 @@ import {
  * Provider-free fan-in finalizer:
  * 1. CAS claim finalization
  * 2. finalizeEvidenceManifestV2 from acquisition results
- * 3. persist frozen manifest
+ * 3. persist frozen manifest (skip recreate when already attached)
  * 4. shadow dimension finalization (UNAVAILABLE when facts not calculator-ready)
  * 5. NEVER mutate CharacterPublishedScore / public pointer
+ *
+ * Partial dimension persistence policy (SHADOW):
+ * - Persistence attempts are isolated per dimension.
+ * - If any dimension persist fails, release FINALIZING → READY_TO_FINALIZE and
+ *   fail the job so redelivery can reclaim (idempotent dimension writes).
+ * - Successful sibling writes remain; redelivery is conflict-safe.
  */
 export async function runFinalizeEvidenceBatchV2(
   container: WorkerContainer,
@@ -76,124 +82,152 @@ export async function runFinalizeEvidenceBatchV2(
     return { outcome: "claim_lost_or_not_ready", analysisBatchId: job.analysisBatchId };
   }
 
-  // Provider-free from here — no Blizzard / WCL / Raider.IO calls.
-  const plan = claimed.meta.acquisitionPlan;
-  const acquisitionResults = collectAcquisitionResultsForFinalize(claimed.meta.slots);
-  const { manifest } = finalizeEvidenceManifestV2({
-    plan,
-    acquisitionResults,
-    selectedAt: new Date().toISOString(),
-  });
+  try {
+    // Provider-free from here — no Blizzard / WCL / Raider.IO calls.
+    // Never touch CharacterPublishedScore / publish pointer.
+    let manifestId = claimed.meta.manifestId;
+    let manifestContentHash = claimed.meta.manifestContentHash;
+    let manifestDocument = claimed.meta.manifestId
+      ? ((
+          await container.prisma.evidenceManifest.findUnique({
+            where: { id: claimed.meta.manifestId },
+          })
+        )?.document as unknown)
+      : null;
 
-  const dungeonSlugs = [...new Set(manifest.slots.map((s) => s.dungeonSlug))];
-  const dungeons = await container.prisma.dungeon.findMany({
-    where: { slug: { in: dungeonSlugs } },
-    select: { id: true, slug: true },
-  });
-  const dungeonIdBySlug = new Map(dungeons.map((d) => [d.slug, d.id]));
+    if (!manifestId || !manifestContentHash || !manifestDocument) {
+      const plan = claimed.meta.acquisitionPlan;
+      const acquisitionResults = collectAcquisitionResultsForFinalize(claimed.meta.slots);
+      const { manifest } = finalizeEvidenceManifestV2({
+        plan,
+        acquisitionResults,
+        selectedAt: new Date().toISOString(),
+      });
 
-  // Ensure dungeon rows exist for any missing slugs (shadow fixtures / early seasons).
-  for (const slug of dungeonSlugs) {
-    if (dungeonIdBySlug.has(slug)) continue;
-    const created = await container.prisma.dungeon.create({
-      data: { slug, name: slug },
-    });
-    dungeonIdBySlug.set(slug, created.id);
-  }
+      const dungeonSlugs = [...new Set(manifest.slots.map((s) => s.dungeonSlug))];
+      const dungeons = await container.prisma.dungeon.findMany({
+        where: { slug: { in: dungeonSlugs } },
+        select: { id: true, slug: true },
+      });
+      const dungeonIdBySlug = new Map(dungeons.map((d) => [d.slug, d.id]));
 
-  const role = manifest.role as CharacterRole;
-  const { manifest: persisted, slots: persistedSlots } =
-    await container.repositories.evidence.createFrozenManifest({
-      characterId: claimed.batch.characterId,
-      seasonId: claimed.batch.seasonId,
-      specializationId: null,
-      role,
-      refreshContractHash: manifest.refreshContractHash,
-      selectorVersion: manifest.selectorVersion,
-      highKeyPolicyId: manifest.highKeyPolicyId,
-      evidenceCutoffAt: new Date(manifest.evidenceCutoffAt),
-      expectedSlotCount: manifest.expectedSlotCount,
-      selectedSlotCount: manifest.selectedSlotCount,
-      coverageState: manifest.coverage.state,
-      schemaVersion: manifest.schemaVersion,
-      contentHash: manifest.contentHash,
-      document: manifest as unknown as object,
-      frozenAt: new Date(manifest.selectedAt),
-      slots: manifest.slots.map((slot) => ({
-        dungeonId: dungeonIdBySlug.get(slot.dungeonSlug)!,
-        slotIndex: slot.slotIndex,
-        reportCode: slot.identity?.reportCode ?? null,
-        fightId: slot.identity?.fightId ?? null,
-        reportRevision: slot.identity?.reportRevision ?? null,
-        keyLevel: slot.keyLevel,
-        candidateRank: slot.selectedRank,
-        state: slot.state,
-        selectionReason: slot.fallbackReason,
-        dimensionValidity: slot.dimensionValidity ?? {},
-        invalidReasons: [],
-        providerDataAsOf: null,
-      })),
-    });
+      for (const slug of dungeonSlugs) {
+        if (dungeonIdBySlug.has(slug)) continue;
+        const created = await container.prisma.dungeon.create({
+          data: { slug, name: slug },
+        });
+        dungeonIdBySlug.set(slug, created.id);
+      }
 
-  await repo.attachManifest({
-    batchId: job.analysisBatchId,
-    manifestId: persisted.id,
-    manifestContentHash: manifest.contentHash,
-  });
-
-  // Shadow dimension finalization — provider-free; no public publication.
-  if (container.env.SCORING_V2_DIMENSIONS_ENABLED) {
-    const enabledDimensions = resolveEnabledShadowDimensions(container.env);
-    if (enabledDimensions.length > 0) {
-      const { finalization, persisted: dimRows } = await persistShadowDimensionComputations(
-        container,
-        {
+      const role = manifest.role as CharacterRole;
+      const { manifest: persisted } =
+        await container.repositories.evidence.createFrozenManifest({
           characterId: claimed.batch.characterId,
           seasonId: claimed.batch.seasonId,
-          scoreModelId: claimed.batch.scoreModelId,
-          manifestId: persisted.id,
-          manifestDocument: manifest,
-          expectedManifestContentHash: manifest.contentHash,
-          enabledDimensions,
-          relativeDamageMode: container.env.SCORING_V2_RELATIVE_DAMAGE_MODE,
-        },
-      );
+          specializationId: null,
+          role,
+          refreshContractHash: manifest.refreshContractHash,
+          selectorVersion: manifest.selectorVersion,
+          highKeyPolicyId: manifest.highKeyPolicyId,
+          evidenceCutoffAt: new Date(manifest.evidenceCutoffAt),
+          expectedSlotCount: manifest.expectedSlotCount,
+          selectedSlotCount: manifest.selectedSlotCount,
+          coverageState: manifest.coverage.state,
+          schemaVersion: manifest.schemaVersion,
+          contentHash: manifest.contentHash,
+          document: manifest as unknown as object,
+          frozenAt: new Date(manifest.selectedAt),
+          slots: manifest.slots.map((slot) => ({
+            dungeonId: dungeonIdBySlug.get(slot.dungeonSlug)!,
+            slotIndex: slot.slotIndex,
+            reportCode: slot.identity?.reportCode ?? null,
+            fightId: slot.identity?.fightId ?? null,
+            reportRevision: slot.identity?.reportRevision ?? null,
+            keyLevel: slot.keyLevel,
+            candidateRank: slot.selectedRank,
+            state: slot.state,
+            selectionReason: slot.fallbackReason,
+            dimensionValidity: slot.dimensionValidity ?? {},
+            invalidReasons: [],
+            providerDataAsOf: null,
+          })),
+        });
 
-      container.logger.info(
-        {
-          event: "scoring_v2_dimensions_finalized",
-          analysisBatchId: job.analysisBatchId,
-          manifestId: persisted.id,
-          blockedReason: finalization.blockedReason,
-          dimensions: dimRows,
-          persistedSlotRows: persistedSlots.length,
-          publicationBlocked: true,
-        },
-        "scoring v2 shadow dimensions persisted",
-      );
+      await repo.attachManifest({
+        batchId: job.analysisBatchId,
+        manifestId: persisted.id,
+        manifestContentHash: manifest.contentHash,
+      });
+
+      manifestId = persisted.id;
+      manifestContentHash = manifest.contentHash;
+      manifestDocument = manifest;
     }
-  }
 
-  // Explicitly do NOT touch CharacterPublishedScore / publish pointer.
-  await repo.markAdmissionReleased(job.analysisBatchId);
-  await repo.markFinalized(job.analysisBatchId);
+    // Shadow dimension finalization — provider-free; no public publication.
+    if (container.env.SCORING_V2_DIMENSIONS_ENABLED) {
+      const enabledDimensions = resolveEnabledShadowDimensions(container.env);
+      if (enabledDimensions.length > 0) {
+        const { finalization, persisted: dimRows, failed, allPersisted } =
+          await persistShadowDimensionComputations(container, {
+            characterId: claimed.batch.characterId,
+            seasonId: claimed.batch.seasonId,
+            scoreModelId: claimed.batch.scoreModelId,
+            manifestId,
+            manifestDocument: manifestDocument as never,
+            expectedManifestContentHash: manifestContentHash,
+            enabledDimensions,
+            relativeDamageMode: container.env.SCORING_V2_RELATIVE_DAMAGE_MODE,
+          });
 
-  container.logger.info(
-    {
-      event: "scoring_v2_batch_finalized",
+        container.logger.info(
+          {
+            event: "scoring_v2_dimensions_finalized",
+            analysisBatchId: job.analysisBatchId,
+            manifestId,
+            blockedReason: finalization.blockedReason,
+            dimensions: dimRows,
+            failedDimensions: failed,
+            allPersisted,
+            publicationBlocked: true,
+          },
+          "scoring v2 shadow dimensions persistence attempt complete",
+        );
+
+        if (!allPersisted) {
+          throw new Error(
+            `shadow_dimension_persist_partial_failure: failed=${failed
+              .map((f) => `${f.dimension}:${f.error}`)
+              .join("|")}`,
+          );
+        }
+      }
+    }
+
+    // Explicitly do NOT touch CharacterPublishedScore / publish pointer.
+    await repo.markAdmissionReleased(job.analysisBatchId);
+    await repo.markFinalized(job.analysisBatchId);
+
+    container.logger.info(
+      {
+        event: "scoring_v2_batch_finalized",
+        analysisBatchId: job.analysisBatchId,
+        manifestId,
+        manifestContentHash,
+        publicationBlocked: true,
+      },
+      "scoring v2 shadow batch finalized without public publication",
+    );
+
+    return {
+      outcome: "finalized",
       analysisBatchId: job.analysisBatchId,
-      manifestId: persisted.id,
-      manifestContentHash: manifest.contentHash,
-      publicationBlocked: true,
-      selectedSlotCount: manifest.selectedSlotCount,
-    },
-    "scoring v2 shadow batch finalized without public publication",
-  );
-
-  return {
-    outcome: "finalized",
-    analysisBatchId: job.analysisBatchId,
-    manifestId: persisted.id,
-    manifestContentHash: manifest.contentHash,
-  };
+      manifestId,
+      manifestContentHash,
+    };
+  } catch (error) {
+    // Minimal FINALIZING recovery: release claim so redelivery can reclaim.
+    await repo.releaseFinalizationClaim(job.analysisBatchId);
+    throw error;
+  }
 }

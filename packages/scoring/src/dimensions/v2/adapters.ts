@@ -170,6 +170,102 @@ export function verifyManifestContentHash(
   return { ok: true };
 }
 
+export interface FactSetHashMismatchDetail {
+  dimensionHint: "fact_set";
+  manifestContentHash: string;
+  slotId: string;
+  slotIndex: number;
+  expectedHash: string | null;
+  actualHash: string | null;
+  reportCode: string | null;
+  fightId: number | null;
+  reportRevision: number | null;
+}
+
+/**
+ * Fail-closed validation of persisted fact-set fingerprints against frozen
+ * EvidenceManifestV2 slot.factSetHash references. Does not call providers.
+ */
+export function verifyFactSetHashesAgainstManifest(
+  manifest: CharacterSeasonEvidenceManifestV2,
+  factSets: PersistedFactSetRef[],
+): { ok: true } | { ok: false; reason: string; details: FactSetHashMismatchDetail[] } {
+  const details: FactSetHashMismatchDetail[] = [];
+  const selected = manifest.slots.filter((s) => s.state === "SELECTED");
+
+  for (const slot of selected) {
+    const slotId = slot.slotId ?? `${slot.dungeonSlug}:${slot.slotIndex}`;
+    const expectedHash = slot.factSetHash;
+    const identity = slot.identity;
+
+    if (!expectedHash) {
+      details.push({
+        dimensionHint: "fact_set",
+        manifestContentHash: manifest.contentHash,
+        slotId,
+        slotIndex: slot.slotIndex,
+        expectedHash: null,
+        actualHash: null,
+        reportCode: identity?.reportCode ?? null,
+        fightId: identity?.fightId ?? null,
+        reportRevision: identity?.reportRevision ?? null,
+      });
+      continue;
+    }
+
+    const matching = factSets.filter((fs) => {
+      if (!identity) return false;
+      return (
+        fs.reportCode === identity.reportCode &&
+        fs.fightId === identity.fightId &&
+        fs.reportRevision === identity.reportRevision
+      );
+    });
+
+    if (matching.length === 0) {
+      // Missing facts for a hashed slot — still a hash/reference failure.
+      details.push({
+        dimensionHint: "fact_set",
+        manifestContentHash: manifest.contentHash,
+        slotId,
+        slotIndex: slot.slotIndex,
+        expectedHash,
+        actualHash: null,
+        reportCode: identity?.reportCode ?? null,
+        fightId: identity?.fightId ?? null,
+        reportRevision: identity?.reportRevision ?? null,
+      });
+      continue;
+    }
+
+    for (const fs of matching) {
+      if (fs.inputFingerprint !== expectedHash) {
+        details.push({
+          dimensionHint: "fact_set",
+          manifestContentHash: manifest.contentHash,
+          slotId,
+          slotIndex: slot.slotIndex,
+          expectedHash,
+          actualHash: fs.inputFingerprint,
+          reportCode: identity?.reportCode ?? null,
+          fightId: identity?.fightId ?? null,
+          reportRevision: identity?.reportRevision ?? null,
+        });
+      }
+    }
+  }
+
+  if (details.length === 0) return { ok: true };
+
+  const reason = details
+    .map(
+      (d) =>
+        `fact_set_hash_mismatch: slot=${d.slotId} index=${d.slotIndex} expected=${d.expectedHash ?? "missing"} actual=${d.actualHash ?? "missing"} manifest=${d.manifestContentHash}`,
+    )
+    .join("; ");
+  return { ok: false, reason, details };
+}
+
 export function buildUnavailableInputFingerprint(input: {
   dimension: ScoringV2PublicDimension;
   algorithmVersion: string;
@@ -358,14 +454,6 @@ export function adaptSurvivalComputeInput(input: {
           ...(readiness.failureReasons.length === 0 ? ["missing_survival_fact_documents"] : []),
         ]),
       ],
-    };
-  }
-
-  if (parseFailures.length > 0 && documents.length === 0) {
-    return {
-      ok: false,
-      limitations: readiness.limitations,
-      failureReasons: [...new Set([...readiness.failureReasons, ...parseFailures])],
     };
   }
 

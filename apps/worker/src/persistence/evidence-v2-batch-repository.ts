@@ -73,6 +73,11 @@ export interface EvidenceV2BatchRepository {
   markSuperseded(batchId: string, byGeneration: number): Promise<EvidenceV2BatchView>;
   /** Idempotent CAS: PENDING/READY → FINALIZING. */
   claimFinalization(batchId: string): Promise<EvidenceV2BatchView | null>;
+  /**
+   * Release a non-final FINALIZING claim back to READY_TO_FINALIZE so redelivery
+   * can reclaim. No-op when already FINALIZED/FAILED/CANCELLED.
+   */
+  releaseFinalizationClaim(batchId: string): Promise<EvidenceV2BatchView | null>;
   attachManifest(input: {
     batchId: string;
     manifestId: string;
@@ -492,6 +497,31 @@ export function createEvidenceV2BatchRepository(
           where: { id: batchId },
           data: {
             finalizationStatus: "FINALIZING",
+            metadata: withMeta(batch.metadata, next),
+          },
+        });
+        return toView(updated);
+      });
+    },
+
+    async releaseFinalizationClaim(batchId) {
+      return prisma.$transaction(async (tx) => {
+        const batch = await tx.scoreAnalysisBatch.findUnique({ where: { id: batchId } });
+        if (!batch) return null;
+        const meta = parseMeta(batch.metadata);
+        if (!meta) return null;
+        if (batch.finalizationStatus !== "FINALIZING") {
+          return toView(batch);
+        }
+        if (meta.cancelled || meta.supersededByGeneration != null) return null;
+        const next: EvidenceV2BatchMetadata = {
+          ...meta,
+          batchState: "READY_TO_FINALIZE",
+        };
+        const updated = await tx.scoreAnalysisBatch.update({
+          where: { id: batchId },
+          data: {
+            finalizationStatus: "READY_TO_FINALIZE",
             metadata: withMeta(batch.metadata, next),
           },
         });

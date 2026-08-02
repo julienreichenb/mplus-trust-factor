@@ -128,6 +128,9 @@ describe("finalizeShadowDimensions", () => {
           inputFingerprint: "fp-placeholder",
           facts: placeholderFacts,
           limitations: ["DIMENSION_CALCULATORS_NOT_WIRED"],
+          reportCode: "AbCdEfGh",
+          fightId: 1,
+          reportRevision: 1,
         },
       ],
       experienceHistory: null,
@@ -220,6 +223,135 @@ describe("finalizeShadowDimensions", () => {
     const manifest = emptyManifest();
     expect(verifyManifestContentHash(manifest, manifest.contentHash).ok).toBe(true);
     expect(verifyManifestContentHash(manifest, "nope").ok).toBe(false);
+  });
+
+  it("fails closed on fact-set hash mismatch before compute", () => {
+    const identity = { reportCode: "AbCdEfGh", fightId: 1, reportRevision: 1 };
+    const manifest = emptyManifest({
+      selectedSlotCount: 1,
+      slots: [
+        {
+          slotId: "dungeon-a:0",
+          dungeonSlug: "dungeon-a",
+          slotIndex: 0,
+          state: "SELECTED",
+          identity,
+          keyLevel: 12,
+          timed: true,
+          runScore: 200,
+          completedAt: "2026-07-01T00:00:00.000Z",
+          actorId: 1,
+          selectedRank: 1,
+          fallbackReason: null,
+          dimensionValidity: {
+            performance: "PARTIAL",
+            survival: "PARTIAL",
+            utility: "PARTIAL",
+            reasons: [],
+          },
+          datasetHashes: [],
+          factSetHash: "expected-fp",
+        },
+      ],
+      contentHash: "manifest-fact-hash-mismatch",
+    });
+
+    const result = finalizeShadowDimensions({
+      characterId: "char-1",
+      seasonId: "season-1",
+      manifestId: "manifest-1",
+      scoreModelId: "model-1",
+      manifest,
+      expectedManifestContentHash: manifest.contentHash,
+      enabledDimensions: ["PERFORMANCE", "SURVIVAL"],
+      factSets: [
+        {
+          extractorFamily: "evidence-v2-shadow",
+          extractorVersion: "0.1.0",
+          schemaVersion: "2.0.0",
+          inputFingerprint: "wrong-fp",
+          facts: { kind: "shadow_placeholder" },
+          reportCode: identity.reportCode,
+          fightId: identity.fightId,
+          reportRevision: identity.reportRevision,
+        },
+      ],
+      computedAt: COMPUTED_AT,
+    });
+    expect(result.ok).toBe(false);
+    expect(result.blockedReason).toContain("fact_set_hash_mismatch");
+    expect(result.outcomes).toHaveLength(2);
+    for (const o of result.outcomes) {
+      expect(o.record.state).toBe("SHADOW");
+      expect(o.record.metrics.availabilityState).toBe("UNAVAILABLE");
+    }
+  });
+
+  it("fails closed when selected slot is missing factSetHash", () => {
+    const identity = { reportCode: "AbCdEfGh", fightId: 1, reportRevision: 1 };
+    const manifest = emptyManifest({
+      selectedSlotCount: 1,
+      slots: [
+        {
+          slotId: "dungeon-a:0",
+          dungeonSlug: "dungeon-a",
+          slotIndex: 0,
+          state: "SELECTED",
+          identity,
+          keyLevel: 12,
+          timed: true,
+          runScore: 200,
+          completedAt: "2026-07-01T00:00:00.000Z",
+          actorId: 1,
+          selectedRank: 1,
+          fallbackReason: null,
+          dimensionValidity: {
+            performance: "PARTIAL",
+            survival: "PARTIAL",
+            utility: "PARTIAL",
+            reasons: [],
+          },
+          datasetHashes: [],
+          factSetHash: null,
+        },
+      ],
+      contentHash: "manifest-missing-fact-hash",
+    });
+
+    const result = finalizeShadowDimensions({
+      characterId: "char-1",
+      seasonId: "season-1",
+      manifestId: "manifest-1",
+      scoreModelId: "model-1",
+      manifest,
+      expectedManifestContentHash: manifest.contentHash,
+      enabledDimensions: ["UTILITY"],
+      factSets: [],
+      computedAt: COMPUTED_AT,
+    });
+    expect(result.ok).toBe(false);
+    expect(result.blockedReason).toContain("expected=missing");
+    expect(result.outcomes).toHaveLength(1);
+  });
+
+  it("isolates dimension compute exceptions — siblings still produce outcomes", () => {
+    const manifest = emptyManifest();
+    const result = finalizeShadowDimensions({
+      characterId: "char-1",
+      seasonId: "season-1",
+      manifestId: "manifest-1",
+      scoreModelId: "model-1",
+      manifest,
+      expectedManifestContentHash: manifest.contentHash,
+      enabledDimensions: ["PERFORMANCE", "EXPERIENCE"],
+      factSets: [],
+      // Force performance adapter to receive typed facts path that still fails closed,
+      // and experience missing history — both return UNAVAILABLE without aborting.
+      experienceHistory: null,
+      computedAt: COMPUTED_AT,
+    });
+    expect(result.outcomes).toHaveLength(2);
+    expect(result.outcomes.every((o) => o.record.state === "SHADOW")).toBe(true);
   });
 
   it("fails closed on duplicate frozen identities for selected slots", () => {

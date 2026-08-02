@@ -628,6 +628,7 @@ export {
   limitationsFromFact,
   validateFrozenManifestIdentities,
   verifyManifestContentHash,
+  verifyFactSetHashesAgainstManifest,
   buildUnavailableInputFingerprint,
   algorithmVersionForDimension,
   adaptPerformanceComputeInput,

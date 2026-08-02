@@ -24,15 +24,34 @@ export interface PersistShadowDimensionsInput {
   computedAt?: Date;
 }
 
+export interface PersistShadowDimensionSuccess {
+  dimension: ScoringV2PublicDimension;
+  ok: true;
+  computationId: string;
+  created: boolean;
+  status: string;
+  availabilityState: unknown;
+}
+
+export interface PersistShadowDimensionFailure {
+  dimension: ScoringV2PublicDimension;
+  ok: false;
+  status: string;
+  availabilityState: unknown;
+  error: string;
+  integrityConflict: boolean;
+}
+
+export type PersistShadowDimensionOutcome =
+  | PersistShadowDimensionSuccess
+  | PersistShadowDimensionFailure;
+
 export interface PersistShadowDimensionsResult {
   finalization: FinalizeShadowDimensionsResult;
-  persisted: Array<{
-    dimension: ScoringV2PublicDimension;
-    computationId: string;
-    created: boolean;
-    status: string;
-    availabilityState: unknown;
-  }>;
+  persisted: PersistShadowDimensionSuccess[];
+  failed: PersistShadowDimensionFailure[];
+  /** True when every enabled outcome was persisted successfully. */
+  allPersisted: boolean;
 }
 
 function isManifestDocument(value: unknown): value is CharacterSeasonEvidenceManifestV2 {
@@ -44,9 +63,20 @@ function isManifestDocument(value: unknown): value is CharacterSeasonEvidenceMan
   );
 }
 
+function isIntegrityConflict(message: string): boolean {
+  return (
+    message.includes("dimension_computation_conflict") ||
+    message.includes("fingerprint_mismatch") ||
+    message.includes("content_mismatch")
+  );
+}
+
 /**
  * Load persisted facts, run shared finalizer, idempotently persist SHADOW rows.
  * Never calls providers. Never mutates CharacterPublishedScore.
+ *
+ * Persistence is isolated per dimension: one write failure does not prevent
+ * sibling dimensions from being attempted. Integrity conflicts remain failures.
  */
 export async function persistShadowDimensionComputations(
   container: WorkerContainer,
@@ -94,7 +124,8 @@ export async function persistShadowDimensionComputations(
     throw new Error(finalization.blockedReason ?? "shadow_dimension_finalization_blocked");
   }
 
-  const persisted: PersistShadowDimensionsResult["persisted"] = [];
+  const persisted: PersistShadowDimensionSuccess[] = [];
+  const failed: PersistShadowDimensionFailure[] = [];
 
   for (const outcome of finalization.outcomes) {
     const record = outcome.record;
@@ -116,6 +147,7 @@ export async function persistShadowDimensionComputations(
           computedAt: record.computedAt,
         });
       persisted.push({
+        ok: true,
         dimension: record.dimension,
         computationId: row.id,
         created,
@@ -123,20 +155,33 @@ export async function persistShadowDimensionComputations(
         availabilityState: record.metrics.availabilityState,
       });
     } catch (error) {
-      // Isolate persistence failures so sibling dimensions still attempt write.
+      const message = error instanceof Error ? error.message : String(error);
       container.logger.error(
         {
           event: "scoring_v2_dimension_persist_failed",
           dimension: record.dimension,
-          error: error instanceof Error ? error.message : String(error),
+          error: message,
+          integrityConflict: isIntegrityConflict(message),
         },
-        "shadow dimension persistence failed for one dimension",
+        "shadow dimension persistence failed for one dimension; continuing siblings",
       );
-      throw error;
+      failed.push({
+        ok: false,
+        dimension: record.dimension,
+        status: outcome.status,
+        availabilityState: record.metrics.availabilityState,
+        error: message,
+        integrityConflict: isIntegrityConflict(message),
+      });
     }
   }
 
-  return { finalization, persisted };
+  return {
+    finalization,
+    persisted,
+    failed,
+    allPersisted: failed.length === 0 && persisted.length === finalization.outcomes.length,
+  };
 }
 
 export function resolveEnabledShadowDimensions(env: {

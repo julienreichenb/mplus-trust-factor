@@ -35,6 +35,7 @@ import {
   type ExperienceHistoryInputs,
   type PersistedFactSetRef,
   validateFrozenManifestIdentities,
+  verifyFactSetHashesAgainstManifest,
   verifyManifestContentHash,
 } from "./adapters.js";
 import {
@@ -358,6 +359,39 @@ export function finalizeShadowDimensions(
       blockedReason: `frozen_identity_validation_failed:${reasons.join(",")}`,
       outcomes,
     };
+  }
+
+  if (hasSelected) {
+    const factHashCheck = verifyFactSetHashesAgainstManifest(
+      input.manifest,
+      input.factSets,
+    );
+    if (!factHashCheck.ok) {
+      const outcomes = input.enabledDimensions.map((dimension) =>
+        unavailableOutcome({
+          dimension,
+          characterId: input.characterId,
+          seasonId: input.seasonId,
+          manifestId: input.manifestId,
+          scoreModelId: input.scoreModelId,
+          manifestContentHash: input.manifest.contentHash,
+          computedAt: input.computedAt,
+          limitations: ["fact_set_hash_invalid"],
+          failureReasons: factHashCheck.details.map(
+            (d) =>
+              `fact_hash:${d.slotId}:expected=${d.expectedHash ?? "missing"}:actual=${d.actualHash ?? "missing"}`,
+          ),
+          explanation: {
+            factSetHashDetails: factHashCheck.details,
+          },
+        }),
+      );
+      return {
+        ok: false,
+        blockedReason: factHashCheck.reason,
+        outcomes,
+      };
+    }
   }
 
   const outcomes: ShadowDimensionFinalizerOutcome[] = [];
