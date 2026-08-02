@@ -81,6 +81,40 @@ export {
 } from "./bundle.js";
 
 export {
+  CALIBRATION_INPUT_BUNDLE_V2_SCHEMA_VERSION,
+  computeCalibrationBundleV2Hash,
+  validateCalibrationInputBundleV2,
+  buildCalibrationInputBundleV2,
+  preflightCalibrationBundleV2,
+  type CalibrationArtifactClassV2,
+  type CalibrationContentRefV2,
+  type FrozenSeasonBindingV2,
+  type FrozenPolicyCatalogVersionsV2,
+  type CalibrationMemberReplayV2,
+  type CalibrationInputBundleV2,
+  type CalibrationPreflightSeverityV2,
+  type CalibrationPreflightCodeV2,
+  type CalibrationPreflightIssueV2,
+  type CalibrationBundleV2ValidationResult,
+  type CalibrationBundleV2PreflightResult,
+  type ArtifactResolverV2,
+} from "./bundle-v2.js";
+
+export {
+  dispatchValidateCalibrationBundle,
+  type CalibrationBundleDispatchResult,
+} from "./bundle-dispatch.js";
+
+export {
+  replayCalibrationBundleV2,
+  replayCalibrationBundleV2ActiveVersusDraft,
+  createMapArtifactResolverV2,
+  type CalibrationV2DimensionReplayResult,
+  type CalibrationV2MemberReplayResult,
+  type CalibrationV2ReplayReport,
+} from "./replay-v2.js";
+
+export {
   runCalibrationHarnessFromBundle,
   runCalibrationHarnessFromExport,
   type CalibrationBundleExportPort,

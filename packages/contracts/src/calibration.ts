@@ -7,6 +7,9 @@ export const CALIBRATION_INPUT_BUNDLE_MAX_BYTES = 4 * 1024 * 1024;
 /** Digest algorithm version for Phase 1 deterministic digests (no weight recommendations). */
 export const CALIBRATION_DIGEST_ALGORITHM_VERSION = "1.0.0" as const;
 
+/** Calibration Input Bundle V2 schema version (root manifest + artifact refs). */
+export const CALIBRATION_INPUT_BUNDLE_V2_SCHEMA_VERSION = "2.0.0" as const;
+
 export const calibrationCohortStatusSchema = z.enum(["DRAFT", "READY", "ARCHIVED"]);
 export type CalibrationCohortStatus = z.infer<typeof calibrationCohortStatusSchema>;
 
