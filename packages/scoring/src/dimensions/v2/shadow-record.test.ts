@@ -285,6 +285,28 @@ describe("normalization does not alter calculator formulas", () => {
     expect(tankNorm.state).toBe("SHADOW");
     expect(tankNorm.metrics.availabilityState).toBe("UNAVAILABLE");
     expect(tankNorm.score).toBeNull();
+
+    const healer = computePerformanceV2(
+      perfInput({
+        manifest: { ...perfInput().manifest, role: "HEALER", specSlug: "holy" },
+        difficultyPolicy: { ...POLICY, role: "healer", specSlug: "holy" },
+      }),
+    );
+    expect(healer.state).toBe("UNAVAILABLE");
+    const healerNorm = normalizeShadowDimensionRecord({
+      payload: toPerformanceV2ShadowDimensionPayload({
+        characterId: "char-1",
+        seasonId: "season-1",
+        manifestId: "manifest-1",
+        scoreModelId: "model-1",
+        result: healer,
+        computedAt: COMPUTED_AT,
+      }),
+      availabilityState: availabilityFromComputeState(healer.state),
+    });
+    expect(healerNorm.state).toBe("SHADOW");
+    expect(healerNorm.metrics.availabilityState).toBe("UNAVAILABLE");
+    expect(healerNorm.score).toBeNull();
   });
 
   it("Experience V3: preserves no-WCL metrics and lifecycle SHADOW", () => {
