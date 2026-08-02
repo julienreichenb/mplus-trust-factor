@@ -7,7 +7,8 @@
 | 04 Persistence | `feat/scoring-v2-persistence` (merged) | WS04 | 02 | `#53` | green | — | Prisma V2 tables, artifact-store | 04 | done |
 | 05 Async pipeline | `feat/scoring-v2-pipeline` (merged) | WS05 | 02–04 | `#54` | green | publication disabled | V2 job contracts, flags, queues | 05 | done |
 | 06–09 Dimensions | merged | WS06–09 | 02–05 | `#55`–`#58` | green | — | calculator packages | 06–09 | done |
-| 10 Calibration + dimension finalization | `feat/scoring-v2-calibration` | WS10 | 02–09 | tip of branch | unit green | real WCL extractors deferred; **active/draft model replay blocked** until calculator config injection; flags remain off | scoring dimensions/v2, calibration bundle V2, contracts constant, DimensionComputation logical unique migration | 10 | shadow calibration checkpoint |
+| 10 Calibration + dimension finalization | `feat/scoring-v2-calibration` (merged) | WS10 | 02–09 | `#59` | unit green | real WCL extractors deferred; **active/draft model replay blocked** until calculator config injection; flags remain off | scoring dimensions/v2, calibration bundle V2, contracts constant, DimensionComputation logical unique migration | 10 | done (shadow checkpoint) |
+| 11 Admin + public explainability | `feat/scoring-v2-explainability` | WS11 | 02–10 | tip of branch | unit + route inject green | public attach remains null while lifecycle SHADOW; flags remain off; no deploy | `explainability-v2` contracts, scoring builders, admin GET diagnostics, public profile field + UI | 11 | explainability checkpoint |
 
 ## WS10 delivered
 
@@ -55,6 +56,20 @@ Minimal reclaim: on finalize failure after claim, `releaseFinalizationClaim` tra
 `FINALIZING → READY_TO_FINALIZE` so redelivery can CAS-claim again. Idempotent dimension
 writes make redelivery safe. Concurrent double-finalization remains prevented by claim CAS.
 
+## WS11 delivered
+
+```text
+@mplus/contracts explainability-v2 DTOs + sanitizeExplainabilityJson / buildPublicFromAdmin
+  └─ @mplus/scoring buildExplainabilityV2Admin + toPublicExplainabilityV2 (SHADOW → public null)
+       └─ GET /api/v1/admin/scoring-v2/manifests (paginated)
+       └─ GET /api/v1/admin/scoring-v2/characters/:id/explainability (RBAC score.candidate.read)
+            └─ CharacterProfileResponse.explainabilityV2 (additive; null while SHADOW)
+                 └─ Admin /admin/scoring-v2 diagnostics UI + public ExplainabilityV2Panel
+```
+
+Public never includes report codes; admin may. GET paths are DB-only (no provider calls).
+Flags remain default-off; no publication enablement in this workstream.
+
 ## Deferred (explicit)
 
 - Real Warcraft Logs event-page → Survival/Utility/Performance fact extractors
@@ -63,3 +78,4 @@ writes make redelivery safe. Concurrent double-finalization remains prevented by
 - Admin UI redesign / V2 createRun activation
 - Active/draft model-side dimension evaluation (requires calculator config injection above)
 - Full queue-state ADR for richer FINALIZING leases/TTLs (optional beyond minimal reclaim)
+- Public explainability population once `SCORING_V2_PUBLICATION_ENABLED` + non-SHADOW lifecycle

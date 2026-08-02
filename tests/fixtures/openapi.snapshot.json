@@ -1851,6 +1851,287 @@
                     },
                     "sourceDisagreements": {
                       "type": "array"
+                    },
+                    "explainabilityV2": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "properties": {
+                            "schemaVersion": {
+                              "type": "string"
+                            },
+                            "modelKey": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "modelVersion": {
+                              "type": [
+                                "number",
+                                "null"
+                              ]
+                            },
+                            "dataAsOf": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "evidenceCutoffAt": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "coverage": {
+                              "type": "object",
+                              "additionalProperties": false,
+                              "properties": {
+                                "analyzedRunCount": {
+                                  "type": "number"
+                                },
+                                "expectedRunCount": {
+                                  "type": "number"
+                                },
+                                "representedDungeonCount": {
+                                  "type": "number"
+                                },
+                                "expectedDungeonCount": {
+                                  "type": "number"
+                                },
+                                "coverageState": {
+                                  "type": "string"
+                                },
+                                "publicationState": {
+                                  "type": "string",
+                                  "enum": [
+                                    "PROVISIONAL",
+                                    "PUBLISHED"
+                                  ]
+                                },
+                                "provisional": {
+                                  "type": "boolean"
+                                },
+                                "stale": {
+                                  "type": "boolean"
+                                },
+                                "unavailable": {
+                                  "type": "boolean"
+                                }
+                              },
+                              "required": [
+                                "analyzedRunCount",
+                                "expectedRunCount",
+                                "representedDungeonCount",
+                                "expectedDungeonCount",
+                                "coverageState",
+                                "publicationState",
+                                "provisional",
+                                "stale",
+                                "unavailable"
+                              ]
+                            },
+                            "selectedRuns": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "additionalProperties": false,
+                                "properties": {
+                                  "dungeonSlug": {
+                                    "type": "string"
+                                  },
+                                  "slotIndex": {
+                                    "type": "number",
+                                    "enum": [
+                                      0,
+                                      1
+                                    ]
+                                  },
+                                  "keyLevel": {
+                                    "type": [
+                                      "number",
+                                      "null"
+                                    ]
+                                  },
+                                  "timed": {
+                                    "type": [
+                                      "boolean",
+                                      "null"
+                                    ]
+                                  },
+                                  "state": {
+                                    "type": "string"
+                                  },
+                                  "hasWclSource": {
+                                    "type": "boolean"
+                                  }
+                                },
+                                "required": [
+                                  "dungeonSlug",
+                                  "slotIndex",
+                                  "keyLevel",
+                                  "timed",
+                                  "state",
+                                  "hasWclSource"
+                                ]
+                              }
+                            },
+                            "dimensions": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "additionalProperties": false,
+                                "properties": {
+                                  "dimension": {
+                                    "type": "string",
+                                    "enum": [
+                                      "PERFORMANCE",
+                                      "SURVIVAL",
+                                      "UTILITY",
+                                      "EXPERIENCE"
+                                    ]
+                                  },
+                                  "score": {
+                                    "type": [
+                                      "number",
+                                      "null"
+                                    ]
+                                  },
+                                  "confidence": {
+                                    "type": "number"
+                                  },
+                                  "availabilityState": {
+                                    "type": "string",
+                                    "enum": [
+                                      "AVAILABLE",
+                                      "PARTIAL",
+                                      "UNAVAILABLE"
+                                    ]
+                                  },
+                                  "gradeU": {
+                                    "type": "boolean"
+                                  },
+                                  "algorithmVersion": {
+                                    "type": "string"
+                                  },
+                                  "topContributors": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "additionalProperties": false,
+                                      "properties": {
+                                        "key": {
+                                          "type": "string"
+                                        },
+                                        "dimension": {
+                                          "type": "string"
+                                        },
+                                        "label": {
+                                          "type": "string"
+                                        },
+                                        "score": {
+                                          "type": [
+                                            "number",
+                                            "null"
+                                          ]
+                                        },
+                                        "direction": {
+                                          "type": "string",
+                                          "enum": [
+                                            "positive",
+                                            "negative",
+                                            "neutral"
+                                          ]
+                                        }
+                                      },
+                                      "required": [
+                                        "key",
+                                        "dimension",
+                                        "label",
+                                        "score",
+                                        "direction"
+                                      ]
+                                    }
+                                  },
+                                  "limitations": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string",
+                                      "enum": [
+                                        "partial_coverage",
+                                        "insufficient_evidence",
+                                        "dimension_unavailable",
+                                        "provisional_sample"
+                                      ]
+                                    }
+                                  },
+                                  "utilitySemantics": {
+                                    "type": "object",
+                                    "additionalProperties": false,
+                                    "properties": {
+                                      "mode": {
+                                        "type": "string",
+                                        "enum": [
+                                          "OBSERVED_CONTRIBUTION"
+                                        ]
+                                      },
+                                      "notes": {
+                                        "type": "array",
+                                        "items": {
+                                          "type": "string"
+                                        }
+                                      }
+                                    },
+                                    "required": [
+                                      "mode",
+                                      "notes"
+                                    ]
+                                  }
+                                },
+                                "required": [
+                                  "dimension",
+                                  "score",
+                                  "confidence",
+                                  "availabilityState",
+                                  "gradeU",
+                                  "algorithmVersion",
+                                  "topContributors",
+                                  "limitations"
+                                ]
+                              }
+                            },
+                            "notes": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            },
+                            "gradeUMeans": {
+                              "type": "string",
+                              "enum": [
+                                "unavailable_or_unranked"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "schemaVersion",
+                            "modelKey",
+                            "modelVersion",
+                            "dataAsOf",
+                            "evidenceCutoffAt",
+                            "coverage",
+                            "selectedRuns",
+                            "dimensions",
+                            "notes",
+                            "gradeUMeans"
+                          ]
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
                     }
                   },
                   "additionalProperties": true
@@ -2534,6 +2815,287 @@
                     },
                     "sourceDisagreements": {
                       "type": "array"
+                    },
+                    "explainabilityV2": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "properties": {
+                            "schemaVersion": {
+                              "type": "string"
+                            },
+                            "modelKey": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "modelVersion": {
+                              "type": [
+                                "number",
+                                "null"
+                              ]
+                            },
+                            "dataAsOf": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "evidenceCutoffAt": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "coverage": {
+                              "type": "object",
+                              "additionalProperties": false,
+                              "properties": {
+                                "analyzedRunCount": {
+                                  "type": "number"
+                                },
+                                "expectedRunCount": {
+                                  "type": "number"
+                                },
+                                "representedDungeonCount": {
+                                  "type": "number"
+                                },
+                                "expectedDungeonCount": {
+                                  "type": "number"
+                                },
+                                "coverageState": {
+                                  "type": "string"
+                                },
+                                "publicationState": {
+                                  "type": "string",
+                                  "enum": [
+                                    "PROVISIONAL",
+                                    "PUBLISHED"
+                                  ]
+                                },
+                                "provisional": {
+                                  "type": "boolean"
+                                },
+                                "stale": {
+                                  "type": "boolean"
+                                },
+                                "unavailable": {
+                                  "type": "boolean"
+                                }
+                              },
+                              "required": [
+                                "analyzedRunCount",
+                                "expectedRunCount",
+                                "representedDungeonCount",
+                                "expectedDungeonCount",
+                                "coverageState",
+                                "publicationState",
+                                "provisional",
+                                "stale",
+                                "unavailable"
+                              ]
+                            },
+                            "selectedRuns": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "additionalProperties": false,
+                                "properties": {
+                                  "dungeonSlug": {
+                                    "type": "string"
+                                  },
+                                  "slotIndex": {
+                                    "type": "number",
+                                    "enum": [
+                                      0,
+                                      1
+                                    ]
+                                  },
+                                  "keyLevel": {
+                                    "type": [
+                                      "number",
+                                      "null"
+                                    ]
+                                  },
+                                  "timed": {
+                                    "type": [
+                                      "boolean",
+                                      "null"
+                                    ]
+                                  },
+                                  "state": {
+                                    "type": "string"
+                                  },
+                                  "hasWclSource": {
+                                    "type": "boolean"
+                                  }
+                                },
+                                "required": [
+                                  "dungeonSlug",
+                                  "slotIndex",
+                                  "keyLevel",
+                                  "timed",
+                                  "state",
+                                  "hasWclSource"
+                                ]
+                              }
+                            },
+                            "dimensions": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "additionalProperties": false,
+                                "properties": {
+                                  "dimension": {
+                                    "type": "string",
+                                    "enum": [
+                                      "PERFORMANCE",
+                                      "SURVIVAL",
+                                      "UTILITY",
+                                      "EXPERIENCE"
+                                    ]
+                                  },
+                                  "score": {
+                                    "type": [
+                                      "number",
+                                      "null"
+                                    ]
+                                  },
+                                  "confidence": {
+                                    "type": "number"
+                                  },
+                                  "availabilityState": {
+                                    "type": "string",
+                                    "enum": [
+                                      "AVAILABLE",
+                                      "PARTIAL",
+                                      "UNAVAILABLE"
+                                    ]
+                                  },
+                                  "gradeU": {
+                                    "type": "boolean"
+                                  },
+                                  "algorithmVersion": {
+                                    "type": "string"
+                                  },
+                                  "topContributors": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "additionalProperties": false,
+                                      "properties": {
+                                        "key": {
+                                          "type": "string"
+                                        },
+                                        "dimension": {
+                                          "type": "string"
+                                        },
+                                        "label": {
+                                          "type": "string"
+                                        },
+                                        "score": {
+                                          "type": [
+                                            "number",
+                                            "null"
+                                          ]
+                                        },
+                                        "direction": {
+                                          "type": "string",
+                                          "enum": [
+                                            "positive",
+                                            "negative",
+                                            "neutral"
+                                          ]
+                                        }
+                                      },
+                                      "required": [
+                                        "key",
+                                        "dimension",
+                                        "label",
+                                        "score",
+                                        "direction"
+                                      ]
+                                    }
+                                  },
+                                  "limitations": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string",
+                                      "enum": [
+                                        "partial_coverage",
+                                        "insufficient_evidence",
+                                        "dimension_unavailable",
+                                        "provisional_sample"
+                                      ]
+                                    }
+                                  },
+                                  "utilitySemantics": {
+                                    "type": "object",
+                                    "additionalProperties": false,
+                                    "properties": {
+                                      "mode": {
+                                        "type": "string",
+                                        "enum": [
+                                          "OBSERVED_CONTRIBUTION"
+                                        ]
+                                      },
+                                      "notes": {
+                                        "type": "array",
+                                        "items": {
+                                          "type": "string"
+                                        }
+                                      }
+                                    },
+                                    "required": [
+                                      "mode",
+                                      "notes"
+                                    ]
+                                  }
+                                },
+                                "required": [
+                                  "dimension",
+                                  "score",
+                                  "confidence",
+                                  "availabilityState",
+                                  "gradeU",
+                                  "algorithmVersion",
+                                  "topContributors",
+                                  "limitations"
+                                ]
+                              }
+                            },
+                            "notes": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            },
+                            "gradeUMeans": {
+                              "type": "string",
+                              "enum": [
+                                "unavailable_or_unranked"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "schemaVersion",
+                            "modelKey",
+                            "modelVersion",
+                            "dataAsOf",
+                            "evidenceCutoffAt",
+                            "coverage",
+                            "selectedRuns",
+                            "dimensions",
+                            "notes",
+                            "gradeUMeans"
+                          ]
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
                     }
                   },
                   "additionalProperties": true
@@ -9855,6 +10417,308 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": true
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        },
+                        "details": {}
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "requestId"
+                      ],
+                      "additionalProperties": true
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/scoring-v2/manifests": {
+      "get": {
+        "tags": [
+          "admin-explainability-v2"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "in": "query",
+            "name": "characterId",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "in": "query",
+            "name": "seasonId",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "query",
+            "name": "cursor",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50
+            },
+            "in": "query",
+            "name": "limit",
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        },
+                        "details": {}
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "requestId"
+                      ],
+                      "additionalProperties": true
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        },
+                        "details": {}
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "requestId"
+                      ],
+                      "additionalProperties": true
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/scoring-v2/characters/{characterId}/explainability": {
+      "get": {
+        "tags": [
+          "admin-explainability-v2"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "in": "query",
+            "name": "seasonId",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "in": "query",
+            "name": "manifestId",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "in": "path",
+            "name": "characterId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        },
+                        "details": {}
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "requestId"
+                      ],
+                      "additionalProperties": true
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        },
+                        "details": {}
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "requestId"
+                      ],
+                      "additionalProperties": true
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
                 }
               }
             }

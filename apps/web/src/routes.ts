@@ -75,6 +75,12 @@ export const routeDefs: RouteRecordRaw[] = [
     meta: { adminDestinationId: "calibration" },
   },
   {
+    path: "/admin/scoring-v2",
+    name: "admin-scoring-v2",
+    component: () => import("./pages/AdminScoringV2ExplainabilityPage.vue"),
+    meta: { adminDestinationId: "scoring-v2" },
+  },
+  {
     path: "/admin/misc",
     name: "admin-misc",
     component: () => import("./pages/AdminMiscPage.vue"),

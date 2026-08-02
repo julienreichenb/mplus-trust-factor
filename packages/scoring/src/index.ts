@@ -617,6 +617,26 @@ export type {
   BuildUtilityV2FactSetInput,
 } from "./utility/v2/index.js";
 
+/** Scoring V2 explainability builders (WS11). */
+export {
+  buildExplainabilityV2Admin,
+  toPublicExplainabilityV2,
+  buildExplainabilityV2Public,
+  derivePublicationState,
+  isPubliclyEmittablePublicationState,
+  sortPublicContributors,
+} from "./explainability-v2/index.js";
+export type {
+  BuildExplainabilityV2AdminInput,
+  ExplainabilityV2BatchSource,
+  ExplainabilityV2DatasetSource,
+  ExplainabilityV2DimensionSource,
+  ExplainabilityV2FactSetSource,
+  ExplainabilityV2RejectedSource,
+  ExplainabilityV2SlotSource,
+  ExplainabilityV2V1SnapshotSource,
+} from "./explainability-v2/index.js";
+
 /** Shared Shadow DimensionComputation normalization (WS10). */
 export {
   DIMENSION_COMPUTATION_LIFECYCLE_SHADOW,

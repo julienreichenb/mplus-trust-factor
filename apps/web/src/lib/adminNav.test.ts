@@ -43,6 +43,11 @@ const CASES = [
     id: "admin-misc" as const,
     path: "/admin/misc",
   },
+  {
+    permissions: ["score.candidate.read"],
+    id: "scoring-v2" as const,
+    path: "/admin/scoring-v2",
+  },
 ];
 
 describe("admin destination registry", () => {
@@ -72,6 +77,7 @@ describe("admin destination registry", () => {
       "admin.ability_catalog.read",
       "admin.users.read",
       "admin.jobs.manage",
+      "score.candidate.read",
       "admin.settings.manage",
       "admin.calibration.manage",
     ];

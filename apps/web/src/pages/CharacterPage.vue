@@ -21,6 +21,7 @@ import CharacterProfileToolbar from "../components/character/CharacterProfileToo
 import CharacterRefreshEta from "../components/character/CharacterRefreshEta.vue";
 import ScoreHeader from "../components/profile/ScoreHeader.vue";
 import DimensionCards from "../components/profile/DimensionCards.vue";
+import ExplainabilityV2Panel from "../components/profile/ExplainabilityV2Panel.vue";
 import AuthenticitySection from "../components/profile/AuthenticitySection.vue";
 import WclVisibilityBanner from "../components/profile/WclVisibilityBanner.vue";
 import KeySignalsPanel from "../components/character/KeySignalsPanel.vue";
@@ -622,6 +623,11 @@ watch(
         :performance-summary="profile.performanceSummary"
         :run-selection="profile.scoringRunSelection ?? null"
         :runs-locked="!entitlements.runsUnlocked"
+      />
+
+      <ExplainabilityV2Panel
+        :explainability="profile.explainabilityV2"
+        :locked="!entitlements.detailsUnlocked"
       />
 
       <KeySignalsPanel
