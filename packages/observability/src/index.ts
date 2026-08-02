@@ -68,6 +68,7 @@ export {
   fingerprintIdentifier,
   maskReportCode,
   sanitizeReportRef,
+  sanitizeCharacterRef,
   DEFAULT_ALLOWED_PROVIDER_HOSTS,
 } from "./security.js";
 
@@ -80,3 +81,37 @@ export {
   type ProviderRequestLabels,
   type WclBudgetSnapshot,
 } from "./metrics.js";
+
+export {
+  SCORING_V2_JOB_SCHEMA_VERSION,
+  SCORING_V2_EVIDENCE_MANIFEST_SCHEMA_VERSION,
+  SCORING_V2_ACQUISITION_PLAN_SCHEMA_VERSION,
+  buildScoringV2LogContext,
+  sanitizeScoringV2LogFields,
+  emitScoringV2Event,
+  recordManifestCoverage,
+  recordInvalidCandidateReason,
+  recordDatasetOutcome,
+  recordFactSetWritten,
+  recordSlotOutcome,
+  recordBatchOutcome,
+  recordAdmissionDecision,
+  recordPublicationDecision,
+  recordScoreConfidenceSample,
+  recordV1V2Delta,
+  recordQueueSnapshot,
+  recordArtifactOrphan,
+  recordCalibrationOutcome,
+  recordReferenceSliceState,
+  type ScoringV2EventName,
+  type ScoringV2CorrelationFields,
+} from "./scoring-v2.js";
+
+export {
+  evaluateReadiness,
+  requiredProbesForModes,
+  SCORING_V2_CONTRACT_VERSIONS,
+  type ScoringV2ModeSnapshot,
+  type ReadinessProbeResults,
+  type ReadinessEvaluation,
+} from "./readiness.js";

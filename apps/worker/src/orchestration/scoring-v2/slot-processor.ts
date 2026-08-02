@@ -1,5 +1,11 @@
 import type { AnalyzeEvidenceSlotJobV2, FinalizeEvidenceBatchJobV2 } from "@mplus/contracts";
 import { discoveryIdentityKey } from "@mplus/contracts";
+import {
+  OBS_EVENTS,
+  emitScoringV2Event,
+  recordBatchOutcome,
+  recordSlotOutcome,
+} from "@mplus/observability";
 import type { WorkerContainer } from "../../container.js";
 import {
   acquireCandidateWithFallback,
@@ -85,6 +91,15 @@ export async function runAnalyzeEvidenceSlotV2(
     return { outcome: "slot_not_found", analysisBatchId: job.analysisBatchId, slotId: job.slotId };
   }
 
+  recordSlotOutcome("started");
+  emitScoringV2Event(container.logger, OBS_EVENTS.scoringV2SlotStarted, {
+    analysisBatchId: job.analysisBatchId,
+    slotId: job.slotId,
+    correlationId: job.correlationId,
+    refreshGeneration: job.refreshGeneration,
+    characterId: claim.view.batch.characterId,
+  });
+
   const batchView = claim.view;
   const slotPlan = batchView.meta.acquisitionPlan.slots.find((s) => s.slotId === job.slotId);
   if (!slotPlan) {
@@ -167,7 +182,23 @@ export async function runAnalyzeEvidenceSlotV2(
       factSetFingerprint: acquired.factSetFingerprint,
     });
 
+    recordSlotOutcome("completed", status);
+    emitScoringV2Event(container.logger, OBS_EVENTS.scoringV2SlotCompleted, {
+      analysisBatchId: job.analysisBatchId,
+      slotId: job.slotId,
+      correlationId: job.correlationId,
+      characterId: batchView.batch.characterId,
+      status,
+      acquisitionStatus: acquired.result.acquisitionStatus,
+    });
+
     if (completed.becameReady) {
+      recordBatchOutcome("ready");
+      emitScoringV2Event(container.logger, OBS_EVENTS.scoringV2BatchReady, {
+        analysisBatchId: job.analysisBatchId,
+        correlationId: job.correlationId,
+        characterId: batchView.batch.characterId,
+      });
       await producers.enqueueFinalizeEvidenceBatch({
         analysisBatchId: job.analysisBatchId,
         acquisitionPlanContentHash: job.acquisitionPlanContentHash,
@@ -191,6 +222,18 @@ export async function runAnalyzeEvidenceSlotV2(
         status: "CANCELLED",
         terminalReason: "CANCELLED",
       });
+      recordSlotOutcome("failed", "CANCELLED");
+      emitScoringV2Event(
+        container.logger,
+        OBS_EVENTS.scoringV2SlotFailed,
+        {
+          analysisBatchId: job.analysisBatchId,
+          slotId: job.slotId,
+          correlationId: job.correlationId,
+          reason: "CANCELLED",
+        },
+        "warn",
+      );
       throw error;
     }
     if (error instanceof ScoringV2SupersededError) {
@@ -200,6 +243,18 @@ export async function runAnalyzeEvidenceSlotV2(
         status: "SUPERSEDED",
         terminalReason: "SUPERSEDED",
       });
+      recordSlotOutcome("failed", "SUPERSEDED");
+      emitScoringV2Event(
+        container.logger,
+        OBS_EVENTS.scoringV2SlotFailed,
+        {
+          analysisBatchId: job.analysisBatchId,
+          slotId: job.slotId,
+          correlationId: job.correlationId,
+          reason: "SUPERSEDED",
+        },
+        "warn",
+      );
       throw error;
     }
     const completed = await repo.completeSlot({
@@ -208,7 +263,24 @@ export async function runAnalyzeEvidenceSlotV2(
       status: "FAILED",
       terminalReason: error instanceof Error ? error.message : "SLOT_ACQUISITION_FAILED",
     });
+    recordSlotOutcome("failed", "FAILED");
+    emitScoringV2Event(
+      container.logger,
+      OBS_EVENTS.scoringV2SlotFailed,
+      {
+        analysisBatchId: job.analysisBatchId,
+        slotId: job.slotId,
+        correlationId: job.correlationId,
+        reason: error instanceof Error ? error.message : "SLOT_ACQUISITION_FAILED",
+      },
+      "error",
+    );
     if (completed.becameReady) {
+      recordBatchOutcome("ready");
+      emitScoringV2Event(container.logger, OBS_EVENTS.scoringV2BatchReady, {
+        analysisBatchId: job.analysisBatchId,
+        correlationId: job.correlationId,
+      });
       await producers.enqueueFinalizeEvidenceBatch({
         analysisBatchId: job.analysisBatchId,
         acquisitionPlanContentHash: job.acquisitionPlanContentHash,

@@ -37,10 +37,39 @@ msg =~ /rate limit/i || code == "RATE_LIMITED"
 | `queue_failures_total` | queue |
 | `score_calculations_total` | modelKey, modelVersion |
 | `addon_exports_total` | — |
+| `scoring_v2_manifest_coverage_total` | coverageState |
+| `scoring_v2_slots_per_character` | expected |
+| `scoring_v2_fallback_depth` | — |
+| `scoring_v2_dataset_outcome_total` | outcome, datasetKey?, dimension? |
+| `scoring_v2_wcl_points_total` | datasetKey?, dimension? |
+| `scoring_v2_slot_outcome_total` | outcome, status? |
+| `scoring_v2_batch_outcome_total` | outcome |
+| `scoring_v2_admission_total` | action |
+| `scoring_v2_publication_total` | action, reason? |
+| `scoring_v2_score_distribution` / `scoring_v2_confidence_distribution` | source, modelKey? |
+| `scoring_v2_v1_v2_delta_abs` | — |
+| `scoring_v2_queue_age_ms` | queue |
+| `scoring_v2_artifact_bytes` | kind |
+| `scoring_v2_artifact_orphans_total` | — |
+| `scoring_v2_calibration_*` / `scoring_v2_reference_slice_state_total` | — |
+
+### Scoring V2 events
+
+Normative names (also on `OBS_EVENTS`): `scoring_v2.discovery_*`, `manifest_frozen`, `admission_*`, `slot_*`, `dataset_*`, `fact_set_written`, `batch_*`, `publication_*`, `calibration_*`, `reference_slice_state_changed`.
+
+Emit via `emitScoringV2Event` so character ids/names and report codes are fingerprinted/redacted.
 
 ### WCL budget helper
 
 `computeWclBudgetSnapshot({ pointsSpent, hourlyLimit, warnPercent, deferPercent, stopPercent })` returns `shouldWarn`, `shouldDefer`, `shouldStop` for worker integration.
+
+### Readiness
+
+`GET /health/ready` reports `revision`, contract versions, V2 feature modes, WCL snapshot ownership, artifact backend, queue mode, and model/catalog compatibility. Failures are mode-conditional (`evaluateReadiness` / `requiredProbesForModes`).
+
+### Runbooks
+
+See [doc/operations/scoring-v2-runbooks.md](../operations/scoring-v2-runbooks.md).
 
 ## Dashboards
 

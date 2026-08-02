@@ -9,6 +9,13 @@ import type {
 } from "@mplus/contracts";
 import { discoveryIdentityKey } from "@mplus/contracts";
 import type { ArtifactRepository, EvidenceRepository } from "@mplus/database";
+import {
+  OBS_EVENTS,
+  emitScoringV2Event,
+  recordDatasetOutcome,
+  recordFactSetWritten,
+  recordInvalidCandidateReason,
+} from "@mplus/observability";
 import type { WorkerContainer } from "../../container.js";
 import {
   SCORING_V2_DATASET_SCHEMA_VERSION,
@@ -149,6 +156,7 @@ export async function acquireCandidateWithFallback(input: {
       );
 
       if (details.data == null) {
+        recordInvalidCandidateReason("ACQUISITION_FAILED");
         rejectedAttempts.push({
           discoveryIdentity: identity,
           acquisitionStatus: "REJECTED",
@@ -191,6 +199,17 @@ export async function acquireCandidateWithFallback(input: {
         bytes,
         compression: "GZIP",
         artifactClass: "wcl-fight-details-v2",
+      });
+      recordDatasetOutcome({
+        outcome: "fetched",
+        datasetKey: "fight-details",
+        bytes: bytes.byteLength,
+      });
+      emitScoringV2Event(container.logger, OBS_EVENTS.scoringV2DatasetFetched, {
+        characterId: input.characterId,
+        correlationId: input.correlationId,
+        datasetKey: "fight-details",
+        bytes: bytes.byteLength,
       });
 
       await input.evidence.upsertWclReportRevision({
@@ -255,6 +274,12 @@ export async function acquireCandidateWithFallback(input: {
             limitations: ["DIMENSION_CALCULATORS_NOT_WIRED"],
             computedAt: new Date(),
           });
+          recordFactSetWritten({});
+          emitScoringV2Event(container.logger, OBS_EVENTS.scoringV2FactSetWritten, {
+            characterId: input.characterId,
+            correlationId: input.correlationId,
+            factSetFingerprint,
+          });
         } catch {
           // Idempotent on fingerprint collisions.
         }
@@ -290,6 +315,7 @@ export async function acquireCandidateWithFallback(input: {
       if (error instanceof ScoringV2CancelledError || error instanceof ScoringV2SupersededError) {
         throw error;
       }
+      recordInvalidCandidateReason("HARD_PROVIDER_ERROR");
       rejectedAttempts.push({
         discoveryIdentity: identity,
         acquisitionStatus: "REJECTED",

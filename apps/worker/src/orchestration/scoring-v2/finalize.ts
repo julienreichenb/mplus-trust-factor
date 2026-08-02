@@ -1,5 +1,12 @@
 import type { FinalizeEvidenceBatchJobV2 } from "@mplus/contracts";
 import type { CharacterRole } from "@mplus/database";
+import {
+  OBS_EVENTS,
+  emitScoringV2Event,
+  recordBatchOutcome,
+  recordManifestCoverage,
+  recordPublicationDecision,
+} from "@mplus/observability";
 import { finalizeEvidenceManifestV2 } from "@mplus/scoring";
 import type { WorkerContainer } from "../../container.js";
 import {
@@ -162,6 +169,27 @@ export async function runFinalizeEvidenceBatchV2(
       manifestId = persisted.id;
       manifestContentHash = manifest.contentHash;
       manifestDocument = manifest;
+
+      const fallbackDepth = manifest.slots.reduce(
+        (max, slot) => Math.max(max, slot.selectedRank ?? 0),
+        0,
+      );
+      recordManifestCoverage({
+        coverageState: manifest.coverage.state,
+        selectedSlotCount: manifest.selectedSlotCount,
+        expectedSlotCount: manifest.expectedSlotCount,
+        fallbackDepth,
+      });
+      emitScoringV2Event(container.logger, OBS_EVENTS.scoringV2ManifestFrozen, {
+        analysisBatchId: job.analysisBatchId,
+        characterId: claimed.batch.characterId,
+        correlationId: job.correlationId,
+        manifestId,
+        manifestContentHash,
+        coverageState: manifest.coverage.state,
+        selectedSlotCount: manifest.selectedSlotCount,
+        expectedSlotCount: manifest.expectedSlotCount,
+      });
     }
 
     // Shadow dimension finalization — provider-free; no public publication.
@@ -208,16 +236,22 @@ export async function runFinalizeEvidenceBatchV2(
     await repo.markAdmissionReleased(job.analysisBatchId);
     await repo.markFinalized(job.analysisBatchId);
 
-    container.logger.info(
-      {
-        event: "scoring_v2_batch_finalized",
-        analysisBatchId: job.analysisBatchId,
-        manifestId,
-        manifestContentHash,
-        publicationBlocked: true,
-      },
-      "scoring v2 shadow batch finalized without public publication",
-    );
+    recordBatchOutcome("finalized");
+    recordPublicationDecision("rejected", "shadow_publication_blocked");
+    emitScoringV2Event(container.logger, OBS_EVENTS.scoringV2BatchFinalized, {
+      analysisBatchId: job.analysisBatchId,
+      characterId: claimed.batch.characterId,
+      correlationId: job.correlationId,
+      manifestId,
+      manifestContentHash,
+      publicationBlocked: true,
+    });
+    emitScoringV2Event(container.logger, OBS_EVENTS.scoringV2PublicationRejected, {
+      analysisBatchId: job.analysisBatchId,
+      characterId: claimed.batch.characterId,
+      correlationId: job.correlationId,
+      reason: "shadow_publication_blocked",
+    });
 
     return {
       outcome: "finalized",

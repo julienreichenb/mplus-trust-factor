@@ -24,6 +24,29 @@ export const OBS_EVENTS = {
   refreshLeaseExpired: "refresh.lease.expired",
   refreshSlotAcquired: "refresh.slot.acquired",
   refreshSlotReleased: "refresh.slot.released",
+
+  // Scoring V2 lifecycle (normative names from 15_TESTING_VALIDATION_OBSERVABILITY.md)
+  scoringV2DiscoveryStarted: "scoring_v2.discovery_started",
+  scoringV2DiscoveryCompleted: "scoring_v2.discovery_completed",
+  scoringV2ManifestFrozen: "scoring_v2.manifest_frozen",
+  scoringV2AdmissionAdmitted: "scoring_v2.admission_admitted",
+  scoringV2AdmissionDeferred: "scoring_v2.admission_deferred",
+  scoringV2AdmissionStopped: "scoring_v2.admission_stopped",
+  scoringV2SlotStarted: "scoring_v2.slot_started",
+  scoringV2SlotCompleted: "scoring_v2.slot_completed",
+  scoringV2SlotFailed: "scoring_v2.slot_failed",
+  scoringV2DatasetCacheHit: "scoring_v2.dataset_cache_hit",
+  scoringV2DatasetFetched: "scoring_v2.dataset_fetched",
+  scoringV2DatasetTruncated: "scoring_v2.dataset_truncated",
+  scoringV2FactSetWritten: "scoring_v2.fact_set_written",
+  scoringV2BatchReady: "scoring_v2.batch_ready",
+  scoringV2BatchFinalized: "scoring_v2.batch_finalized",
+  scoringV2PublicationCandidate: "scoring_v2.publication_candidate",
+  scoringV2PublicationPublished: "scoring_v2.publication_published",
+  scoringV2PublicationRejected: "scoring_v2.publication_rejected",
+  scoringV2CalibrationStarted: "scoring_v2.calibration_started",
+  scoringV2CalibrationCompleted: "scoring_v2.calibration_completed",
+  scoringV2ReferenceSliceStateChanged: "scoring_v2.reference_slice_state_changed",
 } as const;
 
 export type ObsEventName = (typeof OBS_EVENTS)[keyof typeof OBS_EVENTS];

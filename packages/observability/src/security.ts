@@ -15,6 +15,10 @@ const SENSITIVE_KEY =
 
 const REPORT_CODE_KEY = /^(reportcode|report_code)$/i;
 
+/** Raw character / player display names must never appear in logs. */
+const CHARACTER_NAME_KEY =
+  /^(charactername|character_name|playername|player_name|battletag|battle_tag)$/i;
+
 const BEARER_PATTERN = /\bBearer\s+[A-Za-z0-9\-._~+/]+=*/gi;
 
 export function constantTimeEqual(a: string, b: string): boolean {
@@ -75,6 +79,14 @@ export function sanitizeReportRef(code: string): { fingerprint: string; maskedCo
   };
 }
 
+/** Fingerprint a character/player display name for safe logging. */
+export function sanitizeCharacterRef(name: string): { fingerprint: string; redacted: true } {
+  return {
+    fingerprint: fingerprintIdentifier(name.trim().toLowerCase()),
+    redacted: true,
+  };
+}
+
 /**
  * Shallow redaction of credential-like keys (legacy helper; prefer `sanitizeSensitiveDeep`).
  */
@@ -117,6 +129,27 @@ export function sanitizeSensitiveDeep(value: unknown, seen = new WeakSet<object>
     if (REPORT_CODE_KEY.test(key) && typeof entry === "string" && entry.length > 0) {
       const ref = sanitizeReportRef(entry);
       out[key] = ref.maskedCode;
+      out[`${key}Fingerprint`] = ref.fingerprint;
+      continue;
+    }
+    if (CHARACTER_NAME_KEY.test(key) && typeof entry === "string" && entry.length > 0) {
+      const ref = sanitizeCharacterRef(entry);
+      out[key] = "[Redacted]";
+      out[`${key}Fingerprint`] = ref.fingerprint;
+      continue;
+    }
+    // Bare `name` next to realm identifiers is treated as a character name.
+    if (
+      /^name$/i.test(key) &&
+      typeof entry === "string" &&
+      entry.length > 0 &&
+      ("realm" in (value as object) ||
+        "realmSlug" in (value as object) ||
+        "region" in (value as object) ||
+        "characterId" in (value as object))
+    ) {
+      const ref = sanitizeCharacterRef(entry);
+      out[key] = "[Redacted]";
       out[`${key}Fingerprint`] = ref.fingerprint;
       continue;
     }

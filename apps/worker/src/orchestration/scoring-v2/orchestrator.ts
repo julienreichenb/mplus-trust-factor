@@ -17,6 +17,12 @@ import {
   type DiscoverySourceRow,
 } from "@mplus/provider-warcraftlogs";
 import { buildEvidenceAcquisitionPlanV2 } from "@mplus/scoring";
+import {
+  OBS_EVENTS,
+  emitScoringV2Event,
+  recordAdmissionDecision,
+  recordPublicationDecision,
+} from "@mplus/observability";
 import type { WorkerContainer } from "../../container.js";
 import {
   assertPublicationBlocked,
@@ -78,10 +84,30 @@ export async function startEvidenceV2ShadowPipeline(
   if (!isScoringV2ShadowOrchestrationEnabled(container.env)) {
     return { skipped: true, reason: "scoring_v2_flags_off" };
   }
+  if (container.env.SCORING_V2_PUBLICATION_ENABLED) {
+    recordPublicationDecision("rejected", "publication_must_stay_blocked");
+    emitScoringV2Event(
+      container.logger,
+      OBS_EVENTS.scoringV2PublicationRejected,
+      {
+        characterId: input.characterId,
+        correlationId: input.correlationId,
+        reason: "publication_must_stay_blocked",
+      },
+      "error",
+    );
+  }
   assertPublicationBlocked(container.env);
 
   const enabledConsumers = resolveEnabledConsumers(container.env);
   const plannedAt = new Date().toISOString();
+
+  emitScoringV2Event(container.logger, OBS_EVENTS.scoringV2DiscoveryStarted, {
+    characterId: input.characterId,
+    seasonId: input.seasonId,
+    correlationId: input.correlationId,
+    refreshGeneration: input.refreshGeneration,
+  });
 
   let candidates = input.candidates ?? [];
   if (candidates.length === 0 && input.discoveryRows && input.discoveryRows.length > 0) {
@@ -91,6 +117,13 @@ export async function startEvidenceV2ShadowPipeline(
     });
     candidates = discovery.candidates.map((c) => toCandidateMetadataV2(c));
   }
+
+  emitScoringV2Event(container.logger, OBS_EVENTS.scoringV2DiscoveryCompleted, {
+    characterId: input.characterId,
+    seasonId: input.seasonId,
+    correlationId: input.correlationId,
+    candidateCount: candidates.length,
+  });
 
   const scope: EvidenceSelectionScope = {
     characterId: input.characterId,
@@ -131,6 +164,21 @@ export async function startEvidenceV2ShadowPipeline(
       batch.id,
       deferred.reason,
     );
+    const action = deferred.reason.includes("rate_budget_stop") ? "stopped" : "deferred";
+    recordAdmissionDecision(action);
+    emitScoringV2Event(
+      container.logger,
+      action === "stopped"
+        ? OBS_EVENTS.scoringV2AdmissionStopped
+        : OBS_EVENTS.scoringV2AdmissionDeferred,
+      {
+        characterId: input.characterId,
+        analysisBatchId: batch.id,
+        correlationId: input.correlationId,
+        reason: deferred.reason,
+      },
+      "warn",
+    );
     return {
       skipped: false,
       deferred: true,
@@ -155,6 +203,15 @@ export async function startEvidenceV2ShadowPipeline(
   });
 
   await container.repositories.evidenceV2Batch.markAnalyzing(view.batch.id);
+
+  recordAdmissionDecision("admitted");
+  emitScoringV2Event(container.logger, OBS_EVENTS.scoringV2AdmissionAdmitted, {
+    characterId: input.characterId,
+    analysisBatchId: view.batch.id,
+    correlationId: input.correlationId,
+    expectedSlotCount: plan.expectedSlotCount,
+    enabledConsumers,
+  });
 
   let enqueued = 0;
   for (const slot of plan.slots) {
