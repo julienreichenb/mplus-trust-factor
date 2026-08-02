@@ -39,6 +39,10 @@ import {
 import { getAbilityCatalog } from "@mplus/abilities";
 import type { WorkerContainer } from "../../container.js";
 import {
+  resolveFrozenClassSpecIdentity,
+  type FrozenClassSpecIdentity,
+} from "./class-spec-identity.js";
+import {
   requiresRankingParse,
   requiresSharedEventEvidence,
   resolveBatchDatasetRequirements,
@@ -91,19 +95,21 @@ export function buildFactSetFingerprint(parts: {
   reportRevision: number;
   extractorFamily: string;
   extractorVersion: string;
+  /** When provided (including null), binds catalog identity into the fingerprint. */
+  classSlug?: string | null;
+  specSlug?: string | null;
 }): string {
-  return createHash("sha256")
-    .update(
-      [
-        parts.reportCode,
-        String(parts.fightId),
-        String(parts.reportRevision),
-        parts.extractorFamily,
-        parts.extractorVersion,
-      ].join("|"),
-      "utf8",
-    )
-    .digest("hex");
+  const segments = [
+    parts.reportCode,
+    String(parts.fightId),
+    String(parts.reportRevision),
+    parts.extractorFamily,
+    parts.extractorVersion,
+  ];
+  if ("classSlug" in parts || "specSlug" in parts) {
+    segments.push(parts.classSlug ?? "", parts.specSlug ?? "");
+  }
+  return createHash("sha256").update(segments.join("|"), "utf8").digest("hex");
 }
 
 export function buildDatasetContentHash(payload: unknown): string {
@@ -242,6 +248,8 @@ export async function acquireCandidateWithFallback(input: {
   transport: ScoringV2EvidenceTransport;
   classSlug?: string | null;
   specSlug?: string | null;
+  /** Explicit frozen identity state; derived from class/spec when omitted. */
+  classSpecIdentity?: FrozenClassSpecIdentity;
 }): Promise<{
   result: EvidenceCandidateAcquisitionResult;
   datasetCompatibilityKeys: string[];
@@ -253,6 +261,15 @@ export async function acquireCandidateWithFallback(input: {
   const rejectedAttempts: EvidenceCandidateAcquisitionResult[] = [];
   const { container, datasetRequirements } = input;
   let providerCallTotal = 0;
+
+  const classSpecIdentity =
+    input.classSpecIdentity ??
+    resolveFrozenClassSpecIdentity({
+      planClassSlug: input.classSlug ?? null,
+      planSpecSlug: input.specSlug ?? null,
+    });
+  const classSlug = classSpecIdentity.classSlug;
+  const specSlug = classSpecIdentity.specSlug;
 
   const needShared = requiresSharedEventEvidence(datasetRequirements);
   const needRanking = requiresRankingParse(datasetRequirements);
@@ -531,7 +548,21 @@ export async function acquireCandidateWithFallback(input: {
       // --- Survival ---
       if (consumers.has("SURVIVAL")) {
         try {
-          if (!bundle || playerActorId == null) {
+          if (classSpecIdentity.catalogDependentFailClosed) {
+            typedFactPayloads.push({
+              dimension: "SURVIVAL",
+              status: "UNAVAILABLE",
+              extractorFamily: SURVIVAL_V2_EXTRACTOR_FAMILY,
+              extractorVersion: SURVIVAL_V2_FACT_EXTRACTOR_VERSION,
+              schemaVersion: SURVIVAL_V2_SCHEMA_VERSION,
+              facts: null,
+              limitations: classSpecIdentity.limitations,
+              category: "identity_incomplete",
+              reason: "class_spec_identity_incompatible",
+              artifactIds,
+              coverage: {},
+            });
+          } else if (!bundle || playerActorId == null) {
             typedFactPayloads.push({
               dimension: "SURVIVAL",
               status: "UNAVAILABLE",
@@ -543,6 +574,7 @@ export async function acquireCandidateWithFallback(input: {
                 bundle == null
                   ? "incomplete_survival_shared_evidence"
                   : "player_actor_missing",
+                ...classSpecIdentity.limitations,
               ],
               category:
                 bundle == null ? "incomplete_shared_evidence" : "identity_incomplete",
@@ -555,8 +587,8 @@ export async function acquireCandidateWithFallback(input: {
             });
           } else {
             const catalog = getAbilityCatalog({
-              classSlug: input.classSlug ?? null,
-              specSlug: input.specSlug ?? null,
+              classSlug,
+              specSlug,
             });
             const outcome = extractSurvivalFactDocumentV2FromSharedEvidence({
               bundle,
@@ -570,22 +602,46 @@ export async function acquireCandidateWithFallback(input: {
               playerActorId,
               ownedPetActorIds: details.ownedPetActorIds,
               catalog,
-              classSlug: input.classSlug ?? null,
-              specSlug: input.specSlug ?? null,
+              classSlug,
+              specSlug,
               keyLevel: candidate.keyLevel,
             });
+            const identityLimitations =
+              !catalog.supported || classSpecIdentity.state === "UNKNOWN"
+                ? [
+                    ...classSpecIdentity.limitations,
+                    ...(catalog.unsupportedReason
+                      ? [`ability_catalog:${catalog.unsupportedReason}`]
+                      : []),
+                  ]
+                : classSpecIdentity.limitations;
             typedFactPayloads.push({
               dimension: "SURVIVAL",
               status: outcome.status,
               extractorFamily: SURVIVAL_V2_EXTRACTOR_FAMILY,
               extractorVersion: SURVIVAL_V2_FACT_EXTRACTOR_VERSION,
               schemaVersion: SURVIVAL_V2_SCHEMA_VERSION,
-              facts: outcome.fact,
-              limitations: outcome.limitations,
+              facts: outcome.fact
+                ? {
+                    ...outcome.fact,
+                    limitations: [
+                      ...new Set([
+                        ...(outcome.fact.limitations ?? []),
+                        ...identityLimitations,
+                      ]),
+                    ].slice(0, 32),
+                  }
+                : null,
+              limitations: [
+                ...new Set([...outcome.limitations, ...identityLimitations]),
+              ].slice(0, 32),
               category: outcome.category,
               reason: outcome.reason,
               artifactIds,
-              coverage: { sharedEvidence: true },
+              coverage: {
+                sharedEvidence: true,
+                abilityCatalogSupported: catalog.supported,
+              },
             });
           }
         } catch {
@@ -608,7 +664,7 @@ export async function acquireCandidateWithFallback(input: {
       // --- Utility ---
       if (consumers.has("UTILITY")) {
         try {
-          if (!bundle) {
+          if (classSpecIdentity.catalogDependentFailClosed) {
             typedFactPayloads.push({
               dimension: "UTILITY",
               status: "UNAVAILABLE",
@@ -616,7 +672,24 @@ export async function acquireCandidateWithFallback(input: {
               extractorVersion: UTILITY_V2_EXTRACTOR_VERSION,
               schemaVersion: UTILITY_V2_SCHEMA_VERSION,
               facts: null,
-              limitations: ["incomplete_utility_shared_evidence"],
+              limitations: classSpecIdentity.limitations,
+              category: "identity_incomplete",
+              reason: "class_spec_identity_incompatible",
+              artifactIds,
+              coverage: {},
+            });
+          } else if (!bundle) {
+            typedFactPayloads.push({
+              dimension: "UTILITY",
+              status: "UNAVAILABLE",
+              extractorFamily: UTILITY_V2_EXTRACTOR_FAMILY,
+              extractorVersion: UTILITY_V2_EXTRACTOR_VERSION,
+              schemaVersion: UTILITY_V2_SCHEMA_VERSION,
+              facts: null,
+              limitations: [
+                "incomplete_utility_shared_evidence",
+                ...classSpecIdentity.limitations,
+              ],
               category: "incomplete_shared_evidence",
               reason: "required_utility_datasets_absent",
               artifactIds,
@@ -626,8 +699,8 @@ export async function acquireCandidateWithFallback(input: {
             const outcome = extractUtilityV2RunFactSetFromSharedEvidence({
               bundle,
               slot: slotBinding,
-              classSlug: input.classSlug ?? null,
-              specSlug: input.specSlug ?? null,
+              classSlug,
+              specSlug,
             });
             typedFactPayloads.push({
               dimension: "UTILITY",
@@ -636,7 +709,12 @@ export async function acquireCandidateWithFallback(input: {
               extractorVersion: UTILITY_V2_EXTRACTOR_VERSION,
               schemaVersion: UTILITY_V2_SCHEMA_VERSION,
               facts: outcome.fact,
-              limitations: outcome.limitations,
+              limitations: [
+                ...new Set([
+                  ...outcome.limitations,
+                  ...classSpecIdentity.limitations,
+                ]),
+              ].slice(0, 32),
               category: outcome.category,
               reason: outcome.reason,
               artifactIds,
@@ -673,6 +751,8 @@ export async function acquireCandidateWithFallback(input: {
             reportCode: identity.reportCode,
             fightId: identity.fightId,
             reportRevision,
+            classSlug,
+            specSlug,
             payload,
           });
           if (persisted.outcome === "conflict") {
@@ -696,6 +776,8 @@ export async function acquireCandidateWithFallback(input: {
                   reportRevision,
                   extractorFamily: p.extractorFamily,
                   extractorVersion: p.extractorVersion,
+                  classSlug,
+                  specSlug,
                 }),
                 facts: p.facts,
               })),
@@ -706,6 +788,8 @@ export async function acquireCandidateWithFallback(input: {
               reportRevision,
               extractorFamily: "scoring-v2-acquisition",
               extractorVersion: "2.0.0",
+              classSlug,
+              specSlug,
             });
 
       const dimValidity = {

@@ -29,17 +29,19 @@ export function buildTypedFactSetFingerprint(parts: {
   reportRevision: number;
   extractorFamily: string;
   extractorVersion: string;
+  /** When provided (including null), binds catalog identity into the fingerprint. */
+  classSlug?: string | null;
+  specSlug?: string | null;
 }): string {
-  return createHash("sha256")
-    .update(
-      [
-        parts.reportCode,
-        String(parts.fightId),
-        String(parts.reportRevision),
-        parts.extractorFamily,
-        parts.extractorVersion,
-      ].join("|"),
-      "utf8",
-    )
-    .digest("hex");
+  const segments = [
+    parts.reportCode,
+    String(parts.fightId),
+    String(parts.reportRevision),
+    parts.extractorFamily,
+    parts.extractorVersion,
+  ];
+  if ("classSlug" in parts || "specSlug" in parts) {
+    segments.push(parts.classSlug ?? "", parts.specSlug ?? "");
+  }
+  return createHash("sha256").update(segments.join("|"), "utf8").digest("hex");
 }

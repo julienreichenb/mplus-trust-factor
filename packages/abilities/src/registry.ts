@@ -161,9 +161,19 @@ export function getCatalogByVersion(gameVersion: string): AbilityCatalog | null 
  * Detailed catalog resolution with explicit failure reasons.
  * Never falls back to Warlock for unknown specs.
  */
+/**
+ * Canonical catalog slug normalization used by resolveAbilityCatalog.
+ * Trim + lowercase only — does not invent hyphenation or aliases.
+ */
+export function normalizeCatalogSlug(value: string | null | undefined): string | null {
+  if (value == null) return null;
+  const normalized = value.trim().toLowerCase();
+  return normalized.length > 0 ? normalized : null;
+}
+
 export function resolveAbilityCatalog(lookup: AbilityCatalogLookup): GetAbilityCatalogResult {
-  const classSlug = lookup.classSlug?.trim().toLowerCase() || "";
-  const specSlug = lookup.specSlug?.trim().toLowerCase() || "";
+  const classSlug = normalizeCatalogSlug(lookup.classSlug) ?? "";
+  const specSlug = normalizeCatalogSlug(lookup.specSlug) ?? "";
   const role = lookup.role ?? undefined;
   const { gameVersion, includeShared = true, includeRacials = false } = lookup;
 
@@ -267,8 +277,8 @@ export function getAbilityCatalog(lookup: AbilityCatalogLookup): AbilityCatalog 
   const resolved = resolveAbilityCatalog(lookup);
   if (resolved.ok) return resolved.catalog;
 
-  const classSlug = lookup.classSlug?.trim().toLowerCase() || null;
-  const specSlug = lookup.specSlug?.trim().toLowerCase() || null;
+  const classSlug = normalizeCatalogSlug(lookup.classSlug);
+  const specSlug = normalizeCatalogSlug(lookup.specSlug);
   const specDef = classSlug && specSlug ? findSpecDefinition(classSlug, specSlug) : undefined;
 
   return emptyUnsupported(

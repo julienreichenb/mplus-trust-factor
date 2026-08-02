@@ -215,24 +215,40 @@ function mapSupportActions(run: UtilityNormalizedRun): UtilityV2SupportAction[] 
 function resolveToolkit(
   classSlug: string | null,
   specSlug: string | null,
-): UtilityV2ToolkitApplicability {
+): { toolkit: UtilityV2ToolkitApplicability; catalogSupported: boolean; unsupportedReason: string | null } {
   const catalog = getAbilityCatalog({
     classSlug,
     specSlug,
     includeRacials: true,
   });
+  if (!catalog.supported) {
+    // Unknown / unsupported identity must not look like a confirmed empty toolkit.
+    return {
+      toolkit: {
+        hasInterrupt: false,
+        hasSupport: false,
+        hasStrategicCc: false,
+      },
+      catalogSupported: false,
+      unsupportedReason: catalog.unsupportedReason ?? "ABILITY_CATALOG_UNSUPPORTED",
+    };
+  }
   return {
-    hasInterrupt:
-      spellIdsForCategory(catalog, "INTERRUPT", { classSlug, specSlug }).size > 0,
-    hasSupport:
-      spellIdsForCategory(catalog, "DISPEL", { classSlug, specSlug }).size > 0 ||
-      spellIdsForCategory(catalog, "PURGE", { classSlug, specSlug }).size > 0 ||
-      spellIdsForCategory(catalog, "EXTERNAL_DEFENSIVE", {
-        classSlug,
-        specSlug,
-      }).size > 0,
-    hasStrategicCc:
-      spellIdsForCategory(catalog, "HARD_CC", { classSlug, specSlug }).size > 0,
+    toolkit: {
+      hasInterrupt:
+        spellIdsForCategory(catalog, "INTERRUPT", { classSlug, specSlug }).size > 0,
+      hasSupport:
+        spellIdsForCategory(catalog, "DISPEL", { classSlug, specSlug }).size > 0 ||
+        spellIdsForCategory(catalog, "PURGE", { classSlug, specSlug }).size > 0 ||
+        spellIdsForCategory(catalog, "EXTERNAL_DEFENSIVE", {
+          classSlug,
+          specSlug,
+        }).size > 0,
+      hasStrategicCc:
+        spellIdsForCategory(catalog, "HARD_CC", { classSlug, specSlug }).size > 0,
+    },
+    catalogSupported: true,
+    unsupportedReason: null,
   };
 }
 
@@ -278,9 +294,11 @@ export function mapUtilityNormalizedRunToFactSet(input: {
     }));
 
   const hostileWindows = buildHostileWindows(input.hostileCastEvents);
-  const toolkit = resolveToolkit(input.classSlug, input.specSlug);
+  const resolvedToolkit = resolveToolkit(input.classSlug, input.specSlug);
+  const toolkit = resolvedToolkit.toolkit;
   const incomplete = input.run.incompleteDatasets.length > 0;
   const truncated = input.run.truncatedDatasets.length > 0;
+  const identityUnknown = !resolvedToolkit.catalogSupported;
 
   const limitations = clampLimitations([
     ...(input.limitations ?? []),
@@ -290,8 +308,17 @@ export function mapUtilityNormalizedRunToFactSet(input: {
     ...(truncated
       ? input.run.truncatedDatasets.map((d) => `truncated_dataset:${d}`)
       : []),
+    ...(identityUnknown
+      ? [
+          "class_spec_identity_unknown",
+          `ability_catalog:${resolvedToolkit.unsupportedReason}`,
+          "toolkit_coverage_unconfirmed",
+        ]
+      : []),
     // Bound zero-observation marker when evidence is complete but empty.
-    ...(!incomplete &&
+    // Skip when identity is unknown — empty toolkit is not confirmed coverage.
+    ...(!identityUnknown &&
+    !incomplete &&
     attemptSeeds.length === 0 &&
     confirmedInterrupts.length === 0 &&
     mapCcActions(input.run).length === 0 &&
@@ -320,8 +347,8 @@ export function mapUtilityNormalizedRunToFactSet(input: {
     supportActions: mapSupportActions(input.run),
     dispelPurgeSuccessCount: input.run.dispelPurgeEvents.length,
     toolkit,
-    abilityCatalogCoverage: incomplete ? 0.5 : 0.85,
-    mechanicCatalogCoverage: incomplete ? 0.4 : 0.7,
+    abilityCatalogCoverage: identityUnknown ? 0 : incomplete ? 0.5 : 0.85,
+    mechanicCatalogCoverage: identityUnknown ? 0 : incomplete ? 0.4 : 0.7,
     limitations,
   });
 }

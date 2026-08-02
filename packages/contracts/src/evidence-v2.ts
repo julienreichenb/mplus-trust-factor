@@ -44,12 +44,14 @@ export type EvidenceCandidateFrozenIdentity = z.infer<
 export const evidenceRoleSchema = z.enum(["DPS", "TANK", "HEALER"]);
 export type EvidenceRole = z.infer<typeof evidenceRoleSchema>;
 
-/** Season / spec / role scope for one selection. */
+/** Season / class / spec / role scope for one selection. */
 export const evidenceSelectionScopeSchema = z.object({
   characterId: z.string().min(1),
   seasonId: z.string().min(1),
   seasonSlug: z.string().min(1),
   specializationId: z.string().min(1).nullable(),
+  /** Frozen class slug for catalog-dependent extractors; null = unknown. */
+  classSlug: z.string().min(1).nullable().optional().default(null),
   specSlug: z.string().min(1).nullable(),
   role: evidenceRoleSchema,
   refreshContractHash: z.string().min(1),
@@ -277,6 +279,8 @@ export const evidenceAcquisitionPlanV2Schema = z.object({
   characterId: z.string().min(1),
   seasonId: z.string().min(1),
   seasonSlug: z.string().min(1),
+  /** Frozen at plan time; optional for backward-compatible parse of older plans. */
+  classSlug: z.string().nullable().optional().default(null),
   specSlug: z.string().nullable(),
   role: evidenceRoleSchema,
   refreshContractHash: z.string().min(1),
@@ -299,6 +303,7 @@ export const evidenceAcquisitionPlanContentHashInputSchema = z.object({
   characterId: z.string().min(1),
   seasonId: z.string().min(1),
   seasonSlug: z.string().min(1),
+  classSlug: z.string().nullable(),
   specSlug: z.string().nullable(),
   role: evidenceRoleSchema,
   refreshContractHash: z.string().min(1),
@@ -383,6 +388,8 @@ export const characterSeasonEvidenceManifestV2Schema = z.object({
   characterId: z.string().min(1),
   seasonId: z.string().min(1),
   seasonSlug: z.string().min(1),
+  /** Frozen class slug; optional for backward-compatible parse of older manifests. */
+  classSlug: z.string().nullable().optional().default(null),
   specSlug: z.string().nullable(),
   role: evidenceRoleSchema,
   refreshContractHash: z.string().min(1),
@@ -413,6 +420,7 @@ export const evidenceManifestContentHashInputSchema = z.object({
   characterId: z.string().min(1),
   seasonId: z.string().min(1),
   seasonSlug: z.string().min(1),
+  classSlug: z.string().nullable(),
   specSlug: z.string().nullable(),
   role: evidenceRoleSchema,
   refreshContractHash: z.string().min(1),

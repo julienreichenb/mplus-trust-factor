@@ -18,6 +18,7 @@ export async function maybeStartScoringV2ShadowFromRefresh(input: {
   seasonId: string;
   seasonSlug: string;
   role: EvidenceRole;
+  classSlug: string | null;
   specSlug: string | null;
   refreshContract: Parameters<typeof hashRefreshContract>[0];
   evidenceCutoffAt: string;
@@ -44,6 +45,7 @@ export async function maybeStartScoringV2ShadowFromRefresh(input: {
         seasonId: input.seasonId,
         seasonSlug: input.seasonSlug,
         role: input.role,
+        classSlug: input.classSlug,
         specSlug: input.specSlug,
         refreshContractHash: hashRefreshContract(input.refreshContract),
         evidenceCutoffAt: input.evidenceCutoffAt,

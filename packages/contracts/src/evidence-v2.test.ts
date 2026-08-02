@@ -65,6 +65,7 @@ describe("evidence-v2 contracts", () => {
       characterId: "c1",
       seasonId: "s1",
       seasonSlug: "season",
+      classSlug: "mage",
       specSlug: "fire",
       role: "DPS",
       refreshContractHash: "h",

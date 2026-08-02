@@ -164,6 +164,7 @@ describe.runIf(dbAvailable)("scoring v2 pipeline fan-in integration", () => {
         seasonId,
         seasonSlug: "v2-pipe-season",
         specializationId: null,
+        classSlug: null,
         specSlug: null,
         role: "DPS",
         refreshContractHash: "rf-pipe-1",

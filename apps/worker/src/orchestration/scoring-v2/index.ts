@@ -1,6 +1,7 @@
 export * from "./fanin.js";
 export * from "./types.js";
 export * from "./acquisition.js";
+export * from "./class-spec-identity.js";
 export * from "./dataset-requirements.js";
 export * from "./evidence-transport.js";
 export * from "./typed-fact-persist.js";

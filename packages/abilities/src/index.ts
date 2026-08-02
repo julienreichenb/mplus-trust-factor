@@ -54,6 +54,7 @@ export {
   LEGACY_CATEGORY_MAP,
   listSupportedCatalogs,
   listSupportedClassSlugs,
+  normalizeCatalogSlug,
   normalizeCategory,
   resolveAbilityCatalog,
   resolveAbilityRule,
