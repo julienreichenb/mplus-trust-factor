@@ -109,6 +109,78 @@ export function unionDatasetsForConsumers(
   return [...set].sort((a, b) => a.localeCompare(b));
 }
 
+/** Provider candidate for a planned dataset — acquisition may not invent outside this list. */
+export type EvidenceDatasetProviderCandidateV2 =
+  | "warcraftlogs"
+  | "artifact_cache"
+  | "persisted_dataset";
+
+/** Immutable dataset requirements for a Scoring V2 batch (no slot identity yet). */
+export interface EvidenceDatasetRequirementV2 {
+  dataset: EvidenceDatasetKind;
+  /** True when any enabled consumer lists the dataset as required. */
+  required: boolean;
+  consumers: EvidenceConsumerDimension[];
+  providerContractVersion: string;
+  /** Artifact/compatibility-key reuse is always eligible for these datasets. */
+  cacheReusable: true;
+  /**
+   * Ordered provider/fallback candidates. Acquisition must try in order and
+   * must not call providers outside this list.
+   */
+  providerCandidates: readonly EvidenceDatasetProviderCandidateV2[];
+  /** Known truncation / capability limits recorded at plan time. */
+  limitations: readonly string[];
+}
+
+const DEFAULT_PROVIDER_FALLBACK: readonly EvidenceDatasetProviderCandidateV2[] = [
+  "persisted_dataset",
+  "artifact_cache",
+  "warcraftlogs",
+] as const;
+
+function planLimitationsForDataset(dataset: EvidenceDatasetKind): readonly string[] {
+  if (dataset === "RANKING_PARSE") {
+    return ["ranking_parse_requires_provider_capability"];
+  }
+  if (dataset === "HOSTILE_CASTS") {
+    return ["hostile_casts_may_truncate_under_page_budget"];
+  }
+  return [];
+}
+
+/**
+ * Build the immutable dataset requirement list from enabled consumers.
+ * Acquisition must not request datasets outside this list.
+ */
+export function buildDatasetRequirements(
+  enabledConsumers: readonly EvidenceConsumerDimension[],
+  options?: {
+    includeOptional?: boolean;
+    providerContractVersion?: string;
+  },
+): EvidenceDatasetRequirementV2[] {
+  const includeOptional = options?.includeOptional !== false;
+  const providerContractVersion =
+    options?.providerContractVersion ?? EVIDENCE_PLANNER_PROVIDER_CONTRACT;
+  const datasets = unionDatasetsForConsumers(enabledConsumers, includeOptional);
+  return datasets.map((dataset) => {
+    const consumers = consumersForDatasetKind(dataset, enabledConsumers, includeOptional);
+    const required = enabledConsumers.some((consumer) =>
+      CONSUMER_DATASETS[consumer].some((row) => row.dataset === dataset && row.required),
+    );
+    return {
+      dataset,
+      required,
+      consumers,
+      providerContractVersion,
+      cacheReusable: true as const,
+      providerCandidates: DEFAULT_PROVIDER_FALLBACK,
+      limitations: planLimitationsForDataset(dataset),
+    };
+  });
+}
+
 export function consumersForDatasetKind(
   dataset: EvidenceDatasetKind,
   enabled: readonly EvidenceConsumerDimension[],

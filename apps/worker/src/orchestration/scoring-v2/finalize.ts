@@ -18,6 +18,7 @@ import {
   persistShadowDimensionComputations,
   resolveEnabledShadowDimensions,
 } from "./dimension-finalizer.js";
+import { persistTypedFactSet } from "./typed-fact-persist.js";
 
 /**
  * Provider-free fan-in finalizer:
@@ -219,6 +220,57 @@ export async function runFinalizeEvidenceBatchV2(
         selectedSlotCount: manifest.selectedSlotCount,
         expectedSlotCount: manifest.expectedSlotCount,
       });
+    }
+
+    // Persist typed fact sets extracted during acquisition (provider-free DB write).
+    // Does not call providers; does not write shadow_placeholder.
+    if (manifestId) {
+      const latest = await repo.getById(job.analysisBatchId);
+      const slots = latest?.meta.slots ?? claimed.meta.slots;
+      const persistedSlots = await container.prisma.evidenceManifestSlot.findMany({
+        where: { manifestId },
+        select: {
+          id: true,
+          reportCode: true,
+          fightId: true,
+          reportRevision: true,
+          slotIndex: true,
+          dungeon: { select: { slug: true } },
+        },
+      });
+
+      for (const slotRec of slots) {
+        if (!slotRec.typedFactPayloads?.length) continue;
+        const identity = slotRec.acquisitionResult?.discoveryIdentity;
+        if (!identity) continue;
+        const dbSlot = persistedSlots.find(
+          (s) =>
+            s.reportCode === identity.reportCode &&
+            s.fightId === identity.fightId &&
+            (slotRec.acquisitionResult?.reportRevision == null ||
+              s.reportRevision === slotRec.acquisitionResult.reportRevision),
+        );
+        if (!dbSlot || slotRec.acquisitionResult?.reportRevision == null) continue;
+
+        for (const payload of slotRec.typedFactPayloads) {
+          const persisted = await persistTypedFactSet({
+            evidence: container.repositories.evidence,
+            logger: container.logger,
+            characterId: claimed.batch.characterId,
+            correlationId: job.correlationId,
+            manifestSlotId: dbSlot.id,
+            reportCode: identity.reportCode,
+            fightId: identity.fightId,
+            reportRevision: slotRec.acquisitionResult.reportRevision,
+            payload,
+          });
+          if (persisted.outcome === "conflict") {
+            throw new Error(
+              `typed_fact_persist_conflict:${payload.dimension}:${persisted.reason}`,
+            );
+          }
+        }
+      }
     }
 
     // Shadow dimension finalization — provider-free; no public publication.

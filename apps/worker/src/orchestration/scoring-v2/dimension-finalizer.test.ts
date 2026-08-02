@@ -34,6 +34,7 @@ describe("persistShadowDimensionComputations isolation", () => {
       manifestId: "00000000-0000-4000-8000-000000000004",
       expectedManifestContentHash: "manifest-hash-empty",
       enabledDimensions: ["PERFORMANCE", "SURVIVAL", "EXPERIENCE"],
+      experienceHistory: null,
       manifestDocument: {
         schemaVersion: "2.0.0",
         selectorVersion: "sel",

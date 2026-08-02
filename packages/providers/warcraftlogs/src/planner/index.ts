@@ -27,9 +27,12 @@ import {
 } from "./cost-plan.js";
 import {
   buildDatasetPlanEntries,
+  buildDatasetRequirements,
   buildPlannerCompatibilityKey,
   unionDatasetsForConsumers,
   type DatasetPlanOptions,
+  type EvidenceDatasetProviderCandidateV2,
+  type EvidenceDatasetRequirementV2,
 } from "./dataset-plan.js";
 import {
   buildDiscoveryPlan,
@@ -122,10 +125,11 @@ export function planDetailedEvidence(input: PlanDetailedEvidenceInput): Detailed
 
 export {
   buildPlannerCompatibilityKey,
+  buildDatasetRequirements,
   unionDatasetsForConsumers,
   groupCandidatesForHydration,
   toCandidateMetadataV2,
   previewRateBudgetForPlan,
 };
 
-export type { WclRateLimitSnapshot, RateBudgetConfig };
+export type { WclRateLimitSnapshot, RateBudgetConfig, EvidenceDatasetRequirementV2, EvidenceDatasetProviderCandidateV2 };

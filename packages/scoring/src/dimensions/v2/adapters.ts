@@ -7,6 +7,8 @@ import { createHash } from "node:crypto";
 import type { CharacterSeasonEvidenceManifestV2 } from "@mplus/contracts";
 import {
   PERFORMANCE_V2_ALGORITHM_VERSION,
+  createManualDifficultyPolicyV2,
+  parsePerformanceRunParseFactV2,
   type PerformanceRunParseFactV2,
   type PerformanceV2ComputeInput,
   type SeasonDifficultyPolicyV2,
@@ -38,6 +40,7 @@ import {
   type UtilityV2RunFactSet,
 } from "../../utility/v2/index.js";
 import type { ScoringV2PublicDimension } from "./shadow-record.js";
+import { buildSlotFactSetBindingHash } from "./fact-set-binding-hash.js";
 
 export interface PersistedFactSetRef {
   extractorFamily: string;
@@ -183,8 +186,11 @@ export interface FactSetHashMismatchDetail {
 }
 
 /**
- * Fail-closed validation of persisted fact-set fingerprints against frozen
+ * Fail-closed validation of persisted fact-set bindings against frozen
  * EvidenceManifestV2 slot.factSetHash references. Does not call providers.
+ *
+ * A selected slot may reference multiple typed RunFactSet rows; the slot hash
+ * is the composite from {@link buildSlotFactSetBindingHash}.
  */
 export function verifyFactSetHashesAgainstManifest(
   manifest: CharacterSeasonEvidenceManifestV2,
@@ -238,20 +244,26 @@ export function verifyFactSetHashesAgainstManifest(
       continue;
     }
 
-    for (const fs of matching) {
-      if (fs.inputFingerprint !== expectedHash) {
-        details.push({
-          dimensionHint: "fact_set",
-          manifestContentHash: manifest.contentHash,
-          slotId,
-          slotIndex: slot.slotIndex,
-          expectedHash,
-          actualHash: fs.inputFingerprint,
-          reportCode: identity?.reportCode ?? null,
-          fightId: identity?.fightId ?? null,
-          reportRevision: identity?.reportRevision ?? null,
-        });
-      }
+    const actualHash = buildSlotFactSetBindingHash(
+      matching.map((fs) => ({
+        extractorFamily: fs.extractorFamily,
+        extractorVersion: fs.extractorVersion,
+        inputFingerprint: fs.inputFingerprint,
+        facts: fs.facts,
+      })),
+    );
+    if (actualHash !== expectedHash) {
+      details.push({
+        dimensionHint: "fact_set",
+        manifestContentHash: manifest.contentHash,
+        slotId,
+        slotIndex: slot.slotIndex,
+        expectedHash,
+        actualHash,
+        reportCode: identity?.reportCode ?? null,
+        fightId: identity?.fightId ?? null,
+        reportRevision: identity?.reportRevision ?? null,
+      });
     }
   }
 
@@ -356,17 +368,39 @@ export function adaptPerformanceComputeInput(input: {
   logFreshness?: number;
   computedAt: string;
 }): PerformanceAdapterResult {
-  const readiness = classifyPersistedFacts(input.factSets, "performance");
-  const runParseFacts = input.runParseFacts ?? [];
+  const familyFacts = input.factSets.filter((f) => f.extractorFamily === "performance");
+  const readiness = classifyPersistedFacts(
+    familyFacts.length > 0 ? familyFacts : input.factSets,
+    "performance",
+  );
 
-  // Live pipeline currently only has shadow_placeholder facts — UNAVAILABLE.
-  // Fixture path may supply typed runParseFacts directly.
+  const runParseFacts: PerformanceRunParseFactV2[] = [...(input.runParseFacts ?? [])];
+  const parseFailures: string[] = [];
+
+  for (const fs of familyFacts) {
+    if (isShadowPlaceholderFact(fs.facts)) continue;
+    const parsed = parsePerformanceRunParseFactV2(fs.facts);
+    if (!parsed.ok) {
+      parseFailures.push(`performance_fact_parse:${parsed.reason}`);
+      continue;
+    }
+    // Skip unavailable semantic rows — they are not score inputs.
+    if (parsed.fact.semantic === "UNAVAILABLE" || parsed.fact.parsePercentile == null) {
+      continue;
+    }
+    runParseFacts.push(parsed.fact);
+  }
+
   if (runParseFacts.length === 0) {
     const failureReasons = [
       ...readiness.failureReasons,
-      ...(readiness.ready ? ["missing_performance_parse_facts"] : []),
+      ...parseFailures,
+      ...(readiness.ready || parseFailures.length > 0
+        ? ["missing_performance_parse_facts"]
+        : readiness.failureReasons.length === 0
+          ? ["missing_performance_parse_facts"]
+          : []),
     ];
-    if (failureReasons.length === 0) failureReasons.push("missing_performance_parse_facts");
     return {
       ok: false,
       limitations: readiness.limitations,
@@ -374,13 +408,14 @@ export function adaptPerformanceComputeInput(input: {
     };
   }
 
-  if (!input.difficultyPolicy) {
-    return {
-      ok: false,
-      limitations: readiness.limitations,
-      failureReasons: ["missing_difficulty_policy"],
-    };
-  }
+  const difficultyPolicy =
+    input.difficultyPolicy ??
+    createManualDifficultyPolicyV2({
+      seasonId: input.manifest.seasonId,
+      region: "eu",
+      role: input.manifest.role,
+      specSlug: input.manifest.specSlug,
+    });
 
   return {
     ok: true,
@@ -402,7 +437,7 @@ export function adaptPerformanceComputeInput(input: {
       },
       runParseFacts,
       profileAggregate: input.profileAggregate ?? null,
-      difficultyPolicy: input.difficultyPolicy,
+      difficultyPolicy,
       expectedPartition: input.expectedPartition ?? null,
       logFreshness: input.logFreshness ?? 0,
       computedAt: input.computedAt,

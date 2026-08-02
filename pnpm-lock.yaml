@@ -402,6 +402,9 @@ importers:
       '@mplus/mechanics':
         specifier: workspace:*
         version: link:../../mechanics
+      '@mplus/scoring':
+        specifier: workspace:*
+        version: link:../../scoring
       zod:
         specifier: ^3.25.76
         version: 3.25.76

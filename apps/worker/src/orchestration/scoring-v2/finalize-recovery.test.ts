@@ -74,6 +74,9 @@ describe("runFinalizeEvidenceBatchV2 FINALIZING recovery", () => {
         evidenceManifest: {
           findUnique: vi.fn().mockResolvedValue({ document: MANIFEST_DOC }),
         },
+        evidenceManifestSlot: {
+          findMany: vi.fn().mockResolvedValue([]),
+        },
       },
       repositories: {
         evidenceV2Batch: {
@@ -85,6 +88,7 @@ describe("runFinalizeEvidenceBatchV2 FINALIZING recovery", () => {
               cancelled: false,
               manifestId: "manifest-1",
               manifestContentHash: "manifest-hash-empty",
+              slots: [],
             },
           }),
           claimFinalization,
@@ -98,6 +102,8 @@ describe("runFinalizeEvidenceBatchV2 FINALIZING recovery", () => {
           createDimensionComputationIdempotent: vi
             .fn()
             .mockRejectedValue(new Error("dimension_computation_conflict: reason=fingerprint_mismatch")),
+          findFactSetByLogicalIdentity: vi.fn().mockResolvedValue(null),
+          createFactSet: vi.fn(),
         },
       },
     };

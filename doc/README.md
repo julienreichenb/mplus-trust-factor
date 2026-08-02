@@ -16,7 +16,7 @@ Agents: read root [`AGENTS.md`](../AGENTS.md) first.
 | Agents | [`agents/`](agents/) | Workflow, DoD, ownership (+ historical wave packs) |
 | ADRs | [`adr/`](adr/) | Architecture decision records |
 | Archive | [`archive/`](archive/) | Superseded prompts and bootstrap notes |
-| Scoring notes | [`scoring/`](scoring/) | Package-oriented scoring pointers |
+| Scoring notes | [`scoring/`](scoring/) | Package-oriented scoring pointers; [V2 live-facts status](scoring/scoring-v2-live-facts-status.md) |
 | API / providers | [`api/`](api/) | Blizzard / WCL / Raider.IO provider docs |
 | Testing / security | [`testing/`](testing/), [`security/`](security/) | Fixtures, threat model, red-flag language |
 | Plans / research | [`plans/`](plans/), [`research/`](research/) | Historical plans and live-API research |

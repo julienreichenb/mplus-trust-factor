@@ -112,5 +112,6 @@ export * from "./probe/utility-publication-eligibility.js";
 export * from "./probe/utility-observed-shadow.js";
 export * from "./probe/utility-v3_2-observed-config.js";
 export * from "./probe/utility-v3_2-observed-contribution.js";
+export * from "./extractors/v2/index.js";
 
 export type { WarcraftLogsProvider };
