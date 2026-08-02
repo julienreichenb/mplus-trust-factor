@@ -293,6 +293,28 @@ export class EvidenceRepository {
     });
   }
 
+  /** Logical identity lookup — one typed fact family/version per slot. */
+  async findFactSetByLogicalIdentity(input: {
+    manifestSlotId: string;
+    extractorFamily: string;
+    extractorVersion: string;
+  }) {
+    return this.prisma.runFactSet.findFirst({
+      where: {
+        manifestSlotId: input.manifestSlotId,
+        extractorFamily: input.extractorFamily,
+        extractorVersion: input.extractorVersion,
+      },
+      orderBy: { computedAt: "desc" },
+    });
+  }
+
+  async findDatasetByCompatibilityKey(compatibilityKey: string) {
+    return this.prisma.evidenceDataset.findUnique({
+      where: { compatibilityKey },
+    });
+  }
+
   async createDimensionComputation(input: CreateDimensionComputationInput) {
     return this.prisma.dimensionComputation.create({
       data: {

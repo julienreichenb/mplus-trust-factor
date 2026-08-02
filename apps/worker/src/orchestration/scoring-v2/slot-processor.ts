@@ -15,6 +15,7 @@ import {
   ScoringV2CancelledError,
   ScoringV2SupersededError,
 } from "./acquisition.js";
+import { createProviderBackedEvidenceTransport } from "./evidence-transport-provider.js";
 
 export interface EvidenceV2SlotProducers {
   enqueueFinalizeEvidenceBatch: (
@@ -228,6 +229,15 @@ export async function runAnalyzeEvidenceSlotV2(
       artifacts: container.repositories.artifacts,
       manifestSlotIdForPersistence: null,
       characterId: batchView.batch.characterId,
+      datasetRequirements: batchView.meta.datasetRequirements,
+      slotContext: {
+        slotId: job.slotId,
+        dungeonSlug: slotPlan.dungeonSlug,
+        slotIndex: slotPlan.slotIndex,
+      },
+      transport: createProviderBackedEvidenceTransport(container),
+      classSlug: null,
+      specSlug: null,
     });
 
     const status =
@@ -251,6 +261,7 @@ export async function runAnalyzeEvidenceSlotV2(
       acquiredDiscoveryKey: discoveryIdentityKey(acquired.result.discoveryIdentity),
       datasetCompatibilityKeys: acquired.datasetCompatibilityKeys,
       factSetFingerprint: acquired.factSetFingerprint,
+      typedFactPayloads: acquired.typedFactPayloads,
     });
 
     emitSlotTerminal(container, {

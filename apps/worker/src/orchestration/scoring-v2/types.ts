@@ -5,6 +5,8 @@ import type {
   EvidenceV2EnabledConsumer,
   EvidenceV2SlotJobStatus,
 } from "@mplus/contracts";
+import type { EvidenceDatasetRequirementV2 } from "./dataset-requirements.js";
+import type { TypedDimensionFactPayload } from "./typed-fact-persist.js";
 
 export const SCORING_V2_BATCH_METADATA_KEY = "scoringV2" as const;
 
@@ -28,6 +30,11 @@ export interface EvidenceV2SlotRecord {
   /** Persisted dataset / fact fingerprints for resumability. */
   datasetCompatibilityKeys: string[];
   factSetFingerprint: string | null;
+  /**
+   * Typed dimension fact payloads extracted during acquisition.
+   * Persisted to RunFactSet after manifest freeze (provider-free).
+   */
+  typedFactPayloads: TypedDimensionFactPayload[];
 }
 
 export interface EvidenceV2BatchMetadata {
@@ -39,6 +46,11 @@ export interface EvidenceV2BatchMetadata {
   parentIngestionJobId: string | null;
   correlationId: string | null;
   enabledConsumers: EvidenceV2EnabledConsumer[];
+  /**
+   * Immutable dataset requirement list derived from enabledConsumers at batch create.
+   * Acquisition must not request datasets outside this plan.
+   */
+  datasetRequirements: EvidenceDatasetRequirementV2[];
   slots: EvidenceV2SlotRecord[];
   cancelled: boolean;
   cancelReason: string | null;
@@ -69,5 +81,6 @@ export function emptySlotRecord(
     acquisitionResult: null,
     datasetCompatibilityKeys: [],
     factSetFingerprint: null,
+    typedFactPayloads: [],
   };
 }

@@ -17,6 +17,8 @@ import {
   type EvidenceV2BatchMetadata,
   type EvidenceV2SlotRecord,
 } from "../orchestration/scoring-v2/types.js";
+import { resolveBatchDatasetRequirements } from "../orchestration/scoring-v2/dataset-requirements.js";
+import type { TypedDimensionFactPayload } from "../orchestration/scoring-v2/typed-fact-persist.js";
 import {
   isEvidenceV2SlotTerminal,
   recountEvidenceV2Slots,
@@ -65,6 +67,7 @@ export interface EvidenceV2BatchRepository {
     acquiredDiscoveryKey?: string | null;
     datasetCompatibilityKeys?: string[];
     factSetFingerprint?: string | null;
+    typedFactPayloads?: TypedDimensionFactPayload[];
     now?: Date;
   }): Promise<{ view: EvidenceV2BatchView; becameReady: boolean; wasAlreadyTerminal: boolean }>;
   markAdmissionDeferred(batchId: string, reason: string): Promise<EvidenceV2BatchView>;
@@ -93,7 +96,19 @@ function parseMeta(metadata: unknown): EvidenceV2BatchMetadata | null {
   const root = metadata as Record<string, unknown>;
   const raw = root[SCORING_V2_BATCH_METADATA_KEY];
   if (!raw || typeof raw !== "object") return null;
-  return raw as EvidenceV2BatchMetadata;
+  const meta = raw as EvidenceV2BatchMetadata;
+  // Backward-compatible defaults for in-flight batches created before CP2.
+  if (!Array.isArray(meta.datasetRequirements)) {
+    meta.datasetRequirements = resolveBatchDatasetRequirements(
+      meta.enabledConsumers ?? ["PERFORMANCE", "SURVIVAL", "UTILITY"],
+    );
+  }
+  for (const slot of meta.slots ?? []) {
+    if (!Array.isArray(slot.typedFactPayloads)) {
+      slot.typedFactPayloads = [];
+    }
+  }
+  return meta;
 }
 
 function withMeta(
@@ -201,6 +216,7 @@ export function createEvidenceV2BatchRepository(
         parentIngestionJobId: input.parentIngestionJobId ?? null,
         correlationId: input.correlationId ?? null,
         enabledConsumers: input.enabledConsumers,
+        datasetRequirements: resolveBatchDatasetRequirements(input.enabledConsumers),
         slots,
         cancelled: false,
         cancelReason: null,
@@ -341,6 +357,7 @@ export function createEvidenceV2BatchRepository(
                 datasetCompatibilityKeys:
                   input.datasetCompatibilityKeys ?? s.datasetCompatibilityKeys,
                 factSetFingerprint: input.factSetFingerprint ?? s.factSetFingerprint,
+                typedFactPayloads: input.typedFactPayloads ?? s.typedFactPayloads,
               }
             : s,
         );
