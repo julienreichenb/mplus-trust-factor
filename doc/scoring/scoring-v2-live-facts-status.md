@@ -52,7 +52,7 @@ Example sufficient-evidence scores from CP4 E2E (fixture; not live characters):
 1. **Live RANKING_PARSE / points-and-damage** — not exposed on `WarcraftLogsProvider`; production Performance acquisition returns capability-absent UNAVAILABLE until transport implements the planned datasets.
 2. **Live shared-event dataset transport** — production shared evidence requires `getGraphQlClient()` + ingest path validation under rate limits; fixture path is proven.
 3. **Elite Experience history** — achievements are not persisted; elite component stays `UNKNOWN`.
-4. **Active/draft model-config injection** — `CALIBRATION_V2_ACTIVE_DRAFT_ARCH_BLOCKER` (see [scoring-v2-runbooks.md](../operations/scoring-v2-runbooks.md)).
+4. **Active/draft model-config injection** — implemented (`replayCalibrationBundleV2ActiveVersusDraft`); keep `CALIBRATION_V2_ENABLED` off pending Prompt 13 report review.
 
 ## Gates before enabling flags
 

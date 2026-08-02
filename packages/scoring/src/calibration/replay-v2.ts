@@ -2,12 +2,8 @@
  * Provider-free Calibration V2 replay from frozen dimension export artifacts.
  * Never refreshes evidence. Does not activate score models.
  *
- * Architectural note (WS10 remediation):
- * V2 dimension calculators (Performance/Survival/Utility) hard-code package-local
- * MODEL_CONFIG constants and do not accept ScoreModelConfigV1 from
- * CalibrationModelRef.config. Experience V3 accepts ExperienceV3ModelConfig only.
- * Therefore active-versus-draft model-side evaluation cannot be implemented without
- * a calculator API change — see assertActiveVersusDraftSupported().
+ * Active-versus-draft evaluates ACTIVE and DRAFT dimension configs against
+ * identical frozen facts/evidence references.
  */
 
 import { createHash } from "node:crypto";
@@ -15,28 +11,36 @@ import {
   computePerformanceV2,
   type PerformanceV2CalibrationExport,
   type PerformanceV2ComputeInput,
+  type PerformanceV2ModelConfig,
 } from "../performance/v2/index.js";
 import {
   computeExperienceV3,
   type ExperienceV3CalibrationExport,
   type ExperienceV3ComputeInput,
+  type ExperienceV3ModelConfig,
 } from "../experience/v3/index.js";
 import {
   computeSurvivalV2,
   type SurvivalV2CalibrationExport,
   type SurvivalV2ComputeInput,
+  type SurvivalV2ModelConfig,
 } from "../survival/v2/index.js";
 import {
   computeUtilityV2,
   type UtilityV2CalibrationExport,
   type UtilityV2ComputeInput,
+  type UtilityV2ModelConfig,
 } from "../utility/v2/index.js";
 import type { ScoringV2PublicDimension } from "../dimensions/v2/shadow-record.js";
+import { ModelConfigValidationError } from "../model-config/validate.js";
+import { stableStringify } from "../model-config/stable-hash.js";
 import {
   preflightCalibrationBundleV2,
+  resolveFrozenDimensionConfigsForModel,
   type ArtifactResolverV2,
   type CalibrationInputBundleV2,
   type CalibrationPreflightIssueV2,
+  type FrozenDimensionModelConfigsV2,
 } from "./bundle-v2.js";
 import type { CalibrationModelRef } from "./types.js";
 
@@ -47,6 +51,9 @@ export interface CalibrationV2DimensionReplayResult {
   availabilityState: string;
   inputFingerprint: string;
   algorithmVersion: string;
+  modelConfigFingerprint: string | null;
+  /** Fact/manifest identity shared across active and draft sides. */
+  evidenceFingerprint: string | null;
 }
 
 export interface CalibrationV2MemberReplayResult {
@@ -68,49 +75,58 @@ export interface CalibrationV2ReplayReport {
   contentHash: string;
   providerCalls: 0;
   refreshCalls: 0;
+  modelActivated: false;
+  publicationMutated: false;
 }
 
-/** Stable error code for the active/draft architectural stop. */
-export const CALIBRATION_V2_ACTIVE_DRAFT_ARCH_BLOCKER =
-  "CALIBRATION_V2_ACTIVE_DRAFT_ARCH_BLOCKER" as const;
-
-export class CalibrationV2ActiveDraftArchitectureError extends Error {
-  readonly code = CALIBRATION_V2_ACTIVE_DRAFT_ARCH_BLOCKER;
-  readonly smallestApiChange: string;
-  readonly unusableModelConfigFields: string[];
-
-  constructor() {
-    super(
-      [
-        CALIBRATION_V2_ACTIVE_DRAFT_ARCH_BLOCKER,
-        "V2 dimension calculators cannot consume CalibrationModelRef.config (ScoreModelConfigV1)",
-        "without a calculator input API change; refusing to fabricate active/draft score deltas",
-      ].join(": "),
-    );
-    this.name = "CalibrationV2ActiveDraftArchitectureError";
-    this.smallestApiChange =
-      "Add optional frozen side-specific modelConfig on computePerformanceV2 / computeSurvivalV2 / computeUtilityV2 inputs (and wire ScoreModelConfigV1→dimension config mapping or store dimension MODEL_CONFIG documents on the bundle), without changing formulas.";
-    this.unusableModelConfigFields = [
-      "ScoreModelConfigV1.weights",
-      "ScoreModelConfigV1.metricWeights",
-      "ScoreModelConfigV1.normalization",
-      "ScoreModelConfigV1.historicalDecay",
-      "ScoreModelConfigV1.confidenceBlend",
-      "ScoreModelConfigV1.authenticityFeatures",
-      "PERFORMANCE_V2_MODEL_CONFIG (hard-coded in computePerformanceV2)",
-      "SURVIVAL_V2_MODEL_CONFIG (hard-coded in computeSurvivalV2)",
-      "UTILITY_V2_* coefficient constants (hard-coded in computeUtilityV2)",
-      "ExperienceV3ModelConfig (accepted only via ExperienceV3ComputeInput.config — not ScoreModelConfigV1)",
-    ];
-  }
+export interface CalibrationV2ActiveVersusDraftDimensionDelta {
+  dimension: ScoringV2PublicDimension;
+  activeScore: number | null;
+  draftScore: number | null;
+  scoreDelta: number | null;
+  activeConfidence: number | null;
+  draftConfidence: number | null;
+  confidenceDelta: number | null;
+  activeAvailability: string | null;
+  draftAvailability: string | null;
+  availabilityChanged: boolean;
+  activeConfigFingerprint: string | null;
+  draftConfigFingerprint: string | null;
+  evidenceFingerprintActive: string | null;
+  evidenceFingerprintDraft: string | null;
+  identicalEvidence: boolean;
 }
 
-function stableStringify(value: unknown): string {
-  if (value === null || typeof value !== "object") return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map((v) => stableStringify(v)).join(",")}]`;
-  const obj = value as Record<string, unknown>;
-  const keys = Object.keys(obj).sort();
-  return `{${keys.map((k) => `${JSON.stringify(k)}:${stableStringify(obj[k])}`).join(",")}}`;
+export interface CalibrationV2ActiveVersusDraftMemberResult {
+  memberId: string;
+  expectedLabel: string;
+  overallActive: number | null;
+  overallDraft: number | null;
+  overallDelta: number | null;
+  dimensions: CalibrationV2ActiveVersusDraftDimensionDelta[];
+  errors: string[];
+}
+
+export interface CalibrationV2ActiveVersusDraftReport {
+  schemaVersion: "calibration-active-draft-v2";
+  bundleHash: string;
+  deterministicSeed: number;
+  activeModelKey: string;
+  activeModelVersion: number;
+  draftModelKey: string;
+  draftModelVersion: number;
+  activeConfigFingerprints: FrozenDimensionModelConfigsV2["fingerprints"];
+  draftConfigFingerprints: FrozenDimensionModelConfigsV2["fingerprints"];
+  algorithmVersions: FrozenDimensionModelConfigsV2["algorithmVersions"];
+  members: CalibrationV2ActiveVersusDraftMemberResult[];
+  meanOverallDelta: number | null;
+  contentHash: string;
+  providerCalls: 0;
+  refreshCalls: 0;
+  modelActivated: false;
+  publicationMutated: false;
+  identicalEvidence: true;
+  sourceModelsImmutable: true;
 }
 
 function decodeJson(bytes: Uint8Array): unknown {
@@ -118,8 +134,16 @@ function decodeJson(bytes: Uint8Array): unknown {
 }
 
 function deepFreezeProbe<T>(value: T): T {
-  // Structural clone for mutation detection — does not mutate the source.
   return structuredClone(value);
+}
+
+function mean(values: number[]): number | null {
+  if (values.length === 0) return null;
+  return values.reduce((a, b) => a + b, 0) / values.length;
+}
+
+function overallFromDims(dims: CalibrationV2DimensionReplayResult[]): number | null {
+  return mean(dims.map((d) => d.score).filter((s): s is number => s != null));
 }
 
 /**
@@ -133,7 +157,6 @@ export function assertDraftOnlyCreation(
   if (!model) return;
 
   if (field === "activeModel") {
-    // Active side is a frozen reference — must not be a DRAFT marked active.
     if (model.status === "DRAFT" && model.isActive) {
       throw new Error(
         "DRAFT_MODEL_CREATION_FORBIDDEN: activeModel cannot be DRAFT with isActive=true",
@@ -142,7 +165,6 @@ export function assertDraftOnlyCreation(
     return;
   }
 
-  // evaluationModel is the only side that may represent a newly created revision.
   if (model.status === "ACTIVE" || model.isActive) {
     throw new Error(
       `DRAFT_MODEL_CREATION_FORBIDDEN: evaluationModel must be DRAFT (got status=${model.status} isActive=${model.isActive})`,
@@ -155,16 +177,83 @@ export function assertDraftOnlyCreation(
   }
 }
 
-/**
- * Fail closed: active-versus-draft model evaluation is not supported until
- * dimension calculators accept frozen model configuration.
- */
-export function assertActiveVersusDraftSupported(): never {
-  throw new CalibrationV2ActiveDraftArchitectureError();
+function evidenceFingerprintFromExport(
+  dim: ScoringV2PublicDimension,
+  doc:
+    | PerformanceV2CalibrationExport
+    | SurvivalV2CalibrationExport
+    | UtilityV2CalibrationExport
+    | ExperienceV3CalibrationExport,
+): string | null {
+  try {
+    if (dim === "PERFORMANCE") {
+      const input = (doc as PerformanceV2CalibrationExport).input;
+      return createHash("sha256")
+        .update(
+          stableStringify({
+            manifestContentHash: input.manifest.contentHash,
+            runParseFacts: input.runParseFacts,
+            profile: input.profileAggregate,
+          }),
+        )
+        .digest("hex");
+    }
+    if (dim === "SURVIVAL") {
+      const input = (doc as SurvivalV2CalibrationExport).input;
+      return createHash("sha256")
+        .update(
+          stableStringify({
+            manifestContentHash: input.manifest.contentHash,
+            factSets: input.factSets.map((f) => ({
+              dungeonSlug: f.dungeonSlug,
+              slotIndex: f.slotIndex,
+              identity: f.identity,
+              extractorVersion: f.extractorVersion,
+            })),
+          }),
+        )
+        .digest("hex");
+    }
+    if (dim === "UTILITY") {
+      const input = (doc as UtilityV2CalibrationExport).input;
+      return createHash("sha256")
+        .update(
+          stableStringify({
+            manifestContentHash: input.manifest.contentHash,
+            factSets: input.factSets.map((f) => ({
+              slotId: f.slotId,
+              reportCode: f.reportCode,
+              fightId: f.fightId,
+              reportRevision: f.reportRevision,
+            })),
+          }),
+        )
+        .digest("hex");
+    }
+    const input = (doc as ExperienceV3CalibrationExport).input;
+    return createHash("sha256")
+      .update(
+        stableStringify({
+          manifestContentHash: input.manifest.contentHash,
+          currentExposure: input.currentExposure,
+          previousSeason: input.previousSeason,
+          eliteHistory: input.eliteHistory,
+          historicalRank: input.historicalRank,
+        }),
+      )
+      .digest("hex");
+  } catch {
+    return null;
+  }
 }
 
-function replayPerformance(exportDoc: PerformanceV2CalibrationExport): CalibrationV2DimensionReplayResult {
-  const result = computePerformanceV2(exportDoc.input as PerformanceV2ComputeInput);
+function replayPerformance(
+  exportDoc: PerformanceV2CalibrationExport,
+  modelConfig: PerformanceV2ModelConfig,
+): CalibrationV2DimensionReplayResult {
+  const result = computePerformanceV2(exportDoc.input as PerformanceV2ComputeInput, {
+    modelConfig,
+  });
   return {
     dimension: "PERFORMANCE",
     score: result.score,
@@ -172,11 +261,18 @@ function replayPerformance(exportDoc: PerformanceV2CalibrationExport): Calibrati
     availabilityState: result.state,
     inputFingerprint: result.inputFingerprint,
     algorithmVersion: result.algorithmVersion,
+    modelConfigFingerprint: result.modelConfigFingerprint,
+    evidenceFingerprint: evidenceFingerprintFromExport("PERFORMANCE", exportDoc),
   };
 }
 
-function replaySurvival(exportDoc: SurvivalV2CalibrationExport): CalibrationV2DimensionReplayResult {
-  const result = computeSurvivalV2(exportDoc.input as SurvivalV2ComputeInput);
+function replaySurvival(
+  exportDoc: SurvivalV2CalibrationExport,
+  modelConfig: SurvivalV2ModelConfig,
+): CalibrationV2DimensionReplayResult {
+  const result = computeSurvivalV2(exportDoc.input as SurvivalV2ComputeInput, {
+    modelConfig,
+  });
   return {
     dimension: "SURVIVAL",
     score: result.score,
@@ -184,11 +280,18 @@ function replaySurvival(exportDoc: SurvivalV2CalibrationExport): CalibrationV2Di
     availabilityState: result.state,
     inputFingerprint: result.inputFingerprint,
     algorithmVersion: result.algorithmVersion,
+    modelConfigFingerprint: result.modelConfigFingerprint,
+    evidenceFingerprint: evidenceFingerprintFromExport("SURVIVAL", exportDoc),
   };
 }
 
-function replayUtility(exportDoc: UtilityV2CalibrationExport): CalibrationV2DimensionReplayResult {
-  const result = computeUtilityV2(exportDoc.input as UtilityV2ComputeInput);
+function replayUtility(
+  exportDoc: UtilityV2CalibrationExport,
+  modelConfig: UtilityV2ModelConfig,
+): CalibrationV2DimensionReplayResult {
+  const result = computeUtilityV2(exportDoc.input as UtilityV2ComputeInput, {
+    modelConfig,
+  });
   return {
     dimension: "UTILITY",
     score: result.score,
@@ -196,11 +299,20 @@ function replayUtility(exportDoc: UtilityV2CalibrationExport): CalibrationV2Dime
     availabilityState: result.availabilityState,
     inputFingerprint: result.inputFingerprint,
     algorithmVersion: result.algorithmVersion,
+    modelConfigFingerprint: result.modelConfigFingerprint,
+    evidenceFingerprint: evidenceFingerprintFromExport("UTILITY", exportDoc),
   };
 }
 
-function replayExperience(exportDoc: ExperienceV3CalibrationExport): CalibrationV2DimensionReplayResult {
-  const result = computeExperienceV3(exportDoc.input as ExperienceV3ComputeInput);
+function replayExperience(
+  exportDoc: ExperienceV3CalibrationExport,
+  modelConfig: ExperienceV3ModelConfig,
+): CalibrationV2DimensionReplayResult {
+  const input: ExperienceV3ComputeInput = {
+    ...(exportDoc.input as ExperienceV3ComputeInput),
+    config: modelConfig,
+  };
+  const result = computeExperienceV3(input);
   return {
     dimension: "EXPERIENCE",
     score: result.score,
@@ -208,12 +320,29 @@ function replayExperience(exportDoc: ExperienceV3CalibrationExport): Calibration
     availabilityState: result.state,
     inputFingerprint: result.inputFingerprint,
     algorithmVersion: result.algorithmVersion,
+    modelConfigFingerprint: result.modelConfigFingerprint,
+    evidenceFingerprint: evidenceFingerprintFromExport("EXPERIENCE", exportDoc),
   };
+}
+
+function resolveSideConfigs(
+  bundle: CalibrationInputBundleV2,
+  side: "active" | "evaluation",
+  strict: boolean,
+): FrozenDimensionModelConfigsV2 {
+  const frozen =
+    side === "active" ? bundle.activeDimensionConfigs : bundle.evaluationDimensionConfigs;
+  if (frozen) return frozen;
+  const model = side === "active" ? bundle.activeModel : bundle.evaluationModel;
+  return resolveFrozenDimensionConfigsForModel(
+    model,
+    strict ? "calibration-strict" : "phase1-default",
+  );
 }
 
 /**
  * Replay a frozen V2 bundle through dimension calculators only (export replay).
- * Does not apply ScoreModelConfigV1 — see assertActiveVersusDraftSupported.
+ * When modelSide configs are present / resolvable, they are applied.
  */
 export async function replayCalibrationBundleV2(input: {
   bundle: CalibrationInputBundleV2;
@@ -241,6 +370,14 @@ export async function replayCalibrationBundleV2(input: {
     );
   }
 
+  const modelSide = input.modelSide ?? "evaluation";
+  let sideConfigs: FrozenDimensionModelConfigsV2 | null = null;
+  try {
+    sideConfigs = resolveSideConfigs(input.bundle, modelSide, false);
+  } catch {
+    sideConfigs = null;
+  }
+
   const members: CalibrationV2MemberReplayResult[] = [];
 
   for (const member of input.bundle.members.filter((m) => m.included)) {
@@ -263,18 +400,46 @@ export async function replayCalibrationBundleV2(input: {
           | UtilityV2CalibrationExport
           | ExperienceV3CalibrationExport;
         if (dim === "PERFORMANCE") {
-          dimensions.push(replayPerformance(doc as PerformanceV2CalibrationExport));
+          dimensions.push(
+            replayPerformance(
+              doc as PerformanceV2CalibrationExport,
+              sideConfigs?.configs.performance ??
+                (doc as PerformanceV2CalibrationExport).modelConfig,
+            ),
+          );
         } else if (dim === "SURVIVAL") {
-          dimensions.push(replaySurvival(doc as SurvivalV2CalibrationExport));
+          dimensions.push(
+            replaySurvival(
+              doc as SurvivalV2CalibrationExport,
+              sideConfigs?.configs.survival ??
+                (doc as SurvivalV2CalibrationExport).modelConfig,
+            ),
+          );
         } else if (dim === "UTILITY") {
-          dimensions.push(replayUtility(doc as UtilityV2CalibrationExport));
+          dimensions.push(
+            replayUtility(
+              doc as UtilityV2CalibrationExport,
+              sideConfigs?.configs.utility ??
+                (doc as UtilityV2CalibrationExport).modelConfig,
+            ),
+          );
         } else if (dim === "EXPERIENCE") {
-          dimensions.push(replayExperience(doc as ExperienceV3CalibrationExport));
+          dimensions.push(
+            replayExperience(
+              doc as ExperienceV3CalibrationExport,
+              sideConfigs?.configs.experience ??
+                (doc as ExperienceV3CalibrationExport).modelConfig,
+            ),
+          );
         }
       } catch (error) {
-        errors.push(
-          `replay_failed:${dim}:${error instanceof Error ? error.message : "unknown"}`,
-        );
+        if (error instanceof ModelConfigValidationError) {
+          errors.push(`config_invalid:${dim}:${error.message}`);
+        } else {
+          errors.push(
+            `replay_failed:${dim}:${error instanceof Error ? error.message : "unknown"}`,
+          );
+        }
       }
     }
 
@@ -286,11 +451,9 @@ export async function replayCalibrationBundleV2(input: {
     });
   }
 
-  const modelSide = input.modelSide ?? "evaluation";
   const model =
     modelSide === "active" ? input.bundle.activeModel : input.bundle.evaluationModel;
 
-  // Prove source model configs were not mutated by replay.
   if (
     activeSnapshot &&
     JSON.stringify(activeSnapshot) !== JSON.stringify(input.bundle.activeModel)
@@ -316,6 +479,8 @@ export async function replayCalibrationBundleV2(input: {
     contentHash: "",
     providerCalls: 0,
     refreshCalls: 0,
+    modelActivated: false,
+    publicationMutated: false,
   };
 
   report.contentHash = createHash("sha256")
@@ -333,15 +498,142 @@ export async function replayCalibrationBundleV2(input: {
 }
 
 /**
- * Active-versus-draft requires applying each side's frozen model configuration to
- * identical evidence. V2 dimension calculators cannot accept ScoreModelConfigV1 today.
- * This function fails closed — it does not fabricate attribution-only deltas.
+ * Replay ACTIVE and DRAFT configs against identical frozen facts.
+ * Fail closed on malformed/missing draft configs. Never activates or publishes.
  */
-export async function replayCalibrationBundleV2ActiveVersusDraft(_input: {
+export async function replayCalibrationBundleV2ActiveVersusDraft(input: {
   bundle: CalibrationInputBundleV2;
   resolver: ArtifactResolverV2;
-}): Promise<never> {
-  assertActiveVersusDraftSupported();
+}): Promise<CalibrationV2ActiveVersusDraftReport> {
+  if (!input.bundle.activeModel) {
+    throw new Error("ACTIVE_MODEL_REQUIRED: active-versus-draft requires activeModel");
+  }
+  if (!input.bundle.evaluationModel) {
+    throw new Error("DRAFT_MODEL_REQUIRED: active-versus-draft requires evaluationModel");
+  }
+
+  assertDraftOnlyCreation(input.bundle.activeModel, "activeModel");
+  assertDraftOnlyCreation(input.bundle.evaluationModel, "evaluationModel");
+
+  const activeConfigs = resolveSideConfigs(input.bundle, "active", true);
+  const draftConfigs = resolveSideConfigs(input.bundle, "evaluation", true);
+
+  // Freeze resolved configs onto a local bundle clone for both replay sides.
+  const bundleWithConfigs: CalibrationInputBundleV2 = {
+    ...input.bundle,
+    activeDimensionConfigs: activeConfigs,
+    evaluationDimensionConfigs: draftConfigs,
+  };
+
+  const activeReplay = await replayCalibrationBundleV2({
+    bundle: bundleWithConfigs,
+    resolver: input.resolver,
+    modelSide: "active",
+  });
+  const draftReplay = await replayCalibrationBundleV2({
+    bundle: bundleWithConfigs,
+    resolver: input.resolver,
+    modelSide: "evaluation",
+  });
+
+  const members: CalibrationV2ActiveVersusDraftMemberResult[] = [];
+  const overallDeltas: number[] = [];
+
+  for (const draftMember of draftReplay.members) {
+    const activeMember =
+      activeReplay.members.find((m) => m.memberId === draftMember.memberId) ?? null;
+    const dims = new Set<ScoringV2PublicDimension>([
+      ...draftMember.dimensions.map((d) => d.dimension),
+      ...(activeMember?.dimensions.map((d) => d.dimension) ?? []),
+    ]);
+
+    const dimensionDeltas: CalibrationV2ActiveVersusDraftDimensionDelta[] = [];
+    for (const dimension of [...dims].sort()) {
+      const a = activeMember?.dimensions.find((d) => d.dimension === dimension) ?? null;
+      const d = draftMember.dimensions.find((d) => d.dimension === dimension) ?? null;
+      const identicalEvidence =
+        a?.evidenceFingerprint != null &&
+        d?.evidenceFingerprint != null &&
+        a.evidenceFingerprint === d.evidenceFingerprint;
+      if (
+        a?.evidenceFingerprint != null &&
+        d?.evidenceFingerprint != null &&
+        !identicalEvidence
+      ) {
+        throw new Error(
+          `EVIDENCE_IDENTITY_MISMATCH: member=${draftMember.memberId} dim=${dimension}`,
+        );
+      }
+      dimensionDeltas.push({
+        dimension,
+        activeScore: a?.score ?? null,
+        draftScore: d?.score ?? null,
+        scoreDelta:
+          a?.score != null && d?.score != null ? d.score - a.score : null,
+        activeConfidence: a?.confidence ?? null,
+        draftConfidence: d?.confidence ?? null,
+        confidenceDelta:
+          a != null && d != null ? d.confidence - a.confidence : null,
+        activeAvailability: a?.availabilityState ?? null,
+        draftAvailability: d?.availabilityState ?? null,
+        availabilityChanged:
+          (a?.availabilityState ?? null) !== (d?.availabilityState ?? null),
+        activeConfigFingerprint: a?.modelConfigFingerprint ?? null,
+        draftConfigFingerprint: d?.modelConfigFingerprint ?? null,
+        evidenceFingerprintActive: a?.evidenceFingerprint ?? null,
+        evidenceFingerprintDraft: d?.evidenceFingerprint ?? null,
+        identicalEvidence: identicalEvidence || (a == null && d == null),
+      });
+    }
+
+    const overallActive = activeMember ? overallFromDims(activeMember.dimensions) : null;
+    const overallDraft = overallFromDims(draftMember.dimensions);
+    const overallDelta =
+      overallActive != null && overallDraft != null ? overallDraft - overallActive : null;
+    if (overallDelta != null) overallDeltas.push(overallDelta);
+
+    members.push({
+      memberId: draftMember.memberId,
+      expectedLabel: draftMember.expectedLabel,
+      overallActive,
+      overallDraft,
+      overallDelta,
+      dimensions: dimensionDeltas,
+      errors: [
+        ...draftMember.errors,
+        ...(activeMember?.errors ?? []),
+      ],
+    });
+  }
+
+  // Replay order independence: reverse-side order must not change hashes.
+  const report: CalibrationV2ActiveVersusDraftReport = {
+    schemaVersion: "calibration-active-draft-v2",
+    bundleHash: input.bundle.bundleHash,
+    deterministicSeed: input.bundle.deterministicSeed,
+    activeModelKey: input.bundle.activeModel.key,
+    activeModelVersion: input.bundle.activeModel.version,
+    draftModelKey: input.bundle.evaluationModel.key,
+    draftModelVersion: input.bundle.evaluationModel.version,
+    activeConfigFingerprints: activeConfigs.fingerprints,
+    draftConfigFingerprints: draftConfigs.fingerprints,
+    algorithmVersions: activeConfigs.algorithmVersions,
+    members: members.sort((a, b) => a.memberId.localeCompare(b.memberId)),
+    meanOverallDelta: mean(overallDeltas),
+    contentHash: "",
+    providerCalls: 0,
+    refreshCalls: 0,
+    modelActivated: false,
+    publicationMutated: false,
+    identicalEvidence: true,
+    sourceModelsImmutable: true,
+  };
+
+  report.contentHash = createHash("sha256")
+    .update(stableStringify({ ...report, contentHash: undefined }))
+    .digest("hex");
+
+  return report;
 }
 
 /** In-memory artifact resolver for fixtures/tests — no providers. */

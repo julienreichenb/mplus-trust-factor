@@ -40,15 +40,13 @@ logical groups exist (no silent delete). Apply via normal migrate deploy — not
 
 ## Active-versus-draft architectural blocker
 
-`replayCalibrationBundleV2ActiveVersusDraft` throws `CALIBRATION_V2_ACTIVE_DRAFT_ARCH_BLOCKER`.
+`replayCalibrationBundleV2ActiveVersusDraft` evaluates ACTIVE and DRAFT dimension
+configs against identical frozen facts (WS10.5 model-config injection).
 
-- V2 calculators hard-code package-local `*_MODEL_CONFIG` constants.
-- `CalibrationModelRef.config` is `ScoreModelConfigV1` (overall aggregation), not consumed by
-  `computePerformanceV2` / `computeSurvivalV2` / `computeUtilityV2`.
-- Only `ExperienceV3ComputeInput.config` accepts `ExperienceV3ModelConfig` (different type).
-- Smallest required API change: optional frozen `modelConfig` on each V2 compute input
-  (no formula changes), plus bundle-side dimension config documents or a mapping layer.
-- Until then, export replay remains available; active/draft model deltas are not fabricated.
+- Dimension calculators accept optional validated `modelConfig` overrides.
+- Persisted `ScoreModel.config.scoringV2` maps to four versioned dimension configs
+  (Json — no Prisma migration). Active-versus-draft fails closed when missing.
+- `CALIBRATION_V2_ENABLED` remains default-off; no model activation.
 
 ## FINALIZING recovery
 
