@@ -263,7 +263,7 @@ describe("Calibration Bundle V2", () => {
     expect(ok.ok).toBe(true);
   });
 
-  it("replays provider-free with identical active/draft evidence", async () => {
+  it("replays provider-free with deterministic export replay; active/draft model eval fails closed", async () => {
     const bundle = fixtureV2Bundle();
     const identity = { reportCode: "R1", fightId: 1, reportRevision: 1 };
     const utilExport = exportUtilityV2Calibration({
@@ -312,13 +312,34 @@ describe("Calibration Bundle V2", () => {
     expect(a.refreshCalls).toBe(0);
     expect(a.members[0]!.dimensions[0]!.score).toBe(UTILITY_V2_SCORE_FLOOR);
 
-    const cmp = await replayCalibrationBundleV2ActiveVersusDraft({ bundle, resolver });
-    expect(cmp.identicalEvidence).toBe(true);
-    expect(cmp.sourceModelsImmutable).toBe(true);
-    expect(cmp.active.bundleHash).toBe(cmp.draft.bundleHash);
-    expect(cmp.active.members[0]!.dimensions[0]!.inputFingerprint).toBe(
-      cmp.draft.members[0]!.dimensions[0]!.inputFingerprint,
-    );
+    await expect(
+      replayCalibrationBundleV2ActiveVersusDraft({ bundle, resolver }),
+    ).rejects.toMatchObject({
+      code: "CALIBRATION_V2_ACTIVE_DRAFT_ARCH_BLOCKER",
+    });
+  });
+
+  it("rejects ACTIVE evaluationModel (DRAFT-only creation)", async () => {
+    const bundle = fixtureV2Bundle();
+    const bad = {
+      ...bundle,
+      evaluationModel: {
+        ...bundle.evaluationModel!,
+        status: "ACTIVE" as const,
+        isActive: true,
+      },
+    };
+    const artifacts = new Map<string, Uint8Array>([
+      [bundle.members[0]!.manifest.contentHash, Buffer.from("{}")],
+      [bundle.members[0]!.factSets[0]!.contentHash, Buffer.from("{}")],
+      [bundle.members[0]!.dimensionExports!.UTILITY!.contentHash, Buffer.from("{}")],
+    ]);
+    await expect(
+      replayCalibrationBundleV2({
+        bundle: bad,
+        resolver: createMapArtifactResolverV2(artifacts),
+      }),
+    ).rejects.toThrow(/DRAFT_MODEL_CREATION_FORBIDDEN/);
   });
 
   it("blocks account-split identity conflicts", () => {

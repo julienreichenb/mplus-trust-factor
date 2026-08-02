@@ -1,6 +1,13 @@
 /**
  * Provider-free Calibration V2 replay from frozen dimension export artifacts.
- * Never refreshes evidence. Active and draft share identical member evidence refs.
+ * Never refreshes evidence. Does not activate score models.
+ *
+ * Architectural note (WS10 remediation):
+ * V2 dimension calculators (Performance/Survival/Utility) hard-code package-local
+ * MODEL_CONFIG constants and do not accept ScoreModelConfigV1 from
+ * CalibrationModelRef.config. Experience V3 accepts ExperienceV3ModelConfig only.
+ * Therefore active-versus-draft model-side evaluation cannot be implemented without
+ * a calculator API change — see assertActiveVersusDraftSupported().
  */
 
 import { createHash } from "node:crypto";
@@ -63,6 +70,41 @@ export interface CalibrationV2ReplayReport {
   refreshCalls: 0;
 }
 
+/** Stable error code for the active/draft architectural stop. */
+export const CALIBRATION_V2_ACTIVE_DRAFT_ARCH_BLOCKER =
+  "CALIBRATION_V2_ACTIVE_DRAFT_ARCH_BLOCKER" as const;
+
+export class CalibrationV2ActiveDraftArchitectureError extends Error {
+  readonly code = CALIBRATION_V2_ACTIVE_DRAFT_ARCH_BLOCKER;
+  readonly smallestApiChange: string;
+  readonly unusableModelConfigFields: string[];
+
+  constructor() {
+    super(
+      [
+        CALIBRATION_V2_ACTIVE_DRAFT_ARCH_BLOCKER,
+        "V2 dimension calculators cannot consume CalibrationModelRef.config (ScoreModelConfigV1)",
+        "without a calculator input API change; refusing to fabricate active/draft score deltas",
+      ].join(": "),
+    );
+    this.name = "CalibrationV2ActiveDraftArchitectureError";
+    this.smallestApiChange =
+      "Add optional frozen side-specific modelConfig on computePerformanceV2 / computeSurvivalV2 / computeUtilityV2 inputs (and wire ScoreModelConfigV1→dimension config mapping or store dimension MODEL_CONFIG documents on the bundle), without changing formulas.";
+    this.unusableModelConfigFields = [
+      "ScoreModelConfigV1.weights",
+      "ScoreModelConfigV1.metricWeights",
+      "ScoreModelConfigV1.normalization",
+      "ScoreModelConfigV1.historicalDecay",
+      "ScoreModelConfigV1.confidenceBlend",
+      "ScoreModelConfigV1.authenticityFeatures",
+      "PERFORMANCE_V2_MODEL_CONFIG (hard-coded in computePerformanceV2)",
+      "SURVIVAL_V2_MODEL_CONFIG (hard-coded in computeSurvivalV2)",
+      "UTILITY_V2_* coefficient constants (hard-coded in computeUtilityV2)",
+      "ExperienceV3ModelConfig (accepted only via ExperienceV3ComputeInput.config — not ScoreModelConfigV1)",
+    ];
+  }
+}
+
 function stableStringify(value: unknown): string {
   if (value === null || typeof value !== "object") return JSON.stringify(value);
   if (Array.isArray(value)) return `[${value.map((v) => stableStringify(v)).join(",")}]`;
@@ -75,12 +117,50 @@ function decodeJson(bytes: Uint8Array): unknown {
   return JSON.parse(Buffer.from(bytes).toString("utf8"));
 }
 
-function assertDraftOnlyCreation(model: CalibrationModelRef | null, field: string): void {
+function deepFreezeProbe<T>(value: T): T {
+  // Structural clone for mutation detection — does not mutate the source.
+  return structuredClone(value);
+}
+
+/**
+ * Enforce DRAFT-only evaluation model creation semantics.
+ * Replay never activates. ACTIVE references are allowed only as immutable activeModel.
+ */
+export function assertDraftOnlyCreation(
+  model: CalibrationModelRef | null,
+  field: "activeModel" | "evaluationModel",
+): void {
   if (!model) return;
-  // Replay never activates. If a new model were created it must be DRAFT — here we only accept frozen refs.
-  if (model.status === "ACTIVE" && field === "evaluationModel" && model.isActive) {
-    // Evaluation against an already-active model is allowed for comparison, but creation of ACTIVE is forbidden upstream.
+
+  if (field === "activeModel") {
+    // Active side is a frozen reference — must not be a DRAFT marked active.
+    if (model.status === "DRAFT" && model.isActive) {
+      throw new Error(
+        "DRAFT_MODEL_CREATION_FORBIDDEN: activeModel cannot be DRAFT with isActive=true",
+      );
+    }
+    return;
   }
+
+  // evaluationModel is the only side that may represent a newly created revision.
+  if (model.status === "ACTIVE" || model.isActive) {
+    throw new Error(
+      `DRAFT_MODEL_CREATION_FORBIDDEN: evaluationModel must be DRAFT (got status=${model.status} isActive=${model.isActive})`,
+    );
+  }
+  if (model.status !== "DRAFT" && model.status !== "FIXTURE") {
+    throw new Error(
+      `DRAFT_MODEL_CREATION_FORBIDDEN: evaluationModel must be DRAFT or FIXTURE (got status=${model.status})`,
+    );
+  }
+}
+
+/**
+ * Fail closed: active-versus-draft model evaluation is not supported until
+ * dimension calculators accept frozen model configuration.
+ */
+export function assertActiveVersusDraftSupported(): never {
+  throw new CalibrationV2ActiveDraftArchitectureError();
 }
 
 function replayPerformance(exportDoc: PerformanceV2CalibrationExport): CalibrationV2DimensionReplayResult {
@@ -132,8 +212,8 @@ function replayExperience(exportDoc: ExperienceV3CalibrationExport): Calibration
 }
 
 /**
- * Replay a frozen V2 bundle through dimension calculators only.
- * Identical evidence for active and draft (member refs unchanged).
+ * Replay a frozen V2 bundle through dimension calculators only (export replay).
+ * Does not apply ScoreModelConfigV1 — see assertActiveVersusDraftSupported.
  */
 export async function replayCalibrationBundleV2(input: {
   bundle: CalibrationInputBundleV2;
@@ -141,6 +221,13 @@ export async function replayCalibrationBundleV2(input: {
   /** Which frozen model config label to attribute (does not mutate source models). */
   modelSide?: "active" | "evaluation";
 }): Promise<CalibrationV2ReplayReport> {
+  const activeSnapshot = input.bundle.activeModel
+    ? deepFreezeProbe(input.bundle.activeModel)
+    : null;
+  const evaluationSnapshot = input.bundle.evaluationModel
+    ? deepFreezeProbe(input.bundle.evaluationModel)
+    : null;
+
   assertDraftOnlyCreation(input.bundle.activeModel, "activeModel");
   assertDraftOnlyCreation(input.bundle.evaluationModel, "evaluationModel");
 
@@ -203,6 +290,20 @@ export async function replayCalibrationBundleV2(input: {
   const model =
     modelSide === "active" ? input.bundle.activeModel : input.bundle.evaluationModel;
 
+  // Prove source model configs were not mutated by replay.
+  if (
+    activeSnapshot &&
+    JSON.stringify(activeSnapshot) !== JSON.stringify(input.bundle.activeModel)
+  ) {
+    throw new Error("SOURCE_MODEL_MUTATED: activeModel was mutated during replay");
+  }
+  if (
+    evaluationSnapshot &&
+    JSON.stringify(evaluationSnapshot) !== JSON.stringify(input.bundle.evaluationModel)
+  ) {
+    throw new Error("SOURCE_MODEL_MUTATED: evaluationModel was mutated during replay");
+  }
+
   const report: CalibrationV2ReplayReport = {
     schemaVersion: "calibration-replay-v2",
     bundleHash: input.bundle.bundleHash,
@@ -217,7 +318,6 @@ export async function replayCalibrationBundleV2(input: {
     refreshCalls: 0,
   };
 
-  // Attribute model side in hash material without mutating source model configs.
   report.contentHash = createHash("sha256")
     .update(
       stableStringify({
@@ -233,50 +333,15 @@ export async function replayCalibrationBundleV2(input: {
 }
 
 /**
- * Active-versus-draft V2: identical member evidence, two model attributions.
- * Source models are never mutated.
+ * Active-versus-draft requires applying each side's frozen model configuration to
+ * identical evidence. V2 dimension calculators cannot accept ScoreModelConfigV1 today.
+ * This function fails closed — it does not fabricate attribution-only deltas.
  */
-export async function replayCalibrationBundleV2ActiveVersusDraft(input: {
+export async function replayCalibrationBundleV2ActiveVersusDraft(_input: {
   bundle: CalibrationInputBundleV2;
   resolver: ArtifactResolverV2;
-}): Promise<{
-  active: CalibrationV2ReplayReport;
-  draft: CalibrationV2ReplayReport;
-  identicalEvidence: true;
-  sourceModelsImmutable: true;
-}> {
-  if (!input.bundle.activeModel || !input.bundle.evaluationModel) {
-    throw new Error("active-versus-draft requires activeModel and evaluationModel");
-  }
-  if (input.bundle.evaluationModel.status === "ACTIVE" && input.bundle.evaluationModel.isActive) {
-    // Creating/activating is forbidden; comparing against an already-active evaluation ref is odd — allow read-only.
-  }
-  if (input.bundle.evaluationModel.status !== "DRAFT" && input.bundle.evaluationModel.status !== "FIXTURE") {
-    // Prefer DRAFT for evaluation side; ARCHIVED/ACTIVE comparison still allowed as read-only.
-  }
-
-  const active = await replayCalibrationBundleV2({
-    bundle: input.bundle,
-    resolver: input.resolver,
-    modelSide: "active",
-  });
-  const draft = await replayCalibrationBundleV2({
-    bundle: input.bundle,
-    resolver: input.resolver,
-    modelSide: "evaluation",
-  });
-
-  // Evidence identity must match (same bundle hash / member export refs).
-  if (active.bundleHash !== draft.bundleHash) {
-    throw new Error("active/draft evidence drift detected");
-  }
-
-  return {
-    active,
-    draft,
-    identicalEvidence: true,
-    sourceModelsImmutable: true,
-  };
+}): Promise<never> {
+  assertActiveVersusDraftSupported();
 }
 
 /** In-memory artifact resolver for fixtures/tests — no providers. */
