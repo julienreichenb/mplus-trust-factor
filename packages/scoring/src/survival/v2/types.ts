@@ -1,8 +1,11 @@
 import type { CharacterSeasonEvidenceManifestV2 } from "@mplus/contracts";
 import type {
+  SURVIVAL_V2_CALIBRATION_SCHEMA_VERSION,
   SURVIVAL_V2_DEFENSIVE_RATE,
   SURVIVAL_V2_EXTRACTOR_FAMILY,
+  SURVIVAL_V2_MODEL_CONFIG,
   SURVIVAL_V2_SCHEMA_VERSION,
+  SurvivalV2CalibrationStatus,
   SurvivalV2RelativeDamageMode,
 } from "./constants.js";
 
@@ -202,7 +205,7 @@ export interface SurvivalV2ContributorDiagnostic {
 export interface SurvivalV2ComputeResult {
   algorithmVersion: string;
   modelLabel: string;
-  calibrationStatus: import("./constants.js").SurvivalV2CalibrationStatus;
+  calibrationStatus: SurvivalV2CalibrationStatus;
   inputFingerprint: string;
   score: number | null;
   confidence: number;
@@ -247,9 +250,9 @@ export interface SurvivalV2ComputeResult {
 
 /** Replayable calibration export (provider-free). */
 export interface SurvivalV2CalibrationExport {
-  schemaVersion: typeof import("./constants.js").SURVIVAL_V2_CALIBRATION_SCHEMA_VERSION;
+  schemaVersion: typeof SURVIVAL_V2_CALIBRATION_SCHEMA_VERSION;
   algorithmVersion: string;
-  modelConfig: typeof import("./constants.js").SURVIVAL_V2_MODEL_CONFIG;
+  modelConfig: typeof SURVIVAL_V2_MODEL_CONFIG;
   input: SurvivalV2ComputeInput;
   result: Pick<
     SurvivalV2ComputeResult,
