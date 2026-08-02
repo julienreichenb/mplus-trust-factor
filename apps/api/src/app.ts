@@ -20,6 +20,7 @@ import { buildJobRoutes } from "./routes/jobs.js";
 import { buildRealmRoutes } from "./routes/realms.js";
 import { buildPublicScoreModelRoutes } from "./routes/score-models.js";
 import { checkRedisHealth } from "./lib/redis-health.js";
+import { buildApiReadiness } from "./lib/readiness-diagnostics.js";
 import { buildAuthRoutes } from "./iam/routes-auth.js";
 import { createSessionPreHandler } from "./iam/session.js";
 import { ensureIamSeed } from "./iam/seed.js";
@@ -296,24 +297,30 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
         );
       }
 
-      const ready = database.ok && redis.ok;
-      const body = {
-        status: ready ? "ready" : "not_ready",
-        database: {
-          ok: database.ok,
-          latencyMs: database.latencyMs,
-          ...(database.ok ? {} : { error: "database unreachable" }),
-        },
-        redis: {
-          ok: redis.ok,
-          latencyMs: redis.latencyMs,
-          ...(redis.skipped ? { skipped: true } : {}),
-          ...(redis.ok ? {} : { error: "redis unreachable" }),
-        },
+      let activeModel: { key: string; version: number } | null = null;
+      try {
+        const model = await container.worker.repositories.score.getActiveModel();
+        if (model) {
+          activeModel = { key: model.key, version: model.version };
+        }
+      } catch {
+        activeModel = null;
+      }
+
+      const readiness = await buildApiReadiness({
+        env,
+        database,
+        redis,
         queueMode: container.queueMode,
+        providers: { warcraftlogs: providers.warcraftlogs },
+        activeModel,
+      });
+
+      const body = {
+        ...readiness.body,
         providers,
       };
-      if (!ready) {
+      if (!readiness.ready) {
         return reply.status(503).send(body);
       }
       return body;

@@ -1,5 +1,13 @@
 import type { AnalyzeEvidenceSlotJobV2, FinalizeEvidenceBatchJobV2 } from "@mplus/contracts";
 import { discoveryIdentityKey } from "@mplus/contracts";
+import {
+  OBS_EVENTS,
+  boundOperationalReason,
+  emitScoringV2Event,
+  normalizeOperationalError,
+  recordBatchOutcome,
+  recordSlotOutcome,
+} from "@mplus/observability";
 import type { WorkerContainer } from "../../container.js";
 import {
   acquireCandidateWithFallback,
@@ -14,6 +22,50 @@ export interface EvidenceV2SlotProducers {
       requestedAt?: string;
     },
   ) => Promise<{ jobId: string }>;
+}
+
+function emitSlotTerminal(
+  container: WorkerContainer,
+  input: {
+    analysisBatchId: string;
+    slotId: string;
+    correlationId?: string | null;
+    characterId?: string;
+    kind: "completed" | "unavailable" | "failed" | "cancelled";
+    status: string;
+    reason?: string;
+  },
+): void {
+  if (input.kind === "completed" || input.kind === "unavailable") {
+    recordSlotOutcome(input.kind === "unavailable" ? "unavailable" : "completed", input.status);
+    emitScoringV2Event(container.logger, OBS_EVENTS.scoringV2SlotCompleted, {
+      analysisBatchId: input.analysisBatchId,
+      slotId: input.slotId,
+      correlationId: input.correlationId,
+      characterId: input.characterId,
+      status: input.status,
+      ...(input.reason ? { reason: boundOperationalReason(input.reason) } : {}),
+    });
+    return;
+  }
+  if (input.kind === "cancelled") {
+    recordSlotOutcome("cancelled", input.status);
+  } else {
+    recordSlotOutcome("failed", input.status);
+  }
+  emitScoringV2Event(
+    container.logger,
+    OBS_EVENTS.scoringV2SlotFailed,
+    {
+      analysisBatchId: input.analysisBatchId,
+      slotId: input.slotId,
+      correlationId: input.correlationId,
+      characterId: input.characterId,
+      status: input.status,
+      reason: boundOperationalReason(input.reason ?? input.status),
+    },
+    input.kind === "cancelled" ? "warn" : "error",
+  );
 }
 
 /**
@@ -61,6 +113,7 @@ export async function runAnalyzeEvidenceSlotV2(
   });
 
   if (claim.outcome === "already_terminal") {
+    // Retry/redelivery of a terminal slot — no duplicate terminal events.
     return {
       outcome: "terminal_redelivery_noop",
       analysisBatchId: job.analysisBatchId,
@@ -85,6 +138,15 @@ export async function runAnalyzeEvidenceSlotV2(
     return { outcome: "slot_not_found", analysisBatchId: job.analysisBatchId, slotId: job.slotId };
   }
 
+  recordSlotOutcome("started");
+  emitScoringV2Event(container.logger, OBS_EVENTS.scoringV2SlotStarted, {
+    analysisBatchId: job.analysisBatchId,
+    slotId: job.slotId,
+    correlationId: job.correlationId,
+    refreshGeneration: job.refreshGeneration,
+    characterId: claim.view.batch.characterId,
+  });
+
   const batchView = claim.view;
   const slotPlan = batchView.meta.acquisitionPlan.slots.find((s) => s.slotId === job.slotId);
   if (!slotPlan) {
@@ -93,6 +155,15 @@ export async function runAnalyzeEvidenceSlotV2(
       slotId: job.slotId,
       status: "FAILED",
       terminalReason: "SLOT_PLAN_MISSING",
+    });
+    emitSlotTerminal(container, {
+      analysisBatchId: job.analysisBatchId,
+      slotId: job.slotId,
+      correlationId: job.correlationId,
+      characterId: batchView.batch.characterId,
+      kind: "failed",
+      status: "FAILED",
+      reason: "SLOT_PLAN_MISSING",
     });
     return { outcome: "slot_plan_missing", analysisBatchId: job.analysisBatchId, slotId: job.slotId };
   }
@@ -105,7 +176,22 @@ export async function runAnalyzeEvidenceSlotV2(
       status: "UNAVAILABLE",
       terminalReason: slotPlan.provisionalMissingState ?? "MISSING_NO_CANDIDATE",
     });
+    emitSlotTerminal(container, {
+      analysisBatchId: job.analysisBatchId,
+      slotId: job.slotId,
+      correlationId: job.correlationId,
+      characterId: batchView.batch.characterId,
+      kind: "unavailable",
+      status: "UNAVAILABLE",
+      reason: slotPlan.provisionalMissingState ?? "MISSING_NO_CANDIDATE",
+    });
     if (completed.becameReady) {
+      recordBatchOutcome("ready");
+      emitScoringV2Event(container.logger, OBS_EVENTS.scoringV2BatchReady, {
+        analysisBatchId: job.analysisBatchId,
+        correlationId: job.correlationId,
+        characterId: batchView.batch.characterId,
+      });
       await producers.enqueueFinalizeEvidenceBatch({
         analysisBatchId: job.analysisBatchId,
         acquisitionPlanContentHash: job.acquisitionPlanContentHash,
@@ -167,7 +253,23 @@ export async function runAnalyzeEvidenceSlotV2(
       factSetFingerprint: acquired.factSetFingerprint,
     });
 
+    emitSlotTerminal(container, {
+      analysisBatchId: job.analysisBatchId,
+      slotId: job.slotId,
+      correlationId: job.correlationId,
+      characterId: batchView.batch.characterId,
+      kind: status === "UNAVAILABLE" ? "unavailable" : "completed",
+      status,
+      reason: acquired.result.rejectionReason ?? undefined,
+    });
+
     if (completed.becameReady) {
+      recordBatchOutcome("ready");
+      emitScoringV2Event(container.logger, OBS_EVENTS.scoringV2BatchReady, {
+        analysisBatchId: job.analysisBatchId,
+        correlationId: job.correlationId,
+        characterId: batchView.batch.characterId,
+      });
       await producers.enqueueFinalizeEvidenceBatch({
         analysisBatchId: job.analysisBatchId,
         acquisitionPlanContentHash: job.acquisitionPlanContentHash,
@@ -191,6 +293,15 @@ export async function runAnalyzeEvidenceSlotV2(
         status: "CANCELLED",
         terminalReason: "CANCELLED",
       });
+      emitSlotTerminal(container, {
+        analysisBatchId: job.analysisBatchId,
+        slotId: job.slotId,
+        correlationId: job.correlationId,
+        characterId: batchView.batch.characterId,
+        kind: "cancelled",
+        status: "CANCELLED",
+        reason: "CANCELLED",
+      });
       throw error;
     }
     if (error instanceof ScoringV2SupersededError) {
@@ -200,15 +311,39 @@ export async function runAnalyzeEvidenceSlotV2(
         status: "SUPERSEDED",
         terminalReason: "SUPERSEDED",
       });
+      emitSlotTerminal(container, {
+        analysisBatchId: job.analysisBatchId,
+        slotId: job.slotId,
+        correlationId: job.correlationId,
+        characterId: batchView.batch.characterId,
+        kind: "cancelled",
+        status: "SUPERSEDED",
+        reason: "SUPERSEDED",
+      });
       throw error;
     }
+    const normalized = normalizeOperationalError(error);
     const completed = await repo.completeSlot({
       batchId: job.analysisBatchId,
       slotId: job.slotId,
       status: "FAILED",
-      terminalReason: error instanceof Error ? error.message : "SLOT_ACQUISITION_FAILED",
+      terminalReason: normalized.category,
+    });
+    emitSlotTerminal(container, {
+      analysisBatchId: job.analysisBatchId,
+      slotId: job.slotId,
+      correlationId: job.correlationId,
+      characterId: batchView.batch.characterId,
+      kind: "failed",
+      status: "FAILED",
+      reason: normalized.category,
     });
     if (completed.becameReady) {
+      recordBatchOutcome("ready");
+      emitScoringV2Event(container.logger, OBS_EVENTS.scoringV2BatchReady, {
+        analysisBatchId: job.analysisBatchId,
+        correlationId: job.correlationId,
+      });
       await producers.enqueueFinalizeEvidenceBatch({
         analysisBatchId: job.analysisBatchId,
         acquisitionPlanContentHash: job.acquisitionPlanContentHash,

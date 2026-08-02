@@ -69,7 +69,7 @@ describe("runFinalizeEvidenceBatchV2 FINALIZING recovery", () => {
         SCORING_V2_EXPERIENCE_ENABLED: false,
         SCORING_V2_RELATIVE_DAMAGE_MODE: "off",
       },
-      logger: { info: vi.fn(), error: vi.fn() },
+      logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
       prisma: {
         evidenceManifest: {
           findUnique: vi.fn().mockResolvedValue({ document: MANIFEST_DOC }),
@@ -112,5 +112,9 @@ describe("runFinalizeEvidenceBatchV2 FINALIZING recovery", () => {
 
     expect(releaseFinalizationClaim).toHaveBeenCalledWith("batch-1");
     expect(container.repositories.evidenceV2Batch.markFinalized).not.toHaveBeenCalled();
+    expect(container.logger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ event: "scoring_v2.finalization_claim_released" }),
+      "scoring_v2.finalization_claim_released",
+    );
   });
 });

@@ -44,10 +44,16 @@ describe("API health", () => {
     expect(response.statusCode).toBe(200);
     const body = response.json() as {
       status: string;
+      revision?: string;
       database: { ok: boolean };
       redis: { ok: boolean; skipped?: boolean };
       queueMode: string;
       providers: Record<string, { enabled: boolean; configured: boolean }>;
+      scoringV2?: { modes: { enabled: boolean; publicationEnabled: boolean } };
+      contracts?: { workerJobSchema: string };
+      wclSnapshot?: { state: string };
+      artifactBackend?: { ok: boolean; required: boolean };
+      failingReasons?: string[];
     };
     expect(body.status).toBe("ready");
     expect(body.database.ok).toBe(true);
@@ -55,6 +61,13 @@ describe("API health", () => {
     expect(body.redis.skipped).toBe(true);
     expect(body.queueMode).toBe("inline");
     expect(body.providers.blizzard.enabled).toBeDefined();
+    expect(typeof body.revision).toBe("string");
+    expect(body.scoringV2?.modes.enabled).toBe(false);
+    expect(body.scoringV2?.modes.publicationEnabled).toBe(false);
+    expect(body.contracts?.workerJobSchema).toBe("2.0.0");
+    expect(body.wclSnapshot?.state).toBe("worker_owned");
+    expect(body.artifactBackend?.required).toBe(false);
+    expect(body.failingReasons).toEqual([]);
     expect(JSON.stringify(body)).not.toMatch(/CLIENT_SECRET|access_token|postgresql:\/\//i);
   });
 

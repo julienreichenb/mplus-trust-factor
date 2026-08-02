@@ -1,5 +1,13 @@
 import type { FinalizeEvidenceBatchJobV2 } from "@mplus/contracts";
 import type { CharacterRole } from "@mplus/database";
+import {
+  OBS_EVENTS,
+  emitScoringV2Event,
+  recordBatchOutcome,
+  recordFinalizationRecovery,
+  recordManifestCoverage,
+  recordPublicationDecision,
+} from "@mplus/observability";
 import { finalizeEvidenceManifestV2 } from "@mplus/scoring";
 import type { WorkerContainer } from "../../container.js";
 import {
@@ -72,6 +80,12 @@ export async function runFinalizeEvidenceBatchV2(
     // Concurrent finalizer won, or not ready — redelivery-safe.
     const latest = await repo.getById(job.analysisBatchId);
     if (latest?.batch.finalizationStatus === "FINALIZED") {
+      recordFinalizationRecovery("reclaim");
+      emitScoringV2Event(container.logger, OBS_EVENTS.scoringV2FinalizationReclaim, {
+        analysisBatchId: job.analysisBatchId,
+        correlationId: job.correlationId,
+        outcome: "already_finalized",
+      });
       return {
         outcome: "already_finalized",
         analysisBatchId: job.analysisBatchId,
@@ -79,6 +93,17 @@ export async function runFinalizeEvidenceBatchV2(
         manifestContentHash: latest.meta.manifestContentHash ?? undefined,
       };
     }
+    recordFinalizationRecovery("claim_lost");
+    emitScoringV2Event(
+      container.logger,
+      OBS_EVENTS.scoringV2FinalizationClaimLost,
+      {
+        analysisBatchId: job.analysisBatchId,
+        correlationId: job.correlationId,
+        outcome: "claim_lost_or_not_ready",
+      },
+      "warn",
+    );
     return { outcome: "claim_lost_or_not_ready", analysisBatchId: job.analysisBatchId };
   }
 
@@ -94,6 +119,17 @@ export async function runFinalizeEvidenceBatchV2(
           })
         )?.document as unknown)
       : null;
+
+    // Successful CAS after a prior release → redelivery reclaim of in-progress finalize.
+    if (manifestId && manifestContentHash) {
+      recordFinalizationRecovery("reclaim");
+      emitScoringV2Event(container.logger, OBS_EVENTS.scoringV2FinalizationReclaim, {
+        analysisBatchId: job.analysisBatchId,
+        correlationId: job.correlationId,
+        characterId: claimed.batch.characterId,
+        outcome: "reclaim_with_manifest",
+      });
+    }
 
     if (!manifestId || !manifestContentHash || !manifestDocument) {
       const plan = claimed.meta.acquisitionPlan;
@@ -162,6 +198,27 @@ export async function runFinalizeEvidenceBatchV2(
       manifestId = persisted.id;
       manifestContentHash = manifest.contentHash;
       manifestDocument = manifest;
+
+      const fallbackDepth = manifest.slots.reduce(
+        (max, slot) => Math.max(max, slot.selectedRank ?? 0),
+        0,
+      );
+      recordManifestCoverage({
+        coverageState: manifest.coverage.state,
+        selectedSlotCount: manifest.selectedSlotCount,
+        expectedSlotCount: manifest.expectedSlotCount,
+        fallbackDepth,
+      });
+      emitScoringV2Event(container.logger, OBS_EVENTS.scoringV2ManifestFrozen, {
+        analysisBatchId: job.analysisBatchId,
+        characterId: claimed.batch.characterId,
+        correlationId: job.correlationId,
+        manifestId,
+        manifestContentHash,
+        coverageState: manifest.coverage.state,
+        selectedSlotCount: manifest.selectedSlotCount,
+        expectedSlotCount: manifest.expectedSlotCount,
+      });
     }
 
     // Shadow dimension finalization — provider-free; no public publication.
@@ -208,16 +265,22 @@ export async function runFinalizeEvidenceBatchV2(
     await repo.markAdmissionReleased(job.analysisBatchId);
     await repo.markFinalized(job.analysisBatchId);
 
-    container.logger.info(
-      {
-        event: "scoring_v2_batch_finalized",
-        analysisBatchId: job.analysisBatchId,
-        manifestId,
-        manifestContentHash,
-        publicationBlocked: true,
-      },
-      "scoring v2 shadow batch finalized without public publication",
-    );
+    recordBatchOutcome("finalized");
+    recordPublicationDecision("rejected", "shadow_publication_blocked");
+    emitScoringV2Event(container.logger, OBS_EVENTS.scoringV2BatchFinalized, {
+      analysisBatchId: job.analysisBatchId,
+      characterId: claimed.batch.characterId,
+      correlationId: job.correlationId,
+      manifestId,
+      manifestContentHash,
+      publicationBlocked: true,
+    });
+    emitScoringV2Event(container.logger, OBS_EVENTS.scoringV2PublicationRejected, {
+      analysisBatchId: job.analysisBatchId,
+      characterId: claimed.batch.characterId,
+      correlationId: job.correlationId,
+      reason: "shadow_publication_blocked",
+    });
 
     return {
       outcome: "finalized",
@@ -228,6 +291,18 @@ export async function runFinalizeEvidenceBatchV2(
   } catch (error) {
     // Minimal FINALIZING recovery: release claim so redelivery can reclaim.
     await repo.releaseFinalizationClaim(job.analysisBatchId);
+    recordFinalizationRecovery("claim_released");
+    emitScoringV2Event(
+      container.logger,
+      OBS_EVENTS.scoringV2FinalizationClaimReleased,
+      {
+        analysisBatchId: job.analysisBatchId,
+        correlationId: job.correlationId,
+        characterId: claimed.batch.characterId,
+        outcome: "claim_released",
+      },
+      "warn",
+    );
     throw error;
   }
 }

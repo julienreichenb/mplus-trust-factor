@@ -64,10 +64,13 @@ export {
   assertAllowedProviderUrl,
   redactSecretsInObject,
   sanitizeSensitiveDeep,
+  sanitizeFreeText,
+  normalizeOperationalError,
   toJsonSafeSanitized,
   fingerprintIdentifier,
   maskReportCode,
   sanitizeReportRef,
+  sanitizeCharacterRef,
   DEFAULT_ALLOWED_PROVIDER_HOSTS,
 } from "./security.js";
 
@@ -80,3 +83,43 @@ export {
   type ProviderRequestLabels,
   type WclBudgetSnapshot,
 } from "./metrics.js";
+
+export {
+  SCORING_V2_JOB_SCHEMA_VERSION,
+  SCORING_V2_EVIDENCE_MANIFEST_SCHEMA_VERSION,
+  SCORING_V2_ACQUISITION_PLAN_SCHEMA_VERSION,
+  buildScoringV2LogContext,
+  sanitizeScoringV2LogFields,
+  boundOperationalReason,
+  emitScoringV2Event,
+  runSafeTelemetry,
+  recordManifestCoverage,
+  recordInvalidCandidateReason,
+  recordDatasetOutcome,
+  recordFactSetWritten,
+  recordSlotOutcome,
+  recordBatchOutcome,
+  recordAdmissionDecision,
+  recordPublicationDecision,
+  recordFinalizationRecovery,
+  recordScoreConfidenceSample,
+  recordV1V2Delta,
+  recordQueueSnapshot,
+  recordArtifactOrphan,
+  recordCalibrationOutcome,
+  recordReferenceSliceState,
+  type ScoringV2EventName,
+  type ScoringV2CorrelationFields,
+  type SlotOutcomeKind,
+} from "./scoring-v2.js";
+
+export {
+  evaluateReadiness,
+  evaluateWclProviderUsability,
+  requiredProbesForModes,
+  SCORING_V2_CONTRACT_VERSIONS,
+  type ScoringV2ModeSnapshot,
+  type ReadinessProbeResults,
+  type ReadinessEvaluation,
+  type WclProviderProbe,
+} from "./readiness.js";

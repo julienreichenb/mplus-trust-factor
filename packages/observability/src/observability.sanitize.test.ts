@@ -61,4 +61,22 @@ describe("observability deep sanitization", () => {
     expect(OBS_EVENTS.refreshFusionCompleted).toBe("refresh.fusion.completed");
     expect(OBS_EVENTS.refreshTerminal).toBe("refresh.terminal");
   });
+
+  it("exports scoring_v2 lifecycle event names", () => {
+    expect(OBS_EVENTS.scoringV2ManifestFrozen).toBe("scoring_v2.manifest_frozen");
+    expect(OBS_EVENTS.scoringV2AdmissionStopped).toBe("scoring_v2.admission_stopped");
+    expect(OBS_EVENTS.scoringV2PublicationRejected).toBe("scoring_v2.publication_rejected");
+  });
+
+  it("redacts character names", () => {
+    const sanitized = sanitizeSensitiveDeep({
+      characterName: "Wallidrixe",
+      realmSlug: "archimonde",
+      name: "Wallidrixe",
+      region: "eu",
+    }) as Record<string, string>;
+    expect(sanitized.characterName).toBe("[Redacted]");
+    expect(sanitized.name).toBe("[Redacted]");
+    expect(JSON.stringify(sanitized)).not.toContain("Wallidrixe");
+  });
 });
