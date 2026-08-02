@@ -76,9 +76,10 @@ export function planOneIdentity(
     };
   }
 
-  // Resume short-circuits
+  // Resume short-circuits for durable terminal outcomes only.
+  // ALREADY_ENQUEUED / FOUND_INCOMPLETE always re-check live DB (jobs may have settled).
   if (opts.resume) {
-    if (isTerminalSuccess(opts.resume.resultState) || opts.resume.resultState === "TERMINAL_SUCCESS") {
+    if (isTerminalSuccess(opts.resume.resultState)) {
       return {
         ...base,
         characterId: opts.resume.characterId ?? base.characterId,
@@ -96,16 +97,6 @@ export function planOneIdentity(
         plannedOperation: "SKIP",
         reason: "Resume manifest marks this identity as terminal failure.",
         errorCode: opts.resume.errorCode,
-      };
-    }
-    if (opts.resume.resultState === "ALREADY_ENQUEUED") {
-      return {
-        ...base,
-        characterId: opts.resume.characterId ?? base.characterId,
-        initialState: "ALREADY_ENQUEUED",
-        plannedOperation: "RESUME_WAIT",
-        reason: `Resume manifest has active/queued job(s): ${(opts.resume.jobIds ?? []).join(",") || "(none)"}.`,
-        errorCode: "NONE",
       };
     }
     if (opts.resume.resultState === "RETRYABLE_FAILURE") {

@@ -22,9 +22,13 @@ import {
   assertCalibrationBootstrapEnv,
   assertLiveProviderCallsAllowedForExecute,
   assertPositiveTestBootstrapTarget,
+  assertResumeManifestCompatible,
   BOOTSTRAP_DEFAULT_CONCURRENCY,
   BOOTSTRAP_RUNNER_VERSION,
+  BOOTSTRAP_SCHEMA_VERSION,
   formatSanitizedDbTarget,
+  parseBoundedPositiveInt,
+  parseLimitOption,
   resolveBootstrapDatabaseUrl,
 } from "./bootstrap-env-guards.js";
 import { probeAllIdentities } from "./cohort-bootstrap-db.js";
@@ -198,25 +202,40 @@ export async function main(
     : outputDirRaw.startsWith("/") || /^[A-Za-z]:[\\/]/.test(outputDirRaw)
       ? resolve(outputDirRaw)
       : resolve(ROOT, outputDirRaw);
-  const concurrency = Math.max(
-    1,
-    Math.min(8, Number(values.get("concurrency") ?? BOOTSTRAP_DEFAULT_CONCURRENCY) || BOOTSTRAP_DEFAULT_CONCURRENCY),
-  );
-  const limitRaw = values.get("limit");
-  const limit = limitRaw != null ? Math.max(0, Number(limitRaw) || 0) : null;
+
+  let concurrency: number;
+  let limit: number | null;
+  try {
+    concurrency = parseBoundedPositiveInt(values.get("concurrency"), {
+      name: "concurrency",
+      defaultValue: BOOTSTRAP_DEFAULT_CONCURRENCY,
+      min: 1,
+      max: 8,
+    });
+    limit = parseLimitOption(values.get("limit"));
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : error);
+    return 2;
+  }
+
   const retryFailures = flags.has("retry-failures");
   const includeMemberIds = new Set(multi.get("include-member") ?? []);
   const excludeMemberIds = new Set(multi.get("exclude-member") ?? []);
 
-  let resumeManifest: BootstrapManifest | null = null;
   const resumePath = values.get("resume-manifest");
+  let resumeRaw: unknown = null;
   if (resumePath) {
     const abs = resolveInputPath(resumePath);
     if (!existsSync(abs)) {
       console.error(`REFUSED: resume manifest not found: ${abs}`);
       return 2;
     }
-    resumeManifest = JSON.parse(readFileSync(abs, "utf8")) as BootstrapManifest;
+    try {
+      resumeRaw = JSON.parse(readFileSync(abs, "utf8"));
+    } catch {
+      console.error("REFUSED: resume manifest is not valid JSON");
+      return 2;
+    }
   }
 
   let dbUrl: string;
@@ -243,6 +262,21 @@ export async function main(
   } catch (error) {
     console.error(error instanceof Error ? error.message : error);
     return 1;
+  }
+
+  let resumeManifest: BootstrapManifest | null = null;
+  if (resumeRaw != null) {
+    try {
+      assertResumeManifestCompatible(resumeRaw as BootstrapManifest, {
+        schemaVersion: BOOTSTRAP_SCHEMA_VERSION,
+        cohortId: cohortDoc.cohortId,
+        sourceFileHash,
+      });
+      resumeManifest = resumeRaw as BootstrapManifest;
+    } catch (error) {
+      console.error(error instanceof Error ? error.message : error);
+      return 2;
+    }
   }
 
   const allIdentities = dedupeCohortIdentities(cohortDoc.members);
@@ -398,15 +432,16 @@ export async function main(
     });
 
     const paths = writeBootstrapArtifacts(outputDir, planDoc, manifest, summary);
-    emit(BOOTSTRAP_EVENTS.completed, {
-      event: BOOTSTRAP_EVENTS.completed,
+    const partialFailure = execute && executeResult.failedIdentityKeys.length > 0;
+    emit(partialFailure ? BOOTSTRAP_EVENTS.failed : BOOTSTRAP_EVENTS.completed, {
+      event: partialFailure ? BOOTSTRAP_EVENTS.failed : BOOTSTRAP_EVENTS.completed,
       mode,
       cohortId: cohortDoc.cohortId,
       plannedEnqueue: countMap.plannedEnqueue ?? 0,
       enqueued: executeResult.enqueuedJobIds.length,
       failed: executeResult.failedIdentityKeys.length,
       outputDir,
-      safety,
+      ok: !partialFailure,
     });
 
     console.log(`wrote ${paths.planPath}`);

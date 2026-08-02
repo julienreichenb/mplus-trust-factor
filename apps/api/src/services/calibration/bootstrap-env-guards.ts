@@ -87,3 +87,91 @@ export function resolveBootstrapDatabaseUrl(): string {
   }
   return url;
 }
+
+/**
+ * Fail closed when a resume manifest does not match the current cohort/source/env/schema.
+ */
+export function assertResumeManifestCompatible(
+  resume: {
+    schemaVersion?: unknown;
+    cohortId?: unknown;
+    sourceFileHash?: unknown;
+    targetEnvironment?: unknown;
+    identities?: unknown;
+  },
+  expected: {
+    schemaVersion: string;
+    cohortId: string;
+    sourceFileHash: string;
+  },
+): void {
+  if (resume == null || typeof resume !== "object") {
+    throw new Error("REFUSED: resume manifest must be an object");
+  }
+  if (resume.schemaVersion !== expected.schemaVersion) {
+    throw new Error(
+      `REFUSED: resume manifest schemaVersion mismatch (got ${JSON.stringify(resume.schemaVersion)}, expected ${expected.schemaVersion})`,
+    );
+  }
+  if (resume.cohortId !== expected.cohortId) {
+    throw new Error(
+      `REFUSED: resume manifest cohortId mismatch (got ${JSON.stringify(resume.cohortId)}, expected ${expected.cohortId})`,
+    );
+  }
+  if (resume.sourceFileHash !== expected.sourceFileHash) {
+    throw new Error(
+      `REFUSED: resume manifest sourceFileHash mismatch (got ${JSON.stringify(resume.sourceFileHash)}, expected ${expected.sourceFileHash})`,
+    );
+  }
+  if (resume.targetEnvironment !== "test") {
+    throw new Error(
+      `REFUSED: resume manifest targetEnvironment must be "test" (got ${JSON.stringify(resume.targetEnvironment)})`,
+    );
+  }
+  if (!Array.isArray(resume.identities)) {
+    throw new Error("REFUSED: resume manifest identities must be an array");
+  }
+}
+
+/** Parse bounded positive int options; invalid input fails closed (no silent unlimited). */
+export function parseBoundedPositiveInt(
+  raw: string | undefined,
+  opts: {
+    name: string;
+    defaultValue: number;
+    min: number;
+    max: number;
+    /** When true, absent raw uses defaultValue; present raw must parse. */
+    optional?: boolean;
+  },
+): number {
+  if (raw === undefined || raw === "") {
+    return opts.defaultValue;
+  }
+  const trimmed = raw.trim();
+  if (!/^\d+$/.test(trimmed)) {
+    throw new Error(`REFUSED: --${opts.name} must be an integer (got ${JSON.stringify(raw)})`);
+  }
+  const n = Number(trimmed);
+  if (!Number.isInteger(n) || n < opts.min || n > opts.max) {
+    throw new Error(
+      `REFUSED: --${opts.name} must be an integer in [${opts.min}, ${opts.max}] (got ${JSON.stringify(raw)})`,
+    );
+  }
+  return n;
+}
+
+/** Parse --limit: absent = null (no limit); present must be a positive integer. */
+export function parseLimitOption(raw: string | undefined): number | null {
+  if (raw === undefined || raw === "") return null;
+  const trimmed = raw.trim();
+  if (!/^\d+$/.test(trimmed)) {
+    throw new Error(`REFUSED: --limit must be a positive integer (got ${JSON.stringify(raw)})`);
+  }
+  const n = Number(trimmed);
+  if (!Number.isInteger(n) || n < 1) {
+    throw new Error(`REFUSED: --limit must be >= 1 (got ${JSON.stringify(raw)})`);
+  }
+  return n;
+}
+

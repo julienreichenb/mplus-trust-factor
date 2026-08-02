@@ -10,8 +10,12 @@ import {
   assertCalibrationBootstrapEnv,
   assertLiveProviderCallsAllowedForExecute,
   assertPositiveTestBootstrapTarget,
+  assertResumeManifestCompatible,
   isPositiveTestBootstrapTarget,
+  parseBoundedPositiveInt,
+  parseLimitOption,
   sanitizeEvidenceDbTarget,
+  BOOTSTRAP_SCHEMA_VERSION,
 } from "./bootstrap-env-guards.js";
 import {
   buildBootstrapJobKey,
@@ -139,14 +143,117 @@ describe("bootstrap env guards", () => {
     ).toThrow(/development database|not positively identified/);
   });
 
-  it("accepts positively identified test targets", () => {
+  it("accepts positively identified test targets and rejects bypass shapes", () => {
     const target = assertPositiveTestBootstrapTarget(
       "postgresql://u:p@postgres:5432/mplus_trust_test?schema=public",
     );
     expect(target.database).toBe("mplus_trust_test");
-    expect(isPositiveTestBootstrapTarget(sanitizeEvidenceDbTarget(
-      "postgresql://u:p@localhost:5433/mplus_itest_abcdefgh?schema=public",
-    ))).toBe(true);
+    expect(
+      isPositiveTestBootstrapTarget(
+        sanitizeEvidenceDbTarget(
+          "postgresql://u:p@localhost:5433/mplus_itest_abcdefgh?schema=public",
+        ),
+      ),
+    ).toBe(true);
+
+    // URL-encoded database name still decoded and classified.
+    expect(() =>
+      assertPositiveTestBootstrapTarget(
+        "postgresql://u:p@postgres:5432/mplus_trust_prod%3Fattack?schema=public",
+      ),
+    ).toThrow(/production|not positively identified/);
+
+    // Production hostname with test-like DB name.
+    expect(() =>
+      assertPositiveTestBootstrapTarget(
+        "postgresql://u:p@mplus-prod.example:5432/mplus_trust_test?schema=public",
+      ),
+    ).toThrow(/production/);
+
+    // Test hostname with production DB name.
+    expect(() =>
+      assertPositiveTestBootstrapTarget(
+        "postgresql://u:p@postgres:5432/MPLUS_TRUST_PROD?schema=public",
+      ),
+    ).toThrow(/production/);
+
+    // Ambiguous non-test target.
+    expect(() =>
+      assertPositiveTestBootstrapTarget("postgresql://u:p@db.internal:5432/app?schema=public"),
+    ).toThrow(/not positively identified/);
+
+    // Whitespace-only env is refused by assertCalibrationBootstrapEnv (covered above).
+  });
+
+  it("fails closed on invalid concurrency/limit and resume metadata mismatch", () => {
+    expect(() =>
+      parseBoundedPositiveInt("abc", { name: "concurrency", defaultValue: 2, min: 1, max: 8 }),
+    ).toThrow(/integer/);
+    expect(() =>
+      parseBoundedPositiveInt("0", { name: "concurrency", defaultValue: 2, min: 1, max: 8 }),
+    ).toThrow(/\[1, 8\]/);
+    expect(() =>
+      parseBoundedPositiveInt("9", { name: "concurrency", defaultValue: 2, min: 1, max: 8 }),
+    ).toThrow(/\[1, 8\]/);
+    expect(parseBoundedPositiveInt(undefined, { name: "concurrency", defaultValue: 2, min: 1, max: 8 })).toBe(
+      2,
+    );
+
+    expect(parseLimitOption(undefined)).toBeNull();
+    expect(parseLimitOption("37")).toBe(37);
+    expect(() => parseLimitOption("0")).toThrow(/>= 1/);
+    expect(() => parseLimitOption("abc")).toThrow(/positive integer/);
+
+    expect(() =>
+      assertResumeManifestCompatible(
+        {
+          schemaVersion: BOOTSTRAP_SCHEMA_VERSION,
+          cohortId: "other-cohort",
+          sourceFileHash: "abc",
+          targetEnvironment: "test",
+          identities: [],
+        },
+        {
+          schemaVersion: BOOTSTRAP_SCHEMA_VERSION,
+          cohortId: "agent11-user-cohort-2026-08-01",
+          sourceFileHash: "abc",
+        },
+      ),
+    ).toThrow(/cohortId mismatch/);
+
+    expect(() =>
+      assertResumeManifestCompatible(
+        {
+          schemaVersion: BOOTSTRAP_SCHEMA_VERSION,
+          cohortId: "agent11-user-cohort-2026-08-01",
+          sourceFileHash: "deadbeef",
+          targetEnvironment: "test",
+          identities: [],
+        },
+        {
+          schemaVersion: BOOTSTRAP_SCHEMA_VERSION,
+          cohortId: "agent11-user-cohort-2026-08-01",
+          sourceFileHash: "abc",
+        },
+      ),
+    ).toThrow(/sourceFileHash mismatch/);
+
+    expect(() =>
+      assertResumeManifestCompatible(
+        {
+          schemaVersion: "wrong",
+          cohortId: "agent11-user-cohort-2026-08-01",
+          sourceFileHash: "abc",
+          targetEnvironment: "test",
+          identities: [],
+        },
+        {
+          schemaVersion: BOOTSTRAP_SCHEMA_VERSION,
+          cohortId: "agent11-user-cohort-2026-08-01",
+          sourceFileHash: "abc",
+        },
+      ),
+    ).toThrow(/schemaVersion mismatch/);
   });
 });
 
@@ -286,7 +393,7 @@ describe("planner states", () => {
     expect(planned.initialState).toBe("EXCLUDED");
   });
 
-  it("skips already queued jobs and resumes terminal success from manifest", () => {
+  it("skips already queued jobs from live DB; resume ALREADY_ENQUEUED rechecks live state", () => {
     const queuedProbe: DbCharacterProbe = {
       characterId: "22222222-2222-2222-2222-222222222222",
       incompleteBootstrap: true,
@@ -304,6 +411,44 @@ describe("planner states", () => {
     );
     expect(queued.initialState).toBe("ALREADY_ENQUEUED");
     expect(queued.plannedOperation).toBe("RESUME_WAIT");
+
+    const readyProbe: DbCharacterProbe = {
+      characterId: "22222222-2222-2222-2222-222222222222",
+      incompleteBootstrap: false,
+      hasPublicSnapshot: true,
+      activeJobId: null,
+      activeJobStatus: null,
+      latestJobId: "job-active-1",
+      latestJobStatus: "COMPLETED",
+      latestJobErrorCode: null,
+    };
+    const afterSettle = planOneIdentity(
+      identity({ identityKey: "EU/hyjal/zacdruid", memberIds: ["m1"] }),
+      readyProbe,
+      {
+        cohortId,
+        includeMemberIds: new Set(),
+        retryFailures: false,
+        resume: {
+          identityKey: "EU/hyjal/zacdruid",
+          memberIds: ["m1"],
+          region: "EU",
+          realmSlug: "hyjal",
+          name: "Zacdruid",
+          initialState: "MISSING",
+          plannedOperation: "ENQUEUE_RESOLVE_REFRESH",
+          bootstrapJobKey: buildBootstrapJobKey(cohortId, "EU/hyjal/zacdruid"),
+          jobIds: ["job-active-1"],
+          attemptCount: 1,
+          resultState: "ALREADY_ENQUEUED",
+          errorCode: "NONE",
+          characterId: "22222222-2222-2222-2222-222222222222",
+          reason: "was queued",
+        },
+      },
+    );
+    expect(afterSettle.initialState).toBe("ALREADY_READY");
+    expect(afterSettle.plannedOperation).toBe("SKIP");
 
     const resume: BootstrapManifest = {
       schemaVersion: "agent11-cohort-bootstrap-manifest-v1",
@@ -784,8 +929,11 @@ describe("CLI dry-run / execute guards", () => {
       expect(manifest.identities[0].jobIds).toEqual(["aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"]);
       expect(await db.characterPublishedScore.count()).toBe(beforePublished);
 
-      // Resume idempotency: terminal/enqueued skip
+      // Resume with TERMINAL_SUCCESS is skipped without re-resolve.
+      // (ALREADY_ENQUEUED resumes re-check live DB — covered in planner unit tests.)
+      manifest.identities[0].resultState = "TERMINAL_SUCCESS";
       const resumePath = join(out, "cohort-bootstrap.manifest.json");
+      writeFileSync(resumePath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
       resolveCharacter.mockClear();
       const code2 = await cohortBootstrapMain(
         [
@@ -809,6 +957,31 @@ describe("CLI dry-run / execute guards", () => {
       );
       expect(code2).toBe(0);
       expect(resolveCharacter).not.toHaveBeenCalled();
+
+      // Wrong cohort resume fails closed.
+      manifest.cohortId = "other-cohort";
+      writeFileSync(resumePath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+      const code3 = await cohortBootstrapMain(
+        [
+          "--cohort-file",
+          cohortPath,
+          "--environment",
+          "test",
+          "--execute",
+          "--resume-manifest",
+          resumePath,
+          "--output-dir",
+          join(out, "resume-bad"),
+        ],
+        {
+          deps: {
+            prismaUrl: process.env.DATABASE_URL,
+            resolveCharacter,
+            nowIso: "2026-08-03T00:02:00.000Z",
+          },
+        },
+      );
+      expect(code3).toBe(2);
     },
   );
 });

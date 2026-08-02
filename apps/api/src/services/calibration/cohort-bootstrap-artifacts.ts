@@ -1,7 +1,7 @@
 /**
  * Artifact writers for cohort bootstrap (plan / manifest / summary).
  */
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
   BOOTSTRAP_PLAN_SCHEMA_VERSION,
@@ -20,6 +20,18 @@ import type {
 
 export function ensureOutputDir(outputDir: string): void {
   mkdirSync(outputDir, { recursive: true });
+}
+
+function writeJsonAtomic(path: string, value: unknown): void {
+  const tmp = `${path}.tmp`;
+  writeFileSync(tmp, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+  renameSync(tmp, path);
+}
+
+function writeTextAtomic(path: string, value: string): void {
+  const tmp = `${path}.tmp`;
+  writeFileSync(tmp, value, "utf8");
+  renameSync(tmp, path);
 }
 
 export function buildPlanDocument(input: {
@@ -192,9 +204,9 @@ export function writeBootstrapArtifacts(
   const manifestPath = resolve(outputDir, "cohort-bootstrap.manifest.json");
   const summaryJsonPath = resolve(outputDir, "cohort-bootstrap.summary.json");
   const summaryMdPath = resolve(outputDir, "cohort-bootstrap.summary.md");
-  writeFileSync(planPath, `${JSON.stringify(plan, null, 2)}\n`, "utf8");
-  writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
-  writeFileSync(summaryJsonPath, `${JSON.stringify(summary, null, 2)}\n`, "utf8");
-  writeFileSync(summaryMdPath, renderSummaryMarkdown(summary), "utf8");
+  writeJsonAtomic(planPath, plan);
+  writeJsonAtomic(manifestPath, manifest);
+  writeJsonAtomic(summaryJsonPath, summary);
+  writeTextAtomic(summaryMdPath, renderSummaryMarkdown(summary));
   return { planPath, manifestPath, summaryJsonPath, summaryMdPath };
 }
