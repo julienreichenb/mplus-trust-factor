@@ -6,6 +6,10 @@ export {
 } from "./artifact-repository.js";
 export {
   EvidenceRepository,
+  dimensionComputationContentMatches,
+  dimensionComputationLogicalIdentityKey,
+  buildDimensionComputationConflictError,
+  type DimensionComputationConflictReason,
   type CreateEvidenceManifestInput,
   type CreateEvidenceDatasetInput,
   type CreateRunFactSetInput,

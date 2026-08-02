@@ -5,23 +5,22 @@
 | 02 Evidence contracts | `feat/scoring-v2-evidence-contract` (merged) | WS02 | — | `#51` | green | — | `evidence-v2.ts`, selector | 02 | done |
 | 03 WCL planner | `feat/scoring-v2-wcl-planner` (merged) | WS03 | 02 | `#52` | green | — | planner package | 03 | done |
 | 04 Persistence | `feat/scoring-v2-persistence` (merged) | WS04 | 02 | `#53` | green | — | Prisma V2 tables, artifact-store | 04 | done |
-| 05 Async pipeline | `feat/scoring-v2-pipeline` | WS05 | 02–04 | tip of branch | unit + integration green | publication remains disabled; dimension calculators not wired; Redis/shutdown deferred to WS12 | V2 job contracts, `SCORING_V2_*` flags, queues/processors | 05 | shadow orchestration checkpoint |
+| 05 Async pipeline | `feat/scoring-v2-pipeline` (merged) | WS05 | 02–04 | `#54` | green | publication disabled | V2 job contracts, flags, queues | 05 | done |
+| 06–09 Dimensions | merged | WS06–09 | 02–05 | `#55`–`#58` | green | — | calculator packages | 06–09 | done |
+| 10 Calibration + dimension finalization | `feat/scoring-v2-calibration` | WS10 | 02–09 | tip of branch | unit green | real WCL extractors deferred; **active/draft model replay blocked** until calculator config injection; flags remain off | scoring dimensions/v2, calibration bundle V2, contracts constant, DimensionComputation logical unique migration | 10 | shadow calibration checkpoint |
 
-## Prompt 05 delivered topology
+## WS10 delivered
 
 ```text
-refresh-character (V1, unchanged public path)
-  └─ maybeStartScoringV2ShadowFromRefresh (flags off → no-op)
-       ├─ buildEvidenceAcquisitionPlanV2
-       ├─ rate-budget preview (defer whole plan)
-       └─ fan-out analyze-evidence-slot (×N)
-            └─ acquire with ordered fallbacks + artifacts
-                 └─ fan-in finalize-analysis-batch (provider-free)
-                      ├─ finalizeEvidenceManifestV2
-                      ├─ EvidenceRepository.createFrozenManifest
-                      ├─ DimensionComputation placeholders (if dimensions flag)
-                      └─ NO CharacterPublishedScore mutation
-calibration-run — isolated (unchanged)
+@mplus/scoring exports Performance V2 / Experience V3 / Survival V2 / Utility V2
+  └─ normalizeShadowDimensionRecord (lifecycle SHADOW; availability in metrics)
+       └─ finalizeShadowDimensions (provider-free; per-dim isolation; fact-hash fail-closed)
+            └─ worker finalize.ts → persistShadowDimensionComputations (idempotent + isolated)
+                 └─ releaseFinalizationClaim on failure (FINALIZING → READY_TO_FINALIZE)
+Calibration Bundle V2 (schema 2.0.0) + dispatch beside V1
+  └─ preflight (hash/artifact/frozen-identity fail-closed) + provider-free export replay
+       └─ report V2 extension (deltas/slices/small-slice limitations)
+       └─ active-versus-draft model eval: FAIL CLOSED (arch blocker — see below)
 ```
 
 ## Flags (all default false)
@@ -29,45 +28,38 @@ calibration-run — isolated (unchanged)
 `SCORING_V2_ENABLED`, `SCORING_V2_SELECTION_ENABLED`, `SCORING_V2_EVIDENCE_FETCH_ENABLED`,
 `SCORING_V2_DIMENSIONS_ENABLED`, `SCORING_V2_PUBLICATION_ENABLED`, per-dimension toggles,
 mode enums, `CALIBRATION_V2_ENABLED`. Incompatible combinations fail `loadEnv`.
+Admin `createRun` remains V1 snapshot bundles while `CALIBRATION_V2_ENABLED` is false.
 
-## Verification (pre-push)
+## DimensionComputation uniqueness
 
-### Integration
+Logical identity is `(characterId, seasonId, manifestId, scoreModelId, dimension)`.
+`inputFingerprint` is content integrity only. Migration
+`20260802180000_dimension_computation_logical_unique` fails closed if duplicate
+logical groups exist (no silent delete). Apply via normal migrate deploy — not auto-run.
 
-```text
-pnpm test:integration -- apps/worker/src/orchestration/scoring-v2/pipeline.integration.test.ts
-→ 1 passed (batch create, terminal slots, fan-in CAS, frozen manifest, redelivery, no CharacterPublishedScore mutation)
-```
+## Active-versus-draft architectural blocker
 
-### Worker `tsc` baseline comparison
+`replayCalibrationBundleV2ActiveVersusDraft` throws `CALIBRATION_V2_ACTIVE_DRAFT_ARCH_BLOCKER`.
 
-**Cold command** (no prior package `dist/` builds):
+- V2 calculators hard-code package-local `*_MODEL_CONFIG` constants.
+- `CalibrationModelRef.config` is `ScoreModelConfigV1` (overall aggregation), not consumed by
+  `computePerformanceV2` / `computeSurvivalV2` / `computeUtilityV2`.
+- Only `ExperienceV3ComputeInput.config` accepts `ExperienceV3ModelConfig` (different type).
+- Smallest required API change: optional frozen `modelConfig` on each V2 compute input
+  (no formula changes), plus bundle-side dimension config documents or a mapping layer.
+- Until then, export replay remains available; active/draft model deltas are not fabricated.
 
-```bash
-pnpm --filter @mplus/worker build
-```
+## FINALIZING recovery
 
-| Ref | Result |
-|-----|--------|
-| `origin/main` @ `bfecdd1` | Fails with many `TS2307 Cannot find module '@mplus/*'` (project references not built). Example: `src/container.ts` cannot find `@mplus/config`, `@mplus/database`, `@mplus/observability`, `@mplus/contracts`, `@mplus/scoring`. ~39 `error TS` lines observed. |
-| WS05 tip | Same cold failure class when deps are unbuilt (identical baseline gap). |
+Minimal reclaim: on finalize failure after claim, `releaseFinalizationClaim` transitions
+`FINALIZING → READY_TO_FINALIZE` so redelivery can CAS-claim again. Idempotent dimension
+writes make redelivery safe. Concurrent double-finalization remains prevented by claim CAS.
 
-**Warm command** (after building referenced packages + `prisma generate`):
+## Deferred (explicit)
 
-```bash
-pnpm --filter @mplus/database exec prisma generate
-pnpm -r --filter @mplus/config --filter @mplus/contracts --filter @mplus/domain \
-  --filter @mplus/observability --filter @mplus/abilities --filter @mplus/mechanics \
-  --filter @mplus/artifact-store --filter @mplus/database \
-  --filter @mplus/provider-blizzard --filter @mplus/provider-raiderio \
-  --filter @mplus/provider-warcraftlogs --filter @mplus/scoring \
-  --filter @mplus/test-utils run build
-pnpm --filter @mplus/worker build
-```
-
-| Ref | Result |
-|-----|--------|
-| `origin/main` @ `bfecdd1` | **exit 0** |
-| WS05 tip | **exit 0** (WS05-only `InputJsonValue` cast in `evidence-v2-batch-repository` fixed via `as unknown as Prisma.InputJsonValue`) |
-
-Conclusion: cold worker build failure is a **pre-existing main baseline** (unbuilt project references), not introduced by WS05. After warm prep, WS05 adds no build errors.
+- Real Warcraft Logs event-page → Survival/Utility/Performance fact extractors
+- Replacement of acquisition `shadow_placeholder` fact producers
+- Experience history adapters from persisted Blizzard rows at finalize time
+- Admin UI redesign / V2 createRun activation
+- Active/draft model-side dimension evaluation (requires calculator config injection above)
+- Full queue-state ADR for richer FINALIZING leases/TTLs (optional beyond minimal reclaim)

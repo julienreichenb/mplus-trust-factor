@@ -178,7 +178,7 @@ model DimensionComputation {
   explanation         Json
   computedAt          DateTime @db.Timestamptz(3)
 
-  @@unique([characterId, seasonId, manifestId, scoreModelId, dimension, inputFingerprint])
+  @@unique([characterId, seasonId, manifestId, scoreModelId, dimension])
 }
 ```
 

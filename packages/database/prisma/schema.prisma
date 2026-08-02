@@ -1834,8 +1834,11 @@ model DimensionComputation {
   manifest   EvidenceManifest @relation(fields: [manifestId], references: [id], onDelete: Restrict)
   scoreModel ScoreModel       @relation(fields: [scoreModelId], references: [id])
 
-  @@unique([characterId, seasonId, manifestId, scoreModelId, dimension, inputFingerprint])
+  // Logical identity — one row per dimension for a frozen manifest/model.
+  // inputFingerprint is content integrity, not part of the unique identity.
+  @@unique([characterId, seasonId, manifestId, scoreModelId, dimension])
   @@index([characterId, seasonId, scoreModelId, computedAt(sort: Desc)])
   @@index([manifestId, dimension])
+  @@index([inputFingerprint])
   @@map("dimension_computations")
 }
