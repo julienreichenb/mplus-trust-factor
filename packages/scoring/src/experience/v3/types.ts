@@ -1,4 +1,5 @@
 import type {
+  EXPERIENCE_V3_SCHEMA_VERSION,
   ExperienceV3CalibrationStatus,
   ExperienceV3ModelConfig,
 } from "./constants.js";
@@ -271,7 +272,7 @@ export interface ExperienceV3ComputeResult {
 }
 
 export interface ExperienceV3CalibrationExport {
-  schemaVersion: typeof import("./constants.js").EXPERIENCE_V3_SCHEMA_VERSION;
+  schemaVersion: typeof EXPERIENCE_V3_SCHEMA_VERSION;
   algorithmVersion: string;
   modelConfig: ExperienceV3ModelConfig;
   input: ExperienceV3ComputeInput;
