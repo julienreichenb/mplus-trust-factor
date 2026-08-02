@@ -115,6 +115,19 @@ export {
 } from "./replay-v2.js";
 
 export {
+  CALIBRATION_REPORT_V2_SCHEMA_VERSION,
+  CALIBRATION_V2_MIN_SLICE_SIZE,
+  buildCalibrationReportV2Extension,
+  type CalibrationV2SliceLimitation,
+  type CalibrationV2SliceSummary,
+  type CalibrationV2DimensionDelta,
+  type CalibrationV2MemberDelta,
+  type CalibrationV2PerformanceDisagreement,
+  type CalibrationV2ReportExtension,
+  type BuildCalibrationReportV2ExtensionInput,
+} from "./report-v2.js";
+
+export {
   runCalibrationHarnessFromBundle,
   runCalibrationHarnessFromExport,
   type CalibrationBundleExportPort,
