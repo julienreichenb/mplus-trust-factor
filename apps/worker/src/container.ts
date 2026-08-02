@@ -50,7 +50,7 @@ export function createWorkerContainer(
   if (!env.RAIDERIO_ENABLED) disabledProviders.add("raiderio");
   const providers = resolveWorkerProviders(env, disabledProviders, overrides.providers);
   const repositories = {
-    ...createRepositories(prisma),
+    ...createRepositories(prisma, { rawArtifactsDir: env.RAW_ARTIFACTS_DIR }),
     ...overrides.repositories,
   };
 

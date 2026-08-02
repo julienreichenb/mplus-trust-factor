@@ -36,6 +36,8 @@ function stubProducers(): QueueProducers {
     enqueueDiscoverOwnedCharacters: ok,
     enqueueBulkCharacterProcessing: ok,
     enqueueCalibrationRun: ok,
+    enqueueAnalyzeEvidenceSlot: ok,
+    enqueueFinalizeEvidenceBatch: ok,
     getRefreshCharacterQueue: () => null,
     getCalibrationRunQueue: () => null,
     close: async () => undefined,

@@ -3,25 +3,31 @@ import type { AppEnv } from "@mplus/config";
 import { createLogger, type Logger } from "@mplus/observability";
 import {
   QUEUE_NAMES,
+  analyzeEvidenceSlotJobV2Schema,
   analyzeRunJobSchema,
   bulkOrchestratorJobSchema,
   discoverOwnedCharactersJobSchema,
+  finalizeEvidenceBatchJobV2Schema,
   generateAddonExportJobSchema,
   recalculateScoreJobSchema,
   refreshCharacterJobSchema,
+  type AnalyzeEvidenceSlotJobV2,
   type AnalyzeRunJob,
   type BulkOrchestratorJob,
   type DiscoverOwnedCharactersJob,
+  type FinalizeEvidenceBatchJobV2,
   type GenerateAddonExportJob,
   type RecalculateScoreJob,
   type RefreshCharacterJob,
 } from "@mplus/contracts";
 import {
+  analyzeEvidenceSlotV2DedupeKey,
   analyzeRunDedupeKey,
   bulkCharacterProcessingDedupeKey,
   createQueueProducers,
   createWorkerContainer,
   discoverOwnedCharactersDedupeKey,
+  finalizeEvidenceBatchV2DedupeKey,
   generateAddonExportDedupeKey,
   negativeCache,
   recalculateScoreDedupeKey,
@@ -267,6 +273,57 @@ function createInlineQueueProducers(worker: WorkerContainer): QueueProducers {
         reused: false,
         enqueued: true,
       };
+    },
+
+    async enqueueAnalyzeEvidenceSlot(input): Promise<EnqueueResult> {
+      const payload: AnalyzeEvidenceSlotJobV2 = analyzeEvidenceSlotJobV2Schema.parse({
+        ...input,
+        schemaVersion: "2.0.0",
+        requestedAt: input.requestedAt ?? new Date().toISOString(),
+      });
+      const dedupeKey = analyzeEvidenceSlotV2DedupeKey(payload);
+      const { job, reused } = await repositories.job.createOrGetByDedupe({
+        jobType: QUEUE_NAMES.analyzeEvidenceSlot,
+        dedupeKey,
+        payload,
+      });
+      // Inline mode does not execute V2 slot acquisition — the worker owns that path.
+      // Complete immediately so skipQueues suites do not leave QUEUED rows behind.
+      if (!reused) {
+        try {
+          await repositories.job.markActive(job.id);
+          await repositories.job.markCompleted(job.id);
+        } catch (error) {
+          await repositories.job.markFailed(job.id, error);
+          logger.warn({ err: error, dedupeKey }, "inline analyze-evidence-slot bookkeeping failed");
+        }
+      }
+      return { jobId: job.id, dedupeKey, reused, enqueued: !reused };
+    },
+
+    async enqueueFinalizeEvidenceBatch(input): Promise<EnqueueResult> {
+      const payload: FinalizeEvidenceBatchJobV2 = finalizeEvidenceBatchJobV2Schema.parse({
+        ...input,
+        schemaVersion: "2.0.0",
+        requestedAt: input.requestedAt ?? new Date().toISOString(),
+      });
+      const dedupeKey = finalizeEvidenceBatchV2DedupeKey(payload);
+      const { job, reused } = await repositories.job.createOrGetByDedupe({
+        jobType: QUEUE_NAMES.finalizeAnalysisBatch,
+        dedupeKey,
+        payload,
+      });
+      // Inline mode does not execute V2 fan-in finalization — the worker owns that path.
+      if (!reused) {
+        try {
+          await repositories.job.markActive(job.id);
+          await repositories.job.markCompleted(job.id);
+        } catch (error) {
+          await repositories.job.markFailed(job.id, error);
+          logger.warn({ err: error, dedupeKey }, "inline finalize-analysis-batch bookkeeping failed");
+        }
+      }
+      return { jobId: job.id, dedupeKey, reused, enqueued: !reused };
     },
 
     getRefreshCharacterQueue() {

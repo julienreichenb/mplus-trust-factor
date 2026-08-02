@@ -15,6 +15,16 @@ export const QUEUE_NAMES = {
    * Must never affect refresh admission, concurrency, ETA, throughput, or priority.
    */
   calibrationRun: "calibration-run",
+  /**
+   * Scoring V2 — one job per EvidenceAcquisitionPlanV2 slot (provider-aware acquisition).
+   * Isolated from calibration-run; versioned payloads.
+   */
+  analyzeEvidenceSlot: "analyze-evidence-slot",
+  /**
+   * Scoring V2 — fan-in after all expected slots are terminal.
+   * Provider-free finalization (manifest freeze + dimension placeholder).
+   */
+  finalizeAnalysisBatch: "finalize-analysis-batch",
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
@@ -130,6 +140,77 @@ export type FinalizationStatus =
   | "FINALIZED"
   | "FAILED"
   | "EXPIRED";
+
+/** Scoring V2 analysis-batch lifecycle (shadow orchestration). */
+export const evidenceV2BatchStateSchema = z.enum([
+  "PLANNING",
+  "MANIFEST_READY",
+  "ADMISSION_DEFERRED",
+  "FETCHING",
+  "ANALYZING",
+  "READY_TO_FINALIZE",
+  "FINALIZING",
+  "FINALIZED",
+  "FAILED",
+  "CANCELLED",
+  "EXPIRED",
+]);
+export type EvidenceV2BatchState = z.infer<typeof evidenceV2BatchStateSchema>;
+
+/** Per-slot job status for V2 fan-out (broader than V1 AnalysisRunJobStatus). */
+export const evidenceV2SlotJobStatusSchema = z.enum([
+  "PENDING",
+  "RUNNING",
+  "SUCCEEDED",
+  "PARTIAL",
+  "UNAVAILABLE",
+  "FAILED",
+  "CANCELLED",
+  "SUPERSEDED",
+]);
+export type EvidenceV2SlotJobStatus = z.infer<typeof evidenceV2SlotJobStatusSchema>;
+
+export const evidenceV2EnabledConsumerSchema = z.enum([
+  "PERFORMANCE",
+  "SURVIVAL",
+  "UTILITY",
+]);
+export type EvidenceV2EnabledConsumer = z.infer<typeof evidenceV2EnabledConsumerSchema>;
+
+/**
+ * Analyze one EvidenceAcquisitionPlanV2 slot (provider-aware, with fallbacks).
+ * Carries plan hash — EvidenceManifestV2 is created only after acquisition + fan-in.
+ */
+export const analyzeEvidenceSlotJobV2Schema = z.object({
+  schemaVersion: z.literal("2.0.0").default("2.0.0"),
+  analysisBatchId: z.string().uuid(),
+  acquisitionPlanContentHash: z.string().min(1).max(128),
+  slotId: z.string().min(1).max(128),
+  /** Present only after manifest freeze (post-finalize redelivery paths). */
+  manifestId: z.string().uuid().optional(),
+  expectedManifestHash: z.string().min(1).max(128).optional(),
+  expectedReportRevision: z.number().int().nonnegative().nullable().optional(),
+  enabledConsumers: z.array(evidenceV2EnabledConsumerSchema).min(1),
+  refreshGeneration: z.number().int().nonnegative(),
+  requestedAt: z.string().datetime(),
+  correlationId: z.string().min(1).max(128).nullable().optional(),
+});
+export type AnalyzeEvidenceSlotJobV2 = z.infer<typeof analyzeEvidenceSlotJobV2Schema>;
+
+/**
+ * Fan-in: freeze EvidenceManifestV2 from acquisition results, run provider-free
+ * dimension aggregation placeholder. Must never mutate the public score pointer.
+ */
+export const finalizeEvidenceBatchJobV2Schema = z.object({
+  schemaVersion: z.literal("2.0.0").default("2.0.0"),
+  analysisBatchId: z.string().uuid(),
+  acquisitionPlanContentHash: z.string().min(1).max(128),
+  expectedTerminalSlotCount: z.number().int().nonnegative(),
+  refreshGeneration: z.number().int().nonnegative(),
+  requestedAt: z.string().datetime(),
+  correlationId: z.string().min(1).max(128).nullable().optional(),
+});
+export type FinalizeEvidenceBatchJobV2 = z.infer<typeof finalizeEvidenceBatchJobV2Schema>;
 
 export const syncRealmCatalogJobSchema = z.object({
   /** When omitted, sync all enabled retail regions (EU/US/KR/TW). */

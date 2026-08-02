@@ -1,9 +1,11 @@
 import { createHash } from "node:crypto";
 import {
   QUEUE_NAMES,
+  type AnalyzeEvidenceSlotJobV2,
   type AnalyzeRunJob,
   type BulkOrchestratorJob,
   type DiscoverOwnedCharactersJob,
+  type FinalizeEvidenceBatchJobV2,
   type GenerateAddonExportJob,
   type QueueName,
   type RecalculateScoreJob,
@@ -84,5 +86,24 @@ export function bulkCharacterProcessingDedupeKey(job: BulkOrchestratorJob): stri
   return buildDedupeKey(QUEUE_NAMES.bulkCharacterProcessing, [
     job.bulkOperationId,
     job.requestedAt,
+  ]);
+}
+
+/** slot: plan hash + slot ID + fact extractor set */
+export function analyzeEvidenceSlotV2DedupeKey(job: AnalyzeEvidenceSlotJobV2): string {
+  return buildDedupeKey(QUEUE_NAMES.analyzeEvidenceSlot, [
+    job.acquisitionPlanContentHash,
+    job.slotId,
+    "evidence-v2-shadow",
+    "0.1.0",
+  ]);
+}
+
+/** finalize: batch ID + plan hash (+ generation) */
+export function finalizeEvidenceBatchV2DedupeKey(job: FinalizeEvidenceBatchJobV2): string {
+  return buildDedupeKey(QUEUE_NAMES.finalizeAnalysisBatch, [
+    job.analysisBatchId,
+    job.acquisitionPlanContentHash,
+    String(job.refreshGeneration),
   ]);
 }

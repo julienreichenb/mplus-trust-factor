@@ -3347,6 +3347,37 @@ export async function runRefreshPipeline(
     throw Object.assign(new Error("Refresh contract mismatch"), mismatchError);
   }
 
+  // Scoring V2 shadow orchestration (flags default off — no-op). Never blocks V1 publish.
+  if (container.env.SCORING_V2_ENABLED) {
+    const { maybeStartScoringV2ShadowFromRefresh } = await import("./scoring-v2/refresh-bridge.js");
+    const { mythicRunToEvidenceCandidateMetadata } = await import("@mplus/scoring");
+    const v2Candidates = fusedRuns
+      .map((run) => mythicRunToEvidenceCandidateMetadata(run))
+      .filter((c): c is NonNullable<typeof c> => c != null);
+    await maybeStartScoringV2ShadowFromRefresh({
+      container,
+      characterId: character.id,
+      seasonId: season.id,
+      seasonSlug: season.slug,
+      role: (character.role ?? blizzardProfile?.role ?? raiderIoProfile?.role ?? "DPS") as
+        | "DPS"
+        | "TANK"
+        | "HEALER",
+      specSlug: null,
+      refreshContract,
+      evidenceCutoffAt: new Date(0).toISOString(),
+      highKeyPolicyId: "high-key-policy-v1",
+      activeDungeonSlugs:
+        activeDungeonSlugs.length > 0 ? activeDungeonSlugs : CURRENT_MPLUS_ZONE_DUNGEON_SLUGS,
+      candidates: v2Candidates,
+      scoreModelId: model.id,
+      parentIngestionJobId: job.id,
+      correlationId: ctx.correlationId ?? ctx.requestId,
+      refreshGeneration: Date.parse(jobPayload.requestedAt) || Date.now(),
+      region: identity.region,
+    });
+  }
+
   const scoreDto = container.calculateScore({
     characterId: character.id,
     seasonSlug: season.slug,
