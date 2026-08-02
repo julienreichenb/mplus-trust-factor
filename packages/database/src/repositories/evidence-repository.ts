@@ -1,11 +1,11 @@
-import type {
-  CharacterRole,
-  DimensionComputation,
-  EvidenceManifest,
-  EvidenceManifestSlot,
+import {
   Prisma,
-  PrismaClient,
-  ScoreDimension,
+  type CharacterRole,
+  type DimensionComputation,
+  type EvidenceManifest,
+  type EvidenceManifestSlot,
+  type PrismaClient,
+  type ScoreDimension,
 } from "@prisma/client";
 
 function jsonStableStringify(value: unknown): string {
@@ -29,15 +29,69 @@ function decimalOrNumberEquals(
   return Number(left.toString()) === Number(right.toString());
 }
 
+/** Logical DimensionComputation identity (excludes inputFingerprint). */
+export function dimensionComputationLogicalIdentityKey(
+  input: Pick<
+    CreateDimensionComputationInput,
+    "characterId" | "seasonId" | "manifestId" | "scoreModelId" | "dimension"
+  >,
+): string {
+  return [
+    input.characterId,
+    input.seasonId,
+    input.manifestId,
+    input.scoreModelId,
+    input.dimension,
+  ].join("|");
+}
+
+export type DimensionComputationConflictReason =
+  | "fingerprint_mismatch"
+  | "content_mismatch"
+  | "unique_constraint_without_existing_row";
+
+/** Fail-closed conflict for the same logical dimension identity. */
+export function buildDimensionComputationConflictError(input: {
+  reason: DimensionComputationConflictReason;
+  logicalIdentity: string;
+  existingFingerprint: string | null;
+  requestedFingerprint: string;
+  dimension: string;
+}): Error {
+  return new Error(
+    [
+      `dimension_computation_conflict`,
+      `reason=${input.reason}`,
+      `dimension=${input.dimension}`,
+      `logicalIdentity=${input.logicalIdentity}`,
+      `existingFingerprint=${input.existingFingerprint ?? "null"}`,
+      `requestedFingerprint=${input.requestedFingerprint}`,
+    ].join(": "),
+  );
+}
+
+function isPrismaUniqueViolation(error: unknown): boolean {
+  return (
+    error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002"
+  );
+}
+
 /** Compare persisted DimensionComputation against an idempotent write intent. */
 export function dimensionComputationContentMatches(
   existing: Pick<
     DimensionComputation,
-    "algorithmVersion" | "score" | "confidence" | "state" | "metrics" | "explanation"
+    | "algorithmVersion"
+    | "inputFingerprint"
+    | "score"
+    | "confidence"
+    | "state"
+    | "metrics"
+    | "explanation"
   >,
   incoming: CreateDimensionComputationInput,
 ): boolean {
   if (existing.algorithmVersion !== incoming.algorithmVersion) return false;
+  if (existing.inputFingerprint !== incoming.inputFingerprint) return false;
   if (existing.state !== incoming.state) return false;
   if (!decimalOrNumberEquals(existing.score, incoming.score ?? null)) return false;
   if (!decimalOrNumberEquals(existing.confidence, incoming.confidence)) return false;
@@ -291,10 +345,15 @@ export class EvidenceRepository {
 
   /**
    * Idempotent DimensionComputation write.
-   * - No existing row for (character, season, manifest, model, dimension) → create
-   * - Existing with same fingerprint + identical content → return existing
-   * - Existing with same fingerprint but conflicting payload → fail closed
-   * - Existing with different fingerprint → fail closed (no duplicate dims)
+   *
+   * Authority is the DB unique on logical identity
+   * (characterId, seasonId, manifestId, scoreModelId, dimension).
+   * inputFingerprint is content integrity compared after a unique conflict.
+   *
+   * - First writer creates the row.
+   * - Identical redelivery returns the existing row.
+   * - Different fingerprint or content for the same logical identity fails closed.
+   * - Concurrent writers cannot both succeed (P2002 → re-read + compare).
    */
   async createDimensionComputationIdempotent(
     input: CreateDimensionComputationInput,
@@ -302,55 +361,59 @@ export class EvidenceRepository {
     row: Awaited<ReturnType<EvidenceRepository["createDimensionComputation"]>>;
     created: boolean;
   }> {
-    const existingForDimension = await this.prisma.dimensionComputation.findFirst({
-      where: {
-        characterId: input.characterId,
-        seasonId: input.seasonId,
-        manifestId: input.manifestId,
-        scoreModelId: input.scoreModelId,
-        dimension: input.dimension,
-      },
-      orderBy: { computedAt: "desc" },
-    });
-
-    if (existingForDimension) {
-      if (existingForDimension.inputFingerprint !== input.inputFingerprint) {
-        throw new Error(
-          `dimension_computation_fingerprint_conflict: dimension=${input.dimension} existing=${existingForDimension.inputFingerprint} incoming=${input.inputFingerprint}`,
-        );
-      }
-      if (!dimensionComputationContentMatches(existingForDimension, input)) {
-        throw new Error(
-          `dimension_computation_content_conflict: dimension=${input.dimension} fingerprint=${input.inputFingerprint}`,
-        );
-      }
-      return { row: existingForDimension, created: false };
-    }
+    const logicalIdentity = dimensionComputationLogicalIdentityKey(input);
 
     try {
       const row = await this.createDimensionComputation(input);
       return { row, created: true };
     } catch (error) {
-      // Concurrent insert — re-read and compare.
-      const raced = await this.prisma.dimensionComputation.findFirst({
+      if (!isPrismaUniqueViolation(error)) {
+        throw error;
+      }
+
+      const existing = await this.prisma.dimensionComputation.findUnique({
         where: {
-          characterId: input.characterId,
-          seasonId: input.seasonId,
-          manifestId: input.manifestId,
-          scoreModelId: input.scoreModelId,
-          dimension: input.dimension,
-          inputFingerprint: input.inputFingerprint,
+          characterId_seasonId_manifestId_scoreModelId_dimension: {
+            characterId: input.characterId,
+            seasonId: input.seasonId,
+            manifestId: input.manifestId,
+            scoreModelId: input.scoreModelId,
+            dimension: input.dimension,
+          },
         },
       });
-      if (raced && dimensionComputationContentMatches(raced, input)) {
-        return { row: raced, created: false };
+
+      if (!existing) {
+        throw buildDimensionComputationConflictError({
+          reason: "unique_constraint_without_existing_row",
+          logicalIdentity,
+          existingFingerprint: null,
+          requestedFingerprint: input.inputFingerprint,
+          dimension: input.dimension,
+        });
       }
-      if (raced) {
-        throw new Error(
-          `dimension_computation_content_conflict: dimension=${input.dimension} fingerprint=${input.inputFingerprint}`,
-        );
+
+      if (existing.inputFingerprint !== input.inputFingerprint) {
+        throw buildDimensionComputationConflictError({
+          reason: "fingerprint_mismatch",
+          logicalIdentity,
+          existingFingerprint: existing.inputFingerprint,
+          requestedFingerprint: input.inputFingerprint,
+          dimension: input.dimension,
+        });
       }
-      throw error;
+
+      if (!dimensionComputationContentMatches(existing, input)) {
+        throw buildDimensionComputationConflictError({
+          reason: "content_mismatch",
+          logicalIdentity,
+          existingFingerprint: existing.inputFingerprint,
+          requestedFingerprint: input.inputFingerprint,
+          dimension: input.dimension,
+        });
+      }
+
+      return { row: existing, created: false };
     }
   }
 

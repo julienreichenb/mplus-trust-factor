@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { dimensionComputationContentMatches } from "./evidence-repository.js";
+import {
+  buildDimensionComputationConflictError,
+  dimensionComputationContentMatches,
+  dimensionComputationLogicalIdentityKey,
+} from "./evidence-repository.js";
 
 describe("dimensionComputationContentMatches", () => {
   const baseIncoming = {
@@ -23,6 +27,7 @@ describe("dimensionComputationContentMatches", () => {
       dimensionComputationContentMatches(
         {
           algorithmVersion: "algo-1",
+          inputFingerprint: "fp-1",
           score: 70 as unknown as never,
           confidence: 0.8 as unknown as never,
           state: "SHADOW",
@@ -39,7 +44,25 @@ describe("dimensionComputationContentMatches", () => {
       dimensionComputationContentMatches(
         {
           algorithmVersion: "algo-1",
+          inputFingerprint: "fp-1",
           score: 71 as unknown as never,
+          confidence: 0.8 as unknown as never,
+          state: "SHADOW",
+          metrics: { availabilityState: "AVAILABLE", publicationBlocked: true },
+          explanation: { note: "a" },
+        },
+        baseIncoming,
+      ),
+    ).toBe(false);
+  });
+
+  it("detects fingerprint conflict in content matcher", () => {
+    expect(
+      dimensionComputationContentMatches(
+        {
+          algorithmVersion: "algo-1",
+          inputFingerprint: "fp-other",
+          score: 70 as unknown as never,
           confidence: 0.8 as unknown as never,
           state: "SHADOW",
           metrics: { availabilityState: "AVAILABLE", publicationBlocked: true },
@@ -55,6 +78,7 @@ describe("dimensionComputationContentMatches", () => {
       dimensionComputationContentMatches(
         {
           algorithmVersion: "algo-1",
+          inputFingerprint: "fp-1",
           score: 70 as unknown as never,
           confidence: 0.8 as unknown as never,
           state: "SHADOW",
@@ -64,5 +88,33 @@ describe("dimensionComputationContentMatches", () => {
         baseIncoming,
       ),
     ).toBe(false);
+  });
+});
+
+describe("dimensionComputation conflict helpers", () => {
+  it("builds logical identity without fingerprint", () => {
+    expect(
+      dimensionComputationLogicalIdentityKey({
+        characterId: "c",
+        seasonId: "s",
+        manifestId: "m",
+        scoreModelId: "model",
+        dimension: "UTILITY",
+      }),
+    ).toBe("c|s|m|model|UTILITY");
+  });
+
+  it("exposes structured conflict fields", () => {
+    const err = buildDimensionComputationConflictError({
+      reason: "fingerprint_mismatch",
+      logicalIdentity: "c|s|m|model|PERFORMANCE",
+      existingFingerprint: "fp-a",
+      requestedFingerprint: "fp-b",
+      dimension: "PERFORMANCE",
+    });
+    expect(err.message).toContain("reason=fingerprint_mismatch");
+    expect(err.message).toContain("logicalIdentity=c|s|m|model|PERFORMANCE");
+    expect(err.message).toContain("existingFingerprint=fp-a");
+    expect(err.message).toContain("requestedFingerprint=fp-b");
   });
 });
