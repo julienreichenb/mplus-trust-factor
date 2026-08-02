@@ -621,6 +621,10 @@ export type {
 export {
   buildExplainabilityV2Admin,
   toPublicExplainabilityV2,
+  buildExplainabilityV2Public,
+  derivePublicationState,
+  isPubliclyEmittablePublicationState,
+  sortPublicContributors,
 } from "./explainability-v2/index.js";
 export type {
   BuildExplainabilityV2AdminInput,

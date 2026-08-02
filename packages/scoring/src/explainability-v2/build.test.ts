@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { assertNoPublicReportCodes } from "@mplus/contracts";
+import {
+  assertPublicExplainabilitySanitized,
+  derivePublicationState,
+} from "@mplus/contracts";
 import { buildExplainabilityV2Admin, toPublicExplainabilityV2 } from "./build.js";
 
 describe("buildExplainabilityV2Admin", () => {
-  it("builds admin matrix/candidates/datasets/fact-sets and hides shadow from public", () => {
+  it("builds admin matrix and keeps SHADOW / UNAVAILABLE off the public gate", () => {
     const admin = buildExplainabilityV2Admin({
       characterId: "c1",
       seasonId: "s1",
@@ -24,24 +27,12 @@ describe("buildExplainabilityV2Admin", () => {
           state: "SELECTED",
           keyLevel: 14,
           timed: true,
-          reportCode: "AbCdEfGhIjKlMnOp",
+          reportCode: "AbCdEfGhIjKl12Op",
           fightId: 1,
           reportRevision: 2,
           candidateRank: 0,
           selectionReason: "preferred",
           providerDataAsOf: "2026-08-01T11:00:00.000Z",
-        },
-        {
-          dungeonSlug: "ara-kara",
-          slotIndex: 1,
-          state: "SELECTED",
-          keyLevel: 12,
-          timed: false,
-          reportCode: "ZyXwVuTsRqPoNmLk",
-          fightId: 2,
-          reportRevision: 1,
-          candidateRank: 1,
-          selectionReason: "fallback",
         },
       ],
       rejectedCandidates: [
@@ -77,7 +68,7 @@ describe("buildExplainabilityV2Admin", () => {
           computedAt: "2026-08-01T11:40:00.000Z",
           coverage: { deaths: true },
           limitations: ["truncated_dataset"],
-          facts: { deaths: [{ t: 1 }], rawEvents: [1, 2, 3] },
+          factKeys: ["deaths"],
         },
       ],
       dimensions: [
@@ -91,20 +82,6 @@ describe("buildExplainabilityV2Admin", () => {
           computedAt: "2026-08-01T11:50:00.000Z",
           metrics: { availabilityState: "AVAILABLE" },
           explanation: { notes: ["ok"] },
-        },
-        {
-          dimension: "UTILITY",
-          score: 55,
-          confidence: 0.6,
-          state: "SHADOW",
-          algorithmVersion: "utility-v2",
-          inputFingerprint: "fp-u",
-          computedAt: "2026-08-01T11:50:00.000Z",
-          metrics: {
-            availabilityState: "PARTIAL",
-            domainBreakdowns: [{ domain: "support", score: 60 }],
-          },
-          explanation: { mode: "OBSERVED_CONTRIBUTION", notes: ["observed"] },
         },
       ],
       batch: {
@@ -130,20 +107,113 @@ describe("buildExplainabilityV2Admin", () => {
       },
     });
 
-    expect(admin.matrix).toHaveLength(2);
-    expect(admin.matrix[0]?.reportCode).toBe("AbCdEfGhIjKlMnOp");
+    expect(admin.matrix[0]?.reportCode).toBe("AbCdEfGhIjKl12Op");
     expect(admin.rejectedCandidates[0]?.detail).toBe("provider_error_redacted");
-    expect(admin.datasets[0]?.truncated).toBe(true);
-    expect(admin.factSets[0]?.factKeys).toEqual(["deaths", "rawEvents"]);
-    expect(admin.factSets[0]).not.toHaveProperty("facts");
-    expect(admin.batchQueue?.finalizationStatus).toBe("READY_TO_FINALIZE");
-    expect(admin.comparison.v1?.overallScore).toBe(70);
     expect(admin.comparison.v2?.publicationState).toBe("SHADOW");
-    expect(admin.calibrationLinks.length).toBeGreaterThan(0);
-    expect(admin.dataAsOf).toBe("2026-08-01T11:00:00.000Z");
-
-    assertNoPublicReportCodes(admin.publicView);
+    expect(admin.publicView).toBeNull();
     expect(toPublicExplainabilityV2(admin)).toBeNull();
-    expect(toPublicExplainabilityV2(admin, { allowShadowPublic: true })).not.toBeNull();
+  });
+
+  it("uses canonical publication derivation for PUBLISHED and PROVISIONAL", () => {
+    const published = buildExplainabilityV2Admin({
+      characterId: "c1",
+      seasonId: "s1",
+      seasonSlug: "season-midnight-s1",
+      modelKey: "default",
+      modelVersion: 6,
+      manifestId: "m1",
+      manifestContentHash: "hash-1",
+      coverageState: "STRONG",
+      expectedSlotCount: 16,
+      selectedSlotCount: 16,
+      evidenceCutoffAt: "2026-08-01T12:00:00.000Z",
+      slots: [
+        {
+          dungeonSlug: "ara-kara",
+          slotIndex: 0,
+          state: "SELECTED",
+          keyLevel: 12,
+          reportCode: "AbCdEfGhIjKl12Op",
+          fightId: 1,
+          reportRevision: 1,
+        },
+      ],
+      rejectedCandidates: [],
+      datasets: [],
+      factSets: [],
+      dimensions: [
+        {
+          dimension: "PERFORMANCE",
+          score: 80,
+          confidence: 0.9,
+          state: "PUBLISHED",
+          algorithmVersion: "performance-v2",
+          inputFingerprint: "fp",
+          computedAt: "2026-08-01T11:50:00.000Z",
+          metrics: { availabilityState: "AVAILABLE" },
+          explanation: {
+            topContributors: [
+              { key: "z.last", score: 40 },
+              { key: "a.first", score: 90 },
+            ],
+          },
+        },
+      ],
+      batch: null,
+      v1Snapshot: null,
+    });
+
+    expect(published.comparison.v2?.publicationState).toBe("PUBLISHED");
+    expect(published.publicView).not.toBeNull();
+    assertPublicExplainabilitySanitized(published.publicView!);
+    expect(published.publicView?.dimensions[0]?.topContributors.map((c) => c.key)).toEqual([
+      "a.first",
+      "z.last",
+    ]);
+
+    const provisionalState = derivePublicationState({
+      coverageState: "PARTIAL",
+      dimensions: ["PARTIAL"],
+      lifecycleStates: ["PUBLISHED"],
+    });
+    expect(provisionalState).toBe("PROVISIONAL");
+  });
+
+  it("returns null public view for UNAVAILABLE coverage even with PUBLISHED lifecycle", () => {
+    const admin = buildExplainabilityV2Admin({
+      characterId: "c",
+      seasonId: "s",
+      seasonSlug: "season-midnight-s1",
+      modelKey: null,
+      modelVersion: null,
+      manifestId: "m",
+      manifestContentHash: "h",
+      coverageState: "INSUFFICIENT",
+      expectedSlotCount: 16,
+      selectedSlotCount: 0,
+      evidenceCutoffAt: null,
+      slots: [],
+      rejectedCandidates: [],
+      datasets: [],
+      factSets: [],
+      dimensions: [
+        {
+          dimension: "PERFORMANCE",
+          score: null,
+          confidence: 0,
+          state: "PUBLISHED",
+          algorithmVersion: "performance-v2",
+          inputFingerprint: "fp",
+          computedAt: "2026-08-01T00:00:00.000Z",
+          metrics: { availabilityState: "UNAVAILABLE" },
+          explanation: {},
+        },
+      ],
+      batch: null,
+      v1Snapshot: null,
+    });
+
+    expect(admin.comparison.v2?.publicationState).toBe("UNAVAILABLE");
+    expect(toPublicExplainabilityV2(admin)).toBeNull();
   });
 });

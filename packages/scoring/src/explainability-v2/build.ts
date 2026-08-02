@@ -1,5 +1,6 @@
 import {
   buildPublicFromAdmin,
+  derivePublicationState,
   EXPLAINABILITY_V2_SCHEMA_VERSION,
   sanitizeExplainabilityJson,
   type ExplainabilityV2AvailabilityState,
@@ -68,7 +69,9 @@ export interface ExplainabilityV2FactSetSource {
   computedAt: Date | string;
   coverage: unknown;
   limitations: unknown;
-  facts: unknown;
+  /** Optional — admin path may omit raw facts and supply factKeys only. */
+  facts?: unknown;
+  factKeys?: string[];
 }
 
 export interface ExplainabilityV2DimensionSource {
@@ -144,14 +147,19 @@ function asRecord(value: unknown): Record<string, unknown> {
     : {};
 }
 
-function availabilityFrom(metrics: Record<string, unknown>, score: number | null, confidence: number): ExplainabilityV2AvailabilityState {
+function availabilityFrom(
+  metrics: Record<string, unknown>,
+  score: number | null,
+  confidence: number,
+): ExplainabilityV2AvailabilityState {
   const raw = metrics.availabilityState;
   if (raw === "AVAILABLE" || raw === "PARTIAL" || raw === "UNAVAILABLE") return raw;
   if (score == null || confidence <= 0) return "UNAVAILABLE";
   return "AVAILABLE";
 }
 
-function factKeys(facts: unknown): string[] {
+function factKeys(facts: unknown, explicit?: string[]): string[] {
+  if (explicit && explicit.length > 0) return explicit.slice(0, 64);
   if (!facts || typeof facts !== "object" || Array.isArray(facts)) return [];
   return Object.keys(facts as Record<string, unknown>).slice(0, 64);
 }
@@ -228,7 +236,7 @@ export function buildExplainabilityV2Admin(
     computedAt: iso(row.computedAt) ?? new Date(0).toISOString(),
     coverage: sanitizeExplainabilityJson(row.coverage, { stripReportCodes: false }),
     limitations: sanitizeExplainabilityJson(row.limitations, { stripReportCodes: false }),
-    factKeys: factKeys(row.facts),
+    factKeys: factKeys(row.facts, row.factKeys),
   }));
 
   const dimensions: ExplainabilityV2DimensionAdminDTO[] = input.dimensions
@@ -275,6 +283,12 @@ export function buildExplainabilityV2Admin(
       }
     : null;
 
+  const publicationState = derivePublicationState({
+    coverageState: input.coverageState,
+    dimensions: dimensions.map((d) => d.availabilityState),
+    lifecycleStates: dimensions.map((d) => d.lifecycleState),
+  });
+
   const comparison: ExplainabilityV2ComparisonAdminDTO = {
     v1: input.v1Snapshot
       ? {
@@ -289,9 +303,7 @@ export function buildExplainabilityV2Admin(
     v2:
       dimensions.length > 0
         ? {
-            publicationState: dimensions.some((d) => d.lifecycleState === "SHADOW")
-              ? "SHADOW"
-              : "UNAVAILABLE",
+            publicationState,
             dimensions: dimensions.map((d) => ({
               dimension: d.dimension,
               score: d.score,
@@ -347,19 +359,20 @@ export function buildExplainabilityV2Admin(
 }
 
 /**
- * Public publication gate: SHADOW lifecycle never appears on public profiles.
- * Returns null when V2 is shadow-only or insufficient for public display.
+ * Public publication gate — fail closed.
+ * SHADOW / UNAVAILABLE / unpublished lifecycles → null.
+ * Only PUBLISHED and PROVISIONAL (normative provisional public V2) emit.
+ * No bypass options.
  */
 export function toPublicExplainabilityV2(
   admin: ScoreExplainabilityV2AdminDTO,
-  options: { allowShadowPublic?: boolean } = {},
 ): ScoreExplainabilityV2PublicDTO | null {
-  const pub = admin.publicView;
-  if (pub.coverage.publicationState === "SHADOW" && !options.allowShadowPublic) {
-    return null;
-  }
-  if (pub.coverage.publicationState === "UNAVAILABLE" && admin.dimensions.length === 0) {
-    return null;
-  }
-  return pub;
+  return admin.publicView;
 }
+
+export {
+  buildExplainabilityV2Public,
+  derivePublicationState,
+  isPubliclyEmittablePublicationState,
+  sortPublicContributors,
+} from "@mplus/contracts";

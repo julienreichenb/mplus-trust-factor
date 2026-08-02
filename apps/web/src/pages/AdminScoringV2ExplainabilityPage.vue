@@ -314,10 +314,13 @@ watch([characterId, seasonId], () => {
       <section class="panel" aria-labelledby="public-title">
         <h2 id="public-title">Public view (sanitized preview)</h2>
         <p>
-          Publication {{ diagnostics.publicView.coverage.publicationState }} — report codes must be
-          absent from this block.
+          Admin-only JSON diagnostics preview (not shown on public profiles). Publication
+          {{ diagnostics.publicView?.coverage.publicationState ?? "not publicly emittable" }} —
+          report codes and internal fields must be absent from this block when present.
         </p>
-        <pre>{{ JSON.stringify(diagnostics.publicView, null, 2) }}</pre>
+        <!-- Non-blocking: raw JSON &lt;pre&gt; dumps are admin-only diagnostics UI for this checkpoint. -->
+        <pre v-if="diagnostics.publicView">{{ JSON.stringify(diagnostics.publicView, null, 2) }}</pre>
+        <p v-else class="empty">No publicly emittable projection (SHADOW / UNAVAILABLE / unpublished).</p>
       </section>
     </template>
   </section>

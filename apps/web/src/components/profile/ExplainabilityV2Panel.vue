@@ -17,8 +17,29 @@ const stateLabel = computed(() => {
   if (c.unavailable) return "Unavailable";
   if (c.provisional) return "Provisional";
   if (c.stale) return "Stale";
-  return c.publicationState;
+  return c.publicationState === "PUBLISHED" ? "Published" : c.publicationState;
 });
+
+function availabilityLabel(state: string): string {
+  if (state === "PARTIAL") return "partial coverage";
+  if (state === "UNAVAILABLE") return "unavailable (not scored)";
+  return "available";
+}
+
+function limitationLabel(code: string): string {
+  switch (code) {
+    case "partial_coverage":
+      return "Partial coverage";
+    case "insufficient_evidence":
+      return "Insufficient evidence";
+    case "dimension_unavailable":
+      return "Dimension unavailable";
+    case "provisional_sample":
+      return "Provisional sample";
+    default:
+      return code;
+  }
+}
 </script>
 
 <template>
@@ -69,6 +90,7 @@ const stateLabel = computed(() => {
           :key="dim.dimension"
           class="dim"
           :data-grade-u="dim.gradeU ? 'true' : 'false'"
+          :data-availability="dim.availabilityState"
         >
           <header>
             <h3>{{ dim.dimension }}</h3>
@@ -78,17 +100,24 @@ const stateLabel = computed(() => {
             </p>
           </header>
           <p class="meta">
-            Confidence {{ formatPercent(dim.confidence * 100, 0) }} ·
-            {{ dim.availabilityState.toLowerCase() }}
+            Confidence
+            <template v-if="dim.availabilityState === 'UNAVAILABLE'">n/a</template>
+            <template v-else>{{ formatPercent(dim.confidence * 100, 0) }}</template>
+            · {{ availabilityLabel(dim.availabilityState) }}
           </p>
-          <p v-if="dim.utilitySemantics" class="utility">
+          <ul v-if="dim.limitations.length" class="limits" aria-label="Limitations">
+            <li v-for="code in dim.limitations" :key="code">{{ limitationLabel(code) }}</li>
+          </ul>
+          <p v-if="dim.utilitySemantics" class="utility" data-testid="utility-semantics">
             Utility uses observed combat contribution
             <span v-if="dim.utilitySemantics.notes[0]">— {{ dim.utilitySemantics.notes[0] }}</span>
           </p>
           <ul v-if="dim.topContributors.length" class="contrib">
             <li v-for="c in dim.topContributors" :key="c.key">
               {{ c.label }}
-              <span v-if="c.score != null" class="mpts-data">{{ formatScore(c.score, 0) }}</span>
+              <span v-if="c.score != null && !dim.gradeU" class="mpts-data">{{
+                formatScore(c.score, 0)
+              }}</span>
             </li>
           </ul>
         </article>
@@ -99,7 +128,7 @@ const stateLabel = computed(() => {
         <ul class="runs">
           <li
             v-for="run in explainability.selectedRuns"
-            :key="run.slotId"
+            :key="`${run.dungeonSlug}:${run.slotIndex}`"
             data-testid="explainability-v2-run"
           >
             {{ run.dungeonSlug }} · slot {{ run.slotIndex }} ·
@@ -134,7 +163,8 @@ const stateLabel = computed(() => {
 
 .notes,
 .runs,
-.contrib {
+.contrib,
+.limits {
   margin: 0;
   padding-left: 1.1rem;
 }

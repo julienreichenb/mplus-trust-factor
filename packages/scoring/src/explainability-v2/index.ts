@@ -1,6 +1,10 @@
 export {
   buildExplainabilityV2Admin,
   toPublicExplainabilityV2,
+  buildExplainabilityV2Public,
+  derivePublicationState,
+  isPubliclyEmittablePublicationState,
+  sortPublicContributors,
   type BuildExplainabilityV2AdminInput,
   type ExplainabilityV2BatchSource,
   type ExplainabilityV2DatasetSource,

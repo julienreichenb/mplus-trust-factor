@@ -232,6 +232,142 @@ export const providerStateSchema = {
   additionalProperties: true,
 } as const;
 
+/** Public explainability V2 — strict Fastify allow-list (no internal IDs/hashes/facts). */
+export const scoreExplainabilityV2PublicJsonSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    schemaVersion: { type: "string" },
+    modelKey: { type: ["string", "null"] },
+    modelVersion: { type: ["number", "null"] },
+    dataAsOf: { type: ["string", "null"] },
+    evidenceCutoffAt: { type: ["string", "null"] },
+    coverage: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        analyzedRunCount: { type: "number" },
+        expectedRunCount: { type: "number" },
+        representedDungeonCount: { type: "number" },
+        expectedDungeonCount: { type: "number" },
+        coverageState: { type: "string" },
+        publicationState: { type: "string", enum: ["PROVISIONAL", "PUBLISHED"] },
+        provisional: { type: "boolean" },
+        stale: { type: "boolean" },
+        unavailable: { type: "boolean" },
+      },
+      required: [
+        "analyzedRunCount",
+        "expectedRunCount",
+        "representedDungeonCount",
+        "expectedDungeonCount",
+        "coverageState",
+        "publicationState",
+        "provisional",
+        "stale",
+        "unavailable",
+      ],
+    },
+    selectedRuns: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          dungeonSlug: { type: "string" },
+          slotIndex: { type: "number", enum: [0, 1] },
+          keyLevel: { type: ["number", "null"] },
+          timed: { type: ["boolean", "null"] },
+          state: { type: "string" },
+          hasWclSource: { type: "boolean" },
+        },
+        required: ["dungeonSlug", "slotIndex", "keyLevel", "timed", "state", "hasWclSource"],
+      },
+    },
+    dimensions: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          dimension: {
+            type: "string",
+            enum: ["PERFORMANCE", "SURVIVAL", "UTILITY", "EXPERIENCE"],
+          },
+          score: { type: ["number", "null"] },
+          confidence: { type: "number" },
+          availabilityState: {
+            type: "string",
+            enum: ["AVAILABLE", "PARTIAL", "UNAVAILABLE"],
+          },
+          gradeU: { type: "boolean" },
+          algorithmVersion: { type: "string" },
+          topContributors: {
+            type: "array",
+            items: {
+              type: "object",
+              additionalProperties: false,
+              properties: {
+                key: { type: "string" },
+                dimension: { type: "string" },
+                label: { type: "string" },
+                score: { type: ["number", "null"] },
+                direction: { type: "string", enum: ["positive", "negative", "neutral"] },
+              },
+              required: ["key", "dimension", "label", "score", "direction"],
+            },
+          },
+          limitations: {
+            type: "array",
+            items: {
+              type: "string",
+              enum: [
+                "partial_coverage",
+                "insufficient_evidence",
+                "dimension_unavailable",
+                "provisional_sample",
+              ],
+            },
+          },
+          utilitySemantics: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              mode: { type: "string", enum: ["OBSERVED_CONTRIBUTION"] },
+              notes: { type: "array", items: { type: "string" } },
+            },
+            required: ["mode", "notes"],
+          },
+        },
+        required: [
+          "dimension",
+          "score",
+          "confidence",
+          "availabilityState",
+          "gradeU",
+          "algorithmVersion",
+          "topContributors",
+          "limitations",
+        ],
+      },
+    },
+    notes: { type: "array", items: { type: "string" } },
+    gradeUMeans: { type: "string", enum: ["unavailable_or_unranked"] },
+  },
+  required: [
+    "schemaVersion",
+    "modelKey",
+    "modelVersion",
+    "dataAsOf",
+    "evidenceCutoffAt",
+    "coverage",
+    "selectedRuns",
+    "dimensions",
+    "notes",
+    "gradeUMeans",
+  ],
+} as const;
+
 export const characterProfileResponseSchema = {
   type: "object",
   properties: {
@@ -272,8 +408,13 @@ export const characterProfileResponseSchema = {
     wclDataState: { type: ["string", "null"] },
     providerStates: { type: "array", items: providerStateSchema },
     sourceDisagreements: { type: "array" },
-    /** Scoring V2 public explainability — sanitized, no report codes. */
-    explainabilityV2: {},
+    /**
+     * Scoring V2 public explainability — sanitized, no report codes / IDs / hashes.
+     * Strict allow-list: unexpected internal fields are stripped by serialization.
+     */
+    explainabilityV2: {
+      anyOf: [scoreExplainabilityV2PublicJsonSchema, { type: "null" }],
+    },
   },
   additionalProperties: true,
 } as const;
