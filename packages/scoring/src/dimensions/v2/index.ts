@@ -1,0 +1,15 @@
+export {
+  DIMENSION_COMPUTATION_LIFECYCLE_SHADOW,
+  normalizeShadowDimensionRecord,
+  buildUnavailableShadowDimensionRecord,
+  availabilityFromComputeState,
+  availabilityFromUtilityResult,
+  type ScoringV2PublicDimension,
+  type DimensionComputationLifecycleState,
+  type DimensionAvailabilityState,
+  type NormalizedShadowDimensionMetrics,
+  type NormalizedShadowDimensionRecord,
+  type ShadowDimensionPayloadLike,
+  type NormalizeShadowDimensionRecordInput,
+  type BuildUnavailableShadowDimensionRecordInput,
+} from "./shadow-record.js";
