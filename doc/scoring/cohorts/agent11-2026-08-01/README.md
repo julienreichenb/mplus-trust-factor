@@ -59,7 +59,19 @@ pnpm calibration:reapply-role-context
 Marks `ROLE_CONTEXT_MISMATCH` when the user-labelled role disagrees with the current active
 profile and cutoff evidence is not proven (Joefreckles TANK, Essetxd HEALER, Petbear dual labels).
 
-### 3. Server-side read-only evidence join (VPS)
+### 3. Bootstrap missing identities (test only — separate from evidence join)
+
+See [`COHORT-BOOTSTRAP-RUNBOOK.md`](./COHORT-BOOTSTRAP-RUNBOOK.md). Dry-run first:
+
+```bash
+CALIBRATION_BOOTSTRAP_ENV=test \
+pnpm calibration:cohort-bootstrap -- \
+  --cohort-file doc/scoring/cohorts/agent11-2026-08-01/resolved.v1.json \
+  --environment test \
+  --dry-run
+```
+
+### 4. Server-side read-only evidence join (VPS)
 
 See [`EVIDENCE-JOIN-RUNBOOK.md`](./EVIDENCE-JOIN-RUNBOOK.md). Preferred entrypoint:
 
@@ -71,7 +83,7 @@ This attaches an ephemeral Node container to the discovered `mplus-test` Postgre
 network (`mplus-test_app`) because `DATABASE_URL` uses hostname `postgres` (not reachable from
 the VPS host without publishing ports — forbidden).
 
-### 4. After evidence join artifacts are copied back
+### 5. After evidence join artifacts are copied back
 
 Export/freeze the portable bundle only after the preflight counts are reviewed (not this pass):
 
@@ -80,10 +92,11 @@ pnpm --filter @mplus/scoring run build
 pnpm --filter @mplus/scoring run calibration:harness -- --bundle ./tmp/calibration/agent11-2026-08-01/bundle.v1.json --mode persisted-snapshot-only --out ./tmp/calibration/agent11-2026-08-01 --public-safe
 ```
 
-### 5. Focused unit tests
+### 6. Focused unit tests
 
 ```bash
 pnpm exec vitest run apps/api/src/services/calibration/calibration-cohort.test.ts
+pnpm exec vitest run apps/api/src/services/calibration/cohort-bootstrap.test.ts
 ```
 
 ## Meta policy season binding
