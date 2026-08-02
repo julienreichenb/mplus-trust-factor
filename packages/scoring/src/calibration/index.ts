@@ -86,6 +86,9 @@ export {
   validateCalibrationInputBundleV2,
   buildCalibrationInputBundleV2,
   preflightCalibrationBundleV2,
+  buildFrozenRunIdentityKey,
+  extractSelectedFrozenRunIdentities,
+  collectDuplicateFrozenIdentityIssues,
   type CalibrationArtifactClassV2,
   type CalibrationContentRefV2,
   type FrozenSeasonBindingV2,
@@ -98,6 +101,7 @@ export {
   type CalibrationBundleV2ValidationResult,
   type CalibrationBundleV2PreflightResult,
   type ArtifactResolverV2,
+  type ExtractedFrozenRunIdentity,
 } from "./bundle-v2.js";
 
 export {

@@ -386,7 +386,8 @@ export function validateCalibrationInputBundleV2(
   }
 
   const members: CalibrationMemberReplayV2[] = [];
-  const identityKeys = new Map<string, string>();
+  /** Included-member character ownership for ACCOUNT_SPLIT_CONFLICT only. */
+  const characterOwners = new Map<string, string>();
 
   if (Array.isArray(input.members)) {
     for (const rawMember of input.members) {
@@ -453,18 +454,10 @@ export function validateCalibrationInputBundleV2(
         }
       }
 
-      if (manifest) {
-        const prior = identityKeys.get(manifest.contentHash);
-        // Duplicate manifest hash across included members is allowed for alts? Treat as INFO unless same member.
-        if (prior && prior !== memberId && rawMember.included !== false) {
-          // Account-split conflict: same characterId claimed by two included members.
-        }
-      }
-
       const characterId =
         typeof rawMember.characterId === "string" ? rawMember.characterId : null;
       if (characterId && rawMember.included !== false) {
-        const priorMember = identityKeys.get(`char:${characterId}`);
+        const priorMember = characterOwners.get(characterId);
         if (priorMember && priorMember !== memberId) {
           errors.push({
             code: "ACCOUNT_SPLIT_CONFLICT",
@@ -473,7 +466,7 @@ export function validateCalibrationInputBundleV2(
             message: `characterId ${characterId} already claimed by member ${priorMember}`,
           });
         } else {
-          identityKeys.set(`char:${characterId}`, memberId);
+          characterOwners.set(characterId, memberId);
         }
       }
 
@@ -564,6 +557,168 @@ export function buildCalibrationInputBundleV2(
   return validated.bundle;
 }
 
+export function buildFrozenRunIdentityKey(identity: {
+  reportCode: string;
+  fightId: number;
+  reportRevision: number;
+}): string {
+  return `${identity.reportCode}:${identity.fightId}:${identity.reportRevision}`;
+}
+
+export interface ExtractedFrozenRunIdentity {
+  key: string;
+  reportCode: string;
+  fightId: number;
+  reportRevision: number;
+  slotIndex: number | null;
+  slotId: string | null;
+}
+
+/**
+ * Extract SELECTED frozen run identities from a resolved EvidenceManifestV2 document.
+ * Does not treat manifest.contentHash as run identity.
+ */
+export function extractSelectedFrozenRunIdentities(
+  manifestDocument: unknown,
+): ExtractedFrozenRunIdentity[] {
+  if (!isRecord(manifestDocument) || !Array.isArray(manifestDocument.slots)) {
+    return [];
+  }
+  const out: ExtractedFrozenRunIdentity[] = [];
+  for (const slot of manifestDocument.slots) {
+    if (!isRecord(slot)) continue;
+    if (slot.state !== "SELECTED") continue;
+    const identity = slot.identity;
+    if (!isRecord(identity)) continue;
+    const reportCode = asString(identity.reportCode);
+    const fightId =
+      typeof identity.fightId === "number" && Number.isFinite(identity.fightId)
+        ? identity.fightId
+        : null;
+    const reportRevision =
+      typeof identity.reportRevision === "number" && Number.isFinite(identity.reportRevision)
+        ? identity.reportRevision
+        : null;
+    if (!reportCode || fightId == null || reportRevision == null) continue;
+    const slotIndex =
+      typeof slot.slotIndex === "number" && Number.isFinite(slot.slotIndex)
+        ? slot.slotIndex
+        : null;
+    const slotId = asString(slot.slotId);
+    out.push({
+      key: buildFrozenRunIdentityKey({ reportCode, fightId, reportRevision }),
+      reportCode,
+      fightId,
+      reportRevision,
+      slotIndex,
+      slotId,
+    });
+  }
+  return out;
+}
+
+interface FrozenIdentityClaim {
+  memberId: string;
+  characterId: string | null;
+  manifestContentHash: string;
+  slotIndex: number | null;
+  slotId: string | null;
+}
+
+/**
+ * Detect DUPLICATE_FROZEN_IDENTITY within and across included members.
+ * Same key is allowed only when ownership resolves to the same included member
+ * (and same characterId when both sides declare one).
+ */
+export function collectDuplicateFrozenIdentityIssues(
+  claims: Array<FrozenIdentityClaim & { key: string }>,
+): CalibrationPreflightIssueV2[] {
+  const issues: CalibrationPreflightIssueV2[] = [];
+  const byKey = new Map<string, FrozenIdentityClaim[]>();
+
+  for (const claim of claims) {
+    const list = byKey.get(claim.key) ?? [];
+    list.push(claim);
+    byKey.set(claim.key, list);
+  }
+
+  for (const [key, list] of byKey) {
+    // Intra-member duplicates (malformed manifest with repeated selected identity).
+    const byMember = new Map<string, FrozenIdentityClaim[]>();
+    for (const claim of list) {
+      const bucket = byMember.get(claim.memberId) ?? [];
+      bucket.push(claim);
+      byMember.set(claim.memberId, bucket);
+    }
+    for (const [memberId, memberClaims] of byMember) {
+      if (memberClaims.length < 2) continue;
+      const slots = memberClaims
+        .map((c) => c.slotIndex ?? c.slotId ?? "?")
+        .join(",");
+      issues.push({
+        code: "DUPLICATE_FROZEN_IDENTITY",
+        severity: "BLOCKING",
+        memberId,
+        message: [
+          `duplicate frozen identity ${key} within member ${memberId}`,
+          `manifest=${memberClaims[0]!.manifestContentHash}`,
+          `slots=${slots}`,
+        ].join("; "),
+      });
+    }
+
+    // Cross-member: incompatible ownership.
+    const uniqueMembers = [...byMember.keys()];
+    if (uniqueMembers.length < 2) continue;
+    const first = list[0]!;
+    for (let i = 1; i < list.length; i++) {
+      const other = list[i]!;
+      if (other.memberId === first.memberId) continue;
+      const sameCharacter =
+        first.characterId != null &&
+        other.characterId != null &&
+        first.characterId === other.characterId;
+      // Same character claimed by two included members is ACCOUNT_SPLIT elsewhere.
+      // Different / missing character ownership with shared frozen run → blocking.
+      if (sameCharacter) {
+        // Still incompatible: two included members must not share the same frozen run.
+        issues.push({
+          code: "DUPLICATE_FROZEN_IDENTITY",
+          severity: "BLOCKING",
+          memberId: other.memberId,
+          message: [
+            `duplicate frozen identity ${key}`,
+            `firstMember=${first.memberId}`,
+            `conflictingMember=${other.memberId}`,
+            `firstManifest=${first.manifestContentHash}`,
+            `conflictingManifest=${other.manifestContentHash}`,
+            `firstSlot=${first.slotIndex ?? first.slotId ?? "unknown"}`,
+            `conflictingSlot=${other.slotIndex ?? other.slotId ?? "unknown"}`,
+          ].join("; "),
+        });
+        break;
+      }
+      issues.push({
+        code: "DUPLICATE_FROZEN_IDENTITY",
+        severity: "BLOCKING",
+        memberId: other.memberId,
+        message: [
+          `duplicate frozen identity ${key}`,
+          `firstMember=${first.memberId}`,
+          `conflictingMember=${other.memberId}`,
+          `firstManifest=${first.manifestContentHash}`,
+          `conflictingManifest=${other.manifestContentHash}`,
+          `firstSlot=${first.slotIndex ?? first.slotId ?? "unknown"}`,
+          `conflictingSlot=${other.slotIndex ?? other.slotId ?? "unknown"}`,
+        ].join("; "),
+      });
+      break;
+    }
+  }
+
+  return issues;
+}
+
 /**
  * Preflight V2 — verifies artifact hashes via resolver; never refreshes providers.
  */
@@ -621,7 +776,7 @@ export async function preflightCalibrationBundleV2(input: {
         memberId,
         message: `missing artifact for ${label}: ${ref.contentHash}`,
       });
-      return;
+      return null;
     }
     if (resolved.contentHash.toLowerCase() !== ref.contentHash.toLowerCase()) {
       blocking.push({
@@ -630,7 +785,9 @@ export async function preflightCalibrationBundleV2(input: {
         memberId,
         message: `artifact hash mismatch for ${label}`,
       });
+      return null;
     }
+    return resolved;
   }
 
   if (input.bundle.artifactPackage) {
@@ -647,8 +804,10 @@ export async function preflightCalibrationBundleV2(input: {
     });
   }
 
+  const frozenClaims: Array<FrozenIdentityClaim & { key: string }> = [];
+
   for (const member of included) {
-    await assertResolvable(member.manifest, member.memberId, "manifest");
+    const resolvedManifest = await assertResolvable(member.manifest, member.memberId, "manifest");
     for (const [i, fs] of member.factSets.entries()) {
       await assertResolvable(fs, member.memberId, `factSets[${i}]`);
     }
@@ -674,7 +833,35 @@ export async function preflightCalibrationBundleV2(input: {
         message: "member requires provider work — forbidden in V2 calibration",
       });
     }
+
+    if (resolvedManifest) {
+      let document: unknown = null;
+      try {
+        document = JSON.parse(Buffer.from(resolvedManifest.bytes).toString("utf8"));
+      } catch {
+        blocking.push({
+          code: "INVALID_BUNDLE",
+          severity: "BLOCKING",
+          memberId: member.memberId,
+          message: `manifest artifact ${member.manifest.contentHash} is not valid JSON`,
+        });
+      }
+      if (document != null) {
+        for (const identity of extractSelectedFrozenRunIdentities(document)) {
+          frozenClaims.push({
+            key: identity.key,
+            memberId: member.memberId,
+            characterId: member.characterId,
+            manifestContentHash: member.manifest.contentHash,
+            slotIndex: identity.slotIndex,
+            slotId: identity.slotId,
+          });
+        }
+      }
+    }
   }
+
+  blocking.push(...collectDuplicateFrozenIdentityIssues(frozenClaims));
 
   // Active vs draft must share identical evidence (same member refs).
   if (input.bundle.mode === "active-versus-draft") {

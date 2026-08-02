@@ -339,4 +339,228 @@ describe("Calibration Bundle V2", () => {
     expect(validated.ok).toBe(false);
     expect(validated.errors.some((e) => e.code === "ACCOUNT_SPLIT_CONFLICT")).toBe(true);
   });
+
+  it("blocks duplicate frozen run identity across included members", async () => {
+    const identity = { reportCode: "R1", fightId: 1, reportRevision: 1 };
+    const manifestDoc = {
+      schemaVersion: "2.0.0",
+      contentHash: "shared-manifest",
+      slots: [
+        {
+          slotId: "dungeon-a:0",
+          dungeonSlug: "dungeon-a",
+          slotIndex: 0,
+          state: "SELECTED",
+          identity,
+        },
+      ],
+    };
+    const manifestHash = sha256Json(manifestDoc);
+    const base = fixtureV2Bundle();
+    const bundle = buildCalibrationInputBundleV2({
+      ...base,
+      bundleHash: undefined as never,
+      members: [
+        {
+          ...base.members[0]!,
+          memberId: "m1",
+          characterId: "char-1",
+          manifest: {
+            contentHash: manifestHash,
+            artifactClass: "evidence_manifest",
+            schemaVersion: "2.0.0",
+          },
+        },
+        {
+          ...base.members[0]!,
+          memberId: "m2",
+          characterId: "char-2",
+          manifest: {
+            contentHash: manifestHash,
+            artifactClass: "evidence_manifest",
+            schemaVersion: "2.0.0",
+          },
+          dimensionExports: {},
+          factSets: base.members[0]!.factSets,
+        },
+      ],
+    });
+
+    const artifacts = new Map<string, Uint8Array>([
+      [manifestHash, Buffer.from(JSON.stringify(manifestDoc))],
+      [bundle.members[0]!.factSets[0]!.contentHash, Buffer.from("{}")],
+      [
+        bundle.members[0]!.dimensionExports!.UTILITY!.contentHash,
+        Buffer.from("{}"),
+      ],
+    ]);
+    // second member may share fact hash
+    for (const m of bundle.members) {
+      for (const fs of m.factSets) {
+        artifacts.set(fs.contentHash, Buffer.from("{}"));
+      }
+      for (const ref of Object.values(m.dimensionExports ?? {})) {
+        if (ref) artifacts.set(ref.contentHash, Buffer.from("{}"));
+      }
+    }
+
+    const preflight = await preflightCalibrationBundleV2({
+      bundle,
+      resolver: createMapArtifactResolverV2(artifacts),
+      requireCatalogVersions: false,
+    });
+    expect(preflight.ok).toBe(false);
+    expect(preflight.blocking.some((b) => b.code === "DUPLICATE_FROZEN_IDENTITY")).toBe(true);
+    expect(preflight.blocking.some((b) => b.message.includes("firstMember=m1"))).toBe(true);
+    expect(preflight.blocking.some((b) => b.message.includes("conflictingMember=m2"))).toBe(true);
+  });
+
+  it("allows same reportCode/fightId when reportRevision differs", async () => {
+    const docA = {
+      slots: [
+        {
+          slotId: "a:0",
+          slotIndex: 0,
+          state: "SELECTED",
+          identity: { reportCode: "R1", fightId: 1, reportRevision: 1 },
+        },
+      ],
+    };
+    const docB = {
+      slots: [
+        {
+          slotId: "b:0",
+          slotIndex: 0,
+          state: "SELECTED",
+          identity: { reportCode: "R1", fightId: 1, reportRevision: 2 },
+        },
+      ],
+    };
+    const hashA = sha256Json(docA);
+    const hashB = sha256Json(docB);
+    const base = fixtureV2Bundle();
+    const bundle = buildCalibrationInputBundleV2({
+      ...base,
+      bundleHash: undefined as never,
+      members: [
+        {
+          ...base.members[0]!,
+          memberId: "m1",
+          characterId: "char-1",
+          manifest: { contentHash: hashA, artifactClass: "evidence_manifest" },
+        },
+        {
+          ...base.members[0]!,
+          memberId: "m2",
+          characterId: "char-2",
+          manifest: { contentHash: hashB, artifactClass: "evidence_manifest" },
+          dimensionExports: {},
+        },
+      ],
+    });
+    const artifacts = new Map<string, Uint8Array>([
+      [hashA, Buffer.from(JSON.stringify(docA))],
+      [hashB, Buffer.from(JSON.stringify(docB))],
+    ]);
+    for (const m of bundle.members) {
+      for (const fs of m.factSets) artifacts.set(fs.contentHash, Buffer.from("{}"));
+      for (const ref of Object.values(m.dimensionExports ?? {})) {
+        if (ref) artifacts.set(ref.contentHash, Buffer.from("{}"));
+      }
+    }
+    const preflight = await preflightCalibrationBundleV2({
+      bundle,
+      resolver: createMapArtifactResolverV2(artifacts),
+      requireCatalogVersions: false,
+    });
+    expect(preflight.blocking.filter((b) => b.code === "DUPLICATE_FROZEN_IDENTITY")).toHaveLength(
+      0,
+    );
+  });
+
+  it("blocks duplicate frozen identity inside one malformed member", async () => {
+    const identity = { reportCode: "Dup1", fightId: 9, reportRevision: 1 };
+    const doc = {
+      slots: [
+        { slotId: "a:0", slotIndex: 0, state: "SELECTED", identity },
+        { slotId: "b:0", slotIndex: 0, state: "SELECTED", identity },
+      ],
+    };
+    const hash = sha256Json(doc);
+    const base = fixtureV2Bundle();
+    const bundle = buildCalibrationInputBundleV2({
+      ...base,
+      bundleHash: undefined as never,
+      members: [
+        {
+          ...base.members[0]!,
+          manifest: { contentHash: hash, artifactClass: "evidence_manifest" },
+        },
+      ],
+    });
+    const artifacts = new Map<string, Uint8Array>([[hash, Buffer.from(JSON.stringify(doc))]]);
+    for (const fs of bundle.members[0]!.factSets) {
+      artifacts.set(fs.contentHash, Buffer.from("{}"));
+    }
+    for (const ref of Object.values(bundle.members[0]!.dimensionExports ?? {})) {
+      if (ref) artifacts.set(ref.contentHash, Buffer.from("{}"));
+    }
+    const preflight = await preflightCalibrationBundleV2({
+      bundle,
+      resolver: createMapArtifactResolverV2(artifacts),
+      requireCatalogVersions: false,
+    });
+    expect(preflight.ok).toBe(false);
+    expect(
+      preflight.blocking.some(
+        (b) => b.code === "DUPLICATE_FROZEN_IDENTITY" && b.message.includes("within member"),
+      ),
+    ).toBe(true);
+  });
+
+  it("excluded member does not create frozen-identity conflict", async () => {
+    const identity = { reportCode: "R9", fightId: 3, reportRevision: 1 };
+    const doc = {
+      slots: [{ slotId: "a:0", slotIndex: 0, state: "SELECTED", identity }],
+    };
+    const hash = sha256Json(doc);
+    const base = fixtureV2Bundle();
+    const bundle = buildCalibrationInputBundleV2({
+      ...base,
+      bundleHash: undefined as never,
+      members: [
+        {
+          ...base.members[0]!,
+          memberId: "m1",
+          characterId: "char-1",
+          included: true,
+          manifest: { contentHash: hash, artifactClass: "evidence_manifest" },
+        },
+        {
+          ...base.members[0]!,
+          memberId: "m2",
+          characterId: "char-2",
+          included: false,
+          exclusionCode: "manual",
+          manifest: { contentHash: hash, artifactClass: "evidence_manifest" },
+          dimensionExports: {},
+        },
+      ],
+    });
+    const artifacts = new Map<string, Uint8Array>([[hash, Buffer.from(JSON.stringify(doc))]]);
+    for (const m of bundle.members) {
+      for (const fs of m.factSets) artifacts.set(fs.contentHash, Buffer.from("{}"));
+      for (const ref of Object.values(m.dimensionExports ?? {})) {
+        if (ref) artifacts.set(ref.contentHash, Buffer.from("{}"));
+      }
+    }
+    const preflight = await preflightCalibrationBundleV2({
+      bundle,
+      resolver: createMapArtifactResolverV2(artifacts),
+      requireCatalogVersions: false,
+    });
+    expect(preflight.blocking.filter((b) => b.code === "DUPLICATE_FROZEN_IDENTITY")).toHaveLength(
+      0,
+    );
+  });
 });
