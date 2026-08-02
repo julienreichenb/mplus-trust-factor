@@ -416,6 +416,8 @@ export {
   computePerformanceV2InputFingerprint,
   toPerformanceV2ShadowDimensionPayload,
   exportPerformanceV2Calibration,
+  parsePerformanceRunParseFactV2,
+  createManualDifficultyPolicyV2,
 } from "./performance/v2/index.js";
 export type {
   PerformanceV2CalibrationStatus,
@@ -656,6 +658,7 @@ export {
   adaptUtilityComputeInput,
   adaptExperienceComputeInput,
   finalizeShadowDimensions,
+  buildSlotFactSetBindingHash,
 } from "./dimensions/v2/index.js";
 export type {
   ScoringV2PublicDimension,

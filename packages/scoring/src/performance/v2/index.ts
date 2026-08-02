@@ -41,6 +41,11 @@ export {
 
 export { exportPerformanceV2Calibration } from "./calibration.js";
 
+export {
+  parsePerformanceRunParseFactV2,
+  createManualDifficultyPolicyV2,
+} from "./facts.js";
+
 export type {
   SeasonDifficultyPolicyV2,
   PerformanceParseSemanticV2,

@@ -34,6 +34,7 @@ import {
   UTILITY_V2_EXTRACTOR_FAMILY,
   UTILITY_V2_EXTRACTOR_VERSION,
   UTILITY_V2_SCHEMA_VERSION,
+  buildSlotFactSetBindingHash,
 } from "@mplus/scoring";
 import { getAbilityCatalog } from "@mplus/abilities";
 import type { WorkerContainer } from "../../container.js";
@@ -680,16 +681,25 @@ export async function acquireCandidateWithFallback(input: {
         }
       }
 
-      const written = typedFactPayloads.filter((p) => p.status === "WRITTEN");
+      const written = typedFactPayloads.filter(
+        (p) => p.status === "WRITTEN" && p.facts != null,
+      );
       const factSetFingerprint =
         written.length > 0
-          ? buildFactSetFingerprint({
-              reportCode: identity.reportCode,
-              fightId: identity.fightId,
-              reportRevision,
-              extractorFamily: written[0]!.extractorFamily,
-              extractorVersion: written[0]!.extractorVersion,
-            })
+          ? buildSlotFactSetBindingHash(
+              written.map((p) => ({
+                extractorFamily: p.extractorFamily,
+                extractorVersion: p.extractorVersion,
+                inputFingerprint: buildFactSetFingerprint({
+                  reportCode: identity.reportCode,
+                  fightId: identity.fightId,
+                  reportRevision,
+                  extractorFamily: p.extractorFamily,
+                  extractorVersion: p.extractorVersion,
+                }),
+                facts: p.facts,
+              })),
+            )
           : buildFactSetFingerprint({
               reportCode: identity.reportCode,
               fightId: identity.fightId,

@@ -38,6 +38,11 @@ export {
 } from "./adapters.js";
 
 export {
+  buildSlotFactSetBindingHash,
+  type SlotFactSetBindingMember,
+} from "./fact-set-binding-hash.js";
+
+export {
   finalizeShadowDimensions,
   type ShadowDimensionFinalizerOutcomeStatus,
   type ShadowDimensionFinalizerOutcome,

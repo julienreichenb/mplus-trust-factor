@@ -100,6 +100,10 @@ Follow [scoring-v2-persistence-reset.md](./scoring-v2-persistence-reset.md):
 
 Keep `CALIBRATION_V2_ENABLED` **disabled** until calculator model-config injection supports real active-versus-draft replay. Export replay remains available; do not enable calibration V2 or fabricate active/draft deltas.
 
+## Live fact extraction status (WS12.5)
+
+See [scoring-v2-live-facts-status.md](../scoring/scoring-v2-live-facts-status.md) for CP1–CP4 delivery, fixture shadow gate (Prompt 13 GO / production NO-GO), and flag enablement gates.
+
 ## Deferred — cost-source metrics
 
 Classification of WCL cost as frozen / provider-estimated / unknown is deferred to avoid changing existing `scoring_v2_wcl_points_total` label contracts. Track via dataset persistence `costSource` until a dedicated metric series is introduced.
