@@ -42,6 +42,7 @@ function baseScope(overrides?: Partial<EvidenceSelectionScope>): EvidenceSelecti
     seasonId: "season-1",
     seasonSlug: "the-war-within-season-1",
     specializationId: "spec-1",
+    classSlug: "warlock",
     specSlug: "affliction",
     role: "DPS",
     refreshContractHash: "refresh-hash-surv",

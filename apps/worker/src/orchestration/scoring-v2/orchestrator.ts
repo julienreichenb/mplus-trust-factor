@@ -36,6 +36,8 @@ export interface StartEvidenceV2ShadowPipelineInput {
   seasonId: string;
   seasonSlug: string;
   role: EvidenceRole;
+  /** Frozen class slug for catalog-dependent extractors; null = unknown. */
+  classSlug: string | null;
   specSlug: string | null;
   refreshContractHash: string;
   evidenceCutoffAt: string;
@@ -130,6 +132,7 @@ export async function startEvidenceV2ShadowPipeline(
     seasonId: input.seasonId,
     seasonSlug: input.seasonSlug,
     specializationId: null,
+    classSlug: input.classSlug,
     specSlug: input.specSlug,
     role: input.role,
     refreshContractHash: input.refreshContractHash,

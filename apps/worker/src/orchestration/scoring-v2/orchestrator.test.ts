@@ -40,6 +40,7 @@ function minimalPlan(slotCount: number): EvidenceAcquisitionPlanV2 {
       seasonId: "season-1",
       seasonSlug: "season-tww-3",
       specializationId: null,
+      classSlug: null,
       specSlug: null,
       role: "DPS",
       refreshContractHash: "contract",

@@ -89,6 +89,7 @@ function baseInput(
       characterId: "char-1",
       seasonId: "season-1",
       seasonSlug: "season-slug-1",
+      classSlug: "warlock",
       specSlug: "affliction",
       role: "DPS",
       highKeyPolicyId: "hk-1",

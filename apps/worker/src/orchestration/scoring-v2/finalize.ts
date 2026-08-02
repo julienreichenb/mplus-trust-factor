@@ -262,6 +262,8 @@ export async function runFinalizeEvidenceBatchV2(
             reportCode: identity.reportCode,
             fightId: identity.fightId,
             reportRevision: slotRec.acquisitionResult.reportRevision,
+            classSlug: claimed.meta.acquisitionPlan.classSlug ?? null,
+            specSlug: claimed.meta.acquisitionPlan.specSlug ?? null,
             payload,
           });
           if (persisted.outcome === "conflict") {

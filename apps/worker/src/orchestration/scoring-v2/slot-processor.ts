@@ -15,6 +15,7 @@ import {
   ScoringV2CancelledError,
   ScoringV2SupersededError,
 } from "./acquisition.js";
+import { resolveFrozenClassSpecIdentity } from "./class-spec-identity.js";
 import { createProviderBackedEvidenceTransport } from "./evidence-transport-provider.js";
 
 export interface EvidenceV2SlotProducers {
@@ -215,6 +216,12 @@ export async function runAnalyzeEvidenceSlotV2(
   });
   const region = character?.region?.code ?? "EU";
 
+  // Frozen identity from immutable plan metadata — never invent from live profile.
+  const frozenIdentity = resolveFrozenClassSpecIdentity({
+    planClassSlug: batchView.meta.acquisitionPlan.classSlug ?? null,
+    planSpecSlug: batchView.meta.acquisitionPlan.specSlug ?? null,
+  });
+
   try {
     const acquired = await acquireCandidateWithFallback({
       container,
@@ -236,8 +243,9 @@ export async function runAnalyzeEvidenceSlotV2(
         slotIndex: slotPlan.slotIndex,
       },
       transport: createProviderBackedEvidenceTransport(container),
-      classSlug: null,
-      specSlug: null,
+      classSlug: frozenIdentity.classSlug,
+      specSlug: frozenIdentity.specSlug,
+      classSpecIdentity: frozenIdentity,
     });
 
     const status =

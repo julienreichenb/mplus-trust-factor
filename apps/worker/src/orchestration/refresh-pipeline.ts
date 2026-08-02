@@ -3363,7 +3363,9 @@ export async function runRefreshPipeline(
         | "DPS"
         | "TANK"
         | "HEALER",
-      specSlug: null,
+      // Freeze the same class/spec already resolved for this refresh — never fabricate.
+      classSlug,
+      specSlug,
       refreshContract,
       evidenceCutoffAt: new Date(0).toISOString(),
       highKeyPolicyId: "high-key-policy-v1",

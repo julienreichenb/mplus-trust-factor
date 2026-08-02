@@ -22,6 +22,7 @@ function emptyManifest(
     characterId: "char-1",
     seasonId: "season-1",
     seasonSlug: "season-tww-1",
+    classSlug: "warlock",
     specSlug: "affliction",
     role: "DPS",
     refreshContractHash: "refresh-hash",

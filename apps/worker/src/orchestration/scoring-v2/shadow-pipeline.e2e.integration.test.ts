@@ -544,6 +544,7 @@ describe.runIf(dbAvailable)("CP4 typed shadow pipeline E2E (disposable DB)", () 
         seasonId,
         seasonSlug: "cp4-shadow-season",
         specializationId: null,
+        classSlug: "mage",
         specSlug: "frost",
         role: "DPS",
         refreshContractHash: "rf-cp4-1",

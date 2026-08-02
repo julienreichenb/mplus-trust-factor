@@ -47,6 +47,9 @@ export interface PersistTypedFactSetInput {
   reportCode: string;
   fightId: number;
   reportRevision: number;
+  /** Frozen class/spec identity — binds catalog-dependent fingerprints. */
+  classSlug?: string | null;
+  specSlug?: string | null;
   payload: TypedDimensionFactPayload;
 }
 
@@ -86,13 +89,18 @@ export async function persistTypedFactSet(
   }
 
   const contentHash = hashFactDocumentContent(payload.facts);
-  const inputFingerprint = buildTypedFactSetFingerprint({
+  const fingerprintParts: Parameters<typeof buildTypedFactSetFingerprint>[0] = {
     reportCode: input.reportCode,
     fightId: input.fightId,
     reportRevision: input.reportRevision,
     extractorFamily: payload.extractorFamily,
     extractorVersion: payload.extractorVersion,
-  });
+  };
+  if ("classSlug" in input || "specSlug" in input) {
+    fingerprintParts.classSlug = input.classSlug ?? null;
+    fingerprintParts.specSlug = input.specSlug ?? null;
+  }
+  const inputFingerprint = buildTypedFactSetFingerprint(fingerprintParts);
 
   // Fail closed: same logical identity (slot+family+version) with different content.
   const existing = await input.evidence.findFactSetByLogicalIdentity({

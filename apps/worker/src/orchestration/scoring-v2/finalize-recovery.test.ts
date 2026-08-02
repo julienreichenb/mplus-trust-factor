@@ -7,6 +7,7 @@ const MANIFEST_DOC = {
   characterId: "c1",
   seasonId: "s1",
   seasonSlug: "season",
+  classSlug: "warlock",
   specSlug: "affliction",
   role: "DPS",
   refreshContractHash: "r",
