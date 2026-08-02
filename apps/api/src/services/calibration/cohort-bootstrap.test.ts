@@ -170,6 +170,29 @@ describe("identity dedupe", () => {
     const identities = dedupeCohortIdentities(doc.members);
     expect(identities).toHaveLength(40);
   });
+
+  it("plans 36 MISSING enqueue candidates on an empty DB (4 excluded identities)", () => {
+    const path = join(
+      process.cwd(),
+      "doc/scoring/cohorts/agent11-2026-08-01/resolved.v1.json",
+    );
+    const doc = parseCohortBootstrapDoc(JSON.parse(readFileSync(path, "utf8")));
+    const identities = dedupeCohortIdentities(doc.members);
+    const dbByIdentityKey = new Map(identities.map((i) => [i.identityKey, null]));
+    const { counts, entries } = planBootstrapCohort({
+      cohortId: doc.cohortId,
+      identities,
+      dbByIdentityKey,
+      includeMemberIds: new Set(),
+      retryFailures: false,
+    });
+    expect(counts.EXCLUDED).toBe(4);
+    expect(counts.MISSING).toBe(36);
+    expect(entries.filter((e) => e.plannedOperation === "ENQUEUE_RESOLVE_REFRESH")).toHaveLength(36);
+    expect(
+      entries.find((e) => e.identityKey.includes("myzouth"))?.initialState,
+    ).toBe("EXCLUDED");
+  });
 });
 
 describe("planner states", () => {
@@ -626,6 +649,61 @@ describe("CLI dry-run / execute guards", () => {
       expect(myz.initialState).toBe("EXCLUDED");
       expect(process.env.SCORING_V2_ENABLED ?? "false").not.toBe("true");
       expect(process.env.CALIBRATION_V2_ENABLED ?? "false").not.toBe("true");
+    },
+  );
+
+  it.runIf(dbAvailable)(
+    "dry-run of canonical Agent 11 resolved cohort plans MISSING enqueue without writes",
+    async () => {
+      const { buildTestEnv } = await import("../../test-helpers.js");
+      const db = await requirePrisma();
+      buildTestEnv();
+      process.env.CALIBRATION_BOOTSTRAP_ENV = "test";
+      process.env.ALLOW_LIVE_PROVIDER_CALLS = "false";
+      process.env.CALIBRATION_BOOTSTRAP_DATABASE_URL = process.env.DATABASE_URL;
+
+      const out = mkdtempSync(join(tmpdir(), "cohort-bootstrap-a11-"));
+      tmpDirs.push(out);
+      const beforeJobs = await db.ingestionJob.count();
+      const beforePublished = await db.characterPublishedScore.count();
+
+      const code = await cohortBootstrapMain(
+        [
+          "--cohort-file",
+          join(process.cwd(), "doc/scoring/cohorts/agent11-2026-08-01/resolved.v1.json"),
+          "--environment",
+          "test",
+          "--dry-run",
+          "--output-dir",
+          out,
+        ],
+        {
+          deps: {
+            prismaUrl: process.env.DATABASE_URL,
+            resolveCharacter: async () => {
+              throw new Error("dry-run must not resolve");
+            },
+            nowIso: "2026-08-03T00:00:00.000Z",
+          },
+        },
+      );
+      expect(code).toBe(0);
+      expect(await db.ingestionJob.count()).toBe(beforeJobs);
+      expect(await db.characterPublishedScore.count()).toBe(beforePublished);
+
+      const summary = JSON.parse(readFileSync(join(out, "cohort-bootstrap.summary.json"), "utf8"));
+      expect(summary.memberCount).toBe(41);
+      expect(summary.uniqueIdentityCount).toBe(40);
+      expect(summary.counts.EXCLUDED).toBeGreaterThanOrEqual(4);
+      expect(summary.counts.MISSING).toBeGreaterThanOrEqual(35);
+      expect(summary.counts.plannedEnqueue).toBe(summary.counts.MISSING);
+      expect(summary.enqueuedJobIds).toEqual([]);
+
+      const plan = JSON.parse(readFileSync(join(out, "cohort-bootstrap.plan.json"), "utf8"));
+      const myz = plan.identities.find((i: { identityKey: string }) =>
+        String(i.identityKey).includes("myzouth"),
+      );
+      expect(myz?.initialState).toBe("EXCLUDED");
     },
   );
 
