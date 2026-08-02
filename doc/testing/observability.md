@@ -52,12 +52,15 @@ msg =~ /rate limit/i || code == "RATE_LIMITED"
 | `scoring_v2_artifact_bytes` | kind |
 | `scoring_v2_artifact_orphans_total` | — |
 | `scoring_v2_calibration_*` / `scoring_v2_reference_slice_state_total` | — |
+| `scoring_v2_finalization_recovery_total` | action (`claim_released` \| `claim_lost` \| `reclaim`) |
+
+Cost-source classification (frozen / provider-estimated / unknown) is **deferred** — do not extend `scoring_v2_wcl_points_total` labels until a dedicated series is designed.
 
 ### Scoring V2 events
 
-Normative names (also on `OBS_EVENTS`): `scoring_v2.discovery_*`, `manifest_frozen`, `admission_*`, `slot_*`, `dataset_*`, `fact_set_written`, `batch_*`, `publication_*`, `calibration_*`, `reference_slice_state_changed`.
+Normative names (also on `OBS_EVENTS`): `scoring_v2.discovery_*`, `manifest_frozen`, `admission_*`, `slot_*`, `dataset_*`, `fact_set_written`, `batch_*`, `publication_*`, `calibration_*`, `reference_slice_state_changed`, plus operational `finalization_claim_released` / `finalization_claim_lost` / `finalization_reclaim`.
 
-Emit via `emitScoringV2Event` so character ids/names and report codes are fingerprinted/redacted.
+Emit via `emitScoringV2Event` (exception-safe) so character ids/names and report codes are fingerprinted/redacted. Free-text reasons go through `normalizeOperationalError` / `sanitizeFreeText`.
 
 ### WCL budget helper
 
@@ -66,6 +69,10 @@ Emit via `emitScoringV2Event` so character ids/names and report codes are finger
 ### Readiness
 
 `GET /health/ready` reports `revision`, contract versions, V2 feature modes, WCL snapshot ownership, artifact backend, queue mode, and model/catalog compatibility. Failures are mode-conditional (`evaluateReadiness` / `requiredProbesForModes`).
+
+- Artifact probe is **read-only** (no `mkdir`) and skipped when unused.
+- WCL usability is required whenever evidence fetch is enabled; fixture mode may satisfy; `WCL_ENABLED=false` does **not** make a required dependency optional in live mode.
+- Never calls live providers.
 
 ### Runbooks
 

@@ -47,6 +47,10 @@ export const OBS_EVENTS = {
   scoringV2CalibrationStarted: "scoring_v2.calibration_started",
   scoringV2CalibrationCompleted: "scoring_v2.calibration_completed",
   scoringV2ReferenceSliceStateChanged: "scoring_v2.reference_slice_state_changed",
+  // Finalization recovery (operational; complements normative batch lifecycle)
+  scoringV2FinalizationClaimReleased: "scoring_v2.finalization_claim_released",
+  scoringV2FinalizationClaimLost: "scoring_v2.finalization_claim_lost",
+  scoringV2FinalizationReclaim: "scoring_v2.finalization_reclaim",
 } as const;
 
 export type ObsEventName = (typeof OBS_EVENTS)[keyof typeof OBS_EVENTS];

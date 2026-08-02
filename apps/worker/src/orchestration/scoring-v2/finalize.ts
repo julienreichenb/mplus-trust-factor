@@ -4,6 +4,7 @@ import {
   OBS_EVENTS,
   emitScoringV2Event,
   recordBatchOutcome,
+  recordFinalizationRecovery,
   recordManifestCoverage,
   recordPublicationDecision,
 } from "@mplus/observability";
@@ -79,6 +80,12 @@ export async function runFinalizeEvidenceBatchV2(
     // Concurrent finalizer won, or not ready — redelivery-safe.
     const latest = await repo.getById(job.analysisBatchId);
     if (latest?.batch.finalizationStatus === "FINALIZED") {
+      recordFinalizationRecovery("reclaim");
+      emitScoringV2Event(container.logger, OBS_EVENTS.scoringV2FinalizationReclaim, {
+        analysisBatchId: job.analysisBatchId,
+        correlationId: job.correlationId,
+        outcome: "already_finalized",
+      });
       return {
         outcome: "already_finalized",
         analysisBatchId: job.analysisBatchId,
@@ -86,6 +93,17 @@ export async function runFinalizeEvidenceBatchV2(
         manifestContentHash: latest.meta.manifestContentHash ?? undefined,
       };
     }
+    recordFinalizationRecovery("claim_lost");
+    emitScoringV2Event(
+      container.logger,
+      OBS_EVENTS.scoringV2FinalizationClaimLost,
+      {
+        analysisBatchId: job.analysisBatchId,
+        correlationId: job.correlationId,
+        outcome: "claim_lost_or_not_ready",
+      },
+      "warn",
+    );
     return { outcome: "claim_lost_or_not_ready", analysisBatchId: job.analysisBatchId };
   }
 
@@ -101,6 +119,17 @@ export async function runFinalizeEvidenceBatchV2(
           })
         )?.document as unknown)
       : null;
+
+    // Successful CAS after a prior release → redelivery reclaim of in-progress finalize.
+    if (manifestId && manifestContentHash) {
+      recordFinalizationRecovery("reclaim");
+      emitScoringV2Event(container.logger, OBS_EVENTS.scoringV2FinalizationReclaim, {
+        analysisBatchId: job.analysisBatchId,
+        correlationId: job.correlationId,
+        characterId: claimed.batch.characterId,
+        outcome: "reclaim_with_manifest",
+      });
+    }
 
     if (!manifestId || !manifestContentHash || !manifestDocument) {
       const plan = claimed.meta.acquisitionPlan;
@@ -262,6 +291,18 @@ export async function runFinalizeEvidenceBatchV2(
   } catch (error) {
     // Minimal FINALIZING recovery: release claim so redelivery can reclaim.
     await repo.releaseFinalizationClaim(job.analysisBatchId);
+    recordFinalizationRecovery("claim_released");
+    emitScoringV2Event(
+      container.logger,
+      OBS_EVENTS.scoringV2FinalizationClaimReleased,
+      {
+        analysisBatchId: job.analysisBatchId,
+        correlationId: job.correlationId,
+        characterId: claimed.batch.characterId,
+        outcome: "claim_released",
+      },
+      "warn",
+    );
     throw error;
   }
 }

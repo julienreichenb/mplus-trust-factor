@@ -200,6 +200,18 @@ export async function acquireCandidateWithFallback(input: {
         compression: "GZIP",
         artifactClass: "wcl-fight-details-v2",
       });
+
+      await input.evidence.upsertWclReportRevision({
+        reportCode: identity.reportCode,
+        revision: reportRevision,
+        visibility: "PUBLIC",
+        startTimeMs: BigInt(0),
+        endTimeMs: BigInt(0),
+        metadataHash: contentHash,
+        fetchedAt: new Date(),
+      });
+
+      // Emit only after artifact + report-revision persistence succeed.
       recordDatasetOutcome({
         outcome: "fetched",
         datasetKey: "fight-details",
@@ -210,16 +222,6 @@ export async function acquireCandidateWithFallback(input: {
         correlationId: input.correlationId,
         datasetKey: "fight-details",
         bytes: bytes.byteLength,
-      });
-
-      await input.evidence.upsertWclReportRevision({
-        reportCode: identity.reportCode,
-        revision: reportRevision,
-        visibility: "PUBLIC",
-        startTimeMs: BigInt(0),
-        endTimeMs: BigInt(0),
-        metadataHash: contentHash,
-        fetchedAt: new Date(),
       });
 
       const factSetFingerprint = buildFactSetFingerprint({

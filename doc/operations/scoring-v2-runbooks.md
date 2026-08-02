@@ -93,3 +93,13 @@ Follow [scoring-v2-persistence-reset.md](./scoring-v2-persistence-reset.md):
 
 - Logs must use fingerprints for character ids/names and masked report codes (`@mplus/observability`).
 - Never paste raw WCL report codes, OAuth tokens, or BattleTags into tickets.
+
+## Deferred blocker — Calibration V2 active/draft
+
+`CALIBRATION_V2_ACTIVE_DRAFT_ARCH_BLOCKER`
+
+Keep `CALIBRATION_V2_ENABLED` **disabled** until calculator model-config injection supports real active-versus-draft replay. Export replay remains available; do not enable calibration V2 or fabricate active/draft deltas.
+
+## Deferred — cost-source metrics
+
+Classification of WCL cost as frozen / provider-estimated / unknown is deferred to avoid changing existing `scoring_v2_wcl_points_total` label contracts. Track via dataset persistence `costSource` until a dedicated metric series is introduced.

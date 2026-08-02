@@ -1,18 +1,24 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   OBS_EVENTS,
+  boundOperationalReason,
   buildScoringV2LogContext,
   emitScoringV2Event,
   evaluateReadiness,
+  evaluateWclProviderUsability,
   fingerprintIdentifier,
   getMetricsRegistry,
+  normalizeOperationalError,
   recordAdmissionDecision,
   recordDatasetOutcome,
+  recordFinalizationRecovery,
   recordManifestCoverage,
   recordPublicationDecision,
   recordSlotOutcome,
   requiredProbesForModes,
   resetMetricsRegistry,
+  runSafeTelemetry,
+  sanitizeFreeText,
   sanitizeSensitiveDeep,
 } from "./index.js";
 
@@ -28,6 +34,9 @@ describe("scoring v2 events", () => {
     expect(OBS_EVENTS.scoringV2CalibrationCompleted).toBe("scoring_v2.calibration_completed");
     expect(OBS_EVENTS.scoringV2ReferenceSliceStateChanged).toBe(
       "scoring_v2.reference_slice_state_changed",
+    );
+    expect(OBS_EVENTS.scoringV2FinalizationClaimReleased).toBe(
+      "scoring_v2.finalization_claim_released",
     );
   });
 
@@ -58,6 +67,31 @@ describe("scoring v2 events", () => {
     expect(payload.event).toBe("scoring_v2.slot_started");
     expect(JSON.stringify(payload)).not.toContain("SecretName");
   });
+
+  it("swallows logger exceptions so telemetry cannot fail jobs", () => {
+    expect(() =>
+      emitScoringV2Event(
+        {
+          info: () => {
+            throw new Error("logger_down");
+          },
+          warn: vi.fn(),
+          error: vi.fn(),
+        },
+        OBS_EVENTS.scoringV2SlotCompleted,
+        { slotId: "s1" },
+      ),
+    ).not.toThrow();
+  });
+
+  it("runSafeTelemetry does not recurse on failure", () => {
+    let calls = 0;
+    runSafeTelemetry(() => {
+      calls += 1;
+      throw new Error("boom");
+    });
+    expect(calls).toBe(1);
+  });
 });
 
 describe("scoring v2 metrics", () => {
@@ -70,15 +104,29 @@ describe("scoring v2 metrics", () => {
       fallbackDepth: 1,
     });
     recordSlotOutcome("completed", "SUCCEEDED");
+    recordSlotOutcome("unavailable", "UNAVAILABLE");
+    recordSlotOutcome("cancelled", "CANCELLED");
     recordDatasetOutcome({ outcome: "cache_hit", datasetKey: "casts", wclPoints: 2 });
     recordAdmissionDecision("deferred");
     recordPublicationDecision("rejected", "publication_flag_off");
+    recordFinalizationRecovery("claim_released");
     const text = getMetricsRegistry().toPrometheusText();
     expect(text).toContain("scoring_v2_manifest_coverage_total");
     expect(text).toContain("scoring_v2_slot_outcome_total");
     expect(text).toContain("scoring_v2_dataset_outcome_total");
     expect(text).toContain("scoring_v2_admission_total");
     expect(text).toContain("scoring_v2_publication_total");
+    expect(text).toContain("scoring_v2_finalization_recovery_total");
+    expect(text).not.toMatch(/batch-[0-9]/);
+  });
+
+  it("swallows metrics registry exceptions", () => {
+    const original = getMetricsRegistry().incrementCounter.bind(getMetricsRegistry());
+    getMetricsRegistry().incrementCounter = () => {
+      throw new Error("metrics_down");
+    };
+    expect(() => recordSlotOutcome("failed", "FAILED")).not.toThrow();
+    getMetricsRegistry().incrementCounter = original;
   });
 });
 
@@ -105,7 +153,12 @@ describe("readiness evaluation", () => {
       artifactBackend: { ok: true, scheme: "cas", required: false },
       wclSnapshot: { state: "not_required", required: false },
       modelCatalog: { ok: true, required: false },
-      wclProvider: { enabled: false, configured: false, required: false },
+      wclProvider: {
+        enabled: false,
+        configured: false,
+        required: false,
+        usable: true,
+      },
     });
     expect(result.ready).toBe(true);
     expect(result.body.revision).toBe("abc123");
@@ -134,10 +187,50 @@ describe("readiness evaluation", () => {
       },
       wclSnapshot: { state: "worker_owned", required: false },
       modelCatalog: { ok: true, required: false },
-      wclProvider: { enabled: true, configured: true, required: true },
+      wclProvider: {
+        enabled: true,
+        configured: true,
+        required: true,
+        usable: true,
+      },
     });
     expect(result.ready).toBe(false);
     expect(result.failingReasons).toContain("artifact_backend_not_ready");
+  });
+
+  it("fails closed when WCL required but not usable even if enabled=false", () => {
+    expect(
+      evaluateWclProviderUsability({
+        required: true,
+        enabled: false,
+        configured: true,
+        providerMode: "live",
+      }),
+    ).toEqual({ usable: false, detail: "wcl_provider_disabled" });
+
+    const result = evaluateReadiness({
+      revision: "abc123",
+      apiContractVersion: "2.0.0",
+      workerJobSchemaVersion: "2.0.0",
+      scoringV2: { ...baseModes, enabled: true, evidenceFetchEnabled: true },
+      databaseOk: true,
+      redisOk: true,
+      redisSkipped: true,
+      queueMode: "inline",
+      artifactBackend: { ok: true, scheme: "cas", required: true },
+      wclSnapshot: { state: "worker_owned", required: false },
+      modelCatalog: { ok: true, required: false },
+      wclProvider: {
+        enabled: false,
+        configured: true,
+        required: true,
+        usable: false,
+        detail: "wcl_provider_disabled",
+        providerMode: "live",
+      },
+    });
+    expect(result.ready).toBe(false);
+    expect(result.failingReasons).toContain("wcl_provider_disabled");
   });
 
   it("does not fail readiness for stale WCL snapshot when not required", () => {
@@ -153,13 +246,18 @@ describe("readiness evaluation", () => {
       artifactBackend: { ok: true, scheme: "cas", required: false },
       wclSnapshot: { state: "stale", required: false, ageSeconds: 999 },
       modelCatalog: { ok: true, required: false },
-      wclProvider: { enabled: true, configured: true, required: false },
+      wclProvider: {
+        enabled: true,
+        configured: true,
+        required: false,
+        usable: true,
+      },
     });
     expect(result.ready).toBe(true);
   });
 });
 
-describe("character name sanitization", () => {
+describe("character name and free-text sanitization", () => {
   it("redacts characterName and bare name with realm", () => {
     const sanitized = sanitizeSensitiveDeep({
       characterName: "Myzouth",
@@ -169,5 +267,26 @@ describe("character name sanitization", () => {
     expect(sanitized.characterName).toBe("[Redacted]");
     expect(sanitized.name).toBe("[Redacted]");
     expect(JSON.stringify(sanitized)).not.toContain("Myzouth");
+  });
+
+  it("sanitizes nested Error objects and free-text reasons", () => {
+    const err = new Error(
+      "fetch failed https://www.warcraftlogs.com/api report=AbCdEfGhIjKlMnOp access_token=sekrit",
+    );
+    err.cause = new Error("Bearer tokencause1234567890 nested");
+    const sanitized = sanitizeSensitiveDeep({ err, reason: err.message }) as {
+      err: { message: string; cause: { message: string } };
+      reason: string;
+    };
+    expect(JSON.stringify(sanitized)).not.toContain("AbCdEfGhIjKlMnOp");
+    expect(JSON.stringify(sanitized)).not.toContain("sekrit");
+    expect(JSON.stringify(sanitized)).not.toContain("https://www.warcraftlogs.com");
+    expect(sanitized.err.message).not.toContain("Bearer tokencause");
+
+    const normalized = normalizeOperationalError(err);
+    expect(normalized.category).toBe("Error");
+    expect(normalized.detail).not.toContain("sekrit");
+    expect(boundOperationalReason(err.message)).not.toContain("sekrit");
+    expect(sanitizeFreeText("CANCELLED")).toBe("CANCELLED");
   });
 });

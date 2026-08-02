@@ -133,7 +133,7 @@ describe("failure injection: scoring v2 hardening", () => {
       artifactBackend: { ok: false, scheme: "cas", required: false },
       wclSnapshot: { state: "stale", required: false },
       modelCatalog: { ok: false, required: false },
-      wclProvider: { enabled: true, configured: false, required: false },
+      wclProvider: { enabled: true, configured: false, required: false, usable: true },
     });
     expect(ready.ready).toBe(true);
   });

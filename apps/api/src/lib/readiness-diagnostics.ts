@@ -1,8 +1,9 @@
 /**
  * Assembles /health/ready probes including Scoring V2 diagnostics.
+ * Readiness probes are read-only: no mkdir, no writes, no provider calls.
  */
 
-import { access, constants, mkdir } from "node:fs/promises";
+import { access, constants, stat } from "node:fs/promises";
 import path from "node:path";
 import {
   getScoringV2FlagSummary,
@@ -11,24 +12,70 @@ import {
 import {
   SCORING_V2_CONTRACT_VERSIONS,
   evaluateReadiness,
+  evaluateWclProviderUsability,
   requiredProbesForModes,
   type ReadinessEvaluation,
   type ReadinessProbeResults,
   type ScoringV2ModeSnapshot,
 } from "@mplus/observability";
 
-export async function probeArtifactBackend(rootDir: string): Promise<{
+export const ARTIFACT_PROBE_TIMEOUT_MS = 2_000;
+
+function withTimeout<T>(timeoutMs: number, work: () => Promise<T>): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(Object.assign(new Error("probe_timeout"), { code: "probe_timeout" }));
+    }, timeoutMs);
+    work().then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error: unknown) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
+
+/**
+ * Read-only artifact backend probe. Never creates directories or files.
+ */
+export async function probeArtifactBackend(
+  rootDir: string,
+  options?: { timeoutMs?: number },
+): Promise<{
   ok: boolean;
   scheme: string;
   detail?: string;
 }> {
+  const timeoutMs = options?.timeoutMs ?? ARTIFACT_PROBE_TIMEOUT_MS;
   try {
-    const resolved = path.resolve(rootDir);
-    await mkdir(resolved, { recursive: true });
-    await access(resolved, constants.R_OK | constants.W_OK);
+    await withTimeout(timeoutMs, async () => {
+      const resolved = path.resolve(rootDir);
+      const st = await stat(resolved);
+      if (!st.isDirectory()) {
+        throw Object.assign(new Error("not_directory"), { code: "not_directory" });
+      }
+      await access(resolved, constants.R_OK | constants.W_OK);
+    });
     return { ok: true, scheme: "cas" };
-  } catch {
-    return { ok: false, scheme: "cas", detail: "not_writable" };
+  } catch (error) {
+    const code =
+      error && typeof error === "object" && "code" in error
+        ? String((error as { code: unknown }).code)
+        : "";
+    if (code === "probe_timeout") {
+      return { ok: false, scheme: "cas", detail: "probe_timeout" };
+    }
+    if (code === "ENOENT") {
+      return { ok: false, scheme: "cas", detail: "path_missing" };
+    }
+    if (code === "not_directory") {
+      return { ok: false, scheme: "cas", detail: "not_directory" };
+    }
+    return { ok: false, scheme: "cas", detail: "not_accessible" };
   }
 }
 
@@ -57,16 +104,31 @@ export async function buildApiReadiness(input: {
     warcraftlogs: { enabled: boolean; configured: boolean };
   };
   activeModel: { key: string; version: number } | null;
+  /** Injectable for tests — defaults to real read-only probe. */
+  artifactProbe?: typeof probeArtifactBackend;
 }): Promise<ReadinessEvaluation & { probes: ReadinessProbeResults }> {
   const modes = toModeSnapshot(input.env);
   const required = requiredProbesForModes(modes);
-  const artifact = await probeArtifactBackend(input.env.RAW_ARTIFACTS_DIR);
+  const probeFn = input.artifactProbe ?? probeArtifactBackend;
+
+  // Do not touch the filesystem when artifact storage is unused.
+  const artifact = required.artifactBackend
+    ? await probeFn(input.env.RAW_ARTIFACTS_DIR)
+    : { ok: true, scheme: "cas", detail: "not_probed" as const };
 
   const modelOk =
     !required.modelCatalog ||
     (input.activeModel != null &&
       typeof input.activeModel.key === "string" &&
       input.activeModel.key.length > 0);
+
+  const wclRequired = required.wclProviderConfigured;
+  const wclUsability = evaluateWclProviderUsability({
+    required: wclRequired,
+    enabled: input.providers.warcraftlogs.enabled,
+    configured: input.providers.warcraftlogs.configured,
+    providerMode: input.env.PROVIDER_MODE,
+  });
 
   const probes: ReadinessProbeResults = {
     revision: input.env.APP_VERSION,
@@ -100,7 +162,10 @@ export async function buildApiReadiness(input: {
     wclProvider: {
       enabled: input.providers.warcraftlogs.enabled,
       configured: input.providers.warcraftlogs.configured,
-      required: required.wclProviderConfigured && input.providers.warcraftlogs.enabled,
+      required: wclRequired,
+      usable: wclUsability.usable,
+      providerMode: input.env.PROVIDER_MODE,
+      ...(wclUsability.detail ? { detail: wclUsability.detail } : {}),
     },
   };
 

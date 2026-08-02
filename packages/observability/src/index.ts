@@ -64,6 +64,8 @@ export {
   assertAllowedProviderUrl,
   redactSecretsInObject,
   sanitizeSensitiveDeep,
+  sanitizeFreeText,
+  normalizeOperationalError,
   toJsonSafeSanitized,
   fingerprintIdentifier,
   maskReportCode,
@@ -88,7 +90,9 @@ export {
   SCORING_V2_ACQUISITION_PLAN_SCHEMA_VERSION,
   buildScoringV2LogContext,
   sanitizeScoringV2LogFields,
+  boundOperationalReason,
   emitScoringV2Event,
+  runSafeTelemetry,
   recordManifestCoverage,
   recordInvalidCandidateReason,
   recordDatasetOutcome,
@@ -97,6 +101,7 @@ export {
   recordBatchOutcome,
   recordAdmissionDecision,
   recordPublicationDecision,
+  recordFinalizationRecovery,
   recordScoreConfidenceSample,
   recordV1V2Delta,
   recordQueueSnapshot,
@@ -105,13 +110,16 @@ export {
   recordReferenceSliceState,
   type ScoringV2EventName,
   type ScoringV2CorrelationFields,
+  type SlotOutcomeKind,
 } from "./scoring-v2.js";
 
 export {
   evaluateReadiness,
+  evaluateWclProviderUsability,
   requiredProbesForModes,
   SCORING_V2_CONTRACT_VERSIONS,
   type ScoringV2ModeSnapshot,
   type ReadinessProbeResults,
   type ReadinessEvaluation,
+  type WclProviderProbe,
 } from "./readiness.js";

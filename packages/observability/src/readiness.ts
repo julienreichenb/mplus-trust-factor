@@ -17,6 +17,22 @@ export interface ScoringV2ModeSnapshot {
   calibrationV2Enabled?: boolean;
 }
 
+export interface WclProviderProbe {
+  /** WCL_ENABLED (or equivalent) — implementation toggle. */
+  enabled: boolean;
+  /** Credentials present, or fixture mode marks configured. */
+  configured: boolean;
+  /** Required by enabled Scoring V2 modes (e.g. evidence fetch). */
+  required: boolean;
+  /**
+   * Actually usable for the current execution mode.
+   * Fixture mode may satisfy when configured; live mode needs enabled+configured.
+   */
+  usable: boolean;
+  providerMode?: "fixture" | "live" | string;
+  detail?: string;
+}
+
 export interface ReadinessProbeResults {
   revision: string;
   apiContractVersion: string;
@@ -49,17 +65,39 @@ export interface ReadinessProbeResults {
     detail?: string;
   };
   /** Provider config required by enabled V2 fetch. */
-  wclProvider: {
-    enabled: boolean;
-    configured: boolean;
-    required: boolean;
-  };
+  wclProvider: WclProviderProbe;
 }
 
 export interface ReadinessEvaluation {
   ready: boolean;
   failingReasons: string[];
   body: Record<string, unknown>;
+}
+
+/**
+ * Decide whether WCL is usable when Scoring V2 modes require it.
+ * Never treats WCL_ENABLED=false as making a required dependency optional.
+ */
+export function evaluateWclProviderUsability(input: {
+  required: boolean;
+  enabled: boolean;
+  configured: boolean;
+  providerMode: string;
+}): Pick<WclProviderProbe, "usable" | "detail"> {
+  if (!input.required) {
+    return { usable: true };
+  }
+  // Repository-supported fixture mode satisfies WCL without live credentials.
+  if (input.providerMode === "fixture" && input.configured) {
+    return { usable: true };
+  }
+  if (!input.configured) {
+    return { usable: false, detail: "wcl_credentials_missing" };
+  }
+  if (!input.enabled) {
+    return { usable: false, detail: "wcl_provider_disabled" };
+  }
+  return { usable: true };
 }
 
 /**
@@ -81,7 +119,11 @@ export function evaluateReadiness(probes: ReadinessProbeResults): ReadinessEvalu
   }
 
   if (probes.artifactBackend.required && !probes.artifactBackend.ok) {
-    failingReasons.push("artifact_backend_not_ready");
+    failingReasons.push(
+      probes.artifactBackend.detail === "probe_timeout"
+        ? "artifact_backend_probe_timeout"
+        : "artifact_backend_not_ready",
+    );
   }
 
   if (probes.wclSnapshot.required && probes.wclSnapshot.state !== "ok" && probes.wclSnapshot.state !== "worker_owned") {
@@ -92,8 +134,8 @@ export function evaluateReadiness(probes: ReadinessProbeResults): ReadinessEvalu
     failingReasons.push("model_catalog_incompatible");
   }
 
-  if (probes.wclProvider.required && probes.wclProvider.enabled && !probes.wclProvider.configured) {
-    failingReasons.push("wcl_provider_not_configured");
+  if (probes.wclProvider.required && !probes.wclProvider.usable) {
+    failingReasons.push(probes.wclProvider.detail ?? "wcl_provider_not_usable");
   }
 
   // Evidence fetch in bullmq mode needs queue connectivity (redis).
