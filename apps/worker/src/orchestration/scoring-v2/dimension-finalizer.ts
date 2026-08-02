@@ -6,10 +6,12 @@
 import type { CharacterSeasonEvidenceManifestV2 } from "@mplus/contracts";
 import {
   finalizeShadowDimensions,
+  type ExperienceHistoryInputs,
   type FinalizeShadowDimensionsResult,
   type ScoringV2PublicDimension,
 } from "@mplus/scoring";
 import type { WorkerContainer } from "../../container.js";
+import { loadExperienceHistoryFromDb } from "./experience-history-loader.js";
 
 export interface PersistShadowDimensionsInput {
   characterId: string;
@@ -22,6 +24,11 @@ export interface PersistShadowDimensionsInput {
   enabledDimensions: ScoringV2PublicDimension[];
   relativeDamageMode?: "off" | "shadow" | "active";
   computedAt?: Date;
+  /**
+   * Optional injected Experience history (tests). When omitted, loads from DB.
+   * Pass `null` explicitly to skip loading and force UNAVAILABLE.
+   */
+  experienceHistory?: ExperienceHistoryInputs | null;
 }
 
 export interface PersistShadowDimensionSuccess {
@@ -104,6 +111,63 @@ export async function persistShadowDimensionComputations(
     slotIndex: row.slotIndex,
   }));
 
+  // Experience history: DB-only. Loader failure isolates to Experience (null → UNAVAILABLE).
+  let experienceHistory: ExperienceHistoryInputs | null =
+    input.experienceHistory === undefined ? null : input.experienceHistory;
+  if (input.experienceHistory === undefined) {
+    const needsExperience = input.enabledDimensions.includes("EXPERIENCE");
+    if (needsExperience) {
+      try {
+        const loaded = await loadExperienceHistoryFromDb({
+          prisma: container.prisma,
+          characterId: input.characterId,
+          seasonId: input.seasonId,
+          manifest: input.manifestDocument,
+          findFreshPayloadByFingerprint:
+            container.repositories.externalRequest.findFreshPayloadByFingerprint,
+        });
+        if (loaded.ok) {
+          experienceHistory = loaded.history;
+          container.logger.info(
+            {
+              event: "scoring_v2_experience_history_loaded",
+              characterId: input.characterId,
+              seasonId: input.seasonId,
+              evidenceRevision: loaded.evidenceRevision,
+              limitationCount: loaded.limitations.length,
+              sourceStatuses: loaded.sourceStatuses,
+            },
+            "scoring_v2 experience history loaded from persisted evidence",
+          );
+        } else {
+          container.logger.warn?.(
+            {
+              event: "scoring_v2_experience_history_unavailable",
+              characterId: input.characterId,
+              seasonId: input.seasonId,
+              reason: loaded.reason,
+              limitations: loaded.limitations,
+            },
+            "scoring_v2 experience history unavailable; siblings continue",
+          );
+          experienceHistory = null;
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "loader_threw";
+        container.logger.warn?.(
+          {
+            event: "scoring_v2_experience_history_loader_failed",
+            characterId: input.characterId,
+            seasonId: input.seasonId,
+            reason: message.slice(0, 160),
+          },
+          "scoring_v2 experience history loader failed; siblings continue",
+        );
+        experienceHistory = null;
+      }
+    }
+  }
+
   const computedAt = input.computedAt ?? new Date();
   const finalization = finalizeShadowDimensions({
     characterId: input.characterId,
@@ -114,8 +178,7 @@ export async function persistShadowDimensionComputations(
     expectedManifestContentHash: input.expectedManifestContentHash,
     enabledDimensions: input.enabledDimensions,
     factSets,
-    // Experience history is not loaded from providers in WS10 — UNAVAILABLE until adapters land.
-    experienceHistory: null,
+    experienceHistory,
     relativeDamageMode: input.relativeDamageMode ?? "off",
     computedAt,
   });
