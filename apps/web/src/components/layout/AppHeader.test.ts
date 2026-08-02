@@ -42,6 +42,7 @@ const adminItems = [
   { to: "/admin/ability-catalog", label: "Ability catalog" },
   { to: "/admin/users", label: "Admin users" },
   { to: "/admin/bulk-processing", label: "Bulk processing" },
+  { to: "/admin/scoring-v2", label: "Scoring V2" },
   { to: "/admin/misc", label: "Misc tools" },
 ];
 
@@ -50,6 +51,7 @@ const FULL_ADMIN_PERMS = [
   "admin.ability_catalog.read",
   "admin.users.read",
   "admin.jobs.manage",
+  "score.candidate.read",
   "admin.settings.manage",
 ];
 
@@ -70,6 +72,11 @@ function headerRoutes() {
     {
       path: "/admin/bulk-processing",
       name: "admin-bulk-processing",
+      component: { template: "<div />" },
+    },
+    {
+      path: "/admin/scoring-v2",
+      name: "admin-scoring-v2",
       component: { template: "<div />" },
     },
     { path: "/admin/misc", name: "admin-misc", component: { template: "<div />" } },
@@ -133,7 +140,7 @@ describe("NavDropdown disclosure", () => {
     const panel = wrapper.get("[data-testid='nav-dropdown-menu']");
     expect(panel.attributes("role")).toBeUndefined();
     expect(panel.findAll('[role="menuitem"]')).toHaveLength(0);
-    expect(panel.findAll("a")).toHaveLength(5);
+    expect(panel.findAll("a")).toHaveLength(6);
     wrapper.unmount();
   });
 
@@ -343,6 +350,7 @@ describe("AppHeader admin navigation", () => {
     expect(text).toContain("Ability catalog");
     expect(text).toContain("Admin users");
     expect(text).toContain("Bulk processing");
+    expect(text).toContain("Scoring V2");
     expect(text).toContain("Misc tools");
     wrapper.unmount();
   });
@@ -363,6 +371,7 @@ describe("AppHeader admin navigation", () => {
       "/admin/ability-catalog",
       "/admin/users",
       "/admin/bulk-processing",
+      "/admin/scoring-v2",
       "/admin/misc",
       "/admin/users?tab=roles",
       "/admin/models#draft",

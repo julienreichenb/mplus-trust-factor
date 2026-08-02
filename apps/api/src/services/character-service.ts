@@ -55,6 +55,7 @@ import { mapJobStatusWithEta } from "./refresh-eta-service.js";
 import { applyProfileWarnings, appendRefreshContractWarnings, buildProfileEnrichments, isScoreStaleVersusProviders, resolveWclUrlFromSources, scoreSnapshotContractStaleReasons, toPublicProviderKey } from "../lib/profile-enrichment.js";
 import { characterCacheKey } from "../lib/response-cache.js";
 import { scheduleProfileViewRecording } from "../lib/profile-view-recorder.js";
+import { ExplainabilityV2Service } from "./explainability-v2-service.js";
 import {
   CHARACTER_BOOTSTRAP_INCOMPLETE,
   CHARACTER_IDENTITY_COLLISION,
@@ -1289,7 +1290,21 @@ export class CharacterService {
       base.score,
     );
 
-    return { ...base, ...enrichments };
+    // Additive V2 explainability — DB-only, never provider calls; null while shadow-only.
+    let explainabilityV2 = null;
+    try {
+      explainabilityV2 = await new ExplainabilityV2Service(this.container).getPublicExplainability({
+        characterId: character.id,
+        seasonId: snapshot?.seasonId,
+      });
+    } catch (error) {
+      this.container.logger.warn(
+        { err: error, characterId: character.id },
+        "explainability_v2_public_attach_failed",
+      );
+    }
+
+    return { ...base, ...enrichments, explainabilityV2 };
   }
 
   /** SWR profile read. 200 fresh/stale (background refresh enqueued when stale), 202 queued, 404 confirmed absent. */

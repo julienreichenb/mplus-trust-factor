@@ -272,6 +272,8 @@ export const characterProfileResponseSchema = {
     wclDataState: { type: ["string", "null"] },
     providerStates: { type: "array", items: providerStateSchema },
     sourceDisagreements: { type: "array" },
+    /** Scoring V2 public explainability — sanitized, no report codes. */
+    explainabilityV2: {},
   },
   additionalProperties: true,
 } as const;
