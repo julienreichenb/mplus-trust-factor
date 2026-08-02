@@ -53,6 +53,14 @@ const ROOT = resolve(import.meta.dirname, "../../../../../");
 const DEFAULT_COHORT = "doc/scoring/cohorts/agent11-2026-08-01/resolved.v1.json";
 const DEFAULT_OUTPUT = "tmp/calibration/agent11-2026-08-01";
 
+function resolveInputPath(p: string): string {
+  const fromCwd = resolve(p);
+  if (existsSync(fromCwd)) return fromCwd;
+  const fromRoot = resolve(ROOT, p);
+  if (existsSync(fromRoot)) return fromRoot;
+  return fromCwd;
+}
+
 function parseArgs(argv: string[]) {
   const flags = new Set<string>();
   const values = new Map<string, string>();
@@ -169,7 +177,7 @@ export async function main(
   }
   assertNoV2FlagMutation();
 
-  const cohortFile = resolve(values.get("cohort-file") ?? resolve(ROOT, DEFAULT_COHORT));
+  const cohortFile = resolveInputPath(values.get("cohort-file") ?? resolve(ROOT, DEFAULT_COHORT));
   if (!existsSync(cohortFile)) {
     console.error(`REFUSED: cohort file not found: ${cohortFile}`);
     return 2;
@@ -177,14 +185,19 @@ export async function main(
   // policy-file is optional for bootstrap (resolved cohort already carries exclusion reasons).
   const policyFile = values.get("policy-file");
   if (policyFile) {
-    const policyPath = resolve(policyFile);
+    const policyPath = resolveInputPath(policyFile);
     if (!existsSync(policyPath)) {
       console.error(`REFUSED: policy file not found: ${policyPath}`);
       return 2;
     }
   }
 
-  const outputDir = resolve(values.get("output-dir") ?? resolve(ROOT, DEFAULT_OUTPUT));
+  const outputDirRaw = values.get("output-dir");
+  const outputDir = !outputDirRaw
+    ? resolve(ROOT, DEFAULT_OUTPUT)
+    : outputDirRaw.startsWith("/") || /^[A-Za-z]:[\\/]/.test(outputDirRaw)
+      ? resolve(outputDirRaw)
+      : resolve(ROOT, outputDirRaw);
   const concurrency = Math.max(
     1,
     Math.min(8, Number(values.get("concurrency") ?? BOOTSTRAP_DEFAULT_CONCURRENCY) || BOOTSTRAP_DEFAULT_CONCURRENCY),
@@ -198,7 +211,7 @@ export async function main(
   let resumeManifest: BootstrapManifest | null = null;
   const resumePath = values.get("resume-manifest");
   if (resumePath) {
-    const abs = resolve(resumePath);
+    const abs = resolveInputPath(resumePath);
     if (!existsSync(abs)) {
       console.error(`REFUSED: resume manifest not found: ${abs}`);
       return 2;
