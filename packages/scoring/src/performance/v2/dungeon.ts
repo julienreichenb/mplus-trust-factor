@@ -1,5 +1,5 @@
 import { clamp } from "../../math.js";
-import { PERFORMANCE_V2_MODEL_CONFIG } from "./constants.js";
+import { PERFORMANCE_V2_MODEL_CONFIG, type PerformanceV2ModelConfig } from "./constants.js";
 import { adjustParseForDifficulty } from "./difficulty.js";
 import { resolveValidatedParsePercentile } from "./role-adapter.js";
 import type {
@@ -20,7 +20,7 @@ function mean(values: number[]): number | null {
  */
 export function computeDungeonPerformance(
   runs: PerformanceAdjustedParseV2[],
-  config: typeof PERFORMANCE_V2_MODEL_CONFIG = PERFORMANCE_V2_MODEL_CONFIG,
+  config: PerformanceV2ModelConfig = PERFORMANCE_V2_MODEL_CONFIG,
 ): PerformanceDungeonScoreV2 | null {
   if (runs.length === 0) return null;
 
@@ -71,7 +71,7 @@ export function computeDetailedSeasonPerformance(input: {
   activeDungeonSlugs: string[];
   difficultyPolicy: SeasonDifficultyPolicyV2;
   runParseAllowed: boolean;
-  config?: typeof PERFORMANCE_V2_MODEL_CONFIG;
+  config?: PerformanceV2ModelConfig;
 }): {
   dungeons: PerformanceDungeonScoreV2[];
   detailedSeasonPerformance: number | null;

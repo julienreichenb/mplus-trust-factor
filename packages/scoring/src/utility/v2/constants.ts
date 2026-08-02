@@ -145,8 +145,40 @@ export const UTILITY_V2_SCORE_SEMANTICS = {
   ],
 } as const;
 
+/** Writable/validated shape — numeric fields are `number` so overrides can differ from defaults. */
+export type UtilityV2ModelConfig = {
+  algorithmVersion: string;
+  modelLabel: string;
+  schemaVersion: string;
+  calibrationStatus: UtilityV2CalibrationStatus;
+  domainWeights: { castStops: number; support: number; strategicCc: number };
+  domainContributionCap: number;
+  scoreFloor: number;
+  interruptCredits: {
+    CONFIRMED_SUCCESS: number;
+    VALID_OVERLAP: number;
+    MATCHED_FAILED: number;
+    UNMATCHED_ATTEMPT: number;
+    NOT_OBSERVABLE: number;
+  };
+  unmatchedCreditShareCap: number;
+  unmatchedOnlyMaxDomainScore: number;
+  interruptMatchToleranceMs: number;
+  ccDedupeWindowMs: number;
+  supportSemanticCredit: Record<UtilityV2SupportSemantic, number>;
+  supportDiminishingExponent: number;
+  dispelPurgeEventCredit: number;
+  castStopsCurve: ReadonlyArray<{ perHour: number; score: number }>;
+  supportCurve: ReadonlyArray<{ perHour: number; score: number }>;
+  strategicCcCurve: ReadonlyArray<{ perHour: number; score: number }>;
+  minHostileCastsPerHourForFullCredit: number;
+  activeCombatGapMs: number;
+  confidence: typeof UTILITY_V2_CONFIDENCE;
+  scoreSemantics: typeof UTILITY_V2_SCORE_SEMANTICS;
+};
+
 /** Immutable candidate defaults for calibration export / replay. */
-export const UTILITY_V2_MODEL_CONFIG = Object.freeze({
+export const UTILITY_V2_MODEL_CONFIG: UtilityV2ModelConfig = Object.freeze({
   algorithmVersion: UTILITY_V2_ALGORITHM_VERSION,
   modelLabel: UTILITY_V2_MODEL_LABEL,
   schemaVersion: UTILITY_V2_SCHEMA_VERSION,
@@ -169,6 +201,4 @@ export const UTILITY_V2_MODEL_CONFIG = Object.freeze({
   activeCombatGapMs: UTILITY_V2_ACTIVE_COMBAT_GAP_MS,
   confidence: UTILITY_V2_CONFIDENCE,
   scoreSemantics: UTILITY_V2_SCORE_SEMANTICS,
-} as const);
-
-export type UtilityV2ModelConfig = typeof UTILITY_V2_MODEL_CONFIG;
+});

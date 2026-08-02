@@ -1,4 +1,4 @@
-import { PERFORMANCE_V2_MODEL_CONFIG } from "./constants.js";
+import { PERFORMANCE_V2_MODEL_CONFIG, type PerformanceV2ModelConfig } from "./constants.js";
 import type {
   PerformanceProfileAggregateFactV2,
   PerformanceProfileDungeonAggregateV2,
@@ -18,7 +18,7 @@ function meanOfValid(values: Array<number | null | undefined>): number | null {
  */
 export function computeProfilePerformance(
   profile: PerformanceProfileAggregateFactV2 | null,
-  config: typeof PERFORMANCE_V2_MODEL_CONFIG = PERFORMANCE_V2_MODEL_CONFIG,
+  config: PerformanceV2ModelConfig = PERFORMANCE_V2_MODEL_CONFIG,
 ): number | null {
   if (profile == null) return null;
   const best = profile.bestDpsPercentileAverage;
@@ -41,7 +41,7 @@ export function computeProfilePerformance(
 export function computeEqualDungeonProfilePerformance(
   perDungeon: PerformanceProfileDungeonAggregateV2[],
   activeDungeonSlugs: string[],
-  config: typeof PERFORMANCE_V2_MODEL_CONFIG = PERFORMANCE_V2_MODEL_CONFIG,
+  config: PerformanceV2ModelConfig = PERFORMANCE_V2_MODEL_CONFIG,
 ): number | null {
   const active = new Set(activeDungeonSlugs);
   const rows = perDungeon.filter((d) => active.has(d.dungeonSlug));

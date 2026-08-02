@@ -88,11 +88,49 @@ export const SURVIVAL_V2_METRIC_KEYS = {
 
 export type SurvivalV2RelativeDamageMode = "off" | "shadow" | "active";
 
+/** Writable/validated shape — numeric fields are `number` so overrides can differ from defaults. */
+export type SurvivalV2ModelConfig = {
+  schemaVersion: typeof SURVIVAL_V2_CALIBRATION_SCHEMA_VERSION;
+  algorithmVersion: string;
+  modelLabel: string;
+  calibrationStatus: SurvivalV2CalibrationStatus;
+  outcomeByDeaths: { 0: number; 1: number; 2: number; threeOrMore: number };
+  weightsWithRelative: {
+    outcome: number;
+    defensive: number;
+    recovery: number;
+    relativeDamage: number;
+  };
+  weightsShadowOrOff: {
+    outcome: number;
+    defensive: number;
+    recovery: number;
+    relativeDamage: number;
+  };
+  danger: {
+    lowHpRatio: number;
+    mergeGapMs: number;
+    recoverAboveHpRatio: number;
+    stableRecoveryMs: number;
+    continuousPressureGapMs: number;
+  };
+  defensiveRate: {
+    saturatingK: number;
+    applicableCategories: readonly string[];
+  };
+  metricKeys: {
+    outcome: string;
+    defensive: string;
+    recovery: string;
+    relativeDamage: string;
+  };
+};
+
 /**
  * Immutable Phase 1 coefficient bundle.
  * Do not mutate at runtime; clone a new versioned object for calibration.
  */
-export const SURVIVAL_V2_MODEL_CONFIG = Object.freeze({
+export const SURVIVAL_V2_MODEL_CONFIG: SurvivalV2ModelConfig = Object.freeze({
   schemaVersion: SURVIVAL_V2_CALIBRATION_SCHEMA_VERSION,
   algorithmVersion: SURVIVAL_V2_ALGORITHM_VERSION,
   modelLabel: SURVIVAL_V2_MODEL_LABEL,
@@ -103,6 +141,4 @@ export const SURVIVAL_V2_MODEL_CONFIG = Object.freeze({
   danger: SURVIVAL_V2_DANGER,
   defensiveRate: SURVIVAL_V2_DEFENSIVE_RATE,
   metricKeys: SURVIVAL_V2_METRIC_KEYS,
-} as const);
-
-export type SurvivalV2ModelConfig = typeof SURVIVAL_V2_MODEL_CONFIG;
+});

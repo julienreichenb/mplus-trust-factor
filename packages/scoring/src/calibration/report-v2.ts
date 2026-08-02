@@ -3,8 +3,12 @@
  * Does not redesign UI; additive fields for admin/API consumers.
  */
 
+import type { ScoringV2DimensionConfigFingerprints } from "../model-config/score-model-v2-mapping.js";
 import type { QualitativeLabel } from "./types.js";
+import type { FrozenDimensionModelConfigsV2 } from "./bundle-v2.js";
 import type {
+  CalibrationV2ActiveVersusDraftDimensionDelta,
+  CalibrationV2ActiveVersusDraftReport,
   CalibrationV2DimensionReplayResult,
   CalibrationV2ReplayReport,
 } from "./replay-v2.js";
@@ -13,6 +17,9 @@ export const CALIBRATION_REPORT_V2_SCHEMA_VERSION = "2.0.0" as const;
 
 /** Minimum members before a slice may be interpreted as a recommendation. */
 export const CALIBRATION_V2_MIN_SLICE_SIZE = 5;
+
+/** Bound leaf paths listed for public-safe config diffs. */
+export const CALIBRATION_V2_CHANGED_CONFIG_FIELD_LIMIT = 32;
 
 export interface CalibrationV2SliceLimitation {
   sliceKey: string;
@@ -69,8 +76,22 @@ export interface CalibrationV2ReportExtension {
   activeVersusDraft: {
     identicalEvidence: true;
     sourceModelsImmutable: true;
+    activeModelKey: string | null;
+    activeModelVersion: number | null;
+    draftModelKey: string | null;
+    draftModelVersion: number | null;
+    activeConfigFingerprints: ScoringV2DimensionConfigFingerprints | null;
+    draftConfigFingerprints: ScoringV2DimensionConfigFingerprints | null;
+    /** Bounded public-safe leaf paths that differ between frozen configs. */
+    changedConfigFields: string[];
     memberDeltas: CalibrationV2MemberDelta[];
+    /** Rich per-dimension deltas when active-versus-draft replay report is supplied. */
+    dimensionDeltas: CalibrationV2ActiveVersusDraftDimensionDelta[];
     meanOverallDelta: number | null;
+    unavailableOrIncompatibleReasons: string[];
+    providerCalls: 0;
+    modelActivated: false;
+    publicationMutated: false;
   } | null;
   /** Optional V1 snapshot overall vs V2 replay overall. */
   v1VersusV2: {
@@ -136,6 +157,11 @@ export interface BuildCalibrationReportV2ExtensionInput {
   draftReplay: CalibrationV2ReplayReport;
   /** Active-side replay for active-versus-draft. */
   activeReplay?: CalibrationV2ReplayReport | null;
+  /** Full active-versus-draft replay report when available (preferred for CP6 fields). */
+  activeVersusDraftReport?: CalibrationV2ActiveVersusDraftReport | null;
+  /** Frozen configs used for bounded changed-field listing. */
+  activeDimensionConfigs?: FrozenDimensionModelConfigsV2 | null;
+  evaluationDimensionConfigs?: FrozenDimensionModelConfigsV2 | null;
   /** Optional V1 overall scores by memberId for V1/V2 deltas. */
   v1OverallByMemberId?: Record<string, number | null>;
   /** Optional member metadata for slices. */
@@ -154,6 +180,48 @@ export interface BuildCalibrationReportV2ExtensionInput {
   performanceDisagreements?: CalibrationV2PerformanceDisagreement[];
   /** Frozen cost diagnostics when present on the bundle. */
   frozenCostNotes?: string[];
+}
+
+/**
+ * Public-safe leaf-path diff of frozen dimension configs.
+ * Values are omitted — only dotted paths (capped) are returned.
+ */
+export function listChangedConfigFields(
+  active: FrozenDimensionModelConfigsV2 | null | undefined,
+  draft: FrozenDimensionModelConfigsV2 | null | undefined,
+  limit = CALIBRATION_V2_CHANGED_CONFIG_FIELD_LIMIT,
+): string[] {
+  if (!active || !draft) return [];
+  const paths: string[] = [];
+  const walk = (a: unknown, d: unknown, prefix: string): void => {
+    if (paths.length >= limit) return;
+    if (a === d) return;
+    const aObj = a != null && typeof a === "object" && !Array.isArray(a);
+    const dObj = d != null && typeof d === "object" && !Array.isArray(d);
+    if (aObj && dObj) {
+      const keys = new Set([
+        ...Object.keys(a as Record<string, unknown>),
+        ...Object.keys(d as Record<string, unknown>),
+      ]);
+      for (const key of [...keys].sort()) {
+        if (key === "schemaVersion") continue;
+        walk(
+          (a as Record<string, unknown>)[key],
+          (d as Record<string, unknown>)[key],
+          prefix ? `${prefix}.${key}` : key,
+        );
+        if (paths.length >= limit) return;
+      }
+      return;
+    }
+    if (Array.isArray(a) || Array.isArray(d)) {
+      paths.push(prefix);
+      return;
+    }
+    paths.push(prefix);
+  };
+  walk(active.configs, draft.configs, "");
+  return paths.filter(Boolean).slice(0, limit);
 }
 
 /**
@@ -310,6 +378,27 @@ export function buildCalibrationReportV2Extension(
       : []),
   ];
 
+  const avd = input.activeVersusDraftReport ?? null;
+  const changedConfigFields = listChangedConfigFields(
+    input.activeDimensionConfigs ?? null,
+    input.evaluationDimensionConfigs ?? null,
+  );
+  const unavailableOrIncompatibleReasons = [
+    ...new Set(
+      [
+        ...(avd?.members.flatMap((m) => m.errors) ?? []),
+        ...draft.members.flatMap((m) => m.errors),
+        ...(active?.members.flatMap((m) => m.errors) ?? []),
+        ...draft.preflightIssues
+          .filter((i) => i.severity === "BLOCKING")
+          .map((i) => `${i.code}: ${i.message}`),
+      ].filter((s): s is string => typeof s === "string" && s.length > 0),
+    ),
+  ].sort();
+
+  const richDimensionDeltas: CalibrationV2ActiveVersusDraftDimensionDelta[] =
+    avd?.members.flatMap((m) => m.dimensions) ?? [];
+
   return {
     schemaVersion: CALIBRATION_REPORT_V2_SCHEMA_VERSION,
     bundleHash: draft.bundleHash,
@@ -317,14 +406,28 @@ export function buildCalibrationReportV2Extension(
     deterministicSeed: draft.deterministicSeed,
     providerCalls: 0,
     refreshCalls: 0,
-    activeVersusDraft: active
+    activeVersusDraft: active || avd
       ? {
           identicalEvidence: true,
           sourceModelsImmutable: true,
+          activeModelKey: avd?.activeModelKey ?? draft.activeModelKey ?? null,
+          activeModelVersion: avd?.activeModelVersion ?? null,
+          draftModelKey: avd?.draftModelKey ?? draft.evaluationModelKey ?? null,
+          draftModelVersion: avd?.draftModelVersion ?? null,
+          activeConfigFingerprints: avd?.activeConfigFingerprints ?? null,
+          draftConfigFingerprints: avd?.draftConfigFingerprints ?? null,
+          changedConfigFields,
           memberDeltas,
-          meanOverallDelta: mean(
-            memberDeltas.map((d) => d.overallDelta).filter((x): x is number => x != null),
-          ),
+          dimensionDeltas: richDimensionDeltas,
+          meanOverallDelta:
+            avd?.meanOverallDelta ??
+            mean(
+              memberDeltas.map((d) => d.overallDelta).filter((x): x is number => x != null),
+            ),
+          unavailableOrIncompatibleReasons,
+          providerCalls: 0,
+          modelActivated: false,
+          publicationMutated: false,
         }
       : null,
     v1VersusV2,

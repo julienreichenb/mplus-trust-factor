@@ -145,6 +145,12 @@ describe("buildCalibrationReportV2Extension", () => {
     expect(a.schemaVersion).toBe("2.0.0");
     expect(a.providerCalls).toBe(0);
     expect(a.activeVersusDraft?.identicalEvidence).toBe(true);
+    expect(a.activeVersusDraft?.providerCalls).toBe(0);
+    expect(a.activeVersusDraft?.modelActivated).toBe(false);
+    expect(a.activeVersusDraft?.publicationMutated).toBe(false);
+    expect(a.activeVersusDraft?.activeModelKey).toBe("v6");
+    expect(a.activeVersusDraft?.draftModelKey).toBe("v6-draft");
+    expect(a.activeVersusDraft?.changedConfigFields).toEqual([]);
     expect(a.v1VersusV2?.memberDeltas).toHaveLength(2);
     expect(a.dimensionDeltas.length).toBeGreaterThan(0);
     expect(a.performanceDetailedVersusProfile[0]?.disagreement).toBe(7);

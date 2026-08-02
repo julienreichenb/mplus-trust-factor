@@ -1,5 +1,5 @@
 import { clamp01 } from "../../math.js";
-import { PERFORMANCE_V2_MODEL_CONFIG } from "./constants.js";
+import { PERFORMANCE_V2_MODEL_CONFIG, type PerformanceV2ModelConfig } from "./constants.js";
 
 /**
  * slotCoverage = validDetailedSlots / expectedSlots
@@ -9,7 +9,7 @@ import { PERFORMANCE_V2_MODEL_CONFIG } from "./constants.js";
 export function computeDetailedWeight(
   validDetailedSlotCount: number,
   expectedSlotCount: number,
-  config: typeof PERFORMANCE_V2_MODEL_CONFIG = PERFORMANCE_V2_MODEL_CONFIG,
+  config: PerformanceV2ModelConfig = PERFORMANCE_V2_MODEL_CONFIG,
 ): { slotCoverage: number; detailedWeight: number } {
   const expected = Math.max(0, expectedSlotCount);
   const slotCoverage =

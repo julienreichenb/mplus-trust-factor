@@ -1,7 +1,7 @@
 import type { EvidenceRole } from "@mplus/contracts";
 import type {
   PerformanceV2CalibrationStatus,
-  PERFORMANCE_V2_MODEL_CONFIG,
+  PerformanceV2ModelConfig,
   PERFORMANCE_V2_SCHEMA_VERSION,
 } from "./constants.js";
 
@@ -209,7 +209,7 @@ export interface PerformanceV2ComputeResult {
 export interface PerformanceV2CalibrationExport {
   schemaVersion: typeof PERFORMANCE_V2_SCHEMA_VERSION;
   algorithmVersion: string;
-  modelConfig: typeof PERFORMANCE_V2_MODEL_CONFIG;
+  modelConfig: PerformanceV2ModelConfig;
   input: PerformanceV2ComputeInput;
   result: Pick<
     PerformanceV2ComputeResult,

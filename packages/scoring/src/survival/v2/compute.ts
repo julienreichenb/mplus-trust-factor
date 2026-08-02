@@ -3,7 +3,6 @@ import type { CharacterSeasonEvidenceManifestV2 } from "@mplus/contracts";
 import {
   SURVIVAL_V2_ALGORITHM_VERSION,
   SURVIVAL_V2_MODEL_CONFIG,
-  SURVIVAL_V2_MODEL_LABEL,
   type SurvivalV2ModelConfig,
   type SurvivalV2RelativeDamageMode,
 } from "./constants.js";

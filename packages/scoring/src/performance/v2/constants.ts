@@ -19,11 +19,54 @@ export type PerformanceV2CalibrationStatus =
 export const PERFORMANCE_V2_CALIBRATION_STATUS: PerformanceV2CalibrationStatus =
   "CANDIDATE_DEFAULTS_UNCALIBRATED";
 
+/** Writable/validated shape — numeric fields are `number` so overrides can differ from defaults. */
+export type PerformanceV2ModelConfig = {
+  schemaVersion: typeof PERFORMANCE_V2_SCHEMA_VERSION;
+  algorithmVersion: string;
+  modelLabel: string;
+  calibrationStatus: PerformanceV2CalibrationStatus;
+  lowKeyBaseline: number;
+  difficultyMultipliers: {
+    atOrBelowLowBaseline: number;
+    atK50: number;
+    atK90: number;
+    atK99: number;
+    aboveK99Cap: number;
+  };
+  parseCenter: number;
+  dungeonWeights: { peak: number; floor: number; consistency: number };
+  profileWeights: { bestAverage: number; medianAverage: number };
+  blend: {
+    detailedWeightFloor: number;
+    detailedWeightSlope: number;
+    detailedWeightCoverageExponent: number;
+    detailedWeightCap: number;
+  };
+  oneRunDungeonConfidenceCap: number;
+  role: {
+    dpsFieldValidated: boolean;
+    tankAdapterVerified: boolean;
+    healerAdapterVerified: boolean;
+  };
+  confidenceWeights: {
+    dungeonCoverage: number;
+    slotCoverage: number;
+    twoRunShare: number;
+    profileAvailability: number;
+    adapterValidity: number;
+    partitionCompatibility: number;
+    freshness: number;
+    policyConfidence: number;
+  };
+  loggedRunCountContextualWeight: number;
+  profileDisagreementDiagnosticThreshold: number;
+};
+
 /**
  * Immutable Phase 1 coefficient bundle.
  * Do not mutate at runtime; clone a new versioned object for calibration.
  */
-export const PERFORMANCE_V2_MODEL_CONFIG = Object.freeze({
+export const PERFORMANCE_V2_MODEL_CONFIG: PerformanceV2ModelConfig = Object.freeze({
   schemaVersion: PERFORMANCE_V2_SCHEMA_VERSION,
   algorithmVersion: PERFORMANCE_V2_ALGORITHM_VERSION,
   modelLabel: PERFORMANCE_V2_MODEL_LABEL,
@@ -94,6 +137,4 @@ export const PERFORMANCE_V2_MODEL_CONFIG = Object.freeze({
 
   /** Large profile-vs-equal-dungeon disagreement diagnostic threshold (absolute). */
   profileDisagreementDiagnosticThreshold: 15,
-} as const);
-
-export type PerformanceV2ModelConfig = typeof PERFORMANCE_V2_MODEL_CONFIG;
+});

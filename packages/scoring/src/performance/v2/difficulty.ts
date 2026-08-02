@@ -1,5 +1,5 @@
 import { clamp } from "../../math.js";
-import { PERFORMANCE_V2_MODEL_CONFIG } from "./constants.js";
+import { PERFORMANCE_V2_MODEL_CONFIG, type PerformanceV2ModelConfig } from "./constants.js";
 import type { SeasonDifficultyPolicyV2 } from "./types.js";
 
 export interface DifficultyMultiplierKnot {
@@ -12,7 +12,7 @@ export interface DifficultyMultiplierKnot {
  */
 export function buildDifficultyMultiplierKnots(
   policy: Pick<SeasonDifficultyPolicyV2, "k50" | "k90" | "k99">,
-  config: typeof PERFORMANCE_V2_MODEL_CONFIG = PERFORMANCE_V2_MODEL_CONFIG,
+  config: PerformanceV2ModelConfig = PERFORMANCE_V2_MODEL_CONFIG,
 ): DifficultyMultiplierKnot[] {
   const { difficultyMultipliers, lowKeyBaseline } = config;
   const knots: DifficultyMultiplierKnot[] = [
@@ -32,7 +32,7 @@ export function buildDifficultyMultiplierKnots(
 export function interpolateDifficultyMultiplier(
   keyLevel: number,
   policy: Pick<SeasonDifficultyPolicyV2, "k50" | "k90" | "k99">,
-  config: typeof PERFORMANCE_V2_MODEL_CONFIG = PERFORMANCE_V2_MODEL_CONFIG,
+  config: PerformanceV2ModelConfig = PERFORMANCE_V2_MODEL_CONFIG,
 ): number {
   if (!Number.isFinite(keyLevel) || keyLevel <= 0) {
     return config.difficultyMultipliers.atOrBelowLowBaseline;
@@ -67,7 +67,7 @@ export function adjustParseForDifficulty(
   parsePercentile: number,
   keyLevel: number,
   policy: Pick<SeasonDifficultyPolicyV2, "k50" | "k90" | "k99">,
-  config: typeof PERFORMANCE_V2_MODEL_CONFIG = PERFORMANCE_V2_MODEL_CONFIG,
+  config: PerformanceV2ModelConfig = PERFORMANCE_V2_MODEL_CONFIG,
 ): { difficultyMultiplier: number; adjustedParse: number } {
   const difficultyMultiplier = interpolateDifficultyMultiplier(keyLevel, policy, config);
   const center = config.parseCenter;

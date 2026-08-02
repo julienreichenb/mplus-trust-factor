@@ -1,7 +1,4 @@
-import {
-  SURVIVAL_V2_CALIBRATION_SCHEMA_VERSION,
-  SURVIVAL_V2_MODEL_CONFIG,
-} from "./constants.js";
+import { SURVIVAL_V2_CALIBRATION_SCHEMA_VERSION } from "./constants.js";
 import { computeSurvivalV2, type SurvivalV2ComputeOptions } from "./compute.js";
 import { resolveSurvivalV2ModelConfig } from "./model-config.js";
 import type {
