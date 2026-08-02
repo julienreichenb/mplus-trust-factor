@@ -1,5 +1,9 @@
 import type { EvidenceRole } from "@mplus/contracts";
-import type { PerformanceV2CalibrationStatus } from "./constants.js";
+import type {
+  PerformanceV2CalibrationStatus,
+  PERFORMANCE_V2_MODEL_CONFIG,
+  PERFORMANCE_V2_SCHEMA_VERSION,
+} from "./constants.js";
 
 /** Versioned Season Difficulty Policy — never a hardcoded universal high-key threshold. */
 export interface SeasonDifficultyPolicyV2 {
@@ -200,9 +204,9 @@ export interface PerformanceV2ComputeResult {
 
 /** Replayable calibration export (provider-free). */
 export interface PerformanceV2CalibrationExport {
-  schemaVersion: typeof import("./constants.js").PERFORMANCE_V2_SCHEMA_VERSION;
+  schemaVersion: typeof PERFORMANCE_V2_SCHEMA_VERSION;
   algorithmVersion: string;
-  modelConfig: typeof import("./constants.js").PERFORMANCE_V2_MODEL_CONFIG;
+  modelConfig: typeof PERFORMANCE_V2_MODEL_CONFIG;
   input: PerformanceV2ComputeInput;
   result: Pick<
     PerformanceV2ComputeResult,
