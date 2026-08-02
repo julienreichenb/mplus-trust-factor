@@ -17,6 +17,7 @@
     "season:sync-authority": "tsx src/orchestration/sync-season-authority.cli.ts"
   },
   "dependencies": {
+    "@mplus/artifact-store": "workspace:*",
     "@mplus/config": "workspace:*",
     "@mplus/contracts": "workspace:*",
     "@mplus/database": "workspace:*",

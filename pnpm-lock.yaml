@@ -188,6 +188,9 @@ importers:
       '@mplus/addon-exporter':
         specifier: workspace:*
         version: link:../../tools/addon-exporter
+      '@mplus/artifact-store':
+        specifier: workspace:*
+        version: link:../../packages/artifact-store
       '@mplus/config':
         specifier: workspace:*
         version: link:../../packages/config

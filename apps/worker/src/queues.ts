@@ -1,26 +1,32 @@
 import { Queue, type ConnectionOptions } from "bullmq";
 import {
   QUEUE_NAMES,
+  analyzeEvidenceSlotJobV2Schema,
   analyzeRunJobSchema,
   bulkOrchestratorJobSchema,
   calibrationRunJobSchema,
   discoverOwnedCharactersJobSchema,
+  finalizeEvidenceBatchJobV2Schema,
   generateAddonExportJobSchema,
   recalculateScoreJobSchema,
   refreshCharacterJobSchema,
+  type AnalyzeEvidenceSlotJobV2,
   type AnalyzeRunJob,
   type BulkOrchestratorJob,
   type CalibrationRunJob,
   type DiscoverOwnedCharactersJob,
+  type FinalizeEvidenceBatchJobV2,
   type GenerateAddonExportJob,
   type RecalculateScoreJob,
   type RefreshCharacterJob,
 } from "@mplus/contracts";
 import type { WorkerContainer } from "./container.js";
 import {
+  analyzeEvidenceSlotV2DedupeKey,
   analyzeRunDedupeKey,
   bulkCharacterProcessingDedupeKey,
   discoverOwnedCharactersDedupeKey,
+  finalizeEvidenceBatchV2DedupeKey,
   generateAddonExportDedupeKey,
   recalculateScoreDedupeKey,
   refreshCharacterDedupeKey,
@@ -64,6 +70,18 @@ export interface QueueProducers {
   enqueueCalibrationRun(
     input: { calibrationRunId: string; requestedAt?: string; correlationId?: string | null },
   ): Promise<EnqueueResult>;
+  /** Scoring V2 — one job per acquisition-plan slot (provider-aware). */
+  enqueueAnalyzeEvidenceSlot(
+    input: Omit<AnalyzeEvidenceSlotJobV2, "requestedAt" | "schemaVersion"> & {
+      requestedAt?: string;
+    },
+  ): Promise<EnqueueResult>;
+  /** Scoring V2 — fan-in finalization (provider-free). */
+  enqueueFinalizeEvidenceBatch(
+    input: Omit<FinalizeEvidenceBatchJobV2, "requestedAt" | "schemaVersion"> & {
+      requestedAt?: string;
+    },
+  ): Promise<EnqueueResult>;
   /** Refresh-character queue for admin cancel/prioritize/kill-all. Null in inline mode. */
   getRefreshCharacterQueue(): Queue | null;
   /** Calibration-run queue for admin cancel (QUEUED jobs). Null in inline mode. */
@@ -91,6 +109,10 @@ export function createQueueProducers(
       connection,
     }),
     [QUEUE_NAMES.calibrationRun]: new Queue(QUEUE_NAMES.calibrationRun, { connection }),
+    [QUEUE_NAMES.analyzeEvidenceSlot]: new Queue(QUEUE_NAMES.analyzeEvidenceSlot, { connection }),
+    [QUEUE_NAMES.finalizeAnalysisBatch]: new Queue(QUEUE_NAMES.finalizeAnalysisBatch, {
+      connection,
+    }),
   } as const;
 
   async function enqueue(
@@ -229,6 +251,36 @@ export function createQueueProducers(
         reused: false,
         enqueued: true,
       };
+    },
+
+    async enqueueAnalyzeEvidenceSlot(input) {
+      const payload = analyzeEvidenceSlotJobV2Schema.parse({
+        ...input,
+        schemaVersion: "2.0.0",
+        requestedAt: input.requestedAt ?? new Date().toISOString(),
+      });
+      const dedupeKey = analyzeEvidenceSlotV2DedupeKey(payload);
+      return enqueue(
+        queues[QUEUE_NAMES.analyzeEvidenceSlot],
+        QUEUE_NAMES.analyzeEvidenceSlot,
+        dedupeKey,
+        payload,
+      );
+    },
+
+    async enqueueFinalizeEvidenceBatch(input) {
+      const payload = finalizeEvidenceBatchJobV2Schema.parse({
+        ...input,
+        schemaVersion: "2.0.0",
+        requestedAt: input.requestedAt ?? new Date().toISOString(),
+      });
+      const dedupeKey = finalizeEvidenceBatchV2DedupeKey(payload);
+      return enqueue(
+        queues[QUEUE_NAMES.finalizeAnalysisBatch],
+        QUEUE_NAMES.finalizeAnalysisBatch,
+        dedupeKey,
+        payload,
+      );
     },
 
     getRefreshCharacterQueue() {

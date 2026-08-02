@@ -5,10 +5,12 @@
 export { createWorkerContainer, type WorkerContainer, type WorkerContainerOverrides, type WorkerProviders } from "./container.js";
 
 export {
+  analyzeEvidenceSlotV2DedupeKey,
   analyzeRunDedupeKey,
   buildDedupeKey,
   bulkCharacterProcessingDedupeKey,
   discoverOwnedCharactersDedupeKey,
+  finalizeEvidenceBatchV2DedupeKey,
   generateAddonExportDedupeKey,
   recalculateScoreDedupeKey,
   refreshCharacterDedupeKey,

@@ -46,6 +46,14 @@ export function classifyError(error: unknown): RetryClassification {
     if (code === "CANCELLED" || code === "REFRESH_SUPERSEDED_DEDUPED") {
       return { retryable: false, softSkip: false, providerFailure: false };
     }
+    if (code === "SCORING_V2_RATE_DEFER") {
+      return {
+        retryable: false,
+        softSkip: false,
+        providerFailure: false,
+        delayMs: (error as { delayMs?: number }).delayMs ?? 60_000,
+      };
+    }
   }
   if (error instanceof ExternalApiError) {
     return CLASSIFICATION_BY_CODE[error.code];

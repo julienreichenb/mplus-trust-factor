@@ -1,10 +1,12 @@
 import { Queue, Worker, type ConnectionOptions, type Job } from "bullmq";
 import {
   QUEUE_NAMES,
+  analyzeEvidenceSlotJobV2Schema,
   analyzeRunJobSchema,
   bulkOrchestratorJobSchema,
   calibrationRunJobSchema,
   discoverOwnedCharactersJobSchema,
+  finalizeEvidenceBatchJobV2Schema,
   generateAddonExportJobSchema,
   recalculateScoreJobSchema,
   refreshCharacterJobSchema,
@@ -13,6 +15,7 @@ import { toJsonSafeSanitized } from "@mplus/observability";
 import type { WorkerContainer } from "./container.js";
 import {
   bulkCharacterProcessingDedupeKey,
+  finalizeEvidenceBatchV2DedupeKey,
   recalculateScoreDedupeKey,
   refreshCharacterDedupeKey,
 } from "./dedupe.js";
@@ -25,6 +28,10 @@ import { runGenerateAddonExport } from "./orchestration/generate-addon-export.js
 import { runRecalculateScore } from "./orchestration/recalculate-score.js";
 import { runRefreshPipeline } from "./orchestration/refresh-pipeline.js";
 import { classifyError } from "./orchestration/retry-classification.js";
+import {
+  runAnalyzeEvidenceSlotV2,
+  runFinalizeEvidenceBatchV2,
+} from "./orchestration/scoring-v2/index.js";
 import type { BulkOrchestratorProducers, DiscoveryRefreshProducers } from "./queues.js";
 
 /** BullMQ JSON-encodes job return values; Prisma may include BigInt. Secrets/report codes are stripped. */
@@ -270,7 +277,64 @@ export function createWorkers(connection: ConnectionOptions, container: WorkerCo
     { connection, autorun: false, concurrency: 1 },
   );
 
-  for (const worker of [refresh, analyze, recalculate, addonExport, discover, bulk, calibration]) {
+  // Scoring V2 slot fan-out — bounded concurrency independent of job count.
+  // Per-character fairness is enforced via batch generation + claim CAS, not unbounded WCL.
+  const evidenceSlotFinalizeQueue = new Queue(QUEUE_NAMES.finalizeAnalysisBatch, { connection });
+  const evidenceSlot = new Worker(
+    QUEUE_NAMES.analyzeEvidenceSlot,
+    async (job) => {
+      const payload = analyzeEvidenceSlotJobV2Schema.parse(job.data);
+      const result = await withRetryClassification(job, () =>
+        runAnalyzeEvidenceSlotV2(container, payload, {
+          async enqueueFinalizeEvidenceBatch(input) {
+            const finalizePayload = finalizeEvidenceBatchJobV2Schema.parse({
+              ...input,
+              schemaVersion: "2.0.0",
+              requestedAt: input.requestedAt ?? new Date().toISOString(),
+            });
+            const dedupeKey = finalizeEvidenceBatchV2DedupeKey(finalizePayload);
+            const enqueued = await persistAndEnqueue({
+              queue: evidenceSlotFinalizeQueue,
+              jobType: QUEUE_NAMES.finalizeAnalysisBatch,
+              dedupeKey,
+              payload: finalizePayload,
+              jobRepository: container.repositories.job,
+              logger: container.logger,
+            });
+            return { jobId: enqueued.jobId };
+          },
+        }),
+      );
+      return toBullmqReturnValue(result);
+    },
+    // Bound WCL concurrency: keep low regardless of how many slot jobs are queued.
+    { connection, autorun: false, concurrency: 2 },
+  );
+
+  // Scoring V2 fan-in — provider-free (no producers / no WCL). Calibration stays isolated.
+  const evidenceFinalize = new Worker(
+    QUEUE_NAMES.finalizeAnalysisBatch,
+    async (job) => {
+      const payload = finalizeEvidenceBatchJobV2Schema.parse(job.data);
+      const result = await withRetryClassification(job, () =>
+        runFinalizeEvidenceBatchV2(container, payload),
+      );
+      return toBullmqReturnValue(result);
+    },
+    { connection, autorun: false, concurrency: 1 },
+  );
+
+  for (const worker of [
+    refresh,
+    analyze,
+    recalculate,
+    addonExport,
+    discover,
+    bulk,
+    calibration,
+    evidenceSlot,
+    evidenceFinalize,
+  ]) {
     worker.on("failed", (job, error) => {
       container.logger.error({ jobId: job?.id, queue: worker.name, err: error }, "job failed");
     });
@@ -288,7 +352,23 @@ export function createWorkers(connection: ConnectionOptions, container: WorkerCo
     return originalBulkClose(force);
   };
 
-  return [refresh, analyze, recalculate, addonExport, discover, bulk, calibration];
+  const originalEvidenceSlotClose = evidenceSlot.close.bind(evidenceSlot);
+  evidenceSlot.close = async (force?: boolean) => {
+    await evidenceSlotFinalizeQueue.close();
+    return originalEvidenceSlotClose(force);
+  };
+
+  return [
+    refresh,
+    analyze,
+    recalculate,
+    addonExport,
+    discover,
+    bulk,
+    calibration,
+    evidenceSlot,
+    evidenceFinalize,
+  ];
 }
 
 /** Gracefully closes all workers; safe to call even if some workers never started running. */

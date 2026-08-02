@@ -11,6 +11,7 @@
     { "path": "../../packages/config" },
     { "path": "../../packages/contracts" },
     { "path": "../../packages/database" },
+    { "path": "../../packages/artifact-store" },
     { "path": "../../packages/domain" },
     { "path": "../../packages/observability" },
     { "path": "../../packages/scoring" }

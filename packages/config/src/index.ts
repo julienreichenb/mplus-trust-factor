@@ -147,6 +147,33 @@ export const envSchema = z
      */
     ADMIN_CALIBRATION_ENABLED: booleanFromString.default(false),
     /**
+     * Scoring V2 master switch. Default false — fail closed.
+     * When false, all SCORING_V2_* feature paths are no-ops regardless of child flags.
+     */
+    SCORING_V2_ENABLED: booleanFromString.default(false),
+    /** Build EvidenceAcquisitionPlanV2 / freeze manifests (shadow). */
+    SCORING_V2_SELECTION_ENABLED: booleanFromString.default(false),
+    /** Fan-out slot acquisition + dataset/fact persistence (shadow). */
+    SCORING_V2_EVIDENCE_FETCH_ENABLED: booleanFromString.default(false),
+    /** Provider-free dimension aggregation placeholder (shadow). */
+    SCORING_V2_DIMENSIONS_ENABLED: booleanFromString.default(false),
+    /**
+     * Public pointer mutation for V2. MUST remain false until cutover approval.
+     * Enabling without master + fetch + dimensions is an incompatible combo.
+     */
+    SCORING_V2_PUBLICATION_ENABLED: booleanFromString.default(false),
+    SCORING_V2_PERFORMANCE_ENABLED: booleanFromString.default(false),
+    SCORING_V2_SURVIVAL_ENABLED: booleanFromString.default(false),
+    SCORING_V2_UTILITY_ENABLED: booleanFromString.default(false),
+    SCORING_V2_EXPERIENCE_ENABLED: booleanFromString.default(false),
+    SCORING_V2_RELATIVE_DAMAGE_MODE: z.enum(["off", "shadow", "active"]).default("off"),
+    SCORING_V2_UTILITY_OPPORTUNITY_MODE: z.enum(["off", "shadow", "active"]).default("off"),
+    SCORING_V2_REFERENCE_COMPARISON_MODE: z
+      .enum(["off", "collect", "shadow", "active"])
+      .default("off"),
+    /** Calibration V2 replay against frozen evidence. Default false — fail closed. */
+    CALIBRATION_V2_ENABLED: booleanFromString.default(false),
+    /**
      * Emergency shared-key fallback for machine/admin recovery.
      * Default false — must be explicitly enabled. Local `.env.example` sets true for development only.
      * Never accepted from SPA code; every successful use is audited; startup warns when enabled.
@@ -239,9 +266,111 @@ export const envSchema = z
         path: ["WCL_CLIENT_ID"],
       });
     }
+  })
+  .superRefine((env, ctx) => {
+    for (const issue of evaluateScoringV2FlagCompatibility(env)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: issue,
+        path: ["SCORING_V2_ENABLED"],
+      });
+    }
   });
 
 export type AppEnv = z.infer<typeof envSchema>;
+
+/** Scoring V2 rollout flag snapshot for readiness / diagnostics. */
+export interface ScoringV2FlagSummary {
+  enabled: boolean;
+  selectionEnabled: boolean;
+  evidenceFetchEnabled: boolean;
+  dimensionsEnabled: boolean;
+  publicationEnabled: boolean;
+  performanceEnabled: boolean;
+  survivalEnabled: boolean;
+  utilityEnabled: boolean;
+  experienceEnabled: boolean;
+  relativeDamageMode: AppEnv["SCORING_V2_RELATIVE_DAMAGE_MODE"];
+  utilityOpportunityMode: AppEnv["SCORING_V2_UTILITY_OPPORTUNITY_MODE"];
+  referenceComparisonMode: AppEnv["SCORING_V2_REFERENCE_COMPARISON_MODE"];
+  calibrationV2Enabled: boolean;
+  /** Empty when compatible; otherwise human-readable incompatible combo reasons. */
+  incompatibleReasons: string[];
+}
+
+export function evaluateScoringV2FlagCompatibility(
+  env: Pick<
+    AppEnv,
+    | "SCORING_V2_ENABLED"
+    | "SCORING_V2_SELECTION_ENABLED"
+    | "SCORING_V2_EVIDENCE_FETCH_ENABLED"
+    | "SCORING_V2_DIMENSIONS_ENABLED"
+    | "SCORING_V2_PUBLICATION_ENABLED"
+    | "SCORING_V2_PERFORMANCE_ENABLED"
+    | "SCORING_V2_SURVIVAL_ENABLED"
+    | "SCORING_V2_UTILITY_ENABLED"
+    | "SCORING_V2_EXPERIENCE_ENABLED"
+    | "SCORING_V2_RELATIVE_DAMAGE_MODE"
+    | "SCORING_V2_UTILITY_OPPORTUNITY_MODE"
+    | "SCORING_V2_REFERENCE_COMPARISON_MODE"
+    | "CALIBRATION_V2_ENABLED"
+  >,
+): string[] {
+  const reasons: string[] = [];
+  if (env.SCORING_V2_PUBLICATION_ENABLED && !env.SCORING_V2_ENABLED) {
+    reasons.push("SCORING_V2_PUBLICATION_ENABLED requires SCORING_V2_ENABLED");
+  }
+  if (env.SCORING_V2_PUBLICATION_ENABLED && !env.SCORING_V2_EVIDENCE_FETCH_ENABLED) {
+    reasons.push("SCORING_V2_PUBLICATION_ENABLED requires SCORING_V2_EVIDENCE_FETCH_ENABLED");
+  }
+  if (env.SCORING_V2_PUBLICATION_ENABLED && !env.SCORING_V2_DIMENSIONS_ENABLED) {
+    reasons.push("SCORING_V2_PUBLICATION_ENABLED requires SCORING_V2_DIMENSIONS_ENABLED");
+  }
+  if (env.SCORING_V2_EVIDENCE_FETCH_ENABLED && !env.SCORING_V2_SELECTION_ENABLED) {
+    reasons.push("SCORING_V2_EVIDENCE_FETCH_ENABLED requires SCORING_V2_SELECTION_ENABLED");
+  }
+  if (env.SCORING_V2_DIMENSIONS_ENABLED && !env.SCORING_V2_EVIDENCE_FETCH_ENABLED) {
+    reasons.push("SCORING_V2_DIMENSIONS_ENABLED requires SCORING_V2_EVIDENCE_FETCH_ENABLED");
+  }
+  if (env.SCORING_V2_SELECTION_ENABLED && !env.SCORING_V2_ENABLED) {
+    reasons.push("SCORING_V2_SELECTION_ENABLED requires SCORING_V2_ENABLED");
+  }
+  if (env.CALIBRATION_V2_ENABLED && !env.SCORING_V2_ENABLED) {
+    reasons.push("CALIBRATION_V2_ENABLED requires SCORING_V2_ENABLED");
+  }
+  if (env.SCORING_V2_RELATIVE_DAMAGE_MODE === "active" && !env.SCORING_V2_PERFORMANCE_ENABLED) {
+    reasons.push("SCORING_V2_RELATIVE_DAMAGE_MODE=active requires SCORING_V2_PERFORMANCE_ENABLED");
+  }
+  if (env.SCORING_V2_UTILITY_OPPORTUNITY_MODE === "active" && !env.SCORING_V2_UTILITY_ENABLED) {
+    reasons.push("SCORING_V2_UTILITY_OPPORTUNITY_MODE=active requires SCORING_V2_UTILITY_ENABLED");
+  }
+  if (
+    env.SCORING_V2_REFERENCE_COMPARISON_MODE === "active" &&
+    !env.SCORING_V2_ENABLED
+  ) {
+    reasons.push("SCORING_V2_REFERENCE_COMPARISON_MODE=active requires SCORING_V2_ENABLED");
+  }
+  return reasons;
+}
+
+export function getScoringV2FlagSummary(env: AppEnv): ScoringV2FlagSummary {
+  return {
+    enabled: env.SCORING_V2_ENABLED,
+    selectionEnabled: env.SCORING_V2_SELECTION_ENABLED,
+    evidenceFetchEnabled: env.SCORING_V2_EVIDENCE_FETCH_ENABLED,
+    dimensionsEnabled: env.SCORING_V2_DIMENSIONS_ENABLED,
+    publicationEnabled: env.SCORING_V2_PUBLICATION_ENABLED,
+    performanceEnabled: env.SCORING_V2_PERFORMANCE_ENABLED,
+    survivalEnabled: env.SCORING_V2_SURVIVAL_ENABLED,
+    utilityEnabled: env.SCORING_V2_UTILITY_ENABLED,
+    experienceEnabled: env.SCORING_V2_EXPERIENCE_ENABLED,
+    relativeDamageMode: env.SCORING_V2_RELATIVE_DAMAGE_MODE,
+    utilityOpportunityMode: env.SCORING_V2_UTILITY_OPPORTUNITY_MODE,
+    referenceComparisonMode: env.SCORING_V2_REFERENCE_COMPARISON_MODE,
+    calibrationV2Enabled: env.CALIBRATION_V2_ENABLED,
+    incompatibleReasons: evaluateScoringV2FlagCompatibility(env),
+  };
+}
 
 /** Safe startup summary: booleans and modes only — never credential values. */
 export interface ConfigSummary {
@@ -257,6 +386,7 @@ export interface ConfigSummary {
   raiderioAppKeyConfigured: boolean;
   adminApiKeyEmergencyFallback: boolean;
   logLevel: AppEnv["LOG_LEVEL"];
+  scoringV2: ScoringV2FlagSummary;
 }
 
 export function getConfigSummary(env: AppEnv): ConfigSummary {
@@ -273,6 +403,7 @@ export function getConfigSummary(env: AppEnv): ConfigSummary {
     raiderioAppKeyConfigured: Boolean(env.RAIDERIO_APP_KEY),
     adminApiKeyEmergencyFallback: env.ADMIN_API_KEY_EMERGENCY_FALLBACK,
     logLevel: env.LOG_LEVEL,
+    scoringV2: getScoringV2FlagSummary(env),
   };
 }
 

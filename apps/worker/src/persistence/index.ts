@@ -1,4 +1,6 @@
 import type { PrismaClient } from "@mplus/database";
+import { ArtifactRepository, EvidenceRepository } from "@mplus/database";
+import { createLocalFsArtifactStore } from "@mplus/artifact-store";
 import { createAddonExportRepository, type AddonExportRepository } from "./addon-export-repository.js";
 import {
   createAnalysisBatchRepository,
@@ -9,6 +11,10 @@ import {
   type BulkOperationRepository,
 } from "./bulk-operation-repository.js";
 import { createCharacterRepository, type CharacterRepository } from "./character-repository.js";
+import {
+  createEvidenceV2BatchRepository,
+  type EvidenceV2BatchRepository,
+} from "./evidence-v2-batch-repository.js";
 import {
   createExternalRequestRepository,
   type ExternalRequestRepository,
@@ -37,9 +43,18 @@ export interface WorkerRepositories {
   providerState: ProviderStateRepository;
   analysisBatch: AnalysisBatchRepository;
   bulkOperation: BulkOperationRepository;
+  evidence: EvidenceRepository;
+  artifacts: ArtifactRepository;
+  evidenceV2Batch: EvidenceV2BatchRepository;
 }
 
-export function createRepositories(prisma: PrismaClient): WorkerRepositories {
+export function createRepositories(
+  prisma: PrismaClient,
+  options?: { rawArtifactsDir?: string },
+): WorkerRepositories {
+  const artifactStore = createLocalFsArtifactStore(
+    options?.rawArtifactsDir ?? "./data/raw-artifacts",
+  );
   return {
     character: createCharacterRepository(prisma),
     realm: createRealmRepository(prisma),
@@ -53,6 +68,9 @@ export function createRepositories(prisma: PrismaClient): WorkerRepositories {
     providerState: createProviderStateRepository(prisma),
     analysisBatch: createAnalysisBatchRepository(prisma),
     bulkOperation: createBulkOperationRepository(prisma),
+    evidence: new EvidenceRepository(prisma),
+    artifacts: new ArtifactRepository(prisma, artifactStore),
+    evidenceV2Batch: createEvidenceV2BatchRepository(prisma),
   };
 }
 
@@ -60,6 +78,7 @@ export * from "./addon-export-repository.js";
 export * from "./analysis-batch-repository.js";
 export * from "./bulk-operation-repository.js";
 export * from "./character-repository.js";
+export * from "./evidence-v2-batch-repository.js";
 export * from "./external-request-repository.js";
 export * from "./job-repository.js";
 export * from "./job-staleness.js";
