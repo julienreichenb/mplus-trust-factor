@@ -1,5 +1,5 @@
 import { clamp01 } from "../../math.js";
-import { PERFORMANCE_V2_MODEL_CONFIG } from "./constants.js";
+import { PERFORMANCE_V2_MODEL_CONFIG, type PerformanceV2ModelConfig } from "./constants.js";
 import type { PerformanceRoleAdapterResultV2 } from "./types.js";
 
 export interface PerformanceConfidenceInputV2 {
@@ -17,7 +17,7 @@ export interface PerformanceConfidenceInputV2 {
   /** Displayed WCL run count — small contextual factor only. */
   totalLoggedRuns: number | null;
   sourcesUsed: "both" | "detailed" | "profile" | "none";
-  config?: typeof PERFORMANCE_V2_MODEL_CONFIG;
+  config?: PerformanceV2ModelConfig;
 }
 
 /**

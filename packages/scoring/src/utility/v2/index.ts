@@ -50,6 +50,13 @@ export {
   emptyUtilityV2FactSet,
 } from "./compute.js";
 
+export {
+  parseUtilityV2ModelConfig,
+  resolveUtilityV2ModelConfig,
+  fingerprintUtilityV2ModelConfig,
+  UTILITY_V2_DEFAULT_CONFIG_FINGERPRINT,
+} from "./model-config.js";
+
 export { toUtilityV2ShadowDimensionPayload } from "./shadow.js";
 
 export { exportUtilityV2Calibration } from "./calibration.js";

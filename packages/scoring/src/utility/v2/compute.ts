@@ -5,31 +5,22 @@
 import { clamp, clamp01 } from "../../math.js";
 import { bindUtilityV2FactsToManifest } from "./bind.js";
 import {
-  UTILITY_V2_ALGORITHM_VERSION,
-  UTILITY_V2_CAST_STOPS_CURVE,
-  UTILITY_V2_CC_DEDUPE_WINDOW_MS,
-  UTILITY_V2_CONFIDENCE,
-  UTILITY_V2_DISPEL_PURGE_EVENT_CREDIT,
-  UTILITY_V2_DOMAIN_CONTRIBUTION_CAP,
-  UTILITY_V2_DOMAIN_WEIGHTS,
-  UTILITY_V2_MIN_HOSTILE_CASTS_PER_HOUR_FOR_FULL_CREDIT,
-  UTILITY_V2_SCORE_FLOOR,
-  UTILITY_V2_SCORE_SEMANTICS,
-  UTILITY_V2_STRATEGIC_CC_CURVE,
-  UTILITY_V2_SUPPORT_CURVE,
-  UTILITY_V2_SUPPORT_DIMINISHING_EXPONENT,
-  UTILITY_V2_SUPPORT_SEMANTIC_CREDIT,
-  UTILITY_V2_UNMATCHED_CREDIT_SHARE_CAP,
-  UTILITY_V2_UNMATCHED_ONLY_MAX_DOMAIN_SCORE,
+  UTILITY_V2_MODEL_CONFIG,
+  type UtilityV2ModelConfig,
   type UtilityV2SupportSemantic,
 } from "./constants.js";
 import { sumInterruptCredits } from "./classify-interrupts.js";
 import { computeUtilityV2InputFingerprint } from "./fingerprint.js";
+import {
+  fingerprintUtilityV2ModelConfig,
+  resolveUtilityV2ModelConfig,
+} from "./model-config.js";
 import type {
   ClassifiedInterruptAttempt,
   UtilityV2AvailabilityState,
   UtilityV2CcAction,
   UtilityV2ComputeInput,
+  UtilityV2ComputeOptions,
   UtilityV2ComputeResult,
   UtilityV2DomainBreakdown,
   UtilityV2Explanation,
@@ -38,6 +29,8 @@ import type {
   UtilityV2SupportAction,
   UtilityV2ToolkitApplicability,
 } from "./types.js";
+
+export type { UtilityV2ComputeOptions };
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
@@ -93,7 +86,10 @@ function emptyInterruptCounts(): UtilityV2InterruptCounts {
 }
 
 /** Apply unmatched spam cap so unmatched cannot dominate cast-stop credit. */
-export function applyUnmatchedSpamCap(attempts: ClassifiedInterruptAttempt[]): {
+export function applyUnmatchedSpamCap(
+  attempts: ClassifiedInterruptAttempt[],
+  config: UtilityV2ModelConfig = UTILITY_V2_MODEL_CONFIG,
+): {
   creditedTotal: number;
   unmatchedBefore: number;
   unmatchedAfter: number;
@@ -108,13 +104,14 @@ export function applyUnmatchedSpamCap(attempts: ClassifiedInterruptAttempt[]): {
   const unmatchedBefore = summed.unmatchedCredit;
   let unmatchedAfter = unmatchedBefore;
   let capApplied = false;
+  const unmatchedCreditShareCap = config.unmatchedCreditShareCap;
 
   if (unmatchedBefore > 0) {
     const maxUnmatched =
       nonUnmatched <= 0
         ? unmatchedBefore
-        : (nonUnmatched * UTILITY_V2_UNMATCHED_CREDIT_SHARE_CAP) /
-          Math.max(1e-9, 1 - UTILITY_V2_UNMATCHED_CREDIT_SHARE_CAP);
+        : (nonUnmatched * unmatchedCreditShareCap) /
+          Math.max(1e-9, 1 - unmatchedCreditShareCap);
     if (unmatchedBefore > maxUnmatched && nonUnmatched > 0) {
       unmatchedAfter = maxUnmatched;
       capApplied = true;
@@ -147,7 +144,7 @@ export function applyUnmatchedSpamCap(attempts: ClassifiedInterruptAttempt[]): {
  */
 export function dedupeStrategicCc(
   actions: UtilityV2CcAction[],
-  windowMs: number = UTILITY_V2_CC_DEDUPE_WINDOW_MS,
+  windowMs: number = UTILITY_V2_MODEL_CONFIG.ccDedupeWindowMs,
 ): UtilityV2CcAction[] {
   const eligible = actions
     .filter(
@@ -171,7 +168,10 @@ export function dedupeStrategicCc(
   return kept;
 }
 
-export function scoreSupportCredit(actions: UtilityV2SupportAction[]): {
+export function scoreSupportCredit(
+  actions: UtilityV2SupportAction[],
+  config: UtilityV2ModelConfig = UTILITY_V2_MODEL_CONFIG,
+): {
   rawCredit: number;
   diminishedCredit: number;
   bySemantic: Record<UtilityV2SupportSemantic, number>;
@@ -182,7 +182,7 @@ export function scoreSupportCredit(actions: UtilityV2SupportAction[]): {
   let ignored = 0;
   for (const a of actions) {
     if (a.sourceKind !== "PLAYER" && a.sourceKind !== "OWNED_PET") continue;
-    const mult = UTILITY_V2_SUPPORT_SEMANTIC_CREDIT[a.semantic] ?? 0;
+    const mult = config.supportSemanticCredit[a.semantic] ?? 0;
     const tierMult =
       a.tier === "CONFIRMED_IMPACT" ? 1 : a.tier === "CONFIRMED_APPLICATION" ? 0.45 : 0;
     if (mult <= 0 || tierMult <= 0) {
@@ -201,7 +201,7 @@ export function scoreSupportCredit(actions: UtilityV2SupportAction[]): {
     raw += credit;
   }
   const diminished =
-    raw <= 0 ? 0 : Math.pow(raw, UTILITY_V2_SUPPORT_DIMINISHING_EXPONENT);
+    raw <= 0 ? 0 : Math.pow(raw, config.supportDiminishingExponent);
   return {
     rawCredit: round2(raw),
     diminishedCredit: round2(diminished),
@@ -236,8 +236,10 @@ function resolveAvailability(input: {
 function unavailableResult(
   input: UtilityV2ComputeInput,
   bindingReasons: string[],
+  config: UtilityV2ModelConfig = UTILITY_V2_MODEL_CONFIG,
 ): UtilityV2ComputeResult {
-  const fingerprint = computeUtilityV2InputFingerprint(input);
+  const modelConfigFingerprint = fingerprintUtilityV2ModelConfig(config);
+  const fingerprint = computeUtilityV2InputFingerprint(input, { modelConfig: config });
   const emptySupport = {
     rawCredit: 0,
     diminishedCredit: 0,
@@ -249,8 +251,8 @@ function unavailableResult(
     mode: "OBSERVED_CONTRIBUTION",
     publicationBlocked: true,
     availabilityState: "UNAVAILABLE",
-    scoreFloor: UTILITY_V2_SCORE_FLOOR,
-    domainWeights: { ...UTILITY_V2_DOMAIN_WEIGHTS },
+    scoreFloor: config.scoreFloor,
+    domainWeights: { ...config.domainWeights },
     interruptClassification: interruptCounts,
     domainCurves: {
       castStops: "credited_attempts_per_active_combat_hour",
@@ -258,14 +260,14 @@ function unavailableResult(
       strategicCc: "deduped_cc_per_active_combat_hour",
     },
     caps: {
-      domainContributionCap: UTILITY_V2_DOMAIN_CONTRIBUTION_CAP,
-      unmatchedCreditShareCap: UTILITY_V2_UNMATCHED_CREDIT_SHARE_CAP,
-      unmatchedOnlyMaxDomainScore: UTILITY_V2_UNMATCHED_ONLY_MAX_DOMAIN_SCORE,
+      domainContributionCap: config.domainContributionCap,
+      unmatchedCreditShareCap: config.unmatchedCreditShareCap,
+      unmatchedOnlyMaxDomainScore: config.unmatchedOnlyMaxDomainScore,
     },
     applicableDomains: [],
     excludedDomains: [],
     notes: [
-      ...UTILITY_V2_SCORE_SEMANTICS.notes,
+      ...config.scoreSemantics.notes,
       "UNAVAILABLE: missing, unbound, or mismatched facts — score withheld.",
     ],
     selectedRuns: [],
@@ -274,8 +276,9 @@ function unavailableResult(
   };
 
   const metrics: Record<string, unknown> = {
-    algorithmVersion: UTILITY_V2_ALGORITHM_VERSION,
-    modelLabel: UTILITY_V2_SCORE_SEMANTICS.scoreKind,
+    algorithmVersion: config.algorithmVersion,
+    modelLabel: config.scoreSemantics.scoreKind,
+    modelConfigFingerprint,
     availabilityState: "UNAVAILABLE",
     publicationBlocked: true,
     manifestContentHash: input.manifest.contentHash,
@@ -286,8 +289,9 @@ function unavailableResult(
     mode: "OBSERVED_CONTRIBUTION",
     phase: 1,
     opportunityMode: "off",
-    algorithmVersion: UTILITY_V2_ALGORITHM_VERSION,
-    scoreSemantics: UTILITY_V2_SCORE_SEMANTICS.scoreKind,
+    algorithmVersion: config.algorithmVersion,
+    scoreSemantics: config.scoreSemantics.scoreKind,
+    modelConfigFingerprint,
     availabilityState: "UNAVAILABLE",
     score: null,
     rawBehaviorEstimate: null,
@@ -324,7 +328,12 @@ function unavailableResult(
  * Missing / unbound / mismatched facts → score null, confidence 0, UNAVAILABLE.
  * Bound facts with zero observed actions → score floor 50 (Phase 1), PARTIAL/AVAILABLE.
  */
-export function computeUtilityV2(input: UtilityV2ComputeInput): UtilityV2ComputeResult {
+export function computeUtilityV2(
+  input: UtilityV2ComputeInput,
+  options?: UtilityV2ComputeOptions,
+): UtilityV2ComputeResult {
+  const config = resolveUtilityV2ModelConfig(options?.modelConfig);
+  const modelConfigFingerprint = fingerprintUtilityV2ModelConfig(config);
   const binding = bindUtilityV2FactsToManifest({
     manifest: input.manifest,
     factSets: input.factSets,
@@ -332,10 +341,10 @@ export function computeUtilityV2(input: UtilityV2ComputeInput): UtilityV2Compute
   });
 
   if (!binding.ok) {
-    return unavailableResult(input, binding.reasons);
+    return unavailableResult(input, binding.reasons, config);
   }
 
-  const floor = UTILITY_V2_SCORE_FLOOR;
+  const floor = config.scoreFloor;
   const factSets = binding.boundFactSets;
   const availabilityState = resolveAvailability({
     boundSelectedSlotCount: binding.boundSelectedSlotCount,
@@ -361,20 +370,20 @@ export function computeUtilityV2(input: UtilityV2ComputeInput): UtilityV2Compute
   const toolkit = mergeToolkit(factSets);
 
   const allAttempts = factSets.flatMap((f) => f.interruptAttempts);
-  const interruptCap = applyUnmatchedSpamCap(allAttempts);
+  const interruptCap = applyUnmatchedSpamCap(allAttempts, config);
   const allCc = factSets.flatMap((f) => f.ccActions);
-  const dedupedCc = dedupeStrategicCc(allCc);
+  const dedupedCc = dedupeStrategicCc(allCc, config.ccDedupeWindowMs);
   const allSupport = factSets.flatMap((f) => f.supportActions);
-  const support = scoreSupportCredit(allSupport);
+  const support = scoreSupportCredit(allSupport, config);
   const dispelPurge = factSets.reduce((s, f) => s + f.dispelPurgeSuccessCount, 0);
   const combinedSupportRaw =
-    support.rawCredit + dispelPurge * UTILITY_V2_DISPEL_PURGE_EVENT_CREDIT;
+    support.rawCredit + dispelPurge * config.dispelPurgeEventCredit;
   const supportWithDispel = {
     rawCredit: round2(combinedSupportRaw),
     diminishedCredit: round2(
       combinedSupportRaw <= 0
         ? 0
-        : Math.pow(combinedSupportRaw, UTILITY_V2_SUPPORT_DIMINISHING_EXPONENT),
+        : Math.pow(combinedSupportRaw, config.supportDiminishingExponent),
     ),
     bySemantic: support.bySemantic,
     passiveOrRotationalIgnored: support.passiveOrRotationalIgnored,
@@ -410,17 +419,17 @@ export function computeUtilityV2(input: UtilityV2ComputeInput): UtilityV2Compute
       raw = floor;
       notes.push("zero_credited_interrupt_attempts_remain_neutral");
     } else {
-      raw = interpolatePerHour(creditedPerHour, UTILITY_V2_CAST_STOPS_CURVE);
+      raw = interpolatePerHour(creditedPerHour, config.castStopsCurve);
       const hostileDensity = hostileBegincastCount / combatHours;
       const densityFactor = clamp(
-        hostileDensity / UTILITY_V2_MIN_HOSTILE_CASTS_PER_HOUR_FOR_FULL_CREDIT,
+        hostileDensity / config.minHostileCastsPerHourForFullCredit,
         0.35,
         1,
       );
       raw = floor + (raw - floor) * densityFactor;
       raw = floorNeutral(raw, floor);
       if (unmatchedOnly) {
-        raw = Math.min(raw, UTILITY_V2_UNMATCHED_ONLY_MAX_DOMAIN_SCORE);
+        raw = Math.min(raw, config.unmatchedOnlyMaxDomainScore);
         notes.push("unmatched_only_domain_score_capped");
       }
       if (interruptCap.capApplied) {
@@ -435,7 +444,7 @@ export function computeUtilityV2(input: UtilityV2ComputeInput): UtilityV2Compute
       domain: "castStops",
       applicable,
       rawScore: raw == null ? null : round2(raw),
-      weight: UTILITY_V2_DOMAIN_WEIGHTS.castStops,
+      weight: config.domainWeights.castStops,
       weightShare: 0,
       uncappedContribution: 0,
       cappedContribution: 0,
@@ -464,9 +473,9 @@ export function computeUtilityV2(input: UtilityV2ComputeInput): UtilityV2Compute
       raw = floor;
       notes.push("zero_observed_support_credit_remain_neutral");
     } else {
-      raw = floorNeutral(interpolatePerHour(perHour, UTILITY_V2_SUPPORT_CURVE), floor);
+      raw = floorNeutral(interpolatePerHour(perHour, config.supportCurve), floor);
       notes.push(
-        `denominator=diminished_support_credit_per_active_combat_hour; exponent=${UTILITY_V2_SUPPORT_DIMINISHING_EXPONENT}`,
+        `denominator=diminished_support_credit_per_active_combat_hour; exponent=${config.supportDiminishingExponent}`,
       );
     }
     if (support.passiveOrRotationalIgnored > 0) {
@@ -477,7 +486,7 @@ export function computeUtilityV2(input: UtilityV2ComputeInput): UtilityV2Compute
       domain: "support",
       applicable,
       rawScore: raw == null ? null : round2(raw),
-      weight: UTILITY_V2_DOMAIN_WEIGHTS.support,
+      weight: config.domainWeights.support,
       weightShare: 0,
       uncappedContribution: 0,
       cappedContribution: 0,
@@ -504,7 +513,7 @@ export function computeUtilityV2(input: UtilityV2ComputeInput): UtilityV2Compute
       raw = floor;
       notes.push("zero_observed_cc_casts_remain_neutral");
     } else {
-      raw = floorNeutral(interpolatePerHour(perHour, UTILITY_V2_STRATEGIC_CC_CURVE), floor);
+      raw = floorNeutral(interpolatePerHour(perHour, config.strategicCcCurve), floor);
       notes.push("denominator=deduped_player_pet_cc_per_active_combat_hour");
       if (allCc.length > dedupedCc.length) {
         notes.push(`cc_deduped_${allCc.length - dedupedCc.length}`);
@@ -515,7 +524,7 @@ export function computeUtilityV2(input: UtilityV2ComputeInput): UtilityV2Compute
       domain: "strategicCc",
       applicable,
       rawScore: raw == null ? null : round2(raw),
-      weight: UTILITY_V2_DOMAIN_WEIGHTS.strategicCc,
+      weight: config.domainWeights.strategicCc,
       weightShare: 0,
       uncappedContribution: 0,
       cappedContribution: 0,
@@ -542,7 +551,7 @@ export function computeUtilityV2(input: UtilityV2ComputeInput): UtilityV2Compute
     const share = activeWeights > 0 ? d.weight / activeWeights : 0;
     const uncapped = share * ((d.rawScore ?? floor) - floor);
     const nonNeg = Math.max(0, uncapped);
-    const capped = clamp(nonNeg, 0, UTILITY_V2_DOMAIN_CONTRIBUTION_CAP);
+    const capped = clamp(nonNeg, 0, config.domainContributionCap);
     d.weightShare = round2(share);
     d.uncappedContribution = round2(uncapped);
     d.cappedContribution = round2(capped);
@@ -564,11 +573,11 @@ export function computeUtilityV2(input: UtilityV2ComputeInput): UtilityV2Compute
   );
 
   const reliability = clamp(
-    0.25 * clamp01(dungeons.length / UTILITY_V2_CONFIDENCE.expectedDungeons) +
-      0.2 * clamp01(factSets.length / UTILITY_V2_CONFIDENCE.runSaturation) +
-      0.25 * clamp01(combatHours / UTILITY_V2_CONFIDENCE.combatHourSaturation) +
-      0.3 * clamp01(attributableEvents / UTILITY_V2_CONFIDENCE.attributableEventSaturation),
-    UTILITY_V2_CONFIDENCE.minReliability,
+    0.25 * clamp01(dungeons.length / config.confidence.expectedDungeons) +
+      0.2 * clamp01(factSets.length / config.confidence.runSaturation) +
+      0.25 * clamp01(combatHours / config.confidence.combatHourSaturation) +
+      0.3 * clamp01(attributableEvents / config.confidence.attributableEventSaturation),
+    config.confidence.minReliability,
     1,
   );
 
@@ -577,11 +586,11 @@ export function computeUtilityV2(input: UtilityV2ComputeInput): UtilityV2Compute
   );
 
   const confComponents = {
-    dungeonCoverage: clamp01(dungeons.length / UTILITY_V2_CONFIDENCE.expectedDungeons),
-    runCoverage: clamp01(factSets.length / UTILITY_V2_CONFIDENCE.runSaturation),
-    combatDuration: clamp01(combatHours / UTILITY_V2_CONFIDENCE.combatHourSaturation),
+    dungeonCoverage: clamp01(dungeons.length / config.confidence.expectedDungeons),
+    runCoverage: clamp01(factSets.length / config.confidence.runSaturation),
+    combatDuration: clamp01(combatHours / config.confidence.combatHourSaturation),
     attributableEvents: clamp01(
-      attributableEvents / UTILITY_V2_CONFIDENCE.attributableEventSaturation,
+      attributableEvents / config.confidence.attributableEventSaturation,
     ),
     mechanicCatalogCoverageObserved: clamp01(mechanicCoverage),
     sourceCompleteness: clamp01(
@@ -590,7 +599,7 @@ export function computeUtilityV2(input: UtilityV2ComputeInput): UtilityV2Compute
         (attributableEvents > 0 ? 0.3 : 0),
     ),
   };
-  const w = UTILITY_V2_CONFIDENCE.weights;
+  const w = config.confidence.weights;
   let confidence =
     (confComponents.dungeonCoverage * w.dungeonCoverage +
       confComponents.runCoverage * w.runCoverage +
@@ -601,23 +610,23 @@ export function computeUtilityV2(input: UtilityV2ComputeInput): UtilityV2Compute
     100;
 
   const confidenceReasons: string[] = [];
-  if (factSets.length < UTILITY_V2_CONFIDENCE.tinyRunThreshold) {
-    confidence = Math.min(confidence, UTILITY_V2_CONFIDENCE.maxWhenTinySample);
+  if (factSets.length < config.confidence.tinyRunThreshold) {
+    confidence = Math.min(confidence, config.confidence.maxWhenTinySample);
     confidenceReasons.push("tiny_run_sample");
   }
   if (dungeons.length < expectedDungeonCount) {
-    confidence = Math.min(confidence, UTILITY_V2_CONFIDENCE.maxWhenPartialDungeons);
+    confidence = Math.min(confidence, config.confidence.maxWhenPartialDungeons);
     confidenceReasons.push("partial_dungeon_coverage");
   }
   if (attributableEvents === 0) {
-    confidence = Math.min(confidence, UTILITY_V2_CONFIDENCE.maxWhenZeroAttributable);
+    confidence = Math.min(confidence, config.confidence.maxWhenZeroAttributable);
     confidenceReasons.push("zero_attributable_events");
   }
   if (hostileBegincastCount === 0 && toolkit.hasInterrupt) {
-    confidence = Math.min(confidence, UTILITY_V2_CONFIDENCE.maxWhenNoHostileCasts);
+    confidence = Math.min(confidence, config.confidence.maxWhenNoHostileCasts);
     confidenceReasons.push("no_hostile_casts_observed");
   }
-  for (const gate of UTILITY_V2_CONFIDENCE.maxWhenMechanicCatalogBelow) {
+  for (const gate of config.confidence.maxWhenMechanicCatalogBelow) {
     if (confComponents.mechanicCatalogCoverageObserved < gate.below) {
       confidence = Math.min(confidence, gate.maxConfidence);
       confidenceReasons.push(`mechanic_catalog_below_${gate.below}`);
@@ -641,7 +650,7 @@ export function computeUtilityV2(input: UtilityV2ComputeInput): UtilityV2Compute
     publicationBlocked: true,
     availabilityState,
     scoreFloor: floor,
-    domainWeights: { ...UTILITY_V2_DOMAIN_WEIGHTS },
+    domainWeights: { ...config.domainWeights },
     interruptClassification: interruptCap.counts,
     domainCurves: {
       castStops: "credited_attempts_per_active_combat_hour",
@@ -649,13 +658,13 @@ export function computeUtilityV2(input: UtilityV2ComputeInput): UtilityV2Compute
       strategicCc: "deduped_cc_per_active_combat_hour",
     },
     caps: {
-      domainContributionCap: UTILITY_V2_DOMAIN_CONTRIBUTION_CAP,
-      unmatchedCreditShareCap: UTILITY_V2_UNMATCHED_CREDIT_SHARE_CAP,
-      unmatchedOnlyMaxDomainScore: UTILITY_V2_UNMATCHED_ONLY_MAX_DOMAIN_SCORE,
+      domainContributionCap: config.domainContributionCap,
+      unmatchedCreditShareCap: config.unmatchedCreditShareCap,
+      unmatchedOnlyMaxDomainScore: config.unmatchedOnlyMaxDomainScore,
     },
     applicableDomains,
     excludedDomains,
-    notes: [...UTILITY_V2_SCORE_SEMANTICS.notes],
+    notes: [...config.scoreSemantics.notes],
     selectedRuns: factSets.map((f) => ({
       slotId: f.slotId,
       runId: f.runId,
@@ -669,10 +678,11 @@ export function computeUtilityV2(input: UtilityV2ComputeInput): UtilityV2Compute
     bindingReasons: [],
   };
 
-  const inputFingerprint = computeUtilityV2InputFingerprint(input);
+  const inputFingerprint = computeUtilityV2InputFingerprint(input, { modelConfig: config });
   const metrics: Record<string, unknown> = {
-    algorithmVersion: UTILITY_V2_ALGORITHM_VERSION,
-    modelLabel: UTILITY_V2_SCORE_SEMANTICS.scoreKind,
+    algorithmVersion: config.algorithmVersion,
+    modelLabel: config.scoreSemantics.scoreKind,
+    modelConfigFingerprint,
     availabilityState,
     publicationBlocked: true,
     manifestContentHash: input.manifest.contentHash,
@@ -700,8 +710,9 @@ export function computeUtilityV2(input: UtilityV2ComputeInput): UtilityV2Compute
     mode: "OBSERVED_CONTRIBUTION",
     phase: 1,
     opportunityMode: "off",
-    algorithmVersion: UTILITY_V2_ALGORITHM_VERSION,
-    scoreSemantics: UTILITY_V2_SCORE_SEMANTICS.scoreKind,
+    algorithmVersion: config.algorithmVersion,
+    scoreSemantics: config.scoreSemantics.scoreKind,
+    modelConfigFingerprint,
     availabilityState,
     score,
     rawBehaviorEstimate,

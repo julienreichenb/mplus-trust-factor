@@ -41,11 +41,66 @@ export const EXPERIENCE_V3_PREVIOUS_SEASON_POLICY_VERSION =
   "previous-season-normalization.v1" as const;
 export const EXPERIENCE_V3_HISTORICAL_RANK_POLICY_VERSION = "historical-rank.v1" as const;
 
+/** Writable/validated shape — numeric fields are `number` so overrides can differ from defaults. */
+export type ExperienceV3ModelConfig = {
+  schemaVersion: typeof EXPERIENCE_V3_SCHEMA_VERSION;
+  algorithmVersion: string;
+  modelLabel: string;
+  calibrationStatus: ExperienceV3CalibrationStatus;
+  componentWeights: {
+    currentExposure: number;
+    previousSeasonStrength: number;
+    eliteHistory: number;
+    historicalRank: number;
+  };
+  eliteCatalogVersion: string;
+  previousSeasonPolicyVersion: string;
+  historicalRankPolicyVersion: string;
+  previousSeason: {
+    confirmedNoActivityScore: number;
+    atOrBelowK50: number;
+    atK90: number;
+    atK99: number;
+    aboveK99Cap: number;
+    partialConfidenceFactor: number;
+  };
+  eliteHistory: {
+    singleTop01Score: number;
+    additionalTitleBase: number;
+    additionalDiminishing: number;
+    ageDecayPerSeason: number;
+    ageDecayFloor: number;
+    accountVisibleCreditFactor: number;
+    scoreCap: number;
+  };
+  historicalRank: {
+    top10ClassSpecRegionScore: number;
+    top01PercentScore: number;
+    top1PercentScore: number;
+    top5PercentScore: number;
+    top10PercentScore: number;
+    confirmedFloor: number;
+  };
+  confidenceWeights: {
+    currentExposureCompleteness: number;
+    previousSeasonProviderState: number;
+    eliteVisibilitySemantics: number;
+    historicalRankSourceQuality: number;
+    seasonBinding: number;
+    recency: number;
+  };
+  phase2AccountBoost: {
+    enabled: boolean;
+    characterWeight: number;
+    maxBoostWeight: number;
+  };
+};
+
 /**
  * Immutable Phase 1 coefficient bundle.
  * Do not mutate at runtime; clone a new versioned object for calibration.
  */
-export const EXPERIENCE_V3_MODEL_CONFIG = Object.freeze({
+export const EXPERIENCE_V3_MODEL_CONFIG: ExperienceV3ModelConfig = Object.freeze({
   schemaVersion: EXPERIENCE_V3_SCHEMA_VERSION,
   algorithmVersion: EXPERIENCE_V3_ALGORITHM_VERSION,
   modelLabel: EXPERIENCE_V3_MODEL_LABEL,
@@ -120,10 +175,8 @@ export const EXPERIENCE_V3_MODEL_CONFIG = Object.freeze({
    * Phase 2 verified account-linked boost — contracts only; disabled in Phase 1.
    */
   phase2AccountBoost: Object.freeze({
-    enabled: false as const,
+    enabled: false,
     characterWeight: 0.7,
     maxBoostWeight: 0.3,
   }),
-} as const);
-
-export type ExperienceV3ModelConfig = typeof EXPERIENCE_V3_MODEL_CONFIG;
+});

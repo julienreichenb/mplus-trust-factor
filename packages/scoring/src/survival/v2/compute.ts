@@ -2,9 +2,8 @@ import { createHash } from "node:crypto";
 import type { CharacterSeasonEvidenceManifestV2 } from "@mplus/contracts";
 import {
   SURVIVAL_V2_ALGORITHM_VERSION,
-  SURVIVAL_V2_CALIBRATION_STATUS,
-  SURVIVAL_V2_METRIC_KEYS,
-  SURVIVAL_V2_MODEL_LABEL,
+  SURVIVAL_V2_MODEL_CONFIG,
+  type SurvivalV2ModelConfig,
   type SurvivalV2RelativeDamageMode,
 } from "./constants.js";
 import {
@@ -15,6 +14,10 @@ import {
   tallyHealthModes,
 } from "./aggregate.js";
 import { survivalFactSlotKey } from "./facts.js";
+import {
+  fingerprintSurvivalV2ModelConfig,
+  resolveSurvivalV2ModelConfig,
+} from "./model-config.js";
 import { isSurvivalV2RelativeDamageWeightActive } from "./relative-damage.js";
 import { scoreSurvivalV2Run } from "./run-score.js";
 import type {
@@ -26,6 +29,10 @@ import type {
   SurvivalV2RunScore,
   SurvivalV2ShadowDimensionPayload,
 } from "./types.js";
+
+export interface SurvivalV2ComputeOptions {
+  modelConfig?: SurvivalV2ModelConfig | unknown;
+}
 
 function resolveAvailability(input: {
   score: number | null;
@@ -53,31 +60,33 @@ function buildContributors(input: {
   components: SurvivalV2ComputeResult["components"];
   relativeDamageMode: SurvivalV2RelativeDamageMode;
   weightsMode: string;
+  config: SurvivalV2ModelConfig;
 }): SurvivalV2ContributorDiagnostic[] {
+  const keys = input.config.metricKeys;
   return [
     {
-      metricKey: SURVIVAL_V2_METRIC_KEYS.outcome,
+      metricKey: keys.outcome,
       score: input.components.outcome,
       weight: null,
       state: input.components.outcome == null ? "NOT_APPLICABLE" : "SCORED",
       detail: {},
     },
     {
-      metricKey: SURVIVAL_V2_METRIC_KEYS.defensive,
+      metricKey: keys.defensive,
       score: input.components.defensive,
       weight: null,
       state: input.components.defensive == null ? "NOT_APPLICABLE" : "SCORED",
       detail: {},
     },
     {
-      metricKey: SURVIVAL_V2_METRIC_KEYS.recovery,
+      metricKey: keys.recovery,
       score: input.components.recovery,
       weight: null,
       state: input.components.recovery == null ? "NOT_APPLICABLE" : "SCORED",
       detail: {},
     },
     {
-      metricKey: SURVIVAL_V2_METRIC_KEYS.relativeDamage,
+      metricKey: keys.relativeDamage,
       score: input.components.relativeDamage,
       weight: null,
       state:
@@ -98,7 +107,10 @@ function buildContributors(input: {
  */
 export function computeSurvivalV2(
   input: SurvivalV2ComputeInput,
+  options?: SurvivalV2ComputeOptions,
 ): SurvivalV2ComputeResult {
+  const config = resolveSurvivalV2ModelConfig(options?.modelConfig);
+  const modelConfigFingerprint = fingerprintSurvivalV2ModelConfig(config);
   const mode: SurvivalV2RelativeDamageMode = input.relativeDamageMode ?? "shadow";
   const manifest = input.manifest;
 
@@ -142,7 +154,7 @@ export function computeSurvivalV2(
       continue;
     }
 
-    runScores.push(scoreSurvivalV2Run(fact, mode));
+    runScores.push(scoreSurvivalV2Run(fact, mode, config));
   }
 
   const byDungeon = new Map<string, SurvivalV2RunScore[]>();
@@ -226,6 +238,7 @@ export function computeSurvivalV2(
     components,
     relativeDamageMode: mode,
     weightsMode,
+    config,
   });
 
   const inputFingerprint = buildSurvivalV2InputFingerprint({
@@ -233,12 +246,14 @@ export function computeSurvivalV2(
     factSets: input.factSets,
     relativeDamageMode: mode,
     scoreModelId: input.scoreModelId ?? null,
+    modelConfig: config,
   });
 
   const metrics: Record<string, unknown> = {
-    algorithmVersion: SURVIVAL_V2_ALGORITHM_VERSION,
-    modelLabel: SURVIVAL_V2_MODEL_LABEL,
-    calibrationStatus: SURVIVAL_V2_CALIBRATION_STATUS,
+    algorithmVersion: config.algorithmVersion,
+    modelLabel: config.modelLabel,
+    calibrationStatus: config.calibrationStatus,
+    modelConfigFingerprint,
     availabilityState: state,
     relativeDamageMode: mode,
     weightsMode,
@@ -251,9 +266,10 @@ export function computeSurvivalV2(
   };
 
   return {
-    algorithmVersion: SURVIVAL_V2_ALGORITHM_VERSION,
-    modelLabel: SURVIVAL_V2_MODEL_LABEL,
-    calibrationStatus: SURVIVAL_V2_CALIBRATION_STATUS,
+    algorithmVersion: config.algorithmVersion,
+    modelLabel: config.modelLabel,
+    calibrationStatus: config.calibrationStatus,
+    modelConfigFingerprint,
     inputFingerprint,
     score,
     confidence,
@@ -296,24 +312,49 @@ export function buildSurvivalV2InputFingerprint(input: {
   factSets: SurvivalFactDocumentV2[];
   relativeDamageMode: SurvivalV2RelativeDamageMode;
   scoreModelId: string | null;
+  modelConfig?: SurvivalV2ModelConfig;
 }): string {
-  const material = {
-    algorithmVersion: SURVIVAL_V2_ALGORITHM_VERSION,
-    manifestContentHash: input.manifest.contentHash,
-    relativeDamageMode: input.relativeDamageMode,
-    scoreModelId: input.scoreModelId,
-    facts: [...input.factSets]
-      .map((f) => ({
-        key: survivalFactSlotKey(f.dungeonSlug, f.slotIndex),
-        extractorVersion: f.extractorVersion,
-        identity: f.identity,
-        deaths: f.deaths.count,
-        activeCombatMs: f.activeCombat.durationMs,
-        windows: f.dangerWindows.length,
-        healthMode: f.healthEvidence.mode,
-      }))
-      .sort((a, b) => a.key.localeCompare(b.key)),
-  };
+  const config = input.modelConfig ?? SURVIVAL_V2_MODEL_CONFIG;
+  const configFingerprint = fingerprintSurvivalV2ModelConfig(config);
+  const usingDefault =
+    configFingerprint === fingerprintSurvivalV2ModelConfig(SURVIVAL_V2_MODEL_CONFIG);
+
+  const material = usingDefault
+    ? {
+        algorithmVersion: SURVIVAL_V2_ALGORITHM_VERSION,
+        manifestContentHash: input.manifest.contentHash,
+        relativeDamageMode: input.relativeDamageMode,
+        scoreModelId: input.scoreModelId,
+        facts: [...input.factSets]
+          .map((f) => ({
+            key: survivalFactSlotKey(f.dungeonSlug, f.slotIndex),
+            extractorVersion: f.extractorVersion,
+            identity: f.identity,
+            deaths: f.deaths.count,
+            activeCombatMs: f.activeCombat.durationMs,
+            windows: f.dangerWindows.length,
+            healthMode: f.healthEvidence.mode,
+          }))
+          .sort((a, b) => a.key.localeCompare(b.key)),
+      }
+    : {
+        algorithmVersion: config.algorithmVersion,
+        modelConfigFingerprint: configFingerprint,
+        manifestContentHash: input.manifest.contentHash,
+        relativeDamageMode: input.relativeDamageMode,
+        scoreModelId: input.scoreModelId,
+        facts: [...input.factSets]
+          .map((f) => ({
+            key: survivalFactSlotKey(f.dungeonSlug, f.slotIndex),
+            extractorVersion: f.extractorVersion,
+            identity: f.identity,
+            deaths: f.deaths.count,
+            activeCombatMs: f.activeCombat.durationMs,
+            windows: f.dangerWindows.length,
+            healthMode: f.healthEvidence.mode,
+          }))
+          .sort((a, b) => a.key.localeCompare(b.key)),
+      };
   return createHash("sha256").update(JSON.stringify(material), "utf8").digest("hex");
 }
 

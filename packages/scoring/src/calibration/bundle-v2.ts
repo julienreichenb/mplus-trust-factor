@@ -8,9 +8,34 @@ import type { ScoreModelConfigV1 } from "../types.js";
 import type { CalibrationBacktestMode, CalibrationModelRef, QualitativeLabel } from "./types.js";
 import type { CohortManifest } from "./manifest.js";
 import type { ScoringV2PublicDimension } from "../dimensions/v2/shadow-record.js";
+import type {
+  ScoringV2DimensionConfigFingerprints,
+  ScoringV2DimensionConfigSet,
+} from "../model-config/index.js";
+import {
+  createDefaultScoringV2DimensionConfigSet,
+  parseScoringV2DimensionConfigSet,
+  resolveScoreModelV2DimensionConfigs,
+} from "../model-config/index.js";
+import { ModelConfigValidationError, isRecord as isConfigRecord } from "../model-config/validate.js";
+import { fingerprintPerformanceV2ModelConfig } from "../performance/v2/model-config.js";
+import { fingerprintSurvivalV2ModelConfig } from "../survival/v2/model-config.js";
+import { fingerprintUtilityV2ModelConfig } from "../utility/v2/model-config.js";
+import { fingerprintExperienceV3ModelConfig } from "../experience/v3/model-config.js";
 
 /** Portable Calibration Bundle V2 schema version. */
 export const CALIBRATION_INPUT_BUNDLE_V2_SCHEMA_VERSION = "2.0.0" as const;
+
+/**
+ * Frozen per-dimension model configs for active/draft replay.
+ * Provider-free; no DB IDs / timestamps / mutable metadata.
+ */
+export interface FrozenDimensionModelConfigsV2 {
+  schemaVersion: ScoringV2DimensionConfigSet["schemaVersion"];
+  configs: ScoringV2DimensionConfigSet;
+  fingerprints: ScoringV2DimensionConfigFingerprints;
+  algorithmVersions: Record<ScoringV2PublicDimension, string>;
+}
 
 export type CalibrationArtifactClassV2 =
   | "calibration_frozen_export"
@@ -75,6 +100,15 @@ export interface CalibrationInputBundleV2 {
   season: FrozenSeasonBindingV2;
   activeModel: CalibrationModelRef | null;
   evaluationModel: CalibrationModelRef | null;
+  /**
+   * Frozen ACTIVE dimension configs for active-versus-draft replay.
+   * When absent, resolved from activeModel.config.scoringV2 (strict) or defaults.
+   */
+  activeDimensionConfigs?: FrozenDimensionModelConfigsV2 | null;
+  /**
+   * Frozen DRAFT/evaluation dimension configs for active-versus-draft replay.
+   */
+  evaluationDimensionConfigs?: FrozenDimensionModelConfigsV2 | null;
   policies: FrozenPolicyCatalogVersionsV2;
   members: CalibrationMemberReplayV2[];
   /**
@@ -84,6 +118,144 @@ export interface CalibrationInputBundleV2 {
   artifactPackage?: CalibrationContentRefV2 | null;
   /** SHA-256 of canonical root (excludes this field). */
   bundleHash: string;
+}
+
+/** Build a frozen dimension-config snapshot from a resolved config set. */
+export function freezeDimensionModelConfigsV2(
+  configs: ScoringV2DimensionConfigSet,
+  fingerprints: ScoringV2DimensionConfigFingerprints,
+): FrozenDimensionModelConfigsV2 {
+  return {
+    schemaVersion: configs.schemaVersion,
+    configs: structuredClone(configs),
+    fingerprints: { ...fingerprints },
+    algorithmVersions: {
+      PERFORMANCE: configs.performance.algorithmVersion,
+      SURVIVAL: configs.survival.algorithmVersion,
+      UTILITY: configs.utility.algorithmVersion,
+      EXPERIENCE: configs.experience.algorithmVersion,
+    },
+  };
+}
+
+function fingerprintSet(configs: ScoringV2DimensionConfigSet): ScoringV2DimensionConfigFingerprints {
+  return {
+    performance: fingerprintPerformanceV2ModelConfig(configs.performance),
+    survival: fingerprintSurvivalV2ModelConfig(configs.survival),
+    utility: fingerprintUtilityV2ModelConfig(configs.utility),
+    experience: fingerprintExperienceV3ModelConfig(configs.experience),
+  };
+}
+
+/**
+ * Strict replay-boundary re-parse.
+ * Never trusts a previously typed JS object — serializes first, then deep-parses
+ * all four dimension configs, recomputes fingerprints, and verifies claimed hashes.
+ */
+export function strictReparseFrozenDimensionConfigs(
+  source: unknown,
+): FrozenDimensionModelConfigsV2 {
+  if (source == null) {
+    throw new ModelConfigValidationError("SCORING_V2_SET", [
+      "missing dimension config set for strict re-parse",
+    ]);
+  }
+
+  let raw: unknown;
+  try {
+    raw = JSON.parse(JSON.stringify(source));
+  } catch {
+    throw new ModelConfigValidationError("SCORING_V2_SET", [
+      "dimension config set is not JSON-serializable",
+    ]);
+  }
+  if (!isConfigRecord(raw)) {
+    throw new ModelConfigValidationError("SCORING_V2_SET", [
+      "dimension config set must be an object",
+    ]);
+  }
+
+  const claimedFingerprints = isConfigRecord(raw.fingerprints)
+    ? (raw.fingerprints as unknown as ScoringV2DimensionConfigFingerprints)
+    : null;
+  const claimedAlgorithms = isConfigRecord(raw.algorithmVersions)
+    ? (raw.algorithmVersions as Record<string, unknown>)
+    : null;
+
+  const configDoc = isConfigRecord(raw.configs)
+    ? {
+        schemaVersion: raw.configs.schemaVersion ?? raw.schemaVersion,
+        performance: raw.configs.performance,
+        survival: raw.configs.survival,
+        utility: raw.configs.utility,
+        experience: raw.configs.experience,
+      }
+    : {
+        schemaVersion: raw.schemaVersion,
+        performance: raw.performance,
+        survival: raw.survival,
+        utility: raw.utility,
+        experience: raw.experience,
+      };
+
+  const configs = parseScoringV2DimensionConfigSet(configDoc);
+  const fingerprints = fingerprintSet(configs);
+  const frozen = freezeDimensionModelConfigsV2(configs, fingerprints);
+
+  if (claimedFingerprints) {
+    for (const dim of ["performance", "survival", "utility", "experience"] as const) {
+      const claimed = claimedFingerprints[dim];
+      if (typeof claimed !== "string" || claimed !== fingerprints[dim]) {
+        throw new ModelConfigValidationError("SCORING_V2_SET", [
+          `config fingerprint mismatch for ${dim}: claimed=${String(claimed)} computed=${fingerprints[dim]}`,
+        ]);
+      }
+    }
+  }
+
+  if (claimedAlgorithms) {
+    for (const dim of ["PERFORMANCE", "SURVIVAL", "UTILITY", "EXPERIENCE"] as const) {
+      const claimed = claimedAlgorithms[dim];
+      const expected = frozen.algorithmVersions[dim];
+      if (typeof claimed === "string" && claimed !== expected) {
+        throw new ModelConfigValidationError("SCORING_V2_SET", [
+          `algorithmVersion mismatch for ${dim}: claimed=${claimed} computed=${expected}`,
+        ]);
+      }
+    }
+  }
+
+  return frozen;
+}
+
+/**
+ * Resolve frozen dimension configs for one model side.
+ * calibration-strict fails closed when scoringV2 is missing from the model.
+ * Always re-parses through strictReparseFrozenDimensionConfigs before return.
+ */
+export function resolveFrozenDimensionConfigsForModel(
+  model: CalibrationModelRef | null,
+  mode: "phase1-default" | "calibration-strict",
+): FrozenDimensionModelConfigsV2 {
+  if (!model) {
+    if (mode === "calibration-strict") {
+      throw new ModelConfigValidationError("SCORING_V2_SET", [
+        "model reference required for calibration-strict config resolution",
+      ]);
+    }
+    const defaults = createDefaultScoringV2DimensionConfigSet();
+    const resolved = resolveScoreModelV2DimensionConfigs(
+      { scoringV2: defaults } as unknown as ScoreModelConfigV1,
+      "phase1-default",
+    );
+    return strictReparseFrozenDimensionConfigs(
+      freezeDimensionModelConfigsV2(resolved.configs, resolved.fingerprints),
+    );
+  }
+  const resolved = resolveScoreModelV2DimensionConfigs(model.config, mode);
+  return strictReparseFrozenDimensionConfigs(
+    freezeDimensionModelConfigsV2(resolved.configs, resolved.fingerprints),
+  );
 }
 
 export type CalibrationPreflightSeverityV2 = "BLOCKING" | "WARNING" | "INFO";
@@ -478,8 +650,13 @@ export function validateCalibrationInputBundleV2(
         expectedLabel: expectedLabel as QualitativeLabel,
         rationale: typeof rawMember.rationale === "string" ? rawMember.rationale : "",
         role:
-          rawMember.role === "DPS" || rawMember.role === "TANK" || rawMember.role === "HEALER"
-            ? rawMember.role
+          rawMember.role === "DPS" ||
+          rawMember.role === "TANK" ||
+          rawMember.role === "HEALER" ||
+          rawMember.role === "UNKNOWN"
+            ? rawMember.role === "UNKNOWN"
+              ? null
+              : rawMember.role
             : null,
         classSlug: typeof rawMember.classSlug === "string" ? rawMember.classSlug : null,
         specSlug: typeof rawMember.specSlug === "string" ? rawMember.specSlug : null,
@@ -504,6 +681,17 @@ export function validateCalibrationInputBundleV2(
   const cohort = input.cohort as CohortManifest;
   const season = input.season as FrozenSeasonBindingV2;
 
+  const activeDimensionConfigs = isRecord(input.activeDimensionConfigs)
+    ? (structuredClone(input.activeDimensionConfigs) as unknown as FrozenDimensionModelConfigsV2)
+    : input.activeDimensionConfigs === null
+      ? null
+      : undefined;
+  const evaluationDimensionConfigs = isRecord(input.evaluationDimensionConfigs)
+    ? (structuredClone(input.evaluationDimensionConfigs) as unknown as FrozenDimensionModelConfigsV2)
+    : input.evaluationDimensionConfigs === null
+      ? null
+      : undefined;
+
   const withoutHash: Omit<CalibrationInputBundleV2, "bundleHash"> = {
     schemaVersion: CALIBRATION_INPUT_BUNDLE_V2_SCHEMA_VERSION,
     generatedAt: generatedAt!,
@@ -515,6 +703,12 @@ export function validateCalibrationInputBundleV2(
     season,
     activeModel,
     evaluationModel,
+    ...(activeDimensionConfigs !== undefined
+      ? { activeDimensionConfigs }
+      : {}),
+    ...(evaluationDimensionConfigs !== undefined
+      ? { evaluationDimensionConfigs }
+      : {}),
     policies,
     members,
     artifactPackage: input.artifactPackage

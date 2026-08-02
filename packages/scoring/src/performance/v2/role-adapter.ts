@@ -1,5 +1,5 @@
 import type { EvidenceRole } from "@mplus/contracts";
-import { PERFORMANCE_V2_MODEL_CONFIG } from "./constants.js";
+import { PERFORMANCE_V2_MODEL_CONFIG, type PerformanceV2ModelConfig } from "./constants.js";
 import type { PerformanceRoleAdapterResultV2 } from "./types.js";
 
 /**
@@ -10,9 +10,18 @@ import type { PerformanceRoleAdapterResultV2 } from "./types.js";
 export function resolvePerformanceRoleAdapter(input: {
   role: EvidenceRole;
   specSlug: string | null;
-  config?: typeof PERFORMANCE_V2_MODEL_CONFIG;
+  config?: PerformanceV2ModelConfig;
 }): PerformanceRoleAdapterResultV2 {
   const config = input.config ?? PERFORMANCE_V2_MODEL_CONFIG;
+
+  if (input.role === "UNKNOWN") {
+    return {
+      role: input.role,
+      state: "UNSUPPORTED_ROLE",
+      runParseAllowed: false,
+      reason: "role_identity_unknown",
+    };
+  }
 
   if (input.specSlug == null || input.specSlug.trim() === "") {
     return {

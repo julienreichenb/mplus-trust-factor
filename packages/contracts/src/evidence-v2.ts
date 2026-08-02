@@ -41,7 +41,11 @@ export type EvidenceCandidateFrozenIdentity = z.infer<
   typeof evidenceCandidateFrozenIdentitySchema
 >;
 
-export const evidenceRoleSchema = z.enum(["DPS", "TANK", "HEALER"]);
+/**
+ * Frozen evidence role. UNKNOWN is explicit — never silently coerced to DPS.
+ * Stored on JSON acquisition plans/manifests only (not Prisma CharacterRole).
+ */
+export const evidenceRoleSchema = z.enum(["DPS", "TANK", "HEALER", "UNKNOWN"]);
 export type EvidenceRole = z.infer<typeof evidenceRoleSchema>;
 
 /** Season / class / spec / role scope for one selection. */

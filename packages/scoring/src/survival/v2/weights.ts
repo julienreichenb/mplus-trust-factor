@@ -1,6 +1,6 @@
 import {
-  SURVIVAL_V2_WEIGHTS_SHADOW_OR_OFF,
-  SURVIVAL_V2_WEIGHTS_WITH_RELATIVE,
+  SURVIVAL_V2_MODEL_CONFIG,
+  type SurvivalV2ModelConfig,
   type SurvivalV2RelativeDamageMode,
 } from "./constants.js";
 
@@ -27,11 +27,10 @@ export interface SurvivalV2AppliedWeights {
 export function resolveSurvivalV2Weights(
   mode: SurvivalV2RelativeDamageMode,
   available: SurvivalV2WeightAvailability,
+  config: SurvivalV2ModelConfig = SURVIVAL_V2_MODEL_CONFIG,
 ): SurvivalV2AppliedWeights {
   const base =
-    mode === "active"
-      ? SURVIVAL_V2_WEIGHTS_WITH_RELATIVE
-      : SURVIVAL_V2_WEIGHTS_SHADOW_OR_OFF;
+    mode === "active" ? config.weightsWithRelative : config.weightsShadowOrOff;
 
   const raw = {
     outcome: available.outcome ? base.outcome : 0,
@@ -41,8 +40,7 @@ export function resolveSurvivalV2Weights(
       mode === "active" && available.relativeDamage ? base.relativeDamage : 0,
   };
 
-  const sum =
-    raw.outcome + raw.defensive + raw.recovery + raw.relativeDamage;
+  const sum = raw.outcome + raw.defensive + raw.recovery + raw.relativeDamage;
   if (sum <= 0) {
     return { outcome: 1, defensive: 0, recovery: 0, relativeDamage: 0 };
   }

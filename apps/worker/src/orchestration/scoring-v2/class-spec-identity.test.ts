@@ -20,6 +20,7 @@ import {
   resolveBatchDatasetRequirements,
 } from "./acquisition.js";
 import {
+  resolveFrozenCharacterIdentity,
   resolveFrozenClassSpecIdentity,
 } from "./class-spec-identity.js";
 import { FixtureScoringV2EvidenceTransport } from "./evidence-transport.js";
@@ -259,6 +260,150 @@ describe("resolveFrozenClassSpecIdentity", () => {
     expect(id.state).toBe("KNOWN");
     expect(id.classSlug).toBe("mage");
     expect(id.specSlug).toBe("frost");
+  });
+});
+
+describe("resolveFrozenCharacterIdentity", () => {
+  it("freezes coherent class/spec/role from Blizzard when Raider.IO is incomplete", () => {
+    const id = resolveFrozenCharacterIdentity({
+      blizzard: { classSlug: "Priest", specSlug: "Holy", role: "HEALER" },
+      raiderIo: { classSlug: "mage" },
+    });
+    expect(id.state).toBe("KNOWN");
+    expect(id.classSlug).toBe("priest");
+    expect(id.specSlug).toBe("holy");
+    expect(id.role).toBe("HEALER");
+    expect(id.roleSource).toBe("canonical_spec");
+  });
+
+  it("prefers complete Blizzard over incomplete Raider.IO", () => {
+    const id = resolveFrozenCharacterIdentity({
+      blizzard: { classSlug: "warrior", specSlug: "protection", role: "TANK" },
+      raiderIo: { role: "DPS" },
+    });
+    expect(id.classSlug).toBe("warrior");
+    expect(id.specSlug).toBe("protection");
+    expect(id.role).toBe("TANK");
+  });
+
+  it("does not silently default unknown role to DPS", () => {
+    const id = resolveFrozenCharacterIdentity({
+      blizzard: null,
+      raiderIo: null,
+    });
+    expect(id.role).toBe("UNKNOWN");
+    expect(id.role).not.toBe("DPS");
+    expect(id.roleSource).toBe("unknown");
+    expect(id.limitations).toContain("role_identity_unknown");
+  });
+
+  it("fails closed when provider role conflicts with canonical spec role", () => {
+    const id = resolveFrozenCharacterIdentity({
+      blizzard: { classSlug: "priest", specSlug: "holy", role: "DPS" },
+    });
+    expect(id.state).toBe("INCOMPATIBLE");
+    expect(id.role).toBe("UNKNOWN");
+    expect(id.roleSource).toBe("incompatible");
+    expect(id.limitations).toContain("role_identity_incompatible");
+    expect(id.catalogDependentFailClosed).toBe(true);
+  });
+
+  it("reuses frozen plan identity on retries", () => {
+    const id = resolveFrozenCharacterIdentity({
+      planClassSlug: "mage",
+      planSpecSlug: "frost",
+      planRole: "DPS",
+      // Conflicting live profiles must not override the frozen plan.
+      blizzard: { classSlug: "warlock", specSlug: "affliction", role: "DPS" },
+    });
+    expect(id.classSlug).toBe("mage");
+    expect(id.specSlug).toBe("frost");
+    expect(id.role).toBe("DPS");
+    expect(id.roleSource).toBe("plan");
+  });
+
+  it("never uses mutable Character.role — only provider/plan inputs", () => {
+    // Simulate the refresh-pipeline call shape: Character.role is intentionally omitted.
+    const id = resolveFrozenCharacterIdentity({
+      blizzard: { classSlug: "monk", specSlug: "windwalker", role: "DPS" },
+    });
+    expect(id.role).toBe("DPS");
+    expect(id.specSlug).toBe("windwalker");
+  });
+
+  it("prefers complete Raider.IO over role-only Blizzard", () => {
+    const id = resolveFrozenCharacterIdentity({
+      blizzard: { role: "DPS" },
+      raiderIo: { classSlug: "mage", specSlug: "frost", role: "DPS" },
+    });
+    expect(id.classSlug).toBe("mage");
+    expect(id.specSlug).toBe("frost");
+    expect(id.role).toBe("DPS");
+    expect(id.roleSource).toBe("canonical_spec");
+  });
+
+  it("prefers complete Raider.IO over class/spec-only Blizzard without role", () => {
+    const id = resolveFrozenCharacterIdentity({
+      blizzard: { classSlug: "warlock", specSlug: "affliction" },
+      raiderIo: { classSlug: "mage", specSlug: "frost", role: "DPS" },
+    });
+    expect(id.classSlug).toBe("mage");
+    expect(id.specSlug).toBe("frost");
+    expect(id.role).toBe("DPS");
+  });
+
+  it("uses Blizzard when both providers complete with the same identity", () => {
+    const id = resolveFrozenCharacterIdentity({
+      blizzard: { classSlug: "priest", specSlug: "holy", role: "HEALER" },
+      raiderIo: { classSlug: "priest", specSlug: "holy", role: "HEALER" },
+    });
+    expect(id.classSlug).toBe("priest");
+    expect(id.specSlug).toBe("holy");
+    expect(id.role).toBe("HEALER");
+  });
+
+  it("fails closed when both providers are complete but conflict", () => {
+    const id = resolveFrozenCharacterIdentity({
+      blizzard: { classSlug: "priest", specSlug: "holy", role: "HEALER" },
+      raiderIo: { classSlug: "mage", specSlug: "frost", role: "DPS" },
+    });
+    expect(id.state).toBe("INCOMPATIBLE");
+    expect(id.role).toBe("UNKNOWN");
+    expect(id.role).not.toBe("DPS");
+    expect(id.limitations).toContain("provider_identity_conflict");
+  });
+
+  it("preserves partial Blizzard when neither provider is complete", () => {
+    const id = resolveFrozenCharacterIdentity({
+      blizzard: { role: "DPS" },
+      raiderIo: { classSlug: "mage" },
+    });
+    // Incomplete Blizzard (role-only) still outranks incomplete Rio when neither is a
+    // complete tuple — class/spec stay unknown; provider role is preserved.
+    expect(id.classSlug).toBeNull();
+    expect(id.specSlug).toBeNull();
+    expect(id.role).toBe("DPS");
+    expect(id.roleSource).toBe("provider_profile");
+  });
+
+  it("returns UNKNOWN role with no provider identity", () => {
+    const id = resolveFrozenCharacterIdentity({
+      blizzard: null,
+      raiderIo: null,
+    });
+    expect(id.role).toBe("UNKNOWN");
+    expect(id.role).not.toBe("DPS");
+  });
+
+  it("returns UNKNOWN role when partial providers lack playable role and canonical mapping", () => {
+    const id = resolveFrozenCharacterIdentity({
+      blizzard: { classSlug: "mage" },
+      raiderIo: { classSlug: "warlock" },
+    });
+    expect(id.classSlug).toBe("mage");
+    expect(id.specSlug).toBeNull();
+    expect(id.role).toBe("UNKNOWN");
+    expect(id.role).not.toBe("DPS");
   });
 });
 

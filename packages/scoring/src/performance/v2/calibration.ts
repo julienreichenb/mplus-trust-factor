@@ -1,8 +1,10 @@
 import {
   PERFORMANCE_V2_MODEL_CONFIG,
   PERFORMANCE_V2_SCHEMA_VERSION,
+  type PerformanceV2ModelConfig,
 } from "./constants.js";
-import { computePerformanceV2 } from "./compute.js";
+import { computePerformanceV2, type PerformanceV2ComputeOptions } from "./compute.js";
+import { resolvePerformanceV2ModelConfig } from "./model-config.js";
 import type {
   PerformanceV2CalibrationExport,
   PerformanceV2ComputeInput,
@@ -14,12 +16,16 @@ import type {
  */
 export function exportPerformanceV2Calibration(
   input: PerformanceV2ComputeInput,
+  options?: PerformanceV2ComputeOptions,
 ): PerformanceV2CalibrationExport {
-  const result = computePerformanceV2(input);
+  const modelConfig = resolvePerformanceV2ModelConfig(
+    options?.modelConfig,
+  ) as PerformanceV2ModelConfig;
+  const result = computePerformanceV2(input, { modelConfig });
   return {
     schemaVersion: PERFORMANCE_V2_SCHEMA_VERSION,
     algorithmVersion: result.algorithmVersion,
-    modelConfig: PERFORMANCE_V2_MODEL_CONFIG,
+    modelConfig: modelConfig === PERFORMANCE_V2_MODEL_CONFIG ? PERFORMANCE_V2_MODEL_CONFIG : modelConfig,
     input,
     result: {
       score: result.score,

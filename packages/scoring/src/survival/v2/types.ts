@@ -3,9 +3,9 @@ import type {
   SURVIVAL_V2_CALIBRATION_SCHEMA_VERSION,
   SURVIVAL_V2_DEFENSIVE_RATE,
   SURVIVAL_V2_EXTRACTOR_FAMILY,
-  SURVIVAL_V2_MODEL_CONFIG,
   SURVIVAL_V2_SCHEMA_VERSION,
   SurvivalV2CalibrationStatus,
+  SurvivalV2ModelConfig,
   SurvivalV2RelativeDamageMode,
 } from "./constants.js";
 
@@ -206,6 +206,7 @@ export interface SurvivalV2ComputeResult {
   algorithmVersion: string;
   modelLabel: string;
   calibrationStatus: SurvivalV2CalibrationStatus;
+  modelConfigFingerprint: string;
   inputFingerprint: string;
   score: number | null;
   confidence: number;
@@ -252,7 +253,7 @@ export interface SurvivalV2ComputeResult {
 export interface SurvivalV2CalibrationExport {
   schemaVersion: typeof SURVIVAL_V2_CALIBRATION_SCHEMA_VERSION;
   algorithmVersion: string;
-  modelConfig: typeof SURVIVAL_V2_MODEL_CONFIG;
+  modelConfig: SurvivalV2ModelConfig;
   input: SurvivalV2ComputeInput;
   result: Pick<
     SurvivalV2ComputeResult,

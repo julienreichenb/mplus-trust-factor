@@ -17,8 +17,14 @@ import {
   emptyUtilityV2FactSet,
   exportUtilityV2Calibration,
   UTILITY_V2_ALGORITHM_VERSION,
+  UTILITY_V2_MODEL_CONFIG,
   UTILITY_V2_SCORE_FLOOR,
 } from "../utility/v2/index.js";
+import {
+  createDefaultScoringV2DimensionConfigSet,
+  withScoringV2DimensionConfigs,
+} from "../model-config/index.js";
+import { createDefaultModelV6 } from "../model/defaults.js";
 import { EVIDENCE_SELECTOR_VERSION } from "@mplus/contracts";
 
 function sha256Json(value: unknown): string {
@@ -61,11 +67,13 @@ function fixtureV2Bundle(overrides: Partial<CalibrationInputBundleV2> = {}): Cal
   const manifestHash = sha256Json({ schemaVersion: "2.0.0", contentHash: "manifest-doc" });
   const factHash = sha256Json({ kind: "fixture-fact" });
 
+  const scoringV2 = createDefaultScoringV2DimensionConfigSet();
+  const modelConfig = withScoringV2DimensionConfigs(createDefaultModelV6(), scoringV2);
   const model = {
-    key: "v6",
-    version: 1,
+    key: modelConfig.key,
+    version: modelConfig.version,
     status: "DRAFT" as const,
-    config: { schemaVersion: "1" } as never,
+    config: modelConfig,
     isActive: false,
   };
 
@@ -312,11 +320,100 @@ describe("Calibration Bundle V2", () => {
     expect(a.refreshCalls).toBe(0);
     expect(a.members[0]!.dimensions[0]!.score).toBe(UTILITY_V2_SCORE_FLOOR);
 
-    await expect(
-      replayCalibrationBundleV2ActiveVersusDraft({ bundle, resolver }),
-    ).rejects.toMatchObject({
-      code: "CALIBRATION_V2_ACTIVE_DRAFT_ARCH_BLOCKER",
+    const activeDraft = await replayCalibrationBundleV2ActiveVersusDraft({
+      bundle,
+      resolver,
     });
+    expect(activeDraft.schemaVersion).toBe("calibration-active-draft-v2");
+    expect(activeDraft.providerCalls).toBe(0);
+    expect(activeDraft.refreshCalls).toBe(0);
+    expect(activeDraft.modelActivated).toBe(false);
+    expect(activeDraft.publicationMutated).toBe(false);
+    expect(activeDraft.identicalEvidence).toBe(true);
+    // Same default configs → zero deltas
+    for (const member of activeDraft.members) {
+      for (const dim of member.dimensions) {
+        if (dim.activeScore != null && dim.draftScore != null) {
+          expect(dim.scoreDelta).toBe(0);
+        }
+      }
+      if (member.overallDelta != null) expect(member.overallDelta).toBe(0);
+    }
+  });
+
+  it("active-versus-draft produces real deltas when Utility config differs", async () => {
+    const base = fixtureV2Bundle();
+    const draftUtility = {
+      ...structuredClone(UTILITY_V2_MODEL_CONFIG),
+      scoreFloor: 55,
+    };
+    const draftConfigs = createDefaultScoringV2DimensionConfigSet();
+    (draftConfigs as { utility: typeof draftUtility }).utility = draftUtility;
+    const draftModelConfig = withScoringV2DimensionConfigs(
+      createDefaultModelV6({ key: "draft-v6", version: 99 }),
+      draftConfigs,
+    );
+    const { bundleHash: _drop, ...rest } = base;
+    const rebuilt = buildCalibrationInputBundleV2({
+      ...rest,
+      evaluationModel: {
+        id: "draft-changed",
+        key: draftModelConfig.key,
+        version: draftModelConfig.version,
+        status: "DRAFT",
+        config: draftModelConfig,
+        isActive: false,
+      },
+    });
+    const utilExportHash = base.members[0]!.dimensionExports!.UTILITY!.contentHash;
+    const artifacts = new Map<string, Uint8Array>([
+      [rebuilt.members[0]!.manifest.contentHash, Buffer.from("{}")],
+      [rebuilt.members[0]!.factSets[0]!.contentHash, Buffer.from("{}")],
+      [
+        utilExportHash,
+        Buffer.from(
+          JSON.stringify(
+            exportUtilityV2Calibration({
+              manifest: {
+                contentHash: "util-manifest",
+                schemaVersion: "2.0.0",
+                expectedSlotCount: 1,
+                selectedSlotCount: 1,
+                activeDungeonSlugs: ["ara-kara"],
+                slots: [
+                  {
+                    slotId: "slot-a",
+                    dungeonSlug: "ara-kara",
+                    slotIndex: 0 as const,
+                    state: "SELECTED",
+                    identity: { reportCode: "R1", fightId: 1, reportRevision: 1 },
+                  },
+                ],
+              },
+              factSets: [
+                emptyUtilityV2FactSet({
+                  slotId: "slot-a",
+                  runId: "R1:1",
+                  dungeonSlug: "ara-kara",
+                  reportCode: "R1",
+                  fightId: 1,
+                  reportRevision: 1,
+                }),
+              ],
+            }),
+          ),
+        ),
+      ],
+    ]);
+    const report = await replayCalibrationBundleV2ActiveVersusDraft({
+      bundle: rebuilt,
+      resolver: createMapArtifactResolverV2(artifacts),
+    });
+    const util = report.members[0]!.dimensions.find((d) => d.dimension === "UTILITY")!;
+    expect(util.activeScore).toBe(UTILITY_V2_SCORE_FLOOR);
+    expect(util.draftScore).toBe(55);
+    expect(util.scoreDelta).toBe(5);
+    expect(util.identicalEvidence).toBe(true);
   });
 
   it("rejects ACTIVE evaluationModel (DRAFT-only creation)", async () => {

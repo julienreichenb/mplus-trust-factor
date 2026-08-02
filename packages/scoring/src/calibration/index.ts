@@ -114,13 +114,20 @@ export {
   replayCalibrationBundleV2ActiveVersusDraft,
   createMapArtifactResolverV2,
   assertDraftOnlyCreation,
-  assertActiveVersusDraftSupported,
-  CALIBRATION_V2_ACTIVE_DRAFT_ARCH_BLOCKER,
-  CalibrationV2ActiveDraftArchitectureError,
   type CalibrationV2DimensionReplayResult,
   type CalibrationV2MemberReplayResult,
   type CalibrationV2ReplayReport,
+  type CalibrationV2ActiveVersusDraftReport,
+  type CalibrationV2ActiveVersusDraftMemberResult,
+  type CalibrationV2ActiveVersusDraftDimensionDelta,
 } from "./replay-v2.js";
+
+export {
+  freezeDimensionModelConfigsV2,
+  resolveFrozenDimensionConfigsForModel,
+  strictReparseFrozenDimensionConfigs,
+  type FrozenDimensionModelConfigsV2,
+} from "./bundle-v2.js";
 
 export {
   CALIBRATION_REPORT_V2_SCHEMA_VERSION,

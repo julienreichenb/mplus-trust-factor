@@ -11,8 +11,13 @@ export const UTILITY_V2_EXTRACTOR_FAMILY = "utility";
 export const UTILITY_V2_EXTRACTOR_VERSION = "utility-v2.0.0";
 export const UTILITY_V2_ALGORITHM_VERSION = "utility-v2-phase1-observed-0.1.0";
 export const UTILITY_V2_MODEL_LABEL = "utility-v2-phase1-observed";
-export const UTILITY_V2_CALIBRATION_STATUS = "CANDIDATE_DEFAULTS_UNCALIBRATED" as const;
-export type UtilityV2CalibrationStatus = typeof UTILITY_V2_CALIBRATION_STATUS;
+export type UtilityV2CalibrationStatus =
+  | "CANDIDATE_DEFAULTS_UNCALIBRATED"
+  | "CALIBRATION_IN_PROGRESS"
+  | "CALIBRATED_SHADOW"
+  | "CALIBRATED_ACTIVE";
+export const UTILITY_V2_CALIBRATION_STATUS: UtilityV2CalibrationStatus =
+  "CANDIDATE_DEFAULTS_UNCALIBRATED";
 
 /** Domain weights among applicable toolkit domains only (renormalize when N/A). */
 export const UTILITY_V2_DOMAIN_WEIGHTS = {
@@ -145,8 +150,72 @@ export const UTILITY_V2_SCORE_SEMANTICS = {
   ],
 } as const;
 
+/** Writable/validated confidence shape — numeric fields are `number` for overrides. */
+export type UtilityV2ConfidenceConfig = {
+  expectedDungeons: number;
+  runSaturation: number;
+  combatHourSaturation: number;
+  attributableEventSaturation: number;
+  tinyRunThreshold: number;
+  maxWhenTinySample: number;
+  maxWhenPartialDungeons: number;
+  maxWhenZeroAttributable: number;
+  maxWhenNoHostileCasts: number;
+  maxWhenMechanicCatalogBelow: ReadonlyArray<{ below: number; maxConfidence: number }>;
+  weights: {
+    dungeonCoverage: number;
+    runCoverage: number;
+    combatDuration: number;
+    attributableEvents: number;
+    mechanicCatalogCoverageObserved: number;
+    sourceCompleteness: number;
+  };
+  minReliability: number;
+};
+
+/** Phase 1 score-semantics — opportunityMode must remain off. */
+export type UtilityV2ScoreSemantics = {
+  mode: "OBSERVED_CONTRIBUTION";
+  phase: 1;
+  opportunityMode: "off";
+  scoreKind: string;
+  notes: readonly string[];
+};
+
+/** Writable/validated shape — numeric fields are `number` so overrides can differ from defaults. */
+export type UtilityV2ModelConfig = {
+  algorithmVersion: string;
+  modelLabel: string;
+  schemaVersion: string;
+  calibrationStatus: UtilityV2CalibrationStatus;
+  domainWeights: { castStops: number; support: number; strategicCc: number };
+  domainContributionCap: number;
+  scoreFloor: number;
+  interruptCredits: {
+    CONFIRMED_SUCCESS: number;
+    VALID_OVERLAP: number;
+    MATCHED_FAILED: number;
+    UNMATCHED_ATTEMPT: number;
+    NOT_OBSERVABLE: number;
+  };
+  unmatchedCreditShareCap: number;
+  unmatchedOnlyMaxDomainScore: number;
+  interruptMatchToleranceMs: number;
+  ccDedupeWindowMs: number;
+  supportSemanticCredit: Record<UtilityV2SupportSemantic, number>;
+  supportDiminishingExponent: number;
+  dispelPurgeEventCredit: number;
+  castStopsCurve: ReadonlyArray<{ perHour: number; score: number }>;
+  supportCurve: ReadonlyArray<{ perHour: number; score: number }>;
+  strategicCcCurve: ReadonlyArray<{ perHour: number; score: number }>;
+  minHostileCastsPerHourForFullCredit: number;
+  activeCombatGapMs: number;
+  confidence: UtilityV2ConfidenceConfig;
+  scoreSemantics: UtilityV2ScoreSemantics;
+};
+
 /** Immutable candidate defaults for calibration export / replay. */
-export const UTILITY_V2_MODEL_CONFIG = {
+export const UTILITY_V2_MODEL_CONFIG: UtilityV2ModelConfig = Object.freeze({
   algorithmVersion: UTILITY_V2_ALGORITHM_VERSION,
   modelLabel: UTILITY_V2_MODEL_LABEL,
   schemaVersion: UTILITY_V2_SCHEMA_VERSION,
@@ -157,11 +226,16 @@ export const UTILITY_V2_MODEL_CONFIG = {
   interruptCredits: UTILITY_V2_INTERRUPT_CREDITS,
   unmatchedCreditShareCap: UTILITY_V2_UNMATCHED_CREDIT_SHARE_CAP,
   unmatchedOnlyMaxDomainScore: UTILITY_V2_UNMATCHED_ONLY_MAX_DOMAIN_SCORE,
+  interruptMatchToleranceMs: UTILITY_V2_INTERRUPT_MATCH_TOLERANCE_MS,
+  ccDedupeWindowMs: UTILITY_V2_CC_DEDUPE_WINDOW_MS,
   supportSemanticCredit: UTILITY_V2_SUPPORT_SEMANTIC_CREDIT,
   supportDiminishingExponent: UTILITY_V2_SUPPORT_DIMINISHING_EXPONENT,
   dispelPurgeEventCredit: UTILITY_V2_DISPEL_PURGE_EVENT_CREDIT,
+  castStopsCurve: UTILITY_V2_CAST_STOPS_CURVE,
+  supportCurve: UTILITY_V2_SUPPORT_CURVE,
+  strategicCcCurve: UTILITY_V2_STRATEGIC_CC_CURVE,
+  minHostileCastsPerHourForFullCredit: UTILITY_V2_MIN_HOSTILE_CASTS_PER_HOUR_FOR_FULL_CREDIT,
+  activeCombatGapMs: UTILITY_V2_ACTIVE_COMBAT_GAP_MS,
   confidence: UTILITY_V2_CONFIDENCE,
   scoreSemantics: UTILITY_V2_SCORE_SEMANTICS,
-} as const;
-
-export type UtilityV2ModelConfig = typeof UTILITY_V2_MODEL_CONFIG;
+});

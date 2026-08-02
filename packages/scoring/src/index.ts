@@ -24,6 +24,22 @@ export type {
 } from "./types.js";
 export { DIMENSION_WEIGHT_KEYS, SKILL_DIMENSIONS } from "./types.js";
 
+/** Scoring V2 dimension model-config contracts and ScoreModel mapping. */
+export {
+  stableSha256,
+  ModelConfigValidationError,
+  SCORING_V2_DIMENSION_CONFIGS_SCHEMA_VERSION,
+  createDefaultScoringV2DimensionConfigSet,
+  parseScoringV2DimensionConfigSet,
+  resolveScoreModelV2DimensionConfigs,
+  withScoringV2DimensionConfigs,
+} from "./model-config/index.js";
+export type {
+  ScoringV2DimensionConfigSet,
+  ScoringV2DimensionConfigFingerprints,
+  ResolvedScoreModelV2DimensionConfigs,
+} from "./model-config/index.js";
+
 export { clamp, clamp01, approxEqual, sum, safeDivide } from "./math.js";
 export { normalizeRawValue, applyHistoricalDecay, sampleSizeConfidence } from "./normalize.js";
 export { validateScoreModelConfig } from "./validate.js";
@@ -316,9 +332,8 @@ export {
   replayCalibrationBundleV2ActiveVersusDraft,
   createMapArtifactResolverV2,
   assertDraftOnlyCreation,
-  assertActiveVersusDraftSupported,
-  CALIBRATION_V2_ACTIVE_DRAFT_ARCH_BLOCKER,
-  CalibrationV2ActiveDraftArchitectureError,
+  freezeDimensionModelConfigsV2,
+  strictReparseFrozenDimensionConfigs,
   CALIBRATION_REPORT_V2_SCHEMA_VERSION,
   CALIBRATION_V2_MIN_SLICE_SIZE,
   buildCalibrationReportV2Extension,
@@ -416,6 +431,9 @@ export {
   computePerformanceV2InputFingerprint,
   toPerformanceV2ShadowDimensionPayload,
   exportPerformanceV2Calibration,
+  parsePerformanceV2ModelConfig,
+  resolvePerformanceV2ModelConfig,
+  fingerprintPerformanceV2ModelConfig,
   parsePerformanceRunParseFactV2,
   createManualDifficultyPolicyV2,
 } from "./performance/v2/index.js";
@@ -466,6 +484,10 @@ export {
   computeExperienceV3InputFingerprint,
   toExperienceV3ShadowDimensionPayload,
   exportExperienceV3Calibration,
+  parseExperienceV3ModelConfig,
+  resolveExperienceV3ModelConfig,
+  fingerprintExperienceV3ModelConfig,
+  EXPERIENCE_V3_DEFAULT_CONFIG_FINGERPRINT,
 } from "./experience/v3/index.js";
 export type {
   ExperienceV3CalibrationStatus,
@@ -530,6 +552,9 @@ export {
   buildSurvivalV2InputFingerprint,
   toSurvivalV2ShadowDimensionPayload,
   exportSurvivalV2Calibration,
+  parseSurvivalV2ModelConfig,
+  resolveSurvivalV2ModelConfig,
+  fingerprintSurvivalV2ModelConfig,
 } from "./survival/v2/index.js";
 export type {
   SurvivalV2RelativeDamageMode,
@@ -585,6 +610,10 @@ export {
   toUtilityV2ShadowDimensionPayload,
   exportUtilityV2Calibration,
   buildUtilityV2RunFactSet,
+  parseUtilityV2ModelConfig,
+  resolveUtilityV2ModelConfig,
+  fingerprintUtilityV2ModelConfig,
+  UTILITY_V2_DEFAULT_CONFIG_FINGERPRINT,
 } from "./utility/v2/index.js";
 export type {
   UtilityV2DomainKey,

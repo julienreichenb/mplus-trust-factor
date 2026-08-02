@@ -3350,7 +3350,25 @@ export async function runRefreshPipeline(
   // Scoring V2 shadow orchestration (flags default off — no-op). Never blocks V1 publish.
   if (container.env.SCORING_V2_ENABLED) {
     const { maybeStartScoringV2ShadowFromRefresh } = await import("./scoring-v2/refresh-bridge.js");
+    const { resolveFrozenCharacterIdentity } = await import("./scoring-v2/class-spec-identity.js");
     const { mythicRunToEvidenceCandidateMetadata } = await import("@mplus/scoring");
+    // Coherent class/spec/role from the same provider chain — never Character.role, never DPS default.
+    const frozenIdentity = resolveFrozenCharacterIdentity({
+      blizzard: blizzardProfile
+        ? {
+            classSlug: blizzardProfile.classSlug,
+            specSlug: blizzardProfile.specSlug,
+            role: blizzardProfile.role,
+          }
+        : null,
+      raiderIo: raiderIoProfile
+        ? {
+            classSlug: raiderIoProfile.classSlug,
+            specSlug: raiderIoProfile.specSlug,
+            role: raiderIoProfile.role,
+          }
+        : null,
+    });
     const v2Candidates = fusedRuns
       .map((run) => mythicRunToEvidenceCandidateMetadata(run))
       .filter((c): c is NonNullable<typeof c> => c != null);
@@ -3359,13 +3377,9 @@ export async function runRefreshPipeline(
       characterId: character.id,
       seasonId: season.id,
       seasonSlug: season.slug,
-      role: (character.role ?? blizzardProfile?.role ?? raiderIoProfile?.role ?? "DPS") as
-        | "DPS"
-        | "TANK"
-        | "HEALER",
-      // Freeze the same class/spec already resolved for this refresh — never fabricate.
-      classSlug,
-      specSlug,
+      role: frozenIdentity.role,
+      classSlug: frozenIdentity.classSlug,
+      specSlug: frozenIdentity.specSlug,
       refreshContract,
       evidenceCutoffAt: new Date(0).toISOString(),
       highKeyPolicyId: "high-key-policy-v1",

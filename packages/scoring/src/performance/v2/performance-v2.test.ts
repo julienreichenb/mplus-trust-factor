@@ -304,6 +304,14 @@ describe("Performance V2 role safety", () => {
     });
     expect(healer.runParseAllowed).toBe(false);
     expect(healer.reason).toContain("no_raw_hps");
+
+    const unknown = resolvePerformanceRoleAdapter({
+      role: "UNKNOWN",
+      specSlug: "frost",
+    });
+    expect(unknown.state).toBe("UNSUPPORTED_ROLE");
+    expect(unknown.runParseAllowed).toBe(false);
+    expect(unknown.reason).toBe("role_identity_unknown");
   });
 });
 

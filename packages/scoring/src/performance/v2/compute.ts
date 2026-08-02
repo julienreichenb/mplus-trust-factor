@@ -1,14 +1,19 @@
 import { createHash } from "node:crypto";
 import { clamp } from "../../math.js";
+import { stableStringify } from "../../model-config/stable-hash.js";
 import { blendPerformanceSources, computeDetailedWeight } from "./blend.js";
 import { computePerformanceConfidenceV2 } from "./confidence.js";
 import {
   PERFORMANCE_V2_ALGORITHM_VERSION,
-  PERFORMANCE_V2_CALIBRATION_STATUS,
   PERFORMANCE_V2_MODEL_CONFIG,
   PERFORMANCE_V2_MODEL_LABEL,
+  type PerformanceV2ModelConfig,
 } from "./constants.js";
 import { computeDetailedSeasonPerformance } from "./dungeon.js";
+import {
+  fingerprintPerformanceV2ModelConfig,
+  resolvePerformanceV2ModelConfig,
+} from "./model-config.js";
 import {
   computeEqualDungeonProfilePerformance,
   computeProfilePerformance,
@@ -22,54 +27,94 @@ import type {
   PerformanceV2ComputeResult,
 } from "./types.js";
 
-function stableStringify(value: unknown): string {
-  if (value === null || typeof value !== "object") {
-    return JSON.stringify(value);
-  }
-  if (Array.isArray(value)) {
-    return `[${value.map((v) => stableStringify(v)).join(",")}]`;
-  }
-  const obj = value as Record<string, unknown>;
-  const keys = Object.keys(obj).sort();
-  return `{${keys.map((k) => `${JSON.stringify(k)}:${stableStringify(obj[k])}`).join(",")}}`;
+export interface PerformanceV2ComputeOptions {
+  /** Explicit frozen model config. Defaults to canonical PERFORMANCE_V2_MODEL_CONFIG. */
+  modelConfig?: PerformanceV2ModelConfig | unknown;
 }
 
 export function computePerformanceV2InputFingerprint(
   input: PerformanceV2ComputeInput,
+  options?: PerformanceV2ComputeOptions,
 ): string {
-  const payload = {
-    algorithmVersion: PERFORMANCE_V2_ALGORITHM_VERSION,
-    modelLabel: PERFORMANCE_V2_MODEL_LABEL,
-    manifestContentHash: input.manifest.contentHash,
-    selectorVersion: input.manifest.selectorVersion,
-    highKeyPolicyId: input.manifest.highKeyPolicyId,
-    difficultyPolicy: {
-      id: input.difficultyPolicy.id,
-      version: input.difficultyPolicy.version,
-      k50: input.difficultyPolicy.k50,
-      k90: input.difficultyPolicy.k90,
-      k99: input.difficultyPolicy.k99,
-    },
-    expectedPartition: input.expectedPartition,
-    runParseFacts: [...input.runParseFacts]
-      .map((f) => ({
-        slotId: f.slotId,
-        dungeonSlug: f.dungeonSlug,
-        keyLevel: f.keyLevel,
-        parsePercentile: f.parsePercentile,
-        semantic: f.semantic,
-        partition: f.partition,
-      }))
-      .sort((a, b) => a.slotId.localeCompare(b.slotId)),
-    profile: input.profileAggregate
-      ? {
-          best: input.profileAggregate.bestDpsPercentileAverage,
-          median: input.profileAggregate.medianDpsPercentileAverage,
-          partition: input.profileAggregate.partition,
-          totalLoggedRuns: input.profileAggregate.totalLoggedRuns,
-        }
-      : null,
-  };
+  const config = resolvePerformanceV2ModelConfig(options?.modelConfig);
+  const configFingerprint = fingerprintPerformanceV2ModelConfig(config);
+  const usingDefault =
+    options?.modelConfig === undefined ||
+    options?.modelConfig === null ||
+    options?.modelConfig === PERFORMANCE_V2_MODEL_CONFIG ||
+    configFingerprint === fingerprintPerformanceV2ModelConfig(PERFORMANCE_V2_MODEL_CONFIG);
+
+  // Default path keeps the pre-injection fingerprint payload (exact golden hashes).
+  // Explicit/non-default configs include modelConfigFingerprint so config changes
+  // produce deterministic score fingerprint differences.
+  const payload = usingDefault
+    ? {
+        algorithmVersion: PERFORMANCE_V2_ALGORITHM_VERSION,
+        modelLabel: PERFORMANCE_V2_MODEL_LABEL,
+        manifestContentHash: input.manifest.contentHash,
+        selectorVersion: input.manifest.selectorVersion,
+        highKeyPolicyId: input.manifest.highKeyPolicyId,
+        difficultyPolicy: {
+          id: input.difficultyPolicy.id,
+          version: input.difficultyPolicy.version,
+          k50: input.difficultyPolicy.k50,
+          k90: input.difficultyPolicy.k90,
+          k99: input.difficultyPolicy.k99,
+        },
+        expectedPartition: input.expectedPartition,
+        runParseFacts: [...input.runParseFacts]
+          .map((f) => ({
+            slotId: f.slotId,
+            dungeonSlug: f.dungeonSlug,
+            keyLevel: f.keyLevel,
+            parsePercentile: f.parsePercentile,
+            semantic: f.semantic,
+            partition: f.partition,
+          }))
+          .sort((a, b) => a.slotId.localeCompare(b.slotId)),
+        profile: input.profileAggregate
+          ? {
+              best: input.profileAggregate.bestDpsPercentileAverage,
+              median: input.profileAggregate.medianDpsPercentileAverage,
+              partition: input.profileAggregate.partition,
+              totalLoggedRuns: input.profileAggregate.totalLoggedRuns,
+            }
+          : null,
+      }
+    : {
+        algorithmVersion: config.algorithmVersion,
+        modelLabel: config.modelLabel,
+        modelConfigFingerprint: configFingerprint,
+        manifestContentHash: input.manifest.contentHash,
+        selectorVersion: input.manifest.selectorVersion,
+        highKeyPolicyId: input.manifest.highKeyPolicyId,
+        difficultyPolicy: {
+          id: input.difficultyPolicy.id,
+          version: input.difficultyPolicy.version,
+          k50: input.difficultyPolicy.k50,
+          k90: input.difficultyPolicy.k90,
+          k99: input.difficultyPolicy.k99,
+        },
+        expectedPartition: input.expectedPartition,
+        runParseFacts: [...input.runParseFacts]
+          .map((f) => ({
+            slotId: f.slotId,
+            dungeonSlug: f.dungeonSlug,
+            keyLevel: f.keyLevel,
+            parsePercentile: f.parsePercentile,
+            semantic: f.semantic,
+            partition: f.partition,
+          }))
+          .sort((a, b) => a.slotId.localeCompare(b.slotId)),
+        profile: input.profileAggregate
+          ? {
+              best: input.profileAggregate.bestDpsPercentileAverage,
+              median: input.profileAggregate.medianDpsPercentileAverage,
+              partition: input.profileAggregate.partition,
+              totalLoggedRuns: input.profileAggregate.totalLoggedRuns,
+            }
+          : null,
+      };
   return createHash("sha256").update(stableStringify(payload)).digest("hex");
 }
 
@@ -110,8 +155,10 @@ function resolveAvailability(input: {
  */
 export function computePerformanceV2(
   input: PerformanceV2ComputeInput,
+  options?: PerformanceV2ComputeOptions,
 ): PerformanceV2ComputeResult {
-  const config = PERFORMANCE_V2_MODEL_CONFIG;
+  const config = resolvePerformanceV2ModelConfig(options?.modelConfig);
+  const modelConfigFingerprint = fingerprintPerformanceV2ModelConfig(config);
   const roleAdapter = resolvePerformanceRoleAdapter({
     role: input.manifest.role,
     specSlug: input.manifest.specSlug,
@@ -258,9 +305,10 @@ export function computePerformanceV2(
     });
 
   const explanation: PerformanceExplanationV2 = {
-    algorithmVersion: PERFORMANCE_V2_ALGORITHM_VERSION,
-    modelLabel: PERFORMANCE_V2_MODEL_LABEL,
-    calibrationStatus: PERFORMANCE_V2_CALIBRATION_STATUS,
+    algorithmVersion: config.algorithmVersion,
+    modelLabel: config.modelLabel,
+    calibrationStatus: config.calibrationStatus,
+    modelConfigFingerprint,
     difficultyPolicy: {
       id: input.difficultyPolicy.id,
       version: input.difficultyPolicy.version,
@@ -288,12 +336,13 @@ export function computePerformanceV2(
     contributors,
   };
 
-  const inputFingerprint = computePerformanceV2InputFingerprint(input);
+  const inputFingerprint = computePerformanceV2InputFingerprint(input, { modelConfig: config });
 
   const metrics: Record<string, unknown> = {
-    algorithmVersion: PERFORMANCE_V2_ALGORITHM_VERSION,
-    modelLabel: PERFORMANCE_V2_MODEL_LABEL,
-    calibrationStatus: PERFORMANCE_V2_CALIBRATION_STATUS,
+    algorithmVersion: config.algorithmVersion,
+    modelLabel: config.modelLabel,
+    calibrationStatus: config.calibrationStatus,
+    modelConfigFingerprint,
     manifestContentHash: input.manifest.contentHash,
     manifestSchemaVersion: input.manifest.schemaVersion,
     selectorVersion: input.manifest.selectorVersion,
@@ -319,9 +368,10 @@ export function computePerformanceV2(
     score: effectiveScore,
     confidence: effectiveConfidence,
     state: effectiveScore == null ? "UNAVAILABLE" : state,
-    algorithmVersion: PERFORMANCE_V2_ALGORITHM_VERSION,
-    modelLabel: PERFORMANCE_V2_MODEL_LABEL,
-    calibrationStatus: PERFORMANCE_V2_CALIBRATION_STATUS,
+    algorithmVersion: config.algorithmVersion,
+    modelLabel: config.modelLabel,
+    calibrationStatus: config.calibrationStatus,
+    modelConfigFingerprint,
     inputFingerprint,
     detailedSeasonPerformance: detailed.detailedSeasonPerformance,
     profilePerformance,
