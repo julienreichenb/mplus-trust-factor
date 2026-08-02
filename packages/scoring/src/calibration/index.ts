@@ -125,6 +125,7 @@ export {
 export {
   freezeDimensionModelConfigsV2,
   resolveFrozenDimensionConfigsForModel,
+  strictReparseFrozenDimensionConfigs,
   type FrozenDimensionModelConfigsV2,
 } from "./bundle-v2.js";
 

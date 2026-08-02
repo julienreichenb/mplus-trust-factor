@@ -94,26 +94,92 @@ function canonicalRoleForSpec(
   return role != null && PLAYABLE_ROLES.has(role) ? role : null;
 }
 
+interface NormalizedIdentityTuple {
+  classSlug: string | null;
+  specSlug: string | null;
+  role: EvidenceRole | null;
+  profile: ProviderIdentityProfile;
+  source: "blizzard" | "raiderio";
+}
+
+/** Complete coherent tuple: class + spec + playable role from one provider. */
+function isCompleteTuple(t: NormalizedIdentityTuple): boolean {
+  return (
+    t.classSlug != null &&
+    t.specSlug != null &&
+    t.role != null &&
+    PLAYABLE_ROLES.has(t.role)
+  );
+}
+
+function hasAnyIdentityField(t: NormalizedIdentityTuple): boolean {
+  return t.classSlug != null || t.specSlug != null || t.role != null;
+}
+
+function normalizeProviderTuple(
+  profile: ProviderIdentityProfile | null | undefined,
+  source: "blizzard" | "raiderio",
+): NormalizedIdentityTuple | null {
+  if (!profile) return null;
+  return {
+    classSlug: normalizeCatalogSlug(profile.classSlug),
+    specSlug: normalizeCatalogSlug(profile.specSlug),
+    role: normalizeRole(profile.role),
+    profile,
+    source,
+  };
+}
+
+function tuplesEqual(a: NormalizedIdentityTuple, b: NormalizedIdentityTuple): boolean {
+  return (
+    a.classSlug === b.classSlug && a.specSlug === b.specSlug && a.role === b.role
+  );
+}
+
+type AuthoritativeProfilePick =
+  | { kind: "profile"; profile: ProviderIdentityProfile; source: "blizzard" | "raiderio" }
+  | {
+      kind: "conflict";
+      blizzard: NormalizedIdentityTuple;
+      raiderIo: NormalizedIdentityTuple;
+    }
+  | null;
+
+/**
+ * Deterministic coherent profile selection.
+ * Prefers a complete class/spec/role tuple from the highest-precedence provider.
+ * Never combines fields across providers. Never prefers role-only Blizzard over
+ * a complete Raider.IO identity.
+ */
 function pickAuthoritativeProfile(input: {
   blizzard?: ProviderIdentityProfile | null;
   raiderIo?: ProviderIdentityProfile | null;
-}): { profile: ProviderIdentityProfile; source: "blizzard" | "raiderio" } | null {
-  const blizzardClass = normalizeCatalogSlug(input.blizzard?.classSlug);
-  const blizzardSpec = normalizeCatalogSlug(input.blizzard?.specSlug);
-  if (blizzardClass != null && blizzardSpec != null) {
-    return { profile: input.blizzard!, source: "blizzard" };
+}): AuthoritativeProfilePick {
+  const blizzard = normalizeProviderTuple(input.blizzard, "blizzard");
+  const raiderIo = normalizeProviderTuple(input.raiderIo, "raiderio");
+
+  const blizzardComplete = blizzard != null && isCompleteTuple(blizzard);
+  const rioComplete = raiderIo != null && isCompleteTuple(raiderIo);
+
+  if (blizzardComplete && rioComplete) {
+    if (tuplesEqual(blizzard!, raiderIo!)) {
+      return { kind: "profile", profile: blizzard!.profile, source: "blizzard" };
+    }
+    return { kind: "conflict", blizzard: blizzard!, raiderIo: raiderIo! };
   }
-  const rioClass = normalizeCatalogSlug(input.raiderIo?.classSlug);
-  const rioSpec = normalizeCatalogSlug(input.raiderIo?.specSlug);
-  if (rioClass != null && rioSpec != null) {
-    return { profile: input.raiderIo!, source: "raiderio" };
+  if (blizzardComplete) {
+    return { kind: "profile", profile: blizzard!.profile, source: "blizzard" };
   }
-  // Partial Blizzard still preferred over Raider.IO when either field is present.
-  if (blizzardClass != null || blizzardSpec != null || normalizeRole(input.blizzard?.role) != null) {
-    return { profile: input.blizzard ?? {}, source: "blizzard" };
+  if (rioComplete) {
+    return { kind: "profile", profile: raiderIo!.profile, source: "raiderio" };
   }
-  if (rioClass != null || rioSpec != null || normalizeRole(input.raiderIo?.role) != null) {
-    return { profile: input.raiderIo ?? {}, source: "raiderio" };
+
+  // Neither complete — preserve partial information from highest-precedence partial.
+  if (blizzard != null && hasAnyIdentityField(blizzard)) {
+    return { kind: "profile", profile: blizzard.profile, source: "blizzard" };
+  }
+  if (raiderIo != null && hasAnyIdentityField(raiderIo)) {
+    return { kind: "profile", profile: raiderIo.profile, source: "raiderio" };
   }
   return null;
 }
@@ -264,6 +330,23 @@ export function resolveFrozenCharacterIdentity(
       roleSource: "unknown",
       limitations: ["class_spec_identity_unknown", "role_identity_unknown"],
       catalogDependentFailClosed: false,
+    };
+  }
+
+  if (picked.kind === "conflict") {
+    return {
+      state: "INCOMPATIBLE",
+      classSlug: picked.blizzard.classSlug,
+      specSlug: picked.blizzard.specSlug,
+      role: "UNKNOWN",
+      roleSource: "incompatible",
+      limitations: [
+        "class_spec_identity_incompatible",
+        "provider_identity_conflict",
+        `blizzard:${picked.blizzard.classSlug}/${picked.blizzard.specSlug}/${picked.blizzard.role}`,
+        `raiderio:${picked.raiderIo.classSlug}/${picked.raiderIo.specSlug}/${picked.raiderIo.role}`,
+      ],
+      catalogDependentFailClosed: true,
     };
   }
 

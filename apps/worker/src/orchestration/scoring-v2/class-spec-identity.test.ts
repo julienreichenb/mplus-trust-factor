@@ -264,10 +264,10 @@ describe("resolveFrozenClassSpecIdentity", () => {
 });
 
 describe("resolveFrozenCharacterIdentity", () => {
-  it("freezes coherent class/spec/role from Blizzard profile via canonical mapping", () => {
+  it("freezes coherent class/spec/role from Blizzard when Raider.IO is incomplete", () => {
     const id = resolveFrozenCharacterIdentity({
       blizzard: { classSlug: "Priest", specSlug: "Holy", role: "HEALER" },
-      raiderIo: { classSlug: "mage", specSlug: "frost", role: "DPS" },
+      raiderIo: { classSlug: "mage" },
     });
     expect(id.state).toBe("KNOWN");
     expect(id.classSlug).toBe("priest");
@@ -276,10 +276,10 @@ describe("resolveFrozenCharacterIdentity", () => {
     expect(id.roleSource).toBe("canonical_spec");
   });
 
-  it("prefers Blizzard over Raider.IO for all three fields", () => {
+  it("prefers complete Blizzard over incomplete Raider.IO", () => {
     const id = resolveFrozenCharacterIdentity({
       blizzard: { classSlug: "warrior", specSlug: "protection", role: "TANK" },
-      raiderIo: { classSlug: "mage", specSlug: "frost", role: "DPS" },
+      raiderIo: { role: "DPS" },
     });
     expect(id.classSlug).toBe("warrior");
     expect(id.specSlug).toBe("protection");
@@ -329,6 +329,81 @@ describe("resolveFrozenCharacterIdentity", () => {
     });
     expect(id.role).toBe("DPS");
     expect(id.specSlug).toBe("windwalker");
+  });
+
+  it("prefers complete Raider.IO over role-only Blizzard", () => {
+    const id = resolveFrozenCharacterIdentity({
+      blizzard: { role: "DPS" },
+      raiderIo: { classSlug: "mage", specSlug: "frost", role: "DPS" },
+    });
+    expect(id.classSlug).toBe("mage");
+    expect(id.specSlug).toBe("frost");
+    expect(id.role).toBe("DPS");
+    expect(id.roleSource).toBe("canonical_spec");
+  });
+
+  it("prefers complete Raider.IO over class/spec-only Blizzard without role", () => {
+    const id = resolveFrozenCharacterIdentity({
+      blizzard: { classSlug: "warlock", specSlug: "affliction" },
+      raiderIo: { classSlug: "mage", specSlug: "frost", role: "DPS" },
+    });
+    expect(id.classSlug).toBe("mage");
+    expect(id.specSlug).toBe("frost");
+    expect(id.role).toBe("DPS");
+  });
+
+  it("uses Blizzard when both providers complete with the same identity", () => {
+    const id = resolveFrozenCharacterIdentity({
+      blizzard: { classSlug: "priest", specSlug: "holy", role: "HEALER" },
+      raiderIo: { classSlug: "priest", specSlug: "holy", role: "HEALER" },
+    });
+    expect(id.classSlug).toBe("priest");
+    expect(id.specSlug).toBe("holy");
+    expect(id.role).toBe("HEALER");
+  });
+
+  it("fails closed when both providers are complete but conflict", () => {
+    const id = resolveFrozenCharacterIdentity({
+      blizzard: { classSlug: "priest", specSlug: "holy", role: "HEALER" },
+      raiderIo: { classSlug: "mage", specSlug: "frost", role: "DPS" },
+    });
+    expect(id.state).toBe("INCOMPATIBLE");
+    expect(id.role).toBe("UNKNOWN");
+    expect(id.role).not.toBe("DPS");
+    expect(id.limitations).toContain("provider_identity_conflict");
+  });
+
+  it("preserves partial Blizzard when neither provider is complete", () => {
+    const id = resolveFrozenCharacterIdentity({
+      blizzard: { role: "DPS" },
+      raiderIo: { classSlug: "mage" },
+    });
+    // Incomplete Blizzard (role-only) still outranks incomplete Rio when neither is a
+    // complete tuple — class/spec stay unknown; provider role is preserved.
+    expect(id.classSlug).toBeNull();
+    expect(id.specSlug).toBeNull();
+    expect(id.role).toBe("DPS");
+    expect(id.roleSource).toBe("provider_profile");
+  });
+
+  it("returns UNKNOWN role with no provider identity", () => {
+    const id = resolveFrozenCharacterIdentity({
+      blizzard: null,
+      raiderIo: null,
+    });
+    expect(id.role).toBe("UNKNOWN");
+    expect(id.role).not.toBe("DPS");
+  });
+
+  it("returns UNKNOWN role when partial providers lack playable role and canonical mapping", () => {
+    const id = resolveFrozenCharacterIdentity({
+      blizzard: { classSlug: "mage" },
+      raiderIo: { classSlug: "warlock" },
+    });
+    expect(id.classSlug).toBe("mage");
+    expect(id.specSlug).toBeNull();
+    expect(id.role).toBe("UNKNOWN");
+    expect(id.role).not.toBe("DPS");
   });
 });
 

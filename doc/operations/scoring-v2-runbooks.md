@@ -94,12 +94,15 @@ Follow [scoring-v2-persistence-reset.md](./scoring-v2-persistence-reset.md):
 - Logs must use fingerprints for character ids/names and masked report codes (`@mplus/observability`).
 - Never paste raw WCL report codes, OAuth tokens, or BattleTags into tickets.
 
-## Deferred blocker — Calibration V2 active/draft
+## Calibration V2 active/draft
 
 Active-versus-draft calculator model-config injection is implemented
-(`replayCalibrationBundleV2ActiveVersusDraft`). Keep `CALIBRATION_V2_ENABLED`
+(`replayCalibrationBundleV2ActiveVersusDraft`) with strict deep config validation
+and replay-boundary fingerprint verification. Keep `CALIBRATION_V2_ENABLED`
 **disabled** until Prompt 13 / calibration report review; do not enable the flag
-or activate models from this workstream.
+or activate models from this workstream. Agent 11 calibration may use the
+provider-free replay path with the flag still off after review passes.
+
 
 ## Live fact extraction status (WS12.5)
 

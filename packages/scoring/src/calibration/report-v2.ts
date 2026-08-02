@@ -74,7 +74,7 @@ export interface CalibrationV2ReportExtension {
   refreshCalls: 0;
   /** Present when both active and draft replays were supplied. */
   activeVersusDraft: {
-    identicalEvidence: true;
+    identicalEvidence: boolean;
     sourceModelsImmutable: true;
     activeModelKey: string | null;
     activeModelVersion: number | null;
@@ -408,7 +408,7 @@ export function buildCalibrationReportV2Extension(
     refreshCalls: 0,
     activeVersusDraft: active || avd
       ? {
-          identicalEvidence: true,
+          identicalEvidence: avd?.identicalEvidence ?? true,
           sourceModelsImmutable: true,
           activeModelKey: avd?.activeModelKey ?? draft.activeModelKey ?? null,
           activeModelVersion: avd?.activeModelVersion ?? null,

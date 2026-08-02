@@ -11,8 +11,13 @@ export const UTILITY_V2_EXTRACTOR_FAMILY = "utility";
 export const UTILITY_V2_EXTRACTOR_VERSION = "utility-v2.0.0";
 export const UTILITY_V2_ALGORITHM_VERSION = "utility-v2-phase1-observed-0.1.0";
 export const UTILITY_V2_MODEL_LABEL = "utility-v2-phase1-observed";
-export const UTILITY_V2_CALIBRATION_STATUS = "CANDIDATE_DEFAULTS_UNCALIBRATED" as const;
-export type UtilityV2CalibrationStatus = typeof UTILITY_V2_CALIBRATION_STATUS;
+export type UtilityV2CalibrationStatus =
+  | "CANDIDATE_DEFAULTS_UNCALIBRATED"
+  | "CALIBRATION_IN_PROGRESS"
+  | "CALIBRATED_SHADOW"
+  | "CALIBRATED_ACTIVE";
+export const UTILITY_V2_CALIBRATION_STATUS: UtilityV2CalibrationStatus =
+  "CANDIDATE_DEFAULTS_UNCALIBRATED";
 
 /** Domain weights among applicable toolkit domains only (renormalize when N/A). */
 export const UTILITY_V2_DOMAIN_WEIGHTS = {
@@ -145,6 +150,38 @@ export const UTILITY_V2_SCORE_SEMANTICS = {
   ],
 } as const;
 
+/** Writable/validated confidence shape — numeric fields are `number` for overrides. */
+export type UtilityV2ConfidenceConfig = {
+  expectedDungeons: number;
+  runSaturation: number;
+  combatHourSaturation: number;
+  attributableEventSaturation: number;
+  tinyRunThreshold: number;
+  maxWhenTinySample: number;
+  maxWhenPartialDungeons: number;
+  maxWhenZeroAttributable: number;
+  maxWhenNoHostileCasts: number;
+  maxWhenMechanicCatalogBelow: ReadonlyArray<{ below: number; maxConfidence: number }>;
+  weights: {
+    dungeonCoverage: number;
+    runCoverage: number;
+    combatDuration: number;
+    attributableEvents: number;
+    mechanicCatalogCoverageObserved: number;
+    sourceCompleteness: number;
+  };
+  minReliability: number;
+};
+
+/** Phase 1 score-semantics — opportunityMode must remain off. */
+export type UtilityV2ScoreSemantics = {
+  mode: "OBSERVED_CONTRIBUTION";
+  phase: 1;
+  opportunityMode: "off";
+  scoreKind: string;
+  notes: readonly string[];
+};
+
 /** Writable/validated shape — numeric fields are `number` so overrides can differ from defaults. */
 export type UtilityV2ModelConfig = {
   algorithmVersion: string;
@@ -173,8 +210,8 @@ export type UtilityV2ModelConfig = {
   strategicCcCurve: ReadonlyArray<{ perHour: number; score: number }>;
   minHostileCastsPerHourForFullCredit: number;
   activeCombatGapMs: number;
-  confidence: typeof UTILITY_V2_CONFIDENCE;
-  scoreSemantics: typeof UTILITY_V2_SCORE_SEMANTICS;
+  confidence: UtilityV2ConfidenceConfig;
+  scoreSemantics: UtilityV2ScoreSemantics;
 };
 
 /** Immutable candidate defaults for calibration export / replay. */

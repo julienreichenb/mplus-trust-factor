@@ -332,6 +332,8 @@ export {
   replayCalibrationBundleV2ActiveVersusDraft,
   createMapArtifactResolverV2,
   assertDraftOnlyCreation,
+  freezeDimensionModelConfigsV2,
+  strictReparseFrozenDimensionConfigs,
   CALIBRATION_REPORT_V2_SCHEMA_VERSION,
   CALIBRATION_V2_MIN_SLICE_SIZE,
   buildCalibrationReportV2Extension,
@@ -485,6 +487,7 @@ export {
   parseExperienceV3ModelConfig,
   resolveExperienceV3ModelConfig,
   fingerprintExperienceV3ModelConfig,
+  EXPERIENCE_V3_DEFAULT_CONFIG_FINGERPRINT,
 } from "./experience/v3/index.js";
 export type {
   ExperienceV3CalibrationStatus,
@@ -610,6 +613,7 @@ export {
   parseUtilityV2ModelConfig,
   resolveUtilityV2ModelConfig,
   fingerprintUtilityV2ModelConfig,
+  UTILITY_V2_DEFAULT_CONFIG_FINGERPRINT,
 } from "./utility/v2/index.js";
 export type {
   UtilityV2DomainKey,

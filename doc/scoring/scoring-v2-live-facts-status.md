@@ -52,7 +52,7 @@ Example sufficient-evidence scores from CP4 E2E (fixture; not live characters):
 1. **Live RANKING_PARSE / points-and-damage** — not exposed on `WarcraftLogsProvider`; production Performance acquisition returns capability-absent UNAVAILABLE until transport implements the planned datasets.
 2. **Live shared-event dataset transport** — production shared evidence requires `getGraphQlClient()` + ingest path validation under rate limits; fixture path is proven.
 3. **Elite Experience history** — achievements are not persisted; elite component stays `UNKNOWN`.
-4. **Active/draft model-config injection** — implemented (`replayCalibrationBundleV2ActiveVersusDraft`); keep `CALIBRATION_V2_ENABLED` off pending Prompt 13 report review.
+4. **Active/draft model-config injection** — implemented (`replayCalibrationBundleV2ActiveVersusDraft`) with strict deep validation; keep `CALIBRATION_V2_ENABLED` off pending Prompt 13 report review. Production activation remains separate.
 
 ## Gates before enabling flags
 
@@ -63,7 +63,7 @@ Do **not** flip these until product cutover explicitly authorizes each step:
 | `SCORING_V2_EVIDENCE_FETCH_ENABLED` | Live provider transport implements planned datasets; budget/admission guards verified; fixture + disposable E2E green |
 | Dimension computation flags (`SCORING_V2_DIMENSIONS_*` / per-dimension) | Evidence fetch path stable; shadow rows reviewed; publication still off |
 | `SCORING_V2_PUBLICATION_ENABLED` | Explicit publication cutover prompt; public pointer policy; never enable for Phase 1 shadow |
-| `CALIBRATION_V2_ENABLED` | Active/draft injection blocker cleared |
+| `CALIBRATION_V2_ENABLED` | Active/draft replay implemented + reviewed; still default-off until cutover |
 
 Default for all of the above remains **false**.
 

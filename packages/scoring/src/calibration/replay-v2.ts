@@ -37,6 +37,7 @@ import { stableStringify } from "../model-config/stable-hash.js";
 import {
   preflightCalibrationBundleV2,
   resolveFrozenDimensionConfigsForModel,
+  strictReparseFrozenDimensionConfigs,
   type ArtifactResolverV2,
   type CalibrationInputBundleV2,
   type CalibrationPreflightIssueV2,
@@ -125,7 +126,7 @@ export interface CalibrationV2ActiveVersusDraftReport {
   refreshCalls: 0;
   modelActivated: false;
   publicationMutated: false;
-  identicalEvidence: true;
+  identicalEvidence: boolean;
   sourceModelsImmutable: true;
 }
 
@@ -325,6 +326,10 @@ function replayExperience(
   };
 }
 
+/**
+ * Resolve and strictly re-parse side configs immediately before scoring.
+ * Never trusts previously attached frozen objects without deep re-parse.
+ */
 function resolveSideConfigs(
   bundle: CalibrationInputBundleV2,
   side: "active" | "evaluation",
@@ -332,7 +337,9 @@ function resolveSideConfigs(
 ): FrozenDimensionModelConfigsV2 {
   const frozen =
     side === "active" ? bundle.activeDimensionConfigs : bundle.evaluationDimensionConfigs;
-  if (frozen) return frozen;
+  if (frozen != null) {
+    return strictReparseFrozenDimensionConfigs(frozen);
+  }
   const model = side === "active" ? bundle.activeModel : bundle.evaluationModel;
   return resolveFrozenDimensionConfigsForModel(
     model,
@@ -538,6 +545,7 @@ export async function replayCalibrationBundleV2ActiveVersusDraft(input: {
 
   const members: CalibrationV2ActiveVersusDraftMemberResult[] = [];
   const overallDeltas: number[] = [];
+  let verifiedIdenticalEvidence = true;
 
   for (const draftMember of draftReplay.members) {
     const activeMember =
@@ -551,19 +559,29 @@ export async function replayCalibrationBundleV2ActiveVersusDraft(input: {
     for (const dimension of [...dims].sort()) {
       const a = activeMember?.dimensions.find((d) => d.dimension === dimension) ?? null;
       const d = draftMember.dimensions.find((d) => d.dimension === dimension) ?? null;
-      const identicalEvidence =
-        a?.evidenceFingerprint != null &&
-        d?.evidenceFingerprint != null &&
-        a.evidenceFingerprint === d.evidenceFingerprint;
-      if (
-        a?.evidenceFingerprint != null &&
-        d?.evidenceFingerprint != null &&
-        !identicalEvidence
-      ) {
-        throw new Error(
-          `EVIDENCE_IDENTITY_MISMATCH: member=${draftMember.memberId} dim=${dimension}`,
-        );
+
+      if (a != null && d != null) {
+        if (a.evidenceFingerprint == null || d.evidenceFingerprint == null) {
+          throw new Error(
+            `EVIDENCE_IDENTITY_UNVERIFIED: member=${draftMember.memberId} dim=${dimension}`,
+          );
+        }
+        if (a.evidenceFingerprint !== d.evidenceFingerprint) {
+          throw new Error(
+            `EVIDENCE_IDENTITY_MISMATCH: member=${draftMember.memberId} dim=${dimension}`,
+          );
+        }
+      } else {
+        verifiedIdenticalEvidence = false;
       }
+
+      const identicalEvidence =
+        a != null &&
+        d != null &&
+        a.evidenceFingerprint != null &&
+        d.evidenceFingerprint != null &&
+        a.evidenceFingerprint === d.evidenceFingerprint;
+
       dimensionDeltas.push({
         dimension,
         activeScore: a?.score ?? null,
@@ -582,7 +600,7 @@ export async function replayCalibrationBundleV2ActiveVersusDraft(input: {
         draftConfigFingerprint: d?.modelConfigFingerprint ?? null,
         evidenceFingerprintActive: a?.evidenceFingerprint ?? null,
         evidenceFingerprintDraft: d?.evidenceFingerprint ?? null,
-        identicalEvidence: identicalEvidence || (a == null && d == null),
+        identicalEvidence,
       });
     }
 
@@ -625,7 +643,7 @@ export async function replayCalibrationBundleV2ActiveVersusDraft(input: {
     refreshCalls: 0,
     modelActivated: false,
     publicationMutated: false,
-    identicalEvidence: true,
+    identicalEvidence: verifiedIdenticalEvidence,
     sourceModelsImmutable: true,
   };
 
