@@ -67,7 +67,7 @@ export async function probeIdentityInDb(
         status: { in: ["QUEUED", "ACTIVE"] },
       },
       select: { id: true, status: true },
-      orderBy: { createdAt: "desc" },
+      orderBy: { scheduledAt: "desc" },
     }),
     prisma.ingestionJob.findFirst({
       where: {
@@ -75,7 +75,7 @@ export async function probeIdentityInDb(
         jobType: "refresh-character",
       },
       select: { id: true, status: true, error: true },
-      orderBy: { createdAt: "desc" },
+      orderBy: { scheduledAt: "desc" },
     }),
   ]);
 
