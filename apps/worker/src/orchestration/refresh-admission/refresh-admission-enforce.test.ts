@@ -345,14 +345,26 @@ describe("refresh admission enforce (serial concurrency 1)", () => {
     expect(effectiveAdmissionGlobalConcurrency(config)).toBe(1);
     expect(isRefreshWorkerConcurrencyWiringEnabled(config)).toBe(false);
     expect(config.workerConcurrency).toBe(1);
-    // processors.ts must not pass concurrency > 1 for refresh-character
+    // processors.ts must not pass concurrency > 1 for refresh-character only
+    // (other workers e.g. analyze-evidence-slot may use higher bounded concurrency).
     const processorsPath = join(
       dirname(fileURLToPath(import.meta.url)),
       "../../processors.ts",
     );
     const src = readFileSync(processorsPath, "utf8");
-    expect(src).toMatch(/keep effective refresh concurrency at 1/);
-    expect(src).not.toMatch(/concurrency:\s*[2-9]/);
+    const refreshStart = src.indexOf("const refresh = new Worker(");
+    const analyzeStart = src.indexOf("const analyze = new Worker(");
+    expect(refreshStart).toBeGreaterThanOrEqual(0);
+    expect(analyzeStart).toBeGreaterThan(refreshStart);
+    const refreshWorkerBlock = src.slice(refreshStart, analyzeStart);
+    expect(refreshWorkerBlock).toContain("QUEUE_NAMES.refreshCharacter");
+    expect(refreshWorkerBlock).toMatch(/keep effective refresh concurrency at 1/);
+    expect(refreshWorkerBlock).not.toMatch(/concurrency:\s*[2-9]/);
+    // Explicit concurrency option must be absent or exactly 1 (BullMQ default is 1).
+    const explicitConcurrency = refreshWorkerBlock.match(/concurrency:\s*(\d+)/);
+    if (explicitConcurrency) {
+      expect(Number(explicitConcurrency[1])).toBe(1);
+    }
   });
 
   it("18. ETA / priority / retry remain disabled by default (Stage 4 wires ETA behind flag)", () => {

@@ -6,7 +6,7 @@ import type { PrismaClient } from "@mplus/database";
 import { createWorkerContainer } from "./container.js";
 import { closeWorkers, createWorkers } from "./processors.js";
 
-/** Queue identities that `createWorkers` must always register. */
+/** Queue identities that `createWorkers` must always register (order matches return array). */
 const EXPECTED_WORKER_QUEUES = [
   QUEUE_NAMES.refreshCharacter,
   QUEUE_NAMES.analyzeRun,
@@ -15,6 +15,8 @@ const EXPECTED_WORKER_QUEUES = [
   QUEUE_NAMES.discoverOwnedCharacters,
   QUEUE_NAMES.bulkCharacterProcessing,
   QUEUE_NAMES.calibrationRun,
+  QUEUE_NAMES.analyzeEvidenceSlot,
+  QUEUE_NAMES.finalizeAnalysisBatch,
 ] as const;
 
 describe("worker shutdown", () => {
