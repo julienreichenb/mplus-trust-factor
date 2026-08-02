@@ -6,6 +6,5 @@
     "composite": true
   },
   "include": ["src/**/*.ts"],
-  "exclude": ["src/**/*.test.ts", "src/**/*.integration.test.ts"],
-  "references": [{ "path": "../artifact-store" }]
+  "exclude": ["src/**/*.test.ts"]
 }

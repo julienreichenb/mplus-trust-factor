@@ -2,6 +2,16 @@ import { PrismaClient } from "@prisma/client";
 
 export type { PrismaClient } from "@prisma/client";
 export * from "@prisma/client";
+export * from "./repositories/index.js";
+export {
+  assertScoringV2TestResetAllowed,
+  formatScoringV2ResetGuardFailure,
+  SCORING_V2_RESET_CONFIRMATION_TOKEN,
+  SCORING_V2_RESET_TRUNCATE_TABLES,
+  SCORING_V2_RESET_RETAINED_TABLES,
+  type ScoringV2ResetGuardInput,
+  type ScoringV2ResetGuardResult,
+} from "./reset/v2-test-reset-guard.js";
 
 const globalForPrisma = globalThis as unknown as {
   prisma?: PrismaClient;

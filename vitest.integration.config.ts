@@ -7,9 +7,11 @@ export default defineConfig({
       "@mplus/config": path.resolve(__dirname, "packages/config/src/index.ts"),
       "@mplus/contracts": path.resolve(__dirname, "packages/contracts/src/index.ts"),
       "@mplus/database": path.resolve(__dirname, "packages/database/src/index.ts"),
+      "@mplus/artifact-store": path.resolve(__dirname, "packages/artifact-store/src/index.ts"),
       "@mplus/domain": path.resolve(__dirname, "packages/domain/src/index.ts"),
       "@mplus/observability": path.resolve(__dirname, "packages/observability/src/index.ts"),
       "@mplus/scoring": path.resolve(__dirname, "packages/scoring/src/index.ts"),
+      "@mplus/abilities": path.resolve(__dirname, "packages/abilities/src/index.ts"),
       "@mplus/mechanics": path.resolve(__dirname, "packages/mechanics/src/index.ts"),
       "@mplus/provider-blizzard": path.resolve(
         __dirname,

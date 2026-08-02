@@ -15,9 +15,12 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "seed": "tsx src/seed.ts",
-    "prisma": "prisma"
+    "prisma": "prisma",
+    "reset:scoring-v2": "tsx src/reset/cli-test-reset.ts",
+    "calibration-labels": "tsx src/reset/cli-calibration-labels.ts"
   },
   "dependencies": {
+    "@mplus/artifact-store": "workspace:*",
     "@prisma/client": "^6.13.0"
   },
   "devDependencies": {
