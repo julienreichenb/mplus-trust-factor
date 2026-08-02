@@ -206,6 +206,7 @@ export interface SurvivalV2ComputeResult {
   algorithmVersion: string;
   modelLabel: string;
   calibrationStatus: SurvivalV2CalibrationStatus;
+  modelConfigFingerprint: string;
   inputFingerprint: string;
   score: number | null;
   confidence: number;

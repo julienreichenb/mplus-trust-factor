@@ -114,6 +114,8 @@ export interface PerformanceExplanationV2 {
   algorithmVersion: string;
   modelLabel: string;
   calibrationStatus: PerformanceV2CalibrationStatus;
+  /** Canonical hash of the frozen model config used for this computation. */
+  modelConfigFingerprint?: string;
   difficultyPolicy: {
     id: string;
     version: string;
@@ -190,6 +192,7 @@ export interface PerformanceV2ComputeResult {
   algorithmVersion: string;
   modelLabel: string;
   calibrationStatus: PerformanceV2CalibrationStatus;
+  modelConfigFingerprint: string;
   inputFingerprint: string;
   detailedSeasonPerformance: number | null;
   profilePerformance: number | null;

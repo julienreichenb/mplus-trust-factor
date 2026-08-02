@@ -2,7 +2,8 @@ import {
   SURVIVAL_V2_CALIBRATION_SCHEMA_VERSION,
   SURVIVAL_V2_MODEL_CONFIG,
 } from "./constants.js";
-import { computeSurvivalV2 } from "./compute.js";
+import { computeSurvivalV2, type SurvivalV2ComputeOptions } from "./compute.js";
+import { resolveSurvivalV2ModelConfig } from "./model-config.js";
 import type {
   SurvivalV2CalibrationExport,
   SurvivalV2ComputeInput,
@@ -14,12 +15,14 @@ import type {
  */
 export function exportSurvivalV2Calibration(
   input: SurvivalV2ComputeInput,
+  options?: SurvivalV2ComputeOptions,
 ): SurvivalV2CalibrationExport {
-  const result = computeSurvivalV2(input);
+  const modelConfig = resolveSurvivalV2ModelConfig(options?.modelConfig);
+  const result = computeSurvivalV2(input, { modelConfig });
   return {
     schemaVersion: SURVIVAL_V2_CALIBRATION_SCHEMA_VERSION,
     algorithmVersion: result.algorithmVersion,
-    modelConfig: SURVIVAL_V2_MODEL_CONFIG,
+    modelConfig,
     input,
     result: {
       score: result.score,

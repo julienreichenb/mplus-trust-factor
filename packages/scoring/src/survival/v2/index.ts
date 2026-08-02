@@ -67,5 +67,12 @@ export {
   computeSurvivalV2,
   buildSurvivalV2InputFingerprint,
   toSurvivalV2ShadowDimensionPayload,
+  type SurvivalV2ComputeOptions,
 } from "./compute.js";
+export {
+  parseSurvivalV2ModelConfig,
+  resolveSurvivalV2ModelConfig,
+  fingerprintSurvivalV2ModelConfig,
+  SURVIVAL_V2_DEFAULT_CONFIG_FINGERPRINT,
+} from "./model-config.js";
 export { exportSurvivalV2Calibration } from "./calibration.js";

@@ -1,4 +1,7 @@
-import { SURVIVAL_V2_DANGER, SURVIVAL_V2_METRIC_KEYS } from "./constants.js";
+import {
+  SURVIVAL_V2_MODEL_CONFIG,
+  type SurvivalV2ModelConfig,
+} from "./constants.js";
 import type {
   SurvivalV2ComponentResult,
   SurvivalV2DangerWindowFact,
@@ -14,14 +17,16 @@ export function mergePressureClusters(
     mergeGapMs?: number;
     continuousPressureGapMs?: number;
     alreadyMerged?: boolean;
+    config?: SurvivalV2ModelConfig;
   },
 ): SurvivalV2DangerWindowFact[] {
   if (options?.alreadyMerged) return windows.map(cloneWindow);
   if (windows.length === 0) return [];
 
-  const mergeGapMs = options?.mergeGapMs ?? SURVIVAL_V2_DANGER.mergeGapMs;
+  const danger = (options?.config ?? SURVIVAL_V2_MODEL_CONFIG).danger;
+  const mergeGapMs = options?.mergeGapMs ?? danger.mergeGapMs;
   const continuousGapMs =
-    options?.continuousPressureGapMs ?? SURVIVAL_V2_DANGER.continuousPressureGapMs;
+    options?.continuousPressureGapMs ?? danger.continuousPressureGapMs;
   const gapLimit = Math.max(mergeGapMs, continuousGapMs);
 
   const sorted = [...windows].sort(
@@ -86,7 +91,9 @@ function mergeTwo(
 export function scoreSurvivalV2EmergencyRecovery(input: {
   clusters: SurvivalV2DangerWindowFact[];
   selfHealCatalogCoverage?: number;
+  config?: SurvivalV2ModelConfig;
 }): SurvivalV2ComponentResult {
+  const config = input.config ?? SURVIVAL_V2_MODEL_CONFIG;
   const { clusters } = input;
 
   let eligible = 0;
@@ -118,7 +125,7 @@ export function scoreSurvivalV2EmergencyRecovery(input: {
 
   if (eligible === 0) {
     return {
-      metricKey: SURVIVAL_V2_METRIC_KEYS.recovery,
+      metricKey: config.metricKeys.recovery,
       state: "NOT_APPLICABLE",
       score: null,
       weightUsed: 0,
@@ -141,7 +148,7 @@ export function scoreSurvivalV2EmergencyRecovery(input: {
   }
 
   return {
-    metricKey: SURVIVAL_V2_METRIC_KEYS.recovery,
+    metricKey: config.metricKeys.recovery,
     state: "SCORED",
     score: (useful / eligible) * 100,
     weightUsed: 0,

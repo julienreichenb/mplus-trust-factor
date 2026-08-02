@@ -198,6 +198,11 @@ export interface UtilityV2ComputeInput {
   mechanicCatalogCoverageObserved?: number;
 }
 
+export interface UtilityV2ComputeOptions {
+  /** Explicit frozen model config. Defaults to canonical UTILITY_V2_MODEL_CONFIG. */
+  modelConfig?: UtilityV2ModelConfig | unknown;
+}
+
 export interface UtilityV2BindingResult {
   ok: boolean;
   boundFactSets: UtilityV2RunFactSet[];
@@ -212,6 +217,7 @@ export interface UtilityV2ComputeResult {
   opportunityMode: "off";
   algorithmVersion: string;
   scoreSemantics: string;
+  modelConfigFingerprint: string;
   availabilityState: UtilityV2AvailabilityState;
   /** Reliability-adjusted score in [50, 100], or null when UNAVAILABLE. */
   score: number | null;

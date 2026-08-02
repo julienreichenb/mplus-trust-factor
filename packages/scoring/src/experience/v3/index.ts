@@ -32,6 +32,13 @@ export {
   toExperienceV3ShadowDimensionPayload,
 } from "./compute.js";
 
+export {
+  parseExperienceV3ModelConfig,
+  resolveExperienceV3ModelConfig,
+  fingerprintExperienceV3ModelConfig,
+  EXPERIENCE_V3_DEFAULT_CONFIG_FINGERPRINT,
+} from "./model-config.js";
+
 export { exportExperienceV3Calibration } from "./calibration.js";
 
 export type {

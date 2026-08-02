@@ -10,13 +10,18 @@ import {
   scoreSurvivalV2EmergencyRecovery,
 } from "./recovery.js";
 import { resolveSurvivalV2Weights } from "./weights.js";
-import type { SurvivalV2RelativeDamageMode } from "./constants.js";
+import {
+  SURVIVAL_V2_MODEL_CONFIG,
+  type SurvivalV2ModelConfig,
+  type SurvivalV2RelativeDamageMode,
+} from "./constants.js";
 import type { SurvivalFactDocumentV2, SurvivalV2RunScore } from "./types.js";
 
 /** Score one selected-slot Survival fact document (provider-free). */
 export function scoreSurvivalV2Run(
   fact: SurvivalFactDocumentV2,
   relativeDamageMode: SurvivalV2RelativeDamageMode,
+  config: SurvivalV2ModelConfig = SURVIVAL_V2_MODEL_CONFIG,
 ): SurvivalV2RunScore {
   const limitations = [...fact.limitations];
 
@@ -27,18 +32,21 @@ export function scoreSurvivalV2Run(
     limitations.push("active_combat_truncated");
   }
 
-  const outcome = scoreSurvivalV2Outcome(fact.deaths.count);
+  const outcome = scoreSurvivalV2Outcome(fact.deaths.count, config);
   const defensive = scoreSurvivalV2Defensive({
     activations: fact.defensiveActivations,
     activeCombatDurationMs: fact.activeCombat.durationMs,
+    config,
   });
 
   const clusters = mergePressureClusters(fact.dangerWindows, {
     alreadyMerged: fact.pressureClustersPremerged === true,
+    config,
   });
   const recovery = scoreSurvivalV2EmergencyRecovery({
     clusters,
     selfHealCatalogCoverage: fact.healthEvidence.catalogSelfHealCoverage,
+    config,
   });
 
   const relativeDamageShadow = scoreSurvivalV2RelativeDamageShadow({
@@ -51,12 +59,16 @@ export function scoreSurvivalV2Run(
   );
   const relativeBlend = relativeDamageBlendScore(relativeDamageShadow);
 
-  const weights = resolveSurvivalV2Weights(relativeDamageMode, {
-    outcome: outcome.state === "SCORED",
-    defensive: defensive.state === "SCORED",
-    recovery: recovery.state === "SCORED",
-    relativeDamage: relativeWeightActive,
-  });
+  const weights = resolveSurvivalV2Weights(
+    relativeDamageMode,
+    {
+      outcome: outcome.state === "SCORED",
+      defensive: defensive.state === "SCORED",
+      recovery: recovery.state === "SCORED",
+      relativeDamage: relativeWeightActive,
+    },
+    config,
+  );
 
   outcome.weightUsed = weights.outcome;
   defensive.weightUsed = weights.defensive;

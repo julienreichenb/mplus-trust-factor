@@ -3,9 +3,17 @@
  */
 
 import { createHash } from "node:crypto";
-import { UTILITY_V2_ALGORITHM_VERSION } from "./constants.js";
-import type { UtilityV2ComputeInput, UtilityV2RunFactSet } from "./types.js";
+import { UTILITY_V2_ALGORITHM_VERSION, UTILITY_V2_MODEL_CONFIG } from "./constants.js";
+import type {
+  UtilityV2ComputeInput,
+  UtilityV2ComputeOptions,
+  UtilityV2RunFactSet,
+} from "./types.js";
 import { selectedManifestSlots } from "./bind.js";
+import {
+  fingerprintUtilityV2ModelConfig,
+  resolveUtilityV2ModelConfig,
+} from "./model-config.js";
 
 export function stableStringify(value: unknown): string {
   if (value === null || typeof value !== "object") {
@@ -83,8 +91,17 @@ function canonicalFactContent(fact: UtilityV2RunFactSet): unknown {
 /**
  * Lowercase SHA-256 of canonical stable JSON over algorithm, manifest hash,
  * selected slot identities, and deterministic fact content.
+ * Default config preserves the pre-injection fingerprint payload.
  */
-export function computeUtilityV2InputFingerprint(input: UtilityV2ComputeInput): string {
+export function computeUtilityV2InputFingerprint(
+  input: UtilityV2ComputeInput,
+  options?: UtilityV2ComputeOptions,
+): string {
+  const config = resolveUtilityV2ModelConfig(options?.modelConfig);
+  const configFingerprint = fingerprintUtilityV2ModelConfig(config);
+  const usingDefault =
+    configFingerprint === fingerprintUtilityV2ModelConfig(UTILITY_V2_MODEL_CONFIG);
+
   const selectedSlots = selectedManifestSlots(input.manifest)
     .map((s) => ({
       slotId: s.slotId,
@@ -103,15 +120,26 @@ export function computeUtilityV2InputFingerprint(input: UtilityV2ComputeInput): 
       return aa.slotId.localeCompare(bb.slotId);
     });
 
-  const payload = {
-    algorithmVersion: UTILITY_V2_ALGORITHM_VERSION,
-    manifestContentHash: input.manifest.contentHash,
-    expectedSlotCount: input.manifest.expectedSlotCount,
-    selectedSlotCount: input.manifest.selectedSlotCount,
-    extractionFailed: input.extractionFailed === true,
-    selectedSlots,
-    factSets: facts,
-  };
+  const payload = usingDefault
+    ? {
+        algorithmVersion: UTILITY_V2_ALGORITHM_VERSION,
+        manifestContentHash: input.manifest.contentHash,
+        expectedSlotCount: input.manifest.expectedSlotCount,
+        selectedSlotCount: input.manifest.selectedSlotCount,
+        extractionFailed: input.extractionFailed === true,
+        selectedSlots,
+        factSets: facts,
+      }
+    : {
+        algorithmVersion: config.algorithmVersion,
+        modelConfigFingerprint: configFingerprint,
+        manifestContentHash: input.manifest.contentHash,
+        expectedSlotCount: input.manifest.expectedSlotCount,
+        selectedSlotCount: input.manifest.selectedSlotCount,
+        extractionFailed: input.extractionFailed === true,
+        selectedSlots,
+        factSets: facts,
+      };
 
   return createHash("sha256").update(stableStringify(payload), "utf8").digest("hex");
 }

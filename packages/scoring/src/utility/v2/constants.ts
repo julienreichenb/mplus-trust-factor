@@ -146,7 +146,7 @@ export const UTILITY_V2_SCORE_SEMANTICS = {
 } as const;
 
 /** Immutable candidate defaults for calibration export / replay. */
-export const UTILITY_V2_MODEL_CONFIG = {
+export const UTILITY_V2_MODEL_CONFIG = Object.freeze({
   algorithmVersion: UTILITY_V2_ALGORITHM_VERSION,
   modelLabel: UTILITY_V2_MODEL_LABEL,
   schemaVersion: UTILITY_V2_SCHEMA_VERSION,
@@ -157,11 +157,18 @@ export const UTILITY_V2_MODEL_CONFIG = {
   interruptCredits: UTILITY_V2_INTERRUPT_CREDITS,
   unmatchedCreditShareCap: UTILITY_V2_UNMATCHED_CREDIT_SHARE_CAP,
   unmatchedOnlyMaxDomainScore: UTILITY_V2_UNMATCHED_ONLY_MAX_DOMAIN_SCORE,
+  interruptMatchToleranceMs: UTILITY_V2_INTERRUPT_MATCH_TOLERANCE_MS,
+  ccDedupeWindowMs: UTILITY_V2_CC_DEDUPE_WINDOW_MS,
   supportSemanticCredit: UTILITY_V2_SUPPORT_SEMANTIC_CREDIT,
   supportDiminishingExponent: UTILITY_V2_SUPPORT_DIMINISHING_EXPONENT,
   dispelPurgeEventCredit: UTILITY_V2_DISPEL_PURGE_EVENT_CREDIT,
+  castStopsCurve: UTILITY_V2_CAST_STOPS_CURVE,
+  supportCurve: UTILITY_V2_SUPPORT_CURVE,
+  strategicCcCurve: UTILITY_V2_STRATEGIC_CC_CURVE,
+  minHostileCastsPerHourForFullCredit: UTILITY_V2_MIN_HOSTILE_CASTS_PER_HOUR_FOR_FULL_CREDIT,
+  activeCombatGapMs: UTILITY_V2_ACTIVE_COMBAT_GAP_MS,
   confidence: UTILITY_V2_CONFIDENCE,
   scoreSemantics: UTILITY_V2_SCORE_SEMANTICS,
-} as const;
+} as const);
 
 export type UtilityV2ModelConfig = typeof UTILITY_V2_MODEL_CONFIG;

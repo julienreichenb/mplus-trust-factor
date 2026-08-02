@@ -1,16 +1,20 @@
 import { createHash } from "node:crypto";
 import { clamp } from "../../math.js";
+import { stableStringify } from "../../model-config/stable-hash.js";
 import { blendExperienceComponentsV3 } from "./blend.js";
 import { computeExperienceConfidenceV3 } from "./confidence.js";
 import {
   EXPERIENCE_V3_ALGORITHM_VERSION,
-  EXPERIENCE_V3_CALIBRATION_STATUS,
   EXPERIENCE_V3_MODEL_CONFIG,
   EXPERIENCE_V3_MODEL_LABEL,
 } from "./constants.js";
 import { scoreEliteHistoryV3 } from "./elite-history.js";
 import { scoreCurrentExposureV3 } from "./exposure.js";
 import { scoreHistoricalRankV3 } from "./historical-rank.js";
+import {
+  fingerprintExperienceV3ModelConfig,
+  resolveExperienceV3ModelConfig,
+} from "./model-config.js";
 import { scorePreviousSeasonStrengthV3 } from "./previous-season.js";
 import type {
   ExperienceV3AccountBoostContract,
@@ -28,24 +32,20 @@ const PHASE2_ACCOUNT_BOOST: ExperienceV3AccountBoostContract = {
   note: "Phase 2 verified Battle.net-linked boost is not implemented; disabled.",
 };
 
-function stableStringify(value: unknown): string {
-  if (value === null || typeof value !== "object") {
-    return JSON.stringify(value);
-  }
-  if (Array.isArray(value)) {
-    return `[${value.map((v) => stableStringify(v)).join(",")}]`;
-  }
-  const obj = value as Record<string, unknown>;
-  const keys = Object.keys(obj).sort();
-  return `{${keys.map((k) => `${JSON.stringify(k)}:${stableStringify(obj[k])}`).join(",")}}`;
-}
-
 export function computeExperienceV3InputFingerprint(
   input: ExperienceV3ComputeInput,
 ): string {
-  const payload = {
-    algorithmVersion: EXPERIENCE_V3_ALGORITHM_VERSION,
-    modelLabel: EXPERIENCE_V3_MODEL_LABEL,
+  const config = resolveExperienceV3ModelConfig(input.config);
+  const configFingerprint = fingerprintExperienceV3ModelConfig(config);
+  const usingDefault =
+    input.config === undefined ||
+    input.config === EXPERIENCE_V3_MODEL_CONFIG ||
+    configFingerprint === fingerprintExperienceV3ModelConfig(EXPERIENCE_V3_MODEL_CONFIG);
+
+  const payloadBase = {
+    algorithmVersion: usingDefault ? EXPERIENCE_V3_ALGORITHM_VERSION : config.algorithmVersion,
+    modelLabel: usingDefault ? EXPERIENCE_V3_MODEL_LABEL : config.modelLabel,
+    ...(usingDefault ? {} : { modelConfigFingerprint: configFingerprint }),
     manifestContentHash: input.manifest.contentHash,
     selectorVersion: input.manifest.selectorVersion,
     highKeyPolicyId: input.manifest.highKeyPolicyId,
@@ -106,7 +106,7 @@ export function computeExperienceV3InputFingerprint(
       version: input.historicalRankPolicy.version,
     },
   };
-  return createHash("sha256").update(stableStringify(payload)).digest("hex");
+  return createHash("sha256").update(stableStringify(payloadBase)).digest("hex");
 }
 
 function resolveAvailability(input: {
@@ -141,7 +141,8 @@ function collectMissingReasons(
 export function computeExperienceV3(
   input: ExperienceV3ComputeInput,
 ): ExperienceV3ComputeResult {
-  const config = input.config ?? EXPERIENCE_V3_MODEL_CONFIG;
+  const config = resolveExperienceV3ModelConfig(input.config);
+  const modelConfigFingerprint = fingerprintExperienceV3ModelConfig(config);
 
   const exposure = scoreCurrentExposureV3(input.currentExposure, config);
   const previous = scorePreviousSeasonStrengthV3(
@@ -212,9 +213,10 @@ export function computeExperienceV3(
 
   const eliteDetail = elite.detail;
   const explanation: ExperienceV3Explanation = {
-    algorithmVersion: EXPERIENCE_V3_ALGORITHM_VERSION,
-    modelLabel: EXPERIENCE_V3_MODEL_LABEL,
-    calibrationStatus: EXPERIENCE_V3_CALIBRATION_STATUS,
+    algorithmVersion: config.algorithmVersion,
+    modelLabel: config.modelLabel,
+    calibrationStatus: config.calibrationStatus,
+    modelConfigFingerprint,
     components: blended.components,
     currentExposure: {
       score: exposure.component.score,
@@ -271,9 +273,10 @@ export function computeExperienceV3(
   const inputFingerprint = computeExperienceV3InputFingerprint(input);
 
   const metrics: Record<string, unknown> = {
-    algorithmVersion: EXPERIENCE_V3_ALGORITHM_VERSION,
-    modelLabel: EXPERIENCE_V3_MODEL_LABEL,
-    calibrationStatus: EXPERIENCE_V3_CALIBRATION_STATUS,
+    algorithmVersion: config.algorithmVersion,
+    modelLabel: config.modelLabel,
+    calibrationStatus: config.calibrationStatus,
+    modelConfigFingerprint,
     manifestContentHash: input.manifest.contentHash,
     manifestSchemaVersion: input.manifest.schemaVersion,
     selectorVersion: input.manifest.selectorVersion,
@@ -301,9 +304,10 @@ export function computeExperienceV3(
     score,
     confidence: effectiveConfidence,
     state: score == null ? "UNAVAILABLE" : state,
-    algorithmVersion: EXPERIENCE_V3_ALGORITHM_VERSION,
-    modelLabel: EXPERIENCE_V3_MODEL_LABEL,
-    calibrationStatus: EXPERIENCE_V3_CALIBRATION_STATUS,
+    algorithmVersion: config.algorithmVersion,
+    modelLabel: config.modelLabel,
+    calibrationStatus: config.calibrationStatus,
+    modelConfigFingerprint,
     inputFingerprint,
     components: blended.components,
     explanation,

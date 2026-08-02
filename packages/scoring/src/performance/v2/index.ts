@@ -37,7 +37,15 @@ export {
   computePerformanceV2,
   computePerformanceV2InputFingerprint,
   toPerformanceV2ShadowDimensionPayload,
+  type PerformanceV2ComputeOptions,
 } from "./compute.js";
+
+export {
+  parsePerformanceV2ModelConfig,
+  resolvePerformanceV2ModelConfig,
+  fingerprintPerformanceV2ModelConfig,
+  PERFORMANCE_V2_DEFAULT_CONFIG_FINGERPRINT,
+} from "./model-config.js";
 
 export { exportPerformanceV2Calibration } from "./calibration.js";
 

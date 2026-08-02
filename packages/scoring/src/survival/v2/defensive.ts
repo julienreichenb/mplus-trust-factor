@@ -1,7 +1,7 @@
 import { clamp } from "../../math.js";
 import {
-  SURVIVAL_V2_DEFENSIVE_RATE,
-  SURVIVAL_V2_METRIC_KEYS,
+  SURVIVAL_V2_MODEL_CONFIG,
+  type SurvivalV2ModelConfig,
 } from "./constants.js";
 import type {
   SurvivalV2ComponentResult,
@@ -14,8 +14,11 @@ const PENALIZABLE_STATES = new Set([
   "AVAILABLE_INFERRED",
 ]);
 
-function isApplicableCategory(category: string): category is SurvivalV2DefensiveCategory {
-  return (SURVIVAL_V2_DEFENSIVE_RATE.applicableCategories as readonly string[]).includes(
+function isApplicableCategory(
+  category: string,
+  config: SurvivalV2ModelConfig,
+): category is SurvivalV2DefensiveCategory {
+  return (config.defensiveRate.applicableCategories as readonly string[]).includes(
     category,
   );
 }
@@ -24,9 +27,12 @@ function isApplicableCategory(category: string): category is SurvivalV2Defensive
  * Saturating map: observed activations/active-combat-hour → 0–100.
  * score = 100 * (1 - exp(-k * rate))
  */
-export function saturatingDefensiveRateScore(activationsPerActiveCombatHour: number): number {
+export function saturatingDefensiveRateScore(
+  activationsPerActiveCombatHour: number,
+  config: SurvivalV2ModelConfig = SURVIVAL_V2_MODEL_CONFIG,
+): number {
   const rate = Math.max(0, activationsPerActiveCombatHour);
-  const k = SURVIVAL_V2_DEFENSIVE_RATE.saturatingK;
+  const k = config.defensiveRate.saturatingK;
   return clamp(100 * (1 - Math.exp(-k * rate)), 0, 100);
 }
 
@@ -37,19 +43,21 @@ export function saturatingDefensiveRateScore(activationsPerActiveCombatHour: num
 export function scoreSurvivalV2Defensive(input: {
   activations: SurvivalV2DefensiveActivationFact;
   activeCombatDurationMs: number;
+  config?: SurvivalV2ModelConfig;
 }): SurvivalV2ComponentResult {
+  const config = input.config ?? SURVIVAL_V2_MODEL_CONFIG;
   const { activations, activeCombatDurationMs } = input;
 
   const applicableToolkit = activations.toolkit.filter(
-    (t) => isApplicableCategory(t.category) && PENALIZABLE_STATES.has(t.state),
+    (t) => isApplicableCategory(t.category, config) && PENALIZABLE_STATES.has(t.state),
   );
 
   if (applicableToolkit.length === 0) {
     const unknownOnly = activations.toolkit.some(
-      (t) => isApplicableCategory(t.category) && t.state === "UNKNOWN",
+      (t) => isApplicableCategory(t.category, config) && t.state === "UNKNOWN",
     );
     return {
-      metricKey: SURVIVAL_V2_METRIC_KEYS.defensive,
+      metricKey: config.metricKeys.defensive,
       state: "NOT_APPLICABLE",
       score: null,
       weightUsed: 0,
@@ -63,7 +71,7 @@ export function scoreSurvivalV2Defensive(input: {
 
   if (!(activeCombatDurationMs > 0)) {
     return {
-      metricKey: SURVIVAL_V2_METRIC_KEYS.defensive,
+      metricKey: config.metricKeys.defensive,
       state: "UNAVAILABLE",
       score: null,
       weightUsed: 0,
@@ -75,7 +83,7 @@ export function scoreSurvivalV2Defensive(input: {
   let activationCount = 0;
   const countedCategories: string[] = [];
   for (const entry of applicableToolkit) {
-    if (!isApplicableCategory(entry.category)) continue;
+    if (!isApplicableCategory(entry.category, config)) continue;
     const n = activations.byCategory[entry.category] ?? 0;
     activationCount += n;
     countedCategories.push(entry.category);
@@ -83,10 +91,10 @@ export function scoreSurvivalV2Defensive(input: {
 
   const activeCombatHours = activeCombatDurationMs / 3_600_000;
   const rate = activationCount / activeCombatHours;
-  const score = saturatingDefensiveRateScore(rate);
+  const score = saturatingDefensiveRateScore(rate, config);
 
   return {
-    metricKey: SURVIVAL_V2_METRIC_KEYS.defensive,
+    metricKey: config.metricKeys.defensive,
     state: "SCORED",
     score,
     weightUsed: 0,
@@ -97,7 +105,7 @@ export function scoreSurvivalV2Defensive(input: {
       activationsPerActiveCombatHour: rate,
       countedCategories: [...new Set(countedCategories)],
       catalogCoverage: activations.catalogCoverage,
-      saturatingK: SURVIVAL_V2_DEFENSIVE_RATE.saturatingK,
+      saturatingK: config.defensiveRate.saturatingK,
     },
   };
 }

@@ -186,6 +186,7 @@ export interface ExperienceV3Explanation {
   algorithmVersion: string;
   modelLabel: string;
   calibrationStatus: ExperienceV3CalibrationStatus;
+  modelConfigFingerprint?: string;
   components: ExperienceV3ComponentResult[];
   currentExposure: {
     score: number | null;
@@ -265,6 +266,7 @@ export interface ExperienceV3ComputeResult {
   algorithmVersion: string;
   modelLabel: string;
   calibrationStatus: ExperienceV3CalibrationStatus;
+  modelConfigFingerprint: string;
   inputFingerprint: string;
   components: ExperienceV3ComponentResult[];
   explanation: ExperienceV3Explanation;
