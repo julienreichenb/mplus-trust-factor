@@ -14,6 +14,15 @@ export function resolvePerformanceRoleAdapter(input: {
 }): PerformanceRoleAdapterResultV2 {
   const config = input.config ?? PERFORMANCE_V2_MODEL_CONFIG;
 
+  if (input.role === "UNKNOWN") {
+    return {
+      role: input.role,
+      state: "UNSUPPORTED_ROLE",
+      runParseAllowed: false,
+      reason: "role_identity_unknown",
+    };
+  }
+
   if (input.specSlug == null || input.specSlug.trim() === "") {
     return {
       role: input.role,

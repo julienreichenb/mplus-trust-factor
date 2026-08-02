@@ -20,6 +20,7 @@ import {
   resolveBatchDatasetRequirements,
 } from "./acquisition.js";
 import {
+  resolveFrozenCharacterIdentity,
   resolveFrozenClassSpecIdentity,
 } from "./class-spec-identity.js";
 import { FixtureScoringV2EvidenceTransport } from "./evidence-transport.js";
@@ -259,6 +260,75 @@ describe("resolveFrozenClassSpecIdentity", () => {
     expect(id.state).toBe("KNOWN");
     expect(id.classSlug).toBe("mage");
     expect(id.specSlug).toBe("frost");
+  });
+});
+
+describe("resolveFrozenCharacterIdentity", () => {
+  it("freezes coherent class/spec/role from Blizzard profile via canonical mapping", () => {
+    const id = resolveFrozenCharacterIdentity({
+      blizzard: { classSlug: "Priest", specSlug: "Holy", role: "HEALER" },
+      raiderIo: { classSlug: "mage", specSlug: "frost", role: "DPS" },
+    });
+    expect(id.state).toBe("KNOWN");
+    expect(id.classSlug).toBe("priest");
+    expect(id.specSlug).toBe("holy");
+    expect(id.role).toBe("HEALER");
+    expect(id.roleSource).toBe("canonical_spec");
+  });
+
+  it("prefers Blizzard over Raider.IO for all three fields", () => {
+    const id = resolveFrozenCharacterIdentity({
+      blizzard: { classSlug: "warrior", specSlug: "protection", role: "TANK" },
+      raiderIo: { classSlug: "mage", specSlug: "frost", role: "DPS" },
+    });
+    expect(id.classSlug).toBe("warrior");
+    expect(id.specSlug).toBe("protection");
+    expect(id.role).toBe("TANK");
+  });
+
+  it("does not silently default unknown role to DPS", () => {
+    const id = resolveFrozenCharacterIdentity({
+      blizzard: null,
+      raiderIo: null,
+    });
+    expect(id.role).toBe("UNKNOWN");
+    expect(id.role).not.toBe("DPS");
+    expect(id.roleSource).toBe("unknown");
+    expect(id.limitations).toContain("role_identity_unknown");
+  });
+
+  it("fails closed when provider role conflicts with canonical spec role", () => {
+    const id = resolveFrozenCharacterIdentity({
+      blizzard: { classSlug: "priest", specSlug: "holy", role: "DPS" },
+    });
+    expect(id.state).toBe("INCOMPATIBLE");
+    expect(id.role).toBe("UNKNOWN");
+    expect(id.roleSource).toBe("incompatible");
+    expect(id.limitations).toContain("role_identity_incompatible");
+    expect(id.catalogDependentFailClosed).toBe(true);
+  });
+
+  it("reuses frozen plan identity on retries", () => {
+    const id = resolveFrozenCharacterIdentity({
+      planClassSlug: "mage",
+      planSpecSlug: "frost",
+      planRole: "DPS",
+      // Conflicting live profiles must not override the frozen plan.
+      blizzard: { classSlug: "warlock", specSlug: "affliction", role: "DPS" },
+    });
+    expect(id.classSlug).toBe("mage");
+    expect(id.specSlug).toBe("frost");
+    expect(id.role).toBe("DPS");
+    expect(id.roleSource).toBe("plan");
+  });
+
+  it("never uses mutable Character.role — only provider/plan inputs", () => {
+    // Simulate the refresh-pipeline call shape: Character.role is intentionally omitted.
+    const id = resolveFrozenCharacterIdentity({
+      blizzard: { classSlug: "monk", specSlug: "windwalker", role: "DPS" },
+    });
+    expect(id.role).toBe("DPS");
+    expect(id.specSlug).toBe("windwalker");
   });
 });
 
