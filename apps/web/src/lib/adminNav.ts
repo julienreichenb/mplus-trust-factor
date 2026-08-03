@@ -67,7 +67,7 @@ export const ADMIN_DESTINATIONS: readonly AdminDestination[] = [
     id: "scoring-v2",
     name: "admin-scoring-v2",
     path: "/admin/scoring-v2",
-    label: "Scoring V2",
+    label: "Scoring V2 Control Center",
     isAuthorized: (permissions) => hasPermission(permissions, "score.candidate.read"),
   },
   {
