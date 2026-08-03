@@ -113,10 +113,11 @@ function planEligibilityRejection(
   activePool: ReadonlySet<string>,
 ): CandidateRejectionReason | null {
   const dungeonSlug = normalizeDungeonSlug(candidate.dungeonSlug);
+  if (!dungeonSlug) return "DUNGEON_UNRESOLVED";
   if (!activePool.has(dungeonSlug)) return "OFF_POOL_DUNGEON";
 
   if (candidate.hardError) return "HARD_PROVIDER_ERROR";
-  if (candidate.accessState === "PRIVATE_OR_HIDDEN") return "HIDDEN_OR_PRIVATE";
+  if (candidate.accessState === "PRIVATE_OR_HIDDEN") return "PRIVATE_OR_HIDDEN";
   if (candidate.accessState === "ARCHIVED_OR_GATED") return "ARCHIVED_OR_GATED";
   if (candidate.accessState === "SCHEMA_UNSUPPORTED") return "SCHEMA_UNSUPPORTED";
   if (candidate.accessState === "RATE_DEFERRED") return "RATE_DEFERRED";
@@ -134,10 +135,13 @@ function planEligibilityRejection(
       break;
   }
 
-  if (!candidate.fightAccessible) return "ARCHIVED_OR_GATED";
+  if (!candidate.fightAccessible) return "PUBLIC_ACCESS_FAILED";
   if (!Number.isFinite(candidate.keyLevel) || candidate.keyLevel <= 0) {
-    return "MISSING_KEY_LEVEL";
+    return "KEY_LEVEL_UNRESOLVED";
   }
+  // Timed must be explicitly true — false and null never consume a slot.
+  if (candidate.timed === false) return "UNTIMED_RUN";
+  if (candidate.timed == null) return "TIMED_STATE_UNKNOWN";
   if (candidate.fightDurationMs != null && candidate.fightDurationMs <= 0) {
     return "INVALID_DURATION";
   }
@@ -189,8 +193,12 @@ function missingStateFromRejections(
   rejections: readonly CandidateRejectionSummary[],
 ): EvidenceSlotState {
   const reasons = new Set(rejections.map((r) => r.reason));
-  if (reasons.has("HIDDEN_OR_PRIVATE")) return "MISSING_PRIVATE_OR_HIDDEN";
-  if (reasons.has("ARCHIVED_OR_GATED")) return "MISSING_ARCHIVED_OR_GATED";
+  if (reasons.has("HIDDEN_OR_PRIVATE") || reasons.has("PRIVATE_OR_HIDDEN")) {
+    return "MISSING_PRIVATE_OR_HIDDEN";
+  }
+  if (reasons.has("ARCHIVED_OR_GATED") || reasons.has("PUBLIC_ACCESS_FAILED")) {
+    return "MISSING_ARCHIVED_OR_GATED";
+  }
   if (
     reasons.has("IDENTITY_UNRESOLVED") ||
     reasons.has("WRONG_SPEC") ||

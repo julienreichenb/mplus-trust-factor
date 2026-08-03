@@ -322,6 +322,113 @@ export async function acquireCandidateWithFallback(input: {
       const playerActorId = details.playerActorId ?? candidate.actorId;
       const dungeonSlug =
         details.dungeonSlug ?? input.slotContext.dungeonSlug;
+
+      // Post-hydration eligibility — private/untimed/incomplete never consume a slot.
+      if (candidate.timed === false) {
+        recordInvalidCandidateReason("UNTIMED_RUN");
+        rejectedAttempts.push({
+          discoveryIdentity: identity,
+          acquisitionStatus: "REJECTED",
+          reportRevision,
+          rejectionReason: "UNTIMED_RUN",
+          rejectionDetail: "timed===false after fight details",
+          datasetHashes: [],
+          factSetHash: null,
+          dimensionValidity: null,
+          keyLevel: candidate.keyLevel,
+          timed: false,
+          runScore: candidate.runScore,
+          completedAt: candidate.completedAt,
+          actorId: playerActorId,
+          evidenceCompleteness: candidate.evidenceCompleteness,
+        });
+        continue;
+      }
+      if (candidate.timed == null) {
+        recordInvalidCandidateReason("TIMED_STATE_UNKNOWN");
+        rejectedAttempts.push({
+          discoveryIdentity: identity,
+          acquisitionStatus: "REJECTED",
+          reportRevision,
+          rejectionReason: "TIMED_STATE_UNKNOWN",
+          rejectionDetail: "timed still unresolved after fight details",
+          datasetHashes: [],
+          factSetHash: null,
+          dimensionValidity: null,
+          keyLevel: candidate.keyLevel,
+          timed: null,
+          runScore: candidate.runScore,
+          completedAt: candidate.completedAt,
+          actorId: playerActorId,
+          evidenceCompleteness: candidate.evidenceCompleteness,
+        });
+        continue;
+      }
+      if (playerActorId == null) {
+        recordInvalidCandidateReason("ACTOR_UNRESOLVED");
+        rejectedAttempts.push({
+          discoveryIdentity: identity,
+          acquisitionStatus: "REJECTED",
+          reportRevision,
+          rejectionReason: "ACTOR_UNRESOLVED",
+          rejectionDetail: "player actor not resolved",
+          datasetHashes: [],
+          factSetHash: null,
+          dimensionValidity: null,
+          keyLevel: candidate.keyLevel,
+          timed: candidate.timed,
+          runScore: candidate.runScore,
+          completedAt: candidate.completedAt,
+          actorId: null,
+          evidenceCompleteness: candidate.evidenceCompleteness,
+        });
+        continue;
+      }
+      if (!Number.isFinite(reportRevision) || reportRevision < 0) {
+        recordInvalidCandidateReason("REPORT_REVISION_UNRESOLVED");
+        rejectedAttempts.push({
+          discoveryIdentity: identity,
+          acquisitionStatus: "REJECTED",
+          reportRevision: null,
+          rejectionReason: "REPORT_REVISION_UNRESOLVED",
+          rejectionDetail: "report revision unresolved",
+          datasetHashes: [],
+          factSetHash: null,
+          dimensionValidity: null,
+          keyLevel: candidate.keyLevel,
+          timed: candidate.timed,
+          runScore: candidate.runScore,
+          completedAt: candidate.completedAt,
+          actorId: playerActorId,
+          evidenceCompleteness: candidate.evidenceCompleteness,
+        });
+        continue;
+      }
+      if (
+        details.startTime == null ||
+        details.endTime == null ||
+        details.endTime <= details.startTime
+      ) {
+        recordInvalidCandidateReason("INCOMPLETE_FIGHT");
+        rejectedAttempts.push({
+          discoveryIdentity: identity,
+          acquisitionStatus: "REJECTED",
+          reportRevision,
+          rejectionReason: "INCOMPLETE_FIGHT",
+          rejectionDetail: "fight start/end metadata incoherent",
+          datasetHashes: [],
+          factSetHash: null,
+          dimensionValidity: null,
+          keyLevel: candidate.keyLevel,
+          timed: candidate.timed,
+          runScore: candidate.runScore,
+          completedAt: candidate.completedAt,
+          actorId: playerActorId,
+          evidenceCompleteness: candidate.evidenceCompleteness,
+        });
+        continue;
+      }
+
       const artifactIds: string[] = [];
       const datasetHashes: EvidenceCandidateAcquisitionResult["datasetHashes"] = [];
       const datasetCompatibilityKeys: string[] = [];
