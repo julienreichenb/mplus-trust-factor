@@ -23,9 +23,13 @@ export type MythicRunWithRelations = MythicRun & {
 };
 
 export async function ensureDungeon(client: PrismaClientOrTx, dungeonSlug: string): Promise<Dungeon> {
-  const existing = await client.dungeon.findUnique({ where: { slug: dungeonSlug } });
-  if (existing) return existing;
-  return client.dungeon.create({ data: { slug: dungeonSlug, name: capitalize(dungeonSlug) } });
+  // Upsert is race-safe under parallel creates and does not abort an open transaction
+  // (unlike create-then-catch-P2002, which leaves Postgres in 25P02).
+  return client.dungeon.upsert({
+    where: { slug: dungeonSlug },
+    create: { slug: dungeonSlug, name: capitalize(dungeonSlug) },
+    update: {},
+  });
 }
 
 export async function ensureCurrentSeason(client: PrismaClientOrTx, regionId: string): Promise<Season> {
