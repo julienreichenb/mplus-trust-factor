@@ -1,16 +1,12 @@
 # Agent workflow
 
-## Stabilization programme (current)
-
-1. Confirm worktree + branch (`agent/NN-…`).
-2. Read your assigned prompt under [`.cursor-orchestration/2026-07-stabilization/standalone-prompts/`](../../.cursor-orchestration/2026-07-stabilization/standalone-prompts/) (rules, decisions and handoff template are embedded there).
-3. Read [`AGENTS.md`](../../AGENTS.md) and [`doc/README.md`](../README.md).
+1. Confirm worktree + branch for the assigned task.
+2. Read [`AGENTS.md`](../../AGENTS.md) and [`doc/README.md`](../README.md).
+3. Read the task prompt you were given (not a historical pack in the repository).
 4. Inspect code; treat docs as evidence, not authority when they conflict.
 5. Plan briefly, execute, test, commit on the assigned branch.
-6. Handoff using the template in your standalone prompt / programme pack.
-7. Do not merge; do not delete the worktree.
-
-Worktree commands: [`.cursor-orchestration/2026-07-stabilization/WORKTREE-COMMANDS.md`](../../.cursor-orchestration/2026-07-stabilization/WORKTREE-COMMANDS.md).
+6. Handoff with commands run, results, deviations, and follow-ups.
+7. Do not merge unless the prompt explicitly requires it.
 
 ## Git policy
 
@@ -18,8 +14,10 @@ Worktree commands: [`.cursor-orchestration/2026-07-stabilization/WORKTREE-COMMAN
 - Promote when ready: `pnpm promote:test` (`main` → `test` → CD). See [`../operations/release-promotion-flow.md`](../operations/release-promotion-flow.md).
 - No production deploys from feature branches.
 
-## Historical waves
+## Validation (typical)
 
-Wave 1–4.x prompts and handoffs remain under [`./`](./) (`wave3/`, `wave4/`, `wave4-bis/`, numbered handoffs). They are **historical research / handoff** material, not the stabilization entry point.
-
-Wave-1 starter `agents/*.txt` copies are archived at [`../archive/wave1-agent-prompts/`](../archive/wave1-agent-prompts/).
+- `pnpm lint`
+- `pnpm typecheck`
+- Narrowest relevant tests for touched areas
+- `pnpm check:english` when UI copy changes
+- `pnpm abilities:validate` when ability catalog sources change

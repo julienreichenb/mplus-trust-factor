@@ -48,4 +48,4 @@ Bootstrap is idempotent: re-running seed on a non-empty catalog does not flip ac
 - `FULL_REFRESH` — providers + score
 - `RECALCULATE_ONLY` — reuse persisted compatible evidence
 
-See programme decisions embedded in [`.cursor-orchestration/2026-07-stabilization/`](../../.cursor-orchestration/2026-07-stabilization/) prompts for selection (`minMythicPlusScore`) and orchestrator requirements.
+See [`../product/product-scope.md`](../product/product-scope.md) for selection (`minMythicPlusScore`) and orchestrator requirements.

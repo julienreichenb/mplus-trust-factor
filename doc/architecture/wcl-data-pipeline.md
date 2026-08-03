@@ -24,4 +24,4 @@ Utility and Survival historical probes under `packages/providers/warcraftlogs/sr
 
 ## Classification source
 
-[`docs/audits/repository-inventory-2026-07/probe-matrix.csv`](../../docs/audits/repository-inventory-2026-07/probe-matrix.csv)
+Probe inventory and retirement gates live with the WCL probe sources under `packages/providers/warcraftlogs/src/probe/` (do not delete Utility/Survival research probes without an explicit prompt).

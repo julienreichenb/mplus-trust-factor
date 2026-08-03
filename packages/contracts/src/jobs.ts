@@ -346,7 +346,7 @@ export type EstimateConfidence = "LOW" | "MEDIUM" | "HIGH";
 
 /**
  * Global refresh scheduling state mirrored from Redis admission.
- * See docs/plans/parallel-refresh-scheduling.md §12.
+ * See doc/architecture/parallel-refresh-scheduling.md §12.
  */
 export type RefreshSchedulingState =
   | "RUNNING"

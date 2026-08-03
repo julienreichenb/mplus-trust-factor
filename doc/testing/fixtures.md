@@ -16,7 +16,7 @@
    - Add/update fixture under new version path.
    - Update Zod schema in `packages/test-utils/src/provider-schemas.ts`.
    - Update manifest.
-   - If shared contracts change, open `doc/contracts/change-requests/<agent>-<topic>.md`.
+   - If shared contracts change, document the change in the PR and keep backward compatible.
 
 ## Sanitization checks
 

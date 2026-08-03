@@ -148,7 +148,7 @@ Supported regions for MVP: `EU`, `US`, `KR`, `TW`. Output is redacted.
 ## Useful URLs
 
 - API live: `GET http://localhost:3000/health/live`
-- API ready: `GET http://localhost:3000/health/ready` (DB + Redis when BullMQ; see [wave3.md](./wave3.md))
+- API ready: `GET http://localhost:3000/health/ready` (DB + Redis when BullMQ)
 - Meta: `GET http://localhost:3000/api/v1/meta`
 - OpenAPI UI: `http://localhost:3000/docs`
 - Web: `http://localhost:5173`

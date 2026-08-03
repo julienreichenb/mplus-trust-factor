@@ -55,4 +55,4 @@ Front-end brand/UX: [`doc/architecture/frontend/`](doc/architecture/frontend/).
 
 ## Agent ownership
 
-See [`doc/agents/file-ownership-map.md`](doc/agents/file-ownership-map.md) and [`doc/architecture/parallel-ownership.md`](doc/architecture/parallel-ownership.md).
+See [`doc/agents/file-ownership-map.md`](doc/agents/file-ownership-map.md).

@@ -11,16 +11,14 @@ Agents: read root [`AGENTS.md`](../AGENTS.md) first.
 | Area | Path | Purpose |
 |------|------|---------|
 | Product | [`product/`](product/) | Scope, v6 scoring, ranking/confidence/U |
-| Architecture | [`architecture/`](architecture/) | System, refresh, WCL, publication, IAM, addon, frontend, [character search / realm catalog](architecture/character-search-and-realm-catalog.md) |
+| Architecture | [`architecture/`](architecture/) | System, refresh, parallel admission, WCL, publication, IAM, addon, frontend, [character search](architecture/character-search-and-realm-catalog.md) |
 | Operations | [`operations/`](operations/) | Local, test env, [release promotion](operations/release-promotion-flow.md), CI/CD, model lifecycle, [Scoring V2 runbooks](operations/scoring-v2-runbooks.md) |
-| Agents | [`agents/`](agents/) | Workflow, DoD, ownership (+ historical wave packs) |
+| Agents | [`agents/`](agents/) | Workflow, definition of done, ownership |
 | ADRs | [`adr/`](adr/) | Architecture decision records |
-| Archive | [`archive/`](archive/) | Superseded prompts and bootstrap notes |
-| Scoring notes | [`scoring/`](scoring/) | Package-oriented scoring pointers; [V2 live-facts status](scoring/scoring-v2-live-facts-status.md) |
+| Scoring | [`scoring/`](scoring/) | Calibration, abilities, boost shadow, [V2 specs](scoring/v2/) |
 | API / providers | [`api/`](api/) | Blizzard / WCL / Raider.IO provider docs |
+| Research | [`research/`](research/) | Live provider behaviour and source policy |
 | Testing / security | [`testing/`](testing/), [`security/`](security/) | Fixtures, threat model, red-flag language |
-| Plans / research | [`plans/`](plans/), [`research/`](research/) | Historical plans and live-API research |
-| Bootstrap (archive) | [`bootstrap/`](bootstrap/) | Wave-1 starter pack (historical; not current product truth) |
 
 ## Naming
 
@@ -28,10 +26,6 @@ Agents: read root [`AGENTS.md`](../AGENTS.md) first.
 - Published metric: **Trust Score**
 - Short mark: **M+TS**
 
-## Related trees
+## Policy
 
-| Path | Role |
-|------|------|
-| [`docs/audits/`](../docs/audits/) | Agent 01 inventory and consolidation plans |
-| [`docs/README.md`](../docs/README.md) | Pointer only — product docs live in `doc/` |
-| [`.cursor-orchestration/2026-07-stabilization/`](../.cursor-orchestration/2026-07-stabilization/) | Temporary programme prompts / worktree commands |
+Completed prompts, temporary worktree instructions, generated reports and superseded plans are deleted after their useful decisions are incorporated into canonical documentation. Git history is the archive.

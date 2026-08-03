@@ -27,7 +27,7 @@ Implementation: `evaluateRateBudget`, `shouldDeferExpensiveWork` in `@mplus/prov
 
 ## Estimated character refresh budget
 
-~55–110 points (see plan `doc/plans/02-warcraftlogs.md`).
+~55–110 points per typical character refresh (discovery + bounded detailed analysis).
 
 ## Fixture scenario
 

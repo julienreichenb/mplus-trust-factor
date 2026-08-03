@@ -114,7 +114,7 @@ Candidate mapping no longer uses optimistic placeholders:
 ## Contract boundary
 
 `RunCombatFacts` remains exported from `@mplus/provider-warcraftlogs`. See  
-`doc/contracts/change-requests/14-warcraftlogs-run-combat-facts.md` for the migration-ready proposal to `@mplus/contracts` (no shared-package edit in this branch).
+Shared-package contract changes for extended combat facts belong in `@mplus/contracts` with a PR that stays backward compatible.
 
 ## Primary references
 

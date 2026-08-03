@@ -50,3 +50,13 @@ apps/web/e2e/.e2e-pids.json
 
 # Addon build artifacts
 addon/**/*.zip
+
+# Ability catalog CLI output (regenerate with pnpm abilities:validate / abilities:coverage)
+packages/abilities/generated/
+
+# Ad-hoc local probe / context artifacts
+wallidrixe-wcl-performance.zip
+.agent-context/
+.cursor-orchestration/
+.tmp-*.txt
+COMMIT_MSG.tmp

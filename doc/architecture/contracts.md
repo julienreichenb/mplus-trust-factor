@@ -34,4 +34,4 @@ Search/profile/compare/refresh/admin DTOs and standard `ApiErrorEnvelope`.
 
 ## Change policy
 
-After Agent 0 merge, do not silently change contracts. Open `doc/contracts/change-requests/<agent>-<topic>.md`.
+After baseline merge, do not silently change shared contracts. Keep changes backward compatible and call them out in the PR.
