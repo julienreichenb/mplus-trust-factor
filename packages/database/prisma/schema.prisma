@@ -11,6 +11,8 @@ enum Provider {
   BLIZZARD
   WARCRAFT_LOGS
   RAIDER_IO
+  /** Non-provider content-addressed blobs (admin diagnostics, frozen calibration exports). */
+  INTERNAL
 }
 
 enum CharacterRole {
@@ -87,6 +89,21 @@ enum RedFlagStatus {
 enum JobStatus {
   QUEUED
   ACTIVE
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+/** Distributed refresh workload lane — explicit, never inferred from names. */
+enum RefreshWorkloadClass {
+  CALIBRATION
+  OPERATION
+}
+
+enum ScoringV2EvidenceExportStatus {
+  QUEUED
+  RUNNING
+  RETRYABLE
   COMPLETED
   FAILED
   CANCELLED
@@ -229,6 +246,7 @@ model Season {
   calibrationRuns        CalibrationRun[]
   evidenceManifests      EvidenceManifest[]
   dimensionComputations  DimensionComputation[]
+  scoringV2EvidenceExports ScoringV2EvidenceExport[]
 
   @@unique([regionId, slug])
   @@map("seasons")
@@ -807,6 +825,7 @@ model ScoreModel {
   calibrationRunsAsActive      CalibrationRun[] @relation("CalibrationRunActiveModel")
   calibrationRunsAsEvaluation  CalibrationRun[] @relation("CalibrationRunEvaluationModel")
   dimensionComputations        DimensionComputation[]
+  scoringV2EvidenceExports     ScoringV2EvidenceExport[]
 
   @@unique([key, version])
   @@index([status])
@@ -1018,6 +1037,11 @@ model IngestionJob {
   cancelRequestedAt  DateTime? @map("cancel_requested_at") @db.Timestamptz(3)
   cancelledAt        DateTime? @map("cancelled_at") @db.Timestamptz(3)
   cancelReason       String?   @map("cancel_reason")
+  /**
+   * Explicit refresh workload lane. Default OPERATION for backward compatibility.
+   * Calibration cohort bootstrap / evidence acquisition must set CALIBRATION.
+   */
+  workloadClass      RefreshWorkloadClass @default(OPERATION) @map("workload_class")
 
   character Character? @relation(fields: [characterId], references: [id])
   run       MythicRun? @relation(fields: [runId], references: [id])
@@ -1028,6 +1052,7 @@ model IngestionJob {
   /** Bounded ETA throughput reads: recent COMPLETED rows by completedAt. */
   @@index([jobType, status, completedAt])
   @@index([cancelRequestedAt])
+  @@index([workloadClass, status, scheduledAt])
   @@map("ingestion_jobs")
 }
 
@@ -1056,6 +1081,8 @@ model User {
   bulkOperations    BulkOperation[]
   calibrationCohorts CalibrationCohort[]
   calibrationRuns    CalibrationRun[]
+  runtimeSettingsUpdated RuntimeSetting[] @relation("RuntimeSettingUpdatedBy")
+  scoringV2EvidenceExports ScoringV2EvidenceExport[]
 
   @@unique([authProvider, externalSubject])
   @@map("users")
@@ -1560,6 +1587,7 @@ model CalibrationCohort {
   createdBy User                      @relation(fields: [createdByUserId], references: [id])
   members   CalibrationCohortMember[]
   runs      CalibrationRun[]
+  evidenceExports ScoringV2EvidenceExport[]
 
   @@index([status, updatedAt(sort: Desc)])
   @@index([createdByUserId, updatedAt(sort: Desc)])
@@ -1841,4 +1869,99 @@ model DimensionComputation {
   @@index([manifestId, dimension])
   @@index([inputFingerprint])
   @@map("dimension_computations")
+}
+
+// ---------------------------------------------------------------------------
+// Scoring V2 Control Center — typed runtime settings + evidence exports
+// ---------------------------------------------------------------------------
+
+/**
+ * Typed runtime settings (Zod-validated per key). Not a generic untyped dump.
+ * Keys: concurrency_calibration, concurrency_operation.
+ */
+model RuntimeSetting {
+  key             String   @id
+  value           Json
+  /** Optimistic concurrency token — increment on every successful update. */
+  version         Int      @default(1)
+  updatedByUserId String?  @map("updated_by_user_id") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  updatedBy User? @relation("RuntimeSettingUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+
+  @@map("runtime_settings")
+}
+
+/**
+ * Admin evidence-join export job. Provider-free; writes only its own row + artifacts.
+ * Never mutates character / evidence / score rows.
+ */
+model ScoringV2EvidenceExport {
+  id                       String                        @id @default(uuid()) @db.Uuid
+  cohortId                 String                        @map("cohort_id") @db.Uuid
+  /** Immutable cohort revision captured at request time. */
+  cohortRevision           Int                           @map("cohort_revision")
+  seasonId                 String?                       @map("season_id") @db.Uuid
+  scoreModelId             String?                       @map("score_model_id") @db.Uuid
+  status                   ScoringV2EvidenceExportStatus @default(QUEUED)
+  /** Bounded progress counters (members scanned, etc.). */
+  progress                 Json                          @default("{}")
+  /** Bounded summary (counts, blockers, warnings) — no artifact bodies. */
+  summary                  Json                          @default("{}")
+  blockerCount             Int                           @default(0) @map("blocker_count")
+  warningCount             Int                           @default(0) @map("warning_count")
+  /** Content hash of downloadable archive (summary + preflight + md). */
+  archiveContentHash       String?                       @map("archive_content_hash")
+  archiveByteLength        Int?                          @map("archive_byte_length")
+  archiveStorageUri        String?                       @map("archive_storage_uri")
+  summaryContentHash       String?                       @map("summary_content_hash")
+  preflightContentHash     String?                       @map("preflight_content_hash")
+  markdownContentHash      String?                       @map("markdown_content_hash")
+  /** Logical Calibration Input Bundle V2 root hash (stableStringify / bundleHash). */
+  frozenBundleContentHash  String?                       @map("frozen_bundle_content_hash")
+  /**
+   * CAS digest of persisted bundle JSON bytes (`sha256:<64hex>`).
+   * Distinct from frozenBundleContentHash (logical identity).
+   */
+  frozenBundleByteDigest   String?                       @map("frozen_bundle_byte_digest")
+  frozenBundleByteLength   Int?                          @map("frozen_bundle_byte_length")
+  frozenBundleStorageUri   String?                       @map("frozen_bundle_storage_uri")
+  frozenAt                 DateTime?                     @map("frozen_at") @db.Timestamptz(3)
+  /**
+   * Pinned wall-clock for deterministic join identity (create or first claim).
+   * Retries must reuse this; never stamp a fresh now into archive identity.
+   */
+  generatedAt              DateTime?                     @map("generated_at") @db.Timestamptz(3)
+  /** Evidence freshness cutoff pinned with the export request. */
+  evidenceCutoffAt         DateTime?                     @map("evidence_cutoff_at") @db.Timestamptz(3)
+  /** Claim / recovery attempt counter (M3). */
+  attempt                  Int                           @default(0)
+  leaseOwner               String?                       @map("lease_owner")
+  leaseExpiresAt           DateTime?                     @map("lease_expires_at") @db.Timestamptz(3)
+  heartbeatAt              DateTime?                     @map("heartbeat_at") @db.Timestamptz(3)
+  /** Hash of the terminal archive set (equals archiveContentHash on success). */
+  artifactSetHash          String?                       @map("artifact_set_hash")
+  /** Immutable freeze inputs captured at export COMPLETED (H3). */
+  freezeSnapshot           Json?                         @map("freeze_snapshot")
+  errorCode                String?                       @map("error_code")
+  errorMessage             String?                       @map("error_message")
+  requestedByUserId        String                        @map("requested_by_user_id") @db.Uuid
+  bullmqJobId              String?                       @map("bullmq_job_id")
+  createdAt                DateTime                      @default(now()) @map("created_at") @db.Timestamptz(3)
+  startedAt                DateTime?                     @map("started_at") @db.Timestamptz(3)
+  completedAt              DateTime?                     @map("completed_at") @db.Timestamptz(3)
+
+  cohort      CalibrationCohort @relation(fields: [cohortId], references: [id], onDelete: Restrict)
+  season      Season?           @relation(fields: [seasonId], references: [id])
+  scoreModel  ScoreModel?       @relation(fields: [scoreModelId], references: [id])
+  requestedBy User              @relation(fields: [requestedByUserId], references: [id])
+
+  @@index([status, createdAt(sort: Desc)])
+  @@index([cohortId, createdAt(sort: Desc)])
+  @@index([requestedByUserId, createdAt(sort: Desc)])
+  @@index([archiveContentHash])
+  @@index([frozenBundleContentHash])
+  @@index([status, leaseExpiresAt])
+  @@map("scoring_v2_evidence_exports")
 }

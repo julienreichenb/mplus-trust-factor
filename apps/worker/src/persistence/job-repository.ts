@@ -1,4 +1,10 @@
-import { Prisma, type IngestionJob, type JobStatus, type PrismaClient } from "@mplus/database";
+import {
+  Prisma,
+  type IngestionJob,
+  type JobStatus,
+  type PrismaClient,
+  type RefreshWorkloadClass,
+} from "@mplus/database";
 import {
   DEFAULT_STALE_ACTIVE_MS,
   DEFAULT_STALE_QUEUED_MS,
@@ -153,6 +159,18 @@ function errorPayload(error: unknown): object {
   return (error instanceof Error ? { message: error.message, name: error.name } : error) as object;
 }
 
+function payloadRecord(payload: unknown): Record<string, unknown> {
+  if (payload && typeof payload === "object" && !Array.isArray(payload)) {
+    return payload as Record<string, unknown>;
+  }
+  return {};
+}
+
+/** Authoritative lane for a new execution — taken from payload at create/claim time. */
+function workloadClassFromPayload(payload: unknown): RefreshWorkloadClass {
+  return payloadRecord(payload).workloadClass === "CALIBRATION" ? "CALIBRATION" : "OPERATION";
+}
+
 function queuedResetData(input: {
   jobType: string;
   characterId?: string | null;
@@ -167,6 +185,7 @@ function queuedResetData(input: {
     status: "QUEUED" as const,
     priority: input.priority ?? 0,
     payload: input.payload as object,
+    workloadClass: workloadClassFromPayload(input.payload),
     scheduledAt: new Date(),
     startedAt: null,
     completedAt: null,
@@ -176,13 +195,6 @@ function queuedResetData(input: {
     cancelledAt: null,
     cancelReason: null,
   };
-}
-
-function payloadRecord(payload: unknown): Record<string, unknown> {
-  if (payload && typeof payload === "object" && !Array.isArray(payload)) {
-    return payload as Record<string, unknown>;
-  }
-  return {};
 }
 
 export function createJobRepository(prisma: PrismaClient): JobRepository {
@@ -225,6 +237,7 @@ export function createJobRepository(prisma: PrismaClient): JobRepository {
       }
 
       // Placeholder row in FAILED so we never expose QUEUED before enqueue succeeds.
+      // workloadClass is fixed at creation from the enqueue payload (not rewritten on reuse).
       const created = await prisma.ingestionJob.create({
         data: {
           jobType: input.jobType,
@@ -234,6 +247,7 @@ export function createJobRepository(prisma: PrismaClient): JobRepository {
           status: "FAILED",
           priority: input.priority ?? 0,
           payload: input.payload as object,
+          workloadClass: workloadClassFromPayload(input.payload),
           completedAt: new Date(),
           error: {
             message: "Awaiting queue enqueue",

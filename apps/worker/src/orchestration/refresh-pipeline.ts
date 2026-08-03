@@ -110,7 +110,24 @@ import {
   sumMeasuredWclPoints,
   type PipelineAdmissionSession,
 } from "./refresh-admission/pipeline-admission.js";
+import {
+  acquireLanePermit,
+  isLanePermitRedisUsable,
+  releaseLanePermit,
+  startLanePermitHeartbeat,
+} from "./refresh-admission/lane-permits.js";
+import { writeConcurrencyObservation } from "./refresh-admission/concurrency-observe.js";
 import { RefreshAdmissionError } from "./refresh-admission/errors.js";
+import {
+  resolveAuthoritativeWorkloadClass,
+  workloadClassQueueDisagreement,
+} from "./refresh-admission/workload-class.js";
+import {
+  DEFAULT_CONCURRENCY_CALIBRATION,
+  DEFAULT_CONCURRENCY_OPERATION,
+  RUNTIME_SETTING_KEYS,
+  type RefreshWorkloadClass,
+} from "@mplus/contracts";
 import { buildMythicRatingObservation } from "./performance-metrics.js";
 import { buildWclPerformanceObservations } from "./wcl-performance-metrics.js";
 import {
@@ -373,6 +390,7 @@ function toPersistedCombatFacts(facts: RunCombatFacts) {
 export async function runRefreshPipeline(
   container: WorkerContainer,
   jobPayload: RefreshCharacterJob,
+  options?: { queueName?: string | null },
 ): Promise<RefreshPipelineResult> {
   const { repositories, providers, disabledProviders, logger } = container;
   const identity = toIdentity(jobPayload);
@@ -447,6 +465,10 @@ export async function runRefreshPipeline(
   let terminalized = false;
   let admissionSession: PipelineAdmissionSession | null = null;
   let admissionRedis: ReturnType<WorkerContainer["createRedisConnection"]> | null = null;
+  let laneHeld: RefreshWorkloadClass | null = null;
+  let laneOwnershipToken: string | null = null;
+  let lanePermitLost = false;
+  let laneHeartbeat: { stop: () => Promise<void> } | null = null;
 
   const releaseAdmission = async (
     status: "SETTLED" | "RELEASED" | "CANCELLED" | "EXPIRED",
@@ -465,6 +487,30 @@ export async function runRefreshPipeline(
         "refresh_admission_settle_failed",
       );
     } finally {
+      if (laneHeartbeat) {
+        try {
+          await laneHeartbeat.stop();
+        } catch {
+          /* ignore */
+        }
+        laneHeartbeat = null;
+      }
+      if (laneHeld && admissionRedis && laneOwnershipToken) {
+        try {
+          await releaseLanePermit({
+            redis: admissionRedis,
+            appEnv: container.env.APP_ENV,
+            lane: laneHeld,
+            ingestionJobId: job.id,
+            ownershipToken: laneOwnershipToken,
+            logger,
+          });
+        } catch {
+          /* ignore */
+        }
+        laneHeld = null;
+        laneOwnershipToken = null;
+      }
       admissionSession = null;
       if (admissionRedis) {
         try {
@@ -505,8 +551,22 @@ export async function runRefreshPipeline(
     terminalized = true;
   };
 
+  const assertLanePermitHeld = async (checkpoint: string): Promise<void> => {
+    if (terminalized || !laneHeld) return;
+    if (!lanePermitLost) return;
+    const err = new RefreshAdmissionError({
+      reason: "LANE_PERMIT_LOST",
+      message: `Refresh lane permit lost at ${checkpoint}`,
+    });
+    job = await repositories.job.markFailed(job.id, err.toJobError());
+    terminalized = true;
+    await releaseAdmission("RELEASED");
+    throw err;
+  };
+
   const assertNotCancelled = async (checkpoint: string): Promise<void> => {
     if (terminalized) return;
+    await assertLanePermitHeld(checkpoint);
     const requested = await isRefreshCancellationRequested(repositories.job, job.id);
     if (!requested) return;
     const current = await repositories.job.findById(job.id);
@@ -705,12 +765,151 @@ export async function runRefreshPipeline(
 
   // ── Admission gate (Stage 3: enforce @ serial concurrency 1) ───────────────
   // After cancel / contract / eligibility; before any Blizzard / RIO / WCL work.
-  if (container.env.REFRESH_ADMISSION_MODE !== "off") {
-    try {
-      admissionRedis = container.createRedisConnection();
-    } catch {
+  // Always open Redis for lane permits (even when REFRESH_ADMISSION_MODE=off).
+  // Fail closed: never skip lane permits when Redis is unavailable.
+  try {
+    const conn = container.createRedisConnection();
+    if (!isLanePermitRedisUsable(conn)) {
+      try {
+        await conn.quit();
+      } catch {
+        /* ignore */
+      }
       admissionRedis = null;
+    } else {
+      admissionRedis = conn;
     }
+  } catch {
+    admissionRedis = null;
+  }
+
+  // Authoritative lane = persisted IngestionJob.workloadClass (legacy null → OPERATION).
+  // Payload workloadClass is informational only — never drives lane permits.
+  const resolvedWorkload = resolveAuthoritativeWorkloadClass({
+    persistedWorkloadClass: job.workloadClass,
+    payloadWorkloadClass: jobPayload.workloadClass,
+  });
+  const workloadClass: RefreshWorkloadClass = resolvedWorkload.workloadClass;
+  if (resolvedWorkload.mismatch) {
+    logger.warn(
+      {
+        event: "scoring_v2.workload_class_payload_mismatch",
+        reasonCode: resolvedWorkload.reasonCode,
+        jobId: job.id,
+        persistedWorkloadClass: workloadClass,
+        payloadWorkloadClass: resolvedWorkload.payloadWorkloadClass,
+        legacyDbDefault: resolvedWorkload.legacyDbDefault,
+      },
+      "payload workloadClass ignored; persisted IngestionJob.workloadClass is authoritative",
+    );
+  }
+
+  const queueDisagreement = workloadClassQueueDisagreement({
+    persistedWorkloadClass: workloadClass,
+    queueName: options?.queueName,
+  });
+  if (queueDisagreement) {
+    const err = new RefreshAdmissionError({
+      reason: "WORKLOAD_CLASS_QUEUE_MISMATCH",
+      message: queueDisagreement.message,
+    });
+    job = await repositories.job.markFailed(job.id, err.toJobError());
+    terminalized = true;
+    await releaseAdmission("RELEASED");
+    throw err;
+  }
+
+  if (!admissionRedis) {
+    const err = new RefreshAdmissionError({
+      reason: "LANE_REDIS_UNAVAILABLE",
+      message: "Refresh lane Redis unavailable — fail closed",
+    });
+    job = await repositories.job.markFailed(job.id, err.toJobError());
+    terminalized = true;
+    await releaseAdmission("RELEASED");
+    throw err;
+  }
+
+  {
+    const settings = await container.prisma.runtimeSetting.findMany({
+      where: {
+        key: {
+          in: [
+            RUNTIME_SETTING_KEYS.concurrencyCalibration,
+            RUNTIME_SETTING_KEYS.concurrencyOperation,
+          ],
+        },
+      },
+    });
+    const calRow = settings.find((s) => s.key === RUNTIME_SETTING_KEYS.concurrencyCalibration);
+    const opRow = settings.find((s) => s.key === RUNTIME_SETTING_KEYS.concurrencyOperation);
+    const cal = Number(calRow?.value) || DEFAULT_CONCURRENCY_CALIBRATION;
+    const op = Number(opRow?.value) || DEFAULT_CONCURRENCY_OPERATION;
+    const settingsVersion = Math.max(calRow?.version ?? 1, opRow?.version ?? 1, 1);
+    const limit = workloadClass === "CALIBRATION" ? cal : op;
+    const permit = await acquireLanePermit({
+      redis: admissionRedis,
+      appEnv: container.env.APP_ENV,
+      lane: workloadClass,
+      ingestionJobId: job.id,
+      limit,
+      logger,
+    });
+    if (!permit.acquired || !permit.token) {
+      const err = new RefreshAdmissionError({
+        reason: "INSUFFICIENT_GLOBAL_SLOTS",
+        message: `Refresh lane ${workloadClass} at limit ${permit.limit}`,
+      });
+      job = await repositories.job.markFailed(job.id, err.toJobError());
+      terminalized = true;
+      await releaseAdmission("RELEASED");
+      throw err;
+    }
+    laneHeld = workloadClass;
+    laneOwnershipToken = permit.token;
+    // Best-effort sync evidence for control-center; permit path must not fail closed on observe write.
+    try {
+      await writeConcurrencyObservation({
+        redis: admissionRedis,
+        appEnv: container.env.APP_ENV,
+        settingsVersion,
+        concurrencyCalibration: cal,
+        concurrencyOperation: op,
+      });
+    } catch (observeErr) {
+      logger.warn(
+        {
+          ...logBase,
+          event: "concurrency_observation_write_failed",
+          err: observeErr,
+        },
+        "concurrency_observation_write_failed",
+      );
+    }
+    laneHeartbeat = startLanePermitHeartbeat({
+      redis: admissionRedis,
+      appEnv: container.env.APP_ENV,
+      lane: workloadClass,
+      ingestionJobId: job.id,
+      ownershipToken: permit.token,
+      logger,
+      onLost: ({ reason }) => {
+        lanePermitLost = true;
+        logger.warn(
+          {
+            ...logBase,
+            event: "refresh_lane_permit_lost",
+            workloadClass,
+            reasonCode: reason,
+          },
+          "refresh_lane_permit_lost",
+        );
+      },
+    });
+    await assertLanePermitHeld("post_lane_permit_acquire");
+  }
+
+  if (container.env.REFRESH_ADMISSION_MODE !== "off") {
     const { gate, repository } = createPipelineAdmissionGate({
       env: container.env,
       redis: admissionRedis,
@@ -747,14 +946,7 @@ export async function runRefreshPipeline(
           },
           OBS_EVENTS.refreshTerminal,
         );
-        if (admissionRedis) {
-          try {
-            await admissionRedis.quit();
-          } catch {
-            /* ignore */
-          }
-          admissionRedis = null;
-        }
+        await releaseAdmission("RELEASED");
         throw admissionError;
       }
       throw admissionError;

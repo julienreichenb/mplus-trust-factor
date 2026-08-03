@@ -1,5 +1,6 @@
 /**
- * Read-only evidence join for Agent 11 calibration (server-side / VPS only).
+ * Emergency/debug-only read-only evidence join for Agent 11 calibration (VPS only).
+ * Canonical path: Scoring V2 Control Center admin evidence export (shared worker join).
  *
  * Usage (ephemeral container on mplus-test app network — see EVIDENCE-JOIN-RUNBOOK.md):
  *   CALIBRATION_EVIDENCE_ENV=test \
@@ -11,6 +12,11 @@ import { readFileSync, mkdirSync, writeFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { createPrismaClient } from "@mplus/database";
+import {
+  classifySnapshotStatus,
+  incompleteBootstrap,
+  type SnapshotStatus,
+} from "@mplus/worker";
 import { validateSeasonMetaPolicy, validateAuthoritativeSeasonBinding } from "./meta-policy.js";
 import {
   MYZOUTH_EXPECTED_CHARACTER_ID,
@@ -93,22 +99,6 @@ interface ResolvedDocMember {
   snapshotIds: string[];
   evidenceStatus: string;
   provenance?: Record<string, unknown>;
-}
-
-function incompleteBootstrap(row: {
-  level: number | null;
-  blizzardCharacterId: bigint | null;
-  classId: string | null;
-  activeSpecId: string | null;
-  role: string | null;
-}): boolean {
-  return (
-    row.level == null ||
-    row.blizzardCharacterId == null ||
-    row.classId == null ||
-    row.activeSpecId == null ||
-    row.role == null
-  );
 }
 
 export async function main(argv = process.argv.slice(2)): Promise<number> {
@@ -300,15 +290,15 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         const bootstrapComplete = character ? !incompleteBootstrap(character) : false;
         const compatibleV6 = Boolean(latest) && modelCompatible && seasonCompatible && freshEnough;
 
-        let snapshotStatus:
-          | "COMPATIBLE_V6"
-          | "STALE_OR_INCOMPATIBLE"
-          | "NO_SNAPSHOT"
-          | "IDENTITY_MISSING" = "IDENTITY_MISSING";
-        if (!character) snapshotStatus = "IDENTITY_MISSING";
-        else if (!latest) snapshotStatus = "NO_SNAPSHOT";
-        else if (compatibleV6) snapshotStatus = "COMPATIBLE_V6";
-        else snapshotStatus = "STALE_OR_INCOMPATIBLE";
+        // Shared with the admin control center's evidence-join worker path (@mplus/worker).
+        // This CLI never passes excluded:true — exclusion is tracked separately via
+        // member.exclusionReason and must not change the underlying snapshot classification.
+        const snapshotStatus: SnapshotStatus = classifySnapshotStatus({
+          foundInDb: Boolean(character),
+          excluded: false,
+          hasLatest: Boolean(latest),
+          compatible: compatibleV6,
+        });
 
         const requiresScoreRefresh =
           member.exclusionReason == null && character != null && snapshotStatus !== "COMPATIBLE_V6";

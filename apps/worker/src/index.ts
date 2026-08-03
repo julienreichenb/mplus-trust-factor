@@ -139,6 +139,14 @@ async function main(): Promise<void> {
     wclDisabledBySet: container.disabledProviders.has("warcraftlogs"),
   });
 
+  const { startEvidenceExportRecoverySweeper } = await import(
+    "./orchestration/scoring-v2/evidence-export-recovery.js"
+  );
+  const evidenceExportRecoverySweeper = startEvidenceExportRecoverySweeper({
+    prisma: container.prisma,
+    logger: container.logger,
+  });
+
   const enforceNeedsSnapshot = env.REFRESH_ADMISSION_MODE === "enforce" && env.WCL_ENABLED;
   const refresherUnavailable =
     enforceNeedsSnapshot &&
@@ -225,7 +233,8 @@ async function main(): Promise<void> {
     if (healthServer) {
       await new Promise<void>((resolve) => healthServer!.close(() => resolve()));
     }
-    // Stop snapshot refresher before closing Redis so no tick uses a quit connection.
+    // Stop background sweepers before closing Redis / workers.
+    evidenceExportRecoverySweeper.stop();
     await snapshotRefresher.stop();
     await closeWorkers(workers);
     await producers.close();

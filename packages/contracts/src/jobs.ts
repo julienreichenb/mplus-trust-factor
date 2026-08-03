@@ -25,6 +25,15 @@ export const QUEUE_NAMES = {
    * Provider-free finalization (manifest freeze + dimension placeholder).
    */
   finalizeAnalysisBatch: "finalize-analysis-batch",
+  /**
+   * Calibration-initiated character refresh lane — shares refresh processor,
+   * isolated BullMQ queue + Redis lane permits from OPERATION traffic.
+   */
+  refreshCharacterCalibration: "refresh-character-calibration",
+  /**
+   * Admin Scoring V2 evidence-join export — provider-free, no refresh enqueue.
+   */
+  scoringV2EvidenceExport: "scoring-v2-evidence-export",
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
@@ -74,6 +83,11 @@ export const refreshCharacterJobSchema = z.object({
   authoritativeSeasonId: z.number().int().positive().optional(),
   authoritativeSeasonSlug: z.string().min(1).max(64).optional(),
   authoritySource: z.string().min(1).max(64).optional(),
+  /**
+   * Explicit workload lane. Default OPERATION when absent (legacy jobs).
+   * Never infer from character name or caller text.
+   */
+  workloadClass: z.enum(["CALIBRATION", "OPERATION"]).optional(),
 });
 
 export type RefreshCharacterJob = z.infer<typeof refreshCharacterJobSchema> & {

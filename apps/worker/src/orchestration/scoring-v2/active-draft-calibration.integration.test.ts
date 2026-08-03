@@ -5,10 +5,11 @@
  * Bundle V2, strictly re-parses, and runs provider-free active/draft replay.
  * Requires `pnpm test:integration` (isolated DB). No providers, activation, or publication.
  */
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { afterAll, describe, expect, it } from "vitest";
 import { createPrismaClient, checkDatabaseHealth, type PrismaClient } from "@mplus/database";
 import {
+  buildCalibrationContentRefV2,
   buildCalibrationInputBundleV2,
   buildCalibrationReportV2Extension,
   createDefaultScoringV2DimensionConfigSet,
@@ -112,9 +113,21 @@ describe.runIf(dbAvailable)("WS10.5 active/draft calibration (disposable DB)", (
         }),
       ],
     });
-    const utilHash = createHash("sha256").update(JSON.stringify(utilExport)).digest("hex");
-    const manifestHash = createHash("sha256").update("{}").digest("hex");
-    const factHash = createHash("sha256").update("f").digest("hex");
+    const utilBytes = Buffer.from(JSON.stringify(utilExport));
+    const manifestBytes = Buffer.from("{}");
+    const factBytes = Buffer.from("{}");
+    const utilRef = buildCalibrationContentRefV2({
+      bytes: utilBytes,
+      artifactClass: "dimension_replay_export",
+    });
+    const manifestRef = buildCalibrationContentRefV2({
+      bytes: manifestBytes,
+      artifactClass: "evidence_manifest",
+    });
+    const factRef = buildCalibrationContentRefV2({
+      bytes: factBytes,
+      artifactClass: "run_fact_set",
+    });
 
     const activePersisted = await prisma.scoreModel.findUniqueOrThrow({
       where: { id: activeModel.id },
@@ -192,10 +205,10 @@ describe.runIf(dbAvailable)("WS10.5 active/draft calibration (disposable DB)", (
           included: true,
           exclusionCode: null,
           evidenceCutoffAt: null,
-          manifest: { contentHash: manifestHash, artifactClass: "evidence_manifest" },
-          factSets: [{ contentHash: factHash, artifactClass: "run_fact_set" }],
+          manifest: manifestRef,
+          factSets: [factRef],
           dimensionExports: {
-            UTILITY: { contentHash: utilHash, artifactClass: "dimension_replay_export" },
+            UTILITY: utilRef,
           },
         },
       ],
@@ -206,9 +219,9 @@ describe.runIf(dbAvailable)("WS10.5 active/draft calibration (disposable DB)", (
       bundle,
       resolver: createMapArtifactResolverV2(
         new Map([
-          [manifestHash, Buffer.from("{}")],
-          [factHash, Buffer.from("{}")],
-          [utilHash, Buffer.from(JSON.stringify(utilExport))],
+          [manifestRef.contentHash, manifestBytes],
+          [factRef.contentHash, factBytes],
+          [utilRef.contentHash, utilBytes],
         ]),
       ),
     });

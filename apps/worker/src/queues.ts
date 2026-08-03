@@ -5,6 +5,7 @@ import {
   analyzeRunJobSchema,
   bulkOrchestratorJobSchema,
   calibrationRunJobSchema,
+  scoringV2EvidenceExportJobSchema,
   discoverOwnedCharactersJobSchema,
   finalizeEvidenceBatchJobV2Schema,
   generateAddonExportJobSchema,
@@ -14,6 +15,7 @@ import {
   type AnalyzeRunJob,
   type BulkOrchestratorJob,
   type CalibrationRunJob,
+  type ScoringV2EvidenceExportJob,
   type DiscoverOwnedCharactersJob,
   type FinalizeEvidenceBatchJobV2,
   type GenerateAddonExportJob,
@@ -41,6 +43,11 @@ export interface EnqueueResult {
   reused: boolean;
   /** True when a new BullMQ message was published for this call. */
   enqueued?: boolean;
+  /**
+   * True when an in-flight job was reused and the requester's workloadClass differs
+   * from the persisted lane (original job keeps its queue/payload/DB class).
+   */
+  reusedAcrossWorkloadIntent?: boolean;
 }
 
 const PRIORITY_WEIGHT: Record<"high" | "normal" | "low", number> = { high: 10, normal: 0, low: -10 };
@@ -69,6 +76,10 @@ export interface QueueProducers {
    */
   enqueueCalibrationRun(
     input: { calibrationRunId: string; requestedAt?: string; correlationId?: string | null },
+  ): Promise<EnqueueResult>;
+  /** Admin Scoring V2 evidence export — provider-free, not an IngestionJob. */
+  enqueueScoringV2EvidenceExport(
+    input: { exportId: string; requestedAt?: string; correlationId?: string | null },
   ): Promise<EnqueueResult>;
   /** Scoring V2 — one job per acquisition-plan slot (provider-aware). */
   enqueueAnalyzeEvidenceSlot(
@@ -99,6 +110,9 @@ export function createQueueProducers(
 ): QueueProducers {
   const queues = {
     [QUEUE_NAMES.refreshCharacter]: new Queue(QUEUE_NAMES.refreshCharacter, { connection }),
+    [QUEUE_NAMES.refreshCharacterCalibration]: new Queue(QUEUE_NAMES.refreshCharacterCalibration, {
+      connection,
+    }),
     [QUEUE_NAMES.analyzeRun]: new Queue(QUEUE_NAMES.analyzeRun, { connection }),
     [QUEUE_NAMES.recalculateScore]: new Queue(QUEUE_NAMES.recalculateScore, { connection }),
     [QUEUE_NAMES.generateAddonExport]: new Queue(QUEUE_NAMES.generateAddonExport, { connection }),
@@ -109,6 +123,9 @@ export function createQueueProducers(
       connection,
     }),
     [QUEUE_NAMES.calibrationRun]: new Queue(QUEUE_NAMES.calibrationRun, { connection }),
+    [QUEUE_NAMES.scoringV2EvidenceExport]: new Queue(QUEUE_NAMES.scoringV2EvidenceExport, {
+      connection,
+    }),
     [QUEUE_NAMES.analyzeEvidenceSlot]: new Queue(QUEUE_NAMES.analyzeEvidenceSlot, { connection }),
     [QUEUE_NAMES.finalizeAnalysisBatch]: new Queue(QUEUE_NAMES.finalizeAnalysisBatch, {
       connection,
@@ -141,15 +158,50 @@ export function createQueueProducers(
 
   const producers: QueueProducers = {
     async enqueueRefreshCharacter(input) {
+      const requestedWorkloadClass = input.workloadClass ?? "OPERATION";
       const payload = refreshCharacterJobSchema.parse({
         ...input,
+        workloadClass: requestedWorkloadClass,
         requestedAt: input.requestedAt ?? new Date().toISOString(),
       }) as RefreshCharacterJob;
       const dedupeKey = refreshCharacterDedupeKey(payload);
-      return enqueue(queues[QUEUE_NAMES.refreshCharacter], QUEUE_NAMES.refreshCharacter, dedupeKey, payload, {
+      const queue =
+        requestedWorkloadClass === "CALIBRATION"
+          ? queues[QUEUE_NAMES.refreshCharacterCalibration]
+          : queues[QUEUE_NAMES.refreshCharacter];
+      const result = await enqueue(queue, queue.name, dedupeKey, payload, {
         characterId: payload.characterId ?? null,
         priority: PRIORITY_WEIGHT[payload.priority],
       });
+
+      // Authoritative lane = IngestionJob.workloadClass at creation / successful enqueue.
+      // Never migrate DB (or BullMQ payload/queue) on incidental in-flight reuse.
+      if (result.enqueued) {
+        await container.prisma.ingestionJob.updateMany({
+          where: { id: result.jobId },
+          data: { workloadClass: requestedWorkloadClass },
+        });
+        return { ...result, reusedAcrossWorkloadIntent: false };
+      }
+
+      const existing = await container.prisma.ingestionJob.findUnique({
+        where: { id: result.jobId },
+        select: { workloadClass: true },
+      });
+      const existingWorkloadClass = existing?.workloadClass ?? "OPERATION";
+      const reusedAcrossWorkloadIntent = existingWorkloadClass !== requestedWorkloadClass;
+      if (reusedAcrossWorkloadIntent) {
+        container.logger.info(
+          {
+            jobId: result.jobId,
+            dedupeKey,
+            requestedWorkloadClass,
+            existingWorkloadClass,
+          },
+          "refresh job reused across workload intent",
+        );
+      }
+      return { ...result, reusedAcrossWorkloadIntent };
     },
 
     async enqueueAnalyzeRun(input) {
@@ -248,6 +300,25 @@ export function createQueueProducers(
       return {
         jobId: job.id ?? payload.calibrationRunId,
         dedupeKey: payload.calibrationRunId,
+        reused: false,
+        enqueued: true,
+      };
+    },
+
+    async enqueueScoringV2EvidenceExport(input) {
+      const payload: ScoringV2EvidenceExportJob = scoringV2EvidenceExportJobSchema.parse({
+        exportId: input.exportId,
+        requestedAt: input.requestedAt ?? new Date().toISOString(),
+        correlationId: input.correlationId ?? null,
+      });
+      const job = await queues[QUEUE_NAMES.scoringV2EvidenceExport].add(
+        QUEUE_NAMES.scoringV2EvidenceExport,
+        payload,
+        { jobId: payload.exportId },
+      );
+      return {
+        jobId: job.id ?? payload.exportId,
+        dedupeKey: payload.exportId,
         reused: false,
         enqueued: true,
       };

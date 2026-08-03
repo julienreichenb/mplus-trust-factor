@@ -656,13 +656,19 @@ export async function replayCalibrationBundleV2ActiveVersusDraft(input: {
 
 /** In-memory artifact resolver for fixtures/tests — no providers. */
 export function createMapArtifactResolverV2(
-  artifacts: Map<string, Uint8Array>,
+  artifacts: Map<string, Uint8Array> | Map<string, Buffer> | Map<string, Uint8Array | Buffer>,
 ): ArtifactResolverV2 {
   return {
     async resolve(contentHash: string) {
-      const bytes = artifacts.get(contentHash.toLowerCase()) ?? artifacts.get(contentHash);
+      const key = contentHash.toLowerCase();
+      const bytes = artifacts.get(key) ?? artifacts.get(contentHash);
       if (!bytes) return null;
-      return { bytes, contentHash: contentHash.toLowerCase() };
+      const computedHex = createHash("sha256").update(bytes).digest("hex");
+      // Refuse aliased / wrong-key lookups: map key must be the durable CAS digest.
+      if (key !== computedHex) {
+        return null;
+      }
+      return { bytes, contentHash: computedHex };
     },
   };
 }

@@ -5,6 +5,7 @@ import {
   analyzeRunJobSchema,
   bulkOrchestratorJobSchema,
   calibrationRunJobSchema,
+  scoringV2EvidenceExportJobSchema,
   discoverOwnedCharactersJobSchema,
   finalizeEvidenceBatchJobV2Schema,
   generateAddonExportJobSchema,
@@ -23,6 +24,7 @@ import { persistAndEnqueue } from "./orchestration/enqueue.js";
 import { runAnalyzeRun } from "./orchestration/analyze-run.js";
 import { runBulkCharacterProcessing } from "./orchestration/bulk-character-processing.js";
 import { runCalibrationRunJob } from "./orchestration/calibration-run.js";
+import { runScoringV2EvidenceExportJob } from "./orchestration/scoring-v2-evidence-export.js";
 import { runDiscoverOwnedCharacters } from "./orchestration/discover-owned-characters.js";
 import { runGenerateAddonExport } from "./orchestration/generate-addon-export.js";
 import { runRecalculateScore } from "./orchestration/recalculate-score.js";
@@ -191,12 +193,29 @@ export function createWorkers(connection: ConnectionOptions, container: WorkerCo
     QUEUE_NAMES.refreshCharacter,
     async (job) => {
       const payload = refreshCharacterJobSchema.parse(job.data);
-      const result = await withRetryClassification(job, () => runRefreshPipeline(container, payload));
+      const result = await withRetryClassification(job, () =>
+        runRefreshPipeline(container, payload, { queueName: QUEUE_NAMES.refreshCharacter }),
+      );
       return toBullmqReturnValue(result);
     },
-    // Stage 3: keep effective refresh concurrency at 1 (BullMQ default).
-    // Do not wire REFRESH_WORKER_CONCURRENCY until REFRESH_CONCURRENCY_ENABLED.
-    { connection, autorun: false },
+    // Dual-lane refresh: BullMQ claim concurrency is capped at REFRESH_LANE_WORKER_CLAIM_HARD_MAX.
+    // RuntimeSetting + Redis lane permits enforce concurrency_operation / concurrency_calibration.
+    // Do not wire REFRESH_WORKER_CONCURRENCY env until REFRESH_CONCURRENCY_ENABLED.
+    { connection, autorun: false, concurrency: 8 },
+  );
+
+  const refreshCalibration = new Worker(
+    QUEUE_NAMES.refreshCharacterCalibration,
+    async (job) => {
+      const payload = refreshCharacterJobSchema.parse(job.data);
+      const result = await withRetryClassification(job, () =>
+        runRefreshPipeline(container, payload, {
+          queueName: QUEUE_NAMES.refreshCharacterCalibration,
+        }),
+      );
+      return toBullmqReturnValue(result);
+    },
+    { connection, autorun: false, concurrency: 8 },
   );
 
   const analyze = new Worker(
@@ -277,6 +296,27 @@ export function createWorkers(connection: ConnectionOptions, container: WorkerCo
     { connection, autorun: false, concurrency: 1 },
   );
 
+  // Provider-free evidence export — no producers / no Blizzard/WCL/RaiderIO.
+  const evidenceExport = new Worker(
+    QUEUE_NAMES.scoringV2EvidenceExport,
+    async (job) => {
+      const payload = scoringV2EvidenceExportJobSchema.parse(job.data);
+      const result = await withRetryClassification(job, () =>
+        runScoringV2EvidenceExportJob(
+          {
+            prisma: container.prisma,
+            logger: container.logger,
+            artifacts: container.repositories.artifacts,
+            scoreTtlSeconds: container.env.SCORE_TTL_SECONDS,
+          },
+          payload,
+        ),
+      );
+      return toBullmqReturnValue(result);
+    },
+    { connection, autorun: false, concurrency: 1 },
+  );
+
   // Scoring V2 slot fan-out — bounded concurrency independent of job count.
   // Per-character fairness is enforced via batch generation + claim CAS, not unbounded WCL.
   const evidenceSlotFinalizeQueue = new Queue(QUEUE_NAMES.finalizeAnalysisBatch, { connection });
@@ -326,12 +366,14 @@ export function createWorkers(connection: ConnectionOptions, container: WorkerCo
 
   for (const worker of [
     refresh,
+    refreshCalibration,
     analyze,
     recalculate,
     addonExport,
     discover,
     bulk,
     calibration,
+    evidenceExport,
     evidenceSlot,
     evidenceFinalize,
   ]) {
@@ -360,12 +402,14 @@ export function createWorkers(connection: ConnectionOptions, container: WorkerCo
 
   return [
     refresh,
+    refreshCalibration,
     analyze,
     recalculate,
     addonExport,
     discover,
     bulk,
     calibration,
+    evidenceExport,
     evidenceSlot,
     evidenceFinalize,
   ];

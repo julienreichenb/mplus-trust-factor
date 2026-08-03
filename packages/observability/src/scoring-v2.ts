@@ -44,6 +44,15 @@ export type ScoringV2EventName =
   | typeof OBS_EVENTS.scoringV2CalibrationStarted
   | typeof OBS_EVENTS.scoringV2CalibrationCompleted
   | typeof OBS_EVENTS.scoringV2ReferenceSliceStateChanged
+  | typeof OBS_EVENTS.scoringV2AdminEvidenceExportRequested
+  | typeof OBS_EVENTS.scoringV2AdminEvidenceExportStarted
+  | typeof OBS_EVENTS.scoringV2AdminEvidenceExportCompleted
+  | typeof OBS_EVENTS.scoringV2AdminEvidenceExportFailed
+  | typeof OBS_EVENTS.scoringV2AdminBundleFrozen
+  | typeof OBS_EVENTS.scoringV2AdminConcurrencyUpdated
+  | typeof OBS_EVENTS.scoringV2ConcurrencyPermitAcquired
+  | typeof OBS_EVENTS.scoringV2ConcurrencyPermitReleased
+  | typeof OBS_EVENTS.scoringV2ConcurrencyLimitReached
   | typeof OBS_EVENTS.scoringV2FinalizationClaimReleased
   | typeof OBS_EVENTS.scoringV2FinalizationClaimLost
   | typeof OBS_EVENTS.scoringV2FinalizationReclaim;

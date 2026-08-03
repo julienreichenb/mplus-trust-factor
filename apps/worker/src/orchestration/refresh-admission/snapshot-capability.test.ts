@@ -430,14 +430,15 @@ describe("WCL admission snapshot capability & readiness", () => {
     expect(src).toContain("buildWclRateLimitFetchContext");
   });
 
-  it("14. refresh Worker concurrency remains exactly 1", () => {
+  it("14. refresh Worker claim concurrency uses lane hard-max with dual lanes", () => {
     const processorsPath = join(
       dirname(fileURLToPath(import.meta.url)),
       "../../processors.ts",
     );
     const src = readFileSync(processorsPath, "utf8");
-    expect(src).toMatch(/keep effective refresh concurrency at 1/);
-    expect(src).not.toMatch(/QUEUE_NAMES\.refreshCharacter[\s\S]{0,400}concurrency:\s*[2-9]/);
+    expect(src).toMatch(/lane permits enforce concurrency/);
+    expect(src).toContain("QUEUE_NAMES.refreshCharacterCalibration");
+    expect(src).toMatch(/QUEUE_NAMES\.refreshCharacter[\s\S]{0,500}concurrency:\s*8/);
   });
 
   it("15. admission still occurs before all character provider calls", () => {

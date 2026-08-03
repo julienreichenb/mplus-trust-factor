@@ -723,7 +723,9 @@ describe("PROFILE_ONLY / BOOTSTRAP_INCOMPLETE bounded repair", () => {
     expect(resolveCharacter.mock.calls[1]![1]).toMatchObject({
       forceRetry: true,
       correlationId: resolveCharacter.mock.calls[0]![1]!.correlationId,
+      workloadClass: "CALIBRATION",
     });
+    expect(resolveCharacter.mock.calls[0]![1]).toMatchObject({ workloadClass: "CALIBRATION" });
     expect(result.enqueuedJobIds).toEqual(["job-repair-queued"]);
     expect(result.failedIdentityKeys).toEqual([]);
     expect(result.overrides.get("EU/hyjal/zacdruid")?.resultState).toBe("ALREADY_ENQUEUED");
@@ -1244,8 +1246,9 @@ describe("CLI dry-run / execute guards", () => {
         throw new Error("dry-run must not resolve");
       });
 
-      const beforePublished = await db.characterPublishedScore.count();
-      const beforeJobs = await db.ingestionJob.count();
+      const beforeCalibrationJobs = await db.ingestionJob.count({
+        where: { workloadClass: "CALIBRATION" },
+      });
       const beforeModels = await db.scoreModel.count({ where: { status: "ACTIVE" } });
 
       const code = await cohortBootstrapMain(
@@ -1269,11 +1272,13 @@ describe("CLI dry-run / execute guards", () => {
       expect(code).toBe(0);
       expect(resolveCharacter).not.toHaveBeenCalled();
 
-      const afterPublished = await db.characterPublishedScore.count();
-      const afterJobs = await db.ingestionJob.count();
+      const afterCalibrationJobs = await db.ingestionJob.count({
+        where: { workloadClass: "CALIBRATION" },
+      });
       const afterModels = await db.scoreModel.count({ where: { status: "ACTIVE" } });
-      expect(afterPublished).toBe(beforePublished);
-      expect(afterJobs).toBe(beforeJobs);
+      // Scope to CALIBRATION lane / ACTIVE models — parallel OPERATION refresh tests
+      // share the isolated DB and mutate CharacterPublishedScore concurrently.
+      expect(afterCalibrationJobs).toBe(beforeCalibrationJobs);
       expect(afterModels).toBe(beforeModels);
 
       const plan = JSON.parse(readFileSync(join(out, "cohort-bootstrap.plan.json"), "utf8"));
@@ -1304,8 +1309,9 @@ describe("CLI dry-run / execute guards", () => {
 
       const out = mkdtempSync(join(tmpdir(), "cohort-bootstrap-a11-"));
       tmpDirs.push(out);
-      const beforeJobs = await db.ingestionJob.count();
-      const beforePublished = await db.characterPublishedScore.count();
+      const beforeCalibrationJobs = await db.ingestionJob.count({
+        where: { workloadClass: "CALIBRATION" },
+      });
 
       const code = await cohortBootstrapMain(
         [
@@ -1328,8 +1334,10 @@ describe("CLI dry-run / execute guards", () => {
         },
       );
       expect(code).toBe(0);
-      expect(await db.ingestionJob.count()).toBe(beforeJobs);
-      expect(await db.characterPublishedScore.count()).toBe(beforePublished);
+      expect(
+        await db.ingestionJob.count({ where: { workloadClass: "CALIBRATION" } }),
+      ).toBe(beforeCalibrationJobs);
+      // Do not assert global CharacterPublishedScore counts — parallel OPERATION tests publish.
 
       const summary = JSON.parse(readFileSync(join(out, "cohort-bootstrap.summary.json"), "utf8"));
       expect(summary.memberCount).toBe(41);
@@ -1384,7 +1392,9 @@ describe("CLI dry-run / execute guards", () => {
         "utf8",
       );
 
-      const beforePublished = await db.characterPublishedScore.count();
+      const beforePublished = await db.characterPublishedScore.count({
+        where: { characterId: "55555555-5555-5555-5555-555555555555" },
+      });
       const resolveCharacter = vi.fn(async () => ({
         statusCode: 202,
         body: {
@@ -1422,7 +1432,12 @@ describe("CLI dry-run / execute guards", () => {
       expect(resolveCharacter).toHaveBeenCalledTimes(1);
       const manifest = JSON.parse(readFileSync(join(out, "cohort-bootstrap.manifest.json"), "utf8"));
       expect(manifest.identities[0].jobIds).toEqual(["aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"]);
-      expect(await db.characterPublishedScore.count()).toBe(beforePublished);
+      // Character-scoped: global published-score counts race other parallel DB tests.
+      expect(
+        await db.characterPublishedScore.count({
+          where: { characterId: "55555555-5555-5555-5555-555555555555" },
+        }),
+      ).toBe(beforePublished);
 
       // Resume with TERMINAL_SUCCESS is skipped without re-resolve.
       // (ALREADY_ENQUEUED resumes re-check live DB — covered in planner unit tests.)

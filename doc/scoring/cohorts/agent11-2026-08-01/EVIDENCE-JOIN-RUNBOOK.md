@@ -1,5 +1,22 @@
 # Agent 11 — server-side read-only evidence join runbook
 
+## Canonical workflow (prefer this)
+
+The **Scoring V2 Control Center** admin UI (`/admin/scoring-v2` → Evidence tab) is the
+**canonical** evidence preflight / archive / Calibration Input Bundle V2 freeze path.
+
+- Admin APIs under `/api/v1/admin/scoring-v2/evidence-exports*`
+- Shared join implementation: `apps/worker/src/orchestration/scoring-v2/evidence-join.ts`
+- Provider-free; no refresh enqueue; no model activation; no score publication
+
+## CLI status (emergency / debug only)
+
+`pnpm calibration:evidence-join` remains available as an **emergency/debug-only** thin adapter
+for VPS read-only joins when the admin UI/API cannot be used. Prefer the admin workflow for
+all normal operations. Do not treat the CLI as the product path.
+
+---
+
 Run on the **test VPS** only. Do not copy `DATABASE_URL` to a developer laptop.
 Do not expose PostgreSQL publicly. Do not commit credentials.
 

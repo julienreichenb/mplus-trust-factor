@@ -3,7 +3,6 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { createHash } from "node:crypto";
 import { EVIDENCE_SELECTOR_VERSION } from "@mplus/contracts";
 import {
   createDefaultScoringV2DimensionConfigSet,
@@ -29,6 +28,7 @@ import {
   exportUtilityV2Calibration,
   createManualDifficultyPolicyV2,
   buildCalibrationInputBundleV2,
+  buildCalibrationContentRefV2,
   createMapArtifactResolverV2,
   replayCalibrationBundleV2ActiveVersusDraft,
   freezeDimensionModelConfigsV2,
@@ -312,9 +312,21 @@ describe("active-versus-draft safety", () => {
         }),
       ],
     });
-    const utilHash = createHash("sha256").update(JSON.stringify(utilExport)).digest("hex");
-    const manifestHash = createHash("sha256").update("{}").digest("hex");
-    const factHash = createHash("sha256").update("f").digest("hex");
+    const utilBytes = Buffer.from(JSON.stringify(utilExport));
+    const manifestBytes = Buffer.from("{}");
+    const factBytes = Buffer.from("{}");
+    const utilRef = buildCalibrationContentRefV2({
+      bytes: utilBytes,
+      artifactClass: "dimension_replay_export",
+    });
+    const manifestRef = buildCalibrationContentRefV2({
+      bytes: manifestBytes,
+      artifactClass: "evidence_manifest",
+    });
+    const factRef = buildCalibrationContentRefV2({
+      bytes: factBytes,
+      artifactClass: "run_fact_set",
+    });
     const bundle = buildCalibrationInputBundleV2({
       generatedAt: "2026-08-01T12:00:00.000Z",
       evidenceCutoffAt: "2026-08-01T00:00:00.000Z",
@@ -377,16 +389,10 @@ describe("active-versus-draft safety", () => {
           included: true,
           exclusionCode: null,
           evidenceCutoffAt: null,
-          manifest: {
-            contentHash: manifestHash,
-            artifactClass: "evidence_manifest",
-          },
-          factSets: [{ contentHash: factHash, artifactClass: "run_fact_set" }],
+          manifest: manifestRef,
+          factSets: [factRef],
           dimensionExports: {
-            UTILITY: {
-              contentHash: utilHash,
-              artifactClass: "dimension_replay_export",
-            },
+            UTILITY: utilRef,
           },
         },
       ],
@@ -398,9 +404,9 @@ describe("active-versus-draft safety", () => {
         bundle,
         resolver: createMapArtifactResolverV2(
           new Map([
-            [manifestHash, Buffer.from("{}")],
-            [factHash, Buffer.from("{}")],
-            [utilHash, Buffer.from(JSON.stringify(utilExport))],
+            [manifestRef.contentHash, manifestBytes],
+            [factRef.contentHash, factBytes],
+            [utilRef.contentHash, utilBytes],
           ]),
         ),
       }),
@@ -589,28 +595,43 @@ describe("strict replay-boundary re-parse", () => {
         }),
       ],
     });
-    const utilHash = createHash("sha256").update(JSON.stringify(utilExport)).digest("hex");
-    const manifestHash = createHash("sha256").update("{}").digest("hex");
-    const factHash = createHash("sha256").update("f").digest("hex");
+    const utilBytes = Buffer.from(JSON.stringify(utilExport));
+    const manifestBytes = Buffer.from("{}");
+    const factBytes = Buffer.from("{}");
+    const utilRef = buildCalibrationContentRefV2({
+      bytes: utilBytes,
+      artifactClass: "dimension_replay_export",
+    });
+    const manifestRef = buildCalibrationContentRefV2({
+      bytes: manifestBytes,
+      artifactClass: "evidence_manifest",
+    });
+    const factRef = buildCalibrationContentRefV2({
+      bytes: factBytes,
+      artifactClass: "run_fact_set",
+    });
     return {
-      utilHash,
-      manifestHash,
-      factHash,
+      utilHash: utilRef.contentHash,
+      manifestHash: manifestRef.contentHash,
+      factHash: factRef.contentHash,
+      utilRef,
+      manifestRef,
+      factRef,
       resolver: createMapArtifactResolverV2(
         new Map([
-          [manifestHash, Buffer.from("{}")],
-          [factHash, Buffer.from("{}")],
-          [utilHash, Buffer.from(JSON.stringify(utilExport))],
+          [manifestRef.contentHash, manifestBytes],
+          [factRef.contentHash, factBytes],
+          [utilRef.contentHash, utilBytes],
         ]),
       ),
     };
   }
 
-  function baseBundle(activeConfig: unknown, draftConfig: unknown, hashes: {
-    utilHash: string;
-    manifestHash: string;
-    factHash: string;
-  }) {
+  function baseBundle(
+    activeConfig: unknown,
+    draftConfig: unknown,
+    hashes: ReturnType<typeof utilArtifacts>,
+  ) {
     return buildCalibrationInputBundleV2({
       generatedAt: "2026-08-01T12:00:00.000Z",
       evidenceCutoffAt: "2026-08-01T00:00:00.000Z",
@@ -678,16 +699,10 @@ describe("strict replay-boundary re-parse", () => {
           included: true,
           exclusionCode: null,
           evidenceCutoffAt: null,
-          manifest: {
-            contentHash: hashes.manifestHash,
-            artifactClass: "evidence_manifest",
-          },
-          factSets: [{ contentHash: hashes.factHash, artifactClass: "run_fact_set" }],
+          manifest: hashes.manifestRef,
+          factSets: [hashes.factRef],
           dimensionExports: {
-            UTILITY: {
-              contentHash: hashes.utilHash,
-              artifactClass: "dimension_replay_export",
-            },
+            UTILITY: hashes.utilRef,
           },
         },
       ],

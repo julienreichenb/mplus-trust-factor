@@ -89,6 +89,11 @@ export {
   buildFrozenRunIdentityKey,
   extractSelectedFrozenRunIdentities,
   collectDuplicateFrozenIdentityIssues,
+  computeArtifactSha256Hex,
+  formatArtifactByteDigest,
+  parseArtifactByteDigest,
+  buildCalibrationContentRefV2,
+  type ArtifactDigestAlgorithmV2,
   type CalibrationArtifactClassV2,
   type CalibrationContentRefV2,
   type FrozenSeasonBindingV2,
@@ -181,3 +186,19 @@ export {
   type CalibrationDigestV1,
   type DigestFinding,
 } from "./digest.js";
+
+export {
+  FREEZE_SNAPSHOT_SCHEMA_VERSION,
+  buildDefaultFreezePolicies,
+  buildFreezeSnapshot,
+  computeFreezeSnapshotContentHash,
+  parseAndVerifyFreezeSnapshot,
+  freezeSnapshotModelToCalibrationRef,
+  type FreezeSnapshotV1,
+  type FreezeSnapshotMemberV1,
+  type FreezeSnapshotMemberEvidenceV2,
+  type FreezeSnapshotContentRefV2,
+  type FreezeSnapshotModelV1,
+  type FreezeSnapshotParseErrorCode,
+  type FreezeSnapshotParseResult,
+} from "./freeze-snapshot.js";

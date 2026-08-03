@@ -1,9 +1,10 @@
-import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import {
+  buildCalibrationContentRefV2,
   buildCalibrationInputBundle,
   buildCalibrationInputBundleV2,
   buildSyntheticFixtureBundle,
+  computeArtifactSha256Hex,
   createMapArtifactResolverV2,
   dispatchValidateCalibrationBundle,
   preflightCalibrationBundleV2,
@@ -27,8 +28,14 @@ import {
 import { createDefaultModelV6 } from "../model/defaults.js";
 import { EVIDENCE_SELECTOR_VERSION } from "@mplus/contracts";
 
-function sha256Json(value: unknown): string {
-  return createHash("sha256").update(JSON.stringify(value)).digest("hex");
+function storeJson(
+  artifacts: Map<string, Uint8Array>,
+  value: unknown,
+): string {
+  const bytes = Buffer.from(JSON.stringify(value), "utf8");
+  const hex = computeArtifactSha256Hex(bytes);
+  artifacts.set(hex, bytes);
+  return hex;
 }
 
 function fixtureV2Bundle(overrides: Partial<CalibrationInputBundleV2> = {}): CalibrationInputBundleV2 {
@@ -63,9 +70,24 @@ function fixtureV2Bundle(overrides: Partial<CalibrationInputBundleV2> = {}): Cal
     ],
   };
   const utilExport = exportUtilityV2Calibration(utilInput);
-  const utilExportHash = sha256Json(utilExport);
-  const manifestHash = sha256Json({ schemaVersion: "2.0.0", contentHash: "manifest-doc" });
-  const factHash = sha256Json({ kind: "fixture-fact" });
+  const manifestDoc = { schemaVersion: "2.0.0", contentHash: "a".repeat(64) };
+  const factDoc = { kind: "fixture-fact" };
+  const manifestRef = buildCalibrationContentRefV2({
+    bytes: Buffer.from(JSON.stringify(manifestDoc), "utf8"),
+    artifactClass: "evidence_manifest",
+    logicalContentHash: "a".repeat(64),
+    schemaVersion: "2.0.0",
+  });
+  const factRef = buildCalibrationContentRefV2({
+    bytes: Buffer.from(JSON.stringify(factDoc), "utf8"),
+    artifactClass: "run_fact_set",
+    schemaVersion: "utility-v2-facts",
+  });
+  const utilRef = buildCalibrationContentRefV2({
+    bytes: Buffer.from(JSON.stringify(utilExport), "utf8"),
+    artifactClass: "dimension_replay_export",
+    schemaVersion: "utility-v2-facts",
+  });
 
   const scoringV2 = createDefaultScoringV2DimensionConfigSet();
   const modelConfig = withScoringV2DimensionConfigs(createDefaultModelV6(), scoringV2);
@@ -132,30 +154,54 @@ function fixtureV2Bundle(overrides: Partial<CalibrationInputBundleV2> = {}): Cal
         included: true,
         exclusionCode: null,
         evidenceCutoffAt: "2026-08-01T00:00:00.000Z",
-        manifest: {
-          contentHash: manifestHash,
-          artifactClass: "evidence_manifest",
-          schemaVersion: "2.0.0",
-        },
-        factSets: [
-          {
-            contentHash: factHash,
-            artifactClass: "run_fact_set",
-            schemaVersion: "utility-v2-facts",
-          },
-        ],
+        manifest: manifestRef,
+        factSets: [factRef],
         dimensionExports: {
-          UTILITY: {
-            contentHash: utilExportHash,
-            artifactClass: "dimension_replay_export",
-            schemaVersion: "utility-v2-facts",
-          },
+          UTILITY: utilRef,
         },
       },
     ],
     artifactPackage: null,
     ...overrides,
   });
+}
+
+function fixtureArtifacts(): Map<string, Uint8Array> {
+  const artifacts = new Map<string, Uint8Array>();
+  const identity = { reportCode: "R1", fightId: 1, reportRevision: 1 };
+  const utilExport = exportUtilityV2Calibration({
+    manifest: {
+      contentHash: "util-manifest",
+      schemaVersion: "2.0.0",
+      selectorVersion: EVIDENCE_SELECTOR_VERSION,
+      expectedSlotCount: 1,
+      selectedSlotCount: 1,
+      activeDungeonSlugs: ["ara-kara"],
+      slots: [
+        {
+          slotId: "slot-a",
+          dungeonSlug: "ara-kara",
+          slotIndex: 0,
+          state: "SELECTED",
+          identity,
+        },
+      ],
+    },
+    factSets: [
+      emptyUtilityV2FactSet({
+        slotId: "slot-a",
+        runId: "R1:1",
+        dungeonSlug: "ara-kara",
+        reportCode: identity.reportCode,
+        fightId: identity.fightId,
+        reportRevision: identity.reportRevision,
+      }),
+    ],
+  });
+  storeJson(artifacts, { schemaVersion: "2.0.0", contentHash: "a".repeat(64) });
+  storeJson(artifacts, { kind: "fixture-fact" });
+  storeJson(artifacts, utilExport);
+  return artifacts;
 }
 
 describe("Calibration Bundle V2", () => {
@@ -229,88 +275,18 @@ describe("Calibration Bundle V2", () => {
     expect(blocked.ok).toBe(false);
     expect(blocked.blocking.some((b) => b.code === "MISSING_ARTIFACT")).toBe(true);
 
-    const identity = { reportCode: "R1", fightId: 1, reportRevision: 1 };
-    const utilExport = exportUtilityV2Calibration({
-      manifest: {
-        contentHash: "util-manifest",
-        schemaVersion: "2.0.0",
-        selectorVersion: EVIDENCE_SELECTOR_VERSION,
-        expectedSlotCount: 1,
-        selectedSlotCount: 1,
-        activeDungeonSlugs: ["ara-kara"],
-        slots: [
-          {
-            slotId: "slot-a",
-            dungeonSlug: "ara-kara",
-            slotIndex: 0,
-            state: "SELECTED",
-            identity,
-          },
-        ],
-      },
-      factSets: [
-        emptyUtilityV2FactSet({
-          slotId: "slot-a",
-          runId: "R1:1",
-          dungeonSlug: "ara-kara",
-          reportCode: identity.reportCode,
-          fightId: identity.fightId,
-          reportRevision: identity.reportRevision,
-        }),
-      ],
-    });
-    const artifacts = new Map<string, Uint8Array>([
-      [bundle.members[0]!.manifest.contentHash, Buffer.from("{}")],
-      [bundle.members[0]!.factSets[0]!.contentHash, Buffer.from("{}")],
-      [bundle.members[0]!.dimensionExports!.UTILITY!.contentHash, Buffer.from(JSON.stringify(utilExport))],
-    ]);
+    const artifacts = fixtureArtifacts();
     const ok = await preflightCalibrationBundleV2({
       bundle,
       resolver: createMapArtifactResolverV2(artifacts),
+      requireByteIntegrity: true,
     });
     expect(ok.ok).toBe(true);
   });
 
   it("replays provider-free with deterministic export replay; active/draft model eval fails closed", async () => {
     const bundle = fixtureV2Bundle();
-    const identity = { reportCode: "R1", fightId: 1, reportRevision: 1 };
-    const utilExport = exportUtilityV2Calibration({
-      manifest: {
-        contentHash: "util-manifest",
-        schemaVersion: "2.0.0",
-        selectorVersion: EVIDENCE_SELECTOR_VERSION,
-        expectedSlotCount: 1,
-        selectedSlotCount: 1,
-        activeDungeonSlugs: ["ara-kara"],
-        slots: [
-          {
-            slotId: "slot-a",
-            dungeonSlug: "ara-kara",
-            slotIndex: 0,
-            state: "SELECTED",
-            identity,
-          },
-        ],
-      },
-      factSets: [
-        emptyUtilityV2FactSet({
-          slotId: "slot-a",
-          runId: "R1:1",
-          dungeonSlug: "ara-kara",
-          reportCode: identity.reportCode,
-          fightId: identity.fightId,
-          reportRevision: identity.reportRevision,
-        }),
-      ],
-    });
-    const artifacts = new Map<string, Uint8Array>([
-      [bundle.members[0]!.manifest.contentHash, Buffer.from("{}")],
-      [bundle.members[0]!.factSets[0]!.contentHash, Buffer.from("{}")],
-      [
-        bundle.members[0]!.dimensionExports!.UTILITY!.contentHash,
-        Buffer.from(JSON.stringify(utilExport)),
-      ],
-    ]);
+    const artifacts = fixtureArtifacts();
     const resolver = createMapArtifactResolverV2(artifacts);
 
     const a = await replayCalibrationBundleV2({ bundle, resolver, modelSide: "evaluation" });
@@ -365,46 +341,7 @@ describe("Calibration Bundle V2", () => {
         isActive: false,
       },
     });
-    const utilExportHash = base.members[0]!.dimensionExports!.UTILITY!.contentHash;
-    const artifacts = new Map<string, Uint8Array>([
-      [rebuilt.members[0]!.manifest.contentHash, Buffer.from("{}")],
-      [rebuilt.members[0]!.factSets[0]!.contentHash, Buffer.from("{}")],
-      [
-        utilExportHash,
-        Buffer.from(
-          JSON.stringify(
-            exportUtilityV2Calibration({
-              manifest: {
-                contentHash: "util-manifest",
-                schemaVersion: "2.0.0",
-                expectedSlotCount: 1,
-                selectedSlotCount: 1,
-                activeDungeonSlugs: ["ara-kara"],
-                slots: [
-                  {
-                    slotId: "slot-a",
-                    dungeonSlug: "ara-kara",
-                    slotIndex: 0 as const,
-                    state: "SELECTED",
-                    identity: { reportCode: "R1", fightId: 1, reportRevision: 1 },
-                  },
-                ],
-              },
-              factSets: [
-                emptyUtilityV2FactSet({
-                  slotId: "slot-a",
-                  runId: "R1:1",
-                  dungeonSlug: "ara-kara",
-                  reportCode: "R1",
-                  fightId: 1,
-                  reportRevision: 1,
-                }),
-              ],
-            }),
-          ),
-        ),
-      ],
-    ]);
+    const artifacts = fixtureArtifacts();
     const report = await replayCalibrationBundleV2ActiveVersusDraft({
       bundle: rebuilt,
       resolver: createMapArtifactResolverV2(artifacts),
@@ -426,11 +363,7 @@ describe("Calibration Bundle V2", () => {
         isActive: true,
       },
     };
-    const artifacts = new Map<string, Uint8Array>([
-      [bundle.members[0]!.manifest.contentHash, Buffer.from("{}")],
-      [bundle.members[0]!.factSets[0]!.contentHash, Buffer.from("{}")],
-      [bundle.members[0]!.dimensionExports!.UTILITY!.contentHash, Buffer.from("{}")],
-    ]);
+    const artifacts = fixtureArtifacts();
     await expect(
       replayCalibrationBundleV2({
         bundle: bad,
@@ -473,7 +406,11 @@ describe("Calibration Bundle V2", () => {
         },
       ],
     };
-    const manifestHash = sha256Json(manifestDoc);
+    const manifestRef = buildCalibrationContentRefV2({
+      bytes: Buffer.from(JSON.stringify(manifestDoc), "utf8"),
+      artifactClass: "evidence_manifest",
+      schemaVersion: "2.0.0",
+    });
     const base = fixtureV2Bundle();
     const bundle = buildCalibrationInputBundleV2({
       ...base,
@@ -483,44 +420,21 @@ describe("Calibration Bundle V2", () => {
           ...base.members[0]!,
           memberId: "m1",
           characterId: "char-1",
-          manifest: {
-            contentHash: manifestHash,
-            artifactClass: "evidence_manifest",
-            schemaVersion: "2.0.0",
-          },
+          manifest: manifestRef,
         },
         {
           ...base.members[0]!,
           memberId: "m2",
           characterId: "char-2",
-          manifest: {
-            contentHash: manifestHash,
-            artifactClass: "evidence_manifest",
-            schemaVersion: "2.0.0",
-          },
+          manifest: manifestRef,
           dimensionExports: {},
           factSets: base.members[0]!.factSets,
         },
       ],
     });
 
-    const artifacts = new Map<string, Uint8Array>([
-      [manifestHash, Buffer.from(JSON.stringify(manifestDoc))],
-      [bundle.members[0]!.factSets[0]!.contentHash, Buffer.from("{}")],
-      [
-        bundle.members[0]!.dimensionExports!.UTILITY!.contentHash,
-        Buffer.from("{}"),
-      ],
-    ]);
-    // second member may share fact hash
-    for (const m of bundle.members) {
-      for (const fs of m.factSets) {
-        artifacts.set(fs.contentHash, Buffer.from("{}"));
-      }
-      for (const ref of Object.values(m.dimensionExports ?? {})) {
-        if (ref) artifacts.set(ref.contentHash, Buffer.from("{}"));
-      }
-    }
+    const artifacts = fixtureArtifacts();
+    artifacts.set(manifestRef.contentHash, Buffer.from(JSON.stringify(manifestDoc), "utf8"));
 
     const preflight = await preflightCalibrationBundleV2({
       bundle,
@@ -554,8 +468,14 @@ describe("Calibration Bundle V2", () => {
         },
       ],
     };
-    const hashA = sha256Json(docA);
-    const hashB = sha256Json(docB);
+    const refA = buildCalibrationContentRefV2({
+      bytes: Buffer.from(JSON.stringify(docA), "utf8"),
+      artifactClass: "evidence_manifest",
+    });
+    const refB = buildCalibrationContentRefV2({
+      bytes: Buffer.from(JSON.stringify(docB), "utf8"),
+      artifactClass: "evidence_manifest",
+    });
     const base = fixtureV2Bundle();
     const bundle = buildCalibrationInputBundleV2({
       ...base,
@@ -565,27 +485,20 @@ describe("Calibration Bundle V2", () => {
           ...base.members[0]!,
           memberId: "m1",
           characterId: "char-1",
-          manifest: { contentHash: hashA, artifactClass: "evidence_manifest" },
+          manifest: refA,
         },
         {
           ...base.members[0]!,
           memberId: "m2",
           characterId: "char-2",
-          manifest: { contentHash: hashB, artifactClass: "evidence_manifest" },
+          manifest: refB,
           dimensionExports: {},
         },
       ],
     });
-    const artifacts = new Map<string, Uint8Array>([
-      [hashA, Buffer.from(JSON.stringify(docA))],
-      [hashB, Buffer.from(JSON.stringify(docB))],
-    ]);
-    for (const m of bundle.members) {
-      for (const fs of m.factSets) artifacts.set(fs.contentHash, Buffer.from("{}"));
-      for (const ref of Object.values(m.dimensionExports ?? {})) {
-        if (ref) artifacts.set(ref.contentHash, Buffer.from("{}"));
-      }
-    }
+    const artifacts = fixtureArtifacts();
+    artifacts.set(refA.contentHash, Buffer.from(JSON.stringify(docA), "utf8"));
+    artifacts.set(refB.contentHash, Buffer.from(JSON.stringify(docB), "utf8"));
     const preflight = await preflightCalibrationBundleV2({
       bundle,
       resolver: createMapArtifactResolverV2(artifacts),
@@ -604,7 +517,10 @@ describe("Calibration Bundle V2", () => {
         { slotId: "b:0", slotIndex: 0, state: "SELECTED", identity },
       ],
     };
-    const hash = sha256Json(doc);
+    const manifestRef = buildCalibrationContentRefV2({
+      bytes: Buffer.from(JSON.stringify(doc), "utf8"),
+      artifactClass: "evidence_manifest",
+    });
     const base = fixtureV2Bundle();
     const bundle = buildCalibrationInputBundleV2({
       ...base,
@@ -612,17 +528,12 @@ describe("Calibration Bundle V2", () => {
       members: [
         {
           ...base.members[0]!,
-          manifest: { contentHash: hash, artifactClass: "evidence_manifest" },
+          manifest: manifestRef,
         },
       ],
     });
-    const artifacts = new Map<string, Uint8Array>([[hash, Buffer.from(JSON.stringify(doc))]]);
-    for (const fs of bundle.members[0]!.factSets) {
-      artifacts.set(fs.contentHash, Buffer.from("{}"));
-    }
-    for (const ref of Object.values(bundle.members[0]!.dimensionExports ?? {})) {
-      if (ref) artifacts.set(ref.contentHash, Buffer.from("{}"));
-    }
+    const artifacts = fixtureArtifacts();
+    artifacts.set(manifestRef.contentHash, Buffer.from(JSON.stringify(doc), "utf8"));
     const preflight = await preflightCalibrationBundleV2({
       bundle,
       resolver: createMapArtifactResolverV2(artifacts),
@@ -641,7 +552,10 @@ describe("Calibration Bundle V2", () => {
     const doc = {
       slots: [{ slotId: "a:0", slotIndex: 0, state: "SELECTED", identity }],
     };
-    const hash = sha256Json(doc);
+    const manifestRef = buildCalibrationContentRefV2({
+      bytes: Buffer.from(JSON.stringify(doc), "utf8"),
+      artifactClass: "evidence_manifest",
+    });
     const base = fixtureV2Bundle();
     const bundle = buildCalibrationInputBundleV2({
       ...base,
@@ -652,7 +566,7 @@ describe("Calibration Bundle V2", () => {
           memberId: "m1",
           characterId: "char-1",
           included: true,
-          manifest: { contentHash: hash, artifactClass: "evidence_manifest" },
+          manifest: manifestRef,
         },
         {
           ...base.members[0]!,
@@ -660,18 +574,13 @@ describe("Calibration Bundle V2", () => {
           characterId: "char-2",
           included: false,
           exclusionCode: "manual",
-          manifest: { contentHash: hash, artifactClass: "evidence_manifest" },
+          manifest: manifestRef,
           dimensionExports: {},
         },
       ],
     });
-    const artifacts = new Map<string, Uint8Array>([[hash, Buffer.from(JSON.stringify(doc))]]);
-    for (const m of bundle.members) {
-      for (const fs of m.factSets) artifacts.set(fs.contentHash, Buffer.from("{}"));
-      for (const ref of Object.values(m.dimensionExports ?? {})) {
-        if (ref) artifacts.set(ref.contentHash, Buffer.from("{}"));
-      }
-    }
+    const artifacts = fixtureArtifacts();
+    artifacts.set(manifestRef.contentHash, Buffer.from(JSON.stringify(doc), "utf8"));
     const preflight = await preflightCalibrationBundleV2({
       bundle,
       resolver: createMapArtifactResolverV2(artifacts),
