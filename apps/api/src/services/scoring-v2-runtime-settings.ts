@@ -132,7 +132,7 @@ export async function updateConcurrencySettings(
     });
     const currentVersion = Math.max(...rows.map((r) => r.version), 1);
     if (currentVersion !== parsed.expectedVersion) {
-      throw new HttpError(409, "CONCURRENCY_VERSION_CONFLICT", "Concurrency settings were updated elsewhere");
+      throw HttpError.conflict("CONCURRENCY_VERSION_CONFLICT", "Concurrency settings were updated elsewhere");
     }
     const nextVersion = currentVersion + 1;
     if (parsed.concurrencyCalibration != null) {
@@ -140,7 +140,7 @@ export async function updateConcurrencySettings(
         parsed.concurrencyCalibration < CONCURRENCY_MIN ||
         parsed.concurrencyCalibration > CONCURRENCY_MAX
       ) {
-        throw new HttpError(400, "CONCURRENCY_OUT_OF_RANGE", "concurrency_calibration out of range");
+        throw HttpError.badRequest("CONCURRENCY_OUT_OF_RANGE", "concurrency_calibration out of range");
       }
       await tx.runtimeSetting.update({
         where: { key: RUNTIME_SETTING_KEYS.concurrencyCalibration },

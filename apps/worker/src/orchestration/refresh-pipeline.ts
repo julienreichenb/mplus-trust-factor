@@ -735,7 +735,7 @@ export async function runRefreshPipeline(
   }
 
   const workloadClass: RefreshWorkloadClass =
-    (payload.workloadClass as RefreshWorkloadClass | undefined) ??
+    (jobPayload.workloadClass as RefreshWorkloadClass | undefined) ??
     (job.workloadClass as RefreshWorkloadClass | undefined) ??
     "OPERATION";
 

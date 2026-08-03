@@ -7,7 +7,7 @@ import {
   type ScoringV2EvidenceExportJob,
 } from "@mplus/contracts";
 import { OBS_EVENTS, emitScoringV2Event, type Logger } from "@mplus/observability";
-import type { PrismaClient } from "@mplus/database";
+import type { PrismaClient, Prisma } from "@mplus/database";
 import type { ArtifactRepository } from "@mplus/database";
 import {
   buildEvidenceJoinMarkdown,
@@ -102,7 +102,7 @@ export async function runScoringV2EvidenceExportJob(
         cohortName: join.cohortName,
         seasonBinding: join.seasonBinding,
         counts: join.counts,
-        progress: join.progress,
+        progress: join.progress as unknown as Prisma.InputJsonValue,
         issues: join.issues,
         blockerCount: join.blockerCount,
         warningCount: join.warningCount,
@@ -153,7 +153,7 @@ export async function runScoringV2EvidenceExportJob(
       data: {
         status: "COMPLETED",
         completedAt: new Date(),
-        progress: join.progress,
+        progress: join.progress as unknown as Prisma.InputJsonValue,
         summary: {
           schemaVersion: join.schemaVersion,
           generatedAt: join.generatedAt,

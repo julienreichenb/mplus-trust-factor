@@ -8,6 +8,7 @@ import type {
   ScoringV2EvidenceExportListDTO,
   ScoringV2EvidenceExportProgressDTO,
   ScoringV2FrozenBundleDTO,
+  ScoringV2HistoryItemDTO,
   ScoringV2HistoryListDTO,
   ScoringV2IssueDTO,
 } from "@mplus/contracts";
@@ -16,6 +17,7 @@ import {
   createEvidenceExportBodySchema as bodySchema,
   freezeEvidenceBundleBodySchema,
 } from "@mplus/contracts";
+import type { Prisma } from "@mplus/database";
 import { OBS_EVENTS, emitScoringV2Event } from "@mplus/observability";
 import { createHash } from "node:crypto";
 import type { ApiContainer } from "../container.js";
@@ -130,12 +132,11 @@ export class ScoringV2EvidenceExportService {
       where: { id: parsed.cohortId },
       select: { id: true, name: true, revision: true, seasonId: true, status: true },
     });
-    if (!cohort) throw new HttpError(404, "COHORT_NOT_FOUND", "Calibration cohort not found");
+    if (!cohort) throw HttpError.notFound("COHORT_NOT_FOUND", "Calibration cohort not found");
 
     const cohortRevision = parsed.cohortRevision ?? cohort.revision;
     if (parsed.cohortRevision != null && parsed.cohortRevision !== cohort.revision) {
-      throw new HttpError(
-        409,
+      throw HttpError.conflict(
         "COHORT_REVISION_MISMATCH",
         `Requested revision ${parsed.cohortRevision} does not match current immutable revision ${cohort.revision}`,
       );
@@ -149,7 +150,7 @@ export class ScoringV2EvidenceExportService {
         seasonId,
         status: "QUEUED",
         requestedByUserId,
-        progress: EMPTY_PROGRESS,
+        progress: EMPTY_PROGRESS as unknown as Prisma.InputJsonValue,
         summary: {},
       },
       include: { cohort: { select: { name: true } } },
@@ -228,7 +229,7 @@ export class ScoringV2EvidenceExportService {
       where: { id: exportId },
       include: { cohort: { select: { name: true } } },
     });
-    if (!row) throw new HttpError(404, "EXPORT_NOT_FOUND", "Evidence export not found");
+    if (!row) throw HttpError.notFound("EXPORT_NOT_FOUND", "Evidence export not found");
     return mapExport(row);
   }
 
@@ -237,12 +238,12 @@ export class ScoringV2EvidenceExportService {
       where: { id: exportId },
     });
     if (!row?.archiveContentHash || !row.archiveStorageUri) {
-      throw new HttpError(404, "ARCHIVE_NOT_READY", "Export archive is not available");
+      throw HttpError.notFound("ARCHIVE_NOT_READY", "Export archive is not available");
     }
     const artifact = await this.container.worker.prisma.rawArtifact.findUnique({
       where: { contentHash: row.archiveContentHash },
     });
-    if (!artifact) throw new HttpError(404, "ARCHIVE_MISSING", "Archive artifact missing");
+    if (!artifact) throw HttpError.notFound("ARCHIVE_MISSING", "Archive artifact missing");
     const bytes = await this.container.worker.repositories.artifacts.readVerified(artifact.id);
     return {
       bytes,
@@ -263,13 +264,13 @@ export class ScoringV2EvidenceExportService {
         cohort: { include: { members: true, season: true } },
       },
     });
-    if (!row) throw new HttpError(404, "EXPORT_NOT_FOUND", "Evidence export not found");
+    if (!row) throw HttpError.notFound("EXPORT_NOT_FOUND", "Evidence export not found");
     const mapped = mapExport(row);
     if (row.status !== "COMPLETED") {
-      throw new HttpError(409, "EXPORT_NOT_COMPLETED", "Export must complete before freeze");
+      throw HttpError.conflict("EXPORT_NOT_COMPLETED", "Export must complete before freeze");
     }
     if (!mapped.freezeEligible || row.blockerCount > 0) {
-      throw new HttpError(409, "FREEZE_BLOCKED", "Export has blockers and cannot be frozen");
+      throw HttpError.conflict("FREEZE_BLOCKED", "Export has blockers and cannot be frozen");
     }
     if (row.frozenBundleContentHash && row.frozenBundleStorageUri) {
       return {
@@ -387,10 +388,10 @@ export class ScoringV2EvidenceExportService {
         warningCount: row.warningCount,
         linkedCalibrationRunId: null as string | null,
       };
-      const out = [
+      const out: ScoringV2HistoryItemDTO[] = [
         {
           ...base,
-          kind: "evidence_export" as const,
+          kind: "evidence_export",
           rootHash: row.archiveContentHash,
           downloadAvailable: Boolean(row.archiveContentHash),
         },
@@ -399,7 +400,7 @@ export class ScoringV2EvidenceExportService {
         out.push({
           ...base,
           id: `${row.id}:bundle`,
-          kind: "frozen_bundle" as const,
+          kind: "frozen_bundle",
           rootHash: row.frozenBundleContentHash,
           downloadAvailable: Boolean(row.archiveContentHash),
           createdAt: row.frozenAt?.toISOString() ?? row.createdAt.toISOString(),
