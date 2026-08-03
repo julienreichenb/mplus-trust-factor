@@ -146,13 +146,39 @@ export function createProviderBackedEvidenceTransport(
     },
 
     async getRankingParse(input): Promise<ScoringV2RankingParseResult> {
-      // RANKING_PARSE is not yet a first-class WarcraftLogsProvider method.
-      // Acquisition records UNAVAILABLE rather than inventing an unplanned fetch.
-      void input;
+      const wcl = container.providers.warcraftlogs as {
+        getRankingParseForFight?: (args: {
+          reportCode: string;
+          fightId: number;
+          reportRevision: number;
+          dungeonSlug: string;
+          keyLevel: number | null;
+          ctx: ProviderFetchContext;
+        }) => Promise<{
+          evidence: ScoringV2RankingParseResult["evidence"];
+          providerCalls: number;
+          unavailableReason: string | null;
+        }>;
+      };
+      if (typeof wcl.getRankingParseForFight !== "function") {
+        return {
+          evidence: null,
+          providerCalls: 0,
+          unavailableReason: "ranking_parse_provider_capability_absent",
+        };
+      }
+      const result = await wcl.getRankingParseForFight({
+        reportCode: input.reportCode,
+        fightId: input.fightId,
+        reportRevision: input.reportRevision,
+        dungeonSlug: input.dungeonSlug,
+        keyLevel: input.keyLevel,
+        ctx: input.ctx,
+      });
       return {
-        evidence: null,
-        providerCalls: 0,
-        unavailableReason: "ranking_parse_provider_capability_absent",
+        evidence: result.evidence,
+        providerCalls: result.providerCalls,
+        unavailableReason: result.unavailableReason,
       };
     },
 
