@@ -331,3 +331,19 @@ Diff search (implementation): no default-true V2 activation flags introduced; no
 - No model activation, publication, or feature-flag activation.
 - Prior review document and its remediation appendix were not altered.
 - Only this review document is intended for commit on the review branch.
+
+---
+
+## Remediation appendix (2026-08-03, second pass)
+
+> This appendix does **not** change the original findings or verdict above. It records post-remediation status on `feat/admin-scoring-v2-control-center`.
+
+| Finding | Status | Changed files (primary) | Tests | Residual risk |
+|---------|--------|-------------------------|-------|---------------|
+| H3/H7 Freeze live evidence | **Resolved** | `freeze-snapshot.ts` v2, `freeze-evidence-package.ts`, `scoring-v2-bundle-freeze.ts`, evidence export | freeze-snapshot + bundle-freeze H7 adversarial + export | Pre-v2 COMPLETED exports must re-export before freeze |
+| M7 Payload workloadClass | **Resolved** | `workload-class.ts`, `refresh-pipeline.ts`, `processors.ts` | workload-class unit tests | Inline/test callers omit queueName (no queue check) |
+| M8 Real Redis gaps | **Resolved** | `lane-permits.redis.integration.test.ts` | **16** real Redis tests; fail-hard if Redis unavailable | Shared Redis service (namespaced keys), not per-test container |
+| M5 OpenAPI looseness | **Resolved** | `scoring-v2-control-center-schemas.ts`, OpenAPI snapshot | schema unit + contract | Nested `summary` remains extensible by design |
+| L3 IAM seed flake | **Resolved** | `iam/seed.ts` deterministic IDs + `createMany(skipDuplicates)` | `seed.test.ts` concurrent seed | Existing DBs keep prior permission row IDs; seed attaches by key |
+| N1 Export reclaim sweeper | **Resolved** | `evidence-export-recovery.ts`, worker `index.ts` | recovery + reclaim tests | Batch size / interval ops tuning |
+
