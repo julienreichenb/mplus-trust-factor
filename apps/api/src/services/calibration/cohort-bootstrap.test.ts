@@ -270,7 +270,7 @@ describe("identity dedupe", () => {
   it("preserves Agent 11 41-member / 40-identity relationship from resolved cohort", () => {
     const path = join(
       process.cwd(),
-      "doc/scoring/cohorts/agent11-2026-08-01/resolved.v1.json",
+      "apps/api/runtime-assets/calibration/agent11-2026-08-01/resolved.v1.json",
     );
     const doc = parseCohortBootstrapDoc(JSON.parse(readFileSync(path, "utf8")));
     expect(doc.members).toHaveLength(41);
@@ -281,7 +281,7 @@ describe("identity dedupe", () => {
   it("plans 36 MISSING enqueue candidates on an empty DB (4 excluded identities)", () => {
     const path = join(
       process.cwd(),
-      "doc/scoring/cohorts/agent11-2026-08-01/resolved.v1.json",
+      "apps/api/runtime-assets/calibration/agent11-2026-08-01/resolved.v1.json",
     );
     const doc = parseCohortBootstrapDoc(JSON.parse(readFileSync(path, "utf8")));
     const identities = dedupeCohortIdentities(doc.members);
@@ -1088,8 +1088,8 @@ describe("CLI dry-run / execute guards", () => {
     process.env.CALIBRATION_BOOTSTRAP_ENV = "prod";
     process.env.ALLOW_LIVE_PROVIDER_CALLS = "true";
     const code = await cohortBootstrapMain([
-      "--cohort-file",
-      join(process.cwd(), "doc/scoring/cohorts/agent11-2026-08-01/resolved.v1.json"),
+      "--input",
+      join(process.cwd(), "apps/api/runtime-assets/calibration/agent11-2026-08-01/resolved.v1.json"),
       "--environment",
       "test",
       "--execute",
@@ -1099,8 +1099,8 @@ describe("CLI dry-run / execute guards", () => {
     process.env.CALIBRATION_BOOTSTRAP_ENV = "test";
     process.env.ALLOW_LIVE_PROVIDER_CALLS = "false";
     const code2 = await cohortBootstrapMain([
-      "--cohort-file",
-      join(process.cwd(), "doc/scoring/cohorts/agent11-2026-08-01/resolved.v1.json"),
+      "--input",
+      join(process.cwd(), "apps/api/runtime-assets/calibration/agent11-2026-08-01/resolved.v1.json"),
       "--environment",
       "test",
       "--execute",
@@ -1117,6 +1117,100 @@ describe("CLI dry-run / execute guards", () => {
       "--execute",
     ]);
     expect(code).toBe(2);
+  });
+
+  it("accepts --input and resolves the packaged resolved cohort path", async () => {
+    process.env.CALIBRATION_BOOTSTRAP_ENV = "test";
+    const errors: string[] = [];
+    const spy = vi.spyOn(console, "error").mockImplementation((...args: unknown[]) => {
+      errors.push(args.map(String).join(" "));
+    });
+    try {
+      const missing = await cohortBootstrapMain([
+        "--input",
+        join(
+          process.cwd(),
+          "apps/api/runtime-assets/calibration/agent11-2026-08-01/does-not-exist.json",
+        ),
+        "--environment",
+        "test",
+        "--dry-run",
+      ]);
+      expect(missing).toBe(2);
+      expect(errors.join("\n")).toMatch(/cohort file not found/);
+
+      errors.length = 0;
+      const out = mkdtempSync(join(tmpdir(), "cohort-bootstrap-input-"));
+      tmpDirs.push(out);
+      const code = await cohortBootstrapMain([
+        "--input",
+        join(
+          process.cwd(),
+          "apps/api/runtime-assets/calibration/agent11-2026-08-01/resolved.v1.json",
+        ),
+        "--environment",
+        "test",
+        "--dry-run",
+        "--output-dir",
+        out,
+      ]);
+      expect(errors.join("\n")).not.toMatch(/cohort file not found/);
+      // Path accepted; exit may still be non-zero if isolated DB is unavailable.
+      expect([0, 1, 2]).toContain(code);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("keeps --cohort-file as a legacy alias of --input", async () => {
+    process.env.CALIBRATION_BOOTSTRAP_ENV = "test";
+    const errors: string[] = [];
+    const spy = vi.spyOn(console, "error").mockImplementation((...args: unknown[]) => {
+      errors.push(args.map(String).join(" "));
+    });
+    try {
+      const code = await cohortBootstrapMain([
+        "--cohort-file",
+        join(
+          process.cwd(),
+          "apps/api/runtime-assets/calibration/agent11-2026-08-01/does-not-exist.json",
+        ),
+        "--environment",
+        "test",
+        "--dry-run",
+      ]);
+      expect(code).toBe(2);
+      expect(errors.join("\n")).toMatch(/cohort file not found/);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("refuses --input and --cohort-file together", async () => {
+    process.env.CALIBRATION_BOOTSTRAP_ENV = "test";
+    const path = join(
+      process.cwd(),
+      "apps/api/runtime-assets/calibration/agent11-2026-08-01/resolved.v1.json",
+    );
+    const errors: string[] = [];
+    const spy = vi.spyOn(console, "error").mockImplementation((...args: unknown[]) => {
+      errors.push(args.map(String).join(" "));
+    });
+    try {
+      const code = await cohortBootstrapMain([
+        "--input",
+        path,
+        "--cohort-file",
+        path,
+        "--environment",
+        "test",
+        "--dry-run",
+      ]);
+      expect(code).toBe(2);
+      expect(errors.join("\n")).toMatch(/not both/);
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it.runIf(dbAvailable)(
@@ -1156,7 +1250,7 @@ describe("CLI dry-run / execute guards", () => {
 
       const code = await cohortBootstrapMain(
         [
-          "--cohort-file",
+          "--input",
           cohortPath,
           "--environment",
           "test",
@@ -1215,8 +1309,8 @@ describe("CLI dry-run / execute guards", () => {
 
       const code = await cohortBootstrapMain(
         [
-          "--cohort-file",
-          join(process.cwd(), "doc/scoring/cohorts/agent11-2026-08-01/resolved.v1.json"),
+          "--input",
+          join(process.cwd(), "apps/api/runtime-assets/calibration/agent11-2026-08-01/resolved.v1.json"),
           "--environment",
           "test",
           "--dry-run",
@@ -1304,7 +1398,7 @@ describe("CLI dry-run / execute guards", () => {
 
       const code = await cohortBootstrapMain(
         [
-          "--cohort-file",
+          "--input",
           cohortPath,
           "--environment",
           "test",
@@ -1338,7 +1432,7 @@ describe("CLI dry-run / execute guards", () => {
       resolveCharacter.mockClear();
       const code2 = await cohortBootstrapMain(
         [
-          "--cohort-file",
+          "--input",
           cohortPath,
           "--environment",
           "test",
@@ -1364,7 +1458,7 @@ describe("CLI dry-run / execute guards", () => {
       writeFileSync(resumePath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
       const code3 = await cohortBootstrapMain(
         [
-          "--cohort-file",
+          "--input",
           cohortPath,
           "--environment",
           "test",

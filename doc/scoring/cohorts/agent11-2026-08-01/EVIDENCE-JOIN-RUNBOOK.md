@@ -23,7 +23,9 @@ reach it via that URL without publishing ports (forbidden) or joining the app ne
 
 ## Goals
 
-Join Blizzard-enriched `resolved.v1.json` to remote-test Character / ScoreSnapshot rows.
+Join Blizzard-enriched
+`apps/api/runtime-assets/calibration/agent11-2026-08-01/resolved.v1.json`
+to remote-test Character / ScoreSnapshot rows.
 
 **Preflight-only** — do **not** freeze `bundle.v1.json` yet. Myzouth stays deferred.
 

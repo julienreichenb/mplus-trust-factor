@@ -14,7 +14,7 @@ scoring calibration study.
 
 | File | Role |
 |------|------|
-| `resolved.v1.json` | Enriched intake (preserves original fields; adds class/spec/role/meta/provenance) |
+| [`../../../../apps/api/runtime-assets/calibration/agent11-2026-08-01/resolved.v1.json`](../../../../apps/api/runtime-assets/calibration/agent11-2026-08-01/resolved.v1.json) | Enriched intake (runtime-packaged; preserves original fields; adds class/spec/role/meta/provenance) |
 | `manifest.v1.json` | Strict `CohortManifest 1.0.0` (only fully resolved members) |
 | `exclusions.v1.json` | Every excluded/deferred member with machine-readable reason |
 | `preflight.json` / `preflight.md` | Per-member preflight + provider-call summary |
@@ -66,7 +66,7 @@ See [`COHORT-BOOTSTRAP-RUNBOOK.md`](./COHORT-BOOTSTRAP-RUNBOOK.md). Dry-run firs
 ```bash
 CALIBRATION_BOOTSTRAP_ENV=test \
 pnpm calibration:cohort-bootstrap -- \
-  --cohort-file doc/scoring/cohorts/agent11-2026-08-01/resolved.v1.json \
+  --input apps/api/runtime-assets/calibration/agent11-2026-08-01/resolved.v1.json \
   --environment test \
   --dry-run
 ```

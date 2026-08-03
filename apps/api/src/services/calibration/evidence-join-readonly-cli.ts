@@ -29,7 +29,8 @@ import {
 } from "./read-only-session.js";
 
 const ROOT = resolve(import.meta.dirname, "../../../../../");
-const COHORT_DIR = "doc/scoring/cohorts/agent11-2026-08-01";
+const RESOLVED_PATH =
+  "apps/api/runtime-assets/calibration/agent11-2026-08-01/resolved.v1.json";
 const POLICY_PATH = "doc/scoring/meta-policies/midnight-season-1.meta.v1.json";
 const TMP_DIR = "tmp/calibration/agent11-2026-08-01";
 const SCORE_TTL_SECONDS = Number(process.env.SCORE_TTL_SECONDS ?? 604800);
@@ -169,9 +170,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     return 1;
   }
 
-  const resolvedPath = resolve(ROOT, COHORT_DIR, "resolved.v1.json");
+  const resolvedPath = resolve(ROOT, RESOLVED_PATH);
   if (!existsSync(resolvedPath)) {
-    console.error(`Missing ${COHORT_DIR}/resolved.v1.json — run Blizzard enrichment first`);
+    console.error(`Missing ${RESOLVED_PATH} — run Blizzard enrichment first`);
     return 1;
   }
   const resolvedDoc = JSON.parse(readFileSync(resolvedPath, "utf8")) as {
