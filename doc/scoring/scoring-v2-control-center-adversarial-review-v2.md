@@ -343,7 +343,12 @@ Diff search (implementation): no default-true V2 activation flags introduced; no
 | H3/H7 Freeze live evidence | **Resolved** | `freeze-snapshot.ts` v2, `freeze-evidence-package.ts`, `scoring-v2-bundle-freeze.ts`, evidence export | freeze-snapshot + bundle-freeze H7 adversarial + export | Pre-v2 COMPLETED exports must re-export before freeze |
 | M7 Payload workloadClass | **Resolved** | `workload-class.ts`, `refresh-pipeline.ts`, `processors.ts` | workload-class unit tests | Inline/test callers omit queueName (no queue check) |
 | M8 Real Redis gaps | **Resolved** | `lane-permits.redis.integration.test.ts` | **16** real Redis tests; fail-hard if Redis unavailable | Shared Redis service (namespaced keys), not per-test container |
-| M5 OpenAPI looseness | **Resolved** | `scoring-v2-control-center-schemas.ts`, OpenAPI snapshot | schema unit + contract | Nested `summary` remains extensible by design |
+| M5 OpenAPI looseness | **Resolved** | `scoring-v2-control-center-schemas.ts`, OpenAPI snapshot | schema unit + contract | Nested `summary` remains extensible by design; list endpoint documents summary DTO (no `freezeEligible`) |
 | L3 IAM seed flake | **Resolved** | `iam/seed.ts` deterministic IDs + `createMany(skipDuplicates)` | `seed.test.ts` concurrent seed | Existing DBs keep prior permission row IDs; seed attaches by key |
 | N1 Export reclaim sweeper | **Resolved** | `evidence-export-recovery.ts`, worker `index.ts` | recovery + reclaim tests | Batch size / interval ops tuning |
+
+### Follow-up hardening (same branch)
+
+- List `GET /evidence-exports` response schema aligned to `evidenceExportSummaryDtoSchema` so Fastify serialization matches the summary DTO (no false `freezeEligible` requirement).
+- `ensureDungeon` handles concurrent unique-slug create races (P2002 → re-read) to remove a parallel-suite flake unrelated to Scoring V2.
 
