@@ -17,3 +17,10 @@ export {
   type CreateRunFactSetInput,
   type CreateDimensionComputationInput,
 } from "./evidence-repository.js";
+export {
+  WclSourceRepository,
+  defaultWclRawPageRetentionUntil,
+  type UpsertWclRunSourceDigestInput,
+  type UpsertWclRunParticipantInput,
+  type CreateEvidenceDatasetPageInput,
+} from "./wcl-source-repository.js";
