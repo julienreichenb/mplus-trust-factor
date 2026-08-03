@@ -24,8 +24,8 @@ log() { printf 'calibration-evidence-join-vps: %s\n' "$*"; }
 
 [[ -f "${ENV_FILE}" ]] || die "missing ${ENV_FILE}"
 [[ -d "${WORKTREE}" ]] || die "worktree not found: ${WORKTREE}"
-[[ -f "${WORKTREE}/doc/scoring/cohorts/agent11-2026-08-01/resolved.v1.json" ]] \
-  || die "resolved.v1.json missing in worktree (checkout agent/11-scoring-calibration-study first)"
+[[ -f "${WORKTREE}/apps/api/runtime-assets/calibration/agent11-2026-08-01/resolved.v1.json" ]] \
+  || die "resolved.v1.json missing in worktree (apps/api/runtime-assets/calibration/agent11-2026-08-01/)"
 
 # Refuse accidental use against production compose project.
 [[ "${COMPOSE_PROJECT}" == "mplus-test" ]] || die "COMPOSE_PROJECT must be mplus-test (got ${COMPOSE_PROJECT})"

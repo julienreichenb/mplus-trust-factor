@@ -66,6 +66,8 @@ WORKDIR /app
 
 # -----------------------------------------------------------------------------
 FROM runtime-prep AS api
+# Canonical calibration cohort assets (doc/ is dockerignored; not mounted at runtime).
+COPY --chown=mplus:mplus apps/api/runtime-assets/ /app/runtime-assets/
 ENV API_HOST=0.0.0.0 \
     API_PORT=3000
 EXPOSE 3000

@@ -36,6 +36,8 @@ const ROOT = resolve(import.meta.dirname, "../../../../../");
 const CANONICAL_INTAKE = "doc/scoring/cohorts/agent11-2026-08-01/intake.v1.json";
 const CANONICAL_POLICY = "doc/scoring/meta-policies/midnight-season-1.meta.v1.json";
 const COHORT_DIR = "doc/scoring/cohorts/agent11-2026-08-01";
+const RESOLVED_PATH =
+  "apps/api/runtime-assets/calibration/agent11-2026-08-01/resolved.v1.json";
 const TMP_DIR = "tmp/calibration/agent11-2026-08-01";
 
 function loadEnvFile(path: string): void {
@@ -388,11 +390,13 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   };
 
   const cohortDir = resolve(ROOT, COHORT_DIR);
+  const resolvedPath = resolve(ROOT, RESOLVED_PATH);
   const tmpDir = resolve(ROOT, TMP_DIR);
   mkdirSync(cohortDir, { recursive: true });
+  mkdirSync(resolve(resolvedPath, ".."), { recursive: true });
   mkdirSync(tmpDir, { recursive: true });
 
-  writeFileSync(resolve(cohortDir, "resolved.v1.json"), JSON.stringify(resolvedDoc, null, 2));
+  writeFileSync(resolvedPath, JSON.stringify(resolvedDoc, null, 2));
   writeFileSync(resolve(cohortDir, "exclusions.v1.json"), JSON.stringify(exclusionsDoc, null, 2));
   writeFileSync(resolve(cohortDir, "manifest.v1.json"), JSON.stringify(manifestDoc, null, 2));
   writeFileSync(resolve(cohortDir, "preflight.json"), JSON.stringify(preflight, null, 2));
@@ -440,7 +444,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         ok: true,
         summary: preflight.summary,
         wrote: {
-          resolved: `${COHORT_DIR}/resolved.v1.json`,
+          resolved: RESOLVED_PATH,
           exclusions: `${COHORT_DIR}/exclusions.v1.json`,
           manifest: `${COHORT_DIR}/manifest.v1.json`,
           preflight: `${COHORT_DIR}/preflight.json`,

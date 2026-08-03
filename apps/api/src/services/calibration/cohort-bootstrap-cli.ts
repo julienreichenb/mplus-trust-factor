@@ -3,10 +3,14 @@
  *
  * Usage:
  *   CALIBRATION_BOOTSTRAP_ENV=test pnpm calibration:cohort-bootstrap -- \
- *     --cohort-file /inputs/resolved.v1.json --environment test --dry-run
+ *     --input /app/runtime-assets/calibration/agent11-2026-08-01/resolved.v1.json \
+ *     --environment test --dry-run
  *
  *   CALIBRATION_BOOTSTRAP_ENV=test ALLOW_LIVE_PROVIDER_CALLS=true pnpm calibration:cohort-bootstrap -- \
- *     --cohort-file /inputs/resolved.v1.json --environment test --execute --limit 37 --concurrency 2
+ *     --input /app/runtime-assets/calibration/agent11-2026-08-01/resolved.v1.json \
+ *     --environment test --execute --limit 37 --concurrency 2
+ *
+ * `--cohort-file` remains accepted as a legacy alias of `--input` (do not pass both).
  *
  * Dry-run: read-only DB probes + plan artifacts. Never providers, enqueue, or writes.
  * Execute: reuses CharacterService.resolveCharacter (normal pipeline) with bounded concurrency.
@@ -54,7 +58,8 @@ import {
 import type { BootstrapManifest, BootstrapManifestEntry } from "./cohort-bootstrap-types.js";
 
 const ROOT = resolve(import.meta.dirname, "../../../../../");
-const DEFAULT_COHORT = "doc/scoring/cohorts/agent11-2026-08-01/resolved.v1.json";
+const DEFAULT_COHORT =
+  "apps/api/runtime-assets/calibration/agent11-2026-08-01/resolved.v1.json";
 const DEFAULT_OUTPUT = "tmp/calibration/agent11-2026-08-01";
 
 function resolveInputPath(p: string): string {
@@ -181,7 +186,15 @@ export async function main(
   }
   assertNoV2FlagMutation();
 
-  const cohortFile = resolveInputPath(values.get("cohort-file") ?? resolve(ROOT, DEFAULT_COHORT));
+  if (values.has("input") && values.has("cohort-file")) {
+    console.error(
+      "REFUSED: use --input (canonical) or --cohort-file (legacy alias), not both",
+    );
+    return 2;
+  }
+  const cohortFile = resolveInputPath(
+    values.get("input") ?? values.get("cohort-file") ?? resolve(ROOT, DEFAULT_COHORT),
+  );
   if (!existsSync(cohortFile)) {
     console.error(`REFUSED: cohort file not found: ${cohortFile}`);
     return 2;

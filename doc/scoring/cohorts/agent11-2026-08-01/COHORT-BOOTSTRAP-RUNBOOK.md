@@ -10,7 +10,7 @@ evidence join CLI (`pnpm calibration:evidence-join`).
 |----------|-----------|
 | `CALIBRATION_BOOTSTRAP_ENV=test` | Production DB / production-looking hostname or database name |
 | `--environment test` | Enabling `SCORING_V2_*` / `CALIBRATION_V2_*` |
-| Explicit `--cohort-file` (or repo default for local only) | Direct Character / snapshot / evidence writes outside the normal service |
+| Explicit `--input` (or repo default for local only) | Direct Character / snapshot / evidence writes outside the normal service |
 | Writable `--output-dir` (e.g. `/tmp/...`) | Model activation / V2 publication |
 | Review dry-run plan before `--execute` | Mutating `/opt/mplus/test` checkout |
 
@@ -18,13 +18,20 @@ evidence join CLI (`pnpm calibration:evidence-join`).
 may run after enqueue). Dry-run must **not** call providers, enqueue jobs, or write
 to the database.
 
+`--cohort-file` is a legacy alias of `--input`; do not pass both.
+
 ## Inputs
 
-Mount or copy cohort artifacts into the runner (do **not** require `/app/doc/**`):
+The resolved cohort is packaged into the API image (no host bind mount, no `/tmp`
+fallback, no network fetch):
 
-- `--cohort-file /inputs/resolved.v1.json` (Agent 11 resolved cohort)
-- optional `--policy-file /inputs/midnight-season-1.meta.v1.json`
-- `--output-dir /tmp/mplus-agent11-bootstrap`
+- `--input /app/runtime-assets/calibration/agent11-2026-08-01/resolved.v1.json`
+- optional `--policy-file` (meta policy; local path or mounted when needed)
+- `--output-dir /tmp/mplus-agent11-bootstrap` (writable scratch only)
+
+Repo-relative default for local/worktree runs:
+
+`apps/api/runtime-assets/calibration/agent11-2026-08-01/resolved.v1.json`
 
 ## Procedure
 
@@ -35,7 +42,7 @@ CALIBRATION_BOOTSTRAP_ENV=test \
 CALIBRATION_BOOTSTRAP_DATABASE_URL="$DATABASE_URL" \
 ALLOW_LIVE_PROVIDER_CALLS=false \
 pnpm calibration:cohort-bootstrap -- \
-  --cohort-file /inputs/resolved.v1.json \
+  --input /app/runtime-assets/calibration/agent11-2026-08-01/resolved.v1.json \
   --environment test \
   --dry-run \
   --output-dir /tmp/mplus-agent11-bootstrap
@@ -56,7 +63,7 @@ CALIBRATION_BOOTSTRAP_ENV=test \
 CALIBRATION_BOOTSTRAP_DATABASE_URL="$DATABASE_URL" \
 ALLOW_LIVE_PROVIDER_CALLS=true \
 pnpm calibration:cohort-bootstrap -- \
-  --cohort-file /inputs/resolved.v1.json \
+  --input /app/runtime-assets/calibration/agent11-2026-08-01/resolved.v1.json \
   --environment test \
   --execute \
   --limit 37 \
@@ -73,7 +80,7 @@ Use admin refresh-job views / worker logs. Do not invent successful jobs.
 ```bash
 # ...same env guards...
 pnpm calibration:cohort-bootstrap -- \
-  --cohort-file /inputs/resolved.v1.json \
+  --input /app/runtime-assets/calibration/agent11-2026-08-01/resolved.v1.json \
   --environment test \
   --execute \
   --resume-manifest /tmp/mplus-agent11-bootstrap/cohort-bootstrap.manifest.json \
@@ -102,17 +109,24 @@ payloads, or unrestricted stack traces.
 
 ## Runtime packaging
 
-Prefer an ephemeral container/user with mounted inputs and a writable output dir
-under `/tmp`. Run as the normal non-root image user — do not `docker exec -u 0`.
+The API image ships the resolved cohort at
+`/app/runtime-assets/calibration/agent11-2026-08-01/resolved.v1.json`.
+Do not require `/app/doc/**`, host bind mounts, or copying the file into `/tmp`.
+
+Run as the normal non-root image user — do not `docker exec -u 0`.
 
 Compiled entry (API image after build):
 
 ```bash
-node apps/api/dist/services/calibration/cohort-bootstrap-cli.js -- ...
+node apps/api/dist/services/calibration/cohort-bootstrap-cli.js \
+  --input /app/runtime-assets/calibration/agent11-2026-08-01/resolved.v1.json \
+  --environment test --dry-run --output-dir /tmp/mplus-agent11-bootstrap
 ```
 
 Or via workspace script (worktree / CI with pnpm):
 
 ```bash
-pnpm calibration:cohort-bootstrap -- --cohort-file ... --environment test --dry-run
+pnpm calibration:cohort-bootstrap -- \
+  --input apps/api/runtime-assets/calibration/agent11-2026-08-01/resolved.v1.json \
+  --environment test --dry-run
 ```

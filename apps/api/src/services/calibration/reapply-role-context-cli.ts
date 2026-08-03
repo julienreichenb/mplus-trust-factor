@@ -19,6 +19,10 @@ import { COHORT_MANIFEST_SCHEMA_VERSION } from "@mplus/scoring";
 
 const ROOT = resolve(import.meta.dirname, "../../../../../");
 const COHORT_DIR = resolve(ROOT, "doc/scoring/cohorts/agent11-2026-08-01");
+const RESOLVED_PATH = resolve(
+  ROOT,
+  "apps/api/runtime-assets/calibration/agent11-2026-08-01/resolved.v1.json",
+);
 const POLICY_PATH = resolve(ROOT, "doc/scoring/meta-policies/midnight-season-1.meta.v1.json");
 
 export async function main(): Promise<number> {
@@ -31,7 +35,7 @@ export async function main(): Promise<number> {
     return 1;
   }
 
-  const prior = JSON.parse(readFileSync(resolve(COHORT_DIR, "resolved.v1.json"), "utf8")) as {
+  const prior = JSON.parse(readFileSync(RESOLVED_PATH, "utf8")) as {
     members: Array<ResolvedMember & { provenance?: Record<string, unknown> }>;
   };
   const byId = new Map(prior.members.map((m) => [m.id, m]));
@@ -136,7 +140,7 @@ export async function main(): Promise<number> {
     members: resolvedMembers,
   };
 
-  writeFileSync(resolve(COHORT_DIR, "resolved.v1.json"), JSON.stringify(resolvedDoc, null, 2));
+  writeFileSync(RESOLVED_PATH, JSON.stringify(resolvedDoc, null, 2));
   writeFileSync(
     resolve(COHORT_DIR, "exclusions.v1.json"),
     JSON.stringify(

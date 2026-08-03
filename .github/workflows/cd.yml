@@ -405,6 +405,11 @@ jobs:
             fi
           done
           echo "secret bake scan passed"
+          API_IMG="${{ env.REGISTRY }}/${OWNER}/mplus-api:${TAG}"
+          echo "checking calibration cohort runtime asset in ${API_IMG}"
+          docker run --rm --entrypoint sh "${API_IMG}" -c \
+            'test -s /app/runtime-assets/calibration/agent11-2026-08-01/resolved.v1.json'
+          echo "api cohort runtime asset invariant passed"
 
       - name: Release manifesto
         run: |
