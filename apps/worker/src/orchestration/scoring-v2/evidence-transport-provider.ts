@@ -153,7 +153,7 @@ export function createProviderBackedEvidenceTransport(
     async getReportFightDetails(input): Promise<ScoringV2FightDetailsResult> {
       const wclSource = container.repositories.wclSource;
       const artifacts = container.repositories.artifacts;
-      let revisionHint =
+      const revisionHint =
         typeof input.expectedReportRevision === "number"
           ? input.expectedReportRevision
           : await findLatestFightRevision({
