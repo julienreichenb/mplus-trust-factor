@@ -336,10 +336,10 @@ watch([characterId, seasonId], () => {
         <dl v-if="diagnostics.publicView" class="kv">
           <dt>Coverage state</dt>
           <dd>{{ diagnostics.publicView.coverage.coverageState }}</dd>
-          <dt>Selected slots</dt>
+          <dt>Analyzed runs</dt>
           <dd>
-            {{ diagnostics.publicView.coverage.selectedSlotCount }}/{{
-              diagnostics.publicView.coverage.expectedSlotCount
+            {{ diagnostics.publicView.coverage.analyzedRunCount }}/{{
+              diagnostics.publicView.coverage.expectedRunCount
             }}
           </dd>
         </dl>

@@ -1,5 +1,6 @@
 /**
- * Read-only evidence join for Agent 11 calibration (server-side / VPS only).
+ * Emergency/debug-only read-only evidence join for Agent 11 calibration (VPS only).
+ * Canonical path: Scoring V2 Control Center admin evidence export (shared worker join).
  *
  * Usage (ephemeral container on mplus-test app network — see EVIDENCE-JOIN-RUNBOOK.md):
  *   CALIBRATION_EVIDENCE_ENV=test \

@@ -15,7 +15,7 @@ const data = ref<ScoringV2ConcurrencyDTO | null>(null);
 const calibration = ref(4);
 const operation = ref(2);
 
-async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
+async function apiJson<T>(path: string, init?: Parameters<typeof fetch>[1]): Promise<T> {
   const response = await fetch(`${apiBase}${path}`, {
     credentials: "include",
     headers: { Accept: "application/json", ...(init?.headers ?? {}) },
