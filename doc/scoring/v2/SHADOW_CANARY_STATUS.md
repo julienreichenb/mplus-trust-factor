@@ -104,4 +104,4 @@ Not pushed.
 | Commit | Note |
 |--------|------|
 | `0e3efd7` … `d7a6531` | live path defects (see table above) |
-| (pending) | persist/expose providerAccounting on canary diagnostics |
+| `8e55666` | persist/expose `providerAccounting` on canary diagnostics |
