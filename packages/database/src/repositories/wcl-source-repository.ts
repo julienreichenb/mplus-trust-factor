@@ -98,16 +98,55 @@ export class WclSourceRepository {
     );
     if (existing) {
       if (existing.contentFingerprint !== input.contentFingerprint) {
-        throw new Error(
-          [
-            "wcl_run_source_digest_fingerprint_conflict",
-            `report=${input.reportCode}`,
-            `fight=${input.fightId}`,
-            `revision=${input.reportRevision}`,
-            `existing=${existing.contentFingerprint}`,
-            `incoming=${input.contentFingerprint}`,
-          ].join(":"),
-        );
+        const existingParts = await this.prisma.wclRunParticipant.findMany({
+          where: { digestId: existing.id },
+          select: { characterName: true, realmSlug: true },
+        });
+        const stubOnly =
+          existingParts.length > 0 &&
+          existingParts.every(
+            (p) =>
+              p.characterName === "target" &&
+              (p.realmSlug === "unknown" || p.realmSlug === ""),
+          );
+        const incomplete =
+          existing.completenessState === "PARTIAL" ||
+          existing.completenessState === "INCOMPLETE" ||
+          stubOnly;
+        if (!incomplete) {
+          throw new Error(
+            [
+              "wcl_run_source_digest_fingerprint_conflict",
+              `report=${input.reportCode}`,
+              `fight=${input.fightId}`,
+              `revision=${input.reportRevision}`,
+              `existing=${existing.contentFingerprint}`,
+              `incoming=${input.contentFingerprint}`,
+            ].join(":"),
+          );
+        }
+        // Upgrade stub/incomplete digest in place (baseline page-less stubs).
+        await this.prisma.wclRunParticipant.deleteMany({ where: { digestId: existing.id } });
+        const row = await this.prisma.wclRunSourceDigest.update({
+          where: { id: existing.id },
+          data: {
+            contentFingerprint: input.contentFingerprint,
+            digest: digestDoc as unknown as Prisma.InputJsonValue,
+            rawBytesStored:
+              input.rawBytesStored == null ? null : BigInt(input.rawBytesStored),
+            digestBytes: input.digestBytes ?? null,
+            completenessState: input.completenessState,
+            visibilityState: input.visibilityState,
+            region: input.region ?? null,
+            dungeonSlug: input.dungeonSlug ?? null,
+            keyLevel: input.keyLevel ?? null,
+            timed: input.timed ?? null,
+            masterDataArtifactId: input.masterDataArtifactId ?? null,
+            acquiredAt: input.acquiredAt,
+          },
+          include: { participants: true },
+        });
+        return { row, created: false };
       }
       return { row: existing, created: false };
     }

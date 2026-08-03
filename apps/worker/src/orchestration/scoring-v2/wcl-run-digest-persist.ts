@@ -64,10 +64,11 @@ export function participantsFromMasterData(
     const id = typeof actor.id === "number" ? actor.id : null;
     const name = typeof actor.name === "string" ? actor.name.trim() : "";
     if (id == null || !name) continue;
-    const server =
+    const serverRaw =
       typeof actor.server === "string" && actor.server.trim()
         ? slugify(actor.server)
         : "unknown";
+    const server = serverRaw.length > 0 ? serverRaw : "unknown";
     const classSlug =
       typeof actor.subType === "string"
         ? slugify(actor.subType)
@@ -109,7 +110,13 @@ export function participantsFromMasterData(
       ownedPetActorIds,
     });
   }
-  return out.slice(0, 16);
+  // Prefer fight CombatantInfo players when available (normally five).
+  const fightScoped =
+    combatantByActor.size > 0
+      ? out.filter((p) => combatantByActor.has(p.wclActorId))
+      : out;
+  const chosen = (fightScoped.length > 0 ? fightScoped : out).slice(0, 5);
+  return chosen;
 }
 
 function combatantSpecSlug(combatant: Record<string, unknown> | undefined): string | null {
