@@ -21,7 +21,11 @@ export type RefreshAdmissionDecisionReason =
   | "NON_WCL_SLOT_ONLY"
   | "ENFORCE_NOT_ACTIVATED"
   | "REDIS_UNAVAILABLE"
-  | "LEASE_NOT_OWNED";
+  | "LEASE_NOT_OWNED"
+  /** Lane permit Redis connection missing or unusable — fail closed before providers. */
+  | "LANE_REDIS_UNAVAILABLE"
+  /** Lane lease renew failed / ownership lost while job still running. */
+  | "LANE_PERMIT_LOST";
 
 export type RefreshAdmissionOutcomeKind = "admitted" | "deferred" | "denied" | "shadow" | "off";
 
@@ -32,6 +36,8 @@ export const REFRESH_ADMISSION_DEFER_REASONS: ReadonlySet<RefreshAdmissionDecisi
   "SNAPSHOT_STALE",
   "SNAPSHOT_MISSING",
   "REDIS_UNAVAILABLE",
+  "LANE_REDIS_UNAVAILABLE",
+  "LANE_PERMIT_LOST",
   "SCHEDULING_PAUSED",
 ]);
 

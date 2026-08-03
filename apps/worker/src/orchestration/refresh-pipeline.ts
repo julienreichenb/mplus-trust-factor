@@ -110,7 +110,12 @@ import {
   sumMeasuredWclPoints,
   type PipelineAdmissionSession,
 } from "./refresh-admission/pipeline-admission.js";
-import { acquireLanePermit, releaseLanePermit } from "./refresh-admission/lane-permits.js";
+import {
+  acquireLanePermit,
+  isLanePermitRedisUsable,
+  releaseLanePermit,
+  startLanePermitHeartbeat,
+} from "./refresh-admission/lane-permits.js";
 import { RefreshAdmissionError } from "./refresh-admission/errors.js";
 import {
   DEFAULT_CONCURRENCY_CALIBRATION,
@@ -455,6 +460,9 @@ export async function runRefreshPipeline(
   let admissionSession: PipelineAdmissionSession | null = null;
   let admissionRedis: ReturnType<WorkerContainer["createRedisConnection"]> | null = null;
   let laneHeld: RefreshWorkloadClass | null = null;
+  let laneOwnershipToken: string | null = null;
+  let lanePermitLost = false;
+  let laneHeartbeat: { stop: () => Promise<void> } | null = null;
 
   const releaseAdmission = async (
     status: "SETTLED" | "RELEASED" | "CANCELLED" | "EXPIRED",
@@ -473,19 +481,29 @@ export async function runRefreshPipeline(
         "refresh_admission_settle_failed",
       );
     } finally {
-      if (laneHeld && admissionRedis) {
+      if (laneHeartbeat) {
+        try {
+          await laneHeartbeat.stop();
+        } catch {
+          /* ignore */
+        }
+        laneHeartbeat = null;
+      }
+      if (laneHeld && admissionRedis && laneOwnershipToken) {
         try {
           await releaseLanePermit({
             redis: admissionRedis,
             appEnv: container.env.APP_ENV,
             lane: laneHeld,
             ingestionJobId: job.id,
+            ownershipToken: laneOwnershipToken,
             logger,
           });
         } catch {
           /* ignore */
         }
         laneHeld = null;
+        laneOwnershipToken = null;
       }
       admissionSession = null;
       if (admissionRedis) {
@@ -527,8 +545,22 @@ export async function runRefreshPipeline(
     terminalized = true;
   };
 
+  const assertLanePermitHeld = async (checkpoint: string): Promise<void> => {
+    if (terminalized || !laneHeld) return;
+    if (!lanePermitLost) return;
+    const err = new RefreshAdmissionError({
+      reason: "LANE_PERMIT_LOST",
+      message: `Refresh lane permit lost at ${checkpoint}`,
+    });
+    job = await repositories.job.markFailed(job.id, err.toJobError());
+    terminalized = true;
+    await releaseAdmission("RELEASED");
+    throw err;
+  };
+
   const assertNotCancelled = async (checkpoint: string): Promise<void> => {
     if (terminalized) return;
+    await assertLanePermitHeld(checkpoint);
     const requested = await isRefreshCancellationRequested(repositories.job, job.id);
     if (!requested) return;
     const current = await repositories.job.findById(job.id);
@@ -728,8 +760,19 @@ export async function runRefreshPipeline(
   // ── Admission gate (Stage 3: enforce @ serial concurrency 1) ───────────────
   // After cancel / contract / eligibility; before any Blizzard / RIO / WCL work.
   // Always open Redis for lane permits (even when REFRESH_ADMISSION_MODE=off).
+  // Fail closed: never skip lane permits when Redis is unavailable.
   try {
-    admissionRedis = container.createRedisConnection();
+    const conn = container.createRedisConnection();
+    if (!isLanePermitRedisUsable(conn)) {
+      try {
+        await conn.quit();
+      } catch {
+        /* ignore */
+      }
+      admissionRedis = null;
+    } else {
+      admissionRedis = conn;
+    }
   } catch {
     admissionRedis = null;
   }
@@ -739,7 +782,18 @@ export async function runRefreshPipeline(
     (job.workloadClass as RefreshWorkloadClass | undefined) ??
     "OPERATION";
 
-  if (admissionRedis) {
+  if (!admissionRedis) {
+    const err = new RefreshAdmissionError({
+      reason: "LANE_REDIS_UNAVAILABLE",
+      message: "Refresh lane Redis unavailable — fail closed",
+    });
+    job = await repositories.job.markFailed(job.id, err.toJobError());
+    terminalized = true;
+    await releaseAdmission("RELEASED");
+    throw err;
+  }
+
+  {
     const settings = await container.prisma.runtimeSetting.findMany({
       where: {
         key: {
@@ -767,7 +821,7 @@ export async function runRefreshPipeline(
       limit,
       logger,
     });
-    if (!permit.acquired) {
+    if (!permit.acquired || !permit.token) {
       const err = new RefreshAdmissionError({
         reason: "INSUFFICIENT_GLOBAL_SLOTS",
         message: `Refresh lane ${workloadClass} at limit ${permit.limit}`,
@@ -778,6 +832,28 @@ export async function runRefreshPipeline(
       throw err;
     }
     laneHeld = workloadClass;
+    laneOwnershipToken = permit.token;
+    laneHeartbeat = startLanePermitHeartbeat({
+      redis: admissionRedis,
+      appEnv: container.env.APP_ENV,
+      lane: workloadClass,
+      ingestionJobId: job.id,
+      ownershipToken: permit.token,
+      logger,
+      onLost: ({ reason }) => {
+        lanePermitLost = true;
+        logger.warn(
+          {
+            ...logBase,
+            event: "refresh_lane_permit_lost",
+            workloadClass,
+            reasonCode: reason,
+          },
+          "refresh_lane_permit_lost",
+        );
+      },
+    });
+    await assertLanePermitHeld("post_lane_permit_acquire");
   }
 
   if (container.env.REFRESH_ADMISSION_MODE !== "off") {

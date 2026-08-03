@@ -1,20 +1,32 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   acquireLanePermit,
   releaseLanePermit,
   renewLanePermit,
   refreshLaneKeys,
+  startLanePermitHeartbeat,
+  isLanePermitRedisUsable,
+  formatLaneOwnerValue,
+  parseLaneOwnerValue,
   REFRESH_LANE_WORKER_CLAIM_HARD_MAX,
+  REFRESH_LANE_LEASE_TTL_MS,
+  REFRESH_LANE_RENEW_INTERVAL_MS,
   type LanePermitRedis,
 } from "./lane-permits.js";
 
 /**
  * Minimal in-memory port of the lane-permit Lua scripts (hash/zset/string only).
+ * Owners values are `token|expiryMs`.
  */
 class InMemoryLaneRedis implements LanePermitRedis {
   private hashes = new Map<string, Map<string, string>>();
   private zsets = new Map<string, Map<string, number>>();
   private strings = new Map<string, number>();
+
+  /** Inspect owner value for tests. */
+  getOwner(ownersKey: string, jobId: string): string | undefined {
+    return this.hashes.get(ownersKey)?.get(jobId);
+  }
 
   async eval(script: string, numKeys: number, ...args: (string | number)[]): Promise<unknown> {
     const keys = args.slice(0, numKeys).map(String);
@@ -44,9 +56,15 @@ class InMemoryLaneRedis implements LanePermitRedis {
     return z;
   }
 
+  private parseOwner(raw: string): { token: string; expiryMs: number } {
+    const sep = raw.indexOf("|");
+    if (sep <= 0) return { token: raw, expiryMs: 0 };
+    return { token: raw.slice(0, sep), expiryMs: Number(raw.slice(sep + 1)) };
+  }
+
   private acquire(keys: string[], argv: string[]): unknown[] {
     const [ownersKey, leaseKey, countKey] = keys;
-    const [jobId, limitStr, leaseExpiryStr, nowMsStr] = argv;
+    const [jobId, limitStr, leaseExpiryStr, nowMsStr, newToken] = argv;
     const limit = Number(limitStr);
     const leaseExpiry = Number(leaseExpiryStr);
     const nowMs = Number(nowMsStr);
@@ -63,101 +81,222 @@ class InMemoryLaneRedis implements LanePermitRedis {
     }
 
     if (owners.has(jobId!)) {
-      owners.set(jobId!, String(leaseExpiry));
+      const existingToken = this.parseOwner(owners.get(jobId!)!).token;
+      owners.set(jobId!, formatLaneOwnerValue(existingToken, leaseExpiry));
       lease.set(jobId!, leaseExpiry);
-      return [1, "IDEMPOTENT_EXISTING", this.strings.get(countKey!) ?? 0];
+      return [1, "IDEMPOTENT_EXISTING", this.strings.get(countKey!) ?? 0, existingToken];
     }
 
     const count = Math.max(0, this.strings.get(countKey!) ?? 0);
     if (count >= limit) {
-      return [0, "LANE_LIMIT_REACHED", count];
+      return [0, "LANE_LIMIT_REACHED", count, false];
     }
-    owners.set(jobId!, String(leaseExpiry));
+    owners.set(jobId!, formatLaneOwnerValue(newToken!, leaseExpiry));
     lease.set(jobId!, leaseExpiry);
     const newCount = count + 1;
     this.strings.set(countKey!, newCount);
-    return [1, "OK", newCount];
+    return [1, "OK", newCount, newToken];
   }
 
   private release(keys: string[], argv: string[]): unknown[] {
     const [ownersKey, leaseKey, countKey] = keys;
-    const [jobId] = argv;
+    const [jobId, ownershipToken] = argv;
     const owners = this.hash(ownersKey!);
     const lease = this.zset(leaseKey!);
-    const removed = owners.delete(jobId!);
-    lease.delete(jobId!);
-    if (removed) {
-      const newCount = Math.max(0, (this.strings.get(countKey!) ?? 0) - 1);
-      this.strings.set(countKey!, newCount);
-      return [1, "RELEASED", newCount];
+    const existing = owners.get(jobId!);
+    if (!existing) {
+      return [0, "NOT_OWNED", Math.max(0, this.strings.get(countKey!) ?? 0)];
     }
-    return [0, "NOT_OWNED", Math.max(0, this.strings.get(countKey!) ?? 0)];
+    const { token } = this.parseOwner(existing);
+    if (token !== ownershipToken) {
+      return [0, "TOKEN_MISMATCH", Math.max(0, this.strings.get(countKey!) ?? 0)];
+    }
+    owners.delete(jobId!);
+    lease.delete(jobId!);
+    const newCount = Math.max(0, (this.strings.get(countKey!) ?? 0) - 1);
+    this.strings.set(countKey!, newCount);
+    return [1, "RELEASED", newCount];
   }
 
   private renew(keys: string[], argv: string[]): unknown[] {
     const [ownersKey, leaseKey] = keys;
-    const [jobId, leaseExpiryStr] = argv;
+    const [jobId, leaseExpiryStr, ownershipToken] = argv;
     const owners = this.hash(ownersKey!);
-    if (!owners.has(jobId!)) return [0, "NOT_OWNED"];
-    owners.set(jobId!, leaseExpiryStr!);
-    this.zset(leaseKey!).set(jobId!, Number(leaseExpiryStr));
+    const existing = owners.get(jobId!);
+    if (!existing) return [0, "NOT_OWNED"];
+    const { token } = this.parseOwner(existing);
+    if (token !== ownershipToken) return [0, "TOKEN_MISMATCH"];
+    const leaseExpiry = Number(leaseExpiryStr);
+    owners.set(jobId!, formatLaneOwnerValue(token, leaseExpiry));
+    this.zset(leaseKey!).set(jobId!, leaseExpiry);
     return [1, "RENEWED"];
   }
 }
 
 describe("lane-permits", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("acquires up to the configured limit then reports LANE_LIMIT_REACHED", async () => {
     const redis = new InMemoryLaneRedis();
     const base = { redis, appEnv: "test", lane: "CALIBRATION" as const, limit: 2, nowMs: 1_000 };
 
     const first = await acquireLanePermit({ ...base, ingestionJobId: "job-1" });
-    expect(first).toEqual({ acquired: true, reason: "OK", laneCount: 1, limit: 2 });
+    expect(first.acquired).toBe(true);
+    expect(first.reason).toBe("OK");
+    expect(first.laneCount).toBe(1);
+    expect(first.limit).toBe(2);
+    expect(first.token).toEqual(expect.any(String));
+    expect(first.token!.length).toBeGreaterThan(0);
 
     const second = await acquireLanePermit({ ...base, ingestionJobId: "job-2" });
     expect(second.acquired).toBe(true);
     expect(second.laneCount).toBe(2);
+    expect(second.token).toEqual(expect.any(String));
 
     const third = await acquireLanePermit({ ...base, ingestionJobId: "job-3" });
-    expect(third).toEqual({ acquired: false, reason: "LANE_LIMIT_REACHED", laneCount: 2, limit: 2 });
+    expect(third).toEqual({
+      acquired: false,
+      reason: "LANE_LIMIT_REACHED",
+      laneCount: 2,
+      limit: 2,
+      token: null,
+    });
   });
 
-  it("is idempotent for a job that already holds a permit", async () => {
+  it("acquire returns an ownership token stored as token|expiryMs", async () => {
+    const redis = new InMemoryLaneRedis();
+    const result = await acquireLanePermit({
+      redis,
+      appEnv: "test",
+      lane: "OPERATION",
+      ingestionJobId: "job-token",
+      limit: 1,
+      nowMs: 1_000,
+      leaseTtlMs: 5_000,
+      ownershipToken: "fixed-token-1",
+    });
+    expect(result.acquired).toBe(true);
+    expect(result.token).toBe("fixed-token-1");
+    const keys = refreshLaneKeys("test", "OPERATION");
+    expect(redis.getOwner(keys.owners, "job-token")).toBe(
+      formatLaneOwnerValue("fixed-token-1", 6_000),
+    );
+  });
+
+  it("is idempotent for a job that already holds a permit and returns existing token", async () => {
     const redis = new InMemoryLaneRedis();
     const base = { redis, appEnv: "test", lane: "OPERATION" as const, limit: 1, nowMs: 1_000 };
 
-    const first = await acquireLanePermit({ ...base, ingestionJobId: "job-1" });
+    const first = await acquireLanePermit({
+      ...base,
+      ingestionJobId: "job-1",
+      ownershipToken: "tok-a",
+    });
     expect(first.acquired).toBe(true);
+    expect(first.token).toBe("tok-a");
 
-    const again = await acquireLanePermit({ ...base, ingestionJobId: "job-1", nowMs: 2_000 });
-    expect(again).toEqual({ acquired: true, reason: "IDEMPOTENT_EXISTING", laneCount: 1, limit: 1 });
+    const again = await acquireLanePermit({
+      ...base,
+      ingestionJobId: "job-1",
+      nowMs: 2_000,
+      ownershipToken: "tok-b-ignored",
+    });
+    expect(again).toEqual({
+      acquired: true,
+      reason: "IDEMPOTENT_EXISTING",
+      laneCount: 1,
+      limit: 1,
+      token: "tok-a",
+    });
   });
 
   it("releases a held permit and frees capacity for a new acquire", async () => {
     const redis = new InMemoryLaneRedis();
     const base = { redis, appEnv: "test", lane: "CALIBRATION" as const, limit: 1, nowMs: 1_000 };
 
-    await acquireLanePermit({ ...base, ingestionJobId: "job-1" });
+    const held = await acquireLanePermit({ ...base, ingestionJobId: "job-1" });
     const release = await releaseLanePermit({
       redis,
       appEnv: "test",
       lane: "CALIBRATION",
       ingestionJobId: "job-1",
+      ownershipToken: held.token!,
     });
-    expect(release).toEqual({ released: true, laneCount: 0 });
+    expect(release).toEqual({ released: true, laneCount: 0, reason: "RELEASED" });
 
     const next = await acquireLanePermit({ ...base, ingestionJobId: "job-2" });
     expect(next.acquired).toBe(true);
   });
 
-  it("releasing a permit not held returns released:false without going negative", async () => {
+  it("idempotent release after already released", async () => {
     const redis = new InMemoryLaneRedis();
-    const release = await releaseLanePermit({
+    const held = await acquireLanePermit({
       redis,
       appEnv: "test",
       lane: "OPERATION",
-      ingestionJobId: "never-acquired",
+      ingestionJobId: "job-1",
+      limit: 1,
+      nowMs: 1_000,
     });
-    expect(release).toEqual({ released: false, laneCount: 0 });
+    const first = await releaseLanePermit({
+      redis,
+      appEnv: "test",
+      lane: "OPERATION",
+      ingestionJobId: "job-1",
+      ownershipToken: held.token!,
+    });
+    expect(first.released).toBe(true);
+    const second = await releaseLanePermit({
+      redis,
+      appEnv: "test",
+      lane: "OPERATION",
+      ingestionJobId: "job-1",
+      ownershipToken: held.token!,
+    });
+    expect(second.released).toBe(true);
+    expect(second.reason).toBe("NOT_OWNED");
+    expect(second.laneCount).toBe(0);
+  });
+
+  it("wrong token release fails and permit remains", async () => {
+    const redis = new InMemoryLaneRedis();
+    const held = await acquireLanePermit({
+      redis,
+      appEnv: "test",
+      lane: "CALIBRATION",
+      ingestionJobId: "job-1",
+      limit: 1,
+      nowMs: 1_000,
+    });
+    const bad = await releaseLanePermit({
+      redis,
+      appEnv: "test",
+      lane: "CALIBRATION",
+      ingestionJobId: "job-1",
+      ownershipToken: "wrong-token",
+    });
+    expect(bad).toEqual({ released: false, laneCount: 1, reason: "TOKEN_MISMATCH" });
+
+    const blocked = await acquireLanePermit({
+      redis,
+      appEnv: "test",
+      lane: "CALIBRATION",
+      ingestionJobId: "job-2",
+      limit: 1,
+      nowMs: 1_100,
+    });
+    expect(blocked.acquired).toBe(false);
+
+    const good = await releaseLanePermit({
+      redis,
+      appEnv: "test",
+      lane: "CALIBRATION",
+      ingestionJobId: "job-1",
+      ownershipToken: held.token!,
+    });
+    expect(good.released).toBe(true);
   });
 
   it("reaps expired leases so a crashed worker's permit can be reclaimed", async () => {
@@ -180,10 +319,38 @@ describe("lane-permits", () => {
       limit: 1,
       nowMs: 5_000,
     });
-    expect(result).toEqual({ acquired: true, reason: "OK", laneCount: 1, limit: 1 });
+    expect(result.acquired).toBe(true);
+    expect(result.reason).toBe("OK");
+    expect(result.laneCount).toBe(1);
+    expect(result.token).toEqual(expect.any(String));
   });
 
-  it("renews a held lease and refuses to renew an unowned one", async () => {
+  it("multiple renewals succeed with the correct token", async () => {
+    const redis = new InMemoryLaneRedis();
+    const held = await acquireLanePermit({
+      redis,
+      appEnv: "test",
+      lane: "OPERATION",
+      ingestionJobId: "job-1",
+      limit: 1,
+      nowMs: 0,
+      leaseTtlMs: 1_000,
+    });
+    for (const t of [200, 400, 600]) {
+      const renewed = await renewLanePermit({
+        redis,
+        appEnv: "test",
+        lane: "OPERATION",
+        ingestionJobId: "job-1",
+        ownershipToken: held.token!,
+        nowMs: t,
+        leaseTtlMs: 1_000,
+      });
+      expect(renewed).toEqual({ renewed: true, reason: "RENEWED" });
+    }
+  });
+
+  it("wrong token renew fails", async () => {
     const redis = new InMemoryLaneRedis();
     await acquireLanePermit({
       redis,
@@ -193,27 +360,176 @@ describe("lane-permits", () => {
       limit: 1,
       nowMs: 0,
     });
-    const renewed = await renewLanePermit({
+    const bad = await renewLanePermit({
       redis,
       appEnv: "test",
       lane: "OPERATION",
       ingestionJobId: "job-1",
+      ownershipToken: "not-the-owner",
       nowMs: 500,
     });
-    expect(renewed).toEqual({ renewed: true });
+    expect(bad).toEqual({ renewed: false, reason: "TOKEN_MISMATCH" });
+  });
 
-    const notOwned = await renewLanePermit({
+  it("renew after deleted permit fails", async () => {
+    const redis = new InMemoryLaneRedis();
+    const held = await acquireLanePermit({
       redis,
       appEnv: "test",
       lane: "OPERATION",
-      ingestionJobId: "job-unknown",
+      ingestionJobId: "job-1",
+      limit: 1,
+      nowMs: 0,
+    });
+    await releaseLanePermit({
+      redis,
+      appEnv: "test",
+      lane: "OPERATION",
+      ingestionJobId: "job-1",
+      ownershipToken: held.token!,
+    });
+    const after = await renewLanePermit({
+      redis,
+      appEnv: "test",
+      lane: "OPERATION",
+      ingestionJobId: "job-1",
+      ownershipToken: held.token!,
       nowMs: 500,
     });
-    expect(notOwned).toEqual({ renewed: false });
+    expect(after).toEqual({ renewed: false, reason: "NOT_OWNED" });
+  });
+
+  it("heartbeat renews via injectable setInterval", async () => {
+    const redis = new InMemoryLaneRedis();
+    const held = await acquireLanePermit({
+      redis,
+      appEnv: "test",
+      lane: "CALIBRATION",
+      ingestionJobId: "hb-job",
+      limit: 1,
+      nowMs: 0,
+      leaseTtlMs: 1_000,
+    });
+
+    let now = 0;
+    const timers = new Map<ReturnType<typeof setInterval>, { fn: () => void; ms: number }>();
+    let nextId = 1;
+    const setIntervalFn = ((fn: () => void, ms: number) => {
+      const id = nextId++ as unknown as ReturnType<typeof setInterval>;
+      timers.set(id, { fn, ms });
+      return id;
+    }) as typeof setInterval;
+    const clearIntervalFn = ((id: ReturnType<typeof setInterval>) => {
+      timers.delete(id);
+    }) as typeof clearInterval;
+
+    const lost: string[] = [];
+    const hb = startLanePermitHeartbeat({
+      redis,
+      appEnv: "test",
+      lane: "CALIBRATION",
+      ingestionJobId: "hb-job",
+      ownershipToken: held.token!,
+      leaseTtlMs: 1_000,
+      renewIntervalMs: 100,
+      nowMs: () => now,
+      setIntervalFn,
+      clearIntervalFn,
+      onLost: (info) => lost.push(info.reason),
+    });
+
+    expect(timers.size).toBe(1);
+    now = 150;
+    for (const { fn } of timers.values()) fn();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const keys = refreshLaneKeys("test", "CALIBRATION");
+    expect(redis.getOwner(keys.owners, "hb-job")).toBe(
+      formatLaneOwnerValue(held.token!, 1_150),
+    );
+    expect(lost).toHaveLength(0);
+
+    now = 300;
+    for (const { fn } of timers.values()) fn();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(redis.getOwner(keys.owners, "hb-job")).toBe(
+      formatLaneOwnerValue(held.token!, 1_300),
+    );
+
+    await hb.stop();
+    expect(timers.size).toBe(0);
+  });
+
+  it("heartbeat onLost when renew fails after release", async () => {
+    const redis = new InMemoryLaneRedis();
+    const held = await acquireLanePermit({
+      redis,
+      appEnv: "test",
+      lane: "OPERATION",
+      ingestionJobId: "lost-job",
+      limit: 1,
+      nowMs: 0,
+    });
+
+    const timers = new Map<ReturnType<typeof setInterval>, () => void>();
+    let nextId = 1;
+    const setIntervalFn = ((fn: () => void) => {
+      const id = nextId++ as unknown as ReturnType<typeof setInterval>;
+      timers.set(id, fn);
+      return id;
+    }) as typeof setInterval;
+    const clearIntervalFn = ((id: ReturnType<typeof setInterval>) => {
+      timers.delete(id);
+    }) as typeof clearInterval;
+
+    const lost: string[] = [];
+    startLanePermitHeartbeat({
+      redis,
+      appEnv: "test",
+      lane: "OPERATION",
+      ingestionJobId: "lost-job",
+      ownershipToken: held.token!,
+      renewIntervalMs: 50,
+      setIntervalFn,
+      clearIntervalFn,
+      onLost: (info) => lost.push(info.reason),
+    });
+
+    await releaseLanePermit({
+      redis,
+      appEnv: "test",
+      lane: "OPERATION",
+      ingestionJobId: "lost-job",
+      ownershipToken: held.token!,
+    });
+
+    for (const fn of timers.values()) fn();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(lost).toContain("NOT_OWNED");
+    expect(timers.size).toBe(0);
   });
 
   it("clamps requested limits to the worker claim hard max", () => {
     expect(REFRESH_LANE_WORKER_CLAIM_HARD_MAX).toBe(8);
+    expect(REFRESH_LANE_LEASE_TTL_MS).toBe(45_000);
+    expect(REFRESH_LANE_RENEW_INTERVAL_MS).toBe(15_000);
+  });
+
+  it("parses and formats owner values", () => {
+    expect(formatLaneOwnerValue("abc", 99)).toBe("abc|99");
+    expect(parseLaneOwnerValue("abc|99")).toEqual({ token: "abc", expiryMs: 99 });
+    expect(parseLaneOwnerValue("bad")).toBeNull();
+  });
+
+  it("isLanePermitRedisUsable rejects ended/closed or missing eval", () => {
+    expect(isLanePermitRedisUsable(null)).toBe(false);
+    expect(isLanePermitRedisUsable({})).toBe(false);
+    expect(isLanePermitRedisUsable({ eval: async () => null, status: "ready" })).toBe(true);
+    expect(isLanePermitRedisUsable({ eval: async () => null, status: "end" })).toBe(false);
+    expect(isLanePermitRedisUsable({ eval: async () => null, status: "close" })).toBe(false);
   });
 
   it("builds environment-scoped, lane-scoped Redis keys", () => {
@@ -254,6 +570,9 @@ describe("lane-permits", () => {
     const limited = results.filter((r) => !r.acquired && r.reason === "LANE_LIMIT_REACHED");
     expect(acquired).toHaveLength(2);
     expect(limited).toHaveLength(6);
+    for (const r of acquired) {
+      expect(r.token).toEqual(expect.any(String));
+    }
   });
 
   it("isolates CALIBRATION and OPERATION lane capacity", async () => {
@@ -307,7 +626,6 @@ describe("lane-permits", () => {
       nowMs: 1_000,
     });
     expect(held.acquired).toBe(true);
-    // New acquires see the reduced limit, but the held job remains owned.
     const blocked = await acquireLanePermit({
       redis,
       appEnv: "test",
@@ -322,9 +640,10 @@ describe("lane-permits", () => {
       appEnv: "test",
       lane: "OPERATION",
       ingestionJobId: "held-1",
+      ownershipToken: held.token!,
       nowMs: 1_200,
     });
-    expect(renew).toEqual({ renewed: true });
+    expect(renew).toEqual({ renewed: true, reason: "RENEWED" });
   });
 
   it("increasing the configured limit allows additional claims", async () => {
