@@ -10588,19 +10588,49 @@
                         "workerClaimHardMax": {
                           "type": "integer"
                         },
+                        "syncState": {
+                          "type": "string",
+                          "enum": [
+                            "SYNCHRONIZED",
+                            "PARTIALLY_OBSERVED",
+                            "STALE",
+                            "UNSYNCHRONIZED",
+                            "UNKNOWN"
+                          ]
+                        },
                         "synchronized": {
                           "type": "boolean"
                         },
                         "settingsVersion": {
                           "type": "integer"
+                        },
+                        "observedReplicaCount": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "oldestObservationAt": {
+                          "type": [
+                            "null",
+                            "string"
+                          ]
+                        },
+                        "newestObservationAt": {
+                          "type": [
+                            "null",
+                            "string"
+                          ]
                         }
                       },
                       "required": [
                         "calibration",
                         "operation",
                         "workerClaimHardMax",
+                        "syncState",
                         "synchronized",
-                        "settingsVersion"
+                        "settingsVersion",
+                        "observedReplicaCount",
+                        "oldestObservationAt",
+                        "newestObservationAt"
                       ],
                       "additionalProperties": true
                     },
@@ -10878,19 +10908,49 @@
                     "workerClaimHardMax": {
                       "type": "integer"
                     },
+                    "syncState": {
+                      "type": "string",
+                      "enum": [
+                        "SYNCHRONIZED",
+                        "PARTIALLY_OBSERVED",
+                        "STALE",
+                        "UNSYNCHRONIZED",
+                        "UNKNOWN"
+                      ]
+                    },
                     "synchronized": {
                       "type": "boolean"
                     },
                     "settingsVersion": {
                       "type": "integer"
+                    },
+                    "observedReplicaCount": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "oldestObservationAt": {
+                      "type": [
+                        "null",
+                        "string"
+                      ]
+                    },
+                    "newestObservationAt": {
+                      "type": [
+                        "null",
+                        "string"
+                      ]
                     }
                   },
                   "required": [
                     "calibration",
                     "operation",
                     "workerClaimHardMax",
+                    "syncState",
                     "synchronized",
-                    "settingsVersion"
+                    "settingsVersion",
+                    "observedReplicaCount",
+                    "oldestObservationAt",
+                    "newestObservationAt"
                   ],
                   "additionalProperties": true
                 }
@@ -11123,19 +11183,49 @@
                     "workerClaimHardMax": {
                       "type": "integer"
                     },
+                    "syncState": {
+                      "type": "string",
+                      "enum": [
+                        "SYNCHRONIZED",
+                        "PARTIALLY_OBSERVED",
+                        "STALE",
+                        "UNSYNCHRONIZED",
+                        "UNKNOWN"
+                      ]
+                    },
                     "synchronized": {
                       "type": "boolean"
                     },
                     "settingsVersion": {
                       "type": "integer"
+                    },
+                    "observedReplicaCount": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "oldestObservationAt": {
+                      "type": [
+                        "null",
+                        "string"
+                      ]
+                    },
+                    "newestObservationAt": {
+                      "type": [
+                        "null",
+                        "string"
+                      ]
                     }
                   },
                   "required": [
                     "calibration",
                     "operation",
                     "workerClaimHardMax",
+                    "syncState",
                     "synchronized",
-                    "settingsVersion"
+                    "settingsVersion",
+                    "observedReplicaCount",
+                    "oldestObservationAt",
+                    "newestObservationAt"
                   ],
                   "additionalProperties": true
                 }
@@ -11485,6 +11575,7 @@
                       "enum": [
                         "QUEUED",
                         "RUNNING",
+                        "RETRYABLE",
                         "COMPLETED",
                         "FAILED",
                         "CANCELLED"
@@ -11569,6 +11660,12 @@
                       ]
                     },
                     "frozenBundleContentHash": {
+                      "type": [
+                        "null",
+                        "string"
+                      ]
+                    },
+                    "frozenBundleByteDigest": {
                       "type": [
                         "null",
                         "string"
@@ -11884,6 +11981,7 @@
                       "enum": [
                         "QUEUED",
                         "RUNNING",
+                        "RETRYABLE",
                         "COMPLETED",
                         "FAILED",
                         "CANCELLED"
@@ -11968,6 +12066,12 @@
                       ]
                     },
                     "frozenBundleContentHash": {
+                      "type": [
+                        "null",
+                        "string"
+                      ]
+                    },
+                    "frozenBundleByteDigest": {
                       "type": [
                         "null",
                         "string"
@@ -12877,6 +12981,7 @@
                           "enum": [
                             "QUEUED",
                             "RUNNING",
+                            "RETRYABLE",
                             "COMPLETED",
                             "FAILED",
                             "CANCELLED"
@@ -12961,6 +13066,12 @@
                           ]
                         },
                         "frozenBundleContentHash": {
+                          "type": [
+                            "null",
+                            "string"
+                          ]
+                        },
+                        "frozenBundleByteDigest": {
                           "type": [
                             "null",
                             "string"
@@ -13068,6 +13179,12 @@
                         "rootHash": {
                           "type": "string"
                         },
+                        "frozenBundleContentHash": {
+                          "type": "string"
+                        },
+                        "frozenBundleByteDigest": {
+                          "type": "string"
+                        },
                         "memberCount": {
                           "type": "integer"
                         },
@@ -13088,6 +13205,8 @@
                         "exportId",
                         "schemaVersion",
                         "rootHash",
+                        "frozenBundleContentHash",
+                        "frozenBundleByteDigest",
                         "memberCount",
                         "excludedCount",
                         "byteLength"
