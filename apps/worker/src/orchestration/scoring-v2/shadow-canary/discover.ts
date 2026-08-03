@@ -54,7 +54,7 @@ export async function discoverShadowCanaryCandidates(input: {
 
   const wcl = input.container.providers.warcraftlogs as {
     discoverCharacter?: (
-      identity: { region: string; realm: string; name: string },
+      identity: { region: string; realmSlug: string; name: string },
       ctx: ProviderFetchContext,
     ) => Promise<{
       candidates: Array<Record<string, unknown>>;
@@ -127,7 +127,7 @@ export async function discoverShadowCanaryCandidates(input: {
   const discovery = await wcl.discoverCharacter(
     {
       region: input.region,
-      realm: input.realmSlug,
+      realmSlug: input.realmSlug,
       name: input.characterName,
     },
     ctx,
