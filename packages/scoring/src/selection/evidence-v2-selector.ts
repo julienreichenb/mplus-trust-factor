@@ -390,9 +390,13 @@ export function buildEvidenceAcquisitionPlanV2(
     input.maxCandidatesPerDungeon ?? EVIDENCE_PLAN_MAX_CANDIDATES_PER_DUNGEON;
 
   const activeDungeonSlugs = [
-    ...new Set(input.scope.activeDungeonSlugs.map(normalizeDungeonSlug).filter(Boolean)),
+    ...new Set(
+      input.scope.activeDungeonSlugs
+        .map(normalizeDungeonSlug)
+        .filter((slug): slug is string => slug.length > 0),
+    ),
   ].sort((a, b) => a.localeCompare(b));
-  const activePool = new Set(activeDungeonSlugs);
+  const activePool: ReadonlySet<string> = new Set(activeDungeonSlugs);
   const expectedSlotCount = expectedEvidenceSlotCount(activeDungeonSlugs.length);
 
   const rejected: CandidateRejectionSummary[] = [];
