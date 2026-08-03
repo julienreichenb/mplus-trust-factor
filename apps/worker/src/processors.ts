@@ -196,9 +196,9 @@ export function createWorkers(connection: ConnectionOptions, container: WorkerCo
       const result = await withRetryClassification(job, () => runRefreshPipeline(container, payload));
       return toBullmqReturnValue(result);
     },
-    // Stage 3: keep effective refresh concurrency at 1 (BullMQ default).
-    // Do not wire REFRESH_WORKER_CONCURRENCY until REFRESH_CONCURRENCY_ENABLED.
-    // Distributed lane permits enforce concurrency_operation / concurrency_calibration.
+    // Dual-lane refresh: BullMQ claim concurrency is capped at REFRESH_LANE_WORKER_CLAIM_HARD_MAX.
+    // RuntimeSetting + Redis lane permits enforce concurrency_operation / concurrency_calibration.
+    // Do not wire REFRESH_WORKER_CONCURRENCY env until REFRESH_CONCURRENCY_ENABLED.
     { connection, autorun: false, concurrency: 8 },
   );
 

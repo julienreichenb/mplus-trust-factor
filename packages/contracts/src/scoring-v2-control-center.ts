@@ -72,6 +72,8 @@ export type UpdateConcurrencyBody = z.infer<typeof updateConcurrencyBodySchema>;
 export const freezeEvidenceBundleBodySchema = z.object({
   /** Explicit confirmation required. */
   confirm: z.literal(true),
+  /** Optional DRAFT/evaluation model — frozen only when explicitly selected. */
+  evaluationModelId: z.string().uuid().optional().nullable(),
 });
 export type FreezeEvidenceBundleBody = z.infer<typeof freezeEvidenceBundleBodySchema>;
 

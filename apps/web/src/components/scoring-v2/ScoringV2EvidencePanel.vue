@@ -28,7 +28,7 @@ const freezeBlocked = computed(() => {
   return !current.value.freezeEligible || current.value.blockerCount > 0;
 });
 
-async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
+async function apiJson<T>(path: string, init?: Parameters<typeof fetch>[1]): Promise<T> {
   const response = await fetch(`${apiBase}${path}`, {
     credentials: "include",
     headers: { Accept: "application/json", ...(init?.headers ?? {}) },
@@ -216,6 +216,17 @@ onUnmounted(stopPolling);
         <dd class="mono">{{ current.frozenBundleContentHash ?? "—" }}</dd>
       </dl>
 
+      <ul v-if="current.freezeBlockers.length" class="issues" aria-label="Freeze eligibility blockers">
+        <li
+          v-for="issue in current.freezeBlockers"
+          :key="'freeze-' + issue.code + (issue.memberId ?? '') + issue.message"
+        >
+          <span class="chip" data-sev="blocker">blocker</span>
+          <code>{{ issue.code }}</code> {{ issue.message }}
+          <span v-if="issue.memberId" class="muted"> · member {{ issue.memberId }}</span>
+        </li>
+      </ul>
+
       <ul v-if="current.issues.length" class="issues">
         <li v-for="issue in current.issues" :key="issue.code + (issue.memberId ?? '') + issue.message">
           <span class="chip" :data-sev="issue.severity">{{ issue.severity }}</span>
@@ -240,7 +251,11 @@ onUnmounted(stopPolling);
         </button>
       </div>
       <p v-if="freezeBlocked && current.status === 'COMPLETED'" class="muted">
-        Freeze is blocked until the export completes with no blockers and all evidence hashes resolve.
+        Freeze is blocked until every Calibration Input Bundle V2 artifact resolves. See freeze
+        eligibility blockers above.
+      </p>
+      <p v-else-if="freezeBlocked" class="muted">
+        Freeze is blocked until the export completes with no evidence blockers.
       </p>
     </section>
 

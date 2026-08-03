@@ -366,6 +366,7 @@ export class CharacterService {
       triggerSource: RefreshTriggerSource;
       /** Manual paths may attempt one provider sync; profile reads must not. */
       allowProviderSync?: boolean;
+      workloadClass?: "CALIBRATION" | "OPERATION";
     },
   ): Promise<EnqueueResult> {
     this.container.responseCache.invalidate(characterCacheKey(identity));
@@ -453,6 +454,7 @@ export class CharacterService {
       authoritativeSeasonId: authority.blizzardSeasonId,
       authoritativeSeasonSlug: authority.slug,
       authoritySource: authority.authoritySource,
+      workloadClass: opts.workloadClass ?? "OPERATION",
     });
 
     // forceRefresh:true uses unique dedupe keys — collapse replica races to one active job.
@@ -1433,7 +1435,11 @@ export class CharacterService {
    */
   async resolveCharacter(
     input: CharacterIdentityInput,
-    opts: { correlationId?: string | null; forceRetry?: boolean } = {},
+    opts: {
+      correlationId?: string | null;
+      forceRetry?: boolean;
+      workloadClass?: "CALIBRATION" | "OPERATION";
+    } = {},
   ): Promise<{ statusCode: number; body: CharacterResolveResponse }> {
     const identity: CharacterIdentityInput = {
       region: normalizeRegion(input.region),
@@ -1495,7 +1501,11 @@ export class CharacterService {
 
   private async resolveCharacterLocked(
     identity: CharacterIdentityInput,
-    opts: { correlationId?: string | null; forceRetry?: boolean },
+    opts: {
+      correlationId?: string | null;
+      forceRetry?: boolean;
+      workloadClass?: "CALIBRATION" | "OPERATION";
+    },
   ): Promise<{ statusCode: number; body: CharacterResolveResponse }> {
     const realm = await this.repositories.realm.findBySlug(identity.region, identity.realmSlug);
     if (!realm) {
@@ -1677,6 +1687,7 @@ export class CharacterService {
             correlationId: opts.correlationId,
             triggerSource: "SYSTEM",
             allowProviderSync: true,
+            workloadClass: opts.workloadClass ?? "OPERATION",
           });
           return {
             statusCode: 202,
@@ -1834,6 +1845,7 @@ export class CharacterService {
         correlationId: opts.correlationId,
         triggerSource: "SYSTEM",
         allowProviderSync: true,
+        workloadClass: opts.workloadClass ?? "OPERATION",
       });
       return {
         statusCode: 202,

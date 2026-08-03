@@ -333,6 +333,7 @@ export {
   createMapArtifactResolverV2,
   assertDraftOnlyCreation,
   freezeDimensionModelConfigsV2,
+  resolveFrozenDimensionConfigsForModel,
   strictReparseFrozenDimensionConfigs,
   CALIBRATION_REPORT_V2_SCHEMA_VERSION,
   CALIBRATION_V2_MIN_SLICE_SIZE,

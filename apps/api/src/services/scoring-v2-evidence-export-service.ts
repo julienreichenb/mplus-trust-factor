@@ -19,10 +19,13 @@ import {
 } from "@mplus/contracts";
 import type { Prisma } from "@mplus/database";
 import { OBS_EVENTS, emitScoringV2Event } from "@mplus/observability";
-import { createHash } from "node:crypto";
 import type { ApiContainer } from "../container.js";
 import { HttpError } from "../errors.js";
 import { writeAuditEvent } from "../iam/audit.js";
+import {
+  assembleCalibrationInputBundleV2,
+  toIssueDto,
+} from "./scoring-v2-bundle-freeze.js";
 
 type AuditCtx = {
   userId?: string | null;
@@ -55,38 +58,56 @@ function asIssues(summary: unknown): ScoringV2IssueDTO[] {
   return Array.isArray(issues) ? (issues as ScoringV2IssueDTO[]) : [];
 }
 
-function mapExport(row: {
-  id: string;
-  cohortId: string;
-  cohortRevision: number;
-  seasonId: string | null;
-  scoreModelId: string | null;
-  status: ScoringV2EvidenceExportDTO["status"];
-  progress: unknown;
-  summary: unknown;
-  blockerCount: number;
-  warningCount: number;
-  archiveContentHash: string | null;
-  archiveByteLength: number | null;
-  summaryContentHash: string | null;
-  preflightContentHash: string | null;
-  markdownContentHash: string | null;
-  frozenBundleContentHash: string | null;
-  frozenBundleByteLength: number | null;
-  frozenAt: Date | null;
-  errorCode: string | null;
-  errorMessage: string | null;
-  requestedByUserId: string;
-  createdAt: Date;
-  startedAt: Date | null;
-  completedAt: Date | null;
-  cohort?: { name: string } | null;
-}): ScoringV2EvidenceExportDTO {
+function mapExport(
+  row: {
+    id: string;
+    cohortId: string;
+    cohortRevision: number;
+    seasonId: string | null;
+    scoreModelId: string | null;
+    status: ScoringV2EvidenceExportDTO["status"];
+    progress: unknown;
+    summary: unknown;
+    blockerCount: number;
+    warningCount: number;
+    archiveContentHash: string | null;
+    archiveByteLength: number | null;
+    summaryContentHash: string | null;
+    preflightContentHash: string | null;
+    markdownContentHash: string | null;
+    frozenBundleContentHash: string | null;
+    frozenBundleByteLength: number | null;
+    frozenAt: Date | null;
+    errorCode: string | null;
+    errorMessage: string | null;
+    requestedByUserId: string;
+    createdAt: Date;
+    startedAt: Date | null;
+    completedAt: Date | null;
+    cohort?: { name: string } | null;
+  },
+  freezeExtras?: { freezeEligible?: boolean; freezeBlockers?: ScoringV2IssueDTO[] },
+): ScoringV2EvidenceExportDTO {
   const issues = asIssues(row.summary);
+  const summaryFreezeBlockers = Array.isArray(
+    (row.summary as { freezeBlockers?: unknown } | null)?.freezeBlockers,
+  )
+    ? ((row.summary as { freezeBlockers: ScoringV2IssueDTO[] }).freezeBlockers)
+    : [];
+  const freezeBlockers =
+    freezeExtras?.freezeBlockers ??
+    (row.frozenBundleContentHash
+      ? []
+      : summaryFreezeBlockers.length > 0
+        ? summaryFreezeBlockers
+        : issues.filter((i) => i.severity === "blocker"));
   const freezeEligible =
-    row.status === "COMPLETED" &&
-    row.blockerCount === 0 &&
-    Boolean((row.summary as { freezeEligible?: boolean } | null)?.freezeEligible);
+    freezeExtras?.freezeEligible ??
+    (Boolean(row.frozenBundleContentHash) ||
+      (row.status === "COMPLETED" &&
+        row.blockerCount === 0 &&
+        freezeBlockers.length === 0 &&
+        Boolean((row.summary as { freezeEligible?: boolean } | null)?.freezeEligible)));
   return {
     id: row.id,
     cohortId: row.cohortId,
@@ -109,7 +130,7 @@ function mapExport(row: {
     frozenBundleByteLength: row.frozenBundleByteLength,
     frozenAt: row.frozenAt?.toISOString() ?? null,
     freezeEligible,
-    freezeBlockers: freezeEligible ? [] : issues.filter((i) => i.severity === "blocker"),
+    freezeBlockers,
     errorCode: row.errorCode,
     errorMessage: row.errorMessage,
     requestedByUserId: row.requestedByUserId,
@@ -230,6 +251,23 @@ export class ScoringV2EvidenceExportService {
       include: { cohort: { select: { name: true } } },
     });
     if (!row) throw HttpError.notFound("EXPORT_NOT_FOUND", "Evidence export not found");
+
+    if (row.status === "COMPLETED" && !row.frozenBundleContentHash) {
+      const assembled = await assembleCalibrationInputBundleV2({
+        prisma: this.container.worker.prisma,
+        artifacts: this.container.worker.repositories.artifacts,
+        exportId: row.id,
+        dryRun: true,
+      });
+      const freezeBlockers = toIssueDto([
+        ...assembled.blockers.filter((b) => b.severity === "blocker"),
+      ]);
+      return mapExport(row, {
+        freezeEligible: assembled.ok && freezeBlockers.length === 0,
+        freezeBlockers,
+      });
+    }
+
     return mapExport(row);
   }
 
@@ -257,7 +295,7 @@ export class ScoringV2EvidenceExportService {
     body: unknown,
     ctx: AuditCtx,
   ): Promise<{ export: ScoringV2EvidenceExportDTO; bundle: ScoringV2FrozenBundleDTO }> {
-    freezeEvidenceBundleBodySchema.parse(body);
+    const parsed = freezeEvidenceBundleBodySchema.parse(body);
     const row = await this.container.worker.prisma.scoringV2EvidenceExport.findUnique({
       where: { id: exportId },
       include: {
@@ -265,16 +303,12 @@ export class ScoringV2EvidenceExportService {
       },
     });
     if (!row) throw HttpError.notFound("EXPORT_NOT_FOUND", "Evidence export not found");
-    const mapped = mapExport(row);
     if (row.status !== "COMPLETED") {
       throw HttpError.conflict("EXPORT_NOT_COMPLETED", "Export must complete before freeze");
     }
-    if (!mapped.freezeEligible || row.blockerCount > 0) {
-      throw HttpError.conflict("FREEZE_BLOCKED", "Export has blockers and cannot be frozen");
-    }
     if (row.frozenBundleContentHash && row.frozenBundleStorageUri) {
       return {
-        export: mapped,
+        export: mapExport(row, { freezeEligible: true, freezeBlockers: [] }),
         bundle: {
           exportId: row.id,
           schemaVersion: CALIBRATION_INPUT_BUNDLE_V2_SCHEMA_VERSION,
@@ -282,31 +316,46 @@ export class ScoringV2EvidenceExportService {
           memberCount: row.cohort.members.length,
           excludedCount: row.cohort.members.filter((m) => !m.included || m.exclusionCode).length,
           byteLength: row.frozenBundleByteLength ?? 0,
-          createdAt: row.frozenAt?.toISOString() ?? row.completedAt?.toISOString() ?? row.createdAt.toISOString(),
+          createdAt:
+            row.frozenAt?.toISOString() ??
+            row.completedAt?.toISOString() ??
+            row.createdAt.toISOString(),
           deduplicated: true,
         },
       };
     }
 
-    // Minimal immutable freeze document (V2-shaped). Full member evidence refs come from preflight summary.
-    const freezeDoc = {
-      schemaVersion: CALIBRATION_INPUT_BUNDLE_V2_SCHEMA_VERSION,
-      cohortId: row.cohortId,
-      cohortRevision: row.cohortRevision,
-      seasonId: row.seasonId,
-      scoreModelId: row.scoreModelId,
-      evidenceExportId: row.id,
-      summaryContentHash: row.summaryContentHash,
-      preflightContentHash: row.preflightContentHash,
-      archiveContentHash: row.archiveContentHash,
-      memberCount: row.cohort.members.length,
-      excludedCount: row.cohort.members.filter((m) => !m.included || m.exclusionCode).length,
-      frozenAt: new Date().toISOString(),
-      summary: row.summary,
-    };
-    const bytes = Buffer.from(JSON.stringify(freezeDoc), "utf8");
-    const contentHash = createHash("sha256").update(bytes).digest("hex");
+    const assembled = await assembleCalibrationInputBundleV2({
+      prisma: this.container.worker.prisma,
+      artifacts: this.container.worker.repositories.artifacts,
+      exportId: row.id,
+      evaluationModelId: parsed.evaluationModelId ?? null,
+      dryRun: false,
+    });
+    if (!assembled.ok || !assembled.bundle) {
+      throw HttpError.conflict(
+        "FREEZE_BLOCKED",
+        "Export is not eligible for Calibration Input Bundle V2 freeze",
+        {
+          blockers: toIssueDto(assembled.blockers),
+          warnings: toIssueDto(assembled.warnings),
+        },
+      );
+    }
 
+    const rootHash = assembled.bundle.bundleHash;
+    const existingByHash = await this.container.worker.prisma.scoringV2EvidenceExport.findFirst({
+      where: {
+        frozenBundleContentHash: rootHash,
+        id: { not: row.id },
+      },
+      select: {
+        frozenBundleStorageUri: true,
+        frozenBundleByteLength: true,
+      },
+    });
+
+    const bytes = Buffer.from(JSON.stringify(assembled.bundle), "utf8");
     const persisted = await this.container.worker.repositories.artifacts.persist({
       provider: "INTERNAL",
       bytes,
@@ -318,17 +367,32 @@ export class ScoringV2EvidenceExportService {
     const updated = await this.container.worker.prisma.scoringV2EvidenceExport.update({
       where: { id: row.id },
       data: {
-        frozenBundleContentHash: persisted.write.contentHash,
-        frozenBundleByteLength: persisted.write.uncompressedSizeBytes,
-        frozenBundleStorageUri: persisted.write.storageUri,
+        frozenBundleContentHash: rootHash,
+        frozenBundleByteLength:
+          existingByHash?.frozenBundleByteLength ?? persisted.write.uncompressedSizeBytes,
+        frozenBundleStorageUri:
+          existingByHash?.frozenBundleStorageUri ?? persisted.write.storageUri,
         frozenAt: new Date(),
+        summary: {
+          ...((row.summary as Record<string, unknown>) ?? {}),
+          freezeEligible: true,
+          freezeBlockers: [],
+          freeze: {
+            schemaVersion: assembled.bundle.schemaVersion,
+            bundleHash: rootHash,
+            memberCount: assembled.bundle.members.length,
+            includedCount: assembled.bundle.members.filter((m) => m.included).length,
+            excludedCount: assembled.bundle.members.filter((m) => !m.included).length,
+            warnings: toIssueDto(assembled.warnings),
+          },
+        },
       },
       include: { cohort: { select: { name: true } } },
     });
 
     emitScoringV2Event(this.container.logger, OBS_EVENTS.scoringV2AdminBundleFrozen, {
       exportId: row.id,
-      contentHash: persisted.write.contentHash,
+      contentHash: rootHash,
       byteLength: persisted.write.uncompressedSizeBytes,
     });
 
@@ -342,20 +406,24 @@ export class ScoringV2EvidenceExportService {
       ip: ctx.ip,
       userAgent: ctx.userAgent,
       sessionSecret: this.container.env.SESSION_SECRET,
-      metadata: { contentHash: persisted.write.contentHash },
+      metadata: {
+        contentHash: rootHash,
+        schemaVersion: assembled.bundle.schemaVersion,
+        deduplicated: persisted.write.deduplicated || Boolean(existingByHash),
+      },
     });
 
     return {
-      export: mapExport(updated),
+      export: mapExport(updated, { freezeEligible: true, freezeBlockers: [] }),
       bundle: {
         exportId: row.id,
         schemaVersion: CALIBRATION_INPUT_BUNDLE_V2_SCHEMA_VERSION,
-        rootHash: persisted.write.contentHash || contentHash,
-        memberCount: freezeDoc.memberCount,
-        excludedCount: freezeDoc.excludedCount,
+        rootHash,
+        memberCount: assembled.bundle.members.length,
+        excludedCount: assembled.bundle.members.filter((m) => !m.included).length,
         byteLength: persisted.write.uncompressedSizeBytes,
         createdAt: updated.frozenAt?.toISOString() ?? new Date().toISOString(),
-        deduplicated: persisted.write.deduplicated,
+        deduplicated: persisted.write.deduplicated || Boolean(existingByHash),
       },
     };
   }

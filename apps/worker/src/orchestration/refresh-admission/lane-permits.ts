@@ -13,12 +13,30 @@ export interface LanePermitRedis {
 }
 
 export function refreshLaneKeys(appEnv: string, lane: RefreshWorkloadClass) {
-  const prefix = `${refreshAdmissionKeyPrefix(appEnv)}lane:${lane}:`;
+  const prefix = `${refreshAdmissionKeyPrefix(isolateLaneAppEnv(appEnv))}lane:${lane}:`;
   return {
     owners: `${prefix}owners`,
     lease: `${prefix}lease`,
     count: `${prefix}count`,
   };
+}
+
+/**
+ * Isolate lane Redis keys under Vitest workers for test/development APP_ENV so
+ * parallel test files sharing Redis do not starve each other on OPERATION limit.
+ * Production/staging keys are never rewritten.
+ */
+export function isolateLaneAppEnv(appEnv: string): string {
+  const normalized = (appEnv || "development").trim().toLowerCase();
+  if (normalized !== "test" && normalized !== "development") {
+    return appEnv;
+  }
+  const vitestWorker =
+    process.env.VITEST_POOL_ID ?? process.env.VITEST_WORKER_ID ?? process.env.VITEST_WORKER;
+  if (vitestWorker && vitestWorker.length > 0) {
+    return `${normalized}:vw-${vitestWorker}`;
+  }
+  return appEnv;
 }
 
 /** @deprecated alias — prefer refreshLaneKeys */

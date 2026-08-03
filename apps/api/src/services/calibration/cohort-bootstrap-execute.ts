@@ -26,7 +26,14 @@ export interface BootstrapEventSink {
 }
 
 export interface ResolveCharacterFn {
-  (identity: CharacterIdentityInput, opts?: { correlationId?: string | null; forceRetry?: boolean }): Promise<{
+  (
+    identity: CharacterIdentityInput,
+    opts?: {
+      correlationId?: string | null;
+      forceRetry?: boolean;
+      workloadClass?: "CALIBRATION" | "OPERATION";
+    },
+  ): Promise<{
     statusCode: number;
     body: CharacterResolveResponse;
   }>;
@@ -231,6 +238,7 @@ export async function executeBootstrapPlan(
         const first = await deps.resolveCharacter(identity, {
           correlationId,
           forceRetry: entry.initialState === "RETRYABLE_FAILURE",
+          workloadClass: "CALIBRATION",
         });
 
         let mapped: MappedResolve;
@@ -241,6 +249,7 @@ export async function executeBootstrapPlan(
           const repair = await deps.resolveCharacter(identity, {
             correlationId,
             forceRetry: true,
+            workloadClass: "CALIBRATION",
           });
           finalBody = repair.body;
           const repairMapped = mapRepairResolveToResult(repair.body, entry);
