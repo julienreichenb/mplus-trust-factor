@@ -42,6 +42,7 @@ import {
   resolveFrozenClassSpecIdentity,
   type FrozenClassSpecIdentity,
 } from "./class-spec-identity.js";
+import { persistWclRunDigestAndRoster } from "./wcl-run-digest-persist.js";
 import {
   requiresRankingParse,
   requiresSharedEventEvidence,
@@ -533,6 +534,33 @@ export async function acquireCandidateWithFallback(input: {
         }
 
         if (bundle) {
+          // Permanent neutral digest + roster from persisted source evidence (not scores).
+          try {
+            await persistWclRunDigestAndRoster({
+              wclSource: container.repositories.wclSource,
+              bundle,
+              region: input.region,
+              dungeonSlug,
+              keyLevel: candidate.keyLevel,
+              timed: candidate.timed,
+              resolveTarget: null,
+              startTimeMs: details.startTime,
+              endTimeMs: details.endTime,
+            });
+          } catch (digestError) {
+            container.logger.warn(
+              {
+                event: "wcl_run_digest_persist_failed",
+                reportCode: identity.reportCode,
+                fightId: identity.fightId,
+                reportRevision,
+                error:
+                  digestError instanceof Error ? digestError.message : String(digestError),
+              },
+              "wcl run digest persist failed; continuing acquisition",
+            );
+          }
+
           for (const [key, ds] of Object.entries(bundle.eventDatasets)) {
             if (!ds) continue;
             const kind = datasetKindFromSharedKey(key);

@@ -89,16 +89,27 @@ export type WclRunSourceDigestDocument = z.infer<typeof wclRunSourceDigestDocume
 
 /** Fail-closed check that a digest payload has no model/score semantics. */
 export function assertNeutralWclRunDigest(value: unknown): WclRunSourceDigestDocument {
+  assertNoForbiddenScoreKeys(value);
   const parsed = wclRunSourceDigestDocumentSchema.parse(value);
-  const serialized = JSON.stringify(parsed).toLowerCase();
-  for (const key of WCL_DIGEST_FORBIDDEN_SCORE_KEYS) {
-    // Allow "confidence" only as substring of mappingConfidence-style words — use word boundaries.
-    const re = new RegExp(`"${key}"\\s*:`, "i");
-    if (re.test(serialized)) {
-      throw new Error(`wcl_run_source_digest_contains_forbidden_field:${key}`);
-    }
-  }
+  assertNoForbiddenScoreKeys(parsed);
   return parsed;
+}
+
+function assertNoForbiddenScoreKeys(value: unknown, path = "$"): void {
+  if (value == null || typeof value !== "object") return;
+  if (Array.isArray(value)) {
+    value.forEach((item, i) => assertNoForbiddenScoreKeys(item, `${path}[${i}]`));
+    return;
+  }
+  for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+    const normalized = key.toLowerCase();
+    for (const forbidden of WCL_DIGEST_FORBIDDEN_SCORE_KEYS) {
+      if (normalized === forbidden.toLowerCase()) {
+        throw new Error(`wcl_run_source_digest_contains_forbidden_field:${key}@${path}`);
+      }
+    }
+    assertNoForbiddenScoreKeys(child, `${path}.${key}`);
+  }
 }
 
 export const evidenceDatasetPageIdentitySchema = z.object({
