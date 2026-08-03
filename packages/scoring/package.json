@@ -18,6 +18,7 @@
     "boost-shadow:backtest": "node ./dist/boost-shadow/backtest/cli.js"
   },
   "dependencies": {
+    "@mplus/abilities": "workspace:*",
     "@mplus/contracts": "workspace:*"
   },
   "devDependencies": {

@@ -63,6 +63,13 @@ export interface EvidenceV2BatchMetadata {
   /** Idempotent admission release marker. */
   admissionReleased: boolean;
   publicationBlocked: true;
+  /**
+   * Admin Shadow Canary batches may run while global SCORING_V2_* flags stay off.
+   * Publication remains blocked regardless.
+   */
+  adminShadowCanary?: boolean;
+  /** Optional link back to ScoringV2ShadowCanary.id */
+  shadowCanaryId?: string | null;
 }
 
 export function emptySlotRecord(

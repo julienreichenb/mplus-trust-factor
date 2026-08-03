@@ -36,6 +36,9 @@ export interface CreateEvidenceV2BatchInput {
   correlationId?: string | null;
   enabledConsumers: EvidenceV2EnabledConsumer[];
   deadlineAt?: Date | null;
+  /** Admin Shadow Canary — bypass global flags while publication stays blocked. */
+  adminShadowCanary?: boolean;
+  shadowCanaryId?: string | null;
 }
 
 export interface EvidenceV2BatchView {
@@ -227,6 +230,8 @@ export function createEvidenceV2BatchRepository(
         manifestContentHash: null,
         admissionReleased: false,
         publicationBlocked: true,
+        adminShadowCanary: input.adminShadowCanary === true,
+        shadowCanaryId: input.shadowCanaryId ?? null,
       };
 
       const existing = await prisma.scoreAnalysisBatch.findUnique({

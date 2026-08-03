@@ -1,5 +1,5 @@
 import type { PrismaClient } from "@mplus/database";
-import { ArtifactRepository, EvidenceRepository } from "@mplus/database";
+import { ArtifactRepository, EvidenceRepository, WclSourceRepository } from "@mplus/database";
 import { createLocalFsArtifactStore } from "@mplus/artifact-store";
 import { createAddonExportRepository, type AddonExportRepository } from "./addon-export-repository.js";
 import {
@@ -46,6 +46,7 @@ export interface WorkerRepositories {
   evidence: EvidenceRepository;
   artifacts: ArtifactRepository;
   evidenceV2Batch: EvidenceV2BatchRepository;
+  wclSource: WclSourceRepository;
 }
 
 export function createRepositories(
@@ -71,6 +72,7 @@ export function createRepositories(
     evidence: new EvidenceRepository(prisma),
     artifacts: new ArtifactRepository(prisma, artifactStore),
     evidenceV2Batch: createEvidenceV2BatchRepository(prisma),
+    wclSource: new WclSourceRepository(prisma),
   };
 }
 

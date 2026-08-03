@@ -301,6 +301,9 @@ importers:
       '@mplus/artifact-store':
         specifier: workspace:*
         version: link:../artifact-store
+      '@mplus/contracts':
+        specifier: workspace:*
+        version: link:../contracts
       '@prisma/client':
         specifier: ^6.13.0
         version: 6.19.3(prisma@6.19.3(typescript@5.9.3))(typescript@5.9.3)
@@ -418,6 +421,9 @@ importers:
 
   packages/scoring:
     dependencies:
+      '@mplus/abilities':
+        specifier: workspace:*
+        version: link:../abilities
       '@mplus/contracts':
         specifier: workspace:*
         version: link:../contracts

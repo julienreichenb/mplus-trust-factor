@@ -21,6 +21,7 @@
   },
   "dependencies": {
     "@mplus/artifact-store": "workspace:*",
+    "@mplus/contracts": "workspace:*",
     "@prisma/client": "^6.13.0"
   },
   "devDependencies": {

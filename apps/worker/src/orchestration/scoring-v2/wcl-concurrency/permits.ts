@@ -15,7 +15,7 @@ export const WCL_PERMIT_RENEW_INTERVAL_MS = 15_000;
 export interface WclConcurrencyRedis {
   eval(script: string, numKeys: number, ...args: (string | number)[]): Promise<unknown>;
   get(key: string): Promise<string | null>;
-  set(key: string, value: string, ...args: (string | number)[]): Promise<unknown>;
+  set(key: string, value: string, ...args: unknown[]): Promise<unknown>;
   del(...keys: string[]): Promise<number>;
 }
 

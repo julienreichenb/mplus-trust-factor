@@ -86,7 +86,14 @@ export async function runAnalyzeEvidenceSlotV2(
 }> {
   assertPublicationBlocked(container.env);
 
-  if (!container.env.SCORING_V2_ENABLED || !container.env.SCORING_V2_EVIDENCE_FETCH_ENABLED) {
+  const repo = container.repositories.evidenceV2Batch;
+  const viewEarly = await repo.getById(job.analysisBatchId);
+  const canaryBypass = viewEarly?.meta.adminShadowCanary === true;
+
+  if (
+    !canaryBypass &&
+    (!container.env.SCORING_V2_ENABLED || !container.env.SCORING_V2_EVIDENCE_FETCH_ENABLED)
+  ) {
     return {
       outcome: "flags_off",
       analysisBatchId: job.analysisBatchId,
@@ -94,8 +101,7 @@ export async function runAnalyzeEvidenceSlotV2(
     };
   }
 
-  const repo = container.repositories.evidenceV2Batch;
-  const view = await repo.getById(job.analysisBatchId);
+  const view = viewEarly;
   if (!view) {
     return { outcome: "batch_not_found", analysisBatchId: job.analysisBatchId, slotId: job.slotId };
   }
@@ -242,7 +248,9 @@ export async function runAnalyzeEvidenceSlotV2(
         dungeonSlug: slotPlan.dungeonSlug,
         slotIndex: slotPlan.slotIndex,
       },
-      transport: createProviderBackedEvidenceTransport(container),
+      transport: createProviderBackedEvidenceTransport(container, {
+        characterId: batchView.batch.characterId,
+      }),
       classSlug: frozenIdentity.classSlug,
       specSlug: frozenIdentity.specSlug,
       classSpecIdentity: frozenIdentity,
