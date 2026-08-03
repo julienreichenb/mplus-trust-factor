@@ -34,6 +34,11 @@ export const QUEUE_NAMES = {
    * Admin Scoring V2 evidence-join export — provider-free, no refresh enqueue.
    */
   scoringV2EvidenceExport: "scoring-v2-evidence-export",
+  /**
+   * Admin Shadow Canary — bounded single-character Scoring V2 SHADOW run.
+   * Does not require global SCORING_V2_* flags; publication remains blocked.
+   */
+  scoringV2ShadowCanary: "scoring-v2-shadow-canary",
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];

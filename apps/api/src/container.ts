@@ -302,6 +302,16 @@ function createInlineQueueProducers(worker: WorkerContainer): QueueProducers {
       };
     },
 
+    async enqueueScoringV2ShadowCanary(input): Promise<EnqueueResult> {
+      // Inline/skipQueues mode records enqueue only — worker owns live canary execution.
+      return {
+        jobId: input.canaryId,
+        dedupeKey: input.canaryId,
+        reused: false,
+        enqueued: true,
+      };
+    },
+
     async enqueueAnalyzeEvidenceSlot(input): Promise<EnqueueResult> {
       const payload: AnalyzeEvidenceSlotJobV2 = analyzeEvidenceSlotJobV2Schema.parse({
         ...input,

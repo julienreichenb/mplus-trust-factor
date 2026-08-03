@@ -81,6 +81,17 @@ export interface QueueProducers {
   enqueueScoringV2EvidenceExport(
     input: { exportId: string; requestedAt?: string; correlationId?: string | null },
   ): Promise<EnqueueResult>;
+  /** Admin Shadow Canary — async single-character SHADOW run. */
+  enqueueScoringV2ShadowCanary(
+    input: {
+      canaryId: string;
+      region: "EU" | "US" | "KR" | "TW";
+      realmSlug: string;
+      characterName: string;
+      requestedAt?: string;
+      correlationId?: string | null;
+    },
+  ): Promise<EnqueueResult>;
   /** Scoring V2 — one job per acquisition-plan slot (provider-aware). */
   enqueueAnalyzeEvidenceSlot(
     input: Omit<AnalyzeEvidenceSlotJobV2, "requestedAt" | "schemaVersion"> & {
@@ -124,6 +135,9 @@ export function createQueueProducers(
     }),
     [QUEUE_NAMES.calibrationRun]: new Queue(QUEUE_NAMES.calibrationRun, { connection }),
     [QUEUE_NAMES.scoringV2EvidenceExport]: new Queue(QUEUE_NAMES.scoringV2EvidenceExport, {
+      connection,
+    }),
+    [QUEUE_NAMES.scoringV2ShadowCanary]: new Queue(QUEUE_NAMES.scoringV2ShadowCanary, {
       connection,
     }),
     [QUEUE_NAMES.analyzeEvidenceSlot]: new Queue(QUEUE_NAMES.analyzeEvidenceSlot, { connection }),
@@ -319,6 +333,29 @@ export function createQueueProducers(
       return {
         jobId: job.id ?? payload.exportId,
         dedupeKey: payload.exportId,
+        reused: false,
+        enqueued: true,
+      };
+    },
+
+    async enqueueScoringV2ShadowCanary(input) {
+      const payload = {
+        canaryId: input.canaryId,
+        region: input.region,
+        realmSlug: input.realmSlug,
+        characterName: input.characterName,
+        requestedAt: input.requestedAt ?? new Date().toISOString(),
+        correlationId: input.correlationId ?? null,
+        forceRefresh: false,
+      };
+      const job = await queues[QUEUE_NAMES.scoringV2ShadowCanary].add(
+        QUEUE_NAMES.scoringV2ShadowCanary,
+        payload,
+        { jobId: input.canaryId },
+      );
+      return {
+        jobId: job.id ?? input.canaryId,
+        dedupeKey: input.canaryId,
         reused: false,
         enqueued: true,
       };

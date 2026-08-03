@@ -25,12 +25,21 @@ export const scoringV2EvidenceExportStatusSchema = z.enum(SCORING_V2_EVIDENCE_EX
 export const RUNTIME_SETTING_KEYS = {
   concurrencyCalibration: "concurrency_calibration",
   concurrencyOperation: "concurrency_operation",
+  /** Global concurrent WCL HTTP requests for Scoring V2 acquisition. */
+  wclGlobalHttpConcurrency: "wcl_global_http_concurrency",
+  /** Max active run acquisitions per character. */
+  wclPerCharacterRunConcurrency: "wcl_per_character_run_concurrency",
+  /** Fraction of hourly WCL point budget to reserve (0.2 = 20%). */
+  wclBudgetReserveRatio: "wcl_budget_reserve_ratio",
 } as const;
 
 export const CONCURRENCY_MIN = 1;
 export const CONCURRENCY_MAX = 8;
 export const DEFAULT_CONCURRENCY_CALIBRATION = 4;
 export const DEFAULT_CONCURRENCY_OPERATION = 2;
+export const DEFAULT_WCL_GLOBAL_HTTP_CONCURRENCY = 3;
+export const DEFAULT_WCL_PER_CHARACTER_RUN_CONCURRENCY = 2;
+export const DEFAULT_WCL_BUDGET_RESERVE_RATIO = 0.2;
 
 export const concurrencyValueSchema = z
   .number()
@@ -84,6 +93,17 @@ export const scoringV2EvidenceExportJobSchema = z.object({
   correlationId: z.string().min(1).max(128).nullable().optional(),
 });
 export type ScoringV2EvidenceExportJob = z.infer<typeof scoringV2EvidenceExportJobSchema>;
+
+export const scoringV2ShadowCanaryJobSchema = z.object({
+  canaryId: z.string().uuid(),
+  region: z.enum(["EU", "US", "KR", "TW"]),
+  realmSlug: z.string().min(1).max(64),
+  characterName: z.string().min(1).max(48),
+  requestedAt: z.string().datetime(),
+  correlationId: z.string().min(1).max(128).nullable().optional(),
+  forceRefresh: z.boolean().default(false),
+});
+export type ScoringV2ShadowCanaryJob = z.infer<typeof scoringV2ShadowCanaryJobSchema>;
 
 export interface ScoringV2FlagOverviewDTO {
   masterEnabled: boolean;
