@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   EVIDENCE_EXPORT_MAX_ARCHIVE_BYTES,
@@ -22,6 +23,20 @@ function artifactWrite(contentHash: string, size = 10) {
     write: {
       contentHash,
       uncompressedSizeBytes: size,
+      storageUri: `cas://${contentHash}`,
+      deduplicated: false,
+    },
+  };
+}
+
+function persistFromBytes(bytes: Buffer | Uint8Array) {
+  const buf = Buffer.from(bytes);
+  const contentHash = createHash("sha256").update(buf).digest("hex");
+  return {
+    artifactId: `art-${contentHash.slice(0, 8)}`,
+    write: {
+      contentHash,
+      uncompressedSizeBytes: buf.byteLength,
       storageUri: `cas://${contentHash}`,
       deduplicated: false,
     },
@@ -140,6 +155,78 @@ function joinResult(generatedAt = "2026-08-03T12:00:00.000Z") {
   };
 }
 
+function evidencePrismaMocks(evidenceCutoffAt = new Date("2026-08-03T12:00:00.000Z")) {
+  const manifestContentHash = "b".repeat(64);
+  return {
+    evidenceManifest: {
+      findFirst: vi.fn(async () => ({
+        id: "manifest-1",
+        contentHash: manifestContentHash,
+        schemaVersion: "2.0.0",
+        document: {
+          schemaVersion: "2.0.0",
+          contentHash: manifestContentHash,
+          slots: [],
+        },
+        frozenAt: evidenceCutoffAt,
+        slots: [
+          {
+            id: "slot-1",
+            factSets: [
+              {
+                schemaVersion: "utility-v2-facts",
+                extractorFamily: "utility",
+                extractorVersion: "1",
+                inputFingerprint: "fp-1",
+                facts: { kind: "fixture" },
+                coverage: {},
+                limitations: [],
+                computedAt: evidenceCutoffAt,
+              },
+            ],
+          },
+        ],
+      })),
+    },
+    dimensionComputation: {
+      findMany: vi.fn(async () =>
+        (["PERFORMANCE", "SURVIVAL", "UTILITY", "EXPERIENCE"] as const).map((dimension) => ({
+          dimension,
+          algorithmVersion: `${dimension.toLowerCase()}-algo`,
+          inputFingerprint: `fp-${dimension}`,
+          score: 70,
+          confidence: 0.9,
+          state: "COMPLETE",
+          metrics: {},
+          explanation: {},
+          computedAt: evidenceCutoffAt,
+        })),
+      ),
+    },
+    scoreSnapshot: {
+      findFirst: vi.fn(async () => ({
+        id: "snap-1",
+        characterId: "44444444-4444-4444-8444-444444444444",
+        seasonId: "22222222-2222-4222-8222-222222222222",
+        scoreModelId: "model-1",
+        scopeType: "CHARACTER",
+        scopeKey: null,
+        overallScore: 70,
+        grade: "B",
+        skillScore: 70,
+        authenticityScore: 70,
+        confidence: 0.9,
+        calculatedAt: evidenceCutoffAt,
+        inputFingerprint: "fp-snap",
+        explanation: {},
+        publicationStatus: "PUBLIC",
+        isPublic: true,
+        evidenceManifestId: "manifest-1",
+      })),
+    },
+  };
+}
+
 describe("runScoringV2EvidenceExportJob idempotency (B3)", () => {
   const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() };
   let prisma: {
@@ -153,6 +240,15 @@ describe("runScoringV2EvidenceExportJob idempotency (B3)", () => {
     season: {
       findUnique: ReturnType<typeof vi.fn>;
     };
+    evidenceManifest: {
+      findFirst: ReturnType<typeof vi.fn>;
+    };
+    dimensionComputation: {
+      findMany: ReturnType<typeof vi.fn>;
+    };
+    scoreSnapshot: {
+      findFirst: ReturnType<typeof vi.fn>;
+    };
   };
   let artifacts: { persist: ReturnType<typeof vi.fn> };
 
@@ -161,6 +257,7 @@ describe("runScoringV2EvidenceExportJob idempotency (B3)", () => {
     runEvidenceJoin.mockResolvedValue(joinResult());
     const { createDefaultModelV6, createDefaultScoringV2DimensionConfigSet, withScoringV2DimensionConfigs } =
       await import("@mplus/scoring");
+    const evidence = evidencePrismaMocks();
     prisma = {
       scoringV2EvidenceExport: {
         findUnique: vi.fn(),
@@ -185,14 +282,19 @@ describe("runScoringV2EvidenceExportJob idempotency (B3)", () => {
           region: { code: "eu" },
         })),
       },
+      ...evidence,
     };
+    let persistCalls = 0;
     artifacts = {
-      persist: vi
-        .fn()
-        .mockResolvedValueOnce(artifactWrite("summary-hash"))
-        .mockResolvedValueOnce(artifactWrite("preflight-hash"))
-        .mockResolvedValueOnce(artifactWrite("markdown-hash"))
-        .mockResolvedValueOnce(artifactWrite("archive-hash", 100)),
+      persist: vi.fn(async (input: { bytes: Buffer | Uint8Array }) => {
+        persistCalls += 1;
+        // First four writes are summary/preflight/markdown/archive with fixed hashes.
+        if (persistCalls === 1) return artifactWrite("summary-hash");
+        if (persistCalls === 2) return artifactWrite("preflight-hash");
+        if (persistCalls === 3) return artifactWrite("markdown-hash");
+        if (persistCalls === 4) return artifactWrite("archive-hash", 100);
+        return persistFromBytes(input.bytes);
+      }),
     };
   });
 
@@ -392,7 +494,7 @@ describe("runScoringV2EvidenceExportJob idempotency (B3)", () => {
     expect(EVIDENCE_EXPORT_MAX_MEMBERS).toBe(500);
   });
 
-  it("H3: persists freezeSnapshot and scoreModelId on optimistic finalize", async () => {
+  it("H3: persists freezeSnapshot v2 with members[].evidence digests and scoreModelId", async () => {
     const pinned = new Date("2026-08-03T12:00:00.000Z");
     prisma.scoringV2EvidenceExport.findUnique
       .mockResolvedValueOnce(baseExportRow({ generatedAt: pinned, evidenceCutoffAt: pinned }))
@@ -420,6 +522,8 @@ describe("runScoringV2EvidenceExportJob idempotency (B3)", () => {
     expect(result).toEqual({ exportId: EXPORT_ID, status: "COMPLETED" });
     expect(prisma.scoreModel.findUnique).toHaveBeenCalledWith({ where: { id: "model-1" } });
     expect(prisma.season.findUnique).toHaveBeenCalled();
+    expect(prisma.evidenceManifest.findFirst).toHaveBeenCalled();
+    expect(prisma.dimensionComputation.findMany).toHaveBeenCalled();
 
     const finalizeCall = prisma.scoringV2EvidenceExport.updateMany.mock.calls[2]![0];
     expect(finalizeCall.data.scoreModelId).toBe("model-1");
@@ -427,11 +531,21 @@ describe("runScoringV2EvidenceExportJob idempotency (B3)", () => {
       schemaVersion: string;
       contentHash: string;
       activeModel: { id: string; key: string } | null;
-      members: Array<{ id: string; expectedLabel: string; characterName: string }>;
+      members: Array<{
+        id: string;
+        expectedLabel: string;
+        characterName: string;
+        evidence: {
+          manifest: { contentHash: string; byteDigest: string; digestAlgorithm: string };
+          factSets: Array<{ contentHash: string }>;
+          dimensionExports: Record<string, { contentHash: string }>;
+          previousSnapshot: { contentHash: string } | null;
+        } | null;
+      }>;
       cohortRevision: number;
       evaluationModel: unknown;
     };
-    expect(snap.schemaVersion).toBe("scoring-v2-freeze-snapshot-v1");
+    expect(snap.schemaVersion).toBe("scoring-v2-freeze-snapshot-v2");
     expect(snap.contentHash).toMatch(/^[a-f0-9]{64}$/);
     expect(snap.activeModel?.id).toBe("model-1");
     expect(snap.evaluationModel).toBeNull();
@@ -439,6 +553,17 @@ describe("runScoringV2EvidenceExportJob idempotency (B3)", () => {
     expect(snap.members).toHaveLength(1);
     expect(snap.members[0]!.expectedLabel).toBe("GOOD");
     expect(snap.members[0]!.characterName).toBe("Hero");
+    expect(snap.members[0]!.evidence).not.toBeNull();
+    expect(snap.members[0]!.evidence!.manifest.contentHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(snap.members[0]!.evidence!.manifest.byteDigest).toBe(
+      `sha256:${snap.members[0]!.evidence!.manifest.contentHash}`,
+    );
+    expect(snap.members[0]!.evidence!.manifest.digestAlgorithm).toBe("sha256");
+    expect(snap.members[0]!.evidence!.factSets.length).toBeGreaterThan(0);
+    expect(snap.members[0]!.evidence!.dimensionExports.PERFORMANCE?.contentHash).toMatch(
+      /^[a-f0-9]{64}$/,
+    );
+    expect(snap.members[0]!.evidence!.previousSnapshot?.contentHash).toMatch(/^[a-f0-9]{64}$/);
 
     const { parseAndVerifyFreezeSnapshot } = await import("@mplus/scoring");
     const verified = parseAndVerifyFreezeSnapshot(snap);

@@ -29,6 +29,7 @@ import {
   buildEvidenceJoinMarkdown,
   runEvidenceJoin,
 } from "./scoring-v2/evidence-join.js";
+import { packageMemberEvidenceForFreeze } from "./scoring-v2/freeze-evidence-package.js";
 import { buildStoreZip } from "./scoring-v2/zip-store.js";
 
 /** M4 lite: hard caps before buffering unbounded archives. */
@@ -389,23 +390,84 @@ export async function runScoringV2EvidenceExportJob(
         })
       : null;
 
-    const snapshotMembers: FreezeSnapshotMemberV1[] = exportRow.cohort.members.map((m) => ({
-      id: m.id,
-      externalMemberKey: m.externalMemberKey ?? null,
-      characterId: m.characterId ?? null,
-      region: m.region,
-      realmSlug: m.realmSlug,
-      characterName: m.characterName,
-      expectedLabel: m.expectedLabel,
-      rationale: m.rationale ?? "",
-      included: m.included,
-      exclusionCode: m.exclusionCode ?? null,
-      role: m.providedRole ?? null,
-      classSlug: m.classSlug ?? null,
-      specSlug: m.specSlug ?? null,
-      evidenceCutoffAt: m.evidenceCutoffAt?.toISOString() ?? evidenceCutoffAt.toISOString(),
-      source: m.source ?? "USER_SELECTED",
-    }));
+    const seasonIdResolved = seasonRow?.id ?? seasonIdForSnapshot ?? "";
+    const packagingBlockers: Array<{
+      code: string;
+      severity: string;
+      message: string;
+      memberId?: string | null;
+    }> = [];
+    const snapshotMembers: FreezeSnapshotMemberV1[] = [];
+    for (const m of exportRow.cohort.members) {
+      const packaged = await packageMemberEvidenceForFreeze({
+        prisma,
+        artifacts,
+        exportId: exportRow.id,
+        member: {
+          id: m.id,
+          characterId: m.characterId ?? null,
+          included: m.included,
+          exclusionCode: m.exclusionCode ?? null,
+        },
+        seasonId: seasonIdResolved,
+        activeModelId: freezeActiveModel?.id ?? activeModelId ?? null,
+      });
+      if (!packaged.ok) {
+        packagingBlockers.push(...packaged.blockers);
+      }
+      snapshotMembers.push({
+        id: m.id,
+        externalMemberKey: m.externalMemberKey ?? null,
+        characterId: m.characterId ?? null,
+        region: m.region,
+        realmSlug: m.realmSlug,
+        characterName: m.characterName,
+        expectedLabel: m.expectedLabel,
+        rationale: m.rationale ?? "",
+        included: m.included,
+        exclusionCode: m.exclusionCode ?? null,
+        role: m.providedRole ?? null,
+        classSlug: m.classSlug ?? null,
+        specSlug: m.specSlug ?? null,
+        evidenceCutoffAt: m.evidenceCutoffAt?.toISOString() ?? evidenceCutoffAt.toISOString(),
+        source: m.source ?? "USER_SELECTED",
+        evidence: packaged.evidence,
+      });
+    }
+
+    if (packagingBlockers.length > 0) {
+      const first = packagingBlockers[0]!;
+      const retryable = await prisma.scoringV2EvidenceExport.updateMany({
+        where: {
+          id: exportRow.id,
+          status: "RUNNING",
+          leaseOwner,
+          attempt,
+        },
+        data: {
+          status: "RETRYABLE",
+          completedAt: nowFn(),
+          errorCode: first.code.slice(0, 64),
+          errorMessage: `Evidence packaging failed: ${first.message}`.slice(0, 500),
+          blockerCount: packagingBlockers.filter((b) => b.severity === "blocker").length,
+          ...clearLeaseFields(),
+        },
+      });
+      if (retryable.count === 0) {
+        await failTerminal(
+          first.code.slice(0, 64),
+          `Evidence packaging failed: ${first.message}`,
+        );
+        return { exportId: exportRow.id, status: "FAILED" };
+      }
+      emitScoringV2Event(
+        logger,
+        OBS_EVENTS.scoringV2AdminEvidenceExportFailed,
+        { exportId: exportRow.id, reasonCode: first.code },
+        "error",
+      );
+      return { exportId: exportRow.id, status: "RETRYABLE" };
+    }
 
     const freezeSnapshot = buildFreezeSnapshot({
       cohortId: exportRow.cohortId,
@@ -416,7 +478,7 @@ export async function runScoringV2EvidenceExportJob(
       cohortRevision: exportRow.cohortRevision,
       members: snapshotMembers,
       season: {
-        seasonId: seasonRow?.id ?? seasonIdForSnapshot ?? "",
+        seasonId: seasonIdResolved,
         seasonSlug: seasonRow?.slug ?? join.seasonBinding.season?.slug ?? "",
         region: seasonRow?.region?.code ?? null,
       },

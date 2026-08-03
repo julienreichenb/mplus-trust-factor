@@ -420,6 +420,8 @@ export type {
   DigestFinding,
   FreezeSnapshotV1,
   FreezeSnapshotMemberV1,
+  FreezeSnapshotMemberEvidenceV2,
+  FreezeSnapshotContentRefV2,
   FreezeSnapshotModelV1,
   FreezeSnapshotParseErrorCode,
   FreezeSnapshotParseResult,

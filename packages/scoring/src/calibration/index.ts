@@ -196,6 +196,8 @@ export {
   freezeSnapshotModelToCalibrationRef,
   type FreezeSnapshotV1,
   type FreezeSnapshotMemberV1,
+  type FreezeSnapshotMemberEvidenceV2,
+  type FreezeSnapshotContentRefV2,
   type FreezeSnapshotModelV1,
   type FreezeSnapshotParseErrorCode,
   type FreezeSnapshotParseResult,

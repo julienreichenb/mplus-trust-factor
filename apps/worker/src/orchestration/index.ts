@@ -50,3 +50,9 @@ export {
   runScoringV2EvidenceExportJob,
   type ScoringV2EvidenceExportProcessorDeps,
 } from "./scoring-v2-evidence-export.js";
+export {
+  packageMemberEvidenceForFreeze,
+  type FreezeEvidencePackageBlocker,
+  type PackageMemberEvidenceInput,
+  type PackageMemberEvidenceResult,
+} from "./scoring-v2/freeze-evidence-package.js";

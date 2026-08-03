@@ -2,19 +2,27 @@
  * Unit tests for Calibration Input Bundle V2 freeze assembly.
  * Provider-free. Uses in-memory prisma/artifact fakes — no live providers.
  * H3: freeze consumes export-time freezeSnapshot, not live ACTIVE/cohort.
+ * H7: freeze assembles only from freezeSnapshot evidence refs + verified CAS bytes.
  */
 import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import {
+  ArtifactDigestMismatchError,
+  ArtifactMissingError,
+} from "@mplus/database";
+import {
   createMapArtifactResolverV2,
   createDefaultModelV6,
   createDefaultScoringV2DimensionConfigSet,
+  buildCalibrationContentRefV2,
   buildDefaultFreezePolicies,
   buildFreezeSnapshot,
   resolveFrozenDimensionConfigsForModel,
   replayCalibrationBundleV2,
   withScoringV2DimensionConfigs,
   type CalibrationInputBundleV2,
+  type FreezeSnapshotContentRefV2,
+  type FreezeSnapshotMemberEvidenceV2,
   type FreezeSnapshotV1,
 } from "@mplus/scoring";
 import { CURRENT_CATALOG_VERSION_ID } from "@mplus/abilities";
@@ -23,8 +31,13 @@ import {
   type AssembleBundleV2Result,
 } from "./scoring-v2-bundle-freeze.js";
 
+function sha256Hex(bytes: Buffer | string): string {
+  const buf = typeof bytes === "string" ? Buffer.from(bytes, "utf8") : bytes;
+  return createHash("sha256").update(buf).digest("hex");
+}
+
 function sha256Json(value: unknown): string {
-  return createHash("sha256").update(JSON.stringify(value)).digest("hex");
+  return sha256Hex(JSON.stringify(value));
 }
 
 function makeModelConfig() {
@@ -34,13 +47,37 @@ function makeModelConfig() {
   );
 }
 
-function makeArtifacts() {
-  const store = new Map<string, Buffer>();
+function toFreezeRef(
+  bytes: Buffer,
+  artifactClass: FreezeSnapshotContentRefV2["artifactClass"],
+  opts?: { logicalContentHash?: string | null; schemaVersion?: string | null },
+): FreezeSnapshotContentRefV2 {
+  const ref = buildCalibrationContentRefV2({
+    bytes,
+    artifactClass,
+    logicalContentHash: opts?.logicalContentHash ?? null,
+    schemaVersion: opts?.schemaVersion ?? null,
+    storageUri: `memory://${sha256Hex(bytes)}`,
+  });
+  return {
+    contentHash: ref.contentHash,
+    logicalContentHash: ref.logicalContentHash ?? null,
+    byteDigest: ref.byteDigest!,
+    digestAlgorithm: "sha256",
+    artifactClass: ref.artifactClass,
+    schemaVersion: ref.schemaVersion ?? null,
+    byteLength: ref.byteLength ?? bytes.byteLength,
+    storageUri: ref.storageUri ?? null,
+  };
+}
+
+function makeArtifacts(seed?: Map<string, Buffer>) {
+  const store = seed ? new Map(seed) : new Map<string, Buffer>();
   return {
     store,
     persist: vi.fn(async (input: { bytes: Buffer | Uint8Array }) => {
       const bytes = Buffer.from(input.bytes);
-      const contentHash = createHash("sha256").update(bytes).digest("hex");
+      const contentHash = sha256Hex(bytes);
       store.set(contentHash, bytes);
       return {
         artifactId: `art-${contentHash.slice(0, 8)}`,
@@ -54,6 +91,14 @@ function makeArtifacts() {
         },
       };
     }),
+    readVerifiedByContentHash: vi.fn(async (contentHash: string) => {
+      const hash = contentHash.toLowerCase();
+      const bytes = store.get(hash);
+      if (!bytes) throw new ArtifactMissingError(hash);
+      const actual = sha256Hex(bytes);
+      if (actual !== hash) throw new ArtifactDigestMismatchError(hash, actual);
+      return bytes;
+    }),
   };
 }
 
@@ -62,8 +107,9 @@ type FixtureOpts = {
   omitManifest?: boolean;
   omitFactSets?: boolean;
   omitDimension?: boolean;
-  omitAlgorithmPolicies?: boolean;
   evaluationModelId?: string | null;
+  /** Put evaluation model into freezeSnapshot (required for active-vs-draft). */
+  pinEvaluationModel?: boolean;
   mutateFactPayload?: (facts: unknown) => unknown;
   /** Override freezeSnapshot on the export row (undefined = auto-build valid snapshot). */
   freezeSnapshot?: unknown;
@@ -71,7 +117,85 @@ type FixtureOpts = {
   liveActiveModelOverride?: Record<string, unknown>;
   /** Mutate live cohort members if somehow queried (should be unused). */
   liveMembersOverride?: unknown[];
+  /** Drop CAS bytes after packaging (adversarial). */
+  dropCasArtifact?: "manifest" | "fact" | "dimension";
+  /** Alter CAS bytes under a valid key after packaging (adversarial). */
+  tamperCasManifest?: boolean;
+  /** Delete/mutate live evidence tables after packaging (should not affect freeze). */
+  wipeLiveEvidence?: boolean;
 };
+
+function packageEvidence(input: {
+  cas: Map<string, Buffer>;
+  manifestDocument: unknown;
+  manifestContentHash: string;
+  factPayload: unknown | null;
+  dims: Array<Record<string, unknown>>;
+  previousSnapshotId: string | null;
+}): FreezeSnapshotMemberEvidenceV2 | null {
+  if (input.manifestDocument == null) return null;
+
+  const manifestBytes = Buffer.from(JSON.stringify(input.manifestDocument), "utf8");
+  input.cas.set(sha256Hex(manifestBytes), manifestBytes);
+  const manifest = toFreezeRef(manifestBytes, "evidence_manifest", {
+    logicalContentHash: input.manifestContentHash,
+    schemaVersion: "2.0.0",
+  });
+
+  const factSets: FreezeSnapshotContentRefV2[] = [];
+  if (input.factPayload) {
+    const factBytes = Buffer.from(JSON.stringify(input.factPayload), "utf8");
+    input.cas.set(sha256Hex(factBytes), factBytes);
+    factSets.push(
+      toFreezeRef(factBytes, "run_fact_set", { schemaVersion: "utility-v2-facts" }),
+    );
+  }
+
+  const dimensionExports: FreezeSnapshotMemberEvidenceV2["dimensionExports"] = {};
+  for (const dim of input.dims) {
+    const exportDoc = {
+      schemaVersion: "2.0.0",
+      dimension: dim.dimension,
+      algorithmVersion: dim.algorithmVersion,
+      inputFingerprint: dim.inputFingerprint,
+      score: dim.score,
+      confidence: dim.confidence,
+      state: dim.state,
+      metrics: dim.metrics,
+      explanation: dim.explanation,
+      computedAt:
+        dim.computedAt instanceof Date
+          ? dim.computedAt.toISOString()
+          : String(dim.computedAt),
+    };
+    const dimBytes = Buffer.from(JSON.stringify(exportDoc), "utf8");
+    input.cas.set(sha256Hex(dimBytes), dimBytes);
+    dimensionExports[dim.dimension as keyof typeof dimensionExports] = toFreezeRef(
+      dimBytes,
+      "dimension_replay_export",
+      { schemaVersion: "2.0.0" },
+    );
+  }
+
+  let previousSnapshot: FreezeSnapshotContentRefV2 | null = null;
+  if (input.previousSnapshotId) {
+    const payload = {
+      schemaVersion: "score-snapshot-export-v1",
+      id: input.previousSnapshotId,
+      characterId: "11111111-1111-4111-8111-111111111111",
+      seasonId: "22222222-2222-4222-8222-222222222222",
+      overallScore: 70,
+      grade: "B",
+    };
+    const snapBytes = Buffer.from(JSON.stringify(payload), "utf8");
+    input.cas.set(sha256Hex(snapBytes), snapBytes);
+    previousSnapshot = toFreezeRef(snapBytes, "other", {
+      schemaVersion: "score-snapshot-export-v1",
+    });
+  }
+
+  return { manifest, factSets, dimensionExports, previousSnapshot };
+}
 
 function buildFreezeSnapshotForFixture(input: {
   cohortId: string;
@@ -79,6 +203,7 @@ function buildFreezeSnapshotForFixture(input: {
   completedAt: Date;
   evidenceCutoffAt: Date;
   members: Array<Record<string, unknown>>;
+  memberEvidence: Map<string, FreezeSnapshotMemberEvidenceV2 | null>;
   activeModel: {
     id: string;
     key: string;
@@ -86,6 +211,13 @@ function buildFreezeSnapshotForFixture(input: {
     status: string;
     config: ReturnType<typeof makeModelConfig>;
   };
+  evaluationModel?: {
+    id: string;
+    key: string;
+    version: number;
+    status: string;
+    config: ReturnType<typeof makeModelConfig>;
+  } | null;
 }): FreezeSnapshotV1 {
   const modelRef = {
     id: input.activeModel.id,
@@ -96,6 +228,22 @@ function buildFreezeSnapshotForFixture(input: {
     isActive: true as const,
   };
   const dimensionConfigs = resolveFrozenDimensionConfigsForModel(modelRef, "calibration-strict");
+  const evaluationModel = input.evaluationModel
+    ? (() => {
+        const evalRef = {
+          id: input.evaluationModel.id,
+          key: input.evaluationModel.key,
+          version: input.evaluationModel.version,
+          status: input.evaluationModel.status as "DRAFT",
+          config: input.evaluationModel.config,
+          isActive: false as const,
+        };
+        return {
+          ...evalRef,
+          dimensionConfigs: resolveFrozenDimensionConfigsForModel(evalRef, "calibration-strict"),
+        };
+      })()
+    : null;
   return buildFreezeSnapshot({
     cohortId: input.cohortId,
     cohortExternalKey: "cohort-ext",
@@ -122,6 +270,7 @@ function buildFreezeSnapshotForFixture(input: {
           ? m.evidenceCutoffAt.toISOString()
           : input.evidenceCutoffAt.toISOString(),
       source: String(m.source ?? "USER_SELECTED"),
+      evidence: input.memberEvidence.get(String(m.id)) ?? null,
     })),
     season: {
       seasonId: input.seasonId,
@@ -129,7 +278,7 @@ function buildFreezeSnapshotForFixture(input: {
       region: "eu",
     },
     activeModel: { ...modelRef, dimensionConfigs },
-    evaluationModel: null,
+    evaluationModel,
     policies: buildDefaultFreezePolicies({
       abilityCatalogVersions: [CURRENT_CATALOG_VERSION_ID],
       mechanicCatalogVersions: ["0.1.0-seed"],
@@ -181,7 +330,9 @@ function buildFixture(opts: FixtureOpts = {}) {
     extractorFamily: "utility",
     extractorVersion: "1",
     inputFingerprint: "fp-1",
-    facts: { kind: "fixture-fact" },
+    facts: opts.mutateFactPayload
+      ? opts.mutateFactPayload({ kind: "fixture-fact" })
+      : { kind: "fixture-fact" },
     coverage: { slots: 1 },
     limitations: [],
     computedAt: evidenceCutoffAt.toISOString(),
@@ -243,36 +394,6 @@ function buildFixture(opts: FixtureOpts = {}) {
     config: makeModelConfig(),
   };
 
-  const freezeSnapshot =
-    opts.freezeSnapshot !== undefined
-      ? opts.freezeSnapshot
-      : buildFreezeSnapshotForFixture({
-          cohortId,
-          seasonId,
-          completedAt,
-          evidenceCutoffAt,
-          members,
-          activeModel,
-        });
-
-  const factSets = opts.omitFactSets
-    ? []
-    : [
-        {
-          id: "fs-1",
-          schemaVersion: factPayload.schemaVersion,
-          extractorFamily: factPayload.extractorFamily,
-          extractorVersion: factPayload.extractorVersion,
-          inputFingerprint: factPayload.inputFingerprint,
-          facts: opts.mutateFactPayload
-            ? opts.mutateFactPayload(factPayload.facts)
-            : factPayload.facts,
-          coverage: factPayload.coverage,
-          limitations: factPayload.limitations,
-          computedAt: evidenceCutoffAt,
-        },
-      ];
-
   const dims = opts.omitDimension
     ? []
     : (["PERFORMANCE", "SURVIVAL", "UTILITY", "EXPERIENCE"] as const).map((dimension) => ({
@@ -288,7 +409,79 @@ function buildFixture(opts: FixtureOpts = {}) {
         computedAt: evidenceCutoffAt,
       }));
 
+  const cas = new Map<string, Buffer>();
+  const memberEvidence = new Map<string, FreezeSnapshotMemberEvidenceV2 | null>();
+  if (!opts.omitManifest) {
+    const packaged = packageEvidence({
+      cas,
+      manifestDocument,
+      manifestContentHash,
+      factPayload: opts.omitFactSets ? null : factPayload,
+      dims,
+      previousSnapshotId: "snap-1",
+    });
+    // Incomplete packages (omit fact/dim) still embed what we have so freeze can surface blockers.
+    if (packaged && (opts.omitFactSets || opts.omitDimension)) {
+      memberEvidence.set(memberInclId, packaged);
+    } else if (packaged && packaged.factSets.length > 0 && dims.length === 4) {
+      memberEvidence.set(memberInclId, packaged);
+    } else if (packaged) {
+      memberEvidence.set(memberInclId, packaged);
+    }
+  } else {
+    // Included member without evidence — invalid for v2 parse; use override path via freezeSnapshot.
+  }
+  memberEvidence.set(memberExclId, null);
+
+  if (opts.dropCasArtifact === "manifest") {
+    const ev = memberEvidence.get(memberInclId);
+    if (ev) cas.delete(ev.manifest.contentHash);
+  }
+  if (opts.dropCasArtifact === "fact") {
+    const ev = memberEvidence.get(memberInclId);
+    if (ev?.factSets[0]) cas.delete(ev.factSets[0].contentHash);
+  }
+  if (opts.dropCasArtifact === "dimension") {
+    const ev = memberEvidence.get(memberInclId);
+    const dimHash = ev?.dimensionExports.PERFORMANCE?.contentHash;
+    if (dimHash) cas.delete(dimHash);
+  }
+  if (opts.tamperCasManifest) {
+    const ev = memberEvidence.get(memberInclId);
+    if (ev) {
+      // Keep key, alter bytes → digest mismatch on readVerifiedByContentHash.
+      cas.set(ev.manifest.contentHash, Buffer.from('{"tampered":true}', "utf8"));
+    }
+  }
+
+  const freezeSnapshot =
+    opts.freezeSnapshot !== undefined
+      ? opts.freezeSnapshot
+      : buildFreezeSnapshotForFixture({
+          cohortId,
+          seasonId,
+          completedAt,
+          evidenceCutoffAt,
+          members,
+          memberEvidence,
+          activeModel,
+          evaluationModel:
+            opts.pinEvaluationModel || opts.evaluationModelId
+              ? draftModel
+              : null,
+        });
+
   const liveMembers = opts.liveMembersOverride ?? members;
+  const liveManifest = opts.wipeLiveEvidence
+    ? null
+    : {
+        id: manifestId,
+        contentHash: "deadbeef".repeat(8),
+        schemaVersion: "2.0.0",
+        document: { mutated: true },
+        frozenAt: evidenceCutoffAt,
+        slots: [{ id: slotId, factSets: [{ facts: { live: "mutated" } }] }],
+      };
 
   const prisma = {
     scoringV2EvidenceExport: {
@@ -310,7 +503,6 @@ function buildFixture(opts: FixtureOpts = {}) {
           createdAt: completedAt,
           seasonId,
           revision: 3,
-          // Live members intentionally diverge in H3 tests via liveMembersOverride.
           members: liveMembers,
         },
       })),
@@ -318,10 +510,10 @@ function buildFixture(opts: FixtureOpts = {}) {
     season: {
       findUnique: vi.fn(async () => ({
         id: seasonId,
-        slug: "season-tww-1",
+        slug: "season-tww-1-LIVE-CHANGED",
         name: "TWW 1",
         regionId: "reg-1",
-        region: { code: "eu" },
+        region: { code: "us" },
       })),
     },
     scoreModel: {
@@ -340,29 +532,26 @@ function buildFixture(opts: FixtureOpts = {}) {
       }),
     },
     evidenceManifest: {
-      findFirst: vi.fn(async () =>
-        opts.omitManifest
-          ? null
-          : {
-              id: manifestId,
-              contentHash: manifestContentHash,
-              schemaVersion: "2.0.0",
-              document: manifestDocument,
-              frozenAt: evidenceCutoffAt,
-              slots: [
-                {
-                  id: slotId,
-                  factSets,
-                },
-              ],
-            },
-      ),
+      findFirst: vi.fn(async () => liveManifest),
     },
     dimensionComputation: {
-      findMany: vi.fn(async () => dims),
+      findMany: vi.fn(async () =>
+        opts.wipeLiveEvidence
+          ? []
+          : [{ dimension: "PERFORMANCE", score: 1, computedAt: evidenceCutoffAt }],
+      ),
     },
     scoreSnapshot: {
-      findFirst: vi.fn(async () => ({ id: "snap-1" })),
+      findFirst: vi.fn(async () =>
+        opts.wipeLiveEvidence ? null : { id: "live-snap-mutated" },
+      ),
+    },
+    character: {
+      findUnique: vi.fn(async () => ({
+        id: charId,
+        classSlug: "warrior",
+        specSlug: "protection",
+      })),
     },
   };
 
@@ -382,13 +571,15 @@ function buildFixture(opts: FixtureOpts = {}) {
     cohortId,
     completedAt,
     evidenceCutoffAt,
+    cas,
+    memberEvidence,
   };
 }
 
 describe("assembleCalibrationInputBundleV2", () => {
   it("freezes the complete member graph including excluded members", async () => {
     const fixture = buildFixture();
-    const artifacts = makeArtifacts();
+    const artifacts = makeArtifacts(fixture.cas);
     const result = await assembleCalibrationInputBundleV2({
       prisma: fixture.prisma as never,
       artifacts: artifacts as never,
@@ -408,9 +599,7 @@ describe("assembleCalibrationInputBundleV2", () => {
     expect(included.manifest.contentHash).not.toBe(fixture.manifestContentHash);
     const storedManifest = result.artifactBytes.get(included.manifest.contentHash);
     expect(storedManifest).toBeTruthy();
-    expect(
-      createHash("sha256").update(storedManifest!).digest("hex"),
-    ).toBe(included.manifest.contentHash);
+    expect(sha256Hex(storedManifest!)).toBe(included.manifest.contentHash);
     expect(included.factSets.length).toBeGreaterThan(0);
     expect(included.factSets[0]!.byteDigest).toMatch(/^sha256:[a-f0-9]{64}$/);
     expect(included.factSets[0]!.digestAlgorithm).toBe("sha256");
@@ -430,77 +619,117 @@ describe("assembleCalibrationInputBundleV2", () => {
     expect(bundle.policies.abilityCatalogVersions).toContain(CURRENT_CATALOG_VERSION_ID);
     expect(bundle.policies.mechanicCatalogVersions.length).toBeGreaterThan(0);
     expect(bundle.bundleHash).toMatch(/^[a-f0-9]{64}$/);
-    // H3: must not query live ACTIVE model for freeze inputs.
+    // H3/H7: must not query live ACTIVE model / evidence / snapshot for freeze inputs.
     expect(fixture.prisma.scoreModel.findFirst).not.toHaveBeenCalled();
+    expect(fixture.prisma.evidenceManifest.findFirst).not.toHaveBeenCalled();
+    expect(fixture.prisma.dimensionComputation.findMany).not.toHaveBeenCalled();
+    expect(fixture.prisma.scoreSnapshot.findFirst).not.toHaveBeenCalled();
+    expect(fixture.prisma.scoreModel.findUnique).not.toHaveBeenCalled();
   });
 
   it("produces the same root hash for identical inputs", async () => {
+    const aFix = buildFixture();
+    const bFix = buildFixture();
     const a = await assembleCalibrationInputBundleV2({
-      prisma: buildFixture().prisma as never,
-      artifacts: makeArtifacts() as never,
-      exportId: "44444444-4444-4444-8444-444444444444",
+      prisma: aFix.prisma as never,
+      artifacts: makeArtifacts(aFix.cas) as never,
+      exportId: aFix.exportId,
     });
     const b = await assembleCalibrationInputBundleV2({
-      prisma: buildFixture().prisma as never,
-      artifacts: makeArtifacts() as never,
-      exportId: "44444444-4444-4444-8444-444444444444",
+      prisma: bFix.prisma as never,
+      artifacts: makeArtifacts(bFix.cas) as never,
+      exportId: bFix.exportId,
     });
     expect(a.ok && b.ok).toBe(true);
     expect(a.bundle!.bundleHash).toBe(b.bundle!.bundleHash);
   });
 
   it("changes root hash when a fact-set payload changes", async () => {
+    const baseFix = buildFixture();
+    const changedFix = buildFixture({
+      mutateFactPayload: () => ({ kind: "fixture-fact-changed" }),
+    });
     const base = await assembleCalibrationInputBundleV2({
-      prisma: buildFixture().prisma as never,
-      artifacts: makeArtifacts() as never,
-      exportId: "44444444-4444-4444-8444-444444444444",
+      prisma: baseFix.prisma as never,
+      artifacts: makeArtifacts(baseFix.cas) as never,
+      exportId: baseFix.exportId,
     });
     const changed = await assembleCalibrationInputBundleV2({
-      prisma: buildFixture({
-        mutateFactPayload: () => ({ kind: "fixture-fact-changed" }),
-      }).prisma as never,
-      artifacts: makeArtifacts() as never,
-      exportId: "44444444-4444-4444-8444-444444444444",
+      prisma: changedFix.prisma as never,
+      artifacts: makeArtifacts(changedFix.cas) as never,
+      exportId: changedFix.exportId,
     });
     expect(base.ok && changed.ok).toBe(true);
     expect(changed.bundle!.bundleHash).not.toBe(base.bundle!.bundleHash);
   });
 
-  it("blocks freeze when manifest is missing", async () => {
+  it("blocks freeze when packaged evidence is missing for included member", async () => {
+    const base = buildFixture();
+    const snap = base.freezeSnapshot as FreezeSnapshotV1;
+    const rebuilt = buildFreezeSnapshot({
+      cohortId: snap.cohortId,
+      cohortExternalKey: snap.cohortExternalKey,
+      cohortName: snap.cohortName,
+      cohortDescription: snap.cohortDescription,
+      cohortCreatedAt: snap.cohortCreatedAt,
+      cohortRevision: snap.cohortRevision,
+      season: snap.season,
+      activeModel: snap.activeModel,
+      evaluationModel: snap.evaluationModel,
+      policies: snap.policies,
+      evidenceCutoffAt: snap.evidenceCutoffAt,
+      generatedAt: snap.generatedAt,
+      members: snap.members.map((m) =>
+        m.included ? { ...m, evidence: null } : m,
+      ),
+    });
     const result = await assembleCalibrationInputBundleV2({
-      prisma: buildFixture({ omitManifest: true }).prisma as never,
+      prisma: buildFixture({ freezeSnapshot: rebuilt }).prisma as never,
       artifacts: makeArtifacts() as never,
-      exportId: "44444444-4444-4444-8444-444444444444",
+      exportId: base.exportId,
     });
     expect(result.ok).toBe(false);
-    expect(result.blockers.some((b) => b.code === "MANIFEST_MISSING")).toBe(true);
+    expect(result.blockers.some((b) => b.code === "FREEZE_SNAPSHOT_INVALID")).toBe(true);
   });
 
-  it("blocks freeze when fact sets are missing", async () => {
+  it("blocks freeze when fact sets are missing in packaged evidence", async () => {
     const result = await assembleCalibrationInputBundleV2({
       prisma: buildFixture({ omitFactSets: true }).prisma as never,
-      artifacts: makeArtifacts() as never,
+      artifacts: makeArtifacts(buildFixture({ omitFactSets: true }).cas) as never,
       exportId: "44444444-4444-4444-8444-444444444444",
     });
     expect(result.ok).toBe(false);
-    expect(result.blockers.some((b) => b.code === "FACT_SET_MISSING")).toBe(true);
+    expect(
+      result.blockers.some(
+        (b) => b.code === "FREEZE_SNAPSHOT_INVALID" || b.code === "FACT_SET_MISSING",
+      ),
+    ).toBe(true);
   });
 
-  it("blocks freeze when a dimension export is missing", async () => {
-    const result = await assembleCalibrationInputBundleV2({
-      prisma: buildFixture({ omitDimension: true }).prisma as never,
-      artifacts: makeArtifacts() as never,
-      exportId: "44444444-4444-4444-8444-444444444444",
-    });
-    expect(result.ok).toBe(false);
-    expect(result.blockers.some((b) => b.code === "DIMENSION_EXPORT_MISSING")).toBe(true);
-  });
-
-  it("freezes ACTIVE and DRAFT configs independently when evaluation model is selected", async () => {
-    const fixture = buildFixture({ evaluationModelId: "99999999-9999-4999-8999-999999999999" });
+  it("blocks freeze when a dimension export is missing in packaged evidence", async () => {
+    const fixture = buildFixture({ omitDimension: true });
     const result = await assembleCalibrationInputBundleV2({
       prisma: fixture.prisma as never,
-      artifacts: makeArtifacts() as never,
+      artifacts: makeArtifacts(fixture.cas) as never,
+      exportId: fixture.exportId,
+    });
+    expect(result.ok).toBe(false);
+    expect(
+      result.blockers.some(
+        (b) =>
+          b.code === "FREEZE_SNAPSHOT_INVALID" || b.code === "DIMENSION_EXPORT_MISSING",
+      ),
+    ).toBe(true);
+  });
+
+  it("freezes ACTIVE and DRAFT configs from snapshot when evaluation model is pinned", async () => {
+    const fixture = buildFixture({
+      evaluationModelId: "99999999-9999-4999-8999-999999999999",
+      pinEvaluationModel: true,
+    });
+    const result = await assembleCalibrationInputBundleV2({
+      prisma: fixture.prisma as never,
+      artifacts: makeArtifacts(fixture.cas) as never,
       exportId: fixture.exportId,
       evaluationModelId: fixture.draftModelId,
     });
@@ -509,16 +738,30 @@ describe("assembleCalibrationInputBundleV2", () => {
     expect(result.bundle!.evaluationModel?.id).toBe(fixture.draftModelId);
     expect(result.bundle!.activeDimensionConfigs).toBeTruthy();
     expect(result.bundle!.evaluationDimensionConfigs).toBeTruthy();
-    // Source model rows are read-only references — assemble never mutates them.
+    expect(fixture.prisma.scoreModel.findUnique).not.toHaveBeenCalled();
     expect(fixture.activeModel.status).toBe("ACTIVE");
     expect(fixture.draftModel.status).toBe("DRAFT");
+  });
+
+  it("rejects evaluationModelId not present in freezeSnapshot", async () => {
+    const fixture = buildFixture();
+    const result = await assembleCalibrationInputBundleV2({
+      prisma: fixture.prisma as never,
+      artifacts: makeArtifacts(fixture.cas) as never,
+      exportId: fixture.exportId,
+      evaluationModelId: fixture.draftModelId,
+    });
+    expect(result.ok).toBe(false);
+    expect(result.blockers.some((b) => b.code === "EVALUATION_MODEL_NOT_IN_SNAPSHOT")).toBe(
+      true,
+    );
   });
 
   it("is consumable by Calibration V2 replay with zero provider calls", async () => {
     const fixture = buildFixture();
     const assembled = await assembleCalibrationInputBundleV2({
       prisma: fixture.prisma as never,
-      artifacts: makeArtifacts() as never,
+      artifacts: makeArtifacts(fixture.cas) as never,
       exportId: fixture.exportId,
     });
     expect(assembled.ok).toBe(true);
@@ -537,7 +780,6 @@ describe("assembleCalibrationInputBundleV2", () => {
     expect(report.publicationMutated).toBe(false);
     expect(report.bundleHash).toBe(assembled.bundle!.bundleHash);
     expect(report.contentHash).toMatch(/^[a-f0-9]{64}$/);
-    // Only included members are replayed.
     expect(report.members).toHaveLength(1);
     expect(report.members[0]!.memberId).toBe("55555555-5555-4555-8555-555555555555");
     expect(report.members[0]!.expectedLabel).toBe("good");
@@ -545,7 +787,6 @@ describe("assembleCalibrationInputBundleV2", () => {
     expect(Array.isArray(report.members[0]!.errors)).toBe(true);
     expect(report.preflightIssues.filter((i) => i.severity === "BLOCKING")).toHaveLength(0);
 
-    // Deterministic content hash across identical replays.
     const again = await replayCalibrationBundleV2({
       bundle: assembled.bundle as CalibrationInputBundleV2,
       resolver: createMapArtifactResolverV2(assembled.artifactBytes),
@@ -555,23 +796,26 @@ describe("assembleCalibrationInputBundleV2", () => {
     expect(again.providerCalls).toBe(0);
   });
 
-  it("dryRun does not write RawArtifact rows", async () => {
-    const artifacts = makeArtifacts();
+  it("dryRun does not write RawArtifact rows but still reads CAS", async () => {
+    const fixture = buildFixture();
+    const artifacts = makeArtifacts(fixture.cas);
     const result: AssembleBundleV2Result = await assembleCalibrationInputBundleV2({
-      prisma: buildFixture().prisma as never,
+      prisma: fixture.prisma as never,
       artifacts: artifacts as never,
-      exportId: "44444444-4444-4444-8444-444444444444",
+      exportId: fixture.exportId,
       dryRun: true,
     });
     expect(result.ok).toBe(true);
     expect(artifacts.persist).not.toHaveBeenCalled();
+    expect(artifacts.readVerifiedByContentHash).toHaveBeenCalled();
   });
 
   it("blocks when algorithm or catalog versions are stripped from a frozen bundle", async () => {
+    const fixture = buildFixture();
     const assembled = await assembleCalibrationInputBundleV2({
-      prisma: buildFixture().prisma as never,
-      artifacts: makeArtifacts() as never,
-      exportId: "44444444-4444-4444-8444-444444444444",
+      prisma: fixture.prisma as never,
+      artifacts: makeArtifacts(fixture.cas) as never,
+      exportId: fixture.exportId,
       dryRun: true,
     });
     expect(assembled.ok).toBe(true);
@@ -610,10 +854,11 @@ describe("assembleCalibrationInputBundleV2", () => {
   });
 
   it("fails closed when artifact bytes are substituted under a valid CAS key", async () => {
+    const fixture = buildFixture();
     const assembled = await assembleCalibrationInputBundleV2({
-      prisma: buildFixture().prisma as never,
-      artifacts: makeArtifacts() as never,
-      exportId: "44444444-4444-4444-8444-444444444444",
+      prisma: fixture.prisma as never,
+      artifacts: makeArtifacts(fixture.cas) as never,
+      exportId: fixture.exportId,
       dryRun: true,
     });
     expect(assembled.ok).toBe(true);
@@ -636,10 +881,11 @@ describe("assembleCalibrationInputBundleV2", () => {
   });
 
   it("fails closed when logicalContentHash disagrees with manifest document", async () => {
+    const fixture = buildFixture();
     const assembled = await assembleCalibrationInputBundleV2({
-      prisma: buildFixture().prisma as never,
-      artifacts: makeArtifacts() as never,
-      exportId: "44444444-4444-4444-8444-444444444444",
+      prisma: fixture.prisma as never,
+      artifacts: makeArtifacts(fixture.cas) as never,
+      exportId: fixture.exportId,
       dryRun: true,
     });
     expect(assembled.ok).toBe(true);
@@ -698,7 +944,7 @@ describe("assembleCalibrationInputBundleV2", () => {
     });
     const result = await assembleCalibrationInputBundleV2({
       prisma: fixture.prisma as never,
-      artifacts: makeArtifacts() as never,
+      artifacts: makeArtifacts(fixture.cas) as never,
       exportId: fixture.exportId,
       dryRun: true,
     });
@@ -733,7 +979,7 @@ describe("assembleCalibrationInputBundleV2", () => {
     });
     const result = await assembleCalibrationInputBundleV2({
       prisma: fixture.prisma as never,
-      artifacts: makeArtifacts() as never,
+      artifacts: makeArtifacts(fixture.cas) as never,
       exportId: fixture.exportId,
       dryRun: true,
     });
@@ -768,12 +1014,62 @@ describe("assembleCalibrationInputBundleV2", () => {
     };
     const result = await assembleCalibrationInputBundleV2({
       prisma: buildFixture({ freezeSnapshot: corrupt }).prisma as never,
-      artifacts: makeArtifacts() as never,
+      artifacts: makeArtifacts(fixture.cas) as never,
       exportId: fixture.exportId,
       dryRun: true,
     });
     expect(result.ok).toBe(false);
     expect(result.blockers.some((b) => b.code === "FREEZE_SNAPSHOT_HASH_MISMATCH")).toBe(true);
   });
-});
 
+  it("H7 adversarial: freeze succeeds after live evidence/character mutation using export digests", async () => {
+    const fixture = buildFixture({ wipeLiveEvidence: true });
+    const exportDigests = {
+      manifest: fixture.memberEvidence.get(fixture.memberInclId)!.manifest.contentHash,
+      fact: fixture.memberEvidence.get(fixture.memberInclId)!.factSets[0]!.contentHash,
+      performance:
+        fixture.memberEvidence.get(fixture.memberInclId)!.dimensionExports.PERFORMANCE!
+          .contentHash,
+    };
+    const result = await assembleCalibrationInputBundleV2({
+      prisma: fixture.prisma as never,
+      artifacts: makeArtifacts(fixture.cas) as never,
+      exportId: fixture.exportId,
+      dryRun: true,
+    });
+    expect(result.ok).toBe(true);
+    const included = result.bundle!.members.find((m) => m.included)!;
+    expect(included.manifest.contentHash).toBe(exportDigests.manifest);
+    expect(included.factSets[0]!.contentHash).toBe(exportDigests.fact);
+    expect(included.dimensionExports.PERFORMANCE!.contentHash).toBe(exportDigests.performance);
+    expect(included.previousSnapshotId).toBe("snap-1");
+    expect(included.classSlug).toBe("warlock");
+    expect(fixture.prisma.evidenceManifest.findFirst).not.toHaveBeenCalled();
+    expect(fixture.prisma.character.findUnique).not.toHaveBeenCalled();
+    expect(fixture.prisma.season.findUnique).not.toHaveBeenCalled();
+  });
+
+  it("H7 adversarial: missing CAS artifact blocks freeze", async () => {
+    const fixture = buildFixture({ dropCasArtifact: "manifest" });
+    const result = await assembleCalibrationInputBundleV2({
+      prisma: fixture.prisma as never,
+      artifacts: makeArtifacts(fixture.cas) as never,
+      exportId: fixture.exportId,
+      dryRun: true,
+    });
+    expect(result.ok).toBe(false);
+    expect(result.blockers.some((b) => b.code === "ARTIFACT_MISSING")).toBe(true);
+  });
+
+  it("H7 adversarial: altered CAS bytes block freeze with digest mismatch", async () => {
+    const fixture = buildFixture({ tamperCasManifest: true });
+    const result = await assembleCalibrationInputBundleV2({
+      prisma: fixture.prisma as never,
+      artifacts: makeArtifacts(fixture.cas) as never,
+      exportId: fixture.exportId,
+      dryRun: true,
+    });
+    expect(result.ok).toBe(false);
+    expect(result.blockers.some((b) => b.code === "ARTIFACT_DIGEST_MISMATCH")).toBe(true);
+  });
+});

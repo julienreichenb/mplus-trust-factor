@@ -11,3 +11,9 @@ export * from "./slot-processor.js";
 export * from "./finalize.js";
 export * from "./refresh-bridge.js";
 export * from "./dimension-finalizer.js";
+export {
+  packageMemberEvidenceForFreeze,
+  type FreezeEvidencePackageBlocker,
+  type PackageMemberEvidenceInput,
+  type PackageMemberEvidenceResult,
+} from "./freeze-evidence-package.js";

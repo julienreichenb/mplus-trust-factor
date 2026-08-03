@@ -1,5 +1,7 @@
 export {
   ArtifactRepository,
+  ArtifactMissingError,
+  ArtifactDigestMismatchError,
   type ArtifactOwnerType,
   type PersistArtifactInput,
   type ArtifactRepositoryTx,

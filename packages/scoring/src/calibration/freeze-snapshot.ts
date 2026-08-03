@@ -1,6 +1,6 @@
 /**
  * Export-time freeze snapshot — immutable freeze inputs captured at evidence export.
- * Freeze must consume this snapshot, not live ACTIVE model / cohort.members.
+ * Freeze must consume this snapshot + CAS bytes, not live ACTIVE model / cohort / evidence.
  */
 import type { ScoreModelConfigV1 } from "../types.js";
 import { stableSha256 } from "../model-config/stable-hash.js";
@@ -8,14 +8,51 @@ import { algorithmVersionForDimension } from "../dimensions/v2/adapters.js";
 import type { ScoringV2PublicDimension } from "../dimensions/v2/shadow-record.js";
 import type { CalibrationModelRef } from "./types.js";
 import type {
+  CalibrationArtifactClassV2,
   FrozenDimensionModelConfigsV2,
   FrozenPolicyCatalogVersionsV2,
   FrozenSeasonBindingV2,
 } from "./bundle-v2.js";
 
-export const FREEZE_SNAPSHOT_SCHEMA_VERSION = "scoring-v2-freeze-snapshot-v1" as const;
+export const FREEZE_SNAPSHOT_SCHEMA_VERSION = "scoring-v2-freeze-snapshot-v2" as const;
 
 const SHA256_HEX_RE = /^[a-f0-9]{64}$/i;
+const SHA256_BYTE_DIGEST_RE = /^sha256:([a-f0-9]{64})$/i;
+
+const PHASE1_DIMENSIONS: ScoringV2PublicDimension[] = [
+  "PERFORMANCE",
+  "SURVIVAL",
+  "UTILITY",
+  "EXPERIENCE",
+];
+
+const ARTIFACT_CLASSES: ReadonlySet<string> = new Set([
+  "calibration_frozen_export",
+  "evidence_manifest",
+  "run_fact_set",
+  "dimension_replay_export",
+  "other",
+]);
+
+/** Content-addressed artifact ref embedded in freezeSnapshot at export packaging. */
+export interface FreezeSnapshotContentRefV2 {
+  contentHash: string;
+  logicalContentHash: string | null;
+  byteDigest: string;
+  digestAlgorithm: "sha256";
+  artifactClass: CalibrationArtifactClassV2;
+  schemaVersion: string | null;
+  byteLength: number;
+  storageUri: string | null;
+}
+
+/** Packaged member evidence — freeze resolves only these refs + CAS bytes. */
+export interface FreezeSnapshotMemberEvidenceV2 {
+  manifest: FreezeSnapshotContentRefV2;
+  factSets: FreezeSnapshotContentRefV2[];
+  dimensionExports: Partial<Record<ScoringV2PublicDimension, FreezeSnapshotContentRefV2>>;
+  previousSnapshot: FreezeSnapshotContentRefV2 | null;
+}
 
 export interface FreezeSnapshotMemberV1 {
   id: string;
@@ -33,6 +70,11 @@ export interface FreezeSnapshotMemberV1 {
   specSlug: string | null;
   evidenceCutoffAt: string | null;
   source: string;
+  /**
+   * Packaged CAS evidence refs. Null for excluded members (stub at freeze).
+   * Included members must carry a full evidence package.
+   */
+  evidence: FreezeSnapshotMemberEvidenceV2 | null;
 }
 
 export interface FreezeSnapshotModelV1 {
@@ -187,6 +229,83 @@ function parseModel(raw: unknown): FreezeSnapshotModelV1 | null {
   };
 }
 
+function parseContentRef(raw: unknown): FreezeSnapshotContentRefV2 | null {
+  if (!isRecord(raw)) return null;
+  const contentHash = asString(raw.contentHash);
+  const byteDigest = asString(raw.byteDigest);
+  const artifactClass = asString(raw.artifactClass);
+  if (!contentHash || !SHA256_HEX_RE.test(contentHash)) return null;
+  if (!byteDigest || !SHA256_BYTE_DIGEST_RE.test(byteDigest)) return null;
+  const digestMatch = SHA256_BYTE_DIGEST_RE.exec(byteDigest);
+  if (!digestMatch || digestMatch[1]!.toLowerCase() !== contentHash.toLowerCase()) return null;
+  if (!artifactClass || !ARTIFACT_CLASSES.has(artifactClass)) return null;
+  if (raw.digestAlgorithm !== "sha256") return null;
+  if (typeof raw.byteLength !== "number" || !Number.isFinite(raw.byteLength) || raw.byteLength < 0) {
+    return null;
+  }
+  const logical =
+    raw.logicalContentHash == null
+      ? null
+      : typeof raw.logicalContentHash === "string"
+        ? raw.logicalContentHash
+        : null;
+  if (raw.logicalContentHash != null && logical == null) return null;
+  if (logical != null && logical.length > 0 && !SHA256_HEX_RE.test(logical)) return null;
+  const schemaVersion =
+    raw.schemaVersion == null
+      ? null
+      : typeof raw.schemaVersion === "string"
+        ? raw.schemaVersion
+        : null;
+  if (raw.schemaVersion != null && schemaVersion == null) return null;
+  const storageUri =
+    raw.storageUri == null
+      ? null
+      : typeof raw.storageUri === "string"
+        ? raw.storageUri
+        : null;
+  if (raw.storageUri != null && storageUri == null) return null;
+  return {
+    contentHash: contentHash.toLowerCase(),
+    logicalContentHash: logical ? logical.toLowerCase() : null,
+    byteDigest: `sha256:${contentHash.toLowerCase()}`,
+    digestAlgorithm: "sha256",
+    artifactClass: artifactClass as CalibrationArtifactClassV2,
+    schemaVersion,
+    byteLength: raw.byteLength,
+    storageUri,
+  };
+}
+
+function parseEvidence(raw: unknown): FreezeSnapshotMemberEvidenceV2 | null {
+  if (!isRecord(raw)) return null;
+  const manifest = parseContentRef(raw.manifest);
+  if (!manifest || manifest.artifactClass !== "evidence_manifest") return null;
+  if (!Array.isArray(raw.factSets)) return null;
+  const factSets: FreezeSnapshotContentRefV2[] = [];
+  for (const fs of raw.factSets) {
+    const ref = parseContentRef(fs);
+    if (!ref || ref.artifactClass !== "run_fact_set") return null;
+    factSets.push(ref);
+  }
+  if (!isRecord(raw.dimensionExports)) return null;
+  const dimensionExports: Partial<
+    Record<ScoringV2PublicDimension, FreezeSnapshotContentRefV2>
+  > = {};
+  for (const dim of PHASE1_DIMENSIONS) {
+    if (!(dim in raw.dimensionExports)) continue;
+    const ref = parseContentRef(raw.dimensionExports[dim]);
+    if (!ref || ref.artifactClass !== "dimension_replay_export") return null;
+    dimensionExports[dim] = ref;
+  }
+  let previousSnapshot: FreezeSnapshotContentRefV2 | null = null;
+  if (raw.previousSnapshot != null) {
+    previousSnapshot = parseContentRef(raw.previousSnapshot);
+    if (!previousSnapshot) return null;
+  }
+  return { manifest, factSets, dimensionExports, previousSnapshot };
+}
+
 function parseMember(raw: unknown): FreezeSnapshotMemberV1 | null {
   if (!isRecord(raw)) return null;
   const id = asString(raw.id);
@@ -195,6 +314,24 @@ function parseMember(raw: unknown): FreezeSnapshotMemberV1 | null {
   const characterName = asString(raw.characterName);
   const expectedLabel = asString(raw.expectedLabel);
   if (!id || !region || !realmSlug || !characterName || !expectedLabel) return null;
+  // evidence key is required; null allowed for excluded members.
+  if (!("evidence" in raw)) return null;
+  const included = Boolean(raw.included);
+  let evidence: FreezeSnapshotMemberEvidenceV2 | null = null;
+  if (raw.evidence === null) {
+    evidence = null;
+  } else {
+    evidence = parseEvidence(raw.evidence);
+    if (!evidence) return null;
+  }
+  // Included members must carry a packaged evidence graph.
+  if (included && !raw.exclusionCode && evidence == null) return null;
+  if (included && !raw.exclusionCode && evidence && evidence.factSets.length === 0) return null;
+  if (included && !raw.exclusionCode && evidence) {
+    for (const dim of PHASE1_DIMENSIONS) {
+      if (!evidence.dimensionExports[dim]) return null;
+    }
+  }
   return {
     id,
     externalMemberKey: typeof raw.externalMemberKey === "string" ? raw.externalMemberKey : null,
@@ -204,13 +341,14 @@ function parseMember(raw: unknown): FreezeSnapshotMemberV1 | null {
     characterName,
     expectedLabel,
     rationale: typeof raw.rationale === "string" ? raw.rationale : "",
-    included: Boolean(raw.included),
+    included,
     exclusionCode: typeof raw.exclusionCode === "string" ? raw.exclusionCode : null,
     role: typeof raw.role === "string" ? raw.role : null,
     classSlug: typeof raw.classSlug === "string" ? raw.classSlug : null,
     specSlug: typeof raw.specSlug === "string" ? raw.specSlug : null,
     evidenceCutoffAt: typeof raw.evidenceCutoffAt === "string" ? raw.evidenceCutoffAt : null,
     source: typeof raw.source === "string" ? raw.source : "USER_SELECTED",
+    evidence,
   };
 }
 

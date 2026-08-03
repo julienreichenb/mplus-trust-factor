@@ -1,12 +1,17 @@
 /**
  * Assemble a real CalibrationInputBundleV2 from a completed evidence export.
- * Provider-free. Uses export-time freezeSnapshot (not live ACTIVE/cohort).
- * Verifies artifact integrity before freeze. No refresh enqueue.
+ * Provider-free. Uses export-time freezeSnapshot + verified CAS bytes only.
+ * Never queries live EvidenceManifest, factSet, dimensionComputation, ScoreSnapshot,
+ * Character, cohort members, ACTIVE model, or season current for evaluation.
  */
 import { CURRENT_CATALOG_VERSION_ID } from "@mplus/abilities";
 import { CALIBRATION_LABEL_TO_QUALITATIVE } from "@mplus/contracts";
-import type { PrismaClient, ScoreModel } from "@mplus/database";
-import type { ArtifactRepository } from "@mplus/database";
+import type { PrismaClient } from "@mplus/database";
+import {
+  ArtifactDigestMismatchError,
+  ArtifactMissingError,
+  type ArtifactRepository,
+} from "@mplus/database";
 import {
   COHORT_MANIFEST_SCHEMA_VERSION,
   buildCalibrationContentRefV2,
@@ -15,20 +20,19 @@ import {
   createMapArtifactResolverV2,
   freezeSnapshotModelToCalibrationRef,
   parseAndVerifyFreezeSnapshot,
+  parseArtifactByteDigest,
   preflightCalibrationBundleV2,
   resolveFrozenDimensionConfigsForModel,
   type CalibrationContentRefV2,
   type CalibrationInputBundleV2,
   type CalibrationMemberReplayV2,
-  type CalibrationModelRef,
   type CalibrationPreflightIssueV2,
   type CalibrationRole,
   type CohortManifest,
+  type FreezeSnapshotContentRefV2,
   type FreezeSnapshotV1,
   type QualitativeLabel,
   type ScoringV2PublicDimension,
-  createDefaultModelV6,
-  type ScoreModelConfigV1,
 } from "@mplus/scoring";
 import type { ScoringV2IssueDTO } from "@mplus/contracts";
 
@@ -120,28 +124,90 @@ async function persistRef(
   };
 }
 
-function asConfigV1(model: ScoreModel): ScoreModelConfigV1 {
-  const raw = model.config as unknown as Partial<ScoreModelConfigV1>;
-  return createDefaultModelV6({
-    ...raw,
-    key: model.key,
-    version: model.version,
-  });
+function freezeRefToCalibrationRef(ref: FreezeSnapshotContentRefV2): CalibrationContentRefV2 {
+  return {
+    contentHash: ref.contentHash,
+    logicalContentHash: ref.logicalContentHash,
+    byteDigest: ref.byteDigest,
+    digestAlgorithm: ref.digestAlgorithm,
+    storageUri: ref.storageUri,
+    byteLength: ref.byteLength,
+    artifactClass: ref.artifactClass,
+    schemaVersion: ref.schemaVersion,
+  };
 }
 
-function toModelRef(model: ScoreModel, isActive: boolean): CalibrationModelRef {
-  const status =
-    model.status === "DRAFT" || model.status === "ACTIVE" || model.status === "ARCHIVED"
-      ? model.status
-      : "FIXTURE";
-  return {
-    id: model.id,
-    key: model.key,
-    version: model.version,
-    status: isActive ? "ACTIVE" : status === "ACTIVE" ? "DRAFT" : status,
-    config: asConfigV1(model),
-    isActive,
-  };
+async function resolveEvidenceRef(input: {
+  artifacts: ArtifactRepository;
+  ref: FreezeSnapshotContentRefV2;
+  artifactBytes: Map<string, Buffer>;
+  memberId: string;
+  blockers: BundleFreezeBlocker[];
+}): Promise<CalibrationContentRefV2 | null> {
+  const { ref, memberId, blockers, artifactBytes } = input;
+  try {
+    const bytes = await input.artifacts.readVerifiedByContentHash(ref.contentHash);
+    const actualHex = sha256Hex(bytes).toLowerCase();
+    if (actualHex !== ref.contentHash.toLowerCase()) {
+      blockers.push({
+        code: "ARTIFACT_DIGEST_MISMATCH",
+        severity: "blocker",
+        message: `CAS byte digest mismatch for ${ref.artifactClass} member ${memberId}`,
+        memberId,
+      });
+      return null;
+    }
+    const parsedDigest = ref.byteDigest ? parseArtifactByteDigest(ref.byteDigest) : null;
+    if (!parsedDigest || parsedDigest.hex !== actualHex) {
+      blockers.push({
+        code: "ARTIFACT_DIGEST_MISMATCH",
+        severity: "blocker",
+        message: `byteDigest mismatch for ${ref.artifactClass} member ${memberId}`,
+        memberId,
+      });
+      return null;
+    }
+    if (typeof ref.byteLength === "number" && ref.byteLength !== bytes.byteLength) {
+      blockers.push({
+        code: "ARTIFACT_DIGEST_MISMATCH",
+        severity: "blocker",
+        message: `byteLength mismatch for ${ref.artifactClass} member ${memberId}`,
+        memberId,
+      });
+      return null;
+    }
+    artifactBytes.set(actualHex, bytes);
+    return freezeRefToCalibrationRef(ref);
+  } catch (error) {
+    if (error instanceof ArtifactMissingError) {
+      blockers.push({
+        code: "ARTIFACT_MISSING",
+        severity: "blocker",
+        message: `Missing CAS artifact ${ref.contentHash} for member ${memberId}`,
+        memberId,
+      });
+      return null;
+    }
+    if (error instanceof ArtifactDigestMismatchError) {
+      blockers.push({
+        code: "ARTIFACT_DIGEST_MISMATCH",
+        severity: "blocker",
+        message: error.message.slice(0, 500),
+        memberId,
+      });
+      return null;
+    }
+    blockers.push({
+      code: "ARTIFACT_MISSING",
+      severity: "blocker",
+      message:
+        error instanceof Error
+          ? error.message.slice(0, 500)
+          : `Failed to resolve CAS artifact for member ${memberId}`,
+      memberId,
+    });
+    return null;
+  }
 }
 
 function mapLabel(label: string): QualitativeLabel {
@@ -189,10 +255,20 @@ export function mapPreflightIssuesToFreezeBlockers(
   }));
 }
 
+function previousSnapshotIdFromBytes(bytes: Buffer | undefined): string | null {
+  if (!bytes) return null;
+  try {
+    const parsed = JSON.parse(bytes.toString("utf8")) as { id?: unknown };
+    return typeof parsed.id === "string" && parsed.id.length > 0 ? parsed.id : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Build a complete CalibrationInputBundleV2 for an evidence export.
  * Does not mutate character/evidence/score rows. Provider-free.
- * Freeze inputs come exclusively from export-time freezeSnapshot.
+ * Freeze inputs come exclusively from export-time freezeSnapshot + CAS.
  */
 export async function assembleCalibrationInputBundleV2(input: {
   prisma: PrismaClient;
@@ -297,19 +373,18 @@ export async function assembleCalibrationInputBundleV2(input: {
     });
   }
 
-  let evaluationModel: ScoreModel | null = null;
+  // Evaluation model comes only from freezeSnapshot — never live ScoreModel.
   if (input.evaluationModelId) {
-    evaluationModel = await input.prisma.scoreModel.findUnique({
-      where: { id: input.evaluationModelId },
-    });
-    if (!evaluationModel) {
+    if (!snapshot.evaluationModel || snapshot.evaluationModel.id !== input.evaluationModelId) {
       blockers.push({
-        code: "EVALUATION_MODEL_MISSING",
+        code: "EVALUATION_MODEL_NOT_IN_SNAPSHOT",
         severity: "blocker",
-        message: "Selected evaluation model was not found",
+        message:
+          "evaluationModelId must match freezeSnapshot.evaluationModel.id; re-export with evaluation model pinned",
       });
     }
   }
+  const snapshotEvaluation = snapshot.evaluationModel;
 
   // Deterministic timestamps from export-time snapshot (not wall clock / live cohort).
   const generatedAt = snapshot.generatedAt;
@@ -339,7 +414,6 @@ export async function assembleCalibrationInputBundleV2(input: {
   };
 
   const replayMembers: CalibrationMemberReplayV2[] = [];
-  const activeModelId = snapshotActive?.id ?? null;
 
   for (const member of snapshot.members) {
     const memberId = member.id;
@@ -393,118 +467,36 @@ export async function assembleCalibrationInputBundleV2(input: {
       continue;
     }
 
-    const manifest = await input.prisma.evidenceManifest.findFirst({
-      where: { characterId: member.characterId, seasonId: season.seasonId },
-      orderBy: { frozenAt: "desc" },
-      include: {
-        slots: {
-          include: {
-            factSets: true,
-          },
-        },
-      },
+    const evidence = member.evidence;
+    if (!evidence) {
+      blockers.push({
+        code: "EVIDENCE_PACKAGE_MISSING",
+        severity: "blocker",
+        message: `Included member ${memberId} lacks packaged evidence in freezeSnapshot`,
+        memberId,
+      });
+      continue;
+    }
+
+    const manifestRef = await resolveEvidenceRef({
+      artifacts: input.artifacts,
+      ref: evidence.manifest,
+      artifactBytes,
+      memberId,
+      blockers,
     });
-
-    if (!manifest) {
-      blockers.push({
-        code: "MANIFEST_MISSING",
-        severity: "blocker",
-        message: `No EvidenceManifestV2 for member ${memberId}`,
-        memberId,
-      });
-      continue;
-    }
-    if (!manifest.contentHash || !/^[a-f0-9]{64}$/i.test(manifest.contentHash)) {
-      blockers.push({
-        code: "MANIFEST_HASH_INVALID",
-        severity: "blocker",
-        message: `EvidenceManifest content hash missing/invalid for member ${memberId}`,
-        memberId,
-      });
-      continue;
-    }
-
-    // EvidenceManifest.contentHash is the logical domain identity (hash-input schema).
-    // Durable CAS key is the sha256 of exact serialized document bytes.
-    const manifestBytes = Buffer.from(canonicalJson(manifest.document), "utf8");
-    const byteDigestHex = storeArtifactBytes(artifactBytes, manifestBytes);
-    if (sha256Hex(manifestBytes) !== byteDigestHex) {
-      blockers.push({
-        code: "MANIFEST_BYTE_DIGEST_MISMATCH",
-        severity: "blocker",
-        message: `Manifest byte digest mismatch for member ${memberId}`,
-        memberId,
-      });
-      continue;
-    }
-    const documentLogical =
-      manifest.document &&
-      typeof manifest.document === "object" &&
-      manifest.document !== null &&
-      "contentHash" in (manifest.document as object)
-        ? String((manifest.document as { contentHash?: unknown }).contentHash ?? "")
-        : "";
-    if (
-      documentLogical &&
-      documentLogical.toLowerCase() !== manifest.contentHash.toLowerCase()
-    ) {
-      blockers.push({
-        code: "MANIFEST_LOGICAL_HASH_MISMATCH",
-        severity: "blocker",
-        message: `Manifest document.contentHash does not match logical contentHash for member ${memberId}`,
-        memberId,
-      });
-      continue;
-    }
-    if (!dryRun) {
-      const write = await input.artifacts.persist({
-        provider: "INTERNAL",
-        bytes: manifestBytes,
-        compression: "NONE",
-        artifactClass: "evidence_manifest",
-        owner: { ownerType: "CalibrationFrozenExport", ownerId: exportRow.id },
-      });
-      if (write.write.contentHash.toLowerCase() !== byteDigestHex) {
-        blockers.push({
-          code: "MANIFEST_STORE_HASH_MISMATCH",
-          severity: "blocker",
-          message: `Artifact store hash mismatch for manifest member ${memberId}`,
-          memberId,
-        });
-        continue;
-      }
-    }
-
-    const manifestRef = buildCalibrationContentRefV2({
-      bytes: manifestBytes,
-      artifactClass: "evidence_manifest",
-      logicalContentHash: manifest.contentHash.toLowerCase(),
-      schemaVersion: manifest.schemaVersion,
-    });
+    if (!manifestRef) continue;
 
     const factSets: CalibrationContentRefV2[] = [];
-    for (const slot of manifest.slots) {
-      for (const fs of slot.factSets) {
-        const payload = {
-          schemaVersion: fs.schemaVersion,
-          extractorFamily: fs.extractorFamily,
-          extractorVersion: fs.extractorVersion,
-          inputFingerprint: fs.inputFingerprint,
-          facts: fs.facts,
-          coverage: fs.coverage,
-          limitations: fs.limitations,
-          computedAt: fs.computedAt.toISOString(),
-        };
-        const ref = await persistRef(
-          input.artifacts,
-          exportRow.id,
-          "run_fact_set",
-          payload,
-          artifactBytes,
-          dryRun,
-        );
-        factSets.push(ref);
-      }
+    for (const fsRef of evidence.factSets) {
+      const resolved = await resolveEvidenceRef({
+        artifacts: input.artifacts,
+        ref: fsRef,
+        artifactBytes,
+        memberId,
+        blockers,
+      });
+      if (resolved) factSets.push(resolved);
     }
     if (factSets.length === 0) {
       blockers.push({
@@ -516,61 +508,48 @@ export async function assembleCalibrationInputBundleV2(input: {
       continue;
     }
 
-    const dims = await input.prisma.dimensionComputation.findMany({
-      where: {
-        characterId: member.characterId,
-        seasonId: season.seasonId,
-        manifestId: manifest.id,
-        ...(activeModelId ? { scoreModelId: activeModelId } : {}),
-      },
-    });
-    const dimensionExports: Partial<Record<ScoringV2PublicDimension, CalibrationContentRefV2>> = {};
-    for (const dim of dims) {
-      const publicDim = dim.dimension as ScoringV2PublicDimension;
-      if (!PHASE1_DIMENSIONS.includes(publicDim)) continue;
-      const exportDoc = {
-        schemaVersion: "2.0.0",
-        dimension: publicDim,
-        algorithmVersion: dim.algorithmVersion,
-        inputFingerprint: dim.inputFingerprint,
-        score: dim.score != null ? Number(dim.score) : null,
-        confidence: Number(dim.confidence),
-        state: dim.state,
-        metrics: dim.metrics,
-        explanation: dim.explanation,
-        computedAt: dim.computedAt.toISOString(),
-      };
-      dimensionExports[publicDim] = await persistRef(
-        input.artifacts,
-        exportRow.id,
-        "dimension_replay_export",
-        exportDoc,
-        artifactBytes,
-        dryRun,
-      );
-    }
-    for (const required of PHASE1_DIMENSIONS) {
-      if (!dimensionExports[required]) {
+    const dimensionExports: Partial<Record<ScoringV2PublicDimension, CalibrationContentRefV2>> =
+      {};
+    for (const dim of PHASE1_DIMENSIONS) {
+      const dimRef = evidence.dimensionExports[dim];
+      if (!dimRef) {
         blockers.push({
           code: "DIMENSION_EXPORT_MISSING",
           severity: "blocker",
-          message: `Missing ${required} dimension export for member ${memberId}`,
+          message: `Missing ${dim} dimension export for member ${memberId}`,
           memberId,
         });
+        continue;
+      }
+      const resolved = await resolveEvidenceRef({
+        artifacts: input.artifacts,
+        ref: dimRef,
+        artifactBytes,
+        memberId,
+        blockers,
+      });
+      if (resolved) dimensionExports[dim] = resolved;
+    }
+
+    let previousSnapshotId: string | null = null;
+    if (evidence.previousSnapshot) {
+      const prevRef = await resolveEvidenceRef({
+        artifacts: input.artifacts,
+        ref: evidence.previousSnapshot,
+        artifactBytes,
+        memberId,
+        blockers,
+      });
+      if (prevRef) {
+        previousSnapshotId = previousSnapshotIdFromBytes(
+          artifactBytes.get(prevRef.contentHash),
+        );
       }
     }
 
-    const previousSnapshot = await input.prisma.scoreSnapshot.findFirst({
-      where: {
-        characterId: member.characterId,
-        seasonId: season.seasonId,
-        isPublic: true,
-        publicationStatus: { in: ["PUBLIC", "PUBLISHED"] },
-        scopeType: "CHARACTER",
-      },
-      orderBy: { calculatedAt: "desc" },
-      select: { id: true },
-    });
+    if (blockers.some((b) => b.severity === "blocker" && b.memberId === memberId)) {
+      continue;
+    }
 
     replayMembers.push({
       memberId,
@@ -586,7 +565,7 @@ export async function assembleCalibrationInputBundleV2(input: {
       manifest: manifestRef,
       factSets,
       dimensionExports,
-      previousSnapshotId: previousSnapshot?.id ?? null,
+      previousSnapshotId,
     });
   }
 
@@ -595,7 +574,12 @@ export async function assembleCalibrationInputBundleV2(input: {
   }
 
   const activeRef = freezeSnapshotModelToCalibrationRef(snapshotActive);
-  const evaluationRef = evaluationModel ? toModelRef(evaluationModel, false) : null;
+  const evaluationRef = snapshotEvaluation
+    ? freezeSnapshotModelToCalibrationRef({
+        ...snapshotEvaluation,
+        isActive: false,
+      })
+    : null;
 
   let activeDimensionConfigs = snapshotActive.dimensionConfigs;
   let evaluationDimensionConfigs = null as ReturnType<
@@ -617,20 +601,24 @@ export async function assembleCalibrationInputBundleV2(input: {
     }
   }
   if (evaluationRef) {
-    try {
-      const mode =
-        evaluationRef.config &&
-        "scoringV2" in evaluationRef.config &&
-        evaluationRef.config.scoringV2
-          ? "calibration-strict"
-          : "phase1-default";
-      evaluationDimensionConfigs = resolveFrozenDimensionConfigsForModel(evaluationRef, mode);
-    } catch (error) {
-      blockers.push({
-        code: "EVALUATION_CONFIG_INVALID",
-        severity: "blocker",
-        message: error instanceof Error ? error.message : "Evaluation dimension configs invalid",
-      });
+    if (snapshotEvaluation?.dimensionConfigs) {
+      evaluationDimensionConfigs = snapshotEvaluation.dimensionConfigs;
+    } else {
+      try {
+        const mode =
+          evaluationRef.config &&
+          "scoringV2" in evaluationRef.config &&
+          evaluationRef.config.scoringV2
+            ? "calibration-strict"
+            : "phase1-default";
+        evaluationDimensionConfigs = resolveFrozenDimensionConfigsForModel(evaluationRef, mode);
+      } catch (error) {
+        blockers.push({
+          code: "EVALUATION_CONFIG_INVALID",
+          severity: "blocker",
+          message: error instanceof Error ? error.message : "Evaluation dimension configs invalid",
+        });
+      }
     }
   }
 
@@ -733,4 +721,3 @@ export async function assembleCalibrationInputBundleV2(input: {
 }
 
 export { toIssueDto };
-
