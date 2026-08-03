@@ -1,4 +1,4 @@
-import type { RetailClassDefinition } from "../types.js";
+import type { AbilityRole, RetailClassDefinition } from "../types.js";
 
 /**
  * Canonical Retail playable class/spec matrix for Midnight.
@@ -160,10 +160,26 @@ export function findSpecDefinition(classSlug: string, specSlug: string) {
 }
 
 /**
+ * Authoritative playable role for a canonical class + specialization pair.
+ *
+ * Source of truth: RETAIL_CLASS_MATRIX (version-controlled static catalog).
+ * Returns null when the class/spec is unknown — callers must fail closed
+ * and must not fabricate DPS / provider-supplied roles.
+ */
+export function canonicalRoleForClassSpec(
+  classSlug: string,
+  specSlug: string,
+): AbilityRole | null {
+  const spec = findSpecDefinition(classSlug, specSlug);
+  return spec?.role ?? null;
+}
+
+/**
  * Infer the canonical role slug ("DPS", "HEALER", "TANK") from a spec slug alone,
  * searching across all classes. Returns the lowercase role or null when unknown.
  *
  * Used as fallback when WCL's zoneRankings does not return a role field.
+ * Prefer {@link canonicalRoleForClassSpec} when class identity is known.
  */
 export function roleForSpec(specSlug: string): string | null {
   for (const cls of RETAIL_CLASS_MATRIX) {

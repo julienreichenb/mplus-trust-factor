@@ -38,6 +38,7 @@ export {
   RETAIL_CLASS_MATRIX,
   findClassDefinition,
   findSpecDefinition,
+  canonicalRoleForClassSpec,
   roleForSpec,
 } from "./catalog/classes-matrix.js";
 

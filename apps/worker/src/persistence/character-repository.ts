@@ -1,4 +1,5 @@
 import type { Character, CharacterRole, GameClass, GameSpecialization, Prisma, PrismaClient } from "@mplus/database";
+import { canonicalRoleForClassSpec, normalizeCatalogSlug } from "@mplus/abilities";
 import {
   CHARACTER_NAME_FUZZY_MIN_QUERY_LENGTH,
   CHARACTER_NAME_FUZZY_SIMILARITY_THRESHOLD,
@@ -48,6 +49,81 @@ export async function ensureGameSpecialization(
 
 function capitalize(value: string): string {
   return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
+/**
+ * Resolve the authoritative playable role for a class/spec from the static
+ * retail catalog (RETAIL_CLASS_MATRIX via canonicalRoleForClassSpec).
+ *
+ * Provider-supplied roles are ignored. Unknown class/spec fails closed.
+ */
+export function resolveAuthoritativeSpecRole(input: {
+  classSlug: string;
+  specSlug: string;
+}): CharacterRole | null {
+  const classSlug = normalizeCatalogSlug(input.classSlug) ?? input.classSlug;
+  const specSlug = normalizeCatalogSlug(input.specSlug) ?? input.specSlug;
+  return canonicalRoleForClassSpec(classSlug, specSlug);
+}
+
+/**
+ * Ensure GameSpecialization exists and its role matches the static catalog.
+ * Returns null when the class/spec is not in the catalog (fail closed).
+ */
+async function resolveCatalogSpecialization(
+  tx: PrismaClientOrTx,
+  classId: string,
+  classSlug: string,
+  specSlugRaw: string,
+): Promise<GameSpecialization | null> {
+  const specSlug = normalizeCatalogSlug(specSlugRaw) ?? specSlugRaw;
+  const catalogRole = resolveAuthoritativeSpecRole({ classSlug, specSlug });
+  if (!catalogRole) return null;
+
+  let spec = await tx.gameSpecialization.findUnique({
+    where: { classId_slug: { classId, slug: specSlug } },
+  });
+  if (!spec) {
+    spec = await ensureGameSpecialization(tx, classId, specSlug, catalogRole);
+  } else if (spec.role !== catalogRole) {
+    // Correct rows previously seeded with a fabricated provider/DPS fallback.
+    spec = await tx.gameSpecialization.update({
+      where: { id: spec.id },
+      data: { role: catalogRole },
+    });
+  }
+  return spec;
+}
+
+/**
+ * Resolve class + specialization + role for provider profile / upsert patches.
+ * Role always comes from the resolved GameSpecialization (catalog-backed).
+ * Returns null activeSpec/role when the specialization is unknown (fail closed).
+ */
+async function resolveClassSpecRole(
+  tx: PrismaClientOrTx,
+  classSlugRaw: string,
+  specSlugRaw: string | null | undefined,
+): Promise<{
+  classId: string;
+  activeSpecId: string | null;
+  role: CharacterRole | null;
+}> {
+  const classSlug = normalizeCatalogSlug(classSlugRaw) ?? classSlugRaw;
+  const gameClass = await ensureGameClass(tx, classSlug);
+  if (!specSlugRaw) {
+    return { classId: gameClass.id, activeSpecId: null, role: null };
+  }
+  const spec = await resolveCatalogSpecialization(tx, gameClass.id, classSlug, specSlugRaw);
+  if (!spec) {
+    return { classId: gameClass.id, activeSpecId: null, role: null };
+  }
+  return {
+    classId: gameClass.id,
+    activeSpecId: spec.id,
+    // Persist Character.role from the resolved GameSpecialization row.
+    role: spec.role,
+  };
 }
 
 const CLASS_ICON_BASE = "https://wow.zamimg.com/images/wow/icons/large";
@@ -614,12 +690,19 @@ export function createCharacterRepository(prisma: PrismaClient): CharacterReposi
 
         let classId: string | null = null;
         let activeSpecId: string | null = null;
+        let role: CharacterRole | null = null;
         if (patch?.classSlug) {
-          const gameClass = await ensureGameClass(tx, patch.classSlug);
-          classId = gameClass.id;
-          if (patch.specSlug && patch.role) {
-            const spec = await ensureGameSpecialization(tx, gameClass.id, patch.specSlug, patch.role);
-            activeSpecId = spec.id;
+          if (patch.specSlug) {
+            const resolved = await resolveClassSpecRole(tx, patch.classSlug, patch.specSlug);
+            classId = resolved.classId;
+            activeSpecId = resolved.activeSpecId;
+            role = resolved.role;
+          } else {
+            const gameClass = await ensureGameClass(
+              tx,
+              normalizeCatalogSlug(patch.classSlug) ?? patch.classSlug,
+            );
+            classId = gameClass.id;
           }
         }
 
@@ -632,7 +715,7 @@ export function createCharacterRepository(prisma: PrismaClient): CharacterReposi
             nameSearchKey,
             ...(classId ? { classId } : {}),
             ...(activeSpecId ? { activeSpecId } : {}),
-            ...(patch?.role ? { role: patch.role } : {}),
+            ...(role ? { role } : {}),
             ...(patch?.level != null ? { level: patch.level } : {}),
             ...(patch?.faction ? { faction: patch.faction } : {}),
             ...(patch?.blizzardCharacterId ? { blizzardCharacterId: BigInt(patch.blizzardCharacterId) } : {}),
@@ -647,7 +730,7 @@ export function createCharacterRepository(prisma: PrismaClient): CharacterReposi
             nameSearchKey,
             classId,
             activeSpecId,
-            role: patch?.role ?? null,
+            role,
             level: patch?.level ?? null,
             faction: patch?.faction ?? null,
             blizzardCharacterId: patch?.blizzardCharacterId ? BigInt(patch.blizzardCharacterId) : null,
@@ -662,15 +745,46 @@ export function createCharacterRepository(prisma: PrismaClient): CharacterReposi
       return prisma.$transaction(async (tx: Prisma.TransactionClient) => {
         let classId: string | undefined;
         let activeSpecId: string | undefined;
+        let role: CharacterRole | undefined;
+
         if (profile.classSlug) {
-          const gameClass = await ensureGameClass(tx, profile.classSlug);
-          classId = gameClass.id;
-          if (profile.specSlug) {
-            const role = profile.role ?? "DPS";
-            const spec = await ensureGameSpecialization(tx, gameClass.id, profile.specSlug, role);
-            activeSpecId = spec.id;
+          const resolved = await resolveClassSpecRole(tx, profile.classSlug, profile.specSlug);
+          classId = resolved.classId;
+          if (resolved.activeSpecId) {
+            activeSpecId = resolved.activeSpecId;
+            // Character.role from resolved GameSpecialization.role (catalog-backed).
+            role = resolved.role ?? undefined;
           }
         }
+
+        // Repair path: existing shell may already have activeSpecId with role null.
+        // Re-resolve via the static catalog so GameSpecialization.role stays authoritative.
+        if (role == null) {
+          const current = await tx.character.findUnique({
+            where: { id: characterId },
+            select: { activeSpecId: true },
+          });
+          const specId = activeSpecId ?? current?.activeSpecId ?? null;
+          if (specId) {
+            const linked = await tx.gameSpecialization.findUnique({
+              where: { id: specId },
+              include: { gameClass: true },
+            });
+            if (linked) {
+              const synced = await resolveCatalogSpecialization(
+                tx,
+                linked.classId,
+                linked.gameClass.slug,
+                linked.slug,
+              );
+              if (synced) {
+                activeSpecId = synced.id;
+                role = synced.role;
+              }
+            }
+          }
+        }
+
         return tx.character.update({
           where: { id: characterId },
           data: {
@@ -678,7 +792,7 @@ export function createCharacterRepository(prisma: PrismaClient): CharacterReposi
             nameSearchKey: normalizeCharacterSearchKey(profile.displayName),
             ...(classId ? { classId } : {}),
             ...(activeSpecId ? { activeSpecId } : {}),
-            ...(profile.role ? { role: profile.role } : {}),
+            ...(role ? { role } : {}),
             ...(profile.level != null ? { level: profile.level } : {}),
             ...(profile.faction ? { faction: profile.faction } : {}),
             ...(profile.blizzardCharacterId ? { blizzardCharacterId: BigInt(profile.blizzardCharacterId) } : {}),
