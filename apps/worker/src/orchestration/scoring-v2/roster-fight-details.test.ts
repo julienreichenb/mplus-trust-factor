@@ -34,11 +34,15 @@ describe("participantsFromMasterData", () => {
     const rows = participantsFromMasterData(masterData, "EU", [
       { sourceID: 1, spec: "Demonology", role: "dps" },
       { sourceID: 3, spec: "Protection", role: "TANK" },
+      { sourceID: 2, spec: "Holy", role: "HEALER" },
+      { sourceID: 4, spec: "Marksmanship", role: "dps" },
+      { sourceID: 5, spec: "Frost", role: "dps" },
     ]);
+    expect(rows).toHaveLength(5);
     expect(rows.find((r) => r.wclActorId === 1)?.specSlug).toBe("demonology");
     expect(rows.find((r) => r.wclActorId === 1)?.role).toBe("DPS");
     expect(rows.find((r) => r.wclActorId === 3)?.role).toBe("TANK");
-    expect(rows.find((r) => r.wclActorId === 2)?.specSlug).toBeNull();
+    expect(rows.find((r) => r.wclActorId === 2)?.specSlug).toBe("holy");
   });
 
   it("does not cross-realm match by name alone for digest identity", () => {
