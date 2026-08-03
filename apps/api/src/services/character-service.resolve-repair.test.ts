@@ -3,6 +3,7 @@ import { ExternalApiError } from "@mplus/contracts";
 import { clearSeasonAuthorityCacheForTests } from "@mplus/worker";
 import { CharacterService } from "./character-service.js";
 import type { ApiContainer } from "../container.js";
+import { characterLacksBootstrapEvidence } from "./character-bootstrap-repair.js";
 
 /**
  * Regression: previously persisted incomplete Character rows must be repaired
@@ -249,6 +250,70 @@ describe("CharacterService.resolveCharacter — existing incomplete repair", () 
           mythicRating: 2500,
           rawSummary: { eligibility: { authoritativeSeasonId: "season-1" } },
         }),
+      }),
+    );
+    expect(mockEnqueue).toHaveBeenCalledTimes(1);
+    expect(mockUpsert).not.toHaveBeenCalled();
+  });
+
+  it("repairs existing activeSpecId+role=null shell through exact resolve and queues refresh", async () => {
+    const roleNullShell = {
+      ...incompleteFixture,
+      level: 90,
+      blizzardCharacterId: 4242n,
+      classId: "class-paladin",
+      activeSpecId: "spec-holy",
+      role: null as "DPS" | null,
+      faction: "Horde",
+    };
+    const repaired = {
+      ...roleNullShell,
+      role: "HEALER" as const,
+    };
+    expect(characterLacksBootstrapEvidence(roleNullShell)).toBe(true);
+    expect(characterLacksBootstrapEvidence(repaired)).toBe(false);
+
+    mockFindByIdentity.mockResolvedValue(roleNullShell);
+    mockApplyProviderProfile.mockResolvedValue(repaired);
+    mockFindById.mockResolvedValue(repaired);
+    mockGetProfile.mockResolvedValue({
+      data: {
+        displayName: "Legacychar",
+        level: 90,
+        classSlug: "paladin",
+        specSlug: "holy",
+        // Blizzard profile summary often omits role / active_spec.type
+        role: null,
+        faction: "Horde",
+        blizzardCharacterId: "4242",
+      },
+    });
+    mockCharacterFindUnique.mockResolvedValue({
+      id: "char-incomplete",
+      level: 90,
+      regionId: "reg-1",
+    });
+
+    const service = new CharacterService(buildContainer());
+    const result = await service.resolveCharacter({
+      region: "EU",
+      realmSlug: "archimonde",
+      name: "Legacychar",
+    });
+
+    expect(result.statusCode).toBe(202);
+    expect(result.body).toMatchObject({
+      status: "QUEUED",
+      characterId: "char-incomplete",
+      refreshId: "job-repair-1",
+    });
+    expect(mockApplyProviderProfile).toHaveBeenCalledWith(
+      "char-incomplete",
+      expect.objectContaining({
+        classSlug: "paladin",
+        specSlug: "holy",
+        role: null,
+        blizzardCharacterId: "4242",
       }),
     );
     expect(mockEnqueue).toHaveBeenCalledTimes(1);

@@ -24,6 +24,18 @@ describe("character bootstrap repair triggers", () => {
     role: null as "DPS" | null,
   };
 
+  it("detects Agent 11 incomplete shape: class/spec present but role null", () => {
+    const agent11Shape = {
+      level: 90,
+      blizzardCharacterId: 999n,
+      classId: "class-1",
+      activeSpecId: "spec-1",
+      role: null as "DPS" | null,
+    };
+    expect(characterLacksBootstrapEvidence(agent11Shape)).toBe(true);
+    expect(characterLacksBootstrapEvidence({ ...agent11Shape, role: "HEALER" })).toBe(false);
+  });
+
   it("detects incomplete bootstrap evidence", () => {
     expect(characterLacksBootstrapEvidence({ ...complete, level: null })).toBe(true);
     expect(characterLacksBootstrapEvidence({ ...complete, blizzardCharacterId: null })).toBe(true);
