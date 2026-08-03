@@ -10,6 +10,22 @@ import {
 import { createPermissionPreHandler } from "../iam/session.js";
 import { PERMISSIONS } from "../iam/permissions.js";
 import { errorResponseSchema } from "./schemas.js";
+import {
+  authErrorResponses,
+  conflictErrorResponses,
+  concurrencyDtoSchema,
+  createEvidenceExportBodyOpenApiSchema,
+  evidenceExportDtoSchema,
+  freezeBundleResponseSchema,
+  freezeEvidenceBundleBodyOpenApiSchema,
+  historyListSchema,
+  listExportsSchema,
+  overviewSchema,
+  paginationQuerySchema,
+  scoringV2ControlCenterTags,
+  updateConcurrencyBodyOpenApiSchema,
+  zipDownloadResponseSchema,
+} from "./scoring-v2-control-center-schemas.js";
 import { HttpError } from "../errors.js";
 import { writeAuditEvent } from "../iam/audit.js";
 import { OBS_EVENTS, emitScoringV2Event } from "@mplus/observability";
@@ -65,11 +81,28 @@ export function buildAdminExplainabilityV2Routes(container: ApiContainer): Fasti
         }),
       );
 
-      readApp.get("/api/v1/admin/scoring-v2/overview", async () =>
-        buildScoringV2Overview(container.worker.prisma, env),
+      readApp.get(
+        "/api/v1/admin/scoring-v2/overview",
+        {
+          schema: {
+            tags: [...scoringV2ControlCenterTags],
+            summary: "Scoring V2 control-center overview (provider-free)",
+            response: { 200: overviewSchema, ...authErrorResponses },
+          },
+        },
+        async () => buildScoringV2Overview(container.worker.prisma, env),
       );
 
-      readApp.get("/api/v1/admin/scoring-v2/concurrency", async () => {
+      readApp.get(
+        "/api/v1/admin/scoring-v2/concurrency",
+        {
+          schema: {
+            tags: [...scoringV2ControlCenterTags],
+            summary: "Get distributed CALIBRATION/OPERATION concurrency settings",
+            response: { 200: concurrencyDtoSchema, ...authErrorResponses },
+          },
+        },
+        async () => {
         const [cal, op] = await Promise.all([
           container.worker.prisma.ingestionJob.groupBy({
             by: ["status"],
@@ -92,22 +125,64 @@ export function buildAdminExplainabilityV2Routes(container: ApiContainer): Fasti
           operationActive: count(op, "ACTIVE"),
           operationQueued: count(op, "QUEUED"),
         });
-      });
+      },
+      );
 
-      readApp.get("/api/v1/admin/scoring-v2/evidence-exports", async (request) => {
-        const q = request.query as { page?: number; pageSize?: number };
-        return exports.listExports(q.page, q.pageSize);
-      });
+      readApp.get(
+        "/api/v1/admin/scoring-v2/evidence-exports",
+        {
+          schema: {
+            tags: [...scoringV2ControlCenterTags],
+            summary: "List evidence exports",
+            querystring: paginationQuerySchema,
+            response: { 200: listExportsSchema, ...authErrorResponses },
+          },
+        },
+        async (request) => {
+          const q = request.query as { page?: number; pageSize?: number };
+          return exports.listExports(q.page, q.pageSize);
+        },
+      );
 
-      readApp.get("/api/v1/admin/scoring-v2/evidence-exports/:exportId", async (request) => {
-        const { exportId } = request.params as { exportId: string };
-        return exports.getExport(exportId);
-      });
+      readApp.get(
+        "/api/v1/admin/scoring-v2/evidence-exports/:exportId",
+        {
+          schema: {
+            tags: [...scoringV2ControlCenterTags],
+            summary: "Get evidence export status and freeze eligibility blockers",
+            params: {
+              type: "object",
+              properties: { exportId: { type: "string", format: "uuid" } },
+              required: ["exportId"],
+            },
+            response: {
+              200: evidenceExportDtoSchema,
+              404: errorResponseSchema,
+              ...authErrorResponses,
+            },
+          },
+        },
+        async (request) => {
+          const { exportId } = request.params as { exportId: string };
+          return exports.getExport(exportId);
+        },
+      );
 
-      readApp.get("/api/v1/admin/scoring-v2/history", async (request) => {
-        const q = request.query as { page?: number; pageSize?: number };
-        return exports.listHistory(q.page, q.pageSize);
-      });
+      readApp.get(
+        "/api/v1/admin/scoring-v2/history",
+        {
+          schema: {
+            tags: [...scoringV2ControlCenterTags],
+            summary: "Evidence export and frozen bundle history",
+            querystring: paginationQuerySchema,
+            response: { 200: historyListSchema, ...authErrorResponses },
+          },
+        },
+        async (request) => {
+          const q = request.query as { page?: number; pageSize?: number };
+          return exports.listHistory(q.page, q.pageSize);
+        },
+      );
 
       readApp.get(
         "/api/v1/admin/scoring-v2/manifests",
@@ -187,7 +262,20 @@ export function buildAdminExplainabilityV2Routes(container: ApiContainer): Fasti
         }),
       );
 
-      writeApp.put("/api/v1/admin/scoring-v2/concurrency", async (request) => {
+      writeApp.put(
+        "/api/v1/admin/scoring-v2/concurrency",
+        {
+          schema: {
+            tags: [...scoringV2ControlCenterTags],
+            summary: "Update CALIBRATION/OPERATION concurrency (does not kill active jobs)",
+            body: updateConcurrencyBodyOpenApiSchema,
+            response: {
+              200: concurrencyDtoSchema,
+              ...conflictErrorResponses,
+            },
+          },
+        },
+        async (request) => {
         const body = updateConcurrencyBodySchema.parse(request.body);
         const actorId = await resolveActorUserId(request, container);
         const result = await updateConcurrencySettings(
@@ -217,24 +305,86 @@ export function buildAdminExplainabilityV2Routes(container: ApiContainer): Fasti
           },
         });
         return result;
-      });
+      },
+      );
 
-      writeApp.post("/api/v1/admin/scoring-v2/evidence-exports", async (request) => {
-        const actorId = await resolveActorUserId(request, container);
-        return exports.createExport(request.body, actorId, auditCtx(request));
-      });
+      writeApp.post(
+        "/api/v1/admin/scoring-v2/evidence-exports",
+        {
+          schema: {
+            tags: [...scoringV2ControlCenterTags],
+            summary: "Create provider-free evidence export job (no refresh enqueue)",
+            body: createEvidenceExportBodyOpenApiSchema,
+            response: {
+              200: evidenceExportDtoSchema,
+              ...conflictErrorResponses,
+              404: errorResponseSchema,
+            },
+          },
+        },
+        async (request) => {
+          const actorId = await resolveActorUserId(request, container);
+          return exports.createExport(request.body, actorId, auditCtx(request));
+        },
+      );
 
-      writeApp.get("/api/v1/admin/scoring-v2/evidence-exports/:exportId/download", async (request, reply) => {
-        const { exportId } = request.params as { exportId: string };
-        const file = await exports.downloadArchive(exportId);
-        reply.header("Content-Type", "application/zip");
-        reply.header("Content-Disposition", `attachment; filename="${file.filename}"`);
-        reply.header("X-Content-Hash", file.contentHash);
-        return reply.send(file.bytes);
-      });
+      writeApp.get(
+        "/api/v1/admin/scoring-v2/evidence-exports/:exportId/download",
+        {
+          schema: {
+            tags: [...scoringV2ControlCenterTags],
+            summary: "Download evidence export ZIP archive",
+            produces: ["application/zip"],
+            params: {
+              type: "object",
+              properties: { exportId: { type: "string", format: "uuid" } },
+              required: ["exportId"],
+            },
+            response: {
+              200: {
+                description: "ZIP archive bytes",
+                type: "string",
+                format: "binary",
+                content: {
+                  "application/zip": {
+                    schema: zipDownloadResponseSchema,
+                  },
+                },
+              },
+              404: errorResponseSchema,
+              ...authErrorResponses,
+            },
+          },
+        },
+        async (request, reply) => {
+          const { exportId } = request.params as { exportId: string };
+          const file = await exports.downloadArchive(exportId);
+          reply.header("Content-Type", "application/zip");
+          reply.header("Content-Disposition", `attachment; filename="${file.filename}"`);
+          reply.header("X-Content-Hash", file.contentHash);
+          return reply.send(file.bytes);
+        },
+      );
 
       writeApp.post(
         "/api/v1/admin/scoring-v2/evidence-exports/:exportId/freeze-bundle",
+        {
+          schema: {
+            tags: [...scoringV2ControlCenterTags],
+            summary: "Freeze Calibration Input Bundle V2 (provider-free, no activation)",
+            params: {
+              type: "object",
+              properties: { exportId: { type: "string", format: "uuid" } },
+              required: ["exportId"],
+            },
+            body: freezeEvidenceBundleBodyOpenApiSchema,
+            response: {
+              200: freezeBundleResponseSchema,
+              ...conflictErrorResponses,
+              404: errorResponseSchema,
+            },
+          },
+        },
         async (request) => {
           const { exportId } = request.params as { exportId: string };
           return exports.freezeBundle(exportId, request.body, auditCtx(request));
