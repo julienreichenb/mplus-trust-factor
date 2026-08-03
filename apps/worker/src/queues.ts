@@ -368,13 +368,27 @@ export function createQueueProducers(
         requestedAt: input.requestedAt ?? new Date().toISOString(),
       });
       const dedupeKey = analyzeEvidenceSlotV2DedupeKey(payload);
-      return enqueue(
-        queues[QUEUE_NAMES.analyzeEvidenceSlot],
-        QUEUE_NAMES.analyzeEvidenceSlot,
+      const result = await persistAndEnqueue({
+        queue: queues[QUEUE_NAMES.analyzeEvidenceSlot],
+        jobType: QUEUE_NAMES.analyzeEvidenceSlot,
         dedupeKey,
         payload,
-      );
+        jobRepository: container.repositories.job,
+        logger: container.logger,
+        options: {
+          // Permit/budget deferral releases RUNNING→PENDING; BullMQ must retry.
+          attempts: 12,
+          backoff: { type: "fixed", delay: 5_000 },
+        },
+      });
+      return {
+        jobId: result.jobId,
+        dedupeKey: result.dedupeKey,
+        reused: result.reused,
+        enqueued: result.enqueued,
+      };
     },
+
 
     async enqueueFinalizeEvidenceBatch(input) {
       const payload = finalizeEvidenceBatchJobV2Schema.parse({

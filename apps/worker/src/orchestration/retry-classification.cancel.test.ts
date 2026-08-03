@@ -23,4 +23,15 @@ describe("retry classification for cancellation", () => {
     expect(result.retryable).toBe(false);
     expect(result.providerFailure).toBe(false);
   });
+
+  it("treats SCORING_V2_RATE_DEFER as retryable after claim release", () => {
+    const result = classifyError({
+      code: "SCORING_V2_RATE_DEFER",
+      message: "global_wcl_permit_unavailable",
+      delayMs: 5_000,
+    });
+    expect(result.retryable).toBe(true);
+    expect(result.providerFailure).toBe(false);
+    expect(result.delayMs).toBe(5_000);
+  });
 });

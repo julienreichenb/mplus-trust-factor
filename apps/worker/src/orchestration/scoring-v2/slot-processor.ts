@@ -13,10 +13,17 @@ import {
   acquireCandidateWithFallback,
   assertPublicationBlocked,
   ScoringV2CancelledError,
+  ScoringV2RateDeferError,
   ScoringV2SupersededError,
 } from "./acquisition.js";
 import { resolveFrozenClassSpecIdentity } from "./class-spec-identity.js";
 import { createProviderBackedEvidenceTransport } from "./evidence-transport-provider.js";
+import {
+  acquirePerCharacterRunPermit,
+  releasePerCharacterRunPermit,
+  type WclConcurrencyRedis,
+} from "./wcl-concurrency/permits.js";
+import { randomUUID } from "node:crypto";
 
 export interface EvidenceV2SlotProducers {
   enqueueFinalizeEvidenceBatch: (
@@ -228,91 +235,132 @@ export async function runAnalyzeEvidenceSlotV2(
     planSpecSlug: batchView.meta.acquisitionPlan.specSlug ?? null,
   });
 
+
   try {
-    const acquired = await acquireCandidateWithFallback({
-      container,
-      candidates: slotPlan.orderedCandidates,
-      region,
-      correlationId: job.correlationId ?? null,
-      shouldCancel: async () => {
-        const latest = await repo.getById(job.analysisBatchId);
-        return Boolean(latest?.meta.cancelled || latest?.meta.supersededByGeneration != null);
-      },
-      evidence: container.repositories.evidence,
-      artifacts: container.repositories.artifacts,
-      manifestSlotIdForPersistence: null,
-      characterId: batchView.batch.characterId,
-      datasetRequirements: batchView.meta.datasetRequirements,
-      slotContext: {
-        slotId: job.slotId,
-        dungeonSlug: slotPlan.dungeonSlug,
-        slotIndex: slotPlan.slotIndex,
-      },
-      transport: createProviderBackedEvidenceTransport(container, {
+    const redisConn = container.createRedisConnection();
+    const redis = redisConn as unknown as WclConcurrencyRedis;
+    const charOwnerId = `slot-char:${batchView.batch.characterId}:${job.slotId}:${randomUUID()}`;
+    let charToken: string | null = null;
+    try {
+      const charPermit = await acquirePerCharacterRunPermit({
+        redis,
+        appEnv: container.env.APP_ENV,
         characterId: batchView.batch.characterId,
-      }),
-      classSlug: frozenIdentity.classSlug,
-      specSlug: frozenIdentity.specSlug,
-      classSpecIdentity: frozenIdentity,
-    });
+        ownerId: charOwnerId,
+      });
+      if (!charPermit.ok) {
+        throw new ScoringV2RateDeferError(
+          `per_character_wcl_permit_unavailable:${charPermit.reason}`,
+          5_000,
+        );
+      }
+      charToken = charPermit.token;
 
-    const status =
-      acquired.result.acquisitionStatus === "ACQUIRED"
-        ? acquired.result.dimensionValidity?.performance === "VALID" &&
-          acquired.result.dimensionValidity?.survival === "VALID" &&
-          acquired.result.dimensionValidity?.utility === "VALID"
-          ? ("SUCCEEDED" as const)
-          : ("PARTIAL" as const)
-        : ("UNAVAILABLE" as const);
+      const acquired = await acquireCandidateWithFallback({
+        container,
+        candidates: slotPlan.orderedCandidates,
+        region,
+        correlationId: job.correlationId ?? null,
+        shouldCancel: async () => {
+          const latest = await repo.getById(job.analysisBatchId);
+          return Boolean(latest?.meta.cancelled || latest?.meta.supersededByGeneration != null);
+        },
+        evidence: container.repositories.evidence,
+        artifacts: container.repositories.artifacts,
+        manifestSlotIdForPersistence: null,
+        characterId: batchView.batch.characterId,
+        datasetRequirements: batchView.meta.datasetRequirements,
+        slotContext: {
+          slotId: job.slotId,
+          dungeonSlug: slotPlan.dungeonSlug,
+          slotIndex: slotPlan.slotIndex,
+        },
+        transport: createProviderBackedEvidenceTransport(container, {
+          characterId: batchView.batch.characterId,
+        }),
+        classSlug: frozenIdentity.classSlug,
+        specSlug: frozenIdentity.specSlug,
+        classSpecIdentity: frozenIdentity,
+      });
 
-    const completed = await repo.completeSlot({
-      batchId: job.analysisBatchId,
-      slotId: job.slotId,
-      status,
-      terminalReason:
+      const status =
         acquired.result.acquisitionStatus === "ACQUIRED"
-          ? null
-          : acquired.result.rejectionReason,
-      acquisitionResult: acquired.result,
-      acquiredDiscoveryKey: discoveryIdentityKey(acquired.result.discoveryIdentity),
-      datasetCompatibilityKeys: acquired.datasetCompatibilityKeys,
-      factSetFingerprint: acquired.factSetFingerprint,
-      typedFactPayloads: acquired.typedFactPayloads,
-    });
+          ? acquired.result.dimensionValidity?.performance === "VALID" &&
+            acquired.result.dimensionValidity?.survival === "VALID" &&
+            acquired.result.dimensionValidity?.utility === "VALID"
+            ? ("SUCCEEDED" as const)
+            : ("PARTIAL" as const)
+          : ("UNAVAILABLE" as const);
 
-    emitSlotTerminal(container, {
-      analysisBatchId: job.analysisBatchId,
-      slotId: job.slotId,
-      correlationId: job.correlationId,
-      characterId: batchView.batch.characterId,
-      kind: status === "UNAVAILABLE" ? "unavailable" : "completed",
-      status,
-      reason: acquired.result.rejectionReason ?? undefined,
-    });
+      const completed = await repo.completeSlot({
+        batchId: job.analysisBatchId,
+        slotId: job.slotId,
+        status,
+        terminalReason:
+          acquired.result.acquisitionStatus === "ACQUIRED"
+            ? null
+            : acquired.result.rejectionReason,
+        acquisitionResult: acquired.result,
+        acquiredDiscoveryKey: discoveryIdentityKey(acquired.result.discoveryIdentity),
+        datasetCompatibilityKeys: acquired.datasetCompatibilityKeys,
+        factSetFingerprint: acquired.factSetFingerprint,
+        typedFactPayloads: acquired.typedFactPayloads,
+      });
 
-    if (completed.becameReady) {
-      recordBatchOutcome("ready");
-      emitScoringV2Event(container.logger, OBS_EVENTS.scoringV2BatchReady, {
+      emitSlotTerminal(container, {
         analysisBatchId: job.analysisBatchId,
+        slotId: job.slotId,
         correlationId: job.correlationId,
         characterId: batchView.batch.characterId,
+        kind: status === "UNAVAILABLE" ? "unavailable" : "completed",
+        status,
+        reason: acquired.result.rejectionReason ?? undefined,
       });
-      await producers.enqueueFinalizeEvidenceBatch({
-        analysisBatchId: job.analysisBatchId,
-        acquisitionPlanContentHash: job.acquisitionPlanContentHash,
-        expectedTerminalSlotCount: batchView.meta.acquisitionPlan.expectedSlotCount,
-        refreshGeneration: job.refreshGeneration,
-        correlationId: job.correlationId ?? null,
-      });
-    }
 
-    return {
-      outcome: "completed",
-      analysisBatchId: job.analysisBatchId,
-      slotId: job.slotId,
-      status,
-    };
+      if (completed.becameReady) {
+        recordBatchOutcome("ready");
+        emitScoringV2Event(container.logger, OBS_EVENTS.scoringV2BatchReady, {
+          analysisBatchId: job.analysisBatchId,
+          correlationId: job.correlationId,
+          characterId: batchView.batch.characterId,
+        });
+        await producers.enqueueFinalizeEvidenceBatch({
+          analysisBatchId: job.analysisBatchId,
+          acquisitionPlanContentHash: job.acquisitionPlanContentHash,
+          expectedTerminalSlotCount: batchView.meta.acquisitionPlan.expectedSlotCount,
+          refreshGeneration: job.refreshGeneration,
+          correlationId: job.correlationId ?? null,
+        });
+      }
+
+      return {
+        outcome: "completed",
+        analysisBatchId: job.analysisBatchId,
+        slotId: job.slotId,
+        status,
+      };
+    } finally {
+      if (charToken) {
+        await releasePerCharacterRunPermit({
+          redis,
+          appEnv: container.env.APP_ENV,
+          characterId: batchView.batch.characterId,
+          ownerId: charOwnerId,
+          token: charToken,
+        }).catch(() => undefined);
+      }
+      await redisConn.quit().catch(() => undefined);
+    }
   } catch (error) {
+    // Permit/budget deferral: release claim so BullMQ retry can reclaim PENDING.
+    if (error instanceof ScoringV2RateDeferError) {
+      await repo.releaseSlotClaim({
+        batchId: job.analysisBatchId,
+        slotId: job.slotId,
+        refreshGeneration: job.refreshGeneration,
+      });
+      throw error;
+    }
     if (error instanceof ScoringV2CancelledError) {
       await repo.completeSlot({
         batchId: job.analysisBatchId,

@@ -20,7 +20,14 @@ export interface PersistAndEnqueueDeps {
   payload: unknown;
   jobRepository: JobRepository;
   logger: Logger;
-  options?: { characterId?: string | null; runId?: string | null; priority?: number };
+  options?: {
+    characterId?: string | null;
+    runId?: string | null;
+    priority?: number;
+    /** BullMQ attempts (default 1). Rate-defer slots need >1 after claim release. */
+    attempts?: number;
+    backoff?: { type: "fixed" | "exponential"; delay: number };
+  };
   staleQueuedMs?: number;
 }
 
@@ -102,6 +109,8 @@ export async function persistAndEnqueue(deps: PersistAndEnqueueDeps): Promise<Pe
       removeOnComplete: 1000,
       removeOnFail: 1000,
       priority: options.priority ?? 0,
+      ...(options.attempts != null ? { attempts: options.attempts } : {}),
+      ...(options.backoff != null ? { backoff: options.backoff } : {}),
     });
   } catch (error) {
     logger.error({ jobType, dedupeKey, bullmqJobId, err: error }, "queue.add failed");

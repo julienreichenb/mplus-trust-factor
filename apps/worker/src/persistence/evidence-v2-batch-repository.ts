@@ -61,6 +61,15 @@ export interface EvidenceV2BatchRepository {
     | { outcome: "lost_claim"; view: EvidenceV2BatchView }
     | { outcome: "superseded" | "cancelled" | "not_found" | "generation_mismatch" }
   >;
+  /**
+   * Release RUNNING → PENDING so a RateDefer / retry can reclaim.
+   * No-op when terminal or generation mismatch.
+   */
+  releaseSlotClaim(input: {
+    batchId: string;
+    slotId: string;
+    refreshGeneration: number;
+  }): Promise<EvidenceV2BatchView | null>;
   completeSlot(input: {
     batchId: string;
     slotId: string;
@@ -318,6 +327,43 @@ export function createEvidenceV2BatchRepository(
           },
         });
         return { outcome: "claimed" as const, view: toView(updated) };
+      });
+    },
+
+    async releaseSlotClaim(input) {
+      return prisma.$transaction(async (tx) => {
+        const batch = await tx.scoreAnalysisBatch.findUnique({ where: { id: input.batchId } });
+        if (!batch) return null;
+        const meta = parseMeta(batch.metadata);
+        if (!meta) return null;
+        if (meta.refreshGeneration !== input.refreshGeneration) return null;
+        if (meta.cancelled || meta.supersededByGeneration != null) return null;
+
+        const slot = meta.slots.find((s) => s.slotId === input.slotId);
+        if (!slot || slot.status !== "RUNNING") {
+          return { batch, meta };
+        }
+
+        const nextSlots = meta.slots.map((s) =>
+          s.slotId === input.slotId
+            ? {
+                ...s,
+                status: "PENDING" as const,
+                startedAt: null,
+              }
+            : s,
+        );
+        const nextMeta: EvidenceV2BatchMetadata = {
+          ...meta,
+          slots: nextSlots,
+        };
+        const updated = await tx.scoreAnalysisBatch.update({
+          where: { id: input.batchId },
+          data: {
+            metadata: withMeta(batch.metadata, nextMeta),
+          },
+        });
+        return toView(updated);
       });
     },
 

@@ -47,11 +47,12 @@ export function classifyError(error: unknown): RetryClassification {
       return { retryable: false, softSkip: false, providerFailure: false };
     }
     if (code === "SCORING_V2_RATE_DEFER") {
+      // Slot processor releases RUNNING→PENDING before throw; BullMQ must retry.
       return {
-        retryable: false,
+        retryable: true,
         softSkip: false,
         providerFailure: false,
-        delayMs: (error as { delayMs?: number }).delayMs ?? 60_000,
+        delayMs: (error as { delayMs?: number }).delayMs ?? 5_000,
       };
     }
   }

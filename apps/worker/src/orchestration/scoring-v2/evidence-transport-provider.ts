@@ -14,13 +14,10 @@ import {
 import type { WorkerContainer } from "../../container.js";
 import {
   acquireGlobalWclHttpPermit,
-  acquirePerCharacterRunPermit,
   acquireSourceSingleflight,
   completeSourceSingleflight,
   releaseGlobalWclHttpPermit,
-  releasePerCharacterRunPermit,
   releaseSourceSingleflight,
-  shouldDeferForBudgetReserve,
   wclSingleflightKey,
   type WclConcurrencyRedis,
 } from "./wcl-concurrency/permits.js";
@@ -111,30 +108,15 @@ export function createProviderBackedEvidenceTransport(
     l1,
   });
   const usePermits = options.useDistributedPermits !== false;
-  const characterId = options.characterId ?? "unknown-character";
+  void options.characterId;
 
-  async function withWclPermits<T>(work: () => Promise<T>): Promise<T> {
+  async function withGlobalWclHttpPermit<T>(work: () => Promise<T>): Promise<T> {
     if (!usePermits) return work();
     const redisConn = container.createRedisConnection();
     const redis = redisConn as unknown as WclConcurrencyRedis;
     const ownerId = randomUUID();
-    let charToken: string | null = null;
     let globalToken: string | null = null;
     try {
-      const char = await acquirePerCharacterRunPermit({
-        redis,
-        appEnv: container.env.APP_ENV,
-        characterId,
-        ownerId: `char-run:${ownerId}`,
-      });
-      if (!char.ok) {
-        throw new ScoringV2RateDeferError(
-          `per_character_wcl_permit_unavailable:${char.reason}`,
-          5_000,
-        );
-      }
-      charToken = char.token;
-
       const global = await acquireGlobalWclHttpPermit({
         redis,
         appEnv: container.env.APP_ENV,
@@ -147,17 +129,6 @@ export function createProviderBackedEvidenceTransport(
         );
       }
       globalToken = global.token;
-
-      // Budget reserve — use env thresholds when rate-limit snapshot unavailable.
-      const defer = shouldDeferForBudgetReserve({
-        pointsRemaining: 1_000,
-        pointsLimit: 1_000,
-        estimatedCost: 5,
-        reserveRatio: 0.2,
-      });
-      // Only defer when we have a real measured budget; skip soft default above.
-      void defer;
-
       return await work();
     } finally {
       if (globalToken) {
@@ -168,22 +139,13 @@ export function createProviderBackedEvidenceTransport(
           token: globalToken,
         }).catch(() => undefined);
       }
-      if (charToken) {
-        await releasePerCharacterRunPermit({
-          redis,
-          appEnv: container.env.APP_ENV,
-          characterId,
-          ownerId: `char-run:${ownerId}`,
-          token: charToken,
-        }).catch(() => undefined);
-      }
       await redisConn.quit().catch(() => undefined);
     }
   }
 
   return {
     async getReportFightDetails(input): Promise<ScoringV2FightDetailsResult> {
-      return withWclPermits(async () => {
+      return withGlobalWclHttpPermit(async () => {
         const result = await container.providers.warcraftlogs.getReportFightDetails(
           input.reportCode,
           input.fightId,
@@ -341,7 +303,7 @@ export function createProviderBackedEvidenceTransport(
         void existing;
         void WCL_RUN_EVIDENCE_PROVIDER_CONTRACT;
 
-        return await withWclPermits(async () => {
+        return await withGlobalWclHttpPermit(async () => {
           const client = wcl.getGraphQlClient!();
           const before = l1.providerFetchCount;
           const bundle: WclRunEvidenceBundle = await ingestSharedEvidenceBundle({
@@ -409,7 +371,7 @@ export function createProviderBackedEvidenceTransport(
           unavailableReason: "ranking_parse_provider_capability_absent",
         };
       }
-      return withWclPermits(async () => {
+      return withGlobalWclHttpPermit(async () => {
         const result = await wcl.getRankingParseForFight!({
           reportCode: input.reportCode,
           fightId: input.fightId,
