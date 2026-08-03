@@ -515,23 +515,44 @@ describe("assembleCalibrationInputBundleV2", () => {
   });
 
   it("is consumable by Calibration V2 replay with zero provider calls", async () => {
-    const providerSpy = vi.fn();
+    const fixture = buildFixture();
     const assembled = await assembleCalibrationInputBundleV2({
-      prisma: buildFixture().prisma as never,
+      prisma: fixture.prisma as never,
       artifacts: makeArtifacts() as never,
-      exportId: "44444444-4444-4444-8444-444444444444",
+      exportId: fixture.exportId,
     });
     expect(assembled.ok).toBe(true);
+    expect(assembled.bundle).toBeTruthy();
+
     const report = await replayCalibrationBundleV2({
       bundle: assembled.bundle as CalibrationInputBundleV2,
       resolver: createMapArtifactResolverV2(assembled.artifactBytes),
       modelSide: "active",
     });
-    expect(providerSpy).not.toHaveBeenCalled();
-    expect(report).toBeTruthy();
-    expect(typeof report.ok === "boolean" || Array.isArray(report.members) || report != null).toBe(
-      true,
-    );
+
+    expect(report.schemaVersion).toBe("calibration-replay-v2");
+    expect(report.providerCalls).toBe(0);
+    expect(report.refreshCalls).toBe(0);
+    expect(report.modelActivated).toBe(false);
+    expect(report.publicationMutated).toBe(false);
+    expect(report.bundleHash).toBe(assembled.bundle!.bundleHash);
+    expect(report.contentHash).toMatch(/^[a-f0-9]{64}$/);
+    // Only included members are replayed.
+    expect(report.members).toHaveLength(1);
+    expect(report.members[0]!.memberId).toBe("55555555-5555-4555-8555-555555555555");
+    expect(report.members[0]!.expectedLabel).toBe("good");
+    expect(Array.isArray(report.members[0]!.dimensions)).toBe(true);
+    expect(Array.isArray(report.members[0]!.errors)).toBe(true);
+    expect(report.preflightIssues.filter((i) => i.severity === "BLOCKING")).toHaveLength(0);
+
+    // Deterministic content hash across identical replays.
+    const again = await replayCalibrationBundleV2({
+      bundle: assembled.bundle as CalibrationInputBundleV2,
+      resolver: createMapArtifactResolverV2(assembled.artifactBytes),
+      modelSide: "active",
+    });
+    expect(again.contentHash).toBe(report.contentHash);
+    expect(again.providerCalls).toBe(0);
   });
 
   it("dryRun does not write RawArtifact rows", async () => {

@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   EVIDENCE_EXPORT_MAX_ARCHIVE_BYTES,
   EVIDENCE_EXPORT_MAX_MEMBERS,
+  EVIDENCE_EXPORT_STALE_LEASE_CODE,
+  reclaimStaleEvidenceExports,
   runScoringV2EvidenceExportJob,
 } from "./scoring-v2-evidence-export.js";
 
@@ -232,6 +234,7 @@ describe("runScoringV2EvidenceExportJob idempotency (B3)", () => {
         leaseOwner: "owner-1",
       });
     prisma.scoringV2EvidenceExport.updateMany
+      .mockResolvedValueOnce({ count: 0 }) // reclaim
       .mockResolvedValueOnce({ count: 1 }) // claim
       .mockResolvedValueOnce({ count: 1 }); // finalize
 
@@ -250,7 +253,11 @@ describe("runScoringV2EvidenceExportJob idempotency (B3)", () => {
     expect(runEvidenceJoin.mock.calls[0]![1].now).toEqual(pinned);
     expect(runEvidenceJoin.mock.calls[0]![1].now).not.toEqual(wallClock);
 
-    const finalizeCall = prisma.scoringV2EvidenceExport.updateMany.mock.calls[1]![0];
+    const reclaimCall = prisma.scoringV2EvidenceExport.updateMany.mock.calls[0]![0];
+    expect(reclaimCall.data.status).toBe("RETRYABLE");
+    expect(reclaimCall.data.errorCode).toBe(EVIDENCE_EXPORT_STALE_LEASE_CODE);
+
+    const finalizeCall = prisma.scoringV2EvidenceExport.updateMany.mock.calls[2]![0];
     expect(finalizeCall.data.status).toBe("COMPLETED");
     expect(finalizeCall.data.artifactSetHash).toBe("archive-hash");
     expect(finalizeCall.data.archiveContentHash).toBe("archive-hash");
@@ -274,7 +281,9 @@ describe("runScoringV2EvidenceExportJob idempotency (B3)", () => {
         leaseOwner: "other-owner",
         leaseExpiresAt: new Date("2099-01-01T00:00:00.000Z"),
       });
-    prisma.scoringV2EvidenceExport.updateMany.mockResolvedValueOnce({ count: 0 });
+    prisma.scoringV2EvidenceExport.updateMany
+      .mockResolvedValueOnce({ count: 0 }) // reclaim
+      .mockResolvedValueOnce({ count: 0 }); // claim lost
 
     const result = await runScoringV2EvidenceExportJob(
       {
@@ -324,8 +333,9 @@ describe("runScoringV2EvidenceExportJob idempotency (B3)", () => {
         leaseOwner: "owner-1",
       });
     prisma.scoringV2EvidenceExport.updateMany
-      .mockResolvedValueOnce({ count: 1 })
-      .mockResolvedValueOnce({ count: 1 });
+      .mockResolvedValueOnce({ count: 0 }) // reclaim
+      .mockResolvedValueOnce({ count: 1 }) // claim
+      .mockResolvedValueOnce({ count: 1 }); // fail terminal
 
     const result = await runScoringV2EvidenceExportJob(
       {
@@ -339,7 +349,7 @@ describe("runScoringV2EvidenceExportJob idempotency (B3)", () => {
 
     expect(result).toEqual({ exportId: EXPORT_ID, status: "FAILED" });
     expect(runEvidenceJoin).not.toHaveBeenCalled();
-    const failCall = prisma.scoringV2EvidenceExport.updateMany.mock.calls[1]![0];
+    const failCall = prisma.scoringV2EvidenceExport.updateMany.mock.calls[2]![0];
     expect(failCall.data.status).toBe("FAILED");
     expect(failCall.data.errorCode).toBe("EVIDENCE_EXPORT_MEMBER_LIMIT");
   });
@@ -360,6 +370,7 @@ describe("runScoringV2EvidenceExportJob idempotency (B3)", () => {
         artifactSetHash: "archive-hash",
       });
     prisma.scoringV2EvidenceExport.updateMany
+      .mockResolvedValueOnce({ count: 0 }) // reclaim
       .mockResolvedValueOnce({ count: 1 }) // claim
       .mockResolvedValueOnce({ count: 0 }); // finalize lost
 
@@ -392,8 +403,9 @@ describe("runScoringV2EvidenceExportJob idempotency (B3)", () => {
         leaseOwner: "owner-1",
       });
     prisma.scoringV2EvidenceExport.updateMany
-      .mockResolvedValueOnce({ count: 1 })
-      .mockResolvedValueOnce({ count: 1 });
+      .mockResolvedValueOnce({ count: 0 }) // reclaim
+      .mockResolvedValueOnce({ count: 1 }) // claim
+      .mockResolvedValueOnce({ count: 1 }); // finalize
 
     const result = await runScoringV2EvidenceExportJob(
       {
@@ -409,7 +421,7 @@ describe("runScoringV2EvidenceExportJob idempotency (B3)", () => {
     expect(prisma.scoreModel.findUnique).toHaveBeenCalledWith({ where: { id: "model-1" } });
     expect(prisma.season.findUnique).toHaveBeenCalled();
 
-    const finalizeCall = prisma.scoringV2EvidenceExport.updateMany.mock.calls[1]![0];
+    const finalizeCall = prisma.scoringV2EvidenceExport.updateMany.mock.calls[2]![0];
     expect(finalizeCall.data.scoreModelId).toBe("model-1");
     const snap = finalizeCall.data.freezeSnapshot as {
       schemaVersion: string;
@@ -431,5 +443,39 @@ describe("runScoringV2EvidenceExportJob idempotency (B3)", () => {
     const { parseAndVerifyFreezeSnapshot } = await import("@mplus/scoring");
     const verified = parseAndVerifyFreezeSnapshot(snap);
     expect(verified.ok).toBe(true);
+  });
+});
+
+describe("reclaimStaleEvidenceExports (M3)", () => {
+  it("marks expired RUNNING leases as RETRYABLE with STALE_LEASE", async () => {
+    const now = new Date("2026-08-03T12:00:00.000Z");
+    const updateMany = vi.fn().mockResolvedValue({ count: 2 });
+    const result = await reclaimStaleEvidenceExports(
+      { scoringV2EvidenceExport: { updateMany } } as never,
+      now,
+    );
+    expect(result).toEqual({ reclaimed: 2 });
+    expect(updateMany).toHaveBeenCalledWith({
+      where: {
+        status: "RUNNING",
+        OR: [{ leaseExpiresAt: { lt: now } }, { leaseExpiresAt: null }],
+      },
+      data: {
+        status: "RETRYABLE",
+        errorCode: EVIDENCE_EXPORT_STALE_LEASE_CODE,
+        errorMessage: "Evidence export lease expired; marked retryable for reclaim",
+        leaseOwner: null,
+        leaseExpiresAt: null,
+        heartbeatAt: null,
+      },
+    });
+  });
+
+  it("is idempotent when no stale rows exist", async () => {
+    const updateMany = vi.fn().mockResolvedValue({ count: 0 });
+    const result = await reclaimStaleEvidenceExports({
+      scoringV2EvidenceExport: { updateMany },
+    } as never);
+    expect(result).toEqual({ reclaimed: 0 });
   });
 });

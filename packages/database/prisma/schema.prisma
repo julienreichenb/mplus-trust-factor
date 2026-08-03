@@ -1918,8 +1918,13 @@ model ScoringV2EvidenceExport {
   summaryContentHash       String?                       @map("summary_content_hash")
   preflightContentHash     String?                       @map("preflight_content_hash")
   markdownContentHash      String?                       @map("markdown_content_hash")
-  /** Frozen Calibration Input Bundle V2 content hash when explicitly frozen. */
+  /** Logical Calibration Input Bundle V2 root hash (stableStringify / bundleHash). */
   frozenBundleContentHash  String?                       @map("frozen_bundle_content_hash")
+  /**
+   * CAS digest of persisted bundle JSON bytes (`sha256:<64hex>`).
+   * Distinct from frozenBundleContentHash (logical identity).
+   */
+  frozenBundleByteDigest   String?                       @map("frozen_bundle_byte_digest")
   frozenBundleByteLength   Int?                          @map("frozen_bundle_byte_length")
   frozenBundleStorageUri   String?                       @map("frozen_bundle_storage_uri")
   frozenAt                 DateTime?                     @map("frozen_at") @db.Timestamptz(3)

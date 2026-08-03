@@ -19,6 +19,7 @@ import {
 } from "@mplus/contracts";
 import type { Prisma } from "@mplus/database";
 import { OBS_EVENTS, emitScoringV2Event } from "@mplus/observability";
+import { formatArtifactByteDigest } from "@mplus/scoring";
 import type { ApiContainer } from "../container.js";
 import { HttpError } from "../errors.js";
 import { writeAuditEvent } from "../iam/audit.js";
@@ -33,6 +34,85 @@ type AuditCtx = {
   ip?: string | null;
   userAgent?: string | null;
 };
+
+/** Row shape used to project unified history items (M1). */
+export type HistoryExportRow = {
+  id: string;
+  cohortId: string;
+  cohortRevision: number;
+  status: ScoringV2HistoryItemDTO["status"];
+  requestedByUserId: string;
+  createdAt: Date;
+  completedAt: Date | null;
+  frozenAt: Date | null;
+  blockerCount: number;
+  warningCount: number;
+  archiveContentHash: string | null;
+  frozenBundleContentHash: string | null;
+  cohort: { name: string };
+};
+
+/**
+ * Build unified history projection: one evidence_export row + optional frozen_bundle.
+ * Stable order: export createdAt desc, id desc; freeze follows its export.
+ */
+export function buildUnifiedHistoryItems(rows: HistoryExportRow[]): ScoringV2HistoryItemDTO[] {
+  const items: ScoringV2HistoryItemDTO[] = [];
+  for (const row of rows) {
+    const base = {
+      id: row.id,
+      exportId: row.id,
+      cohortId: row.cohortId,
+      cohortName: row.cohort.name,
+      cohortRevision: row.cohortRevision,
+      status: row.status,
+      initiatorUserId: row.requestedByUserId,
+      createdAt: row.createdAt.toISOString(),
+      completedAt: row.completedAt?.toISOString() ?? null,
+      blockerCount: row.blockerCount,
+      warningCount: row.warningCount,
+      linkedCalibrationRunId: null as string | null,
+    };
+    items.push({
+      ...base,
+      kind: "evidence_export",
+      rootHash: row.archiveContentHash,
+      downloadAvailable: Boolean(row.archiveContentHash),
+    });
+    if (row.frozenBundleContentHash) {
+      items.push({
+        ...base,
+        id: `${row.id}:bundle`,
+        kind: "frozen_bundle",
+        rootHash: row.frozenBundleContentHash,
+        downloadAvailable: Boolean(row.archiveContentHash),
+        createdAt: row.frozenAt?.toISOString() ?? row.createdAt.toISOString(),
+      });
+    }
+  }
+  return items;
+}
+
+/**
+ * Paginate unified history items. `total` is the unified item count.
+ * Page items are always ≤ pageSize.
+ */
+export function paginateUnifiedHistory(
+  items: ScoringV2HistoryItemDTO[],
+  page: number,
+  pageSize: number,
+  total: number,
+): ScoringV2HistoryListDTO {
+  const take = Math.min(Math.max(pageSize, 1), 50);
+  const pageNum = Math.max(page, 1);
+  const skip = (pageNum - 1) * take;
+  return {
+    items: items.slice(skip, skip + take),
+    total,
+    page: pageNum,
+    pageSize: take,
+  };
+}
 
 const EMPTY_PROGRESS: ScoringV2EvidenceExportProgressDTO = {
   membersTotal: 0,
@@ -76,6 +156,7 @@ function mapExport(
     preflightContentHash: string | null;
     markdownContentHash: string | null;
     frozenBundleContentHash: string | null;
+    frozenBundleByteDigest: string | null;
     frozenBundleByteLength: number | null;
     frozenAt: Date | null;
     errorCode: string | null;
@@ -127,6 +208,7 @@ function mapExport(
     preflightContentHash: row.preflightContentHash,
     markdownContentHash: row.markdownContentHash,
     frozenBundleContentHash: row.frozenBundleContentHash,
+    frozenBundleByteDigest: row.frozenBundleByteDigest,
     frozenBundleByteLength: row.frozenBundleByteLength,
     frozenAt: row.frozenAt?.toISOString() ?? null,
     freezeEligible,
@@ -318,6 +400,8 @@ export class ScoringV2EvidenceExportService {
           exportId: row.id,
           schemaVersion: CALIBRATION_INPUT_BUNDLE_V2_SCHEMA_VERSION,
           rootHash: row.frozenBundleContentHash,
+          frozenBundleContentHash: row.frozenBundleContentHash,
+          frozenBundleByteDigest: row.frozenBundleByteDigest ?? "",
           memberCount: row.cohort.members.length,
           excludedCount: row.cohort.members.filter((m) => !m.included || m.exclusionCode).length,
           byteLength: row.frozenBundleByteLength ?? 0,
@@ -357,6 +441,7 @@ export class ScoringV2EvidenceExportService {
       select: {
         frozenBundleStorageUri: true,
         frozenBundleByteLength: true,
+        frozenBundleByteDigest: true,
       },
     });
 
@@ -369,10 +454,15 @@ export class ScoringV2EvidenceExportService {
       owner: { ownerType: "CalibrationFrozenExport", ownerId: row.id },
     });
 
+    const byteDigest =
+      existingByHash?.frozenBundleByteDigest ??
+      formatArtifactByteDigest(persisted.write.contentHash);
+
     const updated = await this.container.worker.prisma.scoringV2EvidenceExport.update({
       where: { id: row.id },
       data: {
         frozenBundleContentHash: rootHash,
+        frozenBundleByteDigest: byteDigest,
         frozenBundleByteLength:
           existingByHash?.frozenBundleByteLength ?? persisted.write.uncompressedSizeBytes,
         frozenBundleStorageUri:
@@ -385,6 +475,7 @@ export class ScoringV2EvidenceExportService {
           freeze: {
             schemaVersion: assembled.bundle.schemaVersion,
             bundleHash: rootHash,
+            byteDigest,
             memberCount: assembled.bundle.members.length,
             includedCount: assembled.bundle.members.filter((m) => m.included).length,
             excludedCount: assembled.bundle.members.filter((m) => !m.included).length,
@@ -413,6 +504,7 @@ export class ScoringV2EvidenceExportService {
       sessionSecret: this.container.env.SESSION_SECRET,
       metadata: {
         contentHash: rootHash,
+        byteDigest,
         schemaVersion: assembled.bundle.schemaVersion,
         deduplicated: persisted.write.deduplicated || Boolean(existingByHash),
       },
@@ -424,6 +516,8 @@ export class ScoringV2EvidenceExportService {
         exportId: row.id,
         schemaVersion: CALIBRATION_INPUT_BUNDLE_V2_SCHEMA_VERSION,
         rootHash,
+        frozenBundleContentHash: rootHash,
+        frozenBundleByteDigest: byteDigest,
         memberCount: assembled.bundle.members.length,
         excludedCount: assembled.bundle.members.filter((m) => !m.included).length,
         byteLength: persisted.write.uncompressedSizeBytes,
@@ -435,53 +529,26 @@ export class ScoringV2EvidenceExportService {
 
   async listHistory(page = 1, pageSize = 20): Promise<ScoringV2HistoryListDTO> {
     const take = Math.min(Math.max(pageSize, 1), 50);
-    const skip = (Math.max(page, 1) - 1) * take;
-    const [total, rows] = await Promise.all([
+    const pageNum = Math.max(page, 1);
+    const skip = (pageNum - 1) * take;
+
+    // Unified total = exports + frozen bundles (each freeze adds one history item).
+    const [exportTotal, frozenTotal] = await Promise.all([
       this.container.worker.prisma.scoringV2EvidenceExport.count(),
-      this.container.worker.prisma.scoringV2EvidenceExport.findMany({
-        orderBy: { createdAt: "desc" },
-        skip,
-        take,
-        include: { cohort: { select: { name: true } } },
+      this.container.worker.prisma.scoringV2EvidenceExport.count({
+        where: { frozenBundleContentHash: { not: null } },
       }),
     ]);
+    const total = exportTotal + frozenTotal;
 
-    const items = rows.flatMap((row) => {
-      const base = {
-        id: row.id,
-        exportId: row.id,
-        cohortId: row.cohortId,
-        cohortName: row.cohort.name,
-        cohortRevision: row.cohortRevision,
-        status: row.status,
-        initiatorUserId: row.requestedByUserId,
-        createdAt: row.createdAt.toISOString(),
-        completedAt: row.completedAt?.toISOString() ?? null,
-        blockerCount: row.blockerCount,
-        warningCount: row.warningCount,
-        linkedCalibrationRunId: null as string | null,
-      };
-      const out: ScoringV2HistoryItemDTO[] = [
-        {
-          ...base,
-          kind: "evidence_export",
-          rootHash: row.archiveContentHash,
-          downloadAvailable: Boolean(row.archiveContentHash),
-        },
-      ];
-      if (row.frozenBundleContentHash) {
-        out.push({
-          ...base,
-          id: `${row.id}:bundle`,
-          kind: "frozen_bundle",
-          rootHash: row.frozenBundleContentHash,
-          downloadAvailable: Boolean(row.archiveContentHash),
-          createdAt: row.frozenAt?.toISOString() ?? row.createdAt.toISOString(),
-        });
-      }
-      return out;
+    // Fetch enough export rows to cover the unified page (1–2 items per export).
+    const rows = await this.container.worker.prisma.scoringV2EvidenceExport.findMany({
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: skip + take,
+      include: { cohort: { select: { name: true } } },
     });
 
-    return { items, total, page: Math.max(page, 1), pageSize: take };
+    const unified = buildUnifiedHistoryItems(rows);
+    return paginateUnifiedHistory(unified, pageNum, take, total);
   }
 }

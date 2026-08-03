@@ -36,6 +36,8 @@ export const EVIDENCE_EXPORT_MAX_MEMBERS = 500;
 export const EVIDENCE_EXPORT_MAX_ARCHIVE_BYTES = 50 * 1024 * 1024;
 /** M3: lease TTL for RUNNING claim (sweeper / reclaim uses expiry). */
 export const EVIDENCE_EXPORT_LEASE_TTL_MS = 5 * 60 * 1000;
+/** Error code written when a stale RUNNING lease is reclaimed. */
+export const EVIDENCE_EXPORT_STALE_LEASE_CODE = "STALE_LEASE";
 
 export interface ScoringV2EvidenceExportProcessorDeps {
   prisma: PrismaClient;
@@ -54,6 +56,30 @@ function clearLeaseFields() {
     leaseExpiresAt: null,
     heartbeatAt: null,
   };
+}
+
+/**
+ * M3 — Mark abandoned RUNNING exports with expired (or missing) leases as RETRYABLE.
+ * Idempotent: only touches RUNNING rows whose lease has elapsed.
+ * Called at the start of each export job so a crashed worker does not leave stuck rows.
+ */
+export async function reclaimStaleEvidenceExports(
+  prisma: Pick<PrismaClient, "scoringV2EvidenceExport">,
+  now: Date = new Date(),
+): Promise<{ reclaimed: number }> {
+  const result = await prisma.scoringV2EvidenceExport.updateMany({
+    where: {
+      status: "RUNNING",
+      OR: [{ leaseExpiresAt: { lt: now } }, { leaseExpiresAt: null }],
+    },
+    data: {
+      status: "RETRYABLE",
+      errorCode: EVIDENCE_EXPORT_STALE_LEASE_CODE,
+      errorMessage: "Evidence export lease expired; marked retryable for reclaim",
+      ...clearLeaseFields(),
+    },
+  });
+  return { reclaimed: result.count };
 }
 
 export async function runScoringV2EvidenceExportJob(
@@ -93,13 +119,16 @@ export async function runScoringV2EvidenceExportJob(
     return { exportId: exportRow.id, status: "COMPLETED" };
   }
 
+  const claimNow = nowFn();
+  // M3: reclaim abandoned RUNNING leases before claiming this job.
+  await reclaimStaleEvidenceExports(prisma, claimNow);
+
   emitScoringV2Event(logger, OBS_EVENTS.scoringV2AdminEvidenceExportStarted, {
     exportId: exportRow.id,
     cohortId: exportRow.cohortId,
     cohortRevision: exportRow.cohortRevision,
   });
 
-  const claimNow = nowFn();
   const leaseOwner = leaseOwnerFactory();
   const leaseExpiresAt = new Date(claimNow.getTime() + EVIDENCE_EXPORT_LEASE_TTL_MS);
 

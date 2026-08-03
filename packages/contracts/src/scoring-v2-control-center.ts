@@ -243,7 +243,10 @@ export interface ScoringV2EvidenceExportDTO {
   summaryContentHash: string | null;
   preflightContentHash: string | null;
   markdownContentHash: string | null;
+  /** Logical bundle root hash (bundleHash). */
   frozenBundleContentHash: string | null;
+  /** CAS digest of persisted JSON bytes (`sha256:<64hex>`). */
+  frozenBundleByteDigest: string | null;
   frozenBundleByteLength: number | null;
   frozenAt: string | null;
   freezeEligible: boolean;
@@ -291,7 +294,11 @@ export interface ScoringV2HistoryListDTO {
 export interface ScoringV2FrozenBundleDTO {
   exportId: string;
   schemaVersion: string;
+  /** Logical bundle root hash (bundleHash / frozenBundleContentHash). */
   rootHash: string;
+  frozenBundleContentHash: string;
+  /** CAS digest of persisted JSON bytes (`sha256:<64hex>`). */
+  frozenBundleByteDigest: string;
   memberCount: number;
   excludedCount: number;
   byteLength: number;
