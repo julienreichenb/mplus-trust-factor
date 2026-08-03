@@ -52,17 +52,27 @@ export interface ExecuteBootstrapResult {
   failedIdentityKeys: string[];
 }
 
-function mapResolveToResult(
-  body: CharacterResolveResponse,
-  plan: BootstrapPlanEntry,
-): {
+type MappedResolve = {
   resultState: BootstrapPlanState;
   errorCode: BootstrapErrorCode;
   jobIds: string[];
   characterId: string | null;
   reason: string;
   attemptDelta: number;
+};
+
+function isProfileOnlyBootstrapIncomplete(
+  body: CharacterResolveResponse,
+): body is Extract<CharacterResolveResponse, { status: "PROFILE_ONLY" }> & {
+  reason: "BOOTSTRAP_INCOMPLETE";
 } {
+  return body.status === "PROFILE_ONLY" && body.reason === "BOOTSTRAP_INCOMPLETE";
+}
+
+function mapResolveToResult(
+  body: CharacterResolveResponse,
+  plan: BootstrapPlanEntry,
+): MappedResolve {
   switch (body.status) {
     case "READY":
       return {
@@ -113,7 +123,7 @@ function mapResolveToResult(
     case "FAILED":
       return {
         resultState: body.retryable ? "RETRYABLE_FAILURE" : "TERMINAL_FAILURE",
-        errorCode: body.retryable ? "RESOLVE_FAILED" : "RESOLVE_FAILED",
+        errorCode: "RESOLVE_FAILED",
         jobIds: [],
         characterId: plan.characterId,
         reason: `Normal resolve FAILED: ${body.message}`.slice(0, 240),
@@ -132,8 +142,42 @@ function mapResolveToResult(
 }
 
 /**
+ * Map the bounded forceRetry repair response. A second PROFILE_ONLY /
+ * BOOTSTRAP_INCOMPLETE is an explicit retryable failure — never a false success.
+ */
+function mapRepairResolveToResult(
+  body: CharacterResolveResponse,
+  plan: BootstrapPlanEntry,
+): MappedResolve {
+  if (isProfileOnlyBootstrapIncomplete(body)) {
+    return {
+      resultState: "RETRYABLE_FAILURE",
+      errorCode: "BOOTSTRAP_REPAIR_INCOMPLETE",
+      jobIds: [],
+      characterId: body.characterId,
+      reason:
+        "Bounded forceRetry repair still returned PROFILE_ONLY (BOOTSTRAP_INCOMPLETE).",
+      attemptDelta: 1,
+    };
+  }
+  return mapResolveToResult(body, plan);
+}
+
+function isFailedResultState(state: BootstrapPlanState): boolean {
+  return (
+    state === "TERMINAL_FAILURE" ||
+    state === "RETRYABLE_FAILURE" ||
+    state === "FOUND_INCOMPLETE" ||
+    state === "INCOMPATIBLE_IDENTITY"
+  );
+}
+
+/**
  * Run resolve/enqueue for planned identities with bounded concurrency.
  * Never uses uncontrolled Promise.all over the full cohort.
+ *
+ * PROFILE_ONLY / BOOTSTRAP_INCOMPLETE triggers exactly one CharacterService
+ * forceRetry repair attempt (canonical incomplete-shell repair path).
  */
 export async function executeBootstrapPlan(
   planEntries: BootstrapPlanEntry[],
@@ -177,19 +221,42 @@ export async function executeBootstrapPlan(
         initialState: entry.initialState,
         plannedOperation: entry.plannedOperation,
       });
+      const identity: CharacterIdentityInput = {
+        region: entry.region,
+        realmSlug: entry.realmSlug,
+        name: entry.name,
+      };
+      const correlationId = `${opts.correlationPrefix}:${entry.bootstrapJobKey.slice(0, 24)}`;
       try {
-        const result = await deps.resolveCharacter(
-          {
-            region: entry.region,
-            realmSlug: entry.realmSlug,
-            name: entry.name,
-          },
-          {
-            correlationId: `${opts.correlationPrefix}:${entry.bootstrapJobKey.slice(0, 24)}`,
-            forceRetry: entry.initialState === "RETRYABLE_FAILURE",
-          },
-        );
-        const mapped = mapResolveToResult(result.body, entry);
+        const first = await deps.resolveCharacter(identity, {
+          correlationId,
+          forceRetry: entry.initialState === "RETRYABLE_FAILURE",
+        });
+
+        let mapped: MappedResolve;
+        let finalBody = first.body;
+
+        if (isProfileOnlyBootstrapIncomplete(first.body)) {
+          // Exactly one bounded repair via CharacterService forceRetry — no recursion.
+          const repair = await deps.resolveCharacter(identity, {
+            correlationId,
+            forceRetry: true,
+          });
+          finalBody = repair.body;
+          const repairMapped = mapRepairResolveToResult(repair.body, entry);
+          mapped = {
+            ...repairMapped,
+            attemptDelta: 1 + repairMapped.attemptDelta,
+            reason:
+              repairMapped.resultState === "RETRYABLE_FAILURE" &&
+              repairMapped.errorCode === "BOOTSTRAP_REPAIR_INCOMPLETE"
+                ? repairMapped.reason
+                : `After PROFILE_ONLY/BOOTSTRAP_INCOMPLETE, forceRetry repair: ${repairMapped.reason}`,
+          };
+        } else {
+          mapped = mapResolveToResult(first.body, entry);
+        }
+
         if (mapped.jobIds.length > 0) {
           for (const jobId of mapped.jobIds) {
             enqueuedJobIds.push(jobId);
@@ -197,11 +264,11 @@ export async function executeBootstrapPlan(
               event: BOOTSTRAP_EVENTS.jobEnqueued,
               identityKey: entry.identityKey,
               jobId,
-              reused: result.body.status === "PROCESSING" || result.body.status === "QUEUED",
+              reused: finalBody.status === "PROCESSING" || finalBody.status === "QUEUED",
             });
           }
         }
-        if (mapped.resultState === "TERMINAL_FAILURE" || mapped.resultState === "RETRYABLE_FAILURE") {
+        if (isFailedResultState(mapped.resultState)) {
           failedIdentityKeys.push(entry.identityKey);
         }
         overrides.set(entry.identityKey, {

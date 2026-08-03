@@ -36,6 +36,8 @@ export const BOOTSTRAP_ERROR_CODES = [
   "QUEUE_ENQUEUE_FAILED",
   "INCOMPATIBLE",
   "LIMIT_SKIPPED",
+  /** Bounded forceRetry repair still returned PROFILE_ONLY / BOOTSTRAP_INCOMPLETE. */
+  "BOOTSTRAP_REPAIR_INCOMPLETE",
 ] as const;
 
 export type BootstrapErrorCode = (typeof BOOTSTRAP_ERROR_CODES)[number];
