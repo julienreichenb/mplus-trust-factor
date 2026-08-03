@@ -43,6 +43,11 @@ export interface EnqueueResult {
   reused: boolean;
   /** True when a new BullMQ message was published for this call. */
   enqueued?: boolean;
+  /**
+   * True when an in-flight job was reused and the requester's workloadClass differs
+   * from the persisted lane (original job keeps its queue/payload/DB class).
+   */
+  reusedAcrossWorkloadIntent?: boolean;
 }
 
 const PRIORITY_WEIGHT: Record<"high" | "normal" | "low", number> = { high: 10, normal: 0, low: -10 };
@@ -153,26 +158,50 @@ export function createQueueProducers(
 
   const producers: QueueProducers = {
     async enqueueRefreshCharacter(input) {
-      const workloadClass = input.workloadClass ?? "OPERATION";
+      const requestedWorkloadClass = input.workloadClass ?? "OPERATION";
       const payload = refreshCharacterJobSchema.parse({
         ...input,
-        workloadClass,
+        workloadClass: requestedWorkloadClass,
         requestedAt: input.requestedAt ?? new Date().toISOString(),
       }) as RefreshCharacterJob;
       const dedupeKey = refreshCharacterDedupeKey(payload);
       const queue =
-        workloadClass === "CALIBRATION"
+        requestedWorkloadClass === "CALIBRATION"
           ? queues[QUEUE_NAMES.refreshCharacterCalibration]
           : queues[QUEUE_NAMES.refreshCharacter];
       const result = await enqueue(queue, queue.name, dedupeKey, payload, {
         characterId: payload.characterId ?? null,
         priority: PRIORITY_WEIGHT[payload.priority],
       });
-      await container.prisma.ingestionJob.updateMany({
+
+      // Authoritative lane = IngestionJob.workloadClass at creation / successful enqueue.
+      // Never migrate DB (or BullMQ payload/queue) on incidental in-flight reuse.
+      if (result.enqueued) {
+        await container.prisma.ingestionJob.updateMany({
+          where: { id: result.jobId },
+          data: { workloadClass: requestedWorkloadClass },
+        });
+        return { ...result, reusedAcrossWorkloadIntent: false };
+      }
+
+      const existing = await container.prisma.ingestionJob.findUnique({
         where: { id: result.jobId },
-        data: { workloadClass },
+        select: { workloadClass: true },
       });
-      return result;
+      const existingWorkloadClass = existing?.workloadClass ?? "OPERATION";
+      const reusedAcrossWorkloadIntent = existingWorkloadClass !== requestedWorkloadClass;
+      if (reusedAcrossWorkloadIntent) {
+        container.logger.info(
+          {
+            jobId: result.jobId,
+            dedupeKey,
+            requestedWorkloadClass,
+            existingWorkloadClass,
+          },
+          "refresh job reused across workload intent",
+        );
+      }
+      return { ...result, reusedAcrossWorkloadIntent };
     },
 
     async enqueueAnalyzeRun(input) {
