@@ -17,3 +17,9 @@ export {
   type PackageMemberEvidenceInput,
   type PackageMemberEvidenceResult,
 } from "./freeze-evidence-package.js";
+export {
+  startEvidenceExportRecoverySweeper,
+  EVIDENCE_EXPORT_RECOVERY_DEFAULT_INTERVAL_MS,
+  type EvidenceExportRecoverySweeperHandle,
+  type StartEvidenceExportRecoverySweeperInput,
+} from "./evidence-export-recovery.js";

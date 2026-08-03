@@ -48,7 +48,10 @@ export {
 export { buildStoreZip, sha256Hex } from "./scoring-v2/zip-store.js";
 export {
   runScoringV2EvidenceExportJob,
+  reclaimStaleEvidenceExports,
+  EVIDENCE_EXPORT_RECLAIM_DEFAULT_LIMIT,
   type ScoringV2EvidenceExportProcessorDeps,
+  type ReclaimStaleEvidenceExportsOptions,
 } from "./scoring-v2-evidence-export.js";
 export {
   packageMemberEvidenceForFreeze,
@@ -56,3 +59,9 @@ export {
   type PackageMemberEvidenceInput,
   type PackageMemberEvidenceResult,
 } from "./scoring-v2/freeze-evidence-package.js";
+export {
+  startEvidenceExportRecoverySweeper,
+  EVIDENCE_EXPORT_RECOVERY_DEFAULT_INTERVAL_MS,
+  type EvidenceExportRecoverySweeperHandle,
+  type StartEvidenceExportRecoverySweeperInput,
+} from "./scoring-v2/evidence-export-recovery.js";

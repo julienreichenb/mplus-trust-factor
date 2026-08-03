@@ -59,19 +59,42 @@ function clearLeaseFields() {
   };
 }
 
+export const EVIDENCE_EXPORT_RECLAIM_DEFAULT_LIMIT = 50;
+
+export type ReclaimStaleEvidenceExportsOptions = {
+  /** Max rows to reclaim per call (bounded batch). Default 50. */
+  limit?: number;
+};
+
 /**
  * M3 — Mark abandoned RUNNING exports with expired (or missing) leases as RETRYABLE.
  * Idempotent: only touches RUNNING rows whose lease has elapsed.
- * Called at the start of each export job so a crashed worker does not leave stuck rows.
+ * Does not reclaim healthy heartbeats (leaseExpiresAt still in the future).
+ * Called at the start of each export job and by the N1 recovery sweeper.
  */
 export async function reclaimStaleEvidenceExports(
   prisma: Pick<PrismaClient, "scoringV2EvidenceExport">,
   now: Date = new Date(),
+  options: ReclaimStaleEvidenceExportsOptions = {},
 ): Promise<{ reclaimed: number }> {
+  const limit = Math.max(1, Math.floor(options.limit ?? EVIDENCE_EXPORT_RECLAIM_DEFAULT_LIMIT));
+  const staleWhere = {
+    status: "RUNNING" as const,
+    OR: [{ leaseExpiresAt: { lt: now } }, { leaseExpiresAt: null }],
+  };
+  const stale = await prisma.scoringV2EvidenceExport.findMany({
+    where: staleWhere,
+    select: { id: true },
+    orderBy: [{ leaseExpiresAt: "asc" }, { id: "asc" }],
+    take: limit,
+  });
+  if (stale.length === 0) {
+    return { reclaimed: 0 };
+  }
   const result = await prisma.scoringV2EvidenceExport.updateMany({
     where: {
-      status: "RUNNING",
-      OR: [{ leaseExpiresAt: { lt: now } }, { leaseExpiresAt: null }],
+      id: { in: stale.map((row) => row.id) },
+      ...staleWhere,
     },
     data: {
       status: "RETRYABLE",
