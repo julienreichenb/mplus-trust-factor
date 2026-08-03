@@ -321,6 +321,8 @@ export const reportFightSchema = z.object({
             startTime: z.coerce.number(),
             endTime: z.coerce.number(),
             keystoneLevel: z.coerce.number().nullable().optional(),
+            // +1/+2/+3 when the key was timed; 0 when completed depleted; null when unknown.
+            keystoneBonus: z.coerce.number().nullable().optional(),
             // Live schema: actor ID ints. Legacy fixtures may still embed player objects.
             friendlyPlayers: z
               .array(

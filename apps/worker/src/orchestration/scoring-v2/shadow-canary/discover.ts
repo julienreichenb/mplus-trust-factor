@@ -26,6 +26,7 @@ export interface ShadowCanaryDiscoveryResult {
     discoveredCandidateCount: number;
     privateOrHiddenExclusions: number;
     untimedExclusions: number;
+    timedUnknownExclusions: number;
     inaccessibleExclusions: number;
     dungeonPoolSource: string;
     providerCalls: number;
@@ -242,12 +243,15 @@ export async function discoverShadowCanaryCandidates(input: {
 
   let privateOrHiddenExclusions = 0;
   let untimedExclusions = 0;
+  let timedUnknownExclusions = 0;
   let inaccessibleExclusions = 0;
   for (const row of sourceRows) {
     if (row.visibility === "private" || row.visibility === "hidden") {
       privateOrHiddenExclusions += 1;
     } else if (row.timed === false) {
       untimedExclusions += 1;
+    } else if (row.timed == null) {
+      timedUnknownExclusions += 1;
     } else if (row.fightAccessible === false) {
       inaccessibleExclusions += 1;
     }
@@ -264,6 +268,7 @@ export async function discoverShadowCanaryCandidates(input: {
       discoveredCandidateCount: sourceRows.length,
       privateOrHiddenExclusions,
       untimedExclusions,
+      timedUnknownExclusions,
       inaccessibleExclusions,
       dungeonPoolSource: dungeonPool.source,
       providerCalls,

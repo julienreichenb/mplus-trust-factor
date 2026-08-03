@@ -33,7 +33,20 @@ export interface HydrationFight {
   startTime: number;
   endTime: number;
   keystoneLevel?: number | null;
+  /** WCL +1/+2/+3 when timed; 0 depleted; null/undefined unknown. */
+  keystoneBonus?: number | null;
   friendlyPlayers?: Array<number | { id: number; name?: string; server?: string }>;
+}
+
+/**
+ * Derive Mythic+ timed state from WCL keystoneBonus only.
+ * Never invent timed=true without bonus evidence.
+ */
+export function timedFromKeystoneBonus(keystoneBonus: number | null | undefined): boolean | null {
+  if (typeof keystoneBonus !== "number" || !Number.isFinite(keystoneBonus)) return null;
+  if (keystoneBonus > 0) return true;
+  if (keystoneBonus === 0) return false;
+  return null;
 }
 
 export interface HydrationReportPayload {
@@ -158,6 +171,7 @@ export function hydratedFightToCandidate(
   const completedAtMs = report.startTime + fight.endTime;
   const keyLevel = fight.keystoneLevel ?? null;
   const completedAt = new Date(completedAtMs).toISOString();
+  const timed = timedFromKeystoneBonus(fight.keystoneBonus);
 
   // Prefer external hydration hints when encounter→dungeon map misses the season pool.
   if (dungeonSlug == null && keyLevel != null && hints.length > 0) {
@@ -187,7 +201,7 @@ export function hydratedFightToCandidate(
     startTimeMs: report.startTime + fight.startTime,
     completedAt,
     durationMs,
-    timed: null,
+    timed,
     selectionTags: [],
     source: "recentReports",
     matchConfidence: null,
@@ -195,7 +209,7 @@ export function hydratedFightToCandidate(
     incompleteness: {
       dungeonUnknown: dungeonSlug == null,
       seasonUnknown: true,
-      timedUnknown: true,
+      timedUnknown: timed == null,
       keyLevelUnknown: keyLevel == null,
       rosterIncomplete: true,
       fightUnknown: false,
@@ -203,6 +217,7 @@ export function hydratedFightToCandidate(
     warnings: [
       "hydrated from recentReports fight/masterData",
       ...(dungeonSlug == null ? ["dungeonSlug unresolved from encounter/fight name"] : []),
+      ...(timed == null ? ["timed unresolved — keystoneBonus absent"] : []),
     ],
   };
 }

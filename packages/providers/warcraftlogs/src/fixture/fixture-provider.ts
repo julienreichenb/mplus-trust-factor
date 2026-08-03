@@ -136,6 +136,7 @@ export class FixtureWarcraftLogsProvider implements WarcraftLogsProvider {
             startTime: f.startTime,
             endTime: f.endTime,
             keystoneLevel: f.keystoneLevel,
+            keystoneBonus: f.keystoneBonus,
             friendlyPlayers: f.friendlyPlayers ?? undefined,
           })),
           masterData: report.masterData
