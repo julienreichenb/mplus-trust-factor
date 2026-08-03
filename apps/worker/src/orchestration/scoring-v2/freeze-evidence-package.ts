@@ -77,7 +77,6 @@ async function persistCanonicalJson(input: {
 }): Promise<FreezeSnapshotContentRefV2> {
   const bytes = Buffer.from(canonicalJson(input.value), "utf8");
   let storageUri: string | null = null;
-  let byteLength = bytes.byteLength;
   if (!input.dryRun) {
     const write = await input.artifacts.persist({
       provider: "INTERNAL",
@@ -93,7 +92,6 @@ async function persistCanonicalJson(input: {
       );
     }
     storageUri = write.write.storageUri;
-    byteLength = write.write.uncompressedSizeBytes;
   }
   return toFreezeRef(
     buildCalibrationContentRefV2({
