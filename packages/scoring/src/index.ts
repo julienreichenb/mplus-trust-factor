@@ -675,6 +675,8 @@ export {
   derivePublicationState,
   isPubliclyEmittablePublicationState,
   sortPublicContributors,
+  buildCooldownUsageAdminRows,
+  buildCooldownUsagePublicRows,
 } from "./explainability-v2/index.js";
 export type {
   BuildExplainabilityV2AdminInput,
@@ -685,6 +687,7 @@ export type {
   ExplainabilityV2RejectedSource,
   ExplainabilityV2SlotSource,
   ExplainabilityV2V1SnapshotSource,
+  CooldownUsageFactInput,
 } from "./explainability-v2/index.js";
 
 /** Shared Shadow DimensionComputation normalization (WS10). */
