@@ -91,7 +91,7 @@ Historical pin retained:
 3. Diff spell IDs; add replacement aliases rather than overwriting semantic meaning of old IDs.
 4. Mark uncertain entries with `supportCertainty: "uncertain"`.
 5. Run `pnpm abilities:validate` and `pnpm abilities:coverage`.
-6. Commit generated report artifacts notes + docs under `doc/wave4/`.
+6. Commit docs under `doc/scoring/abilities/` (generated reports are local-only).
 
 ## Public APIs
 

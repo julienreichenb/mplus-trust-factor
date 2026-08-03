@@ -10,8 +10,6 @@ Entry point for humans and coding agents working in this repository.
 4. **Definition of done:** [`doc/agents/definition-of-done.md`](doc/agents/definition-of-done.md)
 5. **File ownership:** [`doc/agents/file-ownership-map.md`](doc/agents/file-ownership-map.md)
 
-Temporary programme prompts and worktree commands live under [`.cursor-orchestration/2026-07-stabilization/`](.cursor-orchestration/2026-07-stabilization/). Use your assigned standalone prompt there; do not invent a parallel context tree.
-
 ## Canonical facts (do not contradict)
 
 | Topic | Canonical doc |
@@ -23,15 +21,15 @@ Temporary programme prompts and worktree commands live under [`.cursor-orchestra
 | Model activation | [`doc/operations/model-lifecycle.md`](doc/operations/model-lifecycle.md) — DB/admin, not env flips |
 | Front-end brand/UX | [`doc/architecture/frontend/`](doc/architecture/frontend/) |
 | Local / CI / test deploy | [`doc/operations/`](doc/operations/) |
+| Scoring V2 (active redesign) | [`doc/scoring/v2/`](doc/scoring/v2/) |
 
 ## Code wins over docs
 
 If a document disagrees with runtime code, **code is authority**. Update the doc or open a follow-up; do not silently invent a fifth/sixth public skill dimension or treat env var edits as normal model activation.
 
-## Stabilization programme
+## Documentation hygiene
 
-Prompts and worktree commands: [`.cursor-orchestration/2026-07-stabilization/`](.cursor-orchestration/2026-07-stabilization/).
-Inventory audit: [`docs/audits/repository-inventory-2026-07/`](docs/audits/repository-inventory-2026-07/).
+Completed prompts, temporary worktree instructions, generated reports and superseded plans are deleted after their useful decisions are incorporated into canonical documentation. Git history is the archive.
 
 ## Forbidden without an explicit prompt
 
