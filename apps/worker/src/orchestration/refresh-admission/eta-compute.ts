@@ -1,7 +1,7 @@
 /**
  * Pure refresh ETA / scheduling read-model computation (Stage 4).
  * Throughput-based wait; never uses activeRefreshCount alone as capacity denominator.
- * See docs/plans/parallel-refresh-scheduling.md §12.
+ * See doc/architecture/parallel-refresh-scheduling.md §12.
  */
 
 import type { EstimateConfidence, RefreshSchedulingState } from "@mplus/contracts";

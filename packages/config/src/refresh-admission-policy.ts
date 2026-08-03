@@ -5,7 +5,7 @@
  * ETA population, and multi-attempt retries disabled.
  * Stage 3: REFRESH_ADMISSION_MODE=enforce enables Redis admit/release at serial
  * concurrency 1. REFRESH_CONCURRENCY_ENABLED raises caps later (Stage 6+).
- * See docs/plans/parallel-refresh-scheduling.md §§4, 17–19.
+ * See doc/architecture/parallel-refresh-scheduling.md §§4, 17–19.
  */
 
 export type RefreshAdmissionMode = "off" | "shadow" | "enforce";

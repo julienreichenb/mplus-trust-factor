@@ -13,7 +13,7 @@ Agent 02 replacement for open design PRs. **Do not merge PR #1 or #2 as-is.**
 |------|--------|
 | `doc/architecture/frontend/brand-and-ux-system.md` | PR #1 structure + PR #2 principles; naming/dimensions corrected |
 | `doc/architecture/frontend/landing-and-player-ux.md` | PR #2 section depth + PR #1 concept; **four** dimensions only |
-| `doc/architecture/frontend/wow-content-integration.md` | PR #1 + unique Wowhead boundaries from PR #2 / former `docs/frontend/WOWHEAD_INTEGRATION.md` |
+| `doc/architecture/frontend/wow-content-integration.md` | PR #1 + unique Wowhead boundaries from PR #2 |
 | `doc/architecture/frontend/landing-page-concept.svg` | PR #1 |
 | `doc/architecture/frontend/PR-CONSOLIDATION-RECORD.md` | This record |
 | `.cursor/rules/mpts-frontend-brand.mdc` | PR #1 (paths + product naming corrected) |
@@ -23,11 +23,10 @@ Agent 02 replacement for open design PRs. **Do not merge PR #1 or #2 as-is.**
 
 ## Replaced / removed
 
-| Former path | Disposition |
-|-------------|-------------|
-| `docs/frontend/BRAND_AND_UI_SYSTEM.md` | Removed after migration |
-| `docs/frontend/LANDING_AND_PLAYER_UX.md` | Removed after migration (had invented six axes) |
-| `docs/frontend/WOWHEAD_INTEGRATION.md` | Removed after migration |
+| Former material | Disposition |
+|-----------------|-------------|
+| Secondary-tree brand / landing / Wowhead guidance | Removed after migration into `doc/architecture/frontend/` |
+| PR #1 invented six skill axes on landing guidance | Corrected to four public dimensions only |
 | PR #1 `apps/web/src/styles/design-tokens.css` | **Not** added — would duplicate tokens |
 
 ## Corrections applied vs both PRs
@@ -41,8 +40,8 @@ Agent 02 replacement for open design PRs. **Do not merge PR #1 or #2 as-is.**
 After this branch is reviewed and merged to `main`, a human should close the superseded PRs:
 
 ```bash
-gh pr close 1 --comment "Superseded by Agent 02 docs/frontend consolidation on agent/02-foundation-docs-canonicalization (canonical doc/architecture/frontend/). Do not merge this branch."
-gh pr close 2 --comment "Superseded by Agent 02 docs/frontend consolidation on agent/02-foundation-docs-canonicalization (canonical doc/architecture/frontend/). Do not merge this branch."
+gh pr close 1 --comment "Superseded by canonical doc/architecture/frontend/ consolidation. Do not merge this branch."
+gh pr close 2 --comment "Superseded by canonical doc/architecture/frontend/ consolidation. Do not merge this branch."
 ```
 
 Agent 02 must **not** close them automatically.
