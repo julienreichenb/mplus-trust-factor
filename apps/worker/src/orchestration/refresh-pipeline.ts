@@ -110,7 +110,14 @@ import {
   sumMeasuredWclPoints,
   type PipelineAdmissionSession,
 } from "./refresh-admission/pipeline-admission.js";
+import { acquireLanePermit, releaseLanePermit } from "./refresh-admission/lane-permits.js";
 import { RefreshAdmissionError } from "./refresh-admission/errors.js";
+import {
+  DEFAULT_CONCURRENCY_CALIBRATION,
+  DEFAULT_CONCURRENCY_OPERATION,
+  RUNTIME_SETTING_KEYS,
+  type RefreshWorkloadClass,
+} from "@mplus/contracts";
 import { buildMythicRatingObservation } from "./performance-metrics.js";
 import { buildWclPerformanceObservations } from "./wcl-performance-metrics.js";
 import {
@@ -447,6 +454,7 @@ export async function runRefreshPipeline(
   let terminalized = false;
   let admissionSession: PipelineAdmissionSession | null = null;
   let admissionRedis: ReturnType<WorkerContainer["createRedisConnection"]> | null = null;
+  let laneHeld: RefreshWorkloadClass | null = null;
 
   const releaseAdmission = async (
     status: "SETTLED" | "RELEASED" | "CANCELLED" | "EXPIRED",
@@ -465,6 +473,20 @@ export async function runRefreshPipeline(
         "refresh_admission_settle_failed",
       );
     } finally {
+      if (laneHeld && admissionRedis) {
+        try {
+          await releaseLanePermit({
+            redis: admissionRedis,
+            appEnv: container.env.APP_ENV,
+            lane: laneHeld,
+            ingestionJobId: job.id,
+            logger,
+          });
+        } catch {
+          /* ignore */
+        }
+        laneHeld = null;
+      }
       admissionSession = null;
       if (admissionRedis) {
         try {
@@ -705,12 +727,60 @@ export async function runRefreshPipeline(
 
   // ── Admission gate (Stage 3: enforce @ serial concurrency 1) ───────────────
   // After cancel / contract / eligibility; before any Blizzard / RIO / WCL work.
-  if (container.env.REFRESH_ADMISSION_MODE !== "off") {
-    try {
-      admissionRedis = container.createRedisConnection();
-    } catch {
-      admissionRedis = null;
+  // Always open Redis for lane permits (even when REFRESH_ADMISSION_MODE=off).
+  try {
+    admissionRedis = container.createRedisConnection();
+  } catch {
+    admissionRedis = null;
+  }
+
+  const workloadClass: RefreshWorkloadClass =
+    (payload.workloadClass as RefreshWorkloadClass | undefined) ??
+    (job.workloadClass as RefreshWorkloadClass | undefined) ??
+    "OPERATION";
+
+  if (admissionRedis) {
+    const settings = await container.prisma.runtimeSetting.findMany({
+      where: {
+        key: {
+          in: [
+            RUNTIME_SETTING_KEYS.concurrencyCalibration,
+            RUNTIME_SETTING_KEYS.concurrencyOperation,
+          ],
+        },
+      },
+    });
+    const cal =
+      Number(
+        settings.find((s) => s.key === RUNTIME_SETTING_KEYS.concurrencyCalibration)?.value,
+      ) || DEFAULT_CONCURRENCY_CALIBRATION;
+    const op =
+      Number(
+        settings.find((s) => s.key === RUNTIME_SETTING_KEYS.concurrencyOperation)?.value,
+      ) || DEFAULT_CONCURRENCY_OPERATION;
+    const limit = workloadClass === "CALIBRATION" ? cal : op;
+    const permit = await acquireLanePermit({
+      redis: admissionRedis,
+      appEnv: container.env.APP_ENV,
+      lane: workloadClass,
+      ingestionJobId: job.id,
+      limit,
+      logger,
+    });
+    if (!permit.acquired) {
+      const err = new RefreshAdmissionError({
+        reason: "INSUFFICIENT_GLOBAL_SLOTS",
+        message: `Refresh lane ${workloadClass} at limit ${permit.limit}`,
+      });
+      job = await repositories.job.markFailed(job.id, err.toJobError());
+      terminalized = true;
+      await releaseAdmission("RELEASED");
+      throw err;
     }
+    laneHeld = workloadClass;
+  }
+
+  if (container.env.REFRESH_ADMISSION_MODE !== "off") {
     const { gate, repository } = createPipelineAdmissionGate({
       env: container.env,
       redis: admissionRedis,
@@ -747,14 +817,7 @@ export async function runRefreshPipeline(
           },
           OBS_EVENTS.refreshTerminal,
         );
-        if (admissionRedis) {
-          try {
-            await admissionRedis.quit();
-          } catch {
-            /* ignore */
-          }
-          admissionRedis = null;
-        }
+        await releaseAdmission("RELEASED");
         throw admissionError;
       }
       throw admissionError;

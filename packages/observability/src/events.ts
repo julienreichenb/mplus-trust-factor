@@ -47,6 +47,16 @@ export const OBS_EVENTS = {
   scoringV2CalibrationStarted: "scoring_v2.calibration_started",
   scoringV2CalibrationCompleted: "scoring_v2.calibration_completed",
   scoringV2ReferenceSliceStateChanged: "scoring_v2.reference_slice_state_changed",
+  // Admin control center (bounded; no PII / secrets)
+  scoringV2AdminEvidenceExportRequested: "scoring_v2.admin_evidence_export_requested",
+  scoringV2AdminEvidenceExportStarted: "scoring_v2.admin_evidence_export_started",
+  scoringV2AdminEvidenceExportCompleted: "scoring_v2.admin_evidence_export_completed",
+  scoringV2AdminEvidenceExportFailed: "scoring_v2.admin_evidence_export_failed",
+  scoringV2AdminBundleFrozen: "scoring_v2.admin_bundle_frozen",
+  scoringV2AdminConcurrencyUpdated: "scoring_v2.admin_concurrency_updated",
+  scoringV2ConcurrencyPermitAcquired: "scoring_v2.concurrency_permit_acquired",
+  scoringV2ConcurrencyPermitReleased: "scoring_v2.concurrency_permit_released",
+  scoringV2ConcurrencyLimitReached: "scoring_v2.concurrency_limit_reached",
   // Finalization recovery (operational; complements normative batch lifecycle)
   scoringV2FinalizationClaimReleased: "scoring_v2.finalization_claim_released",
   scoringV2FinalizationClaimLost: "scoring_v2.finalization_claim_lost",

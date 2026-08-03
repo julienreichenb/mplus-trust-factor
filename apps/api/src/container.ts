@@ -38,6 +38,7 @@ import {
   runGenerateAddonExport,
   runRecalculateScore,
   runRefreshPipeline,
+  runScoringV2EvidenceExportJob,
   type EnqueueResult,
   type NegativeCache,
   type QueueProducers,
@@ -270,6 +271,32 @@ function createInlineQueueProducers(worker: WorkerContainer): QueueProducers {
       return {
         jobId: input.calibrationRunId,
         dedupeKey: input.calibrationRunId,
+        reused: false,
+        enqueued: true,
+      };
+    },
+
+    async enqueueScoringV2EvidenceExport(input): Promise<EnqueueResult> {
+      try {
+        await runScoringV2EvidenceExportJob(
+          {
+            prisma: worker.prisma,
+            logger: worker.logger,
+            artifacts: worker.repositories.artifacts,
+            scoreTtlSeconds: worker.env.SCORE_TTL_SECONDS,
+          },
+          {
+            exportId: input.exportId,
+            requestedAt: input.requestedAt ?? new Date().toISOString(),
+            correlationId: input.correlationId ?? null,
+          },
+        );
+      } catch (error) {
+        logger.warn({ err: error, exportId: input.exportId }, "inline scoring-v2 evidence export failed");
+      }
+      return {
+        jobId: input.exportId,
+        dedupeKey: input.exportId,
         reused: false,
         enqueued: true,
       };

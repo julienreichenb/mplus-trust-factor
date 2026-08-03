@@ -17,3 +17,4 @@ export * from "./pipeline-admission.js";
 export * from "./in-memory-redis.js";
 export * from "./eta-compute.js";
 export * from "./eta-read.js";
+export * from "./lane-permits.js";

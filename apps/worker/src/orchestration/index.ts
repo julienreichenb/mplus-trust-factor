@@ -33,3 +33,19 @@ export * from "./refresh-eligibility-gate.js";
 export * from "./refresh-job-control.js";
 export * from "./refresh-admission/index.js";
 export * from "./calibration-run.js";
+export {
+  runEvidenceJoin,
+  incompleteBootstrap,
+  classifySnapshotStatus,
+  aggregateEvidenceIssues,
+  buildEvidenceJoinMarkdown,
+  type EvidenceJoinInput,
+  type EvidenceJoinResult,
+  type EvidenceJoinMemberInput,
+  type EvidenceJoinMemberResult,
+} from "./scoring-v2/evidence-join.js";
+export { buildStoreZip, sha256Hex } from "./scoring-v2/zip-store.js";
+export {
+  runScoringV2EvidenceExportJob,
+  type ScoringV2EvidenceExportProcessorDeps,
+} from "./scoring-v2-evidence-export.js";

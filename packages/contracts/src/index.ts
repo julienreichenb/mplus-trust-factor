@@ -14,3 +14,4 @@ export * from "./account-characters.js";
 export * from "./active-rerolls.js";
 export * from "./evidence-v2.js";
 export * from "./explainability-v2.js";
+export * from "./scoring-v2-control-center.js";

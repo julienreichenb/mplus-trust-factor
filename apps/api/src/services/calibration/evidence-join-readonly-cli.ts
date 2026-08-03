@@ -11,6 +11,11 @@ import { readFileSync, mkdirSync, writeFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { createPrismaClient } from "@mplus/database";
+import {
+  classifySnapshotStatus,
+  incompleteBootstrap,
+  type SnapshotStatus,
+} from "@mplus/worker";
 import { validateSeasonMetaPolicy, validateAuthoritativeSeasonBinding } from "./meta-policy.js";
 import {
   MYZOUTH_EXPECTED_CHARACTER_ID,
@@ -93,22 +98,6 @@ interface ResolvedDocMember {
   snapshotIds: string[];
   evidenceStatus: string;
   provenance?: Record<string, unknown>;
-}
-
-function incompleteBootstrap(row: {
-  level: number | null;
-  blizzardCharacterId: bigint | null;
-  classId: string | null;
-  activeSpecId: string | null;
-  role: string | null;
-}): boolean {
-  return (
-    row.level == null ||
-    row.blizzardCharacterId == null ||
-    row.classId == null ||
-    row.activeSpecId == null ||
-    row.role == null
-  );
 }
 
 export async function main(argv = process.argv.slice(2)): Promise<number> {
