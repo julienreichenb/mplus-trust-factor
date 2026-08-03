@@ -1937,7 +1937,7 @@ model ScoringV2EvidenceExport {
   heartbeatAt              DateTime?                     @map("heartbeat_at") @db.Timestamptz(3)
   /** Hash of the terminal archive set (equals archiveContentHash on success). */
   artifactSetHash          String?                       @map("artifact_set_hash")
-  /** Immutable freeze inputs placeholder (H3 fills members/model/catalogs). */
+  /** Immutable freeze inputs captured at export COMPLETED (H3). */
   freezeSnapshot           Json?                         @map("freeze_snapshot")
   errorCode                String?                       @map("error_code")
   errorMessage             String?                       @map("error_message")

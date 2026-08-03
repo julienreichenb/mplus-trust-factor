@@ -4,8 +4,10 @@
  *
  * B3: idempotent COMPLETED short-circuit; pinned generatedAt/evidenceCutoffAt;
  * atomic lease claim; optimistic terminal finalize; archive bounds (M4 lite).
+ * H3: persist immutable freezeSnapshot at COMPLETED (export-time model/members/policies).
  */
 import { randomUUID } from "node:crypto";
+import { CURRENT_CATALOG_VERSION_ID } from "@mplus/abilities";
 import {
   scoringV2EvidenceExportJobSchema,
   type ScoringV2EvidenceExportJob,
@@ -13,6 +15,16 @@ import {
 import { OBS_EVENTS, emitScoringV2Event, type Logger } from "@mplus/observability";
 import type { PrismaClient, Prisma } from "@mplus/database";
 import type { ArtifactRepository } from "@mplus/database";
+import { MINIMAL_SEED_CATALOG } from "@mplus/mechanics";
+import {
+  buildDefaultFreezePolicies,
+  buildFreezeSnapshot,
+  createDefaultModelV6,
+  resolveFrozenDimensionConfigsForModel,
+  type FreezeSnapshotMemberV1,
+  type FreezeSnapshotModelV1,
+  type ScoreModelConfigV1,
+} from "@mplus/scoring";
 import {
   buildEvidenceJoinMarkdown,
   runEvidenceJoin,
@@ -295,6 +307,100 @@ export async function runScoringV2EvidenceExportJob(
     });
 
     const archiveContentHash = archiveWrite.write.contentHash;
+
+    // H3: capture immutable freeze inputs from export-time join + cohort scan.
+    const activeModelId = join.seasonBinding.activeModel?.id ?? exportRow.scoreModelId;
+    let freezeActiveModel: FreezeSnapshotModelV1 | null = null;
+    if (activeModelId) {
+      const modelRow = await prisma.scoreModel.findUnique({ where: { id: activeModelId } });
+      if (modelRow) {
+        const config = createDefaultModelV6({
+          ...(modelRow.config as unknown as Partial<ScoreModelConfigV1>),
+          key: modelRow.key,
+          version: modelRow.version,
+        });
+        const status =
+          modelRow.status === "DRAFT" ||
+          modelRow.status === "ACTIVE" ||
+          modelRow.status === "ARCHIVED"
+            ? modelRow.status
+            : "FIXTURE";
+        const modelRef = {
+          id: modelRow.id,
+          key: modelRow.key,
+          version: modelRow.version,
+          status: status as FreezeSnapshotModelV1["status"],
+          config,
+          isActive: true,
+        };
+        let dimensionConfigs: FreezeSnapshotModelV1["dimensionConfigs"] = null;
+        try {
+          const mode =
+            config && "scoringV2" in config && config.scoringV2
+              ? "calibration-strict"
+              : "phase1-default";
+          dimensionConfigs = resolveFrozenDimensionConfigsForModel(modelRef, mode);
+        } catch {
+          dimensionConfigs = null;
+        }
+        freezeActiveModel = { ...modelRef, dimensionConfigs };
+      }
+    }
+
+    const seasonIdForSnapshot =
+      join.seasonBinding.season?.id ?? exportRow.seasonId ?? exportRow.cohort.seasonId;
+    const seasonRow = seasonIdForSnapshot
+      ? await prisma.season.findUnique({
+          where: { id: seasonIdForSnapshot },
+          select: {
+            id: true,
+            slug: true,
+            region: { select: { code: true } },
+          },
+        })
+      : null;
+
+    const snapshotMembers: FreezeSnapshotMemberV1[] = exportRow.cohort.members.map((m) => ({
+      id: m.id,
+      externalMemberKey: m.externalMemberKey ?? null,
+      characterId: m.characterId ?? null,
+      region: m.region,
+      realmSlug: m.realmSlug,
+      characterName: m.characterName,
+      expectedLabel: m.expectedLabel,
+      rationale: m.rationale ?? "",
+      included: m.included,
+      exclusionCode: m.exclusionCode ?? null,
+      role: m.providedRole ?? null,
+      classSlug: m.classSlug ?? null,
+      specSlug: m.specSlug ?? null,
+      evidenceCutoffAt: m.evidenceCutoffAt?.toISOString() ?? evidenceCutoffAt.toISOString(),
+      source: m.source ?? "USER_SELECTED",
+    }));
+
+    const freezeSnapshot = buildFreezeSnapshot({
+      cohortId: exportRow.cohortId,
+      cohortExternalKey: exportRow.cohort.externalKey ?? null,
+      cohortName: exportRow.cohort.name,
+      cohortDescription: exportRow.cohort.description ?? "",
+      cohortCreatedAt: exportRow.cohort.createdAt.toISOString(),
+      cohortRevision: exportRow.cohortRevision,
+      members: snapshotMembers,
+      season: {
+        seasonId: seasonRow?.id ?? seasonIdForSnapshot ?? "",
+        seasonSlug: seasonRow?.slug ?? join.seasonBinding.season?.slug ?? "",
+        region: seasonRow?.region?.code ?? null,
+      },
+      activeModel: freezeActiveModel,
+      evaluationModel: null,
+      policies: buildDefaultFreezePolicies({
+        abilityCatalogVersions: [CURRENT_CATALOG_VERSION_ID],
+        mechanicCatalogVersions: [MINIMAL_SEED_CATALOG.catalogVersion],
+      }),
+      evidenceCutoffAt: evidenceCutoffAt.toISOString(),
+      generatedAt: generatedAt.toISOString(),
+    });
+
     const finalized = await prisma.scoringV2EvidenceExport.updateMany({
       where: {
         id: exportRow.id,
@@ -324,8 +430,9 @@ export async function runScoringV2EvidenceExportJob(
         archiveByteLength: archiveWrite.write.uncompressedSizeBytes,
         archiveStorageUri: archiveWrite.write.storageUri,
         artifactSetHash: archiveContentHash,
-        scoreModelId: join.seasonBinding.activeModel?.id ?? exportRow.scoreModelId,
-        seasonId: join.seasonBinding.season?.id ?? exportRow.seasonId,
+        scoreModelId: freezeActiveModel?.id ?? exportRow.scoreModelId,
+        seasonId: seasonRow?.id ?? exportRow.seasonId,
+        freezeSnapshot: freezeSnapshot as unknown as Prisma.InputJsonValue,
         ...clearLeaseFields(),
       },
     });

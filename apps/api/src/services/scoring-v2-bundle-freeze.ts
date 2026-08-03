@@ -1,6 +1,7 @@
 /**
  * Assemble a real CalibrationInputBundleV2 from a completed evidence export.
- * Provider-free. Verifies artifact integrity before freeze. No refresh enqueue.
+ * Provider-free. Uses export-time freezeSnapshot (not live ACTIVE/cohort).
+ * Verifies artifact integrity before freeze. No refresh enqueue.
  */
 import { CURRENT_CATALOG_VERSION_ID } from "@mplus/abilities";
 import { CALIBRATION_LABEL_TO_QUALITATIVE } from "@mplus/contracts";
@@ -8,11 +9,12 @@ import type { PrismaClient, ScoreModel } from "@mplus/database";
 import type { ArtifactRepository } from "@mplus/database";
 import {
   COHORT_MANIFEST_SCHEMA_VERSION,
-  algorithmVersionForDimension,
   buildCalibrationContentRefV2,
   buildCalibrationInputBundleV2,
   computeArtifactSha256Hex,
   createMapArtifactResolverV2,
+  freezeSnapshotModelToCalibrationRef,
+  parseAndVerifyFreezeSnapshot,
   preflightCalibrationBundleV2,
   resolveFrozenDimensionConfigsForModel,
   type CalibrationContentRefV2,
@@ -22,15 +24,13 @@ import {
   type CalibrationPreflightIssueV2,
   type CalibrationRole,
   type CohortManifest,
+  type FreezeSnapshotV1,
   type QualitativeLabel,
   type ScoringV2PublicDimension,
   createDefaultModelV6,
   type ScoreModelConfigV1,
 } from "@mplus/scoring";
 import type { ScoringV2IssueDTO } from "@mplus/contracts";
-
-/** Pinned to packages/mechanics MINIMAL_SEED_CATALOG.catalogVersion — avoid API→mechanics dep. */
-const MECHANIC_CATALOG_VERSION = "0.1.0-seed";
 
 const PHASE1_DIMENSIONS: ScoringV2PublicDimension[] = [
   "PERFORMANCE",
@@ -192,6 +192,7 @@ export function mapPreflightIssuesToFreezeBlockers(
 /**
  * Build a complete CalibrationInputBundleV2 for an evidence export.
  * Does not mutate character/evidence/score rows. Provider-free.
+ * Freeze inputs come exclusively from export-time freezeSnapshot.
  */
 export async function assembleCalibrationInputBundleV2(input: {
   prisma: PrismaClient;
@@ -210,9 +211,14 @@ export async function assembleCalibrationInputBundleV2(input: {
     where: { id: input.exportId },
     include: {
       cohort: {
-        include: {
-          members: true,
-          season: true,
+        select: {
+          id: true,
+          externalKey: true,
+          name: true,
+          description: true,
+          createdAt: true,
+          seasonId: true,
+          revision: true,
         },
       },
     },
@@ -249,27 +255,45 @@ export async function assembleCalibrationInputBundleV2(input: {
     });
   }
 
-  const seasonId = exportRow.seasonId ?? exportRow.cohort.seasonId;
-  const season = await input.prisma.season.findUnique({
-    where: { id: seasonId },
-    select: { id: true, slug: true, name: true, regionId: true, region: { select: { code: true } } },
-  });
-  if (!season) {
+  const snapshotParse = parseAndVerifyFreezeSnapshot(exportRow.freezeSnapshot);
+  if (!snapshotParse.ok || !snapshotParse.snapshot) {
+    const code =
+      snapshotParse.code === "FREEZE_SNAPSHOT_HASH_MISMATCH"
+        ? "FREEZE_SNAPSHOT_HASH_MISMATCH"
+        : snapshotParse.code === "FREEZE_SNAPSHOT_INVALID"
+          ? "FREEZE_SNAPSHOT_INVALID"
+          : "FREEZE_SNAPSHOT_MISSING";
+    return {
+      ok: false,
+      blockers: [
+        {
+          code,
+          severity: "blocker",
+          message: snapshotParse.message ?? "Freeze snapshot missing or corrupt",
+        },
+      ],
+      warnings: [],
+      bundle: null,
+      artifactBytes,
+    };
+  }
+  const snapshot: FreezeSnapshotV1 = snapshotParse.snapshot;
+
+  const season = snapshot.season;
+  if (!season.seasonId || !season.seasonSlug) {
     blockers.push({
       code: "SEASON_MISSING",
       severity: "blocker",
-      message: "Season binding missing for freeze",
+      message: "Season binding missing in freeze snapshot",
     });
   }
 
-  const activeModel = await input.prisma.scoreModel.findFirst({
-    where: { status: "ACTIVE" },
-  });
-  if (!activeModel) {
+  const snapshotActive = snapshot.activeModel;
+  if (!snapshotActive) {
     blockers.push({
       code: "ACTIVE_MODEL_MISSING",
       severity: "blocker",
-      message: "No ACTIVE score model for freeze",
+      message: "No ACTIVE score model in freeze snapshot",
     });
   }
 
@@ -287,28 +311,21 @@ export async function assembleCalibrationInputBundleV2(input: {
     }
   }
 
-  // Deterministic timestamps for identical-input root-hash idempotency.
-  const generatedAt =
-    exportRow.completedAt?.toISOString() ??
-    exportRow.createdAt.toISOString();
-  const evidenceCutoffAt =
-    exportRow.cohort.members
-      .map((m) => m.evidenceCutoffAt?.toISOString())
-      .filter((v): v is string => Boolean(v))
-      .sort()
-      .at(-1) ?? generatedAt;
+  // Deterministic timestamps from export-time snapshot (not wall clock / live cohort).
+  const generatedAt = snapshot.generatedAt;
+  const evidenceCutoffAt = snapshot.evidenceCutoffAt;
 
   const cohortManifest: CohortManifest = {
     schemaVersion: COHORT_MANIFEST_SCHEMA_VERSION,
-    cohortId: exportRow.cohort.externalKey ?? exportRow.cohortId,
-    description: exportRow.cohort.description || exportRow.cohort.name,
-    createdAt: exportRow.cohort.createdAt.toISOString(),
-    members: exportRow.cohort.members.map((m) => ({
+    cohortId: snapshot.cohortExternalKey ?? snapshot.cohortId,
+    description: snapshot.cohortDescription || snapshot.cohortName,
+    createdAt: snapshot.cohortCreatedAt,
+    members: snapshot.members.map((m) => ({
       id: m.externalMemberKey ?? m.id,
       region: m.region.toLowerCase(),
       realm: m.realmSlug.toLowerCase(),
       character: m.characterName,
-      role: mapRole(m.providedRole),
+      role: mapRole(m.role),
       classSlug: m.classSlug ?? "unknown",
       specSlug: m.specSlug ?? "unknown",
       expectedLabel: mapLabel(m.expectedLabel),
@@ -316,18 +333,19 @@ export async function assembleCalibrationInputBundleV2(input: {
       rationale: m.rationale,
       suspectedBoost: false,
       source: m.source === "STRATIFIED_AUTO" ? "stratified-auto" : "user-selected",
-      seasonSlug: season?.slug,
+      seasonSlug: season.seasonSlug,
     })),
-    notes: `Frozen from evidence export ${exportRow.id} at cohort revision ${exportRow.cohortRevision}`,
+    notes: `Frozen from evidence export ${exportRow.id} at cohort revision ${snapshot.cohortRevision}`,
   };
 
   const replayMembers: CalibrationMemberReplayV2[] = [];
+  const activeModelId = snapshotActive?.id ?? null;
 
-  for (const member of exportRow.cohort.members) {
+  for (const member of snapshot.members) {
     const memberId = member.id;
     const included = member.included && !member.exclusionCode;
     const expectedLabel = mapLabel(member.expectedLabel);
-    const role = mapRole(member.providedRole ?? null);
+    const role = mapRole(member.role ?? null);
     const classSlug = member.classSlug;
     const specSlug = member.specSlug;
 
@@ -356,7 +374,7 @@ export async function assembleCalibrationInputBundleV2(input: {
         specSlug,
         included: false,
         exclusionCode: member.exclusionCode,
-        evidenceCutoffAt: member.evidenceCutoffAt?.toISOString() ?? evidenceCutoffAt,
+        evidenceCutoffAt: member.evidenceCutoffAt ?? evidenceCutoffAt,
         manifest: stubRef,
         factSets: [],
         dimensionExports: {},
@@ -365,7 +383,7 @@ export async function assembleCalibrationInputBundleV2(input: {
       continue;
     }
 
-    if (!member.characterId || !season) {
+    if (!member.characterId || !season.seasonId) {
       blockers.push({
         code: "IDENTITY_MISSING",
         severity: "blocker",
@@ -376,7 +394,7 @@ export async function assembleCalibrationInputBundleV2(input: {
     }
 
     const manifest = await input.prisma.evidenceManifest.findFirst({
-      where: { characterId: member.characterId, seasonId: season.id },
+      where: { characterId: member.characterId, seasonId: season.seasonId },
       orderBy: { frozenAt: "desc" },
       include: {
         slots: {
@@ -501,9 +519,9 @@ export async function assembleCalibrationInputBundleV2(input: {
     const dims = await input.prisma.dimensionComputation.findMany({
       where: {
         characterId: member.characterId,
-        seasonId: season.id,
+        seasonId: season.seasonId,
         manifestId: manifest.id,
-        ...(activeModel ? { scoreModelId: activeModel.id } : {}),
+        ...(activeModelId ? { scoreModelId: activeModelId } : {}),
       },
     });
     const dimensionExports: Partial<Record<ScoringV2PublicDimension, CalibrationContentRefV2>> = {};
@@ -545,7 +563,7 @@ export async function assembleCalibrationInputBundleV2(input: {
     const previousSnapshot = await input.prisma.scoreSnapshot.findFirst({
       where: {
         characterId: member.characterId,
-        seasonId: season.id,
+        seasonId: season.seasonId,
         isPublic: true,
         publicationStatus: { in: ["PUBLIC", "PUBLISHED"] },
         scopeType: "CHARACTER",
@@ -564,7 +582,7 @@ export async function assembleCalibrationInputBundleV2(input: {
       specSlug,
       included: true,
       exclusionCode: null,
-      evidenceCutoffAt: member.evidenceCutoffAt?.toISOString() ?? evidenceCutoffAt,
+      evidenceCutoffAt: member.evidenceCutoffAt ?? evidenceCutoffAt,
       manifest: manifestRef,
       factSets,
       dimensionExports,
@@ -572,31 +590,31 @@ export async function assembleCalibrationInputBundleV2(input: {
     });
   }
 
-  if (!activeModel || !season || blockers.some((b) => b.severity === "blocker")) {
+  if (!snapshotActive || !season.seasonId || blockers.some((b) => b.severity === "blocker")) {
     return { ok: false, blockers, warnings, bundle: null, artifactBytes };
   }
 
-  const activeRef = toModelRef(activeModel, true);
+  const activeRef = freezeSnapshotModelToCalibrationRef(snapshotActive);
   const evaluationRef = evaluationModel ? toModelRef(evaluationModel, false) : null;
 
-  let activeDimensionConfigs = null as ReturnType<
-    typeof resolveFrozenDimensionConfigsForModel
-  > | null;
+  let activeDimensionConfigs = snapshotActive.dimensionConfigs;
   let evaluationDimensionConfigs = null as ReturnType<
     typeof resolveFrozenDimensionConfigsForModel
   > | null;
-  try {
-    const mode = activeRef.config && "scoringV2" in activeRef.config && activeRef.config.scoringV2
-      ? "calibration-strict"
-      : "phase1-default";
-    const resolved = resolveFrozenDimensionConfigsForModel(activeRef, mode);
-    activeDimensionConfigs = resolved;
-  } catch (error) {
-    blockers.push({
-      code: "ACTIVE_CONFIG_INVALID",
-      severity: "blocker",
-      message: error instanceof Error ? error.message : "Active dimension configs invalid",
-    });
+  if (!activeDimensionConfigs) {
+    try {
+      const mode =
+        activeRef.config && "scoringV2" in activeRef.config && activeRef.config.scoringV2
+          ? "calibration-strict"
+          : "phase1-default";
+      activeDimensionConfigs = resolveFrozenDimensionConfigsForModel(activeRef, mode);
+    } catch (error) {
+      blockers.push({
+        code: "ACTIVE_CONFIG_INVALID",
+        severity: "blocker",
+        message: error instanceof Error ? error.message : "Active dimension configs invalid",
+      });
+    }
   }
   if (evaluationRef) {
     try {
@@ -620,18 +638,18 @@ export async function assembleCalibrationInputBundleV2(input: {
     return { ok: false, blockers, warnings, bundle: null, artifactBytes };
   }
 
-  const policies = {
-    difficultyPolicies: [{ id: "season-difficulty-policy", version: "1" }],
-    abilityCatalogVersions: [CURRENT_CATALOG_VERSION_ID],
-    mechanicCatalogVersions: [MECHANIC_CATALOG_VERSION],
-    confidenceAlgorithmVersions: { overall: "confidence-v1" },
-    dimensionAlgorithmVersions: {
-      PERFORMANCE: algorithmVersionForDimension("PERFORMANCE"),
-      SURVIVAL: algorithmVersionForDimension("SURVIVAL"),
-      UTILITY: algorithmVersionForDimension("UTILITY"),
-      EXPERIENCE: algorithmVersionForDimension("EXPERIENCE"),
-    },
-  };
+  const policies = snapshot.policies;
+  // Soft check: ability catalog pin still present in runtime (info only — snapshot wins).
+  if (
+    policies.abilityCatalogVersions.length > 0 &&
+    !policies.abilityCatalogVersions.includes(CURRENT_CATALOG_VERSION_ID)
+  ) {
+    warnings.push({
+      code: "ABILITY_CATALOG_DRIFT",
+      severity: "warning",
+      message: `Snapshot ability catalog differs from runtime ${CURRENT_CATALOG_VERSION_ID}`,
+    });
+  }
 
   let bundle: CalibrationInputBundleV2;
   try {
@@ -666,9 +684,9 @@ export async function assembleCalibrationInputBundleV2(input: {
       deterministicSeed: 0,
       cohort: cohortManifest,
       season: {
-        seasonId: season.id,
-        seasonSlug: season.slug,
-        region: season.region?.code ?? null,
+        seasonId: season.seasonId,
+        seasonSlug: season.seasonSlug,
+        region: season.region ?? null,
       },
       activeModel: activeRef,
       evaluationModel: evaluationRef,
@@ -715,3 +733,4 @@ export async function assembleCalibrationInputBundleV2(input: {
 }
 
 export { toIssueDto };
+

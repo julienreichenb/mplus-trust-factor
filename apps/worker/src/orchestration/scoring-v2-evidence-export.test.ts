@@ -55,15 +55,20 @@ function baseExportRow(overrides: Record<string, unknown> = {}) {
     leaseExpiresAt: null,
     cohort: {
       name: "Test Cohort",
+      description: "desc",
+      externalKey: "cohort-ext",
+      createdAt: generatedAt,
       revision: 3,
       seasonId: "22222222-2222-4222-8222-222222222222",
       members: [
         {
           id: "33333333-3333-4333-8333-333333333333",
+          externalMemberKey: "m-1",
           region: "eu",
           realmSlug: "realm",
           characterName: "Hero",
           expectedLabel: "GOOD",
+          rationale: "expert",
           providedRole: "DPS",
           classSlug: "mage",
           specSlug: "frost",
@@ -71,6 +76,8 @@ function baseExportRow(overrides: Record<string, unknown> = {}) {
           included: true,
           exclusionCode: null,
           exclusionDetail: null,
+          evidenceCutoffAt: generatedAt,
+          source: "USER_SELECTED",
         },
       ],
     },
@@ -138,16 +145,43 @@ describe("runScoringV2EvidenceExportJob idempotency (B3)", () => {
       findUnique: ReturnType<typeof vi.fn>;
       updateMany: ReturnType<typeof vi.fn>;
     };
+    scoreModel: {
+      findUnique: ReturnType<typeof vi.fn>;
+    };
+    season: {
+      findUnique: ReturnType<typeof vi.fn>;
+    };
   };
   let artifacts: { persist: ReturnType<typeof vi.fn> };
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
     runEvidenceJoin.mockResolvedValue(joinResult());
+    const { createDefaultModelV6, createDefaultScoringV2DimensionConfigSet, withScoringV2DimensionConfigs } =
+      await import("@mplus/scoring");
     prisma = {
       scoringV2EvidenceExport: {
         findUnique: vi.fn(),
         updateMany: vi.fn(),
+      },
+      scoreModel: {
+        findUnique: vi.fn(async () => ({
+          id: "model-1",
+          key: "v6",
+          version: 1,
+          status: "ACTIVE",
+          config: withScoringV2DimensionConfigs(
+            createDefaultModelV6({ key: "v6", version: 1 }),
+            createDefaultScoringV2DimensionConfigSet(),
+          ),
+        })),
+      },
+      season: {
+        findUnique: vi.fn(async () => ({
+          id: "22222222-2222-4222-8222-222222222222",
+          slug: "s",
+          region: { code: "eu" },
+        })),
       },
     };
     artifacts = {
@@ -345,5 +379,57 @@ describe("runScoringV2EvidenceExportJob idempotency (B3)", () => {
   it("exports max archive bound constant used by M4 lite", () => {
     expect(EVIDENCE_EXPORT_MAX_ARCHIVE_BYTES).toBe(50 * 1024 * 1024);
     expect(EVIDENCE_EXPORT_MAX_MEMBERS).toBe(500);
+  });
+
+  it("H3: persists freezeSnapshot and scoreModelId on optimistic finalize", async () => {
+    const pinned = new Date("2026-08-03T12:00:00.000Z");
+    prisma.scoringV2EvidenceExport.findUnique
+      .mockResolvedValueOnce(baseExportRow({ generatedAt: pinned, evidenceCutoffAt: pinned }))
+      .mockResolvedValueOnce({
+        attempt: 1,
+        generatedAt: pinned,
+        evidenceCutoffAt: pinned,
+        leaseOwner: "owner-1",
+      });
+    prisma.scoringV2EvidenceExport.updateMany
+      .mockResolvedValueOnce({ count: 1 })
+      .mockResolvedValueOnce({ count: 1 });
+
+    const result = await runScoringV2EvidenceExportJob(
+      {
+        prisma: prisma as never,
+        logger: logger as never,
+        artifacts: artifacts as never,
+        leaseOwnerFactory: () => "owner-1",
+      },
+      JOB_PAYLOAD,
+    );
+
+    expect(result).toEqual({ exportId: EXPORT_ID, status: "COMPLETED" });
+    expect(prisma.scoreModel.findUnique).toHaveBeenCalledWith({ where: { id: "model-1" } });
+    expect(prisma.season.findUnique).toHaveBeenCalled();
+
+    const finalizeCall = prisma.scoringV2EvidenceExport.updateMany.mock.calls[1]![0];
+    expect(finalizeCall.data.scoreModelId).toBe("model-1");
+    const snap = finalizeCall.data.freezeSnapshot as {
+      schemaVersion: string;
+      contentHash: string;
+      activeModel: { id: string; key: string } | null;
+      members: Array<{ id: string; expectedLabel: string; characterName: string }>;
+      cohortRevision: number;
+      evaluationModel: unknown;
+    };
+    expect(snap.schemaVersion).toBe("scoring-v2-freeze-snapshot-v1");
+    expect(snap.contentHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(snap.activeModel?.id).toBe("model-1");
+    expect(snap.evaluationModel).toBeNull();
+    expect(snap.cohortRevision).toBe(3);
+    expect(snap.members).toHaveLength(1);
+    expect(snap.members[0]!.expectedLabel).toBe("GOOD");
+    expect(snap.members[0]!.characterName).toBe("Hero");
+
+    const { parseAndVerifyFreezeSnapshot } = await import("@mplus/scoring");
+    const verified = parseAndVerifyFreezeSnapshot(snap);
+    expect(verified.ok).toBe(true);
   });
 });

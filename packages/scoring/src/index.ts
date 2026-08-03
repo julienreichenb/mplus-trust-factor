@@ -358,6 +358,12 @@ export {
   RETIRED_PERFORMANCE_METRIC_KEYS,
   CALIBRATION_DIGEST_ALGORITHM_VERSION,
   buildCalibrationDigestV1,
+  FREEZE_SNAPSHOT_SCHEMA_VERSION,
+  buildDefaultFreezePolicies,
+  buildFreezeSnapshot,
+  computeFreezeSnapshotContentHash,
+  parseAndVerifyFreezeSnapshot,
+  freezeSnapshotModelToCalibrationRef,
 } from "./calibration/index.js";
 export type {
   CalibrationBacktestMode,
@@ -412,6 +418,11 @@ export type {
   BundleValidationResult,
   CalibrationDigestV1,
   DigestFinding,
+  FreezeSnapshotV1,
+  FreezeSnapshotMemberV1,
+  FreezeSnapshotModelV1,
+  FreezeSnapshotParseErrorCode,
+  FreezeSnapshotParseResult,
 } from "./calibration/index.js";
 
 /** Performance V2 Phase 1 calculator (shadow — not public-activated). */

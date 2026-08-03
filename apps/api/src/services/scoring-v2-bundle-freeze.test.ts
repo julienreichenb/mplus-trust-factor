@@ -1,6 +1,7 @@
 /**
  * Unit tests for Calibration Input Bundle V2 freeze assembly.
  * Provider-free. Uses in-memory prisma/artifact fakes — no live providers.
+ * H3: freeze consumes export-time freezeSnapshot, not live ACTIVE/cohort.
  */
 import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
@@ -8,9 +9,13 @@ import {
   createMapArtifactResolverV2,
   createDefaultModelV6,
   createDefaultScoringV2DimensionConfigSet,
+  buildDefaultFreezePolicies,
+  buildFreezeSnapshot,
+  resolveFrozenDimensionConfigsForModel,
   replayCalibrationBundleV2,
   withScoringV2DimensionConfigs,
   type CalibrationInputBundleV2,
+  type FreezeSnapshotV1,
 } from "@mplus/scoring";
 import { CURRENT_CATALOG_VERSION_ID } from "@mplus/abilities";
 import {
@@ -60,7 +65,79 @@ type FixtureOpts = {
   omitAlgorithmPolicies?: boolean;
   evaluationModelId?: string | null;
   mutateFactPayload?: (facts: unknown) => unknown;
+  /** Override freezeSnapshot on the export row (undefined = auto-build valid snapshot). */
+  freezeSnapshot?: unknown;
+  /** Mutate live ACTIVE model returned by findFirst (should be ignored by freeze). */
+  liveActiveModelOverride?: Record<string, unknown>;
+  /** Mutate live cohort members if somehow queried (should be unused). */
+  liveMembersOverride?: unknown[];
 };
+
+function buildFreezeSnapshotForFixture(input: {
+  cohortId: string;
+  seasonId: string;
+  completedAt: Date;
+  evidenceCutoffAt: Date;
+  members: Array<Record<string, unknown>>;
+  activeModel: {
+    id: string;
+    key: string;
+    version: number;
+    status: string;
+    config: ReturnType<typeof makeModelConfig>;
+  };
+}): FreezeSnapshotV1 {
+  const modelRef = {
+    id: input.activeModel.id,
+    key: input.activeModel.key,
+    version: input.activeModel.version,
+    status: input.activeModel.status as "ACTIVE",
+    config: input.activeModel.config,
+    isActive: true as const,
+  };
+  const dimensionConfigs = resolveFrozenDimensionConfigsForModel(modelRef, "calibration-strict");
+  return buildFreezeSnapshot({
+    cohortId: input.cohortId,
+    cohortExternalKey: "cohort-ext",
+    cohortName: "Fixture cohort",
+    cohortDescription: "desc",
+    cohortCreatedAt: input.completedAt.toISOString(),
+    cohortRevision: 3,
+    members: input.members.map((m) => ({
+      id: String(m.id),
+      externalMemberKey: (m.externalMemberKey as string | null) ?? null,
+      characterId: (m.characterId as string | null) ?? null,
+      region: String(m.region),
+      realmSlug: String(m.realmSlug),
+      characterName: String(m.characterName),
+      expectedLabel: String(m.expectedLabel),
+      rationale: String(m.rationale ?? ""),
+      included: Boolean(m.included),
+      exclusionCode: (m.exclusionCode as string | null) ?? null,
+      role: (m.providedRole as string | null) ?? null,
+      classSlug: (m.classSlug as string | null) ?? null,
+      specSlug: (m.specSlug as string | null) ?? null,
+      evidenceCutoffAt:
+        m.evidenceCutoffAt instanceof Date
+          ? m.evidenceCutoffAt.toISOString()
+          : input.evidenceCutoffAt.toISOString(),
+      source: String(m.source ?? "USER_SELECTED"),
+    })),
+    season: {
+      seasonId: input.seasonId,
+      seasonSlug: "season-tww-1",
+      region: "eu",
+    },
+    activeModel: { ...modelRef, dimensionConfigs },
+    evaluationModel: null,
+    policies: buildDefaultFreezePolicies({
+      abilityCatalogVersions: [CURRENT_CATALOG_VERSION_ID],
+      mechanicCatalogVersions: ["0.1.0-seed"],
+    }),
+    evidenceCutoffAt: input.evidenceCutoffAt.toISOString(),
+    generatedAt: input.completedAt.toISOString(),
+  });
+}
 
 function buildFixture(opts: FixtureOpts = {}) {
   const completedAt = new Date("2026-08-01T12:00:00.000Z");
@@ -166,6 +243,18 @@ function buildFixture(opts: FixtureOpts = {}) {
     config: makeModelConfig(),
   };
 
+  const freezeSnapshot =
+    opts.freezeSnapshot !== undefined
+      ? opts.freezeSnapshot
+      : buildFreezeSnapshotForFixture({
+          cohortId,
+          seasonId,
+          completedAt,
+          evidenceCutoffAt,
+          members,
+          activeModel,
+        });
+
   const factSets = opts.omitFactSets
     ? []
     : [
@@ -199,6 +288,8 @@ function buildFixture(opts: FixtureOpts = {}) {
         computedAt: evidenceCutoffAt,
       }));
 
+  const liveMembers = opts.liveMembersOverride ?? members;
+
   const prisma = {
     scoringV2EvidenceExport: {
       findUnique: vi.fn(async () => ({
@@ -210,6 +301,7 @@ function buildFixture(opts: FixtureOpts = {}) {
         cohortRevision: 3,
         completedAt,
         createdAt: completedAt,
+        freezeSnapshot,
         cohort: {
           id: cohortId,
           externalKey: "cohort-ext",
@@ -218,8 +310,8 @@ function buildFixture(opts: FixtureOpts = {}) {
           createdAt: completedAt,
           seasonId,
           revision: 3,
-          members,
-          season: { id: seasonId, slug: "season-tww-1" },
+          // Live members intentionally diverge in H3 tests via liveMembersOverride.
+          members: liveMembers,
         },
       })),
     },
@@ -233,9 +325,14 @@ function buildFixture(opts: FixtureOpts = {}) {
       })),
     },
     scoreModel: {
-      findFirst: vi.fn(async ({ where }: { where: { status?: string } }) =>
-        where.status === "ACTIVE" ? activeModel : null,
-      ),
+      findFirst: vi.fn(async ({ where }: { where: { status?: string } }) => {
+        if (where.status === "ACTIVE") {
+          return opts.liveActiveModelOverride
+            ? { ...activeModel, ...opts.liveActiveModelOverride }
+            : activeModel;
+        }
+        return null;
+      }),
       findUnique: vi.fn(async ({ where }: { where: { id: string } }) => {
         if (where.id === activeModelId) return activeModel;
         if (where.id === draftModelId) return draftModel;
@@ -279,6 +376,12 @@ function buildFixture(opts: FixtureOpts = {}) {
     draftModel,
     activeModelId,
     draftModelId,
+    freezeSnapshot,
+    members,
+    seasonId,
+    cohortId,
+    completedAt,
+    evidenceCutoffAt,
   };
 }
 
@@ -327,6 +430,8 @@ describe("assembleCalibrationInputBundleV2", () => {
     expect(bundle.policies.abilityCatalogVersions).toContain(CURRENT_CATALOG_VERSION_ID);
     expect(bundle.policies.mechanicCatalogVersions.length).toBeGreaterThan(0);
     expect(bundle.bundleHash).toMatch(/^[a-f0-9]{64}$/);
+    // H3: must not query live ACTIVE model for freeze inputs.
+    expect(fixture.prisma.scoreModel.findFirst).not.toHaveBeenCalled();
   });
 
   it("produces the same root hash for identical inputs", async () => {
@@ -559,4 +664,95 @@ describe("assembleCalibrationInputBundleV2", () => {
       ),
     ).toBe(true);
   });
+
+  it("H3: uses snapshot active model even when live ACTIVE model changed", async () => {
+    const liveNewId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+    const fixture = buildFixture({
+      liveActiveModelOverride: {
+        id: liveNewId,
+        key: "post-export-active",
+        version: 99,
+        status: "ACTIVE",
+      },
+    });
+    const result = await assembleCalibrationInputBundleV2({
+      prisma: fixture.prisma as never,
+      artifacts: makeArtifacts() as never,
+      exportId: fixture.exportId,
+      dryRun: true,
+    });
+    expect(result.ok).toBe(true);
+    expect(result.bundle!.activeModel?.id).toBe(fixture.activeModelId);
+    expect(result.bundle!.activeModel?.id).not.toBe(liveNewId);
+    expect(result.bundle!.activeModel?.key).toBe("test-model");
+    expect(fixture.prisma.scoreModel.findFirst).not.toHaveBeenCalled();
+  });
+
+  it("H3: uses snapshot members/labels even when live cohort members changed", async () => {
+    const fixture = buildFixture({
+      liveMembersOverride: [
+        {
+          id: "55555555-5555-4555-8555-555555555555",
+          externalMemberKey: "m-included",
+          characterId: "11111111-1111-4111-8111-111111111111",
+          region: "EU",
+          realmSlug: "kazzak",
+          characterName: "RenamedLive",
+          providedRole: "TANK",
+          classSlug: "warrior",
+          specSlug: "protection",
+          expectedLabel: "EXCELLENT",
+          rationale: "mutated-after-export",
+          included: true,
+          exclusionCode: null,
+          evidenceCutoffAt: new Date("2026-08-01T00:00:00.000Z"),
+          source: "USER_SELECTED",
+        },
+      ],
+    });
+    const result = await assembleCalibrationInputBundleV2({
+      prisma: fixture.prisma as never,
+      artifacts: makeArtifacts() as never,
+      exportId: fixture.exportId,
+      dryRun: true,
+    });
+    expect(result.ok).toBe(true);
+    expect(result.bundle!.members).toHaveLength(2);
+    const included = result.bundle!.members.find((m) => m.included)!;
+    expect(included.expectedLabel).toBe("good");
+    expect(included.classSlug).toBe("warlock");
+    expect(included.specSlug).toBe("affliction");
+    expect(included.role).toBe("DPS");
+    expect(result.bundle!.cohort.members.find((m) => m.id === "m-included")?.character).toBe(
+      "Testchar",
+    );
+  });
+
+  it("H3: blocks freeze when freezeSnapshot is missing/empty", async () => {
+    const result = await assembleCalibrationInputBundleV2({
+      prisma: buildFixture({ freezeSnapshot: {} }).prisma as never,
+      artifacts: makeArtifacts() as never,
+      exportId: "44444444-4444-4444-8444-444444444444",
+      dryRun: true,
+    });
+    expect(result.ok).toBe(false);
+    expect(result.blockers.some((b) => b.code === "FREEZE_SNAPSHOT_MISSING")).toBe(true);
+  });
+
+  it("H3: blocks freeze when freezeSnapshot contentHash is corrupt", async () => {
+    const fixture = buildFixture();
+    const corrupt = {
+      ...(fixture.freezeSnapshot as FreezeSnapshotV1),
+      contentHash: "0".repeat(64),
+    };
+    const result = await assembleCalibrationInputBundleV2({
+      prisma: buildFixture({ freezeSnapshot: corrupt }).prisma as never,
+      artifacts: makeArtifacts() as never,
+      exportId: fixture.exportId,
+      dryRun: true,
+    });
+    expect(result.ok).toBe(false);
+    expect(result.blockers.some((b) => b.code === "FREEZE_SNAPSHOT_HASH_MISMATCH")).toBe(true);
+  });
 });
+

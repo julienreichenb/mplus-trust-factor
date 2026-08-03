@@ -186,3 +186,17 @@ export {
   type CalibrationDigestV1,
   type DigestFinding,
 } from "./digest.js";
+
+export {
+  FREEZE_SNAPSHOT_SCHEMA_VERSION,
+  buildDefaultFreezePolicies,
+  buildFreezeSnapshot,
+  computeFreezeSnapshotContentHash,
+  parseAndVerifyFreezeSnapshot,
+  freezeSnapshotModelToCalibrationRef,
+  type FreezeSnapshotV1,
+  type FreezeSnapshotMemberV1,
+  type FreezeSnapshotModelV1,
+  type FreezeSnapshotParseErrorCode,
+  type FreezeSnapshotParseResult,
+} from "./freeze-snapshot.js";
