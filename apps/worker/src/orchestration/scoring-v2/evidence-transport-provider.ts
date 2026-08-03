@@ -30,6 +30,11 @@ import type {
   ScoringV2RankingParseResult,
   ScoringV2SharedEvidenceResult,
 } from "./evidence-transport.js";
+import {
+  findLatestFightRevision,
+  loadPersistedFightDetails,
+  persistFightDetailsPage,
+} from "./fight-details-persist.js";
 import { ScoringV2RateDeferError } from "./acquisition.js";
 import { randomUUID } from "node:crypto";
 
@@ -146,6 +151,40 @@ export function createProviderBackedEvidenceTransport(
 
   return {
     async getReportFightDetails(input): Promise<ScoringV2FightDetailsResult> {
+      const wclSource = container.repositories.wclSource;
+      const artifacts = container.repositories.artifacts;
+      let revisionHint =
+        typeof input.expectedReportRevision === "number"
+          ? input.expectedReportRevision
+          : await findLatestFightRevision({
+              wclSource,
+              reportCode: input.reportCode,
+              fightId: input.fightId,
+            });
+
+      if (revisionHint != null) {
+        const cached = await loadPersistedFightDetails({
+          wclSource,
+          artifacts,
+          reportCode: input.reportCode,
+          fightId: input.fightId,
+          reportRevision: revisionHint,
+        });
+        if (cached) {
+          const meta = actorFromFightDetails(cached.data);
+          return {
+            data: cached.data,
+            reportRevision: cached.reportRevision,
+            playerActorId: meta.playerActorId,
+            ownedPetActorIds: meta.ownedPetActorIds,
+            startTime: meta.startTime,
+            endTime: meta.endTime,
+            dungeonSlug: meta.dungeonSlug,
+            providerCalls: 0,
+          };
+        }
+      }
+
       return withGlobalWclHttpPermit(async () => {
         const result = await container.providers.warcraftlogs.getReportFightDetails(
           input.reportCode,
@@ -153,10 +192,25 @@ export function createProviderBackedEvidenceTransport(
           input.ctx,
         );
         const data = result.data;
+        const reportRevision = revisionFromFightDetails(data);
         const meta = actorFromFightDetails(data);
+        if (data != null && reportRevision >= 0) {
+          try {
+            await persistFightDetailsPage({
+              wclSource,
+              artifacts,
+              reportCode: input.reportCode,
+              fightId: input.fightId,
+              reportRevision,
+              data,
+            });
+          } catch {
+            // Persistence failure must not block acquisition.
+          }
+        }
         return {
           data,
-          reportRevision: revisionFromFightDetails(data),
+          reportRevision,
           playerActorId: meta.playerActorId,
           ownedPetActorIds: meta.ownedPetActorIds,
           startTime: meta.startTime,

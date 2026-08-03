@@ -687,6 +687,7 @@ export async function acquireCandidateWithFallback(input: {
       // --- Performance ---
       if (consumers.has("PERFORMANCE")) {
         let rankingEvidence = null;
+        let rankingUnavailableReason: string | null = null;
         if (needRanking) {
           const ranking = await input.transport.getRankingParse({
             reportCode: identity.reportCode,
@@ -698,6 +699,7 @@ export async function acquireCandidateWithFallback(input: {
           });
           providerCallTotal += ranking.providerCalls;
           rankingEvidence = ranking.evidence;
+          rankingUnavailableReason = ranking.unavailableReason;
           if (ranking.providerCalls === 0 && ranking.evidence) {
             providerAccounting = {
               ...providerAccounting,
@@ -718,12 +720,21 @@ export async function acquireCandidateWithFallback(input: {
               contentHash: hashFactDocumentContent(rankingEvidence),
             });
           }
+        } else {
+          rankingUnavailableReason = "ranking_parse_not_requested";
         }
 
         try {
+          const rankingAbsentReason =
+            rankingEvidence != null
+              ? null
+              : needRanking
+                ? rankingUnavailableReason ?? "RANKING_PARSE_PUBLIC_API_UNAVAILABLE"
+                : "ranking_parse_not_requested";
           const outcome = extractPerformanceRunParseFactV2({
             slot: slotBinding,
             evidence: rankingEvidence,
+            absentReason: rankingAbsentReason,
           });
           typedFactPayloads.push({
             dimension: "PERFORMANCE",

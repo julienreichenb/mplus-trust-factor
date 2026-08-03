@@ -94,6 +94,8 @@ function identitiesMatch(
 export function extractPerformanceRunParseFactV2(input: {
   slot: FrozenSlotBindingV2;
   evidence: RankingParseEvidenceV2 | null;
+  /** Explicit absent reason when evidence is null (conclusive provider blocker). */
+  absentReason?: string | null;
   extractorVersion?: string;
 }): PerformanceFactExtractionOutcome {
   const extractorVersion =
@@ -116,13 +118,17 @@ export function extractPerformanceRunParseFactV2(input: {
   }
 
   if (input.evidence == null) {
+    const reason =
+      input.absentReason && input.absentReason.trim().length > 0
+        ? input.absentReason.trim()
+        : "ranking_parse_absent";
     return {
       status: "UNAVAILABLE",
       dimension: "PERFORMANCE",
       fact: null,
-      limitations: ["missing_ranking_parse_evidence"],
+      limitations: ["missing_ranking_parse_evidence", reason],
       category: "missing_source_dataset",
-      reason: "ranking_parse_absent",
+      reason,
     };
   }
 

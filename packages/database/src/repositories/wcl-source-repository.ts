@@ -300,6 +300,30 @@ export class WclSourceRepository {
     });
   }
 
+  /** Latest digest revision for a report+fight (for fight-details reuse probes). */
+  async findLatestDigestRevision(reportCode: string, fightId: number): Promise<number | null> {
+    const row = await this.prisma.wclRunSourceDigest.findFirst({
+      where: { reportCode, fightId },
+      orderBy: { acquiredAt: "desc" },
+      select: { reportRevision: true },
+    });
+    return row?.reportRevision ?? null;
+  }
+
+  /** Latest fight-details page revision for report+fight. */
+  async findLatestDatasetPageRevision(
+    reportCode: string,
+    fightId: number,
+    datasetKey: string,
+  ): Promise<number | null> {
+    const row = await this.prisma.evidenceDatasetPage.findFirst({
+      where: { reportCode, fightId, datasetKey },
+      orderBy: { createdAt: "desc" },
+      select: { reportRevision: true },
+    });
+    return row?.reportRevision ?? null;
+  }
+
   /**
    * Persistent cache probe: complete page set for a source identity + dataset.
    */

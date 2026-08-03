@@ -54,6 +54,8 @@ export interface ScoringV2EvidenceTransport {
     reportCode: string;
     fightId: number;
     ctx: ProviderFetchContext;
+    /** Hint from discovery/candidate — enables durable reuse before WCL. */
+    expectedReportRevision?: number | null;
   }): Promise<ScoringV2FightDetailsResult>;
 
   acquireSharedEvidence(input: {

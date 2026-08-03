@@ -37,9 +37,24 @@ function slugify(value: string): string {
 export function participantsFromMasterData(
   masterData: unknown,
   regionCode: string,
+  combatantInfoEvents?: Array<Record<string, unknown>> | null,
 ): WclRunDigestParticipant[] {
   const root = asRecord(masterData);
   const actors = Array.isArray(root?.actors) ? root!.actors : [];
+  const combatantByActor = new Map<number, Record<string, unknown>>();
+  for (const raw of combatantInfoEvents ?? []) {
+    const ev = asRecord(raw);
+    if (!ev) continue;
+    const source = asRecord(ev.source);
+    const actorId =
+      typeof ev.sourceID === "number"
+        ? ev.sourceID
+        : typeof source?.id === "number"
+          ? source.id
+          : null;
+    if (actorId == null) continue;
+    combatantByActor.set(actorId, ev);
+  }
   const out: WclRunDigestParticipant[] = [];
   for (const raw of actors) {
     const actor = asRecord(raw);
@@ -73,6 +88,10 @@ export function participantsFromMasterData(
           )
           .map((p) => (p as { id: number }).id);
 
+    const combatant = combatantByActor.get(id);
+    const specSlug = combatantSpecSlug(combatant);
+    const role = combatantRole(combatant);
+
     out.push({
       wclActorId: id,
       wclCanonicalId:
@@ -85,12 +104,47 @@ export function participantsFromMasterData(
       realmSlug: server,
       regionCode: regionCode.toUpperCase(),
       classSlug,
-      specSlug: null,
-      role: null,
+      specSlug,
+      role,
       ownedPetActorIds,
     });
   }
   return out.slice(0, 16);
+}
+
+function combatantSpecSlug(combatant: Record<string, unknown> | undefined): string | null {
+  if (!combatant) return null;
+  const spec =
+    typeof combatant.specID === "number"
+      ? null
+      : typeof combatant.spec === "string"
+        ? combatant.spec
+        : typeof asRecord(combatant.spec)?.name === "string"
+          ? (asRecord(combatant.spec)!.name as string)
+          : null;
+  if (spec && spec.trim()) return slugify(spec);
+  const specId = typeof combatant.specID === "number" ? combatant.specID : null;
+  // Do not invent names from numeric IDs alone.
+  void specId;
+  return null;
+}
+
+function combatantRole(
+  combatant: Record<string, unknown> | undefined,
+): string | null {
+  if (!combatant) return null;
+  const raw =
+    typeof combatant.role === "string"
+      ? combatant.role
+      : typeof asRecord(combatant.gear)?.role === "string"
+        ? (asRecord(combatant.gear)!.role as string)
+        : null;
+  if (!raw) return null;
+  const normalized = raw.trim().toUpperCase();
+  if (normalized === "TANK" || normalized === "HEALER" || normalized === "DPS") {
+    return normalized;
+  }
+  return null;
 }
 
 export function buildNeutralDigestFromBundle(input: {
@@ -103,9 +157,11 @@ export function buildNeutralDigestFromBundle(input: {
   startTimeMs?: number | null;
   endTimeMs?: number | null;
 }): { digest: WclRunSourceDigestDocument; contentFingerprint: string } {
+  const combatantInfo = input.bundle.eventDatasets.CombatantInfo?.events ?? null;
   const participants = participantsFromMasterData(
     input.bundle.masterData,
     input.region,
+    combatantInfo,
   );
   const datasets = Object.entries(input.bundle.eventDatasets).flatMap(([key, ds]) => {
     if (!ds) return [];
