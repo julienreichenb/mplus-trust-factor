@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { onMounted, onUnmounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import type { ScoringV2HistoryListDTO } from "@mplus/contracts";
 import { ApiClientError } from "../../api/live-client";
@@ -9,10 +9,12 @@ const router = useRouter();
 const apiBase = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:3000";
 
 const busy = ref(false);
+const downloadingId = ref<string | null>(null);
 const error = ref<string | null>(null);
 const page = ref(1);
 const pageSize = 20;
 const history = ref<ScoringV2HistoryListDTO | null>(null);
+let objectUrlToRevoke: string | null = null;
 
 async function load(): Promise<void> {
   busy.value = true;
@@ -44,11 +46,52 @@ async function load(): Promise<void> {
   }
 }
 
-function download(exportId: string): void {
-  window.open(
-    `${apiBase}/api/v1/admin/scoring-v2/evidence-exports/${encodeURIComponent(exportId)}/download`,
-    "_blank",
-  );
+async function download(exportId: string): Promise<void> {
+  if (downloadingId.value) return;
+  downloadingId.value = exportId;
+  error.value = null;
+  try {
+    const response = await fetch(
+      `${apiBase}/api/v1/admin/scoring-v2/evidence-exports/${encodeURIComponent(exportId)}/download`,
+      { credentials: "include" },
+    );
+    if (response.status === 401 || response.status === 403) {
+      void router.replace(response.status === 401 ? "/auth/signin" : "/access-denied");
+      throw new ApiClientError("Unauthorized", response.status, "UNAUTHORIZED");
+    }
+    if (!response.ok) {
+      const body = (await response.json().catch(() => ({}))) as { error?: { message?: string } };
+      throw new ApiClientError(
+        body.error?.message ?? `Download failed (${response.status})`,
+        response.status,
+        "REQUEST_FAILED",
+      );
+    }
+    const blob = await response.blob();
+    if (objectUrlToRevoke) {
+      URL.revokeObjectURL(objectUrlToRevoke);
+      objectUrlToRevoke = null;
+    }
+    const objectUrl = URL.createObjectURL(blob);
+    objectUrlToRevoke = objectUrl;
+    const anchor = document.createElement("a");
+    anchor.href = objectUrl;
+    anchor.download = `evidence-export-${exportId}.zip`;
+    anchor.rel = "noopener";
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    window.setTimeout(() => {
+      if (objectUrlToRevoke === objectUrl) {
+        URL.revokeObjectURL(objectUrl);
+        objectUrlToRevoke = null;
+      }
+    }, 1_000);
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : "Download failed";
+  } finally {
+    downloadingId.value = null;
+  }
 }
 
 function nextPage(): void {
@@ -69,6 +112,13 @@ function prevPage(): void {
 
 onMounted(() => {
   void load();
+});
+
+onUnmounted(() => {
+  if (objectUrlToRevoke) {
+    URL.revokeObjectURL(objectUrlToRevoke);
+    objectUrlToRevoke = null;
+  }
 });
 </script>
 
@@ -108,6 +158,7 @@ onMounted(() => {
               <button
                 v-if="item.downloadAvailable"
                 type="button"
+                :disabled="downloadingId !== null"
                 @click="download(item.exportId)"
               >
                 Download

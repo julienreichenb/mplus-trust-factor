@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from "vue";
+import { computed, nextTick, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import ScoringV2OverviewPanel from "../components/scoring-v2/ScoringV2OverviewPanel.vue";
 import ScoringV2EvidencePanel from "../components/scoring-v2/ScoringV2EvidencePanel.vue";
@@ -26,6 +26,7 @@ function tabFromQuery(raw: unknown): TabId {
 }
 
 const activeTab = ref<TabId>(tabFromQuery(route.query.tab));
+const tabRefs = ref<Array<HTMLButtonElement | null>>([]);
 
 watch(
   () => route.query.tab,
@@ -34,10 +35,31 @@ watch(
   },
 );
 
-function selectTab(id: TabId): void {
+function selectTab(id: TabId, focusTab = false): void {
   activeTab.value = id;
   void router.replace({ query: { ...route.query, tab: id === "overview" ? undefined : id } });
+  if (focusTab) {
+    void nextTick(() => {
+      const idx = TABS.findIndex((t) => t.id === id);
+      tabRefs.value[idx]?.focus();
+    });
+  }
 }
+
+function onTabKeydown(event: KeyboardEvent): void {
+  const keys = ["ArrowLeft", "ArrowRight", "Home", "End"];
+  if (!keys.includes(event.key)) return;
+  event.preventDefault();
+  const current = TABS.findIndex((t) => t.id === activeTab.value);
+  let next = current;
+  if (event.key === "ArrowLeft") next = (current - 1 + TABS.length) % TABS.length;
+  else if (event.key === "ArrowRight") next = (current + 1) % TABS.length;
+  else if (event.key === "Home") next = 0;
+  else if (event.key === "End") next = TABS.length - 1;
+  selectTab(TABS[next]!.id, true);
+}
+
+const panelId = computed(() => `scoring-v2-panel-${activeTab.value}`);
 </script>
 
 <template>
@@ -50,25 +72,43 @@ function selectTab(id: TabId): void {
       </p>
     </header>
 
-    <nav class="tabs" aria-label="Scoring V2 Control Center sections">
+    <div
+      class="tabs"
+      role="tablist"
+      aria-label="Scoring V2 Control Center sections"
+      @keydown="onTabKeydown"
+    >
       <button
-        v-for="tab in TABS"
+        v-for="(tab, index) in TABS"
+        :id="`scoring-v2-tab-${tab.id}`"
         :key="tab.id"
+        :ref="(el) => { tabRefs[index] = el as HTMLButtonElement | null }"
         type="button"
         class="tabs__btn"
+        role="tab"
         :class="{ 'tabs__btn--active': activeTab === tab.id }"
-        :aria-current="activeTab === tab.id ? 'page' : undefined"
+        :aria-selected="activeTab === tab.id"
+        :aria-controls="`scoring-v2-panel-${tab.id}`"
+        :tabindex="activeTab === tab.id ? 0 : -1"
         @click="selectTab(tab.id)"
       >
         {{ tab.label }}
       </button>
-    </nav>
+    </div>
 
-    <ScoringV2OverviewPanel v-if="activeTab === 'overview'" />
-    <ScoringV2EvidencePanel v-else-if="activeTab === 'evidence'" />
-    <ScoringV2ConcurrencyPanel v-else-if="activeTab === 'concurrency'" />
-    <ScoringV2DiagnosticsPanel v-else-if="activeTab === 'diagnostics'" />
-    <ScoringV2HistoryPanel v-else />
+    <div
+      :id="panelId"
+      class="tabpanel"
+      role="tabpanel"
+      :aria-labelledby="`scoring-v2-tab-${activeTab}`"
+      tabindex="0"
+    >
+      <ScoringV2OverviewPanel v-if="activeTab === 'overview'" />
+      <ScoringV2EvidencePanel v-else-if="activeTab === 'evidence'" />
+      <ScoringV2ConcurrencyPanel v-else-if="activeTab === 'concurrency'" />
+      <ScoringV2DiagnosticsPanel v-else-if="activeTab === 'diagnostics'" />
+      <ScoringV2HistoryPanel v-else />
+    </div>
   </main>
 </template>
 
@@ -112,8 +152,13 @@ function selectTab(id: TabId): void {
   font-weight: 600;
 }
 
-.tabs__btn:focus-visible {
+.tabs__btn:focus-visible,
+.tabpanel:focus-visible {
   outline: 2px solid color-mix(in srgb, currentColor 45%, transparent);
   outline-offset: 2px;
+}
+
+.tabpanel {
+  min-width: 0;
 }
 </style>

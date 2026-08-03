@@ -20,7 +20,9 @@ const success = ref<string | null>(null);
 const current = ref<ScoringV2EvidenceExportDTO | null>(null);
 const list = ref<ScoringV2EvidenceExportListDTO | null>(null);
 const freezeConfirmOpen = ref(false);
+const downloading = ref(false);
 let pollTimer: ReturnType<typeof setInterval> | null = null;
+let objectUrlToRevoke: string | null = null;
 
 const freezeBlocked = computed(() => {
   if (!current.value) return true;
@@ -112,11 +114,52 @@ async function generatePreflight(): Promise<void> {
 }
 
 async function downloadArchive(): Promise<void> {
-  if (!current.value?.archiveContentHash) return;
-  window.open(
-    `${apiBase}/api/v1/admin/scoring-v2/evidence-exports/${encodeURIComponent(current.value.id)}/download`,
-    "_blank",
-  );
+  if (!current.value?.archiveContentHash || downloading.value) return;
+  downloading.value = true;
+  error.value = null;
+  try {
+    const response = await fetch(
+      `${apiBase}/api/v1/admin/scoring-v2/evidence-exports/${encodeURIComponent(current.value.id)}/download`,
+      { credentials: "include" },
+    );
+    if (response.status === 401 || response.status === 403) {
+      void router.replace(response.status === 401 ? "/auth/signin" : "/access-denied");
+      throw new ApiClientError("Unauthorized", response.status, "UNAUTHORIZED");
+    }
+    if (!response.ok) {
+      const body = (await response.json().catch(() => ({}))) as { error?: { message?: string } };
+      throw new ApiClientError(
+        body.error?.message ?? `Download failed (${response.status})`,
+        response.status,
+        "REQUEST_FAILED",
+      );
+    }
+    const blob = await response.blob();
+    if (objectUrlToRevoke) {
+      URL.revokeObjectURL(objectUrlToRevoke);
+      objectUrlToRevoke = null;
+    }
+    const objectUrl = URL.createObjectURL(blob);
+    objectUrlToRevoke = objectUrl;
+    const anchor = document.createElement("a");
+    anchor.href = objectUrl;
+    anchor.download = `evidence-export-${current.value.id}.zip`;
+    anchor.rel = "noopener";
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    // Revoke after the browser has a chance to start the download.
+    window.setTimeout(() => {
+      if (objectUrlToRevoke === objectUrl) {
+        URL.revokeObjectURL(objectUrl);
+        objectUrlToRevoke = null;
+      }
+    }, 1_000);
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : "Download failed";
+  } finally {
+    downloading.value = false;
+  }
 }
 
 async function freezeBundle(): Promise<void> {
@@ -150,7 +193,13 @@ onMounted(() => {
   });
 });
 
-onUnmounted(stopPolling);
+onUnmounted(() => {
+  stopPolling();
+  if (objectUrlToRevoke) {
+    URL.revokeObjectURL(objectUrlToRevoke);
+    objectUrlToRevoke = null;
+  }
+});
 </script>
 
 <template>
@@ -216,8 +265,10 @@ onUnmounted(stopPolling);
         </dd>
         <dt>Archive hash</dt>
         <dd class="mono">{{ current.archiveContentHash ?? "—" }}</dd>
-        <dt>Frozen bundle</dt>
+        <dt>Frozen bundle (logical)</dt>
         <dd class="mono">{{ current.frozenBundleContentHash ?? "—" }}</dd>
+        <dt>Frozen bundle (CAS)</dt>
+        <dd class="mono">{{ current.frozenBundleByteDigest ?? "—" }}</dd>
       </dl>
 
       <ul v-if="current.freezeBlockers.length" class="issues" aria-label="Freeze eligibility blockers">
@@ -241,7 +292,7 @@ onUnmounted(stopPolling);
       <div class="actions">
         <button
           type="button"
-          :disabled="!current.archiveContentHash"
+          :disabled="!current.archiveContentHash || downloading"
           @click="downloadArchive"
         >
           Download archive
