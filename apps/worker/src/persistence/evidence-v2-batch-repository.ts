@@ -17,6 +17,7 @@ import {
   type EvidenceV2BatchMetadata,
   type EvidenceV2SlotRecord,
 } from "../orchestration/scoring-v2/types.js";
+import type { ScoringV2ProviderAccounting } from "../orchestration/scoring-v2/provider-accounting.js";
 import { resolveBatchDatasetRequirements } from "../orchestration/scoring-v2/dataset-requirements.js";
 import type { TypedDimensionFactPayload } from "../orchestration/scoring-v2/typed-fact-persist.js";
 import {
@@ -80,6 +81,7 @@ export interface EvidenceV2BatchRepository {
     datasetCompatibilityKeys?: string[];
     factSetFingerprint?: string | null;
     typedFactPayloads?: TypedDimensionFactPayload[];
+    providerAccounting?: ScoringV2ProviderAccounting | null;
     now?: Date;
   }): Promise<{ view: EvidenceV2BatchView; becameReady: boolean; wasAlreadyTerminal: boolean }>;
   markAdmissionDeferred(batchId: string, reason: string): Promise<EvidenceV2BatchView>;
@@ -118,6 +120,9 @@ function parseMeta(metadata: unknown): EvidenceV2BatchMetadata | null {
   for (const slot of meta.slots ?? []) {
     if (!Array.isArray(slot.typedFactPayloads)) {
       slot.typedFactPayloads = [];
+    }
+    if (slot.providerAccounting === undefined) {
+      slot.providerAccounting = null;
     }
   }
   return meta;
@@ -409,6 +414,10 @@ export function createEvidenceV2BatchRepository(
                   input.datasetCompatibilityKeys ?? s.datasetCompatibilityKeys,
                 factSetFingerprint: input.factSetFingerprint ?? s.factSetFingerprint,
                 typedFactPayloads: input.typedFactPayloads ?? s.typedFactPayloads,
+                providerAccounting:
+                  input.providerAccounting !== undefined
+                    ? input.providerAccounting
+                    : s.providerAccounting,
               }
             : s,
         );

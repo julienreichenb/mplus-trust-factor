@@ -334,6 +334,7 @@ export async function runAnalyzeEvidenceSlotV2(
         datasetCompatibilityKeys: acquired.datasetCompatibilityKeys,
         factSetFingerprint: acquired.factSetFingerprint,
         typedFactPayloads: acquired.typedFactPayloads,
+        providerAccounting: acquired.providerAccounting,
       });
 
       emitSlotTerminal(container, {

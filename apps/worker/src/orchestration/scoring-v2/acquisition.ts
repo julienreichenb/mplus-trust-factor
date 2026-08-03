@@ -39,6 +39,10 @@ import {
 import { getAbilityCatalog } from "@mplus/abilities";
 import type { WorkerContainer } from "../../container.js";
 import {
+  emptyProviderAccounting,
+  type ScoringV2ProviderAccounting,
+} from "./provider-accounting.js";
+import {
   resolveFrozenClassSpecIdentity,
   type FrozenClassSpecIdentity,
 } from "./class-spec-identity.js";
@@ -264,10 +268,12 @@ export async function acquireCandidateWithFallback(input: {
   typedFactPayloads: TypedDimensionFactPayload[];
   rejectedAttempts: EvidenceCandidateAcquisitionResult[];
   providerCallTotal: number;
+  providerAccounting: ScoringV2ProviderAccounting;
 }> {
   const rejectedAttempts: EvidenceCandidateAcquisitionResult[] = [];
   const { container, datasetRequirements } = input;
   let providerCallTotal = 0;
+  let providerAccounting = emptyProviderAccounting();
 
   const classSpecIdentity =
     input.classSpecIdentity ??
@@ -304,6 +310,18 @@ export async function acquireCandidateWithFallback(input: {
         ctx,
       });
       providerCallTotal += details.providerCalls;
+      if (details.providerCalls > 0) {
+        providerAccounting = {
+          ...providerAccounting,
+          providerCalls: providerAccounting.providerCalls + details.providerCalls,
+        };
+      } else {
+        providerAccounting = {
+          ...providerAccounting,
+          cacheHits: providerAccounting.cacheHits + 1,
+          avoidedRequests: providerAccounting.avoidedRequests + 1,
+        };
+      }
 
       if (details.data == null) {
         recordInvalidCandidateReason("ACQUISITION_FAILED");
@@ -449,6 +467,10 @@ export async function acquireCandidateWithFallback(input: {
         payload: details.data,
       });
       artifactIds.push(fightArtifact.artifactId);
+      providerAccounting = {
+        ...providerAccounting,
+        bytes: providerAccounting.bytes + fightArtifact.bytes,
+      };
 
       await input.evidence.upsertWclReportRevision({
         reportCode: identity.reportCode,
@@ -497,6 +519,34 @@ export async function acquireCandidateWithFallback(input: {
         });
         providerCallTotal += shared.providerCalls;
         bundle = shared.bundle;
+        const sharedSf = shared.singleflightReuse ?? 0;
+        const sharedPages = shared.pages ?? bundle?.accounting.pages ?? 0;
+        const sharedPoints =
+          shared.pointsConsumed ?? bundle?.accounting.pointsConsumed ?? null;
+        if (shared.providerCalls > 0) {
+          providerAccounting = {
+            ...providerAccounting,
+            providerCalls: providerAccounting.providerCalls + shared.providerCalls,
+            pages: providerAccounting.pages + sharedPages,
+            pointsConsumed:
+              sharedPoints != null
+                ? (providerAccounting.pointsConsumed ?? 0) + sharedPoints
+                : providerAccounting.pointsConsumed,
+            singleflightReuse: providerAccounting.singleflightReuse + sharedSf,
+          };
+        } else if (shared.cacheHits > 0 || sharedSf > 0) {
+          providerAccounting = {
+            ...providerAccounting,
+            cacheHits: providerAccounting.cacheHits + shared.cacheHits,
+            avoidedRequests: providerAccounting.avoidedRequests + Math.max(1, shared.cacheHits),
+            pages: providerAccounting.pages + sharedPages,
+            pointsConsumed:
+              sharedPoints != null
+                ? (providerAccounting.pointsConsumed ?? 0) + sharedPoints
+                : providerAccounting.pointsConsumed,
+            singleflightReuse: providerAccounting.singleflightReuse + sharedSf,
+          };
+        }
 
         if (shared.providerCalls > 0 && bundle) {
           const sharedArtifact = await persistArtifactBytes({
@@ -520,6 +570,10 @@ export async function acquireCandidateWithFallback(input: {
             },
           });
           artifactIds.push(sharedArtifact.artifactId);
+          providerAccounting = {
+            ...providerAccounting,
+            bytes: providerAccounting.bytes + sharedArtifact.bytes,
+          };
           recordDatasetOutcome({
             outcome: "fetched",
             datasetKey: "shared-evidence",
@@ -640,8 +694,17 @@ export async function acquireCandidateWithFallback(input: {
           providerCallTotal += ranking.providerCalls;
           rankingEvidence = ranking.evidence;
           if (ranking.providerCalls === 0 && ranking.evidence) {
+            providerAccounting = {
+              ...providerAccounting,
+              cacheHits: providerAccounting.cacheHits + 1,
+              avoidedRequests: providerAccounting.avoidedRequests + 1,
+            };
             recordDatasetOutcome({ outcome: "cache_hit", datasetKey: "ranking-parse" });
           } else if (ranking.providerCalls > 0) {
+            providerAccounting = {
+              ...providerAccounting,
+              providerCalls: providerAccounting.providerCalls + ranking.providerCalls,
+            };
             recordDatasetOutcome({ outcome: "fetched", datasetKey: "ranking-parse" });
           }
           if (rankingEvidence) {
@@ -966,6 +1029,7 @@ export async function acquireCandidateWithFallback(input: {
         typedFactPayloads,
         rejectedAttempts,
         providerCallTotal,
+        providerAccounting,
       };
     } catch (error) {
       if (error instanceof ScoringV2CancelledError || error instanceof ScoringV2SupersededError) {
@@ -1014,6 +1078,7 @@ export async function acquireCandidateWithFallback(input: {
     typedFactPayloads: [],
     rejectedAttempts,
     providerCallTotal,
+    providerAccounting,
   };
 }
 

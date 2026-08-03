@@ -19,6 +19,10 @@ import {
   resolveEnabledShadowDimensions,
 } from "./dimension-finalizer.js";
 import { persistTypedFactSet } from "./typed-fact-persist.js";
+import {
+  addProviderAccounting,
+  aggregateProviderAccounting,
+} from "./provider-accounting.js";
 
 /**
  * Provider-free fan-in finalizer:
@@ -337,12 +341,32 @@ export async function runFinalizeEvidenceBatchV2(
       const unavailable = slotRows.filter((s) => s.status === "UNAVAILABLE").length;
       const prior = await container.prisma.scoringV2ShadowCanary.findUnique({
         where: { id: claimed.meta.shadowCanaryId },
-        select: { progress: true },
+        select: { progress: true, diagnostics: true },
       });
       const priorProgress =
         prior?.progress != null && typeof prior.progress === "object" && !Array.isArray(prior.progress)
           ? (prior.progress as Record<string, unknown>)
           : {};
+      const priorDiagnostics =
+        prior?.diagnostics != null &&
+        typeof prior.diagnostics === "object" &&
+        !Array.isArray(prior.diagnostics)
+          ? (prior.diagnostics as Record<string, unknown>)
+          : {};
+      const discoveryCalls =
+        priorDiagnostics.discovery != null &&
+        typeof priorDiagnostics.discovery === "object" &&
+        !Array.isArray(priorDiagnostics.discovery) &&
+        typeof (priorDiagnostics.discovery as { providerCalls?: unknown }).providerCalls ===
+          "number"
+          ? ((priorDiagnostics.discovery as { providerCalls: number }).providerCalls ?? 0)
+          : 0;
+      const slotAccounting = aggregateProviderAccounting(
+        slotRows.map((s) => s.providerAccounting),
+      );
+      const providerAccounting = addProviderAccounting(slotAccounting, {
+        providerCalls: discoveryCalls,
+      });
       await container.prisma.scoringV2ShadowCanary.update({
         where: { id: claimed.meta.shadowCanaryId },
         data: {
@@ -357,6 +381,14 @@ export async function runFinalizeEvidenceBatchV2(
             slotSucceeded: succeeded,
             slotUnavailable: unavailable,
             slotTotal: slotRows.length,
+          },
+          diagnostics: {
+            ...priorDiagnostics,
+            providerAccounting: {
+              ...providerAccounting,
+              discoveryProviderCalls: discoveryCalls,
+              acquisitionProviderCalls: slotAccounting.providerCalls,
+            },
           },
         },
       });

@@ -175,6 +175,9 @@ export function createProviderBackedEvidenceTransport(
           bundle: null,
           providerCalls: 0,
           cacheHits: 0,
+          singleflightReuse: 0,
+          pointsConsumed: null,
+          pages: 0,
           unavailableReason: "shared_evidence_provider_capability_absent",
         };
       }
@@ -225,6 +228,9 @@ export function createProviderBackedEvidenceTransport(
               bundle,
               providerCalls: 0,
               cacheHits: bundle.accounting.cacheHits + bundle.accounting.persistedHits + 1,
+              singleflightReuse: 1,
+              pointsConsumed: bundle.accounting.pointsConsumed,
+              pages: bundle.accounting.pages,
               unavailableReason: null,
             };
           }
@@ -255,6 +261,9 @@ export function createProviderBackedEvidenceTransport(
                 bundle,
                 providerCalls: 0,
                 cacheHits: bundle.accounting.persistedHits + 1,
+                singleflightReuse: 1,
+                pointsConsumed: bundle.accounting.pointsConsumed,
+                pages: bundle.accounting.pages,
                 unavailableReason: null,
               };
             }
@@ -294,6 +303,9 @@ export function createProviderBackedEvidenceTransport(
                 bundle: pre,
                 providerCalls: 0,
                 cacheHits: pre.accounting.persistedHits + 1,
+                singleflightReuse: 0,
+                pointsConsumed: pre.accounting.pointsConsumed,
+                pages: pre.accounting.pages,
                 unavailableReason: null,
               };
             }
@@ -336,6 +348,9 @@ export function createProviderBackedEvidenceTransport(
             providerCalls:
               providerCalls > 0 ? providerCalls : bundle.accounting.providerCalls,
             cacheHits: bundle.accounting.cacheHits + bundle.accounting.persistedHits,
+            singleflightReuse: 0,
+            pointsConsumed: bundle.accounting.pointsConsumed,
+            pages: bundle.accounting.pages,
             unavailableReason: null,
           };
         });

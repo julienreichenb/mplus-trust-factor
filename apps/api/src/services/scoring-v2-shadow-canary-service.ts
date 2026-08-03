@@ -155,6 +155,7 @@ export class ScoringV2ShadowCanaryService {
           timed: s.acquisitionResult?.timed ?? null,
           rejectionReason: s.acquisitionResult?.rejectionReason ?? null,
           dimensionValidity: s.acquisitionResult?.dimensionValidity ?? null,
+          providerAccounting: s.providerAccounting ?? null,
         }));
         batchDiagnostics = {
           analysisBatchId: batch.batch.id,
