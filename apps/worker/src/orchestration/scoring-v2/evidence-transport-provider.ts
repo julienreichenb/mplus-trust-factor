@@ -5,9 +5,10 @@
 
 import type { ProviderFetchContext } from "@mplus/contracts";
 import {
-  InMemorySharedEvidenceStore,
   ingestSharedEvidenceBundle,
+  InMemorySharedEvidenceStore,
   WCL_RUN_EVIDENCE_PROVIDER_CONTRACT,
+  isDurableSharedEvidenceBundle,
   type SharedEvidenceDatasetKey,
   type WclRunEvidenceBundle,
 } from "@mplus/provider-warcraftlogs";
@@ -224,15 +225,23 @@ export function createProviderBackedEvidenceTransport(
               region: input.ctx.region,
               localOnly: true,
             });
-            return {
-              bundle,
-              providerCalls: 0,
-              cacheHits: bundle.accounting.cacheHits + bundle.accounting.persistedHits + 1,
-              singleflightReuse: 1,
-              pointsConsumed: bundle.accounting.pointsConsumed,
-              pages: bundle.accounting.pages,
-              unavailableReason: null,
-            };
+            if (
+              isDurableSharedEvidenceBundle(
+                bundle,
+                input.datasetKeys as SharedEvidenceDatasetKey[],
+              )
+            ) {
+              return {
+                bundle,
+                providerCalls: 0,
+                cacheHits: bundle.accounting.cacheHits + bundle.accounting.persistedHits + 1,
+                singleflightReuse: 1,
+                pointsConsumed: bundle.accounting.pointsConsumed,
+                pages: bundle.accounting.pages,
+                unavailableReason: null,
+              };
+            }
+            // Incomplete / page-less — fall through to fetch owner path.
           }
           if (sf.role === "waiter") {
             // Bounded wait then reload persistence (no busy-loop).
@@ -253,10 +262,12 @@ export function createProviderBackedEvidenceTransport(
               region: input.ctx.region,
               localOnly: true,
             });
-            const complete =
-              bundle.completeness.missing.length === 0 &&
-              Object.keys(bundle.eventDatasets).length > 0;
-            if (complete) {
+            if (
+              isDurableSharedEvidenceBundle(
+                bundle,
+                input.datasetKeys as SharedEvidenceDatasetKey[],
+              )
+            ) {
               return {
                 bundle,
                 providerCalls: 0,
@@ -289,8 +300,10 @@ export function createProviderBackedEvidenceTransport(
               localOnly: true,
             });
             if (
-              pre.completeness.missing.length === 0 &&
-              Object.keys(pre.eventDatasets).length > 0
+              isDurableSharedEvidenceBundle(
+                pre,
+                input.datasetKeys as SharedEvidenceDatasetKey[],
+              )
             ) {
               await completeSourceSingleflight({
                 redis,

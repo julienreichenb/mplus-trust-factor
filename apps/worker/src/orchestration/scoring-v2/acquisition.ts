@@ -604,7 +604,12 @@ export async function acquireCandidateWithFallback(input: {
               dungeonSlug,
               keyLevel: candidate.keyLevel,
               timed: candidate.timed,
-              resolveTarget: null,
+              resolveTarget: {
+                characterId: input.characterId,
+                characterName: input.targetCharacter.name,
+                realmSlug: input.targetCharacter.realmSlug,
+                regionCode: input.targetCharacter.region,
+              },
               startTimeMs: details.startTime,
               endTimeMs: details.endTime,
             });
@@ -969,6 +974,8 @@ export async function acquireCandidateWithFallback(input: {
       const written = typedFactPayloads.filter(
         (p) => p.status === "WRITTEN" && p.facts != null,
       );
+      // Never invent a binding hash without WRITTEN RunFactSet members — that
+      // freezes SELECTED slots whose expected hash has no rows (actual=missing).
       const factSetFingerprint =
         written.length > 0
           ? buildSlotFactSetBindingHash(
@@ -987,15 +994,7 @@ export async function acquireCandidateWithFallback(input: {
                 facts: p.facts,
               })),
             )
-          : buildFactSetFingerprint({
-              reportCode: identity.reportCode,
-              fightId: identity.fightId,
-              reportRevision,
-              extractorFamily: "scoring-v2-acquisition",
-              extractorVersion: "2.0.0",
-              classSlug,
-              specSlug,
-            });
+          : null;
 
       const dimValidity = {
         performance: mapValidity(typedFactPayloads, "PERFORMANCE"),

@@ -10,6 +10,8 @@ import {
   evidenceDatasetReuseDecision,
   fetchSharedEventDataset,
   fetchSharedMasterData,
+  fingerprintPayload,
+  isRealMasterData,
   synthesizeMasterDataFromActors,
 } from "./wcl-run-evidence.js";
 import {
@@ -289,33 +291,108 @@ async function ingestSharedEvidenceBundleInner(
           input.reportRevision,
         )
       : null;
-    if (existingSummary?.masterData != null && input.forceRefetch !== true) {
+    if (
+      existingSummary?.masterData != null &&
+      isRealMasterData(existingSummary.masterData) &&
+      input.forceRefetch !== true
+    ) {
       bundle = { ...bundle, masterData: existingSummary.masterData };
       bundle.accounting = {
         ...bundle.accounting,
         cacheHits: bundle.accounting.cacheHits + 1,
         persistedHits: bundle.accounting.persistedHits + 1,
       };
-    } else if (!input.localOnly && input.client) {
-      try {
-        const master = await fetchSharedMasterData({
-          client: input.client,
-          reportCode: input.reportCode,
-          fightId: input.fightId,
-          region: input.region,
-        });
-        bundle = { ...bundle, masterData: master.masterData };
+    } else {
+      // Prefer durable masterData pages before live fetch / synthesize.
+      const masterKey = buildSharedEvidenceCompatibilityKey({
+        reportCode: input.reportCode,
+        reportRevision: input.reportRevision,
+        fightId: input.fightId,
+        actorId: input.playerActorId,
+        dataset: "masterData",
+        startTime: input.startTime,
+        endTime: input.endTime,
+        filterExpression: null,
+        providerContractVersion: WCL_RUN_EVIDENCE_PROVIDER_CONTRACT,
+        payloadFingerprint: null,
+      });
+      const persistedMaster =
+        input.forceRefetch === true ? null : await input.store.loadDataset(masterKey);
+      const fromPage = persistedMaster?.events?.find(
+        (ev) =>
+          ev != null &&
+          typeof ev === "object" &&
+          (ev as { __masterData?: unknown }).__masterData === true,
+      ) as { masterData?: unknown } | undefined;
+      if (fromPage?.masterData != null) {
+        bundle = { ...bundle, masterData: fromPage.masterData };
         bundle.accounting = {
           ...bundle.accounting,
-          providerCalls: bundle.accounting.providerCalls + master.wclRequests,
-          pages: bundle.accounting.pages + 1,
+          cacheHits: bundle.accounting.cacheHits + 1,
+          persistedHits: bundle.accounting.persistedHits + 1,
+          pages: bundle.accounting.pages + (persistedMaster?.pageCount ?? 0),
         };
-        if (master.pointsConsumed != null) {
-          bundle.accounting.pointsConsumed =
-            (bundle.accounting.pointsConsumed ?? 0) + master.pointsConsumed;
-          bundle.accounting.costSource = "measured";
+      } else if (!input.localOnly && input.client) {
+        try {
+          const master = await fetchSharedMasterData({
+            client: input.client,
+            reportCode: input.reportCode,
+            fightId: input.fightId,
+            region: input.region,
+          });
+          bundle = { ...bundle, masterData: master.masterData };
+          bundle.accounting = {
+            ...bundle.accounting,
+            providerCalls: bundle.accounting.providerCalls + master.wclRequests,
+            pages: bundle.accounting.pages + 1,
+          };
+          if (master.pointsConsumed != null) {
+            bundle.accounting.pointsConsumed =
+              (bundle.accounting.pointsConsumed ?? 0) + master.pointsConsumed;
+            bundle.accounting.costSource = "measured";
+          }
+          const masterDataset: WclRunEvidenceDataset = {
+            key: "masterData",
+            state: "OK",
+            truncated: false,
+            pageCount: 1,
+            eventCount: 1,
+            filterSourceId: null,
+            filterExpression: null,
+            pages: [
+              {
+                pageIndex: 0,
+                startTime: null,
+                nextPageTimestamp: null,
+                eventCount: 1,
+                payloadFingerprint: fingerprintPayload(master.masterData),
+              },
+            ],
+            events: [{ __masterData: true, masterData: master.masterData }],
+            consumers: input.consumers,
+            pointsConsumed: master.pointsConsumed,
+            costSource: master.pointsConsumed != null ? "measured" : "unknown",
+            requestCostUnits: [],
+            wclRequests: master.wclRequests,
+            fetchedAt: new Date().toISOString(),
+            source: "provider",
+          };
+          await input.store.saveDataset(masterKey, masterDataset, {
+            reportCode: input.reportCode,
+            reportRevision: input.reportRevision,
+            fightId: input.fightId,
+            dataset: "masterData",
+          });
+        } catch {
+          const synthesized = synthesizeMasterDataFromActors({
+            playerActorId: input.playerActorId,
+            ownedPetActorIds: input.ownedPetActorIds,
+          });
+          if (synthesized) {
+            bundle = { ...bundle, masterData: synthesized };
+          }
         }
-      } catch {
+      } else {
         const synthesized = synthesizeMasterDataFromActors({
           playerActorId: input.playerActorId,
           ownedPetActorIds: input.ownedPetActorIds,
@@ -324,17 +401,9 @@ async function ingestSharedEvidenceBundleInner(
           bundle = { ...bundle, masterData: synthesized };
         }
       }
-    } else {
-      const synthesized = synthesizeMasterDataFromActors({
-        playerActorId: input.playerActorId,
-        ownedPetActorIds: input.ownedPetActorIds,
-      });
-      if (synthesized) {
-        bundle = { ...bundle, masterData: synthesized };
-      }
     }
 
-    if (bundle.masterData != null) {
+    if (bundle.masterData != null && isRealMasterData(bundle.masterData)) {
       const present = [
         ...new Set([...bundle.completeness.present, "masterData" as SharedEvidenceDatasetKey]),
       ];
@@ -342,6 +411,18 @@ async function ingestSharedEvidenceBundleInner(
         ...bundle.completeness,
         present,
         missing: bundle.completeness.required.filter((k) => !present.includes(k)),
+      };
+    } else if (required.includes("masterData")) {
+      // Synthesized stub / absent masterData remains missing for durability gates.
+      bundle.completeness = {
+        ...bundle.completeness,
+        missing: [
+          ...new Set([
+            ...bundle.completeness.missing,
+            "masterData" as SharedEvidenceDatasetKey,
+          ]),
+        ],
+        present: bundle.completeness.present.filter((k) => k !== "masterData"),
       };
     }
   }

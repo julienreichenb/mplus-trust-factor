@@ -13,6 +13,7 @@ import {
   type WclSourceRepository,
 } from "@mplus/database";
 import {
+  WCL_RUN_EVIDENCE_ANALYSIS_VERSION,
   WCL_RUN_EVIDENCE_PROVIDER_CONTRACT,
   WCL_RUN_EVIDENCE_SCHEMA_VERSION,
   type SharedEvidenceDatasetKey,
@@ -283,7 +284,7 @@ export function createPersistentSharedEvidenceStore(input: {
     ): Promise<WclRunEvidenceBundle | null> {
       if (l1?.loadBundleSummary) {
         const hit = await l1.loadBundleSummary(reportCode, fightId, reportRevision);
-        if (hit) return hit;
+        if (hit?.masterData != null) return hit;
       }
       if (reportRevision == null) return null;
       const digest = await wclSource.findWclRunSourceDigest(
@@ -292,9 +293,68 @@ export function createPersistentSharedEvidenceStore(input: {
         reportRevision,
       );
       if (!digest) return null;
-      // Bundle reconstruction from digest alone is metadata-only; event datasets
-      // are loaded per compatibility key via loadDataset.
-      return null;
+
+      // Reconstruct masterData from durable pages when present.
+      const masterPages = await wclSource.findEvidenceDatasetPages({
+        reportCode,
+        fightId,
+        reportRevision,
+        datasetKey: "masterData",
+      });
+      if (masterPages.length === 0) {
+        // Digest-only / page-less cache is not a complete durable source.
+        return null;
+      }
+      let masterData: unknown = null;
+      for (const page of masterPages) {
+        const bytes = await artifacts.readVerified(page.artifactId);
+        const envelope = JSON.parse(bytes.toString("utf8")) as PersistedPageEnvelope;
+        const first = envelope.events[0] as { __masterData?: boolean; masterData?: unknown } | undefined;
+        if (first?.__masterData === true && first.masterData != null) {
+          masterData = first.masterData;
+          break;
+        }
+      }
+      if (masterData == null) return null;
+
+      return {
+        schemaVersion: WCL_RUN_EVIDENCE_SCHEMA_VERSION,
+        analysisVersion: WCL_RUN_EVIDENCE_ANALYSIS_VERSION,
+        providerContractVersion: WCL_RUN_EVIDENCE_PROVIDER_CONTRACT,
+        reportCode,
+        reportRevision,
+        fightId,
+        playerActorId: null,
+        ownedPetActorIds: [],
+        dungeonSlug: digest.dungeonSlug ?? "",
+        startTime: null,
+        endTime: null,
+        masterData,
+        eventDatasets: {},
+        completeness: {
+          required: ["masterData"],
+          present: ["masterData"],
+          missing: [],
+          truncated: [],
+        },
+        fetchedAt:
+          digest.acquiredAt instanceof Date
+            ? digest.acquiredAt.toISOString()
+            : new Date().toISOString(),
+        payloadFingerprints: {},
+        accounting: {
+          datasetsRequested: ["masterData"],
+          cacheHits: 1,
+          persistedHits: 1,
+          providerCalls: 0,
+          pages: masterPages.length,
+          pointsConsumed: 0,
+          estimatedPointsConsumed: 0,
+          costSource: "measured",
+          consumers: ["survival", "utility"],
+          duplicatedLogicalFetches: 0,
+        },
+      };
     },
 
     async saveBundleSummary(bundle: WclRunEvidenceBundle): Promise<void> {

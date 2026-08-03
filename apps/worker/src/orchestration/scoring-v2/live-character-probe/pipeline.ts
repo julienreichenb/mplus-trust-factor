@@ -834,13 +834,7 @@ export async function runScoringV2LiveCharacterProbe(args: ProbeCliArgs): Promis
       const factSetHash =
         writtenMembers.length > 0
           ? buildSlotFactSetBindingHash(writtenMembers)
-          : fingerprintIdentity(
-              attempt.reportCode,
-              attempt.fightId,
-              reportRevision,
-              "scoring-v2-acquisition",
-              "2.0.0",
-            );
+          : null;
 
       const result: EvidenceCandidateAcquisitionResult = {
         discoveryIdentity: { reportCode: attempt.reportCode, fightId: attempt.fightId },

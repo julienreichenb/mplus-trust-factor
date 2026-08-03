@@ -258,7 +258,18 @@ export async function runFinalizeEvidenceBatchV2(
             (slotRec.acquisitionResult?.reportRevision == null ||
               s.reportRevision === slotRec.acquisitionResult.reportRevision),
         );
-        if (!dbSlot || slotRec.acquisitionResult?.reportRevision == null) continue;
+        const hasWrittenPayload = slotRec.typedFactPayloads.some(
+          (p) => p.status === "WRITTEN" && p.facts != null,
+        );
+        if (!dbSlot || slotRec.acquisitionResult?.reportRevision == null) {
+          // Fail closed: WRITTEN facts must bind to a frozen manifest slot.
+          if (hasWrittenPayload) {
+            throw new Error(
+              `typed_fact_persist_missing_manifest_slot:${identity.reportCode}/${identity.fightId}`,
+            );
+          }
+          continue;
+        }
 
         for (const payload of slotRec.typedFactPayloads) {
           const persisted = await persistTypedFactSet({
