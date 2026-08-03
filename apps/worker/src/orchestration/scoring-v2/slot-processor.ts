@@ -228,7 +228,7 @@ export async function runAnalyzeEvidenceSlotV2(
     include: { region: true, realm: true },
   });
   const region = character?.region?.code ?? "EU";
-  if (!character?.name || !character.realm?.slug) {
+  if (!character?.displayName || !character.realm?.slug) {
     await repo.completeSlot({
       batchId: job.analysisBatchId,
       slotId: job.slotId,
@@ -254,7 +254,7 @@ export async function runAnalyzeEvidenceSlotV2(
   const targetCharacter = {
     region: region as "EU" | "US" | "KR" | "TW",
     realmSlug: character.realm.slug,
-    name: character.name,
+    name: character.displayName,
   };
 
   // Frozen identity from immutable plan metadata — never invent from live profile.
