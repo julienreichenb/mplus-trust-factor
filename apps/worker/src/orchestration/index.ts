@@ -43,6 +43,7 @@ export {
   type EvidenceJoinResult,
   type EvidenceJoinMemberInput,
   type EvidenceJoinMemberResult,
+  type SnapshotStatus,
 } from "./scoring-v2/evidence-join.js";
 export { buildStoreZip, sha256Hex } from "./scoring-v2/zip-store.js";
 export {

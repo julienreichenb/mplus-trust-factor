@@ -289,15 +289,15 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         const bootstrapComplete = character ? !incompleteBootstrap(character) : false;
         const compatibleV6 = Boolean(latest) && modelCompatible && seasonCompatible && freshEnough;
 
-        let snapshotStatus:
-          | "COMPATIBLE_V6"
-          | "STALE_OR_INCOMPATIBLE"
-          | "NO_SNAPSHOT"
-          | "IDENTITY_MISSING" = "IDENTITY_MISSING";
-        if (!character) snapshotStatus = "IDENTITY_MISSING";
-        else if (!latest) snapshotStatus = "NO_SNAPSHOT";
-        else if (compatibleV6) snapshotStatus = "COMPATIBLE_V6";
-        else snapshotStatus = "STALE_OR_INCOMPATIBLE";
+        // Shared with the admin control center's evidence-join worker path (@mplus/worker).
+        // This CLI never passes excluded:true — exclusion is tracked separately via
+        // member.exclusionReason and must not change the underlying snapshot classification.
+        const snapshotStatus: SnapshotStatus = classifySnapshotStatus({
+          foundInDb: Boolean(character),
+          excluded: false,
+          hasLatest: Boolean(latest),
+          compatible: compatibleV6,
+        });
 
         const requiresScoreRefresh =
           member.exclusionReason == null && character != null && snapshotStatus !== "COMPATIBLE_V6";
