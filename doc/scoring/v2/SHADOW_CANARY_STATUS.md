@@ -1,61 +1,53 @@
-# Scoring V2 Shadow Canary — status
-
-Operational status for the live Shadow Canary on `feat/scoring-v2-live-canary`.
-Git history is the archive.
-
-## Implemented in this worktree
-
-- Public/timed eligibility in `evidence-v2-selector` (private/hidden, `UNTIMED_RUN`, `TIMED_STATE_UNKNOWN`, fallback to next candidate).
-- Acquisition post-hydration rejection reasons (`ACTOR_UNRESOLVED`, `REPORT_REVISION_UNRESOLVED`, `INCOMPLETE_FIGHT`, …).
-- Canonical class/spec freeze for Shadow Canary via Character + `@mplus/abilities` (no probe majority-vote invent).
-- Additive persistence: `WclRunSourceDigest`, `EvidenceDatasetPage`, `WclRunParticipant`, `ScoringV2ShadowCanary`.
-- Redis WCL concurrency primitives (global HTTP ≤3, per-character runs ≤2, source singleflight, budget reserve).
-- First-class `RANKING_PARSE` resolver (`resolveRankingParseFromZoneRankings` + live `getRankingParseForFight`).
-- Admin Shadow Canary tab on `/admin/scoring-v2` + launch/list/get API.
-- Simple Survival/Utility cooldown usage explainability DTOs (factual use counts only).
-
-## Live-canary status
-
-- Target: EU / archimonde / Wallidrixe.
-- Lifecycle: **SHADOW** only.
-- Launch path: Control Center → Shadow Canary → async job → production plan/slot/finalize path with publication blocked.
-- Spec identity must come from persisted Character/`activeSpec` (fail-closed if incomplete).
-
-## Source-retention policy
-
-- Raw WCL pages: content-addressed `RawArtifact`, default **30-day** `retentionUntil`.
-- Permanent neutral digest: `WclRunSourceDigest` keyed by `reportCode+fightId+reportRevision`.
-- Digests must never store scores, grades, weights, penalties, or calculator outputs.
-
-## Concurrency defaults
-
-| Control | Default |
-|--------|---------|
-| Global WCL HTTP | 3 |
-| Per-character active runs | 2 |
-| WCL budget reserve | 20% |
-| Runtime setting keys | `wcl_global_http_concurrency`, `wcl_per_character_run_concurrency`, `wcl_budget_reserve_ratio` |
-
-## Explainability scope (current)
-
-- Admin + public DTO path for per-run cooldown **use counts** only.
-- No opportunity maxima, efficiency %, timing quality, or recommendations yet.
-- Public projection strips report codes, party identities, timestamps, fingerprints.
-
-## Immediate follow-ups
-
-1. Test three canaries: DPS, tank, and healer.
-2. Validate cross-character reuse on shared dungeon runs.
-3. Run the Agent 11 cohort only after the canaries pass.
-4. Activate user-facing V2 explainability only after publication approval.
-5. Enrich cooldown explainability later with opportunity/timing semantics.
-6. Implement private-report OAuth only as a separate future feature.
-7. Review raw 30-day retention and object-storage migration before production scale.
-8. Calibrate scoring formulas from frozen evidence.
-9. Define publication/cutover criteria.
-
-## Flags / publication
-
-All `SCORING_V2_*` and `CALIBRATION_V2_*` flags remain default-off.
-`CharacterPublishedScore` must not be mutated by the canary path.
-V1 public score remains untouched.
+# Scoring V2 Shadow Canary — status
+
+Operational status for the live Shadow Canary on `feat/scoring-v2-live-canary`.
+Git history is the archive.
+
+## Completed runtime wiring
+
+- Production transport uses **persistent DB/CAS** (`EvidenceDatasetPage` + RawArtifact) before WCL; in-memory L1 is optional only.
+- Redis **source singleflight** + global HTTP ≤3 + per-character ≤2 wired at the provider call boundary.
+- Raw pages persist with **retentionUntil = fetchedAt + 30 days**.
+- After shared evidence: permanent **WclRunSourceDigest** + five-player **WclRunParticipant** roster (UNRESOLVED mappings allowed).
+- BullMQ worker `scoring-v2-shadow-canary`: discover → plan → slot fan-out → finalize.
+- Admin launch enqueues a real job; finalize marks canary **COMPLETED** with bounded diagnostics.
+- Admin Shadow Canary panel shows slot matrix, dimensions, progress, and diagnostic download.
+- `adminShadowCanary` batch meta bypasses process-env SCORING_V2 gates while publication stays blocked.
+- Relaunch after COMPLETED/FAILED creates a **new** canary row (source reuse via digest/pages).
+
+## Validation (this pass)
+
+- `pnpm lint`, `typecheck`, `test`, `test:integration`, `test:contract`, `build`, `check:english`, `abilities:validate`, `git diff --check` — **pass**.
+- Focused unit: persistent page load/save, 30-day retention, recursive forbidden score fields in digests.
+
+## Live Wallidrixe proof
+
+- Target: EU / archimonde / Wallidrixe.
+- **Not executed in this pass** (API/worker live stack + WCL credentials not exercised end-to-end here).
+- Immediate next step: launch twice from `/admin/scoring-v2` Shadow Canary tab and record matrices / WCL request counts / cache hits.
+
+## RANKING_PARSE
+
+- Live `getRankingParseForFight` implemented and transport-wired.
+- Live public-report verification still pending the Wallidrixe canary run; Performance stays UNAVAILABLE when fight-bound parse evidence is absent.
+
+## Concurrency defaults
+
+| Control | Default |
+|--------|---------|
+| Global WCL HTTP | 3 |
+| Per-character active runs | 2 |
+| WCL budget reserve | 20% |
+
+## Remaining blockers
+
+1. Execute bounded live Wallidrixe first + second canary (reuse proof).
+2. Cross-character digest reuse on one overlapping participant (narrow).
+3. Record live RANKING_PARSE result or conclusive blocker.
+4. Enrich admin diagnostics with provider call / points / raw-byte counters from persisted canary progress.
+
+## Flags / publication
+
+All `SCORING_V2_*` and `CALIBRATION_V2_*` flags remain default-off.
+`CharacterPublishedScore` must not be mutated by the canary path.
+V1 public score remains untouched.
