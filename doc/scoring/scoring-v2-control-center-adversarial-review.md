@@ -295,4 +295,32 @@ No flag default flips in diff. Export/freeze do not activate models or mutate pu
 6. Fix reused-job `workloadClass` overwrite / lane accounting.
 
 Until blockers B1–B3 and high items H1–H6 are addressed, the Control Center must not be treated as production-ready for distributed concurrency or calibration freeze integrity.
-`)
+
+---
+
+## Remediation appendix (2026-08-03)
+
+> This appendix does **not** change the original findings or verdict above. It records post-remediation resolution status on `feat/admin-scoring-v2-control-center`.
+
+| Finding | Status | Changed files (primary) | Tests | Residual risk |
+|---------|--------|-------------------------|-------|---------------|
+| B1 Lane renew | **Resolved** | `lane-permits.ts`, `refresh-pipeline.ts` | unit + Redis integration | Heartbeat depends on process timers; crash still relies on TTL |
+| H1 Redis fail-open | **Resolved** | `refresh-pipeline.ts`, types | unit usability + fail-closed path | Jobs defer until Redis recovers (intended) |
+| B2 Byte integrity | **Resolved** | `bundle-v2.ts`, `replay-v2.ts`, freeze assemble | artifact-integrity + freeze | Old bundles without digests fail closed under new freezes |
+| B3 Export determinism | **Resolved** | export worker/service, migration `…180000…` | export unit tests | Pre-migration rows pin clocks on first claim |
+| H2 Sync state | **Resolved** | `concurrency-observe.ts`, runtime-settings, UI | observe + settings + UI chip | Cold start → UNKNOWN until workers observe |
+| H3 Freeze snapshot | **Resolved** | `freeze-snapshot.ts`, export worker, freeze assemble | freeze drift tests | Evidence still resolved by characterId+season digests |
+| H4 HTTP adversarial | **Resolved** | `routes.admin-scoring-v2-control-center.test.ts` | 29 route tests | Happy-path ZIP/freeze fixtures still light |
+| H5 Real Redis | **Resolved** | `lane-permits.redis.integration.test.ts` | 7 integration tests | Skips if Redis unreachable |
+| H6 Workload reuse | **Resolved** | `queues.ts`, `job-repository.ts` | queues + repository tests | Explicit lane migration not offered (by design) |
+| M1 History pagination | **Resolved** | evidence-export-service | service tests | — |
+| M2 Logical vs CAS | **Resolved** | `frozenBundleByteDigest` migration `…190000…` | freeze/API fields | Consumers must use correct field |
+| M3 Stale RUNNING | **Resolved** | reclaim at export job start | export tests | No separate sweeper cron yet |
+| M4 Archive bounds | **Resolved** | export worker caps | export tests | Caps may need ops tuning |
+| M5 OpenAPI | **Improved** | schemas + snapshot regen | contract suite | Some DTOs still allow additionalProperties |
+| M6 Download | **Resolved** | Evidence/History panels | page tests | — |
+| L1 Tabs | **Resolved** | `AdminScoringV2Page.vue` | page tests | — |
+| L2 Replay assert | **Resolved** | freeze test | freeze suite | — |
+
+Plan: [`scoring-v2-control-center-remediation-plan.md`](scoring-v2-control-center-remediation-plan.md).
+
