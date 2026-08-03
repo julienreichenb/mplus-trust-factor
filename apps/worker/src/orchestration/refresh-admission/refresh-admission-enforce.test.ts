@@ -340,13 +340,12 @@ describe("refresh admission enforce (serial concurrency 1)", () => {
     expect(snapAfter?.pointsRemaining).toBe(snapBefore?.pointsRemaining);
   });
 
-  it("17. effective Worker concurrency remains 1 (no wiring)", () => {
+  it("17. refresh Worker claim concurrency is lane hard-max; env wiring stays off", () => {
     const config = buildRefreshAdmissionConfig(baseEnv);
     expect(effectiveAdmissionGlobalConcurrency(config)).toBe(1);
     expect(isRefreshWorkerConcurrencyWiringEnabled(config)).toBe(false);
     expect(config.workerConcurrency).toBe(1);
-    // processors.ts must not pass concurrency > 1 for refresh-character only
-    // (other workers e.g. analyze-evidence-slot may use higher bounded concurrency).
+    // processors.ts: dual refresh workers claim up to hard-max; Redis lane permits enforce limits.
     const processorsPath = join(
       dirname(fileURLToPath(import.meta.url)),
       "../../processors.ts",
@@ -358,13 +357,10 @@ describe("refresh admission enforce (serial concurrency 1)", () => {
     expect(analyzeStart).toBeGreaterThan(refreshStart);
     const refreshWorkerBlock = src.slice(refreshStart, analyzeStart);
     expect(refreshWorkerBlock).toContain("QUEUE_NAMES.refreshCharacter");
-    expect(refreshWorkerBlock).toMatch(/keep effective refresh concurrency at 1/);
-    expect(refreshWorkerBlock).not.toMatch(/concurrency:\s*[2-9]/);
-    // Explicit concurrency option must be absent or exactly 1 (BullMQ default is 1).
-    const explicitConcurrency = refreshWorkerBlock.match(/concurrency:\s*(\d+)/);
-    if (explicitConcurrency) {
-      expect(Number(explicitConcurrency[1])).toBe(1);
-    }
+    expect(refreshWorkerBlock).toContain("QUEUE_NAMES.refreshCharacterCalibration");
+    expect(refreshWorkerBlock).toMatch(/lane permits enforce concurrency/);
+    expect(refreshWorkerBlock).toMatch(/concurrency:\s*8/);
+    expect(isRefreshWorkerConcurrencyWiringEnabled(config)).toBe(false);
   });
 
   it("18. ETA / priority / retry remain disabled by default (Stage 4 wires ETA behind flag)", () => {

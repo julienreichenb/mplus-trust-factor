@@ -9,12 +9,14 @@ import { closeWorkers, createWorkers } from "./processors.js";
 /** Queue identities that `createWorkers` must always register (order matches return array). */
 const EXPECTED_WORKER_QUEUES = [
   QUEUE_NAMES.refreshCharacter,
+  QUEUE_NAMES.refreshCharacterCalibration,
   QUEUE_NAMES.analyzeRun,
   QUEUE_NAMES.recalculateScore,
   QUEUE_NAMES.generateAddonExport,
   QUEUE_NAMES.discoverOwnedCharacters,
   QUEUE_NAMES.bulkCharacterProcessing,
   QUEUE_NAMES.calibrationRun,
+  QUEUE_NAMES.scoringV2EvidenceExport,
   QUEUE_NAMES.analyzeEvidenceSlot,
   QUEUE_NAMES.finalizeAnalysisBatch,
 ] as const;

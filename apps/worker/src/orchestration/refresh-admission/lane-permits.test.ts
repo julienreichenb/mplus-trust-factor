@@ -222,4 +222,138 @@ describe("lane-permits", () => {
     expect(keys.lease).toBe("mplus:production:refresh:lane:CALIBRATION:lease");
     expect(keys.count).toBe("mplus:production:refresh:lane:CALIBRATION:count");
   });
+
+  it("isolates Vitest worker lane keys when VITEST_POOL_ID is set", () => {
+    const prev = process.env.VITEST_POOL_ID;
+    process.env.VITEST_POOL_ID = "7";
+    try {
+      const keys = refreshLaneKeys("test", "OPERATION");
+      expect(keys.owners).toBe("mplus:test:vw-7:refresh:lane:OPERATION:owners");
+    } finally {
+      if (prev === undefined) delete process.env.VITEST_POOL_ID;
+      else process.env.VITEST_POOL_ID = prev;
+    }
+  });
+
+  it("handles concurrent acquire races at the lane limit atomically", async () => {
+    const redis = new InMemoryLaneRedis();
+    const base = {
+      redis,
+      appEnv: "test",
+      lane: "CALIBRATION" as const,
+      limit: 2,
+      nowMs: 1_000,
+      leaseMs: 60_000,
+    };
+    const results = await Promise.all(
+      Array.from({ length: 8 }, (_, i) =>
+        acquireLanePermit({ ...base, ingestionJobId: `race-${i}` }),
+      ),
+    );
+    const acquired = results.filter((r) => r.acquired);
+    const limited = results.filter((r) => !r.acquired && r.reason === "LANE_LIMIT_REACHED");
+    expect(acquired).toHaveLength(2);
+    expect(limited).toHaveLength(6);
+  });
+
+  it("isolates CALIBRATION and OPERATION lane capacity", async () => {
+    const redis = new InMemoryLaneRedis();
+    const cal = await acquireLanePermit({
+      redis,
+      appEnv: "test",
+      lane: "CALIBRATION",
+      ingestionJobId: "cal-1",
+      limit: 1,
+      nowMs: 1_000,
+    });
+    const op = await acquireLanePermit({
+      redis,
+      appEnv: "test",
+      lane: "OPERATION",
+      ingestionJobId: "op-1",
+      limit: 1,
+      nowMs: 1_000,
+    });
+    expect(cal.acquired).toBe(true);
+    expect(op.acquired).toBe(true);
+    const calBlocked = await acquireLanePermit({
+      redis,
+      appEnv: "test",
+      lane: "CALIBRATION",
+      ingestionJobId: "cal-2",
+      limit: 1,
+      nowMs: 1_000,
+    });
+    expect(calBlocked.acquired).toBe(false);
+    const opStillOk = await acquireLanePermit({
+      redis,
+      appEnv: "test",
+      lane: "OPERATION",
+      ingestionJobId: "op-2",
+      limit: 2,
+      nowMs: 1_000,
+    });
+    expect(opStillOk.acquired).toBe(true);
+  });
+
+  it("reducing the configured limit does not revoke held permits", async () => {
+    const redis = new InMemoryLaneRedis();
+    const held = await acquireLanePermit({
+      redis,
+      appEnv: "test",
+      lane: "OPERATION",
+      ingestionJobId: "held-1",
+      limit: 4,
+      nowMs: 1_000,
+    });
+    expect(held.acquired).toBe(true);
+    // New acquires see the reduced limit, but the held job remains owned.
+    const blocked = await acquireLanePermit({
+      redis,
+      appEnv: "test",
+      lane: "OPERATION",
+      ingestionJobId: "new-1",
+      limit: 1,
+      nowMs: 1_100,
+    });
+    expect(blocked.acquired).toBe(false);
+    const renew = await renewLanePermit({
+      redis,
+      appEnv: "test",
+      lane: "OPERATION",
+      ingestionJobId: "held-1",
+      nowMs: 1_200,
+    });
+    expect(renew).toEqual({ renewed: true });
+  });
+
+  it("increasing the configured limit allows additional claims", async () => {
+    const redis = new InMemoryLaneRedis();
+    await acquireLanePermit({
+      redis,
+      appEnv: "test",
+      lane: "CALIBRATION",
+      ingestionJobId: "c1",
+      limit: 1,
+      nowMs: 1_000,
+    });
+    const blocked = await acquireLanePermit({
+      redis,
+      appEnv: "test",
+      lane: "CALIBRATION",
+      ingestionJobId: "c2",
+      limit: 1,
+      nowMs: 1_100,
+    });
+    expect(blocked.acquired).toBe(false);
+    const allowed = await acquireLanePermit({
+      redis,
+      appEnv: "test",
+      lane: "CALIBRATION",
+      ingestionJobId: "c2",
+      limit: 2,
+      nowMs: 1_200,
+    });
+    expect(allowed.acquired).toBe(true);
+  });
 });

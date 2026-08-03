@@ -723,7 +723,9 @@ describe("PROFILE_ONLY / BOOTSTRAP_INCOMPLETE bounded repair", () => {
     expect(resolveCharacter.mock.calls[1]![1]).toMatchObject({
       forceRetry: true,
       correlationId: resolveCharacter.mock.calls[0]![1]!.correlationId,
+      workloadClass: "CALIBRATION",
     });
+    expect(resolveCharacter.mock.calls[0]![1]).toMatchObject({ workloadClass: "CALIBRATION" });
     expect(result.enqueuedJobIds).toEqual(["job-repair-queued"]);
     expect(result.failedIdentityKeys).toEqual([]);
     expect(result.overrides.get("EU/hyjal/zacdruid")?.resultState).toBe("ALREADY_ENQUEUED");
@@ -1245,7 +1247,9 @@ describe("CLI dry-run / execute guards", () => {
       });
 
       const beforePublished = await db.characterPublishedScore.count();
-      const beforeJobs = await db.ingestionJob.count();
+      const beforeCalibrationJobs = await db.ingestionJob.count({
+        where: { workloadClass: "CALIBRATION" },
+      });
       const beforeModels = await db.scoreModel.count({ where: { status: "ACTIVE" } });
 
       const code = await cohortBootstrapMain(
@@ -1270,10 +1274,13 @@ describe("CLI dry-run / execute guards", () => {
       expect(resolveCharacter).not.toHaveBeenCalled();
 
       const afterPublished = await db.characterPublishedScore.count();
-      const afterJobs = await db.ingestionJob.count();
+      const afterCalibrationJobs = await db.ingestionJob.count({
+        where: { workloadClass: "CALIBRATION" },
+      });
       const afterModels = await db.scoreModel.count({ where: { status: "ACTIVE" } });
       expect(afterPublished).toBe(beforePublished);
-      expect(afterJobs).toBe(beforeJobs);
+      // Scope to CALIBRATION lane — parallel OPERATION refresh tests share the isolated DB.
+      expect(afterCalibrationJobs).toBe(beforeCalibrationJobs);
       expect(afterModels).toBe(beforeModels);
 
       const plan = JSON.parse(readFileSync(join(out, "cohort-bootstrap.plan.json"), "utf8"));
@@ -1304,7 +1311,9 @@ describe("CLI dry-run / execute guards", () => {
 
       const out = mkdtempSync(join(tmpdir(), "cohort-bootstrap-a11-"));
       tmpDirs.push(out);
-      const beforeJobs = await db.ingestionJob.count();
+      const beforeCalibrationJobs = await db.ingestionJob.count({
+        where: { workloadClass: "CALIBRATION" },
+      });
       const beforePublished = await db.characterPublishedScore.count();
 
       const code = await cohortBootstrapMain(
@@ -1328,7 +1337,9 @@ describe("CLI dry-run / execute guards", () => {
         },
       );
       expect(code).toBe(0);
-      expect(await db.ingestionJob.count()).toBe(beforeJobs);
+      expect(
+        await db.ingestionJob.count({ where: { workloadClass: "CALIBRATION" } }),
+      ).toBe(beforeCalibrationJobs);
       expect(await db.characterPublishedScore.count()).toBe(beforePublished);
 
       const summary = JSON.parse(readFileSync(join(out, "cohort-bootstrap.summary.json"), "utf8"));
