@@ -110,12 +110,14 @@ export function participantsFromMasterData(
       ownedPetActorIds,
     });
   }
-  // Prefer fight CombatantInfo players when available (normally five).
+  // Prefer CombatantInfo-scoped players only when the dataset covers a full
+  // dungeon party. Player-filtered CombatantInfo (target-only) must not collapse
+  // the roster to a single row — fall back to masterData Player actors instead.
   const fightScoped =
-    combatantByActor.size > 0
+    combatantByActor.size >= 2
       ? out.filter((p) => combatantByActor.has(p.wclActorId))
-      : out;
-  const chosen = (fightScoped.length > 0 ? fightScoped : out).slice(0, 5);
+      : [];
+  const chosen = (fightScoped.length >= 2 ? fightScoped : out).slice(0, 5);
   return chosen;
 }
 

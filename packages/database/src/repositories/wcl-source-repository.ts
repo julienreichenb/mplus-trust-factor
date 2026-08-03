@@ -109,10 +109,20 @@ export class WclSourceRepository {
               p.characterName === "target" &&
               (p.realmSlug === "unknown" || p.realmSlug === ""),
           );
+        const incomingParticipants = Array.isArray(digestDoc.participants)
+          ? digestDoc.participants.length
+          : 0;
+        // Target-scoped CombatantInfo previously collapsed some digests to 1 row;
+        // allow in-place upgrade when the incoming roster is strictly richer.
+        const thinRoster =
+          existingParts.length > 0 &&
+          existingParts.length < 5 &&
+          incomingParticipants > existingParts.length;
         const incomplete =
           existing.completenessState === "PARTIAL" ||
           existing.completenessState === "INCOMPLETE" ||
-          stubOnly;
+          stubOnly ||
+          thinRoster;
         if (!incomplete) {
           throw new Error(
             [

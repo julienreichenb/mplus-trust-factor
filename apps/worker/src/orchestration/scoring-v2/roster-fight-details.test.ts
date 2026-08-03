@@ -45,6 +45,17 @@ describe("participantsFromMasterData", () => {
     expect(rows.find((r) => r.wclActorId === 2)?.specSlug).toBe("holy");
   });
 
+  it("does not collapse roster when CombatantInfo is target-scoped only", () => {
+    const rows = participantsFromMasterData(masterData, "EU", [
+      { sourceID: 1, spec: "Demonology", role: "dps" },
+    ]);
+    expect(rows).toHaveLength(5);
+    expect(rows.find((r) => r.wclActorId === 1)?.specSlug).toBe("demonology");
+    expect(rows.map((r) => r.characterName).sort()).toEqual(
+      ["DpsThree", "DpsTwo", "HealerOne", "TankOne", "Wallidrixe"].sort(),
+    );
+  });
+
   it("does not cross-realm match by name alone for digest identity", () => {
     const { digest } = buildNeutralDigestFromBundle({
       bundle: {
