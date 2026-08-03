@@ -53,6 +53,9 @@ export interface StartEvidenceV2ShadowPipelineInput {
   region: string;
   /** When set, used as ScoreAnalysisBatch.refreshId (must be UUID). */
   v2RefreshId?: string;
+  /** Admin Shadow Canary — bypass process-env SCORING_V2_* gates in slot/finalize workers. */
+  adminShadowCanary?: boolean;
+  shadowCanaryId?: string | null;
 }
 
 export interface StartEvidenceV2ShadowPipelineResult {
@@ -162,6 +165,8 @@ export async function startEvidenceV2ShadowPipeline(
       parentIngestionJobId: input.parentIngestionJobId,
       correlationId: input.correlationId ?? null,
       enabledConsumers,
+      adminShadowCanary: input.adminShadowCanary === true,
+      shadowCanaryId: input.shadowCanaryId ?? null,
     });
     await container.repositories.evidenceV2Batch.markAdmissionDeferred(
       batch.id,
@@ -203,6 +208,8 @@ export async function startEvidenceV2ShadowPipeline(
     parentIngestionJobId: input.parentIngestionJobId,
     correlationId: input.correlationId ?? null,
     enabledConsumers,
+    adminShadowCanary: input.adminShadowCanary === true,
+    shadowCanaryId: input.shadowCanaryId ?? null,
   });
 
   await container.repositories.evidenceV2Batch.markAnalyzing(view.batch.id);

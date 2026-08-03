@@ -17,6 +17,7 @@ const EXPECTED_WORKER_QUEUES = [
   QUEUE_NAMES.bulkCharacterProcessing,
   QUEUE_NAMES.calibrationRun,
   QUEUE_NAMES.scoringV2EvidenceExport,
+  QUEUE_NAMES.scoringV2ShadowCanary,
   QUEUE_NAMES.analyzeEvidenceSlot,
   QUEUE_NAMES.finalizeAnalysisBatch,
 ] as const;

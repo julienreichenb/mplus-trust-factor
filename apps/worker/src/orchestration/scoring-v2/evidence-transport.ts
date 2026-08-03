@@ -25,6 +25,11 @@ export interface ScoringV2SharedEvidenceResult {
   bundle: WclRunEvidenceBundle | null;
   providerCalls: number;
   cacheHits: number;
+  /** Singleflight ready/waiter served without becoming fetch owner. */
+  singleflightReuse?: number;
+  /** Measured/estimated points from bundle accounting when known. */
+  pointsConsumed?: number | null;
+  pages?: number;
   unavailableReason: string | null;
 }
 
@@ -49,6 +54,8 @@ export interface ScoringV2EvidenceTransport {
     reportCode: string;
     fightId: number;
     ctx: ProviderFetchContext;
+    /** Hint from discovery/candidate — enables durable reuse before WCL. */
+    expectedReportRevision?: number | null;
   }): Promise<ScoringV2FightDetailsResult>;
 
   acquireSharedEvidence(input: {

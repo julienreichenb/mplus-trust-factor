@@ -387,7 +387,11 @@ export function attachDatasetToBundle(
   });
   next.payloadFingerprints = { ...bundle.payloadFingerprints, [dataset.key]: fp };
 
-  const present = Object.keys(next.eventDatasets) as SharedEvidenceDatasetKey[];
+  // MISSING/ERROR placeholders must not count as present — otherwise localOnly
+  // ingest looks "complete" with zero durable pages.
+  const present = (Object.keys(next.eventDatasets) as SharedEvidenceDatasetKey[]).filter(
+    (k) => isDurableEvidenceDatasetState(next.eventDatasets[k]?.state),
+  );
   next.completeness = {
     ...bundle.completeness,
     present,
@@ -396,6 +400,61 @@ export function attachDatasetToBundle(
   };
   next.fetchedAt = new Date().toISOString();
   return next;
+}
+
+/** Durable event-dataset states that may satisfy completeness / reuse gates. */
+export function isDurableEvidenceDatasetState(
+  state: WclRunEvidenceDataset["state"] | null | undefined,
+): boolean {
+  return state === "OK" || state === "CACHED" || state === "PERSISTED";
+}
+
+/**
+ * Shared-evidence bundle is reusable as durable source only when every required
+ * event dataset is durable (pages present or intentional empty OK) and masterData
+ * is real (not a synthesized stub).
+ */
+export function isDurableSharedEvidenceBundle(
+  bundle: WclRunEvidenceBundle,
+  requiredKeys?: SharedEvidenceDatasetKey[],
+): boolean {
+  const required = requiredKeys ?? bundle.completeness.required;
+  if (required.length === 0) return false;
+  for (const key of required) {
+    if (key === "masterData") {
+      if (!isRealMasterData(bundle.masterData)) return false;
+      continue;
+    }
+    const ds = bundle.eventDatasets[key];
+    if (!ds || !isDurableEvidenceDatasetState(ds.state)) return false;
+    // Durable reuse requires at least one persisted/fetched page envelope
+    // (empty-valid datasets still write a page with eventCount 0).
+    if (ds.pageCount <= 0) return false;
+  }
+  return bundle.completeness.missing.length === 0;
+}
+
+/** True when masterData looks like a real WCL actor table (not synthesizeMasterData stub). */
+export function isRealMasterData(masterData: unknown): boolean {
+  if (masterData == null || typeof masterData !== "object") return false;
+  const actors = Array.isArray((masterData as { actors?: unknown }).actors)
+    ? ((masterData as { actors: unknown[] }).actors)
+    : [];
+  const players = actors.filter((raw) => {
+    const a = raw != null && typeof raw === "object" ? (raw as Record<string, unknown>) : null;
+    return a?.type === "Player";
+  });
+  if (players.length === 0) return false;
+  // Synthesized stub uses a single Player named "target" with no server.
+  if (
+    players.length === 1 &&
+    typeof (players[0] as { name?: unknown }).name === "string" &&
+    (players[0] as { name: string }).name === "target" &&
+    (players[0] as { server?: unknown }).server == null
+  ) {
+    return false;
+  }
+  return true;
 }
 
 export function evidenceDatasetReuseDecision(input: {
@@ -409,6 +468,10 @@ export function evidenceDatasetReuseDecision(input: {
 }): "reuse" | "refetch_revision_changed" | "refetch_forced" | "fetch_missing" {
   if (input.forceRefetch) return "refetch_forced";
   if (!input.existing || input.existing.state === "MISSING" || input.existing.state === "ERROR") {
+    return "fetch_missing";
+  }
+  // Page-less legacy cache is never durable source.
+  if (input.existing.pageCount <= 0 || !isDurableEvidenceDatasetState(input.existing.state)) {
     return "fetch_missing";
   }
   const persisted =

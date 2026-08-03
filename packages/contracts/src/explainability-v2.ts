@@ -101,6 +101,61 @@ export type ExplainabilityV2SelectedRunPublicDTO = z.infer<
   typeof explainabilityV2SelectedRunPublicSchema
 >;
 
+/**
+ * Simple per-run cooldown usage counts (Survival / Utility).
+ * Factual only — no opportunity, efficiency, or good/bad judgments.
+ */
+export const explainabilityV2CooldownUsagePublicSchema = z.object({
+  canonicalKey: z.string().min(1),
+  displayName: z.string().min(1),
+  category: z.string().min(1),
+  dimension: z.enum(["SURVIVAL", "UTILITY"]),
+  observedSpellId: z.number().int().nullable(),
+  useCount: z.number().int().nonnegative(),
+  dungeonSlug: z.string().min(1),
+  slotIndex: z.union([z.literal(0), z.literal(1)]),
+  keyLevel: z.number().int().positive().nullable(),
+  catalogVersion: z.string().nullable(),
+  evidenceCoverageState: z.string().min(1),
+});
+export type ExplainabilityV2CooldownUsagePublicDTO = z.infer<
+  typeof explainabilityV2CooldownUsagePublicSchema
+>;
+
+export const explainabilityV2CooldownUsageAdminSchema =
+  explainabilityV2CooldownUsagePublicSchema.extend({
+    reportCode: z.string().nullable(),
+    fightId: z.number().int().nullable(),
+    reportRevision: z.number().int().nullable(),
+    sourceDataset: z.string().nullable(),
+    extractorVersion: z.string().nullable(),
+    unmappedSpellIds: z.array(z.number().int()).default([]),
+    truncationWarnings: z.array(z.string()).default([]),
+    coverageWarnings: z.array(z.string()).default([]),
+  });
+export type ExplainabilityV2CooldownUsageAdminDTO = z.infer<
+  typeof explainabilityV2CooldownUsageAdminSchema
+>;
+
+/** Strip privileged fields for public projection. */
+export function toPublicCooldownUsage(
+  admin: ExplainabilityV2CooldownUsageAdminDTO,
+): ExplainabilityV2CooldownUsagePublicDTO {
+  return {
+    canonicalKey: admin.canonicalKey,
+    displayName: admin.displayName,
+    category: admin.category,
+    dimension: admin.dimension,
+    observedSpellId: admin.observedSpellId,
+    useCount: admin.useCount,
+    dungeonSlug: admin.dungeonSlug,
+    slotIndex: admin.slotIndex,
+    keyLevel: admin.keyLevel,
+    catalogVersion: admin.catalogVersion,
+    evidenceCoverageState: admin.evidenceCoverageState,
+  };
+}
+
 export const explainabilityV2ContributorPublicSchema = z.object({
   key: z.string().min(1),
   dimension: explainabilityV2DimensionKeySchema,
@@ -167,6 +222,8 @@ export const scoreExplainabilityV2PublicSchema = z
     evidenceCutoffAt: z.string().datetime().nullable(),
     coverage: explainabilityV2CoveragePublicSchema,
     selectedRuns: z.array(explainabilityV2SelectedRunPublicSchema),
+    /** Factual Survival/Utility cooldown use counts — no opportunity judgments. */
+    cooldownUsages: z.array(explainabilityV2CooldownUsagePublicSchema).default([]),
     dimensions: z.array(explainabilityV2DimensionPublicSchema),
     /** Concise English notes for UI copy. */
     notes: z.array(z.string().min(1)),
@@ -664,6 +721,7 @@ export function buildExplainabilityV2Public(
       state: run.state,
       hasWclSource: run.hasWclSource,
     })),
+    cooldownUsages: [],
     dimensions,
     notes: buildPublicNotes(publicationState, input.coverageState),
     gradeUMeans: "unavailable_or_unranked",

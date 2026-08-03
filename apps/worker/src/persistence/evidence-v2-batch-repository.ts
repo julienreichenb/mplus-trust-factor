@@ -17,6 +17,7 @@ import {
   type EvidenceV2BatchMetadata,
   type EvidenceV2SlotRecord,
 } from "../orchestration/scoring-v2/types.js";
+import type { ScoringV2ProviderAccounting } from "../orchestration/scoring-v2/provider-accounting.js";
 import { resolveBatchDatasetRequirements } from "../orchestration/scoring-v2/dataset-requirements.js";
 import type { TypedDimensionFactPayload } from "../orchestration/scoring-v2/typed-fact-persist.js";
 import {
@@ -36,6 +37,9 @@ export interface CreateEvidenceV2BatchInput {
   correlationId?: string | null;
   enabledConsumers: EvidenceV2EnabledConsumer[];
   deadlineAt?: Date | null;
+  /** Admin Shadow Canary — bypass global flags while publication stays blocked. */
+  adminShadowCanary?: boolean;
+  shadowCanaryId?: string | null;
 }
 
 export interface EvidenceV2BatchView {
@@ -58,6 +62,15 @@ export interface EvidenceV2BatchRepository {
     | { outcome: "lost_claim"; view: EvidenceV2BatchView }
     | { outcome: "superseded" | "cancelled" | "not_found" | "generation_mismatch" }
   >;
+  /**
+   * Release RUNNING → PENDING so a RateDefer / retry can reclaim.
+   * No-op when terminal or generation mismatch.
+   */
+  releaseSlotClaim(input: {
+    batchId: string;
+    slotId: string;
+    refreshGeneration: number;
+  }): Promise<EvidenceV2BatchView | null>;
   completeSlot(input: {
     batchId: string;
     slotId: string;
@@ -68,6 +81,7 @@ export interface EvidenceV2BatchRepository {
     datasetCompatibilityKeys?: string[];
     factSetFingerprint?: string | null;
     typedFactPayloads?: TypedDimensionFactPayload[];
+    providerAccounting?: ScoringV2ProviderAccounting | null;
     now?: Date;
   }): Promise<{ view: EvidenceV2BatchView; becameReady: boolean; wasAlreadyTerminal: boolean }>;
   markAdmissionDeferred(batchId: string, reason: string): Promise<EvidenceV2BatchView>;
@@ -106,6 +120,9 @@ function parseMeta(metadata: unknown): EvidenceV2BatchMetadata | null {
   for (const slot of meta.slots ?? []) {
     if (!Array.isArray(slot.typedFactPayloads)) {
       slot.typedFactPayloads = [];
+    }
+    if (slot.providerAccounting === undefined) {
+      slot.providerAccounting = null;
     }
   }
   return meta;
@@ -227,6 +244,8 @@ export function createEvidenceV2BatchRepository(
         manifestContentHash: null,
         admissionReleased: false,
         publicationBlocked: true,
+        adminShadowCanary: input.adminShadowCanary === true,
+        shadowCanaryId: input.shadowCanaryId ?? null,
       };
 
       const existing = await prisma.scoreAnalysisBatch.findUnique({
@@ -316,6 +335,43 @@ export function createEvidenceV2BatchRepository(
       });
     },
 
+    async releaseSlotClaim(input) {
+      return prisma.$transaction(async (tx) => {
+        const batch = await tx.scoreAnalysisBatch.findUnique({ where: { id: input.batchId } });
+        if (!batch) return null;
+        const meta = parseMeta(batch.metadata);
+        if (!meta) return null;
+        if (meta.refreshGeneration !== input.refreshGeneration) return null;
+        if (meta.cancelled || meta.supersededByGeneration != null) return null;
+
+        const slot = meta.slots.find((s) => s.slotId === input.slotId);
+        if (!slot || slot.status !== "RUNNING") {
+          return { batch, meta };
+        }
+
+        const nextSlots = meta.slots.map((s) =>
+          s.slotId === input.slotId
+            ? {
+                ...s,
+                status: "PENDING" as const,
+                startedAt: null,
+              }
+            : s,
+        );
+        const nextMeta: EvidenceV2BatchMetadata = {
+          ...meta,
+          slots: nextSlots,
+        };
+        const updated = await tx.scoreAnalysisBatch.update({
+          where: { id: input.batchId },
+          data: {
+            metadata: withMeta(batch.metadata, nextMeta),
+          },
+        });
+        return toView(updated);
+      });
+    },
+
     async completeSlot(input) {
       return prisma.$transaction(async (tx) => {
         const batch = await tx.scoreAnalysisBatch.findUnique({ where: { id: input.batchId } });
@@ -358,6 +414,10 @@ export function createEvidenceV2BatchRepository(
                   input.datasetCompatibilityKeys ?? s.datasetCompatibilityKeys,
                 factSetFingerprint: input.factSetFingerprint ?? s.factSetFingerprint,
                 typedFactPayloads: input.typedFactPayloads ?? s.typedFactPayloads,
+                providerAccounting:
+                  input.providerAccounting !== undefined
+                    ? input.providerAccounting
+                    : s.providerAccounting,
               }
             : s,
         );

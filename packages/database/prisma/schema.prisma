@@ -373,6 +373,8 @@ model Character {
   evidenceManifests        EvidenceManifest[]
   runFactSets              RunFactSet[]
   dimensionComputations    DimensionComputation[]
+  wclRunParticipants       WclRunParticipant[]
+  shadowCanaries           ScoringV2ShadowCanary[]
 
   @@unique([regionId, realmId, normalizedName])
   @@index([lastPublicRefreshAt])
@@ -619,8 +621,10 @@ model RawArtifact {
   payloads           ExternalPayload[]
   addonExports       AddonExport[]
   evidenceDatasets   EvidenceDataset[]
+  evidenceDatasetPages EvidenceDatasetPage[]
   wclReportRevisions WclReportRevision[]
   artifactReferences ArtifactReference[]
+  wclRunSourceDigests WclRunSourceDigest[]
 
   @@index([provider, createdAt(sort: Desc)])
   @@index([refCount, retentionUntil])
@@ -1083,6 +1087,7 @@ model User {
   calibrationRuns    CalibrationRun[]
   runtimeSettingsUpdated RuntimeSetting[] @relation("RuntimeSettingUpdatedBy")
   scoringV2EvidenceExports ScoringV2EvidenceExport[]
+  shadowCanariesRequested ScoringV2ShadowCanary[] @relation("ShadowCanaryRequestedBy")
 
   @@unique([authProvider, externalSubject])
   @@map("users")
@@ -1808,12 +1813,17 @@ model EvidenceDataset {
   payloadFingerprint      String?   @map("payload_fingerprint")
   fetchedAt               DateTime? @map("fetched_at") @db.Timestamptz(3)
   createdAt               DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  /** Optional link to the permanent scoring-neutral run digest for cross-character reuse. */
+  digestId                String?   @map("digest_id") @db.Uuid
 
   manifestSlot EvidenceManifestSlot @relation(fields: [manifestSlotId], references: [id], onDelete: Restrict)
   artifact     RawArtifact?         @relation(fields: [artifactId], references: [id])
+  pages        EvidenceDatasetPage[]
+  digest       WclRunSourceDigest?  @relation(fields: [digestId], references: [id], onDelete: SetNull)
 
   @@unique([manifestSlotId, datasetKey])
   @@index([artifactId])
+  @@index([digestId])
   @@map("evidence_datasets")
 }
 
@@ -1964,4 +1974,153 @@ model ScoringV2EvidenceExport {
   @@index([frozenBundleContentHash])
   @@index([status, leaseExpiresAt])
   @@map("scoring_v2_evidence_exports")
+}
+
+// ---------------------------------------------------------------------------
+// Scoring V2 Shadow Canary — durable WCL source reuse + admin canary runs
+// ---------------------------------------------------------------------------
+
+/**
+ * Immutable WCL event/page bytes stored via RawArtifact (default 30-day retention).
+ * One row per page; report revision changes create new page rows (never overwrite).
+ */
+model EvidenceDatasetPage {
+  id                      String   @id @default(uuid()) @db.Uuid
+  datasetId               String?  @map("dataset_id") @db.Uuid
+  reportCode              String   @map("report_code")
+  fightId                 Int      @map("fight_id")
+  reportRevision          Int      @map("report_revision")
+  datasetKey              String   @map("dataset_key")
+  pageIndex               Int      @map("page_index")
+  pageCursor              String?  @map("page_cursor")
+  artifactId              String   @map("artifact_id") @db.Uuid
+  contentHash             String   @map("content_hash")
+  providerContractVersion String   @map("provider_contract_version")
+  schemaVersion           String   @map("schema_version")
+  eventCount              Int      @default(0) @map("event_count")
+  createdAt               DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  dataset  EvidenceDataset? @relation(fields: [datasetId], references: [id], onDelete: SetNull)
+  artifact RawArtifact      @relation(fields: [artifactId], references: [id], onDelete: Restrict)
+
+  @@unique([reportCode, fightId, reportRevision, datasetKey, pageIndex, providerContractVersion, schemaVersion])
+  @@index([datasetId, pageIndex])
+  @@index([artifactId])
+  @@index([reportCode, fightId, reportRevision])
+  @@map("evidence_dataset_pages")
+}
+
+/**
+ * Permanent scoring-neutral digest for one WCL dungeon run identity.
+ * Logical identity: reportCode + fightId + reportRevision.
+ * Must never contain scores, grades, weights, penalties, or calculator outputs.
+ */
+model WclRunSourceDigest {
+  id                      String   @id @default(uuid()) @db.Uuid
+  reportCode              String   @map("report_code")
+  fightId                 Int      @map("fight_id")
+  reportRevision          Int      @map("report_revision")
+  schemaVersion           String   @map("schema_version")
+  providerContractVersion String   @map("provider_contract_version")
+  contentFingerprint      String   @map("content_fingerprint")
+  /** Bounded neutral digest document — no raw event arrays. */
+  digest                  Json
+  rawBytesStored          BigInt?  @map("raw_bytes_stored")
+  digestBytes             Int?     @map("digest_bytes")
+  completenessState       String   @map("completeness_state")
+  visibilityState         String   @map("visibility_state")
+  region                  String?
+  dungeonSlug             String?  @map("dungeon_slug")
+  keyLevel                Int?     @map("key_level")
+  timed                   Boolean?
+  masterDataArtifactId    String?  @map("master_data_artifact_id") @db.Uuid
+  acquiredAt              DateTime @map("acquired_at") @db.Timestamptz(3)
+  createdAt               DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt               DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  masterDataArtifact RawArtifact?         @relation(fields: [masterDataArtifactId], references: [id])
+  participants       WclRunParticipant[]
+  datasets           EvidenceDataset[]
+
+  @@unique([reportCode, fightId, reportRevision])
+  @@index([contentFingerprint])
+  @@index([dungeonSlug, keyLevel])
+  @@index([acquiredAt(sort: Desc)])
+  @@map("wcl_run_source_digests")
+}
+
+/**
+ * Five-person dungeon roster for a WclRunSourceDigest.
+ * Provider identity fields are immutable; local mappings are additive/nullable.
+ */
+model WclRunParticipant {
+  id                   String   @id @default(uuid()) @db.Uuid
+  digestId             String   @map("digest_id") @db.Uuid
+  wclActorId           Int      @map("wcl_actor_id")
+  wclCanonicalId       String?  @map("wcl_canonical_id")
+  characterName        String   @map("character_name")
+  realmSlug            String   @map("realm_slug")
+  regionCode           String   @map("region_code")
+  classSlug            String?  @map("class_slug")
+  specSlug             String?  @map("spec_slug")
+  role                 String?
+  characterId          String?  @map("character_id") @db.Uuid
+  blizzardCharacterId  String?  @map("blizzard_character_id")
+  mappingState         String   @default("UNRESOLVED") @map("mapping_state")
+  mappingConfidence    Float?   @map("mapping_confidence")
+  ownedPetActorIds     Json     @default("[]") @map("owned_pet_actor_ids")
+  createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt            DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  digest    WclRunSourceDigest @relation(fields: [digestId], references: [id], onDelete: Cascade)
+  character Character?         @relation(fields: [characterId], references: [id], onDelete: SetNull)
+
+  @@unique([digestId, wclActorId])
+  @@index([characterId])
+  @@index([blizzardCharacterId])
+  @@index([wclCanonicalId])
+  @@index([regionCode, realmSlug, characterName])
+  @@map("wcl_run_participants")
+}
+
+/**
+ * Admin-launched Shadow Canary run. Asynchronous; never publishes V1/V2 scores.
+ */
+model ScoringV2ShadowCanary {
+  id                  String    @id @default(uuid()) @db.Uuid
+  characterId         String    @map("character_id") @db.Uuid
+  regionCode          String    @map("region_code")
+  realmSlug           String    @map("realm_slug")
+  characterName       String    @map("character_name")
+  seasonId            String?   @map("season_id") @db.Uuid
+  analysisBatchId     String?   @map("analysis_batch_id") @db.Uuid
+  status              String    @default("QUEUED")
+  lifecycle           String    @default("SHADOW")
+  classSlug           String?   @map("class_slug")
+  specSlug            String?   @map("spec_slug")
+  role                String?
+  specializationId    String?   @map("specialization_id") @db.Uuid
+  catalogVersion      String?   @map("catalog_version")
+  catalogSupportState String?   @map("catalog_support_state")
+  /** Bounded progress + diagnostics (no raw WCL events). */
+  progress            Json      @default("{}")
+  diagnostics         Json      @default("{}")
+  errorCode           String?   @map("error_code")
+  errorMessage        String?   @map("error_message")
+  requestedByUserId   String    @map("requested_by_user_id") @db.Uuid
+  bullmqJobId         String?   @map("bullmq_job_id")
+  /** Idempotency key for relaunch coalescing. */
+  idempotencyKey      String    @unique @map("idempotency_key")
+  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  startedAt           DateTime? @map("started_at") @db.Timestamptz(3)
+  completedAt         DateTime? @map("completed_at") @db.Timestamptz(3)
+  updatedAt           DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  character   Character @relation(fields: [characterId], references: [id], onDelete: Restrict)
+  requestedBy User      @relation("ShadowCanaryRequestedBy", fields: [requestedByUserId], references: [id])
+
+  @@index([characterId, createdAt(sort: Desc)])
+  @@index([status, createdAt(sort: Desc)])
+  @@index([requestedByUserId, createdAt(sort: Desc)])
+  @@map("scoring_v2_shadow_canaries")
 }

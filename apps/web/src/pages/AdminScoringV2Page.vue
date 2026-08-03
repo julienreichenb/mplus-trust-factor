@@ -6,11 +6,13 @@ import ScoringV2EvidencePanel from "../components/scoring-v2/ScoringV2EvidencePa
 import ScoringV2ConcurrencyPanel from "../components/scoring-v2/ScoringV2ConcurrencyPanel.vue";
 import ScoringV2DiagnosticsPanel from "../components/scoring-v2/ScoringV2DiagnosticsPanel.vue";
 import ScoringV2HistoryPanel from "../components/scoring-v2/ScoringV2HistoryPanel.vue";
+import ScoringV2ShadowCanaryPanel from "../components/scoring-v2/ScoringV2ShadowCanaryPanel.vue";
 
-type TabId = "overview" | "evidence" | "concurrency" | "diagnostics" | "history";
+type TabId = "overview" | "canary" | "evidence" | "concurrency" | "diagnostics" | "history";
 
 const TABS: Array<{ id: TabId; label: string }> = [
   { id: "overview", label: "Overview" },
+  { id: "canary", label: "Shadow Canary" },
   { id: "evidence", label: "Calibration evidence" },
   { id: "concurrency", label: "Concurrency" },
   { id: "diagnostics", label: "Diagnostics" },
@@ -104,6 +106,7 @@ const panelId = computed(() => `scoring-v2-panel-${activeTab.value}`);
       tabindex="0"
     >
       <ScoringV2OverviewPanel v-if="activeTab === 'overview'" />
+      <ScoringV2ShadowCanaryPanel v-else-if="activeTab === 'canary'" />
       <ScoringV2EvidencePanel v-else-if="activeTab === 'evidence'" />
       <ScoringV2ConcurrencyPanel v-else-if="activeTab === 'concurrency'" />
       <ScoringV2DiagnosticsPanel v-else-if="activeTab === 'diagnostics'" />

@@ -136,6 +136,7 @@ export const OPERATIONS = {
         startTime
         endTime
         keystoneLevel
+        keystoneBonus
         friendlyPlayers
       }
       masterData(translate: false) {

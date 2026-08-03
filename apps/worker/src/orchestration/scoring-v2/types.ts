@@ -6,6 +6,7 @@ import type {
   EvidenceV2SlotJobStatus,
 } from "@mplus/contracts";
 import type { EvidenceDatasetRequirementV2 } from "./dataset-requirements.js";
+import type { ScoringV2ProviderAccounting } from "./provider-accounting.js";
 import type { TypedDimensionFactPayload } from "./typed-fact-persist.js";
 
 export const SCORING_V2_BATCH_METADATA_KEY = "scoringV2" as const;
@@ -35,6 +36,8 @@ export interface EvidenceV2SlotRecord {
    * Persisted to RunFactSet after manifest freeze (provider-free).
    */
   typedFactPayloads: TypedDimensionFactPayload[];
+  /** Per-slot WCL provider/cache counters for Shadow Canary diagnostics. */
+  providerAccounting: ScoringV2ProviderAccounting | null;
 }
 
 export interface EvidenceV2BatchMetadata {
@@ -63,6 +66,13 @@ export interface EvidenceV2BatchMetadata {
   /** Idempotent admission release marker. */
   admissionReleased: boolean;
   publicationBlocked: true;
+  /**
+   * Admin Shadow Canary batches may run while global SCORING_V2_* flags stay off.
+   * Publication remains blocked regardless.
+   */
+  adminShadowCanary?: boolean;
+  /** Optional link back to ScoringV2ShadowCanary.id */
+  shadowCanaryId?: string | null;
 }
 
 export function emptySlotRecord(
@@ -82,5 +92,6 @@ export function emptySlotRecord(
     datasetCompatibilityKeys: [],
     factSetFingerprint: null,
     typedFactPayloads: [],
+    providerAccounting: null,
   };
 }

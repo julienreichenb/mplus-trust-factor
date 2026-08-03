@@ -1,16 +1,28 @@
 /**
- * Production Scoring V2 evidence transport — uses the WCL provider abstraction.
- * Never called from calculators or provider-free finalization paths.
+ * Production Scoring V2 evidence transport — persistent DB/CAS before WCL.
+ * In-memory L1 is optional; Redis singleflight + permits bound provider work.
  */
 
 import type { ProviderFetchContext } from "@mplus/contracts";
 import {
-  InMemorySharedEvidenceStore,
   ingestSharedEvidenceBundle,
+  InMemorySharedEvidenceStore,
+  WCL_RUN_EVIDENCE_PROVIDER_CONTRACT,
+  isDurableSharedEvidenceBundle,
   type SharedEvidenceDatasetKey,
   type WclRunEvidenceBundle,
 } from "@mplus/provider-warcraftlogs";
 import type { WorkerContainer } from "../../container.js";
+import {
+  acquireGlobalWclHttpPermit,
+  acquireSourceSingleflight,
+  completeSourceSingleflight,
+  releaseGlobalWclHttpPermit,
+  releaseSourceSingleflight,
+  wclSingleflightKey,
+  type WclConcurrencyRedis,
+} from "./wcl-concurrency/permits.js";
+import { createPersistentSharedEvidenceStore } from "./persistent-shared-evidence-store.js";
 import type {
   ScoringV2EvidenceTransport,
   ScoringV2FightDetailsResult,
@@ -18,6 +30,13 @@ import type {
   ScoringV2RankingParseResult,
   ScoringV2SharedEvidenceResult,
 } from "./evidence-transport.js";
+import {
+  findLatestFightRevision,
+  loadPersistedFightDetails,
+  persistFightDetailsPage,
+} from "./fight-details-persist.js";
+import { ScoringV2RateDeferError } from "./acquisition.js";
+import { randomUUID } from "node:crypto";
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value != null && typeof value === "object" && !Array.isArray(value)
@@ -75,34 +94,131 @@ function actorFromFightDetails(data: unknown): {
   };
 }
 
+export interface ProviderBackedTransportOptions {
+  characterId?: string | null;
+  /** When false, skip Redis permits (tests). Default true when redis available. */
+  useDistributedPermits?: boolean;
+}
+
 /**
- * Provider-backed transport. Shared evidence uses LiveWarcraftLogsProvider GraphQL
- * when available; otherwise returns UNAVAILABLE (no invented work).
+ * Provider-backed transport with persistent cache → singleflight → WCL.
  */
 export function createProviderBackedEvidenceTransport(
   container: WorkerContainer,
+  options: ProviderBackedTransportOptions = {},
 ): ScoringV2EvidenceTransport {
-  const store = new InMemorySharedEvidenceStore();
+  const l1 = new InMemorySharedEvidenceStore();
+  const store = createPersistentSharedEvidenceStore({
+    wclSource: container.repositories.wclSource,
+    artifacts: container.repositories.artifacts,
+    l1,
+  });
+  const usePermits = options.useDistributedPermits !== false;
+  void options.characterId;
+
+  async function withGlobalWclHttpPermit<T>(work: () => Promise<T>): Promise<T> {
+    if (!usePermits) return work();
+    const redisConn = container.createRedisConnection();
+    const redis = redisConn as unknown as WclConcurrencyRedis;
+    const ownerId = randomUUID();
+    let globalToken: string | null = null;
+    try {
+      const global = await acquireGlobalWclHttpPermit({
+        redis,
+        appEnv: container.env.APP_ENV,
+        ownerId: `http:${ownerId}`,
+      });
+      if (!global.ok) {
+        throw new ScoringV2RateDeferError(
+          `global_wcl_permit_unavailable:${global.reason}`,
+          5_000,
+        );
+      }
+      globalToken = global.token;
+      return await work();
+    } finally {
+      if (globalToken) {
+        await releaseGlobalWclHttpPermit({
+          redis,
+          appEnv: container.env.APP_ENV,
+          ownerId: `http:${ownerId}`,
+          token: globalToken,
+        }).catch(() => undefined);
+      }
+      await redisConn.quit().catch(() => undefined);
+    }
+  }
 
   return {
     async getReportFightDetails(input): Promise<ScoringV2FightDetailsResult> {
-      const result = await container.providers.warcraftlogs.getReportFightDetails(
-        input.reportCode,
-        input.fightId,
-        input.ctx,
-      );
-      const data = result.data;
-      const meta = actorFromFightDetails(data);
-      return {
-        data,
-        reportRevision: revisionFromFightDetails(data),
-        playerActorId: meta.playerActorId,
-        ownedPetActorIds: meta.ownedPetActorIds,
-        startTime: meta.startTime,
-        endTime: meta.endTime,
-        dungeonSlug: meta.dungeonSlug,
-        providerCalls: result.metadata.cacheHit ? 0 : 1,
-      };
+      const wclSource = container.repositories.wclSource;
+      const artifacts = container.repositories.artifacts;
+      const revisionHint =
+        typeof input.expectedReportRevision === "number"
+          ? input.expectedReportRevision
+          : await findLatestFightRevision({
+              wclSource,
+              reportCode: input.reportCode,
+              fightId: input.fightId,
+            });
+
+      if (revisionHint != null) {
+        const cached = await loadPersistedFightDetails({
+          wclSource,
+          artifacts,
+          reportCode: input.reportCode,
+          fightId: input.fightId,
+          reportRevision: revisionHint,
+        });
+        if (cached) {
+          const meta = actorFromFightDetails(cached.data);
+          return {
+            data: cached.data,
+            reportRevision: cached.reportRevision,
+            playerActorId: meta.playerActorId,
+            ownedPetActorIds: meta.ownedPetActorIds,
+            startTime: meta.startTime,
+            endTime: meta.endTime,
+            dungeonSlug: meta.dungeonSlug,
+            providerCalls: 0,
+          };
+        }
+      }
+
+      return withGlobalWclHttpPermit(async () => {
+        const result = await container.providers.warcraftlogs.getReportFightDetails(
+          input.reportCode,
+          input.fightId,
+          input.ctx,
+        );
+        const data = result.data;
+        const reportRevision = revisionFromFightDetails(data);
+        const meta = actorFromFightDetails(data);
+        if (data != null && reportRevision >= 0) {
+          try {
+            await persistFightDetailsPage({
+              wclSource,
+              artifacts,
+              reportCode: input.reportCode,
+              fightId: input.fightId,
+              reportRevision,
+              data,
+            });
+          } catch {
+            // Persistence failure must not block acquisition.
+          }
+        }
+        return {
+          data,
+          reportRevision,
+          playerActorId: meta.playerActorId,
+          ownedPetActorIds: meta.ownedPetActorIds,
+          startTime: meta.startTime,
+          endTime: meta.endTime,
+          dungeonSlug: meta.dungeonSlug,
+          providerCalls: result.metadata.cacheHit ? 0 : 1,
+        };
+      });
     },
 
     async acquireSharedEvidence(input): Promise<ScoringV2SharedEvidenceResult> {
@@ -110,50 +226,248 @@ export function createProviderBackedEvidenceTransport(
         getGraphQlClient?: () => unknown;
       };
       if (typeof wcl.getGraphQlClient !== "function") {
-        // Fixture provider / stub — shared event acquisition not available via contract.
         return {
           bundle: null,
           providerCalls: 0,
           cacheHits: 0,
+          singleflightReuse: 0,
+          pointsConsumed: null,
+          pages: 0,
           unavailableReason: "shared_evidence_provider_capability_absent",
         };
       }
 
-      const client = wcl.getGraphQlClient();
-      const before = store.providerFetchCount;
-      const bundle: WclRunEvidenceBundle = await ingestSharedEvidenceBundle({
-        client: client as never,
-        store,
-        reportCode: input.reportCode,
-        reportRevision: input.reportRevision,
-        fightId: input.fightId,
-        playerActorId: input.playerActorId,
-        ownedPetActorIds: input.ownedPetActorIds,
-        dungeonSlug: input.dungeonSlug,
-        startTime: input.startTime,
-        endTime: input.endTime,
-        consumers: ["survival", "utility"],
-        datasets: input.datasetKeys as SharedEvidenceDatasetKey[],
-        region: input.ctx.region,
-      });
-      const providerCalls = Math.max(0, store.providerFetchCount - before);
-      return {
-        bundle,
-        providerCalls: providerCalls > 0 ? providerCalls : bundle.accounting.providerCalls,
-        cacheHits: bundle.accounting.cacheHits + bundle.accounting.persistedHits,
-        unavailableReason: null,
-      };
+      // Persistent cache probe before any WCL / permit acquisition.
+      const existing = await store.loadBundleSummary?.(
+        input.reportCode,
+        input.fightId,
+        input.reportRevision,
+      );
+      // Even without a full bundle summary, ingest will load per-dataset pages.
+      // Singleflight per primary dataset identity for the run.
+      const redisConn = usePermits ? container.createRedisConnection() : null;
+      const redis = redisConn as unknown as WclConcurrencyRedis | null;
+      const sfKey = redis
+        ? wclSingleflightKey(
+            container.env.APP_ENV,
+            input.reportCode,
+            input.fightId,
+            input.reportRevision,
+            "shared-bundle",
+          )
+        : null;
+      let sfToken: string | null = null;
+
+      try {
+        if (redis && sfKey) {
+          const sf = await acquireSourceSingleflight({ redis, key: sfKey });
+          if (sf.role === "ready") {
+            // Winner already persisted — re-load from persistent store (provider-free).
+            const bundle = await ingestSharedEvidenceBundle({
+              client: null,
+              store,
+              reportCode: input.reportCode,
+              reportRevision: input.reportRevision,
+              fightId: input.fightId,
+              playerActorId: input.playerActorId,
+              ownedPetActorIds: input.ownedPetActorIds,
+              dungeonSlug: input.dungeonSlug,
+              startTime: input.startTime,
+              endTime: input.endTime,
+              consumers: ["survival", "utility"],
+              datasets: input.datasetKeys as SharedEvidenceDatasetKey[],
+              region: input.ctx.region,
+              localOnly: true,
+            });
+            if (
+              isDurableSharedEvidenceBundle(
+                bundle,
+                input.datasetKeys as SharedEvidenceDatasetKey[],
+              )
+            ) {
+              return {
+                bundle,
+                providerCalls: 0,
+                cacheHits: bundle.accounting.cacheHits + bundle.accounting.persistedHits + 1,
+                singleflightReuse: 1,
+                pointsConsumed: bundle.accounting.pointsConsumed,
+                pages: bundle.accounting.pages,
+                unavailableReason: null,
+              };
+            }
+            // Incomplete / page-less — fall through to fetch owner path.
+          }
+          if (sf.role === "waiter") {
+            // Bounded wait then reload persistence (no busy-loop).
+            await new Promise((r) => setTimeout(r, 250));
+            const bundle = await ingestSharedEvidenceBundle({
+              client: null,
+              store,
+              reportCode: input.reportCode,
+              reportRevision: input.reportRevision,
+              fightId: input.fightId,
+              playerActorId: input.playerActorId,
+              ownedPetActorIds: input.ownedPetActorIds,
+              dungeonSlug: input.dungeonSlug,
+              startTime: input.startTime,
+              endTime: input.endTime,
+              consumers: ["survival", "utility"],
+              datasets: input.datasetKeys as SharedEvidenceDatasetKey[],
+              region: input.ctx.region,
+              localOnly: true,
+            });
+            if (
+              isDurableSharedEvidenceBundle(
+                bundle,
+                input.datasetKeys as SharedEvidenceDatasetKey[],
+              )
+            ) {
+              return {
+                bundle,
+                providerCalls: 0,
+                cacheHits: bundle.accounting.persistedHits + 1,
+                singleflightReuse: 1,
+                pointsConsumed: bundle.accounting.pointsConsumed,
+                pages: bundle.accounting.pages,
+                unavailableReason: null,
+              };
+            }
+            // Fall through: become owner after release, or fetch remaining.
+          }
+          if (sf.role === "owner") {
+            sfToken = sf.token;
+            // Re-check persistence after acquiring ownership.
+            const pre = await ingestSharedEvidenceBundle({
+              client: null,
+              store,
+              reportCode: input.reportCode,
+              reportRevision: input.reportRevision,
+              fightId: input.fightId,
+              playerActorId: input.playerActorId,
+              ownedPetActorIds: input.ownedPetActorIds,
+              dungeonSlug: input.dungeonSlug,
+              startTime: input.startTime,
+              endTime: input.endTime,
+              consumers: ["survival", "utility"],
+              datasets: input.datasetKeys as SharedEvidenceDatasetKey[],
+              region: input.ctx.region,
+              localOnly: true,
+            });
+            if (
+              isDurableSharedEvidenceBundle(
+                pre,
+                input.datasetKeys as SharedEvidenceDatasetKey[],
+              )
+            ) {
+              await completeSourceSingleflight({
+                redis,
+                key: sfKey,
+                token: sfToken,
+                value: "persisted",
+              });
+              sfToken = null;
+              return {
+                bundle: pre,
+                providerCalls: 0,
+                cacheHits: pre.accounting.persistedHits + 1,
+                singleflightReuse: 0,
+                pointsConsumed: pre.accounting.pointsConsumed,
+                pages: pre.accounting.pages,
+                unavailableReason: null,
+              };
+            }
+          }
+        }
+
+        void existing;
+        void WCL_RUN_EVIDENCE_PROVIDER_CONTRACT;
+
+        return await withGlobalWclHttpPermit(async () => {
+          const client = wcl.getGraphQlClient!();
+          const before = l1.providerFetchCount;
+          const bundle: WclRunEvidenceBundle = await ingestSharedEvidenceBundle({
+            client: client as never,
+            store,
+            reportCode: input.reportCode,
+            reportRevision: input.reportRevision,
+            fightId: input.fightId,
+            playerActorId: input.playerActorId,
+            ownedPetActorIds: input.ownedPetActorIds,
+            dungeonSlug: input.dungeonSlug,
+            startTime: input.startTime,
+            endTime: input.endTime,
+            consumers: ["survival", "utility"],
+            datasets: input.datasetKeys as SharedEvidenceDatasetKey[],
+            region: input.ctx.region,
+          });
+          const providerCalls = Math.max(0, l1.providerFetchCount - before);
+          if (redis && sfKey && sfToken) {
+            await completeSourceSingleflight({
+              redis,
+              key: sfKey,
+              token: sfToken,
+              value: "persisted",
+            });
+            sfToken = null;
+          }
+          return {
+            bundle,
+            providerCalls:
+              providerCalls > 0 ? providerCalls : bundle.accounting.providerCalls,
+            cacheHits: bundle.accounting.cacheHits + bundle.accounting.persistedHits,
+            singleflightReuse: 0,
+            pointsConsumed: bundle.accounting.pointsConsumed,
+            pages: bundle.accounting.pages,
+            unavailableReason: null,
+          };
+        });
+      } finally {
+        if (redis && sfKey && sfToken) {
+          await releaseSourceSingleflight({ redis, key: sfKey, token: sfToken }).catch(
+            () => undefined,
+          );
+        }
+        if (redisConn) await redisConn.quit().catch(() => undefined);
+      }
     },
 
     async getRankingParse(input): Promise<ScoringV2RankingParseResult> {
-      // RANKING_PARSE is not yet a first-class WarcraftLogsProvider method.
-      // Acquisition records UNAVAILABLE rather than inventing an unplanned fetch.
-      void input;
-      return {
-        evidence: null,
-        providerCalls: 0,
-        unavailableReason: "ranking_parse_provider_capability_absent",
+      const wcl = container.providers.warcraftlogs as {
+        getRankingParseForFight?: (args: {
+          reportCode: string;
+          fightId: number;
+          reportRevision: number;
+          dungeonSlug: string;
+          keyLevel: number | null;
+          ctx: ProviderFetchContext;
+        }) => Promise<{
+          evidence: ScoringV2RankingParseResult["evidence"];
+          providerCalls: number;
+          unavailableReason: string | null;
+        }>;
       };
+      if (typeof wcl.getRankingParseForFight !== "function") {
+        return {
+          evidence: null,
+          providerCalls: 0,
+          unavailableReason: "ranking_parse_provider_capability_absent",
+        };
+      }
+      return withGlobalWclHttpPermit(async () => {
+        const result = await wcl.getRankingParseForFight!({
+          reportCode: input.reportCode,
+          fightId: input.fightId,
+          reportRevision: input.reportRevision,
+          dungeonSlug: input.dungeonSlug,
+          keyLevel: input.keyLevel,
+          ctx: input.ctx,
+        });
+        return {
+          evidence: result.evidence,
+          providerCalls: result.providerCalls,
+          unavailableReason: result.unavailableReason,
+        };
+      });
     },
 
     async getPointsAndDamageProfile(

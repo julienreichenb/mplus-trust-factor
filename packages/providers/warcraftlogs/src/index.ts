@@ -101,6 +101,7 @@ export * from "./evidence/wcl-run-evidence.js";
 export * from "./evidence/wcl-batch-cost-accounting.js";
 export * from "./evidence/shared-run-selection.js";
 export * from "./evidence/shared-evidence-ingest.js";
+export * from "./evidence/ranking-parse.js";
 export * from "./evidence/interrupt-catalog-coverage.js";
 export * from "./evidence/survival-from-shared-evidence.js";
 export * from "./evidence/utility-from-shared-evidence.js";
@@ -113,5 +114,6 @@ export * from "./probe/utility-observed-shadow.js";
 export * from "./probe/utility-v3_2-observed-config.js";
 export * from "./probe/utility-v3_2-observed-contribution.js";
 export * from "./extractors/v2/index.js";
+export * from "./probe/scoring-v2-live-character/index.js";
 
 export type { WarcraftLogsProvider };

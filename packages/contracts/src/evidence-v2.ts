@@ -113,7 +113,12 @@ export const evidenceCandidateMetadataV2Schema = z.object({
   reportRevision: z.number().int().nonnegative().nullable(),
   dungeonSlug: z.string().min(1),
   keyLevel: z.number().int().positive(),
-  /** Unknown timer retained as null — not a hard reject by itself. */
+  /**
+   * Timer outcome for eligibility:
+   * - true → eligible (successfully timed)
+   * - false → ineligible (UNTIMED_RUN)
+   * - null → unresolved (TIMED_STATE_UNKNOWN); hydrate before accepting
+   */
   timed: z.boolean().nullable(),
   /** Comparable canonical run score when available; null sorts last. */
   runScore: z.number().nullable(),
@@ -133,15 +138,20 @@ export type EvidenceCandidateMetadataV2 = z.infer<typeof evidenceCandidateMetada
 
 export const candidateRejectionReasonSchema = z.enum([
   "HIDDEN_OR_PRIVATE",
+  /** Preferred alias for private/hidden exclusion in Shadow Canary diagnostics. */
+  "PRIVATE_OR_HIDDEN",
   "ARCHIVED_OR_GATED",
+  "PUBLIC_ACCESS_FAILED",
   "IDENTITY_UNRESOLVED",
   "WRONG_SEASON",
   "WRONG_SPEC",
   "WRONG_DUNGEON",
   "DUPLICATE_REPORT_FIGHT",
   "MISSING_KEY_LEVEL",
+  "KEY_LEVEL_UNRESOLVED",
   "INVALID_DURATION",
   "MISSING_REPORT_REVISION",
+  "REPORT_REVISION_UNRESOLVED",
   "HARD_PROVIDER_ERROR",
   "SCHEMA_UNSUPPORTED",
   "RATE_DEFERRED",
@@ -152,6 +162,13 @@ export const candidateRejectionReasonSchema = z.enum([
   "DATASET_INVALID",
   "FACT_SET_INVALID",
   "FALLBACK_EXHAUSTED",
+  "UNTIMED_RUN",
+  "TIMED_STATE_UNKNOWN",
+  "INCOMPLETE_FIGHT",
+  "ACTOR_UNRESOLVED",
+  "REQUIRED_DATASET_UNAVAILABLE",
+  "REQUIRED_DATASET_TRUNCATED",
+  "DUNGEON_UNRESOLVED",
 ]);
 export type CandidateRejectionReason = z.infer<typeof candidateRejectionReasonSchema>;
 

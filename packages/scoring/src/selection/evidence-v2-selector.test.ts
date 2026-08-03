@@ -354,7 +354,7 @@ describe("evidence V2 plan → acquire → finalize lifecycle", () => {
 
     expect(plan.rejectedCandidates.map((r) => r.reason)).toEqual(
       expect.arrayContaining([
-        "HIDDEN_OR_PRIVATE",
+        "PRIVATE_OR_HIDDEN",
         "ARCHIVED_OR_GATED",
         "WRONG_SEASON",
         "WRONG_SPEC",
@@ -634,5 +634,109 @@ describe("evidence V2 plan → acquire → finalize lifecycle", () => {
       coverage: { ...manifest.coverage },
     });
     expect(computeEvidenceManifestContentHash(manifestHashInput)).toBe(manifest.contentHash);
+  });
+
+  it("rejects untimed and unknown timed candidates at plan time", () => {
+    const { plan, manifest } = planAndFinalize(
+      [
+        candidate({
+          reportCode: "untimed",
+          fightId: 1,
+          dungeonSlug: "skyreach",
+          keyLevel: 20,
+          timed: false,
+        }),
+        candidate({
+          reportCode: "unknown-timed",
+          fightId: 2,
+          dungeonSlug: "skyreach",
+          keyLevel: 19,
+          timed: null,
+        }),
+        candidate({
+          reportCode: "timed-ok",
+          fightId: 3,
+          dungeonSlug: "skyreach",
+          keyLevel: 18,
+          timed: true,
+        }),
+        candidate({
+          reportCode: "timed-ok-2",
+          fightId: 4,
+          dungeonSlug: "skyreach",
+          keyLevel: 17,
+          timed: true,
+        }),
+      ],
+      { scope: baseScope({ activeDungeonSlugs: ["skyreach"] }) },
+    );
+
+    expect(plan.rejectedCandidates.map((r) => r.reason)).toEqual(
+      expect.arrayContaining(["UNTIMED_RUN", "TIMED_STATE_UNKNOWN"]),
+    );
+    expect(manifest.selectedSlotCount).toBe(2);
+    expect(manifest.slots.map((s) => s.identity?.reportCode)).toEqual([
+      "timed-ok",
+      "timed-ok-2",
+    ]);
+  });
+
+  it("falls back past private and untimed candidates to fill two slots", () => {
+    const { plan, manifest } = planAndFinalize(
+      [
+        candidate({
+          reportCode: "private",
+          fightId: 1,
+          dungeonSlug: "skyreach",
+          keyLevel: 22,
+          accessState: "PRIVATE_OR_HIDDEN",
+        }),
+        candidate({
+          reportCode: "untimed-high",
+          fightId: 2,
+          dungeonSlug: "skyreach",
+          keyLevel: 21,
+          timed: false,
+        }),
+        candidate({
+          reportCode: "public-a",
+          fightId: 3,
+          dungeonSlug: "skyreach",
+          keyLevel: 16,
+        }),
+        candidate({
+          reportCode: "public-b",
+          fightId: 4,
+          dungeonSlug: "skyreach",
+          keyLevel: 15,
+        }),
+      ],
+      { scope: baseScope({ activeDungeonSlugs: ["skyreach"] }) },
+    );
+
+    expect(plan.rejectedCandidates.map((r) => r.reason)).toEqual(
+      expect.arrayContaining(["PRIVATE_OR_HIDDEN", "UNTIMED_RUN"]),
+    );
+    expect(manifest.selectedSlotCount).toBe(2);
+    expect(manifest.slots[0]!.identity?.reportCode).toBe("public-a");
+    expect(manifest.slots[1]!.identity?.reportCode).toBe("public-b");
+  });
+
+  it("reports insufficient eligible evidence without inventing slots", () => {
+    const { manifest } = planAndFinalize(
+      [
+        candidate({
+          reportCode: "only-one",
+          fightId: 1,
+          dungeonSlug: "skyreach",
+          keyLevel: 14,
+        }),
+      ],
+      { scope: baseScope({ activeDungeonSlugs: ["skyreach"] }) },
+    );
+
+    expect(manifest.selectedSlotCount).toBe(1);
+    expect(manifest.slots[0]!.state).toBe("SELECTED");
+    expect(manifest.slots[1]!.state).not.toBe("SELECTED");
   });
 });

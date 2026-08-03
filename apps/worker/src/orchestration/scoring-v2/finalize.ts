@@ -19,6 +19,10 @@ import {
   resolveEnabledShadowDimensions,
 } from "./dimension-finalizer.js";
 import { persistTypedFactSet } from "./typed-fact-persist.js";
+import {
+  addProviderAccounting,
+  aggregateProviderAccounting,
+} from "./provider-accounting.js";
 
 /**
  * Provider-free fan-in finalizer:
@@ -45,14 +49,18 @@ export async function runFinalizeEvidenceBatchV2(
 }> {
   assertPublicationBlocked(container.env);
 
-  if (!container.env.SCORING_V2_ENABLED) {
-    return { outcome: "flags_off", analysisBatchId: job.analysisBatchId };
-  }
-
   const repo = container.repositories.evidenceV2Batch;
   const existing = await repo.getById(job.analysisBatchId);
   if (!existing) {
+    // Preserve flags_off when V2 is disabled and the batch is absent (isolation tests).
+    if (!container.env.SCORING_V2_ENABLED) {
+      return { outcome: "flags_off", analysisBatchId: job.analysisBatchId };
+    }
     return { outcome: "batch_not_found", analysisBatchId: job.analysisBatchId };
+  }
+
+  if (!container.env.SCORING_V2_ENABLED && existing.meta.adminShadowCanary !== true) {
+    return { outcome: "flags_off", analysisBatchId: job.analysisBatchId };
   }
 
   if (existing.batch.finalizationStatus === "FINALIZED") {
@@ -250,7 +258,18 @@ export async function runFinalizeEvidenceBatchV2(
             (slotRec.acquisitionResult?.reportRevision == null ||
               s.reportRevision === slotRec.acquisitionResult.reportRevision),
         );
-        if (!dbSlot || slotRec.acquisitionResult?.reportRevision == null) continue;
+        const hasWrittenPayload = slotRec.typedFactPayloads.some(
+          (p) => p.status === "WRITTEN" && p.facts != null,
+        );
+        if (!dbSlot || slotRec.acquisitionResult?.reportRevision == null) {
+          // Fail closed: WRITTEN facts must bind to a frozen manifest slot.
+          if (hasWrittenPayload) {
+            throw new Error(
+              `typed_fact_persist_missing_manifest_slot:${identity.reportCode}/${identity.fightId}`,
+            );
+          }
+          continue;
+        }
 
         for (const payload of slotRec.typedFactPayloads) {
           const persisted = await persistTypedFactSet({
@@ -276,8 +295,14 @@ export async function runFinalizeEvidenceBatchV2(
     }
 
     // Shadow dimension finalization — provider-free; no public publication.
-    if (container.env.SCORING_V2_DIMENSIONS_ENABLED) {
-      const enabledDimensions = resolveEnabledShadowDimensions(container.env);
+    // Admin Shadow Canary forces all four dimensions even when process env flags are off.
+    const canaryDims = claimed.meta.adminShadowCanary === true;
+    if (canaryDims || container.env.SCORING_V2_DIMENSIONS_ENABLED) {
+      const enabledDimensions = canaryDims
+        ? (["PERFORMANCE", "SURVIVAL", "UTILITY", "EXPERIENCE"] as Array<
+            "PERFORMANCE" | "SURVIVAL" | "UTILITY" | "EXPERIENCE"
+          >)
+        : resolveEnabledShadowDimensions(container.env);
       if (enabledDimensions.length > 0) {
         const { finalization, persisted: dimRows, failed, allPersisted } =
           await persistShadowDimensionComputations(container, {
@@ -318,6 +343,67 @@ export async function runFinalizeEvidenceBatchV2(
     // Explicitly do NOT touch CharacterPublishedScore / publish pointer.
     await repo.markAdmissionReleased(job.analysisBatchId);
     await repo.markFinalized(job.analysisBatchId);
+
+    if (claimed.meta.adminShadowCanary === true && claimed.meta.shadowCanaryId) {
+      const slotRows = claimed.meta.slots ?? [];
+      const succeeded = slotRows.filter(
+        (s) => s.status === "SUCCEEDED" || s.status === "PARTIAL",
+      ).length;
+      const unavailable = slotRows.filter((s) => s.status === "UNAVAILABLE").length;
+      const prior = await container.prisma.scoringV2ShadowCanary.findUnique({
+        where: { id: claimed.meta.shadowCanaryId },
+        select: { progress: true, diagnostics: true },
+      });
+      const priorProgress =
+        prior?.progress != null && typeof prior.progress === "object" && !Array.isArray(prior.progress)
+          ? (prior.progress as Record<string, unknown>)
+          : {};
+      const priorDiagnostics =
+        prior?.diagnostics != null &&
+        typeof prior.diagnostics === "object" &&
+        !Array.isArray(prior.diagnostics)
+          ? (prior.diagnostics as Record<string, unknown>)
+          : {};
+      const discoveryCalls =
+        priorDiagnostics.discovery != null &&
+        typeof priorDiagnostics.discovery === "object" &&
+        !Array.isArray(priorDiagnostics.discovery) &&
+        typeof (priorDiagnostics.discovery as { providerCalls?: unknown }).providerCalls ===
+          "number"
+          ? ((priorDiagnostics.discovery as { providerCalls: number }).providerCalls ?? 0)
+          : 0;
+      const slotAccounting = aggregateProviderAccounting(
+        slotRows.map((s) => s.providerAccounting),
+      );
+      const providerAccounting = addProviderAccounting(slotAccounting, {
+        providerCalls: discoveryCalls,
+      });
+      await container.prisma.scoringV2ShadowCanary.update({
+        where: { id: claimed.meta.shadowCanaryId },
+        data: {
+          status: "COMPLETED",
+          completedAt: new Date(),
+          analysisBatchId: job.analysisBatchId,
+          progress: {
+            ...priorProgress,
+            finalized: true,
+            manifestId,
+            manifestContentHash,
+            slotSucceeded: succeeded,
+            slotUnavailable: unavailable,
+            slotTotal: slotRows.length,
+          },
+          diagnostics: {
+            ...priorDiagnostics,
+            providerAccounting: {
+              ...providerAccounting,
+              discoveryProviderCalls: discoveryCalls,
+              acquisitionProviderCalls: slotAccounting.providerCalls,
+            },
+          },
+        },
+      });
+    }
 
     recordBatchOutcome("finalized");
     recordPublicationDecision("rejected", "shadow_publication_blocked");

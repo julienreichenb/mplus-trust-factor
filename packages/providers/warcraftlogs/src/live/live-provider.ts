@@ -23,6 +23,7 @@ import {
 } from "../client/graphql-client.js";
 import { WclTokenManager } from "../client/token-manager.js";
 import { isUnavailableEvidenceError, wclError } from "../client/errors.js";
+import type { RankingParseEvidenceV2 } from "../extractors/v2/types.js";
 import { OPERATIONS } from "../operations/queries.js";
 import {
   buildCharacterDiscovery,
@@ -71,6 +72,7 @@ import {
   parseRateLimitSnapshot,
   shouldDeferExpensiveWork,
 } from "../rate/rate-budget.js";
+import { resolveRankingParseFromZoneRankings } from "../evidence/ranking-parse.js";
 import type { WclCharacterDiscoveryResult, WclDungeonPerformanceAggregate, WclReportFightDetails } from "../types.js";
 
 export interface LiveWarcraftLogsProviderConfig {
@@ -297,6 +299,7 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
         startTime: f.startTime,
         endTime: f.endTime,
         keystoneLevel: f.keystoneLevel,
+        keystoneBonus: f.keystoneBonus,
         friendlyPlayers: f.friendlyPlayers ?? undefined,
       })),
       masterData: report.masterData
@@ -392,6 +395,65 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
       }
       throw error;
     }
+  }
+
+  /**
+   * First-class per-run RANKING_PARSE: zoneRankings row bound to reportCode+fightId+revision.
+   * Not a dungeon aggregate — requires an exact fight match.
+   */
+  async getRankingParseForFight(input: {
+    reportCode: string;
+    fightId: number;
+    reportRevision: number;
+    dungeonSlug: string;
+    keyLevel: number | null;
+    ctx: ProviderFetchContext;
+  }): Promise<{
+    evidence: RankingParseEvidenceV2 | null;
+    providerCalls: number;
+    unavailableReason: string | null;
+  }> {
+    const identity = requireTargetCharacter(input.ctx);
+    if (!shouldQueryZoneRankings(this.zoneConfig)) {
+      return {
+        evidence: null,
+        providerCalls: 0,
+        unavailableReason: "ranking_parse_zone_payload_empty",
+      };
+    }
+    const serverRegion = mapRegionToWcl(identity.region);
+    const rankingsResult = await this.client.request({
+      operationName: OPERATIONS.CharacterZoneRankings.operationName,
+      query: OPERATIONS.CharacterZoneRankings.query,
+      variables: {
+        name: identity.name,
+        serverSlug: identity.realmSlug,
+        serverRegion,
+        zoneID: this.zoneConfig.zoneId,
+      },
+      region: identity.region,
+    });
+    const rankingsParsed = parseWithSchema(
+      zoneRankingsSchema,
+      rankingsResult.response.data,
+      "ZoneRankings",
+    );
+    const zonePayload = (rankingsParsed.characterData.character?.zoneRankings ??
+      null) as ZoneRankingsPayload | null;
+    const resolved = resolveRankingParseFromZoneRankings({
+      payload: zonePayload,
+      zoneId: this.zoneConfig.zoneId,
+      reportCode: input.reportCode,
+      fightId: input.fightId,
+      reportRevision: input.reportRevision,
+      dungeonSlug: input.dungeonSlug,
+      keyLevel: input.keyLevel,
+    });
+    return {
+      evidence: resolved.evidence,
+      providerCalls: 1,
+      unavailableReason: resolved.unavailableReason,
+    };
   }
 
   async fetchSurvivalHealthSnapshots(

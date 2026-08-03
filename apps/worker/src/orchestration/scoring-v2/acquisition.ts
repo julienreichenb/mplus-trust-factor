@@ -39,9 +39,14 @@ import {
 import { getAbilityCatalog } from "@mplus/abilities";
 import type { WorkerContainer } from "../../container.js";
 import {
+  emptyProviderAccounting,
+  type ScoringV2ProviderAccounting,
+} from "./provider-accounting.js";
+import {
   resolveFrozenClassSpecIdentity,
   type FrozenClassSpecIdentity,
 } from "./class-spec-identity.js";
+import { persistWclRunDigestAndRoster } from "./wcl-run-digest-persist.js";
 import {
   requiresRankingParse,
   requiresSharedEventEvidence,
@@ -230,6 +235,12 @@ export async function acquireCandidateWithFallback(input: {
     actorId: number | null;
   }>;
   region: string;
+  /** Required by live WCL fight analysis to resolve the target actor. */
+  targetCharacter: {
+    region: "EU" | "US" | "KR" | "TW";
+    realmSlug: string;
+    name: string;
+  };
   correlationId: string | null;
   shouldCancel: () => Promise<boolean>;
   evidence: EvidenceRepository;
@@ -257,10 +268,12 @@ export async function acquireCandidateWithFallback(input: {
   typedFactPayloads: TypedDimensionFactPayload[];
   rejectedAttempts: EvidenceCandidateAcquisitionResult[];
   providerCallTotal: number;
+  providerAccounting: ScoringV2ProviderAccounting;
 }> {
   const rejectedAttempts: EvidenceCandidateAcquisitionResult[] = [];
   const { container, datasetRequirements } = input;
   let providerCallTotal = 0;
+  let providerAccounting = emptyProviderAccounting();
 
   const classSpecIdentity =
     input.classSpecIdentity ??
@@ -287,6 +300,7 @@ export async function acquireCandidateWithFallback(input: {
       correlationId: input.correlationId ?? `v2-slot-${identity.reportCode}`,
       forceRefresh: false,
       now: new Date().toISOString(),
+      targetCharacter: input.targetCharacter,
     };
 
     try {
@@ -296,6 +310,18 @@ export async function acquireCandidateWithFallback(input: {
         ctx,
       });
       providerCallTotal += details.providerCalls;
+      if (details.providerCalls > 0) {
+        providerAccounting = {
+          ...providerAccounting,
+          providerCalls: providerAccounting.providerCalls + details.providerCalls,
+        };
+      } else {
+        providerAccounting = {
+          ...providerAccounting,
+          cacheHits: providerAccounting.cacheHits + 1,
+          avoidedRequests: providerAccounting.avoidedRequests + 1,
+        };
+      }
 
       if (details.data == null) {
         recordInvalidCandidateReason("ACQUISITION_FAILED");
@@ -322,6 +348,113 @@ export async function acquireCandidateWithFallback(input: {
       const playerActorId = details.playerActorId ?? candidate.actorId;
       const dungeonSlug =
         details.dungeonSlug ?? input.slotContext.dungeonSlug;
+
+      // Post-hydration eligibility — private/untimed/incomplete never consume a slot.
+      if (candidate.timed === false) {
+        recordInvalidCandidateReason("UNTIMED_RUN");
+        rejectedAttempts.push({
+          discoveryIdentity: identity,
+          acquisitionStatus: "REJECTED",
+          reportRevision,
+          rejectionReason: "UNTIMED_RUN",
+          rejectionDetail: "timed===false after fight details",
+          datasetHashes: [],
+          factSetHash: null,
+          dimensionValidity: null,
+          keyLevel: candidate.keyLevel,
+          timed: false,
+          runScore: candidate.runScore,
+          completedAt: candidate.completedAt,
+          actorId: playerActorId,
+          evidenceCompleteness: candidate.evidenceCompleteness,
+        });
+        continue;
+      }
+      if (candidate.timed == null) {
+        recordInvalidCandidateReason("TIMED_STATE_UNKNOWN");
+        rejectedAttempts.push({
+          discoveryIdentity: identity,
+          acquisitionStatus: "REJECTED",
+          reportRevision,
+          rejectionReason: "TIMED_STATE_UNKNOWN",
+          rejectionDetail: "timed still unresolved after fight details",
+          datasetHashes: [],
+          factSetHash: null,
+          dimensionValidity: null,
+          keyLevel: candidate.keyLevel,
+          timed: null,
+          runScore: candidate.runScore,
+          completedAt: candidate.completedAt,
+          actorId: playerActorId,
+          evidenceCompleteness: candidate.evidenceCompleteness,
+        });
+        continue;
+      }
+      if (playerActorId == null) {
+        recordInvalidCandidateReason("ACTOR_UNRESOLVED");
+        rejectedAttempts.push({
+          discoveryIdentity: identity,
+          acquisitionStatus: "REJECTED",
+          reportRevision,
+          rejectionReason: "ACTOR_UNRESOLVED",
+          rejectionDetail: "player actor not resolved",
+          datasetHashes: [],
+          factSetHash: null,
+          dimensionValidity: null,
+          keyLevel: candidate.keyLevel,
+          timed: candidate.timed,
+          runScore: candidate.runScore,
+          completedAt: candidate.completedAt,
+          actorId: null,
+          evidenceCompleteness: candidate.evidenceCompleteness,
+        });
+        continue;
+      }
+      if (!Number.isFinite(reportRevision) || reportRevision < 0) {
+        recordInvalidCandidateReason("REPORT_REVISION_UNRESOLVED");
+        rejectedAttempts.push({
+          discoveryIdentity: identity,
+          acquisitionStatus: "REJECTED",
+          reportRevision: null,
+          rejectionReason: "REPORT_REVISION_UNRESOLVED",
+          rejectionDetail: "report revision unresolved",
+          datasetHashes: [],
+          factSetHash: null,
+          dimensionValidity: null,
+          keyLevel: candidate.keyLevel,
+          timed: candidate.timed,
+          runScore: candidate.runScore,
+          completedAt: candidate.completedAt,
+          actorId: playerActorId,
+          evidenceCompleteness: candidate.evidenceCompleteness,
+        });
+        continue;
+      }
+      if (
+        details.startTime == null ||
+        details.endTime == null ||
+        details.endTime <= details.startTime
+      ) {
+        recordInvalidCandidateReason("INCOMPLETE_FIGHT");
+        rejectedAttempts.push({
+          discoveryIdentity: identity,
+          acquisitionStatus: "REJECTED",
+          reportRevision,
+          rejectionReason: "INCOMPLETE_FIGHT",
+          rejectionDetail: "fight start/end metadata incoherent",
+          datasetHashes: [],
+          factSetHash: null,
+          dimensionValidity: null,
+          keyLevel: candidate.keyLevel,
+          timed: candidate.timed,
+          runScore: candidate.runScore,
+          completedAt: candidate.completedAt,
+          actorId: playerActorId,
+          evidenceCompleteness: candidate.evidenceCompleteness,
+        });
+        continue;
+      }
+
       const artifactIds: string[] = [];
       const datasetHashes: EvidenceCandidateAcquisitionResult["datasetHashes"] = [];
       const datasetCompatibilityKeys: string[] = [];
@@ -334,6 +467,10 @@ export async function acquireCandidateWithFallback(input: {
         payload: details.data,
       });
       artifactIds.push(fightArtifact.artifactId);
+      providerAccounting = {
+        ...providerAccounting,
+        bytes: providerAccounting.bytes + fightArtifact.bytes,
+      };
 
       await input.evidence.upsertWclReportRevision({
         reportCode: identity.reportCode,
@@ -382,6 +519,34 @@ export async function acquireCandidateWithFallback(input: {
         });
         providerCallTotal += shared.providerCalls;
         bundle = shared.bundle;
+        const sharedSf = shared.singleflightReuse ?? 0;
+        const sharedPages = shared.pages ?? bundle?.accounting.pages ?? 0;
+        const sharedPoints =
+          shared.pointsConsumed ?? bundle?.accounting.pointsConsumed ?? null;
+        if (shared.providerCalls > 0) {
+          providerAccounting = {
+            ...providerAccounting,
+            providerCalls: providerAccounting.providerCalls + shared.providerCalls,
+            pages: providerAccounting.pages + sharedPages,
+            pointsConsumed:
+              sharedPoints != null
+                ? (providerAccounting.pointsConsumed ?? 0) + sharedPoints
+                : providerAccounting.pointsConsumed,
+            singleflightReuse: providerAccounting.singleflightReuse + sharedSf,
+          };
+        } else if (shared.cacheHits > 0 || sharedSf > 0) {
+          providerAccounting = {
+            ...providerAccounting,
+            cacheHits: providerAccounting.cacheHits + shared.cacheHits,
+            avoidedRequests: providerAccounting.avoidedRequests + Math.max(1, shared.cacheHits),
+            pages: providerAccounting.pages + sharedPages,
+            pointsConsumed:
+              sharedPoints != null
+                ? (providerAccounting.pointsConsumed ?? 0) + sharedPoints
+                : providerAccounting.pointsConsumed,
+            singleflightReuse: providerAccounting.singleflightReuse + sharedSf,
+          };
+        }
 
         if (shared.providerCalls > 0 && bundle) {
           const sharedArtifact = await persistArtifactBytes({
@@ -405,6 +570,10 @@ export async function acquireCandidateWithFallback(input: {
             },
           });
           artifactIds.push(sharedArtifact.artifactId);
+          providerAccounting = {
+            ...providerAccounting,
+            bytes: providerAccounting.bytes + sharedArtifact.bytes,
+          };
           recordDatasetOutcome({
             outcome: "fetched",
             datasetKey: "shared-evidence",
@@ -426,6 +595,38 @@ export async function acquireCandidateWithFallback(input: {
         }
 
         if (bundle) {
+          // Permanent neutral digest + roster from persisted source evidence (not scores).
+          try {
+            await persistWclRunDigestAndRoster({
+              wclSource: container.repositories.wclSource,
+              bundle,
+              region: input.region,
+              dungeonSlug,
+              keyLevel: candidate.keyLevel,
+              timed: candidate.timed,
+              resolveTarget: {
+                characterId: input.characterId,
+                characterName: input.targetCharacter.name,
+                realmSlug: input.targetCharacter.realmSlug,
+                regionCode: input.targetCharacter.region,
+              },
+              startTimeMs: details.startTime,
+              endTimeMs: details.endTime,
+            });
+          } catch (digestError) {
+            container.logger.warn(
+              {
+                event: "wcl_run_digest_persist_failed",
+                reportCode: identity.reportCode,
+                fightId: identity.fightId,
+                reportRevision,
+                error:
+                  digestError instanceof Error ? digestError.message : String(digestError),
+              },
+              "wcl run digest persist failed; continuing acquisition",
+            );
+          }
+
           for (const [key, ds] of Object.entries(bundle.eventDatasets)) {
             if (!ds) continue;
             const kind = datasetKindFromSharedKey(key);
@@ -486,6 +687,7 @@ export async function acquireCandidateWithFallback(input: {
       // --- Performance ---
       if (consumers.has("PERFORMANCE")) {
         let rankingEvidence = null;
+        let rankingUnavailableReason: string | null = null;
         if (needRanking) {
           const ranking = await input.transport.getRankingParse({
             reportCode: identity.reportCode,
@@ -497,9 +699,19 @@ export async function acquireCandidateWithFallback(input: {
           });
           providerCallTotal += ranking.providerCalls;
           rankingEvidence = ranking.evidence;
+          rankingUnavailableReason = ranking.unavailableReason;
           if (ranking.providerCalls === 0 && ranking.evidence) {
+            providerAccounting = {
+              ...providerAccounting,
+              cacheHits: providerAccounting.cacheHits + 1,
+              avoidedRequests: providerAccounting.avoidedRequests + 1,
+            };
             recordDatasetOutcome({ outcome: "cache_hit", datasetKey: "ranking-parse" });
           } else if (ranking.providerCalls > 0) {
+            providerAccounting = {
+              ...providerAccounting,
+              providerCalls: providerAccounting.providerCalls + ranking.providerCalls,
+            };
             recordDatasetOutcome({ outcome: "fetched", datasetKey: "ranking-parse" });
           }
           if (rankingEvidence) {
@@ -508,12 +720,21 @@ export async function acquireCandidateWithFallback(input: {
               contentHash: hashFactDocumentContent(rankingEvidence),
             });
           }
+        } else {
+          rankingUnavailableReason = "ranking_parse_not_requested";
         }
 
         try {
+          const rankingAbsentReason =
+            rankingEvidence != null
+              ? null
+              : needRanking
+                ? rankingUnavailableReason ?? "RANKING_PARSE_PUBLIC_API_UNAVAILABLE"
+                : "ranking_parse_not_requested";
           const outcome = extractPerformanceRunParseFactV2({
             slot: slotBinding,
             evidence: rankingEvidence,
+            absentReason: rankingAbsentReason,
           });
           typedFactPayloads.push({
             dimension: "PERFORMANCE",
@@ -764,6 +985,8 @@ export async function acquireCandidateWithFallback(input: {
       const written = typedFactPayloads.filter(
         (p) => p.status === "WRITTEN" && p.facts != null,
       );
+      // Never invent a binding hash without WRITTEN RunFactSet members — that
+      // freezes SELECTED slots whose expected hash has no rows (actual=missing).
       const factSetFingerprint =
         written.length > 0
           ? buildSlotFactSetBindingHash(
@@ -782,15 +1005,7 @@ export async function acquireCandidateWithFallback(input: {
                 facts: p.facts,
               })),
             )
-          : buildFactSetFingerprint({
-              reportCode: identity.reportCode,
-              fightId: identity.fightId,
-              reportRevision,
-              extractorFamily: "scoring-v2-acquisition",
-              extractorVersion: "2.0.0",
-              classSlug,
-              specSlug,
-            });
+          : null;
 
       const dimValidity = {
         performance: mapValidity(typedFactPayloads, "PERFORMANCE"),
@@ -824,6 +1039,7 @@ export async function acquireCandidateWithFallback(input: {
         typedFactPayloads,
         rejectedAttempts,
         providerCallTotal,
+        providerAccounting,
       };
     } catch (error) {
       if (error instanceof ScoringV2CancelledError || error instanceof ScoringV2SupersededError) {
@@ -872,6 +1088,7 @@ export async function acquireCandidateWithFallback(input: {
     typedFactPayloads: [],
     rejectedAttempts,
     providerCallTotal,
+    providerAccounting,
   };
 }
 

@@ -14,3 +14,8 @@ export {
   type ExplainabilityV2SlotSource,
   type ExplainabilityV2V1SnapshotSource,
 } from "./build.js";
+export {
+  buildCooldownUsageAdminRows,
+  buildCooldownUsagePublicRows,
+  type CooldownUsageFactInput,
+} from "./cooldown-usage.js";

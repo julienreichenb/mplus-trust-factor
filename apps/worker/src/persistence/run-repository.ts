@@ -23,12 +23,13 @@ export type MythicRunWithRelations = MythicRun & {
 };
 
 export async function ensureDungeon(client: PrismaClientOrTx, dungeonSlug: string): Promise<Dungeon> {
-  // Upsert is race-safe under parallel creates and does not abort an open transaction
-  // (unlike create-then-catch-P2002, which leaves Postgres in 25P02).
+  // Non-empty `update` is required so Prisma emits INSERT … ON CONFLICT (native upsert).
+  // Empty `update: {}` falls back to SELECT-then-INSERT and races under parallel creates.
+  const name = capitalize(dungeonSlug);
   return client.dungeon.upsert({
     where: { slug: dungeonSlug },
-    create: { slug: dungeonSlug, name: capitalize(dungeonSlug) },
-    update: {},
+    create: { slug: dungeonSlug, name },
+    update: { name },
   });
 }
 

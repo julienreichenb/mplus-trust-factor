@@ -9,6 +9,7 @@
 | 06–09 Dimensions | merged | WS06–09 | 02–05 | `#55`–`#58` | green | — | calculator packages | 06–09 | done |
 | 10 Calibration + dimension finalization | `feat/scoring-v2-calibration` (merged) + WS10.5 model-config | WS10 | 02–09 | tip | unit + disposable E2E green | real WCL extractors deferred; flags remain off | scoring dimensions/v2, calibration bundle V2, model-config injection | 10 | done (shadow + active/draft replay) |
 | 11 Admin + public explainability | `feat/scoring-v2-explainability` | WS11 | 02–10 | tip of branch | unit + route inject green | public attach remains null while lifecycle SHADOW; flags remain off; no deploy | `explainability-v2` contracts, scoring builders, admin GET diagnostics, public profile field + UI | 11 | explainability checkpoint |
+| 12 Shadow Canary (live) | `feat/scoring-v2-live-canary` | — | 02–11 | tip | in progress | publication blocked; flags remain off | digest/pages/roster/canary tables, Redis WCL permits, admin canary UI | after 11 | see `SHADOW_CANARY_STATUS.md` |
 
 ## WS10 delivered
 

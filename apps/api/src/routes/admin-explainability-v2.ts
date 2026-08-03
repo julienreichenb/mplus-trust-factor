@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from "fastify";
 import type { ApiContainer } from "../container.js";
 import { ExplainabilityV2Service } from "../services/explainability-v2-service.js";
 import { ScoringV2EvidenceExportService } from "../services/scoring-v2-evidence-export-service.js";
+import { ScoringV2ShadowCanaryService, launchShadowCanaryBodySchema } from "../services/scoring-v2-shadow-canary-service.js";
 import { buildScoringV2Overview } from "../services/scoring-v2-overview-service.js";
 import {
   getConcurrencySettings,
@@ -69,6 +70,7 @@ async function resolveActorUserId(
 export function buildAdminExplainabilityV2Routes(container: ApiContainer): FastifyPluginAsync {
   const explain = new ExplainabilityV2Service(container);
   const exports = new ScoringV2EvidenceExportService(container);
+  const canaries = new ScoringV2ShadowCanaryService(container);
   const env = container.env;
 
   return async (app) => {
@@ -256,6 +258,45 @@ export function buildAdminExplainabilityV2Routes(container: ApiContainer): Fasti
           });
         },
       );
+
+      readApp.get(
+        "/api/v1/admin/scoring-v2/shadow-canaries",
+        {
+          schema: {
+            tags: [...scoringV2ControlCenterTags],
+            summary: "List recent Scoring V2 Shadow Canary runs",
+            response: {
+              200: { type: "object", additionalProperties: true },
+              ...authErrorResponses,
+            },
+          },
+        },
+        async () => ({ items: await canaries.list() }),
+      );
+
+      readApp.get(
+        "/api/v1/admin/scoring-v2/shadow-canaries/:canaryId",
+        {
+          schema: {
+            tags: [...scoringV2ControlCenterTags],
+            summary: "Get one Shadow Canary run",
+            params: {
+              type: "object",
+              properties: { canaryId: { type: "string", format: "uuid" } },
+              required: ["canaryId"],
+            },
+            response: {
+              200: { type: "object", additionalProperties: true },
+              404: errorResponseSchema,
+              ...authErrorResponses,
+            },
+          },
+        },
+        async (request) => {
+          const params = request.params as { canaryId: string };
+          return canaries.get(params.canaryId);
+        },
+      );
     });
 
     await app.register(async (writeApp) => {
@@ -315,6 +356,64 @@ export function buildAdminExplainabilityV2Routes(container: ApiContainer): Fasti
         });
         return result;
       },
+      );
+
+      writeApp.post(
+        "/api/v1/admin/scoring-v2/shadow-canaries",
+        {
+          schema: {
+            tags: [...scoringV2ControlCenterTags],
+            summary: "Launch an asynchronous Scoring V2 Shadow Canary (publication blocked)",
+            body: {
+              type: "object",
+              required: ["region", "realmSlug", "characterName"],
+              properties: {
+                region: { type: "string", enum: ["EU", "US", "KR", "TW"] },
+                realmSlug: { type: "string", minLength: 1, maxLength: 64 },
+                characterName: { type: "string", minLength: 1, maxLength: 48 },
+              },
+            },
+            response: {
+              200: { type: "object", additionalProperties: true },
+              ...conflictErrorResponses,
+            },
+          },
+        },
+        async (request) => {
+          const body = launchShadowCanaryBodySchema.parse(request.body);
+          const actorId = await resolveActorUserId(request, container);
+          const result = await canaries.launch({
+            body,
+            requestedByUserId: actorId,
+            enqueue: async (job) => {
+              if (typeof container.producers.enqueueScoringV2ShadowCanary === "function") {
+                return container.producers.enqueueScoringV2ShadowCanary(job);
+              }
+              // Fallback: persist queued canary without worker enqueue in degraded mode.
+              return { jobId: `local-shadow-canary-${job.canaryId}` };
+            },
+          });
+          await writeAuditEvent(container.worker.prisma, {
+            userId: actorId,
+            actorType: auditCtx(request).actorType,
+            action: "admin.scoring_v2.shadow_canary.launch",
+            resourceType: "ScoringV2ShadowCanary",
+            resourceId: result.id,
+            sessionSecret: env.SESSION_SECRET,
+            ip: request.ip,
+            userAgent:
+              typeof request.headers["user-agent"] === "string"
+                ? request.headers["user-agent"]
+                : null,
+            metadata: {
+              region: body.region,
+              realmSlug: body.realmSlug,
+              characterName: body.characterName,
+              reused: result.reused,
+            },
+          });
+          return result;
+        },
       );
 
       writeApp.post(

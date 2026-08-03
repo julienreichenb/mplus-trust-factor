@@ -6,6 +6,7 @@ import {
   bulkOrchestratorJobSchema,
   calibrationRunJobSchema,
   scoringV2EvidenceExportJobSchema,
+  scoringV2ShadowCanaryJobSchema,
   discoverOwnedCharactersJobSchema,
   finalizeEvidenceBatchJobV2Schema,
   generateAddonExportJobSchema,
@@ -25,6 +26,7 @@ import { runAnalyzeRun } from "./orchestration/analyze-run.js";
 import { runBulkCharacterProcessing } from "./orchestration/bulk-character-processing.js";
 import { runCalibrationRunJob } from "./orchestration/calibration-run.js";
 import { runScoringV2EvidenceExportJob } from "./orchestration/scoring-v2-evidence-export.js";
+import { runScoringV2ShadowCanaryJob } from "./orchestration/scoring-v2/shadow-canary/processor.js";
 import { runDiscoverOwnedCharacters } from "./orchestration/discover-owned-characters.js";
 import { runGenerateAddonExport } from "./orchestration/generate-addon-export.js";
 import { runRecalculateScore } from "./orchestration/recalculate-score.js";
@@ -317,6 +319,19 @@ export function createWorkers(connection: ConnectionOptions, container: WorkerCo
     { connection, autorun: false, concurrency: 1 },
   );
 
+  // Admin Shadow Canary — discovery + production plan fan-out (publication blocked).
+  const shadowCanary = new Worker(
+    QUEUE_NAMES.scoringV2ShadowCanary,
+    async (job) => {
+      const payload = scoringV2ShadowCanaryJobSchema.parse(job.data);
+      const result = await withRetryClassification(job, () =>
+        runScoringV2ShadowCanaryJob(container, payload),
+      );
+      return toBullmqReturnValue(result);
+    },
+    { connection, autorun: false, concurrency: 1 },
+  );
+
   // Scoring V2 slot fan-out — bounded concurrency independent of job count.
   // Per-character fairness is enforced via batch generation + claim CAS, not unbounded WCL.
   const evidenceSlotFinalizeQueue = new Queue(QUEUE_NAMES.finalizeAnalysisBatch, { connection });
@@ -347,8 +362,8 @@ export function createWorkers(connection: ConnectionOptions, container: WorkerCo
       );
       return toBullmqReturnValue(result);
     },
-    // Bound WCL concurrency: keep low regardless of how many slot jobs are queued.
-    { connection, autorun: false, concurrency: 2 },
+    // Serialize slot completion metadata writes to avoid lost-update races on batch JSON.
+    { connection, autorun: false, concurrency: 1 },
   );
 
   // Scoring V2 fan-in — provider-free (no producers / no WCL). Calibration stays isolated.
@@ -374,6 +389,7 @@ export function createWorkers(connection: ConnectionOptions, container: WorkerCo
     bulk,
     calibration,
     evidenceExport,
+    shadowCanary,
     evidenceSlot,
     evidenceFinalize,
   ]) {
@@ -410,6 +426,7 @@ export function createWorkers(connection: ConnectionOptions, container: WorkerCo
     bulk,
     calibration,
     evidenceExport,
+    shadowCanary,
     evidenceSlot,
     evidenceFinalize,
   ];
