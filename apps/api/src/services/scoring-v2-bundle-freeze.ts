@@ -2,7 +2,6 @@
  * Assemble a real CalibrationInputBundleV2 from a completed evidence export.
  * Provider-free. Verifies artifact integrity before freeze. No refresh enqueue.
  */
-import { createHash } from "node:crypto";
 import { CURRENT_CATALOG_VERSION_ID } from "@mplus/abilities";
 import { CALIBRATION_LABEL_TO_QUALITATIVE } from "@mplus/contracts";
 import type { PrismaClient, ScoreModel } from "@mplus/database";
@@ -10,7 +9,9 @@ import type { ArtifactRepository } from "@mplus/database";
 import {
   COHORT_MANIFEST_SCHEMA_VERSION,
   algorithmVersionForDimension,
+  buildCalibrationContentRefV2,
   buildCalibrationInputBundleV2,
+  computeArtifactSha256Hex,
   createMapArtifactResolverV2,
   preflightCalibrationBundleV2,
   resolveFrozenDimensionConfigsForModel,
@@ -55,13 +56,68 @@ export interface AssembleBundleV2Result {
 }
 
 function sha256Hex(bytes: Buffer | string): string {
-  return createHash("sha256")
-    .update(typeof bytes === "string" ? Buffer.from(bytes, "utf8") : bytes)
-    .digest("hex");
+  return computeArtifactSha256Hex(bytes);
 }
 
 function canonicalJson(value: unknown): string {
   return JSON.stringify(value);
+}
+
+function storeArtifactBytes(
+  artifactBytes: Map<string, Buffer>,
+  bytes: Buffer,
+): string {
+  const contentHash = sha256Hex(bytes);
+  artifactBytes.set(contentHash, bytes);
+  return contentHash;
+}
+
+async function persistRef(
+  artifacts: ArtifactRepository,
+  ownerId: string,
+  artifactClass: string,
+  value: unknown,
+  artifactBytes: Map<string, Buffer>,
+  dryRun: boolean,
+  logicalContentHash?: string | null,
+): Promise<CalibrationContentRefV2> {
+  const json = canonicalJson(value);
+  const bytes = Buffer.from(json, "utf8");
+  const contentHash = storeArtifactBytes(artifactBytes, bytes);
+  let storageUri: string | undefined;
+  let byteLength = bytes.byteLength;
+  if (!dryRun) {
+    const write = await artifacts.persist({
+      provider: "INTERNAL",
+      bytes,
+      compression: "NONE",
+      artifactClass,
+      owner: { ownerType: "CalibrationFrozenExport", ownerId },
+    });
+    storageUri = write.write.storageUri;
+    byteLength = write.write.uncompressedSizeBytes;
+    // Content-addressed store hash must match our durable byte digest.
+    if (write.write.contentHash.toLowerCase() !== contentHash) {
+      throw new Error(
+        `artifact store contentHash mismatch: store=${write.write.contentHash} computed=${contentHash}`,
+      );
+    }
+    artifactBytes.set(write.write.contentHash, bytes);
+  }
+  const schemaVersion =
+    value && typeof value === "object" && "schemaVersion" in (value as object)
+      ? String((value as { schemaVersion?: unknown }).schemaVersion ?? null)
+      : null;
+  return {
+    ...buildCalibrationContentRefV2({
+      bytes,
+      artifactClass: artifactClass as CalibrationContentRefV2["artifactClass"],
+      logicalContentHash: logicalContentHash ?? null,
+      schemaVersion,
+      storageUri,
+    }),
+    byteLength,
+  };
 }
 
 function asConfigV1(model: ScoreModel): ScoreModelConfigV1 {
@@ -131,45 +187,6 @@ export function mapPreflightIssuesToFreezeBlockers(
     message: i.message,
     memberId: i.memberId,
   }));
-}
-
-async function persistRef(
-  artifacts: ArtifactRepository,
-  ownerId: string,
-  artifactClass: string,
-  value: unknown,
-  artifactBytes: Map<string, Buffer>,
-  dryRun: boolean,
-): Promise<CalibrationContentRefV2> {
-  const json = canonicalJson(value);
-  const bytes = Buffer.from(json, "utf8");
-  const contentHash = sha256Hex(bytes);
-  artifactBytes.set(contentHash, bytes);
-  let storageUri: string | undefined;
-  let byteLength = bytes.byteLength;
-  if (!dryRun) {
-    const write = await artifacts.persist({
-      provider: "INTERNAL",
-      bytes,
-      compression: "NONE",
-      artifactClass,
-      owner: { ownerType: "CalibrationFrozenExport", ownerId },
-    });
-    storageUri = write.write.storageUri;
-    byteLength = write.write.uncompressedSizeBytes;
-    // Content-addressed store hash is authoritative for this payload.
-    artifactBytes.set(write.write.contentHash, bytes);
-  }
-  return {
-    contentHash,
-    storageUri,
-    byteLength,
-    artifactClass: artifactClass as CalibrationContentRefV2["artifactClass"],
-    schemaVersion:
-      value && typeof value === "object" && "schemaVersion" in (value as object)
-        ? String((value as { schemaVersion?: unknown }).schemaVersion ?? null)
-        : null,
-  };
 }
 
 /**
@@ -389,27 +406,63 @@ export async function assembleCalibrationInputBundleV2(input: {
       continue;
     }
 
-    // EvidenceManifest.contentHash is the immutable identity (hash-input schema).
-    // Freeze serializes the document under that identity key for provider-free replay.
+    // EvidenceManifest.contentHash is the logical domain identity (hash-input schema).
+    // Durable CAS key is the sha256 of exact serialized document bytes.
     const manifestBytes = Buffer.from(canonicalJson(manifest.document), "utf8");
-    artifactBytes.set(manifest.contentHash.toLowerCase(), manifestBytes);
-    artifactBytes.set(manifest.contentHash, manifestBytes);
+    const byteDigestHex = storeArtifactBytes(artifactBytes, manifestBytes);
+    if (sha256Hex(manifestBytes) !== byteDigestHex) {
+      blockers.push({
+        code: "MANIFEST_BYTE_DIGEST_MISMATCH",
+        severity: "blocker",
+        message: `Manifest byte digest mismatch for member ${memberId}`,
+        memberId,
+      });
+      continue;
+    }
+    const documentLogical =
+      manifest.document &&
+      typeof manifest.document === "object" &&
+      manifest.document !== null &&
+      "contentHash" in (manifest.document as object)
+        ? String((manifest.document as { contentHash?: unknown }).contentHash ?? "")
+        : "";
+    if (
+      documentLogical &&
+      documentLogical.toLowerCase() !== manifest.contentHash.toLowerCase()
+    ) {
+      blockers.push({
+        code: "MANIFEST_LOGICAL_HASH_MISMATCH",
+        severity: "blocker",
+        message: `Manifest document.contentHash does not match logical contentHash for member ${memberId}`,
+        memberId,
+      });
+      continue;
+    }
     if (!dryRun) {
-      await input.artifacts.persist({
+      const write = await input.artifacts.persist({
         provider: "INTERNAL",
         bytes: manifestBytes,
         compression: "NONE",
         artifactClass: "evidence_manifest",
         owner: { ownerType: "CalibrationFrozenExport", ownerId: exportRow.id },
       });
+      if (write.write.contentHash.toLowerCase() !== byteDigestHex) {
+        blockers.push({
+          code: "MANIFEST_STORE_HASH_MISMATCH",
+          severity: "blocker",
+          message: `Artifact store hash mismatch for manifest member ${memberId}`,
+          memberId,
+        });
+        continue;
+      }
     }
 
-    const manifestRef: CalibrationContentRefV2 = {
-      contentHash: manifest.contentHash,
-      byteLength: manifestBytes.byteLength,
+    const manifestRef = buildCalibrationContentRefV2({
+      bytes: manifestBytes,
       artifactClass: "evidence_manifest",
+      logicalContentHash: manifest.contentHash.toLowerCase(),
       schemaVersion: manifest.schemaVersion,
-    };
+    });
 
     const factSets: CalibrationContentRefV2[] = [];
     for (const slot of manifest.slots) {
@@ -639,6 +692,7 @@ export async function assembleCalibrationInputBundleV2(input: {
     bundle,
     resolver,
     requireCatalogVersions: true,
+    requireByteIntegrity: true,
   });
   for (const issue of mapPreflightIssuesToFreezeBlockers(preflight.blocking)) {
     blockers.push(issue);

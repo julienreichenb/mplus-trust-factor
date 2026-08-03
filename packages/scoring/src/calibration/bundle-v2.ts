@@ -44,14 +44,91 @@ export type CalibrationArtifactClassV2 =
   | "dimension_replay_export"
   | "other";
 
+/** Supported byte-digest algorithms for CalibrationContentRefV2. */
+export type ArtifactDigestAlgorithmV2 = "sha256";
+
 /** Content-addressed reference — bytes live in artifact-store, not JSONB. */
 export interface CalibrationContentRefV2 {
+  /**
+   * Primary resolver lookup key = durable CAS key.
+   * For new freezes this is the sha256 hex of exact stored bytes (no algorithm prefix).
+   */
   contentHash: string;
+  /**
+   * Domain identity when distinct from byte digest
+   * (e.g. EvidenceManifest.contentHash from hash-input schema).
+   */
+  logicalContentHash?: string | null;
+  /** Exact stored-byte digest — format `sha256:<64hex>`. */
+  byteDigest?: string | null;
+  digestAlgorithm?: ArtifactDigestAlgorithmV2 | null;
   /** Optional storage URI when already written to artifact-store. */
   storageUri?: string | null;
   byteLength?: number | null;
   artifactClass: CalibrationArtifactClassV2;
   schemaVersion?: string | null;
+}
+
+const SHA256_HEX_RE = /^[a-f0-9]{64}$/i;
+const SHA256_BYTE_DIGEST_RE = /^sha256:([a-f0-9]{64})$/i;
+
+/** SHA-256 hex of exact bytes (no algorithm prefix). */
+export function computeArtifactSha256Hex(bytes: Uint8Array | Buffer | string): string {
+  const buf =
+    typeof bytes === "string"
+      ? Buffer.from(bytes, "utf8")
+      : Buffer.isBuffer(bytes)
+        ? bytes
+        : Buffer.from(bytes);
+  return createHash("sha256").update(buf).digest("hex");
+}
+
+/** Format a durable byte digest as `sha256:<hex>`. */
+export function formatArtifactByteDigest(hex: string): string {
+  return `sha256:${hex.toLowerCase()}`;
+}
+
+/**
+ * Parse `sha256:<64hex>` → lowercase hex.
+ * Returns null for unsupported/malformed digests (fail closed at call site).
+ */
+export function parseArtifactByteDigest(byteDigest: string): {
+  algorithm: ArtifactDigestAlgorithmV2;
+  hex: string;
+} | null {
+  const match = SHA256_BYTE_DIGEST_RE.exec(byteDigest.trim());
+  if (!match) return null;
+  return { algorithm: "sha256", hex: match[1]!.toLowerCase() };
+}
+
+/**
+ * Build an integrity-bound content ref from exact stored bytes.
+ * `contentHash` is always the durable CAS key (byte digest hex).
+ */
+export function buildCalibrationContentRefV2(input: {
+  bytes: Uint8Array | Buffer | string;
+  artifactClass: CalibrationArtifactClassV2;
+  logicalContentHash?: string | null;
+  schemaVersion?: string | null;
+  storageUri?: string | null;
+}): CalibrationContentRefV2 {
+  const buf =
+    typeof input.bytes === "string"
+      ? Buffer.from(input.bytes, "utf8")
+      : Buffer.isBuffer(input.bytes)
+        ? input.bytes
+        : Buffer.from(input.bytes);
+  const hex = computeArtifactSha256Hex(buf);
+  return {
+    contentHash: hex,
+    logicalContentHash: input.logicalContentHash ?? null,
+    byteDigest: formatArtifactByteDigest(hex),
+    digestAlgorithm: "sha256",
+    storageUri: input.storageUri ?? null,
+    byteLength: buf.byteLength,
+    artifactClass: input.artifactClass,
+    schemaVersion: input.schemaVersion ?? null,
+  };
 }
 
 export interface FrozenSeasonBindingV2 {
@@ -346,7 +423,7 @@ function parseContentRef(
     return null;
   }
   const contentHash = asString(raw.contentHash);
-  if (!contentHash || !/^[a-f0-9]{64}$/i.test(contentHash)) {
+  if (!contentHash || !SHA256_HEX_RE.test(contentHash)) {
     errors.push({
       code: "HASH_MISMATCH",
       severity: "BLOCKING",
@@ -356,8 +433,77 @@ function parseContentRef(
     return null;
   }
   const artifactClass = asString(raw.artifactClass) ?? "other";
+
+  let logicalContentHash: string | null = null;
+  if (raw.logicalContentHash != null) {
+    const logical = asString(raw.logicalContentHash);
+    if (!logical || !SHA256_HEX_RE.test(logical)) {
+      errors.push({
+        code: "HASH_MISMATCH",
+        severity: "BLOCKING",
+        memberId,
+        message: `${field}.logicalContentHash must be sha256 hex when present`,
+      });
+      return null;
+    }
+    logicalContentHash = logical.toLowerCase();
+  }
+
+  let digestAlgorithm: ArtifactDigestAlgorithmV2 | null = null;
+  if (raw.digestAlgorithm != null) {
+    const algo = asString(raw.digestAlgorithm);
+    if (algo !== "sha256") {
+      errors.push({
+        code: "HASH_MISMATCH",
+        severity: "BLOCKING",
+        memberId,
+        message: `${field}.digestAlgorithm unsupported "${String(raw.digestAlgorithm)}" (only sha256)`,
+      });
+      return null;
+    }
+    digestAlgorithm = "sha256";
+  }
+
+  let byteDigest: string | null = null;
+  if (raw.byteDigest != null) {
+    const declared = asString(raw.byteDigest);
+    if (!declared) {
+      errors.push({
+        code: "HASH_MISMATCH",
+        severity: "BLOCKING",
+        memberId,
+        message: `${field}.byteDigest must be a non-empty string when present`,
+      });
+      return null;
+    }
+    const parsed = parseArtifactByteDigest(declared);
+    if (!parsed) {
+      errors.push({
+        code: "HASH_MISMATCH",
+        severity: "BLOCKING",
+        memberId,
+        message: `${field}.byteDigest must be sha256:<64hex> (unsupported or malformed digest)`,
+      });
+      return null;
+    }
+    byteDigest = formatArtifactByteDigest(parsed.hex);
+    if (digestAlgorithm == null) digestAlgorithm = parsed.algorithm;
+    if (parsed.hex !== contentHash.toLowerCase()) {
+      errors.push({
+        code: "HASH_MISMATCH",
+        severity: "BLOCKING",
+        memberId,
+        message: `${field}.byteDigest does not match contentHash CAS key`,
+      });
+      return null;
+    }
+  }
+
   return {
     contentHash: contentHash.toLowerCase(),
+    logicalContentHash,
+    byteDigest,
+    digestAlgorithm,
     storageUri: typeof raw.storageUri === "string" ? raw.storageUri : null,
     byteLength: typeof raw.byteLength === "number" ? raw.byteLength : null,
     artifactClass: artifactClass as CalibrationArtifactClassV2,
@@ -915,16 +1061,23 @@ export function collectDuplicateFrozenIdentityIssues(
 
 /**
  * Preflight V2 — verifies artifact hashes via resolver; never refreshes providers.
+ * Always digests resolved bytes; never trusts a declared hash alone.
  */
 export async function preflightCalibrationBundleV2(input: {
   bundle: CalibrationInputBundleV2;
   resolver: ArtifactResolverV2;
   /** When true, any missing algorithm/catalog version is blocking. */
   requireCatalogVersions?: boolean;
+  /**
+   * When true, refs must declare byteDigest + digestAlgorithm and match
+   * the computed digest of resolved bytes. Missing integrity fields fail closed.
+   */
+  requireByteIntegrity?: boolean;
 }): Promise<CalibrationBundleV2PreflightResult> {
   const blocking: CalibrationPreflightIssueV2[] = [];
   const warnings: CalibrationPreflightIssueV2[] = [];
   const info: CalibrationPreflightIssueV2[] = [];
+  const requireByteIntegrity = input.requireByteIntegrity === true;
 
   if (input.bundle.mode === undefined) {
     info.push({
@@ -961,7 +1114,46 @@ export async function preflightCalibrationBundleV2(input: {
     }
   }
 
-  async function assertResolvable(ref: CalibrationContentRefV2, memberId: string | null, label: string) {
+  async function assertResolvable(
+    ref: CalibrationContentRefV2,
+    memberId: string | null,
+    label: string,
+  ) {
+    if (ref.digestAlgorithm != null && ref.digestAlgorithm !== "sha256") {
+      blocking.push({
+        code: "HASH_MISMATCH",
+        severity: "BLOCKING",
+        memberId,
+        message: `unsupported digestAlgorithm "${ref.digestAlgorithm}" for ${label}`,
+      });
+      return null;
+    }
+
+    if (requireByteIntegrity) {
+      if (!ref.byteDigest || ref.digestAlgorithm !== "sha256") {
+        blocking.push({
+          code: "HASH_MISMATCH",
+          severity: "BLOCKING",
+          memberId,
+          message: `missing byte integrity fields (byteDigest + digestAlgorithm) for ${label}`,
+        });
+        return null;
+      }
+    }
+
+    if (ref.byteDigest) {
+      const parsed = parseArtifactByteDigest(ref.byteDigest);
+      if (!parsed) {
+        blocking.push({
+          code: "HASH_MISMATCH",
+          severity: "BLOCKING",
+          memberId,
+          message: `unsupported or malformed byteDigest for ${label}`,
+        });
+        return null;
+      }
+    }
+
     const resolved = await input.resolver.resolve(ref.contentHash);
     if (!resolved) {
       blocking.push({
@@ -972,15 +1164,90 @@ export async function preflightCalibrationBundleV2(input: {
       });
       return null;
     }
-    if (resolved.contentHash.toLowerCase() !== ref.contentHash.toLowerCase()) {
+
+    // Always recompute — never trust declared or resolver-echoed hashes alone.
+    const computedHex = computeArtifactSha256Hex(resolved.bytes);
+
+    if (resolved.contentHash.toLowerCase() !== computedHex) {
       blocking.push({
         code: "HASH_MISMATCH",
         severity: "BLOCKING",
         memberId,
-        message: `artifact hash mismatch for ${label}`,
+        message: `resolver returned non-computed contentHash for ${label}`,
       });
       return null;
     }
+
+    if (computedHex !== ref.contentHash.toLowerCase()) {
+      blocking.push({
+        code: "HASH_MISMATCH",
+        severity: "BLOCKING",
+        memberId,
+        message: `artifact byte digest mismatch for ${label}: computed=${computedHex} ref.contentHash=${ref.contentHash}`,
+      });
+      return null;
+    }
+
+    if (ref.byteDigest) {
+      const parsed = parseArtifactByteDigest(ref.byteDigest);
+      if (!parsed || parsed.hex !== computedHex) {
+        blocking.push({
+          code: "HASH_MISMATCH",
+          severity: "BLOCKING",
+          memberId,
+          message: `byteDigest mismatch for ${label}`,
+        });
+        return null;
+      }
+    }
+
+    if (
+      ref.byteLength != null &&
+      Number.isFinite(ref.byteLength) &&
+      ref.byteLength !== resolved.bytes.byteLength
+    ) {
+      blocking.push({
+        code: "HASH_MISMATCH",
+        severity: "BLOCKING",
+        memberId,
+        message: `artifact byteLength mismatch for ${label}: declared=${ref.byteLength} actual=${resolved.bytes.byteLength}`,
+      });
+      return null;
+    }
+
+    if (ref.logicalContentHash && ref.artifactClass === "evidence_manifest") {
+      try {
+        const document: unknown = JSON.parse(Buffer.from(resolved.bytes).toString("utf8"));
+        if (isRecord(document) && typeof document.contentHash === "string") {
+          if (document.contentHash.toLowerCase() !== ref.logicalContentHash.toLowerCase()) {
+            blocking.push({
+              code: "HASH_MISMATCH",
+              severity: "BLOCKING",
+              memberId,
+              message: `logicalContentHash mismatch for ${label}: document=${document.contentHash} ref=${ref.logicalContentHash}`,
+            });
+            return null;
+          }
+        } else if (requireByteIntegrity) {
+          blocking.push({
+            code: "HASH_MISMATCH",
+            severity: "BLOCKING",
+            memberId,
+            message: `manifest artifact for ${label} lacks document.contentHash to verify logicalContentHash`,
+          });
+          return null;
+        }
+      } catch {
+        blocking.push({
+          code: "INVALID_BUNDLE",
+          severity: "BLOCKING",
+          memberId,
+          message: `manifest artifact for ${label} is not valid JSON (logical hash check)`,
+        });
+        return null;
+      }
+    }
+
     return resolved;
   }
 

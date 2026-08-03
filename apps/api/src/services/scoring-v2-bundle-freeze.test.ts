@@ -298,8 +298,20 @@ describe("assembleCalibrationInputBundleV2", () => {
     expect(bundle.members).toHaveLength(2);
     const included = bundle.members.find((m) => m.included)!;
     const excluded = bundle.members.find((m) => !m.included)!;
-    expect(included.manifest.contentHash).toBe(fixture.manifestContentHash);
+    expect(included.manifest.logicalContentHash).toBe(fixture.manifestContentHash);
+    expect(included.manifest.contentHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(included.manifest.byteDigest).toBe(`sha256:${included.manifest.contentHash}`);
+    expect(included.manifest.digestAlgorithm).toBe("sha256");
+    expect(included.manifest.contentHash).not.toBe(fixture.manifestContentHash);
+    const storedManifest = result.artifactBytes.get(included.manifest.contentHash);
+    expect(storedManifest).toBeTruthy();
+    expect(
+      createHash("sha256").update(storedManifest!).digest("hex"),
+    ).toBe(included.manifest.contentHash);
     expect(included.factSets.length).toBeGreaterThan(0);
+    expect(included.factSets[0]!.byteDigest).toMatch(/^sha256:[a-f0-9]{64}$/);
+    expect(included.factSets[0]!.digestAlgorithm).toBe("sha256");
+    expect(included.dimensionExports.PERFORMANCE?.byteDigest).toMatch(/^sha256:[a-f0-9]{64}$/);
     expect(included.dimensionExports.PERFORMANCE).toBeTruthy();
     expect(included.dimensionExports.SURVIVAL).toBeTruthy();
     expect(included.dimensionExports.UTILITY).toBeTruthy();
@@ -464,9 +476,87 @@ describe("assembleCalibrationInputBundleV2", () => {
       bundle: broken,
       resolver: createMapArtifactResolverV2(assembled.artifactBytes),
       requireCatalogVersions: true,
+      requireByteIntegrity: true,
     });
     expect(preflight.ok).toBe(false);
     expect(preflight.blocking.some((b) => b.code === "MISSING_CATALOG_VERSION")).toBe(true);
     expect(preflight.blocking.some((b) => b.code === "MISSING_ALGORITHM_VERSION")).toBe(true);
+  });
+
+  it("fails closed when artifact bytes are substituted under a valid CAS key", async () => {
+    const assembled = await assembleCalibrationInputBundleV2({
+      prisma: buildFixture().prisma as never,
+      artifacts: makeArtifacts() as never,
+      exportId: "44444444-4444-4444-8444-444444444444",
+      dryRun: true,
+    });
+    expect(assembled.ok).toBe(true);
+    const { preflightCalibrationBundleV2, createMapArtifactResolverV2 } = await import("@mplus/scoring");
+    const included = assembled.bundle!.members.find((m) => m.included)!;
+    const tampered = new Map(assembled.artifactBytes);
+    tampered.set(included.manifest.contentHash, Buffer.from('{"substituted":true}', "utf8"));
+    const preflight = await preflightCalibrationBundleV2({
+      bundle: assembled.bundle!,
+      resolver: createMapArtifactResolverV2(tampered),
+      requireCatalogVersions: true,
+      requireByteIntegrity: true,
+    });
+    expect(preflight.ok).toBe(false);
+    expect(
+      preflight.blocking.some(
+        (b) => b.code === "MISSING_ARTIFACT" || b.code === "HASH_MISMATCH",
+      ),
+    ).toBe(true);
+  });
+
+  it("fails closed when logicalContentHash disagrees with manifest document", async () => {
+    const assembled = await assembleCalibrationInputBundleV2({
+      prisma: buildFixture().prisma as never,
+      artifacts: makeArtifacts() as never,
+      exportId: "44444444-4444-4444-8444-444444444444",
+      dryRun: true,
+    });
+    expect(assembled.ok).toBe(true);
+    const { buildCalibrationInputBundleV2, preflightCalibrationBundleV2, createMapArtifactResolverV2 } =
+      await import("@mplus/scoring");
+    const members = assembled.bundle!.members.map((m) =>
+      m.included
+        ? {
+            ...m,
+            manifest: {
+              ...m.manifest,
+              logicalContentHash: "0".repeat(64),
+            },
+          }
+        : m,
+    );
+    const broken = buildCalibrationInputBundleV2({
+      generatedAt: assembled.bundle!.generatedAt,
+      evidenceCutoffAt: assembled.bundle!.evidenceCutoffAt,
+      source: assembled.bundle!.source,
+      mode: assembled.bundle!.mode,
+      deterministicSeed: assembled.bundle!.deterministicSeed,
+      cohort: assembled.bundle!.cohort,
+      season: assembled.bundle!.season,
+      activeModel: assembled.bundle!.activeModel,
+      evaluationModel: assembled.bundle!.evaluationModel,
+      activeDimensionConfigs: assembled.bundle!.activeDimensionConfigs,
+      evaluationDimensionConfigs: assembled.bundle!.evaluationDimensionConfigs,
+      policies: assembled.bundle!.policies,
+      members,
+      artifactPackage: assembled.bundle!.artifactPackage ?? null,
+    });
+    const preflight = await preflightCalibrationBundleV2({
+      bundle: broken,
+      resolver: createMapArtifactResolverV2(assembled.artifactBytes),
+      requireCatalogVersions: true,
+      requireByteIntegrity: true,
+    });
+    expect(preflight.ok).toBe(false);
+    expect(
+      preflight.blocking.some(
+        (b) => b.code === "HASH_MISMATCH" && b.message.includes("logicalContentHash"),
+      ),
+    ).toBe(true);
   });
 });
