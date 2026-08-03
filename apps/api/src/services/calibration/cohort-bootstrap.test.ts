@@ -1395,7 +1395,9 @@ describe("CLI dry-run / execute guards", () => {
         "utf8",
       );
 
-      const beforePublished = await db.characterPublishedScore.count();
+      const beforePublished = await db.characterPublishedScore.count({
+        where: { characterId: "55555555-5555-5555-5555-555555555555" },
+      });
       const resolveCharacter = vi.fn(async () => ({
         statusCode: 202,
         body: {
@@ -1433,7 +1435,12 @@ describe("CLI dry-run / execute guards", () => {
       expect(resolveCharacter).toHaveBeenCalledTimes(1);
       const manifest = JSON.parse(readFileSync(join(out, "cohort-bootstrap.manifest.json"), "utf8"));
       expect(manifest.identities[0].jobIds).toEqual(["aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"]);
-      expect(await db.characterPublishedScore.count()).toBe(beforePublished);
+      // Character-scoped: global published-score counts race other parallel DB tests.
+      expect(
+        await db.characterPublishedScore.count({
+          where: { characterId: "55555555-5555-5555-5555-555555555555" },
+        }),
+      ).toBe(beforePublished);
 
       // Resume with TERMINAL_SUCCESS is skipped without re-resolve.
       // (ALREADY_ENQUEUED resumes re-check live DB — covered in planner unit tests.)
