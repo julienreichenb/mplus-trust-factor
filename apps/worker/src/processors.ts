@@ -193,7 +193,9 @@ export function createWorkers(connection: ConnectionOptions, container: WorkerCo
     QUEUE_NAMES.refreshCharacter,
     async (job) => {
       const payload = refreshCharacterJobSchema.parse(job.data);
-      const result = await withRetryClassification(job, () => runRefreshPipeline(container, payload));
+      const result = await withRetryClassification(job, () =>
+        runRefreshPipeline(container, payload, { queueName: QUEUE_NAMES.refreshCharacter }),
+      );
       return toBullmqReturnValue(result);
     },
     // Dual-lane refresh: BullMQ claim concurrency is capped at REFRESH_LANE_WORKER_CLAIM_HARD_MAX.
@@ -205,11 +207,12 @@ export function createWorkers(connection: ConnectionOptions, container: WorkerCo
   const refreshCalibration = new Worker(
     QUEUE_NAMES.refreshCharacterCalibration,
     async (job) => {
-      const payload = refreshCharacterJobSchema.parse({
-        ...job.data,
-        workloadClass: "CALIBRATION",
-      });
-      const result = await withRetryClassification(job, () => runRefreshPipeline(container, payload));
+      const payload = refreshCharacterJobSchema.parse(job.data);
+      const result = await withRetryClassification(job, () =>
+        runRefreshPipeline(container, payload, {
+          queueName: QUEUE_NAMES.refreshCharacterCalibration,
+        }),
+      );
       return toBullmqReturnValue(result);
     },
     { connection, autorun: false, concurrency: 8 },

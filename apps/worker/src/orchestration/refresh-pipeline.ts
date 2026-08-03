@@ -119,6 +119,10 @@ import {
 import { writeConcurrencyObservation } from "./refresh-admission/concurrency-observe.js";
 import { RefreshAdmissionError } from "./refresh-admission/errors.js";
 import {
+  resolveAuthoritativeWorkloadClass,
+  workloadClassQueueDisagreement,
+} from "./refresh-admission/workload-class.js";
+import {
   DEFAULT_CONCURRENCY_CALIBRATION,
   DEFAULT_CONCURRENCY_OPERATION,
   RUNTIME_SETTING_KEYS,
@@ -386,6 +390,7 @@ function toPersistedCombatFacts(facts: RunCombatFacts) {
 export async function runRefreshPipeline(
   container: WorkerContainer,
   jobPayload: RefreshCharacterJob,
+  options?: { queueName?: string | null },
 ): Promise<RefreshPipelineResult> {
   const { repositories, providers, disabledProviders, logger } = container;
   const identity = toIdentity(jobPayload);
@@ -778,10 +783,41 @@ export async function runRefreshPipeline(
     admissionRedis = null;
   }
 
-  const workloadClass: RefreshWorkloadClass =
-    (jobPayload.workloadClass as RefreshWorkloadClass | undefined) ??
-    (job.workloadClass as RefreshWorkloadClass | undefined) ??
-    "OPERATION";
+  // Authoritative lane = persisted IngestionJob.workloadClass (legacy null → OPERATION).
+  // Payload workloadClass is informational only — never drives lane permits.
+  const resolvedWorkload = resolveAuthoritativeWorkloadClass({
+    persistedWorkloadClass: job.workloadClass,
+    payloadWorkloadClass: jobPayload.workloadClass,
+  });
+  const workloadClass: RefreshWorkloadClass = resolvedWorkload.workloadClass;
+  if (resolvedWorkload.mismatch) {
+    logger.warn(
+      {
+        event: "scoring_v2.workload_class_payload_mismatch",
+        reasonCode: resolvedWorkload.reasonCode,
+        jobId: job.id,
+        persistedWorkloadClass: workloadClass,
+        payloadWorkloadClass: resolvedWorkload.payloadWorkloadClass,
+        legacyDbDefault: resolvedWorkload.legacyDbDefault,
+      },
+      "payload workloadClass ignored; persisted IngestionJob.workloadClass is authoritative",
+    );
+  }
+
+  const queueDisagreement = workloadClassQueueDisagreement({
+    persistedWorkloadClass: workloadClass,
+    queueName: options?.queueName,
+  });
+  if (queueDisagreement) {
+    const err = new RefreshAdmissionError({
+      reason: "WORKLOAD_CLASS_QUEUE_MISMATCH",
+      message: queueDisagreement.message,
+    });
+    job = await repositories.job.markFailed(job.id, err.toJobError());
+    terminalized = true;
+    await releaseAdmission("RELEASED");
+    throw err;
+  }
 
   if (!admissionRedis) {
     const err = new RefreshAdmissionError({

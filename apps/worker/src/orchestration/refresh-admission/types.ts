@@ -25,7 +25,9 @@ export type RefreshAdmissionDecisionReason =
   /** Lane permit Redis connection missing or unusable — fail closed before providers. */
   | "LANE_REDIS_UNAVAILABLE"
   /** Lane lease renew failed / ownership lost while job still running. */
-  | "LANE_PERMIT_LOST";
+  | "LANE_PERMIT_LOST"
+  /** BullMQ queue disagrees with persisted IngestionJob.workloadClass. */
+  | "WORKLOAD_CLASS_QUEUE_MISMATCH";
 
 export type RefreshAdmissionOutcomeKind = "admitted" | "deferred" | "denied" | "shadow" | "off";
 

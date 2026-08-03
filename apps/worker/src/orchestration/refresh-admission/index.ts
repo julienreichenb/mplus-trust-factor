@@ -19,3 +19,4 @@ export * from "./eta-compute.js";
 export * from "./eta-read.js";
 export * from "./lane-permits.js";
 export * from "./concurrency-observe.js";
+export * from "./workload-class.js";
