@@ -652,6 +652,407 @@ describe("execute concurrency and enqueue", () => {
   });
 });
 
+describe("PROFILE_ONLY / BOOTSTRAP_INCOMPLETE bounded repair", () => {
+  const characterId = "55555555-5555-5555-5555-555555555555";
+  const profilePath = "/character/eu/hyjal/zacdruid";
+  const emptySafety = () => ({
+    characterPublishedScoreMutations: 0,
+    modelActivations: 0,
+    publicationJobsCreated: 0,
+    featureFlagsMutated: 0,
+    providerCalls: 0,
+  });
+
+  function missingPlan(name = "Zacdruid") {
+    const identityKey = `EU/hyjal/${name.toLowerCase()}`;
+    return {
+      identityKey,
+      memberIds: [`m-${name}`],
+      region: "EU" as const,
+      realmSlug: "hyjal",
+      name,
+      blizzardCharacterId: null,
+      initialState: "MISSING" as const,
+      plannedOperation: "ENQUEUE_RESOLVE_REFRESH" as const,
+      reason: "missing",
+      characterId: null,
+      bootstrapJobKey: buildBootstrapJobKey("c", identityKey),
+      errorCode: "NONE" as const,
+    };
+  }
+
+  it("repairs MISSING PROFILE_ONLY/BOOTSTRAP_INCOMPLETE with one forceRetry → QUEUED", async () => {
+    const events: Array<{ event: string; jobId?: string }> = [];
+    const resolveCharacter = vi.fn(async (_identity, opts?: { forceRetry?: boolean }) => {
+      if (!opts?.forceRetry) {
+        return {
+          statusCode: 200,
+          body: {
+            status: "PROFILE_ONLY" as const,
+            characterId,
+            profilePath,
+            reason: "BOOTSTRAP_INCOMPLETE" as const,
+            bootstrapRepairRequired: true,
+          },
+        };
+      }
+      return {
+        statusCode: 202,
+        body: {
+          status: "QUEUED" as const,
+          characterId,
+          refreshId: "job-repair-queued",
+          profilePath,
+          retryAfterMs: 2000,
+        },
+      };
+    });
+
+    const result = await executeBootstrapPlan(
+      [missingPlan()],
+      {
+        resolveCharacter,
+        emit: (event, payload) => events.push({ event, jobId: payload.jobId as string | undefined }),
+        safety: emptySafety(),
+      },
+      { concurrency: 2, correlationPrefix: "calib-bootstrap:test" },
+    );
+
+    expect(resolveCharacter).toHaveBeenCalledTimes(2);
+    expect(resolveCharacter.mock.calls[0]![1]).toMatchObject({ forceRetry: false });
+    expect(resolveCharacter.mock.calls[1]![1]).toMatchObject({
+      forceRetry: true,
+      correlationId: resolveCharacter.mock.calls[0]![1]!.correlationId,
+    });
+    expect(result.enqueuedJobIds).toEqual(["job-repair-queued"]);
+    expect(result.failedIdentityKeys).toEqual([]);
+    expect(result.overrides.get("EU/hyjal/zacdruid")?.resultState).toBe("ALREADY_ENQUEUED");
+    expect(events.some((e) => e.event === BOOTSTRAP_EVENTS.jobEnqueued && e.jobId === "job-repair-queued")).toBe(
+      true,
+    );
+  });
+
+  it("captures reused PROCESSING job id after PROFILE_ONLY repair", async () => {
+    const resolveCharacter = vi.fn(async (_identity, opts?: { forceRetry?: boolean }) => {
+      if (!opts?.forceRetry) {
+        return {
+          statusCode: 200,
+          body: {
+            status: "PROFILE_ONLY" as const,
+            characterId,
+            profilePath,
+            reason: "BOOTSTRAP_INCOMPLETE" as const,
+            bootstrapRepairRequired: true,
+          },
+        };
+      }
+      return {
+        statusCode: 202,
+        body: {
+          status: "PROCESSING" as const,
+          characterId,
+          refreshId: "job-reused-active",
+          profilePath,
+          retryAfterMs: 2000,
+        },
+      };
+    });
+
+    const result = await executeBootstrapPlan(
+      [missingPlan()],
+      { resolveCharacter, emit: () => undefined, safety: emptySafety() },
+      { concurrency: 2, correlationPrefix: "test" },
+    );
+
+    expect(resolveCharacter).toHaveBeenCalledTimes(2);
+    expect(result.enqueuedJobIds).toEqual(["job-reused-active"]);
+    expect(result.overrides.get("EU/hyjal/zacdruid")?.resultState).toBe("ALREADY_ENQUEUED");
+    expect(result.failedIdentityKeys).toEqual([]);
+  });
+
+  it("maps repair READY to TERMINAL_SUCCESS without false failure", async () => {
+    const resolveCharacter = vi.fn(async (_identity, opts?: { forceRetry?: boolean }) => {
+      if (!opts?.forceRetry) {
+        return {
+          statusCode: 200,
+          body: {
+            status: "PROFILE_ONLY" as const,
+            characterId,
+            profilePath,
+            reason: "BOOTSTRAP_INCOMPLETE" as const,
+            bootstrapRepairRequired: true,
+          },
+        };
+      }
+      return {
+        statusCode: 200,
+        body: { status: "READY" as const, characterId, profilePath },
+      };
+    });
+
+    const result = await executeBootstrapPlan(
+      [missingPlan()],
+      { resolveCharacter, emit: () => undefined, safety: emptySafety() },
+      { concurrency: 2, correlationPrefix: "test" },
+    );
+
+    expect(resolveCharacter).toHaveBeenCalledTimes(2);
+    expect(result.overrides.get("EU/hyjal/zacdruid")?.resultState).toBe("TERMINAL_SUCCESS");
+    expect(result.enqueuedJobIds).toEqual([]);
+    expect(result.failedIdentityKeys).toEqual([]);
+  });
+
+  it("marks PROFILE_ONLY twice as RETRYABLE_FAILURE with BOOTSTRAP_REPAIR_INCOMPLETE", async () => {
+    const resolveCharacter = vi.fn(async () => ({
+      statusCode: 200,
+      body: {
+        status: "PROFILE_ONLY" as const,
+        characterId,
+        profilePath,
+        reason: "BOOTSTRAP_INCOMPLETE" as const,
+        bootstrapRepairRequired: true,
+      },
+    }));
+
+    const result = await executeBootstrapPlan(
+      [missingPlan()],
+      { resolveCharacter, emit: () => undefined, safety: emptySafety() },
+      { concurrency: 2, correlationPrefix: "test" },
+    );
+
+    expect(resolveCharacter).toHaveBeenCalledTimes(2);
+    expect(resolveCharacter.mock.calls[1]![1]).toMatchObject({ forceRetry: true });
+    const override = result.overrides.get("EU/hyjal/zacdruid");
+    expect(override?.resultState).toBe("RETRYABLE_FAILURE");
+    expect(override?.errorCode).toBe("BOOTSTRAP_REPAIR_INCOMPLETE");
+    expect(override?.attemptCount).toBe(2);
+    expect(result.failedIdentityKeys).toContain("EU/hyjal/zacdruid");
+    expect(result.enqueuedJobIds).toEqual([]);
+  });
+
+  it("does not auto-repair non-bootstrap PROFILE_ONLY reasons", async () => {
+    const resolveCharacter = vi.fn(async () => ({
+      statusCode: 200,
+      body: {
+        status: "PROFILE_ONLY" as const,
+        characterId,
+        profilePath,
+        reason: "NOT_REFRESH_ELIGIBLE" as const,
+        bootstrapRepairRequired: false,
+      },
+    }));
+
+    const result = await executeBootstrapPlan(
+      [missingPlan()],
+      { resolveCharacter, emit: () => undefined, safety: emptySafety() },
+      { concurrency: 2, correlationPrefix: "test" },
+    );
+
+    expect(resolveCharacter).toHaveBeenCalledTimes(1);
+    expect(resolveCharacter.mock.calls[0]![1]?.forceRetry).toBe(false);
+    expect(result.overrides.get("EU/hyjal/zacdruid")?.resultState).toBe("FOUND_INCOMPLETE");
+    expect(result.failedIdentityKeys).toContain("EU/hyjal/zacdruid");
+  });
+
+  it("keeps concurrency bounded at 2 while repairing PROFILE_ONLY identities", async () => {
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const resolveCharacter = vi.fn(async (identity: { name: string }, opts?: { forceRetry?: boolean }) => {
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await new Promise((r) => setTimeout(r, 15));
+      inFlight -= 1;
+      if (!opts?.forceRetry) {
+        return {
+          statusCode: 200,
+          body: {
+            status: "PROFILE_ONLY" as const,
+            characterId,
+            profilePath,
+            reason: "BOOTSTRAP_INCOMPLETE" as const,
+            bootstrapRepairRequired: true,
+          },
+        };
+      }
+      return {
+        statusCode: 202,
+        body: {
+          status: "QUEUED" as const,
+          characterId,
+          refreshId: `job-${identity.name}`,
+          profilePath,
+          retryAfterMs: 2000,
+        },
+      };
+    });
+
+    const plan = ["a", "b", "c", "d"].map((n) => missingPlan(n));
+    const result = await executeBootstrapPlan(
+      plan,
+      { resolveCharacter, emit: () => undefined, safety: emptySafety() },
+      { concurrency: 2, correlationPrefix: "test" },
+    );
+
+    expect(resolveCharacter).toHaveBeenCalledTimes(8); // 4 × (resolve + repair)
+    expect(maxInFlight).toBeLessThanOrEqual(2);
+    expect(result.enqueuedJobIds).toHaveLength(4);
+  });
+
+  it("never retries beyond a single forceRetry repair (no recursion)", async () => {
+    let calls = 0;
+    const resolveCharacter = vi.fn(async () => {
+      calls += 1;
+      return {
+        statusCode: 200,
+        body: {
+          status: "PROFILE_ONLY" as const,
+          characterId,
+          profilePath,
+          reason: "BOOTSTRAP_INCOMPLETE" as const,
+          bootstrapRepairRequired: true,
+        },
+      };
+    });
+
+    await executeBootstrapPlan(
+      [missingPlan()],
+      { resolveCharacter, emit: () => undefined, safety: emptySafety() },
+      { concurrency: 2, correlationPrefix: "test" },
+    );
+
+    expect(calls).toBe(2);
+    expect(resolveCharacter).toHaveBeenCalledTimes(2);
+  });
+
+  it("resume from FOUND_INCOMPLETE rechecks live DB and can execute repair", async () => {
+    const resumeIdentity: BootstrapIdentity = {
+      identityKey: "EU/hyjal/zacdruid",
+      memberIds: ["m1"],
+      region: "EU",
+      realmSlug: "hyjal",
+      name: "Zacdruid",
+      normalizedName: "zacdruid",
+      blizzardCharacterId: null,
+      expectedLabels: ["excellent"],
+      expectedTiers: ["S"],
+      exclusionReasons: [null],
+      fullyExcluded: false,
+      isMyzouth: false,
+    };
+    const incompleteProbe: DbCharacterProbe = {
+      characterId,
+      incompleteBootstrap: true,
+      hasPublicSnapshot: false,
+      activeJobId: null,
+      activeJobStatus: null,
+      latestJobId: null,
+      latestJobStatus: null,
+      latestJobErrorCode: null,
+    };
+    const planned = planOneIdentity(resumeIdentity, incompleteProbe, {
+      cohortId: "agent11",
+      includeMemberIds: new Set(),
+      retryFailures: false,
+      resume: {
+        identityKey: resumeIdentity.identityKey,
+        memberIds: resumeIdentity.memberIds,
+        region: "EU",
+        realmSlug: "hyjal",
+        name: "Zacdruid",
+        initialState: "MISSING",
+        plannedOperation: "ENQUEUE_RESOLVE_REFRESH",
+        bootstrapJobKey: buildBootstrapJobKey("agent11", resumeIdentity.identityKey),
+        jobIds: [],
+        attemptCount: 1,
+        resultState: "FOUND_INCOMPLETE",
+        errorCode: "NONE",
+        characterId,
+        reason: "prior false-success PROFILE_ONLY",
+      },
+    });
+    expect(planned.initialState).toBe("FOUND_INCOMPLETE");
+    expect(planned.plannedOperation).toBe("ENQUEUE_RESOLVE_REFRESH");
+
+    const resolveCharacter = vi.fn(async (_identity, opts?: { forceRetry?: boolean }) => {
+      if (!opts?.forceRetry) {
+        return {
+          statusCode: 200,
+          body: {
+            status: "PROFILE_ONLY" as const,
+            characterId,
+            profilePath,
+            reason: "BOOTSTRAP_INCOMPLETE" as const,
+            bootstrapRepairRequired: true,
+          },
+        };
+      }
+      return {
+        statusCode: 202,
+        body: {
+          status: "QUEUED" as const,
+          characterId,
+          refreshId: "job-resume-repair",
+          profilePath,
+          retryAfterMs: 2000,
+        },
+      };
+    });
+
+    const result = await executeBootstrapPlan(
+      [planned],
+      { resolveCharacter, emit: () => undefined, safety: emptySafety() },
+      { concurrency: 2, correlationPrefix: "test" },
+    );
+
+    expect(resolveCharacter).toHaveBeenCalledTimes(2);
+    expect(resolveCharacter.mock.calls[1]![1]).toMatchObject({ forceRetry: true });
+    expect(result.enqueuedJobIds).toEqual(["job-resume-repair"]);
+    expect(result.failedIdentityKeys).toEqual([]);
+  });
+
+  it("does not mutate model / publication / feature-flag / score safety ledgers during repair", async () => {
+    const safety = emptySafety();
+    const resolveCharacter = vi.fn(async (_identity, opts?: { forceRetry?: boolean }) => {
+      if (!opts?.forceRetry) {
+        return {
+          statusCode: 200,
+          body: {
+            status: "PROFILE_ONLY" as const,
+            characterId,
+            profilePath,
+            reason: "BOOTSTRAP_INCOMPLETE" as const,
+            bootstrapRepairRequired: true,
+          },
+        };
+      }
+      return {
+        statusCode: 202,
+        body: {
+          status: "QUEUED" as const,
+          characterId,
+          refreshId: "job-safe",
+          profilePath,
+          retryAfterMs: 2000,
+        },
+      };
+    });
+
+    await executeBootstrapPlan(
+      [missingPlan()],
+      { resolveCharacter, emit: () => undefined, safety },
+      { concurrency: 2, correlationPrefix: "test" },
+    );
+
+    expect(safety).toEqual({
+      characterPublishedScoreMutations: 0,
+      modelActivations: 0,
+      publicationJobsCreated: 0,
+      featureFlagsMutated: 0,
+      providerCalls: 0,
+    });
+  });
+});
+
 describe("CLI dry-run / execute guards", () => {
   const tmpDirs: string[] = [];
   const prev: Record<string, string | undefined> = {};
