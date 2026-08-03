@@ -10476,11 +10476,365 @@
               "application/json": {
                 "schema": {
                   "type": "object",
-                  "additionalProperties": true,
                   "properties": {
                     "flags": {
                       "type": "object",
-                      "additionalProperties": true
+                      "properties": {
+                        "masterEnabled": {
+                          "type": "boolean"
+                        },
+                        "selectionEnabled": {
+                          "type": "boolean"
+                        },
+                        "evidenceFetchEnabled": {
+                          "type": "boolean"
+                        },
+                        "dimensionsEnabled": {
+                          "type": "boolean"
+                        },
+                        "publicationEnabled": {
+                          "type": "boolean"
+                        },
+                        "calibrationV2Enabled": {
+                          "type": "boolean"
+                        },
+                        "adminCalibrationEnabled": {
+                          "type": "boolean"
+                        },
+                        "performanceEnabled": {
+                          "type": "boolean"
+                        },
+                        "survivalEnabled": {
+                          "type": "boolean"
+                        },
+                        "utilityEnabled": {
+                          "type": "boolean"
+                        },
+                        "experienceEnabled": {
+                          "type": "boolean"
+                        },
+                        "relativeDamageMode": {
+                          "type": "string",
+                          "enum": [
+                            "off",
+                            "shadow",
+                            "active"
+                          ]
+                        },
+                        "utilityOpportunityMode": {
+                          "type": "string",
+                          "enum": [
+                            "off",
+                            "shadow",
+                            "active"
+                          ]
+                        },
+                        "referenceComparisonMode": {
+                          "type": "string",
+                          "enum": [
+                            "off",
+                            "collect",
+                            "shadow",
+                            "active"
+                          ]
+                        },
+                        "modeLabel": {
+                          "type": "string",
+                          "enum": [
+                            "Disabled",
+                            "Shadow",
+                            "Candidate",
+                            "Active"
+                          ]
+                        },
+                        "incompatibleReasons": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        }
+                      },
+                      "required": [
+                        "masterEnabled",
+                        "selectionEnabled",
+                        "evidenceFetchEnabled",
+                        "dimensionsEnabled",
+                        "publicationEnabled",
+                        "calibrationV2Enabled",
+                        "adminCalibrationEnabled",
+                        "performanceEnabled",
+                        "survivalEnabled",
+                        "utilityEnabled",
+                        "experienceEnabled",
+                        "relativeDamageMode",
+                        "utilityOpportunityMode",
+                        "referenceComparisonMode",
+                        "modeLabel",
+                        "incompatibleReasons"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "activeModel": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string"
+                            },
+                            "key": {
+                              "type": "string"
+                            },
+                            "version": {
+                              "type": "integer"
+                            },
+                            "name": {
+                              "type": "string"
+                            },
+                            "status": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "key",
+                            "version",
+                            "name",
+                            "status"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "currentSeason": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string"
+                            },
+                            "slug": {
+                              "type": "string"
+                            },
+                            "name": {
+                              "type": "string"
+                            },
+                            "isCurrent": {
+                              "type": "boolean"
+                            },
+                            "blizzardSeasonId": {
+                              "type": [
+                                "integer",
+                                "null"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "slug",
+                            "name",
+                            "isCurrent",
+                            "blizzardSeasonId"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "queueCounts": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "workloadClass": {
+                            "type": "string",
+                            "enum": [
+                              "CALIBRATION",
+                              "OPERATION",
+                              "CALIBRATION_RUN",
+                              "EVIDENCE_EXPORT",
+                              "OTHER"
+                            ]
+                          },
+                          "queued": {
+                            "type": "integer"
+                          },
+                          "active": {
+                            "type": "integer"
+                          }
+                        },
+                        "required": [
+                          "workloadClass",
+                          "queued",
+                          "active"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "recentEvidenceExport": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "format": "uuid"
+                            },
+                            "cohortId": {
+                              "type": "string",
+                              "format": "uuid"
+                            },
+                            "cohortName": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "cohortRevision": {
+                              "type": "integer"
+                            },
+                            "seasonId": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "status": {
+                              "type": "string",
+                              "enum": [
+                                "QUEUED",
+                                "RUNNING",
+                                "RETRYABLE",
+                                "COMPLETED",
+                                "FAILED",
+                                "CANCELLED"
+                              ]
+                            },
+                            "blockerCount": {
+                              "type": "integer"
+                            },
+                            "warningCount": {
+                              "type": "integer"
+                            },
+                            "archiveContentHash": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "frozenBundleContentHash": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "frozenAt": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "requestedByUserId": {
+                              "type": "string"
+                            },
+                            "createdAt": {
+                              "type": "string"
+                            },
+                            "startedAt": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "completedAt": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "cohortId",
+                            "status",
+                            "cohortRevision",
+                            "blockerCount",
+                            "warningCount"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "recentFrozenBundle": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "exportId": {
+                              "type": "string"
+                            },
+                            "contentHash": {
+                              "type": "string"
+                            },
+                            "byteLength": {
+                              "type": [
+                                "integer",
+                                "null"
+                              ]
+                            },
+                            "frozenAt": {
+                              "type": "string"
+                            },
+                            "cohortId": {
+                              "type": "string"
+                            },
+                            "cohortRevision": {
+                              "type": "integer"
+                            }
+                          },
+                          "required": [
+                            "exportId",
+                            "contentHash",
+                            "byteLength",
+                            "frozenAt",
+                            "cohortId",
+                            "cohortRevision"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "cohortReadiness": {
+                      "type": "object",
+                      "properties": {
+                        "readyCohorts": {
+                          "type": "integer"
+                        },
+                        "draftCohorts": {
+                          "type": "integer"
+                        },
+                        "archivedCohorts": {
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "readyCohorts",
+                        "draftCohorts",
+                        "archivedCohorts"
+                      ],
+                      "additionalProperties": false
                     },
                     "concurrency": {
                       "type": "object",
@@ -10517,7 +10871,10 @@
                               "type": "integer"
                             },
                             "updatedAt": {
-                              "type": "string"
+                              "type": [
+                                "null",
+                                "string"
+                              ]
                             },
                             "updatedByUserId": {
                               "type": [
@@ -10533,7 +10890,7 @@
                             "active",
                             "queued"
                           ],
-                          "additionalProperties": true
+                          "additionalProperties": false
                         },
                         "operation": {
                           "type": "object",
@@ -10567,7 +10924,10 @@
                               "type": "integer"
                             },
                             "updatedAt": {
-                              "type": "string"
+                              "type": [
+                                "null",
+                                "string"
+                              ]
                             },
                             "updatedByUserId": {
                               "type": [
@@ -10583,7 +10943,7 @@
                             "active",
                             "queued"
                           ],
-                          "additionalProperties": true
+                          "additionalProperties": false
                         },
                         "workerClaimHardMax": {
                           "type": "integer"
@@ -10632,7 +10992,7 @@
                         "oldestObservationAt",
                         "newestObservationAt"
                       ],
-                      "additionalProperties": true
+                      "additionalProperties": false
                     },
                     "blockers": {
                       "type": "array",
@@ -10665,7 +11025,7 @@
                           "severity",
                           "message"
                         ],
-                        "additionalProperties": true
+                        "additionalProperties": false
                       }
                     },
                     "warnings": {
@@ -10699,13 +11059,34 @@
                           "severity",
                           "message"
                         ],
-                        "additionalProperties": true
+                        "additionalProperties": false
                       }
+                    },
+                    "applicationRevision": {
+                      "type": [
+                        "null",
+                        "string"
+                      ]
                     },
                     "generatedAt": {
                       "type": "string"
                     }
-                  }
+                  },
+                  "required": [
+                    "flags",
+                    "activeModel",
+                    "currentSeason",
+                    "queueCounts",
+                    "recentEvidenceExport",
+                    "recentFrozenBundle",
+                    "cohortReadiness",
+                    "concurrency",
+                    "blockers",
+                    "warnings",
+                    "applicationRevision",
+                    "generatedAt"
+                  ],
+                  "additionalProperties": false
                 }
               }
             }
@@ -10837,7 +11218,10 @@
                           "type": "integer"
                         },
                         "updatedAt": {
-                          "type": "string"
+                          "type": [
+                            "null",
+                            "string"
+                          ]
                         },
                         "updatedByUserId": {
                           "type": [
@@ -10853,7 +11237,7 @@
                         "active",
                         "queued"
                       ],
-                      "additionalProperties": true
+                      "additionalProperties": false
                     },
                     "operation": {
                       "type": "object",
@@ -10887,7 +11271,10 @@
                           "type": "integer"
                         },
                         "updatedAt": {
-                          "type": "string"
+                          "type": [
+                            "null",
+                            "string"
+                          ]
                         },
                         "updatedByUserId": {
                           "type": [
@@ -10903,7 +11290,7 @@
                         "active",
                         "queued"
                       ],
-                      "additionalProperties": true
+                      "additionalProperties": false
                     },
                     "workerClaimHardMax": {
                       "type": "integer"
@@ -10952,7 +11339,7 @@
                     "oldestObservationAt",
                     "newestObservationAt"
                   ],
-                  "additionalProperties": true
+                  "additionalProperties": false
                 }
               }
             }
@@ -11112,7 +11499,10 @@
                           "type": "integer"
                         },
                         "updatedAt": {
-                          "type": "string"
+                          "type": [
+                            "null",
+                            "string"
+                          ]
                         },
                         "updatedByUserId": {
                           "type": [
@@ -11128,7 +11518,7 @@
                         "active",
                         "queued"
                       ],
-                      "additionalProperties": true
+                      "additionalProperties": false
                     },
                     "operation": {
                       "type": "object",
@@ -11162,7 +11552,10 @@
                           "type": "integer"
                         },
                         "updatedAt": {
-                          "type": "string"
+                          "type": [
+                            "null",
+                            "string"
+                          ]
                         },
                         "updatedByUserId": {
                           "type": [
@@ -11178,7 +11571,7 @@
                         "active",
                         "queued"
                       ],
-                      "additionalProperties": true
+                      "additionalProperties": false
                     },
                     "workerClaimHardMax": {
                       "type": "integer"
@@ -11227,7 +11620,7 @@
                     "oldestObservationAt",
                     "newestObservationAt"
                   ],
-                  "additionalProperties": true
+                  "additionalProperties": false
                 }
               }
             }
@@ -11393,7 +11786,269 @@
                       "type": "array",
                       "items": {
                         "type": "object",
-                        "additionalProperties": true
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "cohortId": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "cohortName": {
+                            "type": [
+                              "null",
+                              "string"
+                            ]
+                          },
+                          "cohortRevision": {
+                            "type": "integer"
+                          },
+                          "seasonId": {
+                            "type": [
+                              "null",
+                              "string"
+                            ]
+                          },
+                          "scoreModelId": {
+                            "type": [
+                              "null",
+                              "string"
+                            ]
+                          },
+                          "status": {
+                            "type": "string",
+                            "enum": [
+                              "QUEUED",
+                              "RUNNING",
+                              "RETRYABLE",
+                              "COMPLETED",
+                              "FAILED",
+                              "CANCELLED"
+                            ]
+                          },
+                          "progress": {
+                            "type": "object",
+                            "properties": {
+                              "membersTotal": {
+                                "type": "integer"
+                              },
+                              "membersScanned": {
+                                "type": "integer"
+                              },
+                              "identitiesFound": {
+                                "type": "integer"
+                              },
+                              "identitiesMissing": {
+                                "type": "integer"
+                              },
+                              "bootstrapComplete": {
+                                "type": "integer"
+                              },
+                              "bootstrapIncomplete": {
+                                "type": "integer"
+                              },
+                              "manifestsPresent": {
+                                "type": "integer"
+                              },
+                              "fourDimensionComplete": {
+                                "type": "integer"
+                              },
+                              "compatibleSnapshots": {
+                                "type": "integer"
+                              },
+                              "incompatibleSnapshots": {
+                                "type": "integer"
+                              }
+                            },
+                            "required": [
+                              "membersTotal",
+                              "membersScanned",
+                              "identitiesFound",
+                              "identitiesMissing",
+                              "bootstrapComplete",
+                              "bootstrapIncomplete",
+                              "manifestsPresent",
+                              "fourDimensionComplete",
+                              "compatibleSnapshots",
+                              "incompatibleSnapshots"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "summary": {
+                            "type": "object",
+                            "additionalProperties": true
+                          },
+                          "issues": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "code": {
+                                  "type": "string"
+                                },
+                                "severity": {
+                                  "type": "string",
+                                  "enum": [
+                                    "blocker",
+                                    "warning",
+                                    "info"
+                                  ]
+                                },
+                                "message": {
+                                  "type": "string"
+                                },
+                                "memberId": {
+                                  "type": [
+                                    "null",
+                                    "string"
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "code",
+                                "severity",
+                                "message"
+                              ],
+                              "additionalProperties": false
+                            }
+                          },
+                          "blockerCount": {
+                            "type": "integer"
+                          },
+                          "warningCount": {
+                            "type": "integer"
+                          },
+                          "archiveContentHash": {
+                            "type": [
+                              "null",
+                              "string"
+                            ]
+                          },
+                          "archiveByteLength": {
+                            "type": [
+                              "null",
+                              "integer"
+                            ]
+                          },
+                          "summaryContentHash": {
+                            "type": [
+                              "null",
+                              "string"
+                            ]
+                          },
+                          "preflightContentHash": {
+                            "type": [
+                              "null",
+                              "string"
+                            ]
+                          },
+                          "markdownContentHash": {
+                            "type": [
+                              "null",
+                              "string"
+                            ]
+                          },
+                          "frozenBundleContentHash": {
+                            "type": [
+                              "null",
+                              "string"
+                            ]
+                          },
+                          "frozenBundleByteDigest": {
+                            "type": [
+                              "null",
+                              "string"
+                            ]
+                          },
+                          "frozenBundleByteLength": {
+                            "type": [
+                              "null",
+                              "integer"
+                            ]
+                          },
+                          "frozenAt": {
+                            "type": [
+                              "null",
+                              "string"
+                            ]
+                          },
+                          "freezeEligible": {
+                            "type": "boolean"
+                          },
+                          "freezeBlockers": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "code": {
+                                  "type": "string"
+                                },
+                                "severity": {
+                                  "type": "string",
+                                  "enum": [
+                                    "blocker",
+                                    "warning",
+                                    "info"
+                                  ]
+                                },
+                                "message": {
+                                  "type": "string"
+                                },
+                                "memberId": {
+                                  "type": [
+                                    "null",
+                                    "string"
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "code",
+                                "severity",
+                                "message"
+                              ],
+                              "additionalProperties": false
+                            }
+                          },
+                          "errorCode": {
+                            "type": [
+                              "null",
+                              "string"
+                            ]
+                          },
+                          "errorMessage": {
+                            "type": [
+                              "null",
+                              "string"
+                            ]
+                          },
+                          "requestedByUserId": {
+                            "type": "string"
+                          },
+                          "createdAt": {
+                            "type": "string"
+                          },
+                          "startedAt": {
+                            "type": [
+                              "null",
+                              "string"
+                            ]
+                          },
+                          "completedAt": {
+                            "type": [
+                              "null",
+                              "string"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "cohortId",
+                          "status",
+                          "freezeEligible",
+                          "freezeBlockers"
+                        ],
+                        "additionalProperties": false
                       }
                     },
                     "total": {
@@ -11415,7 +12070,7 @@
                     "page",
                     "pageSize"
                   ],
-                  "additionalProperties": true
+                  "additionalProperties": false
                 }
               }
             }
@@ -11583,7 +12238,51 @@
                     },
                     "progress": {
                       "type": "object",
-                      "additionalProperties": true
+                      "properties": {
+                        "membersTotal": {
+                          "type": "integer"
+                        },
+                        "membersScanned": {
+                          "type": "integer"
+                        },
+                        "identitiesFound": {
+                          "type": "integer"
+                        },
+                        "identitiesMissing": {
+                          "type": "integer"
+                        },
+                        "bootstrapComplete": {
+                          "type": "integer"
+                        },
+                        "bootstrapIncomplete": {
+                          "type": "integer"
+                        },
+                        "manifestsPresent": {
+                          "type": "integer"
+                        },
+                        "fourDimensionComplete": {
+                          "type": "integer"
+                        },
+                        "compatibleSnapshots": {
+                          "type": "integer"
+                        },
+                        "incompatibleSnapshots": {
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "membersTotal",
+                        "membersScanned",
+                        "identitiesFound",
+                        "identitiesMissing",
+                        "bootstrapComplete",
+                        "bootstrapIncomplete",
+                        "manifestsPresent",
+                        "fourDimensionComplete",
+                        "compatibleSnapshots",
+                        "incompatibleSnapshots"
+                      ],
+                      "additionalProperties": false
                     },
                     "summary": {
                       "type": "object",
@@ -11620,7 +12319,7 @@
                           "severity",
                           "message"
                         ],
-                        "additionalProperties": true
+                        "additionalProperties": false
                       }
                     },
                     "blockerCount": {
@@ -11717,7 +12416,7 @@
                           "severity",
                           "message"
                         ],
-                        "additionalProperties": true
+                        "additionalProperties": false
                       }
                     },
                     "errorCode": {
@@ -11758,7 +12457,7 @@
                     "freezeEligible",
                     "freezeBlockers"
                   ],
-                  "additionalProperties": true
+                  "additionalProperties": false
                 }
               }
             }
@@ -11989,7 +12688,51 @@
                     },
                     "progress": {
                       "type": "object",
-                      "additionalProperties": true
+                      "properties": {
+                        "membersTotal": {
+                          "type": "integer"
+                        },
+                        "membersScanned": {
+                          "type": "integer"
+                        },
+                        "identitiesFound": {
+                          "type": "integer"
+                        },
+                        "identitiesMissing": {
+                          "type": "integer"
+                        },
+                        "bootstrapComplete": {
+                          "type": "integer"
+                        },
+                        "bootstrapIncomplete": {
+                          "type": "integer"
+                        },
+                        "manifestsPresent": {
+                          "type": "integer"
+                        },
+                        "fourDimensionComplete": {
+                          "type": "integer"
+                        },
+                        "compatibleSnapshots": {
+                          "type": "integer"
+                        },
+                        "incompatibleSnapshots": {
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "membersTotal",
+                        "membersScanned",
+                        "identitiesFound",
+                        "identitiesMissing",
+                        "bootstrapComplete",
+                        "bootstrapIncomplete",
+                        "manifestsPresent",
+                        "fourDimensionComplete",
+                        "compatibleSnapshots",
+                        "incompatibleSnapshots"
+                      ],
+                      "additionalProperties": false
                     },
                     "summary": {
                       "type": "object",
@@ -12026,7 +12769,7 @@
                           "severity",
                           "message"
                         ],
-                        "additionalProperties": true
+                        "additionalProperties": false
                       }
                     },
                     "blockerCount": {
@@ -12123,7 +12866,7 @@
                           "severity",
                           "message"
                         ],
-                        "additionalProperties": true
+                        "additionalProperties": false
                       }
                     },
                     "errorCode": {
@@ -12164,7 +12907,7 @@
                     "freezeEligible",
                     "freezeBlockers"
                   ],
-                  "additionalProperties": true
+                  "additionalProperties": false
                 }
               }
             }
@@ -12330,7 +13073,89 @@
                       "type": "array",
                       "items": {
                         "type": "object",
-                        "additionalProperties": true
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "evidence_export",
+                              "frozen_bundle"
+                            ]
+                          },
+                          "id": {
+                            "type": "string"
+                          },
+                          "exportId": {
+                            "type": "string"
+                          },
+                          "cohortId": {
+                            "type": "string"
+                          },
+                          "cohortName": {
+                            "type": [
+                              "null",
+                              "string"
+                            ]
+                          },
+                          "cohortRevision": {
+                            "type": "integer"
+                          },
+                          "status": {
+                            "type": "string",
+                            "enum": [
+                              "QUEUED",
+                              "RUNNING",
+                              "RETRYABLE",
+                              "COMPLETED",
+                              "FAILED",
+                              "CANCELLED"
+                            ]
+                          },
+                          "initiatorUserId": {
+                            "type": "string"
+                          },
+                          "createdAt": {
+                            "type": "string"
+                          },
+                          "completedAt": {
+                            "type": [
+                              "null",
+                              "string"
+                            ]
+                          },
+                          "rootHash": {
+                            "type": [
+                              "null",
+                              "string"
+                            ]
+                          },
+                          "blockerCount": {
+                            "type": "integer"
+                          },
+                          "warningCount": {
+                            "type": "integer"
+                          },
+                          "downloadAvailable": {
+                            "type": "boolean"
+                          },
+                          "linkedCalibrationRunId": {
+                            "type": [
+                              "null",
+                              "string"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "id",
+                          "exportId",
+                          "cohortId",
+                          "cohortRevision",
+                          "status",
+                          "initiatorUserId",
+                          "createdAt",
+                          "downloadAvailable"
+                        ],
+                        "additionalProperties": false
                       }
                     },
                     "total": {
@@ -12352,7 +13177,7 @@
                     "page",
                     "pageSize"
                   ],
-                  "additionalProperties": true
+                  "additionalProperties": false
                 }
               }
             }
@@ -12989,7 +13814,51 @@
                         },
                         "progress": {
                           "type": "object",
-                          "additionalProperties": true
+                          "properties": {
+                            "membersTotal": {
+                              "type": "integer"
+                            },
+                            "membersScanned": {
+                              "type": "integer"
+                            },
+                            "identitiesFound": {
+                              "type": "integer"
+                            },
+                            "identitiesMissing": {
+                              "type": "integer"
+                            },
+                            "bootstrapComplete": {
+                              "type": "integer"
+                            },
+                            "bootstrapIncomplete": {
+                              "type": "integer"
+                            },
+                            "manifestsPresent": {
+                              "type": "integer"
+                            },
+                            "fourDimensionComplete": {
+                              "type": "integer"
+                            },
+                            "compatibleSnapshots": {
+                              "type": "integer"
+                            },
+                            "incompatibleSnapshots": {
+                              "type": "integer"
+                            }
+                          },
+                          "required": [
+                            "membersTotal",
+                            "membersScanned",
+                            "identitiesFound",
+                            "identitiesMissing",
+                            "bootstrapComplete",
+                            "bootstrapIncomplete",
+                            "manifestsPresent",
+                            "fourDimensionComplete",
+                            "compatibleSnapshots",
+                            "incompatibleSnapshots"
+                          ],
+                          "additionalProperties": false
                         },
                         "summary": {
                           "type": "object",
@@ -13026,7 +13895,7 @@
                               "severity",
                               "message"
                             ],
-                            "additionalProperties": true
+                            "additionalProperties": false
                           }
                         },
                         "blockerCount": {
@@ -13123,7 +13992,7 @@
                               "severity",
                               "message"
                             ],
-                            "additionalProperties": true
+                            "additionalProperties": false
                           }
                         },
                         "errorCode": {
@@ -13164,7 +14033,7 @@
                         "freezeEligible",
                         "freezeBlockers"
                       ],
-                      "additionalProperties": true
+                      "additionalProperties": false
                     },
                     "bundle": {
                       "type": "object",
@@ -13211,14 +14080,14 @@
                         "excludedCount",
                         "byteLength"
                       ],
-                      "additionalProperties": true
+                      "additionalProperties": false
                     }
                   },
                   "required": [
                     "export",
                     "bundle"
                   ],
-                  "additionalProperties": true
+                  "additionalProperties": false
                 }
               }
             }

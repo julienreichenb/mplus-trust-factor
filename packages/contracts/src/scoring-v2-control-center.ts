@@ -186,6 +186,10 @@ export interface ScoringV2ConcurrencyDTO {
   newestObservationAt: string | null;
 }
 
+/**
+ * Control-center overview DTO — OpenAPI `overviewSchema` must mirror these exact keys
+ * with `additionalProperties: false`.
+ */
 export interface ScoringV2OverviewDTO {
   flags: ScoringV2FlagOverviewDTO;
   activeModel: ScoringV2ModelSummaryDTO | null;
@@ -212,6 +216,10 @@ export interface ScoringV2OverviewDTO {
   generatedAt: string;
 }
 
+/**
+ * Evidence-export progress counters — closed set of known fields.
+ * OpenAPI (`evidenceExportProgressSchema`) must list these with `additionalProperties: false`.
+ */
 export interface ScoringV2EvidenceExportProgressDTO {
   membersTotal: number;
   membersScanned: number;
@@ -234,6 +242,7 @@ export interface ScoringV2EvidenceExportDTO {
   scoreModelId: string | null;
   status: ScoringV2EvidenceExportStatus;
   progress: ScoringV2EvidenceExportProgressDTO;
+  /** Extensible bag — OpenAPI may keep `additionalProperties: true` only on this nested object. */
   summary: Record<string, unknown>;
   issues: ScoringV2IssueDTO[];
   blockerCount: number;
