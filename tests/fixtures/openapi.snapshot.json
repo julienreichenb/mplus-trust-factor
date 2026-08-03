@@ -10692,8 +10692,8 @@
                             },
                             "cohortName": {
                               "type": [
-                                "string",
-                                "null"
+                                "null",
+                                "string"
                               ]
                             },
                             "cohortRevision": {
@@ -10701,8 +10701,8 @@
                             },
                             "seasonId": {
                               "type": [
-                                "string",
-                                "null"
+                                "null",
+                                "string"
                               ]
                             },
                             "status": {
@@ -10724,20 +10724,20 @@
                             },
                             "archiveContentHash": {
                               "type": [
-                                "string",
-                                "null"
+                                "null",
+                                "string"
                               ]
                             },
                             "frozenBundleContentHash": {
                               "type": [
-                                "string",
-                                "null"
+                                "null",
+                                "string"
                               ]
                             },
                             "frozenAt": {
                               "type": [
-                                "string",
-                                "null"
+                                "null",
+                                "string"
                               ]
                             },
                             "requestedByUserId": {
@@ -10748,14 +10748,14 @@
                             },
                             "startedAt": {
                               "type": [
-                                "string",
-                                "null"
+                                "null",
+                                "string"
                               ]
                             },
                             "completedAt": {
                               "type": [
-                                "string",
-                                "null"
+                                "null",
+                                "string"
                               ]
                             }
                           },
@@ -11810,12 +11810,6 @@
                               "string"
                             ]
                           },
-                          "scoreModelId": {
-                            "type": [
-                              "null",
-                              "string"
-                            ]
-                          },
                           "status": {
                             "type": "string",
                             "enum": [
@@ -11826,92 +11820,6 @@
                               "FAILED",
                               "CANCELLED"
                             ]
-                          },
-                          "progress": {
-                            "type": "object",
-                            "properties": {
-                              "membersTotal": {
-                                "type": "integer"
-                              },
-                              "membersScanned": {
-                                "type": "integer"
-                              },
-                              "identitiesFound": {
-                                "type": "integer"
-                              },
-                              "identitiesMissing": {
-                                "type": "integer"
-                              },
-                              "bootstrapComplete": {
-                                "type": "integer"
-                              },
-                              "bootstrapIncomplete": {
-                                "type": "integer"
-                              },
-                              "manifestsPresent": {
-                                "type": "integer"
-                              },
-                              "fourDimensionComplete": {
-                                "type": "integer"
-                              },
-                              "compatibleSnapshots": {
-                                "type": "integer"
-                              },
-                              "incompatibleSnapshots": {
-                                "type": "integer"
-                              }
-                            },
-                            "required": [
-                              "membersTotal",
-                              "membersScanned",
-                              "identitiesFound",
-                              "identitiesMissing",
-                              "bootstrapComplete",
-                              "bootstrapIncomplete",
-                              "manifestsPresent",
-                              "fourDimensionComplete",
-                              "compatibleSnapshots",
-                              "incompatibleSnapshots"
-                            ],
-                            "additionalProperties": false
-                          },
-                          "summary": {
-                            "type": "object",
-                            "additionalProperties": true
-                          },
-                          "issues": {
-                            "type": "array",
-                            "items": {
-                              "type": "object",
-                              "properties": {
-                                "code": {
-                                  "type": "string"
-                                },
-                                "severity": {
-                                  "type": "string",
-                                  "enum": [
-                                    "blocker",
-                                    "warning",
-                                    "info"
-                                  ]
-                                },
-                                "message": {
-                                  "type": "string"
-                                },
-                                "memberId": {
-                                  "type": [
-                                    "null",
-                                    "string"
-                                  ]
-                                }
-                              },
-                              "required": [
-                                "code",
-                                "severity",
-                                "message"
-                              ],
-                              "additionalProperties": false
-                            }
                           },
                           "blockerCount": {
                             "type": "integer"
@@ -11925,98 +11833,13 @@
                               "string"
                             ]
                           },
-                          "archiveByteLength": {
-                            "type": [
-                              "null",
-                              "integer"
-                            ]
-                          },
-                          "summaryContentHash": {
-                            "type": [
-                              "null",
-                              "string"
-                            ]
-                          },
-                          "preflightContentHash": {
-                            "type": [
-                              "null",
-                              "string"
-                            ]
-                          },
-                          "markdownContentHash": {
-                            "type": [
-                              "null",
-                              "string"
-                            ]
-                          },
                           "frozenBundleContentHash": {
                             "type": [
                               "null",
                               "string"
                             ]
                           },
-                          "frozenBundleByteDigest": {
-                            "type": [
-                              "null",
-                              "string"
-                            ]
-                          },
-                          "frozenBundleByteLength": {
-                            "type": [
-                              "null",
-                              "integer"
-                            ]
-                          },
                           "frozenAt": {
-                            "type": [
-                              "null",
-                              "string"
-                            ]
-                          },
-                          "freezeEligible": {
-                            "type": "boolean"
-                          },
-                          "freezeBlockers": {
-                            "type": "array",
-                            "items": {
-                              "type": "object",
-                              "properties": {
-                                "code": {
-                                  "type": "string"
-                                },
-                                "severity": {
-                                  "type": "string",
-                                  "enum": [
-                                    "blocker",
-                                    "warning",
-                                    "info"
-                                  ]
-                                },
-                                "message": {
-                                  "type": "string"
-                                },
-                                "memberId": {
-                                  "type": [
-                                    "null",
-                                    "string"
-                                  ]
-                                }
-                              },
-                              "required": [
-                                "code",
-                                "severity",
-                                "message"
-                              ],
-                              "additionalProperties": false
-                            }
-                          },
-                          "errorCode": {
-                            "type": [
-                              "null",
-                              "string"
-                            ]
-                          },
-                          "errorMessage": {
                             "type": [
                               "null",
                               "string"
@@ -12045,8 +11868,9 @@
                           "id",
                           "cohortId",
                           "status",
-                          "freezeEligible",
-                          "freezeBlockers"
+                          "cohortRevision",
+                          "blockerCount",
+                          "warningCount"
                         ],
                         "additionalProperties": false
                       }

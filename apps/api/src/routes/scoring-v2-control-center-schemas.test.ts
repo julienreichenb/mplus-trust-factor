@@ -6,6 +6,7 @@ import {
   concurrencyDtoSchema,
   concurrencyLaneSchema,
   evidenceExportDtoSchema,
+  evidenceExportSummaryDtoSchema,
   freezeBundleResponseSchema,
   historyListSchema,
   listExportsSchema,
@@ -54,12 +55,14 @@ describe("scoring-v2-control-center OpenAPI schema strictness (M5)", () => {
     expect(evidenceExportDtoSchema.properties.progress.additionalProperties).toBe(false);
   });
 
-  it("listExports items use evidenceExportDtoSchema; history uses history items", () => {
-    expect(listExportsSchema.properties.items.items).toBe(evidenceExportDtoSchema);
+  it("listExports items use summary DTO; history uses history items", () => {
+    expect(listExportsSchema.properties.items.items).toBe(evidenceExportSummaryDtoSchema);
     expect(historyListSchema.properties.items.items).not.toBe(evidenceExportDtoSchema);
+    assertNoAdditionalProps(evidenceExportSummaryDtoSchema, "evidenceExportSummaryDtoSchema");
     assertNoAdditionalProps(
       historyListSchema.properties.items.items as { additionalProperties?: unknown },
       "historyItemDtoSchema",
     );
   });
 });
+

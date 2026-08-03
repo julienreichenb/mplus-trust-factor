@@ -398,7 +398,7 @@ export const overviewSchema = {
 export const listExportsSchema = {
   type: "object",
   properties: {
-    items: { type: "array", items: evidenceExportDtoSchema },
+    items: { type: "array", items: evidenceExportSummaryDtoSchema },
     total: { type: "integer" },
     page: { type: "integer", minimum: 1 },
     pageSize: { type: "integer", minimum: 1, maximum: 50 },
