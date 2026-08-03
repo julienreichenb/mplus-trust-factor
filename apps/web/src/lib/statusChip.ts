@@ -15,6 +15,7 @@ const SUCCESS = new Set([
   "SUCCESS",
   "DRY_RUN_COMPLETED",
   "OK",
+  "SYNCHRONIZED",
 ]);
 
 const WARNING = new Set([
@@ -26,6 +27,7 @@ const WARNING = new Set([
   "DISCOVERING",
   "STALE",
   "PARTIAL",
+  "PARTIALLY_OBSERVED",
   "SELECTING",
   "PAUSED",
   "WARNING",
@@ -39,6 +41,7 @@ const DANGER = new Set([
   "UNAVAILABLE",
   "ERROR",
   "DISPATCH_FAILED",
+  "UNSYNCHRONIZED",
 ]);
 
 /** Human labels for known persisted enums (values themselves stay unchanged in APIs). */
@@ -48,6 +51,10 @@ const LABEL_OVERRIDES: Record<string, string> = {
   RUNNING: "Analyzing",
   DRY_RUN_COMPLETED: "Dry-run completed",
   PARTIAL: "Partial data",
+  PARTIALLY_OBSERVED: "Partially observed",
+  UNSYNCHRONIZED: "Unsynchronized",
+  SYNCHRONIZED: "Synchronized",
+  UNKNOWN: "Unknown",
   FAILED: "Failed",
 };
 

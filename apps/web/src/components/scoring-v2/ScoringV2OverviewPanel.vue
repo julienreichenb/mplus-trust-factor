@@ -4,6 +4,7 @@ import { useRouter } from "vue-router";
 import type { ScoringV2OverviewDTO } from "@mplus/contracts";
 import { ApiClientError } from "../../api/live-client";
 import StatusBanner from "../common/StatusBanner.vue";
+import StatusChip from "../character/StatusChip.vue";
 
 const router = useRouter();
 const apiBase = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:3000";
@@ -182,8 +183,8 @@ defineExpose({ reload: load });
             {{ overview.concurrency.operation.active }} · queued
             {{ overview.concurrency.operation.queued }}
           </dd>
-          <dt>Synchronized</dt>
-          <dd>{{ overview.concurrency.synchronized ? "yes" : "no" }}</dd>
+          <dt>Sync state</dt>
+          <dd><StatusChip :status="overview.concurrency.syncState" /></dd>
         </dl>
       </section>
     </template>

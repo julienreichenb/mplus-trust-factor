@@ -116,6 +116,7 @@ import {
   releaseLanePermit,
   startLanePermitHeartbeat,
 } from "./refresh-admission/lane-permits.js";
+import { writeConcurrencyObservation } from "./refresh-admission/concurrency-observe.js";
 import { RefreshAdmissionError } from "./refresh-admission/errors.js";
 import {
   DEFAULT_CONCURRENCY_CALIBRATION,
@@ -804,14 +805,11 @@ export async function runRefreshPipeline(
         },
       },
     });
-    const cal =
-      Number(
-        settings.find((s) => s.key === RUNTIME_SETTING_KEYS.concurrencyCalibration)?.value,
-      ) || DEFAULT_CONCURRENCY_CALIBRATION;
-    const op =
-      Number(
-        settings.find((s) => s.key === RUNTIME_SETTING_KEYS.concurrencyOperation)?.value,
-      ) || DEFAULT_CONCURRENCY_OPERATION;
+    const calRow = settings.find((s) => s.key === RUNTIME_SETTING_KEYS.concurrencyCalibration);
+    const opRow = settings.find((s) => s.key === RUNTIME_SETTING_KEYS.concurrencyOperation);
+    const cal = Number(calRow?.value) || DEFAULT_CONCURRENCY_CALIBRATION;
+    const op = Number(opRow?.value) || DEFAULT_CONCURRENCY_OPERATION;
+    const settingsVersion = Math.max(calRow?.version ?? 1, opRow?.version ?? 1, 1);
     const limit = workloadClass === "CALIBRATION" ? cal : op;
     const permit = await acquireLanePermit({
       redis: admissionRedis,
@@ -833,6 +831,25 @@ export async function runRefreshPipeline(
     }
     laneHeld = workloadClass;
     laneOwnershipToken = permit.token;
+    // Best-effort sync evidence for control-center; permit path must not fail closed on observe write.
+    try {
+      await writeConcurrencyObservation({
+        redis: admissionRedis,
+        appEnv: container.env.APP_ENV,
+        settingsVersion,
+        concurrencyCalibration: cal,
+        concurrencyOperation: op,
+      });
+    } catch (observeErr) {
+      logger.warn(
+        {
+          ...logBase,
+          event: "concurrency_observation_write_failed",
+          err: observeErr,
+        },
+        "concurrency_observation_write_failed",
+      );
+    }
     laneHeartbeat = startLanePermitHeartbeat({
       redis: admissionRedis,
       appEnv: container.env.APP_ENV,

@@ -156,13 +156,34 @@ export interface ScoringV2ConcurrencyLaneDTO {
   updatedByUserId: string | null;
 }
 
+/** Evidence-based concurrency settings sync across worker replicas. */
+export const SCORING_V2_CONCURRENCY_SYNC_STATES = [
+  "SYNCHRONIZED",
+  "PARTIALLY_OBSERVED",
+  "STALE",
+  "UNSYNCHRONIZED",
+  "UNKNOWN",
+] as const;
+export type ScoringV2ConcurrencySyncState = (typeof SCORING_V2_CONCURRENCY_SYNC_STATES)[number];
+export const scoringV2ConcurrencySyncStateSchema = z.enum(SCORING_V2_CONCURRENCY_SYNC_STATES);
+
 export interface ScoringV2ConcurrencyDTO {
   calibration: ScoringV2ConcurrencyLaneDTO;
   operation: ScoringV2ConcurrencyLaneDTO;
   /** Max static worker claim capacity (hard bound). */
   workerClaimHardMax: number;
+  /** Evidence-based sync derivation from worker Redis observations. */
+  syncState: ScoringV2ConcurrencySyncState;
+  /**
+   * Compatibility mirror — true only when `syncState === "SYNCHRONIZED"`.
+   * Do not treat as authoritative; prefer `syncState`.
+   */
   synchronized: boolean;
   settingsVersion: number;
+  /** Distinct worker observation keys read from Redis (any freshness). */
+  observedReplicaCount: number;
+  oldestObservationAt: string | null;
+  newestObservationAt: string | null;
 }
 
 export interface ScoringV2OverviewDTO {

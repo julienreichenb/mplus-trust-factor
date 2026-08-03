@@ -46,4 +46,18 @@ describe("status chip mapping", () => {
     expect(presentStatusChip("CANCELLED")).toEqual({ label: "Cancelled", tone: "danger" });
     expect(presentStatusChip("QUEUED").label).not.toMatch(/refresh/i);
   });
+
+  it("maps concurrency sync states without success for non-SYNCHRONIZED", () => {
+    expect(presentStatusChip("SYNCHRONIZED")).toEqual({ label: "Synchronized", tone: "success" });
+    expect(presentStatusChip("PARTIALLY_OBSERVED")).toEqual({
+      label: "Partially observed",
+      tone: "warning",
+    });
+    expect(presentStatusChip("STALE").tone).toBe("warning");
+    expect(presentStatusChip("UNSYNCHRONIZED")).toEqual({
+      label: "Unsynchronized",
+      tone: "danger",
+    });
+    expect(presentStatusChip("UNKNOWN")).toEqual({ label: "Unknown", tone: "neutral" });
+  });
 });

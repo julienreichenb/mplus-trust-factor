@@ -4,6 +4,7 @@ import { useRouter } from "vue-router";
 import type { ScoringV2ConcurrencyDTO } from "@mplus/contracts";
 import { ApiClientError } from "../../api/live-client";
 import StatusBanner from "../common/StatusBanner.vue";
+import StatusChip from "../character/StatusChip.vue";
 
 const router = useRouter();
 const apiBase = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:3000";
@@ -143,8 +144,14 @@ onMounted(() => {
       </table>
       <p>
         Worker claim hard max {{ data.workerClaimHardMax }} · settings version
-        {{ data.settingsVersion }} · synchronized
-        <span class="chip">{{ data.synchronized ? "yes" : "no" }}</span>
+        {{ data.settingsVersion }} · replicas {{ data.observedReplicaCount }} · sync
+        <StatusChip :status="data.syncState" />
+      </p>
+      <p v-if="data.oldestObservationAt || data.newestObservationAt" class="muted">
+        Observations
+        {{ data.oldestObservationAt ?? "—" }}
+        →
+        {{ data.newestObservationAt ?? "—" }}
       </p>
     </section>
   </div>
@@ -187,13 +194,6 @@ onMounted(() => {
 
 .muted {
   opacity: 0.75;
-}
-
-.chip {
-  display: inline-block;
-  padding: 0.1rem 0.45rem;
-  border: 1px solid color-mix(in srgb, currentColor 25%, transparent);
-  font-size: 0.8rem;
 }
 
 .mono {

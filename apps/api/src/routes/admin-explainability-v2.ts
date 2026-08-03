@@ -90,7 +90,10 @@ export function buildAdminExplainabilityV2Routes(container: ApiContainer): Fasti
             response: { 200: overviewSchema, ...authErrorResponses },
           },
         },
-        async () => buildScoringV2Overview(container.worker.prisma, env),
+        async () => buildScoringV2Overview(container.worker.prisma, env, {
+          redis: container.getAdmissionRedis(),
+          appEnv: env.APP_ENV,
+        }),
       );
 
       readApp.get(
@@ -124,6 +127,8 @@ export function buildAdminExplainabilityV2Routes(container: ApiContainer): Fasti
           calibrationQueued: count(cal, "QUEUED"),
           operationActive: count(op, "ACTIVE"),
           operationQueued: count(op, "QUEUED"),
+          redis: container.getAdmissionRedis(),
+          appEnv: env.APP_ENV,
         });
       },
       );
@@ -282,6 +287,10 @@ export function buildAdminExplainabilityV2Routes(container: ApiContainer): Fasti
           container.worker.prisma,
           body,
           actorId,
+          {
+            redis: container.getAdmissionRedis(),
+            appEnv: env.APP_ENV,
+          },
         );
         emitScoringV2Event(container.logger, OBS_EVENTS.scoringV2AdminConcurrencyUpdated, {
           settingsVersion: result.settingsVersion,

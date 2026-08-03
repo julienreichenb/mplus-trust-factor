@@ -9,7 +9,10 @@ import type {
   ScoringV2IssueDTO,
 } from "@mplus/contracts";
 import type { PrismaClient } from "@mplus/database";
-import { getConcurrencySettings } from "./scoring-v2-runtime-settings.js";
+import {
+  getConcurrencySettings,
+  type GetConcurrencySettingsOptions,
+} from "./scoring-v2-runtime-settings.js";
 
 function deriveModeLabel(flags: ReturnType<typeof getScoringV2FlagSummary>): ScoringV2ModeLabel {
   if (!flags.enabled) return "Disabled";
@@ -50,6 +53,10 @@ function toFlagOverview(env: AppEnv): ScoringV2FlagOverviewDTO {
 export async function buildScoringV2Overview(
   prisma: PrismaClient,
   env: AppEnv,
+  concurrencyOptions: Pick<
+    GetConcurrencySettingsOptions,
+    "redis" | "appEnv" | "nowMs"
+  > = {},
 ): Promise<ScoringV2OverviewDTO> {
   const flags = toFlagOverview(env);
   const [activeModel, currentSeason, cohortGroups, recentExport, recentFrozen, queueGroups] =
@@ -108,6 +115,9 @@ export async function buildScoringV2Overview(
     calibrationQueued: cal.queued,
     operationActive: op.active,
     operationQueued: op.queued,
+    redis: concurrencyOptions.redis,
+    appEnv: concurrencyOptions.appEnv ?? env.APP_ENV,
+    nowMs: concurrencyOptions.nowMs,
   });
 
   const blockers: ScoringV2IssueDTO[] = [];

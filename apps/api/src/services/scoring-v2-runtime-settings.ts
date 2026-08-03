@@ -13,6 +13,11 @@ import {
   type ScoringV2ConcurrencyDTO,
   type UpdateConcurrencyBody,
 } from "@mplus/contracts";
+import {
+  deriveConcurrencySyncState,
+  listConcurrencyObservations,
+  type ConcurrencyObserveRedis,
+} from "@mplus/worker";
 import { HttpError } from "../errors.js";
 
 const concurrencySettingSchema = concurrencyValueSchema;
@@ -47,14 +52,20 @@ function readConcurrency(value: unknown, fallback: number): number {
   return parsed.success ? parsed.data : fallback;
 }
 
+export type GetConcurrencySettingsOptions = {
+  calibrationActive?: number;
+  calibrationQueued?: number;
+  operationActive?: number;
+  operationQueued?: number;
+  /** When null/undefined, syncState is UNKNOWN (Redis unavailable). */
+  redis?: ConcurrencyObserveRedis | null;
+  appEnv?: string;
+  nowMs?: number;
+};
+
 export async function getConcurrencySettings(
   prisma: PrismaClient,
-  counts?: {
-    calibrationActive: number;
-    calibrationQueued: number;
-    operationActive: number;
-    operationQueued: number;
-  },
+  options: GetConcurrencySettingsOptions = {},
 ): Promise<ScoringV2ConcurrencyDTO> {
   await ensureDefaults(prisma);
   const rows = await prisma.runtimeSetting.findMany({
@@ -74,13 +85,38 @@ export async function getConcurrencySettings(
   const opConfigured = readConcurrency(op.value, DEFAULT_CONCURRENCY_OPERATION);
   const settingsVersion = Math.max(cal.version, op.version);
 
+  const redis = options.redis ?? null;
+  const appEnv = options.appEnv ?? "development";
+  let redisAvailable = false;
+  let observations: Awaited<ReturnType<typeof listConcurrencyObservations>> = [];
+
+  if (redis != null) {
+    const listed = await listConcurrencyObservations({ redis, appEnv });
+    if (listed == null) {
+      redisAvailable = false;
+      observations = [];
+    } else {
+      redisAvailable = true;
+      observations = listed;
+    }
+  }
+
+  const sync = deriveConcurrencySyncState({
+    redisAvailable,
+    observations: observations ?? [],
+    settingsVersion,
+    configuredCalibration: calConfigured,
+    configuredOperation: opConfigured,
+    nowMs: options.nowMs,
+  });
+
   return {
     calibration: {
       workloadClass: "CALIBRATION",
       configured: calConfigured,
-      effective: calConfigured,
-      active: counts?.calibrationActive ?? 0,
-      queued: counts?.calibrationQueued ?? 0,
+      effective: sync.effectiveCalibration,
+      active: options.calibrationActive ?? 0,
+      queued: options.calibrationQueued ?? 0,
       version: cal.version,
       updatedAt: cal.updatedAt.toISOString(),
       updatedByUserId: cal.updatedByUserId,
@@ -88,16 +124,20 @@ export async function getConcurrencySettings(
     operation: {
       workloadClass: "OPERATION",
       configured: opConfigured,
-      effective: opConfigured,
-      active: counts?.operationActive ?? 0,
-      queued: counts?.operationQueued ?? 0,
+      effective: sync.effectiveOperation,
+      active: options.operationActive ?? 0,
+      queued: options.operationQueued ?? 0,
       version: op.version,
       updatedAt: op.updatedAt.toISOString(),
       updatedByUserId: op.updatedByUserId,
     },
     workerClaimHardMax: CONCURRENCY_MAX,
-    synchronized: true,
+    syncState: sync.syncState,
+    synchronized: sync.synchronized,
     settingsVersion,
+    observedReplicaCount: sync.observedReplicaCount,
+    oldestObservationAt: sync.oldestObservationAt,
+    newestObservationAt: sync.newestObservationAt,
   };
 }
 
@@ -105,6 +145,7 @@ export async function updateConcurrencySettings(
   prisma: PrismaClient,
   body: UpdateConcurrencyBody,
   updatedByUserId: string | null,
+  options: Pick<GetConcurrencySettingsOptions, "redis" | "appEnv" | "nowMs"> = {},
 ): Promise<ScoringV2ConcurrencyDTO> {
   const parsed = z
     .object({
@@ -173,7 +214,7 @@ export async function updateConcurrencySettings(
     }
   });
 
-  return getConcurrencySettings(prisma);
+  return getConcurrencySettings(prisma, options);
 }
 
 export async function loadLaneLimits(prisma: PrismaClient): Promise<{

@@ -54,10 +54,27 @@ export const concurrencyDtoSchema = {
     calibration: concurrencyLaneSchema,
     operation: concurrencyLaneSchema,
     workerClaimHardMax: { type: "integer" },
+    syncState: {
+      type: "string",
+      enum: ["SYNCHRONIZED", "PARTIALLY_OBSERVED", "STALE", "UNSYNCHRONIZED", "UNKNOWN"],
+    },
     synchronized: { type: "boolean" },
     settingsVersion: { type: "integer" },
+    observedReplicaCount: { type: "integer", minimum: 0 },
+    oldestObservationAt: { type: ["string", "null"] },
+    newestObservationAt: { type: ["string", "null"] },
   },
-  required: ["calibration", "operation", "workerClaimHardMax", "synchronized", "settingsVersion"],
+  required: [
+    "calibration",
+    "operation",
+    "workerClaimHardMax",
+    "syncState",
+    "synchronized",
+    "settingsVersion",
+    "observedReplicaCount",
+    "oldestObservationAt",
+    "newestObservationAt",
+  ],
   additionalProperties: true,
 } as const;
 
