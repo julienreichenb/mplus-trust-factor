@@ -21,6 +21,7 @@ const WARNING = new Set([
   "QUEUED",
   "ACTIVE",
   "RUNNING",
+  "RETRYABLE",
   "REFRESHING",
   "DISCOVERING",
   "STALE",

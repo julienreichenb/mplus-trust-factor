@@ -103,6 +103,7 @@ enum RefreshWorkloadClass {
 enum ScoringV2EvidenceExportStatus {
   QUEUED
   RUNNING
+  RETRYABLE
   COMPLETED
   FAILED
   CANCELLED
@@ -1922,6 +1923,22 @@ model ScoringV2EvidenceExport {
   frozenBundleByteLength   Int?                          @map("frozen_bundle_byte_length")
   frozenBundleStorageUri   String?                       @map("frozen_bundle_storage_uri")
   frozenAt                 DateTime?                     @map("frozen_at") @db.Timestamptz(3)
+  /**
+   * Pinned wall-clock for deterministic join identity (create or first claim).
+   * Retries must reuse this; never stamp a fresh now into archive identity.
+   */
+  generatedAt              DateTime?                     @map("generated_at") @db.Timestamptz(3)
+  /** Evidence freshness cutoff pinned with the export request. */
+  evidenceCutoffAt         DateTime?                     @map("evidence_cutoff_at") @db.Timestamptz(3)
+  /** Claim / recovery attempt counter (M3). */
+  attempt                  Int                           @default(0)
+  leaseOwner               String?                       @map("lease_owner")
+  leaseExpiresAt           DateTime?                     @map("lease_expires_at") @db.Timestamptz(3)
+  heartbeatAt              DateTime?                     @map("heartbeat_at") @db.Timestamptz(3)
+  /** Hash of the terminal archive set (equals archiveContentHash on success). */
+  artifactSetHash          String?                       @map("artifact_set_hash")
+  /** Immutable freeze inputs placeholder (H3 fills members/model/catalogs). */
+  freezeSnapshot           Json?                         @map("freeze_snapshot")
   errorCode                String?                       @map("error_code")
   errorMessage             String?                       @map("error_message")
   requestedByUserId        String                        @map("requested_by_user_id") @db.Uuid
@@ -1940,5 +1957,6 @@ model ScoringV2EvidenceExport {
   @@index([requestedByUserId, createdAt(sort: Desc)])
   @@index([archiveContentHash])
   @@index([frozenBundleContentHash])
+  @@index([status, leaseExpiresAt])
   @@map("scoring_v2_evidence_exports")
 }

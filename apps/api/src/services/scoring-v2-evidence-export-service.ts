@@ -164,6 +164,8 @@ export class ScoringV2EvidenceExportService {
     }
 
     const seasonId = parsed.seasonId ?? cohort.seasonId;
+    // Pin identity clocks before enqueue so worker retries stay byte-identical (B3).
+    const pinnedAt = new Date();
     const row = await this.container.worker.prisma.scoringV2EvidenceExport.create({
       data: {
         cohortId: cohort.id,
@@ -173,6 +175,9 @@ export class ScoringV2EvidenceExportService {
         requestedByUserId,
         progress: EMPTY_PROGRESS as unknown as Prisma.InputJsonValue,
         summary: {},
+        generatedAt: pinnedAt,
+        evidenceCutoffAt: pinnedAt,
+        freezeSnapshot: {},
       },
       include: { cohort: { select: { name: true } } },
     });

@@ -1,7 +1,11 @@
 /**
  * Provider-free Scoring V2 evidence export worker job.
  * Writes only the export row + content-addressed artifacts. Never enqueues refresh.
+ *
+ * B3: idempotent COMPLETED short-circuit; pinned generatedAt/evidenceCutoffAt;
+ * atomic lease claim; optimistic terminal finalize; archive bounds (M4 lite).
  */
+import { randomUUID } from "node:crypto";
 import {
   scoringV2EvidenceExportJobSchema,
   type ScoringV2EvidenceExportJob,
@@ -15,11 +19,29 @@ import {
 } from "./scoring-v2/evidence-join.js";
 import { buildStoreZip } from "./scoring-v2/zip-store.js";
 
+/** M4 lite: hard caps before buffering unbounded archives. */
+export const EVIDENCE_EXPORT_MAX_MEMBERS = 500;
+export const EVIDENCE_EXPORT_MAX_ARCHIVE_BYTES = 50 * 1024 * 1024;
+/** M3: lease TTL for RUNNING claim (sweeper / reclaim uses expiry). */
+export const EVIDENCE_EXPORT_LEASE_TTL_MS = 5 * 60 * 1000;
+
 export interface ScoringV2EvidenceExportProcessorDeps {
   prisma: PrismaClient;
   logger: Logger;
   artifacts: ArtifactRepository;
   scoreTtlSeconds?: number;
+  /** Injectable clock for tests. */
+  now?: () => Date;
+  /** Injectable lease owner id for tests. */
+  leaseOwnerFactory?: () => string;
+}
+
+function clearLeaseFields() {
+  return {
+    leaseOwner: null,
+    leaseExpiresAt: null,
+    heartbeatAt: null,
+  };
 }
 
 export async function runScoringV2EvidenceExportJob(
@@ -29,6 +51,8 @@ export async function runScoringV2EvidenceExportJob(
   const payload = scoringV2EvidenceExportJobSchema.parse(rawPayload);
   const { prisma, logger, artifacts } = deps;
   const scoreTtlSeconds = deps.scoreTtlSeconds ?? 604800;
+  const nowFn = deps.now ?? (() => new Date());
+  const leaseOwnerFactory = deps.leaseOwnerFactory ?? (() => randomUUID());
 
   const exportRow = await prisma.scoringV2EvidenceExport.findUnique({
     where: { id: payload.exportId },
@@ -44,21 +68,130 @@ export async function runScoringV2EvidenceExportJob(
     throw new Error(`Evidence export not found: ${payload.exportId}`);
   }
 
+  // Idempotent short-circuit: duplicate delivery after success must not rejoin.
+  if (exportRow.status === "COMPLETED" && exportRow.archiveContentHash) {
+    emitScoringV2Event(logger, OBS_EVENTS.scoringV2AdminEvidenceExportCompleted, {
+      exportId: exportRow.id,
+      cohortId: exportRow.cohortId,
+      blockerCount: exportRow.blockerCount,
+      warningCount: exportRow.warningCount,
+      archiveContentHash: exportRow.archiveContentHash,
+      deduplicated: true,
+    });
+    return { exportId: exportRow.id, status: "COMPLETED" };
+  }
+
   emitScoringV2Event(logger, OBS_EVENTS.scoringV2AdminEvidenceExportStarted, {
     exportId: exportRow.id,
     cohortId: exportRow.cohortId,
     cohortRevision: exportRow.cohortRevision,
   });
 
-  await prisma.scoringV2EvidenceExport.update({
-    where: { id: exportRow.id },
-    data: { status: "RUNNING", startedAt: new Date(), errorCode: null, errorMessage: null },
+  const claimNow = nowFn();
+  const leaseOwner = leaseOwnerFactory();
+  const leaseExpiresAt = new Date(claimNow.getTime() + EVIDENCE_EXPORT_LEASE_TTL_MS);
+
+  const claimData: Prisma.ScoringV2EvidenceExportUpdateManyMutationInput = {
+    status: "RUNNING",
+    attempt: { increment: 1 },
+    leaseOwner,
+    leaseExpiresAt,
+    heartbeatAt: claimNow,
+    startedAt: exportRow.startedAt ?? claimNow,
+    errorCode: null,
+    errorMessage: null,
+    // Pin identity timestamps on first claim when API create did not set them.
+    generatedAt: exportRow.generatedAt ?? claimNow,
+    evidenceCutoffAt: exportRow.evidenceCutoffAt ?? exportRow.generatedAt ?? claimNow,
+  };
+  if (exportRow.freezeSnapshot == null) {
+    claimData.freezeSnapshot = {};
+  }
+
+  const claimed = await prisma.scoringV2EvidenceExport.updateMany({
+    where: {
+      id: exportRow.id,
+      OR: [
+        { status: { in: ["QUEUED", "RETRYABLE"] } },
+        { status: "RUNNING", leaseExpiresAt: { lt: claimNow } },
+        { status: "RUNNING", leaseExpiresAt: null },
+      ],
+    },
+    data: claimData,
   });
 
+  if (claimed.count === 0) {
+    const current = await prisma.scoringV2EvidenceExport.findUnique({
+      where: { id: exportRow.id },
+      select: {
+        status: true,
+        archiveContentHash: true,
+        blockerCount: true,
+        warningCount: true,
+        cohortId: true,
+        leaseOwner: true,
+        leaseExpiresAt: true,
+      },
+    });
+    if (current?.status === "COMPLETED" && current.archiveContentHash) {
+      return { exportId: exportRow.id, status: "COMPLETED" };
+    }
+    if (current?.status === "FAILED" || current?.status === "CANCELLED") {
+      return { exportId: exportRow.id, status: current.status };
+    }
+    // Another worker holds a valid lease — exit without writing divergent archives.
+    return { exportId: exportRow.id, status: current?.status ?? "RUNNING" };
+  }
+
+  const claimedRow = await prisma.scoringV2EvidenceExport.findUnique({
+    where: { id: exportRow.id },
+    select: {
+      attempt: true,
+      generatedAt: true,
+      evidenceCutoffAt: true,
+      leaseOwner: true,
+    },
+  });
+  if (!claimedRow || claimedRow.leaseOwner !== leaseOwner) {
+    return { exportId: exportRow.id, status: "RUNNING" };
+  }
+
+  const generatedAt = claimedRow.generatedAt ?? claimNow;
+  const evidenceCutoffAt = claimedRow.evidenceCutoffAt ?? generatedAt;
+  const attempt = claimedRow.attempt;
+
+  const failTerminal = async (errorCode: string, errorMessage: string) => {
+    await prisma.scoringV2EvidenceExport.updateMany({
+      where: {
+        id: exportRow.id,
+        status: "RUNNING",
+        leaseOwner,
+        attempt,
+      },
+      data: {
+        status: "FAILED",
+        completedAt: nowFn(),
+        errorCode,
+        errorMessage: errorMessage.slice(0, 500),
+        ...clearLeaseFields(),
+      },
+    });
+    emitScoringV2Event(
+      logger,
+      OBS_EVENTS.scoringV2AdminEvidenceExportFailed,
+      { exportId: exportRow.id, reasonCode: errorCode },
+      "error",
+    );
+  };
+
   try {
-    if (exportRow.cohort.revision !== exportRow.cohortRevision) {
-      // Still allow join against the frozen revision snapshot of members as persisted now;
-      // revision mismatch is reported as a blocker by comparing requested vs current.
+    const memberCount = exportRow.cohort.members.length;
+    if (memberCount > EVIDENCE_EXPORT_MAX_MEMBERS) {
+      await failTerminal(
+        "EVIDENCE_EXPORT_MEMBER_LIMIT",
+        `Cohort has ${memberCount} members; max allowed is ${EVIDENCE_EXPORT_MAX_MEMBERS}`,
+      );
+      return { exportId: exportRow.id, status: "FAILED" };
     }
 
     const join = await runEvidenceJoin(prisma, {
@@ -67,6 +200,7 @@ export async function runScoringV2EvidenceExportJob(
       cohortName: exportRow.cohort.name,
       seasonId: exportRow.seasonId ?? exportRow.cohort.seasonId,
       scoreTtlSeconds,
+      now: generatedAt,
       members: exportRow.cohort.members.map((m) => ({
         memberId: m.id,
         region: m.region,
@@ -93,10 +227,14 @@ export async function runScoringV2EvidenceExportJob(
       join.freezeEligible = false;
     }
 
+    // Ensure join identity matches the pinned export clock (defense in depth).
+    join.generatedAt = generatedAt.toISOString();
+
     const summaryJson = JSON.stringify(
       {
         schemaVersion: join.schemaVersion,
         generatedAt: join.generatedAt,
+        evidenceCutoffAt: evidenceCutoffAt.toISOString(),
         cohortId: join.cohortId,
         cohortRevision: join.cohortRevision,
         cohortName: join.cohortName,
@@ -118,6 +256,14 @@ export async function runScoringV2EvidenceExportJob(
       { name: "evidence-join.preflight.json", content: preflightJson },
       { name: "evidence-join.preflight.md", content: markdown },
     ]);
+
+    if (archive.byteLength > EVIDENCE_EXPORT_MAX_ARCHIVE_BYTES) {
+      await failTerminal(
+        "EVIDENCE_EXPORT_ARCHIVE_TOO_LARGE",
+        `Archive is ${archive.byteLength} bytes; max allowed is ${EVIDENCE_EXPORT_MAX_ARCHIVE_BYTES}`,
+      );
+      return { exportId: exportRow.id, status: "FAILED" };
+    }
 
     const summaryWrite = await artifacts.persist({
       provider: "INTERNAL",
@@ -148,15 +294,22 @@ export async function runScoringV2EvidenceExportJob(
       owner: { ownerType: "AdminDiagnostics", ownerId: exportRow.id },
     });
 
-    await prisma.scoringV2EvidenceExport.update({
-      where: { id: exportRow.id },
+    const archiveContentHash = archiveWrite.write.contentHash;
+    const finalized = await prisma.scoringV2EvidenceExport.updateMany({
+      where: {
+        id: exportRow.id,
+        status: "RUNNING",
+        leaseOwner,
+        attempt,
+      },
       data: {
         status: "COMPLETED",
-        completedAt: new Date(),
+        completedAt: nowFn(),
         progress: join.progress as unknown as Prisma.InputJsonValue,
         summary: {
           schemaVersion: join.schemaVersion,
           generatedAt: join.generatedAt,
+          evidenceCutoffAt: evidenceCutoffAt.toISOString(),
           counts: join.counts,
           issues: join.issues,
           freezeEligible: join.freezeEligible,
@@ -167,32 +320,67 @@ export async function runScoringV2EvidenceExportJob(
         summaryContentHash: summaryWrite.write.contentHash,
         preflightContentHash: preflightWrite.write.contentHash,
         markdownContentHash: markdownWrite.write.contentHash,
-        archiveContentHash: archiveWrite.write.contentHash,
+        archiveContentHash,
         archiveByteLength: archiveWrite.write.uncompressedSizeBytes,
         archiveStorageUri: archiveWrite.write.storageUri,
+        artifactSetHash: archiveContentHash,
         scoreModelId: join.seasonBinding.activeModel?.id ?? exportRow.scoreModelId,
         seasonId: join.seasonBinding.season?.id ?? exportRow.seasonId,
+        ...clearLeaseFields(),
       },
     });
+
+    if (finalized.count === 0) {
+      const current = await prisma.scoringV2EvidenceExport.findUnique({
+        where: { id: exportRow.id },
+        select: { status: true, archiveContentHash: true, artifactSetHash: true },
+      });
+      // Optimistic guard: a peer already completed — never overwrite a different terminal set.
+      if (
+        current?.status === "COMPLETED" &&
+        (current.archiveContentHash === archiveContentHash ||
+          current.artifactSetHash === archiveContentHash)
+      ) {
+        return { exportId: exportRow.id, status: "COMPLETED" };
+      }
+      if (current?.status === "COMPLETED") {
+        logger.warn(
+          {
+            exportId: exportRow.id,
+            existingHash: current.archiveContentHash,
+            attemptedHash: archiveContentHash,
+          },
+          "evidence export finalize lost to divergent COMPLETED peer",
+        );
+        return { exportId: exportRow.id, status: "COMPLETED" };
+      }
+      throw new Error("EVIDENCE_EXPORT_FINALIZE_LOST_LEASE");
+    }
 
     emitScoringV2Event(logger, OBS_EVENTS.scoringV2AdminEvidenceExportCompleted, {
       exportId: exportRow.id,
       cohortId: exportRow.cohortId,
       blockerCount: join.blockerCount,
       warningCount: join.warningCount,
-      archiveContentHash: archiveWrite.write.contentHash,
+      archiveContentHash,
     });
 
     return { exportId: exportRow.id, status: "COMPLETED" };
   } catch (error) {
     const message = error instanceof Error ? error.message.slice(0, 500) : "Evidence export failed";
-    await prisma.scoringV2EvidenceExport.update({
-      where: { id: exportRow.id },
+    await prisma.scoringV2EvidenceExport.updateMany({
+      where: {
+        id: exportRow.id,
+        status: "RUNNING",
+        leaseOwner,
+        attempt,
+      },
       data: {
         status: "FAILED",
-        completedAt: new Date(),
+        completedAt: nowFn(),
         errorCode: "EVIDENCE_EXPORT_FAILED",
         errorMessage: message,
+        ...clearLeaseFields(),
       },
     });
     emitScoringV2Event(

@@ -33,11 +33,19 @@ export interface ZipFileEntry {
   content: string | Buffer;
 }
 
-/** Build an uncompressed ZIP archive. Entry order is preserved (caller should sort for determinism). */
+/**
+ * Build an uncompressed ZIP archive.
+ * Entry order is preserved (caller should sort for determinism).
+ * DOS time/date fields are fixed at 0 (1980-01-01 00:00:00) so identical
+ * inputs produce byte-identical archives across retries.
+ */
 export function buildStoreZip(files: ZipFileEntry[]): Buffer {
   const localParts: Buffer[] = [];
   const centralParts: Buffer[] = [];
   let offset = 0;
+  // Fixed DOS timestamps (not wall-clock) for deterministic archives.
+  const dosTime = 0;
+  const dosDate = 0;
 
   for (const file of files) {
     const nameBuf = Buffer.from(file.name, "utf8");
@@ -48,8 +56,8 @@ export function buildStoreZip(files: ZipFileEntry[]): Buffer {
       u16(20),
       u16(0),
       u16(0),
-      u16(0),
-      u16(0),
+      u16(dosTime),
+      u16(dosDate),
       u32(checksum),
       u32(data.length),
       u32(data.length),
@@ -66,8 +74,8 @@ export function buildStoreZip(files: ZipFileEntry[]): Buffer {
       u16(20),
       u16(0),
       u16(0),
-      u16(0),
-      u16(0),
+      u16(dosTime),
+      u16(dosDate),
       u32(checksum),
       u32(data.length),
       u32(data.length),

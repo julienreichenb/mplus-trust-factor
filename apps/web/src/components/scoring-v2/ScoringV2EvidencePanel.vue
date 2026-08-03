@@ -59,7 +59,11 @@ async function loadExport(id: string): Promise<void> {
   current.value = await apiJson<ScoringV2EvidenceExportDTO>(
     `/api/v1/admin/scoring-v2/evidence-exports/${encodeURIComponent(id)}`,
   );
-  if (current.value.status === "QUEUED" || current.value.status === "RUNNING") {
+  if (
+    current.value.status === "QUEUED" ||
+    current.value.status === "RUNNING" ||
+    current.value.status === "RETRYABLE"
+  ) {
     startPolling(id);
   } else {
     stopPolling();

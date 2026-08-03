@@ -52,6 +52,16 @@ describe("buildStoreZip", () => {
     // End-of-central-directory signature only.
     expect(zip.readUInt32LE(0)).toBe(0x06054b50);
   });
+
+  it("uses fixed DOS timestamps (byte-identical across calls)", () => {
+    const files = [{ name: "a.txt", content: "x" }];
+    const a = buildStoreZip(files);
+    const b = buildStoreZip(files);
+    // Local header DOS time @ offset 10, DOS date @ offset 12 — both zero.
+    expect(a.readUInt16LE(10)).toBe(0);
+    expect(a.readUInt16LE(12)).toBe(0);
+    expect(a.equals(b)).toBe(true);
+  });
 });
 
 describe("sha256Hex", () => {

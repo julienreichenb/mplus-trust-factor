@@ -12,6 +12,7 @@ export const refreshWorkloadClassSchema = z.enum(REFRESH_WORKLOAD_CLASSES);
 export const SCORING_V2_EVIDENCE_EXPORT_STATUSES = [
   "QUEUED",
   "RUNNING",
+  "RETRYABLE",
   "COMPLETED",
   "FAILED",
   "CANCELLED",

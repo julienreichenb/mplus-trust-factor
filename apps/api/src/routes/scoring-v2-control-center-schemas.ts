@@ -113,7 +113,7 @@ export const evidenceExportDtoSchema = {
     scoreModelId: { type: ["string", "null"] },
     status: {
       type: "string",
-      enum: ["QUEUED", "RUNNING", "COMPLETED", "FAILED", "CANCELLED"],
+      enum: ["QUEUED", "RUNNING", "RETRYABLE", "COMPLETED", "FAILED", "CANCELLED"],
     },
     progress: { type: "object", additionalProperties: true },
     summary: { type: "object", additionalProperties: true },
