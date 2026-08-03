@@ -11,7 +11,7 @@ import {
   type DiscoverySourceRow,
 } from "@mplus/provider-warcraftlogs";
 import { buildEvidenceAcquisitionPlanV2 } from "@mplus/scoring";
-import type { PrismaClient } from "@prisma/client";
+import type { PrismaClient } from "@mplus/database";
 import type { WorkerContainer } from "../../../container.js";
 import { createQueueProducers } from "../../../queues.js";
 import { assertPublicationBlocked, resolveEnabledConsumers } from "../acquisition.js";
@@ -66,18 +66,16 @@ export async function createOrReuseShadowCanary(input: {
   const existing = await input.prisma.scoringV2ShadowCanary.findUnique({
     where: { idempotencyKey },
   });
-  if (
-    existing &&
-    (existing.status === "QUEUED" ||
-      existing.status === "RUNNING" ||
-      existing.status === "COMPLETED")
-  ) {
+  if (existing && (existing.status === "QUEUED" || existing.status === "RUNNING")) {
     return {
       canaryId: existing.id,
       reused: true,
       characterId: existing.characterId,
     };
   }
+
+  const launchKey =
+    existing != null ? `${idempotencyKey}:relaunch:${randomUUID()}` : idempotencyKey;
 
   const row = await input.prisma.scoringV2ShadowCanary.create({
     data: {
@@ -95,7 +93,7 @@ export async function createOrReuseShadowCanary(input: {
       catalogVersion: identity.catalogVersion,
       catalogSupportState: identity.catalogSupportState,
       requestedByUserId: input.requestedByUserId,
-      idempotencyKey,
+      idempotencyKey: launchKey,
       progress: {},
       diagnostics: {
         catalogDependentFailClosed: identity.catalogDependentFailClosed,
@@ -140,12 +138,16 @@ export async function runShadowCanaryJob(input: {
   const producers = createQueueProducers(redis, input.container);
 
   try {
-    // Temporarily treat shadow orchestration as enabled for this explicit admin canary.
     const envOverride = {
       ...input.container.env,
       SCORING_V2_ENABLED: true,
       SCORING_V2_SELECTION_ENABLED: true,
       SCORING_V2_EVIDENCE_FETCH_ENABLED: true,
+      SCORING_V2_DIMENSIONS_ENABLED: true,
+      SCORING_V2_PERFORMANCE_ENABLED: true,
+      SCORING_V2_SURVIVAL_ENABLED: true,
+      SCORING_V2_UTILITY_ENABLED: true,
+      SCORING_V2_EXPERIENCE_ENABLED: true,
       SCORING_V2_PUBLICATION_ENABLED: false,
     };
     const container = { ...input.container, env: envOverride };
@@ -184,6 +186,8 @@ export async function runShadowCanaryJob(input: {
         refreshGeneration: Date.now(),
         region: input.region,
         v2RefreshId: randomUUID(),
+        adminShadowCanary: true,
+        shadowCanaryId: input.canaryId,
       },
       {
         enqueueAnalyzeEvidenceSlot: (job) => producers.enqueueAnalyzeEvidenceSlot(job),

@@ -1039,8 +1039,8 @@ export async function runScoringV2LiveCharacterProbe(args: ProbeCliArgs): Promis
   };
 
   let performanceResult = null;
-  let performanceMissing: string[] = [];
-  let performanceFailures: string[] = [];
+  const performanceMissing: string[] = [];
+  const performanceFailures: string[] = [];
   try {
     if (selectedPerfFacts.length === 0) {
       performanceMissing.push("run_parse_facts");
@@ -1061,8 +1061,8 @@ export async function runScoringV2LiveCharacterProbe(args: ProbeCliArgs): Promis
     scoreModelId: null,
   };
   let survivalResult = null;
-  let survivalMissing: string[] = [];
-  let survivalFailures: string[] = [];
+  const survivalMissing: string[] = [];
+  const survivalFailures: string[] = [];
   try {
     if (survivalDocs.length === 0) {
       survivalMissing.push("survival_fact_documents");
@@ -1101,8 +1101,8 @@ export async function runScoringV2LiveCharacterProbe(args: ProbeCliArgs): Promis
     factSets: utilityFacts,
   };
   let utilityResult = null;
-  let utilityMissing: string[] = [];
-  let utilityFailures: string[] = [];
+  const utilityMissing: string[] = [];
+  const utilityFailures: string[] = [];
   try {
     if (utilityFacts.length === 0) {
       utilityMissing.push("utility_fact_sets");

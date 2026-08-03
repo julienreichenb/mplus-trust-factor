@@ -70,7 +70,7 @@ export async function collectAndComputeExperienceV3(input: {
   const blizzard = new LiveBlizzardProvider({
     clientId,
     clientSecret,
-    defaultRegion: input.identity.region,
+    defaultRegion: input.identity.region.toLowerCase() as "eu" | "us" | "kr" | "tw",
   });
 
   let seasonSlug = input.manifest.seasonSlug;

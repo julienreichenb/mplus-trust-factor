@@ -2,7 +2,7 @@
  * Admin API service for Scoring V2 Shadow Canary launch + status.
  * Enqueues async work — never runs long provider acquisition in the HTTP request.
  */
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { ApiContainer } from "../container.js";
 import { HttpError } from "../errors.js";
@@ -78,14 +78,12 @@ export class ScoringV2ShadowCanaryService {
     const existing = await this.container.worker.prisma.scoringV2ShadowCanary.findUnique({
       where: { idempotencyKey },
     });
-    if (
-      existing &&
-      (existing.status === "QUEUED" ||
-        existing.status === "RUNNING" ||
-        existing.status === "COMPLETED")
-    ) {
+    if (existing && (existing.status === "QUEUED" || existing.status === "RUNNING")) {
       return { ...(await this.get(existing.id)), reused: true as const };
     }
+
+    const launchKey =
+      existing != null ? `${idempotencyKey}:relaunch:${randomUUID()}` : idempotencyKey;
 
     const row = await this.container.worker.prisma.scoringV2ShadowCanary.create({
       data: {
@@ -103,7 +101,7 @@ export class ScoringV2ShadowCanaryService {
         catalogVersion: identity.catalogVersion,
         catalogSupportState: identity.catalogSupportState,
         requestedByUserId: input.requestedByUserId,
-        idempotencyKey,
+        idempotencyKey: launchKey,
         progress: {},
         diagnostics: {
           catalogDependentFailClosed: identity.catalogDependentFailClosed,
@@ -137,6 +135,71 @@ export class ScoringV2ShadowCanaryService {
     if (!row) {
       throw HttpError.notFound("CANARY_NOT_FOUND", "Shadow canary not found");
     }
+
+    let batchDiagnostics: Record<string, unknown> | null = null;
+    if (row.analysisBatchId) {
+      const batch = await this.container.worker.repositories.evidenceV2Batch.getById(
+        row.analysisBatchId,
+      );
+      if (batch) {
+        const slots = (batch.meta.slots ?? []).map((s) => ({
+          slotId: s.slotId,
+          dungeonSlug: s.dungeonSlug,
+          slotIndex: s.slotIndex,
+          status: s.status,
+          terminalReason: s.terminalReason ?? null,
+          reportCode: s.acquisitionResult?.discoveryIdentity.reportCode ?? null,
+          fightId: s.acquisitionResult?.discoveryIdentity.fightId ?? null,
+          reportRevision: s.acquisitionResult?.reportRevision ?? null,
+          keyLevel: s.acquisitionResult?.keyLevel ?? null,
+          timed: s.acquisitionResult?.timed ?? null,
+          rejectionReason: s.acquisitionResult?.rejectionReason ?? null,
+          dimensionValidity: s.acquisitionResult?.dimensionValidity ?? null,
+        }));
+        batchDiagnostics = {
+          analysisBatchId: batch.batch.id,
+          finalizationStatus: batch.batch.finalizationStatus,
+          enabledConsumers: batch.meta.enabledConsumers,
+          adminShadowCanary: batch.meta.adminShadowCanary === true,
+          expectedSlotCount: batch.meta.acquisitionPlan.expectedSlotCount,
+          slots,
+          // Never include raw event arrays.
+        };
+
+        const dims = await this.container.worker.prisma.dimensionComputation.findMany({
+          where: {
+            characterId: row.characterId,
+            ...(row.seasonId ? { seasonId: row.seasonId } : {}),
+          },
+          orderBy: { computedAt: "desc" },
+          take: 8,
+          select: {
+            dimension: true,
+            state: true,
+            score: true,
+            confidence: true,
+            computedAt: true,
+            explanation: true,
+          },
+        });
+        batchDiagnostics.dimensions = dims.map((d) => ({
+          dimension: d.dimension,
+          state: d.state,
+          score: d.score != null ? Number(d.score) : null,
+          confidence: Number(d.confidence),
+          computedAt: d.computedAt.toISOString(),
+          // Sanitized explanation summary only — no raw events.
+          blocker:
+            d.explanation != null &&
+            typeof d.explanation === "object" &&
+            !Array.isArray(d.explanation) &&
+            typeof (d.explanation as { blocker?: unknown }).blocker === "string"
+              ? (d.explanation as { blocker: string }).blocker
+              : null,
+        }));
+      }
+    }
+
     return {
       id: row.id,
       characterId: row.characterId,
@@ -155,6 +218,8 @@ export class ScoringV2ShadowCanaryService {
       catalogSupportState: row.catalogSupportState,
       progress: row.progress,
       diagnostics: row.diagnostics,
+      batchDiagnostics,
+      bullmqJobId: row.bullmqJobId,
       errorCode: row.errorCode,
       errorMessage: row.errorMessage,
       createdAt: row.createdAt.toISOString(),

@@ -11,7 +11,6 @@ import {
   acquireSourceSingleflight,
   completeSourceSingleflight,
   releaseGlobalWclHttpPermit,
-  releasePerCharacterRunPermit,
   releaseSourceSingleflight,
   renewGlobalWclHttpPermit,
   shouldDeferForBudgetReserve,

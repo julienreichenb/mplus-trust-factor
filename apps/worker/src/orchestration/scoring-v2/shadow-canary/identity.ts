@@ -8,7 +8,7 @@ import {
   type AbilityCatalog,
 } from "@mplus/abilities";
 import type { EvidenceRole } from "@mplus/contracts";
-import type { PrismaClient } from "@prisma/client";
+import type { PrismaClient } from "@mplus/database";
 import {
   resolveFrozenCharacterIdentity,
   type FrozenCharacterIdentity,

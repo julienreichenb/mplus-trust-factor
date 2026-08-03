@@ -17,6 +17,31 @@ interface CanaryRow {
   role: string | null;
   catalogVersion: string | null;
   analysisBatchId?: string | null;
+  bullmqJobId?: string | null;
+  progress?: Record<string, unknown> | null;
+  diagnostics?: Record<string, unknown> | null;
+  batchDiagnostics?: {
+    finalizationStatus?: string;
+    expectedSlotCount?: number;
+    slots?: Array<{
+      slotId: string;
+      dungeonSlug: string;
+      slotIndex: number;
+      status: string;
+      keyLevel: number | null;
+      timed: boolean | null;
+      rejectionReason: string | null;
+      reportCode: string | null;
+      fightId: number | null;
+    }>;
+    dimensions?: Array<{
+      dimension: string;
+      state: string;
+      score: number | null;
+      confidence: number;
+      blocker: string | null;
+    }>;
+  } | null;
   createdAt: string;
   completedAt: string | null;
   errorCode: string | null;
@@ -34,7 +59,7 @@ const error = ref<string | null>(null);
 const latest = ref<CanaryRow | null>(null);
 const history = ref<CanaryRow[]>([]);
 
-async function adminFetch<T>(path: string, init?: RequestInit): Promise<T> {
+async function adminFetch<T>(path: string, init?: globalThis.RequestInit): Promise<T> {
   const response = await fetch(`${apiBase}${path}`, {
     credentials: "include",
     headers: {
@@ -107,7 +132,7 @@ onMounted(() => {
       and calculators. Publication and V2 flags stay disabled.
     </p>
 
-    <StatusBanner v-if="error" tone="danger" :message="error" />
+    <StatusBanner v-if="error" tone="error" :message="error" />
 
     <form class="canary__form" @submit.prevent="launch">
       <label>
@@ -144,10 +169,83 @@ onMounted(() => {
         </dd>
         <dt>Catalog</dt>
         <dd>{{ latest.catalogVersion ?? "—" }}</dd>
+        <dt>Job</dt>
+        <dd>{{ latest.bullmqJobId ?? "—" }}</dd>
         <dt>Batch</dt>
         <dd>{{ latest.analysisBatchId ?? "pending" }}</dd>
+        <dt>Progress</dt>
+        <dd>
+          <pre class="canary__json">{{ JSON.stringify(latest.progress ?? {}, null, 2) }}</pre>
+        </dd>
+        <dt>Discovery</dt>
+        <dd>
+          <pre class="canary__json">{{ JSON.stringify(latest.diagnostics ?? {}, null, 2) }}</pre>
+        </dd>
       </dl>
+
+      <div v-if="latest.batchDiagnostics?.slots?.length" class="canary__matrix">
+        <h4>Slot matrix</h4>
+        <table>
+          <thead>
+            <tr>
+              <th>Dungeon</th>
+              <th>Slot</th>
+              <th>Status</th>
+              <th>Key</th>
+              <th>Timed</th>
+              <th>Run</th>
+              <th>Rejection</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="s in latest.batchDiagnostics.slots" :key="s.slotId">
+              <td>{{ s.dungeonSlug }}</td>
+              <td>{{ s.slotIndex }}</td>
+              <td>{{ s.status }}</td>
+              <td>{{ s.keyLevel ?? "—" }}</td>
+              <td>{{ s.timed == null ? "—" : String(s.timed) }}</td>
+              <td>
+                <span v-if="s.reportCode">{{ s.reportCode }}#{{ s.fightId }}</span>
+                <span v-else>—</span>
+              </td>
+              <td>{{ s.rejectionReason ?? "—" }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div v-if="latest.batchDiagnostics?.dimensions?.length">
+        <h4>Dimensions</h4>
+        <table>
+          <thead>
+            <tr>
+              <th>Dimension</th>
+              <th>State</th>
+              <th>Score</th>
+              <th>Confidence</th>
+              <th>Blocker</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="d in latest.batchDiagnostics.dimensions" :key="d.dimension">
+              <td>{{ d.dimension }}</td>
+              <td>{{ d.state }}</td>
+              <td>{{ d.score ?? "—" }}</td>
+              <td>{{ d.confidence }}</td>
+              <td>{{ d.blocker ?? "—" }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
       <button type="button" @click="pollSelected(latest.id)">Refresh status</button>
+      <a
+        class="canary__export"
+        :href="`data:application/json,${encodeURIComponent(JSON.stringify(latest, null, 2))}`"
+        :download="`shadow-canary-${latest.id}.json`"
+      >
+        Download diagnostics
+      </a>
     </div>
 
     <div class="canary__history">
@@ -195,6 +293,17 @@ onMounted(() => {
   display: grid;
   grid-template-columns: 8rem 1fr;
   gap: 0.35rem 0.75rem;
+}
+.canary__json {
+  margin: 0;
+  max-height: 12rem;
+  overflow: auto;
+  font-size: 0.8rem;
+  white-space: pre-wrap;
+}
+.canary__export {
+  display: inline-block;
+  margin-left: 0.75rem;
 }
 table {
   width: 100%;

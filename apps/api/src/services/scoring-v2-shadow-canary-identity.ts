@@ -9,7 +9,7 @@ import {
   findSpecDefinition,
   normalizeCatalogSlug,
 } from "@mplus/abilities";
-import type { PrismaClient } from "@prisma/client";
+import type { PrismaClient } from "@mplus/database";
 
 export async function resolveShadowCanaryIdentity(input: {
   prisma: PrismaClient;

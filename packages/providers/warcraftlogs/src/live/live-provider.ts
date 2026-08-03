@@ -23,6 +23,7 @@ import {
 } from "../client/graphql-client.js";
 import { WclTokenManager } from "../client/token-manager.js";
 import { isUnavailableEvidenceError, wclError } from "../client/errors.js";
+import type { RankingParseEvidenceV2 } from "../extractors/v2/types.js";
 import { OPERATIONS } from "../operations/queries.js";
 import {
   buildCharacterDiscovery,
@@ -407,7 +408,7 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
     keyLevel: number | null;
     ctx: ProviderFetchContext;
   }): Promise<{
-    evidence: import("../extractors/v2/types.js").RankingParseEvidenceV2 | null;
+    evidence: RankingParseEvidenceV2 | null;
     providerCalls: number;
     unavailableReason: string | null;
   }> {

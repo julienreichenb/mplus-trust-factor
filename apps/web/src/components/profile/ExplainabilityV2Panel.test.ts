@@ -30,6 +30,7 @@ const sample: ScoreExplainabilityV2PublicDTO = {
       hasWclSource: true,
     },
   ],
+  cooldownUsages: [],
   dimensions: [
     {
       dimension: "UTILITY",
