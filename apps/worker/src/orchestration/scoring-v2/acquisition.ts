@@ -231,6 +231,12 @@ export async function acquireCandidateWithFallback(input: {
     actorId: number | null;
   }>;
   region: string;
+  /** Required by live WCL fight analysis to resolve the target actor. */
+  targetCharacter: {
+    region: "EU" | "US" | "KR" | "TW";
+    realmSlug: string;
+    name: string;
+  };
   correlationId: string | null;
   shouldCancel: () => Promise<boolean>;
   evidence: EvidenceRepository;
@@ -288,6 +294,7 @@ export async function acquireCandidateWithFallback(input: {
       correlationId: input.correlationId ?? `v2-slot-${identity.reportCode}`,
       forceRefresh: false,
       now: new Date().toISOString(),
+      targetCharacter: input.targetCharacter,
     };
 
     try {

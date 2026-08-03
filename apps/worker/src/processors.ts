@@ -362,8 +362,8 @@ export function createWorkers(connection: ConnectionOptions, container: WorkerCo
       );
       return toBullmqReturnValue(result);
     },
-    // Bound WCL concurrency: keep low regardless of how many slot jobs are queued.
-    { connection, autorun: false, concurrency: 2 },
+    // Serialize slot completion metadata writes to avoid lost-update races on batch JSON.
+    { connection, autorun: false, concurrency: 1 },
   );
 
   // Scoring V2 fan-in — provider-free (no producers / no WCL). Calibration stays isolated.

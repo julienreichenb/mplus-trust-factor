@@ -225,9 +225,37 @@ export async function runAnalyzeEvidenceSlotV2(
 
   const character = await container.prisma.character.findUnique({
     where: { id: batchView.batch.characterId },
-    include: { region: true },
+    include: { region: true, realm: true },
   });
   const region = character?.region?.code ?? "EU";
+  if (!character?.name || !character.realm?.slug) {
+    await repo.completeSlot({
+      batchId: job.analysisBatchId,
+      slotId: job.slotId,
+      status: "FAILED",
+      terminalReason: "CHARACTER_IDENTITY_INCOMPLETE",
+    });
+    emitSlotTerminal(container, {
+      analysisBatchId: job.analysisBatchId,
+      slotId: job.slotId,
+      correlationId: job.correlationId,
+      characterId: batchView.batch.characterId,
+      kind: "failed",
+      status: "FAILED",
+      reason: "CHARACTER_IDENTITY_INCOMPLETE",
+    });
+    return {
+      outcome: "character_identity_incomplete",
+      analysisBatchId: job.analysisBatchId,
+      slotId: job.slotId,
+      status: "FAILED",
+    };
+  }
+  const targetCharacter = {
+    region: region as "EU" | "US" | "KR" | "TW",
+    realmSlug: character.realm.slug,
+    name: character.name,
+  };
 
   // Frozen identity from immutable plan metadata — never invent from live profile.
   const frozenIdentity = resolveFrozenClassSpecIdentity({
@@ -260,6 +288,7 @@ export async function runAnalyzeEvidenceSlotV2(
         container,
         candidates: slotPlan.orderedCandidates,
         region,
+        targetCharacter,
         correlationId: job.correlationId ?? null,
         shouldCancel: async () => {
           const latest = await repo.getById(job.analysisBatchId);
