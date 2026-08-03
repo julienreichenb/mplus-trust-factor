@@ -30,7 +30,7 @@ Ranking ineligibility (for example Utility not publishable under v6 eligibility 
 
 ## Programme policy summary
 
-From programme decisions (embedded in [`.cursor-orchestration/`](../../.cursor-orchestration/2026-07-stabilization/) prompts) and [`product-scope.md`](product-scope.md):
+From [`product-scope.md`](product-scope.md):
 
 - impossible calculation → `U`;
 - weak confidence with calculable score → publish + flag uncertainty;

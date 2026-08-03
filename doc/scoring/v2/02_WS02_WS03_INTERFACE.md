@@ -1,8 +1,8 @@
 /**
  * Evidence Contract V2 — shared interface between Workstreams 02 and 03.
  *
- * Normative selection behaviour: see agent-kit
- * `docs/scoring-v2/03_WCL_EVIDENCE_SELECTION_CONTRACT.md`.
+ * Normative selection behaviour:
+ * `doc/scoring/v2/03_WCL_EVIDENCE_SELECTION_CONTRACT.md`.
  *
  * status: accepted-for-checkpoint
  * last_reviewed: 2026-08-02

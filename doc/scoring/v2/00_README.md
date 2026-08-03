@@ -50,6 +50,12 @@ The target system therefore establishes these primary invariants:
 | [16_ABILITY_CATALOG_AND_MECHANICS_GOVERNANCE.md](16_ABILITY_CATALOG_AND_MECHANICS_GOVERNANCE.md) | Ability taxonomy and seasonal mechanic catalog |
 | [17_SECURITY_PRIVACY_AND_PROVIDER_COMPLIANCE.md](17_SECURITY_PRIVACY_AND_PROVIDER_COMPLIANCE.md) | Secrets, account links, raw logs, attribution |
 | [18_DECISIONS_AND_OPEN_QUESTIONS.md](18_DECISIONS_AND_OPEN_QUESTIONS.md) | Accepted decisions and unresolved items |
+| [20_PROVIDER_FIELD_DICTIONARY.md](20_PROVIDER_FIELD_DICTIONARY.md) | Provider field dictionary |
+| [21_END_TO_END_DATA_LINEAGE.md](21_END_TO_END_DATA_LINEAGE.md) | End-to-end data lineage |
+| [02_WS02_WS03_INTERFACE.md](02_WS02_WS03_INTERFACE.md) | WS02/WS03 shared evidence interface |
+| [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) | Workstream implementation status |
+
+Related ops: [`../../operations/scoring-v2-runbooks.md`](../../operations/scoring-v2-runbooks.md), [`../../operations/scoring-v2-persistence-reset.md`](../../operations/scoring-v2-persistence-reset.md), [`../scoring-v2-live-facts-status.md`](../scoring-v2-live-facts-status.md).
 
 ## Normative language
 

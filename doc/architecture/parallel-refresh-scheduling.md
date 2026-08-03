@@ -1,12 +1,9 @@
 # Parallel character refresh scheduling
 
-**Status:** Architecture plan (documentation only) — amended implementation-ready  
-**Date:** 2026-07-31 (amended)  
-**Branch:** `plan/refresh-concurrency`  
-**Authority for product refresh semantics:** [`doc/architecture/refresh-lifecycle.md`](../../doc/architecture/refresh-lifecycle.md)  
-**Related (cohort planner, not this plan):** [`doc/agents/wave4-bis/03-refresh-orchestration/`](../../doc/agents/wave4-bis/03-refresh-orchestration/)
+**Status:** Architecture plan — implementation-ready locked V1 decisions  
+**Authority for product refresh semantics:** [`refresh-lifecycle.md`](refresh-lifecycle.md)
 
-This document designs safe parallel `refresh-character` processing. It does **not** activate concurrency, change BullMQ worker options, modify scoring, alter provider contracts, enable reservations in production, or wire priority/retries. Implementation must follow dependency order, rollout stages, and protected-file rules below.
+This document designs safe parallel `refresh-character` processing. Runtime code is authority when it conflicts with this plan.
 
 ---
 

@@ -2,7 +2,7 @@
 
 Normative model: [`../architecture/database.md`](../architecture/database.md),
 ADR [`../adr/0006-scoring-v2-persistence.md`](../adr/0006-scoring-v2-persistence.md),
-spec [`.cursor-orchestration/mplus-scoring-v2-agent-kit/docs/scoring-v2/06_DATA_MODEL_PERSISTENCE_RETENTION.md`](../../.cursor-orchestration/mplus-scoring-v2-agent-kit/docs/scoring-v2/06_DATA_MODEL_PERSISTENCE_RETENTION.md).
+spec [`../scoring/v2/06_DATA_MODEL_PERSISTENCE_RETENTION.md`](../scoring/v2/06_DATA_MODEL_PERSISTENCE_RETENTION.md).
 
 ## Empty database migration validation
 

@@ -43,4 +43,4 @@ Vue Web → Fastify API → PostgreSQL
 - Addon: [`addon-architecture.md`](addon-architecture.md)
 - Frontend brand/UX: [`frontend/`](frontend/)
 - Database notes: [`database.md`](database.md)
-- Legacy short overview: [`system.md`](system.md) (prefer this file)
+- Prefer this file as the system overview.

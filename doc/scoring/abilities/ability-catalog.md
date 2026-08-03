@@ -115,8 +115,8 @@ Unsupported class/spec/version returns `{ ok: false, reason }` — never the War
 ## Validation commands
 
 ```bash
-pnpm abilities:validate   # structural validation → packages/abilities/generated/validation-report.json
-pnpm abilities:coverage   # coverage matrix → generated/coverage-report.{json,txt}
+pnpm abilities:validate   # structural validation (writes local generated/validation-report.json)
+pnpm abilities:coverage   # coverage matrix (writes local generated/coverage-report.{json,txt})
 ```
 
 ## Admin explorer

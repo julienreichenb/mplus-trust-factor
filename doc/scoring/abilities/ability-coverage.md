@@ -6,7 +6,7 @@ Generated from `RETAIL_CLASS_MATRIX` + registered rules. Refresh with:
 pnpm abilities:coverage
 ```
 
-Artifacts:
+Artifacts (generated locally; not tracked):
 
 - `packages/abilities/generated/coverage-report.txt`
 - `packages/abilities/generated/coverage-report.json`

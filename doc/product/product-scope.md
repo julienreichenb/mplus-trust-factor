@@ -44,4 +44,4 @@ Authenticity / boost suspicion is a **separate** product pillar (flag + evidence
 
 ## Canonical decisions
 
-Programme decisions are embedded in [`.cursor-orchestration/2026-07-stabilization/`](../../.cursor-orchestration/2026-07-stabilization/) standalone prompts; long-term product docs live under [`doc/product/`](./).
+Product decisions live under [`doc/product/`](./). Completed prompts are deleted after useful decisions are incorporated here; Git history is the archive.
