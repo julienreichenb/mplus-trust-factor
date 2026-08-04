@@ -7,7 +7,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { readdir, rm, stat } from "node:fs/promises";
 import path from "node:path";
-import type { Prisma, PrismaClient } from "@prisma/client";
+import { Prisma, type PrismaClient } from "@prisma/client";
 import type { IdentityResetGuardOk } from "./identity-data-reset-guard.js";
 import {
   IDENTITY_DATA_FK_PLAN,
@@ -119,6 +119,21 @@ async function countTable(
   const raw = rows[0]?.count ?? 0;
   return typeof raw === "bigint" ? Number(raw) : Number(raw);
 }
+
+/** Count every static-retain table (used for plan output and TX-local baselines). */
+export async function countStaticRetainTables(
+  prisma: PrismaClient | Prisma.TransactionClient,
+): Promise<Map<string, number>> {
+  const counts = new Map<string, number>();
+  for (const table of IDENTITY_DATA_STATIC_RETAIN_TABLES) {
+    counts.set(table, await countTable(prisma, table));
+  }
+  return counts;
+}
+
+/** Isolation for the destructive reset transaction (stable snapshot of static catalogs). */
+export const IDENTITY_RESET_TRANSACTION_ISOLATION =
+  Prisma.TransactionIsolationLevel.RepeatableRead;
 
 function toNum(v: bigint | number | undefined): number {
   return typeof v === "bigint" ? Number(v) : Number(v ?? 0);
@@ -711,7 +726,12 @@ async function verifyPostconditions(input: {
   prisma: PrismaClient | Prisma.TransactionClient;
   keepUserId: string;
   keepBnetAccountId: string;
-  staticBefore: Map<string, number>;
+  /**
+   * When set, static catalog counts must match this baseline (transaction-local).
+   * Omit outside the reset transaction — concurrent suite inserts must not
+   * be attributed to the reset.
+   */
+  staticBefore?: Map<string, number> | null;
   oauthFingerprintBefore: string;
 }): Promise<string[]> {
   const failures: string[] = [];
@@ -779,10 +799,12 @@ async function verifyPostconditions(input: {
     if (n !== 0) failures.push(`${table}=${n} expected 0`);
   }
 
-  for (const [table, before] of input.staticBefore) {
-    const after = await countTable(input.prisma, table);
-    if (after !== before) {
-      failures.push(`static table "${table}" changed ${before} → ${after}`);
+  if (input.staticBefore) {
+    for (const [table, before] of input.staticBefore) {
+      const after = await countTable(input.prisma, table);
+      if (after !== before) {
+        failures.push(`static table "${table}" changed ${before} → ${after}`);
+      }
     }
   }
 
@@ -796,15 +818,30 @@ async function verifyPostconditions(input: {
   return failures;
 }
 
+export type IdentityResetExecuteHooks = {
+  /**
+   * Test/diagnostic hook invoked after the transaction-local static baseline is
+   * captured and before any destructive mutation. Must not be used in production CLIs.
+   */
+  afterStaticBaseline?: (
+    tx: Prisma.TransactionClient,
+    baseline: Map<string, number>,
+  ) => Promise<void>;
+};
+
 export async function executeIdentityDataReset(input: {
   prisma: PrismaClient;
   plan: IdentityDataResetPlan;
   redis?: ExtendedRedisScanner | null;
   artifactsDir?: string;
+  /** Optional hooks for focused tests (genuine static mutation / failure paths). */
+  hooks?: IdentityResetExecuteHooks;
 }): Promise<{
   postconditionFailures: string[];
   externalCleanup: ExternalCleanupResult;
   oauthFingerprintUnchanged: boolean;
+  /** Static catalog counts captured at the start of the reset transaction. */
+  transactionStaticBaseline: Array<{ table: string; rowCount: number }>;
 }> {
   if (input.plan.blockedConditions.length > 0) {
     throw new Error(`Refusing execute: ${input.plan.blockedConditions.join("; ")}`);
@@ -845,9 +882,6 @@ export async function executeIdentityDataReset(input: {
     throw new Error(`Refusing execute: ${retention.reasons.join("; ")}`);
   }
 
-  const staticBefore = new Map(
-    input.plan.plannedStaticRetain.map((r) => [r.table, r.rowCount]),
-  );
   const oauthFingerprintBefore = retention.oauthFingerprint;
 
   const externalCleanup: ExternalCleanupResult = {
@@ -857,70 +891,85 @@ export async function executeIdentityDataReset(input: {
   };
 
   let postconditionFailures: string[] = [];
+  let transactionStaticBaseline: Array<{ table: string; rowCount: number }> = [];
 
   try {
     const quoted = IDENTITY_DATA_TRUNCATE_TABLES.map((t) => `"${t}"`).join(", ");
     const keepUserId = input.plan.keepUserId;
     const keepBnetId = input.plan.keepBnetAccountId;
 
-    await input.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`TRUNCATE TABLE ${quoted} CASCADE`);
+    await input.prisma.$transaction(
+      async (tx) => {
+        // Transaction-local baseline: plan-time plannedStaticRetain is informational only.
+        const staticBefore = await countStaticRetainTables(tx);
+        transactionStaticBaseline = [...staticBefore.entries()].map(([table, rowCount]) => ({
+          table,
+          rowCount,
+        }));
 
-      // Retained cohort members use SetNull on Character — null before deleting
-      // characters. Prefer DELETE over TRUNCATE here: empty Restrict FKs still
-      // block TRUNCATE without CASCADE, and CASCADE would wipe cohort members.
-      await tx.$executeRawUnsafe(
-        `UPDATE "calibration_cohort_members" SET "character_id" = NULL WHERE "character_id" IS NOT NULL`,
-      );
-      await tx.$executeRawUnsafe(`DELETE FROM "verified_character_ownerships"`);
-      await tx.$executeRawUnsafe(`DELETE FROM "character_aliases"`);
-      await tx.$executeRawUnsafe(`DELETE FROM "characters"`);
+        if (input.hooks?.afterStaticBaseline) {
+          await input.hooks.afterStaticBaseline(tx, staticBefore);
+        }
 
-      // Clear Restrict FKs from static-retained tables to deleted users.
-      await tx.$executeRawUnsafe(
-        `UPDATE "score_models" SET "created_by_user_id" = NULL WHERE "created_by_user_id" IS DISTINCT FROM $1::uuid`,
-        keepUserId,
-      );
-      await tx.$executeRawUnsafe(
-        `UPDATE "calibration_cohorts" SET "created_by_user_id" = $1::uuid WHERE "created_by_user_id" IS DISTINCT FROM $1::uuid`,
-        keepUserId,
-      );
+        await tx.$executeRawUnsafe(`TRUNCATE TABLE ${quoted} CASCADE`);
 
-      await tx.$executeRawUnsafe(
-        `DELETE FROM "battlenet_accounts" WHERE "id" <> $1::uuid`,
-        keepBnetId,
-      );
-      await tx.$executeRawUnsafe(`DELETE FROM "users" WHERE "id" <> $1::uuid`, keepUserId);
-
-      // Clear discovery/ownership sync on retained account (preserve OAuth bytes).
-      await tx.$executeRawUnsafe(
-        `UPDATE "battlenet_accounts" SET
-          "last_ownership_sync_at" = NULL,
-          "last_ownership_sync_error" = NULL,
-          "last_discovery_job_id" = NULL,
-          "last_discovery_status" = NULL,
-          "last_discovery_started_at" = NULL,
-          "last_discovery_finished_at" = NULL,
-          "last_discovery_error" = NULL,
-          "last_discovery_counters" = NULL,
-          "last_discovery_ownership_sync_at" = NULL
-        WHERE "id" = $1::uuid`,
-        keepBnetId,
-      );
-
-      postconditionFailures = await verifyPostconditions({
-        prisma: tx,
-        keepUserId,
-        keepBnetAccountId: keepBnetId,
-        staticBefore,
-        oauthFingerprintBefore,
-      });
-      if (postconditionFailures.length > 0) {
-        throw new Error(
-          `Postcondition failure (transaction rolled back): ${postconditionFailures.join("; ")}`,
+        // Retained cohort members use SetNull on Character — null before deleting
+        // characters. Prefer DELETE over TRUNCATE here: empty Restrict FKs still
+        // block TRUNCATE without CASCADE, and CASCADE would wipe cohort members.
+        await tx.$executeRawUnsafe(
+          `UPDATE "calibration_cohort_members" SET "character_id" = NULL WHERE "character_id" IS NOT NULL`,
         );
-      }
-    });
+        await tx.$executeRawUnsafe(`DELETE FROM "verified_character_ownerships"`);
+        await tx.$executeRawUnsafe(`DELETE FROM "character_aliases"`);
+        await tx.$executeRawUnsafe(`DELETE FROM "characters"`);
+
+        // Clear Restrict FKs from static-retained tables to deleted users.
+        await tx.$executeRawUnsafe(
+          `UPDATE "score_models" SET "created_by_user_id" = NULL WHERE "created_by_user_id" IS DISTINCT FROM $1::uuid`,
+          keepUserId,
+        );
+        await tx.$executeRawUnsafe(
+          `UPDATE "calibration_cohorts" SET "created_by_user_id" = $1::uuid WHERE "created_by_user_id" IS DISTINCT FROM $1::uuid`,
+          keepUserId,
+        );
+
+        await tx.$executeRawUnsafe(
+          `DELETE FROM "battlenet_accounts" WHERE "id" <> $1::uuid`,
+          keepBnetId,
+        );
+        await tx.$executeRawUnsafe(`DELETE FROM "users" WHERE "id" <> $1::uuid`, keepUserId);
+
+        // Clear discovery/ownership sync on retained account (preserve OAuth bytes).
+        await tx.$executeRawUnsafe(
+          `UPDATE "battlenet_accounts" SET
+            "last_ownership_sync_at" = NULL,
+            "last_ownership_sync_error" = NULL,
+            "last_discovery_job_id" = NULL,
+            "last_discovery_status" = NULL,
+            "last_discovery_started_at" = NULL,
+            "last_discovery_finished_at" = NULL,
+            "last_discovery_error" = NULL,
+            "last_discovery_counters" = NULL,
+            "last_discovery_ownership_sync_at" = NULL
+          WHERE "id" = $1::uuid`,
+          keepBnetId,
+        );
+
+        postconditionFailures = await verifyPostconditions({
+          prisma: tx,
+          keepUserId,
+          keepBnetAccountId: keepBnetId,
+          staticBefore,
+          oauthFingerprintBefore,
+        });
+        if (postconditionFailures.length > 0) {
+          throw new Error(
+            `Postcondition failure (transaction rolled back): ${postconditionFailures.join("; ")}`,
+          );
+        }
+      },
+      { isolationLevel: IDENTITY_RESET_TRANSACTION_ISOLATION },
+    );
   } catch (error) {
     await releaseIdentityResetLock({ redis: input.redis, lock });
     throw error;
@@ -977,20 +1026,35 @@ export async function executeIdentityDataReset(input: {
 
   await releaseIdentityResetLock({ redis: input.redis, lock });
 
-  // Final postcondition check after external cleanup.
-  const after = await verifyPostconditions({
-    prisma: input.prisma,
-    keepUserId: input.plan.keepUserId,
-    keepBnetAccountId: input.plan.keepBnetAccountId,
-    staticBefore,
-    oauthFingerprintBefore,
+  // In-TX postconditions already enforced exclusivity (users=1, characters=0, …)
+  // under RepeatableRead. Do not re-assert global emptiness here — concurrent
+  // disposable-DB suite files may insert characters/users after commit.
+  const postTxFailures: string[] = [];
+  const retainedUser = await input.prisma.user.findUnique({
+    where: { id: input.plan.keepUserId },
   });
-  postconditionFailures = after;
+  if (!retainedUser) {
+    postTxFailures.push("retained User missing after commit");
+  } else if (retainedUser.disabledAt != null) {
+    postTxFailures.push("retained User is disabled after commit");
+  }
+  const retainedAccount = await input.prisma.battleNetAccount.findUnique({
+    where: { id: input.plan.keepBnetAccountId },
+  });
+  if (!retainedAccount) {
+    postTxFailures.push("retained BattleNetAccount missing after commit");
+  } else if (retainedAccount.userId !== input.plan.keepUserId) {
+    postTxFailures.push("retained BattleNetAccount.userId mismatch after commit");
+  } else if (oauthFingerprint(retainedAccount) !== oauthFingerprintBefore) {
+    postTxFailures.push("retained BattleNetAccount OAuth/account data changed after commit");
+  }
+  postconditionFailures = postTxFailures;
 
   return {
     postconditionFailures,
     externalCleanup,
-    oauthFingerprintUnchanged: after.every((f) => !f.includes("OAuth")),
+    oauthFingerprintUnchanged: postTxFailures.every((f) => !f.includes("OAuth")),
+    transactionStaticBaseline,
   };
 }
 

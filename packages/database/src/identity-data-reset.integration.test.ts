@@ -13,10 +13,15 @@ import type { IdentityResetGuardOk } from "./reset/identity-data-reset-guard.js"
 import {
   buildIdentityDataResetPlan,
   executeIdentityDataReset,
+  IDENTITY_RESET_TRANSACTION_ISOLATION,
   type ExtendedRedisScanner,
 } from "./reset/identity-data-reset.js";
-import { IDENTITY_RESET_ADMIN_ROLE_KEY } from "./reset/identity-data-reset-table-plan.js";
+import {
+  IDENTITY_DATA_STATIC_RETAIN_TABLES,
+  IDENTITY_RESET_ADMIN_ROLE_KEY,
+} from "./reset/identity-data-reset-table-plan.js";
 import { IDENTITY_RESET_LOCAL_CONFIRMATION_TOKEN } from "./reset/identity-data-reset-guard.js";
+import { Prisma } from "@prisma/client";
 
 const databaseUrl = process.env.DATABASE_URL ?? "";
 assertTestDatabaseAllowed(databaseUrl);
@@ -107,8 +112,6 @@ describe.runIf(dbAvailable)("identity-data reset integration", { timeout: 60_000
   let artifactsDir: string;
   let regionId: string;
   let realmId: string;
-  let realmsBefore: number;
-  let regionsBefore: number;
   let oauthBefore: string;
 
   beforeAll(async () => {
@@ -304,9 +307,6 @@ describe.runIf(dbAvailable)("identity-data reset integration", { timeout: 60_000
       where: { id: keepBnetId },
     });
     oauthBefore = oauthFingerprint(keepAccount);
-
-    realmsBefore = await prisma.realm.count();
-    regionsBefore = await prisma.region.count();
   });
 
   function syntheticGate(): IdentityResetGuardOk {
@@ -346,6 +346,21 @@ describe.runIf(dbAvailable)("identity-data reset integration", { timeout: 60_000
     expect(plan.retainedUser.id).toBe(keepUserId);
     expect(plan.mode).toBe("EXECUTE");
 
+    const staticBeforeExecute = Object.fromEntries(
+      await Promise.all(
+        IDENTITY_DATA_STATIC_RETAIN_TABLES.map(async (table) => [
+          table,
+          Number(
+            (
+              await prisma.$queryRawUnsafe<Array<{ count: bigint }>>(
+                `SELECT COUNT(*)::bigint AS count FROM "${table}"`,
+              )
+            )[0]?.count ?? 0n,
+          ),
+        ]),
+      ),
+    );
+
     const result = await executeIdentityDataReset({
       prisma,
       plan,
@@ -356,19 +371,13 @@ describe.runIf(dbAvailable)("identity-data reset integration", { timeout: 60_000
     expect(result.externalCleanup.partial).toBe(false);
     expect(result.oauthFingerprintUnchanged).toBe(true);
 
-    expect(await prisma.user.count()).toBe(1);
-    expect(await prisma.battleNetAccount.count()).toBe(1);
-    expect(await prisma.character.count()).toBe(0);
-    expect(await prisma.characterAlias.count()).toBe(0);
-    expect(await prisma.verifiedCharacterOwnership.count()).toBe(0);
-
-    const soleUser = await prisma.user.findFirstOrThrow();
-    expect(soleUser.id).toBe(keepUserId);
+    const soleUser = await prisma.user.findUniqueOrThrow({ where: { id: keepUserId } });
     expect(soleUser.role).toBe("ADMIN");
     expect(soleUser.disabledAt).toBeNull();
 
-    const soleBnet = await prisma.battleNetAccount.findFirstOrThrow();
-    expect(soleBnet.id).toBe(keepBnetId);
+    const soleBnet = await prisma.battleNetAccount.findUniqueOrThrow({
+      where: { id: keepBnetId },
+    });
     expect(soleBnet.userId).toBe(keepUserId);
     expect(oauthFingerprint(soleBnet)).toBe(oauthBefore);
     expect(soleBnet.accessTokenEncrypted).toBe("enc-access-KEEP");
@@ -378,13 +387,25 @@ describe.runIf(dbAvailable)("identity-data reset integration", { timeout: 60_000
     expect(soleBnet.lastDiscoveryStatus).toBeNull();
     expect(soleBnet.lastDiscoveryCounters).toBeNull();
 
-    expect(await prisma.externalIdentity.count({ where: { userId: keepUserId } })).toBe(1);
-    expect(await prisma.userSession.count({ where: { userId: keepUserId } })).toBe(1);
+    expect(await prisma.externalIdentity.count({ where: { userId: keepUserId } })).toBeGreaterThanOrEqual(1);
+    expect(await prisma.userSession.count({ where: { userId: keepUserId } })).toBeGreaterThanOrEqual(1);
+    // otherUserId was deleted inside the TX; concurrent suite may recreate unrelated users.
+    expect(await prisma.user.findUnique({ where: { id: otherUserId } })).toBeNull();
     expect(await prisma.externalIdentity.count({ where: { userId: otherUserId } })).toBe(0);
     expect(await prisma.userSession.count({ where: { userId: otherUserId } })).toBe(0);
 
-    expect(await prisma.realm.count()).toBe(realmsBefore);
-    expect(await prisma.region.count()).toBe(regionsBefore);
+    // Static catalogs must not shrink due to the reset. Concurrent suite inserts
+    // may increase counts after execute returns — allow >=.
+    for (const table of IDENTITY_DATA_STATIC_RETAIN_TABLES) {
+      const after = Number(
+        (
+          await prisma.$queryRawUnsafe<Array<{ count: bigint }>>(
+            `SELECT COUNT(*)::bigint AS count FROM "${table}"`,
+          )
+        )[0]?.count ?? 0n,
+      );
+      expect(after, table).toBeGreaterThanOrEqual(staticBeforeExecute[table]!);
+    }
 
     // Idempotent second execution — zero additional deletions.
     const plan2 = await buildIdentityDataResetPlan({
@@ -394,7 +415,6 @@ describe.runIf(dbAvailable)("identity-data reset integration", { timeout: 60_000
       redis,
     });
     expect(plan2.plannedSelectiveDeletes.find((t) => t.table === "users")?.deleteCount).toBe(0);
-    expect(plan2.plannedTruncations.every((t) => t.rowCount === 0 || !["characters", "character_aliases", "verified_character_ownerships"].includes(t.table) || t.rowCount === 0)).toBe(true);
     expect(
       plan2.plannedTruncations
         .filter((t) =>
@@ -410,9 +430,90 @@ describe.runIf(dbAvailable)("identity-data reset integration", { timeout: 60_000
       artifactsDir,
     });
     expect(result2.postconditionFailures).toEqual([]);
-    expect(await prisma.user.count()).toBe(1);
-    expect(await prisma.battleNetAccount.count()).toBe(1);
-    expect(oauthFingerprint(await prisma.battleNetAccount.findFirstOrThrow())).toBe(oauthBefore);
+    expect(await prisma.user.findUnique({ where: { id: keepUserId } })).not.toBeNull();
+    expect(await prisma.battleNetAccount.findUnique({ where: { id: keepBnetId } })).not.toBeNull();
+    expect(
+      oauthFingerprint(await prisma.battleNetAccount.findUniqueOrThrow({ where: { id: keepBnetId } })),
+    ).toBe(oauthBefore);
+  });
+
+  it("uses transaction-local static baseline; plan-time inserts do not false-fail", async () => {
+    const redis = idleRedis();
+    const gate = syntheticGate();
+    const plan = await buildIdentityDataResetPlan({
+      prisma,
+      gate,
+      execute: true,
+      redis,
+    });
+    const planRealms = plan.plannedStaticRetain.find((t) => t.table === "realms")?.rowCount ?? 0;
+    const planSeasons = plan.plannedStaticRetain.find((t) => t.table === "seasons")?.rowCount ?? 0;
+    const planDungeons = plan.plannedStaticRetain.find((t) => t.table === "dungeons")?.rowCount ?? 0;
+
+    // Simulate concurrent suite fixtures inserted after plan construction.
+    const extraRealmId = randomUUID();
+    const extraSeasonId = randomUUID();
+    const extraDungeonId = randomUUID();
+    await prisma.realm.create({
+      data: {
+        id: extraRealmId,
+        regionId,
+        slug: `id-reset-extra-${extraRealmId.slice(0, 8)}`,
+        name: "Id Reset Extra Realm",
+      },
+    });
+    await prisma.season.create({
+      data: {
+        id: extraSeasonId,
+        regionId,
+        slug: `id-reset-season-${extraSeasonId.slice(0, 8)}`,
+        name: "Id Reset Extra Season",
+        isCurrent: false,
+      },
+    });
+    await prisma.dungeon.create({
+      data: {
+        id: extraDungeonId,
+        slug: `id-reset-dungeon-${extraDungeonId.slice(0, 8)}`,
+        name: "Id Reset Extra Dungeon",
+      },
+    });
+
+    const realmsAfterInsert = await prisma.realm.count();
+    const seasonsAfterInsert = await prisma.season.count();
+    const dungeonsAfterInsert = await prisma.dungeon.count();
+    expect(realmsAfterInsert).toBeGreaterThan(planRealms);
+    expect(seasonsAfterInsert).toBeGreaterThan(planSeasons);
+    expect(dungeonsAfterInsert).toBeGreaterThan(planDungeons);
+
+    const result = await executeIdentityDataReset({
+      prisma,
+      plan,
+      redis,
+      artifactsDir,
+    });
+    expect(result.postconditionFailures).toEqual([]);
+    expect(result.externalCleanup.partial).toBe(false);
+
+    const baselineRealms = result.transactionStaticBaseline.find((t) => t.table === "realms");
+    const baselineSeasons = result.transactionStaticBaseline.find((t) => t.table === "seasons");
+    const baselineDungeons = result.transactionStaticBaseline.find((t) => t.table === "dungeons");
+    // TX-local baseline includes our inserts and any concurrent fixtures present
+    // at transaction start (may exceed the mid-test snapshot).
+    expect(baselineRealms!.rowCount).toBeGreaterThanOrEqual(realmsAfterInsert);
+    expect(baselineSeasons!.rowCount).toBeGreaterThanOrEqual(seasonsAfterInsert);
+    expect(baselineDungeons!.rowCount).toBeGreaterThanOrEqual(dungeonsAfterInsert);
+    expect(baselineRealms!.rowCount).toBeGreaterThan(planRealms);
+
+    expect(await prisma.realm.count()).toBeGreaterThanOrEqual(baselineRealms!.rowCount);
+    expect(await prisma.season.count()).toBeGreaterThanOrEqual(baselineSeasons!.rowCount);
+    expect(await prisma.dungeon.count()).toBeGreaterThanOrEqual(baselineDungeons!.rowCount);
+    expect(await prisma.realm.findUnique({ where: { id: extraRealmId } })).not.toBeNull();
+    expect(await prisma.season.findUnique({ where: { id: extraSeasonId } })).not.toBeNull();
+    expect(await prisma.dungeon.findUnique({ where: { id: extraDungeonId } })).not.toBeNull();
+    // Retained admin survives; exclusivity is enforced inside the TX (concurrent
+    // suite files may create additional users/characters after commit).
+    expect(await prisma.user.findUnique({ where: { id: keepUserId } })).not.toBeNull();
   });
 
   it("47. partial external cleanup returns non-zero-style partial flag", async () => {
@@ -443,8 +544,6 @@ describe.runIf(dbAvailable)("identity-data reset integration", { timeout: 60_000
       quit: redis.quit,
     };
 
-    // Force cleanup phase after lock acquisition by wrapping execute's redis cleanup path:
-    // acquire lock + writer probe use keys/llen; then mark cleanup.
     const originalSet = badRedis.set!;
     badRedis.set = vi.fn(async (...args: Parameters<NonNullable<ExtendedRedisScanner["set"]>>) => {
       const result = await originalSet(...args);
@@ -460,5 +559,92 @@ describe.runIf(dbAvailable)("identity-data reset integration", { timeout: 60_000
     });
     expect(result.externalCleanup.partial).toBe(true);
     expect(result.externalCleanup.redis.ok).toBe(false);
+    expect(await prisma.user.findUnique({ where: { id: keepUserId } })).not.toBeNull();
+  });
+
+  it("genuine static-table mutation in the reset transaction fails and rolls back", async () => {
+    const redis = idleRedis();
+    const gate = syntheticGate();
+    // Seed a disposable user so rollback can be observed (count returns >1).
+    const disposableUserId = randomUUID();
+    await prisma.user.create({
+      data: {
+        id: disposableUserId,
+        authProvider: "battlenet",
+        externalSubject: `rollback-${disposableUserId}`,
+        role: "USER",
+        battleNetAccounts: {
+          create: {
+            id: randomUUID(),
+            providerAccountId: `bnet-rollback-${disposableUserId}`,
+            battletagHash: `hash-rollback-${disposableUserId}`,
+          },
+        },
+      },
+    });
+    expect(await prisma.user.count()).toBeGreaterThan(1);
+
+    const plan = await buildIdentityDataResetPlan({
+      prisma,
+      gate,
+      execute: true,
+      redis,
+    });
+
+    await expect(
+      executeIdentityDataReset({
+        prisma,
+        plan,
+        redis,
+        artifactsDir,
+        hooks: {
+          afterStaticBaseline: async (tx) => {
+            // Simulate a buggy reset mutating a static catalog row mid-transaction.
+            await tx.$executeRawUnsafe(`DELETE FROM "realms" WHERE "id" = $1::uuid`, realmId);
+          },
+        },
+      }),
+    ).rejects.toThrow(/Postcondition failure|static table "realms"/);
+
+    // Transaction rolled back — disposable user still present; realm restored.
+    expect(await prisma.user.findUnique({ where: { id: disposableUserId } })).not.toBeNull();
+    expect(await prisma.realm.findUnique({ where: { id: realmId } })).not.toBeNull();
+  });
+
+  it("transaction failure does not continue to external cleanup", async () => {
+    const redis = idleRedis();
+    const del = vi.fn(async (...keys: string[]) => redis.del(...keys));
+    const gatedRedis: ExtendedRedisScanner = { ...redis, del };
+
+    const gate = syntheticGate();
+    const plan = await buildIdentityDataResetPlan({
+      prisma,
+      gate,
+      execute: true,
+      redis: gatedRedis,
+    });
+
+    const txSpy = vi.spyOn(prisma, "$transaction").mockImplementation(async () => {
+      const err = new Error("could not serialize access due to concurrent update");
+      Object.assign(err, { code: "P2034" });
+      throw err;
+    });
+
+    try {
+      await expect(
+        executeIdentityDataReset({
+          prisma,
+          plan,
+          redis: gatedRedis,
+          artifactsDir,
+        }),
+      ).rejects.toThrow(/serialize|concurrent/i);
+      expect(del).not.toHaveBeenCalled();
+      expect(IDENTITY_RESET_TRANSACTION_ISOLATION).toBe(
+        Prisma.TransactionIsolationLevel.RepeatableRead,
+      );
+    } finally {
+      txSpy.mockRestore();
+    }
   });
 });
