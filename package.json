@@ -34,6 +34,7 @@
     "db:generate": "pnpm --filter @mplus/database exec prisma generate",
     "db:reset:scoring-v2": "node tools/scripts/with-env.mjs pnpm --filter @mplus/database exec tsx src/reset/cli-test-reset.ts",
     "db:reset:wcl-scoring-derived": "node tools/scripts/with-env.mjs pnpm --filter @mplus/database exec tsx src/reset/cli-wcl-scoring-derived-reset.ts",
+    "db:reset:identity-data": "node tools/scripts/with-env.mjs pnpm --filter @mplus/database exec tsx src/reset/cli-identity-data-reset.ts",
     "db:calibration-labels:export": "node tools/scripts/with-env.mjs pnpm --filter @mplus/database exec tsx src/reset/cli-calibration-labels.ts export",
     "db:calibration-labels:import": "node tools/scripts/with-env.mjs pnpm --filter @mplus/database exec tsx src/reset/cli-calibration-labels.ts import",
     "db:cleanup:test-artifacts": "node tools/scripts/with-env.mjs node tools/scripts/cleanup-test-artifacts.mjs",
