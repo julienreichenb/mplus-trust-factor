@@ -3,17 +3,23 @@
  * Keep expensive GraphQL work within a predictable per-character budget.
  */
 
-/** One recentReports page; WCL allows up to 100 — we stay well below. */
+/**
+ * recentReports page size. WCL allows up to 100 — keep modest per-page cost.
+ * V2 selection retains up to 10 candidates/dungeon and 80 total (see contract 03).
+ */
 export const MAX_RECENT_REPORTS_LIMIT = 20;
 
-/** Only the first page of recentReports is fetched during discovery. */
-export const MAX_RECENT_REPORT_PAGES = 1;
+/**
+ * Bounded recentReports pagination for Scoring V2 discovery.
+ * Stops earlier when has_more_pages is false or candidate bounds are satisfied.
+ */
+export const MAX_RECENT_REPORT_PAGES = 5;
 
 /**
  * Cap on merged public run candidates after rankings + recentReports dedupe.
- * Excess rows are dropped (rankings preferred over recentReports stubs).
+ * Aligned with V2_MAX_TOTAL_CANDIDATES (80) in the evidence selection contract.
  */
-export const MAX_DISCOVERY_CANDIDATES = 25;
+export const MAX_DISCOVERY_CANDIDATES = 80;
 
 /**
  * Max public recentReports opened for fight/masterData hydration per discovery.

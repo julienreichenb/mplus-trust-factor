@@ -330,6 +330,7 @@ export async function runAnalyzeEvidenceSlotV2(
             ? null
             : acquired.result.rejectionReason,
         acquisitionResult: acquired.result,
+        rejectedAttempts: acquired.rejectedAttempts,
         acquiredDiscoveryKey: discoveryIdentityKey(acquired.result.discoveryIdentity),
         datasetCompatibilityKeys: acquired.datasetCompatibilityKeys,
         factSetFingerprint: acquired.factSetFingerprint,

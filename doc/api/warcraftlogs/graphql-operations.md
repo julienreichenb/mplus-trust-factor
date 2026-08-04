@@ -75,11 +75,24 @@ query CharacterRecentReports($name: String!, $serverSlug: String!, $serverRegion
 }
 ```
 
-**Observed cost:** ~2–5 points.
+**Observed cost:** ~2–5 points per page.
+
+**Scoring V2 pagination:** page size 20, up to 5 pages, stopping early when `has_more_pages` is false or unique-report discovery bounds are satisfied. Report codes are deduplicated across pages. This replaces the obsolete V1 single-page discovery bound.
 
 ## ReportWithFightAndMasterData
 
 Combined report metadata + fights + masterData (`translate: false`).
+
+Fight fields required for V2 candidate identity / ownership / timer tri-state:
+
+- `id`, `encounterID`, `name`, `kill`
+- `startTime`, `endTime`, `inProgress`
+- `keystoneLevel`, `keystoneBonus`, `keystoneTime`
+- `friendlyPlayers`
+
+Report fields: `code`, `startTime`, `revision`, `visibility`, `zone { id name }`, `masterData.actors`.
+
+These fields must survive GraphQL → Zod parse → hydration/normalization. Do not assume a requested GraphQL field is present on the candidate unless a mapper assigns it.
 
 **Observed cost:** ~5–15 points per report.
 

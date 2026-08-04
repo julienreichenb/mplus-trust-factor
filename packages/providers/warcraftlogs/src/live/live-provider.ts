@@ -47,14 +47,13 @@ import {
 } from "../discovery/points-and-damage-performance.js";
 import { parseJsonScalar } from "../probe/performance-probe-logic.js";
 import {
-  MAX_RECENT_REPORTS_LIMIT,
-  MAX_RECENT_REPORT_PAGES,
   MAX_HYDRATION_REPORTS,
 } from "../discovery/bounds.js";
 import {
   hydrateFightUnknownCandidates,
   type HydrationReportPayload,
 } from "../discovery/report-hydration.js";
+import { collectBoundedRecentReportCodes } from "../discovery/recent-reports-pagination.js";
 import {
   extractFriendlyPlayerActorIds,
   fightOwnershipRejectionDetail,
@@ -774,36 +773,64 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
       );
     }
 
-    // Bounded: one recentReports page only (limit documented in bounds.ts)
-    const recentResult = await this.client.request({
-      operationName: OPERATIONS.CharacterRecentReports.operationName,
-      query: OPERATIONS.CharacterRecentReports.query,
-      variables: {
-        name: identity.name,
-        serverSlug: identity.realmSlug,
-        serverRegion,
-        limit: MAX_RECENT_REPORTS_LIMIT,
-        page: MAX_RECENT_REPORT_PAGES,
+    // Bounded recentReports pagination (V2 contract: deep enough for per-dungeon fallback).
+    type RecentCandidate = ReturnType<typeof recentReportsToCandidates>["candidates"][number];
+    const candidatesByCode = new Map<string, RecentCandidate>();
+    const pagination = await collectBoundedRecentReportCodes({
+      fetchPage: async (page, limit) => {
+        const recentResult = await this.client.request({
+          operationName: OPERATIONS.CharacterRecentReports.operationName,
+          query: OPERATIONS.CharacterRecentReports.query,
+          variables: {
+            name: identity.name,
+            serverSlug: identity.realmSlug,
+            serverRegion,
+            limit,
+            page,
+          },
+          region: identity.region,
+        });
+        const recentParsed = parseWithSchema(
+          recentReportsSchema,
+          recentResult.response.data,
+          "RecentReports",
+        );
+        const pagePayload = recentParsed.characterData.character?.recentReports;
+        const recentMapped = recentReportsToCandidates(pagePayload);
+        for (const candidate of recentMapped.candidates) {
+          if (!candidatesByCode.has(candidate.reportCode)) {
+            candidatesByCode.set(candidate.reportCode, candidate);
+          }
+        }
+        return {
+          reportCodes: recentMapped.candidates.map((c) => c.reportCode),
+          hasMorePages: pagePayload?.has_more_pages === true,
+          privateSkipped: recentMapped.privateSkipped,
+          unlistedSkipped: recentMapped.unlistedSkipped,
+        };
       },
-      region: identity.region,
     });
-    const recentParsed = parseWithSchema(recentReportsSchema, recentResult.response.data, "RecentReports");
-    const recentMapped = recentReportsToCandidates(
-      recentParsed.characterData.character?.recentReports,
-    );
-    const recentPublicCount = recentMapped.candidates.length;
-    const privateSkipped = recentMapped.privateSkipped + recentMapped.unlistedSkipped;
-    if (recentMapped.unlistedSkipped > 0) {
+
+    const recentCandidates = pagination.reportCodes
+      .map((code) => candidatesByCode.get(code))
+      .filter((c): c is RecentCandidate => c != null);
+    const privateSkippedTotal = pagination.privateSkipped + pagination.unlistedSkipped;
+    const recentPublicCount = recentCandidates.length;
+
+    if (pagination.unlistedSkipped > 0) {
       warnings.push(
-        `Skipped ${recentMapped.unlistedSkipped} unlisted report(s) — never probed with allowUnlisted`,
+        `Skipped ${pagination.unlistedSkipped} unlisted report(s) — never probed with allowUnlisted`,
       );
     }
-    if (recentMapped.privateSkipped > 0) {
-      warnings.push(`Skipped ${recentMapped.privateSkipped} private report(s)`);
+    if (pagination.privateSkipped > 0) {
+      warnings.push(`Skipped ${pagination.privateSkipped} private report(s)`);
     }
+    warnings.push(
+      `recentReports pagination: pagesFetched=${pagination.pagesFetched} stop=${pagination.stopReason} uniqueReports=${recentPublicCount}`,
+    );
 
     const provenance = deriveWclProvenance(character, rankings, recentPublicCount, {
-      privateSkipped,
+      privateSkipped: privateSkippedTotal,
     });
     const summary = mapCharacterSummary(
       character,
@@ -820,8 +847,8 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
       dungeonAggregates: performance.state === "OK" ? performance.dungeonAggregates : [],
       performance,
       rankingCandidates: rankingsToCandidates(rankings),
-      recentCandidates: recentMapped.candidates,
-      privateReportsSkipped: privateSkipped,
+      recentCandidates,
+      privateReportsSkipped: privateSkippedTotal,
     });
   }
 

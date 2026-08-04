@@ -69,6 +69,21 @@ import {
 
 const EVIDENCE_PLANNER_PROVIDER_CONTRACT = "wcl-graphql-v2-events";
 
+/** Derive timed tri-state from fight-details payload keystoneBonus when present. */
+export function keystoneBonusFromFightDetails(data: unknown): boolean | null {
+  if (data == null || typeof data !== "object") return null;
+  const root = data as Record<string, unknown>;
+  const fight =
+    (root.fight as Record<string, unknown> | undefined) ??
+    (root.reportFight as Record<string, unknown> | undefined) ??
+    root;
+  const bonus = fight.keystoneBonus;
+  if (typeof bonus !== "number" || !Number.isFinite(bonus)) return null;
+  if (bonus > 0) return true;
+  if (bonus === 0) return false;
+  return null;
+}
+
 export class ScoringV2CancelledError extends Error {
   readonly code = "CANCELLED";
   constructor(message = "Scoring V2 batch cancelled") {
@@ -446,47 +461,14 @@ export async function acquireCandidateWithFallback(input: {
         continue;
       }
 
-      // Post-hydration eligibility — private/untimed/incomplete never consume a slot.
-      if (candidate.timed === false) {
-        recordInvalidCandidateReason("UNTIMED_RUN");
-        rejectedAttempts.push({
-          discoveryIdentity: identity,
-          acquisitionStatus: "REJECTED",
-          reportRevision,
-          rejectionReason: "UNTIMED_RUN",
-          rejectionDetail: "timed===false after fight details",
-          datasetHashes: [],
-          factSetHash: null,
-          dimensionValidity: null,
-          keyLevel: candidate.keyLevel,
-          timed: false,
-          runScore: candidate.runScore,
-          completedAt: candidate.completedAt,
-          actorId: playerActorId,
-          evidenceCompleteness: candidate.evidenceCompleteness,
-        });
-        continue;
+      // Timer tri-state is ordering-only — do not reject timed===false/null here.
+      // Prefer fight-details keystoneBonus when the plan candidate still has timed=null.
+      let resolvedTimed = candidate.timed;
+      const bonusFromDetails = keystoneBonusFromFightDetails(details.data);
+      if (resolvedTimed == null && bonusFromDetails != null) {
+        resolvedTimed = bonusFromDetails;
       }
-      if (candidate.timed == null) {
-        recordInvalidCandidateReason("TIMED_STATE_UNKNOWN");
-        rejectedAttempts.push({
-          discoveryIdentity: identity,
-          acquisitionStatus: "REJECTED",
-          reportRevision,
-          rejectionReason: "TIMED_STATE_UNKNOWN",
-          rejectionDetail: "timed still unresolved after fight details",
-          datasetHashes: [],
-          factSetHash: null,
-          dimensionValidity: null,
-          keyLevel: candidate.keyLevel,
-          timed: null,
-          runScore: candidate.runScore,
-          completedAt: candidate.completedAt,
-          actorId: playerActorId,
-          evidenceCompleteness: candidate.evidenceCompleteness,
-        });
-        continue;
-      }
+
       if (playerActorId == null) {
         recordInvalidCandidateReason("ACTOR_UNRESOLVED");
         rejectedAttempts.push({
@@ -1127,7 +1109,7 @@ export async function acquireCandidateWithFallback(input: {
           factSetHash: factSetFingerprint,
           dimensionValidity: dimValidity,
           keyLevel: candidate.keyLevel,
-          timed: candidate.timed,
+          timed: resolvedTimed,
           runScore: candidate.runScore,
           completedAt: candidate.completedAt,
           actorId: playerActorId,
@@ -1187,13 +1169,24 @@ export async function acquireCandidateWithFallback(input: {
   }
 
   const last = input.candidates[input.candidates.length - 1];
+  const chainDetail =
+    rejectedAttempts.length > 0
+      ? rejectedAttempts
+          .map(
+            (r) =>
+              `${r.discoveryIdentity.reportCode}#${r.discoveryIdentity.fightId}:${r.rejectionReason ?? "UNKNOWN"}${
+                r.rejectionDetail ? `(${r.rejectionDetail})` : ""
+              }`,
+          )
+          .join(" → ")
+      : "no candidate attempts recorded";
   return {
     result: {
       discoveryIdentity: last?.discoveryIdentity ?? { reportCode: "none", fightId: 0 },
       acquisitionStatus: "REJECTED",
       reportRevision: null,
       rejectionReason: "FALLBACK_EXHAUSTED",
-      rejectionDetail: `exhausted ${input.candidates.length} candidates`,
+      rejectionDetail: `exhausted ${input.candidates.length} candidates; chain: ${chainDetail}`,
       datasetHashes: [],
       factSetHash: null,
       dimensionValidity: null,
@@ -1225,16 +1218,40 @@ function mapValidity(
 }
 
 export function collectAcquisitionResultsForFinalize(
-  slots: Array<{ acquisitionResult: EvidenceCandidateAcquisitionResult | null }>,
+  slots: Array<{
+    acquisitionResult: EvidenceCandidateAcquisitionResult | null;
+    rejectedAttempts?: EvidenceCandidateAcquisitionResult[] | null;
+  }>,
 ): EvidenceCandidateAcquisitionResult[] {
   const out: EvidenceCandidateAcquisitionResult[] = [];
-  const seen = new Set<string>();
+  const byKey = new Map<string, EvidenceCandidateAcquisitionResult>();
+
+  const consider = (result: EvidenceCandidateAcquisitionResult | null | undefined) => {
+    if (!result) return;
+    const key = discoveryIdentityKey(result.discoveryIdentity);
+    const existing = byKey.get(key);
+    if (!existing) {
+      byKey.set(key, result);
+      return;
+    }
+    // Prefer ACQUIRED over REJECTED for the same identity.
+    if (
+      existing.acquisitionStatus !== "ACQUIRED" &&
+      result.acquisitionStatus === "ACQUIRED"
+    ) {
+      byKey.set(key, result);
+    }
+  };
+
   for (const slot of slots) {
-    if (!slot.acquisitionResult) continue;
-    const key = discoveryIdentityKey(slot.acquisitionResult.discoveryIdentity);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(slot.acquisitionResult);
+    for (const rejected of slot.rejectedAttempts ?? []) {
+      consider(rejected);
+    }
+    consider(slot.acquisitionResult);
+  }
+
+  for (const result of byKey.values()) {
+    out.push(result);
   }
   return out;
 }

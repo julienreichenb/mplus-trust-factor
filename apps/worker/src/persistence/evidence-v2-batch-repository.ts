@@ -77,6 +77,7 @@ export interface EvidenceV2BatchRepository {
     status: Exclude<EvidenceV2SlotJobStatus, "PENDING" | "RUNNING">;
     terminalReason?: string | null;
     acquisitionResult?: EvidenceCandidateAcquisitionResult | null;
+    rejectedAttempts?: EvidenceCandidateAcquisitionResult[] | null;
     acquiredDiscoveryKey?: string | null;
     datasetCompatibilityKeys?: string[];
     factSetFingerprint?: string | null;
@@ -409,6 +410,7 @@ export function createEvidenceV2BatchRepository(
                 finishedAt: nowIso,
                 terminalReason: input.terminalReason ?? null,
                 acquisitionResult: input.acquisitionResult ?? s.acquisitionResult,
+                rejectedAttempts: input.rejectedAttempts ?? s.rejectedAttempts ?? [],
                 acquiredDiscoveryKey: input.acquiredDiscoveryKey ?? s.acquiredDiscoveryKey,
                 datasetCompatibilityKeys:
                   input.datasetCompatibilityKeys ?? s.datasetCompatibilityKeys,
