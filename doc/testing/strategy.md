@@ -20,7 +20,9 @@ pnpm test:contract         # provider fixtures + OpenAPI
 pnpm test:data-quality     # invariant checks
 pnpm test:security         # redaction + SSRF
 pnpm test:failure          # provider/infra failure injection
-pnpm test:integration      # Postgres (requires pnpm dev:infra)
+pnpm test:integration      # Postgres (requires pnpm dev:infra); chains shared + destructive groups
+pnpm test:integration:shared       # non-destructive *.integration.test.ts (own disposable DB)
+pnpm test:integration:destructive  # whole-DB reset/TRUNCATE suite (own disposable DB)
 pnpm test:load             # local API load (requires running API)
 pnpm openapi:generate      # refresh apps/api/openapi.json
 ```
