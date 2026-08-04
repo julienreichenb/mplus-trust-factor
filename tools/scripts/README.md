@@ -20,6 +20,28 @@ until an explicit cleanup task is approved.
 node tools/scripts/with-env.mjs pnpm --filter @mplus/database exec tsx ../../tools/scripts/diagnose-wcl-fight-ownership.ts
 ```
 
+## Local WCL / scoring-derived reset (destructive, guarded)
+
+Resets provider-derived and scoring-derived rows on the **local** `mplus_trust`
+database while retaining users, characters, catalog and static configuration.
+
+Default is DRY-RUN. Actual deletion requires `--execute` and all safety gates.
+
+```bash
+# Dry-run (no mutations)
+pnpm db:reset:wcl-scoring-derived -- --confirm=RESET_LOCAL_WCL_SCORING_DATA
+
+# Execute (local development only)
+pnpm db:reset:wcl-scoring-derived -- --confirm=RESET_LOCAL_WCL_SCORING_DATA --execute
+```
+
+Gates: `APP_ENV=development`, DB host localhost/127.0.0.1, DB name exactly
+`mplus_trust`, confirmation token exact, Redis localhost, local CAS directory only.
+Never uses Redis `FLUSHALL`.
+
+The older `pnpm db:reset:scoring-v2` tooling remains for disposable `mplus_itest_*`
+databases only and still blocks the shared `mplus_trust` name.
+
 ## Live smoke (manual only)
 
 Require:
