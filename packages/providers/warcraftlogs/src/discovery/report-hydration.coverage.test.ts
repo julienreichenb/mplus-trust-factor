@@ -355,4 +355,141 @@ describe("coverage-aware hydrateFightUnknownCandidates", () => {
     expect(order[0]).toBe("RECENT_COVERED");
     expect(order).toContain("OLDER_MISSING");
   });
+
+  it("counts thrown fetch errors against maxReports (exactly 3 attempts)", async () => {
+    const stubs = [
+      fightUnknownStub("E1", 100),
+      fightUnknownStub("E2", 90),
+      fightUnknownStub("E3", 80),
+      fightUnknownStub("E4", 70),
+    ];
+    const fetchReport = vi.fn(async () => {
+      throw new Error("network_down");
+    });
+
+    const result = await hydrateFightUnknownCandidates({
+      candidates: stubs,
+      characterName: "Wallidrixe",
+      realmSlug: "archimonde",
+      activeDungeonSlugs: ACTIVE,
+      maxReports: 3,
+      fetchReport,
+    });
+
+    expect(fetchReport).toHaveBeenCalledTimes(3);
+    expect(result.diagnostics.reportFetchAttempts).toBe(3);
+    expect(result.diagnostics.reportsHydrated).toBe(0);
+    expect(result.diagnostics.reportsFailedOrEmpty).toBe(3);
+    expect(result.diagnostics.stopReason).toBe("budget_exhausted");
+    expect(result.hydratedReportCount).toBe(0);
+  });
+
+  it("counts null fetch responses against maxReports (exactly 3 attempts)", async () => {
+    const stubs = [
+      fightUnknownStub("N1", 100),
+      fightUnknownStub("N2", 90),
+      fightUnknownStub("N3", 80),
+      fightUnknownStub("N4", 70),
+    ];
+    const fetchReport = vi.fn(async () => null);
+
+    const result = await hydrateFightUnknownCandidates({
+      candidates: stubs,
+      characterName: "Wallidrixe",
+      realmSlug: "archimonde",
+      activeDungeonSlugs: ACTIVE,
+      maxReports: 3,
+      fetchReport,
+    });
+
+    expect(fetchReport).toHaveBeenCalledTimes(3);
+    expect(result.diagnostics.reportFetchAttempts).toBe(3);
+    expect(result.diagnostics.reportsFailedOrEmpty).toBe(3);
+    expect(result.diagnostics.stopReason).toBe("budget_exhausted");
+  });
+
+  it("never exceeds maxReports with mixed error/null/success", async () => {
+    const stubs = [
+      fightUnknownStub("OK1", 100),
+      fightUnknownStub("ERR", 90),
+      fightUnknownStub("NIL", 80),
+      fightUnknownStub("OK2", 70),
+      fightUnknownStub("EXTRA", 60),
+    ];
+    const fetchReport = vi.fn(async (code: string) => {
+      if (code === "ERR") throw new Error("boom");
+      if (code === "NIL") return null;
+      return publicReport({ code, dungeonSlug: "skyreach", fightId: 1 });
+    });
+
+    const result = await hydrateFightUnknownCandidates({
+      candidates: stubs,
+      characterName: "Wallidrixe",
+      realmSlug: "archimonde",
+      activeDungeonSlugs: ["skyreach"],
+      maxReports: 3,
+      fetchReport,
+    });
+
+    expect(fetchReport).toHaveBeenCalledTimes(3);
+    expect(result.diagnostics.reportFetchAttempts).toBe(3);
+    expect(result.diagnostics.reportFetchAttempts).toBeLessThanOrEqual(3);
+    expect(result.diagnostics.reportsFailedOrEmpty).toBe(2);
+    expect(result.diagnostics.reportsHydrated).toBe(1);
+    expect(result.diagnostics.stopReason).toBe("budget_exhausted");
+    expect(fetchReport).not.toHaveBeenCalledWith("EXTRA");
+  });
+
+  it("stops on full coverage before burning the attempt budget", async () => {
+    const stubs = [
+      fightUnknownStub("A1", 100),
+      fightUnknownStub("A2", 90),
+      fightUnknownStub("EXTRA", 80),
+    ];
+    const fetchReport = vi.fn(async (code: string) =>
+      publicReport({
+        code,
+        dungeonSlug: "skyreach",
+        fightId: code === "A1" ? 1 : 2,
+      }),
+    );
+
+    const result = await hydrateFightUnknownCandidates({
+      candidates: stubs,
+      characterName: "Wallidrixe",
+      realmSlug: "archimonde",
+      activeDungeonSlugs: ["skyreach"],
+      maxReports: 24,
+      fetchReport,
+    });
+
+    expect(result.diagnostics.stopReason).toBe("full_coverage");
+    expect(result.diagnostics.reportFetchAttempts).toBe(2);
+    expect(fetchReport).toHaveBeenCalledTimes(2);
+    expect(fetchReport).not.toHaveBeenCalledWith("EXTRA");
+  });
+
+  it("legacy fixed-budget mode also counts null/error attempts", async () => {
+    const stubs = [
+      fightUnknownStub("L1", 100),
+      fightUnknownStub("L2", 90),
+      fightUnknownStub("L3", 80),
+      fightUnknownStub("L4", 70),
+    ];
+    const fetchReport = vi.fn(async () => null);
+
+    const result = await hydrateFightUnknownCandidates({
+      candidates: stubs,
+      characterName: "Wallidrixe",
+      realmSlug: "archimonde",
+      // No activeDungeonSlugs → legacy fixed-budget mode.
+      maxReports: 2,
+      fetchReport,
+    });
+
+    expect(fetchReport).toHaveBeenCalledTimes(2);
+    expect(result.diagnostics.reportFetchAttempts).toBe(2);
+    expect(result.diagnostics.reportsFailedOrEmpty).toBe(2);
+    expect(result.hydratedReportCount).toBe(0);
+  });
 });

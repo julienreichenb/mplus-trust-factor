@@ -83,9 +83,20 @@ export type HydrationStopReason =
   | "legacy_fixed_budget";
 
 export interface HydrationCoverageDiagnostics {
+  /** Unique fightUnknown stubs discovered before hydration. */
   recentReportsDiscovered: number;
+  /**
+   * Unique fetchReport invocations attempted (strict maxReports budget).
+   * Alias retained for callers that read reportsConsideredForHydration.
+   */
   reportsConsideredForHydration: number;
+  /** Same as reportsConsideredForHydration — explicit attempt count. */
+  reportFetchAttempts: number;
+  /** Successful non-null report payloads returned. */
   reportsHydrated: number;
+  /** Fetch attempts that returned null or threw. */
+  reportsFailedOrEmpty: number;
+  /** Unique stubs still unattempted when stopping. */
   reportsLeftUnhydratedBudget: number;
   /** Distinct eligible reportCode:fightId identities per active dungeon. */
   candidatesProducedPerDungeon: Record<string, number>;
@@ -479,14 +490,16 @@ export async function hydrateFightUnknownCandidates(input: {
   const hydrated: WclRunCandidate[] = [];
   const rejectedReasons: string[] = [];
   const rejectionCountsByReason: Record<string, number> = {};
-  const hydratedCodes = new Set<string>();
+  /** reportCodes for which fetchReport was invoked (attempt budget consumers). */
+  const attemptedCodes = new Set<string>();
+  let reportFetchAttempts = 0;
   let hydratedReportCount = 0;
+  let reportsFailedOrEmpty = 0;
   let stopReason: HydrationStopReason = coverageAware ? "no_more_reports" : "legacy_fixed_budget";
 
   // Unique stubs ordered once; coverage-aware re-ranks remaining by under-covered hints.
   const uniqueStubs = prioritizeReportsForHydration(stubs, hints, Number.MAX_SAFE_INTEGER);
   const remaining = [...uniqueStubs];
-  const reportsConsidered = Math.min(remaining.length, maxReports);
 
   const takeNextStub = (): WclRunCandidate | null => {
     if (remaining.length === 0) return null;
@@ -500,7 +513,8 @@ export async function hydrateFightUnknownCandidates(input: {
     return remaining.shift() ?? null;
   };
 
-  while (hydratedReportCount < maxReports) {
+  // maxReports is a strict upper bound on unique fetchReport invocations.
+  while (reportFetchAttempts < maxReports) {
     if (coverageAware && isFullCoverage(coverage, targetPerDungeon)) {
       stopReason = "full_coverage";
       break;
@@ -511,14 +525,18 @@ export async function hydrateFightUnknownCandidates(input: {
       stopReason = coverageAware ? "no_more_reports" : "legacy_fixed_budget";
       break;
     }
-    if (hydratedCodes.has(stub.reportCode)) {
+    if (attemptedCodes.has(stub.reportCode)) {
       continue;
     }
 
+    // Consume budget before the provider call — null/throw still count.
+    attemptedCodes.add(stub.reportCode);
+    reportFetchAttempts += 1;
+
     try {
       const report = await input.fetchReport(stub.reportCode);
-      hydratedCodes.add(stub.reportCode);
       if (!report) {
+        reportsFailedOrEmpty += 1;
         recordRejection(
           rejectionCountsByReason,
           rejectedReasons,
@@ -552,7 +570,7 @@ export async function hydrateFightUnknownCandidates(input: {
         break;
       }
     } catch (error) {
-      hydratedCodes.add(stub.reportCode);
+      reportsFailedOrEmpty += 1;
       recordRejection(
         rejectionCountsByReason,
         rejectedReasons,
@@ -562,25 +580,22 @@ export async function hydrateFightUnknownCandidates(input: {
   }
 
   if (coverageAware && stopReason !== "full_coverage") {
-    if (hydratedReportCount >= maxReports && remaining.length > 0) {
+    if (reportFetchAttempts >= maxReports) {
       stopReason = "budget_exhausted";
     } else if (remaining.length === 0 && !isFullCoverage(coverage, targetPerDungeon)) {
       stopReason = "no_more_reports";
-    } else if (hydratedReportCount >= maxReports) {
-      stopReason = "budget_exhausted";
     }
+  } else if (!coverageAware && reportFetchAttempts >= maxReports && remaining.length > 0) {
+    stopReason = "legacy_fixed_budget";
   }
 
-  const untouchedStubs = stubs.filter((s) => !hydratedCodes.has(s.reportCode));
+  const untouchedStubs = stubs.filter((s) => !attemptedCodes.has(s.reportCode));
   const { candidatesProducedPerDungeon, distinctCandidatesPerDungeon } =
     coverageDiagnosticsMaps(coverage);
   const targetCoverageReached = coverageAware && isFullCoverage(coverage, targetPerDungeon);
-  const reportsLeftUnhydratedBudget =
-    stopReason === "budget_exhausted"
-      ? remaining.filter((s) => !hydratedCodes.has(s.reportCode)).length
-      : stopReason === "full_coverage"
-        ? remaining.filter((s) => !hydratedCodes.has(s.reportCode)).length
-        : 0;
+  const reportsLeftUnhydratedBudget = remaining.filter(
+    (s) => !attemptedCodes.has(s.reportCode),
+  ).length;
 
   return {
     candidates: [...known, ...hydrated, ...untouchedStubs],
@@ -588,8 +603,10 @@ export async function hydrateFightUnknownCandidates(input: {
     rejectedReasons: rejectedReasons.slice(0, 40),
     diagnostics: {
       recentReportsDiscovered: uniqueStubs.length,
-      reportsConsideredForHydration: reportsConsidered,
+      reportsConsideredForHydration: reportFetchAttempts,
+      reportFetchAttempts,
       reportsHydrated: hydratedReportCount,
+      reportsFailedOrEmpty,
       reportsLeftUnhydratedBudget,
       candidatesProducedPerDungeon,
       distinctCandidatesPerDungeon,

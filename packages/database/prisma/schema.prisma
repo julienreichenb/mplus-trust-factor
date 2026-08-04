@@ -1799,8 +1799,13 @@ model EvidenceDataset {
   id                      String    @id @default(uuid()) @db.Uuid
   manifestSlotId          String    @map("manifest_slot_id") @db.Uuid
   datasetKey              String    @map("dataset_key")
-  /** Stable key for cache/reuse across refreshes (unique). */
-  compatibilityKey        String    @unique @map("compatibility_key")
+  /**
+   * Logical compatibility identity (report/fight/revision/kind/contract).
+   * Shared across refreshes/manifests that bind the same immutable source evidence.
+   * Not globally unique — each frozen slot keeps its own auditable descriptor row.
+   * Slot uniqueness is @@unique([manifestSlotId, datasetKey]).
+   */
+  compatibilityKey        String    @map("compatibility_key")
   artifactId              String?   @map("artifact_id") @db.Uuid
   schemaVersion           String    @map("schema_version")
   providerContractVersion String    @map("provider_contract_version")
@@ -1822,6 +1827,7 @@ model EvidenceDataset {
   digest       WclRunSourceDigest?  @relation(fields: [digestId], references: [id], onDelete: SetNull)
 
   @@unique([manifestSlotId, datasetKey])
+  @@index([compatibilityKey])
   @@index([artifactId])
   @@index([digestId])
   @@map("evidence_datasets")

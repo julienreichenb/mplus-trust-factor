@@ -310,8 +310,17 @@ export class EvidenceRepository {
   }
 
   async findDatasetByCompatibilityKey(compatibilityKey: string) {
-    return this.prisma.evidenceDataset.findUnique({
+    return this.prisma.evidenceDataset.findFirst({
       where: { compatibilityKey },
+      orderBy: { createdAt: "asc" },
+    });
+  }
+
+  /** All slot-owned descriptor rows sharing a logical compatibility identity. */
+  async findDatasetsByCompatibilityKey(compatibilityKey: string) {
+    return this.prisma.evidenceDataset.findMany({
+      where: { compatibilityKey },
+      orderBy: { createdAt: "asc" },
     });
   }
 

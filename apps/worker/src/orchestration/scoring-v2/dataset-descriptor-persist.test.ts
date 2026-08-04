@@ -33,11 +33,11 @@ function descriptor(
 }
 
 describe("persistDatasetDescriptor", () => {
-  it("writes a new dataset when neither slot nor compatibility key exists", async () => {
+  it("writes a new dataset when neither slot nor compatibility peers exist", async () => {
     const createDataset = vi.fn(async () => ({ id: "ds-1" }));
     const evidence = {
       findDatasetBySlotAndKey: vi.fn(async () => null),
-      findDatasetByCompatibilityKey: vi.fn(async () => null),
+      findDatasetsByCompatibilityKey: vi.fn(async () => []),
       createDataset,
     };
 
@@ -70,7 +70,7 @@ describe("persistDatasetDescriptor", () => {
     const createDataset = vi.fn();
     const evidence = {
       findDatasetBySlotAndKey: vi.fn(async () => existing),
-      findDatasetByCompatibilityKey: vi.fn(async () => null),
+      findDatasetsByCompatibilityKey: vi.fn(async () => [existing]),
       createDataset,
     };
 
@@ -84,7 +84,7 @@ describe("persistDatasetDescriptor", () => {
     expect(createDataset).not.toHaveBeenCalled();
   });
 
-  it("fails closed on content conflict for the same logical identity", async () => {
+  it("fails closed on content conflict for the same slot identity", async () => {
     const existing = {
       manifestSlotId: "slot-1",
       datasetKey: "casts",
@@ -100,7 +100,7 @@ describe("persistDatasetDescriptor", () => {
     };
     const evidence = {
       findDatasetBySlotAndKey: vi.fn(async () => existing),
-      findDatasetByCompatibilityKey: vi.fn(async () => null),
+      findDatasetsByCompatibilityKey: vi.fn(async () => []),
       createDataset: vi.fn(),
     };
 
@@ -114,10 +114,76 @@ describe("persistDatasetDescriptor", () => {
     expect(evidence.createDataset).not.toHaveBeenCalled();
   });
 
+  it("creates a new slot-owned binding when another manifest already has same content", async () => {
+    const peer = {
+      id: "ds-old",
+      manifestSlotId: "slot-old",
+      datasetKey: "casts",
+      compatibilityKey: "rep1:3:1:CASTS:wcl-graphql-v2-events",
+      payloadFingerprint: "fp-casts-1",
+      eventCount: 10,
+      pageCount: 1,
+      truncated: false,
+      artifactId: "artifact-1",
+      state: "READY",
+      schemaVersion: "2.0.0",
+      providerContractVersion: "wcl-graphql-v2-events",
+    };
+    const createDataset = vi.fn(async () => ({ id: "ds-new" }));
+    const evidence = {
+      findDatasetBySlotAndKey: vi.fn(async () => null),
+      findDatasetsByCompatibilityKey: vi.fn(async () => [peer]),
+      createDataset,
+    };
+
+    const result = await persistDatasetDescriptor({
+      evidence: evidence as never,
+      manifestSlotId: "slot-new",
+      descriptor: descriptor(),
+    });
+
+    expect(result).toEqual({ outcome: "written", created: true });
+    expect(createDataset).toHaveBeenCalledOnce();
+    expect(createDataset.mock.calls[0]![0].manifestSlotId).toBe("slot-new");
+    expect(createDataset.mock.calls[0]![0].artifactId).toBe("artifact-1");
+    expect(createDataset.mock.calls[0]![0].compatibilityKey).toBe(peer.compatibilityKey);
+  });
+
+  it("fails closed when a peer has the same compatibility key but different content", async () => {
+    const peer = {
+      id: "ds-old",
+      manifestSlotId: "slot-old",
+      datasetKey: "casts",
+      compatibilityKey: "rep1:3:1:CASTS:wcl-graphql-v2-events",
+      payloadFingerprint: "fp-OTHER",
+      eventCount: 10,
+      pageCount: 1,
+      truncated: false,
+      artifactId: "artifact-1",
+      state: "READY",
+      schemaVersion: "2.0.0",
+      providerContractVersion: "wcl-graphql-v2-events",
+    };
+    const evidence = {
+      findDatasetBySlotAndKey: vi.fn(async () => null),
+      findDatasetsByCompatibilityKey: vi.fn(async () => [peer]),
+      createDataset: vi.fn(),
+    };
+
+    const result = await persistDatasetDescriptor({
+      evidence: evidence as never,
+      manifestSlotId: "slot-new",
+      descriptor: descriptor(),
+    });
+
+    expect(result).toEqual({ outcome: "conflict", reason: "dataset_content_conflict" });
+    expect(evidence.createDataset).not.toHaveBeenCalled();
+  });
+
   it("does not call any provider — only repository lookups/writes", async () => {
     const evidence = {
       findDatasetBySlotAndKey: vi.fn(async () => null),
-      findDatasetByCompatibilityKey: vi.fn(async () => null),
+      findDatasetsByCompatibilityKey: vi.fn(async () => []),
       createDataset: vi.fn(async () => ({ id: "ds-1" })),
     };
     await persistDatasetDescriptor({
@@ -127,7 +193,7 @@ describe("persistDatasetDescriptor", () => {
     });
     expect(Object.keys(evidence)).toEqual([
       "findDatasetBySlotAndKey",
-      "findDatasetByCompatibilityKey",
+      "findDatasetsByCompatibilityKey",
       "createDataset",
     ]);
   });

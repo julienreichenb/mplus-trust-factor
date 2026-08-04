@@ -9,9 +9,16 @@
  *   they never synthesize raw pages or fake dataset content.
  * - Finalization binds descriptors to EvidenceManifestSlot by
  *   reportCode + fightId + reportRevision, then creates EvidenceDataset rows.
- * - EvidenceDatasetPage rows are scoring-neutral and durable by report identity;
- *   datasetId is optional. Finalization may attach datasetId to existing pages
- *   that match the same report/fight/revision/shared-key; it never fabricates pages.
+ * - compatibilityKey is a logical identity shared across refreshes/manifests.
+ *   Each frozen slot keeps its own auditable EvidenceDataset row
+ *   (unique on manifestSlotId + datasetKey). Same compatibilityKey + same
+ *   immutable content → create/reuse a slot-owned binding that references the
+ *   same artifact; different content → fail closed.
+ * - EvidenceDatasetPage rows are scoring-neutral and durable by report identity
+ *   (reportCode+fightId+reportRevision+datasetKey+scope). datasetId is optional.
+ *   Finalization may attach datasetId only to pages that are still unlinked; pages
+ *   already linked to an older descriptor remain discoverable by report identity.
+ *   Never fabricates pages.
  */
 
 import type { EvidenceDatasetKind } from "@mplus/contracts";
@@ -91,8 +98,12 @@ function existingContentFingerprint(row: {
 
 /**
  * Idempotent EvidenceDataset write for a frozen manifest slot.
- * Same logical identity + same content → reuse.
- * Same logical identity + incompatible content → fail closed.
+ *
+ * - Same slot + same content → reuse (redelivery).
+ * - Same slot + different content → fail closed.
+ * - Same compatibilityKey on another slot + same content → create a new
+ *   slot-owned auditable binding that references the same immutable artifact.
+ * - Same compatibilityKey + different content → fail closed.
  */
 export async function persistDatasetDescriptor(input: {
   evidence: EvidenceRepository;
@@ -113,25 +124,27 @@ export async function persistDatasetDescriptor(input: {
     return { outcome: "conflict", reason: "dataset_content_conflict" };
   }
 
-  const existingByCompat = await input.evidence.findDatasetByCompatibilityKey(
+  const peers = await input.evidence.findDatasetsByCompatibilityKey(
     descriptor.compatibilityKey,
   );
-  if (existingByCompat) {
-    if (existingByCompat.manifestSlotId !== input.manifestSlotId) {
-      return { outcome: "conflict", reason: "dataset_compatibility_key_slot_mismatch" };
+  for (const peer of peers) {
+    if (existingContentFingerprint(peer) !== expected) {
+      return { outcome: "conflict", reason: "dataset_content_conflict" };
     }
-    if (existingContentFingerprint(existingByCompat) === expected) {
-      return { outcome: "written", created: false };
-    }
-    return { outcome: "conflict", reason: "dataset_content_conflict" };
   }
+
+  // Prefer the peer's artifact when present so we do not invent a second byte store.
+  const artifactId =
+    descriptor.artifactId ??
+    peers.find((p) => p.artifactId != null)?.artifactId ??
+    null;
 
   try {
     await input.evidence.createDataset({
       manifestSlotId: input.manifestSlotId,
       datasetKey: descriptor.datasetKey,
       compatibilityKey: descriptor.compatibilityKey,
-      artifactId: descriptor.artifactId,
+      artifactId,
       schemaVersion: descriptor.schemaVersion,
       providerContractVersion: descriptor.providerContractVersion,
       state: descriptor.state,
@@ -145,12 +158,11 @@ export async function persistDatasetDescriptor(input: {
     return { outcome: "written", created: true };
   } catch (error) {
     if (!isPrismaUniqueViolation(error)) throw error;
-    const raced =
-      (await input.evidence.findDatasetBySlotAndKey({
-        manifestSlotId: input.manifestSlotId,
-        datasetKey: descriptor.datasetKey,
-      })) ??
-      (await input.evidence.findDatasetByCompatibilityKey(descriptor.compatibilityKey));
+    // Race on (manifestSlotId, datasetKey) — re-read and compare.
+    const raced = await input.evidence.findDatasetBySlotAndKey({
+      manifestSlotId: input.manifestSlotId,
+      datasetKey: descriptor.datasetKey,
+    });
     if (!raced) throw error;
     if (existingContentFingerprint(raced) !== expected) {
       return { outcome: "conflict", reason: "dataset_content_conflict_race" };
@@ -166,7 +178,9 @@ export function sharedPageDatasetKeyForKind(kind: EvidenceDatasetKind): string |
 
 /**
  * Attach existing durable pages to a newly created EvidenceDataset when
- * datasetId is still null. Provider-free; no page fabrication.
+ * datasetId is still null. Pages already linked to an older descriptor stay
+ * linked; they remain discoverable by report/fight/revision/datasetKey.
+ * Provider-free; no page fabrication.
  */
 export async function linkExistingPagesToDataset(input: {
   wclSource: {
