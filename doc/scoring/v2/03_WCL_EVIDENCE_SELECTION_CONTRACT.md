@@ -74,7 +74,10 @@ A candidate is selectable only when all mandatory metadata is known:
 - report accessible to application credentials;
 - non-archived or event-accessible;
 - fight exists;
-- target player actor resolved;
+- fight is Mythic+ (`keystoneLevel > 0`);
+- target player actor resolved in report `masterData` by normalized name + realm;
+- **and** the resolved report-local actor ID is present in `fight.friendlyPlayers`
+  (ownership proof — never accept from report-wide actors alone);
 - active-season dungeon mapped;
 - key level known;
 - fight duration positive and bounded;

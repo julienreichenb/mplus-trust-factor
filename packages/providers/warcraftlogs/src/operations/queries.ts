@@ -137,6 +137,8 @@ export const OPERATIONS = {
         endTime
         keystoneLevel
         keystoneBonus
+        keystoneTime
+        inProgress
         friendlyPlayers
       }
       masterData(translate: false) {

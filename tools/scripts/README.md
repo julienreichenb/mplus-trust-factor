@@ -10,6 +10,16 @@ Cross-platform Node scripts (Windows + Unix). Prefer `node tools/scripts/...` ov
 
 `with-env.mjs` loads the root `.env` into the child process environment without overwriting existing vars. Used by `pnpm dev`, DB commands and live smokes.
 
+## WCL fight-ownership diagnostic (read-only)
+
+Identifies potentially poisoned WCL digests/pages created without fight-roster proof.
+Never deletes by default. `--execute` is refused in production and remains a no-op stub
+until an explicit cleanup task is approved.
+
+```bash
+node tools/scripts/with-env.mjs pnpm --filter @mplus/database exec tsx ../../tools/scripts/diagnose-wcl-fight-ownership.ts
+```
+
 ## Live smoke (manual only)
 
 Require:

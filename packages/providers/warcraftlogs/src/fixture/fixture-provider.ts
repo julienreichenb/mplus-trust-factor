@@ -42,6 +42,10 @@ import { buildRunCombatFacts } from "../analysis/combat-facts.js";
 import { ReportRevisionCache } from "../analysis/revision-cache.js";
 import { evaluateRateBudget, parseRateLimitSnapshot } from "../rate/rate-budget.js";
 import { hydrateFightUnknownCandidates } from "../discovery/report-hydration.js";
+import {
+  fightOwnershipRejectionDetail,
+  resolveFightOwnership,
+} from "../discovery/fight-ownership.js";
 import type {
   WclCharacterDiscoveryResult,
   WclRateBudgetDecision,
@@ -135,9 +139,11 @@ export class FixtureWarcraftLogsProvider implements WarcraftLogsProvider {
             kill: f.kill,
             startTime: f.startTime,
             endTime: f.endTime,
-            keystoneLevel: f.keystoneLevel,
-            keystoneBonus: f.keystoneBonus,
-            friendlyPlayers: f.friendlyPlayers ?? undefined,
+        keystoneLevel: f.keystoneLevel,
+        keystoneBonus: f.keystoneBonus,
+        keystoneTime: f.keystoneTime,
+        inProgress: f.inProgress ?? false,
+        friendlyPlayers: f.friendlyPlayers ?? undefined,
           })),
           masterData: report.masterData
             ? {
@@ -500,6 +506,34 @@ export class FixtureWarcraftLogsProvider implements WarcraftLogsProvider {
       });
     }
 
+    const actors = report.masterData?.actors ?? [];
+    const ownership = resolveFightOwnership({
+      actors,
+      friendlyPlayers: fight.friendlyPlayers,
+      characterName,
+      realmSlug,
+      keystoneLevel: fight.keystoneLevel,
+      inProgress: fight.inProgress ?? false,
+      requireMythicPlus: true,
+    });
+    if (!ownership.ok) {
+      throw wclError(
+        "NOT_FOUND",
+        fightOwnershipRejectionDetail(ownership.reason, {
+          fightId,
+          targetActorId: ownership.targetActorId,
+        }),
+        {
+          ownershipReason: ownership.reason,
+          targetActorId: ownership.targetActorId,
+          fightFriendlyPlayerActorIds: ownership.fightFriendlyPlayerActorIds,
+          targetInFight: false,
+          reportCode,
+          fightId,
+        },
+      );
+    }
+
     const eventsFixture = fixture.events ?? {};
     const combatFacts = buildRunCombatFacts({
       reportCode,
@@ -507,11 +541,23 @@ export class FixtureWarcraftLogsProvider implements WarcraftLogsProvider {
       revision: report.revision,
       characterName,
       realmSlug,
-      actors: report.masterData?.actors ?? [],
+      actors,
       eventsByType: eventsFixture,
       alreadyFetched: this.fetchedReports.has(cacheKey),
     });
     this.fetchedReports.add(cacheKey);
+
+    const friendlyPlayers = (fight.friendlyPlayers ?? []).map((p) =>
+      typeof p === "number"
+        ? { id: p, name: "", server: "", type: "Player", icon: null }
+        : {
+            id: p.id,
+            name: p.name,
+            server: p.server,
+            type: p.type,
+            icon: p.icon ?? null,
+          },
+    );
 
     return {
       report: {
@@ -534,17 +580,13 @@ export class FixtureWarcraftLogsProvider implements WarcraftLogsProvider {
         endTime: fight.endTime,
         bracket: fight.keystoneLevel ?? null,
         keystoneLevel: fight.keystoneLevel ?? null,
-        friendlyPlayers: (fight.friendlyPlayers ?? []).map((p) =>
-          typeof p === "number"
-            ? { id: p, name: "", server: "", type: "Player", icon: null }
-            : {
-                id: p.id,
-                name: p.name,
-                server: p.server,
-                type: p.type,
-                icon: p.icon ?? null,
-              },
-        ),
+        keystoneBonus: fight.keystoneBonus ?? null,
+        keystoneTime: fight.keystoneTime ?? null,
+        inProgress: fight.inProgress === true,
+        fightFriendlyPlayerActorIds: ownership.fightFriendlyPlayerActorIds,
+        targetActorId: ownership.targetActorId,
+        targetInFight: true,
+        friendlyPlayers,
       },
       combatFacts,
     };

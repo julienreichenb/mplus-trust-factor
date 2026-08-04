@@ -56,6 +56,11 @@ import {
   type HydrationReportPayload,
 } from "../discovery/report-hydration.js";
 import {
+  extractFriendlyPlayerActorIds,
+  fightOwnershipRejectionDetail,
+  resolveFightOwnership,
+} from "../discovery/fight-ownership.js";
+import {
   resolveMplusZoneConfig,
   shouldQueryZoneRankings,
   type MplusZoneConfig,
@@ -300,6 +305,8 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
         endTime: f.endTime,
         keystoneLevel: f.keystoneLevel,
         keystoneBonus: f.keystoneBonus,
+        keystoneTime: f.keystoneTime,
+        inProgress: f.inProgress ?? false,
         friendlyPlayers: f.friendlyPlayers ?? undefined,
       })),
       masterData: report.masterData
@@ -877,6 +884,36 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
     }
 
     const actors = report.masterData?.actors ?? [];
+    const fightFriendlyPlayerActorIds = extractFriendlyPlayerActorIds(fight.friendlyPlayers);
+
+    // Independent ownership gate before any ReportEvents call.
+    const ownership = resolveFightOwnership({
+      actors,
+      friendlyPlayers: fight.friendlyPlayers,
+      characterName,
+      realmSlug,
+      keystoneLevel: fight.keystoneLevel,
+      inProgress: fight.inProgress ?? false,
+      requireMythicPlus: true,
+    });
+    if (!ownership.ok) {
+      throw wclError(
+        "NOT_FOUND",
+        fightOwnershipRejectionDetail(ownership.reason, {
+          fightId,
+          targetActorId: ownership.targetActorId,
+        }),
+        {
+          ownershipReason: ownership.reason,
+          targetActorId: ownership.targetActorId,
+          fightFriendlyPlayerActorIds: ownership.fightFriendlyPlayerActorIds,
+          targetInFight: false,
+          reportCode,
+          fightId,
+        },
+      );
+    }
+
     const combatFacts = await buildRunCombatFactsFromEvents(this.client, {
       reportCode,
       fightId,
@@ -884,6 +921,10 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
       characterName,
       realmSlug,
       actors,
+      friendlyPlayers: fight.friendlyPlayers,
+      keystoneLevel: fight.keystoneLevel,
+      inProgress: fight.inProgress ?? false,
+      requireMythicPlus: false, // already gated above
       includeHealing,
       rateBudget: budget,
     });
@@ -911,6 +952,12 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
         endTime: fight.endTime,
         bracket: fight.keystoneLevel ?? null,
         keystoneLevel: fight.keystoneLevel ?? null,
+        keystoneBonus: fight.keystoneBonus ?? null,
+        keystoneTime: fight.keystoneTime ?? null,
+        inProgress: fight.inProgress === true,
+        fightFriendlyPlayerActorIds,
+        targetActorId: ownership.targetActorId,
+        targetInFight: true,
         friendlyPlayers: resolveFriendlyPlayers(fight.friendlyPlayers, actors),
       },
       combatFacts,

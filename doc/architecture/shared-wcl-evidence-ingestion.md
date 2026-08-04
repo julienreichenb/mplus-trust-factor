@@ -48,6 +48,13 @@ Compatibility key:
 
 `wcl-evidence|{report}|r{revision}|f{fight}|a{actor}|{dataset}|t{start}-{end}|fe:{filter}|{contract}|{fingerprint}`
 
+Durable page uniqueness (`EvidenceDatasetPage`) also includes `scopeFingerprint`, a
+deterministic hash of request-shaping values (source actor, filterExpression,
+hostilityType, includeResources, start/end, dataset key, provider contract).
+Actor-scoped pages for two characters in the same fight must never collide or
+reuse each other's cached event pages. Unscoped fight-wide datasets share
+`scope:unscoped`.
+
 ## 2. Shared architecture (after)
 
 ```

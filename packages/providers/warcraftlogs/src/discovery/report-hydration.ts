@@ -9,6 +9,11 @@ import {
   MAX_FIGHTS_PER_HYDRATED_REPORT,
   MAX_HYDRATION_REPORTS,
 } from "./bounds.js";
+import {
+  extractFriendlyPlayerActorIds,
+  resolveFightOwnership,
+  type FightOwnershipRejectionReason,
+} from "./fight-ownership.js";
 import { ENCOUNTER_DUNGEON_MAP } from "./run-discovery.js";
 
 export interface HydrationHint {
@@ -35,6 +40,10 @@ export interface HydrationFight {
   keystoneLevel?: number | null;
   /** WCL +1/+2/+3 when timed; 0 depleted; null/undefined unknown. */
   keystoneBonus?: number | null;
+  /** Keystone completion duration (ms) when present on ReportFight. */
+  keystoneTime?: number | null;
+  /** True while the fight is still being logged. */
+  inProgress?: boolean | null;
   friendlyPlayers?: Array<number | { id: number; name?: string; server?: string }>;
 }
 
@@ -92,38 +101,61 @@ export function isMythicPlusFight(fight: HydrationFight): boolean {
   return typeof fight.keystoneLevel === "number" && fight.keystoneLevel > 0;
 }
 
+/**
+ * Resolve the target actor for a fight only when masterData identity matches
+ * AND the actor is present in fight.friendlyPlayers.
+ * Returns null when ownership cannot be proven (callers should prefer
+ * {@link resolveFightTargetForHydration} for structured rejection reasons).
+ */
 export function resolveTargetActorId(
   actors: HydrationActor[],
   friendlyPlayers: HydrationFight["friendlyPlayers"],
   characterName: string,
   realmSlug: string,
 ): number | null {
-  const targetName = characterName.toLowerCase();
-  const targetRealm = realmSlug.toLowerCase().replace(/\s+/g, "-");
-  const nameMatches = (name: string | undefined, server: string | null | undefined) => {
-    if ((name ?? "").toLowerCase() !== targetName) return false;
-    if (!server) return true;
-    const normalizedServer = server.toLowerCase().replace(/\s+/g, "-");
-    return normalizedServer === targetRealm || normalizedServer.includes(targetRealm) || targetRealm.includes(normalizedServer);
-  };
-
-  for (const actor of actors) {
-    if (actor.type === "Player" && nameMatches(actor.name, actor.server)) {
-      return actor.id;
-    }
-  }
-
-  const byId = new Map(actors.map((a) => [a.id, a]));
-  for (const entry of friendlyPlayers ?? []) {
-    if (typeof entry === "number") {
-      const actor = byId.get(entry);
-      if (actor && nameMatches(actor.name, actor.server)) return entry;
-      continue;
-    }
-    if (nameMatches(entry.name, entry.server)) return entry.id;
-  }
-  return null;
+  const ownership = resolveFightOwnership({
+    actors,
+    friendlyPlayers,
+    characterName,
+    realmSlug,
+    requireMythicPlus: false,
+  });
+  return ownership.ok ? ownership.targetActorId : null;
 }
+
+export function resolveFightTargetForHydration(
+  fight: HydrationFight,
+  actors: HydrationActor[],
+  characterName: string,
+  realmSlug: string,
+):
+  | { ok: true; targetActorId: number; fightFriendlyPlayerActorIds: number[] }
+  | { ok: false; reason: FightOwnershipRejectionReason; targetActorId: number | null; fightFriendlyPlayerActorIds: number[] } {
+  const ownership = resolveFightOwnership({
+    actors,
+    friendlyPlayers: fight.friendlyPlayers,
+    characterName,
+    realmSlug,
+    keystoneLevel: fight.keystoneLevel,
+    inProgress: fight.inProgress,
+    requireMythicPlus: true,
+  });
+  if (ownership.ok) {
+    return {
+      ok: true,
+      targetActorId: ownership.targetActorId,
+      fightFriendlyPlayerActorIds: ownership.fightFriendlyPlayerActorIds,
+    };
+  }
+  return {
+    ok: false,
+    reason: ownership.reason,
+    targetActorId: ownership.targetActorId,
+    fightFriendlyPlayerActorIds: ownership.fightFriendlyPlayerActorIds,
+  };
+}
+
+export { extractFriendlyPlayerActorIds };
 
 /**
  * Prioritize fightUnknown stubs: closest to external hints, else most recent.
@@ -241,7 +273,7 @@ export function candidatesFromHydratedReport(
 
   for (const fight of report.fights) {
     if (!isMythicPlusFight(fight)) {
-      rejected.push(`fight_${fight.id}_not_mythic_plus`);
+      rejected.push(`fight_${fight.id}_FIGHT_NOT_MYTHIC_PLUS`);
       continue;
     }
     mplusSeen += 1;
@@ -249,17 +281,12 @@ export function candidatesFromHydratedReport(
       rejected.push(`fight_${fight.id}_over_report_cap`);
       continue;
     }
-    const targetActorId = resolveTargetActorId(
-      actors,
-      fight.friendlyPlayers,
-      characterName,
-      realmSlug,
-    );
-    if (targetActorId == null) {
-      rejected.push(`fight_${fight.id}_target_absent`);
+    const ownership = resolveFightTargetForHydration(fight, actors, characterName, realmSlug);
+    if (!ownership.ok) {
+      rejected.push(`fight_${fight.id}_${ownership.reason}`);
       continue;
     }
-    candidates.push(hydratedFightToCandidate(report, fight, targetActorId, hints));
+    candidates.push(hydratedFightToCandidate(report, fight, ownership.targetActorId, hints));
   }
 
   return { candidates, rejected };

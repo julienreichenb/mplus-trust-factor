@@ -6,6 +6,11 @@ import {
   MAX_EVENT_PAGES,
   MAX_EVENTS_PER_CATEGORY,
 } from "../discovery/bounds.js";
+import {
+  fightOwnershipRejectionDetail,
+  resolveFightOwnership,
+  type FightFriendlyPlayerEntry,
+} from "../discovery/fight-ownership.js";
 import type {
   RunCombatFacts,
   RunCombatFactsCoverage,
@@ -29,6 +34,12 @@ export interface FetchCombatFactsInput {
   characterName: string;
   realmSlug: string;
   actors: Array<{ id: number; name: string; type: string; subType?: string | null; server?: string | null }>;
+  /** Fight-specific friendlyPlayers — required for ownership gate before any event fetch. */
+  friendlyPlayers?: FightFriendlyPlayerEntry[] | null;
+  keystoneLevel?: number | null;
+  inProgress?: boolean | null;
+  /** When false, skip Mythic+ keystoneLevel check (caller already gated). Default true. */
+  requireMythicPlus?: boolean;
   eventLimit?: number;
   includeHealing?: boolean;
   /** Optional rate budget gate checked before each event category. */
@@ -120,6 +131,34 @@ export async function buildRunCombatFactsFromEvents(
   client: WclGraphQlClient,
   input: FetchCombatFactsInput,
 ): Promise<RunCombatFacts> {
+  // Independent acquisition gate: never download events without fight-roster proof.
+  const ownership = resolveFightOwnership({
+    actors: input.actors,
+    friendlyPlayers: input.friendlyPlayers,
+    characterName: input.characterName,
+    realmSlug: input.realmSlug,
+    keystoneLevel: input.keystoneLevel,
+    inProgress: input.inProgress,
+    requireMythicPlus: input.requireMythicPlus !== false,
+  });
+  if (!ownership.ok) {
+    throw wclError(
+      "NOT_FOUND",
+      fightOwnershipRejectionDetail(ownership.reason, {
+        fightId: input.fightId,
+        targetActorId: ownership.targetActorId,
+      }),
+      {
+        ownershipReason: ownership.reason,
+        targetActorId: ownership.targetActorId,
+        fightFriendlyPlayerActorIds: ownership.fightFriendlyPlayerActorIds,
+        targetInFight: false,
+        reportCode: input.reportCode,
+        fightId: input.fightId,
+      },
+    );
+  }
+
   const actorMap = buildActorMap(input.actors);
   const resolved = resolveActorSourceIdStrict(actorMap, input.characterName, input.realmSlug);
   if ("error" in resolved) {
@@ -129,7 +168,13 @@ export async function buildRunCombatFactsFromEvents(
       { actorResolution: resolved.error },
     );
   }
-  const targetSourceId = resolved.sourceId;
+  const targetSourceId = ownership.targetActorId;
+  if (resolved.sourceId !== targetSourceId) {
+    throw wclError("INVALID_RESPONSE", "Actor resolution mismatch after ownership proof", {
+      ownershipActorId: targetSourceId,
+      resolvedSourceId: resolved.sourceId,
+    });
+  }
   const attributedSourceIds = resolveAttributedSourceIds(
     actorMap,
     targetSourceId,

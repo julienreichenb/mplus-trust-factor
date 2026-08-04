@@ -1,5 +1,44 @@
 # Run discovery and matching
 
+## Report → Fight → DungeonPull model (verified)
+
+Warcraft Logs scopes that matter for Mythic+ ownership:
+
+| Scope | Meaning |
+|-------|---------|
+| **Report** | Uploaded container. May contain multiple Mythic+ dungeons, raid pulls, trash, and multiple player groups. `masterData.actors` is **report-wide**. |
+| **ReportFight** | For Mythic+, one fight is one entire keystone dungeon. `fight.friendlyPlayers` is **fight-specific**. |
+| **DungeonPull** | Individual dungeon pulls are **not** separate fights. |
+
+Canonical run identity after hydration:
+
+```text
+reportCode + fightId + reportRevision
+```
+
+Never use `reportCode` alone. Never confuse WCL character profile IDs with report-local actor IDs.
+
+## Ownership invariant
+
+A fight belongs to a target character only when **all** of the following hold:
+
+1. the report is public;
+2. the fight is Mythic+ (`keystoneLevel > 0`);
+3. the character is resolved in `masterData` by normalized name + realm;
+4. the resolved report-local actor ID is present in `fight.friendlyPlayers`.
+
+Structured rejection reasons (do not collapse into `FALLBACK_EXHAUSTED`):
+
+| Reason | Meaning |
+|--------|---------|
+| `TARGET_NOT_IN_REPORT` | No matching Player actor in masterData |
+| `TARGET_NOT_IN_FIGHT` | Actor found in masterData but absent from `friendlyPlayers` |
+| `TARGET_AMBIGUOUS` | Multiple distinct masterData actor IDs match name+realm |
+| `FIGHT_NOT_MYTHIC_PLUS` | No positive `keystoneLevel` |
+| `FIGHT_INCOMPLETE` / `INCOMPLETE_FIGHT` | Fight still `inProgress` or start/end incoherent |
+
+Confirmed regression: report `8WawmdrjbYtRFPqy` fight `1` — Wallidrixe is report-local actor `317` in masterData but `friendlyPlayers` is `[3,7,4,1,5]` (Coomerhabile=`1`). Wallidrixe must be rejected as `TARGET_NOT_IN_FIGHT` with **zero** `ReportEvents` calls.
+
 ## Discovery paths
 
 1. **zoneRankings** — primary for M+ runs with `report.code`, `fightID`, `bracket` (key level), timestamps.

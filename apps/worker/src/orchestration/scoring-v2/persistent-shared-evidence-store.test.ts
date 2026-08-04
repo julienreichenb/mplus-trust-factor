@@ -65,6 +65,16 @@ describe("persistent shared evidence store", () => {
 
   it("loads persisted pages before treating dataset as missing", async () => {
     const events = [{ type: "death", targetID: 1 }];
+    const scopeFingerprint = [
+      "scope",
+      "ds:Deaths",
+      "a:1",
+      "fe:none",
+      "ht:default",
+      "res:0",
+      "t:0-end",
+      `pc:${WCL_RUN_EVIDENCE_PROVIDER_CONTRACT}`,
+    ].join("|");
     const envelope = {
       schemaVersion: "wcl-event-page-v1",
       providerContractVersion: WCL_RUN_EVIDENCE_PROVIDER_CONTRACT,
@@ -76,7 +86,8 @@ describe("persistent shared evidence store", () => {
       pageCursor: null,
       nextPageCursor: null,
       filterExpression: null,
-      filterSourceId: null,
+      filterSourceId: 1,
+      scopeFingerprint,
       truncated: false,
       datasetMeta: {
         state: "PERSISTED" as const,
@@ -99,6 +110,7 @@ describe("persistent shared evidence store", () => {
           contentHash,
           eventCount: 1,
           createdAt: new Date("2026-08-01T00:00:00.000Z"),
+          scopeFingerprint,
         },
       ]),
       createEvidenceDatasetPage: vi.fn(),
@@ -114,12 +126,17 @@ describe("persistent shared evidence store", () => {
       artifacts: artifacts as never,
     });
 
-    const key = "wcl-evidence|Abc123|r2|f9|a1|Deaths|x";
+    const key = `wcl-evidence|Abc123|r2|f9|a1|Deaths|t0-end|fe:none|${WCL_RUN_EVIDENCE_PROVIDER_CONTRACT}|nopayload`;
     const loaded = await store.loadDataset(key);
     expect(loaded).not.toBeNull();
     expect(loaded!.events).toEqual(events);
     expect(loaded!.source).toBe("persisted");
     expect(artifacts.persist).not.toHaveBeenCalled();
+    expect(wclSource.findEvidenceDatasetPages).toHaveBeenCalledWith(
+      expect.objectContaining({
+        scopeFingerprint,
+      }),
+    );
   });
 
   it("persists pages through artifact CAS on saveDataset", async () => {
@@ -138,7 +155,7 @@ describe("persistent shared evidence store", () => {
     });
 
     await store.saveDataset(
-      "wcl-evidence|R1|r1|f1|a1|Deaths|x",
+      `wcl-evidence|R1|r1|f1|a1|Deaths|t0-end|fe:none|${WCL_RUN_EVIDENCE_PROVIDER_CONTRACT}|nopayload`,
       dataset([{ id: 1 }]),
       {
         reportCode: "R1",
@@ -150,6 +167,10 @@ describe("persistent shared evidence store", () => {
 
     expect(artifacts.persist).toHaveBeenCalledOnce();
     expect(wclSource.createEvidenceDatasetPage).toHaveBeenCalledOnce();
+    const pageArg = wclSource.createEvidenceDatasetPage.mock.calls[0]![0] as {
+      scopeFingerprint: string;
+    };
+    expect(pageArg.scopeFingerprint).toContain("a:1");
     const persistArg = artifacts.persist.mock.calls[0]![0] as {
       retentionUntil: Date;
       artifactClass: string;

@@ -121,8 +121,64 @@ export const evidenceDatasetPageIdentitySchema = z.object({
   providerContractVersion: z.string().min(1),
   schemaVersion: z.string().min(1),
   pageCursor: z.string().nullable().optional(),
+  /**
+   * Durable request-scope identity. Actor-scoped datasets must never collide
+   * across different source actors / filters for the same fight.
+   */
+  scopeFingerprint: z.string().min(1).optional(),
 });
 export type EvidenceDatasetPageIdentity = z.infer<typeof evidenceDatasetPageIdentitySchema>;
+
+/** Canonical unscoped fingerprint for fight-wide datasets (masterData, etc.). */
+export const EVIDENCE_DATASET_UNSCOPED_FINGERPRINT = "scope:unscoped";
+
+export interface EvidenceDatasetScopeInput {
+  datasetKey: string;
+  sourceActorId?: number | null;
+  filterExpression?: string | null;
+  hostilityType?: "Friendlies" | "Enemies" | string | null;
+  includeResources?: boolean | null;
+  startTime?: number | null;
+  endTime?: number | null;
+  providerContractVersion: string;
+}
+
+/**
+ * Deterministic scope fingerprint for EvidenceDatasetPage uniqueness.
+ * Includes all request-shaping values that distinguish actor/filter-scoped pages.
+ */
+export function buildEvidenceDatasetScopeFingerprint(input: EvidenceDatasetScopeInput): string {
+  const sourceActorId =
+    input.sourceActorId == null || !Number.isFinite(input.sourceActorId)
+      ? "all"
+      : String(input.sourceActorId);
+  const filterExpression = input.filterExpression?.trim() || "none";
+  const hostilityType = input.hostilityType?.trim() || "default";
+  const includeResources = input.includeResources === true ? "1" : "0";
+  const startTime = input.startTime == null ? "0" : String(input.startTime);
+  const endTime = input.endTime == null ? "end" : String(input.endTime);
+  // Unscoped fight-wide datasets (no actor/filter shaping) share one fingerprint.
+  if (
+    sourceActorId === "all" &&
+    filterExpression === "none" &&
+    hostilityType === "default" &&
+    includeResources === "0" &&
+    startTime === "0" &&
+    endTime === "end"
+  ) {
+    return EVIDENCE_DATASET_UNSCOPED_FINGERPRINT;
+  }
+  return [
+    "scope",
+    `ds:${input.datasetKey}`,
+    `a:${sourceActorId}`,
+    `fe:${filterExpression}`,
+    `ht:${hostilityType}`,
+    `res:${includeResources}`,
+    `t:${startTime}-${endTime}`,
+    `pc:${input.providerContractVersion}`,
+  ].join("|");
+}
 
 export function buildEvidenceDatasetPageIdentityKey(
   identity: EvidenceDatasetPageIdentity,
@@ -135,5 +191,6 @@ export function buildEvidenceDatasetPageIdentityKey(
     String(identity.pageIndex),
     identity.providerContractVersion,
     identity.schemaVersion,
+    identity.scopeFingerprint ?? EVIDENCE_DATASET_UNSCOPED_FINGERPRINT,
   ].join("|");
 }
