@@ -149,6 +149,8 @@ export async function discoverShadowCanaryCandidates(input: {
       activeDungeonSlugs,
       maxReports: MAX_COVERAGE_AWARE_HYDRATION_REPORTS,
       fetchReport: async (code: string) => {
+        // Count before the call so thrown/network failures match reportFetchAttempts.
+        providerCalls += 1;
         const reportResult = await client.requestPermissive<{
           reportData?: {
             report?: Record<string, unknown> | null;
@@ -159,7 +161,6 @@ export async function discoverShadowCanaryCandidates(input: {
           variables: { code },
           region: input.region,
         });
-        providerCalls += 1;
         return (reportResult.response.data?.reportData?.report ?? null) as never;
       },
     });
