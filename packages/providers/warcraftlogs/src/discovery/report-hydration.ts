@@ -1,6 +1,11 @@
 /**
  * Bounded recentReports → fight/masterData hydration.
  * Stubs (fightUnknown) are expanded into Mythic+ candidates before discoverCharacterRuns filtering.
+ *
+ * Coverage-aware mode (when activeDungeonSlugs is provided) hydrates progressively until
+ * every active dungeon has TARGET_ELIGIBLE_CANDIDATES_PER_DUNGEON distinct eligible
+ * reportCode+fightId identities, the explicit report budget is exhausted, or no more
+ * public stubs remain. Same reportCode is never fetched twice in one call.
  */
 import type { IsoDateTime } from "@mplus/contracts";
 import type { WclRunCandidate } from "../types.js";
@@ -8,6 +13,7 @@ import {
   HYDRATION_HINT_WINDOW_MS,
   MAX_FIGHTS_PER_HYDRATED_REPORT,
   MAX_HYDRATION_REPORTS,
+  TARGET_ELIGIBLE_CANDIDATES_PER_DUNGEON,
 } from "./bounds.js";
 import {
   extractFriendlyPlayerActorIds,
@@ -69,6 +75,27 @@ export interface HydrationReportPayload {
 }
 
 export type FetchReportForHydration = (reportCode: string) => Promise<HydrationReportPayload | null>;
+
+export type HydrationStopReason =
+  | "full_coverage"
+  | "budget_exhausted"
+  | "no_more_reports"
+  | "legacy_fixed_budget";
+
+export interface HydrationCoverageDiagnostics {
+  recentReportsDiscovered: number;
+  reportsConsideredForHydration: number;
+  reportsHydrated: number;
+  reportsLeftUnhydratedBudget: number;
+  /** Distinct eligible reportCode:fightId identities per active dungeon. */
+  candidatesProducedPerDungeon: Record<string, number>;
+  distinctCandidatesPerDungeon: Record<string, number>;
+  targetCandidatesPerDungeon: number;
+  targetCoverageReached: boolean;
+  stopReason: HydrationStopReason;
+  /** Bounded structured rejection counts (no raw WCL payloads). */
+  rejectionCountsByReason: Record<string, number>;
+}
 
 export function slugifyDungeonName(value: string): string {
   return value
@@ -157,13 +184,58 @@ export function resolveFightTargetForHydration(
 
 export { extractFriendlyPlayerActorIds };
 
+function normalizeDungeonSlug(slug: string | null | undefined): string | null {
+  if (!slug?.trim()) return null;
+  return slug.trim().toLowerCase();
+}
+
+function candidateIdentityKey(reportCode: string, fightId: number): string {
+  return `${reportCode}:${fightId}`;
+}
+
+function emptyCoverageMap(activeDungeonSlugs: readonly string[]): Map<string, Set<string>> {
+  const map = new Map<string, Set<string>>();
+  for (const slug of activeDungeonSlugs) {
+    const normalized = normalizeDungeonSlug(slug);
+    if (normalized) map.set(normalized, new Set());
+  }
+  return map;
+}
+
+function isFullCoverage(
+  coverage: Map<string, Set<string>>,
+  targetPerDungeon: number,
+): boolean {
+  if (coverage.size === 0) return false;
+  for (const identities of coverage.values()) {
+    if (identities.size < targetPerDungeon) return false;
+  }
+  return true;
+}
+
+function underCoveredDungeons(
+  coverage: Map<string, Set<string>>,
+  targetPerDungeon: number,
+): Set<string> {
+  const under = new Set<string>();
+  for (const [slug, identities] of coverage) {
+    if (identities.size < targetPerDungeon) under.add(slug);
+  }
+  return under;
+}
+
 /**
- * Prioritize fightUnknown stubs: closest to external hints, else most recent.
+ * Unique fightUnknown stubs ordered for hydration.
+ * When underCovered is provided, prefer stubs whose external hints point at
+ * under-covered dungeons; otherwise deterministic recency / hint proximity.
  */
 export function prioritizeReportsForHydration(
   stubs: WclRunCandidate[],
   hints: HydrationHint[],
   maxReports = MAX_HYDRATION_REPORTS,
+  options?: {
+    underCoveredDungeonSlugs?: ReadonlySet<string>;
+  },
 ): WclRunCandidate[] {
   const byCode = new Map<string, WclRunCandidate>();
   for (const stub of stubs) {
@@ -174,8 +246,33 @@ export function prioritizeReportsForHydration(
   const hintTimes = hints
     .map((h) => Date.parse(h.completedAt))
     .filter((ms) => !Number.isNaN(ms));
+  const underCovered = options?.underCoveredDungeonSlugs;
+
+  const hintDungeonForStub = (stub: WclRunCandidate): string | null => {
+    if (!hints.length) return null;
+    const start = stub.startTimeMs ?? 0;
+    let best: { slug: string; delta: number } | null = null;
+    for (const h of hints) {
+      const slug = normalizeDungeonSlug(h.dungeonSlug);
+      if (!slug) continue;
+      const hintMs = Date.parse(h.completedAt);
+      if (Number.isNaN(hintMs)) continue;
+      const delta = Math.abs(hintMs - start);
+      if (delta > HYDRATION_HINT_WINDOW_MS) continue;
+      if (!best || delta < best.delta) best = { slug, delta };
+    }
+    return best?.slug ?? null;
+  };
 
   unique.sort((a, b) => {
+    if (underCovered && underCovered.size > 0) {
+      const aHintDungeon = hintDungeonForStub(a);
+      const bHintDungeon = hintDungeonForStub(b);
+      const aFills = aHintDungeon != null && underCovered.has(aHintDungeon) ? 0 : 1;
+      const bFills = bHintDungeon != null && underCovered.has(bHintDungeon) ? 0 : 1;
+      if (aFills !== bFills) return aFills - bFills;
+    }
+
     const aStart = a.startTimeMs ?? 0;
     const bStart = b.startTimeMs ?? 0;
     if (hintTimes.length > 0) {
@@ -292,35 +389,141 @@ export function candidatesFromHydratedReport(
   return { candidates, rejected };
 }
 
+function classifyRejectionReason(raw: string): string {
+  if (raw.includes("not_public")) return "not_public";
+  if (raw.includes("FIGHT_NOT_MYTHIC_PLUS")) return "not_mythic_plus";
+  if (raw.includes("over_report_cap")) return "over_report_cap";
+  if (raw.includes("TARGET_NOT_IN_FIGHT")) return "ownership_target_not_in_fight";
+  if (raw.includes("TARGET_NOT_IN_REPORT")) return "ownership_target_not_in_report";
+  if (raw.includes("TARGET_AMBIGUOUS")) return "ownership_ambiguous";
+  if (raw.includes("FIGHT_IN_PROGRESS")) return "fight_in_progress";
+  if (raw.includes("fetch_empty")) return "fetch_empty";
+  if (raw.includes("fetch_error")) return "fetch_error";
+  return "other";
+}
+
+function recordRejection(
+  counts: Record<string, number>,
+  reasons: string[],
+  raw: string,
+): void {
+  const key = classifyRejectionReason(raw);
+  counts[key] = (counts[key] ?? 0) + 1;
+  if (reasons.length < 40) reasons.push(raw);
+}
+
+function coverageDiagnosticsMaps(
+  coverage: Map<string, Set<string>>,
+): {
+  candidatesProducedPerDungeon: Record<string, number>;
+  distinctCandidatesPerDungeon: Record<string, number>;
+} {
+  const candidatesProducedPerDungeon: Record<string, number> = {};
+  const distinctCandidatesPerDungeon: Record<string, number> = {};
+  for (const [slug, identities] of [...coverage.entries()].sort(([a], [b]) =>
+    a.localeCompare(b),
+  )) {
+    candidatesProducedPerDungeon[slug] = identities.size;
+    distinctCandidatesPerDungeon[slug] = identities.size;
+  }
+  return { candidatesProducedPerDungeon, distinctCandidatesPerDungeon };
+}
+
+/**
+ * Expand fightUnknown stubs into Mythic+ candidates.
+ *
+ * When `activeDungeonSlugs` is provided, hydrates progressively until each
+ * active dungeon has `targetCandidatesPerDungeon` (default 2) distinct eligible
+ * identities, the `maxReports` budget is exhausted, or no stubs remain.
+ * Without an active dungeon pool, preserves the legacy fixed-budget slice.
+ */
 export async function hydrateFightUnknownCandidates(input: {
   candidates: WclRunCandidate[];
   characterName: string;
   realmSlug: string;
   hints?: HydrationHint[];
   maxReports?: number;
+  /** When set, enable coverage-aware progressive hydration + early stop. */
+  activeDungeonSlugs?: readonly string[];
+  /** Distinct eligible identities required per active dungeon (default 2). */
+  targetCandidatesPerDungeon?: number;
   fetchReport: FetchReportForHydration;
 }): Promise<{
   candidates: WclRunCandidate[];
   hydratedReportCount: number;
   rejectedReasons: string[];
+  diagnostics: HydrationCoverageDiagnostics;
 }> {
   const stubs = input.candidates.filter((c) => c.incompleteness.fightUnknown);
   const known = input.candidates.filter((c) => !c.incompleteness.fightUnknown);
-  const prioritized = prioritizeReportsForHydration(
-    stubs,
-    input.hints ?? [],
-    input.maxReports ?? MAX_HYDRATION_REPORTS,
-  );
+  const hints = input.hints ?? [];
+  const maxReports = input.maxReports ?? MAX_HYDRATION_REPORTS;
+  const targetPerDungeon =
+    input.targetCandidatesPerDungeon ?? TARGET_ELIGIBLE_CANDIDATES_PER_DUNGEON;
+  const activeSlugs = (input.activeDungeonSlugs ?? [])
+    .map((s) => normalizeDungeonSlug(s))
+    .filter((s): s is string => s != null);
+  const coverageAware = activeSlugs.length > 0;
+  const coverage = emptyCoverageMap(activeSlugs);
+  const activeSet = new Set(activeSlugs);
+
+  // Seed coverage from already fight-known candidates in the active pool.
+  for (const c of known) {
+    const slug = normalizeDungeonSlug(c.dungeonSlug);
+    if (!slug || !activeSet.has(slug)) continue;
+    if (c.fightId <= 0 || c.incompleteness.fightUnknown) continue;
+    if (c.keyLevel == null || c.keyLevel <= 0) continue;
+    coverage.get(slug)?.add(candidateIdentityKey(c.reportCode, c.fightId));
+  }
 
   const hydrated: WclRunCandidate[] = [];
   const rejectedReasons: string[] = [];
+  const rejectionCountsByReason: Record<string, number> = {};
+  const hydratedCodes = new Set<string>();
   let hydratedReportCount = 0;
+  let stopReason: HydrationStopReason = coverageAware ? "no_more_reports" : "legacy_fixed_budget";
 
-  for (const stub of prioritized) {
+  // Unique stubs ordered once; coverage-aware re-ranks remaining by under-covered hints.
+  const uniqueStubs = prioritizeReportsForHydration(stubs, hints, Number.MAX_SAFE_INTEGER);
+  const remaining = [...uniqueStubs];
+  const reportsConsidered = Math.min(remaining.length, maxReports);
+
+  const takeNextStub = (): WclRunCandidate | null => {
+    if (remaining.length === 0) return null;
+    if (coverageAware) {
+      const under = underCoveredDungeons(coverage, targetPerDungeon);
+      const ordered = prioritizeReportsForHydration(remaining, hints, remaining.length, {
+        underCoveredDungeonSlugs: under,
+      });
+      remaining.splice(0, remaining.length, ...ordered);
+    }
+    return remaining.shift() ?? null;
+  };
+
+  while (hydratedReportCount < maxReports) {
+    if (coverageAware && isFullCoverage(coverage, targetPerDungeon)) {
+      stopReason = "full_coverage";
+      break;
+    }
+
+    const stub = takeNextStub();
+    if (!stub) {
+      stopReason = coverageAware ? "no_more_reports" : "legacy_fixed_budget";
+      break;
+    }
+    if (hydratedCodes.has(stub.reportCode)) {
+      continue;
+    }
+
     try {
       const report = await input.fetchReport(stub.reportCode);
+      hydratedCodes.add(stub.reportCode);
       if (!report) {
-        rejectedReasons.push(`report_${stub.reportCode}_fetch_empty`);
+        recordRejection(
+          rejectionCountsByReason,
+          rejectedReasons,
+          `report_${stub.reportCode}_fetch_empty`,
+        );
         continue;
       }
       hydratedReportCount += 1;
@@ -328,24 +531,72 @@ export async function hydrateFightUnknownCandidates(input: {
         report,
         input.characterName,
         input.realmSlug,
-        input.hints ?? [],
+        hints,
       );
-      rejectedReasons.push(...mapped.rejected);
-      hydrated.push(...mapped.candidates);
+      for (const reason of mapped.rejected) {
+        recordRejection(rejectionCountsByReason, rejectedReasons, reason);
+      }
+      for (const candidate of mapped.candidates) {
+        hydrated.push(candidate);
+        const slug = normalizeDungeonSlug(candidate.dungeonSlug);
+        if (!slug || !activeSet.has(slug)) continue;
+        if (candidate.keyLevel == null || candidate.keyLevel <= 0) continue;
+        // Ownership-rejected fights never appear in mapped.candidates.
+        coverage
+          .get(slug)
+          ?.add(candidateIdentityKey(candidate.reportCode, candidate.fightId));
+      }
+
+      if (coverageAware && isFullCoverage(coverage, targetPerDungeon)) {
+        stopReason = "full_coverage";
+        break;
+      }
     } catch (error) {
-      rejectedReasons.push(
+      hydratedCodes.add(stub.reportCode);
+      recordRejection(
+        rejectionCountsByReason,
+        rejectedReasons,
         `report_${stub.reportCode}_fetch_error:${error instanceof Error ? error.message : String(error)}`,
       );
     }
   }
 
-  // Keep non-hydrated stubs out — discoverCharacterRuns filters fightUnknown anyway.
-  const remainingStubCodes = new Set(prioritized.map((s) => s.reportCode));
-  const untouchedStubs = stubs.filter((s) => !remainingStubCodes.has(s.reportCode));
+  if (coverageAware && stopReason !== "full_coverage") {
+    if (hydratedReportCount >= maxReports && remaining.length > 0) {
+      stopReason = "budget_exhausted";
+    } else if (remaining.length === 0 && !isFullCoverage(coverage, targetPerDungeon)) {
+      stopReason = "no_more_reports";
+    } else if (hydratedReportCount >= maxReports) {
+      stopReason = "budget_exhausted";
+    }
+  }
+
+  const untouchedStubs = stubs.filter((s) => !hydratedCodes.has(s.reportCode));
+  const { candidatesProducedPerDungeon, distinctCandidatesPerDungeon } =
+    coverageDiagnosticsMaps(coverage);
+  const targetCoverageReached = coverageAware && isFullCoverage(coverage, targetPerDungeon);
+  const reportsLeftUnhydratedBudget =
+    stopReason === "budget_exhausted"
+      ? remaining.filter((s) => !hydratedCodes.has(s.reportCode)).length
+      : stopReason === "full_coverage"
+        ? remaining.filter((s) => !hydratedCodes.has(s.reportCode)).length
+        : 0;
 
   return {
     candidates: [...known, ...hydrated, ...untouchedStubs],
     hydratedReportCount,
     rejectedReasons: rejectedReasons.slice(0, 40),
+    diagnostics: {
+      recentReportsDiscovered: uniqueStubs.length,
+      reportsConsideredForHydration: reportsConsidered,
+      reportsHydrated: hydratedReportCount,
+      reportsLeftUnhydratedBudget,
+      candidatesProducedPerDungeon,
+      distinctCandidatesPerDungeon,
+      targetCandidatesPerDungeon: targetPerDungeon,
+      targetCoverageReached,
+      stopReason,
+      rejectionCountsByReason,
+    },
   };
 }

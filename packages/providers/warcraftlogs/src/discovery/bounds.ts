@@ -24,8 +24,21 @@ export const MAX_DISCOVERY_CANDIDATES = 80;
 /**
  * Max public recentReports opened for fight/masterData hydration per discovery.
  * Override via WCL_MAX_HYDRATION_REPORTS when creating the live provider.
+ * Coverage-aware hydration may stop earlier once every active dungeon has
+ * {@link TARGET_ELIGIBLE_CANDIDATES_PER_DUNGEON} distinct identities.
  */
 export const MAX_HYDRATION_REPORTS = 5;
+
+/**
+ * Explicit upper bound when pursuing full per-dungeon candidate coverage
+ * (2 distinct eligible reportCode+fightId identities × season dungeon pool).
+ * Callers that need coverage-aware early-stop should pass this (or a lower
+ * override) as maxReports — never an unbounded scan.
+ */
+export const MAX_COVERAGE_AWARE_HYDRATION_REPORTS = 24;
+
+/** Desired distinct eligible candidates per active dungeon before early stop. */
+export const TARGET_ELIGIBLE_CANDIDATES_PER_DUNGEON = 2;
 
 /** Prefer reports within this window of an external run hint when hydrating. */
 export const HYDRATION_HINT_WINDOW_MS = 6 * 60 * 60 * 1000;
