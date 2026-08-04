@@ -219,6 +219,7 @@ export class ExplainabilityV2Service {
     );
 
     const documentRejected = readRejectedFromDocument(manifest.document);
+    const documentFallbackBySlot = readFallbackFromDocument(manifest.document);
     const dungeonSlugById = new Map(
       manifest.slots.map((slot: ManifestSlotRow) => [slot.dungeonId, slot.dungeon.slug] as const),
     );
@@ -267,20 +268,27 @@ export class ExplainabilityV2Service {
       expectedSlotCount: manifest.expectedSlotCount,
       selectedSlotCount: manifest.selectedSlotCount,
       evidenceCutoffAt: manifest.evidenceCutoffAt,
-      slots: manifest.slots.map((slot: ManifestSlotRow) => ({
-        id: slot.id,
-        dungeonSlug: dungeonSlugById.get(slot.dungeonId) ?? slot.dungeon.slug,
-        slotIndex: (slot.slotIndex === 1 ? 1 : 0) as 0 | 1,
-        state: slot.state,
-        keyLevel: slot.keyLevel,
-        timed: null,
-        reportCode: slot.reportCode,
-        fightId: slot.fightId,
-        reportRevision: slot.reportRevision,
-        candidateRank: slot.candidateRank,
-        selectionReason: slot.selectionReason,
-        providerDataAsOf: slot.providerDataAsOf,
-      })),
+      slots: manifest.slots.map((slot: ManifestSlotRow) => {
+        const dungeonSlug = dungeonSlugById.get(slot.dungeonId) ?? slot.dungeon.slug;
+        const slotIndex = (slot.slotIndex === 1 ? 1 : 0) as 0 | 1;
+        const fallback = documentFallbackBySlot.get(`${dungeonSlug}:${slotIndex}`);
+        return {
+          id: slot.id,
+          dungeonSlug,
+          slotIndex,
+          state: slot.state,
+          keyLevel: slot.keyLevel,
+          timed: null,
+          reportCode: slot.reportCode,
+          fightId: slot.fightId,
+          reportRevision: slot.reportRevision,
+          candidateRank: slot.candidateRank,
+          selectionReason: slot.selectionReason,
+          fallbackUsed: Boolean(fallback?.fallbackReason),
+          fallbackReason: fallback?.fallbackReason ?? null,
+          providerDataAsOf: slot.providerDataAsOf,
+        };
+      }),
       rejectedCandidates: documentRejected,
       datasets,
       factSets,
@@ -627,6 +635,30 @@ function readRejectedFromDocument(document: unknown) {
       detail: typeof row.detail === "string" ? row.detail : null,
     }))
     .filter((row) => row.reportCode !== "unknown");
+}
+
+function readFallbackFromDocument(
+  document: unknown,
+): Map<string, { selectedRank: number | null; fallbackReason: string | null }> {
+  const out = new Map<string, { selectedRank: number | null; fallbackReason: string | null }>();
+  if (!isRecord(document)) return out;
+  const parsed = characterSeasonEvidenceManifestV2Schema.safeParse(document);
+  const slots = parsed.success
+    ? parsed.data.slots
+    : Array.isArray(document.slots)
+      ? document.slots
+      : [];
+  for (const row of slots) {
+    if (!isRecord(row)) continue;
+    const dungeonSlug = typeof row.dungeonSlug === "string" ? row.dungeonSlug : null;
+    const slotIndex = row.slotIndex === 1 ? 1 : row.slotIndex === 0 ? 0 : null;
+    if (dungeonSlug == null || slotIndex == null) continue;
+    out.set(`${dungeonSlug}:${slotIndex}`, {
+      selectedRank: typeof row.selectedRank === "number" ? row.selectedRank : null,
+      fallbackReason: typeof row.fallbackReason === "string" ? row.fallbackReason : null,
+    });
+  }
+  return out;
 }
 
 function dimensionsScoreModelId(dimensions: Array<{ scoreModelId: string }>): string | null {

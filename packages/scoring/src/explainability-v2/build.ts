@@ -36,6 +36,8 @@ export interface ExplainabilityV2SlotSource {
   reportRevision: number | null;
   candidateRank?: number | null;
   selectionReason?: string | null;
+  fallbackUsed?: boolean;
+  fallbackReason?: string | null;
   providerDataAsOf?: Date | string | null;
 }
 
@@ -187,6 +189,8 @@ export function buildExplainabilityV2Admin(
       reportRevision: slot.reportRevision,
       candidateRank: slot.candidateRank ?? null,
       selectionReason: slot.selectionReason ?? null,
+      fallbackUsed: slot.fallbackUsed === true,
+      fallbackReason: slot.fallbackReason ?? null,
     }));
 
   const selectedRuns: ExplainabilityV2SelectedRunAdminDTO[] = input.slots.map((slot, index) => ({
@@ -202,6 +206,8 @@ export function buildExplainabilityV2Admin(
     reportRevision: slot.reportRevision,
     selectionReason: slot.selectionReason ?? null,
     candidateRank: slot.candidateRank ?? null,
+    fallbackUsed: slot.fallbackUsed === true,
+    fallbackReason: slot.fallbackReason ?? null,
   }));
 
   const rejectedCandidates: ExplainabilityV2RejectedCandidateAdminDTO[] = input.rejectedCandidates

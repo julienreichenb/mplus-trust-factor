@@ -43,6 +43,8 @@ function sampleAdmin(
         reportRevision: 1,
         selectionReason: "preferred",
         candidateRank: 0,
+        fallbackUsed: false,
+        fallbackReason: null,
       },
     ],
     rejectedCandidates: [],
