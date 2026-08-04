@@ -23,3 +23,9 @@ export {
   writeFileAtomic,
   type LocalFsArtifactStoreOptions,
 } from "./local-fs-store.js";
+export {
+  findMonorepoConfigRoot,
+  resolveConfiguredLocalArtifactRoot,
+  type ResolveConfiguredLocalArtifactRootInput,
+  type ResolveConfiguredLocalArtifactRootResult,
+} from "./resolve-configured-root.js";

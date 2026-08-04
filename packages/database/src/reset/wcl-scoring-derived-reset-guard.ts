@@ -4,11 +4,18 @@
  * Target: APP_ENV=development + localhost Postgres DB named exactly mplus_trust.
  * Never allows production, staging, remote hosts, or wrong database names.
  */
+import {
+  findMonorepoConfigRoot,
+  resolveConfiguredLocalArtifactRoot,
+} from "@mplus/artifact-store";
 
 export const WCL_SCORING_DERIVED_RESET_CONFIRMATION_TOKEN =
   "RESET_LOCAL_WCL_SCORING_DATA" as const;
 
 export const WCL_SCORING_DERIVED_RESET_DATABASE_NAME = "mplus_trust" as const;
+
+/** Canonical application config key for the local CAS root (see @mplus/config). */
+export const WCL_SCORING_DERIVED_ARTIFACTS_CONFIG_KEY = "RAW_ARTIFACTS_DIR" as const;
 
 const ALLOWED_LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
 
@@ -33,7 +40,13 @@ const BLOCKED_HOST_FRAGMENTS = [
 export type WclScoringDerivedResetGuardInput = {
   databaseUrl?: string;
   redisUrl?: string;
-  rawArtifactsDir?: string;
+  /**
+   * Explicit RAW_ARTIFACTS_DIR from application config.
+   * Must be provided — no path guessing / default fallback.
+   */
+  rawArtifactsDir?: string | null;
+  /** Repository root used to resolve relative RAW_ARTIFACTS_DIR. */
+  configRoot?: string | null;
   appEnv?: string;
   confirmationToken?: string;
 };
@@ -43,7 +56,10 @@ export type WclScoringDerivedResetGuardResult =
       ok: true;
       sanitizedDatabase: string;
       sanitizedRedis: string;
+      /** Absolute local CAS path resolved via artifact-store config helper. */
       artifactsDir: string;
+      artifactsConfiguredDir: string;
+      configRoot: string;
       databaseName: string;
       databaseHost: string;
       redisHost: string;
@@ -80,7 +96,6 @@ export function sanitizeRedisUrl(redisUrl: string): string {
 function isLocalHost(hostname: string): boolean {
   const host = hostname.trim().toLowerCase();
   if (ALLOWED_LOCAL_HOSTS.has(host)) return true;
-  // Fail closed on anything else — including empty, docker DNS names, LAN IPs.
   return false;
 }
 
@@ -89,7 +104,6 @@ function hostLooksRemoteOrContainer(hostname: string): boolean {
   if (!host) return true;
   if (ALLOWED_LOCAL_HOSTS.has(host)) return false;
   if (BLOCKED_HOST_FRAGMENTS.some((frag) => host.includes(frag))) return true;
-  // Any non-loopback host is treated as remote/uncertain.
   return true;
 }
 
@@ -117,35 +131,34 @@ function parseRedisTarget(redisUrl: string): { host: string } | null {
 }
 
 /**
- * Resolve artifact root from config. Rejects remote object-storage schemes.
+ * Resolve artifact root via canonical @mplus/artifact-store config helper.
+ * Never invents "./data/raw-artifacts".
  */
-export function resolveLocalArtifactsDir(rawArtifactsDir: string | undefined): {
+export function resolveLocalArtifactsDir(
+  rawArtifactsDir: string | undefined | null,
+  configRoot?: string | null,
+): {
   ok: true;
   path: string;
+  configuredDir: string;
+  configRoot: string;
 } | {
   ok: false;
   reason: string;
 } {
-  const raw = (rawArtifactsDir ?? "").trim();
-  if (!raw) {
-    return { ok: false, reason: "Blocked: RAW_ARTIFACTS_DIR is missing." };
+  const resolved = resolveConfiguredLocalArtifactRoot({
+    configuredDir: rawArtifactsDir,
+    configRoot,
+  });
+  if (!resolved.ok) {
+    return { ok: false, reason: resolved.reason };
   }
-  const lower = raw.toLowerCase();
-  if (
-    lower.startsWith("s3://") ||
-    lower.startsWith("gs://") ||
-    lower.startsWith("az://") ||
-    lower.startsWith("http://") ||
-    lower.startsWith("https://") ||
-    lower.startsWith("cas://")
-  ) {
-    return {
-      ok: false,
-      reason: `Blocked: RAW_ARTIFACTS_DIR looks like remote object storage (${raw}).`,
-    };
-  }
-  // Absolute or relative local path only — caller resolves against cwd.
-  return { ok: true, path: raw };
+  return {
+    ok: true,
+    path: resolved.absolutePath,
+    configuredDir: resolved.configuredDir,
+    configRoot: resolved.configRoot,
+  };
 }
 
 /**
@@ -202,9 +215,18 @@ export function assertWclScoringDerivedResetAllowed(
     );
   }
 
-  const artifacts = resolveLocalArtifactsDir(
-    input.rawArtifactsDir ?? process.env.RAW_ARTIFACTS_DIR,
-  );
+  const configRoot =
+    input.configRoot === undefined
+      ? findMonorepoConfigRoot(process.cwd())
+      : input.configRoot;
+  // Prefer explicit input; never invent a default path. Env is read only when
+  // the caller did not pass the key (CLI passes process.env.RAW_ARTIFACTS_DIR).
+  const configuredArtifacts =
+    input.rawArtifactsDir === undefined
+      ? process.env.RAW_ARTIFACTS_DIR
+      : input.rawArtifactsDir;
+
+  const artifacts = resolveLocalArtifactsDir(configuredArtifacts, configRoot);
   if (!artifacts.ok) {
     blockedConditions.push(artifacts.reason.replace(/^Blocked:\s*/, ""));
   }
@@ -224,6 +246,8 @@ export function assertWclScoringDerivedResetAllowed(
     sanitizedDatabase,
     sanitizedRedis,
     artifactsDir: artifacts.ok ? artifacts.path : "",
+    artifactsConfiguredDir: artifacts.ok ? artifacts.configuredDir : "",
+    configRoot: artifacts.ok ? artifacts.configRoot : "",
     databaseName: pg!.database,
     databaseHost: pg!.host,
     redisHost: redis!.host,

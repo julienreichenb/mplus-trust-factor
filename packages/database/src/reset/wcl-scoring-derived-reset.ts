@@ -6,10 +6,7 @@ import { createHash } from "node:crypto";
 import { readdir, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import type { PrismaClient } from "@prisma/client";
-import {
-  assertWclScoringDerivedResetAllowed,
-  type WclScoringDerivedResetGuardResult,
-} from "./wcl-scoring-derived-reset-guard.js";
+import type { WclScoringDerivedResetGuardResult } from "./wcl-scoring-derived-reset-guard.js";
 import {
   WCL_SCORING_DERIVED_CLEAR_TABLES,
   WCL_SCORING_DERIVED_IMPORTANT_RETAIN_TABLES,
@@ -18,17 +15,42 @@ import {
   classifyAllPrismaMappedTables,
 } from "./wcl-scoring-derived-table-plan.js";
 
+/** BullMQ queue names owned by this project (matches QUEUE_NAMES / Redis prefixes). */
+const PROJECT_BULLMQ_QUEUES = [
+  "refresh-character",
+  "analyze-run",
+  "recalculate-score",
+  "finalize-score",
+  "generate-addon-export",
+  "sync-realm-catalog",
+  "discover-owned-characters",
+  "bulk-character-processing",
+  "calibration-run",
+  "analyze-evidence-slot",
+  "finalize-analysis-batch",
+  "refresh-character-calibration",
+  "scoring-v2-evidence-export",
+  "scoring-v2-shadow-canary",
+] as const;
+
 export type ActiveWriterProbe = {
-  ingestionJobsActive: number;
-  shadowCanariesActive: number;
-  bulkOperationsActive: number;
-  scoreBatchesActive: number;
+  /** Informational only — stale DB statuses do not block when Redis shows no live writers. */
+  staleDbStatuses: {
+    ingestionJobsQueuedOrActive: number;
+    shadowCanariesNonTerminal: number;
+    bulkOperationsNonTerminal: number;
+    scoreBatchesNonTerminal: number;
+  };
+  liveBullmqActiveJobs: number;
+  liveLockOrPermitKeys: number;
   blocked: boolean;
   detail: string[];
+  redisProbeAvailable: boolean;
 };
 
 export type ArtifactCleanupPlan = {
   rootDir: string;
+  configuredDir: string;
   resolvedRootDir: string;
   fileCount: number;
   totalBytes: number;
@@ -64,7 +86,15 @@ export type WclScoringDerivedResetPlan = {
 export type RedisScanner = {
   keys(pattern: string): Promise<string[]>;
   del(...keys: string[]): Promise<number>;
+  llen(key: string): Promise<number>;
+  exists(...keys: string[]): Promise<number>;
   quit(): Promise<void>;
+};
+
+export type ExternalCleanupResult = {
+  redis: { ok: boolean; keysDeleted: number; error?: string };
+  artifacts: { ok: boolean; filesRemoved: number; error?: string };
+  partial: boolean;
 };
 
 async function countTable(prisma: PrismaClient, table: string): Promise<number> {
@@ -75,49 +105,105 @@ async function countTable(prisma: PrismaClient, table: string): Promise<number> 
   return typeof raw === "bigint" ? Number(raw) : Number(raw);
 }
 
-export async function probeActiveWriters(prisma: PrismaClient): Promise<ActiveWriterProbe> {
+function toNum(v: bigint | number | undefined): number {
+  return typeof v === "bigint" ? Number(v) : Number(v ?? 0);
+}
+
+/**
+ * Distinguish live Redis/BullMQ writers from stale DB status rows.
+ * Stale QUEUED/RUNNING DB rows alone never block; active BullMQ jobs or held
+ * locks/permits do. Missing Redis fails closed (cannot prove writers are idle).
+ */
+export async function probeActiveWriters(input: {
+  prisma: PrismaClient;
+  redis?: RedisScanner | null;
+}): Promise<ActiveWriterProbe> {
   const detail: string[] = [];
-  const ingestion = await prisma.$queryRawUnsafe<Array<{ count: bigint | number }>>(
+
+  const ingestion = await input.prisma.$queryRawUnsafe<Array<{ count: bigint | number }>>(
     `SELECT COUNT(*)::bigint AS count FROM "ingestion_jobs" WHERE status IN ('QUEUED', 'ACTIVE')`,
   );
-  const canaries = await prisma.$queryRawUnsafe<Array<{ count: bigint | number }>>(
+  const canaries = await input.prisma.$queryRawUnsafe<Array<{ count: bigint | number }>>(
     `SELECT COUNT(*)::bigint AS count FROM "scoring_v2_shadow_canaries" WHERE UPPER(status) IN ('QUEUED', 'RUNNING', 'PENDING', 'STARTED', 'ACTIVE')`,
   );
-  const bulk = await prisma.$queryRawUnsafe<Array<{ count: bigint | number }>>(
+  const bulk = await input.prisma.$queryRawUnsafe<Array<{ count: bigint | number }>>(
     `SELECT COUNT(*)::bigint AS count FROM "bulk_operations" WHERE status IN ('PENDING', 'SELECTING', 'RUNNING', 'PAUSED')`,
   );
-  const batches = await prisma.$queryRawUnsafe<Array<{ count: bigint | number }>>(
+  const batches = await input.prisma.$queryRawUnsafe<Array<{ count: bigint | number }>>(
     `SELECT COUNT(*)::bigint AS count FROM "score_analysis_batches" WHERE finalization_status IN ('PENDING', 'READY_TO_FINALIZE', 'FINALIZING')`,
   );
 
-  const toNum = (v: bigint | number | undefined) =>
-    typeof v === "bigint" ? Number(v) : Number(v ?? 0);
+  const staleDbStatuses = {
+    ingestionJobsQueuedOrActive: toNum(ingestion[0]?.count),
+    shadowCanariesNonTerminal: toNum(canaries[0]?.count),
+    bulkOperationsNonTerminal: toNum(bulk[0]?.count),
+    scoreBatchesNonTerminal: toNum(batches[0]?.count),
+  };
 
-  const ingestionJobsActive = toNum(ingestion[0]?.count);
-  const shadowCanariesActive = toNum(canaries[0]?.count);
-  const bulkOperationsActive = toNum(bulk[0]?.count);
-  const scoreBatchesActive = toNum(batches[0]?.count);
+  if (!input.redis) {
+    return {
+      staleDbStatuses,
+      liveBullmqActiveJobs: 0,
+      liveLockOrPermitKeys: 0,
+      blocked: true,
+      detail: [
+        "Redis live-writer probe unavailable — cannot distinguish stale DB statuses from live workers (fail closed)",
+      ],
+      redisProbeAvailable: false,
+    };
+  }
 
-  if (ingestionJobsActive > 0) {
-    detail.push(`${ingestionJobsActive} active ingestion_jobs (QUEUED/ACTIVE)`);
+  let liveBullmqActiveJobs = 0;
+  const activeQueueHits: string[] = [];
+  for (const queue of PROJECT_BULLMQ_QUEUES) {
+    const activeKey = `bull:${queue}:active`;
+    const len = await input.redis.llen(activeKey);
+    if (len > 0) {
+      liveBullmqActiveJobs += len;
+      activeQueueHits.push(`${activeKey}=${len}`);
+    }
   }
-  if (shadowCanariesActive > 0) {
-    detail.push(`${shadowCanariesActive} active scoring_v2_shadow_canaries`);
+
+  const lockOrPermitKeys = new Set<string>();
+  for (const queue of PROJECT_BULLMQ_QUEUES) {
+    for (const key of await input.redis.keys(`bull:${queue}:*:lock`)) {
+      lockOrPermitKeys.add(key);
+    }
   }
-  if (bulkOperationsActive > 0) {
-    detail.push(`${bulkOperationsActive} active bulk_operations`);
+  for (const key of await input.redis.keys("mplus:development:wcl-v2:*:lease")) {
+    lockOrPermitKeys.add(key);
   }
-  if (scoreBatchesActive > 0) {
-    detail.push(`${scoreBatchesActive} active score_analysis_batches`);
+  for (const key of await input.redis.keys("mplus:development:wcl-v2:sf:*")) {
+    lockOrPermitKeys.add(key);
+  }
+  for (const key of await input.redis.keys("mplus:development:wcl-v2:sf-report:*")) {
+    lockOrPermitKeys.add(key);
+  }
+  // Held global/character permit owner sets indicate in-flight workers.
+  for (const key of await input.redis.keys("mplus:development:wcl-v2:*:owners")) {
+    lockOrPermitKeys.add(key);
+  }
+
+  const liveLockOrPermitKeys = lockOrPermitKeys.size;
+
+  if (liveBullmqActiveJobs > 0) {
+    detail.push(
+      `${liveBullmqActiveJobs} live BullMQ active job(s): ${activeQueueHits.join(", ")}`,
+    );
+  }
+  if (liveLockOrPermitKeys > 0) {
+    detail.push(
+      `${liveLockOrPermitKeys} held worker lock/permit key(s) (sample: ${[...lockOrPermitKeys].slice(0, 5).join(", ")})`,
+    );
   }
 
   return {
-    ingestionJobsActive,
-    shadowCanariesActive,
-    bulkOperationsActive,
-    scoreBatchesActive,
+    staleDbStatuses,
+    liveBullmqActiveJobs,
+    liveLockOrPermitKeys,
     blocked: detail.length > 0,
     detail,
+    redisProbeAvailable: true,
   };
 }
 
@@ -178,7 +264,6 @@ export async function buildWclScoringDerivedResetPlan(input: {
   gate: Extract<WclScoringDerivedResetGuardResult, { ok: true }>;
   execute: boolean;
   redis?: RedisScanner | null;
-  cwd?: string;
 }): Promise<WclScoringDerivedResetPlan> {
   const warnings: string[] = [];
   const blockedConditions: string[] = [];
@@ -205,7 +290,8 @@ export async function buildWclScoringDerivedResetPlan(input: {
       return { table, rowCount: important?.rowCount ?? null };
     });
 
-  const resolvedRoot = path.resolve(input.cwd ?? process.cwd(), input.gate.artifactsDir);
+  // Absolute path already resolved from repository/config root by the gate.
+  const resolvedRoot = path.resolve(input.gate.artifactsDir);
   const artifactSizes = await scanArtifactTree(resolvedRoot);
   const redisScan = await collectRedisKeys(
     input.redis ?? null,
@@ -230,13 +316,29 @@ export async function buildWclScoringDerivedResetPlan(input: {
     );
   }
 
-  const activeWriters = await probeActiveWriters(input.prisma);
+  const activeWriters = await probeActiveWriters({
+    prisma: input.prisma,
+    redis: input.redis ?? null,
+  });
   if (activeWriters.blocked) {
     blockedConditions.push(...activeWriters.detail.map((d) => `active writer: ${d}`));
   }
 
+  const staleTotal =
+    activeWriters.staleDbStatuses.ingestionJobsQueuedOrActive +
+    activeWriters.staleDbStatuses.shadowCanariesNonTerminal +
+    activeWriters.staleDbStatuses.bulkOperationsNonTerminal +
+    activeWriters.staleDbStatuses.scoreBatchesNonTerminal;
+  if (staleTotal > 0 && !activeWriters.blocked) {
+    warnings.push(
+      `Stale non-terminal DB status rows present (${staleTotal}) but no live BullMQ active jobs/locks — reset is allowed without manual status edits`,
+    );
+  }
+
   if (input.redis == null) {
-    warnings.push("Redis scanner unavailable — Redis cleanup plan is count-unknown until execute connects");
+    warnings.push(
+      "Redis scanner unavailable — live-writer probe and Redis cleanup cannot run",
+    );
   }
 
   return {
@@ -257,6 +359,7 @@ export async function buildWclScoringDerivedResetPlan(input: {
     },
     artifacts: {
       rootDir: input.gate.artifactsDir,
+      configuredDir: input.gate.artifactsConfiguredDir,
       resolvedRootDir: resolvedRoot,
       fileCount: artifactSizes.fileCount,
       totalBytes: artifactSizes.totalBytes,
@@ -277,10 +380,9 @@ export async function executeWclScoringDerivedReset(input: {
 }): Promise<{
   clearedTables: Array<{ table: string; remaining: number }>;
   retainedTables: Array<{ table: string; before: number; after: number; unchanged: boolean }>;
-  redisKeysDeleted: number;
-  artifactFilesRemoved: number;
   danglingArtifactReferences: number;
   migrationsStillApplied: boolean;
+  externalCleanup: ExternalCleanupResult;
 }> {
   if (input.plan.blockedConditions.length > 0) {
     throw new Error(
@@ -291,8 +393,11 @@ export async function executeWclScoringDerivedReset(input: {
     throw new Error("Refusing execute: Prisma table classification incomplete");
   }
 
-  // Re-check writers immediately before mutation.
-  const writers = await probeActiveWriters(input.prisma);
+  // Re-check live writers immediately before mutation.
+  const writers = await probeActiveWriters({
+    prisma: input.prisma,
+    redis: input.redis ?? null,
+  });
   if (writers.blocked) {
     throw new Error(`Refusing execute: active writers detected (${writers.detail.join("; ")})`);
   }
@@ -302,87 +407,124 @@ export async function executeWclScoringDerivedReset(input: {
   );
 
   const quoted = WCL_SCORING_DERIVED_CLEAR_TABLES.map((t) => `"${t}"`).join(", ");
-  await input.prisma.$executeRawUnsafe(
-    `TRUNCATE TABLE ${quoted} RESTART IDENTITY CASCADE`,
-  );
 
-  const clearedTables: Array<{ table: string; remaining: number }> = [];
-  for (const table of WCL_SCORING_DERIVED_CLEAR_TABLES) {
-    const remaining = await countTable(input.prisma, table);
-    if (remaining !== 0) {
-      throw new Error(`Post-reset integrity failed: "${table}" still has ${remaining} rows`);
+  const dbResult = await input.prisma.$transaction(async (tx) => {
+    await tx.$executeRawUnsafe(`TRUNCATE TABLE ${quoted} RESTART IDENTITY CASCADE`);
+
+    const clearedTables: Array<{ table: string; remaining: number }> = [];
+    for (const table of WCL_SCORING_DERIVED_CLEAR_TABLES) {
+      const remaining = await countTable(tx as unknown as PrismaClient, table);
+      if (remaining !== 0) {
+        throw new Error(`Post-reset integrity failed: "${table}" still has ${remaining} rows`);
+      }
+      clearedTables.push({ table, remaining });
     }
-    clearedTables.push({ table, remaining });
-  }
 
-  const retainedTables: Array<{
-    table: string;
-    before: number;
-    after: number;
-    unchanged: boolean;
-  }> = [];
-  for (const table of WCL_SCORING_DERIVED_IMPORTANT_RETAIN_TABLES) {
-    const after = await countTable(input.prisma, table);
-    const before = retainBefore.get(table) ?? after;
-    if (after !== before) {
-      throw new Error(
-        `Post-reset integrity failed: retained table "${table}" changed ${before} → ${after}`,
-      );
+    const retainedTables: Array<{
+      table: string;
+      before: number;
+      after: number;
+      unchanged: boolean;
+    }> = [];
+    for (const table of WCL_SCORING_DERIVED_IMPORTANT_RETAIN_TABLES) {
+      const after = await countTable(tx as unknown as PrismaClient, table);
+      const before = retainBefore.get(table) ?? after;
+      if (after !== before) {
+        throw new Error(
+          `Post-reset integrity failed: retained table "${table}" changed ${before} → ${after}`,
+        );
+      }
+      retainedTables.push({ table, before, after, unchanged: true });
     }
-    retainedTables.push({ table, before, after, unchanged: true });
-  }
 
-  // No dangling artifact FK rows after truncate of both sides.
-  const dangling = await countTable(input.prisma, "artifact_references");
-  if (dangling !== 0) {
-    throw new Error(`Post-reset integrity failed: dangling artifact_references=${dangling}`);
-  }
+    const dangling = await countTable(tx as unknown as PrismaClient, "artifact_references");
+    if (dangling !== 0) {
+      throw new Error(`Post-reset integrity failed: dangling artifact_references=${dangling}`);
+    }
 
-  let redisKeysDeleted = 0;
+    const mig = await tx.$queryRawUnsafe<Array<{ count: bigint | number }>>(
+      `SELECT COUNT(*)::bigint AS count FROM "_prisma_migrations" WHERE finished_at IS NOT NULL`,
+    );
+    const migrationsStillApplied = toNum(mig[0]?.count) > 0;
+    if (!migrationsStillApplied) {
+      throw new Error("Post-reset integrity failed: Prisma migrations no longer applied");
+    }
+
+    return {
+      clearedTables,
+      retainedTables,
+      danglingArtifactReferences: dangling,
+      migrationsStillApplied,
+    };
+  });
+
+  // Redis / CAS cleanup is intentionally outside the DB transaction and idempotent.
+  const externalCleanup: ExternalCleanupResult = {
+    redis: { ok: true, keysDeleted: 0 },
+    artifacts: { ok: true, filesRemoved: 0 },
+    partial: false,
+  };
+
   if (input.redis) {
-    const scan = await collectRedisKeys(input.redis, WCL_SCORING_DERIVED_REDIS_KEY_PREFIXES);
-    if (scan.matchingKeyCount > 0) {
-      // Delete in chunks to avoid huge argument lists.
-      const keys = [
-        ...(await collectAllRedisKeys(input.redis, WCL_SCORING_DERIVED_REDIS_KEY_PREFIXES)),
-      ];
+    try {
+      const keys = await collectAllRedisKeys(input.redis, WCL_SCORING_DERIVED_REDIS_KEY_PREFIXES);
+      let redisKeysDeleted = 0;
       for (let i = 0; i < keys.length; i += 200) {
         const chunk = keys.slice(i, i + 200);
-        redisKeysDeleted += await input.redis.del(...chunk);
+        if (chunk.length > 0) {
+          redisKeysDeleted += await input.redis.del(...chunk);
+        }
       }
+      externalCleanup.redis = { ok: true, keysDeleted: redisKeysDeleted };
+    } catch (error) {
+      externalCleanup.redis = {
+        ok: false,
+        keysDeleted: 0,
+        error: error instanceof Error ? error.message : String(error),
+      };
+      externalCleanup.partial = true;
     }
+  } else {
+    externalCleanup.redis = {
+      ok: false,
+      keysDeleted: 0,
+      error: "Redis scanner unavailable after DB reset",
+    };
+    externalCleanup.partial = true;
   }
 
-  let artifactFilesRemoved = 0;
   try {
     const entries = await readdir(input.plan.artifacts.resolvedRootDir, {
       withFileTypes: true,
     });
+    let artifactFilesRemoved = 0;
     for (const entry of entries) {
       const full = path.join(input.plan.artifacts.resolvedRootDir, entry.name);
       await rm(full, { recursive: true, force: true });
       artifactFilesRemoved += 1;
     }
-  } catch {
-    // Directory may not exist yet — treat as already clean.
-  }
-
-  const mig = await input.prisma.$queryRawUnsafe<Array<{ count: bigint | number }>>(
-    `SELECT COUNT(*)::bigint AS count FROM "_prisma_migrations" WHERE finished_at IS NOT NULL`,
-  );
-  const migrationsStillApplied =
-    (typeof mig[0]?.count === "bigint" ? Number(mig[0].count) : Number(mig[0]?.count ?? 0)) > 0;
-  if (!migrationsStillApplied) {
-    throw new Error("Post-reset integrity failed: Prisma migrations no longer applied");
+    externalCleanup.artifacts = { ok: true, filesRemoved: artifactFilesRemoved };
+  } catch (error) {
+    const code =
+      error && typeof error === "object" && "code" in error
+        ? String((error as { code?: unknown }).code)
+        : "";
+    if (code === "ENOENT") {
+      // Directory absent — already clean.
+      externalCleanup.artifacts = { ok: true, filesRemoved: 0 };
+    } else {
+      externalCleanup.artifacts = {
+        ok: false,
+        filesRemoved: 0,
+        error: error instanceof Error ? error.message : String(error),
+      };
+      externalCleanup.partial = true;
+    }
   }
 
   return {
-    clearedTables,
-    retainedTables,
-    redisKeysDeleted,
-    artifactFilesRemoved,
-    danglingArtifactReferences: dangling,
-    migrationsStillApplied,
+    ...dbResult,
+    externalCleanup,
   };
 }
 
@@ -420,7 +562,7 @@ export function formatPlanTerminalSummary(plan: WclScoringDerivedResetPlan): str
     `  retain tables: ${plan.retainTables.length}`,
     `  redis keys matched: ${plan.redis.matchingKeyCount} (FLUSHALL=false)`,
     `  artifacts: ${plan.artifacts.resolvedRootDir} files=${plan.artifacts.fileCount} bytes=${plan.artifacts.totalBytes}`,
-    `  active writers blocked: ${plan.activeWriters.blocked}`,
+    `  live writers blocked: ${plan.activeWriters.blocked} (redisProbe=${plan.activeWriters.redisProbeAvailable})`,
     `  classification ok: ${plan.classificationOk}`,
     `  migrations applied: ${plan.prismaMigrationsApplied}`,
   ];
@@ -434,5 +576,3 @@ export function formatPlanTerminalSummary(plan: WclScoringDerivedResetPlan): str
   }
   return lines.join("\n");
 }
-
-export { assertWclScoringDerivedResetAllowed };

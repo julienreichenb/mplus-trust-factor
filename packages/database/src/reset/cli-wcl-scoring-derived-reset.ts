@@ -8,8 +8,11 @@
  *   pnpm db:reset:wcl-scoring-derived -- --confirm=RESET_LOCAL_WCL_SCORING_DATA --execute
  *
  * Never run against production/staging/remote databases.
+ * Never invents a RAW_ARTIFACTS_DIR fallback path.
  */
+import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { findMonorepoConfigRoot } from "@mplus/artifact-store";
 import { PrismaClient } from "@prisma/client";
 import { Redis } from "ioredis";
 import {
@@ -36,6 +39,13 @@ function parseArgs(argv: string[]) {
   return out;
 }
 
+function resolveConfigRoot(): string | null {
+  const fromCwd = findMonorepoConfigRoot(process.cwd());
+  if (fromCwd) return fromCwd;
+  const fromModule = findMonorepoConfigRoot(path.dirname(fileURLToPath(import.meta.url)));
+  return fromModule;
+}
+
 async function connectRedis(redisUrl: string): Promise<RedisScanner | null> {
   try {
     const client = new Redis(redisUrl, {
@@ -47,6 +57,8 @@ async function connectRedis(redisUrl: string): Promise<RedisScanner | null> {
     return {
       keys: (pattern) => client.keys(pattern),
       del: (...keys) => (keys.length === 0 ? Promise.resolve(0) : client.del(...keys)),
+      llen: (key) => client.llen(key),
+      exists: (...keys) => (keys.length === 0 ? Promise.resolve(0) : client.exists(...keys)),
       quit: async () => {
         await client.quit();
       },
@@ -58,11 +70,14 @@ async function connectRedis(redisUrl: string): Promise<RedisScanner | null> {
 
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
+  const configRoot = resolveConfigRoot();
   const gate = assertWclScoringDerivedResetAllowed({
     confirmationToken: args.confirm ?? undefined,
     databaseUrl: process.env.DATABASE_URL,
     redisUrl: process.env.REDIS_URL,
-    rawArtifactsDir: process.env.RAW_ARTIFACTS_DIR ?? "./data/raw-artifacts",
+    // Canonical app config key only — no "./data/raw-artifacts" fallback.
+    rawArtifactsDir: process.env.RAW_ARTIFACTS_DIR,
+    configRoot,
     appEnv: process.env.APP_ENV,
   });
 
@@ -80,7 +95,7 @@ async function main(): Promise<void> {
   try {
     if (args.execute && redis == null) {
       console.error(
-        "Refusing --execute: could not connect to local Redis (namespace-scoped cleanup required).",
+        "Refusing --execute: could not connect to local Redis (live-writer probe + namespace-scoped cleanup required).",
       );
       process.exitCode = 2;
       return;
@@ -91,7 +106,6 @@ async function main(): Promise<void> {
       gate,
       execute: args.execute,
       redis,
-      cwd: process.cwd(),
     });
 
     console.log(formatPlanTerminalSummary(plan));
@@ -112,7 +126,8 @@ async function main(): Promise<void> {
           classificationOk: plan.classificationOk,
           prismaMigrationsApplied: plan.prismaMigrationsApplied,
           confirmationTokenRequired: WCL_SCORING_DERIVED_RESET_CONFIRMATION_TOKEN,
-          resolvedArtifactsDir: path.resolve(plan.artifacts.resolvedRootDir),
+          resolvedArtifactsDir: plan.artifacts.resolvedRootDir,
+          configRoot: gate.configRoot,
         },
         null,
         2,
@@ -143,15 +158,21 @@ async function main(): Promise<void> {
           executed: true,
           clearedTables: result.clearedTables,
           retainedTables: result.retainedTables,
-          redisKeysDeleted: result.redisKeysDeleted,
-          artifactFilesRemoved: result.artifactFilesRemoved,
           danglingArtifactReferences: result.danglingArtifactReferences,
           migrationsStillApplied: result.migrationsStillApplied,
+          externalCleanup: result.externalCleanup,
         },
         null,
         2,
       ),
     );
+    if (result.externalCleanup.partial) {
+      console.error(
+        "Database reset committed, but Redis/CAS cleanup was partial — see externalCleanup.",
+      );
+      process.exitCode = 3;
+      return;
+    }
     console.log("Execute completed. Database is ready for a fresh Wallidrixe canary.");
   } finally {
     await prisma.$disconnect();

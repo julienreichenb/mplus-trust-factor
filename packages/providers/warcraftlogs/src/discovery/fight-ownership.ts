@@ -59,26 +59,44 @@ export type FightOwnershipResult =
       reason: FightOwnershipRejectionReason;
     });
 
+/**
+ * Deterministic WCL realm / server identity key.
+ * NFKC + lower-case; whitespace and underscores collapse to a single hyphen.
+ * Never used for substring / prefix ownership proofs.
+ */
 export function normalizeWclRealmSlug(value: string): string {
-  return value.toLowerCase().replace(/\s+/g, "-");
+  return value
+    .normalize("NFKC")
+    .trim()
+    .toLocaleLowerCase("en-US")
+    .replace(/[\s_]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
 }
 
+/**
+ * Fail-closed name+realm identity match.
+ * - exact normalized name equality
+ * - exact normalized realm equality (never substring)
+ * - missing actor.server does not prove ownership
+ */
 export function nameRealmMatches(
   name: string | undefined,
   server: string | null | undefined,
   characterName: string,
   realmSlug: string,
 ): boolean {
-  const targetName = characterName.toLowerCase();
+  const targetName = characterName.normalize("NFKC").trim().toLocaleLowerCase("en-US");
+  const actorName = (name ?? "").normalize("NFKC").trim().toLocaleLowerCase("en-US");
+  if (!actorName || actorName !== targetName) return false;
+
+  const serverRaw = typeof server === "string" ? server.trim() : "";
+  if (!serverRaw) return false;
+
   const targetRealm = normalizeWclRealmSlug(realmSlug);
-  if ((name ?? "").toLowerCase() !== targetName) return false;
-  if (!server) return true;
-  const normalizedServer = normalizeWclRealmSlug(server);
-  return (
-    normalizedServer === targetRealm ||
-    normalizedServer.includes(targetRealm) ||
-    targetRealm.includes(normalizedServer)
-  );
+  const normalizedServer = normalizeWclRealmSlug(serverRaw);
+  if (!targetRealm || !normalizedServer) return false;
+  return normalizedServer === targetRealm;
 }
 
 /** Extract report-local actor IDs from fight.friendlyPlayers (scalar or object form). */

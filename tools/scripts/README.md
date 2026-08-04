@@ -36,7 +36,10 @@ pnpm db:reset:wcl-scoring-derived -- --confirm=RESET_LOCAL_WCL_SCORING_DATA --ex
 ```
 
 Gates: `APP_ENV=development`, DB host localhost/127.0.0.1, DB name exactly
-`mplus_trust`, confirmation token exact, Redis localhost, local CAS directory only.
+`mplus_trust`, confirmation token exact, Redis localhost, and an explicit local
+`RAW_ARTIFACTS_DIR` resolved from the repository/config root via
+`@mplus/artifact-store` (no path guessing; remote CAS refused). Live-writer
+blocking uses Redis/BullMQ activity, not stale DB status rows alone.
 Never uses Redis `FLUSHALL`.
 
 The older `pnpm db:reset:scoring-v2` tooling remains for disposable `mplus_itest_*`

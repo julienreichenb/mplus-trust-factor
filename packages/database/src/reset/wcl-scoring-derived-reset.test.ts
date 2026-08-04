@@ -1,4 +1,6 @@
+import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import { findMonorepoConfigRoot } from "@mplus/artifact-store";
 import {
   assertWclScoringDerivedResetAllowed,
   resolveLocalArtifactsDir,
@@ -16,10 +18,25 @@ import {
 import {
   buildWclScoringDerivedResetPlan,
   executeWclScoringDerivedReset,
+  probeActiveWriters,
+  type RedisScanner,
 } from "./wcl-scoring-derived-reset.js";
 
 const LOCAL_DB = `postgresql://u:p@localhost:5432/${WCL_SCORING_DERIVED_RESET_DATABASE_NAME}`;
 const LOCAL_REDIS = "redis://127.0.0.1:6379";
+const CONFIG_ROOT = findMonorepoConfigRoot(process.cwd())!;
+const LOCAL_ARTIFACTS = "./data/raw-artifacts";
+
+function idleRedis(overrides: Partial<RedisScanner> = {}): RedisScanner {
+  return {
+    keys: vi.fn(async () => []),
+    del: vi.fn(async () => 0),
+    llen: vi.fn(async () => 0),
+    exists: vi.fn(async () => 0),
+    quit: vi.fn(async () => undefined),
+    ...overrides,
+  };
+}
 
 describe("assertWclScoringDerivedResetAllowed", () => {
   it("rejects missing confirmation", () => {
@@ -27,7 +44,8 @@ describe("assertWclScoringDerivedResetAllowed", () => {
       appEnv: "development",
       databaseUrl: LOCAL_DB,
       redisUrl: LOCAL_REDIS,
-      rawArtifactsDir: "./data/raw-artifacts",
+      rawArtifactsDir: LOCAL_ARTIFACTS,
+      configRoot: CONFIG_ROOT,
     });
     expect(result.ok).toBe(false);
   });
@@ -39,7 +57,8 @@ describe("assertWclScoringDerivedResetAllowed", () => {
         confirmationToken: WCL_SCORING_DERIVED_RESET_CONFIRMATION_TOKEN,
         databaseUrl: LOCAL_DB,
         redisUrl: LOCAL_REDIS,
-        rawArtifactsDir: "./data/raw-artifacts",
+        rawArtifactsDir: LOCAL_ARTIFACTS,
+        configRoot: CONFIG_ROOT,
       });
       expect(result.ok).toBe(false);
     }
@@ -51,7 +70,8 @@ describe("assertWclScoringDerivedResetAllowed", () => {
       confirmationToken: WCL_SCORING_DERIVED_RESET_CONFIRMATION_TOKEN,
       databaseUrl: "postgresql://u:p@db.example.com:5432/mplus_trust",
       redisUrl: LOCAL_REDIS,
-      rawArtifactsDir: "./data/raw-artifacts",
+      rawArtifactsDir: LOCAL_ARTIFACTS,
+      configRoot: CONFIG_ROOT,
     });
     expect(result.ok).toBe(false);
   });
@@ -62,7 +82,8 @@ describe("assertWclScoringDerivedResetAllowed", () => {
       confirmationToken: WCL_SCORING_DERIVED_RESET_CONFIRMATION_TOKEN,
       databaseUrl: "postgresql://u:p@postgres:5432/mplus_trust",
       redisUrl: "redis://redis:6379",
-      rawArtifactsDir: "./data/raw-artifacts",
+      rawArtifactsDir: LOCAL_ARTIFACTS,
+      configRoot: CONFIG_ROOT,
     });
     expect(result.ok).toBe(false);
   });
@@ -73,7 +94,8 @@ describe("assertWclScoringDerivedResetAllowed", () => {
       confirmationToken: WCL_SCORING_DERIVED_RESET_CONFIRMATION_TOKEN,
       databaseUrl: "postgresql://u:p@localhost:5432/mplus_itest_abcdef12",
       redisUrl: LOCAL_REDIS,
-      rawArtifactsDir: "./data/raw-artifacts",
+      rawArtifactsDir: LOCAL_ARTIFACTS,
+      configRoot: CONFIG_ROOT,
     });
     expect(result.ok).toBe(false);
   });
@@ -84,19 +106,48 @@ describe("assertWclScoringDerivedResetAllowed", () => {
       confirmationToken: WCL_SCORING_DERIVED_RESET_CONFIRMATION_TOKEN,
       databaseUrl: LOCAL_DB,
       redisUrl: LOCAL_REDIS,
-      rawArtifactsDir: "./data/raw-artifacts",
+      rawArtifactsDir: LOCAL_ARTIFACTS,
+      configRoot: CONFIG_ROOT,
     });
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.databaseName).toBe("mplus_trust");
       expect(result.databaseHost).toBe("localhost");
+      expect(result.artifactsDir).toBe(path.resolve(CONFIG_ROOT, LOCAL_ARTIFACTS));
     }
   });
 
-  it("rejects remote CAS / object-storage artifact backends", () => {
-    expect(resolveLocalArtifactsDir("s3://bucket/path").ok).toBe(false);
-    expect(resolveLocalArtifactsDir("https://cdn.example/artifacts").ok).toBe(false);
-    expect(resolveLocalArtifactsDir("./data/raw-artifacts").ok).toBe(true);
+  it("rejects absent / guessed artifact path and remote CAS backends", () => {
+    expect(
+      resolveLocalArtifactsDir(undefined, CONFIG_ROOT).ok,
+    ).toBe(false);
+    expect(resolveLocalArtifactsDir("", CONFIG_ROOT).ok).toBe(false);
+    expect(resolveLocalArtifactsDir("s3://bucket/path", CONFIG_ROOT).ok).toBe(false);
+    expect(resolveLocalArtifactsDir("https://cdn.example/artifacts", CONFIG_ROOT).ok).toBe(
+      false,
+    );
+    expect(resolveLocalArtifactsDir("./data/raw-artifacts", null).ok).toBe(false);
+    expect(resolveLocalArtifactsDir("./data/raw-artifacts", CONFIG_ROOT).ok).toBe(true);
+
+    const missing = assertWclScoringDerivedResetAllowed({
+      appEnv: "development",
+      confirmationToken: WCL_SCORING_DERIVED_RESET_CONFIRMATION_TOKEN,
+      databaseUrl: LOCAL_DB,
+      redisUrl: LOCAL_REDIS,
+      rawArtifactsDir: null,
+      configRoot: CONFIG_ROOT,
+    });
+    expect(missing.ok).toBe(false);
+  });
+
+  it("resolves relative CAS paths from config root, not package cwd", () => {
+    const resolved = resolveLocalArtifactsDir("./data/raw-artifacts", CONFIG_ROOT);
+    expect(resolved.ok).toBe(true);
+    if (!resolved.ok) return;
+    expect(resolved.path).toBe(path.resolve(CONFIG_ROOT, "data/raw-artifacts"));
+    expect(resolved.path).not.toBe(
+      path.resolve(path.join(CONFIG_ROOT, "packages", "database"), "data/raw-artifacts"),
+    );
   });
 });
 
@@ -140,30 +191,100 @@ describe("table classification", () => {
   });
 });
 
-describe("dry-run / execute planner", () => {
-  function mockPrisma(counts: Record<string, number> = {}) {
+describe("live writers vs stale DB statuses", () => {
+  function mockPrismaWithStaleWriters() {
     return {
       $queryRawUnsafe: vi.fn(async (sql: string) => {
-        if (sql.includes("COUNT(*)") && sql.includes('"_prisma_migrations"')) {
-          return [{ count: 12n }];
-        }
-        if (sql.includes("COUNT(*)") && sql.includes("ingestion_jobs")) {
-          return [{ count: 0n }];
-        }
-        if (sql.includes("COUNT(*)") && sql.includes("scoring_v2_shadow_canaries")) {
-          return [{ count: 0n }];
-        }
-        if (sql.includes("COUNT(*)") && sql.includes("bulk_operations")) {
-          return [{ count: 0n }];
-        }
-        if (sql.includes("COUNT(*)") && sql.includes("score_analysis_batches")) {
-          return [{ count: 0n }];
-        }
-        const match = /FROM "([^"]+)"/.exec(sql);
-        const table = match?.[1] ?? "";
-        return [{ count: BigInt(counts[table] ?? 0) }];
+        if (sql.includes("ingestion_jobs")) return [{ count: 4n }];
+        if (sql.includes("scoring_v2_shadow_canaries")) return [{ count: 2n }];
+        if (sql.includes("bulk_operations")) return [{ count: 1n }];
+        if (sql.includes("score_analysis_batches")) return [{ count: 1n }];
+        if (sql.includes("COUNT(*)")) return [{ count: 0n }];
+        return [];
       }),
       $executeRawUnsafe: vi.fn(async () => 0),
+      $transaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) =>
+        fn({
+          $queryRawUnsafe: vi.fn(async (sql: string) => {
+            if (sql.includes("COUNT(*)")) return [{ count: 0n }];
+            return [];
+          }),
+          $executeRawUnsafe: vi.fn(async () => 0),
+        }),
+      ),
+      $disconnect: vi.fn(async () => undefined),
+    };
+  }
+
+  it("allows reset when DB statuses are stale but Redis shows no live writers", async () => {
+    const prisma = mockPrismaWithStaleWriters();
+    const redis = idleRedis();
+    const probe = await probeActiveWriters({ prisma: prisma as never, redis });
+    expect(probe.staleDbStatuses.ingestionJobsQueuedOrActive).toBe(4);
+    expect(probe.liveBullmqActiveJobs).toBe(0);
+    expect(probe.blocked).toBe(false);
+    expect(probe.redisProbeAvailable).toBe(true);
+  });
+
+  it("blocks when BullMQ active lists are non-empty", async () => {
+    const prisma = mockPrismaWithStaleWriters();
+    const redis = idleRedis({
+      llen: vi.fn(async (key: string) => (key === "bull:scoring-v2-shadow-canary:active" ? 1 : 0)),
+    });
+    const probe = await probeActiveWriters({ prisma: prisma as never, redis });
+    expect(probe.liveBullmqActiveJobs).toBe(1);
+    expect(probe.blocked).toBe(true);
+  });
+
+  it("blocks when worker lock / permit keys are held", async () => {
+    const prisma = mockPrismaWithStaleWriters();
+    const redis = idleRedis({
+      keys: vi.fn(async (pattern: string) => {
+        if (pattern.includes(":lock")) return ["bull:refresh-character:42:lock"];
+        return [];
+      }),
+    });
+    const probe = await probeActiveWriters({ prisma: prisma as never, redis });
+    expect(probe.liveLockOrPermitKeys).toBe(1);
+    expect(probe.blocked).toBe(true);
+  });
+
+  it("fails closed when Redis probe is unavailable", async () => {
+    const prisma = mockPrismaWithStaleWriters();
+    const probe = await probeActiveWriters({ prisma: prisma as never, redis: null });
+    expect(probe.blocked).toBe(true);
+    expect(probe.redisProbeAvailable).toBe(false);
+  });
+});
+
+describe("dry-run / execute planner", () => {
+  function mockPrisma(counts: Record<string, number> = {}) {
+    const query = vi.fn(async (sql: string) => {
+      if (sql.includes("COUNT(*)") && sql.includes('"_prisma_migrations"')) {
+        return [{ count: 12n }];
+      }
+      if (sql.includes("COUNT(*)") && sql.includes("ingestion_jobs")) {
+        return [{ count: 0n }];
+      }
+      if (sql.includes("COUNT(*)") && sql.includes("scoring_v2_shadow_canaries")) {
+        return [{ count: 0n }];
+      }
+      if (sql.includes("COUNT(*)") && sql.includes("bulk_operations")) {
+        return [{ count: 0n }];
+      }
+      if (sql.includes("COUNT(*)") && sql.includes("score_analysis_batches")) {
+        return [{ count: 0n }];
+      }
+      const match = /FROM "([^"]+)"/.exec(sql);
+      const table = match?.[1] ?? "";
+      return [{ count: BigInt(counts[table] ?? 0) }];
+    });
+    const execute = vi.fn(async () => 0);
+    const txClient = { $queryRawUnsafe: query, $executeRawUnsafe: execute };
+    return {
+      $queryRawUnsafe: query,
+      $executeRawUnsafe: execute,
+      $transaction: vi.fn(async (fn: (tx: typeof txClient) => Promise<unknown>) => fn(txClient)),
       $disconnect: vi.fn(async () => undefined),
     };
   }
@@ -179,16 +300,15 @@ describe("dry-run / execute planner", () => {
       confirmationToken: WCL_SCORING_DERIVED_RESET_CONFIRMATION_TOKEN,
       databaseUrl: LOCAL_DB,
       redisUrl: LOCAL_REDIS,
-      rawArtifactsDir: "./data/raw-artifacts",
+      rawArtifactsDir: LOCAL_ARTIFACTS,
+      configRoot: CONFIG_ROOT,
     });
     expect(gate.ok).toBe(true);
     if (!gate.ok) return;
 
-    const redis = {
+    const redis = idleRedis({
       keys: vi.fn(async () => ["mplus:development:wcl-v2:global:count"]),
-      del: vi.fn(async () => 0),
-      quit: vi.fn(async () => undefined),
-    };
+    });
 
     const plan = await buildWclScoringDerivedResetPlan({
       prisma: prisma as never,
@@ -210,44 +330,131 @@ describe("dry-run / execute planner", () => {
       confirmationToken: WCL_SCORING_DERIVED_RESET_CONFIRMATION_TOKEN,
       databaseUrl: LOCAL_DB,
       redisUrl: LOCAL_REDIS,
-      rawArtifactsDir: "./data/raw-artifacts",
+      rawArtifactsDir: LOCAL_ARTIFACTS,
+      configRoot: CONFIG_ROOT,
     });
     if (!gate.ok) throw new Error("gate failed");
     await buildWclScoringDerivedResetPlan({
       prisma: prisma as never,
       gate,
       execute: false,
-      redis: null,
+      redis: idleRedis(),
     });
     expect(prisma.$executeRawUnsafe).not.toHaveBeenCalled();
   });
 
-  it("execute refuses when active writers are present", async () => {
+  it("execute refuses when live writers are present", async () => {
     const prisma = mockPrisma();
-    prisma.$queryRawUnsafe = vi.fn(async (sql: string) => {
-      if (sql.includes("ingestion_jobs")) return [{ count: 2n }];
-      if (sql.includes("COUNT(*)")) return [{ count: 0n }];
-      return [];
+    const redis = idleRedis({
+      llen: vi.fn(async (key: string) => (key.includes(":active") ? 2 : 0)),
     });
     const gate = assertWclScoringDerivedResetAllowed({
       appEnv: "development",
       confirmationToken: WCL_SCORING_DERIVED_RESET_CONFIRMATION_TOKEN,
       databaseUrl: LOCAL_DB,
       redisUrl: LOCAL_REDIS,
-      rawArtifactsDir: "./data/raw-artifacts",
+      rawArtifactsDir: LOCAL_ARTIFACTS,
+      configRoot: CONFIG_ROOT,
     });
     if (!gate.ok) throw new Error("gate failed");
     const plan = await buildWclScoringDerivedResetPlan({
       prisma: prisma as never,
       gate,
       execute: true,
-      redis: null,
+      redis,
     });
     expect(plan.activeWriters.blocked).toBe(true);
     await expect(
-      executeWclScoringDerivedReset({ prisma: prisma as never, plan, redis: null }),
+      executeWclScoringDerivedReset({ prisma: prisma as never, plan, redis }),
     ).rejects.toThrow(/active writers|Refusing execute/i);
-    expect(prisma.$executeRawUnsafe).not.toHaveBeenCalled();
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it("execute wraps truncate + integrity in a transaction and reports external cleanup", async () => {
+    const prisma = mockPrisma({ users: 2, characters: 5 });
+    // After truncate, counts are zero for cleared tables; retain counts stay.
+    prisma.$queryRawUnsafe = vi.fn(async (sql: string) => {
+      if (sql.includes('"_prisma_migrations"')) return [{ count: 12n }];
+      if (
+        sql.includes("ingestion_jobs") ||
+        sql.includes("scoring_v2_shadow_canaries") ||
+        sql.includes("bulk_operations") ||
+        sql.includes("score_analysis_batches")
+      ) {
+        return [{ count: 0n }];
+      }
+      const match = /FROM "([^"]+)"/.exec(sql);
+      const table = match?.[1] ?? "";
+      if (table === "users") return [{ count: 2n }];
+      if (table === "characters") return [{ count: 5n }];
+      if (
+        table === "battlenet_accounts" ||
+        table === "verified_character_ownerships" ||
+        table === "regions" ||
+        table === "realms" ||
+        table === "seasons" ||
+        table === "dungeons" ||
+        table === "score_models" ||
+        table === "calibration_cohorts" ||
+        table === "calibration_cohort_members" ||
+        table === "metric_definitions" ||
+        table === "mechanic_rules" ||
+        table === "red_flag_definitions"
+      ) {
+        return [{ count: 1n }];
+      }
+      return [{ count: 0n }];
+    });
+    const txQuery = prisma.$queryRawUnsafe;
+    const txExecute = vi.fn(async () => 0);
+    prisma.$transaction = vi.fn(async (fn: (tx: unknown) => Promise<unknown>) =>
+      fn({ $queryRawUnsafe: txQuery, $executeRawUnsafe: txExecute }),
+    );
+
+    const redis = idleRedis({
+      keys: vi.fn(async (pattern: string) => {
+        if (
+          pattern.includes(":lock") ||
+          pattern.includes("wcl-v2:") ||
+          pattern.includes(":active")
+        ) {
+          return [];
+        }
+        if (pattern.startsWith("mplus:development:")) {
+          return ["mplus:development:cache:1"];
+        }
+        return [];
+      }),
+      del: vi.fn(async () => 1),
+    });
+    const gate = assertWclScoringDerivedResetAllowed({
+      appEnv: "development",
+      confirmationToken: WCL_SCORING_DERIVED_RESET_CONFIRMATION_TOKEN,
+      databaseUrl: LOCAL_DB,
+      redisUrl: LOCAL_REDIS,
+      rawArtifactsDir: LOCAL_ARTIFACTS,
+      configRoot: CONFIG_ROOT,
+    });
+    if (!gate.ok) throw new Error("gate failed");
+    const plan = await buildWclScoringDerivedResetPlan({
+      prisma: prisma as never,
+      gate,
+      execute: true,
+      redis,
+    });
+    expect(plan.blockedConditions).toEqual([]);
+    const result = await executeWclScoringDerivedReset({
+      prisma: prisma as never,
+      plan,
+      redis,
+    });
+    expect(prisma.$transaction).toHaveBeenCalled();
+    expect(txExecute).toHaveBeenCalledWith(
+      expect.stringMatching(/^TRUNCATE TABLE .* RESTART IDENTITY CASCADE$/),
+    );
+    expect(result.externalCleanup.partial).toBe(false);
+    expect(result.externalCleanup.redis.ok).toBe(true);
+    expect(result.migrationsStillApplied).toBe(true);
   });
 
   it("CAS cleanup cannot target a remote backend", () => {
@@ -257,6 +464,7 @@ describe("dry-run / execute planner", () => {
       databaseUrl: LOCAL_DB,
       redisUrl: LOCAL_REDIS,
       rawArtifactsDir: "s3://mplus-prod-artifacts",
+      configRoot: CONFIG_ROOT,
     });
     expect(remote.ok).toBe(false);
   });

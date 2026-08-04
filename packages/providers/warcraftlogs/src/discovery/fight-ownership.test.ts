@@ -7,7 +7,11 @@ import {
   candidatesFromHydratedReport,
   type HydrationReportPayload,
 } from "./report-hydration.js";
-import { resolveFightOwnership } from "./fight-ownership.js";
+import {
+  nameRealmMatches,
+  normalizeWclRealmSlug,
+  resolveFightOwnership,
+} from "./fight-ownership.js";
 import { buildRunCombatFactsFromEvents } from "../analysis/event-fetcher.js";
 import { buildEvidenceDatasetScopeFingerprint } from "@mplus/contracts";
 
@@ -170,5 +174,49 @@ describe("WCL fight ownership invariant", () => {
     expect(wallidrixe).not.toBe(coomer);
     expect(wallidrixe).toContain("a:317");
     expect(coomer).toContain("a:1");
+  });
+
+  it("E: same character name on different realms does not match", () => {
+    expect(nameRealmMatches("Wallidrixe", "Archimonde", "Wallidrixe", "kazzak")).toBe(false);
+    expect(nameRealmMatches("Wallidrixe", "Kazzak", "Wallidrixe", "archimonde")).toBe(false);
+    expect(nameRealmMatches("Wallidrixe", "Archimonde", "Wallidrixe", "archimonde")).toBe(true);
+
+    const ownership = resolveFightOwnership({
+      actors: [
+        { id: 10, name: "Wallidrixe", type: "Player", server: "Kazzak" },
+        { id: 317, name: "Wallidrixe", type: "Player", server: "Archimonde" },
+      ],
+      friendlyPlayers: [10, 317],
+      characterName: "Wallidrixe",
+      realmSlug: "archimonde",
+      keystoneLevel: 12,
+    });
+    expect(ownership.ok).toBe(true);
+    if (ownership.ok) expect(ownership.targetActorId).toBe(317);
+  });
+
+  it("F: partial realm names never prove ownership (no substring match)", () => {
+    expect(normalizeWclRealmSlug("Tarren Mill")).toBe("tarren-mill");
+    expect(normalizeWclRealmSlug("tarren_mill")).toBe("tarren-mill");
+    expect(nameRealmMatches("Wallidrixe", "Archimonde", "Wallidrixe", "archi")).toBe(false);
+    expect(nameRealmMatches("Wallidrixe", "Archi", "Wallidrixe", "archimonde")).toBe(false);
+    expect(nameRealmMatches("Wallidrixe", "Archimonde", "Wallidrixe", "Archimonde")).toBe(true);
+  });
+
+  it("G: missing actor server does not prove ownership", () => {
+    expect(nameRealmMatches("Wallidrixe", null, "Wallidrixe", "archimonde")).toBe(false);
+    expect(nameRealmMatches("Wallidrixe", undefined, "Wallidrixe", "archimonde")).toBe(false);
+    expect(nameRealmMatches("Wallidrixe", "", "Wallidrixe", "archimonde")).toBe(false);
+    expect(nameRealmMatches("Wallidrixe", "   ", "Wallidrixe", "archimonde")).toBe(false);
+
+    const ownership = resolveFightOwnership({
+      actors: [{ id: 317, name: "Wallidrixe", type: "Player", server: null }],
+      friendlyPlayers: [317],
+      characterName: "Wallidrixe",
+      realmSlug: "archimonde",
+      keystoneLevel: 12,
+    });
+    expect(ownership.ok).toBe(false);
+    if (!ownership.ok) expect(ownership.reason).toBe("TARGET_NOT_IN_REPORT");
   });
 });
