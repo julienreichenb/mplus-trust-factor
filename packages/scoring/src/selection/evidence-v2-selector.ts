@@ -799,6 +799,17 @@ export function finalizeEvidenceManifestV2(
     slots,
   });
 
+  // Fail closed: every SELECTED identity must be globally unique.
+  const selectedIdentities = new Set<string>();
+  for (const slot of slots) {
+    if (slot.state !== "SELECTED" || slot.identity == null) continue;
+    const key = `${slot.identity.reportCode}:${slot.identity.fightId}`;
+    if (selectedIdentities.has(key)) {
+      throw new Error(`duplicate_selected_manifest_identity:${key}`);
+    }
+    selectedIdentities.add(key);
+  }
+
   const rejectionReasonCounts: Record<string, number> = {};
   for (const summary of rejected) {
     rejectionReasonCounts[summary.reason] = (rejectionReasonCounts[summary.reason] ?? 0) + 1;

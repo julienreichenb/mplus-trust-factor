@@ -242,8 +242,11 @@ export interface ExplainabilityV2SelectedRunAdminDTO
   reportCode: string | null;
   fightId: number | null;
   reportRevision: number | null;
+  /** Selection outcome label — never a rejected-candidate reason for SELECTED slots. */
   selectionReason: string | null;
   candidateRank: number | null;
+  fallbackUsed: boolean;
+  fallbackReason: string | null;
 }
 
 export interface ExplainabilityV2RejectedCandidateAdminDTO {
@@ -306,7 +309,10 @@ export interface ExplainabilityV2ManifestMatrixCellDTO {
   fightId: number | null;
   reportRevision: number | null;
   candidateRank: number | null;
+  /** Selection outcome label — never DUPLICATE_REPORT_FIGHT for a selected run. */
   selectionReason: string | null;
+  fallbackUsed: boolean;
+  fallbackReason: string | null;
 }
 
 export interface ExplainabilityV2BatchQueueAdminDTO {

@@ -32,6 +32,7 @@ import {
   hydrateFightUnknownCandidates,
   InMemorySharedEvidenceStore,
   ingestSharedEvidenceBundle,
+  MAX_COVERAGE_AWARE_HYDRATION_REPORTS,
   PERFORMANCE_V2_EXTRACTOR_FAMILY,
   PERFORMANCE_V2_EXTRACTOR_VERSION,
   PERFORMANCE_V2_FACT_SCHEMA_VERSION,
@@ -398,7 +399,8 @@ export async function runScoringV2LiveCharacterProbe(args: ProbeCliArgs): Promis
     candidates: discovery.candidates,
     characterName: args.name,
     realmSlug: args.realm,
-    maxReports: 8,
+    activeDungeonSlugs,
+    maxReports: MAX_COVERAGE_AWARE_HYDRATION_REPORTS,
     fetchReport: async (code) => {
       const reportResult = await client.requestPermissive<{
         reportData?: {

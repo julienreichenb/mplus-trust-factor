@@ -19,6 +19,7 @@ import {
 } from "../orchestration/scoring-v2/types.js";
 import type { ScoringV2ProviderAccounting } from "../orchestration/scoring-v2/provider-accounting.js";
 import { resolveBatchDatasetRequirements } from "../orchestration/scoring-v2/dataset-requirements.js";
+import type { AcquiredEvidenceDatasetDescriptor } from "../orchestration/scoring-v2/dataset-descriptor-persist.js";
 import type { TypedDimensionFactPayload } from "../orchestration/scoring-v2/typed-fact-persist.js";
 import {
   isEvidenceV2SlotTerminal,
@@ -97,6 +98,7 @@ export interface EvidenceV2BatchRepository {
     rejectedAttempts?: EvidenceCandidateAcquisitionResult[] | null;
     acquiredDiscoveryKey?: string | null;
     datasetCompatibilityKeys?: string[];
+    datasetDescriptors?: AcquiredEvidenceDatasetDescriptor[];
     factSetFingerprint?: string | null;
     typedFactPayloads?: TypedDimensionFactPayload[];
     providerAccounting?: ScoringV2ProviderAccounting | null;
@@ -138,6 +140,15 @@ function parseMeta(metadata: unknown): EvidenceV2BatchMetadata | null {
   for (const slot of meta.slots ?? []) {
     if (!Array.isArray(slot.typedFactPayloads)) {
       slot.typedFactPayloads = [];
+    }
+    if (!Array.isArray(slot.datasetDescriptors)) {
+      slot.datasetDescriptors = [];
+    }
+    if (!Array.isArray(slot.datasetCompatibilityKeys)) {
+      slot.datasetCompatibilityKeys = [];
+    }
+    if (!Array.isArray(slot.rejectedAttempts)) {
+      slot.rejectedAttempts = [];
     }
     if (slot.providerAccounting === undefined) {
       slot.providerAccounting = null;
@@ -520,6 +531,7 @@ export function createEvidenceV2BatchRepository(
                 reservedDiscoveryKey: null,
                 datasetCompatibilityKeys:
                   input.datasetCompatibilityKeys ?? s.datasetCompatibilityKeys,
+                datasetDescriptors: input.datasetDescriptors ?? s.datasetDescriptors ?? [],
                 factSetFingerprint: input.factSetFingerprint ?? s.factSetFingerprint,
                 typedFactPayloads: input.typedFactPayloads ?? s.typedFactPayloads,
                 providerAccounting:

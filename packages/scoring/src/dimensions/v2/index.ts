@@ -23,6 +23,7 @@ export {
   buildUnavailableInputFingerprint,
   algorithmVersionForDimension,
   adaptPerformanceComputeInput,
+  performanceProvenanceFromManifest,
   adaptSurvivalComputeInput,
   adaptUtilityComputeInput,
   adaptExperienceComputeInput,

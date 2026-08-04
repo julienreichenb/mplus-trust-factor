@@ -813,6 +813,7 @@ describe.runIf(dbAvailable)("CP4 typed shadow pipeline E2E (disposable DB)", () 
         acquisitionResult: acquired.result,
         acquiredDiscoveryKey: discoveryIdentityKey(wonIdentity),
         datasetCompatibilityKeys: acquired.datasetCompatibilityKeys,
+        datasetDescriptors: acquired.datasetDescriptors,
         factSetFingerprint: acquired.factSetFingerprint,
         typedFactPayloads: acquired.typedFactPayloads,
       });

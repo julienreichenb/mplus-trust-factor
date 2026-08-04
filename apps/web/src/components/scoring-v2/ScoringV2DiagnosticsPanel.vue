@@ -212,6 +212,10 @@ watch([characterId, seasonId], () => {
                 <template v-if="cell.reportRevision != null">r{{ cell.reportRevision }}</template>
               </span>
               <span v-if="cell.selectionReason"> · {{ cell.selectionReason }}</span>
+              <span v-if="cell.candidateRank != null"> · rank {{ cell.candidateRank }}</span>
+              <span v-if="cell.fallbackUsed && cell.fallbackReason">
+                · fallback {{ cell.fallbackReason }}
+              </span>
             </li>
           </ul>
         </div>

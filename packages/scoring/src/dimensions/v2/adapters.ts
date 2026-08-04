@@ -353,6 +353,58 @@ function classifyPersistedFacts(
   };
 }
 
+/**
+ * Map acquisition-time PERFORMANCE outcomes from frozen manifest slot
+ * dimensionValidity.reasons into bounded dimension failure reasons.
+ * Distinguishes never-requested / public-API unavailable / row absent /
+ * schema unsupported / extraction failure without inventing parse facts.
+ */
+export function performanceProvenanceFromManifest(
+  manifest: CharacterSeasonEvidenceManifestV2,
+): string[] {
+  const reasons: string[] = [];
+  for (const slot of manifest.slots) {
+    if (slot.state !== "SELECTED") continue;
+    const slotReasons = slot.dimensionValidity?.reasons ?? [];
+    for (const raw of slotReasons) {
+      if (!raw.startsWith("PERFORMANCE:")) continue;
+      // Format: PERFORMANCE:STATUS:reason
+      const parts = raw.split(":");
+      const status = parts[1] ?? "";
+      const detail = parts.slice(2).join(":") || "n/a";
+      if (status === "UNAVAILABLE") {
+        if (detail === "ranking_parse_not_requested") {
+          reasons.push("performance_extractor_not_requested");
+        } else if (
+          detail === "RANKING_PARSE_PUBLIC_API_UNAVAILABLE" ||
+          detail === "ranking_parse_provider_capability_absent"
+        ) {
+          reasons.push("ranking_parse_public_api_unavailable");
+        } else if (
+          detail === "ranking_parse_row_absent" ||
+          detail === "ranking_parse_absent"
+        ) {
+          reasons.push("ranking_parse_row_absent");
+        } else if (
+          detail === "ranking_parse_zone_payload_empty" ||
+          detail.includes("schema")
+        ) {
+          reasons.push(
+            detail.includes("schema")
+              ? "ranking_parse_schema_unsupported"
+              : "ranking_parse_zone_payload_empty",
+          );
+        } else {
+          reasons.push(`performance_unavailable:${detail}`);
+        }
+      } else if (status === "FAILED") {
+        reasons.push(`performance_extraction_failed:${detail}`);
+      }
+    }
+  }
+  return [...new Set(reasons)].slice(0, 16);
+}
+
 export type PerformanceAdapterResult =
   | { ok: true; input: PerformanceV2ComputeInput }
   | { ok: false; limitations: string[]; failureReasons: string[] };
@@ -392,14 +444,20 @@ export function adaptPerformanceComputeInput(input: {
   }
 
   if (runParseFacts.length === 0) {
+    const provenance = performanceProvenanceFromManifest(input.manifest);
     const failureReasons = [
-      ...readiness.failureReasons,
+      ...(provenance.length > 0
+        ? provenance
+        : readiness.failureReasons.length > 0
+          ? readiness.failureReasons
+          : ["missing_performance_parse_facts"]),
       ...parseFailures,
-      ...(readiness.ready || parseFailures.length > 0
+      // Keep parse-facts absence when we only know the extractor family was empty
+      // and acquisition left no structured provenance.
+      ...(provenance.length === 0 &&
+      readiness.failureReasons.includes("missing_extractor_family:performance")
         ? ["missing_performance_parse_facts"]
-        : readiness.failureReasons.length === 0
-          ? ["missing_performance_parse_facts"]
-          : []),
+        : []),
     ];
     return {
       ok: false,

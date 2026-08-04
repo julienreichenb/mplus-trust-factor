@@ -359,6 +359,7 @@ export async function runAnalyzeEvidenceSlotV2(
         rejectedAttempts: acquired.rejectedAttempts,
         acquiredDiscoveryKey: discoveryIdentityKey(acquired.result.discoveryIdentity),
         datasetCompatibilityKeys: acquired.datasetCompatibilityKeys,
+        datasetDescriptors: acquired.datasetDescriptors,
         factSetFingerprint: acquired.factSetFingerprint,
         typedFactPayloads: acquired.typedFactPayloads,
         providerAccounting: acquired.providerAccounting,

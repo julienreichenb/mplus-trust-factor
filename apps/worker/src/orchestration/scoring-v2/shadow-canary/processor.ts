@@ -3,6 +3,7 @@
  */
 import type { ScoringV2ShadowCanaryJob } from "@mplus/contracts";
 import type { WorkerContainer } from "../../../container.js";
+import { toInputJsonValue } from "../../../persistence/prisma-json.js";
 import { discoverShadowCanaryCandidates } from "./discover.js";
 import { runShadowCanaryJob } from "./runner.js";
 
@@ -49,14 +50,14 @@ export async function runScoringV2ShadowCanaryJob(
       where: { id: job.canaryId },
       data: {
         seasonId: discovery.seasonId,
-        diagnostics: {
+        diagnostics: toInputJsonValue({
           ...(typeof canary.diagnostics === "object" && canary.diagnostics
             ? (canary.diagnostics as Record<string, unknown>)
             : {}),
           discovery: discovery.diagnostics,
           activeDungeonSlugs: discovery.activeDungeonSlugs,
           candidateCount: discovery.candidates.length,
-        },
+        }),
       },
     });
 

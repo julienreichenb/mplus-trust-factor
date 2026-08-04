@@ -407,4 +407,23 @@ export class WclSourceRepository {
     );
     return { pages, digest };
   }
+
+  /**
+   * Link existing durable pages to an EvidenceDataset. Only updates rows where
+   * datasetId is still null — never fabricates pages or overwrites a prior link.
+   */
+  async attachDatasetIdToPages(input: {
+    pageIds: string[];
+    datasetId: string;
+  }): Promise<number> {
+    if (input.pageIds.length === 0) return 0;
+    const result = await this.prisma.evidenceDatasetPage.updateMany({
+      where: {
+        id: { in: input.pageIds },
+        datasetId: null,
+      },
+      data: { datasetId: input.datasetId },
+    });
+    return result.count;
+  }
 }

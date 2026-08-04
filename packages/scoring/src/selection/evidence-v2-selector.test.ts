@@ -386,6 +386,45 @@ describe("evidence V2 plan → acquire → finalize lifecycle", () => {
     );
   });
 
+  it("keeps selected fallback identity distinct and does not mark it as duplicate", () => {
+    const { plan } = buildEvidenceAcquisitionPlanV2({
+      scope: baseScope({ activeDungeonSlugs: ["skyreach"] }),
+      candidates: [
+        candidate({ reportCode: "head", fightId: 1, dungeonSlug: "skyreach", keyLevel: 18 }),
+        candidate({ reportCode: "fallback", fightId: 2, dungeonSlug: "skyreach", keyLevel: 14 }),
+      ],
+      plannedAt: "2026-08-01T11:00:00.000Z",
+    });
+
+    const { manifest } = finalizeEvidenceManifestV2({
+      plan,
+      acquisitionResults: acquireAllFromPlan(plan),
+      selectedAt: "2026-08-01T12:00:00.000Z",
+    });
+
+    const slot0 = manifest.slots.find((s) => s.slotIndex === 0)!;
+    const slot1 = manifest.slots.find((s) => s.slotIndex === 1)!;
+    expect(slot0.identity?.reportCode).toBe("head");
+    expect(slot0.selectedRank).toBe(0);
+    expect(slot0.fallbackReason).toBeNull();
+    expect(slot1.identity?.reportCode).toBe("fallback");
+    expect(slot1.selectedRank).toBe(1);
+    expect(slot1.fallbackReason).toBe("DUPLICATE_REPORT_FIGHT");
+    // Selected identity itself is not a duplicate — rejected list holds the skip.
+    expect(
+      manifest.rejectedCandidates.some(
+        (r) =>
+          r.reason === "DUPLICATE_REPORT_FIGHT" &&
+          r.reportCode === "head" &&
+          r.fightId === 1,
+      ),
+    ).toBe(true);
+    const selectedKeys = manifest.slots
+      .filter((s) => s.state === "SELECTED")
+      .map((s) => `${s.identity!.reportCode}:${s.identity!.fightId}`);
+    expect(new Set(selectedKeys).size).toBe(selectedKeys.length);
+  });
+
   it("ignores parse / behavior / label fields in ordering", () => {
     const lowParseFirst = candidate({
       reportCode: "low-parse",

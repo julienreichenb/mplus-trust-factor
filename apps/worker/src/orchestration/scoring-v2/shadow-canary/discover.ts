@@ -5,12 +5,14 @@ import type { EvidenceCandidateMetadataV2, ProviderFetchContext } from "@mplus/c
 import {
   ENCOUNTER_DUNGEON_MAP,
   hydrateFightUnknownCandidates,
+  MAX_COVERAGE_AWARE_HYDRATION_REPORTS,
   OPERATIONS,
   planCandidateDiscovery,
   resolveMplusZoneConfig,
   slugifyDungeonName,
   toCandidateMetadataV2,
   type DiscoverySourceRow,
+  type HydrationCoverageDiagnostics,
 } from "@mplus/provider-warcraftlogs";
 import { resolveActiveSeasonDungeonPool } from "@mplus/scoring";
 import type { WorkerContainer } from "../../../container.js";
@@ -30,6 +32,7 @@ export interface ShadowCanaryDiscoveryResult {
     inaccessibleExclusions: number;
     dungeonPoolSource: string;
     providerCalls: number;
+    hydration: HydrationCoverageDiagnostics | null;
   };
 }
 
@@ -136,14 +139,18 @@ export async function discoverShadowCanaryCandidates(input: {
   providerCalls += 5;
 
   let hydratedCandidates = discovery.candidates;
+  let hydrationDiagnostics: HydrationCoverageDiagnostics | null = null;
   if (typeof wcl.getGraphQlClient === "function") {
     const client = wcl.getGraphQlClient();
     const hydrated = await hydrateFightUnknownCandidates({
       candidates: discovery.candidates as never,
       characterName: input.characterName,
       realmSlug: input.realmSlug,
-      maxReports: 8,
+      activeDungeonSlugs,
+      maxReports: MAX_COVERAGE_AWARE_HYDRATION_REPORTS,
       fetchReport: async (code: string) => {
+        // Count before the call so thrown/network failures match reportFetchAttempts.
+        providerCalls += 1;
         const reportResult = await client.requestPermissive<{
           reportData?: {
             report?: Record<string, unknown> | null;
@@ -154,11 +161,11 @@ export async function discoverShadowCanaryCandidates(input: {
           variables: { code },
           region: input.region,
         });
-        providerCalls += 1;
         return (reportResult.response.data?.reportData?.report ?? null) as never;
       },
     });
     hydratedCandidates = hydrated.candidates as unknown as Array<Record<string, unknown>>;
+    hydrationDiagnostics = hydrated.diagnostics;
   }
 
   const sourceRows: DiscoverySourceRow[] = [];
@@ -273,6 +280,7 @@ export async function discoverShadowCanaryCandidates(input: {
       inaccessibleExclusions,
       dungeonPoolSource: dungeonPool.source,
       providerCalls,
+      hydration: hydrationDiagnostics,
     },
   };
 }

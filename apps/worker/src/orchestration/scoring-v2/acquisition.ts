@@ -55,6 +55,7 @@ import {
   sharedEvidenceKeysFromRequirements,
   type EvidenceDatasetRequirementV2,
 } from "./dataset-requirements.js";
+import type { AcquiredEvidenceDatasetDescriptor } from "./dataset-descriptor-persist.js";
 import type { ScoringV2EvidenceTransport } from "./evidence-transport.js";
 import {
   persistTypedFactSet,
@@ -333,6 +334,7 @@ export async function acquireCandidateWithFallback(input: {
 }): Promise<{
   result: EvidenceCandidateAcquisitionResult;
   datasetCompatibilityKeys: string[];
+  datasetDescriptors: AcquiredEvidenceDatasetDescriptor[];
   factSetFingerprint: string | null;
   typedFactPayloads: TypedDimensionFactPayload[];
   rejectedAttempts: EvidenceCandidateAcquisitionResult[];
@@ -604,6 +606,7 @@ export async function acquireCandidateWithFallback(input: {
       const artifactIds: string[] = [];
       const datasetHashes: EvidenceCandidateAcquisitionResult["datasetHashes"] = [];
       const datasetCompatibilityKeys: string[] = [];
+      const datasetDescriptors: AcquiredEvidenceDatasetDescriptor[] = [];
 
       // Persist fight-details artifact before extraction.
       const fightArtifact = await persistArtifactBytes({
@@ -787,27 +790,49 @@ export async function acquireCandidateWithFallback(input: {
               EVIDENCE_PLANNER_PROVIDER_CONTRACT,
             ].join(":");
             datasetCompatibilityKeys.push(compatibilityKey);
+            const payloadFingerprint =
+              ds.pages[0]?.payloadFingerprint ?? buildDatasetContentHash(ds.events);
             datasetHashes.push({
               dataset: kind,
-              contentHash: ds.pages[0]?.payloadFingerprint ?? buildDatasetContentHash(ds.events),
+              contentHash: payloadFingerprint,
             });
+
+            const descriptor: AcquiredEvidenceDatasetDescriptor = {
+              datasetKey: kind.toLowerCase(),
+              datasetKind: kind,
+              compatibilityKey,
+              artifactId: artifactIds[artifactIds.length - 1] ?? fightArtifact.artifactId,
+              schemaVersion: SCORING_V2_DATASET_SCHEMA_VERSION,
+              providerContractVersion: EVIDENCE_PLANNER_PROVIDER_CONTRACT,
+              state: "READY",
+              eventCount: ds.eventCount,
+              pageCount: ds.pageCount,
+              truncated: ds.truncated,
+              payloadFingerprint,
+              fetchedAt: new Date().toISOString(),
+              costSource: ds.costSource ?? null,
+              reportCode: identity.reportCode,
+              fightId: identity.fightId,
+              reportRevision,
+            };
+            datasetDescriptors.push(descriptor);
 
             if (input.manifestSlotIdForPersistence) {
               try {
                 await input.evidence.createDataset({
                   manifestSlotId: input.manifestSlotIdForPersistence,
-                  datasetKey: kind.toLowerCase(),
-                  compatibilityKey,
-                  artifactId: artifactIds[artifactIds.length - 1] ?? fightArtifact.artifactId,
-                  schemaVersion: SCORING_V2_DATASET_SCHEMA_VERSION,
-                  providerContractVersion: EVIDENCE_PLANNER_PROVIDER_CONTRACT,
-                  state: "READY",
-                  eventCount: ds.eventCount,
-                  pageCount: ds.pageCount,
-                  truncated: ds.truncated,
-                  payloadFingerprint: ds.pages[0]?.payloadFingerprint ?? null,
-                  fetchedAt: new Date(),
-                  costSource: ds.costSource,
+                  datasetKey: descriptor.datasetKey,
+                  compatibilityKey: descriptor.compatibilityKey,
+                  artifactId: descriptor.artifactId,
+                  schemaVersion: descriptor.schemaVersion,
+                  providerContractVersion: descriptor.providerContractVersion,
+                  state: descriptor.state,
+                  eventCount: descriptor.eventCount,
+                  pageCount: descriptor.pageCount,
+                  truncated: descriptor.truncated,
+                  payloadFingerprint: descriptor.payloadFingerprint,
+                  fetchedAt: new Date(descriptor.fetchedAt),
+                  costSource: descriptor.costSource,
                 });
               } catch {
                 // Unique compatibility key — reusable completed artifact survives.
@@ -1184,6 +1209,7 @@ export async function acquireCandidateWithFallback(input: {
           evidenceCompleteness: candidate.evidenceCompleteness,
         },
         datasetCompatibilityKeys,
+        datasetDescriptors,
         factSetFingerprint,
         typedFactPayloads,
         rejectedAttempts,
@@ -1270,6 +1296,7 @@ export async function acquireCandidateWithFallback(input: {
       evidenceCompleteness: last?.evidenceCompleteness ?? null,
     },
     datasetCompatibilityKeys: [],
+    datasetDescriptors: [],
     factSetFingerprint: null,
     typedFactPayloads: [],
     rejectedAttempts,

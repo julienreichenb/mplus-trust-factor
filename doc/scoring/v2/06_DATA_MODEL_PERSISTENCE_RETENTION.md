@@ -121,7 +121,8 @@ model EvidenceDataset {
   id                    String @id @default(uuid()) @db.Uuid
   manifestSlotId        String @db.Uuid
   datasetKey            String
-  compatibilityKey      String @unique
+  /** Logical identity shared across refreshes — indexed, not globally unique. */
+  compatibilityKey      String
   artifactId            String? @db.Uuid
   schemaVersion         String
   providerContractVersion String
@@ -133,8 +134,33 @@ model EvidenceDataset {
   costSource            String
   payloadFingerprint    String?
   fetchedAt             DateTime? @db.Timestamptz(3)
+
+  @@unique([manifestSlotId, datasetKey])
+  @@index([compatibilityKey])
 }
 ```
+
+**Acquisition → finalize persistence contract (provider-free):**
+
+1. During slot acquisition (before the frozen manifest exists), capture bounded
+   `AcquiredEvidenceDatasetDescriptor` rows on the batch slot record for every
+   shared event dataset used by typed extractors. Descriptors reference already
+   persisted `RawArtifact` ids and page fingerprints — they never synthesize
+   raw pages or fake dataset content.
+2. After `createFrozenManifest`, bind descriptors to the exact
+   `EvidenceManifestSlot` by `reportCode + fightId + reportRevision` and write
+   `EvidenceDataset` rows. Each frozen slot keeps its own auditable descriptor
+   row (`@@unique([manifestSlotId, datasetKey])`).
+3. `compatibilityKey` is a **logical** identity shared across refreshes
+   (report/fight/revision/kind/contract). It is indexed, not globally unique.
+   Same compatibilityKey + same immutable content → create a new slot-owned
+   binding that references the same artifact. Same compatibilityKey + different
+   content → fail closed. Redelivery of the same slot is idempotent.
+4. `EvidenceDatasetPage` rows are scoring-neutral and durable by report
+   identity (`datasetId` nullable). Finalization may attach `datasetId` only to
+   still-unlinked pages; pages already linked to an older descriptor remain
+   discoverable by `reportCode+fightId+reportRevision+datasetKey`. Never
+   fabricates pages and never calls WCL.
 
 ### 3.5 Normalized fact sets
 
