@@ -187,12 +187,61 @@ export class ScoringV2EvidenceAuditService {
         facts: fs.facts,
         coverage: fs.coverage,
         limitations: fs.limitations,
-        reportCode: slot.reportCode,
-        fightId: slot.fightId,
-        reportRevision: slot.reportRevision,
+        relationReportCode: slot.reportCode,
+        relationFightId: slot.fightId,
+        relationReportRevision: slot.reportRevision,
         dungeonSlug: slot.dungeon.slug,
         slotIndex: slot.slotIndex,
       })),
+    );
+
+    const artifactIdSet = new Set<string>();
+    for (const ds of datasets) {
+      if (ds.artifactId) artifactIdSet.add(ds.artifactId);
+    }
+    for (const page of pagesByIdentity) {
+      if (page.artifactId) artifactIdSet.add(page.artifactId);
+    }
+    for (const fs of factSets) {
+      if (isRecord(fs.coverage) && Array.isArray(fs.coverage.artifactIds)) {
+        for (const id of fs.coverage.artifactIds) {
+          if (typeof id === "string" && id.length > 0) artifactIdSet.add(id);
+        }
+      }
+    }
+    for (const d of digests) {
+      if (d.masterDataArtifactId) artifactIdSet.add(d.masterDataArtifactId);
+    }
+
+    const artifactRows =
+      artifactIdSet.size === 0
+        ? []
+        : await this.prisma.rawArtifact.findMany({
+            where: { id: { in: [...artifactIdSet] } },
+            select: {
+              id: true,
+              provider: true,
+              artifactClass: true,
+              contentHash: true,
+              sizeBytes: true,
+              uncompressedSizeBytes: true,
+            },
+            take: 2_000,
+          });
+    const artifactsById = Object.fromEntries(
+      artifactRows.map((a) => [
+        a.id,
+        {
+          id: a.id,
+          provider: String(a.provider),
+          artifactClass: a.artifactClass,
+          contentHash: a.contentHash,
+          byteLength:
+            a.uncompressedSizeBytes != null
+              ? Number(a.uncompressedSizeBytes)
+              : Number(a.sizeBytes),
+        },
+      ]),
     );
 
     const dimensions = manifest.dimensionComputations.map((d) => ({
@@ -204,6 +253,7 @@ export class ScoringV2EvidenceAuditService {
       metrics: d.metrics,
       explanation: d.explanation,
       manifestId: d.manifestId,
+      scoreModelId: d.scoreModelId,
     }));
 
     const factRefs: PersistedFactSetRef[] = factSets.map((f) => ({
@@ -214,15 +264,15 @@ export class ScoringV2EvidenceAuditService {
       facts: f.facts,
       limitations: f.limitations,
       manifestSlotId: f.manifestSlotId,
-      reportCode: f.reportCode,
-      fightId: f.fightId,
-      reportRevision: f.reportRevision,
+      reportCode: f.relationReportCode,
+      fightId: f.relationFightId,
+      reportRevision: f.relationReportRevision,
       dungeonSlug: f.dungeonSlug,
       slotIndex: f.slotIndex,
     }));
 
     const scoreModelId =
-      manifest.dimensionComputations[0]?.scoreModelId ??
+      dimensions.find((d) => d.scoreModelId)?.scoreModelId ??
       (
         await this.prisma.scoreModel.findFirst({
           where: { status: { in: ["ACTIVE", "DRAFT"] } },
@@ -243,7 +293,7 @@ export class ScoringV2EvidenceAuditService {
       factSets: factRefs,
       persistedDimensions: dimensions
         .filter((d): d is typeof d & { dimension: ScoringV2PublicDimension } =>
-          ["PERFORMANCE", "SURVIVAL", "UTILITY", "EXPERIENCE"].includes(d.dimension),
+          ["PERFORMANCE", "SURVIVAL", "UTILITY"].includes(d.dimension),
         )
         .map((d) => ({
           dimension: d.dimension as ScoringV2PublicDimension,
@@ -256,7 +306,9 @@ export class ScoringV2EvidenceAuditService {
           inputFingerprint: d.inputFingerprint,
           metrics: d.metrics,
           explanation: d.explanation,
+          scoreModelId: d.scoreModelId,
         })),
+      enabledDimensions: ["PERFORMANCE", "SURVIVAL", "UTILITY"],
       providerCallCounter,
     });
 
@@ -268,18 +320,27 @@ export class ScoringV2EvidenceAuditService {
       coverageState: manifest.coverageState,
       expectedSlotCount: manifest.expectedSlotCount,
       selectedSlotCount: manifest.selectedSlotCount,
-      slotRows: manifest.slots.map((s) => ({
-        id: s.id,
-        dungeonSlug: s.dungeon.slug,
-        slotIndex: s.slotIndex,
-        state: s.state,
-        reportCode: s.reportCode,
-        fightId: s.fightId,
-        reportRevision: s.reportRevision,
-        keyLevel: s.keyLevel,
-        selectionReason: s.selectionReason,
-        candidateRank: s.candidateRank,
-      })),
+      slotRows: manifest.slots.map((s) => {
+        const reasons =
+          isRecord(s.dimensionValidity) && Array.isArray(s.dimensionValidity.reasons)
+            ? s.dimensionValidity.reasons.filter(
+                (r): r is string => typeof r === "string",
+              )
+            : [];
+        return {
+          id: s.id,
+          dungeonSlug: s.dungeon.slug,
+          slotIndex: s.slotIndex,
+          state: s.state,
+          reportCode: s.reportCode,
+          fightId: s.fightId,
+          reportRevision: s.reportRevision,
+          keyLevel: s.keyLevel,
+          selectionReason: s.selectionReason,
+          candidateRank: s.candidateRank,
+          dimensionValidityReasons: reasons,
+        };
+      }),
       datasets,
       factSets,
       dimensions,
@@ -292,6 +353,7 @@ export class ScoringV2EvidenceAuditService {
         contentFingerprint: d.contentFingerprint,
       })),
       pagesByIdentity,
+      artifactsById,
       replay,
     });
   }

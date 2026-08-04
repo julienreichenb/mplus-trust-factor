@@ -1,6 +1,6 @@
 /**
  * Bounded featureUsage sections for dimension metrics / evidence audit.
- * Detects SCORE features extracted but never consumed.
+ * Consumed=true only when a scorer-owned consumption trace exists.
  */
 
 import type {
@@ -15,6 +15,10 @@ import {
   SURVIVAL_FEATURE_REGISTRY,
   UTILITY_FEATURE_REGISTRY,
 } from "./feature-registry.js";
+import {
+  indexTracesByFeature,
+  type FeatureConsumptionTrace,
+} from "./consumption-trace.js";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -26,16 +30,12 @@ function countZeroMeaningful(n: number | null | undefined): number {
 
 export interface FeatureUsageBuildResult {
   featureUsage: FeatureUsageEntry[];
-  /** Fail-closed integrity failures (SCORE extracted but never consumed, etc.). */
   integrityFailures: string[];
 }
 
 function baseEntry(
   feature: EvidenceAuditFeatureRegistryEntry,
-  partial: Omit<
-    FeatureUsageEntry,
-    "featurePath" | "scoringRole"
-  >,
+  partial: Omit<FeatureUsageEntry, "featurePath" | "scoringRole">,
 ): FeatureUsageEntry {
   return {
     featurePath: feature.featurePath,
@@ -44,12 +44,61 @@ function baseEntry(
   };
 }
 
+function resolveConsumption(
+  feature: EvidenceAuditFeatureRegistryEntry,
+  byPath: Map<string, FeatureConsumptionTrace>,
+  n: number,
+): {
+  consumed: boolean;
+  outputField: string | null;
+  exclusionReason: string | null;
+  integrityFailure: string | null;
+} {
+  const trace = byPath.get(feature.featurePath);
+  if (trace) {
+    const offMode =
+      trace.exclusionReason != null &&
+      /relativeDamageMode=off/i.test(trace.exclusionReason);
+    return {
+      consumed: !offMode,
+      outputField: trace.outputField,
+      exclusionReason: trace.exclusionReason ?? null,
+      integrityFailure: null,
+    };
+  }
+  if (n === 0) {
+    return {
+      consumed: false,
+      outputField: null,
+      exclusionReason: "no_selected_slot_facts",
+      integrityFailure: null,
+    };
+  }
+  if (feature.scoringRole === "SCORE" && !feature.nullableOptional) {
+    return {
+      consumed: false,
+      outputField: null,
+      exclusionReason: "SCORE_FEATURE_NOT_CONSUMED",
+      integrityFailure: `SCORE_FEATURE_NOT_CONSUMED:${feature.featurePath}`,
+    };
+  }
+  return {
+    consumed: false,
+    outputField: null,
+    exclusionReason: "not_traced_by_scorer",
+    integrityFailure: null,
+  };
+}
+
 export function buildSurvivalFeatureUsage(
   factSets: SurvivalFactDocumentV2[],
-  options?: { relativeDamageMode?: "off" | "shadow" | "active" },
+  options?: {
+    relativeDamageMode?: "off" | "shadow" | "active";
+    consumptionTraces?: readonly FeatureConsumptionTrace[];
+  },
 ): FeatureUsageBuildResult {
-  const mode = options?.relativeDamageMode ?? "shadow";
   const n = factSets.length;
+  const byPath = indexTracesByFeature(options?.consumptionTraces ?? []);
   const integrityFailures: string[] = [];
   const featureUsage: FeatureUsageEntry[] = [];
 
@@ -58,26 +107,21 @@ export function buildSurvivalFeatureUsage(
     let valid = 0;
     let missing = 0;
     let zero = 0;
-    let consumed = true;
-    let outputField: string | null = feature.outputMetricOrExplanationField;
-    let exclusionReason: string | null = null;
 
     for (const fs of factSets) {
       containing += 1;
       switch (feature.featurePath) {
-        case "survival.deaths": {
+        case "survival.deaths":
           valid += 1;
           zero += countZeroMeaningful(fs.deaths.count);
           break;
-        }
-        case "survival.activeCombat": {
+        case "survival.activeCombat":
           if (fs.activeCombat.durationMs > 0) valid += 1;
           else {
             missing += 1;
             zero += 1;
           }
           break;
-        }
         case "survival.defensiveActivations.byCategory": {
           valid += 1;
           const total = Object.values(fs.defensiveActivations.byCategory).reduce(
@@ -87,26 +131,22 @@ export function buildSurvivalFeatureUsage(
           zero += countZeroMeaningful(total);
           break;
         }
-        case "survival.defensiveActivations.toolkit": {
+        case "survival.defensiveActivations.toolkit":
           if (fs.defensiveActivations.toolkit.length > 0) valid += 1;
           else missing += 1;
           break;
-        }
-        case "survival.defensiveActivations.catalogCoverage": {
+        case "survival.defensiveActivations.catalogCoverage":
           valid += 1;
           zero += countZeroMeaningful(fs.defensiveActivations.catalogCoverage);
           break;
-        }
-        case "survival.dangerWindows": {
+        case "survival.dangerWindows":
           valid += 1;
           zero += countZeroMeaningful(fs.dangerWindows.length);
           break;
-        }
         case "survival.dangerWindows.hpEvidenceQuality": {
           const withHp = fs.dangerWindows.filter((w) => w.hpEvidenceQuality !== "MISSING");
-          if (withHp.length > 0) valid += 1;
-          else if (fs.dangerWindows.length === 0) missing += 1;
-          else valid += 1;
+          if (withHp.length > 0 || fs.dangerWindows.length > 0) valid += 1;
+          else missing += 1;
           break;
         }
         case "survival.dangerWindows.recoveryUseful": {
@@ -118,74 +158,35 @@ export function buildSurvivalFeatureUsage(
           }
           break;
         }
-        case "survival.relativeDamage": {
-          if (fs.relativeDamage == null) {
-            missing += 1;
-            if (mode !== "active") {
-              consumed = false;
-              exclusionReason = `relativeDamageMode=${mode}; explainability/shadow only`;
-            }
-          } else {
-            valid += 1;
-            if (mode === "off") {
-              consumed = false;
-              exclusionReason = "relativeDamageMode=off";
-            } else if (mode === "shadow") {
-              // Consumed into explanation/metrics, not numeric public score.
-              outputField = "relativeDamageShadow (publicContribution=0)";
-            }
-          }
+        case "survival.relativeDamage":
+          if (fs.relativeDamage == null) missing += 1;
+          else valid += 1;
           break;
-        }
-        case "survival.healthEvidence.mode": {
+        case "survival.healthEvidence.mode":
           valid += 1;
           if (fs.healthEvidence.mode === "MISSING") missing += 1;
           break;
-        }
         default:
           missing += 1;
-          consumed = false;
-          exclusionReason = "unregistered_path_handler";
       }
     }
 
-    if (n === 0) {
-      containing = 0;
-      missing = 1;
-      if (feature.scoringRole === "SCORE" && !feature.nullableOptional) {
-        // Required SCORE with no facts — availability limitation expected upstream.
-        exclusionReason = exclusionReason ?? "no_selected_slot_facts";
-      }
+    const consumption = resolveConsumption(feature, byPath, n);
+    if (consumption.integrityFailure) {
+      integrityFailures.push(consumption.integrityFailure);
     }
 
-    const entry = baseEntry(feature, {
-      selectedSlotCountContaining: containing,
-      validValueCount: valid,
-      missingCount: missing,
-      zeroCount: feature.featurePath.includes("toolkit") ? null : zero,
-      consumed,
-      outputComponentOrConfidenceField: consumed ? outputField : null,
-      exclusionReason,
-    });
-    featureUsage.push(entry);
-
-    if (feature.scoringRole === "SCORE" && n > 0 && !consumed && !exclusionReason) {
-      integrityFailures.push(
-        `SCORE_FEATURE_NOT_CONSUMED:${feature.featurePath}`,
-      );
-    }
-    if (
-      feature.scoringRole === "SCORE" &&
-      !feature.nullableOptional &&
-      n > 0 &&
-      valid === 0 &&
-      missing === n &&
-      !exclusionReason
-    ) {
-      integrityFailures.push(
-        `REQUIRED_FEATURE_MISSING:${feature.featurePath}`,
-      );
-    }
+    featureUsage.push(
+      baseEntry(feature, {
+        selectedSlotCountContaining: containing,
+        validValueCount: valid,
+        missingCount: n === 0 ? 1 : missing,
+        zeroCount: feature.featurePath.includes("toolkit") ? null : zero,
+        consumed: consumption.consumed,
+        outputComponentOrConfidenceField: consumption.outputField,
+        exclusionReason: consumption.exclusionReason,
+      }),
+    );
   }
 
   return { featureUsage, integrityFailures };
@@ -193,8 +194,10 @@ export function buildSurvivalFeatureUsage(
 
 export function buildUtilityFeatureUsage(
   factSets: UtilityV2RunFactSet[],
+  options?: { consumptionTraces?: readonly FeatureConsumptionTrace[] },
 ): FeatureUsageBuildResult {
   const n = factSets.length;
+  const byPath = indexTracesByFeature(options?.consumptionTraces ?? []);
   const integrityFailures: string[] = [];
   const featureUsage: FeatureUsageEntry[] = [];
 
@@ -203,87 +206,84 @@ export function buildUtilityFeatureUsage(
     let valid = 0;
     let missing = 0;
     let zero = 0;
-    const consumed = true;
-    const outputField: string | null = feature.outputMetricOrExplanationField;
-    const exclusionReason: string | null = null;
 
     for (const fs of factSets) {
       containing += 1;
       switch (feature.featurePath) {
         case "utility.interruptAttempts.CONFIRMED_SUCCESS": {
-          const c = fs.interruptAttempts.filter((a) => a.classification === "CONFIRMED_SUCCESS")
-            .length;
           valid += 1;
-          zero += countZeroMeaningful(c);
+          zero += countZeroMeaningful(
+            fs.interruptAttempts.filter((a) => a.classification === "CONFIRMED_SUCCESS")
+              .length,
+          );
           break;
         }
         case "utility.interruptAttempts.VALID_OVERLAP": {
-          const c = fs.interruptAttempts.filter((a) => a.classification === "VALID_OVERLAP")
-            .length;
           valid += 1;
-          zero += countZeroMeaningful(c);
+          zero += countZeroMeaningful(
+            fs.interruptAttempts.filter((a) => a.classification === "VALID_OVERLAP").length,
+          );
           break;
         }
         case "utility.interruptAttempts.MATCHED_FAILED": {
-          const c = fs.interruptAttempts.filter((a) => a.classification === "MATCHED_FAILED")
-            .length;
           valid += 1;
-          zero += countZeroMeaningful(c);
+          zero += countZeroMeaningful(
+            fs.interruptAttempts.filter((a) => a.classification === "MATCHED_FAILED")
+              .length,
+          );
           break;
         }
         case "utility.interruptAttempts.UNMATCHED_ATTEMPT": {
-          const c = fs.interruptAttempts.filter((a) => a.classification === "UNMATCHED_ATTEMPT")
-            .length;
           valid += 1;
-          zero += countZeroMeaningful(c);
+          zero += countZeroMeaningful(
+            fs.interruptAttempts.filter((a) => a.classification === "UNMATCHED_ATTEMPT")
+              .length,
+          );
           break;
         }
-        case "utility.hostileObservability": {
+        case "utility.hostileObservability":
           valid += 1;
           if (fs.hostileObservability === "ABSENT") missing += 1;
           zero += countZeroMeaningful(fs.hostileBegincastCount);
           break;
-        }
-        case "utility.ccActions": {
+        case "utility.ccActions":
           valid += 1;
           zero += countZeroMeaningful(fs.ccActions.length);
           break;
-        }
-        case "utility.supportActions": {
+        case "utility.supportActions":
           valid += 1;
           zero += countZeroMeaningful(fs.supportActions.length);
           break;
-        }
-        case "utility.dispelPurgeSuccessCount": {
+        case "utility.dispelPurgeSuccessCount":
           valid += 1;
           zero += countZeroMeaningful(fs.dispelPurgeSuccessCount);
           break;
-        }
-        case "utility.activeCombatMs": {
+        case "utility.activeCombatMs":
           if (fs.activeCombatMs > 0) valid += 1;
           else {
             missing += 1;
             zero += 1;
           }
           break;
-        }
-        case "utility.toolkit": {
+        case "utility.toolkit":
           valid += 1;
           break;
-        }
-        case "utility.catalogCoverage.abilityCatalogCoverage": {
+        case "utility.catalogCoverage.abilityCatalogCoverage":
           valid += 1;
           zero += countZeroMeaningful(fs.catalogCoverage.abilityCatalogCoverage);
           break;
-        }
-        case "utility.catalogCoverage.mechanicCatalogCoverage": {
+        case "utility.catalogCoverage.mechanicCatalogCoverage":
           valid += 1;
           zero += countZeroMeaningful(fs.catalogCoverage.mechanicCatalogCoverage);
           break;
-        }
         default:
           missing += 1;
       }
+    }
+
+    const consumption = resolveConsumption(feature, byPath, n);
+    if (consumption.integrityFailure) {
+      integrityFailures.push(consumption.integrityFailure);
     }
 
     featureUsage.push(
@@ -292,15 +292,11 @@ export function buildUtilityFeatureUsage(
         validValueCount: valid,
         missingCount: n === 0 ? 1 : missing,
         zeroCount: zero,
-        consumed: n === 0 ? false : consumed,
-        outputComponentOrConfidenceField: n === 0 ? null : outputField,
-        exclusionReason: n === 0 ? "no_selected_slot_facts" : exclusionReason,
+        consumed: consumption.consumed,
+        outputComponentOrConfidenceField: consumption.outputField,
+        exclusionReason: consumption.exclusionReason,
       }),
     );
-
-    if (feature.scoringRole === "SCORE" && n > 0 && !consumed) {
-      integrityFailures.push(`SCORE_FEATURE_NOT_CONSUMED:${feature.featurePath}`);
-    }
   }
 
   return { featureUsage, integrityFailures };
@@ -311,10 +307,12 @@ export function buildPerformanceFeatureUsage(
   options?: {
     hasProfileAggregate?: boolean;
     unavailableProvenance?: string[];
+    consumptionTraces?: readonly FeatureConsumptionTrace[];
   },
 ): FeatureUsageBuildResult {
   const n = runParseFacts.length;
   const provenance = options?.unavailableProvenance ?? [];
+  const byPath = indexTracesByFeature(options?.consumptionTraces ?? []);
   const integrityFailures: string[] = [];
   const featureUsage: FeatureUsageEntry[] = [];
 
@@ -323,94 +321,51 @@ export function buildPerformanceFeatureUsage(
     let valid = 0;
     let missing = 0;
     let zero = 0;
-    let consumed = true;
-    let outputField: string | null = feature.outputMetricOrExplanationField;
-    let exclusionReason: string | null = null;
 
     if (feature.featurePath === "performance.profileAggregate") {
       if (options?.hasProfileAggregate) {
         containing = 1;
         valid = 1;
-      } else {
-        missing = 1;
-        consumed = false;
-        exclusionReason = "profile_aggregate_absent_detailed_only";
-        outputField = null;
-      }
+      } else missing = 1;
     } else if (feature.featurePath === "performance.unavailableProvenance") {
       containing = provenance.length > 0 || n > 0 ? 1 : 0;
-      if (provenance.length > 0) {
-        valid = 1;
-        consumed = true;
-      } else if (n > 0 && runParseFacts.every((f) => f.semantic !== "UNAVAILABLE")) {
-        missing = 1;
-        consumed = false;
-        exclusionReason = "no_unavailable_provenance_needed";
-        outputField = null;
-      } else {
-        missing = 1;
-        // Missing provenance when UNAVAILABLE is an integrity issue.
-        if (n > 0 && runParseFacts.some((f) => f.semantic === "UNAVAILABLE")) {
-          integrityFailures.push("REQUIRED_FEATURE_MISSING:performance.unavailableProvenance");
-        }
-      }
+      if (provenance.length > 0) valid = 1;
+      else missing = 1;
     } else {
       for (const f of runParseFacts) {
         containing += 1;
         switch (feature.featurePath) {
-          case "performance.parsePercentile": {
-            if (f.semantic === "UNAVAILABLE" || f.parsePercentile == null) {
-              missing += 1;
-              consumed = f.semantic === "UNAVAILABLE";
-              if (f.semantic === "UNAVAILABLE") {
-                exclusionReason = "semantic_UNAVAILABLE_structured";
-              }
-            } else {
+          case "performance.parsePercentile":
+            if (f.semantic === "UNAVAILABLE" || f.parsePercentile == null) missing += 1;
+            else {
               valid += 1;
               zero += countZeroMeaningful(f.parsePercentile);
             }
             break;
-          }
-          case "performance.semantic": {
+          case "performance.semantic":
             valid += 1;
             break;
-          }
-          case "performance.keyLevel": {
+          case "performance.keyLevel":
             if (Number.isFinite(f.keyLevel)) valid += 1;
             else missing += 1;
             break;
-          }
-          case "performance.partition": {
+          case "performance.partition":
             if (f.partition == null) missing += 1;
             else valid += 1;
             break;
-          }
           default:
             missing += 1;
         }
       }
     }
 
-    if (n === 0 && feature.featurePath !== "performance.profileAggregate") {
-      if (feature.featurePath === "performance.unavailableProvenance" && provenance.length > 0) {
-        // already handled
-      } else if (feature.nullableOptional || feature.scoringRole === "EXPLAINABILITY_ONLY") {
-        missing = Math.max(missing, 1);
-        consumed = feature.scoringRole === "EXPLAINABILITY_ONLY" && provenance.length > 0;
-        exclusionReason =
-          exclusionReason ??
-          (provenance.length > 0
-            ? null
-            : "ranking_parse_unavailable");
-      } else if (feature.scoringRole === "AVAILABILITY") {
-        missing = 1;
-        consumed = true;
-        outputField = "availabilityState=UNAVAILABLE";
-      } else {
-        missing = 1;
-        consumed = false;
-        exclusionReason = exclusionReason ?? "ranking_parse_facts_absent";
-      }
+    const consumption = resolveConsumption(
+      feature,
+      byPath,
+      Math.max(n, options?.hasProfileAggregate ? 1 : 0, provenance.length > 0 ? 1 : 0),
+    );
+    if (consumption.integrityFailure) {
+      integrityFailures.push(consumption.integrityFailure);
     }
 
     featureUsage.push(
@@ -419,27 +374,16 @@ export function buildPerformanceFeatureUsage(
         validValueCount: valid,
         missingCount: missing,
         zeroCount: feature.featurePath === "performance.semantic" ? null : zero,
-        consumed,
-        outputComponentOrConfidenceField: consumed ? outputField : null,
-        exclusionReason,
+        consumed: consumption.consumed,
+        outputComponentOrConfidenceField: consumption.outputField,
+        exclusionReason: consumption.exclusionReason,
       }),
     );
-
-    if (
-      feature.scoringRole === "SCORE" &&
-      !feature.nullableOptional &&
-      n > 0 &&
-      !consumed &&
-      !exclusionReason
-    ) {
-      integrityFailures.push(`SCORE_FEATURE_NOT_CONSUMED:${feature.featurePath}`);
-    }
   }
 
   return { featureUsage, integrityFailures };
 }
 
-/** Re-derive featureUsage from persisted dimension metrics when present. */
 export function featureUsageFromMetrics(metrics: unknown): FeatureUsageEntry[] | null {
   if (!isRecord(metrics)) return null;
   const usage = metrics.featureUsage;

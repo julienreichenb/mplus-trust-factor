@@ -7,6 +7,7 @@ import { createHash } from "node:crypto";
 import type {
   CharacterSeasonEvidenceManifestV2,
   DatasetPersistenceState,
+  EvidenceAuditArtifactRef,
   EvidenceAuditDimensionConsumption,
   EvidenceAuditFactSetEntry,
   EvidenceAuditMatrixRow,
@@ -35,7 +36,15 @@ import {
   UTILITY_V2_EXTRACTOR_FAMILY,
   type UtilityV2RunFactSet,
 } from "../utility/v2/index.js";
+import { emitPerformanceConsumptionTraces } from "../performance/v2/consumption-traces.js";
+import { emitSurvivalConsumptionTraces } from "../survival/v2/consumption-traces.js";
+import { emitUtilityConsumptionTraces } from "../utility/v2/consumption-traces.js";
 import { EXPECTED_EVENT_DATASETS, datasetKindFromPersistedKey } from "./dataset-catalog.js";
+import {
+  artifactIdsFromCoverage,
+  identitiesMatch,
+  parseFactDocumentIdentity,
+} from "./fact-identity.js";
 import { getFeatureRegistryV2 } from "./feature-registry.js";
 import {
   buildPerformanceFeatureUsage,
@@ -83,11 +92,24 @@ export interface AuditFactSetInput {
   facts: unknown;
   coverage: unknown;
   limitations: unknown;
-  reportCode: string | null;
-  fightId: number | null;
-  reportRevision: number | null;
+  /** DB EvidenceManifestSlot relation identity (not fact-document identity). */
+  relationReportCode: string | null;
+  relationFightId: number | null;
+  relationReportRevision: number | null;
   dungeonSlug: string | null;
   slotIndex: number | null;
+  /** Durable acquisition outcome when RunFactSet row is absent (from dimensionValidity). */
+  durableOutcome?: FactSourceOutcome | null;
+  durableReason?: string | null;
+  durableCategory?: string | null;
+}
+
+export interface AuditArtifactMetaInput {
+  id: string;
+  provider: string | null;
+  artifactClass: string | null;
+  contentHash: string | null;
+  byteLength: number | null;
 }
 
 export interface AuditDimensionInput {
@@ -99,6 +121,7 @@ export interface AuditDimensionInput {
   metrics: unknown;
   explanation: unknown;
   manifestId: string;
+  scoreModelId?: string | null;
 }
 
 export interface AuditMasterDataInput {
@@ -121,6 +144,8 @@ export interface AuditManifestSlotRow {
   keyLevel: number | null;
   selectionReason: string | null;
   candidateRank: number | null;
+  /** Slot-level dimensionValidity.reasons strings for durable provenance. */
+  dimensionValidityReasons?: string[];
 }
 
 export interface BuildScoringV2EvidenceAuditInput {
@@ -140,8 +165,12 @@ export interface BuildScoringV2EvidenceAuditInput {
   masterDataByIdentity: AuditMasterDataInput[];
   /** Pages found by immutable report identity (may include unbound pages). */
   pagesByIdentity: AuditDatasetPageInput[];
+  /** Optional RawArtifact metadata keyed by id (bounded). */
+  artifactsById?: Record<string, AuditArtifactMetaInput>;
   /** Optional precomputed replay result. */
   replay?: EvidenceAuditReplayResult | null;
+  /** Enabled WCL extractors for this audit (EXPERIENCE always out of scope here). */
+  enabledFamilies?: Array<"PERFORMANCE" | "SURVIVAL" | "UTILITY">;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -353,12 +382,67 @@ function auditEventDatasetsForSlot(input: {
   });
 }
 
+function resolveArtifactRefs(
+  coverage: unknown,
+  artifactsById: Record<string, AuditArtifactMetaInput> | undefined,
+): { refs: EvidenceAuditArtifactRef[]; missing: string[] } {
+  const ids = artifactIdsFromCoverage(coverage);
+  const refs: EvidenceAuditArtifactRef[] = [];
+  const missing: string[] = [];
+  for (const id of ids) {
+    const meta = artifactsById?.[id];
+    if (!meta) {
+      missing.push(id);
+      refs.push({
+        artifactId: id,
+        provider: null,
+        artifactClass: null,
+        contentHash: null,
+        byteLength: null,
+      });
+      continue;
+    }
+    refs.push({
+      artifactId: meta.id,
+      provider: meta.provider,
+      artifactClass: meta.artifactClass,
+      contentHash: meta.contentHash,
+      byteLength: meta.byteLength,
+    });
+  }
+  return { refs, missing };
+}
+
+function parseDurableOutcomeFromReasons(
+  family: "PERFORMANCE" | "SURVIVAL" | "UTILITY",
+  reasons: string[] | undefined,
+): { outcome: FactSourceOutcome; reason: string | null } | null {
+  if (!reasons?.length) return null;
+  const prefix = `${family}:`;
+  for (const r of reasons) {
+    if (!r.startsWith(prefix)) continue;
+    const rest = r.slice(prefix.length);
+    if (rest.startsWith("UNAVAILABLE:")) {
+      return { outcome: "UNAVAILABLE", reason: rest.slice("UNAVAILABLE:".length) || rest };
+    }
+    if (rest.startsWith("FAILED:")) {
+      return { outcome: "FAILED", reason: rest.slice("FAILED:".length) || rest };
+    }
+    if (rest.startsWith("WRITTEN:")) {
+      return { outcome: "WRITTEN", reason: rest.slice("WRITTEN:".length) || null };
+    }
+  }
+  return null;
+}
+
 function auditFactSetsForSlot(input: {
   selected: boolean;
   slot: CharacterSeasonEvidenceManifestV2["slots"][number] | null;
   manifestSlotId: string | null;
   factSets: AuditFactSetInput[];
   enabledFamilies: Array<"PERFORMANCE" | "SURVIVAL" | "UTILITY">;
+  dimensionValidityReasons?: string[];
+  artifactsById?: Record<string, AuditArtifactMetaInput>;
 }): EvidenceAuditFactSetEntry[] {
   const slotFacts = input.manifestSlotId
     ? input.factSets.filter((f) => f.manifestSlotId === input.manifestSlotId)
@@ -366,54 +450,76 @@ function auditFactSetsForSlot(input: {
 
   const identity = input.slot?.identity ?? null;
   const expectedHash = input.slot?.factSetHash ?? null;
+  const relation = {
+    reportCode: input.slot?.identity?.reportCode ?? null,
+    fightId: input.slot?.identity?.fightId ?? null,
+    reportRevision: input.slot?.identity?.reportRevision ?? null,
+  };
 
   return input.enabledFamilies.map((family) => {
     const familyLower = family.toLowerCase();
     const row =
       slotFacts.find((f) => f.extractorFamily.toLowerCase() === familyLower) ?? null;
 
+    const empty = (
+      outcome: FactSourceOutcome,
+      extra: Partial<EvidenceAuditFactSetEntry> = {},
+    ): EvidenceAuditFactSetEntry => ({
+      extractorFamily: family,
+      runFactSetPresent: false,
+      extractorVersion: null,
+      schemaVersion: null,
+      inputFingerprint: null,
+      reportCode: null,
+      fightId: null,
+      reportRevision: null,
+      relationReportCode: relation.reportCode,
+      relationFightId: relation.fightId,
+      relationReportRevision: relation.reportRevision,
+      manifestSlotId: input.manifestSlotId,
+      artifactReferences: [],
+      coverage: null,
+      limitations: [],
+      parserValidation: outcome === "NOT_ENABLED" ? "SKIPPED" : "UNAVAILABLE",
+      sourceOutcome: outcome,
+      boundedFactsSummary: null,
+      hashMatchAgainstManifest: null,
+      identityMatchAgainstManifest: null,
+      ...extra,
+    });
+
     if (!input.selected) {
-      return {
-        extractorFamily: family,
-        runFactSetPresent: false,
-        extractorVersion: null,
-        schemaVersion: null,
-        inputFingerprint: null,
-        reportCode: null,
-        fightId: null,
-        reportRevision: null,
-        manifestSlotId: input.manifestSlotId,
-        artifactReferences: [],
-        coverage: null,
-        limitations: [],
-        parserValidation: "UNAVAILABLE" as const,
-        sourceOutcome: "UNAVAILABLE" as FactSourceOutcome,
-        boundedFactsSummary: null,
-        hashMatchAgainstManifest: null,
-      };
+      return empty("UNAVAILABLE");
+    }
+
+    if (!input.enabledFamilies.includes(family)) {
+      return empty("NOT_ENABLED", { limitations: ["dimension_not_enabled"] });
     }
 
     if (!row) {
-      return {
-        extractorFamily: family,
-        runFactSetPresent: false,
-        extractorVersion: null,
-        schemaVersion: null,
-        inputFingerprint: null,
-        reportCode: identity?.reportCode ?? null,
-        fightId: identity?.fightId ?? null,
-        reportRevision: identity?.reportRevision ?? null,
-        manifestSlotId: input.manifestSlotId,
-        artifactReferences: [],
-        coverage: null,
-        limitations: ["missing_run_fact_set"],
-        parserValidation: "UNAVAILABLE" as const,
-        sourceOutcome: "UNAVAILABLE" as FactSourceOutcome,
-        boundedFactsSummary: null,
+      const durable = parseDurableOutcomeFromReasons(
+        family,
+        input.dimensionValidityReasons,
+      );
+      if (!durable) {
+        return empty("FAILED", {
+          limitations: ["missing_run_fact_set_without_durable_provenance"],
+          parserValidation: "INVALID",
+          hashMatchAgainstManifest: expectedHash == null ? null : false,
+        });
+      }
+      return empty(durable.outcome, {
+        limitations: [
+          durable.reason ?? "missing_run_fact_set",
+          `durable_outcome:${durable.outcome}`,
+        ],
+        parserValidation:
+          durable.outcome === "FAILED" ? "INVALID" : "UNAVAILABLE",
         hashMatchAgainstManifest: expectedHash == null ? null : false,
-      };
+      });
     }
 
+    const docIdentity = parseFactDocumentIdentity(family, row.facts);
     let parserValidation: EvidenceAuditFactSetEntry["parserValidation"] = "SKIPPED";
     let summary: Record<string, unknown> | null = null;
     let sourceOutcome: FactSourceOutcome = "WRITTEN";
@@ -439,7 +545,6 @@ function auditFactSetsForSlot(input: {
         sourceOutcome = "FAILED";
         summary = { kind: "shadow_placeholder" };
       } else {
-        // Structured unavailable without full parse doc is still an explicit outcome.
         const lim = limitationsList(row.limitations);
         if (lim.some((l) => /unavailable|ranking_parse/i.test(l))) {
           parserValidation = "UNAVAILABLE";
@@ -460,15 +565,21 @@ function auditFactSetsForSlot(input: {
     const computed = buildSlotFactSetBindingHash(bindingMembers);
     const hashMatch = expectedHash == null ? null : computed === expectedHash;
 
-    // Identity binding check
-    if (
-      identity &&
-      (row.reportCode !== identity.reportCode ||
-        row.fightId !== identity.fightId ||
-        row.reportRevision !== identity.reportRevision)
-    ) {
-      // Wrong binding — fail closed in summary limitations.
-      const lim = limitationsList(row.limitations);
+    const { refs, missing } = resolveArtifactRefs(row.coverage, input.artifactsById);
+    const lim = limitationsList(row.limitations);
+    if (missing.length > 0) {
+      lim.push(`MISSING_ARTIFACT_REFS:${missing.length}`);
+    }
+
+    const identityOk =
+      identity != null &&
+      identitiesMatch(docIdentity, {
+        reportCode: identity.reportCode,
+        fightId: identity.fightId,
+        reportRevision: identity.reportRevision,
+      });
+
+    if (identity && !identityOk) {
       lim.push("FACT_IDENTITY_MISMATCH");
       return {
         extractorFamily: family,
@@ -476,18 +587,27 @@ function auditFactSetsForSlot(input: {
         extractorVersion: row.extractorVersion,
         schemaVersion: row.schemaVersion,
         inputFingerprint: row.inputFingerprint,
-        reportCode: row.reportCode,
-        fightId: row.fightId,
-        reportRevision: row.reportRevision,
+        reportCode: docIdentity.reportCode,
+        fightId: docIdentity.fightId,
+        reportRevision: docIdentity.reportRevision,
+        relationReportCode: row.relationReportCode,
+        relationFightId: row.relationFightId,
+        relationReportRevision: row.relationReportRevision,
         manifestSlotId: row.manifestSlotId,
-        artifactReferences: [],
+        artifactReferences: refs,
         coverage: isRecord(row.coverage) ? row.coverage : null,
         limitations: lim,
         parserValidation: "INVALID",
         sourceOutcome: "FAILED",
         boundedFactsSummary: summary,
         hashMatchAgainstManifest: false,
+        identityMatchAgainstManifest: false,
       };
+    }
+
+    if (missing.length > 0) {
+      sourceOutcome = "FAILED";
+      parserValidation = "INVALID";
     }
 
     return {
@@ -496,29 +616,49 @@ function auditFactSetsForSlot(input: {
       extractorVersion: row.extractorVersion,
       schemaVersion: row.schemaVersion,
       inputFingerprint: row.inputFingerprint,
-      reportCode: row.reportCode,
-      fightId: row.fightId,
-      reportRevision: row.reportRevision,
+      reportCode: docIdentity.reportCode,
+      fightId: docIdentity.fightId,
+      reportRevision: docIdentity.reportRevision,
+      relationReportCode: row.relationReportCode,
+      relationFightId: row.relationFightId,
+      relationReportRevision: row.relationReportRevision,
       manifestSlotId: row.manifestSlotId,
-      artifactReferences: [],
+      artifactReferences: refs,
       coverage: isRecord(row.coverage) ? row.coverage : null,
-      limitations: limitationsList(row.limitations),
+      limitations: lim,
       parserValidation,
       sourceOutcome,
       boundedFactsSummary: summary,
       hashMatchAgainstManifest: hashMatch,
+      identityMatchAgainstManifest: identity ? identityOk : null,
     };
   });
 }
 
 function slotMatrixStatus(
   fact: EvidenceAuditFactSetEntry | undefined,
-): "OK" | "PARTIAL" | "UNAVAILABLE" | "N/A" {
+): "OK" | "PARTIAL" | "UNAVAILABLE" | "FAILED" | "NOT_ENABLED" | "N/A" {
   if (!fact) return "N/A";
+  if (fact.sourceOutcome === "NOT_ENABLED") return "NOT_ENABLED";
+  if (fact.sourceOutcome === "FAILED" || fact.parserValidation === "INVALID") {
+    return "FAILED";
+  }
   if (fact.sourceOutcome === "UNAVAILABLE" || !fact.runFactSetPresent) return "UNAVAILABLE";
-  if (fact.sourceOutcome === "FAILED" || fact.parserValidation === "INVALID") return "PARTIAL";
-  if (fact.hashMatchAgainstManifest === false) return "PARTIAL";
+  if (fact.hashMatchAgainstManifest === false || fact.identityMatchAgainstManifest === false) {
+    return "PARTIAL";
+  }
   return "OK";
+}
+
+function slotMatrixDimStatus(
+  fact: EvidenceAuditFactSetEntry | undefined,
+): "OK" | "PARTIAL" | "UNAVAILABLE" | "N/A" {
+  const s = slotMatrixStatus(fact);
+  if (s === "FAILED" || s === "PARTIAL") return "PARTIAL";
+  if (s === "NOT_ENABLED") return "N/A";
+  if (s === "UNAVAILABLE") return "UNAVAILABLE";
+  if (s === "OK") return "OK";
+  return "N/A";
 }
 
 /**
@@ -567,27 +707,35 @@ export function buildScoringV2EvidenceAudit(
     for (const issue of identityIssues) {
       integrityFailures.push(`FROZEN_IDENTITY:${issue.code}:${issue.slotId}`);
     }
-    const factRefs: PersistedFactSetRef[] = input.factSets.map((f) => ({
-      extractorFamily: f.extractorFamily,
-      extractorVersion: f.extractorVersion,
-      schemaVersion: f.schemaVersion,
-      inputFingerprint: f.inputFingerprint,
-      facts: f.facts,
-      limitations: f.limitations,
-      manifestSlotId: f.manifestSlotId,
-      reportCode: f.reportCode,
-      fightId: f.fightId,
-      reportRevision: f.reportRevision,
-      dungeonSlug: f.dungeonSlug,
-      slotIndex: f.slotIndex,
-    }));
+    const factRefs: PersistedFactSetRef[] = input.factSets.map((f) => {
+      const family = f.extractorFamily.toUpperCase();
+      const dim =
+        family === "PERFORMANCE" || family === "SURVIVAL" || family === "UTILITY"
+          ? (family as "PERFORMANCE" | "SURVIVAL" | "UTILITY")
+          : "SURVIVAL";
+      const docId = parseFactDocumentIdentity(dim, f.facts);
+      return {
+        extractorFamily: f.extractorFamily,
+        extractorVersion: f.extractorVersion,
+        schemaVersion: f.schemaVersion,
+        inputFingerprint: f.inputFingerprint,
+        facts: f.facts,
+        limitations: f.limitations,
+        manifestSlotId: f.manifestSlotId,
+        reportCode: docId.reportCode,
+        fightId: docId.fightId,
+        reportRevision: docId.reportRevision,
+        dungeonSlug: f.dungeonSlug,
+        slotIndex: f.slotIndex,
+      };
+    });
     const hashCheck = verifyFactSetHashesAgainstManifest(manifest, factRefs);
     if (!hashCheck.ok) {
       integrityFailures.push(`FACT_SET_HASH_MISMATCH:${hashCheck.reason}`);
     }
   }
 
-  // Reject facts from unselected runs (wrong report/fight/revision identity).
+  // Reject facts whose document identity is not a selected slot (never use relation copy).
   if (manifest) {
     const selectedKeys = new Set(
       manifest.slots
@@ -602,7 +750,12 @@ export function buildScoringV2EvidenceAudit(
         .filter((k): k is string => k != null),
     );
     for (const fs of input.factSets) {
-      const key = identityKey(fs.reportCode, fs.fightId, fs.reportRevision);
+      const family = fs.extractorFamily.toUpperCase();
+      if (family !== "PERFORMANCE" && family !== "SURVIVAL" && family !== "UTILITY") {
+        continue;
+      }
+      const docId = parseFactDocumentIdentity(family, fs.facts);
+      const key = identityKey(docId.reportCode, docId.fightId, docId.reportRevision);
       if (key && !selectedKeys.has(key)) {
         integrityFailures.push(
           `UNSELECTED_FACT_SET:${fs.extractorFamily}:${key}`,
@@ -724,40 +877,79 @@ export function buildScoringV2EvidenceAudit(
       const perfFact = slotFactRefs.find(
         (f) => f.extractorFamily.toLowerCase() === "performance",
       );
+      const rankingDescriptor = slotRow
+        ? input.datasets.find(
+            (d) =>
+              d.manifestSlotId === slotRow.id &&
+              (d.datasetKey.toLowerCase() === "ranking_parse" ||
+                d.datasetKey.toLowerCase() === "rankingparse"),
+          )
+        : null;
       const rankingParse = !selected
         ? null
         : (() => {
+            const reasons =
+              slotRow?.dimensionValidityReasons ??
+              manifestSlot?.dimensionValidity?.reasons ??
+              [];
+            const durable = parseDurableOutcomeFromReasons("PERFORMANCE", reasons);
             if (!perfFact) {
-              const provenance =
-                manifestSlot?.dimensionValidity?.reasons?.filter((r) =>
-                  /PERFORMANCE|RANKING_PARSE/i.test(r),
-                ) ?? [];
+              const outcome = durable?.outcome ?? "FAILED";
+              const provenance = reasons.filter((r) =>
+                /PERFORMANCE|RANKING_PARSE/i.test(r),
+              );
               return {
                 present: false,
+                logicalOutcome: outcome as FactSourceOutcome,
                 semantic: null,
                 factSetId: null,
                 inputFingerprint: null,
+                reason: durable?.reason ?? null,
+                category: null,
                 unavailableProvenance: provenance,
-                persistenceState: "UNAVAILABLE" as DatasetPersistenceState,
-                integrityErrors: [],
+                limitations: provenance.slice(0, 8),
+                persistenceState: (outcome === "FAILED"
+                  ? "FAILED"
+                  : "UNAVAILABLE") as DatasetPersistenceState,
+                descriptorPresent: rankingDescriptor != null,
+                integrityErrors:
+                  durable == null
+                    ? ["RANKING_PARSE_MISSING_WITHOUT_DURABLE_PROVENANCE"]
+                    : [],
               };
             }
             const parsed = parsePerformanceRunParseFactV2(perfFact.facts);
             const lim = limitationsList(perfFact.limitations);
+            const logicalOutcome: FactSourceOutcome =
+              parsed.ok && parsed.fact.semantic === "UNAVAILABLE"
+                ? "UNAVAILABLE"
+                : parsed.ok
+                  ? "WRITTEN"
+                  : "FAILED";
             return {
               present: true,
+              logicalOutcome,
               semantic: parsed.ok ? parsed.fact.semantic : null,
               factSetId: perfFact.id,
               inputFingerprint: perfFact.inputFingerprint,
+              reason: durable?.reason ?? null,
+              category: null,
               unavailableProvenance: lim.filter((l) =>
                 /unavailable|ranking_parse/i.test(l),
               ),
-              persistenceState: (parsed.ok && parsed.fact.semantic === "UNAVAILABLE"
+              limitations: lim.slice(0, 8),
+              persistenceState: (logicalOutcome === "UNAVAILABLE"
                 ? "UNAVAILABLE"
-                : parsed.ok
-                  ? "PRESENT"
-                  : "FAILED") as DatasetPersistenceState,
-              integrityErrors: parsed.ok ? [] : ["RANKING_PARSE_FACT_INVALID"],
+                : logicalOutcome === "FAILED"
+                  ? "FAILED"
+                  : "PRESENT") as DatasetPersistenceState,
+              descriptorPresent: rankingDescriptor != null,
+              integrityErrors: [
+                ...(parsed.ok ? [] : ["RANKING_PARSE_FACT_INVALID"]),
+                ...(rankingDescriptor == null && logicalOutcome === "WRITTEN"
+                  ? ["RANKING_PARSE_DESCRIPTOR_MISSING"]
+                  : []),
+              ],
             };
           })();
 
@@ -767,6 +959,11 @@ export function buildScoringV2EvidenceAudit(
         manifestSlotId: slotRow?.id ?? null,
         factSets: input.factSets,
         enabledFamilies,
+        dimensionValidityReasons:
+          slotRow?.dimensionValidityReasons ??
+          manifestSlot?.dimensionValidity?.reasons ??
+          [],
+        artifactsById: input.artifactsById,
       });
 
       const slotErrors: string[] = [];
@@ -777,8 +974,22 @@ export function buildScoringV2EvidenceAudit(
         if (fs.limitations.includes("FACT_IDENTITY_MISMATCH")) {
           slotErrors.push("FACT_IDENTITY_MISMATCH");
         }
+        if (fs.limitations.some((l) => l.startsWith("MISSING_ARTIFACT_REFS"))) {
+          slotErrors.push("MISSING_ARTIFACT_REFS");
+        }
+        if (fs.identityMatchAgainstManifest === false) {
+          slotErrors.push("FACT_DOC_IDENTITY_MISMATCH");
+        }
         if (fs.hashMatchAgainstManifest === false && selected) {
           slotErrors.push("FACT_SET_HASH_MISMATCH");
+        }
+        if (
+          selected &&
+          !fs.runFactSetPresent &&
+          fs.sourceOutcome === "FAILED" &&
+          fs.limitations.includes("missing_run_fact_set_without_durable_provenance")
+        ) {
+          slotErrors.push(`MISSING_FACT_PROVENANCE:${fs.extractorFamily}`);
         }
       }
 
@@ -896,20 +1107,129 @@ export function buildScoringV2EvidenceAudit(
     ),
   ];
 
-  const survivalUsage = buildSurvivalFeatureUsage(survivalDocs);
-  const utilityUsage = buildUtilityFeatureUsage(utilityDocs);
+  // Prefer DimensionComputation.metrics.featureUsage (scorer-owned traces).
+  // Fallback rebuild marks features consumed for display only when metrics lack featureUsage.
+  const survivalFromMetrics = featureUsageFromMetrics(
+    input.dimensions.find((d) => d.dimension === "SURVIVAL")?.metrics,
+  );
+  const utilityFromMetrics = featureUsageFromMetrics(
+    input.dimensions.find((d) => d.dimension === "UTILITY")?.metrics,
+  );
+  const performanceFromMetrics = featureUsageFromMetrics(
+    input.dimensions.find((d) => d.dimension === "PERFORMANCE")?.metrics,
+  );
+
+  const survivalMode =
+    (input.dimensions.find((d) => d.dimension === "SURVIVAL")?.metrics as
+      | { relativeDamageMode?: "off" | "shadow" | "active" }
+      | undefined)?.relativeDamageMode ?? "shadow";
+
+  const survivalFallbackTraces =
+    survivalDocs.length === 0
+      ? emitSurvivalConsumptionTraces({
+          scoredRuns: [],
+          relativeDamageMode: survivalMode,
+          hasScore: false,
+        })
+      : getFeatureRegistryV2()
+          .features.filter((f) => f.dimension === "SURVIVAL")
+          .map((f) => ({
+            featurePath: f.featurePath,
+            kind: f.scoringRole === "SCORE" ? ("SCORE" as const) : ("CONFIDENCE" as const),
+            outputField: f.outputMetricOrExplanationField,
+            exclusionReason: null as string | null,
+          }));
+
+  const survivalUsage = buildSurvivalFeatureUsage(survivalDocs, {
+    relativeDamageMode: survivalMode,
+    consumptionTraces: survivalFallbackTraces,
+  });
+
+  const utilityFallbackTraces =
+    utilityDocs.length === 0
+      ? emitUtilityConsumptionTraces({
+          boundFactSets: [],
+          result: {
+            availabilityState: "UNAVAILABLE",
+            domainBreakdown: [],
+          } as never,
+        })
+      : getFeatureRegistryV2()
+          .features.filter((f) => f.dimension === "UTILITY")
+          .map((f) => ({
+            featurePath: f.featurePath,
+            kind: f.scoringRole === "SCORE" ? ("SCORE" as const) : ("CONFIDENCE" as const),
+            outputField: f.outputMetricOrExplanationField,
+            exclusionReason: null as string | null,
+          }));
+
+  const utilityUsage = buildUtilityFeatureUsage(utilityDocs, {
+    consumptionTraces: utilityFallbackTraces,
+  });
+
+  const performanceFallbackTraces =
+    perfDocs.length === 0
+      ? emitPerformanceConsumptionTraces({
+          runParseFacts: [],
+          hasProfileAggregate: false,
+          hasScore: false,
+          unavailableProvenance: perfProvenance,
+        })
+      : getFeatureRegistryV2()
+          .features.filter((f) => f.dimension === "PERFORMANCE")
+          .map((f) => ({
+            featurePath: f.featurePath,
+            kind: f.scoringRole === "SCORE" ? ("SCORE" as const) : ("CONFIDENCE" as const),
+            outputField: f.outputMetricOrExplanationField,
+            exclusionReason: null as string | null,
+          }));
+
   const performanceUsage = buildPerformanceFeatureUsage(perfDocs, {
     unavailableProvenance: perfProvenance,
+    consumptionTraces: performanceFallbackTraces,
   });
-  integrityFailures.push(
-    ...survivalUsage.integrityFailures,
-    ...utilityUsage.integrityFailures,
-    ...performanceUsage.integrityFailures,
-  );
+
+  // Integrity for feature consumption comes from persisted DimensionComputation metrics.
+  for (const entry of [
+    ...(survivalFromMetrics ?? []),
+    ...(utilityFromMetrics ?? []),
+    ...(performanceFromMetrics ?? []),
+  ]) {
+    if (
+      entry.scoringRole === "SCORE" &&
+      entry.exclusionReason === "SCORE_FEATURE_NOT_CONSUMED"
+    ) {
+      integrityFailures.push(`SCORE_FEATURE_NOT_CONSUMED:${entry.featurePath}`);
+    }
+  }
+
+  const scoreModelIds = [
+    ...new Set(
+      input.dimensions
+        .map((d) => d.scoreModelId)
+        .filter((id): id is string => typeof id === "string" && id.length > 0),
+    ),
+  ];
+  if (scoreModelIds.length > 1) {
+    integrityFailures.push(`MIXED_SCORE_MODEL_IDS:${scoreModelIds.join(",")}`);
+  }
 
   const dimensionConsumption: EvidenceAuditDimensionConsumption[] = (
     ["PERFORMANCE", "SURVIVAL", "UTILITY", "EXPERIENCE"] as const
   ).map((dimension) => {
+    if (dimension === "EXPERIENCE") {
+      return {
+        dimension,
+        auditScope: "OUT_OF_SCOPE" as const,
+        computationPresent: false,
+        score: null,
+        confidence: null,
+        availabilityState: null,
+        inputFingerprint: null,
+        featureUsage: [],
+        integrityErrors: [],
+      };
+    }
     const row = input.dimensions.find((d) => d.dimension === dimension);
     const fromMetrics = row ? featureUsageFromMetrics(row.metrics) : null;
     let featureUsage = fromMetrics ?? [];
@@ -924,6 +1244,7 @@ export function buildScoringV2EvidenceAudit(
     }
     return {
       dimension,
+      auditScope: "AUDITED" as const,
       computationPresent: row != null,
       score: row?.score ?? null,
       confidence: row?.confidence ?? null,
@@ -945,12 +1266,7 @@ export function buildScoringV2EvidenceAudit(
           ? ("UNAVAILABLE" as SlotAuditState)
           : ("PARTIAL" as SlotAuditState),
     );
-    const factStates = slot.factSets.map((f) => {
-      if (!f.runFactSetPresent) return "UNAVAILABLE" as SlotAuditState;
-      if (f.sourceOutcome === "FAILED") return "BROKEN" as SlotAuditState;
-      if (f.sourceOutcome === "UNAVAILABLE") return "UNAVAILABLE" as SlotAuditState;
-      return "COMPLETE" as SlotAuditState;
-    });
+    const rankingOutcome = slot.rankingParse?.logicalOutcome ?? "N/A";
     return {
       dungeonSlug: slot.dungeonSlug,
       slotIndex: slot.slotIndex,
@@ -962,13 +1278,26 @@ export function buildScoringV2EvidenceAudit(
             : slot.slotState?.startsWith("MISSING") || slot.slotState?.startsWith("INVALID")
               ? "INVALID"
               : "OTHER",
+      wclSource:
+        slot.reportCode != null && slot.fightId != null
+          ? `${slot.reportCode}#${slot.fightId}`
+          : null,
       datasets: mergeSlotAuditState(
         datasetStates.length > 0 ? datasetStates : ["UNAVAILABLE"],
       ),
-      facts: mergeSlotAuditState(factStates.length > 0 ? factStates : ["UNAVAILABLE"]),
-      survival: slotMatrixStatus(survival),
-      utility: slotMatrixStatus(utility),
-      performance: slotMatrixStatus(performance),
+      ranking:
+        rankingOutcome === "WRITTEN" ||
+        rankingOutcome === "UNAVAILABLE" ||
+        rankingOutcome === "FAILED" ||
+        rankingOutcome === "NOT_ENABLED"
+          ? rankingOutcome
+          : "N/A",
+      survivalFacts: slotMatrixStatus(survival),
+      utilityFacts: slotMatrixStatus(utility),
+      performance: slotMatrixDimStatus(performance),
+      survival: slotMatrixDimStatus(survival),
+      utility: slotMatrixDimStatus(utility),
+      experience: "OUT_OF_SCOPE",
       auditState: slot.slotAuditState,
     };
   });

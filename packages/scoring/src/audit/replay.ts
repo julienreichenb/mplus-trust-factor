@@ -1,12 +1,16 @@
 /**
  * Provider-free Scoring V2 dimension replay from frozen manifest + persisted facts.
  * Zero provider calls — compares recomputed outputs to persisted DimensionComputations.
+ *
+ * This PR audits only WCL-backed dimensions: PERFORMANCE, SURVIVAL, UTILITY.
+ * EXPERIENCE is OUT_OF_SCOPE / NOT_AUDITED here.
  */
 
 import { createHash } from "node:crypto";
 import type {
   CharacterSeasonEvidenceManifestV2,
   EvidenceAuditReplayResult,
+  FeatureUsageEntry,
 } from "@mplus/contracts";
 import { characterSeasonEvidenceManifestV2Schema } from "@mplus/contracts";
 import {
@@ -15,6 +19,7 @@ import {
   type ScoringV2PublicDimension,
 } from "../dimensions/v2/index.js";
 import { fingerprintExplanationMetrics } from "./build-evidence-audit.js";
+import { parseFactDocumentIdentity } from "./fact-identity.js";
 
 export interface ReplayPersistedDimension {
   dimension: ScoringV2PublicDimension;
@@ -24,6 +29,7 @@ export interface ReplayPersistedDimension {
   inputFingerprint: string;
   metrics: unknown;
   explanation: unknown;
+  scoreModelId?: string | null;
 }
 
 export interface ReplayScoringV2DimensionsInput {
@@ -35,10 +41,17 @@ export interface ReplayScoringV2DimensionsInput {
   expectedManifestContentHash: string;
   factSets: PersistedFactSetRef[];
   persistedDimensions: ReplayPersistedDimension[];
+  /** Defaults to WCL-backed dimensions only (EXPERIENCE excluded). */
   enabledDimensions?: ScoringV2PublicDimension[];
   /** Test helper: counts any accidental provider callbacks (must stay 0). */
   providerCallCounter?: { count: number };
 }
+
+const WCL_REPLAY_DIMENSIONS: ScoringV2PublicDimension[] = [
+  "PERFORMANCE",
+  "SURVIVAL",
+  "UTILITY",
+];
 
 function approxEqual(
   a: number | null | undefined,
@@ -51,15 +64,68 @@ function approxEqual(
 }
 
 function availabilityFromPersisted(state: string): string {
-  // DimensionComputation.state may be AVAILABLE/PARTIAL/UNAVAILABLE or lifecycle.
   if (state === "AVAILABLE" || state === "PARTIAL" || state === "UNAVAILABLE") {
     return state;
   }
   return state;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** Stable compare of featureUsage — order by featurePath. */
+function featureUsageFingerprint(metrics: unknown): string {
+  if (!isRecord(metrics) || !Array.isArray(metrics.featureUsage)) {
+    return createHash("sha256").update("[]").digest("hex");
+  }
+  const rows = (metrics.featureUsage as FeatureUsageEntry[])
+    .map((e) => ({
+      featurePath: e.featurePath,
+      scoringRole: e.scoringRole,
+      consumed: e.consumed,
+      exclusionReason: e.exclusionReason,
+      outputComponentOrConfidenceField: e.outputComponentOrConfidenceField,
+      selectedSlotCountContaining: e.selectedSlotCountContaining,
+      validValueCount: e.validValueCount,
+      missingCount: e.missingCount,
+      zeroCount: e.zeroCount,
+    }))
+    .sort((a, b) => a.featurePath.localeCompare(b.featurePath));
+  return createHash("sha256").update(JSON.stringify(rows)).digest("hex");
+}
+
 /**
- * Replay all enabled dimensions from persisted facts and compare to stored computations.
+ * Filter fact sets to identity-valid selected-slot facts only.
+ * Broken document identities are excluded from scorer inputs.
+ */
+function identityValidFactSets(
+  manifest: CharacterSeasonEvidenceManifestV2,
+  factSets: PersistedFactSetRef[],
+): PersistedFactSetRef[] {
+  const selected = new Map<string, { reportCode: string; fightId: number; reportRevision: number }>();
+  for (const slot of manifest.slots) {
+    if (slot.state !== "SELECTED" || !slot.identity) continue;
+    const key = `${slot.identity.reportCode}:${slot.identity.fightId}:${slot.identity.reportRevision}`;
+    selected.set(key, slot.identity);
+  }
+
+  return factSets.filter((fs) => {
+    const family = fs.extractorFamily.toUpperCase();
+    if (family !== "PERFORMANCE" && family !== "SURVIVAL" && family !== "UTILITY") {
+      return false;
+    }
+    const doc = parseFactDocumentIdentity(family, fs.facts);
+    if (doc.reportCode == null || doc.fightId == null || doc.reportRevision == null) {
+      return false;
+    }
+    const key = `${doc.reportCode}:${doc.fightId}:${doc.reportRevision}`;
+    return selected.has(key);
+  });
+}
+
+/**
+ * Replay WCL-backed dimensions from persisted facts and compare to stored computations.
  */
 export function replayScoringV2Dimensions(
   input: ReplayScoringV2DimensionsInput,
@@ -85,12 +151,39 @@ export function replayScoringV2Dimensions(
   }
   const manifest: CharacterSeasonEvidenceManifestV2 = parsed.data;
 
-  const enabled: ScoringV2PublicDimension[] = input.enabledDimensions ?? [
-    "PERFORMANCE",
-    "SURVIVAL",
-    "UTILITY",
-    "EXPERIENCE",
+  const requested = input.enabledDimensions ?? WCL_REPLAY_DIMENSIONS;
+  const enabled = requested.filter(
+    (d): d is "PERFORMANCE" | "SURVIVAL" | "UTILITY" =>
+      d === "PERFORMANCE" || d === "SURVIVAL" || d === "UTILITY",
+  );
+  if (requested.includes("EXPERIENCE")) {
+    details.push("EXPERIENCE:OUT_OF_SCOPE");
+  }
+
+  const scoreModelIds = [
+    ...new Set(
+      input.persistedDimensions
+        .filter((d) =>
+          (enabled as readonly ScoringV2PublicDimension[]).includes(d.dimension),
+        )
+        .map((d) => d.scoreModelId)
+        .filter((id): id is string => typeof id === "string" && id.length > 0),
+    ),
   ];
+  if (scoreModelIds.length > 1) {
+    return {
+      deterministicMatch: false,
+      scoreMatch: false,
+      confidenceMatch: false,
+      availabilityMatch: false,
+      inputFingerprintMatch: false,
+      explanationMetricsFingerprintMatch: false,
+      providerCallCount: 0,
+      details: [`mixed_score_model_ids:${scoreModelIds.join(",")}`],
+    };
+  }
+
+  const validFacts = identityValidFactSets(manifest, input.factSets);
 
   const result = finalizeShadowDimensions({
     characterId: input.characterId,
@@ -100,7 +193,7 @@ export function replayScoringV2Dimensions(
     manifest,
     expectedManifestContentHash: input.expectedManifestContentHash,
     enabledDimensions: enabled,
-    factSets: input.factSets,
+    factSets: validFacts,
     experienceHistory: null,
     computedAt: new Date("2026-01-01T00:00:00.000Z"),
   });
@@ -152,6 +245,8 @@ export function replayScoringV2Dimensions(
       persisted.metrics,
       persisted.explanation,
     );
+    const replayUsageFp = featureUsageFingerprint(outcome.record.metrics);
+    const persistedUsageFp = featureUsageFingerprint(persisted.metrics);
 
     if (!approxEqual(replayScore, persisted.score)) {
       scoreMatch = false;
@@ -165,50 +260,29 @@ export function replayScoringV2Dimensions(
         `confidence_mismatch:${dim}:replay=${replayConfidence}:persisted=${persisted.confidence}`,
       );
     }
-    if (replayAvailability !== availabilityFromPersisted(persisted.state)) {
-      // Persisted DimensionComputation.state may store availability in metrics.
-      const metricsAvail =
-        typeof persisted.metrics === "object" &&
-        persisted.metrics != null &&
-        "availabilityState" in (persisted.metrics as Record<string, unknown>)
-          ? String((persisted.metrics as Record<string, unknown>).availabilityState)
-          : persisted.state;
-      if (replayAvailability !== metricsAvail) {
-        availabilityMatch = false;
-        details.push(
-          `availability_mismatch:${dim}:replay=${replayAvailability}:persisted=${metricsAvail}`,
-        );
-      }
+    const metricsAvail =
+      typeof persisted.metrics === "object" &&
+      persisted.metrics != null &&
+      "availabilityState" in (persisted.metrics as Record<string, unknown>)
+        ? String((persisted.metrics as Record<string, unknown>).availabilityState)
+        : availabilityFromPersisted(persisted.state);
+    if (replayAvailability !== metricsAvail) {
+      availabilityMatch = false;
+      details.push(
+        `availability_mismatch:${dim}:replay=${replayAvailability}:persisted=${metricsAvail}`,
+      );
     }
     if (replayFp !== persisted.inputFingerprint) {
       inputFingerprintMatch = false;
       details.push(`input_fingerprint_mismatch:${dim}`);
     }
-    // Explanation/metrics may include wall-clock computedAt — compare structural subset.
-    // Prefer comparing algorithm/availability/featureUsage fingerprints when full JSON differs.
-    const replayCore = createHash("sha256")
-      .update(
-        JSON.stringify({
-          availabilityState: replayAvailability,
-          score: replayScore,
-          confidence: replayConfidence,
-          inputFingerprint: replayFp,
-        }),
-      )
-      .digest("hex");
-    const persistedCore = createHash("sha256")
-      .update(
-        JSON.stringify({
-          availabilityState: availabilityFromPersisted(persisted.state),
-          score: persisted.score,
-          confidence: persisted.confidence,
-          inputFingerprint: persisted.inputFingerprint,
-        }),
-      )
-      .digest("hex");
-    if (replayExplFp !== persistedExplFp && replayCore !== persistedCore) {
+    if (replayExplFp !== persistedExplFp) {
       explanationMetricsFingerprintMatch = false;
       details.push(`explanation_metrics_fingerprint_mismatch:${dim}`);
+    }
+    if (replayUsageFp !== persistedUsageFp) {
+      explanationMetricsFingerprintMatch = false;
+      details.push(`feature_usage_mismatch:${dim}`);
     }
   }
 
@@ -217,6 +291,7 @@ export function replayScoringV2Dimensions(
     confidenceMatch &&
     availabilityMatch &&
     inputFingerprintMatch &&
+    explanationMetricsFingerprintMatch &&
     (input.providerCallCounter?.count ?? 0) === 0;
 
   return {

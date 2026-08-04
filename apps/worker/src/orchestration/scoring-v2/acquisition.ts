@@ -922,6 +922,69 @@ export async function acquireCandidateWithFallback(input: {
             artifactIds,
             coverage: { rankingParse: rankingEvidence != null },
           });
+
+          // Durable RANKING_PARSE descriptor (no EvidenceDatasetPage rows).
+          // Logical outcome WRITTEN / UNAVAILABLE / FAILED is always recorded for
+          // selected slots when PERFORMANCE is enabled — including cache hits.
+          if (needRanking) {
+            const rankingState =
+              outcome.status === "WRITTEN"
+                ? "READY"
+                : outcome.status === "UNAVAILABLE"
+                  ? "UNAVAILABLE"
+                  : "FAILED";
+            const rankingFp =
+              rankingEvidence != null
+                ? hashFactDocumentContent(rankingEvidence)
+                : `ranking-parse:${outcome.status}:${outcome.reason ?? "n/a"}`;
+            const rankingCompat = [
+              identity.reportCode,
+              String(identity.fightId),
+              String(reportRevision),
+              "RANKING_PARSE",
+              "wcl-ranking-parse-v1",
+            ].join(":");
+            const rankingDescriptor: AcquiredEvidenceDatasetDescriptor = {
+              datasetKey: "ranking_parse",
+              datasetKind: "RANKING_PARSE",
+              compatibilityKey: rankingCompat,
+              artifactId: artifactIds[artifactIds.length - 1] ?? null,
+              schemaVersion: "1.0.0",
+              providerContractVersion: "wcl-ranking-parse-v1",
+              state: rankingState,
+              eventCount: rankingEvidence != null ? 1 : 0,
+              pageCount: 0,
+              truncated: false,
+              payloadFingerprint: rankingFp,
+              fetchedAt: new Date().toISOString(),
+              costSource: rankingEvidence != null ? "wcl" : null,
+              reportCode: identity.reportCode,
+              fightId: identity.fightId,
+              reportRevision,
+            };
+            datasetDescriptors.push(rankingDescriptor);
+            if (input.manifestSlotIdForPersistence) {
+              try {
+                await input.evidence.createDataset({
+                  manifestSlotId: input.manifestSlotIdForPersistence,
+                  datasetKey: rankingDescriptor.datasetKey,
+                  compatibilityKey: rankingDescriptor.compatibilityKey,
+                  artifactId: rankingDescriptor.artifactId,
+                  schemaVersion: rankingDescriptor.schemaVersion,
+                  providerContractVersion: rankingDescriptor.providerContractVersion,
+                  state: rankingDescriptor.state,
+                  eventCount: rankingDescriptor.eventCount,
+                  pageCount: rankingDescriptor.pageCount,
+                  truncated: rankingDescriptor.truncated,
+                  payloadFingerprint: rankingDescriptor.payloadFingerprint,
+                  fetchedAt: new Date(rankingDescriptor.fetchedAt),
+                  costSource: rankingDescriptor.costSource,
+                });
+              } catch {
+                // Unique compatibility / slot key — reusable completed descriptor survives.
+              }
+            }
+          }
         } catch {
           typedFactPayloads.push({
             dimension: "PERFORMANCE",
@@ -936,6 +999,33 @@ export async function acquireCandidateWithFallback(input: {
             artifactIds,
             coverage: {},
           });
+          if (needRanking) {
+            const rankingCompat = [
+              identity.reportCode,
+              String(identity.fightId),
+              String(reportRevision),
+              "RANKING_PARSE",
+              "wcl-ranking-parse-v1",
+            ].join(":");
+            datasetDescriptors.push({
+              datasetKey: "ranking_parse",
+              datasetKind: "RANKING_PARSE",
+              compatibilityKey: rankingCompat,
+              artifactId: artifactIds[artifactIds.length - 1] ?? null,
+              schemaVersion: "1.0.0",
+              providerContractVersion: "wcl-ranking-parse-v1",
+              state: "FAILED",
+              eventCount: 0,
+              pageCount: 0,
+              truncated: false,
+              payloadFingerprint: "ranking-parse:FAILED:extractor_threw",
+              fetchedAt: new Date().toISOString(),
+              costSource: null,
+              reportCode: identity.reportCode,
+              fightId: identity.fightId,
+              reportRevision,
+            });
+          }
         }
       }
 

@@ -278,12 +278,15 @@ watch([characterId, seasonId], () => {
             <tr>
               <th>Dungeon</th>
               <th>Slot</th>
-              <th>Source</th>
+              <th>WCL source</th>
               <th>Datasets</th>
-              <th>Facts</th>
+              <th>Ranking</th>
+              <th>Survival facts</th>
+              <th>Utility facts</th>
+              <th>Performance</th>
               <th>Survival</th>
               <th>Utility</th>
-              <th>Performance</th>
+              <th>Experience</th>
               <th>Audit state</th>
             </tr>
           </thead>
@@ -294,12 +297,15 @@ watch([characterId, seasonId], () => {
             >
               <td>{{ row.dungeonSlug }}</td>
               <td>{{ row.slotIndex }}</td>
-              <td><span class="chip chip--muted">{{ row.source }}</span></td>
+              <td class="mono">{{ row.wclSource ?? "—" }}</td>
               <td>{{ row.datasets }}</td>
-              <td>{{ row.facts }}</td>
+              <td>{{ row.ranking }}</td>
+              <td>{{ row.survivalFacts }}</td>
+              <td>{{ row.utilityFacts }}</td>
+              <td>{{ row.performance }}</td>
               <td>{{ row.survival }}</td>
               <td>{{ row.utility }}</td>
-              <td>{{ row.performance }}</td>
+              <td>{{ row.experience }}</td>
               <td><span class="chip">{{ row.auditState }}</span></td>
             </tr>
           </tbody>

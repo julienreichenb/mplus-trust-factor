@@ -10,6 +10,7 @@ import {
   PERFORMANCE_V2_MODEL_LABEL,
   type PerformanceV2ModelConfig,
 } from "./constants.js";
+import { emitPerformanceConsumptionTraces } from "./consumption-traces.js";
 import { computeDetailedSeasonPerformance } from "./dungeon.js";
 import {
   fingerprintPerformanceV2ModelConfig,
@@ -343,9 +344,16 @@ export function computePerformanceV2(
     .filter((f) => f.semantic === "UNAVAILABLE")
     .map((f) => `slot:${f.slotId}:UNAVAILABLE`);
 
+  const consumptionTraces = emitPerformanceConsumptionTraces({
+    runParseFacts: input.runParseFacts,
+    hasProfileAggregate: input.profileAggregate != null,
+    hasScore: effectiveScore != null,
+    unavailableProvenance,
+  });
   const { featureUsage } = buildPerformanceFeatureUsage(input.runParseFacts, {
     hasProfileAggregate: input.profileAggregate != null,
     unavailableProvenance,
+    consumptionTraces,
   });
 
   const metrics: Record<string, unknown> = {

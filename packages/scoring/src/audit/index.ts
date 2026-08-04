@@ -1,6 +1,9 @@
 export {
   EXPECTED_EVENT_DATASETS,
+  EXPECTED_DATASETS,
+  DATASETS_WITH_EVIDENCE_PAGES,
   datasetKindFromPersistedKey,
+  persistedKeyForKind,
   persistedKeyForDatasetKind,
   normalizePersistedDatasetKey,
   type PersistedDatasetKey,
@@ -24,6 +27,17 @@ export {
 } from "./feature-usage.js";
 
 export {
+  FeatureConsumptionCollector,
+  type FeatureConsumptionTrace,
+} from "./consumption-trace.js";
+
+export {
+  parseFactDocumentIdentity,
+  identitiesMatch,
+  artifactIdsFromCoverage,
+} from "./fact-identity.js";
+
+export {
   buildScoringV2EvidenceAudit,
   fingerprintExplanationMetrics,
   type BuildScoringV2EvidenceAuditInput,
@@ -33,6 +47,7 @@ export {
   type AuditDimensionInput,
   type AuditMasterDataInput,
   type AuditManifestSlotRow,
+  type AuditArtifactMetaInput,
 } from "./build-evidence-audit.js";
 
 export {

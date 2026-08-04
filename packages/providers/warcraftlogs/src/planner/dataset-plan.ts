@@ -3,12 +3,20 @@
  *
  * Builds the exact union of datasets for enabled consumers from frozen slots
  * supplied by Workstream 02. Does not select slots or finalize manifests.
+ *
+ * Canonical consumer → dataset matrix lives in @mplus/contracts
+ * (CONSUMER_DATASET_REQUIREMENTS). Do not duplicate it here.
  */
 
 import type {
   EvidenceConsumerDimension,
   EvidenceCostEstimate,
   EvidenceDatasetKind,
+} from "@mplus/contracts";
+import {
+  consumersForDataset,
+  isDatasetRequiredForConsumers,
+  unionDatasetsForConsumers,
 } from "@mplus/contracts";
 import { HOSTILE_CAST_FILTER_EXPRESSION } from "../evidence/wcl-run-evidence-types.js";
 import { estimateDatasetCost } from "./cost-plan.js";
@@ -17,37 +25,6 @@ import {
   type EvidenceDatasetPlanEntry,
   type EvidenceFrozenSlotInput,
 } from "./planner-types.js";
-
-/** Phase 1 consumer matrix (normative doc 04). optional datasets included when listed. */
-const CONSUMER_DATASETS: Record<
-  EvidenceConsumerDimension,
-  ReadonlyArray<{ dataset: EvidenceDatasetKind; required: boolean }>
-> = {
-  PERFORMANCE: [{ dataset: "RANKING_PARSE", required: true }],
-  SURVIVAL: [
-    { dataset: "MASTER_DATA", required: true },
-    { dataset: "CASTS", required: true },
-    { dataset: "HOSTILE_CASTS", required: false },
-    { dataset: "DEATHS", required: true },
-    { dataset: "DAMAGE_TAKEN", required: true },
-    { dataset: "BUFFS", required: true },
-    { dataset: "DEBUFFS", required: false },
-    { dataset: "HEALING", required: true },
-    { dataset: "COMBATANT_INFO", required: true },
-    { dataset: "DAMAGE_DONE", required: false },
-  ],
-  UTILITY: [
-    { dataset: "MASTER_DATA", required: true },
-    { dataset: "CASTS", required: true },
-    { dataset: "HOSTILE_CASTS", required: true },
-    { dataset: "INTERRUPTS", required: true },
-    { dataset: "DEATHS", required: false },
-    { dataset: "BUFFS", required: true },
-    { dataset: "DEBUFFS", required: true },
-    { dataset: "DISPELS", required: true },
-    { dataset: "COMBATANT_INFO", required: true },
-  ],
-};
 
 /** WCL hostilityType numeric encoding used in compatibility keys. */
 export const HOSTILITY_FRIENDLIES = 0;
@@ -94,19 +71,6 @@ export function buildPlannerCompatibilityKey(input: CompatibilityKeyInput): stri
     `res:${input.includeResources ? "1" : "0"}`,
     input.providerContractVersion,
   ].join("|");
-}
-
-export function unionDatasetsForConsumers(
-  consumers: readonly EvidenceConsumerDimension[],
-  includeOptional = true,
-): EvidenceDatasetKind[] {
-  const set = new Set<EvidenceDatasetKind>();
-  for (const consumer of consumers) {
-    for (const row of CONSUMER_DATASETS[consumer]) {
-      if (row.required || includeOptional) set.add(row.dataset);
-    }
-  }
-  return [...set].sort((a, b) => a.localeCompare(b));
 }
 
 /** Provider candidate for a planned dataset — acquisition may not invent outside this list. */
@@ -165,10 +129,8 @@ export function buildDatasetRequirements(
     options?.providerContractVersion ?? EVIDENCE_PLANNER_PROVIDER_CONTRACT;
   const datasets = unionDatasetsForConsumers(enabledConsumers, includeOptional);
   return datasets.map((dataset) => {
-    const consumers = consumersForDatasetKind(dataset, enabledConsumers, includeOptional);
-    const required = enabledConsumers.some((consumer) =>
-      CONSUMER_DATASETS[consumer].some((row) => row.dataset === dataset && row.required),
-    );
+    const consumers = consumersForDataset(dataset, enabledConsumers, includeOptional);
+    const required = isDatasetRequiredForConsumers(dataset, enabledConsumers);
     return {
       dataset,
       required,
@@ -181,18 +143,13 @@ export function buildDatasetRequirements(
   });
 }
 
+/** @deprecated Prefer consumersForDataset from @mplus/contracts. */
 export function consumersForDatasetKind(
   dataset: EvidenceDatasetKind,
   enabled: readonly EvidenceConsumerDimension[],
   includeOptional = true,
 ): EvidenceConsumerDimension[] {
-  const out: EvidenceConsumerDimension[] = [];
-  for (const consumer of enabled) {
-    const row = CONSUMER_DATASETS[consumer].find((r) => r.dataset === dataset);
-    if (!row) continue;
-    if (row.required || includeOptional) out.push(consumer);
-  }
-  return out;
+  return consumersForDataset(dataset, enabled, includeOptional);
 }
 
 function defaultFilter(dataset: EvidenceDatasetKind): string | null {
@@ -248,7 +205,7 @@ export function buildDatasetPlanEntries(
 
   for (const slot of slots) {
     for (const dataset of datasets) {
-      const consumers = consumersForDatasetKind(
+      const consumers = consumersForDataset(
         dataset,
         options.enabledConsumers,
         includeOptional,

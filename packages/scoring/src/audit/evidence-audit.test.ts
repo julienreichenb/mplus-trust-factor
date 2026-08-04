@@ -257,9 +257,9 @@ function buildHarness(options?: { leaveWindrunnerSlot1Missing?: boolean }) {
     facts: unknown;
     coverage: unknown;
     limitations: unknown;
-    reportCode: string | null;
-    fightId: number | null;
-    reportRevision: number | null;
+    relationReportCode: string | null;
+    relationFightId: number | null;
+    relationReportRevision: number | null;
     dungeonSlug: string | null;
     slotIndex: number | null;
   }> = [];
@@ -391,14 +391,59 @@ function buildHarness(options?: { leaveWindrunnerSlot1Missing?: boolean }) {
         schemaVersion: m.schema,
         inputFingerprint: m.fp,
         facts: m.facts,
-        coverage: {},
+        coverage: { artifactIds: [`artifact-${m.family}-${key}`] },
         limitations: [],
-        reportCode: identity.reportCode,
-        fightId: identity.fightId,
-        reportRevision: identity.reportRevision,
+        relationReportCode: identity.reportCode,
+        relationFightId: identity.fightId,
+        relationReportRevision: identity.reportRevision,
         dungeonSlug: slot.dungeonSlug,
         slotIndex: slot.slotIndex,
       });
+    }
+
+    // RANKING_PARSE descriptor (no pages) — logical WRITTEN outcome.
+    datasets.push({
+      id: `ds-RANKING_PARSE-${key}`,
+      manifestSlotId: rowId,
+      datasetKey: "ranking_parse",
+      compatibilityKey: `${identity.reportCode}:${identity.fightId}:${identity.reportRevision}:RANKING_PARSE:wcl-ranking-parse-v1`,
+      artifactId: `artifact-ranking-${key}`,
+      schemaVersion: "1.0.0",
+      providerContractVersion: "wcl-ranking-parse-v1",
+      state: "READY",
+      eventCount: 1,
+      pageCount: 0,
+      truncated: false,
+      payloadFingerprint: sha(`ranking-${key}`),
+      pages: [],
+    });
+  }
+
+  const artifactsById: Record<
+    string,
+    {
+      id: string;
+      provider: string | null;
+      artifactClass: string | null;
+      contentHash: string | null;
+      byteLength: number | null;
+    }
+  > = {};
+  for (const fs of factSets) {
+    const ids =
+      typeof fs.coverage === "object" &&
+      fs.coverage != null &&
+      Array.isArray((fs.coverage as { artifactIds?: unknown }).artifactIds)
+        ? ((fs.coverage as { artifactIds: string[] }).artifactIds)
+        : [];
+    for (const id of ids) {
+      artifactsById[id] = {
+        id,
+        provider: "WARCRAFTLOGS",
+        artifactClass: "wcl_event_page",
+        contentHash: sha(id),
+        byteLength: 128,
+      };
     }
   }
 
@@ -410,9 +455,9 @@ function buildHarness(options?: { leaveWindrunnerSlot1Missing?: boolean }) {
     facts: f.facts,
     limitations: f.limitations,
     manifestSlotId: f.manifestSlotId,
-    reportCode: f.reportCode,
-    fightId: f.fightId,
-    reportRevision: f.reportRevision,
+    reportCode: f.relationReportCode,
+    fightId: f.relationFightId,
+    reportRevision: f.relationReportRevision,
     dungeonSlug: f.dungeonSlug,
     slotIndex: f.slotIndex,
   }));
@@ -424,7 +469,7 @@ function buildHarness(options?: { leaveWindrunnerSlot1Missing?: boolean }) {
     scoreModelId: "model-audit-1",
     manifest,
     expectedManifestContentHash: manifest.contentHash,
-    enabledDimensions: ["PERFORMANCE", "SURVIVAL", "UTILITY", "EXPERIENCE"],
+    enabledDimensions: ["PERFORMANCE", "SURVIVAL", "UTILITY"],
     factSets: factRefs,
     experienceHistory: null,
     computedAt: new Date("2026-08-01T12:00:00.000Z"),
@@ -477,10 +522,22 @@ function buildHarness(options?: { leaveWindrunnerSlot1Missing?: boolean }) {
     dimensions,
     masterDataByIdentity,
     pagesByIdentity,
+    artifactsById,
     replay,
   });
 
-  return { manifest, audit, replay, providerCallCounter, factSets, finalized };
+  return {
+    manifest,
+    audit,
+    replay,
+    providerCallCounter,
+    factSets,
+    finalized,
+    datasets,
+    pagesByIdentity,
+    masterDataByIdentity,
+    artifactsById,
+  };
 }
 
 describe("feature registry v2", () => {
@@ -551,6 +608,24 @@ describe("16-slot evidence lineage harness", () => {
     );
     expect(utility?.featureUsage.some((f) => f.featurePath.includes("interrupt"))).toBe(true);
     expect(performance?.computationPresent).toBe(true);
+    expect(performance?.auditScope).toBe("AUDITED");
+    expect(
+      audit.dimensionConsumption.find((d) => d.dimension === "EXPERIENCE")?.auditScope,
+    ).toBe("OUT_OF_SCOPE");
+
+    for (const slot of selected) {
+      expect(slot.rankingParse?.logicalOutcome).toBe("WRITTEN");
+      expect(slot.rankingParse?.descriptorPresent).toBe(true);
+      const surv = slot.factSets.find((f) => f.extractorFamily === "SURVIVAL");
+      expect(surv?.identityMatchAgainstManifest).toBe(true);
+      expect(surv?.artifactReferences.length).toBeGreaterThan(0);
+      expect(surv?.artifactReferences[0]?.contentHash).toBeTruthy();
+    }
+
+    expect(audit.matrix.every((r) => r.experience === "OUT_OF_SCOPE")).toBe(true);
+    expect(audit.matrix.filter((r) => r.source === "SELECTED").every((r) => r.ranking === "WRITTEN")).toBe(
+      true,
+    );
 
     expect(audit.providerCallCount).toBe(0);
     expect(providerCallCounter.count).toBe(0);
@@ -623,13 +698,30 @@ describe("16-slot evidence lineage harness", () => {
       candidateRank: s.selectedRank,
     }));
 
+    const base = factSets[0]!;
+    const rogueFacts =
+      typeof base.facts === "object" && base.facts != null
+        ? {
+            ...(base.facts as Record<string, unknown>),
+            reportCode: "ROGUE999",
+            fightId: 999,
+            reportRevision: 1,
+            identity: {
+              reportCode: "ROGUE999",
+              fightId: 999,
+              reportRevision: 1,
+            },
+          }
+        : base.facts;
+
     const rogue = {
-      ...factSets[0]!,
+      ...base,
       id: randomUUID(),
       manifestSlotId: "unbound-slot",
-      reportCode: "ROGUE999",
-      fightId: 999,
-      reportRevision: 1,
+      relationReportCode: base.relationReportCode,
+      relationFightId: base.relationFightId,
+      relationReportRevision: base.relationReportRevision,
+      facts: rogueFacts,
       dungeonSlug: "ara-kara",
       slotIndex: 0,
     };
@@ -656,7 +748,67 @@ describe("16-slot evidence lineage harness", () => {
     ).toBe(true);
   });
 
-  it("reports missing selected-slot facts as PARTIAL/UNAVAILABLE, never silently omitted", () => {
+  it("marks BROKEN when RunFactSet is on the correct DB slot but fact doc identity differs", () => {
+    const { manifest, factSets, datasets, pagesByIdentity, masterDataByIdentity } =
+      buildHarness({ leaveWindrunnerSlot1Missing: false });
+    const slotRows = manifest.slots.map((s) => ({
+      id: `slot-row-${s.slotId}`,
+      dungeonSlug: s.dungeonSlug,
+      slotIndex: s.slotIndex,
+      state: s.state,
+      reportCode: s.identity?.reportCode ?? null,
+      fightId: s.identity?.fightId ?? null,
+      reportRevision: s.identity?.reportRevision ?? null,
+      keyLevel: s.keyLevel,
+      selectionReason: "preferred",
+      candidateRank: s.selectedRank,
+      dimensionValidityReasons: [] as string[],
+    }));
+
+    const mutated = factSets.map((f, i) => {
+      if (i !== 0) return f;
+      const facts = {
+        ...(f.facts as Record<string, unknown>),
+        reportCode: "OTHERFIGHT",
+        fightId: 777,
+        reportRevision: 9,
+        identity: {
+          reportCode: "OTHERFIGHT",
+          fightId: 777,
+          reportRevision: 9,
+        },
+      };
+      return { ...f, facts };
+    });
+
+    const audit = buildScoringV2EvidenceAudit({
+      manifestId: "manifest-audit-1",
+      characterId: manifest.characterId,
+      seasonId: manifest.seasonId,
+      manifestDocument: manifest,
+      coverageState: manifest.coverage.state,
+      expectedSlotCount: 16,
+      selectedSlotCount: 16,
+      auditedAt: "2026-08-04T12:00:00.000Z",
+      slotRows,
+      datasets,
+      factSets: mutated,
+      dimensions: [],
+      masterDataByIdentity,
+      pagesByIdentity,
+    });
+
+    expect(
+      audit.integrityFailures.some((f) => f.includes("UNSELECTED_FACT_SET")),
+    ).toBe(true);
+    const broken = audit.slots
+      .flatMap((s) => s.factSets)
+      .find((f) => f.limitations.includes("FACT_IDENTITY_MISMATCH"));
+    expect(broken?.sourceOutcome).toBe("FAILED");
+    expect(broken?.identityMatchAgainstManifest).toBe(false);
+  });
+
+  it("reports missing selected-slot facts without durable provenance as FAILED/BROKEN", () => {
     const { manifest } = buildHarness();
     const slotRows = manifest.slots.map((s) => ({
       id: `slot-row-${s.slotId}`,
@@ -694,6 +846,74 @@ describe("16-slot evidence lineage harness", () => {
       expect(["PARTIAL", "BROKEN", "UNAVAILABLE"]).toContain(slot.slotAuditState);
       expect(slot.factSets).toHaveLength(3);
       expect(slot.factSets.every((f) => f.runFactSetPresent === false)).toBe(true);
+      expect(slot.factSets.every((f) => f.sourceOutcome === "FAILED")).toBe(true);
+    }
+  });
+
+  it("records mixed ranking logical outcomes across a full 16-slot manifest", () => {
+    const { manifest, factSets, datasets, pagesByIdentity, masterDataByIdentity } =
+      buildHarness({ leaveWindrunnerSlot1Missing: false });
+    const selected = manifest.slots.filter((s) => s.state === "SELECTED");
+    expect(selected).toHaveLength(16);
+
+    const slotRows = selected.map((s, idx) => {
+      const outcome =
+        idx % 4 === 0
+          ? "WRITTEN"
+          : idx % 4 === 1
+            ? "UNAVAILABLE"
+            : idx % 4 === 2
+              ? "FAILED"
+              : "WRITTEN";
+      return {
+        id: `slot-row-${s.slotId}`,
+        dungeonSlug: s.dungeonSlug,
+        slotIndex: s.slotIndex,
+        state: s.state,
+        reportCode: s.identity!.reportCode,
+        fightId: s.identity!.fightId,
+        reportRevision: s.identity!.reportRevision,
+        keyLevel: s.keyLevel,
+        selectionReason: "preferred",
+        candidateRank: s.selectedRank,
+        dimensionValidityReasons:
+          outcome === "WRITTEN"
+            ? []
+            : [`PERFORMANCE:${outcome}:${outcome.toLowerCase()}_fixture`],
+      };
+    });
+
+    // Drop performance facts for UNAVAILABLE/FAILED slots (WRITTEN keeps fact rows).
+    const keptFacts = factSets.filter((f) => {
+      if (f.extractorFamily !== "performance") return true;
+      const row = slotRows.find((s) => s.id === f.manifestSlotId);
+      return row?.dimensionValidityReasons.length === 0;
+    });
+
+    const audit = buildScoringV2EvidenceAudit({
+      manifestId: "manifest-audit-1",
+      characterId: manifest.characterId,
+      seasonId: manifest.seasonId,
+      manifestDocument: manifest,
+      coverageState: manifest.coverage.state,
+      expectedSlotCount: 16,
+      selectedSlotCount: 16,
+      auditedAt: "2026-08-04T12:00:00.000Z",
+      slotRows,
+      datasets,
+      factSets: keptFacts,
+      dimensions: [],
+      masterDataByIdentity,
+      pagesByIdentity,
+    });
+
+    const outcomes = audit.matrix.map((r) => r.ranking);
+    expect(outcomes.filter((o) => o === "WRITTEN").length).toBeGreaterThan(0);
+    expect(outcomes.filter((o) => o === "UNAVAILABLE").length).toBeGreaterThan(0);
+    expect(outcomes.filter((o) => o === "FAILED").length).toBeGreaterThan(0);
+    expect(audit.slots).toHaveLength(16);
+    for (const slot of audit.slots.filter((s) => s.slotState === "SELECTED")) {
+      expect(slot.rankingParse?.logicalOutcome).toBeTruthy();
     }
   });
 });

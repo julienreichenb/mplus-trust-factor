@@ -240,6 +240,97 @@ export const evidenceConsumerDimensionSchema = z.enum([
 export type EvidenceConsumerDimension = z.infer<typeof evidenceConsumerDimensionSchema>;
 
 /**
+ * Canonical WCL consumer → dataset requirement matrix (Scoring V2 Phase 1).
+ * Single source of truth for planner, acquisition, and evidence audit.
+ * Do not duplicate this matrix elsewhere.
+ */
+export const CONSUMER_DATASET_REQUIREMENTS: Record<
+  EvidenceConsumerDimension,
+  ReadonlyArray<{ dataset: EvidenceDatasetKind; required: boolean }>
+> = {
+  PERFORMANCE: [{ dataset: "RANKING_PARSE", required: true }],
+  SURVIVAL: [
+    { dataset: "MASTER_DATA", required: true },
+    { dataset: "CASTS", required: true },
+    { dataset: "HOSTILE_CASTS", required: false },
+    { dataset: "DEATHS", required: true },
+    { dataset: "DAMAGE_TAKEN", required: true },
+    { dataset: "BUFFS", required: true },
+    { dataset: "DEBUFFS", required: false },
+    { dataset: "HEALING", required: true },
+    { dataset: "COMBATANT_INFO", required: true },
+    { dataset: "DAMAGE_DONE", required: false },
+  ],
+  UTILITY: [
+    { dataset: "MASTER_DATA", required: true },
+    { dataset: "CASTS", required: true },
+    { dataset: "HOSTILE_CASTS", required: true },
+    { dataset: "INTERRUPTS", required: true },
+    { dataset: "DEATHS", required: false },
+    { dataset: "BUFFS", required: true },
+    { dataset: "DEBUFFS", required: true },
+    { dataset: "DISPELS", required: true },
+    { dataset: "COMBATANT_INFO", required: true },
+  ],
+};
+
+/**
+ * Datasets whose persistence contract creates EvidenceDatasetPage rows.
+ * MASTER_DATA and RANKING_PARSE use descriptor/provenance rows without event pages.
+ */
+export const DATASETS_WITH_EVIDENCE_PAGES: ReadonlySet<EvidenceDatasetKind> = new Set([
+  "CASTS",
+  "HOSTILE_CASTS",
+  "INTERRUPTS",
+  "DEATHS",
+  "DAMAGE_TAKEN",
+  "DAMAGE_DONE",
+  "BUFFS",
+  "DEBUFFS",
+  "DISPELS",
+  "HEALING",
+  "COMBATANT_INFO",
+]);
+
+export function unionDatasetsForConsumers(
+  consumers: readonly EvidenceConsumerDimension[],
+  includeOptional = true,
+): EvidenceDatasetKind[] {
+  const set = new Set<EvidenceDatasetKind>();
+  for (const consumer of consumers) {
+    for (const row of CONSUMER_DATASET_REQUIREMENTS[consumer]) {
+      if (row.required || includeOptional) set.add(row.dataset);
+    }
+  }
+  return [...set].sort((a, b) => a.localeCompare(b));
+}
+
+export function consumersForDataset(
+  dataset: EvidenceDatasetKind,
+  enabled: readonly EvidenceConsumerDimension[],
+  includeOptional = true,
+): EvidenceConsumerDimension[] {
+  const out: EvidenceConsumerDimension[] = [];
+  for (const consumer of enabled) {
+    const row = CONSUMER_DATASET_REQUIREMENTS[consumer].find((r) => r.dataset === dataset);
+    if (!row) continue;
+    if (row.required || includeOptional) out.push(consumer);
+  }
+  return out;
+}
+
+export function isDatasetRequiredForConsumers(
+  dataset: EvidenceDatasetKind,
+  enabled: readonly EvidenceConsumerDimension[],
+): boolean {
+  return enabled.some((consumer) =>
+    CONSUMER_DATASET_REQUIREMENTS[consumer].some(
+      (row) => row.dataset === dataset && row.required,
+    ),
+  );
+}
+
+/**
  * Cost estimate: unknown is distinct from zero.
  * WS03 may annotate execution costs; WS02 does not invent acquisition policy from cost.
  */

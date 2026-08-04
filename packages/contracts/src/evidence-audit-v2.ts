@@ -39,8 +39,19 @@ export const factSourceOutcomeSchema = z.enum([
   "WRITTEN",
   "UNAVAILABLE",
   "FAILED",
+  "NOT_ENABLED",
 ]);
 export type FactSourceOutcome = z.infer<typeof factSourceOutcomeSchema>;
+
+/** Bounded RawArtifact / page lineage reference — never embeds raw bytes. */
+export const evidenceAuditArtifactRefSchema = z.object({
+  artifactId: z.string().min(1),
+  provider: z.string().nullable(),
+  artifactClass: z.string().nullable(),
+  contentHash: z.string().nullable(),
+  byteLength: z.number().int().nonnegative().nullable(),
+});
+export type EvidenceAuditArtifactRef = z.infer<typeof evidenceAuditArtifactRefSchema>;
 
 export const frozenIdentityCompletenessSchema = z.enum([
   "COMPLETE",
@@ -113,11 +124,18 @@ export type EvidenceAuditMasterData = z.infer<typeof evidenceAuditMasterDataSche
 
 export const evidenceAuditRankingParseSchema = z.object({
   present: z.boolean(),
+  /** Logical acquisition outcome for the selected slot (cache hits still record an outcome). */
+  logicalOutcome: factSourceOutcomeSchema,
   semantic: z.string().nullable(),
   factSetId: z.string().nullable(),
   inputFingerprint: z.string().nullable(),
+  reason: z.string().nullable(),
+  category: z.string().nullable(),
   unavailableProvenance: z.array(z.string()),
+  limitations: z.array(z.string()),
   persistenceState: datasetPersistenceStateSchema,
+  /** True when EvidenceDataset descriptor exists (pages are not produced for RANKING_PARSE). */
+  descriptorPresent: z.boolean(),
   integrityErrors: z.array(z.string()),
 });
 export type EvidenceAuditRankingParse = z.infer<typeof evidenceAuditRankingParseSchema>;
@@ -128,17 +146,23 @@ export const evidenceAuditFactSetEntrySchema = z.object({
   extractorVersion: z.string().nullable(),
   schemaVersion: z.string().nullable(),
   inputFingerprint: z.string().nullable(),
+  /** Identity parsed from the fact document (not copied from the slot row). */
   reportCode: z.string().nullable(),
   fightId: z.number().int().nullable(),
   reportRevision: z.number().int().nullable(),
+  /** Database slot relation identity (may differ from fact document). */
+  relationReportCode: z.string().nullable(),
+  relationFightId: z.number().int().nullable(),
+  relationReportRevision: z.number().int().nullable(),
   manifestSlotId: z.string().nullable(),
-  artifactReferences: z.array(z.string()),
+  artifactReferences: z.array(evidenceAuditArtifactRefSchema),
   coverage: z.record(z.string(), z.unknown()).nullable(),
   limitations: z.array(z.string()),
   parserValidation: z.enum(["VALID", "INVALID", "SKIPPED", "UNAVAILABLE"]),
   sourceOutcome: factSourceOutcomeSchema,
   boundedFactsSummary: z.record(z.string(), z.unknown()).nullable(),
   hashMatchAgainstManifest: z.boolean().nullable(),
+  identityMatchAgainstManifest: z.boolean().nullable(),
 });
 export type EvidenceAuditFactSetEntry = z.infer<typeof evidenceAuditFactSetEntrySchema>;
 
@@ -187,6 +211,8 @@ export type EvidenceAuditFeatureRegistryEntry = z.infer<
 
 export const evidenceAuditDimensionConsumptionSchema = z.object({
   dimension: z.enum(["PERFORMANCE", "SURVIVAL", "UTILITY", "EXPERIENCE"]),
+  /** EXPERIENCE is OUT_OF_SCOPE for this WCL-backed audit PR. */
+  auditScope: z.enum(["AUDITED", "OUT_OF_SCOPE", "NOT_AUDITED"]),
   computationPresent: z.boolean(),
   score: z.number().nullable(),
   confidence: z.number().nullable(),
@@ -215,11 +241,16 @@ export const evidenceAuditMatrixRowSchema = z.object({
   dungeonSlug: z.string().min(1),
   slotIndex: z.union([z.literal(0), z.literal(1)]),
   source: z.enum(["SELECTED", "MISSING", "INVALID", "OTHER"]),
+  /** Compact WCL report identity for the selected slot. */
+  wclSource: z.string().nullable(),
   datasets: slotAuditStateSchema,
-  facts: slotAuditStateSchema,
+  ranking: z.enum(["WRITTEN", "UNAVAILABLE", "FAILED", "NOT_ENABLED", "N/A"]),
+  survivalFacts: z.enum(["OK", "PARTIAL", "UNAVAILABLE", "FAILED", "NOT_ENABLED", "N/A"]),
+  utilityFacts: z.enum(["OK", "PARTIAL", "UNAVAILABLE", "FAILED", "NOT_ENABLED", "N/A"]),
+  performance: z.enum(["OK", "PARTIAL", "UNAVAILABLE", "N/A"]),
   survival: z.enum(["OK", "PARTIAL", "UNAVAILABLE", "N/A"]),
   utility: z.enum(["OK", "PARTIAL", "UNAVAILABLE", "N/A"]),
-  performance: z.enum(["OK", "PARTIAL", "UNAVAILABLE", "N/A"]),
+  experience: z.literal("OUT_OF_SCOPE"),
   auditState: slotAuditStateSchema,
 });
 export type EvidenceAuditMatrixRow = z.infer<typeof evidenceAuditMatrixRowSchema>;
