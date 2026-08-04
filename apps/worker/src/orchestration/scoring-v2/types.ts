@@ -27,6 +27,11 @@ export interface EvidenceV2SlotRecord {
   terminalReason: string | null;
   /** Winning discovery identity key when acquired. */
   acquiredDiscoveryKey: string | null;
+  /**
+   * In-flight reportCode:fightId reservation while this slot is RUNNING.
+   * Prevents a parallel sibling from acquiring the same identity.
+   */
+  reservedDiscoveryKey: string | null;
   acquisitionResult: EvidenceCandidateAcquisitionResult | null;
   /**
    * Ordered per-attempt rejections for this slot's fallback chain.
@@ -93,6 +98,7 @@ export function emptySlotRecord(
     finishedAt: null,
     terminalReason: null,
     acquiredDiscoveryKey: null,
+    reservedDiscoveryKey: null,
     acquisitionResult: null,
     rejectedAttempts: [],
     datasetCompatibilityKeys: [],

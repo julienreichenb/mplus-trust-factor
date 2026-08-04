@@ -18,6 +18,7 @@ import {
 } from "./acquisition.js";
 import { resolveFrozenClassSpecIdentity } from "./class-spec-identity.js";
 import { createProviderBackedEvidenceTransport } from "./evidence-transport-provider.js";
+import { collectOccupiedDiscoveryKeys } from "./occupied-discovery-keys.js";
 import {
   acquirePerCharacterRunPermit,
   releasePerCharacterRunPermit,
@@ -284,6 +285,13 @@ export async function runAnalyzeEvidenceSlotV2(
       }
       charToken = charPermit.token;
 
+      // Full shared fallback chains are intentional; distinct report/fight pairs
+      // are enforced here via sibling occupancy + CAS reservation.
+      const excludeDiscoveryKeys = collectOccupiedDiscoveryKeys(
+        batchView.meta.slots,
+        job.slotId,
+      );
+
       const acquired = await acquireCandidateWithFallback({
         container,
         candidates: slotPlan.orderedCandidates,
@@ -303,6 +311,24 @@ export async function runAnalyzeEvidenceSlotV2(
           slotId: job.slotId,
           dungeonSlug: slotPlan.dungeonSlug,
           slotIndex: slotPlan.slotIndex,
+        },
+        excludeDiscoveryKeys,
+        reserveDiscoveryIdentity: async (discoveryKey) => {
+          const result = await repo.reserveSlotDiscoveryIdentity({
+            batchId: job.analysisBatchId,
+            slotId: job.slotId,
+            refreshGeneration: job.refreshGeneration,
+            discoveryKey,
+          });
+          return result.ok;
+        },
+        releaseDiscoveryIdentity: async (discoveryKey) => {
+          await repo.clearSlotDiscoveryReservation({
+            batchId: job.analysisBatchId,
+            slotId: job.slotId,
+            refreshGeneration: job.refreshGeneration,
+            discoveryKey,
+          });
         },
         transport: createProviderBackedEvidenceTransport(container, {
           characterId: batchView.batch.characterId,

@@ -10,6 +10,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { loadEnv, resetEnvCache } from "@mplus/config";
 import {
   EVIDENCE_SELECTOR_VERSION,
+  discoveryIdentityKey,
   type EvidenceAcquisitionPlanV2,
   type EvidenceCandidateAcquisitionResult,
 } from "@mplus/contracts";
@@ -19,6 +20,7 @@ import { assertTestDatabaseAllowed, sanitizeDatabaseUrl } from "@mplus/test-util
 import { createWorkerContainer } from "../../container.js";
 import { createEvidenceV2BatchRepository } from "../../persistence/evidence-v2-batch-repository.js";
 import { runFinalizeEvidenceBatchV2 } from "./finalize.js";
+import { collectOccupiedDiscoveryKeys } from "./occupied-discovery-keys.js";
 
 const databaseUrl = process.env.DATABASE_URL ?? "";
 assertTestDatabaseAllowed(databaseUrl);
@@ -280,7 +282,10 @@ describe.runIf(dbAvailable)("scoring v2 pipeline fan-in integration", () => {
       });
       expect(claim.outcome).toBe("claimed");
 
-      const candidate = slot.orderedCandidates[0];
+      const occupied = collectOccupiedDiscoveryKeys(claim.view.meta.slots, slot.slotId);
+      const candidate = slot.orderedCandidates.find(
+        (c) => !occupied.has(discoveryIdentityKey(c.discoveryIdentity)),
+      );
       if (!candidate) {
         const completed = await repo.completeSlot({
           batchId: batch.id,
@@ -309,7 +314,7 @@ describe.runIf(dbAvailable)("scoring v2 pipeline fan-in integration", () => {
         slotId: slot.slotId,
         status: "PARTIAL",
         acquisitionResult: result,
-        acquiredDiscoveryKey: `${candidate.discoveryIdentity.reportCode}:${candidate.discoveryIdentity.fightId}`,
+        acquiredDiscoveryKey: discoveryIdentityKey(candidate.discoveryIdentity),
         datasetCompatibilityKeys: [`compat-${slot.slotId}`],
         factSetFingerprint: result.factSetHash,
       });

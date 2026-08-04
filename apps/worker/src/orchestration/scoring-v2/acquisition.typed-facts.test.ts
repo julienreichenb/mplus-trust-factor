@@ -739,6 +739,193 @@ describe("CP2 typed acquisition", () => {
     expect(acquired.result.acquisitionStatus).toBe("ACQUIRED");
   });
 
+  it("skips sibling-occupied identities and acquires the next distinct candidate", async () => {
+    const altFight = fightId + 1;
+    const altCode = `${reportCode}B`;
+    const transport = new FixtureScoringV2EvidenceTransport({
+      fightDetails: {
+        data: { reportRevision },
+        reportRevision,
+        playerActorId: 10,
+        ownedPetActorIds: [],
+        startTime: 0,
+        endTime: 600_000,
+        dungeonSlug: "ara-kara",
+        providerCalls: 1,
+        targetInFight: true,
+        fightFriendlyPlayerActorIds: [10],
+      },
+      sharedEvidence: {
+        bundle: completeUtilityBundle({
+          reportCode: altCode,
+          fightId: altFight,
+          reportRevision,
+        }),
+        providerCalls: 1,
+        cacheHits: 0,
+        unavailableReason: null,
+      },
+      rankingParse: {
+        evidence: rankingEvidence(altCode, altFight, reportRevision),
+        providerCalls: 1,
+        unavailableReason: null,
+      },
+    });
+
+    const reserved: string[] = [];
+    const acquired = await acquireCandidateWithFallback({
+      container: mockContainer(),
+      candidates: [
+        {
+          discoveryIdentity: { reportCode, fightId },
+          rank: 0,
+          keyLevel: 12,
+          timed: true,
+          runScore: 200,
+          evidenceCompleteness: 1,
+          completedAt: "2026-08-02T00:00:00.000Z",
+          actorId: 10,
+        },
+        {
+          discoveryIdentity: { reportCode: altCode, fightId: altFight },
+          rank: 1,
+          keyLevel: 11,
+          timed: true,
+          runScore: 190,
+          evidenceCompleteness: 1,
+          completedAt: "2026-08-02T01:00:00.000Z",
+          actorId: 10,
+        },
+      ],
+      region: "EU",
+      targetCharacter: { region: "EU", realmSlug: "archimonde", name: "Wallidrixe" },
+      correlationId: "c-distinct",
+      shouldCancel: async () => false,
+      evidence: mockEvidence() as never,
+      artifacts: mockArtifacts() as never,
+      manifestSlotIdForPersistence: null,
+      characterId: "char-1",
+      datasetRequirements: resolveBatchDatasetRequirements([
+        "PERFORMANCE",
+        "SURVIVAL",
+        "UTILITY",
+      ]),
+      slotContext: { slotId: "ara-kara:1", dungeonSlug: "ara-kara", slotIndex: 1 },
+      excludeDiscoveryKeys: new Set([`${reportCode}:${fightId}`]),
+      reserveDiscoveryIdentity: async (key) => {
+        reserved.push(key);
+        return true;
+      },
+      releaseDiscoveryIdentity: async () => undefined,
+      transport,
+      classSlug: "mage",
+      specSlug: "frost",
+    });
+
+    expect(acquired.result.acquisitionStatus).toBe("ACQUIRED");
+    expect(acquired.result.discoveryIdentity).toEqual({
+      reportCode: altCode,
+      fightId: altFight,
+    });
+    expect(reserved).toEqual([`${altCode}:${altFight}`]);
+    expect(acquired.rejectedAttempts[0]?.rejectionReason).toBe("DUPLICATE_REPORT_FIGHT");
+  });
+
+  it("falls through when reservation loses a concurrency race", async () => {
+    const altFight = fightId + 2;
+    const altCode = `${reportCode}C`;
+    const taken = new Set<string>([`${reportCode}:${fightId}`]);
+    const transport = new FixtureScoringV2EvidenceTransport({
+      fightDetails: {
+        data: { reportRevision },
+        reportRevision,
+        playerActorId: 10,
+        ownedPetActorIds: [],
+        startTime: 0,
+        endTime: 600_000,
+        dungeonSlug: "ara-kara",
+        providerCalls: 1,
+        targetInFight: true,
+        fightFriendlyPlayerActorIds: [10],
+      },
+      sharedEvidence: {
+        bundle: completeUtilityBundle({
+          reportCode: altCode,
+          fightId: altFight,
+          reportRevision,
+        }),
+        providerCalls: 1,
+        cacheHits: 0,
+        unavailableReason: null,
+      },
+      rankingParse: {
+        evidence: rankingEvidence(altCode, altFight, reportRevision),
+        providerCalls: 1,
+        unavailableReason: null,
+      },
+    });
+
+    const acquired = await acquireCandidateWithFallback({
+      container: mockContainer(),
+      candidates: [
+        {
+          discoveryIdentity: { reportCode, fightId },
+          rank: 0,
+          keyLevel: 12,
+          timed: true,
+          runScore: 200,
+          evidenceCompleteness: 1,
+          completedAt: "2026-08-02T00:00:00.000Z",
+          actorId: 10,
+        },
+        {
+          discoveryIdentity: { reportCode: altCode, fightId: altFight },
+          rank: 1,
+          keyLevel: 11,
+          timed: true,
+          runScore: 190,
+          evidenceCompleteness: 1,
+          completedAt: "2026-08-02T01:00:00.000Z",
+          actorId: 10,
+        },
+      ],
+      region: "EU",
+      targetCharacter: { region: "EU", realmSlug: "archimonde", name: "Wallidrixe" },
+      correlationId: "c-race",
+      shouldCancel: async () => false,
+      evidence: mockEvidence() as never,
+      artifacts: mockArtifacts() as never,
+      manifestSlotIdForPersistence: null,
+      characterId: "char-1",
+      datasetRequirements: resolveBatchDatasetRequirements([
+        "PERFORMANCE",
+        "SURVIVAL",
+        "UTILITY",
+      ]),
+      slotContext: { slotId: "ara-kara:1", dungeonSlug: "ara-kara", slotIndex: 1 },
+      reserveDiscoveryIdentity: async (key) => {
+        if (taken.has(key)) return false;
+        taken.add(key);
+        return true;
+      },
+      releaseDiscoveryIdentity: async (key) => {
+        taken.delete(key);
+      },
+      transport,
+      classSlug: "mage",
+      specSlug: "frost",
+    });
+
+    expect(acquired.result.acquisitionStatus).toBe("ACQUIRED");
+    expect(acquired.result.discoveryIdentity).toEqual({
+      reportCode: altCode,
+      fightId: altFight,
+    });
+    expect(
+      acquired.rejectedAttempts.some((r) => r.rejectionReason === "DUPLICATE_REPORT_FIGHT"),
+    ).toBe(true);
+  });
+
   it("records providerCandidates and cacheReusable on immutable plan requirements", () => {
     const reqs = resolveBatchDatasetRequirements(["PERFORMANCE", "SURVIVAL", "UTILITY"]);
     expect(reqs.every((r) => r.cacheReusable === true)).toBe(true);

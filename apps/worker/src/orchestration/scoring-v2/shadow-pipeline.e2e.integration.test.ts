@@ -12,6 +12,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { loadEnv, resetEnvCache } from "@mplus/config";
 import {
   EVIDENCE_SELECTOR_VERSION,
+  discoveryIdentityKey,
   type EvidenceAcquisitionPlanV2,
   type RaiderIoCharacterProfile,
 } from "@mplus/contracts";
@@ -45,6 +46,7 @@ import {
 } from "./acquisition.js";
 import { FixtureScoringV2EvidenceTransport } from "./evidence-transport.js";
 import { runFinalizeEvidenceBatchV2 } from "./finalize.js";
+import { collectOccupiedDiscoveryKeys } from "./occupied-discovery-keys.js";
 import { persistTypedFactSet } from "./typed-fact-persist.js";
 import { buildExperienceHistoryFromPersistedEvidence } from "./experience-history-loader.js";
 
@@ -594,6 +596,18 @@ describe.runIf(dbAvailable)("CP4 typed shadow pipeline E2E (disposable DB)", () 
     plan = built;
     expect(plan.expectedSlotCount).toBe(2);
     expect(plan.slots).toHaveLength(2);
+    // Shared full fallback chains (not sliced): both slots see the same ordered list.
+    expect(plan.slots[0]!.orderedCandidates.map((c) => discoveryIdentityKey(c.discoveryIdentity))).toEqual(
+      plan.slots[1]!.orderedCandidates.map((c) => discoveryIdentityKey(c.discoveryIdentity)),
+    );
+    expect(plan.slots[0]!.orderedCandidates).toHaveLength(2);
+    expect(plan.slots[0]!.orderedCandidates[0]!.discoveryIdentity).toEqual(
+      plan.slots[1]!.orderedCandidates[0]!.discoveryIdentity,
+    );
+    expect(plan.slots[0]!.orderedCandidates[0]!.discoveryIdentity).toEqual({
+      reportCode: REPORT_CODE,
+      fightId: FIGHT_ID,
+    });
   });
 
   it("acquires typed facts, freezes manifest, finalizes four SHADOW dimensions", async () => {
@@ -656,6 +670,7 @@ describe.runIf(dbAvailable)("CP4 typed shadow pipeline E2E (disposable DB)", () 
       reportCode: REPORT_CODE,
       fightId: FIGHT_ID,
     });
+    const acquiredIdentities: Array<{ reportCode: string; fightId: number }> = [];
 
     for (const slot of plan.slots) {
       const claim = await repo.claimSlot({
@@ -665,7 +680,17 @@ describe.runIf(dbAvailable)("CP4 typed shadow pipeline E2E (disposable DB)", () 
       });
       expect(claim.outcome).toBe("claimed");
 
-      const candidate = slot.orderedCandidates[0]!;
+      const latestForExclude = await repo.getById(batch.id);
+      expect(latestForExclude).toBeTruthy();
+      const excludeDiscoveryKeys = collectOccupiedDiscoveryKeys(
+        latestForExclude!.meta.slots,
+        slot.slotId,
+      );
+      // Fixture transport is static — bind fixtures to the highest free candidate.
+      const candidate =
+        slot.orderedCandidates.find(
+          (c) => !excludeDiscoveryKeys.has(discoveryIdentityKey(c.discoveryIdentity)),
+        ) ?? slot.orderedCandidates[0]!;
       const reportCode = candidate.discoveryIdentity.reportCode;
       const fightId = candidate.discoveryIdentity.fightId;
       const bundle = buildSharedEvidenceBundle({ reportCode, fightId });
@@ -723,6 +748,24 @@ describe.runIf(dbAvailable)("CP4 typed shadow pipeline E2E (disposable DB)", () 
           dungeonSlug: slot.dungeonSlug,
           slotIndex: slot.slotIndex,
         },
+        excludeDiscoveryKeys,
+        reserveDiscoveryIdentity: async (discoveryKey) => {
+          const result = await repo.reserveSlotDiscoveryIdentity({
+            batchId: batch.id,
+            slotId: slot.slotId,
+            refreshGeneration: 1,
+            discoveryKey,
+          });
+          return result.ok;
+        },
+        releaseDiscoveryIdentity: async (discoveryKey) => {
+          await repo.clearSlotDiscoveryReservation({
+            batchId: batch.id,
+            slotId: slot.slotId,
+            refreshGeneration: 1,
+            discoveryKey,
+          });
+        },
         transport,
         classSlug: "mage",
         specSlug: "frost",
@@ -733,6 +776,14 @@ describe.runIf(dbAvailable)("CP4 typed shadow pipeline E2E (disposable DB)", () 
       expect(acquired.result.reportRevision).toBe(REPORT_REVISION);
       // Per-slot shared datasets are acquired once (not thrice for three dimensions).
       expect(transport.getProviderCallCounts().sharedEvidence).toBe(1);
+
+      const wonIdentity = acquired.result.discoveryIdentity;
+      acquiredIdentities.push({
+        reportCode: wonIdentity.reportCode,
+        fightId: wonIdentity.fightId,
+      });
+      expect(wonIdentity.reportCode).toBe(reportCode);
+      expect(wonIdentity.fightId).toBe(fightId);
 
       const byDim = Object.fromEntries(
         acquired.typedFactPayloads.map((p) => [p.dimension, p]),
@@ -760,13 +811,20 @@ describe.runIf(dbAvailable)("CP4 typed shadow pipeline E2E (disposable DB)", () 
         slotId: slot.slotId,
         status,
         acquisitionResult: acquired.result,
-        acquiredDiscoveryKey: `${reportCode}:${fightId}`,
+        acquiredDiscoveryKey: discoveryIdentityKey(wonIdentity),
         datasetCompatibilityKeys: acquired.datasetCompatibilityKeys,
         factSetFingerprint: acquired.factSetFingerprint,
         typedFactPayloads: acquired.typedFactPayloads,
       });
     }
 
+    expect(acquiredIdentities).toHaveLength(2);
+    expect(
+      new Set(acquiredIdentities.map((id) => `${id.reportCode}:${id.fightId}`)).size,
+    ).toBe(2);
+    expect(acquiredIdentities.map((id) => `${id.reportCode}:${id.fightId}`).sort()).toEqual(
+      [`${REPORT_CODE}:${FIGHT_ID}`, `${REPORT_CODE_2}:${FIGHT_ID_2}`].sort(),
+    );
     const ready = await repo.getById(batch.id);
     expect(ready?.batch.finalizationStatus).toBe("READY_TO_FINALIZE");
     expect(ready?.meta.publicationBlocked).toBe(true);
@@ -791,6 +849,13 @@ describe.runIf(dbAvailable)("CP4 typed shadow pipeline E2E (disposable DB)", () 
     expect(manifest).not.toBeNull();
     expect(manifest!.contentHash).toBe(finalized.manifestContentHash);
     expect(manifest!.slots.length).toBe(2);
+    const manifestIdentities = manifest!.slots.map(
+      (s) => `${s.reportCode}:${s.fightId}`,
+    );
+    expect(new Set(manifestIdentities).size).toBe(2);
+    expect(manifestIdentities.sort()).toEqual(
+      [`${REPORT_CODE}:${FIGHT_ID}`, `${REPORT_CODE_2}:${FIGHT_ID_2}`].sort(),
+    );
     for (const mSlot of manifest!.slots) {
       expect(mSlot.reportRevision).toBe(REPORT_REVISION);
       expect([REPORT_CODE, REPORT_CODE_2]).toContain(mSlot.reportCode);
