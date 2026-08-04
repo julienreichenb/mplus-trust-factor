@@ -185,7 +185,9 @@ describe("evidence V2 plan → acquire → finalize lifecycle", () => {
       "a",
       "b",
     ]);
+    // Both slots share the full deterministic chain; finalize enforces distinct identities.
     expect(plan.slots[1]!.orderedCandidates.map((c) => c.discoveryIdentity.reportCode)).toEqual([
+      "a",
       "b",
     ]);
     for (const slot of plan.slots) {
@@ -636,18 +638,11 @@ describe("evidence V2 plan → acquire → finalize lifecycle", () => {
     expect(computeEvidenceManifestContentHash(manifestHashInput)).toBe(manifest.contentHash);
   });
 
-  it("rejects untimed and unknown timed candidates at plan time", () => {
+  it("keeps timed=null eligible and only uses timer quality as a secondary tie-break", () => {
     const { plan, manifest } = planAndFinalize(
       [
         candidate({
-          reportCode: "untimed",
-          fightId: 1,
-          dungeonSlug: "skyreach",
-          keyLevel: 20,
-          timed: false,
-        }),
-        candidate({
-          reportCode: "unknown-timed",
+          reportCode: "unknown-timed-higher-key",
           fightId: 2,
           dungeonSlug: "skyreach",
           keyLevel: 19,
@@ -661,6 +656,13 @@ describe("evidence V2 plan → acquire → finalize lifecycle", () => {
           timed: true,
         }),
         candidate({
+          reportCode: "untimed-high",
+          fightId: 1,
+          dungeonSlug: "skyreach",
+          keyLevel: 20,
+          timed: false,
+        }),
+        candidate({
           reportCode: "timed-ok-2",
           fightId: 4,
           dungeonSlug: "skyreach",
@@ -671,17 +673,35 @@ describe("evidence V2 plan → acquire → finalize lifecycle", () => {
       { scope: baseScope({ activeDungeonSlugs: ["skyreach"] }) },
     );
 
-    expect(plan.rejectedCandidates.map((r) => r.reason)).toEqual(
+    expect(plan.rejectedCandidates.map((r) => r.reason)).not.toEqual(
       expect.arrayContaining(["UNTIMED_RUN", "TIMED_STATE_UNKNOWN"]),
     );
     expect(manifest.selectedSlotCount).toBe(2);
     expect(manifest.slots.map((s) => s.identity?.reportCode)).toEqual([
-      "timed-ok",
-      "timed-ok-2",
+      "untimed-high",
+      "unknown-timed-higher-key",
     ]);
   });
 
-  it("falls back past private and untimed candidates to fill two slots", () => {
+  it("never lets timer state outrank a higher key", () => {
+    const highUnknown = candidate({
+      reportCode: "high-unknown",
+      fightId: 1,
+      dungeonSlug: "skyreach",
+      keyLevel: 16,
+      timed: null,
+    });
+    const lowTimed = candidate({
+      reportCode: "low-timed",
+      fightId: 2,
+      dungeonSlug: "skyreach",
+      keyLevel: 15,
+      timed: true,
+    });
+    expect(compareEvidenceCandidatesV2(highUnknown, lowTimed)).toBeLessThan(0);
+  });
+
+  it("falls back past private candidates to fill two slots", () => {
     const { plan, manifest } = planAndFinalize(
       [
         candidate({
@@ -690,13 +710,6 @@ describe("evidence V2 plan → acquire → finalize lifecycle", () => {
           dungeonSlug: "skyreach",
           keyLevel: 22,
           accessState: "PRIVATE_OR_HIDDEN",
-        }),
-        candidate({
-          reportCode: "untimed-high",
-          fightId: 2,
-          dungeonSlug: "skyreach",
-          keyLevel: 21,
-          timed: false,
         }),
         candidate({
           reportCode: "public-a",
@@ -715,11 +728,105 @@ describe("evidence V2 plan → acquire → finalize lifecycle", () => {
     );
 
     expect(plan.rejectedCandidates.map((r) => r.reason)).toEqual(
-      expect.arrayContaining(["PRIVATE_OR_HIDDEN", "UNTIMED_RUN"]),
+      expect.arrayContaining(["PRIVATE_OR_HIDDEN"]),
     );
     expect(manifest.selectedSlotCount).toBe(2);
     expect(manifest.slots[0]!.identity?.reportCode).toBe("public-a");
     expect(manifest.slots[1]!.identity?.reportCode).toBe("public-b");
+  });
+
+  it("slot 1 falls back after slot 0 selects the highest candidate", () => {
+    const { manifest } = planAndFinalize(
+      [
+        candidate({ reportCode: "best", fightId: 1, dungeonSlug: "skyreach", keyLevel: 18 }),
+        candidate({ reportCode: "second", fightId: 2, dungeonSlug: "skyreach", keyLevel: 16 }),
+        candidate({ reportCode: "third", fightId: 3, dungeonSlug: "skyreach", keyLevel: 14 }),
+      ],
+      { scope: baseScope({ activeDungeonSlugs: ["skyreach"] }) },
+    );
+    expect(manifest.slots[0]!.identity).toEqual({
+      reportCode: "best",
+      fightId: 1,
+      reportRevision: 1,
+    });
+    expect(manifest.slots[1]!.identity).toEqual({
+      reportCode: "second",
+      fightId: 2,
+      reportRevision: 1,
+    });
+  });
+
+  it("same reportCode+fightId cannot occupy both slots", () => {
+    const { plan } = buildEvidenceAcquisitionPlanV2({
+      scope: baseScope({ activeDungeonSlugs: ["skyreach"] }),
+      candidates: [
+        candidate({ reportCode: "only", fightId: 1, dungeonSlug: "skyreach", keyLevel: 18 }),
+        candidate({ reportCode: "only", fightId: 1, dungeonSlug: "skyreach", keyLevel: 18 }),
+        candidate({ reportCode: "other", fightId: 2, dungeonSlug: "skyreach", keyLevel: 14 }),
+      ],
+      plannedAt: "2026-08-01T11:00:00.000Z",
+    });
+    const results = acquireAllFromPlan(plan);
+    const { manifest } = finalizeEvidenceManifestV2({
+      plan,
+      acquisitionResults: results,
+      selectedAt: "2026-08-01T12:00:00.000Z",
+    });
+    const identities = manifest.slots
+      .filter((s) => s.state === "SELECTED")
+      .map((s) => `${s.identity!.reportCode}:${s.identity!.fightId}`);
+    expect(new Set(identities).size).toBe(identities.length);
+    expect(identities).toEqual(["only:1", "other:2"]);
+  });
+
+  it("preserves candidate rejection chain when fallback is exhausted", () => {
+    const { plan } = buildEvidenceAcquisitionPlanV2({
+      scope: baseScope({ activeDungeonSlugs: ["skyreach"] }),
+      candidates: [
+        candidate({ reportCode: "a", fightId: 1, dungeonSlug: "skyreach", keyLevel: 18 }),
+        candidate({ reportCode: "b", fightId: 2, dungeonSlug: "skyreach", keyLevel: 14 }),
+      ],
+      plannedAt: "2026-08-01T11:00:00.000Z",
+    });
+    const results = [
+      {
+        discoveryIdentity: { reportCode: "a", fightId: 1 },
+        acquisitionStatus: "REJECTED" as const,
+        reportRevision: null,
+        rejectionReason: "TARGET_NOT_IN_FIGHT" as const,
+        rejectionDetail: "actor absent from friendlyPlayers",
+        datasetHashes: [],
+        factSetHash: null,
+        dimensionValidity: null,
+        keyLevel: 18,
+        timed: true,
+      },
+      {
+        discoveryIdentity: { reportCode: "b", fightId: 2 },
+        acquisitionStatus: "REJECTED" as const,
+        reportRevision: null,
+        rejectionReason: "ARCHIVED_OR_GATED" as const,
+        rejectionDetail: "archived",
+        datasetHashes: [],
+        factSetHash: null,
+        dimensionValidity: null,
+        keyLevel: 14,
+        timed: true,
+      },
+    ];
+    const { manifest } = finalizeEvidenceManifestV2({
+      plan,
+      acquisitionResults: results,
+      selectedAt: "2026-08-01T12:00:00.000Z",
+    });
+    expect(manifest.selectedSlotCount).toBe(0);
+    expect(manifest.coverage.state).toBe("INSUFFICIENT");
+    expect(manifest.rejectedCandidates.map((r) => r.reason)).toEqual(
+      expect.arrayContaining(["TARGET_NOT_IN_FIGHT", "ARCHIVED_OR_GATED", "FALLBACK_EXHAUSTED"]),
+    );
+    const exhausted = manifest.rejectedCandidates.find((r) => r.reason === "FALLBACK_EXHAUSTED");
+    expect(exhausted?.detail).toMatch(/TARGET_NOT_IN_FIGHT/);
+    expect(exhausted?.detail).toMatch(/ARCHIVED_OR_GATED/);
   });
 
   it("reports insufficient eligible evidence without inventing slots", () => {
@@ -738,5 +845,9 @@ describe("evidence V2 plan → acquire → finalize lifecycle", () => {
     expect(manifest.selectedSlotCount).toBe(1);
     expect(manifest.slots[0]!.state).toBe("SELECTED");
     expect(manifest.slots[1]!.state).not.toBe("SELECTED");
+    // 1/2 slots on a single dungeon is honest PARTIAL coverage (contract thresholds).
+    expect(manifest.coverage.state).toBe("PARTIAL");
+    expect(manifest.coverage.selectedSlotCount).toBe(1);
+    expect(manifest.expectedSlotCount).toBe(2);
   });
 });

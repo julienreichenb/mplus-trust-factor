@@ -245,6 +245,7 @@ export async function discoverShadowCanaryCandidates(input: {
   let untimedExclusions = 0;
   let timedUnknownExclusions = 0;
   let inaccessibleExclusions = 0;
+  // Timer counters are diagnostic state counts — timed===null is NOT a plan exclusion.
   for (const row of sourceRows) {
     if (row.visibility === "private" || row.visibility === "hidden") {
       privateOrHiddenExclusions += 1;

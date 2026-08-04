@@ -93,13 +93,28 @@ Never auto-merge below `MEDIUM` confidence.
 
 ## Discovery bounds
 
+Scoring V2 evidence selection (see `doc/scoring/v2/03_WCL_EVIDENCE_SELECTION_CONTRACT.md`):
+
 | Bound | Value |
 |-------|-------|
 | Rankings queries | 1 (skipped if zone expired) |
-| recentReports pages | 1 (`limit=20`) |
-| Candidate cap | 25 (`MAX_DISCOVERY_CANDIDATES`) |
-| Analysis fights | ≤2 (latest + highest, deduped) |
+| recentReports page size | 20 (`MAX_RECENT_REPORTS_LIMIT`) |
+| recentReports max pages | 5 (`MAX_RECENT_REPORT_PAGES`) — stops earlier on `has_more_pages=false` or when unique-report bounds are satisfied |
+| Candidate retention | up to 10 per active dungeon, 80 total |
+| Selected slots | `activeDungeonCount × 2` distinct `(reportCode, fightId)` identities |
 | Event pages / type | ≤10 |
 | Events retained / type | ≤2000 |
 
+Pagination must never blindly hydrate every report. Discovery stays metadata-first; fight/masterData hydration is lazy for selected/fallback candidates only.
+
+Timer tri-state (`timed: true | false | null`) is retained for ordering. `timed === null` is **not** a mandatory exclusion for Survival/Utility evidence selection.
+
+Ownership is proven **before** any `ReportEvents` call. Candidate-level rejection reasons are preserved through acquisition fallback and must not collapse solely into `FALLBACK_EXHAUSTED`.
+
 Private and unlisted reports are filtered out; `allowUnlisted` is never set.
+
+### Legacy V1 analysis bounds (refresh path)
+
+| Bound | Value |
+|-------|-------|
+| Analysis fights | ≤2 (latest + highest, deduped) |

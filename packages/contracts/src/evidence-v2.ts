@@ -183,6 +183,13 @@ export const candidateRejectionSummarySchema = z.object({
   dungeonSlug: z.string().nullable(),
   reason: candidateRejectionReasonSchema,
   detail: z.string().nullable(),
+  /** Additive diagnostics — optional for backward-compatible parse. */
+  slotId: z.string().nullable().optional(),
+  slotIndex: z.union([z.literal(0), z.literal(1)]).nullable().optional(),
+  candidateRank: z.number().int().nonnegative().nullable().optional(),
+  keyLevel: z.number().int().nullable().optional(),
+  timed: z.boolean().nullable().optional(),
+  eventsRequested: z.boolean().nullable().optional(),
 });
 export type CandidateRejectionSummary = z.infer<typeof candidateRejectionSummarySchema>;
 

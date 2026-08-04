@@ -139,9 +139,8 @@ function planEligibilityRejection(
   if (!Number.isFinite(candidate.keyLevel) || candidate.keyLevel <= 0) {
     return "KEY_LEVEL_UNRESOLVED";
   }
-  // Timed must be explicitly true — false and null never consume a slot.
-  if (candidate.timed === false) return "UNTIMED_RUN";
-  if (candidate.timed == null) return "TIMED_STATE_UNKNOWN";
+  // Timer tri-state is retained for ordering only — never a mandatory exclusion.
+  // timed===null (unknown) and timed===false (explicitly untimed) remain selectable.
   if (candidate.fightDurationMs != null && candidate.fightDurationMs <= 0) {
     return "INVALID_DURATION";
   }
@@ -454,12 +453,17 @@ export function buildEvidenceAcquisitionPlanV2(
     const provisionalMissingStates: EvidenceSlotState[] = [];
     let plannedAttemptCount = 0;
 
+    // Both slots receive the same deterministic ordered chain. Distinct
+    // (reportCode, fightId) selection is enforced at finalize time so slot 1
+    // can fall back past whatever identity slot 0 consumed — including when
+    // slot 0 fell through to a lower-ranked candidate.
+    const sharedOrderedCandidates = ordered.map((candidate, rank) =>
+      toAcquisitionRef(candidate, rank),
+    );
+
     for (let i = 0; i < EVIDENCE_SLOTS_PER_DUNGEON; i++) {
       const slotIndex = i as 0 | 1;
-      const slice = ordered.slice(slotIndex);
-      const orderedCandidates = slice.map((candidate, rank) =>
-        toAcquisitionRef(candidate, rank),
-      );
+      const orderedCandidates = sharedOrderedCandidates.map((ref) => ({ ...ref }));
       plannedAttemptCount += orderedCandidates.length;
 
       const slotMissing =
@@ -669,6 +673,12 @@ export function finalizeEvidenceManifestV2(
           dungeonSlug: slotPlan.dungeonSlug,
           detail: result.rejectionDetail,
         });
+        summary.slotId = slotPlan.slotId;
+        summary.slotIndex = slotPlan.slotIndex;
+        summary.candidateRank = attempt.rank;
+        summary.keyLevel = result.keyLevel ?? attempt.keyLevel;
+        summary.timed = result.timed !== undefined ? result.timed : attempt.timed;
+        summary.eventsRequested = false;
         pushRejection(summary);
         attemptRejections.push(summary);
         if (attempt.rank === 0) fallbackReason = reason;
@@ -750,10 +760,19 @@ export function finalizeEvidenceManifestV2(
           : missingStateFromRejections(attemptRejections));
       if (slotPlan.orderedCandidates.length > 0) {
         const head = slotPlan.orderedCandidates[0]!;
+        const chain =
+          attemptRejections.length > 0
+            ? attemptRejections
+                .map(
+                  (r) =>
+                    `${r.reportCode}#${r.fightId}:${r.reason}${r.detail ? `(${r.detail})` : ""}`,
+                )
+                .join(" → ")
+            : "no acquisition outcomes";
         pushRejection(
           rejectionSummary(head.discoveryIdentity, "FALLBACK_EXHAUSTED", {
             dungeonSlug: slotPlan.dungeonSlug,
-            detail: `slot ${slotPlan.slotId}`,
+            detail: `slot ${slotPlan.slotId}; selectedSlotExhausted; chain: ${chain}`,
           }),
         );
       }

@@ -53,4 +53,37 @@ describe("candidatesFromHydratedReport timed", () => {
     expect(candidates[0]!.timed).toBe(true);
     expect(candidates[0]!.incompleteness.timedUnknown).toBe(false);
   });
+
+  it("maps keystoneLevel, kill, duration and friendlyPlayers through hydration", () => {
+    const { candidates } = candidatesFromHydratedReport(report, "Wallidrixe", "archimonde");
+    expect(candidates[0]).toMatchObject({
+      reportCode: "AbCdEf",
+      fightId: 1,
+      keyLevel: 12,
+      timed: true,
+      targetActorId: 10,
+      durationMs: 600_000,
+    });
+    expect(candidates[0]!.incompleteness.fightUnknown).toBe(false);
+    expect(candidates[0]!.incompleteness.keyLevelUnknown).toBe(false);
+  });
+
+  it("retains timed=null when keystoneBonus is absent", () => {
+    const unknownBonusReport: HydrationReportPayload = {
+      ...report,
+      fights: [
+        {
+          ...report.fights[0]!,
+          keystoneBonus: null,
+        },
+      ],
+    };
+    const { candidates } = candidatesFromHydratedReport(
+      unknownBonusReport,
+      "Wallidrixe",
+      "archimonde",
+    );
+    expect(candidates[0]!.timed).toBeNull();
+    expect(candidates[0]!.incompleteness.timedUnknown).toBe(true);
+  });
 });

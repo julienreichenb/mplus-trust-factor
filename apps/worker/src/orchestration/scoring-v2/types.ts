@@ -28,6 +28,11 @@ export interface EvidenceV2SlotRecord {
   /** Winning discovery identity key when acquired. */
   acquiredDiscoveryKey: string | null;
   acquisitionResult: EvidenceCandidateAcquisitionResult | null;
+  /**
+   * Ordered per-attempt rejections for this slot's fallback chain.
+   * Retained so FALLBACK_EXHAUSTED does not erase candidate-level reasons.
+   */
+  rejectedAttempts: EvidenceCandidateAcquisitionResult[];
   /** Persisted dataset / fact fingerprints for resumability. */
   datasetCompatibilityKeys: string[];
   factSetFingerprint: string | null;
@@ -89,6 +94,7 @@ export function emptySlotRecord(
     terminalReason: null,
     acquiredDiscoveryKey: null,
     acquisitionResult: null,
+    rejectedAttempts: [],
     datasetCompatibilityKeys: [],
     factSetFingerprint: null,
     typedFactPayloads: [],
