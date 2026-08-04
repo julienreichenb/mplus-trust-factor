@@ -282,7 +282,6 @@ export class ScoringV2EvidenceAuditService {
       )?.id ??
       "00000000-0000-0000-0000-000000000000";
 
-    const providerCallCounter = { count: 0 };
     const replay = replayScoringV2Dimensions({
       characterId: manifest.characterId,
       seasonId: manifest.seasonId,
@@ -309,7 +308,6 @@ export class ScoringV2EvidenceAuditService {
           scoreModelId: d.scoreModelId,
         })),
       enabledDimensions: ["PERFORMANCE", "SURVIVAL", "UTILITY"],
-      providerCallCounter,
     });
 
     return buildScoringV2EvidenceAudit({

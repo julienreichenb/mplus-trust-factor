@@ -752,6 +752,7 @@ export {
   featureUsageFromMetrics,
   buildScoringV2EvidenceAudit,
   fingerprintExplanationMetrics,
+  identityValidFactSets,
   replayScoringV2Dimensions,
 } from "./audit/index.js";
 export type {

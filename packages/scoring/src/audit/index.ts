@@ -39,7 +39,6 @@ export {
 
 export {
   buildScoringV2EvidenceAudit,
-  fingerprintExplanationMetrics,
   type BuildScoringV2EvidenceAuditInput,
   type AuditDatasetInput,
   type AuditDatasetPageInput,
@@ -52,6 +51,8 @@ export {
 
 export {
   replayScoringV2Dimensions,
+  fingerprintExplanationMetrics,
+  identityValidFactSets,
   type ReplayScoringV2DimensionsInput,
   type ReplayPersistedDimension,
 } from "./replay.js";

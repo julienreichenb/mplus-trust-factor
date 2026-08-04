@@ -155,7 +155,7 @@ function mockEvidence() {
     upsertWclReportRevision: async () => undefined,
     createDataset: async (input: Record<string, unknown>) => {
       datasets.push(input);
-      return input;
+      return { id: `ds-${datasets.length}`, ...input };
     },
     createFactSet: async (input: Record<string, unknown>) => {
       factSets.push(input);
@@ -173,15 +173,30 @@ function mockEvidence() {
           f.extractorVersion === input.extractorVersion,
       ) ?? null,
     findDatasetByCompatibilityKey: async () => null,
+    findDatasetsByCompatibilityKey: async (compatibilityKey: string) =>
+      datasets.filter((d) => d.compatibilityKey === compatibilityKey),
+    findDatasetBySlotAndKey: async (input: {
+      manifestSlotId: string;
+      datasetKey: string;
+    }) =>
+      datasets.find(
+        (d) =>
+          d.manifestSlotId === input.manifestSlotId &&
+          d.datasetKey === input.datasetKey,
+      ) ?? null,
   };
 }
 
 function mockArtifacts() {
   let n = 0;
   return {
-    persist: async () => {
+    persist: async (input: { artifactClass?: string }) => {
       n += 1;
-      return { artifactId: `art-${n}`, write: { contentHash: `h-${n}` } };
+      return {
+        artifactId: `art-${n}`,
+        write: { contentHash: `h-${n}` },
+        artifactClass: input.artifactClass ?? null,
+      };
     },
   };
 }
@@ -932,5 +947,291 @@ describe("CP2 typed acquisition", () => {
     expect(reqs.every((r) => r.providerCandidates[0] === "persisted_dataset")).toBe(true);
     expect(reqs.every((r) => r.providerCandidates.includes("warcraftlogs"))).toBe(true);
     expect(reqs.find((r) => r.dataset === "RANKING_PARSE")?.limitations.length).toBeGreaterThan(0);
+  });
+
+  it("ranking success persists ranking-specific RawArtifact id on the descriptor", async () => {
+    const bundle = completeUtilityBundle({ reportCode, fightId, reportRevision });
+    const transport = new FixtureScoringV2EvidenceTransport({
+      fightDetails: {
+        data: { reportRevision },
+        reportRevision,
+        playerActorId: 10,
+        ownedPetActorIds: [],
+        startTime: 0,
+        endTime: 600_000,
+        dungeonSlug: "ara-kara",
+        providerCalls: 1,
+      },
+      sharedEvidence: {
+        bundle,
+        providerCalls: 0,
+        cacheHits: 1,
+        unavailableReason: null,
+      },
+      rankingParse: {
+        evidence: rankingEvidence(reportCode, fightId, reportRevision),
+        providerCalls: 1,
+        unavailableReason: null,
+      },
+    });
+    const evidence = mockEvidence();
+    const artifacts = mockArtifacts();
+    const acquired = await acquireCandidateWithFallback({
+      container: mockContainer(),
+      candidates: [
+        {
+          discoveryIdentity: { reportCode, fightId },
+          rank: 0,
+          keyLevel: 12,
+          timed: true,
+          runScore: 200,
+          evidenceCompleteness: 1,
+          completedAt: null,
+          actorId: 10,
+        },
+      ],
+      region: "EU",
+      targetCharacter: { region: "EU", realmSlug: "archimonde", name: "Wallidrixe" },
+      correlationId: null,
+      shouldCancel: async () => false,
+      evidence: evidence as never,
+      artifacts: artifacts as never,
+      manifestSlotIdForPersistence: "slot-persist-1",
+      characterId: "char-1",
+      datasetRequirements: resolveBatchDatasetRequirements(["PERFORMANCE"]),
+      slotContext: { slotId: "ara-kara:0", dungeonSlug: "ara-kara", slotIndex: 0 },
+      transport,
+      classSlug: "mage",
+      specSlug: "frost",
+    });
+
+    const rankingDs = acquired.datasetDescriptors.find((d) => d.datasetKey === "ranking_parse");
+    expect(rankingDs?.state).toBe("READY");
+    expect(rankingDs?.artifactId).toMatch(/^art-/);
+    expect(rankingDs?.pageCount).toBe(0);
+    const fightArtifactId = acquired.datasetDescriptors.find((d) =>
+      d.datasetKey !== "ranking_parse",
+    );
+    // Ranking must not reuse an unrelated trailing shared/fight artifact id.
+    const perf = acquired.typedFactPayloads.find((p) => p.dimension === "PERFORMANCE");
+    expect(perf?.status).toBe("WRITTEN");
+    expect(perf?.artifactIds).toEqual([rankingDs?.artifactId]);
+    expect(evidence.datasets.some((d) => d.datasetKey === "ranking_parse")).toBe(true);
+    void fightArtifactId;
+  });
+
+  it("ranking cache hit still records a durable READY logical outcome", async () => {
+    const transport = new FixtureScoringV2EvidenceTransport({
+      fightDetails: {
+        data: { reportRevision },
+        reportRevision,
+        playerActorId: 10,
+        ownedPetActorIds: [],
+        startTime: 0,
+        endTime: 600_000,
+        dungeonSlug: "ara-kara",
+        providerCalls: 0,
+      },
+      sharedEvidence: {
+        bundle: null,
+        providerCalls: 0,
+        cacheHits: 0,
+        unavailableReason: "not_needed",
+      },
+      rankingParse: {
+        evidence: rankingEvidence(reportCode, fightId, reportRevision),
+        providerCalls: 0,
+        unavailableReason: null,
+      },
+    });
+    const acquired = await acquireCandidateWithFallback({
+      container: mockContainer(),
+      candidates: [
+        {
+          discoveryIdentity: { reportCode, fightId },
+          rank: 0,
+          keyLevel: 12,
+          timed: true,
+          runScore: 200,
+          evidenceCompleteness: 1,
+          completedAt: null,
+          actorId: 10,
+        },
+      ],
+      region: "EU",
+      targetCharacter: { region: "EU", realmSlug: "archimonde", name: "Wallidrixe" },
+      correlationId: null,
+      shouldCancel: async () => false,
+      evidence: mockEvidence() as never,
+      artifacts: mockArtifacts() as never,
+      manifestSlotIdForPersistence: "slot-cache-1",
+      characterId: "char-1",
+      datasetRequirements: resolveBatchDatasetRequirements(["PERFORMANCE"]),
+      slotContext: { slotId: "ara-kara:0", dungeonSlug: "ara-kara", slotIndex: 0 },
+      transport,
+    });
+    expect(transport.getProviderCallCounts().rankingParse).toBe(1);
+    const rankingDs = acquired.datasetDescriptors.find((d) => d.datasetKey === "ranking_parse");
+    expect(rankingDs?.state).toBe("READY");
+    expect(rankingDs?.artifactId).toBeTruthy();
+  });
+
+  it("null ranking evidence yields UNAVAILABLE descriptor without inventing artifact id", async () => {
+    const transport = new FixtureScoringV2EvidenceTransport({
+      fightDetails: {
+        data: { reportRevision },
+        reportRevision,
+        playerActorId: 10,
+        ownedPetActorIds: [],
+        startTime: 0,
+        endTime: 600_000,
+        dungeonSlug: "ara-kara",
+        providerCalls: 0,
+      },
+      rankingParse: {
+        evidence: null,
+        providerCalls: 0,
+        unavailableReason: "ranking_parse_row_absent",
+      },
+    });
+    const acquired = await acquireCandidateWithFallback({
+      container: mockContainer(),
+      candidates: [
+        {
+          discoveryIdentity: { reportCode, fightId },
+          rank: 0,
+          keyLevel: 12,
+          timed: true,
+          runScore: 200,
+          evidenceCompleteness: 1,
+          completedAt: null,
+          actorId: 10,
+        },
+      ],
+      region: "EU",
+      targetCharacter: { region: "EU", realmSlug: "archimonde", name: "Wallidrixe" },
+      correlationId: null,
+      shouldCancel: async () => false,
+      evidence: mockEvidence() as never,
+      artifacts: mockArtifacts() as never,
+      manifestSlotIdForPersistence: "slot-null-1",
+      characterId: "char-1",
+      datasetRequirements: resolveBatchDatasetRequirements(["PERFORMANCE"]),
+      slotContext: { slotId: "ara-kara:0", dungeonSlug: "ara-kara", slotIndex: 0 },
+      transport,
+    });
+    const rankingDs = acquired.datasetDescriptors.find((d) => d.datasetKey === "ranking_parse");
+    expect(rankingDs?.state).toBe("UNAVAILABLE");
+    expect(rankingDs?.artifactId).toBeNull();
+    expect(
+      acquired.typedFactPayloads.find((p) => p.dimension === "PERFORMANCE")?.status,
+    ).toBe("UNAVAILABLE");
+  });
+
+  it("structured ranking unavailableReason persists UNAVAILABLE without inventing artifact id", async () => {
+    const transport = new FixtureScoringV2EvidenceTransport({
+      fightDetails: {
+        data: { reportRevision },
+        reportRevision,
+        playerActorId: 10,
+        ownedPetActorIds: [],
+        startTime: 0,
+        endTime: 600_000,
+        dungeonSlug: "ara-kara",
+        providerCalls: 0,
+      },
+      rankingParse: {
+        evidence: null,
+        providerCalls: 1,
+        unavailableReason: "RANKING_PARSE_PUBLIC_API_UNAVAILABLE",
+      },
+    });
+    const acquired = await acquireCandidateWithFallback({
+      container: mockContainer(),
+      candidates: [
+        {
+          discoveryIdentity: { reportCode, fightId },
+          rank: 0,
+          keyLevel: 12,
+          timed: true,
+          runScore: 200,
+          evidenceCompleteness: 1,
+          completedAt: null,
+          actorId: 10,
+        },
+      ],
+      region: "EU",
+      targetCharacter: { region: "EU", realmSlug: "archimonde", name: "Wallidrixe" },
+      correlationId: null,
+      shouldCancel: async () => false,
+      evidence: mockEvidence() as never,
+      artifacts: mockArtifacts() as never,
+      manifestSlotIdForPersistence: "slot-structured-unavail-1",
+      characterId: "char-1",
+      datasetRequirements: resolveBatchDatasetRequirements(["PERFORMANCE"]),
+      slotContext: { slotId: "ara-kara:0", dungeonSlug: "ara-kara", slotIndex: 0 },
+      transport,
+    });
+    const rankingDs = acquired.datasetDescriptors.find((d) => d.datasetKey === "ranking_parse");
+    expect(rankingDs?.state).toBe("UNAVAILABLE");
+    expect(rankingDs?.artifactId).toBeNull();
+    const perf = acquired.typedFactPayloads.find((p) => p.dimension === "PERFORMANCE");
+    expect(perf?.status).toBe("UNAVAILABLE");
+    expect(perf?.reason ?? perf?.limitations.join("|")).toMatch(
+      /RANKING_PARSE_PUBLIC_API_UNAVAILABLE|ranking_parse/i,
+    );
+  });
+
+  it("thrown getRankingParse persists durable FAILED ranking outcome", async () => {
+    const transport = new FixtureScoringV2EvidenceTransport({
+      fightDetails: {
+        data: { reportRevision },
+        reportRevision,
+        playerActorId: 10,
+        ownedPetActorIds: [],
+        startTime: 0,
+        endTime: 600_000,
+        dungeonSlug: "ara-kara",
+        providerCalls: 0,
+      },
+      rankingParseThrow: new Error("upstream_timeout"),
+    });
+    const evidence = mockEvidence();
+    const acquired = await acquireCandidateWithFallback({
+      container: mockContainer(),
+      candidates: [
+        {
+          discoveryIdentity: { reportCode, fightId },
+          rank: 0,
+          keyLevel: 12,
+          timed: true,
+          runScore: 200,
+          evidenceCompleteness: 1,
+          completedAt: null,
+          actorId: 10,
+        },
+      ],
+      region: "EU",
+      targetCharacter: { region: "EU", realmSlug: "archimonde", name: "Wallidrixe" },
+      correlationId: null,
+      shouldCancel: async () => false,
+      evidence: evidence as never,
+      artifacts: mockArtifacts() as never,
+      manifestSlotIdForPersistence: "slot-throw-1",
+      characterId: "char-1",
+      datasetRequirements: resolveBatchDatasetRequirements(["PERFORMANCE"]),
+      slotContext: { slotId: "ara-kara:0", dungeonSlug: "ara-kara", slotIndex: 0 },
+      transport,
+    });
+    expect(acquired.result.acquisitionStatus).toBe("ACQUIRED");
+    const rankingDs = acquired.datasetDescriptors.find((d) => d.datasetKey === "ranking_parse");
+    expect(rankingDs?.state).toBe("FAILED");
+    expect(rankingDs?.artifactId).toBeNull();
+    expect(
+      acquired.typedFactPayloads.find((p) => p.dimension === "PERFORMANCE")?.status,
+    ).toBe("FAILED");
+    expect(evidence.datasets.some((d) => d.datasetKey === "ranking_parse" && d.state === "FAILED")).toBe(
+      true,
+    );
   });
 });

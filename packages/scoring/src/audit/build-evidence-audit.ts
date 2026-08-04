@@ -3,7 +3,6 @@
  * Produces a bounded downloadable JSON document for one frozen EvidenceManifest.
  */
 
-import { createHash } from "node:crypto";
 import type {
   CharacterSeasonEvidenceManifestV2,
   DatasetPersistenceState,
@@ -36,9 +35,6 @@ import {
   UTILITY_V2_EXTRACTOR_FAMILY,
   type UtilityV2RunFactSet,
 } from "../utility/v2/index.js";
-import { emitPerformanceConsumptionTraces } from "../performance/v2/consumption-traces.js";
-import { emitSurvivalConsumptionTraces } from "../survival/v2/consumption-traces.js";
-import { emitUtilityConsumptionTraces } from "../utility/v2/consumption-traces.js";
 import { EXPECTED_EVENT_DATASETS, datasetKindFromPersistedKey } from "./dataset-catalog.js";
 import {
   artifactIdsFromCoverage,
@@ -53,6 +49,9 @@ import {
   featureUsageFromMetrics,
 } from "./feature-usage.js";
 import type { EvidenceAuditReplayResult } from "@mplus/contracts";
+import { identityValidFactSets } from "./replay.js";
+
+const ALL_WCL_FAMILIES = ["PERFORMANCE", "SURVIVAL", "UTILITY"] as const;
 
 export interface AuditDatasetPageInput {
   pageIndex: number;
@@ -328,6 +327,49 @@ function auditEventDatasetsForSlot(input: {
     if (spec.required && !row) {
       integrityErrors.push(`REQUIRED_DATASET_MISSING:${spec.kind}`);
     }
+
+    // Descriptor artifact existence (when produces pages / has artifact reference).
+    if (row && row.artifactId == null && (row.pageCount ?? 0) > 0) {
+      integrityErrors.push(`DESCRIPTOR_ARTIFACT_MISSING:${spec.kind}`);
+    }
+
+    // Page integrity when the dataset contract produces pages.
+    if (row && spec.producesPages) {
+      const indexes = pages.map((p) => p.pageIndex);
+      const uniqueIndexes = new Set(indexes);
+      if (indexes.length !== uniqueIndexes.size) {
+        integrityErrors.push(`DUPLICATE_PAGE_INDEX:${spec.kind}`);
+      }
+      for (const p of pages) {
+        if (p.pageIndex < 0 || p.pageIndex > 10_000) {
+          integrityErrors.push(`PAGE_INDEX_OUT_OF_BOUNDS:${spec.kind}:${p.pageIndex}`);
+        }
+        if (p.contentHash == null || p.contentHash.length === 0) {
+          integrityErrors.push(`PAGE_CONTENT_HASH_MISSING:${spec.kind}:${p.pageIndex}`);
+        }
+        if (p.artifactId == null || p.artifactId.length === 0) {
+          integrityErrors.push(`PAGE_ARTIFACT_MISSING:${spec.kind}:${p.pageIndex}`);
+        }
+      }
+      if (row.pageCount != null && row.pageCount !== pages.length) {
+        // ZERO_EVENT may legitimately have pageCount 1 with empty events, but
+        // declared pageCount must equal durable page rows when pages exist.
+        if (pages.length > 0 || row.pageCount > 0) {
+          integrityErrors.push(
+            `PAGE_COUNT_MISMATCH:${spec.kind}:descriptor=${row.pageCount}:pages=${pages.length}`,
+          );
+        }
+      }
+      if (pages.length > 0) {
+        const summed = pages.reduce((s, p) => s + p.eventCount, 0);
+        if (row.eventCount != null && row.eventCount !== summed) {
+          integrityErrors.push(
+            `EVENT_COUNT_MISMATCH:${spec.kind}:descriptor=${row.eventCount}:pagesSum=${summed}`,
+          );
+        }
+      }
+    }
+
     if (row?.payloadFingerprint && pages.length > 0) {
       const hashes = pages.map((p) => p.contentHash).filter(Boolean);
       const unique = new Set(hashes);
@@ -347,6 +389,7 @@ function auditEventDatasetsForSlot(input: {
       }
     }
 
+    // Zero-event is distinct from missing: row present + eventCount 0 = ZERO_EVENT.
     const eventCount = row?.eventCount ?? null;
     const persistenceState = datasetPersistenceState({
       rowPresent: row != null,
@@ -456,7 +499,7 @@ function auditFactSetsForSlot(input: {
     reportRevision: input.slot?.identity?.reportRevision ?? null,
   };
 
-  return input.enabledFamilies.map((family) => {
+  return ALL_WCL_FAMILIES.map((family) => {
     const familyLower = family.toLowerCase();
     const row =
       slotFacts.find((f) => f.extractorFamily.toLowerCase() === familyLower) ?? null;
@@ -678,11 +721,8 @@ export function buildScoringV2EvidenceAudit(
   }
   const manifest = parsedManifest.success ? parsedManifest.data : null;
 
-  const enabledFamilies: Array<"PERFORMANCE" | "SURVIVAL" | "UTILITY"> = [
-    "PERFORMANCE",
-    "SURVIVAL",
-    "UTILITY",
-  ];
+  const enabledFamilies: Array<"PERFORMANCE" | "SURVIVAL" | "UTILITY"> =
+    input.enabledFamilies ?? [...ALL_WCL_FAMILIES];
 
   // Expected slots: prefer manifest.activeDungeonSlugs × 2, else slot rows / expected count.
   const dungeonSlugs =
@@ -759,6 +799,27 @@ export function buildScoringV2EvidenceAudit(
       if (key && !selectedKeys.has(key)) {
         integrityFailures.push(
           `UNSELECTED_FACT_SET:${fs.extractorFamily}:${key}`,
+        );
+        continue;
+      }
+      // Exact slot binding: document identity must match the attached selected slot.
+      if (fs.dungeonSlug == null || fs.slotIndex == null || !key) continue;
+      const attached = manifest.slots.find(
+        (s) =>
+          s.state === "SELECTED" &&
+          s.dungeonSlug === fs.dungeonSlug &&
+          s.slotIndex === fs.slotIndex,
+      );
+      if (!attached?.identity) continue;
+      if (
+        !identitiesMatch(docId, {
+          reportCode: attached.identity.reportCode,
+          fightId: attached.identity.fightId,
+          reportRevision: attached.identity.reportRevision,
+        })
+      ) {
+        integrityFailures.push(
+          `CROSS_SLOT_FACT_ATTACHMENT:${fs.extractorFamily}:${fs.dungeonSlug}:${fs.slotIndex}:${key}`,
         );
       }
     }
@@ -1083,20 +1144,61 @@ export function buildScoringV2EvidenceAudit(
     });
   }
 
-  // Dimension consumption + feature usage
+  // Dimension consumption + feature usage — only identity-valid selected-slot facts.
+  const factRefsForValidity: PersistedFactSetRef[] = input.factSets.map((f) => ({
+    extractorFamily: f.extractorFamily,
+    extractorVersion: f.extractorVersion,
+    schemaVersion: f.schemaVersion,
+    inputFingerprint: f.inputFingerprint,
+    facts: f.facts,
+    limitations: f.limitations,
+    manifestSlotId: f.manifestSlotId,
+    reportCode: f.relationReportCode,
+    fightId: f.relationFightId,
+    reportRevision: f.relationReportRevision,
+    dungeonSlug: f.dungeonSlug,
+    slotIndex: f.slotIndex,
+  }));
+  const validFactRefs = manifest
+    ? identityValidFactSets(manifest, factRefsForValidity)
+    : [];
+  const validFactIdSet = new Set(
+    validFactRefs.map(
+      (f) => `${f.extractorFamily}:${f.manifestSlotId}:${f.inputFingerprint}`,
+    ),
+  );
+
   const survivalDocs = input.factSets
-    .filter((f) => f.extractorFamily.toLowerCase() === "survival")
+    .filter(
+      (f) =>
+        f.extractorFamily.toLowerCase() === "survival" &&
+        validFactIdSet.has(
+          `${f.extractorFamily}:${f.manifestSlotId}:${f.inputFingerprint}`,
+        ),
+    )
     .map((f) => parseSurvivalFactDocumentV2(f.facts))
     .filter((p): p is { ok: true; document: SurvivalFactDocumentV2 } => p.ok)
     .map((p) => p.document);
 
   const utilityDocs = input.factSets
-    .filter((f) => f.extractorFamily.toLowerCase() === "utility")
+    .filter(
+      (f) =>
+        f.extractorFamily.toLowerCase() === "utility" &&
+        validFactIdSet.has(
+          `${f.extractorFamily}:${f.manifestSlotId}:${f.inputFingerprint}`,
+        ),
+    )
     .map((f) => parseUtilityFact(f.facts))
     .filter((u): u is UtilityV2RunFactSet => u != null);
 
   const perfDocs = input.factSets
-    .filter((f) => f.extractorFamily.toLowerCase() === "performance")
+    .filter(
+      (f) =>
+        f.extractorFamily.toLowerCase() === "performance" &&
+        validFactIdSet.has(
+          `${f.extractorFamily}:${f.manifestSlotId}:${f.inputFingerprint}`,
+        ),
+    )
     .map((f) => parsePerformanceRunParseFactV2(f.facts))
     .filter((p): p is { ok: true; fact: PerformanceRunParseFactV2 } => p.ok)
     .map((p) => p.fact);
@@ -1107,8 +1209,8 @@ export function buildScoringV2EvidenceAudit(
     ),
   ];
 
-  // Prefer DimensionComputation.metrics.featureUsage (scorer-owned traces).
-  // Fallback rebuild marks features consumed for display only when metrics lack featureUsage.
+  // Prefer DimensionComputation.metrics.featureUsage (scorer-owned traces only).
+  // Never synthesize consumed=true from the feature registry.
   const survivalFromMetrics = featureUsageFromMetrics(
     input.dimensions.find((d) => d.dimension === "SURVIVAL")?.metrics,
   );
@@ -1124,83 +1226,33 @@ export function buildScoringV2EvidenceAudit(
       | { relativeDamageMode?: "off" | "shadow" | "active" }
       | undefined)?.relativeDamageMode ?? "shadow";
 
-  const survivalFallbackTraces =
-    survivalDocs.length === 0
-      ? emitSurvivalConsumptionTraces({
-          scoredRuns: [],
-          relativeDamageMode: survivalMode,
-          hasScore: false,
-        })
-      : getFeatureRegistryV2()
-          .features.filter((f) => f.dimension === "SURVIVAL")
-          .map((f) => ({
-            featurePath: f.featurePath,
-            kind: f.scoringRole === "SCORE" ? ("SCORE" as const) : ("CONFIDENCE" as const),
-            outputField: f.outputMetricOrExplanationField,
-            exclusionReason: null as string | null,
-          }));
-
+  // Rebuild without traces → SCORE features present get SCORE_FEATURE_NOT_CONSUMED.
   const survivalUsage = buildSurvivalFeatureUsage(survivalDocs, {
     relativeDamageMode: survivalMode,
-    consumptionTraces: survivalFallbackTraces,
   });
-
-  const utilityFallbackTraces =
-    utilityDocs.length === 0
-      ? emitUtilityConsumptionTraces({
-          boundFactSets: [],
-          result: {
-            availabilityState: "UNAVAILABLE",
-            domainBreakdown: [],
-          } as never,
-        })
-      : getFeatureRegistryV2()
-          .features.filter((f) => f.dimension === "UTILITY")
-          .map((f) => ({
-            featurePath: f.featurePath,
-            kind: f.scoringRole === "SCORE" ? ("SCORE" as const) : ("CONFIDENCE" as const),
-            outputField: f.outputMetricOrExplanationField,
-            exclusionReason: null as string | null,
-          }));
-
-  const utilityUsage = buildUtilityFeatureUsage(utilityDocs, {
-    consumptionTraces: utilityFallbackTraces,
-  });
-
-  const performanceFallbackTraces =
-    perfDocs.length === 0
-      ? emitPerformanceConsumptionTraces({
-          runParseFacts: [],
-          hasProfileAggregate: false,
-          hasScore: false,
-          unavailableProvenance: perfProvenance,
-        })
-      : getFeatureRegistryV2()
-          .features.filter((f) => f.dimension === "PERFORMANCE")
-          .map((f) => ({
-            featurePath: f.featurePath,
-            kind: f.scoringRole === "SCORE" ? ("SCORE" as const) : ("CONFIDENCE" as const),
-            outputField: f.outputMetricOrExplanationField,
-            exclusionReason: null as string | null,
-          }));
-
+  const utilityUsage = buildUtilityFeatureUsage(utilityDocs);
   const performanceUsage = buildPerformanceFeatureUsage(perfDocs, {
     unavailableProvenance: perfProvenance,
-    consumptionTraces: performanceFallbackTraces,
   });
 
-  // Integrity for feature consumption comes from persisted DimensionComputation metrics.
-  for (const entry of [
-    ...(survivalFromMetrics ?? []),
-    ...(utilityFromMetrics ?? []),
-    ...(performanceFromMetrics ?? []),
-  ]) {
+  const usageForIntegrity = [
+    ...(survivalFromMetrics ?? survivalUsage.featureUsage),
+    ...(utilityFromMetrics ?? utilityUsage.featureUsage),
+    ...(performanceFromMetrics ?? performanceUsage.featureUsage),
+  ];
+  for (const entry of usageForIntegrity) {
     if (
       entry.scoringRole === "SCORE" &&
-      entry.exclusionReason === "SCORE_FEATURE_NOT_CONSUMED"
+      (entry.exclusionReason === "SCORE_FEATURE_NOT_CONSUMED" ||
+        (!entry.consumed && entry.exclusionReason === "SCORE_FEATURE_NOT_CONSUMED"))
     ) {
       integrityFailures.push(`SCORE_FEATURE_NOT_CONSUMED:${entry.featurePath}`);
     }
+  }
+  if (!survivalFromMetrics) integrityFailures.push(...survivalUsage.integrityFailures);
+  if (!utilityFromMetrics) integrityFailures.push(...utilityUsage.integrityFailures);
+  if (!performanceFromMetrics) {
+    integrityFailures.push(...performanceUsage.integrityFailures);
   }
 
   const scoreModelIds = [
@@ -1225,6 +1277,19 @@ export function buildScoringV2EvidenceAudit(
         score: null,
         confidence: null,
         availabilityState: null,
+        inputFingerprint: null,
+        featureUsage: [],
+        integrityErrors: [],
+      };
+    }
+    if (!enabledFamilies.includes(dimension)) {
+      return {
+        dimension,
+        auditScope: "NOT_AUDITED" as const,
+        computationPresent: false,
+        score: null,
+        confidence: null,
+        availabilityState: "NOT_ENABLED",
         inputFingerprint: null,
         featureUsage: [],
         integrityErrors: [],
@@ -1323,15 +1388,6 @@ export function buildScoringV2EvidenceAudit(
     integrityFailures: [...new Set(integrityFailures)],
     providerCallCount: 0,
   };
-}
-
-/** Stable fingerprint of explanation+metrics for replay comparison. */
-export function fingerprintExplanationMetrics(
-  metrics: unknown,
-  explanation: unknown,
-): string {
-  const payload = JSON.stringify({ metrics: metrics ?? {}, explanation: explanation ?? {} });
-  return createHash("sha256").update(payload).digest("hex");
 }
 
 export type { EvidenceDatasetKind };

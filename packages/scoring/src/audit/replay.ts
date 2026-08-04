@@ -1,8 +1,8 @@
 /**
  * Provider-free Scoring V2 dimension replay from frozen manifest + persisted facts.
- * Zero provider calls — compares recomputed outputs to persisted DimensionComputations.
+ * Zero provider calls by construction — import-boundary tests prove no provider clients.
  *
- * This PR audits only WCL-backed dimensions: PERFORMANCE, SURVIVAL, UTILITY.
+ * WCL-backed dimensions only by default: PERFORMANCE, SURVIVAL, UTILITY.
  * EXPERIENCE is OUT_OF_SCOPE / NOT_AUDITED here.
  */
 
@@ -18,8 +18,8 @@ import {
   type PersistedFactSetRef,
   type ScoringV2PublicDimension,
 } from "../dimensions/v2/index.js";
-import { fingerprintExplanationMetrics } from "./build-evidence-audit.js";
-import { parseFactDocumentIdentity } from "./fact-identity.js";
+import { stableStringify } from "../model-config/stable-hash.js";
+import { parseFactDocumentIdentity, identitiesMatch } from "./fact-identity.js";
 
 export interface ReplayPersistedDimension {
   dimension: ScoringV2PublicDimension;
@@ -43,8 +43,6 @@ export interface ReplayScoringV2DimensionsInput {
   persistedDimensions: ReplayPersistedDimension[];
   /** Defaults to WCL-backed dimensions only (EXPERIENCE excluded). */
   enabledDimensions?: ScoringV2PublicDimension[];
-  /** Test helper: counts any accidental provider callbacks (must stay 0). */
-  providerCallCounter?: { count: number };
 }
 
 const WCL_REPLAY_DIMENSIONS: ScoringV2PublicDimension[] = [
@@ -52,6 +50,14 @@ const WCL_REPLAY_DIMENSIONS: ScoringV2PublicDimension[] = [
   "SURVIVAL",
   "UTILITY",
 ];
+
+/** Explicitly allowlisted volatile fields stripped before fingerprint compare. */
+const VOLATILE_METRIC_KEYS = new Set([
+  "computedAt",
+  "auditedAt",
+  "wallClockMs",
+  "latencyMs",
+]);
 
 function approxEqual(
   a: number | null | undefined,
@@ -74,6 +80,29 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function stripVolatile(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stripVolatile);
+  if (!isRecord(value)) return value;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(value)) {
+    if (VOLATILE_METRIC_KEYS.has(k)) continue;
+    out[k] = stripVolatile(v);
+  }
+  return out;
+}
+
+/** Stable recursive fingerprint of explanation+metrics (sorted keys). */
+export function fingerprintExplanationMetrics(
+  metrics: unknown,
+  explanation: unknown,
+): string {
+  const payload = {
+    metrics: stripVolatile(metrics ?? {}),
+    explanation: stripVolatile(explanation ?? {}),
+  };
+  return createHash("sha256").update(stableStringify(payload), "utf8").digest("hex");
+}
+
 /** Stable compare of featureUsage — order by featurePath. */
 function featureUsageFingerprint(metrics: unknown): string {
   if (!isRecord(metrics) || !Array.isArray(metrics.featureUsage)) {
@@ -92,35 +121,36 @@ function featureUsageFingerprint(metrics: unknown): string {
       zeroCount: e.zeroCount,
     }))
     .sort((a, b) => a.featurePath.localeCompare(b.featurePath));
-  return createHash("sha256").update(JSON.stringify(rows)).digest("hex");
+  return createHash("sha256").update(stableStringify(rows), "utf8").digest("hex");
 }
 
 /**
- * Filter fact sets to identity-valid selected-slot facts only.
- * Broken document identities are excluded from scorer inputs.
+ * Keep only facts whose document identity matches the exact selected slot
+ * they are attached to (dungeonSlug + slotIndex), not merely any selected fight.
  */
-function identityValidFactSets(
+export function identityValidFactSets(
   manifest: CharacterSeasonEvidenceManifestV2,
   factSets: PersistedFactSetRef[],
 ): PersistedFactSetRef[] {
-  const selected = new Map<string, { reportCode: string; fightId: number; reportRevision: number }>();
-  for (const slot of manifest.slots) {
-    if (slot.state !== "SELECTED" || !slot.identity) continue;
-    const key = `${slot.identity.reportCode}:${slot.identity.fightId}:${slot.identity.reportRevision}`;
-    selected.set(key, slot.identity);
-  }
-
   return factSets.filter((fs) => {
     const family = fs.extractorFamily.toUpperCase();
     if (family !== "PERFORMANCE" && family !== "SURVIVAL" && family !== "UTILITY") {
       return false;
     }
+    if (fs.dungeonSlug == null || fs.slotIndex == null) return false;
+    const slot = manifest.slots.find(
+      (s) =>
+        s.state === "SELECTED" &&
+        s.dungeonSlug === fs.dungeonSlug &&
+        s.slotIndex === fs.slotIndex,
+    );
+    if (!slot?.identity) return false;
     const doc = parseFactDocumentIdentity(family, fs.facts);
-    if (doc.reportCode == null || doc.fightId == null || doc.reportRevision == null) {
-      return false;
-    }
-    const key = `${doc.reportCode}:${doc.fightId}:${doc.reportRevision}`;
-    return selected.has(key);
+    return identitiesMatch(doc, {
+      reportCode: slot.identity.reportCode,
+      fightId: slot.identity.fightId,
+      reportRevision: slot.identity.reportRevision,
+    });
   });
 }
 
@@ -131,10 +161,6 @@ export function replayScoringV2Dimensions(
   input: ReplayScoringV2DimensionsInput,
 ): EvidenceAuditReplayResult {
   const details: string[] = [];
-  const providerCallCount = 0;
-  if (input.providerCallCounter) {
-    input.providerCallCounter.count = 0;
-  }
 
   const parsed = characterSeasonEvidenceManifestV2Schema.safeParse(input.manifestDocument);
   if (!parsed.success) {
@@ -184,6 +210,10 @@ export function replayScoringV2Dimensions(
   }
 
   const validFacts = identityValidFactSets(manifest, input.factSets);
+  const rejected = input.factSets.length - validFacts.length;
+  if (rejected > 0) {
+    details.push(`excluded_identity_invalid_facts:${rejected}`);
+  }
 
   const result = finalizeShadowDimensions({
     characterId: input.characterId,
@@ -197,10 +227,6 @@ export function replayScoringV2Dimensions(
     experienceHistory: null,
     computedAt: new Date("2026-01-01T00:00:00.000Z"),
   });
-
-  if (input.providerCallCounter && input.providerCallCounter.count !== 0) {
-    details.push("provider_calls_detected_during_replay");
-  }
 
   if (result.blockedReason) {
     details.push(`replay_blocked:${result.blockedReason}`);
@@ -291,8 +317,7 @@ export function replayScoringV2Dimensions(
     confidenceMatch &&
     availabilityMatch &&
     inputFingerprintMatch &&
-    explanationMetricsFingerprintMatch &&
-    (input.providerCallCounter?.count ?? 0) === 0;
+    explanationMetricsFingerprintMatch;
 
   return {
     deterministicMatch,
@@ -301,7 +326,7 @@ export function replayScoringV2Dimensions(
     availabilityMatch,
     inputFingerprintMatch,
     explanationMetricsFingerprintMatch,
-    providerCallCount,
+    providerCallCount: 0,
     details,
   };
 }

@@ -56,6 +56,9 @@ import {
   type EvidenceDatasetRequirementV2,
 } from "./dataset-requirements.js";
 import type { AcquiredEvidenceDatasetDescriptor } from "./dataset-descriptor-persist.js";
+import {
+  persistDatasetDescriptor,
+} from "./dataset-descriptor-persist.js";
 import type { ScoringV2EvidenceTransport } from "./evidence-transport.js";
 import {
   persistTypedFactSet,
@@ -69,6 +72,10 @@ import {
 } from "./types.js";
 
 const EVIDENCE_PLANNER_PROVIDER_CONTRACT = "wcl-graphql-v2-events";
+/** Ranking parse RawArtifact class — never reuse fight-details / shared-evidence artifact ids. */
+export const RANKING_PARSE_ARTIFACT_CLASS = "wcl-ranking-parse-v2" as const;
+export const RANKING_PARSE_PROVIDER_CONTRACT = "wcl-ranking-parse-v1" as const;
+export const RANKING_PARSE_DATASET_KEY = "ranking_parse" as const;
 
 /** Derive timed tri-state from fight-details payload keystoneBonus when present. */
 export function keystoneBonusFromFightDetails(data: unknown): boolean | null {
@@ -236,6 +243,87 @@ function datasetKindFromSharedKey(key: string): EvidenceDatasetKind | null {
     default:
       return null;
   }
+}
+
+function isIdempotentDatasetUniqueViolation(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error != null &&
+    "code" in error &&
+    (error as { code?: string }).code === "P2002"
+  );
+}
+
+async function persistRankingParseDescriptor(input: {
+  evidence: EvidenceRepository;
+  manifestSlotId: string | null;
+  descriptor: AcquiredEvidenceDatasetDescriptor;
+  datasetDescriptors: AcquiredEvidenceDatasetDescriptor[];
+}): Promise<void> {
+  input.datasetDescriptors.push(input.descriptor);
+  if (!input.manifestSlotId) return;
+  try {
+    const result = await persistDatasetDescriptor({
+      evidence: input.evidence,
+      manifestSlotId: input.manifestSlotId,
+      descriptor: input.descriptor,
+    });
+    if (result.outcome === "conflict") {
+      throw new Error(`ranking_parse_dataset_conflict:${result.reason}`);
+    }
+  } catch (error) {
+    if (isIdempotentDatasetUniqueViolation(error)) {
+      // Race on (manifestSlotId, datasetKey) with identical content — redelivery.
+      const raced = await input.evidence.findDatasetBySlotAndKey({
+        manifestSlotId: input.manifestSlotId,
+        datasetKey: input.descriptor.datasetKey,
+      });
+      if (
+        raced &&
+        raced.payloadFingerprint === input.descriptor.payloadFingerprint &&
+        raced.state === input.descriptor.state &&
+        raced.artifactId === input.descriptor.artifactId
+      ) {
+        return;
+      }
+    }
+    throw error;
+  }
+}
+
+function buildRankingParseDescriptor(input: {
+  reportCode: string;
+  fightId: number;
+  reportRevision: number;
+  state: "READY" | "UNAVAILABLE" | "FAILED";
+  rankingArtifactId: string | null;
+  payloadFingerprint: string;
+  eventCount: number;
+}): AcquiredEvidenceDatasetDescriptor {
+  return {
+    datasetKey: RANKING_PARSE_DATASET_KEY,
+    datasetKind: "RANKING_PARSE",
+    compatibilityKey: [
+      input.reportCode,
+      String(input.fightId),
+      String(input.reportRevision),
+      "RANKING_PARSE",
+      RANKING_PARSE_PROVIDER_CONTRACT,
+    ].join(":"),
+    artifactId: input.rankingArtifactId,
+    schemaVersion: "1.0.0",
+    providerContractVersion: RANKING_PARSE_PROVIDER_CONTRACT,
+    state: input.state,
+    eventCount: input.eventCount,
+    pageCount: 0,
+    truncated: false,
+    payloadFingerprint: input.payloadFingerprint,
+    fetchedAt: new Date().toISOString(),
+    costSource: input.rankingArtifactId != null ? "wcl" : null,
+    reportCode: input.reportCode,
+    fightId: input.fightId,
+    reportRevision: input.reportRevision,
+  };
 }
 
 async function persistArtifactBytes(input: {
@@ -859,133 +947,161 @@ export async function acquireCandidateWithFallback(input: {
 
       // --- Performance ---
       if (consumers.has("PERFORMANCE")) {
-        let rankingEvidence = null;
+        let rankingEvidence: Awaited<
+          ReturnType<ScoringV2EvidenceTransport["getRankingParse"]>
+        >["evidence"] = null;
         let rankingUnavailableReason: string | null = null;
+        let rankingTransportFailed = false;
+        let rankingArtifactId: string | null = null;
+        let rankingProviderCalls = 0;
+
         if (needRanking) {
-          const ranking = await input.transport.getRankingParse({
-            reportCode: identity.reportCode,
-            fightId: identity.fightId,
-            reportRevision,
-            dungeonSlug,
-            keyLevel: candidate.keyLevel,
-            ctx,
-          });
-          providerCallTotal += ranking.providerCalls;
-          rankingEvidence = ranking.evidence;
-          rankingUnavailableReason = ranking.unavailableReason;
-          if (ranking.providerCalls === 0 && ranking.evidence) {
-            providerAccounting = {
-              ...providerAccounting,
-              cacheHits: providerAccounting.cacheHits + 1,
-              avoidedRequests: providerAccounting.avoidedRequests + 1,
-            };
-            recordDatasetOutcome({ outcome: "cache_hit", datasetKey: "ranking-parse" });
-          } else if (ranking.providerCalls > 0) {
-            providerAccounting = {
-              ...providerAccounting,
-              providerCalls: providerAccounting.providerCalls + ranking.providerCalls,
-            };
-            recordDatasetOutcome({ outcome: "fetched", datasetKey: "ranking-parse" });
-          }
-          if (rankingEvidence) {
-            datasetHashes.push({
-              dataset: "RANKING_PARSE",
-              contentHash: hashFactDocumentContent(rankingEvidence),
+          try {
+            const ranking = await input.transport.getRankingParse({
+              reportCode: identity.reportCode,
+              fightId: identity.fightId,
+              reportRevision,
+              dungeonSlug,
+              keyLevel: candidate.keyLevel,
+              ctx,
             });
+            rankingProviderCalls = ranking.providerCalls;
+            providerCallTotal += ranking.providerCalls;
+            rankingEvidence = ranking.evidence;
+            rankingUnavailableReason = ranking.unavailableReason;
+            if (ranking.providerCalls === 0 && ranking.evidence) {
+              providerAccounting = {
+                ...providerAccounting,
+                cacheHits: providerAccounting.cacheHits + 1,
+                avoidedRequests: providerAccounting.avoidedRequests + 1,
+              };
+              recordDatasetOutcome({ outcome: "cache_hit", datasetKey: "ranking-parse" });
+            } else if (ranking.providerCalls > 0) {
+              providerAccounting = {
+                ...providerAccounting,
+                providerCalls: providerAccounting.providerCalls + ranking.providerCalls,
+              };
+              recordDatasetOutcome({ outcome: "fetched", datasetKey: "ranking-parse" });
+            }
+            if (rankingEvidence) {
+              const rankingArtifact = await persistArtifactBytes({
+                artifacts: input.artifacts,
+                provider: "WARCRAFT_LOGS",
+                artifactClass: RANKING_PARSE_ARTIFACT_CLASS,
+                payload: rankingEvidence,
+              });
+              rankingArtifactId = rankingArtifact.artifactId;
+              providerAccounting = {
+                ...providerAccounting,
+                bytes: providerAccounting.bytes + rankingArtifact.bytes,
+              };
+              datasetHashes.push({
+                dataset: "RANKING_PARSE",
+                contentHash: rankingArtifact.contentHash,
+              });
+            }
+          } catch (error) {
+            rankingTransportFailed = true;
+            rankingEvidence = null;
+            rankingArtifactId = null;
+            rankingUnavailableReason =
+              error instanceof Error
+                ? `ranking_parse_transport_failed:${error.message}`
+                : "ranking_parse_transport_failed";
           }
         } else {
           rankingUnavailableReason = "ranking_parse_not_requested";
         }
 
         try {
-          const rankingAbsentReason =
-            rankingEvidence != null
-              ? null
-              : needRanking
-                ? rankingUnavailableReason ?? "RANKING_PARSE_PUBLIC_API_UNAVAILABLE"
-                : "ranking_parse_not_requested";
-          const outcome = extractPerformanceRunParseFactV2({
-            slot: slotBinding,
-            evidence: rankingEvidence,
-            absentReason: rankingAbsentReason,
-          });
-          typedFactPayloads.push({
-            dimension: "PERFORMANCE",
-            status: outcome.status,
-            extractorFamily: PERFORMANCE_V2_EXTRACTOR_FAMILY,
-            extractorVersion: PERFORMANCE_V2_EXTRACTOR_VERSION,
-            schemaVersion: PERFORMANCE_V2_FACT_SCHEMA_VERSION,
-            facts: outcome.fact,
-            limitations: outcome.limitations,
-            category: outcome.category,
-            reason: outcome.reason,
-            artifactIds,
-            coverage: { rankingParse: rankingEvidence != null },
-          });
-
-          // Durable RANKING_PARSE descriptor (no EvidenceDatasetPage rows).
-          // Logical outcome WRITTEN / UNAVAILABLE / FAILED is always recorded for
-          // selected slots when PERFORMANCE is enabled — including cache hits.
-          if (needRanking) {
-            const rankingState =
-              outcome.status === "WRITTEN"
-                ? "READY"
-                : outcome.status === "UNAVAILABLE"
-                  ? "UNAVAILABLE"
-                  : "FAILED";
-            const rankingFp =
+          if (rankingTransportFailed) {
+            typedFactPayloads.push({
+              dimension: "PERFORMANCE",
+              status: "FAILED",
+              extractorFamily: PERFORMANCE_V2_EXTRACTOR_FAMILY,
+              extractorVersion: PERFORMANCE_V2_EXTRACTOR_VERSION,
+              schemaVersion: PERFORMANCE_V2_FACT_SCHEMA_VERSION,
+              facts: null,
+              limitations: ["ranking_parse_transport_failed"],
+              category: "analysis_failed",
+              reason: rankingUnavailableReason ?? "ranking_parse_transport_failed",
+              artifactIds: [],
+              coverage: { rankingParse: false, rankingArtifactId: null },
+            });
+            if (needRanking) {
+              await persistRankingParseDescriptor({
+                evidence: input.evidence,
+                manifestSlotId: input.manifestSlotIdForPersistence ?? null,
+                datasetDescriptors,
+                descriptor: buildRankingParseDescriptor({
+                  reportCode: identity.reportCode,
+                  fightId: identity.fightId,
+                  reportRevision,
+                  state: "FAILED",
+                  rankingArtifactId: null,
+                  payloadFingerprint: `ranking-parse:FAILED:transport`,
+                  eventCount: 0,
+                }),
+              });
+            }
+          } else {
+            const rankingAbsentReason =
               rankingEvidence != null
-                ? hashFactDocumentContent(rankingEvidence)
-                : `ranking-parse:${outcome.status}:${outcome.reason ?? "n/a"}`;
-            const rankingCompat = [
-              identity.reportCode,
-              String(identity.fightId),
-              String(reportRevision),
-              "RANKING_PARSE",
-              "wcl-ranking-parse-v1",
-            ].join(":");
-            const rankingDescriptor: AcquiredEvidenceDatasetDescriptor = {
-              datasetKey: "ranking_parse",
-              datasetKind: "RANKING_PARSE",
-              compatibilityKey: rankingCompat,
-              artifactId: artifactIds[artifactIds.length - 1] ?? null,
-              schemaVersion: "1.0.0",
-              providerContractVersion: "wcl-ranking-parse-v1",
-              state: rankingState,
-              eventCount: rankingEvidence != null ? 1 : 0,
-              pageCount: 0,
-              truncated: false,
-              payloadFingerprint: rankingFp,
-              fetchedAt: new Date().toISOString(),
-              costSource: rankingEvidence != null ? "wcl" : null,
-              reportCode: identity.reportCode,
-              fightId: identity.fightId,
-              reportRevision,
-            };
-            datasetDescriptors.push(rankingDescriptor);
-            if (input.manifestSlotIdForPersistence) {
-              try {
-                await input.evidence.createDataset({
-                  manifestSlotId: input.manifestSlotIdForPersistence,
-                  datasetKey: rankingDescriptor.datasetKey,
-                  compatibilityKey: rankingDescriptor.compatibilityKey,
-                  artifactId: rankingDescriptor.artifactId,
-                  schemaVersion: rankingDescriptor.schemaVersion,
-                  providerContractVersion: rankingDescriptor.providerContractVersion,
-                  state: rankingDescriptor.state,
-                  eventCount: rankingDescriptor.eventCount,
-                  pageCount: rankingDescriptor.pageCount,
-                  truncated: rankingDescriptor.truncated,
-                  payloadFingerprint: rankingDescriptor.payloadFingerprint,
-                  fetchedAt: new Date(rankingDescriptor.fetchedAt),
-                  costSource: rankingDescriptor.costSource,
-                });
-              } catch {
-                // Unique compatibility / slot key — reusable completed descriptor survives.
-              }
+                ? null
+                : needRanking
+                  ? rankingUnavailableReason ?? "RANKING_PARSE_PUBLIC_API_UNAVAILABLE"
+                  : "ranking_parse_not_requested";
+            const outcome = extractPerformanceRunParseFactV2({
+              slot: slotBinding,
+              evidence: rankingEvidence,
+              absentReason: rankingAbsentReason,
+            });
+            typedFactPayloads.push({
+              dimension: "PERFORMANCE",
+              status: outcome.status,
+              extractorFamily: PERFORMANCE_V2_EXTRACTOR_FAMILY,
+              extractorVersion: PERFORMANCE_V2_EXTRACTOR_VERSION,
+              schemaVersion: PERFORMANCE_V2_FACT_SCHEMA_VERSION,
+              facts: outcome.fact,
+              limitations: outcome.limitations,
+              category: outcome.category,
+              reason: outcome.reason,
+              artifactIds: rankingArtifactId != null ? [rankingArtifactId] : [],
+              coverage: {
+                rankingParse: rankingEvidence != null,
+                rankingArtifactId,
+                rankingProviderCalls,
+              },
+            });
+
+            if (needRanking) {
+              const rankingState =
+                outcome.status === "WRITTEN"
+                  ? "READY"
+                  : outcome.status === "UNAVAILABLE"
+                    ? "UNAVAILABLE"
+                    : "FAILED";
+              const rankingFp =
+                rankingEvidence != null
+                  ? hashFactDocumentContent(rankingEvidence)
+                  : `ranking-parse:${outcome.status}:${outcome.reason ?? "n/a"}`;
+              await persistRankingParseDescriptor({
+                evidence: input.evidence,
+                manifestSlotId: input.manifestSlotIdForPersistence ?? null,
+                datasetDescriptors,
+                descriptor: buildRankingParseDescriptor({
+                  reportCode: identity.reportCode,
+                  fightId: identity.fightId,
+                  reportRevision,
+                  state: rankingState,
+                  rankingArtifactId,
+                  payloadFingerprint: rankingFp,
+                  eventCount: rankingEvidence != null ? 1 : 0,
+                }),
+              });
             }
           }
-        } catch {
+        } catch (error) {
           typedFactPayloads.push({
             dimension: "PERFORMANCE",
             status: "FAILED",
@@ -995,35 +1111,27 @@ export async function acquireCandidateWithFallback(input: {
             facts: null,
             limitations: ["performance_extraction_failed"],
             category: "analysis_failed",
-            reason: "performance_extractor_threw",
-            artifactIds,
-            coverage: {},
+            reason:
+              error instanceof Error
+                ? error.message
+                : "performance_extractor_threw",
+            artifactIds: rankingArtifactId != null ? [rankingArtifactId] : [],
+            coverage: { rankingParse: false, rankingArtifactId },
           });
           if (needRanking) {
-            const rankingCompat = [
-              identity.reportCode,
-              String(identity.fightId),
-              String(reportRevision),
-              "RANKING_PARSE",
-              "wcl-ranking-parse-v1",
-            ].join(":");
-            datasetDescriptors.push({
-              datasetKey: "ranking_parse",
-              datasetKind: "RANKING_PARSE",
-              compatibilityKey: rankingCompat,
-              artifactId: artifactIds[artifactIds.length - 1] ?? null,
-              schemaVersion: "1.0.0",
-              providerContractVersion: "wcl-ranking-parse-v1",
-              state: "FAILED",
-              eventCount: 0,
-              pageCount: 0,
-              truncated: false,
-              payloadFingerprint: "ranking-parse:FAILED:extractor_threw",
-              fetchedAt: new Date().toISOString(),
-              costSource: null,
-              reportCode: identity.reportCode,
-              fightId: identity.fightId,
-              reportRevision,
+            await persistRankingParseDescriptor({
+              evidence: input.evidence,
+              manifestSlotId: input.manifestSlotIdForPersistence ?? null,
+              datasetDescriptors,
+              descriptor: buildRankingParseDescriptor({
+                reportCode: identity.reportCode,
+                fightId: identity.fightId,
+                reportRevision,
+                state: "FAILED",
+                rankingArtifactId,
+                payloadFingerprint: "ranking-parse:FAILED:extractor_threw",
+                eventCount: 0,
+              }),
             });
           }
         }

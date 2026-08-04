@@ -112,6 +112,8 @@ export class FixtureScoringV2EvidenceTransport implements ScoringV2EvidenceTrans
       fightDetails?: ScoringV2FightDetailsResult;
       sharedEvidence?: ScoringV2SharedEvidenceResult;
       rankingParse?: ScoringV2RankingParseResult;
+      /** When set, getRankingParse throws after counting the call (transport failure). */
+      rankingParseThrow?: Error;
       profile?: ScoringV2ProfilePayloadResult;
     } = {},
   ) {}
@@ -178,6 +180,9 @@ export class FixtureScoringV2EvidenceTransport implements ScoringV2EvidenceTrans
   async getRankingParse(): Promise<ScoringV2RankingParseResult> {
     this.assertNoNetworkReachable();
     this.rankingCalls += 1;
+    if (this.fixtures.rankingParseThrow) {
+      throw this.fixtures.rankingParseThrow;
+    }
     return (
       this.fixtures.rankingParse ?? {
         evidence: null,

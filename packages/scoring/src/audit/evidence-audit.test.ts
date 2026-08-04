@@ -18,7 +18,9 @@ import {
   finalizeEvidenceManifestV2,
   buildSlotFactSetBindingHash,
   buildScoringV2EvidenceAudit,
+  fingerprintExplanationMetrics,
   getFeatureRegistryV2,
+  identityValidFactSets,
   replayScoringV2Dimensions,
   finalizeShadowDimensions,
   EXPECTED_EVENT_DATASETS,
@@ -486,7 +488,6 @@ function buildHarness(options?: { leaveWindrunnerSlot1Missing?: boolean }) {
     manifestId: "manifest-audit-1",
   }));
 
-  const providerCallCounter = { count: 0 };
   const replay = replayScoringV2Dimensions({
     characterId: manifest.characterId,
     seasonId: manifest.seasonId,
@@ -504,7 +505,6 @@ function buildHarness(options?: { leaveWindrunnerSlot1Missing?: boolean }) {
       metrics: d.metrics,
       explanation: d.explanation,
     })),
-    providerCallCounter,
   });
 
   const audit = buildScoringV2EvidenceAudit({
@@ -530,7 +530,6 @@ function buildHarness(options?: { leaveWindrunnerSlot1Missing?: boolean }) {
     manifest,
     audit,
     replay,
-    providerCallCounter,
     factSets,
     finalized,
     datasets,
@@ -560,7 +559,7 @@ describe("feature registry v2", () => {
 
 describe("16-slot evidence lineage harness", () => {
   it("audits all 16 slots with one explicit UNAVAILABLE windrunner-spire:1", () => {
-    const { manifest, audit, replay, providerCallCounter } = buildHarness();
+    const { manifest, audit, replay } = buildHarness();
 
     expect(manifest.expectedSlotCount).toBe(16);
     expect(manifest.selectedSlotCount).toBe(15);
@@ -628,7 +627,6 @@ describe("16-slot evidence lineage harness", () => {
     );
 
     expect(audit.providerCallCount).toBe(0);
-    expect(providerCallCounter.count).toBe(0);
     expect(replay.providerCallCount).toBe(0);
     expect(replay.scoreMatch).toBe(true);
     expect(replay.inputFingerprintMatch).toBe(true);
@@ -915,5 +913,295 @@ describe("16-slot evidence lineage harness", () => {
     for (const slot of audit.slots.filter((s) => s.slotState === "SELECTED")) {
       expect(slot.rankingParse?.logicalOutcome).toBeTruthy();
     }
+  });
+
+  it("rejects fact for selected slot B when attached to selected slot A", () => {
+    const { manifest, factSets, finalized } = buildHarness({
+      leaveWindrunnerSlot1Missing: false,
+    });
+    const selected = manifest.slots.filter((s) => s.state === "SELECTED");
+    expect(selected.length).toBeGreaterThanOrEqual(2);
+    const slotA = selected[0]!;
+    const slotB = selected[1]!;
+    expect(slotA.identity).toBeTruthy();
+    expect(slotB.identity).toBeTruthy();
+    expect(
+      `${slotA.identity!.reportCode}:${slotA.identity!.fightId}`,
+    ).not.toBe(`${slotB.identity!.reportCode}:${slotB.identity!.fightId}`);
+
+    const factB = factSets.find(
+      (f) =>
+        f.extractorFamily === "survival" &&
+        f.dungeonSlug === slotB.dungeonSlug &&
+        f.slotIndex === slotB.slotIndex,
+    );
+    expect(factB).toBeTruthy();
+
+    // Attach B's document identity onto slot A's row coordinates.
+    const crossAttached = {
+      ...factB!,
+      id: randomUUID(),
+      manifestSlotId: `slot-row-${slotA.slotId}`,
+      dungeonSlug: slotA.dungeonSlug,
+      slotIndex: slotA.slotIndex,
+      relationReportCode: slotA.identity!.reportCode,
+      relationFightId: slotA.identity!.fightId,
+      relationReportRevision: slotA.identity!.reportRevision,
+    };
+
+    const slotRows = selected.map((s) => ({
+      id: `slot-row-${s.slotId}`,
+      dungeonSlug: s.dungeonSlug,
+      slotIndex: s.slotIndex,
+      state: s.state,
+      reportCode: s.identity!.reportCode,
+      fightId: s.identity!.fightId,
+      reportRevision: s.identity!.reportRevision,
+      keyLevel: s.keyLevel,
+      selectionReason: "preferred",
+      candidateRank: s.selectedRank,
+    }));
+
+    const mixedFacts = factSets
+      .filter(
+        (f) =>
+          !(
+            f.extractorFamily === "survival" &&
+            f.dungeonSlug === slotA.dungeonSlug &&
+            f.slotIndex === slotA.slotIndex
+          ),
+      )
+      .concat([crossAttached]);
+
+    const audit = buildScoringV2EvidenceAudit({
+      manifestId: "manifest-audit-1",
+      characterId: manifest.characterId,
+      seasonId: manifest.seasonId,
+      manifestDocument: manifest,
+      coverageState: manifest.coverage.state,
+      expectedSlotCount: 16,
+      selectedSlotCount: 16,
+      auditedAt: "2026-08-04T12:00:00.000Z",
+      slotRows,
+      datasets: [],
+      factSets: mixedFacts,
+      dimensions: [],
+      masterDataByIdentity: [],
+      pagesByIdentity: [],
+    });
+
+    expect(
+      audit.integrityFailures.some((f) => f.startsWith("CROSS_SLOT_FACT_ATTACHMENT:")),
+    ).toBe(true);
+
+    const slotAAudit = audit.slots.find(
+      (s) => s.dungeonSlug === slotA.dungeonSlug && s.slotIndex === slotA.slotIndex,
+    );
+    const survA = slotAAudit?.factSets.find((f) => f.extractorFamily === "SURVIVAL");
+    expect(survA?.identityMatchAgainstManifest).toBe(false);
+    expect(survA?.sourceOutcome).toBe("FAILED");
+    expect(survA?.limitations).toContain("FACT_IDENTITY_MISMATCH");
+
+    const factRefs: PersistedFactSetRef[] = mixedFacts.map((f) => ({
+      extractorFamily: f.extractorFamily,
+      extractorVersion: f.extractorVersion,
+      schemaVersion: f.schemaVersion,
+      inputFingerprint: f.inputFingerprint,
+      facts: f.facts,
+      limitations: f.limitations,
+      manifestSlotId: f.manifestSlotId,
+      reportCode: f.relationReportCode,
+      fightId: f.relationFightId,
+      reportRevision: f.relationReportRevision,
+      dungeonSlug: f.dungeonSlug,
+      slotIndex: f.slotIndex,
+    }));
+    const valid = identityValidFactSets(manifest, factRefs);
+    expect(
+      valid.some(
+        (f) =>
+          f.extractorFamily === "survival" &&
+          f.dungeonSlug === slotA.dungeonSlug &&
+          f.slotIndex === slotA.slotIndex,
+      ),
+    ).toBe(false);
+
+    const survivalOutcome = finalized.outcomes.find((o) => o.dimension === "SURVIVAL");
+    expect(survivalOutcome).toBeTruthy();
+    const replay = replayScoringV2Dimensions({
+      characterId: manifest.characterId,
+      seasonId: manifest.seasonId,
+      manifestId: "manifest-audit-1",
+      scoreModelId: "model-audit-1",
+      manifestDocument: manifest,
+      expectedManifestContentHash: manifest.contentHash,
+      factSets: factRefs,
+      persistedDimensions: [
+        {
+          dimension: "SURVIVAL",
+          score: survivalOutcome!.record.score,
+          confidence: survivalOutcome!.record.confidence,
+          state: survivalOutcome!.record.availabilityState,
+          inputFingerprint: survivalOutcome!.record.inputFingerprint,
+          metrics: survivalOutcome!.record.metrics,
+          explanation: survivalOutcome!.record.explanation,
+        },
+      ],
+      enabledDimensions: ["SURVIVAL"],
+    });
+    expect(replay.details.some((d) => d.startsWith("excluded_identity_invalid_facts:"))).toBe(
+      true,
+    );
+  });
+
+  it("marks NOT_ENABLED fact outcomes when a WCL family is disabled", () => {
+    const { manifest, factSets, datasets, pagesByIdentity, masterDataByIdentity } =
+      buildHarness();
+    const slotRows = manifest.slots.map((s) => ({
+      id: `slot-row-${s.slotId}`,
+      dungeonSlug: s.dungeonSlug,
+      slotIndex: s.slotIndex,
+      state: s.state,
+      reportCode: s.identity?.reportCode ?? null,
+      fightId: s.identity?.fightId ?? null,
+      reportRevision: s.identity?.reportRevision ?? null,
+      keyLevel: s.keyLevel,
+      selectionReason: s.state === "SELECTED" ? "preferred" : "missing",
+      candidateRank: s.selectedRank,
+    }));
+
+    const audit = buildScoringV2EvidenceAudit({
+      manifestId: "manifest-audit-1",
+      characterId: manifest.characterId,
+      seasonId: manifest.seasonId,
+      manifestDocument: manifest,
+      coverageState: manifest.coverage.state,
+      expectedSlotCount: 16,
+      selectedSlotCount: manifest.selectedSlotCount,
+      auditedAt: "2026-08-04T12:00:00.000Z",
+      slotRows,
+      datasets,
+      factSets,
+      dimensions: [],
+      masterDataByIdentity,
+      pagesByIdentity,
+      enabledFamilies: ["SURVIVAL", "UTILITY"],
+    });
+
+    const selected = audit.slots.filter((s) => s.slotState === "SELECTED");
+    expect(selected.length).toBeGreaterThan(0);
+    for (const slot of selected) {
+      const perf = slot.factSets.find((f) => f.extractorFamily === "PERFORMANCE");
+      expect(perf?.sourceOutcome).toBe("NOT_ENABLED");
+      expect(perf?.runFactSetPresent).toBe(false);
+      expect(perf?.limitations).toContain("dimension_not_enabled");
+    }
+    const perfDim = audit.dimensionConsumption.find((d) => d.dimension === "PERFORMANCE");
+    expect(perfDim?.auditScope).toBe("NOT_AUDITED");
+    expect(perfDim?.availabilityState).toBe("NOT_ENABLED");
+  });
+
+  it("does not synthesize consumed=true when scorer traces are missing", () => {
+    const { manifest, factSets } = buildHarness({ leaveWindrunnerSlot1Missing: false });
+    const slotRows = manifest.slots.map((s) => ({
+      id: `slot-row-${s.slotId}`,
+      dungeonSlug: s.dungeonSlug,
+      slotIndex: s.slotIndex,
+      state: s.state,
+      reportCode: s.identity?.reportCode ?? null,
+      fightId: s.identity?.fightId ?? null,
+      reportRevision: s.identity?.reportRevision ?? null,
+      keyLevel: s.keyLevel,
+      selectionReason: "preferred",
+      candidateRank: s.selectedRank,
+    }));
+
+    const audit = buildScoringV2EvidenceAudit({
+      manifestId: "manifest-audit-1",
+      characterId: manifest.characterId,
+      seasonId: manifest.seasonId,
+      manifestDocument: manifest,
+      coverageState: manifest.coverage.state,
+      expectedSlotCount: 16,
+      selectedSlotCount: 16,
+      auditedAt: "2026-08-04T12:00:00.000Z",
+      slotRows,
+      datasets: [],
+      factSets,
+      dimensions: [
+        {
+          dimension: "SURVIVAL",
+          score: 50,
+          confidence: 0.5,
+          state: "AVAILABLE",
+          inputFingerprint: "fp-surv",
+          metrics: { availabilityState: "AVAILABLE" },
+          explanation: {},
+          manifestId: "manifest-audit-1",
+        },
+      ],
+      masterDataByIdentity: [],
+      pagesByIdentity: [],
+    });
+
+    const survival = audit.dimensionConsumption.find((d) => d.dimension === "SURVIVAL");
+    expect(survival?.featureUsage.length).toBeGreaterThan(0);
+    expect(survival?.featureUsage.every((f) => f.consumed === false)).toBe(true);
+    expect(
+      survival?.featureUsage.some(
+        (f) =>
+          f.scoringRole === "SCORE" &&
+          f.exclusionReason === "SCORE_FEATURE_NOT_CONSUMED",
+      ),
+    ).toBe(true);
+    expect(
+      audit.integrityFailures.some((f) => f.startsWith("SCORE_FEATURE_NOT_CONSUMED:")),
+    ).toBe(true);
+  });
+
+  it("canonical fingerprints match under key reorder and fail on featureUsage drift", () => {
+    const metricsA = {
+      availabilityState: "AVAILABLE",
+      scoreComponents: { deaths: 1, combat: 2 },
+      featureUsage: [
+        {
+          featurePath: "survival.deaths",
+          scoringRole: "SCORE",
+          consumed: true,
+          exclusionReason: null,
+          outputComponentOrConfidenceField: "deathsPenalty",
+          selectedSlotCountContaining: 1,
+          validValueCount: 1,
+          missingCount: 0,
+          zeroCount: 0,
+        },
+      ],
+      computedAt: "2026-01-01T00:00:00.000Z",
+    };
+    const metricsB = {
+      computedAt: "2099-01-01T00:00:00.000Z",
+      featureUsage: metricsA.featureUsage,
+      scoreComponents: { combat: 2, deaths: 1 },
+      availabilityState: "AVAILABLE",
+    };
+    const explA = { summary: "ok", details: { a: 1, b: 2 } };
+    const explB = { details: { b: 2, a: 1 }, summary: "ok" };
+    expect(fingerprintExplanationMetrics(metricsA, explA)).toBe(
+      fingerprintExplanationMetrics(metricsB, explB),
+    );
+
+    const drifted = {
+      ...metricsB,
+      featureUsage: [
+        {
+          ...metricsA.featureUsage[0]!,
+          consumed: false,
+          exclusionReason: "SCORE_FEATURE_NOT_CONSUMED",
+        },
+      ],
+    };
+    expect(fingerprintExplanationMetrics(metricsA, explA)).not.toBe(
+      fingerprintExplanationMetrics(drifted, explB),
+    );
   });
 });
