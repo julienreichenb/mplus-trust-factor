@@ -315,6 +315,17 @@ export class EvidenceRepository {
     });
   }
 
+  async findDatasetBySlotAndKey(input: { manifestSlotId: string; datasetKey: string }) {
+    return this.prisma.evidenceDataset.findUnique({
+      where: {
+        manifestSlotId_datasetKey: {
+          manifestSlotId: input.manifestSlotId,
+          datasetKey: input.datasetKey,
+        },
+      },
+    });
+  }
+
   async createDimensionComputation(input: CreateDimensionComputationInput) {
     return this.prisma.dimensionComputation.create({
       data: {

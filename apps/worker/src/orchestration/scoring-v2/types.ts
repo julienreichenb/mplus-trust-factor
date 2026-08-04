@@ -6,6 +6,7 @@ import type {
   EvidenceV2SlotJobStatus,
 } from "@mplus/contracts";
 import type { EvidenceDatasetRequirementV2 } from "./dataset-requirements.js";
+import type { AcquiredEvidenceDatasetDescriptor } from "./dataset-descriptor-persist.js";
 import type { ScoringV2ProviderAccounting } from "./provider-accounting.js";
 import type { TypedDimensionFactPayload } from "./typed-fact-persist.js";
 
@@ -15,6 +16,8 @@ export const SCORING_V2_FACT_EXTRACTOR_FAMILY = "evidence-v2-shadow" as const;
 export const SCORING_V2_FACT_EXTRACTOR_VERSION = "0.1.0" as const;
 export const SCORING_V2_FACT_SCHEMA_VERSION = "2.0.0" as const;
 export const SCORING_V2_DATASET_SCHEMA_VERSION = "2.0.0" as const;
+
+export type { AcquiredEvidenceDatasetDescriptor };
 
 export interface EvidenceV2SlotRecord {
   slotId: string;
@@ -40,6 +43,11 @@ export interface EvidenceV2SlotRecord {
   rejectedAttempts: EvidenceCandidateAcquisitionResult[];
   /** Persisted dataset / fact fingerprints for resumability. */
   datasetCompatibilityKeys: string[];
+  /**
+   * Bounded durable dataset descriptors for post-freeze EvidenceDataset writes.
+   * Captured during acquisition when manifestSlotId is not yet known.
+   */
+  datasetDescriptors: AcquiredEvidenceDatasetDescriptor[];
   factSetFingerprint: string | null;
   /**
    * Typed dimension fact payloads extracted during acquisition.
@@ -102,6 +110,7 @@ export function emptySlotRecord(
     acquisitionResult: null,
     rejectedAttempts: [],
     datasetCompatibilityKeys: [],
+    datasetDescriptors: [],
     factSetFingerprint: null,
     typedFactPayloads: [],
     providerAccounting: null,

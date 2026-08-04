@@ -136,6 +136,22 @@ model EvidenceDataset {
 }
 ```
 
+**Acquisition → finalize persistence contract (provider-free):**
+
+1. During slot acquisition (before the frozen manifest exists), capture bounded
+   `AcquiredEvidenceDatasetDescriptor` rows on the batch slot record for every
+   shared event dataset used by typed extractors. Descriptors reference already
+   persisted `RawArtifact` ids and page fingerprints — they never synthesize
+   raw pages or fake dataset content.
+2. After `createFrozenManifest`, bind descriptors to the exact
+   `EvidenceManifestSlot` by `reportCode + fightId + reportRevision` and write
+   `EvidenceDataset` rows. Redelivery is idempotent on identical content;
+   incompatible content for the same logical identity fails closed.
+3. `EvidenceDatasetPage` rows are scoring-neutral and durable by report
+   identity (`datasetId` nullable). Finalization may attach `datasetId` to
+   existing pages that match the same report/fight/revision/shared key; it
+   never fabricates pages and never calls WCL.
+
 ### 3.5 Normalized fact sets
 
 ```prisma

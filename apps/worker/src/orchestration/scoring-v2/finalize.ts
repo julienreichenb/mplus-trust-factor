@@ -15,6 +15,10 @@ import {
   collectAcquisitionResultsForFinalize,
 } from "./acquisition.js";
 import {
+  persistDatasetDescriptor,
+  linkExistingPagesToDataset,
+} from "./dataset-descriptor-persist.js";
+import {
   persistShadowDimensionComputations,
   resolveEnabledShadowDimensions,
 } from "./dimension-finalizer.js";
@@ -191,9 +195,18 @@ export async function runFinalizeEvidenceBatchV2(
             keyLevel: slot.keyLevel,
             candidateRank: slot.selectedRank,
             state: slot.state,
-            selectionReason: slot.fallbackReason,
+            // Selected runs are valid identities — never stamp fallback rejection
+            // reasons (e.g. DUPLICATE_REPORT_FIGHT) onto the selected slot.
+            selectionReason:
+              slot.state === "SELECTED"
+                ? slot.fallbackReason
+                  ? "SELECTED_WITH_FALLBACK"
+                  : "SELECTED"
+                : slot.state,
             dimensionValidity: slot.dimensionValidity ?? {},
-            invalidReasons: [],
+            invalidReasons: slot.fallbackReason
+              ? [`fallbackReason:${slot.fallbackReason}`]
+              : [],
             providerDataAsOf: null,
           })),
         });
@@ -232,6 +245,8 @@ export async function runFinalizeEvidenceBatchV2(
 
     // Persist typed fact sets extracted during acquisition (provider-free DB write).
     // Does not call providers; does not write shadow_placeholder.
+    // Also bind durable EvidenceDataset descriptors captured with
+    // manifestSlotIdForPersistence=null during acquisition.
     if (manifestId) {
       const latest = await repo.getById(job.analysisBatchId);
       const slots = latest?.meta.slots ?? claimed.meta.slots;
@@ -248,7 +263,9 @@ export async function runFinalizeEvidenceBatchV2(
       });
 
       for (const slotRec of slots) {
-        if (!slotRec.typedFactPayloads?.length) continue;
+        if (!slotRec.typedFactPayloads?.length && !slotRec.datasetDescriptors?.length) {
+          continue;
+        }
         const identity = slotRec.acquisitionResult?.discoveryIdentity;
         if (!identity) continue;
         const dbSlot = persistedSlots.find(
@@ -268,7 +285,38 @@ export async function runFinalizeEvidenceBatchV2(
               `typed_fact_persist_missing_manifest_slot:${identity.reportCode}/${identity.fightId}`,
             );
           }
+          if (slotRec.datasetDescriptors?.length) {
+            throw new Error(
+              `dataset_persist_missing_manifest_slot:${identity.reportCode}/${identity.fightId}`,
+            );
+          }
           continue;
+        }
+
+        for (const descriptor of slotRec.datasetDescriptors ?? []) {
+          const persisted = await persistDatasetDescriptor({
+            evidence: container.repositories.evidence,
+            manifestSlotId: dbSlot.id,
+            descriptor,
+          });
+          if (persisted.outcome === "conflict") {
+            throw new Error(
+              `dataset_persist_conflict:${descriptor.datasetKey}:${persisted.reason}`,
+            );
+          }
+          if (persisted.outcome === "written" && persisted.created) {
+            const created = await container.repositories.evidence.findDatasetBySlotAndKey({
+              manifestSlotId: dbSlot.id,
+              datasetKey: descriptor.datasetKey,
+            });
+            if (created && container.repositories.wclSource) {
+              await linkExistingPagesToDataset({
+                wclSource: container.repositories.wclSource,
+                datasetId: created.id,
+                descriptor,
+              });
+            }
+          }
         }
 
         for (const payload of slotRec.typedFactPayloads) {
