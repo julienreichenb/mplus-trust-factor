@@ -312,6 +312,18 @@ export async function acquireCandidateWithFallback(input: {
     dungeonSlug: string;
     slotIndex: 0 | 1;
   };
+  /**
+   * Discovery keys already taken by sibling slots. Skipped as DUPLICATE_REPORT_FIGHT
+   * before any provider call.
+   */
+  excludeDiscoveryKeys?: ReadonlySet<string>;
+  /**
+   * Concurrency-safe reservation for reportCode:fightId before hydration.
+   * Return false when a sibling already holds the identity.
+   */
+  reserveDiscoveryIdentity?: (discoveryKey: string) => Promise<boolean>;
+  /** Release a failed/skipped attempt reservation. */
+  releaseDiscoveryIdentity?: (discoveryKey: string) => Promise<void>;
   /** Injectable transport — tests supply fixtures; production uses provider-backed transport. */
   transport: ScoringV2EvidenceTransport;
   classSlug?: string | null;
@@ -351,6 +363,60 @@ export async function acquireCandidateWithFallback(input: {
     }
 
     const identity = candidate.discoveryIdentity;
+    const discoveryKey = discoveryIdentityKey(identity);
+
+    if (input.excludeDiscoveryKeys?.has(discoveryKey)) {
+      recordInvalidCandidateReason("DUPLICATE_REPORT_FIGHT");
+      rejectedAttempts.push({
+        discoveryIdentity: identity,
+        acquisitionStatus: "REJECTED",
+        reportRevision: null,
+        rejectionReason: "DUPLICATE_REPORT_FIGHT",
+        rejectionDetail: "already selected for another slot",
+        datasetHashes: [],
+        factSetHash: null,
+        dimensionValidity: null,
+        keyLevel: candidate.keyLevel,
+        timed: candidate.timed,
+        runScore: candidate.runScore,
+        completedAt: candidate.completedAt,
+        actorId: candidate.actorId,
+        evidenceCompleteness: candidate.evidenceCompleteness,
+      });
+      continue;
+    }
+
+    let reserved = false;
+    if (input.reserveDiscoveryIdentity) {
+      reserved = await input.reserveDiscoveryIdentity(discoveryKey);
+      if (!reserved) {
+        recordInvalidCandidateReason("DUPLICATE_REPORT_FIGHT");
+        rejectedAttempts.push({
+          discoveryIdentity: identity,
+          acquisitionStatus: "REJECTED",
+          reportRevision: null,
+          rejectionReason: "DUPLICATE_REPORT_FIGHT",
+          rejectionDetail: "identity reserved by another slot",
+          datasetHashes: [],
+          factSetHash: null,
+          dimensionValidity: null,
+          keyLevel: candidate.keyLevel,
+          timed: candidate.timed,
+          runScore: candidate.runScore,
+          completedAt: candidate.completedAt,
+          actorId: candidate.actorId,
+          evidenceCompleteness: candidate.evidenceCompleteness,
+        });
+        continue;
+      }
+    }
+
+    const releaseReservation = async () => {
+      if (!reserved || !input.releaseDiscoveryIdentity) return;
+      reserved = false;
+      await input.releaseDiscoveryIdentity(discoveryKey);
+    };
+
     const ctx: ProviderFetchContext = {
       region: input.region as ProviderFetchContext["region"],
       requestId: `v2-slot-${identity.reportCode}-${identity.fightId}-${Date.now()}`,
@@ -360,6 +426,7 @@ export async function acquireCandidateWithFallback(input: {
       targetCharacter: input.targetCharacter,
     };
 
+    let holdReservation = false;
     try {
       const details = await input.transport.getReportFightDetails({
         reportCode: identity.reportCode,
@@ -1098,6 +1165,7 @@ export async function acquireCandidateWithFallback(input: {
           .slice(0, 16),
       };
 
+      holdReservation = true;
       return {
         result: {
           discoveryIdentity: identity,
@@ -1165,6 +1233,10 @@ export async function acquireCandidateWithFallback(input: {
         actorId: candidate.actorId,
         evidenceCompleteness: candidate.evidenceCompleteness,
       });
+    } finally {
+      if (!holdReservation) {
+        await releaseReservation();
+      }
     }
   }
 

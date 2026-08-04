@@ -71,6 +71,23 @@ export interface EvidenceV2BatchRepository {
     slotId: string;
     refreshGeneration: number;
   }): Promise<EvidenceV2BatchView | null>;
+  /**
+   * CAS-reserve a reportCode:fightId for a RUNNING slot.
+   * Fails closed when any other slot already acquired or reserved the same key.
+   */
+  reserveSlotDiscoveryIdentity(input: {
+    batchId: string;
+    slotId: string;
+    refreshGeneration: number;
+    discoveryKey: string;
+  }): Promise<{ ok: true } | { ok: false; reason: "already_taken" | "not_running" | "not_found" | "generation_mismatch" | "cancelled" | "superseded" }>;
+  /** Clear this slot's in-flight reservation (failed attempt / deferral). */
+  clearSlotDiscoveryReservation(input: {
+    batchId: string;
+    slotId: string;
+    refreshGeneration: number;
+    discoveryKey?: string | null;
+  }): Promise<EvidenceV2BatchView | null>;
   completeSlot(input: {
     batchId: string;
     slotId: string;
@@ -124,6 +141,9 @@ function parseMeta(metadata: unknown): EvidenceV2BatchMetadata | null {
     }
     if (slot.providerAccounting === undefined) {
       slot.providerAccounting = null;
+    }
+    if (slot.reservedDiscoveryKey === undefined) {
+      slot.reservedDiscoveryKey = null;
     }
   }
   return meta;
@@ -356,6 +376,7 @@ export function createEvidenceV2BatchRepository(
                 ...s,
                 status: "PENDING" as const,
                 startedAt: null,
+                reservedDiscoveryKey: null,
               }
             : s,
         );
@@ -368,6 +389,90 @@ export function createEvidenceV2BatchRepository(
           data: {
             metadata: withMeta(batch.metadata, nextMeta),
           },
+        });
+        return toView(updated);
+      });
+    },
+
+    async reserveSlotDiscoveryIdentity(input) {
+      return prisma.$transaction(async (tx) => {
+        const batch = await tx.scoreAnalysisBatch.findUnique({ where: { id: input.batchId } });
+        if (!batch) return { ok: false as const, reason: "not_found" as const };
+        const meta = parseMeta(batch.metadata);
+        if (!meta) return { ok: false as const, reason: "not_found" as const };
+        if (meta.cancelled) return { ok: false as const, reason: "cancelled" as const };
+        if (meta.supersededByGeneration != null) {
+          return { ok: false as const, reason: "superseded" as const };
+        }
+        if (meta.refreshGeneration !== input.refreshGeneration) {
+          return { ok: false as const, reason: "generation_mismatch" as const };
+        }
+
+        const slot = meta.slots.find((s) => s.slotId === input.slotId);
+        if (!slot) return { ok: false as const, reason: "not_found" as const };
+        if (slot.status !== "RUNNING") {
+          return { ok: false as const, reason: "not_running" as const };
+        }
+
+        // Idempotent: this slot already holds the key.
+        if (
+          slot.reservedDiscoveryKey === input.discoveryKey ||
+          slot.acquiredDiscoveryKey === input.discoveryKey
+        ) {
+          return { ok: true as const };
+        }
+
+        const takenBySibling = meta.slots.some(
+          (s) =>
+            s.slotId !== input.slotId &&
+            (s.acquiredDiscoveryKey === input.discoveryKey ||
+              s.reservedDiscoveryKey === input.discoveryKey),
+        );
+        if (takenBySibling) {
+          return { ok: false as const, reason: "already_taken" as const };
+        }
+
+        const nextSlots = meta.slots.map((s) =>
+          s.slotId === input.slotId
+            ? { ...s, reservedDiscoveryKey: input.discoveryKey }
+            : s,
+        );
+        const nextMeta: EvidenceV2BatchMetadata = { ...meta, slots: nextSlots };
+        await tx.scoreAnalysisBatch.update({
+          where: { id: input.batchId },
+          data: { metadata: withMeta(batch.metadata, nextMeta) },
+        });
+        return { ok: true as const };
+      });
+    },
+
+    async clearSlotDiscoveryReservation(input) {
+      return prisma.$transaction(async (tx) => {
+        const batch = await tx.scoreAnalysisBatch.findUnique({ where: { id: input.batchId } });
+        if (!batch) return null;
+        const meta = parseMeta(batch.metadata);
+        if (!meta) return null;
+        if (meta.refreshGeneration !== input.refreshGeneration) return null;
+
+        const slot = meta.slots.find((s) => s.slotId === input.slotId);
+        if (!slot) return null;
+        if (slot.reservedDiscoveryKey == null) {
+          return { batch, meta };
+        }
+        if (
+          input.discoveryKey != null &&
+          slot.reservedDiscoveryKey !== input.discoveryKey
+        ) {
+          return { batch, meta };
+        }
+
+        const nextSlots = meta.slots.map((s) =>
+          s.slotId === input.slotId ? { ...s, reservedDiscoveryKey: null } : s,
+        );
+        const nextMeta: EvidenceV2BatchMetadata = { ...meta, slots: nextSlots };
+        const updated = await tx.scoreAnalysisBatch.update({
+          where: { id: input.batchId },
+          data: { metadata: withMeta(batch.metadata, nextMeta) },
         });
         return toView(updated);
       });
@@ -412,6 +517,7 @@ export function createEvidenceV2BatchRepository(
                 acquisitionResult: input.acquisitionResult ?? s.acquisitionResult,
                 rejectedAttempts: input.rejectedAttempts ?? s.rejectedAttempts ?? [],
                 acquiredDiscoveryKey: input.acquiredDiscoveryKey ?? s.acquiredDiscoveryKey,
+                reservedDiscoveryKey: null,
                 datasetCompatibilityKeys:
                   input.datasetCompatibilityKeys ?? s.datasetCompatibilityKeys,
                 factSetFingerprint: input.factSetFingerprint ?? s.factSetFingerprint,
