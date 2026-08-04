@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import type { CharacterSeasonEvidenceManifestV2 } from "@mplus/contracts";
+import { buildSurvivalFeatureUsage } from "../../audit/feature-usage.js";
 import {
   SURVIVAL_V2_ALGORITHM_VERSION,
   SURVIVAL_V2_MODEL_CONFIG,
@@ -249,6 +250,10 @@ export function computeSurvivalV2(
     modelConfig: config,
   });
 
+  const { featureUsage } = buildSurvivalFeatureUsage(input.factSets, {
+    relativeDamageMode: mode,
+  });
+
   const metrics: Record<string, unknown> = {
     algorithmVersion: config.algorithmVersion,
     modelLabel: config.modelLabel,
@@ -263,6 +268,7 @@ export function computeSurvivalV2(
     selectedSlotCount: manifest.selectedSlotCount,
     manifestContentHash: manifest.contentHash,
     publicationBlocked: true,
+    featureUsage,
   };
 
   return {

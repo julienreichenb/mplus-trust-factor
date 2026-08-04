@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { clamp } from "../../math.js";
+import { buildPerformanceFeatureUsage } from "../../audit/feature-usage.js";
 import { stableStringify } from "../../model-config/stable-hash.js";
 import { blendPerformanceSources, computeDetailedWeight } from "./blend.js";
 import { computePerformanceConfidenceV2 } from "./confidence.js";
@@ -338,6 +339,15 @@ export function computePerformanceV2(
 
   const inputFingerprint = computePerformanceV2InputFingerprint(input, { modelConfig: config });
 
+  const unavailableProvenance = input.runParseFacts
+    .filter((f) => f.semantic === "UNAVAILABLE")
+    .map((f) => `slot:${f.slotId}:UNAVAILABLE`);
+
+  const { featureUsage } = buildPerformanceFeatureUsage(input.runParseFacts, {
+    hasProfileAggregate: input.profileAggregate != null,
+    unavailableProvenance,
+  });
+
   const metrics: Record<string, unknown> = {
     algorithmVersion: config.algorithmVersion,
     modelLabel: config.modelLabel,
@@ -362,6 +372,7 @@ export function computePerformanceV2(
     roleAdapterState: roleAdapter.state,
     confidenceComponents: conf.components,
     publicationBlocked: true,
+    featureUsage,
   };
 
   return {

@@ -4,6 +4,7 @@ import { useRouter } from "vue-router";
 import type {
   ExplainabilityV2ManifestListDTO,
   ScoreExplainabilityV2AdminDTO,
+  ScoringV2EvidenceAuditDocument,
 } from "@mplus/contracts";
 import { ApiClientError } from "../../api/live-client";
 import StatusBanner from "../common/StatusBanner.vue";
@@ -18,6 +19,7 @@ const busy = ref(false);
 const error = ref<string | null>(null);
 const list = ref<ExplainabilityV2ManifestListDTO | null>(null);
 const diagnostics = ref<ScoreExplainabilityV2AdminDTO | null>(null);
+const evidenceAudit = ref<ScoringV2EvidenceAuditDocument | null>(null);
 const showRaw = ref(false);
 
 const bannerText = computed(() => error.value ?? "");
@@ -87,6 +89,12 @@ async function loadManifests(): Promise<void> {
   }
 }
 
+async function loadEvidenceAudit(id: string): Promise<void> {
+  evidenceAudit.value = await fetchJson<ScoringV2EvidenceAuditDocument>(
+    `/api/v1/admin/scoring-v2/manifests/${encodeURIComponent(id)}/evidence-audit`,
+  );
+}
+
 async function loadDiagnostics(): Promise<void> {
   const id = characterId.value.trim();
   if (!id) {
@@ -96,6 +104,7 @@ async function loadDiagnostics(): Promise<void> {
   busy.value = true;
   error.value = null;
   diagnostics.value = null;
+  evidenceAudit.value = null;
   try {
     const params = new URLSearchParams();
     if (seasonId.value.trim()) params.set("seasonId", seasonId.value.trim());
@@ -104,6 +113,10 @@ async function loadDiagnostics(): Promise<void> {
     diagnostics.value = await fetchJson<ScoreExplainabilityV2AdminDTO>(
       `/api/v1/admin/scoring-v2/characters/${encodeURIComponent(id)}/explainability${qs ? `?${qs}` : ""}`,
     );
+    const auditManifestId = manifestId.value.trim() || diagnostics.value.manifestId;
+    if (auditManifestId) {
+      await loadEvidenceAudit(auditManifestId);
+    }
   } catch (err) {
     if (!handleAuthError(err)) {
       error.value = err instanceof Error ? err.message : "Failed to load diagnostics";
@@ -118,6 +131,19 @@ function selectManifest(id: string, character: string, season: string): void {
   characterId.value = character;
   seasonId.value = season;
   void loadDiagnostics();
+}
+
+function downloadEvidenceAudit(): void {
+  if (!evidenceAudit.value) return;
+  const blob = new Blob([JSON.stringify(evidenceAudit.value, null, 2)], {
+    type: "application/json",
+  });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = `scoring-v2-evidence-audit-${evidenceAudit.value.manifestId}.json`;
+  anchor.click();
+  URL.revokeObjectURL(url);
 }
 
 onMounted(() => {
@@ -219,6 +245,65 @@ watch([characterId, seasonId], () => {
             </li>
           </ul>
         </div>
+      </section>
+
+      <section v-if="evidenceAudit" class="panel" aria-labelledby="lineage-title">
+        <h3 id="lineage-title">Evidence lineage audit</h3>
+        <p>
+          Provider-free source → facts → scorer lineage.
+          <span class="chip">{{ evidenceAudit.coverageState }}</span>
+          · {{ evidenceAudit.selectedSlotCount }}/{{ evidenceAudit.expectedSlotCount }} slots
+          · registry {{ evidenceAudit.featureRegistryVersion }}
+          · provider calls {{ evidenceAudit.providerCallCount }}
+        </p>
+        <p v-if="evidenceAudit.replay">
+          Replay:
+          <span class="chip">{{ evidenceAudit.replay.deterministicMatch ? "deterministic" : "drift" }}</span>
+          · score {{ evidenceAudit.replay.scoreMatch ? "match" : "mismatch" }}
+          · fingerprint {{ evidenceAudit.replay.inputFingerprintMatch ? "match" : "mismatch" }}
+        </p>
+        <p v-if="evidenceAudit.integrityFailures.length" class="audit-warn">
+          Integrity: {{ evidenceAudit.integrityFailures.slice(0, 5).join("; ") }}
+          <template v-if="evidenceAudit.integrityFailures.length > 5">
+            · +{{ evidenceAudit.integrityFailures.length - 5 }} more
+          </template>
+        </p>
+        <div class="filters__actions">
+          <button type="button" :disabled="busy" @click="downloadEvidenceAudit">
+            Download evidence audit JSON
+          </button>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>Dungeon</th>
+              <th>Slot</th>
+              <th>Source</th>
+              <th>Datasets</th>
+              <th>Facts</th>
+              <th>Survival</th>
+              <th>Utility</th>
+              <th>Performance</th>
+              <th>Audit state</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr
+              v-for="row in evidenceAudit.matrix"
+              :key="`${row.dungeonSlug}-${row.slotIndex}`"
+            >
+              <td>{{ row.dungeonSlug }}</td>
+              <td>{{ row.slotIndex }}</td>
+              <td><span class="chip chip--muted">{{ row.source }}</span></td>
+              <td>{{ row.datasets }}</td>
+              <td>{{ row.facts }}</td>
+              <td>{{ row.survival }}</td>
+              <td>{{ row.utility }}</td>
+              <td>{{ row.performance }}</td>
+              <td><span class="chip">{{ row.auditState }}</span></td>
+            </tr>
+          </tbody>
+        </table>
       </section>
 
       <section class="panel" aria-labelledby="rejected-title">
@@ -458,6 +543,11 @@ td {
 
 .empty {
   opacity: 0.75;
+}
+
+.audit-warn {
+  color: color-mix(in srgb, #b45309 80%, currentColor);
+  font-size: 0.9rem;
 }
 
 .raw {

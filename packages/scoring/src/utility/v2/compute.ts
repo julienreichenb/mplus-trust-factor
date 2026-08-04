@@ -3,6 +3,7 @@
  */
 
 import { clamp, clamp01 } from "../../math.js";
+import { buildUtilityFeatureUsage } from "../../audit/feature-usage.js";
 import { bindUtilityV2FactsToManifest } from "./bind.js";
 import {
   UTILITY_V2_MODEL_CONFIG,
@@ -283,6 +284,7 @@ function unavailableResult(
     publicationBlocked: true,
     manifestContentHash: input.manifest.contentHash,
     bindingReasons,
+    featureUsage: buildUtilityFeatureUsage([]).featureUsage,
   };
 
   return {
@@ -679,6 +681,7 @@ export function computeUtilityV2(
   };
 
   const inputFingerprint = computeUtilityV2InputFingerprint(input, { modelConfig: config });
+  const { featureUsage } = buildUtilityFeatureUsage(binding.boundFactSets);
   const metrics: Record<string, unknown> = {
     algorithmVersion: config.algorithmVersion,
     modelLabel: config.scoreSemantics.scoreKind,
@@ -704,6 +707,7 @@ export function computeUtilityV2(
     selectedSlotCount: binding.selectedSlotCount,
     boundSelectedSlotCount: binding.boundSelectedSlotCount,
     expectedSlotCount: input.manifest.expectedSlotCount,
+    featureUsage,
   };
 
   return {
