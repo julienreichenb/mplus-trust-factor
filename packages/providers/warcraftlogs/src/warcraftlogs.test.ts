@@ -588,7 +588,7 @@ describe("M+ zone configuration", () => {
 
 describe("Discovery bounds and placeholders", () => {
   it("documents candidate cap and event page bound", () => {
-    expect(MAX_DISCOVERY_CANDIDATES).toBe(25);
+    expect(MAX_DISCOVERY_CANDIDATES).toBe(80);
     expect(MAX_EVENT_PAGES).toBeLessThanOrEqual(10);
   });
 
@@ -614,7 +614,7 @@ describe("Discovery bounds and placeholders", () => {
 
   it("caps discovery candidates", () => {
     const rankings = rankingsToCandidates(
-      Array.from({ length: 30 }, (_, i) => ({
+      Array.from({ length: MAX_DISCOVERY_CANDIDATES + 10 }, (_, i) => ({
         reportCode: `R${i}`,
         fightId: i + 1,
         encounterId: 1201,
