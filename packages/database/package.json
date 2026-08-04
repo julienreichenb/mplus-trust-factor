@@ -18,6 +18,7 @@
     "prisma": "prisma",
     "reset:scoring-v2": "tsx src/reset/cli-test-reset.ts",
     "reset:wcl-scoring-derived": "tsx src/reset/cli-wcl-scoring-derived-reset.ts",
+    "reset:identity-data": "tsx src/reset/cli-identity-data-reset.ts",
     "calibration-labels": "tsx src/reset/cli-calibration-labels.ts"
   },
   "dependencies": {
