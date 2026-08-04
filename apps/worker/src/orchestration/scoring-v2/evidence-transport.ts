@@ -17,6 +17,18 @@ export interface ScoringV2FightDetailsResult {
   startTime: number | null;
   endTime: number | null;
   dungeonSlug: string | null;
+  /** Report-local actor IDs from fight.friendlyPlayers. */
+  fightFriendlyPlayerActorIds?: number[];
+  /** Ownership proof — false when target is not in the fight roster. */
+  targetInFight?: boolean;
+  /** Structured ownership rejection when targetInFight is false. */
+  ownershipRejectionReason?:
+    | "TARGET_NOT_IN_REPORT"
+    | "TARGET_NOT_IN_FIGHT"
+    | "TARGET_AMBIGUOUS"
+    | "FIGHT_NOT_MYTHIC_PLUS"
+    | "FIGHT_INCOMPLETE"
+    | null;
   /** Provider round-trips performed for this call (0 = cache/fixture reuse). */
   providerCalls: number;
 }
@@ -56,6 +68,8 @@ export interface ScoringV2EvidenceTransport {
     ctx: ProviderFetchContext;
     /** Hint from discovery/candidate — enables durable reuse before WCL. */
     expectedReportRevision?: number | null;
+    /** Report-local actor from discovery — scopes fight-details cache. */
+    expectedActorId?: number | null;
   }): Promise<ScoringV2FightDetailsResult>;
 
   acquireSharedEvidence(input: {

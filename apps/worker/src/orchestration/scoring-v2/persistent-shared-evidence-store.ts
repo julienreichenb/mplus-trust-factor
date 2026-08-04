@@ -4,6 +4,7 @@
  */
 import { createHash } from "node:crypto";
 import {
+  buildEvidenceDatasetScopeFingerprint,
   WCL_RAW_PAGE_RETENTION_DAYS,
   WCL_RUN_SOURCE_DIGEST_SCHEMA_VERSION,
 } from "@mplus/contracts";
@@ -37,6 +38,9 @@ export interface PersistedPageEnvelope {
   nextPageCursor: string | null;
   filterExpression: string | null;
   filterSourceId: number | null;
+  hostilityType?: string | null;
+  includeResources?: boolean | null;
+  scopeFingerprint?: string;
   truncated: boolean;
   /** Dataset-level meta is duplicated on page 0 for reconstruction. */
   datasetMeta?: {
@@ -58,24 +62,71 @@ function parseCompatibilityKey(key: string): {
   reportCode: string;
   reportRevision: number | null;
   fightId: number;
+  actorId: number | null;
   dataset: string;
+  startTime: number | null;
+  endTime: number | null;
+  filterExpression: string | null;
+  providerContractVersion: string;
 } | null {
-  // Format: wcl-evidence|{report}|r{rev}|f{fight}|a{actor}|{dataset}|...
+  // Format: wcl-evidence|{report}|r{rev}|f{fight}|a{actor}|{dataset}|t{start}-{end}|fe:{filter}|{contract}|{payload}
   const parts = key.split("|");
   if (parts.length < 6 || parts[0] !== "wcl-evidence") return null;
   const reportCode = parts[1]!;
   const revRaw = parts[2]!.replace(/^r/, "");
   const fightRaw = parts[3]!.replace(/^f/, "");
+  const actorRaw = parts[4]!.replace(/^a/, "");
   const dataset = parts[5]!;
   const reportRevision = revRaw === "unknown" ? null : Number(revRaw);
   const fightId = Number(fightRaw);
+  const actorId = actorRaw === "all" || actorRaw === "" ? null : Number(actorRaw);
   if (!reportCode || !Number.isFinite(fightId)) return null;
+
+  let startTime: number | null = null;
+  let endTime: number | null = null;
+  let filterExpression: string | null = null;
+  let providerContractVersion = WCL_RUN_EVIDENCE_PROVIDER_CONTRACT;
+  const timePart = parts[6];
+  if (timePart?.startsWith("t")) {
+    const span = timePart.slice(1).split("-");
+    const startRaw = span[0];
+    const endRaw = span.slice(1).join("-");
+    startTime = startRaw && startRaw !== "0" ? Number(startRaw) : null;
+    endTime = endRaw && endRaw !== "end" ? Number(endRaw) : null;
+  }
+  const fePart = parts[7];
+  if (fePart?.startsWith("fe:")) {
+    const raw = fePart.slice(3);
+    filterExpression = raw === "none" ? null : raw;
+  }
+  if (parts[8]) {
+    providerContractVersion = parts[8];
+  }
+
   return {
     reportCode,
     reportRevision: Number.isFinite(reportRevision as number) ? (reportRevision as number) : null,
     fightId,
+    actorId: actorId != null && Number.isFinite(actorId) ? actorId : null,
     dataset,
+    startTime: startTime != null && Number.isFinite(startTime) ? startTime : null,
+    endTime: endTime != null && Number.isFinite(endTime) ? endTime : null,
+    filterExpression,
+    providerContractVersion,
   };
+}
+
+function scopeFingerprintFromParsed(parsed: NonNullable<ReturnType<typeof parseCompatibilityKey>>): string {
+  return buildEvidenceDatasetScopeFingerprint({
+    datasetKey: parsed.dataset,
+    sourceActorId: parsed.actorId,
+    filterExpression: parsed.filterExpression,
+    hostilityType: null,
+    includeResources: false,
+    startTime: parsed.startTime,
+    endTime: parsed.endTime,
+    providerContractVersion: parsed.providerContractVersion,
+  });
 }
 
 export function createPersistentSharedEvidenceStore(input: {
@@ -95,12 +146,14 @@ export function createPersistentSharedEvidenceStore(input: {
 
       const parsed = parseCompatibilityKey(compatibilityKey);
       if (!parsed || parsed.reportRevision == null) return null;
+      const scopeFingerprint = scopeFingerprintFromParsed(parsed);
 
       const pages = await wclSource.findEvidenceDatasetPages({
         reportCode: parsed.reportCode,
         fightId: parsed.fightId,
         reportRevision: parsed.reportRevision,
         datasetKey: parsed.dataset,
+        scopeFingerprint,
       });
       if (pages.length === 0) return null;
 
@@ -113,8 +166,6 @@ export function createPersistentSharedEvidenceStore(input: {
 
       for (const page of pages) {
         const bytes = await artifacts.readVerified(page.artifactId);
-        // Artifacts may be stored gzip-compressed at the CAS layer; ArtifactRepository
-        // returns uncompressed verified bytes.
         const envelope = JSON.parse(bytes.toString("utf8")) as PersistedPageEnvelope;
         if (envelope.schemaVersion !== PAGE_ENVELOPE_SCHEMA) {
           return null;
@@ -126,6 +177,22 @@ export function createPersistentSharedEvidenceStore(input: {
           envelope.reportRevision !== parsed.reportRevision ||
           envelope.datasetKey !== parsed.dataset
         ) {
+          return null;
+        }
+        // Reject cross-scope reuse even if unique constraint was bypassed historically.
+        const envelopeScope =
+          envelope.scopeFingerprint ??
+          buildEvidenceDatasetScopeFingerprint({
+            datasetKey: envelope.datasetKey,
+            sourceActorId: envelope.filterSourceId,
+            filterExpression: envelope.filterExpression,
+            hostilityType: envelope.hostilityType ?? null,
+            includeResources: envelope.includeResources ?? false,
+            startTime: envelope.pageCursor != null ? Number(envelope.pageCursor) : null,
+            endTime: null,
+            providerContractVersion: envelope.providerContractVersion,
+          });
+        if (envelopeScope !== scopeFingerprint) {
           return null;
         }
         events.push(...(envelope.events ?? []));
@@ -191,6 +258,18 @@ export function createPersistentSharedEvidenceStore(input: {
         return;
       }
 
+      const parsed = parseCompatibilityKey(compatibilityKey);
+      const scopeFingerprint = buildEvidenceDatasetScopeFingerprint({
+        datasetKey: meta.dataset,
+        sourceActorId: dataset.filterSourceId ?? parsed?.actorId ?? null,
+        filterExpression: dataset.filterExpression ?? parsed?.filterExpression ?? null,
+        hostilityType: null,
+        includeResources: false,
+        startTime: parsed?.startTime ?? null,
+        endTime: parsed?.endTime ?? null,
+        providerContractVersion: WCL_RUN_EVIDENCE_PROVIDER_CONTRACT,
+      });
+
       let offset = 0;
       const retentionUntil = defaultWclRawPageRetentionUntil();
       // Prefer explicit pages; if empty but events exist, treat as a single page.
@@ -225,6 +304,9 @@ export function createPersistentSharedEvidenceStore(input: {
             page.nextPageTimestamp != null ? String(page.nextPageTimestamp) : null,
           filterExpression: dataset.filterExpression,
           filterSourceId: dataset.filterSourceId,
+          hostilityType: null,
+          includeResources: false,
+          scopeFingerprint,
           truncated: dataset.truncated,
           ...(page.pageIndex === 0
             ? {
@@ -268,6 +350,7 @@ export function createPersistentSharedEvidenceStore(input: {
           contentHash,
           providerContractVersion: WCL_RUN_EVIDENCE_PROVIDER_CONTRACT,
           schemaVersion: PAGE_ENVELOPE_SCHEMA,
+          scopeFingerprint,
           eventCount: pageEvents.length,
         });
       }
@@ -300,6 +383,7 @@ export function createPersistentSharedEvidenceStore(input: {
         fightId,
         reportRevision,
         datasetKey: "masterData",
+        scopeFingerprint: "scope:unscoped",
       });
       if (masterPages.length === 0) {
         // Digest-only / page-less cache is not a complete durable source.

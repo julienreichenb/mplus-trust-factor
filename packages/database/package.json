@@ -17,12 +17,14 @@
     "seed": "tsx src/seed.ts",
     "prisma": "prisma",
     "reset:scoring-v2": "tsx src/reset/cli-test-reset.ts",
+    "reset:wcl-scoring-derived": "tsx src/reset/cli-wcl-scoring-derived-reset.ts",
     "calibration-labels": "tsx src/reset/cli-calibration-labels.ts"
   },
   "dependencies": {
     "@mplus/artifact-store": "workspace:*",
     "@mplus/contracts": "workspace:*",
-    "@prisma/client": "^6.13.0"
+    "@prisma/client": "^6.13.0",
+    "ioredis": "^5.6.1"
   },
   "devDependencies": {
     "@mplus/test-utils": "workspace:*",

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   assertNeutralWclRunDigest,
   buildEvidenceDatasetPageIdentityKey,
+  buildEvidenceDatasetScopeFingerprint,
   WCL_RUN_SOURCE_DIGEST_SCHEMA_VERSION,
 } from "./wcl-run-source-digest.js";
 
@@ -70,6 +71,20 @@ describe("wcl-run-source-digest", () => {
         providerContractVersion: "wcl-graphql-v2-events",
         schemaVersion: "1.0.0",
       }),
-    ).toBe("AbCdEf12|3|1|Casts|0|wcl-graphql-v2-events|1.0.0");
+    ).toBe("AbCdEf12|3|1|Casts|0|wcl-graphql-v2-events|1.0.0|scope:unscoped");
+  });
+
+  it("scope fingerprints differ across actors for the same fight dataset", () => {
+    const a = buildEvidenceDatasetScopeFingerprint({
+      datasetKey: "Deaths",
+      sourceActorId: 1,
+      providerContractVersion: "wcl-graphql-v2-events",
+    });
+    const b = buildEvidenceDatasetScopeFingerprint({
+      datasetKey: "Deaths",
+      sourceActorId: 317,
+      providerContractVersion: "wcl-graphql-v2-events",
+    });
+    expect(a).not.toBe(b);
   });
 });

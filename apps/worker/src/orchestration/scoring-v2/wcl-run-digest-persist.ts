@@ -28,16 +28,20 @@ function slugify(value: string): string {
   return value
     .trim()
     .toLowerCase()
-    .replace(/['’]/g, "")
+    .replace(/['']/g, "")
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
 }
 
-/** Extract player participants from masterData actors (Provider-neutral). */
+/**
+ * Persist participants by intersecting masterData Player actors with
+ * fight.friendlyPlayers. Never use report-wide players + slice(0, 5).
+ */
 export function participantsFromMasterData(
   masterData: unknown,
   regionCode: string,
   combatantInfoEvents?: Array<Record<string, unknown>> | null,
+  fightFriendlyPlayerActorIds?: number[] | null,
 ): WclRunDigestParticipant[] {
   const root = asRecord(masterData);
   const actors = Array.isArray(root?.actors) ? root!.actors : [];
@@ -55,6 +59,12 @@ export function participantsFromMasterData(
     if (actorId == null) continue;
     combatantByActor.set(actorId, ev);
   }
+
+  const friendlySet =
+    fightFriendlyPlayerActorIds != null && fightFriendlyPlayerActorIds.length > 0
+      ? new Set(fightFriendlyPlayerActorIds)
+      : null;
+
   const out: WclRunDigestParticipant[] = [];
   for (const raw of actors) {
     const actor = asRecord(raw);
@@ -64,6 +74,7 @@ export function participantsFromMasterData(
     const id = typeof actor.id === "number" ? actor.id : null;
     const name = typeof actor.name === "string" ? actor.name.trim() : "";
     if (id == null || !name) continue;
+    if (friendlySet && !friendlySet.has(id)) continue;
     const serverRaw =
       typeof actor.server === "string" && actor.server.trim()
         ? slugify(actor.server)
@@ -75,19 +86,17 @@ export function participantsFromMasterData(
         : typeof actor.className === "string"
           ? slugify(actor.className)
           : null;
-    const ownedPetActorIds = Array.isArray(actor.petOwner)
-      ? []
-      : actors
-          .map((p) => asRecord(p))
-          .filter(
-            (p) =>
-              p &&
-              (p.type === "Pet" || p.type === "Guardian") &&
-              typeof p.petOwner === "number" &&
-              p.petOwner === id &&
-              typeof p.id === "number",
-          )
-          .map((p) => (p as { id: number }).id);
+    const ownedPetActorIds = actors
+      .map((p) => asRecord(p))
+      .filter(
+        (p) =>
+          p &&
+          (p.type === "Pet" || p.type === "Guardian") &&
+          typeof p.petOwner === "number" &&
+          p.petOwner === id &&
+          typeof p.id === "number",
+      )
+      .map((p) => (p as { id: number }).id);
 
     const combatant = combatantByActor.get(id);
     const specSlug = combatantSpecSlug(combatant);
@@ -110,9 +119,16 @@ export function participantsFromMasterData(
       ownedPetActorIds,
     });
   }
-  // Prefer CombatantInfo-scoped players only when the dataset covers a full
-  // dungeon party. Player-filtered CombatantInfo (target-only) must not collapse
-  // the roster to a single row — fall back to masterData Player actors instead.
+
+  // When fight roster IDs are known, return that exact set (stable by actor id).
+  if (friendlySet) {
+    out.sort((a, b) => a.wclActorId - b.wclActorId);
+    return out;
+  }
+
+  // Legacy path (no fight roster): prefer CombatantInfo-scoped players only when the
+  // dataset covers a full dungeon party. Target-scoped CombatantInfo must not collapse
+  // the roster — fall back to masterData Player actors instead.
   const fightScoped =
     combatantByActor.size >= 2
       ? out.filter((p) => combatantByActor.has(p.wclActorId))
@@ -165,12 +181,14 @@ export function buildNeutralDigestFromBundle(input: {
   visibilityState?: string;
   startTimeMs?: number | null;
   endTimeMs?: number | null;
+  fightFriendlyPlayerActorIds?: number[] | null;
 }): { digest: WclRunSourceDigestDocument; contentFingerprint: string } {
   const combatantInfo = input.bundle.eventDatasets.CombatantInfo?.events ?? null;
   const participants = participantsFromMasterData(
     input.bundle.masterData,
     input.region,
     combatantInfo,
+    input.fightFriendlyPlayerActorIds ?? null,
   );
   const datasets = Object.entries(input.bundle.eventDatasets).flatMap(([key, ds]) => {
     if (!ds) return [];
@@ -240,6 +258,10 @@ export async function persistWclRunDigestAndRoster(input: {
   dungeonSlug: string | null;
   keyLevel: number | null;
   timed: boolean | null;
+  /** Fight-specific roster — required for exact Mythic+ digest participants. */
+  fightFriendlyPlayerActorIds?: number[] | null;
+  /** Target report-local actor; mapping RESOLVED only when present in roster. */
+  targetActorId?: number | null;
   /** When set, map matching participant by name+realm+region → Character.id. */
   resolveTarget?: {
     characterId: string;
@@ -262,6 +284,7 @@ export async function persistWclRunDigestAndRoster(input: {
     timed: input.timed,
     startTimeMs: input.startTimeMs,
     endTimeMs: input.endTimeMs,
+    fightFriendlyPlayerActorIds: input.fightFriendlyPlayerActorIds ?? null,
   });
 
   const digestBytes = Buffer.byteLength(JSON.stringify(digest), "utf8");
@@ -284,13 +307,21 @@ export async function persistWclRunDigestAndRoster(input: {
   });
 
   const target = input.resolveTarget;
+  const targetActorId = input.targetActorId ?? input.bundle.playerActorId;
+  const rosterHasTarget =
+    targetActorId == null || digest.participants.some((p) => p.wclActorId === targetActorId);
   let participantCount = 0;
   for (const p of digest.participants) {
-    const matched =
+    const nameRealmMatched =
       target != null &&
       p.characterName.toLowerCase() === target.characterName.toLowerCase() &&
       p.realmSlug.toLowerCase() === target.realmSlug.toLowerCase() &&
       p.regionCode.toUpperCase() === target.regionCode.toUpperCase();
+    // RESOLVED only when the target actor is present in the fight roster.
+    const matched =
+      nameRealmMatched &&
+      rosterHasTarget &&
+      (targetActorId == null || p.wclActorId === targetActorId);
     await input.wclSource.upsertWclRunParticipant({
       digestId: row.id,
       wclActorId: p.wclActorId,

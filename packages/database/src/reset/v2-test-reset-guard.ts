@@ -10,6 +10,11 @@ const BLOCKED_DB_NAMES = new Set([
   "postgres",
 ]);
 
+/**
+ * Note: the shared local database name `mplus_trust` stays blocked here on purpose.
+ * Use `pnpm db:reset:wcl-scoring-derived` for guarded local development cleanup of
+ * that database — do not weaken this disposable-DB-only gate.
+ */
 export type ScoringV2ResetGuardInput = {
   databaseUrl?: string;
   appEnv?: string;

@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import type {
   AnalyzeEvidenceSlotJobV2,
+  CandidateRejectionReason,
   EvidenceCandidateAcquisitionResult,
   EvidenceCandidateDiscoveryIdentity,
   EvidenceDatasetKind,
@@ -8,7 +9,7 @@ import type {
   FinalizeEvidenceBatchJobV2,
   ProviderFetchContext,
 } from "@mplus/contracts";
-import { discoveryIdentityKey } from "@mplus/contracts";
+import { discoveryIdentityKey, ExternalApiError } from "@mplus/contracts";
 import type { ArtifactRepository, EvidenceRepository } from "@mplus/database";
 import {
   OBS_EVENTS,
@@ -92,6 +93,47 @@ export class ScoringV2RateDeferError extends Error {
     this.name = "ScoringV2RateDeferError";
     this.delayMs = delayMs;
   }
+}
+
+const OWNERSHIP_REJECTION_REASONS = new Set<string>([
+  "TARGET_NOT_IN_REPORT",
+  "TARGET_NOT_IN_FIGHT",
+  "TARGET_AMBIGUOUS",
+  "FIGHT_NOT_MYTHIC_PLUS",
+  "FIGHT_INCOMPLETE",
+]);
+
+function ownershipRejectionFromError(error: unknown): {
+  reason: CandidateRejectionReason;
+  detail: string;
+} | null {
+  const message = error instanceof Error ? error.message : String(error);
+  let ownershipReason: string | null = null;
+  if (error instanceof ExternalApiError && error.provider === "warcraftlogs") {
+    const details = error.details as { ownershipReason?: string } | null;
+    ownershipReason = details?.ownershipReason ?? null;
+  }
+  if (!ownershipReason) {
+    for (const reason of OWNERSHIP_REJECTION_REASONS) {
+      if (message.startsWith(reason) || message.includes(reason)) {
+        ownershipReason = reason;
+        break;
+      }
+    }
+  }
+  if (!ownershipReason) return null;
+  if (ownershipReason === "FIGHT_INCOMPLETE") {
+    return { reason: "INCOMPLETE_FIGHT", detail: message };
+  }
+  if (
+    ownershipReason === "TARGET_NOT_IN_REPORT" ||
+    ownershipReason === "TARGET_NOT_IN_FIGHT" ||
+    ownershipReason === "TARGET_AMBIGUOUS" ||
+    ownershipReason === "FIGHT_NOT_MYTHIC_PLUS"
+  ) {
+    return { reason: ownershipReason, detail: message };
+  }
+  return null;
 }
 
 export function buildFactSetFingerprint(parts: {
@@ -308,6 +350,7 @@ export async function acquireCandidateWithFallback(input: {
         reportCode: identity.reportCode,
         fightId: identity.fightId,
         ctx,
+        expectedActorId: candidate.actorId,
       });
       providerCallTotal += details.providerCalls;
       if (details.providerCalls > 0) {
@@ -348,6 +391,60 @@ export async function acquireCandidateWithFallback(input: {
       const playerActorId = details.playerActorId ?? candidate.actorId;
       const dungeonSlug =
         details.dungeonSlug ?? input.slotContext.dungeonSlug;
+
+      // Independent acquisition gate: never fetch shared event evidence without fight-roster proof.
+      if (details.targetInFight === false || details.ownershipRejectionReason) {
+        const rawReason =
+          details.ownershipRejectionReason ?? ("TARGET_NOT_IN_FIGHT" as const);
+        const reason: CandidateRejectionReason =
+          rawReason === "FIGHT_INCOMPLETE" ? "INCOMPLETE_FIGHT" : rawReason;
+        recordInvalidCandidateReason(reason);
+        rejectedAttempts.push({
+          discoveryIdentity: identity,
+          acquisitionStatus: "REJECTED",
+          reportRevision,
+          rejectionReason: reason,
+          rejectionDetail:
+            reason === "TARGET_NOT_IN_FIGHT"
+              ? `target actor not in fight.friendlyPlayers (actor=${playerActorId ?? "unresolved"})`
+              : rawReason,
+          datasetHashes: [],
+          factSetHash: null,
+          dimensionValidity: null,
+          keyLevel: candidate.keyLevel,
+          timed: candidate.timed,
+          runScore: candidate.runScore,
+          completedAt: candidate.completedAt,
+          actorId: playerActorId,
+          evidenceCompleteness: candidate.evidenceCompleteness,
+        });
+        continue;
+      }
+      if (
+        playerActorId != null &&
+        Array.isArray(details.fightFriendlyPlayerActorIds) &&
+        details.fightFriendlyPlayerActorIds.length > 0 &&
+        !details.fightFriendlyPlayerActorIds.includes(playerActorId)
+      ) {
+        recordInvalidCandidateReason("TARGET_NOT_IN_FIGHT");
+        rejectedAttempts.push({
+          discoveryIdentity: identity,
+          acquisitionStatus: "REJECTED",
+          reportRevision,
+          rejectionReason: "TARGET_NOT_IN_FIGHT",
+          rejectionDetail: `playerActorId=${playerActorId} absent from fightFriendlyPlayerActorIds`,
+          datasetHashes: [],
+          factSetHash: null,
+          dimensionValidity: null,
+          keyLevel: candidate.keyLevel,
+          timed: candidate.timed,
+          runScore: candidate.runScore,
+          completedAt: candidate.completedAt,
+          actorId: playerActorId,
+          evidenceCompleteness: candidate.evidenceCompleteness,
+        });
+        continue;
+      }
 
       // Post-hydration eligibility — private/untimed/incomplete never consume a slot.
       if (candidate.timed === false) {
@@ -604,6 +701,8 @@ export async function acquireCandidateWithFallback(input: {
               dungeonSlug,
               keyLevel: candidate.keyLevel,
               timed: candidate.timed,
+              fightFriendlyPlayerActorIds: details.fightFriendlyPlayerActorIds,
+              targetActorId: playerActorId,
               resolveTarget: {
                 characterId: input.characterId,
                 characterName: input.targetCharacter.name,
@@ -1044,6 +1143,28 @@ export async function acquireCandidateWithFallback(input: {
     } catch (error) {
       if (error instanceof ScoringV2CancelledError || error instanceof ScoringV2SupersededError) {
         throw error;
+      }
+      const ownership = ownershipRejectionFromError(error);
+      if (ownership) {
+        // Surface ownership failures explicitly — never collapse into FALLBACK_EXHAUSTED.
+        recordInvalidCandidateReason(ownership.reason);
+        rejectedAttempts.push({
+          discoveryIdentity: identity,
+          acquisitionStatus: "REJECTED",
+          reportRevision: null,
+          rejectionReason: ownership.reason,
+          rejectionDetail: ownership.detail,
+          datasetHashes: [],
+          factSetHash: null,
+          dimensionValidity: null,
+          keyLevel: candidate.keyLevel,
+          timed: candidate.timed,
+          runScore: candidate.runScore,
+          completedAt: candidate.completedAt,
+          actorId: candidate.actorId,
+          evidenceCompleteness: candidate.evidenceCompleteness,
+        });
+        continue;
       }
       recordInvalidCandidateReason("HARD_PROVIDER_ERROR");
       rejectedAttempts.push({

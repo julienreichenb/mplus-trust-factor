@@ -1997,16 +1997,22 @@ model EvidenceDatasetPage {
   contentHash             String   @map("content_hash")
   providerContractVersion String   @map("provider_contract_version")
   schemaVersion           String   @map("schema_version")
+  /**
+   * Deterministic request-scope identity (actor/filter/hostility/resources/bounds).
+   * Actor-scoped pages must never collide across characters in the same fight.
+   */
+  scopeFingerprint        String   @default("scope:unscoped") @map("scope_fingerprint")
   eventCount              Int      @default(0) @map("event_count")
   createdAt               DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
 
   dataset  EvidenceDataset? @relation(fields: [datasetId], references: [id], onDelete: SetNull)
   artifact RawArtifact      @relation(fields: [artifactId], references: [id], onDelete: Restrict)
 
-  @@unique([reportCode, fightId, reportRevision, datasetKey, pageIndex, providerContractVersion, schemaVersion])
+  @@unique([reportCode, fightId, reportRevision, datasetKey, pageIndex, providerContractVersion, schemaVersion, scopeFingerprint], map: "evidence_dataset_pages_scope_unique")
   @@index([datasetId, pageIndex])
   @@index([artifactId])
   @@index([reportCode, fightId, reportRevision])
+  @@index([reportCode, fightId, reportRevision, datasetKey, scopeFingerprint], map: "evidence_dataset_pages_scope_lookup_idx")
   @@map("evidence_dataset_pages")
 }
 

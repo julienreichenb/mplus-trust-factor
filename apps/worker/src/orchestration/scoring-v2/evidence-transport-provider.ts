@@ -60,21 +60,67 @@ function actorFromFightDetails(data: unknown): {
   startTime: number | null;
   endTime: number | null;
   dungeonSlug: string | null;
+  fightFriendlyPlayerActorIds: number[];
+  targetInFight: boolean;
+  ownershipRejectionReason:
+    | "TARGET_NOT_IN_REPORT"
+    | "TARGET_NOT_IN_FIGHT"
+    | "TARGET_AMBIGUOUS"
+    | "FIGHT_NOT_MYTHIC_PLUS"
+    | "FIGHT_INCOMPLETE"
+    | null;
 } {
   const payload = asRecord(data);
   const fight = asRecord(payload?.fight);
   const combatFacts = asRecord(payload?.combatFacts);
-  const playerActorId =
+
+  // RunCombatFacts uses targetSourceId / attributedSourceIds — not playerActorId.
+  const targetSourceId =
+    typeof combatFacts?.targetSourceId === "number" ? combatFacts.targetSourceId : null;
+  const fightTargetActorId =
+    typeof fight?.targetActorId === "number" ? fight.targetActorId : null;
+  const legacyPlayerActorId =
     typeof combatFacts?.playerActorId === "number"
       ? combatFacts.playerActorId
       : typeof fight?.playerActorId === "number"
         ? fight.playerActorId
         : null;
-  const ownedPetActorIds = Array.isArray(combatFacts?.ownedPetActorIds)
+  const playerActorId = targetSourceId ?? fightTargetActorId ?? legacyPlayerActorId;
+
+  const attributedSourceIds = Array.isArray(combatFacts?.attributedSourceIds)
+    ? (combatFacts.attributedSourceIds.filter(
+        (id): id is number => typeof id === "number",
+      ) as number[])
+    : [];
+  const legacyOwnedPets = Array.isArray(combatFacts?.ownedPetActorIds)
     ? (combatFacts.ownedPetActorIds.filter(
         (id): id is number => typeof id === "number",
       ) as number[])
     : [];
+  const ownedPetActorIds =
+    attributedSourceIds.length > 0 && playerActorId != null
+      ? attributedSourceIds.filter((id) => id !== playerActorId)
+      : legacyOwnedPets;
+
+  const fightFriendlyPlayerActorIds = Array.isArray(fight?.fightFriendlyPlayerActorIds)
+    ? (fight.fightFriendlyPlayerActorIds.filter(
+        (id): id is number => typeof id === "number",
+      ) as number[])
+    : Array.isArray(fight?.friendlyPlayers)
+      ? fight.friendlyPlayers
+          .map((entry) => {
+            if (typeof entry === "number") return entry;
+            const row = asRecord(entry);
+            return typeof row?.id === "number" ? row.id : null;
+          })
+          .filter((id): id is number => id != null)
+      : [];
+
+  const targetInFight =
+    typeof fight?.targetInFight === "boolean"
+      ? fight.targetInFight
+      : playerActorId != null && fightFriendlyPlayerActorIds.includes(playerActorId);
+
   return {
     playerActorId,
     ownedPetActorIds,
@@ -91,6 +137,9 @@ function actorFromFightDetails(data: unknown): {
           ? fight.endTimeMs
           : null,
     dungeonSlug: typeof fight?.name === "string" ? null : null,
+    fightFriendlyPlayerActorIds,
+    targetInFight,
+    ownershipRejectionReason: targetInFight ? null : "TARGET_NOT_IN_FIGHT",
   };
 }
 
@@ -169,19 +218,32 @@ export function createProviderBackedEvidenceTransport(
           reportCode: input.reportCode,
           fightId: input.fightId,
           reportRevision: revisionHint,
+          targetActorId: input.expectedActorId ?? null,
         });
         if (cached) {
           const meta = actorFromFightDetails(cached.data);
-          return {
-            data: cached.data,
-            reportRevision: cached.reportRevision,
-            playerActorId: meta.playerActorId,
-            ownedPetActorIds: meta.ownedPetActorIds,
-            startTime: meta.startTime,
-            endTime: meta.endTime,
-            dungeonSlug: meta.dungeonSlug,
-            providerCalls: 0,
-          };
+          // Refuse cross-character reuse even if a page was stored under a shared key.
+          if (
+            input.expectedActorId != null &&
+            meta.playerActorId != null &&
+            meta.playerActorId !== input.expectedActorId
+          ) {
+            // Fall through to live fetch / null cache.
+          } else {
+            return {
+              data: cached.data,
+              reportRevision: cached.reportRevision,
+              playerActorId: meta.playerActorId,
+              ownedPetActorIds: meta.ownedPetActorIds,
+              startTime: meta.startTime,
+              endTime: meta.endTime,
+              dungeonSlug: meta.dungeonSlug,
+              fightFriendlyPlayerActorIds: meta.fightFriendlyPlayerActorIds,
+              targetInFight: meta.targetInFight,
+              ownershipRejectionReason: meta.ownershipRejectionReason,
+              providerCalls: 0,
+            };
+          }
         }
       }
 
@@ -216,6 +278,9 @@ export function createProviderBackedEvidenceTransport(
           startTime: meta.startTime,
           endTime: meta.endTime,
           dungeonSlug: meta.dungeonSlug,
+          fightFriendlyPlayerActorIds: meta.fightFriendlyPlayerActorIds,
+          targetInFight: meta.targetInFight,
+          ownershipRejectionReason: meta.ownershipRejectionReason,
           providerCalls: result.metadata.cacheHit ? 0 : 1,
         };
       });

@@ -18,12 +18,28 @@ describe("participantsFromMasterData", () => {
       { id: 3, name: "TankOne", type: "Player", server: "Archimonde", subType: "Paladin", guid: 103 },
       { id: 4, name: "DpsTwo", type: "Player", server: "Illidan", subType: "Hunter", guid: 104 },
       { id: 5, name: "DpsThree", type: "Player", server: "Archimonde", subType: "Mage", guid: 105 },
+      { id: 6, name: "ReportOnly", type: "Player", server: "Archimonde", subType: "Rogue", guid: 106 },
       { id: 50, name: "Imp", type: "Pet", petOwner: 1 },
       { id: 99, name: "Boss", type: "NPC" },
     ],
   };
 
-  it("builds five players and attaches owned pets", () => {
+  it("E: fight roster persistence uses exact friendlyPlayers set", () => {
+    const rows = participantsFromMasterData(masterData, "EU", null, [3, 1, 5, 4, 2]);
+    expect(rows).toHaveLength(5);
+    expect(rows.map((r) => r.wclActorId).sort((a, b) => a - b)).toEqual([1, 2, 3, 4, 5]);
+    expect(rows.find((r) => r.characterName === "ReportOnly")).toBeUndefined();
+    expect(rows.find((r) => r.characterName === "Wallidrixe")?.ownedPetActorIds).toEqual([50]);
+  });
+
+  it("E: report-wide actors do not leak when fight roster is provided", () => {
+    const rows = participantsFromMasterData(masterData, "EU", null, [3, 7, 4, 1, 5]);
+    // Actor 7 is not in masterData as Player — only actors present in both sets.
+    expect(rows.map((r) => r.wclActorId).sort((a, b) => a - b)).toEqual([1, 3, 4, 5]);
+    expect(rows.every((r) => r.characterName !== "ReportOnly")).toBe(true);
+  });
+
+  it("builds five players and attaches owned pets (legacy path without fight roster)", () => {
     const rows = participantsFromMasterData(masterData, "EU");
     expect(rows).toHaveLength(5);
     expect(rows.every((r) => r.characterName !== "Imp" && r.characterName !== "Boss")).toBe(true);
@@ -37,7 +53,7 @@ describe("participantsFromMasterData", () => {
       { sourceID: 2, spec: "Holy", role: "HEALER" },
       { sourceID: 4, spec: "Marksmanship", role: "dps" },
       { sourceID: 5, spec: "Frost", role: "dps" },
-    ]);
+    ], [1, 2, 3, 4, 5]);
     expect(rows).toHaveLength(5);
     expect(rows.find((r) => r.wclActorId === 1)?.specSlug).toBe("demonology");
     expect(rows.find((r) => r.wclActorId === 1)?.role).toBe("DPS");
@@ -46,9 +62,12 @@ describe("participantsFromMasterData", () => {
   });
 
   it("does not collapse roster when CombatantInfo is target-scoped only", () => {
-    const rows = participantsFromMasterData(masterData, "EU", [
-      { sourceID: 1, spec: "Demonology", role: "dps" },
-    ]);
+    const rows = participantsFromMasterData(
+      masterData,
+      "EU",
+      [{ sourceID: 1, spec: "Demonology", role: "dps" }],
+      [1, 2, 3, 4, 5],
+    );
     expect(rows).toHaveLength(5);
     expect(rows.find((r) => r.wclActorId === 1)?.specSlug).toBe("demonology");
     expect(rows.map((r) => r.characterName).sort()).toEqual(

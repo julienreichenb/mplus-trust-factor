@@ -66,6 +66,8 @@ export interface CreateEvidenceDatasetPageInput {
   contentHash: string;
   providerContractVersion: string;
   schemaVersion: string;
+  /** Deterministic actor/filter scope — defaults to unscoped. */
+  scopeFingerprint?: string;
   eventCount?: number;
 }
 
@@ -298,9 +300,10 @@ export class WclSourceRepository {
   }
 
   async createEvidenceDatasetPage(input: CreateEvidenceDatasetPageInput) {
+    const scopeFingerprint = input.scopeFingerprint ?? "scope:unscoped";
     return this.prisma.evidenceDatasetPage.upsert({
       where: {
-        reportCode_fightId_reportRevision_datasetKey_pageIndex_providerContractVersion_schemaVersion:
+        reportCode_fightId_reportRevision_datasetKey_pageIndex_providerContractVersion_schemaVersion_scopeFingerprint:
           {
             reportCode: input.reportCode,
             fightId: input.fightId,
@@ -309,6 +312,7 @@ export class WclSourceRepository {
             pageIndex: input.pageIndex,
             providerContractVersion: input.providerContractVersion,
             schemaVersion: input.schemaVersion,
+            scopeFingerprint,
           },
       },
       create: {
@@ -323,6 +327,7 @@ export class WclSourceRepository {
         contentHash: input.contentHash,
         providerContractVersion: input.providerContractVersion,
         schemaVersion: input.schemaVersion,
+        scopeFingerprint,
         eventCount: input.eventCount ?? 0,
       },
       update: {
@@ -337,6 +342,7 @@ export class WclSourceRepository {
     fightId: number;
     reportRevision: number;
     datasetKey: string;
+    scopeFingerprint?: string;
   }) {
     return this.prisma.evidenceDatasetPage.findMany({
       where: {
@@ -344,6 +350,9 @@ export class WclSourceRepository {
         fightId: input.fightId,
         reportRevision: input.reportRevision,
         datasetKey: input.datasetKey,
+        ...(input.scopeFingerprint != null
+          ? { scopeFingerprint: input.scopeFingerprint }
+          : {}),
       },
       orderBy: { pageIndex: "asc" },
     });

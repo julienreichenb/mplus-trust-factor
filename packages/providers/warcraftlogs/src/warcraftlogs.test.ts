@@ -488,7 +488,7 @@ describe("Deep smoke sanitization + worker path", () => {
       },
       "Fixtureplayer",
       "tarren-mill",
-    ).rejected.some((r) => r.includes("target_absent"))).toBe(true);
+    ).rejected.some((r) => r.includes("TARGET_NOT_IN_REPORT"))).toBe(true);
   });
 
   it("fixture discoverCharacterRuns hydrates stubs then returns fight-known runs", async () => {

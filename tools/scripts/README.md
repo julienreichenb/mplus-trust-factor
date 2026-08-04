@@ -10,6 +10,41 @@ Cross-platform Node scripts (Windows + Unix). Prefer `node tools/scripts/...` ov
 
 `with-env.mjs` loads the root `.env` into the child process environment without overwriting existing vars. Used by `pnpm dev`, DB commands and live smokes.
 
+## WCL fight-ownership diagnostic (read-only)
+
+Identifies potentially poisoned WCL digests/pages created without fight-roster proof.
+Never deletes by default. `--execute` is refused in production and remains a no-op stub
+until an explicit cleanup task is approved.
+
+```bash
+node tools/scripts/with-env.mjs pnpm --filter @mplus/database exec tsx ../../tools/scripts/diagnose-wcl-fight-ownership.ts
+```
+
+## Local WCL / scoring-derived reset (destructive, guarded)
+
+Resets provider-derived and scoring-derived rows on the **local** `mplus_trust`
+database while retaining users, characters, catalog and static configuration.
+
+Default is DRY-RUN. Actual deletion requires `--execute` and all safety gates.
+
+```bash
+# Dry-run (no mutations)
+pnpm db:reset:wcl-scoring-derived -- --confirm=RESET_LOCAL_WCL_SCORING_DATA
+
+# Execute (local development only)
+pnpm db:reset:wcl-scoring-derived -- --confirm=RESET_LOCAL_WCL_SCORING_DATA --execute
+```
+
+Gates: `APP_ENV=development`, DB host localhost/127.0.0.1, DB name exactly
+`mplus_trust`, confirmation token exact, Redis localhost, and an explicit local
+`RAW_ARTIFACTS_DIR` resolved from the repository/config root via
+`@mplus/artifact-store` (no path guessing; remote CAS refused). Live-writer
+blocking uses Redis/BullMQ activity, not stale DB status rows alone.
+Never uses Redis `FLUSHALL`.
+
+The older `pnpm db:reset:scoring-v2` tooling remains for disposable `mplus_itest_*`
+databases only and still blocks the shared `mplus_trust` name.
+
 ## Live smoke (manual only)
 
 Require:

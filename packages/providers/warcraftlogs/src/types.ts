@@ -123,6 +123,18 @@ export interface WclFightSummary {
   endTime: number;
   bracket: number | null;
   keystoneLevel: number | null;
+  /** WCL +1/+2/+3 when timed; 0 depleted; null unknown. */
+  keystoneBonus: number | null;
+  /** Keystone completion duration (ms) when present. */
+  keystoneTime: number | null;
+  /** True while the fight is still being logged. */
+  inProgress: boolean;
+  /** Report-local actor IDs from fight.friendlyPlayers (ownership proof). */
+  fightFriendlyPlayerActorIds: number[];
+  /** Target character report-local actor ID when resolved. */
+  targetActorId: number | null;
+  /** True only when targetActorId is present in fightFriendlyPlayerActorIds. */
+  targetInFight: boolean;
   friendlyPlayers: WclFightPlayer[];
 }
 
