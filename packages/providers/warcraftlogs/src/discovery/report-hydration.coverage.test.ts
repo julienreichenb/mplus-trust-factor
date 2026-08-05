@@ -191,9 +191,10 @@ describe("coverage-aware hydrateFightUnknownCandidates", () => {
     });
 
     expect(result.diagnostics.stopReason).toBe("full_coverage");
-    expect(result.hydratedReportCount).toBe(4);
-    expect(fetchReport).toHaveBeenCalledTimes(4);
-    expect(fetchReport).not.toHaveBeenCalledWith("EXTRA");
+    // Newest/oldest alternation interleaves EXTRA*/B* before every A/B pair is closed.
+    expect(result.hydratedReportCount).toBe(5);
+    expect(fetchReport).toHaveBeenCalledTimes(5);
+    expect(fetchReport).not.toHaveBeenCalledWith("B2");
     expect(result.diagnostics.reportsLeftUnhydratedBudget).toBeGreaterThan(0);
   });
 
@@ -257,9 +258,10 @@ describe("coverage-aware hydrateFightUnknownCandidates", () => {
   });
 
   it("does not count ownership-rejected fights toward coverage", async () => {
+    // Newest/oldest RR starts at ends — put REJECT newest so it is fetched before coverage closes.
     const stubs = [
-      fightUnknownStub("OWNED", 100),
-      fightUnknownStub("REJECT", 90),
+      fightUnknownStub("REJECT", 100),
+      fightUnknownStub("OWNED", 90),
       fightUnknownStub("OWNED2", 80),
     ];
     const fetchReport = vi.fn(async (code: string) => {
@@ -294,6 +296,7 @@ describe("coverage-aware hydrateFightUnknownCandidates", () => {
     // REJECT report was fetched but produced no eligible candidate — coverage came from OWNED/OWNED2.
     expect(known.map((c) => c.reportCode).sort()).toEqual(["OWNED", "OWNED2"]);
   });
+
 
   it("prioritizes under-covered dungeon hints over pure recency", async () => {
     const stubs = [
@@ -426,7 +429,7 @@ describe("coverage-aware hydrateFightUnknownCandidates", () => {
       candidates: stubs,
       characterName: "Wallidrixe",
       realmSlug: "archimonde",
-      activeDungeonSlugs: ["skyreach"],
+      // Legacy fixed-budget: burn exactly maxReports (coverage early-stop would mask the budget test).
       maxReports: 3,
       fetchReport,
     });
@@ -436,7 +439,7 @@ describe("coverage-aware hydrateFightUnknownCandidates", () => {
     expect(result.diagnostics.reportFetchAttempts).toBeLessThanOrEqual(3);
     expect(result.diagnostics.reportsFailedOrEmpty).toBe(2);
     expect(result.diagnostics.reportsHydrated).toBe(1);
-    expect(result.diagnostics.stopReason).toBe("budget_exhausted");
+    expect(result.diagnostics.stopReason).toBe("legacy_fixed_budget");
     expect(fetchReport).not.toHaveBeenCalledWith("EXTRA");
   });
 
@@ -450,7 +453,7 @@ describe("coverage-aware hydrateFightUnknownCandidates", () => {
       publicReport({
         code,
         dungeonSlug: "skyreach",
-        fightId: code === "A1" ? 1 : 2,
+        fightId: code === "A1" ? 1 : code === "A2" ? 2 : 3,
       }),
     );
 
@@ -466,7 +469,8 @@ describe("coverage-aware hydrateFightUnknownCandidates", () => {
     expect(result.diagnostics.stopReason).toBe("full_coverage");
     expect(result.diagnostics.reportFetchAttempts).toBe(2);
     expect(fetchReport).toHaveBeenCalledTimes(2);
-    expect(fetchReport).not.toHaveBeenCalledWith("EXTRA");
+    // Newest/oldest alternation yields A1 then EXTRA; A2 must remain unattempted.
+    expect(fetchReport).not.toHaveBeenCalledWith("A2");
   });
 
   it("legacy fixed-budget mode also counts null/error attempts", async () => {

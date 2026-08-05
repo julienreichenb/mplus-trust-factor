@@ -41,6 +41,8 @@ export interface OmittedHydrationReport {
   /** Known or hinted dungeon when available. */
   dungeonSlug: string | null;
   startTimeMs: number | null;
+  /** 0-based index in deterministic listed-report exploration order. */
+  listedOrderIndex?: number | null;
 }
 
 export interface HydrationActor {
@@ -636,12 +638,21 @@ export async function hydrateFightUnknownCandidates(input: {
     if (remaining.length === 0) return null;
     if (coverageAware) {
       const under = underCoveredDungeons(coverage, targetPerDungeon);
-      const ordered = prioritizeReportsForHydration(remaining, hints, remaining.length, {
-        underCoveredDungeonSlugs: under,
-        coverage,
-        targetCandidatesPerDungeon: targetPerDungeon,
+      // Re-rank only when a remaining stub is known to fill an under-covered dungeon.
+      // Re-running round-robin on unknown-only stubs reshuffles and can pull
+      // middle-position reports into the initial budget incorrectly.
+      const hasKnownUnderCovered = remaining.some((s) => {
+        const dungeon = annotateStubDungeonFromHints(s, hints);
+        return dungeon != null && under.has(dungeon);
       });
-      remaining.splice(0, remaining.length, ...ordered);
+      if (hasKnownUnderCovered) {
+        const ordered = prioritizeReportsForHydration(remaining, hints, remaining.length, {
+          underCoveredDungeonSlugs: under,
+          coverage,
+          targetCandidatesPerDungeon: targetPerDungeon,
+        });
+        remaining.splice(0, remaining.length, ...ordered);
+      }
     }
     return remaining.shift() ?? null;
   };
@@ -731,7 +742,7 @@ export async function hydrateFightUnknownCandidates(input: {
   ).length;
 
   const omittedByCode = new Map<string, OmittedHydrationReport>();
-  for (const stub of uniqueStubs) {
+  for (const [listedOrderIndex, stub] of uniqueStubs.entries()) {
     if (attemptedCodes.has(stub.reportCode)) continue;
     const dungeon = annotateStubDungeonFromHints(stub, hints);
     const deferredComplete =
@@ -748,6 +759,7 @@ export async function hydrateFightUnknownCandidates(input: {
           : "REPORT_LEFT_UNHYDRATED_NO_MORE_BUDGET",
       dungeonSlug: dungeon,
       startTimeMs: stub.startTimeMs ?? null,
+      listedOrderIndex,
     });
   }
 
