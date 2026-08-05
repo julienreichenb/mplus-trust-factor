@@ -35,3 +35,11 @@ export {
   type UpsertWclRunParticipantInput,
   type CreateEvidenceDatasetPageInput,
 } from "./wcl-source-repository.js";
+export {
+  CapabilityEvidencePackageRepository,
+  type UpsertCapabilityEvidencePackageInput,
+} from "./capability-evidence-package-repository.js";
+export {
+  ParticipantScoringDigestRepository,
+  type UpsertParticipantScoringDigestInput,
+} from "./participant-scoring-digest-repository.js";

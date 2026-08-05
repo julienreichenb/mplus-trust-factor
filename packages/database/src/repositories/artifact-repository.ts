@@ -15,7 +15,9 @@ export type ArtifactOwnerType =
   | "WclReportRevision"
   | "AddonExport"
   | "CalibrationFrozenExport"
-  | "AdminDiagnostics";
+  | "AdminDiagnostics"
+  | "CapabilityEvidencePackage"
+  | "ParticipantScoringDigest";
 
 export interface PersistArtifactInput {
   provider: Provider;

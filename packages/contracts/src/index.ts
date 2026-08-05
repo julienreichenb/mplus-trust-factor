@@ -21,3 +21,4 @@ export * from "./wcl-event-normalizer-version.js";
 export * from "./capability-evidence-v1.js";
 export * from "./utility-action-timeline-v1.js";
 export * from "./survival-action-timeline-v1.js";
+export * from "./participant-scoring-digest-v1.js";

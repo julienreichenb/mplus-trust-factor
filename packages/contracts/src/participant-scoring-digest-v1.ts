@@ -1,0 +1,192 @@
+/**
+ * ParticipantScoringDigestV1 — production scoring input for one actor in one fight.
+ * Calculators consume digests only; never raw WCL event pages or provider clients.
+ */
+import { createHash } from "node:crypto";
+import { z } from "zod";
+import { WCL_DIGEST_FORBIDDEN_SCORE_KEYS } from "./wcl-run-source-digest.js";
+import {
+  utilityCanonicalActionSchema,
+  utilityCapabilityCompletenessSchema,
+} from "./utility-action-timeline-v1.js";
+import {
+  pressureWindowV1Schema,
+  survivalCanonicalActivationSchema,
+  survivalCapabilityCompletenessSchema,
+  survivalDeathEventSchema,
+} from "./survival-action-timeline-v1.js";
+
+export const PARTICIPANT_SCORING_DIGEST_SCHEMA_VERSION =
+  "participant-scoring-digest-v1" as const;
+
+/** Bump when digest field projection / extractor wiring changes. */
+export const PARTICIPANT_DIGEST_EXTRACTOR_COMPAT_VERSION =
+  "participant-digest-extractors-v1" as const;
+
+export const participantDigestDimensionCompletenessSchema = z.enum([
+  "COMPLETE",
+  "PARTIAL",
+  "UNAVAILABLE",
+]);
+export type ParticipantDigestDimensionCompleteness = z.infer<
+  typeof participantDigestDimensionCompletenessSchema
+>;
+
+export const participantOffensiveActivationV1Schema = z.object({
+  activationId: z.string().min(1),
+  canonicalKey: z.string().min(1),
+  primarySpellId: z.number().int(),
+  timestampMs: z.number(),
+  fightOffsetMs: z.number().nonnegative().optional(),
+  rawMatchedEventCount: z.number().int().nonnegative(),
+  contributingSpellIds: z.array(z.number().int()),
+});
+export type ParticipantOffensiveActivationV1 = z.infer<
+  typeof participantOffensiveActivationV1Schema
+>;
+
+export const participantPerformanceDigestV1Schema = z.object({
+  parsePercentile: z.number().min(0).max(100).nullable(),
+  parseSemantic: z.enum(["BRACKET_PERCENT", "RANK_PERCENT", "UNAVAILABLE"]),
+  partition: z.number().int().nullable(),
+  rawDps: z.number().nullable(),
+  offensiveActivations: z.array(participantOffensiveActivationV1Schema),
+  completeness: participantDigestDimensionCompletenessSchema,
+  limitations: z.array(z.string()),
+});
+export type ParticipantPerformanceDigestV1 = z.infer<
+  typeof participantPerformanceDigestV1Schema
+>;
+
+export const participantUtilityDigestV1Schema = z.object({
+  actions: z.array(utilityCanonicalActionSchema),
+  capabilityCompleteness: z.array(utilityCapabilityCompletenessSchema),
+  completeness: participantDigestDimensionCompletenessSchema,
+  limitations: z.array(z.string()),
+});
+export type ParticipantUtilityDigestV1 = z.infer<
+  typeof participantUtilityDigestV1Schema
+>;
+
+export const participantSurvivalDigestV1Schema = z.object({
+  damageTakenTotal: z.number().nonnegative(),
+  damageTakenEventCount: z.number().int().nonnegative(),
+  deaths: z.array(survivalDeathEventSchema),
+  personalDefensiveActivations: z.array(survivalCanonicalActivationSchema),
+  recoveryActivations: z.array(survivalCanonicalActivationSchema),
+  externalsReceived: z.array(survivalCanonicalActivationSchema),
+  pressureWindows: z.array(pressureWindowV1Schema),
+  fightDurationMs: z.number().int().nonnegative().nullable(),
+  activeCombatMs: z.number().int().nonnegative().nullable(),
+  capabilityCompleteness: z.array(survivalCapabilityCompletenessSchema),
+  completeness: participantDigestDimensionCompletenessSchema,
+  limitations: z.array(z.string()),
+});
+export type ParticipantSurvivalDigestV1 = z.infer<
+  typeof participantSurvivalDigestV1Schema
+>;
+
+export const participantScoringDigestV1Schema = z
+  .object({
+    schemaVersion: z.literal(PARTICIPANT_SCORING_DIGEST_SCHEMA_VERSION),
+    reportCode: z.string().min(1),
+    fightId: z.number().int().nonnegative(),
+    reportRevision: z.number().int().nonnegative(),
+    dungeonSlug: z.string().nullable(),
+    keyLevel: z.number().int().positive().nullable(),
+    timed: z.boolean().nullable(),
+    runScore: z.number().nullable(),
+    completedAt: z.string().datetime().nullable(),
+    participantActorId: z.number().int().positive(),
+    characterId: z.string().uuid().nullable(),
+    characterName: z.string().min(1),
+    classSlug: z.string().nullable(),
+    specSlug: z.string().nullable(),
+    role: z.enum(["TANK", "HEALER", "DPS", "UNKNOWN"]).nullable(),
+    ownedPetActorIds: z.array(z.number().int()),
+    capabilityPackageArtifactId: z.string().min(1),
+    capabilityPackageContentHash: z.string().min(16),
+    catalogVersion: z.string().min(1),
+    extractorCompatVersion: z.literal(PARTICIPANT_DIGEST_EXTRACTOR_COMPAT_VERSION),
+    performance: participantPerformanceDigestV1Schema,
+    utility: participantUtilityDigestV1Schema,
+    survival: participantSurvivalDigestV1Schema,
+    contentHash: z.string().min(16),
+    createdAt: z.string().datetime(),
+  })
+  .strict();
+export type ParticipantScoringDigestV1 = z.infer<
+  typeof participantScoringDigestV1Schema
+>;
+
+/**
+ * Durable uniqueness / lookup identity for a participant digest.
+ * Independent from provider-package and score-result compatibility.
+ */
+export function buildParticipantDigestCompatibilityKey(input: {
+  reportCode: string;
+  fightId: number;
+  reportRevision: number;
+  participantActorId: number;
+  digestSchemaVersion: string;
+  extractorCompatVersion: string;
+  capabilityPackageContentHash: string;
+  catalogVersion: string;
+}): string {
+  return [
+    "participant-scoring-digest",
+    input.reportCode,
+    `r${input.reportRevision}`,
+    `f${input.fightId}`,
+    `actor:${input.participantActorId}`,
+    input.digestSchemaVersion,
+    input.extractorCompatVersion,
+    `pkg:${input.capabilityPackageContentHash}`,
+    `catalog:${input.catalogVersion}`,
+  ].join("|");
+}
+
+function assertNoForbiddenScoreKeys(value: unknown, path = "$"): void {
+  if (value == null || typeof value !== "object") return;
+  if (Array.isArray(value)) {
+    value.forEach((item, i) => assertNoForbiddenScoreKeys(item, `${path}[${i}]`));
+    return;
+  }
+  for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+    if ((WCL_DIGEST_FORBIDDEN_SCORE_KEYS as readonly string[]).includes(key)) {
+      throw new Error(`participant_scoring_digest_forbidden_field:${key}`);
+    }
+    assertNoForbiddenScoreKeys(child, `${path}.${key}`);
+  }
+}
+
+export function hashParticipantScoringDigestPayload(value: unknown): string {
+  return createHash("sha256")
+    .update(JSON.stringify(value))
+    .digest("hex");
+}
+
+export function assertParticipantScoringDigestV1(
+  value: unknown,
+): ParticipantScoringDigestV1 {
+  assertNoForbiddenScoreKeys(value);
+  const parsed = participantScoringDigestV1Schema.parse(value);
+  assertNoForbiddenScoreKeys(parsed);
+  return parsed;
+}
+
+/** Payload used to compute contentHash (excludes contentHash itself). */
+export function participantDigestHashPayload(
+  digest: Omit<ParticipantScoringDigestV1, "contentHash">,
+): unknown {
+  return digest;
+}
+
+export function withParticipantDigestContentHash(
+  digest: Omit<ParticipantScoringDigestV1, "contentHash">,
+): ParticipantScoringDigestV1 {
+  const contentHash = hashParticipantScoringDigestPayload(
+    participantDigestHashPayload(digest),
+  );
+  return assertParticipantScoringDigestV1({ ...digest, contentHash });
+}

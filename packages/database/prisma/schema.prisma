@@ -375,6 +375,7 @@ model Character {
   dimensionComputations    DimensionComputation[]
   wclRunParticipants       WclRunParticipant[]
   shadowCanaries           ScoringV2ShadowCanary[]
+  participantScoringDigests ParticipantScoringDigest[]
 
   @@unique([regionId, realmId, normalizedName])
   @@index([lastPublicRefreshAt])
@@ -625,6 +626,8 @@ model RawArtifact {
   wclReportRevisions WclReportRevision[]
   artifactReferences ArtifactReference[]
   wclRunSourceDigests WclRunSourceDigest[]
+  capabilityEvidencePackages CapabilityEvidencePackageRecord[]
+  participantScoringDigests  ParticipantScoringDigest[]
 
   @@index([provider, createdAt(sort: Desc)])
   @@index([refCount, retentionUntil])
@@ -2147,4 +2150,66 @@ model ScoringV2ShadowCanary {
   @@index([status, createdAt(sort: Desc)])
   @@index([requestedByUserId, createdAt(sort: Desc)])
   @@map("scoring_v2_shadow_canaries")
+}
+
+/**
+ * Durable index for CapabilityEvidencePackageV1 payloads (pg:// via RawArtifact).
+ * Compatibility key is the unique lookup identity; payload bytes live on RawArtifactPayload.
+ */
+model CapabilityEvidencePackageRecord {
+  id                    String   @id @default(uuid()) @db.Uuid
+  compatibilityKey      String   @unique @map("compatibility_key")
+  reportCode            String   @map("report_code")
+  fightId               Int      @map("fight_id")
+  reportRevision        Int      @map("report_revision")
+  actorSetHash          String   @map("actor_set_hash")
+  abilityFilterHash     String   @map("ability_filter_hash")
+  catalogVersion        String   @map("catalog_version")
+  acquisitionPlanVersion String  @map("acquisition_plan_version")
+  graphqlQueryVersion   String   @map("graphql_query_version")
+  mode                  String
+  contentHash           String   @map("content_hash")
+  artifactId            String   @map("artifact_id") @db.Uuid
+  participantActorIds   Json     @default("[]") @map("participant_actor_ids")
+  complete              Boolean  @default(false)
+  createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt             DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  artifact RawArtifact @relation(fields: [artifactId], references: [id], onDelete: Restrict)
+
+  @@index([reportCode, fightId, reportRevision])
+  @@index([contentHash])
+  @@map("capability_evidence_package_records")
+}
+
+/**
+ * Index for ParticipantScoringDigestV1 payloads (pg:// via RawArtifact).
+ * One row per (fight × actor × digest/extractor/package compatibility).
+ */
+model ParticipantScoringDigest {
+  id                            String   @id @default(uuid()) @db.Uuid
+  compatibilityKey              String   @unique @map("compatibility_key")
+  reportCode                    String   @map("report_code")
+  fightId                       Int      @map("fight_id")
+  reportRevision                Int      @map("report_revision")
+  participantActorId            Int      @map("participant_actor_id")
+  characterId                   String?  @map("character_id") @db.Uuid
+  digestSchemaVersion           String   @map("digest_schema_version")
+  extractorCompatVersion        String   @map("extractor_compat_version")
+  catalogVersion                String   @map("catalog_version")
+  capabilityPackageContentHash  String   @map("capability_package_content_hash")
+  capabilityPackageArtifactId   String   @map("capability_package_artifact_id")
+  contentHash                   String   @map("content_hash")
+  artifactId                    String   @map("artifact_id") @db.Uuid
+  createdAt                     DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt                     DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  artifact  RawArtifact @relation(fields: [artifactId], references: [id], onDelete: Restrict)
+  character Character?  @relation(fields: [characterId], references: [id], onDelete: SetNull)
+
+  @@index([reportCode, fightId, reportRevision, participantActorId])
+  @@index([capabilityPackageContentHash])
+  @@index([characterId])
+  @@index([contentHash])
+  @@map("participant_scoring_digests")
 }

@@ -161,6 +161,8 @@ export const SCORING_V2_RESET_TRUNCATE_TABLES = [
   "external_payloads",
   "external_requests",
   "raw_artifacts",
+  "capability_evidence_package_records",
+  "participant_scoring_digests",
   "character_red_flags",
   "refresh_cost_ledger_entries",
   "refresh_schedule_items",

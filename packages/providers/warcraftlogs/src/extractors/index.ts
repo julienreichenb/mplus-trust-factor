@@ -82,3 +82,8 @@ export {
   rebuildCapabilityPackageFromPersistedEvents,
   type PersistedDatasetBundle,
 } from "./survival/rebuild-capability-package.js";
+export {
+  buildParticipantScoringDigestsFromPackage,
+  type BuildParticipantDigestsFromPackageInput,
+  type RankingParseFactInput,
+} from "./digest/build-participant-scoring-digest.js";
