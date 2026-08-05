@@ -43,6 +43,7 @@ The target system therefore establishes these primary invariants:
 | [09_UTILITY_SCORING_SPEC.md](09_UTILITY_SCORING_SPEC.md) | Utility Phase 1–3 model |
 | [10_EXPERIENCE_SCORING_SPEC.md](10_EXPERIENCE_SCORING_SPEC.md) | Experience Phase 1–2 model |
 | [11_CONFIDENCE_COVERAGE_PUBLICATION.md](11_CONFIDENCE_COVERAGE_PUBLICATION.md) | Confidence, quality gates, publication semantics |
+| [24_PARTIAL_EVIDENCE_AND_CONFIDENCE.md](24_PARTIAL_EVIDENCE_AND_CONFIDENCE.md) | Partial manifests, scoring-confidence-v1, analysis vs publication |
 | [12_CALIBRATION_INTEGRATION.md](12_CALIBRATION_INTEGRATION.md) | Adaptation of the admin calibration platform |
 | [13_REFERENCE_COHORTS_AND_PHASE3_COMPARISONS.md](13_REFERENCE_COHORTS_AND_PHASE3_COMPARISONS.md) | Critical mass and population-relative scoring |
 | [14_MIGRATION_ROLLOUT_AND_FEATURE_FLAGS.md](14_MIGRATION_ROLLOUT_AND_FEATURE_FLAGS.md) | Test reset, progressive rollout, rollback |
