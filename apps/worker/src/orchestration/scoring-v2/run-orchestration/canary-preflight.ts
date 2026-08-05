@@ -1,0 +1,320 @@
+/**
+ * Provider-free Scoring V2 canary preflight.
+ * Zero WCL calls. Reports package/digest/ranking cache and readiness.
+ */
+import {
+  PARTICIPANT_DIGEST_EXTRACTOR_COMPAT_VERSION,
+  PARTICIPANT_SCORING_DIGEST_SCHEMA_VERSION,
+  expectedEvidenceSlotCount,
+  type CharacterSeasonEvidenceManifestV2,
+  type EvidenceCandidateMetadataV2,
+  type EvidenceSelectionScope,
+} from "@mplus/contracts";
+import {
+  buildEvidenceAcquisitionPlanV2,
+  finalizeEvidenceManifestV2,
+} from "@mplus/scoring";
+import {
+  uniqueSourceFightsFromManifest,
+  sourceFightKey,
+  type RunOrchestrationPorts,
+  type SourceFightIdentity,
+} from "./orchestrator.js";
+import {
+  buildCanaryCostProjection,
+  type CanaryCostProjection,
+} from "./cost-admission.js";
+import type { RateBudgetConfig } from "@mplus/provider-warcraftlogs";
+import type { WclRateLimitSnapshot } from "@mplus/provider-warcraftlogs";
+
+export type CacheStatus = "HIT" | "MISS" | "ABSENT";
+
+export interface CanarySlotPreflight {
+  slotId: string;
+  dungeonSlug: string;
+  slotIndex: 0 | 1;
+  state: string;
+  sourceFight: SourceFightIdentity | null;
+  packageCache: CacheStatus;
+  digestCache: CacheStatus;
+  rankingParse: CacheStatus;
+  performanceReady: boolean;
+  utilityReady: boolean;
+  survivalReady: boolean;
+  wouldRequireWcl: boolean;
+  wouldRebuildDigestWithoutWcl: boolean;
+  rankingMissing: boolean;
+}
+
+export interface CanaryPreflightReport {
+  schemaVersion: "scoring-v2-canary-preflight-v1";
+  characterId: string;
+  characterName: string;
+  region: string;
+  realm: string;
+  seasonId: string;
+  providerCalls: 0;
+  manifestComplete: boolean;
+  expectedSlotCount: number;
+  selectedSlotCount: number;
+  uniqueFightCount: number;
+  slots: CanarySlotPreflight[];
+  fightsRequiringWcl: string[];
+  digestsRebuildableWithoutWcl: string[];
+  rankingFactsMissing: string[];
+  cost: CanaryCostProjection;
+  publicationEligible: false;
+  publicationEnabled: false;
+  publicScorePointerMutated: false;
+  blockers: string[];
+}
+
+export async function runScoringV2CanaryPreflight(input: {
+  characterId: string;
+  characterName: string;
+  region: string;
+  realm: string;
+  seasonId: string;
+  scoringModelId: string;
+  scope: EvidenceSelectionScope;
+  candidates: readonly EvidenceCandidateMetadataV2[];
+  ports: RunOrchestrationPorts;
+  existingManifest?: CharacterSeasonEvidenceManifestV2 | null;
+  rateBudgetConfig: RateBudgetConfig;
+  /** Optional snapshot — obtaining it may be a provider call; flag it. */
+  rateLimitSnapshot?: WclRateLimitSnapshot | null;
+  rateLimitSnapshotIsProviderCall?: boolean;
+}): Promise<CanaryPreflightReport> {
+  let manifest = input.existingManifest ?? null;
+  if (!manifest) {
+    const { plan } = buildEvidenceAcquisitionPlanV2({
+      scope: input.scope,
+      candidates: input.candidates,
+      plannedAt: new Date().toISOString(),
+    });
+    const seen = new Set<string>();
+    const acquisitionResults = [];
+    for (const slot of plan.slots) {
+      for (const c of slot.orderedCandidates) {
+        const k = `${c.discoveryIdentity.reportCode}:${c.discoveryIdentity.fightId}`;
+        if (seen.has(k)) continue;
+        seen.add(k);
+        const meta = input.candidates.find(
+          (cand) =>
+            cand.discoveryIdentity.reportCode === c.discoveryIdentity.reportCode &&
+            cand.discoveryIdentity.fightId === c.discoveryIdentity.fightId,
+        );
+        acquisitionResults.push({
+          discoveryIdentity: { ...c.discoveryIdentity },
+          acquisitionStatus: "ACQUIRED" as const,
+          reportRevision: meta?.reportRevision ?? 1,
+          rejectionReason: null,
+          rejectionDetail: null,
+          datasetHashes: [],
+          factSetHash: `preflight-${k}`,
+          dimensionValidity: {
+            performance: "VALID" as const,
+            survival: "VALID" as const,
+            utility: "VALID" as const,
+            reasons: [] as string[],
+          },
+          keyLevel: c.keyLevel,
+          timed: c.timed,
+          runScore: c.runScore,
+          completedAt: c.completedAt,
+          actorId: c.actorId,
+          evidenceCompleteness: c.evidenceCompleteness,
+        });
+      }
+    }
+    manifest = finalizeEvidenceManifestV2({
+      plan,
+      acquisitionResults,
+      selectedAt: new Date().toISOString(),
+    }).manifest;
+  }
+
+  const expectedSlotCount = expectedEvidenceSlotCount(
+    input.scope.activeDungeonSlugs.length,
+  );
+  const uniqueFights = uniqueSourceFightsFromManifest(manifest);
+  const slots: CanarySlotPreflight[] = [];
+  const fightsRequiringWcl: string[] = [];
+  const digestsRebuildableWithoutWcl: string[] = [];
+  const rankingFactsMissing: string[] = [];
+  const costFights: CanaryCostProjection["fights"] extends infer _
+    ? Array<{
+        sourceFightKey: string;
+        packageCacheHit: boolean;
+        historicalMeasuredPoints?: number | null;
+      }>
+    : never = [];
+
+  const packageByFight = new Map<string, Awaited<
+    ReturnType<RunOrchestrationPorts["findCompatibleCapabilityPackage"]>
+  >>();
+
+  for (const fight of uniqueFights) {
+    const hit = await input.ports.findCompatibleCapabilityPackage({
+      sourceFight: fight,
+    });
+    packageByFight.set(sourceFightKey(fight), hit);
+    costFights.push({
+      sourceFightKey: sourceFightKey(fight),
+      packageCacheHit: hit != null,
+    });
+  }
+
+  for (const slot of manifest.slots) {
+    const sourceFight = slot.identity
+      ? {
+          reportCode: slot.identity.reportCode,
+          fightId: slot.identity.fightId,
+          reportRevision: slot.identity.reportRevision,
+        }
+      : null;
+    const fightKey = sourceFight ? sourceFightKey(sourceFight) : null;
+    const pkg = fightKey ? packageByFight.get(fightKey) ?? null : null;
+
+    let digestCache: CacheStatus = "ABSENT";
+    let rankingParse: CacheStatus = "ABSENT";
+    let wouldRebuildDigestWithoutWcl = false;
+    let rankingMissing = true;
+    let performanceReady = false;
+    let utilityReady = false;
+    let survivalReady = false;
+
+    if (sourceFight && pkg) {
+    const actorId = slot.actorId ?? 1;
+      const existingDigest = await input.ports.findCompatibleDigest({
+        reportCode: sourceFight.reportCode,
+        fightId: sourceFight.fightId,
+        reportRevision: sourceFight.reportRevision,
+        participantActorId: actorId,
+        digestSchemaVersion: PARTICIPANT_SCORING_DIGEST_SCHEMA_VERSION,
+        extractorCompatVersion: PARTICIPANT_DIGEST_EXTRACTOR_COMPAT_VERSION,
+        capabilityPackageContentHash: pkg.contentHash,
+        catalogVersion: pkg.package.catalogVersion,
+      });
+      digestCache = existingDigest ? "HIT" : "MISS";
+      if (!existingDigest) {
+        wouldRebuildDigestWithoutWcl = true;
+        digestsRebuildableWithoutWcl.push(`${fightKey}:actor:${actorId}`);
+      } else {
+        performanceReady =
+          existingDigest.digest.performance.completeness === "COMPLETE";
+        utilityReady =
+          existingDigest.digest.utility.completeness !== "UNAVAILABLE";
+        survivalReady =
+          existingDigest.digest.survival.completeness !== "UNAVAILABLE";
+        rankingMissing =
+          existingDigest.digest.performance.rankingProvenance?.source !==
+            "PERSISTED_RANKING_PARSE" ||
+          existingDigest.digest.performance.completeness === "UNAVAILABLE";
+        rankingParse = rankingMissing ? "ABSENT" : "HIT";
+      }
+
+      if (!existingDigest || rankingMissing) {
+        const ranking = await input.ports.resolveRankingParseForParticipant({
+          sourceFight,
+          participantActorId: actorId,
+          dungeonSlug: slot.dungeonSlug,
+          keyLevel: slot.keyLevel,
+        });
+        if (
+          ranking &&
+          ranking.parseSemantic !== "UNAVAILABLE" &&
+          ranking.parsePercentile != null
+        ) {
+          rankingParse = "HIT";
+          rankingMissing = false;
+          performanceReady = true;
+        } else {
+          rankingParse = "ABSENT";
+          rankingMissing = true;
+          performanceReady = false;
+          rankingFactsMissing.push(`${fightKey}:actor:${actorId}`);
+        }
+      }
+
+      // Utility/Survival readiness from package completeness when digest absent.
+      if (!existingDigest) {
+        utilityReady = pkg.package.complete === true;
+        survivalReady = pkg.package.complete === true;
+      }
+    }
+
+    const wouldRequireWcl =
+      slot.state === "SELECTED" && sourceFight != null && pkg == null;
+    if (wouldRequireWcl && fightKey) {
+      fightsRequiringWcl.push(fightKey);
+    }
+
+    slots.push({
+      slotId: slot.slotId,
+      dungeonSlug: slot.dungeonSlug,
+      slotIndex: slot.slotIndex,
+      state: slot.state,
+      sourceFight,
+      packageCache: pkg ? "HIT" : sourceFight ? "MISS" : "ABSENT",
+      digestCache,
+      rankingParse,
+      performanceReady,
+      utilityReady,
+      survivalReady,
+      wouldRequireWcl,
+      wouldRebuildDigestWithoutWcl,
+      rankingMissing,
+    });
+  }
+
+  const cost = buildCanaryCostProjection({
+    fights: costFights,
+    rateLimitSnapshot: input.rateLimitSnapshot ?? null,
+    rateLimitSnapshotIsProviderCall: input.rateLimitSnapshotIsProviderCall,
+    rateBudgetConfig: input.rateBudgetConfig,
+  });
+
+  const incomplete =
+    manifest.selectedSlotCount < expectedSlotCount ||
+    manifest.slots.some((s) => s.state !== "SELECTED");
+
+  const blockers: string[] = [];
+  if (incomplete) blockers.push("manifest_incomplete");
+  if (fightsRequiringWcl.length > 0) {
+    blockers.push(`wcl_required_for_${fightsRequiringWcl.length}_fights`);
+  }
+  if (rankingFactsMissing.length > 0) {
+    blockers.push(`ranking_parse_missing_${rankingFactsMissing.length}`);
+  }
+  if (cost.rateLimit.admission === "STOP" || cost.rateLimit.admission === "DEFER") {
+    if (fightsRequiringWcl.length > 0) {
+      blockers.push(`cost_admission_${cost.rateLimit.admission}`);
+    }
+  }
+  blockers.push("SCORING_V2_PUBLICATION_ENABLED_false");
+  blockers.push("publication_pointer_untouched");
+
+  return {
+    schemaVersion: "scoring-v2-canary-preflight-v1",
+    characterId: input.characterId,
+    characterName: input.characterName,
+    region: input.region,
+    realm: input.realm,
+    seasonId: input.seasonId,
+    providerCalls: 0,
+    manifestComplete: !incomplete,
+    expectedSlotCount,
+    selectedSlotCount: manifest.selectedSlotCount,
+    uniqueFightCount: uniqueFights.length,
+    slots,
+    fightsRequiringWcl: [...new Set(fightsRequiringWcl)],
+    digestsRebuildableWithoutWcl,
+    rankingFactsMissing,
+    cost,
+    publicationEligible: false,
+    publicationEnabled: false,
+    publicScorePointerMutated: false,
+    blockers,
+  };
+}

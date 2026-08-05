@@ -96,7 +96,9 @@
     "wcl:probe:offensive-one-fight": "node tools/scripts/with-env.mjs node tools/scripts/wcl-probe-offensive-one-fight.mjs",
     "wcl:probe:utility-one-fight": "node tools/scripts/with-env.mjs node tools/scripts/wcl-probe-utility-one-fight.mjs",
     "wcl:probe:survival-one-fight": "node tools/scripts/with-env.mjs node tools/scripts/wcl-probe-survival-one-fight.mjs",
-    "wcl:probe:capability-evidence": "node tools/scripts/with-env.mjs node tools/scripts/wcl-probe-capability-evidence.mjs"
+    "wcl:probe:capability-evidence": "node tools/scripts/with-env.mjs node tools/scripts/wcl-probe-capability-evidence.mjs",
+    "scoring-v2:canary:preflight": "node tools/scripts/with-env.mjs pnpm --filter @mplus/worker exec tsx src/orchestration/scoring-v2/canary/cli.ts preflight",
+    "scoring-v2:canary:live": "node tools/scripts/with-env.mjs pnpm --filter @mplus/worker exec tsx src/orchestration/scoring-v2/canary/cli.ts live"
   },
   "dependencies": {
     "@mplus/config": "workspace:*",
