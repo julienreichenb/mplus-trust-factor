@@ -34,3 +34,27 @@ export {
   absentRankingParseFact,
   rankingParseCompatibilityKey,
 } from "./ranking-hydrate.js";
+export {
+  createLiveCapabilityAcquireHook,
+  evaluateLiveCapabilityPermission,
+  resolveAuthoritativeFightMetadata,
+  liveAcquireResultFromPackage,
+  CONSERVATIVE_POINTS_PER_CAPABILITY_FIGHT,
+  type LiveCapabilityAcquireResult,
+  type LiveCapabilityPermissionInput,
+  type LiveCapabilityPermissionDenial,
+} from "./live-capability-adapter.js";
+export {
+  createRedisSourceFightLock,
+  createSharedMemorySourceFightLock,
+  capabilityPackageSingleflightKey,
+} from "./source-fight-lease.js";
+export {
+  buildCanaryCostProjection,
+  assertCostAdmissionAllowsLive,
+  type CanaryCostProjection,
+} from "./cost-admission.js";
+export {
+  runScoringV2CanaryPreflight,
+  type CanaryPreflightReport,
+} from "./canary-preflight.js";

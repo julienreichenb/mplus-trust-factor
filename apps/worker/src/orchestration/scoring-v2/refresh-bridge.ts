@@ -2,8 +2,12 @@
  * Shadow refresh entry: V1 refresh stays authoritative; Scoring V2 digest
  * orchestration runs best-effort when master+child flags allow it.
  *
- * Live WCL on the digest path requires ALLOW_LIVE_PROVIDER_CALLS separately.
- * SCORING_V2_PUBLICATION_ENABLED must remain false — eligibility is diagnostic only.
+ * Provider ownership: when digest orchestration is active, the digest path owns
+ * live capability acquisition. Legacy slot fan-out is skipped by default to
+ * prevent duplicate WCL calls for the same fights.
+ *
+ * Live WCL on the digest path requires ALLOW_LIVE_PROVIDER_CALLS + PROVIDER_MODE=live
+ * + an explicit live acquire hook. SCORING_V2_PUBLICATION_ENABLED must remain false.
  */
 import type { EvidenceCandidateMetadataV2, EvidenceRole } from "@mplus/contracts";
 import { EVIDENCE_SELECTOR_VERSION, hashRefreshContract } from "@mplus/contracts";
@@ -22,20 +26,34 @@ import {
 } from "./run-orchestration/orchestrator.js";
 import { createProductionRunOrchestrationPorts } from "./run-orchestration/production-ports.js";
 import {
+  createLiveCapabilityAcquireHook,
+  evaluateLiveCapabilityPermission,
+} from "./run-orchestration/live-capability-adapter.js";
+import { createRedisSourceFightLock } from "./run-orchestration/source-fight-lease.js";
+import {
   evaluatePublicationEligibility,
   type PublicationEligibilityDecision,
 } from "./run-orchestration/publication-eligibility.js";
+import { LiveWarcraftLogsProvider } from "@mplus/provider-warcraftlogs";
+
+export type ShadowProviderOwner =
+  | "DIGEST_ORCHESTRATOR"
+  | "LEGACY_SLOT_PIPELINE"
+  | "NONE";
 
 export interface ScoringV2ShadowRefreshDiagnostics {
   skipped: boolean;
   skipReason: string | null;
   liveProviderPermission: LiveProviderPermission;
+  /** Which component is allowed to perform live WCL acquisition. */
+  providerOwner: ShadowProviderOwner;
   legacyShadow: {
     enqueued: boolean;
     analysisBatchId: string | null;
     enqueuedSlotJobs: number | null;
     deferred: boolean;
     skipped: boolean;
+    providerCallsAllowed: boolean;
   } | null;
   orchestration: RunOrchestrationResult | null;
   publicationEligibility: PublicationEligibilityDecision | null;
@@ -73,8 +91,18 @@ export async function maybeStartScoringV2ShadowFromRefresh(input: {
   characterName: string;
   /** Test seam — inject memory ports for provider-free integration tests. */
   portsOverride?: RunOrchestrationPorts;
-  /** When true, skip legacy slot fan-out (digest-path unit tests). */
+  /**
+   * When true (default while digest path is active), skip legacy slot fan-out
+   * so only the digest orchestrator may own live acquisition.
+   * Set false only for explicit legacy-diagnostics runs (still should not
+   * double-fetch when digest also runs live — prefer one owner).
+   */
   skipLegacyShadowPipeline?: boolean;
+  /**
+   * Force legacy path as provider owner (digest skipped). Used to preserve
+   * legacy-only behavior when digest orchestration is intentionally off.
+   */
+  forceLegacyProviderOwner?: boolean;
 }): Promise<ScoringV2ShadowRefreshDiagnostics> {
   const empty = (
     skipReason: string,
@@ -82,6 +110,7 @@ export async function maybeStartScoringV2ShadowFromRefresh(input: {
     skipped: true,
     skipReason,
     liveProviderPermission: liveProviderPermissionFromEnv(input.container.env),
+    providerOwner: "NONE",
     legacyShadow: null,
     orchestration: null,
     publicationEligibility: null,
@@ -110,10 +139,18 @@ export async function maybeStartScoringV2ShadowFromRefresh(input: {
   const liveProviderPermission = liveProviderPermissionFromEnv(
     input.container.env,
   );
+
+  // Digest path owns live acquisition whenever shadow orchestration is on.
+  // Legacy slot fan-out is skipped by default to prevent duplicate WCL calls.
+  const skipLegacy =
+    input.skipLegacyShadowPipeline !== false && !input.forceLegacyProviderOwner;
+  const providerOwner: ShadowProviderOwner = input.forceLegacyProviderOwner
+    ? "LEGACY_SLOT_PIPELINE"
+    : "DIGEST_ORCHESTRATOR";
+
   let legacyShadow: ScoringV2ShadowRefreshDiagnostics["legacyShadow"] = null;
 
-  // Legacy slot fan-out remains for existing shadow diagnostics (best-effort).
-  if (!input.skipLegacyShadowPipeline) {
+  if (!skipLegacy) {
     const redis = input.container.createRedisConnection();
     const producers = createQueueProducers(redis, input.container);
     try {
@@ -164,6 +201,8 @@ export async function maybeStartScoringV2ShadowFromRefresh(input: {
         enqueuedSlotJobs: result.enqueuedSlotJobs ?? null,
         deferred: Boolean(result.deferred),
         skipped: Boolean(result.skipped),
+        // When digest owns providers, legacy must not perform live acquisition.
+        providerCallsAllowed: providerOwner === "LEGACY_SLOT_PIPELINE",
       };
 
       input.container.logger.info(
@@ -171,6 +210,7 @@ export async function maybeStartScoringV2ShadowFromRefresh(input: {
           event: "scoring_v2_shadow_enqueue",
           ...result,
           characterId: input.characterId,
+          providerOwner,
           publicationBlocked: true,
         },
         "scoring v2 shadow pipeline enqueue result",
@@ -190,31 +230,107 @@ export async function maybeStartScoringV2ShadowFromRefresh(input: {
         enqueuedSlotJobs: null,
         deferred: false,
         skipped: true,
+        providerCallsAllowed: false,
       };
     } finally {
       await producers.close();
       await redis.quit();
     }
+  } else {
+    legacyShadow = {
+      enqueued: false,
+      analysisBatchId: null,
+      enqueuedSlotJobs: null,
+      deferred: false,
+      skipped: true,
+      providerCallsAllowed: false,
+    };
   }
 
-  // Digest run orchestration (provider-free unless live permission + live hook).
+  if (input.forceLegacyProviderOwner) {
+    return {
+      skipped: false,
+      skipReason: null,
+      liveProviderPermission,
+      providerOwner,
+      legacyShadow,
+      orchestration: null,
+      publicationEligibility: null,
+      providerCalls: 0,
+      publicScorePointerMutated: false,
+    };
+  }
+
   let orchestration: RunOrchestrationResult | null = null;
   let publicationEligibility: PublicationEligibilityDecision | null = null;
+  let redisForLock: ReturnType<WorkerContainer["createRedisConnection"]> | null =
+    null;
 
   try {
-    const ports =
-      input.portsOverride ??
-      createProductionRunOrchestrationPorts({
+    let ports = input.portsOverride;
+    if (!ports) {
+      const env = input.container.env;
+      const permission = {
+        providerMode: env.PROVIDER_MODE,
+        wclEnabled: env.WCL_ENABLED === true,
+        allowLiveProviderCalls: env.ALLOW_LIVE_PROVIDER_CALLS === true,
+        liveProviderPermissionGranted: liveProviderPermission === "ALLOWED",
+        scoringV2PublicationEnabled: env.SCORING_V2_PUBLICATION_ENABLED === true,
+        hasWclCredentials: Boolean(env.WCL_CLIENT_ID && env.WCL_CLIENT_SECRET),
+      };
+      const gate = evaluateLiveCapabilityPermission(permission);
+
+      let liveHook:
+        | ReturnType<typeof createLiveCapabilityAcquireHook>
+        | undefined;
+      if (gate.allowed && liveProviderPermission === "ALLOWED") {
+        const client = new LiveWarcraftLogsProvider({
+          env,
+        }).getGraphQlClient();
+        liveHook = createLiveCapabilityAcquireHook({
+          env,
+          prisma: input.container.prisma,
+          artifacts: input.container.repositories.artifacts,
+          wclSource: input.container.repositories.wclSource,
+          client,
+          region: input.region,
+          permission,
+        });
+      }
+
+      redisForLock = input.container.createRedisConnection();
+      const packageFinder = async (args: {
+        sourceFight: {
+          reportCode: string;
+          fightId: number;
+          reportRevision: number;
+        };
+      }) => {
+        const hit =
+          await input.container.repositories.capabilityEvidencePackages.findCompleteBySourceFight(
+            args.sourceFight,
+          );
+        if (!hit) return null;
+        return {
+          package: hit.package,
+          packageArtifactId: hit.packageArtifactId,
+          contentHash: hit.contentHash,
+          providerCalls: 0 as const,
+        };
+      };
+
+      const withSourceFightLock = createRedisSourceFightLock({
+        redis: redisForLock,
+        appEnv: env.APP_ENV ?? env.NODE_ENV ?? "development",
+        findCompatiblePackage: packageFinder,
+      });
+
+      ports = createProductionRunOrchestrationPorts({
         prisma: input.container.prisma,
         artifacts: input.container.repositories.artifacts,
         evidence: input.container.repositories.evidence,
-        // Live acquire stays unwired here unless ALLOW_LIVE_PROVIDER_CALLS —
-        // canary must inject an explicit live hook. Ordinary refreshes never
-        // accidentally enable WCL on the digest path.
-        liveAcquireCapabilityPackage:
-          liveProviderPermission === "ALLOWED"
-            ? undefined
-            : undefined,
+        liveAcquireCapabilityPackage: liveHook,
+        withSourceFightLock,
         resolveParticipants: async ({ sourceFight }) => {
           const hit =
             await input.container.repositories.capabilityEvidencePackages.findCompleteBySourceFight(
@@ -253,6 +369,7 @@ export async function maybeStartScoringV2ShadowFromRefresh(input: {
           }));
         },
       });
+    }
 
     orchestration = await orchestrateScoringV2Runs({
       characterId: input.characterId,
@@ -292,6 +409,7 @@ export async function maybeStartScoringV2ShadowFromRefresh(input: {
       {
         event: "scoring_v2_digest_orchestration",
         characterId: input.characterId,
+        providerOwner,
         incomplete: orchestration.incomplete,
         selectedSlotCount: orchestration.selectedSlotCount,
         uniqueFightCount: orchestration.uniqueSourceFights.length,
@@ -318,12 +436,17 @@ export async function maybeStartScoringV2ShadowFromRefresh(input: {
       },
       "scoring v2 digest orchestration failed — V1 refresh continues",
     );
+  } finally {
+    if (redisForLock) {
+      await redisForLock.quit().catch(() => undefined);
+    }
   }
 
   return {
     skipped: false,
     skipReason: null,
     liveProviderPermission,
+    providerOwner,
     legacyShadow,
     orchestration,
     publicationEligibility,
