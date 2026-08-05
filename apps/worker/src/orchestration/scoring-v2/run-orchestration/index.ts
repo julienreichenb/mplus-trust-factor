@@ -57,4 +57,6 @@ export {
 export {
   runScoringV2CanaryPreflight,
   type CanaryPreflightReport,
+  type CostAdmissionDeferExplanation,
+  explainCostAdmissionDefer,
 } from "./canary-preflight.js";

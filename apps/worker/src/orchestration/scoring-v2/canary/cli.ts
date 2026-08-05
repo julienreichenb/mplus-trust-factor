@@ -21,10 +21,11 @@
  */
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { loadEnv, type AppEnv } from "@mplus/config";
+import { isWclSnapshotFresh, loadEnv, type AppEnv } from "@mplus/config";
 import type { PrismaClient } from "@mplus/database";
 import { EVIDENCE_SELECTOR_VERSION, type CharacterIdentityInput } from "@mplus/contracts";
 import type { CharacterSeasonEvidenceManifestV2 } from "@mplus/contracts";
+import type { WclRateLimitSnapshot } from "@mplus/provider-warcraftlogs";
 import { createMemoryOrchestrationPorts } from "../run-orchestration/memory-ports.js";
 import {
   isManifestCompatibleWithSeasonPool,
@@ -83,6 +84,7 @@ import {
   bootstrapCanaryRateLimitSnapshot,
   defaultCanaryRateSnapshotPath,
   fetchCanaryRateLimitSnapshotLive,
+  readPersistedCanaryRateSnapshot,
   type CanaryRateSnapshotBootstrapReport,
 } from "./canary-rate-snapshot.js";
 
@@ -510,6 +512,50 @@ export async function runCanaryPreflightCommand(
   }
 
   const candidates = options?.candidates ?? args.candidates ?? [];
+
+  // Provider-free: reuse a persisted RateLimitData snapshot when still within TTL.
+  // Never fetch live during preflight.
+  let rateLimitSnapshot: WclRateLimitSnapshot | null = null;
+  const rateLimitSnapshotIsProviderCall = false;
+  let rateSnapshotMeta: {
+    snapshotSource: "PERSISTED" | "ABSENT";
+    snapshotAgeMs: number | null;
+    ttlSeconds: number;
+  } | null = null;
+  if (repositoryMode === "PRODUCTION" && env) {
+    const outDir =
+      args.outputDir ??
+      join(process.cwd(), "artifacts", "scoring-v2-canary");
+    const snapPath = defaultCanaryRateSnapshotPath(outDir);
+    const persisted = await readPersistedCanaryRateSnapshot(snapPath);
+    const ttlSeconds = env.WCL_CANARY_RATE_SNAPSHOT_TTL_SECONDS;
+    if (
+      persisted &&
+      isWclSnapshotFresh({
+        fetchedAt: persisted.snapshot.fetchedAt,
+        maxAgeSeconds: ttlSeconds,
+      })
+    ) {
+      rateLimitSnapshot = persisted.snapshot;
+      rateSnapshotMeta = {
+        snapshotSource: "PERSISTED",
+        snapshotAgeMs: Math.max(
+          0,
+          Date.now() - Date.parse(persisted.snapshot.fetchedAt),
+        ),
+        ttlSeconds,
+      };
+    } else {
+      rateSnapshotMeta = {
+        snapshotSource: "ABSENT",
+        snapshotAgeMs: persisted?.snapshot?.fetchedAt
+          ? Math.max(0, Date.now() - Date.parse(persisted.snapshot.fetchedAt))
+          : null,
+        ttlSeconds,
+      };
+    }
+  }
+
   const report = await runScoringV2CanaryPreflight({
     characterId: characterResolution.characterId,
     characterName: args.character,
@@ -540,9 +586,28 @@ export async function runCanaryPreflightCommand(
     characterResolution,
     seasonResolution,
     rateBudgetConfig,
-    rateLimitSnapshot: null,
-    rateLimitSnapshotIsProviderCall: false,
+    rateLimitSnapshot,
+    rateLimitSnapshotIsProviderCall,
   });
+
+  // Enrich DEFER explanation with persisted-snapshot source/TTL (still provider-free).
+  if (rateSnapshotMeta && report.costAdmissionDefer) {
+    report.costAdmissionDefer = {
+      ...report.costAdmissionDefer,
+      snapshotSource: rateSnapshotMeta.snapshotSource,
+      snapshotAgeMs: rateSnapshotMeta.snapshotAgeMs,
+      ttlSeconds: rateSnapshotMeta.ttlSeconds,
+    };
+  } else if (rateSnapshotMeta && report.cost.rateLimit.admission === "DEFER") {
+    report.costAdmissionDefer = {
+      snapshotSource: rateSnapshotMeta.snapshotSource,
+      snapshotAgeMs: rateSnapshotMeta.snapshotAgeMs,
+      ttlSeconds: rateSnapshotMeta.ttlSeconds,
+      projectedPoints: report.cost.estimatedPointsTotal,
+      thresholdResponsible: "no_snapshot_blocks_cold_live",
+      reasons: [...report.cost.rateLimit.reasons],
+    };
+  }
 
   if (report.providerCalls !== 0) {
     throw new Error("preflight_must_make_zero_provider_calls");
@@ -782,14 +847,16 @@ export async function runCanaryDiscoverCommand(
             rankingEvidence: shadow.rankingEvidence.filter((r) =>
               allowedFights.has(`${r.reportCode}:${r.fightId}`),
             ),
-            reportsListed: shadow.diagnostics.discoveredCandidateCount,
-            reportsHydrated: shadow.diagnostics.hydration?.reportsHydrated ?? 0,
+            reportsListed: shadow.diagnostics.reportsListed,
+            reportsHydrated: shadow.diagnostics.reportsHydrated,
             fightsExamined: shadow.diagnostics.discoveredCandidateCount,
             graphqlRequestCount: shadow.diagnostics.providerCalls,
             // Capability/detail combat event pages stay unreachable on this path.
             capabilityEventPageRequestCount: 0,
             measuredPoints: null,
             estimatedPoints: shadow.diagnostics.providerCalls,
+            omittedReports: shadow.diagnostics.omittedReports,
+            unhydratedReportCount: shadow.diagnostics.unhydratedReportCount,
           };
         }),
     });

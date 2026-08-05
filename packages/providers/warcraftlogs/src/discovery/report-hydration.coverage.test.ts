@@ -350,10 +350,10 @@ describe("coverage-aware hydrateFightUnknownCandidates", () => {
       fetchReport,
     });
 
-    // After seeding 1 skyreach, first fetch should prefer filling coverage.
-    // RECENT_COVERED fills skyreach to 2; then windrunner stubs.
-    expect(order[0]).toBe("RECENT_COVERED");
-    expect(order).toContain("OLDER_MISSING");
+    // After seeding 1 skyreach, missing-dungeon-first prefers zero-candidate
+    // windrunner (OLDER_MISSING) before one-candidate skyreach (RECENT_COVERED).
+    expect(order[0]).toBe("OLDER_MISSING");
+    expect(order).toContain("RECENT_COVERED");
   });
 
   it("counts thrown fetch errors against maxReports (exactly 3 attempts)", async () => {

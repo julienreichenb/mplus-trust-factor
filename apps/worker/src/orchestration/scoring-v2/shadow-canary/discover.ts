@@ -36,6 +36,14 @@ export interface ShadowCanaryDiscoveryResult {
     dungeonPoolSource: string;
     providerCalls: number;
     hydration: HydrationCoverageDiagnostics | null;
+    reportsListed: number;
+    reportsHydrated: number;
+    unhydratedReportCount: number;
+    omittedReports: Array<{
+      reportCode: string;
+      reason: string;
+      dungeonSlug: string | null;
+    }>;
   };
 }
 
@@ -193,10 +201,17 @@ export async function discoverShadowCanaryCandidates(input: {
   let hydrationDiagnostics: HydrationCoverageDiagnostics | null = null;
   if (typeof wcl.getGraphQlClient === "function") {
     const client = wcl.getGraphQlClient();
+    const hydrationHints = rankingEvidenceFromDiscovery.map((r) => ({
+      completedAt: new Date().toISOString(),
+      dungeonSlug: r.dungeonSlug,
+      keyLevel: r.keyLevel,
+      reportCode: r.reportCode,
+    }));
     const hydrated = await hydrateFightUnknownCandidates({
       candidates: discovery.candidates as never,
       characterName: input.characterName,
       realmSlug: input.realmSlug,
+      hints: hydrationHints,
       activeDungeonSlugs,
       maxReports: MAX_COVERAGE_AWARE_HYDRATION_REPORTS,
       fetchReport: async (code: string) => {
@@ -354,6 +369,14 @@ export async function discoverShadowCanaryCandidates(input: {
       dungeonPoolSource: dungeonPool.source,
       providerCalls,
       hydration: hydrationDiagnostics,
+      reportsListed: hydrationDiagnostics?.recentReportsDiscovered ?? 0,
+      reportsHydrated: hydrationDiagnostics?.reportsHydrated ?? 0,
+      unhydratedReportCount: hydrationDiagnostics?.reportsLeftUnhydratedBudget ?? 0,
+      omittedReports: (hydrationDiagnostics?.omittedReports ?? []).map((o) => ({
+        reportCode: o.reportCode,
+        reason: o.reason,
+        dungeonSlug: o.dungeonSlug,
+      })),
     },
   };
 }

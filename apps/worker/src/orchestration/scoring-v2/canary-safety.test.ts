@@ -14,6 +14,7 @@ import {
   evaluateLiveCapabilityPermission,
   buildCanaryCostProjection,
   assertCostAdmissionAllowsLive,
+  explainCostAdmissionDefer,
   runScoringV2CanaryPreflight,
   orchestrateScoringV2Runs,
   sourceFightKey,
@@ -559,6 +560,24 @@ describe("canary preflight + cost admission", () => {
       },
     });
     expect(defer.rateLimit.admission).toBe("DEFER");
+
+    const absent = buildCanaryCostProjection({
+      fights: [{ sourceFightKey: "a:1:1", packageCacheHit: false }],
+      rateBudgetConfig,
+      rateLimitSnapshot: null,
+    });
+    expect(absent.rateLimit.admission).toBe("DEFER");
+    expect(absent.rateLimit.reasons).toContain("rate_limit_snapshot_absent");
+    expect(absent.rateLimit.reasons).toContain("no_snapshot_blocks_cold_live");
+    const absentExplain = explainCostAdmissionDefer({
+      cost: absent,
+      snapshotSource: "ABSENT",
+      snapshotAgeMs: 1_400_000,
+      ttlSeconds: 60,
+    });
+    expect(absentExplain?.thresholdResponsible).toBe("no_snapshot_blocks_cold_live");
+    expect(absentExplain?.projectedPoints).toBe(absent.estimatedPointsTotal);
+    expect(absentExplain?.ttlSeconds).toBe(60);
 
     const replay = buildCanaryCostProjection({
       fights: [{ sourceFightKey: "a:1:1", packageCacheHit: true }],

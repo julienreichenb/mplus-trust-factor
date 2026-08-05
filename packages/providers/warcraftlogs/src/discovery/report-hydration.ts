@@ -26,6 +26,21 @@ export interface HydrationHint {
   completedAt: IsoDateTime;
   dungeonSlug?: string;
   keyLevel?: number;
+  /** When set, stubs with this reportCode inherit dungeonSlug before fetch. */
+  reportCode?: string;
+}
+
+export type OmittedHydrationReason =
+  | "REPORT_EXCLUDED_BY_HYDRATION_CAP"
+  | "REPORT_ALREADY_COVERED_DUNGEON_DEFERRED"
+  | "REPORT_LEFT_UNHYDRATED_NO_MORE_BUDGET";
+
+export interface OmittedHydrationReport {
+  reportCode: string;
+  reason: OmittedHydrationReason;
+  /** Known or hinted dungeon when available. */
+  dungeonSlug: string | null;
+  startTimeMs: number | null;
 }
 
 export interface HydrationActor {
@@ -106,6 +121,8 @@ export interface HydrationCoverageDiagnostics {
   stopReason: HydrationStopReason;
   /** Bounded structured rejection counts (no raw WCL payloads). */
   rejectionCountsByReason: Record<string, number>;
+  /** Reports listed as stubs but never fetched — exact omission reason. */
+  omittedReports: OmittedHydrationReport[];
 }
 
 export function slugifyDungeonName(value: string): string {
@@ -235,10 +252,83 @@ function underCoveredDungeons(
   return under;
 }
 
+/** Deficit: 0 identities → 0 (highest priority), 1 → 1, at-target → Infinity. */
+function dungeonDeficit(
+  coverage: Map<string, Set<string>>,
+  slug: string,
+  targetPerDungeon: number,
+): number {
+  const n = coverage.get(slug)?.size ?? 0;
+  if (n >= targetPerDungeon) return Number.POSITIVE_INFINITY;
+  return n;
+}
+
+function annotateStubDungeonFromHints(
+  stub: WclRunCandidate,
+  hints: HydrationHint[],
+): string | null {
+  const existing = normalizeDungeonSlug(stub.dungeonSlug);
+  if (existing) return existing;
+  for (const h of hints) {
+    if (!h.reportCode || h.reportCode !== stub.reportCode) continue;
+    const slug = normalizeDungeonSlug(h.dungeonSlug);
+    if (slug) return slug;
+  }
+  return hintDungeonForStub(stub, hints);
+}
+
+function hintDungeonForStub(
+  stub: WclRunCandidate,
+  hints: HydrationHint[],
+): string | null {
+  if (!hints.length) return null;
+  const start = stub.startTimeMs ?? 0;
+  let best: { slug: string; delta: number } | null = null;
+  for (const h of hints) {
+    const slug = normalizeDungeonSlug(h.dungeonSlug);
+    if (!slug) continue;
+    const hintMs = Date.parse(h.completedAt);
+    if (Number.isNaN(hintMs)) continue;
+    const delta = Math.abs(hintMs - start);
+    if (delta > HYDRATION_HINT_WINDOW_MS) continue;
+    if (!best || delta < best.delta) best = { slug, delta };
+  }
+  return best?.slug ?? null;
+}
+
+/**
+ * Deterministic exploration order for unknown-dungeon stubs.
+ * Alternates newest and oldest so the hydration cap cannot consume only the
+ * global newest prefix (which over-samples already-popular dungeons).
+ */
+export function roundRobinUnknownStubs(stubs: WclRunCandidate[]): WclRunCandidate[] {
+  if (stubs.length <= 1) return [...stubs];
+  const sorted = [...stubs].sort((a, b) => (b.startTimeMs ?? 0) - (a.startTimeMs ?? 0));
+  const out: WclRunCandidate[] = [];
+  let lo = 0;
+  let hi = sorted.length - 1;
+  let takeNewest = true;
+  while (lo <= hi) {
+    if (takeNewest) {
+      out.push(sorted[lo]!);
+      lo += 1;
+    } else {
+      out.push(sorted[hi]!);
+      hi -= 1;
+    }
+    takeNewest = !takeNewest;
+  }
+  return out;
+}
+
 /**
  * Unique fightUnknown stubs ordered for hydration.
- * When underCovered is provided, prefer stubs whose external hints point at
- * under-covered dungeons; otherwise deterministic recency / hint proximity.
+ *
+ * Missing-dungeon-first:
+ * 1. known-dungeon stubs for dungeons with 0 candidates;
+ * 2. known-dungeon stubs for dungeons with 1 candidate;
+ * 3. unknown-dungeon stubs via bounded round-robin (not global newest-24);
+ * 4. stubs for already-complete dungeons last.
  */
 export function prioritizeReportsForHydration(
   stubs: WclRunCandidate[],
@@ -246,6 +336,9 @@ export function prioritizeReportsForHydration(
   maxReports = MAX_HYDRATION_REPORTS,
   options?: {
     underCoveredDungeonSlugs?: ReadonlySet<string>;
+    /** When set, enables deficit-aware missing-dungeon-first ordering. */
+    coverage?: ReadonlyMap<string, ReadonlySet<string>>;
+    targetCandidatesPerDungeon?: number;
   },
 ): WclRunCandidate[] {
   const byCode = new Map<string, WclRunCandidate>();
@@ -254,36 +347,23 @@ export function prioritizeReportsForHydration(
     if (!byCode.has(stub.reportCode)) byCode.set(stub.reportCode, stub);
   }
   const unique = [...byCode.values()];
+  const target =
+    options?.targetCandidatesPerDungeon ?? TARGET_ELIGIBLE_CANDIDATES_PER_DUNGEON;
+  const coverage = options?.coverage;
+  const underCovered =
+    options?.underCoveredDungeonSlugs ??
+    (coverage
+      ? underCoveredDungeons(
+          new Map([...coverage.entries()].map(([k, v]) => [k, new Set(v)])),
+          target,
+        )
+      : undefined);
+
   const hintTimes = hints
     .map((h) => Date.parse(h.completedAt))
     .filter((ms) => !Number.isNaN(ms));
-  const underCovered = options?.underCoveredDungeonSlugs;
 
-  const hintDungeonForStub = (stub: WclRunCandidate): string | null => {
-    if (!hints.length) return null;
-    const start = stub.startTimeMs ?? 0;
-    let best: { slug: string; delta: number } | null = null;
-    for (const h of hints) {
-      const slug = normalizeDungeonSlug(h.dungeonSlug);
-      if (!slug) continue;
-      const hintMs = Date.parse(h.completedAt);
-      if (Number.isNaN(hintMs)) continue;
-      const delta = Math.abs(hintMs - start);
-      if (delta > HYDRATION_HINT_WINDOW_MS) continue;
-      if (!best || delta < best.delta) best = { slug, delta };
-    }
-    return best?.slug ?? null;
-  };
-
-  unique.sort((a, b) => {
-    if (underCovered && underCovered.size > 0) {
-      const aHintDungeon = hintDungeonForStub(a);
-      const bHintDungeon = hintDungeonForStub(b);
-      const aFills = aHintDungeon != null && underCovered.has(aHintDungeon) ? 0 : 1;
-      const bFills = bHintDungeon != null && underCovered.has(bHintDungeon) ? 0 : 1;
-      if (aFills !== bFills) return aFills - bFills;
-    }
-
+  const recencyThenHint = (a: WclRunCandidate, b: WclRunCandidate): number => {
     const aStart = a.startTimeMs ?? 0;
     const bStart = b.startTimeMs ?? 0;
     if (hintTimes.length > 0) {
@@ -295,6 +375,54 @@ export function prioritizeReportsForHydration(
       if (aDelta !== bDelta) return aDelta - bDelta;
     }
     return bStart - aStart;
+  };
+
+  if (coverage && underCovered && underCovered.size > 0) {
+    const zero: WclRunCandidate[] = [];
+    const one: WclRunCandidate[] = [];
+    const unknown: WclRunCandidate[] = [];
+    const complete: WclRunCandidate[] = [];
+
+    for (const stub of unique) {
+      const dungeon = annotateStubDungeonFromHints(stub, hints);
+      if (dungeon == null) {
+        unknown.push(stub);
+        continue;
+      }
+      const deficit = dungeonDeficit(
+        new Map([...coverage.entries()].map(([k, v]) => [k, new Set(v)])),
+        dungeon,
+        target,
+      );
+      if (deficit === 0) zero.push(stub);
+      else if (deficit === 1) one.push(stub);
+      else complete.push(stub);
+    }
+
+    zero.sort(recencyThenHint);
+    one.sort(recencyThenHint);
+    complete.sort(recencyThenHint);
+    const unknownRr = roundRobinUnknownStubs(unknown);
+    return [...zero, ...one, ...unknownRr, ...complete].slice(0, maxReports);
+  }
+
+  // Legacy / underCovered-only path (no full coverage map).
+  unique.sort((a, b) => {
+    if (underCovered && underCovered.size > 0) {
+      const aDungeon = annotateStubDungeonFromHints(a, hints);
+      const bDungeon = annotateStubDungeonFromHints(b, hints);
+      const aFills = aDungeon != null && underCovered.has(aDungeon) ? 0 : 1;
+      const bFills = bDungeon != null && underCovered.has(bDungeon) ? 0 : 1;
+      if (aFills !== bFills) return aFills - bFills;
+      // Prefer zero-candidate dungeons when both fill under-covered.
+      if (aFills === 0 && coverage) {
+        const cov = new Map([...coverage.entries()].map(([k, v]) => [k, new Set(v)]));
+        const aDef = aDungeon ? dungeonDeficit(cov, aDungeon, target) : 99;
+        const bDef = bDungeon ? dungeonDeficit(cov, bDungeon, target) : 99;
+        if (aDef !== bDef) return aDef - bDef;
+      }
+    }
+    return recencyThenHint(a, b);
   });
 
   return unique.slice(0, maxReports);
@@ -497,8 +625,11 @@ export async function hydrateFightUnknownCandidates(input: {
   let reportsFailedOrEmpty = 0;
   let stopReason: HydrationStopReason = coverageAware ? "no_more_reports" : "legacy_fixed_budget";
 
-  // Unique stubs ordered once; coverage-aware re-ranks remaining by under-covered hints.
-  const uniqueStubs = prioritizeReportsForHydration(stubs, hints, Number.MAX_SAFE_INTEGER);
+  // Unique stubs ordered once; coverage-aware re-ranks remaining by missing-dungeon-first.
+  const uniqueStubs = prioritizeReportsForHydration(stubs, hints, Number.MAX_SAFE_INTEGER, {
+    coverage: coverageAware ? coverage : undefined,
+    targetCandidatesPerDungeon: targetPerDungeon,
+  });
   const remaining = [...uniqueStubs];
 
   const takeNextStub = (): WclRunCandidate | null => {
@@ -507,6 +638,8 @@ export async function hydrateFightUnknownCandidates(input: {
       const under = underCoveredDungeons(coverage, targetPerDungeon);
       const ordered = prioritizeReportsForHydration(remaining, hints, remaining.length, {
         underCoveredDungeonSlugs: under,
+        coverage,
+        targetCandidatesPerDungeon: targetPerDungeon,
       });
       remaining.splice(0, remaining.length, ...ordered);
     }
@@ -597,6 +730,27 @@ export async function hydrateFightUnknownCandidates(input: {
     (s) => !attemptedCodes.has(s.reportCode),
   ).length;
 
+  const omittedByCode = new Map<string, OmittedHydrationReport>();
+  for (const stub of uniqueStubs) {
+    if (attemptedCodes.has(stub.reportCode)) continue;
+    const dungeon = annotateStubDungeonFromHints(stub, hints);
+    const deferredComplete =
+      coverageAware &&
+      dungeon != null &&
+      (coverage.get(dungeon)?.size ?? 0) >= targetPerDungeon &&
+      !isFullCoverage(coverage, targetPerDungeon);
+    omittedByCode.set(stub.reportCode, {
+      reportCode: stub.reportCode,
+      reason: deferredComplete
+        ? "REPORT_ALREADY_COVERED_DUNGEON_DEFERRED"
+        : stopReason === "budget_exhausted" || stopReason === "legacy_fixed_budget"
+          ? "REPORT_EXCLUDED_BY_HYDRATION_CAP"
+          : "REPORT_LEFT_UNHYDRATED_NO_MORE_BUDGET",
+      dungeonSlug: dungeon,
+      startTimeMs: stub.startTimeMs ?? null,
+    });
+  }
+
   return {
     candidates: [...known, ...hydrated, ...untouchedStubs],
     hydratedReportCount,
@@ -614,6 +768,9 @@ export async function hydrateFightUnknownCandidates(input: {
       targetCoverageReached,
       stopReason,
       rejectionCountsByReason,
+      omittedReports: [...omittedByCode.values()].sort((a, b) =>
+        a.reportCode.localeCompare(b.reportCode),
+      ),
     },
   };
 }

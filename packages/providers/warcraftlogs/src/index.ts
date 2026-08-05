@@ -46,6 +46,7 @@ export * from "./discovery/zone-ranking-aggregates.js";
 export * from "./discovery/points-and-damage-performance.js";
 export * from "./discovery/bounds.js";
 export * from "./discovery/report-hydration.js";
+export * from "./discovery/report-discovery-trace.js";
 export * from "./discovery/fight-ownership.js";
 export * from "./discovery/recent-reports-pagination.js";
 export * from "./planner/index.js";

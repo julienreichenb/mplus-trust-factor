@@ -28,6 +28,13 @@ export interface CanaryDiscoveryCandidateSource {
   capabilityEventPageRequestCount: number;
   measuredPoints: number | null;
   estimatedPoints: number | null;
+  /** Reports listed but never hydrated, with exact omission reason. */
+  omittedReports?: Array<{
+    reportCode: string;
+    reason: string;
+    dungeonSlug: string | null;
+  }>;
+  unhydratedReportCount?: number;
 }
 
 export interface CanaryDiscoveryForbiddenEffects {
@@ -53,13 +60,44 @@ export interface CanaryDiscoveryReport {
   dungeonSlugs: string[];
   reportsListed: number;
   reportsHydrated: number;
+  unhydratedReportCount: number;
   fightsExamined: number;
+  /** Unique discovery candidates observed (alias of historical candidateCount). */
+  discoveredCandidateCount: number;
+  /** Unique eligible plan identities per dungeon (not summed across slots). */
+  uniqueEligibleCandidateCount: number;
+  selectedSourceFightCount: number;
+  rejectedCandidateCount: number;
   candidateCountPerDungeon: Record<string, number>;
   eligibleCandidateCountPerDungeon: Record<string, number>;
   selectedRunsPerDungeon: Record<string, number>;
   selectedSlotCount: number;
   expectedSlotCount: number;
   missingSlots: Array<{ slotId: string; reason: string }>;
+  /**
+   * Counter definitions (unambiguous):
+   * - discoveredCandidateCount: unique discovery candidates observed
+   * - uniqueEligibleCandidateCount: unique eligible plan identities (not per-slot sum)
+   * - selectedSourceFightCount: SELECTED slots with distinct reportCode:fightId
+   * - rejectedCandidateCount: rejectedCandidates length
+   * - unhydratedReportCount: listed stubs never fetched
+   */
+  counterDefinitions: {
+    discoveredCandidateCount: "unique_discovered_candidates";
+    uniqueEligibleCandidateCount: "unique_eligible_plan_identities";
+    selectedSourceFightCount: "selected_distinct_source_fights";
+    rejectedCandidateCount: "rejected_candidates";
+    unhydratedReportCount: "listed_not_hydrated_reports";
+    candidateCountPerDungeon: "unique_discovered_candidates_per_dungeon";
+    eligibleCandidateCountPerDungeon: "unique_eligible_plan_identities_per_dungeon";
+  };
+  omittedReports: Array<{
+    reportCode: string;
+    reason: string;
+    dungeonSlug: string | null;
+  }>;
+  analysisStatus: "EMPTY" | "PARTIAL" | "COMPLETE";
+  supersedesManifestId: string | null;
   rankingEvidenceFound: number;
   rankingEvidenceFetched: number;
   rankingEvidencePersisted: number;

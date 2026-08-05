@@ -36,6 +36,12 @@ import {
   type CanaryRateSnapshotBootstrapReport,
 } from "./canary-rate-snapshot.js";
 import {
+  assertNoDuplicateSelectedIdentities,
+  mergeDiscoveryCandidates,
+  selectedSlotsAsCandidates,
+} from "./canary-manifest-reconcile.js";
+import { evidenceManifestAnalysisStatus } from "@mplus/scoring";
+import {
   CANARY_DISCOVERY_REPORT_SCHEMA,
   type CanaryDiscoveryCandidateSource,
   type CanaryDiscoveryForbiddenEffects,
@@ -279,13 +285,30 @@ export async function runScoringV2CanaryDiscovery(
       dungeonSlugs,
       reportsListed: 0,
       reportsHydrated: 0,
+      unhydratedReportCount: 0,
       fightsExamined: 0,
+      discoveredCandidateCount: existing.document.selectedSlotCount,
+      uniqueEligibleCandidateCount: existing.document.selectedSlotCount,
+      selectedSourceFightCount: existing.document.selectedSlotCount,
+      rejectedCandidateCount: 0,
       candidateCountPerDungeon: {},
       eligibleCandidateCountPerDungeon: {},
       selectedRunsPerDungeon,
       selectedSlotCount: existing.document.selectedSlotCount,
       expectedSlotCount,
       missingSlots: [],
+      counterDefinitions: {
+        discoveredCandidateCount: "unique_discovered_candidates",
+        uniqueEligibleCandidateCount: "unique_eligible_plan_identities",
+        selectedSourceFightCount: "selected_distinct_source_fights",
+        rejectedCandidateCount: "rejected_candidates",
+        unhydratedReportCount: "listed_not_hydrated_reports",
+        candidateCountPerDungeon: "unique_discovered_candidates_per_dungeon",
+        eligibleCandidateCountPerDungeon: "unique_eligible_plan_identities_per_dungeon",
+      },
+      omittedReports: [],
+      analysisStatus: "COMPLETE",
+      supersedesManifestId: null,
       rankingEvidenceFound: 0,
       rankingEvidenceFetched: 0,
       rankingEvidencePersisted: 0,
@@ -318,6 +341,10 @@ export async function runScoringV2CanaryDiscovery(
     };
     return { report, manifest: existing.document, effects };
   }
+
+  const incompletePrior = existing && !isCompleteManifest(existing.document, expectedSlotCount)
+    ? existing
+    : null;
 
   const bootstrap = await input.ensureRateLimitSnapshot();
   if (!bootstrap.succeeded || !bootstrap.snapshot) {
@@ -374,6 +401,14 @@ export async function runScoringV2CanaryDiscovery(
     );
   }
 
+  const priorCandidates = incompletePrior
+    ? selectedSlotsAsCandidates(incompletePrior.document)
+    : [];
+  const mergedCandidates = mergeDiscoveryCandidates({
+    prior: priorCandidates,
+    discovered: discovered.candidates,
+  });
+
   const refreshContractHash = createHash("sha256")
     .update(`${input.characterId}|${seasonId}|${dungeonPoolHash}|discovery-only`)
     .digest("hex");
@@ -395,15 +430,18 @@ export async function runScoringV2CanaryDiscovery(
 
   const { plan } = buildEvidenceAcquisitionPlanV2({
     scope,
-    candidates: discovered.candidates,
+    candidates: mergedCandidates,
     plannedAt: (input.now ?? new Date()).toISOString(),
   });
 
+  /**
+   * eligibleCandidateCountPerDungeon = unique eligible identities per dungeon
+   * from the plan (slot0 chain length). Must NOT sum across both slots — both
+   * slots share the same ordered chain.
+   */
   const eligibleCandidateCountPerDungeon: Record<string, number> = {};
-  for (const slot of plan.slots) {
-    const slug = slot.dungeonSlug.toLowerCase();
-    eligibleCandidateCountPerDungeon[slug] =
-      (eligibleCandidateCountPerDungeon[slug] ?? 0) + slot.orderedCandidates.length;
+  for (const d of plan.diagnostics.perDungeon) {
+    eligibleCandidateCountPerDungeon[d.dungeonSlug.toLowerCase()] = d.eligibleCount;
   }
 
   const acquisitionResults = [];
@@ -413,7 +451,7 @@ export async function runScoringV2CanaryDiscovery(
       const k = `${c.discoveryIdentity.reportCode}:${c.discoveryIdentity.fightId}`;
       if (seen.has(k)) continue;
       seen.add(k);
-      const meta = discovered.candidates.find(
+      const meta = mergedCandidates.find(
         (cand) =>
           cand.discoveryIdentity.reportCode === c.discoveryIdentity.reportCode &&
           cand.discoveryIdentity.fightId === c.discoveryIdentity.fightId,
@@ -463,14 +501,19 @@ export async function runScoringV2CanaryDiscovery(
     acquisitionResults,
     selectedAt: (input.now ?? new Date()).toISOString(),
   });
+  assertNoDuplicateSelectedIdentities(manifest);
 
   const documentForPersist = {
     ...manifest,
     dungeonPoolHash,
     catalogVersion: season.catalogVersion,
+    ...(incompletePrior
+      ? { supersedesManifestId: incompletePrior.rowId }
+      : {}),
   } as CharacterSeasonEvidenceManifestV2 & {
     dungeonPoolHash: string;
     catalogVersion: string;
+    supersedesManifestId?: string;
   };
 
   const selectedRunsPerDungeon: Record<string, number> = {};
@@ -479,14 +522,27 @@ export async function runScoringV2CanaryDiscovery(
     if (slot.state === "SELECTED") {
       const slug = slot.dungeonSlug.toLowerCase();
       selectedRunsPerDungeon[slug] = (selectedRunsPerDungeon[slug] ?? 0) + 1;
-    } else {
-      missingSlots.push({
-        slotId: slot.slotId,
-        reason: slot.fallbackReason
-          ? `fallback:${slot.fallbackReason}`
-          : `state:${slot.state}`,
-      });
     }
+  }
+  for (const slot of manifest.slots) {
+    if (slot.state === "SELECTED") continue;
+    const slug = slot.dungeonSlug.toLowerCase();
+    const selectedForDungeon = selectedRunsPerDungeon[slug] ?? 0;
+    const eligibleForDungeon = eligibleCandidateCountPerDungeon[slug] ?? 0;
+    let reason: string;
+    if (
+      slot.state === "MISSING_NO_CANDIDATE" &&
+      selectedForDungeon === 1 &&
+      eligibleForDungeon <= 1
+    ) {
+      reason =
+        "INSUFFICIENT_CHARACTER_HISTORY:only_one_distinct_run_for_dungeon";
+    } else if (slot.fallbackReason) {
+      reason = `fallback:${slot.fallbackReason}`;
+    } else {
+      reason = `state:${slot.state}`;
+    }
+    missingSlots.push({ slotId: slot.slotId, reason });
   }
 
   for (const slug of dungeonSlugs) {
@@ -565,6 +621,17 @@ export async function runScoringV2CanaryDiscovery(
   assertForbiddenEffectsZero(effects);
   const incomplete =
     documentForPersist.selectedSlotCount < expectedSlotCount || missingSlots.length > 0;
+  const uniqueEligibleCandidateCount = Object.values(
+    eligibleCandidateCountPerDungeon,
+  ).reduce((a, b) => a + b, 0);
+  const analysisStatus = evidenceManifestAnalysisStatus({
+    selectedSlotCount: documentForPersist.selectedSlotCount,
+    targetRunCount: expectedSlotCount,
+  });
+  const omittedReports = discovered.omittedReports ?? [];
+  const unhydratedReportCount =
+    discovered.unhydratedReportCount ??
+    Math.max(0, discovered.reportsListed - discovered.reportsHydrated);
 
   const report: CanaryDiscoveryReport = {
     schemaVersion: CANARY_DISCOVERY_REPORT_SCHEMA,
@@ -580,13 +647,30 @@ export async function runScoringV2CanaryDiscovery(
     dungeonSlugs,
     reportsListed: discovered.reportsListed,
     reportsHydrated: discovered.reportsHydrated,
+    unhydratedReportCount,
     fightsExamined: discovered.fightsExamined,
-    candidateCountPerDungeon: countByDungeon(discovered.candidates),
+    discoveredCandidateCount: mergedCandidates.length,
+    uniqueEligibleCandidateCount,
+    selectedSourceFightCount: documentForPersist.selectedSlotCount,
+    rejectedCandidateCount: documentForPersist.rejectedCandidates?.length ?? 0,
+    candidateCountPerDungeon: countByDungeon(mergedCandidates),
     eligibleCandidateCountPerDungeon,
     selectedRunsPerDungeon,
     selectedSlotCount: documentForPersist.selectedSlotCount,
     expectedSlotCount,
     missingSlots,
+    counterDefinitions: {
+      discoveredCandidateCount: "unique_discovered_candidates",
+      uniqueEligibleCandidateCount: "unique_eligible_plan_identities",
+      selectedSourceFightCount: "selected_distinct_source_fights",
+      rejectedCandidateCount: "rejected_candidates",
+      unhydratedReportCount: "listed_not_hydrated_reports",
+      candidateCountPerDungeon: "unique_discovered_candidates_per_dungeon",
+      eligibleCandidateCountPerDungeon: "unique_eligible_plan_identities_per_dungeon",
+    },
+    omittedReports,
+    analysisStatus,
+    supersedesManifestId: incompletePrior?.rowId ?? null,
     rankingEvidenceFound: discovered.rankingEvidence.length,
     rankingEvidenceFetched: discovered.rankingEvidence.length,
     rankingEvidencePersisted: rankingPersisted,
