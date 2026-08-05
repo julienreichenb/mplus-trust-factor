@@ -628,7 +628,7 @@ describe("runScoringV2CanaryLive", () => {
     }
   });
 
-  it("structured fight failures produce a thrown error (non-zero exit path)", async () => {
+  it("structured fight failures with zero digests produce FAILURE", async () => {
     const ports = createMemoryOrchestrationPorts();
     ports.acquireAndPersistCapabilityPackage = vi.fn(async () => {
       throw Object.assign(new Error("boom"), { code: "FIGHT_METADATA_ABSENT" });
@@ -668,6 +668,74 @@ describe("runScoringV2CanaryLive", () => {
           scoringModelId: "model-1",
         }),
       ).rejects.toMatchObject({ code: "CANARY_LIVE_FIGHT_FAILURES" });
+    } finally {
+      await rm(outDir, { recursive: true, force: true });
+    }
+  });
+
+  it("isolated fight failures still calculate partial dimensions (PARTIAL_SUCCESS)", async () => {
+    const ports = createMemoryOrchestrationPorts();
+    let call = 0;
+    const baseAcquire = ports.acquireAndPersistCapabilityPackage.bind(ports);
+    ports.acquireAndPersistCapabilityPackage = vi.fn(async (args) => {
+      call += 1;
+      // Fail 9 of 16 — leave 7 successful.
+      if (call > 7) {
+        throw Object.assign(new Error("revision mismatch"), {
+          code: "FIGHT_REVISION_MISMATCH",
+        });
+      }
+      return baseAcquire(args);
+    });
+    const manifest = buildManifest(fullCandidates(), MIDNIGHT_SEASON_1_DUNGEON_SLUGS);
+    const container = mockContainer(manifest);
+    const outDir = await mkdtemp(join(tmpdir(), "canary-live-partial-fail-"));
+    try {
+      const { report } = await runScoringV2CanaryLive({
+        prisma: container.prisma as never,
+        container: container as never,
+        characterId: CHAR_ID,
+        characterName: "Target",
+        region: "EU",
+        realm: "archimonde",
+        characterResolution: {
+          characterResolutionSource: "test.injected",
+          characterId: CHAR_ID,
+          characterCanonicalIdentity: {
+            region: "EU",
+            realmSlug: "archimonde",
+            name: "Target",
+          },
+          repositoryMode: "PRODUCTION",
+        },
+        seasonResolution: seasonResolutionOk,
+        role: "DPS",
+        classSlug: "mage",
+        specSlug: "arcane",
+        rateBudgetConfig: { warnPercent: 70, deferPercent: 80, stopPercent: 90 },
+        env: liveEnv,
+        ports,
+        ensureRateLimitSnapshot: okBootstrap(100),
+        outputDir: outDir,
+        useRedisLock: false,
+        scoringModelId: "model-1",
+      });
+      expect(report.commandOutcome).toBe("PARTIAL_SUCCESS");
+      expect(report.fightFailures.length).toBeGreaterThan(0);
+      expect(report.wallidrixeDigestCount).toBe(7);
+      expect(report.analysisStatus).toBe("PARTIAL");
+      expect(report.dimensions.performance.status).toMatch(/AVAILABLE|PARTIAL/);
+      expect(report.dimensions.utility.status).toMatch(/AVAILABLE|PARTIAL/);
+      expect(report.dimensions.survival.status).toMatch(/AVAILABLE|PARTIAL/);
+      expect(report.dimensions.performance.blockReason).not.toBe(
+        "fight_processing_failed",
+      );
+      expect(report.composite.status).toBe("AVAILABLE_WITH_PARTIAL_EVIDENCE");
+      expect(report.composite.score).not.toBeNull();
+      expect(report.confidence.confidenceScore).toBeGreaterThan(0);
+      expect(report.confidence.missingDungeons.length).toBeGreaterThan(0);
+      expect(report.publicationEnabled).toBe(false);
+      expect(report.replayProviderCalls).toBe(0);
     } finally {
       await rm(outDir, { recursive: true, force: true });
     }
