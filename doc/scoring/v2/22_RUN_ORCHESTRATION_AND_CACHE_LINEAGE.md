@@ -86,7 +86,7 @@ Zone ID is **not** a CLI argument in production. Both phases read `WCL_MPLUS_ZON
 (zone **47** = Midnight Season 1). The operator CLI uses **production** PostgreSQL
 repositories (`createWorkerContainer` + `createProductionRunOrchestrationPorts`):
 character via `findByIdentity`, season/dungeon pool via persisted `Season` /
-`SeasonDungeon` (validated against `CURRENT_MPLUS_ZONE_DUNGEON_SLUGS`), manifests
+`SeasonDungeon` (validated via ActiveMythicPlusSeasonAuthority), manifests
 via `EvidenceManifest`. In-memory ports and sentinel UUIDs are test-only.
 
 Authoritative Midnight Season 1 dungeon slugs:
@@ -149,6 +149,7 @@ Refuses without `--confirm-live`, with publication on, wildcards/cohorts, or mis
 | Concern | Path |
 |---------|------|
 | Refresh entry | `refresh-bridge.ts` |
+| Active M+ season | `orchestration/active-mplus-season/` — see [`23_ACTIVE_MPLUS_SEASON_AUTHORITY.md`](./23_ACTIVE_MPLUS_SEASON_AUTHORITY.md) |
 | Live adapter | `run-orchestration/live-capability-adapter.ts` |
 | Redis singleflight | `run-orchestration/source-fight-lease.ts` |
 | Cost admission | `run-orchestration/cost-admission.ts` |
