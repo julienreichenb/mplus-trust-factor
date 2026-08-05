@@ -66,6 +66,35 @@ export type LiveCapabilityPermissionDenial =
   | "PUBLICATION_ENABLED"
   | "WCL_CREDENTIALS_MISSING";
 
+/**
+ * Fail-closed revision gate. Never substitutes a default revision.
+ * Unknown actual revision is treated as a mismatch against the expected identity.
+ */
+export function assertExpectedFightRevision(input: {
+  reportCode: string;
+  fightId: number;
+  expectedRevision: number;
+  actualRevision: number | null | undefined;
+}): asserts input is {
+  reportCode: string;
+  fightId: number;
+  expectedRevision: number;
+  actualRevision: number;
+} {
+  if (
+    input.actualRevision == null ||
+    !Number.isFinite(input.actualRevision) ||
+    input.actualRevision !== input.expectedRevision
+  ) {
+    throw Object.assign(
+      new Error(
+        `fight_revision_mismatch:expected=${input.expectedRevision} actual=${input.actualRevision ?? "null"}`,
+      ),
+      { code: "FIGHT_REVISION_MISMATCH" },
+    );
+  }
+}
+
 export function evaluateLiveCapabilityPermission(
   input: LiveCapabilityPermissionInput,
 ): { allowed: true } | { allowed: false; reasons: LiveCapabilityPermissionDenial[] } {
@@ -140,18 +169,16 @@ export async function resolveAuthoritativeFightMetadata(input: {
     );
   }
   const revision =
-    typeof report.revision === "number" ? report.revision : input.expectedRevision;
-  if (revision !== input.expectedRevision) {
-    throw Object.assign(
-      new Error(
-        `fight_revision_mismatch:expected=${input.expectedRevision} actual=${revision}`,
-      ),
-      { code: "FIGHT_REVISION_MISMATCH" },
-    );
-  }
+    typeof report.revision === "number" ? report.revision : null;
+  assertExpectedFightRevision({
+    reportCode: input.reportCode,
+    fightId: input.fightId,
+    expectedRevision: input.expectedRevision,
+    actualRevision: revision,
+  });
 
   return {
-    reportRevision: revision,
+    reportRevision: revision!,
     fightStartMs: fight.startTime,
     fightEndMs: fight.endTime,
     dungeonSlug: fight.name

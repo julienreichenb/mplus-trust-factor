@@ -83,6 +83,8 @@ export function timedFromKeystoneBonus(keystoneBonus: number | null | undefined)
 
 export interface HydrationReportPayload {
   code: string;
+  /** Authoritative WCL report revision when present in GraphQL payload. */
+  revision?: number | null;
   startTime: number;
   endTime?: number | null;
   visibility?: string | null;
@@ -459,6 +461,11 @@ export function hydratedFightToCandidate(
     }
   }
 
+  const reportRevision =
+    typeof report.revision === "number" && Number.isFinite(report.revision)
+      ? report.revision
+      : null;
+
   return {
     reportCode: report.code,
     fightId: fight.id,
@@ -476,6 +483,7 @@ export function hydratedFightToCandidate(
     source: "recentReports",
     matchConfidence: null,
     targetActorId,
+    reportRevision,
     incompleteness: {
       dungeonUnknown: dungeonSlug == null,
       seasonUnknown: true,
@@ -488,6 +496,7 @@ export function hydratedFightToCandidate(
       "hydrated from recentReports fight/masterData",
       ...(dungeonSlug == null ? ["dungeonSlug unresolved from encounter/fight name"] : []),
       ...(timed == null ? ["timed unresolved — keystoneBonus absent"] : []),
+      ...(reportRevision == null ? ["reportRevision unresolved from WCL metadata"] : []),
     ],
   };
 }

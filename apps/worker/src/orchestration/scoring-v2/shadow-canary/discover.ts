@@ -175,7 +175,10 @@ export async function discoverShadowCanaryCandidates(input: {
   );
   providerCalls += 5;
 
-  const rankingEvidenceFromDiscovery: RankingParseEvidenceV2[] = [];
+  type RankingSeed = Omit<RankingParseEvidenceV2, "reportRevision"> & {
+    reportRevision: number | null;
+  };
+  const rankingEvidenceFromDiscovery: RankingSeed[] = [];
   for (const raw of discovery.rankings ?? []) {
     const reportCode =
       typeof raw.reportCode === "string"
@@ -202,11 +205,18 @@ export async function discoverShadowCanaryCandidates(input: {
       raw.keyLevel ?? raw.bracket ?? (raw as { bracket?: number }).bracket ?? 0,
     );
     if (!Number.isFinite(keyLevel) || keyLevel <= 0) continue;
+    const revisionRaw =
+      typeof raw.reportRevision === "number"
+        ? raw.reportRevision
+        : typeof (raw as { revision?: number }).revision === "number"
+          ? (raw as { revision: number }).revision
+          : null;
     rankingEvidenceFromDiscovery.push({
       reportCode,
       fightId,
+      // Never invent revision=1 from rankings; hydration supplies authoritative revision.
       reportRevision:
-        typeof raw.reportRevision === "number" ? raw.reportRevision : 1,
+        revisionRaw != null && Number.isFinite(revisionRaw) ? revisionRaw : null,
       dungeonSlug,
       keyLevel,
       bracketPercent:
@@ -323,7 +333,7 @@ export async function discoverShadowCanaryCandidates(input: {
             ? raw.actorId
             : null,
       reportRevision: typeof raw.reportRevision === "number" ? raw.reportRevision : null,
-      source: "zone_rankings",
+      source: raw.source === "recentReports" ? "recent_reports" : "zone_rankings",
       visibility,
       fightAccessible: visibility === "public",
       hardError: false,
@@ -383,14 +393,20 @@ export async function discoverShadowCanaryCandidates(input: {
     if (seenRanking.has(key)) continue;
     seenRanking.add(key);
     const fromDiscovery = rankingByFight.get(key);
-    if (fromDiscovery) {
-      rankingEvidence.push({
-        ...fromDiscovery,
-        reportRevision: c.reportRevision ?? fromDiscovery.reportRevision,
-        dungeonSlug: c.dungeonSlug,
-        keyLevel: c.keyLevel,
-      });
-    }
+    const revision =
+      typeof c.reportRevision === "number" && Number.isFinite(c.reportRevision)
+        ? c.reportRevision
+        : fromDiscovery?.reportRevision != null &&
+            Number.isFinite(fromDiscovery.reportRevision)
+          ? fromDiscovery.reportRevision
+          : null;
+    if (!fromDiscovery || revision == null) continue;
+    rankingEvidence.push({
+      ...fromDiscovery,
+      reportRevision: revision,
+      dungeonSlug: c.dungeonSlug,
+      keyLevel: c.keyLevel,
+    });
   }
 
   return {

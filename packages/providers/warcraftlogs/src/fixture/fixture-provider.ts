@@ -127,6 +127,7 @@ export class FixtureWarcraftLogsProvider implements WarcraftLogsProvider {
         if (!report) return null;
         return {
           code: report.code,
+          revision: report.revision,
           startTime: report.startTime,
           endTime: report.endTime,
           visibility: report.visibility,

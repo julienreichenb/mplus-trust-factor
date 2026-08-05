@@ -496,10 +496,23 @@ export async function orchestrateScoringV2Runs(
               cand.discoveryIdentity.reportCode === c.discoveryIdentity.reportCode &&
               cand.discoveryIdentity.fightId === c.discoveryIdentity.fightId,
           );
+          const reportRevision = meta?.reportRevision;
+          if (
+            reportRevision == null ||
+            !Number.isFinite(reportRevision) ||
+            reportRevision < 0
+          ) {
+            throw Object.assign(
+              new Error(
+                `REPORT_REVISION_UNRESOLVED:${c.discoveryIdentity.reportCode}:${c.discoveryIdentity.fightId}`,
+              ),
+              { code: "REPORT_REVISION_UNRESOLVED" },
+            );
+          }
           return {
             discoveryIdentity: { ...c.discoveryIdentity },
             acquisitionStatus: "ACQUIRED" as const,
-            reportRevision: meta?.reportRevision ?? 1,
+            reportRevision,
             rejectionReason: null,
             rejectionDetail: null,
             datasetHashes: [],
@@ -671,10 +684,7 @@ export async function orchestrateScoringV2Runs(
   let utility: ReturnType<typeof computeUtilityV2> | null = null;
   let survival: ReturnType<typeof computeSurvivalV2> | null = null;
 
-  if (
-    (cacheMisses.length === 0 && fightFailures.length === 0) &&
-    characterDigests.length > 0
-  ) {
+  if (characterDigests.length > 0) {
     try {
       const runParseFacts = characterDigests.map((row) =>
         performanceRunParseFactFromDigest(row.digest, row.slotId),
@@ -790,11 +800,13 @@ export async function orchestrateScoringV2Runs(
               : "survival_failed",
       });
     }
-  } else if (cacheMisses.length > 0 || fightFailures.length > 0) {
+  } else if (characterDigests.length === 0) {
     const reason =
       cacheMisses.length > 0
         ? "provider_evidence_cache_miss"
-        : "fight_processing_failed";
+        : fightFailures.length > 0
+          ? "fight_processing_failed"
+          : "zero_usable_digests";
     blocked.push({
       dimension: "PERFORMANCE",
       reason,

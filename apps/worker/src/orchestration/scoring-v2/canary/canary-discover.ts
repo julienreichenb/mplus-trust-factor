@@ -499,10 +499,29 @@ export async function runScoringV2CanaryDiscovery(
           cand.discoveryIdentity.reportCode === c.discoveryIdentity.reportCode &&
           cand.discoveryIdentity.fightId === c.discoveryIdentity.fightId,
       );
+      const reportRevision = meta?.reportRevision;
+      if (
+        reportRevision == null ||
+        !Number.isFinite(reportRevision) ||
+        reportRevision < 0
+      ) {
+        throw Object.assign(
+          new Error(
+            `REPORT_REVISION_UNRESOLVED:${c.discoveryIdentity.reportCode}:${c.discoveryIdentity.fightId}`,
+          ),
+          {
+            code: "REPORT_REVISION_UNRESOLVED",
+            reportCode: c.discoveryIdentity.reportCode,
+            fightId: c.discoveryIdentity.fightId,
+            discoveredRevision: reportRevision ?? null,
+            revisionSource: "candidate_metadata",
+          },
+        );
+      }
       acquisitionResults.push({
         discoveryIdentity: { ...c.discoveryIdentity },
         acquisitionStatus: "ACQUIRED" as const,
-        reportRevision: meta?.reportRevision ?? 1,
+        reportRevision,
         rejectionReason: null,
         rejectionDetail: null,
         datasetHashes: [] as Array<{
@@ -654,7 +673,8 @@ export async function runScoringV2CanaryDiscovery(
     if (dbSlot.state !== "SELECTED" || dbSlot.reportCode == null || dbSlot.fightId == null) {
       continue;
     }
-    const rev = dbSlot.reportRevision ?? 1;
+    const rev = dbSlot.reportRevision;
+    if (rev == null) continue;
     const row = rankingByFight.get(`${dbSlot.reportCode}:${dbSlot.fightId}:${rev}`);
     if (!row) continue;
     const outcome = await persistRankingEvidence({

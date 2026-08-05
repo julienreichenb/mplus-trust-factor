@@ -272,10 +272,23 @@ export async function runScoringV2CanaryPreflight(input: {
             cand.discoveryIdentity.reportCode === c.discoveryIdentity.reportCode &&
             cand.discoveryIdentity.fightId === c.discoveryIdentity.fightId,
         );
+        const reportRevision = meta?.reportRevision;
+        if (
+          reportRevision == null ||
+          !Number.isFinite(reportRevision) ||
+          reportRevision < 0
+        ) {
+          throw Object.assign(
+            new Error(
+              `REPORT_REVISION_UNRESOLVED:${c.discoveryIdentity.reportCode}:${c.discoveryIdentity.fightId}`,
+            ),
+            { code: "REPORT_REVISION_UNRESOLVED" },
+          );
+        }
         acquisitionResults.push({
           discoveryIdentity: { ...c.discoveryIdentity },
           acquisitionStatus: "ACQUIRED" as const,
-          reportRevision: meta?.reportRevision ?? 1,
+          reportRevision,
           rejectionReason: null,
           rejectionDetail: null,
           datasetHashes: [],
