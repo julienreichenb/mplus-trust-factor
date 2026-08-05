@@ -1,33 +1,72 @@
 /**
  * Guarded Scoring V2 one-character canary CLI.
  *
- * Phase A (zero WCL by default):
- *   pnpm scoring-v2:canary:preflight -- --region EU --realm archimonde --character Wallidrixe --zone-id 42
+ * Operator path uses production PostgreSQL repositories + WCL_MPLUS_ZONE_ID.
+ * In-memory ports / sentinel characters are test-only.
+ *
+ * Phase A (zero WCL):
+ *   pnpm scoring-v2:canary:preflight -- --region EU --realm archimonde --character Wallidrixe
+ *
+ * Catalog diagnostic (zero WCL):
+ *   pnpm scoring-v2:canary:diagnose-catalog
+ *
+ * Local catalog repair (idempotent; do not run against staging/production):
+ *   pnpm scoring-v2:canary:repair-catalog -- --region EU
  *
  * Phase B (refuses without --confirm-live; not run in automation):
- *   pnpm scoring-v2:canary:live -- --region EU --realm archimonde --character Wallidrixe --zone-id 42 --confirm-live
+ *   pnpm scoring-v2:canary:live -- --region EU --realm archimonde --character Wallidrixe --confirm-live
  */
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { loadEnv, type AppEnv } from "@mplus/config";
-import { EVIDENCE_SELECTOR_VERSION } from "@mplus/contracts";
+import type { PrismaClient } from "@mplus/database";
+import { EVIDENCE_SELECTOR_VERSION, type CharacterIdentityInput } from "@mplus/contracts";
+import type { CharacterSeasonEvidenceManifestV2 } from "@mplus/contracts";
 import { createMemoryOrchestrationPorts } from "../run-orchestration/memory-ports.js";
-import { runScoringV2CanaryPreflight } from "../run-orchestration/canary-preflight.js";
+import {
+  isManifestCompatibleWithSeasonPool,
+  runScoringV2CanaryPreflight,
+} from "../run-orchestration/canary-preflight.js";
 import {
   isScoringV2ShadowOrchestrationEnabled,
   assertPublicationBlocked,
 } from "../acquisition.js";
 import type { EvidenceCandidateMetadataV2 } from "@mplus/contracts";
+import {
+  parseOptionalCliZoneId,
+  resolveCanaryZoneId,
+  type ResolvedCanaryZone,
+} from "./canary-zone.js";
+import {
+  assertNotSentinelCharacterId,
+  assertOperatorRepositoryMode,
+  createMemoryCanaryDependencies,
+  createProductionCanaryDependencies,
+  type CanaryCharacterResolution,
+  type CanaryRepositoryMode,
+  CharacterNotFoundError,
+} from "./canary-deps.js";
+import {
+  assertSeasonCatalogOk,
+  resolveCanarySeasonCatalog,
+  SeasonCatalogMismatchError,
+  type CanarySeasonResolution,
+} from "./canary-season.js";
+import { diagnoseSeasonCatalog } from "./canary-diagnose.js";
+import { repairMidnightSeason1CatalogBindings } from "./canary-repair-catalog.js";
+import { createWorkerContainer } from "../../../container.js";
+import { MIDNIGHT_SEASON_1_DUNGEON_SLUGS } from "./canary-catalog.js";
 
 export interface CanaryCliArgs {
-  mode: "preflight" | "live";
+  mode: "preflight" | "live" | "diagnose-catalog" | "repair-catalog";
   region: string;
   realm: string;
   character: string;
-  zoneId: number | null;
+  zoneIdOverride: number | null;
+  allowZoneIdOverride: boolean;
   confirmLive: boolean;
+  confirmRepair: boolean;
   outputDir: string | null;
-  /** Test seam — skip DB character resolution. */
   characterId?: string;
   seasonId?: string;
   candidates?: EvidenceCandidateMetadataV2[];
@@ -36,15 +75,22 @@ export interface CanaryCliArgs {
 
 export function parseCanaryCliArgs(argv: string[]): CanaryCliArgs {
   const args = [...argv];
-  let mode: "preflight" | "live" = "preflight";
-  if (args[0] === "live" || args[0] === "preflight") {
-    mode = args.shift() as "preflight" | "live";
+  let mode: CanaryCliArgs["mode"] = "preflight";
+  if (
+    args[0] === "live" ||
+    args[0] === "preflight" ||
+    args[0] === "diagnose-catalog" ||
+    args[0] === "repair-catalog"
+  ) {
+    mode = args.shift() as CanaryCliArgs["mode"];
   }
   let region = "";
   let realm = "";
   let character = "";
-  let zoneId: number | null = null;
+  let zoneIdOverride: number | null = null;
+  let allowZoneIdOverride = false;
   let confirmLive = false;
+  let confirmRepair = false;
   let outputDir: string | null = null;
 
   for (let i = 0; i < args.length; i++) {
@@ -60,17 +106,61 @@ export function parseCanaryCliArgs(argv: string[]): CanaryCliArgs {
       character = next;
       i++;
     } else if (a === "--zone-id" && next) {
-      zoneId = Number(next);
+      zoneIdOverride = parseOptionalCliZoneId(next);
       i++;
+    } else if (a === "--allow-zone-id-override") {
+      allowZoneIdOverride = true;
     } else if (a === "--confirm-live") {
       confirmLive = true;
+    } else if (a === "--confirm-local-repair") {
+      confirmRepair = true;
     } else if (a === "--output-dir" && next) {
       outputDir = next;
       i++;
     } else if (a === "--mode" && next) {
-      mode = next === "live" ? "live" : "preflight";
+      if (
+        next === "live" ||
+        next === "preflight" ||
+        next === "diagnose-catalog" ||
+        next === "repair-catalog"
+      ) {
+        mode = next;
+      }
       i++;
     }
+  }
+
+  if (mode === "diagnose-catalog") {
+    return {
+      mode,
+      region: region.toLowerCase() || "eu",
+      realm: realm.toLowerCase(),
+      character,
+      zoneIdOverride,
+      allowZoneIdOverride,
+      confirmLive,
+      confirmRepair,
+      outputDir,
+    };
+  }
+
+  if (mode === "repair-catalog") {
+    if (!region) {
+      throw Object.assign(new Error("required: --region"), {
+        code: "CANARY_ARGS_INCOMPLETE",
+      });
+    }
+    return {
+      mode,
+      region: region.toLowerCase(),
+      realm: realm.toLowerCase(),
+      character,
+      zoneIdOverride,
+      allowZoneIdOverride,
+      confirmLive,
+      confirmRepair,
+      outputDir,
+    };
   }
 
   if (!region || !realm || !character) {
@@ -90,8 +180,10 @@ export function parseCanaryCliArgs(argv: string[]): CanaryCliArgs {
     region: region.toLowerCase(),
     realm: realm.toLowerCase(),
     character,
-    zoneId,
+    zoneIdOverride,
+    allowZoneIdOverride,
     confirmLive,
+    confirmRepair,
     outputDir,
   };
 }
@@ -152,49 +244,201 @@ export function evaluateCanaryLiveGates(
   return { allowed: true };
 }
 
+export function resolveZoneForCanaryCommand(
+  args: CanaryCliArgs,
+  options?: {
+    env?: NodeJS.ProcessEnv;
+    log?: (message: string) => void;
+  },
+): ResolvedCanaryZone {
+  return resolveCanaryZoneId({
+    cliZoneId: args.zoneIdOverride,
+    env: options?.env ?? process.env,
+    allowConflictingZoneOverride: args.allowZoneIdOverride,
+    log: options?.log,
+  });
+}
+
+function identityFromArgs(args: CanaryCliArgs): CharacterIdentityInput {
+  return {
+    region: args.region.toUpperCase(),
+    realmSlug: args.realm,
+    name: args.character,
+  };
+}
+
+async function loadPersistedManifest(input: {
+  prisma: PrismaClient;
+  characterId: string;
+  seasonId: string;
+  expectedDungeonSlugs: readonly string[];
+}): Promise<CharacterSeasonEvidenceManifestV2 | null> {
+  const row = await input.prisma.evidenceManifest.findFirst({
+    where: { characterId: input.characterId, seasonId: input.seasonId },
+    orderBy: { frozenAt: "desc" },
+  });
+  if (!row?.document || typeof row.document !== "object") return null;
+  const doc = row.document as CharacterSeasonEvidenceManifestV2;
+  if (!Array.isArray(doc.slots)) return null;
+  if (!isManifestCompatibleWithSeasonPool(doc, input.expectedDungeonSlugs)) {
+    return null;
+  }
+  return doc;
+}
+
 export async function runCanaryPreflightCommand(
   args: CanaryCliArgs,
   options?: {
+    /** Defaults to PRODUCTION for operator CLI. Tests may set MEMORY with allowNonProductionRepositories. */
+    repositoryMode?: CanaryRepositoryMode;
+    allowNonProductionRepositories?: boolean;
     ports?: ReturnType<typeof createMemoryOrchestrationPorts>;
     candidates?: EvidenceCandidateMetadataV2[];
     activeDungeonSlugs?: string[];
     characterId?: string;
     seasonId?: string;
+    seasonResolution?: CanarySeasonResolution;
+    existingManifest?: CharacterSeasonEvidenceManifestV2 | null;
+    allowSyntheticManifest?: boolean;
+    env?: NodeJS.ProcessEnv;
+    appEnv?: AppEnv;
+    rateBudgetConfig?: {
+      warnPercent: number;
+      deferPercent: number;
+      stopPercent: number;
+    };
+    log?: (message: string) => void;
+    outputDir?: string;
   },
-): Promise<{ reportPath: string; report: Awaited<ReturnType<typeof runScoringV2CanaryPreflight>> }> {
-  const env = loadEnv();
-  const characterId =
-    options?.characterId ?? args.characterId ?? "00000000-0000-4000-8000-000000000001";
-  const seasonId = options?.seasonId ?? args.seasonId ?? "season-canary";
-  const activeDungeonSlugs =
-    options?.activeDungeonSlugs ??
-    args.activeDungeonSlugs ??
-    [
-      "ara-kara-city-of-echoes",
-      "eco-dome-aldani",
-      "halls-of-atonement",
-      "operation-floodgate",
-      "priory-of-the-sacred-flame",
-      "tazavesh-streets-of-wonder",
-      "the-dawnbreaker",
-      "the-rookery",
-    ];
-  const candidates = options?.candidates ?? args.candidates ?? [];
-  const ports =
-    options?.ports ??
-    createMemoryOrchestrationPorts({ autoSeedRanking: false });
+): Promise<{
+  reportPath: string;
+  report: Awaited<ReturnType<typeof runScoringV2CanaryPreflight>>;
+  zone: ResolvedCanaryZone;
+  seasonResolution: CanarySeasonResolution | null;
+  characterResolution: CanaryCharacterResolution;
+}> {
+  const zone = resolveZoneForCanaryCommand(args, {
+    env: options?.env ?? process.env,
+    log: options?.log ?? ((msg) => console.warn(msg)),
+  });
+  const repositoryMode: CanaryRepositoryMode = options?.repositoryMode ?? "PRODUCTION";
+  if (repositoryMode !== "PRODUCTION") {
+    if (!options?.allowNonProductionRepositories) {
+      assertOperatorRepositoryMode(repositoryMode);
+    }
+  } else {
+    assertOperatorRepositoryMode(repositoryMode);
+  }
 
+  const env =
+    options?.appEnv ??
+    (repositoryMode === "PRODUCTION" ? loadEnv() : null);
+  const rateBudgetConfig = options?.rateBudgetConfig ?? {
+    warnPercent: env?.WCL_RATE_WARN_PERCENT ?? 70,
+    deferPercent: env?.WCL_RATE_DEFER_PERCENT ?? 80,
+    stopPercent: env?.WCL_RATE_STOP_PERCENT ?? 90,
+  };
+
+  const identity = identityFromArgs(args);
+  let characterResolution: CanaryCharacterResolution;
+  let ports;
+  let seasonResolution: CanarySeasonResolution | null = options?.seasonResolution ?? null;
+  let seasonId = options?.seasonId ?? args.seasonId ?? null;
+  let activeDungeonSlugs =
+    options?.activeDungeonSlugs ?? args.activeDungeonSlugs ?? null;
+  let existingManifest = options?.existingManifest;
+  let container: ReturnType<typeof createWorkerContainer> | null = null;
+
+  if (repositoryMode === "PRODUCTION") {
+    if (!env) {
+      throw new Error("production_canary_requires_app_env");
+    }
+    const deps = await createProductionCanaryDependencies({ env, identity });
+    container = deps.container;
+    ports = deps.ports;
+    characterResolution = deps.characterResolution;
+    assertNotSentinelCharacterId(characterResolution.characterId);
+
+    seasonResolution = await resolveCanarySeasonCatalog({
+      prisma: deps.container.prisma,
+      regionId: deps.character.regionId,
+      configuredZoneId: zone.zoneId,
+    });
+    try {
+      assertSeasonCatalogOk(seasonResolution);
+    } catch (err) {
+      await deps.container.prisma.$disconnect().catch(() => undefined);
+      throw err;
+    }
+    seasonId = seasonResolution.seasonId;
+    activeDungeonSlugs = seasonResolution.activeDungeonSlugs;
+    if (existingManifest === undefined) {
+      existingManifest = await loadPersistedManifest({
+        prisma: deps.container.prisma,
+        characterId: characterResolution.characterId,
+        seasonId,
+        expectedDungeonSlugs: activeDungeonSlugs,
+      });
+    }
+  } else {
+    const characterId =
+      options?.characterId ?? args.characterId;
+    if (!characterId) {
+      throw new CharacterNotFoundError(identity);
+    }
+    assertNotSentinelCharacterId(characterId);
+    const mem = createMemoryCanaryDependencies({
+      ports:
+        options?.ports ??
+        createMemoryOrchestrationPorts({ autoSeedRanking: false }),
+      characterId,
+      identity,
+      repositoryMode,
+    });
+    ports = mem.ports;
+    characterResolution = mem.characterResolution;
+    activeDungeonSlugs =
+      activeDungeonSlugs ?? [...MIDNIGHT_SEASON_1_DUNGEON_SLUGS];
+    seasonId = seasonId ?? "test-season";
+  }
+
+  if (!seasonId || !activeDungeonSlugs) {
+    throw new SeasonCatalogMismatchError(
+      seasonResolution ?? {
+        configuredZoneId: zone.zoneId,
+        seasonId: null,
+        seasonSlug: null,
+        seasonName: null,
+        blizzardSeasonId: null,
+        expansion: null,
+        productSeasonSlug: null,
+        catalogSource: "none",
+        catalogVersion: "none",
+        dungeonCount: 0,
+        dungeons: [],
+        activeDungeonSlugs: [],
+        validationStatus: "SEASON_CATALOG_MISMATCH",
+        validationReasons: ["season_or_dungeon_pool_unresolved"],
+        isCurrent: null,
+        startsAt: null,
+        endsAt: null,
+      },
+    );
+  }
+
+  const candidates = options?.candidates ?? args.candidates ?? [];
   const report = await runScoringV2CanaryPreflight({
-    characterId,
+    characterId: characterResolution.characterId,
     characterName: args.character,
     region: args.region,
     realm: args.realm,
+    zoneId: zone.zoneId,
     seasonId,
     scoringModelId: "canary-model",
     scope: {
-      characterId,
+      characterId: characterResolution.characterId,
       seasonId,
-      seasonSlug: seasonId,
+      seasonSlug: seasonResolution?.seasonSlug ?? seasonId,
       specializationId: null,
       classSlug: null,
       specSlug: null,
@@ -207,11 +451,12 @@ export async function runCanaryPreflightCommand(
     },
     candidates,
     ports,
-    rateBudgetConfig: {
-      warnPercent: env.WCL_RATE_WARN_PERCENT,
-      deferPercent: env.WCL_RATE_DEFER_PERCENT,
-      stopPercent: env.WCL_RATE_STOP_PERCENT,
-    },
+    existingManifest: existingManifest ?? null,
+    allowSyntheticManifest: options?.allowSyntheticManifest === true,
+    repositoryMode,
+    characterResolution,
+    seasonResolution,
+    rateBudgetConfig,
     rateLimitSnapshot: null,
     rateLimitSnapshotIsProviderCall: false,
   });
@@ -219,8 +464,18 @@ export async function runCanaryPreflightCommand(
   if (report.providerCalls !== 0) {
     throw new Error("preflight_must_make_zero_provider_calls");
   }
+  if (report.zoneId !== zone.zoneId) {
+    throw new Error("preflight_zone_id_mismatch");
+  }
+  if (repositoryMode === "PRODUCTION") {
+    assertNotSentinelCharacterId(report.characterId);
+    if (report.repositoryMode !== "PRODUCTION") {
+      throw new Error("preflight_repository_mode_mismatch");
+    }
+  }
 
   const outDir =
+    options?.outputDir ??
     args.outputDir ??
     join(process.cwd(), "artifacts", "scoring-v2-canary");
   await mkdir(outDir, { recursive: true });
@@ -228,68 +483,238 @@ export async function runCanaryPreflightCommand(
     outDir,
     `preflight-${args.region}-${args.realm}-${args.character}.json`,
   );
-  await writeFile(reportPath, JSON.stringify(report, null, 2), "utf8");
-  return { reportPath, report };
-}
-
-export async function runCanaryLiveCommand(
-  args: CanaryCliArgs,
-): Promise<never> {
-  const env = loadEnv();
-  const gate = evaluateCanaryLiveGates({
-    env,
-    confirmLive: args.confirmLive,
-    characterCount: 1,
-  });
-  if (!gate.allowed) {
-    throw Object.assign(
-      new Error(`canary_live_refused:${gate.reasons.join(",")}`),
-      { code: "CANARY_LIVE_REFUSED", reasons: gate.reasons },
-    );
-  }
-
-  // Live execution is intentionally not invoked from this task / automation.
-  // The command validates gates then refuses with an explicit operator message
-  // unless SCORING_V2_CANARY_EXECUTE=true is set by a human.
-  if (process.env.SCORING_V2_CANARY_EXECUTE !== "true") {
-    throw Object.assign(
-      new Error(
-        "canary_live_gates_passed_but_execute_not_armed: set SCORING_V2_CANARY_EXECUTE=true after human approval",
-      ),
-      { code: "CANARY_EXECUTE_NOT_ARMED" },
-    );
-  }
-
-  // Armed path reserved for human-approved canary — still never enable publication.
-  assertPublicationBlocked(env);
-  throw Object.assign(
-    new Error("canary_live_execute_path_reserved_for_human_approval"),
-    { code: "CANARY_EXECUTE_RESERVED" },
-  );
-}
-
-async function main(): Promise<void> {
-  const args = parseCanaryCliArgs(process.argv.slice(2));
-  if (args.mode === "live") {
-    await runCanaryLiveCommand(args);
-    return;
-  }
-  const { reportPath, report } = await runCanaryPreflightCommand(args);
-  console.log(
+  await writeFile(
+    reportPath,
     JSON.stringify(
       {
-        reportPath,
-        providerCalls: report.providerCalls,
-        selectedSlotCount: report.selectedSlotCount,
-        fightsRequiringWcl: report.fightsRequiringWcl.length,
-        rankingFactsMissing: report.rankingFactsMissing.length,
-        blockers: report.blockers,
-        publicationEligible: report.publicationEligible,
+        ...report,
+        zoneResolution: zone,
+        seasonResolution,
+        characterResolution,
       },
       null,
       2,
     ),
+    "utf8",
   );
+
+  if (container) {
+    await container.prisma.$disconnect().catch(() => undefined);
+  }
+
+  return {
+    reportPath,
+    report,
+    zone,
+    seasonResolution,
+    characterResolution,
+  };
+}
+
+export async function runCanaryDiagnoseCatalogCommand(
+  args: CanaryCliArgs,
+): Promise<{ reportPath: string; report: Awaited<ReturnType<typeof diagnoseSeasonCatalog>> }> {
+  const env = loadEnv();
+  const container = createWorkerContainer(env);
+  try {
+    const report = await diagnoseSeasonCatalog(container.prisma);
+    const outDir =
+      args.outputDir ??
+      join(process.cwd(), "artifacts", "scoring-v2-canary");
+    await mkdir(outDir, { recursive: true });
+    const reportPath = join(outDir, "season-catalog-diagnostic.json");
+    await writeFile(reportPath, JSON.stringify(report, null, 2), "utf8");
+    return { reportPath, report };
+  } finally {
+    await container.prisma.$disconnect().catch(() => undefined);
+  }
+}
+
+export async function runCanaryRepairCatalogCommand(
+  args: CanaryCliArgs,
+): Promise<unknown> {
+  if (!args.confirmRepair) {
+    throw Object.assign(
+      new Error(
+        "repair_refused: pass --confirm-local-repair (local DB only; never staging/production)",
+      ),
+      { code: "CANARY_REPAIR_NOT_CONFIRMED" },
+    );
+  }
+  const env = loadEnv();
+  if (env.APP_ENV === "staging" || env.APP_ENV === "production") {
+    throw Object.assign(
+      new Error("repair_refused: APP_ENV is staging/production"),
+      { code: "CANARY_REPAIR_FORBIDDEN_ENV" },
+    );
+  }
+  const container = createWorkerContainer(env);
+  try {
+    return await repairMidnightSeason1CatalogBindings({
+      prisma: container.prisma,
+      regionCode: args.region.toUpperCase(),
+    });
+  } finally {
+    await container.prisma.$disconnect().catch(() => undefined);
+  }
+}
+
+export async function runCanaryLiveCommand(
+  args: CanaryCliArgs,
+  options?: {
+    env?: NodeJS.ProcessEnv;
+    log?: (message: string) => void;
+  },
+): Promise<never> {
+  const zone = resolveZoneForCanaryCommand(args, {
+    env: options?.env ?? process.env,
+    log: options?.log ?? ((msg) => console.warn(msg)),
+  });
+  assertOperatorRepositoryMode("PRODUCTION");
+  const env = loadEnv();
+  const identity = identityFromArgs(args);
+  // Resolve real character before any live work — fail closed on missing.
+  const deps = await createProductionCanaryDependencies({ env, identity });
+  try {
+    const seasonResolution = await resolveCanarySeasonCatalog({
+      prisma: deps.container.prisma,
+      regionId: deps.character.regionId,
+      configuredZoneId: zone.zoneId,
+    });
+    assertSeasonCatalogOk(seasonResolution);
+
+    const gate = evaluateCanaryLiveGates({
+      env,
+      confirmLive: args.confirmLive,
+      characterCount: 1,
+    });
+    if (!gate.allowed) {
+      throw Object.assign(
+        new Error(`canary_live_refused:${gate.reasons.join(",")}`),
+        {
+          code: "CANARY_LIVE_REFUSED",
+          reasons: gate.reasons,
+          zone,
+          characterResolution: deps.characterResolution,
+          seasonResolution,
+        },
+      );
+    }
+
+    if (process.env.SCORING_V2_CANARY_EXECUTE !== "true") {
+      throw Object.assign(
+        new Error(
+          "canary_live_gates_passed_but_execute_not_armed: set SCORING_V2_CANARY_EXECUTE=true after human approval",
+        ),
+        {
+          code: "CANARY_EXECUTE_NOT_ARMED",
+          zone,
+          characterResolution: deps.characterResolution,
+          seasonResolution,
+        },
+      );
+    }
+
+    assertPublicationBlocked(env);
+    throw Object.assign(
+      new Error("canary_live_execute_path_reserved_for_human_approval"),
+      {
+        code: "CANARY_EXECUTE_RESERVED",
+        zone,
+        characterResolution: deps.characterResolution,
+        seasonResolution,
+      },
+    );
+  } finally {
+    await deps.container.prisma.$disconnect().catch(() => undefined);
+  }
+}
+
+async function main(): Promise<void> {
+  const args = parseCanaryCliArgs(process.argv.slice(2));
+  if (args.mode === "diagnose-catalog") {
+    const { reportPath, report } = await runCanaryDiagnoseCatalogCommand(args);
+    console.log(
+      JSON.stringify(
+        {
+          reportPath,
+          providerCalls: report.providerCalls,
+          seasonCount: report.seasons.length,
+          staleManifestsRequireInvalidation:
+            report.staleManifestsRequireInvalidation,
+        },
+        null,
+        2,
+      ),
+    );
+    return;
+  }
+  if (args.mode === "repair-catalog") {
+    const result = await runCanaryRepairCatalogCommand(args);
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+  if (args.mode === "live") {
+    await runCanaryLiveCommand(args);
+    return;
+  }
+  try {
+    const { reportPath, report, zone, seasonResolution, characterResolution } =
+      await runCanaryPreflightCommand(args);
+    console.log(
+      JSON.stringify(
+        {
+          reportPath,
+          repositoryMode: report.repositoryMode,
+          zoneId: zone.zoneId,
+          characterId: characterResolution.characterId,
+          characterResolutionSource:
+            characterResolution.characterResolutionSource,
+          seasonSlug: seasonResolution?.seasonSlug ?? null,
+          expansion: seasonResolution?.expansion ?? null,
+          dungeonSlugs: seasonResolution?.activeDungeonSlugs ?? [],
+          manifestStatus: report.manifestStatus,
+          providerCalls: report.providerCalls,
+          selectedSlotCount: report.selectedSlotCount,
+          expectedSlotCount: report.expectedSlotCount,
+          fightsRequiringWcl: report.fightsRequiringWcl.length,
+          rankingFactsMissing: report.rankingFactsMissing.length,
+          blockers: report.blockers,
+          publicationEligible: report.publicationEligible,
+        },
+        null,
+        2,
+      ),
+    );
+  } catch (err) {
+    if (err instanceof SeasonCatalogMismatchError) {
+      console.error(
+        JSON.stringify(
+          {
+            code: err.code,
+            message: err.message,
+            seasonResolution: err.seasonResolution,
+          },
+          null,
+          2,
+        ),
+      );
+      process.exitCode = 1;
+      return;
+    }
+    if (err instanceof CharacterNotFoundError) {
+      console.error(
+        JSON.stringify(
+          { code: err.code, message: err.message, identity: err.identity },
+          null,
+          2,
+        ),
+      );
+      process.exitCode = 1;
+      return;
+    }
+    throw err;
+  }
 }
 
 const isDirect =

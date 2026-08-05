@@ -1,6 +1,9 @@
 /**
  * Provider-free Scoring V2 canary preflight.
  * Zero WCL calls. Reports package/digest/ranking cache and readiness.
+ *
+ * Operator path must pass a real persisted manifest or null (MANIFEST_NOT_FOUND).
+ * Synthetic manifests from empty candidates are test-only.
  */
 import {
   PARTICIPANT_DIGEST_EXTRACTOR_COMPAT_VERSION,
@@ -26,8 +29,20 @@ import {
 } from "./cost-admission.js";
 import type { RateBudgetConfig } from "@mplus/provider-warcraftlogs";
 import type { WclRateLimitSnapshot } from "@mplus/provider-warcraftlogs";
+import type { CanaryCharacterResolution, CanaryRepositoryMode } from "../canary/canary-deps.js";
+import type { CanarySeasonResolution } from "../canary/canary-season.js";
+import {
+  containsObsoleteDungeonSlug,
+  normalizeCanaryDungeonSlug,
+} from "../canary/canary-catalog.js";
 
 export type CacheStatus = "HIT" | "MISS" | "ABSENT";
+
+export type CanaryManifestStatus =
+  | "FOUND"
+  | "MANIFEST_NOT_FOUND"
+  | "STALE_POOL_REJECTED"
+  | "SYNTHETIC_TEST_ONLY";
 
 export interface CanarySlotPreflight {
   slotId: string;
@@ -52,8 +67,14 @@ export interface CanaryPreflightReport {
   characterName: string;
   region: string;
   realm: string;
+  zoneId: number;
   seasonId: string;
   providerCalls: 0;
+  repositoryMode: CanaryRepositoryMode;
+  characterResolutionSource: CanaryCharacterResolution["characterResolutionSource"] | "unknown";
+  characterCanonicalIdentity: CanaryCharacterResolution["characterCanonicalIdentity"] | null;
+  seasonResolution: CanarySeasonResolution | null;
+  manifestStatus: CanaryManifestStatus;
   manifestComplete: boolean;
   expectedSlotCount: number;
   selectedSlotCount: number;
@@ -69,24 +90,94 @@ export interface CanaryPreflightReport {
   blockers: string[];
 }
 
+export function manifestDungeonSlugs(
+  manifest: CharacterSeasonEvidenceManifestV2,
+): string[] {
+  return [
+    ...new Set(manifest.slots.map((s) => normalizeCanaryDungeonSlug(s.dungeonSlug))),
+  ].sort();
+}
+
+export function isManifestCompatibleWithSeasonPool(
+  manifest: CharacterSeasonEvidenceManifestV2,
+  expectedSlugs: readonly string[],
+): boolean {
+  const actual = manifestDungeonSlugs(manifest);
+  if (expectedSlugs.length === 0) return false;
+  if (actual.length === 0) return false;
+  if (containsObsoleteDungeonSlug(actual).length > 0) return false;
+  const expected = new Set(expectedSlugs.map(normalizeCanaryDungeonSlug));
+  // Stale pools (wrong season) must not be reused; subset of expected is OK.
+  return actual.every((s) => expected.has(s));
+}
+
+function expectedAbsentSlots(activeDungeonSlugs: readonly string[]): CanarySlotPreflight[] {
+  const slots: CanarySlotPreflight[] = [];
+  for (const dungeonSlug of activeDungeonSlugs) {
+    for (const slotIndex of [0, 1] as const) {
+      slots.push({
+        slotId: `${dungeonSlug}:${slotIndex}`,
+        dungeonSlug,
+        slotIndex,
+        state: "ABSENT",
+        sourceFight: null,
+        packageCache: "ABSENT",
+        digestCache: "ABSENT",
+        rankingParse: "ABSENT",
+        performanceReady: false,
+        utilityReady: false,
+        survivalReady: false,
+        wouldRequireWcl: false,
+        wouldRebuildDigestWithoutWcl: false,
+        rankingMissing: true,
+      });
+    }
+  }
+  return slots;
+}
+
 export async function runScoringV2CanaryPreflight(input: {
   characterId: string;
   characterName: string;
   region: string;
   realm: string;
+  zoneId: number;
   seasonId: string;
   scoringModelId: string;
   scope: EvidenceSelectionScope;
   candidates: readonly EvidenceCandidateMetadataV2[];
   ports: RunOrchestrationPorts;
   existingManifest?: CharacterSeasonEvidenceManifestV2 | null;
+  /**
+   * When true and no existingManifest, build a test-only synthetic manifest from
+   * candidates. Operator path must leave this false.
+   */
+  allowSyntheticManifest?: boolean;
+  repositoryMode?: CanaryRepositoryMode;
+  characterResolution?: CanaryCharacterResolution | null;
+  seasonResolution?: CanarySeasonResolution | null;
   rateBudgetConfig: RateBudgetConfig;
-  /** Optional snapshot — obtaining it may be a provider call; flag it. */
   rateLimitSnapshot?: WclRateLimitSnapshot | null;
   rateLimitSnapshotIsProviderCall?: boolean;
 }): Promise<CanaryPreflightReport> {
-  let manifest = input.existingManifest ?? null;
-  if (!manifest) {
+  const repositoryMode = input.repositoryMode ?? "MEMORY";
+  const expectedSlugs = input.scope.activeDungeonSlugs.map(normalizeCanaryDungeonSlug);
+  const expectedSlotCount = expectedEvidenceSlotCount(expectedSlugs.length);
+
+  let manifest: CharacterSeasonEvidenceManifestV2 | null =
+    input.existingManifest ?? null;
+  let manifestStatus: CanaryManifestStatus = manifest ? "FOUND" : "MANIFEST_NOT_FOUND";
+
+  if (
+    manifest &&
+    expectedSlugs.length > 0 &&
+    !isManifestCompatibleWithSeasonPool(manifest, expectedSlugs)
+  ) {
+    manifestStatus = "STALE_POOL_REJECTED";
+    manifest = null;
+  }
+
+  if (!manifest && input.allowSyntheticManifest) {
     const { plan } = buildEvidenceAcquisitionPlanV2({
       scope: input.scope,
       candidates: input.candidates,
@@ -132,27 +223,74 @@ export async function runScoringV2CanaryPreflight(input: {
       acquisitionResults,
       selectedAt: new Date().toISOString(),
     }).manifest;
+    manifestStatus = "SYNTHETIC_TEST_ONLY";
   }
 
-  const expectedSlotCount = expectedEvidenceSlotCount(
-    input.scope.activeDungeonSlugs.length,
-  );
-  const uniqueFights = uniqueSourceFightsFromManifest(manifest);
   const slots: CanarySlotPreflight[] = [];
   const fightsRequiringWcl: string[] = [];
   const digestsRebuildableWithoutWcl: string[] = [];
   const rankingFactsMissing: string[] = [];
-  const costFights: CanaryCostProjection["fights"] extends infer _
-    ? Array<{
-        sourceFightKey: string;
-        packageCacheHit: boolean;
-        historicalMeasuredPoints?: number | null;
-      }>
-    : never = [];
+  const costFights: Array<{
+    sourceFightKey: string;
+    packageCacheHit: boolean;
+    historicalMeasuredPoints?: number | null;
+  }> = [];
 
-  const packageByFight = new Map<string, Awaited<
-    ReturnType<RunOrchestrationPorts["findCompatibleCapabilityPackage"]>
-  >>();
+  if (!manifest) {
+    slots.push(...expectedAbsentSlots(expectedSlugs));
+    const cost = buildCanaryCostProjection({
+      fights: costFights,
+      rateLimitSnapshot: input.rateLimitSnapshot ?? null,
+      rateLimitSnapshotIsProviderCall: input.rateLimitSnapshotIsProviderCall,
+      rateBudgetConfig: input.rateBudgetConfig,
+    });
+    const blockers = [
+      manifestStatus === "STALE_POOL_REJECTED"
+        ? "stale_manifest_pool_rejected"
+        : "MANIFEST_NOT_FOUND",
+      "SCORING_V2_PUBLICATION_ENABLED_false",
+      "publication_pointer_untouched",
+    ];
+    return {
+      schemaVersion: "scoring-v2-canary-preflight-v1",
+      characterId: input.characterId,
+      characterName: input.characterName,
+      region: input.region,
+      realm: input.realm,
+      zoneId: input.zoneId,
+      seasonId: input.seasonId,
+      providerCalls: 0,
+      repositoryMode,
+      characterResolutionSource:
+        input.characterResolution?.characterResolutionSource ?? "unknown",
+      characterCanonicalIdentity:
+        input.characterResolution?.characterCanonicalIdentity ?? null,
+      seasonResolution: input.seasonResolution ?? null,
+      manifestStatus,
+      manifestComplete: false,
+      expectedSlotCount,
+      selectedSlotCount: 0,
+      uniqueFightCount: 0,
+      slots,
+      fightsRequiringWcl: [],
+      digestsRebuildableWithoutWcl: [],
+      rankingFactsMissing: expectedSlugs.flatMap((d) => [
+        `${d}:0:ranking_unknown`,
+        `${d}:1:ranking_unknown`,
+      ]),
+      cost,
+      publicationEligible: false,
+      publicationEnabled: false,
+      publicScorePointerMutated: false,
+      blockers,
+    };
+  }
+
+  const uniqueFights = uniqueSourceFightsFromManifest(manifest);
+  const packageByFight = new Map<
+    string,
+    Awaited<ReturnType<RunOrchestrationPorts["findCompatibleCapabilityPackage"]>>
+  >();
 
   for (const fight of uniqueFights) {
     const hit = await input.ports.findCompatibleCapabilityPackage({
@@ -185,7 +323,7 @@ export async function runScoringV2CanaryPreflight(input: {
     let survivalReady = false;
 
     if (sourceFight && pkg) {
-    const actorId = slot.actorId ?? 1;
+      const actorId = slot.actorId ?? 1;
       const existingDigest = await input.ports.findCompatibleDigest({
         reportCode: sourceFight.reportCode,
         fightId: sourceFight.fightId,
@@ -237,7 +375,6 @@ export async function runScoringV2CanaryPreflight(input: {
         }
       }
 
-      // Utility/Survival readiness from package completeness when digest absent.
       if (!existingDigest) {
         utilityReady = pkg.package.complete === true;
         survivalReady = pkg.package.complete === true;
@@ -301,8 +438,16 @@ export async function runScoringV2CanaryPreflight(input: {
     characterName: input.characterName,
     region: input.region,
     realm: input.realm,
+    zoneId: input.zoneId,
     seasonId: input.seasonId,
     providerCalls: 0,
+    repositoryMode,
+    characterResolutionSource:
+      input.characterResolution?.characterResolutionSource ?? "unknown",
+    characterCanonicalIdentity:
+      input.characterResolution?.characterCanonicalIdentity ?? null,
+    seasonResolution: input.seasonResolution ?? null,
+    manifestStatus,
     manifestComplete: !incomplete,
     expectedSlotCount,
     selectedSlotCount: manifest.selectedSlotCount,
