@@ -88,6 +88,10 @@ import {
   readPersistedCanaryRateSnapshot,
   type CanaryRateSnapshotBootstrapReport,
 } from "./canary-rate-snapshot.js";
+import {
+  runScoringV2CanaryLive,
+  type CanaryLiveReport,
+} from "./canary-live.js";
 
 export interface CanaryCliArgs {
   mode:
@@ -996,23 +1000,28 @@ export async function runCanaryLiveCommand(
   options?: {
     env?: NodeJS.ProcessEnv;
     log?: (message: string) => void;
+    /** Test injection — skip production WCL wiring. */
+    liveRunner?: typeof runScoringV2CanaryLive;
+    ensureRateLimitSnapshotOverride?: () => Promise<CanaryRateSnapshotBootstrapReport>;
+    ports?: ReturnType<typeof createMemoryOrchestrationPorts>;
+    outputDir?: string;
   },
-): Promise<never> {
+): Promise<{ reportPath: string; report: CanaryLiveReport }> {
   const zone = resolveZoneForCanaryCommand(args, {
     env: options?.env ?? process.env,
     log: options?.log ?? ((msg) => console.warn(msg)),
   });
   assertOperatorRepositoryMode("PRODUCTION");
   const env = loadEnv();
+  const processEnv = options?.env ?? process.env;
   const identity = identityFromArgs(args);
-  // Resolve real character before any live work — fail closed on missing.
   const deps = await createProductionCanaryDependencies({ env, identity });
   try {
     const seasonResolution = await resolveCanarySeasonCatalog({
       prisma: deps.container.prisma,
       regionId: deps.character.regionId,
       regionCode: args.region,
-      env: options?.env ?? process.env,
+      env: processEnv,
     });
     assertSeasonCatalogOk(seasonResolution);
 
@@ -1034,7 +1043,7 @@ export async function runCanaryLiveCommand(
       );
     }
 
-    if (process.env.SCORING_V2_CANARY_EXECUTE !== "true") {
+    if (processEnv.SCORING_V2_CANARY_EXECUTE !== "true") {
       throw Object.assign(
         new Error(
           "canary_live_gates_passed_but_execute_not_armed: set SCORING_V2_CANARY_EXECUTE=true after human approval",
@@ -1049,15 +1058,94 @@ export async function runCanaryLiveCommand(
     }
 
     assertPublicationBlocked(env);
-    throw Object.assign(
-      new Error("canary_live_execute_path_reserved_for_human_approval"),
-      {
-        code: "CANARY_EXECUTE_RESERVED",
-        zone,
-        characterResolution: deps.characterResolution,
-        seasonResolution,
-      },
+
+    const rateBudgetConfig = {
+      warnPercent: env.WCL_RATE_WARN_PERCENT ?? 70,
+      deferPercent: env.WCL_RATE_DEFER_PERCENT ?? 80,
+      stopPercent: env.WCL_RATE_STOP_PERCENT ?? 90,
+    };
+
+    const runner = options?.liveRunner ?? runScoringV2CanaryLive;
+    const { report, reportPath } = await runner({
+      prisma: deps.container.prisma,
+      container: deps.container,
+      characterId: deps.characterResolution.characterId,
+      characterName: args.character,
+      region: args.region,
+      realm: args.realm,
+      characterResolution: deps.characterResolution,
+      seasonResolution,
+      role: "DPS",
+      classSlug: null,
+      specSlug: null,
+      rateBudgetConfig,
+      env,
+      ports: options?.ports,
+      ensureRateLimitSnapshot: options?.ensureRateLimitSnapshotOverride,
+      outputDir: options?.outputDir ?? args.outputDir ?? undefined,
+      useRedisLock: options?.ports == null,
+    });
+
+    const log = options?.log ?? console.log;
+    log(
+      JSON.stringify(
+        {
+          summary: "scoring-v2-canary-live",
+          reportPath,
+          manifestId: report.manifestId,
+          selectedSlotCount: report.selectedSlotCount,
+          expectedSlotCount: report.expectedSlotCount,
+          packageCacheHits: report.packageCacheHits,
+          packageCacheMisses: report.packageCacheMisses,
+          capabilityAcquisitionsAttempted: report.capabilityAcquisitionsAttempted,
+          capabilityAcquisitionsSucceeded: report.capabilityAcquisitionsSucceeded,
+          capabilityAcquisitionsFailed: report.capabilityAcquisitionsFailed,
+          graphqlRequestCount: report.graphqlRequestCount,
+          eventPageRequestCount: report.eventPageRequestCount,
+          measuredWclPoints: report.measuredWclPoints,
+          estimatedWclPoints: report.estimatedWclPoints,
+          fightFailures: report.fightFailures,
+          packagesCreated: report.packagesCreated,
+          packagesReused: report.packagesReused,
+          participantDigestsCreated: report.participantDigestsCreated,
+          participantDigestsReused: report.participantDigestsReused,
+          wallidrixeDigestCount: report.wallidrixeDigestCount,
+          dimensions: {
+            performance: {
+              status: report.dimensions.performance.status,
+              score: report.dimensions.performance.score,
+              confidenceScore: report.dimensions.performance.confidenceScore,
+            },
+            utility: {
+              status: report.dimensions.utility.status,
+              score: report.dimensions.utility.score,
+              confidenceScore: report.dimensions.utility.confidenceScore,
+            },
+            survival: {
+              status: report.dimensions.survival.status,
+              score: report.dimensions.survival.score,
+              confidenceScore: report.dimensions.survival.confidenceScore,
+            },
+          },
+          composite: report.composite,
+          confidence: {
+            confidenceScore: report.confidence.confidenceScore,
+            confidenceBand: report.confidence.confidenceBand,
+          },
+          replayProviderCalls: report.replayProviderCalls,
+          replayFingerprintEqual: report.replayFingerprintEqual,
+          publicationEnabled: report.publicationEnabled,
+          publicScorePointerMutated: report.publicScorePointerMutated,
+          charactersProcessed: report.charactersProcessed,
+          orchestratorExecuted: report.orchestratorExecuted,
+          zoneId: zone.zoneId,
+        },
+        null,
+        2,
+      ),
     );
+
+    return { reportPath, report };
   } finally {
     await deps.container.prisma.$disconnect().catch(() => undefined);
   }
@@ -1204,7 +1292,55 @@ async function main(): Promise<void> {
     return;
   }
   if (args.mode === "live") {
-    await runCanaryLiveCommand(args);
+    try {
+      const { reportPath, report } = await runCanaryLiveCommand(args);
+      console.log(
+        JSON.stringify(
+          {
+            reportPath,
+            manifestId: report.manifestId,
+            selectedSlotCount: report.selectedSlotCount,
+            expectedSlotCount: report.expectedSlotCount,
+            orchestratorExecuted: report.orchestratorExecuted,
+            capabilityAcquisitionsAttempted: report.capabilityAcquisitionsAttempted,
+            packagesCreated: report.packagesCreated,
+            packagesReused: report.packagesReused,
+            wallidrixeDigestCount: report.wallidrixeDigestCount,
+            confidenceScore: report.confidence.confidenceScore,
+            replayProviderCalls: report.replayProviderCalls,
+            replayFingerprintEqual: report.replayFingerprintEqual,
+            publicationEnabled: report.publicationEnabled,
+            publicScorePointerMutated: report.publicScorePointerMutated,
+            charactersProcessed: report.charactersProcessed,
+          },
+          null,
+          2,
+        ),
+      );
+    } catch (err) {
+      console.error(
+        JSON.stringify(
+          {
+            code:
+              err && typeof err === "object" && "code" in err
+                ? (err as { code: unknown }).code
+                : "CANARY_LIVE_FAILED",
+            message: err instanceof Error ? err.message : String(err),
+            reasons:
+              err && typeof err === "object" && "reasons" in err
+                ? (err as { reasons: unknown }).reasons
+                : undefined,
+            fightFailures:
+              err && typeof err === "object" && "fightFailures" in err
+                ? (err as { fightFailures: unknown }).fightFailures
+                : undefined,
+          },
+          null,
+          2,
+        ),
+      );
+      process.exit(1);
+    }
     return;
   }
   try {
