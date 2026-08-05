@@ -46,6 +46,19 @@ export const envSchema = z
     WCL_RATE_DEFER_PERCENT: z.coerce.number().min(0).max(100).default(80),
     WCL_RATE_STOP_PERCENT: z.coerce.number().min(0).max(100).default(90),
     WCL_CHARACTER_TTL_SECONDS: z.coerce.number().int().positive().default(43_200),
+    /**
+     * Mythic+ WCL zone selection mode.
+     * - auto (default): resolve active season from synchronized authoritative catalog;
+     *   WCL_MPLUS_ZONE_ID is diagnostic-only and must not force selection.
+     * - pinned: require WCL_MPLUS_ZONE_ID and resolve exactly that zone's catalog.
+     */
+    WCL_MPLUS_ZONE_MODE: z.enum(["auto", "pinned"]).default("auto"),
+    /**
+     * PINNED mode: required positive WCL M+ zone id.
+     * AUTO mode: optional diagnostic expected zone (mismatch is reported, not forced).
+     */
+    WCL_MPLUS_ZONE_ID: z.string().optional().default(""),
+    WCL_MPLUS_ZONE_EXPIRES_AT: z.string().optional().default(""),
 
     RAIDERIO_ENABLED: booleanFromString.default(true),
     RAIDERIO_BASE_URL: z.string().url().default("https://raider.io"),
@@ -265,6 +278,18 @@ export const envSchema = z
           "Warcraft Logs live mode requires WCL_CLIENT_ID and WCL_CLIENT_SECRET when WCL_ENABLED=true (or set WCL_ENABLED=false)",
         path: ["WCL_CLIENT_ID"],
       });
+    }
+
+    if (env.WCL_MPLUS_ZONE_MODE === "pinned") {
+      const zone = Number(env.WCL_MPLUS_ZONE_ID);
+      if (!Number.isInteger(zone) || zone <= 0) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message:
+            "WCL_MPLUS_ZONE_MODE=pinned requires a positive integer WCL_MPLUS_ZONE_ID",
+          path: ["WCL_MPLUS_ZONE_ID"],
+        });
+      }
     }
   })
   .superRefine((env, ctx) => {
