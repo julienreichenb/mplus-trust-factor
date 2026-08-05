@@ -50,6 +50,16 @@ export const participantPerformanceDigestV1Schema = z.object({
   parseSemantic: z.enum(["BRACKET_PERCENT", "RANK_PERCENT", "UNAVAILABLE"]),
   partition: z.number().int().nullable(),
   rawDps: z.number().nullable(),
+  /** Provenance for the ranking/parse fact (never invented from event streams). */
+  rankingProvenance: z
+    .object({
+      providerContractVersion: z.string().min(1),
+      schemaVersion: z.string().min(1),
+      artifactId: z.string().nullable(),
+      contentHash: z.string().nullable(),
+      source: z.enum(["PERSISTED_RANKING_PARSE", "ABSENT"]),
+    })
+    .optional(),
   offensiveActivations: z.array(participantOffensiveActivationV1Schema),
   completeness: participantDigestDimensionCompletenessSchema,
   limitations: z.array(z.string()),

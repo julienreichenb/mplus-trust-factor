@@ -20,6 +20,13 @@ export interface RankingParseFactInput {
   parseSemantic: "BRACKET_PERCENT" | "RANK_PERCENT" | "UNAVAILABLE";
   partition: number | null;
   rawDps: number | null;
+  rankingProvenance?: {
+    providerContractVersion: string;
+    schemaVersion: string;
+    artifactId: string | null;
+    contentHash: string | null;
+    source: "PERSISTED_RANKING_PARSE" | "ABSENT";
+  };
 }
 
 export interface BuildParticipantDigestsFromPackageInput {
@@ -200,9 +207,11 @@ export function buildParticipantScoringDigestsFromPackage(
       survivalSummary?.capabilityCompleteness ?? survival.timeline.capabilityCompleteness;
 
     const performanceCompleteness: ParticipantScoringDigestV1["performance"]["completeness"] =
-      ranking != null && ranking.parseSemantic !== "UNAVAILABLE"
+      ranking != null &&
+      ranking.parseSemantic !== "UNAVAILABLE" &&
+      ranking.parsePercentile != null
         ? "COMPLETE"
-        : "PARTIAL";
+        : "UNAVAILABLE";
 
     return withParticipantDigestContentHash({
       schemaVersion: PARTICIPANT_SCORING_DIGEST_SCHEMA_VERSION,
@@ -230,6 +239,13 @@ export function buildParticipantScoringDigestsFromPackage(
         parseSemantic: ranking?.parseSemantic ?? "UNAVAILABLE",
         partition: ranking?.partition ?? null,
         rawDps: ranking?.rawDps ?? null,
+        rankingProvenance: ranking?.rankingProvenance ?? {
+          providerContractVersion: "wcl-ranking-parse-v1",
+          schemaVersion: "1.0.0",
+          artifactId: null,
+          contentHash: null,
+          source: "ABSENT",
+        },
         offensiveActivations: (offensive?.activations ?? []).map((a) => ({
           activationId: a.activationId,
           canonicalKey: a.canonicalKey,
@@ -244,7 +260,9 @@ export function buildParticipantScoringDigestsFromPackage(
         })),
         completeness: performanceCompleteness,
         limitations: [
-          ...(ranking == null ? ["ranking_parse_absent"] : []),
+          ...(ranking == null || ranking.parseSemantic === "UNAVAILABLE"
+            ? ["ranking_parse_absent"]
+            : []),
           ...(offensive?.activations.length === 0
             ? ["no_offensive_activations"]
             : []),
