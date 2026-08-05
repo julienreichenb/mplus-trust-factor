@@ -22,7 +22,6 @@ import {
   RANKING_PARSE_SCHEMA_VERSION,
   type RankingParseEvidenceV2,
   type RateBudgetConfig,
-  type WclRateLimitSnapshot,
 } from "@mplus/provider-warcraftlogs";
 import { isManifestCompatibleWithSeasonPool } from "../run-orchestration/canary-preflight.js";
 import { rankingParseCompatibilityKey } from "../run-orchestration/ranking-hydrate.js";
@@ -30,7 +29,12 @@ import { ensureDungeon } from "../../../persistence/run-repository.js";
 import { assertNotSentinelCharacterId } from "./canary-deps.js";
 import type { CanaryCharacterResolution } from "./canary-deps.js";
 import type { CanarySeasonResolution } from "./canary-season.js";
-import { assertDiscoveryRateAdmission } from "./canary-discovery-gates.js";
+import {
+  assertDiscoveryAdmissionAllows,
+  evaluateDiscoveryAdmissionAfterBootstrap,
+  resolveBootstrapPointCost,
+  type CanaryRateSnapshotBootstrapReport,
+} from "./canary-rate-snapshot.js";
 import {
   CANARY_DISCOVERY_REPORT_SCHEMA,
   type CanaryDiscoveryCandidateSource,
@@ -57,8 +61,11 @@ export interface RunCanaryDiscoveryInput {
   specSlug: string | null;
   rateBudgetConfig: RateBudgetConfig;
   discover: () => Promise<CanaryDiscoveryCandidateSource>;
-  getRateLimitSnapshot: () => Promise<WclRateLimitSnapshot | null>;
-  requireRateSnapshot?: boolean;
+  /**
+   * Two-stage bootstrap: may perform at most one RateLimitData call when cache miss.
+   * Must not call character/report discovery.
+   */
+  ensureRateLimitSnapshot: () => Promise<CanaryRateSnapshotBootstrapReport>;
   now?: Date;
 }
 
@@ -291,12 +298,15 @@ export async function runScoringV2CanaryDiscovery(
         catalogVersion: season.catalogVersion,
       }),
       graphqlRequestCount: 0,
+      bootstrapProviderCalls: 0,
       eventPageRequestCount: 0,
       measuredWclPoints: 0,
       estimatedWclPoints: 0,
       rateLimitSnapshot: null,
       rateAdmission: "NOT_EVALUATED",
       rateAdmissionReasons: ["complete_manifest_reuse_skip_provider"],
+      bootstrap: null,
+      discoveryAdmission: null,
       capabilityPackageAcquisitions: 0,
       capabilityPackagesCreated: 0,
       participantDigestsCreated: 0,
@@ -309,23 +319,50 @@ export async function runScoringV2CanaryDiscovery(
     return { report, manifest: existing.document, effects };
   }
 
-  const snapshot = await input.getRateLimitSnapshot();
-  let rateAdmission: CanaryDiscoveryReport["rateAdmission"] = "ALLOW";
-  let rateAdmissionReasons: string[] = [];
+  const bootstrap = await input.ensureRateLimitSnapshot();
+  if (!bootstrap.succeeded || !bootstrap.snapshot) {
+    throw Object.assign(
+      new Error("canary_discovery_rate_limit_snapshot_unavailable"),
+      {
+        code: "RATE_LIMIT_SNAPSHOT_UNAVAILABLE",
+        bootstrap,
+        providerCalls: bootstrap.providerCalls,
+      },
+    );
+  }
+
+  const bootstrapCostResolved = resolveBootstrapPointCost({
+    providerCalls: bootstrap.providerCalls,
+    measuredPoints: bootstrap.measuredPoints,
+  });
+  const bootstrapCost =
+    bootstrapCostResolved.measuredPoints ??
+    bootstrapCostResolved.estimatedPoints ??
+    0;
+
+  const discoveryAdmission = evaluateDiscoveryAdmissionAfterBootstrap({
+    snapshot: bootstrap.snapshot,
+    rateBudgetConfig: input.rateBudgetConfig,
+    bootstrapCost,
+  });
   try {
-    const admitted = assertDiscoveryRateAdmission({
-      snapshot,
-      rateBudgetConfig: input.rateBudgetConfig,
-      requireSnapshot: input.requireRateSnapshot !== false,
-    });
-    rateAdmission = admitted.admission;
-    rateAdmissionReasons = admitted.reasons;
+    assertDiscoveryAdmissionAllows(discoveryAdmission);
   } catch (err) {
     throw Object.assign(err instanceof Error ? err : new Error(String(err)), {
       code: "CANARY_DISCOVERY_RATE_ADMISSION_REFUSED",
-      providerCalls: 0,
+      bootstrap,
+      discoveryAdmission,
+      providerCalls: bootstrap.providerCalls,
     });
   }
+
+  const rateAdmission: CanaryDiscoveryReport["rateAdmission"] =
+    discoveryAdmission.action === "WARN"
+      ? "WARN_ALLOW"
+      : discoveryAdmission.action === "OK"
+        ? "ALLOW"
+        : discoveryAdmission.action;
+  const rateAdmissionReasons = discoveryAdmission.reasons;
 
   const discovered = await input.discover();
   if (discovered.capabilityEventPageRequestCount !== 0) {
@@ -562,12 +599,20 @@ export async function runScoringV2CanaryDiscovery(
       catalogVersion: season.catalogVersion,
     }),
     graphqlRequestCount: discovered.graphqlRequestCount,
+    bootstrapProviderCalls: bootstrap.providerCalls,
     eventPageRequestCount: discovered.capabilityEventPageRequestCount,
-    measuredWclPoints: discovered.measuredPoints,
-    estimatedWclPoints: discovered.estimatedPoints,
-    rateLimitSnapshot: snapshot,
+    measuredWclPoints:
+      discovered.measuredPoints != null || bootstrap.measuredPoints != null
+        ? (discovered.measuredPoints ?? 0) + (bootstrap.measuredPoints ?? 0)
+        : null,
+    estimatedWclPoints:
+      (discovered.estimatedPoints ?? 0) +
+      (bootstrap.estimatedPoints ?? bootstrapCost),
+    rateLimitSnapshot: bootstrap.snapshot,
     rateAdmission,
     rateAdmissionReasons,
+    bootstrap,
+    discoveryAdmission,
     capabilityPackageAcquisitions: 0,
     capabilityPackagesCreated: 0,
     participantDigestsCreated: 0,
@@ -575,7 +620,7 @@ export async function runScoringV2CanaryDiscovery(
     publicationEnabled: false,
     publicScorePointerMutated: false,
     reusedExistingManifest: !created && !incomplete,
-    providerCallsBeforeDiscovery: 0,
+    providerCallsBeforeDiscovery: bootstrap.providerCalls,
   };
 
   return { report, manifest: documentForPersist, effects };

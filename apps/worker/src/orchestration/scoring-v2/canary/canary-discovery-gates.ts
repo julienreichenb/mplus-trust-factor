@@ -16,6 +16,7 @@ export type CanaryDiscoveryGateDenial =
   | "PROVIDER_MODE_NOT_LIVE"
   | "ALLOW_LIVE_PROVIDER_CALLS_FALSE"
   | "SHADOW_FLAGS_DISABLED"
+  | "EVIDENCE_FETCH_DISABLED"
   | "PUBLICATION_ENABLED"
   | "MULTIPLE_CHARACTERS"
   | "WCL_CREDENTIALS_MISSING"
@@ -32,6 +33,7 @@ export interface CanaryDiscoveryGateInput {
     | "ALLOW_LIVE_PROVIDER_CALLS"
     | "SCORING_V2_ENABLED"
     | "SCORING_V2_SELECTION_ENABLED"
+    | "SCORING_V2_EVIDENCE_FETCH_ENABLED"
     | "SCORING_V2_PUBLICATION_ENABLED"
     | "WCL_CLIENT_ID"
     | "WCL_CLIENT_SECRET"
@@ -61,6 +63,9 @@ export function evaluateCanaryDiscoveryGates(
   if (!input.env.ALLOW_LIVE_PROVIDER_CALLS) {
     reasons.push("ALLOW_LIVE_PROVIDER_CALLS_FALSE");
   }
+  if (!input.env.SCORING_V2_EVIDENCE_FETCH_ENABLED) {
+    reasons.push("EVIDENCE_FETCH_DISABLED");
+  }
   if (!isScoringV2ShadowOrchestrationEnabled(input.env as never)) {
     reasons.push("SHADOW_FLAGS_DISABLED");
   }
@@ -85,7 +90,8 @@ export function evaluateCanaryDiscoveryGates(
 }
 
 /**
- * Discovery may proceed on ALLOW or WARN. DEFER and STOP refuse before WCL.
+ * @deprecated Prefer evaluateDiscoveryAdmissionAfterBootstrap after snapshot bootstrap.
+ * Kept for narrow unit checks of DEFER/STOP on an already-loaded snapshot.
  */
 export function assertDiscoveryRateAdmission(input: {
   snapshot: WclRateLimitSnapshot | null;
@@ -97,11 +103,11 @@ export function assertDiscoveryRateAdmission(input: {
   if (!input.snapshot) {
     if (requireSnapshot) {
       throw Object.assign(
-        new Error("canary_discovery_rate_admission_refused:DEFER"),
+        new Error("canary_discovery_rate_admission_refused:RATE_LIMIT_SNAPSHOT_UNAVAILABLE"),
         {
-          code: "CANARY_DISCOVERY_RATE_ADMISSION_REFUSED",
+          code: "RATE_LIMIT_SNAPSHOT_UNAVAILABLE",
           admission: "DEFER" as const,
-          reasons: ["rate_limit_snapshot_absent"],
+          reasons: ["RATE_LIMIT_SNAPSHOT_UNAVAILABLE"],
         },
       );
     }

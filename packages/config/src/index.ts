@@ -45,6 +45,11 @@ export const envSchema = z
     WCL_RATE_WARN_PERCENT: z.coerce.number().min(0).max(100).default(70),
     WCL_RATE_DEFER_PERCENT: z.coerce.number().min(0).max(100).default(80),
     WCL_RATE_STOP_PERCENT: z.coerce.number().min(0).max(100).default(90),
+    /**
+     * TTL for reusing a persisted canary RateLimitData snapshot without a live call.
+     * Discovery still evaluates admission against the snapshot; DEFER/STOP are unchanged.
+     */
+    WCL_CANARY_RATE_SNAPSHOT_TTL_SECONDS: z.coerce.number().int().positive().default(60),
     WCL_CHARACTER_TTL_SECONDS: z.coerce.number().int().positive().default(43_200),
     /**
      * Mythic+ WCL zone selection mode.

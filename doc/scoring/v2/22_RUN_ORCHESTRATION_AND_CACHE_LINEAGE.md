@@ -131,6 +131,7 @@ $env:WCL_ENABLED="true"
 $env:ALLOW_LIVE_PROVIDER_CALLS="true"
 $env:SCORING_V2_ENABLED="true"
 $env:SCORING_V2_SELECTION_ENABLED="true"
+$env:SCORING_V2_EVIDENCE_FETCH_ENABLED="true"
 $env:SCORING_V2_PUBLICATION_ENABLED="false"
 $env:SCORING_V2_CANARY_DISCOVERY_EXECUTE="true"
 pnpm scoring-v2:canary:discover -- `
@@ -144,7 +145,14 @@ Discovers candidates, freezes the V2 evidence manifest, and may persist ranking
 parse evidence. **Does not** acquire capability event packages, participant
 digests, or scores. Requires both `--confirm-discovery` and
 `SCORING_V2_CANARY_DISCOVERY_EXECUTE=true`. `SCORING_V2_CANARY_EXECUTE` does
-**not** authorize this phase. DEFER/STOP refuse before provider calls.
+**not** authorize this phase.
+
+**Rate admission (two-stage):** local gates first (zero WCL). Then one
+`RateLimitData` bootstrap (or reuse of a persisted snapshot within
+`WCL_CANARY_RATE_SNAPSHOT_TTL_SECONDS`, default 60s). Bootstrap cost is counted
+and included in projected discovery utilization. OK/WARN allow discovery;
+DEFER/STOP refuse before report/fight discovery. Optional:
+`pnpm scoring-v2:canary:rate-snapshot` performs only the quota-status request.
 
 Then re-run Phase A preflight to inspect package misses / projected capability cost.
 
@@ -182,6 +190,7 @@ Refuses without `--confirm-live`, with publication on, wildcards/cohorts, or mis
 | Cost admission | `run-orchestration/cost-admission.ts` |
 | Preflight | `run-orchestration/canary-preflight.ts` |
 | Discovery-only | `canary/canary-discover.ts` + `canary-discovery-gates.ts` |
+| Rate snapshot bootstrap | `canary/canary-rate-snapshot.ts` (`RateLimitData`, TTL reuse) |
 | Canary CLI | `canary/cli.ts` |
 | Canary zone | `canary/canary-zone.ts` (`WCL_MPLUS_ZONE_ID`) |
 | Canary catalog | `canary/canary-catalog.ts` / `canary-season.ts` |

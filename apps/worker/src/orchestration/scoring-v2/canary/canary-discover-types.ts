@@ -9,6 +9,10 @@ import type {
   WclRateLimitSnapshot,
 } from "@mplus/provider-warcraftlogs";
 import type { CanaryCharacterResolution, CanaryRepositoryMode } from "./canary-deps.js";
+import type {
+  CanaryDiscoveryAdmissionReport,
+  CanaryRateSnapshotBootstrapReport,
+} from "./canary-rate-snapshot.js";
 
 export const CANARY_DISCOVERY_REPORT_SCHEMA =
   "scoring-v2-canary-discovery-v1" as const;
@@ -62,13 +66,18 @@ export interface CanaryDiscoveryReport {
   manifestId: string | null;
   manifestStatus: "CREATED" | "REUSED" | "INCOMPLETE" | "FAILED";
   manifestCompatibilityFingerprint: string | null;
+  /** Discovery-phase GraphQL calls (excludes bootstrap RateLimitData). */
   graphqlRequestCount: number;
+  /** Bootstrap RateLimitData calls only. */
+  bootstrapProviderCalls: number;
   eventPageRequestCount: number;
   measuredWclPoints: number | null;
   estimatedWclPoints: number | null;
   rateLimitSnapshot: WclRateLimitSnapshot | null;
   rateAdmission: "ALLOW" | "WARN_ALLOW" | "DEFER" | "STOP" | "NOT_EVALUATED";
   rateAdmissionReasons: string[];
+  bootstrap: CanaryRateSnapshotBootstrapReport | null;
+  discoveryAdmission: CanaryDiscoveryAdmissionReport | null;
   capabilityPackageAcquisitions: 0;
   capabilityPackagesCreated: 0;
   participantDigestsCreated: 0;

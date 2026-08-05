@@ -77,11 +77,23 @@ import type {
   CanaryDiscoveryReport,
 } from "./canary-discover-types.js";
 import type { EvidenceRole } from "@mplus/contracts";
-import type { WclRateLimitSnapshot } from "@mplus/provider-warcraftlogs";
+import type { WclGraphQlClient } from "@mplus/provider-warcraftlogs";
 import { discoverShadowCanaryCandidates } from "../shadow-canary/discover.js";
+import {
+  bootstrapCanaryRateLimitSnapshot,
+  defaultCanaryRateSnapshotPath,
+  fetchCanaryRateLimitSnapshotLive,
+  type CanaryRateSnapshotBootstrapReport,
+} from "./canary-rate-snapshot.js";
 
 export interface CanaryCliArgs {
-  mode: "preflight" | "discover" | "live" | "diagnose-catalog" | "repair-catalog";
+  mode:
+    | "preflight"
+    | "discover"
+    | "rate-snapshot"
+    | "live"
+    | "diagnose-catalog"
+    | "repair-catalog";
   region: string;
   realm: string;
   character: string;
@@ -104,6 +116,7 @@ export function parseCanaryCliArgs(argv: string[]): CanaryCliArgs {
     args[0] === "live" ||
     args[0] === "preflight" ||
     args[0] === "discover" ||
+    args[0] === "rate-snapshot" ||
     args[0] === "diagnose-catalog" ||
     args[0] === "repair-catalog"
   ) {
@@ -150,6 +163,7 @@ export function parseCanaryCliArgs(argv: string[]): CanaryCliArgs {
         next === "live" ||
         next === "preflight" ||
         next === "discover" ||
+        next === "rate-snapshot" ||
         next === "diagnose-catalog" ||
         next === "repair-catalog"
       ) {
@@ -169,6 +183,21 @@ export function parseCanaryCliArgs(argv: string[]): CanaryCliArgs {
       allowZoneIdOverride,
       confirmLive,
       confirmDiscovery,
+      confirmRepair,
+      outputDir,
+    };
+  }
+
+  if (mode === "rate-snapshot") {
+    return {
+      mode,
+      region: region.toLowerCase() || "eu",
+      realm: realm.toLowerCase(),
+      character: character || "rate-snapshot",
+      zoneIdOverride,
+      allowZoneIdOverride,
+      confirmLive,
+      confirmDiscovery: true,
       confirmRepair,
       outputDir,
     };
@@ -645,8 +674,7 @@ export async function runCanaryDiscoverCommand(
   options?: {
     env?: NodeJS.ProcessEnv;
     discoverOverride?: () => Promise<CanaryDiscoveryCandidateSource>;
-    rateLimitSnapshot?: WclRateLimitSnapshot | null;
-    requireRateSnapshot?: boolean;
+    ensureRateLimitSnapshotOverride?: () => Promise<CanaryRateSnapshotBootstrapReport>;
     log?: (message: string) => void;
   },
 ): Promise<{
@@ -692,6 +720,10 @@ export async function runCanaryDiscoverCommand(
     assertSeasonCatalogOk(seasonResolution);
 
     const role = (deps.character.role ?? "DPS") as EvidenceRole;
+    const outDir =
+      args.outputDir ??
+      join(process.cwd(), "artifacts", "scoring-v2-canary");
+    const snapshotPath = defaultCanaryRateSnapshotPath(outDir);
 
     const { report } = await runScoringV2CanaryDiscovery({
       prisma: deps.container.prisma,
@@ -708,19 +740,22 @@ export async function runCanaryDiscoverCommand(
         deferPercent: env.WCL_RATE_DEFER_PERCENT,
         stopPercent: env.WCL_RATE_STOP_PERCENT,
       },
-      requireRateSnapshot: options?.requireRateSnapshot,
-      getRateLimitSnapshot: async () => {
-        if (options?.rateLimitSnapshot !== undefined) {
-          return options.rateLimitSnapshot;
-        }
-        const wcl = deps.container.providers.warcraftlogs as {
-          getRateLimitSnapshot?: () => Promise<WclRateLimitSnapshot | null>;
-        };
-        if (typeof wcl.getRateLimitSnapshot === "function") {
-          return wcl.getRateLimitSnapshot();
-        }
-        return null;
-      },
+      ensureRateLimitSnapshot:
+        options?.ensureRateLimitSnapshotOverride ??
+        (async () =>
+          bootstrapCanaryRateLimitSnapshot({
+            persistPath: snapshotPath,
+            ttlSeconds: env.WCL_CANARY_RATE_SNAPSHOT_TTL_SECONDS,
+            fetchLive: async () => {
+              const wcl = deps.container.providers.warcraftlogs as {
+                getGraphQlClient?: () => WclGraphQlClient;
+              };
+              if (typeof wcl.getGraphQlClient !== "function") {
+                throw new Error("wcl_graphql_client_unavailable_for_rate_snapshot");
+              }
+              return fetchCanaryRateLimitSnapshotLive(wcl.getGraphQlClient());
+            },
+          })),
       discover:
         options?.discoverOverride ??
         (async () => {
@@ -759,15 +794,74 @@ export async function runCanaryDiscoverCommand(
         }),
     });
 
-    const outDir =
-      args.outputDir ??
-      join(process.cwd(), "artifacts", "scoring-v2-canary");
     await mkdir(outDir, { recursive: true });
     const reportPath = join(outDir, "discovery-report.json");
     await writeFile(reportPath, JSON.stringify(report, null, 2), "utf8");
     return { reportPath, report };
   } finally {
     await deps.container.prisma.$disconnect().catch(() => undefined);
+  }
+}
+
+/**
+ * Operator-only RateLimitData bootstrap. Does not discover reports/fights.
+ */
+export async function runCanaryRateSnapshotCommand(
+  args: CanaryCliArgs,
+  options?: { env?: NodeJS.ProcessEnv },
+): Promise<{ reportPath: string; bootstrap: CanaryRateSnapshotBootstrapReport }> {
+  assertOperatorRepositoryMode("PRODUCTION");
+  const env = loadEnv();
+  const processEnv = options?.env ?? process.env;
+
+  // Live-provider gates only — does not require --confirm-discovery.
+  const reasons: string[] = [];
+  if (env.PROVIDER_MODE !== "live") reasons.push("PROVIDER_MODE_NOT_LIVE");
+  if (!env.ALLOW_LIVE_PROVIDER_CALLS) reasons.push("ALLOW_LIVE_PROVIDER_CALLS_FALSE");
+  if (!env.WCL_ENABLED) reasons.push("WCL_DISABLED");
+  if (!env.WCL_CLIENT_ID || !env.WCL_CLIENT_SECRET) {
+    reasons.push("WCL_CREDENTIALS_MISSING");
+  }
+  if (env.SCORING_V2_PUBLICATION_ENABLED) reasons.push("PUBLICATION_ENABLED");
+  if (reasons.length > 0) {
+    throw Object.assign(
+      new Error(`canary_rate_snapshot_refused:${reasons.join(",")}`),
+      { code: "CANARY_RATE_SNAPSHOT_REFUSED", reasons },
+    );
+  }
+  void processEnv;
+
+  const container = createWorkerContainer(env);
+  try {
+    const outDir =
+      args.outputDir ??
+      join(process.cwd(), "artifacts", "scoring-v2-canary");
+    const snapshotPath = defaultCanaryRateSnapshotPath(outDir);
+    const bootstrap = await bootstrapCanaryRateLimitSnapshot({
+      persistPath: snapshotPath,
+      ttlSeconds: env.WCL_CANARY_RATE_SNAPSHOT_TTL_SECONDS,
+      fetchLive: async () => {
+        const wcl = container.providers.warcraftlogs as {
+          getGraphQlClient?: () => WclGraphQlClient;
+        };
+        if (typeof wcl.getGraphQlClient !== "function") {
+          throw new Error("wcl_graphql_client_unavailable_for_rate_snapshot");
+        }
+        return fetchCanaryRateLimitSnapshotLive(wcl.getGraphQlClient());
+      },
+    });
+    await mkdir(outDir, { recursive: true });
+    const reportPath = join(outDir, "rate-snapshot-report.json");
+    await writeFile(reportPath, JSON.stringify(bootstrap, null, 2), "utf8");
+    if (!bootstrap.succeeded) {
+      throw Object.assign(new Error("RATE_LIMIT_SNAPSHOT_UNAVAILABLE"), {
+        code: "RATE_LIMIT_SNAPSHOT_UNAVAILABLE",
+        bootstrap,
+      });
+    }
+    return { reportPath, bootstrap };
+  } finally {
+    await container.prisma.$disconnect().catch(() => undefined);
   }
 }
 
@@ -867,6 +961,50 @@ async function main(): Promise<void> {
     console.log(JSON.stringify(result, null, 2));
     return;
   }
+  if (args.mode === "rate-snapshot") {
+    try {
+      const { reportPath, bootstrap } = await runCanaryRateSnapshotCommand(args);
+      console.log(
+        JSON.stringify(
+          {
+            reportPath,
+            snapshotSource: bootstrap.snapshotSource,
+            providerCalls: bootstrap.providerCalls,
+            measuredPoints: bootstrap.measuredPoints,
+            estimatedPoints: bootstrap.estimatedPoints,
+            succeeded: bootstrap.succeeded,
+            snapshotAgeMs: bootstrap.snapshotAgeMs,
+          },
+          null,
+          2,
+        ),
+      );
+    } catch (err) {
+      console.error(
+        JSON.stringify(
+          {
+            code:
+              err && typeof err === "object" && "code" in err
+                ? (err as { code: unknown }).code
+                : "CANARY_RATE_SNAPSHOT_FAILED",
+            message: err instanceof Error ? err.message : String(err),
+            reasons:
+              err && typeof err === "object" && "reasons" in err
+                ? (err as { reasons: unknown }).reasons
+                : undefined,
+            bootstrap:
+              err && typeof err === "object" && "bootstrap" in err
+                ? (err as { bootstrap: unknown }).bootstrap
+                : undefined,
+          },
+          null,
+          2,
+        ),
+      );
+      process.exit(1);
+    }
+    return;
+  }
   if (args.mode === "discover") {
     try {
       const { reportPath, report } = await runCanaryDiscoverCommand(args);
@@ -883,6 +1021,7 @@ async function main(): Promise<void> {
             expectedSlotCount: report.expectedSlotCount,
             manifestStatus: report.manifestStatus,
             manifestId: report.manifestId,
+            bootstrapProviderCalls: report.bootstrapProviderCalls,
             graphqlRequestCount: report.graphqlRequestCount,
             eventPageRequestCount: report.eventPageRequestCount,
             capabilityPackageAcquisitions: report.capabilityPackageAcquisitions,
@@ -891,6 +1030,17 @@ async function main(): Promise<void> {
             publicationEnabled: report.publicationEnabled,
             publicScorePointerMutated: report.publicScorePointerMutated,
             rateAdmission: report.rateAdmission,
+            bootstrap: report.bootstrap,
+            discoveryAdmission: report.discoveryAdmission
+              ? {
+                  action: report.discoveryAdmission.action,
+                  admission: report.discoveryAdmission.admission,
+                  projectedDiscoveryCost:
+                    report.discoveryAdmission.projectedDiscoveryCost,
+                  projectedUtilization:
+                    report.discoveryAdmission.projectedUtilization,
+                }
+              : null,
           },
           null,
           2,
@@ -909,12 +1059,21 @@ async function main(): Promise<void> {
               err && typeof err === "object" && "reasons" in err
                 ? (err as { reasons: unknown }).reasons
                 : undefined,
+            bootstrap:
+              err && typeof err === "object" && "bootstrap" in err
+                ? (err as { bootstrap: unknown }).bootstrap
+                : undefined,
+            discoveryAdmission:
+              err && typeof err === "object" && "discoveryAdmission" in err
+                ? (err as { discoveryAdmission: unknown }).discoveryAdmission
+                : undefined,
           },
           null,
           2,
         ),
       );
-      process.exitCode = 1;
+      // Explicit exit so pnpm run propagates refusal without false "tsx not found".
+      process.exit(1);
     }
     return;
   }
@@ -1012,6 +1171,6 @@ const isDirect =
 if (isDirect) {
   main().catch((err) => {
     console.error(err instanceof Error ? err.message : err);
-    process.exitCode = 1;
+    process.exit(1);
   });
 }
