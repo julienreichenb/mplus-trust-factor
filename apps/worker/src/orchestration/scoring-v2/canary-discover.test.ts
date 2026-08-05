@@ -26,8 +26,37 @@ import { MIDNIGHT_SEASON_1_DUNGEON_SLUGS } from "./canary/canary-catalog.js";
 import { runScoringV2CanaryPreflight } from "./run-orchestration/canary-preflight.js";
 import { createMemoryOrchestrationPorts } from "./run-orchestration/memory-ports.js";
 import type { CanarySeasonResolution } from "./canary/canary-season.js";
+import type { CanaryRateSnapshotBootstrapReport } from "./canary/canary-rate-snapshot.js";
+import type { WclRateLimitSnapshot } from "@mplus/provider-warcraftlogs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../../../..");
+
+function okRateSnapshot(spent = 100): WclRateLimitSnapshot {
+  return {
+    limitPerHour: 1000,
+    pointsSpentThisHour: spent,
+    pointsRemaining: 1000 - spent,
+    resetAt: null,
+    fetchedAt: new Date().toISOString(),
+  };
+}
+
+function ensureOkBootstrap(
+  overrides: Partial<CanaryRateSnapshotBootstrapReport> = {},
+): () => Promise<CanaryRateSnapshotBootstrapReport> {
+  return async () => ({
+    snapshotSource: "PERSISTED",
+    snapshotAgeMs: 0,
+    providerCalls: 0,
+    measuredPoints: 0,
+    estimatedPoints: 0,
+    succeeded: true,
+    failureReason: null,
+    snapshot: okRateSnapshot(100),
+    persistedPath: null,
+    ...overrides,
+  });
+}
 
 const liveEnv = {
   PROVIDER_MODE: "live" as const,
@@ -35,6 +64,7 @@ const liveEnv = {
   ALLOW_LIVE_PROVIDER_CALLS: true,
   SCORING_V2_ENABLED: true,
   SCORING_V2_SELECTION_ENABLED: true,
+  SCORING_V2_EVIDENCE_FETCH_ENABLED: true,
   SCORING_V2_PUBLICATION_ENABLED: false,
   WCL_CLIENT_ID: "id",
   WCL_CLIENT_SECRET: "secret",
@@ -110,7 +140,8 @@ describe("discovery script + CLI wiring", () => {
     const pkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")) as {
       scripts: Record<string, string>;
     };
-    expect(pkg.scripts["scoring-v2:canary:discover"]).toMatch(/cli\.ts discover/);
+    expect(pkg.scripts["scoring-v2:canary:discover"]).toMatch(/canary:discover/);
+    expect(pkg.scripts["scoring-v2:canary:rate-snapshot"]).toMatch(/canary:rate-snapshot/);
   });
 
   it("CLI accepts the discover subcommand", () => {
@@ -331,6 +362,59 @@ describe("runScoringV2CanaryDiscovery", () => {
     return Math.random().toString(16).slice(2, 10);
   }
 
+  it("DEFER after bootstrap refuses before discover()", async () => {
+    const { prisma, artifacts, evidence } = mockPersistence();
+    const discover = vi.fn(async () => ({
+      candidates: fullCandidates(),
+      rankingEvidence: [],
+      reportsListed: 0,
+      reportsHydrated: 0,
+      fightsExamined: 0,
+      graphqlRequestCount: 0,
+      capabilityEventPageRequestCount: 0,
+      measuredPoints: 0,
+      estimatedPoints: 0,
+    }));
+    await expect(
+      runScoringV2CanaryDiscovery({
+        prisma: prisma as never,
+        artifacts: artifacts as never,
+        evidence: evidence as never,
+        characterId: "11111111-1111-4111-8111-111111111111",
+        characterResolution: {
+          characterResolutionSource: "postgresql.findByIdentity",
+          characterId: "11111111-1111-4111-8111-111111111111",
+          characterCanonicalIdentity: {
+            region: "EU",
+            realmSlug: "archimonde",
+            name: "Wallidrixe",
+          },
+          repositoryMode: "PRODUCTION",
+        },
+        seasonResolution: seasonResolutionOk,
+        role: "DPS",
+        classSlug: null,
+        specSlug: null,
+        rateBudgetConfig: { warnPercent: 70, deferPercent: 80, stopPercent: 90 },
+        ensureRateLimitSnapshot: ensureOkBootstrap({
+          snapshotSource: "LIVE",
+          providerCalls: 1,
+          measuredPoints: 1,
+          estimatedPoints: 1,
+          snapshot: {
+            limitPerHour: 1000,
+            pointsSpentThisHour: 850,
+            pointsRemaining: 150,
+            resetAt: null,
+            fetchedAt: new Date().toISOString(),
+          },
+        }),
+        discover,
+      }),
+    ).rejects.toMatchObject({ code: "CANARY_DISCOVERY_RATE_ADMISSION_REFUSED" });
+    expect(discover).not.toHaveBeenCalled();
+  });
+
   it("uses active-season authority and creates a compatible frozen manifest", async () => {
     const { prisma, artifacts, evidence } = mockPersistence();
     const discover = vi.fn(async () => ({
@@ -376,8 +460,7 @@ describe("runScoringV2CanaryDiscovery", () => {
       classSlug: "mage",
       specSlug: "arcane",
       rateBudgetConfig: { warnPercent: 70, deferPercent: 80, stopPercent: 90 },
-      requireRateSnapshot: false,
-      getRateLimitSnapshot: async () => null,
+      ensureRateLimitSnapshot: ensureOkBootstrap(),
       discover,
     });
 
@@ -426,8 +509,7 @@ describe("runScoringV2CanaryDiscovery", () => {
         classSlug: null,
         specSlug: null,
         rateBudgetConfig: { warnPercent: 70, deferPercent: 80, stopPercent: 90 },
-        requireRateSnapshot: false,
-        getRateLimitSnapshot: async () => null,
+        ensureRateLimitSnapshot: ensureOkBootstrap(),
         discover: async () => ({
           candidates: [],
           rankingEvidence: [],
@@ -463,8 +545,7 @@ describe("runScoringV2CanaryDiscovery", () => {
         classSlug: null,
         specSlug: null,
         rateBudgetConfig: { warnPercent: 70, deferPercent: 80, stopPercent: 90 },
-        requireRateSnapshot: false,
-        getRateLimitSnapshot: async () => null,
+        ensureRateLimitSnapshot: ensureOkBootstrap(),
         discover: async () => ({
           candidates: fullCandidates(),
           rankingEvidence: [],
@@ -514,8 +595,7 @@ describe("runScoringV2CanaryDiscovery", () => {
       classSlug: "mage",
       specSlug: "arcane",
       rateBudgetConfig: { warnPercent: 70, deferPercent: 80, stopPercent: 90 },
-      requireRateSnapshot: false as const,
-      getRateLimitSnapshot: async () => null,
+      ensureRateLimitSnapshot: ensureOkBootstrap(),
       discover,
     };
 
@@ -627,8 +707,7 @@ describe("runScoringV2CanaryDiscovery", () => {
       classSlug: "mage",
       specSlug: "arcane",
       rateBudgetConfig: { warnPercent: 70, deferPercent: 80, stopPercent: 90 },
-      requireRateSnapshot: false,
-      getRateLimitSnapshot: async () => null,
+      ensureRateLimitSnapshot: ensureOkBootstrap(),
       discover,
     });
 
@@ -671,8 +750,7 @@ describe("runScoringV2CanaryDiscovery", () => {
       classSlug: null,
       specSlug: null,
       rateBudgetConfig: { warnPercent: 70, deferPercent: 80, stopPercent: 90 },
-      requireRateSnapshot: false,
-      getRateLimitSnapshot: async () => null,
+      ensureRateLimitSnapshot: ensureOkBootstrap(),
       discover: async () => ({
         candidates: cands,
         rankingEvidence: [],
