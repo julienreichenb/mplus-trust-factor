@@ -11,6 +11,14 @@ export type OffensiveProbeDataLoadMode = "PERSISTED_EVIDENCE" | "LIVE_WCL";
 
 export type OffensiveProbeLiveDataset = "Casts" | "Buffs" | "CombatantInfo" | "masterData";
 
+/** Datasets loaded for the provider-free offensive one-fight probe. */
+export const OFFENSIVE_ONE_FIGHT_DATASETS: OffensiveProbeLiveDataset[] = [
+  "Casts",
+  "Buffs",
+  "CombatantInfo",
+  "masterData",
+];
+
 export type OffensiveSourceKind = "PLAYER" | "OWNED_PET_OR_GUARDIAN" | "OTHER";
 
 export interface OffensiveProbeFightSelection {

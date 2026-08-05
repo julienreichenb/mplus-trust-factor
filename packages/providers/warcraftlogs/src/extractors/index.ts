@@ -15,17 +15,24 @@ export {
 export {
   buildOffensiveParticipantActivationReports,
   buildOffensiveProbeReport,
+  printOffensiveProbeSummary,
   type BuildOffensiveProbeReportInput,
 } from "./offensive/activations.js";
 export type {
   OffensiveProbeParticipantActivation,
   OffensiveProbeParticipantReport,
   OffensiveProbeFightSelection,
+  OffensiveProbeDataLoad,
+  OffensiveProbeReport,
+  OffensiveProbePersistenceDataset,
+  OffensiveProbePersistenceSection,
   OffensiveSourceKind,
 } from "./offensive/types.js";
+export { OFFENSIVE_ONE_FIGHT_DATASETS } from "./offensive/types.js";
 
 export {
   extractUtilityActionTimeline,
+  buildUtilityProbePrintSummary,
   UTILITY_ACTION_MERGE_WINDOW_MS,
   type ExtractUtilityActionsInput,
   type ExtractUtilityActionsResult,
@@ -35,13 +42,18 @@ export {
   isUtilityCatalogRule,
   mapAbilityCategoryToUtilityCategory,
   spellIdsForRule as utilitySpellIdsForRule,
+  UTILITY_PROBE_REQUIRED_DATASETS,
+  UTILITY_PROBE_DATASETS,
   type UtilityProbeParticipant,
   type UtilityProbeSourceIdentity,
   type UtilityDatasetCoverageRow,
+  type UtilityOneFightProbeReport,
+  type UtilityOneFightDataset,
 } from "./utility/types.js";
 
 export {
   extractSurvivalFromCapabilityPackage,
+  buildSurvivalProbePrintSummary,
   SURVIVAL_ACTION_MERGE_WINDOW_MS,
   type ExtractSurvivalFromCapabilityInput,
   type ExtractSurvivalFromCapabilityResult,
@@ -51,8 +63,10 @@ export {
   isSurvivalCatalogRule,
   mapAbilityCategoryToSurvivalDefensive,
   survivalActivationKindForCategory,
+  sharedPackageParticipantProof,
   type SurvivalProbeParticipant,
   type SurvivalProbeSourceIdentity,
+  type SurvivalOneFightProbeReport,
 } from "./survival/types.js";
 export {
   SURVIVAL_ONE_FIGHT_PRESSURE_CONFIG,

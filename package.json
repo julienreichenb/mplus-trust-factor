@@ -92,7 +92,11 @@
     "test:frontend-secrets": "vitest run tests/security/frontend-secret-bake.test.ts",
     "catalog:build:offensive": "pnpm --filter @mplus/abilities run catalog:build:offensive",
     "catalog:validate:offensive": "pnpm --filter @mplus/abilities run catalog:validate:offensive",
-    "catalog:report:offensive-fight": "pnpm --filter @mplus/abilities run catalog:report:offensive-fight"
+    "catalog:report:offensive-fight": "pnpm --filter @mplus/abilities run catalog:report:offensive-fight",
+    "wcl:probe:offensive-one-fight": "node tools/scripts/with-env.mjs node tools/scripts/wcl-probe-offensive-one-fight.mjs",
+    "wcl:probe:utility-one-fight": "node tools/scripts/with-env.mjs node tools/scripts/wcl-probe-utility-one-fight.mjs",
+    "wcl:probe:survival-one-fight": "node tools/scripts/with-env.mjs node tools/scripts/wcl-probe-survival-one-fight.mjs",
+    "wcl:probe:capability-evidence": "node tools/scripts/with-env.mjs node tools/scripts/wcl-probe-capability-evidence.mjs"
   },
   "dependencies": {
     "@mplus/config": "workspace:*",
