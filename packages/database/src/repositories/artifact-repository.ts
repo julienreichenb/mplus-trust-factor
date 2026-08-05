@@ -210,6 +210,22 @@ export class ArtifactRepository {
   }
 
   /**
+   * Bounded RawArtifact metadata lookup: resolve persisted `storageUri` values
+   * for the given artifact ids (for example `pg://` vs legacy `cas://`).
+   *
+   * Reads metadata only — does not open payload bytes.
+   */
+  async getStorageUris(artifactIds: readonly string[]): Promise<Map<string, string>> {
+    const uniqueIds = [...new Set(artifactIds.filter((id) => id.length > 0))];
+    if (uniqueIds.length === 0) return new Map();
+    const rows = await this.prisma.rawArtifact.findMany({
+      where: { id: { in: uniqueIds } },
+      select: { id: true, storageUri: true },
+    });
+    return new Map(rows.map((row) => [row.id, row.storageUri]));
+  }
+
+  /**
    * Lookup RawArtifact by contentHash, read bytes, and verify digest.
    */
   async readVerifiedByContentHash(contentHash: string): Promise<Buffer> {

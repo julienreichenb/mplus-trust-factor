@@ -18,11 +18,27 @@ import {
   buildSharedEvidenceCompatibilityKey,
   consumersForDataset,
   type SharedEvidenceDatasetKey,
+  type SharedEvidencePaginationStopReason,
   type WclRunEvidenceBundle,
   type WclRunEvidenceDataset,
   type WclRunEvidenceDatasetPage,
 } from "./wcl-run-evidence-types.js";
 import { resolveBatchCostAccounting } from "./wcl-batch-cost-accounting.js";
+import {
+  buildPaginationDiagnostics,
+  decideSharedEvidencePageContinuation,
+  eventIdentityKey,
+  pageTimestampBounds,
+  SharedEvidencePaginationError,
+} from "./shared-evidence-pagination.js";
+
+export {
+  buildPaginationDiagnostics,
+  computePaginationCoverageRatio,
+  decideSharedEvidencePageContinuation,
+  eventIdentityKey,
+  SharedEvidencePaginationError,
+} from "./shared-evidence-pagination.js";
 
 export function fingerprintPayload(payload: unknown): string {
   return createHash("sha256").update(JSON.stringify(payload)).digest("hex").slice(0, 32);
@@ -34,15 +50,7 @@ export function dedupeEventsByIdentity(
   const seen = new Set<string>();
   const out: Array<Record<string, unknown>> = [];
   for (const ev of events) {
-    const source = ev.source as { id?: number } | undefined;
-    const ability = ev.ability as { guid?: number } | undefined;
-    const key = [
-      ev.timestamp,
-      ev.type,
-      source?.id ?? ev.sourceID,
-      ability?.guid ?? ev.abilityGameID,
-      ev.targetInstance ?? "",
-    ].join(":");
+    const key = eventIdentityKey(ev);
     if (seen.has(key)) continue;
     seen.add(key);
     out.push(ev);
@@ -74,6 +82,10 @@ export async function fetchSharedEventDataset(input: {
   maxPages?: number;
   pageLimit?: number;
   region?: string;
+  /** Fight window start forwarded to ReportEvents. */
+  startTime?: number | null;
+  /** Fight window end forwarded to ReportEvents. */
+  endTime?: number | null;
 }): Promise<{
   dataset: WclRunEvidenceDataset;
   pointsConsumed: number | null;
@@ -96,14 +108,27 @@ export async function fetchSharedEventDataset(input: {
 
   const maxPages = input.maxPages ?? 12;
   const pageLimit = input.pageLimit ?? 1000;
+  const fightStartMs =
+    input.startTime != null && Number.isFinite(input.startTime) ? input.startTime : null;
+  const fightEndMs =
+    input.endTime != null && Number.isFinite(input.endTime) ? input.endTime : null;
+
   const pages: WclRunEvidenceDatasetPage[] = [];
   const events: Array<Record<string, unknown>> = [];
   const requestCostUnits: Array<number | null> = [];
   const seenPageCursors = new Set<number>();
-  let startTime: number | undefined;
+  const seenEventKeys = new Set<string>();
+  let startTime: number | undefined = fightStartMs ?? undefined;
   let truncated = false;
   let wclRequests = 0;
   let state: WclRunEvidenceDataset["state"] = "OK";
+  let stopReason: SharedEvidencePaginationStopReason = "MAX_PAGES";
+  let complete = false;
+  let lastNextPageTimestamp: number | null = null;
+  let firstEventTimestampMs: number | null = null;
+  let lastEventTimestampMs: number | null = null;
+  let highWaterTimestamp: number | null = null;
+  let hitMaxPages = false;
 
   for (let pageIndex = 0; pageIndex < maxPages; pageIndex += 1) {
     const result = await input.client.requestPermissive<{
@@ -124,6 +149,7 @@ export async function fetchSharedEventDataset(input: {
         dataType,
         sourceID: input.sourceId ?? undefined,
         startTime,
+        endTime: fightEndMs ?? undefined,
         limit: pageLimit,
         translate: false,
         useAbilityIDs: false,
@@ -139,41 +165,118 @@ export async function fetchSharedEventDataset(input: {
 
     if (result.response.errors?.length) {
       state = "ERROR";
+      stopReason = "GRAPHQL_ERROR";
+      complete = false;
+      truncated = true;
       break;
     }
 
     const page = result.response.data?.reportData?.report?.events;
-    const pageEvents = page?.data ?? [];
-    const fp = fingerprintPayload({
-      reportCode: input.reportCode,
-      fightId: input.fightId,
-      dataset: input.dataset,
-      pageIndex,
-      startTime: startTime ?? null,
-      events: pageEvents,
-    });
+    const pageEventsRaw = page?.data ?? [];
+    const pageEvents: Array<Record<string, unknown>> = [];
+    for (const ev of pageEventsRaw) {
+      const key = eventIdentityKey(ev);
+      if (seenEventKeys.has(key)) continue;
+      seenEventKeys.add(key);
+      pageEvents.push(ev);
+    }
+
+    const bounds = pageTimestampBounds(pageEvents);
+    if (bounds.first != null) {
+      firstEventTimestampMs =
+        firstEventTimestampMs == null
+          ? bounds.first
+          : Math.min(firstEventTimestampMs, bounds.first);
+    }
+    if (bounds.last != null) {
+      lastEventTimestampMs =
+        lastEventTimestampMs == null
+          ? bounds.last
+          : Math.max(lastEventTimestampMs, bounds.last);
+    }
+
+    const nextRaw = page?.nextPageTimestamp;
+    const next =
+      typeof nextRaw === "number" && Number.isFinite(nextRaw) ? nextRaw : null;
+    lastNextPageTimestamp = next;
+
     pages.push({
       pageIndex,
       startTime: startTime ?? null,
-      nextPageTimestamp: page?.nextPageTimestamp ?? null,
+      nextPageTimestamp: next,
       eventCount: pageEvents.length,
-      payloadFingerprint: fp,
+      payloadFingerprint: fingerprintPayload({
+        reportCode: input.reportCode,
+        fightId: input.fightId,
+        dataset: input.dataset,
+        pageIndex,
+        startTime: startTime ?? null,
+        events: pageEvents,
+      }),
     });
     events.push(...pageEvents);
 
-    const next = page?.nextPageTimestamp ?? null;
-    if (next == null) break;
-    if (seenPageCursors.has(next)) {
-      truncated = true;
+    const decision = decideSharedEvidencePageContinuation({
+      pageEventsRawCount: pageEventsRaw.length,
+      pageLimit,
+      nextPageTimestamp: next,
+      pageLastTimestampMs: bounds.last,
+      fightEndMs,
+      seenPageCursors,
+      highWaterTimestamp,
+      datasetLabel: input.dataset,
+    });
+
+    if (bounds.last != null) {
+      highWaterTimestamp =
+        highWaterTimestamp == null ? bounds.last : Math.max(highWaterTimestamp, bounds.last);
+    }
+
+    if (decision.fail) {
+      throw new SharedEvidencePaginationError(
+        `Non-progressing ReportEvents cursor for ${input.dataset} at startTime=${startTime ?? "none"} next=${next ?? "null"} lastTs=${bounds.last ?? "none"}`,
+        "NON_PROGRESSING_CURSOR",
+      );
+    }
+
+    if (!decision.continue) {
+      stopReason = decision.stopReason ?? "NEXT_PAGE_NULL";
+      complete = decision.complete === true;
+      truncated = decision.truncated === true;
       break;
     }
-    seenPageCursors.add(next);
-    startTime = next;
+
+    if (decision.nextStartTime == null) {
+      throw new SharedEvidencePaginationError(
+        `Pagination continue without nextStartTime for ${input.dataset}`,
+        "NON_PROGRESSING_CURSOR",
+      );
+    }
+    seenPageCursors.add(decision.nextStartTime);
+    startTime = decision.nextStartTime;
+
+    if (pageIndex === maxPages - 1) {
+      hitMaxPages = true;
+    }
   }
 
-  if (pages.length >= maxPages) truncated = true;
+  if (hitMaxPages && !complete) {
+    stopReason = "MAX_PAGES";
+    truncated = true;
+    complete = false;
+  }
 
-  const deduped = dedupeEventsByIdentity(events);
+  const pagination = buildPaginationDiagnostics({
+    requestedFightStartMs: fightStartMs,
+    requestedFightEndMs: fightEndMs,
+    firstEventTimestampMs,
+    lastEventTimestampMs,
+    nextPageTimestamp: lastNextPageTimestamp,
+    pageCount: pages.length,
+    stopReason,
+    complete,
+  });
+
   const pageCost = resolveBatchCostAccounting({
     before: null,
     after: null,
@@ -189,7 +292,7 @@ export async function fetchSharedEventDataset(input: {
       state,
       truncated,
       pageCount: pages.length,
-      eventCount: deduped.length,
+      eventCount: events.length,
       filterSourceId: input.sourceId ?? null,
       filterExpression: [
         hostilityType != null ? `hostilityType=${hostilityType}` : null,
@@ -199,7 +302,7 @@ export async function fetchSharedEventDataset(input: {
         .filter(Boolean)
         .join(";") || null,
       pages,
-      events: deduped,
+      events,
       consumers: consumersForDataset(input.dataset),
       pointsConsumed: pageCost.pointsConsumed,
       costSource: pageCost.costSource,
@@ -207,6 +310,7 @@ export async function fetchSharedEventDataset(input: {
       wclRequests,
       fetchedAt: new Date().toISOString(),
       source: "provider",
+      pagination,
     },
   };
 }
@@ -430,6 +534,8 @@ export function isDurableSharedEvidenceBundle(
     // Durable reuse requires at least one persisted/fetched page envelope
     // (empty-valid datasets still write a page with eventCount 0).
     if (ds.pageCount <= 0) return false;
+    if (ds.truncated) return false;
+    if (ds.pagination && ds.pagination.complete === false) return false;
   }
   return bundle.completeness.missing.length === 0;
 }

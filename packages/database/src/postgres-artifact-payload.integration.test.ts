@@ -237,4 +237,26 @@ describe.runIf(dbAvailable)("postgres artifact payload storage", () => {
     const entries = await readdir(isolatedRoot, { recursive: true });
     expect(entries.length).toBe(0);
   });
+
+  it("resolves storageUri metadata for artifact ids via getStorageUris", async () => {
+    const repo = freshRepository();
+    const first = await repo.persist({
+      provider: "WARCRAFT_LOGS",
+      bytes: Buffer.from(JSON.stringify({ a: 1, id: randomUUID() })),
+      compression: "GZIP",
+      artifactClass: "wcl_event_page",
+    });
+    const second = await repo.persist({
+      provider: "WARCRAFT_LOGS",
+      bytes: Buffer.from(JSON.stringify({ a: 2, id: randomUUID() })),
+      compression: "GZIP",
+      artifactClass: "wcl_event_page",
+    });
+    const uris = await repo.getStorageUris([first.artifactId, second.artifactId]);
+    expect(uris.size).toBe(2);
+    expect(uris.get(first.artifactId)?.startsWith("pg://")).toBe(true);
+    expect(uris.get(second.artifactId)?.startsWith("pg://")).toBe(true);
+    const missing = await repo.getStorageUris([randomUUID()]);
+    expect(missing.size).toBe(0);
+  });
 });
