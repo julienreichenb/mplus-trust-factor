@@ -21,3 +21,4 @@
 - Narrowest relevant tests for touched areas
 - `pnpm check:english` when UI copy changes
 - `pnpm abilities:validate` when ability catalog sources change
+- `pnpm catalog:build:offensive` / `pnpm catalog:validate:offensive` when offensive cooldown catalog work changes
