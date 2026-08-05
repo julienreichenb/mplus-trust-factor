@@ -480,7 +480,7 @@ describe("dual-path provider ownership", () => {
 });
 
 describe("canary preflight + cost admission", () => {
-  it("preflight makes zero WCL calls and reports missing ranking before acquisition", async () => {
+  it("preflight makes zero WCL calls; ranking gap on existing digests is slot-level only", async () => {
     const ports = createMemoryOrchestrationPorts({ autoSeedRanking: false });
     const seeded = await orchestrateScoringV2Runs({
       characterId: CHAR_ID,
@@ -523,7 +523,8 @@ describe("canary preflight + cost admission", () => {
       ),
     ).toBe(true);
     expect(acquire).not.toHaveBeenCalled();
-    expect(report.rankingFactsMissing.length).toBeGreaterThan(0);
+    // Digests already exist — ranking absence is slot-level, not a cold rankingFactsMissing gap.
+    expect(report.rankingFactsMissing).toEqual([]);
     expect(report.publicationEligible).toBe(false);
     expect(report.publicScorePointerMutated).toBe(false);
     expect(report.fightsRequiringWcl).toEqual([]);

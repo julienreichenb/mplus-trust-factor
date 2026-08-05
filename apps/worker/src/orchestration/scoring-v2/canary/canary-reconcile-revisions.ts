@@ -26,6 +26,10 @@ import {
   type ReportRevisionObservation,
   type SupersedingManifestDocument,
 } from "./canary-manifest-revision-reconcile.js";
+import {
+  carryForwardRankingLineage,
+  type RankingLineageCarryForwardResult,
+} from "./canary-ranking-lineage.js";
 
 export const CANARY_RECONCILE_REVISIONS_SCHEMA =
   "scoring-v2-canary-reconcile-revisions-v1" as const;
@@ -77,6 +81,7 @@ export interface CanaryReconcileRevisionsReport {
   publicScorePointerMutated: false;
   priorContentHash: string;
   newContentHash: string | null;
+  rankingLineage: RankingLineageCarryForwardResult | null;
 }
 
 function mapRoleForDb(role: EvidenceRole): "DPS" | "TANK" | "HEALER" {
@@ -376,6 +381,39 @@ export async function runScoringV2CanaryReconcileRevisions(input: {
     newContentHash = doc.contentHash;
   }
 
+  const targetManifestId = supersedingManifestId ?? frozen.rowId;
+  const docFields = frozen.document as Record<string, unknown>;
+  const priorSupersedes =
+    typeof docFields.supersedesManifestId === "string"
+      ? docFields.supersedesManifestId
+      : null;
+  const sourceManifestId = reconciled.changed
+    ? frozen.rowId
+    : priorSupersedes ?? input.priorManifestId ?? null;
+
+  const rankingLineage = await carryForwardRankingLineage({
+    prisma: input.prisma,
+    evidence: input.container.repositories.evidence,
+    sourceManifestId,
+    targetManifestId,
+  });
+
+  // Prove prior frozen row was not mutated by ranking rebind either.
+  const reloadedAfterRanking = await input.prisma.evidenceManifest.findUnique({
+    where: { id: frozen.rowId },
+  });
+  const reloadedHashAfter =
+    reloadedAfterRanking?.document &&
+    typeof reloadedAfterRanking.document === "object"
+      ? (reloadedAfterRanking.document as CharacterSeasonEvidenceManifestV2)
+          .contentHash
+      : null;
+  if (reloadedHashAfter !== priorContentHash) {
+    throw Object.assign(new Error("prior_manifest_mutated_in_place"), {
+      code: "PRIOR_MANIFEST_MUTATED",
+    });
+  }
+
   const report: CanaryReconcileRevisionsReport = {
     schemaVersion: CANARY_RECONCILE_REVISIONS_SCHEMA,
     priorManifestId: frozen.rowId,
@@ -394,6 +432,7 @@ export async function runScoringV2CanaryReconcileRevisions(input: {
     publicScorePointerMutated: false,
     priorContentHash,
     newContentHash,
+    rankingLineage,
   };
 
   const outDir =

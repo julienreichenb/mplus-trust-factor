@@ -475,8 +475,13 @@ export async function runScoringV2CanaryPreflight(input: {
         } else {
           rankingParse = "ABSENT";
           rankingMissing = true;
-          performanceReady = false;
-          rankingFactsMissing.push(`${fightKey}:actor:${actorId}`);
+          // Cold-cache miss: ranking is required to materialize a digest without WCL.
+          // When a digest already exists, record slot-level rankingMissing but do not
+          // treat it as a provider-free preflight cache gap (digest is reusable).
+          if (!existingDigest) {
+            performanceReady = false;
+            rankingFactsMissing.push(`${fightKey}:actor:${actorId}`);
+          }
         }
       }
 

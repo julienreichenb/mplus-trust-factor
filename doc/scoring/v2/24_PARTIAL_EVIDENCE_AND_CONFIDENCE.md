@@ -91,6 +91,22 @@ This:
 Compatible packages whose revision still matches remain cache hits. Corrected
 revision identities require new acquisitions (at most the mismatch count).
 
+## Ranking lineage across manifest supersedes
+
+`EvidenceDataset` ranking_parse rows are slot-owned but keyed by
+`reportCode:fightId:reportRevision` compatibility. When a revision-reconcile
+supersede creates new slots:
+
+- unchanged identities **carry forward** READY ranking descriptors (same artifact);
+- changed revisions **never** reuse incompatible prior-revision ranking;
+- the prior frozen manifest document and its slots remain immutable;
+- rebind is idempotent and may run again against the latest superseding manifest.
+
+Provider-free preflight treats `rankingFactsMissing` as a **cold digest rebuild**
+gap (package HIT + digest ABSENT + ranking ABSENT). When digests already exist,
+slot-level `rankingMissing` may still be true without inflating
+`rankingFactsMissing`.
+
 ### Partial live scoring
 
 Isolated fight failures (including historical revision mismatches) must **not**

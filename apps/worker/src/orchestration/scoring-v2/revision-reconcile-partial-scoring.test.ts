@@ -368,6 +368,9 @@ describe("reconcile command persistence", () => {
           return null;
         }),
       },
+      evidenceManifestSlot: {
+        findMany: vi.fn(async () => []),
+      },
       dungeon: {
         findMany: vi.fn(async () =>
           MIDNIGHT_SEASON_1_DUNGEON_SLUGS.map((slug, i) => ({
@@ -399,6 +402,9 @@ describe("reconcile command persistence", () => {
               created: true,
             };
           }),
+          findDatasetByCompatibilityKey: vi.fn(async () => null),
+          findDatasetBySlotAndKey: vi.fn(async () => null),
+          createDataset: vi.fn(),
         },
       },
     };
@@ -442,6 +448,14 @@ describe("reconcile command persistence", () => {
     expect(report.participantDigestsCreated).toBe(0);
     expect(report.scoreCalculations).toBe(0);
     expect(report.publicationEnabled).toBe(false);
+    expect(report.rankingLineage).toEqual(
+      expect.objectContaining({
+        carriedForward: 0,
+        skippedIncompatibleRevision: 0,
+        missing: 0,
+        alreadyBound: 0,
+      }),
+    );
     expect(priorRow.document.contentHash).toBe(prior.contentHash);
     expect(created[0]?.contentHash).not.toBe(prior.contentHash);
     const doc = created[0]?.document as {
