@@ -63,3 +63,5 @@ wallidrixe-wcl-performance.zip
 .cursor-orchestration/
 .tmp-*.txt
 COMMIT_MSG.tmp
+
+packages/abilities/generated/offensive/coverage-report.md

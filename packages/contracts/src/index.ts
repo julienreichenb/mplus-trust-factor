@@ -17,4 +17,7 @@ export * from "./evidence-audit-v2.js";
 export * from "./explainability-v2.js";
 export * from "./scoring-v2-control-center.js";
 export * from "./wcl-run-source-digest.js";
+export * from "./wcl-event-normalizer-version.js";
 export * from "./capability-evidence-v1.js";
+export * from "./utility-action-timeline-v1.js";
+export * from "./survival-action-timeline-v1.js";

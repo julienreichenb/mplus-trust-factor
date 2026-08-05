@@ -119,7 +119,6 @@ export * from "./extractors/v2/index.js";
 export * from "./probe/scoring-v2-live-character/index.js";
 export * from "./normalize/wcl-event-normalizer.js";
 export * from "./evidence/capability/index.js";
-export { participantsFromBundleMasterData } from "./extractors/participants/from-master-data.js";
-export type { MasterDataParticipant } from "./extractors/participants/from-master-data.js";
+export * from "./extractors/index.js";
 
 export type { WarcraftLogsProvider };
