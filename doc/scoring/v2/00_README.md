@@ -52,6 +52,7 @@ The target system therefore establishes these primary invariants:
 | [18_DECISIONS_AND_OPEN_QUESTIONS.md](18_DECISIONS_AND_OPEN_QUESTIONS.md) | Accepted decisions and unresolved items |
 | [20_PROVIDER_FIELD_DICTIONARY.md](20_PROVIDER_FIELD_DICTIONARY.md) | Provider field dictionary |
 | [21_END_TO_END_DATA_LINEAGE.md](21_END_TO_END_DATA_LINEAGE.md) | End-to-end data lineage |
+| [22_RUN_ORCHESTRATION_AND_CACHE_LINEAGE.md](22_RUN_ORCHESTRATION_AND_CACHE_LINEAGE.md) | 16-run orchestration, three-layer cache, digest contract |
 | [02_WS02_WS03_INTERFACE.md](02_WS02_WS03_INTERFACE.md) | WS02/WS03 shared evidence interface |
 | [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) | Workstream implementation status |
 

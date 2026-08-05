@@ -16,6 +16,7 @@ Agents: read root [`AGENTS.md`](../AGENTS.md) first.
 | Agents | [`agents/`](agents/) | Workflow, definition of done, ownership |
 | ADRs | [`adr/`](adr/) | Architecture decision records |
 | Scoring | [`scoring/`](scoring/) | Calibration, abilities, boost shadow, [V2 specs](scoring/v2/) |
+
 | API / providers | [`api/`](api/) | Blizzard / WCL / Raider.IO provider docs |
 | Research | [`research/`](research/) | Live provider behaviour and source policy |
 | Testing / security | [`testing/`](testing/), [`security/`](security/) | Fixtures, threat model, red-flag language |
