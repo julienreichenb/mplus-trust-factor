@@ -177,7 +177,25 @@ pnpm scoring-v2:canary:live -- `
 
 Refuses without `--confirm-live`, with publication on, wildcards/cohorts, or missing shadow/live gates. Execute path stays armed-only via `SCORING_V2_CANARY_EXECUTE`.
 
-**Expected budget (upper bound):** ≤1 capability acquisition per unique missing fight (≈45 points estimated each if unmeasured) + fight-metadata GraphQL (1/fight on miss) + discovery overhead. Full cache → **0** provider calls. Digests: 5/fight; character digests: 16.
+**Live call graph (executable):**
+
+```
+CLI live
+→ evaluateCanaryLiveGates + SCORING_V2_CANARY_EXECUTE
+→ createProductionCanaryDependencies (PostgreSQL character)
+→ ActiveMythicPlusSeasonAuthority / resolveCanarySeasonCatalog
+→ loadCompatibleFrozenManifest (fail CANARY_LIVE_MANIFEST_NOT_AVAILABLE)
+→ rate snapshot bootstrap + buildCanaryCostProjection
+→ assertCostAdmissionAllowsLive (DEFER/STOP refuse before acquire)
+→ createLiveCapabilityAcquireHook + Redis singleflight
+→ orchestrateScoringV2Runs(existingManifest, liveProviderPermission)
+→ persist report + replayScoringV2FromPersistedEvidence (0 WCL)
+→ hard assertions: publication off, 1 character, replay fingerprints match
+```
+
+No discovery, no candidate reselection, no manifest mutation. Uses frozen SELECTED reportCode/fightId/revision only.
+
+**Expected budget (upper bound):** ≤1 capability acquisition per unique missing fight (≈45 points estimated each if unmeasured) + fight-metadata GraphQL (1/fight on miss). Full cache → **0** provider calls on acquire path (bootstrap RateLimitData may still run once when snapshot TTL expired). Digests: 5/fight; character digests: 16 when complete.
 
 ## Modules
 
@@ -190,6 +208,7 @@ Refuses without `--confirm-live`, with publication on, wildcards/cohorts, or mis
 | Cost admission | `run-orchestration/cost-admission.ts` |
 | Preflight | `run-orchestration/canary-preflight.ts` |
 | Discovery-only | `canary/canary-discover.ts` + `canary-discovery-gates.ts` |
+| **Live canary** | `canary/canary-live.ts` (`runScoringV2CanaryLive`) |
 | Rate snapshot bootstrap | `canary/canary-rate-snapshot.ts` (`RateLimitData`, TTL reuse) |
 | Canary CLI | `canary/cli.ts` |
 | Canary zone | `canary/canary-zone.ts` (`WCL_MPLUS_ZONE_ID`) |
@@ -198,12 +217,12 @@ Refuses without `--confirm-live`, with publication on, wildcards/cohorts, or mis
 | Catalog diagnose/repair | `canary/canary-diagnose.ts` / `canary-repair-catalog.ts` |
 | Migration | `20260805180000_participant_scoring_digest` |
 
-## Remaining blocker before human approval
+## Operator sequence
 
-1. Run Phase A preflight against the real character DB state (`MANIFEST_NOT_FOUND` expected before discovery).
-2. Run Phase B discovery-only after catalog repair; confirm frozen manifest + zero capability acquisitions.
+1. Phase A preflight against the real character DB state.
+2. Phase B discovery-only when no complete compatible manifest exists; confirm frozen 16/16 + zero capability acquisitions.
 3. Re-run Phase A; review package misses and projected WCL utilization vs DEFER/STOP.
-4. Explicit `--confirm-live` + `SCORING_V2_CANARY_EXECUTE=true` after approval.
+4. Explicit `--confirm-live` + `SCORING_V2_CANARY_EXECUTE=true` after approval — runs `runScoringV2CanaryLive`.
 5. Keep publication disabled for the entire canary.
 
-Do not enable live WCL capability acquisition until that approval.
+Report artifact: `artifacts/scoring-v2-canary/live-canary-report.json`.
