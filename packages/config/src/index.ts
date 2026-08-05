@@ -175,6 +175,12 @@ export const envSchema = z
      * Enabling without master + fetch + dimensions is an incompatible combo.
      */
     SCORING_V2_PUBLICATION_ENABLED: booleanFromString.default(false),
+    /**
+     * Explicit arm for discovery-only canary execution.
+     * Does NOT authorize capability live canary (SCORING_V2_CANARY_EXECUTE).
+     * Credentials alone never authorize; requires --confirm-discovery as well.
+     */
+    SCORING_V2_CANARY_DISCOVERY_EXECUTE: booleanFromString.default(false),
     SCORING_V2_PERFORMANCE_ENABLED: booleanFromString.default(false),
     SCORING_V2_SURVIVAL_ENABLED: booleanFromString.default(false),
     SCORING_V2_UTILITY_ENABLED: booleanFromString.default(false),

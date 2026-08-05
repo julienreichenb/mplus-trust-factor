@@ -36,13 +36,19 @@ import {
   normalizeCanaryDungeonSlug,
 } from "../canary/canary-catalog.js";
 
-export type CacheStatus = "HIT" | "MISS" | "ABSENT";
+export type CacheStatus = "HIT" | "MISS" | "ABSENT" | "NOT_EVALUATED";
 
 export type CanaryManifestStatus =
   | "FOUND"
   | "MANIFEST_NOT_FOUND"
   | "STALE_POOL_REJECTED"
   | "SYNTHETIC_TEST_ONLY";
+
+export interface CanaryPreflightSafetyChecks {
+  providerFree: true;
+  publicationDisabled: true;
+  publicPointerUntouched: true;
+}
 
 export interface CanarySlotPreflight {
   slotId: string;
@@ -56,9 +62,9 @@ export interface CanarySlotPreflight {
   performanceReady: boolean;
   utilityReady: boolean;
   survivalReady: boolean;
-  wouldRequireWcl: boolean;
+  wouldRequireWcl: boolean | null;
   wouldRebuildDigestWithoutWcl: boolean;
-  rankingMissing: boolean;
+  rankingMissing: boolean | null;
 }
 
 export interface CanaryPreflightReport {
@@ -80,13 +86,15 @@ export interface CanaryPreflightReport {
   selectedSlotCount: number;
   uniqueFightCount: number;
   slots: CanarySlotPreflight[];
-  fightsRequiringWcl: string[];
+  /** null when MANIFEST_NOT_FOUND — not yet evaluable. */
+  fightsRequiringWcl: string[] | null;
   digestsRebuildableWithoutWcl: string[];
   rankingFactsMissing: string[];
   cost: CanaryCostProjection;
   publicationEligible: false;
   publicationEnabled: false;
   publicScorePointerMutated: false;
+  safetyChecks: CanaryPreflightSafetyChecks;
   blockers: string[];
 }
 
@@ -121,15 +129,15 @@ function expectedAbsentSlots(activeDungeonSlugs: readonly string[]): CanarySlotP
         slotIndex,
         state: "ABSENT",
         sourceFight: null,
-        packageCache: "ABSENT",
-        digestCache: "ABSENT",
-        rankingParse: "ABSENT",
+        packageCache: "NOT_EVALUATED",
+        digestCache: "NOT_EVALUATED",
+        rankingParse: "NOT_EVALUATED",
         performanceReady: false,
         utilityReady: false,
         survivalReady: false,
-        wouldRequireWcl: false,
+        wouldRequireWcl: null,
         wouldRebuildDigestWithoutWcl: false,
-        rankingMissing: true,
+        rankingMissing: null,
       });
     }
   }
@@ -248,8 +256,6 @@ export async function runScoringV2CanaryPreflight(input: {
       manifestStatus === "STALE_POOL_REJECTED"
         ? "stale_manifest_pool_rejected"
         : "MANIFEST_NOT_FOUND",
-      "SCORING_V2_PUBLICATION_ENABLED_false",
-      "publication_pointer_untouched",
     ];
     return {
       schemaVersion: "scoring-v2-canary-preflight-v1",
@@ -272,16 +278,18 @@ export async function runScoringV2CanaryPreflight(input: {
       selectedSlotCount: 0,
       uniqueFightCount: 0,
       slots,
-      fightsRequiringWcl: [],
+      fightsRequiringWcl: null,
       digestsRebuildableWithoutWcl: [],
-      rankingFactsMissing: expectedSlugs.flatMap((d) => [
-        `${d}:0:ranking_unknown`,
-        `${d}:1:ranking_unknown`,
-      ]),
+      rankingFactsMissing: [],
       cost,
       publicationEligible: false,
       publicationEnabled: false,
       publicScorePointerMutated: false,
+      safetyChecks: {
+        providerFree: true,
+        publicationDisabled: true,
+        publicPointerUntouched: true,
+      },
       blockers,
     };
   }
@@ -429,8 +437,6 @@ export async function runScoringV2CanaryPreflight(input: {
       blockers.push(`cost_admission_${cost.rateLimit.admission}`);
     }
   }
-  blockers.push("SCORING_V2_PUBLICATION_ENABLED_false");
-  blockers.push("publication_pointer_untouched");
 
   return {
     schemaVersion: "scoring-v2-canary-preflight-v1",
@@ -460,6 +466,11 @@ export async function runScoringV2CanaryPreflight(input: {
     publicationEligible: false,
     publicationEnabled: false,
     publicScorePointerMutated: false,
+    safetyChecks: {
+      providerFree: true,
+      publicationDisabled: true,
+      publicPointerUntouched: true,
+    },
     blockers,
   };
 }

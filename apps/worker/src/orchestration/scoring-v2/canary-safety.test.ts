@@ -525,7 +525,7 @@ describe("canary preflight + cost admission", () => {
     expect(report.rankingFactsMissing.length).toBeGreaterThan(0);
     expect(report.publicationEligible).toBe(false);
     expect(report.publicScorePointerMutated).toBe(false);
-    expect(report.fightsRequiringWcl.length).toBe(0);
+    expect(report.fightsRequiringWcl).toEqual([]);
     expect(report.slots.some((s) => s.rankingMissing)).toBe(true);
   });
 

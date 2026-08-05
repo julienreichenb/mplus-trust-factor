@@ -13,6 +13,7 @@ import {
   toCandidateMetadataV2,
   type DiscoverySourceRow,
   type HydrationCoverageDiagnostics,
+  type RankingParseEvidenceV2,
 } from "@mplus/provider-warcraftlogs";
 import { resolveActiveSeasonDungeonPool } from "@mplus/scoring";
 import type { WorkerContainer } from "../../../container.js";
@@ -22,6 +23,8 @@ export interface ShadowCanaryDiscoveryResult {
   seasonSlug: string;
   activeDungeonSlugs: string[];
   candidates: EvidenceCandidateMetadataV2[];
+  /** Ranking/parse rows from zone rankings discovery — not capability event pages. */
+  rankingEvidence: RankingParseEvidenceV2[];
   scoreModelId: string;
   highKeyPolicyId: string;
   diagnostics: {
@@ -137,6 +140,54 @@ export async function discoverShadowCanaryCandidates(input: {
     ctx,
   );
   providerCalls += 5;
+
+  const rankingEvidenceFromDiscovery: RankingParseEvidenceV2[] = [];
+  for (const raw of discovery.rankings ?? []) {
+    const reportCode =
+      typeof raw.reportCode === "string"
+        ? raw.reportCode
+        : typeof (raw as { report?: { code?: string } }).report?.code === "string"
+          ? (raw as { report: { code: string } }).report.code
+          : null;
+    const fightId = Number(
+      raw.fightId ?? (raw as { fightID?: number }).fightID ?? 0,
+    );
+    if (!reportCode || !Number.isFinite(fightId) || fightId <= 0) continue;
+    const encounterId = Number(
+      raw.encounterId ?? (raw as { encounterID?: number }).encounterID ?? 0,
+    );
+    const dungeonSlug =
+      (typeof raw.dungeonSlug === "string" ? raw.dungeonSlug.toLowerCase() : null) ??
+      (Number.isFinite(encounterId) && encounterId > 0
+        ? liveEncounterSlugById.get(encounterId) ??
+          ENCOUNTER_DUNGEON_MAP[encounterId] ??
+          null
+        : null);
+    if (!dungeonSlug || !activeDungeonSet.has(dungeonSlug)) continue;
+    const keyLevel = Number(
+      raw.keyLevel ?? raw.bracket ?? (raw as { bracket?: number }).bracket ?? 0,
+    );
+    if (!Number.isFinite(keyLevel) || keyLevel <= 0) continue;
+    rankingEvidenceFromDiscovery.push({
+      reportCode,
+      fightId,
+      reportRevision:
+        typeof raw.reportRevision === "number" ? raw.reportRevision : 1,
+      dungeonSlug,
+      keyLevel,
+      bracketPercent:
+        typeof raw.bracketPercent === "number" ? raw.bracketPercent : null,
+      rankPercent:
+        typeof raw.rankPercent === "number"
+          ? raw.rankPercent
+          : typeof raw.percentile === "number"
+            ? raw.percentile
+            : null,
+      amountPercent: null,
+      amount: typeof raw.amount === "number" ? raw.amount : null,
+      partition: typeof raw.partition === "number" ? raw.partition : null,
+    });
+  }
 
   let hydratedCandidates = discovery.candidates;
   let hydrationDiagnostics: HydrationCoverageDiagnostics | null = null;
@@ -265,11 +316,33 @@ export async function discoverShadowCanaryCandidates(input: {
     }
   }
 
+  // Prefer ranking rows tied to selected candidate fights; fall back to discovery rankings.
+  const rankingByFight = new Map(
+    rankingEvidenceFromDiscovery.map((r) => [`${r.reportCode}:${r.fightId}`, r]),
+  );
+  const rankingEvidence: RankingParseEvidenceV2[] = [];
+  const seenRanking = new Set<string>();
+  for (const c of candidates) {
+    const key = `${c.discoveryIdentity.reportCode}:${c.discoveryIdentity.fightId}`;
+    if (seenRanking.has(key)) continue;
+    seenRanking.add(key);
+    const fromDiscovery = rankingByFight.get(key);
+    if (fromDiscovery) {
+      rankingEvidence.push({
+        ...fromDiscovery,
+        reportRevision: c.reportRevision ?? fromDiscovery.reportRevision,
+        dungeonSlug: c.dungeonSlug,
+        keyLevel: c.keyLevel,
+      });
+    }
+  }
+
   return {
     seasonId: season.id,
     seasonSlug: season.slug,
     activeDungeonSlugs,
     candidates,
+    rankingEvidence,
     scoreModelId: activeModel.id,
     highKeyPolicyId: "shadow-canary-v1",
     diagnostics: {

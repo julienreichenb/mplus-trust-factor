@@ -7,13 +7,16 @@
  * Phase A (zero WCL):
  *   pnpm scoring-v2:canary:preflight -- --region EU --realm archimonde --character Wallidrixe
  *
+ * Phase B (discovery-only; no capability event pages):
+ *   pnpm scoring-v2:canary:discover -- --region EU --realm archimonde --character Wallidrixe --confirm-discovery
+ *
  * Catalog diagnostic (zero WCL):
  *   pnpm scoring-v2:canary:diagnose-catalog
  *
  * Local catalog repair (idempotent; do not run against staging/production):
  *   pnpm scoring-v2:canary:repair-catalog -- --region EU
  *
- * Phase B (refuses without --confirm-live; not run in automation):
+ * Phase C (refuses without --confirm-live; not run in automation):
  *   pnpm scoring-v2:canary:live -- --region EU --realm archimonde --character Wallidrixe --confirm-live
  */
 import { mkdir, writeFile } from "node:fs/promises";
@@ -61,15 +64,31 @@ import {
 import { MIDNIGHT_SEASON_1_BLIZZARD_SEASON_ID } from "./canary-catalog.js";
 import { createWorkerContainer } from "../../../container.js";
 import { resolveWclMplusZoneMode } from "../../active-mplus-season/index.js";
+import {
+  evaluateCanaryDiscoveryGates,
+  isDiscoveryExecuteArmed,
+} from "./canary-discovery-gates.js";
+import {
+  createDiscoveryForbiddenAcquireHook,
+  runScoringV2CanaryDiscovery,
+} from "./canary-discover.js";
+import type {
+  CanaryDiscoveryCandidateSource,
+  CanaryDiscoveryReport,
+} from "./canary-discover-types.js";
+import type { EvidenceRole } from "@mplus/contracts";
+import type { WclRateLimitSnapshot } from "@mplus/provider-warcraftlogs";
+import { discoverShadowCanaryCandidates } from "../shadow-canary/discover.js";
 
 export interface CanaryCliArgs {
-  mode: "preflight" | "live" | "diagnose-catalog" | "repair-catalog";
+  mode: "preflight" | "discover" | "live" | "diagnose-catalog" | "repair-catalog";
   region: string;
   realm: string;
   character: string;
   zoneIdOverride: number | null;
   allowZoneIdOverride: boolean;
   confirmLive: boolean;
+  confirmDiscovery: boolean;
   confirmRepair: boolean;
   outputDir: string | null;
   characterId?: string;
@@ -84,6 +103,7 @@ export function parseCanaryCliArgs(argv: string[]): CanaryCliArgs {
   if (
     args[0] === "live" ||
     args[0] === "preflight" ||
+    args[0] === "discover" ||
     args[0] === "diagnose-catalog" ||
     args[0] === "repair-catalog"
   ) {
@@ -95,6 +115,7 @@ export function parseCanaryCliArgs(argv: string[]): CanaryCliArgs {
   let zoneIdOverride: number | null = null;
   let allowZoneIdOverride = false;
   let confirmLive = false;
+  let confirmDiscovery = false;
   let confirmRepair = false;
   let outputDir: string | null = null;
 
@@ -117,6 +138,8 @@ export function parseCanaryCliArgs(argv: string[]): CanaryCliArgs {
       allowZoneIdOverride = true;
     } else if (a === "--confirm-live") {
       confirmLive = true;
+    } else if (a === "--confirm-discovery") {
+      confirmDiscovery = true;
     } else if (a === "--confirm-local-repair") {
       confirmRepair = true;
     } else if (a === "--output-dir" && next) {
@@ -126,6 +149,7 @@ export function parseCanaryCliArgs(argv: string[]): CanaryCliArgs {
       if (
         next === "live" ||
         next === "preflight" ||
+        next === "discover" ||
         next === "diagnose-catalog" ||
         next === "repair-catalog"
       ) {
@@ -144,6 +168,7 @@ export function parseCanaryCliArgs(argv: string[]): CanaryCliArgs {
       zoneIdOverride,
       allowZoneIdOverride,
       confirmLive,
+      confirmDiscovery,
       confirmRepair,
       outputDir,
     };
@@ -163,6 +188,7 @@ export function parseCanaryCliArgs(argv: string[]): CanaryCliArgs {
       zoneIdOverride,
       allowZoneIdOverride,
       confirmLive,
+      confirmDiscovery,
       confirmRepair,
       outputDir,
     };
@@ -188,6 +214,7 @@ export function parseCanaryCliArgs(argv: string[]): CanaryCliArgs {
     zoneIdOverride,
     allowZoneIdOverride,
     confirmLive,
+    confirmDiscovery,
     confirmRepair,
     outputDir,
   };
@@ -613,6 +640,137 @@ export async function runCanaryRepairCatalogCommand(
   }
 }
 
+export async function runCanaryDiscoverCommand(
+  args: CanaryCliArgs,
+  options?: {
+    env?: NodeJS.ProcessEnv;
+    discoverOverride?: () => Promise<CanaryDiscoveryCandidateSource>;
+    rateLimitSnapshot?: WclRateLimitSnapshot | null;
+    requireRateSnapshot?: boolean;
+    log?: (message: string) => void;
+  },
+): Promise<{
+  reportPath: string;
+  report: CanaryDiscoveryReport;
+}> {
+  assertOperatorRepositoryMode("PRODUCTION");
+  const env = loadEnv();
+  const processEnv = options?.env ?? process.env;
+
+  const gate = evaluateCanaryDiscoveryGates({
+    env: {
+      ...env,
+      SCORING_V2_CANARY_DISCOVERY_EXECUTE: isDiscoveryExecuteArmed(processEnv),
+    },
+    discoveryExecuteArmed: isDiscoveryExecuteArmed(processEnv),
+    confirmDiscovery: args.confirmDiscovery,
+    characterCount: 1,
+    repositoryMode: "PRODUCTION",
+  });
+  if (!gate.allowed) {
+    throw Object.assign(
+      new Error(`canary_discovery_refused:${gate.reasons.join(",")}`),
+      { code: "CANARY_DISCOVERY_REFUSED", reasons: gate.reasons },
+    );
+  }
+
+  // Prove SCORING_V2_CANARY_EXECUTE alone does not authorize discovery.
+  void processEnv.SCORING_V2_CANARY_EXECUTE;
+
+  const identity = identityFromArgs(args);
+  const deps = await createProductionCanaryDependencies({ env, identity });
+  try {
+    // Capability acquire must remain unreachable on this path.
+    void createDiscoveryForbiddenAcquireHook;
+
+    const seasonResolution = await resolveCanarySeasonCatalog({
+      prisma: deps.container.prisma,
+      regionId: deps.character.regionId,
+      regionCode: args.region,
+      env: processEnv,
+    });
+    assertSeasonCatalogOk(seasonResolution);
+
+    const role = (deps.character.role ?? "DPS") as EvidenceRole;
+
+    const { report } = await runScoringV2CanaryDiscovery({
+      prisma: deps.container.prisma,
+      artifacts: deps.container.repositories.artifacts,
+      evidence: deps.container.repositories.evidence,
+      characterId: deps.characterResolution.characterId,
+      characterResolution: deps.characterResolution,
+      seasonResolution,
+      role: role === "TANK" || role === "HEALER" || role === "DPS" ? role : "DPS",
+      classSlug: null,
+      specSlug: null,
+      rateBudgetConfig: {
+        warnPercent: env.WCL_RATE_WARN_PERCENT,
+        deferPercent: env.WCL_RATE_DEFER_PERCENT,
+        stopPercent: env.WCL_RATE_STOP_PERCENT,
+      },
+      requireRateSnapshot: options?.requireRateSnapshot,
+      getRateLimitSnapshot: async () => {
+        if (options?.rateLimitSnapshot !== undefined) {
+          return options.rateLimitSnapshot;
+        }
+        const wcl = deps.container.providers.warcraftlogs as {
+          getRateLimitSnapshot?: () => Promise<WclRateLimitSnapshot | null>;
+        };
+        if (typeof wcl.getRateLimitSnapshot === "function") {
+          return wcl.getRateLimitSnapshot();
+        }
+        return null;
+      },
+      discover:
+        options?.discoverOverride ??
+        (async () => {
+          const shadow = await discoverShadowCanaryCandidates({
+            container: deps.container,
+            region: args.region.toUpperCase() as "EU" | "US" | "KR" | "TW",
+            realmSlug: args.realm,
+            characterName: args.character,
+            characterId: deps.characterResolution.characterId,
+          });
+          const allowed = new Set(
+            seasonResolution.activeDungeonSlugs.map((s) => s.toLowerCase()),
+          );
+          const candidates = shadow.candidates.filter((c) =>
+            allowed.has(c.dungeonSlug.toLowerCase()),
+          );
+          const allowedFights = new Set(
+            candidates.map(
+              (c) => `${c.discoveryIdentity.reportCode}:${c.discoveryIdentity.fightId}`,
+            ),
+          );
+          return {
+            candidates,
+            rankingEvidence: shadow.rankingEvidence.filter((r) =>
+              allowedFights.has(`${r.reportCode}:${r.fightId}`),
+            ),
+            reportsListed: shadow.diagnostics.discoveredCandidateCount,
+            reportsHydrated: shadow.diagnostics.hydration?.reportsHydrated ?? 0,
+            fightsExamined: shadow.diagnostics.discoveredCandidateCount,
+            graphqlRequestCount: shadow.diagnostics.providerCalls,
+            // Capability/detail combat event pages stay unreachable on this path.
+            capabilityEventPageRequestCount: 0,
+            measuredPoints: null,
+            estimatedPoints: shadow.diagnostics.providerCalls,
+          };
+        }),
+    });
+
+    const outDir =
+      args.outputDir ??
+      join(process.cwd(), "artifacts", "scoring-v2-canary");
+    await mkdir(outDir, { recursive: true });
+    const reportPath = join(outDir, "discovery-report.json");
+    await writeFile(reportPath, JSON.stringify(report, null, 2), "utf8");
+    return { reportPath, report };
+  } finally {
+    await deps.container.prisma.$disconnect().catch(() => undefined);
+  }
+}
+
 export async function runCanaryLiveCommand(
   args: CanaryCliArgs,
   options?: {
@@ -709,6 +867,57 @@ async function main(): Promise<void> {
     console.log(JSON.stringify(result, null, 2));
     return;
   }
+  if (args.mode === "discover") {
+    try {
+      const { reportPath, report } = await runCanaryDiscoverCommand(args);
+      console.log(
+        JSON.stringify(
+          {
+            reportPath,
+            repositoryMode: report.repositoryMode,
+            characterId: report.characterId,
+            seasonSlug: report.seasonSlug,
+            wclZoneId: report.wclZoneId,
+            dungeonPoolHash: report.dungeonPoolHash,
+            selectedSlotCount: report.selectedSlotCount,
+            expectedSlotCount: report.expectedSlotCount,
+            manifestStatus: report.manifestStatus,
+            manifestId: report.manifestId,
+            graphqlRequestCount: report.graphqlRequestCount,
+            eventPageRequestCount: report.eventPageRequestCount,
+            capabilityPackageAcquisitions: report.capabilityPackageAcquisitions,
+            participantDigestsCreated: report.participantDigestsCreated,
+            scoreCalculations: report.scoreCalculations,
+            publicationEnabled: report.publicationEnabled,
+            publicScorePointerMutated: report.publicScorePointerMutated,
+            rateAdmission: report.rateAdmission,
+          },
+          null,
+          2,
+        ),
+      );
+    } catch (err) {
+      console.error(
+        JSON.stringify(
+          {
+            code:
+              err && typeof err === "object" && "code" in err
+                ? (err as { code: unknown }).code
+                : "CANARY_DISCOVERY_FAILED",
+            message: err instanceof Error ? err.message : String(err),
+            reasons:
+              err && typeof err === "object" && "reasons" in err
+                ? (err as { reasons: unknown }).reasons
+                : undefined,
+          },
+          null,
+          2,
+        ),
+      );
+      process.exitCode = 1;
+    }
+    return;
+  }
   if (args.mode === "live") {
     await runCanaryLiveCommand(args);
     return;
@@ -751,9 +960,13 @@ async function main(): Promise<void> {
           providerCalls: report.providerCalls,
           selectedSlotCount: report.selectedSlotCount,
           expectedSlotCount: report.expectedSlotCount,
-          fightsRequiringWcl: report.fightsRequiringWcl.length,
+          fightsRequiringWcl:
+            report.fightsRequiringWcl == null
+              ? null
+              : report.fightsRequiringWcl.length,
           rankingFactsMissing: report.rankingFactsMissing.length,
           blockers: report.blockers,
+          safetyChecks: report.safetyChecks,
           publicationEligible: report.publicationEligible,
           warnings: seasonResolution?.warnings ?? [],
         },
