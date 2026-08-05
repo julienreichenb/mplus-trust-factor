@@ -82,17 +82,44 @@ Persisted `RankingParseEvidenceV2` only. Missing → Performance `UNAVAILABLE` (
 
 ## Canary CLI (do not run live in automation)
 
+Zone ID is **not** a CLI argument in production. Both phases read `WCL_MPLUS_ZONE_ID`
+(zone **47** = Midnight Season 1). The operator CLI uses **production** PostgreSQL
+repositories (`createWorkerContainer` + `createProductionRunOrchestrationPorts`):
+character via `findByIdentity`, season/dungeon pool via persisted `Season` /
+`SeasonDungeon` (validated against `CURRENT_MPLUS_ZONE_DUNGEON_SLUGS`), manifests
+via `EvidenceManifest`. In-memory ports and sentinel UUIDs are test-only.
+
+Authoritative Midnight Season 1 dungeon slugs:
+
+`algethar-academy`, `magisters-terrace`, `maisara-caverns`, `nexus-point-xenas`,
+`pit-of-saron`, `seat-of-the-triumvirate`, `skyreach`, `windrunner-spire`.
+
+Obsolete TWW pools (e.g. `ara-kara-city-of-echoes`, …) cause `SEASON_CATALOG_MISMATCH`
+before any manifest is created. Stale manifests from another pool are not reused
+(`STALE_POOL_REJECTED` / `MANIFEST_NOT_FOUND`).
+
 ### Phase A — provider-free preflight
 
 ```powershell
 pnpm scoring-v2:canary:preflight -- `
   --region EU `
   --realm archimonde `
-  --character Wallidrixe `
-  --zone-id <configured-zone-id>
+  --character Wallidrixe
 ```
 
-Zero WCL calls. JSON report under `artifacts/scoring-v2-canary/`. Reports package/digest/ranking cache, fights requiring WCL, ranking gaps, cost projection, blockers. Publication eligibility remains false.
+### Catalog diagnostic / local repair (never staging/production)
+
+```powershell
+pnpm scoring-v2:canary:diagnose-catalog
+# Local DB only, after reviewing diagnostic:
+pnpm scoring-v2:canary:repair-catalog -- --region EU --confirm-local-repair
+# Prefer season authority sync when Blizzard credentials are available:
+pnpm season:sync-authority -- --region EU
+```
+
+Zero WCL calls. JSON under `artifacts/scoring-v2-canary/`. Reports real `characterId`,
+`seasonResolution`, `manifestStatus`, package/digest/ranking cache, cost blockers.
+Publication eligibility remains false.
 
 ### Phase B — explicit live (human only)
 
@@ -110,7 +137,6 @@ pnpm scoring-v2:canary:live -- `
   --region EU `
   --realm archimonde `
   --character Wallidrixe `
-  --zone-id <configured-zone-id> `
   --confirm-live
 ```
 
@@ -128,6 +154,10 @@ Refuses without `--confirm-live`, with publication on, wildcards/cohorts, or mis
 | Cost admission | `run-orchestration/cost-admission.ts` |
 | Preflight | `run-orchestration/canary-preflight.ts` |
 | Canary CLI | `canary/cli.ts` |
+| Canary zone | `canary/canary-zone.ts` (`WCL_MPLUS_ZONE_ID`) |
+| Canary catalog | `canary/canary-catalog.ts` / `canary-season.ts` |
+| Canary deps | `canary/canary-deps.ts` (PRODUCTION only for operators) |
+| Catalog diagnose/repair | `canary/canary-diagnose.ts` / `canary-repair-catalog.ts` |
 | Migration | `20260805180000_participant_scoring_digest` |
 
 ## Remaining blocker before human approval
