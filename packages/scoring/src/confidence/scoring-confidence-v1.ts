@@ -14,6 +14,26 @@ export interface ScoringConfidenceV1Inputs {
   representedDungeonCount: number;
   activeDungeonCount: number;
   missingDungeons?: readonly string[];
+  /** When both provided, missingDungeons is derived if not explicitly passed. */
+  activeDungeonSlugs?: readonly string[];
+  representedDungeonSlugs?: readonly string[];
+}
+
+/** Dungeons in the active pool with zero usable digests. */
+export function missingDungeonsFromCoverage(
+  activeDungeonSlugs: readonly string[],
+  representedDungeonSlugs: readonly string[],
+): string[] {
+  const represented = new Set(
+    representedDungeonSlugs.map((s) => s.trim().toLowerCase()).filter(Boolean),
+  );
+  return [
+    ...new Set(
+      activeDungeonSlugs
+        .map((s) => s.trim().toLowerCase())
+        .filter((s) => s.length > 0 && !represented.has(s)),
+    ),
+  ].sort();
 }
 
 export interface ScoringConfidenceV1 {
@@ -60,7 +80,15 @@ export function computeScoringConfidenceV1(
   const representedDungeonCount = Math.max(0, input.representedDungeonCount);
   const activeDungeonCount = Math.max(0, input.activeDungeonCount);
   const missingRunCount = Math.max(0, targetRunCount - usableRunCount);
-  const missingDungeons = [...(input.missingDungeons ?? [])].sort();
+  const missingDungeons = [
+    ...(input.missingDungeons ??
+      (input.activeDungeonSlugs != null && input.representedDungeonSlugs != null
+        ? missingDungeonsFromCoverage(
+            input.activeDungeonSlugs,
+            input.representedDungeonSlugs,
+          )
+        : [])),
+  ].sort();
 
   if (usableRunCount === 0 || targetRunCount === 0 || activeDungeonCount === 0) {
     return {

@@ -205,6 +205,7 @@ export {
   confidenceBandFromScore,
   computeScoringConfidenceV1,
   evidenceManifestAnalysisStatus,
+  missingDungeonsFromCoverage,
   overallConfidenceFromDimensions,
   type EvidenceManifestAnalysisStatus,
   type ScoringConfidenceBand,

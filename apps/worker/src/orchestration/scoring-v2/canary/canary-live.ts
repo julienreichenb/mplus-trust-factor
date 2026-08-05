@@ -20,6 +20,8 @@ import {
 import {
   computeScoringConfidenceV1,
   evidenceManifestAnalysisStatus,
+  missingDungeonsFromCoverage,
+  overallConfidenceFromDimensions,
   type ScoringConfidenceV1,
 } from "@mplus/scoring";
 import type { RateBudgetConfig } from "@mplus/provider-warcraftlogs";
@@ -63,11 +65,12 @@ import { assertPublicationBlocked } from "../acquisition.js";
 export const CANARY_LIVE_REPORT_SCHEMA = "scoring-v2-canary-live-v1" as const;
 
 export interface CanaryLiveDimensionReport {
-  status: "OK" | "BLOCKED" | "UNAVAILABLE";
+  status: "AVAILABLE" | "PARTIAL" | "BLOCKED" | "UNAVAILABLE";
   score: number | null;
   usableRunCount: number;
   targetRunCount: number;
   representedDungeonCount: number;
+  missingDungeons: string[];
   confidenceScore: number;
   confidenceBand: ScoringConfidenceV1["confidenceBand"];
   unavailableReason: string | null;
@@ -75,6 +78,11 @@ export interface CanaryLiveDimensionReport {
   inputDigestFingerprints: string[];
   blockReason: string | null;
 }
+
+export type CanaryLiveCommandOutcome =
+  | "SUCCESS"
+  | "PARTIAL_SUCCESS"
+  | "FAILURE";
 
 export interface CanaryLiveReport {
   schemaVersion: typeof CANARY_LIVE_REPORT_SCHEMA;
@@ -84,6 +92,7 @@ export interface CanaryLiveReport {
   region: string;
   realm: string;
   charactersProcessed: 1;
+  commandOutcome: CanaryLiveCommandOutcome;
   manifestId: string;
   selectedSlotCount: number;
   expectedSlotCount: number;
@@ -116,9 +125,14 @@ export interface CanaryLiveReport {
     survival: CanaryLiveDimensionReport;
   };
   composite: {
-    status: "OK" | "PARTIAL" | "UNAVAILABLE";
+    status:
+      | "AVAILABLE"
+      | "PARTIAL"
+      | "AVAILABLE_WITH_PARTIAL_EVIDENCE"
+      | "UNAVAILABLE";
     score: number | null;
     confidence: ScoringConfidenceV1;
+    blockerDimension: "PERFORMANCE" | "UTILITY" | "SURVIVAL" | null;
   };
   confidence: ScoringConfidenceV1;
   rateAdmission: CanaryCostProjection["rateLimit"]["admission"];
@@ -224,6 +238,7 @@ function dimensionReport(input: {
   dimension: "performance" | "utility" | "survival";
   targetRunCount: number;
   activeDungeonCount: number;
+  activeDungeonSlugs: readonly string[];
 }): CanaryLiveDimensionReport {
   const dimKey = input.dimension.toUpperCase() as "PERFORMANCE" | "UTILITY" | "SURVIVAL";
   const blocked = input.result.dimensions.blocked.find((b) => b.dimension === dimKey);
@@ -236,45 +251,93 @@ function dimensionReport(input: {
 
   const digests = input.result.characterDigests;
   const usableRunCount = digests.length;
-  const representedDungeonCount = new Set(
-    digests.map((d) => d.dungeonSlug.toLowerCase()),
-  ).size;
+  const representedDungeonSlugs = [
+    ...new Set(digests.map((d) => d.dungeonSlug.toLowerCase())),
+  ];
+  const representedDungeonCount = representedDungeonSlugs.length;
+  const missingDungeons = missingDungeonsFromCoverage(
+    input.activeDungeonSlugs,
+    representedDungeonSlugs,
+  );
   const confidence = computeScoringConfidenceV1({
     usableRunCount,
     targetRunCount: input.targetRunCount,
     representedDungeonCount,
     activeDungeonCount: input.activeDungeonCount,
+    missingDungeons,
+    activeDungeonSlugs: input.activeDungeonSlugs,
+    representedDungeonSlugs,
   });
 
-  if (blocked || dim == null) {
+  if (blocked) {
     return {
-      status: blocked ? "BLOCKED" : "UNAVAILABLE",
+      status: "BLOCKED",
       score: null,
       usableRunCount,
       targetRunCount: input.targetRunCount,
       representedDungeonCount,
+      missingDungeons,
       confidenceScore: confidence.confidenceScore,
       confidenceBand: confidence.confidenceBand,
-      unavailableReason: blocked?.reason ?? "dimension_unavailable",
+      unavailableReason: blocked.reason,
       inputDigestIds: digests.map((d) => d.digestArtifactId),
       inputDigestFingerprints: digests.map((d) =>
         digestFingerprint(d.digestArtifactId, d.digest.contentHash),
       ),
-      blockReason: blocked?.reason ?? null,
+      blockReason: blocked.reason,
+    };
+  }
+
+  if (dim == null || usableRunCount === 0) {
+    return {
+      status: "UNAVAILABLE",
+      score: null,
+      usableRunCount,
+      targetRunCount: input.targetRunCount,
+      representedDungeonCount,
+      missingDungeons,
+      confidenceScore: confidence.confidenceScore,
+      confidenceBand: confidence.confidenceBand,
+      unavailableReason: "dimension_unavailable",
+      inputDigestIds: digests.map((d) => d.digestArtifactId),
+      inputDigestFingerprints: digests.map((d) =>
+        digestFingerprint(d.digestArtifactId, d.digest.contentHash),
+      ),
+      blockReason: null,
     };
   }
 
   const score =
     typeof dim.score === "number" && Number.isFinite(dim.score) ? dim.score : null;
+  if (score == null) {
+    return {
+      status: "UNAVAILABLE",
+      score: null,
+      usableRunCount,
+      targetRunCount: input.targetRunCount,
+      representedDungeonCount,
+      missingDungeons,
+      confidenceScore: confidence.confidenceScore,
+      confidenceBand: confidence.confidenceBand,
+      unavailableReason: "score_null",
+      inputDigestIds: digests.map((d) => d.digestArtifactId),
+      inputDigestFingerprints: digests.map((d) =>
+        digestFingerprint(d.digestArtifactId, d.digest.contentHash),
+      ),
+      blockReason: null,
+    };
+  }
+
   return {
-    status: score == null ? "UNAVAILABLE" : "OK",
+    status: usableRunCount < input.targetRunCount ? "PARTIAL" : "AVAILABLE",
     score,
     usableRunCount,
     targetRunCount: input.targetRunCount,
     representedDungeonCount,
+    missingDungeons,
     confidenceScore: confidence.confidenceScore,
     confidenceBand: confidence.confidenceBand,
-    unavailableReason: score == null ? "score_null" : null,
+    unavailableReason: null,
     inputDigestIds: digests.map((d) => d.digestArtifactId),
     inputDigestFingerprints: digests.map((d) =>
       digestFingerprint(d.digestArtifactId, d.digest.contentHash),
@@ -285,21 +348,78 @@ function dimensionReport(input: {
 
 function compositeFromDimensions(
   dims: CanaryLiveReport["dimensions"],
-  confidence: ScoringConfidenceV1,
+  overallConfidence: ScoringConfidenceV1,
 ): CanaryLiveReport["composite"] {
-  const scores = [
-    dims.performance.score,
-    dims.utility.score,
-    dims.survival.score,
-  ].filter((s): s is number => s != null && Number.isFinite(s));
-  if (scores.length === 0) {
-    return { status: "UNAVAILABLE", score: null, confidence };
+  const required: Array<{
+    key: "PERFORMANCE" | "UTILITY" | "SURVIVAL";
+    report: CanaryLiveDimensionReport;
+  }> = [
+    { key: "PERFORMANCE", report: dims.performance },
+    { key: "UTILITY", report: dims.utility },
+    { key: "SURVIVAL", report: dims.survival },
+  ];
+  const missing = required.find(
+    (r) =>
+      r.report.status === "UNAVAILABLE" ||
+      r.report.status === "BLOCKED" ||
+      r.report.score == null,
+  );
+  if (missing) {
+    return {
+      status: "UNAVAILABLE",
+      score: null,
+      confidence: overallConfidence,
+      blockerDimension: missing.key,
+    };
   }
-  if (scores.length < 3) {
-    return { status: "PARTIAL", score: null, confidence };
-  }
+
+  const scores = required.map((r) => r.report.score!);
+  const dimConfidences = required.map((r) => r.report.confidenceScore);
+  const confidenceScore = overallConfidenceFromDimensions(dimConfidences);
+  const confidence: ScoringConfidenceV1 = {
+    ...overallConfidence,
+    confidenceScore,
+    confidenceBand:
+      confidenceScore <= 0
+        ? "NONE"
+        : confidenceScore >= 85
+          ? "HIGH"
+          : confidenceScore >= 60
+            ? "MEDIUM"
+            : "LOW",
+  };
   const avg = Math.round((scores[0]! + scores[1]! + scores[2]!) / 3);
-  return { status: "OK", score: avg, confidence };
+  const partial =
+    overallConfidence.usableRunCount < overallConfidence.targetRunCount ||
+    required.some((r) => r.report.status === "PARTIAL");
+  return {
+    status: partial ? "AVAILABLE_WITH_PARTIAL_EVIDENCE" : "AVAILABLE",
+    score: avg,
+    confidence,
+    blockerDimension: null,
+  };
+}
+
+function resolveCommandOutcome(input: {
+  result: RunOrchestrationResult;
+  dimensions: CanaryLiveReport["dimensions"];
+}): CanaryLiveCommandOutcome {
+  const anyDimensionCalculated = [
+    input.dimensions.performance,
+    input.dimensions.utility,
+    input.dimensions.survival,
+  ].some(
+    (d) =>
+      (d.status === "AVAILABLE" || d.status === "PARTIAL") && d.score != null,
+  );
+  if (!anyDimensionCalculated || input.result.characterDigests.length === 0) {
+    return "FAILURE";
+  }
+  if (input.result.fightFailures.length > 0) return "PARTIAL_SUCCESS";
+  if (input.result.characterDigests.length < input.result.expectedSlotCount) {
+    return "PARTIAL_SUCCESS";
+  }
+  return "SUCCESS";
 }
 
 function scoresEqual(a: RunOrchestrationResult, b: RunOrchestrationResult): boolean {
@@ -624,13 +744,18 @@ export async function runScoringV2CanaryLive(
   const replayScoresEqual = scoresEqual(result, replay);
   const targetRunCount = expectedSlotCount;
   const activeDungeonCount = season.activeDungeonSlugs.length;
+  const representedDungeonSlugs = [
+    ...new Set(
+      result.characterDigests.map((d) => d.dungeonSlug.toLowerCase()),
+    ),
+  ];
   const overallConfidence = computeScoringConfidenceV1({
     usableRunCount: result.characterDigests.length,
     targetRunCount,
-    representedDungeonCount: new Set(
-      result.characterDigests.map((d) => d.dungeonSlug.toLowerCase()),
-    ).size,
+    representedDungeonCount: representedDungeonSlugs.length,
     activeDungeonCount,
+    activeDungeonSlugs: season.activeDungeonSlugs,
+    representedDungeonSlugs,
   });
 
   const dimensions = {
@@ -639,32 +764,45 @@ export async function runScoringV2CanaryLive(
       dimension: "performance",
       targetRunCount,
       activeDungeonCount,
+      activeDungeonSlugs: season.activeDungeonSlugs,
     }),
     utility: dimensionReport({
       result,
       dimension: "utility",
       targetRunCount,
       activeDungeonCount,
+      activeDungeonSlugs: season.activeDungeonSlugs,
     }),
     survival: dimensionReport({
       result,
       dimension: "survival",
       targetRunCount,
       activeDungeonCount,
+      activeDungeonSlugs: season.activeDungeonSlugs,
     }),
   };
 
+  const replayRepresented = [
+    ...new Set(
+      replay.characterDigests.map((d) => d.dungeonSlug.toLowerCase()),
+    ),
+  ];
   const replayConfidence = computeScoringConfidenceV1({
     usableRunCount: replay.characterDigests.length,
     targetRunCount,
-    representedDungeonCount: new Set(
-      replay.characterDigests.map((d) => d.dungeonSlug.toLowerCase()),
-    ).size,
+    representedDungeonCount: replayRepresented.length,
     activeDungeonCount,
+    activeDungeonSlugs: season.activeDungeonSlugs,
+    representedDungeonSlugs: replayRepresented,
   });
   const replayConfidenceEqual =
     replayConfidence.confidenceScore === overallConfidence.confidenceScore &&
     replayConfidence.confidenceBand === overallConfidence.confidenceBand;
+
+  const commandOutcome = resolveCommandOutcome({
+    result,
+    dimensions,
+  });
 
   const report: CanaryLiveReport = {
     schemaVersion: CANARY_LIVE_REPORT_SCHEMA,
@@ -674,11 +812,12 @@ export async function runScoringV2CanaryLive(
     region: input.region,
     realm: input.realm,
     charactersProcessed: 1,
+    commandOutcome,
     manifestId: frozen.rowId,
     selectedSlotCount: result.selectedSlotCount,
     expectedSlotCount,
     analysisStatus: evidenceManifestAnalysisStatus({
-      selectedSlotCount: result.selectedSlotCount,
+      selectedSlotCount: result.characterDigests.length,
       targetRunCount: expectedSlotCount,
     }),
     selectedFights: manifest.slots
@@ -742,13 +881,18 @@ export async function runScoringV2CanaryLive(
       report,
     });
   }
-  if (result.fightFailures.length > 0) {
+  if (commandOutcome === "FAILURE") {
     throw Object.assign(
       new Error(
-        `canary_live_fight_failures:${result.fightFailures.map((f) => f.code).join(",")}`,
+        result.fightFailures.length > 0
+          ? `canary_live_fight_failures:${result.fightFailures.map((f) => f.code).join(",")}`
+          : "canary_live_no_usable_analysis",
       ),
       {
-        code: "CANARY_LIVE_FIGHT_FAILURES",
+        code:
+          result.fightFailures.length > 0
+            ? "CANARY_LIVE_FIGHT_FAILURES"
+            : "CANARY_LIVE_NO_USABLE_ANALYSIS",
         fightFailures: result.fightFailures,
         report,
       },
