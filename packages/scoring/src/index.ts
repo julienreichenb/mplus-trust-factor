@@ -201,6 +201,17 @@ export {
   scoringRunCandidateToEvidenceMetadata,
 } from "./selection/evidence-v2-adapters.js";
 export {
+  SCORING_CONFIDENCE_POLICY_VERSION,
+  confidenceBandFromScore,
+  computeScoringConfidenceV1,
+  evidenceManifestAnalysisStatus,
+  overallConfidenceFromDimensions,
+  type EvidenceManifestAnalysisStatus,
+  type ScoringConfidenceBand,
+  type ScoringConfidenceV1,
+  type ScoringConfidenceV1Inputs,
+} from "./confidence/scoring-confidence-v1.js";
+export {
   computeModelCoverage,
   filterPublicSkillDimensions,
   MODEL_COVERAGE_PROVISIONAL_THRESHOLD,

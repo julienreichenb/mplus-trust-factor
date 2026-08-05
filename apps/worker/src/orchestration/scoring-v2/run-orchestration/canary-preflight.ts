@@ -35,6 +35,10 @@ import {
   containsObsoleteDungeonSlug,
   normalizeCanaryDungeonSlug,
 } from "../canary/canary-catalog.js";
+import {
+  computeScoringConfidenceV1,
+  evidenceManifestAnalysisStatus,
+} from "@mplus/scoring";
 
 export type CacheStatus = "HIT" | "MISS" | "ABSENT" | "NOT_EVALUATED";
 
@@ -67,6 +71,52 @@ export interface CanarySlotPreflight {
   rankingMissing: boolean | null;
 }
 
+/** Exact explanation when cost.rateLimit.admission is DEFER (provider-free). */
+export interface CostAdmissionDeferExplanation {
+  snapshotSource: "PERSISTED" | "ABSENT" | "INLINE";
+  snapshotAgeMs: number | null;
+  ttlSeconds: number | null;
+  projectedPoints: number | null;
+  /** Threshold or gate that caused DEFER (not utilization % when snapshot absent). */
+  thresholdResponsible: string;
+  reasons: string[];
+}
+
+export function explainCostAdmissionDefer(input: {
+  cost: CanaryCostProjection;
+  snapshotSource?: CostAdmissionDeferExplanation["snapshotSource"];
+  snapshotAgeMs?: number | null;
+  ttlSeconds?: number | null;
+}): CostAdmissionDeferExplanation | null {
+  if (input.cost.rateLimit.admission !== "DEFER") return null;
+  const reasons = input.cost.rateLimit.reasons;
+  let thresholdResponsible = reasons[0] ?? "unknown";
+  if (reasons.includes("no_snapshot_blocks_cold_live")) {
+    thresholdResponsible = "no_snapshot_blocks_cold_live";
+  } else if (reasons.includes("budget_reserve_floor")) {
+    thresholdResponsible = "budget_reserve_floor";
+  } else if (reasons.some((r) => r.startsWith("rate_budget_"))) {
+    thresholdResponsible =
+      reasons.find((r) => r.startsWith("rate_budget_")) ?? thresholdResponsible;
+  }
+  const snap = input.cost.rateLimit.snapshot;
+  return {
+    snapshotSource:
+      input.snapshotSource ??
+      (snap ? "INLINE" : "ABSENT"),
+    snapshotAgeMs:
+      input.snapshotAgeMs !== undefined
+        ? input.snapshotAgeMs
+        : snap?.fetchedAt
+          ? Math.max(0, Date.now() - Date.parse(snap.fetchedAt))
+          : null,
+    ttlSeconds: input.ttlSeconds ?? null,
+    projectedPoints: input.cost.estimatedPointsTotal,
+    thresholdResponsible,
+    reasons: [...reasons],
+  };
+}
+
 export interface CanaryPreflightReport {
   schemaVersion: "scoring-v2-canary-preflight-v1";
   characterId: string;
@@ -91,6 +141,25 @@ export interface CanaryPreflightReport {
   digestsRebuildableWithoutWcl: string[];
   rankingFactsMissing: string[];
   cost: CanaryCostProjection;
+  /** Present when admission is DEFER — exact gate, not a utilization threshold guess. */
+  costAdmissionDefer: CostAdmissionDeferExplanation | null;
+  /** EMPTY / PARTIAL / COMPLETE — analysis eligibility separate from publication. */
+  analysisStatus: "EMPTY" | "PARTIAL" | "COMPLETE";
+  /** Target evidence volume (dungeons × 2). */
+  targetRunCount: number;
+  representedDungeonCount: number;
+  projectedConfidence: {
+    policyVersion: "scoring-confidence-v1";
+    confidenceScore: number;
+    confidenceBand: "HIGH" | "MEDIUM" | "LOW" | "NONE";
+    runCoverage: number;
+    dungeonCoverage: number;
+    usableRunCount: number;
+    missingRunCount: number;
+    missingDungeons: string[];
+  };
+  /** Warnings that do not block capability acquisition / dimension calculation. */
+  warnings: string[];
   publicationEligible: false;
   publicationEnabled: false;
   publicScorePointerMutated: false;
@@ -282,6 +351,21 @@ export async function runScoringV2CanaryPreflight(input: {
       digestsRebuildableWithoutWcl: [],
       rankingFactsMissing: [],
       cost,
+      costAdmissionDefer: explainCostAdmissionDefer({ cost }),
+      analysisStatus: "EMPTY",
+      targetRunCount: expectedSlotCount,
+      representedDungeonCount: 0,
+      projectedConfidence: {
+        policyVersion: "scoring-confidence-v1",
+        confidenceScore: 0,
+        confidenceBand: "NONE",
+        runCoverage: 0,
+        dungeonCoverage: 0,
+        usableRunCount: 0,
+        missingRunCount: expectedSlotCount,
+        missingDungeons: [...expectedSlugs],
+      },
+      warnings: [],
       publicationEligible: false,
       publicationEnabled: false,
       publicScorePointerMutated: false,
@@ -424,8 +508,28 @@ export async function runScoringV2CanaryPreflight(input: {
     manifest.selectedSlotCount < expectedSlotCount ||
     manifest.slots.some((s) => s.state !== "SELECTED");
 
+  const selectedSlots = manifest.slots.filter((s) => s.state === "SELECTED");
+  const represented = new Set(selectedSlots.map((s) => s.dungeonSlug.toLowerCase()));
+  const missingDungeons = expectedSlugs.filter((s) => !represented.has(s.toLowerCase()));
+  const analysisStatus = evidenceManifestAnalysisStatus({
+    selectedSlotCount: selectedSlots.length,
+    targetRunCount: expectedSlotCount,
+  });
+  const projectedConfidence = computeScoringConfidenceV1({
+    usableRunCount: selectedSlots.length,
+    targetRunCount: expectedSlotCount,
+    representedDungeonCount: represented.size,
+    activeDungeonCount: expectedSlugs.length,
+    missingDungeons,
+  });
+
+  const warnings: string[] = [];
   const blockers: string[] = [];
-  if (incomplete) blockers.push("manifest_incomplete");
+  if (analysisStatus === "EMPTY") {
+    blockers.push("manifest_empty");
+  } else if (analysisStatus === "PARTIAL" || incomplete) {
+    warnings.push("PARTIAL_EVIDENCE_SET");
+  }
   if (fightsRequiringWcl.length > 0) {
     blockers.push(`wcl_required_for_${fightsRequiringWcl.length}_fights`);
   }
@@ -463,6 +567,21 @@ export async function runScoringV2CanaryPreflight(input: {
     digestsRebuildableWithoutWcl,
     rankingFactsMissing,
     cost,
+    costAdmissionDefer: explainCostAdmissionDefer({ cost }),
+    analysisStatus,
+    targetRunCount: expectedSlotCount,
+    representedDungeonCount: represented.size,
+    projectedConfidence: {
+      policyVersion: "scoring-confidence-v1",
+      confidenceScore: projectedConfidence.confidenceScore,
+      confidenceBand: projectedConfidence.confidenceBand,
+      runCoverage: projectedConfidence.runCoverage,
+      dungeonCoverage: projectedConfidence.dungeonCoverage,
+      usableRunCount: projectedConfidence.usableRunCount,
+      missingRunCount: projectedConfidence.missingRunCount,
+      missingDungeons: projectedConfidence.missingDungeons,
+    },
+    warnings,
     publicationEligible: false,
     publicationEnabled: false,
     publicScorePointerMutated: false,
