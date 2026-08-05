@@ -1,0 +1,2819 @@
+{
+  "schemaVersion": "offensive-coverage-matrix-v1",
+  "gameVersion": "12.0.0",
+  "catalogVersion": "12.0.0/midnight-season-1",
+  "generatedAt": "2026-08-05T15:02:04.755Z",
+  "blizzardMatrix": {
+    "provenance": "BLIZZARD_API playable-class + playable-specialization indexes (curated snapshot in RETAIL_CLASS_MATRIX)",
+    "verifiedAt": "2026-07-28",
+    "playableClasses": 13,
+    "playableSpecializations": 40
+  },
+  "scopes": {
+    "fullRetailSpecializationCoverage": true,
+    "sameFightObservedValidation": {
+      "fight": "1WKcCz2BnAQmbhfq:1:r1",
+      "partyClassSlugs": [
+        "warlock",
+        "evoker",
+        "monk",
+        "druid",
+        "death-knight"
+      ],
+      "note": "Same-fight party validates digest matching for five classes only. Global catalog coverage is the Blizzard playable matrix below — not this party."
+    },
+    "classesSpecsNotInFivePlayerTestParty": [
+      "demon-hunter/havoc",
+      "demon-hunter/vengeance",
+      "demon-hunter/devourer",
+      "hunter/beast-mastery",
+      "hunter/marksmanship",
+      "hunter/survival",
+      "mage/arcane",
+      "mage/fire",
+      "mage/frost",
+      "paladin/holy",
+      "paladin/protection",
+      "paladin/retribution",
+      "priest/discipline",
+      "priest/holy",
+      "priest/shadow",
+      "rogue/assassination",
+      "rogue/outlaw",
+      "rogue/subtlety",
+      "shaman/elemental",
+      "shaman/enhancement",
+      "shaman/restoration",
+      "warrior/arms",
+      "warrior/fury",
+      "warrior/protection"
+    ]
+  },
+  "specs": [
+    {
+      "classSlug": "death-knight",
+      "className": "Death Knight",
+      "specSlug": "blood",
+      "specName": "Blood",
+      "role": "TANK",
+      "blizzardClassId": 6,
+      "blizzardSpecId": 250,
+      "supportState": "SUPPORTED",
+      "reviewedOffensiveEntryCount": 3,
+      "specializationScopedEntryCount": 3,
+      "racialOnlyCoverage": false,
+      "canonicalCooldownNames": [
+        "Dancing Rune Weapon",
+        "Abomination Limb",
+        "Bonestorm"
+      ],
+      "activationSpellIds": [
+        49028,
+        81256,
+        383269,
+        194844
+      ],
+      "abilities": [
+        {
+          "canonicalKey": "death-knight.offensive.dancing-rune-weapon",
+          "canonicalName": "Dancing Rune Weapon",
+          "activationSpellIds": [
+            49028,
+            81256
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "death-knight.offensive.abomination-limb",
+          "canonicalName": "Abomination Limb",
+          "activationSpellIds": [
+            383269
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "death-knight.offensive.bonestorm",
+          "canonicalName": "Bonestorm",
+          "activationSpellIds": [
+            194844
+          ],
+          "category": "OFFENSIVE_MINOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        }
+      ],
+      "exemptionStatus": "NONE",
+      "exemptionReason": null,
+      "sourceProvenance": "BLIZZARD_API playable-class + playable-specialization indexes (curated snapshot in RETAIL_CLASS_MATRIX)",
+      "coverageStatus": "COVERED",
+      "inSameFightParty": true,
+      "sameFightObservedValidation": true
+    },
+    {
+      "classSlug": "death-knight",
+      "className": "Death Knight",
+      "specSlug": "frost",
+      "specName": "Frost",
+      "role": "DPS",
+      "blizzardClassId": 6,
+      "blizzardSpecId": 251,
+      "supportState": "SUPPORTED",
+      "reviewedOffensiveEntryCount": 5,
+      "specializationScopedEntryCount": 5,
+      "racialOnlyCoverage": false,
+      "canonicalCooldownNames": [
+        "Abomination Limb",
+        "Pillar of Frost",
+        "Empower Rune Weapon",
+        "Breath of Sindragosa",
+        "Frostwyrm's Fury"
+      ],
+      "activationSpellIds": [
+        383269,
+        51271,
+        47568,
+        152279,
+        279302
+      ],
+      "abilities": [
+        {
+          "canonicalKey": "death-knight.offensive.abomination-limb",
+          "canonicalName": "Abomination Limb",
+          "activationSpellIds": [
+            383269
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "death-knight.offensive.pillar-of-frost",
+          "canonicalName": "Pillar of Frost",
+          "activationSpellIds": [
+            51271
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "death-knight.offensive.empower-rune-weapon",
+          "canonicalName": "Empower Rune Weapon",
+          "activationSpellIds": [
+            47568
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "death-knight.offensive.breath-of-sindragosa",
+          "canonicalName": "Breath of Sindragosa",
+          "activationSpellIds": [
+            152279
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "death-knight.offensive.frostwyrms-fury",
+          "canonicalName": "Frostwyrm's Fury",
+          "activationSpellIds": [
+            279302
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        }
+      ],
+      "exemptionStatus": "NONE",
+      "exemptionReason": null,
+      "sourceProvenance": "BLIZZARD_API playable-class + playable-specialization indexes (curated snapshot in RETAIL_CLASS_MATRIX)",
+      "coverageStatus": "COVERED",
+      "inSameFightParty": true,
+      "sameFightObservedValidation": true
+    },
+    {
+      "classSlug": "death-knight",
+      "className": "Death Knight",
+      "specSlug": "unholy",
+      "specName": "Unholy",
+      "role": "DPS",
+      "blizzardClassId": 6,
+      "blizzardSpecId": 252,
+      "supportState": "SUPPORTED",
+      "reviewedOffensiveEntryCount": 6,
+      "specializationScopedEntryCount": 6,
+      "racialOnlyCoverage": false,
+      "canonicalCooldownNames": [
+        "Abomination Limb",
+        "Army of the Dead",
+        "Apocalypse",
+        "Dark Transformation",
+        "Unholy Assault",
+        "Summon Gargoyle"
+      ],
+      "activationSpellIds": [
+        383269,
+        42650,
+        275699,
+        63560,
+        207289,
+        49206,
+        207349
+      ],
+      "abilities": [
+        {
+          "canonicalKey": "death-knight.offensive.abomination-limb",
+          "canonicalName": "Abomination Limb",
+          "activationSpellIds": [
+            383269
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "death-knight.offensive.army-of-the-dead",
+          "canonicalName": "Army of the Dead",
+          "activationSpellIds": [
+            42650
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "death-knight.offensive.apocalypse",
+          "canonicalName": "Apocalypse",
+          "activationSpellIds": [
+            275699
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "death-knight.offensive.dark-transformation",
+          "canonicalName": "Dark Transformation",
+          "activationSpellIds": [
+            63560
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "death-knight.offensive.unholy-assault",
+          "canonicalName": "Unholy Assault",
+          "activationSpellIds": [
+            207289
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "death-knight.offensive.summon-gargoyle",
+          "canonicalName": "Summon Gargoyle",
+          "activationSpellIds": [
+            49206,
+            207349
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        }
+      ],
+      "exemptionStatus": "NONE",
+      "exemptionReason": null,
+      "sourceProvenance": "BLIZZARD_API playable-class + playable-specialization indexes (curated snapshot in RETAIL_CLASS_MATRIX)",
+      "coverageStatus": "COVERED",
+      "inSameFightParty": true,
+      "sameFightObservedValidation": true
+    },
+    {
+      "classSlug": "demon-hunter",
+      "className": "Demon Hunter",
+      "specSlug": "havoc",
+      "specName": "Havoc",
+      "role": "DPS",
+      "blizzardClassId": 12,
+      "blizzardSpecId": 577,
+      "supportState": "SUPPORTED",
+      "reviewedOffensiveEntryCount": 4,
+      "specializationScopedEntryCount": 4,
+      "racialOnlyCoverage": false,
+      "canonicalCooldownNames": [
+        "Metamorphosis",
+        "Essence Break",
+        "Eye Beam",
+        "The Hunt"
+      ],
+      "activationSpellIds": [
+        191427,
+        162264,
+        258860,
+        198013,
+        370965
+      ],
+      "abilities": [
+        {
+          "canonicalKey": "demon-hunter.offensive.metamorphosis-havoc",
+          "canonicalName": "Metamorphosis",
+          "activationSpellIds": [
+            191427,
+            162264
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "demon-hunter.offensive.essence-break",
+          "canonicalName": "Essence Break",
+          "activationSpellIds": [
+            258860
+          ],
+          "category": "OFFENSIVE_MINOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "demon-hunter.offensive.eye-beam",
+          "canonicalName": "Eye Beam",
+          "activationSpellIds": [
+            198013
+          ],
+          "category": "OFFENSIVE_MINOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "demon-hunter.offensive.the-hunt",
+          "canonicalName": "The Hunt",
+          "activationSpellIds": [
+            370965
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        }
+      ],
+      "exemptionStatus": "NONE",
+      "exemptionReason": null,
+      "sourceProvenance": "BLIZZARD_API playable-class + playable-specialization indexes (curated snapshot in RETAIL_CLASS_MATRIX)",
+      "coverageStatus": "COVERED",
+      "inSameFightParty": false,
+      "sameFightObservedValidation": false
+    },
+    {
+      "classSlug": "demon-hunter",
+      "className": "Demon Hunter",
+      "specSlug": "vengeance",
+      "specName": "Vengeance",
+      "role": "TANK",
+      "blizzardClassId": 12,
+      "blizzardSpecId": 581,
+      "supportState": "SUPPORTED",
+      "reviewedOffensiveEntryCount": 4,
+      "specializationScopedEntryCount": 4,
+      "racialOnlyCoverage": false,
+      "canonicalCooldownNames": [
+        "The Hunt",
+        "Fel Devastation",
+        "Metamorphosis",
+        "Soul Carver"
+      ],
+      "activationSpellIds": [
+        370965,
+        212084,
+        187827,
+        207407
+      ],
+      "abilities": [
+        {
+          "canonicalKey": "demon-hunter.offensive.the-hunt",
+          "canonicalName": "The Hunt",
+          "activationSpellIds": [
+            370965
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "demon-hunter.offensive.fel-devastation",
+          "canonicalName": "Fel Devastation",
+          "activationSpellIds": [
+            212084
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "demon-hunter.offensive.metamorphosis-vengeance",
+          "canonicalName": "Metamorphosis",
+          "activationSpellIds": [
+            187827
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "demon-hunter.offensive.soul-carver",
+          "canonicalName": "Soul Carver",
+          "activationSpellIds": [
+            207407
+          ],
+          "category": "OFFENSIVE_MINOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        }
+      ],
+      "exemptionStatus": "NONE",
+      "exemptionReason": null,
+      "sourceProvenance": "BLIZZARD_API playable-class + playable-specialization indexes (curated snapshot in RETAIL_CLASS_MATRIX)",
+      "coverageStatus": "COVERED",
+      "inSameFightParty": false,
+      "sameFightObservedValidation": false
+    },
+    {
+      "classSlug": "demon-hunter",
+      "className": "Demon Hunter",
+      "specSlug": "devourer",
+      "specName": "Devourer",
+      "role": "DPS",
+      "blizzardClassId": 12,
+      "blizzardSpecId": 1480,
+      "supportState": "UNCERTAIN",
+      "reviewedOffensiveEntryCount": 2,
+      "specializationScopedEntryCount": 2,
+      "racialOnlyCoverage": false,
+      "canonicalCooldownNames": [
+        "The Hunt",
+        "Void Metamorphosis"
+      ],
+      "activationSpellIds": [
+        370965,
+        471306
+      ],
+      "abilities": [
+        {
+          "canonicalKey": "demon-hunter.offensive.the-hunt",
+          "canonicalName": "The Hunt",
+          "activationSpellIds": [
+            370965
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "demon-hunter.offensive.void-metamorphosis",
+          "canonicalName": "Void Metamorphosis",
+          "activationSpellIds": [
+            471306
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        }
+      ],
+      "exemptionStatus": "NONE",
+      "exemptionReason": null,
+      "sourceProvenance": "BLIZZARD_API playable-class + playable-specialization indexes (curated snapshot in RETAIL_CLASS_MATRIX)",
+      "coverageStatus": "COVERED",
+      "inSameFightParty": false,
+      "sameFightObservedValidation": false
+    },
+    {
+      "classSlug": "druid",
+      "className": "Druid",
+      "specSlug": "balance",
+      "specName": "Balance",
+      "role": "DPS",
+      "blizzardClassId": 11,
+      "blizzardSpecId": 102,
+      "supportState": "SUPPORTED",
+      "reviewedOffensiveEntryCount": 6,
+      "specializationScopedEntryCount": 6,
+      "racialOnlyCoverage": false,
+      "canonicalCooldownNames": [
+        "Celestial Alignment",
+        "Incarnation: Chosen of Elune",
+        "Convoke the Spirits",
+        "Fury of Elune",
+        "Force of Nature",
+        "Nature's Vigil"
+      ],
+      "activationSpellIds": [
+        194223,
+        383410,
+        102560,
+        391528,
+        202770,
+        205636,
+        124974
+      ],
+      "abilities": [
+        {
+          "canonicalKey": "druid.offensive.celestial-alignment",
+          "canonicalName": "Celestial Alignment",
+          "activationSpellIds": [
+            194223,
+            383410
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "druid.offensive.incarnation-chosen-of-elune",
+          "canonicalName": "Incarnation: Chosen of Elune",
+          "activationSpellIds": [
+            102560
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "druid.offensive.convoke-the-spirits",
+          "canonicalName": "Convoke the Spirits",
+          "activationSpellIds": [
+            391528
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "druid.offensive.fury-of-elune",
+          "canonicalName": "Fury of Elune",
+          "activationSpellIds": [
+            202770
+          ],
+          "category": "OFFENSIVE_MINOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "druid.offensive.force-of-nature",
+          "canonicalName": "Force of Nature",
+          "activationSpellIds": [
+            205636
+          ],
+          "category": "OFFENSIVE_MINOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "druid.offensive.natures-vigil",
+          "canonicalName": "Nature's Vigil",
+          "activationSpellIds": [
+            124974
+          ],
+          "category": "OFFENSIVE_MINOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        }
+      ],
+      "exemptionStatus": "NONE",
+      "exemptionReason": null,
+      "sourceProvenance": "BLIZZARD_API playable-class + playable-specialization indexes (curated snapshot in RETAIL_CLASS_MATRIX)",
+      "coverageStatus": "COVERED",
+      "inSameFightParty": true,
+      "sameFightObservedValidation": true
+    },
+    {
+      "classSlug": "druid",
+      "className": "Druid",
+      "specSlug": "feral",
+      "specName": "Feral",
+      "role": "DPS",
+      "blizzardClassId": 11,
+      "blizzardSpecId": 103,
+      "supportState": "SUPPORTED",
+      "reviewedOffensiveEntryCount": 5,
+      "specializationScopedEntryCount": 5,
+      "racialOnlyCoverage": false,
+      "canonicalCooldownNames": [
+        "Convoke the Spirits",
+        "Berserk",
+        "Incarnation: Avatar of Ashamane",
+        "Tiger's Fury",
+        "Nature's Vigil"
+      ],
+      "activationSpellIds": [
+        391528,
+        106951,
+        102543,
+        5217,
+        124974
+      ],
+      "abilities": [
+        {
+          "canonicalKey": "druid.offensive.convoke-the-spirits",
+          "canonicalName": "Convoke the Spirits",
+          "activationSpellIds": [
+            391528
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "druid.offensive.berserk-feral",
+          "canonicalName": "Berserk",
+          "activationSpellIds": [
+            106951
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "druid.offensive.incarnation-avatar-of-ashamane",
+          "canonicalName": "Incarnation: Avatar of Ashamane",
+          "activationSpellIds": [
+            102543
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "druid.offensive.tigers-fury",
+          "canonicalName": "Tiger's Fury",
+          "activationSpellIds": [
+            5217
+          ],
+          "category": "OFFENSIVE_MINOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "druid.offensive.natures-vigil",
+          "canonicalName": "Nature's Vigil",
+          "activationSpellIds": [
+            124974
+          ],
+          "category": "OFFENSIVE_MINOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        }
+      ],
+      "exemptionStatus": "NONE",
+      "exemptionReason": null,
+      "sourceProvenance": "BLIZZARD_API playable-class + playable-specialization indexes (curated snapshot in RETAIL_CLASS_MATRIX)",
+      "coverageStatus": "COVERED",
+      "inSameFightParty": true,
+      "sameFightObservedValidation": true
+    },
+    {
+      "classSlug": "druid",
+      "className": "Druid",
+      "specSlug": "guardian",
+      "specName": "Guardian",
+      "role": "TANK",
+      "blizzardClassId": 11,
+      "blizzardSpecId": 104,
+      "supportState": "SUPPORTED",
+      "reviewedOffensiveEntryCount": 4,
+      "specializationScopedEntryCount": 4,
+      "racialOnlyCoverage": false,
+      "canonicalCooldownNames": [
+        "Convoke the Spirits",
+        "Incarnation: Guardian of Ursoc",
+        "Rage of the Sleeper",
+        "Nature's Vigil"
+      ],
+      "activationSpellIds": [
+        391528,
+        102558,
+        200851,
+        124974
+      ],
+      "abilities": [
+        {
+          "canonicalKey": "druid.offensive.convoke-the-spirits",
+          "canonicalName": "Convoke the Spirits",
+          "activationSpellIds": [
+            391528
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "druid.offensive.incarnation-guardian-of-ursoc",
+          "canonicalName": "Incarnation: Guardian of Ursoc",
+          "activationSpellIds": [
+            102558
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "druid.offensive.rage-of-the-sleeper",
+          "canonicalName": "Rage of the Sleeper",
+          "activationSpellIds": [
+            200851
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "druid.offensive.natures-vigil",
+          "canonicalName": "Nature's Vigil",
+          "activationSpellIds": [
+            124974
+          ],
+          "category": "OFFENSIVE_MINOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        }
+      ],
+      "exemptionStatus": "NONE",
+      "exemptionReason": null,
+      "sourceProvenance": "BLIZZARD_API playable-class + playable-specialization indexes (curated snapshot in RETAIL_CLASS_MATRIX)",
+      "coverageStatus": "COVERED",
+      "inSameFightParty": true,
+      "sameFightObservedValidation": true
+    },
+    {
+      "classSlug": "druid",
+      "className": "Druid",
+      "specSlug": "restoration",
+      "specName": "Restoration",
+      "role": "HEALER",
+      "blizzardClassId": 11,
+      "blizzardSpecId": 105,
+      "supportState": "SUPPORTED",
+      "reviewedOffensiveEntryCount": 2,
+      "specializationScopedEntryCount": 2,
+      "racialOnlyCoverage": false,
+      "canonicalCooldownNames": [
+        "Convoke the Spirits",
+        "Nature's Vigil"
+      ],
+      "activationSpellIds": [
+        391528,
+        124974
+      ],
+      "abilities": [
+        {
+          "canonicalKey": "druid.offensive.convoke-the-spirits",
+          "canonicalName": "Convoke the Spirits",
+          "activationSpellIds": [
+            391528
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "druid.offensive.natures-vigil",
+          "canonicalName": "Nature's Vigil",
+          "activationSpellIds": [
+            124974
+          ],
+          "category": "OFFENSIVE_MINOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        }
+      ],
+      "exemptionStatus": "NONE",
+      "exemptionReason": null,
+      "sourceProvenance": "BLIZZARD_API playable-class + playable-specialization indexes (curated snapshot in RETAIL_CLASS_MATRIX)",
+      "coverageStatus": "COVERED",
+      "inSameFightParty": true,
+      "sameFightObservedValidation": true
+    },
+    {
+      "classSlug": "evoker",
+      "className": "Evoker",
+      "specSlug": "devastation",
+      "specName": "Devastation",
+      "role": "DPS",
+      "blizzardClassId": 13,
+      "blizzardSpecId": 1467,
+      "supportState": "SUPPORTED",
+      "reviewedOffensiveEntryCount": 5,
+      "specializationScopedEntryCount": 5,
+      "racialOnlyCoverage": false,
+      "canonicalCooldownNames": [
+        "Dragonrage",
+        "Tip the Scales",
+        "Deep Breath",
+        "Eternity Surge",
+        "Fire Breath"
+      ],
+      "activationSpellIds": [
+        375087,
+        370553,
+        357210,
+        433874,
+        359073,
+        382411,
+        357208,
+        382266
+      ],
+      "abilities": [
+        {
+          "canonicalKey": "evoker.offensive.dragonrage",
+          "canonicalName": "Dragonrage",
+          "activationSpellIds": [
+            375087
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "evoker.offensive.tip-the-scales",
+          "canonicalName": "Tip the Scales",
+          "activationSpellIds": [
+            370553
+          ],
+          "category": "OFFENSIVE_MINOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "evoker.offensive.deep-breath",
+          "canonicalName": "Deep Breath",
+          "activationSpellIds": [
+            357210,
+            433874
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "evoker.offensive.eternity-surge",
+          "canonicalName": "Eternity Surge",
+          "activationSpellIds": [
+            359073,
+            382411
+          ],
+          "category": "OFFENSIVE_MINOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "evoker.offensive.fire-breath",
+          "canonicalName": "Fire Breath",
+          "activationSpellIds": [
+            357208,
+            382266
+          ],
+          "category": "OFFENSIVE_MINOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        }
+      ],
+      "exemptionStatus": "NONE",
+      "exemptionReason": null,
+      "sourceProvenance": "BLIZZARD_API playable-class + playable-specialization indexes (curated snapshot in RETAIL_CLASS_MATRIX)",
+      "coverageStatus": "COVERED",
+      "inSameFightParty": true,
+      "sameFightObservedValidation": true
+    },
+    {
+      "classSlug": "evoker",
+      "className": "Evoker",
+      "specSlug": "preservation",
+      "specName": "Preservation",
+      "role": "HEALER",
+      "blizzardClassId": 13,
+      "blizzardSpecId": 1468,
+      "supportState": "SUPPORTED",
+      "reviewedOffensiveEntryCount": 3,
+      "specializationScopedEntryCount": 3,
+      "racialOnlyCoverage": false,
+      "canonicalCooldownNames": [
+        "Tip the Scales",
+        "Deep Breath",
+        "Fire Breath"
+      ],
+      "activationSpellIds": [
+        370553,
+        357210,
+        433874,
+        357208,
+        382266
+      ],
+      "abilities": [
+        {
+          "canonicalKey": "evoker.offensive.tip-the-scales",
+          "canonicalName": "Tip the Scales",
+          "activationSpellIds": [
+            370553
+          ],
+          "category": "OFFENSIVE_MINOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "evoker.offensive.deep-breath",
+          "canonicalName": "Deep Breath",
+          "activationSpellIds": [
+            357210,
+            433874
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "evoker.offensive.fire-breath",
+          "canonicalName": "Fire Breath",
+          "activationSpellIds": [
+            357208,
+            382266
+          ],
+          "category": "OFFENSIVE_MINOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        }
+      ],
+      "exemptionStatus": "NONE",
+      "exemptionReason": null,
+      "sourceProvenance": "BLIZZARD_API playable-class + playable-specialization indexes (curated snapshot in RETAIL_CLASS_MATRIX)",
+      "coverageStatus": "COVERED",
+      "inSameFightParty": true,
+      "sameFightObservedValidation": true
+    },
+    {
+      "classSlug": "evoker",
+      "className": "Evoker",
+      "specSlug": "augmentation",
+      "specName": "Augmentation",
+      "role": "DPS",
+      "blizzardClassId": 13,
+      "blizzardSpecId": 1473,
+      "supportState": "SUPPORTED",
+      "reviewedOffensiveEntryCount": 5,
+      "specializationScopedEntryCount": 5,
+      "racialOnlyCoverage": false,
+      "canonicalCooldownNames": [
+        "Tip the Scales",
+        "Deep Breath",
+        "Breath of Eons",
+        "Time Skip",
+        "Fire Breath"
+      ],
+      "activationSpellIds": [
+        370553,
+        357210,
+        433874,
+        403631,
+        442204,
+        404977,
+        357208,
+        382266
+      ],
+      "abilities": [
+        {
+          "canonicalKey": "evoker.offensive.tip-the-scales",
+          "canonicalName": "Tip the Scales",
+          "activationSpellIds": [
+            370553
+          ],
+          "category": "OFFENSIVE_MINOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "evoker.offensive.deep-breath",
+          "canonicalName": "Deep Breath",
+          "activationSpellIds": [
+            357210,
+            433874
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "evoker.offensive.breath-of-eons",
+          "canonicalName": "Breath of Eons",
+          "activationSpellIds": [
+            403631,
+            442204
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "evoker.offensive.time-skip",
+          "canonicalName": "Time Skip",
+          "activationSpellIds": [
+            404977
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "evoker.offensive.fire-breath",
+          "canonicalName": "Fire Breath",
+          "activationSpellIds": [
+            357208,
+            382266
+          ],
+          "category": "OFFENSIVE_MINOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        }
+      ],
+      "exemptionStatus": "NONE",
+      "exemptionReason": null,
+      "sourceProvenance": "BLIZZARD_API playable-class + playable-specialization indexes (curated snapshot in RETAIL_CLASS_MATRIX)",
+      "coverageStatus": "COVERED",
+      "inSameFightParty": true,
+      "sameFightObservedValidation": true
+    },
+    {
+      "classSlug": "hunter",
+      "className": "Hunter",
+      "specSlug": "beast-mastery",
+      "specName": "Beast Mastery",
+      "role": "DPS",
+      "blizzardClassId": 3,
+      "blizzardSpecId": 253,
+      "supportState": "SUPPORTED",
+      "reviewedOffensiveEntryCount": 3,
+      "specializationScopedEntryCount": 3,
+      "racialOnlyCoverage": false,
+      "canonicalCooldownNames": [
+        "Bestial Wrath",
+        "Call of the Wild",
+        "Bloodshed"
+      ],
+      "activationSpellIds": [
+        19574,
+        359844,
+        321530
+      ],
+      "abilities": [
+        {
+          "canonicalKey": "hunter.offensive.bestial-wrath",
+          "canonicalName": "Bestial Wrath",
+          "activationSpellIds": [
+            19574
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "hunter.offensive.call-of-the-wild",
+          "canonicalName": "Call of the Wild",
+          "activationSpellIds": [
+            359844
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "hunter.offensive.bloodshed",
+          "canonicalName": "Bloodshed",
+          "activationSpellIds": [
+            321530
+          ],
+          "category": "OFFENSIVE_MINOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        }
+      ],
+      "exemptionStatus": "NONE",
+      "exemptionReason": null,
+      "sourceProvenance": "BLIZZARD_API playable-class + playable-specialization indexes (curated snapshot in RETAIL_CLASS_MATRIX)",
+      "coverageStatus": "COVERED",
+      "inSameFightParty": false,
+      "sameFightObservedValidation": false
+    },
+    {
+      "classSlug": "hunter",
+      "className": "Hunter",
+      "specSlug": "marksmanship",
+      "specName": "Marksmanship",
+      "role": "DPS",
+      "blizzardClassId": 3,
+      "blizzardSpecId": 254,
+      "supportState": "SUPPORTED",
+      "reviewedOffensiveEntryCount": 2,
+      "specializationScopedEntryCount": 2,
+      "racialOnlyCoverage": false,
+      "canonicalCooldownNames": [
+        "Trueshot",
+        "Volley"
+      ],
+      "activationSpellIds": [
+        288613,
+        260243
+      ],
+      "abilities": [
+        {
+          "canonicalKey": "hunter.offensive.trueshot",
+          "canonicalName": "Trueshot",
+          "activationSpellIds": [
+            288613
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "hunter.offensive.volley",
+          "canonicalName": "Volley",
+          "activationSpellIds": [
+            260243
+          ],
+          "category": "OFFENSIVE_MINOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        }
+      ],
+      "exemptionStatus": "NONE",
+      "exemptionReason": null,
+      "sourceProvenance": "BLIZZARD_API playable-class + playable-specialization indexes (curated snapshot in RETAIL_CLASS_MATRIX)",
+      "coverageStatus": "COVERED",
+      "inSameFightParty": false,
+      "sameFightObservedValidation": false
+    },
+    {
+      "classSlug": "hunter",
+      "className": "Hunter",
+      "specSlug": "survival",
+      "specName": "Survival",
+      "role": "DPS",
+      "blizzardClassId": 3,
+      "blizzardSpecId": 255,
+      "supportState": "SUPPORTED",
+      "reviewedOffensiveEntryCount": 3,
+      "specializationScopedEntryCount": 3,
+      "racialOnlyCoverage": false,
+      "canonicalCooldownNames": [
+        "Coordinated Assault",
+        "Spearhead",
+        "Fury of the Eagle"
+      ],
+      "activationSpellIds": [
+        360952,
+        360966,
+        203415
+      ],
+      "abilities": [
+        {
+          "canonicalKey": "hunter.offensive.coordinated-assault",
+          "canonicalName": "Coordinated Assault",
+          "activationSpellIds": [
+            360952
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "hunter.offensive.spearhead",
+          "canonicalName": "Spearhead",
+          "activationSpellIds": [
+            360966
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "hunter.offensive.fury-of-the-eagle",
+          "canonicalName": "Fury of the Eagle",
+          "activationSpellIds": [
+            203415
+          ],
+          "category": "OFFENSIVE_MINOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        }
+      ],
+      "exemptionStatus": "NONE",
+      "exemptionReason": null,
+      "sourceProvenance": "BLIZZARD_API playable-class + playable-specialization indexes (curated snapshot in RETAIL_CLASS_MATRIX)",
+      "coverageStatus": "COVERED",
+      "inSameFightParty": false,
+      "sameFightObservedValidation": false
+    },
+    {
+      "classSlug": "mage",
+      "className": "Mage",
+      "specSlug": "arcane",
+      "specName": "Arcane",
+      "role": "DPS",
+      "blizzardClassId": 8,
+      "blizzardSpecId": 62,
+      "supportState": "SUPPORTED",
+      "reviewedOffensiveEntryCount": 3,
+      "specializationScopedEntryCount": 3,
+      "racialOnlyCoverage": false,
+      "canonicalCooldownNames": [
+        "Arcane Surge",
+        "Touch of the Magi",
+        "Shifting Power"
+      ],
+      "activationSpellIds": [
+        365350,
+        365362,
+        321507,
+        382440
+      ],
+      "abilities": [
+        {
+          "canonicalKey": "mage.offensive.arcane-surge",
+          "canonicalName": "Arcane Surge",
+          "activationSpellIds": [
+            365350,
+            365362
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "mage.offensive.touch-of-the-magi",
+          "canonicalName": "Touch of the Magi",
+          "activationSpellIds": [
+            321507
+          ],
+          "category": "OFFENSIVE_MINOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "mage.offensive.shifting-power",
+          "canonicalName": "Shifting Power",
+          "activationSpellIds": [
+            382440
+          ],
+          "category": "OFFENSIVE_MINOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        }
+      ],
+      "exemptionStatus": "NONE",
+      "exemptionReason": null,
+      "sourceProvenance": "BLIZZARD_API playable-class + playable-specialization indexes (curated snapshot in RETAIL_CLASS_MATRIX)",
+      "coverageStatus": "COVERED",
+      "inSameFightParty": false,
+      "sameFightObservedValidation": false
+    },
+    {
+      "classSlug": "mage",
+      "className": "Mage",
+      "specSlug": "fire",
+      "specName": "Fire",
+      "role": "DPS",
+      "blizzardClassId": 8,
+      "blizzardSpecId": 63,
+      "supportState": "SUPPORTED",
+      "reviewedOffensiveEntryCount": 2,
+      "specializationScopedEntryCount": 2,
+      "racialOnlyCoverage": false,
+      "canonicalCooldownNames": [
+        "Combustion",
+        "Shifting Power"
+      ],
+      "activationSpellIds": [
+        190319,
+        382440
+      ],
+      "abilities": [
+        {
+          "canonicalKey": "mage.offensive.combustion",
+          "canonicalName": "Combustion",
+          "activationSpellIds": [
+            190319
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "mage.offensive.shifting-power",
+          "canonicalName": "Shifting Power",
+          "activationSpellIds": [
+            382440
+          ],
+          "category": "OFFENSIVE_MINOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        }
+      ],
+      "exemptionStatus": "NONE",
+      "exemptionReason": null,
+      "sourceProvenance": "BLIZZARD_API playable-class + playable-specialization indexes (curated snapshot in RETAIL_CLASS_MATRIX)",
+      "coverageStatus": "COVERED",
+      "inSameFightParty": false,
+      "sameFightObservedValidation": false
+    },
+    {
+      "classSlug": "mage",
+      "className": "Mage",
+      "specSlug": "frost",
+      "specName": "Frost",
+      "role": "DPS",
+      "blizzardClassId": 8,
+      "blizzardSpecId": 64,
+      "supportState": "SUPPORTED",
+      "reviewedOffensiveEntryCount": 5,
+      "specializationScopedEntryCount": 5,
+      "racialOnlyCoverage": false,
+      "canonicalCooldownNames": [
+        "Shifting Power",
+        "Icy Veins",
+        "Frozen Orb",
+        "Comet Storm",
+        "Ray of Frost"
+      ],
+      "activationSpellIds": [
+        382440,
+        12472,
+        84714,
+        153595,
+        205021
+      ],
+      "abilities": [
+        {
+          "canonicalKey": "mage.offensive.shifting-power",
+          "canonicalName": "Shifting Power",
+          "activationSpellIds": [
+            382440
+          ],
+          "category": "OFFENSIVE_MINOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "mage.offensive.icy-veins",
+          "canonicalName": "Icy Veins",
+          "activationSpellIds": [
+            12472
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "mage.offensive.frozen-orb",
+          "canonicalName": "Frozen Orb",
+          "activationSpellIds": [
+            84714
+          ],
+          "category": "OFFENSIVE_MINOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "mage.offensive.comet-storm",
+          "canonicalName": "Comet Storm",
+          "activationSpellIds": [
+            153595
+          ],
+          "category": "OFFENSIVE_MINOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "mage.offensive.ray-of-frost",
+          "canonicalName": "Ray of Frost",
+          "activationSpellIds": [
+            205021
+          ],
+          "category": "OFFENSIVE_MINOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        }
+      ],
+      "exemptionStatus": "NONE",
+      "exemptionReason": null,
+      "sourceProvenance": "BLIZZARD_API playable-class + playable-specialization indexes (curated snapshot in RETAIL_CLASS_MATRIX)",
+      "coverageStatus": "COVERED",
+      "inSameFightParty": false,
+      "sameFightObservedValidation": false
+    },
+    {
+      "classSlug": "monk",
+      "className": "Monk",
+      "specSlug": "brewmaster",
+      "specName": "Brewmaster",
+      "role": "TANK",
+      "blizzardClassId": 10,
+      "blizzardSpecId": 268,
+      "supportState": "SUPPORTED",
+      "reviewedOffensiveEntryCount": 3,
+      "specializationScopedEntryCount": 3,
+      "racialOnlyCoverage": false,
+      "canonicalCooldownNames": [
+        "Weapons of Order",
+        "Invoke Niuzao, the Black Ox",
+        "Exploding Keg"
+      ],
+      "activationSpellIds": [
+        387184,
+        132578,
+        325153
+      ],
+      "abilities": [
+        {
+          "canonicalKey": "monk.offensive.weapons-of-order",
+          "canonicalName": "Weapons of Order",
+          "activationSpellIds": [
+            387184
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "monk.offensive.invoke-niuzao",
+          "canonicalName": "Invoke Niuzao, the Black Ox",
+          "activationSpellIds": [
+            132578
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "monk.offensive.exploding-keg",
+          "canonicalName": "Exploding Keg",
+          "activationSpellIds": [
+            325153
+          ],
+          "category": "OFFENSIVE_MINOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        }
+      ],
+      "exemptionStatus": "NONE",
+      "exemptionReason": null,
+      "sourceProvenance": "BLIZZARD_API playable-class + playable-specialization indexes (curated snapshot in RETAIL_CLASS_MATRIX)",
+      "coverageStatus": "COVERED",
+      "inSameFightParty": true,
+      "sameFightObservedValidation": true
+    },
+    {
+      "classSlug": "monk",
+      "className": "Monk",
+      "specSlug": "mistweaver",
+      "specName": "Mistweaver",
+      "role": "HEALER",
+      "blizzardClassId": 10,
+      "blizzardSpecId": 270,
+      "supportState": "SUPPORTED",
+      "reviewedOffensiveEntryCount": 2,
+      "specializationScopedEntryCount": 2,
+      "racialOnlyCoverage": false,
+      "canonicalCooldownNames": [
+        "Invoke Chi-Ji, the Red Crane",
+        "Invoke Yu'lon, the Jade Serpent"
+      ],
+      "activationSpellIds": [
+        325197,
+        322118
+      ],
+      "abilities": [
+        {
+          "canonicalKey": "monk.offensive.invoke-chiji",
+          "canonicalName": "Invoke Chi-Ji, the Red Crane",
+          "activationSpellIds": [
+            325197
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "monk.offensive.invoke-yulon",
+          "canonicalName": "Invoke Yu'lon, the Jade Serpent",
+          "activationSpellIds": [
+            322118
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        }
+      ],
+      "exemptionStatus": "NONE",
+      "exemptionReason": null,
+      "sourceProvenance": "BLIZZARD_API playable-class + playable-specialization indexes (curated snapshot in RETAIL_CLASS_MATRIX)",
+      "coverageStatus": "COVERED",
+      "inSameFightParty": true,
+      "sameFightObservedValidation": true
+    },
+    {
+      "classSlug": "monk",
+      "className": "Monk",
+      "specSlug": "windwalker",
+      "specName": "Windwalker",
+      "role": "DPS",
+      "blizzardClassId": 10,
+      "blizzardSpecId": 269,
+      "supportState": "SUPPORTED",
+      "reviewedOffensiveEntryCount": 4,
+      "specializationScopedEntryCount": 4,
+      "racialOnlyCoverage": false,
+      "canonicalCooldownNames": [
+        "Storm, Earth, and Fire",
+        "Invoke Xuen, the White Tiger",
+        "Strike of the Windlord",
+        "Weapons of Order"
+      ],
+      "activationSpellIds": [
+        137639,
+        123904,
+        392983,
+        387184
+      ],
+      "abilities": [
+        {
+          "canonicalKey": "monk.offensive.storm-earth-and-fire",
+          "canonicalName": "Storm, Earth, and Fire",
+          "activationSpellIds": [
+            137639
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "monk.offensive.invoke-xuen",
+          "canonicalName": "Invoke Xuen, the White Tiger",
+          "activationSpellIds": [
+            123904
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "monk.offensive.strike-of-the-windlord",
+          "canonicalName": "Strike of the Windlord",
+          "activationSpellIds": [
+            392983
+          ],
+          "category": "OFFENSIVE_MINOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "monk.offensive.weapons-of-order",
+          "canonicalName": "Weapons of Order",
+          "activationSpellIds": [
+            387184
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        }
+      ],
+      "exemptionStatus": "NONE",
+      "exemptionReason": null,
+      "sourceProvenance": "BLIZZARD_API playable-class + playable-specialization indexes (curated snapshot in RETAIL_CLASS_MATRIX)",
+      "coverageStatus": "COVERED",
+      "inSameFightParty": true,
+      "sameFightObservedValidation": true
+    },
+    {
+      "classSlug": "paladin",
+      "className": "Paladin",
+      "specSlug": "holy",
+      "specName": "Holy",
+      "role": "HEALER",
+      "blizzardClassId": 2,
+      "blizzardSpecId": 65,
+      "supportState": "SUPPORTED",
+      "reviewedOffensiveEntryCount": 3,
+      "specializationScopedEntryCount": 3,
+      "racialOnlyCoverage": false,
+      "canonicalCooldownNames": [
+        "Avenging Wrath",
+        "Avenging Crusader",
+        "Divine Toll"
+      ],
+      "activationSpellIds": [
+        31884,
+        216331,
+        375576
+      ],
+      "abilities": [
+        {
+          "canonicalKey": "paladin.offensive.avenging-wrath",
+          "canonicalName": "Avenging Wrath",
+          "activationSpellIds": [
+            31884
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "paladin.offensive.avenging-crusader",
+          "canonicalName": "Avenging Crusader",
+          "activationSpellIds": [
+            216331
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "paladin.offensive.divine-toll",
+          "canonicalName": "Divine Toll",
+          "activationSpellIds": [
+            375576
+          ],
+          "category": "OFFENSIVE_MINOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        }
+      ],
+      "exemptionStatus": "NONE",
+      "exemptionReason": null,
+      "sourceProvenance": "BLIZZARD_API playable-class + playable-specialization indexes (curated snapshot in RETAIL_CLASS_MATRIX)",
+      "coverageStatus": "COVERED",
+      "inSameFightParty": false,
+      "sameFightObservedValidation": false
+    },
+    {
+      "classSlug": "paladin",
+      "className": "Paladin",
+      "specSlug": "protection",
+      "specName": "Protection",
+      "role": "TANK",
+      "blizzardClassId": 2,
+      "blizzardSpecId": 66,
+      "supportState": "SUPPORTED",
+      "reviewedOffensiveEntryCount": 2,
+      "specializationScopedEntryCount": 2,
+      "racialOnlyCoverage": false,
+      "canonicalCooldownNames": [
+        "Avenging Wrath",
+        "Divine Toll"
+      ],
+      "activationSpellIds": [
+        31884,
+        375576
+      ],
+      "abilities": [
+        {
+          "canonicalKey": "paladin.offensive.avenging-wrath",
+          "canonicalName": "Avenging Wrath",
+          "activationSpellIds": [
+            31884
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "paladin.offensive.divine-toll",
+          "canonicalName": "Divine Toll",
+          "activationSpellIds": [
+            375576
+          ],
+          "category": "OFFENSIVE_MINOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        }
+      ],
+      "exemptionStatus": "NONE",
+      "exemptionReason": null,
+      "sourceProvenance": "BLIZZARD_API playable-class + playable-specialization indexes (curated snapshot in RETAIL_CLASS_MATRIX)",
+      "coverageStatus": "COVERED",
+      "inSameFightParty": false,
+      "sameFightObservedValidation": false
+    },
+    {
+      "classSlug": "paladin",
+      "className": "Paladin",
+      "specSlug": "retribution",
+      "specName": "Retribution",
+      "role": "DPS",
+      "blizzardClassId": 2,
+      "blizzardSpecId": 70,
+      "supportState": "SUPPORTED",
+      "reviewedOffensiveEntryCount": 6,
+      "specializationScopedEntryCount": 6,
+      "racialOnlyCoverage": false,
+      "canonicalCooldownNames": [
+        "Avenging Wrath",
+        "Crusade",
+        "Wake of Ashes",
+        "Execution Sentence",
+        "Divine Toll",
+        "Final Reckoning"
+      ],
+      "activationSpellIds": [
+        31884,
+        231895,
+        255937,
+        343527,
+        375576,
+        343721
+      ],
+      "abilities": [
+        {
+          "canonicalKey": "paladin.offensive.avenging-wrath",
+          "canonicalName": "Avenging Wrath",
+          "activationSpellIds": [
+            31884
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "paladin.offensive.crusade",
+          "canonicalName": "Crusade",
+          "activationSpellIds": [
+            231895
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "paladin.offensive.wake-of-ashes",
+          "canonicalName": "Wake of Ashes",
+          "activationSpellIds": [
+            255937
+          ],
+          "category": "OFFENSIVE_MINOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "paladin.offensive.execution-sentence",
+          "canonicalName": "Execution Sentence",
+          "activationSpellIds": [
+            343527
+          ],
+          "category": "OFFENSIVE_MINOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "paladin.offensive.divine-toll",
+          "canonicalName": "Divine Toll",
+          "activationSpellIds": [
+            375576
+          ],
+          "category": "OFFENSIVE_MINOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "paladin.offensive.final-reckoning",
+          "canonicalName": "Final Reckoning",
+          "activationSpellIds": [
+            343721
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        }
+      ],
+      "exemptionStatus": "NONE",
+      "exemptionReason": null,
+      "sourceProvenance": "BLIZZARD_API playable-class + playable-specialization indexes (curated snapshot in RETAIL_CLASS_MATRIX)",
+      "coverageStatus": "COVERED",
+      "inSameFightParty": false,
+      "sameFightObservedValidation": false
+    },
+    {
+      "classSlug": "priest",
+      "className": "Priest",
+      "specSlug": "discipline",
+      "specName": "Discipline",
+      "role": "HEALER",
+      "blizzardClassId": 5,
+      "blizzardSpecId": 256,
+      "supportState": "SUPPORTED",
+      "reviewedOffensiveEntryCount": 4,
+      "specializationScopedEntryCount": 4,
+      "racialOnlyCoverage": false,
+      "canonicalCooldownNames": [
+        "Power Infusion",
+        "Shadowfiend",
+        "Mindbender",
+        "Halo"
+      ],
+      "activationSpellIds": [
+        10060,
+        34433,
+        451235,
+        123040,
+        200174,
+        120517,
+        120644
+      ],
+      "abilities": [
+        {
+          "canonicalKey": "priest.group-utility.power-infusion",
+          "canonicalName": "Power Infusion",
+          "activationSpellIds": [
+            10060
+          ],
+          "category": "GROUP_UTILITY",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "priest.offensive.shadowfiend",
+          "canonicalName": "Shadowfiend",
+          "activationSpellIds": [
+            34433,
+            451235
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "priest.offensive.mindbender",
+          "canonicalName": "Mindbender",
+          "activationSpellIds": [
+            123040,
+            200174
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "priest.offensive.halo",
+          "canonicalName": "Halo",
+          "activationSpellIds": [
+            120517,
+            120644
+          ],
+          "category": "OFFENSIVE_MINOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        }
+      ],
+      "exemptionStatus": "NONE",
+      "exemptionReason": null,
+      "sourceProvenance": "BLIZZARD_API playable-class + playable-specialization indexes (curated snapshot in RETAIL_CLASS_MATRIX)",
+      "coverageStatus": "COVERED",
+      "inSameFightParty": false,
+      "sameFightObservedValidation": false
+    },
+    {
+      "classSlug": "priest",
+      "className": "Priest",
+      "specSlug": "holy",
+      "specName": "Holy",
+      "role": "HEALER",
+      "blizzardClassId": 5,
+      "blizzardSpecId": 257,
+      "supportState": "SUPPORTED",
+      "reviewedOffensiveEntryCount": 4,
+      "specializationScopedEntryCount": 4,
+      "racialOnlyCoverage": false,
+      "canonicalCooldownNames": [
+        "Power Infusion",
+        "Shadowfiend",
+        "Mindbender",
+        "Halo"
+      ],
+      "activationSpellIds": [
+        10060,
+        34433,
+        451235,
+        123040,
+        200174,
+        120517,
+        120644
+      ],
+      "abilities": [
+        {
+          "canonicalKey": "priest.group-utility.power-infusion",
+          "canonicalName": "Power Infusion",
+          "activationSpellIds": [
+            10060
+          ],
+          "category": "GROUP_UTILITY",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "priest.offensive.shadowfiend",
+          "canonicalName": "Shadowfiend",
+          "activationSpellIds": [
+            34433,
+            451235
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "priest.offensive.mindbender",
+          "canonicalName": "Mindbender",
+          "activationSpellIds": [
+            123040,
+            200174
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "priest.offensive.halo",
+          "canonicalName": "Halo",
+          "activationSpellIds": [
+            120517,
+            120644
+          ],
+          "category": "OFFENSIVE_MINOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        }
+      ],
+      "exemptionStatus": "NONE",
+      "exemptionReason": null,
+      "sourceProvenance": "BLIZZARD_API playable-class + playable-specialization indexes (curated snapshot in RETAIL_CLASS_MATRIX)",
+      "coverageStatus": "COVERED",
+      "inSameFightParty": false,
+      "sameFightObservedValidation": false
+    },
+    {
+      "classSlug": "priest",
+      "className": "Priest",
+      "specSlug": "shadow",
+      "specName": "Shadow",
+      "role": "DPS",
+      "blizzardClassId": 5,
+      "blizzardSpecId": 258,
+      "supportState": "SUPPORTED",
+      "reviewedOffensiveEntryCount": 7,
+      "specializationScopedEntryCount": 7,
+      "racialOnlyCoverage": false,
+      "canonicalCooldownNames": [
+        "Power Infusion",
+        "Shadowfiend",
+        "Mindbender",
+        "Void Eruption",
+        "Dark Ascension",
+        "Void Torrent",
+        "Halo"
+      ],
+      "activationSpellIds": [
+        10060,
+        34433,
+        451235,
+        123040,
+        200174,
+        228260,
+        194249,
+        391109,
+        263165,
+        120517,
+        120644
+      ],
+      "abilities": [
+        {
+          "canonicalKey": "priest.group-utility.power-infusion",
+          "canonicalName": "Power Infusion",
+          "activationSpellIds": [
+            10060
+          ],
+          "category": "GROUP_UTILITY",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "priest.offensive.shadowfiend",
+          "canonicalName": "Shadowfiend",
+          "activationSpellIds": [
+            34433,
+            451235
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "priest.offensive.mindbender",
+          "canonicalName": "Mindbender",
+          "activationSpellIds": [
+            123040,
+            200174
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "priest.offensive.void-eruption",
+          "canonicalName": "Void Eruption",
+          "activationSpellIds": [
+            228260,
+            194249
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "priest.offensive.dark-ascension",
+          "canonicalName": "Dark Ascension",
+          "activationSpellIds": [
+            391109
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "priest.offensive.void-torrent",
+          "canonicalName": "Void Torrent",
+          "activationSpellIds": [
+            263165
+          ],
+          "category": "OFFENSIVE_MINOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "priest.offensive.halo",
+          "canonicalName": "Halo",
+          "activationSpellIds": [
+            120517,
+            120644
+          ],
+          "category": "OFFENSIVE_MINOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        }
+      ],
+      "exemptionStatus": "NONE",
+      "exemptionReason": null,
+      "sourceProvenance": "BLIZZARD_API playable-class + playable-specialization indexes (curated snapshot in RETAIL_CLASS_MATRIX)",
+      "coverageStatus": "COVERED",
+      "inSameFightParty": false,
+      "sameFightObservedValidation": false
+    },
+    {
+      "classSlug": "rogue",
+      "className": "Rogue",
+      "specSlug": "assassination",
+      "specName": "Assassination",
+      "role": "DPS",
+      "blizzardClassId": 4,
+      "blizzardSpecId": 259,
+      "supportState": "SUPPORTED",
+      "reviewedOffensiveEntryCount": 3,
+      "specializationScopedEntryCount": 3,
+      "racialOnlyCoverage": false,
+      "canonicalCooldownNames": [
+        "Deathmark",
+        "Kingsbane",
+        "Vanish"
+      ],
+      "activationSpellIds": [
+        360194,
+        385627,
+        1856
+      ],
+      "abilities": [
+        {
+          "canonicalKey": "rogue.offensive.deathmark",
+          "canonicalName": "Deathmark",
+          "activationSpellIds": [
+            360194
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "rogue.offensive.kingsbane",
+          "canonicalName": "Kingsbane",
+          "activationSpellIds": [
+            385627
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "rogue.offensive.vanish",
+          "canonicalName": "Vanish",
+          "activationSpellIds": [
+            1856
+          ],
+          "category": "OFFENSIVE_MINOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        }
+      ],
+      "exemptionStatus": "NONE",
+      "exemptionReason": null,
+      "sourceProvenance": "BLIZZARD_API playable-class + playable-specialization indexes (curated snapshot in RETAIL_CLASS_MATRIX)",
+      "coverageStatus": "COVERED",
+      "inSameFightParty": false,
+      "sameFightObservedValidation": false
+    },
+    {
+      "classSlug": "rogue",
+      "className": "Rogue",
+      "specSlug": "outlaw",
+      "specName": "Outlaw",
+      "role": "DPS",
+      "blizzardClassId": 4,
+      "blizzardSpecId": 260,
+      "supportState": "SUPPORTED",
+      "reviewedOffensiveEntryCount": 4,
+      "specializationScopedEntryCount": 4,
+      "racialOnlyCoverage": false,
+      "canonicalCooldownNames": [
+        "Adrenaline Rush",
+        "Blade Flurry",
+        "Keep It Rolling",
+        "Vanish"
+      ],
+      "activationSpellIds": [
+        13750,
+        13877,
+        381989,
+        1856
+      ],
+      "abilities": [
+        {
+          "canonicalKey": "rogue.offensive.adrenaline-rush",
+          "canonicalName": "Adrenaline Rush",
+          "activationSpellIds": [
+            13750
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "rogue.offensive.blade-flurry",
+          "canonicalName": "Blade Flurry",
+          "activationSpellIds": [
+            13877
+          ],
+          "category": "OFFENSIVE_MINOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "rogue.offensive.keep-it-rolling",
+          "canonicalName": "Keep It Rolling",
+          "activationSpellIds": [
+            381989
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "rogue.offensive.vanish",
+          "canonicalName": "Vanish",
+          "activationSpellIds": [
+            1856
+          ],
+          "category": "OFFENSIVE_MINOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        }
+      ],
+      "exemptionStatus": "NONE",
+      "exemptionReason": null,
+      "sourceProvenance": "BLIZZARD_API playable-class + playable-specialization indexes (curated snapshot in RETAIL_CLASS_MATRIX)",
+      "coverageStatus": "COVERED",
+      "inSameFightParty": false,
+      "sameFightObservedValidation": false
+    },
+    {
+      "classSlug": "rogue",
+      "className": "Rogue",
+      "specSlug": "subtlety",
+      "specName": "Subtlety",
+      "role": "DPS",
+      "blizzardClassId": 4,
+      "blizzardSpecId": 261,
+      "supportState": "SUPPORTED",
+      "reviewedOffensiveEntryCount": 4,
+      "specializationScopedEntryCount": 4,
+      "racialOnlyCoverage": false,
+      "canonicalCooldownNames": [
+        "Shadow Blades",
+        "Shadow Dance",
+        "Secret Technique",
+        "Vanish"
+      ],
+      "activationSpellIds": [
+        121471,
+        185313,
+        185422,
+        280719,
+        1856
+      ],
+      "abilities": [
+        {
+          "canonicalKey": "rogue.offensive.shadow-blades",
+          "canonicalName": "Shadow Blades",
+          "activationSpellIds": [
+            121471
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "rogue.offensive.shadow-dance",
+          "canonicalName": "Shadow Dance",
+          "activationSpellIds": [
+            185313,
+            185422
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "rogue.offensive.secret-technique",
+          "canonicalName": "Secret Technique",
+          "activationSpellIds": [
+            280719
+          ],
+          "category": "OFFENSIVE_MINOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "rogue.offensive.vanish",
+          "canonicalName": "Vanish",
+          "activationSpellIds": [
+            1856
+          ],
+          "category": "OFFENSIVE_MINOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        }
+      ],
+      "exemptionStatus": "NONE",
+      "exemptionReason": null,
+      "sourceProvenance": "BLIZZARD_API playable-class + playable-specialization indexes (curated snapshot in RETAIL_CLASS_MATRIX)",
+      "coverageStatus": "COVERED",
+      "inSameFightParty": false,
+      "sameFightObservedValidation": false
+    },
+    {
+      "classSlug": "shaman",
+      "className": "Shaman",
+      "specSlug": "elemental",
+      "specName": "Elemental",
+      "role": "DPS",
+      "blizzardClassId": 7,
+      "blizzardSpecId": 262,
+      "supportState": "SUPPORTED",
+      "reviewedOffensiveEntryCount": 4,
+      "specializationScopedEntryCount": 4,
+      "racialOnlyCoverage": false,
+      "canonicalCooldownNames": [
+        "Stormkeeper",
+        "Ascendance",
+        "Fire Elemental",
+        "Primordial Wave"
+      ],
+      "activationSpellIds": [
+        191634,
+        383009,
+        114050,
+        198067,
+        192249,
+        375982
+      ],
+      "abilities": [
+        {
+          "canonicalKey": "shaman.offensive.stormkeeper",
+          "canonicalName": "Stormkeeper",
+          "activationSpellIds": [
+            191634,
+            383009
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "shaman.offensive.ascendance-elemental",
+          "canonicalName": "Ascendance",
+          "activationSpellIds": [
+            114050
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "shaman.offensive.fire-elemental",
+          "canonicalName": "Fire Elemental",
+          "activationSpellIds": [
+            198067,
+            192249
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "shaman.offensive.primordial-wave",
+          "canonicalName": "Primordial Wave",
+          "activationSpellIds": [
+            375982
+          ],
+          "category": "OFFENSIVE_MINOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        }
+      ],
+      "exemptionStatus": "NONE",
+      "exemptionReason": null,
+      "sourceProvenance": "BLIZZARD_API playable-class + playable-specialization indexes (curated snapshot in RETAIL_CLASS_MATRIX)",
+      "coverageStatus": "COVERED",
+      "inSameFightParty": false,
+      "sameFightObservedValidation": false
+    },
+    {
+      "classSlug": "shaman",
+      "className": "Shaman",
+      "specSlug": "enhancement",
+      "specName": "Enhancement",
+      "role": "DPS",
+      "blizzardClassId": 7,
+      "blizzardSpecId": 263,
+      "supportState": "SUPPORTED",
+      "reviewedOffensiveEntryCount": 5,
+      "specializationScopedEntryCount": 5,
+      "racialOnlyCoverage": false,
+      "canonicalCooldownNames": [
+        "Stormkeeper",
+        "Ascendance",
+        "Feral Spirit",
+        "Doom Winds",
+        "Primordial Wave"
+      ],
+      "activationSpellIds": [
+        191634,
+        383009,
+        114051,
+        51533,
+        384352,
+        375982
+      ],
+      "abilities": [
+        {
+          "canonicalKey": "shaman.offensive.stormkeeper",
+          "canonicalName": "Stormkeeper",
+          "activationSpellIds": [
+            191634,
+            383009
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "shaman.offensive.ascendance-enhancement",
+          "canonicalName": "Ascendance",
+          "activationSpellIds": [
+            114051
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "shaman.offensive.feral-spirit",
+          "canonicalName": "Feral Spirit",
+          "activationSpellIds": [
+            51533
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "shaman.offensive.doom-winds",
+          "canonicalName": "Doom Winds",
+          "activationSpellIds": [
+            384352
+          ],
+          "category": "OFFENSIVE_MINOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "shaman.offensive.primordial-wave",
+          "canonicalName": "Primordial Wave",
+          "activationSpellIds": [
+            375982
+          ],
+          "category": "OFFENSIVE_MINOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        }
+      ],
+      "exemptionStatus": "NONE",
+      "exemptionReason": null,
+      "sourceProvenance": "BLIZZARD_API playable-class + playable-specialization indexes (curated snapshot in RETAIL_CLASS_MATRIX)",
+      "coverageStatus": "COVERED",
+      "inSameFightParty": false,
+      "sameFightObservedValidation": false
+    },
+    {
+      "classSlug": "shaman",
+      "className": "Shaman",
+      "specSlug": "restoration",
+      "specName": "Restoration",
+      "role": "HEALER",
+      "blizzardClassId": 7,
+      "blizzardSpecId": 264,
+      "supportState": "SUPPORTED",
+      "reviewedOffensiveEntryCount": 0,
+      "specializationScopedEntryCount": 0,
+      "racialOnlyCoverage": true,
+      "canonicalCooldownNames": [],
+      "activationSpellIds": [],
+      "abilities": [],
+      "exemptionStatus": "EXEMPT",
+      "exemptionReason": "Semantic: Restoration Shaman has no intentional personal damage cooldown in the Midnight toolkit. Ascendance (114052) and Healing Tide Totem are healing-primary activations; they do not materially increase damage throughput for a bounded offensive window. Class-shared Bloodlust is utility, not a personal offensive CD.",
+      "sourceProvenance": "BLIZZARD_API playable-class + playable-specialization indexes (curated snapshot in RETAIL_CLASS_MATRIX)",
+      "coverageStatus": "EXEMPT",
+      "inSameFightParty": false,
+      "sameFightObservedValidation": false
+    },
+    {
+      "classSlug": "warlock",
+      "className": "Warlock",
+      "specSlug": "affliction",
+      "specName": "Affliction",
+      "role": "DPS",
+      "blizzardClassId": 9,
+      "blizzardSpecId": 265,
+      "supportState": "SUPPORTED",
+      "reviewedOffensiveEntryCount": 3,
+      "specializationScopedEntryCount": 3,
+      "racialOnlyCoverage": false,
+      "canonicalCooldownNames": [
+        "Summon Darkglare",
+        "Phantom Singularity",
+        "Malevolence"
+      ],
+      "activationSpellIds": [
+        205180,
+        205179,
+        386997,
+        442726
+      ],
+      "abilities": [
+        {
+          "canonicalKey": "warlock.offensive.summon-darkglare",
+          "canonicalName": "Summon Darkglare",
+          "activationSpellIds": [
+            205180
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "warlock.offensive.phantom-singularity",
+          "canonicalName": "Phantom Singularity",
+          "activationSpellIds": [
+            205179,
+            386997
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "warlock.offensive.malevolence",
+          "canonicalName": "Malevolence",
+          "activationSpellIds": [
+            442726
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        }
+      ],
+      "exemptionStatus": "NONE",
+      "exemptionReason": null,
+      "sourceProvenance": "BLIZZARD_API playable-class + playable-specialization indexes (curated snapshot in RETAIL_CLASS_MATRIX)",
+      "coverageStatus": "COVERED",
+      "inSameFightParty": true,
+      "sameFightObservedValidation": true
+    },
+    {
+      "classSlug": "warlock",
+      "className": "Warlock",
+      "specSlug": "demonology",
+      "specName": "Demonology",
+      "role": "DPS",
+      "blizzardClassId": 9,
+      "blizzardSpecId": 266,
+      "supportState": "SUPPORTED",
+      "reviewedOffensiveEntryCount": 5,
+      "specializationScopedEntryCount": 5,
+      "racialOnlyCoverage": false,
+      "canonicalCooldownNames": [
+        "Summon Demonic Tyrant",
+        "Grimoire: Felguard",
+        "Nether Portal",
+        "Demonic Strength",
+        "Guillotine"
+      ],
+      "activationSpellIds": [
+        265187,
+        111898,
+        267217,
+        267218,
+        267171,
+        386833
+      ],
+      "abilities": [
+        {
+          "canonicalKey": "warlock.offensive.demonic-tyrant",
+          "canonicalName": "Summon Demonic Tyrant",
+          "activationSpellIds": [
+            265187
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "warlock.offensive.grimoire-felguard",
+          "canonicalName": "Grimoire: Felguard",
+          "activationSpellIds": [
+            111898
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "warlock.offensive.nether-portal",
+          "canonicalName": "Nether Portal",
+          "activationSpellIds": [
+            267217,
+            267218
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "warlock.offensive.demonic-strength",
+          "canonicalName": "Demonic Strength",
+          "activationSpellIds": [
+            267171
+          ],
+          "category": "OFFENSIVE_MINOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "warlock.offensive.guillotine",
+          "canonicalName": "Guillotine",
+          "activationSpellIds": [
+            386833
+          ],
+          "category": "OFFENSIVE_MINOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        }
+      ],
+      "exemptionStatus": "NONE",
+      "exemptionReason": null,
+      "sourceProvenance": "BLIZZARD_API playable-class + playable-specialization indexes (curated snapshot in RETAIL_CLASS_MATRIX)",
+      "coverageStatus": "COVERED",
+      "inSameFightParty": true,
+      "sameFightObservedValidation": true
+    },
+    {
+      "classSlug": "warlock",
+      "className": "Warlock",
+      "specSlug": "destruction",
+      "specName": "Destruction",
+      "role": "DPS",
+      "blizzardClassId": 9,
+      "blizzardSpecId": 267,
+      "supportState": "SUPPORTED",
+      "reviewedOffensiveEntryCount": 2,
+      "specializationScopedEntryCount": 2,
+      "racialOnlyCoverage": false,
+      "canonicalCooldownNames": [
+        "Summon Infernal",
+        "Dimensional Rift"
+      ],
+      "activationSpellIds": [
+        1122,
+        387976
+      ],
+      "abilities": [
+        {
+          "canonicalKey": "warlock.offensive.summon-infernal",
+          "canonicalName": "Summon Infernal",
+          "activationSpellIds": [
+            1122
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "warlock.offensive.ritual-of-ruin",
+          "canonicalName": "Dimensional Rift",
+          "activationSpellIds": [
+            387976
+          ],
+          "category": "OFFENSIVE_MINOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        }
+      ],
+      "exemptionStatus": "NONE",
+      "exemptionReason": null,
+      "sourceProvenance": "BLIZZARD_API playable-class + playable-specialization indexes (curated snapshot in RETAIL_CLASS_MATRIX)",
+      "coverageStatus": "COVERED",
+      "inSameFightParty": true,
+      "sameFightObservedValidation": true
+    },
+    {
+      "classSlug": "warrior",
+      "className": "Warrior",
+      "specSlug": "arms",
+      "specName": "Arms",
+      "role": "DPS",
+      "blizzardClassId": 1,
+      "blizzardSpecId": 71,
+      "supportState": "SUPPORTED",
+      "reviewedOffensiveEntryCount": 6,
+      "specializationScopedEntryCount": 6,
+      "racialOnlyCoverage": false,
+      "canonicalCooldownNames": [
+        "Avatar",
+        "Colossus Smash",
+        "Bladestorm",
+        "Ravager",
+        "Thunderous Roar",
+        "Demolish"
+      ],
+      "activationSpellIds": [
+        107574,
+        167105,
+        262161,
+        227847,
+        389774,
+        228920,
+        384318,
+        436358
+      ],
+      "abilities": [
+        {
+          "canonicalKey": "warrior.offensive.avatar",
+          "canonicalName": "Avatar",
+          "activationSpellIds": [
+            107574
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "warrior.offensive.colossus-smash",
+          "canonicalName": "Colossus Smash",
+          "activationSpellIds": [
+            167105,
+            262161
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "warrior.offensive.bladestorm",
+          "canonicalName": "Bladestorm",
+          "activationSpellIds": [
+            227847,
+            389774
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "warrior.offensive.ravager",
+          "canonicalName": "Ravager",
+          "activationSpellIds": [
+            228920
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "warrior.offensive.thunderous-roar",
+          "canonicalName": "Thunderous Roar",
+          "activationSpellIds": [
+            384318
+          ],
+          "category": "OFFENSIVE_MINOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "warrior.offensive.demolish",
+          "canonicalName": "Demolish",
+          "activationSpellIds": [
+            436358
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        }
+      ],
+      "exemptionStatus": "NONE",
+      "exemptionReason": null,
+      "sourceProvenance": "BLIZZARD_API playable-class + playable-specialization indexes (curated snapshot in RETAIL_CLASS_MATRIX)",
+      "coverageStatus": "COVERED",
+      "inSameFightParty": false,
+      "sameFightObservedValidation": false
+    },
+    {
+      "classSlug": "warrior",
+      "className": "Warrior",
+      "specSlug": "fury",
+      "specName": "Fury",
+      "role": "DPS",
+      "blizzardClassId": 1,
+      "blizzardSpecId": 72,
+      "supportState": "SUPPORTED",
+      "reviewedOffensiveEntryCount": 7,
+      "specializationScopedEntryCount": 7,
+      "racialOnlyCoverage": false,
+      "canonicalCooldownNames": [
+        "Avatar",
+        "Bladestorm",
+        "Recklessness",
+        "Odyn's Fury",
+        "Ravager",
+        "Thunderous Roar",
+        "Demolish"
+      ],
+      "activationSpellIds": [
+        107574,
+        227847,
+        389774,
+        1719,
+        385059,
+        228920,
+        384318,
+        436358
+      ],
+      "abilities": [
+        {
+          "canonicalKey": "warrior.offensive.avatar",
+          "canonicalName": "Avatar",
+          "activationSpellIds": [
+            107574
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "warrior.offensive.bladestorm",
+          "canonicalName": "Bladestorm",
+          "activationSpellIds": [
+            227847,
+            389774
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "warrior.offensive.recklessness",
+          "canonicalName": "Recklessness",
+          "activationSpellIds": [
+            1719
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "warrior.offensive.odyns-fury",
+          "canonicalName": "Odyn's Fury",
+          "activationSpellIds": [
+            385059
+          ],
+          "category": "OFFENSIVE_MINOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "warrior.offensive.ravager",
+          "canonicalName": "Ravager",
+          "activationSpellIds": [
+            228920
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "warrior.offensive.thunderous-roar",
+          "canonicalName": "Thunderous Roar",
+          "activationSpellIds": [
+            384318
+          ],
+          "category": "OFFENSIVE_MINOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "warrior.offensive.demolish",
+          "canonicalName": "Demolish",
+          "activationSpellIds": [
+            436358
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        }
+      ],
+      "exemptionStatus": "NONE",
+      "exemptionReason": null,
+      "sourceProvenance": "BLIZZARD_API playable-class + playable-specialization indexes (curated snapshot in RETAIL_CLASS_MATRIX)",
+      "coverageStatus": "COVERED",
+      "inSameFightParty": false,
+      "sameFightObservedValidation": false
+    },
+    {
+      "classSlug": "warrior",
+      "className": "Warrior",
+      "specSlug": "protection",
+      "specName": "Protection",
+      "role": "TANK",
+      "blizzardClassId": 1,
+      "blizzardSpecId": 73,
+      "supportState": "SUPPORTED",
+      "reviewedOffensiveEntryCount": 4,
+      "specializationScopedEntryCount": 4,
+      "racialOnlyCoverage": false,
+      "canonicalCooldownNames": [
+        "Avatar",
+        "Ravager",
+        "Thunderous Roar",
+        "Demolish"
+      ],
+      "activationSpellIds": [
+        107574,
+        228920,
+        384318,
+        436358
+      ],
+      "abilities": [
+        {
+          "canonicalKey": "warrior.offensive.avatar",
+          "canonicalName": "Avatar",
+          "activationSpellIds": [
+            107574
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "warrior.offensive.ravager",
+          "canonicalName": "Ravager",
+          "activationSpellIds": [
+            228920
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "warrior.offensive.thunderous-roar",
+          "canonicalName": "Thunderous Roar",
+          "activationSpellIds": [
+            384318
+          ],
+          "category": "OFFENSIVE_MINOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        },
+        {
+          "canonicalKey": "warrior.offensive.demolish",
+          "canonicalName": "Demolish",
+          "activationSpellIds": [
+            436358
+          ],
+          "category": "OFFENSIVE_MAJOR",
+          "provenanceSource": "CURATED_OVERRIDE"
+        }
+      ],
+      "exemptionStatus": "NONE",
+      "exemptionReason": null,
+      "sourceProvenance": "BLIZZARD_API playable-class + playable-specialization indexes (curated snapshot in RETAIL_CLASS_MATRIX)",
+      "coverageStatus": "COVERED",
+      "inSameFightParty": false,
+      "sameFightObservedValidation": false
+    }
+  ],
+  "totals": {
+    "playableClasses": 13,
+    "playableSpecializations": 40,
+    "coveredSpecializations": 39,
+    "exemptSpecializations": 1,
+    "uncoveredSpecializations": 0,
+    "reviewedCanonicalAbilities": 114,
+    "sameFightPartyClasses": 5,
+    "classesNotInSameFightParty": 8
+  }
+}

@@ -5,7 +5,7 @@ import type {
   LegacyAbilityCategory,
   ScoringAbilityCategory,
 } from "./types.js";
-import { expandScoringCategory } from "./registry.js";
+import { expandScoringCategory, ruleResolvableSpellIds } from "./registry.js";
 
 function ruleSpellIds(rule: AbilityRule): number[] {
   return [...rule.spellIds, ...(rule.aliases ?? [])];
@@ -35,7 +35,7 @@ export function ruleMatchesCategory(
 }
 
 export function rulesForSpell(catalog: AbilityCatalog, spellId: number): AbilityRule[] {
-  return catalog.rules.filter((r) => ruleSpellIds(r).includes(spellId));
+  return catalog.rules.filter((r) => ruleResolvableSpellIds(r).includes(spellId));
 }
 
 export function rulesForCategory(

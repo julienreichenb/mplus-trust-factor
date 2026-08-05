@@ -1,5 +1,5 @@
 import type { AbilityRule } from "../../types.js";
-import { ALL_ROLES, HEALER, TANK, TANK_DPS, rule } from "../rule.js";
+import { ALL_ROLES, DPS, HEALER, TANK, TANK_DPS, rule, performanceCooldownRule } from "../rule.js";
 
 /** Paladin survival / utility catalog (Retail M+). */
 export const PALADIN_RULES: AbilityRule[] = [
@@ -139,4 +139,86 @@ export const PALADIN_RULES: AbilityRule[] = [
     category: "BATTLE_REZ",
     cooldownSeconds: 600,
   }),
+
+  // Performance offensive cooldowns (canonical AbilityRule entries).
+    performanceCooldownRule({
+      canonicalKey: "paladin.offensive.avenging-wrath",
+      name: "Avenging Wrath",
+      spellIds: [31884],
+      activationBuffIds: [31884],
+      classSlug: "paladin",
+      roles: [...DPS, ...TANK, ...HEALER],
+      category: "OFFENSIVE_MAJOR",
+      availability: "BASELINE",
+      cooldownSeconds: 120,
+    }),
+    performanceCooldownRule({
+      canonicalKey: "paladin.offensive.crusade",
+      name: "Crusade",
+      spellIds: [231895],
+      activationBuffIds: [231895],
+      classSlug: "paladin",
+      specSlugs: ["retribution"],
+      roles: DPS,
+      category: "OFFENSIVE_MAJOR",
+      availability: "TALENT",
+      cooldownSeconds: 120,
+      replacementFor: "paladin.offensive.avenging-wrath",
+    }),
+    performanceCooldownRule({
+      canonicalKey: "paladin.offensive.avenging-crusader",
+      name: "Avenging Crusader",
+      spellIds: [216331],
+      activationBuffIds: [216331],
+      classSlug: "paladin",
+      specSlugs: ["holy"],
+      roles: HEALER,
+      category: "OFFENSIVE_MAJOR",
+      availability: "TALENT",
+      cooldownSeconds: 60,
+      replacementFor: "paladin.offensive.avenging-wrath",
+    }),
+    performanceCooldownRule({
+      canonicalKey: "paladin.offensive.wake-of-ashes",
+      name: "Wake of Ashes",
+      spellIds: [255937],
+      classSlug: "paladin",
+      specSlugs: ["retribution"],
+      roles: DPS,
+      category: "OFFENSIVE_MINOR",
+      availability: "BASELINE",
+      cooldownSeconds: 30,
+    }),
+    performanceCooldownRule({
+      canonicalKey: "paladin.offensive.execution-sentence",
+      name: "Execution Sentence",
+      spellIds: [343527],
+      classSlug: "paladin",
+      specSlugs: ["retribution"],
+      roles: DPS,
+      category: "OFFENSIVE_MINOR",
+      availability: "TALENT",
+      cooldownSeconds: 60,
+    }),
+    performanceCooldownRule({
+      canonicalKey: "paladin.offensive.divine-toll",
+      name: "Divine Toll",
+      spellIds: [375576],
+      classSlug: "paladin",
+      roles: [...DPS, ...TANK, ...HEALER],
+      category: "OFFENSIVE_MINOR",
+      availability: "TALENT",
+      cooldownSeconds: 60,
+    }),
+    performanceCooldownRule({
+      canonicalKey: "paladin.offensive.final-reckoning",
+      name: "Final Reckoning",
+      spellIds: [343721],
+      classSlug: "paladin",
+      specSlugs: ["retribution"],
+      roles: DPS,
+      category: "OFFENSIVE_MAJOR",
+      availability: "TALENT",
+      cooldownSeconds: 60,
+    }),
 ];

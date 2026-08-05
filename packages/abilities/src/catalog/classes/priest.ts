@@ -1,5 +1,5 @@
 import type { AbilityRule } from "../../types.js";
-import { ALL_ROLES, DPS, HEALER, HEALER_DPS, rule } from "../rule.js";
+import { ALL_ROLES, DPS, HEALER, HEALER_DPS, rule, performanceCooldownRule } from "../rule.js";
 
 /** Priest survival / utility catalog (Retail M+). */
 export const PRIEST_RULES: AbilityRule[] = [
@@ -140,10 +140,15 @@ export const PRIEST_RULES: AbilityRule[] = [
     canonicalKey: "priest.group-utility.power-infusion",
     name: "Power Infusion",
     spellIds: [10060],
+    activationBuffIds: [10060],
     classSlug: "priest",
     roles: HEALER_DPS,
     category: "GROUP_UTILITY",
+    dimensionTags: ["UTILITY_EXTERNAL", "PERFORMANCE_OFFENSIVE_COOLDOWN"],
+    activationEventTypes: ["begincast", "cast", "applybuff"],
+    activationSource: "PLAYER_CAST",
     cooldownSeconds: 120,
+    notes: "External offensive — retain caster and recipient attribution in digests.",
   }),
   rule({
     canonicalKey: "priest.movement-utility.angelic-feather",
@@ -154,4 +159,79 @@ export const PRIEST_RULES: AbilityRule[] = [
     category: "MOVEMENT_UTILITY",
     cooldownSeconds: 20,
   }),
+
+  // Performance offensive cooldowns (canonical AbilityRule entries).
+    performanceCooldownRule({
+      canonicalKey: "priest.offensive.shadowfiend",
+      name: "Shadowfiend",
+      spellIds: [34433],
+      aliases: [451235],
+      classSlug: "priest",
+      roles: [...DPS, ...HEALER],
+      category: "OFFENSIVE_MAJOR",
+      availability: "BASELINE",
+      cooldownSeconds: 180,
+      sourceOwnership: "ANY_OWNED",
+    }),
+    performanceCooldownRule({
+      canonicalKey: "priest.offensive.mindbender",
+      name: "Mindbender",
+      spellIds: [123040],
+      aliases: [200174],
+      classSlug: "priest",
+      roles: [...DPS, ...HEALER],
+      category: "OFFENSIVE_MAJOR",
+      availability: "TALENT",
+      cooldownSeconds: 60,
+      sourceOwnership: "ANY_OWNED",
+      replacementFor: "priest.offensive.shadowfiend",
+    }),
+    // Power Infusion remains priest.group-utility.power-infusion (dual-tagged).
+    performanceCooldownRule({
+      canonicalKey: "priest.offensive.void-eruption",
+      name: "Void Eruption",
+      spellIds: [228260],
+      activationBuffIds: [194249],
+      classSlug: "priest",
+      specSlugs: ["shadow"],
+      roles: DPS,
+      category: "OFFENSIVE_MAJOR",
+      availability: "BASELINE",
+      cooldownSeconds: 120,
+      notes: "Enters Voidform; buff 194249 is the same activation window.",
+    }),
+    performanceCooldownRule({
+      canonicalKey: "priest.offensive.dark-ascension",
+      name: "Dark Ascension",
+      spellIds: [391109],
+      activationBuffIds: [391109],
+      classSlug: "priest",
+      specSlugs: ["shadow"],
+      roles: DPS,
+      category: "OFFENSIVE_MAJOR",
+      availability: "TALENT",
+      cooldownSeconds: 60,
+    }),
+    performanceCooldownRule({
+      canonicalKey: "priest.offensive.void-torrent",
+      name: "Void Torrent",
+      spellIds: [263165],
+      classSlug: "priest",
+      specSlugs: ["shadow"],
+      roles: DPS,
+      category: "OFFENSIVE_MINOR",
+      availability: "TALENT",
+      cooldownSeconds: 45,
+    }),
+    performanceCooldownRule({
+      canonicalKey: "priest.offensive.halo",
+      name: "Halo",
+      spellIds: [120517],
+      aliases: [120644],
+      classSlug: "priest",
+      roles: [...DPS, ...HEALER],
+      category: "OFFENSIVE_MINOR",
+      availability: "TALENT",
+      cooldownSeconds: 60,
+    }),
 ];

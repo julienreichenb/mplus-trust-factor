@@ -89,7 +89,10 @@
     "ops:smoke": "bash infra/scripts/smoke-deploy.sh",
     "promote:test": "node tools/scripts/promote-test.mjs",
     "iam:grant-admin": "node tools/scripts/with-env.mjs pnpm --filter @mplus/api exec tsx src/iam/grant-admin.cli.ts",
-    "test:frontend-secrets": "vitest run tests/security/frontend-secret-bake.test.ts"
+    "test:frontend-secrets": "vitest run tests/security/frontend-secret-bake.test.ts",
+    "catalog:build:offensive": "pnpm --filter @mplus/abilities run catalog:build:offensive",
+    "catalog:validate:offensive": "pnpm --filter @mplus/abilities run catalog:validate:offensive",
+    "catalog:report:offensive-fight": "pnpm --filter @mplus/abilities run catalog:report:offensive-fight"
   },
   "dependencies": {
     "@mplus/config": "workspace:*",

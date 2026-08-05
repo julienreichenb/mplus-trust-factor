@@ -50,7 +50,7 @@ const CLASS_RULES: Record<string, AbilityRule[]> = {
   warrior: WARRIOR_RULES,
 };
 
-/** All registered rules for the current catalog pin (shared + classes). */
+/** All registered rules for the current catalog pin (shared + class catalogs). */
 export function getAllRegisteredRules(): AbilityRule[] {
   return [
     ...SHARED_CONSUMABLE_RULES,
@@ -295,11 +295,25 @@ export interface ResolveAbilityRuleOptions {
   specSlug?: string | null;
 }
 
+/** Spell IDs that resolve to a rule (primary, aliases, activation, triggered). */
+export function ruleResolvableSpellIds(rule: AbilityRule): number[] {
+  return [
+    ...new Set(
+      [
+        ...rule.spellIds,
+        ...(rule.aliases ?? []),
+        ...(rule.activationSpellIds ?? []),
+        ...(rule.activationBuffIds ?? []),
+        ...(rule.triggeredEffectIds ?? []),
+      ].filter((id) => id > 0),
+    ),
+  ];
+}
+
 export function resolveAbilityRule(options: ResolveAbilityRuleOptions): AbilityRule[] {
   const { spellId, classSlug, specSlug } = options;
   return RETAIL_ABILITY_CATALOG.rules.filter((rule) => {
-    const ids = new Set([...rule.spellIds, ...(rule.aliases ?? [])]);
-    if (!ids.has(spellId)) return false;
+    if (!ruleResolvableSpellIds(rule).includes(spellId)) return false;
     if (classSlug && rule.classSlug != null && rule.classSlug !== classSlug) return false;
     if (specSlug && rule.classSlug != null && rule.specSlugs.length > 0 && !rule.specSlugs.includes(specSlug)) {
       return false;
@@ -354,6 +368,8 @@ export function buildCatalogCoverageDiagnostics(lookup: AbilityCatalogLookup): C
     "BATTLE_REZ",
     "BLOODLUST",
     "CONSUMABLE",
+    "OFFENSIVE_MAJOR",
+    "OFFENSIVE_MINOR",
   ];
   for (const cat of categories) categoryCoverage[cat] = 0;
   for (const rule of catalog.rules) {

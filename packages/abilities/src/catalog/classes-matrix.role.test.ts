@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   RETAIL_CLASS_MATRIX,
   canonicalRoleForClassSpec,
+  findRetailSpecIdentityByBlizzardSpecId,
   findSpecDefinition,
+  normalizeRetailClassSlug,
 } from "./classes-matrix.js";
 import type { AbilityRole } from "../types.js";
 
@@ -49,5 +51,20 @@ describe("RETAIL_CLASS_MATRIX specialization → role catalog", () => {
     expect(roles.has("HEALER")).toBe(true);
     expect(roles.has("TANK")).toBe(true);
     expect(roles.has("DPS")).toBe(true);
+  });
+
+  it("normalizes WCL class slugs and resolves CombatantInfo spec IDs", () => {
+    expect(normalizeRetailClassSlug("deathknight")).toBe("death-knight");
+    expect(normalizeRetailClassSlug("demonhunter")).toBe("demon-hunter");
+    expect(normalizeRetailClassSlug("warlock")).toBe("warlock");
+    expect(findRetailSpecIdentityByBlizzardSpecId(104)).toEqual({
+      classSlug: "druid",
+      specSlug: "guardian",
+      role: "TANK",
+      blizzardSpecId: 104,
+      blizzardClassId: 11,
+    });
+    expect(findRetailSpecIdentityByBlizzardSpecId(252)?.specSlug).toBe("unholy");
+    expect(findRetailSpecIdentityByBlizzardSpecId(999999)).toBeNull();
   });
 });

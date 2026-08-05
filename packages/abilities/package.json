@@ -16,7 +16,10 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "abilities:validate": "tsx src/cli/validate.ts",
-    "abilities:coverage": "tsx src/cli/coverage.ts"
+    "abilities:coverage": "tsx src/cli/coverage.ts",
+    "catalog:build:offensive": "tsx src/cli/build-offensive.ts",
+    "catalog:validate:offensive": "tsx src/cli/validate-offensive.ts",
+    "catalog:report:offensive-fight": "tsx src/cli/same-fight-offensive-report.ts"
   },
   "devDependencies": {
     "tsx": "^4.20.3",
