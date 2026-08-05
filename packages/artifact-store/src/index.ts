@@ -12,6 +12,11 @@ export {
 export { sha256Hex, assertSha256Hex } from "./hash.js";
 export { compressBytes, decompressBytes } from "./compression.js";
 export {
+  prepareArtifactWrite,
+  preparedWriteResult,
+  type PreparedArtifactWrite,
+} from "./prepare-write.js";
+export {
   resolveContentAddressedPath,
   parseCasUri,
   extensionForCompression,

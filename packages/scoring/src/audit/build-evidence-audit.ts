@@ -4,6 +4,7 @@
  */
 
 import type {
+  ArtifactPayloadReadability,
   CharacterSeasonEvidenceManifestV2,
   DatasetPersistenceState,
   EvidenceAuditArtifactRef,
@@ -109,6 +110,7 @@ export interface AuditArtifactMetaInput {
   artifactClass: string | null;
   contentHash: string | null;
   byteLength: number | null;
+  payloadReadability?: ArtifactPayloadReadability | null;
 }
 
 export interface AuditDimensionInput {
@@ -274,6 +276,7 @@ function auditEventDatasetsForSlot(input: {
   identity: { reportCode: string; fightId: number; reportRevision: number } | null;
   datasets: AuditDatasetInput[];
   pagesByIdentity: AuditDatasetPageInput[];
+  artifactsById?: Record<string, AuditArtifactMetaInput>;
 }): EvidenceAuditSlot["eventDatasets"] {
   const slotDatasets = input.manifestSlotId
     ? input.datasets.filter((d) => d.manifestSlotId === input.manifestSlotId)
@@ -332,6 +335,17 @@ function auditEventDatasetsForSlot(input: {
     if (row && row.artifactId == null && (row.pageCount ?? 0) > 0) {
       integrityErrors.push(`DESCRIPTOR_ARTIFACT_MISSING:${spec.kind}`);
     }
+    if (row?.artifactId && input.artifactsById) {
+      const meta = input.artifactsById[row.artifactId];
+      if (!meta) {
+        integrityErrors.push(`DESCRIPTOR_ARTIFACT_METADATA_MISSING:${spec.kind}`);
+      } else if (
+        meta.payloadReadability != null &&
+        meta.payloadReadability !== "DB_PAYLOAD_READABLE"
+      ) {
+        integrityErrors.push(`DESCRIPTOR_PAYLOAD_${meta.payloadReadability}:${spec.kind}`);
+      }
+    }
 
     // Page integrity when the dataset contract produces pages.
     if (row && spec.producesPages) {
@@ -349,6 +363,18 @@ function auditEventDatasetsForSlot(input: {
         }
         if (p.artifactId == null || p.artifactId.length === 0) {
           integrityErrors.push(`PAGE_ARTIFACT_MISSING:${spec.kind}:${p.pageIndex}`);
+        } else if (input.artifactsById) {
+          const meta = input.artifactsById[p.artifactId];
+          if (!meta) {
+            integrityErrors.push(`PAGE_ARTIFACT_METADATA_MISSING:${spec.kind}:${p.pageIndex}`);
+          } else if (
+            meta.payloadReadability != null &&
+            meta.payloadReadability !== "DB_PAYLOAD_READABLE"
+          ) {
+            integrityErrors.push(
+              `PAGE_PAYLOAD_${meta.payloadReadability}:${spec.kind}:${p.pageIndex}`,
+            );
+          }
         }
       }
       if (row.pageCount != null && row.pageCount !== pages.length) {
@@ -428,10 +454,15 @@ function auditEventDatasetsForSlot(input: {
 function resolveArtifactRefs(
   coverage: unknown,
   artifactsById: Record<string, AuditArtifactMetaInput> | undefined,
-): { refs: EvidenceAuditArtifactRef[]; missing: string[] } {
+): {
+  refs: EvidenceAuditArtifactRef[];
+  missing: string[];
+  unreadable: Array<{ artifactId: string; reason: ArtifactPayloadReadability }>;
+} {
   const ids = artifactIdsFromCoverage(coverage);
   const refs: EvidenceAuditArtifactRef[] = [];
   const missing: string[] = [];
+  const unreadable: Array<{ artifactId: string; reason: ArtifactPayloadReadability }> = [];
   for (const id of ids) {
     const meta = artifactsById?.[id];
     if (!meta) {
@@ -442,8 +473,13 @@ function resolveArtifactRefs(
         artifactClass: null,
         contentHash: null,
         byteLength: null,
+        payloadReadability: "PAYLOAD_MISSING",
       });
       continue;
+    }
+    const readability = meta.payloadReadability ?? null;
+    if (readability != null && readability !== "DB_PAYLOAD_READABLE") {
+      unreadable.push({ artifactId: id, reason: readability });
     }
     refs.push({
       artifactId: meta.id,
@@ -451,9 +487,10 @@ function resolveArtifactRefs(
       artifactClass: meta.artifactClass,
       contentHash: meta.contentHash,
       byteLength: meta.byteLength,
+      payloadReadability: readability,
     });
   }
-  return { refs, missing };
+  return { refs, missing, unreadable };
 }
 
 function parseDurableOutcomeFromReasons(
@@ -608,10 +645,13 @@ function auditFactSetsForSlot(input: {
     const computed = buildSlotFactSetBindingHash(bindingMembers);
     const hashMatch = expectedHash == null ? null : computed === expectedHash;
 
-    const { refs, missing } = resolveArtifactRefs(row.coverage, input.artifactsById);
+    const { refs, missing, unreadable } = resolveArtifactRefs(row.coverage, input.artifactsById);
     const lim = limitationsList(row.limitations);
     if (missing.length > 0) {
       lim.push(`MISSING_ARTIFACT_REFS:${missing.length}`);
+    }
+    for (const u of unreadable) {
+      lim.push(`ARTIFACT_PAYLOAD_${u.reason}:${u.artifactId}`);
     }
 
     const identityOk =
@@ -903,6 +943,7 @@ export function buildScoringV2EvidenceAudit(
           : null,
         datasets: input.datasets,
         pagesByIdentity: input.pagesByIdentity,
+        artifactsById: input.artifactsById,
       });
 
       const masterHit =
@@ -1130,6 +1171,7 @@ export function buildScoringV2EvidenceAudit(
         identity: null,
         datasets: [],
         pagesByIdentity: [],
+        artifactsById: input.artifactsById,
       }),
       masterData: null,
       rankingParse: null,

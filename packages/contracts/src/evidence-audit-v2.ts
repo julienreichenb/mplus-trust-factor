@@ -44,12 +44,21 @@ export const factSourceOutcomeSchema = z.enum([
 export type FactSourceOutcome = z.infer<typeof factSourceOutcomeSchema>;
 
 /** Bounded RawArtifact / page lineage reference — never embeds raw bytes. */
+export const artifactPayloadReadabilitySchema = z.enum([
+  "DB_PAYLOAD_READABLE",
+  "LEGACY_EXTERNAL_ONLY",
+  "PAYLOAD_MISSING",
+  "DIGEST_MISMATCH",
+]);
+export type ArtifactPayloadReadability = z.infer<typeof artifactPayloadReadabilitySchema>;
+
 export const evidenceAuditArtifactRefSchema = z.object({
   artifactId: z.string().min(1),
   provider: z.string().nullable(),
   artifactClass: z.string().nullable(),
   contentHash: z.string().nullable(),
   byteLength: z.number().int().nonnegative().nullable(),
+  payloadReadability: artifactPayloadReadabilitySchema.nullable(),
 });
 export type EvidenceAuditArtifactRef = z.infer<typeof evidenceAuditArtifactRefSchema>;
 

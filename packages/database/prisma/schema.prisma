@@ -631,6 +631,18 @@ model RawArtifact {
   @@map("raw_artifacts")
 }
 
+/** Compressed artifact bytes stored in PostgreSQL (content-addressed by hash). */
+model RawArtifactPayload {
+  contentHash           String              @id @map("content_hash")
+  compression           ArtifactCompression
+  payload               Bytes
+  compressedSizeBytes   BigInt              @map("compressed_size_bytes")
+  uncompressedSizeBytes BigInt              @map("uncompressed_size_bytes")
+  createdAt             DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@map("raw_artifact_payloads")
+}
+
 /** Tracks owners that keep a RawArtifact alive (orphan prevention). */
 model ArtifactReference {
   id         String   @id @default(uuid()) @db.Uuid

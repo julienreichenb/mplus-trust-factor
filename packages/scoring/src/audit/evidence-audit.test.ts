@@ -429,8 +429,34 @@ function buildHarness(options?: { leaveWindrunnerSlot1Missing?: boolean }) {
       artifactClass: string | null;
       contentHash: string | null;
       byteLength: number | null;
+      payloadReadability: "DB_PAYLOAD_READABLE";
     }
   > = {};
+  const registerArtifact = (id: string, artifactClass: string, contentHash: string) => {
+    artifactsById[id] = {
+      id,
+      provider: "WARCRAFTLOGS",
+      artifactClass,
+      contentHash,
+      byteLength: 128,
+      payloadReadability: "DB_PAYLOAD_READABLE",
+    };
+  };
+  for (const page of pagesByIdentity) {
+    if (page.artifactId) {
+      registerArtifact(page.artifactId, "wcl_event_page", page.contentHash);
+    }
+  }
+  for (const md of masterDataByIdentity) {
+    if (md.masterDataArtifactId) {
+      registerArtifact(md.masterDataArtifactId, "wcl_master_data", md.contentFingerprint);
+    }
+  }
+  for (const ds of datasets) {
+    if (ds.datasetKey === "ranking_parse" && ds.artifactId) {
+      registerArtifact(ds.artifactId, "wcl-ranking-parse-v2", ds.payloadFingerprint ?? sha(ds.id));
+    }
+  }
   for (const fs of factSets) {
     const ids =
       typeof fs.coverage === "object" &&
@@ -439,13 +465,7 @@ function buildHarness(options?: { leaveWindrunnerSlot1Missing?: boolean }) {
         ? ((fs.coverage as { artifactIds: string[] }).artifactIds)
         : [];
     for (const id of ids) {
-      artifactsById[id] = {
-        id,
-        provider: "WARCRAFTLOGS",
-        artifactClass: "wcl_event_page",
-        contentHash: sha(id),
-        byteLength: 128,
-      };
+      registerArtifact(id, "wcl_event_page", sha(id));
     }
   }
 

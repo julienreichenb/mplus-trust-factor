@@ -228,6 +228,15 @@ export class ScoringV2EvidenceAuditService {
             },
             take: 2_000,
           });
+    const readabilityById = new Map<string, Awaited<
+      ReturnType<typeof this.container.worker.repositories.artifacts.verifyPayloadReadability>
+    >>();
+    for (const row of artifactRows) {
+      readabilityById.set(
+        row.id,
+        await this.container.worker.repositories.artifacts.verifyPayloadReadability(row.id),
+      );
+    }
     const artifactsById = Object.fromEntries(
       artifactRows.map((a) => [
         a.id,
@@ -240,6 +249,7 @@ export class ScoringV2EvidenceAuditService {
             a.uncompressedSizeBytes != null
               ? Number(a.uncompressedSizeBytes)
               : Number(a.sizeBytes),
+          payloadReadability: readabilityById.get(a.id) ?? "PAYLOAD_MISSING",
         },
       ]),
     );

@@ -1,5 +1,10 @@
 import type { PrismaClient } from "@mplus/database";
-import { ArtifactRepository, EvidenceRepository, WclSourceRepository } from "@mplus/database";
+import {
+  createArtifactRepository,
+  EvidenceRepository,
+  WclSourceRepository,
+  type ArtifactRepository,
+} from "@mplus/database";
 import { createLocalFsArtifactStore } from "@mplus/artifact-store";
 import { createAddonExportRepository, type AddonExportRepository } from "./addon-export-repository.js";
 import {
@@ -53,9 +58,9 @@ export function createRepositories(
   prisma: PrismaClient,
   options?: { rawArtifactsDir?: string },
 ): WorkerRepositories {
-  const artifactStore = createLocalFsArtifactStore(
-    options?.rawArtifactsDir ?? "./data/raw-artifacts",
-  );
+  const legacyFsStore = options?.rawArtifactsDir
+    ? createLocalFsArtifactStore(options.rawArtifactsDir)
+    : undefined;
   return {
     character: createCharacterRepository(prisma),
     realm: createRealmRepository(prisma),
@@ -70,7 +75,7 @@ export function createRepositories(
     analysisBatch: createAnalysisBatchRepository(prisma),
     bulkOperation: createBulkOperationRepository(prisma),
     evidence: new EvidenceRepository(prisma),
-    artifacts: new ArtifactRepository(prisma, artifactStore),
+    artifacts: createArtifactRepository(prisma, { legacyFsStore }),
     evidenceV2Batch: createEvidenceV2BatchRepository(prisma),
     wclSource: new WclSourceRepository(prisma),
   };
