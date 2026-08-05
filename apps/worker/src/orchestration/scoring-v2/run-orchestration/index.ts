@@ -20,3 +20,17 @@ export {
   buildMinimalCapabilityPackage,
   type MemoryOrchestrationPorts,
 } from "./memory-ports.js";
+export {
+  createProductionRunOrchestrationPorts,
+  persistCapabilityPackageToPostgres,
+} from "./production-ports.js";
+export {
+  evaluatePublicationEligibility,
+  allowIncompleteManifestDiagnostics,
+  type PublicationEligibilityDecision,
+} from "./publication-eligibility.js";
+export {
+  rankingParseFactFromPersistedEvidence,
+  absentRankingParseFact,
+  rankingParseCompatibilityKey,
+} from "./ranking-hydrate.js";

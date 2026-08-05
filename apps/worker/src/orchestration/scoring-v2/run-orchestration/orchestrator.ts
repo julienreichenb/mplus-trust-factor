@@ -29,7 +29,11 @@ import {
   buildDigestScoreLineage,
   type SeasonDifficultyPolicyV2,
 } from "@mplus/scoring";
-import { buildParticipantScoringDigestsFromPackage } from "@mplus/provider-warcraftlogs";
+import {
+  buildParticipantScoringDigestsFromPackage,
+  type RankingParseFactInput,
+} from "@mplus/provider-warcraftlogs";
+import { absentRankingParseFact } from "./ranking-hydrate.js";
 
 export type LiveProviderPermission = "FORBIDDEN" | "ALLOWED";
 
@@ -130,6 +134,17 @@ export interface RunOrchestrationPorts {
   resolveFightBounds?(input: {
     sourceFight: SourceFightIdentity;
   }): Promise<{ fightStartMs: number; fightEndMs: number | null }>;
+
+  /**
+   * Load persisted ranking/parse evidence for one participant.
+   * Must not call WCL — provider-free only. Return null when absent.
+   */
+  resolveRankingParseForParticipant(input: {
+    sourceFight: SourceFightIdentity;
+    participantActorId: number;
+    dungeonSlug: string | null;
+    keyLevel: number | null;
+  }): Promise<RankingParseFactInput | null>;
 }
 
 export interface RunOrchestrationInput {
@@ -193,6 +208,11 @@ export interface RunOrchestrationResult {
     fights: FightProcessingAccounting[];
   };
   cacheMisses: ProviderEvidenceCacheMiss[];
+  fightFailures: Array<{
+    sourceFight: SourceFightIdentity;
+    code: string;
+    message: string;
+  }>;
   dimensions: {
     performance: ReturnType<typeof computePerformanceV2> | null;
     utility: ReturnType<typeof computeUtilityV2> | null;
@@ -304,6 +324,10 @@ async function ensurePackageAndDigests(input: {
       packageHit = await ports.findCompatibleCapabilityPackage({
         sourceFight,
       });
+      // Incomplete packages must never be treated as compatible cache hits.
+      if (packageHit && packageHit.package.complete !== true) {
+        packageHit = null;
+      }
     }
 
     if (!packageHit) {
@@ -339,6 +363,11 @@ async function ensurePackageAndDigests(input: {
         keyLevel: input.keyLevel,
         participants,
       });
+      if (acquired.package.complete !== true) {
+        throw new Error(
+          `incomplete_capability_package:${sourceFightKey(sourceFight)}`,
+        );
+      }
       packageHit = {
         package: acquired.package,
         packageArtifactId: acquired.packageArtifactId,
@@ -362,6 +391,20 @@ async function ensurePackageAndDigests(input: {
       sourceFight,
     });
 
+    const rankingByActorId = new Map<number, RankingParseFactInput>();
+    for (const participant of participants) {
+      const ranking = await ports.resolveRankingParseForParticipant({
+        sourceFight,
+        participantActorId: participant.playerActorId,
+        dungeonSlug: input.dungeonSlug,
+        keyLevel: input.keyLevel,
+      });
+      rankingByActorId.set(
+        participant.playerActorId,
+        ranking ?? absentRankingParseFact(),
+      );
+    }
+
     const built = buildParticipantScoringDigestsFromPackage({
       capabilityPackage: packageHit.package,
       packageArtifactId: packageHit.packageArtifactId,
@@ -374,6 +417,7 @@ async function ensurePackageAndDigests(input: {
       fightStartMs: bounds.fightStartMs,
       fightEndMs: bounds.fightEndMs,
       catalogVersion: packageHit.package.catalogVersion,
+      rankingByActorId,
     });
 
     const digests: PersistedDigestRecord[] = [];
@@ -528,6 +572,7 @@ export async function orchestrateScoringV2Runs(
 
   const accountingFights: FightProcessingAccounting[] = [];
   const cacheMisses: ProviderEvidenceCacheMiss[] = [];
+  const fightFailures: RunOrchestrationResult["fightFailures"] = [];
   const allParticipantDigests: PersistedDigestRecord[] = [];
   const digestsByFightActor = new Map<string, PersistedDigestRecord>();
   let providerCalls = 0;
@@ -544,29 +589,49 @@ export async function orchestrateScoringV2Runs(
       runScore: null,
       completedAt: null,
     };
-    const result = await ensurePackageAndDigests({
-      sourceFight,
-      ...meta,
-      liveProviderPermission: input.liveProviderPermission,
-      ports: input.ports,
-    });
-    if (result.cacheMiss) {
-      cacheMisses.push(result.cacheMiss);
+    try {
+      const result = await ensurePackageAndDigests({
+        sourceFight,
+        ...meta,
+        liveProviderPermission: input.liveProviderPermission,
+        ports: input.ports,
+      });
+      if (result.cacheMiss) {
+        cacheMisses.push(result.cacheMiss);
+        accountingFights.push(result.accounting);
+        continue;
+      }
       accountingFights.push(result.accounting);
-      continue;
-    }
-    accountingFights.push(result.accounting);
-    providerCalls += result.accounting.providerCalls;
-    if (result.accounting.packageCreated) packagesCreated += 1;
-    else packagesReused += 1;
-    digestsCreated += result.accounting.digestsCreated;
-    digestsReused += result.accounting.digestsReused;
-    for (const d of result.digests) {
-      allParticipantDigests.push(d);
-      digestsByFightActor.set(
-        `${sourceFightKey(sourceFight)}:${d.digest.participantActorId}`,
-        d,
-      );
+      providerCalls += result.accounting.providerCalls;
+      if (result.accounting.packageCreated) packagesCreated += 1;
+      else packagesReused += 1;
+      digestsCreated += result.accounting.digestsCreated;
+      digestsReused += result.accounting.digestsReused;
+      for (const d of result.digests) {
+        allParticipantDigests.push(d);
+        digestsByFightActor.set(
+          `${sourceFightKey(sourceFight)}:${d.digest.participantActorId}`,
+          d,
+        );
+      }
+    } catch (err) {
+      // One failed fight must not corrupt completed fights.
+      fightFailures.push({
+        sourceFight,
+        code:
+          err instanceof Error && "code" in err
+            ? String((err as { code?: string }).code ?? "FIGHT_PROCESSING_FAILED")
+            : "FIGHT_PROCESSING_FAILED",
+        message: err instanceof Error ? err.message : String(err),
+      });
+      accountingFights.push({
+        sourceFight,
+        packageCreated: false,
+        providerCalls: 0,
+        digestsCreated: 0,
+        digestsReused: 0,
+        participantDigestCount: 0,
+      });
     }
   }
 
@@ -606,7 +671,10 @@ export async function orchestrateScoringV2Runs(
   let utility: ReturnType<typeof computeUtilityV2> | null = null;
   let survival: ReturnType<typeof computeSurvivalV2> | null = null;
 
-  if (cacheMisses.length === 0 && characterDigests.length > 0) {
+  if (
+    (cacheMisses.length === 0 && fightFailures.length === 0) &&
+    characterDigests.length > 0
+  ) {
     try {
       const runParseFacts = characterDigests.map((row) =>
         performanceRunParseFactFromDigest(row.digest, row.slotId),
@@ -722,24 +790,29 @@ export async function orchestrateScoringV2Runs(
               : "survival_failed",
       });
     }
-  } else if (cacheMisses.length > 0) {
+  } else if (cacheMisses.length > 0 || fightFailures.length > 0) {
+    const reason =
+      cacheMisses.length > 0
+        ? "provider_evidence_cache_miss"
+        : "fight_processing_failed";
     blocked.push({
       dimension: "PERFORMANCE",
-      reason: "provider_evidence_cache_miss",
+      reason,
     });
     blocked.push({
       dimension: "UTILITY",
-      reason: "provider_evidence_cache_miss",
+      reason,
     });
     blocked.push({
       dimension: "SURVIVAL",
-      reason: "provider_evidence_cache_miss",
+      reason,
     });
   }
 
   const publicationAllowed =
     !incomplete &&
     cacheMisses.length === 0 &&
+    fightFailures.length === 0 &&
     blocked.length === 0 &&
     characterDigests.length === expectedSlotCount &&
     performance != null &&
@@ -764,6 +837,7 @@ export async function orchestrateScoringV2Runs(
       fights: accountingFights,
     },
     cacheMisses,
+    fightFailures,
     dimensions: {
       performance,
       utility,

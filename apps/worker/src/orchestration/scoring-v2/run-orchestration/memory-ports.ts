@@ -23,6 +23,7 @@ import {
   type RunOrchestrationPorts,
   type SourceFightIdentity,
 } from "./orchestrator.js";
+import type { RankingParseFactInput } from "@mplus/provider-warcraftlogs";
 
 const DEFAULT_CAPABILITIES: EvidenceCapability[] = [
   "PERFORMANCE_OFFENSIVE_ACTIVATIONS",
@@ -153,6 +154,11 @@ export interface MemoryOrchestrationPorts extends RunOrchestrationPorts {
   };
   seedPackage(hit: CompatiblePackageHit): void;
   seedDigest(record: PersistedDigestRecord): void;
+  seedRanking(
+    sourceFight: SourceFightIdentity,
+    participantActorId: number,
+    fact: RankingParseFactInput,
+  ): void;
   setParticipants(
     sourceFight: SourceFightIdentity,
     participants: OrchestrationParticipant[],
@@ -165,12 +171,41 @@ export interface MemoryOrchestrationPorts extends RunOrchestrationPorts {
 
 export function createMemoryOrchestrationPorts(options?: {
   providerCallsPerAcquire?: number;
+  /** When true (default), seed a usable ranking fact on acquire/seedPackage. */
+  autoSeedRanking?: boolean;
 }): MemoryOrchestrationPorts {
   const packages = new Map<string, CompatiblePackageHit>();
   const digests = new Map<string, PersistedDigestRecord>();
   const participantsByFight = new Map<string, OrchestrationParticipant[]>();
+  const rankings = new Map<string, RankingParseFactInput>();
   const lock = createInMemorySourceFightLock();
   const providerCallsPerAcquire = options?.providerCallsPerAcquire ?? 1;
+  const autoSeedRanking = options?.autoSeedRanking !== false;
+
+  const defaultRanking = (): RankingParseFactInput => ({
+    parsePercentile: 80,
+    parseSemantic: "BRACKET_PERCENT",
+    partition: 1,
+    rawDps: 100_000,
+    rankingProvenance: {
+      providerContractVersion: "wcl-ranking-parse-v1",
+      schemaVersion: "1.0.0",
+      artifactId: "ranking-artifact-test",
+      contentHash: "r".repeat(64),
+      source: "PERSISTED_RANKING_PARSE",
+    },
+  });
+
+  const maybeSeedRankings = (
+    sourceFight: SourceFightIdentity,
+    participants: OrchestrationParticipant[],
+  ) => {
+    if (!autoSeedRanking) return;
+    for (const p of participants) {
+      const key = `${sourceFightKey(sourceFight)}:${p.playerActorId}`;
+      if (!rankings.has(key)) rankings.set(key, defaultRanking());
+    }
+  };
 
   const stats = {
     acquireCalls: 0,
@@ -184,6 +219,23 @@ export function createMemoryOrchestrationPorts(options?: {
     digestCatalogVersion: "catalog-test-v1",
     seedPackage(hit) {
       packages.set(sourceFightKey(hit.package.sourceKey), hit);
+      const sourceFight = {
+        reportCode: hit.package.sourceKey.reportCode,
+        fightId: hit.package.sourceKey.fightId,
+        reportRevision: hit.package.sourceKey.reportRevision,
+      };
+      const actors = hit.package.friendlyPlayerActorIds.map((id) => ({
+        playerActorId: id,
+        characterName: id === 1 ? "Target" : `Player${id}`,
+        realmSlug: "test",
+        regionCode: "eu",
+        classSlug: "mage",
+        specSlug: "fire",
+        role: "DPS",
+        ownedPetActorIds: [] as number[],
+        characterId: id === 1 ? "11111111-1111-4111-8111-111111111111" : null,
+      }));
+      maybeSeedRankings(sourceFight, actors);
     },
     seedDigest(record) {
       const key = buildParticipantDigestCompatibilityKey({
@@ -197,6 +249,9 @@ export function createMemoryOrchestrationPorts(options?: {
         catalogVersion: record.digest.catalogVersion,
       });
       digests.set(key, record);
+    },
+    seedRanking(sourceFight, participantActorId, fact) {
+      rankings.set(`${sourceFightKey(sourceFight)}:${participantActorId}`, fact);
     },
     setParticipants(sourceFight, participants) {
       participantsByFight.set(sourceFightKey(sourceFight), participants);
@@ -225,13 +280,15 @@ export function createMemoryOrchestrationPorts(options?: {
     },
 
     async findCompatibleCapabilityPackage({ sourceFight }) {
-      return packages.get(sourceFightKey(sourceFight)) ?? null;
+      const hit = packages.get(sourceFightKey(sourceFight)) ?? null;
+      if (hit && hit.package.complete !== true) return null;
+      return hit;
     },
 
     async acquireAndPersistCapabilityPackage({ sourceFight, participants }) {
       stats.acquireCalls += 1;
       const existing = packages.get(sourceFightKey(sourceFight));
-      if (existing) {
+      if (existing && existing.package.complete === true) {
         return {
           package: existing.package,
           packageArtifactId: existing.packageArtifactId,
@@ -256,6 +313,7 @@ export function createMemoryOrchestrationPorts(options?: {
         providerCalls: 0,
       };
       packages.set(sourceFightKey(sourceFight), hit);
+      maybeSeedRankings(sourceFight, participants);
       return {
         package: pkg,
         packageArtifactId: artifactId,
@@ -297,6 +355,12 @@ export function createMemoryOrchestrationPorts(options?: {
 
     async resolveFightBounds() {
       return { fightStartMs: 0, fightEndMs: 1_800_000 };
+    },
+
+    async resolveRankingParseForParticipant({ sourceFight, participantActorId }) {
+      return (
+        rankings.get(`${sourceFightKey(sourceFight)}:${participantActorId}`) ?? null
+      );
     },
   };
 

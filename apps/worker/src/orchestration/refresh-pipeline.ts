@@ -3579,10 +3579,13 @@ export async function runRefreshPipeline(
         activeDungeonSlugs.length > 0 ? activeDungeonSlugs : CURRENT_MPLUS_ZONE_DUNGEON_SLUGS,
       candidates: v2Candidates,
       scoreModelId: model.id,
+      scoreModelVersion: String(model.version),
       parentIngestionJobId: job.id,
       correlationId: ctx.correlationId ?? ctx.requestId,
       refreshGeneration: Date.parse(jobPayload.requestedAt) || Date.now(),
       region: identity.region,
+      realm: identity.realmSlug,
+      characterName: identity.name,
     });
   }
 

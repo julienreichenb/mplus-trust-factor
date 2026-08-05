@@ -24,20 +24,19 @@ export class CapabilityEvidencePackageRepository {
     private readonly artifacts: ArtifactRepository,
   ) {}
 
-  async findByCompatibilityKey(
-    compatibilityKey: string,
-  ): Promise<{
+  private async loadVerifiedRow(row: {
+    id: string;
+    artifactId: string;
+    contentHash: string;
+    complete: boolean;
+    artifact: { storageUri: string };
+  }): Promise<{
     recordId: string;
     package: CapabilityEvidencePackageV1;
     packageArtifactId: string;
     contentHash: string;
+    complete: boolean;
   } | null> {
-    const row = await this.prisma.capabilityEvidencePackageRecord.findUnique({
-      where: { compatibilityKey },
-      include: { artifact: true },
-    });
-    if (!row) return null;
-
     if (isCasStorageUri(row.artifact.storageUri)) {
       throw new ArtifactLegacyExternalPayloadMissingError(
         row.artifactId,
@@ -59,6 +58,59 @@ export class CapabilityEvidencePackageRepository {
       package: pkg,
       packageArtifactId: row.artifactId,
       contentHash: row.contentHash,
+      complete: row.complete && pkg.complete,
+    };
+  }
+
+  async findByCompatibilityKey(
+    compatibilityKey: string,
+  ): Promise<{
+    recordId: string;
+    package: CapabilityEvidencePackageV1;
+    packageArtifactId: string;
+    contentHash: string;
+    complete: boolean;
+  } | null> {
+    const row = await this.prisma.capabilityEvidencePackageRecord.findUnique({
+      where: { compatibilityKey },
+      include: { artifact: true },
+    });
+    if (!row) return null;
+    return this.loadVerifiedRow(row);
+  }
+
+  /**
+   * Compatible package for a source fight: must be marked complete.
+   * Incomplete packages are never treated as reusable cache hits.
+   */
+  async findCompleteBySourceFight(input: {
+    reportCode: string;
+    fightId: number;
+    reportRevision: number;
+  }): Promise<{
+    recordId: string;
+    package: CapabilityEvidencePackageV1;
+    packageArtifactId: string;
+    contentHash: string;
+  } | null> {
+    const row = await this.prisma.capabilityEvidencePackageRecord.findFirst({
+      where: {
+        reportCode: input.reportCode,
+        fightId: input.fightId,
+        reportRevision: input.reportRevision,
+        complete: true,
+      },
+      orderBy: { updatedAt: "desc" },
+      include: { artifact: true },
+    });
+    if (!row) return null;
+    const loaded = await this.loadVerifiedRow(row);
+    if (!loaded || !loaded.complete) return null;
+    return {
+      recordId: loaded.recordId,
+      package: loaded.package,
+      packageArtifactId: loaded.packageArtifactId,
+      contentHash: loaded.contentHash,
     };
   }
 
