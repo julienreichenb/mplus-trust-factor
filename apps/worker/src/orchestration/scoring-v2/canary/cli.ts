@@ -10,6 +10,9 @@
  * Phase B (discovery-only; no capability event pages):
  *   pnpm scoring-v2:canary:discover -- --region EU --realm archimonde --character Wallidrixe --confirm-discovery
  *
+ * Manifest revision reconciliation (metadata-only; no capability events):
+ *   pnpm scoring-v2:canary:reconcile-revisions -- --region EU --realm archimonde --character Wallidrixe --confirm-revision-reconcile
+ *
  * Catalog diagnostic (zero WCL):
  *   pnpm scoring-v2:canary:diagnose-catalog
  *
@@ -92,6 +95,12 @@ import {
   runScoringV2CanaryLive,
   type CanaryLiveReport,
 } from "./canary-live.js";
+import {
+  createGraphqlReportRevisionFetcher,
+  runScoringV2CanaryReconcileRevisions,
+  type CanaryReconcileRevisionsReport,
+} from "./canary-reconcile-revisions.js";
+import { LiveWarcraftLogsProvider } from "@mplus/provider-warcraftlogs";
 
 export interface CanaryCliArgs {
   mode:
@@ -99,6 +108,7 @@ export interface CanaryCliArgs {
     | "discover"
     | "rate-snapshot"
     | "live"
+    | "reconcile-revisions"
     | "diagnose-catalog"
     | "repair-catalog";
   region: string;
@@ -108,6 +118,7 @@ export interface CanaryCliArgs {
   allowZoneIdOverride: boolean;
   confirmLive: boolean;
   confirmDiscovery: boolean;
+  confirmRevisionReconcile: boolean;
   confirmRepair: boolean;
   outputDir: string | null;
   characterId?: string;
@@ -124,6 +135,7 @@ export function parseCanaryCliArgs(argv: string[]): CanaryCliArgs {
     args[0] === "preflight" ||
     args[0] === "discover" ||
     args[0] === "rate-snapshot" ||
+    args[0] === "reconcile-revisions" ||
     args[0] === "diagnose-catalog" ||
     args[0] === "repair-catalog"
   ) {
@@ -136,6 +148,7 @@ export function parseCanaryCliArgs(argv: string[]): CanaryCliArgs {
   let allowZoneIdOverride = false;
   let confirmLive = false;
   let confirmDiscovery = false;
+  let confirmRevisionReconcile = false;
   let confirmRepair = false;
   let outputDir: string | null = null;
 
@@ -160,6 +173,8 @@ export function parseCanaryCliArgs(argv: string[]): CanaryCliArgs {
       confirmLive = true;
     } else if (a === "--confirm-discovery") {
       confirmDiscovery = true;
+    } else if (a === "--confirm-revision-reconcile") {
+      confirmRevisionReconcile = true;
     } else if (a === "--confirm-local-repair") {
       confirmRepair = true;
     } else if (a === "--output-dir" && next) {
@@ -171,6 +186,7 @@ export function parseCanaryCliArgs(argv: string[]): CanaryCliArgs {
         next === "preflight" ||
         next === "discover" ||
         next === "rate-snapshot" ||
+        next === "reconcile-revisions" ||
         next === "diagnose-catalog" ||
         next === "repair-catalog"
       ) {
@@ -190,6 +206,7 @@ export function parseCanaryCliArgs(argv: string[]): CanaryCliArgs {
       allowZoneIdOverride,
       confirmLive,
       confirmDiscovery,
+      confirmRevisionReconcile,
       confirmRepair,
       outputDir,
     };
@@ -205,6 +222,7 @@ export function parseCanaryCliArgs(argv: string[]): CanaryCliArgs {
       allowZoneIdOverride,
       confirmLive,
       confirmDiscovery: true,
+      confirmRevisionReconcile: false,
       confirmRepair,
       outputDir,
     };
@@ -225,6 +243,7 @@ export function parseCanaryCliArgs(argv: string[]): CanaryCliArgs {
       allowZoneIdOverride,
       confirmLive,
       confirmDiscovery,
+      confirmRevisionReconcile,
       confirmRepair,
       outputDir,
     };
@@ -251,6 +270,7 @@ export function parseCanaryCliArgs(argv: string[]): CanaryCliArgs {
     allowZoneIdOverride,
     confirmLive,
     confirmDiscovery,
+    confirmRevisionReconcile,
     confirmRepair,
     outputDir,
   };
@@ -1151,6 +1171,80 @@ export async function runCanaryLiveCommand(
   }
 }
 
+/**
+ * Metadata-only revision reconciliation. Does not acquire capability packages.
+ */
+export async function runCanaryReconcileRevisionsCommand(
+  args: CanaryCliArgs,
+  options?: {
+    env?: NodeJS.ProcessEnv;
+    fetchMetadata?: Parameters<
+      typeof runScoringV2CanaryReconcileRevisions
+    >[0]["fetchMetadata"];
+  },
+): Promise<{ reportPath: string; report: CanaryReconcileRevisionsReport }> {
+  assertOperatorRepositoryMode("PRODUCTION");
+  const env = loadEnv();
+  const processEnv = options?.env ?? process.env;
+  const identity = identityFromArgs(args);
+  const deps = await createProductionCanaryDependencies({ env, identity });
+  try {
+    if (!args.confirmRevisionReconcile) {
+      throw Object.assign(
+        new Error("canary_reconcile_refused:MISSING_CONFIRM_REVISION_RECONCILE"),
+        {
+          code: "CANARY_RECONCILE_REFUSED",
+          reasons: ["MISSING_CONFIRM_REVISION_RECONCILE"],
+        },
+      );
+    }
+    const reasons: string[] = [];
+    if (env.PROVIDER_MODE !== "live") reasons.push("PROVIDER_MODE_NOT_LIVE");
+    if (!env.ALLOW_LIVE_PROVIDER_CALLS) reasons.push("ALLOW_LIVE_PROVIDER_CALLS_FALSE");
+    if (!env.WCL_ENABLED) reasons.push("WCL_DISABLED");
+    if (!env.WCL_CLIENT_ID || !env.WCL_CLIENT_SECRET) {
+      reasons.push("WCL_CREDENTIALS_MISSING");
+    }
+    if (env.SCORING_V2_PUBLICATION_ENABLED) reasons.push("PUBLICATION_ENABLED");
+    if (reasons.length > 0) {
+      throw Object.assign(
+        new Error(`canary_reconcile_refused:${reasons.join(",")}`),
+        { code: "CANARY_RECONCILE_REFUSED", reasons },
+      );
+    }
+    assertPublicationBlocked(env);
+
+    const seasonResolution = await resolveCanarySeasonCatalog({
+      prisma: deps.container.prisma,
+      regionId: deps.character.regionId,
+      regionCode: args.region,
+      env: processEnv,
+    });
+    assertSeasonCatalogOk(seasonResolution);
+
+    const fetchMetadata =
+      options?.fetchMetadata ??
+      createGraphqlReportRevisionFetcher(
+        new LiveWarcraftLogsProvider({ env }).getGraphQlClient(),
+      );
+
+    const { report, reportPath } = await runScoringV2CanaryReconcileRevisions({
+      prisma: deps.container.prisma,
+      container: deps.container,
+      characterId: deps.characterResolution.characterId,
+      characterName: args.character,
+      seasonResolution,
+      role: "DPS",
+      fetchMetadata,
+      outputDir: args.outputDir ?? undefined,
+    });
+
+    return { reportPath, report };
+  } finally {
+    await deps.container.prisma.$disconnect().catch(() => undefined);
+  }
+}
+
 async function main(): Promise<void> {
   const args = parseCanaryCliArgs(process.argv.slice(2));
   if (args.mode === "diagnose-catalog") {
@@ -1298,6 +1392,7 @@ async function main(): Promise<void> {
         JSON.stringify(
           {
             reportPath,
+            commandOutcome: report.commandOutcome,
             manifestId: report.manifestId,
             selectedSlotCount: report.selectedSlotCount,
             expectedSlotCount: report.expectedSlotCount,
@@ -1307,6 +1402,7 @@ async function main(): Promise<void> {
             packagesReused: report.packagesReused,
             wallidrixeDigestCount: report.wallidrixeDigestCount,
             confidenceScore: report.confidence.confidenceScore,
+            missingDungeons: report.confidence.missingDungeons,
             replayProviderCalls: report.replayProviderCalls,
             replayFingerprintEqual: report.replayFingerprintEqual,
             publicationEnabled: report.publicationEnabled,
@@ -1317,6 +1413,9 @@ async function main(): Promise<void> {
           2,
         ),
       );
+      if (report.commandOutcome === "PARTIAL_SUCCESS") {
+        process.exitCode = 0;
+      }
     } catch (err) {
       console.error(
         JSON.stringify(
@@ -1333,6 +1432,50 @@ async function main(): Promise<void> {
             fightFailures:
               err && typeof err === "object" && "fightFailures" in err
                 ? (err as { fightFailures: unknown }).fightFailures
+                : undefined,
+          },
+          null,
+          2,
+        ),
+      );
+      process.exit(1);
+    }
+    return;
+  }
+  if (args.mode === "reconcile-revisions") {
+    try {
+      const { reportPath, report } = await runCanaryReconcileRevisionsCommand(args);
+      console.log(
+        JSON.stringify(
+          {
+            reportPath,
+            priorManifestId: report.priorManifestId,
+            supersedingManifestId: report.supersedingManifestId,
+            changed: report.changed,
+            changeCount: report.changes.length,
+            metadataProviderCalls: report.metadataProviderCalls,
+            capabilityPackageAcquisitions: report.capabilityPackageAcquisitions,
+            packagesCreated: report.packagesCreated,
+            participantDigestsCreated: report.participantDigestsCreated,
+            scoreCalculations: report.scoreCalculations,
+            publicationEnabled: report.publicationEnabled,
+          },
+          null,
+          2,
+        ),
+      );
+    } catch (err) {
+      console.error(
+        JSON.stringify(
+          {
+            code:
+              err && typeof err === "object" && "code" in err
+                ? (err as { code: unknown }).code
+                : "CANARY_RECONCILE_FAILED",
+            message: err instanceof Error ? err.message : String(err),
+            reasons:
+              err && typeof err === "object" && "reasons" in err
+                ? (err as { reasons: unknown }).reasons
                 : undefined,
           },
           null,

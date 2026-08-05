@@ -18,6 +18,7 @@
     "canary:preflight": "tsx src/orchestration/scoring-v2/canary/cli.ts preflight",
     "canary:discover": "tsx src/orchestration/scoring-v2/canary/cli.ts discover",
     "canary:rate-snapshot": "tsx src/orchestration/scoring-v2/canary/cli.ts rate-snapshot",
+    "canary:reconcile-revisions": "tsx src/orchestration/scoring-v2/canary/cli.ts reconcile-revisions",
     "canary:live": "tsx src/orchestration/scoring-v2/canary/cli.ts live",
     "canary:diagnose-catalog": "tsx src/orchestration/scoring-v2/canary/cli.ts diagnose-catalog",
     "canary:repair-catalog": "tsx src/orchestration/scoring-v2/canary/cli.ts repair-catalog"
