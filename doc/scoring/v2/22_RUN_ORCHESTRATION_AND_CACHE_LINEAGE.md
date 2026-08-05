@@ -221,8 +221,14 @@ No discovery, no candidate reselection, no manifest mutation. Uses frozen SELECT
 
 1. Phase A preflight against the real character DB state.
 2. Phase B discovery-only when no complete compatible manifest exists; confirm frozen 16/16 + zero capability acquisitions.
-3. Re-run Phase A; review package misses and projected WCL utilization vs DEFER/STOP.
-4. Explicit `--confirm-live` + `SCORING_V2_CANARY_EXECUTE=true` after approval — runs `runScoringV2CanaryLive`.
-5. Keep publication disabled for the entire canary.
+3. If live canary shows `FIGHT_REVISION_MISMATCH` with stale `reportRevision=1`, run metadata-only reconcile:
+   `pnpm scoring-v2:canary:reconcile-revisions -- --region EU --realm archimonde --character Wallidrixe --confirm-revision-reconcile`
+   then re-run Phase A — expect cache hits for unchanged revisions and misses only for corrected identities.
+4. Re-run Phase A; review package misses and projected WCL utilization vs DEFER/STOP.
+5. Explicit `--confirm-live` + `SCORING_V2_CANARY_EXECUTE=true` after approval — runs `runScoringV2CanaryLive`.
+6. Keep publication disabled for the entire canary.
 
-Report artifact: `artifacts/scoring-v2-canary/live-canary-report.json`.
+Report artifacts:
+
+- `artifacts/scoring-v2-canary/live-canary-report.json`
+- `artifacts/scoring-v2-canary/reconcile-revisions-report.json`

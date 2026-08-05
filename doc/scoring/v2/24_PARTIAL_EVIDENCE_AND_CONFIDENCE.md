@@ -60,3 +60,44 @@ Do not infer that a run does not exist merely because it was not hydrated.
 ## Manifest revision
 
 Incomplete frozen manifests may be superseded by a new frozen document that merges prior SELECTED source fights with newly discovered candidates. Completed manifests are never mutated in place.
+
+### Mutable WCL report revision lineage
+
+WCL `report.revision` is authoritative and mutable after a fight is published.
+Source identity is always `reportCode + fightId + reportRevision`.
+
+**Do not default an unknown revision to `1`.** Unresolved revision fails closed with
+`REPORT_REVISION_UNRESOLVED`.
+
+Discovery / hydration must persist the revision returned by
+`ReportWithFightAndMasterData` into candidate metadata, ranking evidence, and
+frozen manifest slots.
+
+When a frozen complete manifest still holds stale revisions (e.g. all slots at
+`1` while live metadata reports higher values), run metadata-only reconciliation:
+
+```bash
+pnpm scoring-v2:canary:reconcile-revisions -- --region EU --realm archimonde --character Wallidrixe --confirm-revision-reconcile
+```
+
+This:
+
+1. loads the current compatible frozen manifest;
+2. fetches report metadata only (no capability event pages);
+3. creates a **new** superseding manifest when any revision differs;
+4. preserves `reportCode` / `fightId` / slot assignment;
+5. records `supersedesManifestId`, previous/new revision, and diagnostics.
+
+Compatible packages whose revision still matches remain cache hits. Corrected
+revision identities require new acquisitions (at most the mismatch count).
+
+### Partial live scoring
+
+Isolated fight failures (including historical revision mismatches) must **not**
+globally block dimensions with `fight_processing_failed` when usable character
+digests exist. Calculate dimensions from available digests, attach
+`scoring-confidence-v1`, set `analysisStatus=PARTIAL` when
+`usableRunCount < targetRunCount`, and return `PARTIAL_SUCCESS` without publishing.
+
+`missingDungeons` is derived from active season slugs minus dungeons represented
+in usable digests (never left empty when coverage is incomplete).
