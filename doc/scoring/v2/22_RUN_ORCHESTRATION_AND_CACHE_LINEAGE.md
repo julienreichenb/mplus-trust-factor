@@ -119,9 +119,36 @@ pnpm season:sync-authority -- --region EU
 
 Zero WCL calls. JSON under `artifacts/scoring-v2-canary/`. Reports real `characterId`,
 `seasonResolution`, `manifestStatus`, package/digest/ranking cache, cost blockers.
-Publication eligibility remains false.
+Publication eligibility remains false. When `MANIFEST_NOT_FOUND`, package/ranking
+fields are `NOT_EVALUATED` (not projected misses); publication-disabled is a
+safety check, not a blocker.
 
-### Phase B — explicit live (human only)
+### Phase B — discovery-only (human, explicit arm)
+
+```powershell
+$env:PROVIDER_MODE="live"
+$env:WCL_ENABLED="true"
+$env:ALLOW_LIVE_PROVIDER_CALLS="true"
+$env:SCORING_V2_ENABLED="true"
+$env:SCORING_V2_SELECTION_ENABLED="true"
+$env:SCORING_V2_PUBLICATION_ENABLED="false"
+$env:SCORING_V2_CANARY_DISCOVERY_EXECUTE="true"
+pnpm scoring-v2:canary:discover -- `
+  --region EU `
+  --realm archimonde `
+  --character Wallidrixe `
+  --confirm-discovery
+```
+
+Discovers candidates, freezes the V2 evidence manifest, and may persist ranking
+parse evidence. **Does not** acquire capability event packages, participant
+digests, or scores. Requires both `--confirm-discovery` and
+`SCORING_V2_CANARY_DISCOVERY_EXECUTE=true`. `SCORING_V2_CANARY_EXECUTE` does
+**not** authorize this phase. DEFER/STOP refuse before provider calls.
+
+Then re-run Phase A preflight to inspect package misses / projected capability cost.
+
+### Phase C — explicit live capability (human only)
 
 ```powershell
 $env:PROVIDER_MODE="live"
@@ -131,7 +158,7 @@ $env:SCORING_V2_ENABLED="true"
 $env:SCORING_V2_SELECTION_ENABLED="true"
 $env:SCORING_V2_EVIDENCE_FETCH_ENABLED="true"
 $env:SCORING_V2_PUBLICATION_ENABLED="false"
-# After human approval of preflight + budget:
+# After human approval of preflight + discovery + budget:
 $env:SCORING_V2_CANARY_EXECUTE="true"
 pnpm scoring-v2:canary:live -- `
   --region EU `
@@ -154,6 +181,7 @@ Refuses without `--confirm-live`, with publication on, wildcards/cohorts, or mis
 | Redis singleflight | `run-orchestration/source-fight-lease.ts` |
 | Cost admission | `run-orchestration/cost-admission.ts` |
 | Preflight | `run-orchestration/canary-preflight.ts` |
+| Discovery-only | `canary/canary-discover.ts` + `canary-discovery-gates.ts` |
 | Canary CLI | `canary/cli.ts` |
 | Canary zone | `canary/canary-zone.ts` (`WCL_MPLUS_ZONE_ID`) |
 | Canary catalog | `canary/canary-catalog.ts` / `canary-season.ts` |
@@ -163,9 +191,10 @@ Refuses without `--confirm-live`, with publication on, wildcards/cohorts, or mis
 
 ## Remaining blocker before human approval
 
-1. Run Phase A preflight against the real character DB state and confirm ranking_parse coverage / missing-fight count.
-2. Human review of projected WCL utilization vs DEFER/STOP.
-3. Explicit `--confirm-live` + `SCORING_V2_CANARY_EXECUTE=true` after approval.
-4. Keep publication disabled for the entire canary.
+1. Run Phase A preflight against the real character DB state (`MANIFEST_NOT_FOUND` expected before discovery).
+2. Run Phase B discovery-only after catalog repair; confirm frozen manifest + zero capability acquisitions.
+3. Re-run Phase A; review package misses and projected WCL utilization vs DEFER/STOP.
+4. Explicit `--confirm-live` + `SCORING_V2_CANARY_EXECUTE=true` after approval.
+5. Keep publication disabled for the entire canary.
 
-Do not enable live WCL until that approval.
+Do not enable live WCL capability acquisition until that approval.
