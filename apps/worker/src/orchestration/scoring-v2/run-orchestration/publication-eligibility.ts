@@ -35,12 +35,23 @@ export function evaluatePublicationEligibility(input: {
   scoringModelId: string;
   /** Process env gate — must remain false in this workstream. */
   scoringV2PublicationEnabled: boolean;
+  /** Optional active-season expected slot count (dungeonCount × 2). */
+  expectedSlotCountFromSeason?: number;
+  /** Score-model max evidence slots (default 16 for model v6). */
+  scoreModelMaxEvidenceSlots?: number;
 }): PublicationEligibilityDecision {
   const { result } = input;
   const expected =
-    result.expectedSlotCount ||
-    expectedEvidenceSlotCount(result.manifest.activeDungeonSlugs.length);
+    input.expectedSlotCountFromSeason ??
+    (result.expectedSlotCount ||
+      expectedEvidenceSlotCount(result.manifest.activeDungeonSlugs.length));
   const reasons: string[] = [];
+
+  const maxSlots = input.scoreModelMaxEvidenceSlots ?? 16;
+  const scoreModelShapeOk = expected <= maxSlots;
+  if (!scoreModelShapeOk) {
+    reasons.push("SCORE_MODEL_SEASON_SHAPE_INCOMPATIBLE");
+  }
 
   if (input.scoringV2PublicationEnabled) {
     reasons.push("SCORING_V2_PUBLICATION_ENABLED_unexpectedly_true");
@@ -86,6 +97,7 @@ export function evaluatePublicationEligibility(input: {
   if (!scoreModelIdPresent) reasons.push("score_model_missing");
 
   const eligible =
+    scoreModelShapeOk &&
     manifestComplete &&
     characterDigestCount === expected &&
     result.cacheMisses.length === 0 &&

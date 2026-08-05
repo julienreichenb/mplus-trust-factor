@@ -10,7 +10,7 @@
  * + an explicit live acquire hook. SCORING_V2_PUBLICATION_ENABLED must remain false.
  */
 import type { EvidenceCandidateMetadataV2, EvidenceRole } from "@mplus/contracts";
-import { EVIDENCE_SELECTOR_VERSION, hashRefreshContract } from "@mplus/contracts";
+import { EVIDENCE_SELECTOR_VERSION, expectedEvidenceSlotCount, hashRefreshContract } from "@mplus/contracts";
 import type { WorkerContainer } from "../../container.js";
 import { createQueueProducers } from "../../queues.js";
 import {
@@ -35,6 +35,12 @@ import {
   type PublicationEligibilityDecision,
 } from "./run-orchestration/publication-eligibility.js";
 import { LiveWarcraftLogsProvider } from "@mplus/provider-warcraftlogs";
+import {
+  resolveActiveMythicPlusSeason,
+  resolveWclMplusZoneMode,
+  parseOptionalPositiveIntEnv,
+} from "../active-mplus-season/index.js";
+import { canonicalDungeonKey } from "../run-fusion.js";
 
 export type ShadowProviderOwner =
   | "DIGEST_ORCHESTRATOR"
@@ -120,6 +126,75 @@ export async function maybeStartScoringV2ShadowFromRefresh(input: {
 
   if (!isScoringV2ShadowOrchestrationEnabled(input.container.env)) {
     return empty("scoring_v2_shadow_flags_disabled");
+  }
+
+  // Production path: assert refresh + shadow share ActiveMythicPlusSeasonAuthority lineage.
+  // Test seam (portsOverride) may use synthetic seasons without a validated catalog.
+  if (!input.portsOverride) {
+    try {
+      const region = await input.container.prisma.region.findFirst({
+        where: { code: input.region.toUpperCase() },
+      });
+      if (!region) {
+        return empty("active_season_region_missing");
+      }
+      const mode = resolveWclMplusZoneMode({
+        WCL_MPLUS_ZONE_MODE: input.container.env.WCL_MPLUS_ZONE_MODE,
+        WCL_MPLUS_ZONE_ID: input.container.env.WCL_MPLUS_ZONE_ID || undefined,
+      });
+      const zoneFromEnv = (() => {
+        try {
+          return parseOptionalPositiveIntEnv(
+            input.container.env.WCL_MPLUS_ZONE_ID || undefined,
+          );
+        } catch {
+          return null;
+        }
+      })();
+      const authority = await resolveActiveMythicPlusSeason({
+        prisma: input.container.prisma,
+        regionCode: input.region,
+        regionId: region.id,
+        resolutionMode: mode === "pinned" ? "PINNED" : "AUTO",
+        pinnedWclZoneId: mode === "pinned" ? zoneFromEnv : null,
+        diagnosticExpectedZoneId: mode === "auto" ? zoneFromEnv : null,
+      });
+      if (authority.applicationSeasonId !== input.seasonId) {
+        input.container.logger.warn(
+          {
+            event: "scoring_v2_season_lineage_mismatch",
+            refreshSeasonId: input.seasonId,
+            authoritySeasonId: authority.applicationSeasonId,
+            dungeonPoolHash: authority.dungeonPoolHash,
+          },
+          "shadow refused: season lineage mismatch before provider acquisition",
+        );
+        return empty("active_season_lineage_mismatch");
+      }
+      const authSlugs = new Set(
+        authority.activeDungeonSlugs.map((s) => canonicalDungeonKey(s)),
+      );
+      const refreshSlugs = new Set(
+        input.activeDungeonSlugs.map((s) => canonicalDungeonKey(s)),
+      );
+      if (
+        authSlugs.size !== refreshSlugs.size ||
+        [...authSlugs].some((s) => !refreshSlugs.has(s))
+      ) {
+        return empty("active_season_dungeon_pool_mismatch");
+      }
+    } catch (error) {
+      input.container.logger.warn(
+        {
+          err: error,
+          event: "scoring_v2_season_authority_unresolved",
+          characterId: input.characterId,
+          seasonId: input.seasonId,
+        },
+        "shadow refused: active season authority unresolved",
+      );
+      return empty("active_season_authority_unresolved");
+    }
   }
 
   try {
@@ -403,6 +478,9 @@ export async function maybeStartScoringV2ShadowFromRefresh(input: {
       scoringModelId: input.scoreModelId,
       scoringV2PublicationEnabled:
         input.container.env.SCORING_V2_PUBLICATION_ENABLED === true,
+      expectedSlotCountFromSeason: expectedEvidenceSlotCount(
+        input.activeDungeonSlugs.length,
+      ),
     });
 
     input.container.logger.info(
