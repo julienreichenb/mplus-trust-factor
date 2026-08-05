@@ -383,8 +383,8 @@ export async function runScoringV2LiveCharacterProbe(args: ProbeCliArgs): Promis
   }
   const zoneDungeonSlugs = [...new Set(liveEncounterSlugById.values())].sort();
   const dungeonPool = resolveActiveSeasonDungeonPool({
-    expectedDungeonCount: 8,
-    blizzardSeasonDungeonSlugs: zoneDungeonSlugs.slice(0, 8),
+    expectedDungeonCount: Math.max(1, zoneDungeonSlugs.length),
+    blizzardSeasonDungeonSlugs: zoneDungeonSlugs,
     wclDungeonSlugs: zoneDungeonSlugs,
   });
   const activeDungeonSlugs = dungeonPool.canonicalSlugs;

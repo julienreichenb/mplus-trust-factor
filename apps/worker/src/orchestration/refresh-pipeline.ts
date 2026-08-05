@@ -78,13 +78,13 @@ import {
   buildWclSummaryRequestFingerprint,
   isCompatiblePointsAndDamageSummary,
   POINTS_AND_DAMAGE_ADAPTER_VERSION,
-  CURRENT_MPLUS_ZONE_DUNGEON_SLUGS,
   resolveMplusZoneConfig,
 } from "@mplus/provider-warcraftlogs";
 import type { WorkerContainer } from "../container.js";
 import { refreshCharacterDedupeKey } from "../dedupe.js";
 import { negativeCache } from "../negative-cache.js";
 import { ensureBlizzardCurrentSeason, ensureCurrentSeason } from "../persistence/run-repository.js";
+import { ensurePersistedSeasonDungeonBindings } from "./active-mplus-season/synchronize.js";
 import { mapBoostFactsToAuthenticity } from "./boost-authenticity.js";
 import { extractMetricsFromCombatFacts, isUsableCombatRun, buildRunCombatAdminDiagnostics } from "./combat-metrics.js";
 import { aggregateCombatObservations } from "./aggregate-combat-observations.js";
@@ -1768,26 +1768,68 @@ export async function runRefreshPipeline(
     });
   const scoringCandidates =
     candidateFromPersisted.length > 0 ? candidateFromPersisted : candidateFromFusion;
-  const expectedDungeonCount = season.dungeonCount > 0 ? season.dungeonCount : 8;
-  const seasonDungeonRows = await container.prisma.seasonDungeon.findMany({
+  let seasonDungeonRows = await container.prisma.seasonDungeon.findMany({
     where: { seasonId: season.id },
     include: { dungeon: true },
     orderBy: { sortOrder: "asc" },
   });
+  if (seasonDungeonRows.length === 0) {
+    // Bounded WRITE sync from the zone catalog registry — never a static READ fallback.
+    try {
+      await ensurePersistedSeasonDungeonBindings({
+        prisma: container.prisma,
+        regionId: character.regionId,
+        regionCode: identity.region,
+        seasonId: season.id,
+        blizzardSeasonId: season.blizzardSeasonId,
+      });
+      seasonDungeonRows = await container.prisma.seasonDungeon.findMany({
+        where: { seasonId: season.id },
+        include: { dungeon: true },
+        orderBy: { sortOrder: "asc" },
+      });
+    } catch (syncErr) {
+      const code =
+        syncErr && typeof syncErr === "object" && "code" in syncErr
+          ? String((syncErr as { code: unknown }).code)
+          : "SEASON_DUNGEON_BINDINGS_MISSING";
+      throw Object.assign(
+        new Error(
+          `SEASON_DUNGEON_BINDINGS_MISSING: season ${season.slug} (${season.id}) has empty SeasonDungeon bindings and catalog sync failed (${code}) — refuse static CURRENT_MPLUS_ZONE_DUNGEON_SLUGS fallback`,
+        ),
+        { code: "SEASON_DUNGEON_BINDINGS_MISSING", cause: syncErr },
+      );
+    }
+  }
+  const expectedDungeonCount =
+    season.dungeonCount > 0 ? season.dungeonCount : seasonDungeonRows.length;
+  if (seasonDungeonRows.length === 0) {
+    throw Object.assign(
+      new Error(
+        `SEASON_DUNGEON_BINDINGS_MISSING: season ${season.slug} (${season.id}) has empty SeasonDungeon bindings — refuse static CURRENT_MPLUS_ZONE_DUNGEON_SLUGS fallback`,
+      ),
+      { code: "SEASON_DUNGEON_BINDINGS_MISSING" },
+    );
+  }
   const blizzardSeasonDungeonSlugs = readBlizzardSeasonDungeonSlugsFromMetadata(season.metadata);
   const activeSeasonDungeonPool = resolveActiveSeasonDungeonPool({
-    expectedDungeonCount,
+    expectedDungeonCount: expectedDungeonCount > 0 ? expectedDungeonCount : seasonDungeonRows.length,
     seasonDungeonSlugs: seasonDungeonRows.map((row) => canonicalDungeonKey(row.dungeon.slug)),
     blizzardSeasonDungeonSlugs,
-    // Never leave the pool empty — empty allowlists reintroduce Icecrown/legacy 9-run selections.
-    raiderioDungeonSlugs: CURRENT_MPLUS_ZONE_DUNGEON_SLUGS,
+    // Production must NOT fall back to CURRENT_MPLUS_ZONE_DUNGEON_SLUGS.
+    raiderioDungeonSlugs: [],
     wclDungeonSlugs: wclDungeonAggregates.map((d) => d.dungeonSlug),
   });
   const activeDungeonSlugs = activeSeasonDungeonPool.canonicalSlugs;
-  const selectionFilter =
-    activeDungeonSlugs.length > 0
-      ? { allowedDungeonSlugs: activeDungeonSlugs }
-      : { allowedDungeonSlugs: CURRENT_MPLUS_ZONE_DUNGEON_SLUGS };
+  if (activeDungeonSlugs.length === 0) {
+    throw Object.assign(
+      new Error(
+        `SEASON_DUNGEON_BINDINGS_MISSING: resolved empty active dungeon pool for ${season.slug}`,
+      ),
+      { code: "SEASON_DUNGEON_BINDINGS_MISSING" },
+    );
+  }
+  const selectionFilter = { allowedDungeonSlugs: activeDungeonSlugs };
   let scoringRunSelection = selectScoringRuns(scoringCandidates, {
     seasonSlug: season.slug,
     expectedDungeonCount,
@@ -3575,8 +3617,7 @@ export async function runRefreshPipeline(
       refreshContract,
       evidenceCutoffAt: new Date(0).toISOString(),
       highKeyPolicyId: "high-key-policy-v1",
-      activeDungeonSlugs:
-        activeDungeonSlugs.length > 0 ? activeDungeonSlugs : CURRENT_MPLUS_ZONE_DUNGEON_SLUGS,
+      activeDungeonSlugs,
       candidates: v2Candidates,
       scoreModelId: model.id,
       scoreModelVersion: String(model.version),

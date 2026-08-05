@@ -1,28 +1,20 @@
 /**
- * Resolve the persisted application season + dungeon pool for a canary zone.
- * Provider-free: PostgreSQL + static CURRENT_MPLUS_ZONE_DUNGEON_SLUGS only.
+ * Canary season resolution via ActiveMythicPlusSeasonAuthority.
+ * No hard-coded blizzard season prefer; no static dungeon-array fallback.
  */
-import type { PrismaClient, Season } from "@mplus/database";
+import type { PrismaClient } from "@mplus/database";
 import {
-  readBlizzardSeasonDungeonSlugsFromMetadata,
-  resolveActiveSeasonDungeonPool,
-  type ActiveSeasonDungeonPoolSource,
-} from "@mplus/scoring";
-import { CURRENT_MPLUS_ZONE_DUNGEON_SLUGS } from "@mplus/provider-warcraftlogs";
-import { canonicalDungeonKey } from "../../run-fusion.js";
-import {
-  EXPECTED_ACTIVE_DUNGEON_COUNT,
-  MIDNIGHT_SEASON_1_EXPANSION,
-  MIDNIGHT_SEASON_1_PRODUCT_SLUG,
-  MIDNIGHT_SEASON_1_WCL_ZONE_ID,
-  assertMidnightSeason1PoolForZone47,
-  normalizeCanaryDungeonSlug,
-  seasonLooksLikeMidnightSeason1,
-} from "./canary-catalog.js";
+  parseOptionalPositiveIntEnv,
+  resolveActiveMythicPlusSeason,
+  resolveWclMplusZoneMode,
+  SeasonDungeonBindingsMissingError,
+  type ActiveMythicPlusSeasonAuthority,
+} from "../../active-mplus-season/index.js";
 
 export type SeasonValidationStatus =
   | "OK"
   | "SEASON_NOT_FOUND"
+  | "SEASON_DUNGEON_BINDINGS_MISSING"
   | "SEASON_CATALOG_MISMATCH"
   | "ZONE_UNSUPPORTED";
 
@@ -35,50 +27,117 @@ export interface CanarySeasonDungeonRow {
 }
 
 export interface CanarySeasonResolution {
-  configuredZoneId: number;
+  configuredZoneId: number | null;
+  resolutionMode: "AUTO" | "PINNED";
   seasonId: string | null;
   seasonSlug: string | null;
   seasonName: string | null;
   blizzardSeasonId: number | null;
   expansion: string | null;
   productSeasonSlug: string | null;
-  catalogSource: ActiveSeasonDungeonPoolSource | "none";
+  catalogSource: string;
   catalogVersion: string;
   dungeonCount: number;
   dungeons: CanarySeasonDungeonRow[];
   activeDungeonSlugs: string[];
+  dungeonPoolHash: string | null;
+  expectedSlotCount: number;
   validationStatus: SeasonValidationStatus;
   validationReasons: string[];
   isCurrent: boolean | null;
   startsAt: string | null;
   endsAt: string | null;
+  authority: ActiveMythicPlusSeasonAuthority | null;
+  warnings: string[];
 }
 
 export class SeasonCatalogMismatchError extends Error {
-  readonly code = "SEASON_CATALOG_MISMATCH" as const;
+  readonly code: "SEASON_CATALOG_MISMATCH" | "SEASON_DUNGEON_BINDINGS_MISSING";
   readonly seasonResolution: CanarySeasonResolution;
 
   constructor(resolution: CanarySeasonResolution) {
+    const code: "SEASON_CATALOG_MISMATCH" | "SEASON_DUNGEON_BINDINGS_MISSING" =
+      resolution.validationStatus === "SEASON_DUNGEON_BINDINGS_MISSING"
+        ? "SEASON_DUNGEON_BINDINGS_MISSING"
+        : "SEASON_CATALOG_MISMATCH";
     super(
-      `SEASON_CATALOG_MISMATCH: ${resolution.validationReasons.join("; ") || "catalog mismatch"}`,
+      `${code}: ${resolution.validationReasons.join("; ") || "catalog mismatch"}`,
     );
     this.name = "SeasonCatalogMismatchError";
+    this.code = code;
     this.seasonResolution = resolution;
   }
-}
-
-function catalogVersionLabel(source: ActiveSeasonDungeonPoolSource | "none"): string {
-  return `active-season-pool:${source}:zone-${MIDNIGHT_SEASON_1_WCL_ZONE_ID}`;
 }
 
 export async function resolveCanarySeasonCatalog(input: {
   prisma: PrismaClient;
   regionId: string;
-  configuredZoneId: number;
+  regionCode: string;
+  env?: NodeJS.ProcessEnv;
 }): Promise<CanarySeasonResolution> {
-  if (input.configuredZoneId !== MIDNIGHT_SEASON_1_WCL_ZONE_ID) {
+  const env = input.env ?? process.env;
+  const mode = resolveWclMplusZoneMode(env);
+  const zoneFromEnv = (() => {
+    try {
+      return parseOptionalPositiveIntEnv(env.WCL_MPLUS_ZONE_ID);
+    } catch {
+      return null;
+    }
+  })();
+
+  try {
+    const authority = await resolveActiveMythicPlusSeason({
+      prisma: input.prisma,
+      regionCode: input.regionCode,
+      regionId: input.regionId,
+      resolutionMode: mode === "pinned" ? "PINNED" : "AUTO",
+      pinnedWclZoneId: mode === "pinned" ? zoneFromEnv : null,
+      diagnosticExpectedZoneId: mode === "auto" ? zoneFromEnv : null,
+    });
+
     return {
-      configuredZoneId: input.configuredZoneId,
+      configuredZoneId: authority.wclZoneId,
+      resolutionMode: authority.resolutionMode,
+      seasonId: authority.applicationSeasonId,
+      seasonSlug: authority.seasonSlug,
+      seasonName: authority.seasonDisplayName,
+      blizzardSeasonId: authority.blizzardSeasonId,
+      expansion: authority.expansionIdentity,
+      productSeasonSlug: null,
+      catalogSource: authority.catalogSource,
+      catalogVersion: authority.catalogVersion,
+      dungeonCount: authority.expectedDungeonCount,
+      dungeons: authority.dungeons.map((d) => ({
+        slug: d.slug,
+        dungeonId: d.dungeonId,
+        journalInstanceId: null,
+        wclZoneOrEncounterId:
+          d.wclEncounterId != null ? String(d.wclEncounterId) : null,
+        sortOrder: d.sortOrder,
+      })),
+      activeDungeonSlugs: authority.activeDungeonSlugs,
+      dungeonPoolHash: authority.dungeonPoolHash,
+      expectedSlotCount: authority.expectedSlotCount,
+      validationStatus: "OK",
+      validationReasons: [],
+      isCurrent: authority.active,
+      startsAt: authority.validFrom,
+      endsAt: authority.validUntil,
+      authority,
+      warnings: authority.warnings,
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    const status: SeasonValidationStatus =
+      err instanceof SeasonDungeonBindingsMissingError ||
+      (err instanceof Error &&
+        "code" in err &&
+        (err as { code?: string }).code === "SEASON_DUNGEON_BINDINGS_MISSING")
+        ? "SEASON_DUNGEON_BINDINGS_MISSING"
+        : "SEASON_CATALOG_MISMATCH";
+    return {
+      configuredZoneId: zoneFromEnv,
+      resolutionMode: mode === "pinned" ? "PINNED" : "AUTO",
       seasonId: null,
       seasonSlug: null,
       seasonName: null,
@@ -86,166 +145,21 @@ export async function resolveCanarySeasonCatalog(input: {
       expansion: null,
       productSeasonSlug: null,
       catalogSource: "none",
-      catalogVersion: catalogVersionLabel("none"),
+      catalogVersion: "none",
       dungeonCount: 0,
       dungeons: [],
       activeDungeonSlugs: [],
-      validationStatus: "ZONE_UNSUPPORTED",
-      validationReasons: [
-        `Canary catalog validation currently supports WCL zone ${MIDNIGHT_SEASON_1_WCL_ZONE_ID} only`,
-      ],
+      dungeonPoolHash: null,
+      expectedSlotCount: 0,
+      validationStatus: status,
+      validationReasons: [message],
       isCurrent: null,
       startsAt: null,
       endsAt: null,
+      authority: null,
+      warnings: [],
     };
   }
-
-  // Prefer authoritative Midnight Season 1 over placeholder/auto-current rows
-  // that may also be marked isCurrent in local seeds.
-  const season =
-    (await input.prisma.season.findFirst({
-      where: {
-        regionId: input.regionId,
-        OR: [
-          { blizzardSeasonId: 17 },
-          { slug: "blizzard-season-17" },
-          { slug: MIDNIGHT_SEASON_1_PRODUCT_SLUG },
-        ],
-      },
-      orderBy: [{ isCurrent: "desc" }, { updatedAt: "desc" }],
-    })) ??
-    (await input.prisma.season.findFirst({
-      where: { regionId: input.regionId, isCurrent: true },
-      orderBy: { updatedAt: "desc" },
-    })) ??
-    (await input.prisma.season.findFirst({
-      where: { regionId: null, isCurrent: true },
-      orderBy: { updatedAt: "desc" },
-    }));
-
-  if (!season) {
-    return emptyResolution(input.configuredZoneId, "SEASON_NOT_FOUND", [
-      "No persisted current/Midnight Season 1 row for region",
-    ]);
-  }
-
-  return buildResolutionFromSeason(input.prisma, input.configuredZoneId, season);
-}
-
-async function buildResolutionFromSeason(
-  prisma: PrismaClient,
-  configuredZoneId: number,
-  season: Season,
-): Promise<CanarySeasonResolution> {
-  const seasonDungeonRows = await prisma.seasonDungeon.findMany({
-    where: { seasonId: season.id },
-    include: { dungeon: true },
-    orderBy: { sortOrder: "asc" },
-  });
-
-  const expectedCount =
-    season.dungeonCount > 0 ? season.dungeonCount : EXPECTED_ACTIVE_DUNGEON_COUNT;
-  const blizzardSlugs = readBlizzardSeasonDungeonSlugsFromMetadata(season.metadata);
-  const pool = resolveActiveSeasonDungeonPool({
-    expectedDungeonCount: expectedCount,
-    seasonDungeonSlugs: seasonDungeonRows.map((row) =>
-      canonicalDungeonKey(row.dungeon.slug),
-    ),
-    blizzardSeasonDungeonSlugs: blizzardSlugs.map(canonicalDungeonKey),
-    // Static fallback is Midnight zone-47 pool — never the obsolete TWW list.
-    raiderioDungeonSlugs: CURRENT_MPLUS_ZONE_DUNGEON_SLUGS.map(canonicalDungeonKey),
-  });
-
-  const dungeons: CanarySeasonDungeonRow[] = seasonDungeonRows.map((row) => ({
-    slug: normalizeCanaryDungeonSlug(row.dungeon.slug),
-    dungeonId: row.dungeon.id,
-    journalInstanceId: null,
-    wclZoneOrEncounterId:
-      row.dungeon.wclZoneOrEncounterId != null
-        ? String(row.dungeon.wclZoneOrEncounterId)
-        : null,
-    sortOrder: row.sortOrder,
-  }));
-
-  // When DB bindings are empty, surface the resolved static pool for reporting.
-  const activeDungeonSlugs =
-    pool.canonicalSlugs.length > 0
-      ? pool.canonicalSlugs.map(normalizeCanaryDungeonSlug)
-      : [];
-
-  const midnightOk = seasonLooksLikeMidnightSeason1(season);
-  const poolCheck = assertMidnightSeason1PoolForZone47({
-    zoneId: configuredZoneId,
-    dungeonSlugs: activeDungeonSlugs,
-  });
-
-  const validationReasons: string[] = [];
-  if (!midnightOk) {
-    validationReasons.push(
-      `season_identity_not_midnight: slug=${season.slug} blizzardSeasonId=${season.blizzardSeasonId ?? "null"}`,
-    );
-  }
-  if (!poolCheck.ok) {
-    validationReasons.push(...poolCheck.reasons);
-  }
-
-  const validationStatus: SeasonValidationStatus =
-    validationReasons.length > 0 ? "SEASON_CATALOG_MISMATCH" : "OK";
-
-  return {
-    configuredZoneId,
-    seasonId: season.id,
-    seasonSlug: season.slug,
-    seasonName: season.name,
-    blizzardSeasonId: season.blizzardSeasonId,
-    expansion: midnightOk ? MIDNIGHT_SEASON_1_EXPANSION : null,
-    productSeasonSlug: MIDNIGHT_SEASON_1_PRODUCT_SLUG,
-    catalogSource: pool.source,
-    catalogVersion: catalogVersionLabel(pool.source),
-    dungeonCount: activeDungeonSlugs.length,
-    dungeons:
-      dungeons.length > 0
-        ? dungeons
-        : activeDungeonSlugs.map((slug, i) => ({
-            slug,
-            dungeonId: "",
-            journalInstanceId: null,
-            wclZoneOrEncounterId: null,
-            sortOrder: i,
-          })),
-    activeDungeonSlugs,
-    validationStatus,
-    validationReasons,
-    isCurrent: season.isCurrent,
-    startsAt: season.startsAt?.toISOString() ?? null,
-    endsAt: season.endsAt?.toISOString() ?? null,
-  };
-}
-
-function emptyResolution(
-  configuredZoneId: number,
-  status: SeasonValidationStatus,
-  reasons: string[],
-): CanarySeasonResolution {
-  return {
-    configuredZoneId,
-    seasonId: null,
-    seasonSlug: null,
-    seasonName: null,
-    blizzardSeasonId: null,
-    expansion: null,
-    productSeasonSlug: MIDNIGHT_SEASON_1_PRODUCT_SLUG,
-    catalogSource: "none",
-    catalogVersion: catalogVersionLabel("none"),
-    dungeonCount: 0,
-    dungeons: [],
-    activeDungeonSlugs: [],
-    validationStatus: status,
-    validationReasons: reasons,
-    isCurrent: null,
-    startsAt: null,
-    endsAt: null,
-  };
 }
 
 export function assertSeasonCatalogOk(
@@ -255,7 +169,23 @@ export function assertSeasonCatalogOk(
   seasonId: string;
   seasonSlug: string;
 } {
-  if (resolution.validationStatus !== "OK" || !resolution.seasonId || !resolution.seasonSlug) {
+  if (
+    resolution.validationStatus !== "OK" ||
+    !resolution.seasonId ||
+    !resolution.seasonSlug ||
+    resolution.activeDungeonSlugs.length === 0 ||
+    resolution.catalogSource === "none"
+  ) {
     throw new SeasonCatalogMismatchError(resolution);
+  }
+  if (resolution.catalogSource !== "season_dungeon_bindings") {
+    throw new SeasonCatalogMismatchError({
+      ...resolution,
+      validationStatus: "SEASON_CATALOG_MISMATCH",
+      validationReasons: [
+        ...resolution.validationReasons,
+        `operator_refuses_non_binding_catalog_source:${resolution.catalogSource}`,
+      ],
+    });
   }
 }

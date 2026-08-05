@@ -21,6 +21,11 @@ export interface ResolveCanaryZoneIdInput {
    * Production/operator canaries must leave this false.
    */
   allowConflictingZoneOverride?: boolean;
+  /**
+   * AUTO mode: allow missing WCL_MPLUS_ZONE_ID (diagnostic only).
+   * PINNED mode must leave this false.
+   */
+  allowMissingEnvZone?: boolean;
   log?: (message: string) => void;
 }
 
@@ -102,8 +107,35 @@ export function resolveCanaryZoneId(
   input: ResolveCanaryZoneIdInput = {},
 ): ResolvedCanaryZone {
   const env = input.env ?? process.env;
-  const envZoneId = requireConfiguredMplusZoneId(env);
   const log = input.log ?? (() => undefined);
+
+  let envZoneId: number | null = null;
+  try {
+    envZoneId = requireConfiguredMplusZoneId(env);
+  } catch (err) {
+    if (!input.allowMissingEnvZone) throw err;
+    if (input.cliZoneId == null) {
+      return {
+        zoneId: 0,
+        envZoneId: 0,
+        source: "env",
+        overrideActive: false,
+      };
+    }
+  }
+
+  if (envZoneId == null && input.allowMissingEnvZone && input.cliZoneId == null) {
+    return {
+      zoneId: 0,
+      envZoneId: 0,
+      source: "env",
+      overrideActive: false,
+    };
+  }
+
+  if (envZoneId == null) {
+    envZoneId = requireConfiguredMplusZoneId(env);
+  }
 
   if (input.cliZoneId == null) {
     return {

@@ -113,8 +113,8 @@ export async function discoverShadowCanaryCandidates(input: {
   }
 
   const dungeonPool = resolveActiveSeasonDungeonPool({
-    expectedDungeonCount: 8,
-    blizzardSeasonDungeonSlugs: zoneDungeonSlugs.slice(0, 8),
+    expectedDungeonCount: Math.max(1, zoneDungeonSlugs.length),
+    blizzardSeasonDungeonSlugs: zoneDungeonSlugs,
     wclDungeonSlugs: zoneDungeonSlugs,
   });
   const activeDungeonSlugs = dungeonPool.canonicalSlugs;

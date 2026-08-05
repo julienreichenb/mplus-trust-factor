@@ -54,8 +54,13 @@ import {
 } from "./canary-season.js";
 import { diagnoseSeasonCatalog } from "./canary-diagnose.js";
 import { repairMidnightSeason1CatalogBindings } from "./canary-repair-catalog.js";
+import {
+  applyActiveMplusSeasonRepair,
+  planActiveMplusSeasonRepair,
+} from "../../active-mplus-season/index.js";
+import { MIDNIGHT_SEASON_1_BLIZZARD_SEASON_ID } from "./canary-catalog.js";
 import { createWorkerContainer } from "../../../container.js";
-import { MIDNIGHT_SEASON_1_DUNGEON_SLUGS } from "./canary-catalog.js";
+import { resolveWclMplusZoneMode } from "../../active-mplus-season/index.js";
 
 export interface CanaryCliArgs {
   mode: "preflight" | "live" | "diagnose-catalog" | "repair-catalog";
@@ -251,10 +256,13 @@ export function resolveZoneForCanaryCommand(
     log?: (message: string) => void;
   },
 ): ResolvedCanaryZone {
+  const env = options?.env ?? process.env;
+  const mode = resolveWclMplusZoneMode(env);
   return resolveCanaryZoneId({
     cliZoneId: args.zoneIdOverride,
-    env: options?.env ?? process.env,
+    env,
     allowConflictingZoneOverride: args.allowZoneIdOverride,
+    allowMissingEnvZone: mode === "auto",
     log: options?.log,
   });
 }
@@ -317,7 +325,7 @@ export async function runCanaryPreflightCommand(
   seasonResolution: CanarySeasonResolution | null;
   characterResolution: CanaryCharacterResolution;
 }> {
-  const zone = resolveZoneForCanaryCommand(args, {
+  let zone = resolveZoneForCanaryCommand(args, {
     env: options?.env ?? process.env,
     log: options?.log ?? ((msg) => console.warn(msg)),
   });
@@ -362,13 +370,21 @@ export async function runCanaryPreflightCommand(
     seasonResolution = await resolveCanarySeasonCatalog({
       prisma: deps.container.prisma,
       regionId: deps.character.regionId,
-      configuredZoneId: zone.zoneId,
+      regionCode: args.region,
+      env: options?.env ?? process.env,
     });
     try {
       assertSeasonCatalogOk(seasonResolution);
     } catch (err) {
       await deps.container.prisma.$disconnect().catch(() => undefined);
       throw err;
+    }
+    // Prefer authority zone over CLI/env when AUTO resolved a validated catalog.
+    if (seasonResolution.configuredZoneId != null && seasonResolution.configuredZoneId > 0) {
+      zone = {
+        ...zone,
+        zoneId: seasonResolution.configuredZoneId,
+      };
     }
     seasonId = seasonResolution.seasonId;
     activeDungeonSlugs = seasonResolution.activeDungeonSlugs;
@@ -397,8 +413,14 @@ export async function runCanaryPreflightCommand(
     });
     ports = mem.ports;
     characterResolution = mem.characterResolution;
-    activeDungeonSlugs =
-      activeDungeonSlugs ?? [...MIDNIGHT_SEASON_1_DUNGEON_SLUGS];
+    if (!activeDungeonSlugs || activeDungeonSlugs.length === 0) {
+      throw Object.assign(
+        new Error(
+          "SEASON_DUNGEON_BINDINGS_MISSING: memory canary path requires explicit activeDungeonSlugs (no static Midnight fallback)",
+        ),
+        { code: "SEASON_DUNGEON_BINDINGS_MISSING" },
+      );
+    }
     seasonId = seasonId ?? "test-season";
   }
 
@@ -406,6 +428,7 @@ export async function runCanaryPreflightCommand(
     throw new SeasonCatalogMismatchError(
       seasonResolution ?? {
         configuredZoneId: zone.zoneId,
+        resolutionMode: "AUTO",
         seasonId: null,
         seasonSlug: null,
         seasonName: null,
@@ -417,11 +440,15 @@ export async function runCanaryPreflightCommand(
         dungeonCount: 0,
         dungeons: [],
         activeDungeonSlugs: [],
+        dungeonPoolHash: null,
+        expectedSlotCount: 0,
         validationStatus: "SEASON_CATALOG_MISMATCH",
         validationReasons: ["season_or_dungeon_pool_unresolved"],
         isCurrent: null,
         startsAt: null,
         endsAt: null,
+        authority: null,
+        warnings: [],
       },
     );
   }
@@ -533,14 +560,6 @@ export async function runCanaryDiagnoseCatalogCommand(
 export async function runCanaryRepairCatalogCommand(
   args: CanaryCliArgs,
 ): Promise<unknown> {
-  if (!args.confirmRepair) {
-    throw Object.assign(
-      new Error(
-        "repair_refused: pass --confirm-local-repair (local DB only; never staging/production)",
-      ),
-      { code: "CANARY_REPAIR_NOT_CONFIRMED" },
-    );
-  }
   const env = loadEnv();
   if (env.APP_ENV === "staging" || env.APP_ENV === "production") {
     throw Object.assign(
@@ -550,10 +569,45 @@ export async function runCanaryRepairCatalogCommand(
   }
   const container = createWorkerContainer(env);
   try {
-    return await repairMidnightSeason1CatalogBindings({
-      prisma: container.prisma,
-      regionCode: args.region.toUpperCase(),
+    const regionCode = args.region.toUpperCase();
+    const region = await container.prisma.region.findFirst({
+      where: { code: regionCode },
     });
+    if (!region) {
+      throw Object.assign(new Error(`REGION_NOT_FOUND:${regionCode}`), {
+        code: "REGION_NOT_FOUND",
+      });
+    }
+    const blizzardSeasonId = MIDNIGHT_SEASON_1_BLIZZARD_SEASON_ID;
+    const plan = await planActiveMplusSeasonRepair({
+      prisma: container.prisma,
+      regionId: region.id,
+      regionCode,
+      blizzardSeasonId,
+    });
+    if (!args.confirmRepair) {
+      return {
+        dryRun: true,
+        message:
+          "pass --confirm-local-repair to apply (local DB only; never staging/production)",
+        plan,
+      };
+    }
+    const applied = await applyActiveMplusSeasonRepair({
+      prisma: container.prisma,
+      regionId: region.id,
+      regionCode,
+      blizzardSeasonId,
+      confirmLocalRepair: true,
+      appEnv: env.APP_ENV,
+      wclZoneId: args.zoneIdOverride ?? 47,
+    });
+    // Keep legacy Midnight binder as secondary idempotent pass for encounter ids.
+    const legacy = await repairMidnightSeason1CatalogBindings({
+      prisma: container.prisma,
+      regionCode,
+    });
+    return { dryRun: false, plan: applied.plan, sync: applied.sync, legacy };
   } finally {
     await container.prisma.$disconnect().catch(() => undefined);
   }
@@ -579,7 +633,8 @@ export async function runCanaryLiveCommand(
     const seasonResolution = await resolveCanarySeasonCatalog({
       prisma: deps.container.prisma,
       regionId: deps.character.regionId,
-      configuredZoneId: zone.zoneId,
+      regionCode: args.region,
+      env: options?.env ?? process.env,
     });
     assertSeasonCatalogOk(seasonResolution);
 
@@ -670,9 +725,28 @@ async function main(): Promise<void> {
           characterId: characterResolution.characterId,
           characterResolutionSource:
             characterResolution.characterResolutionSource,
+          seasonResolutionMode: seasonResolution?.resolutionMode ?? null,
           seasonSlug: seasonResolution?.seasonSlug ?? null,
           expansion: seasonResolution?.expansion ?? null,
+          blizzardSeasonId: seasonResolution?.blizzardSeasonId ?? null,
           dungeonSlugs: seasonResolution?.activeDungeonSlugs ?? [],
+          dungeonCount: seasonResolution?.dungeonCount ?? 0,
+          dungeonPoolHash: seasonResolution?.dungeonPoolHash ?? null,
+          catalogVersion: seasonResolution?.catalogVersion ?? null,
+          catalogSource: seasonResolution?.catalogSource ?? null,
+          lastKnownGood:
+            seasonResolution?.authority?.lastKnownGood ?? null,
+          metadataAgeMs: (() => {
+            const synced = seasonResolution?.authority?.synchronizedAt;
+            if (!synced) return null;
+            return Math.max(0, Date.now() - new Date(synced).getTime());
+          })(),
+          diagnosticZoneId:
+            seasonResolution?.authority?.diagnosticExpectedZoneId ?? null,
+          diagnosticZoneMatch:
+            seasonResolution?.authority?.diagnosticZoneMatch ?? null,
+          autoDetectedZoneId:
+            seasonResolution?.authority?.autoDetectedZoneId ?? null,
           manifestStatus: report.manifestStatus,
           providerCalls: report.providerCalls,
           selectedSlotCount: report.selectedSlotCount,
@@ -681,6 +755,7 @@ async function main(): Promise<void> {
           rankingFactsMissing: report.rankingFactsMissing.length,
           blockers: report.blockers,
           publicationEligible: report.publicationEligible,
+          warnings: seasonResolution?.warnings ?? [],
         },
         null,
         2,
