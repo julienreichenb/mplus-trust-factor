@@ -39,6 +39,15 @@ export {
 } from "./adapters.js";
 
 export {
+  DigestDimensionIncompleteError,
+  performanceRunParseFactFromDigest,
+  survivalFactDocumentFromDigest,
+  utilityRunFactSetFromDigest,
+  buildDigestScoreLineage,
+  type DigestScoreLineageV1,
+} from "./digest-adapters.js";
+
+export {
   buildSlotFactSetBindingHash,
   type SlotFactSetBindingMember,
 } from "./fact-set-binding-hash.js";

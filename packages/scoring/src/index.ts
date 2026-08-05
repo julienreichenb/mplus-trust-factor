@@ -711,6 +711,11 @@ export {
   adaptExperienceComputeInput,
   finalizeShadowDimensions,
   buildSlotFactSetBindingHash,
+  DigestDimensionIncompleteError,
+  performanceRunParseFactFromDigest,
+  survivalFactDocumentFromDigest,
+  utilityRunFactSetFromDigest,
+  buildDigestScoreLineage,
 } from "./dimensions/v2/index.js";
 export type {
   ScoringV2PublicDimension,
@@ -733,6 +738,7 @@ export type {
   ShadowDimensionFinalizerOutcome,
   FinalizeShadowDimensionsInput,
   FinalizeShadowDimensionsResult,
+  DigestScoreLineageV1,
 } from "./dimensions/v2/index.js";
 
 /** Scoring V2 evidence persistence + feature-lineage audit (provider-free). */
