@@ -100,13 +100,9 @@ export async function resolveCanarySeasonCatalog(input: {
     };
   }
 
+  // Prefer authoritative Midnight Season 1 over placeholder/auto-current rows
+  // that may also be marked isCurrent in local seeds.
   const season =
-    (await input.prisma.season.findFirst({
-      where: { regionId: input.regionId, isCurrent: true },
-    })) ??
-    (await input.prisma.season.findFirst({
-      where: { regionId: null, isCurrent: true },
-    })) ??
     (await input.prisma.season.findFirst({
       where: {
         regionId: input.regionId,
@@ -116,6 +112,14 @@ export async function resolveCanarySeasonCatalog(input: {
           { slug: MIDNIGHT_SEASON_1_PRODUCT_SLUG },
         ],
       },
+      orderBy: [{ isCurrent: "desc" }, { updatedAt: "desc" }],
+    })) ??
+    (await input.prisma.season.findFirst({
+      where: { regionId: input.regionId, isCurrent: true },
+      orderBy: { updatedAt: "desc" },
+    })) ??
+    (await input.prisma.season.findFirst({
+      where: { regionId: null, isCurrent: true },
       orderBy: { updatedAt: "desc" },
     }));
 
