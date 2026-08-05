@@ -4,8 +4,9 @@
 import type { EvidenceCandidateMetadataV2, ProviderFetchContext } from "@mplus/contracts";
 import {
   ENCOUNTER_DUNGEON_MAP,
-  hydrateFightUnknownCandidates,
-  MAX_COVERAGE_AWARE_HYDRATION_REPORTS,
+  hydrateFightUnknownCandidatesIterative,
+  INCREMENTAL_HYDRATION_BATCH_SIZE,
+  INITIAL_HYDRATION_BUDGET,
   OPERATIONS,
   planCandidateDiscovery,
   resolveMplusZoneConfig,
@@ -13,6 +14,7 @@ import {
   toCandidateMetadataV2,
   type DiscoverySourceRow,
   type HydrationCoverageDiagnostics,
+  type IterativeHydrationDiagnostics,
   type RankingParseEvidenceV2,
 } from "@mplus/provider-warcraftlogs";
 import { resolveActiveSeasonDungeonPool } from "@mplus/scoring";
@@ -36,6 +38,7 @@ export interface ShadowCanaryDiscoveryResult {
     dungeonPoolSource: string;
     providerCalls: number;
     hydration: HydrationCoverageDiagnostics | null;
+    iterativeHydration: IterativeHydrationDiagnostics | null;
     reportsListed: number;
     reportsHydrated: number;
     unhydratedReportCount: number;
@@ -43,6 +46,7 @@ export interface ShadowCanaryDiscoveryResult {
       reportCode: string;
       reason: string;
       dungeonSlug: string | null;
+      listedOrderIndex?: number | null;
     }>;
   };
 }
@@ -53,6 +57,28 @@ export async function discoverShadowCanaryCandidates(input: {
   realmSlug: string;
   characterName: string;
   characterId: string;
+  /**
+   * Gate each incremental hydration batch after the initial budget.
+   * Defaults to always allow (tests / fixture paths).
+   */
+  evaluateIncrementalAdmission?: (input: {
+    batchSize: number;
+    projectedIncrementalPoints: number;
+    reportsHydratedSoFar: number;
+    reportsRemaining: number;
+  }) =>
+    | Promise<{
+        allow: boolean;
+        action: "OK" | "WARN" | "DEFER" | "STOP";
+        reasons: string[];
+        projectedIncrementalPoints: number;
+      }>
+    | {
+        allow: boolean;
+        action: "OK" | "WARN" | "DEFER" | "STOP";
+        reasons: string[];
+        projectedIncrementalPoints: number;
+      };
 }): Promise<ShadowCanaryDiscoveryResult> {
   const season = await input.container.prisma.season.findFirst({
     where: { isCurrent: true },
@@ -199,6 +225,7 @@ export async function discoverShadowCanaryCandidates(input: {
 
   let hydratedCandidates = discovery.candidates;
   let hydrationDiagnostics: HydrationCoverageDiagnostics | null = null;
+  let iterativeHydration: IterativeHydrationDiagnostics | null = null;
   if (typeof wcl.getGraphQlClient === "function") {
     const client = wcl.getGraphQlClient();
     const hydrationHints = rankingEvidenceFromDiscovery.map((r) => ({
@@ -207,13 +234,26 @@ export async function discoverShadowCanaryCandidates(input: {
       keyLevel: r.keyLevel,
       reportCode: r.reportCode,
     }));
-    const hydrated = await hydrateFightUnknownCandidates({
+    const admit =
+      input.evaluateIncrementalAdmission ??
+      ((args: {
+        batchSize: number;
+        projectedIncrementalPoints: number;
+      }) => ({
+        allow: true,
+        action: "OK" as const,
+        reasons: ["incremental_admission_default_allow"],
+        projectedIncrementalPoints: args.projectedIncrementalPoints,
+      }));
+    const hydrated = await hydrateFightUnknownCandidatesIterative({
       candidates: discovery.candidates as never,
       characterName: input.characterName,
       realmSlug: input.realmSlug,
       hints: hydrationHints,
       activeDungeonSlugs,
-      maxReports: MAX_COVERAGE_AWARE_HYDRATION_REPORTS,
+      initialBudget: INITIAL_HYDRATION_BUDGET,
+      incrementalBatchSize: INCREMENTAL_HYDRATION_BATCH_SIZE,
+      evaluateIncrementalAdmission: admit,
       fetchReport: async (code: string) => {
         // Count before the call so thrown/network failures match reportFetchAttempts.
         providerCalls += 1;
@@ -231,7 +271,8 @@ export async function discoverShadowCanaryCandidates(input: {
       },
     });
     hydratedCandidates = hydrated.candidates as unknown as Array<Record<string, unknown>>;
-    hydrationDiagnostics = hydrated.diagnostics;
+    hydrationDiagnostics = hydrated.diagnostics.coverage;
+    iterativeHydration = hydrated.diagnostics;
   }
 
   const sourceRows: DiscoverySourceRow[] = [];
@@ -369,14 +410,33 @@ export async function discoverShadowCanaryCandidates(input: {
       dungeonPoolSource: dungeonPool.source,
       providerCalls,
       hydration: hydrationDiagnostics,
-      reportsListed: hydrationDiagnostics?.recentReportsDiscovered ?? 0,
-      reportsHydrated: hydrationDiagnostics?.reportsHydrated ?? 0,
-      unhydratedReportCount: hydrationDiagnostics?.reportsLeftUnhydratedBudget ?? 0,
-      omittedReports: (hydrationDiagnostics?.omittedReports ?? []).map((o) => ({
-        reportCode: o.reportCode,
-        reason: o.reason,
-        dungeonSlug: o.dungeonSlug,
-      })),
+      iterativeHydration,
+      reportsListed:
+        iterativeHydration?.totalReportsListed ??
+        hydrationDiagnostics?.recentReportsDiscovered ??
+        0,
+      reportsHydrated:
+        iterativeHydration?.totalReportsHydrated ??
+        hydrationDiagnostics?.reportsHydrated ??
+        0,
+      unhydratedReportCount:
+        iterativeHydration?.reportsRemaining ??
+        hydrationDiagnostics?.reportsLeftUnhydratedBudget ??
+        0,
+      omittedReports: (
+        iterativeHydration?.omittedReports ??
+        hydrationDiagnostics?.omittedReports ??
+        []
+      ).map((o) => {
+        const fromOrder = iterativeHydration?.listedReportOrder.indexOf(o.reportCode) ?? -1;
+        return {
+          reportCode: o.reportCode,
+          reason: o.reason,
+          dungeonSlug: o.dungeonSlug,
+          listedOrderIndex:
+            o.listedOrderIndex ?? (fromOrder >= 0 ? fromOrder : null),
+        };
+      }),
     },
   };
 }

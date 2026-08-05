@@ -33,8 +33,23 @@ export interface CanaryDiscoveryCandidateSource {
     reportCode: string;
     reason: string;
     dungeonSlug: string | null;
+    listedOrderIndex?: number | null;
   }>;
   unhydratedReportCount?: number;
+  iterativeHydration?: {
+    initialHydrationBudget: number;
+    reportsHydratedInitial: number;
+    incrementalBatchCount: number;
+    reportsHydratedIncrementally: number;
+    totalReportsHydrated: number;
+    totalReportsListed: number;
+    reportsRemaining: number;
+    incrementalProviderCalls: number;
+    incrementalEstimatedPoints: number;
+    terminalHydrationReason: string;
+    listedReportOrder: string[];
+    initialHydrationOrder: string[];
+  } | null;
 }
 
 export interface CanaryDiscoveryForbiddenEffects {
@@ -95,9 +110,32 @@ export interface CanaryDiscoveryReport {
     reportCode: string;
     reason: string;
     dungeonSlug: string | null;
+    listedOrderIndex?: number | null;
   }>;
   analysisStatus: "EMPTY" | "PARTIAL" | "COMPLETE";
   supersedesManifestId: string | null;
+  /** Iterative hydration accounting (null when complete-manifest reuse skipped discovery). */
+  iterativeHydration: {
+    initialHydrationBudget: number;
+    reportsHydratedInitial: number;
+    incrementalBatchCount: number;
+    reportsHydratedIncrementally: number;
+    totalReportsHydrated: number;
+    totalReportsListed: number;
+    reportsRemaining: number;
+    incrementalProviderCalls: number;
+    incrementalEstimatedPoints: number;
+    terminalHydrationReason: string;
+  } | null;
+  targetReportTrace: {
+    reportCode: string;
+    listed: boolean;
+    listedOrderIndex: number | null;
+    inInitialHydrationSet: boolean;
+    omitted: boolean;
+    omissionReason: string | null;
+    terminalState: string;
+  } | null;
   rankingEvidenceFound: number;
   rankingEvidenceFetched: number;
   rankingEvidencePersisted: number;

@@ -35,13 +35,25 @@ Store `policyVersion`, counts, and coverages in score lineage.
 
 ## Discovery / hydration
 
-Missing-dungeon-first hydration:
+Initial coverage-aware budget (`INITIAL_HYDRATION_BUDGET` = 24) is a first-pass
+sample only — never a terminal correctness ceiling.
 
-1. Prefer stubs known to map to dungeons with 0 candidates
-2. Then dungeons with 1 candidate
-3. Unknown-dungeon stubs via bounded round-robin (not newest-24 only)
-4. Already-complete dungeons last
-5. Stop at full coverage or budget exhaustion; emit `omittedReports` with exact reason
+Iterative hydration (approach B — progressive exhaustion of unknown stubs):
+
+1. List and persist all report stubs (`dungeonSlug` is typically null before hydration)
+2. Hydrate the initial bounded batch
+3. Rebuild candidates and selection
+4. While any dungeon has fewer than two distinct candidates, unhydrated stubs remain,
+   and rate admission allows OK/WARN: hydrate the next
+   `INCREMENTAL_HYDRATION_BATCH_SIZE` (6) batch, then rebuild
+5. Terminal states only: full coverage · reports exhausted · DEFER/STOP · provider error
+
+Missing-dungeon-first applies only when a stub’s dungeon is known (hints/prior).
+Unknown stubs use deterministic newest/oldest alternation across batches — a middle-
+position report must eventually be hydrated if slots remain missing.
+
+Emit `omittedReports` with exact reason plus iterative diagnostics
+(`terminalHydrationReason`, batch counts, `reportsRemaining`).
 
 Do not infer that a run does not exist merely because it was not hydrated.
 

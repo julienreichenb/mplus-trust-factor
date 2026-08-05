@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Discovery-only canary isolation + safety gates (no live WCL).
  */
 import { readFileSync } from "node:fs";
@@ -510,7 +510,7 @@ describe("runScoringV2CanaryDiscovery", () => {
         specSlug: null,
         rateBudgetConfig: { warnPercent: 70, deferPercent: 80, stopPercent: 90 },
         ensureRateLimitSnapshot: ensureOkBootstrap(),
-        discover: async () => ({
+        discover: async (_ctx) => ({
           candidates: [],
           rankingEvidence: [],
           reportsListed: 0,
@@ -546,7 +546,7 @@ describe("runScoringV2CanaryDiscovery", () => {
         specSlug: null,
         rateBudgetConfig: { warnPercent: 70, deferPercent: 80, stopPercent: 90 },
         ensureRateLimitSnapshot: ensureOkBootstrap(),
-        discover: async () => ({
+        discover: async (_ctx) => ({
           candidates: fullCandidates(),
           rankingEvidence: [],
           reportsListed: 0,
@@ -715,7 +715,7 @@ describe("runScoringV2CanaryDiscovery", () => {
     expect(report.manifestStatus).not.toBe("REUSED");
   });
 
-  it("selects dynamically dungeonCount × 2 for a 9-dungeon season", async () => {
+  it("selects dynamically dungeonCount Ã— 2 for a 9-dungeon season", async () => {
     const { prisma, artifacts, evidence } = mockPersistence();
     const nine = [...MIDNIGHT_SEASON_1_DUNGEON_SLUGS, "extra-dungeon-nine"];
     const cands: EvidenceCandidateMetadataV2[] = [];
@@ -751,7 +751,7 @@ describe("runScoringV2CanaryDiscovery", () => {
       specSlug: null,
       rateBudgetConfig: { warnPercent: 70, deferPercent: 80, stopPercent: 90 },
       ensureRateLimitSnapshot: ensureOkBootstrap(),
-      discover: async () => ({
+      discover: async (_ctx) => ({
         candidates: cands,
         rankingEvidence: [],
         reportsListed: 9,
@@ -765,6 +765,96 @@ describe("runScoringV2CanaryDiscovery", () => {
     });
     expect(report.expectedSlotCount).toBe(18);
     expect(report.selectedSlotCount).toBe(18);
+  });
+
+  it("surfaces iterative hydration diagnostics and HYDRATION_INCOMPLETE when stubs remain", async () => {
+    const { prisma, artifacts, evidence } = mockPersistence();
+    const all = fullCandidates();
+    const windrunner = all.filter((c) => c.dungeonSlug.toLowerCase() === "windrunner-spire");
+    const cands = [
+      ...all.filter((c) => c.dungeonSlug.toLowerCase() !== "windrunner-spire"),
+      windrunner[0]!,
+    ];
+    expect(cands.filter((c) => c.dungeonSlug === "windrunner-spire")).toHaveLength(1);
+
+    let admitSeen = false;
+    const { report } = await runScoringV2CanaryDiscovery({
+      prisma: prisma as never,
+      artifacts: artifacts as never,
+      evidence: evidence as never,
+      characterId: "11111111-1111-4111-8111-111111111111",
+      characterResolution: {
+        characterResolutionSource: "postgresql.findByIdentity",
+        characterId: "11111111-1111-4111-8111-111111111111",
+        characterCanonicalIdentity: {
+          region: "EU",
+          realmSlug: "archimonde",
+          name: "Wallidrixe",
+        },
+        repositoryMode: "PRODUCTION",
+      },
+      seasonResolution: seasonResolutionOk,
+      role: "DPS",
+      classSlug: null,
+      specSlug: null,
+      rateBudgetConfig: { warnPercent: 70, deferPercent: 80, stopPercent: 90 },
+      ensureRateLimitSnapshot: ensureOkBootstrap(),
+      diagnosticReportCode: "7qtb9Wp4ZdYwmKPH",
+      discover: async (ctx) => {
+        const decision = await ctx.evaluateIncrementalAdmission({
+          batchSize: 6,
+          projectedIncrementalPoints: 18,
+          reportsHydratedSoFar: 24,
+          reportsRemaining: 20,
+        });
+        admitSeen = decision.allow === true;
+        return {
+          candidates: cands,
+          rankingEvidence: [],
+          reportsListed: 44,
+          reportsHydrated: 24,
+          fightsExamined: cands.length,
+          graphqlRequestCount: 30,
+          capabilityEventPageRequestCount: 0,
+          measuredPoints: null,
+          estimatedPoints: 30,
+          unhydratedReportCount: 20,
+          omittedReports: [
+            {
+              reportCode: "7qtb9Wp4ZdYwmKPH",
+              reason: "REPORT_LEFT_UNHYDRATED_NO_MORE_BUDGET",
+              dungeonSlug: null,
+              listedOrderIndex: 24,
+            },
+          ],
+          iterativeHydration: {
+            initialHydrationBudget: 24,
+            reportsHydratedInitial: 24,
+            incrementalBatchCount: 0,
+            reportsHydratedIncrementally: 0,
+            totalReportsHydrated: 24,
+            totalReportsListed: 44,
+            reportsRemaining: 20,
+            incrementalProviderCalls: 0,
+            incrementalEstimatedPoints: 0,
+            terminalHydrationReason: "rate_admission_defer",
+            listedReportOrder: ["x", "7qtb9Wp4ZdYwmKPH"],
+            initialHydrationOrder: ["x"],
+          },
+        };
+      },
+    });
+
+    expect(admitSeen).toBe(true);
+    expect(report.capabilityPackageAcquisitions).toBe(0);
+    expect(report.selectedSlotCount).toBe(15);
+    expect(report.analysisStatus).toBe("PARTIAL");
+    expect(report.iterativeHydration?.terminalHydrationReason).toBe("rate_admission_defer");
+    expect(report.missingSlots.some((m) => m.reason.includes("HYDRATION_INCOMPLETE"))).toBe(
+      true,
+    );
+    expect(report.targetReportTrace?.reportCode).toBe("7qtb9Wp4ZdYwmKPH");
+    expect(report.targetReportTrace?.listedOrderIndex).toBe(24);
   });
 });
 

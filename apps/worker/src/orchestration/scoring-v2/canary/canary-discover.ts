@@ -32,9 +32,12 @@ import type { CanarySeasonResolution } from "./canary-season.js";
 import {
   assertDiscoveryAdmissionAllows,
   evaluateDiscoveryAdmissionAfterBootstrap,
+  evaluateIncrementalHydrationAdmission,
   resolveBootstrapPointCost,
+  DISCOVERY_COST_ASSUMPTIONS,
   type CanaryRateSnapshotBootstrapReport,
 } from "./canary-rate-snapshot.js";
+import { traceReportThroughDiscovery } from "@mplus/provider-warcraftlogs";
 import {
   assertNoDuplicateSelectedIdentities,
   mergeDiscoveryCandidates,
@@ -55,6 +58,27 @@ export type {
 } from "./canary-discover-types.js";
 export { CANARY_DISCOVERY_REPORT_SCHEMA } from "./canary-discover-types.js";
 
+export interface CanaryDiscoverContext {
+  evaluateIncrementalAdmission: (input: {
+    batchSize: number;
+    projectedIncrementalPoints: number;
+    reportsHydratedSoFar: number;
+    reportsRemaining: number;
+  }) =>
+    | Promise<{
+        allow: boolean;
+        action: "OK" | "WARN" | "DEFER" | "STOP";
+        reasons: string[];
+        projectedIncrementalPoints: number;
+      }>
+    | {
+        allow: boolean;
+        action: "OK" | "WARN" | "DEFER" | "STOP";
+        reasons: string[];
+        projectedIncrementalPoints: number;
+      };
+}
+
 export interface RunCanaryDiscoveryInput {
   prisma: PrismaClient;
   artifacts: ArtifactRepository;
@@ -66,12 +90,14 @@ export interface RunCanaryDiscoveryInput {
   classSlug: string | null;
   specSlug: string | null;
   rateBudgetConfig: RateBudgetConfig;
-  discover: () => Promise<CanaryDiscoveryCandidateSource>;
+  discover: (ctx: CanaryDiscoverContext) => Promise<CanaryDiscoveryCandidateSource>;
   /**
    * Two-stage bootstrap: may perform at most one RateLimitData call when cache miss.
    * Must not call character/report discovery.
    */
   ensureRateLimitSnapshot: () => Promise<CanaryRateSnapshotBootstrapReport>;
+  /** Optional report code to trace in the operator summary (e.g. Windrunner second report). */
+  diagnosticReportCode?: string | null;
   now?: Date;
 }
 
@@ -309,6 +335,8 @@ export async function runScoringV2CanaryDiscovery(
       omittedReports: [],
       analysisStatus: "COMPLETE",
       supersedesManifestId: null,
+      iterativeHydration: null,
+      targetReportTrace: null,
       rankingEvidenceFound: 0,
       rankingEvidenceFetched: 0,
       rankingEvidencePersisted: 0,
@@ -391,7 +419,22 @@ export async function runScoringV2CanaryDiscovery(
         : discoveryAdmission.action;
   const rateAdmissionReasons = discoveryAdmission.reasons;
 
-  const discovered = await input.discover();
+  const discovered = await input.discover({
+    evaluateIncrementalAdmission: (args) => {
+      // Points already projected: bootstrap + initial discovery flat + hydrations so far.
+      const pointsAlreadyProjected =
+        bootstrapCost +
+        DISCOVERY_COST_ASSUMPTIONS.characterDiscoveryFlatPoints +
+        DISCOVERY_COST_ASSUMPTIONS.zoneEncounterPoints +
+        args.reportsHydratedSoFar * DISCOVERY_COST_ASSUMPTIONS.pointsPerHydrationReport;
+      return evaluateIncrementalHydrationAdmission({
+        snapshot: bootstrap.snapshot!,
+        rateBudgetConfig: input.rateBudgetConfig,
+        pointsAlreadyProjected,
+        incrementalBatchPoints: args.projectedIncrementalPoints,
+      });
+    },
+  });
   if (discovered.capabilityEventPageRequestCount !== 0) {
     throw Object.assign(
       new Error(
@@ -535,8 +578,13 @@ export async function runScoringV2CanaryDiscovery(
       selectedForDungeon === 1 &&
       eligibleForDungeon <= 1
     ) {
+      const unhydrated =
+        discovered.unhydratedReportCount ??
+        Math.max(0, discovered.reportsListed - discovered.reportsHydrated);
       reason =
-        "INSUFFICIENT_CHARACTER_HISTORY:only_one_distinct_run_for_dungeon";
+        unhydrated > 0
+          ? "HYDRATION_INCOMPLETE:unhydrated_reports_remain"
+          : "INSUFFICIENT_CHARACTER_HISTORY:only_one_distinct_run_for_dungeon";
     } else if (slot.fallbackReason) {
       reason = `fallback:${slot.fallbackReason}`;
     } else {
@@ -632,6 +680,76 @@ export async function runScoringV2CanaryDiscovery(
   const unhydratedReportCount =
     discovered.unhydratedReportCount ??
     Math.max(0, discovered.reportsListed - discovered.reportsHydrated);
+  const iterativeHydration = discovered.iterativeHydration
+    ? {
+        initialHydrationBudget: discovered.iterativeHydration.initialHydrationBudget,
+        reportsHydratedInitial: discovered.iterativeHydration.reportsHydratedInitial,
+        incrementalBatchCount: discovered.iterativeHydration.incrementalBatchCount,
+        reportsHydratedIncrementally:
+          discovered.iterativeHydration.reportsHydratedIncrementally,
+        totalReportsHydrated: discovered.iterativeHydration.totalReportsHydrated,
+        totalReportsListed: discovered.iterativeHydration.totalReportsListed,
+        reportsRemaining: discovered.iterativeHydration.reportsRemaining,
+        incrementalProviderCalls: discovered.iterativeHydration.incrementalProviderCalls,
+        incrementalEstimatedPoints:
+          discovered.iterativeHydration.incrementalEstimatedPoints,
+        terminalHydrationReason: discovered.iterativeHydration.terminalHydrationReason,
+      }
+    : null;
+
+  const diagnosticCode =
+    input.diagnosticReportCode?.trim() ||
+    omittedReports.find((o) => o.reason.includes("HYDRATION"))?.reportCode ||
+    null;
+  let targetReportTrace: CanaryDiscoveryReport["targetReportTrace"] = null;
+  if (diagnosticCode) {
+    const listedOrder = discovered.iterativeHydration?.listedReportOrder ?? [];
+    const initialOrder = discovered.iterativeHydration?.initialHydrationOrder ?? [];
+    const listed =
+      listedOrder.includes(diagnosticCode) ||
+      omittedReports.some((o) => o.reportCode === diagnosticCode) ||
+      initialOrder.includes(diagnosticCode);
+    const omission = omittedReports.find((o) => o.reportCode === diagnosticCode);
+    const trace = traceReportThroughDiscovery({
+      reportCode: diagnosticCode,
+      listedReportCodes: listedOrder.length > 0 ? listedOrder : [diagnosticCode],
+      hydratedReportCodes: initialOrder.length
+        ? [
+            ...initialOrder,
+            // Approximate: anything listed and not omitted was hydrated.
+            ...listedOrder.filter(
+              (c) => !omittedReports.some((o) => o.reportCode === c),
+            ),
+          ]
+        : listedOrder.filter((c) => !omittedReports.some((o) => o.reportCode === c)),
+      hydrationDiagnostics: {
+        omittedReports: omittedReports.map((o) => ({
+          reportCode: o.reportCode,
+          reason: o.reason as never,
+          dungeonSlug: o.dungeonSlug,
+          startTimeMs: null,
+        })),
+        stopReason:
+          iterativeHydration?.terminalHydrationReason === "full_coverage"
+            ? "full_coverage"
+            : "budget_exhausted",
+        reportFetchAttempts: discovered.reportsHydrated,
+      },
+    });
+    targetReportTrace = {
+      reportCode: diagnosticCode,
+      listed,
+      listedOrderIndex:
+        omission?.listedOrderIndex ??
+        (listedOrder.indexOf(diagnosticCode) >= 0
+          ? listedOrder.indexOf(diagnosticCode)
+          : null),
+      inInitialHydrationSet: initialOrder.includes(diagnosticCode),
+      omitted: Boolean(omission),
+      omissionReason: omission?.reason ?? null,
+      terminalState: trace.terminalState,
+    };
+  }
 
   const report: CanaryDiscoveryReport = {
     schemaVersion: CANARY_DISCOVERY_REPORT_SCHEMA,
@@ -671,6 +789,8 @@ export async function runScoringV2CanaryDiscovery(
     omittedReports,
     analysisStatus,
     supersedesManifestId: incompletePrior?.rowId ?? null,
+    iterativeHydration,
+    targetReportTrace,
     rankingEvidenceFound: discovered.rankingEvidence.length,
     rankingEvidenceFetched: discovered.rankingEvidence.length,
     rankingEvidencePersisted: rankingPersisted,

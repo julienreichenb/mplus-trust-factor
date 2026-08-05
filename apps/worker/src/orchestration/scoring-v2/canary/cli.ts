@@ -72,6 +72,7 @@ import {
 import {
   createDiscoveryForbiddenAcquireHook,
   runScoringV2CanaryDiscovery,
+  type CanaryDiscoverContext,
 } from "./canary-discover.js";
 import type {
   CanaryDiscoveryCandidateSource,
@@ -738,7 +739,9 @@ export async function runCanaryDiscoverCommand(
   args: CanaryCliArgs,
   options?: {
     env?: NodeJS.ProcessEnv;
-    discoverOverride?: () => Promise<CanaryDiscoveryCandidateSource>;
+    discoverOverride?: (
+      ctx: CanaryDiscoverContext,
+    ) => Promise<CanaryDiscoveryCandidateSource>;
     ensureRateLimitSnapshotOverride?: () => Promise<CanaryRateSnapshotBootstrapReport>;
     log?: (message: string) => void;
   },
@@ -823,13 +826,14 @@ export async function runCanaryDiscoverCommand(
           })),
       discover:
         options?.discoverOverride ??
-        (async () => {
+        (async (ctx) => {
           const shadow = await discoverShadowCanaryCandidates({
             container: deps.container,
             region: args.region.toUpperCase() as "EU" | "US" | "KR" | "TW",
             realmSlug: args.realm,
             characterName: args.character,
             characterId: deps.characterResolution.characterId,
+            evaluateIncrementalAdmission: ctx.evaluateIncrementalAdmission,
           });
           const allowed = new Set(
             seasonResolution.activeDungeonSlugs.map((s) => s.toLowerCase()),
@@ -857,13 +861,68 @@ export async function runCanaryDiscoverCommand(
             estimatedPoints: shadow.diagnostics.providerCalls,
             omittedReports: shadow.diagnostics.omittedReports,
             unhydratedReportCount: shadow.diagnostics.unhydratedReportCount,
+            iterativeHydration: shadow.diagnostics.iterativeHydration
+              ? {
+                  initialHydrationBudget:
+                    shadow.diagnostics.iterativeHydration.initialHydrationBudget,
+                  reportsHydratedInitial:
+                    shadow.diagnostics.iterativeHydration.reportsHydratedInitial,
+                  incrementalBatchCount:
+                    shadow.diagnostics.iterativeHydration.incrementalBatchCount,
+                  reportsHydratedIncrementally:
+                    shadow.diagnostics.iterativeHydration.reportsHydratedIncrementally,
+                  totalReportsHydrated:
+                    shadow.diagnostics.iterativeHydration.totalReportsHydrated,
+                  totalReportsListed:
+                    shadow.diagnostics.iterativeHydration.totalReportsListed,
+                  reportsRemaining: shadow.diagnostics.iterativeHydration.reportsRemaining,
+                  incrementalProviderCalls:
+                    shadow.diagnostics.iterativeHydration.incrementalProviderCalls,
+                  incrementalEstimatedPoints:
+                    shadow.diagnostics.iterativeHydration.incrementalEstimatedPoints,
+                  terminalHydrationReason:
+                    shadow.diagnostics.iterativeHydration.terminalHydrationReason,
+                  listedReportOrder:
+                    shadow.diagnostics.iterativeHydration.listedReportOrder,
+                  initialHydrationOrder:
+                    shadow.diagnostics.iterativeHydration.initialHydrationOrder,
+                }
+              : null,
           };
         }),
+      diagnosticReportCode: "7qtb9Wp4ZdYwmKPH",
     });
 
     await mkdir(outDir, { recursive: true });
     const reportPath = join(outDir, "discovery-report.json");
     await writeFile(reportPath, JSON.stringify(report, null, 2), "utf8");
+
+    const log = options?.log ?? console.log;
+    log(
+      JSON.stringify(
+        {
+          summary: "scoring-v2-canary-discovery",
+          reportsListed: report.reportsListed,
+          reportsHydrated: report.reportsHydrated,
+          reportsRemaining: report.unhydratedReportCount,
+          omittedReportCount: report.omittedReports.length,
+          selectedSlotCount: report.selectedSlotCount,
+          expectedSlotCount: report.expectedSlotCount,
+          selectedRunsPerDungeon: report.selectedRunsPerDungeon,
+          missingSlots: report.missingSlots,
+          supersedesManifestId: report.supersedesManifestId,
+          manifestId: report.manifestId,
+          manifestStatus: report.manifestStatus,
+          analysisStatus: report.analysisStatus,
+          terminalHydrationReason: report.iterativeHydration?.terminalHydrationReason ?? null,
+          incrementalBatchCount: report.iterativeHydration?.incrementalBatchCount ?? 0,
+          targetReportTrace: report.targetReportTrace,
+        },
+        null,
+        2,
+      ),
+    );
+
     return { reportPath, report };
   } finally {
     await deps.container.prisma.$disconnect().catch(() => undefined);
