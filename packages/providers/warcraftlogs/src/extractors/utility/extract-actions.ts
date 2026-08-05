@@ -412,8 +412,8 @@ export function extractUtilityActionTimeline(
     if (!owner) continue;
 
     const limitations = [...open.limitations];
-    let targetActorId = open.targetActorId;
-    let targetCharacterName = nameForActor(input.participants, targetActorId);
+    const targetActorId = open.targetActorId;
+    const targetCharacterName = nameForActor(input.participants, targetActorId);
 
     if (
       (open.utilityCategory === "EXTERNAL_SUPPORT" ||

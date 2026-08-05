@@ -1,7 +1,8 @@
 import type { AbilityCategory, AbilityRole, AbilityRule } from "@mplus/abilities";
-import { dimensionTagsForRule, normalizeRetailClassSlug } from "@mplus/abilities";
+import { dimensionTagsForRule } from "@mplus/abilities";
 import type {
   SurvivalActivationKind,
+  SurvivalActionTimelineV1,
   SurvivalCapabilityCompleteness,
   SurvivalCapabilityKey,
   SurvivalCatalogGapRow,
@@ -57,7 +58,7 @@ export interface SurvivalOneFightProbeReport {
   schemaVersion: "wcl-survival-one-fight-v1";
   generatedAt: string;
   sourceIdentity: SurvivalProbeSourceIdentity;
-  timeline: import("@mplus/contracts").SurvivalActionTimelineV1;
+  timeline: SurvivalActionTimelineV1;
   persistence: SurvivalProbePersistenceProof;
   providerCallsDuringProbe: number;
   providerCallsDuringReload: number;

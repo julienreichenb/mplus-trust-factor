@@ -1,4 +1,4 @@
-import type { AbilityCategory } from "@mplus/abilities";
+import type { AbilityCategory, AbilityRole } from "@mplus/abilities";
 
 export type OffensiveProbeDataset = "Casts" | "Buffs";
 
@@ -113,7 +113,7 @@ export interface OffensiveProbeParticipantReport {
   characterName: string;
   classSlug: string | null;
   specSlug: string | null;
-  role: import("@mplus/abilities").AbilityRole | null;
+  role: AbilityRole | null;
   ownedPetActorIds: number[];
   rawMatchedActivationEventCount: number;
   deduplicatedActivationCount: number;

@@ -110,7 +110,7 @@ describe("offensive one-fight provider-free persist helpers", () => {
   });
 
   it("keeps providerCalls at 0 for the provider-free persist helpers", () => {
-    let providerCalls = 0;
+    const providerCalls = 0;
     const track = <T>(fn: () => T): T => {
       // Pure helpers must not touch providers.
       const before = providerCalls;

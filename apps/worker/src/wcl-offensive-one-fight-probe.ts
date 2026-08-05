@@ -8,23 +8,18 @@
  */
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { CURRENT_CATALOG_VERSION_ID, getAbilityCatalog, findRetailSpecIdentityByBlizzardSpecId, normalizeRetailClassSlug, type AbilityRole } from "@mplus/abilities";
+import { getAbilityCatalog, findRetailSpecIdentityByBlizzardSpecId, normalizeRetailClassSlug, type AbilityRole } from "@mplus/abilities";
 import { loadEnv } from "@mplus/config";
 import { createPrismaClient } from "@mplus/database";
 import { normalizeName, normalizeRealmSlug } from "@mplus/domain";
 import {
   buildOffensiveProbeReport,
-  normalizeWclEventFields,
   printOffensiveProbeSummary,
   OFFENSIVE_ONE_FIGHT_DATASETS,
-  type OffensiveProbeDataLoad,
   type OffensiveProbeFightSelection,
   type OffensiveProbeReport,
-  type OffensiveProbePersistenceDataset,
-  type OffensiveProbePersistenceSection,
 } from "@mplus/provider-warcraftlogs";
 import { createRepositories } from "./persistence/index.js";
-import { selectPreferredEvidencePages } from "./orchestration/scoring-v2/persistent-shared-evidence-store.js";
 import {
   formatPersistedCandidateLoadFailures,
   prioritizeOffensiveProbeCandidates,
@@ -40,11 +35,6 @@ const SPIKE_FIGHT = {
   fightId: 1,
   reportRevision: 1,
 } as const;
-
-function envFlag(value: string | undefined, defaultValue = false): boolean {
-  if (value === undefined || value === "") return defaultValue;
-  return ["1", "true", "yes", "on"].includes(value.trim().toLowerCase());
-}
 
 async function slotHasCompletePersistedPages(
   prisma: ReturnType<typeof createPrismaClient>,

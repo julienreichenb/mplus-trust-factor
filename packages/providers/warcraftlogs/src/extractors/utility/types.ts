@@ -2,6 +2,7 @@ import type { AbilityCategory, AbilityRule } from "@mplus/abilities";
 import { dimensionTagsForRule } from "@mplus/abilities";
 import type {
   UtilityActionOutcome,
+  UtilityActionTimelineV1,
   UtilityCapabilityCompleteness,
   UtilityCapabilityKey,
   UtilityCategory,
@@ -90,7 +91,7 @@ export interface UtilityOneFightProbeReport {
   schemaVersion: "wcl-utility-one-fight-v1";
   generatedAt: string;
   sourceIdentity: UtilityProbeSourceIdentity;
-  timeline: import("@mplus/contracts").UtilityActionTimelineV1;
+  timeline: UtilityActionTimelineV1;
   persistence: UtilityProbePersistenceProof;
   providerCallsDuringProbe: number;
   providerCallsDuringReload: number;

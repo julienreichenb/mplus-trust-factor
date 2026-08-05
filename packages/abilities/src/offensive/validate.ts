@@ -277,7 +277,6 @@ export function validateOffensiveCatalog(input?: {
   }
 
   const specs: OffensiveSpecValidationRow[] = [];
-  let specsMissingCoverage = 0;
 
   for (const row of blizzardMatrix.rows) {
     if (!row.blizzardClassId || !row.blizzardSpecId) {
@@ -313,7 +312,6 @@ export function validateOffensiveCatalog(input?: {
     else coverageStatus = "UNCOVERED";
 
     if (coverageStatus === "UNCOVERED") {
-      specsMissingCoverage += 1;
       errors.push({
         severity: "error",
         code: "OFFENSIVE_SPEC_MISSING_COVERAGE",
