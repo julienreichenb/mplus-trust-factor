@@ -3,12 +3,14 @@
  */
 
 import { clamp, clamp01 } from "../../math.js";
+import { buildUtilityFeatureUsage } from "../../audit/feature-usage.js";
 import { bindUtilityV2FactsToManifest } from "./bind.js";
 import {
   UTILITY_V2_MODEL_CONFIG,
   type UtilityV2ModelConfig,
   type UtilityV2SupportSemantic,
 } from "./constants.js";
+import { emitUtilityConsumptionTraces } from "./consumption-traces.js";
 import { sumInterruptCredits } from "./classify-interrupts.js";
 import { computeUtilityV2InputFingerprint } from "./fingerprint.js";
 import {
@@ -275,6 +277,14 @@ function unavailableResult(
     bindingReasons,
   };
 
+  const emptyResultStub = {
+    availabilityState: "UNAVAILABLE" as const,
+    domainBreakdown: [] as UtilityV2DomainBreakdown[],
+  };
+  const consumptionTraces = emitUtilityConsumptionTraces({
+    boundFactSets: [],
+    result: emptyResultStub as UtilityV2ComputeResult,
+  });
   const metrics: Record<string, unknown> = {
     algorithmVersion: config.algorithmVersion,
     modelLabel: config.scoreSemantics.scoreKind,
@@ -283,6 +293,7 @@ function unavailableResult(
     publicationBlocked: true,
     manifestContentHash: input.manifest.contentHash,
     bindingReasons,
+    featureUsage: buildUtilityFeatureUsage([], { consumptionTraces }).featureUsage,
   };
 
   return {
@@ -679,6 +690,17 @@ export function computeUtilityV2(
   };
 
   const inputFingerprint = computeUtilityV2InputFingerprint(input, { modelConfig: config });
+  const resultForTraces: Pick<
+    UtilityV2ComputeResult,
+    "availabilityState" | "domainBreakdown"
+  > = { availabilityState, domainBreakdown };
+  const consumptionTraces = emitUtilityConsumptionTraces({
+    boundFactSets: binding.boundFactSets,
+    result: resultForTraces as UtilityV2ComputeResult,
+  });
+  const { featureUsage } = buildUtilityFeatureUsage(binding.boundFactSets, {
+    consumptionTraces,
+  });
   const metrics: Record<string, unknown> = {
     algorithmVersion: config.algorithmVersion,
     modelLabel: config.scoreSemantics.scoreKind,
@@ -704,6 +726,7 @@ export function computeUtilityV2(
     selectedSlotCount: binding.selectedSlotCount,
     boundSelectedSlotCount: binding.boundSelectedSlotCount,
     expectedSlotCount: input.manifest.expectedSlotCount,
+    featureUsage,
   };
 
   return {

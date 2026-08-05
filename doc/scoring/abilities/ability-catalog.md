@@ -12,9 +12,11 @@ packages/abilities/src/
   version.ts               # game/season pins
   catalog/
     classes-matrix.ts      # Retail class/spec discovery matrix
-    rule.ts                # rule() factory
+    rule.ts                # rule() + performanceCooldownRule() factories
     shared/                # consumables + optional racials
-    classes/<class>.ts     # per-class Survival/Utility rules
+    classes/<class>.ts     # per-class Utility / Survival / Performance rules
+  offensive/               # builder, validator, activation projection, source adapters (tooling)
+    tooling/exemptions.ts  # coverage exemptions (not a catalog)
   registry.ts              # getAbilityCatalog / resolveAbilityRule
   applicability.ts         # getApplicableAbilityCategories
   match.ts                 # scoring helpers (+ legacy category aliases)
@@ -24,6 +26,8 @@ packages/abilities/src/
   external-metadata.ts     # Wowhead URL derivation (no scrape)
   cli/validate.ts
   cli/coverage.ts
+  cli/build-offensive.ts
+  cli/validate-offensive.ts
 ```
 
 Consumers:
@@ -44,6 +48,10 @@ type AbilityCategory =
   | "EXTERNAL_DEFENSIVE" | "GROUP_UTILITY" | "MOVEMENT_UTILITY"
   | "BATTLE_REZ" | "BLOODLUST" | "CONSUMABLE";
 ```
+
+Performance offensive cooldowns are **not** a separate `AbilityCategory`. They use
+explicit `dimensionTags: ["PERFORMANCE_OFFENSIVE_COOLDOWN"]` (see
+[`offensive-catalog.md`](./offensive-catalog.md)).
 
 Legacy Wave 4 combat-metrics names (`interrupt`, `crowd_control`, `personal_defensive`, …) are mapped in `LEGACY_CATEGORY_MAP` so scoring formulas stay unchanged.
 

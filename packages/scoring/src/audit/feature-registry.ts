@@ -1,0 +1,441 @@
+/**
+ * Versioned Scoring V2 feature registry — explicit roles for every extracted feature.
+ * Does not invent formula weights or thresholds.
+ */
+
+import type {
+  EvidenceAuditFeatureRegistryEntry,
+  EvidenceDatasetKind,
+  FeatureScoringRole,
+} from "@mplus/contracts";
+import { FEATURE_REGISTRY_V2_VERSION } from "@mplus/contracts";
+import {
+  SURVIVAL_V2_EXTRACTOR_FAMILY,
+  SURVIVAL_V2_SCHEMA_VERSION,
+} from "../survival/v2/constants.js";
+import {
+  UTILITY_V2_EXTRACTOR_FAMILY,
+  UTILITY_V2_EXTRACTOR_VERSION,
+  UTILITY_V2_SCHEMA_VERSION,
+} from "../utility/v2/constants.js";
+
+const PERF_FAMILY = "performance";
+const PERF_VERSION = "performance-facts-v2.0.0";
+const PERF_SCHEMA = "performance_run_parse_fact_v2";
+
+const SURVIVAL_VERSION = "survival-facts-v2.0.0";
+
+function entry(input: {
+  featurePath: string;
+  dimension: "PERFORMANCE" | "SURVIVAL" | "UTILITY";
+  sourceDatasets: EvidenceDatasetKind[];
+  extractorFamily: string;
+  extractorVersion: string;
+  expectedFactSchema: string;
+  scoringRole: FeatureScoringRole;
+  nullableOptional: boolean;
+  zeroEventSemantics: string;
+  knownLimitations: string[];
+  outputMetricOrExplanationField: string;
+}): EvidenceAuditFeatureRegistryEntry {
+  return input;
+}
+
+export const SURVIVAL_FEATURE_REGISTRY: readonly EvidenceAuditFeatureRegistryEntry[] = [
+  entry({
+    featurePath: "survival.deaths",
+    dimension: "SURVIVAL",
+    sourceDatasets: ["DEATHS"],
+    extractorFamily: SURVIVAL_V2_EXTRACTOR_FAMILY,
+    extractorVersion: SURVIVAL_VERSION,
+    expectedFactSchema: SURVIVAL_V2_SCHEMA_VERSION,
+    scoringRole: "SCORE",
+    nullableOptional: false,
+    zeroEventSemantics: "Zero deaths is a valid scored outcome (perfect outcome component).",
+    knownLimitations: ["Cause labels are compact; raw death events are never scored directly."],
+    outputMetricOrExplanationField: "observations.survival.outcome / explanation.deathCount",
+  }),
+  entry({
+    featurePath: "survival.activeCombat",
+    dimension: "SURVIVAL",
+    sourceDatasets: ["CASTS", "DAMAGE_TAKEN", "HEALING"],
+    extractorFamily: SURVIVAL_V2_EXTRACTOR_FAMILY,
+    extractorVersion: SURVIVAL_VERSION,
+    expectedFactSchema: SURVIVAL_V2_SCHEMA_VERSION,
+    scoringRole: "SCORE",
+    nullableOptional: false,
+    zeroEventSemantics: "Zero active combat duration fails closed as invalid run evidence.",
+    knownLimitations: ["Truncated combat windows reduce confidence."],
+    outputMetricOrExplanationField: "per-run defensive/recovery rates use activeCombat.durationMs",
+  }),
+  entry({
+    featurePath: "survival.defensiveActivations.byCategory",
+    dimension: "SURVIVAL",
+    sourceDatasets: ["CASTS", "BUFFS", "COMBATANT_INFO"],
+    extractorFamily: SURVIVAL_V2_EXTRACTOR_FAMILY,
+    extractorVersion: SURVIVAL_VERSION,
+    expectedFactSchema: SURVIVAL_V2_SCHEMA_VERSION,
+    scoringRole: "SCORE",
+    nullableOptional: false,
+    zeroEventSemantics: "Zero activations score at defensive floor when toolkit applies.",
+    knownLimitations: ["Catalog coverage gates applicability."],
+    outputMetricOrExplanationField: "observations.survival.defensive_response",
+  }),
+  entry({
+    featurePath: "survival.defensiveActivations.toolkit",
+    dimension: "SURVIVAL",
+    sourceDatasets: ["COMBATANT_INFO", "CASTS"],
+    extractorFamily: SURVIVAL_V2_EXTRACTOR_FAMILY,
+    extractorVersion: SURVIVAL_VERSION,
+    expectedFactSchema: SURVIVAL_V2_SCHEMA_VERSION,
+    scoringRole: "AVAILABILITY",
+    nullableOptional: false,
+    zeroEventSemantics: "Empty toolkit marks categories NOT_APPLICABLE / UNKNOWN.",
+    knownLimitations: ["Inferred talent states are weaker than confirmed."],
+    outputMetricOrExplanationField: "component state NOT_APPLICABLE when toolkit absent",
+  }),
+  entry({
+    featurePath: "survival.defensiveActivations.catalogCoverage",
+    dimension: "SURVIVAL",
+    sourceDatasets: ["COMBATANT_INFO", "CASTS"],
+    extractorFamily: SURVIVAL_V2_EXTRACTOR_FAMILY,
+    extractorVersion: SURVIVAL_VERSION,
+    expectedFactSchema: SURVIVAL_V2_SCHEMA_VERSION,
+    scoringRole: "CONFIDENCE",
+    nullableOptional: false,
+    zeroEventSemantics: "Zero coverage lowers confidence; does not invent activations.",
+    knownLimitations: ["Ability catalog gaps are explicit limitations."],
+    outputMetricOrExplanationField: "confidence via health/catalog coverage components",
+  }),
+  entry({
+    featurePath: "survival.dangerWindows",
+    dimension: "SURVIVAL",
+    sourceDatasets: ["DAMAGE_TAKEN", "DEATHS", "HEALING", "BUFFS"],
+    extractorFamily: SURVIVAL_V2_EXTRACTOR_FAMILY,
+    extractorVersion: SURVIVAL_VERSION,
+    expectedFactSchema: SURVIVAL_V2_SCHEMA_VERSION,
+    scoringRole: "SCORE",
+    nullableOptional: false,
+    zeroEventSemantics: "Zero danger windows leaves recovery at neutral when no eligible windows.",
+    knownLimitations: ["Windows are bounded; pressure clusters may be premerged."],
+    outputMetricOrExplanationField: "observations.survival.emergency_recovery / pressureClusterCount",
+  }),
+  entry({
+    featurePath: "survival.dangerWindows.hpEvidenceQuality",
+    dimension: "SURVIVAL",
+    sourceDatasets: ["DAMAGE_TAKEN", "HEALING"],
+    extractorFamily: SURVIVAL_V2_EXTRACTOR_FAMILY,
+    extractorVersion: SURVIVAL_VERSION,
+    expectedFactSchema: SURVIVAL_V2_SCHEMA_VERSION,
+    scoringRole: "CONFIDENCE",
+    nullableOptional: false,
+    zeroEventSemantics: "Missing HP evidence degrades healthEvidence.mode.",
+    knownLimitations: ["RECONSTRUCTED/PARTIAL HP quality reduces confidence."],
+    outputMetricOrExplanationField: "explanation.healthModes / confidence",
+  }),
+  entry({
+    featurePath: "survival.dangerWindows.recoveryUseful",
+    dimension: "SURVIVAL",
+    sourceDatasets: ["HEALING", "CASTS", "BUFFS"],
+    extractorFamily: SURVIVAL_V2_EXTRACTOR_FAMILY,
+    extractorVersion: SURVIVAL_VERSION,
+    expectedFactSchema: SURVIVAL_V2_SCHEMA_VERSION,
+    scoringRole: "SCORE",
+    nullableOptional: true,
+    zeroEventSemantics: "No useful recovery in eligible windows scores recovery component low.",
+    knownLimitations: ["Only eligible windows contribute."],
+    outputMetricOrExplanationField: "observations.survival.emergency_recovery",
+  }),
+  entry({
+    featurePath: "survival.relativeDamage",
+    dimension: "SURVIVAL",
+    sourceDatasets: ["DAMAGE_TAKEN", "DEATHS"],
+    extractorFamily: SURVIVAL_V2_EXTRACTOR_FAMILY,
+    extractorVersion: SURVIVAL_VERSION,
+    expectedFactSchema: SURVIVAL_V2_SCHEMA_VERSION,
+    scoringRole: "EXPLAINABILITY_ONLY",
+    nullableOptional: true,
+    zeroEventSemantics: "Absent relative damage stays shadow/off — no public score contribution.",
+    knownLimitations: [
+      "Public contribution is 0 unless relativeDamageMode=active.",
+      "Role exclusions and mechanic coverage caveats apply.",
+    ],
+    outputMetricOrExplanationField: "relativeDamageShadow / observations.survival.relative_avoidable_damage",
+  }),
+  entry({
+    featurePath: "survival.healthEvidence.mode",
+    dimension: "SURVIVAL",
+    sourceDatasets: ["DAMAGE_TAKEN", "HEALING", "DEATHS"],
+    extractorFamily: SURVIVAL_V2_EXTRACTOR_FAMILY,
+    extractorVersion: SURVIVAL_VERSION,
+    expectedFactSchema: SURVIVAL_V2_SCHEMA_VERSION,
+    scoringRole: "CONFIDENCE",
+    nullableOptional: false,
+    zeroEventSemantics: "MISSING mode marks availability PARTIAL/UNAVAILABLE.",
+    knownLimitations: ["OUTCOME_ONLY mode limits recovery scoring."],
+    outputMetricOrExplanationField: "confidence / explanation.healthModes",
+  }),
+];
+
+export const UTILITY_FEATURE_REGISTRY: readonly EvidenceAuditFeatureRegistryEntry[] = [
+  entry({
+    featurePath: "utility.interruptAttempts.CONFIRMED_SUCCESS",
+    dimension: "UTILITY",
+    sourceDatasets: ["INTERRUPTS", "HOSTILE_CASTS", "CASTS"],
+    extractorFamily: UTILITY_V2_EXTRACTOR_FAMILY,
+    extractorVersion: UTILITY_V2_EXTRACTOR_VERSION,
+    expectedFactSchema: UTILITY_V2_SCHEMA_VERSION,
+    scoringRole: "SCORE",
+    nullableOptional: false,
+    zeroEventSemantics: "Zero confirmed interrupts remain neutral floor when toolkit applies.",
+    knownLimitations: ["Requires hostile cast observability for full credit."],
+    outputMetricOrExplanationField: "domainBreakdown.castStops",
+  }),
+  entry({
+    featurePath: "utility.interruptAttempts.VALID_OVERLAP",
+    dimension: "UTILITY",
+    sourceDatasets: ["INTERRUPTS", "HOSTILE_CASTS", "CASTS"],
+    extractorFamily: UTILITY_V2_EXTRACTOR_FAMILY,
+    extractorVersion: UTILITY_V2_EXTRACTOR_VERSION,
+    expectedFactSchema: UTILITY_V2_SCHEMA_VERSION,
+    scoringRole: "SCORE",
+    nullableOptional: false,
+    zeroEventSemantics: "Zero overlaps is valid; no credit added.",
+    knownLimitations: ["Match tolerance window applies."],
+    outputMetricOrExplanationField: "domainBreakdown.castStops",
+  }),
+  entry({
+    featurePath: "utility.interruptAttempts.MATCHED_FAILED",
+    dimension: "UTILITY",
+    sourceDatasets: ["INTERRUPTS", "HOSTILE_CASTS", "CASTS"],
+    extractorFamily: UTILITY_V2_EXTRACTOR_FAMILY,
+    extractorVersion: UTILITY_V2_EXTRACTOR_VERSION,
+    expectedFactSchema: UTILITY_V2_SCHEMA_VERSION,
+    scoringRole: "SCORE",
+    nullableOptional: false,
+    zeroEventSemantics: "Zero matched failures is valid.",
+    knownLimitations: ["Partial credit only."],
+    outputMetricOrExplanationField: "domainBreakdown.castStops",
+  }),
+  entry({
+    featurePath: "utility.interruptAttempts.UNMATCHED_ATTEMPT",
+    dimension: "UTILITY",
+    sourceDatasets: ["INTERRUPTS", "CASTS"],
+    extractorFamily: UTILITY_V2_EXTRACTOR_FAMILY,
+    extractorVersion: UTILITY_V2_EXTRACTOR_VERSION,
+    expectedFactSchema: UTILITY_V2_SCHEMA_VERSION,
+    scoringRole: "SCORE",
+    nullableOptional: false,
+    zeroEventSemantics: "Zero unmatched attempts is valid.",
+    knownLimitations: ["Unmatched spam credit share is capped."],
+    outputMetricOrExplanationField: "domainBreakdown.castStops (capped)",
+  }),
+  entry({
+    featurePath: "utility.hostileObservability",
+    dimension: "UTILITY",
+    sourceDatasets: ["HOSTILE_CASTS"],
+    extractorFamily: UTILITY_V2_EXTRACTOR_FAMILY,
+    extractorVersion: UTILITY_V2_EXTRACTOR_VERSION,
+    expectedFactSchema: UTILITY_V2_SCHEMA_VERSION,
+    scoringRole: "CONFIDENCE",
+    nullableOptional: false,
+    zeroEventSemantics: "ABSENT hostile casts reduce density factor / confidence.",
+    knownLimitations: ["PARTIAL observability is explicit."],
+    outputMetricOrExplanationField: "confidenceComponents / castStops density factor",
+  }),
+  entry({
+    featurePath: "utility.ccActions",
+    dimension: "UTILITY",
+    sourceDatasets: ["CASTS", "DEBUFFS"],
+    extractorFamily: UTILITY_V2_EXTRACTOR_FAMILY,
+    extractorVersion: UTILITY_V2_EXTRACTOR_VERSION,
+    expectedFactSchema: UTILITY_V2_SCHEMA_VERSION,
+    scoringRole: "SCORE",
+    nullableOptional: false,
+    zeroEventSemantics: "Zero strategic CC remains neutral when toolkit applies.",
+    knownLimitations: ["Dedupe window collapses repeated same-target CC."],
+    outputMetricOrExplanationField: "domainBreakdown.strategicCc",
+  }),
+  entry({
+    featurePath: "utility.supportActions",
+    dimension: "UTILITY",
+    sourceDatasets: ["CASTS", "BUFFS", "HEALING"],
+    extractorFamily: UTILITY_V2_EXTRACTOR_FAMILY,
+    extractorVersion: UTILITY_V2_EXTRACTOR_VERSION,
+    expectedFactSchema: UTILITY_V2_SCHEMA_VERSION,
+    scoringRole: "SCORE",
+    nullableOptional: false,
+    zeroEventSemantics: "Zero support credit remains neutral floor when toolkit applies.",
+    knownLimitations: ["Passive/rotational support is ignored or near-zero credit."],
+    outputMetricOrExplanationField: "domainBreakdown.support",
+  }),
+  entry({
+    featurePath: "utility.dispelPurgeSuccessCount",
+    dimension: "UTILITY",
+    sourceDatasets: ["DISPELS"],
+    extractorFamily: UTILITY_V2_EXTRACTOR_FAMILY,
+    extractorVersion: UTILITY_V2_EXTRACTOR_VERSION,
+    expectedFactSchema: UTILITY_V2_SCHEMA_VERSION,
+    scoringRole: "SCORE",
+    nullableOptional: false,
+    zeroEventSemantics: "Zero dispels/purges add no support credit.",
+    knownLimitations: ["Counted as support-domain credit events."],
+    outputMetricOrExplanationField: "domainBreakdown.support",
+  }),
+  entry({
+    featurePath: "utility.activeCombatMs",
+    dimension: "UTILITY",
+    sourceDatasets: ["CASTS", "DAMAGE_DONE"],
+    extractorFamily: UTILITY_V2_EXTRACTOR_FAMILY,
+    extractorVersion: UTILITY_V2_EXTRACTOR_VERSION,
+    expectedFactSchema: UTILITY_V2_SCHEMA_VERSION,
+    scoringRole: "SCORE",
+    nullableOptional: false,
+    zeroEventSemantics: "Zero active combat fails closed (rates undefined).",
+    knownLimitations: ["Per-combat-hour denominators require positive duration."],
+    outputMetricOrExplanationField: "all domain perCombatHour denominators",
+  }),
+  entry({
+    featurePath: "utility.toolkit",
+    dimension: "UTILITY",
+    sourceDatasets: ["COMBATANT_INFO", "CASTS"],
+    extractorFamily: UTILITY_V2_EXTRACTOR_FAMILY,
+    extractorVersion: UTILITY_V2_EXTRACTOR_VERSION,
+    expectedFactSchema: UTILITY_V2_SCHEMA_VERSION,
+    scoringRole: "AVAILABILITY",
+    nullableOptional: false,
+    zeroEventSemantics: "Missing toolkit domains are N/A and renormalized out of weights.",
+    knownLimitations: ["Talent inference may be incomplete."],
+    outputMetricOrExplanationField: "domainBreakdown.*.applicable",
+  }),
+  entry({
+    featurePath: "utility.catalogCoverage.abilityCatalogCoverage",
+    dimension: "UTILITY",
+    sourceDatasets: ["COMBATANT_INFO", "CASTS"],
+    extractorFamily: UTILITY_V2_EXTRACTOR_FAMILY,
+    extractorVersion: UTILITY_V2_EXTRACTOR_VERSION,
+    expectedFactSchema: UTILITY_V2_SCHEMA_VERSION,
+    scoringRole: "CONFIDENCE",
+    nullableOptional: false,
+    zeroEventSemantics: "Zero ability catalog coverage lowers confidence.",
+    knownLimitations: ["Catalog gaps are explicit limitations."],
+    outputMetricOrExplanationField: "confidenceComponents.abilityCatalogCoverage",
+  }),
+  entry({
+    featurePath: "utility.catalogCoverage.mechanicCatalogCoverage",
+    dimension: "UTILITY",
+    sourceDatasets: ["HOSTILE_CASTS", "DEBUFFS"],
+    extractorFamily: UTILITY_V2_EXTRACTOR_FAMILY,
+    extractorVersion: UTILITY_V2_EXTRACTOR_VERSION,
+    expectedFactSchema: UTILITY_V2_SCHEMA_VERSION,
+    scoringRole: "CONFIDENCE",
+    nullableOptional: false,
+    zeroEventSemantics: "Zero mechanic coverage lowers confidence.",
+    knownLimitations: ["Dungeon mechanic catalogs evolve per season."],
+    outputMetricOrExplanationField: "confidenceComponents.mechanicCatalogCoverage",
+  }),
+];
+
+export const PERFORMANCE_FEATURE_REGISTRY: readonly EvidenceAuditFeatureRegistryEntry[] = [
+  entry({
+    featurePath: "performance.parsePercentile",
+    dimension: "PERFORMANCE",
+    sourceDatasets: ["RANKING_PARSE"],
+    extractorFamily: PERF_FAMILY,
+    extractorVersion: PERF_VERSION,
+    expectedFactSchema: PERF_SCHEMA,
+    scoringRole: "SCORE",
+    nullableOptional: true,
+    zeroEventSemantics: "UNAVAILABLE semantic with structured provenance — never fabricate parse.",
+    knownLimitations: [
+      "Public API absence is a valid UNAVAILABLE outcome.",
+      "RANK_PERCENT is fallback semantic vs BRACKET_PERCENT.",
+    ],
+    outputMetricOrExplanationField: "runParseFacts → detailed dungeon blend",
+  }),
+  entry({
+    featurePath: "performance.semantic",
+    dimension: "PERFORMANCE",
+    sourceDatasets: ["RANKING_PARSE"],
+    extractorFamily: PERF_FAMILY,
+    extractorVersion: PERF_VERSION,
+    expectedFactSchema: PERF_SCHEMA,
+    scoringRole: "AVAILABILITY",
+    nullableOptional: false,
+    zeroEventSemantics: "UNAVAILABLE semantic marks run parse absent.",
+    knownLimitations: ["Structured provenance required when unavailable."],
+    outputMetricOrExplanationField: "availabilityState / explanation limitations",
+  }),
+  entry({
+    featurePath: "performance.keyLevel",
+    dimension: "PERFORMANCE",
+    sourceDatasets: ["RANKING_PARSE"],
+    extractorFamily: PERF_FAMILY,
+    extractorVersion: PERF_VERSION,
+    expectedFactSchema: PERF_SCHEMA,
+    scoringRole: "SCORE",
+    nullableOptional: false,
+    zeroEventSemantics: "Key level required for difficulty-adjusted blend when parse present.",
+    knownLimitations: ["Uses frozen difficulty policy — not live cutoffs."],
+    outputMetricOrExplanationField: "difficulty-adjusted detailed performance",
+  }),
+  entry({
+    featurePath: "performance.partition",
+    dimension: "PERFORMANCE",
+    sourceDatasets: ["RANKING_PARSE"],
+    extractorFamily: PERF_FAMILY,
+    extractorVersion: PERF_VERSION,
+    expectedFactSchema: PERF_SCHEMA,
+    scoringRole: "CONFIDENCE",
+    nullableOptional: true,
+    zeroEventSemantics: "Missing partition reduces confidence when expected partition set.",
+    knownLimitations: ["Partition mismatch is an explicit limitation."],
+    outputMetricOrExplanationField: "confidence / partition alignment",
+  }),
+  entry({
+    featurePath: "performance.profileAggregate",
+    dimension: "PERFORMANCE",
+    sourceDatasets: ["RANKING_PARSE"],
+    extractorFamily: PERF_FAMILY,
+    extractorVersion: PERF_VERSION,
+    expectedFactSchema: PERF_SCHEMA,
+    scoringRole: "SCORE",
+    nullableOptional: true,
+    zeroEventSemantics: "Absent profile aggregate uses detailed-only path when available.",
+    knownLimitations: ["Optional blend source."],
+    outputMetricOrExplanationField: "profile blend weight",
+  }),
+  entry({
+    featurePath: "performance.unavailableProvenance",
+    dimension: "PERFORMANCE",
+    sourceDatasets: ["RANKING_PARSE"],
+    extractorFamily: PERF_FAMILY,
+    extractorVersion: PERF_VERSION,
+    expectedFactSchema: PERF_SCHEMA,
+    scoringRole: "EXPLAINABILITY_ONLY",
+    nullableOptional: true,
+    zeroEventSemantics: "Structured provenance explains UNAVAILABLE without fabricating score.",
+    knownLimitations: ["Must never invent ranking facts."],
+    outputMetricOrExplanationField: "explanation.limitations / metrics.provenance",
+  }),
+];
+
+export function getFeatureRegistryV2(): {
+  version: typeof FEATURE_REGISTRY_V2_VERSION;
+  features: EvidenceAuditFeatureRegistryEntry[];
+} {
+  return {
+    version: FEATURE_REGISTRY_V2_VERSION,
+    features: [
+      ...SURVIVAL_FEATURE_REGISTRY,
+      ...UTILITY_FEATURE_REGISTRY,
+      ...PERFORMANCE_FEATURE_REGISTRY,
+    ],
+  };
+}
+
+export function featuresForDimension(
+  dimension: "PERFORMANCE" | "SURVIVAL" | "UTILITY",
+): EvidenceAuditFeatureRegistryEntry[] {
+  return getFeatureRegistryV2().features.filter((f) => f.dimension === dimension);
+}

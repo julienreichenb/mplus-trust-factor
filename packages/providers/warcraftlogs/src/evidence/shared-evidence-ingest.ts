@@ -271,6 +271,8 @@ async function ingestSharedEvidenceBundleInner(
       maxPages,
       pageLimit,
       region: input.region,
+      startTime: input.startTime,
+      endTime: input.endTime,
     });
     await input.store.saveDataset(compatibilityKey, fetched.dataset, {
       reportCode: input.reportCode,

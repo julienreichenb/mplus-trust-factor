@@ -1,5 +1,5 @@
 import type { AbilityRule } from "../../types.js";
-import { ALL_ROLES, rule } from "../rule.js";
+import { ALL_ROLES, rule, performanceCooldownRule } from "../rule.js";
 
 /**
  * Racials are optional for scoring. Included with SHARED availability so scorers
@@ -23,14 +23,19 @@ export const SHARED_RACIAL_RULES: AbilityRule[] = [
     canonicalKey: "shared.racial.fireblood",
     name: "Fireblood",
     spellIds: [265221],
+    activationBuffIds: [265221],
     classSlug: null,
     roles: ALL_ROLES,
     category: "DISPEL",
+    dimensionTags: ["UTILITY_DISPEL", "PERFORMANCE_OFFENSIVE_COOLDOWN"],
+    activationEventTypes: ["begincast", "cast", "applybuff"],
+    activationSource: "PLAYER_CAST",
     availability: "SHARED",
     sharedAcrossSpecs: true,
     cooldownSeconds: 120,
     supportCertainty: "uncertain",
-    notes: "Dark Iron Dwarf racial — scoring may ignore racials unless explicitly enabled.",
+    notes:
+      "Dark Iron Dwarf racial — dual-use dispel + offensive secondary stat; scoring may ignore racials unless explicitly enabled.",
   }),
   rule({
     canonicalKey: "shared.racial.escape-artist",
@@ -58,4 +63,45 @@ export const SHARED_RACIAL_RULES: AbilityRule[] = [
     supportCertainty: "uncertain",
     notes: "Night Elf racial — Utility V2 mechanic-avoidance domain when enabled.",
   }),
+
+  // Performance offensive cooldowns (canonical AbilityRule entries).
+    performanceCooldownRule({
+      canonicalKey: "shared.racial.offensive.blood-fury",
+      name: "Blood Fury",
+      spellIds: [20572],
+      aliases: [33697, 33702],
+      activationBuffIds: [20572, 33697, 33702],
+      classSlug: null,
+      roles: ALL_ROLES,
+      category: "OFFENSIVE_MINOR",
+      availability: "SHARED",
+      sharedAcrossSpecs: true,
+      cooldownSeconds: 120,
+      notes: "Orc racial AP/SP — optional Performance input.",
+    }),
+    performanceCooldownRule({
+      canonicalKey: "shared.racial.offensive.berserking",
+      name: "Berserking",
+      spellIds: [26297],
+      activationBuffIds: [26297],
+      classSlug: null,
+      roles: ALL_ROLES,
+      category: "OFFENSIVE_MINOR",
+      availability: "SHARED",
+      sharedAcrossSpecs: true,
+      cooldownSeconds: 180,
+      notes: "Troll racial haste — optional Performance input.",
+    }),
+    performanceCooldownRule({
+      canonicalKey: "shared.racial.offensive.ancestral-call",
+      name: "Ancestral Call",
+      spellIds: [274738],
+      classSlug: null,
+      roles: ALL_ROLES,
+      category: "OFFENSIVE_MINOR",
+      availability: "SHARED",
+      sharedAcrossSpecs: true,
+      cooldownSeconds: 120,
+      notes: "Mag'har Orc racial — optional Performance input.",
+    }),
 ];

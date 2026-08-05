@@ -2,10 +2,21 @@ export {
   ArtifactRepository,
   ArtifactMissingError,
   ArtifactDigestMismatchError,
+  ArtifactPayloadMissingError,
+  ArtifactLegacyExternalPayloadMissingError,
+  createArtifactRepository,
   type ArtifactOwnerType,
   type PersistArtifactInput,
   type ArtifactRepositoryTx,
+  type ArtifactRepositoryOptions,
+  type ArtifactPayloadReadability,
 } from "./artifact-repository.js";
+export {
+  PostgresArtifactStore,
+  createPostgresArtifactStore,
+  isPostgresStorageUri,
+  isCasStorageUri,
+} from "../stores/postgres-artifact-store.js";
 export {
   EvidenceRepository,
   dimensionComputationContentMatches,

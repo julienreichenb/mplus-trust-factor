@@ -734,3 +734,38 @@ export type {
   FinalizeShadowDimensionsInput,
   FinalizeShadowDimensionsResult,
 } from "./dimensions/v2/index.js";
+
+/** Scoring V2 evidence persistence + feature-lineage audit (provider-free). */
+export {
+  EXPECTED_EVENT_DATASETS,
+  datasetKindFromPersistedKey,
+  persistedKeyForDatasetKind,
+  normalizePersistedDatasetKey,
+  SURVIVAL_FEATURE_REGISTRY,
+  UTILITY_FEATURE_REGISTRY,
+  PERFORMANCE_FEATURE_REGISTRY,
+  getFeatureRegistryV2,
+  featuresForDimension,
+  buildSurvivalFeatureUsage,
+  buildUtilityFeatureUsage,
+  buildPerformanceFeatureUsage,
+  featureUsageFromMetrics,
+  buildScoringV2EvidenceAudit,
+  fingerprintExplanationMetrics,
+  identityValidFactSets,
+  replayScoringV2Dimensions,
+} from "./audit/index.js";
+export type {
+  PersistedDatasetKey,
+  ExpectedEventDatasetSpec,
+  FeatureUsageBuildResult,
+  BuildScoringV2EvidenceAuditInput,
+  AuditDatasetInput,
+  AuditDatasetPageInput,
+  AuditFactSetInput,
+  AuditDimensionInput,
+  AuditMasterDataInput,
+  AuditManifestSlotRow,
+  ReplayScoringV2DimensionsInput,
+  ReplayPersistedDimension,
+} from "./audit/index.js";

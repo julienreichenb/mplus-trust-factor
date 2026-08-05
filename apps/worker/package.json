@@ -32,10 +32,10 @@
     "@mplus/scoring": "workspace:*",
     "@mplus/test-utils": "workspace:*",
     "bullmq": "^5.56.4",
-    "ioredis": "^5.6.1"
+    "ioredis": "^5.6.1",
+    "tsx": "^4.20.3"
   },
   "devDependencies": {
-    "tsx": "^4.20.3",
     "typescript": "^5.8.3",
     "vitest": "^3.2.4"
   }

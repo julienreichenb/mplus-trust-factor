@@ -69,6 +69,8 @@ export interface CreateEvidenceDatasetPageInput {
   /** Deterministic actor/filter scope — defaults to unscoped. */
   scopeFingerprint?: string;
   eventCount?: number;
+  /** When true, upsert replaces artifact pointers for an existing page identity. */
+  replaceArtifactOnConflict?: boolean;
 }
 
 export class WclSourceRepository {
@@ -333,6 +335,14 @@ export class WclSourceRepository {
       update: {
         // Immutable page identity — only attach datasetId if previously null.
         datasetId: input.datasetId ?? undefined,
+        ...(input.replaceArtifactOnConflict
+          ? {
+              artifactId: input.artifactId,
+              contentHash: input.contentHash,
+              eventCount: input.eventCount ?? 0,
+              pageCursor: input.pageCursor ?? null,
+            }
+          : {}),
       },
     });
   }

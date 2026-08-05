@@ -1,0 +1,35 @@
+{
+  "generatedAt": "2026-08-05T12:00:00.000Z",
+  "gameVersion": "12.0.0",
+  "catalogVersion": "12.0.0/midnight-season-1",
+  "snapshots": [
+    {
+      "adapterId": "blizzard-playable-class-spec-matrix",
+      "kind": "BLIZZARD_GAME_DATA",
+      "licenseNote": "Blizzard Game Data API ToS — curated matrix snapshot only; no client binary redistribution.",
+      "mayProposeClassification": false,
+      "candidateCount": 40
+    },
+    {
+      "adapterId": "project-canonical-catalog",
+      "kind": "EXISTING_CATALOG",
+      "licenseNote": "First-party curated catalog — canonical ownership stays in packages/abilities.",
+      "mayProposeClassification": true,
+      "candidateCount": 113
+    },
+    {
+      "adapterId": "wcl-unmatched-ability-summary",
+      "kind": "WCL_OBSERVED",
+      "licenseNote": "Warcraft Logs observed spell IDs from persisted evidence — validation source only.",
+      "mayProposeClassification": false,
+      "candidateCount": 0
+    },
+    {
+      "adapterId": "simc-spelldata-advisory",
+      "kind": "SIMC_ADVISORY",
+      "licenseNote": "SimulationCraft (typically GPLv3) — advisory generated spell/cooldown lists only; no SimC sources vendored.",
+      "mayProposeClassification": false,
+      "candidateCount": 0
+    }
+  ]
+}

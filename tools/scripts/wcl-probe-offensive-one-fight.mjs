@@ -1,0 +1,25 @@
+#!/usr/bin/env node
+/**
+ * Provider-free WCL offensive cooldown one-fight probe (default: persisted evidence).
+ *
+ * Usage:
+ *   pnpm wcl:probe:offensive-one-fight
+ *   pnpm wcl:probe:offensive-one-fight -- --live
+ */
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import { dirname, resolve } from "node:path";
+
+const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+const workerRoot = resolve(root, "apps/worker");
+const probeTs = "src/wcl-offensive-one-fight-probe.ts";
+const argv = process.argv.slice(2);
+const quote = (value) => `"${String(value).replace(/"/g, '\\"')}"`;
+const cmd = ["pnpm", "exec", "tsx", quote(probeTs), ...argv.map(quote)].join(" ");
+const result = spawnSync(cmd, {
+  cwd: workerRoot,
+  env: process.env,
+  stdio: "inherit",
+  shell: true,
+});
+process.exit(result.status ?? 1);

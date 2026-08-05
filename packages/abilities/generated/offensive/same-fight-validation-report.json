@@ -1,0 +1,131 @@
+{
+  "schemaVersion": "same-fight-offensive-validation-v1",
+  "fight": {
+    "reportCode": "1WKcCz2BnAQmbhfq",
+    "fightId": 1,
+    "reportRevision": 1
+  },
+  "abilityCatalogVersion": "12.0.0/midnight-season-1",
+  "providerCallsDuringReload": 0,
+  "fillersExcludedProof": {
+    "shadowBoltSpellId": 686,
+    "azureStrikeSpellId": 362969,
+    "note": "Fillers are not in PERFORMANCE_OFFENSIVE_COOLDOWN catalog; digest tests assert unmatched/ignored."
+  },
+  "participants": [
+    {
+      "characterName": "Wallidrixe",
+      "classSlug": "warlock",
+      "specSlug": "demonology",
+      "reviewedCatalogEntryCount": 5,
+      "rawRetainedEventCount": 3,
+      "deduplicatedActivationCount": 2,
+      "canonicalCooldownCount": 2,
+      "retainedCanonicalAbilities": [
+        {
+          "canonicalKey": "warlock.offensive.demonic-tyrant",
+          "canonicalName": "Summon Demonic Tyrant",
+          "spellIds": [
+            265187
+          ],
+          "activationCount": 1
+        },
+        {
+          "canonicalKey": "warlock.offensive.grimoire-felguard",
+          "canonicalName": "Grimoire: Felguard",
+          "spellIds": [
+            111898
+          ],
+          "activationCount": 1
+        }
+      ],
+      "coverageStatus": "ACTIVATIONS_OBSERVED",
+      "note": "Synthetic timeline for catalog enrichment proof. Prefer persisted evidence via wcl:probe:offensive-one-fight when DATABASE_URL is configured."
+    },
+    {
+      "characterName": "Evoker",
+      "classSlug": "evoker",
+      "specSlug": "devastation",
+      "reviewedCatalogEntryCount": 5,
+      "rawRetainedEventCount": 2,
+      "deduplicatedActivationCount": 1,
+      "canonicalCooldownCount": 1,
+      "retainedCanonicalAbilities": [
+        {
+          "canonicalKey": "evoker.offensive.dragonrage",
+          "canonicalName": "Dragonrage",
+          "spellIds": [
+            375087
+          ],
+          "activationCount": 1
+        }
+      ],
+      "coverageStatus": "ACTIVATIONS_OBSERVED",
+      "note": "Synthetic timeline for catalog enrichment proof. Prefer persisted evidence via wcl:probe:offensive-one-fight when DATABASE_URL is configured."
+    },
+    {
+      "characterName": "Monk",
+      "classSlug": "monk",
+      "specSlug": "windwalker",
+      "reviewedCatalogEntryCount": 4,
+      "rawRetainedEventCount": 2,
+      "deduplicatedActivationCount": 1,
+      "canonicalCooldownCount": 1,
+      "retainedCanonicalAbilities": [
+        {
+          "canonicalKey": "monk.offensive.storm-earth-and-fire",
+          "canonicalName": "Storm, Earth, and Fire",
+          "spellIds": [
+            137639
+          ],
+          "activationCount": 1
+        }
+      ],
+      "coverageStatus": "ACTIVATIONS_OBSERVED",
+      "note": "Synthetic timeline for catalog enrichment proof. Prefer persisted evidence via wcl:probe:offensive-one-fight when DATABASE_URL is configured."
+    },
+    {
+      "characterName": "Druid",
+      "classSlug": "druid",
+      "specSlug": "balance",
+      "reviewedCatalogEntryCount": 6,
+      "rawRetainedEventCount": 1,
+      "deduplicatedActivationCount": 1,
+      "canonicalCooldownCount": 1,
+      "retainedCanonicalAbilities": [
+        {
+          "canonicalKey": "druid.offensive.celestial-alignment",
+          "canonicalName": "Celestial Alignment",
+          "spellIds": [
+            194223
+          ],
+          "activationCount": 1
+        }
+      ],
+      "coverageStatus": "ACTIVATIONS_OBSERVED",
+      "note": "Synthetic timeline for catalog enrichment proof. Prefer persisted evidence via wcl:probe:offensive-one-fight when DATABASE_URL is configured."
+    },
+    {
+      "characterName": "DeathKnight",
+      "classSlug": "death-knight",
+      "specSlug": "frost",
+      "reviewedCatalogEntryCount": 5,
+      "rawRetainedEventCount": 2,
+      "deduplicatedActivationCount": 1,
+      "canonicalCooldownCount": 1,
+      "retainedCanonicalAbilities": [
+        {
+          "canonicalKey": "death-knight.offensive.pillar-of-frost",
+          "canonicalName": "Pillar of Frost",
+          "spellIds": [
+            51271
+          ],
+          "activationCount": 1
+        }
+      ],
+      "coverageStatus": "ACTIVATIONS_OBSERVED",
+      "note": "Synthetic timeline for catalog enrichment proof. Prefer persisted evidence via wcl:probe:offensive-one-fight when DATABASE_URL is configured."
+    }
+  ],
+  "generatedAt": "2026-08-05T12:00:00.000Z"
+}

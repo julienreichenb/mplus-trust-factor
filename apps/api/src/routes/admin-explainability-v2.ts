@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from "fastify";
 import type { ApiContainer } from "../container.js";
 import { ExplainabilityV2Service } from "../services/explainability-v2-service.js";
 import { ScoringV2EvidenceExportService } from "../services/scoring-v2-evidence-export-service.js";
+import { ScoringV2EvidenceAuditService } from "../services/scoring-v2-evidence-audit-service.js";
 import { ScoringV2ShadowCanaryService, launchShadowCanaryBodySchema } from "../services/scoring-v2-shadow-canary-service.js";
 import { buildScoringV2Overview } from "../services/scoring-v2-overview-service.js";
 import {
@@ -70,6 +71,7 @@ async function resolveActorUserId(
 export function buildAdminExplainabilityV2Routes(container: ApiContainer): FastifyPluginAsync {
   const explain = new ExplainabilityV2Service(container);
   const exports = new ScoringV2EvidenceExportService(container);
+  const evidenceAudit = new ScoringV2EvidenceAuditService(container);
   const canaries = new ScoringV2ShadowCanaryService(container);
   const env = container.env;
 
@@ -220,6 +222,31 @@ export function buildAdminExplainabilityV2Routes(container: ApiContainer): Fasti
             limit?: number;
           };
           return explain.listManifests(q);
+        },
+      );
+
+      readApp.get(
+        "/api/v1/admin/scoring-v2/manifests/:manifestId/evidence-audit",
+        {
+          schema: {
+            tags: ["admin-explainability-v2"],
+            summary: "Provider-free evidence persistence and feature-lineage audit",
+            params: {
+              type: "object",
+              properties: { manifestId: { type: "string", format: "uuid" } },
+              required: ["manifestId"],
+            },
+            response: {
+              200: { type: "object", additionalProperties: true },
+              404: errorResponseSchema,
+              401: errorResponseSchema,
+              403: errorResponseSchema,
+            },
+          },
+        },
+        async (request) => {
+          const params = request.params as { manifestId: string };
+          return evidenceAudit.getEvidenceAudit(params.manifestId);
         },
       );
 

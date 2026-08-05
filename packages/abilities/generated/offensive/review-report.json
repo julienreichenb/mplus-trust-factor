@@ -1,0 +1,6152 @@
+{
+  "schemaVersion": "offensive-review-report-v1",
+  "gameVersion": "12.0.0",
+  "catalogVersion": "12.0.0/midnight-season-1",
+  "generatedAt": "2026-08-05T12:00:00.000Z",
+  "reviewedCanonicalKeys": [
+    "death-knight.offensive.abomination-limb",
+    "death-knight.offensive.apocalypse",
+    "death-knight.offensive.army-of-the-dead",
+    "death-knight.offensive.bonestorm",
+    "death-knight.offensive.breath-of-sindragosa",
+    "death-knight.offensive.dancing-rune-weapon",
+    "death-knight.offensive.dark-transformation",
+    "death-knight.offensive.empower-rune-weapon",
+    "death-knight.offensive.frostwyrms-fury",
+    "death-knight.offensive.pillar-of-frost",
+    "death-knight.offensive.summon-gargoyle",
+    "death-knight.offensive.unholy-assault",
+    "demon-hunter.offensive.essence-break",
+    "demon-hunter.offensive.eye-beam",
+    "demon-hunter.offensive.fel-devastation",
+    "demon-hunter.offensive.metamorphosis-havoc",
+    "demon-hunter.offensive.metamorphosis-vengeance",
+    "demon-hunter.offensive.soul-carver",
+    "demon-hunter.offensive.the-hunt",
+    "demon-hunter.offensive.void-metamorphosis",
+    "druid.offensive.berserk-feral",
+    "druid.offensive.celestial-alignment",
+    "druid.offensive.convoke-the-spirits",
+    "druid.offensive.force-of-nature",
+    "druid.offensive.fury-of-elune",
+    "druid.offensive.incarnation-avatar-of-ashamane",
+    "druid.offensive.incarnation-chosen-of-elune",
+    "druid.offensive.incarnation-guardian-of-ursoc",
+    "druid.offensive.natures-vigil",
+    "druid.offensive.rage-of-the-sleeper",
+    "druid.offensive.tigers-fury",
+    "evoker.offensive.breath-of-eons",
+    "evoker.offensive.deep-breath",
+    "evoker.offensive.dragonrage",
+    "evoker.offensive.eternity-surge",
+    "evoker.offensive.fire-breath",
+    "evoker.offensive.time-skip",
+    "evoker.offensive.tip-the-scales",
+    "hunter.offensive.bestial-wrath",
+    "hunter.offensive.bloodshed",
+    "hunter.offensive.call-of-the-wild",
+    "hunter.offensive.coordinated-assault",
+    "hunter.offensive.fury-of-the-eagle",
+    "hunter.offensive.spearhead",
+    "hunter.offensive.trueshot",
+    "hunter.offensive.volley",
+    "mage.offensive.arcane-surge",
+    "mage.offensive.combustion",
+    "mage.offensive.comet-storm",
+    "mage.offensive.frozen-orb",
+    "mage.offensive.icy-veins",
+    "mage.offensive.ray-of-frost",
+    "mage.offensive.shifting-power",
+    "mage.offensive.touch-of-the-magi",
+    "monk.offensive.exploding-keg",
+    "monk.offensive.invoke-chiji",
+    "monk.offensive.invoke-niuzao",
+    "monk.offensive.invoke-xuen",
+    "monk.offensive.invoke-yulon",
+    "monk.offensive.storm-earth-and-fire",
+    "monk.offensive.strike-of-the-windlord",
+    "monk.offensive.weapons-of-order",
+    "paladin.offensive.avenging-crusader",
+    "paladin.offensive.avenging-wrath",
+    "paladin.offensive.crusade",
+    "paladin.offensive.divine-toll",
+    "paladin.offensive.execution-sentence",
+    "paladin.offensive.final-reckoning",
+    "paladin.offensive.wake-of-ashes",
+    "priest.group-utility.power-infusion",
+    "priest.offensive.dark-ascension",
+    "priest.offensive.halo",
+    "priest.offensive.mindbender",
+    "priest.offensive.shadowfiend",
+    "priest.offensive.void-eruption",
+    "priest.offensive.void-torrent",
+    "rogue.offensive.adrenaline-rush",
+    "rogue.offensive.blade-flurry",
+    "rogue.offensive.deathmark",
+    "rogue.offensive.keep-it-rolling",
+    "rogue.offensive.kingsbane",
+    "rogue.offensive.secret-technique",
+    "rogue.offensive.shadow-blades",
+    "rogue.offensive.shadow-dance",
+    "rogue.offensive.vanish",
+    "shaman.offensive.ascendance-elemental",
+    "shaman.offensive.ascendance-enhancement",
+    "shaman.offensive.doom-winds",
+    "shaman.offensive.feral-spirit",
+    "shaman.offensive.fire-elemental",
+    "shaman.offensive.primordial-wave",
+    "shaman.offensive.stormkeeper",
+    "shared.racial.fireblood",
+    "shared.racial.offensive.ancestral-call",
+    "shared.racial.offensive.berserking",
+    "shared.racial.offensive.blood-fury",
+    "warlock.offensive.demonic-strength",
+    "warlock.offensive.demonic-tyrant",
+    "warlock.offensive.grimoire-felguard",
+    "warlock.offensive.guillotine",
+    "warlock.offensive.malevolence",
+    "warlock.offensive.nether-portal",
+    "warlock.offensive.phantom-singularity",
+    "warlock.offensive.ritual-of-ruin",
+    "warlock.offensive.summon-darkglare",
+    "warlock.offensive.summon-infernal",
+    "warrior.offensive.avatar",
+    "warrior.offensive.bladestorm",
+    "warrior.offensive.colossus-smash",
+    "warrior.offensive.demolish",
+    "warrior.offensive.odyns-fury",
+    "warrior.offensive.ravager",
+    "warrior.offensive.recklessness",
+    "warrior.offensive.thunderous-roar"
+  ],
+  "newCandidates": [],
+  "matchedExisting": [
+    {
+      "proposedCanonicalKey": "death-knight.offensive.abomination-limb",
+      "canonicalName": "Abomination Limb",
+      "primarySpellId": 383269,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        383269
+      ],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "death-knight",
+      "allowedSpecSlugs": [],
+      "allowedRoleSlugs": [
+        "TANK",
+        "DPS"
+      ],
+      "cooldownCategory": "MAJOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 120,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified",
+        "notes": "Class talent offensive grip/damage window."
+      },
+      "notes": [
+        "Class talent offensive grip/damage window."
+      ],
+      "matchedCanonicalKey": "death-knight.offensive.abomination-limb"
+    },
+    {
+      "proposedCanonicalKey": "death-knight.offensive.apocalypse",
+      "canonicalName": "Apocalypse",
+      "primarySpellId": 275699,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        275699
+      ],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "death-knight",
+      "allowedSpecSlugs": [
+        "unholy"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": "MAJOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 90,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified"
+      },
+      "notes": [],
+      "matchedCanonicalKey": "death-knight.offensive.apocalypse"
+    },
+    {
+      "proposedCanonicalKey": "death-knight.offensive.army-of-the-dead",
+      "canonicalName": "Army of the Dead",
+      "primarySpellId": 42650,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        42650
+      ],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "death-knight",
+      "allowedSpecSlugs": [
+        "unholy"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": "MAJOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 180,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified",
+        "notes": "Major Unholy summon window; pet damage attributed to owner."
+      },
+      "notes": [
+        "Major Unholy summon window; pet damage attributed to owner."
+      ],
+      "matchedCanonicalKey": "death-knight.offensive.army-of-the-dead"
+    },
+    {
+      "proposedCanonicalKey": "death-knight.offensive.bonestorm",
+      "canonicalName": "Bonestorm",
+      "primarySpellId": 194844,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        194844
+      ],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "death-knight",
+      "allowedSpecSlugs": [
+        "blood"
+      ],
+      "allowedRoleSlugs": [
+        "TANK"
+      ],
+      "cooldownCategory": "MINOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 60,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified"
+      },
+      "notes": [],
+      "matchedCanonicalKey": "death-knight.offensive.bonestorm"
+    },
+    {
+      "proposedCanonicalKey": "death-knight.offensive.breath-of-sindragosa",
+      "canonicalName": "Breath of Sindragosa",
+      "primarySpellId": 152279,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        152279
+      ],
+      "activationBuffIds": [
+        152279
+      ],
+      "triggeredEffectIds": [],
+      "classSlug": "death-knight",
+      "allowedSpecSlugs": [
+        "frost"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": "MAJOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 120,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified"
+      },
+      "notes": [],
+      "matchedCanonicalKey": "death-knight.offensive.breath-of-sindragosa"
+    },
+    {
+      "proposedCanonicalKey": "death-knight.offensive.dancing-rune-weapon",
+      "canonicalName": "Dancing Rune Weapon",
+      "primarySpellId": 49028,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        49028
+      ],
+      "activationBuffIds": [
+        81256
+      ],
+      "triggeredEffectIds": [],
+      "classSlug": "death-knight",
+      "allowedSpecSlugs": [
+        "blood"
+      ],
+      "allowedRoleSlugs": [
+        "TANK"
+      ],
+      "cooldownCategory": "MAJOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 120,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified",
+        "notes": "Blood major offensive + defensive hybrid; retained as Performance CD."
+      },
+      "notes": [
+        "Blood major offensive + defensive hybrid; retained as Performance CD."
+      ],
+      "matchedCanonicalKey": "death-knight.offensive.dancing-rune-weapon"
+    },
+    {
+      "proposedCanonicalKey": "death-knight.offensive.dark-transformation",
+      "canonicalName": "Dark Transformation",
+      "primarySpellId": 63560,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        63560
+      ],
+      "activationBuffIds": [
+        63560
+      ],
+      "triggeredEffectIds": [],
+      "classSlug": "death-knight",
+      "allowedSpecSlugs": [
+        "unholy"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": "MAJOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 60,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified"
+      },
+      "notes": [],
+      "matchedCanonicalKey": "death-knight.offensive.dark-transformation"
+    },
+    {
+      "proposedCanonicalKey": "death-knight.offensive.empower-rune-weapon",
+      "canonicalName": "Empower Rune Weapon",
+      "primarySpellId": 47568,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        47568
+      ],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "death-knight",
+      "allowedSpecSlugs": [
+        "frost"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": "MAJOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 120,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified"
+      },
+      "notes": [],
+      "matchedCanonicalKey": "death-knight.offensive.empower-rune-weapon"
+    },
+    {
+      "proposedCanonicalKey": "death-knight.offensive.frostwyrms-fury",
+      "canonicalName": "Frostwyrm's Fury",
+      "primarySpellId": 279302,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        279302
+      ],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "death-knight",
+      "allowedSpecSlugs": [
+        "frost"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": "MAJOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 90,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified"
+      },
+      "notes": [],
+      "matchedCanonicalKey": "death-knight.offensive.frostwyrms-fury"
+    },
+    {
+      "proposedCanonicalKey": "death-knight.offensive.pillar-of-frost",
+      "canonicalName": "Pillar of Frost",
+      "primarySpellId": 51271,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        51271
+      ],
+      "activationBuffIds": [
+        51271
+      ],
+      "triggeredEffectIds": [],
+      "classSlug": "death-knight",
+      "allowedSpecSlugs": [
+        "frost"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": "MAJOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 60,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified"
+      },
+      "notes": [],
+      "matchedCanonicalKey": "death-knight.offensive.pillar-of-frost"
+    },
+    {
+      "proposedCanonicalKey": "death-knight.offensive.summon-gargoyle",
+      "canonicalName": "Summon Gargoyle",
+      "primarySpellId": 49206,
+      "aliasSpellIds": [
+        207349
+      ],
+      "activationSpellIds": [
+        49206
+      ],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "death-knight",
+      "allowedSpecSlugs": [
+        "unholy"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": "MAJOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 180,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified",
+        "notes": "Includes Dark Arbiter talent replacement alias when observed."
+      },
+      "notes": [
+        "Includes Dark Arbiter talent replacement alias when observed."
+      ],
+      "matchedCanonicalKey": "death-knight.offensive.summon-gargoyle"
+    },
+    {
+      "proposedCanonicalKey": "death-knight.offensive.unholy-assault",
+      "canonicalName": "Unholy Assault",
+      "primarySpellId": 207289,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        207289
+      ],
+      "activationBuffIds": [
+        207289
+      ],
+      "triggeredEffectIds": [],
+      "classSlug": "death-knight",
+      "allowedSpecSlugs": [
+        "unholy"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": "MAJOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 90,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified"
+      },
+      "notes": [],
+      "matchedCanonicalKey": "death-knight.offensive.unholy-assault"
+    },
+    {
+      "proposedCanonicalKey": "demon-hunter.offensive.essence-break",
+      "canonicalName": "Essence Break",
+      "primarySpellId": 258860,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        258860
+      ],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "demon-hunter",
+      "allowedSpecSlugs": [
+        "havoc"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": "MINOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 40,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified"
+      },
+      "notes": [],
+      "matchedCanonicalKey": "demon-hunter.offensive.essence-break"
+    },
+    {
+      "proposedCanonicalKey": "demon-hunter.offensive.eye-beam",
+      "canonicalName": "Eye Beam",
+      "primarySpellId": 198013,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        198013
+      ],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "demon-hunter",
+      "allowedSpecSlugs": [
+        "havoc"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": "MINOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 40,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified",
+        "notes": "Havoc burst channel; treated as minor offensive CD (not filler)."
+      },
+      "notes": [
+        "Havoc burst channel; treated as minor offensive CD (not filler)."
+      ],
+      "matchedCanonicalKey": "demon-hunter.offensive.eye-beam"
+    },
+    {
+      "proposedCanonicalKey": "demon-hunter.offensive.fel-devastation",
+      "canonicalName": "Fel Devastation",
+      "primarySpellId": 212084,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        212084
+      ],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "demon-hunter",
+      "allowedSpecSlugs": [
+        "vengeance"
+      ],
+      "allowedRoleSlugs": [
+        "TANK"
+      ],
+      "cooldownCategory": "MAJOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 60,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified"
+      },
+      "notes": [],
+      "matchedCanonicalKey": "demon-hunter.offensive.fel-devastation"
+    },
+    {
+      "proposedCanonicalKey": "demon-hunter.offensive.metamorphosis-havoc",
+      "canonicalName": "Metamorphosis",
+      "primarySpellId": 191427,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        191427
+      ],
+      "activationBuffIds": [
+        162264
+      ],
+      "triggeredEffectIds": [],
+      "classSlug": "demon-hunter",
+      "allowedSpecSlugs": [
+        "havoc"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": "MAJOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 240,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified"
+      },
+      "notes": [],
+      "matchedCanonicalKey": "demon-hunter.offensive.metamorphosis-havoc"
+    },
+    {
+      "proposedCanonicalKey": "demon-hunter.offensive.metamorphosis-vengeance",
+      "canonicalName": "Metamorphosis",
+      "primarySpellId": 187827,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        187827
+      ],
+      "activationBuffIds": [
+        187827
+      ],
+      "triggeredEffectIds": [],
+      "classSlug": "demon-hunter",
+      "allowedSpecSlugs": [
+        "vengeance"
+      ],
+      "allowedRoleSlugs": [
+        "TANK"
+      ],
+      "cooldownCategory": "MAJOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 240,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified",
+        "notes": "Vengeance meta — hybrid defensive/offensive; retained for damage window."
+      },
+      "notes": [
+        "Vengeance meta — hybrid defensive/offensive; retained for damage window."
+      ],
+      "matchedCanonicalKey": "demon-hunter.offensive.metamorphosis-vengeance"
+    },
+    {
+      "proposedCanonicalKey": "demon-hunter.offensive.soul-carver",
+      "canonicalName": "Soul Carver",
+      "primarySpellId": 207407,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        207407
+      ],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "demon-hunter",
+      "allowedSpecSlugs": [
+        "vengeance"
+      ],
+      "allowedRoleSlugs": [
+        "TANK"
+      ],
+      "cooldownCategory": "MINOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 60,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified"
+      },
+      "notes": [],
+      "matchedCanonicalKey": "demon-hunter.offensive.soul-carver"
+    },
+    {
+      "proposedCanonicalKey": "demon-hunter.offensive.the-hunt",
+      "canonicalName": "The Hunt",
+      "primarySpellId": 370965,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        370965
+      ],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "demon-hunter",
+      "allowedSpecSlugs": [],
+      "allowedRoleSlugs": [
+        "DPS",
+        "TANK"
+      ],
+      "cooldownCategory": "MAJOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 90,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified",
+        "notes": "Class talent — applies to Havoc, Vengeance, and Devourer."
+      },
+      "notes": [
+        "Class talent — applies to Havoc, Vengeance, and Devourer."
+      ],
+      "matchedCanonicalKey": "demon-hunter.offensive.the-hunt"
+    },
+    {
+      "proposedCanonicalKey": "demon-hunter.offensive.void-metamorphosis",
+      "canonicalName": "Void Metamorphosis",
+      "primarySpellId": 471306,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        471306
+      ],
+      "activationBuffIds": [
+        471306
+      ],
+      "triggeredEffectIds": [],
+      "classSlug": "demon-hunter",
+      "allowedSpecSlugs": [
+        "devourer"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": "MAJOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": null,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified",
+        "notes": "Devourer primary offensive transformation (resource-gated, not a fixed timer). Spell id from Blizzard/SimC advisory cross-check."
+      },
+      "notes": [
+        "Devourer primary offensive transformation (resource-gated, not a fixed timer). Spell id from Blizzard/SimC advisory cross-check."
+      ],
+      "matchedCanonicalKey": "demon-hunter.offensive.void-metamorphosis"
+    },
+    {
+      "proposedCanonicalKey": "druid.offensive.berserk-feral",
+      "canonicalName": "Berserk",
+      "primarySpellId": 106951,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        106951
+      ],
+      "activationBuffIds": [
+        106951
+      ],
+      "triggeredEffectIds": [],
+      "classSlug": "druid",
+      "allowedSpecSlugs": [
+        "feral"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": "MAJOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 180,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified"
+      },
+      "notes": [],
+      "matchedCanonicalKey": "druid.offensive.berserk-feral"
+    },
+    {
+      "proposedCanonicalKey": "druid.offensive.celestial-alignment",
+      "canonicalName": "Celestial Alignment",
+      "primarySpellId": 194223,
+      "aliasSpellIds": [
+        383410
+      ],
+      "activationSpellIds": [
+        194223
+      ],
+      "activationBuffIds": [
+        194223,
+        383410
+      ],
+      "triggeredEffectIds": [],
+      "classSlug": "druid",
+      "allowedSpecSlugs": [
+        "balance"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": "MAJOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 180,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified",
+        "notes": "Alias covers Orbital Strike / alignment variants observed in WCL."
+      },
+      "notes": [
+        "Alias covers Orbital Strike / alignment variants observed in WCL."
+      ],
+      "matchedCanonicalKey": "druid.offensive.celestial-alignment"
+    },
+    {
+      "proposedCanonicalKey": "druid.offensive.convoke-the-spirits",
+      "canonicalName": "Convoke the Spirits",
+      "primarySpellId": 391528,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        391528
+      ],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "druid",
+      "allowedSpecSlugs": [],
+      "allowedRoleSlugs": [
+        "DPS",
+        "TANK",
+        "HEALER"
+      ],
+      "cooldownCategory": "MAJOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 120,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified"
+      },
+      "notes": [],
+      "matchedCanonicalKey": "druid.offensive.convoke-the-spirits"
+    },
+    {
+      "proposedCanonicalKey": "druid.offensive.force-of-nature",
+      "canonicalName": "Force of Nature",
+      "primarySpellId": 205636,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        205636
+      ],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "druid",
+      "allowedSpecSlugs": [
+        "balance"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": "MINOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 60,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified"
+      },
+      "notes": [],
+      "matchedCanonicalKey": "druid.offensive.force-of-nature"
+    },
+    {
+      "proposedCanonicalKey": "druid.offensive.fury-of-elune",
+      "canonicalName": "Fury of Elune",
+      "primarySpellId": 202770,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        202770
+      ],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "druid",
+      "allowedSpecSlugs": [
+        "balance"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": "MINOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 60,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified"
+      },
+      "notes": [],
+      "matchedCanonicalKey": "druid.offensive.fury-of-elune"
+    },
+    {
+      "proposedCanonicalKey": "druid.offensive.incarnation-avatar-of-ashamane",
+      "canonicalName": "Incarnation: Avatar of Ashamane",
+      "primarySpellId": 102543,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        102543
+      ],
+      "activationBuffIds": [
+        102543
+      ],
+      "triggeredEffectIds": [],
+      "classSlug": "druid",
+      "allowedSpecSlugs": [
+        "feral"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": "MAJOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 180,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified"
+      },
+      "notes": [],
+      "matchedCanonicalKey": "druid.offensive.incarnation-avatar-of-ashamane"
+    },
+    {
+      "proposedCanonicalKey": "druid.offensive.incarnation-chosen-of-elune",
+      "canonicalName": "Incarnation: Chosen of Elune",
+      "primarySpellId": 102560,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        102560
+      ],
+      "activationBuffIds": [
+        102560
+      ],
+      "triggeredEffectIds": [],
+      "classSlug": "druid",
+      "allowedSpecSlugs": [
+        "balance"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": "MAJOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 180,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified"
+      },
+      "notes": [],
+      "matchedCanonicalKey": "druid.offensive.incarnation-chosen-of-elune"
+    },
+    {
+      "proposedCanonicalKey": "druid.offensive.incarnation-guardian-of-ursoc",
+      "canonicalName": "Incarnation: Guardian of Ursoc",
+      "primarySpellId": 102558,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        102558
+      ],
+      "activationBuffIds": [
+        102558
+      ],
+      "triggeredEffectIds": [],
+      "classSlug": "druid",
+      "allowedSpecSlugs": [
+        "guardian"
+      ],
+      "allowedRoleSlugs": [
+        "TANK"
+      ],
+      "cooldownCategory": "MAJOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 180,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified"
+      },
+      "notes": [],
+      "matchedCanonicalKey": "druid.offensive.incarnation-guardian-of-ursoc"
+    },
+    {
+      "proposedCanonicalKey": "druid.offensive.natures-vigil",
+      "canonicalName": "Nature's Vigil",
+      "primarySpellId": 124974,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        124974
+      ],
+      "activationBuffIds": [
+        124974
+      ],
+      "triggeredEffectIds": [],
+      "classSlug": "druid",
+      "allowedSpecSlugs": [],
+      "allowedRoleSlugs": [
+        "DPS",
+        "HEALER"
+      ],
+      "cooldownCategory": "MINOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 90,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified",
+        "notes": "Converts healing/damage; offensive throughput window for DPS and hybrid use."
+      },
+      "notes": [
+        "Converts healing/damage; offensive throughput window for DPS and hybrid use."
+      ],
+      "matchedCanonicalKey": "druid.offensive.natures-vigil"
+    },
+    {
+      "proposedCanonicalKey": "druid.offensive.rage-of-the-sleeper",
+      "canonicalName": "Rage of the Sleeper",
+      "primarySpellId": 200851,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        200851
+      ],
+      "activationBuffIds": [
+        200851
+      ],
+      "triggeredEffectIds": [],
+      "classSlug": "druid",
+      "allowedSpecSlugs": [
+        "guardian"
+      ],
+      "allowedRoleSlugs": [
+        "TANK"
+      ],
+      "cooldownCategory": "MAJOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 90,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified"
+      },
+      "notes": [],
+      "matchedCanonicalKey": "druid.offensive.rage-of-the-sleeper"
+    },
+    {
+      "proposedCanonicalKey": "druid.offensive.tigers-fury",
+      "canonicalName": "Tiger's Fury",
+      "primarySpellId": 5217,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        5217
+      ],
+      "activationBuffIds": [
+        5217
+      ],
+      "triggeredEffectIds": [],
+      "classSlug": "druid",
+      "allowedSpecSlugs": [
+        "feral"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": "MINOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 30,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified"
+      },
+      "notes": [],
+      "matchedCanonicalKey": "druid.offensive.tigers-fury"
+    },
+    {
+      "proposedCanonicalKey": "evoker.offensive.breath-of-eons",
+      "canonicalName": "Breath of Eons",
+      "primarySpellId": 403631,
+      "aliasSpellIds": [
+        442204
+      ],
+      "activationSpellIds": [
+        403631
+      ],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "evoker",
+      "allowedSpecSlugs": [
+        "augmentation"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": "MAJOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 120,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified"
+      },
+      "notes": [],
+      "matchedCanonicalKey": "evoker.offensive.breath-of-eons"
+    },
+    {
+      "proposedCanonicalKey": "evoker.offensive.deep-breath",
+      "canonicalName": "Deep Breath",
+      "primarySpellId": 357210,
+      "aliasSpellIds": [
+        433874
+      ],
+      "activationSpellIds": [
+        357210
+      ],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "evoker",
+      "allowedSpecSlugs": [],
+      "allowedRoleSlugs": [
+        "DPS",
+        "HEALER"
+      ],
+      "cooldownCategory": "MAJOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 120,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified",
+        "notes": "Class deep breath; Breath of Eons is Augmentation replacement."
+      },
+      "notes": [
+        "Class deep breath; Breath of Eons is Augmentation replacement."
+      ],
+      "matchedCanonicalKey": "evoker.offensive.deep-breath"
+    },
+    {
+      "proposedCanonicalKey": "evoker.offensive.dragonrage",
+      "canonicalName": "Dragonrage",
+      "primarySpellId": 375087,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        375087
+      ],
+      "activationBuffIds": [
+        375087
+      ],
+      "triggeredEffectIds": [],
+      "classSlug": "evoker",
+      "allowedSpecSlugs": [
+        "devastation"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": "MAJOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 120,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified"
+      },
+      "notes": [],
+      "matchedCanonicalKey": "evoker.offensive.dragonrage"
+    },
+    {
+      "proposedCanonicalKey": "evoker.offensive.eternity-surge",
+      "canonicalName": "Eternity Surge",
+      "primarySpellId": 359073,
+      "aliasSpellIds": [
+        382411
+      ],
+      "activationSpellIds": [
+        359073
+      ],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "evoker",
+      "allowedSpecSlugs": [
+        "devastation"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": "MINOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 30,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified",
+        "notes": "Empowered burst ability with cooldown — not a filler generator."
+      },
+      "notes": [
+        "Empowered burst ability with cooldown — not a filler generator."
+      ],
+      "matchedCanonicalKey": "evoker.offensive.eternity-surge"
+    },
+    {
+      "proposedCanonicalKey": "evoker.offensive.fire-breath",
+      "canonicalName": "Fire Breath",
+      "primarySpellId": 357208,
+      "aliasSpellIds": [
+        382266
+      ],
+      "activationSpellIds": [
+        357208
+      ],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "evoker",
+      "allowedSpecSlugs": [],
+      "allowedRoleSlugs": [
+        "DPS",
+        "HEALER"
+      ],
+      "cooldownCategory": "MINOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 30,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified",
+        "notes": "Empowered class breath on cooldown; retained as minor offensive CD."
+      },
+      "notes": [
+        "Empowered class breath on cooldown; retained as minor offensive CD."
+      ],
+      "matchedCanonicalKey": "evoker.offensive.fire-breath"
+    },
+    {
+      "proposedCanonicalKey": "evoker.offensive.time-skip",
+      "canonicalName": "Time Skip",
+      "primarySpellId": 404977,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        404977
+      ],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "evoker",
+      "allowedSpecSlugs": [
+        "augmentation"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": "MAJOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 180,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified"
+      },
+      "notes": [],
+      "matchedCanonicalKey": "evoker.offensive.time-skip"
+    },
+    {
+      "proposedCanonicalKey": "evoker.offensive.tip-the-scales",
+      "canonicalName": "Tip the Scales",
+      "primarySpellId": 370553,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        370553
+      ],
+      "activationBuffIds": [
+        370553
+      ],
+      "triggeredEffectIds": [],
+      "classSlug": "evoker",
+      "allowedSpecSlugs": [],
+      "allowedRoleSlugs": [
+        "DPS",
+        "HEALER"
+      ],
+      "cooldownCategory": "MINOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 120,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified"
+      },
+      "notes": [],
+      "matchedCanonicalKey": "evoker.offensive.tip-the-scales"
+    },
+    {
+      "proposedCanonicalKey": "hunter.offensive.bestial-wrath",
+      "canonicalName": "Bestial Wrath",
+      "primarySpellId": 19574,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        19574
+      ],
+      "activationBuffIds": [
+        19574
+      ],
+      "triggeredEffectIds": [],
+      "classSlug": "hunter",
+      "allowedSpecSlugs": [
+        "beast-mastery"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": "MAJOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 90,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified"
+      },
+      "notes": [],
+      "matchedCanonicalKey": "hunter.offensive.bestial-wrath"
+    },
+    {
+      "proposedCanonicalKey": "hunter.offensive.bloodshed",
+      "canonicalName": "Bloodshed",
+      "primarySpellId": 321530,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        321530
+      ],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "hunter",
+      "allowedSpecSlugs": [
+        "beast-mastery"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": "MINOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 60,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified"
+      },
+      "notes": [],
+      "matchedCanonicalKey": "hunter.offensive.bloodshed"
+    },
+    {
+      "proposedCanonicalKey": "hunter.offensive.call-of-the-wild",
+      "canonicalName": "Call of the Wild",
+      "primarySpellId": 359844,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        359844
+      ],
+      "activationBuffIds": [
+        359844
+      ],
+      "triggeredEffectIds": [],
+      "classSlug": "hunter",
+      "allowedSpecSlugs": [
+        "beast-mastery"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": "MAJOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 120,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified"
+      },
+      "notes": [],
+      "matchedCanonicalKey": "hunter.offensive.call-of-the-wild"
+    },
+    {
+      "proposedCanonicalKey": "hunter.offensive.coordinated-assault",
+      "canonicalName": "Coordinated Assault",
+      "primarySpellId": 360952,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        360952
+      ],
+      "activationBuffIds": [
+        360952
+      ],
+      "triggeredEffectIds": [],
+      "classSlug": "hunter",
+      "allowedSpecSlugs": [
+        "survival"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": "MAJOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 120,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified"
+      },
+      "notes": [],
+      "matchedCanonicalKey": "hunter.offensive.coordinated-assault"
+    },
+    {
+      "proposedCanonicalKey": "hunter.offensive.fury-of-the-eagle",
+      "canonicalName": "Fury of the Eagle",
+      "primarySpellId": 203415,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        203415
+      ],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "hunter",
+      "allowedSpecSlugs": [
+        "survival"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": "MINOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 45,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified"
+      },
+      "notes": [],
+      "matchedCanonicalKey": "hunter.offensive.fury-of-the-eagle"
+    },
+    {
+      "proposedCanonicalKey": "hunter.offensive.spearhead",
+      "canonicalName": "Spearhead",
+      "primarySpellId": 360966,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        360966
+      ],
+      "activationBuffIds": [
+        360966
+      ],
+      "triggeredEffectIds": [],
+      "classSlug": "hunter",
+      "allowedSpecSlugs": [
+        "survival"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": "MAJOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 90,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified"
+      },
+      "notes": [],
+      "matchedCanonicalKey": "hunter.offensive.spearhead"
+    },
+    {
+      "proposedCanonicalKey": "hunter.offensive.trueshot",
+      "canonicalName": "Trueshot",
+      "primarySpellId": 288613,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        288613
+      ],
+      "activationBuffIds": [
+        288613
+      ],
+      "triggeredEffectIds": [],
+      "classSlug": "hunter",
+      "allowedSpecSlugs": [
+        "marksmanship"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": "MAJOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 120,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified"
+      },
+      "notes": [],
+      "matchedCanonicalKey": "hunter.offensive.trueshot"
+    },
+    {
+      "proposedCanonicalKey": "hunter.offensive.volley",
+      "canonicalName": "Volley",
+      "primarySpellId": 260243,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        260243
+      ],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "hunter",
+      "allowedSpecSlugs": [
+        "marksmanship"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": "MINOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 45,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified"
+      },
+      "notes": [],
+      "matchedCanonicalKey": "hunter.offensive.volley"
+    },
+    {
+      "proposedCanonicalKey": "mage.offensive.arcane-surge",
+      "canonicalName": "Arcane Surge",
+      "primarySpellId": 365350,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        365350
+      ],
+      "activationBuffIds": [
+        365362
+      ],
+      "triggeredEffectIds": [],
+      "classSlug": "mage",
+      "allowedSpecSlugs": [
+        "arcane"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": "MAJOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 90,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified"
+      },
+      "notes": [],
+      "matchedCanonicalKey": "mage.offensive.arcane-surge"
+    },
+    {
+      "proposedCanonicalKey": "mage.offensive.combustion",
+      "canonicalName": "Combustion",
+      "primarySpellId": 190319,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        190319
+      ],
+      "activationBuffIds": [
+        190319
+      ],
+      "triggeredEffectIds": [],
+      "classSlug": "mage",
+      "allowedSpecSlugs": [
+        "fire"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": "MAJOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 120,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified"
+      },
+      "notes": [],
+      "matchedCanonicalKey": "mage.offensive.combustion"
+    },
+    {
+      "proposedCanonicalKey": "mage.offensive.comet-storm",
+      "canonicalName": "Comet Storm",
+      "primarySpellId": 153595,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        153595
+      ],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "mage",
+      "allowedSpecSlugs": [
+        "frost"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": "MINOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 30,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified"
+      },
+      "notes": [],
+      "matchedCanonicalKey": "mage.offensive.comet-storm"
+    },
+    {
+      "proposedCanonicalKey": "mage.offensive.frozen-orb",
+      "canonicalName": "Frozen Orb",
+      "primarySpellId": 84714,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        84714
+      ],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "mage",
+      "allowedSpecSlugs": [
+        "frost"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": "MINOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 60,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified"
+      },
+      "notes": [],
+      "matchedCanonicalKey": "mage.offensive.frozen-orb"
+    },
+    {
+      "proposedCanonicalKey": "mage.offensive.icy-veins",
+      "canonicalName": "Icy Veins",
+      "primarySpellId": 12472,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        12472
+      ],
+      "activationBuffIds": [
+        12472
+      ],
+      "triggeredEffectIds": [],
+      "classSlug": "mage",
+      "allowedSpecSlugs": [
+        "frost"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": "MAJOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 120,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified"
+      },
+      "notes": [],
+      "matchedCanonicalKey": "mage.offensive.icy-veins"
+    },
+    {
+      "proposedCanonicalKey": "mage.offensive.ray-of-frost",
+      "canonicalName": "Ray of Frost",
+      "primarySpellId": 205021,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        205021
+      ],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "mage",
+      "allowedSpecSlugs": [
+        "frost"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": "MINOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 75,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified"
+      },
+      "notes": [],
+      "matchedCanonicalKey": "mage.offensive.ray-of-frost"
+    },
+    {
+      "proposedCanonicalKey": "mage.offensive.shifting-power",
+      "canonicalName": "Shifting Power",
+      "primarySpellId": 382440,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        382440
+      ],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "mage",
+      "allowedSpecSlugs": [],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": "MINOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 60,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified"
+      },
+      "notes": [],
+      "matchedCanonicalKey": "mage.offensive.shifting-power"
+    },
+    {
+      "proposedCanonicalKey": "mage.offensive.touch-of-the-magi",
+      "canonicalName": "Touch of the Magi",
+      "primarySpellId": 321507,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        321507
+      ],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "mage",
+      "allowedSpecSlugs": [
+        "arcane"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": "MINOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 45,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified"
+      },
+      "notes": [],
+      "matchedCanonicalKey": "mage.offensive.touch-of-the-magi"
+    },
+    {
+      "proposedCanonicalKey": "monk.offensive.exploding-keg",
+      "canonicalName": "Exploding Keg",
+      "primarySpellId": 325153,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        325153
+      ],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "monk",
+      "allowedSpecSlugs": [
+        "brewmaster"
+      ],
+      "allowedRoleSlugs": [
+        "TANK"
+      ],
+      "cooldownCategory": "MINOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 60,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified"
+      },
+      "notes": [],
+      "matchedCanonicalKey": "monk.offensive.exploding-keg"
+    },
+    {
+      "proposedCanonicalKey": "monk.offensive.invoke-chiji",
+      "canonicalName": "Invoke Chi-Ji, the Red Crane",
+      "primarySpellId": 325197,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        325197
+      ],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "monk",
+      "allowedSpecSlugs": [
+        "mistweaver"
+      ],
+      "allowedRoleSlugs": [
+        "HEALER"
+      ],
+      "cooldownCategory": "MAJOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 180,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified",
+        "notes": "Mistweaver celestial with damage component; Yu'lon is healing-primary alternative."
+      },
+      "notes": [
+        "Mistweaver celestial with damage component; Yu'lon is healing-primary alternative."
+      ],
+      "matchedCanonicalKey": "monk.offensive.invoke-chiji"
+    },
+    {
+      "proposedCanonicalKey": "monk.offensive.invoke-niuzao",
+      "canonicalName": "Invoke Niuzao, the Black Ox",
+      "primarySpellId": 132578,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        132578
+      ],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "monk",
+      "allowedSpecSlugs": [
+        "brewmaster"
+      ],
+      "allowedRoleSlugs": [
+        "TANK"
+      ],
+      "cooldownCategory": "MAJOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 180,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified"
+      },
+      "notes": [],
+      "matchedCanonicalKey": "monk.offensive.invoke-niuzao"
+    },
+    {
+      "proposedCanonicalKey": "monk.offensive.invoke-xuen",
+      "canonicalName": "Invoke Xuen, the White Tiger",
+      "primarySpellId": 123904,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        123904
+      ],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "monk",
+      "allowedSpecSlugs": [
+        "windwalker"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": "MAJOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 120,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified"
+      },
+      "notes": [],
+      "matchedCanonicalKey": "monk.offensive.invoke-xuen"
+    },
+    {
+      "proposedCanonicalKey": "monk.offensive.invoke-yulon",
+      "canonicalName": "Invoke Yu'lon, the Jade Serpent",
+      "primarySpellId": 322118,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        322118
+      ],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "monk",
+      "allowedSpecSlugs": [
+        "mistweaver"
+      ],
+      "allowedRoleSlugs": [
+        "HEALER"
+      ],
+      "cooldownCategory": "MAJOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 180,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified",
+        "notes": "Primarily healing celestial; retained so Mistweaver has reviewed coverage. Revisit if Performance excludes healer-only CDs."
+      },
+      "notes": [
+        "Primarily healing celestial; retained so Mistweaver has reviewed coverage. Revisit if Performance excludes healer-only CDs."
+      ],
+      "matchedCanonicalKey": "monk.offensive.invoke-yulon"
+    },
+    {
+      "proposedCanonicalKey": "monk.offensive.storm-earth-and-fire",
+      "canonicalName": "Storm, Earth, and Fire",
+      "primarySpellId": 137639,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        137639
+      ],
+      "activationBuffIds": [
+        137639
+      ],
+      "triggeredEffectIds": [],
+      "classSlug": "monk",
+      "allowedSpecSlugs": [
+        "windwalker"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": "MAJOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 90,
+      "charges": 2,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified"
+      },
+      "notes": [],
+      "matchedCanonicalKey": "monk.offensive.storm-earth-and-fire"
+    },
+    {
+      "proposedCanonicalKey": "monk.offensive.strike-of-the-windlord",
+      "canonicalName": "Strike of the Windlord",
+      "primarySpellId": 392983,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        392983
+      ],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "monk",
+      "allowedSpecSlugs": [
+        "windwalker"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": "MINOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 40,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified"
+      },
+      "notes": [],
+      "matchedCanonicalKey": "monk.offensive.strike-of-the-windlord"
+    },
+    {
+      "proposedCanonicalKey": "monk.offensive.weapons-of-order",
+      "canonicalName": "Weapons of Order",
+      "primarySpellId": 387184,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        387184
+      ],
+      "activationBuffIds": [
+        387184
+      ],
+      "triggeredEffectIds": [],
+      "classSlug": "monk",
+      "allowedSpecSlugs": [
+        "brewmaster",
+        "windwalker"
+      ],
+      "allowedRoleSlugs": [
+        "TANK",
+        "DPS"
+      ],
+      "cooldownCategory": "MAJOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 120,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified"
+      },
+      "notes": [],
+      "matchedCanonicalKey": "monk.offensive.weapons-of-order"
+    },
+    {
+      "proposedCanonicalKey": "paladin.offensive.avenging-crusader",
+      "canonicalName": "Avenging Crusader",
+      "primarySpellId": 216331,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        216331
+      ],
+      "activationBuffIds": [
+        216331
+      ],
+      "triggeredEffectIds": [],
+      "classSlug": "paladin",
+      "allowedSpecSlugs": [
+        "holy"
+      ],
+      "allowedRoleSlugs": [
+        "HEALER"
+      ],
+      "cooldownCategory": "MAJOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 60,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified"
+      },
+      "notes": [],
+      "matchedCanonicalKey": "paladin.offensive.avenging-crusader"
+    },
+    {
+      "proposedCanonicalKey": "paladin.offensive.avenging-wrath",
+      "canonicalName": "Avenging Wrath",
+      "primarySpellId": 31884,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        31884
+      ],
+      "activationBuffIds": [
+        31884
+      ],
+      "triggeredEffectIds": [],
+      "classSlug": "paladin",
+      "allowedSpecSlugs": [],
+      "allowedRoleSlugs": [
+        "DPS",
+        "TANK",
+        "HEALER"
+      ],
+      "cooldownCategory": "MAJOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 120,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified"
+      },
+      "notes": [],
+      "matchedCanonicalKey": "paladin.offensive.avenging-wrath"
+    },
+    {
+      "proposedCanonicalKey": "paladin.offensive.crusade",
+      "canonicalName": "Crusade",
+      "primarySpellId": 231895,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        231895
+      ],
+      "activationBuffIds": [
+        231895
+      ],
+      "triggeredEffectIds": [],
+      "classSlug": "paladin",
+      "allowedSpecSlugs": [
+        "retribution"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": "MAJOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 120,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified"
+      },
+      "notes": [],
+      "matchedCanonicalKey": "paladin.offensive.crusade"
+    },
+    {
+      "proposedCanonicalKey": "paladin.offensive.divine-toll",
+      "canonicalName": "Divine Toll",
+      "primarySpellId": 375576,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        375576
+      ],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "paladin",
+      "allowedSpecSlugs": [],
+      "allowedRoleSlugs": [
+        "DPS",
+        "TANK",
+        "HEALER"
+      ],
+      "cooldownCategory": "MINOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 60,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified"
+      },
+      "notes": [],
+      "matchedCanonicalKey": "paladin.offensive.divine-toll"
+    },
+    {
+      "proposedCanonicalKey": "paladin.offensive.execution-sentence",
+      "canonicalName": "Execution Sentence",
+      "primarySpellId": 343527,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        343527
+      ],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "paladin",
+      "allowedSpecSlugs": [
+        "retribution"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": "MINOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 60,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified"
+      },
+      "notes": [],
+      "matchedCanonicalKey": "paladin.offensive.execution-sentence"
+    },
+    {
+      "proposedCanonicalKey": "paladin.offensive.final-reckoning",
+      "canonicalName": "Final Reckoning",
+      "primarySpellId": 343721,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        343721
+      ],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "paladin",
+      "allowedSpecSlugs": [
+        "retribution"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": "MAJOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 60,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified"
+      },
+      "notes": [],
+      "matchedCanonicalKey": "paladin.offensive.final-reckoning"
+    },
+    {
+      "proposedCanonicalKey": "paladin.offensive.wake-of-ashes",
+      "canonicalName": "Wake of Ashes",
+      "primarySpellId": 255937,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        255937
+      ],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "paladin",
+      "allowedSpecSlugs": [
+        "retribution"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": "MINOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 30,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified"
+      },
+      "notes": [],
+      "matchedCanonicalKey": "paladin.offensive.wake-of-ashes"
+    },
+    {
+      "proposedCanonicalKey": "priest.group-utility.power-infusion",
+      "canonicalName": "Power Infusion",
+      "primarySpellId": 10060,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        10060
+      ],
+      "activationBuffIds": [
+        10060
+      ],
+      "triggeredEffectIds": [],
+      "classSlug": "priest",
+      "allowedSpecSlugs": [],
+      "allowedRoleSlugs": [
+        "HEALER",
+        "DPS"
+      ],
+      "cooldownCategory": "EXTERNAL_OFFENSIVE",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 120,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified",
+        "notes": "External offensive — retain caster and recipient attribution in digests."
+      },
+      "notes": [
+        "External offensive — retain caster and recipient attribution in digests."
+      ],
+      "matchedCanonicalKey": "priest.group-utility.power-infusion"
+    },
+    {
+      "proposedCanonicalKey": "priest.offensive.dark-ascension",
+      "canonicalName": "Dark Ascension",
+      "primarySpellId": 391109,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        391109
+      ],
+      "activationBuffIds": [
+        391109
+      ],
+      "triggeredEffectIds": [],
+      "classSlug": "priest",
+      "allowedSpecSlugs": [
+        "shadow"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": "MAJOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 60,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified"
+      },
+      "notes": [],
+      "matchedCanonicalKey": "priest.offensive.dark-ascension"
+    },
+    {
+      "proposedCanonicalKey": "priest.offensive.halo",
+      "canonicalName": "Halo",
+      "primarySpellId": 120517,
+      "aliasSpellIds": [
+        120644
+      ],
+      "activationSpellIds": [
+        120517
+      ],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "priest",
+      "allowedSpecSlugs": [],
+      "allowedRoleSlugs": [
+        "DPS",
+        "HEALER"
+      ],
+      "cooldownCategory": "MINOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 60,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified"
+      },
+      "notes": [],
+      "matchedCanonicalKey": "priest.offensive.halo"
+    },
+    {
+      "proposedCanonicalKey": "priest.offensive.mindbender",
+      "canonicalName": "Mindbender",
+      "primarySpellId": 123040,
+      "aliasSpellIds": [
+        200174
+      ],
+      "activationSpellIds": [
+        123040
+      ],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "priest",
+      "allowedSpecSlugs": [],
+      "allowedRoleSlugs": [
+        "DPS",
+        "HEALER"
+      ],
+      "cooldownCategory": "MAJOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 60,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified"
+      },
+      "notes": [],
+      "matchedCanonicalKey": "priest.offensive.mindbender"
+    },
+    {
+      "proposedCanonicalKey": "priest.offensive.shadowfiend",
+      "canonicalName": "Shadowfiend",
+      "primarySpellId": 34433,
+      "aliasSpellIds": [
+        451235
+      ],
+      "activationSpellIds": [
+        34433
+      ],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "priest",
+      "allowedSpecSlugs": [],
+      "allowedRoleSlugs": [
+        "DPS",
+        "HEALER"
+      ],
+      "cooldownCategory": "MAJOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 180,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified"
+      },
+      "notes": [],
+      "matchedCanonicalKey": "priest.offensive.shadowfiend"
+    },
+    {
+      "proposedCanonicalKey": "priest.offensive.void-eruption",
+      "canonicalName": "Void Eruption",
+      "primarySpellId": 228260,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        228260
+      ],
+      "activationBuffIds": [
+        194249
+      ],
+      "triggeredEffectIds": [],
+      "classSlug": "priest",
+      "allowedSpecSlugs": [
+        "shadow"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": "MAJOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 120,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified",
+        "notes": "Enters Voidform; buff 194249 is the same activation window."
+      },
+      "notes": [
+        "Enters Voidform; buff 194249 is the same activation window."
+      ],
+      "matchedCanonicalKey": "priest.offensive.void-eruption"
+    },
+    {
+      "proposedCanonicalKey": "priest.offensive.void-torrent",
+      "canonicalName": "Void Torrent",
+      "primarySpellId": 263165,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        263165
+      ],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "priest",
+      "allowedSpecSlugs": [
+        "shadow"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": "MINOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 45,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified"
+      },
+      "notes": [],
+      "matchedCanonicalKey": "priest.offensive.void-torrent"
+    },
+    {
+      "proposedCanonicalKey": "rogue.offensive.adrenaline-rush",
+      "canonicalName": "Adrenaline Rush",
+      "primarySpellId": 13750,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        13750
+      ],
+      "activationBuffIds": [
+        13750
+      ],
+      "triggeredEffectIds": [],
+      "classSlug": "rogue",
+      "allowedSpecSlugs": [
+        "outlaw"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": "MAJOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 180,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified"
+      },
+      "notes": [],
+      "matchedCanonicalKey": "rogue.offensive.adrenaline-rush"
+    },
+    {
+      "proposedCanonicalKey": "rogue.offensive.blade-flurry",
+      "canonicalName": "Blade Flurry",
+      "primarySpellId": 13877,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        13877
+      ],
+      "activationBuffIds": [
+        13877
+      ],
+      "triggeredEffectIds": [],
+      "classSlug": "rogue",
+      "allowedSpecSlugs": [
+        "outlaw"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": "MINOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 30,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified"
+      },
+      "notes": [],
+      "matchedCanonicalKey": "rogue.offensive.blade-flurry"
+    },
+    {
+      "proposedCanonicalKey": "rogue.offensive.deathmark",
+      "canonicalName": "Deathmark",
+      "primarySpellId": 360194,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        360194
+      ],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "rogue",
+      "allowedSpecSlugs": [
+        "assassination"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": "MAJOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 120,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified"
+      },
+      "notes": [],
+      "matchedCanonicalKey": "rogue.offensive.deathmark"
+    },
+    {
+      "proposedCanonicalKey": "rogue.offensive.keep-it-rolling",
+      "canonicalName": "Keep It Rolling",
+      "primarySpellId": 381989,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        381989
+      ],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "rogue",
+      "allowedSpecSlugs": [
+        "outlaw"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": "MAJOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 360,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified"
+      },
+      "notes": [],
+      "matchedCanonicalKey": "rogue.offensive.keep-it-rolling"
+    },
+    {
+      "proposedCanonicalKey": "rogue.offensive.kingsbane",
+      "canonicalName": "Kingsbane",
+      "primarySpellId": 385627,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        385627
+      ],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "rogue",
+      "allowedSpecSlugs": [
+        "assassination"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": "MAJOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 60,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified"
+      },
+      "notes": [],
+      "matchedCanonicalKey": "rogue.offensive.kingsbane"
+    },
+    {
+      "proposedCanonicalKey": "rogue.offensive.secret-technique",
+      "canonicalName": "Secret Technique",
+      "primarySpellId": 280719,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        280719
+      ],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "rogue",
+      "allowedSpecSlugs": [
+        "subtlety"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": "MINOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 45,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified"
+      },
+      "notes": [],
+      "matchedCanonicalKey": "rogue.offensive.secret-technique"
+    },
+    {
+      "proposedCanonicalKey": "rogue.offensive.shadow-blades",
+      "canonicalName": "Shadow Blades",
+      "primarySpellId": 121471,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        121471
+      ],
+      "activationBuffIds": [
+        121471
+      ],
+      "triggeredEffectIds": [],
+      "classSlug": "rogue",
+      "allowedSpecSlugs": [
+        "subtlety"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": "MAJOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 120,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified"
+      },
+      "notes": [],
+      "matchedCanonicalKey": "rogue.offensive.shadow-blades"
+    },
+    {
+      "proposedCanonicalKey": "rogue.offensive.shadow-dance",
+      "canonicalName": "Shadow Dance",
+      "primarySpellId": 185313,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        185313
+      ],
+      "activationBuffIds": [
+        185422
+      ],
+      "triggeredEffectIds": [],
+      "classSlug": "rogue",
+      "allowedSpecSlugs": [
+        "subtlety"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": "MAJOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 60,
+      "charges": 2,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified"
+      },
+      "notes": [],
+      "matchedCanonicalKey": "rogue.offensive.shadow-dance"
+    },
+    {
+      "proposedCanonicalKey": "rogue.offensive.vanish",
+      "canonicalName": "Vanish",
+      "primarySpellId": 1856,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        1856
+      ],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "rogue",
+      "allowedSpecSlugs": [],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": "MINOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 120,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified",
+        "notes": "Offensive opener tool for Subtlety/Assassination; not primarily defensive here."
+      },
+      "notes": [
+        "Offensive opener tool for Subtlety/Assassination; not primarily defensive here."
+      ],
+      "matchedCanonicalKey": "rogue.offensive.vanish"
+    },
+    {
+      "proposedCanonicalKey": "shaman.offensive.ascendance-elemental",
+      "canonicalName": "Ascendance",
+      "primarySpellId": 114050,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        114050
+      ],
+      "activationBuffIds": [
+        114050
+      ],
+      "triggeredEffectIds": [],
+      "classSlug": "shaman",
+      "allowedSpecSlugs": [
+        "elemental"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": "MAJOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 180,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified"
+      },
+      "notes": [],
+      "matchedCanonicalKey": "shaman.offensive.ascendance-elemental"
+    },
+    {
+      "proposedCanonicalKey": "shaman.offensive.ascendance-enhancement",
+      "canonicalName": "Ascendance",
+      "primarySpellId": 114051,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        114051
+      ],
+      "activationBuffIds": [
+        114051
+      ],
+      "triggeredEffectIds": [],
+      "classSlug": "shaman",
+      "allowedSpecSlugs": [
+        "enhancement"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": "MAJOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 180,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified"
+      },
+      "notes": [],
+      "matchedCanonicalKey": "shaman.offensive.ascendance-enhancement"
+    },
+    {
+      "proposedCanonicalKey": "shaman.offensive.doom-winds",
+      "canonicalName": "Doom Winds",
+      "primarySpellId": 384352,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        384352
+      ],
+      "activationBuffIds": [
+        384352
+      ],
+      "triggeredEffectIds": [],
+      "classSlug": "shaman",
+      "allowedSpecSlugs": [
+        "enhancement"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": "MINOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 60,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified"
+      },
+      "notes": [],
+      "matchedCanonicalKey": "shaman.offensive.doom-winds"
+    },
+    {
+      "proposedCanonicalKey": "shaman.offensive.feral-spirit",
+      "canonicalName": "Feral Spirit",
+      "primarySpellId": 51533,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        51533
+      ],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "shaman",
+      "allowedSpecSlugs": [
+        "enhancement"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": "MAJOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 90,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified"
+      },
+      "notes": [],
+      "matchedCanonicalKey": "shaman.offensive.feral-spirit"
+    },
+    {
+      "proposedCanonicalKey": "shaman.offensive.fire-elemental",
+      "canonicalName": "Fire Elemental",
+      "primarySpellId": 198067,
+      "aliasSpellIds": [
+        192249
+      ],
+      "activationSpellIds": [
+        198067
+      ],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "shaman",
+      "allowedSpecSlugs": [
+        "elemental"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": "MAJOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 150,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified",
+        "notes": "Storm Elemental is the talent replacement alias."
+      },
+      "notes": [
+        "Storm Elemental is the talent replacement alias."
+      ],
+      "matchedCanonicalKey": "shaman.offensive.fire-elemental"
+    },
+    {
+      "proposedCanonicalKey": "shaman.offensive.primordial-wave",
+      "canonicalName": "Primordial Wave",
+      "primarySpellId": 375982,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        375982
+      ],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "shaman",
+      "allowedSpecSlugs": [
+        "elemental",
+        "enhancement"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": "MINOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 30,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified"
+      },
+      "notes": [],
+      "matchedCanonicalKey": "shaman.offensive.primordial-wave"
+    },
+    {
+      "proposedCanonicalKey": "shaman.offensive.stormkeeper",
+      "canonicalName": "Stormkeeper",
+      "primarySpellId": 191634,
+      "aliasSpellIds": [
+        383009
+      ],
+      "activationSpellIds": [
+        191634
+      ],
+      "activationBuffIds": [
+        191634,
+        383009
+      ],
+      "triggeredEffectIds": [],
+      "classSlug": "shaman",
+      "allowedSpecSlugs": [
+        "elemental",
+        "enhancement"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": "MAJOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 60,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified"
+      },
+      "notes": [],
+      "matchedCanonicalKey": "shaman.offensive.stormkeeper"
+    },
+    {
+      "proposedCanonicalKey": "shared.racial.fireblood",
+      "canonicalName": "Fireblood",
+      "primarySpellId": 265221,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        265221
+      ],
+      "activationBuffIds": [
+        265221
+      ],
+      "triggeredEffectIds": [],
+      "classSlug": null,
+      "allowedSpecSlugs": [],
+      "allowedRoleSlugs": [
+        "DPS",
+        "TANK",
+        "HEALER"
+      ],
+      "cooldownCategory": "RACIAL",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 120,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "uncertain",
+        "notes": "Dark Iron Dwarf racial — dual-use dispel + offensive secondary stat; scoring may ignore racials unless explicitly enabled."
+      },
+      "notes": [
+        "Dark Iron Dwarf racial — dual-use dispel + offensive secondary stat; scoring may ignore racials unless explicitly enabled."
+      ],
+      "matchedCanonicalKey": "shared.racial.fireblood"
+    },
+    {
+      "proposedCanonicalKey": "shared.racial.offensive.ancestral-call",
+      "canonicalName": "Ancestral Call",
+      "primarySpellId": 274738,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        274738
+      ],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": null,
+      "allowedSpecSlugs": [],
+      "allowedRoleSlugs": [
+        "DPS",
+        "TANK",
+        "HEALER"
+      ],
+      "cooldownCategory": "RACIAL",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 120,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified",
+        "notes": "Mag'har Orc racial — optional Performance input."
+      },
+      "notes": [
+        "Mag'har Orc racial — optional Performance input."
+      ],
+      "matchedCanonicalKey": "shared.racial.offensive.ancestral-call"
+    },
+    {
+      "proposedCanonicalKey": "shared.racial.offensive.berserking",
+      "canonicalName": "Berserking",
+      "primarySpellId": 26297,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        26297
+      ],
+      "activationBuffIds": [
+        26297
+      ],
+      "triggeredEffectIds": [],
+      "classSlug": null,
+      "allowedSpecSlugs": [],
+      "allowedRoleSlugs": [
+        "DPS",
+        "TANK",
+        "HEALER"
+      ],
+      "cooldownCategory": "RACIAL",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 180,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified",
+        "notes": "Troll racial haste — optional Performance input."
+      },
+      "notes": [
+        "Troll racial haste — optional Performance input."
+      ],
+      "matchedCanonicalKey": "shared.racial.offensive.berserking"
+    },
+    {
+      "proposedCanonicalKey": "shared.racial.offensive.blood-fury",
+      "canonicalName": "Blood Fury",
+      "primarySpellId": 20572,
+      "aliasSpellIds": [
+        33697,
+        33702
+      ],
+      "activationSpellIds": [
+        20572
+      ],
+      "activationBuffIds": [
+        20572,
+        33697,
+        33702
+      ],
+      "triggeredEffectIds": [],
+      "classSlug": null,
+      "allowedSpecSlugs": [],
+      "allowedRoleSlugs": [
+        "DPS",
+        "TANK",
+        "HEALER"
+      ],
+      "cooldownCategory": "RACIAL",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 120,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified",
+        "notes": "Orc racial AP/SP — optional Performance input."
+      },
+      "notes": [
+        "Orc racial AP/SP — optional Performance input."
+      ],
+      "matchedCanonicalKey": "shared.racial.offensive.blood-fury"
+    },
+    {
+      "proposedCanonicalKey": "warlock.offensive.demonic-strength",
+      "canonicalName": "Demonic Strength",
+      "primarySpellId": 267171,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        267171
+      ],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "warlock",
+      "allowedSpecSlugs": [
+        "demonology"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": "MINOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 60,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified"
+      },
+      "notes": [],
+      "matchedCanonicalKey": "warlock.offensive.demonic-strength"
+    },
+    {
+      "proposedCanonicalKey": "warlock.offensive.demonic-tyrant",
+      "canonicalName": "Summon Demonic Tyrant",
+      "primarySpellId": 265187,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        265187
+      ],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "warlock",
+      "allowedSpecSlugs": [
+        "demonology"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": "MAJOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 60,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified",
+        "notes": "Primary Demo offensive cooldown; canonical key preserved from spike catalog."
+      },
+      "notes": [
+        "Primary Demo offensive cooldown; canonical key preserved from spike catalog."
+      ],
+      "matchedCanonicalKey": "warlock.offensive.demonic-tyrant"
+    },
+    {
+      "proposedCanonicalKey": "warlock.offensive.grimoire-felguard",
+      "canonicalName": "Grimoire: Felguard",
+      "primarySpellId": 111898,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        111898
+      ],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "warlock",
+      "allowedSpecSlugs": [
+        "demonology"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": "MAJOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 120,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified"
+      },
+      "notes": [],
+      "matchedCanonicalKey": "warlock.offensive.grimoire-felguard"
+    },
+    {
+      "proposedCanonicalKey": "warlock.offensive.guillotine",
+      "canonicalName": "Guillotine",
+      "primarySpellId": 386833,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        386833
+      ],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "warlock",
+      "allowedSpecSlugs": [
+        "demonology"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": "MINOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 45,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified"
+      },
+      "notes": [],
+      "matchedCanonicalKey": "warlock.offensive.guillotine"
+    },
+    {
+      "proposedCanonicalKey": "warlock.offensive.malevolence",
+      "canonicalName": "Malevolence",
+      "primarySpellId": 442726,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        442726
+      ],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "warlock",
+      "allowedSpecSlugs": [
+        "affliction"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": "MAJOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 60,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified",
+        "notes": "Hero-talent era Affliction CD — verify on next Blizzard talent snapshot."
+      },
+      "notes": [
+        "Hero-talent era Affliction CD — verify on next Blizzard talent snapshot."
+      ],
+      "matchedCanonicalKey": "warlock.offensive.malevolence"
+    },
+    {
+      "proposedCanonicalKey": "warlock.offensive.nether-portal",
+      "canonicalName": "Nether Portal",
+      "primarySpellId": 267217,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        267217
+      ],
+      "activationBuffIds": [
+        267218
+      ],
+      "triggeredEffectIds": [],
+      "classSlug": "warlock",
+      "allowedSpecSlugs": [
+        "demonology"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": "MAJOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 180,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified"
+      },
+      "notes": [],
+      "matchedCanonicalKey": "warlock.offensive.nether-portal"
+    },
+    {
+      "proposedCanonicalKey": "warlock.offensive.phantom-singularity",
+      "canonicalName": "Phantom Singularity",
+      "primarySpellId": 205179,
+      "aliasSpellIds": [
+        386997
+      ],
+      "activationSpellIds": [
+        205179
+      ],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "warlock",
+      "allowedSpecSlugs": [
+        "affliction"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": "MAJOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 45,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified",
+        "notes": "Soul Rot (386997) is the talent replacement path."
+      },
+      "notes": [
+        "Soul Rot (386997) is the talent replacement path."
+      ],
+      "matchedCanonicalKey": "warlock.offensive.phantom-singularity"
+    },
+    {
+      "proposedCanonicalKey": "warlock.offensive.ritual-of-ruin",
+      "canonicalName": "Dimensional Rift",
+      "primarySpellId": 387976,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        387976
+      ],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "warlock",
+      "allowedSpecSlugs": [
+        "destruction"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": "MINOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 45,
+      "charges": 3,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified"
+      },
+      "notes": [],
+      "matchedCanonicalKey": "warlock.offensive.ritual-of-ruin"
+    },
+    {
+      "proposedCanonicalKey": "warlock.offensive.summon-darkglare",
+      "canonicalName": "Summon Darkglare",
+      "primarySpellId": 205180,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        205180
+      ],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "warlock",
+      "allowedSpecSlugs": [
+        "affliction"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": "MAJOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 120,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified"
+      },
+      "notes": [],
+      "matchedCanonicalKey": "warlock.offensive.summon-darkglare"
+    },
+    {
+      "proposedCanonicalKey": "warlock.offensive.summon-infernal",
+      "canonicalName": "Summon Infernal",
+      "primarySpellId": 1122,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        1122
+      ],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "warlock",
+      "allowedSpecSlugs": [
+        "destruction"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": "MAJOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 180,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified"
+      },
+      "notes": [],
+      "matchedCanonicalKey": "warlock.offensive.summon-infernal"
+    },
+    {
+      "proposedCanonicalKey": "warrior.offensive.avatar",
+      "canonicalName": "Avatar",
+      "primarySpellId": 107574,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        107574
+      ],
+      "activationBuffIds": [
+        107574
+      ],
+      "triggeredEffectIds": [],
+      "classSlug": "warrior",
+      "allowedSpecSlugs": [],
+      "allowedRoleSlugs": [
+        "DPS",
+        "TANK"
+      ],
+      "cooldownCategory": "MAJOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 90,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified"
+      },
+      "notes": [],
+      "matchedCanonicalKey": "warrior.offensive.avatar"
+    },
+    {
+      "proposedCanonicalKey": "warrior.offensive.bladestorm",
+      "canonicalName": "Bladestorm",
+      "primarySpellId": 227847,
+      "aliasSpellIds": [
+        389774
+      ],
+      "activationSpellIds": [
+        227847
+      ],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "warrior",
+      "allowedSpecSlugs": [
+        "arms",
+        "fury"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": "MAJOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 90,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified"
+      },
+      "notes": [],
+      "matchedCanonicalKey": "warrior.offensive.bladestorm"
+    },
+    {
+      "proposedCanonicalKey": "warrior.offensive.colossus-smash",
+      "canonicalName": "Colossus Smash",
+      "primarySpellId": 167105,
+      "aliasSpellIds": [
+        262161
+      ],
+      "activationSpellIds": [
+        167105
+      ],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "warrior",
+      "allowedSpecSlugs": [
+        "arms"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": "MAJOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 90,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified",
+        "notes": "Warbreaker is the talent alias."
+      },
+      "notes": [
+        "Warbreaker is the talent alias."
+      ],
+      "matchedCanonicalKey": "warrior.offensive.colossus-smash"
+    },
+    {
+      "proposedCanonicalKey": "warrior.offensive.demolish",
+      "canonicalName": "Demolish",
+      "primarySpellId": 436358,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        436358
+      ],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "warrior",
+      "allowedSpecSlugs": [],
+      "allowedRoleSlugs": [
+        "DPS",
+        "TANK"
+      ],
+      "cooldownCategory": "MAJOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 45,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified",
+        "notes": "Colossus hero-talent CD — verify against next talent-tree snapshot."
+      },
+      "notes": [
+        "Colossus hero-talent CD — verify against next talent-tree snapshot."
+      ],
+      "matchedCanonicalKey": "warrior.offensive.demolish"
+    },
+    {
+      "proposedCanonicalKey": "warrior.offensive.odyns-fury",
+      "canonicalName": "Odyn's Fury",
+      "primarySpellId": 385059,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        385059
+      ],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "warrior",
+      "allowedSpecSlugs": [
+        "fury"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": "MINOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 45,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified"
+      },
+      "notes": [],
+      "matchedCanonicalKey": "warrior.offensive.odyns-fury"
+    },
+    {
+      "proposedCanonicalKey": "warrior.offensive.ravager",
+      "canonicalName": "Ravager",
+      "primarySpellId": 228920,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        228920
+      ],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "warrior",
+      "allowedSpecSlugs": [],
+      "allowedRoleSlugs": [
+        "DPS",
+        "TANK"
+      ],
+      "cooldownCategory": "MAJOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 90,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified"
+      },
+      "notes": [],
+      "matchedCanonicalKey": "warrior.offensive.ravager"
+    },
+    {
+      "proposedCanonicalKey": "warrior.offensive.recklessness",
+      "canonicalName": "Recklessness",
+      "primarySpellId": 1719,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        1719
+      ],
+      "activationBuffIds": [
+        1719
+      ],
+      "triggeredEffectIds": [],
+      "classSlug": "warrior",
+      "allowedSpecSlugs": [
+        "fury"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": "MAJOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 90,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified"
+      },
+      "notes": [],
+      "matchedCanonicalKey": "warrior.offensive.recklessness"
+    },
+    {
+      "proposedCanonicalKey": "warrior.offensive.thunderous-roar",
+      "canonicalName": "Thunderous Roar",
+      "primarySpellId": 384318,
+      "aliasSpellIds": [],
+      "activationSpellIds": [
+        384318
+      ],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "warrior",
+      "allowedSpecSlugs": [],
+      "allowedRoleSlugs": [
+        "DPS",
+        "TANK"
+      ],
+      "cooldownCategory": "MINOR",
+      "activationEventTypes": [
+        "begincast",
+        "cast",
+        "applybuff"
+      ],
+      "activationSource": "PLAYER_CAST",
+      "expectedCooldownSeconds": 90,
+      "charges": null,
+      "classificationConfidence": 1,
+      "reviewStatus": "REVIEWED",
+      "provenance": {
+        "source": "CURATED_OVERRIDE",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "certainty": "verified"
+      },
+      "notes": [],
+      "matchedCanonicalKey": "warrior.offensive.thunderous-roar"
+    }
+  ],
+  "coverageSeeds": [
+    {
+      "proposedCanonicalKey": "death-knight.offensive._spec-coverage-seed.blood",
+      "canonicalName": "Death Knight Blood offensive coverage seed",
+      "primarySpellId": 0,
+      "aliasSpellIds": [],
+      "activationSpellIds": [],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "death-knight",
+      "allowedSpecSlugs": [
+        "blood"
+      ],
+      "allowedRoleSlugs": [
+        "TANK"
+      ],
+      "cooldownCategory": null,
+      "activationEventTypes": [
+        "cast"
+      ],
+      "activationSource": null,
+      "expectedCooldownSeconds": null,
+      "charges": null,
+      "classificationConfidence": 0,
+      "reviewStatus": "CANDIDATE",
+      "provenance": {
+        "source": "BLIZZARD_API",
+        "sourceId": "playable-class:6/spec:250",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "notes": "Class/spec coverage seed from Blizzard playable indexes — not an ability.",
+        "certainty": "verified"
+      },
+      "notes": [
+        "Coverage seed only — ensures builder enumerates every playable specialization.",
+        "blizzardClassId=6",
+        "blizzardSpecId=250",
+        "classSupport=SUPPORTED"
+      ],
+      "matchedCanonicalKey": null
+    },
+    {
+      "proposedCanonicalKey": "death-knight.offensive._spec-coverage-seed.frost",
+      "canonicalName": "Death Knight Frost offensive coverage seed",
+      "primarySpellId": 0,
+      "aliasSpellIds": [],
+      "activationSpellIds": [],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "death-knight",
+      "allowedSpecSlugs": [
+        "frost"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": null,
+      "activationEventTypes": [
+        "cast"
+      ],
+      "activationSource": null,
+      "expectedCooldownSeconds": null,
+      "charges": null,
+      "classificationConfidence": 0,
+      "reviewStatus": "CANDIDATE",
+      "provenance": {
+        "source": "BLIZZARD_API",
+        "sourceId": "playable-class:6/spec:251",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "notes": "Class/spec coverage seed from Blizzard playable indexes — not an ability.",
+        "certainty": "verified"
+      },
+      "notes": [
+        "Coverage seed only — ensures builder enumerates every playable specialization.",
+        "blizzardClassId=6",
+        "blizzardSpecId=251",
+        "classSupport=SUPPORTED"
+      ],
+      "matchedCanonicalKey": null
+    },
+    {
+      "proposedCanonicalKey": "death-knight.offensive._spec-coverage-seed.unholy",
+      "canonicalName": "Death Knight Unholy offensive coverage seed",
+      "primarySpellId": 0,
+      "aliasSpellIds": [],
+      "activationSpellIds": [],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "death-knight",
+      "allowedSpecSlugs": [
+        "unholy"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": null,
+      "activationEventTypes": [
+        "cast"
+      ],
+      "activationSource": null,
+      "expectedCooldownSeconds": null,
+      "charges": null,
+      "classificationConfidence": 0,
+      "reviewStatus": "CANDIDATE",
+      "provenance": {
+        "source": "BLIZZARD_API",
+        "sourceId": "playable-class:6/spec:252",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "notes": "Class/spec coverage seed from Blizzard playable indexes — not an ability.",
+        "certainty": "verified"
+      },
+      "notes": [
+        "Coverage seed only — ensures builder enumerates every playable specialization.",
+        "blizzardClassId=6",
+        "blizzardSpecId=252",
+        "classSupport=SUPPORTED"
+      ],
+      "matchedCanonicalKey": null
+    },
+    {
+      "proposedCanonicalKey": "demon-hunter.offensive._spec-coverage-seed.devourer",
+      "canonicalName": "Demon Hunter Devourer offensive coverage seed",
+      "primarySpellId": 0,
+      "aliasSpellIds": [],
+      "activationSpellIds": [],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "demon-hunter",
+      "allowedSpecSlugs": [
+        "devourer"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": null,
+      "activationEventTypes": [
+        "cast"
+      ],
+      "activationSource": null,
+      "expectedCooldownSeconds": null,
+      "charges": null,
+      "classificationConfidence": 0,
+      "reviewStatus": "CANDIDATE",
+      "provenance": {
+        "source": "BLIZZARD_API",
+        "sourceId": "playable-class:12/spec:1480",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "notes": "Class/spec coverage seed from Blizzard playable indexes — not an ability.",
+        "certainty": "verified"
+      },
+      "notes": [
+        "Coverage seed only — ensures builder enumerates every playable specialization.",
+        "blizzardClassId=12",
+        "blizzardSpecId=1480",
+        "classSupport=UNCERTAIN"
+      ],
+      "matchedCanonicalKey": null
+    },
+    {
+      "proposedCanonicalKey": "demon-hunter.offensive._spec-coverage-seed.havoc",
+      "canonicalName": "Demon Hunter Havoc offensive coverage seed",
+      "primarySpellId": 0,
+      "aliasSpellIds": [],
+      "activationSpellIds": [],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "demon-hunter",
+      "allowedSpecSlugs": [
+        "havoc"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": null,
+      "activationEventTypes": [
+        "cast"
+      ],
+      "activationSource": null,
+      "expectedCooldownSeconds": null,
+      "charges": null,
+      "classificationConfidence": 0,
+      "reviewStatus": "CANDIDATE",
+      "provenance": {
+        "source": "BLIZZARD_API",
+        "sourceId": "playable-class:12/spec:577",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "notes": "Class/spec coverage seed from Blizzard playable indexes — not an ability.",
+        "certainty": "verified"
+      },
+      "notes": [
+        "Coverage seed only — ensures builder enumerates every playable specialization.",
+        "blizzardClassId=12",
+        "blizzardSpecId=577",
+        "classSupport=SUPPORTED"
+      ],
+      "matchedCanonicalKey": null
+    },
+    {
+      "proposedCanonicalKey": "demon-hunter.offensive._spec-coverage-seed.vengeance",
+      "canonicalName": "Demon Hunter Vengeance offensive coverage seed",
+      "primarySpellId": 0,
+      "aliasSpellIds": [],
+      "activationSpellIds": [],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "demon-hunter",
+      "allowedSpecSlugs": [
+        "vengeance"
+      ],
+      "allowedRoleSlugs": [
+        "TANK"
+      ],
+      "cooldownCategory": null,
+      "activationEventTypes": [
+        "cast"
+      ],
+      "activationSource": null,
+      "expectedCooldownSeconds": null,
+      "charges": null,
+      "classificationConfidence": 0,
+      "reviewStatus": "CANDIDATE",
+      "provenance": {
+        "source": "BLIZZARD_API",
+        "sourceId": "playable-class:12/spec:581",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "notes": "Class/spec coverage seed from Blizzard playable indexes — not an ability.",
+        "certainty": "verified"
+      },
+      "notes": [
+        "Coverage seed only — ensures builder enumerates every playable specialization.",
+        "blizzardClassId=12",
+        "blizzardSpecId=581",
+        "classSupport=SUPPORTED"
+      ],
+      "matchedCanonicalKey": null
+    },
+    {
+      "proposedCanonicalKey": "druid.offensive._spec-coverage-seed.balance",
+      "canonicalName": "Druid Balance offensive coverage seed",
+      "primarySpellId": 0,
+      "aliasSpellIds": [],
+      "activationSpellIds": [],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "druid",
+      "allowedSpecSlugs": [
+        "balance"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": null,
+      "activationEventTypes": [
+        "cast"
+      ],
+      "activationSource": null,
+      "expectedCooldownSeconds": null,
+      "charges": null,
+      "classificationConfidence": 0,
+      "reviewStatus": "CANDIDATE",
+      "provenance": {
+        "source": "BLIZZARD_API",
+        "sourceId": "playable-class:11/spec:102",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "notes": "Class/spec coverage seed from Blizzard playable indexes — not an ability.",
+        "certainty": "verified"
+      },
+      "notes": [
+        "Coverage seed only — ensures builder enumerates every playable specialization.",
+        "blizzardClassId=11",
+        "blizzardSpecId=102",
+        "classSupport=SUPPORTED"
+      ],
+      "matchedCanonicalKey": null
+    },
+    {
+      "proposedCanonicalKey": "druid.offensive._spec-coverage-seed.feral",
+      "canonicalName": "Druid Feral offensive coverage seed",
+      "primarySpellId": 0,
+      "aliasSpellIds": [],
+      "activationSpellIds": [],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "druid",
+      "allowedSpecSlugs": [
+        "feral"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": null,
+      "activationEventTypes": [
+        "cast"
+      ],
+      "activationSource": null,
+      "expectedCooldownSeconds": null,
+      "charges": null,
+      "classificationConfidence": 0,
+      "reviewStatus": "CANDIDATE",
+      "provenance": {
+        "source": "BLIZZARD_API",
+        "sourceId": "playable-class:11/spec:103",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "notes": "Class/spec coverage seed from Blizzard playable indexes — not an ability.",
+        "certainty": "verified"
+      },
+      "notes": [
+        "Coverage seed only — ensures builder enumerates every playable specialization.",
+        "blizzardClassId=11",
+        "blizzardSpecId=103",
+        "classSupport=SUPPORTED"
+      ],
+      "matchedCanonicalKey": null
+    },
+    {
+      "proposedCanonicalKey": "druid.offensive._spec-coverage-seed.guardian",
+      "canonicalName": "Druid Guardian offensive coverage seed",
+      "primarySpellId": 0,
+      "aliasSpellIds": [],
+      "activationSpellIds": [],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "druid",
+      "allowedSpecSlugs": [
+        "guardian"
+      ],
+      "allowedRoleSlugs": [
+        "TANK"
+      ],
+      "cooldownCategory": null,
+      "activationEventTypes": [
+        "cast"
+      ],
+      "activationSource": null,
+      "expectedCooldownSeconds": null,
+      "charges": null,
+      "classificationConfidence": 0,
+      "reviewStatus": "CANDIDATE",
+      "provenance": {
+        "source": "BLIZZARD_API",
+        "sourceId": "playable-class:11/spec:104",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "notes": "Class/spec coverage seed from Blizzard playable indexes — not an ability.",
+        "certainty": "verified"
+      },
+      "notes": [
+        "Coverage seed only — ensures builder enumerates every playable specialization.",
+        "blizzardClassId=11",
+        "blizzardSpecId=104",
+        "classSupport=SUPPORTED"
+      ],
+      "matchedCanonicalKey": null
+    },
+    {
+      "proposedCanonicalKey": "druid.offensive._spec-coverage-seed.restoration",
+      "canonicalName": "Druid Restoration offensive coverage seed",
+      "primarySpellId": 0,
+      "aliasSpellIds": [],
+      "activationSpellIds": [],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "druid",
+      "allowedSpecSlugs": [
+        "restoration"
+      ],
+      "allowedRoleSlugs": [
+        "HEALER"
+      ],
+      "cooldownCategory": null,
+      "activationEventTypes": [
+        "cast"
+      ],
+      "activationSource": null,
+      "expectedCooldownSeconds": null,
+      "charges": null,
+      "classificationConfidence": 0,
+      "reviewStatus": "CANDIDATE",
+      "provenance": {
+        "source": "BLIZZARD_API",
+        "sourceId": "playable-class:11/spec:105",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "notes": "Class/spec coverage seed from Blizzard playable indexes — not an ability.",
+        "certainty": "verified"
+      },
+      "notes": [
+        "Coverage seed only — ensures builder enumerates every playable specialization.",
+        "blizzardClassId=11",
+        "blizzardSpecId=105",
+        "classSupport=SUPPORTED"
+      ],
+      "matchedCanonicalKey": null
+    },
+    {
+      "proposedCanonicalKey": "evoker.offensive._spec-coverage-seed.augmentation",
+      "canonicalName": "Evoker Augmentation offensive coverage seed",
+      "primarySpellId": 0,
+      "aliasSpellIds": [],
+      "activationSpellIds": [],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "evoker",
+      "allowedSpecSlugs": [
+        "augmentation"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": null,
+      "activationEventTypes": [
+        "cast"
+      ],
+      "activationSource": null,
+      "expectedCooldownSeconds": null,
+      "charges": null,
+      "classificationConfidence": 0,
+      "reviewStatus": "CANDIDATE",
+      "provenance": {
+        "source": "BLIZZARD_API",
+        "sourceId": "playable-class:13/spec:1473",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "notes": "Class/spec coverage seed from Blizzard playable indexes — not an ability.",
+        "certainty": "verified"
+      },
+      "notes": [
+        "Coverage seed only — ensures builder enumerates every playable specialization.",
+        "blizzardClassId=13",
+        "blizzardSpecId=1473",
+        "classSupport=SUPPORTED"
+      ],
+      "matchedCanonicalKey": null
+    },
+    {
+      "proposedCanonicalKey": "evoker.offensive._spec-coverage-seed.devastation",
+      "canonicalName": "Evoker Devastation offensive coverage seed",
+      "primarySpellId": 0,
+      "aliasSpellIds": [],
+      "activationSpellIds": [],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "evoker",
+      "allowedSpecSlugs": [
+        "devastation"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": null,
+      "activationEventTypes": [
+        "cast"
+      ],
+      "activationSource": null,
+      "expectedCooldownSeconds": null,
+      "charges": null,
+      "classificationConfidence": 0,
+      "reviewStatus": "CANDIDATE",
+      "provenance": {
+        "source": "BLIZZARD_API",
+        "sourceId": "playable-class:13/spec:1467",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "notes": "Class/spec coverage seed from Blizzard playable indexes — not an ability.",
+        "certainty": "verified"
+      },
+      "notes": [
+        "Coverage seed only — ensures builder enumerates every playable specialization.",
+        "blizzardClassId=13",
+        "blizzardSpecId=1467",
+        "classSupport=SUPPORTED"
+      ],
+      "matchedCanonicalKey": null
+    },
+    {
+      "proposedCanonicalKey": "evoker.offensive._spec-coverage-seed.preservation",
+      "canonicalName": "Evoker Preservation offensive coverage seed",
+      "primarySpellId": 0,
+      "aliasSpellIds": [],
+      "activationSpellIds": [],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "evoker",
+      "allowedSpecSlugs": [
+        "preservation"
+      ],
+      "allowedRoleSlugs": [
+        "HEALER"
+      ],
+      "cooldownCategory": null,
+      "activationEventTypes": [
+        "cast"
+      ],
+      "activationSource": null,
+      "expectedCooldownSeconds": null,
+      "charges": null,
+      "classificationConfidence": 0,
+      "reviewStatus": "CANDIDATE",
+      "provenance": {
+        "source": "BLIZZARD_API",
+        "sourceId": "playable-class:13/spec:1468",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "notes": "Class/spec coverage seed from Blizzard playable indexes — not an ability.",
+        "certainty": "verified"
+      },
+      "notes": [
+        "Coverage seed only — ensures builder enumerates every playable specialization.",
+        "blizzardClassId=13",
+        "blizzardSpecId=1468",
+        "classSupport=SUPPORTED"
+      ],
+      "matchedCanonicalKey": null
+    },
+    {
+      "proposedCanonicalKey": "hunter.offensive._spec-coverage-seed.beast-mastery",
+      "canonicalName": "Hunter Beast Mastery offensive coverage seed",
+      "primarySpellId": 0,
+      "aliasSpellIds": [],
+      "activationSpellIds": [],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "hunter",
+      "allowedSpecSlugs": [
+        "beast-mastery"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": null,
+      "activationEventTypes": [
+        "cast"
+      ],
+      "activationSource": null,
+      "expectedCooldownSeconds": null,
+      "charges": null,
+      "classificationConfidence": 0,
+      "reviewStatus": "CANDIDATE",
+      "provenance": {
+        "source": "BLIZZARD_API",
+        "sourceId": "playable-class:3/spec:253",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "notes": "Class/spec coverage seed from Blizzard playable indexes — not an ability.",
+        "certainty": "verified"
+      },
+      "notes": [
+        "Coverage seed only — ensures builder enumerates every playable specialization.",
+        "blizzardClassId=3",
+        "blizzardSpecId=253",
+        "classSupport=SUPPORTED"
+      ],
+      "matchedCanonicalKey": null
+    },
+    {
+      "proposedCanonicalKey": "hunter.offensive._spec-coverage-seed.marksmanship",
+      "canonicalName": "Hunter Marksmanship offensive coverage seed",
+      "primarySpellId": 0,
+      "aliasSpellIds": [],
+      "activationSpellIds": [],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "hunter",
+      "allowedSpecSlugs": [
+        "marksmanship"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": null,
+      "activationEventTypes": [
+        "cast"
+      ],
+      "activationSource": null,
+      "expectedCooldownSeconds": null,
+      "charges": null,
+      "classificationConfidence": 0,
+      "reviewStatus": "CANDIDATE",
+      "provenance": {
+        "source": "BLIZZARD_API",
+        "sourceId": "playable-class:3/spec:254",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "notes": "Class/spec coverage seed from Blizzard playable indexes — not an ability.",
+        "certainty": "verified"
+      },
+      "notes": [
+        "Coverage seed only — ensures builder enumerates every playable specialization.",
+        "blizzardClassId=3",
+        "blizzardSpecId=254",
+        "classSupport=SUPPORTED"
+      ],
+      "matchedCanonicalKey": null
+    },
+    {
+      "proposedCanonicalKey": "hunter.offensive._spec-coverage-seed.survival",
+      "canonicalName": "Hunter Survival offensive coverage seed",
+      "primarySpellId": 0,
+      "aliasSpellIds": [],
+      "activationSpellIds": [],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "hunter",
+      "allowedSpecSlugs": [
+        "survival"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": null,
+      "activationEventTypes": [
+        "cast"
+      ],
+      "activationSource": null,
+      "expectedCooldownSeconds": null,
+      "charges": null,
+      "classificationConfidence": 0,
+      "reviewStatus": "CANDIDATE",
+      "provenance": {
+        "source": "BLIZZARD_API",
+        "sourceId": "playable-class:3/spec:255",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "notes": "Class/spec coverage seed from Blizzard playable indexes — not an ability.",
+        "certainty": "verified"
+      },
+      "notes": [
+        "Coverage seed only — ensures builder enumerates every playable specialization.",
+        "blizzardClassId=3",
+        "blizzardSpecId=255",
+        "classSupport=SUPPORTED"
+      ],
+      "matchedCanonicalKey": null
+    },
+    {
+      "proposedCanonicalKey": "mage.offensive._spec-coverage-seed.arcane",
+      "canonicalName": "Mage Arcane offensive coverage seed",
+      "primarySpellId": 0,
+      "aliasSpellIds": [],
+      "activationSpellIds": [],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "mage",
+      "allowedSpecSlugs": [
+        "arcane"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": null,
+      "activationEventTypes": [
+        "cast"
+      ],
+      "activationSource": null,
+      "expectedCooldownSeconds": null,
+      "charges": null,
+      "classificationConfidence": 0,
+      "reviewStatus": "CANDIDATE",
+      "provenance": {
+        "source": "BLIZZARD_API",
+        "sourceId": "playable-class:8/spec:62",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "notes": "Class/spec coverage seed from Blizzard playable indexes — not an ability.",
+        "certainty": "verified"
+      },
+      "notes": [
+        "Coverage seed only — ensures builder enumerates every playable specialization.",
+        "blizzardClassId=8",
+        "blizzardSpecId=62",
+        "classSupport=SUPPORTED"
+      ],
+      "matchedCanonicalKey": null
+    },
+    {
+      "proposedCanonicalKey": "mage.offensive._spec-coverage-seed.fire",
+      "canonicalName": "Mage Fire offensive coverage seed",
+      "primarySpellId": 0,
+      "aliasSpellIds": [],
+      "activationSpellIds": [],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "mage",
+      "allowedSpecSlugs": [
+        "fire"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": null,
+      "activationEventTypes": [
+        "cast"
+      ],
+      "activationSource": null,
+      "expectedCooldownSeconds": null,
+      "charges": null,
+      "classificationConfidence": 0,
+      "reviewStatus": "CANDIDATE",
+      "provenance": {
+        "source": "BLIZZARD_API",
+        "sourceId": "playable-class:8/spec:63",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "notes": "Class/spec coverage seed from Blizzard playable indexes — not an ability.",
+        "certainty": "verified"
+      },
+      "notes": [
+        "Coverage seed only — ensures builder enumerates every playable specialization.",
+        "blizzardClassId=8",
+        "blizzardSpecId=63",
+        "classSupport=SUPPORTED"
+      ],
+      "matchedCanonicalKey": null
+    },
+    {
+      "proposedCanonicalKey": "mage.offensive._spec-coverage-seed.frost",
+      "canonicalName": "Mage Frost offensive coverage seed",
+      "primarySpellId": 0,
+      "aliasSpellIds": [],
+      "activationSpellIds": [],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "mage",
+      "allowedSpecSlugs": [
+        "frost"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": null,
+      "activationEventTypes": [
+        "cast"
+      ],
+      "activationSource": null,
+      "expectedCooldownSeconds": null,
+      "charges": null,
+      "classificationConfidence": 0,
+      "reviewStatus": "CANDIDATE",
+      "provenance": {
+        "source": "BLIZZARD_API",
+        "sourceId": "playable-class:8/spec:64",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "notes": "Class/spec coverage seed from Blizzard playable indexes — not an ability.",
+        "certainty": "verified"
+      },
+      "notes": [
+        "Coverage seed only — ensures builder enumerates every playable specialization.",
+        "blizzardClassId=8",
+        "blizzardSpecId=64",
+        "classSupport=SUPPORTED"
+      ],
+      "matchedCanonicalKey": null
+    },
+    {
+      "proposedCanonicalKey": "monk.offensive._spec-coverage-seed.brewmaster",
+      "canonicalName": "Monk Brewmaster offensive coverage seed",
+      "primarySpellId": 0,
+      "aliasSpellIds": [],
+      "activationSpellIds": [],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "monk",
+      "allowedSpecSlugs": [
+        "brewmaster"
+      ],
+      "allowedRoleSlugs": [
+        "TANK"
+      ],
+      "cooldownCategory": null,
+      "activationEventTypes": [
+        "cast"
+      ],
+      "activationSource": null,
+      "expectedCooldownSeconds": null,
+      "charges": null,
+      "classificationConfidence": 0,
+      "reviewStatus": "CANDIDATE",
+      "provenance": {
+        "source": "BLIZZARD_API",
+        "sourceId": "playable-class:10/spec:268",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "notes": "Class/spec coverage seed from Blizzard playable indexes — not an ability.",
+        "certainty": "verified"
+      },
+      "notes": [
+        "Coverage seed only — ensures builder enumerates every playable specialization.",
+        "blizzardClassId=10",
+        "blizzardSpecId=268",
+        "classSupport=SUPPORTED"
+      ],
+      "matchedCanonicalKey": null
+    },
+    {
+      "proposedCanonicalKey": "monk.offensive._spec-coverage-seed.mistweaver",
+      "canonicalName": "Monk Mistweaver offensive coverage seed",
+      "primarySpellId": 0,
+      "aliasSpellIds": [],
+      "activationSpellIds": [],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "monk",
+      "allowedSpecSlugs": [
+        "mistweaver"
+      ],
+      "allowedRoleSlugs": [
+        "HEALER"
+      ],
+      "cooldownCategory": null,
+      "activationEventTypes": [
+        "cast"
+      ],
+      "activationSource": null,
+      "expectedCooldownSeconds": null,
+      "charges": null,
+      "classificationConfidence": 0,
+      "reviewStatus": "CANDIDATE",
+      "provenance": {
+        "source": "BLIZZARD_API",
+        "sourceId": "playable-class:10/spec:270",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "notes": "Class/spec coverage seed from Blizzard playable indexes — not an ability.",
+        "certainty": "verified"
+      },
+      "notes": [
+        "Coverage seed only — ensures builder enumerates every playable specialization.",
+        "blizzardClassId=10",
+        "blizzardSpecId=270",
+        "classSupport=SUPPORTED"
+      ],
+      "matchedCanonicalKey": null
+    },
+    {
+      "proposedCanonicalKey": "monk.offensive._spec-coverage-seed.windwalker",
+      "canonicalName": "Monk Windwalker offensive coverage seed",
+      "primarySpellId": 0,
+      "aliasSpellIds": [],
+      "activationSpellIds": [],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "monk",
+      "allowedSpecSlugs": [
+        "windwalker"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": null,
+      "activationEventTypes": [
+        "cast"
+      ],
+      "activationSource": null,
+      "expectedCooldownSeconds": null,
+      "charges": null,
+      "classificationConfidence": 0,
+      "reviewStatus": "CANDIDATE",
+      "provenance": {
+        "source": "BLIZZARD_API",
+        "sourceId": "playable-class:10/spec:269",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "notes": "Class/spec coverage seed from Blizzard playable indexes — not an ability.",
+        "certainty": "verified"
+      },
+      "notes": [
+        "Coverage seed only — ensures builder enumerates every playable specialization.",
+        "blizzardClassId=10",
+        "blizzardSpecId=269",
+        "classSupport=SUPPORTED"
+      ],
+      "matchedCanonicalKey": null
+    },
+    {
+      "proposedCanonicalKey": "paladin.offensive._spec-coverage-seed.holy",
+      "canonicalName": "Paladin Holy offensive coverage seed",
+      "primarySpellId": 0,
+      "aliasSpellIds": [],
+      "activationSpellIds": [],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "paladin",
+      "allowedSpecSlugs": [
+        "holy"
+      ],
+      "allowedRoleSlugs": [
+        "HEALER"
+      ],
+      "cooldownCategory": null,
+      "activationEventTypes": [
+        "cast"
+      ],
+      "activationSource": null,
+      "expectedCooldownSeconds": null,
+      "charges": null,
+      "classificationConfidence": 0,
+      "reviewStatus": "CANDIDATE",
+      "provenance": {
+        "source": "BLIZZARD_API",
+        "sourceId": "playable-class:2/spec:65",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "notes": "Class/spec coverage seed from Blizzard playable indexes — not an ability.",
+        "certainty": "verified"
+      },
+      "notes": [
+        "Coverage seed only — ensures builder enumerates every playable specialization.",
+        "blizzardClassId=2",
+        "blizzardSpecId=65",
+        "classSupport=SUPPORTED"
+      ],
+      "matchedCanonicalKey": null
+    },
+    {
+      "proposedCanonicalKey": "paladin.offensive._spec-coverage-seed.protection",
+      "canonicalName": "Paladin Protection offensive coverage seed",
+      "primarySpellId": 0,
+      "aliasSpellIds": [],
+      "activationSpellIds": [],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "paladin",
+      "allowedSpecSlugs": [
+        "protection"
+      ],
+      "allowedRoleSlugs": [
+        "TANK"
+      ],
+      "cooldownCategory": null,
+      "activationEventTypes": [
+        "cast"
+      ],
+      "activationSource": null,
+      "expectedCooldownSeconds": null,
+      "charges": null,
+      "classificationConfidence": 0,
+      "reviewStatus": "CANDIDATE",
+      "provenance": {
+        "source": "BLIZZARD_API",
+        "sourceId": "playable-class:2/spec:66",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "notes": "Class/spec coverage seed from Blizzard playable indexes — not an ability.",
+        "certainty": "verified"
+      },
+      "notes": [
+        "Coverage seed only — ensures builder enumerates every playable specialization.",
+        "blizzardClassId=2",
+        "blizzardSpecId=66",
+        "classSupport=SUPPORTED"
+      ],
+      "matchedCanonicalKey": null
+    },
+    {
+      "proposedCanonicalKey": "paladin.offensive._spec-coverage-seed.retribution",
+      "canonicalName": "Paladin Retribution offensive coverage seed",
+      "primarySpellId": 0,
+      "aliasSpellIds": [],
+      "activationSpellIds": [],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "paladin",
+      "allowedSpecSlugs": [
+        "retribution"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": null,
+      "activationEventTypes": [
+        "cast"
+      ],
+      "activationSource": null,
+      "expectedCooldownSeconds": null,
+      "charges": null,
+      "classificationConfidence": 0,
+      "reviewStatus": "CANDIDATE",
+      "provenance": {
+        "source": "BLIZZARD_API",
+        "sourceId": "playable-class:2/spec:70",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "notes": "Class/spec coverage seed from Blizzard playable indexes — not an ability.",
+        "certainty": "verified"
+      },
+      "notes": [
+        "Coverage seed only — ensures builder enumerates every playable specialization.",
+        "blizzardClassId=2",
+        "blizzardSpecId=70",
+        "classSupport=SUPPORTED"
+      ],
+      "matchedCanonicalKey": null
+    },
+    {
+      "proposedCanonicalKey": "priest.offensive._spec-coverage-seed.discipline",
+      "canonicalName": "Priest Discipline offensive coverage seed",
+      "primarySpellId": 0,
+      "aliasSpellIds": [],
+      "activationSpellIds": [],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "priest",
+      "allowedSpecSlugs": [
+        "discipline"
+      ],
+      "allowedRoleSlugs": [
+        "HEALER"
+      ],
+      "cooldownCategory": null,
+      "activationEventTypes": [
+        "cast"
+      ],
+      "activationSource": null,
+      "expectedCooldownSeconds": null,
+      "charges": null,
+      "classificationConfidence": 0,
+      "reviewStatus": "CANDIDATE",
+      "provenance": {
+        "source": "BLIZZARD_API",
+        "sourceId": "playable-class:5/spec:256",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "notes": "Class/spec coverage seed from Blizzard playable indexes — not an ability.",
+        "certainty": "verified"
+      },
+      "notes": [
+        "Coverage seed only — ensures builder enumerates every playable specialization.",
+        "blizzardClassId=5",
+        "blizzardSpecId=256",
+        "classSupport=SUPPORTED"
+      ],
+      "matchedCanonicalKey": null
+    },
+    {
+      "proposedCanonicalKey": "priest.offensive._spec-coverage-seed.holy",
+      "canonicalName": "Priest Holy offensive coverage seed",
+      "primarySpellId": 0,
+      "aliasSpellIds": [],
+      "activationSpellIds": [],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "priest",
+      "allowedSpecSlugs": [
+        "holy"
+      ],
+      "allowedRoleSlugs": [
+        "HEALER"
+      ],
+      "cooldownCategory": null,
+      "activationEventTypes": [
+        "cast"
+      ],
+      "activationSource": null,
+      "expectedCooldownSeconds": null,
+      "charges": null,
+      "classificationConfidence": 0,
+      "reviewStatus": "CANDIDATE",
+      "provenance": {
+        "source": "BLIZZARD_API",
+        "sourceId": "playable-class:5/spec:257",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "notes": "Class/spec coverage seed from Blizzard playable indexes — not an ability.",
+        "certainty": "verified"
+      },
+      "notes": [
+        "Coverage seed only — ensures builder enumerates every playable specialization.",
+        "blizzardClassId=5",
+        "blizzardSpecId=257",
+        "classSupport=SUPPORTED"
+      ],
+      "matchedCanonicalKey": null
+    },
+    {
+      "proposedCanonicalKey": "priest.offensive._spec-coverage-seed.shadow",
+      "canonicalName": "Priest Shadow offensive coverage seed",
+      "primarySpellId": 0,
+      "aliasSpellIds": [],
+      "activationSpellIds": [],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "priest",
+      "allowedSpecSlugs": [
+        "shadow"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": null,
+      "activationEventTypes": [
+        "cast"
+      ],
+      "activationSource": null,
+      "expectedCooldownSeconds": null,
+      "charges": null,
+      "classificationConfidence": 0,
+      "reviewStatus": "CANDIDATE",
+      "provenance": {
+        "source": "BLIZZARD_API",
+        "sourceId": "playable-class:5/spec:258",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "notes": "Class/spec coverage seed from Blizzard playable indexes — not an ability.",
+        "certainty": "verified"
+      },
+      "notes": [
+        "Coverage seed only — ensures builder enumerates every playable specialization.",
+        "blizzardClassId=5",
+        "blizzardSpecId=258",
+        "classSupport=SUPPORTED"
+      ],
+      "matchedCanonicalKey": null
+    },
+    {
+      "proposedCanonicalKey": "rogue.offensive._spec-coverage-seed.assassination",
+      "canonicalName": "Rogue Assassination offensive coverage seed",
+      "primarySpellId": 0,
+      "aliasSpellIds": [],
+      "activationSpellIds": [],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "rogue",
+      "allowedSpecSlugs": [
+        "assassination"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": null,
+      "activationEventTypes": [
+        "cast"
+      ],
+      "activationSource": null,
+      "expectedCooldownSeconds": null,
+      "charges": null,
+      "classificationConfidence": 0,
+      "reviewStatus": "CANDIDATE",
+      "provenance": {
+        "source": "BLIZZARD_API",
+        "sourceId": "playable-class:4/spec:259",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "notes": "Class/spec coverage seed from Blizzard playable indexes — not an ability.",
+        "certainty": "verified"
+      },
+      "notes": [
+        "Coverage seed only — ensures builder enumerates every playable specialization.",
+        "blizzardClassId=4",
+        "blizzardSpecId=259",
+        "classSupport=SUPPORTED"
+      ],
+      "matchedCanonicalKey": null
+    },
+    {
+      "proposedCanonicalKey": "rogue.offensive._spec-coverage-seed.outlaw",
+      "canonicalName": "Rogue Outlaw offensive coverage seed",
+      "primarySpellId": 0,
+      "aliasSpellIds": [],
+      "activationSpellIds": [],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "rogue",
+      "allowedSpecSlugs": [
+        "outlaw"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": null,
+      "activationEventTypes": [
+        "cast"
+      ],
+      "activationSource": null,
+      "expectedCooldownSeconds": null,
+      "charges": null,
+      "classificationConfidence": 0,
+      "reviewStatus": "CANDIDATE",
+      "provenance": {
+        "source": "BLIZZARD_API",
+        "sourceId": "playable-class:4/spec:260",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "notes": "Class/spec coverage seed from Blizzard playable indexes — not an ability.",
+        "certainty": "verified"
+      },
+      "notes": [
+        "Coverage seed only — ensures builder enumerates every playable specialization.",
+        "blizzardClassId=4",
+        "blizzardSpecId=260",
+        "classSupport=SUPPORTED"
+      ],
+      "matchedCanonicalKey": null
+    },
+    {
+      "proposedCanonicalKey": "rogue.offensive._spec-coverage-seed.subtlety",
+      "canonicalName": "Rogue Subtlety offensive coverage seed",
+      "primarySpellId": 0,
+      "aliasSpellIds": [],
+      "activationSpellIds": [],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "rogue",
+      "allowedSpecSlugs": [
+        "subtlety"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": null,
+      "activationEventTypes": [
+        "cast"
+      ],
+      "activationSource": null,
+      "expectedCooldownSeconds": null,
+      "charges": null,
+      "classificationConfidence": 0,
+      "reviewStatus": "CANDIDATE",
+      "provenance": {
+        "source": "BLIZZARD_API",
+        "sourceId": "playable-class:4/spec:261",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "notes": "Class/spec coverage seed from Blizzard playable indexes — not an ability.",
+        "certainty": "verified"
+      },
+      "notes": [
+        "Coverage seed only — ensures builder enumerates every playable specialization.",
+        "blizzardClassId=4",
+        "blizzardSpecId=261",
+        "classSupport=SUPPORTED"
+      ],
+      "matchedCanonicalKey": null
+    },
+    {
+      "proposedCanonicalKey": "shaman.offensive._spec-coverage-seed.elemental",
+      "canonicalName": "Shaman Elemental offensive coverage seed",
+      "primarySpellId": 0,
+      "aliasSpellIds": [],
+      "activationSpellIds": [],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "shaman",
+      "allowedSpecSlugs": [
+        "elemental"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": null,
+      "activationEventTypes": [
+        "cast"
+      ],
+      "activationSource": null,
+      "expectedCooldownSeconds": null,
+      "charges": null,
+      "classificationConfidence": 0,
+      "reviewStatus": "CANDIDATE",
+      "provenance": {
+        "source": "BLIZZARD_API",
+        "sourceId": "playable-class:7/spec:262",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "notes": "Class/spec coverage seed from Blizzard playable indexes — not an ability.",
+        "certainty": "verified"
+      },
+      "notes": [
+        "Coverage seed only — ensures builder enumerates every playable specialization.",
+        "blizzardClassId=7",
+        "blizzardSpecId=262",
+        "classSupport=SUPPORTED"
+      ],
+      "matchedCanonicalKey": null
+    },
+    {
+      "proposedCanonicalKey": "shaman.offensive._spec-coverage-seed.enhancement",
+      "canonicalName": "Shaman Enhancement offensive coverage seed",
+      "primarySpellId": 0,
+      "aliasSpellIds": [],
+      "activationSpellIds": [],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "shaman",
+      "allowedSpecSlugs": [
+        "enhancement"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": null,
+      "activationEventTypes": [
+        "cast"
+      ],
+      "activationSource": null,
+      "expectedCooldownSeconds": null,
+      "charges": null,
+      "classificationConfidence": 0,
+      "reviewStatus": "CANDIDATE",
+      "provenance": {
+        "source": "BLIZZARD_API",
+        "sourceId": "playable-class:7/spec:263",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "notes": "Class/spec coverage seed from Blizzard playable indexes — not an ability.",
+        "certainty": "verified"
+      },
+      "notes": [
+        "Coverage seed only — ensures builder enumerates every playable specialization.",
+        "blizzardClassId=7",
+        "blizzardSpecId=263",
+        "classSupport=SUPPORTED"
+      ],
+      "matchedCanonicalKey": null
+    },
+    {
+      "proposedCanonicalKey": "shaman.offensive._spec-coverage-seed.restoration",
+      "canonicalName": "Shaman Restoration offensive coverage seed",
+      "primarySpellId": 0,
+      "aliasSpellIds": [],
+      "activationSpellIds": [],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "shaman",
+      "allowedSpecSlugs": [
+        "restoration"
+      ],
+      "allowedRoleSlugs": [
+        "HEALER"
+      ],
+      "cooldownCategory": null,
+      "activationEventTypes": [
+        "cast"
+      ],
+      "activationSource": null,
+      "expectedCooldownSeconds": null,
+      "charges": null,
+      "classificationConfidence": 0,
+      "reviewStatus": "CANDIDATE",
+      "provenance": {
+        "source": "BLIZZARD_API",
+        "sourceId": "playable-class:7/spec:264",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "notes": "Class/spec coverage seed from Blizzard playable indexes — not an ability.",
+        "certainty": "verified"
+      },
+      "notes": [
+        "Coverage seed only — ensures builder enumerates every playable specialization.",
+        "blizzardClassId=7",
+        "blizzardSpecId=264",
+        "classSupport=SUPPORTED"
+      ],
+      "matchedCanonicalKey": null
+    },
+    {
+      "proposedCanonicalKey": "warlock.offensive._spec-coverage-seed.affliction",
+      "canonicalName": "Warlock Affliction offensive coverage seed",
+      "primarySpellId": 0,
+      "aliasSpellIds": [],
+      "activationSpellIds": [],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "warlock",
+      "allowedSpecSlugs": [
+        "affliction"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": null,
+      "activationEventTypes": [
+        "cast"
+      ],
+      "activationSource": null,
+      "expectedCooldownSeconds": null,
+      "charges": null,
+      "classificationConfidence": 0,
+      "reviewStatus": "CANDIDATE",
+      "provenance": {
+        "source": "BLIZZARD_API",
+        "sourceId": "playable-class:9/spec:265",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "notes": "Class/spec coverage seed from Blizzard playable indexes — not an ability.",
+        "certainty": "verified"
+      },
+      "notes": [
+        "Coverage seed only — ensures builder enumerates every playable specialization.",
+        "blizzardClassId=9",
+        "blizzardSpecId=265",
+        "classSupport=SUPPORTED"
+      ],
+      "matchedCanonicalKey": null
+    },
+    {
+      "proposedCanonicalKey": "warlock.offensive._spec-coverage-seed.demonology",
+      "canonicalName": "Warlock Demonology offensive coverage seed",
+      "primarySpellId": 0,
+      "aliasSpellIds": [],
+      "activationSpellIds": [],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "warlock",
+      "allowedSpecSlugs": [
+        "demonology"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": null,
+      "activationEventTypes": [
+        "cast"
+      ],
+      "activationSource": null,
+      "expectedCooldownSeconds": null,
+      "charges": null,
+      "classificationConfidence": 0,
+      "reviewStatus": "CANDIDATE",
+      "provenance": {
+        "source": "BLIZZARD_API",
+        "sourceId": "playable-class:9/spec:266",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "notes": "Class/spec coverage seed from Blizzard playable indexes — not an ability.",
+        "certainty": "verified"
+      },
+      "notes": [
+        "Coverage seed only — ensures builder enumerates every playable specialization.",
+        "blizzardClassId=9",
+        "blizzardSpecId=266",
+        "classSupport=SUPPORTED"
+      ],
+      "matchedCanonicalKey": null
+    },
+    {
+      "proposedCanonicalKey": "warlock.offensive._spec-coverage-seed.destruction",
+      "canonicalName": "Warlock Destruction offensive coverage seed",
+      "primarySpellId": 0,
+      "aliasSpellIds": [],
+      "activationSpellIds": [],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "warlock",
+      "allowedSpecSlugs": [
+        "destruction"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": null,
+      "activationEventTypes": [
+        "cast"
+      ],
+      "activationSource": null,
+      "expectedCooldownSeconds": null,
+      "charges": null,
+      "classificationConfidence": 0,
+      "reviewStatus": "CANDIDATE",
+      "provenance": {
+        "source": "BLIZZARD_API",
+        "sourceId": "playable-class:9/spec:267",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "notes": "Class/spec coverage seed from Blizzard playable indexes — not an ability.",
+        "certainty": "verified"
+      },
+      "notes": [
+        "Coverage seed only — ensures builder enumerates every playable specialization.",
+        "blizzardClassId=9",
+        "blizzardSpecId=267",
+        "classSupport=SUPPORTED"
+      ],
+      "matchedCanonicalKey": null
+    },
+    {
+      "proposedCanonicalKey": "warrior.offensive._spec-coverage-seed.arms",
+      "canonicalName": "Warrior Arms offensive coverage seed",
+      "primarySpellId": 0,
+      "aliasSpellIds": [],
+      "activationSpellIds": [],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "warrior",
+      "allowedSpecSlugs": [
+        "arms"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": null,
+      "activationEventTypes": [
+        "cast"
+      ],
+      "activationSource": null,
+      "expectedCooldownSeconds": null,
+      "charges": null,
+      "classificationConfidence": 0,
+      "reviewStatus": "CANDIDATE",
+      "provenance": {
+        "source": "BLIZZARD_API",
+        "sourceId": "playable-class:1/spec:71",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "notes": "Class/spec coverage seed from Blizzard playable indexes — not an ability.",
+        "certainty": "verified"
+      },
+      "notes": [
+        "Coverage seed only — ensures builder enumerates every playable specialization.",
+        "blizzardClassId=1",
+        "blizzardSpecId=71",
+        "classSupport=SUPPORTED"
+      ],
+      "matchedCanonicalKey": null
+    },
+    {
+      "proposedCanonicalKey": "warrior.offensive._spec-coverage-seed.fury",
+      "canonicalName": "Warrior Fury offensive coverage seed",
+      "primarySpellId": 0,
+      "aliasSpellIds": [],
+      "activationSpellIds": [],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "warrior",
+      "allowedSpecSlugs": [
+        "fury"
+      ],
+      "allowedRoleSlugs": [
+        "DPS"
+      ],
+      "cooldownCategory": null,
+      "activationEventTypes": [
+        "cast"
+      ],
+      "activationSource": null,
+      "expectedCooldownSeconds": null,
+      "charges": null,
+      "classificationConfidence": 0,
+      "reviewStatus": "CANDIDATE",
+      "provenance": {
+        "source": "BLIZZARD_API",
+        "sourceId": "playable-class:1/spec:72",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "notes": "Class/spec coverage seed from Blizzard playable indexes — not an ability.",
+        "certainty": "verified"
+      },
+      "notes": [
+        "Coverage seed only — ensures builder enumerates every playable specialization.",
+        "blizzardClassId=1",
+        "blizzardSpecId=72",
+        "classSupport=SUPPORTED"
+      ],
+      "matchedCanonicalKey": null
+    },
+    {
+      "proposedCanonicalKey": "warrior.offensive._spec-coverage-seed.protection",
+      "canonicalName": "Warrior Protection offensive coverage seed",
+      "primarySpellId": 0,
+      "aliasSpellIds": [],
+      "activationSpellIds": [],
+      "activationBuffIds": [],
+      "triggeredEffectIds": [],
+      "classSlug": "warrior",
+      "allowedSpecSlugs": [
+        "protection"
+      ],
+      "allowedRoleSlugs": [
+        "TANK"
+      ],
+      "cooldownCategory": null,
+      "activationEventTypes": [
+        "cast"
+      ],
+      "activationSource": null,
+      "expectedCooldownSeconds": null,
+      "charges": null,
+      "classificationConfidence": 0,
+      "reviewStatus": "CANDIDATE",
+      "provenance": {
+        "source": "BLIZZARD_API",
+        "sourceId": "playable-class:1/spec:73",
+        "verifiedAt": "2026-07-28",
+        "gameVersion": "12.0.0",
+        "notes": "Class/spec coverage seed from Blizzard playable indexes — not an ability.",
+        "certainty": "verified"
+      },
+      "notes": [
+        "Coverage seed only — ensures builder enumerates every playable specialization.",
+        "blizzardClassId=1",
+        "blizzardSpecId=73",
+        "classSupport=SUPPORTED"
+      ],
+      "matchedCanonicalKey": null
+    }
+  ],
+  "notes": [
+    "Reviewed canonical entries are never overwritten by this builder.",
+    "Promote candidates by editing packages/abilities/src/catalog/classes/*.ts (or shared racials) after human review.",
+    "WCL and SimC adapters are advisory / validation-only for classification."
+  ]
+}

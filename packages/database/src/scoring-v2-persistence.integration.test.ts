@@ -1,13 +1,10 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdtemp } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createLocalFsArtifactStore } from "@mplus/artifact-store";
 import { assertTestDatabaseAllowed, sanitizeDatabaseUrl } from "@mplus/test-utils";
 import {
-  ArtifactRepository,
+  type ArtifactRepository,
   checkDatabaseHealth,
+  createArtifactRepository,
   createPrismaClient,
   EvidenceRepository,
   type PrismaClient,
@@ -35,13 +32,11 @@ describe.runIf(dbAvailable)("scoring v2 persistence", () => {
   let seasonId: string;
   let dungeonId: string;
   let scoreModelId: string;
-  let storeRoot: string;
   let artifacts: ArtifactRepository;
   let evidence: EvidenceRepository;
 
   beforeAll(async () => {
-    storeRoot = await mkdtemp(path.join(tmpdir(), "mplus-v2-art-"));
-    artifacts = new ArtifactRepository(prisma, createLocalFsArtifactStore(storeRoot));
+    artifacts = createArtifactRepository(prisma);
     evidence = new EvidenceRepository(prisma);
 
     const region = await prisma.region.upsert({
@@ -142,11 +137,21 @@ describe.runIf(dbAvailable)("scoring v2 persistence", () => {
       where: { id: first.artifactId },
     });
     expect(row.refCount).toBeGreaterThanOrEqual(2);
+    expect(row.storageUri.startsWith("pg://")).toBe(true);
 
     await expect(artifacts.assertDeletable(first.artifactId)).rejects.toThrow(/reference/);
 
     const read = await artifacts.readVerified(first.artifactId);
     expect(read.equals(bytes)).toBe(true);
+
+    const payload = await prisma.rawArtifactPayload.findUnique({
+      where: { contentHash: first.write.contentHash },
+    });
+    expect(payload).not.toBeNull();
+    expect(payload!.payload.length).toBeGreaterThan(0);
+    expect(await artifacts.verifyPayloadReadability(first.artifactId)).toBe(
+      "DB_PAYLOAD_READABLE",
+    );
   });
 
   it("rolls back manifest create on unique slot conflict inside a transaction", async () => {

@@ -117,5 +117,8 @@ export * from "./probe/utility-v3_2-observed-config.js";
 export * from "./probe/utility-v3_2-observed-contribution.js";
 export * from "./extractors/v2/index.js";
 export * from "./probe/scoring-v2-live-character/index.js";
+export * from "./normalize/wcl-event-normalizer.js";
+export * from "./evidence/capability/index.js";
+export * from "./extractors/index.js";
 
 export type { WarcraftLogsProvider };

@@ -52,7 +52,10 @@ apps/web/e2e/.e2e-pids.json
 addon/**/*.zip
 
 # Ability catalog CLI output (regenerate with pnpm abilities:validate / abilities:coverage)
-packages/abilities/generated/
+packages/abilities/generated/*
+# Offensive builder/validator artifacts are committed for review diffs
+!packages/abilities/generated/offensive/
+!packages/abilities/generated/offensive/**
 
 # Ad-hoc local probe / context artifacts
 wallidrixe-wcl-performance.zip
@@ -60,3 +63,7 @@ wallidrixe-wcl-performance.zip
 .cursor-orchestration/
 .tmp-*.txt
 COMMIT_MSG.tmp
+
+packages/abilities/generated/offensive/coverage-report.md
+
+apps/worker/artifacts/

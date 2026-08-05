@@ -7,6 +7,7 @@ import {
   WCL_RAW_PAGE_RETENTION_DAYS,
   WCL_RUN_SOURCE_DIGEST_SCHEMA_VERSION,
   assertNeutralWclRunDigest,
+  buildEvidenceDatasetScopeFingerprint,
 } from "@mplus/contracts";
 import {
   WCL_RUN_EVIDENCE_ANALYSIS_VERSION,
@@ -15,9 +16,11 @@ import {
   type WclRunEvidenceBundle,
   type WclRunEvidenceDataset,
 } from "@mplus/provider-warcraftlogs";
+import { ArtifactLegacyExternalPayloadMissingError } from "@mplus/database";
 import {
   createPersistentSharedEvidenceStore,
   retentionUntilFromFetchedAt,
+  selectPreferredEvidencePages,
 } from "./persistent-shared-evidence-store.js";
 import {
   buildNeutralDigestFromBundle,
@@ -117,6 +120,9 @@ describe("persistent shared evidence store", () => {
       findWclRunSourceDigest: vi.fn(async () => null),
     };
     const artifacts = {
+      getStorageUris: vi.fn(async (ids: string[]) =>
+        new Map(ids.map((id) => [id, "pg://sha256/test"])),
+      ),
       readVerified: vi.fn(async () => bytes),
       persist: vi.fn(),
     };
@@ -146,6 +152,7 @@ describe("persistent shared evidence store", () => {
       findWclRunSourceDigest: vi.fn(async () => null),
     };
     const artifacts = {
+      getStorageUris: vi.fn(async () => new Map()),
       readVerified: vi.fn(),
       persist: vi.fn(async () => ({ artifactId: "new-art", contentHash: "h" })),
     };
@@ -177,6 +184,175 @@ describe("persistent shared evidence store", () => {
     };
     expect(persistArg.artifactClass).toBe("wcl_event_page");
     expect(persistArg.retentionUntil.getTime()).toBeGreaterThan(Date.now());
+  });
+
+  it("treats unreadable legacy cas metadata as a cache miss in live acquisition mode", async () => {
+    const scopeFingerprint = "scope:test";
+    const wclSource = {
+      findEvidenceDatasetPages: vi.fn(async () => [
+        {
+          pageIndex: 0,
+          artifactId: "legacy-art",
+          contentHash: "legacy-hash",
+          eventCount: 1,
+          createdAt: new Date("2026-08-01T00:00:00.000Z"),
+          scopeFingerprint,
+        },
+      ]),
+      createEvidenceDatasetPage: vi.fn(),
+      findWclRunSourceDigest: vi.fn(async () => null),
+    };
+    const artifacts = {
+      getStorageUris: vi.fn(async () => new Map([["legacy-art", "cas://sha256/abc"]])),
+      readVerified: vi.fn(async () => {
+        throw new ArtifactLegacyExternalPayloadMissingError("legacy-art", "cas://sha256/abc");
+      }),
+      persist: vi.fn(),
+    };
+
+    const liveStore = createPersistentSharedEvidenceStore({
+      wclSource: wclSource as never,
+      artifacts: artifacts as never,
+      treatLegacyPayloadMissingAsCacheMiss: true,
+    });
+    const reloadStore = createPersistentSharedEvidenceStore({
+      wclSource: wclSource as never,
+      artifacts: artifacts as never,
+    });
+
+    const key = `wcl-evidence|Abc123|r2|f9|a1|Casts|t0-end|fe:none|${WCL_RUN_EVIDENCE_PROVIDER_CONTRACT}|nopayload`;
+    await expect(liveStore.loadDataset(key)).resolves.toBeNull();
+    await expect(reloadStore.loadDataset(key)).rejects.toThrow(
+      ArtifactLegacyExternalPayloadMissingError,
+    );
+  });
+
+  it("prefers pg:// page artifacts over legacy cas:// metadata when both exist", async () => {
+    const scopeFingerprint = buildEvidenceDatasetScopeFingerprint({
+      datasetKey: "Casts",
+      sourceActorId: 1,
+      filterExpression: null,
+      hostilityType: null,
+      includeResources: false,
+      startTime: null,
+      endTime: null,
+      providerContractVersion: WCL_RUN_EVIDENCE_PROVIDER_CONTRACT,
+    });
+    const events = [{ type: "cast", abilityGameID: 111898 }];
+    const envelope = {
+      schemaVersion: "wcl-event-page-v1",
+      providerContractVersion: WCL_RUN_EVIDENCE_PROVIDER_CONTRACT,
+      reportCode: "Abc123",
+      fightId: 9,
+      reportRevision: 2,
+      datasetKey: "Casts",
+      pageIndex: 0,
+      pageCursor: null,
+      nextPageCursor: null,
+      filterExpression: null,
+      filterSourceId: 1,
+      scopeFingerprint,
+      truncated: false,
+      events,
+    };
+    const bytes = Buffer.from(JSON.stringify(envelope), "utf8");
+
+    const wclSource = {
+      findEvidenceDatasetPages: vi.fn(async () => [
+        {
+          pageIndex: 0,
+          artifactId: "legacy-art",
+          contentHash: "legacy-hash",
+          eventCount: 1,
+          createdAt: new Date("2026-08-01T00:00:00.000Z"),
+          scopeFingerprint,
+        },
+        {
+          pageIndex: 0,
+          artifactId: "pg-art",
+          contentHash: "pg-hash",
+          eventCount: 1,
+          createdAt: new Date("2026-08-02T00:00:00.000Z"),
+          scopeFingerprint,
+        },
+      ]),
+      createEvidenceDatasetPage: vi.fn(),
+      findWclRunSourceDigest: vi.fn(async () => null),
+    };
+    const artifacts = {
+      getStorageUris: vi.fn(async () =>
+        new Map([
+          ["legacy-art", "cas://sha256/legacy"],
+          ["pg-art", "pg://sha256/pghash"],
+        ]),
+      ),
+      readVerified: vi.fn(async (artifactId: string) => {
+        expect(artifactId).toBe("pg-art");
+        return bytes;
+      }),
+      persist: vi.fn(),
+    };
+
+    const store = createPersistentSharedEvidenceStore({
+      wclSource: wclSource as never,
+      artifacts: artifacts as never,
+    });
+    const key = `wcl-evidence|Abc123|r2|f9|a1|Casts|t0-end|fe:none|${WCL_RUN_EVIDENCE_PROVIDER_CONTRACT}|nopayload`;
+    const loaded = await store.loadDataset(key);
+    expect(loaded?.events).toEqual(events);
+    expect(artifacts.readVerified).toHaveBeenCalledOnce();
+  });
+
+  it("replaces legacy page artifact pointers when persisting live PostgreSQL evidence", async () => {
+    const wclSource = {
+      findEvidenceDatasetPages: vi.fn(async () => []),
+      createEvidenceDatasetPage: vi.fn(async () => ({})),
+      findWclRunSourceDigest: vi.fn(async () => null),
+    };
+    const artifacts = {
+      getStorageUris: vi.fn(),
+      readVerified: vi.fn(),
+      persist: vi.fn(async () => ({ artifactId: "pg-art", contentHash: "pg-hash" })),
+    };
+    const store = createPersistentSharedEvidenceStore({
+      wclSource: wclSource as never,
+      artifacts: artifacts as never,
+      replaceLegacyPageArtifactsOnSave: true,
+    });
+
+    await store.saveDataset(
+      `wcl-evidence|R1|r1|f1|a1|Casts|t0-end|fe:none|${WCL_RUN_EVIDENCE_PROVIDER_CONTRACT}|nopayload`,
+      dataset([{ abilityGameID: 111898 }]),
+      {
+        reportCode: "R1",
+        reportRevision: 1,
+        fightId: 1,
+        dataset: "Casts",
+      },
+    );
+
+    expect(wclSource.createEvidenceDatasetPage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        replaceArtifactOnConflict: true,
+        artifactId: "pg-art",
+      }),
+    );
+  });
+});
+
+describe("selectPreferredEvidencePages", () => {
+  it("chooses pg:// artifacts over cas:// for the same page index", () => {
+    const pages = [
+      { pageIndex: 0, artifactId: "cas-art", eventCount: 1 },
+      { pageIndex: 0, artifactId: "pg-art", eventCount: 2 },
+    ];
+    const uris = new Map([
+      ["cas-art", "cas://sha256/legacy"],
+      ["pg-art", "pg://sha256/new"],
+    ]);
+    const selected = selectPreferredEvidencePages(pages, uris);
+    expect(selected).toHaveLength(1);
+    expect(selected[0]?.artifactId).toBe("pg-art");
   });
 });
 

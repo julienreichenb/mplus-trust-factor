@@ -4,10 +4,13 @@ export type {
   AbilityCatalogLookup,
   AbilityCatalogVersion,
   AbilityCategory,
+  AbilityDimensionTag,
   AbilityExternalMetadata,
   AbilityProvenance,
   AbilityRole,
   AbilityRule,
+  ActivationEventType,
+  ActivationSource,
   ApplicableCategoryResult,
   CatalogCoverageDiagnostics,
   CatalogCoverageReport,
@@ -15,6 +18,7 @@ export type {
   CatalogValidationReport,
   GetAbilityCatalogResult,
   LegacyAbilityCategory,
+  ProvenanceSource,
   RetailClassDefinition,
   RetailSpecDefinition,
   ScoringAbilityCategory,
@@ -36,11 +40,15 @@ export {
 
 export {
   RETAIL_CLASS_MATRIX,
+  SAME_FIGHT_PARTY_CLASS_SLUGS,
   findClassDefinition,
   findSpecDefinition,
+  findRetailSpecIdentityByBlizzardSpecId,
+  normalizeRetailClassSlug,
   canonicalRoleForClassSpec,
   roleForSpec,
 } from "./catalog/classes-matrix.js";
+export type { RetailSpecIdentity } from "./catalog/classes-matrix.js";
 
 export {
   RETAIL_ABILITY_CATALOG,
@@ -59,6 +67,7 @@ export {
   normalizeCategory,
   resolveAbilityCatalog,
   resolveAbilityRule,
+  ruleResolvableSpellIds,
 } from "./registry.js";
 
 export {
@@ -71,12 +80,74 @@ export {
 } from "./match.js";
 
 export {
+  defaultDimensionTagsForCategory,
+  dimensionTagsForRule,
+  isDigestRelevantRule,
+  performanceCooldownRule,
+  rule,
+} from "./catalog/rule.js";
+
+export {
+  OFFENSIVE_COVERAGE_EXEMPTIONS,
+  exemptionFor,
+} from "./offensive/tooling/exemptions.js";
+
+export {
   filterRulesByAvailability,
   getApplicableAbilityCategories,
 } from "./applicability.js";
 
 export { validateAbilityCatalog } from "./validation.js";
 export { buildCoverageReport, formatCoverageReport } from "./coverage.js";
+export {
+  buildOffensiveCandidateCatalog,
+  defaultOffensiveAdapters,
+  type OffensiveBuildInput,
+  type OffensiveCandidateCatalog,
+  type OffensiveReviewReport,
+} from "./offensive/build.js";
+export {
+  validateOffensiveCatalog,
+  type OffensiveSpecValidationRow,
+  type OffensiveValidationReport,
+} from "./offensive/validate.js";
+export {
+  buildOffensiveCoverageMatrix,
+  formatOffensiveCoverageReport,
+  type OffensiveCoverageMatrix,
+  type OffensiveCoverageSpecRow,
+} from "./offensive/coverage.js";
+export {
+  classifyActivationSignal,
+  openingEventTypesForRule,
+  projectCanonicalActivations,
+  projectOffensiveActivations,
+  type ActivationGroupKeyMode,
+  type ActivationSignalDisposition,
+  type CanonicalOffensiveActivation,
+  type OffensiveActivationEvent,
+  type OffensiveActivationProjection,
+} from "./offensive/activation.js";
+export {
+  isSurvivalActivationRule,
+  projectSurvivalActivations,
+  type CanonicalSurvivalActivation,
+  type SurvivalActivationEvent,
+  type SurvivalActivationProjection,
+} from "./survival/activation.js";
+export {
+  blizzardGameDataAdapter,
+  createWclObservedAdapter,
+  existingCatalogAdapter,
+  loadAuthoritativeBlizzardPlayableMatrix,
+  simcAdvisoryAdapter,
+  wclObservedAdapter,
+} from "./offensive/sources/index.js";
+export type {
+  CatalogReviewStatus,
+  OffensiveCandidateCooldownCategory,
+  OffensiveCandidateProposal,
+} from "./offensive/sources/types.js";
 export {
   buildExternalMetadata,
   enrichRuleExternalMetadata,

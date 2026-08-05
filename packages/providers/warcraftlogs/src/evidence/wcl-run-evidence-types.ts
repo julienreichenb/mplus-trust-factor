@@ -77,6 +77,28 @@ export interface WclRunEvidenceDatasetPage {
   payloadFingerprint: string;
 }
 
+/** Why ReportEvents pagination stopped for a shared-evidence dataset. */
+export type SharedEvidencePaginationStopReason =
+  | "NEXT_PAGE_NULL"
+  | "CURSOR_REACHED_FIGHT_END"
+  | "MAX_PAGES"
+  | "NON_PROGRESSING_CURSOR"
+  | "EMPTY_PAGE"
+  | "GRAPHQL_ERROR";
+
+/** Fight-window coverage diagnostics for one paginated dataset fetch. */
+export interface SharedEvidencePaginationDiagnostics {
+  requestedFightStartMs: number | null;
+  requestedFightEndMs: number | null;
+  firstEventTimestampMs: number | null;
+  lastEventTimestampMs: number | null;
+  nextPageTimestamp: number | null;
+  pageCount: number;
+  stopReason: SharedEvidencePaginationStopReason;
+  coverageRatio: number | null;
+  complete: boolean;
+}
+
 export interface WclRunEvidenceDataset {
   key: SharedEvidenceDatasetKey;
   state: "OK" | "MISSING" | "ERROR" | "CACHED" | "PERSISTED";
@@ -96,6 +118,8 @@ export interface WclRunEvidenceDataset {
   wclRequests: number;
   fetchedAt: string | null;
   source: "provider" | "persisted" | "cache" | "missing";
+  /** Present on provider-fetched datasets; may be absent on legacy persisted rows. */
+  pagination?: SharedEvidencePaginationDiagnostics;
 }
 
 export interface WclCanonicalRunSelection {

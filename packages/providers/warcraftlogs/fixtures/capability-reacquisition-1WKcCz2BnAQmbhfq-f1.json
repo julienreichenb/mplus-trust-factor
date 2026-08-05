@@ -1,0 +1,96 @@
+{
+  "schemaVersion": "wcl-capability-reacquisition-report-v1",
+  "generatedAt": "2026-08-05T14:05:00.000Z",
+  "fight": {
+    "reportCode": "1WKcCz2BnAQmbhfq",
+    "fightId": 1,
+    "reportRevision": 1
+  },
+  "oldVersusNewCompatibility": {
+    "old": {
+      "note": "Prior capability Casts/Buffs pages used an older ability.id filter set that omitted later catalog aliases (444741, 452930, 1234768, 20707, Utility aliases).",
+      "abilityFilterHash": "stale-pre-37003bce15ac1660",
+      "observedMissingFromOldCapabilityPages": [444741, 452930, 1234768, 20707]
+    },
+    "new": {
+      "catalogVersion": "12.0.0/midnight-season-1",
+      "acquisitionPlanVersion": "capability-acquisition-plan-v1",
+      "graphqlQueryVersion": "wcl-graphql-v2-events",
+      "actorSetHash": "436b06809434f851",
+      "abilityFilterHash": "37003bce15ac1660",
+      "compatibilityKey": "wcl-capability-evidence|1WKcCz2BnAQmbhfq|r1|f1|PACKAGE|caps:cb591fc3f416a243|actors:436b06809434f851|abilities:37003bce15ac1660|catalog:12.0.0/midnight-season-1|capability-acquisition-plan-v1|wcl-graphql-v2-events|PRODUCTION_CAPABILITY_ACQUISITION",
+      "mode": "PRODUCTION_CAPABILITY_ACQUISITION",
+      "friendlyPlayerActorIds": [1, 30, 32, 37, 39]
+    }
+  },
+  "abilityIdCountsByDimension": {
+    "PERFORMANCE_OFFENSIVE_COOLDOWN": 136,
+    "SURVIVAL": 58,
+    "UTILITY": 150,
+    "unionFilterIds": 342
+  },
+  "intentionallyExcluded": [
+    {
+      "spellId": 6201,
+      "name": "Create Healthstone",
+      "reason": "Crafting cast, not a recovery heal-use activation"
+    }
+  ],
+  "liveAcquisition": {
+    "graphqlRequestCount": 33,
+    "pagesFetched": 32,
+    "filterBatchCount": 27,
+    "eventsBeforeRelevanceFilter": 9022,
+    "eventsAfterRelevanceFilter": 9017,
+    "providerCalls": 33,
+    "packageArtifactId": "71987dae-40cb-4dfb-b883-684d37c0e895",
+    "packageContentHash": "a2923367876e9ff42bac9f54cafeeefd956f5bea07e3acca4b622d910ff1441e",
+    "storageScheme": "pg",
+    "complete": true
+  },
+  "completenessByCapability": {
+    "PERFORMANCE_OFFENSIVE_ACTIVATIONS": "COMPLETE",
+    "SURVIVAL_DEFENSIVE_ACTIVATIONS": "COMPLETE",
+    "SURVIVAL_RECOVERY_ACTIVATIONS": "COMPLETE",
+    "SURVIVAL_DAMAGE_TAKEN": "COMPLETE",
+    "SURVIVAL_DEATHS": "COMPLETE",
+    "UTILITY_INTERRUPTS": "COMPLETE",
+    "UTILITY_DISPELS": "COMPLETE",
+    "UTILITY_CROWD_CONTROL": "COMPLETE",
+    "UTILITY_EXTERNAL_CASTS": "COMPLETE",
+    "UTILITY_EXTERNAL_TARGET_CONTEXT": "COMPLETE",
+    "PARTICIPANT_METADATA": "COMPLETE",
+    "ACTOR_OWNERSHIP": "COMPLETE"
+  },
+  "offlineProbeBeforeAfter": {
+    "offensive": {
+      "beforeDeduplicatedActivations": 169,
+      "afterDeduplicatedActivations": 169,
+      "note": "Activation totals unchanged; raw Casts/Buffs volume increased under the broader filter. Spec-aware matching and projector stable."
+    },
+    "utility": {
+      "beforeCanonicalActions": 200,
+      "afterCanonicalActions": 209,
+      "beforeCombatRes": 0,
+      "afterCombatRes": 1,
+      "soulstone20707": "present (Wallidrixe → Missmygrip)",
+      "externalTargetContextComplete": true,
+      "remainingGap": "Terror of the Skies 372245 still policy-unresolved"
+    },
+    "survival": {
+      "beforeDefensive": 242,
+      "afterDefensive": 453,
+      "beforeRecovery": 85,
+      "afterRecovery": 102,
+      "antiMagicShell444741": "resolves to death-knight.defensive-major.anti-magic-shell (253 projected activations; buff-tick overcount remains a follow-up)",
+      "demonicHealthstone452930": "resolves via shared.consumable.healthstone (8 uses)",
+      "silvermoonPotion1234768": "resolves via shared.consumable.healing-potion (9 uses)",
+      "createHealthstone6201": "excluded from catalog filter"
+    }
+  },
+  "postAcquisitionProviderCalls": {
+    "offensive": { "providerCallsDuringProbe": 0, "providerCallsDuringReload": 0, "storageSchemesRead": ["pg"] },
+    "utility": { "providerCallsDuringProbe": 0, "providerCallsDuringReload": 0, "storageSchemesRead": ["pg"] },
+    "survival": { "providerCallsDuringProbe": 0, "providerCallsDuringReload": 0, "storageSchemesRead": ["pg"] }
+  }
+}

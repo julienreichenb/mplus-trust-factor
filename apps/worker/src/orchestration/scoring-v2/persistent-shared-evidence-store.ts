@@ -10,6 +10,7 @@ import {
 } from "@mplus/contracts";
 import {
   defaultWclRawPageRetentionUntil,
+  ArtifactLegacyExternalPayloadMissingError,
   type ArtifactRepository,
   type WclSourceRepository,
 } from "@mplus/database";
@@ -50,6 +51,8 @@ export interface PersistedPageEnvelope {
     pointsConsumed: number | null;
     wclRequests: number;
     fetchedAt: string | null;
+    truncated?: boolean;
+    pagination?: WclRunEvidenceDataset["pagination"];
   };
   events: Array<Record<string, unknown>>;
 }
@@ -129,13 +132,78 @@ function scopeFingerprintFromParsed(parsed: NonNullable<ReturnType<typeof parseC
   });
 }
 
+type EvidencePageRow = {
+  pageIndex: number;
+  artifactId: string;
+  eventCount: number;
+  createdAt?: Date;
+};
+
+export function selectPreferredEvidencePages<T extends EvidencePageRow>(
+  pages: T[],
+  storageUris: Map<string, string>,
+): T[] {
+  const byIndex = new Map<number, T[]>();
+  for (const page of pages) {
+    const group = byIndex.get(page.pageIndex) ?? [];
+    group.push(page);
+    byIndex.set(page.pageIndex, group);
+  }
+  const selected: T[] = [];
+  for (const pageIndex of [...byIndex.keys()].sort((a, b) => a - b)) {
+    const candidates = byIndex.get(pageIndex)!;
+    const pgCandidate = candidates.find((candidate) =>
+      storageUris.get(candidate.artifactId)?.startsWith("pg://"),
+    );
+    selected.push(pgCandidate ?? candidates[0]!);
+  }
+  return selected;
+}
+
+async function readVerifiedPageBytes(
+  artifacts: ArtifactRepository,
+  artifactId: string,
+  treatLegacyPayloadMissingAsCacheMiss: boolean,
+): Promise<Buffer | null> {
+  try {
+    return await artifacts.readVerified(artifactId);
+  } catch (error) {
+    if (
+      treatLegacyPayloadMissingAsCacheMiss &&
+      error instanceof ArtifactLegacyExternalPayloadMissingError
+    ) {
+      return null;
+    }
+    throw error;
+  }
+}
+
+export interface PersistentSharedEvidenceStoreOptions {
+  /** Optional process-local L1 — never authoritative. */
+  l1?: SharedEvidenceStore;
+  /**
+   * Live acquisition only: unreadable legacy cas:// metadata is a cache miss,
+   * not durable evidence.
+   */
+  treatLegacyPayloadMissingAsCacheMiss?: boolean;
+  /**
+   * Live acquisition only: replace artifact pointers on existing page rows
+   * when persisting freshly fetched PostgreSQL payloads.
+   */
+  replaceLegacyPageArtifactsOnSave?: boolean;
+}
+
 export function createPersistentSharedEvidenceStore(input: {
   wclSource: WclSourceRepository;
   artifacts: ArtifactRepository;
-  /** Optional process-local L1 — never authoritative. */
   l1?: SharedEvidenceStore;
+  treatLegacyPayloadMissingAsCacheMiss?: boolean;
+  replaceLegacyPageArtifactsOnSave?: boolean;
 }): SharedEvidenceStore {
   const { wclSource, artifacts, l1 } = input;
+  const treatLegacyPayloadMissingAsCacheMiss =
+    input.treatLegacyPayloadMissingAsCacheMiss === true;
+  const replaceLegacyPageArtifactsOnSave = input.replaceLegacyPageArtifactsOnSave === true;
 
   return {
     async loadDataset(compatibilityKey: string): Promise<WclRunEvidenceDataset | null> {
@@ -157,6 +225,9 @@ export function createPersistentSharedEvidenceStore(input: {
       });
       if (pages.length === 0) return null;
 
+      const storageUris = await artifacts.getStorageUris(pages.map((page) => page.artifactId));
+      const selectedPages = selectPreferredEvidencePages(pages, storageUris);
+
       const events: Array<Record<string, unknown>> = [];
       const pageMetas: WclRunEvidenceDataset["pages"] = [];
       let datasetMeta: PersistedPageEnvelope["datasetMeta"] | undefined;
@@ -164,8 +235,13 @@ export function createPersistentSharedEvidenceStore(input: {
       let filterSourceId: number | null = null;
       let truncated = false;
 
-      for (const page of pages) {
-        const bytes = await artifacts.readVerified(page.artifactId);
+      for (const page of selectedPages) {
+        const bytes = await readVerifiedPageBytes(
+          artifacts,
+          page.artifactId,
+          treatLegacyPayloadMissingAsCacheMiss,
+        );
+        if (bytes == null) return null;
         const envelope = JSON.parse(bytes.toString("utf8")) as PersistedPageEnvelope;
         if (envelope.schemaVersion !== PAGE_ENVELOPE_SCHEMA) {
           return null;
@@ -215,8 +291,8 @@ export function createPersistentSharedEvidenceStore(input: {
       const reconstructed: WclRunEvidenceDataset = {
         key: parsed.dataset as SharedEvidenceDatasetKey,
         state: datasetMeta?.state ?? "PERSISTED",
-        truncated,
-        pageCount: pages.length,
+        truncated: datasetMeta?.truncated ?? truncated,
+        pageCount: selectedPages.length,
         eventCount: events.length,
         filterSourceId,
         filterExpression,
@@ -229,6 +305,7 @@ export function createPersistentSharedEvidenceStore(input: {
         wclRequests: 0,
         fetchedAt: datasetMeta?.fetchedAt ?? pages[0]?.createdAt.toISOString() ?? null,
         source: "persisted",
+        ...(datasetMeta?.pagination ? { pagination: datasetMeta.pagination } : {}),
       };
 
       if (l1) {
@@ -317,6 +394,8 @@ export function createPersistentSharedEvidenceStore(input: {
                   pointsConsumed: dataset.pointsConsumed,
                   wclRequests: dataset.wclRequests,
                   fetchedAt: dataset.fetchedAt,
+                  truncated: dataset.truncated,
+                  ...(dataset.pagination ? { pagination: dataset.pagination } : {}),
                 },
               }
             : {}),
@@ -352,6 +431,7 @@ export function createPersistentSharedEvidenceStore(input: {
           schemaVersion: PAGE_ENVELOPE_SCHEMA,
           scopeFingerprint,
           eventCount: pageEvents.length,
+          replaceArtifactOnConflict: replaceLegacyPageArtifactsOnSave,
         });
       }
 
@@ -389,9 +469,18 @@ export function createPersistentSharedEvidenceStore(input: {
         // Digest-only / page-less cache is not a complete durable source.
         return null;
       }
+      const masterStorageUris = await artifacts.getStorageUris(
+        masterPages.map((page) => page.artifactId),
+      );
+      const selectedMasterPages = selectPreferredEvidencePages(masterPages, masterStorageUris);
       let masterData: unknown = null;
-      for (const page of masterPages) {
-        const bytes = await artifacts.readVerified(page.artifactId);
+      for (const page of selectedMasterPages) {
+        const bytes = await readVerifiedPageBytes(
+          artifacts,
+          page.artifactId,
+          treatLegacyPayloadMissingAsCacheMiss,
+        );
+        if (bytes == null) return null;
         const envelope = JSON.parse(bytes.toString("utf8")) as PersistedPageEnvelope;
         const first = envelope.events[0] as { __masterData?: boolean; masterData?: unknown } | undefined;
         if (first?.__masterData === true && first.masterData != null) {
