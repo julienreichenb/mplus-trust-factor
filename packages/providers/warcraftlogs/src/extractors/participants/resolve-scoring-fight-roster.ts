@@ -17,7 +17,9 @@ export type ScoringFightRosterFailureCode =
   | "DUPLICATE_FRIENDLY_ACTOR_IDS"
   | "INVALID_PARTICIPANT_ACTOR_ID"
   | "TARGET_PARTICIPANT_NOT_FOUND"
-  | "RAW_PACKAGE_SCHEMA_INCOMPATIBLE";
+  | "TARGET_IDENTITY_CONFLICT"
+  | "RAW_PACKAGE_SCHEMA_INCOMPATIBLE"
+  | "RAW_PACKAGE_SOURCE_MISMATCH";
 
 export class ScoringFightRosterError extends Error {
   readonly code: ScoringFightRosterFailureCode;
@@ -73,6 +75,14 @@ export interface ResolveScoringFightRosterInput {
    * When false, still resolve other participants.
    */
   requireTarget?: boolean;
+  /**
+   * When set, capability package sourceKey must match this fight identity.
+   */
+  expectedSourceFight?: {
+    reportCode: string;
+    fightId: number;
+    reportRevision: number;
+  } | null;
 }
 
 export interface ResolveScoringFightRosterSuccess {
@@ -232,7 +242,7 @@ function petsForOwner(
   ownerId: number,
   packageOwnedPetIds: ReadonlySet<number>,
 ): number[] {
-  const pets: number[] = [];
+  const pets = new Set<number>();
   for (const actor of actors.values()) {
     if (actor.type !== "Pet" && actor.type !== "Guardian") continue;
     if (actor.petOwner !== ownerId) continue;
@@ -240,16 +250,43 @@ function petsForOwner(
     if (packageOwnedPetIds.size > 0 && !packageOwnedPetIds.has(actor.id)) {
       continue;
     }
-    pets.push(actor.id);
+    pets.add(actor.id);
   }
-  pets.sort((a, b) => a - b);
-  return pets;
+  return [...pets].sort((a, b) => a - b);
+}
+
+function participantMatchesTargetIdentity(
+  participant: ScoringFightRosterParticipant,
+  target: ScoringFightRosterTargetIdentity,
+): boolean {
+  const regionOk =
+    !participant.regionCode ||
+    normalizeName(participant.regionCode) === normalizeName(target.regionCode);
+  if (!regionOk) return false;
+  // Never name-only: missing digest/actor realm cannot match a known target realm.
+  if (participant.realmSlug == null || participant.realmSlug.length === 0) {
+    return false;
+  }
+  return nameRealmMatches(
+    participant.characterName,
+    participant.realmSlug,
+    target.characterName,
+    target.realmSlug,
+  );
 }
 
 function resolveTargetActorId(input: {
   players: ScoringFightRosterParticipant[];
   target: ScoringFightRosterTargetIdentity;
-}): { actorId: number | null; matchCount: number; reason: "RESOLVED" | "NOT_FOUND" | "AMBIGUOUS" } {
+}): {
+  actorId: number | null;
+  matchCount: number;
+  reason: "RESOLVED" | "NOT_FOUND" | "AMBIGUOUS" | "CONFLICT";
+} {
+  const byNameRealm = input.players.filter((p) =>
+    participantMatchesTargetIdentity(p, input.target),
+  );
+
   if (
     input.target.targetActorId != null &&
     Number.isFinite(input.target.targetActorId) &&
@@ -258,35 +295,34 @@ function resolveTargetActorId(input: {
     const byId = input.players.find(
       (p) => p.participantActorId === input.target.targetActorId,
     );
-    if (byId) {
-      return { actorId: byId.participantActorId, matchCount: 1, reason: "RESOLVED" };
+    if (!byId) {
+      // Stale fight-local actor hint — fall through to name+realm when possible.
+    } else if (!participantMatchesTargetIdentity(byId, input.target)) {
+      // Actor ID present in this fight but identity contradicts name+realm+region.
+      return {
+        actorId: null,
+        matchCount: byNameRealm.length,
+        reason: "CONFLICT",
+      };
+    } else {
+      return {
+        actorId: byId.participantActorId,
+        matchCount: 1,
+        reason: "RESOLVED",
+      };
     }
   }
 
-  const matches = input.players.filter((p) => {
-    const regionOk =
-      !p.regionCode ||
-      normalizeName(p.regionCode) === normalizeName(input.target.regionCode);
-    if (!regionOk) return false;
-    if (p.realmSlug == null || p.realmSlug.length === 0) return false;
-    return nameRealmMatches(
-      p.characterName,
-      p.realmSlug,
-      input.target.characterName,
-      input.target.realmSlug,
-    );
-  });
-
-  if (matches.length === 0) {
+  if (byNameRealm.length === 0) {
     return { actorId: null, matchCount: 0, reason: "NOT_FOUND" };
   }
-  const unique = new Set(matches.map((m) => m.participantActorId));
+  const unique = new Set(byNameRealm.map((m) => m.participantActorId));
   if (unique.size > 1) {
-    return { actorId: null, matchCount: matches.length, reason: "AMBIGUOUS" };
+    return { actorId: null, matchCount: byNameRealm.length, reason: "AMBIGUOUS" };
   }
   return {
-    actorId: matches[0]!.participantActorId,
-    matchCount: matches.length,
+    actorId: byNameRealm[0]!.participantActorId,
+    matchCount: byNameRealm.length,
     reason: "RESOLVED",
   };
 }
@@ -298,6 +334,25 @@ export function resolveScoringFightRoster(
   input: ResolveScoringFightRosterInput,
 ): ResolveScoringFightRosterResult {
   const pkg = input.capabilityPackage;
+  if (input.expectedSourceFight) {
+    const expected = input.expectedSourceFight;
+    if (
+      pkg.sourceKey.reportCode !== expected.reportCode ||
+      pkg.sourceKey.fightId !== expected.fightId ||
+      pkg.sourceKey.reportRevision !== expected.reportRevision
+    ) {
+      return {
+        ok: false,
+        code: "RAW_PACKAGE_SOURCE_MISMATCH",
+        message: "capability_package_source_key_mismatch",
+        details: {
+          packageSourceKey: pkg.sourceKey,
+          expectedSourceFight: expected,
+        },
+      };
+    }
+  }
+
   const friendlyIds = pkg.friendlyPlayerActorIds;
 
   if (!Array.isArray(friendlyIds) || friendlyIds.length === 0) {
@@ -361,15 +416,21 @@ export function resolveScoringFightRoster(
       };
     }
     if (actor.type !== "Player") {
-      skipped.push({
-        actorId,
-        reason: `not_player_type:${actor.type || "unknown"}`,
-      });
-      continue;
+      // friendlyPlayers must be players — pets/NPCs are malformed roster evidence.
+      return {
+        ok: false,
+        code: "INVALID_PARTICIPANT_ACTOR_ID",
+        message: `friendly_actor_not_player:${actorId}:${actor.type || "unknown"}`,
+        details: { actorId, actorType: actor.type },
+      };
     }
     if (!actor.name) {
-      skipped.push({ actorId, reason: "missing_player_name" });
-      continue;
+      return {
+        ok: false,
+        code: "INVALID_PARTICIPANT_ACTOR_ID",
+        message: `friendly_actor_missing_player_name:${actorId}`,
+        details: { actorId },
+      };
     }
 
     const combatant = combatantByActor.get(actorId);
@@ -401,7 +462,20 @@ export function resolveScoringFightRoster(
       players: participants,
       target: input.target,
     });
-    if (resolved.reason === "RESOLVED" && resolved.actorId != null) {
+    if (resolved.reason === "CONFLICT") {
+      if (input.requireTarget !== false) {
+        return {
+          ok: false,
+          code: "TARGET_IDENTITY_CONFLICT",
+          message: "target_actor_id_conflicts_with_name_realm_region",
+          details: {
+            targetActorId: input.target.targetActorId ?? null,
+            matchCount: resolved.matchCount,
+          },
+        };
+      }
+      // requireTarget=false: never link on contradiction; still persist other participants.
+    } else if (resolved.reason === "RESOLVED" && resolved.actorId != null) {
       targetActorId = resolved.actorId;
       for (const p of participants) {
         if (p.participantActorId !== targetActorId) continue;

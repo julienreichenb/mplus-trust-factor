@@ -363,12 +363,13 @@ describe("production roster resolution wiring", () => {
       artifacts: { readVerified: async () => Buffer.from("{}") } as never,
       evidence: { findDatasetByCompatibilityKey: async () => null } as never,
       targetCharacter: targetCharacter(),
-      liveAcquireCapabilityPackage: async () => {
+      liveAcquireCapabilityPackage: async (input) => {
         acquireCalls += 1;
+        const acquiredPkg = buildPkg(input.sourceFight);
         return {
-          package: pkg,
+          package: acquiredPkg,
           packageArtifactId: randomUUID(),
-          contentHash: pkg.contentHash,
+          contentHash: acquiredPkg.contentHash,
           providerCalls: 1,
           created: true,
           masterData: MASTER_DATA,
@@ -412,7 +413,6 @@ describe("production roster resolution wiring", () => {
       fightId: 8,
       reportRevision: 1,
     };
-    const pkg2 = buildPkg(fight2);
     const acquired = await ports.acquireAndPersistCapabilityPackage({
       sourceFight: fight2,
       dungeonSlug: "skyreach",
@@ -427,6 +427,7 @@ describe("production roster resolution wiring", () => {
     });
     expect(resolved).toHaveLength(5);
 
+    const pkg2 = buildPkg(fight2);
     const built = (
       await import("@mplus/provider-warcraftlogs")
     ).buildParticipantScoringDigestsFromPackage({
@@ -487,6 +488,9 @@ describe("production roster resolution wiring", () => {
       targetCharacter: targetCharacter(),
       liveAcquireCapabilityPackage: async () => {
         acquireCalls += 1;
+        if (acquireCalls > 1) {
+          throw new Error("warm_path_must_not_reacquire");
+        }
         return {
           package: pkg,
           packageArtifactId: randomUUID(),
@@ -543,6 +547,50 @@ describe("production roster resolution wiring", () => {
       expect(again.created).toBe(false);
     }
     expect(db.digestsByKey.size).toBe(5);
+  });
+
+  it("bare legacy raw packages are not warm-compatible roster hits", async () => {
+    const db = createInMemoryScoringPrisma();
+    const fight: SourceFightIdentity = {
+      reportCode: "BarePkg",
+      fightId: 1,
+      reportRevision: 1,
+    };
+    const pkg = buildPkg(fight);
+    await db.prisma.wclRunRaw.upsert({
+      where: {
+        reportCode_fightId_reportRevision_acquisitionVersion: {
+          ...fight,
+          acquisitionVersion: SCORING_ACQUISITION_VERSION,
+        },
+      },
+      create: {
+        ...fight,
+        acquisitionVersion: SCORING_ACQUISITION_VERSION,
+        payload: pkg,
+        fetchedAt: new Date(),
+        providerCost: null,
+      },
+      update: { payload: pkg },
+    });
+
+    const liveAcquire = vi.fn(async () => {
+      throw new Error("must_not_acquire_in_this_assertion");
+    });
+    const ports = createProductionRunOrchestrationPorts({
+      prisma: db.prisma,
+      artifacts: { readVerified: async () => Buffer.from("{}") } as never,
+      evidence: { findDatasetByCompatibilityKey: async () => null } as never,
+      targetCharacter: targetCharacter(),
+      liveAcquireCapabilityPackage: liveAcquire,
+    });
+
+    const hit = await ports.findCompatibleCapabilityPackage({ sourceFight: fight });
+    expect(hit).toBeNull();
+    await expect(
+      ports.resolveParticipantsForFight({ sourceFight: fight }),
+    ).rejects.toMatchObject({ code: "RAW_PACKAGE_MISSING_FIGHT_ROSTER" });
+    expect(liveAcquire).not.toHaveBeenCalled();
   });
 
   it("D: provider-free replay resolves roster with zero provider calls", async () => {

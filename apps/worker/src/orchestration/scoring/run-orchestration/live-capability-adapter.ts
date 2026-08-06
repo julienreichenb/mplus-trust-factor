@@ -243,30 +243,47 @@ export function createLiveCapabilityAcquireHook(
       acquisitionVersion: SCORING_ACQUISITION_VERSION,
     });
     if (existingRow) {
-      const existingParsed = parseWclRunRawPayload(existingRow.payload);
-      const existingPkg = existingParsed.package;
-      if (existingPkg.complete === true) {
-        return {
-          package: existingPkg,
-          packageArtifactId: existingRow.id,
-          contentHash: existingPkg.contentHash,
-          providerCalls: 0,
-          created: false,
-          masterData: existingParsed.masterData,
-          regionCode: existingParsed.regionCode ?? deps.region,
-          combatantInfoEvents: existingParsed.combatantInfoEvents,
-          accounting: {
-            providerCalls: 0,
-            pagesFetched: existingPkg.accounting.pagesFetched,
-            filterBatchCount: existingPkg.accounting.filterBatchCount,
-            pointsConsumed: 0,
-            estimatedPointsConsumed: 0,
-            costSource: "PACKAGE_ACCOUNTING",
+      try {
+        const existingParsed = parseWclRunRawPayload(existingRow.payload);
+        const existingPkg = existingParsed.package;
+        // Bare packages (no masterData) are not warm hits — re-acquire to embed roster.
+        if (
+          existingPkg.complete === true &&
+          existingParsed.hasEmbeddedRosterSource &&
+          existingParsed.masterData != null
+        ) {
+          return {
+            package: existingPkg,
             packageArtifactId: existingRow.id,
             contentHash: existingPkg.contentHash,
-            compatibilityKey: existingPkg.compatibilityKey,
-          },
-        };
+            providerCalls: 0,
+            created: false,
+            masterData: existingParsed.masterData,
+            regionCode: existingParsed.regionCode ?? deps.region,
+            combatantInfoEvents: existingParsed.combatantInfoEvents,
+            accounting: {
+              providerCalls: 0,
+              pagesFetched: existingPkg.accounting.pagesFetched,
+              filterBatchCount: existingPkg.accounting.filterBatchCount,
+              pointsConsumed: 0,
+              estimatedPointsConsumed: 0,
+              costSource: "PACKAGE_ACCOUNTING",
+              packageArtifactId: existingRow.id,
+              contentHash: existingPkg.contentHash,
+              compatibilityKey: existingPkg.compatibilityKey,
+            },
+          };
+        }
+      } catch (err) {
+        if (
+          !(
+            err instanceof Error &&
+            (err as { code?: string }).code === "RAW_PACKAGE_SCHEMA_INCOMPATIBLE"
+          )
+        ) {
+          throw err;
+        }
+        // Incompatible stored payload → fall through to live re-acquire.
       }
     }
 

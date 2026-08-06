@@ -10,6 +10,7 @@ import { z } from "zod";
 import {
   assertCapabilityEvidencePackageV1,
   capabilityEvidencePackageV1Schema,
+  CAPABILITY_EVIDENCE_PACKAGE_SCHEMA_VERSION,
   type CapabilityEvidencePackageV1,
 } from "./capability-evidence-v1.js";
 
@@ -46,37 +47,73 @@ function asRecord(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
+function incompatible(message: string): never {
+  throw Object.assign(new Error(message), {
+    code: "RAW_PACKAGE_SCHEMA_INCOMPATIBLE" as const,
+  });
+}
+
 /**
  * Parse WclRunRaw.payload: envelope v1 or legacy bare capability package.
  */
 export function parseWclRunRawPayload(payload: unknown): ParsedWclRunRawPayload {
   const root = asRecord(payload);
   if (!root) {
-    throw Object.assign(new Error("wcl_run_raw_payload_invalid"), {
-      code: "RAW_PACKAGE_SCHEMA_INCOMPATIBLE",
-    });
+    incompatible("wcl_run_raw_payload_invalid");
   }
 
-  if (root.schemaVersion === WCL_RUN_RAW_PAYLOAD_SCHEMA_VERSION) {
-    const parsed = wclRunRawPayloadV1Schema.parse(payload);
+  const schemaVersion =
+    typeof root.schemaVersion === "string" ? root.schemaVersion : null;
+
+  if (schemaVersion === WCL_RUN_RAW_PAYLOAD_SCHEMA_VERSION) {
+    let parsed: WclRunRawPayloadV1;
+    try {
+      parsed = wclRunRawPayloadV1Schema.parse(payload);
+    } catch (err) {
+      incompatible(
+        `wcl_run_raw_payload_v1_invalid:${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+    const masterData = parsed.masterData ?? null;
     return {
       package: parsed.capabilityPackage,
-      masterData: parsed.masterData ?? null,
+      masterData,
       regionCode: parsed.regionCode ?? null,
       combatantInfoEvents: parsed.combatantInfoEvents ?? null,
-      hasEmbeddedRosterSource: parsed.masterData != null,
+      hasEmbeddedRosterSource: masterData != null,
     };
   }
 
+  if (
+    schemaVersion != null &&
+    schemaVersion.startsWith("wcl-run-raw-payload") &&
+    schemaVersion !== WCL_RUN_RAW_PAYLOAD_SCHEMA_VERSION
+  ) {
+    incompatible(`wcl_run_raw_payload_unsupported_version:${schemaVersion}`);
+  }
+
   // Legacy: bare CapabilityEvidencePackageV1 (no masterData).
-  const pkg = assertCapabilityEvidencePackageV1(payload);
-  return {
-    package: pkg,
-    masterData: null,
-    regionCode: null,
-    combatantInfoEvents: null,
-    hasEmbeddedRosterSource: false,
-  };
+  if (
+    schemaVersion != null &&
+    schemaVersion !== CAPABILITY_EVIDENCE_PACKAGE_SCHEMA_VERSION
+  ) {
+    incompatible(`wcl_run_raw_payload_unknown_schema:${schemaVersion}`);
+  }
+
+  try {
+    const pkg = assertCapabilityEvidencePackageV1(payload);
+    return {
+      package: pkg,
+      masterData: null,
+      regionCode: null,
+      combatantInfoEvents: null,
+      hasEmbeddedRosterSource: false,
+    };
+  } catch (err) {
+    incompatible(
+      `wcl_run_raw_payload_legacy_package_invalid:${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
 }
 
 export function assertCapabilityPackageFromRawPayload(

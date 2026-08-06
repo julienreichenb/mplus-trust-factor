@@ -127,6 +127,7 @@ function digestFromRow(row: {
 
 function resolveRosterFromRawPayload(input: {
   payload: unknown;
+  sourceFight: SourceFightIdentity;
   targetCharacter?: ScoringFightRosterTargetIdentity | null;
 }): OrchestrationParticipant[] {
   const parsed = parseWclRunRawPayload(input.payload);
@@ -143,6 +144,7 @@ function resolveRosterFromRawPayload(input: {
       parsed.regionCode ?? input.targetCharacter?.regionCode ?? null,
     combatantInfoEvents: parsed.combatantInfoEvents,
     target: input.targetCharacter ?? null,
+    expectedSourceFight: input.sourceFight,
     // Persist all valid participants even when the requested target is absent;
     // target selection fails later with TARGET_CHARACTER_DIGEST_MISSING.
     requireTarget: false,
@@ -182,6 +184,7 @@ export function createProductionRunOrchestrationPorts(
     }
     return resolveRosterFromRawPayload({
       payload: row.payload,
+      sourceFight,
       targetCharacter,
     });
   }
@@ -192,9 +195,32 @@ export function createProductionRunOrchestrationPorts(
     async findCompatibleCapabilityPackage({ sourceFight }) {
       const row = await loadRaw(sourceFight);
       if (!row) return null;
-      const parsed = parseWclRunRawPayload(row.payload);
+      let parsed;
+      try {
+        parsed = parseWclRunRawPayload(row.payload);
+      } catch (err) {
+        // Unsupported / corrupt payload is not a warm hit.
+        if (
+          err instanceof Error &&
+          (err as { code?: string }).code === "RAW_PACKAGE_SCHEMA_INCOMPATIBLE"
+        ) {
+          return null;
+        }
+        throw err;
+      }
       const pkg = parsed.package;
       if (pkg.complete !== true) return null;
+      // Bare legacy packages lack masterData — not roster-compatible.
+      if (!parsed.hasEmbeddedRosterSource || parsed.masterData == null) {
+        return null;
+      }
+      if (
+        pkg.sourceKey.reportCode !== sourceFight.reportCode ||
+        pkg.sourceKey.fightId !== sourceFight.fightId ||
+        pkg.sourceKey.reportRevision !== sourceFight.reportRevision
+      ) {
+        return null;
+      }
       return {
         package: pkg,
         packageArtifactId: row.id,
@@ -352,6 +378,7 @@ export function createProductionRunOrchestrationPorts(
         try {
           const participants = resolveRosterFromRawPayload({
             payload: row.payload,
+            sourceFight,
             targetCharacter,
           });
           return participants.map((p) => ({

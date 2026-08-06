@@ -290,7 +290,21 @@ describe("resolveScoringFightRoster", () => {
     }
   });
 
-  it("F: missing target does not select another player when required", () => {
+  it("fails when friendlyPlayers references a pet actor", () => {
+    const pkg = buildPackage({ friendlyPlayerActorIds: [1, 2, 3, 4, 50] });
+    const result = resolveScoringFightRoster({
+      capabilityPackage: pkg,
+      masterData: fivePlayerMasterData,
+      regionCode: "EU",
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe("INVALID_PARTICIPANT_ACTOR_ID");
+      expect(result.message).toContain("friendly_actor_not_player");
+    }
+  });
+
+  it("rejects contradictory targetActorId vs name/realm", () => {
     const pkg = buildPackage({ friendlyPlayerActorIds: [1, 2, 3, 4, 5] });
     const result = resolveScoringFightRoster({
       capabilityPackage: pkg,
@@ -298,15 +312,75 @@ describe("resolveScoringFightRoster", () => {
       regionCode: "EU",
       target: {
         characterId: TARGET_ID,
-        characterName: "Nobody",
+        characterName: "Wallidrixe",
         realmSlug: "archimonde",
         regionCode: "EU",
+        // Actor 2 is HealerOne — contradicts Wallidrixe/Archimonde.
+        targetActorId: 2,
       },
       requireTarget: true,
     });
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.code).toBe("TARGET_PARTICIPANT_NOT_FOUND");
+      expect(result.code).toBe("TARGET_IDENTITY_CONFLICT");
     }
+  });
+
+  it("does not link on contradictory targetActorId when requireTarget is false", () => {
+    const pkg = buildPackage({ friendlyPlayerActorIds: [1, 2, 3, 4, 5] });
+    const result = resolveScoringFightRosterOrThrow({
+      capabilityPackage: pkg,
+      masterData: fivePlayerMasterData,
+      regionCode: "EU",
+      target: {
+        characterId: TARGET_ID,
+        characterName: "Wallidrixe",
+        realmSlug: "archimonde",
+        regionCode: "EU",
+        targetActorId: 2,
+      },
+      requireTarget: false,
+    });
+    expect(result.participants).toHaveLength(5);
+    expect(result.targetActorId).toBeNull();
+    expect(result.participants.every((p) => p.characterId == null)).toBe(true);
+  });
+
+  it("rejects package sourceKey mismatch against expected fight", () => {
+    const pkg = buildPackage({ friendlyPlayerActorIds: [1, 2, 3, 4, 5] });
+    const result = resolveScoringFightRoster({
+      capabilityPackage: pkg,
+      masterData: fivePlayerMasterData,
+      regionCode: "EU",
+      expectedSourceFight: {
+        reportCode: "OtherCode",
+        fightId: 12,
+        reportRevision: 3,
+      },
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe("RAW_PACKAGE_SOURCE_MISMATCH");
+    }
+  });
+
+  it("accepts matching targetActorId only when name/realm/region agree", () => {
+    const pkg = buildPackage({ friendlyPlayerActorIds: [1, 2, 3, 4, 5] });
+    const result = resolveScoringFightRosterOrThrow({
+      capabilityPackage: pkg,
+      masterData: fivePlayerMasterData,
+      regionCode: "EU",
+      target: {
+        characterId: TARGET_ID,
+        characterName: "Wallidrixe",
+        realmSlug: "Archimonde",
+        regionCode: "eu",
+        targetActorId: 1,
+      },
+    });
+    expect(result.targetActorId).toBe(1);
+    expect(result.participants.find((p) => p.participantActorId === 1)?.characterId).toBe(
+      TARGET_ID,
+    );
   });
 });
