@@ -97,6 +97,7 @@ export {
 } from "./survival/rebuild-capability-package.js";
 export {
   buildParticipantScoringDigestsFromPackage,
+  inferFightBoundsFromCompactEvents,
   type BuildParticipantDigestsFromPackageInput,
   type RankingParseFactInput,
 } from "./digest/build-participant-scoring-digest.js";

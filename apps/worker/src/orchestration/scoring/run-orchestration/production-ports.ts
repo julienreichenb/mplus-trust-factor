@@ -25,6 +25,7 @@ import {
 import {
   resolveScoringFightRosterOrThrow,
   toOrchestrationParticipants,
+  inferFightBoundsFromCompactEvents,
   type RankingParseEvidenceV2,
   type ScoringFightRosterTargetIdentity,
 } from "@mplus/provider-warcraftlogs";
@@ -392,6 +393,19 @@ export function createProductionRunOrchestrationPorts(
           return null;
         }
       }),
+
+    async resolveFightBounds({ sourceFight }) {
+      const row = await loadRaw(sourceFight);
+      if (!row) {
+        return { fightStartMs: 0, fightEndMs: null };
+      }
+      try {
+        const parsed = parseWclRunRawPayload(row.payload);
+        return inferFightBoundsFromCompactEvents(parsed.package.compactEvents);
+      } catch {
+        return { fightStartMs: 0, fightEndMs: null };
+      }
+    },
 
     async resolveRankingParseForParticipant({
       sourceFight,

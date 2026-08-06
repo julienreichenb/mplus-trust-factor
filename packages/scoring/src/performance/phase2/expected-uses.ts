@@ -9,7 +9,7 @@ import {
 
 /**
  * endGraceMs = min(30_000, effectiveCooldownMs * 0.25)
- * expectedUses = 1 + floor(max(0, activeCombatDurationMs - endGraceMs) / effectiveCooldownMs)
+ * expectedUses = initialPool + floor(max(0, activeCombatDurationMs - endGraceMs) / effectiveCooldownMs)
  *
  * When the catalogue explicitly defines charges > 1, the initial available pool
  * is `charges` instead of 1 (explicit charge field only — recharge/reset mechanics

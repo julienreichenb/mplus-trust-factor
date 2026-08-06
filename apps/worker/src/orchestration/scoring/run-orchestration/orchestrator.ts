@@ -34,6 +34,7 @@ import {
 } from "@mplus/scoring";
 import {
   buildParticipantScoringDigestsFromPackage,
+  inferFightBoundsFromCompactEvents,
   type RankingParseFactInput,
 } from "@mplus/provider-warcraftlogs";
 import { absentRankingParseFact } from "./ranking-hydrate.js";
@@ -421,14 +422,8 @@ async function ensurePackageAndDigests(input: {
       packageCreated = acquired.created;
     }
 
-    const bounds = (await ports.resolveFightBounds?.({ sourceFight })) ?? {
-      fightStartMs: 0,
-      fightEndMs:
-        packageHit.package.compactEvents.reduce(
-          (max, e) => Math.max(max, e.timestampMs),
-          0,
-        ) || null,
-    };
+    const bounds = (await ports.resolveFightBounds?.({ sourceFight })) ??
+      inferFightBoundsFromCompactEvents(packageHit.package.compactEvents);
 
     const participants = await ports.resolveParticipantsForFight({
       sourceFight,

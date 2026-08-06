@@ -23,7 +23,10 @@ import {
   type RunOrchestrationPorts,
   type SourceFightIdentity,
 } from "./orchestrator.js";
-import type { RankingParseFactInput } from "@mplus/provider-warcraftlogs";
+import {
+  inferFightBoundsFromCompactEvents,
+  type RankingParseFactInput,
+} from "@mplus/provider-warcraftlogs";
 
 const DEFAULT_CAPABILITIES: EvidenceCapability[] = [
   "PERFORMANCE_OFFENSIVE_ACTIVATIONS",
@@ -353,7 +356,11 @@ export function createMemoryOrchestrationPorts(options?: {
       return record;
     },
 
-    async resolveFightBounds() {
+    async resolveFightBounds({ sourceFight }) {
+      const hit = packages.get(sourceFightKey(sourceFight));
+      if (hit) {
+        return inferFightBoundsFromCompactEvents(hit.package.compactEvents);
+      }
       return { fightStartMs: 0, fightEndMs: 1_800_000 };
     },
 

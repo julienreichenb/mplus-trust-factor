@@ -30,6 +30,27 @@ export interface RankingParseFactInput {
   };
 }
 
+/**
+ * Infer fight-local bounds from compact-event timestamps (report-absolute).
+ * Prefer authoritative WCL fight.startTime/endTime when available; this is the
+ * provider-free fallback so duration is not inflated as max(ts) − 0.
+ */
+export function inferFightBoundsFromCompactEvents(
+  compactEvents: ReadonlyArray<{ timestampMs: number }>,
+): { fightStartMs: number; fightEndMs: number | null } {
+  let minTs = Number.POSITIVE_INFINITY;
+  let maxTs = Number.NEGATIVE_INFINITY;
+  for (const e of compactEvents) {
+    if (!Number.isFinite(e.timestampMs)) continue;
+    if (e.timestampMs < minTs) minTs = e.timestampMs;
+    if (e.timestampMs > maxTs) maxTs = e.timestampMs;
+  }
+  if (!(minTs < Number.POSITIVE_INFINITY) || !(maxTs > Number.NEGATIVE_INFINITY)) {
+    return { fightStartMs: 0, fightEndMs: null };
+  }
+  return { fightStartMs: minTs, fightEndMs: maxTs };
+}
+
 export interface BuildParticipantDigestsFromPackageInput {
   capabilityPackage: CapabilityEvidencePackageV1;
   packageArtifactId: string;
