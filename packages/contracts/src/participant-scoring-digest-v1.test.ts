@@ -88,10 +88,16 @@ describe("ParticipantScoringDigestV1 identity + hashing", () => {
     expect(regionChanged.contentHash).not.toBe(a.contentHash);
   });
 
-  it("rejects unknown sentinel and missing identity fields", () => {
+  it("rejects unknown sentinel, whitespace-only, and missing identity fields", () => {
     expect(() =>
       withParticipantDigestContentHash(
         baseDigest({ realmSlug: "unknown" as unknown as string }),
+      ),
+    ).toThrow();
+
+    expect(() =>
+      withParticipantDigestContentHash(
+        baseDigest({ realmSlug: "   " as unknown as string }),
       ),
     ).toThrow();
 

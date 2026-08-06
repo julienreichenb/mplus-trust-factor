@@ -136,22 +136,22 @@ export function selectTargetCharacterDigest(input: {
     }
     const digestRealm = d.realmSlug ?? d.digest.realmSlug;
     const digestRegion = d.regionCode ?? d.digest.regionCode;
-    // When realm is known on the digest, never match by name alone.
-    if (digestRealm != null && digestRealm.length > 0) {
-      const realmOk = nameRealmMatches(
-        d.characterName,
-        digestRealm,
-        input.identity.characterName,
-        input.identity.realmSlug,
+    // Never match by name alone when realm data exists on either side.
+    if (digestRealm == null || digestRealm.length === 0) {
+      return false;
+    }
+    const realmOk = nameRealmMatches(
+      d.characterName,
+      digestRealm,
+      input.identity.characterName,
+      input.identity.realmSlug,
+    );
+    if (!realmOk) return false;
+    if (digestRegion != null && digestRegion.length > 0) {
+      return (
+        normalizeName(digestRegion) ===
+        normalizeName(input.identity.regionCode)
       );
-      if (!realmOk) return false;
-      if (digestRegion != null && digestRegion.length > 0) {
-        return (
-          normalizeName(digestRegion) ===
-          normalizeName(input.identity.regionCode)
-        );
-      }
-      return true;
     }
     return true;
   });

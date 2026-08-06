@@ -98,13 +98,14 @@ export type ParticipantSurvivalDigestV1 = z.infer<
 
 /**
  * Durable identity slug: real value or null when absent.
- * Rejects empty strings and the sentinel "unknown" (must be null instead).
+ * Rejects empty/whitespace strings and the sentinel "unknown" (must be null instead).
  */
 export const participantDigestIdentitySlugSchema = z
   .string()
+  .trim()
   .min(1)
   .refine(
-    (value) => value.trim().toLowerCase() !== "unknown",
+    (value) => value.toLowerCase() !== "unknown",
     { message: "participant_digest_identity_slug_must_not_be_unknown" },
   )
   .nullable();

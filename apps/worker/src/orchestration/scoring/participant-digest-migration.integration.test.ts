@@ -83,4 +83,63 @@ describe.skipIf(!dbAvailable)("participant_scoring_digest migration (local)", ()
         names.some((n) => n.includes("score")),
     ).toBe(true);
   });
+
+  it("migration backfill SQL reads representative source_metadata shapes", async () => {
+    // Simulate the migration UPDATE expressions against representative JSON.
+    const rows = await prisma.$queryRaw<
+      Array<{
+        actor_from_digest: number | null;
+        actor_from_top: number | null;
+        name_from_digest: string | null;
+        realm_normalized: string | null;
+      }>
+    >`
+      WITH samples AS (
+        SELECT '{"digest":{"participantActorId":12,"characterName":"Mate","realmSlug":"unknown","regionCode":"EU"},"participantActorId":12}'::jsonb AS source_metadata
+        UNION ALL
+        SELECT '{"participantActorId":7,"characterName":"TopOnly"}'::jsonb
+        UNION ALL
+        SELECT '{"digest":{"participantActorId":0,"characterName":"Bad"}}'::jsonb
+      )
+      SELECT
+        CASE
+          WHEN (source_metadata->'digest'->>'participantActorId') ~ '^[1-9][0-9]*$'
+            THEN (source_metadata->'digest'->>'participantActorId')::integer
+          ELSE NULL
+        END AS actor_from_digest,
+        CASE
+          WHEN (source_metadata->>'participantActorId') ~ '^[1-9][0-9]*$'
+            THEN (source_metadata->>'participantActorId')::integer
+          ELSE NULL
+        END AS actor_from_top,
+        NULLIF(trim(source_metadata->'digest'->>'characterName'), '') AS name_from_digest,
+        CASE
+          WHEN lower(COALESCE(source_metadata->'digest'->>'realmSlug', '')) IN ('', 'unknown')
+            THEN NULL
+          ELSE NULLIF(trim(source_metadata->'digest'->>'realmSlug'), '')
+        END AS realm_normalized
+      FROM samples
+      ORDER BY actor_from_top NULLS LAST, actor_from_digest NULLS LAST
+    `;
+
+    expect(rows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          actor_from_digest: 12,
+          actor_from_top: 12,
+          name_from_digest: "Mate",
+          realm_normalized: null,
+        }),
+        expect.objectContaining({
+          actor_from_digest: null,
+          actor_from_top: 7,
+          name_from_digest: null,
+        }),
+        expect.objectContaining({
+          actor_from_digest: null,
+          name_from_digest: "Bad",
+        }),
+      ]),
+    );
+  });
 });

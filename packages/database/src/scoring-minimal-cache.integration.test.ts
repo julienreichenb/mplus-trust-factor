@@ -383,6 +383,109 @@ describe.runIf(dbAvailable)("scoring minimal cache repositories (postgres)", () 
     expect(preserved.characterId).toBe(characterId);
   });
 
+  it("rejects save that would replace Character A with Character B", async () => {
+    const raw = await rawRuns.save({
+      reportCode: `R${randomUUID().slice(0, 8)}`,
+      fightId: 33,
+      reportRevision: 1,
+      acquisitionVersion: "capability-acquisition-plan-v1",
+      payload: { conflict: true },
+    });
+    const extractorVersion = "participant-digest-extractors-v1";
+    const saved = await digests.save({
+      rawRunId: raw.id,
+      participantActorId: 77,
+      characterId,
+      characterName: "Linked",
+      realmSlug: "archimonde",
+      regionCode: "EU",
+      extractorVersion,
+      offensive: {},
+      utility: {},
+      survival: {},
+      sourceMetadata: { digest: { participantActorId: 77 } },
+    });
+    expect(saved.characterId).toBe(characterId);
+
+    await expect(
+      digests.save({
+        rawRunId: raw.id,
+        participantActorId: 77,
+        characterId: otherCharacterId,
+        characterName: "Linked",
+        realmSlug: "archimonde",
+        regionCode: "EU",
+        extractorVersion,
+        offensive: { changed: true },
+        utility: {},
+        survival: {},
+        sourceMetadata: { digest: { participantActorId: 77 } },
+      }),
+    ).rejects.toBeInstanceOf(CharacterRunDigestCharacterLinkConflictError);
+
+    const unchanged = await digests.find({
+      rawRunId: raw.id,
+      participantActorId: 77,
+      extractorVersion,
+    });
+    expect(unchanged?.characterId).toBe(characterId);
+    expect(unchanged?.offensive).toEqual({});
+  });
+
+  it("serializes concurrent attach attempts so conflicting links cannot win", async () => {
+    const raw = await rawRuns.save({
+      reportCode: `R${randomUUID().slice(0, 8)}`,
+      fightId: 44,
+      reportRevision: 1,
+      acquisitionVersion: "capability-acquisition-plan-v1",
+      payload: { race: true },
+    });
+    const extractorVersion = "participant-digest-extractors-v1";
+    const saved = await digests.save({
+      rawRunId: raw.id,
+      participantActorId: 88,
+      characterId: null,
+      characterName: "RaceMe",
+      realmSlug: "archimonde",
+      regionCode: "EU",
+      extractorVersion,
+      offensive: {},
+      utility: {},
+      survival: {},
+      sourceMetadata: { digest: { participantActorId: 88 } },
+    });
+
+    const results = await Promise.allSettled([
+      digests.attachCharacter({ digestId: saved.id, characterId }),
+      digests.attachCharacter({
+        digestId: saved.id,
+        characterId: otherCharacterId,
+      }),
+    ]);
+
+    const fulfilled = results.filter((r) => r.status === "fulfilled");
+    const rejected = results.filter((r) => r.status === "rejected");
+    expect(fulfilled).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+    expect(rejected[0]!.status).toBe("rejected");
+    if (rejected[0]!.status === "rejected") {
+      expect(rejected[0].reason).toBeInstanceOf(
+        CharacterRunDigestCharacterLinkConflictError,
+      );
+    }
+
+    const final = await digests.find({
+      rawRunId: raw.id,
+      participantActorId: 88,
+      extractorVersion,
+    });
+    expect(final?.characterId).toBe(
+      (fulfilled[0] as PromiseFulfilledResult<{ characterId: string | null }>)
+        .value.characterId,
+    );
+    expect([characterId, otherCharacterId]).toContain(final?.characterId);
+  });
+
   it("backfill is idempotent (provider-free)", async () => {
     const first = await backfillScoringMinimalCache({ prisma, dryRun: false });
     const second = await backfillScoringMinimalCache({ prisma, dryRun: false });

@@ -77,6 +77,19 @@ BEGIN
     RAISE EXCEPTION
       'character_run_digests migration failed: one or more rows lack character_name in source_metadata.digest. Reset the development database or repair rows before migrating.';
   END IF;
+
+  IF EXISTS (
+    SELECT 1
+    FROM (
+      SELECT "raw_run_id", "participant_actor_id", "extractor_version"
+      FROM "character_run_digests"
+      GROUP BY "raw_run_id", "participant_actor_id", "extractor_version"
+      HAVING COUNT(*) > 1
+    ) dupes
+  ) THEN
+    RAISE EXCEPTION
+      'character_run_digests migration failed: duplicate (raw_run_id, participant_actor_id, extractor_version) rows after backfill. Repair or reset before adding the unique index.';
+  END IF;
 END $$;
 
 ALTER TABLE "character_run_digests"
