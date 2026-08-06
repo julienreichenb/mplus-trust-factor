@@ -2185,26 +2185,35 @@ model WclRunRaw {
 }
 
 /**
- * Per-character digests derived from a cached raw run.
- * Identity: rawRunId + characterId + extractorVersion.
+ * Per-participant digests derived from a cached raw run.
+ * Identity: rawRunId + participantActorId + extractorVersion.
+ * characterId is an optional link to an internal Character row (never auto-created).
  */
 model CharacterRunDigest {
-  id               String   @id @default(uuid()) @db.Uuid
-  rawRunId         String   @map("raw_run_id") @db.Uuid
-  characterId      String   @map("character_id") @db.Uuid
-  extractorVersion String   @map("extractor_version")
-  offensive        Json
-  utility          Json
-  survival         Json
-  sourceMetadata   Json     @map("source_metadata")
-  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  id                 String   @id @default(uuid()) @db.Uuid
+  rawRunId           String   @map("raw_run_id") @db.Uuid
+  characterId        String?  @map("character_id") @db.Uuid
+  participantActorId Int      @map("participant_actor_id")
+  characterName      String   @map("character_name")
+  realmSlug          String?  @map("realm_slug")
+  regionCode         String?  @map("region_code")
+  classSlug          String?  @map("class_slug")
+  specSlug           String?  @map("spec_slug")
+  role               String?
+  extractorVersion   String   @map("extractor_version")
+  offensive          Json
+  utility            Json
+  survival           Json
+  sourceMetadata     Json     @map("source_metadata")
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt          DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  rawRun    WclRunRaw @relation(fields: [rawRunId], references: [id], onDelete: Cascade)
-  character Character @relation(fields: [characterId], references: [id], onDelete: Cascade)
+  rawRun    WclRunRaw  @relation(fields: [rawRunId], references: [id], onDelete: Cascade)
+  character Character? @relation(fields: [characterId], references: [id], onDelete: SetNull)
 
-  @@unique([rawRunId, characterId, extractorVersion])
+  @@unique([rawRunId, participantActorId, extractorVersion], map: "character_run_digests_raw_run_actor_extractor_key")
   @@index([characterId])
+  @@index([regionCode, realmSlug, characterName])
   @@map("character_run_digests")
 }
 

@@ -196,6 +196,7 @@ export async function backfillScoringMinimalCache(
       select: {
         id: true,
         characterId: true,
+        participantActorId: true,
         extractorCompatVersion: true,
         artifactId: true,
         contentHash: true,
@@ -210,7 +211,7 @@ export async function backfillScoringMinimalCache(
       const extractorVersion = digestRow.extractorCompatVersion;
       const found = await digests.find({
         rawRunId: raw.id,
-        characterId: digestRow.characterId,
+        participantActorId: digestRow.participantActorId,
         extractorVersion,
       });
       if (found) {
@@ -226,20 +227,75 @@ export async function backfillScoringMinimalCache(
           utility?: unknown;
           survival?: unknown;
           participantActorId?: number;
+          characterName?: string;
+          realmSlug?: string | null;
+          regionCode?: string | null;
+          classSlug?: string | null;
+          specSlug?: string | null;
+          role?: string | null;
           capabilityPackageContentHash?: string;
           catalogVersion?: string;
         };
+        const participantActorId =
+          typeof digestPayload.participantActorId === "number" &&
+          Number.isInteger(digestPayload.participantActorId) &&
+          digestPayload.participantActorId > 0
+            ? digestPayload.participantActorId
+            : digestRow.participantActorId > 0
+              ? digestRow.participantActorId
+              : null;
+        if (participantActorId == null) {
+          report.digestsSkipped += 1;
+          report.errors.push({
+            source: `digest:${digestRow.id}`,
+            reason: "missing_or_invalid_participant_actor_id",
+          });
+          continue;
+        }
+        const characterName =
+          typeof digestPayload.characterName === "string" &&
+          digestPayload.characterName.trim().length > 0
+            ? digestPayload.characterName
+            : null;
+        if (!characterName) {
+          report.digestsSkipped += 1;
+          report.errors.push({
+            source: `digest:${digestRow.id}`,
+            reason: "missing_character_name",
+          });
+          continue;
+        }
         if (!options.dryRun) {
           await digests.save({
             rawRunId: raw.id,
-            characterId: digestRow.characterId,
+            participantActorId,
             extractorVersion,
+            characterId: digestRow.characterId,
+            characterName,
+            realmSlug:
+              typeof digestPayload.realmSlug === "string"
+                ? digestPayload.realmSlug
+                : null,
+            regionCode:
+              typeof digestPayload.regionCode === "string"
+                ? digestPayload.regionCode
+                : null,
+            classSlug:
+              typeof digestPayload.classSlug === "string"
+                ? digestPayload.classSlug
+                : null,
+            specSlug:
+              typeof digestPayload.specSlug === "string"
+                ? digestPayload.specSlug
+                : null,
+            role:
+              typeof digestPayload.role === "string" ? digestPayload.role : null,
             offensive: asJson(digestPayload.performance ?? {}),
             utility: asJson(digestPayload.utility ?? {}),
             survival: asJson(digestPayload.survival ?? {}),
             sourceMetadata: asJson({
               digest: digestPayload,
-              participantActorId: digestPayload.participantActorId ?? null,
+              participantActorId,
               capabilityPackageContentHash:
                 digestPayload.capabilityPackageContentHash ?? null,
               catalogVersion: digestPayload.catalogVersion ?? null,

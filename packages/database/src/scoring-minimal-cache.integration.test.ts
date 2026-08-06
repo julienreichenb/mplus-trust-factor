@@ -14,6 +14,7 @@ import { PrismaClient } from "@prisma/client";
 import {
   WclRunRawRepository,
   CharacterRunDigestRepository,
+  CharacterRunDigestCharacterLinkConflictError,
   RunRankingFactRepository,
   CharacterScoreRepository,
   checkDatabaseHealth,
@@ -44,6 +45,7 @@ describe.runIf(dbAvailable)("scoring minimal cache repositories (postgres)", () 
   const scores = new CharacterScoreRepository(prisma);
 
   let characterId: string;
+  let otherCharacterId: string;
   let seasonId: string;
 
   beforeAll(async () => {
@@ -81,7 +83,18 @@ describe.runIf(dbAvailable)("scoring minimal cache repositories (postgres)", () 
         role: "DPS",
       },
     });
+    const other = await prisma.character.create({
+      data: {
+        id: randomUUID(),
+        regionId: region.id,
+        realmId: realm.id,
+        normalizedName: `scoringcacheb${randomUUID().slice(0, 8)}`,
+        displayName: "ScoringCacheB",
+        role: "HEALER",
+      },
+    });
     characterId = character.id;
+    otherCharacterId = other.id;
     seasonId = season.id;
   });
 
@@ -119,15 +132,31 @@ describe.runIf(dbAvailable)("scoring minimal cache repositories (postgres)", () 
 
     const digest = await digests.save({
       rawRunId: first.id,
+      participantActorId: 1,
       characterId,
+      characterName: "ScoringCache",
+      realmSlug: "archimonde",
+      regionCode: "EU",
+      classSlug: "mage",
+      specSlug: "fire",
+      role: "DPS",
       extractorVersion: "extractor-v1",
       offensive: { score: 1 },
       utility: { score: 2 },
       survival: { score: 3 },
-      sourceMetadata: { participantActorId: 1 },
+      sourceMetadata: {
+        digest: {
+          participantActorId: 1,
+          characterName: "ScoringCache",
+          realmSlug: "archimonde",
+          regionCode: "EU",
+        },
+        participantActorId: 1,
+      },
     });
     expect(digest.rawRunId).toBe(first.id);
     expect(digest.characterId).toBe(characterId);
+    expect(digest.participantActorId).toBe(1);
     expect(digest.id).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
     );
@@ -158,7 +187,8 @@ describe.runIf(dbAvailable)("scoring minimal cache repositories (postgres)", () 
     await expect(
       digests.save({
         rawRunId: "a".repeat(64),
-        characterId,
+        participantActorId: 99,
+        characterName: "Bad",
         extractorVersion: "extractor-v1",
         offensive: {},
         utility: {},
@@ -166,6 +196,191 @@ describe.runIf(dbAvailable)("scoring minimal cache repositories (postgres)", () 
         sourceMetadata: {},
       }),
     ).rejects.toThrow();
+  });
+
+  it("persists five participant digests with only one character link (A/B/E)", async () => {
+    const raw = await rawRuns.save({
+      reportCode: `R${randomUUID().slice(0, 8)}`,
+      fightId: 11,
+      reportRevision: 1,
+      acquisitionVersion: "capability-acquisition-plan-v1",
+      payload: { five: true },
+    });
+    const extractorVersion = "participant-digest-extractors-v1";
+    const players = [
+      { actor: 10, name: "Target", characterId },
+      { actor: 11, name: "MateA", characterId: null },
+      { actor: 12, name: "MateB", characterId: null },
+      { actor: 13, name: "MateC", characterId: null },
+      { actor: 14, name: "MateD", characterId: null },
+    ] as const;
+
+    const firstPassIds: string[] = [];
+    for (const p of players) {
+      const saved = await digests.save({
+        rawRunId: raw.id,
+        participantActorId: p.actor,
+        characterId: p.characterId,
+        characterName: p.name,
+        realmSlug: "archimonde",
+        regionCode: "EU",
+        classSlug: "mage",
+        specSlug: "fire",
+        role: "DPS",
+        extractorVersion,
+        offensive: { actor: p.actor },
+        utility: { actor: p.actor },
+        survival: { actor: p.actor },
+        sourceMetadata: {
+          digest: {
+            participantActorId: p.actor,
+            characterId: p.characterId,
+            characterName: p.name,
+            realmSlug: "archimonde",
+            regionCode: "EU",
+            contentHash: `hash-${p.actor}`,
+          },
+        },
+      });
+      firstPassIds.push(saved.id);
+      expect(saved.id).not.toMatch(/^ephemeral:/);
+    }
+
+    const rows = await prisma.characterRunDigest.findMany({
+      where: { rawRunId: raw.id, extractorVersion },
+      orderBy: { participantActorId: "asc" },
+    });
+    expect(rows).toHaveLength(5);
+    expect(new Set(rows.map((r) => r.participantActorId)).size).toBe(5);
+    expect(rows.filter((r) => r.characterId != null)).toHaveLength(1);
+    expect(rows.filter((r) => r.characterId == null)).toHaveLength(4);
+
+    // Test B — idempotent reuse
+    const secondPassIds: string[] = [];
+    for (const p of players) {
+      const saved = await digests.save({
+        rawRunId: raw.id,
+        participantActorId: p.actor,
+        characterId: p.characterId,
+        characterName: p.name,
+        realmSlug: "archimonde",
+        regionCode: "EU",
+        classSlug: "mage",
+        specSlug: "fire",
+        role: "DPS",
+        extractorVersion,
+        offensive: { actor: p.actor, pass: 2 },
+        utility: { actor: p.actor, pass: 2 },
+        survival: { actor: p.actor, pass: 2 },
+        sourceMetadata: {
+          digest: {
+            participantActorId: p.actor,
+            characterId: p.characterId,
+            characterName: p.name,
+            realmSlug: "archimonde",
+            regionCode: "EU",
+            contentHash: `hash-${p.actor}`,
+          },
+        },
+      });
+      secondPassIds.push(saved.id);
+    }
+    expect(secondPassIds).toEqual(firstPassIds);
+    const afterReuse = await prisma.characterRunDigest.count({
+      where: { rawRunId: raw.id, extractorVersion },
+    });
+    expect(afterReuse).toBe(5);
+
+    // Test E — actor-specific lookup
+    const actor12 = await digests.find({
+      rawRunId: raw.id,
+      participantActorId: 12,
+      extractorVersion,
+    });
+    expect(actor12?.characterName).toBe("MateB");
+    expect(actor12?.participantActorId).toBe(12);
+    const actor10 = await digests.find({
+      rawRunId: raw.id,
+      participantActorId: 10,
+      extractorVersion,
+    });
+    expect(actor10?.characterId).toBe(characterId);
+    expect(actor10?.id).not.toBe(actor12?.id);
+  });
+
+  it("links a null-character digest later and rejects conflicting links (C/D)", async () => {
+    const raw = await rawRuns.save({
+      reportCode: `R${randomUUID().slice(0, 8)}`,
+      fightId: 22,
+      reportRevision: 1,
+      acquisitionVersion: "capability-acquisition-plan-v1",
+      payload: { link: true },
+    });
+    const extractorVersion = "participant-digest-extractors-v1";
+    const saved = await digests.save({
+      rawRunId: raw.id,
+      participantActorId: 42,
+      characterId: null,
+      characterName: "Unlinked",
+      realmSlug: "archimonde",
+      regionCode: "EU",
+      extractorVersion,
+      offensive: {},
+      utility: {},
+      survival: {},
+      sourceMetadata: {
+        digest: {
+          participantActorId: 42,
+          characterId: null,
+          characterName: "Unlinked",
+        },
+      },
+    });
+    expect(saved.characterId).toBeNull();
+
+    const linked = await digests.attachCharacter({
+      digestId: saved.id,
+      characterId,
+    });
+    expect(linked.id).toBe(saved.id);
+    expect(linked.characterId).toBe(characterId);
+
+    const again = await digests.attachCharacter({
+      digestId: saved.id,
+      characterId,
+    });
+    expect(again.id).toBe(saved.id);
+    expect(again.characterId).toBe(characterId);
+
+    await expect(
+      digests.attachCharacter({
+        digestId: saved.id,
+        characterId: otherCharacterId,
+      }),
+    ).rejects.toBeInstanceOf(CharacterRunDigestCharacterLinkConflictError);
+
+    const unchanged = await digests.find({
+      rawRunId: raw.id,
+      participantActorId: 42,
+      extractorVersion,
+    });
+    expect(unchanged?.characterId).toBe(characterId);
+
+    // save must not wipe an existing character link with null
+    const preserved = await digests.save({
+      rawRunId: raw.id,
+      participantActorId: 42,
+      characterId: null,
+      characterName: "Unlinked",
+      realmSlug: "archimonde",
+      regionCode: "EU",
+      extractorVersion,
+      offensive: { updated: true },
+      utility: {},
+      survival: {},
+      sourceMetadata: { digest: { participantActorId: 42 } },
+    });
+    expect(preserved.characterId).toBe(characterId);
   });
 
   it("backfill is idempotent (provider-free)", async () => {

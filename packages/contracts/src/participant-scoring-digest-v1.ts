@@ -96,6 +96,19 @@ export type ParticipantSurvivalDigestV1 = z.infer<
   typeof participantSurvivalDigestV1Schema
 >;
 
+/**
+ * Durable identity slug: real value or null when absent.
+ * Rejects empty strings and the sentinel "unknown" (must be null instead).
+ */
+export const participantDigestIdentitySlugSchema = z
+  .string()
+  .min(1)
+  .refine(
+    (value) => value.trim().toLowerCase() !== "unknown",
+    { message: "participant_digest_identity_slug_must_not_be_unknown" },
+  )
+  .nullable();
+
 export const participantScoringDigestV1Schema = z
   .object({
     schemaVersion: z.literal(PARTICIPANT_SCORING_DIGEST_SCHEMA_VERSION),
@@ -110,6 +123,8 @@ export const participantScoringDigestV1Schema = z
     participantActorId: z.number().int().positive(),
     characterId: z.string().uuid().nullable(),
     characterName: z.string().min(1),
+    realmSlug: participantDigestIdentitySlugSchema,
+    regionCode: participantDigestIdentitySlugSchema,
     classSlug: z.string().nullable(),
     specSlug: z.string().nullable(),
     role: z.enum(["TANK", "HEALER", "DPS", "UNKNOWN"]).nullable(),

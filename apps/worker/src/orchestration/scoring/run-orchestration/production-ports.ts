@@ -193,42 +193,26 @@ export function createProductionRunOrchestrationPorts(
       });
       if (!row) return null;
 
-      const candidates = await deps.prisma.characterRunDigest.findMany({
-        where: {
-          rawRunId: row.id,
-          extractorVersion:
-            input.extractorCompatVersion || extractorVersion,
-        },
+      const candidate = await digests.find({
+        rawRunId: row.id,
+        participantActorId: input.participantActorId,
+        extractorVersion: input.extractorCompatVersion || extractorVersion,
       });
-      for (const candidate of candidates) {
-        const parsed = digestFromRow(candidate);
-        if (!parsed) continue;
-        if (parsed.digest.participantActorId !== input.participantActorId) {
-          continue;
-        }
-        if (
-          parsed.digest.capabilityPackageContentHash !==
-          input.capabilityPackageContentHash
-        ) {
-          continue;
-        }
-        return parsed;
+      if (!candidate) return null;
+
+      const parsed = digestFromRow(candidate);
+      if (!parsed) return null;
+      if (
+        parsed.digest.capabilityPackageContentHash !==
+        input.capabilityPackageContentHash
+      ) {
+        return null;
       }
-      return null;
+      return parsed;
     },
 
     async persistDigest(digest) {
       const validated = assertParticipantScoringDigestV1(digest);
-      const characterId = validated.characterId;
-      if (!characterId) {
-        // Target-character digests require a stable Character UUID.
-        // Actor-only digests are kept in-memory by the orchestrator return path.
-        return {
-          digest: validated,
-          artifactId: `ephemeral:${validated.reportCode}:${validated.fightId}:${validated.participantActorId}`,
-          created: false,
-        };
-      }
 
       const raw = await loadRaw({
         reportCode: validated.reportCode,
@@ -246,13 +230,20 @@ export function createProductionRunOrchestrationPorts(
 
       const existing = await digests.find({
         rawRunId: raw.id,
-        characterId,
+        participantActorId: validated.participantActorId,
         extractorVersion,
       });
       const saved = await digests.save({
         rawRunId: raw.id,
-        characterId,
+        participantActorId: validated.participantActorId,
         extractorVersion,
+        characterId: validated.characterId,
+        characterName: validated.characterName,
+        realmSlug: validated.realmSlug,
+        regionCode: validated.regionCode,
+        classSlug: validated.classSlug,
+        specSlug: validated.specSlug,
+        role: validated.role,
         offensive: validated.performance as unknown as Prisma.InputJsonValue,
         utility: validated.utility as unknown as Prisma.InputJsonValue,
         survival: validated.survival as unknown as Prisma.InputJsonValue,

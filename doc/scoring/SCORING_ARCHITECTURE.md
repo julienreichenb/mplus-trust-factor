@@ -10,7 +10,7 @@ scoreCharacter(identity)
   → selectRuns(identity, season)          // 2 × 8 dungeons (in-memory selection)
   → loadRawRuns(selected)                 // WclRunRaw by reportCode+fightId+revision+acquisitionVersion
   → fetchMissingRawRuns(misses)           // WCL only on miss
-  → loadOrBuildCharacterDigests(...)      // CharacterRunDigest by rawRunId+characterId+extractorVersion
+  → loadOrBuildCharacterDigests(...)      // CharacterRunDigest by rawRunId+participantActorId+extractorVersion
   → loadOrFetchRankingFacts(...)
   → calculateDimensions(digests, rankings)
   → calculateComposite(...)
@@ -25,9 +25,17 @@ Warm second run on unchanged identities: **zero WCL calls**.
 | Object | Unique key |
 |--------|------------|
 | `WclRunRaw` | `reportCode + fightId + reportRevision + acquisitionVersion` |
-| `CharacterRunDigest` | `rawRunId + characterId + extractorVersion` |
+| `CharacterRunDigest` | `rawRunId + participantActorId + extractorVersion` |
 | `RunRankingFact` | `rawRunId + characterId + rankingVersion` |
 | `CharacterScore` | `characterId + seasonId + scoringVersion` |
+
+One shared raw fight yields **up to five durable participant digests** (one per Mythic+ player). `characterId` on a digest is an **optional** link to an internal `Character` row:
+
+- Only the requested character needs a known `characterId` at score time.
+- Other participants are persisted with `characterId: null` and stable name/realm/region metadata.
+- A later request can **attach** an existing digest to a Character without refetching WCL.
+- Digests never auto-create Character rows.
+- `participantActorId` is **report-local** (not a cross-report identity).
 
 No supersession graphs, no compatibility-head resolution, no hash-as-UUID ownership for scoring caches.
 

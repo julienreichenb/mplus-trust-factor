@@ -34,12 +34,14 @@ describe.skipIf(!dbAvailable)("participant_scoring_digest migration (local)", ()
       WHERE schemaname = 'public'
         AND tablename IN (
           'capability_evidence_package_records',
-          'participant_scoring_digests'
+          'participant_scoring_digests',
+          'character_run_digests'
         )
       ORDER BY tablename
     `;
     expect(tables.map((t) => t.tablename)).toEqual([
       "capability_evidence_package_records",
+      "character_run_digests",
       "participant_scoring_digests",
     ]);
 
@@ -48,11 +50,12 @@ describe.skipIf(!dbAvailable)("participant_scoring_digest migration (local)", ()
       WHERE schemaname = 'public'
         AND indexname IN (
           'capability_evidence_package_records_compatibility_key_key',
-          'participant_scoring_digests_compatibility_key_key'
+          'participant_scoring_digests_compatibility_key_key',
+          'character_run_digests_raw_run_actor_extractor_key'
         )
       ORDER BY indexname
     `;
-    expect(uniques).toHaveLength(2);
+    expect(uniques).toHaveLength(3);
 
     const indexes = await prisma.$queryRaw<Array<{ indexname: string }>>`
       SELECT indexname FROM pg_indexes
@@ -60,10 +63,11 @@ describe.skipIf(!dbAvailable)("participant_scoring_digest migration (local)", ()
         AND (
           indexname LIKE 'capability_evidence_package_records_%'
           OR indexname LIKE 'participant_scoring_digests_%'
+          OR indexname LIKE 'character_run_digests_%'
         )
       ORDER BY indexname
     `;
-    expect(indexes.length).toBeGreaterThanOrEqual(6);
+    expect(indexes.length).toBeGreaterThanOrEqual(8);
   });
 
   it("existing artifact and scoring tables remain present", async () => {

@@ -4,11 +4,16 @@
 
 ## Digests
 
-`CharacterRunDigest` stores offensive, utility, and survival digests for:
+`CharacterRunDigest` stores offensive, utility, and survival digests for each fight participant:
 
-- `rawRunId` + `characterId` + `extractorVersion`
+- Unique key: `rawRunId + participantActorId + extractorVersion`
+- `characterId` is optional (nullable internal Character link; never auto-created)
+- Identity metadata on the row / digest: `characterName`, `realmSlug`, `regionCode`, `classSlug`, `specSlug`, `role`
+- Actor IDs are fight/report-local; name + realm + region support later Character attachment without WCL refetch
 
 A changed extractor version recalculates digests from cached raw data and does **not** re-fetch WCL unless the raw payload lacks required source data.
+
+One capability package / raw run can produce five durable digests so later requests for another participant reuse cache (zero additional WCL calls).
 
 ## Dimensions
 

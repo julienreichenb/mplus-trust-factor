@@ -50,6 +50,8 @@ export interface DigestIdentityView {
   participantActorId: number;
   characterId: string | null;
   characterName: string;
+  realmSlug: string | null;
+  regionCode: string | null;
   digest: ParticipantScoringDigestV1;
   digestArtifactId: string;
 }
@@ -126,9 +128,32 @@ export function selectTargetCharacterDigest(input: {
   const byStamp = input.digests.filter((d) => {
     if (d.characterId === input.identity.characterId) return true;
     if (/^Actor\d+$/i.test(d.characterName)) return false;
-    return (
-      normalizeName(d.characterName) === normalizeName(input.identity.characterName)
-    );
+    if (
+      normalizeName(d.characterName) !==
+      normalizeName(input.identity.characterName)
+    ) {
+      return false;
+    }
+    const digestRealm = d.realmSlug ?? d.digest.realmSlug;
+    const digestRegion = d.regionCode ?? d.digest.regionCode;
+    // When realm is known on the digest, never match by name alone.
+    if (digestRealm != null && digestRealm.length > 0) {
+      const realmOk = nameRealmMatches(
+        d.characterName,
+        digestRealm,
+        input.identity.characterName,
+        input.identity.realmSlug,
+      );
+      if (!realmOk) return false;
+      if (digestRegion != null && digestRegion.length > 0) {
+        return (
+          normalizeName(digestRegion) ===
+          normalizeName(input.identity.regionCode)
+        );
+      }
+      return true;
+    }
+    return true;
   });
 
   const matches =

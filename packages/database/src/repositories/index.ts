@@ -54,6 +54,7 @@ export {
 export {
   CharacterRunDigestRepository,
   createCharacterRunDigestRepository,
+  CharacterRunDigestCharacterLinkConflictError,
   type CharacterDigestIdentity,
   type SaveCharacterRunDigestInput,
 } from "./character-run-digest-repository.js";

@@ -97,6 +97,17 @@ function mapRole(
   return "UNKNOWN";
 }
 
+/** Durable digest identity: real slug or null — never the sentinel "unknown". */
+function durableIdentitySlug(
+  value: string | null | undefined,
+): string | null {
+  if (value == null) return null;
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.toLowerCase() === "unknown") return null;
+  return trimmed;
+}
+
+
 /**
  * Produce one digest per participant from a shared capability package.
  * Zero provider calls.
@@ -118,11 +129,15 @@ export function buildParticipantScoringDigestsFromPackage(
     region: input.region ?? null,
   };
 
+  // Extractors still require string realm/region; digests store null when absent.
   const participants = input.participants.map((p) => ({
     playerActorId: p.playerActorId,
     characterName: p.characterName,
-    realmSlug: p.realmSlug ?? "unknown",
-    regionCode: p.regionCode ?? input.region ?? "unknown",
+    realmSlug: durableIdentitySlug(p.realmSlug) ?? "unknown",
+    regionCode:
+      durableIdentitySlug(p.regionCode) ??
+      durableIdentitySlug(input.region) ??
+      "unknown",
     classSlug: p.classSlug,
     specSlug: p.specSlug,
     role: (p.role as AbilityRole | null) ?? null,
@@ -226,6 +241,10 @@ export function buildParticipantScoringDigestsFromPackage(
       participantActorId: actorId,
       characterId: participant.characterId ?? null,
       characterName: participant.characterName,
+      realmSlug: durableIdentitySlug(participant.realmSlug),
+      regionCode: durableIdentitySlug(
+        participant.regionCode ?? input.region ?? null,
+      ),
       classSlug: participant.classSlug,
       specSlug: participant.specSlug,
       role: mapRole(participant.role),

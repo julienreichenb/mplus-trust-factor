@@ -700,6 +700,8 @@ export async function orchestrateScoringRuns(
         participantActorId: rec.digest.participantActorId,
         characterId: rec.digest.characterId,
         characterName: rec.digest.characterName,
+        realmSlug: rec.digest.realmSlug,
+        regionCode: rec.digest.regionCode,
         digest: rec.digest,
         digestArtifactId: rec.artifactId,
       }));

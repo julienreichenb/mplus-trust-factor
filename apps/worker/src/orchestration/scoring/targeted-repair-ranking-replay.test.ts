@@ -269,6 +269,8 @@ describe("newest complete package wins (memory)", () => {
           participantActorId: d.digest.participantActorId,
           characterId: d.digest.characterId,
           characterName: d.digest.characterName,
+          realmSlug: d.digest.realmSlug,
+          regionCode: d.digest.regionCode,
           digest: d.digest,
           digestArtifactId: d.digestArtifactId,
         })),
