@@ -2,8 +2,8 @@
  * ParticipantScoringDigestV1 — production scoring input for one actor in one fight.
  * Calculators consume digests only; never raw WCL event pages or provider clients.
  */
-import { createHash } from "node:crypto";
 import { z } from "zod";
+import { hashCanonicalJson } from "./canonical-json.js";
 import { WCL_DIGEST_FORBIDDEN_SCORE_KEYS } from "./wcl-run-source-digest.js";
 import {
   utilityCanonicalActionSchema,
@@ -186,12 +186,6 @@ function assertNoForbiddenScoreKeys(value: unknown, path = "$"): void {
   }
 }
 
-export function hashParticipantScoringDigestPayload(value: unknown): string {
-  return createHash("sha256")
-    .update(JSON.stringify(value))
-    .digest("hex");
-}
-
 export function assertParticipantScoringDigestV1(
   value: unknown,
 ): ParticipantScoringDigestV1 {
@@ -201,18 +195,108 @@ export function assertParticipantScoringDigestV1(
   return parsed;
 }
 
-/** Payload used to compute contentHash (excludes contentHash itself). */
+/**
+ * Semantic hash projection for ParticipantScoringDigestV1 contentHash.
+ *
+ * Included: schema/extractor/catalog versions, fight + participant identity,
+ * character identity fields, owned pets, package content hash, run metadata
+ * (dungeon/key/timed/score/completedAt), and performance/utility/survival digests.
+ *
+ * Excluded (volatile storage / timing): contentHash, createdAt,
+ * capabilityPackageArtifactId, rankingProvenance.artifactId.
+ */
+export function buildParticipantScoringDigestHashMaterial(
+  digest: Omit<ParticipantScoringDigestV1, "contentHash">,
+): unknown {
+  const ranking = digest.performance.rankingProvenance;
+  return {
+    schemaVersion: digest.schemaVersion,
+    reportCode: digest.reportCode,
+    fightId: digest.fightId,
+    reportRevision: digest.reportRevision,
+    dungeonSlug: digest.dungeonSlug,
+    keyLevel: digest.keyLevel,
+    timed: digest.timed,
+    runScore: digest.runScore,
+    completedAt: digest.completedAt,
+    participantActorId: digest.participantActorId,
+    characterId: digest.characterId,
+    characterName: digest.characterName,
+    realmSlug: digest.realmSlug,
+    regionCode: digest.regionCode,
+    classSlug: digest.classSlug,
+    specSlug: digest.specSlug,
+    role: digest.role,
+    ownedPetActorIds: digest.ownedPetActorIds,
+    capabilityPackageContentHash: digest.capabilityPackageContentHash,
+    catalogVersion: digest.catalogVersion,
+    extractorCompatVersion: digest.extractorCompatVersion,
+    performance: {
+      parsePercentile: digest.performance.parsePercentile,
+      parseSemantic: digest.performance.parseSemantic,
+      partition: digest.performance.partition,
+      rawDps: digest.performance.rawDps,
+      rankingProvenance: ranking
+        ? {
+            providerContractVersion: ranking.providerContractVersion,
+            schemaVersion: ranking.schemaVersion,
+            contentHash: ranking.contentHash,
+            source: ranking.source,
+          }
+        : undefined,
+      offensiveActivations: digest.performance.offensiveActivations.map(
+        (activation) => ({
+          activationId: activation.activationId,
+          canonicalKey: activation.canonicalKey,
+          primarySpellId: activation.primarySpellId,
+          timestampMs: activation.timestampMs,
+          fightOffsetMs: activation.fightOffsetMs,
+          rawMatchedEventCount: activation.rawMatchedEventCount,
+          contributingSpellIds: activation.contributingSpellIds,
+        }),
+      ),
+      completeness: digest.performance.completeness,
+      limitations: digest.performance.limitations,
+    },
+    utility: {
+      actions: digest.utility.actions,
+      capabilityCompleteness: digest.utility.capabilityCompleteness,
+      completeness: digest.utility.completeness,
+      limitations: digest.utility.limitations,
+    },
+    survival: {
+      damageTakenTotal: digest.survival.damageTakenTotal,
+      damageTakenEventCount: digest.survival.damageTakenEventCount,
+      deaths: digest.survival.deaths,
+      personalDefensiveActivations: digest.survival.personalDefensiveActivations,
+      recoveryActivations: digest.survival.recoveryActivations,
+      externalsReceived: digest.survival.externalsReceived,
+      pressureWindows: digest.survival.pressureWindows,
+      fightDurationMs: digest.survival.fightDurationMs,
+      activeCombatMs: digest.survival.activeCombatMs,
+      capabilityCompleteness: digest.survival.capabilityCompleteness,
+      completeness: digest.survival.completeness,
+      limitations: digest.survival.limitations,
+    },
+  };
+}
+
+/** @deprecated Prefer buildParticipantScoringDigestHashMaterial — kept for call-site compatibility. */
 export function participantDigestHashPayload(
   digest: Omit<ParticipantScoringDigestV1, "contentHash">,
 ): unknown {
-  return digest;
+  return buildParticipantScoringDigestHashMaterial(digest);
+}
+
+export function hashParticipantScoringDigestPayload(value: unknown): string {
+  return hashCanonicalJson(value);
 }
 
 export function withParticipantDigestContentHash(
   digest: Omit<ParticipantScoringDigestV1, "contentHash">,
 ): ParticipantScoringDigestV1 {
-  const contentHash = hashParticipantScoringDigestPayload(
-    participantDigestHashPayload(digest),
+  const contentHash = hashCanonicalJson(
+    buildParticipantScoringDigestHashMaterial(digest),
   );
   return assertParticipantScoringDigestV1({ ...digest, contentHash });
 }
