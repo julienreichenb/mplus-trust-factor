@@ -51,8 +51,14 @@ export function participantsFromBundleMasterData(
   }
 
   // masterData.actors is report-wide; CombatantInfo scopes the players in this fight.
+  // Never fall back to report-wide lowest-N actors — that silently excludes the target.
   const fightPlayerIds =
     combatantByActor.size > 0 ? new Set(combatantByActor.keys()) : null;
+  if (!fightPlayerIds) {
+    throw new Error(
+      "capability_acquisition_requires_fight_scoped_friendly_players:combatant_info_absent",
+    );
+  }
 
   const out: MasterDataParticipant[] = [];
   for (const raw of actors) {
@@ -61,7 +67,7 @@ export function participantsFromBundleMasterData(
     const id = typeof actor.id === "number" ? actor.id : null;
     const name = typeof actor.name === "string" ? actor.name.trim() : "";
     if (id == null || !name) continue;
-    if (fightPlayerIds && !fightPlayerIds.has(id)) continue;
+    if (!fightPlayerIds.has(id)) continue;
     const serverRaw =
       typeof actor.server === "string" && actor.server.trim()
         ? slugify(actor.server)

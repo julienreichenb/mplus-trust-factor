@@ -53,6 +53,7 @@ export interface ProductionRunOrchestrationPortsDeps {
   resolveParticipants?: (input: {
     sourceFight: SourceFightIdentity;
   }) => Promise<OrchestrationParticipant[]>;
+  resolveFightRoster?: RunOrchestrationPorts["resolveFightRoster"];
   /** Optional Redis-backed lock; defaults to in-process singleflight. */
   withSourceFightLock?: RunOrchestrationPorts["withSourceFightLock"];
 }
@@ -197,6 +198,8 @@ export function createProductionRunOrchestrationPorts(
         ...(index === 0 ? {} : {}),
       }));
     },
+
+    resolveFightRoster: deps.resolveFightRoster,
 
     async resolveRankingParseForParticipant({ sourceFight }) {
       const compatibilityKey = rankingParseCompatibilityKey(sourceFight);

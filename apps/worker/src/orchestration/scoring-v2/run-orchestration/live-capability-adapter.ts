@@ -121,6 +121,7 @@ export interface ResolveFightMetadataResult {
   fightEndMs: number;
   dungeonSlug: string;
   masterData: unknown;
+  friendlyPlayerActorIds: number[];
   providerCalls: number;
 }
 
@@ -141,6 +142,7 @@ export async function resolveAuthoritativeFightMetadata(input: {
           endTime?: number;
           name?: string;
           keystoneLevel?: number;
+          friendlyPlayers?: Array<number | { id?: number }> | null;
         }>;
         masterData?: unknown;
       } | null;
@@ -177,6 +179,10 @@ export async function resolveAuthoritativeFightMetadata(input: {
     actualRevision: revision,
   });
 
+  const friendlyPlayerActorIds = (fight.friendlyPlayers ?? [])
+    .map((entry) => (typeof entry === "number" ? entry : entry?.id))
+    .filter((id): id is number => typeof id === "number");
+
   return {
     reportRevision: revision!,
     fightStartMs: fight.startTime,
@@ -185,6 +191,7 @@ export async function resolveAuthoritativeFightMetadata(input: {
       ? fight.name.toLowerCase().replace(/\s+/g, "-")
       : "unknown",
     masterData: report.masterData ?? null,
+    friendlyPlayerActorIds,
     providerCalls: 1,
   };
 }
@@ -262,6 +269,19 @@ export function createLiveCapabilityAcquireHook(
     });
 
     const dungeonSlug = input.dungeonSlug ?? meta.dungeonSlug;
+    const friendlyFromParticipants = input.participants.map((p) => p.playerActorId);
+    const friendlyPlayerActorIds =
+      friendlyFromParticipants.length > 0
+        ? friendlyFromParticipants
+        : meta.friendlyPlayerActorIds;
+    if (friendlyPlayerActorIds.length === 0) {
+      throw Object.assign(
+        new Error(
+          `capability_acquisition_requires_friendly_players:${input.sourceFight.reportCode}:${input.sourceFight.fightId}`,
+        ),
+        { code: "FRIENDLY_PLAYERS_REQUIRED" },
+      );
+    }
     const acquired = await acquireCapabilityEvidencePackage({
       mode: "PRODUCTION_CAPABILITY_ACQUISITION",
       client: deps.client,
@@ -274,7 +294,7 @@ export function createLiveCapabilityAcquireHook(
       fightEndMs: meta.fightEndMs,
       region: deps.region,
       masterData: meta.masterData,
-      friendlyPlayerActorIds: input.participants.map((p) => p.playerActorId),
+      friendlyPlayerActorIds,
       ownedPetActorIds: [
         ...new Set(input.participants.flatMap((p) => p.ownedPetActorIds)),
       ],
