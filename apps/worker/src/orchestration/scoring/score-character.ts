@@ -48,12 +48,6 @@ export const SCORING_VERSION =
 /** Default WCL character summary / aggregate TTL (12h) when not overridden. */
 const DEFAULT_PERFORMANCE_AGGREGATE_TTL_SECONDS = 43_200;
 
-function meanOrNull(values: Array<number | null | undefined>): number | null {
-  const usable = values.filter((v): v is number => typeof v === "number" && Number.isFinite(v));
-  if (usable.length === 0) return null;
-  return usable.reduce((a, b) => a + b, 0) / usable.length;
-}
-
 export interface ScoreCharacterIdentity {
   characterId: string;
   region: string;
@@ -264,11 +258,8 @@ export async function scoreCharacter(
   const performance = orchestration.dimensions.performance;
   const utility = orchestration.dimensions.utility;
   const survival = orchestration.dimensions.survival;
-  const composite = meanOrNull([
-    performance?.score,
-    utility?.score,
-    survival?.score,
-  ]);
+  // Composite Trust Score is owned by a separate chantier — do not invent a mean here.
+  const composite = null;
   const confidence = overallConfidenceFromDimensions(
     [performance?.confidence, utility?.confidence, survival?.confidence].filter(
       (v): v is number => typeof v === "number",
@@ -291,6 +282,10 @@ export async function scoreCharacter(
         blocked: orchestration.dimensions.blocked,
         performanceDigestDiagnostics:
           orchestration.dimensions.performanceDigestDiagnostics,
+        utilityDigestDiagnostics:
+          orchestration.dimensions.utilityDigestDiagnostics,
+        survivalDigestDiagnostics:
+          orchestration.dimensions.survivalDigestDiagnostics,
         incomplete: orchestration.incomplete,
         cacheMisses: orchestration.cacheMisses,
         fightFailures: orchestration.fightFailures,

@@ -261,6 +261,20 @@ export interface RunOrchestrationResult {
       usable: boolean;
       reason: string | null;
     }>;
+    /** Per-digest Utility skip reasons (dataset missing, etc.). */
+    utilityDigestDiagnostics: Array<{
+      slotId: string;
+      digestArtifactId: string;
+      usable: boolean;
+      reason: string | null;
+    }>;
+    /** Per-digest Survival skip reasons (death/timing evidence missing, etc.). */
+    survivalDigestDiagnostics: Array<{
+      slotId: string;
+      digestArtifactId: string;
+      usable: boolean;
+      reason: string | null;
+    }>;
     blocked: Array<{
       dimension: "PERFORMANCE" | "UTILITY" | "SURVIVAL";
       reason: string;
@@ -268,6 +282,66 @@ export interface RunOrchestrationResult {
     lineage: ReturnType<typeof buildDigestScoreLineage>[];
   };
   publicationAllowed: boolean;
+}
+
+/** Concrete product unavailable reasons — never collapse to a single generic UNAVAILABLE. */
+export type DimensionUnavailableReason =
+  | "performance_parse_missing"
+  | "performance_profile_aggregate_missing"
+  | "performance_catalogue_incompatible"
+  | "utility_dataset_missing"
+  | "utility_actor_unresolved"
+  | "survival_death_evidence_missing"
+  | "survival_timing_evidence_missing";
+
+function mapPerformanceUnavailableReason(input: {
+  hasParseFacts: boolean;
+  hasProfileAggregate: boolean;
+  detail: string | null;
+}): string {
+  const detail = (input.detail ?? "").toLowerCase();
+  if (
+    detail.includes("catalogue") ||
+    detail.includes("catalog") ||
+    detail.includes("incompatible")
+  ) {
+    return "performance_catalogue_incompatible";
+  }
+  if (!input.hasParseFacts && input.hasProfileAggregate) {
+    return "performance_parse_missing";
+  }
+  if (input.hasParseFacts && !input.hasProfileAggregate) {
+    return "performance_profile_aggregate_missing";
+  }
+  if (!input.hasParseFacts) {
+    return "performance_parse_missing";
+  }
+  return detail || "performance_parse_missing";
+}
+
+function mapUtilityUnavailableReason(detail: string | null): string {
+  const d = (detail ?? "").toLowerCase();
+  if (d.includes("actor") || d.includes("unresolved") || d.includes("target_character")) {
+    return "utility_actor_unresolved";
+  }
+  return "utility_dataset_missing";
+}
+
+function mapSurvivalUnavailableReason(detail: string | null): string {
+  const d = (detail ?? "").toLowerCase();
+  if (
+    d.includes("timing") ||
+    d.includes("defensive") ||
+    d.includes("pressure") ||
+    d.includes("recovery") ||
+    d.includes("damage_taken")
+  ) {
+    return "survival_timing_evidence_missing";
+  }
+  if (d.includes("death")) {
+    return "survival_death_evidence_missing";
+  }
+  return "survival_death_evidence_missing";
 }
 
 function defaultDifficultyPolicy(
@@ -752,6 +826,10 @@ export async function orchestrateScoringRuns(
   const lineage: ReturnType<typeof buildDigestScoreLineage>[] = [];
   const performanceDigestDiagnostics: RunOrchestrationResult["dimensions"]["performanceDigestDiagnostics"] =
     [];
+  const utilityDigestDiagnostics: RunOrchestrationResult["dimensions"]["utilityDigestDiagnostics"] =
+    [];
+  const survivalDigestDiagnostics: RunOrchestrationResult["dimensions"]["survivalDigestDiagnostics"] =
+    [];
   const difficultyPolicy =
     input.difficultyPolicy ?? defaultDifficultyPolicy(input.scope);
   const usingDefaultDifficultyPolicy = input.difficultyPolicy == null;
@@ -778,7 +856,7 @@ export async function orchestrateScoringRuns(
             usable: false,
             reason:
               row.digest.performance.limitations.join(",") ||
-              "ranking_parse_absent",
+              "performance_parse_missing",
           });
           continue;
         }
@@ -802,15 +880,21 @@ export async function orchestrateScoringRuns(
                 ? err.message
                 : err instanceof Error
                   ? err.message
-                  : "performance_fact_unavailable",
+                  : "performance_parse_missing",
           });
         }
       }
 
       if (runParseFacts.length === 0 && input.profileAggregate == null) {
+        const sampleReason =
+          performanceDigestDiagnostics.find((d) => !d.usable)?.reason ?? null;
         blocked.push({
           dimension: "PERFORMANCE",
-          reason: "zero_compatible_performance_facts",
+          reason: mapPerformanceUnavailableReason({
+            hasParseFacts: false,
+            hasProfileAggregate: false,
+            detail: sampleReason,
+          }),
         });
       } else {
         performance = computePerformancePhase2({
@@ -849,6 +933,16 @@ export async function orchestrateScoringRuns(
             "difficulty_policy_orchestrator_default",
           );
         }
+        if (performance.score == null) {
+          blocked.push({
+            dimension: "PERFORMANCE",
+            reason: mapPerformanceUnavailableReason({
+              hasParseFacts: runParseFacts.length > 0,
+              hasProfileAggregate: input.profileAggregate != null,
+              detail: performance.limitations.join(",") || null,
+            }),
+          });
+        }
         for (const row of characterDigests) {
           if (
             !performanceDigestDiagnostics.some(
@@ -871,82 +965,193 @@ export async function orchestrateScoringRuns(
     } catch (err) {
       blocked.push({
         dimension: "PERFORMANCE",
-        reason:
-          err instanceof DigestDimensionIncompleteError
-            ? err.message
-            : err instanceof Error
+        reason: mapPerformanceUnavailableReason({
+          hasParseFacts: false,
+          hasProfileAggregate: input.profileAggregate != null,
+          detail:
+            err instanceof DigestDimensionIncompleteError
               ? err.message
-              : "performance_failed",
+              : err instanceof Error
+                ? err.message
+                : null,
+        }),
       });
     }
 
     try {
-      const factSets = characterDigests.map((row) =>
-        utilityRunFactSetFromDigest(row.digest, {
-          slotId: row.slotId,
-          slotIndex: row.slotIndex,
-        }),
-      );
-      utility = computeUtilityV2({
-        manifest,
-        factSets,
-      });
+      const factSets = [];
       for (const row of characterDigests) {
-        lineage.push(
-          buildDigestScoreLineage({
-            digest: row.digest,
+        try {
+          factSets.push(
+            utilityRunFactSetFromDigest(row.digest, {
+              slotId: row.slotId,
+              slotIndex: row.slotIndex,
+            }),
+          );
+          utilityDigestDiagnostics.push({
+            slotId: row.slotId,
             digestArtifactId: row.digestArtifactId,
-            scoreModelId: input.scoringModelId,
-            scoreModelVersion: input.scoringModelVersion,
-            dimension: "UTILITY",
-          }),
+            usable: true,
+            reason: null,
+          });
+        } catch (err) {
+          utilityDigestDiagnostics.push({
+            slotId: row.slotId,
+            digestArtifactId: row.digestArtifactId,
+            usable: false,
+            reason:
+              err instanceof DigestDimensionIncompleteError
+                ? err.message
+                : err instanceof Error
+                  ? err.message
+                  : "utility_dataset_missing",
+          });
+        }
+      }
+
+      if (factSets.length === 0) {
+        const sampleReason =
+          utilityDigestDiagnostics.find((d) => !d.usable)?.reason ?? null;
+        const actorUnresolved = targetDigestFailures.some(
+          (f) =>
+            f.code === "TARGET_CHARACTER_DIGEST_MISSING" ||
+            f.code === "TARGET_CHARACTER_DIGEST_AMBIGUOUS",
         );
+        blocked.push({
+          dimension: "UTILITY",
+          reason: actorUnresolved
+            ? "utility_actor_unresolved"
+            : mapUtilityUnavailableReason(sampleReason),
+        });
+      } else {
+        utility = computeUtilityV2({
+          manifest,
+          factSets,
+        });
+        if (utility.score == null) {
+          blocked.push({
+            dimension: "UTILITY",
+            reason: mapUtilityUnavailableReason(
+              utility.explanation?.notes?.join(",") ??
+                utility.availabilityState,
+            ),
+          });
+        }
+        for (const row of characterDigests) {
+          if (
+            !utilityDigestDiagnostics.some(
+              (d) => d.slotId === row.slotId && d.usable,
+            )
+          ) {
+            continue;
+          }
+          lineage.push(
+            buildDigestScoreLineage({
+              digest: row.digest,
+              digestArtifactId: row.digestArtifactId,
+              scoreModelId: input.scoringModelId,
+              scoreModelVersion: input.scoringModelVersion,
+              dimension: "UTILITY",
+            }),
+          );
+        }
       }
     } catch (err) {
       blocked.push({
         dimension: "UTILITY",
-        reason:
+        reason: mapUtilityUnavailableReason(
           err instanceof DigestDimensionIncompleteError
             ? err.message
             : err instanceof Error
               ? err.message
-              : "utility_failed",
+              : null,
+        ),
       });
     }
 
     try {
-      const factSets = characterDigests.map((row) =>
-        survivalFactDocumentFromDigest(row.digest, row.slotIndex),
-      );
-      survival = computeSurvivalV2({
-        manifest,
-        factSets,
-        scoreModelId: input.scoringModelId,
-      });
+      const factSets = [];
       for (const row of characterDigests) {
-        lineage.push(
-          buildDigestScoreLineage({
-            digest: row.digest,
+        try {
+          factSets.push(
+            survivalFactDocumentFromDigest(row.digest, row.slotIndex),
+          );
+          survivalDigestDiagnostics.push({
+            slotId: row.slotId,
             digestArtifactId: row.digestArtifactId,
-            scoreModelId: input.scoringModelId,
-            scoreModelVersion: input.scoringModelVersion,
+            usable: true,
+            reason: null,
+          });
+        } catch (err) {
+          survivalDigestDiagnostics.push({
+            slotId: row.slotId,
+            digestArtifactId: row.digestArtifactId,
+            usable: false,
+            reason:
+              err instanceof DigestDimensionIncompleteError
+                ? err.message
+                : err instanceof Error
+                  ? err.message
+                  : "survival_death_evidence_missing",
+          });
+        }
+      }
+
+      if (factSets.length === 0) {
+        const sampleReason =
+          survivalDigestDiagnostics.find((d) => !d.usable)?.reason ?? null;
+        blocked.push({
+          dimension: "SURVIVAL",
+          reason: mapSurvivalUnavailableReason(sampleReason),
+        });
+      } else {
+        survival = computeSurvivalV2({
+          manifest,
+          factSets,
+          scoreModelId: input.scoringModelId,
+        });
+        if (survival.score == null) {
+          blocked.push({
             dimension: "SURVIVAL",
-          }),
-        );
+            reason: mapSurvivalUnavailableReason(
+              survival.explanation?.limitations?.join(",") ?? survival.state,
+            ),
+          });
+        }
+        for (const row of characterDigests) {
+          if (
+            !survivalDigestDiagnostics.some(
+              (d) => d.slotId === row.slotId && d.usable,
+            )
+          ) {
+            continue;
+          }
+          lineage.push(
+            buildDigestScoreLineage({
+              digest: row.digest,
+              digestArtifactId: row.digestArtifactId,
+              scoreModelId: input.scoringModelId,
+              scoreModelVersion: input.scoringModelVersion,
+              dimension: "SURVIVAL",
+            }),
+          );
+        }
       }
     } catch (err) {
       blocked.push({
         dimension: "SURVIVAL",
-        reason:
+        reason: mapSurvivalUnavailableReason(
           err instanceof DigestDimensionIncompleteError
             ? err.message
             : err instanceof Error
               ? err.message
-              : "survival_failed",
+              : null,
+        ),
       });
     }
   } else if (characterDigests.length === 0) {
-    const reason =
+    const actorUnresolved = targetDigestFailures.length > 0;
+    const sharedReason =
       cacheMisses.length > 0
         ? "provider_evidence_cache_miss"
         : fightFailures.length > 0
@@ -954,15 +1159,19 @@ export async function orchestrateScoringRuns(
           : "zero_usable_digests";
     blocked.push({
       dimension: "PERFORMANCE",
-      reason,
+      reason: "performance_parse_missing",
     });
     blocked.push({
       dimension: "UTILITY",
-      reason,
+      reason: actorUnresolved
+        ? "utility_actor_unresolved"
+        : sharedReason === "zero_usable_digests"
+          ? "utility_dataset_missing"
+          : sharedReason,
     });
     blocked.push({
       dimension: "SURVIVAL",
-      reason,
+      reason: "survival_death_evidence_missing",
     });
   }
 
@@ -1001,6 +1210,8 @@ export async function orchestrateScoringRuns(
       utility,
       survival,
       performanceDigestDiagnostics,
+      utilityDigestDiagnostics,
+      survivalDigestDiagnostics,
       blocked,
       lineage,
     },

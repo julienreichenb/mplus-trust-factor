@@ -295,7 +295,7 @@ describe("performance partial evidence", () => {
       result.dimensions.blocked.some(
         (b) =>
           b.dimension === "PERFORMANCE" &&
-          b.reason === "zero_compatible_performance_facts",
+          b.reason === "performance_parse_missing",
       ),
     ).toBe(true);
     expect(result.dimensions.utility).not.toBeNull();
