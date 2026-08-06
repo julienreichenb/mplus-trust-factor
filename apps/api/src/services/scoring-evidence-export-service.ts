@@ -4,13 +4,13 @@
  */
 import type {
   CreateEvidenceExportBody,
-  ScoringV2EvidenceExportDTO,
-  ScoringV2EvidenceExportListDTO,
-  ScoringV2EvidenceExportProgressDTO,
-  ScoringV2FrozenBundleDTO,
-  ScoringV2HistoryItemDTO,
-  ScoringV2HistoryListDTO,
-  ScoringV2IssueDTO,
+  ScoringEvidenceExportDTO,
+  ScoringEvidenceExportListDTO,
+  ScoringEvidenceExportProgressDTO,
+  ScoringFrozenBundleDTO,
+  ScoringHistoryItemDTO,
+  ScoringHistoryListDTO,
+  ScoringIssueDTO,
 } from "@mplus/contracts";
 import {
   CALIBRATION_INPUT_BUNDLE_V2_SCHEMA_VERSION,
@@ -18,7 +18,7 @@ import {
   freezeEvidenceBundleBodySchema,
 } from "@mplus/contracts";
 import type { Prisma } from "@mplus/database";
-import { OBS_EVENTS, emitScoringV2Event } from "@mplus/observability";
+import { OBS_EVENTS, emitScoringEvent } from "@mplus/observability";
 import { formatArtifactByteDigest } from "@mplus/scoring";
 import type { ApiContainer } from "../container.js";
 import { HttpError } from "../errors.js";
@@ -26,7 +26,7 @@ import { writeAuditEvent } from "../iam/audit.js";
 import {
   assembleCalibrationInputBundleV2,
   toIssueDto,
-} from "./scoring-v2-bundle-freeze.js";
+} from "./scoring-bundle-freeze.js";
 
 type AuditCtx = {
   userId?: string | null;
@@ -40,7 +40,7 @@ export type HistoryExportRow = {
   id: string;
   cohortId: string;
   cohortRevision: number;
-  status: ScoringV2HistoryItemDTO["status"];
+  status: ScoringHistoryItemDTO["status"];
   requestedByUserId: string;
   createdAt: Date;
   completedAt: Date | null;
@@ -56,8 +56,8 @@ export type HistoryExportRow = {
  * Build unified history projection: one evidence_export row + optional frozen_bundle.
  * Stable order: export createdAt desc, id desc; freeze follows its export.
  */
-export function buildUnifiedHistoryItems(rows: HistoryExportRow[]): ScoringV2HistoryItemDTO[] {
-  const items: ScoringV2HistoryItemDTO[] = [];
+export function buildUnifiedHistoryItems(rows: HistoryExportRow[]): ScoringHistoryItemDTO[] {
+  const items: ScoringHistoryItemDTO[] = [];
   for (const row of rows) {
     const base = {
       id: row.id,
@@ -98,11 +98,11 @@ export function buildUnifiedHistoryItems(rows: HistoryExportRow[]): ScoringV2His
  * Page items are always ≤ pageSize.
  */
 export function paginateUnifiedHistory(
-  items: ScoringV2HistoryItemDTO[],
+  items: ScoringHistoryItemDTO[],
   page: number,
   pageSize: number,
   total: number,
-): ScoringV2HistoryListDTO {
+): ScoringHistoryListDTO {
   const take = Math.min(Math.max(pageSize, 1), 50);
   const pageNum = Math.max(page, 1);
   const skip = (pageNum - 1) * take;
@@ -114,7 +114,7 @@ export function paginateUnifiedHistory(
   };
 }
 
-const EMPTY_PROGRESS: ScoringV2EvidenceExportProgressDTO = {
+const EMPTY_PROGRESS: ScoringEvidenceExportProgressDTO = {
   membersTotal: 0,
   membersScanned: 0,
   identitiesFound: 0,
@@ -127,15 +127,15 @@ const EMPTY_PROGRESS: ScoringV2EvidenceExportProgressDTO = {
   incompatibleSnapshots: 0,
 };
 
-function asProgress(value: unknown): ScoringV2EvidenceExportProgressDTO {
+function asProgress(value: unknown): ScoringEvidenceExportProgressDTO {
   if (!value || typeof value !== "object") return EMPTY_PROGRESS;
-  return { ...EMPTY_PROGRESS, ...(value as Partial<ScoringV2EvidenceExportProgressDTO>) };
+  return { ...EMPTY_PROGRESS, ...(value as Partial<ScoringEvidenceExportProgressDTO>) };
 }
 
-function asIssues(summary: unknown): ScoringV2IssueDTO[] {
+function asIssues(summary: unknown): ScoringIssueDTO[] {
   if (!summary || typeof summary !== "object") return [];
   const issues = (summary as { issues?: unknown }).issues;
-  return Array.isArray(issues) ? (issues as ScoringV2IssueDTO[]) : [];
+  return Array.isArray(issues) ? (issues as ScoringIssueDTO[]) : [];
 }
 
 function mapExport(
@@ -145,7 +145,7 @@ function mapExport(
     cohortRevision: number;
     seasonId: string | null;
     scoreModelId: string | null;
-    status: ScoringV2EvidenceExportDTO["status"];
+    status: ScoringEvidenceExportDTO["status"];
     progress: unknown;
     summary: unknown;
     blockerCount: number;
@@ -167,13 +167,13 @@ function mapExport(
     completedAt: Date | null;
     cohort?: { name: string } | null;
   },
-  freezeExtras?: { freezeEligible?: boolean; freezeBlockers?: ScoringV2IssueDTO[] },
-): ScoringV2EvidenceExportDTO {
+  freezeExtras?: { freezeEligible?: boolean; freezeBlockers?: ScoringIssueDTO[] },
+): ScoringEvidenceExportDTO {
   const issues = asIssues(row.summary);
   const summaryFreezeBlockers = Array.isArray(
     (row.summary as { freezeBlockers?: unknown } | null)?.freezeBlockers,
   )
-    ? ((row.summary as { freezeBlockers: ScoringV2IssueDTO[] }).freezeBlockers)
+    ? ((row.summary as { freezeBlockers: ScoringIssueDTO[] }).freezeBlockers)
     : [];
   const freezeBlockers =
     freezeExtras?.freezeBlockers ??
@@ -222,14 +222,14 @@ function mapExport(
   };
 }
 
-export class ScoringV2EvidenceExportService {
+export class ScoringEvidenceExportService {
   constructor(private readonly container: ApiContainer) {}
 
   async createExport(
     body: unknown,
     requestedByUserId: string,
     ctx: AuditCtx,
-  ): Promise<ScoringV2EvidenceExportDTO> {
+  ): Promise<ScoringEvidenceExportDTO> {
     const parsed = bodySchema.parse(body) as CreateEvidenceExportBody;
     const cohort = await this.container.worker.prisma.calibrationCohort.findUnique({
       where: { id: parsed.cohortId },
@@ -248,7 +248,7 @@ export class ScoringV2EvidenceExportService {
     const seasonId = parsed.seasonId ?? cohort.seasonId;
     // Pin identity clocks before enqueue so worker retries stay byte-identical (B3).
     const pinnedAt = new Date();
-    const row = await this.container.worker.prisma.scoringV2EvidenceExport.create({
+    const row = await this.container.worker.prisma.scoringEvidenceExport.create({
       data: {
         cohortId: cohort.id,
         cohortRevision,
@@ -264,17 +264,17 @@ export class ScoringV2EvidenceExportService {
       include: { cohort: { select: { name: true } } },
     });
 
-    const enqueue = await this.container.producers.enqueueScoringV2EvidenceExport({
+    const enqueue = await this.container.producers.enqueueScoringEvidenceExport({
       exportId: row.id,
       correlationId: null,
     });
 
-    await this.container.worker.prisma.scoringV2EvidenceExport.update({
+    await this.container.worker.prisma.scoringEvidenceExport.update({
       where: { id: row.id },
       data: { bullmqJobId: enqueue.jobId },
     });
 
-    emitScoringV2Event(this.container.logger, OBS_EVENTS.scoringV2AdminEvidenceExportRequested, {
+    emitScoringEvent(this.container.logger, OBS_EVENTS.scoringAdminEvidenceExportRequested, {
       exportId: row.id,
       cohortId: cohort.id,
       cohortRevision,
@@ -283,8 +283,8 @@ export class ScoringV2EvidenceExportService {
     await writeAuditEvent(this.container.worker.prisma, {
       userId: ctx.userId ?? requestedByUserId,
       actorType: ctx.actorType,
-      action: "admin.scoring_v2.evidence_export.create",
-      resourceType: "ScoringV2EvidenceExport",
+      action: "admin.scoring.evidence_export.create",
+      resourceType: "ScoringEvidenceExport",
       resourceId: row.id,
       outcome: "SUCCESS",
       ip: ctx.ip,
@@ -296,12 +296,12 @@ export class ScoringV2EvidenceExportService {
     return mapExport(row);
   }
 
-  async listExports(page = 1, pageSize = 20): Promise<ScoringV2EvidenceExportListDTO> {
+  async listExports(page = 1, pageSize = 20): Promise<ScoringEvidenceExportListDTO> {
     const take = Math.min(Math.max(pageSize, 1), 50);
     const skip = (Math.max(page, 1) - 1) * take;
     const [total, rows] = await Promise.all([
-      this.container.worker.prisma.scoringV2EvidenceExport.count(),
-      this.container.worker.prisma.scoringV2EvidenceExport.findMany({
+      this.container.worker.prisma.scoringEvidenceExport.count(),
+      this.container.worker.prisma.scoringEvidenceExport.findMany({
         orderBy: { createdAt: "desc" },
         skip,
         take,
@@ -332,8 +332,8 @@ export class ScoringV2EvidenceExportService {
     };
   }
 
-  async getExport(exportId: string): Promise<ScoringV2EvidenceExportDTO> {
-    const row = await this.container.worker.prisma.scoringV2EvidenceExport.findUnique({
+  async getExport(exportId: string): Promise<ScoringEvidenceExportDTO> {
+    const row = await this.container.worker.prisma.scoringEvidenceExport.findUnique({
       where: { id: exportId },
       include: { cohort: { select: { name: true } } },
     });
@@ -359,7 +359,7 @@ export class ScoringV2EvidenceExportService {
   }
 
   async downloadArchive(exportId: string): Promise<{ bytes: Buffer; contentHash: string; filename: string }> {
-    const row = await this.container.worker.prisma.scoringV2EvidenceExport.findUnique({
+    const row = await this.container.worker.prisma.scoringEvidenceExport.findUnique({
       where: { id: exportId },
     });
     if (!row?.archiveContentHash || !row.archiveStorageUri) {
@@ -381,9 +381,9 @@ export class ScoringV2EvidenceExportService {
     exportId: string,
     body: unknown,
     ctx: AuditCtx,
-  ): Promise<{ export: ScoringV2EvidenceExportDTO; bundle: ScoringV2FrozenBundleDTO }> {
+  ): Promise<{ export: ScoringEvidenceExportDTO; bundle: ScoringFrozenBundleDTO }> {
     const parsed = freezeEvidenceBundleBodySchema.parse(body);
-    const row = await this.container.worker.prisma.scoringV2EvidenceExport.findUnique({
+    const row = await this.container.worker.prisma.scoringEvidenceExport.findUnique({
       where: { id: exportId },
       include: {
         cohort: { include: { members: true, season: true } },
@@ -433,7 +433,7 @@ export class ScoringV2EvidenceExportService {
     }
 
     const rootHash = assembled.bundle.bundleHash;
-    const existingByHash = await this.container.worker.prisma.scoringV2EvidenceExport.findFirst({
+    const existingByHash = await this.container.worker.prisma.scoringEvidenceExport.findFirst({
       where: {
         frozenBundleContentHash: rootHash,
         id: { not: row.id },
@@ -458,7 +458,7 @@ export class ScoringV2EvidenceExportService {
       existingByHash?.frozenBundleByteDigest ??
       formatArtifactByteDigest(persisted.write.contentHash);
 
-    const updated = await this.container.worker.prisma.scoringV2EvidenceExport.update({
+    const updated = await this.container.worker.prisma.scoringEvidenceExport.update({
       where: { id: row.id },
       data: {
         frozenBundleContentHash: rootHash,
@@ -486,7 +486,7 @@ export class ScoringV2EvidenceExportService {
       include: { cohort: { select: { name: true } } },
     });
 
-    emitScoringV2Event(this.container.logger, OBS_EVENTS.scoringV2AdminBundleFrozen, {
+    emitScoringEvent(this.container.logger, OBS_EVENTS.scoringAdminBundleFrozen, {
       exportId: row.id,
       contentHash: rootHash,
       byteLength: persisted.write.uncompressedSizeBytes,
@@ -495,8 +495,8 @@ export class ScoringV2EvidenceExportService {
     await writeAuditEvent(this.container.worker.prisma, {
       userId: ctx.userId ?? null,
       actorType: ctx.actorType,
-      action: "admin.scoring_v2.bundle.freeze",
-      resourceType: "ScoringV2EvidenceExport",
+      action: "admin.scoring.bundle.freeze",
+      resourceType: "ScoringEvidenceExport",
       resourceId: row.id,
       outcome: "SUCCESS",
       ip: ctx.ip,
@@ -527,22 +527,22 @@ export class ScoringV2EvidenceExportService {
     };
   }
 
-  async listHistory(page = 1, pageSize = 20): Promise<ScoringV2HistoryListDTO> {
+  async listHistory(page = 1, pageSize = 20): Promise<ScoringHistoryListDTO> {
     const take = Math.min(Math.max(pageSize, 1), 50);
     const pageNum = Math.max(page, 1);
     const skip = (pageNum - 1) * take;
 
     // Unified total = exports + frozen bundles (each freeze adds one history item).
     const [exportTotal, frozenTotal] = await Promise.all([
-      this.container.worker.prisma.scoringV2EvidenceExport.count(),
-      this.container.worker.prisma.scoringV2EvidenceExport.count({
+      this.container.worker.prisma.scoringEvidenceExport.count(),
+      this.container.worker.prisma.scoringEvidenceExport.count({
         where: { frozenBundleContentHash: { not: null } },
       }),
     ]);
     const total = exportTotal + frozenTotal;
 
     // Fetch enough export rows to cover the unified page (1–2 items per export).
-    const rows = await this.container.worker.prisma.scoringV2EvidenceExport.findMany({
+    const rows = await this.container.worker.prisma.scoringEvidenceExport.findMany({
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       take: skip + take,
       include: { cohort: { select: { name: true } } },

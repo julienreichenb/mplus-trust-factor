@@ -7,8 +7,8 @@
 import type { PrismaClient } from "@mplus/database";
 import {
   EVIDENCE_JOIN_PREFLIGHT_SCHEMA_VERSION,
-  type ScoringV2EvidenceExportProgressDTO,
-  type ScoringV2IssueDTO,
+  type ScoringEvidenceExportProgressDTO,
+  type ScoringIssueDTO,
 } from "@mplus/contracts";
 
 const PHASE1_DIMENSIONS = ["PERFORMANCE", "SURVIVAL", "UTILITY", "EXPERIENCE"] as const;
@@ -112,8 +112,8 @@ export interface EvidenceJoinResult {
     membersWithManifest: number;
     membersWithFourDimensions: number;
   };
-  progress: ScoringV2EvidenceExportProgressDTO;
-  issues: ScoringV2IssueDTO[];
+  progress: ScoringEvidenceExportProgressDTO;
+  issues: ScoringIssueDTO[];
   blockerCount: number;
   warningCount: number;
   members: EvidenceJoinMemberResult[];
@@ -154,8 +154,8 @@ export function aggregateEvidenceIssues(
   seasonOk: boolean,
   seasonErrors: string[] | undefined,
   hasActiveModel: boolean,
-): ScoringV2IssueDTO[] {
-  const issues: ScoringV2IssueDTO[] = [];
+): ScoringIssueDTO[] {
+  const issues: ScoringIssueDTO[] = [];
   if (!seasonOk) {
     for (const message of seasonErrors ?? ["Season binding failed"]) {
       issues.push({ code: "SEASON_BINDING_FAILED", severity: "blocker", message });
@@ -497,7 +497,7 @@ export async function runEvidenceJoin(
   const blockerCount = issues.filter((i) => i.severity === "blocker").length;
   const warningCount = issues.filter((i) => i.severity === "warning").length;
 
-  const progress: ScoringV2EvidenceExportProgressDTO = {
+  const progress: ScoringEvidenceExportProgressDTO = {
     membersTotal: memberRows.length,
     membersScanned: memberRows.length,
     identitiesFound: identityFound,

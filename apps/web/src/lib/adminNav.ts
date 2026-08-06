@@ -7,7 +7,7 @@ export type AdminDestinationId =
   | "admin-users"
   | "bulk-processing"
   | "calibration"
-  | "scoring-v2"
+  | "scoring"
   | "admin-misc";
 
 export interface AdminDestination {
@@ -64,10 +64,10 @@ export const ADMIN_DESTINATIONS: readonly AdminDestination[] = [
       isAdminCalibrationEnabled() && hasPermission(permissions, "admin.calibration.manage"),
   },
   {
-    id: "scoring-v2",
-    name: "admin-scoring-v2",
-    path: "/admin/scoring-v2",
-    label: "Scoring V2 Control Center",
+    id: "scoring",
+    name: "admin-scoring",
+    path: "/admin/scoring",
+    label: "Scoring Control Center",
     isAuthorized: (permissions) => hasPermission(permissions, "score.candidate.read"),
   },
   {

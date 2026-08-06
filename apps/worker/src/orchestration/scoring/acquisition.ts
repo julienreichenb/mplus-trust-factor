@@ -13,7 +13,7 @@ import { discoveryIdentityKey, ExternalApiError } from "@mplus/contracts";
 import type { ArtifactRepository, EvidenceRepository } from "@mplus/database";
 import {
   OBS_EVENTS,
-  emitScoringV2Event,
+  emitScoringEvent,
   recordDatasetOutcome,
   recordInvalidCandidateReason,
 } from "@mplus/observability";
@@ -41,7 +41,7 @@ import { getAbilityCatalog } from "@mplus/abilities";
 import type { WorkerContainer } from "../../container.js";
 import {
   emptyProviderAccounting,
-  type ScoringV2ProviderAccounting,
+  type ScoringProviderAccounting,
 } from "./provider-accounting.js";
 import {
   resolveFrozenClassSpecIdentity,
@@ -59,16 +59,16 @@ import type { AcquiredEvidenceDatasetDescriptor } from "./dataset-descriptor-per
 import {
   persistDatasetDescriptor,
 } from "./dataset-descriptor-persist.js";
-import type { ScoringV2EvidenceTransport } from "./evidence-transport.js";
+import type { ScoringEvidenceTransport } from "./evidence-transport.js";
 import {
   persistTypedFactSet,
   type TypedDimensionFactPayload,
 } from "./typed-fact-persist.js";
 import {
-  SCORING_V2_DATASET_SCHEMA_VERSION,
-  SCORING_V2_FACT_EXTRACTOR_FAMILY,
-  SCORING_V2_FACT_EXTRACTOR_VERSION,
-  SCORING_V2_FACT_SCHEMA_VERSION,
+  scoring_DATASET_SCHEMA_VERSION,
+  scoring_FACT_EXTRACTOR_FAMILY,
+  scoring_FACT_EXTRACTOR_VERSION,
+  scoring_FACT_SCHEMA_VERSION,
 } from "./types.js";
 
 const EVIDENCE_PLANNER_PROVIDER_CONTRACT = "wcl-graphql-v2-events";
@@ -92,28 +92,28 @@ export function keystoneBonusFromFightDetails(data: unknown): boolean | null {
   return null;
 }
 
-export class ScoringV2CancelledError extends Error {
+export class ScoringCancelledError extends Error {
   readonly code = "CANCELLED";
   constructor(message = "Scoring V2 batch cancelled") {
     super(message);
-    this.name = "ScoringV2CancelledError";
+    this.name = "ScoringCancelledError";
   }
 }
 
-export class ScoringV2SupersededError extends Error {
+export class ScoringSupersededError extends Error {
   readonly code = "REFRESH_SUPERSEDED_DEDUPED";
   constructor(message = "Scoring V2 batch superseded") {
     super(message);
-    this.name = "ScoringV2SupersededError";
+    this.name = "ScoringSupersededError";
   }
 }
 
-export class ScoringV2RateDeferError extends Error {
-  readonly code = "SCORING_V2_RATE_DEFER";
+export class ScoringRateDeferError extends Error {
+  readonly code = "scoring_RATE_DEFER";
   readonly delayMs: number;
   constructor(message: string, delayMs = 60_000) {
     super(message);
-    this.name = "ScoringV2RateDeferError";
+    this.name = "ScoringRateDeferError";
     this.delayMs = delayMs;
   }
 }
@@ -193,11 +193,6 @@ export function resolveEnabledConsumers(env: WorkerContainer["env"]): EvidenceV2
 
 export function isScoringEnabled(env: WorkerContainer["env"]): boolean {
   return env.SCORING_ENABLED === true;
-}
-
-/** @deprecated Use isScoringEnabled */
-export function isScoringV2ShadowOrchestrationEnabled(env: WorkerContainer["env"]): boolean {
-  return isScoringEnabled(env);
 }
 
 /** Publication must stay blocked unless the publication gate is intentionally enabled. */
@@ -409,7 +404,7 @@ export async function acquireCandidateWithFallback(input: {
   /** Release a failed/skipped attempt reservation. */
   releaseDiscoveryIdentity?: (discoveryKey: string) => Promise<void>;
   /** Injectable transport — tests supply fixtures; production uses provider-backed transport. */
-  transport: ScoringV2EvidenceTransport;
+  transport: ScoringEvidenceTransport;
   classSlug?: string | null;
   specSlug?: string | null;
   /** Explicit frozen identity state; derived from class/spec when omitted. */
@@ -422,7 +417,7 @@ export async function acquireCandidateWithFallback(input: {
   typedFactPayloads: TypedDimensionFactPayload[];
   rejectedAttempts: EvidenceCandidateAcquisitionResult[];
   providerCallTotal: number;
-  providerAccounting: ScoringV2ProviderAccounting;
+  providerAccounting: ScoringProviderAccounting;
 }> {
   const rejectedAttempts: EvidenceCandidateAcquisitionResult[] = [];
   const { container, datasetRequirements } = input;
@@ -444,7 +439,7 @@ export async function acquireCandidateWithFallback(input: {
 
   for (const candidate of input.candidates) {
     if (await input.shouldCancel()) {
-      throw new ScoringV2CancelledError();
+      throw new ScoringCancelledError();
     }
 
     const identity = candidate.discoveryIdentity;
@@ -720,7 +715,7 @@ export async function acquireCandidateWithFallback(input: {
           datasetKey: "fight-details",
           bytes: fightArtifact.bytes,
         });
-        emitScoringV2Event(container.logger, OBS_EVENTS.scoringV2DatasetFetched, {
+        emitScoringEvent(container.logger, OBS_EVENTS.scoringDatasetFetched, {
           characterId: input.characterId,
           correlationId: input.correlationId,
           datasetKey: "fight-details",
@@ -728,7 +723,7 @@ export async function acquireCandidateWithFallback(input: {
         });
       } else {
         recordDatasetOutcome({ outcome: "cache_hit", datasetKey: "fight-details" });
-        emitScoringV2Event(container.logger, OBS_EVENTS.scoringV2DatasetCacheHit, {
+        emitScoringEvent(container.logger, OBS_EVENTS.scoringDatasetCacheHit, {
           characterId: input.characterId,
           correlationId: input.correlationId,
           datasetKey: "fight-details",
@@ -811,7 +806,7 @@ export async function acquireCandidateWithFallback(input: {
             datasetKey: "shared-evidence",
             bytes: sharedArtifact.bytes,
           });
-          emitScoringV2Event(container.logger, OBS_EVENTS.scoringV2DatasetFetched, {
+          emitScoringEvent(container.logger, OBS_EVENTS.scoringDatasetFetched, {
             characterId: input.characterId,
             correlationId: input.correlationId,
             datasetKey: "shared-evidence",
@@ -819,7 +814,7 @@ export async function acquireCandidateWithFallback(input: {
           });
         } else if (shared.cacheHits > 0) {
           recordDatasetOutcome({ outcome: "cache_hit", datasetKey: "shared-evidence" });
-          emitScoringV2Event(container.logger, OBS_EVENTS.scoringV2DatasetCacheHit, {
+          emitScoringEvent(container.logger, OBS_EVENTS.scoringDatasetCacheHit, {
             characterId: input.characterId,
             correlationId: input.correlationId,
             datasetKey: "shared-evidence",
@@ -885,7 +880,7 @@ export async function acquireCandidateWithFallback(input: {
               datasetKind: kind,
               compatibilityKey,
               artifactId: artifactIds[artifactIds.length - 1] ?? fightArtifact.artifactId,
-              schemaVersion: SCORING_V2_DATASET_SCHEMA_VERSION,
+              schemaVersion: scoring_DATASET_SCHEMA_VERSION,
               providerContractVersion: EVIDENCE_PLANNER_PROVIDER_CONTRACT,
               state: "READY",
               eventCount: ds.eventCount,
@@ -943,7 +938,7 @@ export async function acquireCandidateWithFallback(input: {
       // --- Performance ---
       if (consumers.has("PERFORMANCE")) {
         let rankingEvidence: Awaited<
-          ReturnType<ScoringV2EvidenceTransport["getRankingParse"]>
+          ReturnType<ScoringEvidenceTransport["getRankingParse"]>
         >["evidence"] = null;
         let rankingUnavailableReason: string | null = null;
         let rankingTransportFailed = false;
@@ -1410,7 +1405,7 @@ export async function acquireCandidateWithFallback(input: {
         providerAccounting,
       };
     } catch (error) {
-      if (error instanceof ScoringV2CancelledError || error instanceof ScoringV2SupersededError) {
+      if (error instanceof ScoringCancelledError || error instanceof ScoringSupersededError) {
         throw error;
       }
       const ownership = ownershipRejectionFromError(error);
@@ -1554,7 +1549,7 @@ export type { AnalyzeEvidenceSlotJobV2, FinalizeEvidenceBatchJobV2 };
 
 /** @deprecated Kept for type imports — shadow placeholder family is no longer written on success. */
 export {
-  SCORING_V2_FACT_EXTRACTOR_FAMILY,
-  SCORING_V2_FACT_EXTRACTOR_VERSION,
-  SCORING_V2_FACT_SCHEMA_VERSION,
+  scoring_FACT_EXTRACTOR_FAMILY,
+  scoring_FACT_EXTRACTOR_VERSION,
+  scoring_FACT_SCHEMA_VERSION,
 };

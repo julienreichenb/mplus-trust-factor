@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import ScoringV2OverviewPanel from "../components/scoring-v2/ScoringV2OverviewPanel.vue";
-import ScoringV2EvidencePanel from "../components/scoring-v2/ScoringV2EvidencePanel.vue";
-import ScoringV2ConcurrencyPanel from "../components/scoring-v2/ScoringV2ConcurrencyPanel.vue";
-import ScoringV2DiagnosticsPanel from "../components/scoring-v2/ScoringV2DiagnosticsPanel.vue";
-import ScoringV2HistoryPanel from "../components/scoring-v2/ScoringV2HistoryPanel.vue";
-import ScoringV2ShadowCanaryPanel from "../components/scoring-v2/ScoringV2ShadowCanaryPanel.vue";
+import ScoringOverviewPanel from "../components/scoring/ScoringOverviewPanel.vue";
+import ScoringEvidencePanel from "../components/scoring/ScoringEvidencePanel.vue";
+import ScoringConcurrencyPanel from "../components/scoring/ScoringConcurrencyPanel.vue";
+import ScoringDiagnosticsPanel from "../components/scoring/ScoringDiagnosticsPanel.vue";
+import ScoringHistoryPanel from "../components/scoring/ScoringHistoryPanel.vue";
+import ScoringShadowCanaryPanel from "../components/scoring/ScoringShadowCanaryPanel.vue";
 
 type TabId = "overview" | "canary" | "evidence" | "concurrency" | "diagnostics" | "history";
 
@@ -61,13 +61,13 @@ function onTabKeydown(event: KeyboardEvent): void {
   selectTab(TABS[next]!.id, true);
 }
 
-const panelId = computed(() => `scoring-v2-panel-${activeTab.value}`);
+const panelId = computed(() => `scoring-panel-${activeTab.value}`);
 </script>
 
 <template>
-  <main class="admin-page" aria-labelledby="scoring-v2-cc-title">
+  <main class="admin-page" aria-labelledby="scoring-cc-title">
     <header class="admin-page__header">
-      <h1 id="scoring-v2-cc-title">Scoring V2 Control Center</h1>
+      <h1 id="scoring-cc-title">Scoring Control Center</h1>
       <p>
         Operational overview, calibration evidence export, concurrency lanes, diagnostics, and
         history. Feature flags stay disabled unless changed outside this page.
@@ -77,12 +77,12 @@ const panelId = computed(() => `scoring-v2-panel-${activeTab.value}`);
     <div
       class="tabs"
       role="tablist"
-      aria-label="Scoring V2 Control Center sections"
+      aria-label="Scoring Control Center sections"
       @keydown="onTabKeydown"
     >
       <button
         v-for="(tab, index) in TABS"
-        :id="`scoring-v2-tab-${tab.id}`"
+        :id="`scoring-tab-${tab.id}`"
         :key="tab.id"
         :ref="(el) => { tabRefs[index] = el as HTMLButtonElement | null }"
         type="button"
@@ -90,7 +90,7 @@ const panelId = computed(() => `scoring-v2-panel-${activeTab.value}`);
         role="tab"
         :class="{ 'tabs__btn--active': activeTab === tab.id }"
         :aria-selected="activeTab === tab.id"
-        :aria-controls="`scoring-v2-panel-${tab.id}`"
+        :aria-controls="`scoring-panel-${tab.id}`"
         :tabindex="activeTab === tab.id ? 0 : -1"
         @click="selectTab(tab.id)"
       >
@@ -102,15 +102,15 @@ const panelId = computed(() => `scoring-v2-panel-${activeTab.value}`);
       :id="panelId"
       class="tabpanel"
       role="tabpanel"
-      :aria-labelledby="`scoring-v2-tab-${activeTab}`"
+      :aria-labelledby="`scoring-tab-${activeTab}`"
       tabindex="0"
     >
-      <ScoringV2OverviewPanel v-if="activeTab === 'overview'" />
-      <ScoringV2ShadowCanaryPanel v-else-if="activeTab === 'canary'" />
-      <ScoringV2EvidencePanel v-else-if="activeTab === 'evidence'" />
-      <ScoringV2ConcurrencyPanel v-else-if="activeTab === 'concurrency'" />
-      <ScoringV2DiagnosticsPanel v-else-if="activeTab === 'diagnostics'" />
-      <ScoringV2HistoryPanel v-else />
+      <ScoringOverviewPanel v-if="activeTab === 'overview'" />
+      <ScoringShadowCanaryPanel v-else-if="activeTab === 'canary'" />
+      <ScoringEvidencePanel v-else-if="activeTab === 'evidence'" />
+      <ScoringConcurrencyPanel v-else-if="activeTab === 'concurrency'" />
+      <ScoringDiagnosticsPanel v-else-if="activeTab === 'diagnostics'" />
+      <ScoringHistoryPanel v-else />
     </div>
   </main>
 </template>

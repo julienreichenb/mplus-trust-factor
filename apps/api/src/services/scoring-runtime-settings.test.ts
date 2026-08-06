@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { validateConcurrencyValue } from "./scoring-v2-runtime-settings.js";
+import { validateConcurrencyValue } from "./scoring-runtime-settings.js";
 import {
   deriveConcurrencySyncState,
   type ConcurrencyObservation,

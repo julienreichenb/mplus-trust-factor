@@ -5,13 +5,13 @@
 import { describe, expect, it } from "vitest";
 import { EVIDENCE_SELECTOR_VERSION } from "@mplus/contracts";
 import {
-  createDefaultScoringV2DimensionConfigSet,
+  createDefaultscoringDimensionConfigSet,
   parsePerformanceV2ModelConfig,
   parseSurvivalV2ModelConfig,
   parseUtilityV2ModelConfig,
   parseExperienceV3ModelConfig,
   resolveScoreModelV2DimensionConfigs,
-  withScoringV2DimensionConfigs,
+  withscoringDimensionConfigs,
   ModelConfigValidationError,
   stableSha256,
   PERFORMANCE_V2_MODEL_CONFIG,
@@ -254,15 +254,15 @@ describe("ScoreModel mapping", () => {
     expect(resolved.configs.performance).toEqual(PERFORMANCE_V2_MODEL_CONFIG);
   });
 
-  it("calibration-strict fails closed when scoringV2 is missing", () => {
+  it("calibration-strict fails closed when scoring is missing", () => {
     expect(() =>
       resolveScoreModelV2DimensionConfigs(createDefaultModelV6(), "calibration-strict"),
-    ).toThrow(/lacks scoringV2/);
+    ).toThrow(/lacks scoring/);
   });
 
-  it("reads complete scoringV2 documents from persisted models", () => {
-    const configs = createDefaultScoringV2DimensionConfigSet();
-    const model = withScoringV2DimensionConfigs(createDefaultModelV6(), configs);
+  it("reads complete scoring documents from persisted models", () => {
+    const configs = createDefaultscoringDimensionConfigSet();
+    const model = withscoringDimensionConfigs(createDefaultModelV6(), configs);
     const resolved = resolveScoreModelV2DimensionConfigs(model, "calibration-strict");
     expect(resolved.fromPersistedDocument).toBe(true);
     expect(resolved.fingerprints.utility).toBe(
@@ -278,11 +278,11 @@ describe("ScoreModel mapping", () => {
 });
 
 describe("active-versus-draft safety", () => {
-  it("malformed draft scoringV2 fails closed", async () => {
-    const active = withScoringV2DimensionConfigs(createDefaultModelV6());
+  it("malformed draft scoring fails closed", async () => {
+    const active = withscoringDimensionConfigs(createDefaultModelV6());
     const draft = {
       ...createDefaultModelV6({ key: "draft", version: 2 }),
-      scoringV2: { schemaVersion: "scoring-v2-dimension-configs.1" },
+      scoring: { schemaVersion: "scoring-dimension-configs.1" },
     };
     const utilExport = exportUtilityV2Calibration({
       manifest: {
@@ -712,7 +712,7 @@ describe("strict replay-boundary re-parse", () => {
 
   it("re-parses bundle-attached configs and rejects unsafe nested Utility values before scoring", async () => {
     const hashes = utilArtifacts();
-    const defaults = createDefaultScoringV2DimensionConfigSet();
+    const defaults = createDefaultscoringDimensionConfigSet();
     const frozen = freezeDimensionModelConfigsV2(defaults, {
       performance: fingerprintPerformanceV2ModelConfig(defaults.performance),
       survival: fingerprintSurvivalV2ModelConfig(defaults.survival),
@@ -723,8 +723,8 @@ describe("strict replay-boundary re-parse", () => {
     (frozen.configs.utility.interruptCredits as { CONFIRMED_SUCCESS: number }).CONFIRMED_SUCCESS =
       Number.NaN;
 
-    const active = withScoringV2DimensionConfigs(createDefaultModelV6());
-    const draft = withScoringV2DimensionConfigs(
+    const active = withscoringDimensionConfigs(createDefaultModelV6());
+    const draft = withscoringDimensionConfigs(
       createDefaultModelV6({ key: "draft", version: 2 }),
     );
     const bundle = {
@@ -747,7 +747,7 @@ describe("strict replay-boundary re-parse", () => {
   });
 
   it("rejects fingerprint mismatch on strict re-parse", () => {
-    const defaults = createDefaultScoringV2DimensionConfigSet();
+    const defaults = createDefaultscoringDimensionConfigSet();
     const frozen = freezeDimensionModelConfigsV2(defaults, {
       performance: fingerprintPerformanceV2ModelConfig(defaults.performance),
       survival: fingerprintSurvivalV2ModelConfig(defaults.survival),
@@ -760,13 +760,13 @@ describe("strict replay-boundary re-parse", () => {
 
   it("malformed active config fails before scoring; no partial result", async () => {
     const hashes = utilArtifacts();
-    const draft = withScoringV2DimensionConfigs(
+    const draft = withscoringDimensionConfigs(
       createDefaultModelV6({ key: "draft", version: 2 }),
     );
     const activeBad = {
       ...createDefaultModelV6(),
-      scoringV2: {
-        schemaVersion: "scoring-v2-dimension-configs.1",
+      scoring: {
+        schemaVersion: "scoring-dimension-configs.1",
         performance: PERFORMANCE_V2_MODEL_CONFIG,
         survival: SURVIVAL_V2_MODEL_CONFIG,
         utility: {
@@ -789,11 +789,11 @@ describe("strict replay-boundary re-parse", () => {
 
   it("malformed draft Experience config fails before scoring", async () => {
     const hashes = utilArtifacts();
-    const active = withScoringV2DimensionConfigs(createDefaultModelV6());
+    const active = withscoringDimensionConfigs(createDefaultModelV6());
     const draftBad = {
       ...createDefaultModelV6({ key: "draft", version: 2 }),
-      scoringV2: {
-        schemaVersion: "scoring-v2-dimension-configs.1",
+      scoring: {
+        schemaVersion: "scoring-dimension-configs.1",
         performance: PERFORMANCE_V2_MODEL_CONFIG,
         survival: SURVIVAL_V2_MODEL_CONFIG,
         utility: UTILITY_V2_MODEL_CONFIG,
@@ -816,9 +816,9 @@ describe("strict replay-boundary re-parse", () => {
 
   it("same valid configs yield zero deltas with verified identicalEvidence", async () => {
     const hashes = utilArtifacts();
-    const configs = createDefaultScoringV2DimensionConfigSet();
-    const active = withScoringV2DimensionConfigs(createDefaultModelV6(), configs);
-    const draft = withScoringV2DimensionConfigs(
+    const configs = createDefaultscoringDimensionConfigSet();
+    const active = withscoringDimensionConfigs(createDefaultModelV6(), configs);
+    const draft = withscoringDimensionConfigs(
       createDefaultModelV6({ key: "draft", version: 2 }),
       configs,
     );
@@ -843,14 +843,14 @@ describe("strict replay-boundary re-parse", () => {
 
   it("different valid Utility configs produce deterministic real deltas", async () => {
     const hashes = utilArtifacts();
-    const activeConfigs = createDefaultScoringV2DimensionConfigSet();
-    const draftConfigs = createDefaultScoringV2DimensionConfigSet();
+    const activeConfigs = createDefaultscoringDimensionConfigSet();
+    const draftConfigs = createDefaultscoringDimensionConfigSet();
     draftConfigs.utility = parseUtilityV2ModelConfig({
       ...UTILITY_V2_MODEL_CONFIG,
       scoreFloor: 55,
     });
-    const active = withScoringV2DimensionConfigs(createDefaultModelV6(), activeConfigs);
-    const draft = withScoringV2DimensionConfigs(
+    const active = withscoringDimensionConfigs(createDefaultModelV6(), activeConfigs);
+    const draft = withscoringDimensionConfigs(
       createDefaultModelV6({ key: "draft", version: 2 }),
       draftConfigs,
     );

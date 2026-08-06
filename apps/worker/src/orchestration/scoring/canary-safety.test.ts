@@ -7,6 +7,8 @@ import {
   EVIDENCE_SELECTOR_VERSION,
   type EvidenceCandidateMetadataV2,
 } from "@mplus/contracts";
+import type { WorkerContainer } from "../../container.js";
+import { runAuthoritativeScoring } from "./refresh-bridge.js";
 import {
   buildMinimalCapabilityPackage,
   createMemoryOrchestrationPorts,
@@ -15,8 +17,8 @@ import {
   buildCanaryCostProjection,
   assertCostAdmissionAllowsLive,
   explainCostAdmissionDefer,
-  runScoringV2CanaryPreflight,
-  orchestrateScoringV2Runs,
+  runScoringCanaryPreflight,
+  orchestrateScoringRuns,
   sourceFightKey,
   CONSERVATIVE_POINTS_PER_CAPABILITY_FIGHT,
   liveAcquireResultFromPackage,
@@ -30,8 +32,6 @@ import {
   requireConfiguredMplusZoneId,
   resolveCanaryZoneId,
 } from "./canary/canary-zone.js";
-import { maybeStartScoringV2ShadowFromRefresh } from "./refresh-bridge.js";
-import type { WorkerContainer } from "../../container.js";
 
 const CHAR_ID = "11111111-1111-4111-8111-111111111111";
 const EIGHT = [
@@ -102,17 +102,26 @@ function fullSixteen(): EvidenceCandidateMetadataV2[] {
 function mockContainer(env: Record<string, unknown>): WorkerContainer {
   return {
     env,
-    prisma: {} as never,
+    prisma: {
+      characterScore: {
+        upsert: vi.fn(async ({ create }) => ({ id: "score-1", ...create })),
+        findUnique: vi.fn(async () => null),
+      },
+    } as never,
     logger: {
       info: vi.fn(),
       warn: vi.fn(),
       error: vi.fn(),
       debug: vi.fn(),
     },
-    createRedisConnection: vi.fn(),
+    createRedisConnection: vi.fn(() => ({
+      set: vi.fn(),
+      get: vi.fn(),
+      del: vi.fn(),
+      quit: vi.fn(),
+    })),
     providers: {} as never,
     disabledProviders: new Set(),
-    calculateScore: vi.fn() as never,
     repositories: {
       artifacts: {} as never,
       evidence: {} as never,
@@ -160,7 +169,7 @@ describe("live capability permission gates", () => {
       wclEnabled: true,
       allowLiveProviderCalls: false,
       liveProviderPermissionGranted: false,
-      scoringV2PublicationEnabled: false,
+      scoringPublicationEnabled: false,
       hasWclCredentials: true,
     });
     expect(denied.allowed).toBe(false);
@@ -174,7 +183,7 @@ describe("live capability permission gates", () => {
       wclEnabled: true,
       allowLiveProviderCalls: true,
       liveProviderPermissionGranted: true,
-      scoringV2PublicationEnabled: false,
+      scoringPublicationEnabled: false,
       hasWclCredentials: true,
     });
     expect(allowed.allowed).toBe(true);
@@ -186,7 +195,7 @@ describe("live capability permission gates", () => {
       wclEnabled: true,
       allowLiveProviderCalls: true,
       liveProviderPermissionGranted: true,
-      scoringV2PublicationEnabled: true,
+      scoringPublicationEnabled: true,
       hasWclCredentials: true,
     });
     expect(denied.allowed).toBe(false);
@@ -297,8 +306,8 @@ describe("distributed source-fight singleflight (shared memory dual instance)", 
     };
 
     await Promise.all([
-      orchestrateScoringV2Runs(input),
-      orchestrateScoringV2Runs(input),
+      orchestrateScoringRuns(input),
+      orchestrateScoringRuns(input),
     ]);
     expect(ports.stats.acquireCalls).toBe(1);
     expect(ports.getPackageCount()).toBe(1);
@@ -349,87 +358,68 @@ describe("distributed source-fight singleflight (shared memory dual instance)", 
   });
 });
 
-describe("dual-path provider ownership", () => {
-  it("digest path owns providers; legacy skipped by default", async () => {
+describe("authoritative scoring provider ownership", () => {
+  const scoringInput = (
+    container: WorkerContainer,
+    ports: ReturnType<typeof createMemoryOrchestrationPorts>,
+  ) => ({
+    container,
+    characterId: CHAR_ID,
+    seasonId: "season-1",
+    seasonSlug: "s1",
+    role: "DPS" as const,
+    classSlug: "mage",
+    specSlug: "fire",
+    refreshContract,
+    evidenceCutoffAt: "2026-08-01T00:00:00.000Z",
+    highKeyPolicyId: "high-key-v1",
+    activeDungeonSlugs: [...EIGHT],
+    candidates: fullSixteen(),
+    scoreModelKey: "test",
+    scoreModelVersion: 1,
+    scoreModelId: "model-1",
+    calculatedAt: "2026-08-01T12:00:00.000Z",
+    region: "eu",
+    realm: "test",
+    characterName: "Target",
+    portsOverride: ports,
+  });
+
+  it("scoreCharacter path runs without legacy shadow branching", async () => {
     const ports = createMemoryOrchestrationPorts();
     const container = mockContainer({
       SCORING_ENABLED: true,
-      SCORING_ENABLED: true,
-      SCORING_ENABLED: true,
       SCORING_PUBLICATION_ENABLED: false,
       ALLOW_LIVE_PROVIDER_CALLS: false,
+      PROVIDER_MODE: "fixture",
+      WCL_ENABLED: false,
     });
-    const diag = await maybeStartScoringV2ShadowFromRefresh({
-      container,
-      characterId: CHAR_ID,
-      seasonId: "season-1",
-      seasonSlug: "s1",
-      role: "DPS",
-      classSlug: "mage",
-      specSlug: "fire",
-      refreshContract,
-      evidenceCutoffAt: "2026-08-01T00:00:00.000Z",
-      highKeyPolicyId: "high-key-v1",
-      activeDungeonSlugs: [...EIGHT],
-      candidates: fullSixteen(),
-      scoreModelId: "model-1",
-      parentIngestionJobId: null,
-      correlationId: null,
-      refreshGeneration: 1,
-      region: "eu",
-      realm: "test",
-      characterName: "Target",
-      portsOverride: ports,
-    });
-    expect(diag.providerOwner).toBe("DIGEST_ORCHESTRATOR");
-    expect(diag.legacyShadow?.skipped).toBe(true);
-    expect(diag.legacyShadow?.providerCallsAllowed).toBe(false);
-    expect(diag.providerCalls).toBe(
-      diag.orchestration?.accounting.providerCalls ?? 0,
+    const result = await runAuthoritativeScoring(scoringInput(container, ports));
+    expect(result.disabled).toBe(false);
+    expect(result.scoreResult).not.toBeNull();
+    expect(result.providerCalls).toBe(
+      result.scoreResult!.orchestration.accounting.providerCalls,
     );
   });
 
-  it("provider forbidden → digest path does not call WCL", async () => {
+  it("provider forbidden → does not call WCL", async () => {
     const ports = createMemoryOrchestrationPorts();
     const acquire = vi.spyOn(ports, "acquireAndPersistCapabilityPackage");
     const container = mockContainer({
       SCORING_ENABLED: true,
-      SCORING_ENABLED: true,
-      SCORING_ENABLED: true,
       SCORING_PUBLICATION_ENABLED: false,
       ALLOW_LIVE_PROVIDER_CALLS: false,
+      PROVIDER_MODE: "fixture",
+      WCL_ENABLED: false,
     });
-    const diag = await maybeStartScoringV2ShadowFromRefresh({
-      container,
-      characterId: CHAR_ID,
-      seasonId: "season-1",
-      seasonSlug: "s1",
-      role: "DPS",
-      classSlug: "mage",
-      specSlug: "fire",
-      refreshContract,
-      evidenceCutoffAt: "2026-08-01T00:00:00.000Z",
-      highKeyPolicyId: "high-key-v1",
-      activeDungeonSlugs: [...EIGHT],
-      candidates: fullSixteen(),
-      scoreModelId: "model-1",
-      parentIngestionJobId: null,
-      correlationId: null,
-      refreshGeneration: 1,
-      region: "eu",
-      realm: "test",
-      characterName: "Target",
-      portsOverride: ports,
-      skipLegacyShadowPipeline: true,
-    });
-    expect(diag.liveProviderPermission).toBe("FORBIDDEN");
+    const result = await runAuthoritativeScoring(scoringInput(container, ports));
     expect(acquire).not.toHaveBeenCalled();
-    expect(diag.providerCalls).toBe(0);
+    expect(result.providerCalls).toBe(0);
   });
 
-  it("full cached replay remains zero-call; pointer untouched", async () => {
+  it("full cached replay remains zero-call; publication stays off", async () => {
     const ports = createMemoryOrchestrationPorts();
-    const warm = await orchestrateScoringV2Runs({
+    const warm = await orchestrateScoringRuns({
       characterId: CHAR_ID,
       region: "eu",
       realm: "test",
@@ -446,43 +436,22 @@ describe("dual-path provider ownership", () => {
 
     const container = mockContainer({
       SCORING_ENABLED: true,
-      SCORING_ENABLED: true,
-      SCORING_ENABLED: true,
       SCORING_PUBLICATION_ENABLED: false,
       ALLOW_LIVE_PROVIDER_CALLS: false,
+      PROVIDER_MODE: "fixture",
+      WCL_ENABLED: false,
     });
-    const diag = await maybeStartScoringV2ShadowFromRefresh({
-      container,
-      characterId: CHAR_ID,
-      seasonId: "season-1",
-      seasonSlug: "s1",
-      role: "DPS",
-      classSlug: "mage",
-      specSlug: "fire",
-      refreshContract,
-      evidenceCutoffAt: "2026-08-01T00:00:00.000Z",
-      highKeyPolicyId: "high-key-v1",
-      activeDungeonSlugs: [...EIGHT],
-      candidates: fullSixteen(),
-      scoreModelId: "model-1",
-      parentIngestionJobId: null,
-      correlationId: null,
-      refreshGeneration: 1,
-      region: "eu",
-      realm: "test",
-      characterName: "Target",
-      portsOverride: ports,
-    });
-    expect(diag.providerCalls).toBe(0);
+    const result = await runAuthoritativeScoring(scoringInput(container, ports));
+    expect(result.providerCalls).toBe(0);
     expect(ports.stats.providerCalls).toBe(calls);
-    expect(diag.publicScorePointerMutated).toBe(false);
+    expect(result.scoreResult!.publicationEnabled).toBe(false);
   });
 });
 
 describe("canary preflight + cost admission", () => {
   it("preflight makes zero WCL calls; ranking gap on existing digests is slot-level only", async () => {
     const ports = createMemoryOrchestrationPorts({ autoSeedRanking: false });
-    const seeded = await orchestrateScoringV2Runs({
+    const seeded = await orchestrateScoringRuns({
       characterId: CHAR_ID,
       region: "eu",
       realm: "archimonde",
@@ -497,7 +466,7 @@ describe("canary preflight + cost admission", () => {
     expect(seeded.uniqueSourceFights.length).toBe(16);
 
     const acquire = vi.spyOn(ports, "acquireAndPersistCapabilityPackage");
-    const report = await runScoringV2CanaryPreflight({
+    const report = await runScoringCanaryPreflight({
       characterId: CHAR_ID,
       characterName: "Wallidrixe",
       region: "eu",
@@ -600,9 +569,7 @@ describe("canary CLI guards", () => {
     PROVIDER_MODE: "live" as const,
     WCL_ENABLED: true,
     ALLOW_LIVE_PROVIDER_CALLS: true,
-    SCORING_ENABLED: true,
-    SCORING_ENABLED: true,
-    SCORING_ENABLED: true,
+        SCORING_ENABLED: true,
     SCORING_PUBLICATION_ENABLED: false,
     WCL_CLIENT_ID: "id",
     WCL_CLIENT_SECRET: "secret",

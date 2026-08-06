@@ -1,5 +1,5 @@
-/**
- * Scoring V2 Control Center contracts — overview, evidence export, concurrency, history.
+﻿/**
+ * Scoring Control Center contracts ÔÇö overview, evidence export, concurrency, history.
  * Admin-only. No secrets, provider tokens, or database URLs.
  */
 import { z } from "zod";
@@ -9,7 +9,7 @@ export type RefreshWorkloadClass = (typeof REFRESH_WORKLOAD_CLASSES)[number];
 
 export const refreshWorkloadClassSchema = z.enum(REFRESH_WORKLOAD_CLASSES);
 
-export const SCORING_V2_EVIDENCE_EXPORT_STATUSES = [
+export const SCORING_EVIDENCE_EXPORT_STATUSES = [
   "QUEUED",
   "RUNNING",
   "RETRYABLE",
@@ -17,15 +17,15 @@ export const SCORING_V2_EVIDENCE_EXPORT_STATUSES = [
   "FAILED",
   "CANCELLED",
 ] as const;
-export type ScoringV2EvidenceExportStatus = (typeof SCORING_V2_EVIDENCE_EXPORT_STATUSES)[number];
+export type ScoringEvidenceExportStatus = (typeof SCORING_EVIDENCE_EXPORT_STATUSES)[number];
 
-export const scoringV2EvidenceExportStatusSchema = z.enum(SCORING_V2_EVIDENCE_EXPORT_STATUSES);
+export const ScoringEvidenceExportStatusSchema = z.enum(SCORING_EVIDENCE_EXPORT_STATUSES);
 
 /** Typed runtime setting keys for refresh lane concurrency. */
 export const RUNTIME_SETTING_KEYS = {
   concurrencyCalibration: "concurrency_calibration",
   concurrencyOperation: "concurrency_operation",
-  /** Global concurrent WCL HTTP requests for Scoring V2 acquisition. */
+  /** Global concurrent WCL HTTP requests for Scoring acquisition. */
   wclGlobalHttpConcurrency: "wcl_global_http_concurrency",
   /** Max active run acquisitions per character. */
   wclPerCharacterRunConcurrency: "wcl_per_character_run_concurrency",
@@ -47,21 +47,21 @@ export const concurrencyValueSchema = z
   .min(CONCURRENCY_MIN)
   .max(CONCURRENCY_MAX);
 
-export const EVIDENCE_JOIN_PREFLIGHT_SCHEMA_VERSION = "scoring-v2-evidence-join-preflight-v1" as const;
+export const EVIDENCE_JOIN_PREFLIGHT_SCHEMA_VERSION = "scoring-evidence-join-preflight-v1" as const;
 
-export const scoringV2ModeLabelSchema = z.enum(["Disabled", "Shadow", "Candidate", "Active"]);
-export type ScoringV2ModeLabel = z.infer<typeof scoringV2ModeLabelSchema>;
+export const ScoringModeLabelSchema = z.enum(["Disabled", "Shadow", "Candidate", "Active"]);
+export type ScoringModeLabel = z.infer<typeof ScoringModeLabelSchema>;
 
-export const scoringV2IssueSeveritySchema = z.enum(["blocker", "warning", "info"]);
-export type ScoringV2IssueSeverity = z.infer<typeof scoringV2IssueSeveritySchema>;
+export const ScoringIssueSeveritySchema = z.enum(["blocker", "warning", "info"]);
+export type ScoringIssueSeverity = z.infer<typeof ScoringIssueSeveritySchema>;
 
-export const scoringV2IssueSchema = z.object({
+export const ScoringIssueSchema = z.object({
   code: z.string().min(1).max(128),
-  severity: scoringV2IssueSeveritySchema,
+  severity: ScoringIssueSeveritySchema,
   message: z.string().min(1).max(512),
   memberId: z.string().max(128).nullable().optional(),
 });
-export type ScoringV2IssueDTO = z.infer<typeof scoringV2IssueSchema>;
+export type ScoringIssueDTO = z.infer<typeof ScoringIssueSchema>;
 
 export const createEvidenceExportBodySchema = z.object({
   cohortId: z.string().uuid(),
@@ -74,7 +74,7 @@ export type CreateEvidenceExportBody = z.infer<typeof createEvidenceExportBodySc
 export const updateConcurrencyBodySchema = z.object({
   concurrencyCalibration: concurrencyValueSchema.optional(),
   concurrencyOperation: concurrencyValueSchema.optional(),
-  /** Optimistic concurrency — must match current settings version. */
+  /** Optimistic concurrency ÔÇö must match current settings version. */
   expectedVersion: z.number().int().positive(),
 });
 export type UpdateConcurrencyBody = z.infer<typeof updateConcurrencyBodySchema>;
@@ -82,19 +82,19 @@ export type UpdateConcurrencyBody = z.infer<typeof updateConcurrencyBodySchema>;
 export const freezeEvidenceBundleBodySchema = z.object({
   /** Explicit confirmation required. */
   confirm: z.literal(true),
-  /** Optional DRAFT/evaluation model — frozen only when explicitly selected. */
+  /** Optional DRAFT/evaluation model ÔÇö frozen only when explicitly selected. */
   evaluationModelId: z.string().uuid().optional().nullable(),
 });
 export type FreezeEvidenceBundleBody = z.infer<typeof freezeEvidenceBundleBodySchema>;
 
-export const scoringV2EvidenceExportJobSchema = z.object({
+export const ScoringEvidenceExportJobSchema = z.object({
   exportId: z.string().uuid(),
   requestedAt: z.string().datetime(),
   correlationId: z.string().min(1).max(128).nullable().optional(),
 });
-export type ScoringV2EvidenceExportJob = z.infer<typeof scoringV2EvidenceExportJobSchema>;
+export type ScoringEvidenceExportJob = z.infer<typeof ScoringEvidenceExportJobSchema>;
 
-export const scoringV2ShadowCanaryJobSchema = z.object({
+export const ScoringShadowCanaryJobSchema = z.object({
   canaryId: z.string().uuid(),
   region: z.enum(["EU", "US", "KR", "TW"]),
   realmSlug: z.string().min(1).max(64),
@@ -103,9 +103,9 @@ export const scoringV2ShadowCanaryJobSchema = z.object({
   correlationId: z.string().min(1).max(128).nullable().optional(),
   forceRefresh: z.boolean().default(false),
 });
-export type ScoringV2ShadowCanaryJob = z.infer<typeof scoringV2ShadowCanaryJobSchema>;
+export type ScoringShadowCanaryJob = z.infer<typeof ScoringShadowCanaryJobSchema>;
 
-export interface ScoringV2FlagOverviewDTO {
+export interface ScoringFlagOverviewDTO {
   masterEnabled: boolean;
   selectionEnabled: boolean;
   evidenceFetchEnabled: boolean;
@@ -121,11 +121,11 @@ export interface ScoringV2FlagOverviewDTO {
   utilityOpportunityMode: "off" | "shadow" | "active";
   referenceComparisonMode: "off" | "collect" | "shadow" | "active";
   /** Derived operational label for the control center. */
-  modeLabel: ScoringV2ModeLabel;
+  modeLabel: ScoringModeLabel;
   incompatibleReasons: string[];
 }
 
-export interface ScoringV2ModelSummaryDTO {
+export interface ScoringModelSummaryDTO {
   id: string;
   key: string;
   version: number;
@@ -133,7 +133,7 @@ export interface ScoringV2ModelSummaryDTO {
   status: string;
 }
 
-export interface ScoringV2SeasonSummaryDTO {
+export interface ScoringSeasonSummaryDTO {
   id: string;
   slug: string;
   name: string;
@@ -141,19 +141,19 @@ export interface ScoringV2SeasonSummaryDTO {
   blizzardSeasonId: number | null;
 }
 
-export interface ScoringV2QueueCountsDTO {
+export interface ScoringQueueCountsDTO {
   workloadClass: RefreshWorkloadClass | "CALIBRATION_RUN" | "EVIDENCE_EXPORT" | "OTHER";
   queued: number;
   active: number;
 }
 
-export interface ScoringV2EvidenceExportSummaryDTO {
+export interface ScoringEvidenceExportSummaryDTO {
   id: string;
   cohortId: string;
   cohortName: string | null;
   cohortRevision: number;
   seasonId: string | null;
-  status: ScoringV2EvidenceExportStatus;
+  status: ScoringEvidenceExportStatus;
   blockerCount: number;
   warningCount: number;
   archiveContentHash: string | null;
@@ -165,7 +165,7 @@ export interface ScoringV2EvidenceExportSummaryDTO {
   completedAt: string | null;
 }
 
-export interface ScoringV2ConcurrencyLaneDTO {
+export interface ScoringConcurrencyLaneDTO {
   workloadClass: RefreshWorkloadClass;
   configured: number;
   effective: number;
@@ -177,25 +177,25 @@ export interface ScoringV2ConcurrencyLaneDTO {
 }
 
 /** Evidence-based concurrency settings sync across worker replicas. */
-export const SCORING_V2_CONCURRENCY_SYNC_STATES = [
+export const SCORING_CONCURRENCY_SYNC_STATES = [
   "SYNCHRONIZED",
   "PARTIALLY_OBSERVED",
   "STALE",
   "UNSYNCHRONIZED",
   "UNKNOWN",
 ] as const;
-export type ScoringV2ConcurrencySyncState = (typeof SCORING_V2_CONCURRENCY_SYNC_STATES)[number];
-export const scoringV2ConcurrencySyncStateSchema = z.enum(SCORING_V2_CONCURRENCY_SYNC_STATES);
+export type ScoringConcurrencySyncState = (typeof SCORING_CONCURRENCY_SYNC_STATES)[number];
+export const ScoringConcurrencySyncStateSchema = z.enum(SCORING_CONCURRENCY_SYNC_STATES);
 
-export interface ScoringV2ConcurrencyDTO {
-  calibration: ScoringV2ConcurrencyLaneDTO;
-  operation: ScoringV2ConcurrencyLaneDTO;
+export interface ScoringConcurrencyDTO {
+  calibration: ScoringConcurrencyLaneDTO;
+  operation: ScoringConcurrencyLaneDTO;
   /** Max static worker claim capacity (hard bound). */
   workerClaimHardMax: number;
   /** Evidence-based sync derivation from worker Redis observations. */
-  syncState: ScoringV2ConcurrencySyncState;
+  syncState: ScoringConcurrencySyncState;
   /**
-   * Compatibility mirror — true only when `syncState === "SYNCHRONIZED"`.
+   * Compatibility mirror ÔÇö true only when `syncState === "SYNCHRONIZED"`.
    * Do not treat as authoritative; prefer `syncState`.
    */
   synchronized: boolean;
@@ -207,15 +207,15 @@ export interface ScoringV2ConcurrencyDTO {
 }
 
 /**
- * Control-center overview DTO — OpenAPI `overviewSchema` must mirror these exact keys
+ * Control-center overview DTO ÔÇö OpenAPI `overviewSchema` must mirror these exact keys
  * with `additionalProperties: false`.
  */
-export interface ScoringV2OverviewDTO {
-  flags: ScoringV2FlagOverviewDTO;
-  activeModel: ScoringV2ModelSummaryDTO | null;
-  currentSeason: ScoringV2SeasonSummaryDTO | null;
-  queueCounts: ScoringV2QueueCountsDTO[];
-  recentEvidenceExport: ScoringV2EvidenceExportSummaryDTO | null;
+export interface ScoringOverviewDTO {
+  flags: ScoringFlagOverviewDTO;
+  activeModel: ScoringModelSummaryDTO | null;
+  currentSeason: ScoringSeasonSummaryDTO | null;
+  queueCounts: ScoringQueueCountsDTO[];
+  recentEvidenceExport: ScoringEvidenceExportSummaryDTO | null;
   recentFrozenBundle: {
     exportId: string;
     contentHash: string;
@@ -229,18 +229,18 @@ export interface ScoringV2OverviewDTO {
     draftCohorts: number;
     archivedCohorts: number;
   };
-  concurrency: ScoringV2ConcurrencyDTO;
-  blockers: ScoringV2IssueDTO[];
-  warnings: ScoringV2IssueDTO[];
+  concurrency: ScoringConcurrencyDTO;
+  blockers: ScoringIssueDTO[];
+  warnings: ScoringIssueDTO[];
   applicationRevision: string | null;
   generatedAt: string;
 }
 
 /**
- * Evidence-export progress counters — closed set of known fields.
+ * Evidence-export progress counters ÔÇö closed set of known fields.
  * OpenAPI (`evidenceExportProgressSchema`) must list these with `additionalProperties: false`.
  */
-export interface ScoringV2EvidenceExportProgressDTO {
+export interface ScoringEvidenceExportProgressDTO {
   membersTotal: number;
   membersScanned: number;
   identitiesFound: number;
@@ -253,18 +253,18 @@ export interface ScoringV2EvidenceExportProgressDTO {
   incompatibleSnapshots: number;
 }
 
-export interface ScoringV2EvidenceExportDTO {
+export interface ScoringEvidenceExportDTO {
   id: string;
   cohortId: string;
   cohortName: string | null;
   cohortRevision: number;
   seasonId: string | null;
   scoreModelId: string | null;
-  status: ScoringV2EvidenceExportStatus;
-  progress: ScoringV2EvidenceExportProgressDTO;
-  /** Extensible bag — OpenAPI may keep `additionalProperties: true` only on this nested object. */
+  status: ScoringEvidenceExportStatus;
+  progress: ScoringEvidenceExportProgressDTO;
+  /** Extensible bag ÔÇö OpenAPI may keep `additionalProperties: true` only on this nested object. */
   summary: Record<string, unknown>;
-  issues: ScoringV2IssueDTO[];
+  issues: ScoringIssueDTO[];
   blockerCount: number;
   warningCount: number;
   archiveContentHash: string | null;
@@ -279,7 +279,7 @@ export interface ScoringV2EvidenceExportDTO {
   frozenBundleByteLength: number | null;
   frozenAt: string | null;
   freezeEligible: boolean;
-  freezeBlockers: ScoringV2IssueDTO[];
+  freezeBlockers: ScoringIssueDTO[];
   errorCode: string | null;
   errorMessage: string | null;
   requestedByUserId: string;
@@ -288,21 +288,21 @@ export interface ScoringV2EvidenceExportDTO {
   completedAt: string | null;
 }
 
-export interface ScoringV2EvidenceExportListDTO {
-  items: ScoringV2EvidenceExportSummaryDTO[];
+export interface ScoringEvidenceExportListDTO {
+  items: ScoringEvidenceExportSummaryDTO[];
   total: number;
   page: number;
   pageSize: number;
 }
 
-export interface ScoringV2HistoryItemDTO {
+export interface ScoringHistoryItemDTO {
   kind: "evidence_export" | "frozen_bundle";
   id: string;
   exportId: string;
   cohortId: string;
   cohortName: string | null;
   cohortRevision: number;
-  status: ScoringV2EvidenceExportStatus;
+  status: ScoringEvidenceExportStatus;
   initiatorUserId: string;
   createdAt: string;
   completedAt: string | null;
@@ -313,14 +313,14 @@ export interface ScoringV2HistoryItemDTO {
   linkedCalibrationRunId: string | null;
 }
 
-export interface ScoringV2HistoryListDTO {
-  items: ScoringV2HistoryItemDTO[];
+export interface ScoringHistoryListDTO {
+  items: ScoringHistoryItemDTO[];
   total: number;
   page: number;
   pageSize: number;
 }
 
-export interface ScoringV2FrozenBundleDTO {
+export interface ScoringFrozenBundleDTO {
   exportId: string;
   schemaVersion: string;
   /** Logical bundle root hash (bundleHash / frozenBundleContentHash). */

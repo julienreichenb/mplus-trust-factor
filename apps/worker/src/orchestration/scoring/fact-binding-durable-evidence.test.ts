@@ -169,12 +169,12 @@ describe("durable shared evidence completeness", () => {
 describe("fact_set_hash_mismatch live shape (hollow ACQUIRED)", () => {
   it("fails closed when SELECTED expected hash has no RunFactSet rows (actual=missing)", () => {
     const identity = { reportCode: "QfMvDaxTqAkXmwyR", fightId: 3, reportRevision: 4 };
-    // Hollow acquisition previously stamped scoring-v2-acquisition placeholder.
+    // Hollow acquisition previously stamped scoring-acquisition placeholder.
     const hollowExpected = buildFactSetFingerprint({
       reportCode: identity.reportCode,
       fightId: identity.fightId,
       reportRevision: identity.reportRevision,
-      extractorFamily: "scoring-v2-acquisition",
+      extractorFamily: "scoring-acquisition",
       extractorVersion: "2.0.0",
       classSlug: "warlock",
       specSlug: "demonology",

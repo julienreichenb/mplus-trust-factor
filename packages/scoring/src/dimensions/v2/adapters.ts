@@ -39,7 +39,7 @@ import {
   type UtilityV2FrozenManifestRef,
   type UtilityV2RunFactSet,
 } from "../../utility/v2/index.js";
-import type { ScoringV2PublicDimension } from "./shadow-record.js";
+import type { ScoringPublicDimension } from "./shadow-record.js";
 import { buildSlotFactSetBindingHash } from "./fact-set-binding-hash.js";
 
 export interface PersistedFactSetRef {
@@ -279,7 +279,7 @@ export function verifyFactSetHashesAgainstManifest(
 }
 
 export function buildUnavailableInputFingerprint(input: {
-  dimension: ScoringV2PublicDimension;
+  dimension: ScoringPublicDimension;
   algorithmVersion: string;
   manifestContentHash: string;
   reasons: string[];
@@ -295,7 +295,7 @@ export function buildUnavailableInputFingerprint(input: {
 }
 
 export function algorithmVersionForDimension(
-  dimension: ScoringV2PublicDimension,
+  dimension: ScoringPublicDimension,
 ): string {
   switch (dimension) {
     case "PERFORMANCE":

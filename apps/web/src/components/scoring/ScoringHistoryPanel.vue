@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref } from "vue";
 import { useRouter } from "vue-router";
-import type { ScoringV2HistoryListDTO } from "@mplus/contracts";
+import type { ScoringHistoryListDTO } from "@mplus/contracts";
 import { ApiClientError } from "../../api/live-client";
 import StatusBanner from "../common/StatusBanner.vue";
 
@@ -13,7 +13,7 @@ const downloadingId = ref<string | null>(null);
 const error = ref<string | null>(null);
 const page = ref(1);
 const pageSize = 20;
-const history = ref<ScoringV2HistoryListDTO | null>(null);
+const history = ref<ScoringHistoryListDTO | null>(null);
 let objectUrlToRevoke: string | null = null;
 
 async function load(): Promise<void> {
@@ -21,10 +21,10 @@ async function load(): Promise<void> {
   error.value = null;
   try {
     const response = await fetch(
-      `${apiBase}/api/v1/admin/scoring-v2/history?page=${page.value}&pageSize=${pageSize}`,
+      `${apiBase}/api/v1/admin/scoring/history?page=${page.value}&pageSize=${pageSize}`,
       { credentials: "include", headers: { Accept: "application/json" } },
     );
-    const body = (await response.json().catch(() => ({}))) as ScoringV2HistoryListDTO & {
+    const body = (await response.json().catch(() => ({}))) as ScoringHistoryListDTO & {
       error?: { message?: string };
     };
     if (response.status === 401 || response.status === 403) {
@@ -52,7 +52,7 @@ async function download(exportId: string): Promise<void> {
   error.value = null;
   try {
     const response = await fetch(
-      `${apiBase}/api/v1/admin/scoring-v2/evidence-exports/${encodeURIComponent(exportId)}/download`,
+      `${apiBase}/api/v1/admin/scoring/evidence-exports/${encodeURIComponent(exportId)}/download`,
       { credentials: "include" },
     );
     if (response.status === 401 || response.status === 403) {

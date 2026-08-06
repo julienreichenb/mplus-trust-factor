@@ -14,7 +14,7 @@ import type {
   EvidenceAuditSlot,
   EvidenceDatasetKind,
   FactSourceOutcome,
-  ScoringV2EvidenceAuditDocument,
+  ScoringEvidenceAuditDocument,
   SlotAuditState,
 } from "@mplus/contracts";
 import {
@@ -149,7 +149,7 @@ export interface AuditManifestSlotRow {
   dimensionValidityReasons?: string[];
 }
 
-export interface BuildScoringV2EvidenceAuditInput {
+export interface BuildscoringEvidenceAuditInput {
   manifestId: string;
   characterId: string;
   seasonId: string;
@@ -747,9 +747,9 @@ function slotMatrixDimStatus(
 /**
  * Build a provider-free evidence audit document for one frozen manifest.
  */
-export function buildScoringV2EvidenceAudit(
-  input: BuildScoringV2EvidenceAuditInput,
-): ScoringV2EvidenceAuditDocument {
+export function buildscoringEvidenceAudit(
+  input: BuildscoringEvidenceAuditInput,
+): ScoringEvidenceAuditDocument {
   const auditedAt = input.auditedAt ?? new Date().toISOString();
   const integrityFailures: string[] = [];
 

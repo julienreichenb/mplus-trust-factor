@@ -2,8 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 import {
   OBS_EVENTS,
   boundOperationalReason,
-  buildScoringV2LogContext,
-  emitScoringV2Event,
+  buildScoringLogContext,
+  emitScoringEvent,
   evaluateReadiness,
   evaluateWclProviderUsability,
   fingerprintIdentifier,
@@ -24,25 +24,25 @@ import {
 
 describe("scoring v2 events", () => {
   it("exports normative scoring_v2.* event names", () => {
-    expect(OBS_EVENTS.scoringV2DiscoveryStarted).toBe("scoring_v2.discovery_started");
-    expect(OBS_EVENTS.scoringV2ManifestFrozen).toBe("scoring_v2.manifest_frozen");
-    expect(OBS_EVENTS.scoringV2AdmissionDeferred).toBe("scoring_v2.admission_deferred");
-    expect(OBS_EVENTS.scoringV2SlotFailed).toBe("scoring_v2.slot_failed");
-    expect(OBS_EVENTS.scoringV2DatasetTruncated).toBe("scoring_v2.dataset_truncated");
-    expect(OBS_EVENTS.scoringV2BatchFinalized).toBe("scoring_v2.batch_finalized");
-    expect(OBS_EVENTS.scoringV2PublicationRejected).toBe("scoring_v2.publication_rejected");
-    expect(OBS_EVENTS.scoringV2CalibrationCompleted).toBe("scoring_v2.calibration_completed");
-    expect(OBS_EVENTS.scoringV2ReferenceSliceStateChanged).toBe(
-      "scoring_v2.reference_slice_state_changed",
+    expect(OBS_EVENTS.scoringDiscoveryStarted).toBe("scoring.discovery_started");
+    expect(OBS_EVENTS.scoringManifestFrozen).toBe("scoring.manifest_frozen");
+    expect(OBS_EVENTS.scoringAdmissionDeferred).toBe("scoring.admission_deferred");
+    expect(OBS_EVENTS.scoringSlotFailed).toBe("scoring.slot_failed");
+    expect(OBS_EVENTS.scoringDatasetTruncated).toBe("scoring.dataset_truncated");
+    expect(OBS_EVENTS.scoringBatchFinalized).toBe("scoring.batch_finalized");
+    expect(OBS_EVENTS.scoringPublicationRejected).toBe("scoring.publication_rejected");
+    expect(OBS_EVENTS.scoringCalibrationCompleted).toBe("scoring.calibration_completed");
+    expect(OBS_EVENTS.scoringReferenceSliceStateChanged).toBe(
+      "scoring.reference_slice_state_changed",
     );
-    expect(OBS_EVENTS.scoringV2FinalizationClaimReleased).toBe(
-      "scoring_v2.finalization_claim_released",
+    expect(OBS_EVENTS.scoringFinalizationClaimReleased).toBe(
+      "scoring.finalization_claim_released",
     );
   });
 
   it("fingerprints character ids and redacts character names in log context", () => {
     const characterId = "00000000-0000-4000-8000-000000000099";
-    const ctx = buildScoringV2LogContext({
+    const ctx = buildScoringLogContext({
       characterId,
       characterName: "Wallidrixe",
       reportCode: "AbCdEfGhIjKlMn",
@@ -57,20 +57,20 @@ describe("scoring v2 events", () => {
 
   it("emits structured events without raw identifiers", () => {
     const info = vi.fn();
-    emitScoringV2Event(
+    emitScoringEvent(
       { info, warn: vi.fn(), error: vi.fn() },
-      OBS_EVENTS.scoringV2SlotStarted,
+      OBS_EVENTS.scoringSlotStarted,
       { characterId: "char-1", slotId: "slot-a", characterName: "SecretName" },
     );
     expect(info).toHaveBeenCalledOnce();
     const payload = info.mock.calls[0]![0] as Record<string, unknown>;
-    expect(payload.event).toBe("scoring_v2.slot_started");
+    expect(payload.event).toBe("scoring.slot_started");
     expect(JSON.stringify(payload)).not.toContain("SecretName");
   });
 
   it("swallows logger exceptions so telemetry cannot fail jobs", () => {
     expect(() =>
-      emitScoringV2Event(
+      emitScoringEvent(
         {
           info: () => {
             throw new Error("logger_down");
@@ -78,7 +78,7 @@ describe("scoring v2 events", () => {
           warn: vi.fn(),
           error: vi.fn(),
         },
-        OBS_EVENTS.scoringV2SlotCompleted,
+        OBS_EVENTS.scoringSlotCompleted,
         { slotId: "s1" },
       ),
     ).not.toThrow();
@@ -111,12 +111,12 @@ describe("scoring v2 metrics", () => {
     recordPublicationDecision("rejected", "publication_flag_off");
     recordFinalizationRecovery("claim_released");
     const text = getMetricsRegistry().toPrometheusText();
-    expect(text).toContain("scoring_v2_manifest_coverage_total");
-    expect(text).toContain("scoring_v2_slot_outcome_total");
-    expect(text).toContain("scoring_v2_dataset_outcome_total");
-    expect(text).toContain("scoring_v2_admission_total");
-    expect(text).toContain("scoring_v2_publication_total");
-    expect(text).toContain("scoring_v2_finalization_recovery_total");
+    expect(text).toContain("scoring_manifest_coverage_total");
+    expect(text).toContain("scoring_slot_outcome_total");
+    expect(text).toContain("scoring_dataset_outcome_total");
+    expect(text).toContain("scoring_admission_total");
+    expect(text).toContain("scoring_publication_total");
+    expect(text).toContain("scoring_finalization_recovery_total");
     expect(text).not.toMatch(/batch-[0-9]/);
   });
 
@@ -145,7 +145,7 @@ describe("readiness evaluation", () => {
       revision: "abc123",
       apiContractVersion: "2.0.0",
       workerJobSchemaVersion: "2.0.0",
-      scoringV2: baseModes,
+      scoring: baseModes,
       databaseOk: true,
       redisOk: true,
       redisSkipped: true,
@@ -174,7 +174,7 @@ describe("readiness evaluation", () => {
       revision: "abc123",
       apiContractVersion: "2.0.0",
       workerJobSchemaVersion: "2.0.0",
-      scoringV2: modes,
+      scoring: modes,
       databaseOk: true,
       redisOk: true,
       redisSkipped: true,
@@ -212,7 +212,7 @@ describe("readiness evaluation", () => {
       revision: "abc123",
       apiContractVersion: "2.0.0",
       workerJobSchemaVersion: "2.0.0",
-      scoringV2: { ...baseModes, enabled: true, evidenceFetchEnabled: true },
+      scoring: { ...baseModes, enabled: true, evidenceFetchEnabled: true },
       databaseOk: true,
       redisOk: true,
       redisSkipped: true,
@@ -238,7 +238,7 @@ describe("readiness evaluation", () => {
       revision: "abc123",
       apiContractVersion: "2.0.0",
       workerJobSchemaVersion: "2.0.0",
-      scoringV2: baseModes,
+      scoring: baseModes,
       databaseOk: true,
       redisOk: true,
       redisSkipped: false,

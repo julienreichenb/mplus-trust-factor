@@ -15,8 +15,8 @@ import {
   createMemoryOrchestrationPorts,
 } from "./run-orchestration/memory-ports.js";
 import {
-  orchestrateScoringV2Runs,
-  replayScoringV2FromPersistedEvidence,
+  orchestrateScoringRuns,
+  replayScoringFromPersistedEvidence,
 } from "./run-orchestration/orchestrator.js";
 import { MIDNIGHT_SEASON_1_DUNGEON_SLUGS } from "./canary/canary-catalog.js";
 import {
@@ -140,7 +140,7 @@ describe("cold then warm orchestration idempotency", () => {
       );
     }
 
-    const cold = await orchestrateScoringV2Runs({
+    const cold = await orchestrateScoringRuns({
       characterId: CHAR_ID,
       region: "eu",
       realm: "test-realm",
@@ -176,7 +176,7 @@ describe("cold then warm orchestration idempotency", () => {
     const packagesBefore = ports.getPackageCount();
     const digestsBefore = ports.getDigestCount();
     const acquireBefore = ports.stats.acquireCalls;
-    const warm = await orchestrateScoringV2Runs({
+    const warm = await orchestrateScoringRuns({
       characterId: CHAR_ID,
       region: "eu",
       realm: "test-realm",
@@ -194,7 +194,7 @@ describe("cold then warm orchestration idempotency", () => {
     expect(ports.stats.acquireCalls).toBe(acquireBefore);
     expect(ports.stats.providerCalls).toBe(coldProviderCalls);
 
-    const replay = await replayScoringV2FromPersistedEvidence({
+    const replay = await replayScoringFromPersistedEvidence({
       characterId: CHAR_ID,
       region: "eu",
       realm: "test-realm",
@@ -353,7 +353,7 @@ describe("cold then warm orchestration idempotency", () => {
       );
     }
 
-    const result = await orchestrateScoringV2Runs({
+    const result = await orchestrateScoringRuns({
       characterId: CHAR_ID,
       region: "eu",
       realm: "test-realm",

@@ -34,7 +34,7 @@ describe.skipIf(!dbAvailable)("admin explainability v2 routes", () => {
   it("rejects unauthenticated requests with 401", async () => {
     const response = await app.inject({
       method: "GET",
-      url: "/api/v1/admin/scoring-v2/manifests?limit=5",
+      url: "/api/v1/admin/scoring/manifests?limit=5",
     });
     expect(response.statusCode).toBe(401);
   });
@@ -53,7 +53,7 @@ describe.skipIf(!dbAvailable)("admin explainability v2 routes", () => {
     const token = await container.authService.createSession({ userId: user.id });
     const response = await app.inject({
       method: "GET",
-      url: "/api/v1/admin/scoring-v2/manifests?limit=5",
+      url: "/api/v1/admin/scoring/manifests?limit=5",
       headers: { cookie: `mplus_session=${token}` },
     });
     expect(response.statusCode).toBe(403);
@@ -63,7 +63,7 @@ describe.skipIf(!dbAvailable)("admin explainability v2 routes", () => {
   it("lists manifests with admin API key (bounded, no provider calls)", async () => {
     const response = await app.inject({
       method: "GET",
-      url: "/api/v1/admin/scoring-v2/manifests?limit=5",
+      url: "/api/v1/admin/scoring/manifests?limit=5",
       headers: { "x-admin-api-key": "test-admin-key" },
     });
     expect(response.statusCode).toBe(200);
@@ -77,7 +77,7 @@ describe.skipIf(!dbAvailable)("admin explainability v2 routes", () => {
   it("clamps list limit to the maximum bound", async () => {
     const response = await app.inject({
       method: "GET",
-      url: "/api/v1/admin/scoring-v2/manifests?limit=999",
+      url: "/api/v1/admin/scoring/manifests?limit=999",
       headers: { "x-admin-api-key": "test-admin-key" },
     });
     // Fastify query schema rejects >50 before handler, or handler clamps — either is bounded.
@@ -90,7 +90,7 @@ describe.skipIf(!dbAvailable)("admin explainability v2 routes", () => {
   it("rejects malformed cursor with 400", async () => {
     const response = await app.inject({
       method: "GET",
-      url: "/api/v1/admin/scoring-v2/manifests?cursor=not-a-date",
+      url: "/api/v1/admin/scoring/manifests?cursor=not-a-date",
       headers: { "x-admin-api-key": "test-admin-key" },
     });
     expect(response.statusCode).toBe(400);
@@ -100,7 +100,7 @@ describe.skipIf(!dbAvailable)("admin explainability v2 routes", () => {
   it("returns 404 for unknown character diagnostics without leaking DB errors", async () => {
     const response = await app.inject({
       method: "GET",
-      url: "/api/v1/admin/scoring-v2/characters/00000000-0000-4000-8000-000000000099/explainability",
+      url: "/api/v1/admin/scoring/characters/00000000-0000-4000-8000-000000000099/explainability",
       headers: { "x-admin-api-key": "test-admin-key" },
     });
     expect(response.statusCode).toBe(404);
@@ -112,7 +112,7 @@ describe.skipIf(!dbAvailable)("admin explainability v2 routes", () => {
     const foreignManifestId = randomUUID();
     const response = await app.inject({
       method: "GET",
-      url: `/api/v1/admin/scoring-v2/characters/00000000-0000-4000-8000-000000000088/explainability?manifestId=${foreignManifestId}`,
+      url: `/api/v1/admin/scoring/characters/00000000-0000-4000-8000-000000000088/explainability?manifestId=${foreignManifestId}`,
       headers: { "x-admin-api-key": "test-admin-key" },
     });
     expect(response.statusCode).toBe(404);
@@ -121,14 +121,14 @@ describe.skipIf(!dbAvailable)("admin explainability v2 routes", () => {
   it("returns 400 for malformed characterId / query UUIDs", async () => {
     const badChar = await app.inject({
       method: "GET",
-      url: "/api/v1/admin/scoring-v2/characters/not-a-uuid/explainability",
+      url: "/api/v1/admin/scoring/characters/not-a-uuid/explainability",
       headers: { "x-admin-api-key": "test-admin-key" },
     });
     expect(badChar.statusCode).toBe(400);
 
     const badQuery = await app.inject({
       method: "GET",
-      url: "/api/v1/admin/scoring-v2/manifests?characterId=not-a-uuid",
+      url: "/api/v1/admin/scoring/manifests?characterId=not-a-uuid",
       headers: { "x-admin-api-key": "test-admin-key" },
     });
     expect(badQuery.statusCode).toBe(400);

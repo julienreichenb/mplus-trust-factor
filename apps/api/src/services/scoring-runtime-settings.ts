@@ -10,7 +10,7 @@ import {
   DEFAULT_CONCURRENCY_OPERATION,
   RUNTIME_SETTING_KEYS,
   concurrencyValueSchema,
-  type ScoringV2ConcurrencyDTO,
+  type ScoringConcurrencyDTO,
   type UpdateConcurrencyBody,
 } from "@mplus/contracts";
 import {
@@ -66,7 +66,7 @@ export type GetConcurrencySettingsOptions = {
 export async function getConcurrencySettings(
   prisma: PrismaClient,
   options: GetConcurrencySettingsOptions = {},
-): Promise<ScoringV2ConcurrencyDTO> {
+): Promise<ScoringConcurrencyDTO> {
   await ensureDefaults(prisma);
   const rows = await prisma.runtimeSetting.findMany({
     where: {
@@ -146,7 +146,7 @@ export async function updateConcurrencySettings(
   body: UpdateConcurrencyBody,
   updatedByUserId: string | null,
   options: Pick<GetConcurrencySettingsOptions, "redis" | "appEnv" | "nowMs"> = {},
-): Promise<ScoringV2ConcurrencyDTO> {
+): Promise<ScoringConcurrencyDTO> {
   const parsed = z
     .object({
       concurrencyCalibration: concurrencyValueSchema.optional(),

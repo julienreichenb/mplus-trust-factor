@@ -503,7 +503,7 @@ async function ensurePackageAndDigests(input: {
  * Main production entry: select 16 runs (or load manifest), ensure evidence +
  * digests, score Performance / Utility / Survival from digests only.
  */
-export async function orchestrateScoringV2Runs(
+export async function orchestrateScoringRuns(
   input: RunOrchestrationInput,
 ): Promise<RunOrchestrationResult> {
   let manifest = input.existingManifest ?? null;
@@ -986,13 +986,13 @@ export async function orchestrateScoringV2Runs(
  * Provider-free replay: load existing manifest + packages, rebuild outdated
  * digests, recalculate dimensions. liveProviderPermission is forced FORBIDDEN.
  */
-export async function replayScoringV2FromPersistedEvidence(
+export async function replayScoringFromPersistedEvidence(
   input: Omit<RunOrchestrationInput, "liveProviderPermission" | "candidates"> & {
     candidates?: readonly EvidenceCandidateMetadataV2[];
     existingManifest: CharacterSeasonEvidenceManifestV2;
   },
 ): Promise<RunOrchestrationResult> {
-  return orchestrateScoringV2Runs({
+  return orchestrateScoringRuns({
     ...input,
     candidates: input.candidates ?? [],
     liveProviderPermission: "FORBIDDEN",

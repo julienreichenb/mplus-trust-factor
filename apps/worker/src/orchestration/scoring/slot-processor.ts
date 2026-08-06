@@ -3,7 +3,7 @@ import { discoveryIdentityKey } from "@mplus/contracts";
 import {
   OBS_EVENTS,
   boundOperationalReason,
-  emitScoringV2Event,
+  emitScoringEvent,
   normalizeOperationalError,
   recordBatchOutcome,
   recordSlotOutcome,
@@ -12,9 +12,9 @@ import type { WorkerContainer } from "../../container.js";
 import {
   acquireCandidateWithFallback,
   assertPublicationBlocked,
-  ScoringV2CancelledError,
-  ScoringV2RateDeferError,
-  ScoringV2SupersededError,
+  ScoringCancelledError,
+  ScoringRateDeferError,
+  ScoringSupersededError,
 } from "./acquisition.js";
 import { resolveFrozenClassSpecIdentity } from "./class-spec-identity.js";
 import { createProviderBackedEvidenceTransport } from "./evidence-transport-provider.js";
@@ -48,7 +48,7 @@ function emitSlotTerminal(
 ): void {
   if (input.kind === "completed" || input.kind === "unavailable") {
     recordSlotOutcome(input.kind === "unavailable" ? "unavailable" : "completed", input.status);
-    emitScoringV2Event(container.logger, OBS_EVENTS.scoringV2SlotCompleted, {
+    emitScoringEvent(container.logger, OBS_EVENTS.scoringSlotCompleted, {
       analysisBatchId: input.analysisBatchId,
       slotId: input.slotId,
       correlationId: input.correlationId,
@@ -63,9 +63,9 @@ function emitSlotTerminal(
   } else {
     recordSlotOutcome("failed", input.status);
   }
-  emitScoringV2Event(
+  emitScoringEvent(
     container.logger,
-    OBS_EVENTS.scoringV2SlotFailed,
+    OBS_EVENTS.scoringSlotFailed,
     {
       analysisBatchId: input.analysisBatchId,
       slotId: input.slotId,
@@ -138,10 +138,10 @@ export async function runAnalyzeEvidenceSlotV2(
     };
   }
   if (claim.outcome === "cancelled") {
-    throw new ScoringV2CancelledError();
+    throw new ScoringCancelledError();
   }
   if (claim.outcome === "superseded" || claim.outcome === "generation_mismatch") {
-    throw new ScoringV2SupersededError();
+    throw new ScoringSupersededError();
   }
   if (claim.outcome === "lost_claim") {
     return {
@@ -155,7 +155,7 @@ export async function runAnalyzeEvidenceSlotV2(
   }
 
   recordSlotOutcome("started");
-  emitScoringV2Event(container.logger, OBS_EVENTS.scoringV2SlotStarted, {
+  emitScoringEvent(container.logger, OBS_EVENTS.scoringSlotStarted, {
     analysisBatchId: job.analysisBatchId,
     slotId: job.slotId,
     correlationId: job.correlationId,
@@ -203,7 +203,7 @@ export async function runAnalyzeEvidenceSlotV2(
     });
     if (completed.becameReady) {
       recordBatchOutcome("ready");
-      emitScoringV2Event(container.logger, OBS_EVENTS.scoringV2BatchReady, {
+      emitScoringEvent(container.logger, OBS_EVENTS.scoringBatchReady, {
         analysisBatchId: job.analysisBatchId,
         correlationId: job.correlationId,
         characterId: batchView.batch.characterId,
@@ -278,7 +278,7 @@ export async function runAnalyzeEvidenceSlotV2(
         ownerId: charOwnerId,
       });
       if (!charPermit.ok) {
-        throw new ScoringV2RateDeferError(
+        throw new ScoringRateDeferError(
           `per_character_wcl_permit_unavailable:${charPermit.reason}`,
           5_000,
         );
@@ -377,7 +377,7 @@ export async function runAnalyzeEvidenceSlotV2(
 
       if (completed.becameReady) {
         recordBatchOutcome("ready");
-        emitScoringV2Event(container.logger, OBS_EVENTS.scoringV2BatchReady, {
+        emitScoringEvent(container.logger, OBS_EVENTS.scoringBatchReady, {
           analysisBatchId: job.analysisBatchId,
           correlationId: job.correlationId,
           characterId: batchView.batch.characterId,
@@ -411,7 +411,7 @@ export async function runAnalyzeEvidenceSlotV2(
     }
   } catch (error) {
     // Permit/budget deferral: release claim so BullMQ retry can reclaim PENDING.
-    if (error instanceof ScoringV2RateDeferError) {
+    if (error instanceof ScoringRateDeferError) {
       await repo.releaseSlotClaim({
         batchId: job.analysisBatchId,
         slotId: job.slotId,
@@ -419,7 +419,7 @@ export async function runAnalyzeEvidenceSlotV2(
       });
       throw error;
     }
-    if (error instanceof ScoringV2CancelledError) {
+    if (error instanceof ScoringCancelledError) {
       await repo.completeSlot({
         batchId: job.analysisBatchId,
         slotId: job.slotId,
@@ -437,7 +437,7 @@ export async function runAnalyzeEvidenceSlotV2(
       });
       throw error;
     }
-    if (error instanceof ScoringV2SupersededError) {
+    if (error instanceof ScoringSupersededError) {
       await repo.completeSlot({
         batchId: job.analysisBatchId,
         slotId: job.slotId,
@@ -473,7 +473,7 @@ export async function runAnalyzeEvidenceSlotV2(
     });
     if (completed.becameReady) {
       recordBatchOutcome("ready");
-      emitScoringV2Event(container.logger, OBS_EVENTS.scoringV2BatchReady, {
+      emitScoringEvent(container.logger, OBS_EVENTS.scoringBatchReady, {
         analysisBatchId: job.analysisBatchId,
         correlationId: job.correlationId,
       });

@@ -15,7 +15,7 @@ import {
 } from "@mplus/provider-warcraftlogs";
 
 export const CANARY_RATE_SNAPSHOT_FILE_SCHEMA =
-  "scoring-v2-canary-rate-snapshot-v1" as const;
+  "scoring-canary-rate-snapshot-v1" as const;
 
 /** Default TTL for reusing a persisted canary rate snapshot without a live call. */
 export const DEFAULT_CANARY_RATE_SNAPSHOT_TTL_SECONDS = 60;

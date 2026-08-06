@@ -4,7 +4,7 @@ export {
   buildUnavailableShadowDimensionRecord,
   availabilityFromComputeState,
   availabilityFromUtilityResult,
-  type ScoringV2PublicDimension,
+  type ScoringPublicDimension,
   type DimensionComputationLifecycleState,
   type DimensionAvailabilityState,
   type NormalizedShadowDimensionMetrics,

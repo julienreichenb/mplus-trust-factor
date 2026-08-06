@@ -18,7 +18,7 @@ import {
   UTILITY_V2_EXTRACTOR_FAMILY,
 } from "@mplus/scoring";
 import { acquireCandidateWithFallback, resolveBatchDatasetRequirements } from "./acquisition.js";
-import { FixtureScoringV2EvidenceTransport } from "./evidence-transport.js";
+import { FixtureScoringEvidenceTransport } from "./evidence-transport.js";
 import { hashFactDocumentContent } from "@mplus/provider-warcraftlogs";
 
 function okDataset(
@@ -216,7 +216,7 @@ describe("CP2 typed acquisition", () => {
 
   it("one shared fixture acquisition produces Performance, Survival and Utility typed facts", async () => {
     const bundle = completeUtilityBundle({ reportCode, fightId, reportRevision });
-    const transport = new FixtureScoringV2EvidenceTransport({
+    const transport = new FixtureScoringEvidenceTransport({
       fightDetails: {
         data: { reportRevision, revision: reportRevision, fight: { startTime: 0, endTime: 600_000 } },
         reportRevision,
@@ -303,7 +303,7 @@ describe("CP2 typed acquisition", () => {
 
   it("fetches shared datasets only once per candidate", async () => {
     const bundle = completeUtilityBundle({ reportCode, fightId, reportRevision });
-    const transport = new FixtureScoringV2EvidenceTransport({
+    const transport = new FixtureScoringEvidenceTransport({
       fightDetails: {
         data: { reportRevision },
         reportRevision,
@@ -368,7 +368,7 @@ describe("CP2 typed acquisition", () => {
 
   it("cache hits produce zero provider requests on shared evidence", async () => {
     const bundle = completeUtilityBundle({ reportCode, fightId, reportRevision });
-    const transport = new FixtureScoringV2EvidenceTransport({
+    const transport = new FixtureScoringEvidenceTransport({
       fightDetails: {
         data: { reportRevision },
         reportRevision,
@@ -425,7 +425,7 @@ describe("CP2 typed acquisition", () => {
 
   it("missing ranking parse yields Performance UNAVAILABLE without failing siblings", async () => {
     const bundle = completeUtilityBundle({ reportCode, fightId, reportRevision });
-    const transport = new FixtureScoringV2EvidenceTransport({
+    const transport = new FixtureScoringEvidenceTransport({
       fightDetails: {
         data: { reportRevision },
         reportRevision,
@@ -489,7 +489,7 @@ describe("CP2 typed acquisition", () => {
   });
 
   it("missing shared evidence yields Survival/Utility UNAVAILABLE only", async () => {
-    const transport = new FixtureScoringV2EvidenceTransport({
+    const transport = new FixtureScoringEvidenceTransport({
       fightDetails: {
         data: { reportRevision },
         reportRevision,
@@ -560,7 +560,7 @@ describe("CP2 typed acquisition", () => {
   it("produces deterministic content hashes across identical reruns", async () => {
     const bundle = completeUtilityBundle({ reportCode, fightId, reportRevision });
     const makeTransport = () =>
-      new FixtureScoringV2EvidenceTransport({
+      new FixtureScoringEvidenceTransport({
         fightDetails: {
           data: { reportRevision },
           reportRevision,
@@ -621,7 +621,7 @@ describe("CP2 typed acquisition", () => {
   });
 
   it("never writes shadow_placeholder on successful extraction", async () => {
-    const transport = new FixtureScoringV2EvidenceTransport({
+    const transport = new FixtureScoringEvidenceTransport({
       fightDetails: {
         data: { reportRevision },
         reportRevision,
@@ -685,7 +685,7 @@ describe("CP2 typed acquisition", () => {
   it("isolates extractor failure to one dimension", async () => {
     const brokenBundle = completeUtilityBundle({ reportCode, fightId, reportRevision });
     // Force utility path to throw by corrupting required structure while survival still runs.
-    const transport = new FixtureScoringV2EvidenceTransport({
+    const transport = new FixtureScoringEvidenceTransport({
       fightDetails: {
         data: { reportRevision },
         reportRevision,
@@ -757,7 +757,7 @@ describe("CP2 typed acquisition", () => {
   it("skips sibling-occupied identities and acquires the next distinct candidate", async () => {
     const altFight = fightId + 1;
     const altCode = `${reportCode}B`;
-    const transport = new FixtureScoringV2EvidenceTransport({
+    const transport = new FixtureScoringEvidenceTransport({
       fightDetails: {
         data: { reportRevision },
         reportRevision,
@@ -850,7 +850,7 @@ describe("CP2 typed acquisition", () => {
     const altFight = fightId + 2;
     const altCode = `${reportCode}C`;
     const taken = new Set<string>([`${reportCode}:${fightId}`]);
-    const transport = new FixtureScoringV2EvidenceTransport({
+    const transport = new FixtureScoringEvidenceTransport({
       fightDetails: {
         data: { reportRevision },
         reportRevision,
@@ -951,7 +951,7 @@ describe("CP2 typed acquisition", () => {
 
   it("ranking success persists ranking-specific RawArtifact id on the descriptor", async () => {
     const bundle = completeUtilityBundle({ reportCode, fightId, reportRevision });
-    const transport = new FixtureScoringV2EvidenceTransport({
+    const transport = new FixtureScoringEvidenceTransport({
       fightDetails: {
         data: { reportRevision },
         reportRevision,
@@ -1021,7 +1021,7 @@ describe("CP2 typed acquisition", () => {
   });
 
   it("ranking cache hit still records a durable READY logical outcome", async () => {
-    const transport = new FixtureScoringV2EvidenceTransport({
+    const transport = new FixtureScoringEvidenceTransport({
       fightDetails: {
         data: { reportRevision },
         reportRevision,
@@ -1077,7 +1077,7 @@ describe("CP2 typed acquisition", () => {
   });
 
   it("null ranking evidence yields UNAVAILABLE descriptor without inventing artifact id", async () => {
-    const transport = new FixtureScoringV2EvidenceTransport({
+    const transport = new FixtureScoringEvidenceTransport({
       fightDetails: {
         data: { reportRevision },
         reportRevision,
@@ -1129,7 +1129,7 @@ describe("CP2 typed acquisition", () => {
   });
 
   it("structured ranking unavailableReason persists UNAVAILABLE without inventing artifact id", async () => {
-    const transport = new FixtureScoringV2EvidenceTransport({
+    const transport = new FixtureScoringEvidenceTransport({
       fightDetails: {
         data: { reportRevision },
         reportRevision,
@@ -1183,7 +1183,7 @@ describe("CP2 typed acquisition", () => {
   });
 
   it("thrown getRankingParse persists durable FAILED ranking outcome", async () => {
-    const transport = new FixtureScoringV2EvidenceTransport({
+    const transport = new FixtureScoringEvidenceTransport({
       fightDetails: {
         data: { reportRevision },
         reportRevision,

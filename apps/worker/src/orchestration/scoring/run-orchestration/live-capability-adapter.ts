@@ -56,7 +56,7 @@ export interface LiveCapabilityPermissionInput {
   wclEnabled: boolean;
   allowLiveProviderCalls: boolean;
   liveProviderPermissionGranted: boolean;
-  scoringV2PublicationEnabled: boolean;
+  scoringPublicationEnabled: boolean;
   /** Credentials may exist but must never imply permission. */
   hasWclCredentials: boolean;
 }
@@ -108,7 +108,7 @@ export function evaluateLiveCapabilityPermission(
   if (!input.liveProviderPermissionGranted) {
     reasons.push("ORCHESTRATION_LIVE_PERMISSION_FORBIDDEN");
   }
-  if (input.scoringV2PublicationEnabled) reasons.push("PUBLICATION_ENABLED");
+  if (input.scoringPublicationEnabled) reasons.push("PUBLICATION_ENABLED");
   if (!input.hasWclCredentials) reasons.push("WCL_CREDENTIALS_MISSING");
   // Credentials alone never grant: even with credentials, other gates must pass.
   if (reasons.length > 0) return { allowed: false, reasons };

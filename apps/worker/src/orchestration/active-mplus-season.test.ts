@@ -62,7 +62,7 @@ describe("active mplus season authority primitives", () => {
         manifest: { activeDungeonSlugs: new Array(9).fill("d") },
       } as never,
       scoringModelId: "m",
-      scoringV2PublicationEnabled: false,
+      scoringPublicationEnabled: false,
       expectedSlotCountFromSeason: 18,
       scoreModelMaxEvidenceSlots: 16,
     });
@@ -180,7 +180,7 @@ describe("production hardcode removal guards", () => {
     const src = readFileSync(
       join(
         import.meta.dirname,
-        "scoring-v2/canary/canary-season.ts",
+        "scoring/canary/canary-season.ts",
       ),
       "utf8",
     );

@@ -1,6 +1,6 @@
 /**
  * OpenAPI / Fastify schemas for Scoring V2 Control Center endpoints.
- * Keep aligned with @mplus/contracts scoring-v2-control-center DTOs.
+ * Keep aligned with @mplus/contracts scoring-control-center DTOs.
  * Never expose secrets or connection strings.
  *
  * Response objects use `additionalProperties: false` unless a nested bag is
@@ -18,7 +18,7 @@ const conflictErrorResponses = {
   ...authErrorResponses,
 } as const;
 
-export const scoringV2IssueSchema = {
+export const ScoringIssueSchema = {
   type: "object",
   properties: {
     code: { type: "string" },
@@ -122,7 +122,7 @@ export const freezeEvidenceBundleBodyOpenApiSchema = {
   additionalProperties: false,
 } as const;
 
-/** Aligns with ScoringV2EvidenceExportProgressDTO — known fields only. */
+/** Aligns with ScoringEvidenceExportProgressDTO — known fields only. */
 export const evidenceExportProgressSchema = {
   type: "object",
   properties: {
@@ -153,7 +153,7 @@ export const evidenceExportProgressSchema = {
 } as const;
 
 /**
- * Aligns with ScoringV2EvidenceExportDTO.
+ * Aligns with ScoringEvidenceExportDTO.
  * `summary` stays extensible (`Record<string, unknown>` in contracts).
  */
 export const evidenceExportDtoSchema = {
@@ -171,7 +171,7 @@ export const evidenceExportDtoSchema = {
     },
     progress: evidenceExportProgressSchema,
     summary: { type: "object", additionalProperties: true },
-    issues: { type: "array", items: scoringV2IssueSchema },
+    issues: { type: "array", items: ScoringIssueSchema },
     blockerCount: { type: "integer" },
     warningCount: { type: "integer" },
     archiveContentHash: { type: ["string", "null"] },
@@ -184,7 +184,7 @@ export const evidenceExportDtoSchema = {
     frozenBundleByteLength: { type: ["integer", "null"] },
     frozenAt: { type: ["string", "null"] },
     freezeEligible: { type: "boolean" },
-    freezeBlockers: { type: "array", items: scoringV2IssueSchema },
+    freezeBlockers: { type: "array", items: ScoringIssueSchema },
     errorCode: { type: ["string", "null"] },
     errorMessage: { type: ["string", "null"] },
     requestedByUserId: { type: "string" },
@@ -196,7 +196,7 @@ export const evidenceExportDtoSchema = {
   additionalProperties: false,
 } as const;
 
-/** Aligns with ScoringV2EvidenceExportSummaryDTO (list/overview recent export). */
+/** Aligns with ScoringEvidenceExportSummaryDTO (list/overview recent export). */
 export const evidenceExportSummaryDtoSchema = {
   type: "object",
   properties: {
@@ -250,8 +250,8 @@ export const frozenBundleDtoSchema = {
   additionalProperties: false,
 } as const;
 
-/** Aligns with ScoringV2FlagOverviewDTO. */
-export const scoringV2FlagOverviewSchema = {
+/** Aligns with ScoringFlagOverviewDTO. */
+export const ScoringFlagOverviewSchema = {
   type: "object",
   properties: {
     masterEnabled: { type: "boolean" },
@@ -292,7 +292,7 @@ export const scoringV2FlagOverviewSchema = {
   additionalProperties: false,
 } as const;
 
-export const scoringV2ModelSummarySchema = {
+export const scoringModelSummarySchema = {
   type: "object",
   properties: {
     id: { type: "string" },
@@ -305,7 +305,7 @@ export const scoringV2ModelSummarySchema = {
   additionalProperties: false,
 } as const;
 
-export const scoringV2SeasonSummarySchema = {
+export const scoringSeasonSummarySchema = {
   type: "object",
   properties: {
     id: { type: "string" },
@@ -318,7 +318,7 @@ export const scoringV2SeasonSummarySchema = {
   additionalProperties: false,
 } as const;
 
-export const scoringV2QueueCountsSchema = {
+export const scoringQueueCountsSchema = {
   type: "object",
   properties: {
     workloadClass: {
@@ -357,20 +357,20 @@ export const cohortReadinessSchema = {
   additionalProperties: false,
 } as const;
 
-/** Aligns with ScoringV2OverviewDTO exact properties. */
+/** Aligns with ScoringOverviewDTO exact properties. */
 export const overviewSchema = {
   type: "object",
   properties: {
-    flags: scoringV2FlagOverviewSchema,
-    activeModel: { anyOf: [scoringV2ModelSummarySchema, { type: "null" }] },
-    currentSeason: { anyOf: [scoringV2SeasonSummarySchema, { type: "null" }] },
-    queueCounts: { type: "array", items: scoringV2QueueCountsSchema },
+    flags: ScoringFlagOverviewSchema,
+    activeModel: { anyOf: [scoringModelSummarySchema, { type: "null" }] },
+    currentSeason: { anyOf: [scoringSeasonSummarySchema, { type: "null" }] },
+    queueCounts: { type: "array", items: scoringQueueCountsSchema },
     recentEvidenceExport: { anyOf: [evidenceExportSummaryDtoSchema, { type: "null" }] },
     recentFrozenBundle: { anyOf: [recentFrozenBundleOverviewSchema, { type: "null" }] },
     cohortReadiness: cohortReadinessSchema,
     concurrency: concurrencyDtoSchema,
-    blockers: { type: "array", items: scoringV2IssueSchema },
-    warnings: { type: "array", items: scoringV2IssueSchema },
+    blockers: { type: "array", items: ScoringIssueSchema },
+    warnings: { type: "array", items: ScoringIssueSchema },
     applicationRevision: { type: ["string", "null"] },
     generatedAt: { type: "string" },
   },
@@ -407,7 +407,7 @@ export const listExportsSchema = {
   additionalProperties: false,
 } as const;
 
-/** Aligns with ScoringV2HistoryItemDTO. */
+/** Aligns with ScoringHistoryItemDTO. */
 export const historyItemDtoSchema = {
   type: "object",
   properties: {
@@ -444,7 +444,7 @@ export const historyItemDtoSchema = {
   additionalProperties: false,
 } as const;
 
-/** Aligns with ScoringV2HistoryListDTO. */
+/** Aligns with ScoringHistoryListDTO. */
 export const historyListSchema = {
   type: "object",
   properties: {
@@ -474,6 +474,6 @@ export const zipDownloadResponseSchema = {
   description: "ZIP archive of evidence-join artifacts (application/zip)",
 } as const;
 
-export const scoringV2ControlCenterTags = ["admin-scoring-v2"] as const;
+export const scoringControlCenterTags = ["admin-scoring"] as const;
 
 export { authErrorResponses, conflictErrorResponses, errorResponseSchema };

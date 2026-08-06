@@ -8,7 +8,7 @@ import {
   finalizeShadowDimensions,
   type ExperienceHistoryInputs,
   type FinalizeShadowDimensionsResult,
-  type ScoringV2PublicDimension,
+  type ScoringPublicDimension,
 } from "@mplus/scoring";
 import type { WorkerContainer } from "../../container.js";
 import { loadExperienceHistoryFromDb } from "./experience-history-loader.js";
@@ -21,7 +21,7 @@ export interface PersistShadowDimensionsInput {
   /** Frozen document from EvidenceManifest.document */
   manifestDocument: CharacterSeasonEvidenceManifestV2;
   expectedManifestContentHash: string;
-  enabledDimensions: ScoringV2PublicDimension[];
+  enabledDimensions: ScoringPublicDimension[];
   relativeDamageMode?: "off" | "shadow" | "active";
   computedAt?: Date;
   /**
@@ -32,7 +32,7 @@ export interface PersistShadowDimensionsInput {
 }
 
 export interface PersistShadowDimensionSuccess {
-  dimension: ScoringV2PublicDimension;
+  dimension: ScoringPublicDimension;
   ok: true;
   computationId: string;
   created: boolean;
@@ -41,7 +41,7 @@ export interface PersistShadowDimensionSuccess {
 }
 
 export interface PersistShadowDimensionFailure {
-  dimension: ScoringV2PublicDimension;
+  dimension: ScoringPublicDimension;
   ok: false;
   status: string;
   availabilityState: unknown;
@@ -130,7 +130,7 @@ export async function persistShadowDimensionComputations(
           experienceHistory = loaded.history;
           container.logger.info(
             {
-              event: "scoring_v2_experience_history_loaded",
+              event: "scoring_experience_history_loaded",
               characterId: input.characterId,
               seasonId: input.seasonId,
               evidenceRevision: loaded.evidenceRevision,
@@ -142,7 +142,7 @@ export async function persistShadowDimensionComputations(
         } else {
           container.logger.warn?.(
             {
-              event: "scoring_v2_experience_history_unavailable",
+              event: "scoring_experience_history_unavailable",
               characterId: input.characterId,
               seasonId: input.seasonId,
               reason: loaded.reason,
@@ -156,7 +156,7 @@ export async function persistShadowDimensionComputations(
         const message = error instanceof Error ? error.message : "loader_threw";
         container.logger.warn?.(
           {
-            event: "scoring_v2_experience_history_loader_failed",
+            event: "scoring_experience_history_loader_failed",
             characterId: input.characterId,
             seasonId: input.seasonId,
             reason: message.slice(0, 160),
@@ -221,7 +221,7 @@ export async function persistShadowDimensionComputations(
       const message = error instanceof Error ? error.message : String(error);
       container.logger.error(
         {
-          event: "scoring_v2_dimension_persist_failed",
+          event: "scoring_dimension_persist_failed",
           dimension: record.dimension,
           error: message,
           integrityConflict: isIntegrityConflict(message),
@@ -249,7 +249,7 @@ export async function persistShadowDimensionComputations(
 
 export function resolveEnabledShadowDimensions(env: {
   SCORING_ENABLED: boolean;
-}): ScoringV2PublicDimension[] {
+}): ScoringPublicDimension[] {
   if (!env.SCORING_ENABLED) return [];
   return ["PERFORMANCE", "SURVIVAL", "UTILITY", "EXPERIENCE"];
 }

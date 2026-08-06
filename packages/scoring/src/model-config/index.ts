@@ -10,12 +10,12 @@ export {
   weightsSumToOne,
 } from "./validate.js";
 export {
-  SCORING_V2_DIMENSION_CONFIGS_SCHEMA_VERSION,
-  createDefaultScoringV2DimensionConfigSet,
-  parseScoringV2DimensionConfigSet,
+  scoring_DIMENSION_CONFIGS_SCHEMA_VERSION,
+  createDefaultscoringDimensionConfigSet,
+  parsescoringDimensionConfigSet,
   resolveScoreModelV2DimensionConfigs,
-  withScoringV2DimensionConfigs,
-  type ScoringV2DimensionConfigSet,
-  type ScoringV2DimensionConfigFingerprints,
+  withscoringDimensionConfigs,
+  type scoringDimensionConfigSet,
+  type scoringDimensionConfigFingerprints,
   type ResolvedScoreModelV2DimensionConfigs,
 } from "./score-model-v2-mapping.js";

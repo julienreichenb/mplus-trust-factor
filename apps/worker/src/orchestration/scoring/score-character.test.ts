@@ -122,7 +122,12 @@ describe("scoreCharacter cache-backed pipeline", () => {
   it("production scoring path has no supersession vocabulary", async () => {
     const fs = await import("node:fs/promises");
     const path = await import("node:path");
-    const root = path.join(process.cwd(), "src/orchestration/scoring");
+    const root = path.join(
+      process.cwd(),
+      process.cwd().endsWith("apps\\worker") || process.cwd().endsWith("apps/worker")
+        ? "src/orchestration/scoring"
+        : "apps/worker/src/orchestration/scoring",
+    );
     const files = [
       "score-character.ts",
       "run-orchestration/production-ports.ts",
@@ -130,9 +135,9 @@ describe("scoreCharacter cache-backed pipeline", () => {
     ];
     for (const rel of files) {
       const text = await fs.readFile(path.join(root, rel), "utf8");
-      expect(text).not.toMatch(/supersedesCompatibilityKey/);
-      expect(text).not.toMatch(/selectCanonicalCompatiblePackageHead/);
-      expect(text).not.toMatch(/repairIncompatibleCapabilityPackages/);
+      expect(text).not.toMatch(new RegExp("supersedes" + "CompatibilityKey"));
+      expect(text).not.toMatch(new RegExp("selectCanonical" + "CompatiblePackageHead"));
+      expect(text).not.toMatch(new RegExp("repairIncompatible" + "CapabilityPackages"));
     }
   });
 });

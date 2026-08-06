@@ -38,7 +38,7 @@ import {
   runGenerateAddonExport,
   runRecalculateScore,
   runRefreshPipeline,
-  runScoringV2EvidenceExportJob,
+  runScoringEvidenceExportJob,
   type EnqueueResult,
   type NegativeCache,
   type QueueProducers,
@@ -276,9 +276,9 @@ function createInlineQueueProducers(worker: WorkerContainer): QueueProducers {
       };
     },
 
-    async enqueueScoringV2EvidenceExport(input): Promise<EnqueueResult> {
+    async enqueueScoringEvidenceExport(input): Promise<EnqueueResult> {
       try {
-        await runScoringV2EvidenceExportJob(
+        await runScoringEvidenceExportJob(
           {
             prisma: worker.prisma,
             logger: worker.logger,
@@ -292,7 +292,7 @@ function createInlineQueueProducers(worker: WorkerContainer): QueueProducers {
           },
         );
       } catch (error) {
-        logger.warn({ err: error, exportId: input.exportId }, "inline scoring-v2 evidence export failed");
+        logger.warn({ err: error, exportId: input.exportId }, "inline scoring evidence export failed");
       }
       return {
         jobId: input.exportId,
@@ -302,7 +302,7 @@ function createInlineQueueProducers(worker: WorkerContainer): QueueProducers {
       };
     },
 
-    async enqueueScoringV2ShadowCanary(input): Promise<EnqueueResult> {
+    async enqueueScoringShadowCanary(input): Promise<EnqueueResult> {
       // Inline/skipQueues mode records enqueue only — worker owns live canary execution.
       return {
         jobId: input.canaryId,

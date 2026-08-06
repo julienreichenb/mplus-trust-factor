@@ -1,14 +1,14 @@
 import type { FastifyPluginAsync } from "fastify";
 import type { ApiContainer } from "../container.js";
 import { ExplainabilityV2Service } from "../services/explainability-v2-service.js";
-import { ScoringV2EvidenceExportService } from "../services/scoring-v2-evidence-export-service.js";
-import { ScoringV2EvidenceAuditService } from "../services/scoring-v2-evidence-audit-service.js";
-import { ScoringV2ShadowCanaryService, launchShadowCanaryBodySchema } from "../services/scoring-v2-shadow-canary-service.js";
-import { buildScoringV2Overview } from "../services/scoring-v2-overview-service.js";
+import { ScoringEvidenceExportService } from "../services/scoring-evidence-export-service.js";
+import { ScoringEvidenceAuditService } from "../services/scoring-evidence-audit-service.js";
+import { ScoringShadowCanaryService, launchShadowCanaryBodySchema } from "../services/scoring-shadow-canary-service.js";
+import { buildScoringOverview } from "../services/scoring-overview-service.js";
 import {
   getConcurrencySettings,
   updateConcurrencySettings,
-} from "../services/scoring-v2-runtime-settings.js";
+} from "../services/scoring-runtime-settings.js";
 import { createPermissionPreHandler } from "../iam/session.js";
 import { PERMISSIONS } from "../iam/permissions.js";
 import { errorResponseSchema } from "./schemas.js";
@@ -24,13 +24,13 @@ import {
   listExportsSchema,
   overviewSchema,
   paginationQuerySchema,
-  scoringV2ControlCenterTags,
+  scoringControlCenterTags,
   updateConcurrencyBodyOpenApiSchema,
   zipDownloadResponseSchema,
-} from "./scoring-v2-control-center-schemas.js";
+} from "./scoring-control-center-schemas.js";
 import { HttpError } from "../errors.js";
 import { writeAuditEvent } from "../iam/audit.js";
-import { OBS_EVENTS, emitScoringV2Event } from "@mplus/observability";
+import { OBS_EVENTS, emitScoringEvent } from "@mplus/observability";
 import { updateConcurrencyBodySchema } from "@mplus/contracts";
 
 function auditCtx(request: {
@@ -65,14 +65,14 @@ async function resolveActorUserId(
 
 /**
  * Scoring V2 Control Center + explainability routes.
- * Reads: score.candidate.read. Mutations: admin.scoring_v2.manage.
+ * Reads: score.candidate.read. Mutations: admin.scoring.manage.
  * GET overview never enqueues or calls providers.
  */
 export function buildAdminExplainabilityV2Routes(container: ApiContainer): FastifyPluginAsync {
   const explain = new ExplainabilityV2Service(container);
-  const exports = new ScoringV2EvidenceExportService(container);
-  const evidenceAudit = new ScoringV2EvidenceAuditService(container);
-  const canaries = new ScoringV2ShadowCanaryService(container);
+  const exports = new ScoringEvidenceExportService(container);
+  const evidenceAudit = new ScoringEvidenceAuditService(container);
+  const canaries = new ScoringShadowCanaryService(container);
   const env = container.env;
 
   return async (app) => {
@@ -86,25 +86,25 @@ export function buildAdminExplainabilityV2Routes(container: ApiContainer): Fasti
       );
 
       readApp.get(
-        "/api/v1/admin/scoring-v2/overview",
+        "/api/v1/admin/scoring/overview",
         {
           schema: {
-            tags: [...scoringV2ControlCenterTags],
+            tags: [...scoringControlCenterTags],
             summary: "Scoring V2 control-center overview (provider-free)",
             response: { 200: overviewSchema, ...authErrorResponses },
           },
         },
-        async () => buildScoringV2Overview(container.worker.prisma, env, {
+        async () => buildScoringOverview(container.worker.prisma, env, {
           redis: container.getAdmissionRedis(),
           appEnv: env.APP_ENV,
         }),
       );
 
       readApp.get(
-        "/api/v1/admin/scoring-v2/concurrency",
+        "/api/v1/admin/scoring/concurrency",
         {
           schema: {
-            tags: [...scoringV2ControlCenterTags],
+            tags: [...scoringControlCenterTags],
             summary: "Get distributed CALIBRATION/OPERATION concurrency settings",
             response: { 200: concurrencyDtoSchema, ...authErrorResponses },
           },
@@ -138,10 +138,10 @@ export function buildAdminExplainabilityV2Routes(container: ApiContainer): Fasti
       );
 
       readApp.get(
-        "/api/v1/admin/scoring-v2/evidence-exports",
+        "/api/v1/admin/scoring/evidence-exports",
         {
           schema: {
-            tags: [...scoringV2ControlCenterTags],
+            tags: [...scoringControlCenterTags],
             summary: "List evidence exports",
             querystring: paginationQuerySchema,
             response: { 200: listExportsSchema, ...authErrorResponses },
@@ -154,10 +154,10 @@ export function buildAdminExplainabilityV2Routes(container: ApiContainer): Fasti
       );
 
       readApp.get(
-        "/api/v1/admin/scoring-v2/evidence-exports/:exportId",
+        "/api/v1/admin/scoring/evidence-exports/:exportId",
         {
           schema: {
-            tags: [...scoringV2ControlCenterTags],
+            tags: [...scoringControlCenterTags],
             summary: "Get evidence export status and freeze eligibility blockers",
             params: {
               type: "object",
@@ -178,10 +178,10 @@ export function buildAdminExplainabilityV2Routes(container: ApiContainer): Fasti
       );
 
       readApp.get(
-        "/api/v1/admin/scoring-v2/history",
+        "/api/v1/admin/scoring/history",
         {
           schema: {
-            tags: [...scoringV2ControlCenterTags],
+            tags: [...scoringControlCenterTags],
             summary: "Evidence export and frozen bundle history",
             querystring: paginationQuerySchema,
             response: { 200: historyListSchema, ...authErrorResponses },
@@ -194,7 +194,7 @@ export function buildAdminExplainabilityV2Routes(container: ApiContainer): Fasti
       );
 
       readApp.get(
-        "/api/v1/admin/scoring-v2/manifests",
+        "/api/v1/admin/scoring/manifests",
         {
           schema: {
             tags: ["admin-explainability-v2"],
@@ -226,7 +226,7 @@ export function buildAdminExplainabilityV2Routes(container: ApiContainer): Fasti
       );
 
       readApp.get(
-        "/api/v1/admin/scoring-v2/manifests/:manifestId/evidence-audit",
+        "/api/v1/admin/scoring/manifests/:manifestId/evidence-audit",
         {
           schema: {
             tags: ["admin-explainability-v2"],
@@ -251,7 +251,7 @@ export function buildAdminExplainabilityV2Routes(container: ApiContainer): Fasti
       );
 
       readApp.get(
-        "/api/v1/admin/scoring-v2/characters/:characterId/explainability",
+        "/api/v1/admin/scoring/characters/:characterId/explainability",
         {
           schema: {
             tags: ["admin-explainability-v2"],
@@ -287,10 +287,10 @@ export function buildAdminExplainabilityV2Routes(container: ApiContainer): Fasti
       );
 
       readApp.get(
-        "/api/v1/admin/scoring-v2/shadow-canaries",
+        "/api/v1/admin/scoring/shadow-canaries",
         {
           schema: {
-            tags: [...scoringV2ControlCenterTags],
+            tags: [...scoringControlCenterTags],
             summary: "List recent Scoring V2 Shadow Canary runs",
             response: {
               200: { type: "object", additionalProperties: true },
@@ -302,10 +302,10 @@ export function buildAdminExplainabilityV2Routes(container: ApiContainer): Fasti
       );
 
       readApp.get(
-        "/api/v1/admin/scoring-v2/shadow-canaries/:canaryId",
+        "/api/v1/admin/scoring/shadow-canaries/:canaryId",
         {
           schema: {
-            tags: [...scoringV2ControlCenterTags],
+            tags: [...scoringControlCenterTags],
             summary: "Get one Shadow Canary run",
             params: {
               type: "object",
@@ -329,17 +329,17 @@ export function buildAdminExplainabilityV2Routes(container: ApiContainer): Fasti
     await app.register(async (writeApp) => {
       writeApp.addHook(
         "preHandler",
-        createPermissionPreHandler(env, PERMISSIONS.ADMIN_SCORING_V2_MANAGE, {
-          auditAction: "admin.scoring_v2.manage",
+        createPermissionPreHandler(env, PERMISSIONS.ADMIN_SCORING_MANAGE, {
+          auditAction: "admin.scoring.manage",
           allowEmergencyAdminKey: true,
         }),
       );
 
       writeApp.put(
-        "/api/v1/admin/scoring-v2/concurrency",
+        "/api/v1/admin/scoring/concurrency",
         {
           schema: {
-            tags: [...scoringV2ControlCenterTags],
+            tags: [...scoringControlCenterTags],
             summary: "Update CALIBRATION/OPERATION concurrency (does not kill active jobs)",
             body: updateConcurrencyBodyOpenApiSchema,
             response: {
@@ -360,7 +360,7 @@ export function buildAdminExplainabilityV2Routes(container: ApiContainer): Fasti
             appEnv: env.APP_ENV,
           },
         );
-        emitScoringV2Event(container.logger, OBS_EVENTS.scoringV2AdminConcurrencyUpdated, {
+        emitScoringEvent(container.logger, OBS_EVENTS.scoringAdminConcurrencyUpdated, {
           settingsVersion: result.settingsVersion,
           concurrencyCalibration: result.calibration.configured,
           concurrencyOperation: result.operation.configured,
@@ -368,7 +368,7 @@ export function buildAdminExplainabilityV2Routes(container: ApiContainer): Fasti
         await writeAuditEvent(container.worker.prisma, {
           userId: actorId,
           actorType: auditCtx(request).actorType,
-          action: "admin.scoring_v2.concurrency.update",
+          action: "admin.scoring.concurrency.update",
           resourceType: "RuntimeSetting",
           resourceId: "concurrency",
           sessionSecret: env.SESSION_SECRET,
@@ -386,10 +386,10 @@ export function buildAdminExplainabilityV2Routes(container: ApiContainer): Fasti
       );
 
       writeApp.post(
-        "/api/v1/admin/scoring-v2/shadow-canaries",
+        "/api/v1/admin/scoring/shadow-canaries",
         {
           schema: {
-            tags: [...scoringV2ControlCenterTags],
+            tags: [...scoringControlCenterTags],
             summary: "Launch an asynchronous Scoring V2 Shadow Canary (publication blocked)",
             body: {
               type: "object",
@@ -413,8 +413,8 @@ export function buildAdminExplainabilityV2Routes(container: ApiContainer): Fasti
             body,
             requestedByUserId: actorId,
             enqueue: async (job) => {
-              if (typeof container.producers.enqueueScoringV2ShadowCanary === "function") {
-                return container.producers.enqueueScoringV2ShadowCanary(job);
+              if (typeof container.producers.enqueueScoringShadowCanary === "function") {
+                return container.producers.enqueueScoringShadowCanary(job);
               }
               // Fallback: persist queued canary without worker enqueue in degraded mode.
               return { jobId: `local-shadow-canary-${job.canaryId}` };
@@ -423,8 +423,8 @@ export function buildAdminExplainabilityV2Routes(container: ApiContainer): Fasti
           await writeAuditEvent(container.worker.prisma, {
             userId: actorId,
             actorType: auditCtx(request).actorType,
-            action: "admin.scoring_v2.shadow_canary.launch",
-            resourceType: "ScoringV2ShadowCanary",
+            action: "admin.scoring.shadow_canary.launch",
+            resourceType: "ScoringShadowCanary",
             resourceId: result.id,
             sessionSecret: env.SESSION_SECRET,
             ip: request.ip,
@@ -444,10 +444,10 @@ export function buildAdminExplainabilityV2Routes(container: ApiContainer): Fasti
       );
 
       writeApp.post(
-        "/api/v1/admin/scoring-v2/evidence-exports",
+        "/api/v1/admin/scoring/evidence-exports",
         {
           schema: {
-            tags: [...scoringV2ControlCenterTags],
+            tags: [...scoringControlCenterTags],
             summary: "Create provider-free evidence export job (no refresh enqueue)",
             body: createEvidenceExportBodyOpenApiSchema,
             response: {
@@ -464,10 +464,10 @@ export function buildAdminExplainabilityV2Routes(container: ApiContainer): Fasti
       );
 
       writeApp.get(
-        "/api/v1/admin/scoring-v2/evidence-exports/:exportId/download",
+        "/api/v1/admin/scoring/evidence-exports/:exportId/download",
         {
           schema: {
-            tags: [...scoringV2ControlCenterTags],
+            tags: [...scoringControlCenterTags],
             summary: "Download evidence export ZIP archive",
             produces: ["application/zip"],
             params: {
@@ -502,10 +502,10 @@ export function buildAdminExplainabilityV2Routes(container: ApiContainer): Fasti
       );
 
       writeApp.post(
-        "/api/v1/admin/scoring-v2/evidence-exports/:exportId/freeze-bundle",
+        "/api/v1/admin/scoring/evidence-exports/:exportId/freeze-bundle",
         {
           schema: {
-            tags: [...scoringV2ControlCenterTags],
+            tags: [...scoringControlCenterTags],
             summary: "Freeze Calibration Input Bundle V2 (provider-free, no activation)",
             params: {
               type: "object",

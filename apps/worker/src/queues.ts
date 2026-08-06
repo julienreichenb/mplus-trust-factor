@@ -5,7 +5,7 @@ import {
   analyzeRunJobSchema,
   bulkOrchestratorJobSchema,
   calibrationRunJobSchema,
-  scoringV2EvidenceExportJobSchema,
+  ScoringEvidenceExportJobSchema,
   discoverOwnedCharactersJobSchema,
   finalizeEvidenceBatchJobV2Schema,
   generateAddonExportJobSchema,
@@ -15,7 +15,7 @@ import {
   type AnalyzeRunJob,
   type BulkOrchestratorJob,
   type CalibrationRunJob,
-  type ScoringV2EvidenceExportJob,
+  type ScoringEvidenceExportJob,
   type DiscoverOwnedCharactersJob,
   type FinalizeEvidenceBatchJobV2,
   type GenerateAddonExportJob,
@@ -78,11 +78,11 @@ export interface QueueProducers {
     input: { calibrationRunId: string; requestedAt?: string; correlationId?: string | null },
   ): Promise<EnqueueResult>;
   /** Admin Scoring V2 evidence export — provider-free, not an IngestionJob. */
-  enqueueScoringV2EvidenceExport(
+  enqueueScoringEvidenceExport(
     input: { exportId: string; requestedAt?: string; correlationId?: string | null },
   ): Promise<EnqueueResult>;
   /** Admin Shadow Canary — async single-character SHADOW run. */
-  enqueueScoringV2ShadowCanary(
+  enqueueScoringShadowCanary(
     input: {
       canaryId: string;
       region: "EU" | "US" | "KR" | "TW";
@@ -134,10 +134,10 @@ export function createQueueProducers(
       connection,
     }),
     [QUEUE_NAMES.calibrationRun]: new Queue(QUEUE_NAMES.calibrationRun, { connection }),
-    [QUEUE_NAMES.scoringV2EvidenceExport]: new Queue(QUEUE_NAMES.scoringV2EvidenceExport, {
+    [QUEUE_NAMES.ScoringEvidenceExport]: new Queue(QUEUE_NAMES.ScoringEvidenceExport, {
       connection,
     }),
-    [QUEUE_NAMES.scoringV2ShadowCanary]: new Queue(QUEUE_NAMES.scoringV2ShadowCanary, {
+    [QUEUE_NAMES.ScoringShadowCanary]: new Queue(QUEUE_NAMES.ScoringShadowCanary, {
       connection,
     }),
     [QUEUE_NAMES.analyzeEvidenceSlot]: new Queue(QUEUE_NAMES.analyzeEvidenceSlot, { connection }),
@@ -319,14 +319,14 @@ export function createQueueProducers(
       };
     },
 
-    async enqueueScoringV2EvidenceExport(input) {
-      const payload: ScoringV2EvidenceExportJob = scoringV2EvidenceExportJobSchema.parse({
+    async enqueueScoringEvidenceExport(input) {
+      const payload: ScoringEvidenceExportJob = ScoringEvidenceExportJobSchema.parse({
         exportId: input.exportId,
         requestedAt: input.requestedAt ?? new Date().toISOString(),
         correlationId: input.correlationId ?? null,
       });
-      const job = await queues[QUEUE_NAMES.scoringV2EvidenceExport].add(
-        QUEUE_NAMES.scoringV2EvidenceExport,
+      const job = await queues[QUEUE_NAMES.ScoringEvidenceExport].add(
+        QUEUE_NAMES.ScoringEvidenceExport,
         payload,
         { jobId: payload.exportId },
       );
@@ -338,7 +338,7 @@ export function createQueueProducers(
       };
     },
 
-    async enqueueScoringV2ShadowCanary(input) {
+    async enqueueScoringShadowCanary(input) {
       const payload = {
         canaryId: input.canaryId,
         region: input.region,
@@ -348,8 +348,8 @@ export function createQueueProducers(
         correlationId: input.correlationId ?? null,
         forceRefresh: false,
       };
-      const job = await queues[QUEUE_NAMES.scoringV2ShadowCanary].add(
-        QUEUE_NAMES.scoringV2ShadowCanary,
+      const job = await queues[QUEUE_NAMES.ScoringShadowCanary].add(
+        QUEUE_NAMES.ScoringShadowCanary,
         payload,
         { jobId: input.canaryId },
       );

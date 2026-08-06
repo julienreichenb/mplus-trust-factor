@@ -6,7 +6,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { ApiContainer } from "../container.js";
 import { HttpError } from "../errors.js";
-import { resolveShadowCanaryIdentity } from "./scoring-v2-shadow-canary-identity.js";
+import { resolveShadowCanaryIdentity } from "./scoring-shadow-canary-identity.js";
 
 export const launchShadowCanaryBodySchema = z.object({
   region: z.enum(["EU", "US", "KR", "TW"]),
@@ -35,7 +35,7 @@ export function buildShadowCanaryIdempotencyKey(input: {
     .digest("hex");
 }
 
-export class ScoringV2ShadowCanaryService {
+export class ScoringShadowCanaryService {
   constructor(private readonly container: ApiContainer) {}
 
   async launch(input: {
@@ -75,7 +75,7 @@ export class ScoringV2ShadowCanaryService {
       seasonId: season.id,
     });
 
-    const existing = await this.container.worker.prisma.scoringV2ShadowCanary.findUnique({
+    const existing = await this.container.worker.prisma.scoringShadowCanary.findUnique({
       where: { idempotencyKey },
     });
     if (existing && (existing.status === "QUEUED" || existing.status === "RUNNING")) {
@@ -85,7 +85,7 @@ export class ScoringV2ShadowCanaryService {
     const launchKey =
       existing != null ? `${idempotencyKey}:relaunch:${randomUUID()}` : idempotencyKey;
 
-    const row = await this.container.worker.prisma.scoringV2ShadowCanary.create({
+    const row = await this.container.worker.prisma.scoringShadowCanary.create({
       data: {
         characterId: identity.characterId,
         regionCode: identity.regionCode,
@@ -120,7 +120,7 @@ export class ScoringV2ShadowCanaryService {
       correlationId: `shadow-canary-${row.id}`,
     });
 
-    await this.container.worker.prisma.scoringV2ShadowCanary.update({
+    await this.container.worker.prisma.scoringShadowCanary.update({
       where: { id: row.id },
       data: { bullmqJobId: enqueued.jobId },
     });
@@ -129,7 +129,7 @@ export class ScoringV2ShadowCanaryService {
   }
 
   async get(canaryId: string) {
-    const row = await this.container.worker.prisma.scoringV2ShadowCanary.findUnique({
+    const row = await this.container.worker.prisma.scoringShadowCanary.findUnique({
       where: { id: canaryId },
     });
     if (!row) {
@@ -231,7 +231,7 @@ export class ScoringV2ShadowCanaryService {
   }
 
   async list(limit = 20) {
-    const rows = await this.container.worker.prisma.scoringV2ShadowCanary.findMany({
+    const rows = await this.container.worker.prisma.scoringShadowCanary.findMany({
       orderBy: { createdAt: "desc" },
       take: Math.min(100, Math.max(1, limit)),
     });

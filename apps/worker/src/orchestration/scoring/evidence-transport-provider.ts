@@ -24,18 +24,18 @@ import {
 } from "./wcl-concurrency/permits.js";
 import { createPersistentSharedEvidenceStore } from "./persistent-shared-evidence-store.js";
 import type {
-  ScoringV2EvidenceTransport,
-  ScoringV2FightDetailsResult,
-  ScoringV2ProfilePayloadResult,
-  ScoringV2RankingParseResult,
-  ScoringV2SharedEvidenceResult,
+  ScoringEvidenceTransport,
+  ScoringFightDetailsResult,
+  ScoringProfilePayloadResult,
+  ScoringRankingParseResult,
+  ScoringSharedEvidenceResult,
 } from "./evidence-transport.js";
 import {
   findLatestFightRevision,
   loadPersistedFightDetails,
   persistFightDetailsPage,
 } from "./fight-details-persist.js";
-import { ScoringV2RateDeferError } from "./acquisition.js";
+import { ScoringRateDeferError } from "./acquisition.js";
 import { randomUUID } from "node:crypto";
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -155,7 +155,7 @@ export interface ProviderBackedTransportOptions {
 export function createProviderBackedEvidenceTransport(
   container: WorkerContainer,
   options: ProviderBackedTransportOptions = {},
-): ScoringV2EvidenceTransport {
+): ScoringEvidenceTransport {
   const l1 = new InMemorySharedEvidenceStore();
   const store = createPersistentSharedEvidenceStore({
     wclSource: container.repositories.wclSource,
@@ -178,7 +178,7 @@ export function createProviderBackedEvidenceTransport(
         ownerId: `http:${ownerId}`,
       });
       if (!global.ok) {
-        throw new ScoringV2RateDeferError(
+        throw new ScoringRateDeferError(
           `global_wcl_permit_unavailable:${global.reason}`,
           5_000,
         );
@@ -199,7 +199,7 @@ export function createProviderBackedEvidenceTransport(
   }
 
   return {
-    async getReportFightDetails(input): Promise<ScoringV2FightDetailsResult> {
+    async getReportFightDetails(input): Promise<ScoringFightDetailsResult> {
       const wclSource = container.repositories.wclSource;
       const artifacts = container.repositories.artifacts;
       const revisionHint =
@@ -286,7 +286,7 @@ export function createProviderBackedEvidenceTransport(
       });
     },
 
-    async acquireSharedEvidence(input): Promise<ScoringV2SharedEvidenceResult> {
+    async acquireSharedEvidence(input): Promise<ScoringSharedEvidenceResult> {
       const wcl = container.providers.warcraftlogs as {
         getGraphQlClient?: () => unknown;
       };
@@ -496,7 +496,7 @@ export function createProviderBackedEvidenceTransport(
       }
     },
 
-    async getRankingParse(input): Promise<ScoringV2RankingParseResult> {
+    async getRankingParse(input): Promise<ScoringRankingParseResult> {
       const wcl = container.providers.warcraftlogs as {
         getRankingParseForFight?: (args: {
           reportCode: string;
@@ -506,7 +506,7 @@ export function createProviderBackedEvidenceTransport(
           keyLevel: number | null;
           ctx: ProviderFetchContext;
         }) => Promise<{
-          evidence: ScoringV2RankingParseResult["evidence"];
+          evidence: ScoringRankingParseResult["evidence"];
           providerCalls: number;
           unavailableReason: string | null;
         }>;
@@ -537,7 +537,7 @@ export function createProviderBackedEvidenceTransport(
 
     async getPointsAndDamageProfile(
       _input: { ctx: ProviderFetchContext },
-    ): Promise<ScoringV2ProfilePayloadResult> {
+    ): Promise<ScoringProfilePayloadResult> {
       return {
         payload: null,
         providerCalls: 0,

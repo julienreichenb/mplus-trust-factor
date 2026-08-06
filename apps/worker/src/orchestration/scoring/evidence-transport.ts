@@ -9,7 +9,7 @@ import type {
   WclRunEvidenceBundle,
 } from "@mplus/provider-warcraftlogs";
 
-export interface ScoringV2FightDetailsResult {
+export interface ScoringFightDetailsResult {
   data: unknown;
   reportRevision: number;
   playerActorId: number | null;
@@ -33,7 +33,7 @@ export interface ScoringV2FightDetailsResult {
   providerCalls: number;
 }
 
-export interface ScoringV2SharedEvidenceResult {
+export interface ScoringSharedEvidenceResult {
   bundle: WclRunEvidenceBundle | null;
   providerCalls: number;
   cacheHits: number;
@@ -45,13 +45,13 @@ export interface ScoringV2SharedEvidenceResult {
   unavailableReason: string | null;
 }
 
-export interface ScoringV2RankingParseResult {
+export interface ScoringRankingParseResult {
   evidence: RankingParseEvidenceV2 | null;
   providerCalls: number;
   unavailableReason: string | null;
 }
 
-export interface ScoringV2ProfilePayloadResult {
+export interface ScoringProfilePayloadResult {
   payload: unknown | null;
   providerCalls: number;
   unavailableReason: string | null;
@@ -61,7 +61,7 @@ export interface ScoringV2ProfilePayloadResult {
  * Acquisition-only transport. Calculators and finalizers must not use this.
  * Implementations must not perform network I/O when serving from fixtures/cache.
  */
-export interface ScoringV2EvidenceTransport {
+export interface ScoringEvidenceTransport {
   getReportFightDetails(input: {
     reportCode: string;
     fightId: number;
@@ -70,7 +70,7 @@ export interface ScoringV2EvidenceTransport {
     expectedReportRevision?: number | null;
     /** Report-local actor from discovery — scopes fight-details cache. */
     expectedActorId?: number | null;
-  }): Promise<ScoringV2FightDetailsResult>;
+  }): Promise<ScoringFightDetailsResult>;
 
   acquireSharedEvidence(input: {
     reportCode: string;
@@ -83,7 +83,7 @@ export interface ScoringV2EvidenceTransport {
     endTime: number | null;
     datasetKeys: string[];
     ctx: ProviderFetchContext;
-  }): Promise<ScoringV2SharedEvidenceResult>;
+  }): Promise<ScoringSharedEvidenceResult>;
 
   getRankingParse(input: {
     reportCode: string;
@@ -92,15 +92,15 @@ export interface ScoringV2EvidenceTransport {
     dungeonSlug: string;
     keyLevel: number | null;
     ctx: ProviderFetchContext;
-  }): Promise<ScoringV2RankingParseResult>;
+  }): Promise<ScoringRankingParseResult>;
 
   getPointsAndDamageProfile(input: {
     ctx: ProviderFetchContext;
-  }): Promise<ScoringV2ProfilePayloadResult>;
+  }): Promise<ScoringProfilePayloadResult>;
 }
 
 /** Fixture/mock transport — records call counts; never opens sockets. */
-export class FixtureScoringV2EvidenceTransport implements ScoringV2EvidenceTransport {
+export class FixtureScoringEvidenceTransport implements ScoringEvidenceTransport {
   private fightDetailsCalls = 0;
   private sharedEvidenceCalls = 0;
   private rankingCalls = 0;
@@ -109,12 +109,12 @@ export class FixtureScoringV2EvidenceTransport implements ScoringV2EvidenceTrans
 
   constructor(
     private readonly fixtures: {
-      fightDetails?: ScoringV2FightDetailsResult;
-      sharedEvidence?: ScoringV2SharedEvidenceResult;
-      rankingParse?: ScoringV2RankingParseResult;
+      fightDetails?: ScoringFightDetailsResult;
+      sharedEvidence?: ScoringSharedEvidenceResult;
+      rankingParse?: ScoringRankingParseResult;
       /** When set, getRankingParse throws after counting the call (transport failure). */
       rankingParseThrow?: Error;
-      profile?: ScoringV2ProfilePayloadResult;
+      profile?: ScoringProfilePayloadResult;
     } = {},
   ) {}
 
@@ -146,7 +146,7 @@ export class FixtureScoringV2EvidenceTransport implements ScoringV2EvidenceTrans
     };
   }
 
-  async getReportFightDetails(): Promise<ScoringV2FightDetailsResult> {
+  async getReportFightDetails(): Promise<ScoringFightDetailsResult> {
     this.assertNoNetworkReachable();
     this.fightDetailsCalls += 1;
     if (!this.fixtures.fightDetails) {
@@ -164,7 +164,7 @@ export class FixtureScoringV2EvidenceTransport implements ScoringV2EvidenceTrans
     return { ...this.fixtures.fightDetails };
   }
 
-  async acquireSharedEvidence(): Promise<ScoringV2SharedEvidenceResult> {
+  async acquireSharedEvidence(): Promise<ScoringSharedEvidenceResult> {
     this.assertNoNetworkReachable();
     this.sharedEvidenceCalls += 1;
     return (
@@ -177,7 +177,7 @@ export class FixtureScoringV2EvidenceTransport implements ScoringV2EvidenceTrans
     );
   }
 
-  async getRankingParse(): Promise<ScoringV2RankingParseResult> {
+  async getRankingParse(): Promise<ScoringRankingParseResult> {
     this.assertNoNetworkReachable();
     this.rankingCalls += 1;
     if (this.fixtures.rankingParseThrow) {
@@ -192,7 +192,7 @@ export class FixtureScoringV2EvidenceTransport implements ScoringV2EvidenceTrans
     );
   }
 
-  async getPointsAndDamageProfile(): Promise<ScoringV2ProfilePayloadResult> {
+  async getPointsAndDamageProfile(): Promise<ScoringProfilePayloadResult> {
     this.assertNoNetworkReachable();
     this.profileCalls += 1;
     return (

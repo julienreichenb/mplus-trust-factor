@@ -4,7 +4,7 @@
  */
 import { hostname } from "node:os";
 import { randomUUID } from "node:crypto";
-import type { ScoringV2ConcurrencySyncState } from "@mplus/contracts";
+import type { ScoringConcurrencySyncState } from "@mplus/contracts";
 import { refreshAdmissionKeyPrefix } from "./redis-keys.js";
 import { isolateLaneAppEnv } from "./lane-permits.js";
 
@@ -180,7 +180,7 @@ export interface DeriveConcurrencySyncStateInput {
 }
 
 export interface DeriveConcurrencySyncStateResult {
-  syncState: ScoringV2ConcurrencySyncState;
+  syncState: ScoringConcurrencySyncState;
   synchronized: boolean;
   observedReplicaCount: number;
   oldestObservationAt: string | null;

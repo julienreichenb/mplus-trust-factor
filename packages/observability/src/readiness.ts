@@ -4,7 +4,7 @@
  * based on enabled feature modes.
  */
 
-export interface ScoringV2ModeSnapshot {
+export interface ScoringModeSnapshot {
   enabled: boolean;
   selectionEnabled: boolean;
   evidenceFetchEnabled: boolean;
@@ -37,7 +37,7 @@ export interface ReadinessProbeResults {
   revision: string;
   apiContractVersion: string;
   workerJobSchemaVersion: string;
-  scoringV2: ScoringV2ModeSnapshot;
+  scoring: ScoringModeSnapshot;
   databaseOk: boolean;
   redisOk: boolean;
   redisSkipped: boolean;
@@ -114,8 +114,8 @@ export function evaluateReadiness(probes: ReadinessProbeResults): ReadinessEvalu
     failingReasons.push("redis_unreachable");
   }
 
-  if (probes.scoringV2.incompatibleReasons.length > 0) {
-    failingReasons.push("scoring_v2_flag_incompatible");
+  if (probes.scoring.incompatibleReasons.length > 0) {
+    failingReasons.push("scoring_flag_incompatible");
   }
 
   if (probes.artifactBackend.required && !probes.artifactBackend.ok) {
@@ -140,7 +140,7 @@ export function evaluateReadiness(probes: ReadinessProbeResults): ReadinessEvalu
 
   // Evidence fetch in bullmq mode needs queue connectivity (redis).
   if (
-    probes.scoringV2.evidenceFetchEnabled &&
+    probes.scoring.evidenceFetchEnabled &&
     probes.queueMode !== "inline" &&
     !probes.redisOk
   ) {
@@ -159,12 +159,12 @@ export function evaluateReadiness(probes: ReadinessProbeResults): ReadinessEvalu
       contracts: {
         api: probes.apiContractVersion,
         workerJobSchema: probes.workerJobSchemaVersion,
-        evidenceManifest: SCORING_V2_CONTRACT_VERSIONS.evidenceManifest,
-        acquisitionPlan: SCORING_V2_CONTRACT_VERSIONS.acquisitionPlan,
+        evidenceManifest: SCORING_CONTRACT_VERSIONS.evidenceManifest,
+        acquisitionPlan: SCORING_CONTRACT_VERSIONS.acquisitionPlan,
       },
-      scoringV2: {
-        modes: probes.scoringV2,
-        incompatibleReasons: probes.scoringV2.incompatibleReasons,
+      scoring: {
+        modes: probes.scoring,
+        incompatibleReasons: probes.scoring.incompatibleReasons,
       },
       database: { ok: probes.databaseOk },
       redis: {
@@ -181,7 +181,7 @@ export function evaluateReadiness(probes: ReadinessProbeResults): ReadinessEvalu
   };
 }
 
-export const SCORING_V2_CONTRACT_VERSIONS = {
+export const SCORING_CONTRACT_VERSIONS = {
   evidenceManifest: "2.0.0",
   acquisitionPlan: "2.0.0",
   workerJobSchema: "2.0.0",
@@ -189,7 +189,7 @@ export const SCORING_V2_CONTRACT_VERSIONS = {
 } as const;
 
 /** Derive which probes are required from V2 modes. */
-export function requiredProbesForModes(modes: ScoringV2ModeSnapshot): {
+export function requiredProbesForModes(modes: ScoringModeSnapshot): {
   artifactBackend: boolean;
   wclProviderConfigured: boolean;
   modelCatalog: boolean;

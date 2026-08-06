@@ -85,11 +85,9 @@ import { refreshCharacterDedupeKey } from "../dedupe.js";
 import { negativeCache } from "../negative-cache.js";
 import { ensureBlizzardCurrentSeason, ensureCurrentSeason } from "../persistence/run-repository.js";
 import { ensurePersistedSeasonDungeonBindings } from "./active-mplus-season/synchronize.js";
-import { mapBoostFactsToAuthenticity } from "./boost-authenticity.js";
 import { extractMetricsFromCombatFacts, isUsableCombatRun, buildRunCombatAdminDiagnostics } from "./combat-metrics.js";
 import { aggregateCombatObservations } from "./aggregate-combat-observations.js";
 import { bindParseToSelectedRun } from "./run-parse-binding.js";
-import { fingerprintObservations, buildScoringRunSelectionKey } from "./fingerprint.js";
 import {
   allowFixtureZoneDefaultsForProviderMode,
   resolveActiveRefreshContract,
@@ -793,7 +791,7 @@ export async function runRefreshPipeline(
   if (resolvedWorkload.mismatch) {
     logger.warn(
       {
-        event: "scoring_v2.workload_class_payload_mismatch",
+        event: "scoring.workload_class_payload_mismatch",
         reasonCode: resolvedWorkload.reasonCode,
         jobId: job.id,
         persistedWorkloadClass: workloadClass,
@@ -981,7 +979,6 @@ export async function runRefreshPipeline(
   let blizzardRuns: MythicRunDTO[] = [];
   let raiderIoProfile: RaiderIoCharacterProfile | null = null;
   let seasonCutoffs: RaiderIoSeasonCutoffs | null = null;
-  let boostFacts: RaiderIoBoostSupportFacts | null = null;
   let wclVisibility: WclVisibilityState | null = null;
   let wclDataState: WclDataState | null = null;
   let discoveredRuns: MythicRunDTO[] = [];
@@ -1457,7 +1454,6 @@ export async function runRefreshPipeline(
   const rioEnrichment = await enrichRaiderIo();
   raiderIoProfile = rioEnrichment.profile;
   seasonCutoffs = rioEnrichment.cutoffs;
-  boostFacts = rioEnrichment.boost;
   await assertNotCancelled("post_raiderio");
 
   const rioRunsRaw =
@@ -2958,7 +2954,6 @@ export async function runRefreshPipeline(
     });
   }
 
-  const authenticityFeatures = boostFacts ? mapBoostFactsToAuthenticity(boostFacts) : undefined;
   // Coverage is actual combat-facts analysis over selected runs — never invent 1.0 or treat
   // zero coverage as evidence that logs are hidden.
   const selectedRunCoverage = selectedRunCount > 0 ? detailedRunCount / selectedRunCount : 0;
@@ -3581,84 +3576,51 @@ export async function runRefreshPipeline(
     throw Object.assign(new Error("Refresh contract mismatch"), mismatchError);
   }
 
-  // Scoring V2 shadow orchestration (flags default off — no-op). Never blocks V1 publish.
-  if (container.env.SCORING_ENABLED) {
-    const { maybeStartScoringV2ShadowFromRefresh } = await import("./scoring/refresh-bridge.js");
-    const { resolveFrozenCharacterIdentity } = await import("./scoring/class-spec-identity.js");
-    const { mythicRunToEvidenceCandidateMetadata } = await import("@mplus/scoring");
-    // Coherent class/spec/role from the same provider chain — never Character.role, never DPS default.
-    const frozenIdentity = resolveFrozenCharacterIdentity({
-      blizzard: blizzardProfile
-        ? {
-            classSlug: blizzardProfile.classSlug,
-            specSlug: blizzardProfile.specSlug,
-            role: blizzardProfile.role,
-          }
-        : null,
-      raiderIo: raiderIoProfile
-        ? {
-            classSlug: raiderIoProfile.classSlug,
-            specSlug: raiderIoProfile.specSlug,
-            role: raiderIoProfile.role,
-          }
-        : null,
-    });
-    const v2Candidates = fusedRuns
-      .map((run) => mythicRunToEvidenceCandidateMetadata(run))
-      .filter((c): c is NonNullable<typeof c> => c != null);
-    await maybeStartScoringV2ShadowFromRefresh({
-      container,
-      characterId: character.id,
-      seasonId: season.id,
-      seasonSlug: season.slug,
-      role: frozenIdentity.role,
-      classSlug: frozenIdentity.classSlug,
-      specSlug: frozenIdentity.specSlug,
-      refreshContract,
-      evidenceCutoffAt: new Date(0).toISOString(),
-      highKeyPolicyId: "high-key-policy-v1",
-      activeDungeonSlugs,
-      candidates: v2Candidates,
-      scoreModelId: model.id,
-      scoreModelVersion: String(model.version),
-      parentIngestionJobId: job.id,
-      correlationId: ctx.correlationId ?? ctx.requestId,
-      refreshGeneration: Date.parse(jobPayload.requestedAt) || Date.now(),
-      region: identity.region,
-      realm: identity.realmSlug,
-      characterName: identity.name,
-    });
-  }
-
-  const scoreDto = container.calculateScore({
-    characterId: character.id,
-    seasonSlug: season.slug,
-    model: modelConfig,
-    scopeType: "CHARACTER",
-    scopeKey: null,
-    observations: mergedObservations,
-    calculatedAt: scoreCalculatedAt.toISOString(),
-    inputFingerprint: fingerprintObservations(character.id, model.key, model.version, mergedObservations, {
-      refreshContract,
-      scoringRunSelectionKey: buildScoringRunSelectionKey(scoringRunSelection.selectedRuns),
-      forceRefreshToken: jobPayload.forceRefresh ? jobPayload.requestedAt : null,
-      overallFormula:
-        typeof (model.config as { overallFormula?: unknown }).overallFormula === "string"
-          ? String((model.config as { overallFormula: string }).overallFormula)
-          : model.version >= 6
-            ? "WEIGHTED_DIMENSIONS"
-            : "LEGACY_AUTHENTICITY_CONFIDENCE_BLEND",
-    }),
-    context: {
-      role: character.role ?? blizzardProfile?.role ?? raiderIoProfile?.role ?? "DPS",
-      freshness,
-      selectedRunCoverage,
-      wclVisibility,
-      matchedWclRunCount: combatFactsList.length,
-      authenticity: authenticityFeatures,
-      mechanicCatalogVersion: refreshContract.mechanicCatalogVersion,
-    },
+  // Authoritative scoring — scoreCharacter() only. No legacy calculateScore fallback.
+  const { resolveFrozenCharacterIdentity } = await import("./scoring/class-spec-identity.js");
+  const { mythicRunToEvidenceCandidateMetadata } = await import("@mplus/scoring");
+  const { runAuthoritativeScoring } = await import("./scoring/refresh-bridge.js");
+  const frozenIdentity = resolveFrozenCharacterIdentity({
+    blizzard: blizzardProfile
+      ? {
+          classSlug: blizzardProfile.classSlug,
+          specSlug: blizzardProfile.specSlug,
+          role: blizzardProfile.role,
+        }
+      : null,
+    raiderIo: raiderIoProfile
+      ? {
+          classSlug: raiderIoProfile.classSlug,
+          specSlug: raiderIoProfile.specSlug,
+          role: raiderIoProfile.role,
+        }
+      : null,
   });
+  const authoritativeCandidates = fusedRuns
+    .map((run) => mythicRunToEvidenceCandidateMetadata(run))
+    .filter((c): c is NonNullable<typeof c> => c != null);
+  const scoringOutcome = await runAuthoritativeScoring({
+    container,
+    characterId: character.id,
+    seasonId: season.id,
+    seasonSlug: season.slug,
+    role: frozenIdentity.role,
+    classSlug: frozenIdentity.classSlug,
+    specSlug: frozenIdentity.specSlug,
+    refreshContract,
+    evidenceCutoffAt: new Date(0).toISOString(),
+    highKeyPolicyId: "high-key-policy-v1",
+    activeDungeonSlugs,
+    candidates: authoritativeCandidates,
+    scoreModelKey: model.key,
+    scoreModelVersion: model.version,
+    scoreModelId: model.id,
+    calculatedAt: scoreCalculatedAt.toISOString(),
+    region: identity.region,
+    realm: identity.realmSlug,
+    characterName: identity.name,
+  });
+  const scoreDto = scoringOutcome.snapshot;
   logger.info(
     {
       ...logBase,
@@ -3666,34 +3628,16 @@ export async function runRefreshPipeline(
       modelKey: model.key,
       modelVersion: model.version,
       scoreConfidence: scoreDto.confidence,
+      scoringDisabled: scoringOutcome.disabled,
+      providerCalls: scoringOutcome.providerCalls,
+      characterScoreId: scoringOutcome.scoreResult?.characterScoreId ?? null,
       observationCount: observations.length,
       dimensionCoverage: scoreDto.dimensions.map((d) => d.dimension),
     },
     OBS_EVENTS.refreshScoreCalculated,
   );
 
-  // Override PERFORMANCE dimension confidence with independent WCL confidence when freshly scored.
-  // When WCL failed, merged observations preserve last-known-good — do not force UNAVAILABLE.
-  if (wclPerformance.observations.length > 0) {
-    for (const dim of scoreDto.dimensions) {
-      if (dim.dimension === "PERFORMANCE") {
-        dim.confidence = wclPerformance.confidence;
-        if (dim.score != null && dim.confidence > 0) {
-          dim.state = dim.confidence < 0.35 ? "PARTIAL" : "AVAILABLE";
-          dim.reason = dim.state === "PARTIAL" ? "INCOMPLETE_COVERAGE" : null;
-        }
-      }
-    }
-  } else if (!failedDimensions.has("PERFORMANCE")) {
-    for (const dim of scoreDto.dimensions) {
-      if (dim.dimension === "PERFORMANCE") {
-        dim.confidence = 0;
-        dim.score = null;
-        dim.state = "UNAVAILABLE";
-        dim.reason = "NO_WCL_PERFORMANCE_OBSERVATIONS";
-      }
-    }
-  }
+  // Dimensions come from scoreCharacter digests — no legacy observation overlays.
 
   const providerStates = await repositories.providerState.listForCharacter(character.id);
   const timestampFor = (provider: "blizzard" | "raiderio" | "warcraftlogs") =>

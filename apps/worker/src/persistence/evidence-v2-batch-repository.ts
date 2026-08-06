@@ -13,11 +13,11 @@ import type {
 } from "@mplus/database";
 import {
   emptySlotRecord,
-  SCORING_V2_BATCH_METADATA_KEY,
+  scoring_BATCH_METADATA_KEY,
   type EvidenceV2BatchMetadata,
   type EvidenceV2SlotRecord,
 } from "../orchestration/scoring/types.js";
-import type { ScoringV2ProviderAccounting } from "../orchestration/scoring/provider-accounting.js";
+import type { ScoringProviderAccounting } from "../orchestration/scoring/provider-accounting.js";
 import { resolveBatchDatasetRequirements } from "../orchestration/scoring/dataset-requirements.js";
 import type { AcquiredEvidenceDatasetDescriptor } from "../orchestration/scoring/dataset-descriptor-persist.js";
 import type { TypedDimensionFactPayload } from "../orchestration/scoring/typed-fact-persist.js";
@@ -101,7 +101,7 @@ export interface EvidenceV2BatchRepository {
     datasetDescriptors?: AcquiredEvidenceDatasetDescriptor[];
     factSetFingerprint?: string | null;
     typedFactPayloads?: TypedDimensionFactPayload[];
-    providerAccounting?: ScoringV2ProviderAccounting | null;
+    providerAccounting?: ScoringProviderAccounting | null;
     now?: Date;
   }): Promise<{ view: EvidenceV2BatchView; becameReady: boolean; wasAlreadyTerminal: boolean }>;
   markAdmissionDeferred(batchId: string, reason: string): Promise<EvidenceV2BatchView>;
@@ -128,7 +128,7 @@ export interface EvidenceV2BatchRepository {
 function parseMeta(metadata: unknown): EvidenceV2BatchMetadata | null {
   if (!metadata || typeof metadata !== "object") return null;
   const root = metadata as Record<string, unknown>;
-  const raw = root[SCORING_V2_BATCH_METADATA_KEY];
+  const raw = root[scoring_BATCH_METADATA_KEY];
   if (!raw || typeof raw !== "object") return null;
   const meta = raw as EvidenceV2BatchMetadata;
   // Backward-compatible defaults for in-flight batches created before CP2.
@@ -170,7 +170,7 @@ function withMeta(
       : {};
   return {
     ...base,
-    [SCORING_V2_BATCH_METADATA_KEY]: meta,
+    [scoring_BATCH_METADATA_KEY]: meta,
   } as unknown as Prisma.InputJsonValue;
 }
 
@@ -239,7 +239,7 @@ function countsToFinalization(meta: EvidenceV2BatchMetadata): {
 function toView(batch: ScoreAnalysisBatch): EvidenceV2BatchView {
   const meta = parseMeta(batch.metadata);
   if (!meta) {
-    throw new Error(`ScoreAnalysisBatch ${batch.id} is missing scoringV2 metadata`);
+    throw new Error(`ScoreAnalysisBatch ${batch.id} is missing scoring metadata`);
   }
   return { batch, meta };
 }

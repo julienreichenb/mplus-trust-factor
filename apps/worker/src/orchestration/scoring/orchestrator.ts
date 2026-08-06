@@ -19,16 +19,16 @@ import {
 import { buildEvidenceAcquisitionPlanV2 } from "@mplus/scoring";
 import {
   OBS_EVENTS,
-  emitScoringV2Event,
+  emitScoringEvent,
   recordAdmissionDecision,
   recordPublicationDecision,
 } from "@mplus/observability";
 import type { WorkerContainer } from "../../container.js";
 import {
   assertPublicationBlocked,
-  isScoringV2ShadowOrchestrationEnabled,
+  isScoringEnabled,
   resolveEnabledConsumers,
-  ScoringV2RateDeferError,
+  ScoringRateDeferError,
 } from "./acquisition.js";
 
 export interface StartEvidenceV2ShadowPipelineInput {
@@ -53,7 +53,7 @@ export interface StartEvidenceV2ShadowPipelineInput {
   region: string;
   /** When set, used as ScoreAnalysisBatch.refreshId (must be UUID). */
   v2RefreshId?: string;
-  /** Admin Shadow Canary — bypass process-env SCORING_V2_* gates in slot/finalize workers. */
+  /** Admin Shadow Canary — bypass process-env scoring_* gates in slot/finalize workers. */
   adminShadowCanary?: boolean;
   shadowCanaryId?: string | null;
 }
@@ -86,14 +86,14 @@ export async function startEvidenceV2ShadowPipeline(
     }) => Promise<{ jobId: string }>;
   },
 ): Promise<StartEvidenceV2ShadowPipelineResult> {
-  if (!isScoringV2ShadowOrchestrationEnabled(container.env)) {
-    return { skipped: true, reason: "scoring_v2_flags_off" };
+  if (!isScoringEnabled(container.env)) {
+    return { skipped: true, reason: "scoring_flags_off" };
   }
   if (container.env.SCORING_PUBLICATION_ENABLED) {
     recordPublicationDecision("rejected", "publication_must_stay_blocked");
-    emitScoringV2Event(
+    emitScoringEvent(
       container.logger,
-      OBS_EVENTS.scoringV2PublicationRejected,
+      OBS_EVENTS.scoringPublicationRejected,
       {
         characterId: input.characterId,
         correlationId: input.correlationId,
@@ -107,7 +107,7 @@ export async function startEvidenceV2ShadowPipeline(
   const enabledConsumers = resolveEnabledConsumers(container.env);
   const plannedAt = new Date().toISOString();
 
-  emitScoringV2Event(container.logger, OBS_EVENTS.scoringV2DiscoveryStarted, {
+  emitScoringEvent(container.logger, OBS_EVENTS.scoringDiscoveryStarted, {
     characterId: input.characterId,
     seasonId: input.seasonId,
     correlationId: input.correlationId,
@@ -123,7 +123,7 @@ export async function startEvidenceV2ShadowPipeline(
     candidates = discovery.candidates.map((c) => toCandidateMetadataV2(c));
   }
 
-  emitScoringV2Event(container.logger, OBS_EVENTS.scoringV2DiscoveryCompleted, {
+  emitScoringEvent(container.logger, OBS_EVENTS.scoringDiscoveryCompleted, {
     characterId: input.characterId,
     seasonId: input.seasonId,
     correlationId: input.correlationId,
@@ -174,11 +174,11 @@ export async function startEvidenceV2ShadowPipeline(
     );
     const action = deferred.reason.includes("rate_budget_stop") ? "stopped" : "deferred";
     recordAdmissionDecision(action);
-    emitScoringV2Event(
+    emitScoringEvent(
       container.logger,
       action === "stopped"
-        ? OBS_EVENTS.scoringV2AdmissionStopped
-        : OBS_EVENTS.scoringV2AdmissionDeferred,
+        ? OBS_EVENTS.scoringAdmissionStopped
+        : OBS_EVENTS.scoringAdmissionDeferred,
       {
         characterId: input.characterId,
         analysisBatchId: batch.id,
@@ -215,7 +215,7 @@ export async function startEvidenceV2ShadowPipeline(
   await container.repositories.evidenceV2Batch.markAnalyzing(view.batch.id);
 
   recordAdmissionDecision("admitted");
-  emitScoringV2Event(container.logger, OBS_EVENTS.scoringV2AdmissionAdmitted, {
+  emitScoringEvent(container.logger, OBS_EVENTS.scoringAdmissionAdmitted, {
     characterId: input.characterId,
     analysisBatchId: view.batch.id,
     correlationId: input.correlationId,
@@ -282,7 +282,7 @@ async function maybeDeferForRateBudget(
     }
   } catch (error) {
     container.logger.warn(
-      { err: error, event: "scoring_v2_rate_preview_failed" },
+      { err: error, event: "scoring_rate_preview_failed" },
       "scoring v2 rate preview failed — continuing without defer",
     );
   }
@@ -290,5 +290,5 @@ async function maybeDeferForRateBudget(
 }
 
 export function throwIfRateDeferred(reason: string): never {
-  throw new ScoringV2RateDeferError(reason);
+  throw new ScoringRateDeferError(reason);
 }

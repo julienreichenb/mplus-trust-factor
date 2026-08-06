@@ -15,7 +15,7 @@ export * from "./active-rerolls.js";
 export * from "./evidence-v2.js";
 export * from "./evidence-audit-v2.js";
 export * from "./explainability-v2.js";
-export * from "./scoring-v2-control-center.js";
+export * from "./scoring-control-center.js";
 export * from "./wcl-run-source-digest.js";
 export * from "./wcl-event-normalizer-version.js";
 export * from "./capability-evidence-v1.js";

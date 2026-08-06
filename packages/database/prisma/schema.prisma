@@ -100,13 +100,15 @@ enum RefreshWorkloadClass {
   OPERATION
 }
 
-enum ScoringV2EvidenceExportStatus {
+enum ScoringEvidenceExportStatus {
   QUEUED
   RUNNING
   RETRYABLE
   COMPLETED
   FAILED
   CANCELLED
+
+  @@map("ScoringV2EvidenceExportStatus")
 }
 
 enum UserRole {
@@ -246,7 +248,7 @@ model Season {
   calibrationRuns        CalibrationRun[]
   evidenceManifests      EvidenceManifest[]
   dimensionComputations  DimensionComputation[]
-  scoringV2EvidenceExports ScoringV2EvidenceExport[]
+  scoringEvidenceExports ScoringEvidenceExport[]
   characterScores        CharacterScore[]
 
   @@unique([regionId, slug])
@@ -375,7 +377,7 @@ model Character {
   runFactSets              RunFactSet[]
   dimensionComputations    DimensionComputation[]
   wclRunParticipants       WclRunParticipant[]
-  shadowCanaries           ScoringV2ShadowCanary[]
+  shadowCanaries           ScoringShadowCanary[]
   participantScoringDigests ParticipantScoringDigest[]
   characterRunDigests      CharacterRunDigest[]
   runRankingFacts          RunRankingFact[]
@@ -848,7 +850,7 @@ model ScoreModel {
   calibrationRunsAsActive      CalibrationRun[] @relation("CalibrationRunActiveModel")
   calibrationRunsAsEvaluation  CalibrationRun[] @relation("CalibrationRunEvaluationModel")
   dimensionComputations        DimensionComputation[]
-  scoringV2EvidenceExports     ScoringV2EvidenceExport[]
+  scoringEvidenceExports     ScoringEvidenceExport[]
 
   @@unique([key, version])
   @@index([status])
@@ -1105,8 +1107,8 @@ model User {
   calibrationCohorts CalibrationCohort[]
   calibrationRuns    CalibrationRun[]
   runtimeSettingsUpdated RuntimeSetting[] @relation("RuntimeSettingUpdatedBy")
-  scoringV2EvidenceExports ScoringV2EvidenceExport[]
-  shadowCanariesRequested ScoringV2ShadowCanary[] @relation("ShadowCanaryRequestedBy")
+  scoringEvidenceExports ScoringEvidenceExport[]
+  shadowCanariesRequested ScoringShadowCanary[] @relation("ShadowCanaryRequestedBy")
 
   @@unique([authProvider, externalSubject])
   @@map("users")
@@ -1611,7 +1613,7 @@ model CalibrationCohort {
   createdBy User                      @relation(fields: [createdByUserId], references: [id])
   members   CalibrationCohortMember[]
   runs      CalibrationRun[]
-  evidenceExports ScoringV2EvidenceExport[]
+  evidenceExports ScoringEvidenceExport[]
 
   @@index([status, updatedAt(sort: Desc)])
   @@index([createdByUserId, updatedAt(sort: Desc)])
@@ -1728,7 +1730,7 @@ model CalibrationReport {
 }
 
 // ---------------------------------------------------------------------------
-// Scoring V2 evidence / fact / dimension persistence (additive; V1 retained)
+// Scoring evidence / fact / dimension persistence
 // ---------------------------------------------------------------------------
 
 model EvidenceManifest {
@@ -1907,7 +1909,7 @@ model DimensionComputation {
 }
 
 // ---------------------------------------------------------------------------
-// Scoring V2 Control Center — typed runtime settings + evidence exports
+// Scoring Control Center — typed runtime settings + evidence exports
 // ---------------------------------------------------------------------------
 
 /**
@@ -1932,14 +1934,14 @@ model RuntimeSetting {
  * Admin evidence-join export job. Provider-free; writes only its own row + artifacts.
  * Never mutates character / evidence / score rows.
  */
-model ScoringV2EvidenceExport {
+model ScoringEvidenceExport {
   id                       String                        @id @default(uuid()) @db.Uuid
   cohortId                 String                        @map("cohort_id") @db.Uuid
   /** Immutable cohort revision captured at request time. */
   cohortRevision           Int                           @map("cohort_revision")
   seasonId                 String?                       @map("season_id") @db.Uuid
   scoreModelId             String?                       @map("score_model_id") @db.Uuid
-  status                   ScoringV2EvidenceExportStatus @default(QUEUED)
+  status                   ScoringEvidenceExportStatus @default(QUEUED)
   /** Bounded progress counters (members scanned, etc.). */
   progress                 Json                          @default("{}")
   /** Bounded summary (counts, blockers, warnings) — no artifact bodies. */
@@ -2002,7 +2004,7 @@ model ScoringV2EvidenceExport {
 }
 
 // ---------------------------------------------------------------------------
-// Scoring V2 Shadow Canary — durable WCL source reuse + admin canary runs
+// Scoring Shadow Canary — durable WCL source reuse + admin canary runs
 // ---------------------------------------------------------------------------
 
 /**
@@ -2117,7 +2119,7 @@ model WclRunParticipant {
 /**
  * Admin-launched Shadow Canary run. Asynchronous; never publishes V1/V2 scores.
  */
-model ScoringV2ShadowCanary {
+model ScoringShadowCanary {
   id                  String    @id @default(uuid()) @db.Uuid
   characterId         String    @map("character_id") @db.Uuid
   regionCode          String    @map("region_code")
@@ -2281,7 +2283,7 @@ model CapabilityEvidencePackageRecord {
    * When set on a newer package, the named compatibility key is excluded from
    * compatible lookup. The superseded row is never mutated or deleted.
    */
-  supersedesCompatibilityKey String? @map("supersedes_compatibility_key")
+  legacySupersedesKey String? @map("supersedes_compatibility_key")
   createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt             DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
@@ -2289,7 +2291,7 @@ model CapabilityEvidencePackageRecord {
 
   @@index([reportCode, fightId, reportRevision])
   @@index([contentHash])
-  @@index([supersedesCompatibilityKey])
+  @@index([legacySupersedesKey])
   @@map("capability_evidence_package_records")
 }
 

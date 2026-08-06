@@ -2,7 +2,7 @@
  * INTERNAL / TEST_ONLY Scoring V2 canary CLI.
  *
  * Public operator surface is `public-cli.ts`:
- *   pnpm scoring-v2:canary | scoring-v2:replay | scoring-v2:doctor
+ *   pnpm scoring:canary | scoring:replay | scoring:doctor
  *
  * This module remains for focused unit tests (`canary:internal`) and must not
  * be re-exported as root package scripts.
@@ -19,10 +19,10 @@ import type { WclRateLimitSnapshot } from "@mplus/provider-warcraftlogs";
 import { createMemoryOrchestrationPorts } from "../run-orchestration/memory-ports.js";
 import {
   isManifestCompatibleWithSeasonPool,
-  runScoringV2CanaryPreflight,
+  runScoringCanaryPreflight,
 } from "../run-orchestration/canary-preflight.js";
 import {
-  isScoringV2ShadowOrchestrationEnabled,
+  isScoringEnabled,
   assertPublicationBlocked,
 } from "../acquisition.js";
 import type { EvidenceCandidateMetadataV2 } from "@mplus/contracts";
@@ -60,7 +60,7 @@ import {
 } from "./canary-discovery-gates.js";
 import {
   createDiscoveryForbiddenAcquireHook,
-  runScoringV2CanaryDiscovery,
+  runScoringCanaryDiscovery,
   type CanaryDiscoverContext,
 } from "./canary-discover.js";
 import type {
@@ -78,10 +78,10 @@ import {
   type CanaryRateSnapshotBootstrapReport,
 } from "./canary-rate-snapshot.js";
 import {
-  runScoringV2CanaryLive,
+  runScoringCanaryLive,
   type CanaryLiveReport,
 } from "./canary-live.js";
-import { runScoringV2CanaryReplay } from "./canary-replay.js";
+import { runScoringCanaryReplay } from "./canary-replay.js";
 import { runTargetDigestDiagnostic } from "./canary-target-digest-diagnostic.js";
 
 export interface CanaryCliArgs {
@@ -323,7 +323,7 @@ export function evaluateCanaryLiveGates(
   if (!input.env.ALLOW_LIVE_PROVIDER_CALLS) {
     reasons.push("ALLOW_LIVE_PROVIDER_CALLS_FALSE");
   }
-  if (!isScoringV2ShadowOrchestrationEnabled(input.env as never)) {
+  if (!isScoringEnabled(input.env as never)) {
     reasons.push("SHADOW_FLAGS_DISABLED");
   }
   if (input.env.SCORING_PUBLICATION_ENABLED) {
@@ -414,7 +414,7 @@ export async function runCanaryPreflightCommand(
   },
 ): Promise<{
   reportPath: string;
-  report: Awaited<ReturnType<typeof runScoringV2CanaryPreflight>>;
+  report: Awaited<ReturnType<typeof runScoringCanaryPreflight>>;
   zone: ResolvedCanaryZone;
   seasonResolution: CanarySeasonResolution | null;
   characterResolution: CanaryCharacterResolution;
@@ -561,7 +561,7 @@ export async function runCanaryPreflightCommand(
   if (repositoryMode === "PRODUCTION" && env) {
     const outDir =
       args.outputDir ??
-      join(process.cwd(), "artifacts", "scoring-v2-canary");
+      join(process.cwd(), "artifacts", "scoring-canary");
     const snapPath = defaultCanaryRateSnapshotPath(outDir);
     const persisted = await readPersistedCanaryRateSnapshot(snapPath);
     const ttlSeconds = env.WCL_CANARY_RATE_SNAPSHOT_TTL_SECONDS;
@@ -592,7 +592,7 @@ export async function runCanaryPreflightCommand(
     }
   }
 
-  const report = await runScoringV2CanaryPreflight({
+  const report = await runScoringCanaryPreflight({
     characterId: characterResolution.characterId,
     characterName: args.character,
     region: args.region,
@@ -661,7 +661,7 @@ export async function runCanaryPreflightCommand(
   const outDir =
     options?.outputDir ??
     args.outputDir ??
-    join(process.cwd(), "artifacts", "scoring-v2-canary");
+    join(process.cwd(), "artifacts", "scoring-canary");
   await mkdir(outDir, { recursive: true });
   const reportPath = join(
     outDir,
@@ -704,7 +704,7 @@ export async function runCanaryDiagnoseCatalogCommand(
     const report = await diagnoseSeasonCatalog(container.prisma);
     const outDir =
       args.outputDir ??
-      join(process.cwd(), "artifacts", "scoring-v2-canary");
+      join(process.cwd(), "artifacts", "scoring-canary");
     await mkdir(outDir, { recursive: true });
     const reportPath = join(outDir, "season-catalog-diagnostic.json");
     await writeFile(reportPath, JSON.stringify(report, null, 2), "utf8");
@@ -820,10 +820,10 @@ export async function runCanaryDiscoverCommand(
     const role = (deps.character.role ?? "DPS") as EvidenceRole;
     const outDir =
       args.outputDir ??
-      join(process.cwd(), "artifacts", "scoring-v2-canary");
+      join(process.cwd(), "artifacts", "scoring-canary");
     const snapshotPath = defaultCanaryRateSnapshotPath(outDir);
 
-    const { report } = await runScoringV2CanaryDiscovery({
+    const { report } = await runScoringCanaryDiscovery({
       prisma: deps.container.prisma,
       artifacts: deps.container.repositories.artifacts,
       evidence: deps.container.repositories.evidence,
@@ -931,7 +931,7 @@ export async function runCanaryDiscoverCommand(
     log(
       JSON.stringify(
         {
-          summary: "scoring-v2-canary-discovery",
+          summary: "scoring-canary-discovery",
           reportsListed: report.reportsListed,
           reportsHydrated: report.reportsHydrated,
           reportsRemaining: report.unhydratedReportCount,
@@ -991,7 +991,7 @@ export async function runCanaryRateSnapshotCommand(
   try {
     const outDir =
       args.outputDir ??
-      join(process.cwd(), "artifacts", "scoring-v2-canary");
+      join(process.cwd(), "artifacts", "scoring-canary");
     const snapshotPath = defaultCanaryRateSnapshotPath(outDir);
     const bootstrap = await bootstrapCanaryRateLimitSnapshot({
       persistPath: snapshotPath,
@@ -1027,7 +1027,7 @@ export async function runCanaryLiveCommand(
     env?: NodeJS.ProcessEnv;
     log?: (message: string) => void;
     /** Test injection — skip production WCL wiring. */
-    liveRunner?: typeof runScoringV2CanaryLive;
+    liveRunner?: typeof runScoringCanaryLive;
     ensureRateLimitSnapshotOverride?: () => Promise<CanaryRateSnapshotBootstrapReport>;
     ports?: ReturnType<typeof createMemoryOrchestrationPorts>;
     outputDir?: string;
@@ -1091,7 +1091,7 @@ export async function runCanaryLiveCommand(
       stopPercent: env.WCL_RATE_STOP_PERCENT ?? 90,
     };
 
-    const runner = options?.liveRunner ?? runScoringV2CanaryLive;
+    const runner = options?.liveRunner ?? runScoringCanaryLive;
     const { report, reportPath } = await runner({
       prisma: deps.container.prisma,
       container: deps.container,
@@ -1116,7 +1116,7 @@ export async function runCanaryLiveCommand(
     log(
       JSON.stringify(
         {
-          summary: "scoring-v2-canary-live",
+          summary: "scoring-canary-live",
           reportPath,
           manifestId: report.manifestId,
           selectedSlotCount: report.selectedSlotCount,
@@ -1206,7 +1206,7 @@ async function main(): Promise<void> {
         regionCode: args.region,
       });
       assertSeasonCatalogOk(season);
-      const { reportPath, report } = await runScoringV2CanaryReplay({
+      const { reportPath, report } = await runScoringCanaryReplay({
         env,
         prisma: deps.container.prisma,
         container: deps.container,
@@ -1558,7 +1558,7 @@ async function main(): Promise<void> {
 
 const isDirect =
   process.argv[1]?.includes("canary") ||
-  process.argv[1]?.includes("scoring-v2-canary");
+  process.argv[1]?.includes("scoring-canary");
 
 if (isDirect) {
   main().catch((err) => {

@@ -74,11 +74,11 @@ export const ALL_PRISMA_MAPPED_TABLES = [
   "run_fact_sets",
   "dimension_computations",
   "runtime_settings",
-  "scoring_v2_evidence_exports",
+  "scoring_evidence_exports",
   "evidence_dataset_pages",
   "wcl_run_source_digests",
   "wcl_run_participants",
-  "scoring_v2_shadow_canaries",
+  "scoring_shadow_canaries",
 ] as const;
 
 export type PrismaMappedTable = (typeof ALL_PRISMA_MAPPED_TABLES)[number];
@@ -89,7 +89,7 @@ export type PrismaMappedTable = (typeof ALL_PRISMA_MAPPED_TABLES)[number];
  */
 export const WCL_SCORING_DERIVED_CLEAR_TABLES = [
   // Scoring V2 / WCL ownership persistence
-  "scoring_v2_shadow_canaries",
+  "scoring_shadow_canaries",
   "dimension_computations",
   "run_fact_sets",
   "evidence_dataset_pages",
@@ -99,7 +99,7 @@ export const WCL_SCORING_DERIVED_CLEAR_TABLES = [
   "wcl_run_participants",
   "wcl_run_source_digests",
   "wcl_report_revisions",
-  "scoring_v2_evidence_exports",
+  "scoring_evidence_exports",
   // V1 score / analysis
   "score_analysis_batch_runs",
   "score_analysis_batches",
@@ -210,8 +210,8 @@ export const WCL_SCORING_DERIVED_REDIS_KEY_PREFIXES = [
   "bull:analyze-evidence-slot",
   "bull:finalize-analysis-batch",
   "bull:refresh-character-calibration",
-  "bull:scoring-v2-evidence-export",
-  "bull:scoring-v2-shadow-canary",
+  "bull:scoring-evidence-export",
+  "bull:scoring-shadow-canary",
 ] as const;
 
 /**
@@ -245,6 +245,6 @@ export const REQUIRED_WCL_OWNERSHIP_CLEAR_TABLES = [
   "evidence_dataset_pages",
   "wcl_run_source_digests",
   "wcl_run_participants",
-  "scoring_v2_shadow_canaries",
+  "scoring_shadow_canaries",
   "wcl_report_revisions",
 ] as const;

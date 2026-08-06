@@ -23,7 +23,7 @@ import {
   resolveFrozenCharacterIdentity,
   resolveFrozenClassSpecIdentity,
 } from "./class-spec-identity.js";
-import { FixtureScoringV2EvidenceTransport } from "./evidence-transport.js";
+import { FixtureScoringEvidenceTransport } from "./evidence-transport.js";
 
 function mageFrostPlan(overrides?: {
   classSlug?: string | null;
@@ -182,11 +182,6 @@ function mockContainer() {
     logger: { info: () => undefined, warn: () => undefined, error: () => undefined },
     env: {
       SCORING_PUBLICATION_ENABLED: false,
-      SCORING_ENABLED: false,
-      SCORING_ENABLED: false,
-      SCORING_ENABLED: false,
-      SCORING_ENABLED: false,
-      SCORING_ENABLED: false,
       SCORING_ENABLED: false,
     },
   } as never;
@@ -430,7 +425,7 @@ describe("production-style class/spec identity propagation", () => {
       planSpecSlug: plan.specSlug,
     });
     const bundle = completeBundle({ reportCode, fightId, reportRevision });
-    const transport = new FixtureScoringV2EvidenceTransport({
+    const transport = new FixtureScoringEvidenceTransport({
       fightDetails: {
         data: { reportRevision },
         reportRevision,
@@ -564,7 +559,7 @@ describe("production-style class/spec identity propagation", () => {
       planSpecSlug: null,
     });
     const bundle = completeBundle({ reportCode, fightId, reportRevision });
-    const transport = new FixtureScoringV2EvidenceTransport({
+    const transport = new FixtureScoringEvidenceTransport({
       fightDetails: {
         data: { reportRevision },
         reportRevision,
@@ -657,7 +652,7 @@ describe("production-style class/spec identity propagation", () => {
     });
     expect(incompatible.catalogDependentFailClosed).toBe(true);
 
-    const transport = new FixtureScoringV2EvidenceTransport({
+    const transport = new FixtureScoringEvidenceTransport({
       fightDetails: {
         data: { reportRevision },
         reportRevision,

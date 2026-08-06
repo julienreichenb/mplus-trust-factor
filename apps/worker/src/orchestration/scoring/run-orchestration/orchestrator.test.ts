@@ -18,8 +18,8 @@ import {
 import {
   createMemoryOrchestrationPorts,
   fingerprintDimensionResults,
-  orchestrateScoringV2Runs,
-  replayScoringV2FromPersistedEvidence,
+  orchestrateScoringRuns,
+  replayScoringFromPersistedEvidence,
   sourceFightKey,
 } from "./index.js";
 
@@ -111,7 +111,7 @@ function fullSixteenCandidates(): EvidenceCandidateMetadataV2[] {
 
 function baseOrchestrationInput(
   ports: ReturnType<typeof createMemoryOrchestrationPorts>,
-  overrides?: Partial<Parameters<typeof orchestrateScoringV2Runs>[0]>,
+  overrides?: Partial<Parameters<typeof orchestrateScoringRuns>[0]>,
 ) {
   return {
     characterId: CHAR_ID,
@@ -134,7 +134,7 @@ function baseOrchestrationInput(
 describe("scoring V2 run orchestration (provider-free)", () => {
   it("selects 8 dungeons × 2 distinct runs = 16 slots", async () => {
     const ports = createMemoryOrchestrationPorts();
-    const result = await orchestrateScoringV2Runs(baseOrchestrationInput(ports));
+    const result = await orchestrateScoringRuns(baseOrchestrationInput(ports));
     expect(result.expectedSlotCount).toBe(expectedEvidenceSlotCount(8));
     expect(result.selectedSlotCount).toBe(16);
     expect(result.incomplete).toBe(false);
@@ -146,7 +146,7 @@ describe("scoring V2 run orchestration (provider-free)", () => {
     const candidates = fullSixteenCandidates().filter(
       (c) => c.dungeonSlug !== "the-rookery",
     );
-    const result = await orchestrateScoringV2Runs(
+    const result = await orchestrateScoringRuns(
       baseOrchestrationInput(ports, { candidates }),
     );
     expect(result.incomplete).toBe(true);
@@ -181,7 +181,7 @@ describe("scoring V2 run orchestration (provider-free)", () => {
         keyLevel: 12,
       }),
     ];
-    const result = await orchestrateScoringV2Runs(
+    const result = await orchestrateScoringRuns(
       baseOrchestrationInput(ports, {
         scope: scope({ activeDungeonSlugs: ["skyreach"] }),
         candidates,
@@ -193,12 +193,12 @@ describe("scoring V2 run orchestration (provider-free)", () => {
 
   it("compatible provider package causes 0 WCL calls", async () => {
     const ports = createMemoryOrchestrationPorts();
-    const first = await orchestrateScoringV2Runs(baseOrchestrationInput(ports));
+    const first = await orchestrateScoringRuns(baseOrchestrationInput(ports));
     expect(first.accounting.providerCalls).toBeGreaterThan(0);
     const callsAfterFirst = ports.stats.providerCalls;
     const packagesAfterFirst = ports.getPackageCount();
 
-    const second = await orchestrateScoringV2Runs(
+    const second = await orchestrateScoringRuns(
       baseOrchestrationInput(ports, {
         existingManifest: first.manifest,
         liveProviderPermission: "FORBIDDEN",
@@ -212,7 +212,7 @@ describe("scoring V2 run orchestration (provider-free)", () => {
 
   it("missing package + live disabled returns structured cache miss", async () => {
     const ports = createMemoryOrchestrationPorts();
-    const result = await orchestrateScoringV2Runs(
+    const result = await orchestrateScoringRuns(
       baseOrchestrationInput(ports, {
         liveProviderPermission: "FORBIDDEN",
         scope: scope({ activeDungeonSlugs: ["skyreach"] }),
@@ -240,7 +240,7 @@ describe("scoring V2 run orchestration (provider-free)", () => {
 
   it("one missing fight + live enabled performs one acquisition and five digests", async () => {
     const ports = createMemoryOrchestrationPorts();
-    const result = await orchestrateScoringV2Runs(
+    const result = await orchestrateScoringRuns(
       baseOrchestrationInput(ports, {
         scope: scope({ activeDungeonSlugs: ["skyreach"] }),
         candidates: [
@@ -286,9 +286,9 @@ describe("scoring V2 run orchestration (provider-free)", () => {
         }),
       ],
     });
-    const first = await orchestrateScoringV2Runs(input);
+    const first = await orchestrateScoringRuns(input);
     const acquires = ports.stats.acquireCalls;
-    const second = await orchestrateScoringV2Runs({
+    const second = await orchestrateScoringRuns({
       ...input,
       existingManifest: first.manifest,
     });
@@ -299,7 +299,7 @@ describe("scoring V2 run orchestration (provider-free)", () => {
 
   it("one missing digest rebuilds from persisted package without WCL", async () => {
     const ports = createMemoryOrchestrationPorts();
-    const first = await orchestrateScoringV2Runs(
+    const first = await orchestrateScoringRuns(
       baseOrchestrationInput(ports, {
         scope: scope({ activeDungeonSlugs: ["skyreach"] }),
         candidates: [
@@ -347,7 +347,7 @@ describe("scoring V2 run orchestration (provider-free)", () => {
     for (const d of kept) ports2.seedDigest(d);
 
     const providerBefore = ports2.stats.providerCalls;
-    const replay = await replayScoringV2FromPersistedEvidence({
+    const replay = await replayScoringFromPersistedEvidence({
       ...baseOrchestrationInput(ports2),
       existingManifest: first.manifest,
       liveProviderPermission: undefined as never,
@@ -380,8 +380,8 @@ describe("scoring V2 run orchestration (provider-free)", () => {
       ],
     });
     const [a, b] = await Promise.all([
-      orchestrateScoringV2Runs(input),
-      orchestrateScoringV2Runs(input),
+      orchestrateScoringRuns(input),
+      orchestrateScoringRuns(input),
     ]);
     expect(ports.stats.acquireCalls).toBeLessThanOrEqual(2); // two unique fights
     expect(ports.getPackageCount()).toBe(2);
@@ -392,7 +392,7 @@ describe("scoring V2 run orchestration (provider-free)", () => {
 
   it("16 selected fights produce 80 participant digests; each fight acquired at most once", async () => {
     const ports = createMemoryOrchestrationPorts();
-    const result = await orchestrateScoringV2Runs(baseOrchestrationInput(ports));
+    const result = await orchestrateScoringRuns(baseOrchestrationInput(ports));
     expect(result.uniqueSourceFights).toHaveLength(16);
     expect(result.allParticipantDigests).toHaveLength(80);
     expect(ports.stats.acquireCalls).toBe(16);
@@ -402,10 +402,10 @@ describe("scoring V2 run orchestration (provider-free)", () => {
 
   it("provider-free replay is deterministic with zero provider calls", async () => {
     const ports = createMemoryOrchestrationPorts();
-    const first = await orchestrateScoringV2Runs(baseOrchestrationInput(ports));
+    const first = await orchestrateScoringRuns(baseOrchestrationInput(ports));
     const fingerprint1 = fingerprintDimensionResults(first);
 
-    const second = await replayScoringV2FromPersistedEvidence({
+    const second = await replayScoringFromPersistedEvidence({
       ...baseOrchestrationInput(ports),
       existingManifest: first.manifest,
     });
@@ -417,7 +417,7 @@ describe("scoring V2 run orchestration (provider-free)", () => {
 
   it("digest version change rebuilds digests only (no WCL)", async () => {
     const ports = createMemoryOrchestrationPorts();
-    const first = await orchestrateScoringV2Runs(
+    const first = await orchestrateScoringRuns(
       baseOrchestrationInput(ports, {
         scope: scope({ activeDungeonSlugs: ["skyreach"] }),
         candidates: [
@@ -449,7 +449,7 @@ describe("scoring V2 run orchestration (provider-free)", () => {
         await ports.resolveParticipantsForFight({ sourceFight: fight }),
       );
     }
-    const rebuilt = await orchestrateScoringV2Runs(
+    const rebuilt = await orchestrateScoringRuns(
       baseOrchestrationInput(ports2, {
         existingManifest: first.manifest,
         liveProviderPermission: "FORBIDDEN",
@@ -466,7 +466,7 @@ describe("scoring V2 run orchestration (provider-free)", () => {
 
   it("score-model change recalculates without WCL or digest rebuild", async () => {
     const ports = createMemoryOrchestrationPorts();
-    const first = await orchestrateScoringV2Runs(
+    const first = await orchestrateScoringRuns(
       baseOrchestrationInput(ports, {
         scope: scope({ activeDungeonSlugs: ["skyreach"] }),
         candidates: [
@@ -489,7 +489,7 @@ describe("scoring V2 run orchestration (provider-free)", () => {
     const packagesBefore = ports.getPackageCount();
     const providerBefore = ports.stats.providerCalls;
 
-    const second = await orchestrateScoringV2Runs(
+    const second = await orchestrateScoringRuns(
       baseOrchestrationInput(ports, {
         existingManifest: first.manifest,
         scoringModelId: "model-2",

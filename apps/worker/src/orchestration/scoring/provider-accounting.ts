@@ -3,7 +3,7 @@
  * Aggregates per-slot counters into canary.diagnostics.providerAccounting.
  */
 
-export interface ScoringV2ProviderAccounting {
+export interface ScoringProviderAccounting {
   /** HTTP/provider round-trips observed during acquisition (excludes discovery). */
   providerCalls: number;
   /** Persistent + L1 cache hits that avoided a provider fetch. */
@@ -20,7 +20,7 @@ export interface ScoringV2ProviderAccounting {
   bytes: number;
 }
 
-export function emptyProviderAccounting(): ScoringV2ProviderAccounting {
+export function emptyProviderAccounting(): ScoringProviderAccounting {
   return {
     providerCalls: 0,
     cacheHits: 0,
@@ -33,9 +33,9 @@ export function emptyProviderAccounting(): ScoringV2ProviderAccounting {
 }
 
 export function addProviderAccounting(
-  into: ScoringV2ProviderAccounting,
-  add: Partial<ScoringV2ProviderAccounting> | null | undefined,
-): ScoringV2ProviderAccounting {
+  into: ScoringProviderAccounting,
+  add: Partial<ScoringProviderAccounting> | null | undefined,
+): ScoringProviderAccounting {
   if (!add) return into;
   const pointsParts: number[] = [];
   if (into.pointsConsumed != null) pointsParts.push(into.pointsConsumed);
@@ -52,15 +52,15 @@ export function addProviderAccounting(
 }
 
 export function aggregateProviderAccounting(
-  parts: Array<Partial<ScoringV2ProviderAccounting> | null | undefined>,
-): ScoringV2ProviderAccounting {
-  return parts.reduce<ScoringV2ProviderAccounting>(
+  parts: Array<Partial<ScoringProviderAccounting> | null | undefined>,
+): ScoringProviderAccounting {
+  return parts.reduce<ScoringProviderAccounting>(
     (acc, part) => addProviderAccounting(acc, part),
     emptyProviderAccounting(),
   );
 }
 
-export function parseProviderAccounting(value: unknown): ScoringV2ProviderAccounting | null {
+export function parseProviderAccounting(value: unknown): ScoringProviderAccounting | null {
   if (value == null || typeof value !== "object" || Array.isArray(value)) return null;
   const row = value as Record<string, unknown>;
   return {

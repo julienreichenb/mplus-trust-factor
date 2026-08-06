@@ -3,15 +3,15 @@
  * Loads a frozen EvidenceManifest and produces a bounded lineage audit JSON.
  */
 
-import type { ScoringV2EvidenceAuditDocument } from "@mplus/contracts";
+import type { ScoringEvidenceAuditDocument } from "@mplus/contracts";
 import {
-  buildScoringV2EvidenceAudit,
-  replayScoringV2Dimensions,
+  buildscoringEvidenceAudit,
+  replayscoringDimensions,
   type AuditDatasetInput,
   type AuditDatasetPageInput,
   type AuditFactSetInput,
   type PersistedFactSetRef,
-  type ScoringV2PublicDimension,
+  type ScoringPublicDimension,
 } from "@mplus/scoring";
 import type { ApiContainer } from "../container.js";
 import { HttpError } from "../errors.js";
@@ -26,14 +26,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-export class ScoringV2EvidenceAuditService {
+export class ScoringEvidenceAuditService {
   constructor(private readonly container: ApiContainer) {}
 
   private get prisma() {
     return this.container.worker.prisma;
   }
 
-  async getEvidenceAudit(manifestId: string): Promise<ScoringV2EvidenceAuditDocument> {
+  async getEvidenceAudit(manifestId: string): Promise<ScoringEvidenceAuditDocument> {
     const manifest = await this.prisma.evidenceManifest.findUnique({
       where: { id: manifestId },
       include: {
@@ -292,7 +292,7 @@ export class ScoringV2EvidenceAuditService {
       )?.id ??
       "00000000-0000-0000-0000-000000000000";
 
-    const replay = replayScoringV2Dimensions({
+    const replay = replayscoringDimensions({
       characterId: manifest.characterId,
       seasonId: manifest.seasonId,
       manifestId: manifest.id,
@@ -301,11 +301,11 @@ export class ScoringV2EvidenceAuditService {
       expectedManifestContentHash: manifest.contentHash,
       factSets: factRefs,
       persistedDimensions: dimensions
-        .filter((d): d is typeof d & { dimension: ScoringV2PublicDimension } =>
+        .filter((d): d is typeof d & { dimension: ScoringPublicDimension } =>
           ["PERFORMANCE", "SURVIVAL", "UTILITY"].includes(d.dimension),
         )
         .map((d) => ({
-          dimension: d.dimension as ScoringV2PublicDimension,
+          dimension: d.dimension as ScoringPublicDimension,
           score: d.score,
           confidence: d.confidence,
           state:
@@ -320,7 +320,7 @@ export class ScoringV2EvidenceAuditService {
       enabledDimensions: ["PERFORMANCE", "SURVIVAL", "UTILITY"],
     });
 
-    return buildScoringV2EvidenceAudit({
+    return buildscoringEvidenceAudit({
       manifestId: manifest.id,
       characterId: manifest.characterId,
       seasonId: manifest.seasonId,

@@ -28,15 +28,15 @@ export { DIMENSION_WEIGHT_KEYS, SKILL_DIMENSIONS } from "./types.js";
 export {
   stableSha256,
   ModelConfigValidationError,
-  SCORING_V2_DIMENSION_CONFIGS_SCHEMA_VERSION,
-  createDefaultScoringV2DimensionConfigSet,
-  parseScoringV2DimensionConfigSet,
+  scoring_DIMENSION_CONFIGS_SCHEMA_VERSION,
+  createDefaultscoringDimensionConfigSet,
+  parsescoringDimensionConfigSet,
   resolveScoreModelV2DimensionConfigs,
-  withScoringV2DimensionConfigs,
+  withscoringDimensionConfigs,
 } from "./model-config/index.js";
 export type {
-  ScoringV2DimensionConfigSet,
-  ScoringV2DimensionConfigFingerprints,
+  scoringDimensionConfigSet,
+  scoringDimensionConfigFingerprints,
   ResolvedScoreModelV2DimensionConfigs,
 } from "./model-config/index.js";
 
@@ -730,7 +730,7 @@ export {
   buildDigestScoreLineage,
 } from "./dimensions/v2/index.js";
 export type {
-  ScoringV2PublicDimension,
+  ScoringPublicDimension,
   DimensionComputationLifecycleState,
   DimensionAvailabilityState,
   NormalizedShadowDimensionMetrics,
@@ -768,22 +768,22 @@ export {
   buildUtilityFeatureUsage,
   buildPerformanceFeatureUsage,
   featureUsageFromMetrics,
-  buildScoringV2EvidenceAudit,
+  buildscoringEvidenceAudit,
   fingerprintExplanationMetrics,
   identityValidFactSets,
-  replayScoringV2Dimensions,
+  replayscoringDimensions,
 } from "./audit/index.js";
 export type {
   PersistedDatasetKey,
   ExpectedEventDatasetSpec,
   FeatureUsageBuildResult,
-  BuildScoringV2EvidenceAuditInput,
+  BuildscoringEvidenceAuditInput,
   AuditDatasetInput,
   AuditDatasetPageInput,
   AuditFactSetInput,
   AuditDimensionInput,
   AuditMasterDataInput,
   AuditManifestSlotRow,
-  ReplayScoringV2DimensionsInput,
+  ReplayscoringDimensionsInput,
   ReplayPersistedDimension,
 } from "./audit/index.js";

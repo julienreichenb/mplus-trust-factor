@@ -9,8 +9,8 @@ import {
   TargetCharacterDigestError,
 } from "./run-orchestration/target-character-identity.js";
 import {
-  orchestrateScoringV2Runs,
-  replayScoringV2FromPersistedEvidence,
+  orchestrateScoringRuns,
+  replayScoringFromPersistedEvidence,
 } from "./run-orchestration/orchestrator.js";
 import { createMemoryOrchestrationPorts } from "./run-orchestration/memory-ports.js";
 import { MIDNIGHT_SEASON_1_DUNGEON_SLUGS } from "./canary/canary-catalog.js";
@@ -256,7 +256,7 @@ describe("performance partial evidence", () => {
       }
     }
     seedParticipants(ports, candidates);
-    const result = await orchestrateScoringV2Runs({
+    const result = await orchestrateScoringRuns({
       characterId: CHAR_ID,
       region: "eu",
       realm: "archimonde",
@@ -296,7 +296,7 @@ describe("performance partial evidence", () => {
     }
     seedParticipants(ports, candidates);
     // First orchestrate with ranking.
-    const full = await orchestrateScoringV2Runs({
+    const full = await orchestrateScoringRuns({
       characterId: CHAR_ID,
       region: "eu",
       realm: "archimonde",
@@ -365,7 +365,7 @@ describe("provider-free replay", () => {
       }
     }
     seedParticipants(ports, candidates);
-    const seeded = await orchestrateScoringV2Runs({
+    const seeded = await orchestrateScoringRuns({
       characterId: CHAR_ID,
       region: "eu",
       realm: "archimonde",
@@ -381,7 +381,7 @@ describe("provider-free replay", () => {
     const createdBefore = seeded.accounting.digestsCreated;
     acquire.mockClear();
 
-    const replay = await replayScoringV2FromPersistedEvidence({
+    const replay = await replayScoringFromPersistedEvidence({
       characterId: CHAR_ID,
       region: "eu",
       realm: "archimonde",
@@ -442,7 +442,7 @@ describe("provider-free replay", () => {
       ];
     };
 
-    const result = await orchestrateScoringV2Runs({
+    const result = await orchestrateScoringRuns({
       characterId: CHAR_ID,
       region: "eu",
       realm: "archimonde",

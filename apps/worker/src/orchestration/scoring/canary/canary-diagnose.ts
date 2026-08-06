@@ -34,7 +34,7 @@ export interface SeasonCatalogDiagnosticRow {
 }
 
 export interface SeasonCatalogDiagnosticReport {
-  schemaVersion: "scoring-v2-canary-season-catalog-diagnostic-v1";
+  schemaVersion: "scoring-canary-season-catalog-diagnostic-v1";
   providerCalls: 0;
   expectedMidnightSlugs: readonly string[];
   seasons: SeasonCatalogDiagnosticRow[];
@@ -126,7 +126,7 @@ export async function diagnoseSeasonCatalog(
   }
 
   return {
-    schemaVersion: "scoring-v2-canary-season-catalog-diagnostic-v1",
+    schemaVersion: "scoring-canary-season-catalog-diagnostic-v1",
     providerCalls: 0,
     expectedMidnightSlugs: MIDNIGHT_SEASON_1_DUNGEON_SLUGS,
     seasons: rows,

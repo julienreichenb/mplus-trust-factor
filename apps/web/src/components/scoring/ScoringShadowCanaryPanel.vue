@@ -88,7 +88,7 @@ async function adminFetch<T>(path: string, init?: globalThis.RequestInit): Promi
 
 async function refreshList(): Promise<void> {
   const res = await adminFetch<{ items: CanaryRow[] }>(
-    "/api/v1/admin/scoring-v2/shadow-canaries",
+    "/api/v1/admin/scoring/shadow-canaries",
   );
   history.value = res.items;
 }
@@ -97,7 +97,7 @@ async function launch(): Promise<void> {
   launching.value = true;
   error.value = null;
   try {
-    latest.value = await adminFetch<CanaryRow>("/api/v1/admin/scoring-v2/shadow-canaries", {
+    latest.value = await adminFetch<CanaryRow>("/api/v1/admin/scoring/shadow-canaries", {
       method: "POST",
       body: JSON.stringify({
         region: region.value,
@@ -114,7 +114,7 @@ async function launch(): Promise<void> {
 }
 
 async function pollSelected(id: string): Promise<void> {
-  latest.value = await adminFetch<CanaryRow>(`/api/v1/admin/scoring-v2/shadow-canaries/${id}`);
+  latest.value = await adminFetch<CanaryRow>(`/api/v1/admin/scoring/shadow-canaries/${id}`);
 }
 
 onMounted(() => {

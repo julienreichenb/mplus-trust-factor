@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   FEATURE_REGISTRY_V2_VERSION,
   EVIDENCE_AUDIT_V2_SCHEMA_VERSION,
-  scoringV2EvidenceAuditDocumentSchema,
+  ScoringEvidenceAuditDocumentSchema,
   featureScoringRoleSchema,
 } from "./evidence-audit-v2.js";
 
@@ -19,7 +19,7 @@ describe("evidence-audit-v2 contracts", () => {
   });
 
   it("rejects audit documents with raw event arrays shape misuse via schema bounds", () => {
-    const parsed = scoringV2EvidenceAuditDocumentSchema.safeParse({
+    const parsed = ScoringEvidenceAuditDocumentSchema.safeParse({
       schemaVersion: EVIDENCE_AUDIT_V2_SCHEMA_VERSION,
       featureRegistryVersion: FEATURE_REGISTRY_V2_VERSION,
       auditedAt: "2026-08-04T12:00:00.000Z",

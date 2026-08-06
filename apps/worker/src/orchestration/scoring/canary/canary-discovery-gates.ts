@@ -5,7 +5,7 @@
 import type { AppEnv } from "@mplus/config";
 import {
   assertPublicationBlocked,
-  isScoringV2ShadowOrchestrationEnabled,
+  isScoringEnabled,
 } from "../acquisition.js";
 import { evaluateRateBudget, type RateBudgetConfig } from "@mplus/provider-warcraftlogs";
 import type { WclRateLimitSnapshot } from "@mplus/provider-warcraftlogs";
@@ -66,7 +66,7 @@ export function evaluateCanaryDiscoveryGates(
   if (!input.env.SCORING_ENABLED) {
     reasons.push("EVIDENCE_FETCH_DISABLED");
   }
-  if (!isScoringV2ShadowOrchestrationEnabled(input.env as never)) {
+  if (!isScoringEnabled(input.env as never)) {
     reasons.push("SHADOW_FLAGS_DISABLED");
   }
   if (input.env.SCORING_PUBLICATION_ENABLED) {

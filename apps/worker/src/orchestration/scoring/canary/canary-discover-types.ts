@@ -15,7 +15,7 @@ import type {
 } from "./canary-rate-snapshot.js";
 
 export const CANARY_DISCOVERY_REPORT_SCHEMA =
-  "scoring-v2-canary-discovery-v1" as const;
+  "scoring-canary-discovery-v1" as const;
 
 export interface CanaryDiscoveryCandidateSource {
   candidates: EvidenceCandidateMetadataV2[];

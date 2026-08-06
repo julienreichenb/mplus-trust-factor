@@ -7,15 +7,15 @@ import type {
 } from "@mplus/contracts";
 import type { EvidenceDatasetRequirementV2 } from "./dataset-requirements.js";
 import type { AcquiredEvidenceDatasetDescriptor } from "./dataset-descriptor-persist.js";
-import type { ScoringV2ProviderAccounting } from "./provider-accounting.js";
+import type { ScoringProviderAccounting } from "./provider-accounting.js";
 import type { TypedDimensionFactPayload } from "./typed-fact-persist.js";
 
-export const SCORING_V2_BATCH_METADATA_KEY = "scoringV2" as const;
+export const scoring_BATCH_METADATA_KEY = "scoring" as const;
 
-export const SCORING_V2_FACT_EXTRACTOR_FAMILY = "evidence-v2-shadow" as const;
-export const SCORING_V2_FACT_EXTRACTOR_VERSION = "0.1.0" as const;
-export const SCORING_V2_FACT_SCHEMA_VERSION = "2.0.0" as const;
-export const SCORING_V2_DATASET_SCHEMA_VERSION = "2.0.0" as const;
+export const scoring_FACT_EXTRACTOR_FAMILY = "evidence-v2-shadow" as const;
+export const scoring_FACT_EXTRACTOR_VERSION = "0.1.0" as const;
+export const scoring_FACT_SCHEMA_VERSION = "2.0.0" as const;
+export const scoring_DATASET_SCHEMA_VERSION = "2.0.0" as const;
 
 export type { AcquiredEvidenceDatasetDescriptor };
 
@@ -55,7 +55,7 @@ export interface EvidenceV2SlotRecord {
    */
   typedFactPayloads: TypedDimensionFactPayload[];
   /** Per-slot WCL provider/cache counters for Shadow Canary diagnostics. */
-  providerAccounting: ScoringV2ProviderAccounting | null;
+  providerAccounting: ScoringProviderAccounting | null;
 }
 
 export interface EvidenceV2BatchMetadata {
@@ -85,11 +85,11 @@ export interface EvidenceV2BatchMetadata {
   admissionReleased: boolean;
   publicationBlocked: true;
   /**
-   * Admin Shadow Canary batches may run while global SCORING_V2_* flags stay off.
+   * Admin Shadow Canary batches may run while global scoring_* flags stay off.
    * Publication remains blocked regardless.
    */
   adminShadowCanary?: boolean;
-  /** Optional link back to ScoringV2ShadowCanary.id */
+  /** Optional link back to ScoringShadowCanary.id */
   shadowCanaryId?: string | null;
 }
 

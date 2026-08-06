@@ -1,7 +1,7 @@
 /**
  * WS10.5 — disposable-DB active/draft calibration proof.
  *
- * Persists ACTIVE + DRAFT ScoreModel configs with scoringV2, freezes a Calibration
+ * Persists ACTIVE + DRAFT ScoreModel configs with scoring, freezes a Calibration
  * Bundle V2, strictly re-parses, and runs provider-free active/draft replay.
  * Requires `pnpm test:integration` (isolated DB). No providers, activation, or publication.
  */
@@ -12,7 +12,7 @@ import {
   buildCalibrationContentRefV2,
   buildCalibrationInputBundleV2,
   buildCalibrationReportV2Extension,
-  createDefaultScoringV2DimensionConfigSet,
+  createDefaultscoringDimensionConfigSet,
   createMapArtifactResolverV2,
   emptyUtilityV2FactSet,
   exportUtilityV2Calibration,
@@ -20,7 +20,7 @@ import {
   replayCalibrationBundleV2ActiveVersusDraft,
   UTILITY_V2_MODEL_CONFIG,
   UTILITY_V2_SCORE_FLOOR,
-  withScoringV2DimensionConfigs,
+  withscoringDimensionConfigs,
   createDefaultModelV6,
   COHORT_MANIFEST_SCHEMA_VERSION,
 } from "@mplus/scoring";
@@ -44,22 +44,22 @@ afterAll(async () => {
 });
 
 describe.runIf(dbAvailable)("WS10.5 active/draft calibration (disposable DB)", () => {
-  it("persists ACTIVE/DRAFT scoringV2 configs and replays provider-free with real deltas", async () => {
+  it("persists ACTIVE/DRAFT scoring configs and replays provider-free with real deltas", async () => {
     const publishedBefore = await prisma.characterPublishedScore.count();
     const computationBefore = await prisma.dimensionComputation.count();
 
     const activeKey = `ws105-active-${randomUUID().slice(0, 8)}`;
     const draftKey = `ws105-draft-${randomUUID().slice(0, 8)}`;
 
-    const activeConfigs = createDefaultScoringV2DimensionConfigSet();
-    const draftConfigs = createDefaultScoringV2DimensionConfigSet();
+    const activeConfigs = createDefaultscoringDimensionConfigSet();
+    const draftConfigs = createDefaultscoringDimensionConfigSet();
     draftConfigs.utility = parseUtilityV2ModelConfig({
       ...UTILITY_V2_MODEL_CONFIG,
       scoreFloor: 55,
     });
 
-    const activeDoc = withScoringV2DimensionConfigs(createDefaultModelV6({ key: activeKey }), activeConfigs);
-    const draftDoc = withScoringV2DimensionConfigs(
+    const activeDoc = withscoringDimensionConfigs(createDefaultModelV6({ key: activeKey }), activeConfigs);
+    const draftDoc = withscoringDimensionConfigs(
       createDefaultModelV6({ key: draftKey, version: 2 }),
       draftConfigs,
     );

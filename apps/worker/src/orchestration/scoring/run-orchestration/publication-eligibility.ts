@@ -34,7 +34,7 @@ export function evaluatePublicationEligibility(input: {
   result: RunOrchestrationResult;
   scoringModelId: string;
   /** Process env gate — must remain false in this workstream. */
-  scoringV2PublicationEnabled: boolean;
+  scoringPublicationEnabled: boolean;
   /** Optional active-season expected slot count (dungeonCount × 2). */
   expectedSlotCountFromSeason?: number;
   /** Score-model max evidence slots (default 16 for model v6). */
@@ -53,7 +53,7 @@ export function evaluatePublicationEligibility(input: {
     reasons.push("SCORE_MODEL_SEASON_SHAPE_INCOMPATIBLE");
   }
 
-  if (input.scoringV2PublicationEnabled) {
+  if (input.scoringPublicationEnabled) {
     reasons.push("SCORING_PUBLICATION_ENABLED_unexpectedly_true");
   } else {
     reasons.push("SCORING_PUBLICATION_ENABLED_false");

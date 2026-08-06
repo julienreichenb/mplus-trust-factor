@@ -6,7 +6,7 @@ import {
   summarizeMissingDungeonSlots,
 } from "./classify.js";
 
-describe("scoring-v2 live character probe classify", () => {
+describe("scoring live character probe classify", () => {
   it("classifies empty-but-valid datasets", () => {
     expect(
       classifyDatasetStatus({

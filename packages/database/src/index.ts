@@ -1,16 +1,21 @@
-import { PrismaClient } from "@prisma/client";
+﻿import { PrismaClient } from "@prisma/client";
 
 export type { PrismaClient } from "@prisma/client";
 export * from "@prisma/client";
 export * from "./repositories/index.js";
 export {
-  assertScoringV2TestResetAllowed,
-  formatScoringV2ResetGuardFailure,
-  SCORING_V2_RESET_CONFIRMATION_TOKEN,
-  SCORING_V2_RESET_TRUNCATE_TABLES,
-  SCORING_V2_RESET_RETAINED_TABLES,
-  type ScoringV2ResetGuardInput,
-  type ScoringV2ResetGuardResult,
+  backfillScoringMinimalCache,
+  type ScoringCacheBackfillReport,
+  type ScoringCacheBackfillOptions,
+} from "./backfill-scoring-minimal-cache.js";
+export {
+  assertScoringTestResetAllowed,
+  formatScoringResetGuardFailure,
+  SCORING_RESET_CONFIRMATION_TOKEN,
+  SCORING_RESET_TRUNCATE_TABLES,
+  SCORING_RESET_RETAINED_TABLES,
+  type ScoringResetGuardInput,
+  type ScoringResetGuardResult,
 } from "./reset/v2-test-reset-guard.js";
 
 const globalForPrisma = globalThis as unknown as {
@@ -43,11 +48,11 @@ export async function checkDatabaseHealth(client: PrismaClient = prisma): Promis
   try {
     await client.$queryRaw`SELECT 1`;
     return { ok: true, latencyMs: Date.now() - started };
-  } catch (error) {
+  } catch (err) {
     return {
       ok: false,
       latencyMs: Date.now() - started,
-      error: error instanceof Error ? error.message : "Unknown database error",
+      error: err instanceof Error ? err.message : String(err),
     };
   }
 }

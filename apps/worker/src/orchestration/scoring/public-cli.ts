@@ -2,9 +2,9 @@
  * Public Scoring V2 operator surface.
  *
  * Supported modes only:
- *   scoring-v2:canary  — consolidated shadow pipeline (discover + live + replay)
- *   scoring-v2:replay  — provider-free reconstruction
- *   scoring-v2:doctor  — provider-free diagnostics (no mutation)
+ *   scoring:canary  — consolidated shadow pipeline (discover + live + replay)
+ *   scoring:replay  — provider-free reconstruction
+ *   scoring:doctor  — provider-free diagnostics (no mutation)
  */
 import { loadEnv } from "@mplus/config";
 import type { EvidenceRole } from "@mplus/contracts";
@@ -23,7 +23,7 @@ import {
   resolveZoneForCanaryCommand,
   type CanaryCliArgs,
 } from "./canary/cli.js";
-import { runScoringV2CanaryReplay } from "./canary/canary-replay.js";
+import { runScoringCanaryReplay } from "./canary/canary-replay.js";
 import { runTargetDigestDiagnostic } from "./canary/canary-target-digest-diagnostic.js";
 import { diagnoseSeasonCatalog } from "./canary/canary-diagnose.js";
 import { loadCompatibleFrozenManifest } from "./canary/canary-live.js";
@@ -177,7 +177,7 @@ async function runPublicReplay(args: CanaryCliArgs): Promise<void> {
       regionCode: args.region,
     });
     assertSeasonCatalogOk(season);
-    const { reportPath, report } = await runScoringV2CanaryReplay({
+    const { reportPath, report } = await runScoringCanaryReplay({
       env,
       prisma: deps.container.prisma,
       container: deps.container,
@@ -300,7 +300,7 @@ async function main(): Promise<void> {
 
 const isDirect =
   process.argv[1]?.includes("public-cli") ||
-  process.argv[1]?.includes("scoring-v2-public");
+  process.argv[1]?.includes("scoring-public");
 if (isDirect) {
   main().catch((err) => {
     console.error(
@@ -309,7 +309,7 @@ if (isDirect) {
           code:
             err && typeof err === "object" && "code" in err
               ? (err as { code: unknown }).code
-              : "SCORING_V2_PUBLIC_CLI_FAILED",
+              : "scoring_PUBLIC_CLI_FAILED",
           message: err instanceof Error ? err.message : String(err),
           reasons:
             err && typeof err === "object" && "reasons" in err

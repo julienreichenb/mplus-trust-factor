@@ -45,8 +45,8 @@ const CASES = [
   },
   {
     permissions: ["score.candidate.read"],
-    id: "scoring-v2" as const,
-    path: "/admin/scoring-v2",
+    id: "scoring" as const,
+    path: "/admin/scoring",
   },
 ];
 

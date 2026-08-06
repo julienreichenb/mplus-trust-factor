@@ -44,7 +44,7 @@ import {
   acquireCandidateWithFallback,
   resolveBatchDatasetRequirements,
 } from "./acquisition.js";
-import { FixtureScoringV2EvidenceTransport } from "./evidence-transport.js";
+import { FixtureScoringEvidenceTransport } from "./evidence-transport.js";
 import { runFinalizeEvidenceBatchV2 } from "./finalize.js";
 import { collectOccupiedDiscoveryKeys } from "./occupied-discovery-keys.js";
 import { persistTypedFactSet } from "./typed-fact-persist.js";
@@ -700,7 +700,7 @@ describe.runIf(dbAvailable)("CP4 typed shadow pipeline E2E (disposable DB)", () 
         primaryBundle = bundle;
       }
 
-      const transport = new FixtureScoringV2EvidenceTransport({
+      const transport = new FixtureScoringEvidenceTransport({
         fightDetails: {
           data: {
             reportRevision: REPORT_REVISION,
@@ -939,7 +939,7 @@ describe.runIf(dbAvailable)("CP4 typed shadow pipeline E2E (disposable DB)", () 
     }
 
     // Re-acquire primary slot with identical fixture evidence → same fact-set fingerprint.
-    const replayTransport = new FixtureScoringV2EvidenceTransport({
+    const replayTransport = new FixtureScoringEvidenceTransport({
       fightDetails: {
         data: {
           reportRevision: REPORT_REVISION,
@@ -1154,7 +1154,7 @@ describe.runIf(dbAvailable)("CP4 typed shadow pipeline E2E (disposable DB)", () 
     expect(publishedFinal).toBe(publishedBefore);
 
     // Cache reuse: second acquisition with cacheHits → zero providerCalls.
-    const cacheTransport = new FixtureScoringV2EvidenceTransport({
+    const cacheTransport = new FixtureScoringEvidenceTransport({
       fightDetails: {
         data: { reportRevision: REPORT_REVISION },
         reportRevision: REPORT_REVISION,
@@ -1211,7 +1211,7 @@ describe.runIf(dbAvailable)("CP4 typed shadow pipeline E2E (disposable DB)", () 
       reportCode: REPORT_CODE,
       fightId: FIGHT_ID,
     });
-    const transport = new FixtureScoringV2EvidenceTransport({
+    const transport = new FixtureScoringEvidenceTransport({
       fightDetails: {
         data: { reportRevision: REPORT_REVISION },
         reportRevision: REPORT_REVISION,
@@ -1299,7 +1299,7 @@ describe.runIf(dbAvailable)("CP4 typed shadow pipeline E2E (disposable DB)", () 
     bundle = attachDatasetToBundle(bundle, okDataset("Interrupts", []), {
       fromPersisted: true,
     });
-    const transport = new FixtureScoringV2EvidenceTransport({
+    const transport = new FixtureScoringEvidenceTransport({
       fightDetails: {
         data: { reportRevision: REPORT_REVISION },
         reportRevision: REPORT_REVISION,

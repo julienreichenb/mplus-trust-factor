@@ -43,7 +43,7 @@ describe("API readiness diagnostics", () => {
     });
     expect(result.ready).toBe(true);
     expect(result.body.revision).toBe("rev-test-1");
-    expect((result.body.scoringV2 as { modes: { enabled: boolean } }).modes.enabled).toBe(false);
+    expect((result.body.scoring as { modes: { enabled: boolean } }).modes.enabled).toBe(false);
     expect((result.body.contracts as { workerJobSchema: string }).workerJobSchema).toBe("2.0.0");
     expect((result.body.wclSnapshot as { state: string }).state).toBe("worker_owned");
     expect(result.probes.artifactBackend.detail).toBe("not_probed");

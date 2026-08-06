@@ -17,13 +17,13 @@ import { MIDNIGHT_SEASON_1_DUNGEON_SLUGS } from "./canary/canary-catalog.js";
 import {
   candidatesFromFrozenManifest,
   loadCompatibleFrozenManifest,
-  runScoringV2CanaryLive,
+  runScoringCanaryLive,
 } from "./canary/canary-live.js";
 import { evaluateCanaryLiveGates, parseCanaryCliArgs } from "./canary/cli.js";
 import type { CanarySeasonResolution } from "./canary/canary-season.js";
 import {
   createMemoryOrchestrationPorts,
-  orchestrateScoringV2Runs,
+  orchestrateScoringRuns,
 } from "./run-orchestration/index.js";
 import type { AppEnv } from "@mplus/config";
 
@@ -35,8 +35,6 @@ const liveEnv = {
   PROVIDER_MODE: "live" as const,
   WCL_ENABLED: true,
   ALLOW_LIVE_PROVIDER_CALLS: true,
-  SCORING_ENABLED: true,
-  SCORING_ENABLED: true,
   SCORING_ENABLED: true,
   SCORING_PUBLICATION_ENABLED: false,
   WCL_CLIENT_ID: "id",
@@ -249,8 +247,8 @@ describe("reserved stub removal", () => {
     );
     expect(cliSrc).not.toContain("canary_live_execute_path_reserved_for_human_approval");
     expect(liveSrc).not.toContain("canary_live_execute_path_reserved_for_human_approval");
-    expect(cliSrc).toContain("runScoringV2CanaryLive");
-    expect(liveSrc).toContain("orchestrateScoringV2Runs");
+    expect(cliSrc).toContain("runScoringCanaryLive");
+    expect(liveSrc).toContain("orchestrateScoringRuns");
   });
 });
 
@@ -287,12 +285,12 @@ describe("canary live gates", () => {
   });
 });
 
-describe("runScoringV2CanaryLive", () => {
+describe("runScoringCanaryLive", () => {
   it("no manifest means zero provider calls", async () => {
     const ports = createMemoryOrchestrationPorts();
     const container = mockContainer(null);
     await expect(
-      runScoringV2CanaryLive({
+      runScoringCanaryLive({
         prisma: container.prisma as never,
         container: container as never,
         characterId: CHAR_ID,
@@ -330,7 +328,7 @@ describe("runScoringV2CanaryLive", () => {
     const manifest = buildManifest(fullCandidates(), MIDNIGHT_SEASON_1_DUNGEON_SLUGS);
     const container = mockContainer(manifest);
     await expect(
-      runScoringV2CanaryLive({
+      runScoringCanaryLive({
         prisma: container.prisma as never,
         container: container as never,
         characterId: CHAR_ID,
@@ -370,7 +368,7 @@ describe("runScoringV2CanaryLive", () => {
     const container = mockContainer(manifest);
     const outDir = await mkdtemp(join(tmpdir(), "canary-live-"));
     try {
-      const { report } = await runScoringV2CanaryLive({
+      const { report } = await runScoringCanaryLive({
         prisma: container.prisma as never,
         container: container as never,
         characterId: CHAR_ID,
@@ -430,7 +428,7 @@ describe("runScoringV2CanaryLive", () => {
     const candidates = fullCandidates();
     const manifest = buildManifest(candidates, MIDNIGHT_SEASON_1_DUNGEON_SLUGS);
     // Warm all but one fight.
-    const first = await orchestrateScoringV2Runs({
+    const first = await orchestrateScoringRuns({
       characterId: CHAR_ID,
       region: "EU",
       realm: "archimonde",
@@ -488,7 +486,7 @@ describe("runScoringV2CanaryLive", () => {
 
     const container = mockContainer(manifest);
     const before = ports2.stats.acquireCalls;
-    const { report } = await runScoringV2CanaryLive({
+    const { report } = await runScoringCanaryLive({
       prisma: container.prisma as never,
       container: container as never,
       characterId: CHAR_ID,
@@ -557,9 +555,9 @@ describe("runScoringV2CanaryLive", () => {
       scoringModelId: "model-1",
       outputDir: outDir,
     };
-    const first = await runScoringV2CanaryLive(input);
+    const first = await runScoringCanaryLive(input);
     const acquiresAfterFirst = ports.stats.acquireCalls;
-    const second = await runScoringV2CanaryLive(input);
+    const second = await runScoringCanaryLive(input);
     expect(ports.stats.acquireCalls).toBe(acquiresAfterFirst);
     expect(second.report.packagesCreated).toBe(0);
     expect(second.report.packagesReused).toBe(16);
@@ -589,7 +587,7 @@ describe("runScoringV2CanaryLive", () => {
     const container = mockContainer(doc);
     const outDir = await mkdtemp(join(tmpdir(), "canary-live-partial-"));
     try {
-      const { report } = await runScoringV2CanaryLive({
+      const { report } = await runScoringCanaryLive({
         prisma: container.prisma as never,
         container: container as never,
         characterId: CHAR_ID,
@@ -638,7 +636,7 @@ describe("runScoringV2CanaryLive", () => {
     const outDir = await mkdtemp(join(tmpdir(), "canary-live-fail-"));
     try {
       await expect(
-        runScoringV2CanaryLive({
+        runScoringCanaryLive({
           prisma: container.prisma as never,
           container: container as never,
           characterId: CHAR_ID,
@@ -691,7 +689,7 @@ describe("runScoringV2CanaryLive", () => {
     const container = mockContainer(manifest);
     const outDir = await mkdtemp(join(tmpdir(), "canary-live-partial-fail-"));
     try {
-      const { report } = await runScoringV2CanaryLive({
+      const { report } = await runScoringCanaryLive({
         prisma: container.prisma as never,
         container: container as never,
         characterId: CHAR_ID,

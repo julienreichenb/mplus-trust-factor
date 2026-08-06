@@ -5,7 +5,7 @@
 import type { ScoreModelConfigV1 } from "../types.js";
 import { stableSha256 } from "../model-config/stable-hash.js";
 import { algorithmVersionForDimension } from "../dimensions/v2/adapters.js";
-import type { ScoringV2PublicDimension } from "../dimensions/v2/shadow-record.js";
+import type { ScoringPublicDimension } from "../dimensions/v2/shadow-record.js";
 import type { CalibrationModelRef } from "./types.js";
 import type {
   CalibrationArtifactClassV2,
@@ -14,12 +14,12 @@ import type {
   FrozenSeasonBindingV2,
 } from "./bundle-v2.js";
 
-export const FREEZE_SNAPSHOT_SCHEMA_VERSION = "scoring-v2-freeze-snapshot-v2" as const;
+export const FREEZE_SNAPSHOT_SCHEMA_VERSION = "scoring-freeze-snapshot-v2" as const;
 
 const SHA256_HEX_RE = /^[a-f0-9]{64}$/i;
 const SHA256_BYTE_DIGEST_RE = /^sha256:([a-f0-9]{64})$/i;
 
-const PHASE1_DIMENSIONS: ScoringV2PublicDimension[] = [
+const PHASE1_DIMENSIONS: ScoringPublicDimension[] = [
   "PERFORMANCE",
   "SURVIVAL",
   "UTILITY",
@@ -50,7 +50,7 @@ export interface FreezeSnapshotContentRefV2 {
 export interface FreezeSnapshotMemberEvidenceV2 {
   manifest: FreezeSnapshotContentRefV2;
   factSets: FreezeSnapshotContentRefV2[];
-  dimensionExports: Partial<Record<ScoringV2PublicDimension, FreezeSnapshotContentRefV2>>;
+  dimensionExports: Partial<Record<ScoringPublicDimension, FreezeSnapshotContentRefV2>>;
   previousSnapshot: FreezeSnapshotContentRefV2 | null;
 }
 
@@ -196,7 +196,7 @@ function parsePolicies(raw: unknown): FrozenPolicyCatalogVersionsV2 | null {
     mechanicCatalogVersions: raw.mechanicCatalogVersions as string[],
     confidenceAlgorithmVersions: raw.confidenceAlgorithmVersions as Record<string, string>,
     dimensionAlgorithmVersions:
-      raw.dimensionAlgorithmVersions as Partial<Record<ScoringV2PublicDimension, string>>,
+      raw.dimensionAlgorithmVersions as Partial<Record<ScoringPublicDimension, string>>,
   };
 }
 
@@ -290,7 +290,7 @@ function parseEvidence(raw: unknown): FreezeSnapshotMemberEvidenceV2 | null {
   }
   if (!isRecord(raw.dimensionExports)) return null;
   const dimensionExports: Partial<
-    Record<ScoringV2PublicDimension, FreezeSnapshotContentRefV2>
+    Record<ScoringPublicDimension, FreezeSnapshotContentRefV2>
   > = {};
   for (const dim of PHASE1_DIMENSIONS) {
     if (!(dim in raw.dimensionExports)) continue;

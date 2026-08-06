@@ -4,7 +4,7 @@ import { useRouter } from "vue-router";
 import type {
   ExplainabilityV2ManifestListDTO,
   ScoreExplainabilityV2AdminDTO,
-  ScoringV2EvidenceAuditDocument,
+  ScoringEvidenceAuditDocument,
 } from "@mplus/contracts";
 import { ApiClientError } from "../../api/live-client";
 import StatusBanner from "../common/StatusBanner.vue";
@@ -19,7 +19,7 @@ const busy = ref(false);
 const error = ref<string | null>(null);
 const list = ref<ExplainabilityV2ManifestListDTO | null>(null);
 const diagnostics = ref<ScoreExplainabilityV2AdminDTO | null>(null);
-const evidenceAudit = ref<ScoringV2EvidenceAuditDocument | null>(null);
+const evidenceAudit = ref<ScoringEvidenceAuditDocument | null>(null);
 const showRaw = ref(false);
 
 const bannerText = computed(() => error.value ?? "");
@@ -78,7 +78,7 @@ async function loadManifests(): Promise<void> {
     if (seasonId.value.trim()) params.set("seasonId", seasonId.value.trim());
     params.set("limit", "20");
     list.value = await fetchJson<ExplainabilityV2ManifestListDTO>(
-      `/api/v1/admin/scoring-v2/manifests?${params.toString()}`,
+      `/api/v1/admin/scoring/manifests?${params.toString()}`,
     );
   } catch (err) {
     if (!handleAuthError(err)) {
@@ -90,8 +90,8 @@ async function loadManifests(): Promise<void> {
 }
 
 async function loadEvidenceAudit(id: string): Promise<void> {
-  evidenceAudit.value = await fetchJson<ScoringV2EvidenceAuditDocument>(
-    `/api/v1/admin/scoring-v2/manifests/${encodeURIComponent(id)}/evidence-audit`,
+  evidenceAudit.value = await fetchJson<ScoringEvidenceAuditDocument>(
+    `/api/v1/admin/scoring/manifests/${encodeURIComponent(id)}/evidence-audit`,
   );
 }
 
@@ -111,7 +111,7 @@ async function loadDiagnostics(): Promise<void> {
     if (manifestId.value.trim()) params.set("manifestId", manifestId.value.trim());
     const qs = params.toString();
     diagnostics.value = await fetchJson<ScoreExplainabilityV2AdminDTO>(
-      `/api/v1/admin/scoring-v2/characters/${encodeURIComponent(id)}/explainability${qs ? `?${qs}` : ""}`,
+      `/api/v1/admin/scoring/characters/${encodeURIComponent(id)}/explainability${qs ? `?${qs}` : ""}`,
     );
     const auditManifestId = manifestId.value.trim() || diagnostics.value.manifestId;
     if (auditManifestId) {
@@ -141,7 +141,7 @@ function downloadEvidenceAudit(): void {
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = url;
-  anchor.download = `scoring-v2-evidence-audit-${evidenceAudit.value.manifestId}.json`;
+  anchor.download = `scoring-evidence-audit-${evidenceAudit.value.manifestId}.json`;
   anchor.click();
   URL.revokeObjectURL(url);
 }

@@ -4,7 +4,7 @@ import { EVIDENCE_ACQUISITION_PLAN_SCHEMA_VERSION, EVIDENCE_SELECTOR_VERSION } f
 import {
   assertPublicationBlocked,
   collectAcquisitionResultsForFinalize,
-  isScoringV2ShadowOrchestrationEnabled,
+  isScoringEnabled,
 } from "./acquisition.js";
 import { buildEvidenceAcquisitionPlanV2 } from "@mplus/scoring";
 
@@ -64,18 +64,14 @@ describe("scoring v2 orchestration invariants", () => {
     expect(new Set(plan.slots.map((s) => s.slotId)).size).toBe(16);
   });
 
-  it("shadow orchestration requires enabled+selection+fetch", () => {
+  it("scoring master flag gates scoreCharacter", () => {
     expect(
-      isScoringV2ShadowOrchestrationEnabled({
-        SCORING_ENABLED: true,
-        SCORING_ENABLED: true,
+      isScoringEnabled({
         SCORING_ENABLED: true,
       } as never),
     ).toBe(true);
     expect(
-      isScoringV2ShadowOrchestrationEnabled({
-        SCORING_ENABLED: true,
-        SCORING_ENABLED: true,
+      isScoringEnabled({
         SCORING_ENABLED: false,
       } as never),
     ).toBe(false);

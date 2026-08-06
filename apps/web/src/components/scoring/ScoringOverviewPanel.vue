@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
-import type { ScoringV2OverviewDTO } from "@mplus/contracts";
+import type { ScoringOverviewDTO } from "@mplus/contracts";
 import { ApiClientError } from "../../api/live-client";
 import StatusBanner from "../common/StatusBanner.vue";
 import StatusChip from "../character/StatusChip.vue";
@@ -11,7 +11,7 @@ const apiBase = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:3000";
 
 const busy = ref(false);
 const error = ref<string | null>(null);
-const overview = ref<ScoringV2OverviewDTO | null>(null);
+const overview = ref<ScoringOverviewDTO | null>(null);
 
 const modeTone = computed(() => {
   const label = overview.value?.flags.modeLabel;
@@ -24,11 +24,11 @@ async function load(): Promise<void> {
   busy.value = true;
   error.value = null;
   try {
-    const response = await fetch(`${apiBase}/api/v1/admin/scoring-v2/overview`, {
+    const response = await fetch(`${apiBase}/api/v1/admin/scoring/overview`, {
       credentials: "include",
       headers: { Accept: "application/json" },
     });
-    const body = (await response.json().catch(() => ({}))) as ScoringV2OverviewDTO & {
+    const body = (await response.json().catch(() => ({}))) as ScoringOverviewDTO & {
       error?: { message?: string };
     };
     if (response.status === 401 || response.status === 403) {

@@ -9,10 +9,10 @@
 import { randomUUID } from "node:crypto";
 import { CURRENT_CATALOG_VERSION_ID } from "@mplus/abilities";
 import {
-  scoringV2EvidenceExportJobSchema,
-  type ScoringV2EvidenceExportJob,
+  ScoringEvidenceExportJobSchema,
+  type ScoringEvidenceExportJob,
 } from "@mplus/contracts";
-import { OBS_EVENTS, emitScoringV2Event, type Logger } from "@mplus/observability";
+import { OBS_EVENTS, emitScoringEvent, type Logger } from "@mplus/observability";
 import type { PrismaClient, Prisma } from "@mplus/database";
 import type { ArtifactRepository } from "@mplus/database";
 import { MINIMAL_SEED_CATALOG } from "@mplus/mechanics";
@@ -40,7 +40,7 @@ export const EVIDENCE_EXPORT_LEASE_TTL_MS = 5 * 60 * 1000;
 /** Error code written when a stale RUNNING lease is reclaimed. */
 export const EVIDENCE_EXPORT_STALE_LEASE_CODE = "STALE_LEASE";
 
-export interface ScoringV2EvidenceExportProcessorDeps {
+export interface ScoringEvidenceExportProcessorDeps {
   prisma: PrismaClient;
   logger: Logger;
   artifacts: ArtifactRepository;
@@ -73,7 +73,7 @@ export type ReclaimStaleEvidenceExportsOptions = {
  * Called at the start of each export job and by the N1 recovery sweeper.
  */
 export async function reclaimStaleEvidenceExports(
-  prisma: Pick<PrismaClient, "scoringV2EvidenceExport">,
+  prisma: Pick<PrismaClient, "scoringEvidenceExport">,
   now: Date = new Date(),
   options: ReclaimStaleEvidenceExportsOptions = {},
 ): Promise<{ reclaimed: number }> {
@@ -82,7 +82,7 @@ export async function reclaimStaleEvidenceExports(
     status: "RUNNING" as const,
     OR: [{ leaseExpiresAt: { lt: now } }, { leaseExpiresAt: null }],
   };
-  const stale = await prisma.scoringV2EvidenceExport.findMany({
+  const stale = await prisma.scoringEvidenceExport.findMany({
     where: staleWhere,
     select: { id: true },
     orderBy: [{ leaseExpiresAt: "asc" }, { id: "asc" }],
@@ -91,7 +91,7 @@ export async function reclaimStaleEvidenceExports(
   if (stale.length === 0) {
     return { reclaimed: 0 };
   }
-  const result = await prisma.scoringV2EvidenceExport.updateMany({
+  const result = await prisma.scoringEvidenceExport.updateMany({
     where: {
       id: { in: stale.map((row) => row.id) },
       ...staleWhere,
@@ -106,17 +106,17 @@ export async function reclaimStaleEvidenceExports(
   return { reclaimed: result.count };
 }
 
-export async function runScoringV2EvidenceExportJob(
-  deps: ScoringV2EvidenceExportProcessorDeps,
-  rawPayload: ScoringV2EvidenceExportJob,
+export async function runScoringEvidenceExportJob(
+  deps: ScoringEvidenceExportProcessorDeps,
+  rawPayload: ScoringEvidenceExportJob,
 ): Promise<{ exportId: string; status: string }> {
-  const payload = scoringV2EvidenceExportJobSchema.parse(rawPayload);
+  const payload = ScoringEvidenceExportJobSchema.parse(rawPayload);
   const { prisma, logger, artifacts } = deps;
   const scoreTtlSeconds = deps.scoreTtlSeconds ?? 604800;
   const nowFn = deps.now ?? (() => new Date());
   const leaseOwnerFactory = deps.leaseOwnerFactory ?? (() => randomUUID());
 
-  const exportRow = await prisma.scoringV2EvidenceExport.findUnique({
+  const exportRow = await prisma.scoringEvidenceExport.findUnique({
     where: { id: payload.exportId },
     include: {
       cohort: {
@@ -132,7 +132,7 @@ export async function runScoringV2EvidenceExportJob(
 
   // Idempotent short-circuit: duplicate delivery after success must not rejoin.
   if (exportRow.status === "COMPLETED" && exportRow.archiveContentHash) {
-    emitScoringV2Event(logger, OBS_EVENTS.scoringV2AdminEvidenceExportCompleted, {
+    emitScoringEvent(logger, OBS_EVENTS.scoringAdminEvidenceExportCompleted, {
       exportId: exportRow.id,
       cohortId: exportRow.cohortId,
       blockerCount: exportRow.blockerCount,
@@ -147,7 +147,7 @@ export async function runScoringV2EvidenceExportJob(
   // M3: reclaim abandoned RUNNING leases before claiming this job.
   await reclaimStaleEvidenceExports(prisma, claimNow);
 
-  emitScoringV2Event(logger, OBS_EVENTS.scoringV2AdminEvidenceExportStarted, {
+  emitScoringEvent(logger, OBS_EVENTS.scoringAdminEvidenceExportStarted, {
     exportId: exportRow.id,
     cohortId: exportRow.cohortId,
     cohortRevision: exportRow.cohortRevision,
@@ -156,7 +156,7 @@ export async function runScoringV2EvidenceExportJob(
   const leaseOwner = leaseOwnerFactory();
   const leaseExpiresAt = new Date(claimNow.getTime() + EVIDENCE_EXPORT_LEASE_TTL_MS);
 
-  const claimData: Prisma.ScoringV2EvidenceExportUpdateManyMutationInput = {
+  const claimData: Prisma.ScoringEvidenceExportUpdateManyMutationInput = {
     status: "RUNNING",
     attempt: { increment: 1 },
     leaseOwner,
@@ -173,7 +173,7 @@ export async function runScoringV2EvidenceExportJob(
     claimData.freezeSnapshot = {};
   }
 
-  const claimed = await prisma.scoringV2EvidenceExport.updateMany({
+  const claimed = await prisma.scoringEvidenceExport.updateMany({
     where: {
       id: exportRow.id,
       OR: [
@@ -186,7 +186,7 @@ export async function runScoringV2EvidenceExportJob(
   });
 
   if (claimed.count === 0) {
-    const current = await prisma.scoringV2EvidenceExport.findUnique({
+    const current = await prisma.scoringEvidenceExport.findUnique({
       where: { id: exportRow.id },
       select: {
         status: true,
@@ -208,7 +208,7 @@ export async function runScoringV2EvidenceExportJob(
     return { exportId: exportRow.id, status: current?.status ?? "RUNNING" };
   }
 
-  const claimedRow = await prisma.scoringV2EvidenceExport.findUnique({
+  const claimedRow = await prisma.scoringEvidenceExport.findUnique({
     where: { id: exportRow.id },
     select: {
       attempt: true,
@@ -226,7 +226,7 @@ export async function runScoringV2EvidenceExportJob(
   const attempt = claimedRow.attempt;
 
   const failTerminal = async (errorCode: string, errorMessage: string) => {
-    await prisma.scoringV2EvidenceExport.updateMany({
+    await prisma.scoringEvidenceExport.updateMany({
       where: {
         id: exportRow.id,
         status: "RUNNING",
@@ -241,9 +241,9 @@ export async function runScoringV2EvidenceExportJob(
         ...clearLeaseFields(),
       },
     });
-    emitScoringV2Event(
+    emitScoringEvent(
       logger,
-      OBS_EVENTS.scoringV2AdminEvidenceExportFailed,
+      OBS_EVENTS.scoringAdminEvidenceExportFailed,
       { exportId: exportRow.id, reasonCode: errorCode },
       "error",
     );
@@ -389,7 +389,7 @@ export async function runScoringV2EvidenceExportJob(
         let dimensionConfigs: FreezeSnapshotModelV1["dimensionConfigs"] = null;
         try {
           const mode =
-            config && "scoringV2" in config && config.scoringV2
+            config && "scoring" in config && config.scoring
               ? "calibration-strict"
               : "phase1-default";
           dimensionConfigs = resolveFrozenDimensionConfigsForModel(modelRef, mode);
@@ -460,7 +460,7 @@ export async function runScoringV2EvidenceExportJob(
 
     if (packagingBlockers.length > 0) {
       const first = packagingBlockers[0]!;
-      const retryable = await prisma.scoringV2EvidenceExport.updateMany({
+      const retryable = await prisma.scoringEvidenceExport.updateMany({
         where: {
           id: exportRow.id,
           status: "RUNNING",
@@ -483,9 +483,9 @@ export async function runScoringV2EvidenceExportJob(
         );
         return { exportId: exportRow.id, status: "FAILED" };
       }
-      emitScoringV2Event(
+      emitScoringEvent(
         logger,
-        OBS_EVENTS.scoringV2AdminEvidenceExportFailed,
+        OBS_EVENTS.scoringAdminEvidenceExportFailed,
         { exportId: exportRow.id, reasonCode: first.code },
         "error",
       );
@@ -515,7 +515,7 @@ export async function runScoringV2EvidenceExportJob(
       generatedAt: generatedAt.toISOString(),
     });
 
-    const finalized = await prisma.scoringV2EvidenceExport.updateMany({
+    const finalized = await prisma.scoringEvidenceExport.updateMany({
       where: {
         id: exportRow.id,
         status: "RUNNING",
@@ -552,7 +552,7 @@ export async function runScoringV2EvidenceExportJob(
     });
 
     if (finalized.count === 0) {
-      const current = await prisma.scoringV2EvidenceExport.findUnique({
+      const current = await prisma.scoringEvidenceExport.findUnique({
         where: { id: exportRow.id },
         select: { status: true, archiveContentHash: true, artifactSetHash: true },
       });
@@ -578,7 +578,7 @@ export async function runScoringV2EvidenceExportJob(
       throw new Error("EVIDENCE_EXPORT_FINALIZE_LOST_LEASE");
     }
 
-    emitScoringV2Event(logger, OBS_EVENTS.scoringV2AdminEvidenceExportCompleted, {
+    emitScoringEvent(logger, OBS_EVENTS.scoringAdminEvidenceExportCompleted, {
       exportId: exportRow.id,
       cohortId: exportRow.cohortId,
       blockerCount: join.blockerCount,
@@ -589,7 +589,7 @@ export async function runScoringV2EvidenceExportJob(
     return { exportId: exportRow.id, status: "COMPLETED" };
   } catch (error) {
     const message = error instanceof Error ? error.message.slice(0, 500) : "Evidence export failed";
-    await prisma.scoringV2EvidenceExport.updateMany({
+    await prisma.scoringEvidenceExport.updateMany({
       where: {
         id: exportRow.id,
         status: "RUNNING",
@@ -604,9 +604,9 @@ export async function runScoringV2EvidenceExportJob(
         ...clearLeaseFields(),
       },
     });
-    emitScoringV2Event(
+    emitScoringEvent(
       logger,
-      OBS_EVENTS.scoringV2AdminEvidenceExportFailed,
+      OBS_EVENTS.scoringAdminEvidenceExportFailed,
       { exportId: exportRow.id, reasonCode: "EVIDENCE_EXPORT_FAILED" },
       "error",
     );

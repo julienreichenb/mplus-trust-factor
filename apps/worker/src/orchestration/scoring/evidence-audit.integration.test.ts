@@ -16,7 +16,7 @@ import {
   WclSourceRepository,
   type PrismaClient,
 } from "@mplus/database";
-import { buildScoringV2EvidenceAudit } from "@mplus/scoring";
+import { buildscoringEvidenceAudit } from "@mplus/scoring";
 import { assertTestDatabaseAllowed, sanitizeDatabaseUrl } from "@mplus/test-utils";
 
 const databaseUrl = process.env.DATABASE_URL ?? "";
@@ -314,7 +314,7 @@ describe.runIf(dbAvailable)("scoring v2 evidence audit persistence integration",
       },
     });
 
-    const audit = buildScoringV2EvidenceAudit({
+    const audit = buildscoringEvidenceAudit({
       manifestId: loaded.id,
       characterId: loaded.characterId,
       seasonId: loaded.seasonId,

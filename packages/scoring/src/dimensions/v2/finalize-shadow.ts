@@ -45,7 +45,7 @@ import {
   normalizeShadowDimensionRecord,
   type DimensionAvailabilityState,
   type NormalizedShadowDimensionRecord,
-  type ScoringV2PublicDimension,
+  type ScoringPublicDimension,
 } from "./shadow-record.js";
 
 export type ShadowDimensionFinalizerOutcomeStatus =
@@ -54,7 +54,7 @@ export type ShadowDimensionFinalizerOutcomeStatus =
   | "FAILED";
 
 export interface ShadowDimensionFinalizerOutcome {
-  dimension: ScoringV2PublicDimension;
+  dimension: ScoringPublicDimension;
   status: ShadowDimensionFinalizerOutcomeStatus;
   record: NormalizedShadowDimensionRecord;
   errorMessage?: string;
@@ -69,7 +69,7 @@ export interface FinalizeShadowDimensionsInput {
   manifest: CharacterSeasonEvidenceManifestV2;
   /** Must equal manifest.contentHash — fail closed on mismatch. */
   expectedManifestContentHash: string;
-  enabledDimensions: ScoringV2PublicDimension[];
+  enabledDimensions: ScoringPublicDimension[];
   factSets: PersistedFactSetRef[];
   /** Optional fixture / future typed Performance facts. */
   performanceRunParseFacts?: PerformanceRunParseFactV2[];
@@ -97,7 +97,7 @@ export interface FinalizeShadowDimensionsResult {
 }
 
 function unavailableOutcome(input: {
-  dimension: ScoringV2PublicDimension;
+  dimension: ScoringPublicDimension;
   characterId: string;
   seasonId: string;
   manifestId: string;
@@ -142,7 +142,7 @@ function unavailableOutcome(input: {
 }
 
 function finalizeOneDimension(
-  dimension: ScoringV2PublicDimension,
+  dimension: ScoringPublicDimension,
   input: FinalizeShadowDimensionsInput,
 ): ShadowDimensionFinalizerOutcome {
   const base = {
@@ -406,4 +406,4 @@ export function finalizeShadowDimensions(
   };
 }
 
-export type { DimensionAvailabilityState, ScoringV2PublicDimension };
+export type { DimensionAvailabilityState, ScoringPublicDimension };

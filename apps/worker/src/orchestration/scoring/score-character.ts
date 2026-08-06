@@ -12,7 +12,7 @@ import {
 import { EVIDENCE_SELECTOR_VERSION } from "@mplus/contracts";
 import type { EvidenceCandidateMetadataV2, EvidenceRole } from "@mplus/contracts";
 import {
-  orchestrateScoringV2Runs,
+  orchestrateScoringRuns,
   type LiveProviderPermission,
   type RunOrchestrationPorts,
   type RunOrchestrationResult,
@@ -107,7 +107,7 @@ export async function scoreCharacter(
       withSourceFightLock: input.withSourceFightLock,
     });
 
-  const orchestration = await orchestrateScoringV2Runs({
+  const orchestration = await orchestrateScoringRuns({
     characterId: input.identity.characterId,
     characterName: input.identity.characterName,
     region: input.identity.region,

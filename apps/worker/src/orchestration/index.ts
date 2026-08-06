@@ -47,12 +47,12 @@ export {
 } from "./scoring/evidence-join.js";
 export { buildStoreZip, sha256Hex } from "./scoring/zip-store.js";
 export {
-  runScoringV2EvidenceExportJob,
+  runScoringEvidenceExportJob,
   reclaimStaleEvidenceExports,
   EVIDENCE_EXPORT_RECLAIM_DEFAULT_LIMIT,
-  type ScoringV2EvidenceExportProcessorDeps,
+  type ScoringEvidenceExportProcessorDeps,
   type ReclaimStaleEvidenceExportsOptions,
-} from "./scoring-v2-evidence-export.js";
+} from "./scoring-evidence-export.js";
 export {
   packageMemberEvidenceForFreeze,
   type FreezeEvidencePackageBlocker,

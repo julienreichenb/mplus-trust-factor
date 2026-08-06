@@ -14,7 +14,7 @@ import {
   type CalibrationInputBundleV2,
 } from "./index.js";
 import { COHORT_MANIFEST_SCHEMA_VERSION } from "./types.js";
-import { createDefaultScoringV2DimensionConfigSet, withScoringV2DimensionConfigs } from "../model-config/index.js";
+import { createDefaultscoringDimensionConfigSet, withscoringDimensionConfigs } from "../model-config/index.js";
 import { createDefaultModelV6 } from "../model/defaults.js";
 
 function sha256Hex(bytes: string | Buffer | Uint8Array): string {
@@ -36,8 +36,8 @@ function pack(payload: unknown): { bytes: Buffer; ref: CalibrationContentRefV2 }
 function baseBundle(
   members: CalibrationInputBundleV2["members"],
 ): CalibrationInputBundleV2 {
-  const scoringV2 = createDefaultScoringV2DimensionConfigSet();
-  const modelConfig = withScoringV2DimensionConfigs(createDefaultModelV6(), scoringV2);
+  const scoring = createDefaultscoringDimensionConfigSet();
+  const modelConfig = withscoringDimensionConfigs(createDefaultModelV6(), scoring);
   const model = {
     key: modelConfig.key,
     version: modelConfig.version,

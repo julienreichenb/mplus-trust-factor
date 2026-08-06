@@ -26,8 +26,6 @@ const liveEnv = {
   WCL_ENABLED: true,
   ALLOW_LIVE_PROVIDER_CALLS: true,
   SCORING_ENABLED: true,
-  SCORING_ENABLED: true,
-  SCORING_ENABLED: true,
   SCORING_PUBLICATION_ENABLED: false,
   WCL_CLIENT_ID: "id",
   WCL_CLIENT_SECRET: "secret",

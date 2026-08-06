@@ -118,7 +118,7 @@ export function explainCostAdmissionDefer(input: {
 }
 
 export interface CanaryPreflightReport {
-  schemaVersion: "scoring-v2-canary-preflight-v1";
+  schemaVersion: "scoring-canary-preflight-v1";
   characterId: string;
   characterName: string;
   region: string;
@@ -213,7 +213,7 @@ function expectedAbsentSlots(activeDungeonSlugs: readonly string[]): CanarySlotP
   return slots;
 }
 
-export async function runScoringV2CanaryPreflight(input: {
+export async function runScoringCanaryPreflight(input: {
   characterId: string;
   characterName: string;
   region: string;
@@ -340,7 +340,7 @@ export async function runScoringV2CanaryPreflight(input: {
         : "MANIFEST_NOT_FOUND",
     ];
     return {
-      schemaVersion: "scoring-v2-canary-preflight-v1",
+      schemaVersion: "scoring-canary-preflight-v1",
       characterId: input.characterId,
       characterName: input.characterName,
       region: input.region,
@@ -561,7 +561,7 @@ export async function runScoringV2CanaryPreflight(input: {
   }
 
   return {
-    schemaVersion: "scoring-v2-canary-preflight-v1",
+    schemaVersion: "scoring-canary-preflight-v1",
     characterId: input.characterId,
     characterName: input.characterName,
     region: input.region,

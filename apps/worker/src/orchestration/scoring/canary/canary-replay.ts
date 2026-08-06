@@ -22,14 +22,14 @@ import {
 import type { CanarySeasonResolution } from "./canary-season.js";
 import { createProductionRunOrchestrationPorts } from "../run-orchestration/production-ports.js";
 import {
-  replayScoringV2FromPersistedEvidence,
+  replayScoringFromPersistedEvidence,
   sourceFightKey,
   type RunOrchestrationPorts,
   type RunOrchestrationResult,
 } from "../run-orchestration/orchestrator.js";
 import { createMemoryOrchestrationPorts } from "../run-orchestration/memory-ports.js";
 
-export const CANARY_REPLAY_SCHEMA = "scoring-v2-canary-replay-v1" as const;
+export const CANARY_REPLAY_SCHEMA = "scoring-canary-replay-v1" as const;
 
 function dimensionStatus(
   result: RunOrchestrationResult,
@@ -144,7 +144,7 @@ export interface CanaryReplayReport {
   publicScorePointerMutated: false;
 }
 
-export async function runScoringV2CanaryReplay(input: {
+export async function runScoringCanaryReplay(input: {
   env: AppEnv;
   prisma: PrismaClient;
   container: WorkerContainer;
@@ -290,7 +290,7 @@ export async function runScoringV2CanaryReplay(input: {
   };
   void acquire;
 
-  const result = await replayScoringV2FromPersistedEvidence({
+  const result = await replayScoringFromPersistedEvidence({
     characterId: input.characterId,
     region: input.region,
     realm: input.realm,
@@ -406,7 +406,7 @@ export async function runScoringV2CanaryReplay(input: {
   void sourceFightKey;
 
   const outDir =
-    input.outputDir ?? join(process.cwd(), "artifacts", "scoring-v2-canary");
+    input.outputDir ?? join(process.cwd(), "artifacts", "scoring-canary");
   await mkdir(outDir, { recursive: true });
   const reportPath = join(
     outDir,

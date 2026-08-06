@@ -7,7 +7,7 @@ import type { Logger } from "@mplus/observability";
 import {
   EVIDENCE_EXPORT_RECLAIM_DEFAULT_LIMIT,
   reclaimStaleEvidenceExports,
-} from "../scoring-v2-evidence-export.js";
+} from "../scoring-evidence-export.js";
 
 export const EVIDENCE_EXPORT_RECOVERY_DEFAULT_INTERVAL_MS = 60_000;
 
@@ -17,7 +17,7 @@ export type EvidenceExportRecoverySweeperHandle = {
 };
 
 export type StartEvidenceExportRecoverySweeperInput = {
-  prisma: Pick<PrismaClient, "scoringV2EvidenceExport">;
+  prisma: Pick<PrismaClient, "scoringEvidenceExport">;
   logger: Logger;
   intervalMs?: number;
   batchSize?: number;
@@ -48,7 +48,7 @@ export function startEvidenceExportRecoverySweeper(
     const result = await reclaimStaleEvidenceExports(input.prisma, nowFn(), { limit: batchSize });
     input.logger.info(
       {
-        event: "scoring_v2.evidence_export_reclaim",
+        event: "scoring.evidence_export_reclaim",
         reclaimed: result.reclaimed,
         batchSize,
       },
@@ -73,7 +73,7 @@ export function startEvidenceExportRecoverySweeper(
             await runReclaim();
           } catch (err) {
             input.logger.warn(
-              { err, event: "scoring_v2.evidence_export_reclaim_failed" },
+              { err, event: "scoring.evidence_export_reclaim_failed" },
               "evidence export recovery sweeper tick failed",
             );
           } finally {
@@ -95,7 +95,7 @@ export function startEvidenceExportRecoverySweeper(
       await runReclaim();
     } catch (err) {
       input.logger.warn(
-        { err, event: "scoring_v2.evidence_export_reclaim_failed" },
+        { err, event: "scoring.evidence_export_reclaim_failed" },
         "evidence export recovery sweeper initial reclaim failed",
       );
     } finally {

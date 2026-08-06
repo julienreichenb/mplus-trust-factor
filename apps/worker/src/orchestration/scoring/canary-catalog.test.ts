@@ -26,7 +26,7 @@ import {
 import { createMemoryOrchestrationPorts } from "./run-orchestration/memory-ports.js";
 import {
   isManifestCompatibleWithSeasonPool,
-  runScoringV2CanaryPreflight,
+  runScoringCanaryPreflight,
 } from "./run-orchestration/canary-preflight.js";
 import { EVIDENCE_SELECTOR_VERSION } from "@mplus/contracts";
 import {
@@ -309,7 +309,7 @@ describe("canary operator repository mode", () => {
       ),
     ).toBe(false);
 
-    const report = await runScoringV2CanaryPreflight({
+    const report = await runScoringCanaryPreflight({
       characterId: "11111111-1111-4111-8111-111111111111",
       characterName: "Wallidrixe",
       region: "eu",

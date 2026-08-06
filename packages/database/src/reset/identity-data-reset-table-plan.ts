@@ -177,8 +177,8 @@ export const IDENTITY_RESET_BULLMQ_QUEUES = [
   "analyze-evidence-slot",
   "finalize-analysis-batch",
   "refresh-character-calibration",
-  "scoring-v2-evidence-export",
-  "scoring-v2-shadow-canary",
+  "scoring-evidence-export",
+  "scoring-shadow-canary",
 ] as const;
 
 /**

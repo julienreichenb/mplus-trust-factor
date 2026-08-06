@@ -18,12 +18,12 @@ import {
 } from "./canary/canary-discovery-gates.js";
 import {
   createDiscoveryForbiddenAcquireHook,
-  runScoringV2CanaryDiscovery,
+  runScoringCanaryDiscovery,
 } from "./canary/canary-discover.js";
 import { parseCanaryCliArgs } from "./canary/cli.js";
 import { CANARY_SENTINEL_CHARACTER_ID } from "./canary/canary-deps.js";
 import { MIDNIGHT_SEASON_1_DUNGEON_SLUGS } from "./canary/canary-catalog.js";
-import { runScoringV2CanaryPreflight } from "./run-orchestration/canary-preflight.js";
+import { runScoringCanaryPreflight } from "./run-orchestration/canary-preflight.js";
 import { createMemoryOrchestrationPorts } from "./run-orchestration/memory-ports.js";
 import type { CanarySeasonResolution } from "./canary/canary-season.js";
 import type { CanaryRateSnapshotBootstrapReport } from "./canary/canary-rate-snapshot.js";
@@ -62,8 +62,6 @@ const liveEnv = {
   PROVIDER_MODE: "live" as const,
   WCL_ENABLED: true,
   ALLOW_LIVE_PROVIDER_CALLS: true,
-  SCORING_ENABLED: true,
-  SCORING_ENABLED: true,
   SCORING_ENABLED: true,
   SCORING_PUBLICATION_ENABLED: false,
   WCL_CLIENT_ID: "id",
@@ -140,11 +138,11 @@ describe("discovery script + CLI wiring", () => {
     const pkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")) as {
       scripts: Record<string, string>;
     };
-    expect(pkg.scripts["scoring-v2:canary"]).toMatch(/scoring-v2:canary/);
-    expect(pkg.scripts["scoring-v2:replay"]).toMatch(/scoring-v2:replay/);
-    expect(pkg.scripts["scoring-v2:doctor"]).toMatch(/scoring-v2:doctor/);
-    expect(pkg.scripts["scoring-v2:canary:discover"]).toBeUndefined();
-    expect(pkg.scripts["scoring-v2:canary:rate-snapshot"]).toBeUndefined();
+    expect(pkg.scripts["scoring:canary"]).toMatch(/scoring:canary/);
+    expect(pkg.scripts["scoring:replay"]).toMatch(/scoring:replay/);
+    expect(pkg.scripts["scoring:doctor"]).toMatch(/scoring:doctor/);
+    expect(pkg.scripts["scoring:canary:discover"]).toBeUndefined();
+    expect(pkg.scripts["scoring:canary:rate-snapshot"]).toBeUndefined();
   });
 
   it("CLI accepts the discover subcommand", () => {
@@ -259,7 +257,7 @@ describe("discovery safety gates", () => {
   });
 });
 
-describe("runScoringV2CanaryDiscovery", () => {
+describe("runScoringCanaryDiscovery", () => {
   function mockPersistence() {
     const manifests = new Map<
       string,
@@ -379,7 +377,7 @@ describe("runScoringV2CanaryDiscovery", () => {
       estimatedPoints: 0,
     }));
     await expect(
-      runScoringV2CanaryDiscovery({
+      runScoringCanaryDiscovery({
         prisma: prisma as never,
         artifacts: artifacts as never,
         evidence: evidence as never,
@@ -443,7 +441,7 @@ describe("runScoringV2CanaryDiscovery", () => {
       estimatedPoints: 12,
     }));
 
-    const { report, effects } = await runScoringV2CanaryDiscovery({
+    const { report, effects } = await runScoringCanaryDiscovery({
       prisma: prisma as never,
       artifacts: artifacts as never,
       evidence: evidence as never,
@@ -492,7 +490,7 @@ describe("runScoringV2CanaryDiscovery", () => {
   it("refuses memory repository mode and sentinel characters", async () => {
     const { prisma, artifacts, evidence } = mockPersistence();
     await expect(
-      runScoringV2CanaryDiscovery({
+      runScoringCanaryDiscovery({
         prisma: prisma as never,
         artifacts: artifacts as never,
         evidence: evidence as never,
@@ -528,7 +526,7 @@ describe("runScoringV2CanaryDiscovery", () => {
     ).rejects.toMatchObject({ code: "CANARY_SENTINEL_CHARACTER_FORBIDDEN" });
 
     await expect(
-      runScoringV2CanaryDiscovery({
+      runScoringCanaryDiscovery({
         prisma: prisma as never,
         artifacts: artifacts as never,
         evidence: evidence as never,
@@ -602,7 +600,7 @@ describe("runScoringV2CanaryDiscovery", () => {
       discover,
     };
 
-    const first = await runScoringV2CanaryDiscovery(input);
+    const first = await runScoringCanaryDiscovery(input);
     expect(first.report.manifestStatus).toBe("CREATED");
     expect(discover).toHaveBeenCalledTimes(1);
 
@@ -615,7 +613,7 @@ describe("runScoringV2CanaryDiscovery", () => {
       frozenAt: new Date(),
     }));
 
-    const second = await runScoringV2CanaryDiscovery(input);
+    const second = await runScoringCanaryDiscovery(input);
     expect(second.report.manifestStatus).toBe("REUSED");
     expect(second.report.reusedExistingManifest).toBe(true);
     expect(second.report.graphqlRequestCount).toBe(0);
@@ -690,7 +688,7 @@ describe("runScoringV2CanaryDiscovery", () => {
       estimatedPoints: 1,
     }));
 
-    const { report } = await runScoringV2CanaryDiscovery({
+    const { report } = await runScoringCanaryDiscovery({
       prisma: prisma as never,
       artifacts: artifacts as never,
       evidence: evidence as never,
@@ -727,7 +725,7 @@ describe("runScoringV2CanaryDiscovery", () => {
       cands.push(candidate(slug, fight++, 0));
       cands.push(candidate(slug, fight++, 1));
     }
-    const { report } = await runScoringV2CanaryDiscovery({
+    const { report } = await runScoringCanaryDiscovery({
       prisma: prisma as never,
       artifacts: artifacts as never,
       evidence: evidence as never,
@@ -781,7 +779,7 @@ describe("runScoringV2CanaryDiscovery", () => {
     expect(cands.filter((c) => c.dungeonSlug === "windrunner-spire")).toHaveLength(1);
 
     let admitSeen = false;
-    const { report } = await runScoringV2CanaryDiscovery({
+    const { report } = await runScoringCanaryDiscovery({
       prisma: prisma as never,
       artifacts: artifacts as never,
       evidence: evidence as never,
@@ -864,7 +862,7 @@ describe("runScoringV2CanaryDiscovery", () => {
 describe("preflight after discovery semantics", () => {
   it("MANIFEST_NOT_FOUND uses NOT_EVALUATED fields and safety checks", async () => {
     const ports = createMemoryOrchestrationPorts({ autoSeedRanking: false });
-    const report = await runScoringV2CanaryPreflight({
+    const report = await runScoringCanaryPreflight({
       characterId: "11111111-1111-4111-8111-111111111111",
       characterName: "Wallidrixe",
       region: "eu",
@@ -957,7 +955,7 @@ describe("preflight after discovery semantics", () => {
 
     expect(manifest.selectedSlotCount).toBe(16);
 
-    const report = await runScoringV2CanaryPreflight({
+    const report = await runScoringCanaryPreflight({
       characterId: scope.characterId,
       characterName: "Wallidrixe",
       region: "eu",

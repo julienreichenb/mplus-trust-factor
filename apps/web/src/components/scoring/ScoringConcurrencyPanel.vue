@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
-import type { ScoringV2ConcurrencyDTO } from "@mplus/contracts";
+import type { ScoringConcurrencyDTO } from "@mplus/contracts";
 import { ApiClientError } from "../../api/live-client";
 import StatusBanner from "../common/StatusBanner.vue";
 import StatusChip from "../character/StatusChip.vue";
@@ -12,7 +12,7 @@ const apiBase = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:3000";
 const busy = ref(false);
 const error = ref<string | null>(null);
 const success = ref<string | null>(null);
-const data = ref<ScoringV2ConcurrencyDTO | null>(null);
+const data = ref<ScoringConcurrencyDTO | null>(null);
 const calibration = ref(4);
 const operation = ref(2);
 
@@ -41,7 +41,7 @@ async function load(): Promise<void> {
   busy.value = true;
   error.value = null;
   try {
-    data.value = await apiJson<ScoringV2ConcurrencyDTO>("/api/v1/admin/scoring-v2/concurrency");
+    data.value = await apiJson<ScoringConcurrencyDTO>("/api/v1/admin/scoring/concurrency");
     calibration.value = data.value.calibration.configured;
     operation.value = data.value.operation.configured;
   } catch (err) {
@@ -57,7 +57,7 @@ async function save(): Promise<void> {
   error.value = null;
   success.value = null;
   try {
-    data.value = await apiJson<ScoringV2ConcurrencyDTO>("/api/v1/admin/scoring-v2/concurrency", {
+    data.value = await apiJson<ScoringConcurrencyDTO>("/api/v1/admin/scoring/concurrency", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({

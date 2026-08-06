@@ -18,15 +18,15 @@ import type { CanarySeasonResolution } from "../canary/canary-season.js";
 import type { ResolvedCanaryZone } from "../canary/canary-zone.js";
 import {
   loadCompatibleFrozenManifest,
-  runScoringV2CanaryLive,
+  runScoringCanaryLive,
   type CanaryLiveReport,
 } from "../canary/canary-live.js";
-import { runScoringV2CanaryReplay } from "../canary/canary-replay.js";
+import { runScoringCanaryReplay } from "../canary/canary-replay.js";
 import { runTargetDigestDiagnostic } from "../canary/canary-target-digest-diagnostic.js";
 import { evaluateLiveCapabilityPermission } from "../run-orchestration/live-capability-adapter.js";
 
 export const CONSOLIDATED_SHADOW_PIPELINE_SCHEMA =
-  "scoring-v2-consolidated-shadow-pipeline-v1" as const;
+  "scoring-consolidated-shadow-pipeline-v1" as const;
 
 export interface ConsolidatedStageSummary {
   name: string;
@@ -175,7 +175,7 @@ export async function runConsolidatedShadowPipeline(input: {
     wclEnabled: input.env.WCL_ENABLED,
     allowLiveProviderCalls: input.env.ALLOW_LIVE_PROVIDER_CALLS,
     liveProviderPermissionGranted: true,
-    scoringV2PublicationEnabled: input.env.SCORING_PUBLICATION_ENABLED,
+    scoringPublicationEnabled: input.env.SCORING_PUBLICATION_ENABLED,
     hasWclCredentials: Boolean(
       input.env.WCL_CLIENT_ID && input.env.WCL_CLIENT_SECRET,
     ),
@@ -184,7 +184,7 @@ export async function runConsolidatedShadowPipeline(input: {
     !input.providerFreeOnly && input.confirmExecute && liveGate.allowed;
 
   if (liveOk) {
-    const live = await runScoringV2CanaryLive({
+    const live = await runScoringCanaryLive({
       prisma: input.prisma,
       container: input.container,
       characterId: input.characterId,
@@ -255,7 +255,7 @@ export async function runConsolidatedShadowPipeline(input: {
   }
 
   try {
-    const replay = await runScoringV2CanaryReplay({
+    const replay = await runScoringCanaryReplay({
       env: input.env,
       prisma: input.prisma,
       container: input.container,
@@ -357,7 +357,7 @@ async function persist(
   outputDir?: string,
 ): Promise<{ report: ConsolidatedShadowPipelineReport; reportPath: string }> {
   const outDir =
-    outputDir ?? join(process.cwd(), "artifacts", "scoring-v2-canary");
+    outputDir ?? join(process.cwd(), "artifacts", "scoring-canary");
   await mkdir(outDir, { recursive: true });
   const reportPath = join(outDir, "consolidated-pipeline-report.json");
   await writeFile(reportPath, JSON.stringify(report, null, 2), "utf8");

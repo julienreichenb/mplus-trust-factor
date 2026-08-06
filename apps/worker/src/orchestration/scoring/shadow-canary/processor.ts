@@ -1,22 +1,22 @@
 /**
  * BullMQ processor for Scoring V2 Shadow Canary jobs.
  */
-import type { ScoringV2ShadowCanaryJob } from "@mplus/contracts";
+import type { ScoringShadowCanaryJob } from "@mplus/contracts";
 import type { WorkerContainer } from "../../../container.js";
 import { toInputJsonValue } from "../../../persistence/prisma-json.js";
 import { discoverShadowCanaryCandidates } from "./discover.js";
 import { runShadowCanaryJob } from "./runner.js";
 
-export async function runScoringV2ShadowCanaryJob(
+export async function runScoringShadowCanaryJob(
   container: WorkerContainer,
-  job: ScoringV2ShadowCanaryJob,
+  job: ScoringShadowCanaryJob,
 ): Promise<{
   outcome: string;
   canaryId: string;
   analysisBatchId: string | null;
   enqueuedSlotJobs: number;
 }> {
-  const canary = await container.prisma.scoringV2ShadowCanary.findUnique({
+  const canary = await container.prisma.scoringShadowCanary.findUnique({
     where: { id: job.canaryId },
   });
   if (!canary) {
@@ -46,7 +46,7 @@ export async function runScoringV2ShadowCanaryJob(
       characterId: canary.characterId,
     });
 
-    await container.prisma.scoringV2ShadowCanary.update({
+    await container.prisma.scoringShadowCanary.update({
       where: { id: job.canaryId },
       data: {
         seasonId: discovery.seasonId,
@@ -80,7 +80,7 @@ export async function runScoringV2ShadowCanaryJob(
       enqueuedSlotJobs: result.enqueuedSlotJobs,
     };
   } catch (error) {
-    await container.prisma.scoringV2ShadowCanary.update({
+    await container.prisma.scoringShadowCanary.update({
       where: { id: job.canaryId },
       data: {
         status: "FAILED",

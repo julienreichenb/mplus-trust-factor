@@ -29,8 +29,8 @@ const PROJECT_BULLMQ_QUEUES = [
   "analyze-evidence-slot",
   "finalize-analysis-batch",
   "refresh-character-calibration",
-  "scoring-v2-evidence-export",
-  "scoring-v2-shadow-canary",
+  "scoring-evidence-export",
+  "scoring-shadow-canary",
 ] as const;
 
 export type ActiveWriterProbe = {
@@ -124,7 +124,7 @@ export async function probeActiveWriters(input: {
     `SELECT COUNT(*)::bigint AS count FROM "ingestion_jobs" WHERE status IN ('QUEUED', 'ACTIVE')`,
   );
   const canaries = await input.prisma.$queryRawUnsafe<Array<{ count: bigint | number }>>(
-    `SELECT COUNT(*)::bigint AS count FROM "scoring_v2_shadow_canaries" WHERE UPPER(status) IN ('QUEUED', 'RUNNING', 'PENDING', 'STARTED', 'ACTIVE')`,
+    `SELECT COUNT(*)::bigint AS count FROM "scoring_shadow_canaries" WHERE UPPER(status) IN ('QUEUED', 'RUNNING', 'PENDING', 'STARTED', 'ACTIVE')`,
   );
   const bulk = await input.prisma.$queryRawUnsafe<Array<{ count: bigint | number }>>(
     `SELECT COUNT(*)::bigint AS count FROM "bulk_operations" WHERE status IN ('PENDING', 'SELECTING', 'RUNNING', 'PAUSED')`,

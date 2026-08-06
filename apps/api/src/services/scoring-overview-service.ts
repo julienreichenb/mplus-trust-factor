@@ -1,20 +1,20 @@
 /**
  * DB/config-only Scoring V2 control-center overview. No providers, no enqueue.
  */
-import { getScoringV2FlagSummary, type AppEnv } from "@mplus/config";
+import { getScoringFlagSummary, type AppEnv } from "@mplus/config";
 import type {
-  ScoringV2FlagOverviewDTO,
-  ScoringV2ModeLabel,
-  ScoringV2OverviewDTO,
-  ScoringV2IssueDTO,
+  ScoringFlagOverviewDTO,
+  ScoringModeLabel,
+  ScoringOverviewDTO,
+  ScoringIssueDTO,
 } from "@mplus/contracts";
 import type { PrismaClient } from "@mplus/database";
 import {
   getConcurrencySettings,
   type GetConcurrencySettingsOptions,
-} from "./scoring-v2-runtime-settings.js";
+} from "./scoring-runtime-settings.js";
 
-function deriveModeLabel(flags: ReturnType<typeof getScoringV2FlagSummary>): ScoringV2ModeLabel {
+function deriveModeLabel(flags: ReturnType<typeof getScoringFlagSummary>): ScoringModeLabel {
   if (!flags.enabled) return "Disabled";
   if (flags.publicationEnabled) return "Active";
   if (
@@ -28,8 +28,8 @@ function deriveModeLabel(flags: ReturnType<typeof getScoringV2FlagSummary>): Sco
   return "Candidate";
 }
 
-function toFlagOverview(env: AppEnv): ScoringV2FlagOverviewDTO {
-  const flags = getScoringV2FlagSummary(env);
+function toFlagOverview(env: AppEnv): ScoringFlagOverviewDTO {
+  const flags = getScoringFlagSummary(env);
   return {
     masterEnabled: flags.enabled,
     selectionEnabled: flags.selectionEnabled,
@@ -50,14 +50,14 @@ function toFlagOverview(env: AppEnv): ScoringV2FlagOverviewDTO {
   };
 }
 
-export async function buildScoringV2Overview(
+export async function buildScoringOverview(
   prisma: PrismaClient,
   env: AppEnv,
   concurrencyOptions: Pick<
     GetConcurrencySettingsOptions,
     "redis" | "appEnv" | "nowMs"
   > = {},
-): Promise<ScoringV2OverviewDTO> {
+): Promise<ScoringOverviewDTO> {
   const flags = toFlagOverview(env);
   const [activeModel, currentSeason, cohortGroups, recentExport, recentFrozen, queueGroups] =
     await Promise.all([
@@ -80,11 +80,11 @@ export async function buildScoringV2Overview(
         by: ["status"],
         _count: { _all: true },
       }),
-      prisma.scoringV2EvidenceExport.findFirst({
+      prisma.scoringEvidenceExport.findFirst({
         orderBy: { createdAt: "desc" },
         include: { cohort: { select: { name: true } } },
       }),
-      prisma.scoringV2EvidenceExport.findFirst({
+      prisma.scoringEvidenceExport.findFirst({
         where: { frozenBundleContentHash: { not: null } },
         orderBy: { frozenAt: "desc" },
       }),
@@ -120,8 +120,8 @@ export async function buildScoringV2Overview(
     nowMs: concurrencyOptions.nowMs,
   });
 
-  const blockers: ScoringV2IssueDTO[] = [];
-  const warnings: ScoringV2IssueDTO[] = [];
+  const blockers: ScoringIssueDTO[] = [];
+  const warnings: ScoringIssueDTO[] = [];
   for (const reason of flags.incompatibleReasons) {
     blockers.push({ code: "FLAG_INCOMPATIBLE", severity: "blocker", message: reason });
   }
@@ -141,7 +141,7 @@ export async function buildScoringV2Overview(
   }
   if (flags.modeLabel === "Disabled") {
     warnings.push({
-      code: "SCORING_V2_DISABLED",
+      code: "scoring_DISABLED",
       severity: "info",
       message: "Scoring V2 master flag is disabled — control center is observational only",
     });

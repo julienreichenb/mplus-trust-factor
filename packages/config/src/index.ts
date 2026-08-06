@@ -377,14 +377,6 @@ export function getScoringFlagSummary(env: AppEnv): ScoringFlagSummary {
   };
 }
 
-/** @deprecated Use getScoringFlagSummary — temporary compile bridge during rename. */
-export const getScoringV2FlagSummary = getScoringFlagSummary;
-/** @deprecated Use evaluateScoringFlagCompatibility — temporary compile bridge during rename. */
-export const evaluateScoringV2FlagCompatibility = evaluateScoringFlagCompatibility;
-/** @deprecated Use ScoringFlagSummary */
-export type ScoringV2FlagSummary = ScoringFlagSummary;
-
-
 /** Safe startup summary: booleans and modes only — never credential values. */
 export interface ConfigSummary {
   appEnv: AppEnv["APP_ENV"];

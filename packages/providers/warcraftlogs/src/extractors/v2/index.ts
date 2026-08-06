@@ -14,7 +14,7 @@ export {
 } from "./content-hash.js";
 
 export type {
-  ScoringV2ExtractableDimension,
+  ScoringExtractableDimension,
   DimensionFactExtractionStatus,
   FactExtractionCategory,
   DimensionFactExtractionOutcome,

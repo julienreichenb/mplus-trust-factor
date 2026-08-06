@@ -13,13 +13,13 @@ import {
 import {
   createMapArtifactResolverV2,
   createDefaultModelV6,
-  createDefaultScoringV2DimensionConfigSet,
+  createDefaultscoringDimensionConfigSet,
   buildCalibrationContentRefV2,
   buildDefaultFreezePolicies,
   buildFreezeSnapshot,
   resolveFrozenDimensionConfigsForModel,
   replayCalibrationBundleV2,
-  withScoringV2DimensionConfigs,
+  withscoringDimensionConfigs,
   type CalibrationInputBundleV2,
   type FreezeSnapshotContentRefV2,
   type FreezeSnapshotMemberEvidenceV2,
@@ -29,7 +29,7 @@ import { CURRENT_CATALOG_VERSION_ID } from "@mplus/abilities";
 import {
   assembleCalibrationInputBundleV2,
   type AssembleBundleV2Result,
-} from "./scoring-v2-bundle-freeze.js";
+} from "./scoring-bundle-freeze.js";
 
 function sha256Hex(bytes: Buffer | string): string {
   const buf = typeof bytes === "string" ? Buffer.from(bytes, "utf8") : bytes;
@@ -41,9 +41,9 @@ function sha256Json(value: unknown): string {
 }
 
 function makeModelConfig() {
-  return withScoringV2DimensionConfigs(
+  return withscoringDimensionConfigs(
     createDefaultModelV6({ key: "test-model", version: 6 }),
-    createDefaultScoringV2DimensionConfigSet(),
+    createDefaultscoringDimensionConfigSet(),
   );
 }
 
@@ -484,7 +484,7 @@ function buildFixture(opts: FixtureOpts = {}) {
       };
 
   const prisma = {
-    scoringV2EvidenceExport: {
+    scoringEvidenceExport: {
       findUnique: vi.fn(async () => ({
         id: exportId,
         status: "COMPLETED",

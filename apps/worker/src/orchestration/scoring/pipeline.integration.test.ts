@@ -31,7 +31,7 @@ const dbAvailable = health.ok;
 
 if (!dbAvailable) {
   console.warn(
-    `Skipping scoring-v2 pipeline integration tests: PostgreSQL not reachable at ${sanitizeDatabaseUrl(databaseUrl)}.`,
+    `Skipping scoring pipeline integration tests: PostgreSQL not reachable at ${sanitizeDatabaseUrl(databaseUrl)}.`,
   );
 }
 
@@ -361,7 +361,7 @@ describe.runIf(dbAvailable)("scoring v2 pipeline fan-in integration", () => {
           ...(typeof claimA!.batch.metadata === "object" && claimA!.batch.metadata
             ? (claimA!.batch.metadata as Record<string, unknown>)
             : {}),
-          scoringV2: {
+          scoring: {
             ...claimA!.meta,
             batchState: "READY_TO_FINALIZE",
           },

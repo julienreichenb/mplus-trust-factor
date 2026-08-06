@@ -158,7 +158,7 @@ export class CapabilityEvidencePackageRepository {
         artifactId: input.packageArtifactId,
         participantActorIds: pkg.friendlyPlayerActorIds,
         complete: pkg.complete,
-        supersedesCompatibilityKey: null,
+        legacySupersedesKey: null,
       },
     });
     return { id: created.id, created: true };

@@ -16,13 +16,13 @@ import { BATTLENET_PROVIDER, PERMISSIONS } from "./iam/permissions.js";
 import { RUNTIME_SETTING_KEYS } from "@mplus/contracts";
 
 const { prisma, dbAvailable } = await createTestPrismaClient();
-const ADMIN_KEY = "test-admin-key-scoring-v2-cc";
+const ADMIN_KEY = "test-admin-key-scoring-cc";
 
 const CONTROL_CENTER_GET_PATHS = [
-  "/api/v1/admin/scoring-v2/overview",
-  "/api/v1/admin/scoring-v2/concurrency",
-  "/api/v1/admin/scoring-v2/evidence-exports",
-  "/api/v1/admin/scoring-v2/history",
+  "/api/v1/admin/scoring/overview",
+  "/api/v1/admin/scoring/concurrency",
+  "/api/v1/admin/scoring/evidence-exports",
+  "/api/v1/admin/scoring/history",
 ] as const;
 
 afterAll(async () => {
@@ -30,7 +30,7 @@ afterAll(async () => {
 });
 
 function stubProducers(spies: {
-  enqueueScoringV2EvidenceExport: ReturnType<typeof vi.fn>;
+  enqueueScoringEvidenceExport: ReturnType<typeof vi.fn>;
   enqueueRefreshCharacter: ReturnType<typeof vi.fn>;
 }): QueueProducers {
   const ok = async () => ({
@@ -47,7 +47,7 @@ function stubProducers(spies: {
     enqueueDiscoverOwnedCharacters: ok,
     enqueueBulkCharacterProcessing: ok,
     enqueueCalibrationRun: ok,
-    enqueueScoringV2EvidenceExport: spies.enqueueScoringV2EvidenceExport,
+    enqueueScoringEvidenceExport: spies.enqueueScoringEvidenceExport,
     enqueueAnalyzeEvidenceSlot: ok,
     enqueueFinalizeEvidenceBatch: ok,
     getRefreshCharacterQueue: () => null,
@@ -78,7 +78,7 @@ async function createUser(displayName: string) {
   });
 }
 
-/** Role with score.candidate.read only — not admin.scoring_v2.manage. */
+/** Role with score.candidate.read only — not admin.scoring.manage. */
 async function grantCandidateReadOnly(userId: string): Promise<void> {
   await ensureIamSeed(prisma as PrismaClient);
   const roleKey = `sv2cc-read-${randomUUID().slice(0, 8)}`;
@@ -133,7 +133,7 @@ async function createCohort(createdByUserId: string, seasonId: string) {
   });
 }
 
-describe.skipIf(!dbAvailable)("admin scoring-v2 control center (H4 adversarial)", { timeout: 60_000 }, () => {
+describe.skipIf(!dbAvailable)("admin scoring control center (H4 adversarial)", { timeout: 60_000 }, () => {
   let app: FastifyInstance;
   let container: ApiContainer;
   let sessionSecret: string;
@@ -167,7 +167,7 @@ describe.skipIf(!dbAvailable)("admin scoring-v2 control center (H4 adversarial)"
     container = createApiContainer(env, {
       workerOverrides: { prisma: prisma as PrismaClient },
       producers: stubProducers({
-        enqueueScoringV2EvidenceExport: enqueueExport,
+        enqueueScoringEvidenceExport: enqueueExport,
         enqueueRefreshCharacter: enqueueRefresh,
       }),
     });
@@ -190,7 +190,7 @@ describe.skipIf(!dbAvailable)("admin scoring-v2 control center (H4 adversarial)"
 
   it("provisions control-center permission keys", () => {
     expect(PERMISSIONS.SCORE_CANDIDATE_READ).toBe("score.candidate.read");
-    expect(PERMISSIONS.ADMIN_SCORING_V2_MANAGE).toBe("admin.scoring_v2.manage");
+    expect(PERMISSIONS.ADMIN_SCORING_MANAGE).toBe("admin.scoring.manage");
   });
 
   describe("unauthenticated → 401", () => {
@@ -206,7 +206,7 @@ describe.skipIf(!dbAvailable)("admin scoring-v2 control center (H4 adversarial)"
     it("PUT /concurrency", async () => {
       const response = await app.inject({
         method: "PUT",
-        url: "/api/v1/admin/scoring-v2/concurrency",
+        url: "/api/v1/admin/scoring/concurrency",
         payload: { concurrencyCalibration: 2, expectedVersion: 1 },
       });
       expect(response.statusCode).toBe(401);
@@ -215,7 +215,7 @@ describe.skipIf(!dbAvailable)("admin scoring-v2 control center (H4 adversarial)"
     it("POST /evidence-exports", async () => {
       const response = await app.inject({
         method: "POST",
-        url: "/api/v1/admin/scoring-v2/evidence-exports",
+        url: "/api/v1/admin/scoring/evidence-exports",
         payload: { cohortId: randomUUID() },
       });
       expect(response.statusCode).toBe(401);
@@ -224,7 +224,7 @@ describe.skipIf(!dbAvailable)("admin scoring-v2 control center (H4 adversarial)"
     it("GET /evidence-exports/:id", async () => {
       const response = await app.inject({
         method: "GET",
-        url: `/api/v1/admin/scoring-v2/evidence-exports/${randomUUID()}`,
+        url: `/api/v1/admin/scoring/evidence-exports/${randomUUID()}`,
       });
       expect(response.statusCode).toBe(401);
     });
@@ -232,7 +232,7 @@ describe.skipIf(!dbAvailable)("admin scoring-v2 control center (H4 adversarial)"
     it("GET download", async () => {
       const response = await app.inject({
         method: "GET",
-        url: `/api/v1/admin/scoring-v2/evidence-exports/${randomUUID()}/download`,
+        url: `/api/v1/admin/scoring/evidence-exports/${randomUUID()}/download`,
       });
       expect(response.statusCode).toBe(401);
     });
@@ -240,7 +240,7 @@ describe.skipIf(!dbAvailable)("admin scoring-v2 control center (H4 adversarial)"
     it("POST freeze-bundle", async () => {
       const response = await app.inject({
         method: "POST",
-        url: `/api/v1/admin/scoring-v2/evidence-exports/${randomUUID()}/freeze-bundle`,
+        url: `/api/v1/admin/scoring/evidence-exports/${randomUUID()}/freeze-bundle`,
         payload: { confirm: true },
       });
       expect(response.statusCode).toBe(401);
@@ -254,7 +254,7 @@ describe.skipIf(!dbAvailable)("admin scoring-v2 control center (H4 adversarial)"
 
       const overview = await app.inject({
         method: "GET",
-        url: "/api/v1/admin/scoring-v2/overview",
+        url: "/api/v1/admin/scoring/overview",
         headers: { cookie },
       });
       expect(overview.statusCode).toBe(403);
@@ -262,7 +262,7 @@ describe.skipIf(!dbAvailable)("admin scoring-v2 control center (H4 adversarial)"
 
       const put = await app.inject({
         method: "PUT",
-        url: "/api/v1/admin/scoring-v2/concurrency",
+        url: "/api/v1/admin/scoring/concurrency",
         headers: { cookie },
         payload: { concurrencyCalibration: 2, expectedVersion: 1 },
       });
@@ -293,7 +293,7 @@ describe.skipIf(!dbAvailable)("admin scoring-v2 control center (H4 adversarial)"
 
       const missing = await app.inject({
         method: "GET",
-        url: `/api/v1/admin/scoring-v2/evidence-exports/${randomUUID()}`,
+        url: `/api/v1/admin/scoring/evidence-exports/${randomUUID()}`,
         headers: { cookie: readCookie },
       });
       // Authz passed; resource missing.
@@ -306,24 +306,24 @@ describe.skipIf(!dbAvailable)("admin scoring-v2 control center (H4 adversarial)"
       const cases = [
         app.inject({
           method: "PUT",
-          url: "/api/v1/admin/scoring-v2/concurrency",
+          url: "/api/v1/admin/scoring/concurrency",
           headers: { cookie: readCookie },
           payload: { concurrencyCalibration: 2, expectedVersion: 1 },
         }),
         app.inject({
           method: "POST",
-          url: "/api/v1/admin/scoring-v2/evidence-exports",
+          url: "/api/v1/admin/scoring/evidence-exports",
           headers: { cookie: readCookie },
           payload: { cohortId: randomUUID() },
         }),
         app.inject({
           method: "GET",
-          url: `/api/v1/admin/scoring-v2/evidence-exports/${exportId}/download`,
+          url: `/api/v1/admin/scoring/evidence-exports/${exportId}/download`,
           headers: { cookie: readCookie },
         }),
         app.inject({
           method: "POST",
-          url: `/api/v1/admin/scoring-v2/evidence-exports/${exportId}/freeze-bundle`,
+          url: `/api/v1/admin/scoring/evidence-exports/${exportId}/freeze-bundle`,
           headers: { cookie: readCookie },
           payload: { confirm: true },
         }),
@@ -354,7 +354,7 @@ describe.skipIf(!dbAvailable)("admin scoring-v2 control center (H4 adversarial)"
       // Ensure defaults exist and read current version.
       const current = await app.inject({
         method: "GET",
-        url: "/api/v1/admin/scoring-v2/concurrency",
+        url: "/api/v1/admin/scoring/concurrency",
         headers: { cookie: manageCookie },
       });
       expect(current.statusCode).toBe(200);
@@ -362,7 +362,7 @@ describe.skipIf(!dbAvailable)("admin scoring-v2 control center (H4 adversarial)"
 
       const updated = await app.inject({
         method: "PUT",
-        url: "/api/v1/admin/scoring-v2/concurrency",
+        url: "/api/v1/admin/scoring/concurrency",
         headers: { cookie: manageCookie },
         payload: {
           concurrencyCalibration: 3,
@@ -382,7 +382,7 @@ describe.skipIf(!dbAvailable)("admin scoring-v2 control center (H4 adversarial)"
 
       const created = await app.inject({
         method: "POST",
-        url: "/api/v1/admin/scoring-v2/evidence-exports",
+        url: "/api/v1/admin/scoring/evidence-exports",
         headers: { cookie: manageCookie },
         payload: { cohortId: cohort.id },
       });
@@ -400,7 +400,7 @@ describe.skipIf(!dbAvailable)("admin scoring-v2 control center (H4 adversarial)"
     it("admin API key can GET overview and list exports", async () => {
       const overview = await app.inject({
         method: "GET",
-        url: "/api/v1/admin/scoring-v2/overview",
+        url: "/api/v1/admin/scoring/overview",
         headers: adminKeyHeaders(),
       });
       expect(overview.statusCode).toBe(200);
@@ -409,7 +409,7 @@ describe.skipIf(!dbAvailable)("admin scoring-v2 control center (H4 adversarial)"
 
       const list = await app.inject({
         method: "GET",
-        url: "/api/v1/admin/scoring-v2/evidence-exports?page=1&pageSize=5",
+        url: "/api/v1/admin/scoring/evidence-exports?page=1&pageSize=5",
         headers: adminKeyHeaders(),
       });
       expect(list.statusCode).toBe(200);
@@ -422,8 +422,8 @@ describe.skipIf(!dbAvailable)("admin scoring-v2 control center (H4 adversarial)"
     it("rejects malformed UUID params with 400", async () => {
       const badId = "not-a-uuid";
       const paths = [
-        `/api/v1/admin/scoring-v2/evidence-exports/${badId}`,
-        `/api/v1/admin/scoring-v2/evidence-exports/${badId}/download`,
+        `/api/v1/admin/scoring/evidence-exports/${badId}`,
+        `/api/v1/admin/scoring/evidence-exports/${badId}/download`,
       ];
       for (const url of paths) {
         const response = await app.inject({
@@ -437,7 +437,7 @@ describe.skipIf(!dbAvailable)("admin scoring-v2 control center (H4 adversarial)"
 
       const freeze = await app.inject({
         method: "POST",
-        url: `/api/v1/admin/scoring-v2/evidence-exports/${badId}/freeze-bundle`,
+        url: `/api/v1/admin/scoring/evidence-exports/${badId}/freeze-bundle`,
         headers: adminKeyHeaders(),
         payload: { confirm: true },
       });
@@ -447,7 +447,7 @@ describe.skipIf(!dbAvailable)("admin scoring-v2 control center (H4 adversarial)"
     it("rejects missing concurrency body and out-of-range values with 400", async () => {
       const missing = await app.inject({
         method: "PUT",
-        url: "/api/v1/admin/scoring-v2/concurrency",
+        url: "/api/v1/admin/scoring/concurrency",
         headers: adminKeyHeaders(),
         payload: {},
       });
@@ -455,7 +455,7 @@ describe.skipIf(!dbAvailable)("admin scoring-v2 control center (H4 adversarial)"
 
       const invalid = await app.inject({
         method: "PUT",
-        url: "/api/v1/admin/scoring-v2/concurrency",
+        url: "/api/v1/admin/scoring/concurrency",
         headers: adminKeyHeaders(),
         payload: { concurrencyCalibration: 99, expectedVersion: 1 },
       });
@@ -463,7 +463,7 @@ describe.skipIf(!dbAvailable)("admin scoring-v2 control center (H4 adversarial)"
 
       const zero = await app.inject({
         method: "PUT",
-        url: "/api/v1/admin/scoring-v2/concurrency",
+        url: "/api/v1/admin/scoring/concurrency",
         headers: adminKeyHeaders(),
         payload: { concurrencyOperation: 0, expectedVersion: 1 },
       });
@@ -492,7 +492,7 @@ describe.skipIf(!dbAvailable)("admin scoring-v2 control center (H4 adversarial)"
 
       const current = await app.inject({
         method: "GET",
-        url: "/api/v1/admin/scoring-v2/concurrency",
+        url: "/api/v1/admin/scoring/concurrency",
         headers: adminKeyHeaders(),
       });
       expect(current.statusCode).toBe(200);
@@ -500,7 +500,7 @@ describe.skipIf(!dbAvailable)("admin scoring-v2 control center (H4 adversarial)"
 
       const stale = await app.inject({
         method: "PUT",
-        url: "/api/v1/admin/scoring-v2/concurrency",
+        url: "/api/v1/admin/scoring/concurrency",
         headers: adminKeyHeaders(),
         payload: {
           concurrencyOperation: 2,
@@ -511,7 +511,7 @@ describe.skipIf(!dbAvailable)("admin scoring-v2 control center (H4 adversarial)"
       if (version === 1) {
         const conflict = await app.inject({
           method: "PUT",
-          url: "/api/v1/admin/scoring-v2/concurrency",
+          url: "/api/v1/admin/scoring/concurrency",
           headers: adminKeyHeaders(),
           payload: { concurrencyOperation: 2, expectedVersion: 999_999 },
         });
@@ -528,7 +528,7 @@ describe.skipIf(!dbAvailable)("admin scoring-v2 control center (H4 adversarial)"
     it("rejects missing export body fields and unknown cohort", async () => {
       const missingBody = await app.inject({
         method: "POST",
-        url: "/api/v1/admin/scoring-v2/evidence-exports",
+        url: "/api/v1/admin/scoring/evidence-exports",
         headers: adminKeyHeaders(),
         payload: {},
       });
@@ -536,7 +536,7 @@ describe.skipIf(!dbAvailable)("admin scoring-v2 control center (H4 adversarial)"
 
       const unknown = await app.inject({
         method: "POST",
-        url: "/api/v1/admin/scoring-v2/evidence-exports",
+        url: "/api/v1/admin/scoring/evidence-exports",
         headers: adminKeyHeaders(),
         payload: { cohortId: randomUUID() },
       });
@@ -548,7 +548,7 @@ describe.skipIf(!dbAvailable)("admin scoring-v2 control center (H4 adversarial)"
     it("returns 404 for missing export detail", async () => {
       const response = await app.inject({
         method: "GET",
-        url: `/api/v1/admin/scoring-v2/evidence-exports/${randomUUID()}`,
+        url: `/api/v1/admin/scoring/evidence-exports/${randomUUID()}`,
         headers: adminKeyHeaders(),
       });
       expect(response.statusCode).toBe(404);
@@ -558,7 +558,7 @@ describe.skipIf(!dbAvailable)("admin scoring-v2 control center (H4 adversarial)"
 
     it("returns 404 for incomplete export download", async () => {
       const cohort = await createCohort(actorUserId, seasonId);
-      const exportRow = await prisma.scoringV2EvidenceExport.create({
+      const exportRow = await prisma.scoringEvidenceExport.create({
         data: {
           id: randomUUID(),
           cohortId: cohort.id,
@@ -573,7 +573,7 @@ describe.skipIf(!dbAvailable)("admin scoring-v2 control center (H4 adversarial)"
 
       const response = await app.inject({
         method: "GET",
-        url: `/api/v1/admin/scoring-v2/evidence-exports/${exportRow.id}/download`,
+        url: `/api/v1/admin/scoring/evidence-exports/${exportRow.id}/download`,
         headers: adminKeyHeaders(),
       });
       expect(response.statusCode).toBe(404);
@@ -584,7 +584,7 @@ describe.skipIf(!dbAvailable)("admin scoring-v2 control center (H4 adversarial)"
     it("returns 404 for download of unknown export id", async () => {
       const response = await app.inject({
         method: "GET",
-        url: `/api/v1/admin/scoring-v2/evidence-exports/${randomUUID()}/download`,
+        url: `/api/v1/admin/scoring/evidence-exports/${randomUUID()}/download`,
         headers: adminKeyHeaders(),
       });
       expect(response.statusCode).toBe(404);
@@ -595,7 +595,7 @@ describe.skipIf(!dbAvailable)("admin scoring-v2 control center (H4 adversarial)"
 
     it("returns 409 when freeze has blockers (invalid freeze snapshot)", async () => {
       const cohort = await createCohort(actorUserId, seasonId);
-      const exportRow = await prisma.scoringV2EvidenceExport.create({
+      const exportRow = await prisma.scoringEvidenceExport.create({
         data: {
           id: randomUUID(),
           cohortId: cohort.id,
@@ -613,7 +613,7 @@ describe.skipIf(!dbAvailable)("admin scoring-v2 control center (H4 adversarial)"
 
       const response = await app.inject({
         method: "POST",
-        url: `/api/v1/admin/scoring-v2/evidence-exports/${exportRow.id}/freeze-bundle`,
+        url: `/api/v1/admin/scoring/evidence-exports/${exportRow.id}/freeze-bundle`,
         headers: adminKeyHeaders(),
         payload: { confirm: true },
       });
@@ -624,7 +624,7 @@ describe.skipIf(!dbAvailable)("admin scoring-v2 control center (H4 adversarial)"
 
     it("returns 409 when freezing a non-completed export", async () => {
       const cohort = await createCohort(actorUserId, seasonId);
-      const exportRow = await prisma.scoringV2EvidenceExport.create({
+      const exportRow = await prisma.scoringEvidenceExport.create({
         data: {
           id: randomUUID(),
           cohortId: cohort.id,
@@ -639,7 +639,7 @@ describe.skipIf(!dbAvailable)("admin scoring-v2 control center (H4 adversarial)"
 
       const response = await app.inject({
         method: "POST",
-        url: `/api/v1/admin/scoring-v2/evidence-exports/${exportRow.id}/freeze-bundle`,
+        url: `/api/v1/admin/scoring/evidence-exports/${exportRow.id}/freeze-bundle`,
         headers: adminKeyHeaders(),
         payload: { confirm: true },
       });
@@ -650,7 +650,7 @@ describe.skipIf(!dbAvailable)("admin scoring-v2 control center (H4 adversarial)"
     it("rejects freeze without confirm: true", async () => {
       const response = await app.inject({
         method: "POST",
-        url: `/api/v1/admin/scoring-v2/evidence-exports/${randomUUID()}/freeze-bundle`,
+        url: `/api/v1/admin/scoring/evidence-exports/${randomUUID()}/freeze-bundle`,
         headers: adminKeyHeaders(),
         payload: { confirm: false },
       });
@@ -660,21 +660,21 @@ describe.skipIf(!dbAvailable)("admin scoring-v2 control center (H4 adversarial)"
     it("rejects invalid / oversized pagination", async () => {
       const oversized = await app.inject({
         method: "GET",
-        url: "/api/v1/admin/scoring-v2/evidence-exports?pageSize=999",
+        url: "/api/v1/admin/scoring/evidence-exports?pageSize=999",
         headers: adminKeyHeaders(),
       });
       expect(oversized.statusCode).toBe(400);
 
       const badPage = await app.inject({
         method: "GET",
-        url: "/api/v1/admin/scoring-v2/history?page=0",
+        url: "/api/v1/admin/scoring/history?page=0",
         headers: adminKeyHeaders(),
       });
       expect(badPage.statusCode).toBe(400);
 
       const ok = await app.inject({
         method: "GET",
-        url: "/api/v1/admin/scoring-v2/history?page=1&pageSize=50",
+        url: "/api/v1/admin/scoring/history?page=1&pageSize=50",
         headers: adminKeyHeaders(),
       });
       expect(ok.statusCode).toBe(200);
@@ -689,7 +689,7 @@ describe.skipIf(!dbAvailable)("admin scoring-v2 control center (H4 adversarial)"
 
       const response = await app.inject({
         method: "GET",
-        url: "/api/v1/admin/scoring-v2/overview",
+        url: "/api/v1/admin/scoring/overview",
         headers: adminKeyHeaders(),
       });
       expect(response.statusCode).toBe(200);
@@ -701,7 +701,7 @@ describe.skipIf(!dbAvailable)("admin scoring-v2 control center (H4 adversarial)"
     it("error responses never leak DATABASE_URL or redis URLs", async () => {
       const response = await app.inject({
         method: "GET",
-        url: `/api/v1/admin/scoring-v2/evidence-exports/${randomUUID()}`,
+        url: `/api/v1/admin/scoring/evidence-exports/${randomUUID()}`,
         headers: adminKeyHeaders(),
       });
       expect(response.statusCode).toBe(404);

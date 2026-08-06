@@ -1,6 +1,6 @@
 export {
-  orchestrateScoringV2Runs,
-  replayScoringV2FromPersistedEvidence,
+  orchestrateScoringRuns,
+  replayScoringFromPersistedEvidence,
   createInMemorySourceFightLock,
   uniqueSourceFightsFromManifest,
   fingerprintDimensionResults,
@@ -55,7 +55,7 @@ export {
   type CanaryCostProjection,
 } from "./cost-admission.js";
 export {
-  runScoringV2CanaryPreflight,
+  runScoringCanaryPreflight,
   type CanaryPreflightReport,
   type CostAdmissionDeferExplanation,
   explainCostAdmissionDefer,

@@ -1,6 +1,6 @@
 /**
  * Admin Shadow Canary — launch + run through production Scoring V2 acquisition paths.
- * Does not require global SCORING_V2_* flags. Publication remains blocked.
+ * Does not require global scoring_* flags. Publication remains blocked.
  */
 import { createHash, randomUUID } from "node:crypto";
 import type { EvidenceRole, EvidenceCandidateMetadataV2 } from "@mplus/contracts";
@@ -63,7 +63,7 @@ export async function createOrReuseShadowCanary(input: {
     seasonId: input.seasonId,
   });
 
-  const existing = await input.prisma.scoringV2ShadowCanary.findUnique({
+  const existing = await input.prisma.scoringShadowCanary.findUnique({
     where: { idempotencyKey },
   });
   if (existing && (existing.status === "QUEUED" || existing.status === "RUNNING")) {
@@ -77,7 +77,7 @@ export async function createOrReuseShadowCanary(input: {
   const launchKey =
     existing != null ? `${idempotencyKey}:relaunch:${randomUUID()}` : idempotencyKey;
 
-  const row = await input.prisma.scoringV2ShadowCanary.create({
+  const row = await input.prisma.scoringShadowCanary.create({
     data: {
       characterId: identity.characterId,
       regionCode: identity.regionCode,
@@ -108,7 +108,7 @@ export async function createOrReuseShadowCanary(input: {
 
 /**
  * Execute a Shadow Canary using the production plan → slot → finalize path.
- * Bypasses global SCORING_V2_* enablement gates but still asserts publication blocked.
+ * Bypasses global scoring_* enablement gates but still asserts publication blocked.
  */
 export async function runShadowCanaryJob(input: {
   container: WorkerContainer;
@@ -124,11 +124,11 @@ export async function runShadowCanaryJob(input: {
 }): Promise<{ analysisBatchId: string | null; enqueuedSlotJobs: number }> {
   assertPublicationBlocked(input.container.env);
 
-  const canary = await input.container.prisma.scoringV2ShadowCanary.findUniqueOrThrow({
+  const canary = await input.container.prisma.scoringShadowCanary.findUniqueOrThrow({
     where: { id: input.canaryId },
   });
 
-  await input.container.prisma.scoringV2ShadowCanary.update({
+  await input.container.prisma.scoringShadowCanary.update({
     where: { id: input.canaryId },
     data: { status: "RUNNING", startedAt: new Date(), errorCode: null, errorMessage: null },
   });
@@ -187,7 +187,7 @@ export async function runShadowCanaryJob(input: {
       },
     );
 
-    await input.container.prisma.scoringV2ShadowCanary.update({
+    await input.container.prisma.scoringShadowCanary.update({
       where: { id: input.canaryId },
       data: {
         analysisBatchId: result.analysisBatchId ?? null,
@@ -225,7 +225,7 @@ export async function runShadowCanaryJob(input: {
       enqueuedSlotJobs: result.enqueuedSlotJobs ?? 0,
     };
   } catch (error) {
-    await input.container.prisma.scoringV2ShadowCanary.update({
+    await input.container.prisma.scoringShadowCanary.update({
       where: { id: input.canaryId },
       data: {
         status: "FAILED",

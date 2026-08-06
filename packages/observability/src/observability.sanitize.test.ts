@@ -63,9 +63,9 @@ describe("observability deep sanitization", () => {
   });
 
   it("exports scoring_v2 lifecycle event names", () => {
-    expect(OBS_EVENTS.scoringV2ManifestFrozen).toBe("scoring_v2.manifest_frozen");
-    expect(OBS_EVENTS.scoringV2AdmissionStopped).toBe("scoring_v2.admission_stopped");
-    expect(OBS_EVENTS.scoringV2PublicationRejected).toBe("scoring_v2.publication_rejected");
+    expect(OBS_EVENTS.scoringManifestFrozen).toBe("scoring.manifest_frozen");
+    expect(OBS_EVENTS.scoringAdmissionStopped).toBe("scoring.admission_stopped");
+    expect(OBS_EVENTS.scoringPublicationRejected).toBe("scoring.publication_rejected");
   });
 
   it("redacts character names", () => {

@@ -19,7 +19,7 @@ import { rankingParseCompatibilityKey } from "../run-orchestration/ranking-hydra
 import { RANKING_PARSE_DATASET_KEY } from "./canary-ranking-lineage.js";
 
 export const CANARY_TARGET_DIGEST_DIAG_SCHEMA =
-  "scoring-v2-canary-target-digest-diagnostic-v1" as const;
+  "scoring-canary-target-digest-diagnostic-v1" as const;
 
 export type TargetDigestProblemClass =
   | "TARGET_ACTOR_NOT_FOUND"
@@ -514,7 +514,7 @@ export async function runTargetDigestDiagnostic(input: {
   void doc;
 
   const outDir =
-    input.outputDir ?? join(process.cwd(), "artifacts", "scoring-v2-canary");
+    input.outputDir ?? join(process.cwd(), "artifacts", "scoring-canary");
   await mkdir(outDir, { recursive: true });
   const reportPath = join(outDir, "target-digest-diagnostic.json");
   await writeFile(reportPath, JSON.stringify(report, null, 2), "utf8");

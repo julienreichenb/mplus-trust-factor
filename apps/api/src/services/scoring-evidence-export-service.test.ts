@@ -3,7 +3,7 @@ import {
   buildUnifiedHistoryItems,
   paginateUnifiedHistory,
   type HistoryExportRow,
-} from "./scoring-v2-evidence-export-service.js";
+} from "./scoring-evidence-export-service.js";
 
 function row(
   id: string,

@@ -1,26 +1,26 @@
 import { describe, expect, it } from "vitest";
 import { mount } from "@vue/test-utils";
 import { createRouter, createMemoryHistory } from "vue-router";
-import AdminScoringV2Page from "./AdminScoringV2Page.vue";
+import AdminScoringPage from "./AdminScoringPage.vue";
 
-describe("AdminScoringV2Page", () => {
+describe("AdminScoringPage", () => {
   async function mountPage() {
     const router = createRouter({
       history: createMemoryHistory(),
-      routes: [{ path: "/admin/scoring-v2", component: AdminScoringV2Page }],
+      routes: [{ path: "/admin/scoring", component: AdminScoringPage }],
     });
-    await router.push("/admin/scoring-v2");
+    await router.push("/admin/scoring");
     await router.isReady();
 
-    return mount(AdminScoringV2Page, {
+    return mount(AdminScoringPage, {
       global: {
         plugins: [router],
         stubs: {
-          ScoringV2OverviewPanel: { template: "<div data-testid='overview-panel' />" },
-          ScoringV2EvidencePanel: true,
-          ScoringV2ConcurrencyPanel: true,
-          ScoringV2DiagnosticsPanel: true,
-          ScoringV2HistoryPanel: true,
+          ScoringOverviewPanel: { template: "<div data-testid='overview-panel' />" },
+          scoringEvidencePanel: true,
+          scoringConcurrencyPanel: true,
+          scoringDiagnosticsPanel: true,
+          scoringHistoryPanel: true,
         },
       },
     });
@@ -29,7 +29,7 @@ describe("AdminScoringV2Page", () => {
   it("renders control center tabs and defaults to Overview", async () => {
     const wrapper = await mountPage();
 
-    expect(wrapper.get("#scoring-v2-cc-title").text()).toContain("Scoring V2 Control Center");
+    expect(wrapper.get("#scoring-cc-title").text()).toContain("Scoring Control Center");
     const tabs = wrapper.findAll('[role="tab"]');
     expect(tabs).toHaveLength(5);
     expect(tabs[0]!.attributes("aria-selected")).toBe("true");
@@ -48,9 +48,9 @@ describe("AdminScoringV2Page", () => {
     expect(tablist.attributes("aria-label")).toContain("Scoring V2");
 
     const tabs = wrapper.findAll('[role="tab"]');
-    expect(tabs[0]!.attributes("aria-controls")).toBe("scoring-v2-panel-overview");
+    expect(tabs[0]!.attributes("aria-controls")).toBe("scoring-panel-overview");
     expect(wrapper.get('[role="tabpanel"]').attributes("aria-labelledby")).toBe(
-      "scoring-v2-tab-overview",
+      "scoring-tab-overview",
     );
 
     await tablist.trigger("keydown", { key: "ArrowRight" });

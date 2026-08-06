@@ -6,7 +6,7 @@
  *   node tools/scripts/with-env.mjs pnpm --filter @mplus/worker exec tsx src/orchestration/scoring/live-character-probe/cli.ts --region eu --realm archimonde --name Wallidrixe
  *
  * This file re-exports the same CLI for:
- *   pnpm exec tsx tools/scripts/scoring-v2-live-character-probe.ts --region eu --realm archimonde --name Wallidrixe
+ *   pnpm exec tsx tools/scripts/scoring-live-character-probe.ts --region eu --realm archimonde --name Wallidrixe
  * when run with NODE_PATH / from a package that resolves @mplus/* (use the with-env + worker form above).
  *
  * Requires ALLOW_LIVE_PROVIDER_CALLS=true. Does not publish scores or enable V2 flags.

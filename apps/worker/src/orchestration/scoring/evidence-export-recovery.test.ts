@@ -19,7 +19,7 @@ describe("startEvidenceExportRecoverySweeper (N1)", () => {
     const scheduledDelays: number[] = [];
 
     const sweeper = startEvidenceExportRecoverySweeper({
-      prisma: { scoringV2EvidenceExport: { findMany, updateMany } } as never,
+      prisma: { scoringEvidenceExport: { findMany, updateMany } } as never,
       logger: logger as never,
       intervalMs: 5_000,
       batchSize: 7,
@@ -41,7 +41,7 @@ describe("startEvidenceExportRecoverySweeper (N1)", () => {
     expect(updateMany).toHaveBeenCalledTimes(1);
     expect(logger.info).toHaveBeenCalledWith(
       expect.objectContaining({
-        event: "scoring_v2.evidence_export_reclaim",
+        event: "scoring.evidence_export_reclaim",
         reclaimed: 1,
         batchSize: 7,
       }),
@@ -57,7 +57,7 @@ describe("startEvidenceExportRecoverySweeper (N1)", () => {
     expect(findMany.mock.calls.length).toBeGreaterThanOrEqual(2);
     expect(logger.info).toHaveBeenCalledWith(
       expect.objectContaining({
-        event: "scoring_v2.evidence_export_reclaim",
+        event: "scoring.evidence_export_reclaim",
         reclaimed: 0,
       }),
       expect.any(String),
@@ -73,7 +73,7 @@ describe("startEvidenceExportRecoverySweeper (N1)", () => {
     const logger = { info: vi.fn(), warn: vi.fn() };
 
     const sweeper = startEvidenceExportRecoverySweeper({
-      prisma: { scoringV2EvidenceExport: { findMany, updateMany } } as never,
+      prisma: { scoringEvidenceExport: { findMany, updateMany } } as never,
       logger: logger as never,
       intervalMs: 2_000,
       batchSize: 5,

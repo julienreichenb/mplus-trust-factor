@@ -6,7 +6,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import {
   EVIDENCE_SELECTOR_VERSION,
-  scoringV2EvidenceAuditDocumentSchema,
+  ScoringEvidenceAuditDocumentSchema,
   type CharacterSeasonEvidenceManifestV2,
   type EvidenceAcquisitionPlanV2,
   type EvidenceCandidateAcquisitionResult,
@@ -17,11 +17,11 @@ import {
   buildEvidenceAcquisitionPlanV2,
   finalizeEvidenceManifestV2,
   buildSlotFactSetBindingHash,
-  buildScoringV2EvidenceAudit,
+  buildscoringEvidenceAudit,
   fingerprintExplanationMetrics,
   getFeatureRegistryV2,
   identityValidFactSets,
-  replayScoringV2Dimensions,
+  replayscoringDimensions,
   finalizeShadowDimensions,
   EXPECTED_EVENT_DATASETS,
   SURVIVAL_V2_SCHEMA_VERSION,
@@ -508,7 +508,7 @@ function buildHarness(options?: { leaveWindrunnerSlot1Missing?: boolean }) {
     manifestId: "manifest-audit-1",
   }));
 
-  const replay = replayScoringV2Dimensions({
+  const replay = replayscoringDimensions({
     characterId: manifest.characterId,
     seasonId: manifest.seasonId,
     manifestId: "manifest-audit-1",
@@ -527,7 +527,7 @@ function buildHarness(options?: { leaveWindrunnerSlot1Missing?: boolean }) {
     })),
   });
 
-  const audit = buildScoringV2EvidenceAudit({
+  const audit = buildscoringEvidenceAudit({
     manifestId: "manifest-audit-1",
     characterId: manifest.characterId,
     seasonId: manifest.seasonId,
@@ -584,7 +584,7 @@ describe("16-slot evidence lineage harness", () => {
     expect(manifest.expectedSlotCount).toBe(16);
     expect(manifest.selectedSlotCount).toBe(15);
     expect(audit.slots).toHaveLength(16);
-    expect(scoringV2EvidenceAuditDocumentSchema.safeParse(audit).success).toBe(true);
+    expect(ScoringEvidenceAuditDocumentSchema.safeParse(audit).success).toBe(true);
 
     const missing = audit.slots.find(
       (s) => s.dungeonSlug === "windrunner-spire" && s.slotIndex === 1,
@@ -679,7 +679,7 @@ describe("16-slot evidence lineage harness", () => {
       i === 0 ? { ...f, inputFingerprint: sha("tampered-payload") } : f,
     );
 
-    const audit = buildScoringV2EvidenceAudit({
+    const audit = buildscoringEvidenceAudit({
       manifestId: "manifest-audit-1",
       characterId: manifest.characterId,
       seasonId: manifest.seasonId,
@@ -744,7 +744,7 @@ describe("16-slot evidence lineage harness", () => {
       slotIndex: 0,
     };
 
-    const audit = buildScoringV2EvidenceAudit({
+    const audit = buildscoringEvidenceAudit({
       manifestId: "manifest-audit-1",
       characterId: manifest.characterId,
       seasonId: manifest.seasonId,
@@ -799,7 +799,7 @@ describe("16-slot evidence lineage harness", () => {
       return { ...f, facts };
     });
 
-    const audit = buildScoringV2EvidenceAudit({
+    const audit = buildscoringEvidenceAudit({
       manifestId: "manifest-audit-1",
       characterId: manifest.characterId,
       seasonId: manifest.seasonId,
@@ -841,7 +841,7 @@ describe("16-slot evidence lineage harness", () => {
       candidateRank: s.selectedRank,
     }));
 
-    const audit = buildScoringV2EvidenceAudit({
+    const audit = buildscoringEvidenceAudit({
       manifestId: "manifest-audit-1",
       characterId: manifest.characterId,
       seasonId: manifest.seasonId,
@@ -908,7 +908,7 @@ describe("16-slot evidence lineage harness", () => {
       return row?.dimensionValidityReasons.length === 0;
     });
 
-    const audit = buildScoringV2EvidenceAudit({
+    const audit = buildscoringEvidenceAudit({
       manifestId: "manifest-audit-1",
       characterId: manifest.characterId,
       seasonId: manifest.seasonId,
@@ -993,7 +993,7 @@ describe("16-slot evidence lineage harness", () => {
       )
       .concat([crossAttached]);
 
-    const audit = buildScoringV2EvidenceAudit({
+    const audit = buildscoringEvidenceAudit({
       manifestId: "manifest-audit-1",
       characterId: manifest.characterId,
       seasonId: manifest.seasonId,
@@ -1048,7 +1048,7 @@ describe("16-slot evidence lineage harness", () => {
 
     const survivalOutcome = finalized.outcomes.find((o) => o.dimension === "SURVIVAL");
     expect(survivalOutcome).toBeTruthy();
-    const replay = replayScoringV2Dimensions({
+    const replay = replayscoringDimensions({
       characterId: manifest.characterId,
       seasonId: manifest.seasonId,
       manifestId: "manifest-audit-1",
@@ -1090,7 +1090,7 @@ describe("16-slot evidence lineage harness", () => {
       candidateRank: s.selectedRank,
     }));
 
-    const audit = buildScoringV2EvidenceAudit({
+    const audit = buildscoringEvidenceAudit({
       manifestId: "manifest-audit-1",
       characterId: manifest.characterId,
       seasonId: manifest.seasonId,
@@ -1136,7 +1136,7 @@ describe("16-slot evidence lineage harness", () => {
       candidateRank: s.selectedRank,
     }));
 
-    const audit = buildScoringV2EvidenceAudit({
+    const audit = buildscoringEvidenceAudit({
       manifestId: "manifest-audit-1",
       characterId: manifest.characterId,
       seasonId: manifest.seasonId,

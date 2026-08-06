@@ -7,7 +7,7 @@
 
 import {
   parseProbeArgs,
-  runScoringV2LiveCharacterProbe,
+  runScoringLiveCharacterProbe,
 } from "./pipeline.js";
 
 async function main(): Promise<void> {
@@ -19,7 +19,7 @@ async function main(): Promise<void> {
     process.exit(2);
   }
 
-  const { outputDir, overallVerdict } = await runScoringV2LiveCharacterProbe(args);
+  const { outputDir, overallVerdict } = await runScoringLiveCharacterProbe(args);
   console.log(
     JSON.stringify(
       {
@@ -28,7 +28,7 @@ async function main(): Promise<void> {
         overallVerdict,
         outputDir,
         publication: false,
-        scoringV2FlagsEnabled: false,
+        scoringFlagsEnabled: false,
       },
       null,
       2,

@@ -62,12 +62,7 @@ describe("runFinalizeEvidenceBatchV2 FINALIZING recovery", () => {
     const container = {
       env: {
         SCORING_ENABLED: true,
-        SCORING_ENABLED: true,
         SCORING_PUBLICATION_ENABLED: false,
-        SCORING_ENABLED: true,
-        SCORING_ENABLED: false,
-        SCORING_ENABLED: false,
-        SCORING_ENABLED: false,
         SCORING_RELATIVE_DAMAGE_MODE: "off",
       },
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -120,8 +115,8 @@ describe("runFinalizeEvidenceBatchV2 FINALIZING recovery", () => {
     expect(releaseFinalizationClaim).toHaveBeenCalledWith("batch-1");
     expect(container.repositories.evidenceV2Batch.markFinalized).not.toHaveBeenCalled();
     expect(container.logger.warn).toHaveBeenCalledWith(
-      expect.objectContaining({ event: "scoring_v2.finalization_claim_released" }),
-      "scoring_v2.finalization_claim_released",
+      expect.objectContaining({ event: "scoring.finalization_claim_released" }),
+      "scoring.finalization_claim_released",
     );
   });
 });

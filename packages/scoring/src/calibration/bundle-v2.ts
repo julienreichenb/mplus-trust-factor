@@ -7,14 +7,14 @@ import { createHash } from "node:crypto";
 import type { ScoreModelConfigV1 } from "../types.js";
 import type { CalibrationBacktestMode, CalibrationModelRef, QualitativeLabel } from "./types.js";
 import type { CohortManifest } from "./manifest.js";
-import type { ScoringV2PublicDimension } from "../dimensions/v2/shadow-record.js";
+import type { ScoringPublicDimension } from "../dimensions/v2/shadow-record.js";
 import type {
-  ScoringV2DimensionConfigFingerprints,
-  ScoringV2DimensionConfigSet,
+  scoringDimensionConfigFingerprints,
+  scoringDimensionConfigSet,
 } from "../model-config/index.js";
 import {
-  createDefaultScoringV2DimensionConfigSet,
-  parseScoringV2DimensionConfigSet,
+  createDefaultscoringDimensionConfigSet,
+  parsescoringDimensionConfigSet,
   resolveScoreModelV2DimensionConfigs,
 } from "../model-config/index.js";
 import { ModelConfigValidationError, isRecord as isConfigRecord } from "../model-config/validate.js";
@@ -31,10 +31,10 @@ export const CALIBRATION_INPUT_BUNDLE_V2_SCHEMA_VERSION = "2.0.0" as const;
  * Provider-free; no DB IDs / timestamps / mutable metadata.
  */
 export interface FrozenDimensionModelConfigsV2 {
-  schemaVersion: ScoringV2DimensionConfigSet["schemaVersion"];
-  configs: ScoringV2DimensionConfigSet;
-  fingerprints: ScoringV2DimensionConfigFingerprints;
-  algorithmVersions: Record<ScoringV2PublicDimension, string>;
+  schemaVersion: scoringDimensionConfigSet["schemaVersion"];
+  configs: scoringDimensionConfigSet;
+  fingerprints: scoringDimensionConfigFingerprints;
+  algorithmVersions: Record<ScoringPublicDimension, string>;
 }
 
 export type CalibrationArtifactClassV2 =
@@ -142,7 +142,7 @@ export interface FrozenPolicyCatalogVersionsV2 {
   abilityCatalogVersions: string[];
   mechanicCatalogVersions: string[];
   confidenceAlgorithmVersions: Record<string, string>;
-  dimensionAlgorithmVersions: Partial<Record<ScoringV2PublicDimension, string>>;
+  dimensionAlgorithmVersions: Partial<Record<ScoringPublicDimension, string>>;
 }
 
 export interface CalibrationMemberReplayV2 {
@@ -161,7 +161,7 @@ export interface CalibrationMemberReplayV2 {
   /** Fact-set document refs (one per slot/family). */
   factSets: CalibrationContentRefV2[];
   /** Optional dimension calibration export refs for provider-free replay. */
-  dimensionExports: Partial<Record<ScoringV2PublicDimension, CalibrationContentRefV2>>;
+  dimensionExports: Partial<Record<ScoringPublicDimension, CalibrationContentRefV2>>;
   /** Optional previous V1 snapshot id for comparison modes. */
   previousSnapshotId?: string | null;
 }
@@ -179,7 +179,7 @@ export interface CalibrationInputBundleV2 {
   evaluationModel: CalibrationModelRef | null;
   /**
    * Frozen ACTIVE dimension configs for active-versus-draft replay.
-   * When absent, resolved from activeModel.config.scoringV2 (strict) or defaults.
+   * When absent, resolved from activeModel.config.scoring (strict) or defaults.
    */
   activeDimensionConfigs?: FrozenDimensionModelConfigsV2 | null;
   /**
@@ -199,8 +199,8 @@ export interface CalibrationInputBundleV2 {
 
 /** Build a frozen dimension-config snapshot from a resolved config set. */
 export function freezeDimensionModelConfigsV2(
-  configs: ScoringV2DimensionConfigSet,
-  fingerprints: ScoringV2DimensionConfigFingerprints,
+  configs: scoringDimensionConfigSet,
+  fingerprints: scoringDimensionConfigFingerprints,
 ): FrozenDimensionModelConfigsV2 {
   return {
     schemaVersion: configs.schemaVersion,
@@ -215,7 +215,7 @@ export function freezeDimensionModelConfigsV2(
   };
 }
 
-function fingerprintSet(configs: ScoringV2DimensionConfigSet): ScoringV2DimensionConfigFingerprints {
+function fingerprintSet(configs: scoringDimensionConfigSet): scoringDimensionConfigFingerprints {
   return {
     performance: fingerprintPerformanceV2ModelConfig(configs.performance),
     survival: fingerprintSurvivalV2ModelConfig(configs.survival),
@@ -233,7 +233,7 @@ export function strictReparseFrozenDimensionConfigs(
   source: unknown,
 ): FrozenDimensionModelConfigsV2 {
   if (source == null) {
-    throw new ModelConfigValidationError("SCORING_V2_SET", [
+    throw new ModelConfigValidationError("scoring_SET", [
       "missing dimension config set for strict re-parse",
     ]);
   }
@@ -242,18 +242,18 @@ export function strictReparseFrozenDimensionConfigs(
   try {
     raw = JSON.parse(JSON.stringify(source));
   } catch {
-    throw new ModelConfigValidationError("SCORING_V2_SET", [
+    throw new ModelConfigValidationError("scoring_SET", [
       "dimension config set is not JSON-serializable",
     ]);
   }
   if (!isConfigRecord(raw)) {
-    throw new ModelConfigValidationError("SCORING_V2_SET", [
+    throw new ModelConfigValidationError("scoring_SET", [
       "dimension config set must be an object",
     ]);
   }
 
   const claimedFingerprints = isConfigRecord(raw.fingerprints)
-    ? (raw.fingerprints as unknown as ScoringV2DimensionConfigFingerprints)
+    ? (raw.fingerprints as unknown as scoringDimensionConfigFingerprints)
     : null;
   const claimedAlgorithms = isConfigRecord(raw.algorithmVersions)
     ? (raw.algorithmVersions as Record<string, unknown>)
@@ -275,7 +275,7 @@ export function strictReparseFrozenDimensionConfigs(
         experience: raw.experience,
       };
 
-  const configs = parseScoringV2DimensionConfigSet(configDoc);
+  const configs = parsescoringDimensionConfigSet(configDoc);
   const fingerprints = fingerprintSet(configs);
   const frozen = freezeDimensionModelConfigsV2(configs, fingerprints);
 
@@ -283,7 +283,7 @@ export function strictReparseFrozenDimensionConfigs(
     for (const dim of ["performance", "survival", "utility", "experience"] as const) {
       const claimed = claimedFingerprints[dim];
       if (typeof claimed !== "string" || claimed !== fingerprints[dim]) {
-        throw new ModelConfigValidationError("SCORING_V2_SET", [
+        throw new ModelConfigValidationError("scoring_SET", [
           `config fingerprint mismatch for ${dim}: claimed=${String(claimed)} computed=${fingerprints[dim]}`,
         ]);
       }
@@ -295,7 +295,7 @@ export function strictReparseFrozenDimensionConfigs(
       const claimed = claimedAlgorithms[dim];
       const expected = frozen.algorithmVersions[dim];
       if (typeof claimed === "string" && claimed !== expected) {
-        throw new ModelConfigValidationError("SCORING_V2_SET", [
+        throw new ModelConfigValidationError("scoring_SET", [
           `algorithmVersion mismatch for ${dim}: claimed=${claimed} computed=${expected}`,
         ]);
       }
@@ -307,7 +307,7 @@ export function strictReparseFrozenDimensionConfigs(
 
 /**
  * Resolve frozen dimension configs for one model side.
- * calibration-strict fails closed when scoringV2 is missing from the model.
+ * calibration-strict fails closed when scoring is missing from the model.
  * Always re-parses through strictReparseFrozenDimensionConfigs before return.
  */
 export function resolveFrozenDimensionConfigsForModel(
@@ -316,13 +316,13 @@ export function resolveFrozenDimensionConfigsForModel(
 ): FrozenDimensionModelConfigsV2 {
   if (!model) {
     if (mode === "calibration-strict") {
-      throw new ModelConfigValidationError("SCORING_V2_SET", [
+      throw new ModelConfigValidationError("scoring_SET", [
         "model reference required for calibration-strict config resolution",
       ]);
     }
-    const defaults = createDefaultScoringV2DimensionConfigSet();
+    const defaults = createDefaultscoringDimensionConfigSet();
     const resolved = resolveScoreModelV2DimensionConfigs(
-      { scoringV2: defaults } as unknown as ScoreModelConfigV1,
+      { scoring: defaults } as unknown as ScoreModelConfigV1,
       "phase1-default",
     );
     return strictReparseFrozenDimensionConfigs(
@@ -767,7 +767,7 @@ export function validateCalibrationInputBundleV2(
         for (const [dim, refRaw] of Object.entries(rawMember.dimensionExports)) {
           const ref = parseContentRef(refRaw, `member.dimensionExports.${dim}`, errors, memberId);
           if (ref) {
-            dimensionExports[dim as ScoringV2PublicDimension] = ref;
+            dimensionExports[dim as ScoringPublicDimension] = ref;
           }
         }
       }

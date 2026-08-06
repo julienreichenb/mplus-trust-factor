@@ -82,14 +82,16 @@ describe("persistShadowDimensionComputations isolation", () => {
     expect(result.allPersisted).toBe(false);
   });
 
-  it("resolveEnabledShadowDimensions respects flags", () => {
+  it("resolveEnabledShadowDimensions respects master flag", () => {
     expect(
       resolveEnabledShadowDimensions({
         SCORING_ENABLED: true,
-        SCORING_ENABLED: false,
-        SCORING_ENABLED: true,
+      }),
+    ).toEqual(["PERFORMANCE", "SURVIVAL", "UTILITY", "EXPERIENCE"]);
+    expect(
+      resolveEnabledShadowDimensions({
         SCORING_ENABLED: false,
       }),
-    ).toEqual(["PERFORMANCE", "UTILITY"]);
+    ).toEqual([]);
   });
 });

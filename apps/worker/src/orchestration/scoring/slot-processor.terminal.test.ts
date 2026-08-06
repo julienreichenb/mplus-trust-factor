@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   OBS_EVENTS,
-  emitScoringV2Event,
+  emitScoringEvent,
   getMetricsRegistry,
   resetMetricsRegistry,
 } from "@mplus/observability";
@@ -25,7 +25,6 @@ describe("slot-processor terminal lifecycle events", () => {
     const completeSlot = vi.fn().mockResolvedValue({ becameReady: false });
     const container = {
       env: {
-        SCORING_ENABLED: true,
         SCORING_ENABLED: true,
         SCORING_PUBLICATION_ENABLED: false,
       },
@@ -68,7 +67,7 @@ describe("slot-processor terminal lifecycle events", () => {
     });
     expect(result.status).toBe("UNAVAILABLE");
     const terminal = info.mock.calls.filter(
-      (c) => (c[0] as { event?: string }).event === OBS_EVENTS.scoringV2SlotCompleted,
+      (c) => (c[0] as { event?: string }).event === OBS_EVENTS.scoringSlotCompleted,
     );
     expect(terminal).toHaveLength(1);
     expect((terminal[0]![0] as { status: string }).status).toBe("UNAVAILABLE");
@@ -81,7 +80,6 @@ describe("slot-processor terminal lifecycle events", () => {
     const error = vi.fn();
     const container = {
       env: {
-        SCORING_ENABLED: true,
         SCORING_ENABLED: true,
         SCORING_PUBLICATION_ENABLED: false,
       },
@@ -111,7 +109,7 @@ describe("slot-processor terminal lifecycle events", () => {
       enqueueFinalizeEvidenceBatch: vi.fn(),
     });
     const failed = error.mock.calls.filter(
-      (c) => (c[0] as { event?: string }).event === OBS_EVENTS.scoringV2SlotFailed,
+      (c) => (c[0] as { event?: string }).event === OBS_EVENTS.scoringSlotFailed,
     );
     expect(failed).toHaveLength(1);
     expect((failed[0]![0] as { reason: string }).reason).toBe("SLOT_PLAN_MISSING");
@@ -121,7 +119,6 @@ describe("slot-processor terminal lifecycle events", () => {
     const info = vi.fn();
     const container = {
       env: {
-        SCORING_ENABLED: true,
         SCORING_ENABLED: true,
         SCORING_PUBLICATION_ENABLED: false,
       },
@@ -151,7 +148,6 @@ describe("slot-processor terminal lifecycle events", () => {
     const completeSlot = vi.fn().mockResolvedValue({ becameReady: false });
     const container = {
       env: {
-        SCORING_ENABLED: true,
         SCORING_ENABLED: true,
         SCORING_PUBLICATION_ENABLED: false,
       },
@@ -196,7 +192,7 @@ describe("slot-processor terminal lifecycle events", () => {
     expect(completeSlot).toHaveBeenCalled();
     // prove emit helper itself is safe
     expect(() =>
-      emitScoringV2Event(container.logger, OBS_EVENTS.scoringV2SlotFailed, { reason: "x" }, "error"),
+      emitScoringEvent(container.logger, OBS_EVENTS.scoringSlotFailed, { reason: "x" }, "error"),
     ).not.toThrow();
   });
 });

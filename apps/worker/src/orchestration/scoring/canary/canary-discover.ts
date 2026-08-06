@@ -229,7 +229,7 @@ async function persistRankingEvidence(input: {
   }
 }
 
-export async function runScoringV2CanaryDiscovery(
+export async function runScoringCanaryDiscovery(
   input: RunCanaryDiscoveryInput,
 ): Promise<{
   report: CanaryDiscoveryReport;

@@ -2,8 +2,8 @@
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import type {
-  ScoringV2EvidenceExportDTO,
-  ScoringV2EvidenceExportListDTO,
+  ScoringEvidenceExportDTO,
+  ScoringEvidenceExportListDTO,
 } from "@mplus/contracts";
 import { ApiClientError } from "../../api/live-client";
 import StatusBanner from "../common/StatusBanner.vue";
@@ -17,8 +17,8 @@ const seasonId = ref("");
 const busy = ref(false);
 const error = ref<string | null>(null);
 const success = ref<string | null>(null);
-const current = ref<ScoringV2EvidenceExportDTO | null>(null);
-const list = ref<ScoringV2EvidenceExportListDTO | null>(null);
+const current = ref<ScoringEvidenceExportDTO | null>(null);
+const list = ref<ScoringEvidenceExportListDTO | null>(null);
 const freezeConfirmOpen = ref(false);
 const downloading = ref(false);
 let pollTimer: ReturnType<typeof setInterval> | null = null;
@@ -52,14 +52,14 @@ async function apiJson<T>(path: string, init?: Parameters<typeof fetch>[1]): Pro
 }
 
 async function refreshList(): Promise<void> {
-  list.value = await apiJson<ScoringV2EvidenceExportListDTO>(
-    "/api/v1/admin/scoring-v2/evidence-exports?page=1&pageSize=10",
+  list.value = await apiJson<ScoringEvidenceExportListDTO>(
+    "/api/v1/admin/scoring/evidence-exports?page=1&pageSize=10",
   );
 }
 
 async function loadExport(id: string): Promise<void> {
-  current.value = await apiJson<ScoringV2EvidenceExportDTO>(
-    `/api/v1/admin/scoring-v2/evidence-exports/${encodeURIComponent(id)}`,
+  current.value = await apiJson<ScoringEvidenceExportDTO>(
+    `/api/v1/admin/scoring/evidence-exports/${encodeURIComponent(id)}`,
   );
   if (
     current.value.status === "QUEUED" ||
@@ -94,8 +94,8 @@ async function generatePreflight(): Promise<void> {
     const body: Record<string, unknown> = { cohortId: cohortId.value.trim() };
     if (cohortRevision.value.trim()) body.cohortRevision = Number(cohortRevision.value.trim());
     if (seasonId.value.trim()) body.seasonId = seasonId.value.trim();
-    const created = await apiJson<ScoringV2EvidenceExportDTO>(
-      "/api/v1/admin/scoring-v2/evidence-exports",
+    const created = await apiJson<ScoringEvidenceExportDTO>(
+      "/api/v1/admin/scoring/evidence-exports",
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -119,7 +119,7 @@ async function downloadArchive(): Promise<void> {
   error.value = null;
   try {
     const response = await fetch(
-      `${apiBase}/api/v1/admin/scoring-v2/evidence-exports/${encodeURIComponent(current.value.id)}/download`,
+      `${apiBase}/api/v1/admin/scoring/evidence-exports/${encodeURIComponent(current.value.id)}/download`,
       { credentials: "include" },
     );
     if (response.status === 401 || response.status === 403) {
@@ -168,15 +168,15 @@ async function freezeBundle(): Promise<void> {
   error.value = null;
   success.value = null;
   try {
-    const result = await apiJson<{ export: ScoringV2EvidenceExportDTO }>(
-      `/api/v1/admin/scoring-v2/evidence-exports/${encodeURIComponent(current.value.id)}/freeze-bundle`,
+    const result = await apiJson<{ export: ScoringEvidenceExportDTO }>(
+      `/api/v1/admin/scoring/evidence-exports/${encodeURIComponent(current.value.id)}/freeze-bundle`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ confirm: true }),
       },
     );
-    current.value = result.export ?? (result as unknown as ScoringV2EvidenceExportDTO);
+    current.value = result.export ?? (result as unknown as ScoringEvidenceExportDTO);
     success.value = "Calibration Input Bundle V2 frozen.";
     freezeConfirmOpen.value = false;
     await refreshList();

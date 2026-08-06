@@ -10,16 +10,16 @@ import {
   buildTypedFactSetFingerprint,
   type DimensionFactExtractionStatus,
   type FactExtractionCategory,
-  type ScoringV2ExtractableDimension,
+  type ScoringExtractableDimension,
 } from "@mplus/provider-warcraftlogs";
 import {
   OBS_EVENTS,
-  emitScoringV2Event,
+  emitScoringEvent,
   recordFactSetWritten,
 } from "@mplus/observability";
 
 export interface TypedDimensionFactPayload {
-  dimension: ScoringV2ExtractableDimension;
+  dimension: ScoringExtractableDimension;
   status: DimensionFactExtractionStatus;
   extractorFamily: string;
   extractorVersion: string;
@@ -165,13 +165,13 @@ export async function persistTypedFactSet(
   }
 
   recordFactSetWritten({ dimension: payload.dimension });
-  emitScoringV2Event(
+  emitScoringEvent(
     {
       info: input.logger.info,
       warn: input.logger.warn ?? input.logger.info,
       error: input.logger.error ?? input.logger.info,
     },
-    OBS_EVENTS.scoringV2FactSetWritten,
+    OBS_EVENTS.scoringFactSetWritten,
     {
       characterId: input.characterId,
       correlationId: input.correlationId,

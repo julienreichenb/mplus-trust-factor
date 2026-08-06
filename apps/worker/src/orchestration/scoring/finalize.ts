@@ -2,7 +2,7 @@ import type { FinalizeEvidenceBatchJobV2 } from "@mplus/contracts";
 import type { CharacterRole } from "@mplus/database";
 import {
   OBS_EVENTS,
-  emitScoringV2Event,
+  emitScoringEvent,
   recordBatchOutcome,
   recordFinalizationRecovery,
   recordManifestCoverage,
@@ -94,7 +94,7 @@ export async function runFinalizeEvidenceBatchV2(
     const latest = await repo.getById(job.analysisBatchId);
     if (latest?.batch.finalizationStatus === "FINALIZED") {
       recordFinalizationRecovery("reclaim");
-      emitScoringV2Event(container.logger, OBS_EVENTS.scoringV2FinalizationReclaim, {
+      emitScoringEvent(container.logger, OBS_EVENTS.scoringFinalizationReclaim, {
         analysisBatchId: job.analysisBatchId,
         correlationId: job.correlationId,
         outcome: "already_finalized",
@@ -107,9 +107,9 @@ export async function runFinalizeEvidenceBatchV2(
       };
     }
     recordFinalizationRecovery("claim_lost");
-    emitScoringV2Event(
+    emitScoringEvent(
       container.logger,
-      OBS_EVENTS.scoringV2FinalizationClaimLost,
+      OBS_EVENTS.scoringFinalizationClaimLost,
       {
         analysisBatchId: job.analysisBatchId,
         correlationId: job.correlationId,
@@ -136,7 +136,7 @@ export async function runFinalizeEvidenceBatchV2(
     // Successful CAS after a prior release → redelivery reclaim of in-progress finalize.
     if (manifestId && manifestContentHash) {
       recordFinalizationRecovery("reclaim");
-      emitScoringV2Event(container.logger, OBS_EVENTS.scoringV2FinalizationReclaim, {
+      emitScoringEvent(container.logger, OBS_EVENTS.scoringFinalizationReclaim, {
         analysisBatchId: job.analysisBatchId,
         correlationId: job.correlationId,
         characterId: claimed.batch.characterId,
@@ -231,7 +231,7 @@ export async function runFinalizeEvidenceBatchV2(
         expectedSlotCount: manifest.expectedSlotCount,
         fallbackDepth,
       });
-      emitScoringV2Event(container.logger, OBS_EVENTS.scoringV2ManifestFrozen, {
+      emitScoringEvent(container.logger, OBS_EVENTS.scoringManifestFrozen, {
         analysisBatchId: job.analysisBatchId,
         characterId: claimed.batch.characterId,
         correlationId: job.correlationId,
@@ -366,7 +366,7 @@ export async function runFinalizeEvidenceBatchV2(
 
         container.logger.info(
           {
-            event: "scoring_v2_dimensions_finalized",
+            event: "scoring_dimensions_finalized",
             analysisBatchId: job.analysisBatchId,
             manifestId,
             blockedReason: finalization.blockedReason,
@@ -398,7 +398,7 @@ export async function runFinalizeEvidenceBatchV2(
         (s) => s.status === "SUCCEEDED" || s.status === "PARTIAL",
       ).length;
       const unavailable = slotRows.filter((s) => s.status === "UNAVAILABLE").length;
-      const prior = await container.prisma.scoringV2ShadowCanary.findUnique({
+      const prior = await container.prisma.scoringShadowCanary.findUnique({
         where: { id: claimed.meta.shadowCanaryId },
         select: { progress: true, diagnostics: true },
       });
@@ -426,7 +426,7 @@ export async function runFinalizeEvidenceBatchV2(
       const providerAccounting = addProviderAccounting(slotAccounting, {
         providerCalls: discoveryCalls,
       });
-      await container.prisma.scoringV2ShadowCanary.update({
+      await container.prisma.scoringShadowCanary.update({
         where: { id: claimed.meta.shadowCanaryId },
         data: {
           status: "COMPLETED",
@@ -455,7 +455,7 @@ export async function runFinalizeEvidenceBatchV2(
 
     recordBatchOutcome("finalized");
     recordPublicationDecision("rejected", "shadow_publication_blocked");
-    emitScoringV2Event(container.logger, OBS_EVENTS.scoringV2BatchFinalized, {
+    emitScoringEvent(container.logger, OBS_EVENTS.scoringBatchFinalized, {
       analysisBatchId: job.analysisBatchId,
       characterId: claimed.batch.characterId,
       correlationId: job.correlationId,
@@ -463,7 +463,7 @@ export async function runFinalizeEvidenceBatchV2(
       manifestContentHash,
       publicationBlocked: true,
     });
-    emitScoringV2Event(container.logger, OBS_EVENTS.scoringV2PublicationRejected, {
+    emitScoringEvent(container.logger, OBS_EVENTS.scoringPublicationRejected, {
       analysisBatchId: job.analysisBatchId,
       characterId: claimed.batch.characterId,
       correlationId: job.correlationId,
@@ -480,9 +480,9 @@ export async function runFinalizeEvidenceBatchV2(
     // Minimal FINALIZING recovery: release claim so redelivery can reclaim.
     await repo.releaseFinalizationClaim(job.analysisBatchId);
     recordFinalizationRecovery("claim_released");
-    emitScoringV2Event(
+    emitScoringEvent(
       container.logger,
-      OBS_EVENTS.scoringV2FinalizationClaimReleased,
+      OBS_EVENTS.scoringFinalizationClaimReleased,
       {
         analysisBatchId: job.analysisBatchId,
         correlationId: job.correlationId,

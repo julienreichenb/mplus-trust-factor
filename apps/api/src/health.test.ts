@@ -49,7 +49,7 @@ describe("API health", () => {
       redis: { ok: boolean; skipped?: boolean };
       queueMode: string;
       providers: Record<string, { enabled: boolean; configured: boolean }>;
-      scoringV2?: { modes: { enabled: boolean; publicationEnabled: boolean } };
+      scoring?: { modes: { enabled: boolean; publicationEnabled: boolean } };
       contracts?: { workerJobSchema: string };
       wclSnapshot?: { state: string };
       artifactBackend?: { ok: boolean; required: boolean };
@@ -62,8 +62,8 @@ describe("API health", () => {
     expect(body.queueMode).toBe("inline");
     expect(body.providers.blizzard.enabled).toBeDefined();
     expect(typeof body.revision).toBe("string");
-    expect(body.scoringV2?.modes.enabled).toBe(false);
-    expect(body.scoringV2?.modes.publicationEnabled).toBe(false);
+    expect(body.scoring?.modes.enabled).toBe(false);
+    expect(body.scoring?.modes.publicationEnabled).toBe(false);
     expect(body.contracts?.workerJobSchema).toBe("2.0.0");
     expect(body.wclSnapshot?.state).toBe("worker_owned");
     expect(body.artifactBackend?.required).toBe(false);

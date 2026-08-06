@@ -46,7 +46,7 @@ export function classifyError(error: unknown): RetryClassification {
     if (code === "CANCELLED" || code === "REFRESH_SUPERSEDED_DEDUPED") {
       return { retryable: false, softSkip: false, providerFailure: false };
     }
-    if (code === "SCORING_V2_RATE_DEFER") {
+    if (code === "scoring_RATE_DEFER") {
       // Slot processor releases RUNNING→PENDING before throw; BullMQ must retry.
       return {
         retryable: true,

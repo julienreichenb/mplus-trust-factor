@@ -5,7 +5,7 @@
  */
 import { randomUUID } from "node:crypto";
 import type { RefreshWorkloadClass } from "@mplus/contracts";
-import { OBS_EVENTS, emitScoringV2Event, type Logger } from "@mplus/observability";
+import { OBS_EVENTS, emitScoringEvent, type Logger } from "@mplus/observability";
 import { refreshAdmissionKeyPrefix } from "./redis-keys.js";
 
 export const REFRESH_LANE_WORKER_CLAIM_HARD_MAX = 8;
@@ -224,11 +224,11 @@ export async function acquireLanePermit(input: {
   const laneCount = Number(raw[2] ?? 0);
   const token = acquired ? coerceToken(raw[3]) : null;
   if (input.logger) {
-    emitScoringV2Event(
+    emitScoringEvent(
       input.logger,
       acquired
-        ? OBS_EVENTS.scoringV2ConcurrencyPermitAcquired
-        : OBS_EVENTS.scoringV2ConcurrencyLimitReached,
+        ? OBS_EVENTS.scoringConcurrencyPermitAcquired
+        : OBS_EVENTS.scoringConcurrencyLimitReached,
       {
         workloadClass: input.lane,
         active: laneCount,
@@ -269,7 +269,7 @@ export async function releaseLanePermit(input: {
   }
   const released = luaOk || reason === "NOT_OWNED";
   if (luaOk && input.logger) {
-    emitScoringV2Event(input.logger, OBS_EVENTS.scoringV2ConcurrencyPermitReleased, {
+    emitScoringEvent(input.logger, OBS_EVENTS.scoringConcurrencyPermitReleased, {
       workloadClass: input.lane,
       active: laneCount,
       reasonCode: "released",

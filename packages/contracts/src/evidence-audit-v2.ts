@@ -264,7 +264,7 @@ export const evidenceAuditMatrixRowSchema = z.object({
 });
 export type EvidenceAuditMatrixRow = z.infer<typeof evidenceAuditMatrixRowSchema>;
 
-export const scoringV2EvidenceAuditDocumentSchema = z.object({
+export const ScoringEvidenceAuditDocumentSchema = z.object({
   schemaVersion: z.literal(EVIDENCE_AUDIT_V2_SCHEMA_VERSION),
   featureRegistryVersion: z.literal(FEATURE_REGISTRY_V2_VERSION),
   auditedAt: z.string().datetime(),
@@ -283,6 +283,6 @@ export const scoringV2EvidenceAuditDocumentSchema = z.object({
   integrityFailures: z.array(z.string()),
   providerCallCount: z.literal(0),
 });
-export type ScoringV2EvidenceAuditDocument = z.infer<
-  typeof scoringV2EvidenceAuditDocumentSchema
+export type ScoringEvidenceAuditDocument = z.infer<
+  typeof ScoringEvidenceAuditDocumentSchema
 >;

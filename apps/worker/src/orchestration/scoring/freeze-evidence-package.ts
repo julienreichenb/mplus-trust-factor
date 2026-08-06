@@ -10,10 +10,10 @@ import {
   type CalibrationContentRefV2,
   type FreezeSnapshotContentRefV2,
   type FreezeSnapshotMemberEvidenceV2,
-  type ScoringV2PublicDimension,
+  type ScoringPublicDimension,
 } from "@mplus/scoring";
 
-const PHASE1_DIMENSIONS: ScoringV2PublicDimension[] = [
+const PHASE1_DIMENSIONS: ScoringPublicDimension[] = [
   "PERFORMANCE",
   "SURVIVAL",
   "UTILITY",
@@ -252,10 +252,10 @@ export async function packageMemberEvidenceForFreeze(
     },
   });
   const dimensionExports: Partial<
-    Record<ScoringV2PublicDimension, FreezeSnapshotContentRefV2>
+    Record<ScoringPublicDimension, FreezeSnapshotContentRefV2>
   > = {};
   for (const dim of dims) {
-    const publicDim = dim.dimension as ScoringV2PublicDimension;
+    const publicDim = dim.dimension as ScoringPublicDimension;
     if (!PHASE1_DIMENSIONS.includes(publicDim)) continue;
     const exportDoc = {
       schemaVersion: "2.0.0",

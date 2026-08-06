@@ -32,11 +32,11 @@ import {
   type FreezeSnapshotContentRefV2,
   type FreezeSnapshotV1,
   type QualitativeLabel,
-  type ScoringV2PublicDimension,
+  type ScoringPublicDimension,
 } from "@mplus/scoring";
-import type { ScoringV2IssueDTO } from "@mplus/contracts";
+import type { ScoringIssueDTO } from "@mplus/contracts";
 
-const PHASE1_DIMENSIONS: ScoringV2PublicDimension[] = [
+const PHASE1_DIMENSIONS: ScoringPublicDimension[] = [
   "PERFORMANCE",
   "SURVIVAL",
   "UTILITY",
@@ -234,7 +234,7 @@ function mapRole(role: string | null | undefined): CalibrationRole {
   return "DPS";
 }
 
-function toIssueDto(issues: BundleFreezeBlocker[]): ScoringV2IssueDTO[] {
+function toIssueDto(issues: BundleFreezeBlocker[]): ScoringIssueDTO[] {
   return issues.map((i) => ({
     code: i.code,
     severity: i.severity,
@@ -283,7 +283,7 @@ export async function assembleCalibrationInputBundleV2(input: {
   const artifactBytes = new Map<string, Buffer>();
   const dryRun = input.dryRun === true;
 
-  const exportRow = await input.prisma.scoringV2EvidenceExport.findUnique({
+  const exportRow = await input.prisma.scoringEvidenceExport.findUnique({
     where: { id: input.exportId },
     include: {
       cohort: {
@@ -508,7 +508,7 @@ export async function assembleCalibrationInputBundleV2(input: {
       continue;
     }
 
-    const dimensionExports: Partial<Record<ScoringV2PublicDimension, CalibrationContentRefV2>> =
+    const dimensionExports: Partial<Record<ScoringPublicDimension, CalibrationContentRefV2>> =
       {};
     for (const dim of PHASE1_DIMENSIONS) {
       const dimRef = evidence.dimensionExports[dim];
@@ -588,7 +588,7 @@ export async function assembleCalibrationInputBundleV2(input: {
   if (!activeDimensionConfigs) {
     try {
       const mode =
-        activeRef.config && "scoringV2" in activeRef.config && activeRef.config.scoringV2
+        activeRef.config && "scoring" in activeRef.config && activeRef.config.scoring
           ? "calibration-strict"
           : "phase1-default";
       activeDimensionConfigs = resolveFrozenDimensionConfigsForModel(activeRef, mode);
@@ -607,8 +607,8 @@ export async function assembleCalibrationInputBundleV2(input: {
       try {
         const mode =
           evaluationRef.config &&
-          "scoringV2" in evaluationRef.config &&
-          evaluationRef.config.scoringV2
+          "scoring" in evaluationRef.config &&
+          evaluationRef.config.scoring
             ? "calibration-strict"
             : "phase1-default";
         evaluationDimensionConfigs = resolveFrozenDimensionConfigsForModel(evaluationRef, mode);

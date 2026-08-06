@@ -49,8 +49,8 @@ import { createProductionRunOrchestrationPorts } from "../run-orchestration/prod
 import { createRedisSourceFightLock } from "../run-orchestration/source-fight-lease.js";
 import {
   fingerprintDimensionResults,
-  orchestrateScoringV2Runs,
-  replayScoringV2FromPersistedEvidence,
+  orchestrateScoringRuns,
+  replayScoringFromPersistedEvidence,
   sourceFightKey,
   uniqueSourceFightsFromManifest,
   type LiveProviderPermission,
@@ -62,7 +62,7 @@ import {
 import type { WorkerContainer } from "../../../container.js";
 import { assertPublicationBlocked } from "../acquisition.js";
 
-export const CANARY_LIVE_REPORT_SCHEMA = "scoring-v2-canary-live-v1" as const;
+export const CANARY_LIVE_REPORT_SCHEMA = "scoring-canary-live-v1" as const;
 
 export interface CanaryLiveDimensionReport {
   status: "AVAILABLE" | "PARTIAL" | "BLOCKED" | "UNAVAILABLE";
@@ -447,7 +447,7 @@ function scoresEqual(a: RunOrchestrationResult, b: RunOrchestrationResult): bool
 /**
  * Production live canary entry. Never invents manifests or calls discovery.
  */
-export async function runScoringV2CanaryLive(
+export async function runScoringCanaryLive(
   input: RunCanaryLiveInput,
 ): Promise<{ report: CanaryLiveReport; reportPath: string; result: RunOrchestrationResult }> {
   assertPublicationBlocked(input.env);
@@ -484,7 +484,7 @@ export async function runScoringV2CanaryLive(
   const uniqueFights = uniqueSourceFightsFromManifest(manifest);
 
   const outDir =
-    input.outputDir ?? join(process.cwd(), "artifacts", "scoring-v2-canary");
+    input.outputDir ?? join(process.cwd(), "artifacts", "scoring-canary");
   const ratePath = join(outDir, "rate-limit-snapshot.json");
 
   const bootstrap =
@@ -555,7 +555,7 @@ export async function runScoringV2CanaryLive(
     wclEnabled: input.env.WCL_ENABLED === true,
     allowLiveProviderCalls: input.env.ALLOW_LIVE_PROVIDER_CALLS === true,
     liveProviderPermissionGranted: liveProviderPermission === "ALLOWED",
-    scoringV2PublicationEnabled: input.env.SCORING_PUBLICATION_ENABLED === true,
+    scoringPublicationEnabled: input.env.SCORING_PUBLICATION_ENABLED === true,
     hasWclCredentials: Boolean(input.env.WCL_CLIENT_ID && input.env.WCL_CLIENT_SECRET),
   };
   const liveGate = evaluateLiveCapabilityPermission(permissionInput);
@@ -801,7 +801,7 @@ export async function runScoringV2CanaryLive(
 
   let result: RunOrchestrationResult;
   try {
-    result = await orchestrateScoringV2Runs({
+    result = await orchestrateScoringRuns({
       characterId: input.characterId,
       region: input.region,
       realm: input.realm,
@@ -821,7 +821,7 @@ export async function runScoringV2CanaryLive(
     }
   }
 
-  const replay = await replayScoringV2FromPersistedEvidence({
+  const replay = await replayScoringFromPersistedEvidence({
     characterId: input.characterId,
     region: input.region,
     realm: input.realm,

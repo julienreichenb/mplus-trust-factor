@@ -11,16 +11,16 @@ import {
   historyListSchema,
   listExportsSchema,
   overviewSchema,
-  scoringV2IssueSchema,
-} from "./scoring-v2-control-center-schemas.js";
+  ScoringIssueSchema,
+} from "./scoring-control-center-schemas.js";
 
 function assertNoAdditionalProps(schema: { additionalProperties?: unknown }, label: string) {
   expect(schema.additionalProperties, label).toBe(false);
 }
 
-describe("scoring-v2-control-center OpenAPI schema strictness (M5)", () => {
+describe("scoring-control-center OpenAPI schema strictness (M5)", () => {
   it("sets additionalProperties false on control-center response schemas", () => {
-    assertNoAdditionalProps(scoringV2IssueSchema, "scoringV2IssueSchema");
+    assertNoAdditionalProps(ScoringIssueSchema, "ScoringIssueSchema");
     assertNoAdditionalProps(concurrencyLaneSchema, "concurrencyLaneSchema");
     assertNoAdditionalProps(concurrencyDtoSchema, "concurrencyDtoSchema");
     assertNoAdditionalProps(evidenceExportDtoSchema, "evidenceExportDtoSchema");
@@ -30,7 +30,7 @@ describe("scoring-v2-control-center OpenAPI schema strictness (M5)", () => {
     assertNoAdditionalProps(freezeBundleResponseSchema, "freezeBundleResponseSchema");
   });
 
-  it("lists ScoringV2OverviewDTO exact top-level properties", () => {
+  it("lists ScoringOverviewDTO exact top-level properties", () => {
     const props = Object.keys(overviewSchema.properties).sort();
     expect(props).toEqual(
       [

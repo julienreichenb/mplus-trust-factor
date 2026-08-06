@@ -5,8 +5,8 @@ import {
   EVIDENCE_EXPORT_MAX_MEMBERS,
   EVIDENCE_EXPORT_STALE_LEASE_CODE,
   reclaimStaleEvidenceExports,
-  runScoringV2EvidenceExportJob,
-} from "./scoring-v2-evidence-export.js";
+  runScoringEvidenceExportJob,
+} from "./scoring-evidence-export.js";
 
 const runEvidenceJoin = vi.hoisted(() => vi.fn());
 const buildEvidenceJoinMarkdown = vi.hoisted(() =>
@@ -104,7 +104,7 @@ function baseExportRow(overrides: Record<string, unknown> = {}) {
 
 function joinResult(generatedAt = "2026-08-03T12:00:00.000Z") {
   return {
-    schemaVersion: "scoring-v2-evidence-join-preflight-v1",
+    schemaVersion: "scoring-evidence-join-preflight-v1",
     generatedAt,
     cohortId: "11111111-1111-4111-8111-111111111111",
     cohortRevision: 3,
@@ -227,10 +227,10 @@ function evidencePrismaMocks(evidenceCutoffAt = new Date("2026-08-03T12:00:00.00
   };
 }
 
-describe("runScoringV2EvidenceExportJob idempotency (B3)", () => {
+describe("runScoringEvidenceExportJob idempotency (B3)", () => {
   const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() };
   let prisma: {
-    scoringV2EvidenceExport: {
+    scoringEvidenceExport: {
       findUnique: ReturnType<typeof vi.fn>;
       findMany: ReturnType<typeof vi.fn>;
       updateMany: ReturnType<typeof vi.fn>;
@@ -256,11 +256,11 @@ describe("runScoringV2EvidenceExportJob idempotency (B3)", () => {
   beforeEach(async () => {
     vi.clearAllMocks();
     runEvidenceJoin.mockResolvedValue(joinResult());
-    const { createDefaultModelV6, createDefaultScoringV2DimensionConfigSet, withScoringV2DimensionConfigs } =
+    const { createDefaultModelV6, createDefaultscoringDimensionConfigSet, withscoringDimensionConfigs } =
       await import("@mplus/scoring");
     const evidence = evidencePrismaMocks();
     prisma = {
-      scoringV2EvidenceExport: {
+      scoringEvidenceExport: {
         findUnique: vi.fn(),
         findMany: vi.fn().mockResolvedValue([]),
         updateMany: vi.fn(),
@@ -271,9 +271,9 @@ describe("runScoringV2EvidenceExportJob idempotency (B3)", () => {
           key: "v6",
           version: 1,
           status: "ACTIVE",
-          config: withScoringV2DimensionConfigs(
+          config: withscoringDimensionConfigs(
             createDefaultModelV6({ key: "v6", version: 1 }),
-            createDefaultScoringV2DimensionConfigSet(),
+            createDefaultscoringDimensionConfigSet(),
           ),
         })),
       },
@@ -301,7 +301,7 @@ describe("runScoringV2EvidenceExportJob idempotency (B3)", () => {
   });
 
   it("short-circuits when already COMPLETED with archiveContentHash", async () => {
-    prisma.scoringV2EvidenceExport.findUnique.mockResolvedValue(
+    prisma.scoringEvidenceExport.findUnique.mockResolvedValue(
       baseExportRow({
         status: "COMPLETED",
         archiveContentHash: "existing-archive",
@@ -311,7 +311,7 @@ describe("runScoringV2EvidenceExportJob idempotency (B3)", () => {
       }),
     );
 
-    const result = await runScoringV2EvidenceExportJob(
+    const result = await runScoringEvidenceExportJob(
       {
         prisma: prisma as never,
         logger: logger as never,
@@ -321,7 +321,7 @@ describe("runScoringV2EvidenceExportJob idempotency (B3)", () => {
     );
 
     expect(result).toEqual({ exportId: EXPORT_ID, status: "COMPLETED" });
-    expect(prisma.scoringV2EvidenceExport.updateMany).not.toHaveBeenCalled();
+    expect(prisma.scoringEvidenceExport.updateMany).not.toHaveBeenCalled();
     expect(runEvidenceJoin).not.toHaveBeenCalled();
     expect(artifacts.persist).not.toHaveBeenCalled();
   });
@@ -329,7 +329,7 @@ describe("runScoringV2EvidenceExportJob idempotency (B3)", () => {
   it("passes pinned generatedAt to runEvidenceJoin (not wall-clock now)", async () => {
     const pinned = new Date("2026-08-03T12:00:00.000Z");
     const wallClock = new Date("2026-08-03T15:30:00.000Z");
-    prisma.scoringV2EvidenceExport.findUnique
+    prisma.scoringEvidenceExport.findUnique
       .mockResolvedValueOnce(baseExportRow({ generatedAt: pinned, evidenceCutoffAt: pinned }))
       .mockResolvedValueOnce({
         attempt: 1,
@@ -337,11 +337,11 @@ describe("runScoringV2EvidenceExportJob idempotency (B3)", () => {
         evidenceCutoffAt: pinned,
         leaseOwner: "owner-1",
       });
-    prisma.scoringV2EvidenceExport.updateMany
+    prisma.scoringEvidenceExport.updateMany
       .mockResolvedValueOnce({ count: 1 }) // claim
       .mockResolvedValueOnce({ count: 1 }); // finalize
 
-    await runScoringV2EvidenceExportJob(
+    await runScoringEvidenceExportJob(
       {
         prisma: prisma as never,
         logger: logger as never,
@@ -356,14 +356,14 @@ describe("runScoringV2EvidenceExportJob idempotency (B3)", () => {
     expect(runEvidenceJoin.mock.calls[0]![1].now).toEqual(pinned);
     expect(runEvidenceJoin.mock.calls[0]![1].now).not.toEqual(wallClock);
 
-    expect(prisma.scoringV2EvidenceExport.findMany).toHaveBeenCalledWith(
+    expect(prisma.scoringEvidenceExport.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({ status: "RUNNING" }),
         take: 50,
       }),
     );
 
-    const finalizeCall = prisma.scoringV2EvidenceExport.updateMany.mock.calls[1]![0];
+    const finalizeCall = prisma.scoringEvidenceExport.updateMany.mock.calls[1]![0];
     expect(finalizeCall.data.status).toBe("COMPLETED");
     expect(finalizeCall.data.artifactSetHash).toBe("archive-hash");
     expect(finalizeCall.data.archiveContentHash).toBe("archive-hash");
@@ -376,7 +376,7 @@ describe("runScoringV2EvidenceExportJob idempotency (B3)", () => {
   });
 
   it("does not rejoin when claim loses to an active RUNNING peer", async () => {
-    prisma.scoringV2EvidenceExport.findUnique
+    prisma.scoringEvidenceExport.findUnique
       .mockResolvedValueOnce(baseExportRow({ status: "QUEUED" }))
       .mockResolvedValueOnce({
         status: "RUNNING",
@@ -387,9 +387,9 @@ describe("runScoringV2EvidenceExportJob idempotency (B3)", () => {
         leaseOwner: "other-owner",
         leaseExpiresAt: new Date("2099-01-01T00:00:00.000Z"),
       });
-    prisma.scoringV2EvidenceExport.updateMany.mockResolvedValueOnce({ count: 0 }); // claim lost
+    prisma.scoringEvidenceExport.updateMany.mockResolvedValueOnce({ count: 0 }); // claim lost
 
-    const result = await runScoringV2EvidenceExportJob(
+    const result = await runScoringEvidenceExportJob(
       {
         prisma: prisma as never,
         logger: logger as never,
@@ -419,7 +419,7 @@ describe("runScoringV2EvidenceExportJob idempotency (B3)", () => {
       exclusionCode: null,
       exclusionDetail: null,
     }));
-    prisma.scoringV2EvidenceExport.findUnique
+    prisma.scoringEvidenceExport.findUnique
       .mockResolvedValueOnce(
         baseExportRow({
           cohort: {
@@ -436,11 +436,11 @@ describe("runScoringV2EvidenceExportJob idempotency (B3)", () => {
         evidenceCutoffAt: new Date("2026-08-03T12:00:00.000Z"),
         leaseOwner: "owner-1",
       });
-    prisma.scoringV2EvidenceExport.updateMany
+    prisma.scoringEvidenceExport.updateMany
       .mockResolvedValueOnce({ count: 1 }) // claim
       .mockResolvedValueOnce({ count: 1 }); // fail terminal
 
-    const result = await runScoringV2EvidenceExportJob(
+    const result = await runScoringEvidenceExportJob(
       {
         prisma: prisma as never,
         logger: logger as never,
@@ -452,14 +452,14 @@ describe("runScoringV2EvidenceExportJob idempotency (B3)", () => {
 
     expect(result).toEqual({ exportId: EXPORT_ID, status: "FAILED" });
     expect(runEvidenceJoin).not.toHaveBeenCalled();
-    const failCall = prisma.scoringV2EvidenceExport.updateMany.mock.calls[1]![0];
+    const failCall = prisma.scoringEvidenceExport.updateMany.mock.calls[1]![0];
     expect(failCall.data.status).toBe("FAILED");
     expect(failCall.data.errorCode).toBe("EVIDENCE_EXPORT_MEMBER_LIMIT");
   });
 
   it("optimistic finalize guard returns COMPLETED when peer already wrote same hash", async () => {
     const pinned = new Date("2026-08-03T12:00:00.000Z");
-    prisma.scoringV2EvidenceExport.findUnique
+    prisma.scoringEvidenceExport.findUnique
       .mockResolvedValueOnce(baseExportRow({ generatedAt: pinned, evidenceCutoffAt: pinned }))
       .mockResolvedValueOnce({
         attempt: 1,
@@ -472,11 +472,11 @@ describe("runScoringV2EvidenceExportJob idempotency (B3)", () => {
         archiveContentHash: "archive-hash",
         artifactSetHash: "archive-hash",
       });
-    prisma.scoringV2EvidenceExport.updateMany
+    prisma.scoringEvidenceExport.updateMany
       .mockResolvedValueOnce({ count: 1 }) // claim
       .mockResolvedValueOnce({ count: 0 }); // finalize lost
 
-    const result = await runScoringV2EvidenceExportJob(
+    const result = await runScoringEvidenceExportJob(
       {
         prisma: prisma as never,
         logger: logger as never,
@@ -496,7 +496,7 @@ describe("runScoringV2EvidenceExportJob idempotency (B3)", () => {
 
   it("H3: persists freezeSnapshot v2 with members[].evidence digests and scoreModelId", async () => {
     const pinned = new Date("2026-08-03T12:00:00.000Z");
-    prisma.scoringV2EvidenceExport.findUnique
+    prisma.scoringEvidenceExport.findUnique
       .mockResolvedValueOnce(baseExportRow({ generatedAt: pinned, evidenceCutoffAt: pinned }))
       .mockResolvedValueOnce({
         attempt: 1,
@@ -504,11 +504,11 @@ describe("runScoringV2EvidenceExportJob idempotency (B3)", () => {
         evidenceCutoffAt: pinned,
         leaseOwner: "owner-1",
       });
-    prisma.scoringV2EvidenceExport.updateMany
+    prisma.scoringEvidenceExport.updateMany
       .mockResolvedValueOnce({ count: 1 }) // claim
       .mockResolvedValueOnce({ count: 1 }); // finalize
 
-    const result = await runScoringV2EvidenceExportJob(
+    const result = await runScoringEvidenceExportJob(
       {
         prisma: prisma as never,
         logger: logger as never,
@@ -524,7 +524,7 @@ describe("runScoringV2EvidenceExportJob idempotency (B3)", () => {
     expect(prisma.evidenceManifest.findFirst).toHaveBeenCalled();
     expect(prisma.dimensionComputation.findMany).toHaveBeenCalled();
 
-    const finalizeCall = prisma.scoringV2EvidenceExport.updateMany.mock.calls[1]![0];
+    const finalizeCall = prisma.scoringEvidenceExport.updateMany.mock.calls[1]![0];
     expect(finalizeCall.data.scoreModelId).toBe("model-1");
     const snap = finalizeCall.data.freezeSnapshot as {
       schemaVersion: string;
@@ -544,7 +544,7 @@ describe("runScoringV2EvidenceExportJob idempotency (B3)", () => {
       cohortRevision: number;
       evaluationModel: unknown;
     };
-    expect(snap.schemaVersion).toBe("scoring-v2-freeze-snapshot-v2");
+    expect(snap.schemaVersion).toBe("scoring-freeze-snapshot-v2");
     expect(snap.contentHash).toMatch(/^[a-f0-9]{64}$/);
     expect(snap.activeModel?.id).toBe("model-1");
     expect(snap.evaluationModel).toBeNull();
@@ -576,7 +576,7 @@ describe("reclaimStaleEvidenceExports (M3)", () => {
     const findMany = vi.fn().mockResolvedValue([{ id: "a" }, { id: "b" }]);
     const updateMany = vi.fn().mockResolvedValue({ count: 2 });
     const result = await reclaimStaleEvidenceExports(
-      { scoringV2EvidenceExport: { findMany, updateMany } } as never,
+      { scoringEvidenceExport: { findMany, updateMany } } as never,
       now,
     );
     expect(result).toEqual({ reclaimed: 2 });
@@ -611,7 +611,7 @@ describe("reclaimStaleEvidenceExports (M3)", () => {
     const findMany = vi.fn().mockResolvedValue([{ id: "only" }]);
     const updateMany = vi.fn().mockResolvedValue({ count: 1 });
     await reclaimStaleEvidenceExports(
-      { scoringV2EvidenceExport: { findMany, updateMany } } as never,
+      { scoringEvidenceExport: { findMany, updateMany } } as never,
       now,
       { limit: 3 },
     );
@@ -622,7 +622,7 @@ describe("reclaimStaleEvidenceExports (M3)", () => {
     const findMany = vi.fn().mockResolvedValue([]);
     const updateMany = vi.fn();
     const result = await reclaimStaleEvidenceExports({
-      scoringV2EvidenceExport: { findMany, updateMany },
+      scoringEvidenceExport: { findMany, updateMany },
     } as never);
     expect(result).toEqual({ reclaimed: 0 });
     expect(updateMany).not.toHaveBeenCalled();

@@ -11,8 +11,8 @@ import {
   selectTargetCharacterDigest,
 } from "./run-orchestration/target-character-identity.js";
 import {
-  orchestrateScoringV2Runs,
-  replayScoringV2FromPersistedEvidence,
+  orchestrateScoringRuns,
+  replayScoringFromPersistedEvidence,
 } from "./run-orchestration/orchestrator.js";
 import {
   buildMinimalCapabilityPackage,
@@ -245,7 +245,7 @@ describe("newest complete package wins (memory)", () => {
     }
 
     const digestsBefore = ports.getDigestCount();
-    const live = await orchestrateScoringV2Runs({
+    const live = await orchestrateScoringRuns({
       characterId: CHAR_ID,
       region: "eu",
       realm: "archimonde",
@@ -342,7 +342,7 @@ describe("provider-free replay", () => {
 
     const packagesBefore = ports.getPackageCount();
     const digestsBefore = ports.getDigestCount();
-    const live = await orchestrateScoringV2Runs({
+    const live = await orchestrateScoringRuns({
       characterId: CHAR_ID,
       region: "eu",
       realm: "archimonde",
@@ -373,7 +373,7 @@ describe("provider-free replay", () => {
     expect(conf.confidenceScore).toBe(100);
 
     const digestsAfterLive = ports.getDigestCount();
-    const replay = await replayScoringV2FromPersistedEvidence({
+    const replay = await replayScoringFromPersistedEvidence({
       characterId: CHAR_ID,
       region: "eu",
       realm: "archimonde",

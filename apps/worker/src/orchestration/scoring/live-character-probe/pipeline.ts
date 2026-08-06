@@ -292,7 +292,7 @@ function majoritySpec(rankings: WclRankingObservation[]): string | null {
   return best;
 }
 
-export async function runScoringV2LiveCharacterProbe(args: ProbeCliArgs): Promise<{
+export async function runScoringLiveCharacterProbe(args: ProbeCliArgs): Promise<{
   outputDir: string;
   overallVerdict: string;
 }> {
@@ -317,8 +317,8 @@ export async function runScoringV2LiveCharacterProbe(args: ProbeCliArgs): Promis
   const now = new Date().toISOString();
   const ctx: ProviderFetchContext = {
     region: args.region,
-    requestId: `scoring-v2-live-probe-${Date.now()}`,
-    correlationId: `scoring-v2-live-probe-${args.name.toLowerCase()}`,
+    requestId: `scoring-live-probe-${Date.now()}`,
+    correlationId: `scoring-live-probe-${args.name.toLowerCase()}`,
     forceRefresh: false,
     now,
     targetCharacter: identity,
@@ -330,7 +330,7 @@ export async function runScoringV2LiveCharacterProbe(args: ProbeCliArgs): Promis
     ? join(process.cwd(), "..", "..")
     : process.cwd();
   const outputDir = join(
-    args.outputRoot ?? join(repoRoot, "tmp", "scoring-v2-live-character-probe"),
+    args.outputRoot ?? join(repoRoot, "tmp", "scoring-live-character-probe"),
     `${characterLabel}-${timestamp}`,
   );
   await mkdir(outputDir, { recursive: true });
@@ -1287,7 +1287,7 @@ export async function runScoringV2LiveCharacterProbe(args: ProbeCliArgs): Promis
     specSlug,
     role,
     publication: false,
-    scoringV2FlagsEnabled: false,
+    scoringFlagsEnabled: false,
     characterPublishedScoreWritten: false,
     performance: performanceSummary,
     survival: survivalSummary,
