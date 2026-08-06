@@ -348,10 +348,23 @@ async function acquireLiveCapabilityPackageCore(
 
   // Compatible lookup must return the superseding package, not the prior row.
   const current = await packages.findCompleteBySourceFight(input.sourceFight);
-  if (!current || current.contentHash !== reloaded.contentHash) {
+  if (
+    !current ||
+    current.recordId !== reloaded.recordId ||
+    current.contentHash !== reloaded.contentHash ||
+    current.package.compatibilityKey !== reloaded.package.compatibilityKey
+  ) {
     throw Object.assign(
       new Error("capability_package_supersession_lookup_mismatch"),
-      { code: "PACKAGE_SUPERSESSION_LOOKUP_MISMATCH" },
+      {
+        code: "PACKAGE_SUPERSESSION_LOOKUP_MISMATCH",
+        expectedRecordId: reloaded.recordId,
+        expectedContentHash: reloaded.contentHash,
+        expectedCompatibilityKey: reloaded.package.compatibilityKey,
+        actualRecordId: current?.recordId ?? null,
+        actualContentHash: current?.contentHash ?? null,
+        actualCompatibilityKey: current?.package.compatibilityKey ?? null,
+      },
     );
   }
 

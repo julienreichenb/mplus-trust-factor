@@ -40,7 +40,13 @@ export {
 export {
   CapabilityEvidencePackageRepository,
   selectCurrentCompatiblePackageRow,
+  selectCanonicalCompatiblePackageHead,
+  resolveSupersedesCompatibilityKey,
+  PackageSupersessionGraphError,
   type UpsertCapabilityEvidencePackageInput,
+  type CompatiblePackageRowInput,
+  type CanonicalPackageHeadSelection,
+  type PackageSupersessionFailureCode,
 } from "./capability-evidence-package-repository.js";
 export {
   ParticipantScoringDigestRepository,
