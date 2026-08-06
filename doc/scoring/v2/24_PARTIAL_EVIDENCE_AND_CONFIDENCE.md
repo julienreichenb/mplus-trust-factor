@@ -107,6 +107,30 @@ gap (package HIT + digest ABSENT + ranking ABSENT). When digests already exist,
 slot-level `rankingMissing` may still be true without inflating
 `rankingFactsMissing`.
 
+### Target-character digest identity
+
+WCL `actorId` is report-local. After revision supersedes, resolve the requested
+character via stable identity (canonical Character ID + normalized
+region/realm/name + WCL run source digest roster), not discovery actor IDs alone.
+
+Provider-free diagnostic:
+
+```bash
+pnpm scoring-v2:canary:diagnose-target-digests -- --region EU --realm archimonde --character Wallidrixe
+```
+
+Provider-free replay (no live gates required):
+
+```bash
+pnpm scoring-v2:canary:replay -- --region EU --realm archimonde --character Wallidrixe
+```
+
+Ranking-only metadata hydrate (guarded; no capability event pages):
+
+```bash
+pnpm scoring-v2:canary:ranking-hydrate -- --region EU --realm archimonde --character Wallidrixe --confirm-ranking-hydrate
+```
+
 ### Partial live scoring
 
 Isolated fight failures (including historical revision mismatches) must **not**

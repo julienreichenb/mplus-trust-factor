@@ -250,9 +250,18 @@ function dimensionReport(input: {
         : input.result.dimensions.survival;
 
   const digests = input.result.characterDigests;
-  const usableRunCount = digests.length;
+  const perfDiag = input.result.dimensions.performanceDigestDiagnostics ?? [];
+  const usableDigests =
+    input.dimension === "performance" && perfDiag.length > 0
+      ? digests.filter((d) =>
+          perfDiag.some(
+            (p) => p.slotId === d.slotId && p.usable === true,
+          ),
+        )
+      : digests;
+  const usableRunCount = usableDigests.length;
   const representedDungeonSlugs = [
-    ...new Set(digests.map((d) => d.dungeonSlug.toLowerCase())),
+    ...new Set(usableDigests.map((d) => d.dungeonSlug.toLowerCase())),
   ];
   const representedDungeonCount = representedDungeonSlugs.length;
   const missingDungeons = missingDungeonsFromCoverage(
@@ -280,8 +289,8 @@ function dimensionReport(input: {
       confidenceScore: confidence.confidenceScore,
       confidenceBand: confidence.confidenceBand,
       unavailableReason: blocked.reason,
-      inputDigestIds: digests.map((d) => d.digestArtifactId),
-      inputDigestFingerprints: digests.map((d) =>
+      inputDigestIds: usableDigests.map((d) => d.digestArtifactId),
+      inputDigestFingerprints: usableDigests.map((d) =>
         digestFingerprint(d.digestArtifactId, d.digest.contentHash),
       ),
       blockReason: blocked.reason,
@@ -298,9 +307,13 @@ function dimensionReport(input: {
       missingDungeons,
       confidenceScore: confidence.confidenceScore,
       confidenceBand: confidence.confidenceBand,
-      unavailableReason: "dimension_unavailable",
-      inputDigestIds: digests.map((d) => d.digestArtifactId),
-      inputDigestFingerprints: digests.map((d) =>
+      unavailableReason:
+        input.dimension === "performance" &&
+        perfDiag.some((p) => !p.usable)
+          ? "zero_compatible_performance_facts"
+          : "dimension_unavailable",
+      inputDigestIds: usableDigests.map((d) => d.digestArtifactId),
+      inputDigestFingerprints: usableDigests.map((d) =>
         digestFingerprint(d.digestArtifactId, d.digest.contentHash),
       ),
       blockReason: null,
@@ -320,8 +333,8 @@ function dimensionReport(input: {
       confidenceScore: confidence.confidenceScore,
       confidenceBand: confidence.confidenceBand,
       unavailableReason: "score_null",
-      inputDigestIds: digests.map((d) => d.digestArtifactId),
-      inputDigestFingerprints: digests.map((d) =>
+      inputDigestIds: usableDigests.map((d) => d.digestArtifactId),
+      inputDigestFingerprints: usableDigests.map((d) =>
         digestFingerprint(d.digestArtifactId, d.digest.contentHash),
       ),
       blockReason: null,
@@ -338,8 +351,8 @@ function dimensionReport(input: {
     confidenceScore: confidence.confidenceScore,
     confidenceBand: confidence.confidenceBand,
     unavailableReason: null,
-    inputDigestIds: digests.map((d) => d.digestArtifactId),
-    inputDigestFingerprints: digests.map((d) =>
+    inputDigestIds: usableDigests.map((d) => d.digestArtifactId),
+    inputDigestFingerprints: usableDigests.map((d) =>
       digestFingerprint(d.digestArtifactId, d.digest.contentHash),
     ),
     blockReason: null,
@@ -641,33 +654,116 @@ export async function runScoringV2CanaryLive(
       liveAcquireCapabilityPackage: liveHook,
       withSourceFightLock,
       resolveParticipants: async ({ sourceFight }) => {
+        const rosterRow = await input.prisma.wclRunSourceDigest.findFirst({
+          where: {
+            reportCode: sourceFight.reportCode,
+            fightId: sourceFight.fightId,
+            reportRevision: sourceFight.reportRevision,
+          },
+        });
+
         const hit =
           await input.container.repositories.capabilityEvidencePackages.findCompleteBySourceFight(
             sourceFight,
           );
-        if (!hit) return [];
-        const candidate = candidates.find(
-          (c) =>
-            c.discoveryIdentity.reportCode === sourceFight.reportCode &&
-            c.discoveryIdentity.fightId === sourceFight.fightId,
+
+        type RosterP = {
+          wclActorId: number;
+          characterName: string;
+          realmSlug: string;
+          regionCode: string;
+          classSlug?: string | null;
+          specSlug?: string | null;
+          role?: string | null;
+          ownedPetActorIds?: number[];
+        };
+
+        const digestDoc = rosterRow?.digest as
+          | { participants?: RosterP[] }
+          | null
+          | undefined;
+        const rosterParticipants = digestDoc?.participants ?? [];
+
+        const targetFromRoster = rosterParticipants.find(
+          (p) =>
+            p.characterName.normalize("NFKC").trim().toLocaleLowerCase("en-US") ===
+              input.characterName
+                .normalize("NFKC")
+                .trim()
+                .toLocaleLowerCase("en-US") &&
+            (p.realmSlug ?? "")
+              .toLowerCase()
+              .replace(/[^a-z0-9]+/g, "-") ===
+              input.realm.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
         );
-        const targetActorId = candidate?.actorId ?? null;
-        return hit.package.friendlyPlayerActorIds.map((id) => ({
-          playerActorId: id,
-          characterName:
-            targetActorId != null && id === targetActorId
+
+        // Before package exists: use persisted roster actor set for acquisition.
+        if (!hit) {
+          if (rosterParticipants.length === 0) return [];
+          return rosterParticipants.map((p) => {
+            const isTarget =
+              targetFromRoster != null &&
+              p.wclActorId === targetFromRoster.wclActorId;
+            return {
+              playerActorId: p.wclActorId,
+              characterName: isTarget ? input.characterName : p.characterName,
+              realmSlug: p.realmSlug ?? input.realm,
+              regionCode: p.regionCode ?? input.region,
+              classSlug: isTarget ? input.classSlug : (p.classSlug ?? null),
+              specSlug: isTarget ? input.specSlug : (p.specSlug ?? null),
+              role: isTarget ? input.role : (p.role ?? null),
+              ownedPetActorIds: p.ownedPetActorIds ?? [],
+              characterId: isTarget ? input.characterId : null,
+            };
+          });
+        }
+
+        // Package exists: stamp identity using roster actor (stable), not discovery actorId.
+        const targetActorId = targetFromRoster?.wclActorId ?? null;
+        return hit.package.friendlyPlayerActorIds.map((id) => {
+          const rosterP = rosterParticipants.find((p) => p.wclActorId === id);
+          const isTarget = targetActorId != null && id === targetActorId;
+          return {
+            playerActorId: id,
+            characterName: isTarget
               ? input.characterName
-              : `Actor${id}`,
-          realmSlug: input.realm,
-          regionCode: input.region,
-          classSlug:
-            targetActorId != null && id === targetActorId ? input.classSlug : null,
-          specSlug:
-            targetActorId != null && id === targetActorId ? input.specSlug : null,
-          role: targetActorId != null && id === targetActorId ? input.role : null,
-          ownedPetActorIds: [],
-          characterId:
-            targetActorId != null && id === targetActorId ? input.characterId : null,
+              : (rosterP?.characterName ?? `Actor${id}`),
+            realmSlug: rosterP?.realmSlug ?? input.realm,
+            regionCode: rosterP?.regionCode ?? input.region,
+            classSlug: isTarget
+              ? input.classSlug
+              : (rosterP?.classSlug ?? null),
+            specSlug: isTarget ? input.specSlug : (rosterP?.specSlug ?? null),
+            role: isTarget ? input.role : (rosterP?.role ?? null),
+            ownedPetActorIds: rosterP?.ownedPetActorIds ?? [],
+            characterId: isTarget ? input.characterId : null,
+          };
+        });
+      },
+      resolveFightRoster: async ({ sourceFight }) => {
+        const row = await input.prisma.wclRunSourceDigest.findFirst({
+          where: {
+            reportCode: sourceFight.reportCode,
+            fightId: sourceFight.fightId,
+            reportRevision: sourceFight.reportRevision,
+          },
+        });
+        const participants = (
+          row?.digest as {
+            participants?: Array<{
+              wclActorId: number;
+              characterName: string;
+              realmSlug: string;
+              regionCode: string;
+            }>;
+          } | null
+        )?.participants;
+        if (!participants || participants.length === 0) return null;
+        return participants.map((p) => ({
+          wclActorId: p.wclActorId,
+          characterName: p.characterName,
+          realmSlug: p.realmSlug,
+          regionCode: p.regionCode,
         }));
       },
     });

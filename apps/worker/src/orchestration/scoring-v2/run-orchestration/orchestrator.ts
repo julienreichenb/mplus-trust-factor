@@ -34,8 +34,21 @@ import {
   type RankingParseFactInput,
 } from "@mplus/provider-warcraftlogs";
 import { absentRankingParseFact } from "./ranking-hydrate.js";
+import {
+  isUsablePerformanceDigest,
+  resolveTargetActorIdFromRoster,
+  selectTargetCharacterDigest,
+  TargetCharacterDigestError,
+  type RosterParticipantIdentity,
+} from "./target-character-identity.js";
 
 export type LiveProviderPermission = "FORBIDDEN" | "ALLOWED";
+export {
+  TargetCharacterDigestError,
+  selectTargetCharacterDigest,
+  resolveTargetActorIdFromRoster,
+  isUsablePerformanceDigest,
+} from "./target-character-identity.js";
 
 export interface SourceFightIdentity {
   reportCode: string;
@@ -145,6 +158,14 @@ export interface RunOrchestrationPorts {
     dungeonSlug: string | null;
     keyLevel: number | null;
   }): Promise<RankingParseFactInput | null>;
+
+  /**
+   * Optional roster from persisted WCL run source digest / master data.
+   * Used for stable target-character identity (not stale discovery actor IDs).
+   */
+  resolveFightRoster?(input: {
+    sourceFight: SourceFightIdentity;
+  }): Promise<RosterParticipantIdentity[] | null>;
 }
 
 export interface RunOrchestrationInput {
@@ -198,6 +219,13 @@ export interface RunOrchestrationResult {
     digest: ParticipantScoringDigestV1;
     digestArtifactId: string;
   }>;
+  /** Slots where target-character digest resolution failed (structured). */
+  targetDigestFailures: Array<{
+    slotId: string;
+    code: "TARGET_CHARACTER_DIGEST_MISSING" | "TARGET_CHARACTER_DIGEST_AMBIGUOUS";
+    message: string;
+    matchCount: number;
+  }>;
   allParticipantDigests: PersistedDigestRecord[];
   accounting: {
     providerCalls: number;
@@ -217,6 +245,13 @@ export interface RunOrchestrationResult {
     performance: ReturnType<typeof computePerformanceV2> | null;
     utility: ReturnType<typeof computeUtilityV2> | null;
     survival: ReturnType<typeof computeSurvivalV2> | null;
+    /** Per-digest Performance unusable reasons (ranking absent, etc.). */
+    performanceDigestDiagnostics: Array<{
+      slotId: string;
+      digestArtifactId: string;
+      usable: boolean;
+      reason: string | null;
+    }>;
     blocked: Array<{
       dimension: "PERFORMANCE" | "UTILITY" | "SURVIVAL";
       reason: string;
@@ -649,34 +684,77 @@ export async function orchestrateScoringV2Runs(
   }
 
   // Select the requested character's digest per selected slot (16 when complete).
+  // Prefer stable roster identity; never rely on stale discovery actor IDs alone.
   const characterDigests: RunOrchestrationResult["characterDigests"] = [];
+  const targetDigestFailures: RunOrchestrationResult["targetDigestFailures"] = [];
+  const identity = {
+    characterId: input.characterId,
+    characterName: input.characterName,
+    regionCode: input.region,
+    realmSlug: input.realm,
+  };
+
   for (const slot of manifest.slots) {
     if (slot.state !== "SELECTED" || !slot.identity) continue;
-    const fightKey = sourceFightKey({
+    const sourceFight = {
       reportCode: slot.identity.reportCode,
       fightId: slot.identity.fightId,
       reportRevision: slot.identity.reportRevision,
-    });
-    const match = [...digestsByFightActor.entries()].find(([k, rec]) => {
-      if (!k.startsWith(`${fightKey}:`)) return false;
-      return (
-        rec.digest.characterId === input.characterId ||
-        rec.digest.characterName.toLowerCase() ===
-          input.characterName.toLowerCase()
-      );
-    });
-    if (!match) continue;
-    characterDigests.push({
-      slotId: slot.slotId,
-      dungeonSlug: slot.dungeonSlug,
-      slotIndex: slot.slotIndex,
-      digest: match[1].digest,
-      digestArtifactId: match[1].artifactId,
-    });
+    };
+    const fightKey = sourceFightKey(sourceFight);
+    const fightDigests = [...digestsByFightActor.entries()]
+      .filter(([k]) => k.startsWith(`${fightKey}:`))
+      .map(([, rec]) => ({
+        participantActorId: rec.digest.participantActorId,
+        characterId: rec.digest.characterId,
+        characterName: rec.digest.characterName,
+        digest: rec.digest,
+        digestArtifactId: rec.artifactId,
+      }));
+
+    let targetActorId: number | null = null;
+    if (input.ports.resolveFightRoster) {
+      const roster = await input.ports.resolveFightRoster({ sourceFight });
+      if (roster && roster.length > 0) {
+        const resolved = resolveTargetActorIdFromRoster({ roster, identity });
+        if (resolved.reason === "RESOLVED") {
+          targetActorId = resolved.actorId;
+        }
+      }
+    }
+
+    try {
+      const match = selectTargetCharacterDigest({
+        slotId: slot.slotId,
+        digests: fightDigests,
+        identity,
+        targetActorId,
+      });
+      characterDigests.push({
+        slotId: slot.slotId,
+        dungeonSlug: slot.dungeonSlug,
+        slotIndex: slot.slotIndex,
+        digest: match.digest,
+        digestArtifactId: match.digestArtifactId,
+      });
+    } catch (err) {
+      if (err instanceof TargetCharacterDigestError) {
+        targetDigestFailures.push({
+          slotId: slot.slotId,
+          code: err.code,
+          message: err.message,
+          matchCount: err.matchCount,
+        });
+        continue;
+      }
+      throw err;
+    }
   }
 
   const blocked: RunOrchestrationResult["dimensions"]["blocked"] = [];
   const lineage: ReturnType<typeof buildDigestScoreLineage>[] = [];
+  const performanceDigestDiagnostics: RunOrchestrationResult["dimensions"]["performanceDigestDiagnostics"] =
+    [];
   const difficultyPolicy =
     input.difficultyPolicy ?? defaultDifficultyPolicy(input.scope);
 
@@ -686,42 +764,91 @@ export async function orchestrateScoringV2Runs(
 
   if (characterDigests.length > 0) {
     try {
-      const runParseFacts = characterDigests.map((row) =>
-        performanceRunParseFactFromDigest(row.digest, row.slotId),
-      );
-      performance = computePerformanceV2({
-        manifest: {
-          contentHash: manifest.contentHash,
-          schemaVersion: manifest.schemaVersion,
-          selectorVersion: manifest.selectorVersion,
-          characterId: manifest.characterId,
-          seasonId: manifest.seasonId,
-          seasonSlug: manifest.seasonSlug,
-          specSlug: manifest.specSlug,
-          role: manifest.role,
-          highKeyPolicyId: manifest.highKeyPolicyId,
-          activeDungeonSlugs: manifest.activeDungeonSlugs,
-          expectedSlotCount: manifest.expectedSlotCount,
-          selectedSlotCount: manifest.selectedSlotCount,
-          evidenceCutoffAt: manifest.evidenceCutoffAt,
-        },
-        runParseFacts,
-        profileAggregate: null,
-        difficultyPolicy,
-        expectedPartition: null,
-        logFreshness: 1,
-        computedAt: input.selectedAt ?? new Date().toISOString(),
-      });
+      const runParseFacts = [];
       for (const row of characterDigests) {
-        lineage.push(
-          buildDigestScoreLineage({
-            digest: row.digest,
+        if (!isUsablePerformanceDigest(row.digest)) {
+          performanceDigestDiagnostics.push({
+            slotId: row.slotId,
             digestArtifactId: row.digestArtifactId,
-            scoreModelId: input.scoringModelId,
-            scoreModelVersion: input.scoringModelVersion,
-            dimension: "PERFORMANCE",
-          }),
-        );
+            usable: false,
+            reason:
+              row.digest.performance.limitations.join(",") ||
+              "ranking_parse_absent",
+          });
+          continue;
+        }
+        try {
+          runParseFacts.push(
+            performanceRunParseFactFromDigest(row.digest, row.slotId),
+          );
+          performanceDigestDiagnostics.push({
+            slotId: row.slotId,
+            digestArtifactId: row.digestArtifactId,
+            usable: true,
+            reason: null,
+          });
+        } catch (err) {
+          performanceDigestDiagnostics.push({
+            slotId: row.slotId,
+            digestArtifactId: row.digestArtifactId,
+            usable: false,
+            reason:
+              err instanceof DigestDimensionIncompleteError
+                ? err.message
+                : err instanceof Error
+                  ? err.message
+                  : "performance_fact_unavailable",
+          });
+        }
+      }
+
+      if (runParseFacts.length === 0) {
+        blocked.push({
+          dimension: "PERFORMANCE",
+          reason: "zero_compatible_performance_facts",
+        });
+      } else {
+        performance = computePerformanceV2({
+          manifest: {
+            contentHash: manifest.contentHash,
+            schemaVersion: manifest.schemaVersion,
+            selectorVersion: manifest.selectorVersion,
+            characterId: manifest.characterId,
+            seasonId: manifest.seasonId,
+            seasonSlug: manifest.seasonSlug,
+            specSlug: manifest.specSlug,
+            role: manifest.role,
+            highKeyPolicyId: manifest.highKeyPolicyId,
+            activeDungeonSlugs: manifest.activeDungeonSlugs,
+            expectedSlotCount: manifest.expectedSlotCount,
+            selectedSlotCount: manifest.selectedSlotCount,
+            evidenceCutoffAt: manifest.evidenceCutoffAt,
+          },
+          runParseFacts,
+          profileAggregate: null,
+          difficultyPolicy,
+          expectedPartition: null,
+          logFreshness: 1,
+          computedAt: input.selectedAt ?? new Date().toISOString(),
+        });
+        for (const row of characterDigests) {
+          if (
+            !performanceDigestDiagnostics.some(
+              (d) => d.slotId === row.slotId && d.usable,
+            )
+          ) {
+            continue;
+          }
+          lineage.push(
+            buildDigestScoreLineage({
+              digest: row.digest,
+              digestArtifactId: row.digestArtifactId,
+              scoreModelId: input.scoringModelId,
+              scoreModelVersion: input.scoringModelVersion,
+              dimension: "PERFORMANCE",
+            }),
+          );
+        }
       }
     } catch (err) {
       blocked.push({
@@ -839,6 +966,7 @@ export async function orchestrateScoringV2Runs(
     incompleteSlotIds,
     uniqueSourceFights: uniqueFights,
     characterDigests,
+    targetDigestFailures,
     allParticipantDigests,
     accounting: {
       providerCalls,
@@ -854,6 +982,7 @@ export async function orchestrateScoringV2Runs(
       performance,
       utility,
       survival,
+      performanceDigestDiagnostics,
       blocked,
       lineage,
     },
