@@ -21,6 +21,16 @@
  *
  * Phase C (refuses without --confirm-live; not run in automation):
  *   pnpm scoring-v2:canary:live -- --region EU --realm archimonde --character Wallidrixe --confirm-live
+ *
+ * Targeted single-fight package repair (requires --confirm-targeted-reacquire):
+ *   pnpm scoring-v2:canary:repair-package -- --region EU --realm archimonde --character Wallidrixe \
+ *     --report-code 2MdLn3NVymJTYzg6 --fight-id 6 --report-revision 6 --confirm-targeted-reacquire
+ *
+ * Ranking metadata hydrate (requires --confirm-ranking-hydrate):
+ *   pnpm scoring-v2:canary:ranking-hydrate -- --region EU --realm archimonde --character Wallidrixe --confirm-ranking-hydrate
+ *
+ * Provider-free replay:
+ *   pnpm scoring-v2:canary:replay -- --region EU --realm archimonde --character Wallidrixe
  */
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -102,8 +112,21 @@ import {
 } from "./canary-reconcile-revisions.js";
 import { runScoringV2CanaryReplay } from "./canary-replay.js";
 import { runTargetDigestDiagnostic } from "./canary-target-digest-diagnostic.js";
-import { runScoringV2CanaryRankingHydrate } from "./canary-ranking-hydrate.js";
-import { LiveWarcraftLogsProvider } from "@mplus/provider-warcraftlogs";
+import {
+  rankingEvidenceArtifactBytes,
+  runScoringV2CanaryRankingHydrate,
+} from "./canary-ranking-hydrate.js";
+import { runScoringV2CanaryRepairPackage } from "./canary-repair-package.js";
+import {
+  createTargetedCapabilityRepairAcquireHook,
+} from "../run-orchestration/live-capability-adapter.js";
+import {
+  LiveWarcraftLogsProvider,
+  OPERATIONS,
+  mapRegionToWcl,
+  resolveRankingParseFromZoneRankings,
+  type ZoneRankingsPayload,
+} from "@mplus/provider-warcraftlogs";
 
 export interface CanaryCliArgs {
   mode:
@@ -116,7 +139,8 @@ export interface CanaryCliArgs {
     | "repair-catalog"
     | "replay"
     | "diagnose-target-digests"
-    | "ranking-hydrate";
+    | "ranking-hydrate"
+    | "repair-package";
   region: string;
   realm: string;
   character: string;
@@ -127,6 +151,10 @@ export interface CanaryCliArgs {
   confirmRevisionReconcile: boolean;
   confirmRepair: boolean;
   confirmRankingHydrate: boolean;
+  confirmTargetedReacquire: boolean;
+  reportCode: string | null;
+  fightId: number | null;
+  reportRevision: number | null;
   outputDir: string | null;
   characterId?: string;
   seasonId?: string;
@@ -147,7 +175,8 @@ export function parseCanaryCliArgs(argv: string[]): CanaryCliArgs {
     args[0] === "repair-catalog" ||
     args[0] === "replay" ||
     args[0] === "diagnose-target-digests" ||
-    args[0] === "ranking-hydrate"
+    args[0] === "ranking-hydrate" ||
+    args[0] === "repair-package"
   ) {
     mode = args.shift() as CanaryCliArgs["mode"];
   }
@@ -161,6 +190,10 @@ export function parseCanaryCliArgs(argv: string[]): CanaryCliArgs {
   let confirmRevisionReconcile = false;
   let confirmRepair = false;
   let confirmRankingHydrate = false;
+  let confirmTargetedReacquire = false;
+  let reportCode: string | null = null;
+  let fightId: number | null = null;
+  let reportRevision: number | null = null;
   let outputDir: string | null = null;
 
   for (let i = 0; i < args.length; i++) {
@@ -190,6 +223,17 @@ export function parseCanaryCliArgs(argv: string[]): CanaryCliArgs {
       confirmRepair = true;
     } else if (a === "--confirm-ranking-hydrate") {
       confirmRankingHydrate = true;
+    } else if (a === "--confirm-targeted-reacquire") {
+      confirmTargetedReacquire = true;
+    } else if (a === "--report-code" && next) {
+      reportCode = next;
+      i++;
+    } else if (a === "--fight-id" && next) {
+      fightId = Number.parseInt(next, 10);
+      i++;
+    } else if (a === "--report-revision" && next) {
+      reportRevision = Number.parseInt(next, 10);
+      i++;
     } else if (a === "--output-dir" && next) {
       outputDir = next;
       i++;
@@ -209,37 +253,39 @@ export function parseCanaryCliArgs(argv: string[]): CanaryCliArgs {
     }
   }
 
+  const common = {
+    region: region.toLowerCase(),
+    realm: realm.toLowerCase(),
+    character,
+    zoneIdOverride,
+    allowZoneIdOverride,
+    confirmLive,
+    confirmDiscovery,
+    confirmRevisionReconcile,
+    confirmRepair,
+    confirmRankingHydrate,
+    confirmTargetedReacquire,
+    reportCode,
+    fightId: fightId != null && Number.isFinite(fightId) ? fightId : null,
+    reportRevision:
+      reportRevision != null && Number.isFinite(reportRevision)
+        ? reportRevision
+        : null,
+    outputDir,
+  };
+
   if (mode === "diagnose-catalog") {
-    return {
-      mode,
-      region: region.toLowerCase() || "eu",
-      realm: realm.toLowerCase(),
-      character,
-      zoneIdOverride,
-      allowZoneIdOverride,
-      confirmLive,
-      confirmDiscovery,
-      confirmRevisionReconcile,
-      confirmRepair,
-      confirmRankingHydrate,
-      outputDir,
-    };
+    return { mode, ...common, region: region.toLowerCase() || "eu" };
   }
 
   if (mode === "rate-snapshot") {
     return {
       mode,
+      ...common,
       region: region.toLowerCase() || "eu",
-      realm: realm.toLowerCase(),
       character: character || "rate-snapshot",
-      zoneIdOverride,
-      allowZoneIdOverride,
-      confirmLive,
       confirmDiscovery: true,
       confirmRevisionReconcile: false,
-      confirmRepair,
-      confirmRankingHydrate,
-      outputDir,
     };
   }
 
@@ -249,20 +295,25 @@ export function parseCanaryCliArgs(argv: string[]): CanaryCliArgs {
         code: "CANARY_ARGS_INCOMPLETE",
       });
     }
-    return {
-      mode,
-      region: region.toLowerCase(),
-      realm: realm.toLowerCase(),
-      character,
-      zoneIdOverride,
-      allowZoneIdOverride,
-      confirmLive,
-      confirmDiscovery,
-      confirmRevisionReconcile,
-      confirmRepair,
-      confirmRankingHydrate,
-      outputDir,
-    };
+    return { mode, ...common };
+  }
+
+  if (mode === "repair-package") {
+    if (!region || !realm || !character) {
+      throw Object.assign(
+        new Error("required: --region --realm --character"),
+        { code: "CANARY_ARGS_INCOMPLETE" },
+      );
+    }
+    if (!reportCode || fightId == null || reportRevision == null) {
+      throw Object.assign(
+        new Error(
+          "required: --report-code --fight-id --report-revision --confirm-targeted-reacquire",
+        ),
+        { code: "CANARY_ARGS_INCOMPLETE" },
+      );
+    }
+    return { mode, ...common };
   }
 
   if (!region || !realm || !character) {
@@ -277,20 +328,7 @@ export function parseCanaryCliArgs(argv: string[]): CanaryCliArgs {
     });
   }
 
-  return {
-    mode,
-    region: region.toLowerCase(),
-    realm: realm.toLowerCase(),
-    character,
-    zoneIdOverride,
-    allowZoneIdOverride,
-    confirmLive,
-    confirmDiscovery,
-    confirmRevisionReconcile,
-    confirmRepair,
-    confirmRankingHydrate,
-    outputDir,
-  };
+  return { mode, ...common };
 }
 
 export interface CanaryLiveGateInput {
@@ -1392,6 +1430,12 @@ async function main(): Promise<void> {
         regionCode: args.region,
       });
       assertSeasonCatalogOk(season);
+      const zone = resolveZoneForCanaryCommand(args);
+      const wcl = new LiveWarcraftLogsProvider({ env });
+      const client = wcl.getGraphQlClient();
+      let zonePayloadCache: ZoneRankingsPayload | null | undefined;
+      let zonePayloadProviderCalls = 0;
+
       const { reportPath, report } = await runScoringV2CanaryRankingHydrate({
         prisma: deps.container.prisma,
         container: deps.container,
@@ -1401,18 +1445,147 @@ async function main(): Promise<void> {
         realm: args.realm,
         season,
         confirmRankingHydrate: args.confirmRankingHydrate,
+        repositoryMode: "PRODUCTION",
+        env,
+        outputDir: args.outputDir ?? undefined,
+        fetchRanking: async (fight) => {
+          if (zonePayloadCache === undefined) {
+            const rankingsResult = await client.request({
+              operationName: OPERATIONS.CharacterZoneRankings.operationName,
+              query: OPERATIONS.CharacterZoneRankings.query,
+              variables: {
+                name: args.character,
+                serverSlug: args.realm,
+                serverRegion: mapRegionToWcl(args.region as "EU" | "US" | "KR" | "TW" | "CN"),
+                zoneID: zone.zoneId,
+              },
+              region: args.region,
+            });
+            zonePayloadProviderCalls = 1;
+            const characterData = rankingsResult.response.data as {
+              characterData?: {
+                character?: { zoneRankings?: ZoneRankingsPayload | null };
+              };
+            } | null;
+            zonePayloadCache =
+              characterData?.characterData?.character?.zoneRankings ?? null;
+          }
+          const resolved = resolveRankingParseFromZoneRankings({
+            payload: zonePayloadCache,
+            zoneId: zone.zoneId,
+            reportCode: fight.reportCode,
+            fightId: fight.fightId,
+            reportRevision: fight.reportRevision,
+            dungeonSlug: fight.dungeonSlug,
+            keyLevel: fight.keyLevel,
+          });
+          if (!resolved.evidence) return null;
+          const { bytes, payloadFingerprint } = rankingEvidenceArtifactBytes(
+            resolved.evidence,
+          );
+          const providerCalls = zonePayloadProviderCalls;
+          zonePayloadProviderCalls = 0;
+          return {
+            evidence: resolved.evidence,
+            artifactBytes: bytes,
+            payloadFingerprint,
+            providerCalls,
+            estimatedPoints: resolved.estimatedPointsCost,
+          };
+        },
+      });
+      console.log(
+        JSON.stringify(
+          {
+            reportPath,
+            selectedSlotCount: report.selectedSlotCount,
+            rankingFactsAlreadyReady: report.rankingFactsAlreadyReady,
+            rankingFactsMissingBefore: report.rankingFactsMissingBefore,
+            requestsAttempted: report.requestsAttempted,
+            requestsSucceeded: report.requestsSucceeded,
+            requestsFailed: report.requestsFailed,
+            factsCreated: report.factsCreated,
+            factsReused: report.factsReused,
+            rankingStillMissing: report.rankingStillMissing,
+            providerCalls: report.providerCalls,
+            estimatedPoints: report.estimatedPoints,
+            capabilityAcquisitions: report.capabilityAcquisitions,
+            capabilityEventPageRequests: report.capabilityEventPageRequests,
+            digestsCreated: report.digestsCreated,
+            publicationEnabled: report.publicationEnabled,
+          },
+          null,
+          2,
+        ),
+      );
+    } finally {
+      await deps.container.prisma.$disconnect().catch(() => undefined);
+    }
+    return;
+  }
+  if (args.mode === "repair-package") {
+    const env = loadEnv();
+    const identity = identityFromArgs(args);
+    const deps = await createProductionCanaryDependencies({ env, identity });
+    try {
+      const season = await resolveCanarySeasonCatalog({
+        prisma: deps.container.prisma,
+        regionId: deps.character.regionId,
+        regionCode: args.region,
+      });
+      assertSeasonCatalogOk(season);
+      const wcl = new LiveWarcraftLogsProvider({ env });
+      const client = wcl.getGraphQlClient();
+      const targetedAcquire = createTargetedCapabilityRepairAcquireHook({
+        env,
+        prisma: deps.container.prisma,
+        artifacts: deps.container.repositories.artifacts,
+        wclSource: deps.container.repositories.wclSource,
+        client,
+        region: args.region,
+        permission: {
+          providerMode: env.PROVIDER_MODE,
+          wclEnabled: env.WCL_ENABLED,
+          allowLiveProviderCalls: env.ALLOW_LIVE_PROVIDER_CALLS,
+          liveProviderPermissionGranted: true,
+          scoringV2PublicationEnabled: env.SCORING_V2_PUBLICATION_ENABLED,
+          hasWclCredentials: Boolean(env.WCL_CLIENT_ID && env.WCL_CLIENT_SECRET),
+        },
+      });
+      const { reportPath, report } = await runScoringV2CanaryRepairPackage({
+        prisma: deps.container.prisma,
+        container: deps.container,
+        characterId: deps.characterResolution.characterId,
+        characterName: args.character,
+        region: args.region,
+        realm: args.realm,
+        classSlug: null,
+        specSlug: null,
+        role: "DPS",
+        season,
+        reportCode: args.reportCode!,
+        fightId: args.fightId!,
+        reportRevision: args.reportRevision!,
+        confirmTargetedReacquire: args.confirmTargetedReacquire,
+        repositoryMode: "PRODUCTION",
+        env,
+        targetedAcquire,
         outputDir: args.outputDir ?? undefined,
       });
       console.log(
         JSON.stringify(
           {
             reportPath,
-            selectedMissingBefore: report.selectedMissingBefore,
-            rankingStillMissing: report.rankingStillMissing,
-            rankingPersisted: report.rankingPersisted,
+            outcome: report.outcome,
+            slotId: report.slotId,
+            capabilityAcquisitions: report.capabilityAcquisitions,
+            packagesCreated: report.packagesCreated,
+            wallidrixeDigestResolved: report.wallidrixeDigestResolved,
+            priorPackageMutated: report.priorPackageMutated,
+            priorPackageDeleted: report.priorPackageDeleted,
+            supersedesCompatibilityKey: report.supersedesCompatibilityKey,
             providerCalls: report.providerCalls,
-            capabilityEventPageRequests: report.capabilityEventPageRequests,
-            packageAcquisitions: report.packageAcquisitions,
+            publicationEnabled: report.publicationEnabled,
           },
           null,
           2,

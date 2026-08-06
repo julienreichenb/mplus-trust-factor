@@ -23,6 +23,7 @@
     "canary:replay": "tsx src/orchestration/scoring-v2/canary/cli.ts replay",
     "canary:diagnose-target-digests": "tsx src/orchestration/scoring-v2/canary/cli.ts diagnose-target-digests",
     "canary:ranking-hydrate": "tsx src/orchestration/scoring-v2/canary/cli.ts ranking-hydrate",
+    "canary:repair-package": "tsx src/orchestration/scoring-v2/canary/cli.ts repair-package",
     "canary:diagnose-catalog": "tsx src/orchestration/scoring-v2/canary/cli.ts diagnose-catalog",
     "canary:repair-catalog": "tsx src/orchestration/scoring-v2/canary/cli.ts repair-catalog"
   },
