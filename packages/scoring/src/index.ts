@@ -575,7 +575,7 @@ export type {
   ExperienceV3CalibrationExport,
 } from "./experience/v3/index.js";
 
-/** Survival V2 Phase 1 calculator (shadow — not public-activated). */
+/** Survival V2 Phase 2 calculator (contextual defensive / recovery). */
 export {
   SURVIVAL_V2_SCHEMA_VERSION,
   SURVIVAL_V2_CALIBRATION_SCHEMA_VERSION,
@@ -589,6 +589,7 @@ export {
   SURVIVAL_V2_DANGER,
   SURVIVAL_V2_DEFENSIVE_RATE,
   SURVIVAL_V2_METRIC_KEYS,
+  SURVIVAL_V2_PHASE2,
   SURVIVAL_V2_MODEL_CONFIG,
   parseSurvivalFactDocumentV2,
   survivalFactSlotKey,
@@ -597,6 +598,12 @@ export {
   saturatingDefensiveRateScore,
   mergePressureClusters,
   scoreSurvivalV2EmergencyRecovery,
+  classifyDefensiveResponse,
+  classifyRecoveryResponse,
+  resolveSurvivalCatalogTools,
+  toolAvailabilityAt,
+  scoreDefensiveResponseClass,
+  scoreRecoveryResponseClass,
   scoreSurvivalV2RelativeDamageShadow,
   isSurvivalV2RelativeDamageWeightActive,
   relativeDamageBlendScore,
@@ -619,6 +626,8 @@ export type {
   SurvivalV2RelativeDamageMode,
   SurvivalV2CalibrationStatus,
   SurvivalV2ModelConfig,
+  SurvivalV2DefensiveResponseClass,
+  SurvivalV2RecoveryResponseClass,
   SurvivalFactDocumentV2,
   SurvivalV2AvailabilityState,
   SurvivalV2CalibrationExport,
@@ -632,9 +641,11 @@ export type {
   SurvivalV2RelativeDamageShadow,
   SurvivalV2RunScore,
   SurvivalV2ShadowDimensionPayload,
+  SurvivalV2TimedActivationFact,
   SurvivalV2ToolkitAvailabilityState,
   SurvivalV2ToolkitEntry,
 } from "./survival/v2/index.js";
+export type { SurvivalV2CatalogTool, SurvivalV2TimedActivation } from "./survival/v2/index.js";
 
 /** Utility V2 Phase 1 calculator (shadow — not public-activated). */
 export {

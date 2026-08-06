@@ -41,8 +41,9 @@ import {
   type SeasonDifficultyPolicyV2,
 } from "@mplus/scoring";
 
-/** Bumped when authoritative Utility Phase 2 product path activates. */
-export const SCORING_VERSION = "scoring-v1.performance-phase2.utility-phase2";
+/** Bumped when authoritative Survival Phase 2 product path activates. */
+export const SCORING_VERSION =
+  "scoring-v1.performance-phase2.utility-phase2.survival-phase2";
 
 /** Default WCL character summary / aggregate TTL (12h) when not overridden. */
 const DEFAULT_PERFORMANCE_AGGREGATE_TTL_SECONDS = 43_200;
@@ -318,6 +319,17 @@ export async function scoreCharacter(
               strategicCc: utility.strategicCc,
               explanation: utility.explanation,
               context: utility.context,
+            }
+          : null,
+        survival: survival
+          ? {
+              algorithmVersion: survival.algorithmVersion,
+              modelLabel: survival.modelLabel,
+              state: survival.state,
+              components: survival.components,
+              observations: survival.observations,
+              explanation: survival.explanation,
+              relativeDamageMode: survival.relativeDamageMode,
             }
           : null,
         performanceAggregate: {

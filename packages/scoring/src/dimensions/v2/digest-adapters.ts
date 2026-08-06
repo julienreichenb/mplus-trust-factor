@@ -15,9 +15,15 @@ import {
   SURVIVAL_V2_EXTRACTOR_FAMILY,
   SURVIVAL_V2_SCHEMA_VERSION,
 } from "../../survival/v2/constants.js";
+import {
+  classifyDefensiveResponse,
+  classifyRecoveryResponse,
+  resolveSurvivalCatalogTools,
+} from "../../survival/v2/contextual.js";
 import type {
   SurvivalFactDocumentV2,
   SurvivalV2DefensiveCategory,
+  SurvivalV2TimedActivationFact,
 } from "../../survival/v2/types.js";
 import type { PerformanceRunParseFactV2 } from "../../performance/v2/types.js";
 import {
@@ -91,6 +97,29 @@ function mapDefensiveCategory(
   }
 }
 
+function mapRecoveryCategory(
+  category: string,
+): "SELF_HEAL" | "CONSUMABLE" | null {
+  switch (category) {
+    case "SELF_HEAL":
+    case "CONSUMABLE":
+      return category;
+    default:
+      return null;
+  }
+}
+
+function capabilityStatus(
+  capabilities: ReadonlyArray<{ capability: string; status: string }>,
+  key: string,
+): "COMPLETE" | "INCOMPLETE" | "UNAVAILABLE" | null {
+  const status = capabilities.find((c) => c.capability === key)?.status;
+  if (status === "COMPLETE" || status === "INCOMPLETE" || status === "UNAVAILABLE") {
+    return status;
+  }
+  return null;
+}
+
 export function survivalFactDocumentFromDigest(
   digest: ParticipantScoringDigestV1,
   slotIndex: number,
@@ -104,17 +133,126 @@ export function survivalFactDocumentFromDigest(
   }
 
   const byCategory: Partial<Record<SurvivalV2DefensiveCategory, number>> = {};
+  const timedDefensives: SurvivalV2TimedActivationFact[] = [];
   for (const activation of digest.survival.personalDefensiveActivations) {
     const cat = mapDefensiveCategory(activation.defensiveCategory);
     if (!cat) continue;
     byCategory[cat] = (byCategory[cat] ?? 0) + 1;
+    timedDefensives.push({
+      id: activation.canonicalActivationId,
+      timestampMs: activation.rawTimestampMs,
+      abilityGameId: activation.primarySpellId,
+      category: cat,
+    });
   }
+
+  const recoveryById = new Map<string, SurvivalV2TimedActivationFact>();
+  const timedRecovery: SurvivalV2TimedActivationFact[] = [];
+  for (const activation of digest.survival.recoveryActivations) {
+    const cat = mapRecoveryCategory(activation.defensiveCategory);
+    if (!cat) continue;
+    const row: SurvivalV2TimedActivationFact = {
+      id: activation.canonicalActivationId,
+      timestampMs: activation.rawTimestampMs,
+      abilityGameId: activation.primarySpellId,
+      category: cat,
+    };
+    timedRecovery.push(row);
+    recoveryById.set(row.id, row);
+  }
+
+  const catalogTools = resolveSurvivalCatalogTools({
+    classSlug: digest.classSlug,
+    specSlug: digest.specSlug,
+  });
+
+  const deathsCapability = capabilityStatus(
+    digest.survival.capabilityCompleteness,
+    "SURVIVAL_DEATHS",
+  );
+  const damageCapability = capabilityStatus(
+    digest.survival.capabilityCompleteness,
+    "SURVIVAL_DAMAGE_TAKEN",
+  );
+  const defensiveCapability = capabilityStatus(
+    digest.survival.capabilityCompleteness,
+    "SURVIVAL_DEFENSIVE_ACTIVATIONS",
+  );
+  const recoveryCapability = capabilityStatus(
+    digest.survival.capabilityCompleteness,
+    "SURVIVAL_RECOVERY_ACTIVATIONS",
+  );
+
+  const timingObservable =
+    damageCapability !== "UNAVAILABLE" &&
+    defensiveCapability !== "UNAVAILABLE";
+
+  const recoveryTimingObservable =
+    timingObservable && recoveryCapability !== "UNAVAILABLE";
+
+  const dangerWindows = digest.survival.pressureWindows.map((w) => {
+    const defensiveResponseClass = classifyDefensiveResponse({
+      defensivesBefore: w.response.defensivesBefore,
+      defensivesDuring: w.response.defensivesDuring,
+      timingObservable,
+      tools: catalogTools.defensiveTools,
+      activations: timedDefensives,
+      dangerStartMs: w.derivation.windowStartMs,
+    });
+    const recoveryResponseClass = classifyRecoveryResponse({
+      recoveryActivationIds: w.response.recoveryAfter,
+      recoveryById,
+      dangerEndMs: w.derivation.windowEndMs,
+      timingObservable: recoveryTimingObservable,
+      tools: catalogTools.selfHealTools,
+      activations: timedRecovery,
+    });
+
+    return {
+      startMs: w.derivation.windowStartMs,
+      endMs: w.derivation.windowEndMs,
+      triggerTypes: [w.windowClass],
+      hpEvidenceQuality:
+        w.derivation.maxHpUsed != null
+          ? ("PARTIAL" as const)
+          : ("MISSING" as const),
+      damageAmount: w.derivation.totalDamage,
+      recoveryUseful: w.response.recoveryAfter.length > 0,
+      recoveryEligible:
+        !w.response.noRecoveryResponse ||
+        recoveryResponseClass === "NO_RECOVERY_AVAILABLE" ||
+        recoveryResponseClass === "TIMELY_RECOVERY" ||
+        recoveryResponseClass === "LATE_RECOVERY",
+      deathOutcome:
+        w.windowClass === "FATAL_PRESSURE" ||
+        w.response.deathEventIds.length > 0,
+      defensiveResponseClass,
+      recoveryResponseClass,
+      availabilityState:
+        recoveryResponseClass === "NO_SELF_HEAL_AVAILABLE"
+          ? ("NOT_APPLICABLE" as const)
+          : recoveryResponseClass === "NOT_OBSERVABLE"
+            ? ("UNKNOWN" as const)
+            : ("AVAILABLE_CONFIRMED" as const),
+    };
+  });
 
   const fightDurationMs =
     digest.survival.fightDurationMs ??
     digest.survival.activeCombatMs ??
     1_800_000;
   const activeCombatMs = digest.survival.activeCombatMs ?? fightDurationMs;
+
+  const limitations = [...digest.survival.limitations];
+  if (!catalogTools.supported) {
+    limitations.push("class_spec_identity_unknown");
+    limitations.push(
+      `ability_catalog:${catalogTools.unsupportedReason ?? "UNSUPPORTED"}`,
+    );
+  }
+  limitations.push("relative_damage_omitted_unreliable_for_phase2");
+
+  const deathEvidenceMissing = deathsCapability === "UNAVAILABLE";
 
   return {
     schemaVersion: SURVIVAL_V2_SCHEMA_VERSION,
@@ -129,7 +267,8 @@ export function survivalFactDocumentFromDigest(
     },
     keyLevel: digest.keyLevel,
     deaths: {
-      count: digest.survival.deaths.length,
+      count: deathEvidenceMissing ? 0 : digest.survival.deaths.length,
+      evidenceState: deathEvidenceMissing ? "MISSING" : "OBSERVED",
       timestampsMs: digest.survival.deaths.map((d) => d.rawTimestampMs),
       causes: digest.survival.deaths
         .map((d) => d.killingAbilityName)
@@ -142,21 +281,19 @@ export function survivalFactDocumentFromDigest(
     },
     defensiveActivations: {
       byCategory,
-      toolkit: [],
-      catalogCoverage: digest.survival.completeness === "COMPLETE" ? 1 : 0.5,
+      toolkit: catalogTools.toolkit.filter((t) =>
+        ["DEFENSIVE_MAJOR", "DEFENSIVE_MINOR", "IMMUNITY", "SELF_HEAL", "CONSUMABLE"].includes(
+          t.category,
+        ),
+      ),
+      catalogCoverage: catalogTools.supported
+        ? digest.survival.completeness === "COMPLETE"
+          ? 1
+          : 0.5
+        : 0,
+      timedActivations: timedDefensives,
     },
-    dangerWindows: digest.survival.pressureWindows.map((w) => ({
-      startMs: w.derivation.windowStartMs,
-      endMs: w.derivation.windowEndMs,
-      triggerTypes: [w.windowClass],
-      hpEvidenceQuality:
-        w.derivation.maxHpUsed != null ? ("PARTIAL" as const) : ("MISSING" as const),
-      damageAmount: w.derivation.totalDamage,
-      recoveryUseful: w.response.recoveryAfter.length > 0,
-      recoveryEligible: !w.response.noRecoveryResponse,
-      deathOutcome:
-        w.windowClass === "FATAL_PRESSURE" || w.response.deathEventIds.length > 0,
-    })),
+    dangerWindows,
     pressureClustersPremerged: true,
     healthEvidence: {
       mode:
@@ -165,9 +302,16 @@ export function survivalFactDocumentFromDigest(
           : digest.survival.completeness === "PARTIAL"
             ? "PARTIAL"
             : "MISSING",
+      catalogSelfHealCoverage: catalogTools.selfHealTools.some(
+        (t) => t.availability === "BASELINE",
+      )
+        ? 1
+        : catalogTools.selfHealTools.length > 0
+          ? 0.5
+          : 0,
     },
     relativeDamage: null,
-    limitations: [...digest.survival.limitations],
+    limitations,
   };
 }
 
@@ -194,13 +338,6 @@ function sourceKindFromAction(
   action: UtilityCanonicalAction,
 ): "PLAYER" | "OWNED_PET" {
   return action.attributedToPet ? "OWNED_PET" : "PLAYER";
-}
-
-function capabilityStatus(
-  capabilities: UtilityCapabilityCompleteness[],
-  key: string,
-): UtilityCapabilityCompleteness["status"] | null {
-  return capabilities.find((c) => c.capability === key)?.status ?? null;
 }
 
 /**

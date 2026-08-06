@@ -32,10 +32,11 @@ export function scoreSurvivalV2Run(
     limitations.push("active_combat_truncated");
   }
 
-  const outcome = scoreSurvivalV2Outcome(fact.deaths.count, config);
+  const outcome = scoreSurvivalV2Outcome(fact.deaths, config);
   const defensive = scoreSurvivalV2Defensive({
     activations: fact.defensiveActivations,
     activeCombatDurationMs: fact.activeCombat.durationMs,
+    dangerWindows: fact.dangerWindows,
     config,
   });
 

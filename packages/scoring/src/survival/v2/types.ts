@@ -51,6 +51,11 @@ export interface SurvivalV2ToolkitEntry {
 
 export interface SurvivalV2DeathFact {
   count: number;
+  /**
+   * OBSERVED: death dataset present (zero deaths is valid evidence).
+   * MISSING: death capability unavailable — must not score as zero deaths.
+   */
+  evidenceState?: "OBSERVED" | "MISSING";
   timestampsMs?: number[];
   /** Compact cause labels — never raw event dumps. */
   causes?: string[];
@@ -63,11 +68,20 @@ export interface SurvivalV2ActiveCombatFact {
   truncated?: boolean;
 }
 
+export interface SurvivalV2TimedActivationFact {
+  id: string;
+  timestampMs: number;
+  abilityGameId: number;
+  category: SurvivalV2DefensiveCategory | "SELF_HEAL" | "CONSUMABLE";
+}
+
 export interface SurvivalV2DefensiveActivationFact {
   byCategory: Partial<Record<SurvivalV2DefensiveCategory, number>>;
   toolkit: SurvivalV2ToolkitEntry[];
   /** 0–1 fraction of expected defensive rules with catalog coverage. */
   catalogCoverage: number;
+  /** Timed personal defensive activations for CD availability reconstruction. */
+  timedActivations?: SurvivalV2TimedActivationFact[];
 }
 
 /**
@@ -86,6 +100,20 @@ export interface SurvivalV2DangerWindowFact {
   recoveryEligible?: boolean;
   deathOutcome?: boolean;
   availabilityState?: SurvivalV2ToolkitAvailabilityState | null;
+  /** Phase 2 contextual defensive response (strongest supported state). */
+  defensiveResponseClass?:
+    | "ANTICIPATED"
+    | "REACTIVE"
+    | "NO_RESPONSE_AVAILABLE"
+    | "NO_TOOL_AVAILABLE"
+    | "NOT_OBSERVABLE";
+  /** Phase 2 contextual emergency recovery response. */
+  recoveryResponseClass?:
+    | "TIMELY_RECOVERY"
+    | "LATE_RECOVERY"
+    | "NO_RECOVERY_AVAILABLE"
+    | "NO_SELF_HEAL_AVAILABLE"
+    | "NOT_OBSERVABLE";
 }
 
 export interface SurvivalV2RelativeDamageFact {

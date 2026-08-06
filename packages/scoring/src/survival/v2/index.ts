@@ -11,10 +11,13 @@ export {
   SURVIVAL_V2_DANGER,
   SURVIVAL_V2_DEFENSIVE_RATE,
   SURVIVAL_V2_METRIC_KEYS,
+  SURVIVAL_V2_PHASE2,
   SURVIVAL_V2_MODEL_CONFIG,
   type SurvivalV2RelativeDamageMode,
   type SurvivalV2CalibrationStatus,
   type SurvivalV2ModelConfig,
+  type SurvivalV2DefensiveResponseClass,
+  type SurvivalV2RecoveryResponseClass,
 } from "./constants.js";
 
 export type {
@@ -31,6 +34,7 @@ export type {
   SurvivalV2RelativeDamageShadow,
   SurvivalV2RunScore,
   SurvivalV2ShadowDimensionPayload,
+  SurvivalV2TimedActivationFact,
   SurvivalV2ToolkitAvailabilityState,
   SurvivalV2ToolkitEntry,
 } from "./types.js";
@@ -49,6 +53,16 @@ export {
   mergePressureClusters,
   scoreSurvivalV2EmergencyRecovery,
 } from "./recovery.js";
+export {
+  classifyDefensiveResponse,
+  classifyRecoveryResponse,
+  resolveSurvivalCatalogTools,
+  toolAvailabilityAt,
+  scoreDefensiveResponseClass,
+  scoreRecoveryResponseClass,
+  type SurvivalV2CatalogTool,
+  type SurvivalV2TimedActivation,
+} from "./contextual.js";
 export {
   scoreSurvivalV2RelativeDamageShadow,
   isSurvivalV2RelativeDamageWeightActive,

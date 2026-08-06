@@ -137,7 +137,7 @@ function fixtureV2Bundle(overrides: Partial<CalibrationInputBundleV2> = {}): Cal
       confidenceAlgorithmVersions: { overall: "conf-v1" },
       dimensionAlgorithmVersions: {
         PERFORMANCE: "performance-phase2-v1",
-        SURVIVAL: "survival-v2-phase1.0.0",
+        SURVIVAL: "survival-v2-phase2-contextual-0.2.0",
         UTILITY: UTILITY_V2_ALGORITHM_VERSION,
         EXPERIENCE: "experience-v3.phase1.0.1.0",
       },

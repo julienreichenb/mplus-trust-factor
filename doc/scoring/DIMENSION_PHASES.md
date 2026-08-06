@@ -134,6 +134,29 @@ Status: `DEFERRED_CRITICAL_MASS`. No placeholder Phase 3 score is produced.
 - availability of defensives/self-heals at death or damage time;
 - reduced penalty when no relevant tool was available.
 
+Phase 2 uses **persisted pressure-window response facts** plus catalogue cooldown
+availability reconstructed from activation timestamps (no new WCL requests):
+
+| Observable state | Evidence | Scoring |
+|------------------|----------|---------|
+| `ANTICIPATED` | `defensivesBefore` on pressure window | Highest defensive credit |
+| `REACTIVE` | `defensivesDuring` | Lower than anticipation |
+| `NO_RESPONSE_AVAILABLE` | No defensive response + baseline tool ready at danger start | Poor credit (not omitted) |
+| `NO_TOOL_AVAILABLE` | No applicable baseline tool, or all known tools on cooldown | Omitted (not failure) |
+| `NOT_OBSERVABLE` | Missing damage/defensive timing datasets or unknown CD/talent | Omitted |
+| `TIMELY_RECOVERY` / `LATE_RECOVERY` | `recoveryAfter` activations vs danger end | Emergency recovery credit |
+| `NO_RECOVERY_AVAILABLE` | No recovery + baseline self-heal ready | Poor recovery credit |
+| `NO_SELF_HEAL_AVAILABLE` | No applicable baseline self-heal / all on CD | Omitted |
+
+Relative party damage remains **omitted** on the product path (`relativeDamage: null`)
+until reliability criteria are met — it is not activated merely to complete Phase 2.
+
+Talent-gated tools without confirmed talent state are treated as `UNKNOWN` and are
+never penalized as available-but-unused.
+
+**Technical calculator (production):** `survival-v2-phase2-contextual-0.2.0`
+**Pipeline:** `scoring-v2`
+
 ### Phase 3
 
 - same-class/spec dungeon benchmarks;
@@ -220,8 +243,8 @@ States:
 | Performance | Phase 1 | Profile summary + ≤16 detailed parses; peak/floor/consistency; season-relative difficulty | Digests with ranking parses; `CharacterPerformanceAggregate`; difficulty policy; Performance V2 Phase 1 internals | `IMPLEMENTED` (subsumed by Phase 2 product path) | — | Phase 1 internals under `performance-phase2-v1` |
 | Performance | Phase 2 | Phase 1 + offensive cooldown frequency | Digest `offensiveActivations`; catalogue `performanceCooldownRule`; active-combat duration on survival digest slice; product path uses `computePerformancePhase2` | `IMPLEMENTED` (cooldown); difficulty policy still uses orchestration default until season SDP injection | Season SDP injection for calibrated k50/k90/k99 | `performance-phase2-v1` |
 | Performance | Phase 3 | S/A benchmarks; pull-specific timing | None in production path | `DEFERRED_CRITICAL_MASS` | Critical mass of scored players | — |
-| Survival | Phase 1 | Deaths, self-heals, defensive volume, DTPS, internal group compare | Survival digests + Survival V2 calculator in product path | `IMPLEMENTED` | — | `survival-v2*` (see code) |
-| Survival | Phase 2 | Anticipation / availability-at-damage | Partial probe/research signals only | `PLANNED` | Timing-quality evidence model | — |
+| Survival | Phase 1 | Deaths, self-heals, defensive volume, DTPS, internal group compare | Survival digests + Survival V2 calculator in product path | `IMPLEMENTED` (subsumed by Phase 2 product path) | — | Phase 1 internals under `survival-v2-phase2-contextual-0.2.0` |
+| Survival | Phase 2 | Anticipation / availability-at-damage | Pressure `defensivesBefore`/`During`/`recoveryAfter`; catalogue CD/charges; toolkit from class/spec; `computeSurvivalV2` via enriched `survivalFactDocumentFromDigest` | `IMPLEMENTED` | Relative damage still omitted; talent state unknown → no penalty; mitigation amounts not invented | `survival-v2-phase2-contextual-0.2.0` |
 | Survival | Phase 3 | Same-class/spec + S/A benchmarks | None | `DEFERRED_CRITICAL_MASS` | Critical mass | — |
 | Utility | Phase 1 | Attempt volume (kicks/CC/externals/group CDs) | Utility digests + Utility V2 in product path | `IMPLEMENTED` (subsumed by Phase 2 product path) | — | Phase 1 internals under `utility-v2-phase2-observed-0.2.0` |
 | Utility | Phase 2 | Success weighting + contextual impact | Digest outcomes + capability completeness; support tiers from strongest observable state; `computeUtilityV2` via `utilityRunFactSetFromDigest` | `IMPLEMENTED` | Hostile windows not in digest → no digest-path VALID_OVERLAP/MATCHED_FAILED; mitigation amounts not invented | `utility-v2-phase2-observed-0.2.0` |
@@ -263,5 +286,13 @@ Pipeline: scoring-v2
 ```text
 Functional stage: Utility Phase 2
 Technical calculator: utility-v2-phase2-observed-0.2.0
+Pipeline generation: scoring-v2
+```
+
+## Version stamp (authoritative Survival)
+
+```text
+Functional stage: Survival Phase 2
+Technical calculator: survival-v2-phase2-contextual-0.2.0
 Pipeline generation: scoring-v2
 ```
