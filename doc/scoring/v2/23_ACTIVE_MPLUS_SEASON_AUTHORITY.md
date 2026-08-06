@@ -47,19 +47,14 @@ If the score model max evidence slots (v6: 16) is exceeded → `SCORE_MODEL_SEAS
 
 ## Local repair (do not run against staging/production)
 
-```powershell
-# Plan only (prints planned isCurrent / binding changes; no writes)
-pnpm scoring-v2:canary:repair-catalog -- --region EU
-
-# Apply after reviewing the plan (explicit local confirmation):
-pnpm scoring-v2:canary:repair-catalog -- --region EU --confirm-local-repair
-```
-
-Repair synchronizes bindings for the Blizzard-backed season and deactivates competing placeholder currents after validation. Historical rows are never deleted. Diagnostic catalog dump (read-only):
+Season catalog sync/validation is part of the consolidated pipeline
+(`pnpm scoring-v2:canary` when execute-armed). Provider-free inspection:
 
 ```powershell
-pnpm scoring-v2:canary:diagnose-catalog -- --region EU
+pnpm scoring-v2:doctor -- --region EU --realm <realm> --character <name>
 ```
+
+Repair synchronizes bindings for the Blizzard-backed season and deactivates competing placeholder currents after validation. Historical rows are never deleted. See [`25_OPERATOR_SURFACE_AND_PIPELINE.md`](./25_OPERATOR_SURFACE_AND_PIPELINE.md).
 
 ## Lifecycle states
 

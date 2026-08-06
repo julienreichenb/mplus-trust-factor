@@ -74,13 +74,11 @@ Discovery / hydration must persist the revision returned by
 frozen manifest slots.
 
 When a frozen complete manifest still holds stale revisions (e.g. all slots at
-`1` while live metadata reports higher values), run metadata-only reconciliation:
+`1` while live metadata reports higher values), the consolidated canary pipeline
+runs metadata-only reconciliation automatically (see
+[`25_OPERATOR_SURFACE_AND_PIPELINE.md`](./25_OPERATOR_SURFACE_AND_PIPELINE.md)).
 
-```bash
-pnpm scoring-v2:canary:reconcile-revisions -- --region EU --realm archimonde --character Wallidrixe --confirm-revision-reconcile
-```
-
-This:
+This stage:
 
 1. loads the current compatible frozen manifest;
 2. fetches report metadata only (no capability event pages);
@@ -113,23 +111,15 @@ WCL `actorId` is report-local. After revision supersedes, resolve the requested
 character via stable identity (canonical Character ID + normalized
 region/realm/name + WCL run source digest roster), not discovery actor IDs alone.
 
-Provider-free diagnostic:
+Operator diagnostics and provider-free replay:
 
 ```bash
-pnpm scoring-v2:canary:diagnose-target-digests -- --region EU --realm archimonde --character Wallidrixe
+pnpm scoring-v2:doctor -- --region EU --realm archimonde --character <name>
+pnpm scoring-v2:replay -- --region EU --realm archimonde --character <name>
 ```
 
-Provider-free replay (no live gates required):
-
-```bash
-pnpm scoring-v2:canary:replay -- --region EU --realm archimonde --character Wallidrixe
-```
-
-Ranking-only metadata hydrate (guarded; no capability event pages):
-
-```bash
-pnpm scoring-v2:canary:ranking-hydrate -- --region EU --realm archimonde --character Wallidrixe --confirm-ranking-hydrate
-```
+Ranking metadata hydrate and package integrity supersession run automatically
+inside `pnpm scoring-v2:canary` (armed with `--confirm-execute`).
 
 ### Partial live scoring
 

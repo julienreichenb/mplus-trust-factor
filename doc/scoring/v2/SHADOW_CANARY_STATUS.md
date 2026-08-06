@@ -1,3 +1,12 @@
+# Scoring V2 Shadow Canary — archived development record
+
+**Status:** archived. Current operator surface: [`25_OPERATOR_SURFACE_AND_PIPELINE.md`](25_OPERATOR_SURFACE_AND_PIPELINE.md).
+
+The notes below are historical incident records from the transitional multi-command
+recovery workflow. Do not treat listed step commands as the current operator path.
+
+---
+
 # Scoring V2 Shadow Canary — status
 
 Operational status for the live Shadow Canary on `feat/scoring-v2-live-canary`.

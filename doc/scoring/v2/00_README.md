@@ -54,6 +54,7 @@ The target system therefore establishes these primary invariants:
 | [20_PROVIDER_FIELD_DICTIONARY.md](20_PROVIDER_FIELD_DICTIONARY.md) | Provider field dictionary |
 | [21_END_TO_END_DATA_LINEAGE.md](21_END_TO_END_DATA_LINEAGE.md) | End-to-end data lineage |
 | [22_RUN_ORCHESTRATION_AND_CACHE_LINEAGE.md](22_RUN_ORCHESTRATION_AND_CACHE_LINEAGE.md) | 16-run orchestration, three-layer cache, digest contract |
+| [25_OPERATOR_SURFACE_AND_PIPELINE.md](25_OPERATOR_SURFACE_AND_PIPELINE.md) | Three public commands, self-healing lifecycle, publication |
 | [02_WS02_WS03_INTERFACE.md](02_WS02_WS03_INTERFACE.md) | WS02/WS03 shared evidence interface |
 | [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) | Workstream implementation status |
 

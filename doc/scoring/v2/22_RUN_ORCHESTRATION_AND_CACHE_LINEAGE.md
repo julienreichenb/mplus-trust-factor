@@ -80,155 +80,42 @@ Persisted `RankingParseEvidenceV2` only. Missing → Performance `UNAVAILABLE` (
 - STOP / DEFER → no cold acquisition; provider-free replay always allowed.
 - Emergency reserve floor (default 20%).
 
-## Canary CLI (do not run live in automation)
+## Operator surface
 
-Zone ID is **not** a CLI argument in production. Both phases read `WCL_MPLUS_ZONE_ID`
-(zone **47** = Midnight Season 1). The operator CLI uses **production** PostgreSQL
-repositories (`createWorkerContainer` + `createProductionRunOrchestrationPorts`):
-character via `findByIdentity`, season/dungeon pool via persisted `Season` /
-`SeasonDungeon` (validated via ActiveMythicPlusSeasonAuthority), manifests
-via `EvidenceManifest`. In-memory ports and sentinel UUIDs are test-only.
+Public commands and self-healing lifecycle are documented in
+[25_OPERATOR_SURFACE_AND_PIPELINE.md](./25_OPERATOR_SURFACE_AND_PIPELINE.md).
 
-Authoritative Midnight Season 1 dungeon slugs:
+Supported entry points:
 
-`algethar-academy`, `magisters-terrace`, `maisara-caverns`, `nexus-point-xenas`,
-`pit-of-saron`, `seat-of-the-triumvirate`, `skyreach`, `windrunner-spire`.
+- pnpm scoring-v2:canary — full shadow pipeline (discover → repair → hydrate → score → replay)
+- pnpm scoring-v2:replay — provider-free reconstruction
+- pnpm scoring-v2:doctor — provider-free diagnostics
 
-Obsolete TWW pools (e.g. `ara-kara-city-of-echoes`, …) cause `SEASON_CATALOG_MISMATCH`
-before any manifest is created. Stale manifests from another pool are not reused
-(`STALE_POOL_REJECTED` / `MANIFEST_NOT_FOUND`).
-
-### Phase A — provider-free preflight
-
-```powershell
-pnpm scoring-v2:canary:preflight -- `
-  --region EU `
-  --realm archimonde `
-  --character Wallidrixe
-```
-
-### Catalog diagnostic / local repair (never staging/production)
-
-```powershell
-pnpm scoring-v2:canary:diagnose-catalog
-# Local DB only, after reviewing diagnostic:
-pnpm scoring-v2:canary:repair-catalog -- --region EU --confirm-local-repair
-# Prefer season authority sync when Blizzard credentials are available:
-pnpm season:sync-authority -- --region EU
-```
-
-Zero WCL calls. JSON under `artifacts/scoring-v2-canary/`. Reports real `characterId`,
-`seasonResolution`, `manifestStatus`, package/digest/ranking cache, cost blockers.
-Publication eligibility remains false. When `MANIFEST_NOT_FOUND`, package/ranking
-fields are `NOT_EVALUATED` (not projected misses); publication-disabled is a
-safety check, not a blocker.
-
-### Phase B — discovery-only (human, explicit arm)
-
-```powershell
-$env:PROVIDER_MODE="live"
-$env:WCL_ENABLED="true"
-$env:ALLOW_LIVE_PROVIDER_CALLS="true"
-$env:SCORING_V2_ENABLED="true"
-$env:SCORING_V2_SELECTION_ENABLED="true"
-$env:SCORING_V2_EVIDENCE_FETCH_ENABLED="true"
-$env:SCORING_V2_PUBLICATION_ENABLED="false"
-$env:SCORING_V2_CANARY_DISCOVERY_EXECUTE="true"
-pnpm scoring-v2:canary:discover -- `
-  --region EU `
-  --realm archimonde `
-  --character Wallidrixe `
-  --confirm-discovery
-```
-
-Discovers candidates, freezes the V2 evidence manifest, and may persist ranking
-parse evidence. **Does not** acquire capability event packages, participant
-digests, or scores. Requires both `--confirm-discovery` and
-`SCORING_V2_CANARY_DISCOVERY_EXECUTE=true`. `SCORING_V2_CANARY_EXECUTE` does
-**not** authorize this phase.
-
-**Rate admission (two-stage):** local gates first (zero WCL). Then one
-`RateLimitData` bootstrap (or reuse of a persisted snapshot within
-`WCL_CANARY_RATE_SNAPSHOT_TTL_SECONDS`, default 60s). Bootstrap cost is counted
-and included in projected discovery utilization. OK/WARN allow discovery;
-DEFER/STOP refuse before report/fight discovery. Optional:
-`pnpm scoring-v2:canary:rate-snapshot` performs only the quota-status request.
-
-Then re-run Phase A preflight to inspect package misses / projected capability cost.
-
-### Phase C — explicit live capability (human only)
-
-```powershell
-$env:PROVIDER_MODE="live"
-$env:WCL_ENABLED="true"
-$env:ALLOW_LIVE_PROVIDER_CALLS="true"
-$env:SCORING_V2_ENABLED="true"
-$env:SCORING_V2_SELECTION_ENABLED="true"
-$env:SCORING_V2_EVIDENCE_FETCH_ENABLED="true"
-$env:SCORING_V2_PUBLICATION_ENABLED="false"
-# After human approval of preflight + discovery + budget:
-$env:SCORING_V2_CANARY_EXECUTE="true"
-pnpm scoring-v2:canary:live -- `
-  --region EU `
-  --realm archimonde `
-  --character Wallidrixe `
-  --confirm-live
-```
-
-Refuses without `--confirm-live`, with publication on, wildcards/cohorts, or missing shadow/live gates. Execute path stays armed-only via `SCORING_V2_CANARY_EXECUTE`.
-
-**Live call graph (executable):**
-
-```
-CLI live
-→ evaluateCanaryLiveGates + SCORING_V2_CANARY_EXECUTE
-→ createProductionCanaryDependencies (PostgreSQL character)
-→ ActiveMythicPlusSeasonAuthority / resolveCanarySeasonCatalog
-→ loadCompatibleFrozenManifest (fail CANARY_LIVE_MANIFEST_NOT_AVAILABLE)
-→ rate snapshot bootstrap + buildCanaryCostProjection
-→ assertCostAdmissionAllowsLive (DEFER/STOP refuse before acquire)
-→ createLiveCapabilityAcquireHook + Redis singleflight
-→ orchestrateScoringV2Runs(existingManifest, liveProviderPermission)
-→ persist report + replayScoringV2FromPersistedEvidence (0 WCL)
-→ hard assertions: publication off, 1 character, replay fingerprints match
-```
-
-No discovery, no candidate reselection, no manifest mutation. Uses frozen SELECTED reportCode/fightId/revision only.
-
-**Expected budget (upper bound):** ≤1 capability acquisition per unique missing fight (≈45 points estimated each if unmeasured) + fight-metadata GraphQL (1/fight on miss). Full cache → **0** provider calls on acquire path (bootstrap RateLimitData may still run once when snapshot TTL expired). Digests: 5/fight; character digests: 16 when complete.
+Contextual step commands are internalized. Zone ID remains WCL_MPLUS_ZONE_ID
+(zone **47** = Midnight Season 1). Operator paths use production PostgreSQL
+repositories; in-memory ports are test-only.
 
 ## Modules
 
 | Concern | Path |
 |---------|------|
-| Refresh entry | `refresh-bridge.ts` |
+| Refresh entry | `refresh-bridge.ts` (auto package integrity before score) |
+| Consolidated pipeline | `pipeline/consolidated-shadow-pipeline.ts` |
+| Public CLI | `public-cli.ts` |
 | Active M+ season | `orchestration/active-mplus-season/` — see [`23_ACTIVE_MPLUS_SEASON_AUTHORITY.md`](./23_ACTIVE_MPLUS_SEASON_AUTHORITY.md) |
 | Live adapter | `run-orchestration/live-capability-adapter.ts` |
+| Self-healing packages | `run-orchestration/self-healing-evidence.ts` |
 | Redis singleflight | `run-orchestration/source-fight-lease.ts` |
 | Cost admission | `run-orchestration/cost-admission.ts` |
-| Preflight | `run-orchestration/canary-preflight.ts` |
-| Discovery-only | `canary/canary-discover.ts` + `canary-discovery-gates.ts` |
-| **Live canary** | `canary/canary-live.ts` (`runScoringV2CanaryLive`) |
-| Rate snapshot bootstrap | `canary/canary-rate-snapshot.ts` (`RateLimitData`, TTL reuse) |
-| Canary CLI | `canary/cli.ts` |
-| Canary zone | `canary/canary-zone.ts` (`WCL_MPLUS_ZONE_ID`) |
-| Canary catalog | `canary/canary-catalog.ts` / `canary-season.ts` |
-| Canary deps | `canary/canary-deps.ts` (PRODUCTION only for operators) |
-| Catalog diagnose/repair | `canary/canary-diagnose.ts` / `canary-repair-catalog.ts` |
-| Migration | `20260805180000_participant_scoring_digest` |
+| Internal stage modules | `canary/*` (not public operator surface) |
+| Migration | `20260805180000_participant_scoring_digest` + package supersedes |
 
 ## Operator sequence
 
-1. Phase A preflight against the real character DB state.
-2. Phase B discovery-only when no complete compatible manifest exists; confirm frozen 16/16 + zero capability acquisitions.
-3. If live canary shows `FIGHT_REVISION_MISMATCH` with stale `reportRevision=1`, run metadata-only reconcile:
-   `pnpm scoring-v2:canary:reconcile-revisions -- --region EU --realm archimonde --character Wallidrixe --confirm-revision-reconcile`
-   then re-run Phase A — expect cache hits for unchanged revisions and misses only for corrected identities.
-4. Re-run Phase A; review package misses and projected WCL utilization vs DEFER/STOP.
-5. Explicit `--confirm-live` + `SCORING_V2_CANARY_EXECUTE=true` after approval — runs `runScoringV2CanaryLive`.
-6. Keep publication disabled for the entire canary.
+See [`25_OPERATOR_SURFACE_AND_PIPELINE.md`](./25_OPERATOR_SURFACE_AND_PIPELINE.md).
 
 Report artifacts:
 
-- `artifacts/scoring-v2-canary/live-canary-report.json`
-- `artifacts/scoring-v2-canary/reconcile-revisions-report.json`
+- `artifacts/scoring-v2-canary/consolidated-pipeline-report.json`
+- `artifacts/scoring-v2-canary/live-canary-report.json` (internal stage)
+- `artifacts/scoring-v2-canary/replay-report.json`
