@@ -97,8 +97,14 @@ state `PARTIAL`, cooldown weight 0 (no implicit 20% zero penalty).
 When Phase 1 is unavailable: Performance is unavailable — cooldown alone never
 publishes a Performance score.
 
-**Technical calculator (production):** `performance-phase2-v1`  
+**Technical calculator (production):** `performance-phase2-v1`
 **Pipeline:** `scoring-v2`
+
+Difficulty policy note: the calculator applies a versioned Season Difficulty Policy
+(`k50` / `k90` / `k99`). When the product path does not yet inject a calibrated
+season policy, orchestration falls back to an explicit default policy stamped
+`orchestrator-default-v1` (not derived from the scored character). Replacing that
+default with a live season SDP is a follow-up configuration chantier — not Phase 3.
 
 ### Phase 3 — deferred
 
@@ -192,7 +198,7 @@ States:
 | Dimension | Functional phase | Planned evidence | Currently available evidence | Implementation state | Blocking dependency | Technical calculator / version |
 |-----------|------------------|------------------|------------------------------|----------------------|---------------------|--------------------------------|
 | Performance | Phase 1 | Profile summary + ≤16 detailed parses; peak/floor/consistency; season-relative difficulty | Digests with ranking parses; `CharacterPerformanceAggregate`; difficulty policy; Performance V2 Phase 1 internals | `IMPLEMENTED` (subsumed by Phase 2 product path) | — | Phase 1 internals under `performance-phase2-v1` |
-| Performance | Phase 2 | Phase 1 + offensive cooldown frequency | Digest `offensiveActivations`; catalogue `performanceCooldownRule`; active-combat duration on survival digest slice | `IMPLEMENTED` | — | `performance-phase2-v1` |
+| Performance | Phase 2 | Phase 1 + offensive cooldown frequency | Digest `offensiveActivations`; catalogue `performanceCooldownRule`; active-combat duration on survival digest slice; product path uses `computePerformancePhase2` | `IMPLEMENTED` (cooldown); difficulty policy still uses orchestration default until season SDP injection | Season SDP injection for calibrated k50/k90/k99 | `performance-phase2-v1` |
 | Performance | Phase 3 | S/A benchmarks; pull-specific timing | None in production path | `DEFERRED_CRITICAL_MASS` | Critical mass of scored players | — |
 | Survival | Phase 1 | Deaths, self-heals, defensive volume, DTPS, internal group compare | Survival digests + Survival V2 calculator in product path | `IMPLEMENTED` | — | `survival-v2*` (see code) |
 | Survival | Phase 2 | Anticipation / availability-at-damage | Partial probe/research signals only | `PLANNED` | Timing-quality evidence model | — |
@@ -216,9 +222,9 @@ Pipeline generation for the production roster/digest path: **`scoring-v2`**.
 | Peak / floor / consistency | `computeDungeonPerformance` | — | — |
 | Season-relative difficulty | `adjustParseForDifficulty` / SDP | Reject invalid key levels as missing evidence | — |
 | Profile stabilizer | `computeProfilePerformance` + blend | Orchestrator passes aggregate (was `null`) | Aggregate → profile fact adapter |
-| Offensive eligibility | Ability catalogue + `performanceCooldownRule` | — | Eligibility filter in scoring |
+| Offensive eligibility | Ability catalogue + `performanceCooldownRule` | Skip SHARED/racial and talent-gated without availability evidence; do not pollute skips with other-class rules | Eligibility filter in scoring |
 | Activation counts | Digest `offensiveActivations` / `projectOffensiveActivations` | — | — |
-| Expected uses + end grace | — | — | Phase 2 V1 expected-uses rule |
+| Expected uses + end grace | — | Multi-charge uses explicit catalogue `charges` as initial pool only | Phase 2 V1 expected-uses rule |
 | 80/20 combine | Phase 1 score as base | Product algorithm version stamp | `computePerformancePhase2` combine |
 | Phase 3 isolation | — | — | Documented deferred; no score |
 

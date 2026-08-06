@@ -98,14 +98,12 @@ export function resolveEligibleOffensiveCooldowns(input: {
       continue;
     }
 
+    // Other-class rules are irrelevant — omit from diagnostics (do not pollute skips).
     if (rule.classSlug != null && rule.classSlug !== input.classSlug) {
-      skipped.push({
-        canonicalKey: rule.canonicalKey,
-        reason: "class_mismatch",
-      });
       continue;
     }
 
+    // Spec-gated rules for another spec of the same class.
     if (
       input.specSlug != null &&
       rule.specSlugs.length > 0 &&
@@ -118,13 +116,15 @@ export function resolveEligibleOffensiveCooldowns(input: {
       continue;
     }
 
-    // Talent-dependent abilities require known talent availability — digests do not
-    // expose talent selections safely, so skip rather than invent.
+    // Race/shared or talent-dependent abilities require availability evidence digests
+    // do not expose. Skip rather than invent race/talent and zero-penalize.
     if (
       rule.availability === "TALENT" ||
       rule.availability === "CHOICE_NODE" ||
       rule.availability === "PET_DEPENDENT" ||
-      rule.availability === "FORM_DEPENDENT"
+      rule.availability === "FORM_DEPENDENT" ||
+      rule.availability === "SHARED" ||
+      rule.classSlug == null
     ) {
       skipped.push({
         canonicalKey: rule.canonicalKey,

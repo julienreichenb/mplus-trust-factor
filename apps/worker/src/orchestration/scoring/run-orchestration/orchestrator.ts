@@ -759,6 +759,7 @@ export async function orchestrateScoringRuns(
     [];
   const difficultyPolicy =
     input.difficultyPolicy ?? defaultDifficultyPolicy(input.scope);
+  const usingDefaultDifficultyPolicy = input.difficultyPolicy == null;
 
   let performance: PerformancePhase2ComputeResult | null = null;
   let utility: ReturnType<typeof computeUtilityV2> | null = null;
@@ -843,6 +844,16 @@ export async function orchestrateScoringRuns(
           },
           cooldownRuns,
         });
+        if (
+          usingDefaultDifficultyPolicy &&
+          !performance.limitations.includes(
+            "difficulty_policy_orchestrator_default",
+          )
+        ) {
+          performance.limitations.push(
+            "difficulty_policy_orchestrator_default",
+          );
+        }
         for (const row of characterDigests) {
           if (
             !performanceDigestDiagnostics.some(

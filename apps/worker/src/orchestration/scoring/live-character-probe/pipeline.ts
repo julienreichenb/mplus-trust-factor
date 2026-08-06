@@ -1,7 +1,12 @@
 /**
- * Live Scoring V2 character probe pipeline (read-only).
+ * Live Scoring V2 character probe pipeline (read-only diagnostic).
  * Reuses production discovery, Evidence Manifest V2 selector, extractors, calculators.
  * Does not publish scores, mutate DB, enqueue jobs, or flip V2 flags.
+ *
+ * Performance note: this probe still calls Phase 1 `computePerformanceV2` for
+ * diagnostic comparison. Authoritative product scores use functional Performance
+ * Phase 2 via `scoreCharacter()` → `computePerformancePhase2` — do not treat this
+ * probe as Phase 2 product validation.
  */
 
 import { createHash } from "node:crypto";

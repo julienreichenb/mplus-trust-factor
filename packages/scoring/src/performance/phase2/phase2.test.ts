@@ -12,6 +12,7 @@ import {
   computeOffensiveCooldownDiscipline,
   computePerformancePhase2,
   combinePerformancePhase2Scores,
+  resolveEligibleOffensiveCooldowns,
   PERFORMANCE_PHASE2_ALGORITHM_VERSION,
   type PerformanceCooldownRunEvidence,
 } from "./index.js";
@@ -199,6 +200,33 @@ describe("Performance Phase 2 expected uses (I–L)", () => {
     ).toBe(2);
   });
 
+  it("K2 — exact grace boundaries around cooldown + grace", () => {
+    const cd = 60_000;
+    const grace = computeEndGraceMs(cd); // 15_000
+    expect(grace).toBe(15_000);
+    // duration = cd + grace - 1 → still one expected use
+    expect(
+      computeExpectedUses({
+        activeCombatDurationMs: cd + grace - 1,
+        effectiveCooldownMs: cd,
+      }),
+    ).toBe(1);
+    // duration = cd + grace → second use becomes available exactly at boundary
+    expect(
+      computeExpectedUses({
+        activeCombatDurationMs: cd + grace,
+        effectiveCooldownMs: cd,
+      }),
+    ).toBe(2);
+    // duration = cd + grace + 1 → still two
+    expect(
+      computeExpectedUses({
+        activeCombatDurationMs: cd + grace + 1,
+        effectiveCooldownMs: cd,
+      }),
+    ).toBe(2);
+  });
+
   it("L — very short run still expects the initially available use", () => {
     expect(
       computeExpectedUses({
@@ -206,6 +234,26 @@ describe("Performance Phase 2 expected uses (I–L)", () => {
         effectiveCooldownMs: 120_000,
       }),
     ).toBe(1);
+  });
+
+  it("charges — explicit multi-charge pool raises initial expected uses", () => {
+    // 2 charges, 90s CD, 180s run, grace=min(30s, 22.5s)=22.5s
+    // expected = 2 + floor((180000-22500)/90000) = 2 + 1 = 3
+    expect(
+      computeExpectedUses({
+        activeCombatDurationMs: 180_000,
+        effectiveCooldownMs: 90_000,
+        charges: 2,
+      }),
+    ).toBe(3);
+    // charges ≤ 1 behaves like the default initial pool of 1
+    expect(
+      computeExpectedUses({
+        activeCombatDurationMs: 180_000,
+        effectiveCooldownMs: 60_000,
+        charges: 1,
+      }),
+    ).toBe(3);
   });
 });
 
@@ -260,6 +308,28 @@ describe("Performance Phase 2 activation / eligibility (M–O)", () => {
       (a) => a.canonicalKey,
     );
     expect(evaluatedKeys).not.toContain("mage.offensive.shifting-power");
+  });
+
+  it("N2 — shared racial cooldowns are skipped without race evidence (no zero penalty)", () => {
+    const { eligible, skipped } = resolveEligibleOffensiveCooldowns({
+      classSlug: "mage",
+      specSlug: "fire",
+      catalogVersion: CURRENT_CATALOG_VERSION_ID,
+    });
+    expect(
+      eligible.some((e) => e.rule.canonicalKey.includes("racial")),
+    ).toBe(false);
+    expect(
+      skipped.some(
+        (s) =>
+          s.canonicalKey.includes("racial") &&
+          s.reason === "talent_availability_unknown",
+      ),
+    ).toBe(true);
+    // Other-class abilities must not pollute skip diagnostics
+    expect(
+      skipped.some((s) => s.canonicalKey.startsWith("warlock.")),
+    ).toBe(false);
   });
 
   it("O — invalid duration omits run from cooldown discipline", () => {

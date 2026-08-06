@@ -12,7 +12,8 @@ import {
  * expectedUses = 1 + floor(max(0, activeCombatDurationMs - endGraceMs) / effectiveCooldownMs)
  *
  * When the catalogue explicitly defines charges > 1, the initial available pool
- * is `charges` instead of 1 (explicit charge field only — no invented mechanics).
+ * is `charges` instead of 1 (explicit charge field only — recharge/reset mechanics
+ * beyond that are not invented; this is a Phase 2 V1 approximation).
  */
 export function computeEndGraceMs(effectiveCooldownMs: number): number {
   if (!(effectiveCooldownMs > 0) || !Number.isFinite(effectiveCooldownMs)) {
