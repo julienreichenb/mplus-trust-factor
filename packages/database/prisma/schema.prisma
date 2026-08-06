@@ -247,6 +247,7 @@ model Season {
   evidenceManifests      EvidenceManifest[]
   dimensionComputations  DimensionComputation[]
   scoringV2EvidenceExports ScoringV2EvidenceExport[]
+  characterScores        CharacterScore[]
 
   @@unique([regionId, slug])
   @@map("seasons")
@@ -376,6 +377,9 @@ model Character {
   wclRunParticipants       WclRunParticipant[]
   shadowCanaries           ScoringV2ShadowCanary[]
   participantScoringDigests ParticipantScoringDigest[]
+  characterRunDigests      CharacterRunDigest[]
+  runRankingFacts          RunRankingFact[]
+  characterScores          CharacterScore[]
 
   @@unique([regionId, realmId, normalizedName])
   @@index([lastPublicRefreshAt])
@@ -2153,8 +2157,109 @@ model ScoringV2ShadowCanary {
 }
 
 /**
+ * Cached WCL fight raw capability/event payload for scoring.
+ * Identity: reportCode + fightId + reportRevision + acquisitionVersion.
+ * No supersession graph — a changed revision or acquisitionVersion is a new row.
+ */
+model WclRunRaw {
+  id                 String   @id @default(uuid()) @db.Uuid
+  reportCode         String   @map("report_code")
+  fightId            Int      @map("fight_id")
+  reportRevision     Int      @map("report_revision")
+  acquisitionVersion String   @map("acquisition_version")
+  /** Fight metadata, participants, and canonical capability/event payload. */
+  payload            Json
+  fetchedAt          DateTime @map("fetched_at") @db.Timestamptz(3)
+  providerCost       Json?    @map("provider_cost")
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt          DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  digests  CharacterRunDigest[]
+  rankings RunRankingFact[]
+
+  @@unique([reportCode, fightId, reportRevision, acquisitionVersion])
+  @@index([reportCode, fightId])
+  @@map("wcl_run_raw")
+}
+
+/**
+ * Per-character digests derived from a cached raw run.
+ * Identity: rawRunId + characterId + extractorVersion.
+ */
+model CharacterRunDigest {
+  id               String   @id @default(uuid()) @db.Uuid
+  rawRunId         String   @map("raw_run_id") @db.Uuid
+  characterId      String   @map("character_id") @db.Uuid
+  extractorVersion String   @map("extractor_version")
+  offensive        Json
+  utility          Json
+  survival         Json
+  sourceMetadata   Json     @map("source_metadata")
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  rawRun    WclRunRaw @relation(fields: [rawRunId], references: [id], onDelete: Cascade)
+  character Character @relation(fields: [characterId], references: [id], onDelete: Cascade)
+
+  @@unique([rawRunId, characterId, extractorVersion])
+  @@index([characterId])
+  @@map("character_run_digests")
+}
+
+/**
+ * Ranking facts required by Performance, keyed to a raw run + character.
+ */
+model RunRankingFact {
+  id             String   @id @default(uuid()) @db.Uuid
+  rawRunId       String   @map("raw_run_id") @db.Uuid
+  characterId    String   @map("character_id") @db.Uuid
+  rankingVersion String   @map("ranking_version")
+  payload        Json
+  fetchedAt      DateTime @map("fetched_at") @db.Timestamptz(3)
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  rawRun    WclRunRaw @relation(fields: [rawRunId], references: [id], onDelete: Cascade)
+  character Character @relation(fields: [characterId], references: [id], onDelete: Cascade)
+
+  @@unique([rawRunId, characterId, rankingVersion])
+  @@index([characterId])
+  @@map("run_ranking_facts")
+}
+
+/**
+ * Current character score for a season + scoring version.
+ * selectedRuns stores the cohort identities used for audit/debug.
+ */
+model CharacterScore {
+  id               String   @id @default(uuid()) @db.Uuid
+  characterId      String   @map("character_id") @db.Uuid
+  seasonId         String   @map("season_id") @db.Uuid
+  scoringVersion   String   @map("scoring_version")
+  performance      Float?
+  utility          Float?
+  survival         Float?
+  experience       Float?
+  composite        Float?
+  confidence       Float?
+  tier             String?
+  dimensionDetails Json?    @map("dimension_details")
+  selectedRuns     Json     @map("selected_runs")
+  calculatedAt     DateTime @map("calculated_at") @db.Timestamptz(3)
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  character Character @relation(fields: [characterId], references: [id], onDelete: Cascade)
+  season    Season    @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+
+  @@unique([characterId, seasonId, scoringVersion])
+  @@index([characterId, seasonId])
+  @@map("character_scores")
+}
+
+/**
+ * DEPRECATED — superseded by WclRunRaw. Left unused; drop in a follow-up migration.
  * Durable index for CapabilityEvidencePackageV1 payloads (pg:// via RawArtifact).
- * Compatibility key is the unique lookup identity; payload bytes live on RawArtifactPayload.
  */
 model CapabilityEvidencePackageRecord {
   id                    String   @id @default(uuid()) @db.Uuid
@@ -2189,8 +2294,8 @@ model CapabilityEvidencePackageRecord {
 }
 
 /**
+ * DEPRECATED — superseded by CharacterRunDigest. Left unused; drop in a follow-up migration.
  * Index for ParticipantScoringDigestV1 payloads (pg:// via RawArtifact).
- * One row per (fight × actor × digest/extractor/package compatibility).
  */
 model ParticipantScoringDigest {
   id                            String   @id @default(uuid()) @db.Uuid

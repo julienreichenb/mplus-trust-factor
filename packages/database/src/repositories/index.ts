@@ -45,3 +45,27 @@ export {
   ParticipantScoringDigestRepository,
   type UpsertParticipantScoringDigestInput,
 } from "./participant-scoring-digest-repository.js";
+export {
+  WclRunRawRepository,
+  createWclRunRawRepository,
+  type WclRunSourceIdentity,
+  type SaveWclRunRawInput,
+} from "./wcl-run-raw-repository.js";
+export {
+  CharacterRunDigestRepository,
+  createCharacterRunDigestRepository,
+  type CharacterDigestIdentity,
+  type SaveCharacterRunDigestInput,
+} from "./character-run-digest-repository.js";
+export {
+  RunRankingFactRepository,
+  createRunRankingFactRepository,
+  type RankingFactIdentity,
+  type SaveRunRankingFactInput,
+} from "./run-ranking-fact-repository.js";
+export {
+  CharacterScoreRepository,
+  createCharacterScoreRepository,
+  type CharacterScoreIdentity,
+  type SaveCharacterScoreInput,
+} from "./character-score-repository.js";
