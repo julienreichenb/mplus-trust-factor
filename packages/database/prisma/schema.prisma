@@ -250,6 +250,7 @@ model Season {
   dimensionComputations  DimensionComputation[]
   scoringEvidenceExports ScoringEvidenceExport[]
   characterScores        CharacterScore[]
+  performanceAggregates  CharacterPerformanceAggregate[]
 
   @@unique([regionId, slug])
   @@map("seasons")
@@ -382,6 +383,7 @@ model Character {
   characterRunDigests      CharacterRunDigest[]
   runRankingFacts          RunRankingFact[]
   characterScores          CharacterScore[]
+  performanceAggregates    CharacterPerformanceAggregate[]
 
   @@unique([regionId, realmId, normalizedName])
   @@index([lastPublicRefreshAt])
@@ -2236,6 +2238,41 @@ model RunRankingFact {
   @@unique([rawRunId, characterId, rankingVersion])
   @@index([characterId])
   @@map("run_ranking_facts")
+}
+
+/**
+ * Character/season WCL points_and_damage Performance aggregate.
+ * Not fight-local — do not key this to WclRunRaw / RunRankingFact.
+ * Identity: characterId + seasonId + zoneId + partitionKey + rankingVersion.
+ */
+model CharacterPerformanceAggregate {
+  id                       String   @id @default(uuid()) @db.Uuid
+  characterId              String   @map("character_id") @db.Uuid
+  seasonId                 String   @map("season_id") @db.Uuid
+  zoneId                   Int      @map("zone_id")
+  /** Stable partition identity: "current" | "partition:N" (never null). */
+  partitionKey             String   @map("partition_key")
+  rankingVersion           String   @map("ranking_version")
+  metric                   String
+  state                    String
+  rawPayload               Json     @map("raw_payload")
+  dungeonAggregates        Json     @map("dungeon_aggregates")
+  globalSummary            Json?    @map("global_summary")
+  diagnostics              Json     @map("diagnostics")
+  contentHash              String   @map("content_hash")
+  sourceRequestFingerprint String   @map("source_request_fingerprint")
+  fetchedAt                DateTime @map("fetched_at") @db.Timestamptz(3)
+  expiresAt                DateTime @map("expires_at") @db.Timestamptz(3)
+  createdAt                DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt                DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  character Character @relation(fields: [characterId], references: [id], onDelete: Cascade)
+  season    Season    @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+
+  @@unique([characterId, seasonId, zoneId, partitionKey, rankingVersion], map: "character_performance_aggregates_identity_key")
+  @@index([characterId, seasonId])
+  @@index([expiresAt])
+  @@map("character_performance_aggregates")
 }
 
 /**

@@ -91,6 +91,10 @@ describe("scoreCharacter cache-backed pipeline", () => {
     expect(cold.providerCalls).toBe(0);
     expect(cold.scoringVersion).toBe(SCORING_VERSION);
     expect(cold.characterScoreId).toBe("score-1");
+    expect(cold.performanceAggregate.state).toBe("UNAVAILABLE");
+    expect(cold.performanceAggregate.reason).toBe(
+      "performance_aggregate_zone_not_configured",
+    );
 
     const warm = await scoreCharacter({
       identity: {

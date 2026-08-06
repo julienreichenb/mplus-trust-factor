@@ -41,6 +41,7 @@ import {
 import {
   adaptPointsAndDamagePerformance,
   buildWclSummaryRequestFingerprint,
+  buildPerformanceAggregateRequestFingerprint,
   pointsAndDamageErrorRecord,
   POINTS_AND_DAMAGE_ADAPTER_VERSION,
   type PointsAndDamagePerformanceRecord,
@@ -367,6 +368,98 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
         schemaVersion: POINTS_AND_DAMAGE_ADAPTER_VERSION,
       },
     };
+  }
+
+  /**
+   * Dedicated Character.zoneRankings points_and_damage fetch.
+   * Does not resolve character, query recent reports, hydrate fights, or fetch events.
+   * Character/season Performance evidence — not fight-local.
+   */
+  async fetchCharacterPerformanceAggregate(input: {
+    character: CharacterIdentityInput;
+    zoneId: number;
+    partition: number | null;
+    ctx: ProviderFetchContext;
+  }): Promise<{
+    record: PointsAndDamagePerformanceRecord;
+    rawPayload: unknown;
+    sourceRequestFingerprint: string;
+    providerCalls: number;
+  }> {
+    const fingerprint = buildPerformanceAggregateRequestFingerprint({
+      region: input.character.region,
+      realmSlug: input.character.realmSlug,
+      name: input.character.name,
+      zoneId: input.zoneId,
+      partition: input.partition,
+    });
+
+    const serverRegion = mapRegionToWcl(input.character.region);
+    const variables: Record<string, unknown> = {
+      name: input.character.name,
+      serverSlug: input.character.realmSlug,
+      serverRegion,
+      zoneID: input.zoneId,
+    };
+    if (input.partition != null) {
+      variables.partition = input.partition;
+    }
+
+    try {
+      const perfResult = await this.client.request({
+        operationName: OPERATIONS.CharacterZoneRankingsPointsAndDamage.operationName,
+        query: OPERATIONS.CharacterZoneRankingsPointsAndDamage.query,
+        variables,
+        region: input.character.region,
+      });
+
+      if (perfResult.response.errors && perfResult.response.errors.length > 0) {
+        const messages = perfResult.response.errors.map((e) => e.message);
+        const record = pointsAndDamageErrorRecord(
+          "ERROR",
+          null,
+          `CharacterZoneRankingsPointsAndDamage GraphQL error: ${messages.join("; ")}`,
+        );
+        return {
+          record,
+          rawPayload: null,
+          sourceRequestFingerprint: fingerprint,
+          providerCalls: 1,
+        };
+      }
+
+      const data = perfResult.response.data as
+        | { characterData?: { character?: { zoneRankings?: unknown } | null } }
+        | null
+        | undefined;
+      const raw = parseJsonScalar(data?.characterData?.character?.zoneRankings ?? null);
+      let record = adaptPointsAndDamagePerformance({ raw });
+      if (record.state === "EMPTY") {
+        // Never fabricate OK from empty — treat as ERROR for scoring consumers.
+        record = { ...record, state: "ERROR" };
+      }
+      return {
+        record,
+        rawPayload: raw,
+        sourceRequestFingerprint: fingerprint,
+        providerCalls: 1,
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "unknown";
+      const schemaUnsupported =
+        error instanceof ExternalApiError && error.code === "SCHEMA_UNSUPPORTED";
+      const record = pointsAndDamageErrorRecord(
+        schemaUnsupported ? "SCHEMA_UNSUPPORTED" : "ERROR",
+        null,
+        `points_and_damage query failed — PERFORMANCE unavailable (${message})`,
+      );
+      return {
+        record,
+        rawPayload: null,
+        sourceRequestFingerprint: fingerprint,
+        providerCalls: 1,
+      };
+    }
   }
 
   async getReportFightDetails(
@@ -712,56 +805,22 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
       }
       rankings = mapZoneRankings(zonePayload, this.zoneConfig.zoneId);
 
-      // Performance: points_and_damage only (Points & Damage By Level). Never soft-empty on failure.
-      try {
-        const perfResult = await this.client.request({
-          operationName: OPERATIONS.CharacterZoneRankingsPointsAndDamage.operationName,
-          query: OPERATIONS.CharacterZoneRankingsPointsAndDamage.query,
-          variables: {
-            name: identity.name,
-            serverSlug: identity.realmSlug,
-            serverRegion,
-            zoneID: this.zoneConfig.zoneId,
-          },
-          region: identity.region,
-        });
-        if (perfResult.response.errors && perfResult.response.errors.length > 0) {
-          const messages = perfResult.response.errors.map((e) => e.message);
-          performance = pointsAndDamageErrorRecord(
-            "ERROR",
-            null,
-            `CharacterZoneRankingsPointsAndDamage GraphQL error: ${messages.join("; ")}`,
-          );
-          warnings.push(performance.diagnostics.errorMessage ?? "points_and_damage GraphQL error");
-        } else {
-          const data = perfResult.response.data as
-            | { characterData?: { character?: { zoneRankings?: unknown } | null } }
-            | null
-            | undefined;
-          const raw = parseJsonScalar(data?.characterData?.character?.zoneRankings ?? null);
-          performance = adaptPointsAndDamagePerformance({ raw });
-          if (performance.state === "SCHEMA_UNSUPPORTED") {
-            warnings.push(
-              performance.diagnostics.errorMessage ?? "points_and_damage SCHEMA_UNSUPPORTED",
-            );
-          } else if (performance.state === "EMPTY") {
-            warnings.push(
-              performance.diagnostics.errorMessage ?? "points_and_damage payload empty",
-            );
-            // Treat empty as ERROR for scoring — never a fabricated valid dataset.
-            performance = { ...performance, state: "ERROR" };
-          }
-        }
-      } catch (error) {
-        const message = error instanceof Error ? error.message : "unknown";
-        const schemaUnsupported =
-          error instanceof ExternalApiError && error.code === "SCHEMA_UNSUPPORTED";
-        performance = pointsAndDamageErrorRecord(
-          schemaUnsupported ? "SCHEMA_UNSUPPORTED" : "ERROR",
-          null,
-          `points_and_damage query failed — PERFORMANCE unavailable (${message})`,
+      // Performance: dedicated points_and_damage operation (no recent-reports / events).
+      const perf = await this.fetchCharacterPerformanceAggregate({
+        character: identity,
+        zoneId: this.zoneConfig.zoneId,
+        partition: null,
+        ctx,
+      });
+      performance = perf.record;
+      if (performance.state === "SCHEMA_UNSUPPORTED") {
+        warnings.push(
+          performance.diagnostics.errorMessage ?? "points_and_damage SCHEMA_UNSUPPORTED",
         );
-        warnings.push(performance.diagnostics.errorMessage ?? message);
+      } else if (performance.state === "ERROR") {
+        warnings.push(
+          performance.diagnostics.errorMessage ?? "points_and_damage ERROR",
+        );
       }
     } else {
       warnings.push(

@@ -2,6 +2,10 @@
  * Authoritative character scoring entry point.
  *
  * character → select runs → load/fetch raw → digests → rankings → calculate → persist
+ *
+ * Also ensures CharacterPerformanceAggregate (points_and_damage) once per operation.
+ * The aggregate is exposed for the next Performance-formula chantier; current numerical
+ * formulas are unchanged and do not consume best/median parses from this cache yet.
  */
 import {
   CharacterScoreRepository,
@@ -10,7 +14,7 @@ import {
   type EvidenceRepository,
 } from "@mplus/database";
 import { EVIDENCE_SELECTOR_VERSION } from "@mplus/contracts";
-import type { EvidenceCandidateMetadataV2, EvidenceRole } from "@mplus/contracts";
+import type { EvidenceCandidateMetadataV2, EvidenceRole, RegionCode } from "@mplus/contracts";
 import {
   orchestrateScoringRuns,
   type LiveProviderPermission,
@@ -23,11 +27,19 @@ import {
   SCORING_EXTRACTOR_VERSION,
 } from "./run-orchestration/production-ports.js";
 import {
+  createEnsureCharacterPerformanceAggregate,
+  type EnsureCharacterPerformanceAggregateResult,
+  type FetchCharacterPerformanceAggregateProvider,
+} from "./run-orchestration/ensure-performance-aggregate.js";
+import {
   overallConfidenceFromDimensions,
   type SeasonDifficultyPolicyV2,
 } from "@mplus/scoring";
 
 export const SCORING_VERSION = "scoring-v1";
+
+/** Default WCL character summary / aggregate TTL (12h) when not overridden. */
+const DEFAULT_PERFORMANCE_AGGREGATE_TTL_SECONDS = 43_200;
 
 function meanOrNull(values: Array<number | null | undefined>): number | null {
   const usable = values.filter((v): v is number => typeof v === "number" && Number.isFinite(v));
@@ -83,6 +95,36 @@ export interface ScoreCharacterInput {
     specSlug?: string | null;
     role?: string | null;
   };
+  /**
+   * Active WCL Mythic+ zone for CharacterPerformanceAggregate.
+   * Required to load/fetch the points_and_damage cache; omit → dimension-local unavailable.
+   */
+  zoneId?: number;
+  /** WCL partition; null = logical "current". */
+  partition?: number | null;
+  /** TTL for newly fetched aggregates (seconds). */
+  performanceAggregateTtlSeconds?: number;
+  /** Dedicated points_and_damage provider (live/fixture). Ignored when provider calls forbidden. */
+  performanceAggregateProvider?: FetchCharacterPerformanceAggregateProvider | null;
+  /** Test override for ensure port. */
+  ensurePerformanceAggregate?: (
+    input: Parameters<
+      ReturnType<typeof createEnsureCharacterPerformanceAggregate>
+    >[0],
+  ) => Promise<EnsureCharacterPerformanceAggregateResult>;
+  now?: Date;
+}
+
+export interface ScoreCharacterPerformanceAggregateExposure {
+  state: "AVAILABLE" | "UNAVAILABLE";
+  data: EnsureCharacterPerformanceAggregateResult["data"];
+  reason: string | null;
+  cache: EnsureCharacterPerformanceAggregateResult["cache"];
+  providerCalls: number;
+  created: boolean;
+  updated: boolean;
+  aggregateRowId: string | null;
+  contentHash: string | null;
 }
 
 export interface ScoreCharacterResult {
@@ -91,6 +133,11 @@ export interface ScoreCharacterResult {
   providerCalls: number;
   scoringVersion: string;
   publicationEnabled: boolean;
+  /**
+   * Character/season points_and_damage aggregate for the next Performance formula chantier.
+   * Not consumed by current score calculations.
+   */
+  performanceAggregate: ScoreCharacterPerformanceAggregateExposure;
 }
 
 export async function scoreCharacter(
@@ -100,6 +147,7 @@ export async function scoreCharacter(
   const liveProviderPermission: LiveProviderPermission = input.allowProviderCalls
     ? "ALLOWED"
     : "FORBIDDEN";
+  const now = input.now ?? new Date();
 
   const ports =
     input.ports ??
@@ -125,6 +173,46 @@ export async function scoreCharacter(
         role: input.role,
       },
     });
+
+  // Load/fetch Performance aggregate once per scoring operation (not fight-local).
+  // Absence is dimension-local evidence for Performance — does not zero Utility/Survival.
+  let performanceAggregate: EnsureCharacterPerformanceAggregateResult;
+  if (input.zoneId == null) {
+    performanceAggregate = {
+      state: "UNAVAILABLE",
+      data: null,
+      reason: "performance_aggregate_zone_not_configured",
+      cache: "MISS",
+      providerCalls: 0,
+      created: false,
+      updated: false,
+      aggregateRowId: null,
+      contentHash: null,
+    };
+  } else {
+    const ensure =
+      input.ensurePerformanceAggregate ??
+      createEnsureCharacterPerformanceAggregate({ prisma: input.prisma });
+    performanceAggregate = await ensure({
+      characterId: input.identity.characterId,
+      seasonId: input.seasonId,
+      zoneId: input.zoneId,
+      partition: input.partition ?? null,
+      character: {
+        name: input.identity.characterName,
+        realmSlug: input.identity.realm,
+        region: input.identity.region as RegionCode,
+      },
+      now,
+      liveProviderPermission,
+      ttlSeconds:
+        input.performanceAggregateTtlSeconds ??
+        DEFAULT_PERFORMANCE_AGGREGATE_TTL_SECONDS,
+      provider: input.allowProviderCalls
+        ? input.performanceAggregateProvider ?? null
+        : null,
+    });
+  }
 
   const orchestration = await orchestrateScoringRuns({
     characterId: input.identity.characterId,
@@ -200,16 +288,37 @@ export async function scoreCharacter(
         fightFailures: orchestration.fightFailures,
         targetDigestFailures: orchestration.targetDigestFailures,
         providerCalls: orchestration.accounting.providerCalls,
+        // Aggregate availability for next Performance chantier (not used in formula yet).
+        performanceAggregate: {
+          state: performanceAggregate.state,
+          reason: performanceAggregate.reason,
+          cache: performanceAggregate.cache,
+          contentHash: performanceAggregate.contentHash,
+          aggregateRowId: performanceAggregate.aggregateRowId,
+        },
       }),
     ),
     selectedRuns: JSON.parse(JSON.stringify(selectedRuns)),
   });
 
+  const aggregateProviderCalls = performanceAggregate.providerCalls;
   return {
     orchestration,
     characterScoreId: saved.id,
-    providerCalls: orchestration.accounting.providerCalls,
+    providerCalls:
+      orchestration.accounting.providerCalls + aggregateProviderCalls,
     scoringVersion,
     publicationEnabled: input.publicationEnabled === true,
+    performanceAggregate: {
+      state: performanceAggregate.state,
+      data: performanceAggregate.data,
+      reason: performanceAggregate.reason,
+      cache: performanceAggregate.cache,
+      providerCalls: aggregateProviderCalls,
+      created: performanceAggregate.created,
+      updated: performanceAggregate.updated,
+      aggregateRowId: performanceAggregate.aggregateRowId,
+      contentHash: performanceAggregate.contentHash,
+    },
   };
 }

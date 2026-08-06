@@ -37,6 +37,22 @@ A changed revision or acquisition version is an ordinary cache miss. There is **
 
 One acquisition serves all fight participants. Persisted raw payloads must support provider-free digest reconstruction.
 
+## Character Performance aggregate (`points_and_damage`)
+
+This payload is **character/season** evidence (zone rankings metric `points_and_damage`),
+not fight-local evidence.
+
+| Mode | Provider calls |
+|------|----------------|
+| Cold (no fresh `CharacterPerformanceAggregate`) | Exactly one `CharacterZoneRankingsPointsAndDamage` |
+| Warm (fresh compatible row) | Zero |
+| Provider-free replay (compatible row, expired OK) | Zero |
+
+Production uses `fetchCharacterPerformanceAggregate` / `ensureCharacterPerformanceAggregate`.
+Raw WCL JSON and normalized dungeon aggregates (best/median percentiles, run counts, bracket/spec
+metadata, global summary) are persisted together with a canonical content hash.
+Missing aggregate evidence affects Performance availability only; it must not zero Utility or Survival.
+
 ## Fight roster
 
 - WCL actor IDs are report-local.

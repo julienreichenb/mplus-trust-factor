@@ -19,7 +19,7 @@ One capability package / raw run can produce five durable digests so later reque
 
 | Dimension | Primary inputs | Missing-data rule |
 |-----------|----------------|-------------------|
-| Performance | Offensive digest + ranking facts | Ranking absence affects Performance only |
+| Performance | Offensive digest + ranking facts (+ future CharacterPerformanceAggregate) | Ranking / aggregate absence affects Performance only |
 | Utility | Utility digest | Missing utility facts affect Utility only |
 | Survival | Survival digest | Missing survival facts affect Survival only |
 | Experience | Retained when implementation is ready | Optional; may be null |
@@ -32,6 +32,20 @@ Do not change formulas merely to simplify infrastructure. Partial evidence is di
 
 - Provider-enabled: load cache → fetch missing → persist → score Performance.
 - Provider-free replay: use persisted facts; mark Performance partial/unavailable when needed.
+
+## Character Performance aggregate
+
+`CharacterPerformanceAggregate` stores the WCL `points_and_damage` **character/season**
+payload (raw + normalized dungeon aggregates). It is **not** fight-local and must not be
+modeled as one `RunRankingFact` per `WclRunRaw`.
+
+- Live: reuse a fresh compatible row; otherwise call the dedicated provider operation once.
+- Replay: reuse a compatible row even if expired; never call WCL.
+- Missing or version-incompatible aggregate → Performance-local unavailable evidence only.
+- **Formula note:** the current Performance score formula is unchanged in this persistence
+  chantier; best/median parses become inputs in a later chantier.
+
+`RunRankingFact` remains until a later legacy-cleanup chantier.
 
 ## Composite and confidence
 

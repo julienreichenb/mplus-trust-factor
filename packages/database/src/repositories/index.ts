@@ -70,3 +70,11 @@ export {
   type CharacterScoreIdentity,
   type SaveCharacterScoreInput,
 } from "./character-score-repository.js";
+export {
+  CharacterPerformanceAggregateRepository,
+  createCharacterPerformanceAggregateRepository,
+  type CharacterPerformanceAggregateIdentity,
+  type CharacterPerformanceAggregateDTO,
+  type UpsertCharacterPerformanceAggregateInput,
+  type UpsertCharacterPerformanceAggregateResult,
+} from "./character-performance-aggregate-repository.js";

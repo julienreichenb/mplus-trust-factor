@@ -24,3 +24,4 @@ export * from "./utility-action-timeline-v1.js";
 export * from "./survival-action-timeline-v1.js";
 export * from "./participant-scoring-digest-v1.js";
 export * from "./canonical-json.js";
+export * from "./character-performance-aggregate-v1.js";

@@ -7,6 +7,7 @@
 ```
 scoreCharacter(identity)
   → resolveSeason()
+  → ensureCharacterPerformanceAggregate(...)  // CharacterPerformanceAggregate (points_and_damage)
   → selectRuns(identity, season)          // 2 × 8 dungeons (in-memory selection)
   → loadRawRuns(selected)                 // WclRunRaw by reportCode+fightId+revision+acquisitionVersion
   → fetchMissingRawRuns(misses)           // WCL only on miss
@@ -16,10 +17,16 @@ scoreCharacter(identity)
   → calculateDimensions(digests, rankings)
   → calculateComposite(...)
   → persistCharacterScore(...)
-  → return result
+  → return result (+ performanceAggregate availability)
 ```
 
 Warm second run on unchanged identities: **zero WCL calls**.
+
+`CharacterPerformanceAggregate` is **character/season** evidence from WCL
+`points_and_damage`, not a fact belonging to one selected fight. It is loaded once
+per `scoreCharacter()` operation and exposed for the next Performance-formula
+chantier. **Current numerical Performance / Utility / Survival formulas are
+unchanged** and do not yet consume best/median parses from this cache.
 
 ## Persistence
 
@@ -28,6 +35,7 @@ Warm second run on unchanged identities: **zero WCL calls**.
 | `WclRunRaw` | `reportCode + fightId + reportRevision + acquisitionVersion` |
 | `CharacterRunDigest` | `rawRunId + participantActorId + extractorVersion` |
 | `RunRankingFact` | `rawRunId + characterId + rankingVersion` |
+| `CharacterPerformanceAggregate` | `characterId + seasonId + zoneId + partitionKey + rankingVersion` |
 | `CharacterScore` | `characterId + seasonId + scoringVersion` |
 
 One shared raw fight yields **up to five durable participant digests** (one per Mythic+ player). `characterId` on a digest is an **optional** link to an internal `Character` row:
@@ -37,6 +45,16 @@ One shared raw fight yields **up to five durable participant digests** (one per 
 - A later request can **attach** an existing digest to a Character without refetching WCL.
 - Digests never auto-create Character rows.
 - `participantActorId` is **report-local** (not a cross-report identity).
+
+### Performance aggregate cache
+
+| Mode | Behavior |
+|------|----------|
+| Live cold | Dedicated `CharacterZoneRankingsPointsAndDamage` → adapter → persist raw + normalized |
+| Live warm | Fresh compatible row → **zero** aggregate provider calls |
+| Provider-free replay | Compatible row (expired OK) → **zero** provider calls; missing/incompatible → Performance-local unavailable |
+
+`partitionKey` is required (`current` or `partition:N`) so PostgreSQL unique constraints stay reliable. Only adapter state `OK` is persisted as reusable scoring evidence.
 
 ### Roster resolution (shared)
 
