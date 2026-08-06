@@ -20,6 +20,9 @@
     "canary:rate-snapshot": "tsx src/orchestration/scoring-v2/canary/cli.ts rate-snapshot",
     "canary:reconcile-revisions": "tsx src/orchestration/scoring-v2/canary/cli.ts reconcile-revisions",
     "canary:live": "tsx src/orchestration/scoring-v2/canary/cli.ts live",
+    "canary:replay": "tsx src/orchestration/scoring-v2/canary/cli.ts replay",
+    "canary:diagnose-target-digests": "tsx src/orchestration/scoring-v2/canary/cli.ts diagnose-target-digests",
+    "canary:ranking-hydrate": "tsx src/orchestration/scoring-v2/canary/cli.ts ranking-hydrate",
     "canary:diagnose-catalog": "tsx src/orchestration/scoring-v2/canary/cli.ts diagnose-catalog",
     "canary:repair-catalog": "tsx src/orchestration/scoring-v2/canary/cli.ts repair-catalog"
   },

@@ -100,6 +100,9 @@ import {
   runScoringV2CanaryReconcileRevisions,
   type CanaryReconcileRevisionsReport,
 } from "./canary-reconcile-revisions.js";
+import { runScoringV2CanaryReplay } from "./canary-replay.js";
+import { runTargetDigestDiagnostic } from "./canary-target-digest-diagnostic.js";
+import { runScoringV2CanaryRankingHydrate } from "./canary-ranking-hydrate.js";
 import { LiveWarcraftLogsProvider } from "@mplus/provider-warcraftlogs";
 
 export interface CanaryCliArgs {
@@ -110,7 +113,10 @@ export interface CanaryCliArgs {
     | "live"
     | "reconcile-revisions"
     | "diagnose-catalog"
-    | "repair-catalog";
+    | "repair-catalog"
+    | "replay"
+    | "diagnose-target-digests"
+    | "ranking-hydrate";
   region: string;
   realm: string;
   character: string;
@@ -120,6 +126,7 @@ export interface CanaryCliArgs {
   confirmDiscovery: boolean;
   confirmRevisionReconcile: boolean;
   confirmRepair: boolean;
+  confirmRankingHydrate: boolean;
   outputDir: string | null;
   characterId?: string;
   seasonId?: string;
@@ -137,7 +144,10 @@ export function parseCanaryCliArgs(argv: string[]): CanaryCliArgs {
     args[0] === "rate-snapshot" ||
     args[0] === "reconcile-revisions" ||
     args[0] === "diagnose-catalog" ||
-    args[0] === "repair-catalog"
+    args[0] === "repair-catalog" ||
+    args[0] === "replay" ||
+    args[0] === "diagnose-target-digests" ||
+    args[0] === "ranking-hydrate"
   ) {
     mode = args.shift() as CanaryCliArgs["mode"];
   }
@@ -150,6 +160,7 @@ export function parseCanaryCliArgs(argv: string[]): CanaryCliArgs {
   let confirmDiscovery = false;
   let confirmRevisionReconcile = false;
   let confirmRepair = false;
+  let confirmRankingHydrate = false;
   let outputDir: string | null = null;
 
   for (let i = 0; i < args.length; i++) {
@@ -177,6 +188,8 @@ export function parseCanaryCliArgs(argv: string[]): CanaryCliArgs {
       confirmRevisionReconcile = true;
     } else if (a === "--confirm-local-repair") {
       confirmRepair = true;
+    } else if (a === "--confirm-ranking-hydrate") {
+      confirmRankingHydrate = true;
     } else if (a === "--output-dir" && next) {
       outputDir = next;
       i++;
@@ -208,6 +221,7 @@ export function parseCanaryCliArgs(argv: string[]): CanaryCliArgs {
       confirmDiscovery,
       confirmRevisionReconcile,
       confirmRepair,
+      confirmRankingHydrate,
       outputDir,
     };
   }
@@ -224,6 +238,7 @@ export function parseCanaryCliArgs(argv: string[]): CanaryCliArgs {
       confirmDiscovery: true,
       confirmRevisionReconcile: false,
       confirmRepair,
+      confirmRankingHydrate,
       outputDir,
     };
   }
@@ -245,6 +260,7 @@ export function parseCanaryCliArgs(argv: string[]): CanaryCliArgs {
       confirmDiscovery,
       confirmRevisionReconcile,
       confirmRepair,
+      confirmRankingHydrate,
       outputDir,
     };
   }
@@ -272,6 +288,7 @@ export function parseCanaryCliArgs(argv: string[]): CanaryCliArgs {
     confirmDiscovery,
     confirmRevisionReconcile,
     confirmRepair,
+    confirmRankingHydrate,
     outputDir,
   };
 }
@@ -1262,6 +1279,148 @@ async function main(): Promise<void> {
         2,
       ),
     );
+    return;
+  }
+  if (args.mode === "replay") {
+    const env = loadEnv();
+    const identity = identityFromArgs(args);
+    const deps = await createProductionCanaryDependencies({ env, identity });
+    try {
+      const season = await resolveCanarySeasonCatalog({
+        prisma: deps.container.prisma,
+        regionId: deps.character.regionId,
+        regionCode: args.region,
+      });
+      assertSeasonCatalogOk(season);
+      const { reportPath, report } = await runScoringV2CanaryReplay({
+        env,
+        prisma: deps.container.prisma,
+        container: deps.container,
+        characterId: deps.characterResolution.characterId,
+        characterName: args.character,
+        region: args.region,
+        realm: args.realm,
+        classSlug: null,
+        specSlug: null,
+        role: "DPS",
+        season,
+        repositoryMode: "PRODUCTION",
+        outputDir: args.outputDir ?? undefined,
+      });
+      console.log(
+        JSON.stringify(
+          {
+            reportPath,
+            manifestId: report.manifestId,
+            wallidrixeDigestCount: report.wallidrixeDigestCount,
+            packagesReused: report.packagesReused,
+            packageAcquisitions: report.packageAcquisitions,
+            providerCalls: report.providerCalls,
+            dimensions: report.dimensions,
+            composite: report.composite,
+            targetDigestFailures: report.targetDigestFailures,
+            publicationEnabled: report.publicationEnabled,
+          },
+          null,
+          2,
+        ),
+      );
+    } finally {
+      await deps.container.prisma.$disconnect().catch(() => undefined);
+    }
+    return;
+  }
+  if (args.mode === "diagnose-target-digests") {
+    const env = loadEnv();
+    const identity = identityFromArgs(args);
+    const deps = await createProductionCanaryDependencies({ env, identity });
+    try {
+      const season = await resolveCanarySeasonCatalog({
+        prisma: deps.container.prisma,
+        regionId: deps.character.regionId,
+        regionCode: args.region,
+      });
+      assertSeasonCatalogOk(season);
+      const frozen = await (
+        await import("./canary-live.js")
+      ).loadCompatibleFrozenManifest({
+        prisma: deps.container.prisma,
+        characterId: deps.characterResolution.characterId,
+        seasonId: season.seasonId!,
+        expectedDungeonSlugs: season.activeDungeonSlugs,
+        dungeonPoolHash: season.dungeonPoolHash!,
+      });
+      if (!frozen) throw new Error("manifest_not_found");
+      const { reportPath, report } = await runTargetDigestDiagnostic({
+        prisma: deps.container.prisma,
+        manifestId: frozen.rowId,
+        characterId: deps.characterResolution.characterId,
+        characterName: args.character,
+        region: args.region,
+        realm: args.realm,
+        readArtifactBytes: (id) =>
+          deps.container.repositories.artifacts.readVerified(id),
+        outputDir: args.outputDir ?? undefined,
+      });
+      console.log(
+        JSON.stringify(
+          {
+            reportPath,
+            byStamp: report.targetDigestCountByStamp,
+            byStable: report.targetDigestCountByStableIdentity,
+            problemClassSummary: report.problemClassSummary,
+            performance: report.performance,
+            providerCalls: report.providerCalls,
+          },
+          null,
+          2,
+        ),
+      );
+    } finally {
+      await deps.container.prisma.$disconnect().catch(() => undefined);
+    }
+    return;
+  }
+  if (args.mode === "ranking-hydrate") {
+    const env = loadEnv();
+    const identity = identityFromArgs(args);
+    const deps = await createProductionCanaryDependencies({ env, identity });
+    try {
+      const season = await resolveCanarySeasonCatalog({
+        prisma: deps.container.prisma,
+        regionId: deps.character.regionId,
+        regionCode: args.region,
+      });
+      assertSeasonCatalogOk(season);
+      const { reportPath, report } = await runScoringV2CanaryRankingHydrate({
+        prisma: deps.container.prisma,
+        container: deps.container,
+        characterId: deps.characterResolution.characterId,
+        characterName: args.character,
+        region: args.region,
+        realm: args.realm,
+        season,
+        confirmRankingHydrate: args.confirmRankingHydrate,
+        outputDir: args.outputDir ?? undefined,
+      });
+      console.log(
+        JSON.stringify(
+          {
+            reportPath,
+            selectedMissingBefore: report.selectedMissingBefore,
+            rankingStillMissing: report.rankingStillMissing,
+            rankingPersisted: report.rankingPersisted,
+            providerCalls: report.providerCalls,
+            capabilityEventPageRequests: report.capabilityEventPageRequests,
+            packageAcquisitions: report.packageAcquisitions,
+          },
+          null,
+          2,
+        ),
+      );
+    } finally {
+      await deps.container.prisma.$disconnect().catch(() => undefined);
+    }
     return;
   }
   if (args.mode === "repair-catalog") {

@@ -102,6 +102,9 @@
     "scoring-v2:canary:rate-snapshot": "node tools/scripts/with-env.mjs pnpm --filter @mplus/worker run canary:rate-snapshot --",
     "scoring-v2:canary:reconcile-revisions": "node tools/scripts/with-env.mjs pnpm --filter @mplus/worker run canary:reconcile-revisions --",
     "scoring-v2:canary:live": "node tools/scripts/with-env.mjs pnpm --filter @mplus/worker run canary:live --",
+    "scoring-v2:canary:replay": "node tools/scripts/with-env.mjs pnpm --filter @mplus/worker run canary:replay --",
+    "scoring-v2:canary:diagnose-target-digests": "node tools/scripts/with-env.mjs pnpm --filter @mplus/worker run canary:diagnose-target-digests --",
+    "scoring-v2:canary:ranking-hydrate": "node tools/scripts/with-env.mjs pnpm --filter @mplus/worker run canary:ranking-hydrate --",
     "scoring-v2:canary:diagnose-catalog": "node tools/scripts/with-env.mjs pnpm --filter @mplus/worker run canary:diagnose-catalog --",
     "scoring-v2:canary:repair-catalog": "node tools/scripts/with-env.mjs pnpm --filter @mplus/worker run canary:repair-catalog --"
   },
