@@ -27,10 +27,8 @@ import {
 import { createProductionRunOrchestrationPorts } from "./run-orchestration/production-ports.js";
 import {
   createLiveCapabilityAcquireHook,
-  createTargetedCapabilityRepairAcquireHook,
   evaluateLiveCapabilityPermission,
 } from "./run-orchestration/live-capability-adapter.js";
-import { repairIncompatibleCapabilityPackages } from "./run-orchestration/self-healing-evidence.js";
 import { createRedisSourceFightLock } from "./run-orchestration/source-fight-lease.js";
 import {
   evaluatePublicationEligibility,
@@ -522,54 +520,6 @@ export async function maybeStartScoringV2ShadowFromRefresh(input: {
           }));
         },
       });
-
-      // Automatic package integrity repair when a frozen manifest exists.
-      if (gate.allowed && liveProviderPermission === "ALLOWED" && liveHook) {
-        const frozen = await input.container.prisma.evidenceManifest.findFirst({
-          where: {
-            characterId: input.characterId,
-            seasonId: input.seasonId,
-          },
-          orderBy: { frozenAt: "desc" },
-          select: { id: true },
-        });
-        if (frozen) {
-          const repairAcquire = createTargetedCapabilityRepairAcquireHook({
-            env,
-            prisma: input.container.prisma,
-            artifacts: input.container.repositories.artifacts,
-            wclSource: input.container.repositories.wclSource,
-            client: new LiveWarcraftLogsProvider({ env }).getGraphQlClient(),
-            region: input.region,
-            permission,
-          });
-          const integrity = await repairIncompatibleCapabilityPackages({
-            prisma: input.container.prisma,
-            container: input.container,
-            characterId: input.characterId,
-            characterName: input.characterName,
-            region: input.region,
-            realm: input.realm,
-            classSlug: input.classSlug,
-            specSlug: input.specSlug,
-            role: input.role,
-            manifestId: frozen.id,
-            acquire: repairAcquire,
-            liveRepairEnabled: true,
-          });
-          if (integrity.repaired > 0) {
-            input.container.logger.info(
-              {
-                event: "scoring_v2_auto_package_supersession",
-                characterId: input.characterId,
-                repaired: integrity.repaired,
-                inspected: integrity.inspected,
-              },
-              "superseded incompatible capability packages before scoring",
-            );
-          }
-        }
-      }
     }
 
     orchestration = await orchestrateScoringV2Runs({

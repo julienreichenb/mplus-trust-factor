@@ -96,8 +96,7 @@ export class ArtifactLegacyExternalPayloadMissingError extends Error {
 
 /**
  * ArtifactReference.ownerId is a PostgreSQL UUID column. Callers must pass the
- * owning row's primary key — never a content hash, compatibility key, or
- * supersedesCompatibilityKey.
+ * owning row's primary key — never a content hash or compatibility key.
  */
 export class ArtifactInvalidOwnerIdError extends Error {
   readonly code = "ARTIFACT_INVALID_OWNER_ID" as const;

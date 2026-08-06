@@ -391,7 +391,7 @@ describe.runIf(dbAvailable)("scoring v2 persistence", () => {
         artifactId: write.artifactId,
         participantActorIds: [1, 2, 3, 4, 5],
         complete: true,
-        supersedesCompatibilityKey: priorKey,
+        supersedesCompatibilityKey: null,
       },
     });
 
@@ -421,8 +421,7 @@ describe.runIf(dbAvailable)("scoring v2 persistence", () => {
     const row = await prisma.capabilityEvidencePackageRecord.findUniqueOrThrow({
       where: { id: packageId },
     });
-    expect(row.supersedesCompatibilityKey).toBe(priorKey);
-    expect(typeof row.supersedesCompatibilityKey).toBe("string");
+    expect(row.supersedesCompatibilityKey).toBeNull();
   });
 
   it("binds digest artifact references to the digest record UUID, not contentHash", async () => {

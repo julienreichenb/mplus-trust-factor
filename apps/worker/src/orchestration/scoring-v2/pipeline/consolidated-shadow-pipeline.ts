@@ -1,19 +1,12 @@
 /**
  * Consolidated Scoring V2 shadow pipeline.
- * Contextual repair commands are internalized as automatic stages.
+ * Runs discovery (optional), live digest scoring, diagnostics, and provider-free replay.
  */
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { AppEnv } from "@mplus/config";
 import type { PrismaClient } from "@mplus/database";
 import type { EvidenceRole } from "@mplus/contracts";
-import {
-  LiveWarcraftLogsProvider,
-  OPERATIONS,
-  mapRegionToWcl,
-  resolveRankingParseFromZoneRankings,
-  type ZoneRankingsPayload,
-} from "@mplus/provider-warcraftlogs";
 import type { WorkerContainer } from "../../../container.js";
 import { assertPublicationBlocked } from "../acquisition.js";
 import {
@@ -29,18 +22,8 @@ import {
   type CanaryLiveReport,
 } from "../canary/canary-live.js";
 import { runScoringV2CanaryReplay } from "../canary/canary-replay.js";
-import {
-  rankingEvidenceArtifactBytes,
-  runScoringV2CanaryRankingHydrate,
-} from "../canary/canary-ranking-hydrate.js";
-import {
-  createGraphqlReportRevisionFetcher,
-  runScoringV2CanaryReconcileRevisions,
-} from "../canary/canary-reconcile-revisions.js";
 import { runTargetDigestDiagnostic } from "../canary/canary-target-digest-diagnostic.js";
-import { createTargetedCapabilityRepairAcquireHook } from "../run-orchestration/live-capability-adapter.js";
 import { evaluateLiveCapabilityPermission } from "../run-orchestration/live-capability-adapter.js";
-import { repairIncompatibleCapabilityPackages } from "../run-orchestration/self-healing-evidence.js";
 
 export const CONSOLIDATED_SHADOW_PIPELINE_SCHEMA =
   "scoring-v2-consolidated-shadow-pipeline-v1" as const;
@@ -60,19 +43,11 @@ export interface ConsolidatedShadowPipelineReport {
   stages: ConsolidatedStageSummary[];
   season: Record<string, unknown> | null;
   discovery: Record<string, unknown> | null;
-  revisionReconciliation: Record<string, unknown> | null;
-  packageIntegrity: Record<string, unknown> | null;
-  rankingEvidence: Record<string, unknown> | null;
   liveHydration: CanaryLiveReport | null;
   digestDiagnostic: Record<string, unknown> | null;
   replay: Record<string, unknown> | null;
   publicationEnabled: false;
   publicScorePointerMutated: false;
-  automaticRepairs: {
-    packagesSuperseded: number;
-    rankingFactsCreated: number;
-    revisionsReconciled: boolean;
-  };
   providerCalls: number;
   outcome: "COMPLETE" | "REFUSED" | "PARTIAL";
 }
@@ -113,14 +88,8 @@ export async function runConsolidatedShadowPipeline(input: {
 
   const stages: ConsolidatedStageSummary[] = [];
   let providerCalls = 0;
-  let packagesSuperseded = 0;
-  let rankingFactsCreated = 0;
-  let revisionsReconciled = false;
   let liveHydration: CanaryLiveReport | null = null;
   let discoverySummary: Record<string, unknown> | null = null;
-  let revisionSummary: Record<string, unknown> | null = null;
-  let packageSummary: Record<string, unknown> | null = null;
-  let rankingSummary: Record<string, unknown> | null = null;
   let digestSummary: Record<string, unknown> | null = null;
   let replaySummary: Record<string, unknown> | null = null;
 
@@ -213,205 +182,6 @@ export async function runConsolidatedShadowPipeline(input: {
   });
   const liveOk =
     !input.providerFreeOnly && input.confirmExecute && liveGate.allowed;
-
-  if (liveOk) {
-    try {
-      const client = new LiveWarcraftLogsProvider({
-        env: input.env,
-      }).getGraphQlClient();
-      const reconcile = await runScoringV2CanaryReconcileRevisions({
-        prisma: input.prisma,
-        container: input.container,
-        characterId: input.characterId,
-        characterName: input.characterName,
-        seasonResolution: input.season,
-        role: input.role,
-        fetchMetadata: createGraphqlReportRevisionFetcher(client),
-        outputDir: input.outputDir,
-      });
-      revisionsReconciled = Boolean(reconcile.report.changed);
-      revisionSummary = {
-        changed: reconcile.report.changed,
-        supersedingManifestId: reconcile.report.supersedingManifestId,
-        metadataProviderCalls: reconcile.report.metadataProviderCalls,
-      };
-      providerCalls += reconcile.report.metadataProviderCalls;
-      stages.push({
-        name: "revision_reconciliation",
-        status: "OK",
-        detail: revisionSummary,
-      });
-      frozen =
-        (await loadCompatibleFrozenManifest({
-          prisma: input.prisma,
-          characterId: input.characterId,
-          seasonId: input.season.seasonId!,
-          expectedDungeonSlugs: input.season.activeDungeonSlugs,
-          dungeonPoolHash: input.season.dungeonPoolHash!,
-        })) ?? frozen;
-    } catch (err) {
-      stages.push({
-        name: "revision_reconciliation",
-        status: "PARTIAL",
-        detail: { error: err instanceof Error ? err.message : String(err) },
-      });
-    }
-  } else {
-    stages.push({
-      name: "revision_reconciliation",
-      status: "SKIPPED",
-      detail: { reason: liveOk ? "n/a" : "live_not_armed" },
-    });
-  }
-
-  {
-    const client = liveOk
-      ? new LiveWarcraftLogsProvider({ env: input.env }).getGraphQlClient()
-      : null;
-    const acquire = liveOk
-      ? createTargetedCapabilityRepairAcquireHook({
-          env: input.env,
-          prisma: input.prisma,
-          artifacts: input.container.repositories.artifacts,
-          wclSource: input.container.repositories.wclSource,
-          client: client!,
-          region: input.region,
-          permission: {
-            providerMode: input.env.PROVIDER_MODE,
-            wclEnabled: input.env.WCL_ENABLED,
-            allowLiveProviderCalls: input.env.ALLOW_LIVE_PROVIDER_CALLS,
-            liveProviderPermissionGranted: true,
-            scoringV2PublicationEnabled:
-              input.env.SCORING_V2_PUBLICATION_ENABLED,
-            hasWclCredentials: Boolean(
-              input.env.WCL_CLIENT_ID && input.env.WCL_CLIENT_SECRET,
-            ),
-          },
-        })
-      : async () => {
-          throw new Error("acquire_disabled");
-        };
-
-    const integrity = await repairIncompatibleCapabilityPackages({
-      prisma: input.prisma,
-      container: input.container,
-      characterId: input.characterId,
-      characterName: input.characterName,
-      region: input.region,
-      realm: input.realm,
-      classSlug: input.classSlug,
-      specSlug: input.specSlug,
-      role: input.role,
-      manifestId: frozen.rowId,
-      acquire,
-      liveRepairEnabled: liveOk,
-    });
-    packagesSuperseded = integrity.repaired;
-    providerCalls += integrity.providerCalls;
-    packageSummary = {
-      inspected: integrity.inspected,
-      repaired: integrity.repaired,
-      alreadyCompatible: integrity.alreadyCompatible,
-      skipped: integrity.skipped,
-      capabilityAcquisitions: integrity.capabilityAcquisitions,
-      liveRepairEnabled: liveOk,
-    };
-    stages.push({
-      name: "package_integrity",
-      status: "OK",
-      detail: packageSummary,
-    });
-  }
-
-  if (liveOk) {
-    const client = new LiveWarcraftLogsProvider({
-      env: input.env,
-    }).getGraphQlClient();
-    let zonePayloadCache: ZoneRankingsPayload | null | undefined;
-    let zonePayloadProviderCalls = 0;
-    const hydrate = await runScoringV2CanaryRankingHydrate({
-      prisma: input.prisma,
-      container: input.container,
-      characterId: input.characterId,
-      characterName: input.characterName,
-      region: input.region,
-      realm: input.realm,
-      season: input.season,
-      confirmRankingHydrate: true,
-      repositoryMode: "PRODUCTION",
-      env: input.env,
-      outputDir: input.outputDir,
-      fetchRanking: async (fight) => {
-        if (zonePayloadCache === undefined) {
-          const rankingsResult = await client.request({
-            operationName: OPERATIONS.CharacterZoneRankings.operationName,
-            query: OPERATIONS.CharacterZoneRankings.query,
-            variables: {
-              name: input.characterName,
-              serverSlug: input.realm,
-              serverRegion: mapRegionToWcl(
-                input.region.toUpperCase() as "EU" | "US" | "KR" | "TW" | "CN",
-              ),
-              zoneID: input.zone.zoneId,
-            },
-            region: input.region,
-          });
-          zonePayloadProviderCalls = 1;
-          const characterData = rankingsResult.response.data as {
-            characterData?: {
-              character?: { zoneRankings?: ZoneRankingsPayload | null };
-            };
-          } | null;
-          zonePayloadCache =
-            characterData?.characterData?.character?.zoneRankings ?? null;
-        }
-        const resolved = resolveRankingParseFromZoneRankings({
-          payload: zonePayloadCache,
-          zoneId: input.zone.zoneId,
-          reportCode: fight.reportCode,
-          fightId: fight.fightId,
-          reportRevision: fight.reportRevision,
-          dungeonSlug: fight.dungeonSlug,
-          keyLevel: fight.keyLevel,
-        });
-        if (!resolved.evidence) return null;
-        const { bytes, payloadFingerprint } = rankingEvidenceArtifactBytes(
-          resolved.evidence,
-        );
-        const calls = zonePayloadProviderCalls;
-        zonePayloadProviderCalls = 0;
-        return {
-          evidence: resolved.evidence,
-          artifactBytes: bytes,
-          payloadFingerprint,
-          providerCalls: calls,
-          estimatedPoints: resolved.estimatedPointsCost,
-        };
-      },
-    });
-    rankingFactsCreated = hydrate.report.factsCreated;
-    providerCalls += hydrate.report.providerCalls;
-    rankingSummary = {
-      rankingFactsAlreadyReady: hydrate.report.rankingFactsAlreadyReady,
-      rankingFactsMissingBefore: hydrate.report.rankingFactsMissingBefore,
-      factsCreated: hydrate.report.factsCreated,
-      factsReused: hydrate.report.factsReused,
-      rankingStillMissing: hydrate.report.rankingStillMissing,
-      capabilityEventPageRequests: hydrate.report.capabilityEventPageRequests,
-      packageAcquisitions: hydrate.report.capabilityAcquisitions,
-    };
-    stages.push({
-      name: "ranking_evidence",
-      status: hydrate.report.rankingStillMissing > 0 ? "PARTIAL" : "OK",
-      detail: rankingSummary,
-    });
-  } else {
-    stages.push({
-      name: "ranking_evidence",
-      status: "SKIPPED",
-      detail: { reason: "live_not_armed" },
-    });
-  }
 
   if (liveOk) {
     const live = await runScoringV2CanaryLive({
@@ -537,17 +307,9 @@ export async function runConsolidatedShadowPipeline(input: {
       outcome: "COMPLETE",
       providerCalls,
       discovery: discoverySummary,
-      revisionReconciliation: revisionSummary,
-      packageIntegrity: packageSummary,
-      rankingEvidence: rankingSummary,
       liveHydration,
       digestDiagnostic: digestSummary,
       replay: replaySummary,
-      automaticRepairs: {
-        packagesSuperseded,
-        rankingFactsCreated,
-        revisionsReconciled,
-      },
     }),
     input.outputDir,
   );
@@ -580,19 +342,11 @@ function finish(
       dungeonPoolHash: input.season.dungeonPoolHash,
     },
     discovery: extra.discovery ?? null,
-    revisionReconciliation: extra.revisionReconciliation ?? null,
-    packageIntegrity: extra.packageIntegrity ?? null,
-    rankingEvidence: extra.rankingEvidence ?? null,
     liveHydration: extra.liveHydration ?? null,
     digestDiagnostic: extra.digestDiagnostic ?? null,
     replay: extra.replay ?? null,
     publicationEnabled: false,
     publicScorePointerMutated: false,
-    automaticRepairs: extra.automaticRepairs ?? {
-      packagesSuperseded: 0,
-      rankingFactsCreated: 0,
-      revisionsReconciled: false,
-    },
     providerCalls: extra.providerCalls,
     outcome: extra.outcome,
   };

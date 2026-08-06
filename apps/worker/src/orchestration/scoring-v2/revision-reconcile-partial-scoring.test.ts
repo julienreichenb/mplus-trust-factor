@@ -2,7 +2,7 @@
  * Authoritative report revision lineage, manifest supersede, and partial live scoring.
  * No real WCL calls.
  */
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
   EVIDENCE_SELECTOR_VERSION,
   type CharacterSeasonEvidenceManifestV2,
@@ -18,10 +18,6 @@ import { MIDNIGHT_SEASON_1_DUNGEON_SLUGS } from "./canary/canary-catalog.js";
 import {
   reconcileManifestReportRevisions,
 } from "./canary/canary-manifest-revision-reconcile.js";
-import {
-  resolveAuthoritativeRevisionObservations,
-  runScoringV2CanaryReconcileRevisions,
-} from "./canary/canary-reconcile-revisions.js";
 import { assertExpectedFightRevision } from "./run-orchestration/live-capability-adapter.js";
 
 const CHAR_ID = "11111111-1111-4111-8111-111111111111";
@@ -172,27 +168,15 @@ describe("report revision fail-closed", () => {
     expect(wind?.identity?.reportRevision).toBe(6);
   });
 
-  it("unresolved revision fails closed in observation resolver", async () => {
-    const document = buildManifest(wallidrixeStaleCandidates());
-    await expect(
-      resolveAuthoritativeRevisionObservations({
-        document,
-        characterName: "Wallidrixe",
-        fetchMetadata: async ({ reportCode, fightIds }) => ({
-          reportCode,
-          revision: reportCode === "QfMvDaxTqAkXmwyR" ? null : 1,
-          fightIdsPresent: fightIds,
-          characterActorIdsByFight: Object.fromEntries(
-            fightIds.map((id) => [id, 1]),
-          ),
-          revisionResolvedAt: "2026-08-05T00:00:00.000Z",
-        }),
+  it("assertExpectedFightRevision rejects mismatch", () => {
+    expect(() =>
+      assertExpectedFightRevision({
+        reportCode: "QfMvDaxTqAkXmwyR",
+        fightId: 3,
+        expectedRevision: 1,
+        actualRevision: null,
       }),
-    ).resolves.toMatchObject({
-      unresolved: expect.arrayContaining([
-        expect.objectContaining({ reportCode: "QfMvDaxTqAkXmwyR" }),
-      ]),
-    });
+    ).toThrow(/fight_revision_mismatch/);
   });
 });
 
@@ -349,118 +333,5 @@ describe("partial confidence diagnostics", () => {
     expect(conf.confidenceBand).toBe("NONE");
     expect(conf.unavailableReason).toBe("ZERO_USABLE_RUNS");
     expect(conf.missingDungeons).toHaveLength(8);
-  });
-});
-
-describe("reconcile command persistence", () => {
-  it("persists superseding row and leaves prior contentHash untouched", async () => {
-    const prior = buildManifest(wallidrixeStaleCandidates());
-    const priorRow = {
-      id: PRIOR_MANIFEST_ID,
-      document: structuredClone(prior),
-    };
-    const created: { contentHash: string; document: unknown }[] = [];
-    const prisma = {
-      evidenceManifest: {
-        findFirst: vi.fn(async () => priorRow),
-        findUnique: vi.fn(async ({ where }: { where: { id?: string; contentHash?: string } }) => {
-          if (where.id === PRIOR_MANIFEST_ID) return priorRow;
-          return null;
-        }),
-      },
-      evidenceManifestSlot: {
-        findMany: vi.fn(async () => []),
-      },
-      dungeon: {
-        findMany: vi.fn(async () =>
-          MIDNIGHT_SEASON_1_DUNGEON_SLUGS.map((slug, i) => ({
-            id: `d-${i}`,
-            slug,
-          })),
-        ),
-        upsert: vi.fn(async ({ where }: { where: { slug: string } }) => ({
-          id: `d-${where.slug}`,
-          slug: where.slug,
-          name: where.slug,
-        })),
-      },
-    };
-    const container = {
-      repositories: {
-        evidence: {
-          createFrozenManifest: vi.fn(async (input: {
-            contentHash: string;
-            document: object;
-          }) => {
-            created.push({
-              contentHash: input.contentHash,
-              document: input.document,
-            });
-            return {
-              manifest: { id: "new-manifest-id", contentHash: input.contentHash },
-              slots: [],
-              created: true,
-            };
-          }),
-          findDatasetByCompatibilityKey: vi.fn(async () => null),
-          findDatasetBySlotAndKey: vi.fn(async () => null),
-          createDataset: vi.fn(),
-        },
-      },
-    };
-
-    const { report } = await runScoringV2CanaryReconcileRevisions({
-      prisma: prisma as never,
-      container: container as never,
-      characterId: CHAR_ID,
-      characterName: "Wallidrixe",
-      seasonResolution: {
-        seasonId: "season-row-1",
-        dungeonPoolHash: POOL_HASH,
-        catalogVersion: "test",
-        activeDungeonSlugs: [...MIDNIGHT_SEASON_1_DUNGEON_SLUGS],
-        validationStatus: "OK",
-      } as never,
-      role: "DPS",
-      fetchMetadata: async ({ reportCode, fightIds }) => ({
-        reportCode,
-        revision: REVISION_BUMPS[reportCode] ?? 1,
-        fightIdsPresent: fightIds,
-        characterActorIdsByFight: Object.fromEntries(
-          fightIds.map((id) => [id, 1]),
-        ),
-        revisionResolvedAt: "2026-08-05T21:00:00.000Z",
-      }),
-      priorManifestId: PRIOR_MANIFEST_ID,
-      outputDir: await (async () => {
-        const { mkdtemp } = await import("node:fs/promises");
-        const { tmpdir } = await import("node:os");
-        const { join } = await import("node:path");
-        return mkdtemp(join(tmpdir(), "reconcile-rev-"));
-      })(),
-    });
-
-    expect(report.changed).toBe(true);
-    expect(report.supersedingManifestId).toBe("new-manifest-id");
-    expect(report.changes).toHaveLength(9);
-    expect(report.capabilityPackageAcquisitions).toBe(0);
-    expect(report.packagesCreated).toBe(0);
-    expect(report.participantDigestsCreated).toBe(0);
-    expect(report.scoreCalculations).toBe(0);
-    expect(report.publicationEnabled).toBe(false);
-    expect(report.rankingLineage).toEqual(
-      expect.objectContaining({
-        carriedForward: 0,
-        skippedIncompatibleRevision: 0,
-        missing: 0,
-        alreadyBound: 0,
-      }),
-    );
-    expect(priorRow.document.contentHash).toBe(prior.contentHash);
-    expect(created[0]?.contentHash).not.toBe(prior.contentHash);
-    const doc = created[0]?.document as {
-      supersedesManifestId: string;
-    };
-    expect(doc.supersedesManifestId).toBe(PRIOR_MANIFEST_ID);
   });
 });

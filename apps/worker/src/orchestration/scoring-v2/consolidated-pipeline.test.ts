@@ -1,11 +1,10 @@
 /**
- * Consolidated pipeline: self-healing stages, idempotent warm run, no hard-coded identities.
+ * Consolidated pipeline: package integrity diagnosis, idempotent warm run, no hard-coded identities.
  */
 import { describe, expect, it } from "vitest";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { selectCurrentCompatiblePackageRow } from "@mplus/database";
 import {
   diagnosePackageRosterCompatibility,
   isPackageRosterIncompatible,
@@ -91,7 +90,7 @@ describe("public operator surface", () => {
   });
 });
 
-describe("self-healing package integrity (generic)", () => {
+describe("package integrity (generic)", () => {
   it("detects invalid roster packages without hard-coded identities", () => {
     const diagnosis = diagnosePackageRosterCompatibility({
       packageActorIds: [3, 4, 5, 6, 7],
@@ -100,23 +99,6 @@ describe("self-healing package integrity (generic)", () => {
     });
     expect(isPackageRosterIncompatible(diagnosis)).toBe(true);
     expect(diagnosis.status).toBe("INCOMPATIBLE_TARGET_EXCLUDED");
-  });
-
-  it("supersession excludes prior package without mutating it", () => {
-    const prior = {
-      compatibilityKey: "prior-bad",
-      supersedesCompatibilityKey: null as string | null,
-      updatedAt: new Date("2026-01-01"),
-    };
-    const next = {
-      compatibilityKey: "next-good",
-      supersedesCompatibilityKey: "prior-bad",
-      updatedAt: new Date("2026-01-02"),
-    };
-    expect(selectCurrentCompatiblePackageRow([prior, next])?.compatibilityKey).toBe(
-      "next-good",
-    );
-    expect(prior.supersedesCompatibilityKey).toBeNull();
   });
 });
 

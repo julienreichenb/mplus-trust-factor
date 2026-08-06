@@ -5,8 +5,7 @@
  *   pnpm scoring-v2:canary | scoring-v2:replay | scoring-v2:doctor
  *
  * This module remains for focused unit tests (`canary:internal`) and must not
- * be re-exported as root package scripts. Contextual modes below are
- * internalized into `runConsolidatedShadowPipeline`.
+ * be re-exported as root package scripts.
  *
  * Do not document hard-coded character/report/fight identities as operator steps.
  */
@@ -48,7 +47,6 @@ import {
   type CanarySeasonResolution,
 } from "./canary-season.js";
 import { diagnoseSeasonCatalog } from "./canary-diagnose.js";
-import { repairMidnightSeason1CatalogBindings } from "./canary-repair-catalog.js";
 import {
   applyActiveMplusSeasonRepair,
   planActiveMplusSeasonRepair,
@@ -83,28 +81,8 @@ import {
   runScoringV2CanaryLive,
   type CanaryLiveReport,
 } from "./canary-live.js";
-import {
-  createGraphqlReportRevisionFetcher,
-  runScoringV2CanaryReconcileRevisions,
-  type CanaryReconcileRevisionsReport,
-} from "./canary-reconcile-revisions.js";
 import { runScoringV2CanaryReplay } from "./canary-replay.js";
 import { runTargetDigestDiagnostic } from "./canary-target-digest-diagnostic.js";
-import {
-  rankingEvidenceArtifactBytes,
-  runScoringV2CanaryRankingHydrate,
-} from "./canary-ranking-hydrate.js";
-import { runScoringV2CanaryRepairPackage } from "./canary-repair-package.js";
-import {
-  createTargetedCapabilityRepairAcquireHook,
-} from "../run-orchestration/live-capability-adapter.js";
-import {
-  LiveWarcraftLogsProvider,
-  OPERATIONS,
-  mapRegionToWcl,
-  resolveRankingParseFromZoneRankings,
-  type ZoneRankingsPayload,
-} from "@mplus/provider-warcraftlogs";
 
 export interface CanaryCliArgs {
   mode:
@@ -781,12 +759,7 @@ export async function runCanaryRepairCatalogCommand(
       appEnv: env.APP_ENV,
       wclZoneId: args.zoneIdOverride ?? 47,
     });
-    // Keep legacy Midnight binder as secondary idempotent pass for encounter ids.
-    const legacy = await repairMidnightSeason1CatalogBindings({
-      prisma: container.prisma,
-      regionCode,
-    });
-    return { dryRun: false, plan: applied.plan, sync: applied.sync, legacy };
+    return { dryRun: false, plan: applied.plan, sync: applied.sync };
   } finally {
     await container.prisma.$disconnect().catch(() => undefined);
   }
@@ -1203,81 +1176,6 @@ export async function runCanaryLiveCommand(
     await deps.container.prisma.$disconnect().catch(() => undefined);
   }
 }
-
-/**
- * Metadata-only revision reconciliation. Does not acquire capability packages.
- */
-export async function runCanaryReconcileRevisionsCommand(
-  args: CanaryCliArgs,
-  options?: {
-    env?: NodeJS.ProcessEnv;
-    fetchMetadata?: Parameters<
-      typeof runScoringV2CanaryReconcileRevisions
-    >[0]["fetchMetadata"];
-  },
-): Promise<{ reportPath: string; report: CanaryReconcileRevisionsReport }> {
-  assertOperatorRepositoryMode("PRODUCTION");
-  const env = loadEnv();
-  const processEnv = options?.env ?? process.env;
-  const identity = identityFromArgs(args);
-  const deps = await createProductionCanaryDependencies({ env, identity });
-  try {
-    if (!args.confirmRevisionReconcile) {
-      throw Object.assign(
-        new Error("canary_reconcile_refused:MISSING_CONFIRM_REVISION_RECONCILE"),
-        {
-          code: "CANARY_RECONCILE_REFUSED",
-          reasons: ["MISSING_CONFIRM_REVISION_RECONCILE"],
-        },
-      );
-    }
-    const reasons: string[] = [];
-    if (env.PROVIDER_MODE !== "live") reasons.push("PROVIDER_MODE_NOT_LIVE");
-    if (!env.ALLOW_LIVE_PROVIDER_CALLS) reasons.push("ALLOW_LIVE_PROVIDER_CALLS_FALSE");
-    if (!env.WCL_ENABLED) reasons.push("WCL_DISABLED");
-    if (!env.WCL_CLIENT_ID || !env.WCL_CLIENT_SECRET) {
-      reasons.push("WCL_CREDENTIALS_MISSING");
-    }
-    if (env.SCORING_V2_PUBLICATION_ENABLED) reasons.push("PUBLICATION_ENABLED");
-    if (reasons.length > 0) {
-      throw Object.assign(
-        new Error(`canary_reconcile_refused:${reasons.join(",")}`),
-        { code: "CANARY_RECONCILE_REFUSED", reasons },
-      );
-    }
-    assertPublicationBlocked(env);
-
-    const seasonResolution = await resolveCanarySeasonCatalog({
-      prisma: deps.container.prisma,
-      regionId: deps.character.regionId,
-      regionCode: args.region,
-      env: processEnv,
-    });
-    assertSeasonCatalogOk(seasonResolution);
-
-    const fetchMetadata =
-      options?.fetchMetadata ??
-      createGraphqlReportRevisionFetcher(
-        new LiveWarcraftLogsProvider({ env }).getGraphQlClient(),
-      );
-
-    const { report, reportPath } = await runScoringV2CanaryReconcileRevisions({
-      prisma: deps.container.prisma,
-      container: deps.container,
-      characterId: deps.characterResolution.characterId,
-      characterName: args.character,
-      seasonResolution,
-      role: "DPS",
-      fetchMetadata,
-      outputDir: args.outputDir ?? undefined,
-    });
-
-    return { reportPath, report };
-  } finally {
-    await deps.container.prisma.$disconnect().catch(() => undefined);
-  }
-}
-
 async function main(): Promise<void> {
   const args = parseCanaryCliArgs(process.argv.slice(2));
   if (args.mode === "diagnose-catalog") {
@@ -1387,183 +1285,6 @@ async function main(): Promise<void> {
             problemClassSummary: report.problemClassSummary,
             performance: report.performance,
             providerCalls: report.providerCalls,
-          },
-          null,
-          2,
-        ),
-      );
-    } finally {
-      await deps.container.prisma.$disconnect().catch(() => undefined);
-    }
-    return;
-  }
-  if (args.mode === "ranking-hydrate") {
-    const env = loadEnv();
-    const identity = identityFromArgs(args);
-    const deps = await createProductionCanaryDependencies({ env, identity });
-    try {
-      const season = await resolveCanarySeasonCatalog({
-        prisma: deps.container.prisma,
-        regionId: deps.character.regionId,
-        regionCode: args.region,
-      });
-      assertSeasonCatalogOk(season);
-      const zone = resolveZoneForCanaryCommand(args);
-      const wcl = new LiveWarcraftLogsProvider({ env });
-      const client = wcl.getGraphQlClient();
-      let zonePayloadCache: ZoneRankingsPayload | null | undefined;
-      let zonePayloadProviderCalls = 0;
-
-      const { reportPath, report } = await runScoringV2CanaryRankingHydrate({
-        prisma: deps.container.prisma,
-        container: deps.container,
-        characterId: deps.characterResolution.characterId,
-        characterName: args.character,
-        region: args.region,
-        realm: args.realm,
-        season,
-        confirmRankingHydrate: args.confirmRankingHydrate,
-        repositoryMode: "PRODUCTION",
-        env,
-        outputDir: args.outputDir ?? undefined,
-        fetchRanking: async (fight) => {
-          if (zonePayloadCache === undefined) {
-            const rankingsResult = await client.request({
-              operationName: OPERATIONS.CharacterZoneRankings.operationName,
-              query: OPERATIONS.CharacterZoneRankings.query,
-              variables: {
-                name: args.character,
-                serverSlug: args.realm,
-                serverRegion: mapRegionToWcl(args.region as "EU" | "US" | "KR" | "TW" | "CN"),
-                zoneID: zone.zoneId,
-              },
-              region: args.region,
-            });
-            zonePayloadProviderCalls = 1;
-            const characterData = rankingsResult.response.data as {
-              characterData?: {
-                character?: { zoneRankings?: ZoneRankingsPayload | null };
-              };
-            } | null;
-            zonePayloadCache =
-              characterData?.characterData?.character?.zoneRankings ?? null;
-          }
-          const resolved = resolveRankingParseFromZoneRankings({
-            payload: zonePayloadCache,
-            zoneId: zone.zoneId,
-            reportCode: fight.reportCode,
-            fightId: fight.fightId,
-            reportRevision: fight.reportRevision,
-            dungeonSlug: fight.dungeonSlug,
-            keyLevel: fight.keyLevel,
-          });
-          if (!resolved.evidence) return null;
-          const { bytes, payloadFingerprint } = rankingEvidenceArtifactBytes(
-            resolved.evidence,
-          );
-          const providerCalls = zonePayloadProviderCalls;
-          zonePayloadProviderCalls = 0;
-          return {
-            evidence: resolved.evidence,
-            artifactBytes: bytes,
-            payloadFingerprint,
-            providerCalls,
-            estimatedPoints: resolved.estimatedPointsCost,
-          };
-        },
-      });
-      console.log(
-        JSON.stringify(
-          {
-            reportPath,
-            selectedSlotCount: report.selectedSlotCount,
-            rankingFactsAlreadyReady: report.rankingFactsAlreadyReady,
-            rankingFactsMissingBefore: report.rankingFactsMissingBefore,
-            requestsAttempted: report.requestsAttempted,
-            requestsSucceeded: report.requestsSucceeded,
-            requestsFailed: report.requestsFailed,
-            factsCreated: report.factsCreated,
-            factsReused: report.factsReused,
-            rankingStillMissing: report.rankingStillMissing,
-            providerCalls: report.providerCalls,
-            estimatedPoints: report.estimatedPoints,
-            capabilityAcquisitions: report.capabilityAcquisitions,
-            capabilityEventPageRequests: report.capabilityEventPageRequests,
-            digestsCreated: report.digestsCreated,
-            publicationEnabled: report.publicationEnabled,
-          },
-          null,
-          2,
-        ),
-      );
-    } finally {
-      await deps.container.prisma.$disconnect().catch(() => undefined);
-    }
-    return;
-  }
-  if (args.mode === "repair-package") {
-    const env = loadEnv();
-    const identity = identityFromArgs(args);
-    const deps = await createProductionCanaryDependencies({ env, identity });
-    try {
-      const season = await resolveCanarySeasonCatalog({
-        prisma: deps.container.prisma,
-        regionId: deps.character.regionId,
-        regionCode: args.region,
-      });
-      assertSeasonCatalogOk(season);
-      const wcl = new LiveWarcraftLogsProvider({ env });
-      const client = wcl.getGraphQlClient();
-      const targetedAcquire = createTargetedCapabilityRepairAcquireHook({
-        env,
-        prisma: deps.container.prisma,
-        artifacts: deps.container.repositories.artifacts,
-        wclSource: deps.container.repositories.wclSource,
-        client,
-        region: args.region,
-        permission: {
-          providerMode: env.PROVIDER_MODE,
-          wclEnabled: env.WCL_ENABLED,
-          allowLiveProviderCalls: env.ALLOW_LIVE_PROVIDER_CALLS,
-          liveProviderPermissionGranted: true,
-          scoringV2PublicationEnabled: env.SCORING_V2_PUBLICATION_ENABLED,
-          hasWclCredentials: Boolean(env.WCL_CLIENT_ID && env.WCL_CLIENT_SECRET),
-        },
-      });
-      const { reportPath, report } = await runScoringV2CanaryRepairPackage({
-        prisma: deps.container.prisma,
-        container: deps.container,
-        characterId: deps.characterResolution.characterId,
-        characterName: args.character,
-        region: args.region,
-        realm: args.realm,
-        classSlug: null,
-        specSlug: null,
-        role: "DPS",
-        season,
-        reportCode: args.reportCode!,
-        fightId: args.fightId!,
-        reportRevision: args.reportRevision!,
-        confirmTargetedReacquire: args.confirmTargetedReacquire,
-        repositoryMode: "PRODUCTION",
-        env,
-        targetedAcquire,
-        outputDir: args.outputDir ?? undefined,
-      });
-      console.log(
-        JSON.stringify(
-          {
-            reportPath,
-            outcome: report.outcome,
-            slotId: report.slotId,
-            capabilityAcquisitions: report.capabilityAcquisitions,
-            packagesCreated: report.packagesCreated,
-            wallidrixeDigestResolved: report.wallidrixeDigestResolved,
-            priorPackageMutated: report.priorPackageMutated,
-            priorPackageDeleted: report.priorPackageDeleted,
-            supersedesCompatibilityKey: report.supersedesCompatibilityKey,
-            providerCalls: report.providerCalls,
-            publicationEnabled: report.publicationEnabled,
           },
           null,
           2,
@@ -1742,50 +1463,6 @@ async function main(): Promise<void> {
             fightFailures:
               err && typeof err === "object" && "fightFailures" in err
                 ? (err as { fightFailures: unknown }).fightFailures
-                : undefined,
-          },
-          null,
-          2,
-        ),
-      );
-      process.exit(1);
-    }
-    return;
-  }
-  if (args.mode === "reconcile-revisions") {
-    try {
-      const { reportPath, report } = await runCanaryReconcileRevisionsCommand(args);
-      console.log(
-        JSON.stringify(
-          {
-            reportPath,
-            priorManifestId: report.priorManifestId,
-            supersedingManifestId: report.supersedingManifestId,
-            changed: report.changed,
-            changeCount: report.changes.length,
-            metadataProviderCalls: report.metadataProviderCalls,
-            capabilityPackageAcquisitions: report.capabilityPackageAcquisitions,
-            packagesCreated: report.packagesCreated,
-            participantDigestsCreated: report.participantDigestsCreated,
-            scoreCalculations: report.scoreCalculations,
-            publicationEnabled: report.publicationEnabled,
-          },
-          null,
-          2,
-        ),
-      );
-    } catch (err) {
-      console.error(
-        JSON.stringify(
-          {
-            code:
-              err && typeof err === "object" && "code" in err
-                ? (err as { code: unknown }).code
-                : "CANARY_RECONCILE_FAILED",
-            message: err instanceof Error ? err.message : String(err),
-            reasons:
-              err && typeof err === "object" && "reasons" in err
-                ? (err as { reasons: unknown }).reasons
                 : undefined,
           },
           null,

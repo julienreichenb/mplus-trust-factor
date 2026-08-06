@@ -2,11 +2,9 @@
  * Public Scoring V2 operator surface.
  *
  * Supported modes only:
- *   scoring-v2:canary  — full self-healing shadow pipeline
+ *   scoring-v2:canary  — consolidated shadow pipeline (discover + live + replay)
  *   scoring-v2:replay  — provider-free reconstruction
  *   scoring-v2:doctor  — provider-free diagnostics (no mutation)
- *
- * Contextual repair commands are internalized; do not expose them here.
  */
 import { loadEnv } from "@mplus/config";
 import type { EvidenceRole } from "@mplus/contracts";
@@ -151,7 +149,6 @@ async function runPublicCanary(input: {
             name: s.name,
             status: s.status,
           })),
-          automaticRepairs: report.automaticRepairs,
           providerCalls: report.providerCalls,
           publicationEnabled: report.publicationEnabled,
           publicScorePointerMutated: report.publicScorePointerMutated,
