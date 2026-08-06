@@ -11,6 +11,7 @@ import {
   type ParticipantScoringDigestV1,
   type UtilityCanonicalAction,
 } from "@mplus/contracts";
+import { estimateActiveCombatMs } from "@mplus/scoring";
 import { buildOffensiveParticipantActivationReports } from "../offensive/activations.js";
 import { extractUtilityActionTimeline } from "../utility/extract-actions.js";
 import { extractSurvivalFromCapabilityPackage } from "../survival/extract.js";
@@ -217,6 +218,29 @@ export function buildParticipantScoringDigestsFromPackage(
       (w) => w.participantActorId === actorId,
     );
 
+    const damageTimestampsMs =
+      fightDurationMs != null && fightDurationMs > 0
+        ? input.capabilityPackage.compactEvents
+            .filter(
+              (e) =>
+                e.capabilities.includes("SURVIVAL_DAMAGE_TAKEN") &&
+                (e.targetPlayerActorId === actorId || e.targetActorId === actorId),
+            )
+            .map((e) => Math.max(0, e.timestampMs - input.fightStartMs))
+        : [];
+    const activeCombatEstimate =
+      fightDurationMs != null && fightDurationMs > 0
+        ? estimateActiveCombatMs({
+            fightDurationMs,
+            hostileEventTimestampsMs: damageTimestampsMs,
+          })
+        : null;
+    const activeCombatMs = activeCombatEstimate?.activeCombatMs ?? fightDurationMs;
+    const activeCombatLimitations =
+      activeCombatEstimate?.method === "fight_duration_fallback"
+        ? ["active_combat_fallback_fight_duration"]
+        : [];
+
     const utilityCompleteness = utility.timeline.capabilityCompleteness;
     const survivalCompleteness =
       survivalSummary?.capabilityCompleteness ?? survival.timeline.capabilityCompleteness;
@@ -307,7 +331,7 @@ export function buildParticipantScoringDigestsFromPackage(
         externalsReceived: externals,
         pressureWindows,
         fightDurationMs,
-        activeCombatMs: fightDurationMs,
+        activeCombatMs,
         capabilityCompleteness: survivalCompleteness,
         completeness: completenessFromStatuses(
           survivalCompleteness.map((c) => c.status),
@@ -315,6 +339,7 @@ export function buildParticipantScoringDigestsFromPackage(
         limitations: [
           ...survival.timeline.limitations,
           ...(survivalSummary?.limitations ?? []),
+          ...activeCombatLimitations,
         ],
       },
       createdAt,

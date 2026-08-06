@@ -332,6 +332,29 @@ describe("Performance Phase 2 activation / eligibility (M–O)", () => {
     ).toBe(false);
   });
 
+  it("N3 — unknown spec skips spec-gated rules (no all-spec fail-open)", () => {
+    const { eligible, skipped } = resolveEligibleOffensiveCooldowns({
+      classSlug: "mage",
+      specSlug: null,
+      catalogVersion: CURRENT_CATALOG_VERSION_ID,
+    });
+    expect(eligible.some((e) => e.rule.canonicalKey.includes("combustion"))).toBe(
+      false,
+    );
+    expect(eligible.some((e) => e.rule.canonicalKey.includes("arcane-surge"))).toBe(
+      false,
+    );
+    expect(eligible.some((e) => e.rule.canonicalKey.includes("icy-veins"))).toBe(
+      false,
+    );
+    expect(
+      skipped.some(
+        (s) =>
+          s.canonicalKey.includes("combustion") && s.reason === "spec_mismatch",
+      ),
+    ).toBe(true);
+  });
+
   it("O — invalid duration omits run from cooldown discipline", () => {
     const result = computeOffensiveCooldownDiscipline([
       cooldownRun({

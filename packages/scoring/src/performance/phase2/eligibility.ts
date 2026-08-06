@@ -103,6 +103,15 @@ export function resolveEligibleOffensiveCooldowns(input: {
       continue;
     }
 
+    // Spec-gated rules require a known spec — do not invent all-spec eligibility.
+    if (rule.specSlugs.length > 0 && (input.specSlug == null || input.specSlug.length === 0)) {
+      skipped.push({
+        canonicalKey: rule.canonicalKey,
+        reason: "spec_mismatch",
+      });
+      continue;
+    }
+
     // Spec-gated rules for another spec of the same class.
     if (
       input.specSlug != null &&
