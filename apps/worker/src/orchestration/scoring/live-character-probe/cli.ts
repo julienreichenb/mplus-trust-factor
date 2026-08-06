@@ -2,7 +2,7 @@
 /**
  * Live Scoring V2 character probe CLI (worker package entry).
  *
- *   pnpm --filter @mplus/worker exec tsx src/orchestration/scoring-v2/live-character-probe/cli.ts --region eu --realm archimonde --name Wallidrixe
+ *   pnpm --filter @mplus/worker exec tsx src/orchestration/scoring/live-character-probe/cli.ts --region eu --realm archimonde --name Wallidrixe
  */
 
 import {

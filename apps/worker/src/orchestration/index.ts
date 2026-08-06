@@ -44,8 +44,8 @@ export {
   type EvidenceJoinMemberInput,
   type EvidenceJoinMemberResult,
   type SnapshotStatus,
-} from "./scoring-v2/evidence-join.js";
-export { buildStoreZip, sha256Hex } from "./scoring-v2/zip-store.js";
+} from "./scoring/evidence-join.js";
+export { buildStoreZip, sha256Hex } from "./scoring/zip-store.js";
 export {
   runScoringV2EvidenceExportJob,
   reclaimStaleEvidenceExports,
@@ -58,10 +58,10 @@ export {
   type FreezeEvidencePackageBlocker,
   type PackageMemberEvidenceInput,
   type PackageMemberEvidenceResult,
-} from "./scoring-v2/freeze-evidence-package.js";
+} from "./scoring/freeze-evidence-package.js";
 export {
   startEvidenceExportRecoverySweeper,
   EVIDENCE_EXPORT_RECOVERY_DEFAULT_INTERVAL_MS,
   type EvidenceExportRecoverySweeperHandle,
   type StartEvidenceExportRecoverySweeperInput,
-} from "./scoring-v2/evidence-export-recovery.js";
+} from "./scoring/evidence-export-recovery.js";

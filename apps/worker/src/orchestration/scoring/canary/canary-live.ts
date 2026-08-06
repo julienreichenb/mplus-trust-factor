@@ -555,7 +555,7 @@ export async function runScoringV2CanaryLive(
     wclEnabled: input.env.WCL_ENABLED === true,
     allowLiveProviderCalls: input.env.ALLOW_LIVE_PROVIDER_CALLS === true,
     liveProviderPermissionGranted: liveProviderPermission === "ALLOWED",
-    scoringV2PublicationEnabled: input.env.SCORING_V2_PUBLICATION_ENABLED === true,
+    scoringV2PublicationEnabled: input.env.SCORING_PUBLICATION_ENABLED === true,
     hasWclCredentials: Boolean(input.env.WCL_CLIENT_ID && input.env.WCL_CLIENT_SECRET),
   };
   const liveGate = evaluateLiveCapabilityPermission(permissionInput);

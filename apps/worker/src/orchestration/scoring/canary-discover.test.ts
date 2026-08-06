@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Discovery-only canary isolation + safety gates (no live WCL).
  */
 import { readFileSync } from "node:fs";
@@ -62,10 +62,10 @@ const liveEnv = {
   PROVIDER_MODE: "live" as const,
   WCL_ENABLED: true,
   ALLOW_LIVE_PROVIDER_CALLS: true,
-  SCORING_V2_ENABLED: true,
-  SCORING_V2_SELECTION_ENABLED: true,
-  SCORING_V2_EVIDENCE_FETCH_ENABLED: true,
-  SCORING_V2_PUBLICATION_ENABLED: false,
+  SCORING_ENABLED: true,
+  SCORING_ENABLED: true,
+  SCORING_ENABLED: true,
+  SCORING_PUBLICATION_ENABLED: false,
   WCL_CLIENT_ID: "id",
   WCL_CLIENT_SECRET: "secret",
 };
@@ -191,7 +191,7 @@ describe("discovery safety gates", () => {
 
   it("refuses when publication is enabled", () => {
     const gate = evaluateCanaryDiscoveryGates({
-      env: { ...liveEnv, SCORING_V2_PUBLICATION_ENABLED: true },
+      env: { ...liveEnv, SCORING_PUBLICATION_ENABLED: true },
       discoveryExecuteArmed: true,
       confirmDiscovery: true,
       characterCount: 1,
@@ -215,12 +215,12 @@ describe("discovery safety gates", () => {
     }
   });
 
-  it("SCORING_V2_CANARY_EXECUTE alone does not arm discovery", () => {
+  it("SCORING_CANARY_EXECUTE alone does not arm discovery", () => {
     expect(
-      isDiscoveryExecuteArmed({ SCORING_V2_CANARY_EXECUTE: "true" }),
+      isDiscoveryExecuteArmed({ SCORING_CANARY_EXECUTE: "true" }),
     ).toBe(false);
     expect(
-      isDiscoveryExecuteArmed({ SCORING_V2_CANARY_DISCOVERY_EXECUTE: "true" }),
+      isDiscoveryExecuteArmed({ SCORING_CANARY_DISCOVERY_EXECUTE: "true" }),
     ).toBe(true);
   });
 
@@ -718,7 +718,7 @@ describe("runScoringV2CanaryDiscovery", () => {
     expect(report.manifestStatus).not.toBe("REUSED");
   });
 
-  it("selects dynamically dungeonCount Ã— 2 for a 9-dungeon season", async () => {
+  it("selects dynamically dungeonCount × 2 for a 9-dungeon season", async () => {
     const { prisma, artifacts, evidence } = mockPersistence();
     const nine = [...MIDNIGHT_SEASON_1_DUNGEON_SLUGS, "extra-dungeon-nine"];
     const cands: EvidenceCandidateMetadataV2[] = [];

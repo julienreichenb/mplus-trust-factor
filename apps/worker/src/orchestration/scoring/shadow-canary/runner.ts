@@ -140,15 +140,8 @@ export async function runShadowCanaryJob(input: {
   try {
     const envOverride = {
       ...input.container.env,
-      SCORING_V2_ENABLED: true,
-      SCORING_V2_SELECTION_ENABLED: true,
-      SCORING_V2_EVIDENCE_FETCH_ENABLED: true,
-      SCORING_V2_DIMENSIONS_ENABLED: true,
-      SCORING_V2_PERFORMANCE_ENABLED: true,
-      SCORING_V2_SURVIVAL_ENABLED: true,
-      SCORING_V2_UTILITY_ENABLED: true,
-      SCORING_V2_EXPERIENCE_ENABLED: true,
-      SCORING_V2_PUBLICATION_ENABLED: false,
+      SCORING_ENABLED: true,
+      SCORING_PUBLICATION_ENABLED: false,
     };
     const container = { ...input.container, env: envOverride };
 

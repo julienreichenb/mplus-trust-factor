@@ -73,7 +73,7 @@ Canonical validation commands pass, feature-flag defaults remain false, and publ
 - **Severity:** BLOCKER
 - **Affected files:**
   - `apps/worker/src/orchestration/scoring-v2-evidence-export.ts`
-  - `apps/worker/src/orchestration/scoring-v2/evidence-join.ts`
+  - `apps/worker/src/orchestration/scoring/evidence-join.ts`
 - **Exact failure mode:** Worker always transitions to `RUNNING` and re-runs join. `runEvidenceJoin` sets `generatedAt` from `new Date()` (unless injected). Duplicate BullMQ delivery / retry after success overwrites archive hashes. ZIP member content therefore changes for identical cohort inputs.
 - **Reproduction / reasoning:** Complete an export, re-deliver the same `exportId` job → new `generatedAt` → new summary/preflight/markdown/archive content hashes.
 - **Impact:** Claimed deterministic downloadable artifacts and safe retries are false. Downstream freeze eligibility/hashes can flip without data change.

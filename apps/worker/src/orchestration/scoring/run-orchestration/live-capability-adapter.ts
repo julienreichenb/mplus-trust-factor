@@ -15,14 +15,17 @@ import {
   type WclGraphQlClient,
 } from "@mplus/provider-warcraftlogs";
 import { createPersistentSharedEvidenceStore } from "../persistent-shared-evidence-store.js";
-import { persistCapabilityPackageToPostgres } from "./production-ports.js";
+import {
+  persistCapabilityPackageToPostgres,
+  SCORING_ACQUISITION_VERSION,
+} from "./production-ports.js";
 import {
   type AcquireCapabilityPackageResult,
   type CompatiblePackageHit,
   type OrchestrationParticipant,
   type SourceFightIdentity,
 } from "./orchestrator.js";
-import { CapabilityEvidencePackageRepository } from "@mplus/database";
+import { WclRunRawRepository } from "@mplus/database";
 import type { PrismaClient } from "@mplus/database";
 
 export type LiveCapabilityCostSource =
@@ -225,32 +228,37 @@ export function createLiveCapabilityAcquireHook(
       );
     }
 
-    const packages = new CapabilityEvidencePackageRepository(
-      deps.prisma,
-      deps.artifacts,
-    );
+    const rawRuns = new WclRunRawRepository(deps.prisma);
 
-    // Pre-check: never call WCL when a complete package already exists.
-    const existing = await packages.findCompleteBySourceFight(input.sourceFight);
-    if (existing && existing.package.complete === true) {
-      return {
-        package: existing.package,
-        packageArtifactId: existing.packageArtifactId,
-        contentHash: existing.contentHash,
-        providerCalls: 0,
-        created: false,
-        accounting: {
+    // Pre-check: never call WCL when a complete raw run already exists.
+    const existingRow = await rawRuns.find({
+      reportCode: input.sourceFight.reportCode,
+      fightId: input.sourceFight.fightId,
+      reportRevision: input.sourceFight.reportRevision,
+      acquisitionVersion: SCORING_ACQUISITION_VERSION,
+    });
+    if (existingRow) {
+      const existingPkg = assertCapabilityEvidencePackageV1(existingRow.payload);
+      if (existingPkg.complete === true) {
+        return {
+          package: existingPkg,
+          packageArtifactId: existingRow.id,
+          contentHash: existingPkg.contentHash,
           providerCalls: 0,
-          pagesFetched: existing.package.accounting.pagesFetched,
-          filterBatchCount: existing.package.accounting.filterBatchCount,
-          pointsConsumed: 0,
-          estimatedPointsConsumed: 0,
-          costSource: "PACKAGE_ACCOUNTING",
-          packageArtifactId: existing.packageArtifactId,
-          contentHash: existing.contentHash,
-          compatibilityKey: existing.package.compatibilityKey,
-        },
-      };
+          created: false,
+          accounting: {
+            providerCalls: 0,
+            pagesFetched: existingPkg.accounting.pagesFetched,
+            filterBatchCount: existingPkg.accounting.filterBatchCount,
+            pointsConsumed: 0,
+            estimatedPointsConsumed: 0,
+            costSource: "PACKAGE_ACCOUNTING",
+            packageArtifactId: existingRow.id,
+            contentHash: existingPkg.contentHash,
+            compatibilityKey: existingPkg.compatibilityKey,
+          },
+        };
+      }
     }
 
     const meta = await resolveAuthoritativeFightMetadata({
@@ -311,29 +319,30 @@ export function createLiveCapabilityAcquireHook(
     }
 
     const persisted = await persistCapabilityPackageToPostgres({
-      artifacts: deps.artifacts,
-      packages,
+      prisma: deps.prisma,
       package: pkg,
+      acquisitionVersion: SCORING_ACQUISITION_VERSION,
     });
 
-    // Reload verification (provider-free).
-    const reloaded = await packages.findByCompatibilityKey(pkg.compatibilityKey);
-    if (!reloaded) {
+    // Reload verification (provider-free) — exact source identity only.
+    const reloadedRow = await rawRuns.find({
+      reportCode: input.sourceFight.reportCode,
+      fightId: input.sourceFight.fightId,
+      reportRevision: input.sourceFight.reportRevision,
+      acquisitionVersion: SCORING_ACQUISITION_VERSION,
+    });
+    if (!reloadedRow) {
       throw Object.assign(new Error("capability_package_reload_missing"), {
         code: "PACKAGE_RELOAD_MISSING",
       });
     }
+    const reloaded = assertCapabilityEvidencePackageV1(reloadedRow.payload);
     if (reloaded.contentHash !== pkg.contentHash) {
       throw Object.assign(new Error("capability_package_reload_hash_mismatch"), {
         code: "PACKAGE_RELOAD_HASH_MISMATCH",
       });
     }
-    if (reloaded.package.compatibilityKey !== pkg.compatibilityKey) {
-      throw Object.assign(new Error("capability_package_reload_compat_mismatch"), {
-        code: "PACKAGE_RELOAD_COMPAT_MISMATCH",
-      });
-    }
-    if (reloaded.complete !== true || reloaded.package.complete !== true) {
+    if (reloaded.complete !== true) {
       throw Object.assign(new Error("capability_package_reload_incomplete"), {
         code: "PACKAGE_RELOAD_INCOMPLETE",
       });
@@ -357,7 +366,7 @@ export function createLiveCapabilityAcquireHook(
     }
 
     return {
-      package: reloaded.package,
+      package: reloaded,
       packageArtifactId: persisted.packageArtifactId,
       contentHash: reloaded.contentHash,
       providerCalls,

@@ -25,9 +25,9 @@ describe("slot-processor terminal lifecycle events", () => {
     const completeSlot = vi.fn().mockResolvedValue({ becameReady: false });
     const container = {
       env: {
-        SCORING_V2_ENABLED: true,
-        SCORING_V2_EVIDENCE_FETCH_ENABLED: true,
-        SCORING_V2_PUBLICATION_ENABLED: false,
+        SCORING_ENABLED: true,
+        SCORING_ENABLED: true,
+        SCORING_PUBLICATION_ENABLED: false,
       },
       logger: { info, warn: vi.fn(), error: vi.fn() },
       prisma: { character: { findUnique: vi.fn() } },
@@ -81,9 +81,9 @@ describe("slot-processor terminal lifecycle events", () => {
     const error = vi.fn();
     const container = {
       env: {
-        SCORING_V2_ENABLED: true,
-        SCORING_V2_EVIDENCE_FETCH_ENABLED: true,
-        SCORING_V2_PUBLICATION_ENABLED: false,
+        SCORING_ENABLED: true,
+        SCORING_ENABLED: true,
+        SCORING_PUBLICATION_ENABLED: false,
       },
       logger: { info, warn: vi.fn(), error },
       repositories: {
@@ -121,9 +121,9 @@ describe("slot-processor terminal lifecycle events", () => {
     const info = vi.fn();
     const container = {
       env: {
-        SCORING_V2_ENABLED: true,
-        SCORING_V2_EVIDENCE_FETCH_ENABLED: true,
-        SCORING_V2_PUBLICATION_ENABLED: false,
+        SCORING_ENABLED: true,
+        SCORING_ENABLED: true,
+        SCORING_PUBLICATION_ENABLED: false,
       },
       logger: { info, warn: vi.fn(), error: vi.fn() },
       repositories: {
@@ -151,9 +151,9 @@ describe("slot-processor terminal lifecycle events", () => {
     const completeSlot = vi.fn().mockResolvedValue({ becameReady: false });
     const container = {
       env: {
-        SCORING_V2_ENABLED: true,
-        SCORING_V2_EVIDENCE_FETCH_ENABLED: true,
-        SCORING_V2_PUBLICATION_ENABLED: false,
+        SCORING_ENABLED: true,
+        SCORING_ENABLED: true,
+        SCORING_PUBLICATION_ENABLED: false,
       },
       logger: {
         info: () => {

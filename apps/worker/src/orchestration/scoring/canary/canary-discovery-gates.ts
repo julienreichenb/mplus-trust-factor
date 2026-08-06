@@ -1,6 +1,6 @@
 /**
  * Safety gates for the discovery-only Scoring V2 canary phase.
- * SCORING_V2_CANARY_EXECUTE must NOT authorize discovery.
+ * SCORING_CANARY_EXECUTE must NOT authorize discovery.
  */
 import type { AppEnv } from "@mplus/config";
 import {
@@ -31,14 +31,14 @@ export interface CanaryDiscoveryGateInput {
     | "PROVIDER_MODE"
     | "WCL_ENABLED"
     | "ALLOW_LIVE_PROVIDER_CALLS"
-    | "SCORING_V2_ENABLED"
-    | "SCORING_V2_SELECTION_ENABLED"
-    | "SCORING_V2_EVIDENCE_FETCH_ENABLED"
-    | "SCORING_V2_PUBLICATION_ENABLED"
+    | "SCORING_ENABLED"
+    | "SCORING_ENABLED"
+    | "SCORING_ENABLED"
+    | "SCORING_PUBLICATION_ENABLED"
     | "WCL_CLIENT_ID"
     | "WCL_CLIENT_SECRET"
   > & {
-    SCORING_V2_CANARY_DISCOVERY_EXECUTE?: boolean | string;
+    SCORING_CANARY_DISCOVERY_EXECUTE?: boolean | string;
   };
   /** Process env / argv arm — must be explicit "true". */
   discoveryExecuteArmed: boolean;
@@ -50,7 +50,7 @@ export interface CanaryDiscoveryGateInput {
 export function isDiscoveryExecuteArmed(
   env: NodeJS.ProcessEnv | Record<string, string | undefined>,
 ): boolean {
-  return env.SCORING_V2_CANARY_DISCOVERY_EXECUTE === "true";
+  return env.SCORING_CANARY_DISCOVERY_EXECUTE === "true";
 }
 
 export function evaluateCanaryDiscoveryGates(
@@ -63,13 +63,13 @@ export function evaluateCanaryDiscoveryGates(
   if (!input.env.ALLOW_LIVE_PROVIDER_CALLS) {
     reasons.push("ALLOW_LIVE_PROVIDER_CALLS_FALSE");
   }
-  if (!input.env.SCORING_V2_EVIDENCE_FETCH_ENABLED) {
+  if (!input.env.SCORING_ENABLED) {
     reasons.push("EVIDENCE_FETCH_DISABLED");
   }
   if (!isScoringV2ShadowOrchestrationEnabled(input.env as never)) {
     reasons.push("SHADOW_FLAGS_DISABLED");
   }
-  if (input.env.SCORING_V2_PUBLICATION_ENABLED) {
+  if (input.env.SCORING_PUBLICATION_ENABLED) {
     reasons.push("PUBLICATION_ENABLED");
   }
   if (input.characterCount !== 1) reasons.push("MULTIPLE_CHARACTERS");

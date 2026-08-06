@@ -100,7 +100,7 @@ export async function runAnalyzeEvidenceSlotV2(
 
   if (
     !canaryBypass &&
-    (!container.env.SCORING_V2_ENABLED || !container.env.SCORING_V2_EVIDENCE_FETCH_ENABLED)
+    !container.env.SCORING_ENABLED
   ) {
     return {
       outcome: "flags_off",

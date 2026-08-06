@@ -23,7 +23,7 @@ import {
   readActiveMplusCatalogMetadata,
 } from "./active-mplus-season/catalog-metadata.js";
 import { resolveWclMplusZoneMode } from "./active-mplus-season/config.js";
-import { evaluatePublicationEligibility } from "./scoring-v2/run-orchestration/publication-eligibility.js";
+import { evaluatePublicationEligibility } from "./scoring/run-orchestration/publication-eligibility.js";
 
 describe("active mplus season authority primitives", () => {
   it("derives expected slots as dungeonCount × 2", () => {

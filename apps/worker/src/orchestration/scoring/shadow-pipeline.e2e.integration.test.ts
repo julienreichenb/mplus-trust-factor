@@ -621,21 +621,21 @@ describe.runIf(dbAvailable)("CP4 typed shadow pipeline E2E (disposable DB)", () 
       WEB_ORIGIN: "http://localhost:5173",
       PUBLIC_BASE_URL: "http://localhost:3000",
       RAW_ARTIFACTS_DIR: storeRoot,
-      SCORING_V2_ENABLED: "true",
-      SCORING_V2_SELECTION_ENABLED: "true",
-      SCORING_V2_EVIDENCE_FETCH_ENABLED: "true",
-      SCORING_V2_DIMENSIONS_ENABLED: "true",
-      SCORING_V2_PERFORMANCE_ENABLED: "true",
-      SCORING_V2_SURVIVAL_ENABLED: "true",
-      SCORING_V2_UTILITY_ENABLED: "true",
-      SCORING_V2_EXPERIENCE_ENABLED: "true",
-      SCORING_V2_PUBLICATION_ENABLED: "false",
-      CALIBRATION_V2_ENABLED: "false",
+      SCORING_ENABLED: "true",
+      SCORING_ENABLED: "true",
+      SCORING_ENABLED: "true",
+      SCORING_ENABLED: "true",
+      SCORING_ENABLED: "true",
+      SCORING_ENABLED: "true",
+      SCORING_ENABLED: "true",
+      SCORING_ENABLED: "true",
+      SCORING_PUBLICATION_ENABLED: "false",
+      CALIBRATION_ENABLED: "false",
     });
 
     // Defaults remain false in production schemas; this test enables only in-process.
-    expect(env.SCORING_V2_PUBLICATION_ENABLED).toBe(false);
-    expect(env.CALIBRATION_V2_ENABLED).toBe(false);
+    expect(env.SCORING_PUBLICATION_ENABLED).toBe(false);
+    expect(env.CALIBRATION_ENABLED).toBe(false);
 
     const container = createWorkerContainer(env, { prisma });
     const repo = createEvidenceV2BatchRepository(prisma);
@@ -1244,8 +1244,8 @@ describe.runIf(dbAvailable)("CP4 typed shadow pipeline E2E (disposable DB)", () 
       WEB_ORIGIN: "http://localhost:5173",
       PUBLIC_BASE_URL: "http://localhost:3000",
       RAW_ARTIFACTS_DIR: storeRoot,
-      SCORING_V2_ENABLED: "true",
-      SCORING_V2_PUBLICATION_ENABLED: "false",
+      SCORING_ENABLED: "true",
+      SCORING_PUBLICATION_ENABLED: "false",
     });
     const container = createWorkerContainer(env, { prisma });
     const acquired = await acquireCandidateWithFallback({
@@ -1332,8 +1332,8 @@ describe.runIf(dbAvailable)("CP4 typed shadow pipeline E2E (disposable DB)", () 
       WEB_ORIGIN: "http://localhost:5173",
       PUBLIC_BASE_URL: "http://localhost:3000",
       RAW_ARTIFACTS_DIR: storeRoot,
-      SCORING_V2_ENABLED: "true",
-      SCORING_V2_PUBLICATION_ENABLED: "false",
+      SCORING_ENABLED: "true",
+      SCORING_PUBLICATION_ENABLED: "false",
     });
     const container = createWorkerContainer(env, { prisma });
     const acquired = await acquireCandidateWithFallback({

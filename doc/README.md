@@ -12,10 +12,10 @@ Agents: read root [`AGENTS.md`](../AGENTS.md) first.
 |------|------|---------|
 | Product | [`product/`](product/) | Scope, v6 scoring, ranking/confidence/U |
 | Architecture | [`architecture/`](architecture/) | System, refresh, parallel admission, WCL, publication, IAM, addon, frontend, [character search](architecture/character-search-and-realm-catalog.md), [Scoring V2 canonical extraction](architecture/scoring-v2-canonical-extraction.md), [extraction integration review](architecture/scoring-v2-extraction-integration-review.md) |
-| Operations | [`operations/`](operations/) | Local, test env, [release promotion](operations/release-promotion-flow.md), CI/CD, model lifecycle, [Scoring V2 runbooks](operations/scoring-v2-runbooks.md) |
+| Operations | [`operations/`](operations/) | Local, test env, [release promotion](operations/release-promotion-flow.md), CI/CD, model lifecycle |
 | Agents | [`agents/`](agents/) | Workflow, definition of done, ownership |
 | ADRs | [`adr/`](adr/) | Architecture decision records |
-| Scoring | [`scoring/`](scoring/) | Calibration, abilities, boost shadow, [V2 specs](scoring/v2/) |
+| Scoring | [`scoring/`](scoring/) | Architecture, WCL acquisition, dimensions, operations ([canonical set](scoring/README.md)) |
 
 | API / providers | [`api/`](api/) | Blizzard / WCL / Raider.IO provider docs |
 | Research | [`research/`](research/) | Live provider behaviour and source policy |

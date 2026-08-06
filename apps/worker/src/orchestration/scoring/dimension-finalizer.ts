@@ -248,15 +248,8 @@ export async function persistShadowDimensionComputations(
 }
 
 export function resolveEnabledShadowDimensions(env: {
-  SCORING_V2_PERFORMANCE_ENABLED: boolean;
-  SCORING_V2_SURVIVAL_ENABLED: boolean;
-  SCORING_V2_UTILITY_ENABLED: boolean;
-  SCORING_V2_EXPERIENCE_ENABLED: boolean;
+  SCORING_ENABLED: boolean;
 }): ScoringV2PublicDimension[] {
-  const dims: ScoringV2PublicDimension[] = [];
-  if (env.SCORING_V2_PERFORMANCE_ENABLED) dims.push("PERFORMANCE");
-  if (env.SCORING_V2_SURVIVAL_ENABLED) dims.push("SURVIVAL");
-  if (env.SCORING_V2_UTILITY_ENABLED) dims.push("UTILITY");
-  if (env.SCORING_V2_EXPERIENCE_ENABLED) dims.push("EXPERIENCE");
-  return dims;
+  if (!env.SCORING_ENABLED) return [];
+  return ["PERFORMANCE", "SURVIVAL", "UTILITY", "EXPERIENCE"];
 }

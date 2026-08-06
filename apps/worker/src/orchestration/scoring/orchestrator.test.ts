@@ -67,26 +67,26 @@ describe("scoring v2 orchestration invariants", () => {
   it("shadow orchestration requires enabled+selection+fetch", () => {
     expect(
       isScoringV2ShadowOrchestrationEnabled({
-        SCORING_V2_ENABLED: true,
-        SCORING_V2_SELECTION_ENABLED: true,
-        SCORING_V2_EVIDENCE_FETCH_ENABLED: true,
+        SCORING_ENABLED: true,
+        SCORING_ENABLED: true,
+        SCORING_ENABLED: true,
       } as never),
     ).toBe(true);
     expect(
       isScoringV2ShadowOrchestrationEnabled({
-        SCORING_V2_ENABLED: true,
-        SCORING_V2_SELECTION_ENABLED: true,
-        SCORING_V2_EVIDENCE_FETCH_ENABLED: false,
+        SCORING_ENABLED: true,
+        SCORING_ENABLED: true,
+        SCORING_ENABLED: false,
       } as never),
     ).toBe(false);
   });
 
   it("blocks publication at shadow checkpoint", () => {
     expect(() =>
-      assertPublicationBlocked({ SCORING_V2_PUBLICATION_ENABLED: true } as never),
+      assertPublicationBlocked({ SCORING_PUBLICATION_ENABLED: true } as never),
     ).toThrow(/PUBLICATION/);
     expect(() =>
-      assertPublicationBlocked({ SCORING_V2_PUBLICATION_ENABLED: false } as never),
+      assertPublicationBlocked({ SCORING_PUBLICATION_ENABLED: false } as never),
     ).not.toThrow();
   });
 

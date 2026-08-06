@@ -353,10 +353,10 @@ describe("dual-path provider ownership", () => {
   it("digest path owns providers; legacy skipped by default", async () => {
     const ports = createMemoryOrchestrationPorts();
     const container = mockContainer({
-      SCORING_V2_ENABLED: true,
-      SCORING_V2_SELECTION_ENABLED: true,
-      SCORING_V2_EVIDENCE_FETCH_ENABLED: true,
-      SCORING_V2_PUBLICATION_ENABLED: false,
+      SCORING_ENABLED: true,
+      SCORING_ENABLED: true,
+      SCORING_ENABLED: true,
+      SCORING_PUBLICATION_ENABLED: false,
       ALLOW_LIVE_PROVIDER_CALLS: false,
     });
     const diag = await maybeStartScoringV2ShadowFromRefresh({
@@ -393,10 +393,10 @@ describe("dual-path provider ownership", () => {
     const ports = createMemoryOrchestrationPorts();
     const acquire = vi.spyOn(ports, "acquireAndPersistCapabilityPackage");
     const container = mockContainer({
-      SCORING_V2_ENABLED: true,
-      SCORING_V2_SELECTION_ENABLED: true,
-      SCORING_V2_EVIDENCE_FETCH_ENABLED: true,
-      SCORING_V2_PUBLICATION_ENABLED: false,
+      SCORING_ENABLED: true,
+      SCORING_ENABLED: true,
+      SCORING_ENABLED: true,
+      SCORING_PUBLICATION_ENABLED: false,
       ALLOW_LIVE_PROVIDER_CALLS: false,
     });
     const diag = await maybeStartScoringV2ShadowFromRefresh({
@@ -445,10 +445,10 @@ describe("dual-path provider ownership", () => {
     const calls = ports.stats.providerCalls;
 
     const container = mockContainer({
-      SCORING_V2_ENABLED: true,
-      SCORING_V2_SELECTION_ENABLED: true,
-      SCORING_V2_EVIDENCE_FETCH_ENABLED: true,
-      SCORING_V2_PUBLICATION_ENABLED: false,
+      SCORING_ENABLED: true,
+      SCORING_ENABLED: true,
+      SCORING_ENABLED: true,
+      SCORING_PUBLICATION_ENABLED: false,
       ALLOW_LIVE_PROVIDER_CALLS: false,
     });
     const diag = await maybeStartScoringV2ShadowFromRefresh({
@@ -600,10 +600,10 @@ describe("canary CLI guards", () => {
     PROVIDER_MODE: "live" as const,
     WCL_ENABLED: true,
     ALLOW_LIVE_PROVIDER_CALLS: true,
-    SCORING_V2_ENABLED: true,
-    SCORING_V2_SELECTION_ENABLED: true,
-    SCORING_V2_EVIDENCE_FETCH_ENABLED: true,
-    SCORING_V2_PUBLICATION_ENABLED: false,
+    SCORING_ENABLED: true,
+    SCORING_ENABLED: true,
+    SCORING_ENABLED: true,
+    SCORING_PUBLICATION_ENABLED: false,
     WCL_CLIENT_ID: "id",
     WCL_CLIENT_SECRET: "secret",
   };
@@ -620,7 +620,7 @@ describe("canary CLI guards", () => {
 
   it("live command refuses when publication is enabled", () => {
     const gate = evaluateCanaryLiveGates({
-      env: { ...liveEnv, SCORING_V2_PUBLICATION_ENABLED: true },
+      env: { ...liveEnv, SCORING_PUBLICATION_ENABLED: true },
       confirmLive: true,
       characterCount: 1,
     });

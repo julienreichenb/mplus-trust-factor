@@ -25,10 +25,10 @@ const liveEnv = {
   PROVIDER_MODE: "live" as const,
   WCL_ENABLED: true,
   ALLOW_LIVE_PROVIDER_CALLS: true,
-  SCORING_V2_ENABLED: true,
-  SCORING_V2_SELECTION_ENABLED: true,
-  SCORING_V2_EVIDENCE_FETCH_ENABLED: true,
-  SCORING_V2_PUBLICATION_ENABLED: false,
+  SCORING_ENABLED: true,
+  SCORING_ENABLED: true,
+  SCORING_ENABLED: true,
+  SCORING_PUBLICATION_ENABLED: false,
   WCL_CLIENT_ID: "id",
   WCL_CLIENT_SECRET: "secret",
 };
@@ -228,7 +228,7 @@ describe("canary rate snapshot bootstrap", () => {
   });
 
   it("no publication or public pointer mutation occurs in gate path", () => {
-    expect(isDiscoveryExecuteArmed({ SCORING_V2_CANARY_DISCOVERY_EXECUTE: "true" })).toBe(
+    expect(isDiscoveryExecuteArmed({ SCORING_CANARY_DISCOVERY_EXECUTE: "true" })).toBe(
       true,
     );
     const gate = evaluateCanaryDiscoveryGates({
@@ -239,7 +239,7 @@ describe("canary rate snapshot bootstrap", () => {
       repositoryMode: "PRODUCTION",
     });
     expect(gate.allowed).toBe(true);
-    expect(liveEnv.SCORING_V2_PUBLICATION_ENABLED).toBe(false);
+    expect(liveEnv.SCORING_PUBLICATION_ENABLED).toBe(false);
   });
 
   it("projected discovery cost includes bootstrap and excludes capability pages", () => {

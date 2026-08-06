@@ -28,9 +28,9 @@ import {
 import {
   buildEvidenceJoinMarkdown,
   runEvidenceJoin,
-} from "./scoring-v2/evidence-join.js";
-import { packageMemberEvidenceForFreeze } from "./scoring-v2/freeze-evidence-package.js";
-import { buildStoreZip } from "./scoring-v2/zip-store.js";
+} from "./scoring/evidence-join.js";
+import { packageMemberEvidenceForFreeze } from "./scoring/freeze-evidence-package.js";
+import { buildStoreZip } from "./scoring/zip-store.js";
 
 /** M4 lite: hard caps before buffering unbounded archives. */
 export const EVIDENCE_EXPORT_MAX_MEMBERS = 500;

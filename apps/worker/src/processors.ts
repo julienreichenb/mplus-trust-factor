@@ -26,7 +26,7 @@ import { runAnalyzeRun } from "./orchestration/analyze-run.js";
 import { runBulkCharacterProcessing } from "./orchestration/bulk-character-processing.js";
 import { runCalibrationRunJob } from "./orchestration/calibration-run.js";
 import { runScoringV2EvidenceExportJob } from "./orchestration/scoring-v2-evidence-export.js";
-import { runScoringV2ShadowCanaryJob } from "./orchestration/scoring-v2/shadow-canary/processor.js";
+import { runScoringV2ShadowCanaryJob } from "./orchestration/scoring/shadow-canary/processor.js";
 import { runDiscoverOwnedCharacters } from "./orchestration/discover-owned-characters.js";
 import { runGenerateAddonExport } from "./orchestration/generate-addon-export.js";
 import { runRecalculateScore } from "./orchestration/recalculate-score.js";
@@ -35,7 +35,7 @@ import { classifyError } from "./orchestration/retry-classification.js";
 import {
   runAnalyzeEvidenceSlotV2,
   runFinalizeEvidenceBatchV2,
-} from "./orchestration/scoring-v2/index.js";
+} from "./orchestration/scoring/index.js";
 import type { BulkOrchestratorProducers, DiscoveryRefreshProducers } from "./queues.js";
 
 /** BullMQ JSON-encodes job return values; Prisma may include BigInt. Secrets/report codes are stripped. */

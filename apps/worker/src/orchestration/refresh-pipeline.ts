@@ -3582,9 +3582,9 @@ export async function runRefreshPipeline(
   }
 
   // Scoring V2 shadow orchestration (flags default off — no-op). Never blocks V1 publish.
-  if (container.env.SCORING_V2_ENABLED) {
-    const { maybeStartScoringV2ShadowFromRefresh } = await import("./scoring-v2/refresh-bridge.js");
-    const { resolveFrozenCharacterIdentity } = await import("./scoring-v2/class-spec-identity.js");
+  if (container.env.SCORING_ENABLED) {
+    const { maybeStartScoringV2ShadowFromRefresh } = await import("./scoring/refresh-bridge.js");
+    const { resolveFrozenCharacterIdentity } = await import("./scoring/class-spec-identity.js");
     const { mythicRunToEvidenceCandidateMetadata } = await import("@mplus/scoring");
     // Coherent class/spec/role from the same provider chain — never Character.role, never DPS default.
     const frozenIdentity = resolveFrozenCharacterIdentity({

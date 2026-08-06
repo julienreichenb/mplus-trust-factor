@@ -130,10 +130,10 @@ describe("maybeStartScoringV2ShadowFromRefresh ↔ run orchestrator", () => {
   it("1. invokes run orchestrator when all required flags are enabled", async () => {
     const ports = createMemoryOrchestrationPorts();
     const container = mockContainer({
-      SCORING_V2_ENABLED: true,
-      SCORING_V2_SELECTION_ENABLED: true,
-      SCORING_V2_EVIDENCE_FETCH_ENABLED: true,
-      SCORING_V2_PUBLICATION_ENABLED: false,
+      SCORING_ENABLED: true,
+      SCORING_ENABLED: true,
+      SCORING_ENABLED: true,
+      SCORING_PUBLICATION_ENABLED: false,
       ALLOW_LIVE_PROVIDER_CALLS: false,
     });
 
@@ -171,10 +171,10 @@ describe("maybeStartScoringV2ShadowFromRefresh ↔ run orchestrator", () => {
     const ports = createMemoryOrchestrationPorts();
     const acquire = vi.spyOn(ports, "acquireAndPersistCapabilityPackage");
     const container = mockContainer({
-      SCORING_V2_ENABLED: false,
-      SCORING_V2_SELECTION_ENABLED: true,
-      SCORING_V2_EVIDENCE_FETCH_ENABLED: true,
-      SCORING_V2_PUBLICATION_ENABLED: false,
+      SCORING_ENABLED: false,
+      SCORING_ENABLED: true,
+      SCORING_ENABLED: true,
+      SCORING_PUBLICATION_ENABLED: false,
       ALLOW_LIVE_PROVIDER_CALLS: false,
     });
 
@@ -212,10 +212,10 @@ describe("maybeStartScoringV2ShadowFromRefresh ↔ run orchestrator", () => {
     const ports = createMemoryOrchestrationPorts();
     const acquire = vi.spyOn(ports, "acquireAndPersistCapabilityPackage");
     const container = mockContainer({
-      SCORING_V2_ENABLED: true,
-      SCORING_V2_SELECTION_ENABLED: true,
-      SCORING_V2_EVIDENCE_FETCH_ENABLED: true,
-      SCORING_V2_PUBLICATION_ENABLED: false,
+      SCORING_ENABLED: true,
+      SCORING_ENABLED: true,
+      SCORING_ENABLED: true,
+      SCORING_PUBLICATION_ENABLED: false,
       ALLOW_LIVE_PROVIDER_CALLS: false,
     });
 
@@ -717,10 +717,10 @@ describe("maybeStartScoringV2ShadowFromRefresh ↔ run orchestrator", () => {
     });
 
     const container = mockContainer({
-      SCORING_V2_ENABLED: true,
-      SCORING_V2_SELECTION_ENABLED: true,
-      SCORING_V2_EVIDENCE_FETCH_ENABLED: true,
-      SCORING_V2_PUBLICATION_ENABLED: false,
+      SCORING_ENABLED: true,
+      SCORING_ENABLED: true,
+      SCORING_ENABLED: true,
+      SCORING_PUBLICATION_ENABLED: false,
       ALLOW_LIVE_PROVIDER_CALLS: false,
     });
 
@@ -756,10 +756,10 @@ describe("maybeStartScoringV2ShadowFromRefresh ↔ run orchestrator", () => {
   it("12. public score pointer remains unchanged", async () => {
     const ports = createMemoryOrchestrationPorts();
     const container = mockContainer({
-      SCORING_V2_ENABLED: true,
-      SCORING_V2_SELECTION_ENABLED: true,
-      SCORING_V2_EVIDENCE_FETCH_ENABLED: true,
-      SCORING_V2_PUBLICATION_ENABLED: false,
+      SCORING_ENABLED: true,
+      SCORING_ENABLED: true,
+      SCORING_ENABLED: true,
+      SCORING_PUBLICATION_ENABLED: false,
       ALLOW_LIVE_PROVIDER_CALLS: true,
     });
 

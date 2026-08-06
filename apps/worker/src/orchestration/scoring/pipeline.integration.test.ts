@@ -229,11 +229,11 @@ describe.runIf(dbAvailable)("scoring v2 pipeline fan-in integration", () => {
       WEB_ORIGIN: "http://localhost:5173",
       PUBLIC_BASE_URL: "http://localhost:3000",
       RAW_ARTIFACTS_DIR: storeRoot,
-      SCORING_V2_ENABLED: "true",
-      SCORING_V2_SELECTION_ENABLED: "true",
-      SCORING_V2_EVIDENCE_FETCH_ENABLED: "true",
-      SCORING_V2_DIMENSIONS_ENABLED: "false",
-      SCORING_V2_PUBLICATION_ENABLED: "false",
+      SCORING_ENABLED: "true",
+      SCORING_ENABLED: "true",
+      SCORING_ENABLED: "true",
+      SCORING_ENABLED: "false",
+      SCORING_PUBLICATION_ENABLED: "false",
     });
 
     const container = createWorkerContainer(env, { prisma });

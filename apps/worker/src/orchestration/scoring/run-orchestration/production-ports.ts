@@ -1,20 +1,22 @@
 /**
- * Production RunOrchestrationPorts — PostgreSQL artifact store + evidence indexes.
- * Live WCL acquire only when the caller passes an explicit live acquire hook
- * (gated by ALLOW_LIVE_PROVIDER_CALLS upstream). Ranking hydrate is provider-free.
+ * Production scoring ports backed by WclRunRaw / CharacterRunDigest / RunRankingFact.
+ * No ArtifactReference ownership, no package supersession, no compatibility-head lookup.
  */
-import type { PrismaClient } from "@mplus/database";
+import type { PrismaClient, Prisma } from "@mplus/database";
 import {
-  CapabilityEvidencePackageRepository,
-  ParticipantScoringDigestRepository,
-  type ArtifactRepository,
-  type EvidenceRepository,
-} from "@mplus/database";
-import {
+  CAPABILITY_ACQUISITION_PLAN_VERSION,
+  PARTICIPANT_DIGEST_EXTRACTOR_COMPAT_VERSION,
   assertCapabilityEvidencePackageV1,
   assertParticipantScoringDigestV1,
   type CapabilityEvidencePackageV1,
 } from "@mplus/contracts";
+import {
+  WclRunRawRepository,
+  CharacterRunDigestRepository,
+  RunRankingFactRepository,
+  type ArtifactRepository,
+  type EvidenceRepository,
+} from "@mplus/database";
 import type { RankingParseEvidenceV2 } from "@mplus/provider-warcraftlogs";
 import {
   createInMemorySourceFightLock,
@@ -30,30 +32,29 @@ import {
   rankingParseCompatibilityKey,
   rankingParseFactFromPersistedEvidence,
 } from "./ranking-hydrate.js";
-import { persistParticipantDigestWithRowOwner } from "./persist-digest-artifact.js";
+
+export const SCORING_ACQUISITION_VERSION = CAPABILITY_ACQUISITION_PLAN_VERSION;
+export const SCORING_EXTRACTOR_VERSION = PARTICIPANT_DIGEST_EXTRACTOR_COMPAT_VERSION;
+export const SCORING_RANKING_VERSION = "ranking-parse-v1";
+
 export interface ProductionRunOrchestrationPortsDeps {
   prisma: PrismaClient;
+  /** Kept for ranking datasets that still live in the evidence store. */
   artifacts: ArtifactRepository;
   evidence: EvidenceRepository;
-  /**
-   * Optional live acquire. Must only be provided when ALLOW_LIVE_PROVIDER_CALLS
-   * is true. Tests leave this undefined so acquire cannot reach WCL.
-   */
+  acquisitionVersion?: string;
+  extractorVersion?: string;
+  rankingVersion?: string;
   liveAcquireCapabilityPackage?: (input: {
     sourceFight: SourceFightIdentity;
     dungeonSlug: string | null;
     keyLevel: number | null;
     participants: OrchestrationParticipant[];
   }) => Promise<AcquireCapabilityPackageResult>;
-  /**
-   * Optional participant resolver (e.g. from WclRunParticipant / masterData).
-   * Defaults to package.friendlyPlayerActorIds when a package exists.
-   */
   resolveParticipants?: (input: {
     sourceFight: SourceFightIdentity;
   }) => Promise<OrchestrationParticipant[]>;
   resolveFightRoster?: RunOrchestrationPorts["resolveFightRoster"];
-  /** Optional Redis-backed lock; defaults to in-process singleflight. */
   withSourceFightLock?: RunOrchestrationPorts["withSourceFightLock"];
 }
 
@@ -80,31 +81,65 @@ function asRankingEvidence(payload: unknown): RankingParseEvidenceV2 | null {
   };
 }
 
+function packageFromPayload(payload: unknown): CapabilityEvidencePackageV1 {
+  return assertCapabilityEvidencePackageV1(payload);
+}
+
+function digestFromRow(row: {
+  id: string;
+  sourceMetadata: unknown;
+  offensive: unknown;
+  utility: unknown;
+  survival: unknown;
+}): PersistedDigestRecord | null {
+  const meta = row.sourceMetadata;
+  if (meta == null || typeof meta !== "object") return null;
+  const digestCandidate = (meta as { digest?: unknown }).digest ?? meta;
+  try {
+    const digest = assertParticipantScoringDigestV1(digestCandidate);
+    return {
+      digest,
+      artifactId: row.id,
+      created: false,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export function createProductionRunOrchestrationPorts(
   deps: ProductionRunOrchestrationPortsDeps,
 ): RunOrchestrationPorts {
-  const packages = new CapabilityEvidencePackageRepository(
-    deps.prisma,
-    deps.artifacts,
-  );
-  const digests = new ParticipantScoringDigestRepository(
-    deps.prisma,
-    deps.artifacts,
-  );
-  const lock =
-    deps.withSourceFightLock ?? createInMemorySourceFightLock();
+  const acquisitionVersion =
+    deps.acquisitionVersion ?? SCORING_ACQUISITION_VERSION;
+  const extractorVersion = deps.extractorVersion ?? SCORING_EXTRACTOR_VERSION;
+  const rankingVersion = deps.rankingVersion ?? SCORING_RANKING_VERSION;
+  const rawRuns = new WclRunRawRepository(deps.prisma);
+  const digests = new CharacterRunDigestRepository(deps.prisma);
+  const rankings = new RunRankingFactRepository(deps.prisma);
+  const lock = deps.withSourceFightLock ?? createInMemorySourceFightLock();
+
+  async function loadRaw(sourceFight: SourceFightIdentity) {
+    return rawRuns.find({
+      reportCode: sourceFight.reportCode,
+      fightId: sourceFight.fightId,
+      reportRevision: sourceFight.reportRevision,
+      acquisitionVersion,
+    });
+  }
 
   return {
     withSourceFightLock: lock,
 
     async findCompatibleCapabilityPackage({ sourceFight }) {
-      const hit = await packages.findCompleteBySourceFight(sourceFight);
-      if (!hit) return null;
-      if (hit.package.complete !== true) return null;
+      const row = await loadRaw(sourceFight);
+      if (!row) return null;
+      const pkg = packageFromPayload(row.payload);
+      if (pkg.complete !== true) return null;
       return {
-        package: hit.package,
-        packageArtifactId: hit.packageArtifactId,
-        contentHash: hit.contentHash,
+        package: pkg,
+        packageArtifactId: row.id,
+        contentHash: pkg.contentHash,
         providerCalls: 0,
       } satisfies CompatiblePackageHit;
     },
@@ -122,48 +157,117 @@ export function createProductionRunOrchestrationPorts(
       const pkg = assertCapabilityEvidencePackageV1(acquired.package);
       if (pkg.complete !== true) {
         throw Object.assign(
-          new Error(`incomplete_capability_package:${sourceFightKey(input.sourceFight)}`),
+          new Error(
+            `incomplete_capability_package:${sourceFightKey(input.sourceFight)}`,
+          ),
           { code: "INCOMPLETE_CAPABILITY_PACKAGE" },
         );
       }
 
-      // Index may already exist from the live hook; upsert is idempotent.
-      await packages.upsertIndex({
-        package: pkg,
-        packageArtifactId: acquired.packageArtifactId,
-        contentHash: acquired.contentHash,
+      const saved = await rawRuns.save({
+        reportCode: input.sourceFight.reportCode,
+        fightId: input.sourceFight.fightId,
+        reportRevision: input.sourceFight.reportRevision,
+        acquisitionVersion,
+        payload: pkg as unknown as Prisma.InputJsonValue,
+        providerCost: {
+          providerCalls: acquired.providerCalls,
+          contentHash: pkg.contentHash,
+        },
       });
 
       return {
         package: pkg,
-        packageArtifactId: acquired.packageArtifactId,
-        contentHash: acquired.contentHash,
+        packageArtifactId: saved.id,
+        contentHash: pkg.contentHash,
         providerCalls: acquired.providerCalls,
         created: acquired.created,
       };
     },
 
     async findCompatibleDigest(input) {
-      const found = await digests.findCompatible(input);
-      if (!found) return null;
-      return {
-        digest: found.digest,
-        artifactId: found.artifactId,
-        created: false,
-      } satisfies PersistedDigestRecord;
+      const row = await loadRaw({
+        reportCode: input.reportCode,
+        fightId: input.fightId,
+        reportRevision: input.reportRevision,
+      });
+      if (!row) return null;
+
+      const candidates = await deps.prisma.characterRunDigest.findMany({
+        where: {
+          rawRunId: row.id,
+          extractorVersion:
+            input.extractorCompatVersion || extractorVersion,
+        },
+      });
+      for (const candidate of candidates) {
+        const parsed = digestFromRow(candidate);
+        if (!parsed) continue;
+        if (parsed.digest.participantActorId !== input.participantActorId) {
+          continue;
+        }
+        if (
+          parsed.digest.capabilityPackageContentHash !==
+          input.capabilityPackageContentHash
+        ) {
+          continue;
+        }
+        return parsed;
+      }
+      return null;
     },
 
     async persistDigest(digest) {
       const validated = assertParticipantScoringDigestV1(digest);
-      const persisted = await persistParticipantDigestWithRowOwner({
-        artifacts: deps.artifacts,
-        digests,
-        digest: validated,
+      const characterId = validated.characterId;
+      if (!characterId) {
+        // Target-character digests require a stable Character UUID.
+        // Actor-only digests are kept in-memory by the orchestrator return path.
+        return {
+          digest: validated,
+          artifactId: `ephemeral:${validated.reportCode}:${validated.fightId}:${validated.participantActorId}`,
+          created: false,
+        };
+      }
+
+      const raw = await loadRaw({
+        reportCode: validated.reportCode,
+        fightId: validated.fightId,
+        reportRevision: validated.reportRevision,
       });
+      if (!raw) {
+        throw Object.assign(
+          new Error(
+            `raw_run_missing_for_digest:${validated.reportCode}:${validated.fightId}:${validated.reportRevision}`,
+          ),
+          { code: "RAW_RUN_MISSING" },
+        );
+      }
+
+      const existing = await digests.find({
+        rawRunId: raw.id,
+        characterId,
+        extractorVersion,
+      });
+      const saved = await digests.save({
+        rawRunId: raw.id,
+        characterId,
+        extractorVersion,
+        offensive: validated.performance as unknown as Prisma.InputJsonValue,
+        utility: validated.utility as unknown as Prisma.InputJsonValue,
+        survival: validated.survival as unknown as Prisma.InputJsonValue,
+        sourceMetadata: {
+          digest: validated,
+          participantActorId: validated.participantActorId,
+          capabilityPackageContentHash: validated.capabilityPackageContentHash,
+          catalogVersion: validated.catalogVersion,
+        } as unknown as Prisma.InputJsonValue,
+      });
+
       return {
         digest: validated,
-        artifactId: persisted.artifactId,
-        created: persisted.created,
+        artifactId: saved.id,
+        created: !existing,
       };
     },
 
@@ -171,11 +275,10 @@ export function createProductionRunOrchestrationPorts(
       if (deps.resolveParticipants) {
         return deps.resolveParticipants({ sourceFight });
       }
-      const hit = await packages.findCompleteBySourceFight(sourceFight);
-      if (!hit) {
-        return [];
-      }
-      return hit.package.friendlyPlayerActorIds.map((id, index) => ({
+      const row = await loadRaw(sourceFight);
+      if (!row) return [];
+      const pkg = packageFromPayload(row.payload);
+      return pkg.friendlyPlayerActorIds.map((id) => ({
         playerActorId: id,
         characterName: `Actor${id}`,
         classSlug: null,
@@ -183,14 +286,47 @@ export function createProductionRunOrchestrationPorts(
         role: null,
         ownedPetActorIds: [],
         characterId: null,
-        // Prefer first actor as a placeholder; callers should inject resolveParticipants.
-        ...(index === 0 ? {} : {}),
       }));
     },
 
     resolveFightRoster: deps.resolveFightRoster,
 
-    async resolveRankingParseForParticipant({ sourceFight }) {
+    async resolveRankingParseForParticipant({
+      sourceFight,
+      participantActorId,
+    }) {
+      const raw = await loadRaw(sourceFight);
+      if (raw) {
+        // Prefer RunRankingFact rows when character-scoped facts exist.
+        const facts = await deps.prisma.runRankingFact.findMany({
+          where: { rawRunId: raw.id, rankingVersion },
+        });
+        for (const fact of facts) {
+          const evidence = asRankingEvidence(fact.payload);
+          if (!evidence) continue;
+          const meta = fact.payload as { participantActorId?: number };
+          if (
+            typeof meta.participantActorId === "number" &&
+            meta.participantActorId !== participantActorId
+          ) {
+            continue;
+          }
+          if (
+            evidence.reportCode !== sourceFight.reportCode ||
+            evidence.fightId !== sourceFight.fightId ||
+            evidence.reportRevision !== sourceFight.reportRevision
+          ) {
+            continue;
+          }
+          return rankingParseFactFromPersistedEvidence({
+            evidence,
+            artifactId: fact.id,
+            contentHash: null,
+          });
+        }
+      }
+
+      // Legacy evidence-dataset fallback (read-only) while rankings migrate.
       const compatibilityKey = rankingParseCompatibilityKey(sourceFight);
       const dataset =
         await deps.evidence.findDatasetByCompatibilityKey(compatibilityKey);
@@ -207,6 +343,12 @@ export function createProductionRunOrchestrationPorts(
       ) {
         return null;
       }
+
+      if (raw) {
+        // Opportunistically cache into RunRankingFact when a characterId is known later.
+        void rankings;
+      }
+
       return rankingParseFactFromPersistedEvidence({
         evidence,
         artifactId: dataset.artifactId,
@@ -216,35 +358,27 @@ export function createProductionRunOrchestrationPorts(
   };
 }
 
-/** Persist a capability package to pg:// + index (provider-free write path). */
+/** Persist a capability package into WclRunRaw (provider-free write path). */
 export async function persistCapabilityPackageToPostgres(input: {
-  artifacts: ArtifactRepository;
-  packages: CapabilityEvidencePackageRepository;
+  prisma: PrismaClient;
   package: CapabilityEvidencePackageV1;
+  acquisitionVersion?: string;
 }): Promise<CompatiblePackageHit> {
   const pkg = assertCapabilityEvidencePackageV1(input.package);
-  const bytes = Buffer.from(JSON.stringify(pkg), "utf8");
-  // Persist without owner first — ownerId must be CapabilityEvidencePackageRecord.id.
-  const write = await input.artifacts.persist({
-    provider: "WARCRAFT_LOGS",
-    bytes,
-    compression: "GZIP",
-    artifactClass: "canonical_capability_evidence_v1",
-  });
-  const indexed = await input.packages.upsertIndex({
-    package: pkg,
-    packageArtifactId: write.artifactId,
-    contentHash: pkg.contentHash,
-  });
-  await input.artifacts.ensureOwnerReference({
-    artifactId: write.artifactId,
-    ownerType: "CapabilityEvidencePackage",
-    ownerId: indexed.id,
-    artifactClass: "canonical_capability_evidence_v1",
+  const acquisitionVersion =
+    input.acquisitionVersion ?? SCORING_ACQUISITION_VERSION;
+  const rawRuns = new WclRunRawRepository(input.prisma);
+  const saved = await rawRuns.save({
+    reportCode: pkg.sourceKey.reportCode,
+    fightId: pkg.sourceKey.fightId,
+    reportRevision: pkg.sourceKey.reportRevision,
+    acquisitionVersion,
+    payload: pkg as unknown as Prisma.InputJsonValue,
+    providerCost: { contentHash: pkg.contentHash },
   });
   return {
     package: pkg,
-    packageArtifactId: write.artifactId,
+    packageArtifactId: saved.id,
     contentHash: pkg.contentHash,
     providerCalls: 0,
   };

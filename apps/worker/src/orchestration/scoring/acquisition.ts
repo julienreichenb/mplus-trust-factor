@@ -187,29 +187,24 @@ export function buildDatasetContentHash(payload: unknown): string {
 }
 
 export function resolveEnabledConsumers(env: WorkerContainer["env"]): EvidenceV2EnabledConsumer[] {
-  const consumers: EvidenceV2EnabledConsumer[] = [];
-  if (env.SCORING_V2_PERFORMANCE_ENABLED) consumers.push("PERFORMANCE");
-  if (env.SCORING_V2_SURVIVAL_ENABLED) consumers.push("SURVIVAL");
-  if (env.SCORING_V2_UTILITY_ENABLED) consumers.push("UTILITY");
-  if (consumers.length === 0) {
-    return ["PERFORMANCE", "SURVIVAL", "UTILITY"];
-  }
-  return consumers;
+  if (!env.SCORING_ENABLED) return [];
+  return ["PERFORMANCE", "SURVIVAL", "UTILITY"];
 }
 
+export function isScoringEnabled(env: WorkerContainer["env"]): boolean {
+  return env.SCORING_ENABLED === true;
+}
+
+/** @deprecated Use isScoringEnabled */
 export function isScoringV2ShadowOrchestrationEnabled(env: WorkerContainer["env"]): boolean {
-  return (
-    env.SCORING_V2_ENABLED &&
-    env.SCORING_V2_SELECTION_ENABLED &&
-    env.SCORING_V2_EVIDENCE_FETCH_ENABLED
-  );
+  return isScoringEnabled(env);
 }
 
-/** Publication must stay blocked in this checkpoint regardless of env misconfiguration. */
+/** Publication must stay blocked unless the publication gate is intentionally enabled. */
 export function assertPublicationBlocked(env: WorkerContainer["env"]): void {
-  if (env.SCORING_V2_PUBLICATION_ENABLED) {
+  if (env.SCORING_PUBLICATION_ENABLED) {
     throw new Error(
-      "SCORING_V2_PUBLICATION_ENABLED is true — Prompt 05 shadow checkpoint forbids public pointer mutation",
+      "SCORING_PUBLICATION_ENABLED is true — canary/shadow path forbids public pointer mutation",
     );
   }
 }

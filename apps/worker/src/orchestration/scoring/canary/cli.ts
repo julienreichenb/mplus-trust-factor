@@ -293,10 +293,10 @@ export interface CanaryLiveGateInput {
     | "PROVIDER_MODE"
     | "WCL_ENABLED"
     | "ALLOW_LIVE_PROVIDER_CALLS"
-    | "SCORING_V2_ENABLED"
-    | "SCORING_V2_SELECTION_ENABLED"
-    | "SCORING_V2_EVIDENCE_FETCH_ENABLED"
-    | "SCORING_V2_PUBLICATION_ENABLED"
+    | "SCORING_ENABLED"
+    | "SCORING_ENABLED"
+    | "SCORING_ENABLED"
+    | "SCORING_PUBLICATION_ENABLED"
     | "WCL_CLIENT_ID"
     | "WCL_CLIENT_SECRET"
   >;
@@ -326,7 +326,7 @@ export function evaluateCanaryLiveGates(
   if (!isScoringV2ShadowOrchestrationEnabled(input.env as never)) {
     reasons.push("SHADOW_FLAGS_DISABLED");
   }
-  if (input.env.SCORING_V2_PUBLICATION_ENABLED) {
+  if (input.env.SCORING_PUBLICATION_ENABLED) {
     reasons.push("PUBLICATION_ENABLED");
   }
   if (input.characterCount !== 1) reasons.push("MULTIPLE_CHARACTERS");
@@ -786,7 +786,7 @@ export async function runCanaryDiscoverCommand(
   const gate = evaluateCanaryDiscoveryGates({
     env: {
       ...env,
-      SCORING_V2_CANARY_DISCOVERY_EXECUTE: isDiscoveryExecuteArmed(processEnv),
+      SCORING_CANARY_DISCOVERY_EXECUTE: isDiscoveryExecuteArmed(processEnv),
     },
     discoveryExecuteArmed: isDiscoveryExecuteArmed(processEnv),
     confirmDiscovery: args.confirmDiscovery,
@@ -800,8 +800,8 @@ export async function runCanaryDiscoverCommand(
     );
   }
 
-  // Prove SCORING_V2_CANARY_EXECUTE alone does not authorize discovery.
-  void processEnv.SCORING_V2_CANARY_EXECUTE;
+  // Prove SCORING_CANARY_EXECUTE alone does not authorize discovery.
+  void processEnv.SCORING_CANARY_EXECUTE;
 
   const identity = identityFromArgs(args);
   const deps = await createProductionCanaryDependencies({ env, identity });
@@ -978,7 +978,7 @@ export async function runCanaryRateSnapshotCommand(
   if (!env.WCL_CLIENT_ID || !env.WCL_CLIENT_SECRET) {
     reasons.push("WCL_CREDENTIALS_MISSING");
   }
-  if (env.SCORING_V2_PUBLICATION_ENABLED) reasons.push("PUBLICATION_ENABLED");
+  if (env.SCORING_PUBLICATION_ENABLED) reasons.push("PUBLICATION_ENABLED");
   if (reasons.length > 0) {
     throw Object.assign(
       new Error(`canary_rate_snapshot_refused:${reasons.join(",")}`),
@@ -1069,10 +1069,10 @@ export async function runCanaryLiveCommand(
       );
     }
 
-    if (processEnv.SCORING_V2_CANARY_EXECUTE !== "true") {
+    if (processEnv.SCORING_CANARY_EXECUTE !== "true") {
       throw Object.assign(
         new Error(
-          "canary_live_gates_passed_but_execute_not_armed: set SCORING_V2_CANARY_EXECUTE=true after human approval",
+          "canary_live_gates_passed_but_execute_not_armed: set SCORING_CANARY_EXECUTE=true after human approval",
         ),
         {
           code: "CANARY_EXECUTE_NOT_ARMED",

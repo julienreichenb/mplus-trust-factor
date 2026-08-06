@@ -35,10 +35,10 @@ const liveEnv = {
   PROVIDER_MODE: "live" as const,
   WCL_ENABLED: true,
   ALLOW_LIVE_PROVIDER_CALLS: true,
-  SCORING_V2_ENABLED: true,
-  SCORING_V2_SELECTION_ENABLED: true,
-  SCORING_V2_EVIDENCE_FETCH_ENABLED: true,
-  SCORING_V2_PUBLICATION_ENABLED: false,
+  SCORING_ENABLED: true,
+  SCORING_ENABLED: true,
+  SCORING_ENABLED: true,
+  SCORING_PUBLICATION_ENABLED: false,
   WCL_CLIENT_ID: "id",
   WCL_CLIENT_SECRET: "secret",
   WCL_CANARY_RATE_SNAPSHOT_TTL_SECONDS: 60,
@@ -266,7 +266,7 @@ describe("canary live gates", () => {
 
   it("publication enabled causes refusal", () => {
     const gate = evaluateCanaryLiveGates({
-      env: { ...liveEnv, SCORING_V2_PUBLICATION_ENABLED: true },
+      env: { ...liveEnv, SCORING_PUBLICATION_ENABLED: true },
       confirmLive: true,
       characterCount: 1,
     });

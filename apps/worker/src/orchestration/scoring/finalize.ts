@@ -57,13 +57,13 @@ export async function runFinalizeEvidenceBatchV2(
   const existing = await repo.getById(job.analysisBatchId);
   if (!existing) {
     // Preserve flags_off when V2 is disabled and the batch is absent (isolation tests).
-    if (!container.env.SCORING_V2_ENABLED) {
+    if (!container.env.SCORING_ENABLED) {
       return { outcome: "flags_off", analysisBatchId: job.analysisBatchId };
     }
     return { outcome: "batch_not_found", analysisBatchId: job.analysisBatchId };
   }
 
-  if (!container.env.SCORING_V2_ENABLED && existing.meta.adminShadowCanary !== true) {
+  if (!container.env.SCORING_ENABLED && existing.meta.adminShadowCanary !== true) {
     return { outcome: "flags_off", analysisBatchId: job.analysisBatchId };
   }
 
@@ -345,7 +345,7 @@ export async function runFinalizeEvidenceBatchV2(
     // Shadow dimension finalization — provider-free; no public publication.
     // Admin Shadow Canary forces all four dimensions even when process env flags are off.
     const canaryDims = claimed.meta.adminShadowCanary === true;
-    if (canaryDims || container.env.SCORING_V2_DIMENSIONS_ENABLED) {
+    if (canaryDims || container.env.SCORING_ENABLED) {
       const enabledDimensions = canaryDims
         ? (["PERFORMANCE", "SURVIVAL", "UTILITY", "EXPERIENCE"] as Array<
             "PERFORMANCE" | "SURVIVAL" | "UTILITY" | "EXPERIENCE"
@@ -361,7 +361,7 @@ export async function runFinalizeEvidenceBatchV2(
             manifestDocument: manifestDocument as never,
             expectedManifestContentHash: manifestContentHash,
             enabledDimensions,
-            relativeDamageMode: container.env.SCORING_V2_RELATIVE_DAMAGE_MODE,
+            relativeDamageMode: container.env.SCORING_RELATIVE_DAMAGE_MODE,
           });
 
         container.logger.info(

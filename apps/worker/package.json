@@ -15,10 +15,10 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "realms:sync": "tsx ../../tools/scripts/sync-realm-catalog.mjs",
     "season:sync-authority": "tsx src/orchestration/sync-season-authority.cli.ts",
-    "scoring-v2:canary": "tsx src/orchestration/scoring-v2/public-cli.ts canary",
-    "scoring-v2:replay": "tsx src/orchestration/scoring-v2/public-cli.ts replay",
-    "scoring-v2:doctor": "tsx src/orchestration/scoring-v2/public-cli.ts doctor",
-    "canary:internal": "tsx src/orchestration/scoring-v2/canary/cli.ts"
+    "scoring:canary": "tsx src/orchestration/scoring/public-cli.ts canary",
+    "scoring:replay": "tsx src/orchestration/scoring/public-cli.ts replay",
+    "scoring:doctor": "tsx src/orchestration/scoring/public-cli.ts doctor",
+    "canary:internal": "tsx src/orchestration/scoring/canary/cli.ts"
   },
   "dependencies": {
     "@mplus/artifact-store": "workspace:*",

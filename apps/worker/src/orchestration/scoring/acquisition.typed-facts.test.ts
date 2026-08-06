@@ -142,7 +142,7 @@ function rankingEvidence(
 function mockContainer() {
   return {
     logger: { info: () => undefined, warn: () => undefined, error: () => undefined },
-    env: { SCORING_V2_PUBLICATION_ENABLED: false },
+    env: { SCORING_PUBLICATION_ENABLED: false },
   } as never;
 }
 

@@ -7,7 +7,7 @@
  * prevent duplicate WCL calls for the same fights.
  *
  * Live WCL on the digest path requires ALLOW_LIVE_PROVIDER_CALLS + PROVIDER_MODE=live
- * + an explicit live acquire hook. SCORING_V2_PUBLICATION_ENABLED must remain false.
+ * + an explicit live acquire hook. SCORING_PUBLICATION_ENABLED must remain false.
  */
 import type { EvidenceCandidateMetadataV2, EvidenceRole } from "@mplus/contracts";
 import { EVIDENCE_SELECTOR_VERSION, expectedEvidenceSlotCount, hashRefreshContract } from "@mplus/contracts";
@@ -206,9 +206,9 @@ export async function maybeStartScoringV2ShadowFromRefresh(input: {
         event: "scoring_v2_publication_flag_refused",
         characterId: input.characterId,
       },
-      "SCORING_V2_PUBLICATION_ENABLED must stay false — refusing digest orchestration",
+      "SCORING_PUBLICATION_ENABLED must stay false — refusing digest orchestration",
     );
-    return empty("scoring_v2_publication_enabled_refused");
+    return empty("SCORING_PUBLICATION_ENABLED_refused");
   }
 
   const liveProviderPermission = liveProviderPermissionFromEnv(
@@ -350,7 +350,7 @@ export async function maybeStartScoringV2ShadowFromRefresh(input: {
         wclEnabled: env.WCL_ENABLED === true,
         allowLiveProviderCalls: env.ALLOW_LIVE_PROVIDER_CALLS === true,
         liveProviderPermissionGranted: liveProviderPermission === "ALLOWED",
-        scoringV2PublicationEnabled: env.SCORING_V2_PUBLICATION_ENABLED === true,
+        scoringV2PublicationEnabled: env.SCORING_PUBLICATION_ENABLED === true,
         hasWclCredentials: Boolean(env.WCL_CLIENT_ID && env.WCL_CLIENT_SECRET),
       };
       const gate = evaluateLiveCapabilityPermission(permission);
@@ -553,7 +553,7 @@ export async function maybeStartScoringV2ShadowFromRefresh(input: {
       result: orchestration,
       scoringModelId: input.scoreModelId,
       scoringV2PublicationEnabled:
-        input.container.env.SCORING_V2_PUBLICATION_ENABLED === true,
+        input.container.env.SCORING_PUBLICATION_ENABLED === true,
       expectedSlotCountFromSeason: expectedEvidenceSlotCount(
         input.activeDungeonSlugs.length,
       ),

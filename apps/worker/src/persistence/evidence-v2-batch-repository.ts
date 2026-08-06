@@ -16,15 +16,15 @@ import {
   SCORING_V2_BATCH_METADATA_KEY,
   type EvidenceV2BatchMetadata,
   type EvidenceV2SlotRecord,
-} from "../orchestration/scoring-v2/types.js";
-import type { ScoringV2ProviderAccounting } from "../orchestration/scoring-v2/provider-accounting.js";
-import { resolveBatchDatasetRequirements } from "../orchestration/scoring-v2/dataset-requirements.js";
-import type { AcquiredEvidenceDatasetDescriptor } from "../orchestration/scoring-v2/dataset-descriptor-persist.js";
-import type { TypedDimensionFactPayload } from "../orchestration/scoring-v2/typed-fact-persist.js";
+} from "../orchestration/scoring/types.js";
+import type { ScoringV2ProviderAccounting } from "../orchestration/scoring/provider-accounting.js";
+import { resolveBatchDatasetRequirements } from "../orchestration/scoring/dataset-requirements.js";
+import type { AcquiredEvidenceDatasetDescriptor } from "../orchestration/scoring/dataset-descriptor-persist.js";
+import type { TypedDimensionFactPayload } from "../orchestration/scoring/typed-fact-persist.js";
 import {
   isEvidenceV2SlotTerminal,
   recountEvidenceV2Slots,
-} from "../orchestration/scoring-v2/fanin.js";
+} from "../orchestration/scoring/fanin.js";
 
 export interface CreateEvidenceV2BatchInput {
   characterId: string;

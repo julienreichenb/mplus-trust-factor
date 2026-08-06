@@ -61,14 +61,14 @@ describe("runFinalizeEvidenceBatchV2 FINALIZING recovery", () => {
 
     const container = {
       env: {
-        SCORING_V2_ENABLED: true,
-        SCORING_V2_DIMENSIONS_ENABLED: true,
-        SCORING_V2_PUBLICATION_ENABLED: false,
-        SCORING_V2_PERFORMANCE_ENABLED: true,
-        SCORING_V2_SURVIVAL_ENABLED: false,
-        SCORING_V2_UTILITY_ENABLED: false,
-        SCORING_V2_EXPERIENCE_ENABLED: false,
-        SCORING_V2_RELATIVE_DAMAGE_MODE: "off",
+        SCORING_ENABLED: true,
+        SCORING_ENABLED: true,
+        SCORING_PUBLICATION_ENABLED: false,
+        SCORING_ENABLED: true,
+        SCORING_ENABLED: false,
+        SCORING_ENABLED: false,
+        SCORING_ENABLED: false,
+        SCORING_RELATIVE_DAMAGE_MODE: "off",
       },
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
       prisma: {

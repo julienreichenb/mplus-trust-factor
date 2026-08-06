@@ -10,6 +10,7 @@ export * from "./orchestrator.js";
 export * from "./slot-processor.js";
 export * from "./finalize.js";
 export * from "./refresh-bridge.js";
+export * from "./score-character.js";
 export * from "./dimension-finalizer.js";
 export {
   packageMemberEvidenceForFreeze,

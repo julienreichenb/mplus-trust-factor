@@ -55,7 +55,7 @@ export function parsePublicCliArgs(argv: string[]): {
   ) {
     throw Object.assign(
       new Error(
-        `deprecated_operator_command:${raw[0]}: use scoring-v2:canary | scoring-v2:replay | scoring-v2:doctor`,
+        `deprecated_operator_command:${raw[0]}: use scoring:canary | scoring:replay | scoring:doctor`,
       ),
       { code: "DEPRECATED_OPERATOR_COMMAND", command: raw[0] },
     );
@@ -68,7 +68,7 @@ export function parsePublicCliArgs(argv: string[]): {
   const confirmExecute =
     parsed.confirmLive ||
     parsed.confirmDiscovery ||
-    process.env.SCORING_V2_CANARY_EXECUTE === "true" ||
+    process.env.SCORING_CANARY_EXECUTE === "true" ||
     raw.includes("--confirm-execute");
 
   return { mode, args: { ...parsed, mode: legacyMode }, confirmExecute };
@@ -124,7 +124,7 @@ async function runPublicCanary(input: {
       discoverStage: async () => {
         if (!isDiscoveryExecuteArmed(process.env) && !input.args.confirmDiscovery) {
           // Arm discovery via confirm-execute for consolidated canary.
-          process.env.SCORING_V2_CANARY_DISCOVERY_EXECUTE = "true";
+          process.env.SCORING_CANARY_DISCOVERY_EXECUTE = "true";
         }
         const discovered = await runCanaryDiscoverCommand({
           ...input.args,

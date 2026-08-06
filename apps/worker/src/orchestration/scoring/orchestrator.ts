@@ -89,7 +89,7 @@ export async function startEvidenceV2ShadowPipeline(
   if (!isScoringV2ShadowOrchestrationEnabled(container.env)) {
     return { skipped: true, reason: "scoring_v2_flags_off" };
   }
-  if (container.env.SCORING_V2_PUBLICATION_ENABLED) {
+  if (container.env.SCORING_PUBLICATION_ENABLED) {
     recordPublicationDecision("rejected", "publication_must_stay_blocked");
     emitScoringV2Event(
       container.logger,

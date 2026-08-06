@@ -9,11 +9,11 @@ export interface PublicationEligibilityDecision {
   /**
    * True when all completeness / compatibility gates pass.
    * Does not imply the public score pointer will be mutated —
-   * that requires SCORING_V2_PUBLICATION_ENABLED (kept false here).
+   * that requires SCORING_PUBLICATION_ENABLED (kept false here).
    */
   eligible: boolean;
   reasons: string[];
-  /** Always false while SCORING_V2_PUBLICATION_ENABLED remains off. */
+  /** Always false while SCORING_PUBLICATION_ENABLED remains off. */
   publicationEnabled: false;
   publicScorePointerMutated: false;
   checks: {
@@ -54,9 +54,9 @@ export function evaluatePublicationEligibility(input: {
   }
 
   if (input.scoringV2PublicationEnabled) {
-    reasons.push("SCORING_V2_PUBLICATION_ENABLED_unexpectedly_true");
+    reasons.push("SCORING_PUBLICATION_ENABLED_unexpectedly_true");
   } else {
-    reasons.push("SCORING_V2_PUBLICATION_ENABLED_false");
+    reasons.push("SCORING_PUBLICATION_ENABLED_false");
   }
 
   const manifestComplete =

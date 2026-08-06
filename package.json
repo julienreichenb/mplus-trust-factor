@@ -97,9 +97,9 @@
     "wcl:probe:utility-one-fight": "node tools/scripts/with-env.mjs node tools/scripts/wcl-probe-utility-one-fight.mjs",
     "wcl:probe:survival-one-fight": "node tools/scripts/with-env.mjs node tools/scripts/wcl-probe-survival-one-fight.mjs",
     "wcl:probe:capability-evidence": "node tools/scripts/with-env.mjs node tools/scripts/wcl-probe-capability-evidence.mjs",
-    "scoring-v2:canary": "node tools/scripts/with-env.mjs pnpm --filter @mplus/worker run scoring-v2:canary --",
-    "scoring-v2:replay": "node tools/scripts/with-env.mjs pnpm --filter @mplus/worker run scoring-v2:replay --",
-    "scoring-v2:doctor": "node tools/scripts/with-env.mjs pnpm --filter @mplus/worker run scoring-v2:doctor --"
+    "scoring:canary": "node tools/scripts/with-env.mjs pnpm --filter @mplus/worker run scoring:canary --",
+    "scoring:replay": "node tools/scripts/with-env.mjs pnpm --filter @mplus/worker run scoring:replay --",
+    "scoring:doctor": "node tools/scripts/with-env.mjs pnpm --filter @mplus/worker run scoring:doctor --"
   },
   "dependencies": {
     "@mplus/config": "workspace:*",

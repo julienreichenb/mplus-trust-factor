@@ -4,7 +4,7 @@
  * Extends Experience V2 durable exposure with previous-season strength,
  * elite achievement history, and optional exceptional historical rank.
  * Coefficients are candidate defaults; calibration status is uncalibrated.
- * Not product-activated (SCORING_V2_EXPERIENCE_ENABLED remains default off).
+ * Not product-activated (SCORING_ENABLED remains default off).
  */
 
 export const EXPERIENCE_V3_SCHEMA_VERSION = "experience-v3" as const;

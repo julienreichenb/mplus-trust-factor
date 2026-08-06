@@ -181,13 +181,13 @@ function mockContainer() {
   return {
     logger: { info: () => undefined, warn: () => undefined, error: () => undefined },
     env: {
-      SCORING_V2_PUBLICATION_ENABLED: false,
-      SCORING_V2_ENABLED: false,
-      SCORING_V2_SELECTION_ENABLED: false,
-      SCORING_V2_EVIDENCE_FETCH_ENABLED: false,
-      SCORING_V2_PERFORMANCE_ENABLED: false,
-      SCORING_V2_SURVIVAL_ENABLED: false,
-      SCORING_V2_UTILITY_ENABLED: false,
+      SCORING_PUBLICATION_ENABLED: false,
+      SCORING_ENABLED: false,
+      SCORING_ENABLED: false,
+      SCORING_ENABLED: false,
+      SCORING_ENABLED: false,
+      SCORING_ENABLED: false,
+      SCORING_ENABLED: false,
     },
   } as never;
 }
@@ -775,12 +775,12 @@ describe("production-style class/spec identity propagation", () => {
 
   it("feature flags remain false by default and publication stays blocked", () => {
     const env = mockContainer().env as Record<string, unknown>;
-    expect(env.SCORING_V2_ENABLED).toBe(false);
-    expect(env.SCORING_V2_SELECTION_ENABLED).toBe(false);
-    expect(env.SCORING_V2_EVIDENCE_FETCH_ENABLED).toBe(false);
-    expect(env.SCORING_V2_PERFORMANCE_ENABLED).toBe(false);
-    expect(env.SCORING_V2_SURVIVAL_ENABLED).toBe(false);
-    expect(env.SCORING_V2_UTILITY_ENABLED).toBe(false);
-    expect(env.SCORING_V2_PUBLICATION_ENABLED).toBe(false);
+    expect(env.SCORING_ENABLED).toBe(false);
+    expect(env.SCORING_ENABLED).toBe(false);
+    expect(env.SCORING_ENABLED).toBe(false);
+    expect(env.SCORING_ENABLED).toBe(false);
+    expect(env.SCORING_ENABLED).toBe(false);
+    expect(env.SCORING_ENABLED).toBe(false);
+    expect(env.SCORING_PUBLICATION_ENABLED).toBe(false);
   });
 });

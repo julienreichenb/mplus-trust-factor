@@ -13,7 +13,7 @@ const buildEvidenceJoinMarkdown = vi.hoisted(() =>
   vi.fn(() => "# evidence-join\n"),
 );
 
-vi.mock("./scoring-v2/evidence-join.js", () => ({
+vi.mock("./scoring/evidence-join.js", () => ({
   runEvidenceJoin,
   buildEvidenceJoinMarkdown,
 }));

@@ -15,8 +15,8 @@ describe("scoring v2 finalize publication isolation", () => {
 
     const container = {
       env: {
-        SCORING_V2_ENABLED: false,
-        SCORING_V2_PUBLICATION_ENABLED: false,
+        SCORING_ENABLED: false,
+        SCORING_PUBLICATION_ENABLED: false,
       },
       prisma: { characterPublishedScore },
       repositories: {
