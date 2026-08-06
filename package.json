@@ -97,17 +97,9 @@
     "wcl:probe:utility-one-fight": "node tools/scripts/with-env.mjs node tools/scripts/wcl-probe-utility-one-fight.mjs",
     "wcl:probe:survival-one-fight": "node tools/scripts/with-env.mjs node tools/scripts/wcl-probe-survival-one-fight.mjs",
     "wcl:probe:capability-evidence": "node tools/scripts/with-env.mjs node tools/scripts/wcl-probe-capability-evidence.mjs",
-    "scoring-v2:canary:preflight": "node tools/scripts/with-env.mjs pnpm --filter @mplus/worker run canary:preflight --",
-    "scoring-v2:canary:discover": "node tools/scripts/with-env.mjs pnpm --filter @mplus/worker run canary:discover --",
-    "scoring-v2:canary:rate-snapshot": "node tools/scripts/with-env.mjs pnpm --filter @mplus/worker run canary:rate-snapshot --",
-    "scoring-v2:canary:reconcile-revisions": "node tools/scripts/with-env.mjs pnpm --filter @mplus/worker run canary:reconcile-revisions --",
-    "scoring-v2:canary:live": "node tools/scripts/with-env.mjs pnpm --filter @mplus/worker run canary:live --",
-    "scoring-v2:canary:replay": "node tools/scripts/with-env.mjs pnpm --filter @mplus/worker run canary:replay --",
-    "scoring-v2:canary:diagnose-target-digests": "node tools/scripts/with-env.mjs pnpm --filter @mplus/worker run canary:diagnose-target-digests --",
-    "scoring-v2:canary:ranking-hydrate": "node tools/scripts/with-env.mjs pnpm --filter @mplus/worker run canary:ranking-hydrate --",
-    "scoring-v2:canary:repair-package": "node tools/scripts/with-env.mjs pnpm --filter @mplus/worker run canary:repair-package --",
-    "scoring-v2:canary:diagnose-catalog": "node tools/scripts/with-env.mjs pnpm --filter @mplus/worker run canary:diagnose-catalog --",
-    "scoring-v2:canary:repair-catalog": "node tools/scripts/with-env.mjs pnpm --filter @mplus/worker run canary:repair-catalog --"
+    "scoring-v2:canary": "node tools/scripts/with-env.mjs pnpm --filter @mplus/worker run scoring-v2:canary --",
+    "scoring-v2:replay": "node tools/scripts/with-env.mjs pnpm --filter @mplus/worker run scoring-v2:replay --",
+    "scoring-v2:doctor": "node tools/scripts/with-env.mjs pnpm --filter @mplus/worker run scoring-v2:doctor --"
   },
   "dependencies": {
     "@mplus/config": "workspace:*",

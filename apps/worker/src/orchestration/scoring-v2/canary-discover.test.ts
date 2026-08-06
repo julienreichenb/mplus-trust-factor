@@ -136,12 +136,15 @@ function fullCandidates(): EvidenceCandidateMetadataV2[] {
 }
 
 describe("discovery script + CLI wiring", () => {
-  it("root pnpm discovery script exists", () => {
+  it("root pnpm public scripts replace contextual discovery script", () => {
     const pkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")) as {
       scripts: Record<string, string>;
     };
-    expect(pkg.scripts["scoring-v2:canary:discover"]).toMatch(/canary:discover/);
-    expect(pkg.scripts["scoring-v2:canary:rate-snapshot"]).toMatch(/canary:rate-snapshot/);
+    expect(pkg.scripts["scoring-v2:canary"]).toMatch(/scoring-v2:canary/);
+    expect(pkg.scripts["scoring-v2:replay"]).toMatch(/scoring-v2:replay/);
+    expect(pkg.scripts["scoring-v2:doctor"]).toMatch(/scoring-v2:doctor/);
+    expect(pkg.scripts["scoring-v2:canary:discover"]).toBeUndefined();
+    expect(pkg.scripts["scoring-v2:canary:rate-snapshot"]).toBeUndefined();
   });
 
   it("CLI accepts the discover subcommand", () => {

@@ -1,36 +1,14 @@
 /**
- * Guarded Scoring V2 one-character canary CLI.
+ * INTERNAL / TEST_ONLY Scoring V2 canary CLI.
  *
- * Operator path uses production PostgreSQL repositories + WCL_MPLUS_ZONE_ID.
- * In-memory ports / sentinel characters are test-only.
+ * Public operator surface is `public-cli.ts`:
+ *   pnpm scoring-v2:canary | scoring-v2:replay | scoring-v2:doctor
  *
- * Phase A (zero WCL):
- *   pnpm scoring-v2:canary:preflight -- --region EU --realm archimonde --character Wallidrixe
+ * This module remains for focused unit tests (`canary:internal`) and must not
+ * be re-exported as root package scripts. Contextual modes below are
+ * internalized into `runConsolidatedShadowPipeline`.
  *
- * Phase B (discovery-only; no capability event pages):
- *   pnpm scoring-v2:canary:discover -- --region EU --realm archimonde --character Wallidrixe --confirm-discovery
- *
- * Manifest revision reconciliation (metadata-only; no capability events):
- *   pnpm scoring-v2:canary:reconcile-revisions -- --region EU --realm archimonde --character Wallidrixe --confirm-revision-reconcile
- *
- * Catalog diagnostic (zero WCL):
- *   pnpm scoring-v2:canary:diagnose-catalog
- *
- * Local catalog repair (idempotent; do not run against staging/production):
- *   pnpm scoring-v2:canary:repair-catalog -- --region EU
- *
- * Phase C (refuses without --confirm-live; not run in automation):
- *   pnpm scoring-v2:canary:live -- --region EU --realm archimonde --character Wallidrixe --confirm-live
- *
- * Targeted single-fight package repair (requires --confirm-targeted-reacquire):
- *   pnpm scoring-v2:canary:repair-package -- --region EU --realm archimonde --character Wallidrixe \
- *     --report-code 2MdLn3NVymJTYzg6 --fight-id 6 --report-revision 6 --confirm-targeted-reacquire
- *
- * Ranking metadata hydrate (requires --confirm-ranking-hydrate):
- *   pnpm scoring-v2:canary:ranking-hydrate -- --region EU --realm archimonde --character Wallidrixe --confirm-ranking-hydrate
- *
- * Provider-free replay:
- *   pnpm scoring-v2:canary:replay -- --region EU --realm archimonde --character Wallidrixe
+ * Do not document hard-coded character/report/fight identities as operator steps.
  */
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";

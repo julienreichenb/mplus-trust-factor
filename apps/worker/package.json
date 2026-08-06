@@ -15,17 +15,10 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "realms:sync": "tsx ../../tools/scripts/sync-realm-catalog.mjs",
     "season:sync-authority": "tsx src/orchestration/sync-season-authority.cli.ts",
-    "canary:preflight": "tsx src/orchestration/scoring-v2/canary/cli.ts preflight",
-    "canary:discover": "tsx src/orchestration/scoring-v2/canary/cli.ts discover",
-    "canary:rate-snapshot": "tsx src/orchestration/scoring-v2/canary/cli.ts rate-snapshot",
-    "canary:reconcile-revisions": "tsx src/orchestration/scoring-v2/canary/cli.ts reconcile-revisions",
-    "canary:live": "tsx src/orchestration/scoring-v2/canary/cli.ts live",
-    "canary:replay": "tsx src/orchestration/scoring-v2/canary/cli.ts replay",
-    "canary:diagnose-target-digests": "tsx src/orchestration/scoring-v2/canary/cli.ts diagnose-target-digests",
-    "canary:ranking-hydrate": "tsx src/orchestration/scoring-v2/canary/cli.ts ranking-hydrate",
-    "canary:repair-package": "tsx src/orchestration/scoring-v2/canary/cli.ts repair-package",
-    "canary:diagnose-catalog": "tsx src/orchestration/scoring-v2/canary/cli.ts diagnose-catalog",
-    "canary:repair-catalog": "tsx src/orchestration/scoring-v2/canary/cli.ts repair-catalog"
+    "scoring-v2:canary": "tsx src/orchestration/scoring-v2/public-cli.ts canary",
+    "scoring-v2:replay": "tsx src/orchestration/scoring-v2/public-cli.ts replay",
+    "scoring-v2:doctor": "tsx src/orchestration/scoring-v2/public-cli.ts doctor",
+    "canary:internal": "tsx src/orchestration/scoring-v2/canary/cli.ts"
   },
   "dependencies": {
     "@mplus/artifact-store": "workspace:*",
