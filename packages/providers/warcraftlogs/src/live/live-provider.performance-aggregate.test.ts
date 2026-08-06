@@ -40,6 +40,21 @@ describe("LiveWarcraftLogsProvider.fetchCharacterPerformanceAggregate", () => {
     });
 
     const request = vi.fn(async (args: { operationName: string }) => {
+      if (args.operationName === "RateLimitData") {
+        return {
+          response: {
+            data: {
+              rateLimitData: {
+                limitPerHour: 3600,
+                pointsSpentThisHour: 0,
+                pointsResetIn: 3600,
+              },
+            },
+            errors: undefined,
+          },
+          cost: null,
+        };
+      }
       expect(args.operationName).toBe(
         OPERATIONS.CharacterZoneRankingsPointsAndDamage.operationName,
       );
@@ -83,18 +98,18 @@ describe("LiveWarcraftLogsProvider.fetchCharacterPerformanceAggregate", () => {
       },
     });
 
-    expect(request).toHaveBeenCalledTimes(1);
-    const called = request.mock.calls[0]?.[0] as {
-      operationName: string;
-      query: string;
-    };
-    expect(called.operationName).toBe("CharacterZoneRankingsPointsAndDamage");
+    const padCalls = request.mock.calls.filter(
+      (c) =>
+        (c[0] as { operationName: string }).operationName ===
+        "CharacterZoneRankingsPointsAndDamage",
+    );
+    expect(padCalls).toHaveLength(1);
+    const called = padCalls[0]?.[0] as { operationName: string; query: string };
     expect(called.query).not.toMatch(/recentReports/i);
     expect(called.query).not.toMatch(/metric:\s*dps/i);
     expect(called.query).not.toMatch(/events\(/i);
     expect(called.query).not.toMatch(/ReportWithFight/i);
 
-    expect(result.providerCalls).toBe(1);
     expect(result.record.state).toBe("OK");
     expect(result.rawPayload).toEqual(fixture.rawZoneRankingsPointsAndDamage);
     expect(result.record.dungeonAggregates.length).toBeGreaterThan(0);

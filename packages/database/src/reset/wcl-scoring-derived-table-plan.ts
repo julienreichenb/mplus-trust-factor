@@ -79,6 +79,13 @@ export const ALL_PRISMA_MAPPED_TABLES = [
   "wcl_run_source_digests",
   "wcl_run_participants",
   "scoring_shadow_canaries",
+  "wcl_run_raw",
+  "character_run_digests",
+  "run_ranking_facts",
+  "character_scores",
+  "character_performance_aggregates",
+  "capability_evidence_package_records",
+  "participant_scoring_digests",
 ] as const;
 
 export type PrismaMappedTable = (typeof ALL_PRISMA_MAPPED_TABLES)[number];
@@ -100,6 +107,14 @@ export const WCL_SCORING_DERIVED_CLEAR_TABLES = [
   "wcl_run_source_digests",
   "wcl_report_revisions",
   "scoring_evidence_exports",
+  // Minimal scoring cache (WclRunRaw / digests / rankings / aggregates / scores)
+  "character_performance_aggregates",
+  "run_ranking_facts",
+  "character_run_digests",
+  "wcl_run_raw",
+  "character_scores",
+  "capability_evidence_package_records",
+  "participant_scoring_digests",
   // V1 score / analysis
   "score_analysis_batch_runs",
   "score_analysis_batches",

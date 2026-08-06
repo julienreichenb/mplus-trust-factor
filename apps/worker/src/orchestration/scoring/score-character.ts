@@ -32,6 +32,10 @@ import {
   type FetchCharacterPerformanceAggregateProvider,
 } from "./run-orchestration/ensure-performance-aggregate.js";
 import {
+  requirePositivePerformanceAggregateTtlSeconds,
+  requireScoringZoneId,
+} from "./scoring-zone.js";
+import {
   overallConfidenceFromDimensions,
   type SeasonDifficultyPolicyV2,
 } from "@mplus/scoring";
@@ -97,9 +101,9 @@ export interface ScoreCharacterInput {
   };
   /**
    * Active WCL Mythic+ zone for CharacterPerformanceAggregate.
-   * Required to load/fetch the points_and_damage cache; omit → dimension-local unavailable.
+   * Required positive integer — missing/invalid is configuration failure, not player absence.
    */
-  zoneId?: number;
+  zoneId: number;
   /** WCL partition; null = logical "current". */
   partition?: number | null;
   /** TTL for newly fetched aggregates (seconds). */
@@ -175,44 +179,33 @@ export async function scoreCharacter(
     });
 
   // Load/fetch Performance aggregate once per scoring operation (not fight-local).
-  // Absence is dimension-local evidence for Performance — does not zero Utility/Survival.
-  let performanceAggregate: EnsureCharacterPerformanceAggregateResult;
-  if (input.zoneId == null) {
-    performanceAggregate = {
-      state: "UNAVAILABLE",
-      data: null,
-      reason: "performance_aggregate_zone_not_configured",
-      cache: "MISS",
-      providerCalls: 0,
-      created: false,
-      updated: false,
-      aggregateRowId: null,
-      contentHash: null,
-    };
-  } else {
-    const ensure =
-      input.ensurePerformanceAggregate ??
-      createEnsureCharacterPerformanceAggregate({ prisma: input.prisma });
-    performanceAggregate = await ensure({
-      characterId: input.identity.characterId,
-      seasonId: input.seasonId,
-      zoneId: input.zoneId,
-      partition: input.partition ?? null,
-      character: {
-        name: input.identity.characterName,
-        realmSlug: input.identity.realm,
-        region: input.identity.region as RegionCode,
-      },
-      now,
-      liveProviderPermission,
-      ttlSeconds:
-        input.performanceAggregateTtlSeconds ??
-        DEFAULT_PERFORMANCE_AGGREGATE_TTL_SECONDS,
-      provider: input.allowProviderCalls
-        ? input.performanceAggregateProvider ?? null
-        : null,
-    });
-  }
+  // Absence of player evidence is dimension-local — does not zero Utility/Survival.
+  // Missing zoneId is configuration failure (throws), not player-data UNAVAILABLE.
+  const zoneId = requireScoringZoneId(input.zoneId, "scoreCharacter.zoneId");
+  const ttlSeconds = requirePositivePerformanceAggregateTtlSeconds(
+    input.performanceAggregateTtlSeconds ??
+      DEFAULT_PERFORMANCE_AGGREGATE_TTL_SECONDS,
+  );
+  const ensure =
+    input.ensurePerformanceAggregate ??
+    createEnsureCharacterPerformanceAggregate({ prisma: input.prisma });
+  const performanceAggregate = await ensure({
+    characterId: input.identity.characterId,
+    seasonId: input.seasonId,
+    zoneId,
+    partition: input.partition ?? null,
+    character: {
+      name: input.identity.characterName,
+      realmSlug: input.identity.realm,
+      region: input.identity.region as RegionCode,
+    },
+    now,
+    liveProviderPermission,
+    ttlSeconds,
+    provider: input.allowProviderCalls
+      ? input.performanceAggregateProvider ?? null
+      : null,
+  });
 
   const orchestration = await orchestrateScoringRuns({
     characterId: input.identity.characterId,

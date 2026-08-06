@@ -118,6 +118,23 @@ function toDto(row: {
     diagnostics: row.diagnostics,
   });
 
+  const expectedHash = hashPerformanceAggregateContent({
+    rankingVersion: row.rankingVersion,
+    metric: CHARACTER_PERFORMANCE_AGGREGATE_METRIC,
+    zoneId: row.zoneId,
+    partitionKey: row.partitionKey,
+    rawPayload: row.rawPayload,
+    dungeonAggregates: compact.dungeonAggregates,
+    global: compact.global,
+    diagnostics: compact.diagnostics,
+    sourceRequestFingerprint: row.sourceRequestFingerprint,
+  });
+  if (expectedHash !== row.contentHash) {
+    throw new Error(
+      "performance_aggregate_incompatible: content_hash_mismatch",
+    );
+  }
+
   return {
     id: row.id,
     characterId: row.characterId,

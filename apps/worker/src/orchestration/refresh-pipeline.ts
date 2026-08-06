@@ -3576,6 +3576,68 @@ export async function runRefreshPipeline(
     throw Object.assign(new Error("Refresh contract mismatch"), mismatchError);
   }
 
+  // Persist discovery points_and_damage into CharacterPerformanceAggregate so
+  // scoreCharacter() warm-hits (one GraphQL request per refresh, not two).
+  if (
+    wclPerformanceRecord?.state === "OK" &&
+    wclPerformanceRecord.raw != null &&
+    typeof refreshContract.zoneId === "number" &&
+    refreshContract.zoneId > 0
+  ) {
+    try {
+      const { CharacterPerformanceAggregateRepository } = await import("@mplus/database");
+      const {
+        adaptPointsAndDamagePerformance,
+        toPersistedPerformanceAggregate,
+        buildPerformanceAggregateRequestFingerprint,
+      } = await import("@mplus/provider-warcraftlogs");
+      const adapted = adaptPointsAndDamagePerformance({
+        raw: wclPerformanceRecord.raw,
+      });
+      if (adapted.state === "OK") {
+        const compact = toPersistedPerformanceAggregate({
+          record: adapted,
+          zoneId: refreshContract.zoneId,
+          partition: refreshContract.partition,
+        });
+        const fingerprint = buildPerformanceAggregateRequestFingerprint({
+          region: identity.region,
+          realmSlug: identity.realmSlug,
+          name: identity.name,
+          zoneId: refreshContract.zoneId,
+          partition: refreshContract.partition,
+        });
+        const ttlSeconds = Math.max(
+          1,
+          container.env.WCL_CHARACTER_TTL_SECONDS ?? 43_200,
+        );
+        const fetchedAt = new Date();
+        await new CharacterPerformanceAggregateRepository(container.prisma).upsert({
+          characterId: character.id,
+          seasonId: season.id,
+          zoneId: refreshContract.zoneId,
+          partition: refreshContract.partition,
+          rawPayload: adapted.raw,
+          compact,
+          sourceRequestFingerprint: fingerprint,
+          fetchedAt,
+          expiresAt: new Date(fetchedAt.getTime() + ttlSeconds * 1000),
+        });
+      }
+    } catch (error) {
+      logger.warn(
+        {
+          ...logBase,
+          err: error instanceof Error ? error.message : String(error),
+          characterId: character.id,
+          seasonId: season.id,
+          zoneId: refreshContract.zoneId,
+        },
+        "refresh: failed to persist CharacterPerformanceAggregate from discovery — ensure may refetch",
+      );
+    }
+  }
+
   // Authoritative scoring — scoreCharacter() only. No legacy calculateScore fallback.
   const { resolveFrozenCharacterIdentity } = await import("./scoring/class-spec-identity.js");
   const { mythicRunToEvidenceCandidateMetadata } = await import("@mplus/scoring");

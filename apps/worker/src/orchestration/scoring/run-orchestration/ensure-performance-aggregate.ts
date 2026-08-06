@@ -38,7 +38,16 @@ export interface FetchCharacterPerformanceAggregateProvider {
       targetCharacter?: CharacterIdentityInput;
     };
   }): Promise<{
-    record: PointsAndDamagePerformanceRecord;
+    record: PointsAndDamagePerformanceRecord | {
+      state: PointsAndDamagePerformanceRecord["state"];
+      adapterVersion: string;
+      metric: "points_and_damage";
+      raw: unknown;
+      dungeonAggregates: PointsAndDamagePerformanceRecord["dungeonAggregates"];
+      global: PointsAndDamagePerformanceRecord["global"];
+      diagnostics: PointsAndDamagePerformanceRecord["diagnostics"];
+      normalized?: PointsAndDamagePerformanceRecord["normalized"];
+    };
     rawPayload: unknown;
     sourceRequestFingerprint: string;
     providerCalls: number;
@@ -200,7 +209,7 @@ export function createEnsureCharacterPerformanceAggregate(deps: {
     let compact;
     try {
       compact = toPersistedPerformanceAggregate({
-        record: fetched.record,
+        record: fetched.record as PointsAndDamagePerformanceRecord,
         zoneId: input.zoneId,
         partition: input.partition,
       });

@@ -405,6 +405,31 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
       variables.partition = input.partition;
     }
 
+    // Rate-budget gate before the points_and_damage GraphQL operation.
+    const budget = await this.fetchRateLimit(input.ctx);
+    if (budget.action === "STOP") {
+      return {
+        record: pointsAndDamageErrorRecord(
+          "SKIPPED",
+          null,
+          "WCL rate budget STOP — points_and_damage Performance deferred",
+        ),
+        rawPayload: null,
+        sourceRequestFingerprint: fingerprint,
+        providerCalls: 1,
+      };
+    }
+    if (shouldDeferExpensiveWork(budget)) {
+      throw wclError(
+        "BUDGET_EXCEEDED",
+        "WCL rate budget exceeded — deferring points_and_damage Performance fetch",
+        {
+          visibility: "RATE_LIMITED",
+          utilizationPercent: budget.utilizationPercent,
+        },
+      );
+    }
+
     try {
       const perfResult = await this.client.request({
         operationName: OPERATIONS.CharacterZoneRankingsPointsAndDamage.operationName,
@@ -437,6 +462,12 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
       if (record.state === "EMPTY") {
         // Never fabricate OK from empty — treat as ERROR for scoring consumers.
         record = { ...record, state: "ERROR" };
+      } else if (record.state === "OK" && record.dungeonAggregates.length === 0) {
+        record = pointsAndDamageErrorRecord(
+          "ERROR",
+          raw,
+          "points_and_damage returned OK with zero usable dungeon aggregates",
+        );
       }
       return {
         record,

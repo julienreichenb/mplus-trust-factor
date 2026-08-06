@@ -303,6 +303,88 @@ describe.runIf(dbAvailable)("CharacterPerformanceAggregateRepository", () => {
     expect(older.row.rawPayload).toEqual({ newer: true });
   });
 
+  it("overlapping concurrent upserts: newer evidence wins", async () => {
+    const compactLow = sampleCompact({
+      dungeonAggregates: [
+        {
+          dungeonSlug: "skyreach",
+          dungeonName: "Skyreach",
+          encounterId: 61209,
+          bestParsePercentile: 40,
+          medianParsePercentile: 30,
+          loggedRunCount: 2,
+          specialization: "Fire",
+          keystoneLevel: 8,
+          bestDps: 400,
+        },
+      ],
+    });
+    const compactHigh = sampleCompact({
+      dungeonAggregates: [
+        {
+          dungeonSlug: "skyreach",
+          dungeonName: "Skyreach",
+          encounterId: 61209,
+          bestParsePercentile: 97,
+          medianParsePercentile: 91,
+          loggedRunCount: 22,
+          specialization: "Fire",
+          keystoneLevel: 15,
+          bestDps: 1_600_000,
+        },
+      ],
+    });
+
+    const [a, b] = await Promise.all([
+      repo.upsert({
+        characterId,
+        seasonId,
+        zoneId: 50,
+        partition: null,
+        rawPayload: { race: "older" },
+        compact: compactLow,
+        sourceRequestFingerprint: "fp-race-old",
+        fetchedAt: new Date("2026-08-06T10:00:00.000Z"),
+        expiresAt: new Date("2026-08-07T10:00:00.000Z"),
+      }),
+      repo.upsert({
+        characterId,
+        seasonId,
+        zoneId: 50,
+        partition: null,
+        rawPayload: { race: "newer" },
+        compact: compactHigh,
+        sourceRequestFingerprint: "fp-race-new",
+        fetchedAt: new Date("2026-08-06T11:00:00.000Z"),
+        expiresAt: new Date("2026-08-07T11:00:00.000Z"),
+      }),
+    ]);
+
+    const winner = a.row.fetchedAt >= b.row.fetchedAt ? a.row : b.row;
+    const loaded = await repo.findCompatibleLive({
+      characterId,
+      seasonId,
+      zoneId: 50,
+      partitionKey: "current",
+      rankingVersion: CHARACTER_PERFORMANCE_AGGREGATE_RANKING_VERSION,
+      now: new Date("2026-08-06T12:00:00.000Z"),
+    });
+    expect(loaded).not.toBeNull();
+    expect(loaded!.contentHash).toBe(winner.contentHash);
+    expect(loaded!.dungeonAggregates[0]?.bestParsePercentile).toBe(
+      loaded!.fetchedAt.getTime() ===
+        new Date("2026-08-06T11:00:00.000Z").getTime()
+        ? 97
+        : loaded!.dungeonAggregates[0]?.bestParsePercentile,
+    );
+    // Final persisted row must match the newer fetch.
+    expect(loaded!.fetchedAt.getTime()).toBe(
+      new Date("2026-08-06T11:00:00.000Z").getTime(),
+    );
+    expect(loaded!.dungeonAggregates[0]?.bestParsePercentile).toBe(97);
+    expect(loaded!.rawPayload).toEqual({ race: "newer" });
+  });
+
   it("expired live miss vs replay hit", async () => {
     const expiresAt = new Date("2026-08-01T00:00:00.000Z");
     await repo.upsert({

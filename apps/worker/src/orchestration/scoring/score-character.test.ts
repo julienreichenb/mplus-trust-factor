@@ -64,6 +64,18 @@ describe("scoreCharacter cache-backed pipeline", () => {
     ]);
 
     const ports = createMemoryOrchestrationPorts();
+    const ensureUnavailable = async () =>
+      ({
+        state: "UNAVAILABLE" as const,
+        data: null,
+        reason: "performance_aggregate_unavailable_replay",
+        cache: "MISS" as const,
+        providerCalls: 0,
+        created: false as const,
+        updated: false as const,
+        aggregateRowId: null,
+        contentHash: null,
+      });
     const cold = await scoreCharacter({
       identity: {
         characterId: CHARACTER_ID,
@@ -82,6 +94,8 @@ describe("scoreCharacter cache-backed pipeline", () => {
       highKeyPolicyId: "policy-1",
       scoringModelId: "model-1",
       allowProviderCalls: false,
+      zoneId: 47,
+      ensurePerformanceAggregate: ensureUnavailable,
       ports,
       prisma: fakePrisma(),
       artifacts: {} as never,
@@ -93,7 +107,7 @@ describe("scoreCharacter cache-backed pipeline", () => {
     expect(cold.characterScoreId).toBe("score-1");
     expect(cold.performanceAggregate.state).toBe("UNAVAILABLE");
     expect(cold.performanceAggregate.reason).toBe(
-      "performance_aggregate_zone_not_configured",
+      "performance_aggregate_unavailable_replay",
     );
 
     const warm = await scoreCharacter({
@@ -114,6 +128,8 @@ describe("scoreCharacter cache-backed pipeline", () => {
       highKeyPolicyId: "policy-1",
       scoringModelId: "model-1",
       allowProviderCalls: false,
+      zoneId: 47,
+      ensurePerformanceAggregate: ensureUnavailable,
       ports,
       prisma: fakePrisma(),
       artifacts: {} as never,

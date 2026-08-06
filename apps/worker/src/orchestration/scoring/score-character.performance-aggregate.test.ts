@@ -89,6 +89,7 @@ function baseScoreInput(
     highKeyPolicyId: "policy-1",
     scoringModelId: "model-1",
     allowProviderCalls: false,
+    zoneId: 47,
     ports: createMemoryOrchestrationPorts(),
     prisma: {
       characterScore: {
@@ -101,6 +102,17 @@ function baseScoreInput(
     } as never,
     artifacts: {} as never,
     evidence: {} as never,
+    ensurePerformanceAggregate: async () => ({
+      state: "UNAVAILABLE" as const,
+      data: null,
+      reason: "performance_aggregate_unavailable_replay",
+      cache: "MISS" as const,
+      providerCalls: 0,
+      created: false as const,
+      updated: false as const,
+      aggregateRowId: null,
+      contentHash: null,
+    }),
     ...overrides,
   };
 }
@@ -206,10 +218,23 @@ describe("scoreCharacter performance aggregate orchestration", () => {
       }),
     );
 
-    const withoutAgg = await scoreCharacter(baseScoreInput());
+    const withoutAgg = await scoreCharacter(
+      baseScoreInput({
+        ensurePerformanceAggregate: async () => ({
+          state: "UNAVAILABLE",
+          data: null,
+          reason: "performance_aggregate_unavailable_replay",
+          cache: "MISS",
+          providerCalls: 0,
+          created: false,
+          updated: false,
+          aggregateRowId: null,
+          contentHash: null,
+        }),
+      }),
+    );
     const withAgg = await scoreCharacter(
       baseScoreInput({
-        zoneId: 47,
         allowProviderCalls: true,
         ensurePerformanceAggregate: ensure,
         performanceAggregateProvider: {

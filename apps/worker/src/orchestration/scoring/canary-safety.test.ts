@@ -107,6 +107,9 @@ function mockContainer(env: Record<string, unknown>): WorkerContainer {
         upsert: vi.fn(async ({ create }) => ({ id: "score-1", ...create })),
         findUnique: vi.fn(async () => null),
       },
+      characterPerformanceAggregate: {
+        findUnique: vi.fn(async () => null),
+      },
     } as never,
     logger: {
       info: vi.fn(),
@@ -136,9 +139,17 @@ function mockContainer(env: Record<string, unknown>): WorkerContainer {
 
 const refreshContract = {
   scoringModelKey: "test",
-  scoringModelVersion: "1",
+  scoringModelVersion: 1,
+  observationSchemaVersion: "observations-v2",
+  wclAdapterVersion: "points-and-damage-v1",
+  blizzardAdapterVersion: "blizzard-v1",
+  raiderIoAdapterVersion: "raiderio-v1",
+  runSelectionVersion: "active-season-eight-v1",
+  abilityCatalogVersion: "abilities-v1",
+  mechanicCatalogVersion: "mechanics-v1",
   activeSeasonId: "s1",
-  providerMode: "fixture" as const,
+  zoneId: 47,
+  partition: null,
 };
 
 const rateBudgetConfig = {

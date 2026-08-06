@@ -15,6 +15,11 @@ import { createLiveCapabilityAcquireHook } from "./run-orchestration/live-capabi
 import { createRedisSourceFightLock } from "./run-orchestration/source-fight-lease.js";
 import { createProductionRunOrchestrationPorts } from "./run-orchestration/production-ports.js";
 import type { RunOrchestrationPorts } from "./run-orchestration/orchestrator.js";
+import type { FetchCharacterPerformanceAggregateProvider } from "./run-orchestration/ensure-performance-aggregate.js";
+import {
+  requirePositivePerformanceAggregateTtlSeconds,
+  requireScoringZoneId,
+} from "./scoring-zone.js";
 
 export interface AuthoritativeScoringInput {
   container: WorkerContainer;
@@ -38,6 +43,8 @@ export interface AuthoritativeScoringInput {
   characterName: string;
   /** Test seam. */
   portsOverride?: RunOrchestrationPorts;
+  /** Test seam for aggregate provider. */
+  performanceAggregateProviderOverride?: FetchCharacterPerformanceAggregateProvider | null;
 }
 
 export interface AuthoritativeScoringResult {
@@ -45,6 +52,20 @@ export interface AuthoritativeScoringResult {
   snapshot: ScoreSnapshotDTO;
   scoreResult: ScoreCharacterResult | null;
   providerCalls: number;
+}
+
+function resolvePerformanceAggregateProvider(
+  container: WorkerContainer,
+): FetchCharacterPerformanceAggregateProvider | null {
+  const wcl = container.providers.warcraftlogs as unknown as {
+    fetchCharacterPerformanceAggregate?: FetchCharacterPerformanceAggregateProvider["fetchCharacterPerformanceAggregate"];
+  } | null;
+  if (wcl && typeof wcl.fetchCharacterPerformanceAggregate === "function") {
+    return {
+      fetchCharacterPerformanceAggregate: wcl.fetchCharacterPerformanceAggregate.bind(wcl),
+    };
+  }
+  return null;
 }
 
 /**
@@ -70,6 +91,15 @@ export async function runAuthoritativeScoring(
       providerCalls: 0,
     };
   }
+
+  const zoneId = requireScoringZoneId(input.refreshContract.zoneId);
+  const partition =
+    input.refreshContract.partition === undefined
+      ? null
+      : input.refreshContract.partition;
+  const ttlSeconds = requirePositivePerformanceAggregateTtlSeconds(
+    input.container.env.WCL_CHARACTER_TTL_SECONDS ?? 43_200,
+  );
 
   const allowProviderCalls =
     input.container.env.ALLOW_LIVE_PROVIDER_CALLS === true &&
@@ -142,6 +172,13 @@ export async function runAuthoritativeScoring(
     };
   }
 
+  const performanceAggregateProvider =
+    input.performanceAggregateProviderOverride !== undefined
+      ? input.performanceAggregateProviderOverride
+      : allowProviderCalls
+        ? resolvePerformanceAggregateProvider(input.container)
+        : null;
+
   const scoreResult = await scoreCharacter({
     identity: {
       characterId: input.characterId,
@@ -167,6 +204,10 @@ export async function runAuthoritativeScoring(
     artifacts: input.container.repositories.artifacts,
     evidence: input.container.repositories.evidence,
     liveAcquire,
+    zoneId,
+    partition,
+    performanceAggregateTtlSeconds: ttlSeconds,
+    performanceAggregateProvider,
   });
 
   return {

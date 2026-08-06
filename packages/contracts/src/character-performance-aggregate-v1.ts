@@ -109,34 +109,59 @@ function normalizeDungeon(
   if (typeof raw.dungeonSlug !== "string" || raw.dungeonSlug.length === 0) {
     throw new Error("invalid_dungeon_aggregate: dungeonSlug required");
   }
+  if (raw.dungeonSlug.toLowerCase() === "unknown") {
+    throw new Error("invalid_dungeon_aggregate: fabricated unknown dungeonSlug");
+  }
   if (typeof raw.dungeonName !== "string" || raw.dungeonName.length === 0) {
     throw new Error("invalid_dungeon_aggregate: dungeonName required");
+  }
+  if (raw.dungeonName.toLowerCase() === "unknown") {
+    throw new Error("invalid_dungeon_aggregate: fabricated unknown dungeonName");
   }
   const encounterId =
     raw.encounterId == null
       ? null
-      : typeof raw.encounterId === "number" && Number.isFinite(raw.encounterId)
+      : typeof raw.encounterId === "number" &&
+          Number.isFinite(raw.encounterId) &&
+          raw.encounterId > 0
         ? raw.encounterId
         : (() => {
             throw new Error("invalid_dungeon_aggregate: encounterId");
           })();
 
+  const bestParsePercentile = assertPercentile(
+    raw.bestParsePercentile,
+    "bestParsePercentile",
+  );
+  const medianParsePercentile = assertPercentile(
+    raw.medianParsePercentile,
+    "medianParsePercentile",
+  );
+  if (bestParsePercentile == null && medianParsePercentile == null) {
+    throw new Error(
+      "invalid_dungeon_aggregate: at least one of best/median percentile required",
+    );
+  }
+
+  const loggedRunCount = assertFiniteNumberOrNull(
+    raw.loggedRunCount,
+    "loggedRunCount",
+  );
+  if (loggedRunCount != null && loggedRunCount < 0) {
+    throw new Error("invalid_dungeon_aggregate: loggedRunCount must be >= 0");
+  }
+  const bestDps = assertFiniteNumberOrNull(raw.bestDps, "bestDps");
+  if (bestDps != null && bestDps < 0) {
+    throw new Error("invalid_dungeon_aggregate: bestDps must be >= 0");
+  }
+
   return {
     dungeonSlug: raw.dungeonSlug,
     dungeonName: raw.dungeonName,
     encounterId,
-    bestParsePercentile: assertPercentile(
-      raw.bestParsePercentile,
-      "bestParsePercentile",
-    ),
-    medianParsePercentile: assertPercentile(
-      raw.medianParsePercentile,
-      "medianParsePercentile",
-    ),
-    loggedRunCount: assertFiniteNumberOrNull(
-      raw.loggedRunCount,
-      "loggedRunCount",
-    ),
+    bestParsePercentile,
+    medianParsePercentile,
+    loggedRunCount,
     specialization:
       raw.specialization == null
         ? null
@@ -149,13 +174,13 @@ function normalizeDungeon(
       raw.keystoneLevel,
       "keystoneLevel",
     ),
-    bestDps: assertFiniteNumberOrNull(raw.bestDps, "bestDps"),
+    bestDps,
   };
 }
 
 /**
- * Deduplicate by dungeonSlug deterministically: keep first occurrence after
- * stable sort by dungeonSlug then encounterId. Never fabricate zero percentiles.
+ * Deduplicate deterministically by dungeonSlug + encounterId + specialization.
+ * Keep first after stable sort. Never fabricate zero percentiles.
  */
 export function dedupeDungeonAggregates(
   rows: PersistedDungeonPerformanceAggregateV1[],
@@ -163,12 +188,14 @@ export function dedupeDungeonAggregates(
   const sorted = [...rows].sort((a, b) => {
     const slug = a.dungeonSlug.localeCompare(b.dungeonSlug);
     if (slug !== 0) return slug;
-    return (a.encounterId ?? -1) - (b.encounterId ?? -1);
+    const enc = (a.encounterId ?? -1) - (b.encounterId ?? -1);
+    if (enc !== 0) return enc;
+    return (a.specialization ?? "").localeCompare(b.specialization ?? "");
   });
   const seen = new Set<string>();
   const out: PersistedDungeonPerformanceAggregateV1[] = [];
   for (const row of sorted) {
-    const key = `${row.dungeonSlug}::${row.encounterId ?? "null"}`;
+    const key = `${row.dungeonSlug}::${row.encounterId ?? "null"}::${row.specialization ?? "null"}`;
     if (seen.has(key)) continue;
     seen.add(key);
     out.push(row);
@@ -197,8 +224,11 @@ export function assertPersistedCharacterPerformanceAggregateV1(
       `performance_aggregate_incompatible: metric ${String(value.metric)}`,
     );
   }
-  if (typeof value.zoneId !== "number" || !Number.isFinite(value.zoneId)) {
+  if (typeof value.zoneId !== "number" || !Number.isFinite(value.zoneId) || value.zoneId <= 0) {
     throw new Error("performance_aggregate_incompatible: zoneId");
+  }
+  if (!Number.isInteger(value.zoneId)) {
+    throw new Error("performance_aggregate_incompatible: zoneId must be integer");
   }
   const partition =
     value.partition == null
@@ -215,6 +245,11 @@ export function assertPersistedCharacterPerformanceAggregateV1(
   const dungeonAggregates = dedupeDungeonAggregates(
     value.dungeonAggregates.map(normalizeDungeon),
   );
+  if (dungeonAggregates.length === 0) {
+    throw new Error(
+      "performance_aggregate_incompatible: no usable dungeon aggregates",
+    );
+  }
 
   let global: PersistedPerformanceAggregateGlobalV1 | null = null;
   if (value.global != null) {
