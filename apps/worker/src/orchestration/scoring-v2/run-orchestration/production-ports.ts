@@ -3,7 +3,6 @@
  * Live WCL acquire only when the caller passes an explicit live acquire hook
  * (gated by ALLOW_LIVE_PROVIDER_CALLS upstream). Ranking hydrate is provider-free.
  */
-import { randomUUID } from "node:crypto";
 import type { PrismaClient } from "@mplus/database";
 import {
   CapabilityEvidencePackageRepository,
@@ -31,7 +30,7 @@ import {
   rankingParseCompatibilityKey,
   rankingParseFactFromPersistedEvidence,
 } from "./ranking-hydrate.js";
-
+import { persistParticipantDigestWithRowOwner } from "./persist-digest-artifact.js";
 export interface ProductionRunOrchestrationPortsDeps {
   prisma: PrismaClient;
   artifacts: ArtifactRepository;
@@ -156,25 +155,15 @@ export function createProductionRunOrchestrationPorts(
 
     async persistDigest(digest) {
       const validated = assertParticipantScoringDigestV1(digest);
-      const bytes = Buffer.from(JSON.stringify(validated), "utf8");
-      const write = await deps.artifacts.persist({
-        provider: "WARCRAFT_LOGS",
-        bytes,
-        compression: "GZIP",
-        artifactClass: "participant_scoring_digest_v1",
-        owner: {
-          ownerType: "ParticipantScoringDigest",
-          ownerId: randomUUID(),
-        },
-      });
-      const upserted = await digests.upsert({
+      const persisted = await persistParticipantDigestWithRowOwner({
+        artifacts: deps.artifacts,
+        digests,
         digest: validated,
-        artifactId: write.artifactId,
       });
       return {
         digest: validated,
-        artifactId: write.artifactId,
-        created: upserted.created,
+        artifactId: persisted.artifactId,
+        created: persisted.created,
       };
     },
 
@@ -236,21 +225,24 @@ export async function persistCapabilityPackageToPostgres(input: {
 }): Promise<CompatiblePackageHit> {
   const pkg = assertCapabilityEvidencePackageV1(input.package);
   const bytes = Buffer.from(JSON.stringify(pkg), "utf8");
+  // Persist without owner first — ownerId must be CapabilityEvidencePackageRecord.id.
   const write = await input.artifacts.persist({
     provider: "WARCRAFT_LOGS",
     bytes,
     compression: "GZIP",
     artifactClass: "canonical_capability_evidence_v1",
-    owner: {
-      ownerType: "CapabilityEvidencePackage",
-      ownerId: randomUUID(),
-    },
   });
-  await input.packages.upsertIndex({
+  const indexed = await input.packages.upsertIndex({
     package: pkg,
     packageArtifactId: write.artifactId,
     contentHash: pkg.contentHash,
     supersedesCompatibilityKey: input.supersedesCompatibilityKey,
+  });
+  await input.artifacts.ensureOwnerReference({
+    artifactId: write.artifactId,
+    ownerType: "CapabilityEvidencePackage",
+    ownerId: indexed.id,
+    artifactClass: "canonical_capability_evidence_v1",
   });
   return {
     package: pkg,

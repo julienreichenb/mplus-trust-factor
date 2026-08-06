@@ -4,6 +4,8 @@ export {
   ArtifactDigestMismatchError,
   ArtifactPayloadMissingError,
   ArtifactLegacyExternalPayloadMissingError,
+  ArtifactInvalidOwnerIdError,
+  assertArtifactOwnerIdIsUuid,
   createArtifactRepository,
   type ArtifactOwnerType,
   type PersistArtifactInput,

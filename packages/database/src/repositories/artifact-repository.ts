@@ -94,6 +94,53 @@ export class ArtifactLegacyExternalPayloadMissingError extends Error {
   }
 }
 
+/**
+ * ArtifactReference.ownerId is a PostgreSQL UUID column. Callers must pass the
+ * owning row's primary key — never a content hash, compatibility key, or
+ * supersedesCompatibilityKey.
+ */
+export class ArtifactInvalidOwnerIdError extends Error {
+  readonly code = "ARTIFACT_INVALID_OWNER_ID" as const;
+  readonly ownerType: ArtifactOwnerType;
+  readonly ownerIdLength: number;
+  readonly artifactClass: string | null;
+  readonly looksLikeSha256Hex: boolean;
+
+  constructor(input: {
+    ownerType: ArtifactOwnerType;
+    ownerId: string;
+    artifactClass?: string | null;
+  }) {
+    const ownerIdLength = input.ownerId.length;
+    const looksLikeSha256Hex = /^[0-9a-f]{64}$/i.test(input.ownerId);
+    super(
+      `ArtifactReference ownerId must be a UUID for ownerType=${input.ownerType}` +
+        (input.artifactClass ? ` artifactClass=${input.artifactClass}` : "") +
+        ` (received length=${ownerIdLength}` +
+        (looksLikeSha256Hex ? ", looksLikeSha256Hex=true" : "") +
+        ")",
+    );
+    this.name = "ArtifactInvalidOwnerIdError";
+    this.ownerType = input.ownerType;
+    this.ownerIdLength = ownerIdLength;
+    this.artifactClass = input.artifactClass ?? null;
+    this.looksLikeSha256Hex = looksLikeSha256Hex;
+  }
+}
+
+const ARTIFACT_OWNER_UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Fail-fast UUID check for ArtifactReference.ownerId (no payload logging). */
+export function assertArtifactOwnerIdIsUuid(input: {
+  ownerType: ArtifactOwnerType;
+  ownerId: string;
+  artifactClass?: string | null;
+}): void {
+  if (ARTIFACT_OWNER_UUID_RE.test(input.ownerId)) return;
+  throw new ArtifactInvalidOwnerIdError(input);
+}
+
 export interface ArtifactRepositoryOptions {
   /** Optional filesystem store for legacy cas:// reads only (never used for new writes). */
   legacyFsStore?: ArtifactStore;
@@ -131,6 +178,14 @@ export class ArtifactRepository {
     if (!pgStore) {
       throw new Error("PostgreSQL artifact store is required for persist()");
     }
+    if (input.owner) {
+      assertArtifactOwnerIdIsUuid({
+        ownerType: input.owner.ownerType,
+        ownerId: input.owner.ownerId,
+        artifactClass: input.artifactClass ?? null,
+      });
+    }
+
     const prepared = await pgStore.prepareWrite({
       bytes: input.bytes,
       compression: input.compression,
@@ -164,28 +219,11 @@ export class ArtifactRepository {
       });
 
       if (input.owner) {
-        const existing = await tx.artifactReference.findUnique({
-          where: {
-            ownerType_ownerId_artifactId: {
-              ownerType: input.owner.ownerType,
-              ownerId: input.owner.ownerId,
-              artifactId: row.id,
-            },
-          },
+        await this.linkOwnerInTransaction(tx, {
+          artifactId: row.id,
+          ownerType: input.owner.ownerType,
+          ownerId: input.owner.ownerId,
         });
-        if (!existing) {
-          await tx.artifactReference.create({
-            data: {
-              artifactId: row.id,
-              ownerType: input.owner.ownerType,
-              ownerId: input.owner.ownerId,
-            },
-          });
-          await tx.rawArtifact.update({
-            where: { id: row.id },
-            data: { refCount: { increment: 1 } },
-          });
-        }
       }
 
       return { row, deduplicated };
@@ -202,6 +240,62 @@ export class ArtifactRepository {
         deduplicated: artifact.deduplicated,
       },
     };
+  }
+
+  /**
+   * Attach an ArtifactReference after the owning DB row exists.
+   * Idempotent: duplicate (ownerType, ownerId, artifactId) is a no-op.
+   */
+  async ensureOwnerReference(input: {
+    artifactId: string;
+    ownerType: ArtifactOwnerType;
+    ownerId: string;
+    artifactClass?: string | null;
+  }): Promise<{ created: boolean }> {
+    assertArtifactOwnerIdIsUuid({
+      ownerType: input.ownerType,
+      ownerId: input.ownerId,
+      artifactClass: input.artifactClass ?? null,
+    });
+    return this.prisma.$transaction(async (tx) =>
+      this.linkOwnerInTransaction(tx, {
+        artifactId: input.artifactId,
+        ownerType: input.ownerType,
+        ownerId: input.ownerId,
+      }),
+    );
+  }
+
+  private async linkOwnerInTransaction(
+    tx: Prisma.TransactionClient,
+    input: {
+      artifactId: string;
+      ownerType: ArtifactOwnerType;
+      ownerId: string;
+    },
+  ): Promise<{ created: boolean }> {
+    const existing = await tx.artifactReference.findUnique({
+      where: {
+        ownerType_ownerId_artifactId: {
+          ownerType: input.ownerType,
+          ownerId: input.ownerId,
+          artifactId: input.artifactId,
+        },
+      },
+    });
+    if (existing) return { created: false };
+    await tx.artifactReference.create({
+      data: {
+        artifactId: input.artifactId,
+        ownerType: input.ownerType,
+        ownerId: input.ownerId,
+      },
+    });
+    await tx.rawArtifact.update({
+      where: { id: input.artifactId },
+      data: { refCount: { increment: 1 } },
+    });
+    return { created: true };
   }
 
   async readVerified(artifactId: string): Promise<Buffer> {
@@ -297,6 +391,10 @@ export class ArtifactRepository {
     artifactId: string;
     deleteIfOrphan?: boolean;
   }): Promise<{ released: boolean; deleted: boolean }> {
+    assertArtifactOwnerIdIsUuid({
+      ownerType: input.ownerType,
+      ownerId: input.ownerId,
+    });
     return this.prisma.$transaction(async (tx) => {
       const deletedRefs = await tx.artifactReference.deleteMany({
         where: {

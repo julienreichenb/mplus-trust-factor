@@ -36,6 +36,7 @@ import {
   type StableCharacterIdentity,
 } from "../run-orchestration/target-character-identity.js";
 import { absentRankingParseFact } from "../run-orchestration/ranking-hydrate.js";
+import { persistParticipantDigestWithRowOwner } from "../run-orchestration/persist-digest-artifact.js";
 import type {
   OrchestrationParticipant,
   SourceFightIdentity,
@@ -454,22 +455,12 @@ export async function runScoringV2CanaryRepairPackage(input: {
       });
       continue;
     }
-    const bytes = Buffer.from(JSON.stringify(digest), "utf8");
-    const write = await input.container.repositories.artifacts.persist({
-      provider: "WARCRAFT_LOGS",
-      bytes,
-      compression: "GZIP",
-      artifactClass: "participant_scoring_digest_v1",
-      owner: {
-        ownerType: "ParticipantScoringDigest",
-        ownerId: digest.contentHash,
-      },
-    });
-    const upserted = await input.container.repositories.participantScoringDigests.upsert({
+    const write = await persistParticipantDigestWithRowOwner({
+      artifacts: input.container.repositories.artifacts,
+      digests: input.container.repositories.participantScoringDigests,
       digest,
-      artifactId: write.artifactId,
     });
-    if (upserted.created) digestsCreated += 1;
+    if (write.created) digestsCreated += 1;
     else digestsReused += 1;
     digestViews.push({
       participantActorId: digest.participantActorId,

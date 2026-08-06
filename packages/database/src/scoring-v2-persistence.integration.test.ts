@@ -338,4 +338,148 @@ describe.runIf(dbAvailable)("scoring v2 persistence", () => {
       },
     });
   });
+
+  it("rejects SHA-256 content hashes as ArtifactReference.ownerId before Prisma", async () => {
+    const sha256 = createHash("sha256").update("not-a-uuid-owner").digest("hex");
+    expect(sha256).toHaveLength(64);
+    await expect(
+      artifacts.persist({
+        provider: "WARCRAFT_LOGS",
+        bytes: Buffer.from('{"probe":true}'),
+        compression: "GZIP",
+        artifactClass: "participant_scoring_digest_v1",
+        owner: {
+          ownerType: "ParticipantScoringDigest",
+          ownerId: sha256,
+        },
+      }),
+    ).rejects.toMatchObject({
+      code: "ARTIFACT_INVALID_OWNER_ID",
+      ownerType: "ParticipantScoringDigest",
+      looksLikeSha256Hex: true,
+    });
+  });
+
+  it("binds package artifact references to the package record UUID and keeps supersession keys as strings", async () => {
+    const packageId = randomUUID();
+    const priorKey = `prior-compat-${randomUUID()}`;
+    const compatKey = `compat-${randomUUID()}`;
+    const contentHash = createHash("sha256").update(`pkg-${randomUUID()}`).digest("hex");
+    expect(contentHash).toHaveLength(64);
+
+    const write = await artifacts.persist({
+      provider: "WARCRAFT_LOGS",
+      bytes: Buffer.from(JSON.stringify({ packageProbe: true, contentHash })),
+      compression: "GZIP",
+      artifactClass: "canonical_capability_evidence_v1",
+    });
+
+    await prisma.capabilityEvidencePackageRecord.create({
+      data: {
+        id: packageId,
+        compatibilityKey: compatKey,
+        reportCode: "OwnerUuid1",
+        fightId: 9,
+        reportRevision: 1,
+        actorSetHash: "actors:x",
+        abilityFilterHash: "abilities:x",
+        catalogVersion: "catalog-test",
+        acquisitionPlanVersion: "plan-v1",
+        graphqlQueryVersion: "gql-v1",
+        mode: "PRODUCTION_CAPABILITY_ACQUISITION",
+        contentHash,
+        artifactId: write.artifactId,
+        participantActorIds: [1, 2, 3, 4, 5],
+        complete: true,
+        supersedesCompatibilityKey: priorKey,
+      },
+    });
+
+    const linked = await artifacts.ensureOwnerReference({
+      artifactId: write.artifactId,
+      ownerType: "CapabilityEvidencePackage",
+      ownerId: packageId,
+      artifactClass: "canonical_capability_evidence_v1",
+    });
+    expect(linked.created).toBe(true);
+
+    const retry = await artifacts.ensureOwnerReference({
+      artifactId: write.artifactId,
+      ownerType: "CapabilityEvidencePackage",
+      ownerId: packageId,
+    });
+    expect(retry.created).toBe(false);
+
+    const refs = await prisma.artifactReference.findMany({
+      where: { artifactId: write.artifactId, ownerType: "CapabilityEvidencePackage" },
+    });
+    expect(refs).toHaveLength(1);
+    expect(refs[0]!.ownerId).toBe(packageId);
+    expect(refs[0]!.ownerId).not.toBe(contentHash);
+    expect(refs[0]!.ownerId).not.toBe(priorKey);
+
+    const row = await prisma.capabilityEvidencePackageRecord.findUniqueOrThrow({
+      where: { id: packageId },
+    });
+    expect(row.supersedesCompatibilityKey).toBe(priorKey);
+    expect(typeof row.supersedesCompatibilityKey).toBe("string");
+  });
+
+  it("binds digest artifact references to the digest record UUID, not contentHash", async () => {
+    const digestId = randomUUID();
+    const contentHash = createHash("sha256").update(`digest-${randomUUID()}`).digest("hex");
+    const packageArtifactId = (
+      await artifacts.persist({
+        provider: "WARCRAFT_LOGS",
+        bytes: Buffer.from('{"pkg":1}'),
+        compression: "GZIP",
+        artifactClass: "canonical_capability_evidence_v1",
+      })
+    ).artifactId;
+    const write = await artifacts.persist({
+      provider: "WARCRAFT_LOGS",
+      bytes: Buffer.from(JSON.stringify({ digestProbe: true, contentHash })),
+      compression: "GZIP",
+      artifactClass: "participant_scoring_digest_v1",
+    });
+
+    await prisma.participantScoringDigest.create({
+      data: {
+        id: digestId,
+        compatibilityKey: `digest-compat-${randomUUID()}`,
+        reportCode: "OwnerDig1",
+        fightId: 2,
+        reportRevision: 1,
+        participantActorId: 10,
+        characterId,
+        digestSchemaVersion: "participant-scoring-digest-v1",
+        extractorCompatVersion: "extractor-v1",
+        catalogVersion: "catalog-test",
+        capabilityPackageContentHash: createHash("sha256").update("pkg").digest("hex"),
+        capabilityPackageArtifactId: packageArtifactId,
+        contentHash,
+        artifactId: write.artifactId,
+      },
+    });
+
+    await artifacts.ensureOwnerReference({
+      artifactId: write.artifactId,
+      ownerType: "ParticipantScoringDigest",
+      ownerId: digestId,
+      artifactClass: "participant_scoring_digest_v1",
+    });
+
+    const ref = await prisma.artifactReference.findUniqueOrThrow({
+      where: {
+        ownerType_ownerId_artifactId: {
+          ownerType: "ParticipantScoringDigest",
+          ownerId: digestId,
+          artifactId: write.artifactId,
+        },
+      },
+    });
+    expect(ref.ownerId).toBe(digestId);
+    expect(ref.ownerId).not.toBe(contentHash);
+    expect(contentHash).toHaveLength(64);
+  });
 });

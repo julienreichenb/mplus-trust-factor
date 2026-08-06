@@ -28,7 +28,7 @@ import type {
   OrchestrationParticipant,
   SourceFightIdentity,
 } from "./orchestrator.js";
-
+import { persistParticipantDigestWithRowOwner } from "./persist-digest-artifact.js";
 export type SupersedingAcquire = (input: {
   sourceFight: SourceFightIdentity;
   dungeonSlug: string | null;
@@ -284,23 +284,12 @@ export async function repairIncompatibleCapabilityPackages(input: {
         });
         continue;
       }
-      const bytes = Buffer.from(JSON.stringify(digest), "utf8");
-      const write = await input.container.repositories.artifacts.persist({
-        provider: "WARCRAFT_LOGS",
-        bytes,
-        compression: "GZIP",
-        artifactClass: "participant_scoring_digest_v1",
-        owner: {
-          ownerType: "ParticipantScoringDigest",
-          ownerId: digest.contentHash,
-        },
+      const write = await persistParticipantDigestWithRowOwner({
+        artifacts: input.container.repositories.artifacts,
+        digests: input.container.repositories.participantScoringDigests,
+        digest,
       });
-      const upserted =
-        await input.container.repositories.participantScoringDigests.upsert({
-          digest,
-          artifactId: write.artifactId,
-        });
-      if (upserted.created) digestsCreated += 1;
+      if (write.created) digestsCreated += 1;
       digestViews.push({
         participantActorId: digest.participantActorId,
         characterId: digest.characterId,

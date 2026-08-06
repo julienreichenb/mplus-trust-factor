@@ -68,7 +68,7 @@ export function buildMinimalCapabilityPackage(input: {
     .update(actorIds.slice().sort((a, b) => a - b).join(","))
     .digest("hex")
     .slice(0, 16);
-  const abilityFilterHash = "none";
+  const abilityFilterHash = "filter:none";
   const compatibilityKey = buildCapabilityPackageCompatibilityKey({
     reportCode: input.sourceFight.reportCode,
     fightId: input.sourceFight.fightId,
