@@ -470,17 +470,9 @@ async function ensurePackageAndDigests(input: {
         capabilityPackageContentHash: digest.capabilityPackageContentHash,
         catalogVersion: digest.catalogVersion,
       });
+      // Reuse only on exact content match. Ranking facts may change without a
+      // package hash change; do not skip digest refresh in that case.
       if (existing && existing.digest.contentHash === digest.contentHash) {
-        digests.push(existing);
-        digestsReused += 1;
-        continue;
-      }
-      if (
-        existing &&
-        existing.digest.extractorCompatVersion === digest.extractorCompatVersion &&
-        existing.digest.capabilityPackageContentHash ===
-          digest.capabilityPackageContentHash
-      ) {
         digests.push(existing);
         digestsReused += 1;
         continue;

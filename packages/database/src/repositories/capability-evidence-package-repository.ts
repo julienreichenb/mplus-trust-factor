@@ -16,6 +16,35 @@ export interface UpsertCapabilityEvidencePackageInput {
   package: CapabilityEvidencePackageV1;
   packageArtifactId: string;
   contentHash: string;
+  /**
+   * When set, the named prior compatibility key is excluded from compatible
+   * lookup. The prior row is never mutated.
+   */
+  supersedesCompatibilityKey?: string | null;
+}
+
+/**
+ * Among complete packages for one source fight, exclude any key that another
+ * row explicitly supersedes. Prefer newest remaining.
+ */
+export function selectCurrentCompatiblePackageRow<
+  T extends {
+    compatibilityKey: string;
+    supersedesCompatibilityKey: string | null;
+    updatedAt: Date;
+  },
+>(rows: readonly T[]): T | null {
+  if (rows.length === 0) return null;
+  const superseded = new Set(
+    rows
+      .map((r) => r.supersedesCompatibilityKey)
+      .filter((k): k is string => typeof k === "string" && k.length > 0),
+  );
+  const eligible = rows
+    .filter((r) => !superseded.has(r.compatibilityKey))
+    .slice()
+    .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
+  return eligible[0] ?? null;
 }
 
 export class CapabilityEvidencePackageRepository {
@@ -80,7 +109,8 @@ export class CapabilityEvidencePackageRepository {
   }
 
   /**
-   * Compatible package for a source fight: must be marked complete.
+   * Compatible package for a source fight: must be marked complete and not
+   * explicitly superseded by a newer package for the same fight.
    * Incomplete packages are never treated as reusable cache hits.
    */
   async findCompleteBySourceFight(input: {
@@ -93,7 +123,7 @@ export class CapabilityEvidencePackageRepository {
     packageArtifactId: string;
     contentHash: string;
   } | null> {
-    const row = await this.prisma.capabilityEvidencePackageRecord.findFirst({
+    const rows = await this.prisma.capabilityEvidencePackageRecord.findMany({
       where: {
         reportCode: input.reportCode,
         fightId: input.fightId,
@@ -103,8 +133,9 @@ export class CapabilityEvidencePackageRepository {
       orderBy: { updatedAt: "desc" },
       include: { artifact: true },
     });
-    if (!row) return null;
-    const loaded = await this.loadVerifiedRow(row);
+    const selected = selectCurrentCompatiblePackageRow(rows);
+    if (!selected) return null;
+    const loaded = await this.loadVerifiedRow(selected);
     if (!loaded || !loaded.complete) return null;
     return {
       recordId: loaded.recordId,
@@ -123,7 +154,10 @@ export class CapabilityEvidencePackageRepository {
       select: { id: true, contentHash: true },
     });
     if (existing) {
-      if (existing.contentHash !== input.contentHash) {
+      if (
+        existing.contentHash !== input.contentHash ||
+        input.supersedesCompatibilityKey !== undefined
+      ) {
         await this.prisma.capabilityEvidencePackageRecord.update({
           where: { id: existing.id },
           data: {
@@ -134,6 +168,12 @@ export class CapabilityEvidencePackageRepository {
             actorSetHash: pkg.actorSetHash,
             abilityFilterHash: pkg.abilityFilterHash,
             catalogVersion: pkg.catalogVersion,
+            ...(input.supersedesCompatibilityKey !== undefined
+              ? {
+                  supersedesCompatibilityKey:
+                    input.supersedesCompatibilityKey ?? null,
+                }
+              : {}),
           },
         });
       }
@@ -156,6 +196,7 @@ export class CapabilityEvidencePackageRepository {
         artifactId: input.packageArtifactId,
         participantActorIds: pkg.friendlyPlayerActorIds,
         complete: pkg.complete,
+        supersedesCompatibilityKey: input.supersedesCompatibilityKey ?? null,
       },
     });
     return { id: created.id, created: true };

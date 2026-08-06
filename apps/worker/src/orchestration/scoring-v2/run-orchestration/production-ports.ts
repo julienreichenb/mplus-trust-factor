@@ -232,6 +232,7 @@ export async function persistCapabilityPackageToPostgres(input: {
   artifacts: ArtifactRepository;
   packages: CapabilityEvidencePackageRepository;
   package: CapabilityEvidencePackageV1;
+  supersedesCompatibilityKey?: string | null;
 }): Promise<CompatiblePackageHit> {
   const pkg = assertCapabilityEvidencePackageV1(input.package);
   const bytes = Buffer.from(JSON.stringify(pkg), "utf8");
@@ -249,6 +250,7 @@ export async function persistCapabilityPackageToPostgres(input: {
     package: pkg,
     packageArtifactId: write.artifactId,
     contentHash: pkg.contentHash,
+    supersedesCompatibilityKey: input.supersedesCompatibilityKey,
   });
   return {
     package: pkg,

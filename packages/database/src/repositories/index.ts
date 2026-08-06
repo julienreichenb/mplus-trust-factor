@@ -37,6 +37,7 @@ export {
 } from "./wcl-source-repository.js";
 export {
   CapabilityEvidencePackageRepository,
+  selectCurrentCompatiblePackageRow,
   type UpsertCapabilityEvidencePackageInput,
 } from "./capability-evidence-package-repository.js";
 export {

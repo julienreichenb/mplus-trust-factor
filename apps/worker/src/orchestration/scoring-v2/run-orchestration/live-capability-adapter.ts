@@ -208,28 +208,33 @@ export interface CreateLiveCapabilityAcquireHookInput {
   measurePointsConsumed?: () => Promise<number | null>;
 }
 
-export function createLiveCapabilityAcquireHook(
+async function acquireLiveCapabilityPackageCore(
   deps: CreateLiveCapabilityAcquireHookInput,
-): (input: {
-  sourceFight: SourceFightIdentity;
-  dungeonSlug: string | null;
-  keyLevel: number | null;
-  participants: OrchestrationParticipant[];
-}) => Promise<LiveCapabilityAcquireResult> {
-  return async (input) => {
-    const gate = evaluateLiveCapabilityPermission(deps.permission);
-    if (!gate.allowed) {
-      throw Object.assign(
-        new Error(`live_capability_acquire_refused:${gate.reasons.join(",")}`),
-        { code: "LIVE_ACQUIRE_REFUSED", reasons: gate.reasons },
-      );
-    }
-
-    const packages = new CapabilityEvidencePackageRepository(
-      deps.prisma,
-      deps.artifacts,
+  input: {
+    sourceFight: SourceFightIdentity;
+    dungeonSlug: string | null;
+    keyLevel: number | null;
+    participants: OrchestrationParticipant[];
+    /** Bypass complete-package HIT and always call WCL for this fight. */
+    forceTargetedReacquire: boolean;
+    /** Prior package key to supersede (index-only; prior row never mutated). */
+    supersedesCompatibilityKey: string | null;
+  },
+): Promise<LiveCapabilityAcquireResult> {
+  const gate = evaluateLiveCapabilityPermission(deps.permission);
+  if (!gate.allowed) {
+    throw Object.assign(
+      new Error(`live_capability_acquire_refused:${gate.reasons.join(",")}`),
+      { code: "LIVE_ACQUIRE_REFUSED", reasons: gate.reasons },
     );
+  }
 
+  const packages = new CapabilityEvidencePackageRepository(
+    deps.prisma,
+    deps.artifacts,
+  );
+
+  if (!input.forceTargetedReacquire) {
     // Pre-check: never call WCL when a complete package already exists.
     const existing = await packages.findCompleteBySourceFight(input.sourceFight);
     if (existing && existing.package.complete === true) {
@@ -252,132 +257,178 @@ export function createLiveCapabilityAcquireHook(
         },
       };
     }
+  }
 
-    const meta = await resolveAuthoritativeFightMetadata({
-      client: deps.client,
-      reportCode: input.sourceFight.reportCode,
-      fightId: input.sourceFight.fightId,
-      expectedRevision: input.sourceFight.reportRevision,
-      region: deps.region,
+  const meta = await resolveAuthoritativeFightMetadata({
+    client: deps.client,
+    reportCode: input.sourceFight.reportCode,
+    fightId: input.sourceFight.fightId,
+    expectedRevision: input.sourceFight.reportRevision,
+    region: deps.region,
+  });
+
+  const store = createPersistentSharedEvidenceStore({
+    wclSource: deps.wclSource,
+    artifacts: deps.artifacts,
+    treatLegacyPayloadMissingAsCacheMiss: true,
+    replaceLegacyPageArtifactsOnSave: true,
+  });
+
+  const dungeonSlug = input.dungeonSlug ?? meta.dungeonSlug;
+  const friendlyFromParticipants = input.participants.map((p) => p.playerActorId);
+  const friendlyPlayerActorIds =
+    friendlyFromParticipants.length > 0
+      ? friendlyFromParticipants
+      : meta.friendlyPlayerActorIds;
+  if (friendlyPlayerActorIds.length === 0) {
+    throw Object.assign(
+      new Error(
+        `capability_acquisition_requires_friendly_players:${input.sourceFight.reportCode}:${input.sourceFight.fightId}`,
+      ),
+      { code: "FRIENDLY_PLAYERS_REQUIRED" },
+    );
+  }
+  const acquired = await acquireCapabilityEvidencePackage({
+    mode: "PRODUCTION_CAPABILITY_ACQUISITION",
+    client: deps.client,
+    store,
+    reportCode: input.sourceFight.reportCode,
+    reportRevision: input.sourceFight.reportRevision,
+    fightId: input.sourceFight.fightId,
+    dungeonSlug,
+    fightStartMs: meta.fightStartMs,
+    fightEndMs: meta.fightEndMs,
+    region: deps.region,
+    masterData: meta.masterData,
+    friendlyPlayerActorIds,
+    ownedPetActorIds: [
+      ...new Set(input.participants.flatMap((p) => p.ownedPetActorIds)),
+    ],
+    catalogVersion: CURRENT_CATALOG_VERSION_ID,
+    forceRefetch: input.forceTargetedReacquire,
+  });
+
+  const pkg = assertCapabilityEvidencePackageV1(acquired.package);
+  if (pkg.complete !== true) {
+    throw Object.assign(
+      new Error(`incomplete_capability_package:${pkg.compatibilityKey}`),
+      { code: "INCOMPLETE_CAPABILITY_PACKAGE" },
+    );
+  }
+
+  const persisted = await persistCapabilityPackageToPostgres({
+    artifacts: deps.artifacts,
+    packages,
+    package: pkg,
+    supersedesCompatibilityKey: input.supersedesCompatibilityKey,
+  });
+
+  // Reload verification (provider-free).
+  const reloaded = await packages.findByCompatibilityKey(pkg.compatibilityKey);
+  if (!reloaded) {
+    throw Object.assign(new Error("capability_package_reload_missing"), {
+      code: "PACKAGE_RELOAD_MISSING",
     });
-
-    const store = createPersistentSharedEvidenceStore({
-      wclSource: deps.wclSource,
-      artifacts: deps.artifacts,
-      treatLegacyPayloadMissingAsCacheMiss: true,
-      replaceLegacyPageArtifactsOnSave: true,
+  }
+  if (reloaded.contentHash !== pkg.contentHash) {
+    throw Object.assign(new Error("capability_package_reload_hash_mismatch"), {
+      code: "PACKAGE_RELOAD_HASH_MISMATCH",
     });
-
-    const dungeonSlug = input.dungeonSlug ?? meta.dungeonSlug;
-    const friendlyFromParticipants = input.participants.map((p) => p.playerActorId);
-    const friendlyPlayerActorIds =
-      friendlyFromParticipants.length > 0
-        ? friendlyFromParticipants
-        : meta.friendlyPlayerActorIds;
-    if (friendlyPlayerActorIds.length === 0) {
-      throw Object.assign(
-        new Error(
-          `capability_acquisition_requires_friendly_players:${input.sourceFight.reportCode}:${input.sourceFight.fightId}`,
-        ),
-        { code: "FRIENDLY_PLAYERS_REQUIRED" },
-      );
-    }
-    const acquired = await acquireCapabilityEvidencePackage({
-      mode: "PRODUCTION_CAPABILITY_ACQUISITION",
-      client: deps.client,
-      store,
-      reportCode: input.sourceFight.reportCode,
-      reportRevision: input.sourceFight.reportRevision,
-      fightId: input.sourceFight.fightId,
-      dungeonSlug,
-      fightStartMs: meta.fightStartMs,
-      fightEndMs: meta.fightEndMs,
-      region: deps.region,
-      masterData: meta.masterData,
-      friendlyPlayerActorIds,
-      ownedPetActorIds: [
-        ...new Set(input.participants.flatMap((p) => p.ownedPetActorIds)),
-      ],
-      catalogVersion: CURRENT_CATALOG_VERSION_ID,
-      forceRefetch: false,
+  }
+  if (reloaded.package.compatibilityKey !== pkg.compatibilityKey) {
+    throw Object.assign(new Error("capability_package_reload_compat_mismatch"), {
+      code: "PACKAGE_RELOAD_COMPAT_MISMATCH",
     });
-
-    const pkg = assertCapabilityEvidencePackageV1(acquired.package);
-    if (pkg.complete !== true) {
-      throw Object.assign(
-        new Error(`incomplete_capability_package:${pkg.compatibilityKey}`),
-        { code: "INCOMPLETE_CAPABILITY_PACKAGE" },
-      );
-    }
-
-    const persisted = await persistCapabilityPackageToPostgres({
-      artifacts: deps.artifacts,
-      packages,
-      package: pkg,
+  }
+  if (reloaded.complete !== true || reloaded.package.complete !== true) {
+    throw Object.assign(new Error("capability_package_reload_incomplete"), {
+      code: "PACKAGE_RELOAD_INCOMPLETE",
     });
+  }
 
-    // Reload verification (provider-free).
-    const reloaded = await packages.findByCompatibilityKey(pkg.compatibilityKey);
-    if (!reloaded) {
-      throw Object.assign(new Error("capability_package_reload_missing"), {
-        code: "PACKAGE_RELOAD_MISSING",
-      });
-    }
-    if (reloaded.contentHash !== pkg.contentHash) {
-      throw Object.assign(new Error("capability_package_reload_hash_mismatch"), {
-        code: "PACKAGE_RELOAD_HASH_MISMATCH",
-      });
-    }
-    if (reloaded.package.compatibilityKey !== pkg.compatibilityKey) {
-      throw Object.assign(new Error("capability_package_reload_compat_mismatch"), {
-        code: "PACKAGE_RELOAD_COMPAT_MISMATCH",
-      });
-    }
-    if (reloaded.complete !== true || reloaded.package.complete !== true) {
-      throw Object.assign(new Error("capability_package_reload_incomplete"), {
-        code: "PACKAGE_RELOAD_INCOMPLETE",
-      });
-    }
+  // Compatible lookup must return the superseding package, not the prior row.
+  const current = await packages.findCompleteBySourceFight(input.sourceFight);
+  if (!current || current.contentHash !== reloaded.contentHash) {
+    throw Object.assign(
+      new Error("capability_package_supersession_lookup_mismatch"),
+      { code: "PACKAGE_SUPERSESSION_LOOKUP_MISMATCH" },
+    );
+  }
 
-    const providerCalls = meta.providerCalls + acquired.providerCalls;
-    let pointsConsumed: number | null = null;
-    let costSource: LiveCapabilityCostSource = "UNKNOWN";
-    if (deps.measurePointsConsumed) {
-      pointsConsumed = await deps.measurePointsConsumed();
-      if (pointsConsumed != null) costSource = "MEASURED_RATE_LIMIT_DELTA";
-    }
-    if (pointsConsumed == null && typeof pkg.accounting.providerCalls === "number") {
-      // Prefer package-level accounting when measured points unavailable.
-      costSource = "PACKAGE_ACCOUNTING";
-    }
-    const estimatedPointsConsumed =
-      pointsConsumed != null
-        ? null
-        : CONSERVATIVE_POINTS_PER_CAPABILITY_FIGHT;
+  const providerCalls = meta.providerCalls + acquired.providerCalls;
+  let pointsConsumed: number | null = null;
+  let costSource: LiveCapabilityCostSource = "UNKNOWN";
+  if (deps.measurePointsConsumed) {
+    pointsConsumed = await deps.measurePointsConsumed();
+    if (pointsConsumed != null) costSource = "MEASURED_RATE_LIMIT_DELTA";
+  }
+  if (pointsConsumed == null && typeof pkg.accounting.providerCalls === "number") {
+    costSource = "PACKAGE_ACCOUNTING";
+  }
+  const estimatedPointsConsumed =
+    pointsConsumed != null ? null : CONSERVATIVE_POINTS_PER_CAPABILITY_FIGHT;
 
-    if (pointsConsumed == null && estimatedPointsConsumed != null) {
-      costSource = "ESTIMATED_CONSERVATIVE";
-    }
+  if (pointsConsumed == null && estimatedPointsConsumed != null) {
+    costSource = "ESTIMATED_CONSERVATIVE";
+  }
 
-    return {
-      package: reloaded.package,
+  return {
+    package: reloaded.package,
+    packageArtifactId: persisted.packageArtifactId,
+    contentHash: reloaded.contentHash,
+    providerCalls,
+    created: true,
+    accounting: {
+      providerCalls,
+      pagesFetched: pkg.accounting.pagesFetched,
+      filterBatchCount: pkg.accounting.filterBatchCount,
+      pointsConsumed,
+      estimatedPointsConsumed,
+      costSource,
       packageArtifactId: persisted.packageArtifactId,
       contentHash: reloaded.contentHash,
-      providerCalls,
-      created: true,
-      accounting: {
-        providerCalls,
-        pagesFetched: pkg.accounting.pagesFetched,
-        filterBatchCount: pkg.accounting.filterBatchCount,
-        pointsConsumed,
-        estimatedPointsConsumed,
-        costSource,
-        packageArtifactId: persisted.packageArtifactId,
-        contentHash: reloaded.contentHash,
-        compatibilityKey: pkg.compatibilityKey,
-      },
-    };
+      compatibilityKey: pkg.compatibilityKey,
+    },
   };
+}
+
+export function createLiveCapabilityAcquireHook(
+  deps: CreateLiveCapabilityAcquireHookInput,
+): (input: {
+  sourceFight: SourceFightIdentity;
+  dungeonSlug: string | null;
+  keyLevel: number | null;
+  participants: OrchestrationParticipant[];
+}) => Promise<LiveCapabilityAcquireResult> {
+  return async (input) =>
+    acquireLiveCapabilityPackageCore(deps, {
+      ...input,
+      forceTargetedReacquire: false,
+      supersedesCompatibilityKey: null,
+    });
+}
+
+/**
+ * Explicit single-fight superseding acquire. Never used by cohort live canary.
+ */
+export function createTargetedCapabilityRepairAcquireHook(
+  deps: CreateLiveCapabilityAcquireHookInput,
+): (input: {
+  sourceFight: SourceFightIdentity;
+  dungeonSlug: string | null;
+  keyLevel: number | null;
+  participants: OrchestrationParticipant[];
+  supersedesCompatibilityKey: string;
+}) => Promise<LiveCapabilityAcquireResult> {
+  return async (input) =>
+    acquireLiveCapabilityPackageCore(deps, {
+      sourceFight: input.sourceFight,
+      dungeonSlug: input.dungeonSlug,
+      keyLevel: input.keyLevel,
+      participants: input.participants,
+      forceTargetedReacquire: true,
+      supersedesCompatibilityKey: input.supersedesCompatibilityKey,
+    });
 }
 
 /** Test helper: wrap a fixture package as a successful acquire result. */

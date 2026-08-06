@@ -55,7 +55,7 @@ export interface DigestIdentityView {
 }
 
 function normalizeName(value: string): string {
-  return value.normalize("NFKC").trim().toLocaleLowerCase("en-US");
+  return (value ?? "").normalize("NFKC").trim().toLocaleLowerCase("en-US");
 }
 
 /**

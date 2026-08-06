@@ -2172,6 +2172,11 @@ model CapabilityEvidencePackageRecord {
   artifactId            String   @map("artifact_id") @db.Uuid
   participantActorIds   Json     @default("[]") @map("participant_actor_ids")
   complete              Boolean  @default(false)
+  /**
+   * When set on a newer package, the named compatibility key is excluded from
+   * compatible lookup. The superseded row is never mutated or deleted.
+   */
+  supersedesCompatibilityKey String? @map("supersedes_compatibility_key")
   createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt             DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
@@ -2179,6 +2184,7 @@ model CapabilityEvidencePackageRecord {
 
   @@index([reportCode, fightId, reportRevision])
   @@index([contentHash])
+  @@index([supersedesCompatibilityKey])
   @@map("capability_evidence_package_records")
 }
 
