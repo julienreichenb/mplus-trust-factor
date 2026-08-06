@@ -96,6 +96,12 @@ export async function createProductionCanaryDependencies(input: {
     prisma: container.prisma,
     artifacts: container.repositories.artifacts,
     evidence: container.repositories.evidence,
+    targetCharacter: {
+      characterId: character.id,
+      characterName: character.displayName,
+      realmSlug: input.identity.realmSlug,
+      regionCode: input.identity.region,
+    },
     // Preflight / operator path: never attach live acquire here.
   });
 

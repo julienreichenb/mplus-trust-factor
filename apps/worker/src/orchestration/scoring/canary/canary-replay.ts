@@ -201,83 +201,14 @@ export async function runScoringCanaryReplay(input: {
           artifacts: input.container.repositories.artifacts,
           evidence: input.container.repositories.evidence,
           // No liveAcquireCapabilityPackage — provider forbidden.
-          resolveParticipants: async ({ sourceFight }) => {
-            const rosterRow = await input.prisma.wclRunSourceDigest.findFirst({
-              where: {
-                reportCode: sourceFight.reportCode,
-                fightId: sourceFight.fightId,
-                reportRevision: sourceFight.reportRevision,
-              },
-            });
-            const hit =
-              await input.container.repositories.capabilityEvidencePackages.findCompleteBySourceFight(
-                sourceFight,
-              );
-            if (!hit) return [];
-            type RosterP = {
-              wclActorId: number;
-              characterName: string;
-              realmSlug: string;
-              regionCode: string;
-              ownedPetActorIds?: number[];
-            };
-            const roster =
-              (
-                rosterRow?.digest as { participants?: RosterP[] } | null
-              )?.participants ?? [];
-            const target = roster.find(
-              (p) =>
-                p.characterName
-                  .normalize("NFKC")
-                  .trim()
-                  .toLocaleLowerCase("en-US") ===
-                  input.characterName
-                    .normalize("NFKC")
-                    .trim()
-                    .toLocaleLowerCase("en-US") &&
-                (p.realmSlug ?? "")
-                  .toLowerCase()
-                  .replace(/[^a-z0-9]+/g, "-") ===
-                  input.realm.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
-            );
-            return hit.package.friendlyPlayerActorIds.map((id) => {
-              const isTarget = target != null && id === target.wclActorId;
-              const rp = roster.find((p) => p.wclActorId === id);
-              return {
-                playerActorId: id,
-                characterName: isTarget
-                  ? input.characterName
-                  : (rp?.characterName ?? `Actor${id}`),
-                realmSlug: rp?.realmSlug ?? input.realm,
-                regionCode: rp?.regionCode ?? input.region,
-                classSlug: isTarget ? input.classSlug : null,
-                specSlug: isTarget ? input.specSlug : null,
-                role: isTarget ? input.role : null,
-                ownedPetActorIds: rp?.ownedPetActorIds ?? [],
-                characterId: isTarget ? input.characterId : null,
-              };
-            });
-          },
-          resolveFightRoster: async ({ sourceFight }) => {
-            const row = await input.prisma.wclRunSourceDigest.findFirst({
-              where: {
-                reportCode: sourceFight.reportCode,
-                fightId: sourceFight.fightId,
-                reportRevision: sourceFight.reportRevision,
-              },
-            });
-            const participants = (
-              row?.digest as {
-                participants?: Array<{
-                  wclActorId: number;
-                  characterName: string;
-                  realmSlug: string;
-                  regionCode: string;
-                }>;
-              } | null
-            )?.participants;
-            if (!participants?.length) return null;
-            return participants;
+          targetCharacter: {
+            characterId: input.characterId,
+            characterName: input.characterName,
+            realmSlug: input.realm,
+            regionCode: input.region,
+            classSlug: input.classSlug,
+            specSlug: input.specSlug,
+            role: input.role,
           },
         }));
 

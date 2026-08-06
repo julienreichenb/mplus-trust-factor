@@ -503,13 +503,22 @@ export async function runScoringCanaryLive(
           },
         });
 
-  // Probe package cache with provider-free ports (no live acquire).
+    // Probe package cache with provider-free ports (no live acquire).
   const probePorts =
     input.ports ??
     createProductionRunOrchestrationPorts({
       prisma: input.prisma,
       artifacts: input.container.repositories.artifacts,
       evidence: input.container.repositories.evidence,
+      targetCharacter: {
+        characterId: input.characterId,
+        characterName: input.characterName,
+        realmSlug: input.realm,
+        regionCode: input.region,
+        classSlug: input.classSlug,
+        specSlug: input.specSlug,
+        role: input.role,
+      },
     });
 
   const cacheStatuses: Array<{ sourceFightKey: string; packageCacheHit: boolean }> = [];
@@ -626,147 +635,34 @@ export async function runScoringCanaryLive(
     if (input.useRedisLock !== false) {
       redisForLock = input.container.createRedisConnection();
     }
-    const packageFinder = async (args: { sourceFight: SourceFightIdentity }) => {
-      const hit =
-        await input.container.repositories.capabilityEvidencePackages.findCompleteBySourceFight(
-          args.sourceFight,
-        );
-      if (!hit) return null;
-      return {
-        package: hit.package,
-        packageArtifactId: hit.packageArtifactId,
-        contentHash: hit.contentHash,
-        providerCalls: 0 as const,
-      };
-    };
-    const withSourceFightLock = redisForLock
-      ? createRedisSourceFightLock({
-          redis: redisForLock,
-          appEnv: input.env.APP_ENV ?? input.env.NODE_ENV ?? "development",
-          findCompatiblePackage: packageFinder,
-        })
-      : undefined;
-
-    ports = createProductionRunOrchestrationPorts({
+    const rosterPorts = createProductionRunOrchestrationPorts({
       prisma: input.prisma,
       artifacts: input.container.repositories.artifacts,
       evidence: input.container.repositories.evidence,
       liveAcquireCapabilityPackage: liveHook,
-      withSourceFightLock,
-      resolveParticipants: async ({ sourceFight }) => {
-        const rosterRow = await input.prisma.wclRunSourceDigest.findFirst({
-          where: {
-            reportCode: sourceFight.reportCode,
-            fightId: sourceFight.fightId,
-            reportRevision: sourceFight.reportRevision,
-          },
-        });
-
-        const hit =
-          await input.container.repositories.capabilityEvidencePackages.findCompleteBySourceFight(
-            sourceFight,
-          );
-
-        type RosterP = {
-          wclActorId: number;
-          characterName: string;
-          realmSlug: string;
-          regionCode: string;
-          classSlug?: string | null;
-          specSlug?: string | null;
-          role?: string | null;
-          ownedPetActorIds?: number[];
-        };
-
-        const digestDoc = rosterRow?.digest as
-          | { participants?: RosterP[] }
-          | null
-          | undefined;
-        const rosterParticipants = digestDoc?.participants ?? [];
-
-        const targetFromRoster = rosterParticipants.find(
-          (p) =>
-            p.characterName.normalize("NFKC").trim().toLocaleLowerCase("en-US") ===
-              input.characterName
-                .normalize("NFKC")
-                .trim()
-                .toLocaleLowerCase("en-US") &&
-            (p.realmSlug ?? "")
-              .toLowerCase()
-              .replace(/[^a-z0-9]+/g, "-") ===
-              input.realm.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
-        );
-
-        // Before package exists: use persisted roster actor set for acquisition.
-        if (!hit) {
-          if (rosterParticipants.length === 0) return [];
-          return rosterParticipants.map((p) => {
-            const isTarget =
-              targetFromRoster != null &&
-              p.wclActorId === targetFromRoster.wclActorId;
-            return {
-              playerActorId: p.wclActorId,
-              characterName: isTarget ? input.characterName : p.characterName,
-              realmSlug: p.realmSlug ?? input.realm,
-              regionCode: p.regionCode ?? input.region,
-              classSlug: isTarget ? input.classSlug : (p.classSlug ?? null),
-              specSlug: isTarget ? input.specSlug : (p.specSlug ?? null),
-              role: isTarget ? input.role : (p.role ?? null),
-              ownedPetActorIds: p.ownedPetActorIds ?? [],
-              characterId: isTarget ? input.characterId : null,
-            };
-          });
-        }
-
-        // Package exists: stamp identity using roster actor (stable), not discovery actorId.
-        const targetActorId = targetFromRoster?.wclActorId ?? null;
-        return hit.package.friendlyPlayerActorIds.map((id) => {
-          const rosterP = rosterParticipants.find((p) => p.wclActorId === id);
-          const isTarget = targetActorId != null && id === targetActorId;
-          return {
-            playerActorId: id,
-            characterName: isTarget
-              ? input.characterName
-              : (rosterP?.characterName ?? `Actor${id}`),
-            realmSlug: rosterP?.realmSlug ?? input.realm,
-            regionCode: rosterP?.regionCode ?? input.region,
-            classSlug: isTarget
-              ? input.classSlug
-              : (rosterP?.classSlug ?? null),
-            specSlug: isTarget ? input.specSlug : (rosterP?.specSlug ?? null),
-            role: isTarget ? input.role : (rosterP?.role ?? null),
-            ownedPetActorIds: rosterP?.ownedPetActorIds ?? [],
-            characterId: isTarget ? input.characterId : null,
-          };
-        });
-      },
-      resolveFightRoster: async ({ sourceFight }) => {
-        const row = await input.prisma.wclRunSourceDigest.findFirst({
-          where: {
-            reportCode: sourceFight.reportCode,
-            fightId: sourceFight.fightId,
-            reportRevision: sourceFight.reportRevision,
-          },
-        });
-        const participants = (
-          row?.digest as {
-            participants?: Array<{
-              wclActorId: number;
-              characterName: string;
-              realmSlug: string;
-              regionCode: string;
-            }>;
-          } | null
-        )?.participants;
-        if (!participants || participants.length === 0) return null;
-        return participants.map((p) => ({
-          wclActorId: p.wclActorId,
-          characterName: p.characterName,
-          realmSlug: p.realmSlug,
-          regionCode: p.regionCode,
-        }));
+      targetCharacter: {
+        characterId: input.characterId,
+        characterName: input.characterName,
+        realmSlug: input.realm,
+        regionCode: input.region,
+        classSlug: input.classSlug,
+        specSlug: input.specSlug,
+        role: input.role,
       },
     });
+    const withSourceFightLock = redisForLock
+      ? createRedisSourceFightLock({
+          redis: redisForLock,
+          appEnv: input.env.APP_ENV ?? input.env.NODE_ENV ?? "development",
+          findCompatiblePackage: (args) =>
+            rosterPorts.findCompatibleCapabilityPackage(args),
+        })
+      : undefined;
+
+    ports = {
+      ...rosterPorts,
+      withSourceFightLock: withSourceFightLock ?? rosterPorts.withSourceFightLock,
+    };
   }
 
   let scoringModelId = input.scoringModelId ?? "canary-shadow-model";

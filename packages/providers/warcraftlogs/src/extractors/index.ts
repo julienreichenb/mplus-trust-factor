@@ -11,6 +11,19 @@ export {
   type DigestParticipantLike,
   type ResolvedFightParticipant,
 } from "./participants/resolve.js";
+export {
+  resolveScoringFightRoster,
+  resolveScoringFightRosterOrThrow,
+  toOrchestrationParticipants,
+  ScoringFightRosterError,
+  type ScoringFightRosterFailureCode,
+  type ScoringFightRosterParticipant,
+  type ScoringFightRosterTargetIdentity,
+  type ResolveScoringFightRosterInput,
+  type ResolveScoringFightRosterResult,
+  type ResolveScoringFightRosterSuccess,
+  type ResolveScoringFightRosterFailure,
+} from "./participants/resolve-scoring-fight-roster.js";
 
 export {
   buildOffensiveParticipantActivationReports,

@@ -73,6 +73,16 @@ export interface ScoreCharacterInput {
   >[0]["resolveParticipants"];
   resolveFightRoster?: RunOrchestrationPorts["resolveFightRoster"];
   withSourceFightLock?: RunOrchestrationPorts["withSourceFightLock"];
+  /** Optional override; defaults to identity fields on this input. */
+  targetCharacter?: {
+    characterId: string;
+    characterName: string;
+    realmSlug: string;
+    regionCode: string;
+    classSlug?: string | null;
+    specSlug?: string | null;
+    role?: string | null;
+  };
 }
 
 export interface ScoreCharacterResult {
@@ -105,6 +115,15 @@ export async function scoreCharacter(
       resolveParticipants: input.resolveParticipants,
       resolveFightRoster: input.resolveFightRoster,
       withSourceFightLock: input.withSourceFightLock,
+      targetCharacter: input.targetCharacter ?? {
+        characterId: input.identity.characterId,
+        characterName: input.identity.characterName,
+        realmSlug: input.identity.realm,
+        regionCode: input.identity.region,
+        classSlug: input.classSlug,
+        specSlug: input.specSlug,
+        role: input.role,
+      },
     });
 
   const orchestration = await orchestrateScoringRuns({

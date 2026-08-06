@@ -7,6 +7,7 @@ import { CURRENT_CATALOG_VERSION_ID } from "@mplus/abilities";
 import type { AppEnv } from "@mplus/config";
 import {
   assertCapabilityEvidencePackageV1,
+  parseWclRunRawPayload,
 } from "@mplus/contracts";
 import type { ArtifactRepository, WclSourceRepository } from "@mplus/database";
 import {
@@ -49,6 +50,10 @@ export interface LiveCapabilityAcquisitionAccounting {
 
 export interface LiveCapabilityAcquireResult extends AcquireCapabilityPackageResult {
   accounting: LiveCapabilityAcquisitionAccounting;
+  /** Embedded with WclRunRaw for shared roster resolution. */
+  masterData?: unknown;
+  regionCode?: string | null;
+  combatantInfoEvents?: Array<Record<string, unknown>> | null;
 }
 
 export interface LiveCapabilityPermissionInput {
@@ -238,7 +243,8 @@ export function createLiveCapabilityAcquireHook(
       acquisitionVersion: SCORING_ACQUISITION_VERSION,
     });
     if (existingRow) {
-      const existingPkg = assertCapabilityEvidencePackageV1(existingRow.payload);
+      const existingParsed = parseWclRunRawPayload(existingRow.payload);
+      const existingPkg = existingParsed.package;
       if (existingPkg.complete === true) {
         return {
           package: existingPkg,
@@ -246,6 +252,9 @@ export function createLiveCapabilityAcquireHook(
           contentHash: existingPkg.contentHash,
           providerCalls: 0,
           created: false,
+          masterData: existingParsed.masterData,
+          regionCode: existingParsed.regionCode ?? deps.region,
+          combatantInfoEvents: existingParsed.combatantInfoEvents,
           accounting: {
             providerCalls: 0,
             pagesFetched: existingPkg.accounting.pagesFetched,
@@ -321,6 +330,8 @@ export function createLiveCapabilityAcquireHook(
     const persisted = await persistCapabilityPackageToPostgres({
       prisma: deps.prisma,
       package: pkg,
+      masterData: meta.masterData,
+      regionCode: deps.region,
       acquisitionVersion: SCORING_ACQUISITION_VERSION,
     });
 
@@ -336,7 +347,8 @@ export function createLiveCapabilityAcquireHook(
         code: "PACKAGE_RELOAD_MISSING",
       });
     }
-    const reloaded = assertCapabilityEvidencePackageV1(reloadedRow.payload);
+    const reloadedParsed = parseWclRunRawPayload(reloadedRow.payload);
+    const reloaded = reloadedParsed.package;
     if (reloaded.contentHash !== pkg.contentHash) {
       throw Object.assign(new Error("capability_package_reload_hash_mismatch"), {
         code: "PACKAGE_RELOAD_HASH_MISMATCH",
@@ -345,6 +357,11 @@ export function createLiveCapabilityAcquireHook(
     if (reloaded.complete !== true) {
       throw Object.assign(new Error("capability_package_reload_incomplete"), {
         code: "PACKAGE_RELOAD_INCOMPLETE",
+      });
+    }
+    if (!reloadedParsed.hasEmbeddedRosterSource) {
+      throw Object.assign(new Error("capability_package_reload_missing_master_data"), {
+        code: "RAW_PACKAGE_MISSING_FIGHT_ROSTER",
       });
     }
 
@@ -371,6 +388,9 @@ export function createLiveCapabilityAcquireHook(
       contentHash: reloaded.contentHash,
       providerCalls,
       created: true,
+      masterData: reloadedParsed.masterData,
+      regionCode: reloadedParsed.regionCode ?? deps.region,
+      combatantInfoEvents: reloadedParsed.combatantInfoEvents,
       accounting: {
         providerCalls,
         pagesFetched: pkg.accounting.pagesFetched,

@@ -1,6 +1,9 @@
 /**
  * Production scoring ports backed by WclRunRaw / CharacterRunDigest / RunRankingFact.
  * No ArtifactReference ownership, no package supersession, no compatibility-head lookup.
+ *
+ * Roster resolution uses the shared resolveScoringFightRoster path from the
+ * capability package + embedded masterData in WclRunRaw.payload.
  */
 import type { PrismaClient, Prisma } from "@mplus/database";
 import {
@@ -8,6 +11,8 @@ import {
   PARTICIPANT_DIGEST_EXTRACTOR_COMPAT_VERSION,
   assertCapabilityEvidencePackageV1,
   assertParticipantScoringDigestV1,
+  buildWclRunRawPayloadV1,
+  parseWclRunRawPayload,
   type CapabilityEvidencePackageV1,
 } from "@mplus/contracts";
 import {
@@ -17,7 +22,12 @@ import {
   type ArtifactRepository,
   type EvidenceRepository,
 } from "@mplus/database";
-import type { RankingParseEvidenceV2 } from "@mplus/provider-warcraftlogs";
+import {
+  resolveScoringFightRosterOrThrow,
+  toOrchestrationParticipants,
+  type RankingParseEvidenceV2,
+  type ScoringFightRosterTargetIdentity,
+} from "@mplus/provider-warcraftlogs";
 import {
   createInMemorySourceFightLock,
   sourceFightKey,
@@ -45,12 +55,24 @@ export interface ProductionRunOrchestrationPortsDeps {
   acquisitionVersion?: string;
   extractorVersion?: string;
   rankingVersion?: string;
+  /** Requested character — used only for safe target Character linkage. */
+  targetCharacter?: ScoringFightRosterTargetIdentity | null;
   liveAcquireCapabilityPackage?: (input: {
     sourceFight: SourceFightIdentity;
     dungeonSlug: string | null;
     keyLevel: number | null;
     participants: OrchestrationParticipant[];
-  }) => Promise<AcquireCapabilityPackageResult>;
+  }) => Promise<
+    AcquireCapabilityPackageResult & {
+      masterData?: unknown;
+      regionCode?: string | null;
+      combatantInfoEvents?: Array<Record<string, unknown>> | null;
+    }
+  >;
+  /**
+   * Test / fixture override only. Must not be required for production.
+   * When omitted, roster comes from WclRunRaw via resolveScoringFightRoster.
+   */
   resolveParticipants?: (input: {
     sourceFight: SourceFightIdentity;
   }) => Promise<OrchestrationParticipant[]>;
@@ -81,10 +103,6 @@ function asRankingEvidence(payload: unknown): RankingParseEvidenceV2 | null {
   };
 }
 
-function packageFromPayload(payload: unknown): CapabilityEvidencePackageV1 {
-  return assertCapabilityEvidencePackageV1(payload);
-}
-
 function digestFromRow(row: {
   id: string;
   sourceMetadata: unknown;
@@ -107,6 +125,31 @@ function digestFromRow(row: {
   }
 }
 
+function resolveRosterFromRawPayload(input: {
+  payload: unknown;
+  targetCharacter?: ScoringFightRosterTargetIdentity | null;
+}): OrchestrationParticipant[] {
+  const parsed = parseWclRunRawPayload(input.payload);
+  if (!parsed.hasEmbeddedRosterSource || parsed.masterData == null) {
+    throw Object.assign(
+      new Error("raw_payload_missing_master_data_for_roster"),
+      { code: "RAW_PACKAGE_MISSING_FIGHT_ROSTER" },
+    );
+  }
+  const resolved = resolveScoringFightRosterOrThrow({
+    capabilityPackage: parsed.package,
+    masterData: parsed.masterData,
+    regionCode:
+      parsed.regionCode ?? input.targetCharacter?.regionCode ?? null,
+    combatantInfoEvents: parsed.combatantInfoEvents,
+    target: input.targetCharacter ?? null,
+    // Persist all valid participants even when the requested target is absent;
+    // target selection fails later with TARGET_CHARACTER_DIGEST_MISSING.
+    requireTarget: false,
+  });
+  return toOrchestrationParticipants(resolved.participants);
+}
+
 export function createProductionRunOrchestrationPorts(
   deps: ProductionRunOrchestrationPortsDeps,
 ): RunOrchestrationPorts {
@@ -118,6 +161,7 @@ export function createProductionRunOrchestrationPorts(
   const digests = new CharacterRunDigestRepository(deps.prisma);
   const rankings = new RunRankingFactRepository(deps.prisma);
   const lock = deps.withSourceFightLock ?? createInMemorySourceFightLock();
+  const targetCharacter = deps.targetCharacter ?? null;
 
   async function loadRaw(sourceFight: SourceFightIdentity) {
     return rawRuns.find({
@@ -128,13 +172,28 @@ export function createProductionRunOrchestrationPorts(
     });
   }
 
+  async function resolveParticipantsDefault(
+    sourceFight: SourceFightIdentity,
+  ): Promise<OrchestrationParticipant[]> {
+    const row = await loadRaw(sourceFight);
+    if (!row) {
+      // Cold path before first acquire: live adapter loads fight metadata itself.
+      return [];
+    }
+    return resolveRosterFromRawPayload({
+      payload: row.payload,
+      targetCharacter,
+    });
+  }
+
   return {
     withSourceFightLock: lock,
 
     async findCompatibleCapabilityPackage({ sourceFight }) {
       const row = await loadRaw(sourceFight);
       if (!row) return null;
-      const pkg = packageFromPayload(row.payload);
+      const parsed = parseWclRunRawPayload(row.payload);
+      const pkg = parsed.package;
       if (pkg.complete !== true) return null;
       return {
         package: pkg,
@@ -164,12 +223,28 @@ export function createProductionRunOrchestrationPorts(
         );
       }
 
+      const masterData = acquired.masterData;
+      if (masterData == null) {
+        throw Object.assign(
+          new Error("live_acquire_missing_master_data_for_roster"),
+          { code: "RAW_PACKAGE_MISSING_FIGHT_ROSTER" },
+        );
+      }
+
+      const envelope = buildWclRunRawPayloadV1({
+        capabilityPackage: pkg,
+        masterData,
+        regionCode:
+          acquired.regionCode ?? targetCharacter?.regionCode ?? null,
+        combatantInfoEvents: acquired.combatantInfoEvents ?? null,
+      });
+
       const saved = await rawRuns.save({
         reportCode: input.sourceFight.reportCode,
         fightId: input.sourceFight.fightId,
         reportRevision: input.sourceFight.reportRevision,
         acquisitionVersion,
-        payload: pkg as unknown as Prisma.InputJsonValue,
+        payload: envelope as unknown as Prisma.InputJsonValue,
         providerCost: {
           providerCalls: acquired.providerCalls,
           contentHash: pkg.contentHash,
@@ -266,21 +341,30 @@ export function createProductionRunOrchestrationPorts(
       if (deps.resolveParticipants) {
         return deps.resolveParticipants({ sourceFight });
       }
-      const row = await loadRaw(sourceFight);
-      if (!row) return [];
-      const pkg = packageFromPayload(row.payload);
-      return pkg.friendlyPlayerActorIds.map((id) => ({
-        playerActorId: id,
-        characterName: `Actor${id}`,
-        classSlug: null,
-        specSlug: null,
-        role: null,
-        ownedPetActorIds: [],
-        characterId: null,
-      }));
+      return resolveParticipantsDefault(sourceFight);
     },
 
-    resolveFightRoster: deps.resolveFightRoster,
+    resolveFightRoster:
+      deps.resolveFightRoster ??
+      (async ({ sourceFight }) => {
+        const row = await loadRaw(sourceFight);
+        if (!row) return null;
+        try {
+          const participants = resolveRosterFromRawPayload({
+            payload: row.payload,
+            targetCharacter,
+          });
+          return participants.map((p) => ({
+            wclActorId: p.playerActorId,
+            characterName: p.characterName,
+            realmSlug: p.realmSlug ?? "",
+            regionCode: p.regionCode ?? targetCharacter?.regionCode ?? "",
+            characterId: p.characterId ?? null,
+          }));
+        } catch {
+          return null;
+        }
+      }),
 
     async resolveRankingParseForParticipant({
       sourceFight,
@@ -349,22 +433,31 @@ export function createProductionRunOrchestrationPorts(
   };
 }
 
-/** Persist a capability package into WclRunRaw (provider-free write path). */
+/** Persist a capability package (+ masterData) into WclRunRaw. */
 export async function persistCapabilityPackageToPostgres(input: {
   prisma: PrismaClient;
   package: CapabilityEvidencePackageV1;
+  masterData: unknown;
+  regionCode?: string | null;
+  combatantInfoEvents?: Array<Record<string, unknown>> | null;
   acquisitionVersion?: string;
 }): Promise<CompatiblePackageHit> {
   const pkg = assertCapabilityEvidencePackageV1(input.package);
   const acquisitionVersion =
     input.acquisitionVersion ?? SCORING_ACQUISITION_VERSION;
+  const envelope = buildWclRunRawPayloadV1({
+    capabilityPackage: pkg,
+    masterData: input.masterData,
+    regionCode: input.regionCode ?? null,
+    combatantInfoEvents: input.combatantInfoEvents ?? null,
+  });
   const rawRuns = new WclRunRawRepository(input.prisma);
   const saved = await rawRuns.save({
     reportCode: pkg.sourceKey.reportCode,
     fightId: pkg.sourceKey.fightId,
     reportRevision: pkg.sourceKey.reportRevision,
     acquisitionVersion,
-    payload: pkg as unknown as Prisma.InputJsonValue,
+    payload: envelope as unknown as Prisma.InputJsonValue,
     providerCost: { contentHash: pkg.contentHash },
   });
   return {

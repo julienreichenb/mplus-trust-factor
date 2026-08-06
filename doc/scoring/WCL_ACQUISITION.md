@@ -41,8 +41,12 @@ One acquisition serves all fight participants. Persisted raw payloads must suppo
 
 - WCL actor IDs are report-local.
 - Report-wide master-data players are not necessarily the fight roster.
-- Derive the fight roster from fight-local evidence (CombatantInfo and relevant events).
-- Target character resolution uses region + realm + character name (and application `characterId` when available), never actor ID alone.
+- Derive the fight roster from the capability package’s `friendlyPlayerActorIds` intersected with persisted report `masterData` (and CombatantInfo enrichment when present).
+- Persist `masterData` inside `WclRunRaw.payload` (`wcl-run-raw-payload-v1`) at cold acquisition so warm cache and provider-free replay resolve the same roster without another WCL call.
+- Target character resolution uses region + realm + character name (and application `characterId` when available), never actor ID alone across reports.
+- Non-target participants may have `characterId: null`. Characters are never auto-created during roster resolution.
+- Missing raw roster/`masterData` cannot trigger a provider call during replay — return a structured unavailable/incompatible outcome instead.
+- Placeholder identities such as `Actor123` are not valid production roster outputs when masterData is present.
 
 ## Rate limits and cost
 

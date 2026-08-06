@@ -116,6 +116,15 @@ export async function runAuthoritativeScoring(
       artifacts: input.container.repositories.artifacts,
       evidence: input.container.repositories.evidence,
       liveAcquireCapabilityPackage: liveAcquire,
+      targetCharacter: {
+        characterId: input.characterId,
+        characterName: input.characterName,
+        realmSlug: input.realm,
+        regionCode: input.region,
+        classSlug: input.classSlug,
+        specSlug: input.specSlug,
+        role: input.role,
+      },
     });
     const redis = input.container.createRedisConnection();
     const withSourceFightLock = createRedisSourceFightLock({
