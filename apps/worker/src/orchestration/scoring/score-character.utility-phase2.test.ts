@@ -1,0 +1,216 @@
+/**
+ * Product boundary: scoreCharacter persists authoritative Utility Phase 2.
+ * Performance / Survival numerical paths remain unchanged; replay stays provider-free.
+ */
+import { describe, expect, it } from "vitest";
+import type { EvidenceCandidateMetadataV2 } from "@mplus/contracts";
+import {
+  CHARACTER_PERFORMANCE_AGGREGATE_RANKING_VERSION,
+  type PersistedCharacterPerformanceAggregateV1,
+} from "@mplus/contracts";
+import {
+  UTILITY_V2_ALGORITHM_VERSION,
+  PERFORMANCE_PHASE2_ALGORITHM_VERSION,
+} from "@mplus/scoring";
+import { createMemoryOrchestrationPorts } from "./run-orchestration/memory-ports.js";
+import { scoreCharacter, SCORING_VERSION } from "./score-character.js";
+
+const CHARACTER_ID = "11111111-1111-4111-8111-111111111111";
+const SEASON_ID = "00000000-0000-4000-8000-000000000012";
+
+const DUNGEONS = [
+  "ara-kara",
+  "city-of-threads",
+  "the-dawnbreaker",
+  "the-stonevault",
+  "mists-of-tirna-scithe",
+  "the-necrotic-wake",
+  "siege-of-boralus",
+  "grim-batol",
+];
+
+function candidate(
+  dungeonSlug: string,
+  reportCode: string,
+  fightId: number,
+  reportRevision = 1,
+): EvidenceCandidateMetadataV2 {
+  return {
+    discoveryIdentity: { reportCode, fightId },
+    reportRevision,
+    dungeonSlug,
+    keyLevel: 12,
+    timed: true,
+    runScore: 200,
+    evidenceCompleteness: 1,
+    completedAt: "2026-01-01T00:00:00.000Z",
+    fightDurationMs: 1_800_000,
+    actorId: 1,
+    accessState: "PUBLIC",
+    identityResolution: "RESOLVED",
+    fightAccessible: true,
+    hardError: false,
+    discoverySource: "test",
+  };
+}
+
+function fakePrisma(saved: Array<Record<string, unknown>> = []) {
+  return {
+    characterScore: {
+      findUnique: async () => null,
+      upsert: async ({ create }: { create: Record<string, unknown> }) => {
+        const row = { id: `score-${saved.length + 1}`, ...create };
+        saved.push(row);
+        return row;
+      },
+    },
+  } as never;
+}
+
+function aggregateCompact(): PersistedCharacterPerformanceAggregateV1 {
+  return {
+    state: "OK",
+    adapterVersion: CHARACTER_PERFORMANCE_AGGREGATE_RANKING_VERSION,
+    metric: "points_and_damage",
+    zoneId: 47,
+    partition: null,
+    dungeonAggregates: DUNGEONS.map((slug) => ({
+      dungeonSlug: slug,
+      dungeonName: slug,
+      encounterId: 1,
+      bestParsePercentile: 80,
+      medianParsePercentile: 70,
+      loggedRunCount: 4,
+      specialization: "Fire",
+      keystoneLevel: 12,
+      bestDps: 1_000_000,
+    })),
+    global: {
+      totalMythicPlusScore: 3000,
+      totalLoggedRuns: 40,
+      bestDpsPercentileAverage: 80,
+      medianDpsPercentileAverage: 70,
+      partition: null,
+      zoneId: 47,
+    },
+    diagnostics: {
+      adapterVersion: CHARACTER_PERFORMANCE_AGGREGATE_RANKING_VERSION,
+      metric: "points_and_damage",
+      provenance: "AGGREGATE_ZONE_RANKINGS",
+      availableDungeonCount: 8,
+      expectedDungeonCount: 8,
+      unavailableEncounters: [],
+      wclBestPerformanceAverage: 80,
+      wclMedianPerformanceAverage: 70,
+      computedBestAverage: 80,
+      computedMedianAverage: 70,
+    },
+  };
+}
+
+describe("scoreCharacter Utility Phase 2 product boundary", () => {
+  it("persists Utility Phase 2; warm/replay match; Performance/Survival unchanged; zero provider calls on replay", async () => {
+    const candidates = DUNGEONS.flatMap((slug, i) => [
+      candidate(slug, `U${i}A`, 1, 1),
+      candidate(slug, `U${i}B`, 2, 1),
+    ]);
+    const ports = createMemoryOrchestrationPorts();
+    const compact = aggregateCompact();
+    const ensureAgg = async () => ({
+      state: "OK" as const,
+      data: compact,
+      reason: null,
+      cache: "HIT" as const,
+      providerCalls: 0,
+      created: false,
+      updated: false,
+      aggregateRowId: "agg-1",
+      contentHash: "h".repeat(64),
+    });
+
+    const saved: Array<Record<string, unknown>> = [];
+    const baseFields = {
+      identity: {
+        characterId: CHARACTER_ID,
+        region: "eu",
+        realm: "archimonde",
+        characterName: "Target",
+      },
+      seasonId: SEASON_ID,
+      seasonSlug: "season-tww-3",
+      role: "DPS" as const,
+      classSlug: "mage",
+      specSlug: "fire",
+      activeDungeonSlugs: DUNGEONS,
+      candidates,
+      evidenceCutoffAt: "2026-08-01T00:00:00.000Z",
+      highKeyPolicyId: "test-policy",
+      scoringModelId: "product-utility-phase2",
+      zoneId: 47,
+      partition: null as number | null,
+      ensurePerformanceAggregate: ensureAgg,
+      ports,
+      prisma: fakePrisma(saved),
+      artifacts: {} as never,
+      evidence: {} as never,
+    };
+
+    const cold = await scoreCharacter({
+      ...baseFields,
+      allowProviderCalls: true,
+    });
+    expect(cold.scoringVersion).toBe(SCORING_VERSION);
+    expect(cold.scoringVersion).toContain("utility-phase2");
+    expect(cold.orchestration.characterDigests.length).toBe(16);
+
+    const utility = cold.orchestration.dimensions.utility;
+    const performance = cold.orchestration.dimensions.performance;
+    const survival = cold.orchestration.dimensions.survival;
+    expect(utility?.algorithmVersion).toBe(UTILITY_V2_ALGORITHM_VERSION);
+    expect(utility?.phase).toBe(2);
+    expect(utility?.score).not.toBeNull();
+    expect(performance?.calculatorVersion).toBe(PERFORMANCE_PHASE2_ALGORITHM_VERSION);
+    expect(performance?.score).not.toBeNull();
+    expect(survival?.score).not.toBeNull();
+
+    const utilityScore = utility!.score;
+    const performanceScore = performance!.score;
+    const survivalScore = survival!.score;
+    const performanceFp = performance!.inputFingerprint;
+    const survivalFp = survival!.inputFingerprint;
+
+    const details = saved[0]?.dimensionDetails as {
+      utility?: { algorithmVersion?: string; phase?: number };
+    };
+    expect(details.utility?.algorithmVersion).toBe(UTILITY_V2_ALGORITHM_VERSION);
+    expect(details.utility?.phase).toBe(2);
+    expect(saved[0]?.utility).toBe(utilityScore);
+
+    const warm = await scoreCharacter({
+      ...baseFields,
+      allowProviderCalls: false,
+    });
+    expect(warm.providerCalls).toBe(0);
+    expect(warm.orchestration.dimensions.utility?.score).toBe(utilityScore);
+    expect(warm.orchestration.dimensions.utility?.algorithmVersion).toBe(
+      UTILITY_V2_ALGORITHM_VERSION,
+    );
+    expect(warm.orchestration.dimensions.performance?.score).toBe(performanceScore);
+    expect(warm.orchestration.dimensions.performance?.inputFingerprint).toBe(
+      performanceFp,
+    );
+    expect(warm.orchestration.dimensions.survival?.score).toBe(survivalScore);
+    expect(warm.orchestration.dimensions.survival?.inputFingerprint).toBe(
+      survivalFp,
+    );
+
+    const replay = await scoreCharacter({
+      ...baseFields,
+      allowProviderCalls: false,
+    });
+    expect(replay.providerCalls).toBe(0);
+    expect(replay.orchestration.dimensions.utility?.score).toBe(utilityScore);
+    expect(replay.orchestration.dimensions.performance?.score).toBe(performanceScore);
+    expect(replay.orchestration.dimensions.survival?.score).toBe(survivalScore);
+  });
+});

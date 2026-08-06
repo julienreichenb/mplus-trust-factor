@@ -158,6 +158,26 @@ Status: `DEFERRED_CRITICAL_MASS`. No placeholder Phase 3 score is produced.
 - contextual impact of group defensives and externals;
 - confirmed mitigation or support outcome.
 
+Phase 2 uses the **strongest persisted observable state** from
+`ParticipantScoringDigestV1` / Utility action timelines:
+
+| Observable state | Typical digest evidence | Credit tier |
+|------------------|-------------------------|-------------|
+| Confirmed interrupt success | Interrupts-table outcome `SUCCESS` | `CONFIRMED_SUCCESS` |
+| Unverified kick attempt | Casts kick with Interrupts capability complete, no confirm | `UNMATCHED_ATTEMPT` |
+| Unobservable attempt | Interrupts capability missing/incomplete, or outcome `UNKNOWN` | `NOT_OBSERVABLE` (not treated as failure) |
+| Confirmed support impact | Combat res / dispel success | `CONFIRMED_IMPACT` |
+| Confirmed application | External applybuff / successful external cast with target | `CONFIRMED_APPLICATION` |
+| Unverified usage | Incomplete Buffs context or unknown outcome | `UNVERIFIED` (no full credit) |
+
+`VALID_OVERLAP` and `MATCHED_FAILED` remain implemented in `classifyInterruptAttempts`
+when hostile cast windows are present (probe / shared-evidence path). The product
+digest path does **not** persist hostile windows, so it does not invent those classes
+or invent unobserved mitigation amounts for group cooldowns.
+
+**Technical calculator (production):** `utility-v2-phase2-observed-0.2.0`
+**Pipeline:** `scoring-v2`
+
 ### Phase 3
 
 - comparisons with S/A players.
@@ -203,8 +223,8 @@ States:
 | Survival | Phase 1 | Deaths, self-heals, defensive volume, DTPS, internal group compare | Survival digests + Survival V2 calculator in product path | `IMPLEMENTED` | — | `survival-v2*` (see code) |
 | Survival | Phase 2 | Anticipation / availability-at-damage | Partial probe/research signals only | `PLANNED` | Timing-quality evidence model | — |
 | Survival | Phase 3 | Same-class/spec + S/A benchmarks | None | `DEFERRED_CRITICAL_MASS` | Critical mass | — |
-| Utility | Phase 1 | Attempt volume (kicks/CC/externals/group CDs) | Utility digests + Utility V2 in product path | `IMPLEMENTED` | — | `utility-v2*` (see code) |
-| Utility | Phase 2 | Success weighting + contextual impact | Success flags exist in digests; formula not Phase-2 productized | `PLANNED` | Phase 2 formula activation | — |
+| Utility | Phase 1 | Attempt volume (kicks/CC/externals/group CDs) | Utility digests + Utility V2 in product path | `IMPLEMENTED` (subsumed by Phase 2 product path) | — | Phase 1 internals under `utility-v2-phase2-observed-0.2.0` |
+| Utility | Phase 2 | Success weighting + contextual impact | Digest outcomes + capability completeness; support tiers from strongest observable state; `computeUtilityV2` via `utilityRunFactSetFromDigest` | `IMPLEMENTED` | Hostile windows not in digest → no digest-path VALID_OVERLAP/MATCHED_FAILED; mitigation amounts not invented | `utility-v2-phase2-observed-0.2.0` |
 | Utility | Phase 3 | S/A comparisons | None | `DEFERRED_CRITICAL_MASS` | Critical mass | — |
 | Experience | Phase 1 | Titles, exceptional ranks, prior-season score | Experience V3 calculator when enabled | `PARTIALLY_IMPLEMENTED` | Product wiring / publication maturity | `experience-v3*` (see code) |
 | Experience | Phase 2 | Linked account characters | Not implemented | `PLANNED` | Account-link evidence | — |
@@ -236,4 +256,12 @@ Pipeline generation for the production roster/digest path: **`scoring-v2`**.
 Functional stage: Performance Phase 2
 Technical calculator: performance-phase2-v1
 Pipeline: scoring-v2
+```
+
+## Version stamp (authoritative Utility)
+
+```text
+Functional stage: Utility Phase 2
+Technical calculator: utility-v2-phase2-observed-0.2.0
+Pipeline generation: scoring-v2
 ```

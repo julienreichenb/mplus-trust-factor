@@ -755,6 +755,8 @@ export {
   performanceRunParseFactFromDigest,
   survivalFactDocumentFromDigest,
   utilityRunFactSetFromDigest,
+  classifyDigestInterruptOutcome,
+  supportEvidenceTierFromDigestAction,
   buildDigestScoreLineage,
 } from "./dimensions/v2/index.js";
 export type {

@@ -43,6 +43,8 @@ export {
   performanceRunParseFactFromDigest,
   survivalFactDocumentFromDigest,
   utilityRunFactSetFromDigest,
+  classifyDigestInterruptOutcome,
+  supportEvidenceTierFromDigestAction,
   buildDigestScoreLineage,
   type DigestScoreLineageV1,
 } from "./digest-adapters.js";

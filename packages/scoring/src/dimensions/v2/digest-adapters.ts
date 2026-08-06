@@ -2,9 +2,14 @@
  * Map ParticipantScoringDigestV1 → existing V2 calculator fact documents.
  * No formula changes. Calculators never see raw WCL pages or providers.
  */
+import {
+  getAbilityCatalog,
+  spellIdsForCategory,
+} from "@mplus/abilities";
 import type {
   ParticipantScoringDigestV1,
   UtilityCanonicalAction,
+  UtilityCapabilityCompleteness,
 } from "@mplus/contracts";
 import {
   SURVIVAL_V2_EXTRACTOR_FAMILY,
@@ -18,13 +23,17 @@ import type { PerformanceRunParseFactV2 } from "../../performance/v2/types.js";
 import {
   UTILITY_V2_EXTRACTOR_FAMILY,
   UTILITY_V2_EXTRACTOR_VERSION,
+  UTILITY_V2_INTERRUPT_CREDITS,
   UTILITY_V2_SCHEMA_VERSION,
   type UtilityV2SupportSemantic,
 } from "../../utility/v2/constants.js";
 import type {
+  ClassifiedInterruptAttempt,
+  InterruptAttemptClass,
   UtilityV2CcAction,
   UtilityV2RunFactSet,
   UtilityV2SupportAction,
+  UtilityV2ToolkitApplicability,
 } from "../../utility/v2/types.js";
 
 export class DigestDimensionIncompleteError extends Error {
@@ -169,6 +178,12 @@ function supportSemanticFromAction(
     case "COMBAT_RES":
       return "EMERGENCY_SUPPORT";
     case "EXTERNAL_SUPPORT":
+      if (
+        action.limitations.includes("EXTERNAL_TARGET_CONTEXT_INCOMPLETE") ||
+        action.outcome === "UNKNOWN"
+      ) {
+        return "UNVERIFIED_EXTERNAL";
+      }
       return "REACTIVE_SUPPORT";
     default:
       return "UNVERIFIED_EXTERNAL";
@@ -179,6 +194,149 @@ function sourceKindFromAction(
   action: UtilityCanonicalAction,
 ): "PLAYER" | "OWNED_PET" {
   return action.attributedToPet ? "OWNED_PET" : "PLAYER";
+}
+
+function capabilityStatus(
+  capabilities: UtilityCapabilityCompleteness[],
+  key: string,
+): UtilityCapabilityCompleteness["status"] | null {
+  return capabilities.find((c) => c.capability === key)?.status ?? null;
+}
+
+/**
+ * Map persisted interrupt outcomes → V2 attempt classes.
+ *
+ * Digest outcomes are SUCCESS | ATTEMPT | UNKNOWN (no hostile windows persisted).
+ * VALID_OVERLAP / MATCHED_FAILED require hostile cast windows and remain available
+ * when richer fact sets are supplied; the digest path never invents them.
+ */
+export function classifyDigestInterruptOutcome(input: {
+  outcome: UtilityCanonicalAction["outcome"];
+  interruptsCapability: UtilityCapabilityCompleteness["status"] | null;
+}): { classification: InterruptAttemptClass; credit: number; note: string } {
+  if (input.outcome === "SUCCESS") {
+    return {
+      classification: "CONFIRMED_SUCCESS",
+      credit: UTILITY_V2_INTERRUPT_CREDITS.CONFIRMED_SUCCESS,
+      note: "digest_confirmed_interrupt_event",
+    };
+  }
+  if (input.outcome === "UNKNOWN") {
+    return {
+      classification: "NOT_OBSERVABLE",
+      credit: UTILITY_V2_INTERRUPT_CREDITS.NOT_OBSERVABLE,
+      note: "digest_outcome_unknown",
+    };
+  }
+  // ATTEMPT — kick cast without confirmed interrupt event.
+  if (
+    input.interruptsCapability == null ||
+    input.interruptsCapability === "UNAVAILABLE" ||
+    input.interruptsCapability === "INCOMPLETE"
+  ) {
+    return {
+      classification: "NOT_OBSERVABLE",
+      credit: UTILITY_V2_INTERRUPT_CREDITS.NOT_OBSERVABLE,
+      note: "digest_interrupt_confirmation_not_observable",
+    };
+  }
+  return {
+    classification: "UNMATCHED_ATTEMPT",
+    credit: UTILITY_V2_INTERRUPT_CREDITS.UNMATCHED_ATTEMPT,
+    note: "digest_attempt_without_confirmed_interrupt",
+  };
+}
+
+function hasApplicationEvidence(action: UtilityCanonicalAction): boolean {
+  return action.evidenceEventTypes.some(
+    (t) =>
+      t === "applybuff" ||
+      t === "applydebuff" ||
+      t === "applybuffstack" ||
+      t === "applydebuffstack" ||
+      t === "apply",
+  );
+}
+
+/**
+ * Strongest observable support tier from persisted digest evidence.
+ * Never invents mitigation impact that is not observable in the digest.
+ */
+export function supportEvidenceTierFromDigestAction(
+  action: UtilityCanonicalAction,
+): UtilityV2SupportAction["tier"] {
+  if (
+    action.limitations.includes("EXTERNAL_TARGET_CONTEXT_INCOMPLETE") ||
+    action.outcome === "UNKNOWN"
+  ) {
+    return "UNVERIFIED";
+  }
+  if (action.utilityCategory === "COMBAT_RES" && action.outcome === "SUCCESS") {
+    return "CONFIRMED_IMPACT";
+  }
+  if (
+    (action.utilityCategory === "OFFENSIVE_DISPEL" ||
+      action.utilityCategory === "DEFENSIVE_DISPEL") &&
+    action.outcome === "SUCCESS"
+  ) {
+    return "CONFIRMED_IMPACT";
+  }
+  if (action.outcome === "SUCCESS" || hasApplicationEvidence(action)) {
+    return "CONFIRMED_APPLICATION";
+  }
+  return "UNVERIFIED";
+}
+
+function resolveToolkitFromDigest(
+  digest: ParticipantScoringDigestV1,
+  observed: {
+    hasInterrupt: boolean;
+    hasSupport: boolean;
+    hasStrategicCc: boolean;
+  },
+): { toolkit: UtilityV2ToolkitApplicability; limitations: string[] } {
+  const catalog = getAbilityCatalog({
+    classSlug: digest.classSlug,
+    specSlug: digest.specSlug,
+    includeRacials: true,
+  });
+  if (!catalog.supported) {
+    return {
+      toolkit: {
+        hasInterrupt: observed.hasInterrupt,
+        hasSupport: observed.hasSupport,
+        hasStrategicCc: observed.hasStrategicCc,
+      },
+      limitations: [
+        "class_spec_identity_unknown",
+        `ability_catalog:${catalog.unsupportedReason ?? "UNSUPPORTED"}`,
+        "toolkit_coverage_unconfirmed",
+      ],
+    };
+  }
+  const classSlug = digest.classSlug;
+  const specSlug = digest.specSlug;
+  return {
+    toolkit: {
+      hasInterrupt:
+        spellIdsForCategory(catalog, "INTERRUPT", { classSlug, specSlug }).size >
+          0 || observed.hasInterrupt,
+      hasSupport:
+        spellIdsForCategory(catalog, "DISPEL", { classSlug, specSlug }).size > 0 ||
+        spellIdsForCategory(catalog, "PURGE", { classSlug, specSlug }).size > 0 ||
+        spellIdsForCategory(catalog, "EXTERNAL_DEFENSIVE", {
+          classSlug,
+          specSlug,
+        }).size > 0 ||
+        spellIdsForCategory(catalog, "BATTLE_REZ", { classSlug, specSlug })
+          .size > 0 ||
+        observed.hasSupport,
+      hasStrategicCc:
+        spellIdsForCategory(catalog, "HARD_CC", { classSlug, specSlug }).size >
+          0 || observed.hasStrategicCc,
+    },
+    limitations: [],
+  };
 }
 
 export function utilityRunFactSetFromDigest(
@@ -194,24 +352,30 @@ export function utilityRunFactSetFromDigest(
   }
 
   const actions = digest.utility.actions;
-  const interruptAttempts = actions
+  const interruptsCapability = capabilityStatus(
+    digest.utility.capabilityCompleteness,
+    "UTILITY_INTERRUPTS",
+  );
+
+  const interruptAttempts: ClassifiedInterruptAttempt[] = actions
     .filter((a) => a.utilityCategory === "INTERRUPT")
-    .map((a) => ({
-      id: a.canonicalActionId,
-      timestampMs: a.rawTimestampMs,
-      abilityGameId: a.primarySpellId,
-      sourceActorId: a.sourceActorId,
-      sourceKind: sourceKindFromAction(a),
-      targetActorId: a.targetActorId,
-      classification:
-        a.outcome === "SUCCESS"
-          ? ("CONFIRMED_SUCCESS" as const)
-          : a.outcome === "ATTEMPT"
-            ? ("UNMATCHED_ATTEMPT" as const)
-            : ("NOT_OBSERVABLE" as const),
-      credit: a.outcome === "SUCCESS" ? 1 : a.outcome === "ATTEMPT" ? 0.25 : 0,
-      note: a.abilityKey,
-    }));
+    .map((a) => {
+      const mapped = classifyDigestInterruptOutcome({
+        outcome: a.outcome,
+        interruptsCapability,
+      });
+      return {
+        id: a.canonicalActionId,
+        timestampMs: a.rawTimestampMs,
+        abilityGameId: a.primarySpellId,
+        sourceActorId: a.sourceActorId,
+        sourceKind: sourceKindFromAction(a),
+        targetActorId: a.targetActorId,
+        classification: mapped.classification,
+        credit: mapped.credit,
+        note: mapped.note,
+      };
+    });
 
   const ccActions: UtilityV2CcAction[] = actions
     .filter(
@@ -243,7 +407,7 @@ export function utilityRunFactSetFromDigest(
       sourceKind: sourceKindFromAction(a),
       targetActorId: a.targetActorId,
       semantic: supportSemanticFromAction(a),
-      tier: "CONFIRMED_APPLICATION" as const,
+      tier: supportEvidenceTierFromDigestAction(a),
     }));
 
   const dispelPurgeSuccessCount = actions.filter(
@@ -255,6 +419,22 @@ export function utilityRunFactSetFromDigest(
 
   const fightDurationMs = digest.survival.fightDurationMs ?? 1_800_000;
   const activeCombatMs = digest.survival.activeCombatMs ?? fightDurationMs;
+
+  const observedToolkit = {
+    hasInterrupt: interruptAttempts.length > 0,
+    hasSupport: supportActions.length > 0 || dispelPurgeSuccessCount > 0,
+    hasStrategicCc: ccActions.length > 0,
+  };
+  const resolvedToolkit = resolveToolkitFromDigest(digest, observedToolkit);
+
+  const limitations = [
+    ...digest.utility.limitations,
+    ...resolvedToolkit.limitations,
+    // Hostile cast windows are not persisted on ParticipantScoringDigestV1.
+    // Digest path therefore cannot emit VALID_OVERLAP / MATCHED_FAILED.
+    "hostile_cast_windows_not_persisted_in_digest",
+    "digest_interrupt_classes_limited_to_success_attempt_unknown",
+  ];
 
   return {
     schemaVersion: UTILITY_V2_SCHEMA_VERSION,
@@ -273,11 +453,7 @@ export function utilityRunFactSetFromDigest(
     activeCombatHours: activeCombatMs / 3_600_000,
     hostileBegincastCount: 0,
     hostileObservability: "ABSENT",
-    toolkit: {
-      hasInterrupt: interruptAttempts.length > 0,
-      hasSupport: supportActions.length > 0,
-      hasStrategicCc: ccActions.length > 0,
-    },
+    toolkit: resolvedToolkit.toolkit,
     interruptAttempts,
     ccActions,
     supportActions,
@@ -286,7 +462,7 @@ export function utilityRunFactSetFromDigest(
       abilityCatalogCoverage: digest.utility.completeness === "COMPLETE" ? 1 : 0.5,
       mechanicCatalogCoverage: 0.5,
     },
-    limitations: [...digest.utility.limitations],
+    limitations,
   };
 }
 
