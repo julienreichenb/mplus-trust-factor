@@ -54,9 +54,9 @@ export interface TargetDigestSlotDiagnostic {
     rankingProvenanceSource: string | null;
     performanceCompleteness: string;
     performanceLimitations: string[];
-    isWallidrixeByCharacterId: boolean;
-    isWallidrixeByName: boolean;
-    isWallidrixeByStableIdentity: boolean;
+    isTargetByCharacterId: boolean;
+    isTargetByName: boolean;
+    isTargetByStableIdentity: boolean;
   }>;
   targetActorIdFromPackageMasterData: number | null;
   targetActorResolution:
@@ -66,7 +66,7 @@ export interface TargetDigestSlotDiagnostic {
     | "PACKAGE_ABSENT";
   stampedTargetDigestCount: number;
   stableIdentityTargetDigestCount: number;
-  recognizedAsWallidrixe: boolean;
+  recognizedAsTarget: boolean;
   problemClass: TargetDigestProblemClass;
   rejectionOrMismatchReason: string | null;
   rankingLookupKey: string;
@@ -281,8 +281,8 @@ export async function runTargetDigestDiagnostic(input: {
       let rankingProvenanceSource: string | null = null;
       let performanceCompleteness = "UNKNOWN";
       let performanceLimitations: string[] = [];
-      let isWallidrixeByName = false;
-      let isWallidrixeByStableIdentity = false;
+      let isTargetByName = false;
+      let isTargetByStableIdentity = false;
 
       if (input.readArtifactBytes) {
         try {
@@ -295,12 +295,12 @@ export async function runTargetDigestDiagnostic(input: {
             digest.performance.rankingProvenance?.source ?? null;
           performanceCompleteness = digest.performance.completeness;
           performanceLimitations = [...digest.performance.limitations];
-          isWallidrixeByName = normalizeName(digest.characterName) === targetName;
+          isTargetByName = normalizeName(digest.characterName) === targetName;
           // Stable identity: characterId OR (name match AND not ActorN placeholder)
           // Realm/region are on participants at build; digest may only carry name.
-          isWallidrixeByStableIdentity =
+          isTargetByStableIdentity =
             row.characterId === input.characterId ||
-            (isWallidrixeByName &&
+            (isTargetByName &&
               !/^Actor\d+$/i.test(digest.characterName) &&
               (targetActorIdFromPackageMasterData == null ||
                 row.participantActorId === targetActorIdFromPackageMasterData));
@@ -308,7 +308,7 @@ export async function runTargetDigestDiagnostic(input: {
             targetActorIdFromPackageMasterData != null &&
             row.participantActorId === targetActorIdFromPackageMasterData
           ) {
-            isWallidrixeByStableIdentity = true;
+            isTargetByStableIdentity = true;
           }
         } catch {
           /* index-only fallback below */
@@ -319,10 +319,10 @@ export async function runTargetDigestDiagnostic(input: {
         targetActorIdFromPackageMasterData != null &&
         row.participantActorId === targetActorIdFromPackageMasterData
       ) {
-        isWallidrixeByStableIdentity = true;
+        isTargetByStableIdentity = true;
       }
 
-      const isWallidrixeByCharacterId = row.characterId === input.characterId;
+      const isTargetByCharacterId = row.characterId === input.characterId;
       digests.push({
         digestId: row.id,
         participantActorId: row.participantActorId,
@@ -331,16 +331,16 @@ export async function runTargetDigestDiagnostic(input: {
         rankingProvenanceSource,
         performanceCompleteness,
         performanceLimitations,
-        isWallidrixeByCharacterId,
-        isWallidrixeByName,
-        isWallidrixeByStableIdentity,
+        isTargetByCharacterId,
+        isTargetByName,
+        isTargetByStableIdentity,
       });
     }
 
     const stamped = digests.filter(
-      (d) => d.isWallidrixeByCharacterId || d.isWallidrixeByName,
+      (d) => d.isTargetByCharacterId || d.isTargetByName,
     );
-    const stable = digests.filter((d) => d.isWallidrixeByStableIdentity);
+    const stable = digests.filter((d) => d.isTargetByStableIdentity);
     if (stamped.length === 1) targetDigestCountByStamp += 1;
     if (stable.length === 1) targetDigestCountByStableIdentity += 1;
 
@@ -445,7 +445,7 @@ export async function runTargetDigestDiagnostic(input: {
       }
     }
 
-    const recognizedAsWallidrixe = stamped.length === 1 || stable.length === 1;
+    const recognizedAsTarget = stamped.length === 1 || stable.length === 1;
 
     slots.push({
       slotId,
@@ -460,10 +460,10 @@ export async function runTargetDigestDiagnostic(input: {
       targetActorResolution,
       stampedTargetDigestCount: stamped.length,
       stableIdentityTargetDigestCount: stable.length,
-      recognizedAsWallidrixe,
-      problemClass: recognizedAsWallidrixe && stamped.length === 1 ? null : problemClass,
+      recognizedAsTarget,
+      problemClass: recognizedAsTarget && stamped.length === 1 ? null : problemClass,
       rejectionOrMismatchReason:
-        recognizedAsWallidrixe && stamped.length === 1
+        recognizedAsTarget && stamped.length === 1
           ? null
           : rejectionOrMismatchReason,
       rankingLookupKey,

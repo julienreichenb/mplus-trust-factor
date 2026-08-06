@@ -27,8 +27,10 @@ import {
 import { createProductionRunOrchestrationPorts } from "./run-orchestration/production-ports.js";
 import {
   createLiveCapabilityAcquireHook,
+  createTargetedCapabilityRepairAcquireHook,
   evaluateLiveCapabilityPermission,
 } from "./run-orchestration/live-capability-adapter.js";
+import { repairIncompatibleCapabilityPackages } from "./run-orchestration/self-healing-evidence.js";
 import { createRedisSourceFightLock } from "./run-orchestration/source-fight-lease.js";
 import {
   evaluatePublicationEligibility,
@@ -407,43 +409,167 @@ export async function maybeStartScoringV2ShadowFromRefresh(input: {
         liveAcquireCapabilityPackage: liveHook,
         withSourceFightLock,
         resolveParticipants: async ({ sourceFight }) => {
+          const rosterRow =
+            await input.container.prisma.wclRunSourceDigest.findFirst({
+              where: {
+                reportCode: sourceFight.reportCode,
+                fightId: sourceFight.fightId,
+                reportRevision: sourceFight.reportRevision,
+              },
+            });
+          const rosterParticipants =
+            (
+              rosterRow?.digest as {
+                participants?: Array<{
+                  wclActorId: number;
+                  characterName: string;
+                  realmSlug: string;
+                  regionCode: string;
+                  classSlug?: string | null;
+                  specSlug?: string | null;
+                  role?: string | null;
+                  ownedPetActorIds?: number[];
+                }>;
+              } | null
+            )?.participants ?? [];
+
           const hit =
             await input.container.repositories.capabilityEvidencePackages.findCompleteBySourceFight(
               sourceFight,
             );
-          if (!hit) return [];
-          const candidate = input.candidates.find(
-            (c) =>
-              c.discoveryIdentity.reportCode === sourceFight.reportCode &&
-              c.discoveryIdentity.fightId === sourceFight.fightId,
+          if (!hit) {
+            if (rosterParticipants.length === 0) return [];
+            return rosterParticipants.map((p) => {
+              const isTarget =
+                p.characterName
+                  .normalize("NFKC")
+                  .trim()
+                  .toLocaleLowerCase("en-US") ===
+                input.characterName
+                  .normalize("NFKC")
+                  .trim()
+                  .toLocaleLowerCase("en-US");
+              return {
+                playerActorId: p.wclActorId,
+                characterName: isTarget ? input.characterName : p.characterName,
+                realmSlug: p.realmSlug ?? input.realm,
+                regionCode: p.regionCode ?? input.region,
+                classSlug: isTarget ? input.classSlug : (p.classSlug ?? null),
+                specSlug: isTarget ? input.specSlug : (p.specSlug ?? null),
+                role: isTarget ? input.role : (p.role ?? null),
+                ownedPetActorIds: p.ownedPetActorIds ?? [],
+                characterId: isTarget ? input.characterId : null,
+              };
+            });
+          }
+
+          const targetFromRoster = rosterParticipants.find(
+            (p) =>
+              p.characterName
+                .normalize("NFKC")
+                .trim()
+                .toLocaleLowerCase("en-US") ===
+              input.characterName
+                .normalize("NFKC")
+                .trim()
+                .toLocaleLowerCase("en-US"),
           );
-          const targetActorId = candidate?.actorId ?? null;
-          return hit.package.friendlyPlayerActorIds.map((id) => ({
-            playerActorId: id,
-            characterName:
-              targetActorId != null && id === targetActorId
+          const targetActorId = targetFromRoster?.wclActorId ?? null;
+          return hit.package.friendlyPlayerActorIds.map((id) => {
+            const rosterP = rosterParticipants.find((p) => p.wclActorId === id);
+            const isTarget = targetActorId != null && id === targetActorId;
+            return {
+              playerActorId: id,
+              characterName: isTarget
                 ? input.characterName
-                : `Actor${id}`,
-            realmSlug: input.realm,
-            regionCode: input.region,
-            classSlug:
-              targetActorId != null && id === targetActorId
+                : (rosterP?.characterName ?? `Actor${id}`),
+              realmSlug: rosterP?.realmSlug ?? input.realm,
+              regionCode: rosterP?.regionCode ?? input.region,
+              classSlug: isTarget
                 ? input.classSlug
-                : null,
-            specSlug:
-              targetActorId != null && id === targetActorId
-                ? input.specSlug
-                : null,
-            role:
-              targetActorId != null && id === targetActorId ? input.role : null,
-            ownedPetActorIds: [],
-            characterId:
-              targetActorId != null && id === targetActorId
-                ? input.characterId
-                : null,
+                : (rosterP?.classSlug ?? null),
+              specSlug: isTarget ? input.specSlug : (rosterP?.specSlug ?? null),
+              role: isTarget ? input.role : (rosterP?.role ?? null),
+              ownedPetActorIds: rosterP?.ownedPetActorIds ?? [],
+              characterId: isTarget ? input.characterId : null,
+            };
+          });
+        },
+        resolveFightRoster: async ({ sourceFight }) => {
+          const row = await input.container.prisma.wclRunSourceDigest.findFirst({
+            where: {
+              reportCode: sourceFight.reportCode,
+              fightId: sourceFight.fightId,
+              reportRevision: sourceFight.reportRevision,
+            },
+          });
+          const participants =
+            (
+              row?.digest as {
+                participants?: Array<{
+                  wclActorId: number;
+                  characterName: string;
+                  realmSlug: string;
+                  regionCode: string;
+                }>;
+              } | null
+            )?.participants ?? [];
+          return participants.map((p) => ({
+            wclActorId: p.wclActorId,
+            characterName: p.characterName,
+            realmSlug: p.realmSlug,
+            regionCode: p.regionCode,
           }));
         },
       });
+
+      // Automatic package integrity repair when a frozen manifest exists.
+      if (gate.allowed && liveProviderPermission === "ALLOWED" && liveHook) {
+        const frozen = await input.container.prisma.evidenceManifest.findFirst({
+          where: {
+            characterId: input.characterId,
+            seasonId: input.seasonId,
+          },
+          orderBy: { frozenAt: "desc" },
+          select: { id: true },
+        });
+        if (frozen) {
+          const repairAcquire = createTargetedCapabilityRepairAcquireHook({
+            env,
+            prisma: input.container.prisma,
+            artifacts: input.container.repositories.artifacts,
+            wclSource: input.container.repositories.wclSource,
+            client: new LiveWarcraftLogsProvider({ env }).getGraphQlClient(),
+            region: input.region,
+            permission,
+          });
+          const integrity = await repairIncompatibleCapabilityPackages({
+            prisma: input.container.prisma,
+            container: input.container,
+            characterId: input.characterId,
+            characterName: input.characterName,
+            region: input.region,
+            realm: input.realm,
+            classSlug: input.classSlug,
+            specSlug: input.specSlug,
+            role: input.role,
+            manifestId: frozen.id,
+            acquire: repairAcquire,
+            liveRepairEnabled: true,
+          });
+          if (integrity.repaired > 0) {
+            input.container.logger.info(
+              {
+                event: "scoring_v2_auto_package_supersession",
+                characterId: input.characterId,
+                repaired: integrity.repaired,
+                inspected: integrity.inspected,
+              },
+              "superseded incompatible capability packages before scoring",
+            );
+          }
+        }
+      }
     }
 
     orchestration = await orchestrateScoringV2Runs({
