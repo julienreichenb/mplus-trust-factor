@@ -3,9 +3,9 @@
  *
  * character → select runs → load/fetch raw → digests → rankings → calculate → persist
  *
- * Also ensures CharacterPerformanceAggregate (points_and_damage) once per operation.
- * The aggregate is exposed for the next Performance-formula chantier; current numerical
- * formulas are unchanged and do not consume best/median parses from this cache yet.
+ * Ensures CharacterPerformanceAggregate (points_and_damage) once per operation and
+ * feeds it into functional Performance Phase 2 (`performance-phase2-v1`) together
+ * with selected digests and offensive cooldown discipline.
  */
 import {
   CharacterScoreRepository,
@@ -37,10 +37,12 @@ import {
 } from "./scoring-zone.js";
 import {
   overallConfidenceFromDimensions,
+  profileAggregateFactFromPersisted,
   type SeasonDifficultyPolicyV2,
 } from "@mplus/scoring";
 
-export const SCORING_VERSION = "scoring-v1";
+/** Bumped when authoritative Performance formula changes (Phase 2 activation). */
+export const SCORING_VERSION = "scoring-v1.performance-phase2";
 
 /** Default WCL character summary / aggregate TTL (12h) when not overridden. */
 const DEFAULT_PERFORMANCE_AGGREGATE_TTL_SECONDS = 43_200;
@@ -138,8 +140,7 @@ export interface ScoreCharacterResult {
   scoringVersion: string;
   publicationEnabled: boolean;
   /**
-   * Character/season points_and_damage aggregate for the next Performance formula chantier.
-   * Not consumed by current score calculations.
+   * Character/season points_and_damage aggregate consumed by Performance Phase 2.
    */
   performanceAggregate: ScoreCharacterPerformanceAggregateExposure;
 }
@@ -207,6 +208,18 @@ export async function scoreCharacter(
       : null,
   });
 
+  const profileAggregate =
+    performanceAggregate.state === "AVAILABLE" &&
+    performanceAggregate.data != null
+      ? profileAggregateFactFromPersisted({
+          dungeonAggregates: performanceAggregate.data.dungeonAggregates,
+          global:
+            performanceAggregate.data.globalSummary ??
+            performanceAggregate.data.compact.global,
+          activeDungeonSlugs: input.activeDungeonSlugs,
+        })
+      : null;
+
   const orchestration = await orchestrateScoringRuns({
     characterId: input.identity.characterId,
     characterName: input.identity.characterName,
@@ -233,6 +246,7 @@ export async function scoreCharacter(
     scoringModelId: input.scoringModelId,
     scoringModelVersion: input.scoringModelVersion,
     difficultyPolicy: input.difficultyPolicy,
+    profileAggregate,
   });
 
   const selectedRuns = orchestration.characterDigests.map((row) => ({
@@ -281,7 +295,18 @@ export async function scoreCharacter(
         fightFailures: orchestration.fightFailures,
         targetDigestFailures: orchestration.targetDigestFailures,
         providerCalls: orchestration.accounting.providerCalls,
-        // Aggregate availability for next Performance chantier (not used in formula yet).
+        performance: performance
+          ? {
+              calculatorVersion: performance.calculatorVersion,
+              phase1Score: performance.phase1Score,
+              offensiveCooldownDiscipline:
+                performance.offensiveCooldownDiscipline,
+              weightsApplied: performance.weightsApplied,
+              coverage: performance.coverage,
+              limitations: performance.limitations,
+              state: performance.state,
+            }
+          : null,
         performanceAggregate: {
           state: performanceAggregate.state,
           reason: performanceAggregate.reason,

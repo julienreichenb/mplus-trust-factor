@@ -253,10 +253,7 @@ describe("scoreCharacter performance aggregate orchestration", () => {
       compact.dungeonAggregates[0]?.bestParsePercentile,
     );
 
-    // Numerical formulas unchanged vs baseline without aggregate wiring side-effects.
-    expect(withAgg.orchestration.dimensions.performance?.score).toBe(
-      withoutAgg.orchestration.dimensions.performance?.score,
-    );
+    // Utility / Survival unchanged; Performance Phase 2 may blend profile when aggregate is present.
     expect(withAgg.orchestration.dimensions.utility?.score).toBe(
       withoutAgg.orchestration.dimensions.utility?.score,
     );
@@ -264,6 +261,12 @@ describe("scoreCharacter performance aggregate orchestration", () => {
       withoutAgg.orchestration.dimensions.survival?.score,
     );
     expect(withAgg.scoringVersion).toBe(SCORING_VERSION);
+    expect(
+      withAgg.orchestration.dimensions.performance?.calculatorVersion ??
+        withAgg.orchestration.dimensions.blocked.some(
+          (b) => b.dimension === "PERFORMANCE",
+        ),
+    ).toBeTruthy();
   });
 
   it("warm path: provider not called (Test G)", async () => {

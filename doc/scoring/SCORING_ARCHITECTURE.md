@@ -2,6 +2,11 @@
 
 **Status:** normative. There is one scoring system: **Scoring**.
 
+Functional dimension phases (Performance / Survival / Utility / Experience maturity)
+are defined in [`DIMENSION_PHASES.md`](DIMENSION_PHASES.md). Do not redefine phase
+semantics here. Technical calculator versions and pipeline generation (`scoring-v2`)
+are distinct from functional phases.
+
 ## Call graph
 
 ```
@@ -14,7 +19,7 @@ scoreCharacter(identity)
   → resolveScoringFightRoster(raw.payload) // shared roster from capability package + masterData
   → loadOrBuildCharacterDigests(...)      // CharacterRunDigest by rawRunId+participantActorId+extractorVersion
   → loadOrFetchRankingFacts(...)
-  → calculateDimensions(digests, rankings)
+  → calculateDimensions(digests, rankings, performanceAggregate)
   → calculateComposite(...)
   → persistCharacterScore(...)
   → return result (+ performanceAggregate availability)
@@ -24,9 +29,10 @@ Warm second run on unchanged identities: **zero WCL calls**.
 
 `CharacterPerformanceAggregate` is **character/season** evidence from WCL
 `points_and_damage`, not a fact belonging to one selected fight. It is loaded once
-per `scoreCharacter()` operation and exposed for the next Performance-formula
-chantier. **Current numerical Performance / Utility / Survival formulas are
-unchanged** and do not yet consume best/median parses from this cache.
+per `scoreCharacter()` operation and consumed by **functional Performance Phase 2**
+(technical calculator `performance-phase2-v1`) together with selected digests and
+offensive cooldown discipline. Utility and Survival formulas are unchanged by that
+Performance activation.
 
 ## Persistence
 

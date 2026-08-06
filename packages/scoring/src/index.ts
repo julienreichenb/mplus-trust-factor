@@ -439,7 +439,7 @@ export type {
   FreezeSnapshotParseResult,
 } from "./calibration/index.js";
 
-/** Performance V2 Phase 1 calculator (shadow — not public-activated). */
+/** Performance V2 Phase 1 internals + functional Performance Phase 2 product calculator. */
 export {
   PERFORMANCE_V2_SCHEMA_VERSION,
   PERFORMANCE_V2_ALGORITHM_VERSION,
@@ -487,6 +487,34 @@ export type {
   PerformanceV2ComputeResult,
   PerformanceV2CalibrationExport,
 } from "./performance/v2/index.js";
+
+/** Functional Performance Phase 2 (parses + offensive cooldown discipline). */
+export {
+  PERFORMANCE_PHASE2_ALGORITHM_VERSION,
+  PERFORMANCE_PHASE2_MODEL_LABEL,
+  PERFORMANCE_PHASE2_WEIGHTS,
+  computeEndGraceMs,
+  computeExpectedUses,
+  usageRatioToScore,
+  resolveEligibleOffensiveCooldowns,
+  scoreRunCooldownDiscipline,
+  computeOffensiveCooldownDiscipline,
+  computePerformancePhase2,
+  computePerformancePhase2InputFingerprint,
+  profileAggregateFactFromPersisted,
+  cooldownRunEvidenceFromDigest,
+  combinePerformancePhase2Scores,
+} from "./performance/phase2/index.js";
+export type {
+  PerformancePhase2ComputeInput,
+  PerformancePhase2ComputeResult,
+  PerformancePhase2WeightsApplied,
+  PerformancePhase2Coverage,
+  PerformanceCooldownRunEvidence,
+  OffensiveCooldownDisciplineResult,
+  RunCooldownDisciplineResult,
+  AbilityCooldownScore,
+} from "./performance/phase2/index.js";
 
 /** Experience V3 Phase 1 calculator (shadow — not public-activated). */
 export {

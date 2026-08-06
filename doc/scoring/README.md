@@ -2,10 +2,11 @@
 
 Canonical scoring documentation (single system):
 
-1. [`SCORING_ARCHITECTURE.md`](SCORING_ARCHITECTURE.md) — pipeline, persistence, cold/warm
-2. [`WCL_ACQUISITION.md`](WCL_ACQUISITION.md) — season/dungeon discovery, selection, cache identity
-3. [`SCORING_DIMENSIONS.md`](SCORING_DIMENSIONS.md) — digests, Performance/Utility/Survival, confidence
-4. [`SCORING_OPERATIONS.md`](SCORING_OPERATIONS.md) — refresh, canary/replay/doctor, flags
+1. [`DIMENSION_PHASES.md`](DIMENSION_PHASES.md) — functional phases vs technical versions; status matrix
+2. [`SCORING_ARCHITECTURE.md`](SCORING_ARCHITECTURE.md) — pipeline, persistence, cold/warm
+3. [`WCL_ACQUISITION.md`](WCL_ACQUISITION.md) — season/dungeon discovery, selection, cache identity
+4. [`SCORING_DIMENSIONS.md`](SCORING_DIMENSIONS.md) — digests, Performance/Utility/Survival, confidence
+5. [`SCORING_OPERATIONS.md`](SCORING_OPERATIONS.md) — refresh, canary/replay/doctor, flags
 
 Related:
 

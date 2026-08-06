@@ -4,8 +4,8 @@
  * Live: fresh cache hit → return; else dedicated WCL points_and_damage fetch → persist.
  * Provider-free replay: load compatible persisted aggregate (expired OK); never call provider.
  *
- * Next chantier: feed this aggregate into the Performance formula.
- * This chantier does not change numerical Performance / Utility / Survival scores.
+ * Consumed by functional Performance Phase 2 (`performance-phase2-v1`) as the profile stabilizer.
+ * Does not change Utility / Survival numerical formulas.
  */
 import type { PrismaClient } from "@mplus/database";
 import {

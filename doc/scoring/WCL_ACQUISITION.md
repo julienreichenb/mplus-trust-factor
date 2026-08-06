@@ -2,12 +2,17 @@
 
 **Status:** normative. Describes how Scoring acquires and caches Warcraft Logs evidence.
 
+Common run-selection and dimension-phase product policy:
+[`DIMENSION_PHASES.md`](DIMENSION_PHASES.md) (eight dungeons, two runs each, profile
+summary). Functional phases are not redefined here.
+
 ## Season and dungeon pool
 
 1. Resolve the active Mythic+ season from application season authority (not a hard-coded probe character).
 2. Resolve the eight active dungeons for that season.
 3. Discover the character’s relevant WCL reports/fights for those dungeons.
-4. Select the two best distinct runs per dungeon (up to 16):
+4. Select the two best distinct runs per dungeon (up to 16), prioritizing the highest
+   available keys and falling back to lower keys when a second same-level run is missing:
    - key level
    - timed status
    - run score
@@ -16,6 +21,7 @@
    - deterministic tie breakers
 
 Partial coverage is allowed: missing runs reduce confidence; they are never zero-filled.
+Fewer-than-sixteen confidence/publication policy is a separate chantier.
 
 ## Cache identity
 

@@ -19,15 +19,18 @@ import {
 import {
   buildEvidenceAcquisitionPlanV2,
   finalizeEvidenceManifestV2,
-  computePerformanceV2,
+  computePerformancePhase2,
   computeSurvivalV2,
   computeUtilityV2,
   DigestDimensionIncompleteError,
   performanceRunParseFactFromDigest,
+  cooldownRunEvidenceFromDigest,
   survivalFactDocumentFromDigest,
   utilityRunFactSetFromDigest,
   buildDigestScoreLineage,
   type SeasonDifficultyPolicyV2,
+  type PerformanceProfileAggregateFactV2,
+  type PerformancePhase2ComputeResult,
 } from "@mplus/scoring";
 import {
   buildParticipantScoringDigestsFromPackage,
@@ -191,6 +194,11 @@ export interface RunOrchestrationInput {
     typeof finalizeEvidenceManifestV2
   >[0]["acquisitionResults"];
   difficultyPolicy?: SeasonDifficultyPolicyV2 | null;
+  /**
+   * Character/season points_and_damage profile fact for Performance Phase 1 stabilizer.
+   * Null when aggregate unavailable — Performance may still score from detailed parses.
+   */
+  profileAggregate?: PerformanceProfileAggregateFactV2 | null;
   ports: RunOrchestrationPorts;
   plannedAt?: string;
   selectedAt?: string;
@@ -242,7 +250,7 @@ export interface RunOrchestrationResult {
     message: string;
   }>;
   dimensions: {
-    performance: ReturnType<typeof computePerformanceV2> | null;
+    performance: PerformancePhase2ComputeResult | null;
     utility: ReturnType<typeof computeUtilityV2> | null;
     survival: ReturnType<typeof computeSurvivalV2> | null;
     /** Per-digest Performance unusable reasons (ranking absent, etc.). */
@@ -752,14 +760,21 @@ export async function orchestrateScoringRuns(
   const difficultyPolicy =
     input.difficultyPolicy ?? defaultDifficultyPolicy(input.scope);
 
-  let performance: ReturnType<typeof computePerformanceV2> | null = null;
+  let performance: PerformancePhase2ComputeResult | null = null;
   let utility: ReturnType<typeof computeUtilityV2> | null = null;
   let survival: ReturnType<typeof computeSurvivalV2> | null = null;
 
   if (characterDigests.length > 0) {
     try {
       const runParseFacts = [];
+      const cooldownRuns = [];
       for (const row of characterDigests) {
+        cooldownRuns.push(
+          cooldownRunEvidenceFromDigest({
+            digest: row.digest,
+            slotId: row.slotId,
+          }),
+        );
         if (!isUsablePerformanceDigest(row.digest)) {
           performanceDigestDiagnostics.push({
             slotId: row.slotId,
@@ -796,34 +811,37 @@ export async function orchestrateScoringRuns(
         }
       }
 
-      if (runParseFacts.length === 0) {
+      if (runParseFacts.length === 0 && input.profileAggregate == null) {
         blocked.push({
           dimension: "PERFORMANCE",
           reason: "zero_compatible_performance_facts",
         });
       } else {
-        performance = computePerformanceV2({
-          manifest: {
-            contentHash: manifest.contentHash,
-            schemaVersion: manifest.schemaVersion,
-            selectorVersion: manifest.selectorVersion,
-            characterId: manifest.characterId,
-            seasonId: manifest.seasonId,
-            seasonSlug: manifest.seasonSlug,
-            specSlug: manifest.specSlug,
-            role: manifest.role,
-            highKeyPolicyId: manifest.highKeyPolicyId,
-            activeDungeonSlugs: manifest.activeDungeonSlugs,
-            expectedSlotCount: manifest.expectedSlotCount,
-            selectedSlotCount: manifest.selectedSlotCount,
-            evidenceCutoffAt: manifest.evidenceCutoffAt,
+        performance = computePerformancePhase2({
+          phase1: {
+            manifest: {
+              contentHash: manifest.contentHash,
+              schemaVersion: manifest.schemaVersion,
+              selectorVersion: manifest.selectorVersion,
+              characterId: manifest.characterId,
+              seasonId: manifest.seasonId,
+              seasonSlug: manifest.seasonSlug,
+              specSlug: manifest.specSlug,
+              role: manifest.role,
+              highKeyPolicyId: manifest.highKeyPolicyId,
+              activeDungeonSlugs: manifest.activeDungeonSlugs,
+              expectedSlotCount: manifest.expectedSlotCount,
+              selectedSlotCount: manifest.selectedSlotCount,
+              evidenceCutoffAt: manifest.evidenceCutoffAt,
+            },
+            runParseFacts,
+            profileAggregate: input.profileAggregate ?? null,
+            difficultyPolicy,
+            expectedPartition: null,
+            logFreshness: 1,
+            computedAt: input.selectedAt ?? new Date().toISOString(),
           },
-          runParseFacts,
-          profileAggregate: null,
-          difficultyPolicy,
-          expectedPartition: null,
-          logFreshness: 1,
-          computedAt: input.selectedAt ?? new Date().toISOString(),
+          cooldownRuns,
         });
         for (const row of characterDigests) {
           if (
