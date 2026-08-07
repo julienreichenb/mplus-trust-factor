@@ -605,6 +605,26 @@ export type {
   ExperienceV3CalibrationExport,
 } from "./experience/v3/index.js";
 
+/** Experience Phase 1 — season population policy (provider-free; not production-wired). */
+export {
+  SEASON_POPULATION_POLICY_VERSION,
+  buildSeasonPopulationPolicy,
+  estimatePreviousSeasonStanding,
+  interpolateTopPercent,
+  isMonotonicPopulationAnchors,
+} from "./experience/phase1/season-population-policy.js";
+export type {
+  SeasonPopulationAnchorKey,
+  SeasonPopulationAnchor,
+  SeasonPopulationPolicyQuality,
+  SeasonPopulationPolicy,
+  PreviousSeasonStandingBand,
+  PreviousSeasonStandingMethod,
+  PreviousSeasonRelativeStanding,
+  BuildSeasonPopulationPolicyResult,
+  StandingEstimationResult,
+} from "./experience/phase1/season-population-policy.js";
+
 /** Survival V2 Phase 2 calculator (contextual defensive / recovery). */
 export {
   SURVIVAL_V2_SCHEMA_VERSION,
