@@ -126,6 +126,7 @@ describe("CharacterService — centralized 7-day refresh policy", () => {
             findMany: vi.fn().mockResolvedValue([]),
           },
           runAnalysis: { findFirst: vi.fn().mockResolvedValue(null) },
+          characterScore: { findFirst: vi.fn().mockResolvedValue(null) },
         },
         repositories: {
           character: {

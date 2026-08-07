@@ -23,6 +23,11 @@ describe("API health", () => {
       PROVIDER_MODE: "fixture",
       WEB_ORIGIN: "http://localhost:5173",
       PUBLIC_BASE_URL: "http://localhost:3000",
+      // Pin scoring off so this readiness case stays DB/Redis-only and does not
+      // require artifact/WCL/model probes that inherit from developer .env.
+      SCORING_ENABLED: "false",
+      SCORING_PUBLICATION_ENABLED: "false",
+      CALIBRATION_ENABLED: "false",
     });
     const container = createApiContainer(env, { skipQueues: true });
     app = await buildApp({ env, container });

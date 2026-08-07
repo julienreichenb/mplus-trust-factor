@@ -64,6 +64,9 @@ function candidate(
 
 function fakePrisma(saved: Array<Record<string, unknown>> = []) {
   return {
+    scoreModel: {
+      findUnique: async () => ({ config: {} }),
+    },
     characterScore: {
       findUnique: async () => null,
       upsert: async ({ create }: { create: Record<string, unknown> }) => {
@@ -539,7 +542,10 @@ describe("scoreCharacter three-dimension product boundary", () => {
     expect(saved[0]?.utility).toBe(utility!.score);
     expect(saved[0]?.survival).toBe(survival!.score);
     expect(saved[0]?.experience).toBeNull();
-    expect(saved[0]?.composite).toBeNull();
+    // Partial composite: P/U/S available with E missing → renormalized composite + letter grade.
+    expect(saved[0]?.composite).not.toBeNull();
+    expect(Number(saved[0]?.composite)).toBeGreaterThan(0);
+    expect(saved[0]?.tier).toMatch(/^[SABCD]$/);
     expect(saved[0]?.scoringVersion).toBe(SCORING_VERSION);
 
     const details = saved[0]?.dimensionDetails as {
@@ -632,7 +638,10 @@ describe("scoreCharacter three-dimension product boundary", () => {
     expect(saved[0]?.performance).not.toBeNull();
     expect(saved[0]?.survival).not.toBeNull();
     expect(saved[0]?.utility).toBeNull();
-    expect(saved[0]?.composite).toBeNull();
+    // P+S available (U+E missing) still yields a renormalized partial composite — not null/U.
+    expect(saved[0]?.composite).not.toBeNull();
+    expect(Number(saved[0]?.composite)).toBeGreaterThan(0);
+    expect(saved[0]?.tier).toMatch(/^[SABCD]$/);
     expect(saved[0]?.experience).toBeNull();
   });
 

@@ -107,7 +107,16 @@ describe("runAuthoritativeScoring performance aggregate product boundary", () =>
         WCL_ENABLED: false,
         WCL_CHARACTER_TTL_SECONDS: 43_200,
       },
+      logger: {
+        info: vi.fn(),
+        warn: vi.fn(),
+        error: vi.fn(),
+        debug: vi.fn(),
+      },
       prisma: {
+        scoreModel: {
+          findUnique: vi.fn(async () => ({ config: {} })),
+        },
         characterScore: {
           upsert: vi.fn(async ({ create }) => ({ id: "score-1", ...create })),
         },
@@ -242,7 +251,16 @@ describe("runAuthoritativeScoring performance aggregate product boundary", () =>
         WCL_CLIENT_ID: "x",
         WCL_CLIENT_SECRET: "y",
       },
+      logger: {
+        info: vi.fn(),
+        warn: vi.fn(),
+        error: vi.fn(),
+        debug: vi.fn(),
+      },
       prisma: {
+        scoreModel: {
+          findUnique: vi.fn(async () => ({ config: {} })),
+        },
         characterScore: {
           upsert: vi.fn(async ({ create }) => ({ id: "score-1", ...create })),
         },

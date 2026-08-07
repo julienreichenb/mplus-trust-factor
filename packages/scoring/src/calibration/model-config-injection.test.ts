@@ -37,7 +37,7 @@ import {
   UTILITY_V2_DEFAULT_CONFIG_FINGERPRINT,
   EXPERIENCE_V3_DEFAULT_CONFIG_FINGERPRINT,
 } from "../index.js";
-import { createDefaultModelV6 } from "../model/defaults.js";
+import { createDefaultModelV5, createDefaultModelV6 } from "../model/defaults.js";
 import { COHORT_MANIFEST_SCHEMA_VERSION } from "./types.js";
 
 describe("model-config schemas", () => {
@@ -249,14 +249,19 @@ describe("default configs reproduce golden scores", () => {
 
 describe("ScoreModel mapping", () => {
   it("phase1-default uses package defaults for legacy models", () => {
-    const resolved = resolveScoreModelV2DimensionConfigs(createDefaultModelV6(), "phase1-default");
+    // V6 defaults now embed a native scoring document via tunableWeights.
+    // Legacy-defaults path requires an explicit pre-scoring model shape.
+    const legacyModel = createDefaultModelV5();
+    const resolved = resolveScoreModelV2DimensionConfigs(legacyModel, "phase1-default");
     expect(resolved.compatibility).toBe("legacy-defaults");
+    expect(resolved.fromPersistedDocument).toBe(false);
     expect(resolved.configs.performance).toEqual(PERFORMANCE_V2_MODEL_CONFIG);
   });
 
   it("calibration-strict fails closed when scoring is missing", () => {
+    const legacyModel = createDefaultModelV5();
     expect(() =>
-      resolveScoreModelV2DimensionConfigs(createDefaultModelV6(), "calibration-strict"),
+      resolveScoreModelV2DimensionConfigs(legacyModel, "calibration-strict"),
     ).toThrow(/lacks scoring/);
   });
 

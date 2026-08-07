@@ -56,6 +56,9 @@ function candidate(
 
 function fakePrisma(saved: Array<Record<string, unknown>> = []) {
   return {
+    scoreModel: {
+      findUnique: async () => ({ config: {} }),
+    },
     characterScore: {
       findUnique: async () => null,
       upsert: async ({ create }: { create: Record<string, unknown> }) => {

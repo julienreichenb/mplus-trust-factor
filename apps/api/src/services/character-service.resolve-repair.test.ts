@@ -151,6 +151,7 @@ describe("CharacterService.resolveCharacter — existing incomplete repair", () 
           },
           characterProviderState: { findUnique: vi.fn().mockResolvedValue(null) },
           runAnalysis: { findFirst: vi.fn().mockResolvedValue(null) },
+          characterScore: { findFirst: vi.fn().mockResolvedValue(null) },
           verifiedCharacterOwnership: { findFirst: vi.fn().mockResolvedValue(null) },
           metricObservation: { findFirst: vi.fn().mockResolvedValue(null) },
         },

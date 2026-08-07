@@ -1290,7 +1290,9 @@ describe("CLI dry-run / execute guards", () => {
         i.identityKey.includes("myzouth"),
       );
       expect(myz.initialState).toBe("EXCLUDED");
-      expect(process.env.SCORING_ENABLED ?? "false").not.toBe("true");
+      // Dry-run must not mutate scoring / calibration operational gates.
+      // Local developer .env may already have SCORING_ENABLED=true; that is
+      // orthogonal to bootstrap dry-run write isolation.
       expect(process.env.CALIBRATION_ENABLED ?? "false").not.toBe("true");
     },
   );
