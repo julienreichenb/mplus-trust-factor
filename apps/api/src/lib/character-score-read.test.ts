@@ -57,6 +57,31 @@ describe("mapCharacterScoreToSnapshotDto partial composite", () => {
     expect(dto.confidence).toBe(0.72);
   });
 
+  it("does not keep stale tier=U when P/U/S composite is calculable", () => {
+    const dto = mapCharacterScoreToSnapshotDto(
+      {
+        ...baseRow,
+        composite: 73.68,
+        confidence: 0.18,
+        tier: "U",
+      },
+      {
+        modelKey: "default",
+        modelVersion: 6,
+        dimensionWeights: {
+          performance: 0.35,
+          survival: 0.3,
+          utility: 0.25,
+          experience: 0.1,
+        },
+        gradeThresholds: { S: 90, A: 80, B: 65, C: 50 },
+      },
+    );
+    expect(dto.overallScore).toBeCloseTo(73.68, 2);
+    expect(dto.grade).not.toBe("U");
+    expect(dto.dimensions.find((d) => d.dimension === "EXPERIENCE")?.score).toBeNull();
+  });
+
   it("zero available dimensions → U", () => {
     const dto = mapCharacterScoreToSnapshotDto(
       {

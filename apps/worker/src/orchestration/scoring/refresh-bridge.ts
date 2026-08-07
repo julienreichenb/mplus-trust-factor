@@ -112,6 +112,23 @@ export async function runAuthoritativeScoring(
     input.container.env.PROVIDER_MODE === "live" &&
     input.container.env.WCL_ENABLED === true;
 
+  if (!allowProviderCalls && input.candidates.length > 0) {
+    input.container.logger.warn(
+      {
+        event: "REFRESH_PHASE",
+        phase: "DETAILED_ACQUISITION_BLOCKED",
+        characterId: input.characterId,
+        candidateCount: input.candidates.length,
+        ALLOW_LIVE_PROVIDER_CALLS: input.container.env.ALLOW_LIVE_PROVIDER_CALLS,
+        PROVIDER_MODE: input.container.env.PROVIDER_MODE,
+        WCL_ENABLED: input.container.env.WCL_ENABLED,
+        detail:
+          "scoreCharacter cannot acquire ReportEvents — set ALLOW_LIVE_PROVIDER_CALLS=true when PROVIDER_MODE=live",
+      },
+      "DETAILED_ACQUISITION_BLOCKED",
+    );
+  }
+
   let liveAcquire:
     | Parameters<typeof scoreCharacter>[0]["liveAcquire"]
     | undefined;

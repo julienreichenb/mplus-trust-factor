@@ -10,7 +10,7 @@
 
 import { clamp, clamp01 } from "../math.js";
 import { createDefaultModelV1 } from "../model/defaults.js";
-import { gradeScore, presentGrade } from "../trust.js";
+import { gradeScore } from "../trust.js";
 import type { ScoreModelConfigV1 } from "../types.js";
 import type { Grade, ScoreModelConfig } from "@mplus/contracts";
 
@@ -165,7 +165,12 @@ export function computePartialComposite(
     evidenceConfidences.length > 0 ? Math.min(...evidenceConfidences) : 0;
   const confidence = clamp01(evidenceConfidence * availabilityCoverage);
 
-  const grade = presentGrade(composite, confidence, gradeModel);
+  // Product rule: when a composite can be calculated from available dimensions,
+  // letter grade comes from model thresholds only. Grade U is reserved for
+  // "no calculable composite" — not for reduced confidence / missing Experience.
+  // Confidence remains reduced (availabilityCoverage) for UI flagging.
+  const grade =
+    composite == null ? "U" : gradeScore(composite, gradeModel.gradeThresholds);
 
   return {
     composite,

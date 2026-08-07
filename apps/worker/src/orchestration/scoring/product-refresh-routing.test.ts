@@ -2,7 +2,7 @@
  * Product refresh entrypoints must converge on runAuthoritativeScoring → scoreCharacter.
  * They must not invoke legacy pre-selection analyze-run acquisition.
  */
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";

@@ -99,7 +99,7 @@ export function scoreCharacterResultToSnapshotDto(input: {
   const overallScore =
     input.persisted?.composite ?? partial.composite ?? 0;
   const confidence = input.persisted?.confidence ?? partial.confidence;
-  const grade: Grade = input.persisted?.tier ?? partial.grade;
+  const grade: Grade = partial.grade;
 
   const dimensions: DimensionScoreDTO[] = [
     {

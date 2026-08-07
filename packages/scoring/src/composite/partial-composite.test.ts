@@ -29,7 +29,7 @@ describe("resolvePartialCompositeGradeModel", () => {
     );
   });
 
-  it("applies the resolved floor when grading a partial composite", () => {
+  it("applies letter grade from thresholds when composite exists even if confidence is below floor", () => {
     const dims = [
       {
         key: "performance" as const,
@@ -59,7 +59,7 @@ describe("resolvePartialCompositeGradeModel", () => {
         baseWeight: 0.1,
       },
     ];
-    // coverage 0.9 → confidence 0.9
+    // coverage 0.9 → confidence 0.9; even with a high floor, grade stays lettered
     const strict = computePartialComposite(dims, {
       gradeThresholds: v6Thresholds,
       minConfidenceForGrade: 0.95,
@@ -68,8 +68,8 @@ describe("resolvePartialCompositeGradeModel", () => {
       gradeThresholds: v6Thresholds,
     });
     expect(strict.confidence).toBeCloseTo(0.9, 10);
-    expect(strict.grade).toBe("U");
-    expect(missingFloor.grade).not.toBe("U");
+    expect(strict.grade).toBe("A");
+    expect(missingFloor.grade).toBe("A");
   });
 });
 

@@ -46,10 +46,6 @@ function blockedReason(
   return typeof hit?.reason === "string" ? hit.reason : null;
 }
 
-function isGrade(value: unknown): value is Grade {
-  return value === "S" || value === "A" || value === "B" || value === "C" || value === "D" || value === "U";
-}
-
 export function mapCharacterScoreToSnapshotDto(
   row: CharacterScoreReadRow,
   opts?: {
@@ -163,7 +159,10 @@ export function mapCharacterScoreToSnapshotDto(
     row.confidence != null && Number.isFinite(row.confidence)
       ? row.confidence
       : partial.confidence;
-  const grade: Grade = isGrade(row.tier) ? row.tier : partial.grade;
+  // Always recompute letter grade from current partial-composite rules.
+  // Persisted tier=U from the old confidence-floor path must not override a
+  // calculable P/U/S composite on the product read path.
+  const grade: Grade = partial.grade;
 
   return {
     characterId: row.characterId,

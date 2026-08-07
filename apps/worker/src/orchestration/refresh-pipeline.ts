@@ -424,7 +424,8 @@ export async function runRefreshPipeline(
       ...logBase,
       event: "REFRESH_PHASE",
       phase: "REFRESH_REQUESTED",
-      jobId: jobPayload.jobId ?? null,
+      characterId: jobPayload.characterId ?? null,
+      forceRefresh: jobPayload.forceRefresh === true,
     },
     "REFRESH_PHASE",
   );
