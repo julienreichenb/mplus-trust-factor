@@ -576,6 +576,241 @@ export function createMockApiClient(): MplusApiClient {
         })),
       };
     },
+
+    async listCalibrationCohorts(signal) {
+      await delay(20);
+      assertNotAborted(signal);
+      return [];
+    },
+    async createCalibrationCohort(input, signal) {
+      await delay(20);
+      assertNotAborted(signal);
+      return {
+        id: "mock-cohort",
+        name: input.name,
+        description: input.description ?? "",
+        seasonId: "mock-season",
+        status: "DRAFT" as const,
+        revision: 1,
+        externalKey: null,
+        createdByUserId: "mock-user",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        archivedAt: null,
+        memberCount: 0,
+        includedMemberCount: 0,
+        members: [],
+      };
+    },
+    async getCalibrationCohort(cohortId, signal) {
+      await delay(20);
+      assertNotAborted(signal);
+      return {
+        id: cohortId,
+        name: "Mock cohort",
+        description: "",
+        seasonId: "mock-season",
+        status: "DRAFT" as const,
+        revision: 1,
+        externalKey: null,
+        createdByUserId: "mock-user",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        archivedAt: null,
+        memberCount: 0,
+        includedMemberCount: 0,
+        members: [],
+      };
+    },
+    async patchCalibrationCohort(cohortId, input, signal) {
+      await delay(20);
+      assertNotAborted(signal);
+      const base = await this.getCalibrationCohort(cohortId, signal);
+      return { ...base, name: input.name ?? base.name, description: input.description ?? base.description };
+    },
+    async deleteCalibrationCohort(cohortId, signal) {
+      await delay(20);
+      assertNotAborted(signal);
+      return { id: cohortId };
+    },
+    async resolveCalibrationMember(cohortId, input, signal) {
+      await delay(20);
+      assertNotAborted(signal);
+      return {
+        id: "mock-member",
+        cohortId,
+        characterId: "mock-character",
+        region: input.region,
+        realmSlug: input.realmSlug,
+        characterName: input.characterName,
+        expectedLabel: "AVERAGE" as const,
+        expectedRank: input.expectedRank,
+        providedRole: "DPS" as const,
+        classSlug: "mage",
+        specSlug: "frost",
+        evidenceCutoffAt: null,
+        rationale: input.rationale ?? "Labeled by administrator",
+        source: "USER_SELECTED" as const,
+        included: true,
+        exclusionCode: null,
+        exclusionDetail: null,
+        preflightSnapshot: {},
+        externalMemberKey: null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        resolveStatus: "READY",
+      };
+    },
+    async patchCalibrationMember(cohortId, memberId, input, signal) {
+      await delay(20);
+      assertNotAborted(signal);
+      return {
+        id: memberId,
+        cohortId,
+        characterId: "mock-character",
+        region: "EU",
+        realmSlug: "archimonde",
+        characterName: "Mock",
+        expectedLabel: "AVERAGE" as const,
+        expectedRank: input.expectedRank ?? "B",
+        providedRole: "DPS" as const,
+        classSlug: "mage",
+        specSlug: "frost",
+        evidenceCutoffAt: null,
+        rationale: input.rationale ?? "Labeled by administrator",
+        source: "USER_SELECTED" as const,
+        included: true,
+        exclusionCode: null,
+        exclusionDetail: null,
+        preflightSnapshot: {},
+        externalMemberKey: null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+    },
+    async deleteCalibrationMember(_cohortId, memberId, signal) {
+      await delay(20);
+      assertNotAborted(signal);
+      return { id: memberId };
+    },
+    async createCalibrationRun(cohortId, input, signal) {
+      await delay(20);
+      assertNotAborted(signal);
+      return {
+        id: "mock-run",
+        cohortId,
+        cohortRevision: 1,
+        seasonId: "mock-season",
+        mode: "PERSISTED_SNAPSHOT_ONLY" as const,
+        status: "QUEUED" as const,
+        activeModelId: input.scoreModelId,
+        evaluationModelId: input.scoreModelId,
+        scoreModelId: input.scoreModelId,
+        scoreModelName: "Mock",
+        scoreModelVersion: 1,
+        scoreModelStatus: "ACTIVE",
+        evidencePolicy: "EXCLUDE_INVALID",
+        inputBundleSchemaVersion: "1.0.0",
+        inputBundleContentHash: "abc",
+        inputBundleByteLength: 1,
+        snapshotIds: [],
+        evidenceFingerprint: null,
+        deterministicSeed: 0,
+        algorithmVersions: {},
+        cancelRequestedAt: null,
+        errorCode: null,
+        errorMessage: null,
+        createdByUserId: "mock-user",
+        createdAt: new Date().toISOString(),
+        startedAt: null,
+        completedAt: null,
+        bullmqJobId: null,
+        hasReport: false,
+        progress: null,
+        summaryExactMatches: null,
+        summaryEvaluated: null,
+        summaryFailed: null,
+      };
+    },
+    async listCalibrationRuns(_cohortId, signal) {
+      await delay(20);
+      assertNotAborted(signal);
+      return [];
+    },
+    async getCalibrationRun(runId, signal) {
+      await delay(20);
+      assertNotAborted(signal);
+      return {
+        id: runId,
+        cohortId: "mock-cohort",
+        cohortRevision: 1,
+        seasonId: "mock-season",
+        mode: "PERSISTED_SNAPSHOT_ONLY" as const,
+        status: "SUCCEEDED" as const,
+        activeModelId: null,
+        evaluationModelId: null,
+        scoreModelId: null,
+        scoreModelName: null,
+        scoreModelVersion: null,
+        scoreModelStatus: null,
+        evidencePolicy: "EXCLUDE_INVALID",
+        inputBundleSchemaVersion: "1.0.0",
+        inputBundleContentHash: "abc",
+        inputBundleByteLength: 1,
+        snapshotIds: [],
+        evidenceFingerprint: null,
+        deterministicSeed: 0,
+        algorithmVersions: {},
+        cancelRequestedAt: null,
+        errorCode: null,
+        errorMessage: null,
+        createdByUserId: "mock-user",
+        createdAt: new Date().toISOString(),
+        startedAt: null,
+        completedAt: new Date().toISOString(),
+        bullmqJobId: null,
+        hasReport: true,
+        progress: null,
+        summaryExactMatches: 0,
+        summaryEvaluated: 0,
+        summaryFailed: 0,
+      };
+    },
+    async getCalibrationReport(runId, signal) {
+      await delay(20);
+      assertNotAborted(signal);
+      return {
+        id: "mock-report",
+        runId,
+        schemaVersion: "1.1.0",
+        digestAlgorithmVersion: "1.0.0",
+        recommendationAlgorithmVersion: null,
+        summary: {},
+        report: { characters: [] },
+        digest: {
+          headline: "Mock",
+          overallAssessment: "INSUFFICIENT_EVIDENCE" as const,
+          strengths: [],
+          issues: [],
+          limitations: [],
+          nextActions: [],
+          confidence: "LOW" as const,
+          algorithmVersion: "1.0.0" as const,
+        },
+        limitations: [],
+        cohortSize: 0,
+        evaluatedCount: 0,
+        failedOrExcludedCount: 0,
+        spearman: null,
+        pairwiseConcordance: null,
+        meanScore: null,
+        meanConfidence: null,
+        outlierCount: 0,
+        contentHash: "abc",
+        generatedAt: new Date().toISOString(),
+        createdAt: new Date().toISOString(),
+      };
+    },
   };
 }
 

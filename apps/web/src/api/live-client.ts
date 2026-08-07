@@ -4,6 +4,10 @@ import type {
   AdminRealmSyncResponse,
   AdminScoreModelDTO,
   BacktestSummary,
+  CalibrationCohortDTO,
+  CalibrationCohortMemberDTO,
+  CalibrationReportDTO,
+  CalibrationRunDTO,
   CharacterAutocompleteSuggestion,
   CharacterComparisonRequest,
   CharacterComparisonResponse,
@@ -240,6 +244,84 @@ export function createLiveApiClient(options: {
           regions: input?.regions,
           forceDetails: input?.forceDetails,
         },
+        signal,
+      ),
+
+    listCalibrationCohorts: (signal) =>
+      get<{ cohorts: CalibrationCohortDTO[] }>("/api/v1/admin/calibration/cohorts", signal).then(
+        (r) => r.cohorts,
+      ),
+
+    createCalibrationCohort: (input, signal) =>
+      send<CalibrationCohortDTO>("POST", "/api/v1/admin/calibration/cohorts", input, signal),
+
+    getCalibrationCohort: (cohortId, signal) =>
+      get<CalibrationCohortDTO>(
+        `/api/v1/admin/calibration/cohorts/${encodeURIComponent(cohortId)}`,
+        signal,
+      ),
+
+    patchCalibrationCohort: (cohortId, input, signal) =>
+      send<CalibrationCohortDTO>(
+        "PATCH",
+        `/api/v1/admin/calibration/cohorts/${encodeURIComponent(cohortId)}`,
+        input,
+        signal,
+      ),
+
+    deleteCalibrationCohort: (cohortId, signal) =>
+      send<{ id: string }>(
+        "DELETE",
+        `/api/v1/admin/calibration/cohorts/${encodeURIComponent(cohortId)}`,
+        undefined,
+        signal,
+      ),
+
+    resolveCalibrationMember: (cohortId, input, signal) =>
+      send<CalibrationCohortMemberDTO & { resolveStatus?: string }>(
+        "POST",
+        `/api/v1/admin/calibration/cohorts/${encodeURIComponent(cohortId)}/members/resolve`,
+        input,
+        signal,
+      ),
+
+    patchCalibrationMember: (cohortId, memberId, input, signal) =>
+      send<CalibrationCohortMemberDTO>(
+        "PATCH",
+        `/api/v1/admin/calibration/cohorts/${encodeURIComponent(cohortId)}/members/${encodeURIComponent(memberId)}`,
+        input,
+        signal,
+      ),
+
+    deleteCalibrationMember: (cohortId, memberId, signal) =>
+      send<{ id: string }>(
+        "DELETE",
+        `/api/v1/admin/calibration/cohorts/${encodeURIComponent(cohortId)}/members/${encodeURIComponent(memberId)}`,
+        undefined,
+        signal,
+      ),
+
+    createCalibrationRun: (cohortId, input, signal) =>
+      send<CalibrationRunDTO>(
+        "POST",
+        `/api/v1/admin/calibration/cohorts/${encodeURIComponent(cohortId)}/runs`,
+        input,
+        signal,
+      ),
+
+    listCalibrationRuns: (cohortId, signal) => {
+      const qs = cohortId ? `?cohortId=${encodeURIComponent(cohortId)}` : "";
+      return get<{ runs: CalibrationRunDTO[] }>(`/api/v1/admin/calibration/runs${qs}`, signal).then(
+        (r) => r.runs,
+      );
+    },
+
+    getCalibrationRun: (runId, signal) =>
+      get<CalibrationRunDTO>(`/api/v1/admin/calibration/runs/${encodeURIComponent(runId)}`, signal),
+
+    getCalibrationReport: (runId, signal) =>
+      get<CalibrationReportDTO>(
+        `/api/v1/admin/calibration/runs/${encodeURIComponent(runId)}/report`,
         signal,
       ),
   };

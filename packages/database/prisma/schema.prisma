@@ -1690,6 +1690,11 @@ model CalibrationRun {
   completedAt              DateTime?           @map("completed_at") @db.Timestamptz(3)
   /** BullMQ job id when enqueued (not an IngestionJob). */
   bullmqJobId              String?             @map("bullmq_job_id")
+  /**
+   * Sequential run progress for admin UI (evaluated count, current member, per-member status).
+   * Written by the calibration-run worker; never mutates production scores.
+   */
+  progressJson             Json                @default("{}") @map("progress_json")
 
   cohort          CalibrationCohort   @relation(fields: [cohortId], references: [id], onDelete: Restrict)
   season          Season              @relation(fields: [seasonId], references: [id])

@@ -1406,6 +1406,11 @@ export class CharacterService {
       correlationId?: string | null;
       forceRetry?: boolean;
       workloadClass?: "CALIBRATION" | "OPERATION";
+      /**
+       * When true, complete Blizzard bootstrap/identity only — never enqueue refresh-character.
+       * Used by admin calibration cohort membership (no WCL acquisition on add).
+       */
+      skipRefreshEnqueue?: boolean;
     } = {},
   ): Promise<{ statusCode: number; body: CharacterResolveResponse }> {
     const identity: CharacterIdentityInput = {
@@ -1472,6 +1477,7 @@ export class CharacterService {
       correlationId?: string | null;
       forceRetry?: boolean;
       workloadClass?: "CALIBRATION" | "OPERATION";
+      skipRefreshEnqueue?: boolean;
     },
   ): Promise<{ statusCode: number; body: CharacterResolveResponse }> {
     const realm = await this.repositories.realm.findBySlug(identity.region, identity.realmSlug);
@@ -1526,6 +1532,12 @@ export class CharacterService {
 
       // Always reuse in-flight refresh — forceRetry must not stack concurrent score jobs.
       if (activeJob) {
+        if (opts.skipRefreshEnqueue) {
+          return {
+            statusCode: 200,
+            body: { status: "READY", characterId: existing.id, profilePath },
+          };
+        }
         return {
           statusCode: 202,
           body: {
@@ -1636,6 +1648,12 @@ export class CharacterService {
           // Re-check active job after bootstrap (concurrent winner may have enqueued).
           const activeAfter = await this.repositories.job.findActiveForCharacter(character.id);
           if (activeAfter) {
+            if (opts.skipRefreshEnqueue) {
+              return {
+                statusCode: 200,
+                body: { status: "READY", characterId: character.id, profilePath },
+              };
+            }
             return {
               statusCode: 202,
               body: {
@@ -1645,6 +1663,13 @@ export class CharacterService {
                 profilePath,
                 retryAfterMs: DEFAULT_RETRY_AFTER_MS,
               },
+            };
+          }
+
+          if (opts.skipRefreshEnqueue) {
+            return {
+              statusCode: 200,
+              body: { status: "READY", characterId: character.id, profilePath },
             };
           }
 
@@ -1795,6 +1820,12 @@ export class CharacterService {
 
       const activeAfter = await this.repositories.job.findActiveForCharacter(character.id);
       if (activeAfter) {
+        if (opts.skipRefreshEnqueue) {
+          return {
+            statusCode: 200,
+            body: { status: "READY", characterId: character.id, profilePath },
+          };
+        }
         return {
           statusCode: 202,
           body: {
@@ -1804,6 +1835,13 @@ export class CharacterService {
             profilePath,
             retryAfterMs: DEFAULT_RETRY_AFTER_MS,
           },
+        };
+      }
+
+      if (opts.skipRefreshEnqueue) {
+        return {
+          statusCode: 200,
+          body: { status: "READY", characterId: character.id, profilePath },
         };
       }
 

@@ -94,10 +94,57 @@ export async function runCalibrationRunJob(
   try {
     const mode = MODE_MAP[run.mode] ?? "persisted-snapshot-only";
     // Replay clock is frozen to bundle.generatedAt so redelivery is byte-identical.
-    const bundle = run.inputBundle as { generatedAt?: string };
+    const bundle = run.inputBundle as { generatedAt?: string; manifest?: { members?: unknown[] } };
+    const priorProgress =
+      run.progressJson && typeof run.progressJson === "object" && !Array.isArray(run.progressJson)
+        ? (run.progressJson as Record<string, unknown>)
+        : {};
+    const membersProgress = Array.isArray(priorProgress.members)
+      ? [...(priorProgress.members as Array<Record<string, unknown>>)]
+      : [];
+
     const { report } = runCalibrationHarnessFromBundle(run.inputBundle, {
       mode,
       calculatedAt: bundle.generatedAt ?? run.createdAt.toISOString(),
+      onMemberProgress: (event) => {
+        const idx = membersProgress.findIndex((m) => m.memberId === event.memberId);
+        const row = {
+          memberId: event.memberId,
+          characterName: event.characterName,
+          realm: event.realm,
+          region: event.region,
+          status: event.status,
+          expectedRank: null,
+          actualGrade: event.result.grade,
+          overallScore: event.result.overallScore,
+          error:
+            event.result.error ??
+            event.result.validationFailure?.message ??
+            null,
+        };
+        if (idx >= 0) membersProgress[idx] = { ...membersProgress[idx], ...row };
+        else membersProgress.push(row);
+        const completed = membersProgress.filter((m) => m.status === "completed").length;
+        const failed = membersProgress.filter((m) => m.status === "failed").length;
+        // Fire-and-forget progress persistence for admin UI polling (best-effort).
+        void prisma.calibrationRun
+          .update({
+            where: { id: run.id },
+            data: {
+              progressJson: {
+                total: event.total,
+                completed,
+                failed,
+                currentIndex: event.index,
+                currentCharacterName: event.characterName,
+                currentRealm: event.realm,
+                members: membersProgress,
+                updatedAt: new Date().toISOString(),
+              } as object,
+            },
+          })
+          .catch(() => undefined);
+      },
     });
 
     const fresh = await prisma.calibrationRun.findUnique({ where: { id: run.id } });
@@ -127,6 +174,31 @@ export async function runCalibrationRunJob(
       .map((c) => c.confidence)
       .filter((c): c is number => typeof c === "number");
     const meanConfidence = meanOf(confidences);
+    const exactMatchCount = report.characters.filter((c) => {
+      if (c.grade == null || c.validationFailure || c.error) return false;
+      const expected = c.expectedVersusActual?.expectedLabel;
+      const actual = c.expectedVersusActual?.actualGrade;
+      if (!expected || !actual || actual === "U") return false;
+      const labelToTier: Record<string, string> = {
+        excellent: "S",
+        good: "A",
+        average: "B",
+        weak: "C",
+        overrated: "D",
+      };
+      return labelToTier[expected] === actual;
+    }).length;
+
+    const finalProgress = {
+      total: report.cohortSize,
+      completed: report.evaluatedCount,
+      failed: report.errorCount + report.validationFailureCount,
+      currentIndex: null,
+      currentCharacterName: null,
+      currentRealm: null,
+      members: membersProgress,
+      updatedAt: now.toISOString(),
+    };
 
     await prisma.$transaction(async (tx) => {
       await tx.calibrationReport.upsert({
@@ -143,6 +215,7 @@ export async function runCalibrationRunJob(
             evaluatedCount: report.evaluatedCount,
             errorCount: report.errorCount,
             validationFailureCount: report.validationFailureCount,
+            exactMatchCount,
             gradeDistribution: report.statistics.gradeDistribution,
             activeModel: report.activeModel,
             evaluationModel: report.evaluationModel,
@@ -168,7 +241,11 @@ export async function runCalibrationRunJob(
       });
       await tx.calibrationRun.update({
         where: { id: run.id },
-        data: { status: "SUCCEEDED", completedAt: now },
+        data: {
+          status: "SUCCEEDED",
+          completedAt: now,
+          progressJson: finalProgress as object,
+        },
       });
     });
 

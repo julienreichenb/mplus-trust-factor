@@ -15,6 +15,8 @@ import type {
 import {
   CALIBRATION_INPUT_BUNDLE_MAX_BYTES,
   CALIBRATION_LABEL_TO_QUALITATIVE,
+  CALIBRATION_LABEL_TO_TIER,
+  CALIBRATION_TIER_TO_LABEL,
   createCalibrationCohortBodySchema,
   createCalibrationDraftModelBodySchema,
   createCalibrationMemberBodySchema,
@@ -23,6 +25,9 @@ import {
   patchCalibrationMemberBodySchema,
   bulkCalibrationMembersBodySchema,
   calibrationPreflightBodySchema,
+  resolveCalibrationMemberBodySchema,
+  type CalibrationExpectedRank,
+  type CalibrationRunProgressDTO,
 } from "@mplus/contracts";
 import type { AdminScoreModelDTO, ScoreModelConfig, ScoreSnapshotDTO } from "@mplus/contracts";
 import type {
@@ -110,6 +115,7 @@ function assertEditable(cohort: CalibrationCohort): void {
 }
 
 function mapMember(m: CalibrationCohortMember): CalibrationCohortMemberDTO {
+  const expectedLabel = m.expectedLabel as CalibrationExpectedLabel;
   return {
     id: m.id,
     cohortId: m.cohortId,
@@ -117,7 +123,8 @@ function mapMember(m: CalibrationCohortMember): CalibrationCohortMemberDTO {
     region: m.region,
     realmSlug: m.realmSlug,
     characterName: m.characterName,
-    expectedLabel: m.expectedLabel as CalibrationExpectedLabel,
+    expectedLabel,
+    expectedRank: CALIBRATION_LABEL_TO_TIER[expectedLabel],
     providedRole: (m.providedRole as CalibrationCohortMemberDTO["providedRole"]) ?? null,
     classSlug: m.classSlug,
     specSlug: m.specSlug,
@@ -165,10 +172,28 @@ function mapCohort(
   };
 }
 
-function mapRun(run: CalibrationRun & { report?: { id: string } | null }): CalibrationRunDTO {
+function mapRun(
+  run: CalibrationRun & {
+    report?: {
+      id: string;
+      evaluatedCount?: number;
+      failedOrExcludedCount?: number;
+      summaryJson?: unknown;
+    } | null;
+    evaluationModel?: { id: string; name: string; version: number; status: string } | null;
+    activeModel?: { id: string; name: string; version: number; status: string } | null;
+  },
+): CalibrationRunDTO {
   const snapshotIds = Array.isArray(run.snapshotIds)
     ? (run.snapshotIds as unknown[]).filter((id): id is string => typeof id === "string")
     : [];
+  const scoreModel = run.evaluationModel ?? run.activeModel ?? null;
+  const summary = run.report?.summaryJson;
+  let summaryExactMatches: number | null = null;
+  if (summary && typeof summary === "object" && !Array.isArray(summary)) {
+    const s = summary as Record<string, unknown>;
+    if (typeof s.exactMatchCount === "number") summaryExactMatches = s.exactMatchCount;
+  }
   return {
     id: run.id,
     cohortId: run.cohortId,
@@ -178,6 +203,10 @@ function mapRun(run: CalibrationRun & { report?: { id: string } | null }): Calib
     status: run.status as CalibrationRunDTO["status"],
     activeModelId: run.activeModelId,
     evaluationModelId: run.evaluationModelId,
+    scoreModelId: scoreModel?.id ?? run.evaluationModelId ?? run.activeModelId,
+    scoreModelName: scoreModel?.name ?? null,
+    scoreModelVersion: scoreModel?.version ?? null,
+    scoreModelStatus: scoreModel?.status ?? null,
     evidencePolicy: run.evidencePolicy,
     inputBundleSchemaVersion: run.inputBundleSchemaVersion,
     inputBundleContentHash: run.inputBundleContentHash,
@@ -198,6 +227,10 @@ function mapRun(run: CalibrationRun & { report?: { id: string } | null }): Calib
     completedAt: run.completedAt?.toISOString() ?? null,
     bullmqJobId: run.bullmqJobId,
     hasReport: Boolean(run.report),
+    progress: parseProgress((run as { progressJson?: unknown }).progressJson),
+    summaryExactMatches,
+    summaryEvaluated: run.report?.evaluatedCount ?? null,
+    summaryFailed: run.report?.failedOrExcludedCount ?? null,
   };
 }
 
@@ -232,6 +265,44 @@ function normalizeName(name: string): string {
 
 function labelToQualitative(label: CalibrationExpectedLabel): QualitativeLabel {
   return CALIBRATION_LABEL_TO_QUALITATIVE[label];
+}
+
+function resolveExpectedLabel(input: {
+  expectedLabel?: CalibrationExpectedLabel;
+  expectedRank?: CalibrationExpectedRank;
+}): CalibrationExpectedLabel {
+  if (input.expectedLabel) return input.expectedLabel;
+  if (input.expectedRank) return CALIBRATION_TIER_TO_LABEL[input.expectedRank];
+  throw HttpError.badRequest("EXPECTED_RANK_REQUIRED", "expectedRank or expectedLabel is required");
+}
+
+function emptyProgress(total = 0): CalibrationRunProgressDTO {
+  return {
+    total,
+    completed: 0,
+    failed: 0,
+    currentIndex: null,
+    currentCharacterName: null,
+    currentRealm: null,
+    members: [],
+    updatedAt: null,
+  };
+}
+
+function parseProgress(raw: unknown): CalibrationRunProgressDTO | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const o = raw as Record<string, unknown>;
+  if (typeof o.total !== "number") return null;
+  return {
+    total: o.total,
+    completed: typeof o.completed === "number" ? o.completed : 0,
+    failed: typeof o.failed === "number" ? o.failed : 0,
+    currentIndex: typeof o.currentIndex === "number" ? o.currentIndex : null,
+    currentCharacterName: typeof o.currentCharacterName === "string" ? o.currentCharacterName : null,
+    currentRealm: typeof o.currentRealm === "string" ? o.currentRealm : null,
+    members: Array.isArray(o.members) ? (o.members as CalibrationRunProgressDTO["members"]) : [],
+    updatedAt: typeof o.updatedAt === "string" ? o.updatedAt : null,
+  };
 }
 
 function roleOrDefault(role: string | null | undefined): CalibrationRole {
@@ -329,9 +400,23 @@ export class AdminCalibrationService {
   async createCohort(body: unknown, createdByUserId: string, ctx: AuditCtx): Promise<CalibrationCohortDTO> {
     assertEnabled(this.container);
     const input = createCalibrationCohortBodySchema.parse(body);
-    const season = await this.prisma().season.findUnique({ where: { id: input.seasonId } });
-    if (!season) {
-      throw HttpError.badRequest("SEASON_NOT_FOUND", `Season ${input.seasonId} was not found`);
+    let seasonId = input.seasonId;
+    if (!seasonId) {
+      const latest = await this.prisma().season.findFirst({
+        where: { isCurrent: true },
+        orderBy: [{ endsAt: "desc" }, { createdAt: "desc" }],
+      }) ?? await this.prisma().season.findFirst({
+        orderBy: [{ endsAt: "desc" }, { createdAt: "desc" }],
+      });
+      if (!latest) {
+        throw HttpError.badRequest("SEASON_NOT_FOUND", "No season is available to bind the cohort");
+      }
+      seasonId = latest.id;
+    } else {
+      const season = await this.prisma().season.findUnique({ where: { id: seasonId } });
+      if (!season) {
+        throw HttpError.badRequest("SEASON_NOT_FOUND", `Season ${seasonId} was not found`);
+      }
     }
     if (input.externalKey) {
       const existing = await this.prisma().calibrationCohort.findUnique({
@@ -349,7 +434,7 @@ export class AdminCalibrationService {
         id: randomUUID(),
         name: input.name,
         description: input.description,
-        seasonId: input.seasonId,
+        seasonId,
         status: input.status ?? "DRAFT",
         revision: 1,
         externalKey: input.externalKey ?? null,
@@ -421,11 +506,34 @@ export class AdminCalibrationService {
     });
   }
 
+  async deleteUnusedCohort(cohortId: string, ctx: AuditCtx): Promise<{ id: string }> {
+    assertEnabled(this.container);
+    const cohort = await this.requireCohort(cohortId);
+    const runCount = await this.prisma().calibrationRun.count({ where: { cohortId } });
+    if (runCount > 0) {
+      throw HttpError.conflict(
+        "COHORT_HAS_RUNS",
+        "Only cohorts with no calibration runs can be deleted. Archive instead if history must be retained.",
+      );
+    }
+    await this.prisma().calibrationCohort.delete({ where: { id: cohortId } });
+    await this.audit("admin.calibration.cohort.delete", cohortId, ctx, { name: cohort.name });
+    return { id: cohortId };
+  }
+
   async addMember(cohortId: string, body: unknown, ctx: AuditCtx): Promise<CalibrationCohortMemberDTO> {
     assertEnabled(this.container);
     const input = createCalibrationMemberBodySchema.parse(body);
     const cohort = await this.requireCohort(cohortId);
     assertEditable(cohort);
+    const expectedLabel = resolveExpectedLabel(input);
+    const rationale = input.rationale?.trim() ? input.rationale : "Labeled by administrator";
+    await this.assertNoDuplicateMember(cohortId, {
+      characterId: input.characterId ?? null,
+      region: input.region,
+      realmSlug: input.realmSlug,
+      characterName: input.characterName,
+    });
     const member = await this.prisma().$transaction(async (tx) => {
       await tx.calibrationCohort.update({
         where: { id: cohortId },
@@ -439,12 +547,12 @@ export class AdminCalibrationService {
           region: input.region,
           realmSlug: input.realmSlug,
           characterName: input.characterName,
-          expectedLabel: input.expectedLabel,
+          expectedLabel,
           providedRole: input.providedRole ?? null,
           classSlug: input.classSlug ?? null,
           specSlug: input.specSlug ?? null,
           evidenceCutoffAt: input.evidenceCutoffAt ? new Date(input.evidenceCutoffAt) : null,
-          rationale: input.rationale,
+          rationale,
           source: input.source ?? "USER_SELECTED",
           included: input.included ?? true,
           exclusionCode: input.exclusionCode ?? null,
@@ -455,6 +563,139 @@ export class AdminCalibrationService {
     });
     await this.audit("admin.calibration.member.create", member.id, ctx, { cohortId });
     return mapMember(member);
+  }
+
+  /**
+   * Resolve character identity (local reuse or Blizzard bootstrap) and add to cohort.
+   * Never enqueues refresh / WCL — skipRefreshEnqueue on canonical CharacterService.resolveCharacter.
+   */
+  async resolveAndAddMember(
+    cohortId: string,
+    body: unknown,
+    ctx: AuditCtx,
+  ): Promise<CalibrationCohortMemberDTO & { resolveStatus: string }> {
+    assertEnabled(this.container);
+    const input = resolveCalibrationMemberBodySchema.parse(body);
+    const cohort = await this.requireCohort(cohortId);
+    assertEditable(cohort);
+    const expectedLabel = resolveExpectedLabel(input);
+    const { CharacterService } = await import("./character-service.js");
+    const characterService = new CharacterService(this.container);
+    const identity = {
+      region: input.region,
+      realmSlug: input.realmSlug,
+      name: input.characterName,
+    };
+    const resolved = await characterService.resolveCharacter(identity, {
+      workloadClass: "CALIBRATION",
+      skipRefreshEnqueue: true,
+      correlationId: `calibration-member-${cohortId}`,
+    });
+    if (
+      resolved.body.status === "NOT_FOUND" ||
+      resolved.body.status === "FAILED" ||
+      resolved.body.status === "PROVIDER_UNAVAILABLE"
+    ) {
+      throw HttpError.badRequest(
+        "CHARACTER_RESOLVE_FAILED",
+        resolved.body.message ?? "Character could not be resolved",
+        { status: resolved.body.status },
+      );
+    }
+    const characterId =
+      "characterId" in resolved.body && typeof resolved.body.characterId === "string"
+        ? resolved.body.characterId
+        : null;
+    if (!characterId) {
+      throw HttpError.badRequest("CHARACTER_RESOLVE_FAILED", "Character resolve did not return an id");
+    }
+    const character = await this.prisma().character.findUnique({
+      where: { id: characterId },
+      include: { region: true, realm: true, gameClass: true, activeSpec: true },
+    });
+    if (!character) {
+      throw HttpError.badRequest("CHARACTER_RESOLVE_FAILED", "Resolved character was not persisted");
+    }
+    await this.assertNoDuplicateMember(cohortId, {
+      characterId,
+      region: character.region.code,
+      realmSlug: character.realm.slug,
+      characterName: character.displayName,
+    });
+    const member = await this.prisma().$transaction(async (tx) => {
+      await tx.calibrationCohort.update({
+        where: { id: cohortId },
+        data: { revision: { increment: 1 } },
+      });
+      return tx.calibrationCohortMember.create({
+        data: {
+          id: randomUUID(),
+          cohortId,
+          characterId,
+          region: character.region.code,
+          realmSlug: character.realm.slug,
+          characterName: character.displayName,
+          expectedLabel,
+          providedRole:
+            character.role === "DPS" || character.role === "TANK" || character.role === "HEALER"
+              ? character.role
+              : null,
+          classSlug: character.gameClass?.slug ?? null,
+          specSlug: character.activeSpec?.slug ?? null,
+          rationale: input.rationale?.trim() ? input.rationale : "Labeled by administrator",
+          source: "USER_SELECTED",
+          included: true,
+          preflightSnapshot: {
+            resolveStatus: resolved.body.status,
+            level: character.level,
+            blizzardOnly: true,
+            wclCalls: 0,
+          },
+        },
+      });
+    });
+    await this.audit("admin.calibration.member.resolve_add", member.id, ctx, {
+      cohortId,
+      characterId,
+      resolveStatus: resolved.body.status,
+    });
+    return { ...mapMember(member), resolveStatus: resolved.body.status };
+  }
+
+  private async assertNoDuplicateMember(
+    cohortId: string,
+    identity: {
+      characterId: string | null;
+      region: string;
+      realmSlug: string;
+      characterName: string;
+    },
+  ): Promise<void> {
+    if (identity.characterId) {
+      const byId = await this.prisma().calibrationCohortMember.findFirst({
+        where: { cohortId, characterId: identity.characterId },
+      });
+      if (byId) {
+        throw HttpError.conflict(
+          "DUPLICATE_COHORT_MEMBER",
+          "This character is already in the cohort",
+        );
+      }
+    }
+    const byName = await this.prisma().calibrationCohortMember.findFirst({
+      where: {
+        cohortId,
+        region: identity.region.toUpperCase(),
+        realmSlug: identity.realmSlug.toLowerCase(),
+        characterName: { equals: identity.characterName, mode: "insensitive" },
+      },
+    });
+    if (byName) {
+      throw HttpError.conflict(
+        "DUPLICATE_COHORT_MEMBER",
+        "This character is already in the cohort",
+      );
+    }
   }
 
   async bulkMembers(
@@ -477,6 +718,8 @@ export class AdminCalibrationService {
         const raw = input.members[i]!;
         try {
           const row = createCalibrationMemberBodySchema.parse(raw);
+          const expectedLabel = resolveExpectedLabel(row);
+          const rationale = row.rationale?.trim() ? row.rationale : "Labeled by administrator";
           if (row.externalMemberKey) {
             const existing = await tx.calibrationCohortMember.findFirst({
               where: { cohortId, externalMemberKey: row.externalMemberKey },
@@ -489,12 +732,12 @@ export class AdminCalibrationService {
                   region: row.region,
                   realmSlug: row.realmSlug,
                   characterName: row.characterName,
-                  expectedLabel: row.expectedLabel,
+                  expectedLabel,
                   providedRole: row.providedRole ?? null,
                   classSlug: row.classSlug ?? null,
                   specSlug: row.specSlug ?? null,
                   evidenceCutoffAt: row.evidenceCutoffAt ? new Date(row.evidenceCutoffAt) : null,
-                  rationale: row.rationale,
+                  rationale,
                   source: row.source ?? existing.source,
                   included: row.included ?? existing.included,
                   exclusionCode: row.exclusionCode ?? null,
@@ -513,12 +756,12 @@ export class AdminCalibrationService {
               region: row.region,
               realmSlug: row.realmSlug,
               characterName: row.characterName,
-              expectedLabel: row.expectedLabel,
+              expectedLabel,
               providedRole: row.providedRole ?? null,
               classSlug: row.classSlug ?? null,
               specSlug: row.specSlug ?? null,
               evidenceCutoffAt: row.evidenceCutoffAt ? new Date(row.evidenceCutoffAt) : null,
-              rationale: row.rationale,
+              rationale,
               source: row.source ?? "USER_SELECTED",
               included: row.included ?? true,
               exclusionCode: row.exclusionCode ?? null,
@@ -574,6 +817,13 @@ export class AdminCalibrationService {
         where: { id: cohortId },
         data: { revision: { increment: 1 } },
       });
+      const expectedLabel =
+        input.expectedLabel || input.expectedRank
+          ? resolveExpectedLabel({
+              expectedLabel: input.expectedLabel,
+              expectedRank: input.expectedRank,
+            })
+          : undefined;
       return tx.calibrationCohortMember.update({
         where: { id: memberId },
         data: {
@@ -581,7 +831,7 @@ export class AdminCalibrationService {
           ...(input.region != null ? { region: input.region } : {}),
           ...(input.realmSlug != null ? { realmSlug: input.realmSlug } : {}),
           ...(input.characterName != null ? { characterName: input.characterName } : {}),
-          ...(input.expectedLabel != null ? { expectedLabel: input.expectedLabel } : {}),
+          ...(expectedLabel != null ? { expectedLabel } : {}),
           ...(input.providedRole !== undefined ? { providedRole: input.providedRole } : {}),
           ...(input.classSlug !== undefined ? { classSlug: input.classSlug } : {}),
           ...(input.specSlug !== undefined ? { specSlug: input.specSlug } : {}),
@@ -907,8 +1157,45 @@ export class AdminCalibrationService {
       // Callers may still validate/replay V2 fixtures via scoring-package helpers.
     }
     const input = createCalibrationRunBodySchema.parse(body);
-    const needsReplay = modeRequiresReplay(input.mode);
-    const bundleMode = MODE_TO_BUNDLE[input.mode];
+
+    let mode: CalibrationRunMode = input.mode ?? "PERSISTED_SNAPSHOT_ONLY";
+    let activeModelId = input.activeModelId;
+    let evaluationModelId = input.evaluationModelId;
+
+    if (input.scoreModelId) {
+      const selected = await this.prisma().scoreModel.findUnique({
+        where: { id: input.scoreModelId },
+      });
+      if (!selected) {
+        throw HttpError.badRequest(
+          "SCORE_MODEL_NOT_FOUND",
+          `Score model ${input.scoreModelId} was not found`,
+        );
+      }
+      if (selected.status === "ARCHIVED") {
+        throw HttpError.badRequest(
+          "SCORE_MODEL_ARCHIVED",
+          "Archived models cannot launch a calibration run",
+        );
+      }
+      if (selected.status === "ACTIVE") {
+        mode = "PERSISTED_SNAPSHOT_ONLY";
+        activeModelId = selected.id;
+        evaluationModelId = selected.id;
+      } else if (selected.status === "DRAFT") {
+        mode = "DRAFT_MODEL_EVALUATE";
+        evaluationModelId = selected.id;
+        activeModelId = input.activeModelId ?? null;
+      } else {
+        throw HttpError.badRequest(
+          "SCORE_MODEL_NOT_RUNNABLE",
+          `Score model status ${selected.status} cannot launch a calibration run`,
+        );
+      }
+    }
+
+    const needsReplay = modeRequiresReplay(mode);
+    const bundleMode = MODE_TO_BUNDLE[mode];
 
     const cohort = (await this.requireCohort(cohortId, true)) as CohortWithMembers;
     if (cohort.status === "ARCHIVED") {
@@ -927,9 +1214,9 @@ export class AdminCalibrationService {
     }
 
     const { activeModel, evaluationModel } = await this.resolveModelsForMode({
-      mode: input.mode,
-      activeModelId: input.activeModelId,
-      evaluationModelId: input.evaluationModelId,
+      mode,
+      activeModelId,
+      evaluationModelId,
       requireEvaluation: needsReplay,
     });
     if (!activeModel) {
@@ -942,10 +1229,12 @@ export class AdminCalibrationService {
     if (needsReplay && !evaluationModel) {
       throw HttpError.badRequest(
         "EVALUATION_MODEL_REQUIRED",
-        `${input.mode} requires a DRAFT evaluationModelId`,
+        `${mode} requires a DRAFT evaluationModelId`,
       );
     }
 
+    const includeUnevaluated =
+      input.includeUnevaluatedMembers ?? Boolean(input.scoreModelId);
     const generatedAt = new Date().toISOString();
     const included = cohort.members.filter((m) => m.included);
     const evidenceByMemberId: Record<string, CalibrationMemberEvidence> = {};
@@ -955,19 +1244,84 @@ export class AdminCalibrationService {
 
     for (const member of included) {
       const character = await this.resolveCharacterForMember(member);
+      const memberKey = member.externalMemberKey ?? member.id;
+      const expectedLabel = labelToQualitative(member.expectedLabel as CalibrationExpectedLabel);
+
       if (!character) {
-        throw HttpError.badRequest(
-          "CHARACTER_NOT_FOUND",
-          `Included member ${member.id} has no resolved Character — run preflight and fix first`,
-        );
+        if (!includeUnevaluated && input.evidencePolicy === "STRICT") {
+          throw HttpError.badRequest(
+            "CHARACTER_NOT_FOUND",
+            `Included member ${member.id} has no resolved Character — run preflight and fix first`,
+          );
+        }
+        if (includeUnevaluated) {
+          evidenceByMemberId[memberKey] = {
+            memberId: memberKey,
+            characterId: null,
+            snapshotId: null,
+            snapshot: null,
+            observations: null,
+            scoringContext: null,
+            calculatedAt: null,
+            inputFingerprint: null,
+            seasonSlug: season.slug,
+          };
+          manifestMembers.push({
+            id: memberKey,
+            region: member.region,
+            realm: member.realmSlug,
+            character: member.characterName,
+            role: member.providedRole ? roleOrDefault(member.providedRole) : "DPS",
+            classSlug: member.classSlug ?? "unknown",
+            specSlug: member.specSlug ?? "unknown",
+            expectedLabel,
+            meta: false,
+            rationale: member.rationale,
+            suspectedBoost: false,
+            source: member.source === "STRATIFIED_AUTO" ? "stratified-auto" : "user-selected",
+            snapshotIds: [],
+            seasonSlug: season.slug,
+          });
+        }
+        continue;
       }
+
       const snap = await this.selectSnapshot(character.id, cohort.seasonId, activeModel.id);
       if (!snap) {
-        if (input.evidencePolicy === "STRICT") {
+        if (input.evidencePolicy === "STRICT" && !includeUnevaluated) {
           throw HttpError.badRequest(
             "SNAPSHOT_MISSING",
             `Included member ${member.id} has no public snapshot for the cohort season/model`,
           );
+        }
+        if (includeUnevaluated) {
+          evidenceByMemberId[memberKey] = {
+            memberId: memberKey,
+            characterId: character.id,
+            snapshotId: null,
+            snapshot: null,
+            observations: null,
+            scoringContext: null,
+            calculatedAt: null,
+            inputFingerprint: null,
+            seasonSlug: season.slug,
+          };
+          manifestMembers.push({
+            id: memberKey,
+            region: member.region,
+            realm: member.realmSlug,
+            character: member.characterName,
+            role: member.providedRole ? roleOrDefault(member.providedRole) : roleOrDefault(character.role),
+            classSlug: member.classSlug ?? character.gameClass?.slug ?? "unknown",
+            specSlug: member.specSlug ?? character.activeSpec?.slug ?? "unknown",
+            expectedLabel,
+            meta: false,
+            rationale: member.rationale,
+            suspectedBoost: false,
+            source: member.source === "STRATIFIED_AUTO" ? "stratified-auto" : "user-selected",
+            snapshotIds: [],
+            seasonSlug: season.slug,
+          });
         }
         continue;
       }
@@ -993,11 +1347,41 @@ export class AdminCalibrationService {
       const replayable =
         hasReplayableScoringContext(scoringContext) && observations.length > 0;
       if (needsReplay && !replayable) {
-        if (input.evidencePolicy === "STRICT") {
+        if (input.evidencePolicy === "STRICT" && !includeUnevaluated) {
           throw HttpError.badRequest(
             "REPLAY_EVIDENCE_MISSING",
-            `Included member ${member.id} lacks replayable observations/scoringContext for ${input.mode}`,
+            `Included member ${member.id} lacks replayable observations/scoringContext for ${mode}`,
           );
+        }
+        if (includeUnevaluated) {
+          evidenceByMemberId[memberKey] = {
+            memberId: memberKey,
+            characterId: character.id,
+            snapshotId: snap.id,
+            snapshot: dto as ScoreSnapshotDTO,
+            observations: observations.length > 0 ? observations : null,
+            scoringContext,
+            calculatedAt: snap.calculatedAt.toISOString(),
+            inputFingerprint: snap.inputFingerprint,
+            seasonSlug: snap.season.slug,
+          };
+          manifestMembers.push({
+            id: memberKey,
+            region: member.region,
+            realm: member.realmSlug,
+            character: member.characterName,
+            role: member.providedRole ? roleOrDefault(member.providedRole) : role,
+            classSlug: member.classSlug ?? character.gameClass?.slug ?? "unknown",
+            specSlug: member.specSlug ?? character.activeSpec?.slug ?? "unknown",
+            expectedLabel,
+            meta: false,
+            rationale: member.rationale,
+            suspectedBoost: false,
+            source: member.source === "STRATIFIED_AUTO" ? "stratified-auto" : "user-selected",
+            snapshotIds: [snap.id],
+            seasonSlug: season.slug,
+          });
+          snapshotIds.push(snap.id);
         }
         continue;
       }
@@ -1007,7 +1391,6 @@ export class AdminCalibrationService {
         member.evidenceCutoffAt?.toISOString() ?? snap.calculatedAt.toISOString(),
       );
 
-      const memberKey = member.externalMemberKey ?? member.id;
       // Identical frozen evidence is shared by active and draft evaluations.
       evidenceByMemberId[memberKey] = {
         memberId: memberKey,
@@ -1022,7 +1405,6 @@ export class AdminCalibrationService {
       };
 
       // Expert label is authoritative — never derived from score/grade.
-      const expectedLabel = labelToQualitative(member.expectedLabel as CalibrationExpectedLabel);
       manifestMembers.push({
         id: memberKey,
         region: member.region,
@@ -1058,7 +1440,7 @@ export class AdminCalibrationService {
       description: cohort.description || cohort.name,
       createdAt: generatedAt,
       members: manifestMembers,
-      notes: `Frozen at cohort revision ${cohort.revision}; mode=${input.mode}`,
+      notes: `Frozen at cohort revision ${cohort.revision}; mode=${mode}`,
     };
 
     const bundle = buildCalibrationInputBundle({
@@ -1085,6 +1467,30 @@ export class AdminCalibrationService {
       )
       .digest("hex");
 
+    const initialProgress = emptyProgress(manifestMembers.length);
+    initialProgress.members = manifestMembers.map((m) => ({
+      memberId: m.id,
+      characterName: m.character,
+      realm: m.realm,
+      region: m.region,
+      status: "pending" as const,
+      expectedRank: CALIBRATION_LABEL_TO_TIER[
+        (
+          {
+            excellent: "EXCELLENT",
+            good: "GOOD",
+            average: "AVERAGE",
+            weak: "WEAK",
+            overrated: "OVERRATED",
+          } as const
+        )[m.expectedLabel]
+      ],
+      actualGrade: null,
+      overallScore: null,
+      error: null,
+    }));
+    initialProgress.updatedAt = new Date().toISOString();
+
     const runId = randomUUID();
     const run = await this.prisma().calibrationRun.create({
       data: {
@@ -1092,7 +1498,7 @@ export class AdminCalibrationService {
         cohortId: cohort.id,
         cohortRevision: cohort.revision,
         seasonId: cohort.seasonId,
-        mode: input.mode,
+        mode,
         status: "QUEUED",
         activeModelId: activeModel.id,
         evaluationModelId: evalModel.id,
@@ -1114,7 +1520,9 @@ export class AdminCalibrationService {
           evaluationModelConfigHash: hashJson(evaluationRef.config),
           seasonSlug: season.slug,
           evidenceCutoffs,
+          scoreModelId: evalModel.id,
         },
+        progressJson: initialProgress as unknown as Prisma.InputJsonValue,
         createdByUserId,
       },
     });
@@ -1127,12 +1535,17 @@ export class AdminCalibrationService {
     const updated = await this.prisma().calibrationRun.update({
       where: { id: run.id },
       data: { bullmqJobId: enqueue.jobId },
+      include: {
+        report: { select: { id: true } },
+        evaluationModel: { select: { id: true, name: true, version: true, status: true } },
+        activeModel: { select: { id: true, name: true, version: true, status: true } },
+      },
     });
 
     await this.audit("admin.calibration.run.create", run.id, ctx, {
       cohortId,
       cohortRevision: cohort.revision,
-      mode: input.mode,
+      mode,
       contentHash: hash,
       byteLength,
       activeModelId: activeModel.id,
@@ -1148,7 +1561,11 @@ export class AdminCalibrationService {
     const runs = await this.prisma().calibrationRun.findMany({
       where: cohortId ? { cohortId } : undefined,
       orderBy: { createdAt: "desc" },
-      include: { report: { select: { id: true } } },
+      include: {
+        report: { select: { id: true, evaluatedCount: true, failedOrExcludedCount: true, summaryJson: true } },
+        evaluationModel: { select: { id: true, name: true, version: true, status: true } },
+        activeModel: { select: { id: true, name: true, version: true, status: true } },
+      },
       take: 100,
     });
     return { runs: runs.map(mapRun) };
@@ -1158,7 +1575,11 @@ export class AdminCalibrationService {
     assertEnabled(this.container);
     const run = await this.prisma().calibrationRun.findUnique({
       where: { id: runId },
-      include: { report: { select: { id: true } } },
+      include: {
+        report: { select: { id: true, evaluatedCount: true, failedOrExcludedCount: true, summaryJson: true } },
+        evaluationModel: { select: { id: true, name: true, version: true, status: true } },
+        activeModel: { select: { id: true, name: true, version: true, status: true } },
+      },
     });
     if (!run) {
       throw HttpError.notFound("CALIBRATION_RUN_NOT_FOUND", `Run ${runId} was not found`);

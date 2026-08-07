@@ -164,6 +164,21 @@ export interface CalibrationRunOptions {
   /** Seed for exploratory bootstrap CIs (deterministic). */
   bootstrapSeed?: number;
   bootstrapIterations?: number;
+  /**
+   * Optional sequential progress hook (admin calibration UI).
+   * Invoked after each member is evaluated (including failures).
+   * Must not call providers or mutate production scores.
+   */
+  onMemberProgress?: (event: {
+    index: number;
+    total: number;
+    memberId: string;
+    characterName: string;
+    realm: string;
+    region: string;
+    status: "completed" | "failed";
+    result: PerCharacterCalibrationResult;
+  }) => void;
 }
 
 export interface PerCharacterCalibrationResult {
