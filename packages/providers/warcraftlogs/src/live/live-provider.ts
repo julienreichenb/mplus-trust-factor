@@ -41,18 +41,22 @@ import {
 import {
   adaptPointsAndDamagePerformance,
   buildWclSummaryRequestFingerprint,
+  buildPerformanceAggregateRequestFingerprint,
   pointsAndDamageErrorRecord,
   POINTS_AND_DAMAGE_ADAPTER_VERSION,
   type PointsAndDamagePerformanceRecord,
 } from "../discovery/points-and-damage-performance.js";
 import { parseJsonScalar } from "../probe/performance-probe-logic.js";
 import {
+  INCREMENTAL_HYDRATION_BATCH_SIZE,
+  INITIAL_HYDRATION_BUDGET,
   MAX_HYDRATION_REPORTS,
 } from "../discovery/bounds.js";
 import {
   hydrateFightUnknownCandidates,
   type HydrationReportPayload,
 } from "../discovery/report-hydration.js";
+import { hydrateFightUnknownCandidatesIterative } from "../discovery/iterative-report-hydration.js";
 import { collectBoundedRecentReportCodes } from "../discovery/recent-reports-pagination.js";
 import {
   extractFriendlyPlayerActorIds,
@@ -242,26 +246,81 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
     ctx: ProviderFetchContext,
   ): Promise<ProviderResult<MythicRunDTO[]>> {
     const discovery = await this.discoverCharacter(identity, ctx);
-    const hydrated = await hydrateFightUnknownCandidates({
-      candidates: discovery.candidates,
-      characterName: identity.name,
-      realmSlug: identity.realmSlug,
-      hints: ctx.wclHydrationHints,
-      maxReports: this.maxHydrationReports,
-      fetchReport: (code) => this.fetchReportPayloadForHydration(code),
-    });
-    if (hydrated.hydratedReportCount > 0) {
+    const activeDungeonSlugs = (ctx.wclActiveDungeonSlugs ?? [])
+      .map((slug) => slug.trim().toLowerCase())
+      .filter((slug) => slug.length > 0);
+    const fetchReport = (code: string) => this.fetchReportPayloadForHydration(code);
+
+    // Coverage-aware iterative path (V2 cold production): open reports until each
+    // active dungeon has TARGET candidates or stubs/rate budget are exhausted.
+    // Legacy fixed budget (MAX_HYDRATION_REPORTS=5) is insufficient for 2×8 slots.
+    let hydratedCandidates = discovery.candidates;
+    let hydratedReportCount = 0;
+    let terminalHydrationReason: string | null = null;
+    let totalReportsHydrated: number | null = null;
+    let reportsRemaining: number | null = null;
+
+    if (activeDungeonSlugs.length > 0) {
+      const iterative = await hydrateFightUnknownCandidatesIterative({
+        candidates: discovery.candidates,
+        characterName: identity.name,
+        realmSlug: identity.realmSlug,
+        hints: ctx.wclHydrationHints,
+        activeDungeonSlugs,
+        initialBudget:
+          this.maxHydrationReports > MAX_HYDRATION_REPORTS
+            ? this.maxHydrationReports
+            : INITIAL_HYDRATION_BUDGET,
+        incrementalBatchSize: INCREMENTAL_HYDRATION_BATCH_SIZE,
+        fetchReport,
+        evaluateIncrementalAdmission: (args) => ({
+          allow: true,
+          action: "OK" as const,
+          reasons: ["live_discover_incremental_default_allow"],
+          projectedIncrementalPoints: args.projectedIncrementalPoints,
+        }),
+      });
+      hydratedCandidates = iterative.candidates;
+      hydratedReportCount = iterative.hydratedReportCount;
+      terminalHydrationReason = iterative.diagnostics.terminalHydrationReason;
+      totalReportsHydrated = iterative.diagnostics.totalReportsHydrated;
+      reportsRemaining = iterative.diagnostics.reportsRemaining;
+    } else {
+      const legacy = await hydrateFightUnknownCandidates({
+        candidates: discovery.candidates,
+        characterName: identity.name,
+        realmSlug: identity.realmSlug,
+        hints: ctx.wclHydrationHints,
+        maxReports: this.maxHydrationReports,
+        fetchReport,
+      });
+      hydratedCandidates = legacy.candidates;
+      hydratedReportCount = legacy.hydratedReportCount;
+    }
+
+    const knownFightCandidates = hydratedCandidates.filter(
+      (c) => !c.incompleteness.fightUnknown,
+    ).length;
+    if (hydratedReportCount > 0) {
       this.logger.info(
         {
           identity,
-          hydratedReportCount: hydrated.hydratedReportCount,
-          knownFightCandidates: hydrated.candidates.filter((c) => !c.incompleteness.fightUnknown)
-            .length,
+          hydratedReportCount,
+          knownFightCandidates,
+          coverageAware: activeDungeonSlugs.length > 0,
+          activeDungeonCount: activeDungeonSlugs.length,
+          ...(terminalHydrationReason != null
+            ? {
+                terminalHydrationReason,
+                totalReportsHydrated,
+                reportsRemaining,
+              }
+            : {}),
         },
         "wcl.discovery.hydration",
       );
     }
-    const runs = hydrated.candidates
+    const runs = hydratedCandidates
       .filter((c) => !c.incompleteness.fightUnknown && c.fightId > 0)
       .map((c) => this.candidateToMythicRun(c, identity, ctx));
     const envelope = providerEnvelope(
@@ -290,6 +349,7 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
     if (!report) return null;
     return {
       code: report.code,
+      revision: report.revision,
       startTime: report.startTime,
       endTime: report.endTime,
       visibility: report.visibility,
@@ -366,6 +426,129 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
         schemaVersion: POINTS_AND_DAMAGE_ADAPTER_VERSION,
       },
     };
+  }
+
+  /**
+   * Dedicated Character.zoneRankings points_and_damage fetch.
+   * Does not resolve character, query recent reports, hydrate fights, or fetch events.
+   * Character/season Performance evidence — not fight-local.
+   */
+  async fetchCharacterPerformanceAggregate(input: {
+    character: CharacterIdentityInput;
+    zoneId: number;
+    partition: number | null;
+    ctx: ProviderFetchContext;
+  }): Promise<{
+    record: PointsAndDamagePerformanceRecord;
+    rawPayload: unknown;
+    sourceRequestFingerprint: string;
+    providerCalls: number;
+  }> {
+    const fingerprint = buildPerformanceAggregateRequestFingerprint({
+      region: input.character.region,
+      realmSlug: input.character.realmSlug,
+      name: input.character.name,
+      zoneId: input.zoneId,
+      partition: input.partition,
+    });
+
+    const serverRegion = mapRegionToWcl(input.character.region);
+    const variables: Record<string, unknown> = {
+      name: input.character.name,
+      serverSlug: input.character.realmSlug,
+      serverRegion,
+      zoneID: input.zoneId,
+    };
+    if (input.partition != null) {
+      variables.partition = input.partition;
+    }
+
+    // Rate-budget gate before the points_and_damage GraphQL operation.
+    const budget = await this.fetchRateLimit(input.ctx);
+    if (budget.action === "STOP") {
+      return {
+        record: pointsAndDamageErrorRecord(
+          "SKIPPED",
+          null,
+          "WCL rate budget STOP — points_and_damage Performance deferred",
+        ),
+        rawPayload: null,
+        sourceRequestFingerprint: fingerprint,
+        providerCalls: 1,
+      };
+    }
+    if (shouldDeferExpensiveWork(budget)) {
+      throw wclError(
+        "BUDGET_EXCEEDED",
+        "WCL rate budget exceeded — deferring points_and_damage Performance fetch",
+        {
+          visibility: "RATE_LIMITED",
+          utilizationPercent: budget.utilizationPercent,
+        },
+      );
+    }
+
+    try {
+      const perfResult = await this.client.request({
+        operationName: OPERATIONS.CharacterZoneRankingsPointsAndDamage.operationName,
+        query: OPERATIONS.CharacterZoneRankingsPointsAndDamage.query,
+        variables,
+        region: input.character.region,
+      });
+
+      if (perfResult.response.errors && perfResult.response.errors.length > 0) {
+        const messages = perfResult.response.errors.map((e) => e.message);
+        const record = pointsAndDamageErrorRecord(
+          "ERROR",
+          null,
+          `CharacterZoneRankingsPointsAndDamage GraphQL error: ${messages.join("; ")}`,
+        );
+        return {
+          record,
+          rawPayload: null,
+          sourceRequestFingerprint: fingerprint,
+          providerCalls: 1,
+        };
+      }
+
+      const data = perfResult.response.data as
+        | { characterData?: { character?: { zoneRankings?: unknown } | null } }
+        | null
+        | undefined;
+      const raw = parseJsonScalar(data?.characterData?.character?.zoneRankings ?? null);
+      let record = adaptPointsAndDamagePerformance({ raw });
+      if (record.state === "EMPTY") {
+        // Never fabricate OK from empty — treat as ERROR for scoring consumers.
+        record = { ...record, state: "ERROR" };
+      } else if (record.state === "OK" && record.dungeonAggregates.length === 0) {
+        record = pointsAndDamageErrorRecord(
+          "ERROR",
+          raw,
+          "points_and_damage returned OK with zero usable dungeon aggregates",
+        );
+      }
+      return {
+        record,
+        rawPayload: raw,
+        sourceRequestFingerprint: fingerprint,
+        providerCalls: 1,
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "unknown";
+      const schemaUnsupported =
+        error instanceof ExternalApiError && error.code === "SCHEMA_UNSUPPORTED";
+      const record = pointsAndDamageErrorRecord(
+        schemaUnsupported ? "SCHEMA_UNSUPPORTED" : "ERROR",
+        null,
+        `points_and_damage query failed — PERFORMANCE unavailable (${message})`,
+      );
+      return {
+        record,
+        rawPayload: null,
+        sourceRequestFingerprint: fingerprint,
+        providerCalls: 1,
+      };
+    }
   }
 
   async getReportFightDetails(
@@ -711,56 +894,22 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
       }
       rankings = mapZoneRankings(zonePayload, this.zoneConfig.zoneId);
 
-      // Performance: points_and_damage only (Points & Damage By Level). Never soft-empty on failure.
-      try {
-        const perfResult = await this.client.request({
-          operationName: OPERATIONS.CharacterZoneRankingsPointsAndDamage.operationName,
-          query: OPERATIONS.CharacterZoneRankingsPointsAndDamage.query,
-          variables: {
-            name: identity.name,
-            serverSlug: identity.realmSlug,
-            serverRegion,
-            zoneID: this.zoneConfig.zoneId,
-          },
-          region: identity.region,
-        });
-        if (perfResult.response.errors && perfResult.response.errors.length > 0) {
-          const messages = perfResult.response.errors.map((e) => e.message);
-          performance = pointsAndDamageErrorRecord(
-            "ERROR",
-            null,
-            `CharacterZoneRankingsPointsAndDamage GraphQL error: ${messages.join("; ")}`,
-          );
-          warnings.push(performance.diagnostics.errorMessage ?? "points_and_damage GraphQL error");
-        } else {
-          const data = perfResult.response.data as
-            | { characterData?: { character?: { zoneRankings?: unknown } | null } }
-            | null
-            | undefined;
-          const raw = parseJsonScalar(data?.characterData?.character?.zoneRankings ?? null);
-          performance = adaptPointsAndDamagePerformance({ raw });
-          if (performance.state === "SCHEMA_UNSUPPORTED") {
-            warnings.push(
-              performance.diagnostics.errorMessage ?? "points_and_damage SCHEMA_UNSUPPORTED",
-            );
-          } else if (performance.state === "EMPTY") {
-            warnings.push(
-              performance.diagnostics.errorMessage ?? "points_and_damage payload empty",
-            );
-            // Treat empty as ERROR for scoring — never a fabricated valid dataset.
-            performance = { ...performance, state: "ERROR" };
-          }
-        }
-      } catch (error) {
-        const message = error instanceof Error ? error.message : "unknown";
-        const schemaUnsupported =
-          error instanceof ExternalApiError && error.code === "SCHEMA_UNSUPPORTED";
-        performance = pointsAndDamageErrorRecord(
-          schemaUnsupported ? "SCHEMA_UNSUPPORTED" : "ERROR",
-          null,
-          `points_and_damage query failed — PERFORMANCE unavailable (${message})`,
+      // Performance: dedicated points_and_damage operation (no recent-reports / events).
+      const perf = await this.fetchCharacterPerformanceAggregate({
+        character: identity,
+        zoneId: this.zoneConfig.zoneId,
+        partition: null,
+        ctx,
+      });
+      performance = perf.record;
+      if (performance.state === "SCHEMA_UNSUPPORTED") {
+        warnings.push(
+          performance.diagnostics.errorMessage ?? "points_and_damage SCHEMA_UNSUPPORTED",
         );
-        warnings.push(performance.diagnostics.errorMessage ?? message);
+      } else if (performance.state === "ERROR") {
+        warnings.push(
+          performance.diagnostics.errorMessage ?? "points_and_damage ERROR",
+        );
       }
     } else {
       warnings.push(

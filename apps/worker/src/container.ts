@@ -3,7 +3,6 @@ import type { AppEnv } from "@mplus/config";
 import { createPrismaClient, type PrismaClient } from "@mplus/database";
 import { createLogger, type Logger } from "@mplus/observability";
 import type { BlizzardProvider, ProviderName, RaiderIoProvider, WarcraftLogsProvider } from "@mplus/contracts";
-import { calculateScore } from "@mplus/scoring";
 import { resolveWorkerProviders } from "./providers/provider-factory.js";
 import { createRepositories, type WorkerRepositories } from "./persistence/index.js";
 
@@ -21,7 +20,6 @@ export interface WorkerContainer {
   createRedisConnection: (options?: RedisOptions) => Redis;
   providers: WorkerProviders;
   disabledProviders: Set<ProviderName>;
-  calculateScore: typeof calculateScore;
   repositories: WorkerRepositories;
 }
 
@@ -30,13 +28,13 @@ export interface WorkerContainerOverrides {
   logger?: Logger;
   providers?: Partial<WorkerProviders>;
   disabledProviders?: Set<ProviderName>;
-  calculateScore?: typeof calculateScore;
   repositories?: Partial<WorkerRepositories>;
 }
 
 /**
  * Wires the worker's dependency graph: database, cache/queue connections,
- * provider adapters (fixture/live via PROVIDER_MODE), scoring, and repositories.
+ * provider adapters (fixture/live via PROVIDER_MODE), and repositories.
+ * Scoring goes through scoreCharacter / runAuthoritativeScoring — not calculateScore.
  */
 export function createWorkerContainer(
   env: AppEnv,
@@ -62,7 +60,6 @@ export function createWorkerContainer(
       new Redis(env.REDIS_URL, { maxRetriesPerRequest: null, ...options }),
     providers,
     disabledProviders,
-    calculateScore: overrides.calculateScore ?? calculateScore,
     repositories,
   };
 }

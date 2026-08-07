@@ -140,7 +140,7 @@ async function main(): Promise<void> {
   });
 
   const { startEvidenceExportRecoverySweeper } = await import(
-    "./orchestration/scoring-v2/evidence-export-recovery.js"
+    "./orchestration/scoring/evidence-export-recovery.js"
   );
   const evidenceExportRecoverySweeper = startEvidenceExportRecoverySweeper({
     prisma: container.prisma,

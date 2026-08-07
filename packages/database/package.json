@@ -16,7 +16,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "seed": "tsx src/seed.ts",
     "prisma": "prisma",
-    "reset:scoring-v2": "tsx src/reset/cli-test-reset.ts",
+    "reset:scoring": "tsx src/reset/cli-test-reset.ts",
+    "backfill:scoring-cache": "tsx src/backfill-scoring-minimal-cache-cli.ts",
     "reset:wcl-scoring-derived": "tsx src/reset/cli-wcl-scoring-derived-reset.ts",
     "reset:identity-data": "tsx src/reset/cli-identity-data-reset.ts",
     "calibration-labels": "tsx src/reset/cli-calibration-labels.ts"

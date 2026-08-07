@@ -8,7 +8,7 @@
  * Does not alter calculator formulas, weights, or availability rules.
  */
 
-export type ScoringV2PublicDimension =
+export type ScoringPublicDimension =
   | "PERFORMANCE"
   | "SURVIVAL"
   | "UTILITY"
@@ -38,7 +38,7 @@ export interface NormalizedShadowDimensionRecord {
   seasonId: string;
   manifestId: string;
   scoreModelId: string;
-  dimension: ScoringV2PublicDimension;
+  dimension: ScoringPublicDimension;
   algorithmVersion: string;
   inputFingerprint: string;
   score: number | null;
@@ -56,7 +56,7 @@ export interface ShadowDimensionPayloadLike {
   seasonId: string;
   manifestId: string;
   scoreModelId: string;
-  dimension: ScoringV2PublicDimension;
+  dimension: ScoringPublicDimension;
   algorithmVersion: string;
   inputFingerprint: string;
   score: number | null;
@@ -146,7 +146,7 @@ export interface BuildUnavailableShadowDimensionRecordInput {
   seasonId: string;
   manifestId: string;
   scoreModelId: string;
-  dimension: ScoringV2PublicDimension;
+  dimension: ScoringPublicDimension;
   algorithmVersion: string;
   /** Deterministic fingerprint for this unavailable outcome. */
   inputFingerprint: string;

@@ -6,17 +6,17 @@
 import { access, constants, stat } from "node:fs/promises";
 import path from "node:path";
 import {
-  getScoringV2FlagSummary,
+  getScoringFlagSummary,
   type AppEnv,
 } from "@mplus/config";
 import {
-  SCORING_V2_CONTRACT_VERSIONS,
+  SCORING_CONTRACT_VERSIONS,
   evaluateReadiness,
   evaluateWclProviderUsability,
   requiredProbesForModes,
   type ReadinessEvaluation,
   type ReadinessProbeResults,
-  type ScoringV2ModeSnapshot,
+  type ScoringModeSnapshot,
 } from "@mplus/observability";
 
 export const ARTIFACT_PROBE_TIMEOUT_MS = 2_000;
@@ -79,8 +79,8 @@ export async function probeArtifactBackend(
   }
 }
 
-export function toModeSnapshot(env: AppEnv): ScoringV2ModeSnapshot {
-  const summary = getScoringV2FlagSummary(env);
+export function toModeSnapshot(env: AppEnv): ScoringModeSnapshot {
+  const summary = getScoringFlagSummary(env);
   return {
     enabled: summary.enabled,
     selectionEnabled: summary.selectionEnabled,
@@ -132,9 +132,9 @@ export async function buildApiReadiness(input: {
 
   const probes: ReadinessProbeResults = {
     revision: input.env.APP_VERSION,
-    apiContractVersion: SCORING_V2_CONTRACT_VERSIONS.apiExplainability,
-    workerJobSchemaVersion: SCORING_V2_CONTRACT_VERSIONS.workerJobSchema,
-    scoringV2: modes,
+    apiContractVersion: SCORING_CONTRACT_VERSIONS.apiExplainability,
+    workerJobSchemaVersion: SCORING_CONTRACT_VERSIONS.workerJobSchema,
+    scoring: modes,
     databaseOk: input.database.ok,
     redisOk: input.redis.ok,
     redisSkipped: Boolean(input.redis.skipped),

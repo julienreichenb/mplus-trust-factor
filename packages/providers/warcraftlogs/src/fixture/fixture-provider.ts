@@ -24,6 +24,7 @@ import {
 import {
   adaptPointsAndDamagePerformance,
   buildWclSummaryRequestFingerprint,
+  buildPerformanceAggregateRequestFingerprint,
   pointsAndDamageErrorRecord,
   POINTS_AND_DAMAGE_ADAPTER_VERSION,
 } from "../discovery/points-and-damage-performance.js";
@@ -127,6 +128,7 @@ export class FixtureWarcraftLogsProvider implements WarcraftLogsProvider {
         if (!report) return null;
         return {
           code: report.code,
+          revision: report.revision,
           startTime: report.startTime,
           endTime: report.endTime,
           visibility: report.visibility,
@@ -220,6 +222,58 @@ export class FixtureWarcraftLogsProvider implements WarcraftLogsProvider {
         ...envelope.metadata,
         requestFingerprint: fingerprint,
       },
+    };
+  }
+
+  async fetchCharacterPerformanceAggregate(input: {
+    character: CharacterIdentityInput;
+    zoneId: number;
+    partition: number | null;
+    ctx: ProviderFetchContext;
+  }): Promise<{
+    record: ReturnType<typeof adaptPointsAndDamagePerformance>;
+    rawPayload: unknown;
+    sourceRequestFingerprint: string;
+    providerCalls: number;
+  }> {
+    const fingerprint = buildPerformanceAggregateRequestFingerprint({
+      region: input.character.region,
+      realmSlug: input.character.realmSlug,
+      name: input.character.name,
+      zoneId: input.zoneId,
+      partition: input.partition,
+    });
+    const fixture = loadFixtureByIdentity(
+      input.character.name,
+      input.character.realmSlug,
+    );
+    const padEnvelope = fixture.zoneRankingsPointsAndDamage as
+      | { data?: { characterData?: { character?: { zoneRankings?: unknown } } } }
+      | undefined;
+    if (!padEnvelope) {
+      return {
+        record: pointsAndDamageErrorRecord(
+          "SKIPPED",
+          null,
+          "Fixture has no zoneRankingsPointsAndDamage — Performance unavailable",
+        ),
+        rawPayload: null,
+        sourceRequestFingerprint: fingerprint,
+        providerCalls: 1,
+      };
+    }
+    const raw = parseJsonScalar(
+      padEnvelope.data?.characterData?.character?.zoneRankings ?? null,
+    );
+    let record = adaptPointsAndDamagePerformance({ raw });
+    if (record.state === "EMPTY") {
+      record = { ...record, state: "ERROR" };
+    }
+    return {
+      record,
+      rawPayload: raw,
+      sourceRequestFingerprint: fingerprint,
+      providerCalls: 1,
     };
   }
 

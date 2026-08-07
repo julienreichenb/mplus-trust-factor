@@ -98,6 +98,11 @@ export interface WclRunCandidate {
   matchConfidence: RunMatchConfidence | null;
   /** Resolved during report hydration; null until masterData/friendlyPlayers resolve the target. */
   targetActorId?: number | null;
+  /**
+   * Authoritative WCL report revision when known from hydration/metadata.
+   * Null means unresolved — never invent `1`.
+   */
+  reportRevision?: number | null;
   incompleteness: WclRunCandidateIncompleteness;
   warnings: string[];
 }

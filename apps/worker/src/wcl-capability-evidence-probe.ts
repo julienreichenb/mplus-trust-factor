@@ -26,7 +26,7 @@ import {
   VERIFIED_WCL_FILTER_CONTRACT,
 } from "@mplus/provider-warcraftlogs";
 import { createRepositories } from "./persistence/index.js";
-import { createPersistentSharedEvidenceStore } from "./orchestration/scoring-v2/persistent-shared-evidence-store.js";
+import { createPersistentSharedEvidenceStore } from "./orchestration/scoring/persistent-shared-evidence-store.js";
 
 const SPIKE_FIGHT = {
   reportCode: "1WKcCz2BnAQmbhfq",

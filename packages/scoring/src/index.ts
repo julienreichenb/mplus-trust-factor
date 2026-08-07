@@ -28,15 +28,15 @@ export { DIMENSION_WEIGHT_KEYS, SKILL_DIMENSIONS } from "./types.js";
 export {
   stableSha256,
   ModelConfigValidationError,
-  SCORING_V2_DIMENSION_CONFIGS_SCHEMA_VERSION,
-  createDefaultScoringV2DimensionConfigSet,
-  parseScoringV2DimensionConfigSet,
+  scoring_DIMENSION_CONFIGS_SCHEMA_VERSION,
+  createDefaultscoringDimensionConfigSet,
+  parsescoringDimensionConfigSet,
   resolveScoreModelV2DimensionConfigs,
-  withScoringV2DimensionConfigs,
+  withscoringDimensionConfigs,
 } from "./model-config/index.js";
 export type {
-  ScoringV2DimensionConfigSet,
-  ScoringV2DimensionConfigFingerprints,
+  scoringDimensionConfigSet,
+  scoringDimensionConfigFingerprints,
   ResolvedScoreModelV2DimensionConfigs,
 } from "./model-config/index.js";
 
@@ -198,8 +198,21 @@ export {
 } from "./selection/evidence-v2-selector.js";
 export {
   mythicRunToEvidenceCandidateMetadata,
+  mythicRunToEvidenceCandidateMetadataList,
   scoringRunCandidateToEvidenceMetadata,
 } from "./selection/evidence-v2-adapters.js";
+export {
+  SCORING_CONFIDENCE_POLICY_VERSION,
+  confidenceBandFromScore,
+  computeScoringConfidenceV1,
+  evidenceManifestAnalysisStatus,
+  missingDungeonsFromCoverage,
+  overallConfidenceFromDimensions,
+  type EvidenceManifestAnalysisStatus,
+  type ScoringConfidenceBand,
+  type ScoringConfidenceV1,
+  type ScoringConfidenceV1Inputs,
+} from "./confidence/scoring-confidence-v1.js";
 export {
   computeModelCoverage,
   filterPublicSkillDimensions,
@@ -427,7 +440,7 @@ export type {
   FreezeSnapshotParseResult,
 } from "./calibration/index.js";
 
-/** Performance V2 Phase 1 calculator (shadow — not public-activated). */
+/** Performance V2 Phase 1 internals + functional Performance Phase 2 product calculator. */
 export {
   PERFORMANCE_V2_SCHEMA_VERSION,
   PERFORMANCE_V2_ALGORITHM_VERSION,
@@ -475,6 +488,34 @@ export type {
   PerformanceV2ComputeResult,
   PerformanceV2CalibrationExport,
 } from "./performance/v2/index.js";
+
+/** Functional Performance Phase 2 (parses + offensive cooldown discipline). */
+export {
+  PERFORMANCE_PHASE2_ALGORITHM_VERSION,
+  PERFORMANCE_PHASE2_MODEL_LABEL,
+  PERFORMANCE_PHASE2_WEIGHTS,
+  computeEndGraceMs,
+  computeExpectedUses,
+  usageRatioToScore,
+  resolveEligibleOffensiveCooldowns,
+  scoreRunCooldownDiscipline,
+  computeOffensiveCooldownDiscipline,
+  computePerformancePhase2,
+  computePerformancePhase2InputFingerprint,
+  profileAggregateFactFromPersisted,
+  cooldownRunEvidenceFromDigest,
+  combinePerformancePhase2Scores,
+} from "./performance/phase2/index.js";
+export type {
+  PerformancePhase2ComputeInput,
+  PerformancePhase2ComputeResult,
+  PerformancePhase2WeightsApplied,
+  PerformancePhase2Coverage,
+  PerformanceCooldownRunEvidence,
+  OffensiveCooldownDisciplineResult,
+  RunCooldownDisciplineResult,
+  AbilityCooldownScore,
+} from "./performance/phase2/index.js";
 
 /** Experience V3 Phase 1 calculator (shadow — not public-activated). */
 export {
@@ -535,7 +576,7 @@ export type {
   ExperienceV3CalibrationExport,
 } from "./experience/v3/index.js";
 
-/** Survival V2 Phase 1 calculator (shadow — not public-activated). */
+/** Survival V2 Phase 2 calculator (contextual defensive / recovery). */
 export {
   SURVIVAL_V2_SCHEMA_VERSION,
   SURVIVAL_V2_CALIBRATION_SCHEMA_VERSION,
@@ -549,6 +590,7 @@ export {
   SURVIVAL_V2_DANGER,
   SURVIVAL_V2_DEFENSIVE_RATE,
   SURVIVAL_V2_METRIC_KEYS,
+  SURVIVAL_V2_PHASE2,
   SURVIVAL_V2_MODEL_CONFIG,
   parseSurvivalFactDocumentV2,
   survivalFactSlotKey,
@@ -557,6 +599,12 @@ export {
   saturatingDefensiveRateScore,
   mergePressureClusters,
   scoreSurvivalV2EmergencyRecovery,
+  classifyDefensiveResponse,
+  classifyRecoveryResponse,
+  resolveSurvivalCatalogTools,
+  toolAvailabilityAt,
+  scoreDefensiveResponseClass,
+  scoreRecoveryResponseClass,
   scoreSurvivalV2RelativeDamageShadow,
   isSurvivalV2RelativeDamageWeightActive,
   relativeDamageBlendScore,
@@ -579,6 +627,8 @@ export type {
   SurvivalV2RelativeDamageMode,
   SurvivalV2CalibrationStatus,
   SurvivalV2ModelConfig,
+  SurvivalV2DefensiveResponseClass,
+  SurvivalV2RecoveryResponseClass,
   SurvivalFactDocumentV2,
   SurvivalV2AvailabilityState,
   SurvivalV2CalibrationExport,
@@ -592,9 +642,11 @@ export type {
   SurvivalV2RelativeDamageShadow,
   SurvivalV2RunScore,
   SurvivalV2ShadowDimensionPayload,
+  SurvivalV2TimedActivationFact,
   SurvivalV2ToolkitAvailabilityState,
   SurvivalV2ToolkitEntry,
 } from "./survival/v2/index.js";
+export type { SurvivalV2CatalogTool, SurvivalV2TimedActivation } from "./survival/v2/index.js";
 
 /** Utility V2 Phase 1 calculator (shadow — not public-activated). */
 export {
@@ -711,9 +763,16 @@ export {
   adaptExperienceComputeInput,
   finalizeShadowDimensions,
   buildSlotFactSetBindingHash,
+  DigestDimensionIncompleteError,
+  performanceRunParseFactFromDigest,
+  survivalFactDocumentFromDigest,
+  utilityRunFactSetFromDigest,
+  classifyDigestInterruptOutcome,
+  supportEvidenceTierFromDigestAction,
+  buildDigestScoreLineage,
 } from "./dimensions/v2/index.js";
 export type {
-  ScoringV2PublicDimension,
+  ScoringPublicDimension,
   DimensionComputationLifecycleState,
   DimensionAvailabilityState,
   NormalizedShadowDimensionMetrics,
@@ -733,6 +792,7 @@ export type {
   ShadowDimensionFinalizerOutcome,
   FinalizeShadowDimensionsInput,
   FinalizeShadowDimensionsResult,
+  DigestScoreLineageV1,
 } from "./dimensions/v2/index.js";
 
 /** Scoring V2 evidence persistence + feature-lineage audit (provider-free). */
@@ -750,22 +810,22 @@ export {
   buildUtilityFeatureUsage,
   buildPerformanceFeatureUsage,
   featureUsageFromMetrics,
-  buildScoringV2EvidenceAudit,
+  buildscoringEvidenceAudit,
   fingerprintExplanationMetrics,
   identityValidFactSets,
-  replayScoringV2Dimensions,
+  replayscoringDimensions,
 } from "./audit/index.js";
 export type {
   PersistedDatasetKey,
   ExpectedEventDatasetSpec,
   FeatureUsageBuildResult,
-  BuildScoringV2EvidenceAuditInput,
+  BuildscoringEvidenceAuditInput,
   AuditDatasetInput,
   AuditDatasetPageInput,
   AuditFactSetInput,
   AuditDimensionInput,
   AuditMasterDataInput,
   AuditManifestSlotRow,
-  ReplayScoringV2DimensionsInput,
+  ReplayscoringDimensionsInput,
   ReplayPersistedDimension,
 } from "./audit/index.js";

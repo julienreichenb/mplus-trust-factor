@@ -3,10 +3,10 @@
  * Live Scoring V2 character probe — one character, up to 16 Evidence Manifest V2 slots.
  *
  * Preferred invocation (loads .env, runs via worker package for workspace resolution):
- *   node tools/scripts/with-env.mjs pnpm --filter @mplus/worker exec tsx src/orchestration/scoring-v2/live-character-probe/cli.ts --region eu --realm archimonde --name Wallidrixe
+ *   node tools/scripts/with-env.mjs pnpm --filter @mplus/worker exec tsx src/orchestration/scoring/live-character-probe/cli.ts --region eu --realm archimonde --name Wallidrixe
  *
  * This file re-exports the same CLI for:
- *   pnpm exec tsx tools/scripts/scoring-v2-live-character-probe.ts --region eu --realm archimonde --name Wallidrixe
+ *   pnpm exec tsx tools/scripts/scoring-live-character-probe.ts --region eu --realm archimonde --name Wallidrixe
  * when run with NODE_PATH / from a package that resolves @mplus/* (use the with-env + worker form above).
  *
  * Requires ALLOW_LIVE_PROVIDER_CALLS=true. Does not publish scores or enable V2 flags.
@@ -26,7 +26,7 @@ const result = spawnSync(
     "@mplus/worker",
     "exec",
     "tsx",
-    "src/orchestration/scoring-v2/live-character-probe/cli.ts",
+    "src/orchestration/scoring/live-character-probe/cli.ts",
     ...argv,
   ],
   {

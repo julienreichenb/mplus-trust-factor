@@ -59,7 +59,7 @@ describe("failure injection: scoring v2 hardening", () => {
     });
     expect(budget.shouldStop).toBe(true);
     recordAdmissionDecision("stopped");
-    expect(getMetricsRegistry().toPrometheusText()).toContain("scoring_v2_admission_total");
+    expect(getMetricsRegistry().toPrometheusText()).toContain("scoring_admission_total");
   });
 
   it("detects pagination loops without duplicate spend", () => {
@@ -112,13 +112,13 @@ describe("failure injection: scoring v2 hardening", () => {
   it("records publication rejection and keeps readiness mode-conditional", () => {
     resetMetricsRegistry();
     recordPublicationDecision("rejected", "shadow_publication_blocked");
-    expect(OBS_EVENTS.scoringV2PublicationRejected).toBe("scoring_v2.publication_rejected");
+    expect(OBS_EVENTS.scoringPublicationRejected).toBe("scoring.publication_rejected");
 
     const ready = evaluateReadiness({
       revision: "sha",
       apiContractVersion: "2.0.0",
       workerJobSchemaVersion: "2.0.0",
-      scoringV2: {
+      scoring: {
         enabled: false,
         selectionEnabled: false,
         evidenceFetchEnabled: false,

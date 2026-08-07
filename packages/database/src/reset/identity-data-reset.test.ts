@@ -14,6 +14,8 @@ import {
   ALL_PRISMA_MAPPED_TABLES,
   IDENTITY_DATA_STATIC_RETAIN_TABLES,
   IDENTITY_DATA_TRUNCATE_TABLES,
+  LEGACY_SCORING_BULLMQ_QUEUE_PREFIX,
+  LEGACY_SCORING_BULLMQ_QUEUES,
   classifyIdentityDataTables,
   identityResetRedisKeyPrefixes,
 } from "./identity-data-reset-table-plan.js";
@@ -24,6 +26,7 @@ import {
   acquireIdentityResetLock,
   buildIdentityDataResetPlan,
   executeIdentityDataReset,
+  formatIdentityPlanTerminalSummary,
   probeIdentityActiveWriters,
   type ExtendedRedisScanner,
 } from "./identity-data-reset.js";
@@ -288,6 +291,19 @@ describe("table classification", () => {
     expect(ALL_PRISMA_MAPPED_TABLES.length).toBeGreaterThan(50);
   });
 
+  it("uses mapped Scoring V2 physical table names in the truncate plan", () => {
+    for (const table of ["scoring_v2_shadow_canaries", "scoring_v2_evidence_exports"] as const) {
+      expect(ALL_PRISMA_MAPPED_TABLES).toContain(table);
+      expect(WCL_SCORING_DERIVED_CLEAR_TABLES).toContain(table);
+      expect(IDENTITY_DATA_TRUNCATE_TABLES).toContain(table);
+    }
+    for (const stale of ["scoring_shadow_canaries", "scoring_evidence_exports"] as const) {
+      expect(ALL_PRISMA_MAPPED_TABLES).not.toContain(stale);
+      expect(WCL_SCORING_DERIVED_CLEAR_TABLES).not.toContain(stale);
+      expect(IDENTITY_DATA_TRUNCATE_TABLES).not.toContain(stale);
+    }
+  });
+
   it("44. Redis prefixes never include FLUSHALL wildcards", () => {
     const prefixes = identityResetRedisKeyPrefixes("development");
     expect(prefixes.some((p) => p.startsWith("mplus:development:"))).toBe(true);
@@ -299,6 +315,9 @@ describe("live writers / locks", () => {
   function mockPrisma() {
     return {
       $queryRawUnsafe: vi.fn(async (sql: string) => {
+        if (sql.includes("pg_catalog.pg_class") || sql.includes('AS "exists"')) {
+          return [{ exists: true }];
+        }
         if (sql.includes("ingestion_jobs")) return [{ count: 3n }];
         if (sql.includes("scoring_v2_shadow_canaries")) return [{ count: 1n }];
         if (sql.includes("bulk_operations")) return [{ count: 0n }];
@@ -416,7 +435,12 @@ describe("live writers / locks", () => {
           lastDiscoveryOwnershipSyncAt: null,
         })),
       },
-      $queryRawUnsafe: vi.fn(async () => [{ count: 0n }]),
+      $queryRawUnsafe: vi.fn(async (sql: string) => {
+        if (sql.includes("pg_catalog.pg_class") || sql.includes('AS "exists"')) {
+          return [{ exists: true }];
+        }
+        return [{ count: 0n }];
+      }),
     };
 
     const redis = idleRedis({
@@ -434,6 +458,98 @@ describe("live writers / locks", () => {
     });
     expect(plan.mode).toBe("DRY-RUN");
     expect(plan.blockedConditions.join(" ")).toMatch(/unclassified relevant Redis/);
+  });
+
+  it("classifies legacy Scoring BullMQ prefixes as reset-owned", async () => {
+    const gate = assertIdentityDataResetAllowed(localGateInput());
+    expect(gate.ok).toBe(true);
+    if (!gate.ok) return;
+
+    const legacyBullPrefixes = LEGACY_SCORING_BULLMQ_QUEUES.map((q) => `bull:${q}`);
+    // Runtime strings must remain the historical queue names (prefix + suffix).
+    expect(LEGACY_SCORING_BULLMQ_QUEUE_PREFIX).toBe(["scoring", "v2"].join("-"));
+    expect(legacyBullPrefixes).toEqual([
+      `bull:${LEGACY_SCORING_BULLMQ_QUEUE_PREFIX}-evidence-export`,
+      `bull:${LEGACY_SCORING_BULLMQ_QUEUE_PREFIX}-shadow-canary`,
+    ]);
+
+    const prefixes = identityResetRedisKeyPrefixes("development");
+    expect(prefixes).toEqual(expect.arrayContaining(legacyBullPrefixes));
+
+    const prisma = {
+      ...mockPrisma(),
+      user: {
+        findUnique: vi.fn(async () => ({
+          id: KEEP_USER,
+          role: "ADMIN",
+          disabledAt: null,
+          roleAssignments: [],
+        })),
+      },
+      battleNetAccount: {
+        findUnique: vi.fn(async () => ({
+          id: KEEP_BNET,
+          userId: KEEP_USER,
+          providerAccountId: "p",
+          regionId: null,
+          battletagHash: "h",
+          battletagDisplay: null,
+          claimed: true,
+          linkedAt: new Date("2024-01-01T00:00:00.000Z"),
+          unlinkedAt: null,
+          accessTokenEncrypted: "a",
+          refreshTokenEncrypted: "r",
+          tokenExpiresAt: null,
+          grantedScopes: "openid",
+          lastOwnershipSyncAt: new Date(),
+          lastOwnershipSyncError: null,
+          lastDiscoveryJobId: null,
+          lastDiscoveryStatus: "ok",
+          lastDiscoveryStartedAt: null,
+          lastDiscoveryFinishedAt: null,
+          lastDiscoveryError: null,
+          lastDiscoveryCounters: null,
+          lastDiscoveryOwnershipSyncAt: null,
+        })),
+      },
+      $queryRawUnsafe: vi.fn(async (sql: string) => {
+        if (sql.includes("pg_catalog.pg_class") || sql.includes('AS "exists"')) {
+          return [{ exists: true }];
+        }
+        return [{ count: 0n }];
+      }),
+    };
+
+    const ownedKeys = [
+      `bull:${LEGACY_SCORING_BULLMQ_QUEUE_PREFIX}-shadow-canary:completed`,
+      `bull:${LEGACY_SCORING_BULLMQ_QUEUE_PREFIX}-shadow-canary:meta`,
+      `bull:${LEGACY_SCORING_BULLMQ_QUEUE_PREFIX}-evidence-export:meta`,
+      `bull:${LEGACY_SCORING_BULLMQ_QUEUE_PREFIX}-evidence-export:id`,
+    ];
+    const legacyBullScanPrefix = `bull:${LEGACY_SCORING_BULLMQ_QUEUE_PREFIX}-`;
+    const redis = idleRedis({
+      keys: vi.fn(async (pattern: string) => {
+        if (pattern === "bull:*") return ownedKeys;
+        if (pattern.startsWith(legacyBullScanPrefix)) {
+          return ownedKeys.filter((k) => k.startsWith(pattern.replace(/\*$/, "")));
+        }
+        return [];
+      }),
+    });
+
+    const plan = await buildIdentityDataResetPlan({
+      prisma: prisma as never,
+      gate,
+      execute: false,
+      redis,
+    });
+
+    expect(plan.redis.unclassifiedRelevantKeys).toEqual([]);
+    expect(plan.blockedConditions.join(" ")).not.toMatch(/unclassified relevant Redis/);
+    expect(plan.redis.matchingKeyCount).toBeGreaterThanOrEqual(ownedKeys.length);
+    expect(plan.redis.sampleKeyCategories).toEqual(
+      expect.arrayContaining(legacyBullPrefixes),
+    );
   });
 });
 
@@ -464,6 +580,9 @@ describe("dry-run / execute planner", () => {
       lastDiscoveryOwnershipSyncAt: new Date("2024-02-01T00:00:00.000Z"),
     };
     const query = vi.fn(async (sql: string) => {
+      if (sql.includes("pg_catalog.pg_class") || sql.includes('AS "exists"')) {
+        return [{ exists: true }];
+      }
       if (sql.includes('"_prisma_migrations"')) return [{ count: 10n }];
       return [{ count: 0n }];
     });
@@ -620,5 +739,51 @@ describe("dry-run / execute planner", () => {
       executeIdentityDataReset({ prisma: prisma as never, plan, redis }),
     ).rejects.toThrow(/Refusing execute/);
     expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it("skips configured reset tables that are absent from the live DB", async () => {
+    const gate = assertIdentityDataResetAllowed(localGateInput());
+    if (!gate.ok) throw new Error("gate");
+
+    const missingTable = "audit_events";
+    const prisma = retentionPrisma();
+    prisma.$queryRawUnsafe = vi.fn(async (sql: string, ...params: unknown[]) => {
+      if (sql.includes("pg_catalog.pg_class") || sql.includes('AS "exists"')) {
+        const table = String(params[0] ?? "");
+        return [{ exists: table !== missingTable }];
+      }
+      if (sql.includes('"_prisma_migrations"')) return [{ count: 10n }];
+      const match = /FROM "([^"]+)"/.exec(sql);
+      const table = match?.[1] ?? "";
+      if (table === "users" || table === "battlenet_accounts") return [{ count: 2n }];
+      if (table === "characters") return [{ count: 5n }];
+      if (table === "scoring_v2_shadow_canaries" || table === "scoring_v2_evidence_exports") {
+        return [{ count: 1n }];
+      }
+      return [{ count: 0n }];
+    });
+
+    const plan = await buildIdentityDataResetPlan({
+      prisma: prisma as never,
+      gate,
+      execute: false,
+      redis: idleRedis(),
+    });
+
+    expect(plan.mode).toBe("DRY-RUN");
+    expect(plan.skippedMissingTables).toContain(missingTable);
+    expect(plan.plannedTruncations.some((t) => t.table === missingTable)).toBe(false);
+    expect(plan.plannedTruncations.some((t) => t.table === "characters")).toBe(true);
+    expect(plan.plannedTruncations.find((t) => t.table === "characters")?.rowCount).toBe(5);
+    expect(plan.plannedTruncations.some((t) => t.table === "scoring_v2_shadow_canaries")).toBe(
+      true,
+    );
+    expect(plan.plannedTruncations.some((t) => t.table === "scoring_v2_evidence_exports")).toBe(
+      true,
+    );
+    expect(plan.warnings.join(" ")).toMatch(/skipped missing reset-plan table/);
+    expect(formatIdentityPlanTerminalSummary(plan)).toMatch(/skipped missing tables: 1/);
+    expect(formatIdentityPlanTerminalSummary(plan)).toContain(missingTable);
+    expect(prisma.$executeRawUnsafe).not.toHaveBeenCalled();
   });
 });

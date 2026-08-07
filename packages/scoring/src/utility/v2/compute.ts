@@ -298,7 +298,7 @@ function unavailableResult(
 
   return {
     mode: "OBSERVED_CONTRIBUTION",
-    phase: 1,
+    phase: config.scoreSemantics.phase,
     opportunityMode: "off",
     algorithmVersion: config.algorithmVersion,
     scoreSemantics: config.scoreSemantics.scoreKind,
@@ -731,7 +731,7 @@ export function computeUtilityV2(
 
   return {
     mode: "OBSERVED_CONTRIBUTION",
-    phase: 1,
+    phase: config.scoreSemantics.phase,
     opportunityMode: "off",
     algorithmVersion: config.algorithmVersion,
     scoreSemantics: config.scoreSemantics.scoreKind,

@@ -70,7 +70,7 @@ function stubProducers(enqueueSpy?: ReturnType<typeof vi.fn>) {
     enqueueDiscoverOwnedCharacters: ok,
     enqueueBulkCharacterProcessing: ok,
     enqueueCalibrationRun,
-    enqueueScoringV2EvidenceExport: ok,
+    enqueueScoringEvidenceExport: ok,
     enqueueAnalyzeEvidenceSlot: ok,
     enqueueFinalizeEvidenceBatch: ok,
     getRefreshCharacterQueue: () => null,

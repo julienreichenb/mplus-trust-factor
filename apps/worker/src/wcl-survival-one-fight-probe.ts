@@ -38,7 +38,7 @@ import {
   reloadSurvivalActionTimeline,
 } from "./survival-action-timeline-persist.js";
 import { createRepositories } from "./persistence/index.js";
-import { selectPreferredEvidencePages } from "./orchestration/scoring-v2/persistent-shared-evidence-store.js";
+import { selectPreferredEvidencePages } from "./orchestration/scoring/persistent-shared-evidence-store.js";
 import { selectUtilityCapabilityEvidencePages } from "./utility-one-fight-capability-evidence.js";
 
 const SPIKE_FIGHT = {

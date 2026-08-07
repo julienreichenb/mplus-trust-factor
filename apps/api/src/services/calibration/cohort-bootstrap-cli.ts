@@ -180,7 +180,7 @@ export async function main(
     }
   }
 
-  if (flags.has("activate-model") || flags.has("publish-v2") || flags.has("enable-scoring-v2")) {
+  if (flags.has("activate-model") || flags.has("publish-v2") || flags.has("enable-scoring")) {
     console.error("REFUSED: bootstrap runner must not activate models, publish V2, or flip Scoring V2 flags");
     return 2;
   }

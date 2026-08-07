@@ -5,8 +5,8 @@ import {
   analyzeRunJobSchema,
   bulkOrchestratorJobSchema,
   calibrationRunJobSchema,
-  scoringV2EvidenceExportJobSchema,
-  scoringV2ShadowCanaryJobSchema,
+  ScoringEvidenceExportJobSchema,
+  ScoringShadowCanaryJobSchema,
   discoverOwnedCharactersJobSchema,
   finalizeEvidenceBatchJobV2Schema,
   generateAddonExportJobSchema,
@@ -25,8 +25,8 @@ import { persistAndEnqueue } from "./orchestration/enqueue.js";
 import { runAnalyzeRun } from "./orchestration/analyze-run.js";
 import { runBulkCharacterProcessing } from "./orchestration/bulk-character-processing.js";
 import { runCalibrationRunJob } from "./orchestration/calibration-run.js";
-import { runScoringV2EvidenceExportJob } from "./orchestration/scoring-v2-evidence-export.js";
-import { runScoringV2ShadowCanaryJob } from "./orchestration/scoring-v2/shadow-canary/processor.js";
+import { runScoringEvidenceExportJob } from "./orchestration/scoring-evidence-export.js";
+import { runScoringShadowCanaryJob } from "./orchestration/scoring/shadow-canary/processor.js";
 import { runDiscoverOwnedCharacters } from "./orchestration/discover-owned-characters.js";
 import { runGenerateAddonExport } from "./orchestration/generate-addon-export.js";
 import { runRecalculateScore } from "./orchestration/recalculate-score.js";
@@ -35,7 +35,7 @@ import { classifyError } from "./orchestration/retry-classification.js";
 import {
   runAnalyzeEvidenceSlotV2,
   runFinalizeEvidenceBatchV2,
-} from "./orchestration/scoring-v2/index.js";
+} from "./orchestration/scoring/index.js";
 import type { BulkOrchestratorProducers, DiscoveryRefreshProducers } from "./queues.js";
 
 /** BullMQ JSON-encodes job return values; Prisma may include BigInt. Secrets/report codes are stripped. */
@@ -300,11 +300,11 @@ export function createWorkers(connection: ConnectionOptions, container: WorkerCo
 
   // Provider-free evidence export — no producers / no Blizzard/WCL/RaiderIO.
   const evidenceExport = new Worker(
-    QUEUE_NAMES.scoringV2EvidenceExport,
+    QUEUE_NAMES.ScoringEvidenceExport,
     async (job) => {
-      const payload = scoringV2EvidenceExportJobSchema.parse(job.data);
+      const payload = ScoringEvidenceExportJobSchema.parse(job.data);
       const result = await withRetryClassification(job, () =>
-        runScoringV2EvidenceExportJob(
+        runScoringEvidenceExportJob(
           {
             prisma: container.prisma,
             logger: container.logger,
@@ -321,11 +321,11 @@ export function createWorkers(connection: ConnectionOptions, container: WorkerCo
 
   // Admin Shadow Canary — discovery + production plan fan-out (publication blocked).
   const shadowCanary = new Worker(
-    QUEUE_NAMES.scoringV2ShadowCanary,
+    QUEUE_NAMES.ScoringShadowCanary,
     async (job) => {
-      const payload = scoringV2ShadowCanaryJobSchema.parse(job.data);
+      const payload = ScoringShadowCanaryJobSchema.parse(job.data);
       const result = await withRetryClassification(job, () =>
-        runScoringV2ShadowCanaryJob(container, payload),
+        runScoringShadowCanaryJob(container, payload),
       );
       return toBullmqReturnValue(result);
     },

@@ -411,7 +411,6 @@ describe("refresh pipeline — preflight stops before providers", () => {
         },
       },
       disabledProviders: new Set(),
-      calculateScore: vi.fn(),
       repositories: {
         job: {
           createOrGetByDedupe,

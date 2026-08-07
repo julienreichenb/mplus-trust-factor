@@ -14,7 +14,10 @@ if (existsSync(envPath)) {
     if (eq <= 0) continue;
     const key = trimmed.slice(0, eq).trim();
     const value = trimmed.slice(eq + 1).trim();
-    if (!(key in process.env)) {
+    // Prefer .env when the key is unset OR empty. An intentional shell override
+    // must be a non-empty value (e.g. WCL_ENABLED=false). Empty leftovers from
+    // Windows shells otherwise disable providers and look like NO_PUBLIC_RUNS.
+    if (!(key in process.env) || process.env[key] === "") {
       process.env[key] = value;
     }
   }

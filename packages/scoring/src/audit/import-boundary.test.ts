@@ -5,7 +5,7 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { replayScoringV2Dimensions } from "./replay.js";
+import { replayscoringDimensions } from "./replay.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -46,6 +46,6 @@ describe("scoring audit import boundary", () => {
   });
 
   it("exposes provider-free replay entrypoint", () => {
-    expect(typeof replayScoringV2Dimensions).toBe("function");
+    expect(typeof replayscoringDimensions).toBe("function");
   });
 });

@@ -41,19 +41,19 @@ import {
 } from "../experience/v3/model-config.js";
 import { ModelConfigValidationError, isRecord } from "./validate.js";
 
-/** Nested document stored under ScoreModel.config.scoringV2 (additive). */
-export const SCORING_V2_DIMENSION_CONFIGS_SCHEMA_VERSION =
-  "scoring-v2-dimension-configs.1" as const;
+/** Nested document stored under ScoreModel.config.scoring (additive). */
+export const scoring_DIMENSION_CONFIGS_SCHEMA_VERSION =
+  "scoring-dimension-configs.1" as const;
 
-export interface ScoringV2DimensionConfigSet {
-  schemaVersion: typeof SCORING_V2_DIMENSION_CONFIGS_SCHEMA_VERSION;
+export interface scoringDimensionConfigSet {
+  schemaVersion: typeof scoring_DIMENSION_CONFIGS_SCHEMA_VERSION;
   performance: PerformanceV2ModelConfig;
   survival: SurvivalV2ModelConfig;
   utility: UtilityV2ModelConfig;
   experience: ExperienceV3ModelConfig;
 }
 
-export interface ScoringV2DimensionConfigFingerprints {
+export interface scoringDimensionConfigFingerprints {
   performance: string;
   survival: string;
   utility: string;
@@ -61,14 +61,14 @@ export interface ScoringV2DimensionConfigFingerprints {
 }
 
 export interface ResolvedScoreModelV2DimensionConfigs {
-  configs: ScoringV2DimensionConfigSet;
-  fingerprints: ScoringV2DimensionConfigFingerprints;
-  /** True when configs came from the explicit scoringV2 document (not defaults). */
+  configs: scoringDimensionConfigSet;
+  fingerprints: scoringDimensionConfigFingerprints;
+  /** True when configs came from the explicit scoring document (not defaults). */
   fromPersistedDocument: boolean;
   compatibility: "native" | "legacy-defaults" | "legacy-partial";
 }
 
-function fingerprintSet(configs: ScoringV2DimensionConfigSet): ScoringV2DimensionConfigFingerprints {
+function fingerprintSet(configs: scoringDimensionConfigSet): scoringDimensionConfigFingerprints {
   return {
     performance: fingerprintPerformanceV2ModelConfig(configs.performance),
     survival: fingerprintSurvivalV2ModelConfig(configs.survival),
@@ -78,9 +78,9 @@ function fingerprintSet(configs: ScoringV2DimensionConfigSet): ScoringV2Dimensio
 }
 
 /** Canonical default set — Phase 1 package constants. */
-export function createDefaultScoringV2DimensionConfigSet(): ScoringV2DimensionConfigSet {
+export function createDefaultscoringDimensionConfigSet(): scoringDimensionConfigSet {
   return {
-    schemaVersion: SCORING_V2_DIMENSION_CONFIGS_SCHEMA_VERSION,
+    schemaVersion: scoring_DIMENSION_CONFIGS_SCHEMA_VERSION,
     performance: PERFORMANCE_V2_MODEL_CONFIG,
     survival: SURVIVAL_V2_MODEL_CONFIG,
     utility: UTILITY_V2_MODEL_CONFIG,
@@ -89,44 +89,44 @@ export function createDefaultScoringV2DimensionConfigSet(): ScoringV2DimensionCo
 }
 
 /**
- * Parse an explicit scoringV2 dimension-config document (fail closed).
+ * Parse an explicit scoring dimension-config document (fail closed).
  */
-export function parseScoringV2DimensionConfigSet(
+export function parsescoringDimensionConfigSet(
   raw: unknown,
-): ScoringV2DimensionConfigSet {
+): scoringDimensionConfigSet {
   if (!isRecord(raw)) {
-    throw new ModelConfigValidationError("SCORING_V2_SET", [
-      "scoringV2 config set must be an object",
+    throw new ModelConfigValidationError("scoring_SET", [
+      "scoring config set must be an object",
     ]);
   }
-  if (raw.schemaVersion !== SCORING_V2_DIMENSION_CONFIGS_SCHEMA_VERSION) {
-    throw new ModelConfigValidationError("SCORING_V2_SET", [
-      `incompatible scoringV2.schemaVersion "${String(raw.schemaVersion)}" (expected ${SCORING_V2_DIMENSION_CONFIGS_SCHEMA_VERSION})`,
+  if (raw.schemaVersion !== scoring_DIMENSION_CONFIGS_SCHEMA_VERSION) {
+    throw new ModelConfigValidationError("scoring_SET", [
+      `incompatible scoring.schemaVersion "${String(raw.schemaVersion)}" (expected ${scoring_DIMENSION_CONFIGS_SCHEMA_VERSION})`,
     ]);
   }
   if (raw.performance == null) {
-    throw new ModelConfigValidationError("SCORING_V2_SET", [
+    throw new ModelConfigValidationError("scoring_SET", [
       "missing dimension configuration: performance",
     ]);
   }
   if (raw.survival == null) {
-    throw new ModelConfigValidationError("SCORING_V2_SET", [
+    throw new ModelConfigValidationError("scoring_SET", [
       "missing dimension configuration: survival",
     ]);
   }
   if (raw.utility == null) {
-    throw new ModelConfigValidationError("SCORING_V2_SET", [
+    throw new ModelConfigValidationError("scoring_SET", [
       "missing dimension configuration: utility",
     ]);
   }
   if (raw.experience == null) {
-    throw new ModelConfigValidationError("SCORING_V2_SET", [
+    throw new ModelConfigValidationError("scoring_SET", [
       "missing dimension configuration: experience",
     ]);
   }
 
   return {
-    schemaVersion: SCORING_V2_DIMENSION_CONFIGS_SCHEMA_VERSION,
+    schemaVersion: scoring_DIMENSION_CONFIGS_SCHEMA_VERSION,
     performance: parsePerformanceV2ModelConfig(raw.performance),
     survival: parseSurvivalV2ModelConfig(raw.survival),
     utility: parseUtilityV2ModelConfig(raw.utility),
@@ -138,8 +138,8 @@ export function parseScoringV2DimensionConfigSet(
  * Resolve dimension configs from a persisted ScoreModel.config JSON.
  *
  * @param mode
- *  - `phase1-default`: missing scoringV2 → canonical defaults (normal shadow compute)
- *  - `calibration-strict`: missing/incomplete scoringV2 → fail closed (active vs draft)
+ *  - `phase1-default`: missing scoring → canonical defaults (normal shadow compute)
+ *  - `calibration-strict`: missing/incomplete scoring → fail closed (active vs draft)
  */
 export function resolveScoreModelV2DimensionConfigs(
   modelConfig: ScoreModelConfigV1 | Record<string, unknown> | null | undefined,
@@ -147,11 +147,11 @@ export function resolveScoreModelV2DimensionConfigs(
 ): ResolvedScoreModelV2DimensionConfigs {
   if (!modelConfig || typeof modelConfig !== "object") {
     if (mode === "calibration-strict") {
-      throw new ModelConfigValidationError("SCORING_V2_SET", [
+      throw new ModelConfigValidationError("scoring_SET", [
         "persisted model config missing for calibration comparison",
       ]);
     }
-    const configs = createDefaultScoringV2DimensionConfigSet();
+    const configs = createDefaultscoringDimensionConfigSet();
     return {
       configs,
       fingerprints: fingerprintSet(configs),
@@ -160,14 +160,14 @@ export function resolveScoreModelV2DimensionConfigs(
     };
   }
 
-  const scoringV2 = (modelConfig as Record<string, unknown>).scoringV2;
-  if (scoringV2 == null) {
+  const scoring = (modelConfig as Record<string, unknown>).scoring;
+  if (scoring == null) {
     if (mode === "calibration-strict") {
-      throw new ModelConfigValidationError("SCORING_V2_SET", [
-        "legacy ScoreModel.config lacks scoringV2 dimension configs — refuse silent default fallback during active-versus-draft",
+      throw new ModelConfigValidationError("scoring_SET", [
+        "legacy ScoreModel.config lacks scoring dimension configs — refuse silent default fallback during active-versus-draft",
       ]);
     }
-    const configs = createDefaultScoringV2DimensionConfigSet();
+    const configs = createDefaultscoringDimensionConfigSet();
     return {
       configs,
       fingerprints: fingerprintSet(configs),
@@ -176,7 +176,7 @@ export function resolveScoreModelV2DimensionConfigs(
     };
   }
 
-  const configs = parseScoringV2DimensionConfigSet(scoringV2);
+  const configs = parsescoringDimensionConfigSet(scoring);
   return {
     configs,
     fingerprints: fingerprintSet(configs),
@@ -186,15 +186,15 @@ export function resolveScoreModelV2DimensionConfigs(
 }
 
 /**
- * Attach a complete scoringV2 config set onto a ScoreModelConfigV1 document
+ * Attach a complete scoring config set onto a ScoreModelConfigV1 document
  * (immutable clone). Does not activate models.
  */
-export function withScoringV2DimensionConfigs(
+export function withscoringDimensionConfigs(
   model: ScoreModelConfigV1,
-  configs: ScoringV2DimensionConfigSet = createDefaultScoringV2DimensionConfigSet(),
-): ScoreModelConfigV1 & { scoringV2: ScoringV2DimensionConfigSet } {
+  configs: scoringDimensionConfigSet = createDefaultscoringDimensionConfigSet(),
+): ScoreModelConfigV1 & { scoring: scoringDimensionConfigSet } {
   return {
     ...structuredClone(model),
-    scoringV2: structuredClone(configs),
+    scoring: structuredClone(configs),
   };
 }

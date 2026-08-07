@@ -31,7 +31,7 @@ import {
   type UtilityV2ComputeInput,
   type UtilityV2ModelConfig,
 } from "../utility/v2/index.js";
-import type { ScoringV2PublicDimension } from "../dimensions/v2/shadow-record.js";
+import type { ScoringPublicDimension } from "../dimensions/v2/shadow-record.js";
 import { ModelConfigValidationError } from "../model-config/validate.js";
 import { stableStringify } from "../model-config/stable-hash.js";
 import {
@@ -46,7 +46,7 @@ import {
 import type { CalibrationModelRef } from "./types.js";
 
 export interface CalibrationV2DimensionReplayResult {
-  dimension: ScoringV2PublicDimension;
+  dimension: ScoringPublicDimension;
   score: number | null;
   confidence: number;
   availabilityState: string;
@@ -81,7 +81,7 @@ export interface CalibrationV2ReplayReport {
 }
 
 export interface CalibrationV2ActiveVersusDraftDimensionDelta {
-  dimension: ScoringV2PublicDimension;
+  dimension: ScoringPublicDimension;
   activeScore: number | null;
   draftScore: number | null;
   scoreDelta: number | null;
@@ -179,7 +179,7 @@ export function assertDraftOnlyCreation(
 }
 
 function evidenceFingerprintFromExport(
-  dim: ScoringV2PublicDimension,
+  dim: ScoringPublicDimension,
   doc:
     | PerformanceV2CalibrationExport
     | SurvivalV2CalibrationExport
@@ -392,7 +392,7 @@ export async function replayCalibrationBundleV2(input: {
     const errors: string[] = [];
 
     for (const [dim, ref] of Object.entries(member.dimensionExports ?? {}) as Array<
-      [ScoringV2PublicDimension, NonNullable<(typeof member.dimensionExports)[ScoringV2PublicDimension]>]
+      [ScoringPublicDimension, NonNullable<(typeof member.dimensionExports)[ScoringPublicDimension]>]
     >) {
       if (!ref) continue;
       const resolved = await input.resolver.resolve(ref.contentHash);
@@ -550,7 +550,7 @@ export async function replayCalibrationBundleV2ActiveVersusDraft(input: {
   for (const draftMember of draftReplay.members) {
     const activeMember =
       activeReplay.members.find((m) => m.memberId === draftMember.memberId) ?? null;
-    const dims = new Set<ScoringV2PublicDimension>([
+    const dims = new Set<ScoringPublicDimension>([
       ...draftMember.dimensions.map((d) => d.dimension),
       ...(activeMember?.dimensions.map((d) => d.dimension) ?? []),
     ]);

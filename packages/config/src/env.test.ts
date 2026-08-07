@@ -33,9 +33,9 @@ describe("loadEnv", () => {
     expect(env.UTILITY_PUBLICATION_MODE).toBe("shadow");
     expect(env.ADMIN_API_KEY_EMERGENCY_FALLBACK).toBe(false);
     expect(env.ADMIN_CALIBRATION_ENABLED).toBe(false);
-    expect(env.SCORING_V2_ENABLED).toBe(false);
-    expect(env.SCORING_V2_PUBLICATION_ENABLED).toBe(false);
-    expect(env.CALIBRATION_V2_ENABLED).toBe(false);
+    expect(env.SCORING_ENABLED).toBe(false);
+    expect(env.SCORING_PUBLICATION_ENABLED).toBe(false);
+    expect(env.CALIBRATION_ENABLED).toBe(false);
   });
 
   it("accepts UTILITY_PUBLICATION_MODE enum values", () => {
@@ -135,7 +135,7 @@ describe("loadEnv", () => {
     const summary = getConfigSummary(env);
     expect(summary.blizzardCredentialsConfigured).toBe(true);
     expect(summary.allowLiveProviderCalls).toBe(true);
-    expect(summary.scoringV2.enabled).toBe(false);
+    expect(summary.scoring.enabled).toBe(false);
     expect(JSON.stringify(summary)).not.toContain("secret-value");
     expect(JSON.stringify(summary)).not.toContain("id-value");
   });

@@ -2,6 +2,7 @@ import {
   SURVIVAL_V2_MODEL_CONFIG,
   type SurvivalV2ModelConfig,
 } from "./constants.js";
+import { scoreRecoveryResponseClass } from "./contextual.js";
 import type {
   SurvivalV2ComponentResult,
   SurvivalV2DangerWindowFact,
@@ -67,6 +68,30 @@ function mergeTwo(
       ? a.hpEvidenceQuality
       : b.hpEvidenceQuality;
 
+  const defensiveRank: Record<string, number> = {
+    ANTICIPATED: 5,
+    REACTIVE: 4,
+    NO_RESPONSE_AVAILABLE: 3,
+    NO_TOOL_AVAILABLE: 2,
+    NOT_OBSERVABLE: 1,
+  };
+  const recoveryRank: Record<string, number> = {
+    TIMELY_RECOVERY: 5,
+    LATE_RECOVERY: 4,
+    NO_RECOVERY_AVAILABLE: 3,
+    NO_SELF_HEAL_AVAILABLE: 2,
+    NOT_OBSERVABLE: 1,
+  };
+  const pickBest = <T extends string>(
+    left: T | undefined,
+    right: T | undefined,
+    rank: Record<string, number>,
+  ): T | undefined => {
+    if (left == null) return right;
+    if (right == null) return left;
+    return (rank[left] ?? 0) >= (rank[right] ?? 0) ? left : right;
+  };
+
   return {
     startMs: Math.min(a.startMs, b.startMs),
     endMs: Math.max(a.endMs, b.endMs),
@@ -80,13 +105,22 @@ function mergeTwo(
     recoveryEligible: Boolean(a.recoveryEligible || b.recoveryEligible),
     deathOutcome: Boolean(a.deathOutcome || b.deathOutcome),
     availabilityState: a.availabilityState ?? b.availabilityState ?? null,
+    defensiveResponseClass: pickBest(
+      a.defensiveResponseClass,
+      b.defensiveResponseClass,
+      defensiveRank,
+    ),
+    recoveryResponseClass: pickBest(
+      a.recoveryResponseClass,
+      b.recoveryResponseClass,
+      recoveryRank,
+    ),
   };
 }
 
 /**
- * Emergency recovery coverage over eligible pressure clusters.
- * No eligible window → NOT_APPLICABLE (never score 100 by absence).
- * Never assumes potion availability from unused consumables.
+ * Emergency recovery — Phase 2 availability-aware when response classes present.
+ * Legacy binary useful/eligible retained as fallback.
  */
 export function scoreSurvivalV2EmergencyRecovery(input: {
   clusters: SurvivalV2DangerWindowFact[];
@@ -95,6 +129,69 @@ export function scoreSurvivalV2EmergencyRecovery(input: {
 }): SurvivalV2ComponentResult {
   const config = input.config ?? SURVIVAL_V2_MODEL_CONFIG;
   const { clusters } = input;
+
+  const hasPhase2Classes = clusters.some((c) => c.recoveryResponseClass != null);
+  if (hasPhase2Classes) {
+    const classCounts: Record<string, number> = {
+      TIMELY_RECOVERY: 0,
+      LATE_RECOVERY: 0,
+      NO_RECOVERY_AVAILABLE: 0,
+      NO_SELF_HEAL_AVAILABLE: 0,
+      NOT_OBSERVABLE: 0,
+    };
+    const scored: number[] = [];
+    let omitted = 0;
+    for (const cluster of clusters) {
+      const cls = cluster.recoveryResponseClass;
+      if (!cls) continue;
+      classCounts[cls] = (classCounts[cls] ?? 0) + 1;
+      const score = scoreRecoveryResponseClass(cls);
+      if (score == null) {
+        omitted += 1;
+        continue;
+      }
+      scored.push(score);
+    }
+
+    if (scored.length === 0) {
+      return {
+        metricKey: config.metricKeys.recovery,
+        state: "NOT_APPLICABLE",
+        score: null,
+        weightUsed: 0,
+        reason:
+          clusters.length === 0
+            ? "no_danger_windows"
+            : "no_eligible_recovery_opportunities",
+        evidence: {
+          mode: "contextual_phase2",
+          pressureClusterCount: clusters.length,
+          classCounts,
+          omitted,
+          selfHealCatalogCoverage: input.selfHealCatalogCoverage ?? null,
+          note: "NO_SELF_HEAL_AVAILABLE / NOT_OBSERVABLE omitted (not failure).",
+        },
+      };
+    }
+
+    return {
+      metricKey: config.metricKeys.recovery,
+      state: "SCORED",
+      score: (scored.reduce((a, b) => a + b, 0) / scored.length) * 1,
+      weightUsed: 0,
+      reason: null,
+      evidence: {
+        mode: "contextual_phase2",
+        pressureClusterCount: clusters.length,
+        scoredCount: scored.length,
+        classCounts,
+        omitted,
+        oneCreditPerCluster: true,
+        selfHealCatalogCoverage: input.selfHealCatalogCoverage ?? null,
+        note: "TIMELY > LATE > NO_RECOVERY_AVAILABLE; unavailable self-heal omitted.",
+      },
+    };
+  }
 
   let eligible = 0;
   let useful = 0;
@@ -136,6 +233,7 @@ export function scoreSurvivalV2EmergencyRecovery(input: {
             ? "no_eligible_recovery_health_context_unavailable"
             : "no_eligible_recovery_opportunities",
       evidence: {
+        mode: "binary_fallback",
         pressureClusterCount: clusters.length,
         eligible: 0,
         useful: 0,
@@ -154,6 +252,7 @@ export function scoreSurvivalV2EmergencyRecovery(input: {
     weightUsed: 0,
     reason: null,
     evidence: {
+      mode: "binary_fallback",
       pressureClusterCount: clusters.length,
       eligible,
       useful,

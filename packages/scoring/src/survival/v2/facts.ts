@@ -133,10 +133,15 @@ function parseDeaths(
   if (!isRecord(raw)) return { ok: false, reason: "missing_deaths" };
   const count = asNonNegInt(raw.count);
   if (count == null) return { ok: false, reason: "invalid_death_count" };
+  const evidenceState =
+    raw.evidenceState === "MISSING" || raw.evidenceState === "OBSERVED"
+      ? raw.evidenceState
+      : "OBSERVED";
   return {
     ok: true,
     deaths: {
       count,
+      evidenceState,
       timestampsMs: Array.isArray(raw.timestampsMs)
         ? (raw.timestampsMs.filter(
             (t): t is number => typeof t === "number" && Number.isFinite(t),
@@ -195,6 +200,9 @@ function parseDefensive(
       byCategory,
       toolkit: raw.toolkit as SurvivalV2DefensiveActivationFact["toolkit"],
       catalogCoverage,
+      timedActivations: Array.isArray(raw.timedActivations)
+        ? (raw.timedActivations as SurvivalV2DefensiveActivationFact["timedActivations"])
+        : undefined,
     },
   };
 }
@@ -234,6 +242,22 @@ function parseDangerWindow(
         typeof raw.availabilityState === "string"
           ? (raw.availabilityState as SurvivalV2DangerWindowFact["availabilityState"])
           : null,
+      defensiveResponseClass:
+        raw.defensiveResponseClass === "ANTICIPATED" ||
+        raw.defensiveResponseClass === "REACTIVE" ||
+        raw.defensiveResponseClass === "NO_RESPONSE_AVAILABLE" ||
+        raw.defensiveResponseClass === "NO_TOOL_AVAILABLE" ||
+        raw.defensiveResponseClass === "NOT_OBSERVABLE"
+          ? raw.defensiveResponseClass
+          : undefined,
+      recoveryResponseClass:
+        raw.recoveryResponseClass === "TIMELY_RECOVERY" ||
+        raw.recoveryResponseClass === "LATE_RECOVERY" ||
+        raw.recoveryResponseClass === "NO_RECOVERY_AVAILABLE" ||
+        raw.recoveryResponseClass === "NO_SELF_HEAL_AVAILABLE" ||
+        raw.recoveryResponseClass === "NOT_OBSERVABLE"
+          ? raw.recoveryResponseClass
+          : undefined,
     },
   };
 }

@@ -1065,8 +1065,8 @@ describe("CLI dry-run / execute guards", () => {
       "ALLOW_LIVE_PROVIDER_CALLS",
       "CALIBRATION_BOOTSTRAP_DATABASE_URL",
       "DATABASE_URL",
-      "SCORING_V2_ENABLED",
-      "CALIBRATION_V2_ENABLED",
+      "SCORING_ENABLED",
+      "CALIBRATION_ENABLED",
     ]) {
       prev[key] = process.env[key];
     }
@@ -1290,8 +1290,8 @@ describe("CLI dry-run / execute guards", () => {
         i.identityKey.includes("myzouth"),
       );
       expect(myz.initialState).toBe("EXCLUDED");
-      expect(process.env.SCORING_V2_ENABLED ?? "false").not.toBe("true");
-      expect(process.env.CALIBRATION_V2_ENABLED ?? "false").not.toBe("true");
+      expect(process.env.SCORING_ENABLED ?? "false").not.toBe("true");
+      expect(process.env.CALIBRATION_ENABLED ?? "false").not.toBe("true");
     },
   );
 

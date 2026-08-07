@@ -1,16 +1,16 @@
 /**
- * Utility V2 Phase 1 — observed-positive-contribution model config.
+ * Utility V2 — observed-positive-contribution model config (functional Phase 2).
  *
- * Calibration status: candidate defaults from normative Utility scoring spec
- * and Utility V3.2 OBSERVED_CONTRIBUTION panel. Coefficients are immutable here;
- * do not mutate at runtime. Opportunity Mode remains off (Phase 2).
+ * Functional Phase 2 adds interrupt success/failure weighting and contextual
+ * support evidence tiers. Opportunity Mode remains off (no miss penalties).
+ * Calibration status: candidate defaults; coefficients are immutable here.
  */
 
 export const UTILITY_V2_SCHEMA_VERSION = "utility-v2-facts";
 export const UTILITY_V2_EXTRACTOR_FAMILY = "utility";
 export const UTILITY_V2_EXTRACTOR_VERSION = "utility-v2.0.0";
-export const UTILITY_V2_ALGORITHM_VERSION = "utility-v2-phase1-observed-0.1.0";
-export const UTILITY_V2_MODEL_LABEL = "utility-v2-phase1-observed";
+export const UTILITY_V2_ALGORITHM_VERSION = "utility-v2-phase2-observed-0.2.0";
+export const UTILITY_V2_MODEL_LABEL = "utility-v2-phase2-observed";
 export type UtilityV2CalibrationStatus =
   | "CANDIDATE_DEFAULTS_UNCALIBRATED"
   | "CALIBRATION_IN_PROGRESS"
@@ -138,14 +138,18 @@ export const UTILITY_V2_CONFIDENCE = {
 
 export const UTILITY_V2_SCORE_SEMANTICS = {
   mode: "OBSERVED_CONTRIBUTION" as const,
-  phase: 1 as const,
+  phase: 2 as const,
   opportunityMode: "off" as const,
   scoreKind: "observed_positive_contribution",
   notes: [
-    "One-sided observed-positive-contribution: floor 50; no miss penalties in Phase 1.",
+    "Functional Utility Phase 2: interrupt success/failure weighting + contextual support tiers.",
+    "One-sided observed-positive-contribution: floor 50; opportunity Mode remains off.",
+    "CONFIRMED_SUCCESS > VALID_OVERLAP > MATCHED_FAILED > UNMATCHED_ATTEMPT > NOT_OBSERVABLE.",
+    "Support tiers: CONFIRMED_IMPACT > CONFIRMED_APPLICATION > unverified (no invented mitigation).",
     "Unmatched interrupt spam is credit-capped and cannot alone produce elite scores.",
     "Toolkit-inapplicable domains excluded from weight share and missing-data confidence.",
     "Passive/rotational support and personal mobility receive zero/negligible credit.",
+    "Missing datasets are partial/unavailable — not treated as zero observed actions.",
     "No independent run selection — consumes frozen EvidenceManifestV2 slots only.",
   ],
 } as const;
@@ -173,10 +177,10 @@ export type UtilityV2ConfidenceConfig = {
   minReliability: number;
 };
 
-/** Phase 1 score-semantics — opportunityMode must remain off. */
+/** Functional Phase 2 score-semantics — opportunityMode must remain off. */
 export type UtilityV2ScoreSemantics = {
   mode: "OBSERVED_CONTRIBUTION";
-  phase: 1;
+  phase: 1 | 2;
   opportunityMode: "off";
   scoreKind: string;
   notes: readonly string[];

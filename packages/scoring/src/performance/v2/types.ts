@@ -145,8 +145,8 @@ export interface PerformanceExplanationV2 {
   missingDungeons: string[];
   partitionCompatible: boolean;
   confidenceLimits: string[];
-  phase2State: "INACTIVE";
-  phase3State: "INACTIVE";
+  phase2State: "INACTIVE" | "ACTIVE";
+  phase3State: "INACTIVE" | "DEFERRED_CRITICAL_MASS";
   contributors: PerformanceContributorDiagnosticV2[];
 }
 

@@ -30,6 +30,8 @@ export * from "./discover-owned-characters.js";
 export * from "./concurrency.js";
 export * from "./season-authority.js";
 export * from "./refresh-eligibility-gate.js";
+export * from "./character-public-bootstrap.js";
+export * from "./character-run-digest-backfill.js";
 export * from "./refresh-job-control.js";
 export * from "./refresh-admission/index.js";
 export * from "./calibration-run.js";
@@ -44,24 +46,24 @@ export {
   type EvidenceJoinMemberInput,
   type EvidenceJoinMemberResult,
   type SnapshotStatus,
-} from "./scoring-v2/evidence-join.js";
-export { buildStoreZip, sha256Hex } from "./scoring-v2/zip-store.js";
+} from "./scoring/evidence-join.js";
+export { buildStoreZip, sha256Hex } from "./scoring/zip-store.js";
 export {
-  runScoringV2EvidenceExportJob,
+  runScoringEvidenceExportJob,
   reclaimStaleEvidenceExports,
   EVIDENCE_EXPORT_RECLAIM_DEFAULT_LIMIT,
-  type ScoringV2EvidenceExportProcessorDeps,
+  type ScoringEvidenceExportProcessorDeps,
   type ReclaimStaleEvidenceExportsOptions,
-} from "./scoring-v2-evidence-export.js";
+} from "./scoring-evidence-export.js";
 export {
   packageMemberEvidenceForFreeze,
   type FreezeEvidencePackageBlocker,
   type PackageMemberEvidenceInput,
   type PackageMemberEvidenceResult,
-} from "./scoring-v2/freeze-evidence-package.js";
+} from "./scoring/freeze-evidence-package.js";
 export {
   startEvidenceExportRecoverySweeper,
   EVIDENCE_EXPORT_RECOVERY_DEFAULT_INTERVAL_MS,
   type EvidenceExportRecoverySweeperHandle,
   type StartEvidenceExportRecoverySweeperInput,
-} from "./scoring-v2/evidence-export-recovery.js";
+} from "./scoring/evidence-export-recovery.js";

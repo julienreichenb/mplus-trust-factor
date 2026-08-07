@@ -14,7 +14,13 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "realms:sync": "tsx ../../tools/scripts/sync-realm-catalog.mjs",
-    "season:sync-authority": "tsx src/orchestration/sync-season-authority.cli.ts"
+    "season:sync-authority": "tsx src/orchestration/sync-season-authority.cli.ts",
+    "scoring:canary": "tsx src/orchestration/scoring/public-cli.ts canary",
+    "scoring:replay": "tsx src/orchestration/scoring/public-cli.ts replay",
+    "scoring:doctor": "tsx src/orchestration/scoring/public-cli.ts doctor",
+    "scoring:smoke:character": "tsx src/orchestration/scoring/smoke-character.cli.ts",
+    "scoring:validate:digest-backfill": "tsx src/orchestration/scoring/live-digest-backfill-validate.cli.ts",
+    "canary:internal": "tsx src/orchestration/scoring/canary/cli.ts"
   },
   "dependencies": {
     "@mplus/artifact-store": "workspace:*",

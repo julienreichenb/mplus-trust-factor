@@ -10463,11 +10463,11 @@
         }
       }
     },
-    "/api/v1/admin/scoring-v2/overview": {
+    "/api/v1/admin/scoring/overview": {
       "get": {
         "summary": "Scoring V2 control-center overview (provider-free)",
         "tags": [
-          "admin-scoring-v2"
+          "admin-scoring"
         ],
         "responses": {
           "200": {
@@ -11172,11 +11172,11 @@
         }
       }
     },
-    "/api/v1/admin/scoring-v2/concurrency": {
+    "/api/v1/admin/scoring/concurrency": {
       "get": {
         "summary": "Get distributed CALIBRATION/OPERATION concurrency settings",
         "tags": [
-          "admin-scoring-v2"
+          "admin-scoring"
         ],
         "responses": {
           "200": {
@@ -11427,7 +11427,7 @@
       "put": {
         "summary": "Update CALIBRATION/OPERATION concurrency (does not kill active jobs)",
         "tags": [
-          "admin-scoring-v2"
+          "admin-scoring"
         ],
         "requestBody": {
           "required": true,
@@ -11745,11 +11745,11 @@
         }
       }
     },
-    "/api/v1/admin/scoring-v2/evidence-exports": {
+    "/api/v1/admin/scoring/evidence-exports": {
       "get": {
         "summary": "List evidence exports",
         "tags": [
-          "admin-scoring-v2"
+          "admin-scoring"
         ],
         "parameters": [
           {
@@ -11982,7 +11982,7 @@
       "post": {
         "summary": "Create provider-free evidence export job (no refresh enqueue)",
         "tags": [
-          "admin-scoring-v2"
+          "admin-scoring"
         ],
         "requestBody": {
           "required": true,
@@ -12445,11 +12445,11 @@
         }
       }
     },
-    "/api/v1/admin/scoring-v2/evidence-exports/{exportId}": {
+    "/api/v1/admin/scoring/evidence-exports/{exportId}": {
       "get": {
         "summary": "Get evidence export status and freeze eligibility blockers",
         "tags": [
-          "admin-scoring-v2"
+          "admin-scoring"
         ],
         "parameters": [
           {
@@ -12856,11 +12856,11 @@
         }
       }
     },
-    "/api/v1/admin/scoring-v2/history": {
+    "/api/v1/admin/scoring/history": {
       "get": {
         "summary": "Evidence export and frozen bundle history",
         "tags": [
-          "admin-scoring-v2"
+          "admin-scoring"
         ],
         "parameters": [
           {
@@ -13087,7 +13087,7 @@
         }
       }
     },
-    "/api/v1/admin/scoring-v2/manifests": {
+    "/api/v1/admin/scoring/manifests": {
       "get": {
         "tags": [
           "admin-explainability-v2"
@@ -13223,7 +13223,7 @@
         }
       }
     },
-    "/api/v1/admin/scoring-v2/manifests/{manifestId}/evidence-audit": {
+    "/api/v1/admin/scoring/manifests/{manifestId}/evidence-audit": {
       "get": {
         "summary": "Provider-free evidence persistence and feature-lineage audit",
         "tags": [
@@ -13372,7 +13372,7 @@
         }
       }
     },
-    "/api/v1/admin/scoring-v2/characters/{characterId}/explainability": {
+    "/api/v1/admin/scoring/characters/{characterId}/explainability": {
       "get": {
         "tags": [
           "admin-explainability-v2"
@@ -13538,11 +13538,11 @@
         }
       }
     },
-    "/api/v1/admin/scoring-v2/shadow-canaries": {
+    "/api/v1/admin/scoring/shadow-canaries": {
       "get": {
         "summary": "List recent Scoring V2 Shadow Canary runs",
         "tags": [
-          "admin-scoring-v2"
+          "admin-scoring"
         ],
         "responses": {
           "200": {
@@ -13639,7 +13639,7 @@
       "post": {
         "summary": "Launch an asynchronous Scoring V2 Shadow Canary (publication blocked)",
         "tags": [
-          "admin-scoring-v2"
+          "admin-scoring"
         ],
         "requestBody": {
           "required": true,
@@ -13809,11 +13809,11 @@
         }
       }
     },
-    "/api/v1/admin/scoring-v2/shadow-canaries/{canaryId}": {
+    "/api/v1/admin/scoring/shadow-canaries/{canaryId}": {
       "get": {
         "summary": "Get one Shadow Canary run",
         "tags": [
-          "admin-scoring-v2"
+          "admin-scoring"
         ],
         "parameters": [
           {
@@ -13958,11 +13958,11 @@
         }
       }
     },
-    "/api/v1/admin/scoring-v2/evidence-exports/{exportId}/download": {
+    "/api/v1/admin/scoring/evidence-exports/{exportId}/download": {
       "get": {
         "summary": "Download evidence export ZIP archive",
         "tags": [
-          "admin-scoring-v2"
+          "admin-scoring"
         ],
         "parameters": [
           {
@@ -14108,11 +14108,11 @@
         }
       }
     },
-    "/api/v1/admin/scoring-v2/evidence-exports/{exportId}/freeze-bundle": {
+    "/api/v1/admin/scoring/evidence-exports/{exportId}/freeze-bundle": {
       "post": {
         "summary": "Freeze Calibration Input Bundle V2 (provider-free, no activation)",
         "tags": [
-          "admin-scoring-v2"
+          "admin-scoring"
         ],
         "requestBody": {
           "required": true,

@@ -21,6 +21,10 @@ import {
   classifyIdentityDataTables,
   identityResetRedisKeyPrefixes,
 } from "./identity-data-reset-table-plan.js";
+import {
+  countRawIfTableExists,
+  countTableIfExists,
+} from "./reset-table-presence.js";
 import type {
   ActiveWriterProbe,
   ExternalCleanupResult,
@@ -85,6 +89,8 @@ export type IdentityDataResetPlan = {
   keepBnetAccountId: string;
   rowCountsBefore: Array<{ table: string; rowCount: number }>;
   plannedTruncations: Array<{ table: string; rowCount: number }>;
+  /** Configured truncate/count tables absent from the live DB (skipped, not fatal). */
+  skippedMissingTables: string[];
   plannedSelectiveDeletes: Array<{ table: string; deleteCount: number; retainCount: number }>;
   plannedStaticRetain: Array<{ table: string; rowCount: number }>;
   foreignKeyPlan: typeof IDENTITY_DATA_FK_PLAN;
@@ -113,11 +119,11 @@ async function countTable(
   prisma: PrismaClient | Prisma.TransactionClient,
   table: string,
 ): Promise<number> {
-  const rows = await prisma.$queryRawUnsafe<Array<{ count: bigint | number }>>(
-    `SELECT COUNT(*)::bigint AS count FROM "${table}"`,
-  );
-  const raw = rows[0]?.count ?? 0;
-  return typeof raw === "bigint" ? Number(raw) : Number(raw);
+  const counted = await countTableIfExists(prisma, table);
+  if (!counted.exists || counted.rowCount == null) {
+    throw new Error(`relation "${table}" does not exist`);
+  }
+  return counted.rowCount;
 }
 
 /** Count every static-retain table (used for plan output and TX-local baselines). */
@@ -126,7 +132,11 @@ export async function countStaticRetainTables(
 ): Promise<Map<string, number>> {
   const counts = new Map<string, number>();
   for (const table of IDENTITY_DATA_STATIC_RETAIN_TABLES) {
-    counts.set(table, await countTable(prisma, table));
+    const counted = await countTableIfExists(prisma, table);
+    if (!counted.exists || counted.rowCount == null) {
+      continue;
+    }
+    counts.set(table, counted.rowCount);
   }
   return counts;
 }
@@ -163,24 +173,28 @@ export async function probeIdentityActiveWriters(input: {
   const detail: string[] = [];
   const env = input.redisEnvSegment;
 
-  const ingestion = await input.prisma.$queryRawUnsafe<Array<{ count: bigint | number }>>(
-    `SELECT COUNT(*)::bigint AS count FROM "ingestion_jobs" WHERE status IN ('QUEUED', 'ACTIVE')`,
-  );
-  const canaries = await input.prisma.$queryRawUnsafe<Array<{ count: bigint | number }>>(
-    `SELECT COUNT(*)::bigint AS count FROM "scoring_v2_shadow_canaries" WHERE UPPER(status) IN ('QUEUED', 'RUNNING', 'PENDING', 'STARTED', 'ACTIVE')`,
-  );
-  const bulk = await input.prisma.$queryRawUnsafe<Array<{ count: bigint | number }>>(
-    `SELECT COUNT(*)::bigint AS count FROM "bulk_operations" WHERE status IN ('PENDING', 'SELECTING', 'RUNNING', 'PAUSED')`,
-  );
-  const batches = await input.prisma.$queryRawUnsafe<Array<{ count: bigint | number }>>(
-    `SELECT COUNT(*)::bigint AS count FROM "score_analysis_batches" WHERE finalization_status IN ('PENDING', 'READY_TO_FINALIZE', 'FINALIZING')`,
-  );
   // Informational only — live Redis reservation keys are the blocking signal.
   const staleDbStatuses = {
-    ingestionJobsQueuedOrActive: toNum(ingestion[0]?.count),
-    shadowCanariesNonTerminal: toNum(canaries[0]?.count),
-    bulkOperationsNonTerminal: toNum(bulk[0]?.count),
-    scoreBatchesNonTerminal: toNum(batches[0]?.count),
+    ingestionJobsQueuedOrActive: await countRawIfTableExists(
+      input.prisma,
+      "ingestion_jobs",
+      `SELECT COUNT(*)::bigint AS count FROM "ingestion_jobs" WHERE status IN ('QUEUED', 'ACTIVE')`,
+    ),
+    shadowCanariesNonTerminal: await countRawIfTableExists(
+      input.prisma,
+      "scoring_v2_shadow_canaries",
+      `SELECT COUNT(*)::bigint AS count FROM "scoring_v2_shadow_canaries" WHERE UPPER(status) IN ('QUEUED', 'RUNNING', 'PENDING', 'STARTED', 'ACTIVE')`,
+    ),
+    bulkOperationsNonTerminal: await countRawIfTableExists(
+      input.prisma,
+      "bulk_operations",
+      `SELECT COUNT(*)::bigint AS count FROM "bulk_operations" WHERE status IN ('PENDING', 'SELECTING', 'RUNNING', 'PAUSED')`,
+    ),
+    scoreBatchesNonTerminal: await countRawIfTableExists(
+      input.prisma,
+      "score_analysis_batches",
+      `SELECT COUNT(*)::bigint AS count FROM "score_analysis_batches" WHERE finalization_status IN ('PENDING', 'READY_TO_FINALIZE', 'FINALIZING')`,
+    ),
   };
 
   if (!input.redis) {
@@ -497,20 +511,33 @@ export async function buildIdentityDataResetPlan(input: {
   }
 
   const plannedTruncations: Array<{ table: string; rowCount: number }> = [];
+  const skippedMissingTables: string[] = [];
   for (const table of [
     ...IDENTITY_DATA_TRUNCATE_TABLES,
     ...IDENTITY_DATA_CHARACTER_GRAPH_TRUNCATE_TABLES,
   ] as const) {
-    plannedTruncations.push({ table, rowCount: await countTable(input.prisma, table) });
+    const counted = await countTableIfExists(input.prisma, table);
+    if (!counted.exists || counted.rowCount == null) {
+      skippedMissingTables.push(table);
+      continue;
+    }
+    plannedTruncations.push({ table, rowCount: counted.rowCount });
   }
 
   const plannedStaticRetain: Array<{ table: string; rowCount: number }> = [];
   for (const table of IDENTITY_DATA_STATIC_RETAIN_TABLES) {
-    plannedStaticRetain.push({ table, rowCount: await countTable(input.prisma, table) });
+    const counted = await countTableIfExists(input.prisma, table);
+    if (!counted.exists || counted.rowCount == null) {
+      skippedMissingTables.push(table);
+      continue;
+    }
+    plannedStaticRetain.push({ table, rowCount: counted.rowCount });
   }
 
-  const usersTotal = await countTable(input.prisma, "users");
-  const bnetTotal = await countTable(input.prisma, "battlenet_accounts");
+  const usersCounted = await countTableIfExists(input.prisma, "users");
+  const bnetCounted = await countTableIfExists(input.prisma, "battlenet_accounts");
+  const usersTotal = usersCounted.rowCount ?? 0;
+  const bnetTotal = bnetCounted.rowCount ?? 0;
   const plannedSelectiveDeletes = [
     {
       table: "users",
@@ -533,7 +560,20 @@ export async function buildIdentityDataResetPlan(input: {
 
   const rowCountsBefore: Array<{ table: string; rowCount: number }> = [];
   for (const table of IDENTITY_DATA_IMPORTANT_COUNT_TABLES) {
-    rowCountsBefore.push({ table, rowCount: await countTable(input.prisma, table) });
+    const counted = await countTableIfExists(input.prisma, table);
+    if (!counted.exists || counted.rowCount == null) {
+      if (!skippedMissingTables.includes(table)) {
+        skippedMissingTables.push(table);
+      }
+      continue;
+    }
+    rowCountsBefore.push({ table, rowCount: counted.rowCount });
+  }
+
+  if (skippedMissingTables.length > 0) {
+    warnings.push(
+      `skipped missing reset-plan table(s): ${skippedMissingTables.join(", ")}`,
+    );
   }
 
   const resolvedRoot = path.resolve(input.gate.artifactsDir);
@@ -639,6 +679,7 @@ export async function buildIdentityDataResetPlan(input: {
     keepBnetAccountId: input.gate.keepBnetAccountId,
     rowCountsBefore,
     plannedTruncations,
+    skippedMissingTables,
     plannedSelectiveDeletes,
     plannedStaticRetain,
     foreignKeyPlan: IDENTITY_DATA_FK_PLAN,
@@ -795,7 +836,9 @@ async function verifyPostconditions(input: {
     "character_provider_states",
     "character_profile_views",
   ] as const) {
-    const n = await countTable(input.prisma, table);
+    const counted = await countTableIfExists(input.prisma, table);
+    if (!counted.exists) continue;
+    const n = counted.rowCount ?? 0;
     if (n !== 0) failures.push(`${table}=${n} expected 0`);
   }
 
@@ -894,7 +937,11 @@ export async function executeIdentityDataReset(input: {
   let transactionStaticBaseline: Array<{ table: string; rowCount: number }> = [];
 
   try {
-    const quoted = IDENTITY_DATA_TRUNCATE_TABLES.map((t) => `"${t}"`).join(", ");
+    const quoted = IDENTITY_DATA_TRUNCATE_TABLES.filter((t) =>
+      input.plan.plannedTruncations.some((p) => p.table === t),
+    )
+      .map((t) => `"${t}"`)
+      .join(", ");
     const keepUserId = input.plan.keepUserId;
     const keepBnetId = input.plan.keepBnetAccountId;
 
@@ -911,7 +958,9 @@ export async function executeIdentityDataReset(input: {
           await input.hooks.afterStaticBaseline(tx, staticBefore);
         }
 
-        await tx.$executeRawUnsafe(`TRUNCATE TABLE ${quoted} CASCADE`);
+        if (quoted.length > 0) {
+          await tx.$executeRawUnsafe(`TRUNCATE TABLE ${quoted} CASCADE`);
+        }
 
         // Retained cohort members use SetNull on Character — null before deleting
         // characters. Prefer DELETE over TRUNCATE here: empty Restrict FKs still
@@ -1069,6 +1118,11 @@ export function formatIdentityPlanTerminalSummary(plan: IdentityDataResetPlan): 
     `  retained user id: ${plan.retainedUser.id} legacyRole=${plan.retainedUser.legacyRole} adminAssignment=${plan.retainedUser.hasActiveAdminRoleAssignment} disabled=${plan.retainedUser.disabled}`,
     `  retained bnet id: ${plan.retainedBattleNetAccount.id} claimed=${plan.retainedBattleNetAccount.claimed} unlinked=${plan.retainedBattleNetAccount.unlinked}`,
     `  truncate tables: ${plan.plannedTruncations.length} (rows=${truncateTotal})`,
+    `  skipped missing tables: ${plan.skippedMissingTables.length}${
+      plan.skippedMissingTables.length > 0
+        ? ` (${plan.skippedMissingTables.join(", ")})`
+        : ""
+    }`,
     `  redis keys matched: ${plan.redis.matchingKeyCount} (FLUSHALL=false)`,
     `  artifacts: backend=${plan.artifacts.backend} files=${plan.artifacts.fileCount}`,
     `  live writers blocked: ${plan.activeWriters.blocked}`,

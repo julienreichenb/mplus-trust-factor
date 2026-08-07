@@ -123,7 +123,7 @@ describe("buildUnavailableShadowDimensionRecord", () => {
       manifestId: "m1",
       scoreModelId: "model1",
       dimension: "UTILITY",
-      algorithmVersion: "utility-v2-phase1-observed-0.1.0",
+      algorithmVersion: "utility-v2-phase2-observed-0.2.0",
       inputFingerprint: "fp-unavail",
       computedAt: COMPUTED_AT,
       limitations: ["shadow_placeholder"],

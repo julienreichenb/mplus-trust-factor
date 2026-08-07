@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { createDefaultModelV6 } from "../model/defaults.js";
 import {
-  createDefaultScoringV2DimensionConfigSet,
-  withScoringV2DimensionConfigs,
+  createDefaultscoringDimensionConfigSet,
+  withscoringDimensionConfigs,
 } from "../model-config/index.js";
 import {
   buildCalibrationContentRefV2,
@@ -58,9 +58,9 @@ function sampleEvidence(): FreezeSnapshotMemberEvidenceV2 {
 
 describe("freeze-snapshot", () => {
   it("round-trips contentHash verification for v2 with evidence", () => {
-    const config = withScoringV2DimensionConfigs(
+    const config = withscoringDimensionConfigs(
       createDefaultModelV6({ key: "m", version: 1 }),
-      createDefaultScoringV2DimensionConfigSet(),
+      createDefaultscoringDimensionConfigSet(),
     );
     const modelRef = {
       id: "model-1",
@@ -128,7 +128,7 @@ describe("freeze-snapshot", () => {
       evidenceCutoffAt: "2026-08-01T00:00:00.000Z",
       generatedAt: "2026-08-01T00:00:00.000Z",
     });
-    expect(snap.schemaVersion).toBe("scoring-v2-freeze-snapshot-v2");
+    expect(snap.schemaVersion).toBe("scoring-freeze-snapshot-v2");
     expect(snap.schemaVersion).toBe(FREEZE_SNAPSHOT_SCHEMA_VERSION);
     expect(snap.contentHash).toMatch(/^[a-f0-9]{64}$/);
     expect(snap.members[0]!.evidence?.manifest.contentHash).toMatch(/^[a-f0-9]{64}$/);
@@ -141,9 +141,9 @@ describe("freeze-snapshot", () => {
   });
 
   it("rejects included members without evidence package", () => {
-    const config = withScoringV2DimensionConfigs(
+    const config = withscoringDimensionConfigs(
       createDefaultModelV6({ key: "m", version: 1 }),
-      createDefaultScoringV2DimensionConfigSet(),
+      createDefaultscoringDimensionConfigSet(),
     );
     const modelRef = {
       id: "model-1",
@@ -200,7 +200,7 @@ describe("freeze-snapshot", () => {
   it("rejects v1 schemaVersion", () => {
     expect(
       parseAndVerifyFreezeSnapshot({
-        schemaVersion: "scoring-v2-freeze-snapshot-v1",
+        schemaVersion: "scoring-freeze-snapshot-v1",
         contentHash: "a".repeat(64),
       }).code,
     ).toBe("FREEZE_SNAPSHOT_INVALID");

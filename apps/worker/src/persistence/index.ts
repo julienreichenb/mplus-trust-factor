@@ -3,6 +3,8 @@ import {
   createArtifactRepository,
   EvidenceRepository,
   WclSourceRepository,
+  CapabilityEvidencePackageRepository,
+  ParticipantScoringDigestRepository,
   type ArtifactRepository,
 } from "@mplus/database";
 import { createLocalFsArtifactStore } from "@mplus/artifact-store";
@@ -52,6 +54,8 @@ export interface WorkerRepositories {
   artifacts: ArtifactRepository;
   evidenceV2Batch: EvidenceV2BatchRepository;
   wclSource: WclSourceRepository;
+  capabilityEvidencePackages: CapabilityEvidencePackageRepository;
+  participantScoringDigests: ParticipantScoringDigestRepository;
 }
 
 export function createRepositories(
@@ -61,6 +65,7 @@ export function createRepositories(
   const legacyFsStore = options?.rawArtifactsDir
     ? createLocalFsArtifactStore(options.rawArtifactsDir)
     : undefined;
+  const artifacts = createArtifactRepository(prisma, { legacyFsStore });
   return {
     character: createCharacterRepository(prisma),
     realm: createRealmRepository(prisma),
@@ -75,11 +80,20 @@ export function createRepositories(
     analysisBatch: createAnalysisBatchRepository(prisma),
     bulkOperation: createBulkOperationRepository(prisma),
     evidence: new EvidenceRepository(prisma),
-    artifacts: createArtifactRepository(prisma, { legacyFsStore }),
+    artifacts,
     evidenceV2Batch: createEvidenceV2BatchRepository(prisma),
     wclSource: new WclSourceRepository(prisma),
+    capabilityEvidencePackages: new CapabilityEvidencePackageRepository(
+      prisma,
+      artifacts,
+    ),
+    participantScoringDigests: new ParticipantScoringDigestRepository(
+      prisma,
+      artifacts,
+    ),
   };
 }
+
 
 export * from "./addon-export-repository.js";
 export * from "./analysis-batch-repository.js";

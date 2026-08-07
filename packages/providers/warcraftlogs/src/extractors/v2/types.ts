@@ -11,7 +11,7 @@ import type {
 } from "@mplus/scoring";
 import type { PERFORMANCE_V2_EXTRACTOR_FAMILY } from "./constants.js";
 
-export type ScoringV2ExtractableDimension = "PERFORMANCE" | "SURVIVAL" | "UTILITY";
+export type ScoringExtractableDimension = "PERFORMANCE" | "SURVIVAL" | "UTILITY";
 
 /**
  * Per-dimension extraction outcome for acquisition persistence.
@@ -34,7 +34,7 @@ export type FactExtractionCategory =
 
 export interface DimensionFactExtractionOutcome<T> {
   status: DimensionFactExtractionStatus;
-  dimension: ScoringV2ExtractableDimension;
+  dimension: ScoringExtractableDimension;
   fact: T | null;
   limitations: string[];
   /** Stable category for observability — never report codes / raw payloads. */

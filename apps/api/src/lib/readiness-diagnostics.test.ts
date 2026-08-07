@@ -43,7 +43,7 @@ describe("API readiness diagnostics", () => {
     });
     expect(result.ready).toBe(true);
     expect(result.body.revision).toBe("rev-test-1");
-    expect((result.body.scoringV2 as { modes: { enabled: boolean } }).modes.enabled).toBe(false);
+    expect((result.body.scoring as { modes: { enabled: boolean } }).modes.enabled).toBe(false);
     expect((result.body.contracts as { workerJobSchema: string }).workerJobSchema).toBe("2.0.0");
     expect((result.body.wclSnapshot as { state: string }).state).toBe("worker_owned");
     expect(result.probes.artifactBackend.detail).toBe("not_probed");
@@ -76,9 +76,9 @@ describe("API readiness diagnostics", () => {
       WCL_ENABLED: "false",
       WCL_CLIENT_ID: "id",
       WCL_CLIENT_SECRET: "secret",
-      SCORING_V2_ENABLED: "true",
-      SCORING_V2_SELECTION_ENABLED: "true",
-      SCORING_V2_EVIDENCE_FETCH_ENABLED: "true",
+      SCORING_ENABLED: "true",
+      SCORING_ENABLED: "true",
+      SCORING_ENABLED: "true",
     });
     const result = await buildApiReadiness({
       env,
@@ -103,9 +103,9 @@ describe("API readiness diagnostics", () => {
       WCL_ENABLED: "true",
       WCL_CLIENT_ID: "id",
       WCL_CLIENT_SECRET: "secret",
-      SCORING_V2_ENABLED: "true",
-      SCORING_V2_SELECTION_ENABLED: "true",
-      SCORING_V2_EVIDENCE_FETCH_ENABLED: "true",
+      SCORING_ENABLED: "true",
+      SCORING_ENABLED: "true",
+      SCORING_ENABLED: "true",
     });
     const result = await buildApiReadiness({
       env,
@@ -126,9 +126,9 @@ describe("API readiness diagnostics", () => {
       ...baseEnv,
       PROVIDER_MODE: "fixture",
       WCL_ENABLED: "false",
-      SCORING_V2_ENABLED: "true",
-      SCORING_V2_SELECTION_ENABLED: "true",
-      SCORING_V2_EVIDENCE_FETCH_ENABLED: "true",
+      SCORING_ENABLED: "true",
+      SCORING_ENABLED: "true",
+      SCORING_ENABLED: "true",
     });
     const result = await buildApiReadiness({
       env,
@@ -150,9 +150,9 @@ describe("API readiness diagnostics", () => {
       WCL_ENABLED: "true",
       WCL_CLIENT_ID: "id",
       WCL_CLIENT_SECRET: "secret",
-      SCORING_V2_ENABLED: "true",
-      SCORING_V2_SELECTION_ENABLED: "true",
-      SCORING_V2_EVIDENCE_FETCH_ENABLED: "true",
+      SCORING_ENABLED: "true",
+      SCORING_ENABLED: "true",
+      SCORING_ENABLED: "true",
     });
     const result = await buildApiReadiness({
       env,
@@ -171,9 +171,9 @@ describe("API readiness diagnostics", () => {
     resetEnvCache();
     const env = loadEnv({
       ...baseEnv,
-      SCORING_V2_ENABLED: "true",
-      SCORING_V2_SELECTION_ENABLED: "true",
-      SCORING_V2_EVIDENCE_FETCH_ENABLED: "true",
+      SCORING_ENABLED: "true",
+      SCORING_ENABLED: "true",
+      SCORING_ENABLED: "true",
     });
     const providerFetch = vi.fn();
     await buildApiReadiness({
@@ -195,9 +195,9 @@ describe("API readiness diagnostics", () => {
       const env = loadEnv({
         ...baseEnv,
         RAW_ARTIFACTS_DIR: dir,
-        SCORING_V2_ENABLED: "true",
-        SCORING_V2_SELECTION_ENABLED: "true",
-        SCORING_V2_EVIDENCE_FETCH_ENABLED: "true",
+        SCORING_ENABLED: "true",
+        SCORING_ENABLED: "true",
+        SCORING_ENABLED: "true",
       });
       expect(toModeSnapshot(env).evidenceFetchEnabled).toBe(true);
 
@@ -221,10 +221,10 @@ describe("API readiness diagnostics", () => {
     resetEnvCache();
     const env = loadEnv({
       ...baseEnv,
-      SCORING_V2_ENABLED: "true",
-      SCORING_V2_SELECTION_ENABLED: "true",
-      SCORING_V2_EVIDENCE_FETCH_ENABLED: "true",
-      SCORING_V2_DIMENSIONS_ENABLED: "true",
+      SCORING_ENABLED: "true",
+      SCORING_ENABLED: "true",
+      SCORING_ENABLED: "true",
+      SCORING_ENABLED: "true",
     });
     const result = await buildApiReadiness({
       env,
@@ -264,9 +264,9 @@ describe("API readiness diagnostics", () => {
     const env = loadEnv({
       ...baseEnv,
       RAW_ARTIFACTS_DIR: missing,
-      SCORING_V2_ENABLED: "true",
-      SCORING_V2_SELECTION_ENABLED: "true",
-      SCORING_V2_EVIDENCE_FETCH_ENABLED: "true",
+      SCORING_ENABLED: "true",
+      SCORING_ENABLED: "true",
+      SCORING_ENABLED: "true",
     });
     const result = await buildApiReadiness({
       env,
@@ -305,9 +305,9 @@ describe("API readiness diagnostics", () => {
     resetEnvCache();
     const env = loadEnv({
       ...baseEnv,
-      SCORING_V2_ENABLED: "true",
-      SCORING_V2_SELECTION_ENABLED: "true",
-      SCORING_V2_EVIDENCE_FETCH_ENABLED: "true",
+      SCORING_ENABLED: "true",
+      SCORING_ENABLED: "true",
+      SCORING_ENABLED: "true",
     });
     const timedResult = await buildApiReadiness({
       env,

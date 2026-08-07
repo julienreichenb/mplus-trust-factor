@@ -14,7 +14,7 @@ export const PERMISSIONS = {
   ADMIN_MECHANIC_RULES_MANAGE: "admin.mechanic_rules.manage",
   ADMIN_ABILITY_CATALOG_READ: "admin.ability_catalog.read",
   ADMIN_CALIBRATION_MANAGE: "admin.calibration.manage",
-  ADMIN_SCORING_V2_MANAGE: "admin.scoring_v2.manage",
+  ADMIN_SCORING_MANAGE: "admin.scoring.manage",
 } as const;
 
 export type PermissionKey = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
@@ -43,7 +43,7 @@ export const DEFAULT_ADMIN_PERMISSIONS: PermissionKey[] = [
   PERMISSIONS.ADMIN_MECHANIC_RULES_MANAGE,
   PERMISSIONS.ADMIN_ABILITY_CATALOG_READ,
   PERMISSIONS.ADMIN_CALIBRATION_MANAGE,
-  PERMISSIONS.ADMIN_SCORING_V2_MANAGE,
+  PERMISSIONS.ADMIN_SCORING_MANAGE,
 ];
 
 export const BATTLENET_PROVIDER = "battlenet";

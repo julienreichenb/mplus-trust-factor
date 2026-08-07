@@ -42,7 +42,7 @@ const adminItems = [
   { to: "/admin/ability-catalog", label: "Ability catalog" },
   { to: "/admin/users", label: "Admin users" },
   { to: "/admin/bulk-processing", label: "Bulk processing" },
-  { to: "/admin/scoring-v2", label: "Scoring V2" },
+  { to: "/admin/scoring", label: "Scoring V2" },
   { to: "/admin/misc", label: "Misc tools" },
 ];
 
@@ -75,8 +75,8 @@ function headerRoutes() {
       component: { template: "<div />" },
     },
     {
-      path: "/admin/scoring-v2",
-      name: "admin-scoring-v2",
+      path: "/admin/scoring",
+      name: "admin-scoring",
       component: { template: "<div />" },
     },
     { path: "/admin/misc", name: "admin-misc", component: { template: "<div />" } },
@@ -371,7 +371,7 @@ describe("AppHeader admin navigation", () => {
       "/admin/ability-catalog",
       "/admin/users",
       "/admin/bulk-processing",
-      "/admin/scoring-v2",
+      "/admin/scoring",
       "/admin/misc",
       "/admin/users?tab=roles",
       "/admin/models#draft",

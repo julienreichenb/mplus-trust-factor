@@ -95,6 +95,13 @@ export function computeDetailedSeasonPerformance(input: {
 
   for (const fact of input.runParseFacts) {
     if (!active.has(fact.dungeonSlug)) continue;
+    // Missing/invalid key difficulty context → omit (no silent baseline default).
+    if (
+      !Number.isFinite(fact.keyLevel) ||
+      fact.keyLevel <= 0
+    ) {
+      continue;
+    }
     const validated = resolveValidatedParsePercentile({
       parsePercentile: fact.parsePercentile,
       semantic: fact.semantic,

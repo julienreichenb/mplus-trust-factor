@@ -88,7 +88,7 @@ commits onto origin **before** bringing probe work.
 - `packages/abilities/src/offensive/activation.ts`
 - `packages/abilities/src/survival/activation.ts`
 - `packages/abilities/src/index.ts`, `match.ts` (exports / resolution)
-- `apps/worker/src/orchestration/scoring-v2/persistent-shared-evidence-store.ts` (`selectPreferredEvidencePages`, cas miss handling)
+- `apps/worker/src/orchestration/scoring/persistent-shared-evidence-store.ts` (`selectPreferredEvidencePages`, cas miss handling)
 
 ### Shared contracts / schema
 
@@ -347,7 +347,7 @@ Work from `feat/scoring-v2-feature-lineage` @ `d83ec3c`.
 | File | Why |
 |------|-----|
 | `packages/database/src/repositories/artifact-repository.ts` | Extended on both sides historically |
-| `apps/worker/src/orchestration/scoring-v2/persistent-shared-evidence-store.ts` | pg preference + pagination meta |
+| `apps/worker/src/orchestration/scoring/persistent-shared-evidence-store.ts` | pg preference + pagination meta |
 | `packages/database/src/repositories/wcl-source-repository.ts` | `replaceArtifactOnConflict` |
 | `packages/providers/warcraftlogs/src/index.ts` | Barrel exports |
 | `packages/abilities/src/index.ts` / `types.ts` / class catalogs | Large catalog surface |
@@ -389,11 +389,11 @@ pnpm exec vitest run --config ./vitest.config.ts `
   packages/providers/warcraftlogs/src/probe/offensive-one-fight `
   packages/providers/warcraftlogs/src/probe/utility-one-fight `
   packages/providers/warcraftlogs/src/probe/survival-one-fight `
-  apps/worker/src/orchestration/scoring-v2/persistent-shared-evidence-store.test.ts
+  apps/worker/src/orchestration/scoring/persistent-shared-evidence-store.test.ts
 
 node tools/scripts/run-tests-isolated.mjs --seed -- pnpm exec vitest run --config vitest.integration.config.ts `
   packages/database/src/postgres-artifact-payload.integration.test.ts `
-  apps/worker/src/orchestration/scoring-v2/postgres-shared-evidence.integration.test.ts
+  apps/worker/src/orchestration/scoring/postgres-shared-evidence.integration.test.ts
 
 pnpm wcl:probe:offensive-one-fight
 pnpm wcl:probe:utility-one-fight

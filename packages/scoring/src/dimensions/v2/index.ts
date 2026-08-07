@@ -4,7 +4,7 @@ export {
   buildUnavailableShadowDimensionRecord,
   availabilityFromComputeState,
   availabilityFromUtilityResult,
-  type ScoringV2PublicDimension,
+  type ScoringPublicDimension,
   type DimensionComputationLifecycleState,
   type DimensionAvailabilityState,
   type NormalizedShadowDimensionMetrics,
@@ -37,6 +37,17 @@ export {
   type ExperienceAdapterResult,
   type ExperienceHistoryInputs,
 } from "./adapters.js";
+
+export {
+  DigestDimensionIncompleteError,
+  performanceRunParseFactFromDigest,
+  survivalFactDocumentFromDigest,
+  utilityRunFactSetFromDigest,
+  classifyDigestInterruptOutcome,
+  supportEvidenceTierFromDigestAction,
+  buildDigestScoreLineage,
+  type DigestScoreLineageV1,
+} from "./digest-adapters.js";
 
 export {
   buildSlotFactSetBindingHash,

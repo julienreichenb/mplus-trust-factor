@@ -900,9 +900,9 @@ export class AdminCalibrationService {
     ctx: AuditCtx,
   ): Promise<CalibrationRunDTO> {
     assertEnabled(this.container);
-    // V1 remains the default createRun path while CALIBRATION_V2_ENABLED is false.
+    // V1 remains the default createRun path while CALIBRATION_ENABLED is false.
     // Bundle V2 validate/preflight/replay lives in @mplus/scoring (no silent V1→V2 conversion).
-    if (this.container.env.CALIBRATION_V2_ENABLED) {
+    if (this.container.env.CALIBRATION_ENABLED) {
       // Gated: V2 run creation is not switched on yet — keep freezing V1 snapshot bundles.
       // Callers may still validate/replay V2 fixtures via scoring-package helpers.
     }

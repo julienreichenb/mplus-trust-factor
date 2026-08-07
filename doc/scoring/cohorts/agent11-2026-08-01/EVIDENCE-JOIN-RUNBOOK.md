@@ -6,7 +6,7 @@ The **Scoring V2 Control Center** admin UI (`/admin/scoring-v2` → Evidence tab
 **canonical** evidence preflight / archive / Calibration Input Bundle V2 freeze path.
 
 - Admin APIs under `/api/v1/admin/scoring-v2/evidence-exports*`
-- Shared join implementation: `apps/worker/src/orchestration/scoring-v2/evidence-join.ts`
+- Shared join implementation: `apps/worker/src/orchestration/scoring/evidence-join.ts`
 - Provider-free; no refresh enqueue; no model activation; no score publication
 
 ## CLI status (emergency / debug only)

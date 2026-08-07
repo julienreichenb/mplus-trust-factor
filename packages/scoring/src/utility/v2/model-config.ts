@@ -325,10 +325,10 @@ function parseScoreSemantics(
   if (mode != null && mode !== "OBSERVED_CONTRIBUTION") {
     errors.push(`scoreSemantics.mode must be "OBSERVED_CONTRIBUTION"`);
   }
-  const phase = requireNumber(raw, "phase", errors, { min: 1, max: 1 });
+  const phase = requireNumber(raw, "phase", errors, { min: 1, max: 2 });
   const opportunityMode = requireString(raw, "opportunityMode", errors);
   if (opportunityMode != null && opportunityMode !== "off") {
-    errors.push(`scoreSemantics.opportunityMode must be "off" (Phase 1)`);
+    errors.push(`scoreSemantics.opportunityMode must be "off"`);
   }
   const scoreKind = requireString(raw, "scoreKind", errors);
 
@@ -348,7 +348,7 @@ function parseScoreSemantics(
 
   if (
     mode !== "OBSERVED_CONTRIBUTION" ||
-    phase !== 1 ||
+    (phase !== 1 && phase !== 2) ||
     opportunityMode !== "off" ||
     scoreKind == null ||
     notes.length === 0
@@ -358,7 +358,7 @@ function parseScoreSemantics(
 
   return Object.freeze({
     mode: "OBSERVED_CONTRIBUTION" as const,
-    phase: 1 as const,
+    phase: phase as 1 | 2,
     opportunityMode: "off" as const,
     scoreKind,
     notes: Object.freeze(notes),

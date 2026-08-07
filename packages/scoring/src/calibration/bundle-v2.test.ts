@@ -22,8 +22,8 @@ import {
   UTILITY_V2_SCORE_FLOOR,
 } from "../utility/v2/index.js";
 import {
-  createDefaultScoringV2DimensionConfigSet,
-  withScoringV2DimensionConfigs,
+  createDefaultscoringDimensionConfigSet,
+  withscoringDimensionConfigs,
 } from "../model-config/index.js";
 import { createDefaultModelV6 } from "../model/defaults.js";
 import { EVIDENCE_SELECTOR_VERSION } from "@mplus/contracts";
@@ -89,8 +89,8 @@ function fixtureV2Bundle(overrides: Partial<CalibrationInputBundleV2> = {}): Cal
     schemaVersion: "utility-v2-facts",
   });
 
-  const scoringV2 = createDefaultScoringV2DimensionConfigSet();
-  const modelConfig = withScoringV2DimensionConfigs(createDefaultModelV6(), scoringV2);
+  const scoring = createDefaultscoringDimensionConfigSet();
+  const modelConfig = withscoringDimensionConfigs(createDefaultModelV6(), scoring);
   const model = {
     key: modelConfig.key,
     version: modelConfig.version,
@@ -136,8 +136,8 @@ function fixtureV2Bundle(overrides: Partial<CalibrationInputBundleV2> = {}): Cal
       mechanicCatalogVersions: ["mechanics-v1"],
       confidenceAlgorithmVersions: { overall: "conf-v1" },
       dimensionAlgorithmVersions: {
-        PERFORMANCE: "performance-v2.phase1.0.1.0",
-        SURVIVAL: "survival-v2-phase1.0.0",
+        PERFORMANCE: "performance-phase2-v1",
+        SURVIVAL: "survival-v2-phase2-contextual-0.2.0",
         UTILITY: UTILITY_V2_ALGORITHM_VERSION,
         EXPERIENCE: "experience-v3.phase1.0.1.0",
       },
@@ -323,9 +323,9 @@ describe("Calibration Bundle V2", () => {
       ...structuredClone(UTILITY_V2_MODEL_CONFIG),
       scoreFloor: 55,
     };
-    const draftConfigs = createDefaultScoringV2DimensionConfigSet();
+    const draftConfigs = createDefaultscoringDimensionConfigSet();
     (draftConfigs as { utility: typeof draftUtility }).utility = draftUtility;
-    const draftModelConfig = withScoringV2DimensionConfigs(
+    const draftModelConfig = withscoringDimensionConfigs(
       createDefaultModelV6({ key: "draft-v6", version: 99 }),
       draftConfigs,
     );

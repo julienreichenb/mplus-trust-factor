@@ -85,13 +85,13 @@ export {
 } from "./metrics.js";
 
 export {
-  SCORING_V2_JOB_SCHEMA_VERSION,
-  SCORING_V2_EVIDENCE_MANIFEST_SCHEMA_VERSION,
-  SCORING_V2_ACQUISITION_PLAN_SCHEMA_VERSION,
-  buildScoringV2LogContext,
-  sanitizeScoringV2LogFields,
+  SCORING_JOB_SCHEMA_VERSION,
+  SCORING_EVIDENCE_MANIFEST_SCHEMA_VERSION,
+  SCORING_ACQUISITION_PLAN_SCHEMA_VERSION,
+  buildScoringLogContext,
+  sanitizeScoringLogFields,
   boundOperationalReason,
-  emitScoringV2Event,
+  emitScoringEvent,
   runSafeTelemetry,
   recordManifestCoverage,
   recordInvalidCandidateReason,
@@ -108,17 +108,17 @@ export {
   recordArtifactOrphan,
   recordCalibrationOutcome,
   recordReferenceSliceState,
-  type ScoringV2EventName,
-  type ScoringV2CorrelationFields,
+  type ScoringEventName,
+  type ScoringCorrelationFields,
   type SlotOutcomeKind,
-} from "./scoring-v2.js";
+} from "./scoring-metrics.js";
 
 export {
   evaluateReadiness,
   evaluateWclProviderUsability,
   requiredProbesForModes,
-  SCORING_V2_CONTRACT_VERSIONS,
-  type ScoringV2ModeSnapshot,
+  SCORING_CONTRACT_VERSIONS,
+  type ScoringModeSnapshot,
   type ReadinessProbeResults,
   type ReadinessEvaluation,
   type WclProviderProbe,

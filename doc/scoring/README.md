@@ -1,19 +1,20 @@
-# Scoring docs
+﻿# Scoring docs
 
-Canonical product scoring documentation:
+Canonical scoring documentation (single system):
+
+1. [`DIMENSION_PHASES.md`](DIMENSION_PHASES.md) — functional phases vs technical versions; status matrix
+2. [`SCORING_ARCHITECTURE.md`](SCORING_ARCHITECTURE.md) — pipeline, persistence, cold/warm
+3. [`WCL_ACQUISITION.md`](WCL_ACQUISITION.md) — season/dungeon discovery, selection, cache identity
+4. [`SCORING_DIMENSIONS.md`](SCORING_DIMENSIONS.md) — digests, Performance/Utility/Survival, confidence
+5. [`SCORING_OPERATIONS.md`](SCORING_OPERATIONS.md) — refresh, canary/replay/doctor, flags
+
+Related:
 
 - [`../product/scoring-model-v6.md`](../product/scoring-model-v6.md)
 - [`../product/ranking-confidence-and-missing-data.md`](../product/ranking-confidence-and-missing-data.md)
 - [`../architecture/scoring-publication.md`](../architecture/scoring-publication.md)
 - [`../operations/model-lifecycle.md`](../operations/model-lifecycle.md)
-- [`v2/`](v2/) — Scoring V2 normative specs, interface, and implementation status
-- [`scoring-v2-live-facts-status.md`](scoring-v2-live-facts-status.md) — V2 live-facts delivery gates
-- [`calibration-harness.md`](calibration-harness.md) — reproducible backtest/calibration harness
-- [`boost-detection-shadow.md`](boost-detection-shadow.md) — shadow authenticity feature names
-- [`boost-shadow-phase2-backtest.md`](boost-shadow-phase2-backtest.md) — boost Phase 2 offline/backtest harness
-- [`abilities/`](abilities/) — `@mplus/abilities` catalog and coverage
-- [`cohorts/agent11-2026-08-01/`](cohorts/agent11-2026-08-01/) — calibration cohort inputs; runtime asset: [`../../apps/api/runtime-assets/calibration/agent11-2026-08-01/resolved.v1.json`](../../apps/api/runtime-assets/calibration/agent11-2026-08-01/resolved.v1.json)
-- [`meta-policies/midnight-season-1.meta.v1.json`](meta-policies/midnight-season-1.meta.v1.json) — Midnight Season 1 meta specialization policy
+- [`calibration-harness.md`](calibration-harness.md)
+- [`abilities/`](abilities/) — ability catalog
 
-Runtime defaults: `packages/scoring/src/model/defaults.ts` (`createDefaultModelV6`).  
-Active model is a database row (seeded `default@6`); env vars are lookup/bootstrap aids, not normal activation.
+Historical V1/V2 / supersession / repair material: [`archive/`](archive/) (not operational).

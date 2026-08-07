@@ -213,7 +213,7 @@ export interface UtilityV2BindingResult {
 
 export interface UtilityV2ComputeResult {
   mode: "OBSERVED_CONTRIBUTION";
-  phase: 1;
+  phase: 1 | 2;
   opportunityMode: "off";
   algorithmVersion: string;
   scoreSemantics: string;

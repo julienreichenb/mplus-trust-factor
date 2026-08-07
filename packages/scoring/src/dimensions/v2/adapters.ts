@@ -6,13 +6,13 @@
 import { createHash } from "node:crypto";
 import type { CharacterSeasonEvidenceManifestV2 } from "@mplus/contracts";
 import {
-  PERFORMANCE_V2_ALGORITHM_VERSION,
   createManualDifficultyPolicyV2,
   parsePerformanceRunParseFactV2,
   type PerformanceRunParseFactV2,
   type PerformanceV2ComputeInput,
   type SeasonDifficultyPolicyV2,
 } from "../../performance/v2/index.js";
+import { PERFORMANCE_PHASE2_ALGORITHM_VERSION } from "../../performance/phase2/index.js";
 import {
   EXPERIENCE_V3_ALGORITHM_VERSION,
   type ExperienceV3ComputeInput,
@@ -39,7 +39,7 @@ import {
   type UtilityV2FrozenManifestRef,
   type UtilityV2RunFactSet,
 } from "../../utility/v2/index.js";
-import type { ScoringV2PublicDimension } from "./shadow-record.js";
+import type { ScoringPublicDimension } from "./shadow-record.js";
 import { buildSlotFactSetBindingHash } from "./fact-set-binding-hash.js";
 
 export interface PersistedFactSetRef {
@@ -279,7 +279,7 @@ export function verifyFactSetHashesAgainstManifest(
 }
 
 export function buildUnavailableInputFingerprint(input: {
-  dimension: ScoringV2PublicDimension;
+  dimension: ScoringPublicDimension;
   algorithmVersion: string;
   manifestContentHash: string;
   reasons: string[];
@@ -295,11 +295,11 @@ export function buildUnavailableInputFingerprint(input: {
 }
 
 export function algorithmVersionForDimension(
-  dimension: ScoringV2PublicDimension,
+  dimension: ScoringPublicDimension,
 ): string {
   switch (dimension) {
     case "PERFORMANCE":
-      return PERFORMANCE_V2_ALGORITHM_VERSION;
+      return PERFORMANCE_PHASE2_ALGORITHM_VERSION;
     case "SURVIVAL":
       return SURVIVAL_V2_ALGORITHM_VERSION;
     case "UTILITY":

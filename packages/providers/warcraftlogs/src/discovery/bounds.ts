@@ -34,8 +34,21 @@ export const MAX_HYDRATION_REPORTS = 5;
  * (2 distinct eligible reportCode+fightId identities × season dungeon pool).
  * Callers that need coverage-aware early-stop should pass this (or a lower
  * override) as maxReports — never an unbounded scan.
+ *
+ * This is an *initial* batch budget only. Discovery must continue with
+ * {@link INCREMENTAL_HYDRATION_BATCH_SIZE} batches while slots remain missing
+ * and unhydrated reports remain (subject to rate admission).
  */
 export const MAX_COVERAGE_AWARE_HYDRATION_REPORTS = 24;
+
+/**
+ * Incremental hydration batch size after the initial coverage-aware budget.
+ * Documented policy — not a correctness ceiling. Discovery may run many batches.
+ */
+export const INCREMENTAL_HYDRATION_BATCH_SIZE = 6;
+
+/** Alias for the initial coverage-aware hydration batch. */
+export const INITIAL_HYDRATION_BUDGET = MAX_COVERAGE_AWARE_HYDRATION_REPORTS;
 
 /** Desired distinct eligible candidates per active dungeon before early stop. */
 export const TARGET_ELIGIBLE_CANDIDATES_PER_DUNGEON = 2;

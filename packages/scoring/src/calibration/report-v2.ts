@@ -3,7 +3,7 @@
  * Does not redesign UI; additive fields for admin/API consumers.
  */
 
-import type { ScoringV2DimensionConfigFingerprints } from "../model-config/score-model-v2-mapping.js";
+import type { scoringDimensionConfigFingerprints } from "../model-config/score-model-v2-mapping.js";
 import type { QualitativeLabel } from "./types.js";
 import type { FrozenDimensionModelConfigsV2 } from "./bundle-v2.js";
 import type {
@@ -80,8 +80,8 @@ export interface CalibrationV2ReportExtension {
     activeModelVersion: number | null;
     draftModelKey: string | null;
     draftModelVersion: number | null;
-    activeConfigFingerprints: ScoringV2DimensionConfigFingerprints | null;
-    draftConfigFingerprints: ScoringV2DimensionConfigFingerprints | null;
+    activeConfigFingerprints: scoringDimensionConfigFingerprints | null;
+    draftConfigFingerprints: scoringDimensionConfigFingerprints | null;
     /** Bounded public-safe leaf paths that differ between frozen configs. */
     changedConfigFields: string[];
     memberDeltas: CalibrationV2MemberDelta[];

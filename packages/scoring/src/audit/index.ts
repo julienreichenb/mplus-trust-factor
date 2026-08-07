@@ -38,8 +38,8 @@ export {
 } from "./fact-identity.js";
 
 export {
-  buildScoringV2EvidenceAudit,
-  type BuildScoringV2EvidenceAuditInput,
+  buildscoringEvidenceAudit,
+  type BuildscoringEvidenceAuditInput,
   type AuditDatasetInput,
   type AuditDatasetPageInput,
   type AuditFactSetInput,
@@ -50,9 +50,9 @@ export {
 } from "./build-evidence-audit.js";
 
 export {
-  replayScoringV2Dimensions,
+  replayscoringDimensions,
   fingerprintExplanationMetrics,
   identityValidFactSets,
-  type ReplayScoringV2DimensionsInput,
+  type ReplayscoringDimensionsInput,
   type ReplayPersistedDimension,
 } from "./replay.js";

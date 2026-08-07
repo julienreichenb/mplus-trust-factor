@@ -4,6 +4,8 @@ export {
   ArtifactDigestMismatchError,
   ArtifactPayloadMissingError,
   ArtifactLegacyExternalPayloadMissingError,
+  ArtifactInvalidOwnerIdError,
+  assertArtifactOwnerIdIsUuid,
   createArtifactRepository,
   type ArtifactOwnerType,
   type PersistArtifactInput,
@@ -35,3 +37,44 @@ export {
   type UpsertWclRunParticipantInput,
   type CreateEvidenceDatasetPageInput,
 } from "./wcl-source-repository.js";
+export {
+  CapabilityEvidencePackageRepository,
+  type UpsertCapabilityEvidencePackageInput,
+} from "./capability-evidence-package-repository.js";
+export {
+  ParticipantScoringDigestRepository,
+  type UpsertParticipantScoringDigestInput,
+} from "./participant-scoring-digest-repository.js";
+export {
+  WclRunRawRepository,
+  createWclRunRawRepository,
+  type WclRunSourceIdentity,
+  type SaveWclRunRawInput,
+} from "./wcl-run-raw-repository.js";
+export {
+  CharacterRunDigestRepository,
+  createCharacterRunDigestRepository,
+  CharacterRunDigestCharacterLinkConflictError,
+  type CharacterDigestIdentity,
+  type SaveCharacterRunDigestInput,
+} from "./character-run-digest-repository.js";
+export {
+  RunRankingFactRepository,
+  createRunRankingFactRepository,
+  type RankingFactIdentity,
+  type SaveRunRankingFactInput,
+} from "./run-ranking-fact-repository.js";
+export {
+  CharacterScoreRepository,
+  createCharacterScoreRepository,
+  type CharacterScoreIdentity,
+  type SaveCharacterScoreInput,
+} from "./character-score-repository.js";
+export {
+  CharacterPerformanceAggregateRepository,
+  createCharacterPerformanceAggregateRepository,
+  type CharacterPerformanceAggregateIdentity,
+  type CharacterPerformanceAggregateDTO,
+  type UpsertCharacterPerformanceAggregateInput,
+  type UpsertCharacterPerformanceAggregateResult,
+} from "./character-performance-aggregate-repository.js";

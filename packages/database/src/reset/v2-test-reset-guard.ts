@@ -1,4 +1,4 @@
-export const SCORING_V2_RESET_CONFIRMATION_TOKEN = "RESET_SCORING_V2_TEST_DATA";
+export const SCORING_RESET_CONFIRMATION_TOKEN = "RESET_scoring_TEST_DATA";
 
 const DEV_DATABASE_NAME = "mplus_trust";
 const DISPOSABLE_DB_RE = /^mplus_itest_[a-z0-9]{8,24}$/;
@@ -15,14 +15,14 @@ const BLOCKED_DB_NAMES = new Set([
  * Use `pnpm db:reset:wcl-scoring-derived` for guarded local development cleanup of
  * that database — do not weaken this disposable-DB-only gate.
  */
-export type ScoringV2ResetGuardInput = {
+export type ScoringResetGuardInput = {
   databaseUrl?: string;
   appEnv?: string;
   confirmationToken?: string;
   allowNamedTestDb?: boolean;
 };
 
-export type ScoringV2ResetGuardResult =
+export type ScoringResetGuardResult =
   | { ok: true; sanitized: string }
   | { ok: false; reason: string; sanitized: string };
 
@@ -51,9 +51,9 @@ export function sanitizeDatabaseUrlForReset(databaseUrl: string): string {
  * Strict gate for destructive Scoring V2 test reset.
  * Never allows production/staging APP_ENV or known production DB names.
  */
-export function assertScoringV2TestResetAllowed(
-  input: ScoringV2ResetGuardInput = {},
-): ScoringV2ResetGuardResult {
+export function assertScoringTestResetAllowed(
+  input: ScoringResetGuardInput = {},
+): ScoringResetGuardResult {
   const databaseUrl = input.databaseUrl ?? process.env.DATABASE_URL ?? "";
   const sanitized = sanitizeDatabaseUrlForReset(databaseUrl);
   const appEnv = String(input.appEnv ?? process.env.APP_ENV ?? "").toLowerCase();
@@ -74,10 +74,10 @@ export function assertScoringV2TestResetAllowed(
     };
   }
 
-  if (input.confirmationToken !== SCORING_V2_RESET_CONFIRMATION_TOKEN) {
+  if (input.confirmationToken !== SCORING_RESET_CONFIRMATION_TOKEN) {
     return {
       ok: false,
-      reason: `Blocked: confirmation token mismatch. Pass --confirm=${SCORING_V2_RESET_CONFIRMATION_TOKEN}.`,
+      reason: `Blocked: confirmation token mismatch. Pass --confirm=${SCORING_RESET_CONFIRMATION_TOKEN}.`,
       sanitized,
     };
   }
@@ -127,7 +127,7 @@ export function assertScoringV2TestResetAllowed(
   };
 }
 
-export function formatScoringV2ResetGuardFailure(failure: {
+export function formatScoringResetGuardFailure(failure: {
   reason: string;
   sanitized: string;
 }): string {
@@ -139,7 +139,7 @@ export function formatScoringV2ResetGuardFailure(failure: {
 }
 
 /** Tables truncated by Option A hard test cutover (identity/catalog retained). */
-export const SCORING_V2_RESET_TRUNCATE_TABLES = [
+export const SCORING_RESET_TRUNCATE_TABLES = [
   "dimension_computations",
   "run_fact_sets",
   "evidence_datasets",
@@ -161,6 +161,8 @@ export const SCORING_V2_RESET_TRUNCATE_TABLES = [
   "external_payloads",
   "external_requests",
   "raw_artifacts",
+  "capability_evidence_package_records",
+  "participant_scoring_digests",
   "character_red_flags",
   "refresh_cost_ledger_entries",
   "refresh_schedule_items",
@@ -170,7 +172,7 @@ export const SCORING_V2_RESET_TRUNCATE_TABLES = [
 ] as const;
 
 /** Tables retained across Option A reset. */
-export const SCORING_V2_RESET_RETAINED_TABLES = [
+export const SCORING_RESET_RETAINED_TABLES = [
   "users",
   "user_sessions",
   "user_role_assignments",

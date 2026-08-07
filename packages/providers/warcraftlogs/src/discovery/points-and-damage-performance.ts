@@ -1,10 +1,23 @@
 import { createHash } from "node:crypto";
 import {
+  CHARACTER_PERFORMANCE_AGGREGATE_RANKING_VERSION,
+  assertPersistedCharacterPerformanceAggregateV1,
+  dedupeDungeonAggregates,
+  toPerformanceAggregatePartitionKey,
+  type PersistedCharacterPerformanceAggregateV1,
+} from "@mplus/contracts";
+import {
   mergePointsAndDamage,
   normalizePointsAndDamage,
   type NormalizedPointsAndDamage,
 } from "../probe/performance-probe-logic.js";
 import type { WclDungeonPerformanceAggregate } from "../types.js";
+
+/** Re-export for callers that already import adapter helpers from this module. */
+export {
+  toPerformanceAggregatePartitionKey,
+  CHARACTER_PERFORMANCE_AGGREGATE_RANKING_VERSION,
+};
 
 /**
  * Production Performance from Character.zoneRankings metric:points_and_damage.
@@ -145,6 +158,103 @@ export function buildWclSummaryRequestFingerprint(input: {
     input.name.toLowerCase(),
   ].join("|");
   return createHash("sha256").update(material, "utf8").digest("hex");
+}
+
+/** Fingerprint for the dedicated CharacterPerformanceAggregate provider operation. */
+export function buildPerformanceAggregateRequestFingerprint(input: {
+  region: string;
+  realmSlug: string;
+  name: string;
+  zoneId: number;
+  partition: number | null;
+}): string {
+  const material = [
+    "warcraftlogs",
+    "fetchCharacterPerformanceAggregate",
+    POINTS_AND_DAMAGE_ADAPTER_VERSION,
+    POINTS_AND_DAMAGE_METRIC,
+    String(input.zoneId),
+    toPerformanceAggregatePartitionKey(input.partition),
+    input.region.toLowerCase(),
+    input.realmSlug.toLowerCase(),
+    input.name.toLowerCase(),
+  ].join("|");
+  return createHash("sha256").update(material, "utf8").digest("hex");
+}
+
+/**
+ * Map an OK adapter record into the compact persisted aggregate contract.
+ * Rejects non-OK states — they must not be stored as reusable scoring evidence.
+ */
+export function toPersistedPerformanceAggregate(input: {
+  record: PointsAndDamagePerformanceRecord;
+  zoneId: number;
+  partition: number | null;
+}): PersistedCharacterPerformanceAggregateV1 {
+  if (input.record.state !== "OK") {
+    throw new Error(
+      `cannot_persist_performance_aggregate: state=${input.record.state}`,
+    );
+  }
+  if (input.record.adapterVersion !== CHARACTER_PERFORMANCE_AGGREGATE_RANKING_VERSION) {
+    throw new Error(
+      `cannot_persist_performance_aggregate: adapterVersion=${input.record.adapterVersion}`,
+    );
+  }
+
+  const dungeonAggregates = dedupeDungeonAggregates(
+    input.record.dungeonAggregates.map((d) => ({
+      dungeonSlug: d.dungeonSlug,
+      dungeonName: d.dungeonName,
+      encounterId: d.encounterId,
+      bestParsePercentile: d.bestParsePercentile,
+      medianParsePercentile: d.medianParsePercentile,
+      loggedRunCount:
+        typeof d.loggedRunCount === "number" && Number.isFinite(d.loggedRunCount)
+          ? d.loggedRunCount
+          : null,
+      specialization: d.specialization ?? d.specSlug ?? null,
+      keystoneLevel: d.keystoneLevel ?? null,
+      bestDps: d.bestDps ?? null,
+    })),
+  );
+
+  return assertPersistedCharacterPerformanceAggregateV1({
+    state: "OK",
+    adapterVersion: CHARACTER_PERFORMANCE_AGGREGATE_RANKING_VERSION,
+    metric: POINTS_AND_DAMAGE_METRIC,
+    zoneId: input.zoneId,
+    partition: input.partition,
+    dungeonAggregates,
+    global: input.record.global
+      ? {
+          totalMythicPlusScore: input.record.global.totalMythicPlusScore,
+          totalLoggedRuns: input.record.global.totalLoggedRuns,
+          bestDpsPercentileAverage: input.record.global.bestDpsPercentileAverage,
+          medianDpsPercentileAverage:
+            input.record.global.medianDpsPercentileAverage,
+          partition: input.record.global.partition,
+          zoneId: input.record.global.zoneId,
+        }
+      : null,
+    diagnostics: {
+      adapterVersion: CHARACTER_PERFORMANCE_AGGREGATE_RANKING_VERSION,
+      metric: POINTS_AND_DAMAGE_METRIC,
+      provenance: "AGGREGATE_ZONE_RANKINGS",
+      availableDungeonCount: input.record.diagnostics.availableDungeonCount,
+      expectedDungeonCount: input.record.diagnostics.expectedDungeonCount,
+      unavailableEncounters: input.record.diagnostics.unavailableEncounters,
+      wclBestPerformanceAverage:
+        input.record.diagnostics.wclBestPerformanceAverage,
+      wclMedianPerformanceAverage:
+        input.record.diagnostics.wclMedianPerformanceAverage,
+      computedBestAverage: input.record.diagnostics.computedBestAverage,
+      computedMedianAverage: input.record.diagnostics.computedMedianAverage,
+      ...(input.record.diagnostics.errorMessage
+        ? { errorMessage: input.record.diagnostics.errorMessage }
+        : {}),
+    },
+  });
 }
 
 function emptyDiagnostics(

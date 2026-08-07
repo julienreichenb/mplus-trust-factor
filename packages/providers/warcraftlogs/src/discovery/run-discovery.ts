@@ -39,6 +39,12 @@ export const ENCOUNTER_DUNGEON_MAP: Record<number, string> = {
 };
 
 /** Current configured M+ zone encounter slugs (zone 47) — Icecrown / legacy never included. */
+/**
+ * @deprecated Do not use as a production runtime dungeon-pool fallback.
+ * Prefer persisted SeasonDungeon bindings via ActiveMythicPlusSeasonAuthority.
+ * Kept for encounter→slug mapping, probes with explicit options, and regression fixtures.
+ * Prefer ZONE_47_MIDNIGHT_S1_CATALOG in worker active-mplus-season registry for sync input.
+ */
 export const CURRENT_MPLUS_ZONE_ENCOUNTER_IDS = [
   112526, 12811, 12874, 12915, 10658, 361753, 61209, 12805,
 ] as const;

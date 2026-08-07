@@ -14,7 +14,7 @@ import type {
   RaiderIoStaticData,
 } from "./raiderio.js";
 import type { MythicRunDTO } from "./runs.js";
-import type { WclCharacterSummaryDTO } from "./warcraftlogs.js";
+import type { WclCharacterSummaryDTO, WclDungeonPerformanceAggregateDTO } from "./warcraftlogs.js";
 
 export type ProviderName = "blizzard" | "warcraftlogs" | "raiderio";
 
@@ -35,6 +35,12 @@ export interface ProviderFetchContext {
     dungeonSlug?: string;
     keyLevel?: number;
   }>;
+  /**
+   * Active-season dungeon pool (canonical slugs). When present, live
+   * `discoverCharacterRuns` uses coverage-aware iterative hydration so a cold
+   * DB can still populate the 2×N evidence candidate pool from public WCL.
+   */
+  wclActiveDungeonSlugs?: readonly string[];
 }
 
 export interface ProviderRequestMetadata {
@@ -305,6 +311,29 @@ export interface WarcraftLogsProvider {
     identity: CharacterIdentityInput,
     ctx: ProviderFetchContext,
   ): Promise<ProviderResult<WclCharacterSummaryDTO>>;
+  /**
+   * Dedicated Character.zoneRankings points_and_damage aggregate (character/season).
+   * Must not pull recent reports, fight hydration, or events.
+   */
+  fetchCharacterPerformanceAggregate?(input: {
+    character: CharacterIdentityInput;
+    zoneId: number;
+    partition: number | null;
+    ctx: ProviderFetchContext;
+  }): Promise<{
+    record: {
+      state: "OK" | "ERROR" | "SCHEMA_UNSUPPORTED" | "SKIPPED" | "EMPTY";
+      adapterVersion: string;
+      metric: "points_and_damage";
+      raw: unknown;
+      dungeonAggregates: WclDungeonPerformanceAggregateDTO[];
+      global: unknown;
+      diagnostics: unknown;
+    };
+    rawPayload: unknown;
+    sourceRequestFingerprint: string;
+    providerCalls: number;
+  }>;
 }
 
 /** Normalized WCL rate snapshot for admission / budget gates (no GraphQL payload). */

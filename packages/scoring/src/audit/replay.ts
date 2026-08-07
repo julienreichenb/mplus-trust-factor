@@ -16,13 +16,13 @@ import { characterSeasonEvidenceManifestV2Schema } from "@mplus/contracts";
 import {
   finalizeShadowDimensions,
   type PersistedFactSetRef,
-  type ScoringV2PublicDimension,
+  type ScoringPublicDimension,
 } from "../dimensions/v2/index.js";
 import { stableStringify } from "../model-config/stable-hash.js";
 import { parseFactDocumentIdentity, identitiesMatch } from "./fact-identity.js";
 
 export interface ReplayPersistedDimension {
-  dimension: ScoringV2PublicDimension;
+  dimension: ScoringPublicDimension;
   score: number | null;
   confidence: number;
   state: string;
@@ -32,7 +32,7 @@ export interface ReplayPersistedDimension {
   scoreModelId?: string | null;
 }
 
-export interface ReplayScoringV2DimensionsInput {
+export interface ReplayscoringDimensionsInput {
   characterId: string;
   seasonId: string;
   manifestId: string;
@@ -42,10 +42,10 @@ export interface ReplayScoringV2DimensionsInput {
   factSets: PersistedFactSetRef[];
   persistedDimensions: ReplayPersistedDimension[];
   /** Defaults to WCL-backed dimensions only (EXPERIENCE excluded). */
-  enabledDimensions?: ScoringV2PublicDimension[];
+  enabledDimensions?: ScoringPublicDimension[];
 }
 
-const WCL_REPLAY_DIMENSIONS: ScoringV2PublicDimension[] = [
+const WCL_REPLAY_DIMENSIONS: ScoringPublicDimension[] = [
   "PERFORMANCE",
   "SURVIVAL",
   "UTILITY",
@@ -157,8 +157,8 @@ export function identityValidFactSets(
 /**
  * Replay WCL-backed dimensions from persisted facts and compare to stored computations.
  */
-export function replayScoringV2Dimensions(
-  input: ReplayScoringV2DimensionsInput,
+export function replayscoringDimensions(
+  input: ReplayscoringDimensionsInput,
 ): EvidenceAuditReplayResult {
   const details: string[] = [];
 
@@ -190,7 +190,7 @@ export function replayScoringV2Dimensions(
     ...new Set(
       input.persistedDimensions
         .filter((d) =>
-          (enabled as readonly ScoringV2PublicDimension[]).includes(d.dimension),
+          (enabled as readonly ScoringPublicDimension[]).includes(d.dimension),
         )
         .map((d) => d.scoreModelId)
         .filter((id): id is string => typeof id === "string" && id.length > 0),
