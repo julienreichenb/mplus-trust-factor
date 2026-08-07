@@ -198,6 +198,7 @@ export {
 } from "./selection/evidence-v2-selector.js";
 export {
   mythicRunToEvidenceCandidateMetadata,
+  mythicRunToEvidenceCandidateMetadataList,
   scoringRunCandidateToEvidenceMetadata,
 } from "./selection/evidence-v2-adapters.js";
 export {

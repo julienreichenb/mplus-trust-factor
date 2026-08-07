@@ -7,7 +7,7 @@ import {
 import type { WorkerContainer } from "../container.js";
 import { resolveActiveRefreshContract } from "./build-refresh-contract.js";
 import { runAuthoritativeScoring } from "./scoring/refresh-bridge.js";
-import { mythicRunToEvidenceCandidateMetadata } from "@mplus/scoring";
+import { mythicRunToEvidenceCandidateMetadataList } from "@mplus/scoring";
 import {
   buildCandidatesFromPersistedDigests,
   mergeEvidenceCandidates,
@@ -97,27 +97,25 @@ export async function runRecalculateScore(
     take: 200,
   });
 
-  const runCandidates = participants
-    .map((p) => {
-      const run = p.run;
-      const dto = {
-        id: run.id,
-        dungeonSlug: run.dungeon.slug,
-        keyLevel: run.keyLevel,
-        timed: run.timed,
-        scoreValue: run.scoreValue,
-        completedAt: run.completedAt.toISOString(),
-        durationMs: run.durationMs,
-        sources: run.sources.map((s) => ({
-          provider: s.provider,
-          reportCode: s.reportCode,
-          fightId: s.fightId,
-          revision: s.revision ?? null,
-        })),
-      } as unknown as MythicRunDTO;
-      return mythicRunToEvidenceCandidateMetadata(dto);
-    })
-    .filter((c): c is NonNullable<typeof c> => c != null);
+  const runCandidates = participants.flatMap((p) => {
+    const run = p.run;
+    const dto = {
+      id: run.id,
+      dungeonSlug: run.dungeon.slug,
+      keyLevel: run.keyLevel,
+      timed: run.timed,
+      scoreValue: run.scoreValue,
+      completedAt: run.completedAt.toISOString(),
+      durationMs: run.durationMs,
+      sources: run.sources.map((s) => ({
+        provider: s.provider,
+        reportCode: s.reportCode,
+        fightId: s.fightId,
+        revision: s.revision ?? null,
+      })),
+    } as unknown as MythicRunDTO;
+    return mythicRunToEvidenceCandidateMetadataList(dto);
+  });
 
   const digestCandidates = await buildCandidatesFromPersistedDigests({
     prisma: container.prisma,

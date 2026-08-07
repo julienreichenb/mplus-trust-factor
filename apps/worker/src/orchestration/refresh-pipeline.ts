@@ -3786,7 +3786,7 @@ export async function runRefreshPipeline(
 
   // Authoritative scoring — scoreCharacter() only. No legacy calculateScore fallback.
   const { resolveFrozenCharacterIdentity } = await import("./scoring/class-spec-identity.js");
-  const { mythicRunToEvidenceCandidateMetadata } = await import("@mplus/scoring");
+  const { mythicRunToEvidenceCandidateMetadataList } = await import("@mplus/scoring");
   const { runAuthoritativeScoring } = await import("./scoring/refresh-bridge.js");
   const frozenIdentity = resolveFrozenCharacterIdentity({
     blizzard: blizzardProfile
@@ -3804,9 +3804,15 @@ export async function runRefreshPipeline(
         }
       : null,
   });
-  const fusedCandidates = fusedRuns
-    .map((run) => mythicRunToEvidenceCandidateMetadata(run))
-    .filter((c): c is NonNullable<typeof c> => c != null);
+  // Prefer pre-fusion WCL discovery identities (reportCode:fightId), matching
+  // known-good canary selection. Fusion may attach multiple WCL uploads onto one
+  // MythicRun — expand those sources too so duplicate uploads stay selectable.
+  const discoveredCandidates = discoveredRuns.flatMap((run) =>
+    mythicRunToEvidenceCandidateMetadataList(run, { discoverySource: "wcl-discovery" }),
+  );
+  const fusedCandidates = fusedRuns.flatMap((run) =>
+    mythicRunToEvidenceCandidateMetadataList(run),
+  );
   // Supplement thin / revision-null MythicRun WCL sources with persisted digests
   // so scoreCharacter can reuse already-acquired fight evidence.
   const { buildCandidatesFromPersistedDigests, mergeEvidenceCandidates } =
@@ -3816,12 +3822,13 @@ export async function runRefreshPipeline(
     characterId: character.id,
   });
   const authoritativeCandidates = mergeEvidenceCandidates(
-    fusedCandidates,
+    mergeEvidenceCandidates(discoveredCandidates, fusedCandidates),
     digestCandidates,
   );
   logger.info(
     {
       ...logBase,
+      discoveredCandidateCount: discoveredCandidates.length,
       fusedCandidateCount: fusedCandidates.length,
       digestCandidateCount: digestCandidates.length,
       authoritativeCandidateCount: authoritativeCandidates.length,
@@ -3829,7 +3836,7 @@ export async function runRefreshPipeline(
         (c) => c.reportRevision != null,
       ).length,
     },
-    "refresh: authoritative scoring candidates (fused + persisted digests)",
+    "refresh: authoritative scoring candidates (wcl discovery + fused + persisted digests)",
   );
   const scoringOutcome = await runAuthoritativeScoring({
     container,
