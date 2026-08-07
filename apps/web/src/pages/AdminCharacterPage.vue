@@ -180,6 +180,18 @@ function toggleSort<K extends string>(
   }
 }
 
+function toggleDigestSort(key: typeof digestSortKey.value): void {
+  toggleSort(digestSortKey, digestSortDir, key);
+}
+
+function toggleScoreSort(key: typeof scoreSortKey.value): void {
+  toggleSort(scoreSortKey, scoreSortDir, key);
+}
+
+function toggleSnapshotSort(key: typeof snapshotSortKey.value): void {
+  toggleSort(snapshotSortKey, snapshotSortDir, key);
+}
+
 const filteredDigests = computed(() => {
   const q = digestFilter.value.trim().toLowerCase();
   let rows = detail.value?.digests ?? [];
@@ -465,33 +477,33 @@ const currentGrade = computed((): Grade | null => {
             <thead>
               <tr>
                 <th>
-                  <button type="button" class="th-btn" @click="toggleSort(digestSortKey, digestSortDir, 'dungeonSlug')">
+                  <button type="button" class="th-btn" @click="toggleDigestSort('dungeonSlug')">
                     Dungeon
                   </button>
                 </th>
                 <th>
-                  <button type="button" class="th-btn" @click="toggleSort(digestSortKey, digestSortDir, 'keyLevel')">
+                  <button type="button" class="th-btn" @click="toggleDigestSort('keyLevel')">
                     Key
                   </button>
                 </th>
                 <th>
-                  <button type="button" class="th-btn" @click="toggleSort(digestSortKey, digestSortDir, 'reportCode')">
+                  <button type="button" class="th-btn" @click="toggleDigestSort('reportCode')">
                     Report
                   </button>
                 </th>
                 <th>Fight</th>
                 <th>
-                  <button type="button" class="th-btn" @click="toggleSort(digestSortKey, digestSortDir, 'specSlug')">
+                  <button type="button" class="th-btn" @click="toggleDigestSort('specSlug')">
                     Spec
                   </button>
                 </th>
                 <th>
-                  <button type="button" class="th-btn" @click="toggleSort(digestSortKey, digestSortDir, 'role')">
+                  <button type="button" class="th-btn" @click="toggleDigestSort('role')">
                     Role
                   </button>
                 </th>
                 <th>
-                  <button type="button" class="th-btn" @click="toggleSort(digestSortKey, digestSortDir, 'createdAt')">
+                  <button type="button" class="th-btn" @click="toggleDigestSort('createdAt')">
                     Created
                   </button>
                 </th>
@@ -591,23 +603,23 @@ const currentGrade = computed((): Grade | null => {
                 <th>Season</th>
                 <th>Version</th>
                 <th>
-                  <button type="button" class="th-btn" @click="toggleSort(scoreSortKey, scoreSortDir, 'composite')">
+                  <button type="button" class="th-btn" @click="toggleScoreSort('composite')">
                     Composite
                   </button>
                 </th>
                 <th>P / U / S / E</th>
                 <th>
-                  <button type="button" class="th-btn" @click="toggleSort(scoreSortKey, scoreSortDir, 'confidence')">
+                  <button type="button" class="th-btn" @click="toggleScoreSort('confidence')">
                     Confidence
                   </button>
                 </th>
                 <th>
-                  <button type="button" class="th-btn" @click="toggleSort(scoreSortKey, scoreSortDir, 'tier')">
+                  <button type="button" class="th-btn" @click="toggleScoreSort('tier')">
                     Tier
                   </button>
                 </th>
                 <th>
-                  <button type="button" class="th-btn" @click="toggleSort(scoreSortKey, scoreSortDir, 'calculatedAt')">
+                  <button type="button" class="th-btn" @click="toggleScoreSort('calculatedAt')">
                     Calculated
                   </button>
                 </th>
@@ -661,23 +673,23 @@ const currentGrade = computed((): Grade | null => {
                 <th>Season</th>
                 <th>Model</th>
                 <th>
-                  <button type="button" class="th-btn" @click="toggleSort(snapshotSortKey, snapshotSortDir, 'overallScore')">
+                  <button type="button" class="th-btn" @click="toggleSnapshotSort('overallScore')">
                     Overall
                   </button>
                 </th>
                 <th>
-                  <button type="button" class="th-btn" @click="toggleSort(snapshotSortKey, snapshotSortDir, 'grade')">
+                  <button type="button" class="th-btn" @click="toggleSnapshotSort('grade')">
                     Grade
                   </button>
                 </th>
                 <th>
-                  <button type="button" class="th-btn" @click="toggleSort(snapshotSortKey, snapshotSortDir, 'confidence')">
+                  <button type="button" class="th-btn" @click="toggleSnapshotSort('confidence')">
                     Confidence
                   </button>
                 </th>
                 <th>Publication</th>
                 <th>
-                  <button type="button" class="th-btn" @click="toggleSort(snapshotSortKey, snapshotSortDir, 'calculatedAt')">
+                  <button type="button" class="th-btn" @click="toggleSnapshotSort('calculatedAt')">
                     Calculated
                   </button>
                 </th>
