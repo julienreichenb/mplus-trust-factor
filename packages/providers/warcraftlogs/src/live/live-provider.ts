@@ -48,12 +48,15 @@ import {
 } from "../discovery/points-and-damage-performance.js";
 import { parseJsonScalar } from "../probe/performance-probe-logic.js";
 import {
+  INCREMENTAL_HYDRATION_BATCH_SIZE,
+  INITIAL_HYDRATION_BUDGET,
   MAX_HYDRATION_REPORTS,
 } from "../discovery/bounds.js";
 import {
   hydrateFightUnknownCandidates,
   type HydrationReportPayload,
 } from "../discovery/report-hydration.js";
+import { hydrateFightUnknownCandidatesIterative } from "../discovery/iterative-report-hydration.js";
 import { collectBoundedRecentReportCodes } from "../discovery/recent-reports-pagination.js";
 import {
   extractFriendlyPlayerActorIds,
@@ -243,26 +246,81 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
     ctx: ProviderFetchContext,
   ): Promise<ProviderResult<MythicRunDTO[]>> {
     const discovery = await this.discoverCharacter(identity, ctx);
-    const hydrated = await hydrateFightUnknownCandidates({
-      candidates: discovery.candidates,
-      characterName: identity.name,
-      realmSlug: identity.realmSlug,
-      hints: ctx.wclHydrationHints,
-      maxReports: this.maxHydrationReports,
-      fetchReport: (code) => this.fetchReportPayloadForHydration(code),
-    });
-    if (hydrated.hydratedReportCount > 0) {
+    const activeDungeonSlugs = (ctx.wclActiveDungeonSlugs ?? [])
+      .map((slug) => slug.trim().toLowerCase())
+      .filter((slug) => slug.length > 0);
+    const fetchReport = (code: string) => this.fetchReportPayloadForHydration(code);
+
+    // Coverage-aware iterative path (V2 cold production): open reports until each
+    // active dungeon has TARGET candidates or stubs/rate budget are exhausted.
+    // Legacy fixed budget (MAX_HYDRATION_REPORTS=5) is insufficient for 2×8 slots.
+    let hydratedCandidates = discovery.candidates;
+    let hydratedReportCount = 0;
+    let terminalHydrationReason: string | null = null;
+    let totalReportsHydrated: number | null = null;
+    let reportsRemaining: number | null = null;
+
+    if (activeDungeonSlugs.length > 0) {
+      const iterative = await hydrateFightUnknownCandidatesIterative({
+        candidates: discovery.candidates,
+        characterName: identity.name,
+        realmSlug: identity.realmSlug,
+        hints: ctx.wclHydrationHints,
+        activeDungeonSlugs,
+        initialBudget:
+          this.maxHydrationReports > MAX_HYDRATION_REPORTS
+            ? this.maxHydrationReports
+            : INITIAL_HYDRATION_BUDGET,
+        incrementalBatchSize: INCREMENTAL_HYDRATION_BATCH_SIZE,
+        fetchReport,
+        evaluateIncrementalAdmission: (args) => ({
+          allow: true,
+          action: "OK" as const,
+          reasons: ["live_discover_incremental_default_allow"],
+          projectedIncrementalPoints: args.projectedIncrementalPoints,
+        }),
+      });
+      hydratedCandidates = iterative.candidates;
+      hydratedReportCount = iterative.hydratedReportCount;
+      terminalHydrationReason = iterative.diagnostics.terminalHydrationReason;
+      totalReportsHydrated = iterative.diagnostics.totalReportsHydrated;
+      reportsRemaining = iterative.diagnostics.reportsRemaining;
+    } else {
+      const legacy = await hydrateFightUnknownCandidates({
+        candidates: discovery.candidates,
+        characterName: identity.name,
+        realmSlug: identity.realmSlug,
+        hints: ctx.wclHydrationHints,
+        maxReports: this.maxHydrationReports,
+        fetchReport,
+      });
+      hydratedCandidates = legacy.candidates;
+      hydratedReportCount = legacy.hydratedReportCount;
+    }
+
+    const knownFightCandidates = hydratedCandidates.filter(
+      (c) => !c.incompleteness.fightUnknown,
+    ).length;
+    if (hydratedReportCount > 0) {
       this.logger.info(
         {
           identity,
-          hydratedReportCount: hydrated.hydratedReportCount,
-          knownFightCandidates: hydrated.candidates.filter((c) => !c.incompleteness.fightUnknown)
-            .length,
+          hydratedReportCount,
+          knownFightCandidates,
+          coverageAware: activeDungeonSlugs.length > 0,
+          activeDungeonCount: activeDungeonSlugs.length,
+          ...(terminalHydrationReason != null
+            ? {
+                terminalHydrationReason,
+                totalReportsHydrated,
+                reportsRemaining,
+              }
+            : {}),
         },
         "wcl.discovery.hydration",
       );
     }
-    const runs = hydrated.candidates
+    const runs = hydratedCandidates
       .filter((c) => !c.incompleteness.fightUnknown && c.fightId > 0)
       .map((c) => this.candidateToMythicRun(c, identity, ctx));
     const envelope = providerEnvelope(

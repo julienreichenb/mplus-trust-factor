@@ -152,6 +152,11 @@ import {
 } from "./reconcile.js";
 import { classifyError, isSoftSkip } from "./retry-classification.js";
 import {
+  classifyWclRunDiscoveryOutcome,
+  wclDiscoveryWarning,
+  type WclRunDiscoveryOutcome,
+} from "./wcl-discovery-outcome.js";
+import {
   canonicalDungeonKey,
   collectRaiderIoRuns,
   ensureTargetParticipant,
@@ -1165,6 +1170,9 @@ export async function runRefreshPipeline(
     rankings: WclRankingObservation[];
     performance: Awaited<ReturnType<typeof resolveWclSummary>>["performance"];
     rejectedLegacyCache: boolean;
+    /** Distinguishes disable / throw / genuine empty discovery. */
+    discoveryOutcome: WclRunDiscoveryOutcome;
+    discoveryDetail: string | null;
   };
 
   const enrichRaiderIo = async (): Promise<RaiderIoEnrichment> => {
@@ -1262,22 +1270,57 @@ export async function runRefreshPipeline(
 
   const enrichWarcraftLogs = async (
     hydrationHints: NonNullable<ProviderFetchContext["wclHydrationHints"]>,
+    activeDungeonSlugs: readonly string[],
   ): Promise<WclEnrichment> => {
     if (disabledProviders.has("warcraftlogs") || isFixtureDisabledIdentity(identity)) {
       stagesSkipped.push("refresh-warcraftlogs-summary");
+      const discoveryOutcome = classifyWclRunDiscoveryOutcome({
+        disabled: true,
+        threw: false,
+        runCount: 0,
+      });
+      const warning = wclDiscoveryWarning(discoveryOutcome);
+      if (warning) fusionWarnings.push(warning);
       await repositories.providerState.upsert({
         characterId: character.id,
         provider: "warcraftlogs",
         state: "UNAVAILABLE",
         detail: "provider disabled",
         lastAttemptAt: now,
+        metadata: {
+          discoveryOutcome,
+          discoveryDetail: "provider disabled",
+        },
       });
-      return { visibility: null, dataState: null, runs: [], dungeonAggregates: [], rankings: [], performance: null, rejectedLegacyCache: false };
+      logger.warn(
+        {
+          ...logBase,
+          event: "wcl_run_discovery_outcome",
+          discoveryOutcome,
+          discoveryDetail: "provider disabled",
+          discoveredRunCount: 0,
+        },
+        "wcl_run_discovery_outcome",
+      );
+      return {
+        visibility: null,
+        dataState: null,
+        runs: [],
+        dungeonAggregates: [],
+        rankings: [],
+        performance: null,
+        rejectedLegacyCache: false,
+        discoveryOutcome,
+        discoveryDetail: "provider disabled",
+      };
     }
 
     const wclCtx: ProviderFetchContext = {
       ...ctx,
       wclHydrationHints: hydrationHints,
+      ...(activeDungeonSlugs.length > 0
+        ? { wclActiveDungeonSlugs: [...activeDungeonSlugs] }
+        : {}),
     };
 
     let visibility: WclVisibilityState | null = null;
@@ -1373,6 +1416,19 @@ export async function runRefreshPipeline(
       const wclRankings =
         (runsResult as { wclRankings?: WclRankingObservation[] }).wclRankings ?? [];
 
+      const discoveryOutcome = classifyWclRunDiscoveryOutcome({
+        disabled: false,
+        threw: false,
+        runCount: runsResult.data.length,
+        dataState,
+      });
+      const discoveryDetail =
+        discoveryOutcome === "NO_PUBLIC_RUNS"
+          ? dataState ?? "no public WCL runs discovered"
+          : null;
+      const warning = wclDiscoveryWarning(discoveryOutcome, discoveryDetail);
+      if (warning) fusionWarnings.push(warning);
+
       // Do not mark WCL refresh successful when Performance came back incompatible/error.
       const markSuccess = performanceOkForSuccess || performance == null;
       await repositories.providerState.upsert({
@@ -1393,13 +1449,28 @@ export async function runRefreshPipeline(
           wclDataState: dataState,
           discoveredRunCount: runsResult.data.length,
           hydrationHintCount: hydrationHints.length,
+          activeDungeonSlugCount: activeDungeonSlugs.length,
           dungeonAggregateCount: dungeonAggregates.length,
           performanceState: performance?.state ?? null,
           performanceAdapterVersion: POINTS_AND_DAMAGE_ADAPTER_VERSION,
           rejectedLegacyCache,
           summaryFingerprint,
+          discoveryOutcome,
+          discoveryDetail,
         },
       });
+      logger.info(
+        {
+          ...logBase,
+          event: "wcl_run_discovery_outcome",
+          discoveryOutcome,
+          discoveryDetail,
+          discoveredRunCount: runsResult.data.length,
+          hydrationHintCount: hydrationHints.length,
+          activeDungeonSlugCount: activeDungeonSlugs.length,
+        },
+        "wcl_run_discovery_outcome",
+      );
       return {
         visibility,
         dataState,
@@ -1408,15 +1479,26 @@ export async function runRefreshPipeline(
         rankings: wclRankings,
         performance,
         rejectedLegacyCache,
+        discoveryOutcome,
+        discoveryDetail,
       };
     } catch (error) {
       // WCL is enrichment-only: never block a Blizzard/Raider.IO-backed MVP score.
-      // GraphQL schema / invalid-response errors stay UNAVAILABLE with detail.
-      // Performance may already be OK from summary even if combat/report hydration fails later.
+      // Keep soft-skip, but never disguise implementation failures as NO_PUBLIC_RUNS.
       stagesSkipped.push("refresh-warcraftlogs-summary");
       const state = mapErrorToProviderState(error);
       const failedDataState: WclDataState =
         state === "RATE_LIMITED" ? "RATE_LIMITED" : dataState ?? "UNAVAILABLE";
+      const discoveryDetail =
+        error instanceof Error ? error.message : "enrichment soft-skip";
+      const discoveryOutcome = classifyWclRunDiscoveryOutcome({
+        disabled: false,
+        threw: true,
+        runCount: 0,
+        dataState: failedDataState,
+      });
+      const warning = wclDiscoveryWarning(discoveryOutcome, discoveryDetail);
+      if (warning) fusionWarnings.push(warning);
       await repositories.providerState.upsert({
         characterId: character.id,
         provider: "warcraftlogs",
@@ -1426,7 +1508,7 @@ export async function runRefreshPipeline(
             : visibility
               ? mapWclVisibilityToState(visibility, failedDataState)
               : state,
-        detail: error instanceof Error ? error.message : "enrichment soft-skip",
+        detail: discoveryDetail,
         wclVisibility: visibility,
         lastAttemptAt: now,
         metadata: {
@@ -1434,9 +1516,27 @@ export async function runRefreshPipeline(
           performanceState: performance?.state ?? null,
           performanceAdapterVersion: POINTS_AND_DAMAGE_ADAPTER_VERSION,
           rejectedLegacyCache,
+          discoveryOutcome,
+          discoveryDetail,
+          errorName: error instanceof Error ? error.name : typeof error,
+          errorCode:
+            error && typeof error === "object" && "code" in error
+              ? String((error as { code?: unknown }).code ?? "")
+              : null,
         },
       });
-      logger.info({ identity, err: error }, "refresh pipeline: WCL soft-skipped");
+      logger.warn(
+        {
+          ...logBase,
+          identity,
+          err: error,
+          event: "wcl_run_discovery_outcome",
+          discoveryOutcome,
+          discoveryDetail,
+          discoveredRunCount: 0,
+        },
+        "refresh pipeline: WCL soft-skipped (WCL_DISCOVERY_FAILED)",
+      );
       return {
         visibility,
         dataState: failedDataState,
@@ -1445,6 +1545,8 @@ export async function runRefreshPipeline(
         rankings: [],
         performance,
         rejectedLegacyCache,
+        discoveryOutcome,
+        discoveryDetail,
       };
     }
   };
@@ -1469,8 +1571,19 @@ export async function runRefreshPipeline(
     keyLevel: run.keyLevel,
   }));
 
+  // Resolve active-season dungeon pool before WCL discovery so cold
+  // discoverCharacterRuns can use coverage-aware iterative hydration (2×N).
+  const preWclSeasonDungeonRows = await container.prisma.seasonDungeon.findMany({
+    where: { seasonId: preflightAuthority.seasonRowId },
+    include: { dungeon: true },
+    orderBy: { sortOrder: "asc" },
+  });
+  const wclActiveDungeonSlugs = preWclSeasonDungeonRows.map((row) =>
+    canonicalDungeonKey(row.dungeon.slug),
+  );
+
   await assertNotCancelled("pre_warcraftlogs");
-  const wclEnrichment = await enrichWarcraftLogs(hydrationHints);
+  const wclEnrichment = await enrichWarcraftLogs(hydrationHints, wclActiveDungeonSlugs);
   wclVisibility = wclEnrichment.visibility;
   wclDataState = wclEnrichment.dataState;
   discoveredRuns = wclEnrichment.runs;
@@ -1478,6 +1591,8 @@ export async function runRefreshPipeline(
   const wclRankings = wclEnrichment.rankings;
   const wclPerformanceRecord = wclEnrichment.performance;
   const wclRejectedLegacyCache = wclEnrichment.rejectedLegacyCache;
+  const wclDiscoveryOutcome = wclEnrichment.discoveryOutcome;
+  const wclDiscoveryDetail = wclEnrichment.discoveryDetail;
   await assertNotCancelled("post_warcraftlogs");
 
   // ── Reconcile + fuse runs ───────────────────────────────────────────────
@@ -1641,6 +1756,8 @@ export async function runRefreshPipeline(
         raiderio: rioRuns.length,
         warcraftlogs: discoveredRuns.length,
       },
+      wclDiscoveryOutcome,
+      wclDiscoveryDetail,
       canonicalRunCount: fusion.mergedCanonicalRunCount,
       sharedSourceRunCount,
       duplicatesReconciled: fusion.matchedPairCount,
@@ -1904,7 +2021,28 @@ export async function runRefreshPipeline(
   const earlySpecSlug = blizzardProfile?.specSlug ?? raiderIoProfile?.specSlug ?? null;
   let analysisAttemptedCount = 0;
 
-  if (!disabledProviders.has("warcraftlogs")) {
+  // When scoreCharacter owns P/U/S, detailed ReportEvents must wait until after
+  // V2 selection of ≤16 runs (orchestrateScoringRuns). Legacy analyze-run /
+  // survival shared-evidence before that selection is the regression that
+  // fetched events for non-selected candidates.
+  const deferDetailedWclAcquisitionToScoring = container.env.SCORING_ENABLED === true;
+
+  if (disabledProviders.has("warcraftlogs")) {
+    stagesSkipped.push("analyze-run");
+  } else if (deferDetailedWclAcquisitionToScoring) {
+    logger.info(
+      {
+        ...logBase,
+        event: "wcl_acquisition_phase",
+        phase: "DISCOVERY",
+        discoveredRunCount: discoveredRuns.length,
+        fusedCandidateHint: scoringCandidates.length,
+        detail:
+          "SCORING_ENABLED: metadata discovery complete; ReportEvents deferred until after ≤16 selection",
+      },
+      "wcl_acquisition_phase",
+    );
+  } else {
     let runsToAnalyze = [...selectedRunRows.values()];
     if (runsToAnalyze.length === 0) {
       const [latestRun, highestRun] = await Promise.all([
@@ -2055,8 +2193,6 @@ export async function runRefreshPipeline(
         await failHard("analyze-run", error);
       }
     }
-  } else {
-    stagesSkipped.push("analyze-run");
   }
 
   // ── Survival V1.1.1 run analyses (reuse compatible cache; fetch missing only) ──
@@ -2078,7 +2214,11 @@ export async function runRefreshPipeline(
     includeRacials: false,
   });
 
-  if (!disabledProviders.has("warcraftlogs") && scoringCandidates.length > 0) {
+  if (
+    !deferDetailedWclAcquisitionToScoring &&
+    !disabledProviders.has("warcraftlogs") &&
+    scoringCandidates.length > 0
+  ) {
     const maxSurvivalPerDungeon =
       SURVIVAL_STANDALONE_V1_1_1_CONFIG.selection.maxRunsPerDungeon;
     const allowedSurvivalDungeons = new Set(
@@ -2655,6 +2795,8 @@ export async function runRefreshPipeline(
       survivalAdapterVersion: SURVIVAL_STANDALONE_V1_1_1_CONFIG.adapterVersion,
       survivalConfigVersion: SURVIVAL_STANDALONE_V1_1_1_CONFIG.version,
       survivalRequestCost: survivalCost,
+      discoveryOutcome: wclDiscoveryOutcome,
+      discoveryDetail: wclDiscoveryDetail,
     };
     // Always persist character-level provider visibility (including zero matched runs).
     // Preserve Performance + Survival success gating — do not stamp lastSuccessAt over a failed required dataset.
@@ -3049,7 +3191,11 @@ export async function runRefreshPipeline(
   );
 
   await assertNotCancelled("pre_utility_fallback");
-  if (utilityBaseline.fallbackAllowed && !disabledProviders.has("warcraftlogs")) {
+  if (
+    !deferDetailedWclAcquisitionToScoring &&
+    utilityBaseline.fallbackAllowed &&
+    !disabledProviders.has("warcraftlogs")
+  ) {
     const liveWclForUtility = providers.warcraftlogs as {
       getGraphQlClient?: () => WclGraphQlClient;
       getRateLimit?: () => Promise<{
@@ -3706,6 +3852,21 @@ export async function runRefreshPipeline(
     realm: identity.realmSlug,
     characterName: identity.name,
   });
+  const orch = scoringOutcome.scoreResult?.orchestration;
+  logger.info(
+    {
+      ...logBase,
+      event: "wcl_acquisition_phase",
+      phase: "SCORING_COMPLETE",
+      selectedSlotCount: orch?.selectedSlotCount ?? 0,
+      expectedSlotCount: orch?.expectedSlotCount ?? 0,
+      packagesCreated: orch?.accounting.packagesCreated ?? 0,
+      packagesReused: orch?.accounting.packagesReused ?? 0,
+      digestsCreated: orch?.accounting.digestsCreated ?? 0,
+      providerCalls: scoringOutcome.providerCalls,
+    },
+    "wcl_acquisition_phase",
+  );
   const scoreDto = scoringOutcome.snapshot;
   logger.info(
     {

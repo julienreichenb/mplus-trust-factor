@@ -231,6 +231,18 @@ async function main(): Promise<void> {
         console.error("REFUSED: ALLOW_LIVE_PROVIDER_CALLS must be true for cold/warm smoke");
         process.exit(2);
       }
+      if (!env.WCL_ENABLED) {
+        console.error(
+          "REFUSED: WCL_ENABLED must be true for cold/warm smoke (otherwise enrichWarcraftLogs skips discovery and all slots become MISSING_NO_CANDIDATE)",
+        );
+        process.exit(2);
+      }
+      if (container.disabledProviders.has("warcraftlogs")) {
+        console.error(
+          "REFUSED: warcraftlogs is in disabledProviders — cannot validate cold WCL discovery",
+        );
+        process.exit(2);
+      }
 
       // Canonical production discovery/bootstrap — same path as public exact resolve.
       const prepared = await prepareSmokeCharacterForRefresh({

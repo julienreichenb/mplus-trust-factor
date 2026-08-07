@@ -1,0 +1,2 @@
+
+C:\Users\julie\VS Projects\mplus-worktrees\feat-scoring-real-character-smoke>  "C:\Program Files\nodejs\\node.exe"  "C:\Program Files\nodejs\\node_modules\corepack\dist\pnpm.js" --filter @mplus/database exec tsx -e import {PrismaClient} from '@prisma/client'; const p=new PrismaClient(); const keys=Object.keys(p).filter(k=

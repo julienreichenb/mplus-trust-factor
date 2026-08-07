@@ -163,6 +163,8 @@ describe.skipIf(!dbAvailable)("runRefreshPipeline (fixture mode, real Postgres)"
       where: { characterId: result.character.id, provider: "WARCRAFT_LOGS" },
     });
     expect(wclState?.state).toBe("UNAVAILABLE");
+    expect(wclState?.detail).toBe("provider disabled");
+    expect(wclState?.metadata).toMatchObject({ discoveryOutcome: "WCL_DISABLED" });
 
     const wclSources = await prisma.runSourceReference.count({
       where: {
@@ -381,10 +383,14 @@ describe.skipIf(!dbAvailable)("runRefreshPipeline (fixture mode, real Postgres)"
     });
     expect(wclState).not.toBeNull();
     // Fixture path records NO_PUBLIC_LOGS on the provider row when available.
-    const meta = wclState?.metadata as { wclDataState?: string } | null;
+    const meta = wclState?.metadata as {
+      wclDataState?: string;
+      discoveryOutcome?: string;
+    } | null;
     if (meta?.wclDataState != null) {
       expect(meta.wclDataState).toBe("NO_PUBLIC_LOGS");
     }
+    expect(meta?.discoveryOutcome).toBe("NO_PUBLIC_RUNS");
   }, 30_000);
 
   it("still produces a score when WCL lacks discoverCharacterSummary and only has async discoverCharacter", async () => {
@@ -482,6 +488,190 @@ describe.skipIf(!dbAvailable)("runRefreshPipeline (fixture mode, real Postgres)"
     expect(result.job.status).toBe("COMPLETED");
     expect(result.score).not.toBeNull();
     expect(["queued", "QUEUED"]).not.toContain(result.job.status);
+
+    const wclState = await prisma.characterProviderState.findFirst({
+      where: { characterId: result.character.id, provider: "WARCRAFT_LOGS" },
+    });
+    expect(wclState?.metadata).toMatchObject({
+      discoveryOutcome: "WCL_DISCOVERY_FAILED",
+    });
+    expect(String((wclState?.metadata as { discoveryDetail?: string } | null)?.discoveryDetail ?? "")).toMatch(
+      /visibility/i,
+    );
+  }, 30_000);
+
+  it("cold WCL discovery produces ranked candidate runs without persisted evidence", async () => {
+    const base = buildContainer();
+    const liveLikeRuns = [
+      {
+        id: "ColdReportAAA-1",
+        region: "EU" as const,
+        seasonSlug: "blizzard-season-17",
+        dungeonSlug: "skyreach",
+        keyLevel: 22,
+        completedAt: "2026-07-01T12:00:00.000Z",
+        durationMs: 1_800_000,
+        timerMs: null,
+        timed: true,
+        scoreValue: 410,
+        canonicalFingerprint: "cold-fp-aaa",
+        affixes: [],
+        participants: [],
+        sources: [
+          {
+            provider: "WARCRAFT_LOGS" as const,
+            externalRunId: "ColdReportAAA:1",
+            externalUrl: "https://www.warcraftlogs.com/reports/ColdReportAAA?fight=1",
+            reportCode: "ColdReportAAA",
+            fightId: 1,
+            revision: null,
+          },
+        ],
+      },
+      {
+        id: "ColdReportBBB-2",
+        region: "EU" as const,
+        seasonSlug: "blizzard-season-17",
+        dungeonSlug: "pit-of-saron",
+        keyLevel: 21,
+        completedAt: "2026-07-02T12:00:00.000Z",
+        durationMs: 1_700_000,
+        timerMs: null,
+        timed: true,
+        scoreValue: 400,
+        canonicalFingerprint: "cold-fp-bbb",
+        affixes: [],
+        participants: [],
+        sources: [
+          {
+            provider: "WARCRAFT_LOGS" as const,
+            externalRunId: "ColdReportBBB:2",
+            externalUrl: "https://www.warcraftlogs.com/reports/ColdReportBBB?fight=2",
+            reportCode: "ColdReportBBB",
+            fightId: 2,
+            revision: null,
+          },
+        ],
+      },
+    ];
+    const wcl = Object.assign(Object.create(base.providers.warcraftlogs), {
+      async discoverCharacterSummary() {
+        return {
+          data: {
+            visibility: "PUBLIC" as const,
+            dataState: "OK" as const,
+            warnings: [],
+            dungeonAggregates: [],
+            performance: { state: "SKIPPED", raw: null, global: null, diagnostics: null },
+            rawZoneRankingsPointsAndDamage: null,
+          },
+          provenance: {
+            provider: "warcraftlogs" as const,
+            externalRequestId: null,
+            sourcePayloadId: null,
+            sourceUrl: null,
+            fetchedAt: new Date().toISOString(),
+            schemaVersion: "test",
+          },
+          freshness: { fetchedAt: new Date().toISOString(), expiresAt: null, stale: false },
+          metadata: {
+            provider: "warcraftlogs" as const,
+            endpointKey: "discoverCharacterSummary",
+            requestFingerprint: `cold-summary-${randomUUID()}`,
+            requestedAt: new Date().toISOString(),
+            completedAt: new Date().toISOString(),
+            statusCode: 200,
+            cacheHit: false,
+            retryCount: 0,
+            costUnits: 0,
+            etag: null,
+            expiresAt: null,
+          },
+        };
+      },
+      async discoverCharacterRuns(
+        _identity: unknown,
+        ctx: { wclActiveDungeonSlugs?: readonly string[] },
+      ) {
+        expect(ctx.wclActiveDungeonSlugs?.length ?? 0).toBeGreaterThan(0);
+        return {
+          data: liveLikeRuns,
+          provenance: {
+            provider: "warcraftlogs" as const,
+            externalRequestId: null,
+            sourcePayloadId: null,
+            sourceUrl: null,
+            fetchedAt: new Date().toISOString(),
+            schemaVersion: "test",
+          },
+          freshness: { fetchedAt: new Date().toISOString(), expiresAt: null, stale: false },
+          metadata: {
+            provider: "warcraftlogs" as const,
+            endpointKey: "discoverCharacterRuns",
+            requestFingerprint: `cold-runs-${randomUUID()}`,
+            requestedAt: new Date().toISOString(),
+            completedAt: new Date().toISOString(),
+            statusCode: 200,
+            cacheHit: false,
+            retryCount: 0,
+            costUnits: 1,
+            etag: null,
+            expiresAt: null,
+          },
+          wclRankings: [],
+        };
+      },
+      async getReportFightDetails() {
+        throw new ExternalApiError({
+          message: "fight details unavailable in cold discovery unit test",
+          code: "INVALID_RESPONSE",
+          provider: "warcraftlogs",
+          retryable: false,
+        });
+      },
+    });
+    const container = createWorkerContainer(loadEnv(), {
+      prisma,
+      providers: { warcraftlogs: wcl as never },
+    });
+    const name = `ColdWclDiscover-${randomUUID().slice(0, 8)}`;
+    const seeded = await seedRefreshEligibilityEvidenceForTest(container, {
+      region: "EU",
+      realmSlug: "tarren-mill",
+      name,
+    });
+
+    // True cold: no WCL sources / digests for this character before refresh.
+    const beforeSources = await prisma.runSourceReference.count({
+      where: {
+        provider: "WARCRAFT_LOGS",
+        run: { participants: { some: { characterId: seeded.characterId } } },
+      },
+    });
+    const beforeDigests = await prisma.characterRunDigest.count({
+      where: { characterId: seeded.characterId },
+    });
+    expect(beforeSources).toBe(0);
+    expect(beforeDigests).toBe(0);
+
+    const result = await runRefreshPipeline(container, buildJob(name, { forceRefresh: true }));
+    expect(result.job.status).toBe("COMPLETED");
+
+    const wclState = await prisma.characterProviderState.findFirst({
+      where: { characterId: result.character.id, provider: "WARCRAFT_LOGS" },
+    });
+    expect(wclState?.metadata).toMatchObject({
+      discoveryOutcome: "OK",
+      discoveredRunCount: 2,
+    });
+
+    const wclSources = await prisma.runSourceReference.count({
+      where: {
+        provider: "WARCRAFT_LOGS",
+        run: { participants: { some: { characterId: result.character.id } } },
+      },
+    });
+    expect(wclSources).toBeGreaterThanOrEqual(2);
   }, 30_000);
 
   it("marks unexpected pipeline failures FAILED (never QUEUED with an errorMessage)", async () => {

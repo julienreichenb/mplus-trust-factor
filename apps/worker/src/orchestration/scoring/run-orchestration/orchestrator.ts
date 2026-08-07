@@ -777,6 +777,25 @@ export async function orchestrateScoringRuns(
   const incomplete = incompleteSlotIds.length > 0 || manifest.selectedSlotCount < expectedSlotCount;
 
   const uniqueFights = uniqueSourceFightsFromManifest(manifest);
+  // Structured phase markers (no behavior change) — SELECTED before any ReportEvents.
+  console.info(
+    JSON.stringify({
+      event: "wcl_acquisition_phase",
+      phase: "SELECTED",
+      selectedSlotCount: manifest.selectedSlotCount,
+      expectedSlotCount,
+      uniqueSourceFights: uniqueFights.length,
+      candidateCount: input.candidates.length,
+    }),
+  );
+  console.info(
+    JSON.stringify({
+      event: "wcl_acquisition_phase",
+      phase: "DETAILED_ACQUISITION",
+      uniqueSourceFights: uniqueFights.length,
+      liveProviderPermission: input.liveProviderPermission,
+    }),
+  );
   const fightMeta = new Map<string, {
     dungeonSlug: string | null;
     keyLevel: number | null;

@@ -35,6 +35,12 @@ export interface ProviderFetchContext {
     dungeonSlug?: string;
     keyLevel?: number;
   }>;
+  /**
+   * Active-season dungeon pool (canonical slugs). When present, live
+   * `discoverCharacterRuns` uses coverage-aware iterative hydration so a cold
+   * DB can still populate the 2×N evidence candidate pool from public WCL.
+   */
+  wclActiveDungeonSlugs?: readonly string[];
 }
 
 export interface ProviderRequestMetadata {
