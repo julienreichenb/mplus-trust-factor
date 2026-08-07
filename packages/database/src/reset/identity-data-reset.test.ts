@@ -289,6 +289,19 @@ describe("table classification", () => {
     expect(ALL_PRISMA_MAPPED_TABLES.length).toBeGreaterThan(50);
   });
 
+  it("uses mapped Scoring V2 physical table names in the truncate plan", () => {
+    for (const table of ["scoring_v2_shadow_canaries", "scoring_v2_evidence_exports"] as const) {
+      expect(ALL_PRISMA_MAPPED_TABLES).toContain(table);
+      expect(WCL_SCORING_DERIVED_CLEAR_TABLES).toContain(table);
+      expect(IDENTITY_DATA_TRUNCATE_TABLES).toContain(table);
+    }
+    for (const stale of ["scoring_shadow_canaries", "scoring_evidence_exports"] as const) {
+      expect(ALL_PRISMA_MAPPED_TABLES).not.toContain(stale);
+      expect(WCL_SCORING_DERIVED_CLEAR_TABLES).not.toContain(stale);
+      expect(IDENTITY_DATA_TRUNCATE_TABLES).not.toContain(stale);
+    }
+  });
+
   it("44. Redis prefixes never include FLUSHALL wildcards", () => {
     const prefixes = identityResetRedisKeyPrefixes("development");
     expect(prefixes.some((p) => p.startsWith("mplus:development:"))).toBe(true);
@@ -729,7 +742,7 @@ describe("dry-run / execute planner", () => {
     const gate = assertIdentityDataResetAllowed(localGateInput());
     if (!gate.ok) throw new Error("gate");
 
-    const missingTable = "scoring_shadow_canaries";
+    const missingTable = "audit_events";
     const prisma = retentionPrisma();
     prisma.$queryRawUnsafe = vi.fn(async (sql: string, ...params: unknown[]) => {
       if (sql.includes("pg_catalog.pg_class") || sql.includes('AS "exists"')) {
@@ -741,6 +754,9 @@ describe("dry-run / execute planner", () => {
       const table = match?.[1] ?? "";
       if (table === "users" || table === "battlenet_accounts") return [{ count: 2n }];
       if (table === "characters") return [{ count: 5n }];
+      if (table === "scoring_v2_shadow_canaries" || table === "scoring_v2_evidence_exports") {
+        return [{ count: 1n }];
+      }
       return [{ count: 0n }];
     });
 
@@ -756,6 +772,12 @@ describe("dry-run / execute planner", () => {
     expect(plan.plannedTruncations.some((t) => t.table === missingTable)).toBe(false);
     expect(plan.plannedTruncations.some((t) => t.table === "characters")).toBe(true);
     expect(plan.plannedTruncations.find((t) => t.table === "characters")?.rowCount).toBe(5);
+    expect(plan.plannedTruncations.some((t) => t.table === "scoring_v2_shadow_canaries")).toBe(
+      true,
+    );
+    expect(plan.plannedTruncations.some((t) => t.table === "scoring_v2_evidence_exports")).toBe(
+      true,
+    );
     expect(plan.warnings.join(" ")).toMatch(/skipped missing reset-plan table/);
     expect(formatIdentityPlanTerminalSummary(plan)).toMatch(/skipped missing tables: 1/);
     expect(formatIdentityPlanTerminalSummary(plan)).toContain(missingTable);

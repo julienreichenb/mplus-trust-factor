@@ -199,7 +199,7 @@ describe("live writers vs stale DB statuses", () => {
           return [{ exists: true }];
         }
         if (sql.includes("ingestion_jobs")) return [{ count: 4n }];
-        if (sql.includes("scoring_shadow_canaries") || sql.includes("scoring_v2_shadow_canaries")) {
+        if (sql.includes("scoring_v2_shadow_canaries")) {
           return [{ count: 2n }];
         }
         if (sql.includes("bulk_operations")) return [{ count: 1n }];
@@ -279,7 +279,7 @@ describe("dry-run / execute planner", () => {
       }
       if (
         sql.includes("COUNT(*)") &&
-        (sql.includes("scoring_shadow_canaries") || sql.includes("scoring_v2_shadow_canaries"))
+        sql.includes("scoring_v2_shadow_canaries")
       ) {
         return [{ count: 0n }];
       }
@@ -394,7 +394,6 @@ describe("dry-run / execute planner", () => {
       if (sql.includes('"_prisma_migrations"')) return [{ count: 12n }];
       if (
         sql.includes("ingestion_jobs") ||
-        sql.includes("scoring_shadow_canaries") ||
         sql.includes("scoring_v2_shadow_canaries") ||
         sql.includes("bulk_operations") ||
         sql.includes("score_analysis_batches")

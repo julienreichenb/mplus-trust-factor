@@ -74,11 +74,11 @@ export const ALL_PRISMA_MAPPED_TABLES = [
   "run_fact_sets",
   "dimension_computations",
   "runtime_settings",
-  "scoring_evidence_exports",
+  "scoring_v2_evidence_exports",
   "evidence_dataset_pages",
   "wcl_run_source_digests",
   "wcl_run_participants",
-  "scoring_shadow_canaries",
+  "scoring_v2_shadow_canaries",
   "wcl_run_raw",
   "character_run_digests",
   "run_ranking_facts",
@@ -96,7 +96,7 @@ export type PrismaMappedTable = (typeof ALL_PRISMA_MAPPED_TABLES)[number];
  */
 export const WCL_SCORING_DERIVED_CLEAR_TABLES = [
   // Scoring V2 / WCL ownership persistence
-  "scoring_shadow_canaries",
+  "scoring_v2_shadow_canaries",
   "dimension_computations",
   "run_fact_sets",
   "evidence_dataset_pages",
@@ -106,7 +106,7 @@ export const WCL_SCORING_DERIVED_CLEAR_TABLES = [
   "wcl_run_participants",
   "wcl_run_source_digests",
   "wcl_report_revisions",
-  "scoring_evidence_exports",
+  "scoring_v2_evidence_exports",
   // Minimal scoring cache (WclRunRaw / digests / rankings / aggregates / scores)
   "character_performance_aggregates",
   "run_ranking_facts",
@@ -260,6 +260,6 @@ export const REQUIRED_WCL_OWNERSHIP_CLEAR_TABLES = [
   "evidence_dataset_pages",
   "wcl_run_source_digests",
   "wcl_run_participants",
-  "scoring_shadow_canaries",
+  "scoring_v2_shadow_canaries",
   "wcl_report_revisions",
 ] as const;

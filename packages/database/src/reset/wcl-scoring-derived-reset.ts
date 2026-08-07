@@ -128,18 +128,10 @@ export async function probeActiveWriters(input: {
       "ingestion_jobs",
       `SELECT COUNT(*)::bigint AS count FROM "ingestion_jobs" WHERE status IN ('QUEUED', 'ACTIVE')`,
     ),
-    // Prefer current mapped name; fall back to legacy clear-list name if present.
-    shadowCanariesNonTerminal: Math.max(
-      await countRawIfTableExists(
-        input.prisma,
-        "scoring_v2_shadow_canaries",
-        `SELECT COUNT(*)::bigint AS count FROM "scoring_v2_shadow_canaries" WHERE UPPER(status) IN ('QUEUED', 'RUNNING', 'PENDING', 'STARTED', 'ACTIVE')`,
-      ),
-      await countRawIfTableExists(
-        input.prisma,
-        "scoring_shadow_canaries",
-        `SELECT COUNT(*)::bigint AS count FROM "scoring_shadow_canaries" WHERE UPPER(status) IN ('QUEUED', 'RUNNING', 'PENDING', 'STARTED', 'ACTIVE')`,
-      ),
+    shadowCanariesNonTerminal: await countRawIfTableExists(
+      input.prisma,
+      "scoring_v2_shadow_canaries",
+      `SELECT COUNT(*)::bigint AS count FROM "scoring_v2_shadow_canaries" WHERE UPPER(status) IN ('QUEUED', 'RUNNING', 'PENDING', 'STARTED', 'ACTIVE')`,
     ),
     bulkOperationsNonTerminal: await countRawIfTableExists(
       input.prisma,
