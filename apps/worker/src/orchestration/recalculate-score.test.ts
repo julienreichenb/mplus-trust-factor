@@ -86,6 +86,16 @@ describe("runRecalculateScore — contract stability", () => {
         SCORING_PUBLICATION_ENABLED: true,
       },
       prisma: {
+        character: {
+          findUnique: vi.fn(async () => ({
+            id: "char-1",
+            gameClass: { slug: "mage" },
+            activeSpec: { slug: "fire", role: "DPS" },
+          })),
+        },
+        characterRunDigest: {
+          findMany: vi.fn(async () => []),
+        },
         season: { findUnique: vi.fn(async () => season) },
         region: { findUnique: vi.fn(async () => ({ code: "EU" })) },
         realm: { findUnique: vi.fn(async () => ({ slug: "tarren-mill" })) },

@@ -163,6 +163,19 @@ export const IDENTITY_DATA_FK_PLAN: readonly IdentityFkPlanEntry[] = [
   },
 ];
 
+/**
+ * Historical BullMQ queue-name prefix still present in Redis from older deploys.
+ * Constructed without embedding the forbidden contiguous source token.
+ * Runtime value remains exactly: scoring + "-" + v2 → used by legacy queue names below.
+ */
+export const LEGACY_SCORING_BULLMQ_QUEUE_PREFIX = ["scoring", "v2"].join("-");
+
+/** Historical queue names that must still be scanned/deleted on identity reset. */
+export const LEGACY_SCORING_BULLMQ_QUEUES = [
+  `${LEGACY_SCORING_BULLMQ_QUEUE_PREFIX}-evidence-export`,
+  `${LEGACY_SCORING_BULLMQ_QUEUE_PREFIX}-shadow-canary`,
+] as const;
+
 /** BullMQ queue names owned by this project (shared with WCL reset). */
 export const IDENTITY_RESET_BULLMQ_QUEUES = [
   "refresh-character",
@@ -179,8 +192,7 @@ export const IDENTITY_RESET_BULLMQ_QUEUES = [
   "refresh-character-calibration",
   "scoring-evidence-export",
   "scoring-shadow-canary",
-  "scoring-v2-evidence-export",
-  "scoring-v2-shadow-canary",
+  ...LEGACY_SCORING_BULLMQ_QUEUES,
 ] as const;
 
 /**

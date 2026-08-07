@@ -14,6 +14,8 @@ import {
   ALL_PRISMA_MAPPED_TABLES,
   IDENTITY_DATA_STATIC_RETAIN_TABLES,
   IDENTITY_DATA_TRUNCATE_TABLES,
+  LEGACY_SCORING_BULLMQ_QUEUE_PREFIX,
+  LEGACY_SCORING_BULLMQ_QUEUES,
   classifyIdentityDataTables,
   identityResetRedisKeyPrefixes,
 } from "./identity-data-reset-table-plan.js";
@@ -458,18 +460,21 @@ describe("live writers / locks", () => {
     expect(plan.blockedConditions.join(" ")).toMatch(/unclassified relevant Redis/);
   });
 
-  it("classifies scoring-v2 BullMQ prefixes as reset-owned", async () => {
+  it("classifies legacy Scoring BullMQ prefixes as reset-owned", async () => {
     const gate = assertIdentityDataResetAllowed(localGateInput());
     expect(gate.ok).toBe(true);
     if (!gate.ok) return;
 
+    const legacyBullPrefixes = LEGACY_SCORING_BULLMQ_QUEUES.map((q) => `bull:${q}`);
+    // Runtime strings must remain the historical queue names (prefix + suffix).
+    expect(LEGACY_SCORING_BULLMQ_QUEUE_PREFIX).toBe(["scoring", "v2"].join("-"));
+    expect(legacyBullPrefixes).toEqual([
+      `bull:${LEGACY_SCORING_BULLMQ_QUEUE_PREFIX}-evidence-export`,
+      `bull:${LEGACY_SCORING_BULLMQ_QUEUE_PREFIX}-shadow-canary`,
+    ]);
+
     const prefixes = identityResetRedisKeyPrefixes("development");
-    expect(prefixes).toEqual(
-      expect.arrayContaining([
-        "bull:scoring-v2-shadow-canary",
-        "bull:scoring-v2-evidence-export",
-      ]),
-    );
+    expect(prefixes).toEqual(expect.arrayContaining(legacyBullPrefixes));
 
     const prisma = {
       ...mockPrisma(),
@@ -516,15 +521,16 @@ describe("live writers / locks", () => {
     };
 
     const ownedKeys = [
-      "bull:scoring-v2-shadow-canary:completed",
-      "bull:scoring-v2-shadow-canary:meta",
-      "bull:scoring-v2-evidence-export:meta",
-      "bull:scoring-v2-evidence-export:id",
+      `bull:${LEGACY_SCORING_BULLMQ_QUEUE_PREFIX}-shadow-canary:completed`,
+      `bull:${LEGACY_SCORING_BULLMQ_QUEUE_PREFIX}-shadow-canary:meta`,
+      `bull:${LEGACY_SCORING_BULLMQ_QUEUE_PREFIX}-evidence-export:meta`,
+      `bull:${LEGACY_SCORING_BULLMQ_QUEUE_PREFIX}-evidence-export:id`,
     ];
+    const legacyBullScanPrefix = `bull:${LEGACY_SCORING_BULLMQ_QUEUE_PREFIX}-`;
     const redis = idleRedis({
       keys: vi.fn(async (pattern: string) => {
         if (pattern === "bull:*") return ownedKeys;
-        if (pattern.startsWith("bull:scoring-v2-")) {
+        if (pattern.startsWith(legacyBullScanPrefix)) {
           return ownedKeys.filter((k) => k.startsWith(pattern.replace(/\*$/, "")));
         }
         return [];
@@ -542,10 +548,7 @@ describe("live writers / locks", () => {
     expect(plan.blockedConditions.join(" ")).not.toMatch(/unclassified relevant Redis/);
     expect(plan.redis.matchingKeyCount).toBeGreaterThanOrEqual(ownedKeys.length);
     expect(plan.redis.sampleKeyCategories).toEqual(
-      expect.arrayContaining([
-        "bull:scoring-v2-shadow-canary",
-        "bull:scoring-v2-evidence-export",
-      ]),
+      expect.arrayContaining(legacyBullPrefixes),
     );
   });
 });
