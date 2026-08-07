@@ -84,9 +84,14 @@ function mockPrisma() {
   return {
     character: {
       update: vi.fn(async () => ({})),
+      findUnique: vi.fn(async () => null),
     },
     characterSnapshot: {
       create: vi.fn(async () => ({})),
+    },
+    characterRunDigest: {
+      findMany: vi.fn(async () => []),
+      count: vi.fn(async () => 0),
     },
   };
 }

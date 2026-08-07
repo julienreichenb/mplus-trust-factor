@@ -17,6 +17,7 @@ import { ExternalApiError } from "@mplus/contracts";
 import type { CharacterRepository } from "../persistence/character-repository.js";
 import { persistRefreshEligibilityEvidence } from "./refresh-eligibility-gate.js";
 import type { VerifiedSeasonAuthority } from "./season-authority.js";
+import { backfillCharacterRunDigestLinks } from "./character-run-digest-backfill.js";
 
 /** Same completeness predicate as API exact-resolve repair (commit 4a7f176). */
 export function characterLacksBootstrapEvidence(
@@ -102,7 +103,15 @@ export async function persistPublicCharacterBootstrap(input: {
     mythicRating: input.mythicRating,
     authoritativeSeasonRowId: input.authority.seasonRowId,
   });
-  return (await input.characterRepository.findById(updated.id)) ?? updated;
+  const character =
+    (await input.characterRepository.findById(updated.id)) ?? updated;
+  // After bootstrap evidence is durable, associate any companion digests that
+  // already exist for this provider-native identity (no Blizzard companion fan-out).
+  await backfillCharacterRunDigestLinks({
+    prisma: input.prisma,
+    characterId: character.id,
+  });
+  return character;
 }
 
 export type ResolveOrDiscoverPublicCharacterResult = {
@@ -130,6 +139,10 @@ export async function resolveOrDiscoverPublicCharacter(input: {
   const existing = await input.characterRepository.findByIdentity(input.identity);
 
   if (existing && !characterLacksBootstrapEvidence(existing)) {
+    await backfillCharacterRunDigestLinks({
+      prisma: input.prisma,
+      characterId: existing.id,
+    });
     return {
       character: existing,
       bootstrapPerformed: false,

@@ -210,6 +210,38 @@ export class CharacterRunDigestRepository {
       });
     });
   }
+
+  /**
+   * Unlinked digests in a region+realm bucket (case-insensitive).
+   * Callers must apply name normalization + fail-closed filters in memory —
+   * WCL characterName is not stored pre-normalized.
+   */
+  async listUnlinkedByRegionRealm(input: {
+    regionCode: string;
+    realmSlug: string;
+  }) {
+    const region = input.regionCode.trim();
+    const realm = input.realmSlug.trim();
+    if (!region || !realm) return [];
+
+    return this.prisma.characterRunDigest.findMany({
+      where: {
+        characterId: null,
+        regionCode: { equals: region, mode: "insensitive" },
+        realmSlug: { equals: realm, mode: "insensitive" },
+        NOT: [{ characterName: "" }],
+      },
+      select: {
+        id: true,
+        characterName: true,
+        realmSlug: true,
+        regionCode: true,
+        participantActorId: true,
+        rawRunId: true,
+      },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+    });
+  }
 }
 
 export function createCharacterRunDigestRepository(

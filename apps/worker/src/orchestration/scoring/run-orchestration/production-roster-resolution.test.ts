@@ -422,7 +422,14 @@ describe("production roster resolution wiring", () => {
       1, 2, 3, 4, 5,
     ]);
     expect(participants.find((p) => p.playerActorId === 1)?.characterId).toBe(TARGET_ID);
+    // Only the requested target is linked — companions stay provider-native
+    // (characterId null). Roster resolution must NOT Blizzard-resolve companions.
     expect(participants.filter((p) => p.characterId != null)).toHaveLength(1);
+    expect(
+      participants
+        .filter((p) => p.playerActorId !== 1)
+        .every((p) => p.characterId == null),
+    ).toBe(true);
     expect(participants.every((p) => !/^Actor\d+$/i.test(p.characterName))).toBe(true);
 
     // Build digests via acquire path on a second fight identity.
