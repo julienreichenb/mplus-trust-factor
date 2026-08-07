@@ -505,18 +505,39 @@ export async function runScoringCanaryDiscovery(
         !Number.isFinite(reportRevision) ||
         reportRevision < 0
       ) {
-        throw Object.assign(
-          new Error(
-            `REPORT_REVISION_UNRESOLVED:${c.discoveryIdentity.reportCode}:${c.discoveryIdentity.fightId}`,
-          ),
-          {
-            code: "REPORT_REVISION_UNRESOLVED",
-            reportCode: c.discoveryIdentity.reportCode,
-            fightId: c.discoveryIdentity.fightId,
-            discoveredRevision: reportRevision ?? null,
-            revisionSource: "candidate_metadata",
-          },
-        );
+        acquisitionResults.push({
+          discoveryIdentity: { ...c.discoveryIdentity },
+          acquisitionStatus: "REJECTED" as const,
+          reportRevision: null,
+          rejectionReason: "REPORT_REVISION_UNRESOLVED" as const,
+          rejectionDetail: `REPORT_REVISION_UNRESOLVED:${c.discoveryIdentity.reportCode}:${c.discoveryIdentity.fightId}`,
+          datasetHashes: [] as Array<{
+            dataset:
+              | "RANKING_PARSE"
+              | "MASTER_DATA"
+              | "CASTS"
+              | "HOSTILE_CASTS"
+              | "INTERRUPTS"
+              | "DEATHS"
+              | "DAMAGE_TAKEN"
+              | "BUFFS"
+              | "DEBUFFS"
+              | "DISPELS"
+              | "HEALING"
+              | "COMBATANT_INFO"
+              | "DAMAGE_DONE";
+            contentHash: string;
+          }>,
+          factSetHash: null,
+          dimensionValidity: null,
+          keyLevel: c.keyLevel,
+          timed: c.timed,
+          runScore: c.runScore,
+          completedAt: c.completedAt,
+          actorId: c.actorId,
+          evidenceCompleteness: c.evidenceCompleteness,
+        });
+        continue;
       }
       acquisitionResults.push({
         discoveryIdentity: { ...c.discoveryIdentity },

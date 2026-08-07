@@ -12,6 +12,7 @@ import {
   expectedEvidenceSlotCount,
   type CapabilityEvidencePackageV1,
   type CharacterSeasonEvidenceManifestV2,
+  type EvidenceCandidateAcquisitionResult,
   type EvidenceCandidateMetadataV2,
   type EvidenceSelectionScope,
   type ParticipantScoringDigestV1,
@@ -170,6 +171,17 @@ export interface RunOrchestrationPorts {
   resolveFightRoster?(input: {
     sourceFight: SourceFightIdentity;
   }): Promise<RosterParticipantIdentity[] | null>;
+
+  /**
+   * Resolve authoritative report.revision for a discovery identity when candidate
+   * metadata still lacks it (cold MythicRun sources). Must not fabricate a revision.
+   * Return null when WCL / persistence cannot establish a finite revision.
+   */
+  resolveReportRevision?(input: {
+    reportCode: string;
+    fightId: number;
+    actorId?: number | null;
+  }): Promise<{ reportRevision: number; providerCalls: number } | null>;
 
   /**
    * Load already-persisted digests for a source fight (all participants).
@@ -609,6 +621,107 @@ async function ensurePackageAndDigests(input: {
   });
 }
 
+function isResolvedReportRevision(
+  value: number | null | undefined,
+): value is number {
+  return value != null && Number.isFinite(value) && value >= 0;
+}
+
+/**
+ * Build finalize acquisition rows from plan candidates.
+ * Plan-time revision may be null (cold MythicRun sources). Establish revision via
+ * ports.resolveReportRevision when live is allowed; otherwise reject the candidate
+ * with REPORT_REVISION_UNRESOLVED so finalize can fall back to the next ranked
+ * candidate. Never aborts the whole character for one unresolved revision.
+ */
+async function buildSyntheticAcquisitionResults(input: {
+  plan: ReturnType<typeof buildEvidenceAcquisitionPlanV2>["plan"];
+  candidates: readonly EvidenceCandidateMetadataV2[];
+  liveProviderPermission: LiveProviderPermission;
+  ports: RunOrchestrationPorts;
+}): Promise<{
+  results: EvidenceCandidateAcquisitionResult[];
+  providerCalls: number;
+}> {
+  const results: EvidenceCandidateAcquisitionResult[] = [];
+  const seenAcq = new Set<string>();
+  let providerCalls = 0;
+
+  for (const slot of input.plan.slots) {
+    for (const c of slot.orderedCandidates) {
+      const k = `${c.discoveryIdentity.reportCode}:${c.discoveryIdentity.fightId}`;
+      if (seenAcq.has(k)) continue;
+      seenAcq.add(k);
+
+      const meta = input.candidates.find(
+        (cand) =>
+          cand.discoveryIdentity.reportCode ===
+            c.discoveryIdentity.reportCode &&
+          cand.discoveryIdentity.fightId === c.discoveryIdentity.fightId,
+      );
+
+      let reportRevision = meta?.reportRevision ?? null;
+      if (
+        !isResolvedReportRevision(reportRevision) &&
+        input.liveProviderPermission === "ALLOWED" &&
+        input.ports.resolveReportRevision
+      ) {
+        const observed = await input.ports.resolveReportRevision({
+          reportCode: c.discoveryIdentity.reportCode,
+          fightId: c.discoveryIdentity.fightId,
+          actorId: c.actorId ?? meta?.actorId ?? null,
+        });
+        providerCalls += observed?.providerCalls ?? 0;
+        reportRevision = observed?.reportRevision ?? null;
+      }
+
+      if (!isResolvedReportRevision(reportRevision)) {
+        results.push({
+          discoveryIdentity: { ...c.discoveryIdentity },
+          acquisitionStatus: "REJECTED",
+          reportRevision: null,
+          rejectionReason: "REPORT_REVISION_UNRESOLVED",
+          rejectionDetail: `REPORT_REVISION_UNRESOLVED:${c.discoveryIdentity.reportCode}:${c.discoveryIdentity.fightId}`,
+          datasetHashes: [],
+          factSetHash: null,
+          dimensionValidity: null,
+          keyLevel: c.keyLevel,
+          timed: c.timed,
+          runScore: c.runScore,
+          completedAt: c.completedAt,
+          actorId: c.actorId,
+          evidenceCompleteness: c.evidenceCompleteness,
+        });
+        continue;
+      }
+
+      results.push({
+        discoveryIdentity: { ...c.discoveryIdentity },
+        acquisitionStatus: "ACQUIRED",
+        reportRevision,
+        rejectionReason: null,
+        rejectionDetail: null,
+        datasetHashes: [],
+        factSetHash: `facts-${c.discoveryIdentity.reportCode}:${c.discoveryIdentity.fightId}`,
+        dimensionValidity: {
+          performance: "VALID",
+          survival: "VALID",
+          utility: "VALID",
+          reasons: [],
+        },
+        keyLevel: c.keyLevel,
+        timed: c.timed,
+        runScore: c.runScore,
+        completedAt: c.completedAt,
+        actorId: c.actorId,
+        evidenceCompleteness: c.evidenceCompleteness,
+      });
+    }
+  }
+
+  return { results, providerCalls };
+}
+
 /**
  * Main production entry: select 16 runs (or load manifest), ensure evidence +
  * digests, score Performance / Utility / Survival from digests only.
@@ -617,6 +730,7 @@ export async function orchestrateScoringRuns(
   input: RunOrchestrationInput,
 ): Promise<RunOrchestrationResult> {
   let manifest = input.existingManifest ?? null;
+  let revisionResolveProviderCalls = 0;
 
   if (!manifest) {
     const { plan } = buildEvidenceAcquisitionPlanV2({
@@ -624,59 +738,27 @@ export async function orchestrateScoringRuns(
       candidates: input.candidates,
       plannedAt: input.plannedAt ?? new Date().toISOString(),
     });
-    const acquisitionResults =
-      input.acquisitionResultsForFinalize ??
-      plan.slots.flatMap((slot) =>
-        slot.orderedCandidates.map((c) => {
-          const meta = input.candidates.find(
-            (cand) =>
-              cand.discoveryIdentity.reportCode === c.discoveryIdentity.reportCode &&
-              cand.discoveryIdentity.fightId === c.discoveryIdentity.fightId,
-          );
-          const reportRevision = meta?.reportRevision;
-          if (
-            reportRevision == null ||
-            !Number.isFinite(reportRevision) ||
-            reportRevision < 0
-          ) {
-            throw Object.assign(
-              new Error(
-                `REPORT_REVISION_UNRESOLVED:${c.discoveryIdentity.reportCode}:${c.discoveryIdentity.fightId}`,
-              ),
-              { code: "REPORT_REVISION_UNRESOLVED" },
-            );
-          }
-          return {
-            discoveryIdentity: { ...c.discoveryIdentity },
-            acquisitionStatus: "ACQUIRED" as const,
-            reportRevision,
-            rejectionReason: null,
-            rejectionDetail: null,
-            datasetHashes: [],
-            factSetHash: `facts-${c.discoveryIdentity.reportCode}:${c.discoveryIdentity.fightId}`,
-            dimensionValidity: {
-              performance: "VALID" as const,
-              survival: "VALID" as const,
-              utility: "VALID" as const,
-              reasons: [] as string[],
-            },
-            keyLevel: c.keyLevel,
-            timed: c.timed,
-            runScore: c.runScore,
-            completedAt: c.completedAt,
-            actorId: c.actorId,
-            evidenceCompleteness: c.evidenceCompleteness,
-          };
-        }),
-      );
-    // Deduplicate acquisition results by discovery identity.
-    const seenAcq = new Set<string>();
-    const uniqueAcq = [];
-    for (const r of acquisitionResults) {
-      const k = `${r.discoveryIdentity.reportCode}:${r.discoveryIdentity.fightId}`;
-      if (seenAcq.has(k)) continue;
-      seenAcq.add(k);
-      uniqueAcq.push(r);
+    let uniqueAcq = input.acquisitionResultsForFinalize;
+    if (!uniqueAcq) {
+      const built = await buildSyntheticAcquisitionResults({
+        plan,
+        candidates: input.candidates,
+        liveProviderPermission: input.liveProviderPermission,
+        ports: input.ports,
+      });
+      uniqueAcq = built.results;
+      revisionResolveProviderCalls = built.providerCalls;
+    } else {
+      // Deduplicate caller-supplied acquisition results by discovery identity.
+      const seenAcq = new Set<string>();
+      const deduped = [];
+      for (const r of uniqueAcq) {
+        const k = `${r.discoveryIdentity.reportCode}:${r.discoveryIdentity.fightId}`;
+        if (seenAcq.has(k)) continue;
+        seenAcq.add(k);
+        deduped.push(r);
+      }
+      uniqueAcq = deduped;
     }
     const finalized = finalizeEvidenceManifestV2({
       plan,
@@ -725,7 +807,7 @@ export async function orchestrateScoringRuns(
   const fightFailures: RunOrchestrationResult["fightFailures"] = [];
   const allParticipantDigests: PersistedDigestRecord[] = [];
   const digestsByFightActor = new Map<string, PersistedDigestRecord>();
-  let providerCalls = 0;
+  let providerCalls = revisionResolveProviderCalls;
   let packagesCreated = 0;
   let packagesReused = 0;
   let digestsCreated = 0;

@@ -46,12 +46,13 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 
 function revisionFromFightDetails(data: unknown): number {
   const payload = asRecord(data);
-  if (!payload) return 0;
+  if (!payload) return -1;
   if (typeof payload.reportRevision === "number") return payload.reportRevision;
   if (typeof payload.revision === "number") return payload.revision;
   const report = asRecord(payload.report);
   if (report && typeof report.revision === "number") return report.revision;
-  return 0;
+  // Never fabricate revision 0/1 — acquisition rejects negative as unresolved.
+  return -1;
 }
 
 function actorFromFightDetails(data: unknown): {

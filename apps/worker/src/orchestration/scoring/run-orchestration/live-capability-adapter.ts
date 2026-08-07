@@ -133,29 +133,30 @@ export interface ResolveFightMetadataResult {
   providerCalls: number;
 }
 
-export async function resolveAuthoritativeFightMetadata(input: {
+type ReportFightMasterDataResponse = {
+  reportData?: {
+    report?: {
+      revision?: number;
+      fights?: Array<{
+        id?: number;
+        startTime?: number;
+        endTime?: number;
+        name?: string;
+        keystoneLevel?: number;
+        friendlyPlayers?: Array<number | { id?: number }> | null;
+      }>;
+      masterData?: unknown;
+    } | null;
+  };
+};
+
+async function fetchReportWithFightAndMasterData(input: {
   client: WclGraphQlClient;
   reportCode: string;
   fightId: number;
-  expectedRevision: number;
   region: string;
-}): Promise<ResolveFightMetadataResult> {
-  const result = await input.client.requestPermissive<{
-    reportData?: {
-      report?: {
-        revision?: number;
-        fights?: Array<{
-          id?: number;
-          startTime?: number;
-          endTime?: number;
-          name?: string;
-          keystoneLevel?: number;
-          friendlyPlayers?: Array<number | { id?: number }> | null;
-        }>;
-        masterData?: unknown;
-      } | null;
-    };
-  }>({
+}): Promise<{ report: NonNullable<NonNullable<ReportFightMasterDataResponse["reportData"]>["report"]>; providerCalls: number }> {
+  const result = await input.client.requestPermissive<ReportFightMasterDataResponse>({
     operationName: OPERATIONS.ReportWithFightAndMasterData.operationName,
     query: OPERATIONS.ReportWithFightAndMasterData.query,
     variables: {
@@ -171,6 +172,43 @@ export async function resolveAuthoritativeFightMetadata(input: {
       code: "FIGHT_METADATA_ABSENT",
     });
   }
+  return { report, providerCalls: 1 };
+}
+
+/**
+ * Observe authoritative report.revision for a report/fight without a prior expected
+ * revision. Returns null when WCL does not provide a finite non-negative revision —
+ * never fabricates a default.
+ */
+export async function observeAuthoritativeReportRevision(input: {
+  client: WclGraphQlClient;
+  reportCode: string;
+  fightId: number;
+  region: string;
+}): Promise<{ reportRevision: number; providerCalls: number } | null> {
+  try {
+    const { report, providerCalls } = await fetchReportWithFightAndMasterData(input);
+    const fight = (report.fights ?? []).find((f) => f.id === input.fightId);
+    if (!fight) return null;
+    const revision =
+      typeof report.revision === "number" ? report.revision : null;
+    if (revision == null || !Number.isFinite(revision) || revision < 0) {
+      return null;
+    }
+    return { reportRevision: revision, providerCalls };
+  } catch {
+    return null;
+  }
+}
+
+export async function resolveAuthoritativeFightMetadata(input: {
+  client: WclGraphQlClient;
+  reportCode: string;
+  fightId: number;
+  expectedRevision: number;
+  region: string;
+}): Promise<ResolveFightMetadataResult> {
+  const { report, providerCalls } = await fetchReportWithFightAndMasterData(input);
   const fight = (report.fights ?? []).find((f) => f.id === input.fightId);
   if (!fight || fight.startTime == null || fight.endTime == null) {
     throw Object.assign(
@@ -200,7 +238,7 @@ export async function resolveAuthoritativeFightMetadata(input: {
       : "unknown",
     masterData: report.masterData ?? null,
     friendlyPlayerActorIds,
-    providerCalls: 1,
+    providerCalls,
   };
 }
 

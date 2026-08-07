@@ -38,6 +38,7 @@ export {
   createLiveCapabilityAcquireHook,
   evaluateLiveCapabilityPermission,
   resolveAuthoritativeFightMetadata,
+  observeAuthoritativeReportRevision,
   liveAcquireResultFromPackage,
   CONSERVATIVE_POINTS_PER_CAPABILITY_FIGHT,
   type LiveCapabilityAcquireResult,

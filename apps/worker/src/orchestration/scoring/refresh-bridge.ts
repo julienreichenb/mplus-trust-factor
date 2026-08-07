@@ -11,7 +11,7 @@ import {
   scoreCharacterResultToSnapshotDto,
   scoringDisabledSnapshotDto,
 } from "./snapshot-from-character-score.js";
-import { createLiveCapabilityAcquireHook } from "./run-orchestration/live-capability-adapter.js";
+import { createLiveCapabilityAcquireHook, observeAuthoritativeReportRevision } from "./run-orchestration/live-capability-adapter.js";
 import { createRedisSourceFightLock } from "./run-orchestration/source-fight-lease.js";
 import { createProductionRunOrchestrationPorts } from "./run-orchestration/production-ports.js";
 import type { RunOrchestrationPorts } from "./run-orchestration/orchestrator.js";
@@ -20,6 +20,7 @@ import {
   requirePositivePerformanceAggregateTtlSeconds,
   requireScoringZoneId,
 } from "./scoring-zone.js";
+import { findLatestFightRevision } from "./fight-details-persist.js";
 
 export interface AuthoritativeScoringInput {
   container: WorkerContainer;
@@ -109,6 +110,7 @@ export async function runAuthoritativeScoring(
   let liveAcquire:
     | Parameters<typeof scoreCharacter>[0]["liveAcquire"]
     | undefined;
+  let resolveReportRevision: RunOrchestrationPorts["resolveReportRevision"];
   if (allowProviderCalls && !input.portsOverride) {
     const wcl = input.container.providers.warcraftlogs as
       | { getGraphQlClient?: () => Parameters<typeof createLiveCapabilityAcquireHook>[0]["client"] }
@@ -136,6 +138,22 @@ export async function runAuthoritativeScoring(
           ),
         },
       });
+      resolveReportRevision = async ({ reportCode, fightId }) => {
+        const persisted = await findLatestFightRevision({
+          wclSource: input.container.repositories.wclSource,
+          reportCode,
+          fightId,
+        });
+        if (persisted != null && Number.isFinite(persisted) && persisted >= 0) {
+          return { reportRevision: persisted, providerCalls: 0 };
+        }
+        return observeAuthoritativeReportRevision({
+          client,
+          reportCode,
+          fightId,
+          region: input.region,
+        });
+      };
     }
   }
 
@@ -169,6 +187,7 @@ export async function runAuthoritativeScoring(
     ports = {
       ...basePorts,
       withSourceFightLock,
+      ...(resolveReportRevision ? { resolveReportRevision } : {}),
     };
   }
 

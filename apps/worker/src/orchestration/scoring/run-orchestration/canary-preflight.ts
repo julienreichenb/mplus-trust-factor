@@ -278,12 +278,23 @@ export async function runScoringCanaryPreflight(input: {
           !Number.isFinite(reportRevision) ||
           reportRevision < 0
         ) {
-          throw Object.assign(
-            new Error(
-              `REPORT_REVISION_UNRESOLVED:${c.discoveryIdentity.reportCode}:${c.discoveryIdentity.fightId}`,
-            ),
-            { code: "REPORT_REVISION_UNRESOLVED" },
-          );
+          acquisitionResults.push({
+            discoveryIdentity: { ...c.discoveryIdentity },
+            acquisitionStatus: "REJECTED" as const,
+            reportRevision: null,
+            rejectionReason: "REPORT_REVISION_UNRESOLVED" as const,
+            rejectionDetail: `REPORT_REVISION_UNRESOLVED:${c.discoveryIdentity.reportCode}:${c.discoveryIdentity.fightId}`,
+            datasetHashes: [],
+            factSetHash: null,
+            dimensionValidity: null,
+            keyLevel: c.keyLevel,
+            timed: c.timed,
+            runScore: c.runScore,
+            completedAt: c.completedAt,
+            actorId: c.actorId,
+            evidenceCompleteness: c.evidenceCompleteness,
+          });
+          continue;
         }
         acquisitionResults.push({
           discoveryIdentity: { ...c.discoveryIdentity },

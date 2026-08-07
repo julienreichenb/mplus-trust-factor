@@ -152,7 +152,7 @@ export class FixtureScoringEvidenceTransport implements ScoringEvidenceTransport
     if (!this.fixtures.fightDetails) {
       return {
         data: null,
-        reportRevision: 0,
+        reportRevision: -1,
         playerActorId: null,
         ownedPetActorIds: [],
         startTime: null,
