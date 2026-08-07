@@ -195,8 +195,13 @@ describe("live writers vs stale DB statuses", () => {
   function mockPrismaWithStaleWriters() {
     return {
       $queryRawUnsafe: vi.fn(async (sql: string) => {
+        if (sql.includes("pg_catalog.pg_class") || sql.includes('AS "exists"')) {
+          return [{ exists: true }];
+        }
         if (sql.includes("ingestion_jobs")) return [{ count: 4n }];
-        if (sql.includes("scoring_shadow_canaries")) return [{ count: 2n }];
+        if (sql.includes("scoring_shadow_canaries") || sql.includes("scoring_v2_shadow_canaries")) {
+          return [{ count: 2n }];
+        }
         if (sql.includes("bulk_operations")) return [{ count: 1n }];
         if (sql.includes("score_analysis_batches")) return [{ count: 1n }];
         if (sql.includes("COUNT(*)")) return [{ count: 0n }];
@@ -206,6 +211,9 @@ describe("live writers vs stale DB statuses", () => {
       $transaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) =>
         fn({
           $queryRawUnsafe: vi.fn(async (sql: string) => {
+            if (sql.includes("pg_catalog.pg_class") || sql.includes('AS "exists"')) {
+              return [{ exists: true }];
+            }
             if (sql.includes("COUNT(*)")) return [{ count: 0n }];
             return [];
           }),
@@ -260,13 +268,19 @@ describe("live writers vs stale DB statuses", () => {
 describe("dry-run / execute planner", () => {
   function mockPrisma(counts: Record<string, number> = {}) {
     const query = vi.fn(async (sql: string) => {
+      if (sql.includes("pg_catalog.pg_class") || sql.includes('AS "exists"')) {
+        return [{ exists: true }];
+      }
       if (sql.includes("COUNT(*)") && sql.includes('"_prisma_migrations"')) {
         return [{ count: 12n }];
       }
       if (sql.includes("COUNT(*)") && sql.includes("ingestion_jobs")) {
         return [{ count: 0n }];
       }
-      if (sql.includes("COUNT(*)") && sql.includes("scoring_shadow_canaries")) {
+      if (
+        sql.includes("COUNT(*)") &&
+        (sql.includes("scoring_shadow_canaries") || sql.includes("scoring_v2_shadow_canaries"))
+      ) {
         return [{ count: 0n }];
       }
       if (sql.includes("COUNT(*)") && sql.includes("bulk_operations")) {
@@ -374,10 +388,14 @@ describe("dry-run / execute planner", () => {
     const prisma = mockPrisma({ users: 2, characters: 5 });
     // After truncate, counts are zero for cleared tables; retain counts stay.
     prisma.$queryRawUnsafe = vi.fn(async (sql: string) => {
+      if (sql.includes("pg_catalog.pg_class") || sql.includes('AS "exists"')) {
+        return [{ exists: true }];
+      }
       if (sql.includes('"_prisma_migrations"')) return [{ count: 12n }];
       if (
         sql.includes("ingestion_jobs") ||
         sql.includes("scoring_shadow_canaries") ||
+        sql.includes("scoring_v2_shadow_canaries") ||
         sql.includes("bulk_operations") ||
         sql.includes("score_analysis_batches")
       ) {

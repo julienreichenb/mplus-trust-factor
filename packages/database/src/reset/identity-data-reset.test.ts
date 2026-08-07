@@ -24,6 +24,7 @@ import {
   acquireIdentityResetLock,
   buildIdentityDataResetPlan,
   executeIdentityDataReset,
+  formatIdentityPlanTerminalSummary,
   probeIdentityActiveWriters,
   type ExtendedRedisScanner,
 } from "./identity-data-reset.js";
@@ -299,6 +300,9 @@ describe("live writers / locks", () => {
   function mockPrisma() {
     return {
       $queryRawUnsafe: vi.fn(async (sql: string) => {
+        if (sql.includes("pg_catalog.pg_class") || sql.includes('AS "exists"')) {
+          return [{ exists: true }];
+        }
         if (sql.includes("ingestion_jobs")) return [{ count: 3n }];
         if (sql.includes("scoring_v2_shadow_canaries")) return [{ count: 1n }];
         if (sql.includes("bulk_operations")) return [{ count: 0n }];
@@ -416,7 +420,12 @@ describe("live writers / locks", () => {
           lastDiscoveryOwnershipSyncAt: null,
         })),
       },
-      $queryRawUnsafe: vi.fn(async () => [{ count: 0n }]),
+      $queryRawUnsafe: vi.fn(async (sql: string) => {
+        if (sql.includes("pg_catalog.pg_class") || sql.includes('AS "exists"')) {
+          return [{ exists: true }];
+        }
+        return [{ count: 0n }];
+      }),
     };
 
     const redis = idleRedis({
@@ -464,6 +473,9 @@ describe("dry-run / execute planner", () => {
       lastDiscoveryOwnershipSyncAt: new Date("2024-02-01T00:00:00.000Z"),
     };
     const query = vi.fn(async (sql: string) => {
+      if (sql.includes("pg_catalog.pg_class") || sql.includes('AS "exists"')) {
+        return [{ exists: true }];
+      }
       if (sql.includes('"_prisma_migrations"')) return [{ count: 10n }];
       return [{ count: 0n }];
     });
@@ -620,5 +632,42 @@ describe("dry-run / execute planner", () => {
       executeIdentityDataReset({ prisma: prisma as never, plan, redis }),
     ).rejects.toThrow(/Refusing execute/);
     expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it("skips configured reset tables that are absent from the live DB", async () => {
+    const gate = assertIdentityDataResetAllowed(localGateInput());
+    if (!gate.ok) throw new Error("gate");
+
+    const missingTable = "scoring_shadow_canaries";
+    const prisma = retentionPrisma();
+    prisma.$queryRawUnsafe = vi.fn(async (sql: string, ...params: unknown[]) => {
+      if (sql.includes("pg_catalog.pg_class") || sql.includes('AS "exists"')) {
+        const table = String(params[0] ?? "");
+        return [{ exists: table !== missingTable }];
+      }
+      if (sql.includes('"_prisma_migrations"')) return [{ count: 10n }];
+      const match = /FROM "([^"]+)"/.exec(sql);
+      const table = match?.[1] ?? "";
+      if (table === "users" || table === "battlenet_accounts") return [{ count: 2n }];
+      if (table === "characters") return [{ count: 5n }];
+      return [{ count: 0n }];
+    });
+
+    const plan = await buildIdentityDataResetPlan({
+      prisma: prisma as never,
+      gate,
+      execute: false,
+      redis: idleRedis(),
+    });
+
+    expect(plan.mode).toBe("DRY-RUN");
+    expect(plan.skippedMissingTables).toContain(missingTable);
+    expect(plan.plannedTruncations.some((t) => t.table === missingTable)).toBe(false);
+    expect(plan.plannedTruncations.some((t) => t.table === "characters")).toBe(true);
+    expect(plan.plannedTruncations.find((t) => t.table === "characters")?.rowCount).toBe(5);
+    expect(plan.warnings.join(" ")).toMatch(/skipped missing reset-plan table/);
+    expect(formatIdentityPlanTerminalSummary(plan)).toMatch(/skipped missing tables: 1/);
+    expect(formatIdentityPlanTerminalSummary(plan)).toContain(missingTable);
+    expect(prisma.$executeRawUnsafe).not.toHaveBeenCalled();
   });
 });

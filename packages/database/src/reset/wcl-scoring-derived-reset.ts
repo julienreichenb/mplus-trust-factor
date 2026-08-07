@@ -8,6 +8,10 @@ import path from "node:path";
 import type { PrismaClient } from "@prisma/client";
 import type { WclScoringDerivedResetGuardResult } from "./wcl-scoring-derived-reset-guard.js";
 import {
+  countRawIfTableExists,
+  countTableIfExists,
+} from "./reset-table-presence.js";
+import {
   WCL_SCORING_DERIVED_CLEAR_TABLES,
   WCL_SCORING_DERIVED_IMPORTANT_RETAIN_TABLES,
   WCL_SCORING_DERIVED_REDIS_KEY_PREFIXES,
@@ -72,6 +76,8 @@ export type WclScoringDerivedResetPlan = {
   databaseName: string;
   databaseHost: string;
   clearTables: Array<{ table: string; rowCount: number }>;
+  /** Configured clear/retain tables absent from the live DB (skipped, not fatal). */
+  skippedMissingTables: string[];
   retainTables: Array<{ table: string; rowCount: number | null }>;
   importantRetainTables: Array<{ table: string; rowCount: number }>;
   redis: RedisCleanupPlan;
@@ -98,15 +104,11 @@ export type ExternalCleanupResult = {
 };
 
 async function countTable(prisma: PrismaClient, table: string): Promise<number> {
-  const rows = await prisma.$queryRawUnsafe<Array<{ count: bigint | number }>>(
-    `SELECT COUNT(*)::bigint AS count FROM "${table}"`,
-  );
-  const raw = rows[0]?.count ?? 0;
-  return typeof raw === "bigint" ? Number(raw) : Number(raw);
-}
-
-function toNum(v: bigint | number | undefined): number {
-  return typeof v === "bigint" ? Number(v) : Number(v ?? 0);
+  const counted = await countTableIfExists(prisma, table);
+  if (!counted.exists || counted.rowCount == null) {
+    throw new Error(`relation "${table}" does not exist`);
+  }
+  return counted.rowCount;
 }
 
 /**
@@ -120,24 +122,35 @@ export async function probeActiveWriters(input: {
 }): Promise<ActiveWriterProbe> {
   const detail: string[] = [];
 
-  const ingestion = await input.prisma.$queryRawUnsafe<Array<{ count: bigint | number }>>(
-    `SELECT COUNT(*)::bigint AS count FROM "ingestion_jobs" WHERE status IN ('QUEUED', 'ACTIVE')`,
-  );
-  const canaries = await input.prisma.$queryRawUnsafe<Array<{ count: bigint | number }>>(
-    `SELECT COUNT(*)::bigint AS count FROM "scoring_shadow_canaries" WHERE UPPER(status) IN ('QUEUED', 'RUNNING', 'PENDING', 'STARTED', 'ACTIVE')`,
-  );
-  const bulk = await input.prisma.$queryRawUnsafe<Array<{ count: bigint | number }>>(
-    `SELECT COUNT(*)::bigint AS count FROM "bulk_operations" WHERE status IN ('PENDING', 'SELECTING', 'RUNNING', 'PAUSED')`,
-  );
-  const batches = await input.prisma.$queryRawUnsafe<Array<{ count: bigint | number }>>(
-    `SELECT COUNT(*)::bigint AS count FROM "score_analysis_batches" WHERE finalization_status IN ('PENDING', 'READY_TO_FINALIZE', 'FINALIZING')`,
-  );
-
   const staleDbStatuses = {
-    ingestionJobsQueuedOrActive: toNum(ingestion[0]?.count),
-    shadowCanariesNonTerminal: toNum(canaries[0]?.count),
-    bulkOperationsNonTerminal: toNum(bulk[0]?.count),
-    scoreBatchesNonTerminal: toNum(batches[0]?.count),
+    ingestionJobsQueuedOrActive: await countRawIfTableExists(
+      input.prisma,
+      "ingestion_jobs",
+      `SELECT COUNT(*)::bigint AS count FROM "ingestion_jobs" WHERE status IN ('QUEUED', 'ACTIVE')`,
+    ),
+    // Prefer current mapped name; fall back to legacy clear-list name if present.
+    shadowCanariesNonTerminal: Math.max(
+      await countRawIfTableExists(
+        input.prisma,
+        "scoring_v2_shadow_canaries",
+        `SELECT COUNT(*)::bigint AS count FROM "scoring_v2_shadow_canaries" WHERE UPPER(status) IN ('QUEUED', 'RUNNING', 'PENDING', 'STARTED', 'ACTIVE')`,
+      ),
+      await countRawIfTableExists(
+        input.prisma,
+        "scoring_shadow_canaries",
+        `SELECT COUNT(*)::bigint AS count FROM "scoring_shadow_canaries" WHERE UPPER(status) IN ('QUEUED', 'RUNNING', 'PENDING', 'STARTED', 'ACTIVE')`,
+      ),
+    ),
+    bulkOperationsNonTerminal: await countRawIfTableExists(
+      input.prisma,
+      "bulk_operations",
+      `SELECT COUNT(*)::bigint AS count FROM "bulk_operations" WHERE status IN ('PENDING', 'SELECTING', 'RUNNING', 'PAUSED')`,
+    ),
+    scoreBatchesNonTerminal: await countRawIfTableExists(
+      input.prisma,
+      "score_analysis_batches",
+      `SELECT COUNT(*)::bigint AS count FROM "score_analysis_batches" WHERE finalization_status IN ('PENDING', 'READY_TO_FINALIZE', 'FINALIZING')`,
+    ),
   };
 
   if (!input.redis) {
@@ -275,13 +288,30 @@ export async function buildWclScoringDerivedResetPlan(input: {
   }
 
   const clearTables: Array<{ table: string; rowCount: number }> = [];
+  const skippedMissingTables: string[] = [];
   for (const table of WCL_SCORING_DERIVED_CLEAR_TABLES) {
-    clearTables.push({ table, rowCount: await countTable(input.prisma, table) });
+    const counted = await countTableIfExists(input.prisma, table);
+    if (!counted.exists || counted.rowCount == null) {
+      skippedMissingTables.push(table);
+      continue;
+    }
+    clearTables.push({ table, rowCount: counted.rowCount });
   }
 
   const importantRetainTables: Array<{ table: string; rowCount: number }> = [];
   for (const table of WCL_SCORING_DERIVED_IMPORTANT_RETAIN_TABLES) {
-    importantRetainTables.push({ table, rowCount: await countTable(input.prisma, table) });
+    const counted = await countTableIfExists(input.prisma, table);
+    if (!counted.exists || counted.rowCount == null) {
+      skippedMissingTables.push(table);
+      continue;
+    }
+    importantRetainTables.push({ table, rowCount: counted.rowCount });
+  }
+
+  if (skippedMissingTables.length > 0) {
+    warnings.push(
+      `skipped missing reset-plan table(s): ${skippedMissingTables.join(", ")}`,
+    );
   }
 
   const retainTables: Array<{ table: string; rowCount: number | null }> =
@@ -348,6 +378,7 @@ export async function buildWclScoringDerivedResetPlan(input: {
     databaseName: input.gate.databaseName,
     databaseHost: input.gate.databaseHost,
     clearTables,
+    skippedMissingTables,
     retainTables,
     importantRetainTables,
     redis: {
@@ -406,13 +437,16 @@ export async function executeWclScoringDerivedReset(input: {
     input.plan.importantRetainTables.map((r) => [r.table, r.rowCount]),
   );
 
-  const quoted = WCL_SCORING_DERIVED_CLEAR_TABLES.map((t) => `"${t}"`).join(", ");
+  const clearTableNames = input.plan.clearTables.map((t) => t.table);
 
   const dbResult = await input.prisma.$transaction(async (tx) => {
-    await tx.$executeRawUnsafe(`TRUNCATE TABLE ${quoted} RESTART IDENTITY CASCADE`);
+    if (clearTableNames.length > 0) {
+      const quoted = clearTableNames.map((t) => `"${t}"`).join(", ");
+      await tx.$executeRawUnsafe(`TRUNCATE TABLE ${quoted} RESTART IDENTITY CASCADE`);
+    }
 
     const clearedTables: Array<{ table: string; remaining: number }> = [];
-    for (const table of WCL_SCORING_DERIVED_CLEAR_TABLES) {
+    for (const table of clearTableNames) {
       const remaining = await countTable(tx as unknown as PrismaClient, table);
       if (remaining !== 0) {
         throw new Error(`Post-reset integrity failed: "${table}" still has ${remaining} rows`);
@@ -426,7 +460,7 @@ export async function executeWclScoringDerivedReset(input: {
       after: number;
       unchanged: boolean;
     }> = [];
-    for (const table of WCL_SCORING_DERIVED_IMPORTANT_RETAIN_TABLES) {
+    for (const table of input.plan.importantRetainTables.map((r) => r.table)) {
       const after = await countTable(tx as unknown as PrismaClient, table);
       const before = retainBefore.get(table) ?? after;
       if (after !== before) {
@@ -437,15 +471,21 @@ export async function executeWclScoringDerivedReset(input: {
       retainedTables.push({ table, before, after, unchanged: true });
     }
 
-    const dangling = await countTable(tx as unknown as PrismaClient, "artifact_references");
-    if (dangling !== 0) {
+    const danglingCounted = await countTableIfExists(
+      tx as unknown as PrismaClient,
+      "artifact_references",
+    );
+    const dangling = danglingCounted.exists ? (danglingCounted.rowCount ?? 0) : 0;
+    if (danglingCounted.exists && dangling !== 0) {
       throw new Error(`Post-reset integrity failed: dangling artifact_references=${dangling}`);
     }
 
     const mig = await tx.$queryRawUnsafe<Array<{ count: bigint | number }>>(
       `SELECT COUNT(*)::bigint AS count FROM "_prisma_migrations" WHERE finished_at IS NOT NULL`,
     );
-    const migrationsStillApplied = toNum(mig[0]?.count) > 0;
+    const migRaw = mig[0]?.count ?? 0;
+    const migrationsStillApplied =
+      (typeof migRaw === "bigint" ? Number(migRaw) : Number(migRaw)) > 0;
     if (!migrationsStillApplied) {
       throw new Error("Post-reset integrity failed: Prisma migrations no longer applied");
     }
@@ -559,6 +599,11 @@ export function formatPlanTerminalSummary(plan: WclScoringDerivedResetPlan): str
     `  database: ${plan.sanitizedDatabase}`,
     `  redis: ${plan.sanitizedRedis}`,
     `  clear tables: ${plan.clearTables.length} (rows=${clearTotal})`,
+    `  skipped missing tables: ${plan.skippedMissingTables.length}${
+      plan.skippedMissingTables.length > 0
+        ? ` (${plan.skippedMissingTables.join(", ")})`
+        : ""
+    }`,
     `  retain tables: ${plan.retainTables.length}`,
     `  redis keys matched: ${plan.redis.matchingKeyCount} (FLUSHALL=false)`,
     `  artifacts: ${plan.artifacts.resolvedRootDir} files=${plan.artifacts.fileCount} bytes=${plan.artifacts.totalBytes}`,
