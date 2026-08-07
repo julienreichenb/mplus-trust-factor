@@ -444,6 +444,97 @@ describe("live writers / locks", () => {
     expect(plan.mode).toBe("DRY-RUN");
     expect(plan.blockedConditions.join(" ")).toMatch(/unclassified relevant Redis/);
   });
+
+  it("classifies scoring-v2 BullMQ prefixes as reset-owned", async () => {
+    const gate = assertIdentityDataResetAllowed(localGateInput());
+    expect(gate.ok).toBe(true);
+    if (!gate.ok) return;
+
+    const prefixes = identityResetRedisKeyPrefixes("development");
+    expect(prefixes).toEqual(
+      expect.arrayContaining([
+        "bull:scoring-v2-shadow-canary",
+        "bull:scoring-v2-evidence-export",
+      ]),
+    );
+
+    const prisma = {
+      ...mockPrisma(),
+      user: {
+        findUnique: vi.fn(async () => ({
+          id: KEEP_USER,
+          role: "ADMIN",
+          disabledAt: null,
+          roleAssignments: [],
+        })),
+      },
+      battleNetAccount: {
+        findUnique: vi.fn(async () => ({
+          id: KEEP_BNET,
+          userId: KEEP_USER,
+          providerAccountId: "p",
+          regionId: null,
+          battletagHash: "h",
+          battletagDisplay: null,
+          claimed: true,
+          linkedAt: new Date("2024-01-01T00:00:00.000Z"),
+          unlinkedAt: null,
+          accessTokenEncrypted: "a",
+          refreshTokenEncrypted: "r",
+          tokenExpiresAt: null,
+          grantedScopes: "openid",
+          lastOwnershipSyncAt: new Date(),
+          lastOwnershipSyncError: null,
+          lastDiscoveryJobId: null,
+          lastDiscoveryStatus: "ok",
+          lastDiscoveryStartedAt: null,
+          lastDiscoveryFinishedAt: null,
+          lastDiscoveryError: null,
+          lastDiscoveryCounters: null,
+          lastDiscoveryOwnershipSyncAt: null,
+        })),
+      },
+      $queryRawUnsafe: vi.fn(async (sql: string) => {
+        if (sql.includes("pg_catalog.pg_class") || sql.includes('AS "exists"')) {
+          return [{ exists: true }];
+        }
+        return [{ count: 0n }];
+      }),
+    };
+
+    const ownedKeys = [
+      "bull:scoring-v2-shadow-canary:completed",
+      "bull:scoring-v2-shadow-canary:meta",
+      "bull:scoring-v2-evidence-export:meta",
+      "bull:scoring-v2-evidence-export:id",
+    ];
+    const redis = idleRedis({
+      keys: vi.fn(async (pattern: string) => {
+        if (pattern === "bull:*") return ownedKeys;
+        if (pattern.startsWith("bull:scoring-v2-")) {
+          return ownedKeys.filter((k) => k.startsWith(pattern.replace(/\*$/, "")));
+        }
+        return [];
+      }),
+    });
+
+    const plan = await buildIdentityDataResetPlan({
+      prisma: prisma as never,
+      gate,
+      execute: false,
+      redis,
+    });
+
+    expect(plan.redis.unclassifiedRelevantKeys).toEqual([]);
+    expect(plan.blockedConditions.join(" ")).not.toMatch(/unclassified relevant Redis/);
+    expect(plan.redis.matchingKeyCount).toBeGreaterThanOrEqual(ownedKeys.length);
+    expect(plan.redis.sampleKeyCategories).toEqual(
+      expect.arrayContaining([
+        "bull:scoring-v2-shadow-canary",
+        "bull:scoring-v2-evidence-export",
+      ]),
+    );
+  });
 });
 
 describe("dry-run / execute planner", () => {

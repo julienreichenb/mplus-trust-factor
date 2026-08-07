@@ -179,6 +179,8 @@ export const IDENTITY_RESET_BULLMQ_QUEUES = [
   "refresh-character-calibration",
   "scoring-evidence-export",
   "scoring-shadow-canary",
+  "scoring-v2-evidence-export",
+  "scoring-v2-shadow-canary",
 ] as const;
 
 /**
