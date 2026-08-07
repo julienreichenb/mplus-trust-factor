@@ -625,6 +625,19 @@ export type {
   StandingEstimationResult,
 } from "./experience/phase1/season-population-policy.js";
 
+/** Experience Phase 1 — elite Mythic+ top 0.1% cutoff history (provider-free; not production-wired). */
+export {
+  ELITE_CUTOFF_CATALOG_VERSION,
+  ELITE_CUTOFF_CATALOG_V1,
+  getEliteCutoffCatalogEntry,
+  extractEliteCutoffHistory,
+} from "./experience/phase1/elite-cutoff-history.js";
+export type {
+  EliteCutoffCatalogEntry,
+  EliteCutoffConfirmation,
+  EliteCutoffHistoryEvidence,
+} from "./experience/phase1/elite-cutoff-history.js";
+
 /** Survival V2 Phase 2 calculator (contextual defensive / recovery). */
 export {
   SURVIVAL_V2_SCHEMA_VERSION,
