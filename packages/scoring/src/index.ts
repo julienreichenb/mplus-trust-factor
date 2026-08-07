@@ -638,6 +638,23 @@ export type {
   EliteCutoffHistoryEvidence,
 } from "./experience/phase1/elite-cutoff-history.js";
 
+/** Experience Phase 1 — pure calculator (provider-free; not production-wired). */
+export {
+  EXPERIENCE_PHASE1_ELITE_FLOOR,
+  EXPERIENCE_PHASE1_BELOW_TOP40_SCORE,
+  EXPERIENCE_PHASE1_NO_ACTIVITY_SCORE,
+  EXPERIENCE_PHASE1_STANDING_SCORE_ANCHORS,
+  scoreFromEstimatedTopPercent,
+  scorePreviousSeasonStanding,
+  calculateExperiencePhase1,
+} from "./experience/phase1/calculate.js";
+export type {
+  ExperiencePhase1PreviousEvidence,
+  ExperiencePhase1UnavailableReason,
+  ExperiencePhase1Result,
+  CalculateExperiencePhase1Input,
+} from "./experience/phase1/calculate.js";
+
 /** Survival V2 Phase 2 calculator (contextual defensive / recovery). */
 export {
   SURVIVAL_V2_SCHEMA_VERSION,
