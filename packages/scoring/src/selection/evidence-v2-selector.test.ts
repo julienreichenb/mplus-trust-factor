@@ -443,6 +443,7 @@ describe("evidence V2 plan → acquire → finalize lifecycle", () => {
       diagnosticsOnly: { parsePercentile: 10, deaths: 40, expectedLabel: "D" },
     });
 
+    // Same key/timer/completedAt → reportCode lexical (high-parse before low-parse).
     expect(compareEvidenceCandidatesV2(lowParseFirst, highParseSecond)).toBeGreaterThan(0);
 
     const { manifest } = planAndFinalize([lowParseFirst, highParseSecond], {
@@ -451,7 +452,72 @@ describe("evidence V2 plan → acquire → finalize lifecycle", () => {
     expect(manifest.slots[0]!.identity?.reportCode).toBe("high-parse");
   });
 
-  it("is stable on ties via lexical report code and fight id", () => {
+  it("equal-key slot order is stable across input order and path-dependent score/completeness", () => {
+    const magistersA = candidate({
+      reportCode: "rmd1P7KygazYHVD3",
+      fightId: 4,
+      dungeonSlug: "magisters-terrace",
+      keyLevel: 22,
+      timed: true,
+      runScore: 900,
+      evidenceCompleteness: 0.5,
+      // Discovery often has a distinct absolute fight time…
+      completedAt: "2026-07-11T18:00:00.000Z",
+    });
+    const magistersB = candidate({
+      reportCode: "NFgTGtzbwBcMJyp4",
+      fightId: 1,
+      dungeonSlug: "magisters-terrace",
+      keyLevel: 22,
+      timed: true,
+      runScore: 100,
+      evidenceCompleteness: 1,
+      completedAt: "2026-07-11T17:00:00.000Z",
+    });
+
+    // Lexical reportCode wins over completedAt / score / completeness.
+    expect(compareEvidenceCandidatesV2(magistersA, magistersB)).toBeGreaterThan(0);
+
+    const forward = planAndFinalize([magistersA, magistersB], {
+      scope: baseScope({ activeDungeonSlugs: ["magisters-terrace"] }),
+    });
+    const reverse = planAndFinalize([magistersB, magistersA], {
+      scope: baseScope({ activeDungeonSlugs: ["magisters-terrace"] }),
+    });
+    // Replay-like: fused MythicRun often stamps the same completedAt on both uploads.
+    const replayShaped = planAndFinalize(
+      [
+        {
+          ...magistersB,
+          runScore: null,
+          evidenceCompleteness: 1,
+          completedAt: "2026-07-11T17:48:57.579Z",
+        },
+        {
+          ...magistersA,
+          runScore: null,
+          evidenceCompleteness: 1,
+          completedAt: "2026-07-11T17:48:57.579Z",
+        },
+      ],
+      { scope: baseScope({ activeDungeonSlugs: ["magisters-terrace"] }) },
+    );
+
+    const slotTuple = (manifest: (typeof forward)["manifest"]) =>
+      manifest.slots
+        .filter((s) => s.state === "SELECTED")
+        .map(
+          (s) =>
+            `${s.dungeonSlug}:${s.slotIndex}:${s.identity!.reportCode}:${s.identity!.fightId}`,
+        );
+
+    expect(slotTuple(forward.manifest)).toEqual([
+      "magisters-terrace:0:NFgTGtzbwBcMJyp4:1",
+      "magisters-terrace:1:rmd1P7KygazYHVD3:4",
+    ]);
+    expect(slotTuple(reverse.manifest)).toEqual(slotTuple(forward.manifest));
+    expect(slotTuple(replayShaped.manifest)).toEqual(slotTuple(forward.manifest));
+  });  it("is stable on ties via lexical report code and fight id", () => {
     const { manifest } = planAndFinalize(
       [
         candidate({
@@ -953,7 +1019,35 @@ describe("evidence V2 selection policy (two best distinct runs per dungeon)", ()
     ]);
   });
 
-  it("better-timed of two +15 runs ranks first via runScore", () => {
+  it("equal-key timed runs break ties by reportCode (not completedAt or runScore)", () => {
+    const newerLowerScore = candidate({
+      reportCode: "zzz-newer",
+      fightId: 1,
+      dungeonSlug: dungeon,
+      keyLevel: 15,
+      timed: true,
+      runScore: 100,
+      completedAt: "2026-07-10T12:00:00.000Z",
+    });
+    const olderHigherScore = candidate({
+      reportCode: "aaa-older",
+      fightId: 2,
+      dungeonSlug: dungeon,
+      keyLevel: 15,
+      timed: true,
+      runScore: 999,
+      completedAt: "2026-07-01T12:00:00.000Z",
+    });
+
+    expect(compareEvidenceCandidatesV2(newerLowerScore, olderHigherScore)).toBeGreaterThan(0);
+
+    const { manifest } = planAndFinalize([newerLowerScore, olderHigherScore], {
+      scope: scope(),
+    });
+    expect(manifest.slots[0]!.identity?.reportCode).toBe("aaa-older");
+    expect(manifest.slots[1]!.identity?.reportCode).toBe("zzz-newer");
+  });
+  it("better-timed of two +15 runs ranks first via reportCode when completedAt ties", () => {
     const better = candidate({
       reportCode: "better-timer",
       fightId: 1,
@@ -977,7 +1071,6 @@ describe("evidence V2 selection policy (two best distinct runs per dungeon)", ()
     expect(manifest.slots[0]!.identity?.reportCode).toBe("better-timer");
     expect(manifest.slots[1]!.identity?.reportCode).toBe("worse-timer");
   });
-
   it("cached/persisted +14 does not replace an uncached +15", () => {
     // Persistence / completeness is acquisition cost only — never selection rank.
     const uncached15 = candidate({

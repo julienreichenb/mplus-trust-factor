@@ -94,13 +94,16 @@ Candidates are sorted per dungeon by:
 
 1. key level descending;
 2. run completion/timer quality when available;
-3. canonical run score descending when comparable;
-4. evidence completeness score descending;
-5. completion timestamp descending;
-6. report code lexical;
-7. fight ID ascending.
+3. report code lexical;
+4. fight ID ascending;
+5. completion timestamp descending (pathological duplicate identity only);
+6. canonical run score descending when comparable (pathological duplicate identity only);
+7. evidence completeness score descending (pathological duplicate identity only).
 
-The final lexical/numeric tie-breakers make selection deterministic.
+Equal-key ties must use immutable discovery identity (`reportCode` / `fightId`)
+so cold, warm, and replay agree on `slotIndex` for the same selected report/fight
+set. `completedAt`, `runScore`, and `evidenceCompleteness` vary across discovery
+vs fused MythicRun / digest replay and must not reorder distinct identities.
 
 Performance parse, deaths, utility actions, resulting score, or expected calibration label MUST NOT appear in ordering.
 

@@ -71,6 +71,11 @@ function timerQualityRank(timed: boolean | null): number {
 /**
  * Deterministic per-dungeon ordering.
  * MUST NOT read diagnosticsOnly (parse / deaths / utility / labels).
+ *
+ * After keyLevel + timer quality, equal-key ties break on immutable discovery
+ * identity (reportCode / fightId). completedAt / runScore / evidenceCompleteness
+ * are path-dependent across discovery vs fused MythicRun / digest replay and
+ * must not change slotIndex for the same selected set.
  */
 export function compareEvidenceCandidatesV2(
   a: EvidenceCandidateMetadataV2,
@@ -81,6 +86,22 @@ export function compareEvidenceCandidatesV2(
   const timerDiff = timerQualityRank(b.timed) - timerQualityRank(a.timed);
   if (timerDiff !== 0) return timerDiff;
 
+  const codeCmp = a.discoveryIdentity.reportCode.localeCompare(
+    b.discoveryIdentity.reportCode,
+  );
+  if (codeCmp !== 0) return codeCmp;
+
+  if (a.discoveryIdentity.fightId !== b.discoveryIdentity.fightId) {
+    return a.discoveryIdentity.fightId - b.discoveryIdentity.fightId;
+  }
+
+  // Same reportCode:fightId — remaining fields only break pathological duplicates.
+  const timeA = a.completedAt ? Date.parse(a.completedAt) : Number.NEGATIVE_INFINITY;
+  const timeB = b.completedAt ? Date.parse(b.completedAt) : Number.NEGATIVE_INFINITY;
+  const timeAOk = Number.isFinite(timeA) ? timeA : Number.NEGATIVE_INFINITY;
+  const timeBOk = Number.isFinite(timeB) ? timeB : Number.NEGATIVE_INFINITY;
+  if (timeAOk !== timeBOk) return timeBOk - timeAOk;
+
   const scoreA = a.runScore ?? Number.NEGATIVE_INFINITY;
   const scoreB = b.runScore ?? Number.NEGATIVE_INFINITY;
   if (scoreA !== scoreB) return scoreB - scoreA;
@@ -89,16 +110,7 @@ export function compareEvidenceCandidatesV2(
     return b.evidenceCompleteness - a.evidenceCompleteness;
   }
 
-  const timeA = a.completedAt ? Date.parse(a.completedAt) : Number.NEGATIVE_INFINITY;
-  const timeB = b.completedAt ? Date.parse(b.completedAt) : Number.NEGATIVE_INFINITY;
-  if (timeA !== timeB) return timeB - timeA;
-
-  const codeCmp = a.discoveryIdentity.reportCode.localeCompare(
-    b.discoveryIdentity.reportCode,
-  );
-  if (codeCmp !== 0) return codeCmp;
-
-  return a.discoveryIdentity.fightId - b.discoveryIdentity.fightId;
+  return 0;
 }
 
 export function orderEvidenceCandidatesV2(
