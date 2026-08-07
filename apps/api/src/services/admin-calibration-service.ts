@@ -14,6 +14,7 @@ import type {
 } from "@mplus/contracts";
 import {
   CALIBRATION_INPUT_BUNDLE_MAX_BYTES,
+  CALIBRATION_EVIDENCE_SOURCE_CANONICAL,
   CALIBRATION_LABEL_TO_QUALITATIVE,
   CALIBRATION_LABEL_TO_TIER,
   CALIBRATION_TIER_TO_LABEL,
@@ -1235,6 +1236,8 @@ export class AdminCalibrationService {
 
     const includeUnevaluated =
       input.includeUnevaluatedMembers ?? Boolean(input.scoreModelId);
+    /** Product UI path: acquire via canonical WCL scoring; snapshots optional. */
+    const productAcquire = Boolean(input.scoreModelId);
     const generatedAt = new Date().toISOString();
     const included = cohort.members.filter((m) => m.included);
     const evidenceByMemberId: Record<string, CalibrationMemberEvidence> = {};
@@ -1246,6 +1249,79 @@ export class AdminCalibrationService {
       const character = await this.resolveCharacterForMember(member);
       const memberKey = member.externalMemberKey ?? member.id;
       const expectedLabel = labelToQualitative(member.expectedLabel as CalibrationExpectedLabel);
+
+      if (productAcquire) {
+        if (!character) {
+          if (!includeUnevaluated) {
+            throw HttpError.badRequest(
+              "CHARACTER_NOT_FOUND",
+              `Included member ${member.id} has no resolved Character — resolve via Blizzard first`,
+            );
+          }
+          evidenceByMemberId[memberKey] = {
+            memberId: memberKey,
+            characterId: null,
+            snapshotId: null,
+            snapshot: null,
+            observations: null,
+            scoringContext: null,
+            calculatedAt: null,
+            inputFingerprint: null,
+            seasonSlug: season.slug,
+          };
+          manifestMembers.push({
+            id: memberKey,
+            region: member.region,
+            realm: member.realmSlug,
+            character: member.characterName,
+            role: member.providedRole ? roleOrDefault(member.providedRole) : "DPS",
+            classSlug: member.classSlug ?? "unknown",
+            specSlug: member.specSlug ?? "unknown",
+            expectedLabel,
+            meta: false,
+            rationale: member.rationale,
+            suspectedBoost: false,
+            source: member.source === "STRATIFIED_AUTO" ? "stratified-auto" : "user-selected",
+            snapshotIds: [],
+            seasonSlug: season.slug,
+          });
+          continue;
+        }
+
+        evidenceCutoffs.push(
+          member.evidenceCutoffAt?.toISOString() ?? generatedAt,
+        );
+        evidenceByMemberId[memberKey] = {
+          memberId: memberKey,
+          characterId: character.id,
+          snapshotId: null,
+          snapshot: null,
+          observations: null,
+          scoringContext: null,
+          calculatedAt: null,
+          inputFingerprint: null,
+          seasonSlug: season.slug,
+        };
+        manifestMembers.push({
+          id: memberKey,
+          region: member.region,
+          realm: member.realmSlug,
+          character: member.characterName,
+          role: member.providedRole
+            ? roleOrDefault(member.providedRole)
+            : roleOrDefault(character.role),
+          classSlug: member.classSlug ?? character.gameClass?.slug ?? "unknown",
+          specSlug: member.specSlug ?? character.activeSpec?.slug ?? "unknown",
+          expectedLabel,
+          meta: false,
+          rationale: member.rationale,
+          suspectedBoost: false,
+          source: member.source === "STRATIFIED_AUTO" ? "stratified-auto" : "user-selected",
+          snapshotIds: [],
+          seasonSlug: season.slug,
+        });
+        continue;
+      }
 
       if (!character) {
         if (!includeUnevaluated && input.evidencePolicy === "STRICT") {
@@ -1426,9 +1502,11 @@ export class AdminCalibrationService {
     if (manifestMembers.length === 0) {
       throw HttpError.badRequest(
         "EMPTY_CALIBRATION_COHORT",
-        needsReplay
-          ? "No included members with replayable evidence"
-          : "No included members with usable snapshots",
+        productAcquire
+          ? "No included members to calibrate"
+          : needsReplay
+            ? "No included members with replayable evidence"
+            : "No included members with usable snapshots",
       );
     }
 
@@ -1513,9 +1591,12 @@ export class AdminCalibrationService {
         evidenceFingerprint,
         deterministicSeed: input.deterministicSeed,
         algorithmVersions: {
-          harness: "runCalibrationHarnessFromBundle",
+          harness: productAcquire
+            ? "acquireAndEvaluateCalibrationMember"
+            : "runCalibrationHarnessFromBundle",
           digest: "1.0.0",
           mode: bundleMode,
+          evidenceSource: productAcquire ? CALIBRATION_EVIDENCE_SOURCE_CANONICAL : "FROZEN_SNAPSHOT_BUNDLE",
           activeModelConfigHash: hashJson(activeRef.config),
           evaluationModelConfigHash: hashJson(evaluationRef.config),
           seasonSlug: season.slug,

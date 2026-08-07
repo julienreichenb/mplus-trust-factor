@@ -70,6 +70,17 @@ export interface ScoreCharacterInput {
   scoringModelVersion?: string | null;
   allowProviderCalls: boolean;
   publicationEnabled?: boolean;
+  /**
+   * When false, evaluate via orchestrateScoringRuns but do not write CharacterScore.
+   * Used by calibration (and similar sinks) so acquisition/evaluation can be shared
+   * while score publication stays operational-only. Default true.
+   */
+  persistCharacterScore?: boolean;
+  /**
+   * Optional ScoreModel.config override (e.g. frozen DRAFT config on a CalibrationRun).
+   * When omitted, config is loaded from `scoringModelId`.
+   */
+  scoreModelConfig?: Record<string, unknown> | null;
   acquisitionVersion?: string;
   extractorVersion?: string;
   scoringVersion?: string;
@@ -215,14 +226,19 @@ export async function scoreCharacter(
         })
       : null;
 
-  const scoreModelRow = await input.prisma.scoreModel.findUnique({
-    where: { id: input.scoringModelId },
-    select: { config: true },
-  });
-  const scoreModelConfig =
-    scoreModelRow?.config != null && typeof scoreModelRow.config === "object"
-      ? (scoreModelRow.config as Record<string, unknown>)
-      : null;
+  let scoreModelConfig: Record<string, unknown> | null;
+  if (input.scoreModelConfig !== undefined) {
+    scoreModelConfig = input.scoreModelConfig;
+  } else {
+    const scoreModelRow = await input.prisma.scoreModel.findUnique({
+      where: { id: input.scoringModelId },
+      select: { config: true },
+    });
+    scoreModelConfig =
+      scoreModelRow?.config != null && typeof scoreModelRow.config === "object"
+        ? (scoreModelRow.config as Record<string, unknown>)
+        : null;
+  }
 
   const orchestration = await orchestrateScoringRuns({
     characterId: input.identity.characterId,
@@ -264,7 +280,6 @@ export async function scoreCharacter(
     participantActorId: row.digest.participantActorId,
   }));
 
-  const scores = new CharacterScoreRepository(input.prisma);
   const performance = orchestration.dimensions.performance;
   const utility = orchestration.dimensions.utility;
   const survival = orchestration.dimensions.survival;
@@ -276,83 +291,89 @@ export async function scoreCharacter(
     ),
   );
 
-  const saved = await scores.save({
-    characterId: input.identity.characterId,
-    seasonId: input.seasonId,
-    scoringVersion,
-    performance: performance?.score ?? null,
-    utility: utility?.score ?? null,
-    survival: survival?.score ?? null,
-    experience: null,
-    composite,
-    confidence,
-    tier: null,
-    dimensionDetails: JSON.parse(
-      JSON.stringify({
-        blocked: orchestration.dimensions.blocked,
-        performanceDigestDiagnostics:
-          orchestration.dimensions.performanceDigestDiagnostics,
-        utilityDigestDiagnostics:
-          orchestration.dimensions.utilityDigestDiagnostics,
-        survivalDigestDiagnostics:
-          orchestration.dimensions.survivalDigestDiagnostics,
-        incomplete: orchestration.incomplete,
-        cacheMisses: orchestration.cacheMisses,
-        fightFailures: orchestration.fightFailures,
-        targetDigestFailures: orchestration.targetDigestFailures,
-        providerCalls: orchestration.accounting.providerCalls,
-        performance: performance
-          ? {
-              calculatorVersion: performance.calculatorVersion,
-              phase1Score: performance.phase1Score,
-              offensiveCooldownDiscipline:
-                performance.offensiveCooldownDiscipline,
-              weightsApplied: performance.weightsApplied,
-              coverage: performance.coverage,
-              limitations: performance.limitations,
-              state: performance.state,
-            }
-          : null,
-        utility: utility
-          ? {
-              algorithmVersion: utility.algorithmVersion,
-              phase: utility.phase,
-              availabilityState: utility.availabilityState,
-              interruptCounts: utility.interruptCounts,
-              domainBreakdown: utility.domainBreakdown,
-              support: utility.support,
-              strategicCc: utility.strategicCc,
-              explanation: utility.explanation,
-              context: utility.context,
-            }
-          : null,
-        survival: survival
-          ? {
-              algorithmVersion: survival.algorithmVersion,
-              modelLabel: survival.modelLabel,
-              state: survival.state,
-              components: survival.components,
-              observations: survival.observations,
-              explanation: survival.explanation,
-              relativeDamageMode: survival.relativeDamageMode,
-            }
-          : null,
-        performanceAggregate: {
-          state: performanceAggregate.state,
-          reason: performanceAggregate.reason,
-          cache: performanceAggregate.cache,
-          contentHash: performanceAggregate.contentHash,
-          aggregateRowId: performanceAggregate.aggregateRowId,
-        },
-      }),
-    ),
-    selectedRuns: JSON.parse(JSON.stringify(selectedRuns)),
-  });
+  const persistCharacterScore = input.persistCharacterScore !== false;
+  let characterScoreId: string | null = null;
+  if (persistCharacterScore) {
+    const scores = new CharacterScoreRepository(input.prisma);
+    const saved = await scores.save({
+      characterId: input.identity.characterId,
+      seasonId: input.seasonId,
+      scoringVersion,
+      performance: performance?.score ?? null,
+      utility: utility?.score ?? null,
+      survival: survival?.score ?? null,
+      experience: null,
+      composite,
+      confidence,
+      tier: null,
+      dimensionDetails: JSON.parse(
+        JSON.stringify({
+          blocked: orchestration.dimensions.blocked,
+          performanceDigestDiagnostics:
+            orchestration.dimensions.performanceDigestDiagnostics,
+          utilityDigestDiagnostics:
+            orchestration.dimensions.utilityDigestDiagnostics,
+          survivalDigestDiagnostics:
+            orchestration.dimensions.survivalDigestDiagnostics,
+          incomplete: orchestration.incomplete,
+          cacheMisses: orchestration.cacheMisses,
+          fightFailures: orchestration.fightFailures,
+          targetDigestFailures: orchestration.targetDigestFailures,
+          providerCalls: orchestration.accounting.providerCalls,
+          performance: performance
+            ? {
+                calculatorVersion: performance.calculatorVersion,
+                phase1Score: performance.phase1Score,
+                offensiveCooldownDiscipline:
+                  performance.offensiveCooldownDiscipline,
+                weightsApplied: performance.weightsApplied,
+                coverage: performance.coverage,
+                limitations: performance.limitations,
+                state: performance.state,
+              }
+            : null,
+          utility: utility
+            ? {
+                algorithmVersion: utility.algorithmVersion,
+                phase: utility.phase,
+                availabilityState: utility.availabilityState,
+                interruptCounts: utility.interruptCounts,
+                domainBreakdown: utility.domainBreakdown,
+                support: utility.support,
+                strategicCc: utility.strategicCc,
+                explanation: utility.explanation,
+                context: utility.context,
+              }
+            : null,
+          survival: survival
+            ? {
+                algorithmVersion: survival.algorithmVersion,
+                modelLabel: survival.modelLabel,
+                state: survival.state,
+                components: survival.components,
+                observations: survival.observations,
+                explanation: survival.explanation,
+                relativeDamageMode: survival.relativeDamageMode,
+              }
+            : null,
+          performanceAggregate: {
+            state: performanceAggregate.state,
+            reason: performanceAggregate.reason,
+            cache: performanceAggregate.cache,
+            contentHash: performanceAggregate.contentHash,
+            aggregateRowId: performanceAggregate.aggregateRowId,
+          },
+        }),
+      ),
+      selectedRuns: JSON.parse(JSON.stringify(selectedRuns)),
+    });
+    characterScoreId = saved.id;
+  }
 
   const aggregateProviderCalls = performanceAggregate.providerCalls;
   return {
     orchestration,
-    characterScoreId: saved.id,
+    characterScoreId,
     providerCalls:
       orchestration.accounting.providerCalls + aggregateProviderCalls,
     scoringVersion,

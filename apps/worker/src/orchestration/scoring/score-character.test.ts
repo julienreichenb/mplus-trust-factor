@@ -35,15 +35,23 @@ function candidate(
 }
 
 function fakePrisma() {
+  let scoreWrites = 0;
   return {
+    scoreWrites: () => scoreWrites,
+    scoreModel: {
+      findUnique: async () => ({ config: {} }),
+    },
     characterScore: {
       findUnique: async () => null,
-      upsert: async ({ create }: { create: Record<string, unknown> }) => ({
-        id: "score-1",
-        ...create,
-      }),
+      upsert: async ({ create }: { create: Record<string, unknown> }) => {
+        scoreWrites += 1;
+        return {
+          id: "score-1",
+          ...create,
+        };
+      },
     },
-  } as never;
+  } as never & { scoreWrites: () => number };
 }
 
 describe("scoreCharacter cache-backed pipeline", () => {
@@ -109,6 +117,35 @@ describe("scoreCharacter cache-backed pipeline", () => {
     expect(cold.performanceAggregate.reason).toBe(
       "performance_aggregate_unavailable_replay",
     );
+
+    const noPersist = await scoreCharacter({
+      identity: {
+        characterId: CHARACTER_ID,
+        region: "EU",
+        realm: "archimonde",
+        characterName: "Tester",
+      },
+      seasonId: SEASON_ID,
+      seasonSlug: "midnight-season-1",
+      role: "DPS",
+      classSlug: "mage",
+      specSlug: "fire",
+      activeDungeonSlugs: dungeons,
+      candidates,
+      evidenceCutoffAt: "2026-01-01T00:00:00.000Z",
+      highKeyPolicyId: "policy-1",
+      scoringModelId: "model-1",
+      allowProviderCalls: false,
+      persistCharacterScore: false,
+      zoneId: 47,
+      ensurePerformanceAggregate: ensureUnavailable,
+      ports,
+      prisma: fakePrisma(),
+      artifacts: {} as never,
+      evidence: {} as never,
+    });
+    expect(noPersist.characterScoreId).toBeNull();
+    expect(noPersist.orchestration.selectedSlotCount).toBeGreaterThanOrEqual(0);
 
     const warm = await scoreCharacter({
       identity: {

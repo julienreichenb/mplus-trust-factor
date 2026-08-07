@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, type Mock } from "vitest";
 import type { FastifyInstance } from "fastify";
 import type { PrismaClient } from "@mplus/database";
 import { buildApp } from "./app.js";
@@ -21,7 +21,7 @@ afterAll(async () => {
   await prisma.$disconnect();
 });
 
-function stubProducers(enqueueSpy?: ReturnType<typeof vi.fn>) {
+function stubProducers(enqueueSpy?: Mock) {
   const ok = async () => ({
     jobId: randomUUID(),
     dedupeKey: `stub-${randomUUID()}`,
@@ -257,6 +257,10 @@ describe.skipIf(!dbAvailable)("admin calibration workflow", { timeout: 60_000 },
     });
     expect(activeRun.statusCode).toBe(201);
     expect(activeRun.json().mode).toBe("PERSISTED_SNAPSHOT_ONLY");
+    const activeRow = await prisma.calibrationRun.findUnique({ where: { id: activeRun.json().id } });
+    expect((activeRow?.algorithmVersions as { evidenceSource?: string })?.evidenceSource).toBe(
+      "CANONICAL_ACQUIRE_EVALUATE",
+    );
 
     const draftRun = await app.inject({
       method: "POST",
@@ -331,10 +335,14 @@ describe.skipIf(!dbAvailable)("admin calibration workflow", { timeout: 60_000 },
         prisma: prisma as PrismaClient,
         logger: container.logger,
         calibrationEnabled: true,
+        container: container.worker,
       },
       { calibrationRunId: run.id, requestedAt: new Date().toISOString() },
     );
     const terminal = await prisma.calibrationRun.findUnique({ where: { id: run.id } });
     expect(["SUCCEEDED", "FAILED"]).toContain(terminal?.status ?? "");
+
+    const algo = bundleAfter?.algorithmVersions as { evidenceSource?: string } | null;
+    expect(algo?.evidenceSource).toBe("CANONICAL_ACQUIRE_EVALUATE");
   });
 });

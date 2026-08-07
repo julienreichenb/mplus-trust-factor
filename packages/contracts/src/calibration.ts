@@ -4,6 +4,13 @@ import type { IsoDateTime } from "./identity.js";
 /** Max UTF-8 byte length for frozen CalibrationInputBundle JSONB (fail closed). */
 export const CALIBRATION_INPUT_BUNDLE_MAX_BYTES = 4 * 1024 * 1024;
 
+/**
+ * Product calibration runs acquire/evaluate via the canonical WCL scoring path
+ * (scoreCharacter with persistCharacterScore=false). Stored on
+ * CalibrationRun.algorithmVersions.evidenceSource.
+ */
+export const CALIBRATION_EVIDENCE_SOURCE_CANONICAL = "CANONICAL_ACQUIRE_EVALUATE" as const;
+
 /** Digest algorithm version for Phase 1 deterministic digests (no weight recommendations). */
 export const CALIBRATION_DIGEST_ALGORITHM_VERSION = "1.0.0" as const;
 

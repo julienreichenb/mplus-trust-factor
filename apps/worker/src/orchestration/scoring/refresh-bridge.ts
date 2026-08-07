@@ -42,6 +42,13 @@ export interface AuthoritativeScoringInput {
   region: string;
   realm: string;
   characterName: string;
+  /**
+   * When false, scoreCharacter evaluates without writing CharacterScore.
+   * Default true (operational refresh / recalculate).
+   */
+  persistCharacterScore?: boolean;
+  /** Optional frozen ScoreModel.config override for evaluation. */
+  scoreModelConfig?: Record<string, unknown> | null;
   /** Test seam. */
   portsOverride?: RunOrchestrationPorts;
   /** Test seam for aggregate provider. */
@@ -218,6 +225,8 @@ export async function runAuthoritativeScoring(
     scoringModelVersion: String(input.scoreModelVersion),
     allowProviderCalls,
     publicationEnabled: input.container.env.SCORING_PUBLICATION_ENABLED,
+    persistCharacterScore: input.persistCharacterScore,
+    scoreModelConfig: input.scoreModelConfig,
     ports,
     prisma: input.container.prisma,
     artifacts: input.container.repositories.artifacts,

@@ -227,6 +227,10 @@ export type { AdminAbilityCatalogResponse };
 export type {
   AdminScoreModelDTO,
   AnalyzedRunSummary,
+  CalibrationCohortDTO,
+  CalibrationCohortMemberDTO,
+  CalibrationReportDTO,
+  CalibrationRunDTO,
   CharacterAutocompleteSuggestion,
   CharacterComparisonRequest,
   CharacterComparisonResponse,
