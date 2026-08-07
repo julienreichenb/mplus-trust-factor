@@ -18,7 +18,7 @@ import type {
   WclDataState,
   WclVisibilityState,
 } from "@mplus/contracts";
-import { ExternalApiError, deriveWclContributionTypes, normalizeWclProvenance } from "@mplus/contracts";
+import { deriveWclContributionTypes, normalizeWclProvenance } from "@mplus/contracts";
 import { normalizeRealmSlug, normalizeRegion } from "@mplus/domain";
 import {
   decideScoreRefresh,
@@ -36,12 +36,12 @@ import {
   resolveActiveRefreshContract,
   SeasonAuthorityUnavailableError,
   requireVerifiedSeasonAuthority,
-  persistRefreshEligibilityEvidence,
   loadCharacterRefreshEligibilitySignals,
+  fetchBlizzardPublicBootstrap,
+  persistPublicCharacterBootstrap,
   type RefreshJobControlDeps,
   type VerifiedSeasonAuthority,
 } from "@mplus/worker";
-import { randomUUID } from "node:crypto";
 import type { ApiContainer } from "../container.js";
 import { HttpError } from "../errors.js";
 import { cooldownSecondsRemaining } from "../lib/freshness.js";
@@ -571,32 +571,6 @@ export class CharacterService {
   }
 
   /**
-   * Persist cheap season-scoped eligibility evidence from an already-fetched
-   * Blizzard resolve/discovery response. Provider-free at the worker gate.
-   *
-   * Allowed only on resolve/discovery paths — never call Blizzard from admin
-   * rerun, bulk FULL_REFRESH, profile auto-enqueue, or scheduled refresh merely
-   * to decide eligibility. Insufficient persisted evidence → UNKNOWN → fail closed.
-   */
-  private async persistEligibilityEvidenceFromResolvedProfile(
-    character: Character,
-    _identity: CharacterIdentityInput,
-    authority: VerifiedSeasonAuthority,
-    opts: {
-      correlationId?: string | null;
-      level: number | null;
-      mythicRating: number | null;
-    },
-  ): Promise<void> {
-    await persistRefreshEligibilityEvidence(this.container.worker.prisma, {
-      characterId: character.id,
-      level: opts.level,
-      mythicRating: opts.mythicRating,
-      authoritativeSeasonRowId: authority.seasonRowId,
-    });
-  }
-
-  /**
    * Bounded Blizzard profile + current-season Mythic+ reads for resolve bootstrap.
    * Never invents eligibility evidence on NOT_FOUND.
    */
@@ -608,73 +582,68 @@ export class CharacterService {
     | { ok: true; profile: CanonicalCharacter; mythicRating: number | null }
     | { ok: false; statusCode: number; body: CharacterResolveResponse }
   > {
-    const ctx = {
-      region: identity.region,
-      requestId: opts.correlationId ?? randomUUID(),
-      correlationId: opts.correlationId ?? null,
-      forceRefresh: true,
-      now: new Date().toISOString(),
-    };
-    try {
-      const profileResult = await this.container.worker.providers.blizzard.getCharacterProfile(
-        identity,
-        ctx,
-      );
-      let mythicRating: number | null = null;
-      try {
-        const keystone = await this.container.worker.providers.blizzard.getMythicKeystoneProfile(
-          identity,
-          ctx,
-        );
-        mythicRating = keystone.data.currentMythicRating ?? null;
-      } catch {
-        mythicRating = null;
-      }
-      return { ok: true, profile: profileResult.data, mythicRating };
-    } catch (error) {
-      if (error instanceof ExternalApiError && error.code === "NOT_FOUND") {
-        this.container.negativeCache.set(identity);
-        return {
-          ok: false,
-          statusCode: 404,
-          body: {
-            status: "NOT_FOUND",
-            message: notFoundMessage,
-          },
-        };
-      }
-      if (error instanceof ExternalApiError && error.retryable) {
-        return {
-          ok: false,
-          statusCode: 503,
-          body: {
-            status: "PROVIDER_UNAVAILABLE",
-            retryable: true,
-            message: "Blizzard is temporarily unavailable. Please retry shortly.",
-          },
-        };
-      }
-      if (error instanceof ExternalApiError && !error.retryable) {
-        return {
-          ok: false,
-          statusCode: 502,
-          body: {
-            status: "FAILED",
-            retryable: false,
-            message: error.message || "Character verification failed.",
-          },
-        };
-      }
+    const fetched = await fetchBlizzardPublicBootstrap(
+      this.container.worker.providers.blizzard,
+      identity,
+      { correlationId: opts.correlationId, forceRefresh: true },
+    );
+    if (fetched.ok) {
+      return { ok: true, profile: fetched.profile, mythicRating: fetched.mythicRating };
+    }
+    const error = fetched.error;
+    if (error.code === "NOT_FOUND") {
+      this.container.negativeCache.set(identity);
+      return {
+        ok: false,
+        statusCode: 404,
+        body: {
+          status: "NOT_FOUND",
+          message: notFoundMessage,
+        },
+      };
+    }
+    if (error.retryable) {
       return {
         ok: false,
         statusCode: 503,
         body: {
           status: "PROVIDER_UNAVAILABLE",
           retryable: true,
-          message: "Unable to verify character with Blizzard right now.",
+          message: "Blizzard is temporarily unavailable. Please retry shortly.",
         },
       };
     }
+    return {
+      ok: false,
+      statusCode: 502,
+      body: {
+        status: "FAILED",
+        retryable: false,
+        message: error.message || "Character verification failed.",
+      },
+    };
+  }
+
+  /**
+   * Persist authoritative Blizzard bootstrap metadata + season-scoped Mythic+ evidence.
+   * Exact resolve / forceRetry only — never GET profile or background admission.
+   */
+  private async persistBootstrapFromBlizzardProfile(
+    character: Character,
+    identity: CharacterIdentityInput,
+    authority: VerifiedSeasonAuthority,
+    profile: CanonicalCharacter,
+    mythicRating: number | null,
+  ): Promise<Character> {
+    void identity;
+    return persistPublicCharacterBootstrap({
+      prisma: this.container.worker.prisma,
+      characterRepository: this.repositories.character,
+      character,
+      profile,
+      mythicRating,
+      authority,
+    });
   }
 
   /**
@@ -734,25 +703,6 @@ export class CharacterService {
       };
     }
     return { ok: true };
-  }
-
-  /**
-   * Persist authoritative Blizzard bootstrap metadata + season-scoped Mythic+ evidence.
-   * Exact resolve / forceRetry only — never GET profile or background admission.
-   */
-  private async persistBootstrapFromBlizzardProfile(
-    character: Character,
-    identity: CharacterIdentityInput,
-    authority: VerifiedSeasonAuthority,
-    profile: CanonicalCharacter,
-    mythicRating: number | null,
-  ): Promise<Character> {
-    const updated = await this.repositories.character.applyProviderProfile(character.id, profile);
-    await this.persistEligibilityEvidenceFromResolvedProfile(updated, identity, authority, {
-      level: profile.level ?? updated.level ?? null,
-      mythicRating,
-    });
-    return (await this.repositories.character.findById(updated.id)) ?? updated;
   }
 
   /**

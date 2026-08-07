@@ -22,6 +22,7 @@ import { requireVerifiedSeasonAuthority } from "../season-authority.js";
 import { ensureRegion } from "../../persistence/realm-repository.js";
 import { resolveActiveRefreshContract } from "../build-refresh-contract.js";
 import { SCORING_VERSION } from "./score-character.js";
+import { prepareSmokeCharacterForRefresh } from "./smoke-character-prepare.js";
 import {
   formatSmokeRunsTableText,
   loadSmokeRunsTable,
@@ -164,6 +165,8 @@ async function main(): Promise<void> {
     let scoreDto: ScoreSnapshotDTO | null = null;
     let providerCallsReported: number | null = null;
     let mode: "refresh" | "replay" | "score-only" = "refresh";
+    let bootstrapProviderCalls = 0;
+    let bootstrapReason: string | null = null;
 
     if (parsed.replay || parsed.scoreOnly) {
       mode = parsed.replay ? "replay" : "score-only";
@@ -228,11 +231,25 @@ async function main(): Promise<void> {
         console.error("REFUSED: ALLOW_LIVE_PROVIDER_CALLS must be true for cold/warm smoke");
         process.exit(2);
       }
+
+      // Canonical production discovery/bootstrap — same path as public exact resolve.
+      const prepared = await prepareSmokeCharacterForRefresh({
+        container,
+        identity: {
+          region: identity.region,
+          realmSlug: identity.realmSlug,
+          name: identity.name,
+        },
+        authority,
+      });
+      bootstrapProviderCalls = prepared.providerCalls;
+      bootstrapReason = prepared.reason;
+
       const result = await runRefreshPipeline(container, {
         region: identity.region,
         realmSlug: identity.realmSlug,
         name: identity.name,
-        characterId: existing?.id,
+        characterId: prepared.character.id,
         priority: "normal",
         forceRefresh: parsed.forceRefresh,
         requestedAt: new Date().toISOString(),
@@ -256,12 +273,12 @@ async function main(): Promise<void> {
     }
 
     const resolved =
-      existing ??
       (await repositories.character.findByIdentity({
         region: identity.region,
         realmSlug: identity.realmSlug,
         name: identity.name,
-      }));
+      })) ??
+      existing;
 
     if (!resolved) {
       throw new Error("Character not found after refresh");
@@ -326,6 +343,8 @@ async function main(): Promise<void> {
       experience: persisted?.experience ?? null,
       composite: persisted?.composite ?? null,
       characterScoreId: persisted?.id ?? null,
+      bootstrapReason,
+      bootstrapProviderCalls,
       providerCalls: providerCallsReported,
       calculatorVersions: {
         performance:

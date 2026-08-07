@@ -4,6 +4,9 @@ import {
   extractJobErrorCode,
   isEligibilityFailureCode,
 } from "@mplus/config";
+import { characterLacksBootstrapEvidence } from "@mplus/worker";
+
+export { characterLacksBootstrapEvidence } from "@mplus/worker";
 
 /** Public profile warning when persisted Blizzard bootstrap evidence is incomplete. */
 export const CHARACTER_BOOTSTRAP_INCOMPLETE = "CHARACTER_BOOTSTRAP_INCOMPLETE" as const;
@@ -12,48 +15,11 @@ export const CHARACTER_BOOTSTRAP_INCOMPLETE = "CHARACTER_BOOTSTRAP_INCOMPLETE" a
  * Persisted bootstrap evidence required before the fail-closed refresh
  * eligibility gate can make a non-UNKNOWN decision from local data alone.
  *
- * Authoritative fields (minimum):
- * - level
- * - Blizzard character ID
- * - class
- * - active spec
- * - role
- *
- * Faction / realm presentation fields are not required here: Blizzard may omit
- * faction, and realm identity is enforced separately via catalog reconciliation.
- *
- * Provider-assisted repair is allowed only from exact resolve / forceRetry
- * (and authorized admin repair that reuses the same path) — never from
- * GET profile, polling, scheduled refresh, bulk, or generic admin job rerun.
- *
- * Concurrent exact-resolve / admin-repair for the same identity is serialized
- * in-process (`withResolveIdentityLock`). Active refresh jobs are always reused
- * (including under forceRetry). Post-repair enqueue uses forceRefresh:true so the
- * prior FAILED IngestionJob row remains historical under a distinct dedupe key.
- *
- * Cross-process guarantees (lock does not span API replicas):
- * - Character `@@unique([regionId, realmId, normalizedName])` + upsert: one canonical row.
- * - Blizzard-ID collision remains a visible 409 (no silent merge).
- * - IngestionJob `dedupeKey` is `@unique`; stable (non-force) enqueues collapse on that key.
- * - forceRefresh enqueues use unique keys (requestedAt) to preserve FAILED history; after
- *   publish, `collapseSupersededActiveRefreshJobs` keeps the earliest active refresh and
- *   terminalizes extras (`REFRESH_SUPERSEDED_DEDUPED`). Duplicate Blizzard metadata fetches
- *   across replicas are bounded but possible without a distributed lock.
+ * Authoritative fields (minimum): level, Blizzard character ID, class, active spec, role.
+ * Provider-assisted repair remains exact resolve / forceRetry only (see worker
+ * `ensurePublicCharacterBootstrap` / `persistPublicCharacterBootstrap` /
+ * `resolveOrDiscoverPublicCharacter`).
  */
-export function characterLacksBootstrapEvidence(
-  character: Pick<
-    Character,
-    "level" | "blizzardCharacterId" | "classId" | "activeSpecId" | "role"
-  >,
-): boolean {
-  if (character.level == null) return true;
-  if (character.blizzardCharacterId == null) return true;
-  if (character.classId == null) return true;
-  if (character.activeSpecId == null) return true;
-  if (character.role == null) return true;
-  return false;
-}
-
 export function latestJobIsEligibilityUnknown(latestJob: {
   status: string;
   error?: unknown;
