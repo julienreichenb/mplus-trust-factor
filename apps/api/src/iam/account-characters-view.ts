@@ -272,12 +272,12 @@ export async function buildAccountCharactersView(input: {
 
   characters.sort((a, b) => {
     if (a.isPrimary !== b.isPrimary) return a.isPrimary ? -1 : 1;
-    const scoreA = a.trustScore.score ?? -1;
-    const scoreB = b.trustScore.score ?? -1;
-    if (scoreA !== scoreB) return scoreB - scoreA;
     const ratingA = a.currentSeasonMythic.rating ?? -1;
     const ratingB = b.currentSeasonMythic.rating ?? -1;
     if (ratingA !== ratingB) return ratingB - ratingA;
+    const scoreA = a.trustScore.score ?? -1;
+    const scoreB = b.trustScore.score ?? -1;
+    if (scoreA !== scoreB) return scoreB - scoreA;
     return a.name.localeCompare(b.name);
   });
 

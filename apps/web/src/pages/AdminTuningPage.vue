@@ -19,6 +19,13 @@ import ModelStatusBadge from "../components/admin/ModelStatusBadge.vue";
 import AdminSelect from "../components/admin/AdminSelect.vue";
 import { COMPONENT_HELP, DIMENSION_HELP } from "./adminScoringHelp";
 
+const props = withDefaults(
+  defineProps<{
+    embedded?: boolean;
+  }>(),
+  { embedded: false },
+);
+
 const route = useRoute();
 const router = useRouter();
 
@@ -179,8 +186,13 @@ onMounted(() => {
 </script>
 
 <template>
-  <main class="admin-page" aria-labelledby="tuning-title" data-testid="admin-tuning-page">
-    <header class="admin-page__header">
+  <main
+    class="admin-page"
+    :class="{ 'admin-page--embedded': props.embedded }"
+    aria-labelledby="tuning-title"
+    data-testid="admin-tuning-page"
+  >
+    <header v-if="!props.embedded" class="admin-page__header">
       <div>
         <p class="eyebrow">Scoring</p>
         <h1 id="tuning-title">Tuning</h1>
@@ -189,7 +201,9 @@ onMounted(() => {
           how much each signal contributes. Values are normalized to effective percentages.
         </p>
       </div>
-      <RouterLink class="btn ghost" :to="{ name: 'admin-models' }">Back to Models</RouterLink>
+      <RouterLink class="btn ghost" :to="{ name: 'admin-scoring', params: { tab: 'models' } }"
+        >Back to Models</RouterLink
+      >
     </header>
 
     <StatusBanner v-if="message" tone="success" data-testid="tuning-success">{{ message }}</StatusBanner>

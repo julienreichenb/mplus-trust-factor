@@ -50,10 +50,15 @@ export function buildAdminCalibrationRoutes(container: ApiContainer): FastifyPlu
     await app.register(async (protectedApp) => {
       protectedApp.addHook(
         "preHandler",
-        createPermissionPreHandler(env, PERMISSIONS.ADMIN_CALIBRATION_MANAGE, {
-          auditAction: "admin.calibration.access",
-          allowEmergencyAdminKey: true,
-        }),
+        createPermissionPreHandler(
+          env,
+          [PERMISSIONS.ADMIN_CALIBRATION_MANAGE, PERMISSIONS.ADMIN_SCORE_MODELS_MANAGE],
+          {
+            auditAction: "admin.calibration.access",
+            allowEmergencyAdminKey: true,
+            match: "any",
+          },
+        ),
       );
 
       protectedApp.get(

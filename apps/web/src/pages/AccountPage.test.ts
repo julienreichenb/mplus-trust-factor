@@ -60,7 +60,7 @@ function mountAccount(fetchMock: ReturnType<typeof vi.fn>) {
         component: { template: "<div />" },
       },
       { path: "/auth/signin", name: "signin", component: { template: "<div />" } },
-      { path: "/admin/models", name: "admin-models", component: { template: "<div />" } },
+      { path: "/admin/scoring/:tab?", name: "admin-scoring", component: { template: "<div />" } },
       {
         path: "/admin/ability-catalog",
         name: "admin-ability-catalog",

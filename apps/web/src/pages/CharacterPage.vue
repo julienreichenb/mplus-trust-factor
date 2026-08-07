@@ -51,7 +51,15 @@ const props = defineProps<{
 const recent = useRecentSearchesStore();
 const { nextSignal } = useAbortableQuery();
 const { polling, timedOut, start: startPolling, stop: stopPolling } = useRefreshPolling();
-const { canForceRefresh, authenticated, fetchAuthMe } = useAuthSession();
+const { canForceRefresh, authenticated, hasPermission, fetchAuthMe } = useAuthSession();
+
+const canOpenAdminCharacter = computed(
+  () =>
+    hasPermission("admin.users.read") ||
+    hasPermission("admin.users.manage") ||
+    hasPermission("admin.jobs.manage") ||
+    hasPermission("score.candidate.read"),
+);
 const apiBase = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:3000";
 
 onMounted(() => {
@@ -403,16 +411,17 @@ async function repairBootstrap(): Promise<void> {
   }
 }
 
-async function refresh(opts: { force?: boolean } = {}): Promise<void> {
+async function refresh(): Promise<void> {
   if (!profile.value) return;
   const identity = {
     region: props.region.toUpperCase(),
     realmSlug: props.realm.toLowerCase(),
     name: props.name,
   };
+  const force = canForceRefresh.value;
   try {
     refreshNotice.value = null;
-    const status = await api.refreshCharacter(identity, undefined, { force: opts.force === true });
+    const status = await api.refreshCharacter(identity, undefined, { force });
     const inFlight = refreshStatusHasRealInFlightJob(status);
 
     if (!inFlight && status.cooldownSecondsRemaining > 0) {
@@ -424,7 +433,7 @@ async function refresh(opts: { force?: boolean } = {}): Promise<void> {
       return;
     }
 
-    if (opts.force) {
+    if (force) {
       refreshNotice.value = "Force refresh queued.";
     }
 
@@ -516,9 +525,8 @@ watch(
         :profile="profile"
         :refreshing="polling"
         :repairing="repairing"
-        :can-force-refresh="canForceRefresh"
+        :admin-character-id="canOpenAdminCharacter ? profile.characterId : null"
         @refresh="refresh()"
-        @force-refresh="refresh({ force: true })"
         @repair-bootstrap="repairBootstrap"
       />
       <CharacterRefreshEta

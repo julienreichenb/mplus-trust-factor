@@ -19,6 +19,13 @@ import AdminSelect from "../components/admin/AdminSelect.vue";
 import CalibrationRankSelector from "../components/admin/CalibrationRankSelector.vue";
 import { DIMENSION_HELP } from "./adminScoringHelp";
 
+const props = withDefaults(
+  defineProps<{
+    embedded?: boolean;
+  }>(),
+  { embedded: false },
+);
+
 const route = useRoute();
 const router = useRouter();
 
@@ -215,9 +222,9 @@ async function selectCohort(id: string): Promise<void> {
   renameValue.value = cohort.value.name;
   runs.value = await api.listCalibrationRuns(id);
   void router.replace({
-    name: "admin-calibration",
-    params: { cohortId: id },
-    query: route.query,
+    name: "admin-scoring",
+    params: { tab: "calibration" },
+    query: { ...route.query, cohort: id },
   });
 }
 
@@ -287,7 +294,9 @@ async function load(): Promise<void> {
     }
 
     const routeCohort =
-      typeof route.params.cohortId === "string" ? route.params.cohortId : "";
+      (typeof route.query.cohort === "string" && route.query.cohort) ||
+      (typeof route.params.cohortId === "string" && route.params.cohortId) ||
+      "";
     const initial =
       cohorts.value.find((c) => c.id === routeCohort) ?? cohorts.value[0] ?? null;
     if (initial) await selectCohort(initial.id);
@@ -441,8 +450,13 @@ onUnmounted(stopPolling);
 </script>
 
 <template>
-  <main class="admin-page" aria-labelledby="calibration-title" data-testid="admin-calibration-page">
-    <header class="admin-page__header">
+  <main
+    class="admin-page"
+    :class="{ 'admin-page--embedded': props.embedded }"
+    aria-labelledby="calibration-title"
+    data-testid="admin-calibration-page"
+  >
+    <header v-if="!props.embedded" class="admin-page__header">
       <div>
         <p class="eyebrow">Scoring</p>
         <h1 id="calibration-title">Calibration</h1>
@@ -452,18 +466,41 @@ onUnmounted(stopPolling);
         </p>
       </div>
       <div class="header-actions">
-        <RouterLink class="btn ghost" :to="{ name: 'admin-models' }">Models</RouterLink>
-        <RouterLink class="btn ghost" :to="{ name: 'admin-tuning' }">Tuning</RouterLink>
+        <RouterLink class="btn ghost" :to="{ name: 'admin-scoring', params: { tab: 'models' } }"
+          >Models</RouterLink
+        >
+        <RouterLink class="btn ghost" :to="{ name: 'admin-scoring', params: { tab: 'tuning' } }"
+          >Tuning</RouterLink
+        >
         <RouterLink
           v-if="selectedModel?.status === 'DRAFT'"
           class="btn primary"
           data-testid="open-in-tuning"
-          :to="{ name: 'admin-tuning', query: { model: selectedModel.id } }"
+          :to="{
+            name: 'admin-scoring',
+            params: { tab: 'tuning' },
+            query: { model: selectedModel.id },
+          }"
         >
           Open model in Tuning
         </RouterLink>
       </div>
     </header>
+
+    <div v-else class="embedded-actions">
+      <RouterLink
+        v-if="selectedModel?.status === 'DRAFT'"
+        class="btn primary"
+        data-testid="open-in-tuning"
+        :to="{
+          name: 'admin-scoring',
+          params: { tab: 'tuning' },
+          query: { model: selectedModel.id },
+        }"
+      >
+        Open model in Tuning
+      </RouterLink>
+    </div>
 
     <StatusBanner v-if="loadError" tone="error">{{ loadError }}</StatusBanner>
     <StatusBanner v-if="actionError" tone="error">{{ actionError }}</StatusBanner>

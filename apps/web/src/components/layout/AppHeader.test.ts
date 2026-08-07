@@ -38,9 +38,7 @@ vi.mock("../../stores/accountCharacters", () => ({
 }));
 
 const adminItems = [
-  { to: "/admin/models", label: "Models" },
-  { to: "/admin/tuning", label: "Tuning" },
-  { to: "/admin/calibration", label: "Calibration" },
+  { to: "/admin/scoring", label: "Scoring" },
   { to: "/admin/ability-catalog", label: "Ability catalog" },
   { to: "/admin/users", label: "Admin users" },
   { to: "/admin/bulk-processing", label: "Bulk processing" },
@@ -63,9 +61,7 @@ function headerRoutes() {
     { path: "/account", name: "account", component: { template: "<div />" } },
     { path: "/administrator", name: "administrator", component: { template: "<div />" } },
     { path: "/admin", name: "admin-root", component: { template: "<div />" } },
-    { path: "/admin/models", name: "admin-models", component: { template: "<div />" } },
-    { path: "/admin/tuning", name: "admin-tuning", component: { template: "<div />" } },
-    { path: "/admin/calibration", name: "admin-calibration", component: { template: "<div />" } },
+    { path: "/admin/scoring/:tab?", name: "admin-scoring", component: { template: "<div />" } },
     {
       path: "/admin/ability-catalog",
       name: "admin-ability-catalog",
@@ -138,7 +134,7 @@ describe("NavDropdown disclosure", () => {
     const panel = wrapper.get("[data-testid='nav-dropdown-menu']");
     expect(panel.attributes("role")).toBeUndefined();
     expect(panel.findAll('[role="menuitem"]')).toHaveLength(0);
-    expect(panel.findAll("a")).toHaveLength(7);
+    expect(panel.findAll("a")).toHaveLength(5);
     wrapper.unmount();
   });
 
@@ -171,7 +167,7 @@ describe("NavDropdown disclosure", () => {
     await trigger.trigger("keydown", { key: "ArrowDown" });
     await nextTick();
     expect(trigger.attributes("aria-expanded")).toBe("true");
-    expect(document.activeElement?.textContent).toContain("Models");
+    expect(document.activeElement?.textContent).toContain("Scoring");
 
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     await nextTick();
@@ -202,7 +198,7 @@ describe("NavDropdown disclosure", () => {
     const wrapper = await mountDropdown();
     await wrapper.get("[data-testid='nav-dropdown-trigger']").trigger("click");
     await nextTick();
-    await wrapper.get('a[href="/admin/models"]').trigger("click");
+    await wrapper.get('a[href="/admin/scoring"]').trigger("click");
     await nextTick();
     expect(wrapper.find("[data-testid='nav-dropdown-menu']").isVisible()).toBe(false);
     wrapper.unmount();
@@ -265,7 +261,7 @@ describe("NavDropdown disclosure", () => {
     await nextTick();
     const current = wrapper.get('a[href="/admin/users"]');
     expect(current.attributes("aria-current")).toBe("page");
-    expect(wrapper.get('a[href="/admin/models"]').attributes("aria-current")).toBeUndefined();
+    expect(wrapper.get('a[href="/admin/scoring"]').attributes("aria-current")).toBeUndefined();
     wrapper.unmount();
   });
 });
@@ -285,7 +281,7 @@ describe("AppHeader admin navigation", () => {
     permissions.value = ["profile.refresh.request", "score.recalculate"];
     const { wrapper } = await mountHeader();
     expect(wrapper.find("[data-testid='admin-nav-dropdown']").exists()).toBe(false);
-    expect(wrapper.text()).not.toContain("Models");
+    expect(wrapper.text()).not.toContain("Scoring");
     const searchTrigger = wrapper.get("[data-testid='navbar-search-trigger']");
     expect(searchTrigger.attributes("aria-expanded")).toBe("false");
     await searchTrigger.trigger("click");
@@ -332,7 +328,7 @@ describe("AppHeader admin navigation", () => {
     const text = dropdown.text();
     expect(text).toContain("Ability catalog");
     expect(text).toContain("Bulk processing");
-    expect(text).not.toContain("Models");
+    expect(text).not.toContain("Scoring");
     expect(text).not.toContain("Admin users");
     wrapper.unmount();
   });
@@ -344,13 +340,13 @@ describe("AppHeader admin navigation", () => {
     await dropdown.get("[data-testid='nav-dropdown-trigger']").trigger("click");
     await flushPromises();
     const text = dropdown.text();
-    expect(text).toContain("Models");
-    expect(text).toContain("Tuning");
-    expect(text).toContain("Calibration");
+    expect(text).toContain("Scoring");
     expect(text).toContain("Ability catalog");
     expect(text).toContain("Admin users");
     expect(text).toContain("Bulk processing");
     expect(text).not.toMatch(/Scoring V2/i);
+    expect(text).not.toContain("Tuning");
+    expect(text).not.toContain("Calibration");
     expect(text).toContain("Misc tools");
     wrapper.unmount();
   });
@@ -367,15 +363,15 @@ describe("AppHeader admin navigation", () => {
     permissions.value = FULL_ADMIN_PERMS;
     for (const path of [
       "/admin",
-      "/admin/models",
-      "/admin/tuning",
-      "/admin/calibration",
+      "/admin/scoring",
+      "/admin/scoring/models",
+      "/admin/scoring/calibration",
       "/admin/ability-catalog",
       "/admin/users",
       "/admin/bulk-processing",
       "/admin/misc",
       "/admin/users?tab=roles",
-      "/admin/models#draft",
+      "/admin/scoring#draft",
     ]) {
       const { wrapper } = await mountHeader(path);
       const trigger = wrapper.get("[data-testid='nav-dropdown-trigger']");

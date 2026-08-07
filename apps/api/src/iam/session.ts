@@ -5,7 +5,7 @@ import type { AuthSessionContext, IamAuthService } from "./auth-service.js";
 import { writeAuditEvent } from "./audit.js";
 import { isValidAdminKey } from "../plugins/admin-auth.js";
 import { PERMISSIONS, SESSION_COOKIE_PATH, type PermissionKey } from "./permissions.js";
-import { hasPermission } from "./rbac.js";
+import { hasAnyPermission, hasPermission } from "./rbac.js";
 import { isSecureCookie } from "./redirects.js";
 
 declare module "fastify" {
@@ -61,11 +61,22 @@ export function requireAuth(request: FastifyRequest): AuthSessionContext {
 export function createPermissionPreHandler(
   env: AppEnv,
   required: PermissionKey | PermissionKey[],
-  options: { allowEmergencyAdminKey?: boolean; auditAction?: string } = {},
+  options: {
+    allowEmergencyAdminKey?: boolean;
+    auditAction?: string;
+    /** Default `all` (every key). Use `any` when either permission is enough. */
+    match?: "all" | "any";
+  } = {},
 ) {
   const allowKey = options.allowEmergencyAdminKey ?? true;
+  const match = options.match ?? "all";
   return async function permissionPreHandler(request: FastifyRequest): Promise<void> {
-    if (request.auth && hasPermission(request.auth.permissions, required)) {
+    const permitted =
+      request.auth &&
+      (match === "any"
+        ? hasAnyPermission(request.auth.permissions, required)
+        : hasPermission(request.auth.permissions, required));
+    if (permitted) {
       request.authActor = "session";
       return;
     }

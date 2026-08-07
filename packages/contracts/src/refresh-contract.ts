@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { sha256Hex } from "./sha256.js";
 
 /** Observation row / metric-key contract used by refresh → ScoreSnapshot. */
 export const OBSERVATION_SCHEMA_VERSION = "observations-v2";
@@ -99,7 +99,7 @@ export function refreshContractMaterial(input: RefreshContractVersions): string 
 }
 
 export function hashRefreshContract(input: RefreshContractVersions): string {
-  return createHash("sha256").update(refreshContractMaterial(input), "utf8").digest("hex");
+  return sha256Hex(refreshContractMaterial(input));
 }
 
 export function isRefreshContractCompatible(

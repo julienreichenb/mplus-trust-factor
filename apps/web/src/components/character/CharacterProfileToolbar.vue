@@ -8,13 +8,13 @@ import { inferBootstrapRepairRequired } from "../../lib/bootstrapRepair";
 const props = defineProps<{
   profile: CharacterProfileView;
   refreshing?: boolean;
-  canForceRefresh?: boolean;
   repairing?: boolean;
+  /** When set, show a clear link to the admin character inspection page. */
+  adminCharacterId?: string | null;
 }>();
 
 const emit = defineEmits<{
   refresh: [];
-  forceRefresh: [];
   repairBootstrap: [];
 }>();
 
@@ -55,12 +55,24 @@ const refreshButtonTestId = computed(() => {
 const showRepairAction = computed(
   () => bootstrapRepairRequired.value && !refreshInFlight.value,
 );
+
+const showAdminCharacterLink = computed(
+  () => Boolean(props.adminCharacterId && String(props.adminCharacterId).trim()),
+);
 </script>
 
 <template>
   <div class="toolbar" data-testid="character-toolbar">
     <RouterLink class="back" to="/#character-search">← Back to character search</RouterLink>
     <div class="toolbar__actions">
+      <RouterLink
+        v-if="showAdminCharacterLink"
+        class="btn secondary admin-character-link"
+        data-testid="admin-character-link"
+        :to="{ name: 'admin-character', params: { characterId: adminCharacterId } }"
+      >
+        Admin character detail
+      </RouterLink>
       <button
         v-if="showRepairAction"
         type="button"
@@ -88,16 +100,6 @@ const showRepairAction = computed(
           aria-hidden="true"
         />
         {{ refreshButtonLabel }}
-      </button>
-      <button
-        v-if="canForceRefresh && !showRepairAction"
-        type="button"
-        class="btn secondary"
-        data-testid="force-refresh-button"
-        :disabled="refreshInFlight"
-        @click="emit('forceRefresh')"
-      >
-        Force refresh
       </button>
     </div>
   </div>
@@ -129,6 +131,11 @@ const showRepairAction = computed(
   flex-wrap: wrap;
   gap: var(--space-3);
   align-items: center;
+}
+
+.admin-character-link {
+  text-decoration: none;
+  font-weight: 650;
 }
 
 .refresh-btn {

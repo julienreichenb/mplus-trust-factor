@@ -23,7 +23,8 @@ describe("web router registration", () => {
     expect(names).toContain("home");
     expect(names).toContain("character");
     expect(names).toContain("compare");
-    expect(names).toContain("admin-models");
+    expect(names).toContain("admin-scoring");
+    expect(names).toContain("admin-character");
     expect(names).toContain("admin-ability-catalog");
     expect(names).toContain("admin-users");
     expect(names).toContain("admin-bulk-processing");
@@ -36,15 +37,16 @@ describe("web router registration", () => {
     for (const destination of ADMIN_DESTINATIONS) {
       const route = routeDefs.find((entry) => entry.name === destination.name);
       expect(route).toBeTruthy();
-      // Parametric routes (e.g. calibration/:cohortId?) still own the destination path prefix.
+      // Parametric routes (e.g. scoring/:tab?) still own the destination path prefix.
       expect(route?.path === destination.path || route?.path.startsWith(`${destination.path}/`)).toBe(
         true,
       );
       expect(route?.meta?.adminDestinationId).toBe(destination.id);
       expect(route?.meta?.requiresAdmin).toBeUndefined();
     }
-    expect(routeDefs.map((r) => r.name)).toContain("admin-tuning");
-    expect(routeDefs.map((r) => r.name)).toContain("admin-calibration");
+    expect(routeDefs.map((r) => r.name)).not.toContain("admin-models");
+    expect(routeDefs.map((r) => r.name)).not.toContain("admin-tuning");
+    expect(routeDefs.map((r) => r.name)).not.toContain("admin-calibration");
   });
 });
 
@@ -71,7 +73,7 @@ describe("admin route guards", () => {
 
   it.each([
     {
-      path: "/admin/models",
+      path: "/admin/scoring/models",
       allow: ["admin.score_models.manage"],
       deny: ["admin.ability_catalog.read"],
     },
@@ -106,13 +108,13 @@ describe("admin route guards", () => {
   it("rejects unauthenticated admin navigation to sign-in", async () => {
     stubAuthMe({ authenticated: false });
     const router = createAppRouter(createMemoryHistory());
-    await router.push("/admin/models");
+    await router.push("/admin/scoring/models");
     await router.isReady();
     expect(router.currentRoute.value.name).toBe("auth-signin");
   });
 
   it("rejects broad admin.* without destination permission", async () => {
-    const router = await navigate("/admin/models", ["admin.settings.manage"]);
+    const router = await navigate("/admin/scoring/models", ["admin.settings.manage"]);
     expect(router.currentRoute.value.name).toBe("access-denied");
   });
 });

@@ -12,6 +12,14 @@ import StatusBanner from "../components/common/StatusBanner.vue";
 import SkeletonBlock from "../components/common/SkeletonBlock.vue";
 import ModelStatusBadge from "../components/admin/ModelStatusBadge.vue";
 
+const props = withDefaults(
+  defineProps<{
+    /** When true, hide page chrome (used inside Scoring console tabs). */
+    embedded?: boolean;
+  }>(),
+  { embedded: false },
+);
+
 const router = useRouter();
 const models = ref<AdminScoreModelDTO[]>([]);
 const loading = ref(true);
@@ -106,7 +114,7 @@ async function duplicateAsDraft(model: AdminScoreModelDTO): Promise<void> {
     const draft = await api.cloneModel(model.id);
     models.value = await api.listModels();
     message.value = `Created draft “${draft.name}” (v${draft.version}).`;
-    await router.push({ name: "admin-tuning", query: { model: draft.id } });
+    await router.push({ name: "admin-scoring", params: { tab: "tuning" }, query: { model: draft.id } });
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err);
   } finally {
@@ -115,11 +123,11 @@ async function duplicateAsDraft(model: AdminScoreModelDTO): Promise<void> {
 }
 
 function openTune(model: AdminScoreModelDTO): void {
-  void router.push({ name: "admin-tuning", query: { model: model.id } });
+  void router.push({ name: "admin-scoring", params: { tab: "tuning" }, query: { model: model.id } });
 }
 
 function openView(model: AdminScoreModelDTO): void {
-  void router.push({ name: "admin-tuning", query: { model: model.id } });
+  void router.push({ name: "admin-scoring", params: { tab: "tuning" }, query: { model: model.id } });
 }
 
 function requestActivate(model: AdminScoreModelDTO): void {
@@ -186,8 +194,13 @@ onMounted(() => {
 </script>
 
 <template>
-  <main class="admin-page" aria-labelledby="models-title" data-testid="admin-models-page">
-    <header class="admin-page__header">
+  <main
+    class="admin-page"
+    :class="{ 'admin-page--embedded': props.embedded }"
+    aria-labelledby="models-title"
+    data-testid="admin-models-page"
+  >
+    <header v-if="!props.embedded" class="admin-page__header">
       <div>
         <p class="eyebrow">Scoring</p>
         <h1 id="models-title">Models</h1>
@@ -197,8 +210,12 @@ onMounted(() => {
         </p>
       </div>
       <div class="header-actions">
-        <RouterLink class="btn ghost" :to="{ name: 'admin-tuning' }">Open Tuning</RouterLink>
-        <RouterLink class="btn ghost" :to="{ name: 'admin-calibration' }">Calibration</RouterLink>
+        <RouterLink class="btn ghost" :to="{ name: 'admin-scoring', params: { tab: 'tuning' } }"
+          >Open Tuning</RouterLink
+        >
+        <RouterLink class="btn ghost" :to="{ name: 'admin-scoring', params: { tab: 'calibration' } }"
+          >Calibration</RouterLink
+        >
       </div>
     </header>
 

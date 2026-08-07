@@ -15,11 +15,11 @@ afterEach(() => {
 const CASES = [
   {
     permissions: ["admin.score_models.manage"],
-    paths: ["/admin/models", "/admin/tuning", "/admin/calibration"],
+    paths: ["/admin/scoring"],
   },
   {
     permissions: ["admin.calibration.manage"],
-    paths: ["/admin/calibration"],
+    paths: ["/admin/scoring"],
   },
   {
     permissions: ["admin.ability_catalog.read"],
@@ -48,14 +48,15 @@ describe("admin destination registry", () => {
     },
   );
 
-  it("exposes Models / Tuning / Calibration labels without Scoring V2 terminology", () => {
+  it("exposes a single Scoring destination with Models/Tuning/Calibration as console tabs", () => {
     const labels = ADMIN_DESTINATIONS.map((d) => d.label);
-    expect(labels).toContain("Models");
-    expect(labels).toContain("Tuning");
-    expect(labels).toContain("Calibration");
+    expect(labels).toContain("Scoring");
+    expect(labels).not.toContain("Models");
+    expect(labels).not.toContain("Tuning");
+    expect(labels).not.toContain("Calibration");
     expect(labels.join(" ")).not.toMatch(/Scoring V2/i);
     expect(labels.join(" ")).not.toMatch(/Control Center/i);
-    expect(ADMIN_DESTINATIONS.find((d) => d.path === "/admin/scoring")).toBeUndefined();
+    expect(ADMIN_DESTINATIONS.find((d) => d.path === "/admin/scoring")?.id).toBe("score-console");
   });
 
   it("hides Admin trigger when no destination is authorized", () => {
@@ -63,11 +64,14 @@ describe("admin destination registry", () => {
     expect(hasAnyAuthorizedAdminDestination(["score.recalculate"])).toBe(false);
   });
 
-  it("shows calibration with permission (no feature-flag gate)", () => {
+  it("shows scoring console with calibration or score_models permission", () => {
     expect(isAuthorizedForAdminDestination("calibration", ["admin.calibration.manage"])).toBe(
       true,
     );
     expect(isAuthorizedForAdminDestination("calibration", ["admin.score_models.manage"])).toBe(
+      true,
+    );
+    expect(isAuthorizedForAdminDestination("score-console", ["admin.score_models.manage"])).toBe(
       true,
     );
   });
@@ -76,8 +80,8 @@ describe("admin destination registry", () => {
 describe("isAdminRoutePath", () => {
   it("matches /admin and admin descendants only", () => {
     expect(isAdminRoutePath("/admin")).toBe(true);
-    expect(isAdminRoutePath("/admin/models")).toBe(true);
-    expect(isAdminRoutePath("/admin/tuning")).toBe(true);
+    expect(isAdminRoutePath("/admin/scoring")).toBe(true);
+    expect(isAdminRoutePath("/admin/scoring/models")).toBe(true);
     expect(isAdminRoutePath("/administrator")).toBe(false);
   });
 });
