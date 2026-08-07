@@ -103,6 +103,9 @@ function mockContainer(env: Record<string, unknown>): WorkerContainer {
   return {
     env,
     prisma: {
+      scoreModel: {
+        findUnique: vi.fn(async () => ({ config: {} })),
+      },
       characterScore: {
         upsert: vi.fn(async ({ create }) => ({ id: "score-1", ...create })),
         findUnique: vi.fn(async () => null),

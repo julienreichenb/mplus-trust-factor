@@ -89,6 +89,7 @@ describe("CharacterService — public read path invariants", () => {
             findMany: vi.fn().mockResolvedValue([]),
           },
           runAnalysis: { findFirst: vi.fn().mockResolvedValue(null) },
+          characterScore: { findFirst: vi.fn().mockResolvedValue(null) },
         },
         repositories: {
           character: {

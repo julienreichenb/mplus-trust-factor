@@ -1,6 +1,11 @@
 import type { AdminAbilityCatalogResponse } from "@mplus/abilities";
 import type {
   AdminScoreModelDTO,
+  CalibrationCohortDTO,
+  CalibrationCohortMemberDTO,
+  CalibrationExpectedRank,
+  CalibrationReportDTO,
+  CalibrationRunDTO,
   CharacterAutocompleteSuggestion,
   CharacterComparisonRequest,
   CharacterComparisonResponse,
@@ -172,6 +177,49 @@ export interface MplusApiClient {
     },
     signal?: AbortSignal,
   ): Promise<AdminRealmSyncResponse>;
+
+  listCalibrationCohorts(signal?: AbortSignal): Promise<CalibrationCohortDTO[]>;
+  createCalibrationCohort(
+    input: { name: string; description?: string },
+    signal?: AbortSignal,
+  ): Promise<CalibrationCohortDTO>;
+  getCalibrationCohort(cohortId: string, signal?: AbortSignal): Promise<CalibrationCohortDTO>;
+  patchCalibrationCohort(
+    cohortId: string,
+    input: { name?: string; description?: string },
+    signal?: AbortSignal,
+  ): Promise<CalibrationCohortDTO>;
+  deleteCalibrationCohort(cohortId: string, signal?: AbortSignal): Promise<{ id: string }>;
+  resolveCalibrationMember(
+    cohortId: string,
+    input: {
+      region: string;
+      realmSlug: string;
+      characterName: string;
+      expectedRank: CalibrationExpectedRank;
+      rationale?: string;
+    },
+    signal?: AbortSignal,
+  ): Promise<CalibrationCohortMemberDTO & { resolveStatus?: string }>;
+  patchCalibrationMember(
+    cohortId: string,
+    memberId: string,
+    input: { expectedRank?: CalibrationExpectedRank; rationale?: string },
+    signal?: AbortSignal,
+  ): Promise<CalibrationCohortMemberDTO>;
+  deleteCalibrationMember(
+    cohortId: string,
+    memberId: string,
+    signal?: AbortSignal,
+  ): Promise<{ id: string }>;
+  createCalibrationRun(
+    cohortId: string,
+    input: { scoreModelId: string; expectedCohortRevision?: number },
+    signal?: AbortSignal,
+  ): Promise<CalibrationRunDTO>;
+  listCalibrationRuns(cohortId?: string, signal?: AbortSignal): Promise<CalibrationRunDTO[]>;
+  getCalibrationRun(runId: string, signal?: AbortSignal): Promise<CalibrationRunDTO>;
+  getCalibrationReport(runId: string, signal?: AbortSignal): Promise<CalibrationReportDTO>;
 }
 
 export type { AdminAbilityCatalogResponse };
@@ -179,6 +227,10 @@ export type { AdminAbilityCatalogResponse };
 export type {
   AdminScoreModelDTO,
   AnalyzedRunSummary,
+  CalibrationCohortDTO,
+  CalibrationCohortMemberDTO,
+  CalibrationReportDTO,
+  CalibrationRunDTO,
   CharacterAutocompleteSuggestion,
   CharacterComparisonRequest,
   CharacterComparisonResponse,

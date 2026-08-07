@@ -4,6 +4,13 @@ import type { IsoDateTime } from "./identity.js";
 /** Max UTF-8 byte length for frozen CalibrationInputBundle JSONB (fail closed). */
 export const CALIBRATION_INPUT_BUNDLE_MAX_BYTES = 4 * 1024 * 1024;
 
+/**
+ * Product calibration runs acquire/evaluate via the canonical WCL scoring path
+ * (scoreCharacter with persistCharacterScore=false). Stored on
+ * CalibrationRun.algorithmVersions.evidenceSource.
+ */
+export const CALIBRATION_EVIDENCE_SOURCE_CANONICAL = "CANONICAL_ACQUIRE_EVALUATE" as const;
+
 /** Digest algorithm version for Phase 1 deterministic digests (no weight recommendations). */
 export const CALIBRATION_DIGEST_ALGORITHM_VERSION = "1.0.0" as const;
 
@@ -38,6 +45,10 @@ export const calibrationExpectedLabelSchema = z.enum([
 ]);
 export type CalibrationExpectedLabel = z.infer<typeof calibrationExpectedLabelSchema>;
 
+/** Product UI expected ranks (S–D). Stored as CalibrationExpectedLabel via CALIBRATION_TIER_TO_LABEL. */
+export const calibrationExpectedRankSchema = z.enum(["S", "A", "B", "C", "D"]);
+export type CalibrationExpectedRank = z.infer<typeof calibrationExpectedRankSchema>;
+
 export const calibrationMemberSourceSchema = z.enum([
   "USER_SELECTED",
   "IMPORTED_STUDY",
@@ -69,7 +80,24 @@ export const CALIBRATION_TIER_TO_LABEL = {
   B: "AVERAGE",
   C: "WEAK",
   D: "OVERRATED",
-} as const satisfies Record<string, CalibrationExpectedLabel>;
+} as const satisfies Record<CalibrationExpectedRank, CalibrationExpectedLabel>;
+
+export const CALIBRATION_LABEL_TO_TIER = {
+  EXCELLENT: "S",
+  GOOD: "A",
+  AVERAGE: "B",
+  WEAK: "C",
+  OVERRATED: "D",
+} as const satisfies Record<CalibrationExpectedLabel, CalibrationExpectedRank>;
+
+/** Ordinal distance for expected vs actual letter grades (U excluded from expected). */
+export const CALIBRATION_RANK_ORDINAL: Record<CalibrationExpectedRank, number> = {
+  S: 0,
+  A: 1,
+  B: 2,
+  C: 3,
+  D: 4,
+};
 
 export const CALIBRATION_LABEL_TO_QUALITATIVE = {
   EXCELLENT: "excellent",
@@ -87,6 +115,8 @@ export interface CalibrationCohortMemberDTO {
   realmSlug: string;
   characterName: string;
   expectedLabel: CalibrationExpectedLabel;
+  /** Product UI letter rank derived from expectedLabel. */
+  expectedRank: CalibrationExpectedRank;
   providedRole: "DPS" | "TANK" | "HEALER" | null;
   classSlug: string | null;
   specSlug: string | null;
@@ -100,6 +130,20 @@ export interface CalibrationCohortMemberDTO {
   externalMemberKey: string | null;
   createdAt: IsoDateTime;
   updatedAt: IsoDateTime;
+}
+
+export interface CalibrationCohortLatestRunDTO {
+  id: string;
+  status: CalibrationRunStatus;
+  createdAt: IsoDateTime;
+  completedAt: IsoDateTime | null;
+  scoreModelId: string | null;
+  scoreModelName: string | null;
+  scoreModelVersion: number | null;
+  scoreModelStatus: string | null;
+  exactMatchCount: number | null;
+  evaluatedCount: number | null;
+  failedCount: number | null;
 }
 
 export interface CalibrationCohortDTO {
@@ -116,7 +160,31 @@ export interface CalibrationCohortDTO {
   archivedAt: IsoDateTime | null;
   memberCount: number;
   includedMemberCount: number;
+  latestRun?: CalibrationCohortLatestRunDTO | null;
   members?: CalibrationCohortMemberDTO[];
+}
+
+export interface CalibrationRunProgressMemberDTO {
+  memberId: string;
+  characterName: string;
+  realm: string;
+  region: string;
+  status: "pending" | "running" | "completed" | "failed";
+  expectedRank: CalibrationExpectedRank | null;
+  actualGrade: string | null;
+  overallScore: number | null;
+  error: string | null;
+}
+
+export interface CalibrationRunProgressDTO {
+  total: number;
+  completed: number;
+  failed: number;
+  currentIndex: number | null;
+  currentCharacterName: string | null;
+  currentRealm: string | null;
+  members: CalibrationRunProgressMemberDTO[];
+  updatedAt: IsoDateTime | null;
 }
 
 export interface CalibrationPreflightIssueDTO {
@@ -175,6 +243,11 @@ export interface CalibrationRunDTO {
   status: CalibrationRunStatus;
   activeModelId: string | null;
   evaluationModelId: string | null;
+  /** Model selected for this calibration observation (ACTIVE or DRAFT). */
+  scoreModelId: string | null;
+  scoreModelName: string | null;
+  scoreModelVersion: number | null;
+  scoreModelStatus: string | null;
   evidencePolicy: string;
   inputBundleSchemaVersion: string;
   inputBundleContentHash: string;
@@ -192,6 +265,10 @@ export interface CalibrationRunDTO {
   completedAt: IsoDateTime | null;
   bullmqJobId: string | null;
   hasReport: boolean;
+  progress: CalibrationRunProgressDTO | null;
+  summaryExactMatches: number | null;
+  summaryEvaluated: number | null;
+  summaryFailed: number | null;
 }
 
 export interface CalibrationDigestFindingDTO {
@@ -241,7 +318,8 @@ export interface CalibrationReportDTO {
 export const createCalibrationCohortBodySchema = z.object({
   name: z.string().min(1).max(200),
   description: z.string().max(4000).default(""),
-  seasonId: z.string().uuid(),
+  /** When omitted, the API binds the cohort to the latest known season. */
+  seasonId: z.string().uuid().optional(),
   status: z.enum(["DRAFT", "READY"]).optional(),
   externalKey: z.string().min(1).max(200).nullable().optional(),
 });
@@ -259,28 +337,78 @@ export const patchCalibrationCohortBodySchema = z
 
 export type PatchCalibrationCohortBody = z.infer<typeof patchCalibrationCohortBodySchema>;
 
-export const createCalibrationMemberBodySchema = z.object({
-  characterId: z.string().uuid().nullable().optional(),
-  region: z.string().min(1).max(8),
-  realmSlug: z.string().min(1).max(64),
-  characterName: z.string().min(1).max(48),
-  expectedLabel: calibrationExpectedLabelSchema,
-  providedRole: z.enum(["DPS", "TANK", "HEALER"]).nullable().optional(),
-  classSlug: z.string().min(1).max(64).nullable().optional(),
-  specSlug: z.string().min(1).max(64).nullable().optional(),
-  evidenceCutoffAt: z.string().datetime().nullable().optional(),
-  rationale: z.string().min(1).max(4000),
-  source: calibrationMemberSourceSchema.optional(),
-  included: z.boolean().optional(),
-  exclusionCode: z.string().min(1).max(128).nullable().optional(),
-  exclusionDetail: z.string().max(4000).nullable().optional(),
-  externalMemberKey: z.string().min(1).max(200).nullable().optional(),
-});
+export const createCalibrationMemberBodySchema = z
+  .object({
+    characterId: z.string().uuid().nullable().optional(),
+    region: z.string().min(1).max(8),
+    realmSlug: z.string().min(1).max(64),
+    characterName: z.string().min(1).max(48),
+    expectedLabel: calibrationExpectedLabelSchema.optional(),
+    /** Preferred product field; mapped to expectedLabel. */
+    expectedRank: calibrationExpectedRankSchema.optional(),
+    providedRole: z.enum(["DPS", "TANK", "HEALER"]).nullable().optional(),
+    classSlug: z.string().min(1).max(64).nullable().optional(),
+    specSlug: z.string().min(1).max(64).nullable().optional(),
+    evidenceCutoffAt: z.string().datetime().nullable().optional(),
+    rationale: z.string().max(4000).optional(),
+    source: calibrationMemberSourceSchema.optional(),
+    included: z.boolean().optional(),
+    exclusionCode: z.string().min(1).max(128).nullable().optional(),
+    exclusionDetail: z.string().max(4000).nullable().optional(),
+    externalMemberKey: z.string().min(1).max(200).nullable().optional(),
+  })
+  .superRefine((body, ctx) => {
+    if (!body.expectedLabel && !body.expectedRank) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "expectedRank or expectedLabel is required",
+        path: ["expectedRank"],
+      });
+    }
+  });
 
 export type CreateCalibrationMemberBody = z.infer<typeof createCalibrationMemberBodySchema>;
 
-export const patchCalibrationMemberBodySchema = createCalibrationMemberBodySchema
-  .partial()
+export const resolveCalibrationMemberBodySchema = z
+  .object({
+    region: z.string().min(1).max(8),
+    realmSlug: z.string().min(1).max(64),
+    characterName: z.string().min(1).max(48),
+    expectedLabel: calibrationExpectedLabelSchema.optional(),
+    expectedRank: calibrationExpectedRankSchema.optional(),
+    rationale: z.string().max(4000).optional(),
+  })
+  .superRefine((body, ctx) => {
+    if (!body.expectedLabel && !body.expectedRank) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "expectedRank or expectedLabel is required",
+        path: ["expectedRank"],
+      });
+    }
+  });
+
+export type ResolveCalibrationMemberBody = z.infer<typeof resolveCalibrationMemberBodySchema>;
+
+export const patchCalibrationMemberBodySchema = z
+  .object({
+    characterId: z.string().uuid().nullable().optional(),
+    region: z.string().min(1).max(8).optional(),
+    realmSlug: z.string().min(1).max(64).optional(),
+    characterName: z.string().min(1).max(48).optional(),
+    expectedLabel: calibrationExpectedLabelSchema.optional(),
+    expectedRank: calibrationExpectedRankSchema.optional(),
+    providedRole: z.enum(["DPS", "TANK", "HEALER"]).nullable().optional(),
+    classSlug: z.string().min(1).max(64).nullable().optional(),
+    specSlug: z.string().min(1).max(64).nullable().optional(),
+    evidenceCutoffAt: z.string().datetime().nullable().optional(),
+    rationale: z.string().max(4000).optional(),
+    source: calibrationMemberSourceSchema.optional(),
+    included: z.boolean().optional(),
+    exclusionCode: z.string().min(1).max(128).nullable().optional(),
+    exclusionDetail: z.string().max(4000).nullable().optional(),
+    externalMemberKey: z.string().min(1).max(200).nullable().optional(),
+  })
   .refine((body) => Object.keys(body).length > 0, { message: "At least one field is required" });
 
 export type PatchCalibrationMemberBody = z.infer<typeof patchCalibrationMemberBodySchema>;
@@ -304,13 +432,20 @@ export const calibrationPreflightBodySchema = z.object({
 export type CalibrationPreflightBody = z.infer<typeof calibrationPreflightBodySchema>;
 
 export const createCalibrationRunBodySchema = z.object({
-  mode: calibrationRunModeSchema.default("PERSISTED_SNAPSHOT_ONLY"),
+  mode: calibrationRunModeSchema.optional(),
+  /**
+   * Product selector: ACTIVE or DRAFT score model to evaluate.
+   * When set, mode is derived (ACTIVE → snapshot-only, DRAFT → draft evaluate).
+   */
+  scoreModelId: z.string().uuid().optional(),
   activeModelId: z.string().uuid().nullable().optional(),
   evaluationModelId: z.string().uuid().nullable().optional(),
-  evidencePolicy: calibrationEvidencePolicySchema.default("STRICT"),
+  evidencePolicy: calibrationEvidencePolicySchema.default("EXCLUDE_INVALID"),
   deterministicSeed: z.number().int().nonnegative().default(0),
   /** Optional client-supplied expected cohort revision; rejects on mismatch. */
   expectedCohortRevision: z.number().int().positive().optional(),
+  /** Include members lacking evidence as failed rows instead of omitting them. */
+  includeUnevaluatedMembers: z.boolean().optional(),
 });
 
 export type CreateCalibrationRunBody = z.infer<typeof createCalibrationRunBodySchema>;

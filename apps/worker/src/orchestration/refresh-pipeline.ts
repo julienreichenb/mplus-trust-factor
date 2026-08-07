@@ -419,6 +419,16 @@ export async function runRefreshPipeline(
   };
 
   logger.info({ ...logBase, event: OBS_EVENTS.refreshWorkerStarted }, OBS_EVENTS.refreshWorkerStarted);
+  logger.info(
+    {
+      ...logBase,
+      event: "REFRESH_PHASE",
+      phase: "REFRESH_REQUESTED",
+      characterId: jobPayload.characterId ?? null,
+      forceRefresh: jobPayload.forceRefresh === true,
+    },
+    "REFRESH_PHASE",
+  );
 
   const dedupeKey = refreshCharacterDedupeKey(jobPayload);
   const { job: createdJob, reused } = await repositories.job.createOrGetByDedupe({
@@ -2021,11 +2031,11 @@ export async function runRefreshPipeline(
   const earlySpecSlug = blizzardProfile?.specSlug ?? raiderIoProfile?.specSlug ?? null;
   let analysisAttemptedCount = 0;
 
-  // When scoreCharacter owns P/U/S, detailed ReportEvents must wait until after
-  // V2 selection of ≤16 runs (orchestrateScoringRuns). Legacy analyze-run /
-  // survival shared-evidence before that selection is the regression that
-  // fetched events for non-selected candidates.
-  const deferDetailedWclAcquisitionToScoring = container.env.SCORING_ENABLED === true;
+  // Product refresh always defers detailed ReportEvents until after ≤16 selection
+  // inside scoreCharacter / orchestrateScoringRuns. Never gate this on SCORING_ENABLED:
+  // when that flag was false, refresh fell through to legacy analyze-run / survival /
+  // utility loops and fetched events for non-selected candidates (20+ minute WCL).
+  const deferDetailedWclAcquisitionToScoring = true;
 
   if (disabledProviders.has("warcraftlogs")) {
     stagesSkipped.push("analyze-run");
@@ -2033,12 +2043,12 @@ export async function runRefreshPipeline(
     logger.info(
       {
         ...logBase,
-        event: "wcl_acquisition_phase",
+        event: "REFRESH_PHASE",
         phase: "DISCOVERY",
         discoveredRunCount: discoveredRuns.length,
         fusedCandidateHint: scoringCandidates.length,
         detail:
-          "SCORING_ENABLED: metadata discovery complete; ReportEvents deferred until after ≤16 selection",
+          "metadata discovery complete; ReportEvents deferred until after ≤16 selection",
       },
       "wcl_acquisition_phase",
     );
@@ -3863,8 +3873,42 @@ export async function runRefreshPipeline(
   logger.info(
     {
       ...logBase,
-      event: "wcl_acquisition_phase",
-      phase: "SCORING_COMPLETE",
+      event: "REFRESH_PHASE",
+      phase: "SELECTED",
+      selectedSlotCount: orch?.selectedSlotCount ?? 0,
+      expectedSlotCount: orch?.expectedSlotCount ?? 0,
+    },
+    "REFRESH_PHASE",
+  );
+  logger.info(
+    {
+      ...logBase,
+      event: "REFRESH_PHASE",
+      phase: "DETAILED_ACQUISITION",
+      packagesCreated: orch?.accounting.packagesCreated ?? 0,
+      packagesReused: orch?.accounting.packagesReused ?? 0,
+      digestsCreated: orch?.accounting.digestsCreated ?? 0,
+      providerCalls: scoringOutcome.providerCalls,
+    },
+    "REFRESH_PHASE",
+  );
+  logger.info(
+    {
+      ...logBase,
+      event: "REFRESH_PHASE",
+      phase: "PERSISTED",
+      characterScoreId: scoringOutcome.scoreResult?.characterScoreId ?? null,
+      composite: scoringOutcome.snapshot.overallScore,
+      grade: scoringOutcome.snapshot.grade,
+      confidence: scoringOutcome.snapshot.confidence,
+    },
+    "REFRESH_PHASE",
+  );
+  logger.info(
+    {
+      ...logBase,
+      event: "REFRESH_PHASE",
+      phase: "REFRESH_COMPLETED",
       selectedSlotCount: orch?.selectedSlotCount ?? 0,
       expectedSlotCount: orch?.expectedSlotCount ?? 0,
       packagesCreated: orch?.accounting.packagesCreated ?? 0,
@@ -3872,7 +3916,7 @@ export async function runRefreshPipeline(
       digestsCreated: orch?.accounting.digestsCreated ?? 0,
       providerCalls: scoringOutcome.providerCalls,
     },
-    "wcl_acquisition_phase",
+    "REFRESH_PHASE",
   );
   const scoreDto = scoringOutcome.snapshot;
   logger.info(

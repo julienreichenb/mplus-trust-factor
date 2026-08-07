@@ -167,6 +167,42 @@ const defaultModelConfigV6 = {
     minObservedDomains: 2,
   },
   overallFormula: "WEIGHTED_DIMENSIONS",
+  /** Admin console tunable weights — defaults ≡ current production P/U/S behaviour. */
+  tunableWeights: {
+    schemaVersion: "tunable-weights.1",
+    dimensions: {
+      performance: 35,
+      survival: 30,
+      utility: 25,
+      experience: 10,
+    },
+    components: {
+      performance: {
+        phase1: 80,
+        cooldown: 20,
+        dungeonPeak: 40,
+        dungeonFloor: 45,
+        dungeonConsistency: 15,
+        profileBestAverage: 45,
+        profileMedianAverage: 55,
+      },
+      survival: {
+        outcome: 55,
+        defensive: 30,
+        recovery: 15,
+      },
+      utility: {
+        castStops: 45,
+        support: 28,
+        strategicCc: 27,
+      },
+      experience: {
+        previousSeasonScore: 30,
+        historicalTitle: 15,
+        historicalRanking: 10,
+      },
+    },
+  },
 } satisfies Prisma.InputJsonValue;
 
 const metricDefinitions: Array<{

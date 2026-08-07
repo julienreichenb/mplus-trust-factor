@@ -176,4 +176,37 @@ describe("CharacterProfileToolbar refresh labels", () => {
     expect(wrapper.find("[data-testid='refresh-status-queued']").exists()).toBe(true);
     wrapper.unmount();
   });
+
+  it("never shows a separate force-refresh control", () => {
+    const wrapper = mount(CharacterProfileToolbar, {
+      props: { profile: profile("STALE") },
+      global: {
+        stubs: { RouterLink: { template: "<a><slot /></a>" } },
+      },
+    });
+    expect(wrapper.find("[data-testid='force-refresh-button']").exists()).toBe(false);
+    expect(wrapper.find("[data-testid='refresh-button']").exists()).toBe(true);
+    wrapper.unmount();
+  });
+
+  it("shows admin character detail link when an id is provided", () => {
+    const wrapper = mount(CharacterProfileToolbar, {
+      props: {
+        profile: profile("FRESH"),
+        adminCharacterId: "11111111-1111-4111-8111-111111111111",
+      },
+      global: {
+        stubs: {
+          RouterLink: {
+            props: ["to"],
+            template: `<a :href="typeof to === 'string' ? to : JSON.stringify(to)"><slot /></a>`,
+          },
+        },
+      },
+    });
+    const link = wrapper.get("[data-testid='admin-character-link']");
+    expect(link.text()).toMatch(/Admin character detail/i);
+    expect(link.attributes("href")).toContain("admin-character");
+    wrapper.unmount();
+  });
 });

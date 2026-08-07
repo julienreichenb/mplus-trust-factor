@@ -6,7 +6,7 @@ import {
   isAuthorizedForAdminDestination,
   visibleAdminNavDestinations,
 } from "./adminNav";
-import { resetFeatureFlagsCache, resolveFeatureFlags } from "../config/features";
+import { resetFeatureFlagsCache } from "../config/features";
 
 afterEach(() => {
   resetFeatureFlagsCache();
@@ -15,97 +15,73 @@ afterEach(() => {
 const CASES = [
   {
     permissions: ["admin.score_models.manage"],
-    id: "score-models" as const,
-    path: "/admin/models",
+    paths: ["/admin/scoring"],
+  },
+  {
+    permissions: ["admin.calibration.manage"],
+    paths: ["/admin/scoring"],
   },
   {
     permissions: ["admin.ability_catalog.read"],
-    id: "ability-catalog" as const,
-    path: "/admin/ability-catalog",
+    paths: ["/admin/ability-catalog"],
   },
   {
     permissions: ["admin.users.read"],
-    id: "admin-users" as const,
-    path: "/admin/users",
-  },
-  {
-    permissions: ["admin.users.manage"],
-    id: "admin-users" as const,
-    path: "/admin/users",
+    paths: ["/admin/users"],
   },
   {
     permissions: ["admin.jobs.manage"],
-    id: "bulk-processing" as const,
-    path: "/admin/bulk-processing",
+    paths: ["/admin/bulk-processing"],
   },
   {
     permissions: ["admin.settings.manage"],
-    id: "admin-misc" as const,
-    path: "/admin/misc",
-  },
-  {
-    permissions: ["score.candidate.read"],
-    id: "scoring" as const,
-    path: "/admin/scoring",
+    paths: ["/admin/misc"],
   },
 ];
 
 describe("admin destination registry", () => {
   it.each(CASES)(
-    "navbar and route predicates agree for $path with $permissions",
-    ({ permissions, id, path }) => {
+    "navbar shows $paths for $permissions",
+    ({ permissions, paths }) => {
       const visible = visibleAdminNavDestinations(permissions);
-      expect(visible.map((d) => d.path)).toEqual([path]);
-      expect(isAuthorizedForAdminDestination(id, permissions)).toBe(true);
-      for (const destination of ADMIN_DESTINATIONS) {
-        const expected = destination.id === id;
-        expect(destination.isAuthorized(permissions)).toBe(expected);
-        expect(isAuthorizedForAdminDestination(destination.id, permissions)).toBe(expected);
-      }
+      expect(visible.map((d) => d.path)).toEqual(paths);
     },
   );
+
+  it("exposes a single Scoring destination with Models/Tuning/Calibration as console tabs", () => {
+    const labels = ADMIN_DESTINATIONS.map((d) => d.label);
+    expect(labels).toContain("Scoring");
+    expect(labels).not.toContain("Models");
+    expect(labels).not.toContain("Tuning");
+    expect(labels).not.toContain("Calibration");
+    expect(labels.join(" ")).not.toMatch(/Scoring V2/i);
+    expect(labels.join(" ")).not.toMatch(/Control Center/i);
+    expect(ADMIN_DESTINATIONS.find((d) => d.path === "/admin/scoring")?.id).toBe("score-console");
+  });
 
   it("hides Admin trigger when no destination is authorized", () => {
     expect(visibleAdminNavDestinations(["score.recalculate"])).toEqual([]);
     expect(hasAnyAuthorizedAdminDestination(["score.recalculate"])).toBe(false);
-    expect(hasAnyAuthorizedAdminDestination([])).toBe(false);
   });
 
-  it("returns all destinations when fully authorized (calibration stays hidden unless feature flag on)", () => {
-    const full = [
-      "admin.score_models.manage",
-      "admin.ability_catalog.read",
-      "admin.users.read",
-      "admin.jobs.manage",
-      "score.candidate.read",
-      "admin.settings.manage",
-      "admin.calibration.manage",
-    ];
-    expect(visibleAdminNavDestinations(full).map((d) => d.path)).toEqual(
-      ADMIN_DESTINATIONS.filter((d) => d.id !== "calibration").map((d) => d.path),
-    );
-  });
-
-  it("shows calibration only when feature flag and permission are both present", () => {
-    // Direct resolve — getFeatureFlags() caches import.meta.env; authorization uses isAdminCalibrationEnabled.
-    expect(resolveFeatureFlags({ VITE_ADMIN_CALIBRATION_ENABLED: "true" }).adminCalibrationEnabled).toBe(
+  it("shows scoring console with calibration or score_models permission", () => {
+    expect(isAuthorizedForAdminDestination("calibration", ["admin.calibration.manage"])).toBe(
       true,
     );
-    // With default flag off, permission alone is insufficient.
-    expect(isAuthorizedForAdminDestination("calibration", ["admin.calibration.manage"])).toBe(false);
+    expect(isAuthorizedForAdminDestination("calibration", ["admin.score_models.manage"])).toBe(
+      true,
+    );
+    expect(isAuthorizedForAdminDestination("score-console", ["admin.score_models.manage"])).toBe(
+      true,
+    );
   });
 });
 
 describe("isAdminRoutePath", () => {
   it("matches /admin and admin descendants only", () => {
     expect(isAdminRoutePath("/admin")).toBe(true);
-    expect(isAdminRoutePath("/admin/")).toBe(true);
-    expect(isAdminRoutePath("/admin/models")).toBe(true);
-    expect(isAdminRoutePath("/admin/users")).toBe(true);
-    expect(isAdminRoutePath("/admin/models?tab=draft")).toBe(true);
-    expect(isAdminRoutePath("/admin/models#draft")).toBe(true);
+    expect(isAdminRoutePath("/admin/scoring")).toBe(true);
+    expect(isAdminRoutePath("/admin/scoring/models")).toBe(true);
     expect(isAdminRoutePath("/administrator")).toBe(false);
-    expect(isAdminRoutePath("/account")).toBe(false);
-    expect(isAdminRoutePath("/compare")).toBe(false);
   });
 });

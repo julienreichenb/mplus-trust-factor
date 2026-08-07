@@ -743,7 +743,7 @@ describe("evidence V2 plan → acquire → finalize lifecycle", () => {
     expect(computeEvidenceManifestContentHash(manifestHashInput)).toBe(manifest.contentHash);
   });
 
-  it("keeps timed=null eligible and only uses timer quality as a secondary tie-break", () => {
+  it("rejects timed=null and timed=false before selection (timed-only eligibility)", () => {
     const { plan, manifest } = planAndFinalize(
       [
         candidate({
@@ -778,23 +778,33 @@ describe("evidence V2 plan → acquire → finalize lifecycle", () => {
       { scope: baseScope({ activeDungeonSlugs: ["skyreach"] }) },
     );
 
-    expect(plan.rejectedCandidates.map((r) => r.reason)).not.toEqual(
+    expect(plan.rejectedCandidates.map((r) => r.reason)).toEqual(
       expect.arrayContaining(["UNTIMED_RUN", "TIMED_STATE_UNKNOWN"]),
     );
+    expect(
+      plan.rejectedCandidates.find((r) => r.reportCode === "untimed-high")?.reason,
+    ).toBe("UNTIMED_RUN");
+    expect(
+      plan.rejectedCandidates.find((r) => r.reportCode === "unknown-timed-higher-key")
+        ?.reason,
+    ).toBe("TIMED_STATE_UNKNOWN");
     expect(manifest.selectedSlotCount).toBe(2);
     expect(manifest.slots.map((s) => s.identity?.reportCode)).toEqual([
-      "untimed-high",
-      "unknown-timed-higher-key",
+      "timed-ok",
+      "timed-ok-2",
     ]);
+    expect(
+      manifest.slots.filter((s) => s.state === "SELECTED").every((s) => s.timed === true),
+    ).toBe(true);
   });
 
-  it("never lets timer state outrank a higher key", () => {
-    const highUnknown = candidate({
-      reportCode: "high-unknown",
+  it("never lets timer state outrank a higher key among timed-eligible peers", () => {
+    const highTimed = candidate({
+      reportCode: "high-timed",
       fightId: 1,
       dungeonSlug: "skyreach",
       keyLevel: 16,
-      timed: null,
+      timed: true,
     });
     const lowTimed = candidate({
       reportCode: "low-timed",
@@ -803,7 +813,7 @@ describe("evidence V2 plan → acquire → finalize lifecycle", () => {
       keyLevel: 15,
       timed: true,
     });
-    expect(compareEvidenceCandidatesV2(highUnknown, lowTimed)).toBeLessThan(0);
+    expect(compareEvidenceCandidatesV2(highTimed, lowTimed)).toBeLessThan(0);
   });
 
   it("falls back past private candidates to fill two slots", () => {
@@ -966,8 +976,8 @@ describe("evidence V2 selection policy (two best distinct runs per dungeon)", ()
   const dungeon = "skyreach";
   const scope = () => baseScope({ activeDungeonSlugs: [dungeon] });
 
-  it("+15 beats +14 regardless of timer / runScore", () => {
-    const plus15 = candidate({
+  it("+15 timed beats +14 timed; untimed higher keys are ineligible", () => {
+    const plus15Untimed = candidate({
       reportCode: "k15-slow",
       fightId: 1,
       dungeonSlug: dungeon,
@@ -984,15 +994,16 @@ describe("evidence V2 selection policy (two best distinct runs per dungeon)", ()
       runScore: 999,
     });
 
-    expect(compareEvidenceCandidatesV2(plus15, plus14)).toBeLessThan(0);
-
-    const { manifest } = planAndFinalize([plus14, plus15], { scope: scope() });
-    expect(manifest.slots[0]!.identity?.reportCode).toBe("k15-slow");
-    expect(manifest.slots[0]!.keyLevel).toBe(15);
-    expect(manifest.slots[1]!.identity?.reportCode).toBe("k14-fast");
+    const { plan, manifest } = planAndFinalize([plus14, plus15Untimed], {
+      scope: scope(),
+    });
+    expect(plan.rejectedCandidates.some((r) => r.reportCode === "k15-slow")).toBe(true);
+    expect(manifest.slots[0]!.identity?.reportCode).toBe("k14-fast");
+    expect(manifest.slots[0]!.keyLevel).toBe(14);
+    expect(manifest.selectedSlotCount).toBe(1);
   });
 
-  it("timed +15 beats depleted +15", () => {
+  it("timed +15 is selected; depleted +15 is rejected (no untimed fallback)", () => {
     const timed = candidate({
       reportCode: "timed-15",
       fightId: 1,
@@ -1010,13 +1021,15 @@ describe("evidence V2 selection policy (two best distinct runs per dungeon)", ()
       runScore: 500,
     });
 
-    expect(compareEvidenceCandidatesV2(timed, depleted)).toBeLessThan(0);
-
-    const { manifest } = planAndFinalize([depleted, timed], { scope: scope() });
+    const { plan, manifest } = planAndFinalize([depleted, timed], { scope: scope() });
+    expect(
+      plan.rejectedCandidates.find((r) => r.reportCode === "depleted-15")?.reason,
+    ).toBe("UNTIMED_RUN");
     expect(manifest.slots.map((s) => s.identity?.reportCode)).toEqual([
       "timed-15",
-      "depleted-15",
+      undefined,
     ]);
+    expect(manifest.selectedSlotCount).toBe(1);
   });
 
   it("equal-key timed runs break ties by reportCode (not completedAt or runScore)", () => {
@@ -1166,5 +1179,236 @@ describe("evidence V2 selection policy (two best distinct runs per dungeon)", ()
     expect(identities).toHaveLength(2);
     expect(new Set(identities).size).toBe(2);
     expect(identities).toEqual(["same:7", "other:8"]);
+  });
+});
+
+describe("scoring evidence timed-only eligibility", () => {
+  const dungeon = "skyreach";
+  const scope = () => baseScope({ activeDungeonSlugs: [dungeon] });
+
+  it("A: higher untimed loses to lower timed runs", () => {
+    const { plan, manifest } = planAndFinalize(
+      [
+        candidate({
+          reportCode: "plus23-untimed",
+          fightId: 1,
+          dungeonSlug: dungeon,
+          keyLevel: 23,
+          timed: false,
+        }),
+        candidate({
+          reportCode: "plus22-timed",
+          fightId: 2,
+          dungeonSlug: dungeon,
+          keyLevel: 22,
+          timed: true,
+        }),
+        candidate({
+          reportCode: "plus21-timed",
+          fightId: 3,
+          dungeonSlug: dungeon,
+          keyLevel: 21,
+          timed: true,
+        }),
+      ],
+      { scope: scope() },
+    );
+
+    expect(
+      plan.rejectedCandidates.find((r) => r.reportCode === "plus23-untimed")?.reason,
+    ).toBe("UNTIMED_RUN");
+    expect(manifest.slots.map((s) => s.identity?.reportCode)).toEqual([
+      "plus22-timed",
+      "plus21-timed",
+    ]);
+  });
+
+  it("B: only one timed run → second slot missing (no untimed fallback)", () => {
+    const { manifest } = planAndFinalize(
+      [
+        candidate({
+          reportCode: "plus24-false",
+          fightId: 1,
+          dungeonSlug: dungeon,
+          keyLevel: 24,
+          timed: false,
+        }),
+        candidate({
+          reportCode: "plus23-false",
+          fightId: 2,
+          dungeonSlug: dungeon,
+          keyLevel: 23,
+          timed: false,
+        }),
+        candidate({
+          reportCode: "plus22-true",
+          fightId: 3,
+          dungeonSlug: dungeon,
+          keyLevel: 22,
+          timed: true,
+        }),
+      ],
+      { scope: scope() },
+    );
+
+    expect(manifest.selectedSlotCount).toBe(1);
+    expect(manifest.slots[0]!.identity?.reportCode).toBe("plus22-true");
+    expect(manifest.slots[1]!.state).not.toBe("SELECTED");
+  });
+
+  it("C: unknown timer is rejected; timed run is selected", () => {
+    const { plan, manifest } = planAndFinalize(
+      [
+        candidate({
+          reportCode: "plus24-unknown",
+          fightId: 1,
+          dungeonSlug: dungeon,
+          keyLevel: 24,
+          timed: null,
+        }),
+        candidate({
+          reportCode: "plus22-timed",
+          fightId: 2,
+          dungeonSlug: dungeon,
+          keyLevel: 22,
+          timed: true,
+        }),
+      ],
+      { scope: scope() },
+    );
+
+    expect(
+      plan.rejectedCandidates.find((r) => r.reportCode === "plus24-unknown")?.reason,
+    ).toBe("TIMED_STATE_UNKNOWN");
+    expect(manifest.slots[0]!.identity?.reportCode).toBe("plus22-timed");
+  });
+
+  it("D: acquisition plan never includes untimed / unknown candidates", () => {
+    const { plan } = buildEvidenceAcquisitionPlanV2({
+      scope: scope(),
+      candidates: [
+        candidate({
+          reportCode: "untimed-high",
+          fightId: 1,
+          dungeonSlug: dungeon,
+          keyLevel: 25,
+          timed: false,
+          reportRevision: null,
+        }),
+        candidate({
+          reportCode: "unknown-high",
+          fightId: 2,
+          dungeonSlug: dungeon,
+          keyLevel: 24,
+          timed: null,
+          reportRevision: null,
+        }),
+        candidate({
+          reportCode: "timed-ok",
+          fightId: 3,
+          dungeonSlug: dungeon,
+          keyLevel: 20,
+          timed: true,
+          reportRevision: null,
+        }),
+      ],
+    });
+
+    const plannedCodes = plan.slots.flatMap((s) =>
+      s.orderedCandidates.map((c) => c.discoveryIdentity.reportCode),
+    );
+    expect(plannedCodes).toEqual(["timed-ok", "timed-ok"]);
+    expect(plannedCodes).not.toContain("untimed-high");
+    expect(plannedCodes).not.toContain("unknown-high");
+  });
+
+  it("E: warm persisted untimed digest is ignored when timed evidence exists", () => {
+    const { plan, manifest } = planAndFinalize(
+      [
+        candidate({
+          reportCode: "legacy-untimed",
+          fightId: 1,
+          dungeonSlug: dungeon,
+          keyLevel: 30,
+          timed: false,
+          discoverySource: "persisted-digest",
+          reportRevision: 3,
+        }),
+        candidate({
+          reportCode: "timed-warm",
+          fightId: 2,
+          dungeonSlug: dungeon,
+          keyLevel: 18,
+          timed: true,
+          discoverySource: "persisted-digest",
+          reportRevision: 2,
+        }),
+      ],
+      { scope: scope() },
+    );
+
+    expect(
+      plan.rejectedCandidates.find((r) => r.reportCode === "legacy-untimed")?.reason,
+    ).toBe("UNTIMED_RUN");
+    expect(manifest.slots[0]!.identity?.reportCode).toBe("timed-warm");
+    expect(manifest.selectedSlotCount).toBe(1);
+  });
+
+  it("E2: warm persisted untimed alone leaves slots missing", () => {
+    const { manifest } = planAndFinalize(
+      [
+        candidate({
+          reportCode: "legacy-untimed-only",
+          fightId: 1,
+          dungeonSlug: dungeon,
+          keyLevel: 30,
+          timed: false,
+          discoverySource: "persisted-digest",
+        }),
+      ],
+      { scope: scope() },
+    );
+    expect(manifest.selectedSlotCount).toBe(0);
+    expect(manifest.slots.every((s) => s.state !== "SELECTED")).toBe(true);
+  });
+
+  it("F: every SELECTED slot across an 8-dungeon mixed fixture is timed", () => {
+    const candidates: EvidenceCandidateMetadataV2[] = [];
+    for (const [i, dungeonSlug] of EIGHT_DUNGEONS.entries()) {
+      candidates.push(
+        candidate({
+          reportCode: `untimed-${dungeonSlug}`,
+          fightId: 100 + i,
+          dungeonSlug,
+          keyLevel: 30,
+          timed: false,
+        }),
+        candidate({
+          reportCode: `timed-a-${dungeonSlug}`,
+          fightId: 200 + i,
+          dungeonSlug,
+          keyLevel: 20,
+          timed: true,
+        }),
+        candidate({
+          reportCode: `timed-b-${dungeonSlug}`,
+          fightId: 300 + i,
+          dungeonSlug,
+          keyLevel: 19,
+          timed: true,
+        }),
+      );
+    }
+
+    const { manifest } = planAndFinalize(candidates, {
+      scope: baseScope({ activeDungeonSlugs: [...EIGHT_DUNGEONS] }),
+    });
+
+    const selected = manifest.slots.filter((s) => s.state === "SELECTED");
+    expect(selected).toHaveLength(16);
+    expect(selected.every((s) => s.timed === true)).toBe(true);
+    expect(selected.every((s) => !String(s.identity?.reportCode).startsWith("untimed-"))).toBe(
+      true,
+    );
   });
 });

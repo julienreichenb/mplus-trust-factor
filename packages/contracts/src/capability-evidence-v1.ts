@@ -2,7 +2,7 @@
  * Capability-scoped shared WCL evidence contracts (scoring-neutral).
  * One run/revision is acquired once; participants reference the same package.
  */
-import { createHash } from "node:crypto";
+import { sha256Hex } from "./sha256.js";
 import { z } from "zod";
 import { WCL_DIGEST_FORBIDDEN_SCORE_KEYS } from "./wcl-run-source-digest.js";
 
@@ -203,14 +203,11 @@ export function hashSortedInts(values: readonly number[]): string {
   const sorted = [...new Set(values.filter((n) => Number.isFinite(n)))].sort(
     (a, b) => a - b,
   );
-  return createHash("sha256").update(sorted.join(",")).digest("hex").slice(0, 16);
+  return sha256Hex(sorted.join(",")).slice(0, 16);
 }
 
 export function hashCapabilitySet(capabilities: readonly EvidenceCapability[]): string {
-  return createHash("sha256")
-    .update([...capabilities].sort().join(","))
-    .digest("hex")
-    .slice(0, 16);
+  return sha256Hex([...capabilities].sort().join(",")).slice(0, 16);
 }
 
 export function buildCapabilityEvidenceCompatibilityIdentity(input: {
@@ -284,7 +281,7 @@ export function buildCapabilityPackageCompatibilityKey(input: {
 export function hashCapabilityEvidencePayload(value: unknown): string {
   const clone = JSON.parse(JSON.stringify(value)) as Record<string, unknown>;
   delete clone.contentHash;
-  return createHash("sha256").update(JSON.stringify(clone)).digest("hex");
+  return sha256Hex(JSON.stringify(clone));
 }
 
 /**

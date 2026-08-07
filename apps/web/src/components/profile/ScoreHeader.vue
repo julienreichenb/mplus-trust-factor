@@ -46,6 +46,17 @@ const confidenceLabel = computed(() =>
   confidence.value == null ? "Unavailable" : formatPercent(confidence.value, 0),
 );
 
+const partialDimensionsNote = computed(() => {
+  const dims = props.profile.score?.dimensions ?? [];
+  const missing = dims.filter(
+    (d) =>
+      d.dimension !== "AUTHENTICITY" &&
+      (d.state === "UNAVAILABLE" || d.score == null),
+  );
+  if (missing.length === 0) return null;
+  return "Unavailable dimensions are excluded from the overall score; remaining weights are renormalized.";
+});
+
 const classSpec = computed(() => {
   const parts = [
     humanizeSlug(props.profile.specSlug),
@@ -108,6 +119,14 @@ const classSpec = computed(() => {
           <MetaChip role="listitem" label="Model" :value="modelLabel" value-class="mpts-data" />
           <MetaChip role="listitem" label="Calculated" :value="calculatedLabel" />
         </div>
+        <p
+          v-if="partialDimensionsNote"
+          class="trust__partial-note"
+          data-testid="partial-dimensions-note"
+          :title="partialDimensionsNote"
+        >
+          {{ partialDimensionsNote }}
+        </p>
       </div>
 
       <div class="hero-grid__main">
@@ -469,6 +488,13 @@ const classSpec = computed(() => {
   flex-wrap: wrap;
   gap: var(--space-2);
   margin: 0;
+}
+
+.trust__partial-note {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  line-height: 1.4;
 }
 
 @media (min-width: 768px) {

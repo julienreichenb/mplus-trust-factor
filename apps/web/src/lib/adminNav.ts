@@ -1,14 +1,15 @@
 import { hasPermission } from "./permissions";
-import { isAdminCalibrationEnabled } from "../config/features";
 
 export type AdminDestinationId =
-  | "score-models"
+  | "score-console"
   | "ability-catalog"
   | "admin-users"
   | "bulk-processing"
-  | "calibration"
-  | "scoring"
-  | "admin-misc";
+  | "admin-misc"
+  /** @deprecated legacy ids kept for route meta redirects */
+  | "score-models"
+  | "score-tuning"
+  | "calibration";
 
 export interface AdminDestination {
   id: AdminDestinationId;
@@ -20,17 +21,23 @@ export interface AdminDestination {
   isAuthorized: (permissions: string[]) => boolean;
 }
 
+const scoringAuthorized = (permissions: string[]) =>
+  hasPermission(permissions, "admin.score_models.manage") ||
+  hasPermission(permissions, "admin.calibration.manage");
+
 /**
  * Single source of truth for admin destinations.
  * Navbar visibility and router guards both use `isAuthorized`.
+ *
+ * Scoring product surface: one “Scoring” console with Models / Tuning / Calibration tabs.
  */
 export const ADMIN_DESTINATIONS: readonly AdminDestination[] = [
   {
-    id: "score-models",
-    name: "admin-models",
-    path: "/admin/models",
-    label: "Score models",
-    isAuthorized: (permissions) => hasPermission(permissions, "admin.score_models.manage"),
+    id: "score-console",
+    name: "admin-scoring",
+    path: "/admin/scoring",
+    label: "Scoring",
+    isAuthorized: scoringAuthorized,
   },
   {
     id: "ability-catalog",
@@ -56,21 +63,6 @@ export const ADMIN_DESTINATIONS: readonly AdminDestination[] = [
     isAuthorized: (permissions) => hasPermission(permissions, "admin.jobs.manage"),
   },
   {
-    id: "calibration",
-    name: "admin-calibration",
-    path: "/admin/calibration",
-    label: "Calibration",
-    isAuthorized: (permissions) =>
-      isAdminCalibrationEnabled() && hasPermission(permissions, "admin.calibration.manage"),
-  },
-  {
-    id: "scoring",
-    name: "admin-scoring",
-    path: "/admin/scoring",
-    label: "Scoring Control Center",
-    isAuthorized: (permissions) => hasPermission(permissions, "score.candidate.read"),
-  },
-  {
     id: "admin-misc",
     name: "admin-misc",
     path: "/admin/misc",
@@ -82,7 +74,16 @@ export const ADMIN_DESTINATIONS: readonly AdminDestination[] = [
 /** @deprecated Prefer ADMIN_DESTINATIONS — kept as an alias for existing imports. */
 export const ADMIN_NAV_DESTINATIONS = ADMIN_DESTINATIONS;
 
+const LEGACY_SCORING_IDS: AdminDestinationId[] = [
+  "score-models",
+  "score-tuning",
+  "calibration",
+];
+
 export function getAdminDestination(id: AdminDestinationId): AdminDestination {
+  if (LEGACY_SCORING_IDS.includes(id)) {
+    return ADMIN_DESTINATIONS.find((entry) => entry.id === "score-console")!;
+  }
   const destination = ADMIN_DESTINATIONS.find((entry) => entry.id === id);
   if (!destination) {
     throw new Error(`Unknown admin destination: ${id}`);
@@ -92,6 +93,15 @@ export function getAdminDestination(id: AdminDestinationId): AdminDestination {
 
 export function findAdminDestinationByPath(path: string): AdminDestination | undefined {
   const pathname = normalizePathname(path);
+  if (
+    pathname === "/admin/scoring" ||
+    pathname.startsWith("/admin/scoring/") ||
+    pathname === "/admin/models" ||
+    pathname === "/admin/tuning" ||
+    pathname.startsWith("/admin/calibration")
+  ) {
+    return getAdminDestination("score-console");
+  }
   return ADMIN_DESTINATIONS.find((destination) => destination.path === pathname);
 }
 

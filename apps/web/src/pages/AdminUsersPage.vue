@@ -22,7 +22,7 @@ const router = useRouter();
 const { canManageUsers, hasPermission, fetchAuthMe } = useAuthSession();
 
 type TabKey = "accounts" | "characters" | "refresh-jobs";
-const activeTab = ref<TabKey>("accounts");
+const activeTab = ref<TabKey>("characters");
 const canManageJobs = computed(() => hasPermission("admin.jobs.manage"));
 
 interface AdminUserRow {
@@ -524,6 +524,9 @@ onMounted(async () => {
   } catch (err) {
     if (!handleAuthError(err)) error.value = (err as Error).message;
   }
+  if (activeTab.value === "characters") {
+    void loadCharacterRealms();
+  }
 });
 </script>
 
@@ -653,23 +656,30 @@ onMounted(async () => {
 
       <ul class="results" data-testid="admin-characters-results">
         <li v-for="c in characters" :key="c.id" class="char-row">
-          <CharacterIdentity
-            compact
-            :region="c.region"
-            :name="c.name"
-            :realm-slug="c.realmSlug"
-            :class-slug="c.classSlug"
-            :class-color="c.classColor"
-            :avatar-url="c.avatarUrl"
-            :class-icon-url="c.classIconUrl"
-            :size="32"
-          />
-          <div class="char-row__meta">
-            <span class="muted">
-              M+ {{ c.mythicPlusScore != null ? Math.round(c.mythicPlusScore) : "—" }}
-            </span>
-            <StatusChip :status="c.refreshStatus" />
-          </div>
+          <RouterLink
+            class="char-row__link"
+            data-testid="admin-character-detail-link"
+            :to="{ name: 'admin-character', params: { characterId: c.id } }"
+            :aria-label="`Open admin detail for ${c.name}`"
+          >
+            <CharacterIdentity
+              compact
+              :region="c.region"
+              :name="c.name"
+              :realm-slug="c.realmSlug"
+              :class-slug="c.classSlug"
+              :class-color="c.classColor"
+              :avatar-url="c.avatarUrl"
+              :class-icon-url="c.classIconUrl"
+              :size="32"
+            />
+            <div class="char-row__meta">
+              <span class="muted">
+                M+ {{ c.mythicPlusScore != null ? Math.round(c.mythicPlusScore) : "—" }}
+              </span>
+              <StatusChip :status="c.refreshStatus" />
+            </div>
+          </RouterLink>
         </li>
       </ul>
     </div>
@@ -1008,6 +1018,19 @@ onMounted(async () => {
   gap: var(--space-2);
   margin-left: auto;
   flex-wrap: wrap;
+}
+.char-row__link {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  align-items: center;
+  width: 100%;
+  color: inherit;
+  text-decoration: none;
+}
+.char-row__link:hover {
+  text-decoration: none;
 }
 .job-main {
   flex: 1;

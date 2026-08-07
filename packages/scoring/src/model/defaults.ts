@@ -1,5 +1,6 @@
 import type { ScoreModelConfigV1 } from "../types.js";
 import { resolvePerformanceMetricWeights } from "../performance/aggregate.js";
+import { withTunableWeights } from "../model-config/tunable-weights.js";
 
 export function createDefaultModelV1(
   overrides: Partial<ScoreModelConfigV1> = {},
@@ -252,7 +253,7 @@ export function createDefaultModelV6(
   overrides: Partial<ScoreModelConfigV1> = {},
 ): ScoreModelConfigV1 {
   const v5 = createDefaultModelV5();
-  return createDefaultModelV5({
+  const base = createDefaultModelV5({
     version: 6,
     metricWeights: {
       ...v5.metricWeights,
@@ -262,6 +263,16 @@ export function createDefaultModelV6(
     overallFormula: "WEIGHTED_DIMENSIONS",
     ...overrides,
   });
+  // Attach canonical tunable weights + scoring dimension configs unless caller
+  // already supplied an explicit tunableWeights document via overrides.
+  if (
+    overrides &&
+    typeof overrides === "object" &&
+    (overrides as Record<string, unknown>).tunableWeights != null
+  ) {
+    return base;
+  }
+  return withTunableWeights(base) as ScoreModelConfigV1;
 }
 
 function deepMerge<T extends object>(base: T, overrides: Partial<T>): T {

@@ -7,10 +7,7 @@ import type { ScoreSnapshotDTO } from "@mplus/contracts";
 import { hashRefreshContract } from "@mplus/contracts";
 import type { WorkerContainer } from "../../container.js";
 import { scoreCharacter, type ScoreCharacterResult } from "./score-character.js";
-import {
-  scoreCharacterResultToSnapshotDto,
-  scoringDisabledSnapshotDto,
-} from "./snapshot-from-character-score.js";
+import { scoreCharacterResultToSnapshotDto } from "./snapshot-from-character-score.js";
 import { createLiveCapabilityAcquireHook, observeAuthoritativeReportRevision } from "./run-orchestration/live-capability-adapter.js";
 import { createRedisSourceFightLock } from "./run-orchestration/source-fight-lease.js";
 import { createProductionRunOrchestrationPorts } from "./run-orchestration/production-ports.js";
@@ -42,6 +39,13 @@ export interface AuthoritativeScoringInput {
   region: string;
   realm: string;
   characterName: string;
+  /**
+   * When false, scoreCharacter evaluates without writing CharacterScore.
+   * Default true (operational refresh / recalculate).
+   */
+  persistCharacterScore?: boolean;
+  /** Optional frozen ScoreModel.config override for evaluation. */
+  scoreModelConfig?: Record<string, unknown> | null;
   /** Test seam. */
   portsOverride?: RunOrchestrationPorts;
   /** Test seam for aggregate provider. */
@@ -71,27 +75,28 @@ function resolvePerformanceAggregateProvider(
 
 /**
  * Sole product scoring entry used by character refresh and recalculate jobs.
+ *
+ * Always runs scoreCharacter (canonical acquisition + evaluation). Do not gate
+ * product refresh on SCORING_ENABLED — that historically returned grade U and
+ * left refresh on the legacy pre-selection WCL path. Publication remains gated
+ * by SCORING_PUBLICATION_ENABLED inside scoreCharacter / snapshot mapping.
  */
 export async function runAuthoritativeScoring(
   input: AuthoritativeScoringInput,
 ): Promise<AuthoritativeScoringResult> {
   const fingerprint = `scoring:${input.characterId}:${input.seasonId}:${hashRefreshContract(input.refreshContract)}`;
 
-  if (!input.container.env.SCORING_ENABLED) {
-    return {
-      disabled: true,
-      snapshot: scoringDisabledSnapshotDto({
-        characterId: input.characterId,
-        seasonSlug: input.seasonSlug,
-        scoreModelKey: input.scoreModelKey,
-        scoreModelVersion: input.scoreModelVersion,
-        calculatedAt: input.calculatedAt,
-        inputFingerprint: fingerprint,
-      }),
-      scoreResult: null,
-      providerCalls: 0,
-    };
-  }
+  input.container.logger.info(
+    {
+      event: "REFRESH_PHASE",
+      phase: "SCORING",
+      characterId: input.characterId,
+      seasonId: input.seasonId,
+      persistCharacterScore: input.persistCharacterScore !== false,
+      scoringEnabledFlag: input.container.env.SCORING_ENABLED,
+    },
+    "REFRESH_PHASE",
+  );
 
   const zoneId = requireScoringZoneId(input.refreshContract.zoneId);
   const partition =
@@ -106,6 +111,23 @@ export async function runAuthoritativeScoring(
     input.container.env.ALLOW_LIVE_PROVIDER_CALLS === true &&
     input.container.env.PROVIDER_MODE === "live" &&
     input.container.env.WCL_ENABLED === true;
+
+  if (!allowProviderCalls && input.candidates.length > 0) {
+    input.container.logger.warn(
+      {
+        event: "REFRESH_PHASE",
+        phase: "DETAILED_ACQUISITION_BLOCKED",
+        characterId: input.characterId,
+        candidateCount: input.candidates.length,
+        ALLOW_LIVE_PROVIDER_CALLS: input.container.env.ALLOW_LIVE_PROVIDER_CALLS,
+        PROVIDER_MODE: input.container.env.PROVIDER_MODE,
+        WCL_ENABLED: input.container.env.WCL_ENABLED,
+        detail:
+          "scoreCharacter cannot acquire ReportEvents — set ALLOW_LIVE_PROVIDER_CALLS=true when PROVIDER_MODE=live",
+      },
+      "DETAILED_ACQUISITION_BLOCKED",
+    );
+  }
 
   let liveAcquire:
     | Parameters<typeof scoreCharacter>[0]["liveAcquire"]
@@ -218,6 +240,8 @@ export async function runAuthoritativeScoring(
     scoringModelVersion: String(input.scoreModelVersion),
     allowProviderCalls,
     publicationEnabled: input.container.env.SCORING_PUBLICATION_ENABLED,
+    persistCharacterScore: input.persistCharacterScore,
+    scoreModelConfig: input.scoreModelConfig,
     ports,
     prisma: input.container.prisma,
     artifacts: input.container.repositories.artifacts,

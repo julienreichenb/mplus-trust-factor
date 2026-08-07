@@ -92,6 +92,9 @@ function baseScoreInput(
     zoneId: 47,
     ports: createMemoryOrchestrationPorts(),
     prisma: {
+      scoreModel: {
+        findUnique: async () => ({ config: {} }),
+      },
       characterScore: {
         findUnique: async () => null,
         upsert: async ({ create }: { create: Record<string, unknown> }) => ({

@@ -159,6 +159,9 @@ export function parseContributorSignals(dimensions: DimensionScoreDTO[]): Contri
 
 /** Human-readable label when a dimension has no usable score. */
 export function unavailableDimensionLabel(dimension?: string | null): string {
+  if (dimension === "EXPERIENCE") {
+    return "Not available — excluded from overall; remaining weights renormalized";
+  }
   if (dimension === "UTILITY") return "Utility combat evidence unavailable";
   if (dimension === "SURVIVAL") return "Survival combat evidence unavailable";
   return "Data unavailable";

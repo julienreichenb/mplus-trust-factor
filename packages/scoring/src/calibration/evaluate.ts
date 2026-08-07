@@ -339,8 +339,28 @@ export function runCalibrationHarness(
   const comparisonPairs: PairwiseReplayResult[] = [];
 
   const characters: PerCharacterCalibrationResult[] = [];
+  const totalMembers = manifest.members.length;
 
-  for (const member of manifest.members) {
+  const emitProgress = (
+    index: number,
+    member: CohortManifestMember,
+    status: "completed" | "failed",
+    result: PerCharacterCalibrationResult,
+  ): void => {
+    runOptions.onMemberProgress?.({
+      index,
+      total: totalMembers,
+      memberId: member.id,
+      characterName: member.character,
+      realm: member.realm,
+      region: member.region,
+      status,
+      result,
+    });
+  };
+
+  for (let memberIndex = 0; memberIndex < manifest.members.length; memberIndex++) {
+    const member = manifest.members[memberIndex]!;
     const evidence = deps.evidence.loadMemberEvidence(member);
     const boost = boostSource.resolve({
       memberId: member.id,
@@ -359,16 +379,16 @@ export function runCalibrationHarness(
 
     if (validationFailure) {
       validationFailures.push(validationFailure);
-      characters.push(
-        failedRow({
-          member,
-          evidence,
-          options: runOptions,
-          boost,
-          error: null,
-          validationFailure,
-        }),
-      );
+      const failed = failedRow({
+        member,
+        evidence,
+        options: runOptions,
+        boost,
+        error: null,
+        validationFailure,
+      });
+      characters.push(failed);
+      emitProgress(memberIndex, member, "failed", failed);
       if (runOptions.mode === "active-versus-draft") {
         comparisonPairs.push({
           memberId: member.id,
@@ -401,6 +421,7 @@ export function runCalibrationHarness(
           evidenceFingerprint: snapshot.inputFingerprint ?? null,
         });
         characters.push(row);
+        emitProgress(memberIndex, member, "completed", row);
         continue;
       }
 
@@ -431,6 +452,7 @@ export function runCalibrationHarness(
           evidenceFingerprint: fingerprint,
         });
         characters.push(row);
+        emitProgress(memberIndex, member, "completed", row);
         ablationMembers.push({
           characterId,
           seasonSlug,
@@ -491,6 +513,7 @@ export function runCalibrationHarness(
       activeRow.evidenceFingerprint = sharedEvidenceFingerprint;
 
       characters.push(draftRow);
+      emitProgress(memberIndex, member, "completed", draftRow);
       ablationMembers.push({
         characterId,
         seasonSlug,
@@ -517,16 +540,16 @@ export function runCalibrationHarness(
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      characters.push(
-        failedRow({
-          member,
-          evidence,
-          options: runOptions,
-          boost,
-          error: message,
-          validationFailure: null,
-        }),
-      );
+      const failed = failedRow({
+        member,
+        evidence,
+        options: runOptions,
+        boost,
+        error: message,
+        validationFailure: null,
+      });
+      characters.push(failed);
+      emitProgress(memberIndex, member, "failed", failed);
     }
   }
 

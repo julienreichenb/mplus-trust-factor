@@ -39,10 +39,17 @@ export const routeDefs: RouteRecordRaw[] = [
     component: () => import("./pages/AccessDeniedPage.vue"),
   },
   {
-    path: "/admin/models",
-    name: "admin-models",
-    component: () => import("./pages/AdminModelsPage.vue"),
-    meta: { adminDestinationId: "score-models" },
+    path: "/admin/scoring/:tab?",
+    name: "admin-scoring",
+    component: () => import("./pages/AdminScoringConsolePage.vue"),
+    meta: { adminDestinationId: "score-console" },
+  },
+  {
+    path: "/admin/characters/:characterId",
+    name: "admin-character",
+    component: () => import("./pages/AdminCharacterPage.vue"),
+    props: true,
+    meta: { adminDestinationId: "admin-users" },
   },
   {
     path: "/admin/ability-catalog",
@@ -66,24 +73,22 @@ export const routeDefs: RouteRecordRaw[] = [
     path: "/admin/calibration/runs/:runId",
     name: "admin-calibration-report",
     component: () => import("./pages/AdminCalibrationReportPage.vue"),
-    meta: { adminDestinationId: "calibration" },
-  },
-  {
-    path: "/admin/calibration/:cohortId?",
-    name: "admin-calibration",
-    component: () => import("./pages/AdminCalibrationPage.vue"),
-    meta: { adminDestinationId: "calibration" },
-  },
-  {
-    path: "/admin/scoring",
-    name: "admin-scoring",
-    component: () => import("./pages/AdminScoringPage.vue"),
-    meta: { adminDestinationId: "scoring" },
+    meta: { adminDestinationId: "score-console" },
   },
   {
     path: "/admin/misc",
     name: "admin-misc",
     component: () => import("./pages/AdminMiscPage.vue"),
     meta: { adminDestinationId: "admin-misc" },
+  },
+  // Legacy deep links → Scoring console tabs
+  { path: "/admin/models", redirect: "/admin/scoring/models" },
+  { path: "/admin/tuning", redirect: "/admin/scoring/tuning" },
+  {
+    path: "/admin/calibration/:cohortId?",
+    redirect: (to) => ({
+      path: "/admin/scoring/calibration",
+      query: to.params.cohortId ? { cohort: String(to.params.cohortId) } : {},
+    }),
   },
 ];

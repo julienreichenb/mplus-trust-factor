@@ -2,7 +2,7 @@
  * Canonical Survival action / pressure / participant contracts (scoring-neutral).
  * Scoring layers must consume these — never full raw WCL pages or score weights.
  */
-import { createHash } from "node:crypto";
+import { sha256Hex } from "./sha256.js";
 import { z } from "zod";
 import { WCL_EVENT_NORMALIZER_VERSION } from "./wcl-event-normalizer-version.js";
 import { WCL_DIGEST_FORBIDDEN_SCORE_KEYS } from "./wcl-run-source-digest.js";
@@ -354,17 +354,17 @@ export function assertParticipantSurvivalSummaryV1(
 export function hashSurvivalActionTimelinePayload(value: unknown): string {
   const clone = JSON.parse(JSON.stringify(value)) as Record<string, unknown>;
   delete clone.contentHash;
-  return createHash("sha256").update(JSON.stringify(clone)).digest("hex");
+  return sha256Hex(JSON.stringify(clone));
 }
 
 export function hashPressureWindowTimelinePayload(value: unknown): string {
   const clone = JSON.parse(JSON.stringify(value)) as Record<string, unknown>;
   delete clone.contentHash;
-  return createHash("sha256").update(JSON.stringify(clone)).digest("hex");
+  return sha256Hex(JSON.stringify(clone));
 }
 
 export function hashParticipantSurvivalSummaryPayload(value: unknown): string {
   const clone = JSON.parse(JSON.stringify(value)) as Record<string, unknown>;
   delete clone.contentHash;
-  return createHash("sha256").update(JSON.stringify(clone)).digest("hex");
+  return sha256Hex(JSON.stringify(clone));
 }

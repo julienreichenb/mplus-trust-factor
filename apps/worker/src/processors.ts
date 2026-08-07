@@ -276,9 +276,10 @@ export function createWorkers(connection: ConnectionOptions, container: WorkerCo
     { connection, autorun: false, concurrency: 1 },
   );
 
-  // Dedicated calibration-run worker. Deliberately constructed with only prisma/logger/flag —
-  // never given access to producers or Blizzard/WCL/RaiderIO providers — so calibration jobs
-  // cannot enqueue refresh work or call external providers.
+  // Dedicated calibration-run worker. Product runs (CANONICAL_ACQUIRE_EVALUATE) need
+  // the WorkerContainer for WCL discovery + scoreCharacter; operational CharacterScore
+  // persistence remains gated off inside acquireAndEvaluateCalibrationMember.
+  // Legacy frozen-snapshot harness runs stay provider-free when container is unused.
   const calibration = new Worker(
     QUEUE_NAMES.calibrationRun,
     async (job) => {
@@ -289,6 +290,7 @@ export function createWorkers(connection: ConnectionOptions, container: WorkerCo
             prisma: container.prisma,
             logger: container.logger,
             calibrationEnabled: container.env.ADMIN_CALIBRATION_ENABLED,
+            container,
           },
           payload,
         ),

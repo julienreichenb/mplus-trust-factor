@@ -1,5 +1,4 @@
 import type { Character, IngestionJob } from "@mplus/database";
-import { CharacterScoreRepository } from "@mplus/database";
 import type {
   CanonicalCharacter,
   CharacterIdentityInput,
@@ -52,7 +51,7 @@ import {
   type CharacterSourceAttribution,
   type RunSummaryDTO,
 } from "../lib/mappers.js";
-import { mapCharacterScoreToSnapshotDto } from "../lib/character-score-read.js";
+import { resolveProductScoreDto } from "../lib/product-score-resolve.js";
 import { mapJobStatusWithEta } from "./refresh-eta-service.js";
 import { applyProfileWarnings, appendRefreshContractWarnings, buildProfileEnrichments, isScoreStaleVersusProviders, resolveWclUrlFromSources, scoreSnapshotContractStaleReasons, toPublicProviderKey } from "../lib/profile-enrichment.js";
 import { characterCacheKey } from "../lib/response-cache.js";
@@ -747,13 +746,26 @@ export class CharacterService {
     correlationId?: string | null;
     /** When true, skip side effects (status-only reads). */
     readOnly?: boolean;
+    /**
+     * Operational grade from CharacterScore when available. Overrides published
+     * snapshot grade for GRADE_U_ELIGIBILITY so a calculable partial composite
+     * is not treated as permanently unranked.
+     */
+    operationalGrade?: string | null;
   }): Promise<{
     decision: ScoreRefreshDecision;
     activeJob: IngestionJob | null;
     latestJob: IngestionJob | null;
     enqueueResult: EnqueueResult | null;
   }> {
-    const { identity, character, snapshot, correlationId, readOnly = false } = params;
+    const {
+      identity,
+      character,
+      snapshot,
+      correlationId,
+      readOnly = false,
+      operationalGrade,
+    } = params;
     const [activeJobRaw, latestJobBefore] = await Promise.all([
       this.repositories.job.findActiveForCharacter(character.id),
       this.repositories.job.findLatestForCharacter(character.id),
@@ -818,10 +830,12 @@ export class CharacterService {
         ? activeJobRaw
         : null;
 
+    const publishedGrade = snapshot?.grade ?? null;
+    const effectiveGrade = operationalGrade ?? publishedGrade;
     const decisionBase = decideScoreRefresh({
-      hasPublishedScore: Boolean(snapshot),
+      hasPublishedScore: Boolean(snapshot) || operationalGrade != null,
       scoreCalculatedAt: snapshot?.calculatedAt ?? null,
-      gradeIsU: snapshot?.grade === "U",
+      gradeIsU: effectiveGrade === "U",
       scoreTtlSeconds: this.freshnessTtlSeconds,
       failureBackoffSeconds: this.failureBackoffSeconds,
       activeJobStatus: activeJob ? (activeJob.status as "QUEUED" | "ACTIVE") : null,
@@ -1276,15 +1290,28 @@ export class CharacterService {
 
     const character = await this.findOrCreateCharacter(identity);
     const snapshot = await this.repositories.score.getPublishedSnapshot(character.id);
+    const activeModel =
+      (await this.repositories.score.getActiveModel()) ?? {
+        key: "unknown",
+        version: 0,
+      };
+    const productScore = await resolveProductScoreDto({
+      prisma: this.container.worker.prisma,
+      characterId: character.id,
+      publishedSnapshot: snapshot,
+      modelKey: activeModel.key,
+      modelVersion: activeModel.version,
+    });
 
     const { decision, latestJob } = await this.evaluateAndApplyRefreshPolicy({
       identity,
       character,
       snapshot,
       correlationId: opts.correlationId,
+      operationalGrade: productScore.score?.grade ?? null,
     });
 
-    if (!snapshot) {
+    if (!snapshot && !productScore.score) {
       const body = await this.buildEnrichedProfile(
         identity,
         character,
@@ -1312,11 +1339,16 @@ export class CharacterService {
       snapshot,
       latestRun?.id ?? null,
       highestRun?.id ?? null,
-      this.buildSources(character, readScoreObservationProviders(snapshot.explanation), {
-        WARCRAFT_LOGS: deriveWclContributionTypes(readScoreObservations(snapshot.explanation)),
+      this.buildSources(character, readScoreObservationProviders(snapshot?.explanation), {
+        WARCRAFT_LOGS: deriveWclContributionTypes(readScoreObservations(snapshot?.explanation)),
       }),
       decision.profileRefreshStatus,
     );
+
+    // Operational CharacterScore wins over published ScoreSnapshot for product UI.
+    if (productScore.score) {
+      body.score = productScore.score;
+    }
 
     // Provider-newer-than-score is diagnostic only — never an enqueue trigger.
     if (isScoreStaleVersusProviders(body.score?.calculatedAt, body.providerStates)) {
@@ -1358,12 +1390,25 @@ export class CharacterService {
 
     const character = await this.findOrCreateCharacter(identity);
     const snapshot = await this.repositories.score.getPublishedSnapshot(character.id);
+    const activeModel =
+      (await this.repositories.score.getActiveModel()) ?? {
+        key: "unknown",
+        version: 0,
+      };
+    const productScore = await resolveProductScoreDto({
+      prisma: this.container.worker.prisma,
+      characterId: character.id,
+      publishedSnapshot: snapshot,
+      modelKey: activeModel.key,
+      modelVersion: activeModel.version,
+    });
 
     const { decision, enqueueResult, latestJob, activeJob } = await this.evaluateAndApplyRefreshPolicy({
       identity,
       character,
       snapshot,
       correlationId: opts.correlationId,
+      operationalGrade: productScore.score?.grade ?? null,
     });
 
     const jobRow = enqueueResult
@@ -1377,22 +1422,7 @@ export class CharacterService {
       identity,
       refreshStatus: decision.profileRefreshStatus,
       job: await mapJobStatusWithEta(this.container, jobRow),
-      score: snapshot
-        ? mapScoreSnapshot(snapshot)
-        : await (async () => {
-            const scores = new CharacterScoreRepository(this.container.worker.prisma);
-            const row = await scores.findLatestForCharacter(character.id);
-            if (!row) return null;
-            const activeModel =
-              (await this.repositories.score.getActiveModel()) ?? {
-                key: "unknown",
-                version: 0,
-              };
-            return mapCharacterScoreToSnapshotDto(row, {
-              modelKey: activeModel.key,
-              modelVersion: activeModel.version,
-            });
-          })(),
+      score: productScore.score,
     };
   }
 
@@ -1406,6 +1436,11 @@ export class CharacterService {
       correlationId?: string | null;
       forceRetry?: boolean;
       workloadClass?: "CALIBRATION" | "OPERATION";
+      /**
+       * When true, complete Blizzard bootstrap/identity only — never enqueue refresh-character.
+       * Used by admin calibration cohort membership (no WCL acquisition on add).
+       */
+      skipRefreshEnqueue?: boolean;
     } = {},
   ): Promise<{ statusCode: number; body: CharacterResolveResponse }> {
     const identity: CharacterIdentityInput = {
@@ -1472,6 +1507,7 @@ export class CharacterService {
       correlationId?: string | null;
       forceRetry?: boolean;
       workloadClass?: "CALIBRATION" | "OPERATION";
+      skipRefreshEnqueue?: boolean;
     },
   ): Promise<{ statusCode: number; body: CharacterResolveResponse }> {
     const realm = await this.repositories.realm.findBySlug(identity.region, identity.realmSlug);
@@ -1526,6 +1562,12 @@ export class CharacterService {
 
       // Always reuse in-flight refresh — forceRetry must not stack concurrent score jobs.
       if (activeJob) {
+        if (opts.skipRefreshEnqueue) {
+          return {
+            statusCode: 200,
+            body: { status: "READY", characterId: existing.id, profilePath },
+          };
+        }
         return {
           statusCode: 202,
           body: {
@@ -1636,6 +1678,12 @@ export class CharacterService {
           // Re-check active job after bootstrap (concurrent winner may have enqueued).
           const activeAfter = await this.repositories.job.findActiveForCharacter(character.id);
           if (activeAfter) {
+            if (opts.skipRefreshEnqueue) {
+              return {
+                statusCode: 200,
+                body: { status: "READY", characterId: character.id, profilePath },
+              };
+            }
             return {
               statusCode: 202,
               body: {
@@ -1645,6 +1693,13 @@ export class CharacterService {
                 profilePath,
                 retryAfterMs: DEFAULT_RETRY_AFTER_MS,
               },
+            };
+          }
+
+          if (opts.skipRefreshEnqueue) {
+            return {
+              statusCode: 200,
+              body: { status: "READY", characterId: character.id, profilePath },
             };
           }
 
@@ -1795,6 +1850,12 @@ export class CharacterService {
 
       const activeAfter = await this.repositories.job.findActiveForCharacter(character.id);
       if (activeAfter) {
+        if (opts.skipRefreshEnqueue) {
+          return {
+            statusCode: 200,
+            body: { status: "READY", characterId: character.id, profilePath },
+          };
+        }
         return {
           statusCode: 202,
           body: {
@@ -1804,6 +1865,13 @@ export class CharacterService {
             profilePath,
             retryAfterMs: DEFAULT_RETRY_AFTER_MS,
           },
+        };
+      }
+
+      if (opts.skipRefreshEnqueue) {
+        return {
+          statusCode: 200,
+          body: { status: "READY", characterId: character.id, profilePath },
         };
       }
 
@@ -2012,24 +2080,21 @@ export class CharacterService {
   async getLatestScore(identity: CharacterIdentityInput): Promise<ScoreSnapshotDTO> {
     const character = await this.requireCharacter(identity);
     const snapshot = await this.repositories.score.getPublishedSnapshot(character.id);
-    if (snapshot) {
-      return mapScoreSnapshot(snapshot);
-    }
-
-    // Authoritative CharacterScore when publication is off / snapshot absent.
-    const scores = new CharacterScoreRepository(this.container.worker.prisma);
-    const characterScore = await scores.findLatestForCharacter(character.id);
-    if (!characterScore) {
-      throw HttpError.notFound("SCORE_NOT_FOUND", "No score has been calculated for this character yet");
-    }
     const activeModel =
       (await this.repositories.score.getActiveModel()) ?? {
         key: "unknown",
         version: 0,
       };
-    return mapCharacterScoreToSnapshotDto(characterScore, {
+    const productScore = await resolveProductScoreDto({
+      prisma: this.container.worker.prisma,
+      characterId: character.id,
+      publishedSnapshot: snapshot,
       modelKey: activeModel.key,
       modelVersion: activeModel.version,
     });
+    if (!productScore.score) {
+      throw HttpError.notFound("SCORE_NOT_FOUND", "No score has been calculated for this character yet");
+    }
+    return productScore.score;
   }
 }

@@ -50,10 +50,15 @@ export function buildAdminCalibrationRoutes(container: ApiContainer): FastifyPlu
     await app.register(async (protectedApp) => {
       protectedApp.addHook(
         "preHandler",
-        createPermissionPreHandler(env, PERMISSIONS.ADMIN_CALIBRATION_MANAGE, {
-          auditAction: "admin.calibration.access",
-          allowEmergencyAdminKey: true,
-        }),
+        createPermissionPreHandler(
+          env,
+          [PERMISSIONS.ADMIN_CALIBRATION_MANAGE, PERMISSIONS.ADMIN_SCORE_MODELS_MANAGE],
+          {
+            auditAction: "admin.calibration.access",
+            allowEmergencyAdminKey: true,
+            match: "any",
+          },
+        ),
       );
 
       protectedApp.get(
@@ -144,6 +149,25 @@ export function buildAdminCalibrationRoutes(container: ApiContainer): FastifyPlu
         },
       );
 
+      protectedApp.delete(
+        "/api/v1/admin/calibration/cohorts/:cohortId",
+        {
+          schema: {
+            tags: ["admin-calibration"],
+            params: {
+              type: "object",
+              properties: { cohortId: { type: "string", format: "uuid" } },
+              required: ["cohortId"],
+            },
+            response: { 200: { type: "object", additionalProperties: true }, 404: errorResponseSchema },
+          },
+        },
+        async (request) => {
+          const { cohortId } = request.params as { cohortId: string };
+          return service.deleteUnusedCohort(cohortId, auditCtx(request));
+        },
+      );
+
       protectedApp.post(
         "/api/v1/admin/calibration/cohorts/:cohortId/members",
         {
@@ -161,6 +185,27 @@ export function buildAdminCalibrationRoutes(container: ApiContainer): FastifyPlu
         async (request, reply) => {
           const { cohortId } = request.params as { cohortId: string };
           const member = await service.addMember(cohortId, request.body, auditCtx(request));
+          return reply.code(201).send(member);
+        },
+      );
+
+      protectedApp.post(
+        "/api/v1/admin/calibration/cohorts/:cohortId/members/resolve",
+        {
+          schema: {
+            tags: ["admin-calibration"],
+            params: {
+              type: "object",
+              properties: { cohortId: { type: "string", format: "uuid" } },
+              required: ["cohortId"],
+            },
+            body: { type: "object", additionalProperties: true },
+            response: { 201: { type: "object", additionalProperties: true }, 404: errorResponseSchema },
+          },
+        },
+        async (request, reply) => {
+          const { cohortId } = request.params as { cohortId: string };
+          const member = await service.resolveAndAddMember(cohortId, request.body, auditCtx(request));
           return reply.code(201).send(member);
         },
       );

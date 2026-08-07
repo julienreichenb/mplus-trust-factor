@@ -33,11 +33,31 @@ export {
   parsescoringDimensionConfigSet,
   resolveScoreModelV2DimensionConfigs,
   withscoringDimensionConfigs,
+  TUNABLE_WEIGHTS_SCHEMA_VERSION,
+  DEFAULT_TUNABLE_WEIGHTS,
+  createDefaultTunableWeights,
+  normalizeRelativeWeights,
+  effectiveWeightPercent,
+  validateTunableWeights,
+  parseTunableWeights,
+  resolveTunableWeights,
+  applyTunableWeightsToPerformanceConfig,
+  applyTunableWeightsToSurvivalConfig,
+  applyTunableWeightsToUtilityConfig,
+  applyTunableWeightsToExperienceConfig,
+  resolvePerformancePhase2CombineWeights,
+  buildScoringDimensionConfigsFromTunable,
+  trustDimensionWeightsFromTunable,
+  withTunableWeights,
+  ensureTunableWeightsOnModelConfig,
 } from "./model-config/index.js";
 export type {
   scoringDimensionConfigSet,
   scoringDimensionConfigFingerprints,
   ResolvedScoreModelV2DimensionConfigs,
+  TunableWeightsV1,
+  TunableDimensionWeights,
+  TunableComponentWeights,
 } from "./model-config/index.js";
 
 export { clamp, clamp01, approxEqual, sum, safeDivide } from "./math.js";
@@ -219,6 +239,15 @@ export {
   MODEL_COVERAGE_PROVISIONAL_THRESHOLD,
   type ModelCoverageSummary,
 } from "./model-coverage.js";
+export {
+  computePartialComposite,
+  defaultSkillDimensionWeights,
+  gradePartialCompositeScore,
+  resolvePartialCompositeGradeModel,
+  type PartialCompositeDimensionInput,
+  type PartialCompositeResult,
+  type PublicSkillDimensionKey,
+} from "./composite/partial-composite.js";
 
 /** Boost shadow Phase 1 — private offline extractors only (no production scoring effect). */
 export {

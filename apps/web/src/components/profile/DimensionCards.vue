@@ -58,15 +58,21 @@ const cards = computed(() =>
         weightLabel: d.weight != null ? formatWeight(d.weight) : "—",
         confidenceLabel:
           unavailable || d.confidence == null ? "—" : formatPercent(d.confidence * 100, 0),
-        scoreLabel: unavailable ? "N/A" : formatScore(d.score, 0),
+        scoreLabel: unavailable
+          ? d.dimension === "EXPERIENCE"
+            ? "Not available"
+            : "N/A"
+          : formatScore(d.score, 0),
         unavailableNote:
-          d.dimension === "UTILITY"
-            ? "Utility combat evidence unavailable"
-            : d.dimension === "SURVIVAL"
-              ? "Survival combat evidence unavailable"
-              : d.reason === "NO_OBSERVATIONS"
-                ? "Data unavailable"
-                : "Data unavailable",
+          d.dimension === "EXPERIENCE"
+            ? "Not available — excluded from overall score; remaining weights are renormalized"
+            : d.dimension === "UTILITY"
+              ? "Utility combat evidence unavailable"
+              : d.dimension === "SURVIVAL"
+                ? "Survival combat evidence unavailable"
+                : d.reason === "NO_OBSERVATIONS"
+                  ? "Data unavailable"
+                  : "Data unavailable",
       };
     }),
 );

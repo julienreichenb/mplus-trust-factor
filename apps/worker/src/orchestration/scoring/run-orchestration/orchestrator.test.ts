@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   EVIDENCE_SELECTOR_VERSION,
   PARTICIPANT_DIGEST_EXTRACTOR_COMPAT_VERSION,
@@ -651,5 +651,145 @@ describe("scoring V2 run orchestration (provider-free)", () => {
     expect(
       sourceFightKey({ reportCode: "abc", fightId: 2, reportRevision: 3 }),
     ).toBe("abc:2:3");
+  });
+});
+
+describe("scoring evidence timed-only acquisition invariant", () => {
+  it("D: never resolves revision or acquires packages for untimed / unknown candidates", async () => {
+    const ports = createMemoryOrchestrationPorts();
+    const resolveReportRevision = vi.fn(async () => ({
+      reportRevision: 9,
+      providerCalls: 1,
+    }));
+    const acquireSpy = vi.spyOn(ports, "acquireAndPersistCapabilityPackage");
+    ports.resolveReportRevision = resolveReportRevision;
+
+    const candidates = [
+      candidate({
+        reportCode: "untimed-high",
+        fightId: 1,
+        dungeonSlug: "skyreach",
+        keyLevel: 25,
+        timed: false,
+        reportRevision: null,
+      }),
+      candidate({
+        reportCode: "unknown-high",
+        fightId: 2,
+        dungeonSlug: "skyreach",
+        keyLevel: 24,
+        timed: null,
+        reportRevision: null,
+      }),
+      candidate({
+        reportCode: "timed-ok",
+        fightId: 3,
+        dungeonSlug: "skyreach",
+        keyLevel: 20,
+        timed: true,
+        reportRevision: null,
+      }),
+      candidate({
+        reportCode: "timed-ok-2",
+        fightId: 4,
+        dungeonSlug: "skyreach",
+        keyLevel: 19,
+        timed: true,
+        reportRevision: null,
+      }),
+    ];
+
+    const result = await orchestrateScoringRuns(
+      baseOrchestrationInput(ports, {
+        candidates,
+        scope: scope({ activeDungeonSlugs: ["skyreach"] }),
+      }),
+    );
+
+    expect(result.selectedSlotCount).toBe(2);
+    expect(
+      result.manifest.slots
+        .filter((s) => s.state === "SELECTED")
+        .every((s) => s.timed === true),
+    ).toBe(true);
+
+    const resolvedCodes = resolveReportRevision.mock.calls.map(
+      (call) => call[0].reportCode,
+    );
+    expect(resolvedCodes).toEqual(expect.arrayContaining(["timed-ok", "timed-ok-2"]));
+    expect(resolvedCodes).not.toContain("untimed-high");
+    expect(resolvedCodes).not.toContain("unknown-high");
+
+    const acquiredCodes = acquireSpy.mock.calls.map(
+      (call) => call[0].sourceFight.reportCode,
+    );
+    expect(acquiredCodes).toEqual(expect.arrayContaining(["timed-ok", "timed-ok-2"]));
+    expect(acquiredCodes).not.toContain("untimed-high");
+    expect(acquiredCodes).not.toContain("unknown-high");
+
+    expect(
+      result.accounting.fights.every((f) => {
+        const selected = result.manifest.slots.find(
+          (s) =>
+            s.state === "SELECTED" &&
+            s.identity?.reportCode === f.sourceFight.reportCode &&
+            s.identity?.fightId === f.sourceFight.fightId,
+        );
+        return !selected || selected.timed === true;
+      }),
+    ).toBe(true);
+  });
+
+  it("9: SELECTED source fights === detailed-acquired fights === timed only", async () => {
+    const ports = createMemoryOrchestrationPorts();
+    const acquireSpy = vi.spyOn(ports, "acquireAndPersistCapabilityPackage");
+
+    const candidates = EIGHT_DUNGEONS.flatMap((dungeonSlug, i) => [
+      candidate({
+        reportCode: `untimed-${i}`,
+        fightId: 99,
+        dungeonSlug,
+        keyLevel: 30,
+        timed: false,
+      }),
+      candidate({
+        reportCode: `best-${i}`,
+        fightId: 1,
+        dungeonSlug,
+        keyLevel: 16,
+        timed: true,
+      }),
+      candidate({
+        reportCode: `second-${i}`,
+        fightId: 2,
+        dungeonSlug,
+        keyLevel: 14,
+        timed: true,
+      }),
+    ]);
+
+    const result = await orchestrateScoringRuns(
+      baseOrchestrationInput(ports, { candidates }),
+    );
+
+    const selected = result.manifest.slots.filter((s) => s.state === "SELECTED");
+    expect(selected).toHaveLength(16);
+    expect(selected.every((s) => s.timed === true)).toBe(true);
+
+    const selectedKeys = new Set(
+      selected.map(
+        (s) =>
+          `${s.identity!.reportCode}:${s.identity!.fightId}:${s.identity!.reportRevision}`,
+      ),
+    );
+    const acquiredKeys = new Set(
+      acquireSpy.mock.calls.map((call) => sourceFightKey(call[0].sourceFight)),
+    );
+    expect(acquiredKeys).toEqual(selectedKeys);
+    expect(
+      result.accounting.fights
+        .filter((f) => f.packageCreated || f.digestsCreated > 0 || f.digestsReused > 0)
+        .every((f) => selectedKeys.has(sourceFightKey(f.sourceFight))),
+    ).toBe(true);
   });
 });

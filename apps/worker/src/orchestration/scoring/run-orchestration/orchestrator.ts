@@ -29,6 +29,11 @@ import {
   survivalFactDocumentFromDigest,
   utilityRunFactSetFromDigest,
   buildDigestScoreLineage,
+  resolveTunableWeights,
+  resolvePerformancePhase2CombineWeights,
+  applyTunableWeightsToPerformanceConfig,
+  applyTunableWeightsToSurvivalConfig,
+  applyTunableWeightsToUtilityConfig,
   type SeasonDifficultyPolicyV2,
   type PerformanceProfileAggregateFactV2,
   type PerformancePhase2ComputeResult,
@@ -221,6 +226,11 @@ export interface RunOrchestrationInput {
    * Null when aggregate unavailable — Performance may still score from detailed parses.
    */
   profileAggregate?: PerformanceProfileAggregateFactV2 | null;
+  /**
+   * Persisted ScoreModel.config JSON. When omitted, calculators use package defaults
+   * (identical to pre-tunable-weights production behaviour).
+   */
+  scoreModelConfig?: Record<string, unknown> | null;
   ports: RunOrchestrationPorts;
   plannedAt?: string;
   selectedAt?: string;
@@ -660,6 +670,28 @@ async function buildSyntheticAcquisitionResults(input: {
           cand.discoveryIdentity.fightId === c.discoveryIdentity.fightId,
       );
 
+      // Defense-in-depth: never resolve revision / detailed-fetch non-timed evidence.
+      const timed = meta?.timed ?? c.timed;
+      if (timed !== true) {
+        results.push({
+          discoveryIdentity: { ...c.discoveryIdentity },
+          acquisitionStatus: "REJECTED",
+          reportRevision: meta?.reportRevision ?? null,
+          rejectionReason: timed === false ? "UNTIMED_RUN" : "TIMED_STATE_UNKNOWN",
+          rejectionDetail: `SCORING_REQUIRES_TIMED:${c.discoveryIdentity.reportCode}:${c.discoveryIdentity.fightId}:timed=${String(timed)}`,
+          datasetHashes: [],
+          factSetHash: null,
+          dimensionValidity: null,
+          keyLevel: c.keyLevel,
+          timed,
+          runScore: c.runScore,
+          completedAt: c.completedAt,
+          actorId: c.actorId,
+          evidenceCompleteness: c.evidenceCompleteness,
+        });
+        continue;
+      }
+
       let reportRevision = meta?.reportRevision ?? null;
       if (
         !isResolvedReportRevision(reportRevision) &&
@@ -840,6 +872,23 @@ export async function orchestrateScoringRuns(
       runScore: null,
       completedAt: null,
     };
+    // Defense-in-depth: SELECTED fights must be timed before ensurePackageAndDigests.
+    if (meta.timed !== true) {
+      fightFailures.push({
+        sourceFight,
+        code: meta.timed === false ? "UNTIMED_RUN" : "TIMED_STATE_UNKNOWN",
+        message: `Scoring evidence requires timed===true before detailed acquisition (${sourceFight.reportCode}:${sourceFight.fightId})`,
+      });
+      accountingFights.push({
+        sourceFight,
+        packageCreated: false,
+        providerCalls: 0,
+        digestsCreated: 0,
+        digestsReused: 0,
+        participantDigestCount: 0,
+      });
+      continue;
+    }
     try {
       const result = await ensurePackageAndDigests({
         sourceFight,
@@ -968,6 +1017,14 @@ export async function orchestrateScoringRuns(
     input.difficultyPolicy ?? defaultDifficultyPolicy(input.scope);
   const usingDefaultDifficultyPolicy = input.difficultyPolicy == null;
 
+  const { weights: tunableWeights } = resolveTunableWeights(input.scoreModelConfig);
+  const performanceCombineWeights =
+    resolvePerformancePhase2CombineWeights(tunableWeights);
+  const performanceModelConfig =
+    applyTunableWeightsToPerformanceConfig(tunableWeights);
+  const survivalModelConfig = applyTunableWeightsToSurvivalConfig(tunableWeights);
+  const utilityModelConfig = applyTunableWeightsToUtilityConfig(tunableWeights);
+
   let performance: PerformancePhase2ComputeResult | null = null;
   let utility: ReturnType<typeof computeUtilityV2> | null = null;
   let survival: ReturnType<typeof computeSurvivalV2> | null = null;
@@ -1031,32 +1088,38 @@ export async function orchestrateScoringRuns(
           }),
         });
       } else {
-        performance = computePerformancePhase2({
-          phase1: {
-            manifest: {
-              contentHash: manifest.contentHash,
-              schemaVersion: manifest.schemaVersion,
-              selectorVersion: manifest.selectorVersion,
-              characterId: manifest.characterId,
-              seasonId: manifest.seasonId,
-              seasonSlug: manifest.seasonSlug,
-              specSlug: manifest.specSlug,
-              role: manifest.role,
-              highKeyPolicyId: manifest.highKeyPolicyId,
-              activeDungeonSlugs: manifest.activeDungeonSlugs,
-              expectedSlotCount: manifest.expectedSlotCount,
-              selectedSlotCount: manifest.selectedSlotCount,
-              evidenceCutoffAt: manifest.evidenceCutoffAt,
+        performance = computePerformancePhase2(
+          {
+            phase1: {
+              manifest: {
+                contentHash: manifest.contentHash,
+                schemaVersion: manifest.schemaVersion,
+                selectorVersion: manifest.selectorVersion,
+                characterId: manifest.characterId,
+                seasonId: manifest.seasonId,
+                seasonSlug: manifest.seasonSlug,
+                specSlug: manifest.specSlug,
+                role: manifest.role,
+                highKeyPolicyId: manifest.highKeyPolicyId,
+                activeDungeonSlugs: manifest.activeDungeonSlugs,
+                expectedSlotCount: manifest.expectedSlotCount,
+                selectedSlotCount: manifest.selectedSlotCount,
+                evidenceCutoffAt: manifest.evidenceCutoffAt,
+              },
+              runParseFacts,
+              profileAggregate: input.profileAggregate ?? null,
+              difficultyPolicy,
+              expectedPartition: null,
+              logFreshness: 1,
+              computedAt: input.selectedAt ?? new Date().toISOString(),
             },
-            runParseFacts,
-            profileAggregate: input.profileAggregate ?? null,
-            difficultyPolicy,
-            expectedPartition: null,
-            logFreshness: 1,
-            computedAt: input.selectedAt ?? new Date().toISOString(),
+            cooldownRuns,
           },
-          cooldownRuns,
-        });
+          {
+            phase1: { modelConfig: performanceModelConfig },
+            combineWeights: performanceCombineWeights,
+          },
+        );
         if (
           usingDefaultDifficultyPolicy &&
           !performance.limitations.includes(
@@ -1158,10 +1221,13 @@ export async function orchestrateScoringRuns(
             : mapUtilityUnavailableReason(sampleReason),
         });
       } else {
-        utility = computeUtilityV2({
-          manifest,
-          factSets,
-        });
+        utility = computeUtilityV2(
+          {
+            manifest,
+            factSets,
+          },
+          { modelConfig: utilityModelConfig },
+        );
         if (utility.score == null) {
           blocked.push({
             dimension: "UTILITY",
@@ -1239,11 +1305,14 @@ export async function orchestrateScoringRuns(
           reason: mapSurvivalUnavailableReason(sampleReason),
         });
       } else {
-        survival = computeSurvivalV2({
-          manifest,
-          factSets,
-          scoreModelId: input.scoringModelId,
-        });
+        survival = computeSurvivalV2(
+          {
+            manifest,
+            factSets,
+            scoreModelId: input.scoringModelId,
+          },
+          { modelConfig: survivalModelConfig },
+        );
         if (survival.score == null) {
           blocked.push({
             dimension: "SURVIVAL",

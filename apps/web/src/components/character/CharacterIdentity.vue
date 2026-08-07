@@ -25,6 +25,8 @@ const props = withDefaults(
     size?: number;
     /** Compact layout for dense admin lists. */
     compact?: boolean;
+    /** Portrait only — hide nickname/realm text (aria-label retained). */
+    portraitOnly?: boolean;
   }>(),
   {
     region: null,
@@ -39,6 +41,7 @@ const props = withDefaults(
     portraitUrl: null,
     size: 36,
     compact: false,
+    portraitOnly: false,
   },
 );
 
@@ -66,7 +69,10 @@ const nameStyle = computed(() =>
 <template>
   <span
     class="char-identity"
-    :class="{ 'char-identity--compact': compact }"
+    :class="{
+      'char-identity--compact': compact,
+      'char-identity--portrait-only': portraitOnly,
+    }"
     data-testid="character-identity"
     :aria-label="display.accessibleLabel"
   >
@@ -85,7 +91,7 @@ const nameStyle = computed(() =>
       aria-hidden="true"
       :style="{ width: `${size}px`, height: `${size}px` }"
     />
-    <span class="char-identity__text">
+    <span v-if="!portraitOnly" class="char-identity__text">
       <span class="char-identity__primary">
         <span class="char-identity__region mpts-data">{{ display.region }}</span>
         <span class="char-identity__pair">
@@ -111,6 +117,27 @@ const nameStyle = computed(() =>
 
 .char-identity--compact {
   gap: var(--space-2);
+}
+
+.char-identity--portrait-only {
+  /* Must not inherit max-width:100% or the portrait spans the whole header and overlaps meta. */
+  max-width: none;
+  flex: 0 0 auto;
+  align-self: stretch;
+}
+
+.char-identity--portrait-only .char-identity__portrait {
+  display: block;
+  height: 100%;
+  width: auto;
+  aspect-ratio: 1;
+  object-fit: cover;
+}
+
+.char-identity--portrait-only .char-identity__portrait--empty {
+  width: auto !important;
+  height: 100% !important;
+  aspect-ratio: 1;
 }
 
 .char-identity__portrait {

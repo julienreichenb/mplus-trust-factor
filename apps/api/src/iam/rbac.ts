@@ -33,3 +33,12 @@ export function hasPermission(permissions: Set<string>, required: PermissionKey 
   const needed = Array.isArray(required) ? required : [required];
   return needed.every((key) => permissions.has(key));
 }
+
+/** True when the actor holds at least one of the listed permissions. */
+export function hasAnyPermission(
+  permissions: Set<string>,
+  required: PermissionKey | PermissionKey[],
+): boolean {
+  const needed = Array.isArray(required) ? required : [required];
+  return needed.some((key) => permissions.has(key));
+}

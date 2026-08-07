@@ -2,7 +2,7 @@
  * Canonical Utility action timeline (scoring-neutral).
  * Scoring layers must consume these actions — never full raw WCL pages.
  */
-import { createHash } from "node:crypto";
+import { sha256Hex } from "./sha256.js";
 import { z } from "zod";
 import { WCL_EVENT_NORMALIZER_VERSION } from "./wcl-event-normalizer-version.js";
 import { WCL_DIGEST_FORBIDDEN_SCORE_KEYS } from "./wcl-run-source-digest.js";
@@ -195,5 +195,5 @@ export function assertUtilityActionTimelineV1(value: unknown): UtilityActionTime
 export function hashUtilityActionTimelinePayload(value: unknown): string {
   const clone = JSON.parse(JSON.stringify(value)) as Record<string, unknown>;
   delete clone.contentHash;
-  return createHash("sha256").update(JSON.stringify(clone)).digest("hex");
+  return sha256Hex(JSON.stringify(clone));
 }

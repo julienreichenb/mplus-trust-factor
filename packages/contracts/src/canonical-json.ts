@@ -3,7 +3,7 @@
  * Object keys are sorted recursively; array order is preserved.
  * undefined object values are omitted (never hashed as a sentinel).
  */
-import { createHash } from "node:crypto";
+import { sha256Hex } from "./sha256.js";
 
 /** Canonical JSON with sorted object keys (arrays preserve order). */
 export function stableStringify(value: unknown): string {
@@ -22,5 +22,5 @@ export function stableStringify(value: unknown): string {
 
 /** Lowercase SHA-256 hex of a canonically stringified value. */
 export function hashCanonicalJson(value: unknown): string {
-  return createHash("sha256").update(stableStringify(value), "utf8").digest("hex");
+  return sha256Hex(stableStringify(value));
 }

@@ -273,10 +273,23 @@ describe("AdminUsersPage UI consistency", () => {
     const wrapper = await mountPage();
     expect(wrapper.find("[data-testid='status-banner']").exists()).toBe(false);
 
+    await wrapper.get("[data-testid='tab-accounts']").trigger("click");
+    await flushPromises();
     await wrapper.find('input[name="q"]').setValue("a");
     await wrapper.get("form.search").trigger("submit");
     await flushPromises();
     expect(wrapper.find("[data-testid='status-banner']").exists()).toBe(true);
     expect(wrapper.get("[data-testid='status-banner']").text().length).toBeGreaterThan(0);
+  });
+
+  it("defaults to the Characters tab", async () => {
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/admin/roles")) return jsonResponse({ roles: [] });
+      return jsonResponse({});
+    });
+    const wrapper = await mountPage();
+    expect(wrapper.find("[data-testid='panel-characters']").exists()).toBe(true);
+    expect(wrapper.find("[data-testid='panel-accounts']").exists()).toBe(false);
   });
 });

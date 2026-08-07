@@ -6,6 +6,7 @@ import type {
   ScoreSnapshotDTO,
 } from "@mplus/contracts";
 import type { CoherenceValidationResult } from "@mplus/scoring";
+import { validateTunableWeights } from "@mplus/scoring";
 
 /** Read shape used by API mappers: adds the relations needed to build a full `ScoreSnapshotDTO`. */
 export type ScoreSnapshotWithRelations = ScoreSnapshot & {
@@ -31,6 +32,11 @@ export function validateConfig(config: ScoreModelConfig): string[] {
   const { S, A, B, C } = config.gradeThresholds;
   if (!(S >= A && A >= B && B >= C)) {
     errors.push("gradeThresholds must be non-increasing: S >= A >= B >= C");
+  }
+
+  const tunable = (config as ScoreModelConfig & { tunableWeights?: unknown }).tunableWeights;
+  if (tunable != null) {
+    errors.push(...validateTunableWeights(tunable).map((e) => `tunableWeights: ${e}`));
   }
 
   return errors;

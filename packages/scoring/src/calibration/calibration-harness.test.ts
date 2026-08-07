@@ -307,9 +307,14 @@ describe("calibration harness", () => {
   });
 
   it("ablates v6 configs that retain a non-zero mythicRaid weight without invalid totals", () => {
-    const draftConfig = createDefaultModelV6({
-      key: "default",
-      version: 6,
+    // createDefaultModelV6() normalizes mythicRaid to 0 via tunableWeights.
+    // Preserve a non-zero RAID residual on the Trust weights document to prove
+    // ablation still renormalizes only the public skill dimensions.
+    const draftConfig = {
+      ...createDefaultModelV6({
+        key: "default",
+        version: 6,
+      }),
       weights: {
         performance: 0.32,
         survival: 0.27,
@@ -317,7 +322,7 @@ describe("calibration harness", () => {
         experienceConsistency: 0.13,
         mythicRaid: 0.05,
       },
-    });
+    };
     const ablated = createAblatedModel(draftConfig, "utility");
     expect(ablated.weights.utility).toBe(0);
     expect(ablated.weights.mythicRaid).toBe(0.05);
