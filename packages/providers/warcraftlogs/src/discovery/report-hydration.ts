@@ -225,6 +225,49 @@ function candidateIdentityKey(reportCode: string, fightId: number): string {
   return `${reportCode}:${fightId}`;
 }
 
+/**
+ * Coverage credit for early-stop: only TIMED public M+ fights, deduped so
+ * multiple uploads of the same run (near-identical completedAt + key) cannot
+ * satisfy the 2-per-dungeon target by themselves.
+ */
+const COVERAGE_RUN_DEDUP_WINDOW_MS = 2 * 60 * 1000;
+
+export function coverageRunIdentityKey(candidate: {
+  reportCode: string;
+  fightId: number;
+  keyLevel: number | null;
+  completedAt: string | null;
+  timed: boolean | null;
+}): string | null {
+  if (candidate.timed !== true) return null;
+  if (candidate.keyLevel == null || candidate.keyLevel <= 0) return null;
+  const completedMs = candidate.completedAt ? Date.parse(candidate.completedAt) : Number.NaN;
+  if (Number.isFinite(completedMs)) {
+    const bucket = Math.floor(completedMs / COVERAGE_RUN_DEDUP_WINDOW_MS);
+    return `k${candidate.keyLevel}@t${bucket}`;
+  }
+  return candidateIdentityKey(candidate.reportCode, candidate.fightId);
+}
+
+function creditCoverageIdentity(
+  coverage: Map<string, Set<string>>,
+  activeSet: ReadonlySet<string>,
+  candidate: {
+    reportCode: string;
+    fightId: number;
+    dungeonSlug: string | null;
+    keyLevel: number | null;
+    completedAt: string | null;
+    timed: boolean | null;
+  },
+): void {
+  const slug = normalizeDungeonSlug(candidate.dungeonSlug);
+  if (!slug || !activeSet.has(slug)) return;
+  const key = coverageRunIdentityKey(candidate);
+  if (!key) return;
+  coverage.get(slug)?.add(key);
+}
+
 function emptyCoverageMap(activeDungeonSlugs: readonly string[]): Map<string, Set<string>> {
   const map = new Map<string, Set<string>>();
   for (const slug of activeDungeonSlugs) {
@@ -617,13 +660,9 @@ export async function hydrateFightUnknownCandidates(input: {
   const coverage = emptyCoverageMap(activeSlugs);
   const activeSet = new Set(activeSlugs);
 
-  // Seed coverage from already fight-known candidates in the active pool.
+  // Seed coverage from already fight-known TIMED candidates in the active pool.
   for (const c of known) {
-    const slug = normalizeDungeonSlug(c.dungeonSlug);
-    if (!slug || !activeSet.has(slug)) continue;
-    if (c.fightId <= 0 || c.incompleteness.fightUnknown) continue;
-    if (c.keyLevel == null || c.keyLevel <= 0) continue;
-    coverage.get(slug)?.add(candidateIdentityKey(c.reportCode, c.fightId));
+    creditCoverageIdentity(coverage, activeSet, c);
   }
 
   const hydrated: WclRunCandidate[] = [];
@@ -709,13 +748,7 @@ export async function hydrateFightUnknownCandidates(input: {
       }
       for (const candidate of mapped.candidates) {
         hydrated.push(candidate);
-        const slug = normalizeDungeonSlug(candidate.dungeonSlug);
-        if (!slug || !activeSet.has(slug)) continue;
-        if (candidate.keyLevel == null || candidate.keyLevel <= 0) continue;
-        // Ownership-rejected fights never appear in mapped.candidates.
-        coverage
-          .get(slug)
-          ?.add(candidateIdentityKey(candidate.reportCode, candidate.fightId));
+        creditCoverageIdentity(coverage, activeSet, candidate);
       }
 
       if (coverageAware && isFullCoverage(coverage, targetPerDungeon)) {

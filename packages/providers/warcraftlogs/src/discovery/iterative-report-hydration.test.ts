@@ -48,9 +48,14 @@ function reportPayload(
   encounterID: number,
   fightId: number,
 ): HydrationReportPayload {
+  let hash = 0;
+  for (let i = 0; i < code.length; i += 1) {
+    hash = (hash * 31 + code.charCodeAt(i)) | 0;
+  }
   return {
     code,
-    startTime: 1_750_000_000_000,
+    // Distinct absolute start per report so timed coverage identities stay unique.
+    startTime: 1_750_000_000_000 + Math.abs(hash) * 60_000 + fightId * 1_000,
     visibility: "public",
     zone: { id: 47, name: "Mythic+" },
     fights: [

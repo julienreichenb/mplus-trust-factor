@@ -50,11 +50,15 @@ function publicReport(input: {
   fightId: number;
   encounterID?: number;
   includeTarget?: boolean;
+  /** Absolute report start; default varies by fightId so coverage dedupe stays distinct. */
+  startTime?: number;
+  keystoneLevel?: number;
 }): HydrationReportPayload {
   const includeTarget = input.includeTarget !== false;
   return {
     code: input.code,
-    startTime: 1_750_000_000_000,
+    // Unique start per fight so timed coverage identities do not collide in fixtures.
+    startTime: input.startTime ?? 1_750_000_000_000 + input.fightId * 3_600_000,
     visibility: "public",
     zone: { id: 47, name: "Mythic+" },
     fights: [
@@ -62,7 +66,7 @@ function publicReport(input: {
         id: input.fightId,
         encounterID: input.encounterID ?? 0,
         name: input.dungeonSlug,
-        keystoneLevel: 12,
+        keystoneLevel: input.keystoneLevel ?? 12,
         keystoneBonus: 1,
         startTime: 0,
         endTime: 1_800_000,
@@ -207,7 +211,8 @@ describe("coverage-aware hydrateFightUnknownCandidates", () => {
       publicReport({
         code,
         dungeonSlug: "magisters-terrace",
-        fightId: 1,
+        fightId: Number(code.replace("R", "")) + 1,
+        startTime: 1_750_000_000_000 + Number(code.replace("R", "")) * 3_600_000,
       }),
     );
 
@@ -321,6 +326,8 @@ describe("coverage-aware hydrateFightUnknownCandidates", () => {
       fightId: 7,
       dungeonSlug: "skyreach",
       keyLevel: 12,
+      timed: true,
+      completedAt: new Date(1_000_200 + 1_800_000).toISOString(),
       incompleteness: {
         dungeonUnknown: false,
         seasonUnknown: true,
@@ -495,5 +502,100 @@ describe("coverage-aware hydrateFightUnknownCandidates", () => {
     expect(result.diagnostics.reportFetchAttempts).toBe(2);
     expect(result.diagnostics.reportsFailedOrEmpty).toBe(2);
     expect(result.hydratedReportCount).toBe(0);
+  });
+
+  it("does not stop at full_coverage when two timed logs are the same run", async () => {
+    // Same completedAt + keyLevel → one coverage identity; keep hydrating for a
+    // second distinct timed run (older / different key).
+    const stubs = [
+      fightUnknownStub("DUP_A", 1_000_000),
+      fightUnknownStub("DUP_B", 999_000),
+      fightUnknownStub("DISTINCT", 500_000),
+      fightUnknownStub("EXTRA", 400_000),
+    ];
+    const sameStart = 1_800_000_000_000;
+    const byCode: Record<string, HydrationReportPayload> = {
+      DUP_A: publicReport({
+        code: "DUP_A",
+        dungeonSlug: "skyreach",
+        fightId: 1,
+        startTime: sameStart,
+        keystoneLevel: 22,
+      }),
+      DUP_B: publicReport({
+        code: "DUP_B",
+        dungeonSlug: "skyreach",
+        fightId: 7,
+        startTime: sameStart,
+        keystoneLevel: 22,
+      }),
+      DISTINCT: publicReport({
+        code: "DISTINCT",
+        dungeonSlug: "skyreach",
+        fightId: 34,
+        startTime: sameStart - 14 * 24 * 3_600_000,
+        keystoneLevel: 20,
+      }),
+      EXTRA: publicReport({
+        code: "EXTRA",
+        dungeonSlug: "windrunner-spire",
+        fightId: 1,
+        startTime: sameStart - 3_600_000,
+      }),
+    };
+    const fetchReport = vi.fn(async (code: string) => byCode[code] ?? null);
+
+    const result = await hydrateFightUnknownCandidates({
+      candidates: stubs,
+      characterName: "Wallidrixe",
+      realmSlug: "archimonde",
+      activeDungeonSlugs: ["skyreach"],
+      maxReports: 10,
+      fetchReport,
+    });
+
+    expect(result.diagnostics.stopReason).toBe("full_coverage");
+    expect(result.diagnostics.distinctCandidatesPerDungeon["skyreach"]).toBe(2);
+    expect(fetchReport).toHaveBeenCalledWith("DISTINCT");
+    expect(fetchReport.mock.calls.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it("does not credit untimed fights toward coverage early-stop", async () => {
+    const stubs = [
+      fightUnknownStub("TIMED", 100),
+      fightUnknownStub("UNTIMED", 90),
+      fightUnknownStub("TIMED2", 80),
+    ];
+    const fetchReport = vi.fn(async (code: string) => {
+      if (code === "UNTIMED") {
+        const report = publicReport({
+          code,
+          dungeonSlug: "skyreach",
+          fightId: 2,
+          startTime: 1_750_000_000_000 + 7_200_000,
+        });
+        report.fights[0]!.keystoneBonus = 0;
+        return report;
+      }
+      return publicReport({
+        code,
+        dungeonSlug: "skyreach",
+        fightId: code === "TIMED" ? 1 : 3,
+        startTime: 1_750_000_000_000 + (code === "TIMED" ? 0 : 14_400_000),
+      });
+    });
+
+    const result = await hydrateFightUnknownCandidates({
+      candidates: stubs,
+      characterName: "Wallidrixe",
+      realmSlug: "archimonde",
+      activeDungeonSlugs: ["skyreach"],
+      maxReports: 10,
+      fetchReport,
+    });
+
+    expect(result.diagnostics.distinctCandidatesPerDungeon["skyreach"]).toBe(2);
+    expect(fetchReport).toHaveBeenCalledWith("TIMED2");
+    expect(result.diagnostics.stopReason).toBe("full_coverage");
   });
 });
