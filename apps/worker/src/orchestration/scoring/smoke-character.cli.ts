@@ -6,6 +6,7 @@
  *   pnpm scoring:smoke:character -- --region EU --realm archimonde --character Wallidrixe
  *   pnpm scoring:smoke:character -- --replay
  *   pnpm scoring:smoke:character -- --score-only
+ *   pnpm scoring:smoke:character -- --score-only --runs
  *
  * Identity (CLI overrides env):
  *   SCORING_SMOKE_REGION / SCORING_SMOKE_REALM / SCORING_SMOKE_CHARACTER
@@ -21,6 +22,10 @@ import { requireVerifiedSeasonAuthority } from "../season-authority.js";
 import { ensureRegion } from "../../persistence/realm-repository.js";
 import { resolveActiveRefreshContract } from "../build-refresh-contract.js";
 import { SCORING_VERSION } from "./score-character.js";
+import {
+  formatSmokeRunsTableText,
+  loadSmokeRunsTable,
+} from "./smoke-runs-table.js";
 
 type SmokeIdentity = {
   region: RegionCode;
@@ -33,6 +38,7 @@ function parseArgs(argv: string[]): {
   replay: boolean;
   scoreOnly: boolean;
   forceRefresh: boolean;
+  runs: boolean;
 } {
   let region = "";
   let realmSlug = "";
@@ -40,6 +46,7 @@ function parseArgs(argv: string[]): {
   let replay = false;
   let scoreOnly = false;
   let forceRefresh = true;
+  let runs = false;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]!;
     const next = argv[i + 1];
@@ -58,6 +65,8 @@ function parseArgs(argv: string[]): {
       scoreOnly = true;
     } else if (a === "--no-force") {
       forceRefresh = false;
+    } else if (a === "--runs") {
+      runs = true;
     }
   }
   return {
@@ -69,6 +78,7 @@ function parseArgs(argv: string[]): {
     replay,
     scoreOnly,
     forceRefresh,
+    runs,
   };
 }
 
@@ -356,6 +366,16 @@ async function main(): Promise<void> {
     if (parsed.replay && providerCallsReported !== 0) {
       console.error(`FAIL: replay provider calls expected 0, got ${providerCallsReported}`);
       process.exit(1);
+    }
+
+    if (parsed.runs) {
+      const runsTable = await loadSmokeRunsTable({
+        prisma,
+        characterId: resolved.id,
+        seasonId: persisted.seasonId,
+        selectedRuns: persisted.selectedRuns,
+      });
+      console.log(formatSmokeRunsTableText(runsTable));
     }
   } finally {
     await prisma.$disconnect();
