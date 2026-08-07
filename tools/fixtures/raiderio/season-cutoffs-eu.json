@@ -2,11 +2,50 @@
   "cutoffs": {
     "updatedAt": "2026-07-20T06:00:00.000Z",
     "region": { "name": "Europe", "slug": "eu" },
+    "p999": {
+      "score": 3483.25,
+      "all": {
+        "quantile": 0.999,
+        "quantileMinValue": 3483.25,
+        "quantilePopulationCount": 900,
+        "quantilePopulationFraction": 0.001,
+        "totalPopulationCount": 900000
+      }
+    },
+    "p990": {
+      "score": 3201.5,
+      "all": {
+        "quantile": 0.99,
+        "quantileMinValue": 3201.5,
+        "quantilePopulationCount": 9000,
+        "totalPopulationCount": 900000
+      }
+    },
+    "p900": {
+      "score": 2850.75,
+      "all": {
+        "quantile": 0.9,
+        "quantilePopulationCount": 90000,
+        "totalPopulationCount": 900000
+      }
+    },
     "p750": {
       "score": 2650.5,
-      "all": { "score": 2650.5 },
-      "horde": { "score": 2640 },
-      "alliance": { "score": 2660 }
+      "all": {
+        "quantile": 0.75,
+        "quantilePopulationCount": 225000,
+        "totalPopulationCount": 900000
+      },
+      "horde": { "quantileMinValue": 2640 },
+      "alliance": { "quantileMinValue": 2660 }
+    },
+    "p600": {
+      "score": 2410.125,
+      "all": {
+        "quantile": 0.6,
+        "quantilePopulationCount": 360000,
+        "totalPopulationCount": 900000
+      }
     }
   }
 }

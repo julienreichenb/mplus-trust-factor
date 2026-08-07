@@ -1,0 +1,13 @@
+{
+  "cutoffs": {
+    "updatedAt": "2026-07-20T06:00:00.000Z",
+    "region": { "name": "Europe", "slug": "eu" },
+    "p990": {
+      "score": 3201.5,
+      "all": {
+        "quantilePopulationCount": 9000,
+        "totalPopulationCount": 900000
+      }
+    }
+  }
+}

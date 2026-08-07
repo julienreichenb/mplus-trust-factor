@@ -39,12 +39,36 @@ export const characterProfileSchema = z
   })
   .passthrough();
 
+/** Soft node: malformed percentile payload is treated as absent, not whole-response failure. */
+const cutoffPopulationSchema = z
+  .object({
+    quantile: z.number().finite().optional(),
+    quantileMinValue: z.number().finite().optional(),
+    quantilePopulationCount: z.number().int().nonnegative().optional(),
+    quantilePopulationFraction: z.number().finite().optional(),
+    totalPopulationCount: z.number().int().nonnegative().optional(),
+  })
+  .passthrough();
+
+const cutoffQuantileNodeInner = z
+  .object({
+    score: z.number().finite().optional(),
+    all: cutoffPopulationSchema.optional(),
+  })
+  .passthrough();
+
+const cutoffQuantileNodeSchema = cutoffQuantileNodeInner.optional().catch(undefined);
+
 export const seasonCutoffsSchema = z
   .object({
     cutoffs: z
       .object({
         updatedAt: z.string().optional(),
-        p750: z.object({ score: z.number().optional() }).passthrough().optional(),
+        p999: cutoffQuantileNodeSchema,
+        p990: cutoffQuantileNodeSchema,
+        p900: cutoffQuantileNodeSchema,
+        p750: cutoffQuantileNodeSchema,
+        p600: cutoffQuantileNodeSchema,
       })
       .passthrough()
       .optional(),

@@ -7,7 +7,10 @@ import {
   normalizeCharacterProfile,
   normalizePeriods,
   normalizeSeasonCutoffs,
+  seasonCutoffsHaveAnyThreshold,
+  unavailableSeasonCutoffs,
 } from "./normalize.js";
+import { parseWithSchema, seasonCutoffsSchema } from "./schemas.js";
 import type { RawCharacterProfileResponse, RawSeasonCutoffsResponse } from "./raw-types.js";
 
 const sampleProfile: RawCharacterProfileResponse = {
@@ -132,17 +135,124 @@ describe("mapRanks and mapGear", () => {
 });
 
 describe("normalizeSeasonCutoffs", () => {
-  it("exposes top 25% threshold from p750", () => {
+  it("maps all five documented quantiles with explicit top-percent semantics", () => {
     const raw: RawSeasonCutoffsResponse = {
       cutoffs: {
         updatedAt: "2026-07-20T06:00:00.000Z",
+        p999: {
+          score: 3483.25,
+          all: { quantilePopulationCount: 900, totalPopulationCount: 900000 },
+        },
+        p990: { score: 3201.5 },
+        p900: { score: 2850.75 },
         p750: { score: 2650.5 },
+        p600: { score: 2410.125 },
       },
     };
     const cutoffs = normalizeSeasonCutoffs(raw, "EU", "season-mn-1");
-    expect(cutoffs.top25Percent?.score).toBe(2650.5);
-    expect(cutoffs.top25Percent?.label).toBe("top_25_percent");
+    expect(cutoffs.top0_1Percent).toEqual({
+      score: 3483.25,
+      quantile: "p999",
+      label: "top_0_1_percent",
+      quantilePopulationCount: 900,
+      totalPopulationCount: 900000,
+    });
+    expect(cutoffs.top1Percent).toMatchObject({
+      score: 3201.5,
+      quantile: "p990",
+      label: "top_1_percent",
+    });
+    expect(cutoffs.top10Percent).toMatchObject({
+      score: 2850.75,
+      quantile: "p900",
+      label: "top_10_percent",
+    });
+    expect(cutoffs.top25Percent).toMatchObject({
+      score: 2650.5,
+      quantile: "p750",
+      label: "top_25_percent",
+    });
+    expect(cutoffs.top40Percent).toMatchObject({
+      score: 2410.125,
+      quantile: "p600",
+      label: "top_40_percent",
+    });
+    // Preserve exact floating scores — no rounding/interpolation.
+    expect(cutoffs.top40Percent?.score).toBe(2410.125);
     expect(cutoffs.attribution.displayText).toBe("Data from Raider.IO");
+  });
+
+  it("keeps available thresholds when some percentile nodes are absent", () => {
+    const cutoffs = normalizeSeasonCutoffs(
+      {
+        cutoffs: {
+          p999: { score: 3500 },
+          p990: { score: 3200 },
+          p750: { score: 2650.5 },
+          p600: { score: 2400 },
+        },
+      },
+      "EU",
+      "season-mn-1",
+    );
+    expect(cutoffs.top0_1Percent?.score).toBe(3500);
+    expect(cutoffs.top1Percent?.score).toBe(3200);
+    expect(cutoffs.top10Percent).toBeNull();
+    expect(cutoffs.top25Percent?.score).toBe(2650.5);
+    expect(cutoffs.top40Percent?.score).toBe(2400);
+  });
+
+  it("does not fabricate a threshold from a missing score", () => {
+    const cutoffs = normalizeSeasonCutoffs(
+      { cutoffs: { p750: { all: { totalPopulationCount: 1 } } } },
+      "EU",
+      "season-mn-1",
+    );
+    expect(cutoffs.top25Percent).toBeNull();
+    expect(seasonCutoffsHaveAnyThreshold(cutoffs)).toBe(false);
+  });
+
+  it("treats p990-only payload as useful cutoff evidence", () => {
+    const cutoffs = normalizeSeasonCutoffs(
+      { cutoffs: { p990: { score: 3201.5 } } },
+      "EU",
+      "season-mn-1",
+    );
+    expect(cutoffs.top1Percent?.label).toBe("top_1_percent");
+    expect(cutoffs.top25Percent).toBeNull();
+    expect(seasonCutoffsHaveAnyThreshold(cutoffs)).toBe(true);
+  });
+});
+
+describe("unavailableSeasonCutoffs", () => {
+  it("nulls all five threshold fields", () => {
+    const cutoffs = unavailableSeasonCutoffs("EU", "season-mn-1");
+    expect(cutoffs.top0_1Percent).toBeNull();
+    expect(cutoffs.top1Percent).toBeNull();
+    expect(cutoffs.top10Percent).toBeNull();
+    expect(cutoffs.top25Percent).toBeNull();
+    expect(cutoffs.top40Percent).toBeNull();
+    expect(cutoffs.updatedAt).toBeNull();
+  });
+});
+
+describe("seasonCutoffsSchema soft node handling", () => {
+  it("drops a malformed percentile node without discarding siblings", () => {
+    const parsed = parseWithSchema(
+      seasonCutoffsSchema,
+      {
+        cutoffs: {
+          p999: { score: "not-a-number" },
+          p750: { score: 2650.5 },
+        },
+      },
+      "mythic-plus.season-cutoffs",
+    );
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    const cutoffs = normalizeSeasonCutoffs(parsed.data as RawSeasonCutoffsResponse, "EU", "s");
+    expect(cutoffs.top0_1Percent).toBeNull();
+    expect(cutoffs.top25Percent?.score).toBe(2650.5);
   });
 });
 

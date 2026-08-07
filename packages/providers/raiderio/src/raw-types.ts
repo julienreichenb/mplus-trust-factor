@@ -113,14 +113,29 @@ export interface RawCharacterProfileResponse {
   error?: string;
 }
 
+export interface RawCutoffPopulation {
+  quantile?: number;
+  quantileMinValue?: number;
+  quantilePopulationCount?: number;
+  quantilePopulationFraction?: number;
+  totalPopulationCount?: number;
+}
+
 export interface RawCutoffQuantile {
   score?: number;
+  all?: RawCutoffPopulation;
+  horde?: RawCutoffPopulation;
+  alliance?: RawCutoffPopulation;
 }
 
 export interface RawSeasonCutoffs {
   updatedAt?: string;
   region?: { name?: string; slug?: string };
+  p999?: RawCutoffQuantile;
+  p990?: RawCutoffQuantile;
+  p900?: RawCutoffQuantile;
   p750?: RawCutoffQuantile;
+  p600?: RawCutoffQuantile;
 }
 
 export interface RawSeasonCutoffsResponse {

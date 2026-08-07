@@ -69,6 +69,10 @@ export class FixtureRaiderIoProvider extends BaseRaiderIoProvider {
         statusCode: 500,
       });
     }
+    if (seasonSlug.toLowerCase().includes("p990-only")) {
+      const raw = await loadJsonFixture<RawSeasonCutoffsResponse>("season-cutoffs-p990-only.json");
+      return { raw, statusCode: 200 };
+    }
     const raw = await loadJsonFixture<RawSeasonCutoffsResponse>("season-cutoffs-eu.json");
     return { raw, statusCode: 200 };
   }

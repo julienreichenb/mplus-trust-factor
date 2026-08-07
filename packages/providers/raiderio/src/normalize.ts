@@ -2,6 +2,8 @@ import type {
   RaiderIoAttribution,
   RaiderIoBoostSupportFacts,
   RaiderIoCharacterProfile,
+  RaiderIoCutoffLabel,
+  RaiderIoCutoffQuantile,
   RaiderIoCutoffThreshold,
   RaiderIoGearItem,
   RaiderIoGearSummary,
@@ -23,6 +25,7 @@ import { normalizeName, normalizeRealmSlug, normalizeRegion } from "@mplus/domai
 import { RAIDERIO_ATTRIBUTION, RAIDERIO_STALE_CRAWL_THRESHOLD_MS } from "./constants.js";
 import type {
   RawCharacterProfileResponse,
+  RawCutoffQuantile,
   RawGear,
   RawKeystoneRun,
   RawMythicPlusRanks,
@@ -327,18 +330,54 @@ export function normalizeSeasonCutoffs(
   seasonSlug: string,
 ): RaiderIoSeasonCutoffs {
   const cutoffs = raw.cutoffs;
-  const top25Percent: RaiderIoCutoffThreshold | null =
-    cutoffs?.p750?.score !== undefined
-      ? { score: cutoffs.p750.score, quantile: "p750", label: "top_25_percent" }
-      : null;
 
   return {
     region: normalizeRegion(region),
     seasonSlug: seasonSlug || null,
     updatedAt: cutoffs?.updatedAt ?? null,
-    top25Percent,
+    // Semantic map (do not invert): p999 = 99.9th pct ≈ top 0.1%, etc.
+    top0_1Percent: normalizeCutoffThreshold(cutoffs?.p999, "p999", "top_0_1_percent"),
+    top1Percent: normalizeCutoffThreshold(cutoffs?.p990, "p990", "top_1_percent"),
+    top10Percent: normalizeCutoffThreshold(cutoffs?.p900, "p900", "top_10_percent"),
+    top25Percent: normalizeCutoffThreshold(cutoffs?.p750, "p750", "top_25_percent"),
+    top40Percent: normalizeCutoffThreshold(cutoffs?.p600, "p600", "top_40_percent"),
     attribution: buildAttribution(),
   };
+}
+
+function normalizeCutoffThreshold(
+  node: RawCutoffQuantile | undefined,
+  quantile: RaiderIoCutoffQuantile,
+  label: RaiderIoCutoffLabel,
+): RaiderIoCutoffThreshold | null {
+  if (node?.score === undefined || !Number.isFinite(node.score)) return null;
+  const all = node.all;
+  const quantilePopulationCount =
+    all?.quantilePopulationCount !== undefined && Number.isFinite(all.quantilePopulationCount)
+      ? all.quantilePopulationCount
+      : null;
+  const totalPopulationCount =
+    all?.totalPopulationCount !== undefined && Number.isFinite(all.totalPopulationCount)
+      ? all.totalPopulationCount
+      : null;
+  return {
+    score: node.score,
+    quantile,
+    label,
+    quantilePopulationCount,
+    totalPopulationCount,
+  };
+}
+
+/** True when at least one recognized regional percentile threshold is present. */
+export function seasonCutoffsHaveAnyThreshold(data: RaiderIoSeasonCutoffs): boolean {
+  return Boolean(
+    data.top0_1Percent ||
+      data.top1Percent ||
+      data.top10Percent ||
+      data.top25Percent ||
+      data.top40Percent,
+  );
 }
 
 export function unavailableSeasonCutoffs(region: RegionCode, seasonSlug: string): RaiderIoSeasonCutoffs {
@@ -346,7 +385,11 @@ export function unavailableSeasonCutoffs(region: RegionCode, seasonSlug: string)
     region: normalizeRegion(region),
     seasonSlug: seasonSlug || null,
     updatedAt: null,
+    top0_1Percent: null,
+    top1Percent: null,
+    top10Percent: null,
     top25Percent: null,
+    top40Percent: null,
     attribution: buildAttribution(),
   };
 }

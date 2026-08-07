@@ -39,6 +39,7 @@ import {
   normalizeRunDetails,
   normalizeSeasonCutoffs,
   normalizeStaticData,
+  seasonCutoffsHaveAnyThreshold,
   unavailableSeasonCutoffs,
 } from "./normalize.js";
 import type {
@@ -347,7 +348,9 @@ export abstract class BaseRaiderIoProvider implements RaiderIoProvider {
         const data = normalizeSeasonCutoffs(raw, region, seasonSlug);
         this.cache.set(fingerprint, data, this.deps.env.RAIDERIO_CUTOFFS_TTL_SECONDS);
         this.metrics.requestsTotal += 1;
-        this.capabilities.seasonCutoffs = data.top25Percent ? "available" : "unavailable";
+        this.capabilities.seasonCutoffs = seasonCutoffsHaveAnyThreshold(data)
+          ? "available"
+          : "unavailable";
         return buildResult({
           data,
           endpointKey: RAIDERIO_ENDPOINTS.seasonCutoffs,
