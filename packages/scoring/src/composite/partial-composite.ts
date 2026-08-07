@@ -9,7 +9,9 @@
  */
 
 import { clamp, clamp01 } from "../math.js";
+import { createDefaultModelV1 } from "../model/defaults.js";
 import { gradeScore, presentGrade } from "../trust.js";
+import type { ScoreModelConfigV1 } from "../types.js";
 import type { Grade, ScoreModelConfig } from "@mplus/contracts";
 
 export type PublicSkillDimensionKey =
@@ -56,6 +58,34 @@ const DEFAULT_BASE_WEIGHTS: Record<PublicSkillDimensionKey, number> = {
   experience: 0.1,
 };
 
+/** Canonical grade presentation fields from default model config (v1 base). */
+const CANONICAL_GRADE_MODEL: Pick<
+  ScoreModelConfigV1,
+  "gradeThresholds" | "minConfidenceForGrade"
+> = (() => {
+  const defaults = createDefaultModelV1();
+  return {
+    gradeThresholds: defaults.gradeThresholds,
+    minConfidenceForGrade: defaults.minConfidenceForGrade,
+  };
+})();
+
+/**
+ * Resolve grade thresholds + minConfidenceForGrade for presentGrade().
+ * Explicit model values win; omitted minConfidenceForGrade uses the canonical default.
+ */
+export function resolvePartialCompositeGradeModel(
+  model?: Pick<ScoreModelConfig, "gradeThresholds"> & {
+    minConfidenceForGrade?: number;
+  },
+): Pick<ScoreModelConfigV1, "gradeThresholds" | "minConfidenceForGrade"> {
+  return {
+    gradeThresholds: model?.gradeThresholds ?? CANONICAL_GRADE_MODEL.gradeThresholds,
+    minConfidenceForGrade:
+      model?.minConfidenceForGrade ?? CANONICAL_GRADE_MODEL.minConfidenceForGrade,
+  };
+}
+
 export function defaultSkillDimensionWeights(
   modelWeights?: {
     performance?: number;
@@ -81,11 +111,9 @@ export function computePartialComposite(
   dimensions: readonly PartialCompositeDimensionInput[],
   model: Pick<ScoreModelConfig, "gradeThresholds"> & {
     minConfidenceForGrade?: number;
-  } = {
-    gradeThresholds: { S: 90, A: 80, B: 65, C: 50 },
-    minConfidenceForGrade: 0.35,
-  },
+  } = CANONICAL_GRADE_MODEL,
 ): PartialCompositeResult {
+  const gradeModel = resolvePartialCompositeGradeModel(model);
   const totalBase = dimensions.reduce(
     (sum, d) => sum + Math.max(0, d.baseWeight),
     0,
@@ -137,10 +165,7 @@ export function computePartialComposite(
     evidenceConfidences.length > 0 ? Math.min(...evidenceConfidences) : 0;
   const confidence = clamp01(evidenceConfidence * availabilityCoverage);
 
-  const grade =
-    composite == null
-      ? "U"
-      : presentGrade(composite, confidence, model);
+  const grade = presentGrade(composite, confidence, gradeModel);
 
   return {
     composite,

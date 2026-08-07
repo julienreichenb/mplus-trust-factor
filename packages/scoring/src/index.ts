@@ -243,6 +243,7 @@ export {
   computePartialComposite,
   defaultSkillDimensionWeights,
   gradePartialCompositeScore,
+  resolvePartialCompositeGradeModel,
   type PartialCompositeDimensionInput,
   type PartialCompositeResult,
   type PublicSkillDimensionKey,

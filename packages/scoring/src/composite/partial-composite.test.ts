@@ -1,10 +1,77 @@
 import { describe, expect, it } from "vitest";
+import { createDefaultModelV1 } from "../model/defaults.js";
 import {
   computePartialComposite,
   defaultSkillDimensionWeights,
+  resolvePartialCompositeGradeModel,
 } from "./partial-composite.js";
 
 const v6Thresholds = { S: 90, A: 80, B: 65, C: 50 };
+
+describe("resolvePartialCompositeGradeModel", () => {
+  it("preserves an explicit minConfidenceForGrade", () => {
+    const resolved = resolvePartialCompositeGradeModel({
+      gradeThresholds: v6Thresholds,
+      minConfidenceForGrade: 0.5,
+    });
+    expect(resolved.minConfidenceForGrade).toBe(0.5);
+    expect(resolved.gradeThresholds).toEqual(v6Thresholds);
+  });
+
+  it("resolves a missing minConfidenceForGrade to the canonical model default", () => {
+    const canonical = createDefaultModelV1().minConfidenceForGrade;
+    const resolved = resolvePartialCompositeGradeModel({
+      gradeThresholds: v6Thresholds,
+    });
+    expect(resolved.minConfidenceForGrade).toBe(canonical);
+    expect(resolved.minConfidenceForGrade).toBe(
+      createDefaultModelV1().minConfidenceForGrade,
+    );
+  });
+
+  it("applies the resolved floor when grading a partial composite", () => {
+    const dims = [
+      {
+        key: "performance" as const,
+        score: 80,
+        available: true,
+        baseWeight: 0.35,
+        confidence: 1,
+      },
+      {
+        key: "survival" as const,
+        score: 80,
+        available: true,
+        baseWeight: 0.3,
+        confidence: 1,
+      },
+      {
+        key: "utility" as const,
+        score: 80,
+        available: true,
+        baseWeight: 0.25,
+        confidence: 1,
+      },
+      {
+        key: "experience" as const,
+        score: null,
+        available: false,
+        baseWeight: 0.1,
+      },
+    ];
+    // coverage 0.9 → confidence 0.9
+    const strict = computePartialComposite(dims, {
+      gradeThresholds: v6Thresholds,
+      minConfidenceForGrade: 0.95,
+    });
+    const missingFloor = computePartialComposite(dims, {
+      gradeThresholds: v6Thresholds,
+    });
+    expect(strict.confidence).toBeCloseTo(0.9, 10);
+    expect(strict.grade).toBe("U");
+    expect(missingFloor.grade).not.toBe("U");
+  });
+});
 
 describe("computePartialComposite", () => {
   const v6 = defaultSkillDimensionWeights({
