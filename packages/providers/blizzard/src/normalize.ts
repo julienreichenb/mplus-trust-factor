@@ -11,6 +11,8 @@ import type {
   RegionCode,
   SourceProvenance,
   TalentSnapshotDTO,
+  BlizzardCharacterAchievementsDTO,
+  BlizzardCharacterAchievementDTO,
   BlizzardCharacterMediaDTO,
   BlizzardDungeonDTO,
   BlizzardItemDTO,
@@ -30,6 +32,7 @@ import {
 } from "@mplus/domain";
 import { SCHEMA_VERSION } from "./config.js";
 import type {
+  CharacterAchievementsPayload,
   CharacterProfilePayload,
   EquipmentPayload,
   MediaPayload,
@@ -492,6 +495,53 @@ export function normalizeMedia(payload: MediaPayload): BlizzardCharacterMediaDTO
     mainUrl: sanitizeHttpsUrl(byKey.main ?? byKey["main-raw"] ?? null),
     assets: assets.filter((a) => sanitizeHttpsUrl(a.url) != null),
   };
+}
+
+/**
+ * Normalize Character Achievements Profile ownership facts.
+ *
+ * Rules:
+ * - achievementId from `achievement.id`, else top-level `id`
+ * - completedAt from `completed_timestamp` (ms) → ISO, or null when absent
+ * - ascending achievementId order
+ * - duplicate IDs: prefer non-null completedAt; if both set, keep the earlier timestamp
+ */
+export function normalizeCharacterAchievements(
+  payload: CharacterAchievementsPayload,
+): BlizzardCharacterAchievementsDTO {
+  const byId = new Map<number, BlizzardCharacterAchievementDTO>();
+
+  for (const entry of payload.achievements ?? []) {
+    const achievementId = entry.achievement?.id ?? entry.id;
+    if (achievementId == null || !Number.isFinite(achievementId)) continue;
+
+    const completedAt =
+      entry.completed_timestamp != null && Number.isFinite(entry.completed_timestamp)
+        ? new Date(entry.completed_timestamp).toISOString()
+        : null;
+
+    const next: BlizzardCharacterAchievementDTO = { achievementId, completedAt };
+    const existing = byId.get(achievementId);
+    if (!existing) {
+      byId.set(achievementId, next);
+      continue;
+    }
+    byId.set(achievementId, pickPreferredAchievementCompletion(existing, next));
+  }
+
+  const achievements = [...byId.values()].sort((a, b) => a.achievementId - b.achievementId);
+  return { achievements };
+}
+
+/** Prefer non-null completedAt; when both present, keep the earlier ISO timestamp. */
+export function pickPreferredAchievementCompletion(
+  a: BlizzardCharacterAchievementDTO,
+  b: BlizzardCharacterAchievementDTO,
+): BlizzardCharacterAchievementDTO {
+  if (a.completedAt == null && b.completedAt == null) return a;
+  if (a.completedAt == null) return b;
+  if (b.completedAt == null) return a;
+  return a.completedAt <= b.completedAt ? a : b;
 }
 
 /**

@@ -166,6 +166,43 @@ export const mythicBestRunSchema = z
   })
   .passthrough();
 
+/**
+ * Character Achievements Profile summary entry.
+ * Prefer `achievement.id`; fall back to top-level `id` when Blizzard omits the nested ref.
+ */
+export const characterAchievementEntrySchema = z
+  .object({
+    id: z.number().finite().optional(),
+    achievement: z
+      .object({
+        id: z.number().finite(),
+      })
+      .passthrough()
+      .optional(),
+    completed_timestamp: z.number().finite().nullish(),
+  })
+  .passthrough()
+  .superRefine((entry, ctx) => {
+    const nestedId = entry.achievement?.id;
+    const topId = entry.id;
+    if (
+      (nestedId == null || !Number.isFinite(nestedId)) &&
+      (topId == null || !Number.isFinite(topId))
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "achievement entry requires achievement.id or id",
+        path: ["achievement", "id"],
+      });
+    }
+  });
+
+export const characterAchievementsSchema = z
+  .object({
+    achievements: z.array(characterAchievementEntrySchema).optional().default([]),
+  })
+  .passthrough();
+
 export const mythicKeystoneSeasonProfileSchema = z
   .object({
     season: z.object({ id: z.number() }).passthrough().optional(),
@@ -316,6 +353,8 @@ export type CharacterProfilePayload = z.infer<typeof characterProfileSchema>;
 export type EquipmentPayload = z.infer<typeof equipmentSchema>;
 export type SpecializationsPayload = z.infer<typeof specializationsSchema>;
 export type MediaPayload = z.infer<typeof mediaSchema>;
+export type CharacterAchievementsPayload = z.infer<typeof characterAchievementsSchema>;
+export type CharacterAchievementEntryPayload = z.infer<typeof characterAchievementEntrySchema>;
 export type MythicKeystoneProfileIndexPayload = z.infer<typeof mythicKeystoneProfileIndexSchema>;
 export type MythicKeystoneSeasonProfilePayload = z.infer<typeof mythicKeystoneSeasonProfileSchema>;
 export type MythicBestRunPayload = z.infer<typeof mythicBestRunSchema>;

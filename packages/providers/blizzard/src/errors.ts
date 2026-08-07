@@ -23,6 +23,7 @@ const CHARACTER_PROFILE_ENDPOINTS = new Set([
   "character.equipment.snapshot",
   "character.specializations",
   "character.media",
+  "character.achievements",
   "character.mplus.index",
   "character.mplus.season",
 ]);

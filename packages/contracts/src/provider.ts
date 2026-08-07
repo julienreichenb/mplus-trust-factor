@@ -168,6 +168,17 @@ export interface BlizzardCharacterMediaDTO {
   assets: Array<{ key: string; url: string }>;
 }
 
+/** Factual Blizzard achievement ownership for one character (no scoring judgments). */
+export interface BlizzardCharacterAchievementDTO {
+  achievementId: number;
+  /** ISO-8601 from Blizzard `completed_timestamp` when present; otherwise null. */
+  completedAt: IsoDateTime | null;
+}
+
+export interface BlizzardCharacterAchievementsDTO {
+  achievements: BlizzardCharacterAchievementDTO[];
+}
+
 export interface BlizzardMythicKeystoneProfileDTO {
   currentMythicRating: number | null;
   currentSeasonId: number | null;
@@ -209,6 +220,14 @@ export interface BlizzardProvider {
     identity: CharacterIdentityInput,
     ctx: ProviderFetchContext,
   ): Promise<ProviderResult<BlizzardCharacterMediaDTO>>;
+  /**
+   * Character Achievements Profile summary — factual ownership only.
+   * Does not classify Mythic+/elite/0.1% semantics (Experience catalog owns that).
+   */
+  getCharacterAchievements(
+    identity: CharacterIdentityInput,
+    ctx: ProviderFetchContext,
+  ): Promise<ProviderResult<BlizzardCharacterAchievementsDTO>>;
   getMythicKeystoneProfile(
     identity: CharacterIdentityInput,
     ctx: ProviderFetchContext,

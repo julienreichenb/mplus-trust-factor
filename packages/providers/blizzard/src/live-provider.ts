@@ -1,5 +1,6 @@
 import type {
   BlizzardProvider,
+  BlizzardCharacterAchievementsDTO,
   BlizzardCharacterMediaDTO,
   BlizzardDungeonDTO,
   BlizzardItemDTO,
@@ -28,6 +29,7 @@ import {
   buildProviderResult,
   encodeCharacterPath,
   fingerprintFor,
+  normalizeCharacterAchievements,
   normalizeCharacterProfile,
   normalizeDungeon,
   normalizeEquipmentSnapshot,
@@ -52,6 +54,7 @@ import {
   type BlizzardPeriodDTO,
 } from "./normalize.js";
 import {
+  characterAchievementsSchema,
   characterProfileSchema,
   dungeonIndexSchema,
   dungeonSchema,
@@ -511,6 +514,46 @@ export class LiveBlizzardProvider implements BlizzardProvider {
     const raw = parseOrThrow(mediaSchema, result.data, endpointKey);
     return buildProviderResult({
       data: normalizeMedia(raw),
+      ctx,
+      endpointKey,
+      sourceUrl: result.sourceUrl,
+      cacheHit: result.cacheHit,
+      statusCode: result.statusCode,
+      retryCount: result.retryCount,
+      etag: result.etag,
+      expiresAt: result.expiresAt,
+    });
+  }
+
+  async getCharacterAchievements(
+    identity: CharacterIdentityInput,
+    ctx: ProviderFetchContext,
+  ): Promise<ProviderResult<BlizzardCharacterAchievementsDTO>> {
+    const region = this.region(ctx);
+    const endpointKey = "character.achievements";
+    const charPath = encodeCharacterPath(identity.realmSlug, identity.name);
+    const path = `profile/wow/character/${charPath}/achievements`;
+    const fingerprint = fingerprintFor({
+      region: region.key,
+      endpointKey,
+      pathParams: {
+        realmSlug: normalizeRealmSlug(identity.realmSlug),
+        name: normalizeName(identity.name),
+      },
+    });
+    const result = await this.http.getJson<unknown>({
+      regionConfig: region,
+      namespaceKind: "profile",
+      path,
+      endpointKey,
+      fingerprint,
+      ttlSeconds: DEFAULT_TTL_SECONDS.characterAchievements,
+      forceRefresh: ctx.forceRefresh,
+      locale: this.defaultLocale,
+    });
+    const raw = parseOrThrow(characterAchievementsSchema, result.data, endpointKey);
+    return buildProviderResult({
+      data: normalizeCharacterAchievements(raw),
       ctx,
       endpointKey,
       sourceUrl: result.sourceUrl,

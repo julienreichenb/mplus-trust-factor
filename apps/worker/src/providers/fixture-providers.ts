@@ -3,6 +3,7 @@ import { getConfiguredMaxCharacterLevel } from "@mplus/config";
 import { normalizeName, normalizeRealmSlug, normalizeRegion } from "@mplus/domain";
 import {
   ExternalApiError,
+  type BlizzardCharacterAchievementsDTO,
   type BlizzardCharacterMediaDTO,
   type BlizzardDungeonDTO,
   type BlizzardItemDTO,
@@ -336,6 +337,20 @@ class FixtureBlizzardProvider implements BlizzardProvider {
       provenance: buildProvenance("blizzard", ctx.now),
       freshness: buildFreshness(ctx.now),
       metadata: buildMetadata("blizzard", "getCharacterMedia", ctx.now),
+    };
+  }
+
+  /** Capability stub — not wired into production refresh/scoring. */
+  async getCharacterAchievements(
+    identity: CharacterIdentityInput,
+    ctx: ProviderFetchContext,
+  ): Promise<ProviderResult<BlizzardCharacterAchievementsDTO>> {
+    assertFixtureAvailable("blizzard", identity);
+    return {
+      data: { achievements: [] },
+      provenance: buildProvenance("blizzard", ctx.now),
+      freshness: buildFreshness(ctx.now),
+      metadata: buildMetadata("blizzard", "getCharacterAchievements", ctx.now),
     };
   }
 

@@ -16,12 +16,16 @@ import {
   sanitizeHttpsUrl,
   attachEquipmentIconUrls,
   characterProfileContainsSeason,
+  normalizeCharacterAchievements,
   normalizeMythicProfileIndex,
+  pickPreferredAchievementCompletion,
 } from "./index.js";
 import type { FixtureBlizzardProvider } from "./fixture-provider.js";
 import { fingerprintFor } from "./normalize.js";
 import { BlizzardHttpClient } from "./http-client.js";
 import {
+  characterAchievementsSchema,
+  characterAchievementEntrySchema,
   characterProfileSchema,
   equipmentSchema,
   mediaSchema,
@@ -89,6 +93,7 @@ describe("MVP response-shape contracts", () => {
     expect(() => equipmentSchema.parse(load("equipment-key-items.json"))).not.toThrow();
     expect(() => specializationsSchema.parse(load("specializations-multi.json"))).not.toThrow();
     expect(() => mediaSchema.parse(load("media-avatar.json"))).not.toThrow();
+    expect(() => characterAchievementsSchema.parse(load("character-achievements.json"))).not.toThrow();
     expect(() =>
       mythicKeystoneProfileIndexSchema.parse(load("mythic-keystone-profile-index.json")),
     ).not.toThrow();
@@ -101,11 +106,87 @@ describe("MVP response-shape contracts", () => {
     expect(() => periodSchema.parse(load("period-current.json"))).not.toThrow();
   });
 
+  it("rejects malformed achievement identifiers", () => {
+    expect(() =>
+      characterAchievementEntrySchema.parse({
+        achievement: { id: "not-a-number" },
+        completed_timestamp: 1,
+      }),
+    ).toThrow();
+    expect(() =>
+      characterAchievementsSchema.parse({
+        achievements: [{ completed_timestamp: 1 }],
+      }),
+    ).toThrow();
+  });
+
+  it("allows achievement entries without completed_timestamp", () => {
+    const parsed = characterAchievementEntrySchema.parse({
+      id: 11152,
+      achievement: { id: 11152 },
+    });
+    expect(parsed.achievement?.id).toBe(11152);
+    expect(parsed.completed_timestamp).toBeUndefined();
+  });
+
   it("resolves current season from index.current_season without hardcoding", () => {
     const index = seasonIndexSchema.parse(load("season-index.json"));
     const resolved = resolveCurrentSeasonIdFromIndex(index);
     expect(resolved.seasonId).toBe(13);
     expect(resolved.source).toBe("season_index.current_season");
+  });
+});
+
+describe("normalizeCharacterAchievements", () => {
+  it("preserves IDs, normalizes timestamps, and sorts ascending", () => {
+    const result = normalizeCharacterAchievements({
+      achievements: [
+        {
+          id: 20526,
+          achievement: { id: 20526 },
+          completed_timestamp: 1735689600000,
+        },
+        {
+          id: 6,
+          achievement: { id: 6 },
+          completed_timestamp: 1609459200000,
+        },
+        {
+          achievement: { id: 11152 },
+        },
+      ],
+    });
+    expect(result.achievements.map((a) => a.achievementId)).toEqual([6, 11152, 20526]);
+    expect(result.achievements[0]).toEqual({
+      achievementId: 6,
+      completedAt: new Date(1609459200000).toISOString(),
+    });
+    expect(result.achievements[1]).toEqual({
+      achievementId: 11152,
+      completedAt: null,
+    });
+  });
+
+  it("deduplicates by preferring non-null then earlier completedAt", () => {
+    const result = normalizeCharacterAchievements({
+      achievements: [
+        { achievement: { id: 10 }, completed_timestamp: 2_000 },
+        { achievement: { id: 10 }, completed_timestamp: 1_000 },
+        { achievement: { id: 10 } },
+        { id: 20 },
+        { achievement: { id: 20 }, completed_timestamp: 3_000 },
+      ],
+    });
+    expect(result.achievements).toEqual([
+      { achievementId: 10, completedAt: new Date(1_000).toISOString() },
+      { achievementId: 20, completedAt: new Date(3_000).toISOString() },
+    ]);
+    expect(
+      pickPreferredAchievementCompletion(
+        { achievementId: 1, completedAt: null },
+        { achievementId: 1, completedAt: "2020-01-01T00:00:00.000Z" },
+      ).completedAt,
+    ).toBe("2020-01-01T00:00:00.000Z");
   });
 });
 
@@ -290,6 +371,16 @@ describe("FixtureBlizzardProvider", () => {
     expect(result.data.avatarUrl).toContain("avatar.jpg");
     expect(result.provenance.sourceUrl).toContain(`/${CHARACTER_MEDIA_PATH_SUFFIX}`);
     expect(result.provenance.sourceUrl).not.toMatch(/\/media(\?|$)/);
+  });
+
+  it("returns normalized character achievements from fixture data", async () => {
+    const result = await provider.getCharacterAchievements(identity, ctx);
+    expect(result.metadata.endpointKey).toBe("character.achievements");
+    expect(result.provenance.sourceUrl).toContain("/achievements");
+    expect(result.data.achievements.map((a) => a.achievementId)).toEqual([6, 11152, 20526]);
+    expect(result.data.achievements[0]?.completedAt).toBe(new Date(1609459200000).toISOString());
+    expect(result.data.achievements[1]?.completedAt).toBeNull();
+    expect(result.data.achievements[2]?.completedAt).toBe(new Date(1735689600000).toISOString());
   });
 
   it("returns mythic keystone profile and season runs", async () => {
@@ -503,6 +594,101 @@ describe("LiveBlizzardProvider HTTP behavior", () => {
     const media = await provider.getCharacterMedia(identity, { ...ctx, forceRefresh: true });
     expect(media.data.avatarUrl).toContain("avatar.jpg");
     expect(urls.some((u) => u.includes("/character-media"))).toBe(true);
+  });
+
+  it("fetches character achievements with profile namespace and normalized path", async () => {
+    const urls: string[] = [];
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      urls.push(url);
+      if (url.includes("oauth.battle.net")) {
+        return new Response(JSON.stringify({ access_token: "t", expires_in: 3600 }), { status: 200 });
+      }
+      expect(url).toContain("namespace=profile-eu");
+      expect(url).toContain("/profile/wow/character/tarren-mill/examplecharacter/achievements");
+      return new Response(
+        JSON.stringify({
+          achievements: [
+            {
+              id: 99,
+              achievement: { id: 99 },
+              completed_timestamp: 1_700_000_000_000,
+            },
+          ],
+        }),
+        { status: 200 },
+      );
+    }) as unknown as typeof fetch;
+
+    const provider = new LiveBlizzardProvider({
+      clientId: "id",
+      clientSecret: "secret",
+      fetchImpl,
+    });
+
+    const result = await provider.getCharacterAchievements(identity, {
+      ...ctx,
+      forceRefresh: true,
+    });
+    expect(result.data.achievements).toEqual([
+      { achievementId: 99, completedAt: new Date(1_700_000_000_000).toISOString() },
+    ]);
+    expect(result.metadata.endpointKey).toBe("character.achievements");
+    expect(result.metadata.requestFingerprint.length).toBeGreaterThan(10);
+    const again = await provider.getCharacterAchievements(identity, {
+      ...ctx,
+      forceRefresh: false,
+    });
+    expect(again.metadata.requestFingerprint).toBe(result.metadata.requestFingerprint);
+    expect(again.metadata.cacheHit).toBe(true);
+    expect(urls.filter((u) => u.includes("/achievements")).length).toBe(1);
+  });
+
+  it("maps achievements 404 to PROFILE_UNAVAILABLE", async () => {
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("oauth.battle.net")) {
+        return new Response(JSON.stringify({ access_token: "t", expires_in: 3600 }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ detail: "Not Found" }), { status: 404 });
+    }) as unknown as typeof fetch;
+
+    const provider = new LiveBlizzardProvider({
+      clientId: "id",
+      clientSecret: "secret",
+      fetchImpl,
+    });
+
+    try {
+      await provider.getCharacterAchievements(identity, { ...ctx, forceRefresh: true });
+      expect.fail("expected achievements 404");
+    } catch (error) {
+      expect(error).toMatchObject({ code: "NOT_FOUND" });
+      expect(errorReasonOf(error)).toBe("PROFILE_UNAVAILABLE");
+    }
+  });
+
+  it("rejects malformed achievements payloads with INVALID_RESPONSE", async () => {
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("oauth.battle.net")) {
+        return new Response(JSON.stringify({ access_token: "t", expires_in: 3600 }), { status: 200 });
+      }
+      return new Response(
+        JSON.stringify({ achievements: [{ completed_timestamp: 1 }] }),
+        { status: 200 },
+      );
+    }) as unknown as typeof fetch;
+
+    const provider = new LiveBlizzardProvider({
+      clientId: "id",
+      clientSecret: "secret",
+      fetchImpl,
+    });
+
+    await expect(
+      provider.getCharacterAchievements(identity, { ...ctx, forceRefresh: true }),
+    ).rejects.toMatchObject({ code: "INVALID_RESPONSE" });
   });
 
   it("retries 429 with Retry-After and jitter using fake timers", async () => {
