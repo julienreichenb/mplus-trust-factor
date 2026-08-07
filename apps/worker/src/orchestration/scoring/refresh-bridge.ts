@@ -7,10 +7,7 @@ import type { ScoreSnapshotDTO } from "@mplus/contracts";
 import { hashRefreshContract } from "@mplus/contracts";
 import type { WorkerContainer } from "../../container.js";
 import { scoreCharacter, type ScoreCharacterResult } from "./score-character.js";
-import {
-  scoreCharacterResultToSnapshotDto,
-  scoringDisabledSnapshotDto,
-} from "./snapshot-from-character-score.js";
+import { scoreCharacterResultToSnapshotDto } from "./snapshot-from-character-score.js";
 import { createLiveCapabilityAcquireHook, observeAuthoritativeReportRevision } from "./run-orchestration/live-capability-adapter.js";
 import { createRedisSourceFightLock } from "./run-orchestration/source-fight-lease.js";
 import { createProductionRunOrchestrationPorts } from "./run-orchestration/production-ports.js";
@@ -78,27 +75,28 @@ function resolvePerformanceAggregateProvider(
 
 /**
  * Sole product scoring entry used by character refresh and recalculate jobs.
+ *
+ * Always runs scoreCharacter (canonical acquisition + evaluation). Do not gate
+ * product refresh on SCORING_ENABLED — that historically returned grade U and
+ * left refresh on the legacy pre-selection WCL path. Publication remains gated
+ * by SCORING_PUBLICATION_ENABLED inside scoreCharacter / snapshot mapping.
  */
 export async function runAuthoritativeScoring(
   input: AuthoritativeScoringInput,
 ): Promise<AuthoritativeScoringResult> {
   const fingerprint = `scoring:${input.characterId}:${input.seasonId}:${hashRefreshContract(input.refreshContract)}`;
 
-  if (!input.container.env.SCORING_ENABLED) {
-    return {
-      disabled: true,
-      snapshot: scoringDisabledSnapshotDto({
-        characterId: input.characterId,
-        seasonSlug: input.seasonSlug,
-        scoreModelKey: input.scoreModelKey,
-        scoreModelVersion: input.scoreModelVersion,
-        calculatedAt: input.calculatedAt,
-        inputFingerprint: fingerprint,
-      }),
-      scoreResult: null,
-      providerCalls: 0,
-    };
-  }
+  input.container.logger.info(
+    {
+      event: "REFRESH_PHASE",
+      phase: "SCORING",
+      characterId: input.characterId,
+      seasonId: input.seasonId,
+      persistCharacterScore: input.persistCharacterScore !== false,
+      scoringEnabledFlag: input.container.env.SCORING_ENABLED,
+    },
+    "REFRESH_PHASE",
+  );
 
   const zoneId = requireScoringZoneId(input.refreshContract.zoneId);
   const partition =

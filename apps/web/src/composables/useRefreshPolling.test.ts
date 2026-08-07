@@ -323,4 +323,59 @@ describe("useRefreshPolling", () => {
     expect(getRefreshStatus).toHaveBeenCalledTimes(1);
     expect(pollingApi.polling.value).toBe(false);
   });
+
+  it("polling uses GET status only and never POSTs refresh", async () => {
+    const getRefreshStatus = vi.mocked(api.getRefreshStatus);
+    getRefreshStatus
+      .mockResolvedValueOnce(
+        status({
+          refreshStatus: "IN_PROGRESS",
+          job: {
+            jobId: "poll-1",
+            queue: "refresh-character",
+            status: "active",
+            dedupeKey: null,
+            createdAt: "",
+            startedAt: "",
+            finishedAt: null,
+            errorMessage: null,
+          },
+        }),
+      )
+      .mockResolvedValueOnce(
+        status({
+          refreshStatus: "FRESH",
+          job: {
+            jobId: "poll-1",
+            queue: "refresh-character",
+            status: "completed",
+            dedupeKey: null,
+            createdAt: "",
+            startedAt: "",
+            finishedAt: "",
+            errorMessage: null,
+          },
+        }),
+      );
+
+    const { api: pollingApi, wrapper } = mountPollingHarness();
+    const done = new Promise<void>((resolve) => {
+      void pollingApi.start({
+        identity,
+        intervalMs: 1000,
+        maxDurationMs: 10_000,
+        onUpdate: () => undefined,
+        onComplete: () => resolve(),
+      });
+    });
+    await flushPromises();
+    await vi.advanceTimersByTimeAsync(1000);
+    await flushPromises();
+    await done;
+
+    expect(getRefreshStatus.mock.calls.length).toBeGreaterThanOrEqual(1);
+    // Composable only imports getRefreshStatus from the API client.
+    expect(Object.keys(api)).toEqual(["getRefreshStatus"]);
+    wrapper.unmount();
+  });
 });

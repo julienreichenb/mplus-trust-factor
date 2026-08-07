@@ -239,6 +239,14 @@ export {
   MODEL_COVERAGE_PROVISIONAL_THRESHOLD,
   type ModelCoverageSummary,
 } from "./model-coverage.js";
+export {
+  computePartialComposite,
+  defaultSkillDimensionWeights,
+  gradePartialCompositeScore,
+  type PartialCompositeDimensionInput,
+  type PartialCompositeResult,
+  type PublicSkillDimensionKey,
+} from "./composite/partial-composite.js";
 
 /** Boost shadow Phase 1 — private offline extractors only (no production scoring effect). */
 export {

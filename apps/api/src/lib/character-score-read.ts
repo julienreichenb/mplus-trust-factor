@@ -3,6 +3,10 @@
  * publication is off / ScoreSnapshot rows are absent.
  */
 import type { DimensionScoreDTO, Grade, ScoreSnapshotDTO } from "@mplus/contracts";
+import {
+  computePartialComposite,
+  defaultSkillDimensionWeights,
+} from "@mplus/scoring";
 
 export type CharacterScoreReadRow = {
   id: string;
@@ -15,6 +19,7 @@ export type CharacterScoreReadRow = {
   experience: number | null;
   composite: number | null;
   confidence: number | null;
+  tier?: string | null;
   calculatedAt: Date;
   dimensionDetails: unknown;
   season?: { slug: string } | null;
@@ -24,15 +29,6 @@ function dimState(score: number | null, reason: string | null): DimensionScoreDT
   if (reason) return "UNAVAILABLE";
   if (score == null || !Number.isFinite(score)) return "UNAVAILABLE";
   return "AVAILABLE";
-}
-
-function gradeFromScore(score: number | null, confidence: number | null): Grade {
-  if (score == null || (confidence ?? 0) < 0.35) return "U";
-  if (score >= 90) return "S";
-  if (score >= 80) return "A";
-  if (score >= 70) return "B";
-  if (score >= 55) return "C";
-  return "D";
 }
 
 function blockedReason(
@@ -50,9 +46,24 @@ function blockedReason(
   return typeof hit?.reason === "string" ? hit.reason : null;
 }
 
+function isGrade(value: unknown): value is Grade {
+  return value === "S" || value === "A" || value === "B" || value === "C" || value === "D" || value === "U";
+}
+
 export function mapCharacterScoreToSnapshotDto(
   row: CharacterScoreReadRow,
-  opts?: { modelKey?: string; modelVersion?: number },
+  opts?: {
+    modelKey?: string;
+    modelVersion?: number;
+    dimensionWeights?: {
+      performance: number;
+      survival: number;
+      utility: number;
+      experience: number;
+    };
+    gradeThresholds?: { S: number; A: number; B: number; C: number };
+    minConfidenceForGrade?: number;
+  },
 ): ScoreSnapshotDTO {
   const details =
     row.dimensionDetails && typeof row.dimensionDetails === "object"
@@ -62,13 +73,55 @@ export function mapCharacterScoreToSnapshotDto(
   const perfReason = blockedReason(details, "PERFORMANCE");
   const utilReason = blockedReason(details, "UTILITY");
   const survReason = blockedReason(details, "SURVIVAL");
+  const expReason =
+    blockedReason(details, "EXPERIENCE") ??
+    (row.experience == null ? "EXPERIENCE_NOT_YET_WIRED" : null);
+
+  const weights = opts?.dimensionWeights ?? defaultSkillDimensionWeights();
+
+  const partial = computePartialComposite(
+    [
+      {
+        key: "performance",
+        score: row.performance,
+        available: row.performance != null && Number.isFinite(row.performance) && !perfReason,
+        baseWeight: weights.performance,
+        confidence: row.performance != null ? (row.confidence ?? 0.5) : null,
+      },
+      {
+        key: "survival",
+        score: row.survival,
+        available: row.survival != null && Number.isFinite(row.survival) && !survReason,
+        baseWeight: weights.survival,
+        confidence: row.survival != null ? (row.confidence ?? 0.5) : null,
+      },
+      {
+        key: "utility",
+        score: row.utility,
+        available: row.utility != null && Number.isFinite(row.utility) && !utilReason,
+        baseWeight: weights.utility,
+        confidence: row.utility != null ? (row.confidence ?? 0.5) : null,
+      },
+      {
+        key: "experience",
+        score: row.experience,
+        available: row.experience != null && Number.isFinite(row.experience) && !expReason,
+        baseWeight: weights.experience,
+        confidence: row.experience != null ? (row.confidence ?? 0.5) : null,
+      },
+    ],
+    {
+      gradeThresholds: opts?.gradeThresholds ?? { S: 90, A: 80, B: 65, C: 50 },
+      minConfidenceForGrade: opts?.minConfidenceForGrade ?? 0.35,
+    },
+  );
 
   const dimensions: DimensionScoreDTO[] = [
     {
       dimension: "PERFORMANCE",
       score: row.performance,
       confidence: row.performance != null ? (row.confidence ?? 0.5) : 0,
-      weight: 0.35,
+      weight: weights.performance,
       state: dimState(row.performance, perfReason),
       reason: perfReason,
       contributors: [],
@@ -77,7 +130,7 @@ export function mapCharacterScoreToSnapshotDto(
       dimension: "UTILITY",
       score: row.utility,
       confidence: row.utility != null ? (row.confidence ?? 0.5) : 0,
-      weight: 0.25,
+      weight: weights.utility,
       state: dimState(row.utility, utilReason),
       reason: utilReason,
       contributors: [],
@@ -86,7 +139,7 @@ export function mapCharacterScoreToSnapshotDto(
       dimension: "SURVIVAL",
       score: row.survival,
       confidence: row.survival != null ? (row.confidence ?? 0.5) : 0,
-      weight: 0.25,
+      weight: weights.survival,
       state: dimState(row.survival, survReason),
       reason: survReason,
       contributors: [],
@@ -94,23 +147,23 @@ export function mapCharacterScoreToSnapshotDto(
     {
       dimension: "EXPERIENCE",
       score: row.experience,
-      confidence: 0,
-      weight: 0.15,
-      state: "UNAVAILABLE",
-      reason: "EXPERIENCE_NOT_YET_WIRED",
+      confidence: row.experience != null ? (row.confidence ?? 0.5) : 0,
+      weight: weights.experience,
+      state: dimState(row.experience, expReason),
+      reason: expReason,
       contributors: [],
     },
   ];
 
-  const usable = [row.performance, row.utility, row.survival].filter(
-    (v): v is number => typeof v === "number" && Number.isFinite(v),
-  );
   const overallScore =
     row.composite != null && Number.isFinite(row.composite)
       ? row.composite
-      : usable.length > 0
-        ? usable.reduce((a, b) => a + b, 0) / usable.length
-        : 0;
+      : partial.composite ?? 0;
+  const confidence =
+    row.confidence != null && Number.isFinite(row.confidence)
+      ? row.confidence
+      : partial.confidence;
+  const grade: Grade = isGrade(row.tier) ? row.tier : partial.grade;
 
   return {
     characterId: row.characterId,
@@ -122,11 +175,20 @@ export function mapCharacterScoreToSnapshotDto(
     overallScore,
     skillScore: overallScore,
     authenticityScore: 100,
-    confidence: row.confidence ?? 0,
-    grade: gradeFromScore(usable.length > 0 ? overallScore : null, row.confidence),
-    overallState: usable.length < 3 ? "PROVISIONAL" : "DEFINITIVE",
+    confidence,
+    grade,
+    overallState:
+      partial.availableCount === 0
+        ? "PROVISIONAL"
+        : partial.availableCount < 4
+          ? "PROVISIONAL"
+          : "DEFINITIVE",
     provisionalReason:
-      usable.length < 3 ? "PARTIAL_DIMENSIONS_OR_UNPUBLISHED_CHARACTER_SCORE" : null,
+      partial.availableCount === 0
+        ? "NO_AVAILABLE_DIMENSIONS"
+        : partial.availableCount < 4
+          ? `PARTIAL_DIMENSIONS:${partial.explanation.unavailableKeys.join(",")}`
+          : null,
     dimensions,
     calculatedAt: row.calculatedAt.toISOString(),
     inputFingerprint: `character-score:${row.id}`,
@@ -140,6 +202,11 @@ export function mapCharacterScoreToSnapshotDto(
       performance: row.performance,
       utility: row.utility,
       survival: row.survival,
+      partialComposite: partial.explanation,
+      availabilityCoverage: partial.availabilityCoverage,
+      effectiveWeights: partial.effectiveWeights,
+      missingDimensionsExcluded:
+        "Unavailable dimensions are excluded; remaining weights are renormalized.",
     },
   };
 }

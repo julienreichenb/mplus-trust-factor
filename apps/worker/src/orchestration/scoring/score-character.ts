@@ -36,8 +36,12 @@ import {
   requireScoringZoneId,
 } from "./scoring-zone.js";
 import {
-  overallConfidenceFromDimensions,
+  computePartialComposite,
+  defaultSkillDimensionWeights,
   profileAggregateFactFromPersisted,
+  resolveTunableWeights,
+  trustDimensionWeightsFromTunable,
+  type ScoreModelConfigV1,
   type SeasonDifficultyPolicyV2,
 } from "@mplus/scoring";
 
@@ -283,13 +287,71 @@ export async function scoreCharacter(
   const performance = orchestration.dimensions.performance;
   const utility = orchestration.dimensions.utility;
   const survival = orchestration.dimensions.survival;
-  // Composite Trust Score is owned by a separate chantier — do not invent a mean here.
-  const composite = null;
-  const confidence = overallConfidenceFromDimensions(
-    [performance?.confidence, utility?.confidence, survival?.confidence].filter(
-      (v): v is number => typeof v === "number",
-    ),
+
+  const modelConfig = (scoreModelConfig ?? {}) as Partial<ScoreModelConfigV1>;
+  let dimensionWeights = defaultSkillDimensionWeights(
+    modelConfig.weights
+      ? {
+          performance: modelConfig.weights.performance,
+          survival: modelConfig.weights.survival,
+          utility: modelConfig.weights.utility,
+          experienceConsistency: modelConfig.weights.experienceConsistency,
+        }
+      : null,
   );
+  try {
+    const resolved = resolveTunableWeights(modelConfig as ScoreModelConfigV1);
+    const fromTunable = trustDimensionWeightsFromTunable(resolved.weights);
+    dimensionWeights = defaultSkillDimensionWeights(fromTunable);
+  } catch {
+    // Keep weights from modelConfig.weights / defaults.
+  }
+
+  const gradeThresholds = modelConfig.gradeThresholds ?? {
+    S: 90,
+    A: 80,
+    B: 65,
+    C: 50,
+  };
+  const minConfidenceForGrade = modelConfig.minConfidenceForGrade ?? 0.35;
+
+  const partial = computePartialComposite(
+    [
+      {
+        key: "performance",
+        score: performance?.score ?? null,
+        available: performance?.score != null && Number.isFinite(performance.score),
+        baseWeight: dimensionWeights.performance,
+        confidence: performance?.confidence ?? null,
+      },
+      {
+        key: "survival",
+        score: survival?.score ?? null,
+        available: survival?.score != null && Number.isFinite(survival.score),
+        baseWeight: dimensionWeights.survival,
+        confidence: survival?.confidence ?? null,
+      },
+      {
+        key: "utility",
+        score: utility?.score ?? null,
+        available: utility?.score != null && Number.isFinite(utility.score),
+        baseWeight: dimensionWeights.utility,
+        confidence: utility?.confidence ?? null,
+      },
+      {
+        key: "experience",
+        score: null,
+        available: false,
+        baseWeight: dimensionWeights.experience,
+        confidence: null,
+      },
+    ],
+    { gradeThresholds, minConfidenceForGrade },
+  );
+
+  const composite = partial.composite;
+  const confidence = partial.confidence;
+  const tier = partial.grade;
 
   const persistCharacterScore = input.persistCharacterScore !== false;
   let characterScoreId: string | null = null;
@@ -305,7 +367,7 @@ export async function scoreCharacter(
       experience: null,
       composite,
       confidence,
-      tier: null,
+      tier,
       dimensionDetails: JSON.parse(
         JSON.stringify({
           blocked: orchestration.dimensions.blocked,
@@ -320,6 +382,13 @@ export async function scoreCharacter(
           fightFailures: orchestration.fightFailures,
           targetDigestFailures: orchestration.targetDigestFailures,
           providerCalls: orchestration.accounting.providerCalls,
+          partialComposite: {
+            availabilityCoverage: partial.availabilityCoverage,
+            effectiveWeights: partial.effectiveWeights,
+            availableCount: partial.availableCount,
+            explanation: partial.explanation,
+            grade: partial.grade,
+          },
           performance: performance
             ? {
                 calculatorVersion: performance.calculatorVersion,

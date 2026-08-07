@@ -45,7 +45,11 @@ export const ADMIN_DESTINATIONS: readonly AdminDestination[] = [
     name: "admin-calibration",
     path: "/admin/calibration",
     label: "Calibration",
-    isAuthorized: (permissions) => hasPermission(permissions, "admin.calibration.manage"),
+    // Scoring console users (Models/Tuning) must be able to open Calibration;
+    // dedicated calibration.manage remains valid for narrower grants.
+    isAuthorized: (permissions) =>
+      hasPermission(permissions, "admin.calibration.manage") ||
+      hasPermission(permissions, "admin.score_models.manage"),
   },
   {
     id: "ability-catalog",

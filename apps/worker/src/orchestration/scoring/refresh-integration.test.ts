@@ -56,6 +56,21 @@ function mockContainer(env: Record<string, unknown>): WorkerContainer {
         upsert: vi.fn(async ({ create }) => ({ id: "score-1", ...create })),
         findUnique: vi.fn(async () => null),
       },
+      scoreModel: {
+        findUnique: vi.fn(async () => ({
+          config: {
+            gradeThresholds: { S: 90, A: 80, B: 65, C: 50 },
+            minConfidenceForGrade: 0.35,
+            weights: {
+              performance: 0.35,
+              survival: 0.3,
+              utility: 0.25,
+              experienceConsistency: 0.1,
+              mythicRaid: 0,
+            },
+          },
+        })),
+      },
       characterPerformanceAggregate: {
         findUnique: vi.fn(async () => null),
       },
@@ -143,7 +158,7 @@ describe("runAuthoritativeScoring ↔ scoreCharacter", () => {
     expect(result.snapshot.provisionalReason).not.toBe("SCORING_DISABLED");
   });
 
-  it("returns disabled snapshot when SCORING_ENABLED is false", async () => {
+  it("always runs scoreCharacter even when SCORING_ENABLED is false (product path)", async () => {
     const ports = createMemoryOrchestrationPorts();
     const acquire = vi.spyOn(ports, "acquireAndPersistCapabilityPackage");
     const container = mockContainer({
@@ -154,9 +169,9 @@ describe("runAuthoritativeScoring ↔ scoreCharacter", () => {
 
     const result = await runAuthoritativeScoring(baseInput(container, ports));
 
-    expect(result.disabled).toBe(true);
-    expect(result.scoreResult).toBeNull();
-    expect(result.snapshot.provisionalReason).toBe("SCORING_DISABLED");
+    expect(result.disabled).toBe(false);
+    expect(result.scoreResult).not.toBeNull();
+    expect(result.snapshot.provisionalReason).not.toBe("SCORING_DISABLED");
     expect(acquire).not.toHaveBeenCalled();
     expect(ports.stats.providerCalls).toBe(0);
   });

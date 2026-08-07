@@ -15,7 +15,7 @@ afterEach(() => {
 const CASES = [
   {
     permissions: ["admin.score_models.manage"],
-    paths: ["/admin/models", "/admin/tuning"],
+    paths: ["/admin/models", "/admin/tuning", "/admin/calibration"],
   },
   {
     permissions: ["admin.calibration.manage"],
@@ -65,6 +65,9 @@ describe("admin destination registry", () => {
 
   it("shows calibration with permission (no feature-flag gate)", () => {
     expect(isAuthorizedForAdminDestination("calibration", ["admin.calibration.manage"])).toBe(
+      true,
+    );
+    expect(isAuthorizedForAdminDestination("calibration", ["admin.score_models.manage"])).toBe(
       true,
     );
   });

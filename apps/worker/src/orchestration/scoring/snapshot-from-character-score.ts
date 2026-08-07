@@ -7,6 +7,10 @@ import type {
   Grade,
   ScoreSnapshotDTO,
 } from "@mplus/contracts";
+import {
+  computePartialComposite,
+  defaultSkillDimensionWeights,
+} from "@mplus/scoring";
 import type { ScoreCharacterResult } from "./score-character.js";
 import { SCORING_VERSION } from "./score-character.js";
 
@@ -21,15 +25,6 @@ function dimensionState(
   return "AVAILABLE";
 }
 
-function gradeFromScore(score: number | null, confidence: number | null): Grade {
-  if (score == null || (confidence ?? 0) < 0.35) return "U";
-  if (score >= 90) return "S";
-  if (score >= 80) return "A";
-  if (score >= 70) return "B";
-  if (score >= 55) return "C";
-  return "D";
-}
-
 export function scoreCharacterResultToSnapshotDto(input: {
   result: ScoreCharacterResult;
   characterId: string;
@@ -39,6 +34,21 @@ export function scoreCharacterResultToSnapshotDto(input: {
   calculatedAt: string;
   inputFingerprint: string;
   publicationEnabled: boolean;
+  /** Optional model weights / thresholds when known at call site. */
+  dimensionWeights?: {
+    performance: number;
+    survival: number;
+    utility: number;
+    experience: number;
+  };
+  gradeThresholds?: { S: number; A: number; B: number; C: number };
+  minConfidenceForGrade?: number;
+  /** Persisted composite / tier / confidence when CharacterScore was saved. */
+  persisted?: {
+    composite: number | null;
+    confidence: number | null;
+    tier: Grade | null;
+  };
 }): ScoreSnapshotDTO {
   const { orchestration } = input.result;
   const perf = orchestration.dimensions.performance;
@@ -48,12 +58,55 @@ export function scoreCharacterResultToSnapshotDto(input: {
     orchestration.dimensions.blocked.map((b) => [b.dimension, b.reason]),
   );
 
+  const weights = input.dimensionWeights ?? defaultSkillDimensionWeights();
+  const partial = computePartialComposite(
+    [
+      {
+        key: "performance",
+        score: perf?.score ?? null,
+        available: perf?.score != null && Number.isFinite(perf.score),
+        baseWeight: weights.performance,
+        confidence: perf?.confidence ?? null,
+      },
+      {
+        key: "survival",
+        score: surv?.score ?? null,
+        available: surv?.score != null && Number.isFinite(surv.score),
+        baseWeight: weights.survival,
+        confidence: surv?.confidence ?? null,
+      },
+      {
+        key: "utility",
+        score: util?.score ?? null,
+        available: util?.score != null && Number.isFinite(util.score),
+        baseWeight: weights.utility,
+        confidence: util?.confidence ?? null,
+      },
+      {
+        key: "experience",
+        score: null,
+        available: false,
+        baseWeight: weights.experience,
+        confidence: null,
+      },
+    ],
+    {
+      gradeThresholds: input.gradeThresholds ?? { S: 90, A: 80, B: 65, C: 50 },
+      minConfidenceForGrade: input.minConfidenceForGrade ?? 0.35,
+    },
+  );
+
+  const overallScore =
+    input.persisted?.composite ?? partial.composite ?? 0;
+  const confidence = input.persisted?.confidence ?? partial.confidence;
+  const grade: Grade = input.persisted?.tier ?? partial.grade;
+
   const dimensions: DimensionScoreDTO[] = [
     {
       dimension: "PERFORMANCE",
       score: perf?.score ?? null,
       confidence: perf?.confidence ?? 0,
-      weight: 0.35,
+      weight: weights.performance,
       state: dimensionState(
         perf?.score,
         perf?.confidence,
@@ -66,7 +119,7 @@ export function scoreCharacterResultToSnapshotDto(input: {
       dimension: "UTILITY",
       score: util?.score ?? null,
       confidence: util?.confidence ?? 0,
-      weight: 0.25,
+      weight: weights.utility,
       state: dimensionState(
         util?.score,
         util?.confidence,
@@ -79,7 +132,7 @@ export function scoreCharacterResultToSnapshotDto(input: {
       dimension: "SURVIVAL",
       score: surv?.score ?? null,
       confidence: surv?.confidence ?? 0,
-      weight: 0.25,
+      weight: weights.survival,
       state: dimensionState(
         surv?.score,
         surv?.confidence,
@@ -92,31 +145,21 @@ export function scoreCharacterResultToSnapshotDto(input: {
       dimension: "EXPERIENCE",
       score: null,
       confidence: 0,
-      weight: 0.15,
+      weight: weights.experience,
       state: "UNAVAILABLE",
       reason: "EXPERIENCE_NOT_YET_WIRED",
       contributors: [],
     },
   ];
 
-  const usable = [perf?.score, util?.score, surv?.score].filter(
-    (v): v is number => typeof v === "number" && Number.isFinite(v),
-  );
-  const overallScore =
-    usable.length > 0
-      ? usable.reduce((a, b) => a + b, 0) / usable.length
-      : 0;
-  const confidences = [perf?.confidence, util?.confidence, surv?.confidence].filter(
-    (v): v is number => typeof v === "number",
-  );
-  const confidence = confidences.length > 0 ? Math.min(...confidences) : 0;
-
-  const incomplete = orchestration.incomplete || usable.length < 3;
-  const overallState: NonNullable<ScoreSnapshotDTO["overallState"]> = incomplete
-    ? "PROVISIONAL"
-    : usable.length === 0
+  const availableCount = partial.availableCount;
+  const incomplete = orchestration.incomplete || availableCount < 4;
+  const overallState: NonNullable<ScoreSnapshotDTO["overallState"]> =
+    availableCount === 0
       ? "PROVISIONAL"
-      : "DEFINITIVE";
+      : incomplete
+        ? "PROVISIONAL"
+        : "DEFINITIVE";
 
   return {
     characterId: input.characterId,
@@ -129,10 +172,12 @@ export function scoreCharacterResultToSnapshotDto(input: {
     skillScore: overallScore,
     authenticityScore: 100,
     confidence,
-    grade: gradeFromScore(usable.length > 0 ? overallScore : null, confidence),
+    grade,
     overallState,
     provisionalReason: incomplete
-      ? `PARTIAL_EVIDENCE:selected=${orchestration.selectedSlotCount}/${orchestration.expectedSlotCount}`
+      ? partial.explanation.unavailableKeys.length > 0
+        ? `PARTIAL_DIMENSIONS:${partial.explanation.unavailableKeys.join(",")}`
+        : `PARTIAL_EVIDENCE:selected=${orchestration.selectedSlotCount}/${orchestration.expectedSlotCount}`
       : null,
     dimensions,
     calculatedAt: input.calculatedAt,
@@ -148,6 +193,9 @@ export function scoreCharacterResultToSnapshotDto(input: {
       fightFailures: orchestration.fightFailures.length,
       targetDigestFailures: orchestration.targetDigestFailures.length,
       blocked: orchestration.dimensions.blocked,
+      partialComposite: partial.explanation,
+      availabilityCoverage: partial.availabilityCoverage,
+      effectiveWeights: partial.effectiveWeights,
       selectedRuns: orchestration.characterDigests.map((d) => ({
         slotId: d.slotId,
         dungeonSlug: d.dungeonSlug,
@@ -157,9 +205,9 @@ export function scoreCharacterResultToSnapshotDto(input: {
       })),
     },
     rankingEligibility: {
-      eligible: !incomplete && usable.length > 0,
+      eligible: availableCount > 0 && grade !== "U",
       scoreModelVersion: input.scoreModelVersion,
-      reasons: incomplete ? ["PARTIAL_EVIDENCE"] : [],
+      reasons: availableCount === 0 ? ["NO_AVAILABLE_DIMENSIONS"] : incomplete ? ["PARTIAL_DIMENSIONS"] : [],
       utilityEligible: util?.score != null,
     },
   };

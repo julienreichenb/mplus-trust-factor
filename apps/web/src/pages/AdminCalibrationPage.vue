@@ -252,17 +252,39 @@ function startPolling(runId: string): void {
   }, 2000);
 }
 
+function formatCalibrationLoadError(err: unknown): string {
+  const message = err instanceof Error ? err.message : String(err);
+  const code =
+    err && typeof err === "object" && "code" in err
+      ? String((err as { code?: unknown }).code ?? "")
+      : "";
+  if (
+    code === "ADMIN_CALIBRATION_DISABLED" ||
+    /calibration is not enabled/i.test(message)
+  ) {
+    return "Calibration API is disabled. Set ADMIN_CALIBRATION_ENABLED=true in the API environment and restart pnpm dev.";
+  }
+  return message;
+}
+
 async function load(): Promise<void> {
   loading.value = true;
   loadError.value = null;
   try {
-    const [modelList] = await Promise.all([api.listModels(), refreshCohorts()]);
-    models.value = modelList;
+    // Models can load even when the calibration feature flag is off.
+    models.value = await api.listModels();
     const preferredModel =
       models.value.find((m) => m.status === "ACTIVE") ??
       models.value.find((m) => m.status === "DRAFT") ??
       null;
     selectedModelId.value = preferredModel?.id ?? "";
+
+    try {
+      await refreshCohorts();
+    } catch (err) {
+      loadError.value = formatCalibrationLoadError(err);
+      return;
+    }
 
     const routeCohort =
       typeof route.params.cohortId === "string" ? route.params.cohortId : "";
@@ -270,7 +292,7 @@ async function load(): Promise<void> {
       cohorts.value.find((c) => c.id === routeCohort) ?? cohorts.value[0] ?? null;
     if (initial) await selectCohort(initial.id);
   } catch (err) {
-    loadError.value = err instanceof Error ? err.message : String(err);
+    loadError.value = formatCalibrationLoadError(err);
   } finally {
     loading.value = false;
   }
