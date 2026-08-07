@@ -69,13 +69,16 @@ function timerQualityRank(timed: boolean | null): number {
 }
 
 /**
- * Deterministic per-dungeon ordering.
+ * Deterministic per-dungeon ordering among scoring-eligible candidates.
  * MUST NOT read diagnosticsOnly (parse / deaths / utility / labels).
  *
- * After keyLevel + timer quality, equal-key ties break on immutable discovery
- * identity (reportCode / fightId). completedAt / runScore / evidenceCompleteness
- * are path-dependent across discovery vs fused MythicRun / digest replay and
- * must not change slotIndex for the same selected set.
+ * Eligibility already requires timed === true, so timer quality is only a
+ * residual tie-break for pathological duplicates. Primary order remains
+ * keyLevel DESC → immutable reportCode/fightId.
+ *
+ * completedAt / runScore / evidenceCompleteness are path-dependent across
+ * discovery vs fused MythicRun / digest replay and must not change slotIndex
+ * for the same selected set.
  */
 export function compareEvidenceCandidatesV2(
   a: EvidenceCandidateMetadataV2,
@@ -151,8 +154,14 @@ function planEligibilityRejection(
   if (!Number.isFinite(candidate.keyLevel) || candidate.keyLevel <= 0) {
     return "KEY_LEVEL_UNRESOLVED";
   }
-  // Timer tri-state is retained for ordering only — never a mandatory exclusion.
-  // timed===null (unknown) and timed===false (explicitly untimed) remain selectable.
+  /**
+   * Scoring run evidence eligibility:
+   * public + active-season + valid key + TIMED === true.
+   * Untimed and timer-unknown runs are never detailed-fetched for scoring.
+   */
+  if (candidate.timed !== true) {
+    return candidate.timed === false ? "UNTIMED_RUN" : "TIMED_STATE_UNKNOWN";
+  }
   if (candidate.fightDurationMs != null && candidate.fightDurationMs <= 0) {
     return "INVALID_DURATION";
   }

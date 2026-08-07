@@ -11,14 +11,22 @@ summary). Functional phases are not redefined here.
 1. Resolve the active Mythic+ season from application season authority (not a hard-coded probe character).
 2. Resolve the eight active dungeons for that season.
 3. Discover the character’s relevant WCL reports/fights for those dungeons.
-4. Select the two best distinct runs per dungeon (up to 16), prioritizing the highest
-   available keys and falling back to lower keys when a second same-level run is missing:
-   - key level
-   - timed status
-   - run score
-   - evidence completeness (when available)
-   - completion date
-   - deterministic tie breakers
+4. Select the two best distinct **timed** runs per dungeon (up to 16).
+
+   Scoring run evidence eligibility:
+
+   ```text
+   public + active-season + valid key + TIMED === true.
+   Untimed and timer-unknown runs are never detailed-fetched for scoring.
+   ```
+
+   Among eligible (`timed === true`) candidates, order by:
+   - key level (DESC)
+   - immutable `reportCode` / `fightId` tie-break
+   - residual completeness / completion fields only for pathological duplicates
+
+   Discovery may still inspect untimed or timer-unknown fights for coverage metadata;
+   those fights must not enter the scoring acquisition plan.
 
 Partial coverage is allowed: missing runs reduce confidence; they are never zero-filled.
 Fewer-than-sixteen confidence/publication policy is a separate chantier.

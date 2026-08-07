@@ -670,6 +670,28 @@ async function buildSyntheticAcquisitionResults(input: {
           cand.discoveryIdentity.fightId === c.discoveryIdentity.fightId,
       );
 
+      // Defense-in-depth: never resolve revision / detailed-fetch non-timed evidence.
+      const timed = meta?.timed ?? c.timed;
+      if (timed !== true) {
+        results.push({
+          discoveryIdentity: { ...c.discoveryIdentity },
+          acquisitionStatus: "REJECTED",
+          reportRevision: meta?.reportRevision ?? null,
+          rejectionReason: timed === false ? "UNTIMED_RUN" : "TIMED_STATE_UNKNOWN",
+          rejectionDetail: `SCORING_REQUIRES_TIMED:${c.discoveryIdentity.reportCode}:${c.discoveryIdentity.fightId}:timed=${String(timed)}`,
+          datasetHashes: [],
+          factSetHash: null,
+          dimensionValidity: null,
+          keyLevel: c.keyLevel,
+          timed,
+          runScore: c.runScore,
+          completedAt: c.completedAt,
+          actorId: c.actorId,
+          evidenceCompleteness: c.evidenceCompleteness,
+        });
+        continue;
+      }
+
       let reportRevision = meta?.reportRevision ?? null;
       if (
         !isResolvedReportRevision(reportRevision) &&
@@ -850,6 +872,23 @@ export async function orchestrateScoringRuns(
       runScore: null,
       completedAt: null,
     };
+    // Defense-in-depth: SELECTED fights must be timed before ensurePackageAndDigests.
+    if (meta.timed !== true) {
+      fightFailures.push({
+        sourceFight,
+        code: meta.timed === false ? "UNTIMED_RUN" : "TIMED_STATE_UNKNOWN",
+        message: `Scoring evidence requires timed===true before detailed acquisition (${sourceFight.reportCode}:${sourceFight.fightId})`,
+      });
+      accountingFights.push({
+        sourceFight,
+        packageCreated: false,
+        providerCalls: 0,
+        digestsCreated: 0,
+        digestsReused: 0,
+        participantDigestCount: 0,
+      });
+      continue;
+    }
     try {
       const result = await ensurePackageAndDigests({
         sourceFight,

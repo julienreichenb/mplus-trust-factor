@@ -107,7 +107,7 @@ Scoring V2 evidence selection (see `doc/scoring/v2/03_WCL_EVIDENCE_SELECTION_CON
 
 Pagination must never blindly hydrate every report. Discovery stays metadata-first; fight/masterData hydration is lazy for selected/fallback candidates only.
 
-Timer tri-state (`timed: true | false | null`) is retained for ordering. `timed === null` is **not** a mandatory exclusion for Survival/Utility evidence selection.
+Discovery retains timer tri-state (`timed: true | false | null`) in candidate metadata for coverage. Scoring eligibility is stricter: only `timed === true` may enter the acquisition plan / SELECTED slots / detailed ReportEvents pulls. Untimed and timer-unknown runs are rejected at plan construction (`UNTIMED_RUN` / `TIMED_STATE_UNKNOWN`) and are never detailed-fetched for scoring.
 
 Ownership is proven **before** any `ReportEvents` call. Candidate-level rejection reasons are preserved through acquisition fallback and must not collapse solely into `FALLBACK_EXHAUSTED`.
 

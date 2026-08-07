@@ -608,8 +608,9 @@ export async function acquireCandidateWithFallback(input: {
         continue;
       }
 
-      // Timer tri-state is ordering-only — do not reject timed===false/null here.
-      // Prefer fight-details keystoneBonus when the plan candidate still has timed=null.
+      // Scoring eligibility already requires timed===true at plan time (selector +
+      // orchestrator guards). Prefer fight-details keystoneBonus only when the
+      // planned candidate somehow still has timed=null — never re-admit untimed.
       let resolvedTimed = candidate.timed;
       const bonusFromDetails = keystoneBonusFromFightDetails(details.data);
       if (resolvedTimed == null && bonusFromDetails != null) {
