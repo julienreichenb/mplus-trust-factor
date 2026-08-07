@@ -99,7 +99,8 @@
     "wcl:probe:capability-evidence": "node tools/scripts/with-env.mjs node tools/scripts/wcl-probe-capability-evidence.mjs",
     "scoring:canary": "node tools/scripts/with-env.mjs pnpm --filter @mplus/worker run scoring:canary --",
     "scoring:replay": "node tools/scripts/with-env.mjs pnpm --filter @mplus/worker run scoring:replay --",
-    "scoring:doctor": "node tools/scripts/with-env.mjs pnpm --filter @mplus/worker run scoring:doctor --"
+    "scoring:doctor": "node tools/scripts/with-env.mjs pnpm --filter @mplus/worker run scoring:doctor --",
+    "scoring:smoke:character": "node tools/scripts/with-env.mjs pnpm --filter @mplus/worker run scoring:smoke:character --"
   },
   "dependencies": {
     "@mplus/config": "workspace:*",

@@ -183,11 +183,42 @@ export function createProductionRunOrchestrationPorts(
       // Cold path before first acquire: live adapter loads fight metadata itself.
       return [];
     }
-    return resolveRosterFromRawPayload({
-      payload: row.payload,
-      sourceFight,
-      targetCharacter,
+    try {
+      return resolveRosterFromRawPayload({
+        payload: row.payload,
+        sourceFight,
+        targetCharacter,
+      });
+    } catch (err) {
+      // Bare/legacy raw packages lack masterData. Return [] so the live acquire
+      // path can re-embed roster instead of hard-failing the fight.
+      if (
+        err instanceof Error &&
+        (err as { code?: string }).code === "RAW_PACKAGE_MISSING_FIGHT_ROSTER"
+      ) {
+        return [];
+      }
+      throw err;
+    }
+  }
+
+  async function listPersistedDigestsForSourceFight(input: {
+    sourceFight: SourceFightIdentity;
+  }): Promise<PersistedDigestRecord[]> {
+    const row = await loadRaw(input.sourceFight);
+    if (!row) return [];
+    const rows = await deps.prisma.characterRunDigest.findMany({
+      where: {
+        rawRunId: row.id,
+        extractorVersion,
+      },
     });
+    const out: PersistedDigestRecord[] = [];
+    for (const digestRow of rows) {
+      const parsed = digestFromRow(digestRow);
+      if (parsed) out.push(parsed);
+    }
+    return out;
   }
 
   return {
@@ -370,6 +401,8 @@ export function createProductionRunOrchestrationPorts(
       }
       return resolveParticipantsDefault(sourceFight);
     },
+
+    listPersistedDigestsForSourceFight,
 
     resolveFightRoster:
       deps.resolveFightRoster ??

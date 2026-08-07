@@ -170,6 +170,15 @@ export interface RunOrchestrationPorts {
   resolveFightRoster?(input: {
     sourceFight: SourceFightIdentity;
   }): Promise<RosterParticipantIdentity[] | null>;
+
+  /**
+   * Load already-persisted digests for a source fight (all participants).
+   * Used when the raw package lacks embedded roster/masterData so scoring can
+   * still reuse digests without a live WCL re-acquire.
+   */
+  listPersistedDigestsForSourceFight?(input: {
+    sourceFight: SourceFightIdentity;
+  }): Promise<PersistedDigestRecord[]>;
 }
 
 export interface RunOrchestrationInput {
@@ -448,6 +457,29 @@ async function ensurePackageAndDigests(input: {
       }
     }
 
+    // Warm reuse: digests already persist for bare/legacy raw packages that lack
+    // embedded masterData. Prefer them over forcing a live roster re-acquire.
+    if (!packageHit && ports.listPersistedDigestsForSourceFight) {
+      const persisted = await ports.listPersistedDigestsForSourceFight({
+        sourceFight,
+      });
+      if (persisted.length > 0) {
+        return {
+          packageHit: null as unknown as CompatiblePackageHit,
+          digests: persisted,
+          accounting: {
+            sourceFight,
+            packageCreated: false,
+            providerCalls: 0,
+            digestsCreated: 0,
+            digestsReused: persisted.length,
+            participantDigestCount: persisted.length,
+          },
+          cacheMiss: null,
+        };
+      }
+    }
+
     if (!packageHit) {
       if (input.liveProviderPermission === "FORBIDDEN") {
         cacheMiss = {
@@ -471,6 +503,7 @@ async function ensurePackageAndDigests(input: {
         };
       }
 
+      // Bare raw rows (no masterData) resolve to [] so live acquire can embed roster.
       const participants = await ports.resolveParticipantsForFight({
         sourceFight,
       });

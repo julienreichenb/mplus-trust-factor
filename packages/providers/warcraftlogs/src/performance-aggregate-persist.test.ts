@@ -170,6 +170,14 @@ describe("performance aggregate content hash", () => {
       }),
     ).not.toBe(hashPerformanceAggregateContent(base));
 
+    // Raw WCL JSON is storage-volatile (jsonb float rewrite) — excluded from hash.
+    expect(
+      hashPerformanceAggregateContent({
+        ...base,
+        rawPayload: { totally: "different" },
+      }),
+    ).toBe(hashPerformanceAggregateContent(base));
+
     // fetchedAt is not part of the hash material — identical inputs hash equal
     // even if callers attach different volatile timestamps elsewhere.
     expect(hashPerformanceAggregateContent(base)).toBe(

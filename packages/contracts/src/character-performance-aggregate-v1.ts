@@ -344,13 +344,14 @@ export function assertPersistedCharacterPerformanceAggregateV1(
   };
 }
 
-/** Semantic hash material — excludes volatile storage timestamps and DB ids. */
+/** Semantic hash material — excludes volatile storage timestamps, DB ids, and
+ * raw WCL JSON (Postgres jsonb can rewrite float bit-patterns on round-trip). */
 export function performanceAggregateContentHashMaterial(input: {
   rankingVersion: string;
   metric: string;
   zoneId: number;
   partitionKey: string;
-  rawPayload: unknown;
+  rawPayload?: unknown;
   dungeonAggregates: PersistedDungeonPerformanceAggregateV1[];
   global: PersistedPerformanceAggregateGlobalV1 | null;
   diagnostics: PersistedPerformanceAggregateDiagnosticsV1;
@@ -361,7 +362,6 @@ export function performanceAggregateContentHashMaterial(input: {
     metric: input.metric,
     zoneId: input.zoneId,
     partitionKey: input.partitionKey,
-    rawPayload: input.rawPayload,
     dungeonAggregates: input.dungeonAggregates,
     global: input.global,
     diagnostics: input.diagnostics,

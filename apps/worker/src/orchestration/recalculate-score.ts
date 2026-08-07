@@ -8,6 +8,10 @@ import type { WorkerContainer } from "../container.js";
 import { resolveActiveRefreshContract } from "./build-refresh-contract.js";
 import { runAuthoritativeScoring } from "./scoring/refresh-bridge.js";
 import { mythicRunToEvidenceCandidateMetadata } from "@mplus/scoring";
+import {
+  buildCandidatesFromPersistedDigests,
+  mergeEvidenceCandidates,
+} from "./scoring/digest-candidates.js";
 
 /**
  * Recomputes a character's score via scoreCharacter (provider-free when live calls are off).
@@ -28,6 +32,18 @@ export async function runRecalculateScore(
       retryable: false,
     });
   }
+
+  const characterIdentity = await container.prisma.character.findUnique({
+    where: { id: job.characterId },
+    include: { gameClass: true, activeSpec: true },
+  });
+  const classSlug = characterIdentity?.gameClass?.slug ?? null;
+  const specSlug = characterIdentity?.activeSpec?.slug ?? null;
+  const roleFromSpec = characterIdentity?.activeSpec?.role ?? null;
+  const role =
+    (roleFromSpec as "DPS" | "TANK" | "HEALER" | null) ??
+    (character.role as "DPS" | "TANK" | "HEALER" | "UNKNOWN" | null) ??
+    "UNKNOWN";
 
   const model = await repositories.score.getModelByKeyVersion(
     job.scoreModelKey,
@@ -81,7 +97,7 @@ export async function runRecalculateScore(
     take: 200,
   });
 
-  const candidates = participants
+  const runCandidates = participants
     .map((p) => {
       const run = p.run;
       const dto = {
@@ -103,16 +119,22 @@ export async function runRecalculateScore(
     })
     .filter((c): c is NonNullable<typeof c> => c != null);
 
+  const digestCandidates = await buildCandidatesFromPersistedDigests({
+    prisma: container.prisma,
+    characterId: job.characterId,
+  });
+  const candidates = mergeEvidenceCandidates(runCandidates, digestCandidates);
+
   const outcome = await runAuthoritativeScoring({
     container,
     characterId: job.characterId,
     seasonId: season.id,
     seasonSlug: season.slug,
-    role: (character.role as "DPS" | "TANK" | "HEALER" | "UNKNOWN") ?? "UNKNOWN",
-    classSlug: null,
-    specSlug: null,
+    role,
+    classSlug,
+    specSlug,
     refreshContract,
-    evidenceCutoffAt: new Date(0).toISOString(),
+    evidenceCutoffAt: now.toISOString(),
     highKeyPolicyId: "high-key-policy-v1",
     activeDungeonSlugs,
     candidates,

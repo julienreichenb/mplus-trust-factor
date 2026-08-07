@@ -18,6 +18,7 @@
     "scoring:canary": "tsx src/orchestration/scoring/public-cli.ts canary",
     "scoring:replay": "tsx src/orchestration/scoring/public-cli.ts replay",
     "scoring:doctor": "tsx src/orchestration/scoring/public-cli.ts doctor",
+    "scoring:smoke:character": "tsx src/orchestration/scoring/smoke-character.cli.ts",
     "canary:internal": "tsx src/orchestration/scoring/canary/cli.ts"
   },
   "dependencies": {

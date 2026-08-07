@@ -171,7 +171,7 @@ describe("runAuthoritativeScoring performance aggregate product boundary", () =>
 
     let stored: CharacterPerformanceAggregateDTO | null = null;
     const providerCalls = vi.fn(async () => {
-      const now = new Date("2026-08-06T12:00:00.000Z");
+      const now = new Date();
       stored = {
         id: "agg-product",
         characterId: CHAR_ID,

@@ -30,6 +30,14 @@ export class CharacterScoreRepository {
     });
   }
 
+  async findLatestForCharacter(characterId: string) {
+    return this.prisma.characterScore.findFirst({
+      where: { characterId },
+      orderBy: { calculatedAt: "desc" },
+      include: { season: { select: { slug: true } } },
+    });
+  }
+
   async save(input: SaveCharacterScoreInput) {
     const calculatedAt = input.calculatedAt ?? new Date();
     return this.prisma.characterScore.upsert({

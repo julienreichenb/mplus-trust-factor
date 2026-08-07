@@ -268,6 +268,24 @@ function createInMemoryScoringPrisma() {
         );
         return row;
       },
+      findMany: async ({
+        where,
+      }: {
+        where?: { rawRunId?: string; extractorVersion?: string };
+      }) => {
+        return [...digestsByKey.values()].filter((row) => {
+          if (where?.rawRunId != null && row.rawRunId !== where.rawRunId) {
+            return false;
+          }
+          if (
+            where?.extractorVersion != null &&
+            row.extractorVersion !== where.extractorVersion
+          ) {
+            return false;
+          }
+          return true;
+        });
+      },
       update: async ({
         where,
         data,
@@ -587,10 +605,16 @@ describe("production roster resolution wiring", () => {
 
     const hit = await ports.findCompatibleCapabilityPackage({ sourceFight: fight });
     expect(hit).toBeNull();
+    // Bare packages no longer hard-fail resolveParticipants — empty roster lets
+    // live acquire re-embed masterData. Digests can also be reused via
+    // listPersistedDigestsForSourceFight without calling live acquire.
     await expect(
       ports.resolveParticipantsForFight({ sourceFight: fight }),
-    ).rejects.toMatchObject({ code: "RAW_PACKAGE_MISSING_FIGHT_ROSTER" });
+    ).resolves.toEqual([]);
     expect(liveAcquire).not.toHaveBeenCalled();
+    await expect(
+      ports.listPersistedDigestsForSourceFight!({ sourceFight: fight }),
+    ).resolves.toEqual([]);
   });
 
   it("D: provider-free replay resolves roster with zero provider calls", async () => {

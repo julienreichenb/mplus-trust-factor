@@ -155,6 +155,13 @@ export function createDurableSharedEvidenceStore(
       const sourcePayloadIds = Array.isArray(existing?.sourcePayloadIds)
         ? (existing.sourcePayloadIds as string[])
         : [];
+      // Never persist full eventDatasets into jsonb — Postgres caps ~256MB and live
+      // M+ fights routinely exceed that. Scoring V2 reads WclRunRaw / digests instead.
+      const compactBundle: WclRunEvidenceBundle = {
+        ...bundle,
+        eventDatasets: {},
+        masterData: null,
+      };
       await runRepository.upsertRunAnalysis({
         runId,
         characterId,
@@ -168,7 +175,8 @@ export function createDurableSharedEvidenceStore(
           reportCode: bundle.reportCode,
           reportRevision: bundle.reportRevision,
           fightId: bundle.fightId,
-          bundle,
+          bundle: compactBundle,
+          datasetKeysPresent: Object.keys(bundle.eventDatasets ?? {}),
           updatedAt: now.toISOString(),
         },
         sourcePayloadIds,

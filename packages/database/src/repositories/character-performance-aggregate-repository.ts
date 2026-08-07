@@ -79,6 +79,38 @@ function partitionFromKey(partitionKey: string): number | null {
   return Number(match[1]);
 }
 
+function contentHashForRow(row: {
+  rankingVersion: string;
+  metric: string;
+  zoneId: number;
+  partitionKey: string;
+  dungeonAggregates: unknown;
+  globalSummary: unknown;
+  diagnostics: unknown;
+  sourceRequestFingerprint: string;
+}): string {
+  const compact = assertPersistedCharacterPerformanceAggregateV1({
+    state: "OK",
+    adapterVersion: row.rankingVersion,
+    metric: row.metric,
+    zoneId: row.zoneId,
+    partition: partitionFromKey(row.partitionKey),
+    dungeonAggregates: row.dungeonAggregates,
+    global: row.globalSummary,
+    diagnostics: row.diagnostics,
+  });
+  return hashPerformanceAggregateContent({
+    rankingVersion: row.rankingVersion,
+    metric: CHARACTER_PERFORMANCE_AGGREGATE_METRIC,
+    zoneId: row.zoneId,
+    partitionKey: row.partitionKey,
+    dungeonAggregates: compact.dungeonAggregates,
+    global: compact.global,
+    diagnostics: compact.diagnostics,
+    sourceRequestFingerprint: row.sourceRequestFingerprint,
+  });
+}
+
 function toDto(row: {
   id: string;
   characterId: string;
@@ -118,17 +150,7 @@ function toDto(row: {
     diagnostics: row.diagnostics,
   });
 
-  const expectedHash = hashPerformanceAggregateContent({
-    rankingVersion: row.rankingVersion,
-    metric: CHARACTER_PERFORMANCE_AGGREGATE_METRIC,
-    zoneId: row.zoneId,
-    partitionKey: row.partitionKey,
-    rawPayload: row.rawPayload,
-    dungeonAggregates: compact.dungeonAggregates,
-    global: compact.global,
-    diagnostics: compact.diagnostics,
-    sourceRequestFingerprint: row.sourceRequestFingerprint,
-  });
+  const expectedHash = contentHashForRow(row);
   if (expectedHash !== row.contentHash) {
     throw new Error(
       "performance_aggregate_incompatible: content_hash_mismatch",
@@ -235,12 +257,13 @@ export class CharacterPerformanceAggregateRepository {
       throw new Error("cannot_persist_non_ok_performance_aggregate");
     }
     const partitionKey = toPerformanceAggregatePartitionKey(input.partition);
-    const contentHash = hashPerformanceAggregateContent({
+    // Provisional hash from in-memory compact. Postgres jsonb may rewrite IEEE
+    // floats (e.g. bestDps); finalize contentHash from the RETURNING row below.
+    const provisionalHash = hashPerformanceAggregateContent({
       rankingVersion,
       metric: CHARACTER_PERFORMANCE_AGGREGATE_METRIC,
       zoneId: input.zoneId,
       partitionKey,
-      rawPayload: input.rawPayload,
       dungeonAggregates: compact.dungeonAggregates,
       global: compact.global,
       diagnostics: compact.diagnostics,
@@ -264,6 +287,32 @@ export class CharacterPerformanceAggregateRepository {
       `;
       const existing = locked[0];
 
+      const finalize = async (row: {
+        id: string;
+        characterId: string;
+        seasonId: string;
+        zoneId: number;
+        partitionKey: string;
+        rankingVersion: string;
+        metric: string;
+        state: string;
+        rawPayload: unknown;
+        dungeonAggregates: unknown;
+        globalSummary: unknown;
+        diagnostics: unknown;
+        contentHash: string;
+        sourceRequestFingerprint: string;
+        fetchedAt: Date;
+        expiresAt: Date;
+      }) => {
+        const contentHash = contentHashForRow(row);
+        if (contentHash === row.contentHash) return row;
+        return tx.characterPerformanceAggregate.update({
+          where: { id: row.id },
+          data: { contentHash },
+        });
+      };
+
       if (!existing) {
         const created = await tx.characterPerformanceAggregate.create({
           data: {
@@ -281,14 +330,15 @@ export class CharacterPerformanceAggregateRepository {
               (compact.global as unknown as Prisma.InputJsonValue) ?? undefined,
             diagnostics:
               compact.diagnostics as unknown as Prisma.InputJsonValue,
-            contentHash,
+            contentHash: provisionalHash,
             sourceRequestFingerprint: input.sourceRequestFingerprint,
             fetchedAt: input.fetchedAt,
             expiresAt: input.expiresAt,
           },
         });
+        const finalized = await finalize(created);
         return {
-          row: toDto(created),
+          row: toDto(finalized),
           created: true,
           updated: false,
           rejectedStale: false,
@@ -318,14 +368,15 @@ export class CharacterPerformanceAggregateRepository {
           globalSummary:
             (compact.global as unknown as Prisma.InputJsonValue) ?? undefined,
           diagnostics: compact.diagnostics as unknown as Prisma.InputJsonValue,
-          contentHash,
+          contentHash: provisionalHash,
           sourceRequestFingerprint: input.sourceRequestFingerprint,
           fetchedAt: input.fetchedAt,
           expiresAt: input.expiresAt,
         },
       });
+      const finalized = await finalize(updated);
       return {
-        row: toDto(updated),
+        row: toDto(finalized),
         created: false,
         updated: true,
         rejectedStale: false,

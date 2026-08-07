@@ -3658,9 +3658,33 @@ export async function runRefreshPipeline(
         }
       : null,
   });
-  const authoritativeCandidates = fusedRuns
+  const fusedCandidates = fusedRuns
     .map((run) => mythicRunToEvidenceCandidateMetadata(run))
     .filter((c): c is NonNullable<typeof c> => c != null);
+  // Supplement thin / revision-null MythicRun WCL sources with persisted digests
+  // so scoreCharacter can reuse already-acquired fight evidence.
+  const { buildCandidatesFromPersistedDigests, mergeEvidenceCandidates } =
+    await import("./scoring/digest-candidates.js");
+  const digestCandidates = await buildCandidatesFromPersistedDigests({
+    prisma: container.prisma,
+    characterId: character.id,
+  });
+  const authoritativeCandidates = mergeEvidenceCandidates(
+    fusedCandidates,
+    digestCandidates,
+  );
+  logger.info(
+    {
+      ...logBase,
+      fusedCandidateCount: fusedCandidates.length,
+      digestCandidateCount: digestCandidates.length,
+      authoritativeCandidateCount: authoritativeCandidates.length,
+      candidatesWithRevision: authoritativeCandidates.filter(
+        (c) => c.reportRevision != null,
+      ).length,
+    },
+    "refresh: authoritative scoring candidates (fused + persisted digests)",
+  );
   const scoringOutcome = await runAuthoritativeScoring({
     container,
     characterId: character.id,
@@ -3670,7 +3694,7 @@ export async function runRefreshPipeline(
     classSlug: frozenIdentity.classSlug,
     specSlug: frozenIdentity.specSlug,
     refreshContract,
-    evidenceCutoffAt: new Date(0).toISOString(),
+    evidenceCutoffAt: scoreCalculatedAt.toISOString(),
     highKeyPolicyId: "high-key-policy-v1",
     activeDungeonSlugs,
     candidates: authoritativeCandidates,

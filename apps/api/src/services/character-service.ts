@@ -1,4 +1,5 @@
 import type { Character, IngestionJob } from "@mplus/database";
+import { CharacterScoreRepository } from "@mplus/database";
 import type {
   CanonicalCharacter,
   CharacterIdentityInput,
@@ -51,6 +52,7 @@ import {
   type CharacterSourceAttribution,
   type RunSummaryDTO,
 } from "../lib/mappers.js";
+import { mapCharacterScoreToSnapshotDto } from "../lib/character-score-read.js";
 import { mapJobStatusWithEta } from "./refresh-eta-service.js";
 import { applyProfileWarnings, appendRefreshContractWarnings, buildProfileEnrichments, isScoreStaleVersusProviders, resolveWclUrlFromSources, scoreSnapshotContractStaleReasons, toPublicProviderKey } from "../lib/profile-enrichment.js";
 import { characterCacheKey } from "../lib/response-cache.js";
@@ -1425,7 +1427,22 @@ export class CharacterService {
       identity,
       refreshStatus: decision.profileRefreshStatus,
       job: await mapJobStatusWithEta(this.container, jobRow),
-      score: snapshot ? mapScoreSnapshot(snapshot) : null,
+      score: snapshot
+        ? mapScoreSnapshot(snapshot)
+        : await (async () => {
+            const scores = new CharacterScoreRepository(this.container.worker.prisma);
+            const row = await scores.findLatestForCharacter(character.id);
+            if (!row) return null;
+            const activeModel =
+              (await this.repositories.score.getActiveModel()) ?? {
+                key: "unknown",
+                version: 0,
+              };
+            return mapCharacterScoreToSnapshotDto(row, {
+              modelKey: activeModel.key,
+              modelVersion: activeModel.version,
+            });
+          })(),
     };
   }
 
@@ -2045,9 +2062,24 @@ export class CharacterService {
   async getLatestScore(identity: CharacterIdentityInput): Promise<ScoreSnapshotDTO> {
     const character = await this.requireCharacter(identity);
     const snapshot = await this.repositories.score.getPublishedSnapshot(character.id);
-    if (!snapshot) {
+    if (snapshot) {
+      return mapScoreSnapshot(snapshot);
+    }
+
+    // Authoritative CharacterScore when publication is off / snapshot absent.
+    const scores = new CharacterScoreRepository(this.container.worker.prisma);
+    const characterScore = await scores.findLatestForCharacter(character.id);
+    if (!characterScore) {
       throw HttpError.notFound("SCORE_NOT_FOUND", "No score has been calculated for this character yet");
     }
-    return mapScoreSnapshot(snapshot);
+    const activeModel =
+      (await this.repositories.score.getActiveModel()) ?? {
+        key: "unknown",
+        version: 0,
+      };
+    return mapCharacterScoreToSnapshotDto(characterScore, {
+      modelKey: activeModel.key,
+      modelVersion: activeModel.version,
+    });
   }
 }
