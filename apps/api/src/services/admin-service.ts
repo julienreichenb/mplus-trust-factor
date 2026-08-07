@@ -11,6 +11,8 @@ import type {
 import {
   runCalibrationHarnessFromBundle,
   toAdminBacktestSummary,
+  withTunableWeights,
+  resolveTunableWeights,
   type ActiveDraftComparisonResult,
   type AdminBacktestSummaryV1,
   type ConfidenceCoveragePoint,
@@ -90,6 +92,16 @@ export interface DeleteScoreModelOptions {
   userAgent?: string | null;
 }
 
+/** Keep Trust `weights` + `scoring` docs aligned with admin-tunable relative weights. */
+function syncTunableWeightsOnConfig(config: ScoreModelConfig): ScoreModelConfig {
+  const asRecord = config as ScoreModelConfig & Record<string, unknown>;
+  if (asRecord.tunableWeights == null) {
+    return config;
+  }
+  const { weights } = resolveTunableWeights(asRecord);
+  return withTunableWeights(asRecord as never, weights) as unknown as ScoreModelConfig;
+}
+
 /** Admin-only score model / mechanic rule administration, and character recalculation triggers. */
 export class AdminService {
   constructor(private readonly container: ApiContainer) {}
@@ -109,11 +121,12 @@ export class AdminService {
   }
 
   async createScoreModel(input: CreateScoreModelInput): Promise<AdminScoreModelDTO> {
-    const errors = this.repositories.score.validateConfig(input.config);
+    const synced = syncTunableWeightsOnConfig(input.config);
+    const errors = this.repositories.score.validateConfig(synced);
     if (errors.length > 0) {
       throw HttpError.badRequest("INVALID_SCORE_MODEL_CONFIG", "Score model config failed validation", { errors });
     }
-    const model = await this.repositories.score.createDraftModel(input);
+    const model = await this.repositories.score.createDraftModel({ ...input, config: synced });
     return mapAdminScoreModel(model);
   }
 
@@ -132,12 +145,13 @@ export class AdminService {
   }
 
   async updateScoreModel(id: string, config: ScoreModelConfig): Promise<AdminScoreModelDTO> {
-    const errors = this.repositories.score.validateConfig(config);
+    const synced = syncTunableWeightsOnConfig(config);
+    const errors = this.repositories.score.validateConfig(synced);
     if (errors.length > 0) {
       throw HttpError.badRequest("INVALID_SCORE_MODEL_CONFIG", "Score model config failed validation", { errors });
     }
     try {
-      const model = await this.repositories.score.updateDraftConfig(id, config);
+      const model = await this.repositories.score.updateDraftConfig(id, synced);
       return mapAdminScoreModel(model);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

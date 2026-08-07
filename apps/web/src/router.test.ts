@@ -35,10 +35,16 @@ describe("web router registration", () => {
 
     for (const destination of ADMIN_DESTINATIONS) {
       const route = routeDefs.find((entry) => entry.name === destination.name);
-      expect(route?.path).toBe(destination.path);
+      expect(route).toBeTruthy();
+      // Parametric routes (e.g. calibration/:cohortId?) still own the destination path prefix.
+      expect(route?.path === destination.path || route?.path.startsWith(`${destination.path}/`)).toBe(
+        true,
+      );
       expect(route?.meta?.adminDestinationId).toBe(destination.id);
       expect(route?.meta?.requiresAdmin).toBeUndefined();
     }
+    expect(routeDefs.map((r) => r.name)).toContain("admin-tuning");
+    expect(routeDefs.map((r) => r.name)).toContain("admin-calibration");
   });
 });
 

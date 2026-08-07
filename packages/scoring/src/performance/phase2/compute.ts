@@ -20,6 +20,8 @@ import type {
 
 export interface PerformancePhase2ComputeOptions {
   phase1?: PerformanceV2ComputeOptions;
+  /** Override Phase 1 / cooldown combine weights (defaults = production 0.8 / 0.2). */
+  combineWeights?: { phase1: number; cooldown: number };
 }
 
 export function computePerformancePhase2InputFingerprint(
@@ -49,13 +51,15 @@ export function computePerformancePhase2InputFingerprint(
     }))
     .sort((a, b) => a.slotId.localeCompare(b.slotId));
 
+  const weights = options?.combineWeights ?? PERFORMANCE_PHASE2_WEIGHTS;
+
   return createHash("sha256")
     .update(
       stableStringify({
         algorithmVersion: PERFORMANCE_PHASE2_ALGORITHM_VERSION,
         phase1Fingerprint: phase1Fp,
         cooldownRuns: cooldownPayload,
-        weights: PERFORMANCE_PHASE2_WEIGHTS,
+        weights,
       }),
     )
     .digest("hex");
@@ -72,10 +76,13 @@ export function computePerformancePhase2(
   const phase1 = computePerformanceV2(input.phase1, options?.phase1);
   const cooldown = computeOffensiveCooldownDiscipline(input.cooldownRuns);
 
-  const combined = combinePerformancePhase2Scores({
-    phase1Score: phase1.score,
-    cooldownScore: cooldown.score,
-  });
+  const combined = combinePerformancePhase2Scores(
+    {
+      phase1Score: phase1.score,
+      cooldownScore: cooldown.score,
+    },
+    options?.combineWeights ?? PERFORMANCE_PHASE2_WEIGHTS,
+  );
 
   // Inherit Phase 1 PARTIAL when Phase 1 itself was partial but combine is AVAILABLE.
   let state = combined.state;

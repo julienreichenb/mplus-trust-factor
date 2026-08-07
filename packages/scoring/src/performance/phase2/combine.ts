@@ -6,10 +6,18 @@ import { clamp } from "../../math.js";
 import { PERFORMANCE_PHASE2_WEIGHTS } from "./constants.js";
 import type { PerformancePhase2WeightsApplied } from "./types.js";
 
-export function combinePerformancePhase2Scores(input: {
-  phase1Score: number | null;
-  cooldownScore: number | null;
-}): {
+export interface PerformancePhase2CombineWeights {
+  phase1: number;
+  cooldown: number;
+}
+
+export function combinePerformancePhase2Scores(
+  input: {
+    phase1Score: number | null;
+    cooldownScore: number | null;
+  },
+  combineWeights: PerformancePhase2CombineWeights = PERFORMANCE_PHASE2_WEIGHTS,
+): {
   score: number | null;
   weightsApplied: PerformancePhase2WeightsApplied;
   state: "AVAILABLE" | "PARTIAL" | "UNAVAILABLE";
@@ -42,14 +50,14 @@ export function combinePerformancePhase2Scores(input: {
   }
 
   const score =
-    PERFORMANCE_PHASE2_WEIGHTS.phase1 * input.phase1Score! +
-    PERFORMANCE_PHASE2_WEIGHTS.cooldown * input.cooldownScore!;
+    combineWeights.phase1 * input.phase1Score! +
+    combineWeights.cooldown * input.cooldownScore!;
 
   return {
     score: clamp(score, 0, 100),
     weightsApplied: {
-      phase1: PERFORMANCE_PHASE2_WEIGHTS.phase1,
-      cooldown: PERFORMANCE_PHASE2_WEIGHTS.cooldown,
+      phase1: combineWeights.phase1,
+      cooldown: combineWeights.cooldown,
     },
     state: "AVAILABLE",
     limitations: [],

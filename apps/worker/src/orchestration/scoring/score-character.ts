@@ -215,6 +215,15 @@ export async function scoreCharacter(
         })
       : null;
 
+  const scoreModelRow = await input.prisma.scoreModel.findUnique({
+    where: { id: input.scoringModelId },
+    select: { config: true },
+  });
+  const scoreModelConfig =
+    scoreModelRow?.config != null && typeof scoreModelRow.config === "object"
+      ? (scoreModelRow.config as Record<string, unknown>)
+      : null;
+
   const orchestration = await orchestrateScoringRuns({
     characterId: input.identity.characterId,
     characterName: input.identity.characterName,
@@ -242,6 +251,7 @@ export async function scoreCharacter(
     scoringModelVersion: input.scoringModelVersion,
     difficultyPolicy: input.difficultyPolicy,
     profileAggregate,
+    scoreModelConfig,
   });
 
   const selectedRuns = orchestration.characterDigests.map((row) => ({

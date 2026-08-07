@@ -45,6 +45,12 @@ export const routeDefs: RouteRecordRaw[] = [
     meta: { adminDestinationId: "score-models" },
   },
   {
+    path: "/admin/tuning",
+    name: "admin-tuning",
+    component: () => import("./pages/AdminTuningPage.vue"),
+    meta: { adminDestinationId: "score-tuning" },
+  },
+  {
     path: "/admin/ability-catalog",
     name: "admin-ability-catalog",
     component: () => import("./pages/AdminAbilityCatalogPage.vue"),
@@ -75,15 +81,14 @@ export const routeDefs: RouteRecordRaw[] = [
     meta: { adminDestinationId: "calibration" },
   },
   {
-    path: "/admin/scoring",
-    name: "admin-scoring",
-    component: () => import("./pages/AdminScoringPage.vue"),
-    meta: { adminDestinationId: "scoring" },
-  },
-  {
     path: "/admin/misc",
     name: "admin-misc",
     component: () => import("./pages/AdminMiscPage.vue"),
     meta: { adminDestinationId: "admin-misc" },
+  },
+  // Legacy Scoring Control Center URL → Models (product console replacement).
+  {
+    path: "/admin/scoring",
+    redirect: "/admin/models",
   },
 ];

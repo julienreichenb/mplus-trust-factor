@@ -1,13 +1,12 @@
 import { hasPermission } from "./permissions";
-import { isAdminCalibrationEnabled } from "../config/features";
 
 export type AdminDestinationId =
   | "score-models"
+  | "score-tuning"
+  | "calibration"
   | "ability-catalog"
   | "admin-users"
   | "bulk-processing"
-  | "calibration"
-  | "scoring"
   | "admin-misc";
 
 export interface AdminDestination {
@@ -23,14 +22,30 @@ export interface AdminDestination {
 /**
  * Single source of truth for admin destinations.
  * Navbar visibility and router guards both use `isAuthorized`.
+ *
+ * Scoring product surface: Models → Tuning → Calibration (in that order).
  */
 export const ADMIN_DESTINATIONS: readonly AdminDestination[] = [
   {
     id: "score-models",
     name: "admin-models",
     path: "/admin/models",
-    label: "Score models",
+    label: "Models",
     isAuthorized: (permissions) => hasPermission(permissions, "admin.score_models.manage"),
+  },
+  {
+    id: "score-tuning",
+    name: "admin-tuning",
+    path: "/admin/tuning",
+    label: "Tuning",
+    isAuthorized: (permissions) => hasPermission(permissions, "admin.score_models.manage"),
+  },
+  {
+    id: "calibration",
+    name: "admin-calibration",
+    path: "/admin/calibration",
+    label: "Calibration",
+    isAuthorized: (permissions) => hasPermission(permissions, "admin.calibration.manage"),
   },
   {
     id: "ability-catalog",
@@ -54,21 +69,6 @@ export const ADMIN_DESTINATIONS: readonly AdminDestination[] = [
     path: "/admin/bulk-processing",
     label: "Bulk processing",
     isAuthorized: (permissions) => hasPermission(permissions, "admin.jobs.manage"),
-  },
-  {
-    id: "calibration",
-    name: "admin-calibration",
-    path: "/admin/calibration",
-    label: "Calibration",
-    isAuthorized: (permissions) =>
-      isAdminCalibrationEnabled() && hasPermission(permissions, "admin.calibration.manage"),
-  },
-  {
-    id: "scoring",
-    name: "admin-scoring",
-    path: "/admin/scoring",
-    label: "Scoring Control Center",
-    isAuthorized: (permissions) => hasPermission(permissions, "score.candidate.read"),
   },
   {
     id: "admin-misc",
