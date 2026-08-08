@@ -373,3 +373,100 @@ describe("runAuthoritativeScoring performance aggregate product boundary", () =>
     );
   });
 });
+
+describe("runAuthoritativeScoring Experience Phase 1 passthrough", () => {
+  it("passes experienceOverride through to scoreCharacter persistence", async () => {
+    const ports = createMemoryOrchestrationPorts();
+    const saved: Array<Record<string, unknown>> = [];
+    const getMythicKeystoneSeasonProfile = vi.fn(async () => {
+      throw new Error("Experience override must skip Blizzard acquisition");
+    });
+    const getCharacterAchievements = vi.fn(async () => {
+      throw new Error("Experience override must skip Blizzard acquisition");
+    });
+    const container = {
+      env: {
+        SCORING_ENABLED: true,
+        SCORING_PUBLICATION_ENABLED: false,
+        ALLOW_LIVE_PROVIDER_CALLS: false,
+        PROVIDER_MODE: "fixture",
+        WCL_ENABLED: false,
+        BLIZZARD_ENABLED: true,
+        WCL_CHARACTER_TTL_SECONDS: 43_200,
+      },
+      logger: {
+        info: vi.fn(),
+        warn: vi.fn(),
+        error: vi.fn(),
+        debug: vi.fn(),
+      },
+      prisma: {
+        scoreModel: {
+          findUnique: vi.fn(async () => ({ config: {} })),
+        },
+        characterScore: {
+          upsert: vi.fn(async ({ create }: { create: Record<string, unknown> }) => {
+            saved.push(create);
+            return { id: "score-exp-1", ...create };
+          }),
+        },
+        characterPerformanceAggregate: {
+          findUnique: vi.fn(async () => null),
+        },
+        season: {
+          findUnique: vi.fn(async () => null),
+          findMany: vi.fn(async () => []),
+        },
+      },
+      providers: {
+        blizzard: { getMythicKeystoneSeasonProfile, getCharacterAchievements },
+        warcraftlogs: {},
+        raiderio: {},
+      },
+      disabledProviders: new Set(),
+      repositories: { artifacts: {}, evidence: {}, externalRequest: {} },
+      createRedisConnection: vi.fn(),
+    } as unknown as WorkerContainer;
+
+    const experience = {
+      score: 90,
+      available: true,
+      previousStandingScore: 55,
+      eliteFloorApplied: true,
+      confirmedEliteTitleCount: 1,
+      reason: null,
+    };
+
+    const result = await runAuthoritativeScoring({
+      container,
+      characterId: CHAR_ID,
+      seasonId: SEASON_ID,
+      seasonSlug: "midnight-season-1",
+      role: "DPS",
+      classSlug: "mage",
+      specSlug: "fire",
+      refreshContract,
+      evidenceCutoffAt: "2026-01-01T00:00:00.000Z",
+      highKeyPolicyId: "policy-1",
+      activeDungeonSlugs: candidates().map((c) => c.dungeonSlug),
+      candidates: candidates(),
+      scoreModelKey: "test",
+      scoreModelVersion: 1,
+      scoreModelId: "model-1",
+      calculatedAt: "2026-01-01T00:00:00.000Z",
+      region: "EU",
+      realm: "archimonde",
+      characterName: "Tester",
+      portsOverride: ports,
+      performanceAggregateProviderOverride: null,
+      experienceOverride: experience,
+    });
+
+    expect(getMythicKeystoneSeasonProfile).not.toHaveBeenCalled();
+    expect(getCharacterAchievements).not.toHaveBeenCalled();
+    expect(result.scoreResult?.characterScoreId).toBe("score-exp-1");
+    expect(saved[0]!.experience).toBe(90);
+    const details = saved[0]!.dimensionDetails as { experience: typeof experience };
+    expect(details.experience).toEqual(experience);
+  });
+});
