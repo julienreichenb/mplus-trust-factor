@@ -462,3 +462,162 @@ describe("calculateExperiencePhase1", () => {
     expect(result.score).toBeCloseTo(82.5, 10);
   });
 });
+
+describe("Experience availability semantics", () => {
+  it("confirmed no previous activity + no rank + no elite → available score 0", () => {
+    const result = calculateExperiencePhase1({
+      previous: { state: "CONFIRMED_NO_ACTIVITY" },
+      elite: { state: "OK", confirmedCount: 0 },
+    });
+    expect(result).toMatchObject({
+      score: 0,
+      available: true,
+      previousStandingScore: 0,
+      classRankFloor: null,
+      eliteFloorApplied: false,
+      reason: null,
+    });
+  });
+
+  it("no previous activity + class rank >100 + no elite → available score 0", () => {
+    const result = calculateExperiencePhase1({
+      previous: { state: "CONFIRMED_NO_ACTIVITY" },
+      elite: { state: "OK", confirmedCount: 0 },
+      previousRegionalClassRank: 503,
+    });
+    expect(result).toMatchObject({
+      score: 0,
+      available: true,
+      classRankFloor: null,
+      reason: null,
+    });
+  });
+
+  it("successful previous evidence below supported range → available score 25", () => {
+    const result = calculateExperiencePhase1({
+      previous: {
+        state: "STANDING",
+        standing: standing({
+          estimatedTopPercent: null,
+          band: "BELOW_TOP_40",
+          method: "BELOW_SUPPORTED_RANGE",
+        }),
+      },
+      elite: { state: "OK", confirmedCount: 0 },
+    });
+    expect(result).toMatchObject({
+      score: 25,
+      available: true,
+      previousStandingScore: 25,
+    });
+  });
+
+  it("missing class rank does not make Experience unavailable", () => {
+    const result = calculateExperiencePhase1({
+      previous: {
+        state: "STANDING",
+        standing: standing({
+          estimatedTopPercent: 25,
+          band: "TOP_25",
+          method: "EXACT_ANCHOR",
+        }),
+      },
+      elite: { state: "OK", confirmedCount: 0 },
+    });
+    expect(result.available).toBe(true);
+    expect(result.score).toBe(60);
+    expect(result.classRankFloor).toBeNull();
+  });
+
+  it("class rank >100 does not make Experience unavailable", () => {
+    const result = calculateExperiencePhase1({
+      previous: {
+        state: "STANDING",
+        standing: standing({
+          estimatedTopPercent: 25,
+          band: "TOP_25",
+          method: "EXACT_ANCHOR",
+        }),
+      },
+      elite: { state: "OK", confirmedCount: 0 },
+      previousRegionalClassRank: 101,
+    });
+    expect(result.available).toBe(true);
+    expect(result.score).toBe(60);
+    expect(result.classRankFloor).toBeNull();
+  });
+
+  it("successful achievements with zero elite titles stays available", () => {
+    const result = calculateExperiencePhase1({
+      previous: { state: "CONFIRMED_NO_ACTIVITY" },
+      elite: { state: "OK", confirmedCount: 0 },
+    });
+    expect(result.available).toBe(true);
+    expect(result.score).toBe(0);
+    expect(result.confirmedEliteTitleCount).toBe(0);
+  });
+
+  it("provider failure remains unavailable (not zero)", () => {
+    const result = calculateExperiencePhase1({
+      previous: { state: "UNAVAILABLE", reason: "PROVIDER_FAILURE" },
+      elite: { state: "OK", confirmedCount: 0 },
+    });
+    expect(result).toMatchObject({
+      score: null,
+      available: false,
+      reason: "PREVIOUS_EVIDENCE_UNAVAILABLE",
+    });
+  });
+
+  it("achievements failure remains unavailable when elite could change the score", () => {
+    const result = calculateExperiencePhase1({
+      previous: {
+        state: "STANDING",
+        standing: standing({
+          estimatedTopPercent: 5.5,
+          band: "TOP_10",
+          method: "INTERPOLATED",
+        }),
+      },
+      elite: { state: "UNAVAILABLE", reason: "achievements down" },
+    });
+    expect(result).toMatchObject({
+      score: null,
+      available: false,
+      reason: "ELITE_EVIDENCE_UNAVAILABLE",
+      previousStandingScore: 82.5,
+    });
+  });
+
+  it("achievements failure stays available when score is already >= elite floor", () => {
+    const result = calculateExperiencePhase1({
+      previous: {
+        state: "STANDING",
+        standing: standing({
+          estimatedTopPercent: 0.1,
+          band: "TOP_0_1_OR_BETTER",
+          method: "EXACT_ANCHOR",
+        }),
+      },
+      elite: { state: "UNAVAILABLE", reason: "achievements down" },
+    });
+    expect(result).toMatchObject({
+      score: 100,
+      available: true,
+      reason: null,
+    });
+  });
+
+  it("confirmed no activity + achievements failure is unavailable", () => {
+    const result = calculateExperiencePhase1({
+      previous: { state: "CONFIRMED_NO_ACTIVITY" },
+      elite: { state: "UNAVAILABLE", reason: "achievements down" },
+    });
+    expect(result).toMatchObject({
+      score: null,
+      available: false,
+      reason: "ELITE_EVIDENCE_UNAVAILABLE",
+      previousStandingScore: 0,
+    });
+  });
+});
