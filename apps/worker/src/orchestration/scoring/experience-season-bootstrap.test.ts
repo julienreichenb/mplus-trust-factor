@@ -10,6 +10,7 @@ import type {
 } from "@mplus/contracts";
 import {
   bootstrapExperienceSeasonMetadata,
+  matchBlizzardSeasonToRaiderIoByDates,
   pickPreviousSeasonByStartTimestamp,
   resolveRaiderIoCurrentAndPrevious,
   runExperienceSeasonBootstrapSafe,
@@ -158,6 +159,88 @@ describe("resolveRaiderIoCurrentAndPrevious", () => {
       rioSeason({ slug: "b", isCurrent: true, startsAt: "2025-06-01T00:00:00.000Z" }),
     ]);
     expect(result).toEqual({ ok: false, reason: "RIO_AMBIGUOUS_CURRENT_SEASON" });
+  });
+});
+
+describe("matchBlizzardSeasonToRaiderIoByDates", () => {
+  it("matches unique nearest start within proximity (Midnight→TWW boundary)", () => {
+    const result = matchBlizzardSeasonToRaiderIoByDates(
+      {
+        startTimestamp: Date.parse("2025-08-06T04:00:00.000Z"),
+        endTimestamp: Date.parse("2026-03-18T04:00:00.000Z"),
+      },
+      [
+        rioSeason({
+          slug: "season-tww-2",
+          isCurrent: false,
+          startsAt: "2025-03-04T15:00:00.000Z",
+          endsAt: "2025-08-12T15:00:00.000Z",
+        }),
+        rioSeason({
+          slug: "season-tww-3",
+          isCurrent: false,
+          startsAt: "2025-08-12T15:00:00.000Z",
+          endsAt: "2026-03-02T22:00:00.000Z",
+        }),
+        rioSeason({
+          slug: "season-tww-3-cutoffs",
+          isCurrent: false,
+          startsAt: "2025-08-12T15:00:00.000Z",
+          endsAt: "2026-03-02T22:00:00.000Z",
+        }),
+      ],
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.season.slug).toBe("season-tww-3");
+  });
+
+  it("ignores non-canonical RIO season variants when starts tie", () => {
+    const result = matchBlizzardSeasonToRaiderIoByDates(
+      {
+        startTimestamp: Date.parse("2025-08-06T04:00:00.000Z"),
+        endTimestamp: Date.parse("2026-03-18T04:00:00.000Z"),
+      },
+      [
+        rioSeason({
+          slug: "season-tww-3-cutoffs",
+          isCurrent: false,
+          startsAt: "2025-08-12T15:00:00.000Z",
+          endsAt: "2026-03-10T15:00:00.000Z",
+        }),
+        rioSeason({
+          slug: "season-tww-3",
+          isCurrent: false,
+          startsAt: "2025-08-12T15:00:00.000Z",
+          endsAt: "2026-03-10T15:00:00.000Z",
+        }),
+      ],
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.season.slug).toBe("season-tww-3");
+  });
+
+  it("fails closed when two canonical seasons share the same start distance", () => {
+    const result = matchBlizzardSeasonToRaiderIoByDates(
+      {
+        startTimestamp: Date.parse("2025-08-01T00:00:00.000Z"),
+        endTimestamp: Date.parse("2026-01-01T00:00:00.000Z"),
+      },
+      [
+        rioSeason({
+          slug: "season-tww-2",
+          isCurrent: false,
+          startsAt: "2025-07-25T00:00:00.000Z",
+        }),
+        rioSeason({
+          slug: "season-tww-3",
+          isCurrent: false,
+          startsAt: "2025-08-08T00:00:00.000Z",
+        }),
+      ],
+    );
+    expect(result).toEqual({ ok: false, reason: "RIO_DATE_MATCH_AMBIGUOUS_START" });
   });
 });
 
@@ -523,6 +606,160 @@ describe("bootstrapExperienceSeasonMetadata", () => {
     );
     expect(prisma.getSeasons().find((s) => s.id === "prev")!.providerSeasonId).toBe("season-tww-2");
     expect(result.regions[0]!.previousSeasonId).toBe("prev");
+  });
+
+  it("Midnight → TWW: binds previous via previous-expansion static data + date match", async () => {
+    const prisma = createPrismaFake([
+      {
+        id: "cur",
+        regionId: "region-eu",
+        slug: "blizzard-season-17",
+        name: "Blizzard Season 17",
+        blizzardSeasonId: 17,
+        providerSeasonId: null,
+        startsAt: new Date("2026-03-18T04:00:00.000Z"),
+        endsAt: null,
+        isCurrent: true,
+        metadata: {},
+        region: { id: "region-eu", code: "EU" },
+      },
+      {
+        id: "prev",
+        regionId: "region-eu",
+        slug: "blizzard-season-15",
+        name: "Blizzard Season 15",
+        blizzardSeasonId: 15,
+        providerSeasonId: null,
+        startsAt: new Date("2025-08-06T04:00:00.000Z"),
+        endsAt: new Date("2026-03-18T04:00:00.000Z"),
+        isCurrent: false,
+        metadata: {},
+        region: { id: "region-eu", code: "EU" },
+      },
+    ]);
+
+    const getStaticData = vi.fn(async (_ctx: unknown, options?: { expansionId?: number }) => {
+      if (options?.expansionId === 10) {
+        return providerResult(
+          {
+            expansionId: 10,
+            seasons: [
+              rioSeason({
+                slug: "season-tww-2",
+                isCurrent: false,
+                startsAt: "2025-03-04T15:00:00.000Z",
+                endsAt: "2025-08-05T15:00:00.000Z",
+              }),
+              rioSeason({
+                slug: "season-tww-3",
+                isCurrent: false,
+                startsAt: "2025-08-12T15:00:00.000Z",
+                endsAt: "2026-03-10T15:00:00.000Z",
+              }),
+            ],
+            dungeons: [],
+            attribution: {
+              provider: "raiderio",
+              displayText: "Data from Raider.IO",
+              homepageUrl: "https://raider.io",
+              profileUrl: null,
+              sourceUrl: null,
+            },
+          },
+          "fp-static-tww",
+        );
+      }
+      return providerResult(
+        {
+          expansionId: 11,
+          seasons: [
+            rioSeason({
+              slug: "season-mn-1",
+              isCurrent: true,
+              startsAt: "2026-03-24T15:00:00.000Z",
+            }),
+            rioSeason({
+              slug: "season-mn-2",
+              isCurrent: false,
+              startsAt: "2026-08-18T15:00:00.000Z",
+            }),
+          ],
+          dungeons: [],
+          attribution: {
+            provider: "raiderio",
+            displayText: "Data from Raider.IO",
+            homepageUrl: "https://raider.io",
+            profileUrl: null,
+            sourceUrl: null,
+          },
+        },
+        "fp-static-mn",
+      );
+    });
+
+    const getSeasonCutoffs = vi.fn(async () =>
+      providerResult(
+        {
+          region: "EU",
+          seasonSlug: "season-tww-3",
+          updatedAt: "2026-01-01T00:00:00.000Z",
+          top0_1Percent: threshold(3400, "p999", "top_0_1_percent"),
+          top1Percent: threshold(3000, "p990", "top_1_percent"),
+          top10Percent: threshold(2800, "p900", "top_10_percent"),
+          top25Percent: threshold(2500, "p750", "top_25_percent"),
+          top40Percent: threshold(2200, "p600", "top_40_percent"),
+          attribution: {
+            provider: "raiderio",
+            displayText: "Data from Raider.IO",
+            homepageUrl: "https://raider.io",
+            profileUrl: null,
+            sourceUrl: null,
+          },
+        },
+        "fp-cutoffs-tww3",
+      ),
+    );
+
+    const result = await bootstrapExperienceSeasonMetadata({
+      prisma: prisma as never,
+      regions: [{ code: "EU", id: "region-eu" }],
+      blizzard: {
+        getMythicKeystoneSeasonIndex: vi.fn(async () =>
+          providerResult(
+            [
+              blizzardSeason(15, "2025-08-06T04:00:00.000Z", "2026-03-18T04:00:00.000Z"),
+              blizzardSeason(17, "2026-03-18T04:00:00.000Z", null),
+            ],
+            "fp-index",
+          ),
+        ),
+        getMythicKeystoneSeason: vi.fn(async () => {
+          throw new Error("unused");
+        }),
+      },
+      raiderIo: { getStaticData, getSeasonCutoffs },
+      persistProviderResult: vi.fn(async () => "p"),
+      logger,
+    });
+
+    expect(getStaticData).toHaveBeenCalledTimes(2);
+    expect(getStaticData).toHaveBeenNthCalledWith(
+      2,
+      expect.anything(),
+      { expansionId: 10 },
+    );
+    expect(result.staticDataCalls).toBe(2);
+    expect(prisma.getSeasons().find((s) => s.id === "cur")!.providerSeasonId).toBe("season-mn-1");
+    expect(prisma.getSeasons().find((s) => s.id === "prev")!.providerSeasonId).toBe("season-tww-3");
+    expect(getSeasonCutoffs).toHaveBeenCalledWith(
+      "EU",
+      "season-tww-3",
+      expect.objectContaining({ region: "EU" }),
+    );
+    expect(result.seasonCutoffsCalls).toBe(1);
+    expect(result.regions[0]!.policySync?.status).toBe("UPDATED");
+    expect(result.regions[0]!.reasons).toContain("PREVIOUS_RIO_BOUND_VIA_PREVIOUS_EXPANSION");
+    expect(result.wclCalls).toBe(0);
   });
 
   it("preserves LKG policy when cutoffs sync fails", async () => {

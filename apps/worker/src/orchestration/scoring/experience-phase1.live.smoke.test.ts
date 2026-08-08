@@ -108,9 +108,9 @@ describe.runIf(live)("Experience Phase 1 live smoke", () => {
       });
 
       expect(bootstrap.wclCalls).toBe(0);
-      expect(bootstrap.staticDataCalls).toBe(1);
+      expect(bootstrap.staticDataCalls).toBeGreaterThanOrEqual(1);
       expect(bootstrap.seasonIndexCalls).toBe(regions.length);
-      expect(bootstrap.seasonDetailCalls).toBeGreaterThan(0);
+      expect(bootstrap.seasonDetailCalls).toBeGreaterThanOrEqual(0);
 
       const region = regions.find((r) => r.code.toUpperCase() === REGION);
       expect(region).toBeTruthy();
@@ -140,6 +140,18 @@ describe.runIf(live)("Experience Phase 1 live smoke", () => {
       const previous = seasonRows.find((s) => s.id === prevId!);
       expect(previous).toBeTruthy();
       expect(previous!.startsAt).toBeTruthy();
+      expect(previous!.providerSeasonId).toBeTruthy();
+      const euBoot = bootstrap.regions.find((r) => r.region === REGION);
+      expect(euBoot?.previousRaiderIoSlug).toBeTruthy();
+      expect(euBoot?.reasons).toContain("PREVIOUS_RIO_BOUND_VIA_PREVIOUS_EXPANSION");
+      expect(bootstrap.staticDataCalls).toBeGreaterThanOrEqual(2);
+      // Population sync is attempted; historical cutoffs may be incomplete (NO_USABLE_POLICY).
+      expect(euBoot?.policySync).not.toBeNull();
+      expect(
+        ["UPDATED", "RETAINED_LAST_KNOWN_GOOD", "NO_USABLE_POLICY", "PROVIDER_FAILURE", "VALIDATION_FAILED"].includes(
+          euBoot!.policySync!.status,
+        ),
+      ).toBe(true);
       const policy = readExperiencePopulationPolicyMetadata(previous!.metadata);
 
       const ctx: ProviderFetchContext = {

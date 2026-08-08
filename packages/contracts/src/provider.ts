@@ -432,7 +432,14 @@ export interface RaiderIoProvider {
     seasonSlug: string,
     ctx: ProviderFetchContext,
   ): Promise<ProviderResult<RaiderIoSeasonCutoffs>>;
-  getStaticData(ctx: ProviderFetchContext): Promise<ProviderResult<RaiderIoStaticData>>;
+  /**
+   * Mythic+ static data for an expansion.
+   * When `options.expansionId` is omitted, uses the provider's resolved current expansion.
+   */
+  getStaticData(
+    ctx: ProviderFetchContext,
+    options?: { expansionId?: number },
+  ): Promise<ProviderResult<RaiderIoStaticData>>;
   getRunDetails(
     seasonSlug: string,
     externalRunId: string,

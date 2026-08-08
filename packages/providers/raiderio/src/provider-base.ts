@@ -385,11 +385,22 @@ export abstract class BaseRaiderIoProvider implements RaiderIoProvider {
     });
   }
 
-  async getStaticData(ctx: ProviderFetchContext): Promise<ProviderResult<RaiderIoStaticData>> {
+  async getStaticData(
+    ctx: ProviderFetchContext,
+    options?: { expansionId?: number },
+  ): Promise<ProviderResult<RaiderIoStaticData>> {
     this.assertEnabled();
-    const resolution = await this.resolveExpansion(ctx);
-    const expansionId = String(resolution.expansionId);
-    const query = { expansion_id: expansionId };
+    const requestedExpansionId = options?.expansionId;
+    const resolution =
+      requestedExpansionId != null && Number.isFinite(requestedExpansionId)
+        ? null
+        : await this.resolveExpansion(ctx);
+    const expansionId =
+      requestedExpansionId != null && Number.isFinite(requestedExpansionId)
+        ? Math.trunc(requestedExpansionId)
+        : resolution!.expansionId;
+    const pinStale = resolution?.pinStale ?? false;
+    const query = { expansion_id: String(expansionId) };
     const fingerprint = this.fingerprint(RAIDERIO_ENDPOINTS.staticData, "global", query);
 
     if (!ctx.forceRefresh) {
@@ -405,7 +416,7 @@ export abstract class BaseRaiderIoProvider implements RaiderIoProvider {
           statusCode: 200,
           ttlSeconds: this.deps.env.RAIDERIO_STATIC_DATA_TTL_SECONDS,
           sourceUrl: "https://raider.io/api",
-          stale: resolution.pinStale,
+          stale: pinStale,
         });
       }
     }
@@ -413,12 +424,12 @@ export abstract class BaseRaiderIoProvider implements RaiderIoProvider {
     return this.cache.dedupe(fingerprint, async () => {
       this.metrics.cacheMisses += 1;
       try {
-        const probed = this.probedStaticData.get(resolution.expansionId);
+        const probed = this.probedStaticData.get(expansionId);
         const fetched = probed
           ? { raw: probed, statusCode: 200 }
-          : await this.fetchStaticData(resolution.expansionId);
+          : await this.fetchStaticData(expansionId);
         const { raw, statusCode } = fetched;
-        this.probedStaticData.set(resolution.expansionId, raw);
+        this.probedStaticData.set(expansionId, raw);
         const parsed = parseWithSchema(staticDataSchema, raw, RAIDERIO_ENDPOINTS.staticData);
         if (!parsed.ok) {
           throw new ExternalApiError({
@@ -429,7 +440,7 @@ export abstract class BaseRaiderIoProvider implements RaiderIoProvider {
             statusCode,
           });
         }
-        const data = normalizeStaticData(raw, resolution.expansionId, Date.parse(ctx.now));
+        const data = normalizeStaticData(raw, expansionId, Date.parse(ctx.now));
         this.cache.set(fingerprint, data, this.deps.env.RAIDERIO_STATIC_DATA_TTL_SECONDS);
         if (!probed) this.metrics.requestsTotal += 1;
         this.capabilities.staticData = "available";
@@ -442,7 +453,7 @@ export abstract class BaseRaiderIoProvider implements RaiderIoProvider {
           statusCode,
           ttlSeconds: this.deps.env.RAIDERIO_STATIC_DATA_TTL_SECONDS,
           sourceUrl: "https://raider.io/api",
-          stale: resolution.pinStale,
+          stale: pinStale,
         });
       } catch (error) {
         this.capabilities.staticData = "unavailable";
