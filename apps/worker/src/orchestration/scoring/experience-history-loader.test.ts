@@ -102,11 +102,13 @@ function baseSnapshot(
         ranks: {
           overall: 1200,
           class: 80,
+          classRank: { world: 80, region: 40, realm: 5 },
           server: 5,
           world: 1200,
           region: 400,
           role: "DPS",
         },
+        previousRanks: null,
         recentRuns: [],
         bestRuns: [],
         highestLevelRuns: [],

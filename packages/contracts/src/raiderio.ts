@@ -23,11 +23,22 @@ export interface RaiderIoSeasonScores {
   isPreviousSeason: boolean;
 }
 
+/** Nested Mythic+ class ranks (do not confuse with overall regional rank). */
+export interface RaiderIoClassRank {
+  world: number | null;
+  region: number | null;
+  realm: number | null;
+}
+
 export interface RaiderIoRankSummary {
   overall: number | null;
+  /** Legacy scalar: prefers class world rank when nested buckets are present. */
   class: number | null;
+  /** Explicit class rank buckets; `region` is regional class rank. */
+  classRank: RaiderIoClassRank;
   server: number | null;
   world: number | null;
+  /** Overall (all-class) regional rank — not class.region. */
   region: number | null;
   role: string | null;
 }
@@ -109,6 +120,8 @@ export interface RaiderIoCharacterProfile {
   currentSeason: RaiderIoSeasonScores | null;
   previousSeason: RaiderIoSeasonScores | null;
   ranks: RaiderIoRankSummary | null;
+  /** Previous-season Mythic+ ranks (`previous_mythic_plus_ranks`). */
+  previousRanks: RaiderIoRankSummary | null;
   recentRuns: RaiderIoRunCandidate[];
   bestRuns: RaiderIoRunCandidate[];
   highestLevelRuns: RaiderIoRunCandidate[];

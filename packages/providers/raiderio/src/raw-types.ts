@@ -104,6 +104,7 @@ export interface RawCharacterProfileResponse {
   talents?: unknown;
   mythic_plus_scores_by_season?: RawSeasonScores[];
   mythic_plus_ranks?: RawMythicPlusRanks;
+  previous_mythic_plus_ranks?: RawMythicPlusRanks;
   mythic_plus_recent_runs?: RawKeystoneRun[];
   mythic_plus_best_runs?: RawKeystoneRun[];
   mythic_plus_highest_level_runs?: RawKeystoneRun[];

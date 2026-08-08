@@ -638,14 +638,17 @@ export type {
   EliteCutoffHistoryEvidence,
 } from "./experience/phase1/elite-cutoff-history.js";
 
-/** Experience Phase 1 — pure calculator (provider-free; not production-wired). */
+/** Experience Phase 1 — pure calculator (provider-free). */
 export {
   EXPERIENCE_PHASE1_ELITE_FLOOR,
   EXPERIENCE_PHASE1_BELOW_TOP40_SCORE,
   EXPERIENCE_PHASE1_NO_ACTIVITY_SCORE,
   EXPERIENCE_PHASE1_STANDING_SCORE_ANCHORS,
+  EXPERIENCE_PHASE1_CLASS_RANK_FLOOR_ANCHORS,
   scoreFromEstimatedTopPercent,
   scorePreviousSeasonStanding,
+  scoreRegionalClassRankFloor,
+  usablePreviousRegionalClassRank,
   calculateExperiencePhase1,
 } from "./experience/phase1/calculate.js";
 export type {

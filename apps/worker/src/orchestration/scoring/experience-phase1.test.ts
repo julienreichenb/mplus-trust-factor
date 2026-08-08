@@ -17,6 +17,7 @@ import {
   allowExperienceBlizzardProviderCalls,
   buildExperiencePhase1Result,
   mapPreviousEvidenceToPhase1Input,
+  previousRegionalClassRankFromRioProfile,
 } from "./experience-phase1.js";
 
 const identity: CharacterIdentityInput = {
@@ -466,6 +467,95 @@ describe("buildExperiencePhase1Result", () => {
     expect(blizzard.getCharacterAchievements).toHaveBeenCalledTimes(1);
     expect(blizzard.getSeasonCutoffs).not.toHaveBeenCalled();
     expect(blizzard.discoverCharacterRuns).not.toHaveBeenCalled();
+  });
+
+  it("applies caller-supplied previous regional class rank without extra provider calls", async () => {
+    const prisma = createPrismaFake(
+      seasonRows({
+        currentStartsAt: new Date("2026-01-01T00:00:00.000Z"),
+        prevStartsAt: new Date("2025-06-01T00:00:00.000Z"),
+        prevMetadata: {
+          [EXPERIENCE_POPULATION_POLICY_METADATA_KEY]: completePolicyDoc(),
+        },
+      }),
+    );
+    const blizzard = {
+      getMythicKeystoneSeasonProfile: vi.fn(async () => seasonProfile(3000)),
+      getCharacterAchievements: vi.fn(async () => achievementsDto([])),
+      getSeasonCutoffs: vi.fn(),
+    };
+    const result = await buildExperiencePhase1Result({
+      prisma: prisma as never,
+      identity,
+      currentSeasonId: CURRENT_ID,
+      regionCode: "EU",
+      blizzard,
+      ctx,
+      persistProviderResult: vi.fn(async () => "p"),
+      allowProviderCalls: true,
+      previousRegionalClassRank: 18,
+    });
+    // Standing ~82.5 from rating 3000 vs fixture policy; class rank #18 → floor 94.
+    expect(result.experience.score).toBe(94);
+    expect(result.experience.classRankFloor).toBe(94);
+    expect(result.experience.classRankFloorApplied).toBe(true);
+    expect(blizzard.getMythicKeystoneSeasonProfile).toHaveBeenCalledTimes(1);
+    expect(blizzard.getSeasonCutoffs).not.toHaveBeenCalled();
+  });
+
+  it("class rank alone can produce Experience when previous standing is unavailable", async () => {
+    const prisma = createPrismaFake([]);
+    const blizzard = {
+      getMythicKeystoneSeasonProfile: vi.fn(),
+      getCharacterAchievements: vi.fn(async () => achievementsDto([])),
+    };
+    const result = await buildExperiencePhase1Result({
+      prisma: prisma as never,
+      identity,
+      currentSeasonId: "missing",
+      regionCode: "EU",
+      blizzard,
+      ctx,
+      persistProviderResult: vi.fn(async () => "p"),
+      allowProviderCalls: true,
+      previousRegionalClassRank: 7,
+    });
+    expect(blizzard.getMythicKeystoneSeasonProfile).not.toHaveBeenCalled();
+    expect(result.experience.available).toBe(true);
+    expect(result.experience.score).toBe(97);
+    expect(result.experience.previousStandingScore).toBeNull();
+    expect(result.experience.classRankFloorApplied).toBe(true);
+  });
+});
+
+describe("previousRegionalClassRankFromRioProfile", () => {
+  it("reads previousRanks.classRank.region and ignores overall region", () => {
+    expect(
+      previousRegionalClassRankFromRioProfile({
+        previousRanks: {
+          overall: 5607,
+          class: 1456,
+          classRank: { world: 1456, region: 503, realm: 12 },
+          server: 95,
+          world: 18745,
+          region: 5607,
+          role: "dps",
+        },
+      }),
+    ).toBe(503);
+    expect(
+      previousRegionalClassRankFromRioProfile({
+        previousRanks: {
+          overall: 12,
+          class: null,
+          classRank: { world: null, region: null, realm: null },
+          server: null,
+          world: 12,
+          region: 12,
+          role: null,
+        },
+      }),
+    ).toBeNull();
   });
 });
 

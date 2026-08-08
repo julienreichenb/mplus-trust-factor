@@ -80,6 +80,12 @@ describe("normalizeCharacterProfile", () => {
     expect(profile.ranks?.region).toBe(12000);
     expect(profile.ranks?.server).toBe(450);
     expect(profile.ranks?.role).toBe("dps");
+    expect(profile.ranks?.classRank).toEqual({
+      world: 2100,
+      region: 800,
+      realm: 40,
+    });
+    expect(profile.previousRanks).toBeNull();
     expect(profile.gear?.itemLevelEquipped).toBe(684);
     expect(profile.gear?.items[0]?.slot).toBe("head");
     expect(profile.talents?.present).toBe(true);
@@ -127,10 +133,40 @@ describe("mapRanks and mapGear", () => {
     const ranks = mapRanks({ overall: 10, class: 2, server: 1, world: 10, region: 4, role: "tank" });
     expect(ranks.overall).toBe(10);
     expect(ranks.role).toBe("tank");
+    expect(ranks.classRank).toEqual({ world: 2, region: null, realm: null });
+  });
+
+  it("preserves class.region distinctly from overall region", () => {
+    const ranks = mapRanks({
+      overall: { world: 18745, region: 5607, realm: 95 },
+      class: { world: 1456, region: 503, realm: 12 },
+    });
+    expect(ranks.region).toBe(5607);
+    expect(ranks.class).toBe(1456);
+    expect(ranks.classRank).toEqual({ world: 1456, region: 503, realm: 12 });
   });
 
   it("maps empty gear arrays", () => {
     expect(mapGear({ item_level_equipped: 0, items: [] })?.items).toEqual([]);
+  });
+});
+
+describe("normalizeCharacterProfile previous ranks", () => {
+  it("normalizes previous_mythic_plus_ranks.class.region", () => {
+    const profile = normalizeCharacterProfile(
+      {
+        ...sampleProfile,
+        previous_mythic_plus_ranks: {
+          overall: { world: 18745, region: 5607, realm: 95 },
+          class: { world: 1456, region: 503, realm: 12 },
+        },
+      },
+      "EU",
+      Date.parse("2026-07-27T10:00:00.000Z"),
+    );
+    expect(profile.previousRanks?.region).toBe(5607);
+    expect(profile.previousRanks?.classRank.region).toBe(503);
+    expect(profile.ranks?.classRank.region).toBe(800);
   });
 });
 

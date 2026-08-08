@@ -6,8 +6,9 @@ import type {
   EvidenceCandidateMetadataV2,
   EvidenceRole,
   ProviderFetchContext,
+  RaiderIoCharacterProfile,
+  ScoreSnapshotDTO,
 } from "@mplus/contracts";
-import type { ScoreSnapshotDTO } from "@mplus/contracts";
 import { hashRefreshContract } from "@mplus/contracts";
 import type { ExperiencePhase1Result } from "@mplus/scoring";
 import type { WorkerContainer } from "../../container.js";
@@ -27,6 +28,7 @@ import { findLatestFightRevision } from "./fight-details-persist.js";
 import {
   allowExperienceBlizzardProviderCalls,
   buildExperiencePhase1Result,
+  previousRegionalClassRankFromRioProfile,
 } from "./experience-phase1.js";
 
 export interface AuthoritativeScoringInput {
@@ -65,6 +67,11 @@ export interface AuthoritativeScoringInput {
    * this value through to scoreCharacter.
    */
   experienceOverride?: ExperiencePhase1Result | null;
+  /**
+   * Already-fetched Raider.IO profile from refresh enrichment. Used only for
+   * previous-season regional class rank — does not trigger an extra RIO call.
+   */
+  raiderIoProfile?: RaiderIoCharacterProfile | null;
 }
 
 export interface AuthoritativeScoringResult {
@@ -265,6 +272,9 @@ export async function runAuthoritativeScoring(
         persistProviderResult: (result) =>
           recordProviderResult(input.container.repositories, result),
         allowProviderCalls: true,
+        previousRegionalClassRank: previousRegionalClassRankFromRioProfile(
+          input.raiderIoProfile ?? null,
+        ),
       });
       experience = built.experience;
       experienceBlizzardCalls =

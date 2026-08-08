@@ -79,6 +79,21 @@ function rankNumber(value: number | RawRankBucket | undefined, prefer: "world" |
   return value[prefer] ?? value.world ?? value.region ?? value.realm ?? null;
 }
 
+function mapClassRank(raw: RawMythicPlusRanks): RaiderIoRankSummary["classRank"] {
+  if (typeof raw.class === "object" && raw.class) {
+    return {
+      world: typeof raw.class.world === "number" ? raw.class.world : null,
+      region: typeof raw.class.region === "number" ? raw.class.region : null,
+      realm: typeof raw.class.realm === "number" ? raw.class.realm : null,
+    };
+  }
+  // Legacy flat class number has ambiguous scope — preserve as world only.
+  if (typeof raw.class === "number") {
+    return { world: raw.class, region: null, realm: null };
+  }
+  return { world: null, region: null, realm: null };
+}
+
 export function mapRanks(raw: RawMythicPlusRanks): RaiderIoRankSummary {
   const overallBucket = typeof raw.overall === "object" ? raw.overall : null;
   const classBucket = typeof raw.class === "object" ? raw.class : null;
@@ -89,6 +104,7 @@ export function mapRanks(raw: RawMythicPlusRanks): RaiderIoRankSummary {
   return {
     overall: rankNumber(raw.overall, "world"),
     class: rankNumber(raw.class, "world"),
+    classRank: mapClassRank(raw),
     server: overallBucket?.realm ?? classBucket?.realm ?? raw.server ?? null,
     world: overallBucket?.world ?? (typeof raw.world === "number" ? raw.world : rankNumber(raw.overall, "world")),
     region: overallBucket?.region ?? (typeof raw.region === "number" ? raw.region : rankNumber(raw.overall, "region")),
@@ -314,6 +330,9 @@ export function normalizeCharacterProfile(
     currentSeason,
     previousSeason,
     ranks: raw.mythic_plus_ranks ? mapRanks(raw.mythic_plus_ranks) : null,
+    previousRanks: raw.previous_mythic_plus_ranks
+      ? mapRanks(raw.previous_mythic_plus_ranks)
+      : null,
     recentRuns,
     bestRuns,
     highestLevelRuns,

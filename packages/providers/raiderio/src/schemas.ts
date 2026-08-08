@@ -34,6 +34,17 @@ export const characterProfileSchema = z
       })
       .passthrough()
       .optional(),
+    previous_mythic_plus_ranks: z
+      .object({
+        overall: rankValueSchema.optional(),
+        class: rankValueSchema.optional(),
+        server: z.number().optional(),
+        world: z.number().optional(),
+        region: z.number().optional(),
+        role: z.string().optional(),
+      })
+      .passthrough()
+      .optional(),
     mythic_plus_recent_runs: z.array(z.unknown()).optional(),
     mythic_plus_best_runs: z.array(z.unknown()).optional(),
   })

@@ -1,4 +1,4 @@
-export const RAIDERIO_SCHEMA_VERSION = "0.62.5+cutoffs-v3";
+export const RAIDERIO_SCHEMA_VERSION = "0.62.5+prev-ranks-v1";
 
 export const RAIDERIO_ENDPOINTS = {
   characterProfile: "characters.profile",

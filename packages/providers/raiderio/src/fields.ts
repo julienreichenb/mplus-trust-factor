@@ -8,6 +8,8 @@ export const MINIMAL_CHARACTER_FIELDS = [
   // current + previous in one profile call (no extra request) for Experience continuity.
   "mythic_plus_scores_by_season:current:previous",
   "mythic_plus_ranks",
+  // Previous-season ranks (incl. regional class rank) on the same profile call.
+  "previous_mythic_plus_ranks",
   "mythic_plus_recent_runs",
   "mythic_plus_best_runs",
 ] as const;

@@ -6,6 +6,8 @@ import {
   EXPERIENCE_PHASE1_ELITE_FLOOR,
   scoreFromEstimatedTopPercent,
   scorePreviousSeasonStanding,
+  scoreRegionalClassRankFloor,
+  usablePreviousRegionalClassRank,
 } from "./calculate.js";
 
 function standing(
@@ -53,9 +55,62 @@ describe("scorePreviousSeasonStanding", () => {
   });
 });
 
+describe("scoreRegionalClassRankFloor", () => {
+  it("maps each rank threshold", () => {
+    expect(scoreRegionalClassRankFloor(1)).toBe(100);
+    expect(scoreRegionalClassRankFloor(5)).toBe(100);
+    expect(scoreRegionalClassRankFloor(6)).toBe(97);
+    expect(scoreRegionalClassRankFloor(10)).toBe(97);
+    expect(scoreRegionalClassRankFloor(11)).toBe(94);
+    expect(scoreRegionalClassRankFloor(20)).toBe(94);
+    expect(scoreRegionalClassRankFloor(21)).toBe(90);
+    expect(scoreRegionalClassRankFloor(50)).toBe(90);
+    expect(scoreRegionalClassRankFloor(51)).toBe(85);
+    expect(scoreRegionalClassRankFloor(87)).toBe(85);
+    expect(scoreRegionalClassRankFloor(100)).toBe(85);
+  });
+
+  it("gives no floor for rank > 100 or missing", () => {
+    expect(scoreRegionalClassRankFloor(101)).toBeNull();
+    expect(scoreRegionalClassRankFloor(503)).toBeNull();
+    expect(scoreRegionalClassRankFloor(null)).toBeNull();
+    expect(scoreRegionalClassRankFloor(undefined)).toBeNull();
+    expect(scoreRegionalClassRankFloor(0)).toBeNull();
+    expect(scoreRegionalClassRankFloor(-1)).toBeNull();
+  });
+});
+
+describe("usablePreviousRegionalClassRank", () => {
+  it("reads classRank.region and ignores overall region", () => {
+    expect(
+      usablePreviousRegionalClassRank({
+        classRank: { region: 18 },
+        region: 5607,
+      }),
+    ).toBe(18);
+    expect(
+      usablePreviousRegionalClassRank({
+        classRank: { region: null },
+        region: 12,
+      }),
+    ).toBeNull();
+    expect(usablePreviousRegionalClassRank({ region: 12 })).toBeNull();
+    expect(
+      usablePreviousRegionalClassRank({
+        classRank: { region: 0 },
+        region: 0,
+      }),
+    ).toBeNull();
+  });
+});
+
 describe("calculateExperiencePhase1", () => {
   it("scores exact standing anchors", () => {
-    const cases: Array<{ topPercent: number; score: number; band: PreviousSeasonRelativeStanding["band"] }> = [
+    const cases: Array<{
+      topPercent: number;
+      score: number;
+      band: PreviousSeasonRelativeStanding["band"];
+    }> = [
       { topPercent: 0.1, score: 100, band: "TOP_0_1_OR_BETTER" },
       { topPercent: 1, score: 90, band: "TOP_1" },
       { topPercent: 10, score: 75, band: "TOP_10" },
@@ -77,6 +132,7 @@ describe("calculateExperiencePhase1", () => {
       expect(result.available).toBe(true);
       expect(result.score).toBe(c.score);
       expect(result.previousStandingScore).toBe(c.score);
+      expect(result.classRankFloor).toBeNull();
       expect(result.eliteFloorApplied).toBe(false);
     }
   });
@@ -224,6 +280,7 @@ describe("calculateExperiencePhase1", () => {
       score: 0,
       available: true,
       previousStandingScore: 0,
+      classRankFloor: null,
       eliteFloorApplied: false,
     });
   });
@@ -258,9 +315,150 @@ describe("calculateExperiencePhase1", () => {
       score: null,
       available: false,
       previousStandingScore: null,
+      classRankFloor: null,
+      classRankFloorApplied: false,
       eliteFloorApplied: false,
       confirmedEliteTitleCount: 0,
       reason: "PREVIOUS_EVIDENCE_UNAVAILABLE",
     });
+  });
+
+  it("uses class-rank floor alone when previous standing is unavailable", () => {
+    const result = calculateExperiencePhase1({
+      previous: { state: "UNAVAILABLE", reason: "PROVIDER_FAILURE" },
+      elite: { confirmedCount: 0 },
+      previousRegionalClassRank: 18,
+    });
+    expect(result).toMatchObject({
+      score: 94,
+      available: true,
+      previousStandingScore: null,
+      classRankFloor: 94,
+      classRankFloorApplied: true,
+      eliteFloorApplied: false,
+    });
+  });
+
+  it("examples: standing vs class-rank max", () => {
+    // standing 82.5, class rank #87 → 85
+    expect(
+      calculateExperiencePhase1({
+        previous: {
+          state: "STANDING",
+          standing: standing({
+            estimatedTopPercent: 5.5,
+            band: "TOP_10",
+            method: "INTERPOLATED",
+          }),
+        },
+        elite: { confirmedCount: 0 },
+        previousRegionalClassRank: 87,
+      }).score,
+    ).toBe(85);
+
+    // standing 70, class rank #18 → 94
+    expect(
+      calculateExperiencePhase1({
+        previous: {
+          state: "STANDING",
+          standing: standing({
+            estimatedTopPercent: 15,
+            band: "TOP_25",
+            method: "INTERPOLATED",
+          }),
+        },
+        elite: { confirmedCount: 0 },
+        previousRegionalClassRank: 18,
+      }).score,
+    ).toBe(94);
+
+    // standing 60, class rank #7 → 97
+    expect(
+      calculateExperiencePhase1({
+        previous: {
+          state: "STANDING",
+          standing: standing({
+            estimatedTopPercent: 25,
+            band: "TOP_25",
+            method: "EXACT_ANCHOR",
+          }),
+        },
+        elite: { confirmedCount: 0 },
+        previousRegionalClassRank: 7,
+      }).score,
+    ).toBe(97);
+
+    // standing 100, class rank #3, elite → 100
+    const top = calculateExperiencePhase1({
+      previous: {
+        state: "STANDING",
+        standing: standing({
+          estimatedTopPercent: 0.1,
+          band: "TOP_0_1_OR_BETTER",
+          method: "EXACT_ANCHOR",
+        }),
+      },
+      elite: { confirmedCount: 1 },
+      previousRegionalClassRank: 3,
+    });
+    expect(top.score).toBe(100);
+    expect(top.classRankFloor).toBe(100);
+    expect(top.classRankFloorApplied).toBe(false);
+    expect(top.eliteFloorApplied).toBe(false);
+  });
+
+  it("stronger previous standing wins over class-rank floor", () => {
+    const result = calculateExperiencePhase1({
+      previous: {
+        state: "STANDING",
+        standing: standing({
+          estimatedTopPercent: 0.1,
+          band: "TOP_0_1_OR_BETTER",
+          method: "EXACT_ANCHOR",
+        }),
+      },
+      elite: { confirmedCount: 0 },
+      previousRegionalClassRank: 50,
+    });
+    expect(result.score).toBe(100);
+    expect(result.classRankFloor).toBe(90);
+    expect(result.classRankFloorApplied).toBe(false);
+  });
+
+  it("elite floor and class-rank floor interact via max", () => {
+    const eliteWins = calculateExperiencePhase1({
+      previous: { state: "UNAVAILABLE" },
+      elite: { confirmedCount: 1 },
+      previousRegionalClassRank: 87,
+    });
+    expect(eliteWins.score).toBe(90);
+    expect(eliteWins.classRankFloor).toBe(85);
+    expect(eliteWins.eliteFloorApplied).toBe(true);
+
+    const classWins = calculateExperiencePhase1({
+      previous: { state: "UNAVAILABLE" },
+      elite: { confirmedCount: 1 },
+      previousRegionalClassRank: 7,
+    });
+    expect(classWins.score).toBe(97);
+    expect(classWins.classRankFloorApplied).toBe(true);
+    expect(classWins.eliteFloorApplied).toBe(false);
+  });
+
+  it("rank >100 gives no class-rank floor", () => {
+    const result = calculateExperiencePhase1({
+      previous: {
+        state: "STANDING",
+        standing: standing({
+          estimatedTopPercent: 5.5,
+          band: "TOP_10",
+          method: "INTERPOLATED",
+        }),
+      },
+      elite: { confirmedCount: 0 },
+      previousRegionalClassRank: 503,
+    });
+    expect(result.classRankFloor).toBeNull();
+    expect(result.score).toBeCloseTo(82.5, 10);
   });
 });

@@ -432,6 +432,8 @@ describe("runAuthoritativeScoring Experience Phase 1 passthrough", () => {
       score: 90,
       available: true,
       previousStandingScore: 55,
+      classRankFloor: null,
+      classRankFloorApplied: false,
       eliteFloorApplied: true,
       confirmedEliteTitleCount: 1,
       reason: null,

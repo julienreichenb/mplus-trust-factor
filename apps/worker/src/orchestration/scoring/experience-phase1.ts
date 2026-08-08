@@ -2,8 +2,9 @@
  * Experience Phase 1 — production evidence acquisition for refresh scoring.
  *
  * Builds an ExperiencePhase1Result from Blizzard previous-season rating +
- * persisted Season population policy + character achievements.
- * Never calls Raider.IO or WCL. Failures degrade Experience only.
+ * persisted Season population policy + character achievements + optional
+ * previous-season regional class rank (from the existing Raider.IO profile).
+ * Never calls WCL or per-character season cutoffs. Failures degrade Experience only.
  */
 
 import type {
@@ -19,6 +20,7 @@ import {
   calculateExperiencePhase1,
   estimatePreviousSeasonStanding,
   extractEliteCutoffHistory,
+  usablePreviousRegionalClassRank,
   type ExperiencePhase1PreviousEvidence,
   type ExperiencePhase1Result,
 } from "@mplus/scoring";
@@ -50,6 +52,11 @@ export interface BuildExperiencePhase1Input {
    * (unless elite/previous can be derived without network — they cannot).
    */
   allowProviderCalls: boolean;
+  /**
+   * Previous-season regional class rank from the already-fetched Raider.IO profile
+   * (`previousRanks.classRank.region`). Not fetched here — no extra RIO call.
+   */
+  previousRegionalClassRank?: number | null;
 }
 
 export interface BuildExperiencePhase1Result {
@@ -66,10 +73,14 @@ export interface BuildExperiencePhase1Result {
   };
 }
 
-function unavailableExperience(reason?: string): ExperiencePhase1Result {
+function unavailableExperience(
+  reason?: string,
+  previousRegionalClassRank?: number | null,
+): ExperiencePhase1Result {
   return calculateExperiencePhase1({
     previous: { state: "UNAVAILABLE", reason },
     elite: { confirmedCount: 0 },
+    previousRegionalClassRank,
   });
 }
 
@@ -144,9 +155,24 @@ export function mapPreviousEvidenceToPhase1Input(input: {
   };
 }
 
+/** Extract usable previous-season regional class rank from a RIO profile. */
+export function previousRegionalClassRankFromRioProfile(
+  profile:
+    | {
+        previousRanks?: Parameters<typeof usablePreviousRegionalClassRank>[0];
+      }
+    | null
+    | undefined,
+): number | null {
+  if (profile == null) return null;
+  return usablePreviousRegionalClassRank(profile.previousRanks ?? null);
+}
+
 /**
  * Acquire Experience Phase 1 evidence and compute the pure calculator result.
- * At most 1 previous-season profile + 1 achievements Blizzard call. No Raider.IO / WCL.
+ * At most 1 previous-season profile + 1 achievements Blizzard call.
+ * No WCL / no per-character season-cutoff. Class rank is caller-supplied from
+ * the existing Raider.IO profile (no extra RIO call here).
  */
 export async function buildExperiencePhase1Result(
   input: BuildExperiencePhase1Input,
@@ -156,10 +182,14 @@ export async function buildExperiencePhase1Result(
     eliteReason: null as string | null,
     bindingReason: null as string | null,
   };
+  const previousRegionalClassRank = input.previousRegionalClassRank ?? null;
 
   if (!input.allowProviderCalls) {
     return {
-      experience: unavailableExperience("PROVIDER_CALLS_DISABLED"),
+      experience: unavailableExperience(
+        "PROVIDER_CALLS_DISABLED",
+        previousRegionalClassRank,
+      ),
       previousSeasonProfileCalls: 0,
       achievementsCalls: 0,
       diagnostics: {
@@ -260,6 +290,7 @@ export async function buildExperiencePhase1Result(
   const experience = calculateExperiencePhase1({
     previous,
     elite: { confirmedCount: confirmedEliteCount },
+    previousRegionalClassRank,
   });
 
   return {
