@@ -376,7 +376,39 @@ describe("buildExperiencePhase1Result", () => {
     expect(result.experience.available).toBe(false);
   });
 
-  it("achievement failure does not discard usable previous score", async () => {
+  it("achievement failure does not discard a score already at/above the elite floor", async () => {
+    const prisma = createPrismaFake(
+      seasonRows({
+        currentStartsAt: new Date("2026-01-01T00:00:00.000Z"),
+        prevStartsAt: new Date("2025-06-01T00:00:00.000Z"),
+        prevMetadata: {
+          [EXPERIENCE_POPULATION_POLICY_METADATA_KEY]: completePolicyDoc(),
+        },
+      }),
+    );
+    // Rating above p999 threshold → standing 100; elite cannot change the result.
+    const result = await buildExperiencePhase1Result({
+      prisma: prisma as never,
+      identity,
+      currentSeasonId: CURRENT_ID,
+      regionCode: "EU",
+      blizzard: {
+        getMythicKeystoneSeasonProfile: vi.fn(async () => seasonProfile(3600)),
+        getCharacterAchievements: vi.fn(async () => {
+          throw new Error("achievements down");
+        }),
+      },
+      ctx,
+      persistProviderResult: vi.fn(async () => "p"),
+      allowProviderCalls: true,
+    });
+    expect(result.experience.available).toBe(true);
+    expect(result.experience.score).toBe(100);
+    expect(result.experience.confirmedEliteTitleCount).toBe(0);
+    expect(result.diagnostics.eliteReason).toContain("achievements down");
+  });
+
+  it("achievement failure remains unavailable when elite could raise the score", async () => {
     const prisma = createPrismaFake(
       seasonRows({
         currentStartsAt: new Date("2026-01-01T00:00:00.000Z"),
@@ -401,10 +433,70 @@ describe("buildExperiencePhase1Result", () => {
       persistProviderResult: vi.fn(async () => "p"),
       allowProviderCalls: true,
     });
-    expect(result.experience.available).toBe(true);
-    expect(result.experience.score).toBeCloseTo(82.5, 5);
-    expect(result.experience.confirmedEliteTitleCount).toBe(0);
+    expect(result.experience.available).toBe(false);
+    expect(result.experience.score).toBeNull();
+    expect(result.experience.reason).toBe("ELITE_EVIDENCE_UNAVAILABLE");
     expect(result.diagnostics.eliteReason).toContain("achievements down");
+  });
+
+  it("confirmed no activity + achievements failure remains unavailable (not zero)", async () => {
+    const prisma = createPrismaFake(
+      seasonRows({
+        currentStartsAt: new Date("2026-01-01T00:00:00.000Z"),
+        prevStartsAt: new Date("2025-06-01T00:00:00.000Z"),
+        prevMetadata: {
+          [EXPERIENCE_POPULATION_POLICY_METADATA_KEY]: completePolicyDoc(),
+        },
+      }),
+    );
+    const result = await buildExperiencePhase1Result({
+      prisma: prisma as never,
+      identity,
+      currentSeasonId: CURRENT_ID,
+      regionCode: "EU",
+      blizzard: {
+        getMythicKeystoneSeasonProfile: vi.fn(async () => seasonProfile(null, [])),
+        getCharacterAchievements: vi.fn(async () => {
+          throw new Error("achievements down");
+        }),
+      },
+      ctx,
+      persistProviderResult: vi.fn(async () => "p"),
+      allowProviderCalls: true,
+    });
+    expect(result.experience.available).toBe(false);
+    expect(result.experience.score).toBeNull();
+    expect(result.experience.reason).toBe("ELITE_EVIDENCE_UNAVAILABLE");
+  });
+
+  it("contradictory previous payload remains unavailable", async () => {
+    const prisma = createPrismaFake(
+      seasonRows({
+        currentStartsAt: new Date("2026-01-01T00:00:00.000Z"),
+        prevStartsAt: new Date("2025-06-01T00:00:00.000Z"),
+        prevMetadata: {
+          [EXPERIENCE_POPULATION_POLICY_METADATA_KEY]: completePolicyDoc(),
+        },
+      }),
+    );
+    const result = await buildExperiencePhase1Result({
+      prisma: prisma as never,
+      identity,
+      currentSeasonId: CURRENT_ID,
+      regionCode: "EU",
+      blizzard: {
+        getMythicKeystoneSeasonProfile: vi.fn(async () =>
+          seasonProfile(null, [{ id: "run-1" } as never]),
+        ),
+        getCharacterAchievements: vi.fn(async () => achievementsDto([])),
+      },
+      ctx,
+      persistProviderResult: vi.fn(async () => "p"),
+      allowProviderCalls: true,
+    });
+    expect(result.experience.available).toBe(false);
+    expect(result.experience.score).toBeNull();
+    expect(result.diagnostics.previousReason).toBe("NULL_RATING_WITH_RUNS");
   });
 
   it("previous-provider failure does not become zero", async () => {

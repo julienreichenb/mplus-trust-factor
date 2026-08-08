@@ -263,4 +263,47 @@ describe("scoreCharacter Experience Phase 1 optional input", () => {
     expect(details.experience).toEqual(experience);
     expect(details.partialComposite.effectiveWeights.experience ?? 0).toBe(0);
   });
+
+  it("score 0 is persisted and participates in the composite as available", async () => {
+    const saved: Array<Record<string, unknown>> = [];
+    const withoutExpSaved: Array<Record<string, unknown>> = [];
+    const experience: ExperiencePhase1Result = {
+      score: 0,
+      available: true,
+      previousStandingScore: 0,
+      classRankFloor: null,
+      classRankFloorApplied: false,
+      eliteFloorApplied: false,
+      confirmedEliteTitleCount: 0,
+      reason: null,
+    };
+
+    await scoreCharacter({
+      ...baseScoreInput(),
+      prisma: fakePrisma(withoutExpSaved),
+    });
+    await scoreCharacter({
+      ...baseScoreInput({ experience }),
+      prisma: fakePrisma(saved),
+    });
+
+    expect(saved[0]!.experience).toBe(0);
+    expect(saved[0]!.experience).not.toBeNull();
+    const details = saved[0]!.dimensionDetails as {
+      experience: ExperiencePhase1Result;
+      partialComposite: {
+        availableCount: number;
+        effectiveWeights: Record<string, number>;
+      };
+    };
+    expect(details.experience).toEqual(experience);
+    expect(details.partialComposite.effectiveWeights.experience).toBeGreaterThan(0);
+    expect(details.partialComposite.availableCount).toBeGreaterThan(
+      (withoutExpSaved[0]!.dimensionDetails as { partialComposite: { availableCount: number } })
+        .partialComposite.availableCount,
+    );
+    // Available Experience 0 is a real dimension score (not excluded / not null).
+    expect(saved[0]!.composite).toBe(0);
+    expect(saved[0]!.composite).not.toBe(withoutExpSaved[0]!.composite);
+  });
 });

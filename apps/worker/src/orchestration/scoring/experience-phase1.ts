@@ -79,7 +79,7 @@ function unavailableExperience(
 ): ExperiencePhase1Result {
   return calculateExperiencePhase1({
     previous: { state: "UNAVAILABLE", reason },
-    elite: { confirmedCount: 0 },
+    elite: { state: "UNAVAILABLE", reason },
     previousRegionalClassRank,
   });
 }
@@ -206,7 +206,10 @@ export async function buildExperiencePhase1Result(
     state: "UNAVAILABLE",
     reason: "NOT_ATTEMPTED",
   };
-  let confirmedEliteCount = 0;
+  let elite: { state: "OK"; confirmedCount: number } | { state: "UNAVAILABLE"; reason: string } = {
+    state: "OK",
+    confirmedCount: 0,
+  };
 
   const currentRow = await input.prisma.season.findUnique({
     where: { id: input.currentSeasonId },
@@ -274,22 +277,26 @@ export async function buildExperiencePhase1Result(
   }
 
   // Achievements: always attempt once when providers are allowed (independent of previous).
+  // Successful empty result (0 elite titles) is resolved absence — not a failure.
   achievementsCalls = 1;
   try {
     const achievementsResult: ProviderResult<BlizzardCharacterAchievementsDTO> =
       await input.blizzard.getCharacterAchievements(input.identity, input.ctx);
     await input.persistProviderResult(achievementsResult);
-    const elite = extractEliteCutoffHistory(achievementsResult.data);
-    confirmedEliteCount = elite.confirmedCount;
+    const eliteHistory = extractEliteCutoffHistory(achievementsResult.data);
+    elite = { state: "OK", confirmedCount: eliteHistory.confirmedCount };
   } catch (cause) {
     diagnostics.eliteReason =
       cause instanceof Error ? cause.message : "GET_CHARACTER_ACHIEVEMENTS_FAILED";
-    confirmedEliteCount = 0;
+    elite = {
+      state: "UNAVAILABLE",
+      reason: diagnostics.eliteReason,
+    };
   }
 
   const experience = calculateExperiencePhase1({
     previous,
-    elite: { confirmedCount: confirmedEliteCount },
+    elite,
     previousRegionalClassRank,
   });
 

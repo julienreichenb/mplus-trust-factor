@@ -649,13 +649,16 @@ export {
   scorePreviousSeasonStanding,
   scoreRegionalClassRankFloor,
   usablePreviousRegionalClassRank,
+  normalizeExperiencePhase1EliteEvidence,
   calculateExperiencePhase1,
 } from "./experience/phase1/calculate.js";
 export type {
   ExperiencePhase1PreviousEvidence,
+  ExperiencePhase1EliteEvidence,
   ExperiencePhase1UnavailableReason,
   ExperiencePhase1Result,
   CalculateExperiencePhase1Input,
+  CalculateExperiencePhase1EliteInput,
 } from "./experience/phase1/calculate.js";
 
 /** Survival V2 Phase 2 calculator (contextual defensive / recovery). */
