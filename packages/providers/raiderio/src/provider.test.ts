@@ -77,7 +77,7 @@ describe("FixtureRaiderIoProvider", () => {
       43_200,
     );
     expect(meta.provider).toBe("raiderio");
-    expect(meta.schemaVersion).toBe("0.62.5+cutoffs-v2");
+    expect(meta.schemaVersion).toBe("0.62.5+cutoffs-v3");
   });
 
   it("returns season cutoffs with full percentile anchors and preserves top25Percent", async () => {
@@ -138,7 +138,7 @@ describe("FixtureRaiderIoProvider", () => {
       { region: "eu", season: "season-mn-1" },
       86_400,
     );
-    expect(meta.schemaVersion).toBe("0.62.5+cutoffs-v2");
+    expect(meta.schemaVersion).toBe("0.62.5+cutoffs-v3");
   });
 
   it("returns static data with resolved expansion and periods", async () => {

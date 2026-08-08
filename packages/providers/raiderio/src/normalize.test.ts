@@ -212,6 +212,57 @@ describe("normalizeSeasonCutoffs", () => {
     expect(seasonCutoffsHaveAnyThreshold(cutoffs)).toBe(false);
   });
 
+  it("maps remapped historical cutoffs that only expose all.quantileMinValue (season-tww-3 shape)", () => {
+    // Live EU season-tww-3 (isRemappedSeason): percentile nodes omit top-level `score`.
+    const raw: RawSeasonCutoffsResponse = {
+      cutoffs: {
+        updatedAt: "Wed Jan 28 2026 19:41:04 GMT+0000 (Coordinated Universal Time)",
+        p999: {
+          all: {
+            quantile: 0.999,
+            quantileMinValue: 3946.97,
+            quantilePopulationCount: 900,
+            quantilePopulationFraction: 0.001,
+            totalPopulationCount: 900_000,
+          },
+        },
+        p990: { all: { quantile: 0.99, quantileMinValue: 3602.13 } },
+        p900: { all: { quantile: 0.9, quantileMinValue: 3114.82 } },
+        p750: { all: { quantile: 0.75, quantileMinValue: 2876.44 } },
+        p600: { all: { quantile: 0.6, quantileMinValue: 2558.75 } },
+      },
+    };
+    const cutoffs = normalizeSeasonCutoffs(raw, "EU", "season-tww-3");
+    expect(cutoffs.top0_1Percent).toEqual({
+      score: 3946.97,
+      quantile: "p999",
+      label: "top_0_1_percent",
+      quantilePopulationCount: 900,
+      totalPopulationCount: 900_000,
+    });
+    expect(cutoffs.top1Percent?.score).toBe(3602.13);
+    expect(cutoffs.top10Percent?.score).toBe(3114.82);
+    expect(cutoffs.top25Percent?.score).toBe(2876.44);
+    expect(cutoffs.top40Percent?.score).toBe(2558.75);
+    expect(seasonCutoffsHaveAnyThreshold(cutoffs)).toBe(true);
+  });
+
+  it("prefers top-level score over all.quantileMinValue when both exist", () => {
+    const cutoffs = normalizeSeasonCutoffs(
+      {
+        cutoffs: {
+          p750: {
+            score: 2650.5,
+            all: { quantileMinValue: 9999 },
+          },
+        },
+      },
+      "EU",
+      "season-mn-1",
+    );
+    expect(cutoffs.top25Percent?.score).toBe(2650.5);
+  });
+
   it("treats p990-only payload as useful cutoff evidence", () => {
     const cutoffs = normalizeSeasonCutoffs(
       { cutoffs: { p990: { score: 3201.5 } } },

@@ -350,8 +350,16 @@ function normalizeCutoffThreshold(
   quantile: RaiderIoCutoffQuantile,
   label: RaiderIoCutoffLabel,
 ): RaiderIoCutoffThreshold | null {
-  if (node?.score === undefined || !Number.isFinite(node.score)) return null;
-  const all = node.all;
+  // Current seasons expose top-level `score`; remapped/historical seasons often
+  // only expose `all.quantileMinValue` (observed for season-tww-3 / isRemappedSeason).
+  const scoreCandidate =
+    node?.score !== undefined && Number.isFinite(node.score)
+      ? node.score
+      : node?.all?.quantileMinValue !== undefined && Number.isFinite(node.all.quantileMinValue)
+        ? node.all.quantileMinValue
+        : undefined;
+  if (scoreCandidate === undefined) return null;
+  const all = node?.all;
   const quantilePopulationCount =
     all?.quantilePopulationCount !== undefined && Number.isFinite(all.quantilePopulationCount)
       ? all.quantilePopulationCount
@@ -361,7 +369,7 @@ function normalizeCutoffThreshold(
       ? all.totalPopulationCount
       : null;
   return {
-    score: node.score,
+    score: scoreCandidate,
     quantile,
     label,
     quantilePopulationCount,
