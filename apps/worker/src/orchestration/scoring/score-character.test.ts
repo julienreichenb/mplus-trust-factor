@@ -3,6 +3,7 @@
  */
 import { describe, expect, it } from "vitest";
 import type { EvidenceCandidateMetadataV2 } from "@mplus/contracts";
+import type { ExperiencePhase1Result } from "@mplus/scoring";
 import { createMemoryOrchestrationPorts } from "./run-orchestration/memory-ports.js";
 import { scoreCharacter, SCORING_VERSION } from "./score-character.js";
 
@@ -34,80 +35,87 @@ function candidate(
   };
 }
 
-function fakePrisma() {
-  let scoreWrites = 0;
+const DUNGEONS = [
+  "ara-kara",
+  "city-of-threads",
+  "the-dawnbreaker",
+  "the-stonevault",
+  "mists-of-tirna-scithe",
+  "the-necrotic-wake",
+  "siege-of-boralus",
+  "grim-batol",
+];
+
+function allCandidates() {
+  return DUNGEONS.flatMap((slug, i) => [
+    candidate(slug, `R${i}A`, 1, 1),
+    candidate(slug, `R${i}B`, 2, 1),
+  ]);
+}
+
+function fakePrisma(saved: Array<Record<string, unknown>> = []) {
   return {
-    scoreWrites: () => scoreWrites,
+    scoreWrites: () => saved.length,
     scoreModel: {
       findUnique: async () => ({ config: {} }),
     },
     characterScore: {
       findUnique: async () => null,
       upsert: async ({ create }: { create: Record<string, unknown> }) => {
-        scoreWrites += 1;
-        return {
-          id: "score-1",
-          ...create,
-        };
+        const row = { id: `score-${saved.length + 1}`, ...create };
+        saved.push(row);
+        return row;
       },
     },
   } as never & { scoreWrites: () => number };
 }
 
+const ensureUnavailable = async () =>
+  ({
+    state: "UNAVAILABLE" as const,
+    data: null,
+    reason: "performance_aggregate_unavailable_replay",
+    cache: "MISS" as const,
+    providerCalls: 0,
+    created: false as const,
+    updated: false as const,
+    aggregateRowId: null,
+    contentHash: null,
+  });
+
+function baseScoreInput(overrides: Record<string, unknown> = {}) {
+  return {
+    identity: {
+      characterId: CHARACTER_ID,
+      region: "EU",
+      realm: "archimonde",
+      characterName: "Tester",
+    },
+    seasonId: SEASON_ID,
+    seasonSlug: "midnight-season-1",
+    role: "DPS" as const,
+    classSlug: "mage",
+    specSlug: "fire",
+    activeDungeonSlugs: DUNGEONS,
+    candidates: allCandidates(),
+    evidenceCutoffAt: "2026-01-01T00:00:00.000Z",
+    highKeyPolicyId: "policy-1",
+    scoringModelId: "model-1",
+    allowProviderCalls: false,
+    zoneId: 47,
+    ensurePerformanceAggregate: ensureUnavailable,
+    ports: createMemoryOrchestrationPorts(),
+    artifacts: {} as never,
+    evidence: {} as never,
+    ...overrides,
+  };
+}
+
 describe("scoreCharacter cache-backed pipeline", () => {
   it("provider-forbidden run performs zero provider calls", async () => {
-    const dungeons = [
-      "ara-kara",
-      "city-of-threads",
-      "the-dawnbreaker",
-      "the-stonevault",
-      "mists-of-tirna-scithe",
-      "the-necrotic-wake",
-      "siege-of-boralus",
-      "grim-batol",
-    ];
-    const candidates = dungeons.flatMap((slug, i) => [
-      candidate(slug, `R${i}A`, 1, 1),
-      candidate(slug, `R${i}B`, 2, 1),
-    ]);
-
-    const ports = createMemoryOrchestrationPorts();
-    const ensureUnavailable = async () =>
-      ({
-        state: "UNAVAILABLE" as const,
-        data: null,
-        reason: "performance_aggregate_unavailable_replay",
-        cache: "MISS" as const,
-        providerCalls: 0,
-        created: false as const,
-        updated: false as const,
-        aggregateRowId: null,
-        contentHash: null,
-      });
     const cold = await scoreCharacter({
-      identity: {
-        characterId: CHARACTER_ID,
-        region: "EU",
-        realm: "archimonde",
-        characterName: "Tester",
-      },
-      seasonId: SEASON_ID,
-      seasonSlug: "midnight-season-1",
-      role: "DPS",
-      classSlug: "mage",
-      specSlug: "fire",
-      activeDungeonSlugs: dungeons,
-      candidates,
-      evidenceCutoffAt: "2026-01-01T00:00:00.000Z",
-      highKeyPolicyId: "policy-1",
-      scoringModelId: "model-1",
-      allowProviderCalls: false,
-      zoneId: 47,
-      ensurePerformanceAggregate: ensureUnavailable,
-      ports,
+      ...baseScoreInput(),
       prisma: fakePrisma(),
-      artifacts: {} as never,
-      evidence: {} as never,
     });
 
     expect(cold.providerCalls).toBe(0);
@@ -119,58 +127,15 @@ describe("scoreCharacter cache-backed pipeline", () => {
     );
 
     const noPersist = await scoreCharacter({
-      identity: {
-        characterId: CHARACTER_ID,
-        region: "EU",
-        realm: "archimonde",
-        characterName: "Tester",
-      },
-      seasonId: SEASON_ID,
-      seasonSlug: "midnight-season-1",
-      role: "DPS",
-      classSlug: "mage",
-      specSlug: "fire",
-      activeDungeonSlugs: dungeons,
-      candidates,
-      evidenceCutoffAt: "2026-01-01T00:00:00.000Z",
-      highKeyPolicyId: "policy-1",
-      scoringModelId: "model-1",
-      allowProviderCalls: false,
-      persistCharacterScore: false,
-      zoneId: 47,
-      ensurePerformanceAggregate: ensureUnavailable,
-      ports,
+      ...baseScoreInput({ persistCharacterScore: false }),
       prisma: fakePrisma(),
-      artifacts: {} as never,
-      evidence: {} as never,
     });
     expect(noPersist.characterScoreId).toBeNull();
     expect(noPersist.orchestration.selectedSlotCount).toBeGreaterThanOrEqual(0);
 
     const warm = await scoreCharacter({
-      identity: {
-        characterId: CHARACTER_ID,
-        region: "EU",
-        realm: "archimonde",
-        characterName: "Tester",
-      },
-      seasonId: SEASON_ID,
-      seasonSlug: "midnight-season-1",
-      role: "DPS",
-      classSlug: "mage",
-      specSlug: "fire",
-      activeDungeonSlugs: dungeons,
-      candidates,
-      evidenceCutoffAt: "2026-01-01T00:00:00.000Z",
-      highKeyPolicyId: "policy-1",
-      scoringModelId: "model-1",
-      allowProviderCalls: false,
-      zoneId: 47,
-      ensurePerformanceAggregate: ensureUnavailable,
-      ports,
+      ...baseScoreInput(),
       prisma: fakePrisma(),
-      artifacts: {} as never,
-      evidence: {} as never,
     });
 
     expect(warm.providerCalls).toBe(0);
@@ -196,5 +161,106 @@ describe("scoreCharacter cache-backed pipeline", () => {
       expect(text).not.toMatch(new RegExp("selectCanonical" + "CompatiblePackageHead"));
       expect(text).not.toMatch(new RegExp("repairIncompatible" + "CapabilityPackages"));
     }
+  });
+});
+
+describe("scoreCharacter Experience Phase 1 optional input", () => {
+  it("omitted experience keeps unavailable Experience and null persistence", async () => {
+    const saved: Array<Record<string, unknown>> = [];
+    const result = await scoreCharacter({
+      ...baseScoreInput(),
+      prisma: fakePrisma(saved),
+    });
+
+    expect(result.providerCalls).toBe(0);
+    expect(saved).toHaveLength(1);
+    expect(saved[0]!.experience).toBeNull();
+    const details = saved[0]!.dimensionDetails as {
+      experience: unknown;
+      partialComposite: { availableCount: number; effectiveWeights: Record<string, number> };
+    };
+    expect(details.experience).toBeNull();
+    expect(details.partialComposite.effectiveWeights.experience ?? 0).toBe(0);
+  });
+
+  it("available experience is included in partial composite and persisted", async () => {
+    const saved: Array<Record<string, unknown>> = [];
+    const withoutExpSaved: Array<Record<string, unknown>> = [];
+    const experience: ExperiencePhase1Result = {
+      score: 75,
+      available: true,
+      previousStandingScore: 75,
+      classRankFloor: null,
+      classRankFloorApplied: false,
+      eliteFloorApplied: false,
+      confirmedEliteTitleCount: 0,
+      reason: null,
+    };
+
+    const without = await scoreCharacter({
+      ...baseScoreInput(),
+      prisma: fakePrisma(withoutExpSaved),
+    });
+    const withExp = await scoreCharacter({
+      ...baseScoreInput({ experience }),
+      prisma: fakePrisma(saved),
+    });
+
+    expect(withExp.providerCalls).toBe(without.providerCalls);
+    expect(withExp.providerCalls).toBe(0);
+    expect(saved[0]!.experience).toBe(75);
+    expect(saved[0]!.performance).toBe(withoutExpSaved[0]!.performance);
+    expect(saved[0]!.survival).toBe(withoutExpSaved[0]!.survival);
+    expect(saved[0]!.utility).toBe(withoutExpSaved[0]!.utility);
+
+    const details = saved[0]!.dimensionDetails as {
+      experience: ExperiencePhase1Result;
+      partialComposite: {
+        availableCount: number;
+        effectiveWeights: Record<string, number>;
+      };
+    };
+    expect(details.experience).toEqual(experience);
+    expect(details.partialComposite.effectiveWeights.experience).toBeGreaterThan(0);
+    expect(details.partialComposite.availableCount).toBeGreaterThan(
+      (withoutExpSaved[0]!.dimensionDetails as { partialComposite: { availableCount: number } })
+        .partialComposite.availableCount,
+    );
+    expect(saved[0]!.composite).not.toBe(withoutExpSaved[0]!.composite);
+  });
+
+  it("unavailable/null experience stays excluded from composite", async () => {
+    const saved: Array<Record<string, unknown>> = [];
+    const experience: ExperiencePhase1Result = {
+      score: null,
+      available: false,
+      previousStandingScore: null,
+      classRankFloor: null,
+      classRankFloorApplied: false,
+      eliteFloorApplied: false,
+      confirmedEliteTitleCount: 0,
+      reason: "PREVIOUS_EVIDENCE_UNAVAILABLE",
+    };
+    const baselineSaved: Array<Record<string, unknown>> = [];
+    await scoreCharacter({
+      ...baseScoreInput(),
+      prisma: fakePrisma(baselineSaved),
+    });
+    await scoreCharacter({
+      ...baseScoreInput({ experience }),
+      prisma: fakePrisma(saved),
+    });
+
+    expect(saved[0]!.experience).toBeNull();
+    expect(saved[0]!.composite).toBe(baselineSaved[0]!.composite);
+    expect(saved[0]!.performance).toBe(baselineSaved[0]!.performance);
+    expect(saved[0]!.survival).toBe(baselineSaved[0]!.survival);
+    expect(saved[0]!.utility).toBe(baselineSaved[0]!.utility);
+    const details = saved[0]!.dimensionDetails as {
+      experience: ExperiencePhase1Result;
+      partialComposite: { effectiveWeights: Record<string, number> };
+    };
+    expect(details.experience).toEqual(experience);
+    expect(details.partialComposite.effectiveWeights.experience ?? 0).toBe(0);
   });
 });

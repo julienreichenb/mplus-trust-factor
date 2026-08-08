@@ -41,6 +41,7 @@ import {
   profileAggregateFactFromPersisted,
   resolveTunableWeights,
   trustDimensionWeightsFromTunable,
+  type ExperiencePhase1Result,
   type ScoreModelConfigV1,
   type SeasonDifficultyPolicyV2,
 } from "@mplus/scoring";
@@ -111,6 +112,12 @@ export interface ScoreCharacterInput {
     specSlug?: string | null;
     role?: string | null;
   };
+  /**
+   * Optional pre-computed Experience Phase 1 result. When omitted/null, Experience
+   * stays unavailable (same as historical behavior). scoreCharacter does not
+   * acquire Experience evidence.
+   */
+  experience?: ExperiencePhase1Result | null;
   /**
    * Active WCL Mythic+ zone for CharacterPerformanceAggregate.
    * Required positive integer — missing/invalid is configuration failure, not player absence.
@@ -315,6 +322,13 @@ export async function scoreCharacter(
   };
   const minConfidenceForGrade = modelConfig.minConfidenceForGrade ?? 0.35;
 
+  const experienceResult = input.experience ?? null;
+  const experienceScore = experienceResult?.score ?? null;
+  const experienceAvailable =
+    experienceResult?.available === true &&
+    experienceScore != null &&
+    Number.isFinite(experienceScore);
+
   const partial = computePartialComposite(
     [
       {
@@ -340,8 +354,8 @@ export async function scoreCharacter(
       },
       {
         key: "experience",
-        score: null,
-        available: false,
+        score: experienceScore,
+        available: experienceAvailable,
         baseWeight: dimensionWeights.experience,
         confidence: null,
       },
@@ -364,7 +378,7 @@ export async function scoreCharacter(
       performance: performance?.score ?? null,
       utility: utility?.score ?? null,
       survival: survival?.score ?? null,
-      experience: null,
+      experience: experienceScore,
       composite,
       confidence,
       tier,
@@ -425,6 +439,7 @@ export async function scoreCharacter(
                 relativeDamageMode: survival.relativeDamageMode,
               }
             : null,
+          experience: experienceResult,
           performanceAggregate: {
             state: performanceAggregate.state,
             reason: performanceAggregate.reason,

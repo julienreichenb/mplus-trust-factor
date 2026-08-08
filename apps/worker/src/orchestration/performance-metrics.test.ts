@@ -10,7 +10,11 @@ describe("buildMythicRatingObservation", () => {
         seasonSlug: "season-tww-3",
         region: "EU",
         updatedAt: "2026-07-01T00:00:00.000Z",
+        top0_1Percent: null,
+        top1Percent: null,
+        top10Percent: null,
         top25Percent: { score: 3000, quantile: "p750", label: "top_25_percent" },
+        top40Percent: null,
         attribution: {
           provider: "raiderio",
           displayText: "Data from Raider.IO",

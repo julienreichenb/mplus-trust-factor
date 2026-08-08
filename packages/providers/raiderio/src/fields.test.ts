@@ -9,10 +9,11 @@ describe("buildMinimalCharacterFields", () => {
     expect(fields).toContain("mythic_plus_scores_by_season:current:previous");
     expect(fields).toContain("previous");
     expect(fields).toContain("mythic_plus_ranks");
+    expect(fields).toContain("previous_mythic_plus_ranks");
     expect(fields).toContain("mythic_plus_recent_runs");
     expect(fields).toContain("mythic_plus_best_runs");
     expect(fields).not.toContain("mythic_plus_highest_level_runs");
     expect(fields).not.toContain("raid_progression");
-    expect(MINIMAL_CHARACTER_FIELDS.length).toBe(6);
+    expect(MINIMAL_CHARACTER_FIELDS.length).toBe(7);
   });
 });

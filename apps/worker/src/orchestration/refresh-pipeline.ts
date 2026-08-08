@@ -3868,6 +3868,7 @@ export async function runRefreshPipeline(
     region: identity.region,
     realm: identity.realmSlug,
     characterName: identity.name,
+    raiderIoProfile,
   });
   const orch = scoringOutcome.scoreResult?.orchestration;
   logger.info(

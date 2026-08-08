@@ -2,6 +2,8 @@ import type {
   RaiderIoAttribution,
   RaiderIoBoostSupportFacts,
   RaiderIoCharacterProfile,
+  RaiderIoCutoffLabel,
+  RaiderIoCutoffQuantile,
   RaiderIoCutoffThreshold,
   RaiderIoGearItem,
   RaiderIoGearSummary,
@@ -23,6 +25,7 @@ import { normalizeName, normalizeRealmSlug, normalizeRegion } from "@mplus/domai
 import { RAIDERIO_ATTRIBUTION, RAIDERIO_STALE_CRAWL_THRESHOLD_MS } from "./constants.js";
 import type {
   RawCharacterProfileResponse,
+  RawCutoffQuantile,
   RawGear,
   RawKeystoneRun,
   RawMythicPlusRanks,
@@ -76,6 +79,21 @@ function rankNumber(value: number | RawRankBucket | undefined, prefer: "world" |
   return value[prefer] ?? value.world ?? value.region ?? value.realm ?? null;
 }
 
+function mapClassRank(raw: RawMythicPlusRanks): RaiderIoRankSummary["classRank"] {
+  if (typeof raw.class === "object" && raw.class) {
+    return {
+      world: typeof raw.class.world === "number" ? raw.class.world : null,
+      region: typeof raw.class.region === "number" ? raw.class.region : null,
+      realm: typeof raw.class.realm === "number" ? raw.class.realm : null,
+    };
+  }
+  // Legacy flat class number has ambiguous scope — preserve as world only.
+  if (typeof raw.class === "number") {
+    return { world: raw.class, region: null, realm: null };
+  }
+  return { world: null, region: null, realm: null };
+}
+
 export function mapRanks(raw: RawMythicPlusRanks): RaiderIoRankSummary {
   const overallBucket = typeof raw.overall === "object" ? raw.overall : null;
   const classBucket = typeof raw.class === "object" ? raw.class : null;
@@ -86,6 +104,7 @@ export function mapRanks(raw: RawMythicPlusRanks): RaiderIoRankSummary {
   return {
     overall: rankNumber(raw.overall, "world"),
     class: rankNumber(raw.class, "world"),
+    classRank: mapClassRank(raw),
     server: overallBucket?.realm ?? classBucket?.realm ?? raw.server ?? null,
     world: overallBucket?.world ?? (typeof raw.world === "number" ? raw.world : rankNumber(raw.overall, "world")),
     region: overallBucket?.region ?? (typeof raw.region === "number" ? raw.region : rankNumber(raw.overall, "region")),
@@ -311,6 +330,9 @@ export function normalizeCharacterProfile(
     currentSeason,
     previousSeason,
     ranks: raw.mythic_plus_ranks ? mapRanks(raw.mythic_plus_ranks) : null,
+    previousRanks: raw.previous_mythic_plus_ranks
+      ? mapRanks(raw.previous_mythic_plus_ranks)
+      : null,
     recentRuns,
     bestRuns,
     highestLevelRuns,
@@ -327,18 +349,62 @@ export function normalizeSeasonCutoffs(
   seasonSlug: string,
 ): RaiderIoSeasonCutoffs {
   const cutoffs = raw.cutoffs;
-  const top25Percent: RaiderIoCutoffThreshold | null =
-    cutoffs?.p750?.score !== undefined
-      ? { score: cutoffs.p750.score, quantile: "p750", label: "top_25_percent" }
-      : null;
 
   return {
     region: normalizeRegion(region),
     seasonSlug: seasonSlug || null,
     updatedAt: cutoffs?.updatedAt ?? null,
-    top25Percent,
+    // Semantic map (do not invert): p999 = 99.9th pct ≈ top 0.1%, etc.
+    top0_1Percent: normalizeCutoffThreshold(cutoffs?.p999, "p999", "top_0_1_percent"),
+    top1Percent: normalizeCutoffThreshold(cutoffs?.p990, "p990", "top_1_percent"),
+    top10Percent: normalizeCutoffThreshold(cutoffs?.p900, "p900", "top_10_percent"),
+    top25Percent: normalizeCutoffThreshold(cutoffs?.p750, "p750", "top_25_percent"),
+    top40Percent: normalizeCutoffThreshold(cutoffs?.p600, "p600", "top_40_percent"),
     attribution: buildAttribution(),
   };
+}
+
+function normalizeCutoffThreshold(
+  node: RawCutoffQuantile | undefined,
+  quantile: RaiderIoCutoffQuantile,
+  label: RaiderIoCutoffLabel,
+): RaiderIoCutoffThreshold | null {
+  // Current seasons expose top-level `score`; remapped/historical seasons often
+  // only expose `all.quantileMinValue` (observed for season-tww-3 / isRemappedSeason).
+  const scoreCandidate =
+    node?.score !== undefined && Number.isFinite(node.score)
+      ? node.score
+      : node?.all?.quantileMinValue !== undefined && Number.isFinite(node.all.quantileMinValue)
+        ? node.all.quantileMinValue
+        : undefined;
+  if (scoreCandidate === undefined) return null;
+  const all = node?.all;
+  const quantilePopulationCount =
+    all?.quantilePopulationCount !== undefined && Number.isFinite(all.quantilePopulationCount)
+      ? all.quantilePopulationCount
+      : null;
+  const totalPopulationCount =
+    all?.totalPopulationCount !== undefined && Number.isFinite(all.totalPopulationCount)
+      ? all.totalPopulationCount
+      : null;
+  return {
+    score: scoreCandidate,
+    quantile,
+    label,
+    quantilePopulationCount,
+    totalPopulationCount,
+  };
+}
+
+/** True when at least one recognized regional percentile threshold is present. */
+export function seasonCutoffsHaveAnyThreshold(data: RaiderIoSeasonCutoffs): boolean {
+  return Boolean(
+    data.top0_1Percent ||
+      data.top1Percent ||
+      data.top10Percent ||
+      data.top25Percent ||
+      data.top40Percent,
+  );
 }
 
 export function unavailableSeasonCutoffs(region: RegionCode, seasonSlug: string): RaiderIoSeasonCutoffs {
@@ -346,7 +412,11 @@ export function unavailableSeasonCutoffs(region: RegionCode, seasonSlug: string)
     region: normalizeRegion(region),
     seasonSlug: seasonSlug || null,
     updatedAt: null,
+    top0_1Percent: null,
+    top1Percent: null,
+    top10Percent: null,
     top25Percent: null,
+    top40Percent: null,
     attribution: buildAttribution(),
   };
 }

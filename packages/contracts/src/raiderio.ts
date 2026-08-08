@@ -23,11 +23,22 @@ export interface RaiderIoSeasonScores {
   isPreviousSeason: boolean;
 }
 
+/** Nested Mythic+ class ranks (do not confuse with overall regional rank). */
+export interface RaiderIoClassRank {
+  world: number | null;
+  region: number | null;
+  realm: number | null;
+}
+
 export interface RaiderIoRankSummary {
   overall: number | null;
+  /** Legacy scalar: prefers class world rank when nested buckets are present. */
   class: number | null;
+  /** Explicit class rank buckets; `region` is regional class rank. */
+  classRank: RaiderIoClassRank;
   server: number | null;
   world: number | null;
+  /** Overall (all-class) regional rank — not class.region. */
   region: number | null;
   role: string | null;
 }
@@ -109,6 +120,8 @@ export interface RaiderIoCharacterProfile {
   currentSeason: RaiderIoSeasonScores | null;
   previousSeason: RaiderIoSeasonScores | null;
   ranks: RaiderIoRankSummary | null;
+  /** Previous-season Mythic+ ranks (`previous_mythic_plus_ranks`). */
+  previousRanks: RaiderIoRankSummary | null;
   recentRuns: RaiderIoRunCandidate[];
   bestRuns: RaiderIoRunCandidate[];
   highestLevelRuns: RaiderIoRunCandidate[];
@@ -118,17 +131,39 @@ export interface RaiderIoCharacterProfile {
   attribution: RaiderIoAttribution;
 }
 
+export type RaiderIoCutoffQuantile = "p999" | "p990" | "p900" | "p750" | "p600";
+
+export type RaiderIoCutoffLabel =
+  | "top_0_1_percent"
+  | "top_1_percent"
+  | "top_10_percent"
+  | "top_25_percent"
+  | "top_40_percent";
+
 export interface RaiderIoCutoffThreshold {
   score: number;
-  quantile: "p750";
-  label: "top_25_percent";
+  quantile: RaiderIoCutoffQuantile;
+  label: RaiderIoCutoffLabel;
+  /** Combined (`all`) population at/above this quantile when Raider.IO provides it. */
+  quantilePopulationCount?: number | null;
+  /** Combined (`all`) regional Mythic+ population when Raider.IO provides it. */
+  totalPopulationCount?: number | null;
 }
 
 export interface RaiderIoSeasonCutoffs {
   region: RegionCode;
   seasonSlug: string | null;
   updatedAt: IsoDateTime | null;
+  /** p999 — 99.9th percentile threshold ≈ top 0.1%. */
+  top0_1Percent: RaiderIoCutoffThreshold | null;
+  /** p990 — 99th percentile threshold ≈ top 1%. */
+  top1Percent: RaiderIoCutoffThreshold | null;
+  /** p900 — 90th percentile threshold ≈ top 10%. */
+  top10Percent: RaiderIoCutoffThreshold | null;
+  /** p750 — 75th percentile threshold ≈ top 25%. */
   top25Percent: RaiderIoCutoffThreshold | null;
+  /** p600 — 60th percentile threshold ≈ top 40%. */
+  top40Percent: RaiderIoCutoffThreshold | null;
   attribution: RaiderIoAttribution;
 }
 

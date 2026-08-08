@@ -5,6 +5,7 @@
       "equipment": "equipment-key-items.json",
       "specializations": "specializations-multi.json",
       "media": "media-avatar.json",
+      "achievements": "character-achievements.json",
       "mythicIndex": "mythic-keystone-profile-index.json",
       "mythicSeason": "mythic-keystone-season-current.json"
     },
@@ -13,6 +14,7 @@
       "equipment": "equipment-key-items.json",
       "specializations": "specializations-multi.json",
       "media": "media-avatar.json",
+      "achievements": "character-achievements.json",
       "mythicIndex": "mythic-keystone-profile-index.json",
       "mythicSeason": "mythic-keystone-season-current.json"
     },
@@ -21,6 +23,7 @@
       "equipment": "partial-fields.json",
       "specializations": "specializations-multi.json",
       "media": "media-avatar.json",
+      "achievements": "character-achievements.json",
       "mythicIndex": "mythic-keystone-profile-index.json",
       "mythicSeason": "mythic-keystone-season-current.json"
     }

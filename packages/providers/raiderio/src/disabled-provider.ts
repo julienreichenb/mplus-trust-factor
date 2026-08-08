@@ -40,7 +40,10 @@ export class DisabledRaiderIoProvider implements RaiderIoProvider {
     disabledError("getSeasonCutoffs");
   }
 
-  async getStaticData(_ctx: ProviderFetchContext): Promise<ProviderResult<RaiderIoStaticData>> {
+  async getStaticData(
+    _ctx: ProviderFetchContext,
+    _options?: { expansionId?: number },
+  ): Promise<ProviderResult<RaiderIoStaticData>> {
     disabledError("getStaticData");
   }
 

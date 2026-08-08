@@ -2,10 +2,17 @@
  * Product refresh → scoreCharacter(). Single authoritative scoring path.
  * No legacy calculateScore, no V1/V2 branching, no supersession.
  */
-import type { EvidenceCandidateMetadataV2, EvidenceRole } from "@mplus/contracts";
-import type { ScoreSnapshotDTO } from "@mplus/contracts";
+import type {
+  EvidenceCandidateMetadataV2,
+  EvidenceRole,
+  ProviderFetchContext,
+  RaiderIoCharacterProfile,
+  ScoreSnapshotDTO,
+} from "@mplus/contracts";
 import { hashRefreshContract } from "@mplus/contracts";
+import type { ExperiencePhase1Result } from "@mplus/scoring";
 import type { WorkerContainer } from "../../container.js";
+import { recordProviderResult } from "../provider-recording.js";
 import { scoreCharacter, type ScoreCharacterResult } from "./score-character.js";
 import { scoreCharacterResultToSnapshotDto } from "./snapshot-from-character-score.js";
 import { createLiveCapabilityAcquireHook, observeAuthoritativeReportRevision } from "./run-orchestration/live-capability-adapter.js";
@@ -18,6 +25,11 @@ import {
   requireScoringZoneId,
 } from "./scoring-zone.js";
 import { findLatestFightRevision } from "./fight-details-persist.js";
+import {
+  allowExperienceBlizzardProviderCalls,
+  buildExperiencePhase1Result,
+  previousRegionalClassRankFromRioProfile,
+} from "./experience-phase1.js";
 
 export interface AuthoritativeScoringInput {
   container: WorkerContainer;
@@ -50,6 +62,16 @@ export interface AuthoritativeScoringInput {
   portsOverride?: RunOrchestrationPorts;
   /** Test seam for aggregate provider. */
   performanceAggregateProviderOverride?: FetchCharacterPerformanceAggregateProvider | null;
+  /**
+   * Test seam: when set (including null), skip Experience acquisition and pass
+   * this value through to scoreCharacter.
+   */
+  experienceOverride?: ExperiencePhase1Result | null;
+  /**
+   * Already-fetched Raider.IO profile from refresh enrichment. Used only for
+   * previous-season regional class rank — does not trigger an extra RIO call.
+   */
+  raiderIoProfile?: RaiderIoCharacterProfile | null;
 }
 
 export interface AuthoritativeScoringResult {
@@ -220,6 +242,58 @@ export async function runAuthoritativeScoring(
         ? resolvePerformanceAggregateProvider(input.container)
         : null;
 
+  let experience: ExperiencePhase1Result | null = null;
+  let experienceBlizzardCalls = 0;
+  if (input.experienceOverride !== undefined) {
+    experience = input.experienceOverride;
+  } else if (
+    allowExperienceBlizzardProviderCalls(input.container.env) &&
+    !input.container.disabledProviders.has("blizzard")
+  ) {
+    const experienceCtx: ProviderFetchContext = {
+      region: input.region,
+      requestId: `experience-phase1:${input.characterId}:${input.seasonId}`,
+      correlationId: fingerprint,
+      forceRefresh: false,
+      now: input.calculatedAt,
+    };
+    try {
+      const built = await buildExperiencePhase1Result({
+        prisma: input.container.prisma,
+        identity: {
+          region: input.region,
+          realmSlug: input.realm,
+          name: input.characterName,
+        },
+        currentSeasonId: input.seasonId,
+        regionCode: input.region,
+        blizzard: input.container.providers.blizzard,
+        ctx: experienceCtx,
+        persistProviderResult: (result) =>
+          recordProviderResult(input.container.repositories, result),
+        allowProviderCalls: true,
+        previousRegionalClassRank: previousRegionalClassRankFromRioProfile(
+          input.raiderIoProfile ?? null,
+        ),
+      });
+      experience = built.experience;
+      experienceBlizzardCalls =
+        built.previousSeasonProfileCalls + built.achievementsCalls;
+    } catch (error) {
+      // Experience must never break P/S/U scoring.
+      input.container.logger.warn(
+        {
+          event: "EXPERIENCE_PHASE1_FAILED",
+          characterId: input.characterId,
+          seasonId: input.seasonId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        "EXPERIENCE_PHASE1_FAILED",
+      );
+      experience = null;
+    }
+  }
+
   const scoreResult = await scoreCharacter({
     identity: {
       characterId: input.characterId,
@@ -251,6 +325,7 @@ export async function runAuthoritativeScoring(
     partition,
     performanceAggregateTtlSeconds: ttlSeconds,
     performanceAggregateProvider,
+    experience,
   });
 
   return {
@@ -266,6 +341,6 @@ export async function runAuthoritativeScoring(
       publicationEnabled: input.container.env.SCORING_PUBLICATION_ENABLED,
     }),
     scoreResult,
-    providerCalls: scoreResult.providerCalls,
+    providerCalls: scoreResult.providerCalls + experienceBlizzardCalls,
   };
 }

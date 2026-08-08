@@ -60,6 +60,7 @@ export const DEFAULT_TTL_SECONDS = {
   characterEquipment: 21_600,
   characterSpecializations: 21_600,
   characterMedia: 86_400,
+  characterAchievements: 86_400,
   characterMplusIndex: 21_600,
   characterMplusSeasonCurrent: 21_600,
   characterMplusSeasonHistorical: 2_592_000,

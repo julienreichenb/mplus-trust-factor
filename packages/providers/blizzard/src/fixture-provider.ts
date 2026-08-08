@@ -1,5 +1,6 @@
 import type {
   BlizzardProvider,
+  BlizzardCharacterAchievementsDTO,
   BlizzardCharacterMediaDTO,
   BlizzardDungeonDTO,
   BlizzardItemDTO,
@@ -27,6 +28,7 @@ import {
   buildIdentityDiagnostics,
   buildObservationEnvelope,
   buildProviderResult,
+  normalizeCharacterAchievements,
   normalizeCharacterProfile,
   normalizeCharacterSnapshot,
   normalizeDungeon,
@@ -50,6 +52,7 @@ import {
   type BlizzardPeriodDTO,
 } from "./normalize.js";
 import {
+  characterAchievementsSchema,
   characterProfileSchema,
   dungeonIndexSchema,
   dungeonSchema,
@@ -275,6 +278,27 @@ export class FixtureBlizzardProvider implements BlizzardProvider {
       cacheHit: true,
       statusCode: 200,
       expiresAt: ttlExpiry(DEFAULT_TTL_SECONDS.characterMedia),
+    });
+  }
+
+  async getCharacterAchievements(
+    identity: CharacterIdentityInput,
+    ctx: ProviderFetchContext,
+  ): Promise<ProviderResult<BlizzardCharacterAchievementsDTO>> {
+    const bundle = this.bundle(identity);
+    const raw = parseOrThrow(
+      characterAchievementsSchema,
+      bundle.achievements,
+      "character.achievements",
+    );
+    return buildProviderResult({
+      data: normalizeCharacterAchievements(raw),
+      ctx,
+      endpointKey: "character.achievements",
+      sourceUrl: this.characterSource(identity, "/achievements"),
+      cacheHit: true,
+      statusCode: 200,
+      expiresAt: ttlExpiry(DEFAULT_TTL_SECONDS.characterAchievements),
     });
   }
 

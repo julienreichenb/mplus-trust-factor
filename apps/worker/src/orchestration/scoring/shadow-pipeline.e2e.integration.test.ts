@@ -257,11 +257,13 @@ function rioProfile(name: string, realmSlug: string): RaiderIoCharacterProfile {
     ranks: {
       overall: 900,
       class: 40,
+      classRank: { world: 40, region: 20, realm: 3 },
       server: 3,
       world: 900,
       region: 300,
       role: "DPS",
     },
+    previousRanks: null,
     recentRuns: [],
     bestRuns: [],
     highestLevelRuns: [],

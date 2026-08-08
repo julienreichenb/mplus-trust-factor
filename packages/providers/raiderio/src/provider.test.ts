@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { ExternalApiError } from "@mplus/contracts";
 import { createRaiderIoProvider, DisabledRaiderIoProvider } from "./index.js";
 import { FixtureRaiderIoProvider } from "./fixture-provider.js";
@@ -77,22 +77,68 @@ describe("FixtureRaiderIoProvider", () => {
       43_200,
     );
     expect(meta.provider).toBe("raiderio");
-    expect(meta.schemaVersion).toBe("0.62.5");
+    expect(meta.schemaVersion).toBe("0.62.5+prev-ranks-v1");
   });
 
-  it("returns season cutoffs with top 25% threshold", async () => {
+  it("returns season cutoffs with full percentile anchors and preserves top25Percent", async () => {
     const result = await provider.getSeasonCutoffs("EU", "season-mn-1", { ...ctx, forceRefresh: true });
+    expect(result.data.top0_1Percent?.quantile).toBe("p999");
+    expect(result.data.top0_1Percent?.label).toBe("top_0_1_percent");
+    expect(result.data.top0_1Percent?.score).toBe(3483.25);
+    expect(result.data.top1Percent?.score).toBe(3201.5);
+    expect(result.data.top10Percent?.score).toBe(2850.75);
     expect(result.data.top25Percent?.score).toBe(2650.5);
+    expect(result.data.top40Percent?.score).toBe(2410.125);
     expect(result.data.attribution.homepageUrl).toBe("https://raider.io");
     expect(provider.getCapabilities().seasonCutoffs).toBe("available");
+  });
+
+  it("marks seasonCutoffs available when only p990 is present", async () => {
+    const local = new FixtureRaiderIoProvider(deps);
+    const result = await local.getSeasonCutoffs("EU", "season-p990-only", {
+      ...ctx,
+      forceRefresh: true,
+    });
+    expect(result.data.top1Percent?.score).toBe(3201.5);
+    expect(result.data.top25Percent).toBeNull();
+    expect(local.getCapabilities().seasonCutoffs).toBe("available");
+  });
+
+  it("caches season-cutoffs: one cold request, zero additional on hit", async () => {
+    const local = new FixtureRaiderIoProvider(deps);
+    const fetchSpy = vi.spyOn(
+      local as unknown as { fetchSeasonCutoffs: (...args: unknown[]) => unknown },
+      "fetchSeasonCutoffs",
+    );
+    const cold = await local.getSeasonCutoffs("EU", "season-mn-1", { ...ctx, forceRefresh: true });
+    const warm = await local.getSeasonCutoffs("EU", "season-mn-1", { ...ctx, forceRefresh: false });
+    expect(cold.metadata.cacheHit).toBe(false);
+    expect(warm.metadata.cacheHit).toBe(true);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(warm.data.top25Percent?.score).toBe(cold.data.top25Percent?.score);
   });
 
   it("makes season-cutoffs optional and non-blocking on 5xx", async () => {
     const local = new FixtureRaiderIoProvider(deps);
     const result = await local.getSeasonCutoffs("EU", "unavailable", { ...ctx, forceRefresh: true });
+    expect(result.data.top0_1Percent).toBeNull();
+    expect(result.data.top1Percent).toBeNull();
+    expect(result.data.top10Percent).toBeNull();
     expect(result.data.top25Percent).toBeNull();
+    expect(result.data.top40Percent).toBeNull();
     expect(result.freshness.stale).toBe(true);
     expect(local.getCapabilities().seasonCutoffs).toBe("unavailable");
+  });
+
+  it("uses bumped schema version in fingerprints after cutoffs contract change", async () => {
+    const local = new FixtureRaiderIoProvider(deps);
+    const meta = local.describeCacheEntry(
+      "mythic-plus.season-cutoffs",
+      "EU",
+      { region: "eu", season: "season-mn-1" },
+      86_400,
+    );
+    expect(meta.schemaVersion).toBe("0.62.5+prev-ranks-v1");
   });
 
   it("returns static data with resolved expansion and periods", async () => {

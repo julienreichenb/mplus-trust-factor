@@ -94,6 +94,7 @@ describe("reconcileSources", () => {
         },
         previousSeason: null,
         ranks: null,
+        previousRanks: null,
         recentRuns: [],
         bestRuns: [],
         highestLevelRuns: [],

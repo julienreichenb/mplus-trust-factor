@@ -605,6 +605,59 @@ export type {
   ExperienceV3CalibrationExport,
 } from "./experience/v3/index.js";
 
+/** Experience Phase 1 — season population policy (provider-free; not production-wired). */
+export {
+  SEASON_POPULATION_POLICY_VERSION,
+  buildSeasonPopulationPolicy,
+  estimatePreviousSeasonStanding,
+  interpolateTopPercent,
+  isMonotonicPopulationAnchors,
+} from "./experience/phase1/season-population-policy.js";
+export type {
+  SeasonPopulationAnchorKey,
+  SeasonPopulationAnchor,
+  SeasonPopulationPolicyQuality,
+  SeasonPopulationPolicy,
+  PreviousSeasonStandingBand,
+  PreviousSeasonStandingMethod,
+  PreviousSeasonRelativeStanding,
+  BuildSeasonPopulationPolicyResult,
+  StandingEstimationResult,
+} from "./experience/phase1/season-population-policy.js";
+
+/** Experience Phase 1 — elite Mythic+ top 0.1% cutoff history (provider-free; not production-wired). */
+export {
+  ELITE_CUTOFF_CATALOG_VERSION,
+  ELITE_CUTOFF_CATALOG_V1,
+  getEliteCutoffCatalogEntry,
+  extractEliteCutoffHistory,
+} from "./experience/phase1/elite-cutoff-history.js";
+export type {
+  EliteCutoffCatalogEntry,
+  EliteCutoffConfirmation,
+  EliteCutoffHistoryEvidence,
+} from "./experience/phase1/elite-cutoff-history.js";
+
+/** Experience Phase 1 — pure calculator (provider-free). */
+export {
+  EXPERIENCE_PHASE1_ELITE_FLOOR,
+  EXPERIENCE_PHASE1_BELOW_TOP40_SCORE,
+  EXPERIENCE_PHASE1_NO_ACTIVITY_SCORE,
+  EXPERIENCE_PHASE1_STANDING_SCORE_ANCHORS,
+  EXPERIENCE_PHASE1_CLASS_RANK_FLOOR_ANCHORS,
+  scoreFromEstimatedTopPercent,
+  scorePreviousSeasonStanding,
+  scoreRegionalClassRankFloor,
+  usablePreviousRegionalClassRank,
+  calculateExperiencePhase1,
+} from "./experience/phase1/calculate.js";
+export type {
+  ExperiencePhase1PreviousEvidence,
+  ExperiencePhase1UnavailableReason,
+  ExperiencePhase1Result,
+  CalculateExperiencePhase1Input,
+} from "./experience/phase1/calculate.js";
+
 /** Survival V2 Phase 2 calculator (contextual defensive / recovery). */
 export {
   SURVIVAL_V2_SCHEMA_VERSION,

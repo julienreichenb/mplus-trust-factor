@@ -1,0 +1,24 @@
+{
+  "total_quantity": 3,
+  "total_points": 30,
+  "achievements": [
+    {
+      "id": 20526,
+      "achievement": { "id": 20526, "name": "The War Within Keystone Hero: Season One" },
+      "completed_timestamp": 1735689600000
+    },
+    {
+      "id": 6,
+      "achievement": { "id": 6, "name": "Level 10" },
+      "completed_timestamp": 1609459200000
+    },
+    {
+      "id": 11152,
+      "achievement": { "id": 11152, "name": "Keystone Master" }
+    }
+  ],
+  "character": {
+    "name": "Examplecharacter",
+    "realm": { "slug": "tarren-mill" }
+  }
+}

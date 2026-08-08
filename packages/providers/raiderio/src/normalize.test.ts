@@ -7,7 +7,10 @@ import {
   normalizeCharacterProfile,
   normalizePeriods,
   normalizeSeasonCutoffs,
+  seasonCutoffsHaveAnyThreshold,
+  unavailableSeasonCutoffs,
 } from "./normalize.js";
+import { parseWithSchema, seasonCutoffsSchema } from "./schemas.js";
 import type { RawCharacterProfileResponse, RawSeasonCutoffsResponse } from "./raw-types.js";
 
 const sampleProfile: RawCharacterProfileResponse = {
@@ -77,6 +80,12 @@ describe("normalizeCharacterProfile", () => {
     expect(profile.ranks?.region).toBe(12000);
     expect(profile.ranks?.server).toBe(450);
     expect(profile.ranks?.role).toBe("dps");
+    expect(profile.ranks?.classRank).toEqual({
+      world: 2100,
+      region: 800,
+      realm: 40,
+    });
+    expect(profile.previousRanks).toBeNull();
     expect(profile.gear?.itemLevelEquipped).toBe(684);
     expect(profile.gear?.items[0]?.slot).toBe("head");
     expect(profile.talents?.present).toBe(true);
@@ -124,6 +133,17 @@ describe("mapRanks and mapGear", () => {
     const ranks = mapRanks({ overall: 10, class: 2, server: 1, world: 10, region: 4, role: "tank" });
     expect(ranks.overall).toBe(10);
     expect(ranks.role).toBe("tank");
+    expect(ranks.classRank).toEqual({ world: 2, region: null, realm: null });
+  });
+
+  it("preserves class.region distinctly from overall region", () => {
+    const ranks = mapRanks({
+      overall: { world: 18745, region: 5607, realm: 95 },
+      class: { world: 1456, region: 503, realm: 12 },
+    });
+    expect(ranks.region).toBe(5607);
+    expect(ranks.class).toBe(1456);
+    expect(ranks.classRank).toEqual({ world: 1456, region: 503, realm: 12 });
   });
 
   it("maps empty gear arrays", () => {
@@ -131,18 +151,195 @@ describe("mapRanks and mapGear", () => {
   });
 });
 
+describe("normalizeCharacterProfile previous ranks", () => {
+  it("normalizes previous_mythic_plus_ranks.class.region", () => {
+    const profile = normalizeCharacterProfile(
+      {
+        ...sampleProfile,
+        previous_mythic_plus_ranks: {
+          overall: { world: 18745, region: 5607, realm: 95 },
+          class: { world: 1456, region: 503, realm: 12 },
+        },
+      },
+      "EU",
+      Date.parse("2026-07-27T10:00:00.000Z"),
+    );
+    expect(profile.previousRanks?.region).toBe(5607);
+    expect(profile.previousRanks?.classRank.region).toBe(503);
+    expect(profile.ranks?.classRank.region).toBe(800);
+  });
+});
+
 describe("normalizeSeasonCutoffs", () => {
-  it("exposes top 25% threshold from p750", () => {
+  it("maps all five documented quantiles with explicit top-percent semantics", () => {
     const raw: RawSeasonCutoffsResponse = {
       cutoffs: {
         updatedAt: "2026-07-20T06:00:00.000Z",
+        p999: {
+          score: 3483.25,
+          all: { quantilePopulationCount: 900, totalPopulationCount: 900000 },
+        },
+        p990: { score: 3201.5 },
+        p900: { score: 2850.75 },
         p750: { score: 2650.5 },
+        p600: { score: 2410.125 },
       },
     };
     const cutoffs = normalizeSeasonCutoffs(raw, "EU", "season-mn-1");
-    expect(cutoffs.top25Percent?.score).toBe(2650.5);
-    expect(cutoffs.top25Percent?.label).toBe("top_25_percent");
+    expect(cutoffs.top0_1Percent).toEqual({
+      score: 3483.25,
+      quantile: "p999",
+      label: "top_0_1_percent",
+      quantilePopulationCount: 900,
+      totalPopulationCount: 900000,
+    });
+    expect(cutoffs.top1Percent).toMatchObject({
+      score: 3201.5,
+      quantile: "p990",
+      label: "top_1_percent",
+    });
+    expect(cutoffs.top10Percent).toMatchObject({
+      score: 2850.75,
+      quantile: "p900",
+      label: "top_10_percent",
+    });
+    expect(cutoffs.top25Percent).toMatchObject({
+      score: 2650.5,
+      quantile: "p750",
+      label: "top_25_percent",
+    });
+    expect(cutoffs.top40Percent).toMatchObject({
+      score: 2410.125,
+      quantile: "p600",
+      label: "top_40_percent",
+    });
+    // Preserve exact floating scores — no rounding/interpolation.
+    expect(cutoffs.top40Percent?.score).toBe(2410.125);
     expect(cutoffs.attribution.displayText).toBe("Data from Raider.IO");
+  });
+
+  it("keeps available thresholds when some percentile nodes are absent", () => {
+    const cutoffs = normalizeSeasonCutoffs(
+      {
+        cutoffs: {
+          p999: { score: 3500 },
+          p990: { score: 3200 },
+          p750: { score: 2650.5 },
+          p600: { score: 2400 },
+        },
+      },
+      "EU",
+      "season-mn-1",
+    );
+    expect(cutoffs.top0_1Percent?.score).toBe(3500);
+    expect(cutoffs.top1Percent?.score).toBe(3200);
+    expect(cutoffs.top10Percent).toBeNull();
+    expect(cutoffs.top25Percent?.score).toBe(2650.5);
+    expect(cutoffs.top40Percent?.score).toBe(2400);
+  });
+
+  it("does not fabricate a threshold from a missing score", () => {
+    const cutoffs = normalizeSeasonCutoffs(
+      { cutoffs: { p750: { all: { totalPopulationCount: 1 } } } },
+      "EU",
+      "season-mn-1",
+    );
+    expect(cutoffs.top25Percent).toBeNull();
+    expect(seasonCutoffsHaveAnyThreshold(cutoffs)).toBe(false);
+  });
+
+  it("maps remapped historical cutoffs that only expose all.quantileMinValue (season-tww-3 shape)", () => {
+    // Live EU season-tww-3 (isRemappedSeason): percentile nodes omit top-level `score`.
+    const raw: RawSeasonCutoffsResponse = {
+      cutoffs: {
+        updatedAt: "Wed Jan 28 2026 19:41:04 GMT+0000 (Coordinated Universal Time)",
+        p999: {
+          all: {
+            quantile: 0.999,
+            quantileMinValue: 3946.97,
+            quantilePopulationCount: 900,
+            quantilePopulationFraction: 0.001,
+            totalPopulationCount: 900_000,
+          },
+        },
+        p990: { all: { quantile: 0.99, quantileMinValue: 3602.13 } },
+        p900: { all: { quantile: 0.9, quantileMinValue: 3114.82 } },
+        p750: { all: { quantile: 0.75, quantileMinValue: 2876.44 } },
+        p600: { all: { quantile: 0.6, quantileMinValue: 2558.75 } },
+      },
+    };
+    const cutoffs = normalizeSeasonCutoffs(raw, "EU", "season-tww-3");
+    expect(cutoffs.top0_1Percent).toEqual({
+      score: 3946.97,
+      quantile: "p999",
+      label: "top_0_1_percent",
+      quantilePopulationCount: 900,
+      totalPopulationCount: 900_000,
+    });
+    expect(cutoffs.top1Percent?.score).toBe(3602.13);
+    expect(cutoffs.top10Percent?.score).toBe(3114.82);
+    expect(cutoffs.top25Percent?.score).toBe(2876.44);
+    expect(cutoffs.top40Percent?.score).toBe(2558.75);
+    expect(seasonCutoffsHaveAnyThreshold(cutoffs)).toBe(true);
+  });
+
+  it("prefers top-level score over all.quantileMinValue when both exist", () => {
+    const cutoffs = normalizeSeasonCutoffs(
+      {
+        cutoffs: {
+          p750: {
+            score: 2650.5,
+            all: { quantileMinValue: 9999 },
+          },
+        },
+      },
+      "EU",
+      "season-mn-1",
+    );
+    expect(cutoffs.top25Percent?.score).toBe(2650.5);
+  });
+
+  it("treats p990-only payload as useful cutoff evidence", () => {
+    const cutoffs = normalizeSeasonCutoffs(
+      { cutoffs: { p990: { score: 3201.5 } } },
+      "EU",
+      "season-mn-1",
+    );
+    expect(cutoffs.top1Percent?.label).toBe("top_1_percent");
+    expect(cutoffs.top25Percent).toBeNull();
+    expect(seasonCutoffsHaveAnyThreshold(cutoffs)).toBe(true);
+  });
+});
+
+describe("unavailableSeasonCutoffs", () => {
+  it("nulls all five threshold fields", () => {
+    const cutoffs = unavailableSeasonCutoffs("EU", "season-mn-1");
+    expect(cutoffs.top0_1Percent).toBeNull();
+    expect(cutoffs.top1Percent).toBeNull();
+    expect(cutoffs.top10Percent).toBeNull();
+    expect(cutoffs.top25Percent).toBeNull();
+    expect(cutoffs.top40Percent).toBeNull();
+    expect(cutoffs.updatedAt).toBeNull();
+  });
+});
+
+describe("seasonCutoffsSchema soft node handling", () => {
+  it("drops a malformed percentile node without discarding siblings", () => {
+    const parsed = parseWithSchema(
+      seasonCutoffsSchema,
+      {
+        cutoffs: {
+          p999: { score: "not-a-number" },
+          p750: { score: 2650.5 },
+        },
+      },
+      "mythic-plus.season-cutoffs",
+    );
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    const cutoffs = normalizeSeasonCutoffs(parsed.data as RawSeasonCutoffsResponse, "EU", "s");
+    expect(cutoffs.top0_1Percent).toBeNull();
+    expect(cutoffs.top25Percent?.score).toBe(2650.5);
   });
 });
 

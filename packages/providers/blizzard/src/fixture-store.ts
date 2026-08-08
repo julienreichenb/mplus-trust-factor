@@ -11,6 +11,7 @@ export interface FixtureManifest {
       equipment: string;
       specializations: string;
       media: string;
+      achievements: string;
       mythicIndex: string;
       mythicSeason: string;
     }
@@ -88,6 +89,7 @@ export class FixtureStore {
       equipment: this.readJson(entry.equipment),
       specializations: this.readJson(entry.specializations),
       media: this.readJson(entry.media),
+      achievements: this.readJson(entry.achievements),
       mythicIndex: this.readJson(entry.mythicIndex),
       mythicSeason: this.readJson(entry.mythicSeason),
     };

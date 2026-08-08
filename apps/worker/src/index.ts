@@ -77,6 +77,42 @@ async function main(): Promise<void> {
     );
   }
 
+  // Experience season dates + Raider.IO slug binding + previous-season population policy.
+  // Soft-fail: never blocks worker startup. Not gated on WCL.
+  try {
+    const { listPersistedRegionsForAuthority } = await import(
+      "./orchestration/season-authority.js"
+    );
+    const { runExperienceSeasonBootstrapSafe } = await import(
+      "./orchestration/scoring/experience-season-bootstrap.js"
+    );
+    const { recordProviderResult } = await import("./orchestration/provider-recording.js");
+    const regions = await listPersistedRegionsForAuthority(container.prisma);
+    if (regions.length > 0) {
+      const allowProviderCalls =
+        container.env.ALLOW_LIVE_PROVIDER_CALLS === true &&
+        (container.env.PROVIDER_MODE === "live" || container.env.PROVIDER_MODE === "fixture");
+      await runExperienceSeasonBootstrapSafe({
+        prisma: container.prisma,
+        regions,
+        blizzard: container.providers.blizzard,
+        raiderIo: container.providers.raiderio,
+        persistProviderResult: (result) =>
+          recordProviderResult(container.repositories, result),
+        logger: container.logger,
+        allowProviderCalls:
+          allowProviderCalls &&
+          !container.disabledProviders.has("blizzard") &&
+          !container.disabledProviders.has("raiderio"),
+      });
+    }
+  } catch (error) {
+    container.logger.warn(
+      { err: error, event: "experience_season_bootstrap" },
+      "experience season bootstrap failed — continuing worker startup",
+    );
+  }
+
   // Realm catalog readiness (index-first). Independent of score-model seeding.
   // Empty catalog + failed bootstrap fails closed before queues report ready.
   let realmCatalogReady = true;

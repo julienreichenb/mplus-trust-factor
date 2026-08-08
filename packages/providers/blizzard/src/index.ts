@@ -26,6 +26,8 @@ export {
   buildObservationEnvelope,
   characterProfileContainsSeason,
   resolveCurrentSeasonIdFromIndex,
+  normalizeCharacterAchievements,
+  pickPreferredAchievementCompletion,
   normalizeMythicProfileIndex,
   normalizePeriod,
   sanitizeHttpsUrl,

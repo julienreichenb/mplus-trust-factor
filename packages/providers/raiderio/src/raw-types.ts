@@ -104,6 +104,7 @@ export interface RawCharacterProfileResponse {
   talents?: unknown;
   mythic_plus_scores_by_season?: RawSeasonScores[];
   mythic_plus_ranks?: RawMythicPlusRanks;
+  previous_mythic_plus_ranks?: RawMythicPlusRanks;
   mythic_plus_recent_runs?: RawKeystoneRun[];
   mythic_plus_best_runs?: RawKeystoneRun[];
   mythic_plus_highest_level_runs?: RawKeystoneRun[];
@@ -113,14 +114,29 @@ export interface RawCharacterProfileResponse {
   error?: string;
 }
 
+export interface RawCutoffPopulation {
+  quantile?: number;
+  quantileMinValue?: number;
+  quantilePopulationCount?: number;
+  quantilePopulationFraction?: number;
+  totalPopulationCount?: number;
+}
+
 export interface RawCutoffQuantile {
   score?: number;
+  all?: RawCutoffPopulation;
+  horde?: RawCutoffPopulation;
+  alliance?: RawCutoffPopulation;
 }
 
 export interface RawSeasonCutoffs {
   updatedAt?: string;
   region?: { name?: string; slug?: string };
+  p999?: RawCutoffQuantile;
+  p990?: RawCutoffQuantile;
+  p900?: RawCutoffQuantile;
   p750?: RawCutoffQuantile;
+  p600?: RawCutoffQuantile;
 }
 
 export interface RawSeasonCutoffsResponse {
