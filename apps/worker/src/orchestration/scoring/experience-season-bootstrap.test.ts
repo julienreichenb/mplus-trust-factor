@@ -259,7 +259,7 @@ type SeasonRow = {
 };
 
 function createPrismaFake(initial: SeasonRow[]) {
-  let seasons = initial.map((s) => ({ ...s, metadata: { ...s.metadata } }));
+  const seasons = initial.map((s) => ({ ...s, metadata: { ...s.metadata } }));
   let idSeq = 100;
 
   return {

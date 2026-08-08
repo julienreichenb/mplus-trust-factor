@@ -203,7 +203,6 @@ describe.runIf(live)("Experience Phase 1 live smoke", () => {
         } catch (err) {
           // 404 / privacy is expected for some characters; Experience path already handled it.
           rating = null;
-          // eslint-disable-next-line no-console
           console.log(
             "previous_rating_peek_failed",
             err instanceof Error ? err.message : String(err),
@@ -277,7 +276,6 @@ describe.runIf(live)("Experience Phase 1 live smoke", () => {
         expect(saved[0]!.composite).not.toBe(baseline[0]!.composite);
       }
 
-      // eslint-disable-next-line no-console
       console.log(
         JSON.stringify(
           {

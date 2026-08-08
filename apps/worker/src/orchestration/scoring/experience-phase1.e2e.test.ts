@@ -362,7 +362,7 @@ describe("Experience Phase 1 end-to-end (fixture)", () => {
     };
 
     // Baseline: Experience disabled → unavailable / null.
-    const baseline = await runAuthoritativeScoring({
+    await runAuthoritativeScoring({
       ...scoringArgs,
       container: makeContainer(baselineSaved, false),
     });
