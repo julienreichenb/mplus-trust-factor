@@ -128,7 +128,28 @@ describe("resolveRaiderIoCurrentAndPrevious", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.current.slug).toBe("season-tww-3");
-    expect(result.previous.slug).toBe("season-tww-2");
+    expect(result.previous?.slug).toBe("season-tww-2");
+    expect(result.previousReason).toBeNull();
+  });
+
+  it("binds current when no chronological previous RIO season exists", () => {
+    const result = resolveRaiderIoCurrentAndPrevious([
+      rioSeason({
+        slug: "season-mn-1",
+        isCurrent: true,
+        startsAt: "2026-03-24T15:00:00.000Z",
+      }),
+      rioSeason({
+        slug: "season-mn-2",
+        isCurrent: false,
+        startsAt: "2026-08-18T15:00:00.000Z",
+      }),
+    ]);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.current.slug).toBe("season-mn-1");
+    expect(result.previous).toBeNull();
+    expect(result.previousReason).toBe("RIO_NO_PREVIOUS_SEASON");
   });
 
   it("fails closed on ambiguous current RIO season", () => {
@@ -342,13 +363,16 @@ describe("bootstrapExperienceSeasonMetadata", () => {
         "fp-cutoffs",
       ),
     );
+    const getMythicKeystoneSeason = vi.fn(async () => {
+      throw new Error("detail should not be called when index already has timestamps");
+    });
     const discoverCharacterRuns = vi.fn();
     const persistProviderResult = vi.fn(async () => "payload");
 
     const result = await bootstrapExperienceSeasonMetadata({
       prisma: prisma as never,
       regions: [{ code: "EU", id: "region-eu" }],
-      blizzard: { getMythicKeystoneSeasonIndex },
+      blizzard: { getMythicKeystoneSeasonIndex, getMythicKeystoneSeason },
       raiderIo: { getStaticData, getSeasonCutoffs },
       persistProviderResult,
       logger,
@@ -357,8 +381,10 @@ describe("bootstrapExperienceSeasonMetadata", () => {
 
     expect(result.staticDataCalls).toBe(1);
     expect(result.seasonIndexCalls).toBe(1);
+    expect(result.seasonDetailCalls).toBe(0);
     expect(result.seasonCutoffsCalls).toBe(1);
     expect(result.wclCalls).toBe(0);
+    expect(getMythicKeystoneSeason).not.toHaveBeenCalled();
     expect(discoverCharacterRuns).not.toHaveBeenCalled();
     expect(getSeasonCutoffs).toHaveBeenCalledTimes(1);
     expect(getSeasonCutoffs).toHaveBeenCalledWith(
@@ -376,6 +402,127 @@ describe("bootstrapExperienceSeasonMetadata", () => {
     expect(prev.metadata[EXPERIENCE_POPULATION_POLICY_METADATA_KEY]).toBeTruthy();
     expect(result.regions[0]!.previousSeasonId).toBe("prev");
     expect(result.regions[0]!.policySync?.status).toBe("UPDATED");
+  });
+
+  it("hydrates dates from season detail when index is ID-only", async () => {
+    const prisma = createPrismaFake([
+      {
+        id: "cur",
+        regionId: "region-eu",
+        slug: "blizzard-season-13",
+        name: "Blizzard Season 13",
+        blizzardSeasonId: 13,
+        providerSeasonId: null,
+        startsAt: null,
+        endsAt: null,
+        isCurrent: true,
+        metadata: {},
+        region: { id: "region-eu", code: "EU" },
+      },
+      {
+        id: "prev",
+        regionId: "region-eu",
+        slug: "blizzard-season-12",
+        name: "Blizzard Season 12",
+        blizzardSeasonId: 12,
+        providerSeasonId: null,
+        startsAt: null,
+        endsAt: null,
+        isCurrent: false,
+        metadata: {},
+        region: { id: "region-eu", code: "EU" },
+      },
+    ]);
+
+    const getMythicKeystoneSeasonIndex = vi.fn(async () =>
+      providerResult(
+        [
+          blizzardSeason(12, null),
+          blizzardSeason(13, null),
+        ],
+        "fp-index-ids-only",
+      ),
+    );
+    const getMythicKeystoneSeason = vi.fn(async (seasonId: number) => {
+      if (seasonId === 12) {
+        return providerResult(
+          blizzardSeason(12, "2025-03-01T00:00:00.000Z", "2025-08-01T00:00:00.000Z"),
+          "fp-detail-12",
+        );
+      }
+      return providerResult(blizzardSeason(13, "2025-09-01T00:00:00.000Z", null), "fp-detail-13");
+    });
+
+    const result = await bootstrapExperienceSeasonMetadata({
+      prisma: prisma as never,
+      regions: [{ code: "EU", id: "region-eu" }],
+      blizzard: { getMythicKeystoneSeasonIndex, getMythicKeystoneSeason },
+      raiderIo: {
+        getStaticData: vi.fn(async () =>
+          providerResult(
+            {
+              expansionId: 10,
+              seasons: [
+                rioSeason({
+                  slug: "season-tww-2",
+                  isCurrent: false,
+                  startsAt: "2025-03-01T00:00:00.000Z",
+                }),
+                rioSeason({
+                  slug: "season-tww-3",
+                  isCurrent: true,
+                  startsAt: "2025-09-01T00:00:00.000Z",
+                }),
+              ],
+              dungeons: [],
+              attribution: {
+                provider: "raiderio",
+                displayText: "Data from Raider.IO",
+                homepageUrl: "https://raider.io",
+                profileUrl: null,
+                sourceUrl: null,
+              },
+            },
+            "fp-static",
+          ),
+        ),
+        getSeasonCutoffs: vi.fn(async () =>
+          providerResult(
+            {
+              region: "EU",
+              seasonSlug: "season-tww-2",
+              updatedAt: "2026-01-01T00:00:00.000Z",
+              top0_1Percent: threshold(3400, "p999", "top_0_1_percent"),
+              top1Percent: threshold(3000, "p990", "top_1_percent"),
+              top10Percent: threshold(2800, "p900", "top_10_percent"),
+              top25Percent: threshold(2500, "p750", "top_25_percent"),
+              top40Percent: threshold(2200, "p600", "top_40_percent"),
+              attribution: {
+                provider: "raiderio",
+                displayText: "Data from Raider.IO",
+                homepageUrl: "https://raider.io",
+                profileUrl: null,
+                sourceUrl: null,
+              },
+            },
+            "fp-cutoffs",
+          ),
+        ),
+      },
+      persistProviderResult: vi.fn(async () => "p"),
+      logger,
+    });
+
+    expect(getMythicKeystoneSeason).toHaveBeenCalledTimes(2);
+    expect(result.seasonDetailCalls).toBe(2);
+    expect(prisma.getSeasons().find((s) => s.id === "cur")!.startsAt?.toISOString()).toBe(
+      "2025-09-01T00:00:00.000Z",
+    );
+    expect(prisma.getSeasons().find((s) => s.id === "prev")!.startsAt?.toISOString()).toBe(
+      "2025-03-01T00:00:00.000Z",
+    );
+    expect(prisma.getSeasons().find((s) => s.id === "prev")!.providerSeasonId).toBe("season-tww-2");
+    expect(result.regions[0]!.previousSeasonId).toBe("prev");
   });
 
   it("preserves LKG policy when cutoffs sync fails", async () => {
@@ -489,6 +636,9 @@ describe("bootstrapExperienceSeasonMetadata", () => {
             "fp-index",
           ),
         ),
+        getMythicKeystoneSeason: vi.fn(async () => {
+          throw new Error("unused when index has timestamps");
+        }),
       },
       raiderIo: {
         getStaticData: vi.fn(async () =>
@@ -544,6 +694,9 @@ describe("bootstrapExperienceSeasonMetadata", () => {
       regions: [{ code: "EU", id: "region-eu" }],
       blizzard: {
         getMythicKeystoneSeasonIndex: vi.fn(async () => {
+          throw new Error("blizzard down");
+        }),
+        getMythicKeystoneSeason: vi.fn(async () => {
           throw new Error("blizzard down");
         }),
       },
