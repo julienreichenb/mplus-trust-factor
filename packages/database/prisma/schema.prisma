@@ -251,6 +251,7 @@ model Season {
   scoringEvidenceExports ScoringEvidenceExport[]
   characterScores        CharacterScore[]
   performanceAggregates  CharacterPerformanceAggregate[]
+  experienceEvidence     CharacterExperienceEvidence[]
 
   @@unique([regionId, slug])
   @@map("seasons")
@@ -384,6 +385,7 @@ model Character {
   runRankingFacts          RunRankingFact[]
   characterScores          CharacterScore[]
   performanceAggregates    CharacterPerformanceAggregate[]
+  experienceEvidence       CharacterExperienceEvidence[]
 
   @@unique([regionId, realmId, normalizedName])
   @@index([lastPublicRefreshAt])
@@ -2278,6 +2280,44 @@ model CharacterPerformanceAggregate {
   @@index([characterId, seasonId])
   @@index([expiresAt])
   @@map("character_performance_aggregates")
+}
+
+/**
+ * Immutable closed-season Experience evidence (rating / class-rank / elite).
+ * Successful rows have no TTL — reuse until explicit repair or compatibility bump.
+ * Transient provider failures must never be written here.
+ */
+model CharacterExperienceEvidence {
+  id                       String   @id @default(uuid()) @db.Uuid
+  characterId              String   @map("character_id") @db.Uuid
+  /** Exact historical Season row this evidence belongs to (never "previous" alias). */
+  seasonId                 String   @map("season_id") @db.Uuid
+  blizzardSeasonId         Int?     @map("blizzard_season_id")
+  raiderIoSeasonSlug       String?  @map("raider_io_season_slug")
+  /** PREVIOUS_SEASON_RATING | PREVIOUS_SEASON_CLASS_RANK | ELITE_CUTOFF_HISTORY */
+  evidenceKind             String   @map("evidence_kind")
+  /** Schema/normalizer/catalog compatibility version for safe reuse. */
+  compatibilityVersion     String   @map("compatibility_version")
+  /** HAS_VALUE | CONFIRMED_ABSENCE — never PROVIDER_FAILURE. */
+  state                    String
+  /** BLIZZARD | RAIDERIO_FALLBACK | NONE (kind-specific). */
+  source                   String
+  /** Kind-specific typed payload (rating / class rank / elite proof). */
+  payload                  Json
+  sourcePayloadId          String?  @map("source_payload_id") @db.Uuid
+  sourceRequestFingerprint String?  @map("source_request_fingerprint")
+  contentHash              String?  @map("content_hash")
+  fetchedAt                DateTime @map("fetched_at") @db.Timestamptz(3)
+  createdAt                DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt                DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  character Character @relation(fields: [characterId], references: [id], onDelete: Cascade)
+  season    Season    @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+
+  @@unique([characterId, seasonId, evidenceKind, compatibilityVersion], map: "character_experience_evidence_identity_key")
+  @@index([characterId, seasonId])
+  @@index([evidenceKind, compatibilityVersion])
+  @@map("character_experience_evidence")
 }
 
 /**

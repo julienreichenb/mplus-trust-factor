@@ -43,6 +43,8 @@ export type PreviousSeasonBindingResult =
 /**
  * Neutral previous-season Blizzard rating evidence (no percentile / Experience score).
  */
+export type PreviousSeasonRatingSource = "BLIZZARD" | "RAIDERIO_FALLBACK";
+
 export type PreviousSeasonRatingEvidence =
   | {
       state: "HAS_VALUE";
@@ -52,6 +54,7 @@ export type PreviousSeasonRatingEvidence =
       rating: number;
       fetchedAt: string;
       providerPayloadId: string | null;
+      ratingSource: PreviousSeasonRatingSource;
     }
   | {
       state: "CONFIRMED_NO_ACTIVITY";
@@ -61,6 +64,7 @@ export type PreviousSeasonRatingEvidence =
       rating: null;
       fetchedAt: string;
       providerPayloadId: string | null;
+      ratingSource: PreviousSeasonRatingSource;
     }
   | {
       state: "UNRESOLVED";
@@ -119,7 +123,11 @@ function comparePreviousSeasonCandidates(
  * Resolve the immediately previous Mythic+ season for a current season.
  *
  * Authority: same regionId + temporal precedence via startsAt (not Blizzard ID − 1).
- * Eligible candidate: same region, distinct id, non-null blizzardSeasonId, startsAt < current.startsAt.
+ * Eligible candidate: same region, distinct id, non-null blizzardSeasonId,
+ * Blizzard-authority slug (`blizzard-season-<n>`), startsAt < current.startsAt.
+ *
+ * Rejects fixture/test seasons (e.g. `pub-cancel-season`) that can otherwise
+ * win chronological selection and corrupt Experience previous binding.
  */
 export function resolvePreviousMythicSeason(
   current: ExperienceSeasonBindingCandidate,
@@ -137,6 +145,8 @@ export function resolvePreviousMythicSeason(
     if (c.id === current.id) return false;
     if (c.regionId == null || c.regionId !== current.regionId) return false;
     if (c.blizzardSeasonId == null || !Number.isFinite(c.blizzardSeasonId)) return false;
+    // Authority seasons only — ignore local fixture / publication-test rows.
+    if (!/^blizzard-season-\d+$/i.test(c.slug.trim())) return false;
     const start = timeMs(c.startsAt);
     if (start == null) return false;
     // Must demonstrably precede current by start time.
@@ -194,7 +204,12 @@ export function mapSeasonProfileToPreviousSeasonRatingEvidence(input: {
 
   if (rating == null) {
     if (runs.length === 0) {
-      return { state: "CONFIRMED_NO_ACTIVITY", rating: null, ...base };
+      return {
+        state: "CONFIRMED_NO_ACTIVITY",
+        rating: null,
+        ratingSource: "BLIZZARD",
+        ...base,
+      };
     }
     return {
       state: "CONTRADICTORY_PAYLOAD",
@@ -207,7 +222,7 @@ export function mapSeasonProfileToPreviousSeasonRatingEvidence(input: {
     return { state: "UNRESOLVED", reason: "NON_FINITE_RATING" };
   }
 
-  return { state: "HAS_VALUE", rating, ...base };
+  return { state: "HAS_VALUE", rating, ratingSource: "BLIZZARD", ...base };
 }
 
 /**
@@ -267,19 +282,133 @@ export function isAmbiguousBlizzardSeasonProfileNotFound(cause: unknown): boolea
   return reason === "NOT_FOUND" || reason === "PROFILE_UNAVAILABLE";
 }
 
-export type RioPreviousSeasonCorroboration = {
-  /** Raider.IO profile fetch succeeded for this character. */
+export type RioExactSeasonActivityProof = "PROVEN_NONE" | "PROVEN_ACTIVITY" | "UNKNOWN";
+
+export type RioExactSeasonScoreEvidence = {
+  /** True when a Raider.IO profile/payload was obtained for this character. */
   profileFetched: boolean;
-  /** Previous-season overall score when RIO reported one; null when absent/zero. */
-  previousSeasonScore: number | null;
+  /**
+   * Exact bound previous RIO season slug. Required for any fallback use.
+   * Generic `previous` aliases are rejected unless this slug matches the payload season.
+   */
+  exactSeasonSlug: string;
+  /**
+   * Score for the exact season when present in the payload.
+   * null means the exact season was present with score 0 / non-finite absence placeholder.
+   * undefined means the exact season was not proven in the payload.
+   */
+  exactSeasonScore: number | null | undefined;
+  /**
+   * Activity proof from exact-season dungeon run counts (OpenAPI).
+   * Score 0/null alone is never CONFIRMED_NO_ACTIVITY.
+   */
+  activityProof: RioExactSeasonActivityProof;
+  providerPayloadId?: string | null;
+  fetchedAt?: string;
 };
 
 /**
- * Corroborate ambiguous Blizzard previous-season 404 with Raider.IO.
- * Does NOT replace Blizzard as the official previous-season score source.
- * Only reclassifies PROVIDER_FAILURE → CONFIRMED_NO_ACTIVITY when RIO also
- * shows no previous-season score. When RIO has a positive score, keep failure
- * (contradiction / provider issue).
+ * @deprecated Prefer RioExactSeasonScoreEvidence via applyExactSeasonRioRatingFallback.
+ * Kept for call-site migration; maps bound previous alias onto exact-season score.
+ * Legacy path cannot prove absence (activityProof=UNKNOWN) without run counts.
+ */
+export type RioPreviousSeasonCorroboration = {
+  profileFetched: boolean;
+  previousSeasonScore: number | null;
+  seasonBound?: boolean;
+  /** Bound Raider.IO season slug when seasonBound is true. */
+  exactSeasonSlug?: string | null;
+};
+
+/**
+ * Apply exceptional Raider.IO exact-season rating fallback after Blizzard failure.
+ * Never called after successful Blizzard evidence. Never blends sources.
+ *
+ * A) exact season + score > 0 → HAS_VALUE (RAIDERIO_FALLBACK)
+ * B) exact season + score 0/null + PROVEN_NONE → CONFIRMED_NO_ACTIVITY
+ * C) exact season + score 0 + PROVEN_ACTIVITY → CONTRADICTORY_PAYLOAD
+ * D) exact season + score 0/null + UNKNOWN → UNRESOLVED (not score 0)
+ * E) unbound / missing exact season → keep PROVIDER_FAILURE (retryable)
+ */
+export function applyExactSeasonRioRatingFallback(input: {
+  binding: ExperienceSeasonBindingCandidate;
+  ratingEvidence: PreviousSeasonRatingEvidence;
+  rio: RioExactSeasonScoreEvidence | null;
+  fetchedAt?: string;
+}): PreviousSeasonRatingEvidence {
+  const { ratingEvidence, binding, rio } = input;
+  if (ratingEvidence.state !== "PROVIDER_FAILURE") return ratingEvidence;
+
+  if (rio == null || !rio.profileFetched) {
+    return {
+      ...ratingEvidence,
+      reason: isAmbiguousBlizzardSeasonProfileNotFound(ratingEvidence.cause)
+        ? "BLIZZARD_FAILURE_UNCORROBORATED"
+        : ratingEvidence.reason,
+    };
+  }
+
+  const boundSlug = rio.exactSeasonSlug.trim();
+  if (!boundSlug) {
+    return {
+      ...ratingEvidence,
+      reason: "BLIZZARD_FAILURE_UNBOUND_RIO_SEASON",
+    };
+  }
+
+  if (rio.exactSeasonScore === undefined) {
+    return {
+      ...ratingEvidence,
+      reason: "BLIZZARD_FAILURE_RIO_EXACT_SEASON_NOT_IN_PAYLOAD",
+    };
+  }
+
+  const blizzardSeasonId = binding.blizzardSeasonId;
+  if (blizzardSeasonId == null || !Number.isFinite(blizzardSeasonId)) {
+    return ratingEvidence;
+  }
+
+  const fetchedAt =
+    input.fetchedAt ?? rio.fetchedAt ?? new Date().toISOString();
+  const base = {
+    internalSeasonId: binding.id,
+    seasonSlug: binding.slug,
+    blizzardSeasonId,
+    fetchedAt,
+    providerPayloadId: rio.providerPayloadId ?? null,
+    ratingSource: "RAIDERIO_FALLBACK" as const,
+  };
+
+  const score = rio.exactSeasonScore;
+  if (score != null && Number.isFinite(score) && score > 0) {
+    return { state: "HAS_VALUE", rating: score, ...base };
+  }
+
+  // score is 0 or null — absence requires explicit activity proof.
+  if (rio.activityProof === "PROVEN_NONE") {
+    return { state: "CONFIRMED_NO_ACTIVITY", rating: null, ...base };
+  }
+  if (rio.activityProof === "PROVEN_ACTIVITY") {
+    return {
+      state: "CONTRADICTORY_PAYLOAD",
+      reason: "RIO_ZERO_SCORE_WITH_SEASON_RUNS",
+      internalSeasonId: binding.id,
+      seasonSlug: binding.slug,
+      blizzardSeasonId,
+      fetchedAt,
+      providerPayloadId: rio.providerPayloadId ?? null,
+    };
+  }
+
+  return {
+    state: "UNRESOLVED",
+    reason: "RIO_ZERO_SCORE_ACTIVITY_UNPROVEN",
+  };
+}
+
+/**
+ * Legacy corroboration wrapper — positive RIO score is exceptional fallback.
+ * Zero/null without activity proof stays unresolved (not auto CONFIRMED_NO_ACTIVITY).
  */
 export function corroboratePreviousSeasonBlizzardNotFound(input: {
   binding: ExperienceSeasonBindingCandidate;
@@ -293,29 +422,61 @@ export function corroboratePreviousSeasonBlizzardNotFound(input: {
     return ratingEvidence;
   }
   if (rio == null || !rio.profileFetched) {
+    return applyExactSeasonRioRatingFallback({
+      binding,
+      ratingEvidence,
+      rio: null,
+      fetchedAt: input.fetchedAt,
+    });
+  }
+  if (rio.seasonBound !== true || !rio.exactSeasonSlug?.trim()) {
     return {
       ...ratingEvidence,
-      reason: "BLIZZARD_404_UNCORROBORATED",
+      reason: "BLIZZARD_404_UNCORROBORATED_UNBOUND_RIO_PREVIOUS",
     };
   }
-  const rioScore = rio.previousSeasonScore;
-  if (rioScore != null && Number.isFinite(rioScore) && rioScore > 0) {
-    return {
-      ...ratingEvidence,
-      reason: "BLIZZARD_404_CONTRADICTED_BY_RAIDERIO",
-    };
+  return applyExactSeasonRioRatingFallback({
+    binding,
+    ratingEvidence,
+    rio: {
+      profileFetched: true,
+      exactSeasonSlug: rio.exactSeasonSlug,
+      exactSeasonScore: rio.previousSeasonScore,
+      // Legacy profile path has no exact-season dungeon run counts.
+      activityProof: "UNKNOWN",
+      fetchedAt: input.fetchedAt,
+    },
+    fetchedAt: input.fetchedAt,
+  });
+}
+
+/**
+ * Extract exact-season score from a normalized RIO profile.
+ * Matches currentSeason or previousSeason only when seasonSlug equals the bound slug.
+ * Does not trust array position alone.
+ */
+export function exactSeasonScoreFromRioProfile(
+  profile:
+    | {
+        currentSeason?: { seasonSlug?: string | null; scores?: { all?: number | null } | null } | null;
+        previousSeason?: {
+          seasonSlug?: string | null;
+          scores?: { all?: number | null } | null;
+        } | null;
+      }
+    | null
+    | undefined,
+  exactSeasonSlug: string,
+): number | null | undefined {
+  const slug = exactSeasonSlug.trim();
+  if (!slug) return undefined;
+  const candidates = [profile?.currentSeason, profile?.previousSeason];
+  for (const season of candidates) {
+    const seasonSlug = season?.seasonSlug?.trim() || null;
+    if (seasonSlug !== slug) continue;
+    const raw = season?.scores?.all;
+    if (typeof raw === "number" && Number.isFinite(raw)) return raw;
+    return null;
   }
-  const blizzardSeasonId = binding.blizzardSeasonId;
-  if (blizzardSeasonId == null || !Number.isFinite(blizzardSeasonId)) {
-    return ratingEvidence;
-  }
-  return {
-    state: "CONFIRMED_NO_ACTIVITY",
-    internalSeasonId: binding.id,
-    seasonSlug: binding.slug,
-    blizzardSeasonId,
-    rating: null,
-    fetchedAt: input.fetchedAt ?? new Date().toISOString(),
-    providerPayloadId: null,
-  };
+  return undefined;
 }

@@ -42,7 +42,8 @@ export function createRaiderIoProviderFromEnv(): RaiderIoProvider {
   return createRaiderIoProvider(getEnv().PROVIDER_MODE);
 }
 
-export { buildMinimalCharacterFields, MINIMAL_CHARACTER_FIELDS } from "./fields.js";
+export { buildMinimalCharacterFields, MINIMAL_CHARACTER_FIELDS, buildExactSeasonScoreFields, buildExactSeasonHistoricalEvidenceFields, isValidRaiderIoSeasonSlug } from "./fields.js";
+export { extractExactSeasonHistoricalRatingFromRaw } from "./exact-season-historical-rating.js";
 export {
   extractBoostSupportFacts,
   buildAttribution,

@@ -1,21 +1,32 @@
 /**
  * Experience Phase 1 — Season.metadata persistence for SeasonPopulationPolicy.
- * Owns only the experiencePopulationPolicy namespace. Not wired into scoring.
+ * Owns only the experiencePopulationPolicy namespace.
+ *
+ * Store schema v2 pairs with season-population-policy-v2 (native bands).
+ * Store schema v1 documents are accepted via provider-free upgrade when anchors
+ * are the canonical p999/p990/p900/p750/p600 mappings.
  */
 
 import {
   isMonotonicPopulationAnchors,
   SEASON_POPULATION_POLICY_VERSION,
+  SEASON_POPULATION_POLICY_VERSION_V1,
+  upgradeSeasonPopulationPolicyV1ToV2,
   stableSha256,
   type SeasonPopulationAnchor,
   type SeasonPopulationAnchorKey,
   type SeasonPopulationPolicy,
   type SeasonPopulationPolicyQuality,
+  type NativeCutoffQuantile,
 } from "@mplus/scoring";
 
 export const EXPERIENCE_POPULATION_POLICY_METADATA_KEY = "experiencePopulationPolicy" as const;
 
 export const EXPERIENCE_POPULATION_POLICY_STORE_SCHEMA_VERSION =
+  "experience-population-policy-store-v2" as const;
+
+/** Legacy store schema — readable for provider-free v1→v2 upgrade only. */
+export const EXPERIENCE_POPULATION_POLICY_STORE_SCHEMA_VERSION_V1 =
   "experience-population-policy-store-v1" as const;
 
 export interface PersistedExperiencePopulationPolicyMetadata {
@@ -44,6 +55,14 @@ const EXPECTED_TOP_PERCENT: Record<SeasonPopulationAnchorKey, number> = {
   top_10_percent: 10,
   top_25_percent: 25,
   top_40_percent: 40,
+};
+
+const KEY_TO_NATIVE: Record<SeasonPopulationAnchorKey, NativeCutoffQuantile> = {
+  top_0_1_percent: "p999",
+  top_1_percent: "p990",
+  top_10_percent: "p900",
+  top_25_percent: "p750",
+  top_40_percent: "p600",
 };
 
 const QUALITIES = new Set<SeasonPopulationPolicyQuality>([
@@ -77,6 +96,13 @@ function parseAnchor(raw: unknown): SeasonPopulationAnchor | null {
   if (typeof raw.score !== "number" || !Number.isFinite(raw.score) || raw.score < 0) {
     return null;
   }
+  const expectedNative = KEY_TO_NATIVE[anchorKey];
+  const nativeQuantile =
+    typeof raw.nativeQuantile === "string"
+      ? (raw.nativeQuantile as NativeCutoffQuantile)
+      : expectedNative;
+  if (nativeQuantile !== expectedNative) return null;
+
   const quantilePopulationCount =
     raw.quantilePopulationCount === null
       ? null
@@ -114,6 +140,7 @@ function parseAnchor(raw: unknown): SeasonPopulationAnchor | null {
   return {
     key: anchorKey,
     topPercent: raw.topPercent,
+    nativeQuantile,
     score: raw.score,
     quantilePopulationCount:
       raw.quantilePopulationCount === null ? null : quantilePopulationCount,
@@ -122,10 +149,13 @@ function parseAnchor(raw: unknown): SeasonPopulationAnchor | null {
 }
 
 /**
- * Validate a SeasonPopulationPolicy document using Agent 05 semantics (no second algorithm).
+ * Validate a SeasonPopulationPolicy document (v2). For raw v1, use upgrade first.
  */
 export function parseSeasonPopulationPolicy(raw: unknown): SeasonPopulationPolicy | null {
   if (!isPlainObject(raw)) return null;
+  if (raw.version === SEASON_POPULATION_POLICY_VERSION_V1) {
+    return upgradeSeasonPopulationPolicyV1ToV2(raw);
+  }
   if (raw.version !== SEASON_POPULATION_POLICY_VERSION) return null;
   if (raw.source !== "RAIDER_IO_SEASON_CUTOFFS") return null;
   if (typeof raw.region !== "string" || !raw.region.trim()) return null;
@@ -184,6 +214,7 @@ export function hashSeasonPopulationPolicyContent(policy: SeasonPopulationPolicy
     anchors: anchors.map((a) => ({
       key: a.key,
       topPercent: a.topPercent,
+      nativeQuantile: a.nativeQuantile,
       score: a.score,
       quantilePopulationCount: a.quantilePopulationCount,
       totalPopulationCount: a.totalPopulationCount,
@@ -192,8 +223,104 @@ export function hashSeasonPopulationPolicyContent(policy: SeasonPopulationPolicy
   });
 }
 
+/** Hash used by store-v1 documents (no nativeQuantile; policy version v1). */
+export function hashSeasonPopulationPolicyContentV1(policyLike: {
+  version: string;
+  source: string;
+  region: string;
+  seasonSlug: string;
+  sourceUpdatedAt: string | null;
+  anchors: Array<{
+    key: string;
+    topPercent: number;
+    score: number;
+    quantilePopulationCount: number | null;
+    totalPopulationCount: number | null;
+  }>;
+  quality: string;
+}): string {
+  const anchors = [...policyLike.anchors].sort((a, b) => {
+    if (a.topPercent !== b.topPercent) return a.topPercent - b.topPercent;
+    return a.key.localeCompare(b.key);
+  });
+  return stableSha256({
+    version: policyLike.version,
+    source: policyLike.source,
+    region: policyLike.region,
+    seasonSlug: policyLike.seasonSlug,
+    sourceUpdatedAt: policyLike.sourceUpdatedAt,
+    anchors: anchors.map((a) => ({
+      key: a.key,
+      topPercent: a.topPercent,
+      score: a.score,
+      quantilePopulationCount: a.quantilePopulationCount,
+      totalPopulationCount: a.totalPopulationCount,
+    })),
+    quality: policyLike.quality,
+  });
+}
+
+function verifyStoredPolicyHash(
+  rawPolicy: unknown,
+  storedHash: string,
+  upgraded: SeasonPopulationPolicy,
+): boolean {
+  const normalized = storedHash.toLowerCase();
+  if (!isPlainObject(rawPolicy)) return false;
+
+  if (rawPolicy.version === SEASON_POPULATION_POLICY_VERSION) {
+    return hashSeasonPopulationPolicyContent(upgraded).toLowerCase() === normalized;
+  }
+
+  if (rawPolicy.version === SEASON_POPULATION_POLICY_VERSION_V1) {
+    // Integrity check against the original v1 content hash (provider-free upgrade).
+    if (!Array.isArray(rawPolicy.anchors)) return false;
+    const v1Anchors: Array<{
+      key: string;
+      topPercent: number;
+      score: number;
+      quantilePopulationCount: number | null;
+      totalPopulationCount: number | null;
+    }> = [];
+    for (const item of rawPolicy.anchors) {
+      if (!isPlainObject(item)) return false;
+      if (typeof item.key !== "string") return false;
+      if (typeof item.topPercent !== "number") return false;
+      if (typeof item.score !== "number") return false;
+      v1Anchors.push({
+        key: item.key,
+        topPercent: item.topPercent,
+        score: item.score,
+        quantilePopulationCount:
+          item.quantilePopulationCount === null ||
+          typeof item.quantilePopulationCount === "number"
+            ? (item.quantilePopulationCount as number | null)
+            : null,
+        totalPopulationCount:
+          item.totalPopulationCount === null || typeof item.totalPopulationCount === "number"
+            ? (item.totalPopulationCount as number | null)
+            : null,
+      });
+    }
+    const v1Hash = hashSeasonPopulationPolicyContentV1({
+      version: SEASON_POPULATION_POLICY_VERSION_V1,
+      source: String(rawPolicy.source),
+      region: String(rawPolicy.region),
+      seasonSlug: String(rawPolicy.seasonSlug),
+      sourceUpdatedAt:
+        rawPolicy.sourceUpdatedAt === null ? null : String(rawPolicy.sourceUpdatedAt),
+      anchors: v1Anchors,
+      quality: String(rawPolicy.quality),
+    });
+    return v1Hash.toLowerCase() === normalized;
+  }
+
+  return false;
+}
+
 /**
  * Read typed Experience population-policy metadata from Season.metadata.
+ * Accepts store-v2 natively and store-v1 via provider-free policy upgrade.
  * Fail closed on wrong schema / malformed policy; never throws for legacy JSON.
  */
 export function readExperiencePopulationPolicyMetadata(
@@ -202,7 +329,11 @@ export function readExperiencePopulationPolicyMetadata(
   if (!isPlainObject(metadata)) return null;
   const raw = metadata[EXPERIENCE_POPULATION_POLICY_METADATA_KEY];
   if (!isPlainObject(raw)) return null;
-  if (raw.schemaVersion !== EXPERIENCE_POPULATION_POLICY_STORE_SCHEMA_VERSION) return null;
+
+  const schemaOk =
+    raw.schemaVersion === EXPERIENCE_POPULATION_POLICY_STORE_SCHEMA_VERSION ||
+    raw.schemaVersion === EXPERIENCE_POPULATION_POLICY_STORE_SCHEMA_VERSION_V1;
+  if (!schemaOk) return null;
   if (raw.lastKnownGood !== true) return null;
   if (typeof raw.raiderIoSeasonSlug !== "string" || !raw.raiderIoSeasonSlug.trim()) return null;
   if (typeof raw.policyContentHash !== "string" || !/^[a-f0-9]{64}$/i.test(raw.policyContentHash)) {
@@ -218,9 +349,7 @@ export function readExperiencePopulationPolicyMetadata(
   const policy = parseSeasonPopulationPolicy(raw.policy);
   if (!policy) return null;
 
-  // Reject documents whose stored hash does not match policy content.
-  const expectedHash = hashSeasonPopulationPolicyContent(policy);
-  if (expectedHash.toLowerCase() !== raw.policyContentHash.toLowerCase()) return null;
+  if (!verifyStoredPolicyHash(raw.policy, raw.policyContentHash, policy)) return null;
 
   // Only COMPLETE/PARTIAL policies are Last Known Good store documents.
   if (policy.quality === "INSUFFICIENT") return null;
@@ -229,7 +358,8 @@ export function readExperiencePopulationPolicyMetadata(
     schemaVersion: EXPERIENCE_POPULATION_POLICY_STORE_SCHEMA_VERSION,
     policy,
     raiderIoSeasonSlug: raw.raiderIoSeasonSlug,
-    policyContentHash: raw.policyContentHash.toLowerCase(),
+    // Return the v2 content hash so callers hashing upgraded policy match.
+    policyContentHash: hashSeasonPopulationPolicyContent(policy).toLowerCase(),
     sourceRequestFingerprint: raw.sourceRequestFingerprint,
     sourcePayloadId: raw.sourcePayloadId,
     sourceFetchedAt: raw.sourceFetchedAt,

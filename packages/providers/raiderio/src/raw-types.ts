@@ -108,10 +108,20 @@ export interface RawCharacterProfileResponse {
   mythic_plus_recent_runs?: RawKeystoneRun[];
   mythic_plus_best_runs?: RawKeystoneRun[];
   mythic_plus_highest_level_runs?: RawKeystoneRun[];
+  /** OpenAPI MythicPlusDungeonRunCountsList — exact season when requested with :<slug>. */
+  mythic_plus_dungeon_run_counts?: RawDungeonRunCount[];
   raid_progression?: Record<string, RawRaidProgressionEntry>;
   statusCode?: number;
   message?: string;
   error?: string;
+}
+
+export interface RawDungeonRunCount {
+  zone_id?: number;
+  dungeon?: string;
+  short_name?: string;
+  season_runs_total?: number;
+  season_runs_timed?: number;
 }
 
 export interface RawCutoffPopulation {
@@ -141,6 +151,8 @@ export interface RawSeasonCutoffs {
 
 export interface RawSeasonCutoffsResponse {
   cutoffs?: RawSeasonCutoffs;
+  /** Present on live remapped/historical cutoff payloads. */
+  isRemappedSeason?: boolean;
   statusCode?: number;
   message?: string;
   error?: string;
@@ -165,6 +177,7 @@ export interface RawStaticSeason {
   ends?: string | Record<string, string> | null;
   is_current?: boolean;
   is_main_season?: boolean;
+  blizzard_season_id?: number;
   dungeons?: RawStaticDungeon[];
 }
 

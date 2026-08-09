@@ -74,12 +74,16 @@ function blizzardSeason(
 function rioSeason(
   partial: Partial<RaiderIoStaticSeason> & Pick<RaiderIoStaticSeason, "slug" | "isCurrent">,
 ): RaiderIoStaticSeason {
+  const { isMainSeason: explicitMain, ...rest } = partial;
   return {
     name: partial.slug,
     startsAt: null,
     endsAt: null,
     dungeonSlugs: [],
-    ...partial,
+    blizzardSeasonId: null,
+    ...rest,
+    // Experience real-season binding requires explicit isMainSeason (slug regex is not authority).
+    isMainSeason: explicitMain !== undefined ? explicitMain : true,
   };
 }
 
@@ -187,6 +191,7 @@ describe("matchBlizzardSeasonToRaiderIoByDates", () => {
           isCurrent: false,
           startsAt: "2025-08-12T15:00:00.000Z",
           endsAt: "2026-03-02T22:00:00.000Z",
+          isMainSeason: false,
         }),
       ],
     );
@@ -195,7 +200,7 @@ describe("matchBlizzardSeasonToRaiderIoByDates", () => {
     expect(result.season.slug).toBe("season-tww-3");
   });
 
-  it("ignores non-canonical RIO season variants when starts tie", () => {
+  it("ignores non-main RIO season variants when starts tie", () => {
     const result = matchBlizzardSeasonToRaiderIoByDates(
       {
         startTimestamp: Date.parse("2025-08-06T04:00:00.000Z"),
@@ -207,6 +212,7 @@ describe("matchBlizzardSeasonToRaiderIoByDates", () => {
           isCurrent: false,
           startsAt: "2025-08-12T15:00:00.000Z",
           endsAt: "2026-03-10T15:00:00.000Z",
+          isMainSeason: false,
         }),
         rioSeason({
           slug: "season-tww-3",

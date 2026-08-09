@@ -1,57 +1,60 @@
 import { describe, expect, it } from "vitest";
-import type { PreviousSeasonRelativeStanding } from "./season-population-policy.js";
+import type { NativeCutoffBand, PreviousSeasonRelativeStanding } from "./season-population-policy.js";
+import { NATIVE_BAND_STANDING_SCORES, SEASON_POPULATION_POLICY_VERSION } from "./season-population-policy.js";
 import {
   calculateExperiencePhase1,
   EXPERIENCE_PHASE1_BELOW_TOP40_SCORE,
   EXPERIENCE_PHASE1_ELITE_FLOOR,
-  scoreFromEstimatedTopPercent,
   scorePreviousSeasonStanding,
   scoreRegionalClassRankFloor,
   usablePreviousRegionalClassRank,
 } from "./calculate.js";
 
 function standing(
-  partial: Partial<PreviousSeasonRelativeStanding> &
-    Pick<PreviousSeasonRelativeStanding, "estimatedTopPercent" | "band" | "method">,
+  partial: Partial<PreviousSeasonRelativeStanding> & {
+    nativeBand: NativeCutoffBand;
+    standingScore: number;
+  },
 ): PreviousSeasonRelativeStanding {
   return {
     rating: 3000,
     betterAnchor: null,
     worseAnchor: null,
-    policyVersion: "season-population-policy-v1",
+    thresholdsUsed: [],
+    estimatedTopPercent: null,
+    method: "NATIVE_BAND",
+    band:
+      partial.nativeBand === "p999"
+        ? "TOP_0_1_OR_BETTER"
+        : partial.nativeBand === "p990"
+          ? "TOP_1"
+          : partial.nativeBand === "p900"
+            ? "TOP_10"
+            : partial.nativeBand === "p750"
+              ? "TOP_25"
+              : partial.nativeBand === "p600"
+                ? "TOP_40"
+                : "BELOW_TOP_40",
+    policyVersion: SEASON_POPULATION_POLICY_VERSION,
     region: "EU",
     seasonSlug: "season-tww-3",
     ...partial,
   };
 }
 
-describe("scoreFromEstimatedTopPercent", () => {
-  it("maps exact 0.1 / 1 / 10 / 25 / 40 anchors", () => {
-    expect(scoreFromEstimatedTopPercent(0.1)).toBe(100);
-    expect(scoreFromEstimatedTopPercent(1)).toBe(90);
-    expect(scoreFromEstimatedTopPercent(10)).toBe(75);
-    expect(scoreFromEstimatedTopPercent(25)).toBe(60);
-    expect(scoreFromEstimatedTopPercent(40)).toBe(45);
+function bandStanding(nativeBand: NativeCutoffBand): PreviousSeasonRelativeStanding {
+  return standing({
+    nativeBand,
+    standingScore: NATIVE_BAND_STANDING_SCORES[nativeBand],
   });
-
-  it("interpolates between anchors (e.g. top 30% → 55)", () => {
-    expect(scoreFromEstimatedTopPercent(30)).toBeCloseTo(55, 10);
-    // mid between 1 and 10 → 82.5
-    expect(scoreFromEstimatedTopPercent(5.5)).toBeCloseTo(82.5, 10);
-  });
-});
+}
 
 describe("scorePreviousSeasonStanding", () => {
-  it("scores below top40 as 25", () => {
-    expect(
-      scorePreviousSeasonStanding(
-        standing({
-          estimatedTopPercent: null,
-          band: "BELOW_TOP_40",
-          method: "BELOW_SUPPORTED_RANGE",
-        }),
-      ),
-    ).toBe(EXPERIENCE_PHASE1_BELOW_TOP40_SCORE);
+  it("uses discrete native standingScore", () => {
+    expect(scorePreviousSeasonStanding(bandStanding("p900"))).toBe(75);
+    expect(scorePreviousSeasonStanding(bandStanding("below_p600"))).toBe(
+      EXPERIENCE_PHASE1_BELOW_TOP40_SCORE,
+    );
   });
 });
 
@@ -104,96 +107,129 @@ describe("usablePreviousRegionalClassRank", () => {
   });
 });
 
-describe("calculateExperiencePhase1", () => {
-  it("scores exact standing anchors", () => {
-    const cases: Array<{
-      topPercent: number;
-      score: number;
-      band: PreviousSeasonRelativeStanding["band"];
-    }> = [
-      { topPercent: 0.1, score: 100, band: "TOP_0_1_OR_BETTER" },
-      { topPercent: 1, score: 90, band: "TOP_1" },
-      { topPercent: 10, score: 75, band: "TOP_10" },
-      { topPercent: 25, score: 60, band: "TOP_25" },
-      { topPercent: 40, score: 45, band: "TOP_40" },
-    ];
-    for (const c of cases) {
+describe("calculateExperiencePhase1 — composition (E)", () => {
+  it("scores exact native standing bands", () => {
+    const cases: NativeCutoffBand[] = ["p999", "p990", "p900", "p750", "p600", "below_p600"];
+    for (const nativeBand of cases) {
       const result = calculateExperiencePhase1({
-        previous: {
-          state: "STANDING",
-          standing: standing({
-            estimatedTopPercent: c.topPercent,
-            band: c.band,
-            method: "EXACT_ANCHOR",
-          }),
-        },
+        previous: { state: "STANDING", standing: bandStanding(nativeBand) },
         elite: { confirmedCount: 0 },
       });
       expect(result.available).toBe(true);
-      expect(result.score).toBe(c.score);
-      expect(result.previousStandingScore).toBe(c.score);
-      expect(result.classRankFloor).toBeNull();
-      expect(result.eliteFloorApplied).toBe(false);
+      expect(result.score).toBe(NATIVE_BAND_STANDING_SCORES[nativeBand]);
+      expect(result.previousStandingScore).toBe(NATIVE_BAND_STANDING_SCORES[nativeBand]);
+      expect(result.confidence).toBe(1);
     }
   });
 
-  it("interpolates previous standing (top ~30% → ~55)", () => {
+  it("standing only", () => {
     const result = calculateExperiencePhase1({
-      previous: {
-        state: "STANDING",
-        standing: standing({
-          estimatedTopPercent: 30,
-          band: "TOP_40",
-          method: "INTERPOLATED",
-        }),
-      },
+      previous: { state: "STANDING", standing: bandStanding("p900") },
       elite: { confirmedCount: 0 },
     });
-    expect(result.score).toBeCloseTo(55, 10);
+    expect(result.score).toBe(75);
+    expect(result.classRankFloor).toBeNull();
+    expect(result.eliteFloorApplied).toBe(false);
   });
 
-  it("maps below top40 to 25", () => {
+  it("class-rank floor alone when previous unavailable", () => {
     const result = calculateExperiencePhase1({
-      previous: {
-        state: "STANDING",
-        standing: standing({
-          estimatedTopPercent: null,
-          band: "BELOW_TOP_40",
-          method: "BELOW_SUPPORTED_RANGE",
-        }),
-      },
+      previous: { state: "UNAVAILABLE", reason: "PROVIDER_FAILURE" },
       elite: { confirmedCount: 0 },
+      previousRegionalClassRank: 18,
     });
-    expect(result.score).toBe(25);
+    expect(result).toMatchObject({
+      score: 94,
+      available: true,
+      previousStandingScore: null,
+      classRankFloor: 94,
+      classRankFloorApplied: true,
+    });
   });
 
-  it("applies elite floor of 90", () => {
+  it("elite floor", () => {
     const result = calculateExperiencePhase1({
-      previous: {
-        state: "STANDING",
-        standing: standing({
-          estimatedTopPercent: 30,
-          band: "TOP_40",
-          method: "INTERPOLATED",
-        }),
-      },
+      previous: { state: "STANDING", standing: bandStanding("below_p600") },
       elite: { confirmedCount: 1 },
     });
     expect(result.score).toBe(EXPERIENCE_PHASE1_ELITE_FLOOR);
     expect(result.eliteFloorApplied).toBe(true);
-    expect(result.previousStandingScore).toBeCloseTo(55, 10);
+    expect(result.previousStandingScore).toBe(25);
+  });
+
+  it("max of standing / class-rank / elite proofs", () => {
+    expect(
+      calculateExperiencePhase1({
+        previous: { state: "STANDING", standing: bandStanding("p900") },
+        elite: { confirmedCount: 0 },
+        previousRegionalClassRank: 87,
+      }).score,
+    ).toBe(85);
+
+    expect(
+      calculateExperiencePhase1({
+        previous: { state: "STANDING", standing: bandStanding("p750") },
+        elite: { confirmedCount: 0 },
+        previousRegionalClassRank: 18,
+      }).score,
+    ).toBe(94);
+
+    expect(
+      calculateExperiencePhase1({
+        previous: { state: "STANDING", standing: bandStanding("p750") },
+        elite: { confirmedCount: 0 },
+        previousRegionalClassRank: 7,
+      }).score,
+    ).toBe(97);
+
+    const top = calculateExperiencePhase1({
+      previous: { state: "STANDING", standing: bandStanding("p999") },
+      elite: { confirmedCount: 1 },
+      previousRegionalClassRank: 3,
+    });
+    expect(top.score).toBe(100);
+    expect(top.classRankFloorApplied).toBe(false);
+    expect(top.eliteFloorApplied).toBe(false);
+  });
+
+  it("no activity = 0", () => {
+    const result = calculateExperiencePhase1({
+      previous: { state: "CONFIRMED_NO_ACTIVITY" },
+      elite: { confirmedCount: 0 },
+    });
+    expect(result).toMatchObject({
+      score: 0,
+      available: true,
+      confidence: 1,
+      previousStandingScore: 0,
+    });
+  });
+
+  it("previous unavailable + elite >= applicable floor", () => {
+    const result = calculateExperiencePhase1({
+      previous: { state: "UNAVAILABLE", reason: "PROVIDER_FAILURE" },
+      elite: { confirmedCount: 2 },
+    });
+    expect(result.score).toBe(90);
+    expect(result.previousStandingScore).toBeNull();
+    expect(result.eliteFloorApplied).toBe(true);
+  });
+
+  it("elite failure with known score >=90 remains available", () => {
+    const result = calculateExperiencePhase1({
+      previous: { state: "STANDING", standing: bandStanding("p999") },
+      elite: { state: "UNAVAILABLE", reason: "achievements down" },
+    });
+    expect(result).toMatchObject({
+      score: 100,
+      available: true,
+      reason: null,
+    });
   });
 
   it("does not reduce a score already above the elite floor", () => {
     const result = calculateExperiencePhase1({
-      previous: {
-        state: "STANDING",
-        standing: standing({
-          estimatedTopPercent: 0.1,
-          band: "TOP_0_1_OR_BETTER",
-          method: "EXACT_ANCHOR",
-        }),
-      },
+      previous: { state: "STANDING", standing: bandStanding("p999") },
       elite: { confirmedCount: 1 },
     });
     expect(result.score).toBe(100);
@@ -203,11 +239,7 @@ describe("calculateExperiencePhase1", () => {
   it("treats old and recent elite titles identically", () => {
     const basePrevious = {
       state: "STANDING" as const,
-      standing: standing({
-        estimatedTopPercent: 30,
-        band: "TOP_40",
-        method: "INTERPOLATED",
-      }),
+      standing: bandStanding("p600"),
     };
     const old = calculateExperiencePhase1({
       previous: basePrevious,
@@ -245,44 +277,16 @@ describe("calculateExperiencePhase1", () => {
 
   it("does not stack multiple elite titles beyond the floor", () => {
     const one = calculateExperiencePhase1({
-      previous: {
-        state: "STANDING",
-        standing: standing({
-          estimatedTopPercent: null,
-          band: "BELOW_TOP_40",
-          method: "BELOW_SUPPORTED_RANGE",
-        }),
-      },
+      previous: { state: "STANDING", standing: bandStanding("below_p600") },
       elite: { confirmedCount: 1 },
     });
     const many = calculateExperiencePhase1({
-      previous: {
-        state: "STANDING",
-        standing: standing({
-          estimatedTopPercent: null,
-          band: "BELOW_TOP_40",
-          method: "BELOW_SUPPORTED_RANGE",
-        }),
-      },
+      previous: { state: "STANDING", standing: bandStanding("below_p600") },
       elite: { confirmedCount: 5 },
     });
     expect(one.score).toBe(90);
     expect(many.score).toBe(90);
     expect(many.confirmedEliteTitleCount).toBe(5);
-  });
-
-  it("maps confirmed no activity to 0", () => {
-    const result = calculateExperiencePhase1({
-      previous: { state: "CONFIRMED_NO_ACTIVITY" },
-      elite: { confirmedCount: 0 },
-    });
-    expect(result).toMatchObject({
-      score: 0,
-      available: true,
-      previousStandingScore: 0,
-      classRankFloor: null,
-      eliteFloorApplied: false,
-    });
   });
 
   it("maps confirmed no activity + elite to 90", () => {
@@ -295,18 +299,7 @@ describe("calculateExperiencePhase1", () => {
     expect(result.eliteFloorApplied).toBe(true);
   });
 
-  it("maps missing previous evidence + elite to 90", () => {
-    const result = calculateExperiencePhase1({
-      previous: { state: "UNAVAILABLE", reason: "PROVIDER_FAILURE" },
-      elite: { confirmedCount: 2 },
-    });
-    expect(result.score).toBe(90);
-    expect(result.previousStandingScore).toBeNull();
-    expect(result.eliteFloorApplied).toBe(true);
-    expect(result.available).toBe(true);
-  });
-
-  it("marks provider/unknown previous evidence without elite as unavailable", () => {
+  it("marks provider previous evidence without elite as unavailable", () => {
     const result = calculateExperiencePhase1({
       previous: { state: "UNAVAILABLE", reason: "PROVIDER_FAILURE" },
       elite: { confirmedCount: 0 },
@@ -325,100 +318,9 @@ describe("calculateExperiencePhase1", () => {
     });
   });
 
-  it("uses class-rank floor alone when previous standing is unavailable", () => {
-    const result = calculateExperiencePhase1({
-      previous: { state: "UNAVAILABLE", reason: "PROVIDER_FAILURE" },
-      elite: { confirmedCount: 0 },
-      previousRegionalClassRank: 18,
-    });
-    expect(result).toMatchObject({
-      score: 94,
-      available: true,
-      previousStandingScore: null,
-      classRankFloor: 94,
-      classRankFloorApplied: true,
-      eliteFloorApplied: false,
-    });
-  });
-
-  it("examples: standing vs class-rank max", () => {
-    // standing 82.5, class rank #87 → 85
-    expect(
-      calculateExperiencePhase1({
-        previous: {
-          state: "STANDING",
-          standing: standing({
-            estimatedTopPercent: 5.5,
-            band: "TOP_10",
-            method: "INTERPOLATED",
-          }),
-        },
-        elite: { confirmedCount: 0 },
-        previousRegionalClassRank: 87,
-      }).score,
-    ).toBe(85);
-
-    // standing 70, class rank #18 → 94
-    expect(
-      calculateExperiencePhase1({
-        previous: {
-          state: "STANDING",
-          standing: standing({
-            estimatedTopPercent: 15,
-            band: "TOP_25",
-            method: "INTERPOLATED",
-          }),
-        },
-        elite: { confirmedCount: 0 },
-        previousRegionalClassRank: 18,
-      }).score,
-    ).toBe(94);
-
-    // standing 60, class rank #7 → 97
-    expect(
-      calculateExperiencePhase1({
-        previous: {
-          state: "STANDING",
-          standing: standing({
-            estimatedTopPercent: 25,
-            band: "TOP_25",
-            method: "EXACT_ANCHOR",
-          }),
-        },
-        elite: { confirmedCount: 0 },
-        previousRegionalClassRank: 7,
-      }).score,
-    ).toBe(97);
-
-    // standing 100, class rank #3, elite → 100
-    const top = calculateExperiencePhase1({
-      previous: {
-        state: "STANDING",
-        standing: standing({
-          estimatedTopPercent: 0.1,
-          band: "TOP_0_1_OR_BETTER",
-          method: "EXACT_ANCHOR",
-        }),
-      },
-      elite: { confirmedCount: 1 },
-      previousRegionalClassRank: 3,
-    });
-    expect(top.score).toBe(100);
-    expect(top.classRankFloor).toBe(100);
-    expect(top.classRankFloorApplied).toBe(false);
-    expect(top.eliteFloorApplied).toBe(false);
-  });
-
   it("stronger previous standing wins over class-rank floor", () => {
     const result = calculateExperiencePhase1({
-      previous: {
-        state: "STANDING",
-        standing: standing({
-          estimatedTopPercent: 0.1,
-          band: "TOP_0_1_OR_BETTER",
-          method: "EXACT_ANCHOR",
-        }),
-      },
+      previous: { state: "STANDING", standing: bandStanding("p999") },
       elite: { confirmedCount: 0 },
       previousRegionalClassRank: 50,
     });
@@ -449,19 +351,12 @@ describe("calculateExperiencePhase1", () => {
 
   it("rank >100 gives no class-rank floor", () => {
     const result = calculateExperiencePhase1({
-      previous: {
-        state: "STANDING",
-        standing: standing({
-          estimatedTopPercent: 5.5,
-          band: "TOP_10",
-          method: "INTERPOLATED",
-        }),
-      },
+      previous: { state: "STANDING", standing: bandStanding("p900") },
       elite: { confirmedCount: 0 },
       previousRegionalClassRank: 503,
     });
     expect(result.classRankFloor).toBeNull();
-    expect(result.score).toBeCloseTo(82.5, 10);
+    expect(result.score).toBe(75);
   });
 });
 
@@ -481,30 +376,9 @@ describe("Experience availability semantics", () => {
     });
   });
 
-  it("no previous activity + class rank >100 + no elite → available score 0", () => {
+  it("successful previous evidence below p600 → available score 25", () => {
     const result = calculateExperiencePhase1({
-      previous: { state: "CONFIRMED_NO_ACTIVITY" },
-      elite: { state: "OK", confirmedCount: 0 },
-      previousRegionalClassRank: 503,
-    });
-    expect(result).toMatchObject({
-      score: 0,
-      available: true,
-      classRankFloor: null,
-      reason: null,
-    });
-  });
-
-  it("successful previous evidence below supported range → available score 25", () => {
-    const result = calculateExperiencePhase1({
-      previous: {
-        state: "STANDING",
-        standing: standing({
-          estimatedTopPercent: null,
-          band: "BELOW_TOP_40",
-          method: "BELOW_SUPPORTED_RANGE",
-        }),
-      },
+      previous: { state: "STANDING", standing: bandStanding("below_p600") },
       elite: { state: "OK", confirmedCount: 0 },
     });
     expect(result).toMatchObject({
@@ -516,14 +390,7 @@ describe("Experience availability semantics", () => {
 
   it("missing class rank does not make Experience unavailable", () => {
     const result = calculateExperiencePhase1({
-      previous: {
-        state: "STANDING",
-        standing: standing({
-          estimatedTopPercent: 25,
-          band: "TOP_25",
-          method: "EXACT_ANCHOR",
-        }),
-      },
+      previous: { state: "STANDING", standing: bandStanding("p750") },
       elite: { state: "OK", confirmedCount: 0 },
     });
     expect(result.available).toBe(true);
@@ -531,35 +398,7 @@ describe("Experience availability semantics", () => {
     expect(result.classRankFloor).toBeNull();
   });
 
-  it("class rank >100 does not make Experience unavailable", () => {
-    const result = calculateExperiencePhase1({
-      previous: {
-        state: "STANDING",
-        standing: standing({
-          estimatedTopPercent: 25,
-          band: "TOP_25",
-          method: "EXACT_ANCHOR",
-        }),
-      },
-      elite: { state: "OK", confirmedCount: 0 },
-      previousRegionalClassRank: 101,
-    });
-    expect(result.available).toBe(true);
-    expect(result.score).toBe(60);
-    expect(result.classRankFloor).toBeNull();
-  });
-
-  it("successful achievements with zero elite titles stays available", () => {
-    const result = calculateExperiencePhase1({
-      previous: { state: "CONFIRMED_NO_ACTIVITY" },
-      elite: { state: "OK", confirmedCount: 0 },
-    });
-    expect(result.available).toBe(true);
-    expect(result.score).toBe(0);
-    expect(result.confirmedEliteTitleCount).toBe(0);
-  });
-
-  it("provider failure remains unavailable (not zero)", () => {
+  it("provider failure remains unavailable (not zero or 25)", () => {
     const result = calculateExperiencePhase1({
       previous: { state: "UNAVAILABLE", reason: "PROVIDER_FAILURE" },
       elite: { state: "OK", confirmedCount: 0 },
@@ -573,40 +412,14 @@ describe("Experience availability semantics", () => {
 
   it("achievements failure remains unavailable when elite could change the score", () => {
     const result = calculateExperiencePhase1({
-      previous: {
-        state: "STANDING",
-        standing: standing({
-          estimatedTopPercent: 5.5,
-          band: "TOP_10",
-          method: "INTERPOLATED",
-        }),
-      },
+      previous: { state: "STANDING", standing: bandStanding("p900") },
       elite: { state: "UNAVAILABLE", reason: "achievements down" },
     });
     expect(result).toMatchObject({
       score: null,
       available: false,
       reason: "ELITE_EVIDENCE_UNAVAILABLE",
-      previousStandingScore: 82.5,
-    });
-  });
-
-  it("achievements failure stays available when score is already >= elite floor", () => {
-    const result = calculateExperiencePhase1({
-      previous: {
-        state: "STANDING",
-        standing: standing({
-          estimatedTopPercent: 0.1,
-          band: "TOP_0_1_OR_BETTER",
-          method: "EXACT_ANCHOR",
-        }),
-      },
-      elite: { state: "UNAVAILABLE", reason: "achievements down" },
-    });
-    expect(result).toMatchObject({
-      score: 100,
-      available: true,
-      reason: null,
+      previousStandingScore: 75,
     });
   });
 

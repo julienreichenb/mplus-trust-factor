@@ -84,6 +84,7 @@ export const ALL_PRISMA_MAPPED_TABLES = [
   "run_ranking_facts",
   "character_scores",
   "character_performance_aggregates",
+  "character_experience_evidence",
   "capability_evidence_package_records",
   "participant_scoring_digests",
 ] as const;
@@ -109,6 +110,7 @@ export const WCL_SCORING_DERIVED_CLEAR_TABLES = [
   "scoring_v2_evidence_exports",
   // Minimal scoring cache (WclRunRaw / digests / rankings / aggregates / scores)
   "character_performance_aggregates",
+  "character_experience_evidence",
   "run_ranking_facts",
   "character_run_digests",
   "wcl_run_raw",

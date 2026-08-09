@@ -10,19 +10,29 @@
  */
 
 import type { EliteCutoffHistoryEvidence } from "./elite-cutoff-history.js";
-import type { PreviousSeasonRelativeStanding } from "./season-population-policy.js";
+import {
+  EXPERIENCE_PHASE1_BELOW_P600_SCORE,
+  NATIVE_BAND_STANDING_SCORES,
+  type NativeCutoffBand,
+  type NativeCutoffQuantile,
+  type PreviousSeasonRelativeStanding,
+} from "./season-population-policy.js";
 
 export const EXPERIENCE_PHASE1_ELITE_FLOOR = 90;
-export const EXPERIENCE_PHASE1_BELOW_TOP40_SCORE = 25;
+/** @deprecated Prefer EXPERIENCE_PHASE1_BELOW_P600_SCORE / NATIVE_BAND_STANDING_SCORES.below_p600. */
+export const EXPERIENCE_PHASE1_BELOW_TOP40_SCORE = EXPERIENCE_PHASE1_BELOW_P600_SCORE;
 export const EXPERIENCE_PHASE1_NO_ACTIVITY_SCORE = 0;
 
-/** Standing → Experience score anchors (topPercent lower is better). */
+/**
+ * Diagnostic / legacy mapping of native bands → standing scores.
+ * Scoring uses PreviousSeasonRelativeStanding.standingScore (discrete native bands).
+ */
 export const EXPERIENCE_PHASE1_STANDING_SCORE_ANCHORS = Object.freeze([
-  Object.freeze({ topPercent: 0.1, score: 100 }),
-  Object.freeze({ topPercent: 1, score: 90 }),
-  Object.freeze({ topPercent: 10, score: 75 }),
-  Object.freeze({ topPercent: 25, score: 60 }),
-  Object.freeze({ topPercent: 40, score: 45 }),
+  Object.freeze({ topPercent: 0.1, score: NATIVE_BAND_STANDING_SCORES.p999, nativeBand: "p999" as const }),
+  Object.freeze({ topPercent: 1, score: NATIVE_BAND_STANDING_SCORES.p990, nativeBand: "p990" as const }),
+  Object.freeze({ topPercent: 10, score: NATIVE_BAND_STANDING_SCORES.p900, nativeBand: "p900" as const }),
+  Object.freeze({ topPercent: 25, score: NATIVE_BAND_STANDING_SCORES.p750, nativeBand: "p750" as const }),
+  Object.freeze({ topPercent: 40, score: NATIVE_BAND_STANDING_SCORES.p600, nativeBand: "p600" as const }),
 ] as const);
 
 /** Previous-season regional class rank → Experience floor (rank lower is better). */
@@ -52,6 +62,17 @@ export type ExperiencePhase1UnavailableReason =
   | "PREVIOUS_EVIDENCE_UNAVAILABLE"
   | "ELITE_EVIDENCE_UNAVAILABLE";
 
+/** Machine-readable standing provenance (no UI). */
+export interface ExperiencePhase1StandingProvenance {
+  historicalRating: number | null;
+  /** Original acquisition source (not cache hit). */
+  ratingSource: "BLIZZARD" | "RAIDERIO_FALLBACK" | null;
+  exactHistoricalSeasonSlug: string | null;
+  populationPolicyVersion: string | null;
+  matchedNativeBand: NativeCutoffBand | null;
+  thresholdsUsed: Array<{ quantile: NativeCutoffQuantile; score: number }> | null;
+}
+
 export interface ExperiencePhase1Result {
   score: number | null;
   available: boolean;
@@ -70,6 +91,8 @@ export interface ExperiencePhase1Result {
   eliteFloorApplied: boolean;
   confirmedEliteTitleCount: number;
   reason: ExperiencePhase1UnavailableReason | null;
+  /** Optional standing provenance attached by the worker acquisition path. */
+  standingProvenance?: ExperiencePhase1StandingProvenance | null;
 }
 
 export type CalculateExperiencePhase1EliteInput =
@@ -88,49 +111,47 @@ export interface CalculateExperiencePhase1Input {
 }
 
 /**
- * Map an estimated population topPercent onto 0–100 using piecewise-linear anchors.
- * Does not extrapolate beyond top 40% (caller uses below-range floor separately).
+ * @deprecated Agent 04 removed percentile interpolation. Maps legacy topPercent
+ * diagnostics onto the nearest native-band standing score (no interpolation).
  */
 export function scoreFromEstimatedTopPercent(estimatedTopPercent: number): number {
   if (!Number.isFinite(estimatedTopPercent)) {
-    return EXPERIENCE_PHASE1_BELOW_TOP40_SCORE;
+    return EXPERIENCE_PHASE1_BELOW_P600_SCORE;
   }
   const anchors = EXPERIENCE_PHASE1_STANDING_SCORE_ANCHORS;
   if (estimatedTopPercent <= anchors[0]!.topPercent) {
     return anchors[0]!.score;
   }
-  const last = anchors[anchors.length - 1]!;
-  if (estimatedTopPercent >= last.topPercent) {
-    return last.score;
-  }
-  for (let i = 0; i < anchors.length - 1; i += 1) {
-    const lo = anchors[i]!;
-    const hi = anchors[i + 1]!;
-    if (estimatedTopPercent >= lo.topPercent && estimatedTopPercent <= hi.topPercent) {
-      const span = hi.topPercent - lo.topPercent;
-      if (span === 0) return lo.score;
-      const t = (estimatedTopPercent - lo.topPercent) / span;
-      return lo.score + t * (hi.score - lo.score);
+  for (let i = 0; i < anchors.length; i += 1) {
+    const cur = anchors[i]!;
+    const next = anchors[i + 1];
+    if (next == null) {
+      return estimatedTopPercent <= cur.topPercent
+        ? cur.score
+        : EXPERIENCE_PHASE1_BELOW_P600_SCORE;
+    }
+    if (estimatedTopPercent <= next.topPercent) {
+      // Snap to the weaker (higher topPercent) band boundary — no mid-band lerp.
+      return next.score;
     }
   }
-  return EXPERIENCE_PHASE1_BELOW_TOP40_SCORE;
+  return EXPERIENCE_PHASE1_BELOW_P600_SCORE;
 }
 
 /**
  * Convert a PreviousSeasonRelativeStanding into a previous-standing Experience score.
+ * Uses discrete native-band standingScore (no interpolation).
  */
 export function scorePreviousSeasonStanding(
   standing: PreviousSeasonRelativeStanding,
 ): number {
-  if (
-    standing.estimatedTopPercent == null ||
-    standing.method === "BELOW_SUPPORTED_RANGE" ||
-    standing.band === "BELOW_TOP_40" ||
-    standing.band === "BELOW_SUPPORTED_RANGE"
-  ) {
-    return EXPERIENCE_PHASE1_BELOW_TOP40_SCORE;
+  if (typeof standing.standingScore === "number" && Number.isFinite(standing.standingScore)) {
+    return standing.standingScore;
   }
-  return scoreFromEstimatedTopPercent(standing.estimatedTopPercent);
+  if (standing.nativeBand != null && standing.nativeBand in NATIVE_BAND_STANDING_SCORES) {
+    return NATIVE_BAND_STANDING_SCORES[standing.nativeBand];
+  }
+  return EXPERIENCE_PHASE1_BELOW_P600_SCORE;
 }
 
 /**

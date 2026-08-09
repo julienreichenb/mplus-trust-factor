@@ -36,7 +36,9 @@ describe.runIf(RUN)("live previous-season regional class rank", () => {
 
       const profile = result.data;
       const usable = usablePreviousRegionalClassRank(profile.previousRanks);
+      // Production helper fails closed until exact-season rank provenance exists.
       const fromHelper = previousRegionalClassRankFromRioProfile(profile);
+      expect(fromHelper).toBeNull();
       const floor = scoreRegionalClassRankFloor(usable);
       const experience = calculateExperiencePhase1({
         previous: { state: "UNAVAILABLE", reason: "LIVE_EXAMPLE_STANDING_SKIPPED" },

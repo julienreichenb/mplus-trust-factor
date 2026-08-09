@@ -4,6 +4,7 @@ import type {
   ProviderRequestMetadata,
   ProviderResult,
   RaiderIoCharacterProfile,
+  RaiderIoExactSeasonHistoricalRating,
   RaiderIoPeriod,
   RaiderIoProvider,
   RaiderIoRunDetails,
@@ -29,7 +30,8 @@ import {
   RAIDERIO_SCHEMA_VERSION,
 } from "./constants.js";
 import { selectValidatedExpansionId, type ExpansionResolution } from "./expansion.js";
-import { buildMinimalCharacterFields } from "./fields.js";
+import { buildExactSeasonHistoricalEvidenceFields, buildMinimalCharacterFields } from "./fields.js";
+import { extractExactSeasonHistoricalRatingFromRaw } from "./exact-season-historical-rating.js";
 import type { RaiderIoHttpClient } from "./http-client.js";
 import { createMetrics, type RaiderIoMetrics } from "./metrics.js";
 import {
@@ -270,6 +272,106 @@ export abstract class BaseRaiderIoProvider implements RaiderIoProvider {
           ttlSeconds: this.deps.env.RAIDERIO_CHARACTER_TTL_SECONDS,
           sourceUrl: data.profileUrl,
           stale: data.crawlStale,
+        });
+      } catch (error) {
+        if (error instanceof ExternalApiError && error.code === "NOT_FOUND") {
+          this.cache.set(
+            fingerprint,
+            { message: error.message },
+            this.deps.env.RAIDERIO_NEGATIVE_CACHE_SECONDS,
+            Date.now(),
+            true,
+          );
+          this.capabilities.characterProfile = "available";
+        } else if (error instanceof ExternalApiError && error.code === "RATE_LIMITED") {
+          this.capabilities.characterProfile = "unavailable";
+          this.metrics.rateLimited += 1;
+        } else {
+          this.capabilities.characterProfile = "unavailable";
+        }
+        throw error;
+      }
+    });
+  }
+
+  /**
+   * Exact historical season score + dungeon run counts (OpenAPI v0.62.5).
+   * Fields: mythic_plus_scores_by_season:<slug>,mythic_plus_dungeon_run_counts:<slug>.
+   */
+  async getCharacterExactSeasonHistoricalRating(
+    identity: CharacterIdentityInput,
+    seasonSlug: string,
+    ctx: ProviderFetchContext,
+  ): Promise<ProviderResult<RaiderIoExactSeasonHistoricalRating>> {
+    this.assertEnabled();
+    const fields = buildExactSeasonHistoricalEvidenceFields(seasonSlug);
+    const query = {
+      region: toRegionQuery(identity.region),
+      realm: identity.realmSlug,
+      name: identity.name,
+      fields,
+    };
+    const fingerprint = this.fingerprint(RAIDERIO_ENDPOINTS.characterProfile, identity.region, {
+      ...query,
+      exactSeason: seasonSlug.trim(),
+    });
+
+    if (!ctx.forceRefresh) {
+      const cached = this.cache.get<RaiderIoExactSeasonHistoricalRating>(fingerprint);
+      if (cached.hit) {
+        this.metrics.cacheHits += 1;
+        if (cached.negative) this.metrics.negativeCacheHits += 1;
+        if (cached.negative) {
+          throw new ExternalApiError({
+            message: "Raider.IO character not found (negative cache)",
+            code: "NOT_FOUND",
+            provider: "raiderio",
+            retryable: false,
+            statusCode: 404,
+          });
+        }
+        return buildResult({
+          data: cached.value,
+          endpointKey: RAIDERIO_ENDPOINTS.characterProfile,
+          fingerprint,
+          ctx,
+          cacheHit: true,
+          statusCode: 200,
+          ttlSeconds: this.deps.env.RAIDERIO_CHARACTER_TTL_SECONDS,
+          sourceUrl: null,
+          stale: false,
+        });
+      }
+    }
+
+    return this.cache.dedupe(fingerprint, async () => {
+      this.metrics.cacheMisses += 1;
+      try {
+        const { raw, statusCode } = await this.fetchCharacterProfile(identity, fields);
+        const parsed = parseWithSchema(characterProfileSchema, raw, RAIDERIO_ENDPOINTS.characterProfile);
+        if (!parsed.ok) {
+          throw new ExternalApiError({
+            message: parsed.issues,
+            code: "INVALID_RESPONSE",
+            provider: "raiderio",
+            retryable: false,
+            statusCode,
+          });
+        }
+        const data = extractExactSeasonHistoricalRatingFromRaw(raw, seasonSlug);
+        this.cache.set(fingerprint, data, this.deps.env.RAIDERIO_CHARACTER_TTL_SECONDS);
+        this.metrics.requestsTotal += 1;
+        this.capabilities.characterProfile = "available";
+        return buildResult({
+          data,
+          endpointKey: RAIDERIO_ENDPOINTS.characterProfile,
+          fingerprint,
+          ctx,
+          cacheHit: false,
+          statusCode,
+          ttlSeconds: this.deps.env.RAIDERIO_CHARACTER_TTL_SECONDS,
+          sourceUrl: raw.profile_url ?? null,
+          stale: false,
         });
       } catch (error) {
         if (error instanceof ExternalApiError && error.code === "NOT_FOUND") {

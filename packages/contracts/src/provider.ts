@@ -8,6 +8,7 @@ import type {
 } from "./identity.js";
 import type {
   RaiderIoCharacterProfile,
+  RaiderIoExactSeasonHistoricalRating,
   RaiderIoPeriod,
   RaiderIoRunDetails,
   RaiderIoSeasonCutoffs,
@@ -436,6 +437,16 @@ export interface RaiderIoProvider {
     identity: CharacterIdentityInput,
     ctx: ProviderFetchContext,
   ): Promise<ProviderResult<RaiderIoCharacterProfile>>;
+  /**
+   * Exact historical season Mythic+ score + dungeon run counts.
+   * Fields: mythic_plus_scores_by_season:<slug>,mythic_plus_dungeon_run_counts:<slug>.
+   * Never uses current/previous aliases.
+   */
+  getCharacterExactSeasonHistoricalRating(
+    identity: CharacterIdentityInput,
+    seasonSlug: string,
+    ctx: ProviderFetchContext,
+  ): Promise<ProviderResult<RaiderIoExactSeasonHistoricalRating>>;
   getSeasonCutoffs(
     region: RegionCode,
     seasonSlug: string,

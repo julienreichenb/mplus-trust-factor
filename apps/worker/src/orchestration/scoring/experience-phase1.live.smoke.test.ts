@@ -165,6 +165,7 @@ describe.runIf(live)("Experience Phase 1 live smoke", () => {
       const blizzardCalls = { profile: 0, achievements: 0 };
       const built = await buildExperiencePhase1Result({
         prisma,
+        characterId: "live-smoke-character",
         identity: { region: REGION, realmSlug: REALM, name: NAME },
         currentSeasonId: current!.id,
         regionCode: REGION,
@@ -187,7 +188,8 @@ describe.runIf(live)("Experience Phase 1 live smoke", () => {
       expect(blizzardCalls.achievements).toBe(1);
 
       let rating: number | null = null;
-      let estimatedTopPercent: number | null = null;
+      let nativeBand: string | null = null;
+      let standingScore: number | null = null;
       if (previous!.blizzardSeasonId != null && built.previousSeasonProfileCalls > 0) {
         try {
           const peek = await blizzard.getMythicKeystoneSeasonProfile(
@@ -198,7 +200,10 @@ describe.runIf(live)("Experience Phase 1 live smoke", () => {
           rating = peek.data.profile.currentMythicRating;
           if (rating != null && policy) {
             const est = estimatePreviousSeasonStanding(rating, policy.policy);
-            if (est.ok) estimatedTopPercent = est.standing.estimatedTopPercent;
+            if (est.ok) {
+              nativeBand = est.standing.nativeBand;
+              standingScore = est.standing.standingScore;
+            }
           }
         } catch (err) {
           // 404 / privacy is expected for some characters; Experience path already handled it.
@@ -298,7 +303,8 @@ describe.runIf(live)("Experience Phase 1 live smoke", () => {
               metadataKey: EXPERIENCE_POPULATION_POLICY_METADATA_KEY,
             },
             previousRating: rating,
-            estimatedTopPercent,
+            nativeBand,
+            standingScore,
             experience: built.experience,
             diagnostics: built.diagnostics,
             persistedExperience: saved[0]!.experience,

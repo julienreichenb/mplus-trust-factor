@@ -32,6 +32,7 @@ import {
   previousRegionalClassRankFromRioProfile,
   rioPreviousSeasonCorroborationFromProfile,
 } from "./experience-phase1.js";
+import { createCharacterExperienceEvidenceRepository } from "@mplus/database";
 
 export interface AuthoritativeScoringInput {
   container: WorkerContainer;
@@ -283,8 +284,43 @@ export async function runAuthoritativeScoring(
         now: input.calculatedAt,
       };
       try {
+        // Bound previous RIO slug from Season.providerSeasonId (set by Experience season bind).
+        // Class rank stays fail-closed: previous_mythic_plus_ranks has no exact-season identity.
+        let boundPreviousRaiderIoSlug: string | null = null;
+        const currentSeasonRow = await input.container.prisma.season.findUnique({
+          where: { id: input.seasonId },
+          select: {
+            regionId: true,
+            blizzardSeasonId: true,
+            startsAt: true,
+            endsAt: true,
+            slug: true,
+          },
+        });
+        if (currentSeasonRow?.regionId && currentSeasonRow.startsAt) {
+          const prior = await input.container.prisma.season.findMany({
+            where: {
+              regionId: currentSeasonRow.regionId,
+              startsAt: { lt: currentSeasonRow.startsAt },
+              blizzardSeasonId: { not: null },
+            },
+            orderBy: { startsAt: "desc" },
+            take: 2,
+            select: { providerSeasonId: true, startsAt: true },
+          });
+          // Fail closed on tied startsAt (should not happen with unique chronology).
+          if (
+            prior.length === 1 ||
+            (prior.length >= 2 &&
+              prior[0]!.startsAt?.getTime() !== prior[1]!.startsAt?.getTime())
+          ) {
+            boundPreviousRaiderIoSlug = prior[0]?.providerSeasonId ?? null;
+          }
+        }
+
         const built = await buildExperiencePhase1Result({
           prisma: input.container.prisma,
+          characterId: input.characterId,
           identity: {
             region: input.region,
             realmSlug: input.realm,
@@ -297,12 +333,22 @@ export async function runAuthoritativeScoring(
           persistProviderResult: (result) =>
             recordProviderResult(input.container.repositories, result),
           allowProviderCalls: true,
+          evidenceStore: createCharacterExperienceEvidenceRepository(
+            input.container.prisma,
+          ),
+          boundPreviousRaiderIoSlug,
+          raiderIoExactSeason: input.container.disabledProviders.has("raiderio")
+            ? null
+            : input.container.providers.raiderio,
+          // No RIO endpoint proves previous_mythic_plus_ranks for an exact season slug.
           previousRegionalClassRank: previousRegionalClassRankFromRioProfile(
             input.raiderIoProfile ?? null,
+            { exactSeasonProven: false },
           ),
           rioPreviousSeasonCorroboration:
             rioPreviousSeasonCorroborationFromProfile(
               input.raiderIoProfile ?? null,
+              { boundPreviousRaiderIoSlug },
             ),
         });
         experience = built.experience;

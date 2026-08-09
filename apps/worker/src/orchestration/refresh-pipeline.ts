@@ -1709,6 +1709,54 @@ export async function runRefreshPipeline(
     "refresh_season_authority",
   );
 
+  // Experience historical bind/policy: re-ensure when authority current flips N→N+1
+  // without requiring worker restart. Soft-fail; never blocks P/S/U.
+  if (
+    season.blizzardSeasonId != null &&
+    container.env.ALLOW_LIVE_PROVIDER_CALLS === true &&
+    (container.env.PROVIDER_MODE === "live" || container.env.PROVIDER_MODE === "fixture") &&
+    !disabledProviders.has("blizzard") &&
+    !disabledProviders.has("raiderio")
+  ) {
+    try {
+      const { ensureExperienceSeasonBindingReady } = await import(
+        "./scoring/experience-season-bootstrap.js"
+      );
+      const { recordProviderResult } = await import("./provider-recording.js");
+      const ensureResult = await ensureExperienceSeasonBindingReady({
+        prisma: container.prisma,
+        regions: [{ code: identity.region, id: character.regionId }],
+        blizzard: providers.blizzard,
+        raiderIo: providers.raiderio,
+        persistProviderResult: (result) => recordProviderResult(repositories, result),
+        logger,
+        allowProviderCalls: true,
+        currentBlizzardSeasonIdByRegion: {
+          [identity.region]: season.blizzardSeasonId,
+        },
+      });
+      logger.info(
+        {
+          ...logBase,
+          event: "experience_season_binding_ensure",
+          status: ensureResult.status,
+          currentBlizzardSeasonId: season.blizzardSeasonId,
+          reason: "reason" in ensureResult ? ensureResult.reason : null,
+        },
+        "experience_season_binding_ensure",
+      );
+    } catch (error) {
+      logger.warn(
+        {
+          ...logBase,
+          event: "experience_season_binding_ensure",
+          err: error instanceof Error ? { name: error.name, message: error.message } : error,
+        },
+        "experience season binding ensure failed — continuing refresh",
+      );
+    }
+  }
+
   // Raider.IO fallback for missing Blizzard class/spec/role/gear/talents.
   if (raiderIoProfile) {
     const needsIdentityFallback =

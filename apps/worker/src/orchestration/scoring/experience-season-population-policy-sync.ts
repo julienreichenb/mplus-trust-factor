@@ -42,6 +42,11 @@ export interface SynchronizeSeasonPopulationPolicyInput {
   persistProviderResult: PersistProviderResultFn;
   /** Optional clock for synchronizedAt (tests). Defaults to Date.now ISO. */
   now?: Date;
+  /**
+   * Remapped historical cutoffs must not become LKG unless the caller proves
+   * exact target-season equivalence (Agent 02). Default: refuse remapped writes.
+   */
+  exactTargetSeasonEquivalenceProven?: boolean;
 }
 
 export type SeasonPopulationPolicySyncResult =
@@ -190,6 +195,17 @@ export async function synchronizeSeasonPopulationPolicy(
 
   if (!built.ok) {
     return retainedOrNone(seasonId, built.reason, priorLkg);
+  }
+
+  if (
+    providerResult.data.isRemappedSeason === true &&
+    input.exactTargetSeasonEquivalenceProven !== true
+  ) {
+    return retainedOrNone(
+      seasonId,
+      "REMAPPED_CUTOFFS_UNPROVEN_TARGET_SEASON_EQUIVALENCE",
+      priorLkg,
+    );
   }
 
   if (normalizeRegionCode(String(built.policy.region)) !== expectedRegion) {

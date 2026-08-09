@@ -1,0 +1,405 @@
+{
+  "auditedAt": "2026-08-09T12:58:59.491Z",
+  "character": {
+    "region": "EU",
+    "realm": "archimonde",
+    "name": "Wallidrixe"
+  },
+  "blizzard": {
+    "seasonIndexStatus": 200,
+    "currentSeasonId": 17,
+    "currentSeason": {
+      "id": 17,
+      "name": null,
+      "start_timestamp": 1773806400000,
+      "end_timestamp": null,
+      "status": 200
+    },
+    "previousSeason": {
+      "id": 15,
+      "name": null,
+      "start_timestamp": 1754452800000,
+      "end_timestamp": 1773806400000,
+      "status": 200
+    },
+    "currentProfile": {
+      "status": 200,
+      "rating": 4135.0293,
+      "bestRuns": 14
+    },
+    "previousProfile": {
+      "status": 404,
+      "rating": null,
+      "bestRuns": null,
+      "code": 404,
+      "detail": "Not Found",
+      "type": "BLZWEBAPI00000404"
+    },
+    "allSeasons": [
+      {
+        "id": 1,
+        "name": null,
+        "start_timestamp": 1535500800000,
+        "end_timestamp": 1548226800000,
+        "status": 200
+      },
+      {
+        "id": 2,
+        "name": null,
+        "start_timestamp": 1548226800000,
+        "end_timestamp": 1562742000000,
+        "status": 200
+      },
+      {
+        "id": 3,
+        "name": null,
+        "start_timestamp": 1562742000000,
+        "end_timestamp": 1579676400000,
+        "status": 200
+      },
+      {
+        "id": 4,
+        "name": null,
+        "start_timestamp": 1579676400000,
+        "end_timestamp": 1606172400000,
+        "status": 200
+      },
+      {
+        "id": 5,
+        "name": null,
+        "start_timestamp": 1606172400000,
+        "end_timestamp": 1625641200000,
+        "status": 200
+      },
+      {
+        "id": 6,
+        "name": null,
+        "start_timestamp": 1625641200000,
+        "end_timestamp": 1646204400000,
+        "status": 200
+      },
+      {
+        "id": 7,
+        "name": null,
+        "start_timestamp": 1646204400000,
+        "end_timestamp": 1659510000000,
+        "status": 200
+      },
+      {
+        "id": 8,
+        "name": null,
+        "start_timestamp": 1659510000000,
+        "end_timestamp": 1669676400000,
+        "status": 200
+      },
+      {
+        "id": 9,
+        "name": null,
+        "start_timestamp": 1669676400000,
+        "end_timestamp": 1683691200000,
+        "status": 200
+      },
+      {
+        "id": 10,
+        "name": null,
+        "start_timestamp": 1683691200000,
+        "end_timestamp": 1700020800000,
+        "status": 200
+      },
+      {
+        "id": 11,
+        "name": null,
+        "start_timestamp": 1700020800000,
+        "end_timestamp": 1713931200000,
+        "status": 200
+      },
+      {
+        "id": 12,
+        "name": null,
+        "start_timestamp": 1713931200000,
+        "end_timestamp": 1726027200000,
+        "status": 200
+      },
+      {
+        "id": 13,
+        "name": null,
+        "start_timestamp": 1726027200000,
+        "end_timestamp": 1741147200000,
+        "status": 200
+      },
+      {
+        "id": 14,
+        "name": null,
+        "start_timestamp": 1741147200000,
+        "end_timestamp": 1754452800000,
+        "status": 200
+      },
+      {
+        "id": 15,
+        "name": null,
+        "start_timestamp": 1754452800000,
+        "end_timestamp": 1773806400000,
+        "status": 200
+      },
+      {
+        "id": 17,
+        "name": null,
+        "start_timestamp": 1773806400000,
+        "end_timestamp": null,
+        "status": 200
+      }
+    ]
+  },
+  "raiderIo": {
+    "profileStatus": 200,
+    "scoresBySeasonRequestedCurrentPrevious": [
+      {
+        "season": "season-mn-1",
+        "all": 4135.2
+      },
+      {
+        "season": "season-tww-3",
+        "all": 0
+      }
+    ],
+    "previousRanks": {
+      "overall": {
+        "world": 0,
+        "region": 0,
+        "realm": 0
+      },
+      "class": {
+        "world": 0,
+        "region": 0,
+        "realm": 0
+      },
+      "dps": {
+        "world": 0,
+        "region": 0,
+        "realm": 0
+      },
+      "class_dps": {
+        "world": 0,
+        "region": 0,
+        "realm": 0
+      },
+      "spec_265": {
+        "world": 0,
+        "region": 0,
+        "realm": 0
+      },
+      "spec_266": {
+        "world": 0,
+        "region": 0,
+        "realm": 0
+      },
+      "spec_267": {
+        "world": 0,
+        "region": 0,
+        "realm": 0
+      }
+    },
+    "currentClassRankRegion": 18,
+    "exactSeasonTww3": {
+      "status": 200,
+      "season": "season-tww-3",
+      "all": 0
+    },
+    "midnightSeasons": [
+      {
+        "slug": "season-mn-2",
+        "name": "MN Season 2",
+        "blizzard_season_id": 18,
+        "is_main_season": true,
+        "starts_eu": "2026-08-19T04:00:00Z",
+        "ends_eu": "2030-01-01T00:00:00Z",
+        "canonicalSlugRegex": true
+      },
+      {
+        "slug": "season-mn-1",
+        "name": "MN Season 1 • Full",
+        "blizzard_season_id": 17,
+        "is_main_season": true,
+        "starts_eu": "2026-03-25T04:00:00Z",
+        "ends_eu": "2026-08-19T04:00:00Z",
+        "canonicalSlugRegex": true
+      },
+      {
+        "slug": "season-mn-1-break-the-meta",
+        "name": "Midnight Season 1 • Break the Meta",
+        "blizzard_season_id": 17,
+        "is_main_season": false,
+        "starts_eu": "2026-07-14T15:00:00Z",
+        "ends_eu": "2026-07-21T15:00:00Z",
+        "canonicalSlugRegex": false
+      }
+    ],
+    "twwMainishSeasons": [
+      {
+        "slug": "season-tww-3-cutoffs",
+        "blizzard_season_id": 15,
+        "is_main_season": false,
+        "starts_eu": "2025-08-13T04:00:00Z",
+        "canonicalSlugRegex": false
+      },
+      {
+        "slug": "season-tww-3",
+        "blizzard_season_id": 15,
+        "is_main_season": true,
+        "starts_eu": "2025-08-13T04:00:00Z",
+        "canonicalSlugRegex": true
+      },
+      {
+        "slug": "season-tww-3-break-the-meta",
+        "blizzard_season_id": 15,
+        "is_main_season": false,
+        "starts_eu": "2025-11-19T04:00:00Z",
+        "canonicalSlugRegex": false
+      },
+      {
+        "slug": "season-tww-3-legion-remix",
+        "blizzard_season_id": 15,
+        "is_main_season": false,
+        "starts_eu": "2025-10-08T04:00:00Z",
+        "canonicalSlugRegex": false
+      },
+      {
+        "slug": "season-tww-3-legion-remix-1-player",
+        "blizzard_season_id": 15,
+        "is_main_season": false,
+        "starts_eu": "2025-10-08T04:00:00Z",
+        "canonicalSlugRegex": false
+      },
+      {
+        "slug": "season-tww-2",
+        "blizzard_season_id": 14,
+        "is_main_season": true,
+        "starts_eu": "2025-03-05T04:00:00Z",
+        "canonicalSlugRegex": true
+      },
+      {
+        "slug": "season-tww-2-break-the-meta",
+        "blizzard_season_id": 14,
+        "is_main_season": false,
+        "starts_eu": "2025-06-25T04:00:00Z",
+        "canonicalSlugRegex": false
+      },
+      {
+        "slug": "season-tww-1",
+        "blizzard_season_id": 13,
+        "is_main_season": true,
+        "starts_eu": "2024-09-18T04:00:00Z",
+        "canonicalSlugRegex": true
+      },
+      {
+        "slug": "season-tww-1-post",
+        "blizzard_season_id": 13,
+        "is_main_season": true,
+        "starts_eu": "2025-02-26T04:00:00Z",
+        "canonicalSlugRegex": false
+      },
+      {
+        "slug": "season-tww-1-break-the-meta",
+        "blizzard_season_id": 13,
+        "is_main_season": false,
+        "starts_eu": "2024-12-11T04:00:00Z",
+        "canonicalSlugRegex": false
+      }
+    ],
+    "cutoffsSeasonTww3": {
+      "status": 200,
+      "ui": {
+        "region": "eu",
+        "season": "season-tww-3",
+        "access_key": ""
+      },
+      "isRemappedSeason": true,
+      "nativeQuantileKeys": [
+        {
+          "key": "p999",
+          "score": 3946.97,
+          "quantile": 0.999
+        },
+        {
+          "key": "p990",
+          "score": 3602.13,
+          "quantile": 0.99
+        },
+        {
+          "key": "p900",
+          "score": 3114.82,
+          "quantile": 0.9
+        },
+        {
+          "key": "p750",
+          "score": 2876.44,
+          "quantile": 0.75
+        },
+        {
+          "key": "p600",
+          "score": 2558.75,
+          "quantile": 0.6
+        }
+      ],
+      "additionalNativeKeysPresent": [
+        "keystoneMyth",
+        "keystoneLegend",
+        "keystoneHero",
+        "keystoneMaster",
+        "keystoneConqueror",
+        "keystoneExplorer",
+        "allTimed29",
+        "allTimed28",
+        "allTimed27",
+        "allTimed26",
+        "allTimed25",
+        "allTimed24",
+        "allTimed23",
+        "allTimed22",
+        "allTimed21",
+        "allTimed20",
+        "allTimed19",
+        "allTimed18",
+        "allTimed17",
+        "allTimed16",
+        "allTimed15",
+        "allTimed14",
+        "allTimed13",
+        "allTimed12",
+        "allTimed11",
+        "allTimed10",
+        "allTimed9",
+        "allTimed8",
+        "allTimed7",
+        "allTimed6",
+        "allTimed5",
+        "allTimed4",
+        "allTimed3",
+        "allTimed2"
+      ]
+    },
+    "simulateMn2BecomesCurrent": {
+      "previousAmongAllSeasons": {
+        "slug": "season-mn-1-break-the-meta",
+        "start": 1784041200000,
+        "main": false
+      },
+      "previousCanonicalSlugRegexOnly": {
+        "slug": "season-mn-1",
+        "start": 1774411200000,
+        "main": true
+      },
+      "previousIsMainSeasonTrueOnly": {
+        "slug": "season-mn-1",
+        "start": 1774411200000,
+        "main": true
+      }
+    }
+  },
+  "inferredExperienceFailureModes": [
+    "BLIZZARD_PREVIOUS_SEASON_PROFILE_404 — requires RIO corroboration; RIO previous score is 0",
+    "RIO_ZERO_OR_ABSENT — corroboratePreviousSeasonBlizzardNotFound can yield CONFIRMED_NO_ACTIVITY → E=0 if wired",
+    "PREVIOUS_SEASON_CUTOFFS_IS_REMAPPED — historical cutoffs may fail policy validation / NO_USABLE_POLICY → MISSING_POPULATION_POLICY → PREVIOUS_EVIDENCE_UNAVAILABLE",
+    "PREVIOUS_CLASS_RANK_ZERO — usablePreviousRegionalClassRank rejects <=0; no class-rank floor fallback"
+  ]
+}

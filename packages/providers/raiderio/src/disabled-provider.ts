@@ -3,6 +3,7 @@ import type {
   ProviderFetchContext,
   ProviderResult,
   RaiderIoCharacterProfile,
+  RaiderIoExactSeasonHistoricalRating,
   RaiderIoPeriod,
   RaiderIoProvider,
   RaiderIoRunDetails,
@@ -30,6 +31,14 @@ export class DisabledRaiderIoProvider implements RaiderIoProvider {
     _ctx: ProviderFetchContext,
   ): Promise<ProviderResult<RaiderIoCharacterProfile>> {
     disabledError("getCharacterProfile");
+  }
+
+  async getCharacterExactSeasonHistoricalRating(
+    _identity: CharacterIdentityInput,
+    _seasonSlug: string,
+    _ctx: ProviderFetchContext,
+  ): Promise<ProviderResult<RaiderIoExactSeasonHistoricalRating>> {
+    disabledError("getCharacterExactSeasonHistoricalRating");
   }
 
   async getSeasonCutoffs(
