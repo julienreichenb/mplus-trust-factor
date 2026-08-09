@@ -72,7 +72,7 @@ function policyDoc(seasonSlug: string): PersistedExperiencePopulationPolicyMetad
   const built = buildSeasonPopulationPolicy(cutoffs, { seasonSlug });
   if (!built.ok) throw new Error("expected policy");
   return {
-    schemaVersion: "experience-population-policy-store-v1",
+    schemaVersion: "experience-population-policy-store-v2",
     policy: built.policy,
     raiderIoSeasonSlug: seasonSlug,
     policyContentHash: hashSeasonPopulationPolicyContent(built.policy),
@@ -347,7 +347,7 @@ describe("immutable Experience evidence persistence", () => {
     expect(cold.previousSeasonProfileCalls).toBe(1);
     expect(cold.diagnostics.ratingSource).toBe("RAIDERIO_FALLBACK");
     expect(cold.experience.available).toBe(true);
-    expect(cold.experience.score).toBeCloseTo(82.5, 5);
+    expect(cold.experience.score).toBe(75);
 
     const warm = await buildExperiencePhase1Result({
       prisma: prisma as never,

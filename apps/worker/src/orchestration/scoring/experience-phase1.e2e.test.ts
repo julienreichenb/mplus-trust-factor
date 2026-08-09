@@ -16,7 +16,6 @@ import type {
 import {
   buildSeasonPopulationPolicy,
   estimatePreviousSeasonStanding,
-  scoreFromEstimatedTopPercent,
 } from "@mplus/scoring";
 import type { WorkerContainer } from "../../container.js";
 import { runAuthoritativeScoring } from "./refresh-bridge.js";
@@ -81,7 +80,7 @@ function completePolicyDoc(): PersistedExperiencePopulationPolicyMetadata {
   const built = buildSeasonPopulationPolicy(cutoffs, { seasonSlug: PREV_RIO_SLUG });
   if (!built.ok) throw new Error("expected policy");
   return {
-    schemaVersion: "experience-population-policy-store-v1",
+    schemaVersion: "experience-population-policy-store-v2",
     policy: built.policy,
     raiderIoSeasonSlug: PREV_RIO_SLUG,
     policyContentHash: hashSeasonPopulationPolicyContent(built.policy),
@@ -217,9 +216,11 @@ describe("Experience Phase 1 end-to-end (fixture)", () => {
     const standing = estimatePreviousSeasonStanding(PREV_RATING, policyDoc.policy);
     expect(standing.ok).toBe(true);
     if (!standing.ok) throw new Error("standing");
-    expect(standing.standing.estimatedTopPercent).toBeCloseTo(5.5, 10);
-    const expectedPreviousStandingScore = scoreFromEstimatedTopPercent(5.5);
-    expect(expectedPreviousStandingScore).toBeCloseTo(82.5, 5);
+    expect(standing.standing.nativeBand).toBe("p900");
+    expect(standing.standing.standingScore).toBe(75);
+    expect(standing.standing.estimatedTopPercent).toBeNull();
+    const expectedPreviousStandingScore = standing.standing.standingScore;
+    expect(expectedPreviousStandingScore).toBe(75);
     // Elite floor raises final Experience to 90.
     const expectedExperienceScore = 90;
 
@@ -270,12 +271,59 @@ describe("Experience Phase 1 end-to-end (fixture)", () => {
     const saved: Array<Record<string, unknown>> = [];
     const baselineSaved: Array<Record<string, unknown>> = [];
 
+    const evidenceRows = new Map<string, Record<string, unknown>>();
+    const evidenceKey = (row: {
+      characterId: string;
+      seasonId: string;
+      evidenceKind: string;
+      compatibilityVersion: string;
+    }) =>
+      `${row.characterId}|${row.seasonId}|${row.evidenceKind}|${row.compatibilityVersion}`;
+
     const basePrisma = {
       scoreModel: {
         findUnique: vi.fn(async () => ({ config: {} })),
       },
       characterPerformanceAggregate: {
         findUnique: vi.fn(async () => null),
+      },
+      characterExperienceEvidence: {
+        findUnique: vi.fn(
+          async ({
+            where,
+          }: {
+            where: {
+              characterId_seasonId_evidenceKind_compatibilityVersion: {
+                characterId: string;
+                seasonId: string;
+                evidenceKind: string;
+                compatibilityVersion: string;
+              };
+            };
+          }) => {
+            const id = where.characterId_seasonId_evidenceKind_compatibilityVersion;
+            return evidenceRows.get(evidenceKey(id)) ?? null;
+          },
+        ),
+        create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
+          const row = {
+            id: `ev-${evidenceRows.size + 1}`,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+            ...data,
+          };
+          evidenceRows.set(
+            evidenceKey({
+              characterId: String(data.characterId),
+              seasonId: String(data.seasonId),
+              evidenceKind: String(data.evidenceKind),
+              compatibilityVersion: String(data.compatibilityVersion),
+            }),
+            row,
+          );
+          return row;
+        }),
+        findMany: vi.fn(async () => [...evidenceRows.values()]),
       },
       season: {
         findUnique: vi.fn(async ({ where }: { where: { id: string } }) => {

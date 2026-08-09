@@ -1,90 +1,111 @@
 # Latest Handoff
 
 ## Step
-Agent 03 complete (amended) — immutable historical Experience evidence + dedicated exact-season RIO fallback + A/B/C absence semantics.
+Agent 04 complete — native Raider.IO cutoff band standing + partial-policy fail-closed + policy v2 compatibility.
 
 ## Product decisions locked
-See `PRODUCT_DECISIONS.md` (unchanged). Agent 02 season binding remains authoritative.
+See `PRODUCT_DECISIONS.md`. Agent 02 season binding + Agent 03 persistence/acquisition remain authoritative.
 
-## Agent 03 outcomes
+## Agent 04 outcomes
 
-### Persistence architecture
-- Dedicated model `CharacterExperienceEvidence` (unchanged from first Agent 03 land).
-- Population policy remains on `Season.metadata.experiencePopulationPolicy`.
+### Final native-band scoring model
+Previous-season standing uses discrete provider-native bands (no interpolation):
 
-### Durable evidence keys
-`@@unique([characterId, seasonId, evidenceKind, compatibilityVersion])` — unchanged.
+| Condition | Standing |
+|-----------|----------|
+| rating ≥ p999 | 100 |
+| ≥ p990 and &lt; p999 | 90 |
+| ≥ p900 and &lt; p990 | 75 |
+| ≥ p750 and &lt; p900 | 60 |
+| ≥ p600 and &lt; p750 | 45 |
+| &lt; p600 | 25 |
+| `CONFIRMED_NO_ACTIVITY` | 0 |
 
-### Blizzard / RIO fallback (production-grade)
-Acquisition order:
-1. compatible persisted evidence
-2. Blizzard exact historical season
-3. **Dedicated** Raider.IO exact historical season HTTP (not optional)
-4. unavailable
+Equality belongs to the stronger band whose cutoff is met.
 
-Exact RIO request (OpenAPI v0.62.5):
+Experience remains:
 
 ```text
-GET /api/v1/characters/profile
-fields=mythic_plus_scores_by_season:<exact-slug>,mythic_plus_dungeon_run_counts:<exact-slug>
+max(previousStandingScore, classRankFloor?, eliteFloor?)
 ```
 
-- Provider method: `getCharacterExactSeasonHistoricalRating`
-- Rejects `current` / `previous` aliases; matches requested slug in scores array (not array index).
-- Preloaded refresh profile may be reused **only** when it already proves the exact slug **and** score > 0.
-- Score 0/null from a preloaded profile alone does **not** skip the dedicated call (no activity proof).
-- Successful Blizzard → dedicated RIO rating calls = 0.
-- Persist successful fallback with `source = RAIDERIO_FALLBACK`.
+Class-rank floors and elite floor 90 are unchanged. Class-rank stays fail-closed without exact-season rank evidence.
 
-### Exact zero/null semantics (locked A/B/C)
-OpenAPI defines `scores.all` as a required number and does **not** document `0` as “no activity”.
-Activity proof uses `mythic_plus_dungeon_run_counts:<slug>` (zero-filled dungeon pool):
+### Policy / version changes
+- `SEASON_POPULATION_POLICY_VERSION` → `season-population-policy-v2`
+- Store schema → `experience-population-policy-store-v2`
+- Scorer rejects incompatible policy versions (`INCOMPATIBLE_POLICY_VERSION`)
 
-| Case | Result |
-|------|--------|
-| score > 0 | `HAS_VALUE` / RAIDERIO_FALLBACK |
-| score 0/null + `PROVEN_NONE` (total season runs = 0) | `CONFIRMED_NO_ACTIVITY` |
-| score 0 + `PROVEN_ACTIVITY` (total season runs > 0) | `CONTRADICTORY_PAYLOAD` → unavailable |
-| score 0/null + `UNKNOWN` (counts absent) | `UNRESOLVED` → unavailable, **not** E=0 |
+### Partial-policy behavior
+Score only when the native band is unambiguous from present thresholds:
+- p999 present + rating ≥ p999 → 100
+- p600 present + rating &lt; p600 → 25
+- missing upper discriminator (e.g. no p999 while rating ≥ p990) → `AMBIGUOUS_PARTIAL_POLICY`
+- missing middle discriminator between rating and stronger band → unavailable
+- missing weaker irrelevant boundaries do not invalidate a stronger proven band
 
-### Wallidrixe
-Agent 01: Blizzard previous 404 + exact `season-tww-3` score 0 (score-only).
-Under amended Agent 03 rules, score 0 alone is **not** forced to E=0.
-With the dedicated fallback (scores + dungeon run counts):
-- if RIO returns zero-filled counts totaling 0 → `CONFIRMED_NO_ACTIVITY` / E=0 available;
-- if counts are missing/unusable → remains unavailable (evidence-correct).
-No special-case by character name. Live re-probe of run counts was not required to land the contract.
+Non-monotonic native thresholds → fail closed (`NON_MONOTONIC_THRESHOLDS` / `NON_MONOTONIC_POLICY`). Remapped cutoffs remain ineligible for LKG unless exact target-season equivalence is proven (Agent 03 rule preserved).
 
-### Class-rank / population / elite
-Unchanged from first Agent 03 land (class-rank fail-closed; season-level policy; elite persist by current season + catalog).
+### Persisted v1 migration / reuse
+Provider-free upgrade when store-v1 + policy-v1 anchors are the canonical p999/p990/p900/p750/p600 key mappings:
+- verify integrity against the **original v1 content hash**
+- upgrade in-memory to v2 for scoring
+- **no** Raider.IO cutoff refetch solely because scoring representation changed
 
-### Cold / warm / replay call counts
-| Path | Blizzard rating | Achievements | Dedicated RIO historical |
-|------|-----------------|--------------|--------------------------|
-| Cold miss + Blizzard OK | 1 | 1 | 0 |
-| Cold miss + Blizzard fail + no usable preload | 1 | 1 | 1 |
-| Warm / replay after success | 0 | 0 | 0 |
+If upgrade cannot be proven → fail closed / reacquire via existing season-policy lifecycle.
 
-### Files / migrations
-Same persistence migration as before, plus:
-- `packages/contracts` — `RaiderIoExactSeasonHistoricalRating` + provider method
-- `packages/providers/raiderio` — fields, extract, `getCharacterExactSeasonHistoricalRating`
-- `experience-phase1` / `experience-previous-season-evidence` — dedicated fallback + A/B/C
-- refresh-bridge wires `raiderIoExactSeason`
+### No-activity / contradiction (unchanged from Agent 03)
+- 0/null + `PROVEN_NONE` → `CONFIRMED_NO_ACTIVITY` → standing 0
+- 0 + `PROVEN_ACTIVITY` → contradictory / unavailable
+- 0/null + `UNKNOWN` → unavailable
+- provider failure → unavailable (never standing 25 or 0)
 
-### Tests run
-Worker persist/phase1/previous-season — **52 passed**.
-RaiderIO fields/extract/normalize — **24 passed**.
+### Diagnostics / provenance
+`ExperiencePhase1Result.standingProvenance` + worker diagnostics expose:
+- historical rating
+- rating source (`BLIZZARD` | `RAIDERIO_FALLBACK`; cache hit keeps original source in provenance; diagnostics may say `PERSISTED`)
+- exact historical season slug
+- population policy version
+- matched native band
+- thresholds used
+- previousStandingScore / classRankFloor / eliteFloor / final score / confidence causes
 
-## Blockers / questions for Agent 04
-1. Native cutoff band standing mapping (Agent 04).
+No frontend work.
+
+### Cold / warm / replay provider call counts
+| Path | Blizzard rating | Achievements | Dedicated RIO historical | RIO cutoffs | WCL Experience |
+|------|-----------------|--------------|--------------------------|-------------|----------------|
+| Cold miss + Blizzard OK | 1 | 1 | 0 | 0 (season LKG) | 0 |
+| Cold miss + Blizzard fail + dedicated RIO | 1 | 1 | 1 | 0 | 0 |
+| Warm / replay after success | 0 | 0 | 0 | 0 | 0 |
+
+Identical native-band Experience score on warm/replay when persisted rating + compatible policy are reused.
+
+### Confidence
+Resolved evidence (including confirmed absence) → confidence `1`. Unavailable/contradiction → `null` + causes. No fractional confidence for broad native bands.
+
+## Files changed (Agent 04)
+- `packages/scoring/src/experience/phase1/season-population-policy.ts` (+ tests)
+- `packages/scoring/src/experience/phase1/calculate.ts` (+ tests)
+- `packages/scoring/src/index.ts`
+- `apps/worker/.../experience-season-population-policy-metadata.ts` (+ tests)
+- `apps/worker/.../experience-phase1.ts` (+ tests / e2e / live smoke)
+- `apps/worker/.../experience-evidence-persist.test.ts`
+- `apps/worker/.../experience-season-population-policy-sync.test.ts`
+- orchestration handoff
+
+## Tests run
+Scoring phase1 policy + calculate, worker metadata/sync/phase1/persist/e2e/bootstrap/score-character — **all passed** (126 focused tests across those files).
+
+## Blockers / questions for Agent 05
+1. End-to-end rollover acceptance (Agent 05 prompt).
 2. Class-rank floor still unavailable without exact-season rank source.
-3. Remapped historical cutoffs / LKG standing path.
-4. Deploy migration `20260809180000_character_experience_evidence`.
+3. Deploy migration `20260809180000_character_experience_evidence` if not yet applied.
+4. Optional: rewrite store-v1 Season.metadata documents to store-v2 on next successful sync (reader already upgrades).
 5. Do **not** change P/S/U formulas.
 
 ## Baseline
 Preserve P/S/U baseline in `AUDIT_BASELINE.md`.
 
-## Start instruction for Agent 04
-Read this handoff + `PRODUCT_DECISIONS.md`. Implement native cutoff standing mapping / edge-case scoring only. Do not start Agent 05.
+## Start instruction for Agent 05
+Read this handoff + `PRODUCT_DECISIONS.md`. Execute end-to-end rollover acceptance only. Do not reopen Agents 01–04 unless a regression is proven.

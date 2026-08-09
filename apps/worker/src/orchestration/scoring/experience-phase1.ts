@@ -26,6 +26,8 @@ import {
   ELITE_CUTOFF_CATALOG_VERSION,
   type ExperiencePhase1PreviousEvidence,
   type ExperiencePhase1Result,
+  type ExperiencePhase1StandingProvenance,
+  type NativeCutoffBand,
 } from "@mplus/scoring";
 import {
   acquirePreviousSeasonRatingEvidence,
@@ -122,6 +124,11 @@ export interface BuildExperiencePhase1Result {
     eliteReason: string | null;
     bindingReason: string | null;
     ratingSource: "BLIZZARD" | "RAIDERIO_FALLBACK" | "PERSISTED" | null;
+    historicalRating: number | null;
+    exactHistoricalSeasonSlug: string | null;
+    populationPolicyVersion: string | null;
+    matchedNativeBand: string | null;
+    thresholdsUsed: Array<{ quantile: string; score: number }> | null;
   };
 }
 
@@ -330,6 +337,11 @@ export async function buildExperiencePhase1Result(
     eliteReason: null as string | null,
     bindingReason: null as string | null,
     ratingSource: null as "BLIZZARD" | "RAIDERIO_FALLBACK" | "PERSISTED" | null,
+    historicalRating: null as number | null,
+    exactHistoricalSeasonSlug: null as string | null,
+    populationPolicyVersion: null as string | null,
+    matchedNativeBand: null as string | null,
+    thresholdsUsed: null as Array<{ quantile: string; score: number }> | null,
   };
   const previousRegionalClassRank = input.previousRegionalClassRank ?? null;
   const store = input.evidenceStore ?? null;
@@ -339,6 +351,7 @@ export async function buildExperiencePhase1Result(
   let raiderIoHistoricalRatingCalls = 0;
   let previousSeasonRatingFromCache = false;
   let eliteFromCache = false;
+  let ratingEvidenceOriginalSource: "BLIZZARD" | "RAIDERIO_FALLBACK" | null = null;
   let previous: ExperiencePhase1PreviousEvidence = {
     state: "UNAVAILABLE",
     reason: "NOT_ATTEMPTED",
@@ -431,6 +444,12 @@ export async function buildExperiencePhase1Result(
         if (ratingEvidence) {
           previousSeasonRatingFromCache = true;
           diagnostics.ratingSource = "PERSISTED";
+          if (
+            ratingEvidence.state === "HAS_VALUE" ||
+            ratingEvidence.state === "CONFIRMED_NO_ACTIVITY"
+          ) {
+            ratingEvidenceOriginalSource = ratingEvidence.ratingSource;
+          }
         }
       }
     }
@@ -496,12 +515,14 @@ export async function buildExperiencePhase1Result(
           ratingEvidence.state === "CONFIRMED_NO_ACTIVITY"
         ) {
           diagnostics.ratingSource = ratingEvidence.ratingSource;
+          ratingEvidenceOriginalSource = ratingEvidence.ratingSource;
         }
       } else if (
         ratingEvidence.state === "HAS_VALUE" ||
         ratingEvidence.state === "CONFIRMED_NO_ACTIVITY"
       ) {
         diagnostics.ratingSource = ratingEvidence.ratingSource;
+        ratingEvidenceOriginalSource = ratingEvidence.ratingSource;
       }
 
       if (
@@ -543,6 +564,26 @@ export async function buildExperiencePhase1Result(
         ratingEvidence.state === "CONFIRMED_NO_ACTIVITY")
     ) {
       diagnostics.ratingSource = ratingEvidence.ratingSource;
+      ratingEvidenceOriginalSource = ratingEvidence.ratingSource;
+    }
+
+    if (ratingEvidence.state === "HAS_VALUE") {
+      diagnostics.historicalRating = ratingEvidence.rating;
+      diagnostics.exactHistoricalSeasonSlug = ratingEvidence.seasonSlug;
+    } else if (ratingEvidence.state === "CONFIRMED_NO_ACTIVITY") {
+      diagnostics.historicalRating = ratingEvidence.rating;
+      diagnostics.exactHistoricalSeasonSlug = ratingEvidence.seasonSlug;
+    }
+
+    if (policyMetadata) {
+      diagnostics.populationPolicyVersion = policyMetadata.policy.version;
+    }
+    if (previous.state === "STANDING") {
+      diagnostics.matchedNativeBand = previous.standing.nativeBand;
+      diagnostics.thresholdsUsed = previous.standing.thresholdsUsed;
+      diagnostics.populationPolicyVersion = previous.standing.policyVersion;
+      diagnostics.exactHistoricalSeasonSlug =
+        diagnostics.exactHistoricalSeasonSlug ?? previous.standing.seasonSlug;
     }
   }
 
@@ -602,11 +643,29 @@ export async function buildExperiencePhase1Result(
     }
   }
 
-  const experience = calculateExperiencePhase1({
+  const experienceBase = calculateExperiencePhase1({
     previous,
     elite,
     previousRegionalClassRank,
   });
+
+  const standingProvenance: ExperiencePhase1StandingProvenance = {
+    historicalRating: diagnostics.historicalRating,
+    ratingSource:
+      diagnostics.ratingSource === "BLIZZARD" ||
+      diagnostics.ratingSource === "RAIDERIO_FALLBACK"
+        ? diagnostics.ratingSource
+        : ratingEvidenceOriginalSource,
+    exactHistoricalSeasonSlug: diagnostics.exactHistoricalSeasonSlug,
+    populationPolicyVersion: diagnostics.populationPolicyVersion,
+    matchedNativeBand: (diagnostics.matchedNativeBand as NativeCutoffBand | null) ?? null,
+    thresholdsUsed: diagnostics.thresholdsUsed,
+  };
+
+  const experience: ExperiencePhase1Result = {
+    ...experienceBase,
+    standingProvenance,
+  };
 
   return {
     experience,

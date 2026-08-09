@@ -68,7 +68,7 @@ function completePolicyDoc(): PersistedExperiencePopulationPolicyMetadata {
   const built = buildSeasonPopulationPolicy(cutoffs, { seasonSlug: "season-tww-2" });
   if (!built.ok) throw new Error("expected policy");
   return {
-    schemaVersion: "experience-population-policy-store-v1",
+    schemaVersion: "experience-population-policy-store-v2",
     policy: built.policy,
     raiderIoSeasonSlug: "season-tww-2",
     policyContentHash: hashSeasonPopulationPolicyContent(built.policy),
@@ -230,7 +230,7 @@ describe("buildExperiencePhase1Result", () => {
     expect(result.previousSeasonProfileCalls).toBe(1);
     expect(result.achievementsCalls).toBe(1);
     expect(result.experience.available).toBe(true);
-    expect(result.experience.score).toBeCloseTo(82.5, 5);
+    expect(result.experience.score).toBe(75);
     expect(result.experience.eliteFloorApplied).toBe(false);
   });
 
@@ -601,7 +601,7 @@ describe("buildExperiencePhase1Result", () => {
       allowProviderCalls: true,
       previousRegionalClassRank: 18,
     });
-    // Standing ~82.5 from rating 3000 vs fixture policy; class rank #18 → floor 94.
+    // Standing 90 from rating 3000 (= p990) vs fixture policy; class rank #18 → floor 94.
     expect(result.experience.score).toBe(94);
     expect(result.experience.classRankFloor).toBe(94);
     expect(result.experience.classRankFloorApplied).toBe(true);

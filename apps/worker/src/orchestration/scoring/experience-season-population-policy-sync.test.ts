@@ -146,7 +146,7 @@ function lkgDocument(
   overrides: Partial<PersistedExperiencePopulationPolicyMetadata> = {},
 ): PersistedExperiencePopulationPolicyMetadata {
   const policy = {
-    version: "season-population-policy-v1" as const,
+    version: "season-population-policy-v2" as const,
     source: "RAIDER_IO_SEASON_CUTOFFS" as const,
     region: "EU",
     seasonSlug: "season-tww-3",
@@ -156,6 +156,7 @@ function lkgDocument(
       {
         key: "top_0_1_percent" as const,
         topPercent: 0.1,
+        nativeQuantile: "p999" as const,
         score: 3300,
         quantilePopulationCount: null,
         totalPopulationCount: null,
@@ -163,6 +164,7 @@ function lkgDocument(
       {
         key: "top_1_percent" as const,
         topPercent: 1,
+        nativeQuantile: "p990" as const,
         score: 2900,
         quantilePopulationCount: null,
         totalPopulationCount: null,
@@ -170,6 +172,7 @@ function lkgDocument(
       {
         key: "top_10_percent" as const,
         topPercent: 10,
+        nativeQuantile: "p900" as const,
         score: 2700,
         quantilePopulationCount: null,
         totalPopulationCount: null,
@@ -177,6 +180,7 @@ function lkgDocument(
       {
         key: "top_25_percent" as const,
         topPercent: 25,
+        nativeQuantile: "p750" as const,
         score: 2400,
         quantilePopulationCount: null,
         totalPopulationCount: null,
@@ -184,6 +188,7 @@ function lkgDocument(
       {
         key: "top_40_percent" as const,
         topPercent: 40,
+        nativeQuantile: "p600" as const,
         score: 2100,
         quantilePopulationCount: null,
         totalPopulationCount: null,
@@ -197,7 +202,7 @@ function lkgDocument(
   } = overrides;
   const resolvedPolicy = policyOverride ?? policy;
   return {
-    schemaVersion: "experience-population-policy-store-v1",
+    schemaVersion: "experience-population-policy-store-v2",
     raiderIoSeasonSlug: "season-tww-3",
     sourceRequestFingerprint: "fp-old",
     sourcePayloadId: "payload-old",

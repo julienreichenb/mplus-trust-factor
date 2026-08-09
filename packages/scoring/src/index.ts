@@ -615,11 +615,16 @@ export type {
   ExperienceV3CalibrationExport,
 } from "./experience/v3/index.js";
 
-/** Experience Phase 1 — season population policy (provider-free; not production-wired). */
+/** Experience Phase 1 — season population policy (provider-free; native bands). */
 export {
   SEASON_POPULATION_POLICY_VERSION,
+  SEASON_POPULATION_POLICY_VERSION_V1,
+  NATIVE_CUTOFF_SPECS,
+  NATIVE_BAND_STANDING_SCORES,
+  EXPERIENCE_PHASE1_BELOW_P600_SCORE,
   buildSeasonPopulationPolicy,
   estimatePreviousSeasonStanding,
+  upgradeSeasonPopulationPolicyV1ToV2,
   interpolateTopPercent,
   isMonotonicPopulationAnchors,
 } from "./experience/phase1/season-population-policy.js";
@@ -628,6 +633,8 @@ export type {
   SeasonPopulationAnchor,
   SeasonPopulationPolicyQuality,
   SeasonPopulationPolicy,
+  NativeCutoffQuantile,
+  NativeCutoffBand,
   PreviousSeasonStandingBand,
   PreviousSeasonStandingMethod,
   PreviousSeasonRelativeStanding,
@@ -667,6 +674,7 @@ export type {
   ExperiencePhase1EliteEvidence,
   ExperiencePhase1UnavailableReason,
   ExperiencePhase1Result,
+  ExperiencePhase1StandingProvenance,
   CalculateExperiencePhase1Input,
   CalculateExperiencePhase1EliteInput,
 } from "./experience/phase1/calculate.js";
