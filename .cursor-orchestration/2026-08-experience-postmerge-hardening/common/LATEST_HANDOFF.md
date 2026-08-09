@@ -139,8 +139,8 @@ Result: **148 passed** (12 files).
 
 - Agent 01: `062b9cfad4757a388150271081d75f10c13752d2`
 - Agent 02 primary: `2c08699edfb77aede081386c168e326bd704d7ff`
-- Agent 02 corrective: _(fill after commit)_
-- Tip: _(fill after commit)_
+- Agent 02 corrective: `0159f6a31695196f31c8be3dd18b6abee94c8675`
+- Tip: `0159f6a31695196f31c8be3dd18b6abee94c8675`
 
 ## Remaining sequence
 
