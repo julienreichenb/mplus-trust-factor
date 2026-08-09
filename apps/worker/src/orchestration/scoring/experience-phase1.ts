@@ -35,7 +35,9 @@ import {
   acquirePreviousSeasonRatingEvidence,
   applyExactSeasonRioRatingFallback,
   exactSeasonScoreFromRioProfile,
-  resolvePreviousMythicSeason,
+  mayAttemptImmutableRioHistoricalFallback,
+  resolveCanonicalPreviousSeasonBinding,
+  type CanonicalPreviousSeasonBinding,
   type ExperienceSeasonBindingCandidate,
   type PersistProviderResultFn,
   type PreviousSeasonRatingEvidence,
@@ -91,7 +93,15 @@ export interface BuildExperiencePhase1Input {
    * @deprecated Prefer dedicated raiderIoExactSeason acquisition.
    */
   rioPreviousSeasonCorroboration?: RioPreviousSeasonCorroboration | null;
-  /** Bound previous Raider.IO season slug from Season.providerSeasonId. */
+  /**
+   * Optional pre-resolved canonical previous binding (production refresh-bridge).
+   * When set, phase-1 does not re-infer previous season / RIO slug.
+   */
+  canonicalPreviousBinding?: CanonicalPreviousSeasonBinding | null;
+  /**
+   * Bound previous Raider.IO season slug — only used when the selected Season row has none
+   * and no canonicalPreviousBinding was supplied.
+   */
   boundPreviousRaiderIoSlug?: string | null;
   /**
    * Dedicated exact-season RIO historical rating port.
@@ -141,6 +151,7 @@ function toBindingCandidate(row: {
   blizzardSeasonId: number | null;
   startsAt: Date | null;
   endsAt: Date | null;
+  providerSeasonId?: string | null;
 }): ExperienceSeasonBindingCandidate {
   return {
     id: row.id,
@@ -149,6 +160,7 @@ function toBindingCandidate(row: {
     blizzardSeasonId: row.blizzardSeasonId,
     startsAt: row.startsAt,
     endsAt: row.endsAt,
+    providerSeasonId: row.providerSeasonId ?? null,
   };
 }
 
@@ -386,6 +398,7 @@ export async function buildExperiencePhase1Result(
     providerSeasonId?: string | null;
   }> = [];
   let previousBinding: ExperienceSeasonBindingCandidate | null = null;
+  let boundRioSlugFromCanonical: string | null = null;
 
   if (!currentRow) {
     diagnostics.bindingReason = "CURRENT_SEASON_NOT_FOUND";
@@ -408,10 +421,14 @@ export async function buildExperiencePhase1Result(
         })
       : [];
 
-    const binding = resolvePreviousMythicSeason(
-      toBindingCandidate(currentRow),
-      regionSeasons.map(toBindingCandidate),
-    );
+    const supplied = input.canonicalPreviousBinding;
+    const binding =
+      supplied != null
+        ? supplied
+        : resolveCanonicalPreviousSeasonBinding(
+            toBindingCandidate(currentRow),
+            regionSeasons.map(toBindingCandidate),
+          );
 
     if (!binding.ok) {
       diagnostics.bindingReason = binding.reason;
@@ -419,6 +436,11 @@ export async function buildExperiencePhase1Result(
       previous = { state: "UNAVAILABLE", reason: binding.reason };
     } else {
       previousBinding = binding.season;
+      // Canonical slug from the selected previous row; caller override is fallback only.
+      boundRioSlugFromCanonical =
+        binding.boundRaiderIoSlug ||
+        input.boundPreviousRaiderIoSlug?.trim() ||
+        null;
     }
   }
 
@@ -427,10 +449,7 @@ export async function buildExperiencePhase1Result(
     const policyMetadata = readExperiencePopulationPolicyMetadata(
       previousRow?.metadata ?? null,
     );
-    const boundRioSlug =
-      input.boundPreviousRaiderIoSlug?.trim() ||
-      previousRow?.providerSeasonId?.trim() ||
-      null;
+    const boundRioSlug = boundRioSlugFromCanonical;
 
     let ratingEvidence: PreviousSeasonRatingEvidence | null = null;
 
@@ -442,7 +461,16 @@ export async function buildExperiencePhase1Result(
         compatibilityVersion: EXPERIENCE_PREVIOUS_RATING_COMPAT_VERSION,
       });
       if (cached) {
-        ratingEvidence = ratingEvidenceFromPersistedRow(cached);
+        const blizzardSeasonId = previousBinding.blizzardSeasonId;
+        ratingEvidence =
+          blizzardSeasonId != null && Number.isFinite(blizzardSeasonId)
+            ? ratingEvidenceFromPersistedRow(cached, {
+                characterId: input.characterId,
+                seasonId: previousBinding.id,
+                blizzardSeasonId,
+                raiderIoSeasonSlug: boundRioSlug,
+              })
+            : ratingEvidenceFromPersistedRow(cached);
         if (ratingEvidence) {
           previousSeasonRatingFromCache = true;
           diagnostics.ratingSource = "PERSISTED";
@@ -453,6 +481,7 @@ export async function buildExperiencePhase1Result(
             ratingEvidenceOriginalSource = ratingEvidence.ratingSource;
           }
         }
+        // Incompatible cache: leave ratingEvidence null → reacquire or unavailable below.
       }
     }
 
@@ -467,51 +496,63 @@ export async function buildExperiencePhase1Result(
       });
 
       if (ratingEvidence.state === "PROVIDER_FAILURE") {
-        let rioFallback = resolvePreloadedRioExactSeasonFallback(input);
+        const mayRioFallback = mayAttemptImmutableRioHistoricalFallback(
+          ratingEvidence.cause,
+        );
+        let rioFallback: RioExactSeasonScoreEvidence | null = null;
 
-        // Dedicated exact-season RIO HTTP when no reusable positive preloaded evidence.
-        if (
-          rioFallback == null &&
-          boundRioSlug &&
-          input.raiderIoExactSeason &&
-          input.allowProviderCalls
-        ) {
-          try {
-            raiderIoHistoricalRatingCalls = 1;
-            const rioResult =
-              await input.raiderIoExactSeason.getCharacterExactSeasonHistoricalRating(
-                input.identity,
-                boundRioSlug,
-                input.ctx,
-              );
-            const payloadId = await input.persistProviderResult(rioResult);
-            rioFallback = rioEvidenceFromDedicatedResult({
-              seasonSlug: boundRioSlug,
-              result: rioResult,
-              providerPayloadId: payloadId,
-            });
-          } catch (cause) {
-            rioFallback = null;
-            diagnostics.previousReason =
-              cause instanceof Error
-                ? `RIO_EXACT_SEASON_FETCH_FAILED:${cause.message}`
-                : "RIO_EXACT_SEASON_FETCH_FAILED";
+        if (mayRioFallback) {
+          rioFallback = resolvePreloadedRioExactSeasonFallback(input);
+
+          // Dedicated exact-season RIO HTTP when no reusable positive preloaded evidence.
+          if (
+            rioFallback == null &&
+            boundRioSlug &&
+            input.raiderIoExactSeason &&
+            input.allowProviderCalls
+          ) {
+            try {
+              raiderIoHistoricalRatingCalls = 1;
+              const rioResult =
+                await input.raiderIoExactSeason.getCharacterExactSeasonHistoricalRating(
+                  input.identity,
+                  boundRioSlug,
+                  input.ctx,
+                );
+              const payloadId = await input.persistProviderResult(rioResult);
+              rioFallback = rioEvidenceFromDedicatedResult({
+                seasonSlug: boundRioSlug,
+                result: rioResult,
+                providerPayloadId: payloadId,
+              });
+            } catch (cause) {
+              rioFallback = null;
+              diagnostics.previousReason =
+                cause instanceof Error
+                  ? `RIO_EXACT_SEASON_FETCH_FAILED:${cause.message}`
+                  : "RIO_EXACT_SEASON_FETCH_FAILED";
+            }
+          } else if (rioFallback == null && !boundRioSlug) {
+            diagnostics.previousReason = "BLIZZARD_FAILURE_UNBOUND_RIO_SEASON";
+          } else if (
+            rioFallback == null &&
+            boundRioSlug &&
+            !input.raiderIoExactSeason
+          ) {
+            diagnostics.previousReason = "RIO_EXACT_SEASON_PORT_UNAVAILABLE";
           }
-        } else if (rioFallback == null && !boundRioSlug) {
-          diagnostics.previousReason = "BLIZZARD_FAILURE_UNBOUND_RIO_SEASON";
-        } else if (
-          rioFallback == null &&
-          boundRioSlug &&
-          !input.raiderIoExactSeason
-        ) {
-          diagnostics.previousReason = "RIO_EXACT_SEASON_PORT_UNAVAILABLE";
+
+          ratingEvidence = applyExactSeasonRioRatingFallback({
+            binding: previousBinding,
+            ratingEvidence,
+            rio: rioFallback,
+          });
+        } else {
+          diagnostics.previousReason =
+            diagnostics.previousReason ??
+            "BLIZZARD_TRANSIENT_OR_NON_FALLBACK_NO_RIO";
         }
 
-        ratingEvidence = applyExactSeasonRioRatingFallback({
-          binding: previousBinding,
-          ratingEvidence,
-          rio: rioFallback,
-        });
         if (
           ratingEvidence.state === "HAS_VALUE" ||
           ratingEvidence.state === "CONFIRMED_NO_ACTIVITY"

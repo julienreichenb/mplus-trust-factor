@@ -1,110 +1,129 @@
 # Latest Handoff
 
-Status: AGENT 01 COMPLETE
+Status: AGENT 02 COMPLETE
 
 ## Baseline
 
 - PR #84 is merged.
-- CI for PR #84 passed.
-- Post-merge review found the issues documented in `REVIEW_FINDINGS.md`.
+- Agent 01 accepted (`062b9cf` — provider-free Experience reconstruction + RIO accounting).
+- Agent 02 owns F2–F6 (season/evidence integrity).
 
 ## Current agent
 
-Agent 01 — canonical replay + accounting (complete).
+Agent 02 — season binding + evidence integrity hardening (complete).
 
-## Root cause proven (F1)
+## 1. Canonical season-binding architecture (F3)
 
-`runAuthoritativeScoring()` in `refresh-bridge.ts` gated the entire Experience path on `allowExperienceBlizzardProviderCalls(env)`:
+### Before (PR #84 / Agent 01)
 
-```
-experienceOverride?
-  → use override
-else if allowExperienceBlizzardProviderCalls && !disabledProviders.has("blizzard")
-  → buildExperiencePhase1Result({ allowProviderCalls: true })
-else
-  → experience = null   // NEVER entered phase-1, even with durable evidence
-```
+Two independent previous-season inferences:
 
-### Call graph (before)
+1. `buildExperiencePhase1Result` → `resolvePreviousMythicSeason()` (authority slug + chronology).
+2. `refresh-bridge.ts` → separate `season.findMany` ordered by `startsAt desc` (no authority-slug filter) → `boundPreviousRaiderIoSlug`.
 
-1. **Operational live refresh** (`ALLOW_LIVE_PROVIDER_CALLS=true`, `PROVIDER_MODE=live`, Blizzard enabled):
-   - enters Experience → `buildExperiencePhase1Result(allowProviderCalls=true)` → acquire + persist.
-2. **Recalculation / replay with providers disabled** (`ALLOW_LIVE_PROVIDER_CALLS=false` or non-live/fixture without allow):
-   - skips `buildExperiencePhase1Result` entirely → `experience=null` despite `CharacterExperienceEvidence` rows.
-3. **Fixture mode** (`PROVIDER_MODE=fixture` + `ALLOW_LIVE_PROVIDER_CALLS=true`):
-   - enters Experience (same as live for the Blizzard gate); WCL remains separately gated.
-4. Note: `buildExperiencePhase1Result` already supported `allowProviderCalls=false` (Agent 05 unit tests), but the production entry never called it in that mode.
+A fixture/non-authority Season with a later `startsAt` and a plausible `providerSeasonId` could supply the RIO slug for exact historical acquisition while phase-1 selected a different previous row.
 
-### Call graph (after)
+### After
 
-1. **Live / fixture with Experience providers permitted**:
-   - always enter `buildExperiencePhase1Result({ allowProviderCalls: true })`.
-2. **Providers forbidden** (recalc/replay/fixture without allow):
-   - still enter `buildExperiencePhase1Result({ allowProviderCalls: false })` with evidence store;
-   - reconstruct from durable rows when present;
-   - miss → explicit unavailable (`PREVIOUS_EVIDENCE_UNAVAILABLE`), not silent `null` skip.
-3. **Single canonical path**: one call to `buildExperiencePhase1Result`; no parallel Experience calculator.
+- `resolveCanonicalPreviousSeasonBinding()` = `resolvePreviousMythicSeason()` + `providerSeasonId` from **that same selected row**.
+- `refresh-bridge` resolves once and passes `canonicalPreviousBinding` into phase-1 (no re-inference of previous / slug).
+- Phase-1 prefers the selected row’s `providerSeasonId` over any poisoned caller slug override.
+- Fixture pollution cannot attach a fake RIO slug to the canonical previous Season.
 
-## Gating behavior before / after
+## 2. Evidence compatibility contract (F4)
 
-| Condition | Before | After |
-|-----------|--------|-------|
-| Providers allowed, no override | acquire via phase-1 | acquire via phase-1 (unchanged) |
-| Providers forbidden, evidence present | `experience=null` (bug) | reconstruct identical available Experience, 0 historical calls |
-| Providers forbidden, evidence absent | `experience=null` | unavailable Experience with reason; P/S/U unchanged |
-| `experienceOverride` set | passthrough | passthrough (unchanged) |
+`ratingEvidenceFromPersistedRow(row, expected?)` now validates against the current binding when `expected` is supplied:
 
-Provider permission (`allowExperienceBlizzardProviderCalls` ∧ Blizzard not disabled) now sets only `allowProviderCalls`. RIO exact-season port is null when providers are forbidden or Raider.IO is disabled.
+| Check | Rule |
+|-------|------|
+| characterId / seasonId / compat version | must match |
+| payload.internalSeasonId | must match row + expected |
+| blizzardSeasonId | payload (+ row when present) must match expected |
+| raiderIoSeasonSlug | when expected slug known, present row/payload values must match; legacy null tolerated |
+| source ↔ ratingSource | BLIZZARD / RAIDERIO_FALLBACK consistency |
+| contentHash | when present, must equal hash of normalized payload |
 
-## Provider accounting before / after (F7)
+Incompatible row: providers allowed → ignore + reacquire; providers forbidden → unavailable. Immutable row is never mutated in place.
 
-| Call | Before | After |
-|------|--------|-------|
-| Blizzard previous-season profile | counted | counted |
-| Blizzard achievements | counted | counted |
-| Raider.IO exact historical rating fallback | **not counted** | counted |
+## 3. Remapped cutoff equivalence proof (F2)
 
-`providerCalls = scoreResult.providerCalls + previousSeasonProfileCalls + achievementsCalls + raiderIoHistoricalRatingCalls`.
+`proveExactRaiderIoCutoffSeasonEquivalence()` — narrow typed proof, **not** unconditional `exactTargetSeasonEquivalenceProven: true`.
+
+Requires:
+
+- exact bound RIO slug match;
+- `isMainSeason === true`;
+- matching `blizzardSeasonId` when RIO supplies it (mismatch → reject);
+- if RIO omits blizzard id → chronology proximity / containment required;
+- absurd start distance rejected even when ids match.
+
+Bootstrap passes `exactTargetSeasonEquivalenceProven: proof.proven` into `synchronizeSeasonPopulationPolicy`. Remapped cutoffs without proof remain rejected; proven exact-season remapped policy can become LKG (Agent 03 fresh-DB positive-rating path).
+
+## 4. Ensure retry semantics (F5)
+
+- `isExperienceSeasonBindingEnsureComplete(region)` gates memoization.
+- Transient / insufficient (provider failure, missing previous RIO slug, etc.) → **do not** remember.
+- Sequence: failed ensure → retry → successful ensure → subsequent ensure may SKIP.
+- Applies to both `ensureExperienceSeasonBindingReady` and `runExperienceSeasonBootstrapSafe`.
+
+## 5. Blizzard terminal vs transient (F6)
+
+`classifyBlizzardPreviousSeasonFailureForRioFallback(cause)`:
+
+| Class | Examples | Immutable RIO fallback |
+|-------|----------|------------------------|
+| `TRANSIENT` | 429 / RATE_LIMITED, 5xx, NETWORK, TIMEOUT, `retryable: true` | **No** (no RIO call, no persist) |
+| `TERMINAL_HISTORICAL_UNAVAILABLE` | 404 / NOT_FOUND / PROFILE_UNAVAILABLE | **Yes** if exact RIO season evidence available |
+| `NON_FALLBACK` | other | **No** |
+
+Successful Blizzard evidence never calls RIO. Confirmed no-activity / ambiguous-zero / class-rank fail-closed / native bands / P/S/U / Agent 01 accounting unchanged.
 
 ## Files changed
 
-- `apps/worker/src/orchestration/scoring/refresh-bridge.ts` — separate evaluate vs acquire; include RIO historical in accounting.
-- `apps/worker/src/orchestration/scoring/refresh-bridge.experience-replay.test.ts` — new regressions A/B/C (fail on PR #84).
-- `apps/worker/src/orchestration/scoring/experience-phase1.e2e.test.ts` — baseline asserts explicit unavailable Experience when providers forbidden.
-- `.cursor-orchestration/2026-08-experience-postmerge-hardening/common/LATEST_HANDOFF.md` — this handoff.
+- `apps/worker/src/orchestration/scoring/experience-previous-season-evidence.ts` — canonical binding + failure classification
+- `apps/worker/src/orchestration/scoring/experience-evidence-persist.ts` — binding compatibility checks
+- `apps/worker/src/orchestration/scoring/experience-phase1.ts` — consume canonical binding; gate RIO fallback; validate cache
+- `apps/worker/src/orchestration/scoring/refresh-bridge.ts` — single canonical resolve; pass binding into phase-1
+- `apps/worker/src/orchestration/scoring/experience-season-bootstrap.ts` — remapped proof; ensure memoization only on complete
+- `apps/worker/src/orchestration/scoring/experience-agent02-integrity.test.ts` — new F2–F6 regressions
+- `.cursor-orchestration/.../common/LATEST_HANDOFF.md` — this handoff
 
 ## Tests
 
 ```
 pnpm test:raw -- \
-  apps/worker/src/orchestration/scoring/refresh-bridge.experience-replay.test.ts \
-  apps/worker/src/orchestration/scoring/experience-phase1.e2e.test.ts \
+  apps/worker/src/orchestration/scoring/experience-agent02-integrity.test.ts \
+  apps/worker/src/orchestration/scoring/experience-previous-season-evidence.test.ts \
   apps/worker/src/orchestration/scoring/experience-evidence-persist.test.ts \
+  apps/worker/src/orchestration/scoring/experience-season-bootstrap.test.ts \
+  apps/worker/src/orchestration/scoring/experience-season-population-policy-sync.test.ts \
   apps/worker/src/orchestration/scoring/experience-phase1.test.ts \
+  apps/worker/src/orchestration/scoring/experience-phase1.e2e.test.ts \
+  apps/worker/src/orchestration/scoring/refresh-bridge.experience-replay.test.ts \
+  apps/worker/src/orchestration/scoring/experience-agent05-acceptance.test.ts \
+  apps/worker/src/orchestration/scoring/experience-season-rollover.audit.test.ts \
   apps/worker/src/orchestration/scoring/refresh-integration.test.ts \
   apps/worker/src/orchestration/scoring/score-character.test.ts
 ```
 
-Result: **49 passed** (6 files).
-
-Also covered: `refresh-bridge.performance-aggregate.test.ts` (3 passed) during earlier focused run.
+Result: **139 passed** (12 files; 79 + 60 across the two focused runs).
 
 ## Completed commits
 
-- `062b9cfad4757a388150271081d75f10c13752d2` — fix(experience): reconstruct persisted Experience when providers are forbidden (Agent 01 primary)
-
-Handoff tip may include a follow-up docs commit recording this SHA; use `git log` on `fix/experience-postmerge-hardening`.
+- Agent 01: `062b9cfad4757a388150271081d75f10c13752d2`
+- Agent 02: _(this commit — fill SHA after commit)_
 
 ## Remaining sequence
 
 1. ~~Agent 01 — canonical replay + accounting.~~
-2. Agent 02 — season/evidence integrity hardening (F2 remapped cutoff proof, F3 duplicate previous-season resolution, F4 persisted-evidence validation, F5 ensure-state memoization, F6 immutable RIO fallback classification).
-3. Agent 03 — final regression/live acceptance.
+2. ~~Agent 02 — season/evidence integrity hardening.~~
+3. Agent 03 — final regression / live acceptance (fresh-DB positive-rating + remapped policy path).
 
-## Blockers / concerns for Agent 02
+## Blockers / concerns for Agent 03
 
-- **F3 still open**: `refresh-bridge.ts` still has a duplicate prior-season `prisma.season.findMany` for `boundPreviousRaiderIoSlug`, while `buildExperiencePhase1Result` uses `resolvePreviousMythicSeason()`. Agent 01 did not remove this duplication (out of scope). Prefer deriving the slug from the canonical resolver result.
-- **F2 / remapped cutoffs**: not touched; clean-DB positive-rating + `isRemappedSeason` still needs Agent 02/03.
-- **F4**: `ratingEvidenceFromPersistedRow` binding checks unchanged; replay trusts existing schema/version/seasonId validation only.
-- **F6**: Blizzard `PROVIDER_FAILURE` (including transient) can still trigger immutable RIO fallback — Agent 02.
+- Prove clean-DB positive historical rating with remapped cutoffs when `proveExactRaiderIoCutoffSeasonEquivalence` is true (Wallidrixe E=0 hides policy need).
+- Exercise canonical `runAuthoritativeScoring` entry, not only `buildExperiencePhase1Result`.
+- Optional disposable-DB integration for evidence round-trip (F8).
+- Live probe footgun (F9) still open — descope/protect if retained.
+- Incompatible immutable rows are ignored for scoring but not deleted; a future compat-version bump may be needed if repair is required in production.
 - No P/S/U, band, weight, class-rank floor, or elite floor changes in this agent.
