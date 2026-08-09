@@ -242,6 +242,7 @@ function enrichDigest(
           activationId: `off-${digest.reportCode}-${actorId}`,
           canonicalKey: "mage.offensive.combustion",
           primarySpellId: 190319,
+          observedSpellIds: [190319],
           timestampMs: 45_000,
           fightOffsetMs: 45_000,
           rawMatchedEventCount: 2,
@@ -252,6 +253,7 @@ function enrichDigest(
       limitations: [],
     },
     utility: {
+      hostileCastEvents: [],
       actions: [
         {
           canonicalActionId: `int-${digest.reportCode}-${actorId}`,

@@ -25,9 +25,21 @@ export type CharacterScoreReadRow = {
   season?: { slug: string } | null;
 };
 
-function dimState(score: number | null, reason: string | null): DimensionScoreDTO["state"] {
+function clamp01(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  if (value < 0) return 0;
+  if (value > 1) return 1;
+  return value;
+}
+
+function dimState(
+  score: number | null,
+  confidence: number | null,
+  reason: string | null,
+): DimensionScoreDTO["state"] {
   if (reason) return "UNAVAILABLE";
   if (score == null || !Number.isFinite(score)) return "UNAVAILABLE";
+  if ((confidence ?? 0) < 0.35) return "PARTIAL";
   return "AVAILABLE";
 }
 
@@ -44,6 +56,118 @@ function blockedReason(
       (b as { dimension?: string }).dimension === dimension,
   ) as { reason?: string } | undefined;
   return typeof hit?.reason === "string" ? hit.reason : null;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object"
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function readFiniteNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function readStringList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter(
+    (item): item is string => typeof item === "string" && item.trim().length > 0,
+  );
+}
+
+function contributorsFromLimitations(
+  limitations: readonly string[],
+): DimensionScoreDTO["contributors"] {
+  return {
+    limitations,
+    negative: limitations.map((metricKey) => ({ metricKey, label: metricKey })),
+    missing: limitations.map((metricKey) => ({ metricKey, available: false })),
+  };
+}
+
+/**
+ * Prefer persisted per-dimension confidence from dimensionDetails.
+ * Do not reuse overall CharacterScore.confidence for every dimension.
+ */
+function readDimensionConfidence(
+  details: Record<string, unknown> | null,
+  key: "performance" | "utility" | "survival",
+  score: number | null,
+): number | null {
+  if (score == null || !Number.isFinite(score)) return null;
+  const block = asRecord(details?.[key]);
+  const direct = readFiniteNumber(block?.confidence);
+  if (direct != null) return clamp01(direct);
+  return null;
+}
+
+function readDimensionLimitations(
+  details: Record<string, unknown> | null,
+  key: "performance" | "utility" | "survival",
+): string[] {
+  const block = asRecord(details?.[key]);
+  if (!block) return [];
+  const topLevel = readStringList(block.limitations);
+  if (topLevel.length > 0) return topLevel;
+  const explanation = asRecord(block.explanation);
+  if (key === "utility") {
+    return readStringList(explanation?.confidenceReasons);
+  }
+  if (key === "survival") {
+    return readStringList(explanation?.limitations);
+  }
+  return [];
+}
+
+function resolveExperienceFromRow(
+  row: CharacterScoreReadRow,
+  details: Record<string, unknown> | null,
+): {
+  score: number | null;
+  available: boolean;
+  reason: string | null;
+  confidence: number | null;
+  causes: string[];
+} {
+  const blocked = blockedReason(details, "EXPERIENCE");
+  const experienceDetails = asRecord(details?.experience);
+  const detailAvailable = experienceDetails?.available === true;
+  const detailScore = readFiniteNumber(experienceDetails?.score);
+  const detailReason =
+    typeof experienceDetails?.reason === "string" ? experienceDetails.reason : null;
+  const detailConfidence = readFiniteNumber(experienceDetails?.confidence);
+  const detailCauses = readStringList(experienceDetails?.confidenceCauses);
+
+  // Column is authoritative when present (including 0).
+  // Confidence comes from persisted Experience Phase 1 details (legacy rows may omit it).
+  if (row.experience != null && Number.isFinite(row.experience) && !blocked) {
+    return {
+      score: row.experience,
+      available: true,
+      reason: null,
+      confidence: detailConfidence ?? 1,
+      causes: detailCauses,
+    };
+  }
+
+  if (detailAvailable && detailScore != null && !blocked) {
+    return {
+      score: detailScore,
+      available: true,
+      reason: null,
+      confidence: detailConfidence ?? 1,
+      causes: detailCauses,
+    };
+  }
+
+  const unavailableReason = blocked ?? detailReason ?? "EXPERIENCE_UNAVAILABLE";
+  return {
+    score: null,
+    available: false,
+    reason: unavailableReason,
+    confidence: null,
+    causes: detailCauses.length > 0 ? detailCauses : [unavailableReason],
+  };
 }
 
 export function mapCharacterScoreToSnapshotDto(
@@ -69,41 +193,59 @@ export function mapCharacterScoreToSnapshotDto(
   const perfReason = blockedReason(details, "PERFORMANCE");
   const utilReason = blockedReason(details, "UTILITY");
   const survReason = blockedReason(details, "SURVIVAL");
-  const expReason =
-    blockedReason(details, "EXPERIENCE") ??
-    (row.experience == null ? "EXPERIENCE_NOT_YET_WIRED" : null);
+  const experience = resolveExperienceFromRow(row, details);
 
   const weights = opts?.dimensionWeights ?? defaultSkillDimensionWeights();
+  const perfConfidence = readDimensionConfidence(details, "performance", row.performance);
+  const survConfidence = readDimensionConfidence(details, "survival", row.survival);
+  const utilConfidence = readDimensionConfidence(details, "utility", row.utility);
+  const hasPersistedDimensionConfidence =
+    perfConfidence != null || survConfidence != null || utilConfidence != null;
+  const legacyOverallConfidence =
+    row.confidence != null && Number.isFinite(row.confidence)
+      ? clamp01(row.confidence)
+      : null;
+
+  const publicDimConfidence = (score: number | null, dimConf: number | null): number => {
+    if (score == null || !Number.isFinite(score)) return 0;
+    if (dimConf != null) return dimConf;
+    // Legacy CharacterScore rows predate per-dimension confidence persistence.
+    if (!hasPersistedDimensionConfidence && legacyOverallConfidence != null) {
+      return legacyOverallConfidence;
+    }
+    return 0;
+  };
 
   const partial = computePartialComposite(
     [
       {
         key: "performance",
         score: row.performance,
-        available: row.performance != null && Number.isFinite(row.performance) && !perfReason,
+        available:
+          row.performance != null && Number.isFinite(row.performance) && !perfReason,
         baseWeight: weights.performance,
-        confidence: row.performance != null ? (row.confidence ?? 0.5) : null,
+        confidence: perfConfidence ?? (hasPersistedDimensionConfidence ? null : legacyOverallConfidence),
       },
       {
         key: "survival",
         score: row.survival,
         available: row.survival != null && Number.isFinite(row.survival) && !survReason,
         baseWeight: weights.survival,
-        confidence: row.survival != null ? (row.confidence ?? 0.5) : null,
+        confidence: survConfidence ?? (hasPersistedDimensionConfidence ? null : legacyOverallConfidence),
       },
       {
         key: "utility",
         score: row.utility,
         available: row.utility != null && Number.isFinite(row.utility) && !utilReason,
         baseWeight: weights.utility,
-        confidence: row.utility != null ? (row.confidence ?? 0.5) : null,
+        confidence: utilConfidence ?? (hasPersistedDimensionConfidence ? null : legacyOverallConfidence),
       },
       {
         key: "experience",
-        score: row.experience,
-        available: row.experience != null && Number.isFinite(row.experience) && !expReason,
+        score: experience.score,
+        available: experience.available,
         baseWeight: weights.experience,
-        confidence: row.experience != null ? (row.confidence ?? 0.5) : null,
+        confidence: experience.confidence,
       },
     ],
     {
@@ -116,38 +258,56 @@ export function mapCharacterScoreToSnapshotDto(
     {
       dimension: "PERFORMANCE",
       score: row.performance,
-      confidence: row.performance != null ? (row.confidence ?? 0.5) : 0,
+      confidence: publicDimConfidence(row.performance, perfConfidence),
       weight: weights.performance,
-      state: dimState(row.performance, perfReason),
+      state: dimState(
+        row.performance,
+        publicDimConfidence(row.performance, perfConfidence) || null,
+        perfReason,
+      ),
       reason: perfReason,
-      contributors: [],
+      contributors: contributorsFromLimitations(
+        readDimensionLimitations(details, "performance"),
+      ),
     },
     {
       dimension: "UTILITY",
       score: row.utility,
-      confidence: row.utility != null ? (row.confidence ?? 0.5) : 0,
+      confidence: publicDimConfidence(row.utility, utilConfidence),
       weight: weights.utility,
-      state: dimState(row.utility, utilReason),
+      state: dimState(
+        row.utility,
+        publicDimConfidence(row.utility, utilConfidence) || null,
+        utilReason,
+      ),
       reason: utilReason,
-      contributors: [],
+      contributors: contributorsFromLimitations(
+        readDimensionLimitations(details, "utility"),
+      ),
     },
     {
       dimension: "SURVIVAL",
       score: row.survival,
-      confidence: row.survival != null ? (row.confidence ?? 0.5) : 0,
+      confidence: publicDimConfidence(row.survival, survConfidence),
       weight: weights.survival,
-      state: dimState(row.survival, survReason),
+      state: dimState(
+        row.survival,
+        publicDimConfidence(row.survival, survConfidence) || null,
+        survReason,
+      ),
       reason: survReason,
-      contributors: [],
+      contributors: contributorsFromLimitations(
+        readDimensionLimitations(details, "survival"),
+      ),
     },
     {
       dimension: "EXPERIENCE",
-      score: row.experience,
-      confidence: row.experience != null ? (row.confidence ?? 0.5) : 0,
+      score: experience.score,
+      confidence: experience.available ? clamp01(experience.confidence ?? 1) : 0,
       weight: weights.experience,
-      state: dimState(row.experience, expReason),
-      reason: expReason,
-      contributors: [],
+      state: dimState(experience.score, experience.confidence, experience.reason),
+      reason: experience.reason,
+      contributors: contributorsFromLimitations(experience.causes),
     },
   ];
 
@@ -198,9 +358,16 @@ export function mapCharacterScoreToSnapshotDto(
       source: "character_score",
       composite: row.composite,
       experience: row.experience,
+      experienceDetails: details?.experience ?? null,
       performance: row.performance,
       utility: row.utility,
       survival: row.survival,
+      dimensionConfidence: {
+        performance: perfConfidence,
+        survival: survConfidence,
+        utility: utilConfidence,
+        experience: experience.confidence,
+      },
       partialComposite: partial.explanation,
       availabilityCoverage: partial.availabilityCoverage,
       effectiveWeights: partial.effectiveWeights,

@@ -220,4 +220,57 @@ describe("runAuthoritativeScoring ↔ scoreCharacter", () => {
   it("uses selector version constant", () => {
     expect(EVIDENCE_SELECTOR_VERSION.length).toBeGreaterThan(0);
   });
+
+  it("does not open Redis when portsOverride is supplied", async () => {
+    const ports = createMemoryOrchestrationPorts();
+    const container = mockContainer({
+      SCORING_ENABLED: true,
+      SCORING_PUBLICATION_ENABLED: false,
+      ALLOW_LIVE_PROVIDER_CALLS: false,
+      PROVIDER_MODE: "fixture",
+      WCL_ENABLED: false,
+    });
+
+    await runAuthoritativeScoring(baseInput(container, ports));
+
+    expect(container.createRedisConnection).not.toHaveBeenCalled();
+  });
+
+  it("quits owned Redis connection created for the source-fight lock", async () => {
+    const quit = vi.fn(async () => undefined);
+    const ports = createMemoryOrchestrationPorts();
+    const container = mockContainer({
+      SCORING_ENABLED: true,
+      SCORING_PUBLICATION_ENABLED: false,
+      ALLOW_LIVE_PROVIDER_CALLS: false,
+      PROVIDER_MODE: "fixture",
+      WCL_ENABLED: false,
+    });
+    (container.createRedisConnection as ReturnType<typeof vi.fn>).mockReturnValue({
+      set: vi.fn().mockResolvedValue("OK"),
+      get: vi.fn().mockResolvedValue(null),
+      del: vi.fn().mockResolvedValue(1),
+      eval: vi.fn().mockResolvedValue(1),
+      quit,
+    });
+
+    const productionPorts = await import("./run-orchestration/production-ports.js");
+    const spy = vi
+      .spyOn(productionPorts, "createProductionRunOrchestrationPorts")
+      .mockReturnValue(ports);
+
+    try {
+      await runAuthoritativeScoring({
+        ...baseInput(container, ports),
+        portsOverride: undefined,
+        experienceOverride: null,
+        persistCharacterScore: false,
+      });
+    } finally {
+      spy.mockRestore();
+    }
+
+    expect(container.createRedisConnection).toHaveBeenCalledTimes(1);
+    expect(quit).toHaveBeenCalledTimes(1);
+  });
 });

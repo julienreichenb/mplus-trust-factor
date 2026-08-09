@@ -314,6 +314,8 @@ describe("calculateExperiencePhase1", () => {
     expect(result).toEqual({
       score: null,
       available: false,
+      confidence: null,
+      confidenceCauses: ["previous_evidence_unavailable"],
       previousStandingScore: null,
       classRankFloor: null,
       classRankFloorApplied: false,

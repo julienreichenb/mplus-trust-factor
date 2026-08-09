@@ -30,15 +30,15 @@ export function computePerformanceConfidenceV2(input: PerformanceConfidenceInput
   components: Record<string, number>;
 } {
   const config = input.config ?? PERFORMANCE_V2_MODEL_CONFIG;
-  const limits: string[] = [];
+  const hardLimits: string[] = [];
 
   if (input.sourcesUsed === "none" || !input.roleAdapter.runParseAllowed && !input.hasProfile) {
     if (input.roleAdapter.state !== "SUPPORTED") {
-      limits.push(`role_adapter:${input.roleAdapter.reason ?? input.roleAdapter.state}`);
+      hardLimits.push(`role_adapter:${input.roleAdapter.reason ?? input.roleAdapter.state}`);
     }
     return {
       confidence: 0,
-      limits: limits.length > 0 ? limits : ["no_performance_evidence"],
+      limits: hardLimits.length > 0 ? hardLimits : ["no_performance_evidence"],
       components: {},
     };
   }
@@ -74,32 +74,47 @@ export function computePerformanceConfidenceV2(input: PerformanceConfidenceInput
   base = clamp01(base + config.loggedRunCountContextualWeight * loggedFactor);
 
   if (!input.partitionCompatible) {
-    limits.push("partition_mismatch");
+    hardLimits.push("partition_mismatch");
     base *= 0.75;
   }
 
   if (input.roleAdapter.state !== "SUPPORTED") {
-    limits.push(`role_adapter:${input.roleAdapter.reason ?? input.roleAdapter.state}`);
+    hardLimits.push(`role_adapter:${input.roleAdapter.reason ?? input.roleAdapter.state}`);
     base *= 0.5;
   }
 
   if (input.sourcesUsed === "profile") {
-    limits.push("profile_only");
+    hardLimits.push("profile_only");
     base *= 0.7;
   } else if (input.sourcesUsed === "detailed") {
-    limits.push("detailed_only");
+    hardLimits.push("detailed_only");
     base *= 0.85;
   }
 
   if (input.oneRunDungeonCount > 0 && input.twoRunDungeonCount === 0) {
-    limits.push("one_run_dungeons_only");
+    hardLimits.push("one_run_dungeons_only");
     base = Math.min(base, config.oneRunDungeonConfidenceCap);
   } else if (input.oneRunDungeonCount > 0) {
-    limits.push("partial_one_run_dungeons");
+    hardLimits.push("partial_one_run_dungeons");
     base = Math.min(base, 0.85);
   }
 
+  const softLimits: string[] = [];
+  // Explicit coverage causes (machine-readable) when evidence is incomplete.
+  if (dungeonCoverage < 1) softLimits.push("incomplete_dungeon_coverage");
+  if (slotCoverage < 1) softLimits.push("incomplete_detailed_slot_coverage");
+  if (twoRunShare < 1 && scoredDungeons > 0) softLimits.push("incomplete_two_run_coverage");
+  if (!input.hasProfile) softLimits.push("missing_profile_aggregate");
+  if (freshness < 1) softLimits.push("stale_log_freshness");
+  if (policyConfidence < 1) softLimits.push("difficulty_policy_confidence_reduced");
+
   const confidence = clamp01(base);
+  // Soft coverage tags only when they actually leave confidence imperfect.
+  // Hard multipliers/caps above always emit regardless (they force conf < 1 when applied).
+  const limits =
+    confidence < 1
+      ? [...new Set([...hardLimits, ...softLimits])]
+      : [...new Set(hardLimits)];
   return {
     confidence,
     limits,

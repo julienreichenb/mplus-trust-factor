@@ -17,9 +17,17 @@ import type {
 export const CANARY_DISCOVERY_REPORT_SCHEMA =
   "scoring-canary-discovery-v1" as const;
 
+/** Ranking evidence may omit reportRevision until selected-fight revision resolve. */
+export type CanaryDiscoveryRankingEvidence = Omit<
+  RankingParseEvidenceV2,
+  "reportRevision"
+> & {
+  reportRevision: number | null;
+};
+
 export interface CanaryDiscoveryCandidateSource {
   candidates: EvidenceCandidateMetadataV2[];
-  rankingEvidence: RankingParseEvidenceV2[];
+  rankingEvidence: CanaryDiscoveryRankingEvidence[];
   reportsListed: number;
   reportsHydrated: number;
   fightsExamined: number;
@@ -50,6 +58,16 @@ export interface CanaryDiscoveryCandidateSource {
     listedReportOrder: string[];
     initialHydrationOrder: string[];
   } | null;
+  discoveryStrategy?:
+    | "encounter_rankings"
+    | "encounter_rankings_with_hydration_fallback"
+    | "recent_reports_hydration";
+  hydrationFallbackReason?: string | null;
+  providerCallBreakdown?: {
+    zoneCatalog: number;
+    characterDiscovery: number;
+    reportHydration: number;
+  };
 }
 
 export interface CanaryDiscoveryForbiddenEffects {

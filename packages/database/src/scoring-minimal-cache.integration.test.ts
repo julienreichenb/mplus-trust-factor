@@ -9,6 +9,10 @@
  */
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import {
+  CAPABILITY_ACQUISITION_PLAN_VERSION,
+  PARTICIPANT_DIGEST_EXTRACTOR_COMPAT_VERSION,
+} from "@mplus/contracts";
 import { assertTestDatabaseAllowed, sanitizeDatabaseUrl } from "@mplus/test-utils";
 import { PrismaClient } from "@prisma/client";
 import {
@@ -103,7 +107,7 @@ describe.runIf(dbAvailable)("scoring minimal cache repositories (postgres)", () 
       reportCode: `R${randomUUID().slice(0, 8)}`,
       fightId: 7,
       reportRevision: 3,
-      acquisitionVersion: "capability-acquisition-plan-v1",
+      acquisitionVersion: CAPABILITY_ACQUISITION_PLAN_VERSION,
     };
     const payload = { ok: true, events: [{ t: 1 }], nested: { a: "b" } };
 
@@ -203,10 +207,10 @@ describe.runIf(dbAvailable)("scoring minimal cache repositories (postgres)", () 
       reportCode: `R${randomUUID().slice(0, 8)}`,
       fightId: 11,
       reportRevision: 1,
-      acquisitionVersion: "capability-acquisition-plan-v1",
+      acquisitionVersion: CAPABILITY_ACQUISITION_PLAN_VERSION,
       payload: { five: true },
     });
-    const extractorVersion = "participant-digest-extractors-v1";
+    const extractorVersion = PARTICIPANT_DIGEST_EXTRACTOR_COMPAT_VERSION;
     const players = [
       { actor: 10, name: "Target", characterId },
       { actor: 11, name: "MateA", characterId: null },
@@ -313,10 +317,10 @@ describe.runIf(dbAvailable)("scoring minimal cache repositories (postgres)", () 
       reportCode: `R${randomUUID().slice(0, 8)}`,
       fightId: 22,
       reportRevision: 1,
-      acquisitionVersion: "capability-acquisition-plan-v1",
+      acquisitionVersion: CAPABILITY_ACQUISITION_PLAN_VERSION,
       payload: { link: true },
     });
-    const extractorVersion = "participant-digest-extractors-v1";
+    const extractorVersion = PARTICIPANT_DIGEST_EXTRACTOR_COMPAT_VERSION;
     const saved = await digests.save({
       rawRunId: raw.id,
       participantActorId: 42,
@@ -388,10 +392,10 @@ describe.runIf(dbAvailable)("scoring minimal cache repositories (postgres)", () 
       reportCode: `R${randomUUID().slice(0, 8)}`,
       fightId: 33,
       reportRevision: 1,
-      acquisitionVersion: "capability-acquisition-plan-v1",
+      acquisitionVersion: CAPABILITY_ACQUISITION_PLAN_VERSION,
       payload: { conflict: true },
     });
-    const extractorVersion = "participant-digest-extractors-v1";
+    const extractorVersion = PARTICIPANT_DIGEST_EXTRACTOR_COMPAT_VERSION;
     const saved = await digests.save({
       rawRunId: raw.id,
       participantActorId: 77,
@@ -437,10 +441,10 @@ describe.runIf(dbAvailable)("scoring minimal cache repositories (postgres)", () 
       reportCode: `R${randomUUID().slice(0, 8)}`,
       fightId: 44,
       reportRevision: 1,
-      acquisitionVersion: "capability-acquisition-plan-v1",
+      acquisitionVersion: CAPABILITY_ACQUISITION_PLAN_VERSION,
       payload: { race: true },
     });
-    const extractorVersion = "participant-digest-extractors-v1";
+    const extractorVersion = PARTICIPANT_DIGEST_EXTRACTOR_COMPAT_VERSION;
     const saved = await digests.save({
       rawRunId: raw.id,
       participantActorId: 88,

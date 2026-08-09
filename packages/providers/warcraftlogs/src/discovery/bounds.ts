@@ -50,7 +50,11 @@ export const INCREMENTAL_HYDRATION_BATCH_SIZE = 6;
 /** Alias for the initial coverage-aware hydration batch. */
 export const INITIAL_HYDRATION_BUDGET = MAX_COVERAGE_AWARE_HYDRATION_REPORTS;
 
-/** Desired distinct eligible candidates per active dungeon before early stop. */
+/**
+ * Desired distinct *timed-eligible* candidates per active dungeon before early stop.
+ * Must match scoring plan eligibility (`timed === true`); untimed fillers must not
+ * satisfy this target or hydration stops before SELECTED slots can fill.
+ */
 export const TARGET_ELIGIBLE_CANDIDATES_PER_DUNGEON = 2;
 
 /** Prefer reports within this window of an external run hint when hydrating. */

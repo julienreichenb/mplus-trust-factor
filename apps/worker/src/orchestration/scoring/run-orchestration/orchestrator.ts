@@ -87,6 +87,8 @@ export interface CompatiblePackageHit {
   packageArtifactId: string;
   contentHash: string;
   providerCalls: 0;
+  /** Embedded CombatantInfo rows when present on the raw payload envelope. */
+  combatantInfoEvents?: Array<Record<string, unknown>> | null;
 }
 
 export interface ProviderEvidenceCacheMiss {
@@ -102,6 +104,7 @@ export interface AcquireCapabilityPackageResult {
   contentHash: string;
   providerCalls: number;
   created: boolean;
+  combatantInfoEvents?: Array<Record<string, unknown>> | null;
 }
 
 export interface PersistedDigestRecord {
@@ -168,6 +171,18 @@ export interface RunOrchestrationPorts {
     dungeonSlug: string | null;
     keyLevel: number | null;
   }): Promise<RankingParseFactInput | null>;
+
+  /**
+   * Cold-refresh hydrate: ensure RunRankingFact exists for this fight/character.
+   * May call WCL CharacterZoneRankings once per scoring operation (cached).
+   * Must run before resolveRankingParseForParticipant when live is allowed.
+   */
+  hydrateRankingParseFacts?(input: {
+    rawRunId: string;
+    sourceFight: SourceFightIdentity;
+    dungeonSlug: string | null;
+    keyLevel: number | null;
+  }): Promise<{ providerCalls: number }>;
 
   /**
    * Optional roster from persisted WCL run source digest / master data.
@@ -319,6 +334,8 @@ export interface RunOrchestrationResult {
 export type DimensionUnavailableReason =
   | "performance_parse_missing"
   | "performance_profile_aggregate_missing"
+  | "performance_specialization_unresolved"
+  | "performance_role_adapter_rejected"
   | "performance_catalogue_incompatible"
   | "utility_dataset_missing"
   | "utility_actor_unresolved"
@@ -329,8 +346,13 @@ function mapPerformanceUnavailableReason(input: {
   hasParseFacts: boolean;
   hasProfileAggregate: boolean;
   detail: string | null;
+  roleAdapterState?: string | null;
+  roleAdapterReason?: string | null;
 }): string {
   const detail = (input.detail ?? "").toLowerCase();
+  const roleReason = (input.roleAdapterReason ?? "").toLowerCase();
+  const roleState = (input.roleAdapterState ?? "").toUpperCase();
+
   if (
     detail.includes("catalogue") ||
     detail.includes("catalog") ||
@@ -338,6 +360,25 @@ function mapPerformanceUnavailableReason(input: {
   ) {
     return "performance_catalogue_incompatible";
   }
+
+  // Role/spec adapter rejection must not be mislabeled as missing profile aggregate.
+  if (
+    roleState === "SPEC_UNRESOLVED" ||
+    roleReason.includes("specialization_unresolved") ||
+    detail.includes("specialization_unresolved") ||
+    detail.includes("role_adapter:specialization_unresolved")
+  ) {
+    return "performance_specialization_unresolved";
+  }
+  if (
+    roleState === "UNSUPPORTED_ROLE" ||
+    roleState === "ADAPTER_UNVERIFIED" ||
+    roleReason.length > 0 ||
+    detail.includes("role_adapter:")
+  ) {
+    return "performance_role_adapter_rejected";
+  }
+
   if (!input.hasParseFacts && input.hasProfileAggregate) {
     return "performance_parse_missing";
   }
@@ -480,25 +521,37 @@ async function ensurePackageAndDigests(input: {
     }
 
     // Warm reuse: digests already persist for bare/legacy raw packages that lack
-    // embedded masterData. Prefer them over forcing a live roster re-acquire.
+    // embedded masterData. Prefer them over forcing a live roster re-acquire —
+    // unless live refresh can still hydrate ranking parses that those digests lack.
     if (!packageHit && ports.listPersistedDigestsForSourceFight) {
       const persisted = await ports.listPersistedDigestsForSourceFight({
         sourceFight,
       });
       if (persisted.length > 0) {
-        return {
-          packageHit: null as unknown as CompatiblePackageHit,
-          digests: persisted,
-          accounting: {
-            sourceFight,
-            packageCreated: false,
-            providerCalls: 0,
-            digestsCreated: 0,
-            digestsReused: persisted.length,
-            participantDigestCount: persisted.length,
-          },
-          cacheMiss: null,
-        };
+        const digestsLackRanking = persisted.some(
+          (row) =>
+            row.digest.performance.parseSemantic === "UNAVAILABLE" ||
+            row.digest.performance.limitations.includes("ranking_parse_absent"),
+        );
+        const canHydrateRanking =
+          input.liveProviderPermission === "ALLOWED" &&
+          typeof ports.hydrateRankingParseFacts === "function";
+        if (!(digestsLackRanking && canHydrateRanking)) {
+          return {
+            packageHit: null as unknown as CompatiblePackageHit,
+            digests: persisted,
+            accounting: {
+              sourceFight,
+              packageCreated: false,
+              providerCalls: 0,
+              digestsCreated: 0,
+              digestsReused: persisted.length,
+              participantDigestCount: persisted.length,
+            },
+            cacheMiss: null,
+          };
+        }
+        // Fall through: acquire/rebuild package path so digests pick up ranking facts.
       }
     }
 
@@ -546,6 +599,7 @@ async function ensurePackageAndDigests(input: {
         packageArtifactId: acquired.packageArtifactId,
         contentHash: acquired.contentHash,
         providerCalls: 0,
+        combatantInfoEvents: acquired.combatantInfoEvents ?? null,
       };
       providerCalls = acquired.providerCalls;
       packageCreated = acquired.created;
@@ -557,6 +611,20 @@ async function ensurePackageAndDigests(input: {
     const participants = await ports.resolveParticipantsForFight({
       sourceFight,
     });
+
+    // Hydrate RunRankingFact before provider-free ranking reads (cold miss only).
+    if (
+      input.liveProviderPermission === "ALLOWED" &&
+      ports.hydrateRankingParseFacts
+    ) {
+      const hydrated = await ports.hydrateRankingParseFacts({
+        rawRunId: packageHit.packageArtifactId,
+        sourceFight,
+        dungeonSlug: input.dungeonSlug,
+        keyLevel: input.keyLevel,
+      });
+      providerCalls += hydrated.providerCalls;
+    }
 
     const rankingByActorId = new Map<number, RankingParseFactInput>();
     for (const participant of participants) {
@@ -585,6 +653,7 @@ async function ensurePackageAndDigests(input: {
       fightEndMs: bounds.fightEndMs,
       catalogVersion: packageHit.package.catalogVersion,
       rankingByActorId,
+      combatantInfoEvents: packageHit.combatantInfoEvents ?? null,
     });
 
     const digests: PersistedDigestRecord[] = [];
@@ -1098,8 +1167,10 @@ export async function orchestrateScoringRuns(
                 characterId: manifest.characterId,
                 seasonId: manifest.seasonId,
                 seasonSlug: manifest.seasonSlug,
-                specSlug: manifest.specSlug,
-                role: manifest.role,
+                // Prefer frozen manifest identity; fall back to scope when an
+                // older frozen document omitted class/spec (canary wiring gap).
+                specSlug: manifest.specSlug ?? input.scope.specSlug,
+                role: manifest.role ?? input.scope.role,
                 highKeyPolicyId: manifest.highKeyPolicyId,
                 activeDungeonSlugs: manifest.activeDungeonSlugs,
                 expectedSlotCount: manifest.expectedSlotCount,
@@ -1131,12 +1202,15 @@ export async function orchestrateScoringRuns(
           );
         }
         if (performance.score == null) {
+          const roleAdapter = performance.phase1?.roleAdapter;
           blocked.push({
             dimension: "PERFORMANCE",
             reason: mapPerformanceUnavailableReason({
               hasParseFacts: runParseFacts.length > 0,
               hasProfileAggregate: input.profileAggregate != null,
               detail: performance.limitations.join(",") || null,
+              roleAdapterState: roleAdapter?.state ?? null,
+              roleAdapterReason: roleAdapter?.reason ?? null,
             }),
           });
         }

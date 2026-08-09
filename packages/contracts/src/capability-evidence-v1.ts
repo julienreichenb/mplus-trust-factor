@@ -7,9 +7,9 @@ import { z } from "zod";
 import { WCL_DIGEST_FORBIDDEN_SCORE_KEYS } from "./wcl-run-source-digest.js";
 
 export const CAPABILITY_ACQUISITION_PLAN_VERSION =
-  "capability-acquisition-plan-v1" as const;
+  "capability-acquisition-plan-v2" as const;
 export const CAPABILITY_EVIDENCE_PACKAGE_SCHEMA_VERSION =
-  "capability-evidence-package-v1" as const;
+  "capability-evidence-package-v4" as const;
 export const WCL_GRAPHQL_QUERY_VERSION = "wcl-graphql-v2-events" as const;
 
 export const EVIDENCE_CAPABILITIES = [
@@ -23,6 +23,7 @@ export const EVIDENCE_CAPABILITIES = [
   "UTILITY_CROWD_CONTROL",
   "UTILITY_EXTERNAL_CASTS",
   "UTILITY_EXTERNAL_TARGET_CONTEXT",
+  "UTILITY_HOSTILE_CASTS",
   "PARTICIPANT_METADATA",
   "ACTOR_OWNERSHIP",
 ] as const;
@@ -101,9 +102,28 @@ export const capabilityCompactEventSchema = z.object({
   targetActorId: z.number().int().nullable(),
   targetPlayerActorId: z.number().int().nullable(),
   amount: z.number().nullable().optional(),
+  /** Victim/current HP when WCL includeResources was requested (DamageTaken/Deaths). */
+  hitPoints: z.number().nonnegative().nullable().optional(),
+  /** Victim max HP when WCL includeResources was requested (DamageTaken/Deaths). */
+  maxHitPoints: z.number().positive().nullable().optional(),
   capabilities: z.array(evidenceCapabilitySchema).min(1),
 });
 export type CapabilityCompactEvent = z.infer<typeof capabilityCompactEventSchema>;
+
+/**
+ * Minimal CombatantInfo loadout projection for conditional cooldown availability.
+ * Not a parallel talent system — spell/node IDs only.
+ */
+export const participantLoadoutEvidenceV1Schema = z.object({
+  actorId: z.number().int().positive(),
+  blizzardSpecId: z.number().int().nullable(),
+  talentSpellIds: z.array(z.number().int()),
+  talentTreeNodeIds: z.array(z.number().int()).default([]),
+  evidenceState: z.enum(["PRESENT", "ABSENT", "UNPARSEABLE"]),
+});
+export type ParticipantLoadoutEvidenceV1 = z.infer<
+  typeof participantLoadoutEvidenceV1Schema
+>;
 
 export const capabilityEvidenceCompatibilityIdentitySchema = z.object({
   reportCode: z.string().min(1),
@@ -114,6 +134,7 @@ export const capabilityEvidenceCompatibilityIdentitySchema = z.object({
   actorSetHash: z.string().min(8),
   abilityFilterHash: z.string().min(8),
   catalogVersion: z.string().min(1),
+  packageSchemaVersion: z.literal(CAPABILITY_EVIDENCE_PACKAGE_SCHEMA_VERSION),
   acquisitionPlanVersion: z.literal(CAPABILITY_ACQUISITION_PLAN_VERSION),
   graphqlQueryVersion: z.literal(WCL_GRAPHQL_QUERY_VERSION),
   mode: z.enum(ACQUISITION_MODES),
@@ -143,6 +164,8 @@ export const capabilityEvidencePackageV1Schema = z
     capabilitySet: z.array(evidenceCapabilitySchema).min(1),
     coverage: z.array(capabilityCoverageV1Schema),
     compactEvents: z.array(capabilityCompactEventSchema),
+    /** Actor-scoped CombatantInfo loadout proof (empty when absent). */
+    participantLoadouts: z.array(participantLoadoutEvidenceV1Schema).default([]),
     unknownAbilitySummaries: z.array(capabilityUnknownAbilitySummarySchema),
     retention: z.object({
       rawPages: z.literal("EPHEMERAL_RAW_PAGE"),
@@ -230,6 +253,7 @@ export function buildCapabilityEvidenceCompatibilityIdentity(input: {
     actorSetHash: input.actorSetHash,
     abilityFilterHash: input.abilityFilterHash,
     catalogVersion: input.catalogVersion,
+    packageSchemaVersion: CAPABILITY_EVIDENCE_PACKAGE_SCHEMA_VERSION,
     acquisitionPlanVersion: CAPABILITY_ACQUISITION_PLAN_VERSION,
     graphqlQueryVersion: WCL_GRAPHQL_QUERY_VERSION,
     mode: input.mode,
@@ -253,6 +277,7 @@ export function capabilityEvidenceCompatibilityKeyString(
     `actors:${identity.actorSetHash}`,
     `abilities:${identity.abilityFilterHash}`,
     `catalog:${identity.catalogVersion}`,
+    identity.packageSchemaVersion,
     identity.acquisitionPlanVersion,
     identity.graphqlQueryVersion,
     identity.mode,

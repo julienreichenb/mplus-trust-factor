@@ -6,6 +6,7 @@
 import {
   dimensionTagsForRule,
   getAllRegisteredRules,
+  ruleResolvableSpellIds,
   type AbilityDimensionTag,
   type AbilityRule,
 } from "@mplus/abilities";
@@ -30,20 +31,7 @@ const CAPABILITY_DIMENSION_TAGS: Partial<
 
 /** Spell / buff IDs that may appear on Buffs or Casts for a rule. */
 export function collectRuleEvidenceSpellIds(rule: AbilityRule): number[] {
-  const ids = new Set<number>();
-  for (const id of rule.spellIds) {
-    if (Number.isFinite(id)) ids.add(id);
-  }
-  for (const id of rule.aliases ?? []) {
-    if (Number.isFinite(id)) ids.add(id);
-  }
-  for (const id of rule.activationBuffIds ?? []) {
-    if (Number.isFinite(id)) ids.add(id);
-  }
-  for (const id of rule.triggeredEffectIds ?? []) {
-    if (Number.isFinite(id)) ids.add(id);
-  }
-  return [...ids].sort((a, b) => a - b);
+  return ruleResolvableSpellIds(rule);
 }
 
 export function ruleMatchesCapability(

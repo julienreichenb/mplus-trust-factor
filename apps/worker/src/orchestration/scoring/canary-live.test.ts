@@ -9,6 +9,9 @@ import { describe, expect, it, vi } from "vitest";
 import {
   EVIDENCE_SELECTOR_VERSION,
   expectedEvidenceSlotCount,
+  CHARACTER_PERFORMANCE_AGGREGATE_RANKING_VERSION,
+  assertPersistedCharacterPerformanceAggregateV1,
+  hashPerformanceAggregateContent,
   type CharacterSeasonEvidenceManifestV2,
   type EvidenceCandidateMetadataV2,
 } from "@mplus/contracts";
@@ -206,6 +209,57 @@ function deferBootstrap() {
 }
 
 function mockContainer(manifestDoc: CharacterSeasonEvidenceManifestV2 | null) {
+  const compact = assertPersistedCharacterPerformanceAggregateV1({
+    state: "OK",
+    adapterVersion: CHARACTER_PERFORMANCE_AGGREGATE_RANKING_VERSION,
+    metric: "points_and_damage",
+    zoneId: 47,
+    partition: null,
+    dungeonAggregates: [
+      {
+        dungeonSlug: "skyreach",
+        dungeonName: "Skyreach",
+        encounterId: 1,
+        bestParsePercentile: 90,
+        medianParsePercentile: 80,
+        loggedRunCount: 10,
+        specialization: "Fire",
+        keystoneLevel: 12,
+        bestDps: 1000,
+      },
+    ],
+    global: {
+      totalMythicPlusScore: 4000,
+      totalLoggedRuns: 10,
+      bestDpsPercentileAverage: 90,
+      medianDpsPercentileAverage: 80,
+      partition: null,
+      zoneId: 47,
+    },
+    diagnostics: {
+      adapterVersion: CHARACTER_PERFORMANCE_AGGREGATE_RANKING_VERSION,
+      metric: "points_and_damage",
+      provenance: "AGGREGATE_ZONE_RANKINGS",
+      availableDungeonCount: 1,
+      expectedDungeonCount: 8,
+      unavailableEncounters: [],
+      wclBestPerformanceAverage: 90,
+      wclMedianPerformanceAverage: 80,
+      computedBestAverage: 90,
+      computedMedianAverage: 80,
+    },
+  });
+  const sourceRequestFingerprint = "canary-live-test-aggregate";
+  const contentHash = hashPerformanceAggregateContent({
+    rankingVersion: CHARACTER_PERFORMANCE_AGGREGATE_RANKING_VERSION,
+    metric: "points_and_damage",
+    zoneId: 47,
+    partitionKey: "current",
+    dungeonAggregates: compact.dungeonAggregates,
+    global: compact.global,
+    diagnostics: compact.diagnostics,
+    sourceRequestFingerprint,
+  });
   return {
     prisma: {
       evidenceManifest: {
@@ -214,6 +268,27 @@ function mockContainer(manifestDoc: CharacterSeasonEvidenceManifestV2 | null) {
             ? { id: MANIFEST_ID, document: manifestDoc, frozenAt: new Date() }
             : null,
         ),
+      },
+      characterPerformanceAggregate: {
+        // Warm HIT: skip live WCL aggregate fetch in unit tests.
+        findUnique: vi.fn(async () => ({
+          id: "agg-canary-live",
+          characterId: CHAR_ID,
+          seasonId: "season-row-1",
+          zoneId: 47,
+          partitionKey: "current",
+          rankingVersion: CHARACTER_PERFORMANCE_AGGREGATE_RANKING_VERSION,
+          metric: "points_and_damage",
+          state: "OK",
+          rawPayload: {},
+          dungeonAggregates: compact.dungeonAggregates,
+          globalSummary: compact.global,
+          diagnostics: compact.diagnostics,
+          contentHash,
+          sourceRequestFingerprint,
+          fetchedAt: new Date("2026-01-01T00:00:00.000Z"),
+          expiresAt: new Date("2099-01-01T00:00:00.000Z"),
+        })),
       },
       $disconnect: vi.fn(async () => undefined),
     },

@@ -41,6 +41,15 @@ export interface ProviderFetchContext {
    * DB can still populate the 2×N evidence candidate pool from public WCL.
    */
   wclActiveDungeonSlugs?: readonly string[];
+  /**
+   * Authoritative WCL encounter IDs for the active-season dungeon pool
+   * (from SeasonDungeon / dungeon.wclZoneOrEncounterId). When present,
+   * encounterRankings discovery uses these bindings instead of a static map.
+   */
+  wclActiveDungeonEncounters?: ReadonlyArray<{
+    dungeonSlug: string;
+    encounterId: number;
+  }>;
 }
 
 export interface ProviderRequestMetadata {

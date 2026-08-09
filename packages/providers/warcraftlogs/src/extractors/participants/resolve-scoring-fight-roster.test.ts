@@ -60,6 +60,7 @@ function buildPackage(input: {
       actorSetHash,
       abilityFilterHash,
       catalogVersion,
+      packageSchemaVersion: CAPABILITY_EVIDENCE_PACKAGE_SCHEMA_VERSION,
       acquisitionPlanVersion: CAPABILITY_ACQUISITION_PLAN_VERSION,
       graphqlQueryVersion: WCL_GRAPHQL_QUERY_VERSION,
       mode: "PRODUCTION_CAPABILITY_ACQUISITION" as const,
@@ -88,6 +89,7 @@ function buildPackage(input: {
       sourceArtifactIds: [] as string[],
     })),
     compactEvents: [],
+    participantLoadouts: [],
     unknownAbilitySummaries: [],
     retention: {
       rawPages: "EPHEMERAL_RAW_PAGE" as const,

@@ -45,6 +45,7 @@ export * from "./discovery/mplus-zone.js";
 export * from "./discovery/zone-ranking-aggregates.js";
 export * from "./discovery/points-and-damage-performance.js";
 export * from "./discovery/bounds.js";
+export * from "./discovery/encounter-rankings.js";
 export * from "./discovery/report-hydration.js";
 export * from "./discovery/iterative-report-hydration.js";
 export * from "./discovery/report-discovery-trace.js";

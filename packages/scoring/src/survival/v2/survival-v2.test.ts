@@ -671,4 +671,23 @@ describe("Survival V2 Phase 1 — shadow payload + calibration export", () => {
     expect(replay.confidence).toBe(a.result.confidence);
     expect(replay.inputFingerprint).toBe(a.result.inputFingerprint);
   });
+
+  it("does not apply relativeUnreliable confidence penalty when mode is shadow/off", () => {
+    const manifest = buildSharedManifest();
+    const factSets = factsForManifest(manifest);
+    const shadow = computeSurvivalV2({
+      manifest,
+      factSets,
+      relativeDamageMode: "shadow",
+    });
+    const off = computeSurvivalV2({
+      manifest,
+      factSets,
+      relativeDamageMode: "off",
+    });
+    // All relativeDamage facts are null → INSUFFICIENT; must not crush confidence.
+    expect(shadow.confidence).toBeGreaterThan(0.8);
+    expect(off.confidence).toBeGreaterThan(0.8);
+    expect(shadow.confidence).toBeCloseTo(off.confidence, 10);
+  });
 });

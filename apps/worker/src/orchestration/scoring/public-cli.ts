@@ -11,6 +11,7 @@ import type { EvidenceRole } from "@mplus/contracts";
 import {
   createProductionCanaryDependencies,
   assertOperatorRepositoryMode,
+  resolveCanaryCharacterIdentity,
 } from "./canary/canary-deps.js";
 import {
   assertSeasonCatalogOk,
@@ -80,12 +81,15 @@ async function runPublicCanary(input: {
 }): Promise<void> {
   const env = loadEnv();
   assertOperatorRepositoryMode("PRODUCTION");
-  const identity = {
+  const characterIdentity = {
     region: input.args.region.toUpperCase() as "EU" | "US" | "KR" | "TW" | "CN",
     realmSlug: input.args.realm,
     name: input.args.character,
   };
-  const deps = await createProductionCanaryDependencies({ env, identity });
+  const deps = await createProductionCanaryDependencies({
+    env,
+    identity: characterIdentity,
+  });
   try {
     const season = await resolveCanarySeasonCatalog({
       prisma: deps.container.prisma,
@@ -94,6 +98,11 @@ async function runPublicCanary(input: {
     });
     assertSeasonCatalogOk(season);
     const zone = resolveZoneForCanaryCommand(input.args);
+    const classSpec = await resolveCanaryCharacterIdentity({
+      prisma: deps.container.prisma,
+      characterId: deps.characterResolution.characterId,
+      fallbackRole: (deps.character.role ?? "DPS") as EvidenceRole,
+    });
 
     const gate = evaluateCanaryLiveGates({
       env,
@@ -112,9 +121,9 @@ async function runPublicCanary(input: {
       characterName: input.args.character,
       region: input.args.region,
       realm: input.args.realm,
-      classSlug: null,
-      specSlug: null,
-      role: (deps.character.role ?? "DPS") as EvidenceRole,
+      classSlug: classSpec.classSlug,
+      specSlug: classSpec.specSlug,
+      role: classSpec.role,
       season,
       characterResolution: deps.characterResolution,
       zone,
@@ -164,12 +173,15 @@ async function runPublicCanary(input: {
 
 async function runPublicReplay(args: CanaryCliArgs): Promise<void> {
   const env = loadEnv();
-  const identity = {
+  const characterIdentity = {
     region: args.region.toUpperCase() as "EU" | "US" | "KR" | "TW" | "CN",
     realmSlug: args.realm,
     name: args.character,
   };
-  const deps = await createProductionCanaryDependencies({ env, identity });
+  const deps = await createProductionCanaryDependencies({
+    env,
+    identity: characterIdentity,
+  });
   try {
     const season = await resolveCanarySeasonCatalog({
       prisma: deps.container.prisma,
@@ -177,6 +189,11 @@ async function runPublicReplay(args: CanaryCliArgs): Promise<void> {
       regionCode: args.region,
     });
     assertSeasonCatalogOk(season);
+    const classSpec = await resolveCanaryCharacterIdentity({
+      prisma: deps.container.prisma,
+      characterId: deps.characterResolution.characterId,
+      fallbackRole: (deps.character.role ?? "DPS") as EvidenceRole,
+    });
     const { reportPath, report } = await runScoringCanaryReplay({
       env,
       prisma: deps.container.prisma,
@@ -185,9 +202,9 @@ async function runPublicReplay(args: CanaryCliArgs): Promise<void> {
       characterName: args.character,
       region: args.region,
       realm: args.realm,
-      classSlug: null,
-      specSlug: null,
-      role: "DPS",
+      classSlug: classSpec.classSlug,
+      specSlug: classSpec.specSlug,
+      role: classSpec.role,
       season,
       repositoryMode: "PRODUCTION",
       outputDir: args.outputDir ?? undefined,

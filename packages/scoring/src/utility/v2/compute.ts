@@ -4,6 +4,7 @@
 
 import { clamp, clamp01 } from "../../math.js";
 import { buildUtilityFeatureUsage } from "../../audit/feature-usage.js";
+import { buildDimensionConfidenceBreakdown } from "../../confidence/dimension-confidence.js";
 import { bindUtilityV2FactsToManifest } from "./bind.js";
 import {
   UTILITY_V2_MODEL_CONFIG,
@@ -274,6 +275,11 @@ function unavailableResult(
     ],
     selectedRuns: [],
     confidenceReasons: ["unavailable"],
+    confidenceBreakdown: buildDimensionConfidenceBreakdown({
+      value: 0,
+      causes: ["unavailable"],
+      components: {},
+    }),
     bindingReasons,
   };
 
@@ -308,6 +314,11 @@ function unavailableResult(
     rawBehaviorEstimate: null,
     confidence: 0,
     confidenceComponents: {},
+    confidenceBreakdown: buildDimensionConfidenceBreakdown({
+      value: 0,
+      causes: ["unavailable"],
+      components: {},
+    }),
     reliability: null,
     inputFingerprint: fingerprint,
     domainBreakdown: [],
@@ -596,6 +607,14 @@ export function computeUtilityV2(
     floorNeutral(floor + reliability * (rawBehaviorEstimate - floor), floor),
   );
 
+  const allLimitations = new Set(factSets.flatMap((f) => f.limitations));
+  const hostileNotPersistedInDigest = allLimitations.has(
+    "hostile_cast_windows_not_persisted_in_digest",
+  );
+  const catalogCoverageUnmeasured =
+    allLimitations.has("digest_catalog_coverage_unmeasured") ||
+    allLimitations.has("catalog_coverage_unmeasured_fallback");
+
   const confComponents = {
     dungeonCoverage: clamp01(dungeons.length / config.confidence.expectedDungeons),
     runCoverage: clamp01(factSets.length / config.confidence.runSaturation),
@@ -603,7 +622,9 @@ export function computeUtilityV2(
     attributableEvents: clamp01(
       attributableEvents / config.confidence.attributableEventSaturation,
     ),
-    mechanicCatalogCoverageObserved: clamp01(mechanicCoverage),
+    mechanicCatalogCoverageObserved: catalogCoverageUnmeasured
+      ? 0
+      : clamp01(mechanicCoverage),
     sourceCompleteness: clamp01(
       (factSets.length > 0 ? 0.4 : 0) +
         (hostileBegincastCount > 0 ? 0.3 : 0) +
@@ -611,14 +632,29 @@ export function computeUtilityV2(
     ),
   };
   const w = config.confidence.weights;
+  // When catalog coverage is unmeasured, drop that weight and renormalize so a
+  // stand-in constant cannot masquerade as observed evidence quality.
+  const confidenceWeightEntries: Array<[keyof typeof w, number]> = [
+    ["dungeonCoverage", w.dungeonCoverage],
+    ["runCoverage", w.runCoverage],
+    ["combatDuration", w.combatDuration],
+    ["attributableEvents", w.attributableEvents],
+    [
+      "mechanicCatalogCoverageObserved",
+      catalogCoverageUnmeasured ? 0 : w.mechanicCatalogCoverageObserved,
+    ],
+    ["sourceCompleteness", w.sourceCompleteness],
+  ];
+  const confidenceWeightSum = confidenceWeightEntries.reduce(
+    (s, [, weight]) => s + weight,
+    0,
+  );
   let confidence =
-    (confComponents.dungeonCoverage * w.dungeonCoverage +
-      confComponents.runCoverage * w.runCoverage +
-      confComponents.combatDuration * w.combatDuration +
-      confComponents.attributableEvents * w.attributableEvents +
-      confComponents.mechanicCatalogCoverageObserved * w.mechanicCatalogCoverageObserved +
-      confComponents.sourceCompleteness * w.sourceCompleteness) *
-    100;
+    confidenceWeightEntries.reduce((s, [key, weight]) => {
+      const share =
+        confidenceWeightSum > 0 ? weight / confidenceWeightSum : 0;
+      return s + confComponents[key] * share;
+    }, 0) * 100;
 
   const confidenceReasons: string[] = [];
   if (factSets.length < config.confidence.tinyRunThreshold) {
@@ -633,18 +669,36 @@ export function computeUtilityV2(
     confidence = Math.min(confidence, config.confidence.maxWhenZeroAttributable);
     confidenceReasons.push("zero_attributable_events");
   }
-  if (hostileBegincastCount === 0 && toolkit.hasInterrupt) {
+  if (
+    hostileBegincastCount === 0 &&
+    toolkit.hasInterrupt &&
+    !hostileNotPersistedInDigest
+  ) {
     confidence = Math.min(confidence, config.confidence.maxWhenNoHostileCasts);
     confidenceReasons.push("no_hostile_casts_observed");
+  } else if (hostileNotPersistedInDigest) {
+    confidenceReasons.push("hostile_cast_windows_not_persisted_in_digest");
   }
-  for (const gate of config.confidence.maxWhenMechanicCatalogBelow) {
-    if (confComponents.mechanicCatalogCoverageObserved < gate.below) {
-      confidence = Math.min(confidence, gate.maxConfidence);
-      confidenceReasons.push(`mechanic_catalog_below_${gate.below}`);
-      break;
+  if (!catalogCoverageUnmeasured) {
+    for (const gate of config.confidence.maxWhenMechanicCatalogBelow) {
+      if (confComponents.mechanicCatalogCoverageObserved < gate.below) {
+        confidence = Math.min(confidence, gate.maxConfidence);
+        confidenceReasons.push(`mechanic_catalog_below_${gate.below}`);
+        break;
+      }
     }
+  } else {
+    confidenceReasons.push("catalog_coverage_unmeasured");
   }
   confidence = round2(clamp(confidence, 0, 100));
+
+  const confidenceBreakdown = buildDimensionConfidenceBreakdown({
+    value: confidence / 100,
+    causes: confidenceReasons,
+    components: Object.fromEntries(
+      Object.entries(confComponents).map(([k, v]) => [k, round2(v)]),
+    ),
+  });
 
   const applicableDomains = domainBreakdown
     .filter((d) => d.applicable)
@@ -686,6 +740,7 @@ export function computeUtilityV2(
       reportRevision: f.reportRevision,
     })),
     confidenceReasons,
+    confidenceBreakdown,
     bindingReasons: [],
   };
 
@@ -743,6 +798,7 @@ export function computeUtilityV2(
     confidenceComponents: Object.fromEntries(
       Object.entries(confComponents).map(([k, v]) => [k, round2(v)]),
     ),
+    confidenceBreakdown,
     reliability: round2(reliability),
     inputFingerprint,
     domainBreakdown,

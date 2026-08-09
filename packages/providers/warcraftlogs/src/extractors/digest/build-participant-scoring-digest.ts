@@ -12,6 +12,7 @@ import {
   type UtilityCanonicalAction,
 } from "@mplus/contracts";
 import { estimateActiveCombatMs } from "@mplus/scoring";
+import { extractParticipantLoadoutsFromCombatantEvents } from "../../evidence/capability/combatant-loadout.js";
 import { buildOffensiveParticipantActivationReports } from "../offensive/activations.js";
 import { extractUtilityActionTimeline } from "../utility/extract-actions.js";
 import { extractSurvivalFromCapabilityPackage } from "../survival/extract.js";
@@ -77,6 +78,11 @@ export interface BuildParticipantDigestsFromPackageInput {
   rankingByActorId?: Map<number, RankingParseFactInput>;
   catalogVersion?: string;
   createdAt?: string;
+  /**
+   * Optional CombatantInfo rows when package.participantLoadouts is empty
+   * (recover loadout proof without a second WCL fetch).
+   */
+  combatantInfoEvents?: ReadonlyArray<Record<string, unknown>> | null;
 }
 
 
@@ -212,6 +218,22 @@ export function buildParticipantScoringDigestsFromPackage(
       ? Math.max(0, input.fightEndMs - input.fightStartMs)
       : null;
 
+  const packageLoadouts = pkg.participantLoadouts ?? [];
+  const fallbackLoadouts =
+    packageLoadouts.length === 0 &&
+    input.combatantInfoEvents != null &&
+    input.combatantInfoEvents.length > 0
+      ? extractParticipantLoadoutsFromCombatantEvents(
+          input.combatantInfoEvents,
+          new Set(input.participants.map((p) => p.playerActorId)),
+        )
+      : [];
+  const loadoutsByActor = new Map(
+    (packageLoadouts.length > 0 ? packageLoadouts : fallbackLoadouts).map(
+      (l) => [l.actorId, l] as const,
+    ),
+  );
+
   return input.participants.map((participant) => {
     const actorId = participant.playerActorId;
     const ranking = input.rankingByActorId?.get(actorId);
@@ -222,6 +244,17 @@ export function buildParticipantScoringDigestsFromPackage(
     const utilityActions: UtilityCanonicalAction[] = utility.timeline.actions.filter(
       (a) => a.ownerActorId === actorId,
     );
+    const hostileCastEvents = pkg.compactEvents
+      .filter((e) => e.capabilities.includes("UTILITY_HOSTILE_CASTS"))
+      .map((e) => ({
+        eventId: e.eventId,
+        timestampMs: e.timestampMs,
+        fightOffsetMs: Math.max(0, e.timestampMs - input.fightStartMs),
+        spellId: e.spellId,
+        eventType: e.eventType,
+        sourceActorId: e.sourceActorId,
+        targetActorId: e.targetActorId,
+      }));
     const personalDefensives = survival.timeline.activations.filter(
       (a) =>
         a.participantActorId === actorId && a.activationKind === "PERSONAL_DEFENSIVE",
@@ -239,6 +272,25 @@ export function buildParticipantScoringDigestsFromPackage(
       (w) => w.participantActorId === actorId,
     );
 
+    const loadoutFromPackage = loadoutsByActor.get(actorId);
+    const loadoutEvidence: ParticipantScoringDigestV1["loadoutEvidence"] =
+      loadoutFromPackage != null
+        ? {
+            evidenceState: loadoutFromPackage.evidenceState,
+            talentSpellIds: [...loadoutFromPackage.talentSpellIds],
+            talentTreeNodeIds: [...(loadoutFromPackage.talentTreeNodeIds ?? [])],
+            blizzardSpecId: loadoutFromPackage.blizzardSpecId,
+            source: "COMBATANT_INFO",
+          }
+        : {
+            evidenceState: "ABSENT",
+            talentSpellIds: [],
+            talentTreeNodeIds: [],
+            blizzardSpecId: null,
+            source: "ABSENT",
+          };
+
+    // Survival pressure clock: personal damage-taken activity (unchanged).
     const damageTimestampsMs =
       fightDurationMs != null && fightDurationMs > 0
         ? input.capabilityPackage.compactEvents
@@ -249,18 +301,40 @@ export function buildParticipantScoringDigestsFromPackage(
             )
             .map((e) => Math.max(0, e.timestampMs - input.fightStartMs))
         : [];
-    const activeCombatEstimate =
+    const survivalActiveCombatEstimate =
       fightDurationMs != null && fightDurationMs > 0
         ? estimateActiveCombatMs({
             fightDurationMs,
             hostileEventTimestampsMs: damageTimestampsMs,
           })
         : null;
-    const activeCombatMs = activeCombatEstimate?.activeCombatMs ?? fightDurationMs;
+    const activeCombatMs =
+      survivalActiveCombatEstimate?.activeCombatMs ?? fightDurationMs;
     const activeCombatLimitations =
-      activeCombatEstimate?.method === "fight_duration_fallback"
+      survivalActiveCombatEstimate?.method === "fight_duration_fallback"
         ? ["active_combat_fallback_fight_duration"]
         : [];
+
+    // Run-level offensive cadence clock: prefer party-wide hostile casts, else fight bounds.
+    const hostileCastTimestampsMs =
+      fightDurationMs != null && fightDurationMs > 0
+        ? hostileCastEvents.map((e) => e.fightOffsetMs)
+        : [];
+    const runActiveCombatEstimate =
+      fightDurationMs != null && fightDurationMs > 0
+        ? estimateActiveCombatMs({
+            fightDurationMs,
+            hostileEventTimestampsMs: hostileCastTimestampsMs,
+          })
+        : null;
+    const performanceActiveCombatMs =
+      runActiveCombatEstimate?.activeCombatMs ?? fightDurationMs;
+    const performanceActiveCombatMethod =
+      runActiveCombatEstimate?.method === "hostile_activity_windows"
+        ? ("hostile_cast_activity" as const)
+        : fightDurationMs != null
+          ? ("fight_duration_fallback" as const)
+          : null;
 
     const utilityCompleteness = utility.timeline.capabilityCompleteness;
     const survivalCompleteness =
@@ -294,6 +368,7 @@ export function buildParticipantScoringDigestsFromPackage(
       specSlug: participant.specSlug,
       role: mapRole(participant.role),
       ownedPetActorIds: [...participant.ownedPetActorIds],
+      loadoutEvidence,
       capabilityPackageArtifactId: input.packageArtifactId,
       capabilityPackageContentHash: pkg.contentHash,
       catalogVersion,
@@ -314,6 +389,12 @@ export function buildParticipantScoringDigestsFromPackage(
           activationId: a.activationId,
           canonicalKey: a.canonicalKey,
           primarySpellId: a.primarySpellId,
+          observedSpellIds:
+            a.observedSpellIds.length > 0
+              ? a.observedSpellIds
+              : a.contributingSpellIds.length > 0
+                ? a.contributingSpellIds
+                : [a.primarySpellId],
           timestampMs: a.timestampMs,
           fightOffsetMs:
             input.fightStartMs != null
@@ -321,7 +402,10 @@ export function buildParticipantScoringDigestsFromPackage(
               : undefined,
           rawMatchedEventCount: a.rawMatchedEventCount,
           contributingSpellIds: a.contributingSpellIds,
+          targetActorId: a.targetActorId,
         })),
+        activeCombatMs: performanceActiveCombatMs,
+        activeCombatMethod: performanceActiveCombatMethod,
         completeness: performanceCompleteness,
         limitations: [
           ...(ranking == null || ranking.parseSemantic === "UNAVAILABLE"
@@ -330,10 +414,20 @@ export function buildParticipantScoringDigestsFromPackage(
           ...(offensive?.activations.length === 0
             ? ["no_offensive_activations"]
             : []),
+          ...(performanceActiveCombatMethod === "fight_duration_fallback"
+            ? ["performance_active_combat_fallback_fight_duration"]
+            : []),
+          ...(loadoutEvidence.evidenceState === "ABSENT"
+            ? ["loadout_evidence_absent"]
+            : []),
+          ...(loadoutEvidence.evidenceState === "UNPARSEABLE"
+            ? ["loadout_evidence_unparseable"]
+            : []),
         ],
       },
       utility: {
         actions: utilityActions,
+        hostileCastEvents,
         capabilityCompleteness: utilityCompleteness,
         completeness: completenessFromStatuses(
           utilityCompleteness.map((c) => c.status),
@@ -341,6 +435,9 @@ export function buildParticipantScoringDigestsFromPackage(
         limitations: [
           ...utility.timeline.limitations,
           ...(utilityActions.length === 0 ? ["no_utility_actions_for_participant"] : []),
+          ...(hostileCastEvents.length === 0
+            ? ["hostile_cast_events_absent_in_package"]
+            : []),
         ],
       },
       survival: {

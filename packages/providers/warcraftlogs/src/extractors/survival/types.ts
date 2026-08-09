@@ -1,5 +1,5 @@
 import type { AbilityCategory, AbilityRole, AbilityRule } from "@mplus/abilities";
-import { dimensionTagsForRule } from "@mplus/abilities";
+import { dimensionTagsForRule, ruleResolvableSpellIds } from "@mplus/abilities";
 import type {
   SurvivalActivationKind,
   SurvivalActionTimelineV1,
@@ -118,15 +118,7 @@ export function isSurvivalCatalogRule(rule: AbilityRule): boolean {
 }
 
 export function spellIdsForRule(rule: AbilityRule): number[] {
-  return [
-    ...new Set([
-      ...rule.spellIds,
-      ...(rule.aliases ?? []),
-      ...(rule.activationSpellIds ?? []),
-      ...(rule.activationBuffIds ?? []),
-      ...(rule.triggeredEffectIds ?? []),
-    ]),
-  ];
+  return ruleResolvableSpellIds(rule);
 }
 
 export function evaluateSurvivalCapabilities(

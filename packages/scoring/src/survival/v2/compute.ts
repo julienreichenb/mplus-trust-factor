@@ -22,6 +22,7 @@ import {
 } from "./model-config.js";
 import { isSurvivalV2RelativeDamageWeightActive } from "./relative-damage.js";
 import { scoreSurvivalV2Run } from "./run-score.js";
+import { buildDimensionConfidenceBreakdown } from "../../confidence/dimension-confidence.js";
 import type {
   SurvivalFactDocumentV2,
   SurvivalV2AvailabilityState,
@@ -206,13 +207,20 @@ export function computeSurvivalV2(
           return s + cov;
         }, 0) / scoredRuns.length;
 
-  const relativeUnreliableCount = scoredRuns.filter(
-    (r) =>
-      r.relativeDamageShadow.reliability === "UNRELIABLE" ||
-      r.relativeDamageShadow.reliability === "INSUFFICIENT",
-  ).length;
+  const catalogCoverageUnmeasured = runScores.some((r) =>
+    r.limitations.includes("digest_catalog_coverage_unmeasured"),
+  );
 
-  const confidence = computeSurvivalV2Confidence({
+  const relativeUnreliableCount =
+    mode === "active"
+      ? scoredRuns.filter(
+          (r) =>
+            r.relativeDamageShadow.reliability === "UNRELIABLE" ||
+            r.relativeDamageShadow.reliability === "INSUFFICIENT",
+        ).length
+      : 0;
+
+  const confidenceResult = computeSurvivalV2Confidence({
     dungeonCount: withScores.length,
     expectedDungeonCount: manifest.activeDungeonSlugs.length,
     scoredRunCount: scoredRuns.length,
@@ -220,10 +228,20 @@ export function computeSurvivalV2(
     healthModes,
     catalogCoverageMean,
     relativeUnreliableCount,
+    catalogCoverageUnmeasured,
+  });
+  const confidence = confidenceResult.confidence;
+  const confidenceBreakdown = buildDimensionConfidenceBreakdown({
+    value: confidence,
+    causes: confidenceResult.causes,
+    components: confidenceResult.components,
   });
 
   const allLimitations = [
-    ...new Set(runScores.flatMap((r) => r.limitations)),
+    ...new Set([
+      ...runScores.flatMap((r) => r.limitations),
+      ...confidenceResult.causes,
+    ]),
   ].sort();
 
   const state = resolveAvailability({
@@ -286,6 +304,7 @@ export function computeSurvivalV2(
     inputFingerprint,
     score,
     confidence,
+    confidenceBreakdown,
     state,
     dungeons,
     components,
@@ -309,6 +328,7 @@ export function computeSurvivalV2(
       notes,
       limitations: allLimitations,
       contributors,
+      confidenceBreakdown,
       perDungeon: dungeons.map((d) => ({
         dungeonSlug: d.dungeonSlug,
         medianBehavioralScore: d.medianBehavioralScore,
@@ -316,7 +336,10 @@ export function computeSurvivalV2(
         slotIndexes: d.runs.map((r) => r.slotIndex).sort((a, b) => a - b),
       })),
     },
-    metrics,
+    metrics: {
+      ...metrics,
+      confidenceBreakdown,
+    },
   };
 }
 

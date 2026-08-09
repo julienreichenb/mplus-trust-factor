@@ -1281,6 +1281,7 @@ export async function runRefreshPipeline(
   const enrichWarcraftLogs = async (
     hydrationHints: NonNullable<ProviderFetchContext["wclHydrationHints"]>,
     activeDungeonSlugs: readonly string[],
+    activeDungeonEncounters: ReadonlyArray<{ dungeonSlug: string; encounterId: number }> = [],
   ): Promise<WclEnrichment> => {
     if (disabledProviders.has("warcraftlogs") || isFixtureDisabledIdentity(identity)) {
       stagesSkipped.push("refresh-warcraftlogs-summary");
@@ -1330,6 +1331,9 @@ export async function runRefreshPipeline(
       wclHydrationHints: hydrationHints,
       ...(activeDungeonSlugs.length > 0
         ? { wclActiveDungeonSlugs: [...activeDungeonSlugs] }
+        : {}),
+      ...(activeDungeonEncounters.length > 0
+        ? { wclActiveDungeonEncounters: [...activeDungeonEncounters] }
         : {}),
     };
 
@@ -1591,9 +1595,26 @@ export async function runRefreshPipeline(
   const wclActiveDungeonSlugs = preWclSeasonDungeonRows.map((row) =>
     canonicalDungeonKey(row.dungeon.slug),
   );
+  const wclActiveDungeonEncounters = preWclSeasonDungeonRows
+    .map((row) => {
+      const dungeonSlug = canonicalDungeonKey(row.dungeon.slug);
+      const encounterId =
+        row.dungeon.wclZoneOrEncounterId != null
+          ? Number(row.dungeon.wclZoneOrEncounterId)
+          : null;
+      if (encounterId == null || !Number.isFinite(encounterId) || encounterId <= 0) {
+        return null;
+      }
+      return { dungeonSlug, encounterId };
+    })
+    .filter((row): row is { dungeonSlug: string; encounterId: number } => row != null);
 
   await assertNotCancelled("pre_warcraftlogs");
-  const wclEnrichment = await enrichWarcraftLogs(hydrationHints, wclActiveDungeonSlugs);
+  const wclEnrichment = await enrichWarcraftLogs(
+    hydrationHints,
+    wclActiveDungeonSlugs,
+    wclActiveDungeonEncounters,
+  );
   wclVisibility = wclEnrichment.visibility;
   wclDataState = wclEnrichment.dataState;
   discoveredRuns = wclEnrichment.runs;

@@ -35,6 +35,9 @@ function mockContainer(requestPermissive: ReturnType<typeof vi.fn>, stubs: unkno
           isCurrent: true,
         })),
       },
+      seasonDungeon: {
+        findMany: vi.fn(async () => []),
+      },
     },
     repositories: {
       score: {
@@ -44,7 +47,10 @@ function mockContainer(requestPermissive: ReturnType<typeof vi.fn>, stubs: unkno
     providers: {
       warcraftlogs: {
         discoverCharacter: vi.fn(async () => ({ candidates: stubs })),
-        getGraphQlClient: () => ({ requestPermissive }),
+        getGraphQlClient: () => ({
+          request: requestPermissive,
+          requestPermissive,
+        }),
       },
     },
   };
@@ -113,7 +119,13 @@ describe("discoverShadowCanaryCandidates providerCalls", () => {
     expect(result.diagnostics.iterativeHydration?.terminalHydrationReason).toBe(
       "rate_admission_defer",
     );
-    expect(result.diagnostics.providerCalls).toBe(1 + 5 + INITIAL_HYDRATION_BUDGET);
+    // zone catalog + discoverCharacter (0 GraphQL via mock) + hydration attempts
+    expect(result.diagnostics.providerCalls).toBe(1 + INITIAL_HYDRATION_BUDGET);
+    expect(result.diagnostics.providerCallBreakdown).toEqual({
+      zoneCatalog: 1,
+      characterDiscovery: 0,
+      reportHydration: INITIAL_HYDRATION_BUDGET,
+    });
     expect(getReportFetchInvocations()).toBeLessThan(stubCount);
   });
 
@@ -144,6 +156,58 @@ describe("discoverShadowCanaryCandidates providerCalls", () => {
       "reports_exhausted",
     );
     expect(result.diagnostics.iterativeHydration?.incrementalBatchCount).toBeGreaterThan(0);
-    expect(result.diagnostics.providerCalls).toBe(1 + 5 + stubCount);
+    expect(result.diagnostics.providerCalls).toBe(1 + stubCount);
+  });
+
+  it("skips mass hydration when encounterRankings already provide full timed coverage", async () => {
+    const ACTIVE = [
+      "skyreach",
+      "windrunner-spire",
+    ];
+    const timedCandidates = ACTIVE.flatMap((slug, di) =>
+      [1, 2].map((fi) => ({
+        reportCode: `ER${di}${fi}`,
+        fightId: fi,
+        dungeonSlug: slug,
+        keyLevel: 10 + fi,
+        timed: true,
+        incompleteness: { fightUnknown: false },
+        source: "encounterRankings",
+      })),
+    );
+    const requestPermissive = vi.fn(async () => {
+      throw new Error("unexpected_hydration_call");
+    });
+    const container = mockContainer(requestPermissive, timedCandidates);
+    container.prisma.seasonDungeon.findMany = vi.fn(async () =>
+      ACTIVE.map((slug, i) => ({
+        dungeon: {
+          slug,
+          wclZoneOrEncounterId: BigInt(12_532 + i),
+        },
+      })),
+    );
+
+    const result = await discoverShadowCanaryCandidates({
+      container: container as never,
+      region: "EU",
+      realmSlug: "archimonde",
+      characterName: "Wallidrixe",
+      characterId: CHARACTER_ID,
+      activeDungeonSlugs: ACTIVE,
+      activeDungeonEncounters: ACTIVE.map((slug, i) => ({
+        dungeonSlug: slug,
+        encounterId: 12_532 + i,
+      })),
+      dungeonPoolSource: "season_dungeon_bindings",
+    });
+
+    expect(result.diagnostics.discoveryStrategy).toBe("encounter_rankings");
+    expect(result.diagnostics.iterativeHydration).toBeNull();
+    expect(result.diagnostics.reportsListed).toBe(0);
+    expect(result.diagnostics.reportsHydrated).toBe(0);
+    expect(result.diagnostics.unhydratedReportCount).toBe(0);
+    expect(requestPermissive).not.toHaveBeenCalled();
+    expect(result.candidates.length).toBeGreaterThanOrEqual(4);
   });
 });

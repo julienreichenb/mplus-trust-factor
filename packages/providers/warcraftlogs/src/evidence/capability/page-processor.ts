@@ -5,6 +5,7 @@
 import {
   dimensionTagsForRule,
   getAllRegisteredRules,
+  ruleResolvableSpellIds,
   type AbilityDimensionTag,
   type AbilityRule,
 } from "@mplus/abilities";
@@ -14,20 +15,55 @@ import type {
   EvidenceCapability,
 } from "@mplus/contracts";
 import { normalizeWclEventFields } from "../../normalize/wcl-event-normalizer.js";
-import { collectRuleEvidenceSpellIds } from "./relevant-ability-ids.js";
 
 type SourceKind = "PLAYER" | "OWNED_PET_OR_GUARDIAN" | "OTHER";
 
 function buildSpellRuleIndex(rules: AbilityRule[]): Map<number, AbilityRule[]> {
   const map = new Map<number, AbilityRule[]>();
   for (const rule of rules) {
-    for (const id of collectRuleEvidenceSpellIds(rule)) {
+    for (const id of ruleResolvableSpellIds(rule)) {
       const list = map.get(id) ?? [];
       list.push(rule);
       map.set(id, list);
     }
   }
   return map;
+}
+
+function asFinitePositive(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : null;
+}
+
+function asFiniteNonNeg(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value != null && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+/** Compact HP/resource fields requested via WCL includeResources. */
+export function extractCompactHitPoints(raw: Record<string, unknown>): {
+  hitPoints: number | null;
+  maxHitPoints: number | null;
+} {
+  const target = asRecord(raw.target);
+  const targetResources = asRecord(raw.targetResources);
+  const maxHitPoints =
+    asFinitePositive(raw.maxHitPoints) ??
+    asFinitePositive(targetResources?.maxHitPoints) ??
+    asFinitePositive(target?.maxHitPoints) ??
+    asFinitePositive(raw.maxHealth) ??
+    null;
+  const hitPoints =
+    asFiniteNonNeg(raw.hitPoints) ??
+    asFiniteNonNeg(targetResources?.hitPoints) ??
+    asFiniteNonNeg(target?.hitPoints) ??
+    asFiniteNonNeg(raw.health) ??
+    null;
+  return { hitPoints, maxHitPoints };
 }
 
 function sourceKindFor(
@@ -133,6 +169,10 @@ export function processCapabilityEvidencePage(input: {
       typeof (raw as { amount?: unknown }).amount === "number"
         ? ((raw as { amount: number }).amount)
         : null;
+    const hp =
+      input.dataset === "DamageTaken" || input.dataset === "Deaths"
+        ? extractCompactHitPoints(raw as Record<string, unknown>)
+        : { hitPoints: null, maxHitPoints: null };
 
     if (input.dataset === "DamageTaken") {
       const involvesFriendlyVictim =
@@ -156,6 +196,8 @@ export function processCapabilityEvidencePage(input: {
           targetPlayerActorId ??
           (sourceActorId != null && playerIds.has(sourceActorId) ? sourceActorId : null),
         amount,
+        hitPoints: hp.hitPoints,
+        maxHitPoints: hp.maxHitPoints,
         capabilities: ["SURVIVAL_DAMAGE_TAKEN"],
       });
       continue;
@@ -181,8 +223,38 @@ export function processCapabilityEvidencePage(input: {
         targetPlayerActorId:
           targetPlayerActorId ??
           (sourceActorId != null && playerIds.has(sourceActorId) ? sourceActorId : null),
+        hitPoints: hp.hitPoints,
+        maxHitPoints: hp.maxHitPoints,
         capabilities: ["SURVIVAL_DEATHS"],
       });
+      continue;
+    }
+
+    if (input.dataset === "HostileCasts") {
+      if (!wanted.has("UTILITY_HOSTILE_CASTS")) continue;
+      // Enemy cast stream — retain without catalog ability filter.
+      if (sourceKind !== "OTHER") continue;
+      input.state.eventSeq += 1;
+      input.state.eventsAfterFilter += 1;
+      input.state.compactEvents.push({
+        eventId: `HostileCasts:${input.state.eventSeq}:${timestampMs}`,
+        timestampMs,
+        dataset: "HostileCasts",
+        eventType: fields.eventType.value,
+        spellId: fields.abilityId.value,
+        rawName: fields.rawAbilityName.value,
+        sourceActorId,
+        sourceOwnerPlayerActorId,
+        targetActorId,
+        targetPlayerActorId,
+        capabilities: ["UTILITY_HOSTILE_CASTS"],
+      });
+      continue;
+    }
+
+    // CombatantInfo has no cast spellId — loadout IDs are projected on the package
+    // via extractParticipantLoadoutsFromCombatantEvents (not compact event timelines).
+    if (input.dataset === "CombatantInfo") {
       continue;
     }
 
@@ -236,10 +308,9 @@ export function processCapabilityEvidencePage(input: {
     if (!involvesFriendly) continue;
 
     const ruleCandidates = spellIndex.get(spellId) ?? [];
-    const rule = ruleCandidates[0] ?? null;
 
     if (input.mode === "PRODUCTION_CAPABILITY_ACQUISITION") {
-      if (!input.relevantAbilityIds.has(spellId) || !rule) {
+      if (!input.relevantAbilityIds.has(spellId) || ruleCandidates.length === 0) {
         // Bounded unknown summary only — never retain full unknown timelines.
         const existing = input.state.unknownSummaries.get(spellId);
         const rawName = fields.rawAbilityName.value;
@@ -266,7 +337,7 @@ export function processCapabilityEvidencePage(input: {
         }
         continue;
       }
-    } else if (!rule) {
+    } else if (ruleCandidates.length === 0) {
       // Probe discovery: still bound unknowns; do not keep full timelines.
       const existing = input.state.unknownSummaries.get(spellId);
       if (existing) {
@@ -287,7 +358,10 @@ export function processCapabilityEvidencePage(input: {
       continue;
     }
 
-    const caps = capabilitiesForRule(rule!, wanted);
+    // Union capabilities across all matching rules — do not silently pick [0] on collisions.
+    const caps = [
+      ...new Set(ruleCandidates.flatMap((rule) => capabilitiesForRule(rule, wanted))),
+    ];
     if (caps.length === 0) continue;
 
     input.state.eventSeq += 1;

@@ -234,6 +234,15 @@ export {
   type ScoringConfidenceV1Inputs,
 } from "./confidence/scoring-confidence-v1.js";
 export {
+  DIMENSION_CONFIDENCE_BREAKDOWN_VERSION,
+  PARTIAL_COMPOSITE_CONFIDENCE_FORMULA_VERSION,
+  buildDimensionConfidenceBreakdown,
+  confidenceBandFromUnit,
+  uniqueCauses,
+  type DimensionConfidenceBand,
+  type DimensionConfidenceBreakdown,
+} from "./confidence/dimension-confidence.js";
+export {
   computeModelCoverage,
   filterPublicSkillDimensions,
   MODEL_COVERAGE_PROVISIONAL_THRESHOLD,
@@ -531,6 +540,7 @@ export {
   computeOffensiveCooldownDiscipline,
   computePerformancePhase2,
   computePerformancePhase2InputFingerprint,
+  computePerformancePhase2Confidence,
   profileAggregateFactFromPersisted,
   cooldownRunEvidenceFromDigest,
   combinePerformancePhase2Scores,

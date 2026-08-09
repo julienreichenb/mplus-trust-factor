@@ -275,14 +275,14 @@ export function rankingsToCandidates(rankings: WclRankingObservation[]): WclRunC
           ? new Date(r.reportStartTimeMs + r.startTimeMs).toISOString()
           : null,
       durationMs: r.durationMs,
-      timed: null,
+      timed: r.timed,
       selectionTags: [],
       source: "zoneRankings" as const,
       matchConfidence: null,
       incompleteness: emptyIncompleteness({
         dungeonUnknown: dungeonSlug == null,
         seasonUnknown: true,
-        timedUnknown: true,
+        timedUnknown: r.timed == null,
         keyLevelUnknown: r.keyLevel == null,
         rosterIncomplete: true,
         fightUnknown: false,

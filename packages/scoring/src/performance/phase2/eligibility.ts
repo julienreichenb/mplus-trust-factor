@@ -2,12 +2,18 @@
  * Offensive cooldown eligibility for Performance Phase 2.
  * Authoritative gate: catalogue rules authored via performanceCooldownRule
  * (OFFENSIVE_* + PERFORMANCE_OFFENSIVE_COOLDOWN), not category alone.
+ *
+ * Conditional availability semantics:
+ * - observed use proves availability for that run;
+ * - CombatantInfo loadout spell IDs prove selected talent/choice nodes;
+ * - unresolved availability is skipped (never a fabricated missed-use penalty).
  */
 
 import {
   dimensionTagsForRule,
   getCatalogByVersion,
   RETAIL_ABILITY_CATALOG,
+  ruleResolvableSpellIds,
   type AbilityCatalog,
   type AbilityRule,
 } from "@mplus/abilities";
@@ -17,20 +23,40 @@ export type CooldownEligibilitySkipReason =
   | "class_mismatch"
   | "spec_mismatch"
   | "talent_availability_unknown"
+  | "conditional_not_selected"
   | "malformed_cooldown"
   | "catalogue_incompatible"
   | "unsupported_activation_semantics"
   | "ambiguous_charge_semantics";
 
+export type CooldownAvailabilityReason =
+  | "baseline"
+  | "observed_use"
+  | "loadout_selected"
+  | "pet_present"
+  | "skipped";
+
 export interface EligibleOffensiveCooldown {
   rule: AbilityRule;
   effectiveCooldownMs: number;
   charges: number | null;
+  availabilityReason: Exclude<CooldownAvailabilityReason, "skipped">;
 }
 
 export interface SkippedOffensiveCooldown {
   canonicalKey: string;
   reason: CooldownEligibilitySkipReason;
+}
+
+export interface OffensiveCooldownAvailabilityEvidence {
+  /** CombatantInfo talent spell IDs when PRESENT; null when absent/unparseable. */
+  loadoutTalentSpellIds: ReadonlySet<number> | null;
+  loadoutEvidenceState: "PRESENT" | "ABSENT" | "UNPARSEABLE";
+  /** Canonical keys observed in this run's offensive activations. */
+  observedCanonicalKeys: ReadonlySet<string>;
+  /** Spell IDs observed in this run's offensive activations. */
+  observedSpellIds: ReadonlySet<number>;
+  ownedPetActorIds: readonly number[];
 }
 
 function isPerformanceCooldownRule(rule: AbilityRule): boolean {
@@ -67,14 +93,88 @@ function resolveCatalog(catalogVersion: string | null | undefined): {
   return { catalog: versioned, incompatible: false };
 }
 
+function ruleMatchesLoadout(
+  rule: AbilityRule,
+  loadoutSpellIds: ReadonlySet<number>,
+): boolean {
+  for (const id of ruleResolvableSpellIds(rule)) {
+    if (loadoutSpellIds.has(id)) return true;
+  }
+  if (rule.talentRequirements?.length) {
+    return rule.talentRequirements.every((req) => loadoutSpellIds.has(req));
+  }
+  return false;
+}
+
+function resolveConditionalAvailability(
+  rule: AbilityRule,
+  evidence: OffensiveCooldownAvailabilityEvidence | undefined,
+):
+  | { status: "eligible"; reason: Exclude<CooldownAvailabilityReason, "skipped"> }
+  | { status: "skip"; reason: CooldownEligibilitySkipReason } {
+  const observed =
+    evidence != null &&
+    (evidence.observedCanonicalKeys.has(rule.canonicalKey) ||
+      ruleResolvableSpellIds(rule).some((id) => evidence.observedSpellIds.has(id)));
+
+  if (observed) {
+    return { status: "eligible", reason: "observed_use" };
+  }
+
+  if (rule.availability === "BASELINE") {
+    return { status: "eligible", reason: "baseline" };
+  }
+
+  if (rule.availability === "PET_DEPENDENT") {
+    if (evidence != null && evidence.ownedPetActorIds.length > 0) {
+      return { status: "eligible", reason: "pet_present" };
+    }
+    return { status: "skip", reason: "talent_availability_unknown" };
+  }
+
+  if (
+    rule.availability === "TALENT" ||
+    rule.availability === "CHOICE_NODE" ||
+    rule.availability === "FORM_DEPENDENT" ||
+    rule.availability === "SHARED" ||
+    rule.classSlug == null
+  ) {
+    if (evidence == null) {
+      return { status: "skip", reason: "talent_availability_unknown" };
+    }
+    if (
+      evidence.loadoutEvidenceState === "PRESENT" &&
+      evidence.loadoutTalentSpellIds != null &&
+      evidence.loadoutTalentSpellIds.size > 0
+    ) {
+      if (ruleMatchesLoadout(rule, evidence.loadoutTalentSpellIds)) {
+        return { status: "eligible", reason: "loadout_selected" };
+      }
+      // Spell-keyed loadout present and ability not selected — do not score as missed use.
+      if (
+        rule.availability === "TALENT" ||
+        rule.availability === "CHOICE_NODE"
+      ) {
+        return { status: "skip", reason: "conditional_not_selected" };
+      }
+    }
+    // PRESENT with only tree-node IDs (no spell IDs) cannot prove selection for
+    // spell-keyed AbilityRules — remain unresolved rather than inventing absence.
+    return { status: "skip", reason: "talent_availability_unknown" };
+  }
+
+  return { status: "eligible", reason: "baseline" };
+}
+
 /**
  * List eligible offensive cooldowns for a participant class/spec.
- * Skips rather than penalizes unsupported / ambiguous entries.
+ * Skips rather than penalizes unsupported / ambiguous / unresolved entries.
  */
 export function resolveEligibleOffensiveCooldowns(input: {
   classSlug: string | null;
   specSlug: string | null;
   catalogVersion?: string | null;
+  availabilityEvidence?: OffensiveCooldownAvailabilityEvidence;
 }): {
   eligible: EligibleOffensiveCooldown[];
   skipped: SkippedOffensiveCooldown[];
@@ -125,19 +225,14 @@ export function resolveEligibleOffensiveCooldowns(input: {
       continue;
     }
 
-    // Race/shared or talent-dependent abilities require availability evidence digests
-    // do not expose. Skip rather than invent race/talent and zero-penalize.
-    if (
-      rule.availability === "TALENT" ||
-      rule.availability === "CHOICE_NODE" ||
-      rule.availability === "PET_DEPENDENT" ||
-      rule.availability === "FORM_DEPENDENT" ||
-      rule.availability === "SHARED" ||
-      rule.classSlug == null
-    ) {
+    const conditional = resolveConditionalAvailability(
+      rule,
+      input.availabilityEvidence,
+    );
+    if (conditional.status === "skip") {
       skipped.push({
         canonicalKey: rule.canonicalKey,
-        reason: "talent_availability_unknown",
+        reason: conditional.reason,
       });
       continue;
     }
@@ -190,6 +285,7 @@ export function resolveEligibleOffensiveCooldowns(input: {
       rule,
       effectiveCooldownMs: cooldownSeconds * 1000,
       charges,
+      availabilityReason: conditional.reason,
     });
   }
 

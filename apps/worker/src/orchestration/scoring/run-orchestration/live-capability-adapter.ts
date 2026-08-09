@@ -387,6 +387,7 @@ export function createLiveCapabilityAcquireHook(
       package: pkg,
       masterData: meta.masterData,
       regionCode: deps.region,
+      combatantInfoEvents: acquired.combatantInfoEvents ?? null,
       acquisitionVersion: SCORING_ACQUISITION_VERSION,
     });
 

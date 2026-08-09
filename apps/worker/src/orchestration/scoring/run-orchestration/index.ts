@@ -33,6 +33,7 @@ export {
   rankingParseFactFromPersistedEvidence,
   absentRankingParseFact,
   rankingParseCompatibilityKey,
+  rankingEvidenceHasUsableParse,
 } from "./ranking-hydrate.js";
 export {
   createLiveCapabilityAcquireHook,

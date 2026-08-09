@@ -10,6 +10,7 @@ import type {
 import {
   computePartialComposite,
   defaultSkillDimensionWeights,
+  type ExperiencePhase1Result,
 } from "@mplus/scoring";
 import type { ScoreCharacterResult } from "./score-character.js";
 import { SCORING_VERSION } from "./score-character.js";
@@ -23,6 +24,70 @@ function dimensionState(
   if (score == null || !Number.isFinite(score)) return "UNAVAILABLE";
   if ((confidence ?? 0) < 0.35) return "PARTIAL";
   return "AVAILABLE";
+}
+
+function clamp01(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  if (value < 0) return 0;
+  if (value > 1) return 1;
+  return value;
+}
+
+/** Smallest public contributor payload for confidence limitations / machine keys. */
+export function contributorsFromLimitations(
+  limitations: readonly string[] | null | undefined,
+): DimensionScoreDTO["contributors"] {
+  const keys = (limitations ?? []).filter(
+    (value): value is string => typeof value === "string" && value.trim().length > 0,
+  );
+  return {
+    limitations: keys,
+    // UI parseContributorSignals reads negative[].label / available[].metricKey.
+    negative: keys.map((metricKey) => ({ metricKey, label: metricKey })),
+    missing: keys.map((metricKey) => ({ metricKey, available: false })),
+  };
+}
+
+function resolveExperiencePresentation(experience: ExperiencePhase1Result | null | undefined): {
+  score: number | null;
+  available: boolean;
+  confidence: number | null;
+  reason: string | null;
+  contributors: DimensionScoreDTO["contributors"];
+} {
+  if (!experience) {
+    return {
+      score: null,
+      available: false,
+      confidence: null,
+      reason: "EXPERIENCE_UNAVAILABLE",
+      contributors: contributorsFromLimitations(["EXPERIENCE_UNAVAILABLE"]),
+    };
+  }
+  if (
+    experience.available === true &&
+    experience.score != null &&
+    Number.isFinite(experience.score)
+  ) {
+    return {
+      score: experience.score,
+      available: true,
+      confidence: experience.confidence ?? 1,
+      reason: null,
+      contributors: contributorsFromLimitations(experience.confidenceCauses ?? []),
+    };
+  }
+  const reason = experience.reason ?? "EXPERIENCE_UNAVAILABLE";
+  return {
+    score: null,
+    available: false,
+    confidence: null,
+    reason,
+    contributors: contributorsFromLimitations([
+      ...(experience.confidenceCauses ?? []),
+      reason,
+    ]),
+  };
 }
 
 export function scoreCharacterResultToSnapshotDto(input: {
@@ -48,6 +113,7 @@ export function scoreCharacterResultToSnapshotDto(input: {
     composite: number | null;
     confidence: number | null;
     tier: Grade | null;
+    experience?: number | null;
   };
 }): ScoreSnapshotDTO {
   const { orchestration } = input.result;
@@ -57,6 +123,22 @@ export function scoreCharacterResultToSnapshotDto(input: {
   const blocked = new Map(
     orchestration.dimensions.blocked.map((b) => [b.dimension, b.reason]),
   );
+  const experiencePresentation = resolveExperiencePresentation(input.result.experience);
+
+  // Prefer already-persisted Experience column when present so snapshot cannot
+  // disagree with CharacterScore on the Experience score/availability.
+  const experienceScore =
+    input.persisted?.experience !== undefined
+      ? input.persisted.experience
+      : experiencePresentation.score;
+  const experienceAvailable =
+    experienceScore != null && Number.isFinite(experienceScore);
+  const experienceReason = experienceAvailable
+    ? null
+    : experiencePresentation.reason;
+  const experienceConfidence = experienceAvailable
+    ? experiencePresentation.confidence
+    : null;
 
   const weights = input.dimensionWeights ?? defaultSkillDimensionWeights();
   const partial = computePartialComposite(
@@ -67,6 +149,8 @@ export function scoreCharacterResultToSnapshotDto(input: {
         available: perf?.score != null && Number.isFinite(perf.score),
         baseWeight: weights.performance,
         confidence: perf?.confidence ?? null,
+        confidenceCauses:
+          perf?.confidenceBreakdown?.causes ?? perf?.limitations ?? null,
       },
       {
         key: "survival",
@@ -74,6 +158,10 @@ export function scoreCharacterResultToSnapshotDto(input: {
         available: surv?.score != null && Number.isFinite(surv.score),
         baseWeight: weights.survival,
         confidence: surv?.confidence ?? null,
+        confidenceCauses:
+          surv?.confidenceBreakdown?.causes ??
+          surv?.explanation?.limitations ??
+          null,
       },
       {
         key: "utility",
@@ -81,13 +169,18 @@ export function scoreCharacterResultToSnapshotDto(input: {
         available: util?.score != null && Number.isFinite(util.score),
         baseWeight: weights.utility,
         confidence: util?.confidence ?? null,
+        confidenceCauses:
+          util?.confidenceBreakdown?.causes ??
+          util?.explanation?.confidenceReasons ??
+          null,
       },
       {
         key: "experience",
-        score: null,
-        available: false,
+        score: experienceScore,
+        available: experienceAvailable,
         baseWeight: weights.experience,
-        confidence: null,
+        confidence: experienceConfidence,
+        confidenceCauses: input.result.experience?.confidenceCauses ?? null,
       },
     ],
     {
@@ -105,7 +198,7 @@ export function scoreCharacterResultToSnapshotDto(input: {
     {
       dimension: "PERFORMANCE",
       score: perf?.score ?? null,
-      confidence: perf?.confidence ?? 0,
+      confidence: clamp01(perf?.confidence ?? 0),
       weight: weights.performance,
       state: dimensionState(
         perf?.score,
@@ -113,12 +206,12 @@ export function scoreCharacterResultToSnapshotDto(input: {
         blocked.get("PERFORMANCE") ?? null,
       ),
       reason: blocked.get("PERFORMANCE") ?? null,
-      contributors: [],
+      contributors: contributorsFromLimitations(perf?.limitations),
     },
     {
       dimension: "UTILITY",
       score: util?.score ?? null,
-      confidence: util?.confidence ?? 0,
+      confidence: clamp01(util?.confidence ?? 0),
       weight: weights.utility,
       state: dimensionState(
         util?.score,
@@ -126,12 +219,14 @@ export function scoreCharacterResultToSnapshotDto(input: {
         blocked.get("UTILITY") ?? null,
       ),
       reason: blocked.get("UTILITY") ?? null,
-      contributors: [],
+      contributors: contributorsFromLimitations(
+        util?.explanation?.confidenceReasons,
+      ),
     },
     {
       dimension: "SURVIVAL",
       score: surv?.score ?? null,
-      confidence: surv?.confidence ?? 0,
+      confidence: clamp01(surv?.confidence ?? 0),
       weight: weights.survival,
       state: dimensionState(
         surv?.score,
@@ -139,16 +234,22 @@ export function scoreCharacterResultToSnapshotDto(input: {
         blocked.get("SURVIVAL") ?? null,
       ),
       reason: blocked.get("SURVIVAL") ?? null,
-      contributors: [],
+      contributors: contributorsFromLimitations(surv?.explanation?.limitations),
     },
     {
       dimension: "EXPERIENCE",
-      score: null,
-      confidence: 0,
+      score: experienceScore,
+      confidence: experienceAvailable ? clamp01(experienceConfidence ?? 1) : 0,
       weight: weights.experience,
-      state: "UNAVAILABLE",
-      reason: "EXPERIENCE_NOT_YET_WIRED",
-      contributors: [],
+      state: dimensionState(
+        experienceScore,
+        experienceConfidence,
+        experienceReason,
+      ),
+      reason: experienceReason,
+      contributors: experienceAvailable
+        ? contributorsFromLimitations([])
+        : experiencePresentation.contributors,
     },
   ];
 
@@ -196,6 +297,7 @@ export function scoreCharacterResultToSnapshotDto(input: {
       partialComposite: partial.explanation,
       availabilityCoverage: partial.availabilityCoverage,
       effectiveWeights: partial.effectiveWeights,
+      experience: input.result.experience,
       selectedRuns: orchestration.characterDigests.map((d) => ({
         slotId: d.slotId,
         dungeonSlug: d.dungeonSlug,

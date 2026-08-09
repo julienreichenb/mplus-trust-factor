@@ -28,6 +28,7 @@ import type { RateBudgetConfig } from "@mplus/provider-warcraftlogs";
 import { LiveWarcraftLogsProvider } from "@mplus/provider-warcraftlogs";
 import type { CanaryCharacterResolution, CanaryRepositoryMode } from "./canary-deps.js";
 import type { CanarySeasonResolution } from "./canary-season.js";
+import { ensureCanaryProfileAggregate } from "./canary-performance-aggregate.js";
 import {
   bootstrapCanaryRateLimitSnapshot,
   fetchCanaryRateLimitSnapshotLive,
@@ -695,6 +696,28 @@ export async function runScoringCanaryLive(
     activeDungeonSlugs: [...season.activeDungeonSlugs],
   };
 
+  const zoneId = season.configuredZoneId;
+  if (zoneId == null || !Number.isFinite(zoneId) || zoneId <= 0) {
+    throw Object.assign(new Error("canary_live_requires_wcl_zone_id"), {
+      code: "CANARY_ZONE_ID_REQUIRED",
+    });
+  }
+
+  // Product parity: CharacterPerformanceAggregate via ensure (HIT/REPLAY when warm).
+  const { profileAggregate, ensure: performanceAggregateEnsure } =
+    await ensureCanaryProfileAggregate({
+      prisma: input.prisma,
+      env: input.env,
+      characterId: input.characterId,
+      characterName: input.characterName,
+      region: input.region,
+      realm: input.realm,
+      seasonId: season.seasonId,
+      zoneId,
+      activeDungeonSlugs: season.activeDungeonSlugs,
+      liveProviderPermission,
+    });
+
   let result: RunOrchestrationResult;
   try {
     result = await orchestrateScoringRuns({
@@ -710,6 +733,7 @@ export async function runScoringCanaryLive(
       candidates,
       existingManifest: manifest,
       ports,
+      profileAggregate,
     });
   } finally {
     if (redisForLock) {
@@ -729,7 +753,9 @@ export async function runScoringCanaryLive(
     candidates,
     existingManifest: result.manifest,
     ports,
+    profileAggregate,
   });
+  void performanceAggregateEnsure;
 
   const replayFingerprintEqual =
     fingerprintDimensionResults(result) === fingerprintDimensionResults(replay);

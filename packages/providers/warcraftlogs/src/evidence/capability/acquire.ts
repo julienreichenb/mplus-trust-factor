@@ -5,6 +5,7 @@
 import { CURRENT_CATALOG_VERSION_ID } from "@mplus/abilities";
 import {
   CAPABILITY_ACQUISITION_PLAN_VERSION,
+  CAPABILITY_EVIDENCE_PACKAGE_SCHEMA_VERSION,
   WCL_GRAPHQL_QUERY_VERSION,
   buildCapabilityEvidenceCompatibilityIdentity,
   buildCapabilityPackageCompatibilityKey,
@@ -47,6 +48,7 @@ import {
   createPageProcessorState,
   processCapabilityEvidencePage,
 } from "./page-processor.js";
+import { extractParticipantLoadoutsFromCombatantEvents } from "./combatant-loadout.js";
 import { collectProductionRelevantAbilityIds } from "./relevant-ability-ids.js";
 
 export const CAPABILITY_ACQUISITION_MAX_PAGES = 40;
@@ -358,6 +360,8 @@ export async function acquireCapabilityEvidencePackage(input: {
 }): Promise<{
   package: CapabilityEvidencePackageV1;
   providerCalls: number;
+  /** Raw CombatantInfo events used for roster/loadout (when fetched). */
+  combatantInfoEvents: Array<Record<string, unknown>> | null;
 }> {
   const catalogVersion = input.catalogVersion ?? CURRENT_CATALOG_VERSION_ID;
   const maxPages = input.maxPagesPerDataset ?? CAPABILITY_ACQUISITION_MAX_PAGES;
@@ -468,6 +472,13 @@ export async function acquireCapabilityEvidencePackage(input: {
   const relevantAbilityIdSet = new Set(abilityIds);
 
   const processor = createPageProcessorState();
+  const participantLoadouts: Array<{
+    actorId: number;
+    blizzardSpecId: number | null;
+    talentSpellIds: number[];
+    talentTreeNodeIds: number[];
+    evidenceState: "PRESENT" | "ABSENT" | "UNPARSEABLE";
+  }> = [];
   const verifiedFilters: CapabilityEvidencePackageV1["verifiedFilters"] = [];
   const datasetsByCapability = new Map<EvidenceCapability, WclRunEvidenceDataset[]>();
   const filterIdentityByCapability = new Map<EvidenceCapability, string>();
@@ -542,6 +553,33 @@ export async function acquireCapabilityEvidencePackage(input: {
           ownerByActor,
           relevantAbilityIds: relevantAbilityIdSet,
         });
+        // Loadouts are projected separately — CombatantInfo has no cast spellId.
+        const extracted = extractParticipantLoadoutsFromCombatantEvents(
+          combatantDataset.events,
+          new Set(friendlyPlayerActorIds),
+        );
+        for (const row of extracted) {
+          const prior = participantLoadouts.find((p) => p.actorId === row.actorId);
+          if (prior == null) {
+            participantLoadouts.push(row);
+          } else {
+            const spells = new Set([...prior.talentSpellIds, ...row.talentSpellIds]);
+            const nodes = new Set([
+              ...prior.talentTreeNodeIds,
+              ...row.talentTreeNodeIds,
+            ]);
+            prior.talentSpellIds = [...spells].sort((a, b) => a - b);
+            prior.talentTreeNodeIds = [...nodes].sort((a, b) => a - b);
+            prior.blizzardSpecId = prior.blizzardSpecId ?? row.blizzardSpecId;
+            prior.evidenceState =
+              spells.size > 0 || nodes.size > 0
+                ? "PRESENT"
+                : row.evidenceState === "UNPARSEABLE" ||
+                    prior.evidenceState === "UNPARSEABLE"
+                  ? "UNPARSEABLE"
+                  : "ABSENT";
+          }
+        }
       }
       continue;
     }
@@ -702,7 +740,7 @@ export async function acquireCapabilityEvidencePackage(input: {
   });
 
   const withoutHash: Omit<CapabilityEvidencePackageV1, "contentHash"> = {
-    schemaVersion: "capability-evidence-package-v1",
+    schemaVersion: CAPABILITY_EVIDENCE_PACKAGE_SCHEMA_VERSION,
     mode: input.mode,
     sourceKey: {
       reportCode: input.reportCode,
@@ -721,6 +759,7 @@ export async function acquireCapabilityEvidencePackage(input: {
     capabilitySet: plan.capabilities,
     coverage,
     compactEvents,
+    participantLoadouts: participantLoadouts.sort((a, b) => a.actorId - b.actorId),
     unknownAbilitySummaries: [...processor.unknownSummaries.values()].sort(
       (a, b) => b.count - a.count,
     ),
@@ -750,5 +789,9 @@ export async function acquireCapabilityEvidencePackage(input: {
 
   void buildCapabilityPackageCompatibilityKey;
 
-  return { package: pkg, providerCalls };
+  return {
+    package: pkg,
+    providerCalls,
+    combatantInfoEvents: combatantDataset?.events ?? null,
+  };
 }

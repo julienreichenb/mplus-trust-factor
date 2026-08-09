@@ -92,11 +92,15 @@ export function buildUtilityV2RunFactSet(
     supportActions: input.supportActions ?? [],
     dispelPurgeSuccessCount: input.dispelPurgeSuccessCount ?? 0,
     catalogCoverage: {
-      abilityCatalogCoverage: input.abilityCatalogCoverage ?? 0.8,
-      mechanicCatalogCoverage: input.mechanicCatalogCoverage ?? 0.5,
+      abilityCatalogCoverage: input.abilityCatalogCoverage ?? 0,
+      mechanicCatalogCoverage: input.mechanicCatalogCoverage ?? 0,
     },
     limitations: [
       ...(input.limitations ?? []),
+      ...(input.abilityCatalogCoverage == null ||
+      input.mechanicCatalogCoverage == null
+        ? ["catalog_coverage_unmeasured_fallback"]
+        : []),
       ...combat.notes.map((n) => `active_combat:${n}`),
     ],
   };

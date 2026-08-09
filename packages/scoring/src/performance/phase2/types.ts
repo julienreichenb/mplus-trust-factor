@@ -1,3 +1,4 @@
+import type { DimensionConfidenceBreakdown } from "../../confidence/dimension-confidence.js";
 import type {
   PerformanceContributorDiagnosticV2,
   PerformanceDungeonScoreV2,
@@ -42,6 +43,7 @@ export interface PerformancePhase2ComputeResult {
   state: PerformanceV2AvailabilityState;
   score: number | null;
   confidence: number;
+  confidenceBreakdown: DimensionConfidenceBreakdown;
 
   phase1Score: number | null;
   offensiveCooldownDiscipline: number | null;
@@ -69,6 +71,7 @@ export interface PerformancePhase2ComputeResult {
     cooldown: OffensiveCooldownDisciplineResult;
     phase2State: "ACTIVE";
     phase3State: "DEFERRED_CRITICAL_MASS";
+    confidenceBreakdown: DimensionConfidenceBreakdown;
   };
   metrics: Record<string, unknown>;
   contributors: PerformanceContributorDiagnosticV2[];

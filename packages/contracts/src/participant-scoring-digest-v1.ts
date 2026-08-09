@@ -21,7 +21,7 @@ export const PARTICIPANT_SCORING_DIGEST_SCHEMA_VERSION =
 
 /** Bump when digest field projection / extractor wiring changes. */
 export const PARTICIPANT_DIGEST_EXTRACTOR_COMPAT_VERSION =
-  "participant-digest-extractors-v1" as const;
+  "participant-digest-extractors-v3" as const;
 
 export const participantDigestDimensionCompletenessSchema = z.enum([
   "COMPLETE",
@@ -36,13 +36,41 @@ export const participantOffensiveActivationV1Schema = z.object({
   activationId: z.string().min(1),
   canonicalKey: z.string().min(1),
   primarySpellId: z.number().int(),
+  /** WCL spell/effect IDs that contributed to this activation match. */
+  observedSpellIds: z.array(z.number().int()).min(1),
   timestampMs: z.number(),
   fightOffsetMs: z.number().nonnegative().optional(),
   rawMatchedEventCount: z.number().int().nonnegative(),
   contributingSpellIds: z.array(z.number().int()),
+  targetActorId: z.number().int().nullable().optional(),
 });
 export type ParticipantOffensiveActivationV1 = z.infer<
   typeof participantOffensiveActivationV1Schema
+>;
+
+/** Hostile NPC cast/begincast retained for Utility opportunity / density facts. */
+export const participantHostileCastEventV1Schema = z.object({
+  eventId: z.string().min(1),
+  timestampMs: z.number(),
+  fightOffsetMs: z.number().nonnegative(),
+  spellId: z.number().int().nullable(),
+  eventType: z.string().nullable(),
+  sourceActorId: z.number().int().nullable(),
+  targetActorId: z.number().int().nullable(),
+});
+export type ParticipantHostileCastEventV1 = z.infer<
+  typeof participantHostileCastEventV1Schema
+>;
+
+export const participantLoadoutDigestV1Schema = z.object({
+  evidenceState: z.enum(["PRESENT", "ABSENT", "UNPARSEABLE"]),
+  talentSpellIds: z.array(z.number().int()),
+  talentTreeNodeIds: z.array(z.number().int()).default([]),
+  blizzardSpecId: z.number().int().nullable().optional(),
+  source: z.enum(["COMBATANT_INFO", "ABSENT"]),
+});
+export type ParticipantLoadoutDigestV1 = z.infer<
+  typeof participantLoadoutDigestV1Schema
 >;
 
 export const participantPerformanceDigestV1Schema = z.object({
@@ -61,6 +89,15 @@ export const participantPerformanceDigestV1Schema = z.object({
     })
     .optional(),
   offensiveActivations: z.array(participantOffensiveActivationV1Schema),
+  /**
+   * Run-level active combat clock for offensive cooldown cadence.
+   * Distinct from Survival's damage-taken pressure clock.
+   */
+  activeCombatMs: z.number().int().nonnegative().nullable().optional(),
+  activeCombatMethod: z
+    .enum(["hostile_cast_activity", "fight_duration_fallback"])
+    .nullable()
+    .optional(),
   completeness: participantDigestDimensionCompletenessSchema,
   limitations: z.array(z.string()),
 });
@@ -70,6 +107,7 @@ export type ParticipantPerformanceDigestV1 = z.infer<
 
 export const participantUtilityDigestV1Schema = z.object({
   actions: z.array(utilityCanonicalActionSchema),
+  hostileCastEvents: z.array(participantHostileCastEventV1Schema).default([]),
   capabilityCompleteness: z.array(utilityCapabilityCompletenessSchema),
   completeness: participantDigestDimensionCompletenessSchema,
   limitations: z.array(z.string()),
@@ -130,6 +168,14 @@ export const participantScoringDigestV1Schema = z
     specSlug: z.string().nullable(),
     role: z.enum(["TANK", "HEALER", "DPS", "UNKNOWN"]).nullable(),
     ownedPetActorIds: z.array(z.number().int()),
+    /** CombatantInfo talent/loadout proof for conditional cooldown eligibility. */
+    loadoutEvidence: participantLoadoutDigestV1Schema.default({
+      evidenceState: "ABSENT",
+      talentSpellIds: [],
+      talentTreeNodeIds: [],
+      blizzardSpecId: null,
+      source: "ABSENT",
+    }),
     capabilityPackageArtifactId: z.string().min(1),
     capabilityPackageContentHash: z.string().min(16),
     catalogVersion: z.string().min(1),
@@ -228,6 +274,7 @@ export function buildParticipantScoringDigestHashMaterial(
     specSlug: digest.specSlug,
     role: digest.role,
     ownedPetActorIds: digest.ownedPetActorIds,
+    loadoutEvidence: digest.loadoutEvidence,
     capabilityPackageContentHash: digest.capabilityPackageContentHash,
     catalogVersion: digest.catalogVersion,
     extractorCompatVersion: digest.extractorCompatVersion,
@@ -249,17 +296,22 @@ export function buildParticipantScoringDigestHashMaterial(
           activationId: activation.activationId,
           canonicalKey: activation.canonicalKey,
           primarySpellId: activation.primarySpellId,
+          observedSpellIds: activation.observedSpellIds,
           timestampMs: activation.timestampMs,
           fightOffsetMs: activation.fightOffsetMs,
           rawMatchedEventCount: activation.rawMatchedEventCount,
           contributingSpellIds: activation.contributingSpellIds,
+          targetActorId: activation.targetActorId ?? null,
         }),
       ),
+      activeCombatMs: digest.performance.activeCombatMs ?? null,
+      activeCombatMethod: digest.performance.activeCombatMethod ?? null,
       completeness: digest.performance.completeness,
       limitations: digest.performance.limitations,
     },
     utility: {
       actions: digest.utility.actions,
+      hostileCastEvents: digest.utility.hostileCastEvents,
       capabilityCompleteness: digest.utility.capabilityCompleteness,
       completeness: digest.utility.completeness,
       limitations: digest.utility.limitations,
@@ -293,10 +345,17 @@ export function hashParticipantScoringDigestPayload(value: unknown): string {
 }
 
 export function withParticipantDigestContentHash(
-  digest: Omit<ParticipantScoringDigestV1, "contentHash">,
+  digest: Omit<ParticipantScoringDigestV1, "contentHash"> | Record<string, unknown>,
 ): ParticipantScoringDigestV1 {
+  // Apply schema defaults (e.g. loadoutEvidence) before hashing.
+  const provisional = assertParticipantScoringDigestV1({
+    ...digest,
+    contentHash: "0".repeat(64),
+  });
+  const { contentHash: _ignored, ...withoutHash } = provisional;
+  void _ignored;
   const contentHash = hashCanonicalJson(
-    buildParticipantScoringDigestHashMaterial(digest),
+    buildParticipantScoringDigestHashMaterial(withoutHash),
   );
-  return assertParticipantScoringDigestV1({ ...digest, contentHash });
+  return { ...withoutHash, contentHash };
 }

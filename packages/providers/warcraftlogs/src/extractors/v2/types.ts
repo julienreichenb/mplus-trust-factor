@@ -73,6 +73,14 @@ export interface RankingParseEvidenceV2 {
   /** Raw throughput amount (explanatory only). */
   amount: number | null;
   partition: number | null;
+  /**
+   * Character that owns this ranking row (encounterRankings / zone rankings).
+   * When set, resolveRankingParseForParticipant must not apply the row to other
+   * participants in the same fight.
+   */
+  characterId?: string | null;
+  /** Optional WCL actor id when known; never invent. */
+  participantActorId?: number | null;
 }
 
 /**

@@ -20,6 +20,7 @@ import {
   loadCompatibleFrozenManifest,
 } from "./canary-live.js";
 import type { CanarySeasonResolution } from "./canary-season.js";
+import { ensureCanaryProfileAggregate } from "./canary-performance-aggregate.js";
 import { createProductionRunOrchestrationPorts } from "../run-orchestration/production-ports.js";
 import {
   replayScoringFromPersistedEvidence,
@@ -221,6 +222,26 @@ export async function runScoringCanaryReplay(input: {
   };
   void acquire;
 
+  const zoneId = season.configuredZoneId;
+  if (zoneId == null || !Number.isFinite(zoneId) || zoneId <= 0) {
+    throw Object.assign(new Error("canary_replay_requires_wcl_zone_id"), {
+      code: "CANARY_ZONE_ID_REQUIRED",
+    });
+  }
+  const { profileAggregate } = await ensureCanaryProfileAggregate({
+    prisma: input.prisma,
+    env: input.env,
+    characterId: input.characterId,
+    characterName: input.characterName,
+    region: input.region,
+    realm: input.realm,
+    seasonId: season.seasonId,
+    zoneId,
+    activeDungeonSlugs: season.activeDungeonSlugs,
+    // Replay is provider-free — load persisted aggregate only.
+    liveProviderPermission: "FORBIDDEN",
+  });
+
   const result = await replayScoringFromPersistedEvidence({
     characterId: input.characterId,
     region: input.region,
@@ -246,6 +267,7 @@ export async function runScoringCanaryReplay(input: {
     existingManifest: frozen.document,
     candidates: candidatesFromFrozenManifest(frozen.document),
     ports,
+    profileAggregate,
   });
 
   if (result.accounting.providerCalls !== 0) {

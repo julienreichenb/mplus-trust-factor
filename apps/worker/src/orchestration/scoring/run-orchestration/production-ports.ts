@@ -40,9 +40,15 @@ import {
   type SourceFightIdentity,
 } from "./orchestrator.js";
 import {
+  rankingEvidenceAllowedForParticipant,
   rankingParseCompatibilityKey,
   rankingParseFactFromPersistedEvidence,
+  rankingEvidenceHasUsableParse,
 } from "./ranking-hydrate.js";
+import {
+  createEnsureRankingParseFacts,
+  type FetchCharacterZoneRankingsParseProvider,
+} from "./ensure-ranking-parse-facts.js";
 
 export const SCORING_ACQUISITION_VERSION = CAPABILITY_ACQUISITION_PLAN_VERSION;
 export const SCORING_EXTRACTOR_VERSION = PARTICIPANT_DIGEST_EXTRACTOR_COMPAT_VERSION;
@@ -58,6 +64,10 @@ export interface ProductionRunOrchestrationPortsDeps {
   rankingVersion?: string;
   /** Requested character — used only for safe target Character linkage. */
   targetCharacter?: ScoringFightRosterTargetIdentity | null;
+  /** Active WCL Mythic+ zone for CharacterZoneRankings parse hydrate. */
+  zoneId?: number | null;
+  /** Live zoneRankings (playerscore) fetch — one call cached per ports instance. */
+  rankingParseProvider?: FetchCharacterZoneRankingsParseProvider | null;
   liveAcquireCapabilityPackage?: (input: {
     sourceFight: SourceFightIdentity;
     dungeonSlug: string | null;
@@ -165,6 +175,14 @@ export function createProductionRunOrchestrationPorts(
   const rankings = new RunRankingFactRepository(deps.prisma);
   const lock = deps.withSourceFightLock ?? createInMemorySourceFightLock();
   const targetCharacter = deps.targetCharacter ?? null;
+  const zoneId =
+    typeof deps.zoneId === "number" && Number.isFinite(deps.zoneId) && deps.zoneId > 0
+      ? deps.zoneId
+      : null;
+  const rankingEnsure = createEnsureRankingParseFacts({
+    prisma: deps.prisma,
+    rankingVersion,
+  });
 
   async function loadRaw(sourceFight: SourceFightIdentity) {
     return rawRuns.find({
@@ -190,11 +208,12 @@ export function createProductionRunOrchestrationPorts(
         targetCharacter,
       });
     } catch (err) {
-      // Bare/legacy raw packages lack masterData. Return [] so the live acquire
-      // path can re-embed roster instead of hard-failing the fight.
+      // Bare/legacy raw packages lack masterData, or schema was bumped — return []
+      // so the live acquire path can re-embed roster instead of hard-failing the fight.
       if (
         err instanceof Error &&
-        (err as { code?: string }).code === "RAW_PACKAGE_MISSING_FIGHT_ROSTER"
+        ((err as { code?: string }).code === "RAW_PACKAGE_MISSING_FIGHT_ROSTER" ||
+          (err as { code?: string }).code === "RAW_PACKAGE_SCHEMA_INCOMPATIBLE")
       ) {
         return [];
       }
@@ -258,6 +277,7 @@ export function createProductionRunOrchestrationPorts(
         packageArtifactId: row.id,
         contentHash: pkg.contentHash,
         providerCalls: 0,
+        combatantInfoEvents: parsed.combatantInfoEvents,
       } satisfies CompatiblePackageHit;
     },
 
@@ -315,6 +335,7 @@ export function createProductionRunOrchestrationPorts(
         contentHash: pkg.contentHash,
         providerCalls: acquired.providerCalls,
         created: acquired.created,
+        combatantInfoEvents: acquired.combatantInfoEvents ?? null,
       };
     },
 
@@ -444,6 +465,11 @@ export function createProductionRunOrchestrationPorts(
       sourceFight,
       participantActorId,
     }) {
+      const roster = await resolveParticipantsDefault(sourceFight);
+      const participant = roster.find((p) => p.playerActorId === participantActorId);
+      const participantCharacterId = participant?.characterId ?? null;
+      const participantCharacterName = participant?.characterName ?? null;
+
       const raw = await loadRaw(sourceFight);
       if (raw) {
         // Prefer RunRankingFact rows when character-scoped facts exist.
@@ -453,22 +479,41 @@ export function createProductionRunOrchestrationPorts(
         for (const fact of facts) {
           const evidence = asRankingEvidence(fact.payload);
           if (!evidence) continue;
-          const meta = fact.payload as { participantActorId?: number };
+          const scoped: RankingParseEvidenceV2 = {
+            ...evidence,
+            characterId: evidence.characterId ?? fact.characterId ?? null,
+            participantActorId:
+              evidence.participantActorId ??
+              (typeof (fact.payload as { participantActorId?: number })
+                .participantActorId === "number"
+                ? (fact.payload as { participantActorId: number }).participantActorId
+                : null),
+          };
           if (
-            typeof meta.participantActorId === "number" &&
-            meta.participantActorId !== participantActorId
+            scoped.reportCode !== sourceFight.reportCode ||
+            scoped.fightId !== sourceFight.fightId ||
+            scoped.reportRevision !== sourceFight.reportRevision
           ) {
             continue;
           }
           if (
-            evidence.reportCode !== sourceFight.reportCode ||
-            evidence.fightId !== sourceFight.fightId ||
-            evidence.reportRevision !== sourceFight.reportRevision
+            !rankingEvidenceAllowedForParticipant({
+              evidence: scoped,
+              participantActorId,
+              participantCharacterId,
+              participantCharacterName,
+              targetCharacterId: targetCharacter?.characterId ?? null,
+              targetCharacterName: targetCharacter?.characterName ?? null,
+            })
           ) {
+            continue;
+          }
+          // Unusable ABSENT facts must not shadow READY EvidenceDataset rankings.
+          if (!rankingEvidenceHasUsableParse(scoped)) {
             continue;
           }
           return rankingParseFactFromPersistedEvidence({
-            evidence,
+            evidence: scoped,
             artifactId: fact.id,
             contentHash: null,
           });
@@ -476,6 +521,8 @@ export function createProductionRunOrchestrationPorts(
       }
 
       // Legacy evidence-dataset fallback (read-only) while rankings migrate.
+      // Fight-scoped keys are character rankings for the scored target — never
+      // copy onto other participants in the same fight.
       const compatibilityKey = rankingParseCompatibilityKey(sourceFight);
       const dataset =
         await deps.evidence.findDatasetByCompatibilityKey(compatibilityKey);
@@ -492,6 +539,18 @@ export function createProductionRunOrchestrationPorts(
       ) {
         return null;
       }
+      if (
+        !rankingEvidenceAllowedForParticipant({
+          evidence,
+          participantActorId,
+          participantCharacterId,
+          participantCharacterName,
+          targetCharacterId: targetCharacter?.characterId ?? null,
+          targetCharacterName: targetCharacter?.characterName ?? null,
+        })
+      ) {
+        return null;
+      }
 
       if (raw) {
         // Opportunistically cache into RunRankingFact when a characterId is known later.
@@ -503,6 +562,41 @@ export function createProductionRunOrchestrationPorts(
         artifactId: dataset.artifactId,
         contentHash: dataset.payloadFingerprint ?? null,
       });
+    },
+
+    async hydrateRankingParseFacts({
+      rawRunId,
+      sourceFight,
+      dungeonSlug,
+      keyLevel,
+    }) {
+      if (!targetCharacter?.characterId || zoneId == null) {
+        return { providerCalls: 0 };
+      }
+      if (!deps.rankingParseProvider) {
+        return { providerCalls: 0 };
+      }
+      const region = (targetCharacter.regionCode ?? "EU") as
+        | "EU"
+        | "US"
+        | "KR"
+        | "TW";
+      const result = await rankingEnsure.ensure({
+        rawRunId,
+        characterId: targetCharacter.characterId,
+        sourceFight,
+        dungeonSlug,
+        keyLevel,
+        zoneId,
+        character: {
+          name: targetCharacter.characterName,
+          realmSlug: targetCharacter.realmSlug,
+          region,
+        },
+        liveProviderPermission: "ALLOWED",
+        provider: deps.rankingParseProvider,
+      });
+      return { providerCalls: result.providerCalls };
     },
   };
 }

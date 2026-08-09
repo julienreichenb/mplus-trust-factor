@@ -307,12 +307,59 @@ export function ruleResolvableSpellIds(rule: AbilityRule): number[] {
         ...(rule.triggeredEffectIds ?? []),
       ].filter((id) => id > 0),
     ),
-  ];
+  ].sort((a, b) => a - b);
 }
 
-export function resolveAbilityRule(options: ResolveAbilityRuleOptions): AbilityRule[] {
+export type AbilitySpellIdResolution =
+  | {
+      status: "matched";
+      rule: AbilityRule;
+      matchedSpellId: number;
+    }
+  | {
+      status: "ambiguous";
+      rules: AbilityRule[];
+      matchedSpellId: number;
+    }
+  | {
+      status: "unmatched";
+      matchedSpellId: number;
+    };
+
+/**
+ * Resolve one WCL spell/effect ID to a canonical AbilityRule.
+ * Collisions are explicit: never silently pick the first of multiple matches.
+ */
+export function resolveAbilityRuleBySpellId(options: {
+  spellId: number;
+  classSlug?: string | null;
+  specSlug?: string | null;
+  rules?: readonly AbilityRule[];
+}): AbilitySpellIdResolution {
+  const { spellId } = options;
+  const rules = resolveAbilityRule({
+    spellId,
+    classSlug: options.classSlug,
+    specSlug: options.specSlug,
+    rules: options.rules,
+  });
+  if (rules.length === 0) return { status: "unmatched", matchedSpellId: spellId };
+  if (rules.length === 1) {
+    return { status: "matched", rule: rules[0]!, matchedSpellId: spellId };
+  }
+  return {
+    status: "ambiguous",
+    rules: [...rules].sort((a, b) => a.canonicalKey.localeCompare(b.canonicalKey)),
+    matchedSpellId: spellId,
+  };
+}
+
+export function resolveAbilityRule(options: ResolveAbilityRuleOptions & {
+  rules?: readonly AbilityRule[];
+}): AbilityRule[] {
   const { spellId, classSlug, specSlug } = options;
-  return RETAIL_ABILITY_CATALOG.rules.filter((rule) => {
+  const pool = options.rules ?? RETAIL_ABILITY_CATALOG.rules;
+  return pool.filter((rule) => {
     if (!ruleResolvableSpellIds(rule).includes(spellId)) return false;
     if (classSlug && rule.classSlug != null && rule.classSlug !== classSlug) return false;
     if (specSlug && rule.classSlug != null && rule.specSlugs.length > 0 && !rule.specSlugs.includes(specSlug)) {

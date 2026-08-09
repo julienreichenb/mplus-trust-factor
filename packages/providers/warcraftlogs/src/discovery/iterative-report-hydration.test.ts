@@ -302,6 +302,89 @@ describe("iterative hydration past initial 24", () => {
       expect(n).toBe(1);
     }
   });
+
+  it("reaches timed second-slot past initial sample without starving another dungeon", async () => {
+    // 14/16 regression: depleted fillers in the initial budget must not stop
+    // iterative hydration before each dungeon gets a second timed identity.
+    function knownDungeonStub(
+      reportCode: string,
+      startTimeMs: number,
+      dungeonSlug: string,
+    ): WclRunCandidate {
+      const base = stub(reportCode, startTimeMs);
+      return {
+        ...base,
+        dungeonSlug,
+        incompleteness: { ...base.incompleteness, dungeonUnknown: false },
+      };
+    }
+
+    const stubs = [
+      knownDungeonStub("SK_T1", 1_000, "skyreach"),
+      knownDungeonStub("SK_DEP", 900, "skyreach"),
+      knownDungeonStub("WR_T1", 800, "windrunner-spire"),
+      knownDungeonStub("WR_DEP", 700, "windrunner-spire"),
+      // Beyond initial budget of 4 — must still be reached.
+      knownDungeonStub("SK_T2", 600, "skyreach"),
+      knownDungeonStub("WR_T2", 500, "windrunner-spire"),
+    ];
+
+    const byCode: Record<string, HydrationReportPayload> = {
+      SK_T1: reportPayload("SK_T1", 61209, 1),
+      SK_DEP: {
+        ...reportPayload("SK_DEP", 61209, 2),
+        fights: [{ ...reportPayload("SK_DEP", 61209, 2).fights[0]!, keystoneBonus: 0 }],
+      },
+      WR_T1: reportPayload("WR_T1", 12805, 1),
+      WR_DEP: {
+        ...reportPayload("WR_DEP", 12805, 2),
+        fights: [{ ...reportPayload("WR_DEP", 12805, 2).fights[0]!, keystoneBonus: 0 }],
+      },
+      SK_T2: reportPayload("SK_T2", 61209, 3),
+      WR_T2: reportPayload("WR_T2", 12805, 3),
+    };
+
+    const fetched: string[] = [];
+    const result = await hydrateFightUnknownCandidatesIterative({
+      candidates: stubs,
+      characterName: "Wallidrixe",
+      realmSlug: "Archimonde",
+      activeDungeonSlugs: ["skyreach", "windrunner-spire"],
+      initialBudget: 4,
+      incrementalBatchSize: 2,
+      evaluateIncrementalAdmission: () => ({
+        allow: true,
+        action: "OK",
+        reasons: ["ok"],
+        projectedIncrementalPoints: 6,
+      }),
+      fetchReport: async (code) => {
+        fetched.push(code);
+        return byCode[code] ?? null;
+      },
+    });
+
+    expect(result.diagnostics.terminalHydrationReason).toBe("full_coverage");
+    expect(result.diagnostics.incrementalBatchCount).toBeGreaterThan(0);
+    expect(fetched).toContain("SK_T2");
+    expect(fetched).toContain("WR_T2");
+    expect(result.diagnostics.coverage.distinctCandidatesPerDungeon["skyreach"]).toBe(2);
+    expect(
+      result.diagnostics.coverage.distinctCandidatesPerDungeon["windrunner-spire"],
+    ).toBe(2);
+    const timed = result.candidates.filter(
+      (c) => !c.incompleteness.fightUnknown && c.timed === true,
+    );
+    expect(
+      timed.filter((c) => c.dungeonSlug === "skyreach").map((c) => c.reportCode).sort(),
+    ).toEqual(["SK_T1", "SK_T2"]);
+    expect(
+      timed
+        .filter((c) => c.dungeonSlug === "windrunner-spire")
+        .map((c) => c.reportCode)
+        .sort(),
+    ).toEqual(["WR_T1", "WR_T2"]);
+  });
 });
 
 describe("incremental admission helper surface", () => {

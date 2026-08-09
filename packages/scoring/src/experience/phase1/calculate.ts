@@ -55,6 +55,15 @@ export type ExperiencePhase1UnavailableReason =
 export interface ExperiencePhase1Result {
   score: number | null;
   available: boolean;
+  /**
+   * Explicit Experience confidence in [0, 1] when available.
+   * Resolved historical evidence (including confirmed absence → score 0) is
+   * confidence 1 — do not invent uncertainty around successful resolution.
+   * Null when unavailable (provider/config/integrity failure).
+   */
+  confidence: number | null;
+  /** Machine-readable causes for confidence < 1 and/or unavailability. */
+  confidenceCauses: string[];
   previousStandingScore: number | null;
   classRankFloor: number | null;
   classRankFloorApplied: boolean;
@@ -197,12 +206,16 @@ function availableResult(input: {
   classRankFloor: number | null;
   eliteFloor: number | null;
   confirmedEliteTitleCount: number;
+  /** Optional provenance tags (e.g. confirmed_absence) — never lower confidence. */
+  confidenceCauses?: string[];
 }): ExperiencePhase1Result {
   const { score, previousStandingScore, classRankFloor, eliteFloor, confirmedEliteTitleCount } =
     input;
   return {
     score,
     available: true,
+    confidence: 1,
+    confidenceCauses: [...(input.confidenceCauses ?? [])],
     previousStandingScore,
     classRankFloor,
     classRankFloorApplied:
@@ -227,6 +240,8 @@ function unavailableResult(input: {
   return {
     score: null,
     available: false,
+    confidence: null,
+    confidenceCauses: [input.reason.toLowerCase()],
     previousStandingScore: input.previousStandingScore ?? null,
     classRankFloor: input.classRankFloor ?? null,
     classRankFloorApplied: false,

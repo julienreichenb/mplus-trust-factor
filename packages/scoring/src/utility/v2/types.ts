@@ -5,6 +5,7 @@
  * providers and never reseeds the EvidenceManifestV2 slot selection.
  */
 
+import type { DimensionConfidenceBreakdown } from "../../confidence/dimension-confidence.js";
 import type {
   UtilityV2DomainKey,
   UtilityV2SupportSemantic,
@@ -224,6 +225,7 @@ export interface UtilityV2ComputeResult {
   rawBehaviorEstimate: number | null;
   confidence: number;
   confidenceComponents: Record<string, number>;
+  confidenceBreakdown: DimensionConfidenceBreakdown;
   reliability: number | null;
   inputFingerprint: string;
   domainBreakdown: UtilityV2DomainBreakdown[];
@@ -290,6 +292,7 @@ export interface UtilityV2Explanation {
     reportRevision: number | null;
   }>;
   confidenceReasons: string[];
+  confidenceBreakdown?: DimensionConfidenceBreakdown;
   bindingReasons: string[];
 }
 

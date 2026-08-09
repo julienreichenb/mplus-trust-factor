@@ -39,6 +39,21 @@ export const OPERATIONS = {
 }`,
   },
 
+  /**
+   * Per-dungeon M+ run list (character page boss tab). JSON scalar with ranks[].
+   * Prefer aliased multi-dungeon query via buildAliasedEncounterRankingsQuery.
+   */
+  CharacterEncounterRankings: {
+    operationName: "CharacterEncounterRankings",
+    query: `query CharacterEncounterRankings($name: String!, $serverSlug: String!, $serverRegion: String!, $encounterID: Int!) {
+  characterData {
+    character(name: $name, serverSlug: $serverSlug, serverRegion: $serverRegion) {
+      encounterRankings(encounterID: $encounterID, metric: playerscore, byBracket: true, compare: Parses)
+    }
+  }
+}`,
+  },
+
   /** Aggregate dungeon Best%/Median% — omit compare:Parses so rows include rankPercent/medianPercent. */
   CharacterZoneRankingAggregates: {
     operationName: "CharacterZoneRankingAggregates",

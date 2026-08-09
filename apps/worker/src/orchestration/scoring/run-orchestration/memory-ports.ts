@@ -39,6 +39,7 @@ const DEFAULT_CAPABILITIES: EvidenceCapability[] = [
   "UTILITY_CROWD_CONTROL",
   "UTILITY_EXTERNAL_CASTS",
   "UTILITY_EXTERNAL_TARGET_CONTEXT",
+  "UTILITY_HOSTILE_CASTS",
   "PARTICIPANT_METADATA",
   "ACTOR_OWNERSHIP",
 ];
@@ -96,6 +97,7 @@ export function buildMinimalCapabilityPackage(input: {
       actorSetHash,
       abilityFilterHash,
       catalogVersion,
+      packageSchemaVersion: CAPABILITY_EVIDENCE_PACKAGE_SCHEMA_VERSION,
       acquisitionPlanVersion: CAPABILITY_ACQUISITION_PLAN_VERSION,
       graphqlQueryVersion: WCL_GRAPHQL_QUERY_VERSION,
       mode: "PRODUCTION_CAPABILITY_ACQUISITION" as const,
@@ -120,10 +122,12 @@ export function buildMinimalCapabilityPackage(input: {
       coverageRow("UTILITY_CROWD_CONTROL", ["Casts", "Debuffs"]),
       coverageRow("UTILITY_EXTERNAL_CASTS", ["Casts", "Buffs"]),
       coverageRow("UTILITY_EXTERNAL_TARGET_CONTEXT", ["Buffs"]),
+      coverageRow("UTILITY_HOSTILE_CASTS", ["HostileCasts"]),
       coverageRow("PARTICIPANT_METADATA", ["masterData", "CombatantInfo"]),
       coverageRow("ACTOR_OWNERSHIP", ["masterData"]),
     ],
     compactEvents: [] as CapabilityEvidencePackageV1["compactEvents"],
+    participantLoadouts: [],
     unknownAbilitySummaries: [],
     retention: {
       rawPages: "EPHEMERAL_RAW_PAGE" as const,

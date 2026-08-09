@@ -67,8 +67,10 @@ export {
   normalizeCategory,
   resolveAbilityCatalog,
   resolveAbilityRule,
+  resolveAbilityRuleBySpellId,
   ruleResolvableSpellIds,
 } from "./registry.js";
+export type { AbilitySpellIdResolution } from "./registry.js";
 
 export {
   applicableCategories,

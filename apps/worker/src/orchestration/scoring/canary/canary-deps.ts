@@ -2,8 +2,8 @@
  * Production vs test dependency wiring for Scoring V2 canary operator commands.
  */
 import type { AppEnv } from "@mplus/config";
-import type { Character } from "@mplus/database";
-import type { CharacterIdentityInput } from "@mplus/contracts";
+import type { Character, PrismaClient } from "@mplus/database";
+import type { CharacterIdentityInput, EvidenceRole } from "@mplus/contracts";
 import { createWorkerContainer, type WorkerContainer } from "../../../container.js";
 import { createProductionRunOrchestrationPorts } from "../run-orchestration/production-ports.js";
 import type { RunOrchestrationPorts } from "../run-orchestration/orchestrator.js";
@@ -76,6 +76,46 @@ export function assertNotSentinelCharacterId(characterId: string): void {
       { code: "CANARY_SENTINEL_CHARACTER_FORBIDDEN" },
     );
   }
+}
+
+/**
+ * Resolve class/spec/role for canary Performance from persisted Character
+ * catalog identity (gameClass + activeSpec). Does not hardcode characters.
+ *
+ * Ambiguity note: activeSpec is used for the Performance role adapter gate
+ * only. Run selection remains multi-spec / not restricted to one specialization.
+ */
+export async function resolveCanaryCharacterIdentity(input: {
+  prisma: PrismaClient;
+  characterId: string;
+  fallbackRole?: EvidenceRole;
+}): Promise<{
+  classSlug: string | null;
+  specSlug: string | null;
+  role: EvidenceRole;
+  identitySource: "character_active_spec" | "character_role_only" | "fallback_role";
+}> {
+  const row = await input.prisma.character.findUnique({
+    where: { id: input.characterId },
+    include: { gameClass: true, activeSpec: true },
+  });
+  const classSlug = row?.gameClass?.slug?.trim().toLowerCase() || null;
+  const specSlug = row?.activeSpec?.slug?.trim().toLowerCase() || null;
+  const roleRaw = (row?.role ?? row?.activeSpec?.role ?? input.fallbackRole ?? "DPS")
+    .toString()
+    .trim()
+    .toUpperCase();
+  const role: EvidenceRole =
+    roleRaw === "TANK" || roleRaw === "HEALER" || roleRaw === "DPS"
+      ? roleRaw
+      : "DPS";
+  const identitySource =
+    classSlug != null && specSlug != null
+      ? "character_active_spec"
+      : row?.role != null
+        ? "character_role_only"
+        : "fallback_role";
+  return { classSlug, specSlug, role, identitySource };
 }
 
 export async function createProductionCanaryDependencies(input: {
