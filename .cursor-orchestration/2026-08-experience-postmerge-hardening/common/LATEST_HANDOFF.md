@@ -148,7 +148,8 @@ Previous-season regional class rank remains **fail-closed** unless exact-season 
 - Agent 02 corrective (id-mismatch): `0159f6a31695196f31c8be3dd18b6abee94c8675`
 - Agent 02 corrective (stale slug + exact-id chronology): `1fb57a83ad09daf5ccdbe8a43f06243934254dae`
 - Agent 02 corrective (revalidation chronology parity): `77e389e92db817a566a4c72919c3371d581ff735`
-- Agent 03 functional: _(recorded after commit)_
+- Agent 03 functional: `89ebdc9e7aed1ec26463a8c97e80068dcf292b33`
+- Tip: `89ebdc9e7aed1ec26463a8c97e80068dcf292b33`
 
 ### 15. Remaining known limitations
 
