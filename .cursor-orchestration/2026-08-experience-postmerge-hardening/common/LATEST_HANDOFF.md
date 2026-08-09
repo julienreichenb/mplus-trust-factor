@@ -91,7 +91,9 @@ Also covered: `refresh-bridge.performance-aggregate.test.ts` (3 passed) during e
 
 ## Completed commits
 
-- _(filled after commit)_
+- `062b9cfad4757a388150271081d75f10c13752d2` — fix(experience): reconstruct persisted Experience when providers are forbidden (Agent 01 primary)
+
+Handoff tip may include a follow-up docs commit recording this SHA; use `git log` on `fix/experience-postmerge-hardening`.
 
 ## Remaining sequence
 
