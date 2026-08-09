@@ -39,10 +39,12 @@ import {
   isExperienceSeasonBindingEnsureComplete,
   matchBlizzardSeasonToRaiderIoByDates,
   proveExactRaiderIoCutoffSeasonEquivalence,
+  revalidatePersistedRaiderIoSeasonSlug,
   resetExperienceSeasonBindingEnsureStateForTests,
   shouldEnsureExperienceSeasonBinding,
   peekExperienceSeasonBindingEnsureStateForTests,
   bootstrapExperienceSeasonMetadata,
+  RIO_BLIZZARD_EXACT_ID_CHRONOLOGY_MAX_MS,
 } from "./experience-season-bootstrap.js";
 import { synchronizeSeasonPopulationPolicy } from "./experience-season-population-policy-sync.js";
 
@@ -581,6 +583,415 @@ describe("Agent 02 — explicit Blizzard-id mismatch never wins by dates", () =>
     expect(getCharacterExactSeasonHistoricalRating).not.toHaveBeenCalled();
     expect(result.raiderIoHistoricalRatingCalls).toBe(0);
     expect(result.experience.available).toBe(false);
+  });
+});
+
+describe("Agent 02 — stale providerSeasonId revalidation", () => {
+  const startX = "2025-07-01T00:00:00.000Z";
+
+  it("PROVEN_INCOMPATIBLE when persisted slug has explicit wrong Blizzard id", () => {
+    const result = revalidatePersistedRaiderIoSeasonSlug({
+      persistedSlug: "season-wrong",
+      targetBlizzardSeasonId: 14,
+      staticDataAvailable: true,
+      seasons: [
+        {
+          slug: "season-wrong",
+          name: "wrong",
+          startsAt: startX,
+          endsAt: null,
+          isCurrent: false,
+          isMainSeason: true,
+          blizzardSeasonId: 99,
+          dungeonSlugs: [],
+        },
+      ],
+    });
+    expect(result).toEqual({
+      status: "PROVEN_INCOMPATIBLE",
+      reason: "PERSISTED_RIO_SLUG_EXPLICIT_BLIZZARD_ID_MISMATCH",
+    });
+  });
+
+  it("COULD_NOT_REVALIDATE when RIO static unavailable", () => {
+    const result = revalidatePersistedRaiderIoSeasonSlug({
+      persistedSlug: "season-tww-3",
+      targetBlizzardSeasonId: 14,
+      staticDataAvailable: false,
+      seasons: [],
+    });
+    expect(result.status).toBe("COULD_NOT_REVALIDATE");
+  });
+
+  function makeBootstrapPrisma(prevProviderSeasonId: string | null) {
+    type SeasonRow = {
+      id: string;
+      regionId: string;
+      slug: string;
+      name: string;
+      blizzardSeasonId: number | null;
+      providerSeasonId: string | null;
+      startsAt: Date | null;
+      endsAt: Date | null;
+      isCurrent: boolean;
+      metadata: Record<string, unknown>;
+      region?: { id: string; code: string };
+    };
+    const seasons: SeasonRow[] = [
+      {
+        id: "cur",
+        regionId: REGION_ID,
+        slug: "blizzard-season-15",
+        name: "15",
+        blizzardSeasonId: 15,
+        providerSeasonId: null,
+        startsAt: new Date("2026-01-01T00:00:00.000Z"),
+        endsAt: null,
+        isCurrent: true,
+        metadata: {},
+        region: { id: REGION_ID, code: "EU" },
+      },
+      {
+        id: "prev",
+        regionId: REGION_ID,
+        slug: "blizzard-season-14",
+        name: "14",
+        blizzardSeasonId: 14,
+        providerSeasonId: prevProviderSeasonId,
+        startsAt: new Date(startX),
+        endsAt: new Date("2026-01-01T00:00:00.000Z"),
+        isCurrent: false,
+        metadata: {},
+        region: { id: REGION_ID, code: "EU" },
+      },
+    ];
+    const prisma = {
+      getSeasons: () => seasons,
+      season: {
+        findFirst: vi.fn(async (args: {
+          where: Record<string, unknown>;
+          select?: Record<string, boolean>;
+          include?: Record<string, boolean>;
+        }) => {
+          const row = seasons.find((s) => {
+            if (args.where.regionId != null && s.regionId !== args.where.regionId)
+              return false;
+            if (args.where.slug != null && s.slug !== args.where.slug) return false;
+            if (args.where.isCurrent === true && !s.isCurrent) return false;
+            return true;
+          });
+          if (!row) return null;
+          if (args.include?.region) return { ...row, region: row.region };
+          if (args.select) {
+            const out: Record<string, unknown> = {};
+            for (const k of Object.keys(args.select))
+              out[k] = (row as Record<string, unknown>)[k];
+            return out;
+          }
+          return { ...row };
+        }),
+        findUnique: vi.fn(async (args: {
+          where: { id: string };
+          select?: Record<string, boolean>;
+          include?: Record<string, boolean>;
+        }) => {
+          const row = seasons.find((s) => s.id === args.where.id);
+          if (!row) return null;
+          if (args.include?.region) return { ...row, region: row.region };
+          if (args.select) {
+            const out: Record<string, unknown> = {};
+            for (const k of Object.keys(args.select))
+              out[k] = (row as Record<string, unknown>)[k];
+            return out;
+          }
+          return { ...row };
+        }),
+        create: vi.fn(async () => ({ id: "new" })),
+        update: vi.fn(async (args: { where: { id: string }; data: Record<string, unknown> }) => {
+          const idx = seasons.findIndex((s) => s.id === args.where.id);
+          if (idx < 0) throw new Error("missing");
+          seasons[idx] = {
+            ...seasons[idx]!,
+            ...(args.data.providerSeasonId !== undefined
+              ? { providerSeasonId: args.data.providerSeasonId as string | null }
+              : {}),
+            ...(args.data.metadata !== undefined
+              ? { metadata: args.data.metadata as Record<string, unknown> }
+              : {}),
+          };
+          return seasons[idx];
+        }),
+      },
+    };
+    return { prisma, seasons };
+  }
+
+  it("clears stale season-wrong and skips cutoff sync; later valid season-14 binds", async () => {
+    const { prisma, seasons } = makeBootstrapPrisma("season-wrong");
+    const blizzardIndex = vi.fn(async () =>
+      providerResult([
+        {
+          blizzardSeasonId: 14,
+          slug: "s14",
+          name: "14",
+          startTimestamp: Date.parse(startX),
+          endTimestamp: Date.parse("2026-01-01T00:00:00.000Z"),
+        },
+        {
+          blizzardSeasonId: 15,
+          slug: "s15",
+          name: "15",
+          startTimestamp: Date.parse("2026-01-01T00:00:00.000Z"),
+          endTimestamp: null,
+        },
+      ]),
+    );
+    const getSeasonCutoffs = vi.fn(async () =>
+      providerResult(cutoffs({ seasonSlug: "season-wrong" })),
+    );
+
+    const first = await bootstrapExperienceSeasonMetadata({
+      prisma: prisma as never,
+      regions: [{ code: "EU", id: REGION_ID }],
+      blizzard: {
+        getMythicKeystoneSeasonIndex: blizzardIndex,
+        getMythicKeystoneSeason: vi.fn(async () => {
+          throw new Error("unused");
+        }),
+      },
+      raiderIo: {
+        getStaticData: vi.fn(async () =>
+          providerResult({
+            expansionId: 10,
+            seasons: [
+              {
+                slug: "season-wrong",
+                name: "wrong",
+                startsAt: startX,
+                endsAt: "2026-01-01T00:00:00.000Z",
+                isCurrent: false,
+                isMainSeason: true,
+                blizzardSeasonId: 99,
+                dungeonSlugs: [],
+              },
+              {
+                slug: "season-mn-1",
+                name: "mn1",
+                startsAt: "2026-01-01T00:00:00.000Z",
+                endsAt: null,
+                isCurrent: true,
+                isMainSeason: true,
+                blizzardSeasonId: 15,
+                dungeonSlugs: [],
+              },
+            ],
+            dungeons: [],
+            attribution: {
+              provider: "raiderio",
+              displayText: "x",
+              homepageUrl: "https://raider.io",
+              profileUrl: null,
+              sourceUrl: null,
+            },
+          }),
+        ),
+        getSeasonCutoffs,
+      },
+      persistProviderResult: vi.fn(async () => "p"),
+      logger: { info: vi.fn(), warn: vi.fn() },
+    });
+
+    expect(seasons.find((s) => s.id === "prev")!.providerSeasonId).toBeNull();
+    expect(first.regions[0]!.previousRaiderIoSlug).toBeNull();
+    expect(first.seasonCutoffsCalls).toBe(0);
+    expect(getSeasonCutoffs).not.toHaveBeenCalled();
+    expect(
+      first.regions[0]!.reasons.some((r) =>
+        r.includes("PERSISTED_RIO_SLUG_PROVEN_INCOMPATIBLE"),
+      ),
+    ).toBe(true);
+
+    // Second bootstrap with a valid Blizzard-14 RIO season replaces the binding.
+    const second = await bootstrapExperienceSeasonMetadata({
+      prisma: prisma as never,
+      regions: [{ code: "EU", id: REGION_ID }],
+      blizzard: {
+        getMythicKeystoneSeasonIndex: blizzardIndex,
+        getMythicKeystoneSeason: vi.fn(async () => {
+          throw new Error("unused");
+        }),
+      },
+      raiderIo: {
+        getStaticData: vi.fn(async () =>
+          providerResult({
+            expansionId: 10,
+            seasons: [
+              {
+                slug: "season-tww-3",
+                name: "tww3",
+                startsAt: startX,
+                endsAt: "2026-01-01T00:00:00.000Z",
+                isCurrent: false,
+                isMainSeason: true,
+                blizzardSeasonId: 14,
+                dungeonSlugs: [],
+              },
+              {
+                slug: "season-mn-1",
+                name: "mn1",
+                startsAt: "2026-01-01T00:00:00.000Z",
+                endsAt: null,
+                isCurrent: true,
+                isMainSeason: true,
+                blizzardSeasonId: 15,
+                dungeonSlugs: [],
+              },
+            ],
+            dungeons: [],
+            attribution: {
+              provider: "raiderio",
+              displayText: "x",
+              homepageUrl: "https://raider.io",
+              profileUrl: null,
+              sourceUrl: null,
+            },
+          }),
+        ),
+        getSeasonCutoffs: vi.fn(async () => providerResult(cutoffs())),
+      },
+      persistProviderResult: vi.fn(async () => "p"),
+      logger: { info: vi.fn(), warn: vi.fn() },
+    });
+
+    expect(seasons.find((s) => s.id === "prev")!.providerSeasonId).toBe("season-tww-3");
+    expect(second.regions[0]!.previousRaiderIoSlug).toBe("season-tww-3");
+    expect(second.seasonCutoffsCalls).toBe(1);
+  });
+
+  it("retains valid providerSeasonId when RIO static cannot be contacted", async () => {
+    const { prisma, seasons } = makeBootstrapPrisma("season-tww-3");
+    const result = await bootstrapExperienceSeasonMetadata({
+      prisma: prisma as never,
+      regions: [{ code: "EU", id: REGION_ID }],
+      blizzard: {
+        getMythicKeystoneSeasonIndex: vi.fn(async () =>
+          providerResult([
+            {
+              blizzardSeasonId: 14,
+              slug: "s14",
+              name: "14",
+              startTimestamp: Date.parse(startX),
+              endTimestamp: Date.parse("2026-01-01T00:00:00.000Z"),
+            },
+            {
+              blizzardSeasonId: 15,
+              slug: "s15",
+              name: "15",
+              startTimestamp: Date.parse("2026-01-01T00:00:00.000Z"),
+              endTimestamp: null,
+            },
+          ]),
+        ),
+        getMythicKeystoneSeason: vi.fn(async () => {
+          throw new Error("unused");
+        }),
+      },
+      raiderIo: {
+        getStaticData: vi.fn(async () => {
+          throw new Error("rio static down");
+        }),
+        getSeasonCutoffs: vi.fn(async () => providerResult(cutoffs())),
+      },
+      persistProviderResult: vi.fn(async () => "p"),
+      logger: { info: vi.fn(), warn: vi.fn() },
+    });
+
+    expect(seasons.find((s) => s.id === "prev")!.providerSeasonId).toBe("season-tww-3");
+    expect(result.seasonCutoffsCalls).toBe(1);
+    expect(
+      result.regions[0]!.reasons.some((r) => r.includes("RIO_STATIC_DATA_FAILED")),
+    ).toBe(true);
+  });
+});
+
+describe("Agent 02 — unique exact-id chronology sanity", () => {
+  const startX = "2025-07-01T00:00:00.000Z";
+
+  it("unique exact id + normal dates → accept", () => {
+    const matched = matchBlizzardSeasonToRaiderIoByDates(
+      {
+        startTimestamp: Date.parse(startX),
+        endTimestamp: Date.parse("2026-01-01T00:00:00.000Z"),
+        blizzardSeasonId: 14,
+      },
+      [
+        {
+          slug: "season-tww-3",
+          name: "tww3",
+          startsAt: startX,
+          endsAt: "2026-01-01T00:00:00.000Z",
+          isCurrent: false,
+          isMainSeason: true,
+          blizzardSeasonId: 14,
+          dungeonSlugs: [],
+        },
+      ],
+    );
+    expect(matched.ok).toBe(true);
+    if (!matched.ok) return;
+    expect(matched.season.slug).toBe("season-tww-3");
+  });
+
+  it("unique exact id + missing dates → accept", () => {
+    const matched = matchBlizzardSeasonToRaiderIoByDates(
+      {
+        startTimestamp: null,
+        endTimestamp: null,
+        blizzardSeasonId: 14,
+      },
+      [
+        {
+          slug: "season-tww-3",
+          name: "tww3",
+          startsAt: null,
+          endsAt: null,
+          isCurrent: false,
+          isMainSeason: true,
+          blizzardSeasonId: 14,
+          dungeonSlugs: [],
+        },
+      ],
+    );
+    expect(matched.ok).toBe(true);
+    if (!matched.ok) return;
+    expect(matched.season.slug).toBe("season-tww-3");
+  });
+
+  it("unique exact id + absurd chronology → reject", () => {
+    const absurdStartMs =
+      Date.parse(startX) + RIO_BLIZZARD_EXACT_ID_CHRONOLOGY_MAX_MS + 24 * 60 * 60 * 1000;
+    const matched = matchBlizzardSeasonToRaiderIoByDates(
+      {
+        startTimestamp: Date.parse(startX),
+        endTimestamp: Date.parse("2026-01-01T00:00:00.000Z"),
+        blizzardSeasonId: 14,
+      },
+      [
+        {
+          slug: "season-tww-3",
+          name: "tww3",
+          startsAt: new Date(absurdStartMs).toISOString(),
+          endsAt: null,
+          isCurrent: false,
+          isMainSeason: true,
+          blizzardSeasonId: 14,
+          dungeonSlugs: [],
+        },
+      ],
+    );
+    expect(matched.ok).toBe(false);
+    if (matched.ok) return;
+    expect(matched.reason).toBe("RIO_DATE_MATCH_EXACT_ID_CHRONOLOGY_ABSURD");
   });
 });
 

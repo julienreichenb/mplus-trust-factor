@@ -19,11 +19,25 @@ Agent 02 — season binding + evidence integrity hardening (complete; corrective
 When target Blizzard season id is known:
 
 1. exact-id candidates among real main seasons;
-2. unique exact-id → select; multiple → date-disambiguate **only among exact-id**;
+2. unique exact-id → chronology sanity (see below) then select; multiple → date-disambiguate **only among exact-id**;
 3. no exact-id → date match **only** among RIO seasons with missing/unavailable `blizzardSeasonId`;
 4. explicitly mismatched ids → `RIO_DATE_MATCH_EXPLICIT_BLIZZARD_ID_MISMATCH` (never win by dates).
 
-When target Blizzard id is unavailable: existing date semantics across all real main seasons.
+Unique exact-id chronology (`RIO_BLIZZARD_EXACT_ID_CHRONOLOGY_MAX_MS` = 2× proximity):
+- both starts missing/partial → ID sufficient, accept;
+- both starts present and within max → accept;
+- both starts present and absurdly far → `RIO_DATE_MATCH_EXACT_ID_CHRONOLOGY_ABSURD`.
+
+### Stale legacy `providerSeasonId`
+
+After a failed fresh match, bootstrap revalidates any persisted previous slug via
+`revalidatePersistedRaiderIoSeasonSlug`:
+
+| Status | Action |
+|--------|--------|
+| `PROVEN_INCOMPATIBLE` | clear `providerSeasonId`; do not sync cutoffs; leave binding unbound |
+| `COULD_NOT_REVALIDATE` | retain LKG slug (static down / slug not in loaded pools) |
+| `COMPATIBLE` | reuse slug as binding + proof season |
 
 ### providerSeasonId writes
 
@@ -133,14 +147,15 @@ pnpm test:raw -- \
   apps/worker/src/orchestration/scoring/score-character.test.ts
 ```
 
-Result: **148 passed** (12 files).
+Result: **155 passed** (12 files).
 
 ## Completed commits
 
 - Agent 01: `062b9cfad4757a388150271081d75f10c13752d2`
 - Agent 02 primary: `2c08699edfb77aede081386c168e326bd704d7ff`
-- Agent 02 corrective: `0159f6a31695196f31c8be3dd18b6abee94c8675`
-- Tip: `0159f6a31695196f31c8be3dd18b6abee94c8675`
+- Agent 02 corrective (id-mismatch): `0159f6a31695196f31c8be3dd18b6abee94c8675`
+- Agent 02 corrective (stale slug + exact-id chronology): _(fill after commit)_
+- Tip: _(fill after commit)_
 
 ## Remaining sequence
 

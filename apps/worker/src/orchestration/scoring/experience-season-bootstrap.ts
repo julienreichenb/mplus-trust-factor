@@ -98,6 +98,13 @@ export type RaiderIoDateMatchResult =
 export const RIO_BLIZZARD_START_PROXIMITY_MS = 21 * 24 * 60 * 60 * 1000;
 
 /**
+ * Exact Blizzard-id matches remain primary, but both starts present and farther
+ * than this → fail closed (reuses 2× proximity from remapped-equivalence proof).
+ */
+export const RIO_BLIZZARD_EXACT_ID_CHRONOLOGY_MAX_MS =
+  RIO_BLIZZARD_START_PROXIMITY_MS * 2;
+
+/**
  * Diagnostic-only: common main-season slug shape (`season-tww-3`, `season-mn-1`).
  * NOT Experience season authority — `is_main_season` / Blizzard id / dates are.
  */
@@ -158,7 +165,10 @@ export function matchBlizzardSeasonToRaiderIoByDates(
   if (blizzardId != null) {
     const byId = realSeasons.filter((s) => s.blizzardSeasonId === blizzardId);
     if (byId.length === 1) {
-      return { ok: true, season: byId[0]! };
+      const candidate = byId[0]!;
+      const chronology = assertExactIdChronologyCompatible(blizzard, candidate);
+      if (!chronology.ok) return chronology;
+      return { ok: true, season: candidate };
     }
     if (byId.length > 1) {
       // Multiple main seasons sharing one Blizzard id (e.g. tww-1 + tww-1-post) —
@@ -177,6 +187,116 @@ export function matchBlizzardSeasonToRaiderIoByDates(
   }
 
   return matchByDatesOnly(blizzard, realSeasons);
+}
+
+/**
+ * Unique exact-id candidate: accept when dates missing; fail closed when both
+ * starts exist and are absurdly far apart (product proximity × 2).
+ */
+function assertExactIdChronologyCompatible(
+  blizzard: {
+    startTimestamp: number | null;
+    endTimestamp: number | null;
+  },
+  rio: Pick<RaiderIoStaticSeason, "startsAt">,
+): RaiderIoDateMatchResult | { ok: true } {
+  const bStart = blizzard.startTimestamp;
+  const rioStart = parseIsoMs(rio.startsAt);
+  if (bStart == null || !Number.isFinite(bStart) || rioStart == null) {
+    return { ok: true };
+  }
+  if (Math.abs(rioStart - bStart) > RIO_BLIZZARD_EXACT_ID_CHRONOLOGY_MAX_MS) {
+    return {
+      ok: false,
+      reason: "RIO_DATE_MATCH_EXACT_ID_CHRONOLOGY_ABSURD",
+    };
+  }
+  return { ok: true };
+}
+
+/**
+ * Revalidate a persisted Season.providerSeasonId against currently available
+ * Raider.IO static seasons for a known target Blizzard season id.
+ *
+ * PROVEN_INCOMPATIBLE — static data shows an explicit Blizzard-id contradiction
+ *   (or non-main season); safe to invalidate the persisted slug.
+ * COULD_NOT_REVALIDATE — static unavailable / slug not present in loaded pools;
+ *   retain LKG slug (do not clear on transient failure).
+ * COMPATIBLE — slug points at an acceptable real main season for the target.
+ */
+export type PersistedRaiderIoSlugRevalidation =
+  | {
+      status: "COMPATIBLE";
+      season: RaiderIoStaticSeason;
+    }
+  | {
+      status: "PROVEN_INCOMPATIBLE";
+      reason: string;
+    }
+  | {
+      status: "COULD_NOT_REVALIDATE";
+      reason: string;
+    };
+
+export function revalidatePersistedRaiderIoSeasonSlug(input: {
+  persistedSlug: string;
+  targetBlizzardSeasonId: number;
+  /** True when at least one RIO static payload was successfully loaded. */
+  staticDataAvailable: boolean;
+  seasons: readonly RaiderIoStaticSeason[];
+}): PersistedRaiderIoSlugRevalidation {
+  const slug = input.persistedSlug.trim();
+  if (!slug) {
+    return { status: "COULD_NOT_REVALIDATE", reason: "BLANK_PERSISTED_RIO_SLUG" };
+  }
+  if (
+    !Number.isFinite(input.targetBlizzardSeasonId) ||
+    !input.staticDataAvailable ||
+    input.seasons.length === 0
+  ) {
+    return {
+      status: "COULD_NOT_REVALIDATE",
+      reason: "RIO_STATIC_UNAVAILABLE_FOR_REVALIDATION",
+    };
+  }
+
+  const matches = input.seasons.filter((s) => s.slug.trim() === slug);
+  if (matches.length === 0) {
+    // Slug may live on an unloaded expansion — do not treat as proven bad.
+    return {
+      status: "COULD_NOT_REVALIDATE",
+      reason: "PERSISTED_RIO_SLUG_NOT_IN_LOADED_STATIC",
+    };
+  }
+
+  // Same slug may appear in current + previous-expansion pools; collapse duplicates.
+  const distinct = new Map<string, RaiderIoStaticSeason>();
+  for (const season of matches) {
+    const key = `${season.isMainSeason === true}|${season.blizzardSeasonId ?? "null"}`;
+    distinct.set(key, season);
+  }
+  if (distinct.size > 1) {
+    return {
+      status: "COULD_NOT_REVALIDATE",
+      reason: "PERSISTED_RIO_SLUG_AMBIGUOUS_IN_STATIC",
+    };
+  }
+
+  const season = matches[0]!;
+  if (season.isMainSeason !== true) {
+    return {
+      status: "PROVEN_INCOMPATIBLE",
+      reason: "PERSISTED_RIO_SLUG_NOT_MAIN_SEASON",
+    };
+  }
+  const rioId = season.blizzardSeasonId;
+  if (rioId != null && Number.isFinite(rioId) && rioId !== input.targetBlizzardSeasonId) {
+    return {
+      status: "PROVEN_INCOMPATIBLE",
+      reason: "PERSISTED_RIO_SLUG_EXPLICIT_BLIZZARD_ID_MISMATCH",
+    };
+  }
+  return { status: "COMPATIBLE", season };
 }
 
 function matchByDatesOnly(
@@ -401,7 +521,7 @@ export function proveExactRaiderIoCutoffSeasonEquivalence(input: {
     const bStart = input.blizzardStartsAtMs;
     if (rioStart != null && bStart != null && Number.isFinite(bStart)) {
       const proximity = Math.abs(rioStart - bStart);
-      if (proximity > RIO_BLIZZARD_START_PROXIMITY_MS * 2) {
+      if (proximity > RIO_BLIZZARD_EXACT_ID_CHRONOLOGY_MAX_MS) {
         reasons.push("RIO_BLIZZARD_CHRONOLOGY_FAR_FROM_START");
       }
     }
@@ -1016,14 +1136,57 @@ export async function bootstrapExperienceSeasonMetadata(
         reasons.push(rioPair.reason);
       }
 
-      // Reload previous providerSeasonId after bind (or existing LKG slug).
+      // Prefer freshly matched previous slug; otherwise revalidate any legacy
+      // Season.providerSeasonId before trusting it for sync / historical binding.
       let previousSlugForSync: string | null = previousRaiderIoSlug;
       if (previousSeasonId && !previousSlugForSync) {
         const reloaded = await input.prisma.season.findUnique({
           where: { id: previousSeasonId },
           select: { providerSeasonId: true },
         });
-        previousSlugForSync = reloaded?.providerSeasonId ?? null;
+        const persisted = reloaded?.providerSeasonId?.trim() || null;
+        if (persisted) {
+          const targetBlizzardId =
+            previousBlizzardForProof?.blizzardSeasonId ?? null;
+          const revalidationSeasons = [
+            ...staticSeasonsForBind,
+            ...(previousExpansionSeasons ?? []),
+          ];
+          if (targetBlizzardId == null || !Number.isFinite(targetBlizzardId)) {
+            // Cannot prove identity without target Blizzard id — retain LKG.
+            previousSlugForSync = persisted;
+            reasons.push("PERSISTED_RIO_SLUG_COULD_NOT_REVALIDATE:NO_TARGET_BLIZZARD_ID");
+          } else {
+            const revalidation = revalidatePersistedRaiderIoSeasonSlug({
+              persistedSlug: persisted,
+              targetBlizzardSeasonId: targetBlizzardId,
+              staticDataAvailable:
+                staticSeasonsForBind.length > 0 ||
+                (previousExpansionSeasons?.length ?? 0) > 0,
+              seasons: revalidationSeasons,
+            });
+            if (revalidation.status === "COMPATIBLE") {
+              previousSlugForSync = persisted;
+              previousRaiderIoSlug = persisted;
+              previousRioSeasonForProof = revalidation.season;
+            } else if (revalidation.status === "PROVEN_INCOMPATIBLE") {
+              await input.prisma.season.update({
+                where: { id: previousSeasonId },
+                data: { providerSeasonId: null },
+              });
+              previousSlugForSync = null;
+              reasons.push(
+                `PERSISTED_RIO_SLUG_PROVEN_INCOMPATIBLE:${revalidation.reason}`,
+              );
+            } else {
+              // Transient / incomplete static — retain LKG, do not clear.
+              previousSlugForSync = persisted;
+              reasons.push(
+                `PERSISTED_RIO_SLUG_COULD_NOT_REVALIDATE:${revalidation.reason}`,
+              );
+            }
+          }
+        }
       }
 
       if (previousSeasonId && previousSlugForSync) {
