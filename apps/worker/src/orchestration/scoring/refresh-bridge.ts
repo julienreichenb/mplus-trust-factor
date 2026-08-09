@@ -32,6 +32,7 @@ import {
   previousRegionalClassRankFromRioProfile,
   rioPreviousSeasonCorroborationFromProfile,
 } from "./experience-phase1.js";
+import { createCharacterExperienceEvidenceRepository } from "@mplus/database";
 
 export interface AuthoritativeScoringInput {
   container: WorkerContainer;
@@ -319,6 +320,7 @@ export async function runAuthoritativeScoring(
 
         const built = await buildExperiencePhase1Result({
           prisma: input.container.prisma,
+          characterId: input.characterId,
           identity: {
             region: input.region,
             realmSlug: input.realm,
@@ -331,6 +333,13 @@ export async function runAuthoritativeScoring(
           persistProviderResult: (result) =>
             recordProviderResult(input.container.repositories, result),
           allowProviderCalls: true,
+          evidenceStore: createCharacterExperienceEvidenceRepository(
+            input.container.prisma,
+          ),
+          boundPreviousRaiderIoSlug,
+          raiderIoExactSeason: input.container.disabledProviders.has("raiderio")
+            ? null
+            : input.container.providers.raiderio,
           // No RIO endpoint proves previous_mythic_plus_ranks for an exact season slug.
           previousRegionalClassRank: previousRegionalClassRankFromRioProfile(
             input.raiderIoProfile ?? null,

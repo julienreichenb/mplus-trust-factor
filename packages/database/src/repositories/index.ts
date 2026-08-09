@@ -78,3 +78,18 @@ export {
   type UpsertCharacterPerformanceAggregateInput,
   type UpsertCharacterPerformanceAggregateResult,
 } from "./character-performance-aggregate-repository.js";
+export {
+  CharacterExperienceEvidenceRepository,
+  createCharacterExperienceEvidenceRepository,
+  EXPERIENCE_EVIDENCE_KIND,
+  EXPERIENCE_EVIDENCE_STATE,
+  EXPERIENCE_EVIDENCE_SOURCE,
+  EXPERIENCE_PREVIOUS_RATING_COMPAT_VERSION,
+  EXPERIENCE_PREVIOUS_CLASS_RANK_COMPAT_VERSION,
+  type ExperienceEvidenceKind,
+  type ExperienceEvidenceState,
+  type ExperienceEvidenceSource,
+  type CharacterExperienceEvidenceIdentity,
+  type CharacterExperienceEvidenceDTO,
+  type UpsertCharacterExperienceEvidenceInput,
+} from "./character-experience-evidence-repository.js";

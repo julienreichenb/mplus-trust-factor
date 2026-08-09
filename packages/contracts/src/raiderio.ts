@@ -131,6 +131,31 @@ export interface RaiderIoCharacterProfile {
   attribution: RaiderIoAttribution;
 }
 
+/**
+ * Exact-season historical Mythic+ rating evidence for Experience fallback.
+ * Built from OpenAPI fields:
+ * `mythic_plus_scores_by_season:<slug>` + `mythic_plus_dungeon_run_counts:<slug>`.
+ *
+ * OpenAPI does not define score 0 as "no activity"; activityProof comes from
+ * zero-filled dungeon run counts for that exact season.
+ */
+export type RaiderIoExactSeasonActivityProof =
+  | "PROVEN_NONE"
+  | "PROVEN_ACTIVITY"
+  | "UNKNOWN";
+
+export interface RaiderIoExactSeasonHistoricalRating {
+  /** Requested exact Raider.IO season slug (never current/previous alias). */
+  requestedSeasonSlug: string;
+  /** True when mythic_plus_scores_by_season contained the requested slug. */
+  seasonFound: boolean;
+  /** scores.all for the exact season when present; null when seasonFound but non-finite. */
+  scoreAll: number | null;
+  activityProof: RaiderIoExactSeasonActivityProof;
+  /** Sum of season_runs_total across dungeon pool when counts were present. */
+  totalSeasonRuns: number | null;
+}
+
 export type RaiderIoCutoffQuantile = "p999" | "p990" | "p900" | "p750" | "p600";
 
 export type RaiderIoCutoffLabel =

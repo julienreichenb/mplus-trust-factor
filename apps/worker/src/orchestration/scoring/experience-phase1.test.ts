@@ -214,6 +214,7 @@ describe("buildExperiencePhase1Result", () => {
     const result = await buildExperiencePhase1Result({
       prisma: prisma as never,
       identity,
+      characterId: "char-test",
       currentSeasonId: CURRENT_ID,
       regionCode: "EU",
       blizzard: { getMythicKeystoneSeasonProfile, getCharacterAchievements },
@@ -246,6 +247,7 @@ describe("buildExperiencePhase1Result", () => {
     const result = await buildExperiencePhase1Result({
       prisma: prisma as never,
       identity,
+      characterId: "char-test",
       currentSeasonId: CURRENT_ID,
       regionCode: "EU",
       blizzard: {
@@ -273,6 +275,7 @@ describe("buildExperiencePhase1Result", () => {
     const result = await buildExperiencePhase1Result({
       prisma: prisma as never,
       identity,
+      characterId: "char-test",
       currentSeasonId: CURRENT_ID,
       regionCode: "EU",
       blizzard: {
@@ -303,6 +306,7 @@ describe("buildExperiencePhase1Result", () => {
     const result = await buildExperiencePhase1Result({
       prisma: prisma as never,
       identity,
+      characterId: "char-test",
       currentSeasonId: CURRENT_ID,
       regionCode: "EU",
       blizzard: {
@@ -333,6 +337,7 @@ describe("buildExperiencePhase1Result", () => {
     const result = await buildExperiencePhase1Result({
       prisma: prisma as never,
       identity,
+      characterId: "char-test",
       currentSeasonId: CURRENT_ID,
       regionCode: "EU",
       blizzard: {
@@ -363,6 +368,7 @@ describe("buildExperiencePhase1Result", () => {
     const result = await buildExperiencePhase1Result({
       prisma: prisma as never,
       identity,
+      characterId: "char-test",
       currentSeasonId: CURRENT_ID,
       regionCode: "EU",
       blizzard: { getMythicKeystoneSeasonProfile, getCharacterAchievements },
@@ -391,6 +397,7 @@ describe("buildExperiencePhase1Result", () => {
     const result = await buildExperiencePhase1Result({
       prisma: prisma as never,
       identity,
+      characterId: "char-test",
       currentSeasonId: CURRENT_ID,
       regionCode: "EU",
       blizzard: {
@@ -422,6 +429,7 @@ describe("buildExperiencePhase1Result", () => {
     const result = await buildExperiencePhase1Result({
       prisma: prisma as never,
       identity,
+      characterId: "char-test",
       currentSeasonId: CURRENT_ID,
       regionCode: "EU",
       blizzard: {
@@ -453,6 +461,7 @@ describe("buildExperiencePhase1Result", () => {
     const result = await buildExperiencePhase1Result({
       prisma: prisma as never,
       identity,
+      characterId: "char-test",
       currentSeasonId: CURRENT_ID,
       regionCode: "EU",
       blizzard: {
@@ -483,6 +492,7 @@ describe("buildExperiencePhase1Result", () => {
     const result = await buildExperiencePhase1Result({
       prisma: prisma as never,
       identity,
+      characterId: "char-test",
       currentSeasonId: CURRENT_ID,
       regionCode: "EU",
       blizzard: {
@@ -513,6 +523,7 @@ describe("buildExperiencePhase1Result", () => {
     const result = await buildExperiencePhase1Result({
       prisma: prisma as never,
       identity,
+      characterId: "char-test",
       currentSeasonId: CURRENT_ID,
       regionCode: "EU",
       blizzard: {
@@ -549,6 +560,7 @@ describe("buildExperiencePhase1Result", () => {
     await buildExperiencePhase1Result({
       prisma: prisma as never,
       identity,
+      characterId: "char-test",
       currentSeasonId: CURRENT_ID,
       regionCode: "EU",
       blizzard,
@@ -580,6 +592,7 @@ describe("buildExperiencePhase1Result", () => {
     const result = await buildExperiencePhase1Result({
       prisma: prisma as never,
       identity,
+      characterId: "char-test",
       currentSeasonId: CURRENT_ID,
       regionCode: "EU",
       blizzard,
@@ -605,6 +618,7 @@ describe("buildExperiencePhase1Result", () => {
     const result = await buildExperiencePhase1Result({
       prisma: prisma as never,
       identity,
+      characterId: "char-test",
       currentSeasonId: "missing",
       regionCode: "EU",
       blizzard,
@@ -695,6 +709,7 @@ describe("rioPreviousSeasonCorroborationFromProfile", () => {
       profileFetched: true,
       previousSeasonScore: null,
       seasonBound: true,
+      exactSeasonSlug: "season-zx-1",
     });
     expect(
       rioPreviousSeasonCorroborationFromProfile(profile, {
@@ -704,6 +719,7 @@ describe("rioPreviousSeasonCorroborationFromProfile", () => {
       profileFetched: true,
       previousSeasonScore: null,
       seasonBound: false,
+      exactSeasonSlug: "season-zx-2",
     });
     expect(
       rioPreviousSeasonCorroborationFromProfile(
@@ -714,6 +730,7 @@ describe("rioPreviousSeasonCorroborationFromProfile", () => {
       profileFetched: true,
       previousSeasonScore: 3200,
       seasonBound: true,
+      exactSeasonSlug: "season-zx-1",
     });
   });
 });
@@ -729,6 +746,7 @@ describe("mapPreviousEvidenceToPhase1Input", () => {
         rating: null,
         fetchedAt: "2026-08-08T00:00:01.000Z",
         providerPayloadId: null,
+        ratingSource: "BLIZZARD",
       },
       policyMetadata: null,
     });

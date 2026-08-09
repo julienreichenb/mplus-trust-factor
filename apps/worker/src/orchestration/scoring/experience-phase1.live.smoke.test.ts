@@ -165,6 +165,7 @@ describe.runIf(live)("Experience Phase 1 live smoke", () => {
       const blizzardCalls = { profile: 0, achievements: 0 };
       const built = await buildExperiencePhase1Result({
         prisma,
+        characterId: "live-smoke-character",
         identity: { region: REGION, realmSlug: REALM, name: NAME },
         currentSeasonId: current!.id,
         regionCode: REGION,
