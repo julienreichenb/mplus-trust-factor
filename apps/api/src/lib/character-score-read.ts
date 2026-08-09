@@ -5,7 +5,10 @@
 import type { DimensionScoreDTO, Grade, ScoreSnapshotDTO } from "@mplus/contracts";
 import {
   computePartialComposite,
+  contributorsFromLegacyConfidenceContext,
   defaultSkillDimensionWeights,
+  productDimensionExplainabilityFields,
+  tryParsePersistedScoreExplainability,
 } from "@mplus/scoring";
 
 export type CharacterScoreReadRow = {
@@ -73,16 +76,6 @@ function readStringList(value: unknown): string[] {
   return value.filter(
     (item): item is string => typeof item === "string" && item.trim().length > 0,
   );
-}
-
-function contributorsFromLimitations(
-  limitations: readonly string[],
-): DimensionScoreDTO["contributors"] {
-  return {
-    limitations,
-    negative: limitations.map((metricKey) => ({ metricKey, label: metricKey })),
-    missing: limitations.map((metricKey) => ({ metricKey, available: false })),
-  };
 }
 
 /**
@@ -254,6 +247,40 @@ export function mapCharacterScoreToSnapshotDto(
     },
   );
 
+  // Soft-parse canonical explainability; malformed/unknown must not break profile reads.
+  const canonical = tryParsePersistedScoreExplainability(details?.explainability);
+
+  const dimensionProduct = (
+    key: "PERFORMANCE" | "SURVIVAL" | "UTILITY" | "EXPERIENCE",
+    legacyLimitations: readonly string[],
+  ): Pick<DimensionScoreDTO, "contributors" | "explainability"> => {
+    if (canonical) {
+      const fields = productDimensionExplainabilityFields(canonical, key);
+      return {
+        contributors: fields.contributors,
+        explainability: fields.explainability,
+      };
+    }
+    // Legacy rows: empty scoreDrivers; confidence codes as data context only.
+    return {
+      contributors: contributorsFromLegacyConfidenceContext(legacyLimitations),
+    };
+  };
+
+  const perfProduct = dimensionProduct(
+    "PERFORMANCE",
+    readDimensionLimitations(details, "performance"),
+  );
+  const utilProduct = dimensionProduct(
+    "UTILITY",
+    readDimensionLimitations(details, "utility"),
+  );
+  const survProduct = dimensionProduct(
+    "SURVIVAL",
+    readDimensionLimitations(details, "survival"),
+  );
+  const expProduct = dimensionProduct("EXPERIENCE", experience.causes);
+
   const dimensions: DimensionScoreDTO[] = [
     {
       dimension: "PERFORMANCE",
@@ -266,9 +293,10 @@ export function mapCharacterScoreToSnapshotDto(
         perfReason,
       ),
       reason: perfReason,
-      contributors: contributorsFromLimitations(
-        readDimensionLimitations(details, "performance"),
-      ),
+      contributors: perfProduct.contributors,
+      ...(perfProduct.explainability
+        ? { explainability: perfProduct.explainability }
+        : {}),
     },
     {
       dimension: "UTILITY",
@@ -281,9 +309,10 @@ export function mapCharacterScoreToSnapshotDto(
         utilReason,
       ),
       reason: utilReason,
-      contributors: contributorsFromLimitations(
-        readDimensionLimitations(details, "utility"),
-      ),
+      contributors: utilProduct.contributors,
+      ...(utilProduct.explainability
+        ? { explainability: utilProduct.explainability }
+        : {}),
     },
     {
       dimension: "SURVIVAL",
@@ -296,9 +325,10 @@ export function mapCharacterScoreToSnapshotDto(
         survReason,
       ),
       reason: survReason,
-      contributors: contributorsFromLimitations(
-        readDimensionLimitations(details, "survival"),
-      ),
+      contributors: survProduct.contributors,
+      ...(survProduct.explainability
+        ? { explainability: survProduct.explainability }
+        : {}),
     },
     {
       dimension: "EXPERIENCE",
@@ -307,7 +337,10 @@ export function mapCharacterScoreToSnapshotDto(
       weight: weights.experience,
       state: dimState(experience.score, experience.confidence, experience.reason),
       reason: experience.reason,
-      contributors: contributorsFromLimitations(experience.causes),
+      contributors: expProduct.contributors,
+      ...(expProduct.explainability
+        ? { explainability: expProduct.explainability }
+        : {}),
     },
   ];
 
@@ -368,6 +401,7 @@ export function mapCharacterScoreToSnapshotDto(
         utility: utilConfidence,
         experience: experience.confidence,
       },
+      explainabilityFingerprint: canonical?.fingerprint ?? null,
       partialComposite: partial.explanation,
       availabilityCoverage: partial.availabilityCoverage,
       effectiveWeights: partial.effectiveWeights,

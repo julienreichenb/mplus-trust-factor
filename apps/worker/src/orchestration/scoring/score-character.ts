@@ -14,7 +14,12 @@ import {
   type EvidenceRepository,
 } from "@mplus/database";
 import { EVIDENCE_SELECTOR_VERSION } from "@mplus/contracts";
-import type { EvidenceCandidateMetadataV2, EvidenceRole, RegionCode } from "@mplus/contracts";
+import type {
+  EvidenceCandidateMetadataV2,
+  EvidenceRole,
+  RegionCode,
+  ScoreExplainabilityV1,
+} from "@mplus/contracts";
 import {
   orchestrateScoringRuns,
   type LiveProviderPermission,
@@ -37,6 +42,7 @@ import {
   requireScoringZoneId,
 } from "./scoring-zone.js";
 import {
+  buildScoreExplainabilityV1,
   computePartialComposite,
   defaultSkillDimensionWeights,
   profileAggregateFactFromPersisted,
@@ -167,6 +173,11 @@ export interface ScoreCharacterResult {
    * Null when Experience was not supplied to scoreCharacter.
    */
   experience: ExperiencePhase1Result | null;
+  /**
+   * Canonical Score Explainability V1 built once from the same P/S/U/E +
+   * composite outputs that produced the persisted CharacterScore columns.
+   */
+  explainability: ScoreExplainabilityV1;
   /**
    * Character/season points_and_damage aggregate consumed by Performance Phase 2.
    */
@@ -397,6 +408,16 @@ export async function scoreCharacter(
   const confidence = partial.confidence;
   const tier = partial.grade;
 
+  // Build explainability exactly once from the same calculator outputs as the score.
+  // Pure / provider-free — must not alter P/S/U/E, composite, or provider accounting.
+  const explainability = buildScoreExplainabilityV1({
+    performance,
+    survival,
+    utility,
+    experience: experienceResult,
+    composite: partial,
+  });
+
   const persistCharacterScore = input.persistCharacterScore !== false;
   let characterScoreId: string | null = null;
   if (persistCharacterScore) {
@@ -479,6 +500,8 @@ export async function scoreCharacter(
               }
             : null,
           experience: experienceResult,
+          // Canonical audit object (not public projection) — same calculation as columns.
+          explainability,
           performanceAggregate: {
             state: performanceAggregate.state,
             reason: performanceAggregate.reason,
@@ -502,6 +525,7 @@ export async function scoreCharacter(
     scoringVersion,
     publicationEnabled: input.publicationEnabled === true,
     experience: experienceResult,
+    explainability,
     performanceAggregate: {
       state: performanceAggregate.state,
       data: performanceAggregate.data,

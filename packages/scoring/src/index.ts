@@ -852,6 +852,10 @@ export {
   projectScoreExplainabilityPublic,
   projectDimensionExplainabilityPublic,
   fingerprintScoreExplainability,
+  contributorsFromPublicScoreDrivers,
+  contributorsFromLegacyConfidenceContext,
+  tryParsePersistedScoreExplainability,
+  productDimensionExplainabilityFields,
   SCORE_EXPLAINABILITY_LABEL_CATALOG_VERSION,
   SCORE_EXPLAINABILITY_MATERIALITY_POLICY_VERSION,
   SCORE_EXPLAINABILITY_NEUTRAL_POINT,
@@ -864,7 +868,10 @@ export {
   presentConfidenceCause,
   presentScoreDriver,
 } from "./explainability/index.js";
-export type { BuildScoreExplainabilityV1Input } from "./explainability/index.js";
+export type {
+  BuildScoreExplainabilityV1Input,
+  LegacyDimensionContributors,
+} from "./explainability/index.js";
 
 /** Shared Shadow DimensionComputation normalization (WS10). */
 export {

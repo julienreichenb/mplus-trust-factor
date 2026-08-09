@@ -163,8 +163,14 @@ describe("mapCharacterScoreToSnapshotDto partial composite", () => {
     expect(
       (dto.dimensions.find((d) => d.dimension === "PERFORMANCE")?.contributors as {
         limitations?: string[];
+        negative?: unknown[];
       }).limitations,
     ).toEqual(["profile_only"]);
+    expect(
+      (dto.dimensions.find((d) => d.dimension === "PERFORMANCE")?.contributors as {
+        negative?: unknown[];
+      }).negative,
+    ).toEqual([]);
   });
 
   it("Experience 0 from dimensionDetails is available when column is set", () => {
@@ -219,7 +225,181 @@ describe("mapCharacterScoreToSnapshotDto partial composite", () => {
       reason: null,
     });
     expect(
-      (experience?.contributors as { limitations?: string[] }).limitations,
+      (experience?.contributors as { limitations?: string[]; negative?: unknown[] })
+        .limitations,
     ).toEqual(["previous_evidence_unavailable"]);
+    expect(
+      (experience?.contributors as { negative?: unknown[] }).negative,
+    ).toEqual([]);
+  });
+});
+
+describe("mapCharacterScoreToSnapshotDto Score Explainability V1", () => {
+  const baseRow = {
+    id: "score-1",
+    characterId: "char-1",
+    seasonId: "season-1",
+    scoringVersion: "scoring-v1",
+    performance: 71,
+    utility: 56,
+    survival: 72.5,
+    experience: 0 as number | null,
+    composite: 68,
+    confidence: 0.7,
+    tier: "B" as string | null,
+    calculatedAt: new Date("2026-01-01T00:00:00.000Z"),
+    dimensionDetails: {} as unknown,
+    season: { slug: "season-tww-3" },
+  };
+
+  it("projects persisted canonical explainability via shared public projector", async () => {
+    const { buildScoreExplainabilityV1, projectScoreExplainabilityPublic } =
+      await import("@mplus/scoring");
+
+    const canonical = buildScoreExplainabilityV1({
+      performance: null,
+      survival: null,
+      utility: null,
+      experience: {
+        score: 0,
+        available: true,
+        previousStandingScore: 0,
+        classRankFloor: null,
+        classRankFloorApplied: false,
+        eliteFloorApplied: false,
+        confirmedEliteTitleCount: 0,
+        confidence: 1,
+        confidenceCauses: [],
+        reason: null,
+      },
+      composite: null,
+    });
+
+    // Simulate CharacterScore JSON persistence (serialize → DB → parse).
+    const persistedDetails = JSON.parse(
+      JSON.stringify({
+        explainability: canonical,
+        performance: { confidence: 0.72, limitations: ["incomplete_dungeon_coverage"] },
+        survival: { confidence: 0.65 },
+        utility: { confidence: 0.55 },
+        experience: {
+          score: 0,
+          available: true,
+          confidence: 1,
+          confidenceCauses: [],
+          reason: null,
+        },
+      }),
+    );
+
+    const dto = mapCharacterScoreToSnapshotDto(
+      {
+        ...baseRow,
+        performance: null,
+        utility: null,
+        survival: null,
+        experience: 0,
+        dimensionDetails: persistedDetails,
+      },
+      { modelKey: "default", modelVersion: 6 },
+    );
+
+    const expected = projectScoreExplainabilityPublic(canonical);
+    for (const key of [
+      "PERFORMANCE",
+      "SURVIVAL",
+      "UTILITY",
+      "EXPERIENCE",
+    ] as const) {
+      const dim = dto.dimensions.find((d) => d.dimension === key);
+      expect(dim?.explainability).toEqual(expected.dimensions[key]);
+    }
+
+    const experience = dto.dimensions.find((d) => d.dimension === "EXPERIENCE");
+    expect(experience?.explainability?.scoreDrivers.map((d) => d.code)).toContain(
+      "experience.confirmed_no_activity",
+    );
+    expect(experience?.explainability?.confidenceReasons).toEqual([]);
+    expect(
+      (experience?.contributors as { negative?: Array<{ metricKey: string }> }).negative?.map(
+        (n) => n.metricKey,
+      ),
+    ).toContain("experience.confirmed_no_activity");
+    expect(
+      (dto.explanation as { explainabilityFingerprint?: string })
+        .explainabilityFingerprint,
+    ).toBe(canonical.fingerprint);
+  });
+
+  it("soft-fails malformed explainability without breaking profile reads", () => {
+    const dto = mapCharacterScoreToSnapshotDto(
+      {
+        ...baseRow,
+        dimensionDetails: {
+          explainability: { schemaVersion: "not-a-real-schema", bogus: true },
+          performance: { confidence: 0.9, limitations: ["profile_only"] },
+          experience: {
+            score: 0,
+            available: true,
+            confidence: 1,
+            reason: null,
+          },
+        },
+      },
+      { modelKey: "default", modelVersion: 6 },
+    );
+
+    expect(dto.overallScore).toBe(68);
+    expect(dto.dimensions.find((d) => d.dimension === "PERFORMANCE")?.score).toBe(71);
+    expect(
+      dto.dimensions.find((d) => d.dimension === "PERFORMANCE")?.explainability,
+    ).toBeUndefined();
+    expect(
+      (
+        dto.dimensions.find((d) => d.dimension === "PERFORMANCE")?.contributors as {
+          negative?: unknown[];
+          limitations?: string[];
+        }
+      ).negative,
+    ).toEqual([]);
+    expect(
+      (
+        dto.dimensions.find((d) => d.dimension === "PERFORMANCE")?.contributors as {
+          limitations?: string[];
+        }
+      ).limitations,
+    ).toEqual(["profile_only"]);
+  });
+
+  it("never maps confidence limitations into negative contributors on legacy rows", () => {
+    const dto = mapCharacterScoreToSnapshotDto(
+      {
+        ...baseRow,
+        experience: null,
+        dimensionDetails: {
+          performance: {
+            confidence: 0.4,
+            limitations: ["incomplete_dungeon_coverage", "incomplete_cooldown_run_coverage"],
+          },
+          survival: {
+            confidence: 0.5,
+            explanation: { limitations: ["max_hp_unavailable"] },
+          },
+          utility: {
+            confidence: 0.3,
+            explanation: { confidenceReasons: ["tiny_run_sample"] },
+          },
+        },
+      },
+      { modelKey: "default", modelVersion: 6 },
+    );
+
+    for (const key of ["PERFORMANCE", "SURVIVAL", "UTILITY"] as const) {
+      const dim = dto.dimensions.find((d) => d.dimension === key);
+      expect(
+        (dim?.contributors as { negative?: unknown[] }).negative,
+      ).toEqual([]);
+      expect(dim?.explainability).toBeUndefined();
+    }
   });
 });

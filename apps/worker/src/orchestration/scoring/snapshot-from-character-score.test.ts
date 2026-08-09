@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ExperiencePhase1Result } from "@mplus/scoring";
+import { buildScoreExplainabilityV1 } from "@mplus/scoring";
 import type { ScoreCharacterResult } from "./score-character.js";
 import {
   contributorsFromLimitations,
@@ -18,7 +19,22 @@ function baseResult(
     overrides && "experience" in overrides
       ? overrides.experience ?? null
       : null;
-  return {
+  const performanceScore = overrides?.performanceScore ?? 83;
+  const performanceConfidence = overrides?.performanceConfidence ?? 0.4;
+  const performanceLimitations = overrides?.performanceLimitations ?? [
+    "profile_only",
+  ];
+  const explainability =
+    overrides?.explainability ??
+    buildScoreExplainabilityV1({
+      performance: null,
+      survival: null,
+      utility: null,
+      experience,
+      composite: null,
+    });
+
+  const result: ScoreCharacterResult = {
     orchestration: {
       selectedSlotCount: 8,
       expectedSlotCount: 16,
@@ -30,9 +46,9 @@ function baseResult(
       accounting: { providerCalls: 0 },
       dimensions: {
         performance: {
-          score: overrides?.performanceScore ?? 83,
-          confidence: overrides?.performanceConfidence ?? 0.4,
-          limitations: overrides?.performanceLimitations ?? ["profile_only"],
+          score: performanceScore,
+          confidence: performanceConfidence,
+          limitations: performanceLimitations,
         } as never,
         utility: {
           score: 62,
@@ -55,6 +71,7 @@ function baseResult(
     scoringVersion: "test",
     publicationEnabled: false,
     experience,
+    explainability,
     performanceAggregate: {
       state: "UNAVAILABLE",
       data: null,
@@ -66,8 +83,27 @@ function baseResult(
       aggregateRowId: null,
       contentHash: null,
     },
-    ...overrides,
   };
+
+  if (overrides?.characterScoreId !== undefined) {
+    result.characterScoreId = overrides.characterScoreId;
+  }
+  if (overrides?.providerCalls !== undefined) {
+    result.providerCalls = overrides.providerCalls;
+  }
+  if (overrides?.scoringVersion !== undefined) {
+    result.scoringVersion = overrides.scoringVersion;
+  }
+  if (overrides?.publicationEnabled !== undefined) {
+    result.publicationEnabled = overrides.publicationEnabled;
+  }
+  if (overrides?.orchestration !== undefined) {
+    result.orchestration = overrides.orchestration;
+  }
+  if (overrides?.performanceAggregate !== undefined) {
+    result.performanceAggregate = overrides.performanceAggregate;
+  }
+  return result;
 }
 
 describe("scoreCharacterResultToSnapshotDto Experience wiring", () => {
@@ -241,7 +277,7 @@ describe("scoreCharacterResultToSnapshotDto Experience wiring", () => {
     expect(dto.overallScore).toBe(70);
   });
 
-  it("maps calculator limitations into public contributors", () => {
+  it("does not map confidence limitations into negative contributors", () => {
     const dto = scoreCharacterResultToSnapshotDto({
       result: baseResult({
         performanceLimitations: ["profile_only", "phase1_partial"],
@@ -255,11 +291,38 @@ describe("scoreCharacterResultToSnapshotDto Experience wiring", () => {
       publicationEnabled: false,
     });
     const perf = dto.dimensions.find((d) => d.dimension === "PERFORMANCE");
-    expect(perf?.contributors).toEqual(
-      contributorsFromLimitations(["profile_only", "phase1_partial"]),
-    );
+    const contributors = perf?.contributors as {
+      negative?: Array<{ metricKey: string }>;
+      limitations?: string[];
+    };
+    // Confidence/data limitations must never appear as player weaknesses.
+    expect(contributors.negative ?? []).toEqual([]);
+    expect(perf?.explainability).toBeDefined();
+    for (const reason of perf?.explainability?.confidenceReasons ?? []) {
+      expect((contributors.negative ?? []).map((n) => n.metricKey)).not.toContain(
+        reason.code,
+      );
+    }
+    // Stub orchestration limitations are not projected as scoreDrivers here
+    // (canonical explainability was built from null performance in this unit fixture).
+    expect(contributors.limitations ?? []).toEqual([]);
     expect(dto.dimensions.find((d) => d.dimension === "PERFORMANCE")?.confidence).toBe(0.4);
     expect(dto.dimensions.find((d) => d.dimension === "UTILITY")?.confidence).toBe(0.5);
     expect(dto.dimensions.find((d) => d.dimension === "SURVIVAL")?.confidence).toBe(0.55);
+  });
+
+  it("legacy contributorsFromLimitations never fabricates weaknesses", () => {
+    const contributors = contributorsFromLimitations([
+      "incomplete_dungeon_coverage",
+      "profile_only",
+    ]) as {
+      negative: unknown[];
+      limitations: string[];
+    };
+    expect(contributors.limitations).toEqual([
+      "incomplete_dungeon_coverage",
+      "profile_only",
+    ]);
+    expect(contributors.negative).toEqual([]);
   });
 });

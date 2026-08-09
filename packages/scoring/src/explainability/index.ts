@@ -32,6 +32,14 @@ export {
 } from "./project.js";
 
 export {
+  contributorsFromPublicScoreDrivers,
+  contributorsFromLegacyConfidenceContext,
+  tryParsePersistedScoreExplainability,
+  productDimensionExplainabilityFields,
+} from "./product-dto.js";
+export type { LegacyDimensionContributors } from "./product-dto.js";
+
+export {
   adaptPerformanceExplainability,
   adaptSurvivalExplainability,
   adaptUtilityExplainability,

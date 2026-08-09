@@ -98,7 +98,7 @@ export function buildScoreDriver(input: {
 }
 
 export function buildConfidenceReasonsFromCauses(
-  causes: readonly string[],
+  causes: readonly string[] | null | undefined,
   options?: {
     /** When confidence is perfect, reasons must be empty. */
     confidenceValue?: number | null;
@@ -114,7 +114,7 @@ export function buildConfidenceReasonsFromCauses(
   }
   const reasons: ConfidenceReasonV1[] = [];
   const seen = new Set<string>();
-  for (const raw of causes) {
+  for (const raw of causes ?? []) {
     const code = raw.trim();
     if (!code || seen.has(code)) continue;
     seen.add(code);

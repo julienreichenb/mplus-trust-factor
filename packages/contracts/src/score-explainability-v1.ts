@@ -177,3 +177,13 @@ export const publicScoreExplainabilityV1Schema = z.object({
 export type PublicScoreExplainabilityV1 = z.infer<
   typeof publicScoreExplainabilityV1Schema
 >;
+
+/** Strict parse — throws on invalid payloads. */
+export function parseScoreExplainabilityV1(value: unknown): ScoreExplainabilityV1 {
+  return scoreExplainabilityV1Schema.parse(value);
+}
+
+/** Soft-fail parse for persisted CharacterScore.dimensionDetails.explainability. */
+export function safeParseScoreExplainabilityV1(value: unknown) {
+  return scoreExplainabilityV1Schema.safeParse(value);
+}
