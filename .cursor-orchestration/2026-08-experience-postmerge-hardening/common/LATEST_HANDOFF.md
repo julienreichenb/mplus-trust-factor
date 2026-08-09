@@ -1,184 +1,162 @@
 # Latest Handoff
 
-Status: AGENT 02 COMPLETE
+Status: AGENT 03 COMPLETE — **MERGE READY**
 
 ## Baseline
 
 - PR #84 is merged.
 - Agent 01 accepted (`062b9cf` — provider-free Experience reconstruction + RIO accounting).
-- Agent 02 owns F2–F6 (season/evidence integrity).
+- Agent 02 accepted (season/evidence integrity; chronology-parity tip `77e389e`).
+- Agent 03 — final regression / live acceptance (this document).
 
-## Current agent
+## Findings fixed (F1–F9)
 
-Agent 02 — season binding + evidence integrity hardening (complete; corrective follow-up applied).
+| ID | Status |
+|----|--------|
+| F1 canonical provider-free replay | Proven via `runAuthoritativeScoring` cold→warm→replay |
+| F2 remapped cutoff fresh policy | Proven: refuse without proof; accept with proof; positive rating → p990 |
+| F3 duplicate previous resolution | Proven: fixture pollution cannot poison RIO slug / evidence identities |
+| F4 evidence compatibility | Covered by Agent 02 + replay path |
+| F5 ensure retry | Covered by Agent 02 F5 (fail→retry→skip) |
+| F6 transient vs terminal | Proven through canonical scoring (429/5xx/network vs 404) |
+| F7 provider accounting | Exact equality: cold Blizzard=2, cold fallback=3, warm/replay=0 |
+| F8 real Prisma restart | Proven on disposable PostgreSQL (not in-memory Map) |
+| F9 live-probe footgun | Destructive reset opt-in + production/staging reject |
 
-## Corrective follow-up (explicit Blizzard↔RIO identity)
+## Final acceptance matrix
 
-### RIO match algorithm
+### 1. Canonical cold → warm → provider-free replay
 
-When target Blizzard season id is known:
+Entry: `runAuthoritativeScoring()` (not phase-1 alone).
 
-1. exact-id candidates among real main seasons;
-2. unique exact-id → chronology sanity (see below) then select; multiple → date-disambiguate **only among exact-id**;
-3. no exact-id → date match **only** among RIO seasons with missing/unavailable `blizzardSeasonId`;
-4. explicitly mismatched ids → `RIO_DATE_MATCH_EXPLICIT_BLIZZARD_ID_MISMATCH` (never win by dates).
+| Mode | Historical Blizzard | Historical RIO | Achievements | E | providerCalls |
+|------|---------------------|----------------|--------------|---|---------------|
+| COLD | 1 | 0 | 1 | 90 (p990) | **2** |
+| WARM | 0 | 0 | 0 | identical | **0** |
+| REPLAY (`ALLOW_LIVE_PROVIDER_CALLS=false`) | 0 | 0 | 0 | identical | **0** |
 
-Unique exact-id chronology (`RIO_BLIZZARD_EXACT_ID_CHRONOLOGY_MAX_MS` = 2× proximity):
-- both starts missing/partial → ID sufficient, accept;
-- both starts present and within max → accept;
-- both starts present and absurdly far → `RIO_DATE_MATCH_EXACT_ID_CHRONOLOGY_ABSURD`.
+P/S/U unchanged across the three runs. Evidence persisted with season=N-1, Blizzard=14, RIO=`season-tww-3`.
 
-### Stale legacy `providerSeasonId`
+### 2. Fresh policy + remapped cutoffs + positive rating
 
-After a failed fresh match, bootstrap revalidates any persisted previous slug via
-`revalidatePersistedRaiderIoSeasonSlug` (same identity semantics as fresh match,
-including Blizzard start/end chronology):
+- No pre-existing Experience population LKG.
+- `isRemappedSeason=true` refused without `exactTargetSeasonEquivalenceProven`.
+- With `proveExactRaiderIoCutoffSeasonEquivalence` → `UPDATED` LKG persisted.
+- Positive historical rating 3000 → native band **p990** / score **90**.
+- Provider-free replay after persist: 0 historical calls, same E.
 
-| Evidence | Result |
-|----------|--------|
-| Explicit matching Blizzard id + absurd chronology | `PROVEN_INCOMPATIBLE` |
-| Explicit matching Blizzard id + compatible/missing dates | `COMPATIBLE` |
-| Explicit mismatched Blizzard id / non-main | `PROVEN_INCOMPATIBLE` |
-| Missing RIO id + conservative date match OK | `COMPATIBLE` |
-| Missing RIO id + dates prove mismatch | `PROVEN_INCOMPATIBLE` |
-| Missing RIO id + insufficient dates / static down / absent slug | `COULD_NOT_REVALIDATE` |
+### 3. Real persistence / restart
 
-| Status | Action |
-|--------|--------|
-| `PROVEN_INCOMPATIBLE` | clear `providerSeasonId`; do not sync cutoffs; leave binding unbound |
-| `COULD_NOT_REVALIDATE` | retain LKG slug (static down / slug not in loaded pools / dates insufficient) |
-| `COMPATIBLE` | reuse slug as binding + proof season |
+`experience-agent03-persistence.integration.test.ts` on disposable `mplus_itest_*`:
 
-### providerSeasonId writes
+1. Prisma `CharacterExperienceEvidenceRepository.upsertImmutable`
+2. `$disconnect` + new `createPrismaClient`
+3. `ALLOW_LIVE_PROVIDER_CALLS=false` → `runAuthoritativeScoring`
+4. E=90, historical Blizzard/RIO calls = 0
 
-- Write `Season.providerSeasonId` only after a successful identity match.
-- Do **not** fall back to `rioPair.current.slug` after a failed match (especially explicit id mismatch).
-- Fail closed: wrong slug is never persisted; cutoff sync is skipped when previous RIO slug is unbound.
+Empty-DB migrate deploy applied all 33 migrations including `20260809180000_character_experience_evidence` (PR #84 schema; no new migration).
 
-### RAIDERIO_FALLBACK replay
+### 4. Wrong-season contamination
 
-When binding has a known exact RIO slug, `RAIDERIO_FALLBACK` rows require non-null matching `payload.raiderIoSeasonSlug` and `row.raiderIoSeasonSlug`. BLIZZARD-primary may still tolerate legacy null RIO provenance.
+Canonical scoring with later-starting fixture (`providerSeasonId=season-fixture-poison`):
 
-### Ensure retry proof
+- RIO exact call uses true previous slug only
+- Persisted rating: internal=N-1, Blizzard=14, RIO=`season-tww-3`
 
-`ensureExperienceSeasonBindingReady`: transient failure → same-process retry executes bootstrap again and succeeds (auto-memoizes) → third call returns `EXPERIENCE_SEASON_BINDING_ALREADY_ENSURED`. No manual `rememberExperienceSeasonBindingEnsured` in the proof.
+### 5. Stale `providerSeasonId` / legacy hardening
 
-## 1. Canonical season-binding architecture (F3)
+Locked by Agent 02 (Agent 03 re-ran suite — 45/45):
 
-### Before (PR #84 / Agent 01)
+- A explicit different Blizzard ID → cannot bind / sync / fallback
+- B exact ID + absurd chronology → fresh + legacy reject; slug cleared
+- C missing RIO ID → date bind / mismatch / COULD_NOT_REVALIDATE
+- D provider/static outage → LKG retained
+- E later valid static → can rebind after clear
 
-Two independent previous-season inferences:
+Chronology-parity functional commit: `77e389e92db817a566a4c72919c3371d581ff735`  
+(stale handoff SHA `2be03df…` was superseded / not tip — corrected here).
 
-1. `buildExperiencePhase1Result` → `resolvePreviousMythicSeason()` (authority slug + chronology).
-2. `refresh-bridge.ts` → separate `season.findMany` ordered by `startsAt desc` (no authority-slug filter) → `boundPreviousRaiderIoSlug`.
+### 6. Transient vs terminal fallback (canonical)
 
-A fixture/non-authority Season with a later `startsAt` and a plausible `providerSeasonId` could supply the RIO slug for exact historical acquisition while phase-1 selected a different previous row.
+| Blizzard failure | RIO historical | Immutable RIO rating | Retry Blizzard later |
+|------------------|----------------|----------------------|----------------------|
+| 429 / RATE_LIMITED | 0 | none | yes |
+| 5xx | 0 | none | yes |
+| retryable network | 0 | none | yes |
+| terminal 404 | 1 | persisted RAIDERIO_FALLBACK | n/a |
+| successful Blizzard | 0 | BLIZZARD wins | n/a |
 
-### After
+Note: elite achievements alone may still yield E=90 (elite floor) when standing is unresolved; rating evidence is not persisted on transient failures.
 
-- `resolveCanonicalPreviousSeasonBinding()` = `resolvePreviousMythicSeason()` + `providerSeasonId` from **that same selected row**.
-- `refresh-bridge` resolves once and passes `canonicalPreviousBinding` into phase-1 (no re-inference of previous / slug).
-- Phase-1 prefers the selected row’s `providerSeasonId` over any poisoned caller slug override.
-- Fixture pollution cannot attach a fake RIO slug to the canonical previous Season.
+### 7. Rollover / ensure retry
 
-## 2. Evidence compatibility contract (F4)
+- Same-process N→N+1: stale N-1 evidence does not satisfy new previous N; Blizzard called for season 15.
+- Ensure fail→retry→success→skip: Agent 02 F5 (re-verified in Agent 03 suite run).
 
-`ratingEvidenceFromPersistedRow(row, expected?)` now validates against the current binding when `expected` is supplied:
+### 8. Provider call accounting
 
-| Check | Rule |
-|-------|------|
-| characterId / seasonId / compat version | must match |
-| payload.internalSeasonId | must match row + expected |
-| blizzardSeasonId | payload (+ row when present) must match expected |
-| raiderIoSeasonSlug | BLIZZARD: present values must match when expected known; legacy null OK. RAIDERIO_FALLBACK: payload + row slug required and must equal expected |
-| source ↔ ratingSource | BLIZZARD / RAIDERIO_FALLBACK consistency |
-| contentHash | when present, must equal hash of normalized payload |
+- Cold Blizzard success: `providerCalls === 2` (profile + achievements; P/S/U=0 with memory ports).
+- Cold terminal fallback: `providerCalls === 3` (+ RIO historical).
+- Warm / provider-free: `providerCalls === 0`.
 
-Incompatible row: providers allowed → ignore + reacquire; providers forbidden → unavailable. Immutable row is never mutated in place.
+### 9. P/S/U non-regression
 
-## 3. Remapped cutoff equivalence proof (F2)
+- `score-character.test.ts`, `refresh-integration.test.ts`, Experience e2e: **passed**.
+- Canonical cold/warm/replay: P/S/U byte-identical across runs.
+- Live Wallidrixe P≈94.960 / S≈72.933 / U=62.3: **not re-measured** (no local provider credentials / `.env`). Fixture regressions did not alter P/S/U formulas.
 
-`proveExactRaiderIoCutoffSeasonEquivalence()` — narrow typed proof, **not** unconditional `exactTargetSeasonEquivalenceProven: true`.
+### 10. Class-rank limitation (remaining scope)
 
-Requires:
+Previous-season regional class rank remains **fail-closed** unless exact-season provenance exists.  
+`refresh-bridge` passes `exactSeasonProven: false`. Generic RIO `previousRanks` must not become trusted. Acceptable remaining scope — not claimed fixed.
 
-- exact bound RIO slug match;
-- `isMainSeason === true`;
-- matching `blizzardSeasonId` when RIO supplies it (mismatch → reject);
-- if RIO omits blizzard id → chronology proximity / containment required;
-- absurd start distance rejected even when ids match.
+### 11. Live-probe safety
 
-Bootstrap passes `exactTargetSeasonEquivalenceProven: proof.proven` into `synchronizeSeasonPopulationPolicy`. Remapped cutoffs without proof remain rejected; proven exact-season remapped policy can become LKG (Agent 03 fresh-DB positive-rating path).
+- Destructive evidence delete requires `EXPERIENCE_LIVE_PROBE_ALLOW_DESTRUCTIVE_RESET=true`
+- Rejects `APP_ENV` in `{production, staging}`
+- Normal invocation does not delete evidence
+- Guard unit test included
 
-## 4. Ensure retry semantics (F5)
+### 12. CI / validation results
 
-- `isExperienceSeasonBindingEnsureComplete(region)` gates memoization.
-- Transient / insufficient (provider failure, missing previous RIO slug, etc.) → **do not** remember.
-- Sequence: failed ensure → retry → successful ensure → subsequent ensure may SKIP.
-- Applies to both `ensureExperienceSeasonBindingReady` and `runExperienceSeasonBootstrapSafe`.
+| Check | Result |
+|-------|--------|
+| lint | pass |
+| typecheck | pass |
+| build | pass (fixed Agent 02 TS `never` on `previousExpansionSeasons?.length`) |
+| Experience + scoring suites | **174 passed** (13 files) |
+| Prisma validate | pass (schema valid) |
+| Disposable empty-DB migrate | pass (33 migrations) |
+| Agent 03 Prisma integration | **pass** (disposable DB) |
+| format:check (CI subset) | pre-existing prettier drift in infra/workflows — **not introduced** |
+| Live Wallidrixe | **skipped** — no `.env` / credentials; cold would need destructive reset |
 
-## 5. Blizzard terminal vs transient (F6)
+### 13. Files changed (Agent 03)
 
-`classifyBlizzardPreviousSeasonFailureForRioFallback(cause)`:
+- `apps/worker/src/orchestration/scoring/experience-agent03-acceptance.test.ts` (new)
+- `apps/worker/src/orchestration/scoring/experience-agent03-persistence.integration.test.ts` (new)
+- `apps/worker/src/orchestration/scoring/experience-agent05-live-probe-guards.ts` (new)
+- `apps/worker/src/orchestration/scoring/experience-agent05-live-probe.ts` (destructive opt-in)
+- `apps/worker/src/orchestration/scoring/refresh-bridge.experience-replay.test.ts` (exact providerCalls)
+- `apps/worker/src/orchestration/scoring/experience-season-bootstrap.ts` (TS build fix)
+- `.cursor-orchestration/.../common/LATEST_HANDOFF.md` (this report)
 
-| Class | Examples | Immutable RIO fallback |
-|-------|----------|------------------------|
-| `TRANSIENT` | 429 / RATE_LIMITED, 5xx, NETWORK, TIMEOUT, `retryable: true` | **No** (no RIO call, no persist) |
-| `TERMINAL_HISTORICAL_UNAVAILABLE` | 404 / NOT_FOUND / PROFILE_UNAVAILABLE | **Yes** if exact RIO season evidence available |
-| `NON_FALLBACK` | other | **No** |
-
-Successful Blizzard evidence never calls RIO. Confirmed no-activity / ambiguous-zero / class-rank fail-closed / native bands / P/S/U / Agent 01 accounting unchanged.
-
-## Files changed
-
-- `apps/worker/src/orchestration/scoring/experience-previous-season-evidence.ts` — canonical binding + failure classification
-- `apps/worker/src/orchestration/scoring/experience-evidence-persist.ts` — binding compatibility checks
-- `apps/worker/src/orchestration/scoring/experience-phase1.ts` — consume canonical binding; gate RIO fallback; validate cache
-- `apps/worker/src/orchestration/scoring/refresh-bridge.ts` — single canonical resolve; pass binding into phase-1
-- `apps/worker/src/orchestration/scoring/experience-season-bootstrap.ts` — remapped proof; ensure memoization only on complete
-- `apps/worker/src/orchestration/scoring/experience-agent02-integrity.test.ts` — new F2–F6 regressions
-- `.cursor-orchestration/.../common/LATEST_HANDOFF.md` — this handoff
-
-## Tests
-
-```
-pnpm test:raw -- \
-  apps/worker/src/orchestration/scoring/experience-agent02-integrity.test.ts \
-  apps/worker/src/orchestration/scoring/experience-previous-season-evidence.test.ts \
-  apps/worker/src/orchestration/scoring/experience-evidence-persist.test.ts \
-  apps/worker/src/orchestration/scoring/experience-season-bootstrap.test.ts \
-  apps/worker/src/orchestration/scoring/experience-season-population-policy-sync.test.ts \
-  apps/worker/src/orchestration/scoring/experience-phase1.test.ts \
-  apps/worker/src/orchestration/scoring/experience-phase1.e2e.test.ts \
-  apps/worker/src/orchestration/scoring/refresh-bridge.experience-replay.test.ts \
-  apps/worker/src/orchestration/scoring/experience-agent05-acceptance.test.ts \
-  apps/worker/src/orchestration/scoring/experience-season-rollover.audit.test.ts \
-  apps/worker/src/orchestration/scoring/refresh-integration.test.ts \
-  apps/worker/src/orchestration/scoring/score-character.test.ts
-```
-
-Result: **163 passed** (12 files).
-
-## Completed commits
+### 14. Commits
 
 - Agent 01: `062b9cfad4757a388150271081d75f10c13752d2`
 - Agent 02 primary: `2c08699edfb77aede081386c168e326bd704d7ff`
 - Agent 02 corrective (id-mismatch): `0159f6a31695196f31c8be3dd18b6abee94c8675`
 - Agent 02 corrective (stale slug + exact-id chronology): `1fb57a83ad09daf5ccdbe8a43f06243934254dae`
-- Agent 02 corrective (revalidation chronology parity): `2be03df197a1ed853184b43299dc03c02994342b`
-- Tip: `2be03df197a1ed853184b43299dc03c02994342b`
+- Agent 02 corrective (revalidation chronology parity): `77e389e92db817a566a4c72919c3371d581ff735`
+- Agent 03 functional: _(recorded after commit)_
 
-## Remaining sequence
+### 15. Remaining known limitations
 
-1. ~~Agent 01 — canonical replay + accounting.~~
-2. ~~Agent 02 — season/evidence integrity hardening.~~
-3. Agent 03 — final regression / live acceptance (fresh-DB positive-rating + remapped policy path).
+1. Previous regional class rank still fail-closed without exact-season provenance (by design).
+2. Incompatible immutable evidence rows are ignored for scoring but not deleted.
+3. Live Wallidrixe non-destructive warm/replay not executed in this environment (no credentials).
+4. No process-level full OS restart of PostgreSQL — client disconnect/reconnect on disposable DB is the strongest practical proof.
 
-## Blockers / concerns for Agent 03
+### 16. Verdict
 
-- Prove clean-DB positive historical rating with remapped cutoffs when `proveExactRaiderIoCutoffSeasonEquivalence` is true (Wallidrixe E=0 hides policy need).
-- Exercise canonical `runAuthoritativeScoring` entry, not only `buildExperiencePhase1Result`.
-- Optional disposable-DB integration for evidence round-trip (F8).
-- Live probe footgun (F9) still open — descope/protect if retained.
-- Incompatible immutable rows are ignored for scoring but not deleted; a future compat-version bump may be needed if repair is required in production.
-- No P/S/U, band, weight, class-rank floor, or elite floor changes in this agent.
+**MERGE READY**

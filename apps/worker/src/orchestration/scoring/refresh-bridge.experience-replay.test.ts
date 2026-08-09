@@ -505,7 +505,8 @@ describe("runAuthoritativeScoring Experience canonical replay + accounting", () 
     expect(cold.getCharacterAchievements).toHaveBeenCalledTimes(1);
     expect(cold.getCharacterExactSeasonHistoricalRating).not.toHaveBeenCalled();
     expect(cold.saved[0]!.experience).toBe(90);
-    expect(coldResult.providerCalls).toBeGreaterThanOrEqual(2);
+    // Exact Experience contribution (memory ports → P/S/U providerCalls = 0).
+    expect(coldResult.providerCalls).toBe(2);
 
     const coldExp = experienceFromSaved(cold.saved[0]!);
     expect(coldExp.available).toBe(true);
@@ -613,7 +614,7 @@ describe("runAuthoritativeScoring Experience canonical replay + accounting", () 
     expect(harness.getCharacterAchievements).toHaveBeenCalledTimes(1);
 
     // previousSeasonProfile (1) + achievements (1) + RIO historical (1)
-    expect(result.providerCalls).toBeGreaterThanOrEqual(3);
+    expect(result.providerCalls).toBe(3);
 
     const exp = experienceFromSaved(harness.saved[0]!);
     expect(exp.available).toBe(true);

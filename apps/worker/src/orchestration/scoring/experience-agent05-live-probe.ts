@@ -2,6 +2,10 @@
  * Agent 05 — live Wallidrixe Experience acceptance probe.
  *
  *   node tools/scripts/with-env.mjs pnpm --filter @mplus/worker exec tsx src/orchestration/scoring/experience-agent05-live-probe.ts
+ *
+ * Destructive evidence reset is OFF by default. To force cold mode:
+ *   EXPERIENCE_LIVE_PROBE_ALLOW_DESTRUCTIVE_RESET=true
+ * and APP_ENV must not be production/staging.
  */
 import { loadEnv, resetEnvCache } from "@mplus/config";
 import {
@@ -14,6 +18,7 @@ import { bootstrapExperienceSeasonMetadata } from "./experience-season-bootstrap
 import { buildExperiencePhase1Result } from "./experience-phase1.js";
 import { readExperiencePopulationPolicyMetadata } from "./experience-season-population-policy-metadata.js";
 import { resolvePreviousMythicSeason } from "./experience-previous-season-evidence.js";
+import { assertExperienceLiveProbeDestructiveResetAllowed } from "./experience-agent05-live-probe-guards.js";
 
 resetEnvCache();
 const env = loadEnv();
@@ -165,7 +170,20 @@ async function runOnce(label: string, allowProviderCalls: boolean) {
   };
 }
 
-if (character && previous && current) {
+const destructiveResetRequested =
+  String(process.env.EXPERIENCE_LIVE_PROBE_ALLOW_DESTRUCTIVE_RESET ?? "")
+    .trim()
+    .toLowerCase() === "true" ||
+  String(process.env.EXPERIENCE_LIVE_PROBE_ALLOW_DESTRUCTIVE_RESET ?? "")
+    .trim() === "1";
+
+let destructiveResetApplied = false;
+if (destructiveResetRequested && character && previous && current) {
+  assertExperienceLiveProbeDestructiveResetAllowed({
+    EXPERIENCE_LIVE_PROBE_ALLOW_DESTRUCTIVE_RESET:
+      process.env.EXPERIENCE_LIVE_PROBE_ALLOW_DESTRUCTIVE_RESET,
+    APP_ENV: env.APP_ENV ?? process.env.APP_ENV,
+  });
   await prisma.characterExperienceEvidence.deleteMany({
     where: { characterId: character.id, seasonId: previous.id },
   });
@@ -176,6 +194,7 @@ if (character && previous && current) {
       evidenceKind: "ELITE_CUTOFF_HISTORY",
     },
   });
+  destructiveResetApplied = true;
 }
 
 counts.blizzardHistorical = 0;
@@ -282,6 +301,7 @@ console.log(
       warm,
       replay,
       callMatrix: { cold: coldCounts, warm: warmCounts, replay: replayCounts },
+      destructiveResetApplied,
       persistedEvidence,
       characterScore: score && {
         id: score.id,

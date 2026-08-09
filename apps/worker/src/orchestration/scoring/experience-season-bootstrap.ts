@@ -1228,9 +1228,7 @@ export async function bootstrapExperienceSeasonMetadata(
                 previousBlizzardForProof?.startTimestamp ?? null,
               targetBlizzardEndsAtMs:
                 previousBlizzardForProof?.endTimestamp ?? null,
-              staticDataAvailable:
-                staticSeasonsForBind.length > 0 ||
-                (previousExpansionSeasons?.length ?? 0) > 0,
+              staticDataAvailable: revalidationSeasons.length > 0,
               seasons: revalidationSeasons,
             });
             if (revalidation.status === "COMPATIBLE") {
