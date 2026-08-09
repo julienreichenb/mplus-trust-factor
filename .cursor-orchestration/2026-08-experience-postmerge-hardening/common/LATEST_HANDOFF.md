@@ -31,12 +31,22 @@ Unique exact-id chronology (`RIO_BLIZZARD_EXACT_ID_CHRONOLOGY_MAX_MS` = 2× prox
 ### Stale legacy `providerSeasonId`
 
 After a failed fresh match, bootstrap revalidates any persisted previous slug via
-`revalidatePersistedRaiderIoSeasonSlug`:
+`revalidatePersistedRaiderIoSeasonSlug` (same identity semantics as fresh match,
+including Blizzard start/end chronology):
+
+| Evidence | Result |
+|----------|--------|
+| Explicit matching Blizzard id + absurd chronology | `PROVEN_INCOMPATIBLE` |
+| Explicit matching Blizzard id + compatible/missing dates | `COMPATIBLE` |
+| Explicit mismatched Blizzard id / non-main | `PROVEN_INCOMPATIBLE` |
+| Missing RIO id + conservative date match OK | `COMPATIBLE` |
+| Missing RIO id + dates prove mismatch | `PROVEN_INCOMPATIBLE` |
+| Missing RIO id + insufficient dates / static down / absent slug | `COULD_NOT_REVALIDATE` |
 
 | Status | Action |
 |--------|--------|
 | `PROVEN_INCOMPATIBLE` | clear `providerSeasonId`; do not sync cutoffs; leave binding unbound |
-| `COULD_NOT_REVALIDATE` | retain LKG slug (static down / slug not in loaded pools) |
+| `COULD_NOT_REVALIDATE` | retain LKG slug (static down / slug not in loaded pools / dates insufficient) |
 | `COMPATIBLE` | reuse slug as binding + proof season |
 
 ### providerSeasonId writes
@@ -147,7 +157,7 @@ pnpm test:raw -- \
   apps/worker/src/orchestration/scoring/score-character.test.ts
 ```
 
-Result: **155 passed** (12 files).
+Result: **163 passed** (12 files).
 
 ## Completed commits
 
@@ -155,7 +165,8 @@ Result: **155 passed** (12 files).
 - Agent 02 primary: `2c08699edfb77aede081386c168e326bd704d7ff`
 - Agent 02 corrective (id-mismatch): `0159f6a31695196f31c8be3dd18b6abee94c8675`
 - Agent 02 corrective (stale slug + exact-id chronology): `1fb57a83ad09daf5ccdbe8a43f06243934254dae`
-- Tip: `1fb57a83ad09daf5ccdbe8a43f06243934254dae`
+- Agent 02 corrective (revalidation chronology parity): `2be03df197a1ed853184b43299dc03c02994342b`
+- Tip: `2be03df197a1ed853184b43299dc03c02994342b`
 
 ## Remaining sequence
 

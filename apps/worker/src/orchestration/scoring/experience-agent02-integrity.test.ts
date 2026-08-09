@@ -623,6 +623,318 @@ describe("Agent 02 — stale providerSeasonId revalidation", () => {
     expect(result.status).toBe("COULD_NOT_REVALIDATE");
   });
 
+  it("exact-ID + absurd chronology → PROVEN_INCOMPATIBLE", () => {
+    const absurdStart = new Date(
+      Date.parse(startX) + RIO_BLIZZARD_EXACT_ID_CHRONOLOGY_MAX_MS + 86400000,
+    ).toISOString();
+    const result = revalidatePersistedRaiderIoSeasonSlug({
+      persistedSlug: "season-tww-3",
+      targetBlizzardSeasonId: 14,
+      targetBlizzardStartsAtMs: Date.parse(startX),
+      targetBlizzardEndsAtMs: Date.parse("2026-01-01T00:00:00.000Z"),
+      staticDataAvailable: true,
+      seasons: [
+        {
+          slug: "season-tww-3",
+          name: "tww3",
+          startsAt: absurdStart,
+          endsAt: null,
+          isCurrent: false,
+          isMainSeason: true,
+          blizzardSeasonId: 14,
+          dungeonSlugs: [],
+        },
+      ],
+    });
+    expect(result).toEqual({
+      status: "PROVEN_INCOMPATIBLE",
+      reason: "RIO_DATE_MATCH_EXACT_ID_CHRONOLOGY_ABSURD",
+    });
+  });
+
+  it("exact-ID + compatible chronology → COMPATIBLE", () => {
+    const result = revalidatePersistedRaiderIoSeasonSlug({
+      persistedSlug: "season-tww-3",
+      targetBlizzardSeasonId: 14,
+      targetBlizzardStartsAtMs: Date.parse(startX),
+      targetBlizzardEndsAtMs: Date.parse("2026-01-01T00:00:00.000Z"),
+      staticDataAvailable: true,
+      seasons: [
+        {
+          slug: "season-tww-3",
+          name: "tww3",
+          startsAt: startX,
+          endsAt: "2026-01-01T00:00:00.000Z",
+          isCurrent: false,
+          isMainSeason: true,
+          blizzardSeasonId: 14,
+          dungeonSlugs: [],
+        },
+      ],
+    });
+    expect(result.status).toBe("COMPATIBLE");
+  });
+
+  it("exact-ID + missing dates → COMPATIBLE (ID sufficient)", () => {
+    const result = revalidatePersistedRaiderIoSeasonSlug({
+      persistedSlug: "season-tww-3",
+      targetBlizzardSeasonId: 14,
+      targetBlizzardStartsAtMs: null,
+      targetBlizzardEndsAtMs: null,
+      staticDataAvailable: true,
+      seasons: [
+        {
+          slug: "season-tww-3",
+          name: "tww3",
+          startsAt: null,
+          endsAt: null,
+          isCurrent: false,
+          isMainSeason: true,
+          blizzardSeasonId: 14,
+          dungeonSlugs: [],
+        },
+      ],
+    });
+    expect(result.status).toBe("COMPATIBLE");
+  });
+
+  it("no-ID slug + compatible dates → COMPATIBLE", () => {
+    const result = revalidatePersistedRaiderIoSeasonSlug({
+      persistedSlug: "season-tww-3",
+      targetBlizzardSeasonId: 14,
+      targetBlizzardStartsAtMs: Date.parse(startX),
+      targetBlizzardEndsAtMs: Date.parse("2026-01-01T00:00:00.000Z"),
+      staticDataAvailable: true,
+      seasons: [
+        {
+          slug: "season-tww-3",
+          name: "tww3",
+          startsAt: startX,
+          endsAt: "2026-01-01T00:00:00.000Z",
+          isCurrent: false,
+          isMainSeason: true,
+          blizzardSeasonId: null,
+          dungeonSlugs: [],
+        },
+      ],
+    });
+    expect(result.status).toBe("COMPATIBLE");
+  });
+
+  it("no-ID slug + dates proving mismatch → PROVEN_INCOMPATIBLE", () => {
+    const result = revalidatePersistedRaiderIoSeasonSlug({
+      persistedSlug: "season-tww-3",
+      targetBlizzardSeasonId: 14,
+      targetBlizzardStartsAtMs: Date.parse(startX),
+      targetBlizzardEndsAtMs: Date.parse("2026-01-01T00:00:00.000Z"),
+      staticDataAvailable: true,
+      seasons: [
+        {
+          slug: "season-tww-3",
+          name: "tww3",
+          startsAt: "2020-01-01T00:00:00.000Z",
+          endsAt: null,
+          isCurrent: false,
+          isMainSeason: true,
+          blizzardSeasonId: null,
+          dungeonSlugs: [],
+        },
+      ],
+    });
+    expect(result.status).toBe("PROVEN_INCOMPATIBLE");
+    if (result.status !== "PROVEN_INCOMPATIBLE") return;
+    expect(result.reason).toContain("PERSISTED_RIO_SLUG_DATE_MISMATCH");
+  });
+
+  it("no-ID slug + insufficient dates → COULD_NOT_REVALIDATE", () => {
+    const result = revalidatePersistedRaiderIoSeasonSlug({
+      persistedSlug: "season-tww-3",
+      targetBlizzardSeasonId: 14,
+      targetBlizzardStartsAtMs: Date.parse(startX),
+      targetBlizzardEndsAtMs: Date.parse("2026-01-01T00:00:00.000Z"),
+      staticDataAvailable: true,
+      seasons: [
+        {
+          slug: "season-tww-3",
+          name: "tww3",
+          startsAt: null,
+          endsAt: null,
+          isCurrent: false,
+          isMainSeason: true,
+          blizzardSeasonId: null,
+          dungeonSlugs: [],
+        },
+      ],
+    });
+    expect(result.status).toBe("COULD_NOT_REVALIDATE");
+  });
+
+  it("bootstrap clears exact-ID absurd chronology LKG and skips cutoff sync", async () => {
+    const absurdStart = new Date(
+      Date.parse(startX) + RIO_BLIZZARD_EXACT_ID_CHRONOLOGY_MAX_MS + 86400000,
+    ).toISOString();
+    const { prisma, seasons } = makeBootstrapPrisma("season-tww-3");
+    // Fresh match fails (no compatible RIO for 14); legacy slug has matching id but absurd dates.
+    const getSeasonCutoffs = vi.fn(async () => providerResult(cutoffs()));
+    const result = await bootstrapExperienceSeasonMetadata({
+      prisma: prisma as never,
+      regions: [{ code: "EU", id: REGION_ID }],
+      blizzard: {
+        getMythicKeystoneSeasonIndex: vi.fn(async () =>
+          providerResult([
+            {
+              blizzardSeasonId: 14,
+              slug: "s14",
+              name: "14",
+              startTimestamp: Date.parse(startX),
+              endTimestamp: Date.parse("2026-01-01T00:00:00.000Z"),
+            },
+            {
+              blizzardSeasonId: 15,
+              slug: "s15",
+              name: "15",
+              startTimestamp: Date.parse("2026-01-01T00:00:00.000Z"),
+              endTimestamp: null,
+            },
+          ]),
+        ),
+        getMythicKeystoneSeason: vi.fn(async () => {
+          throw new Error("unused");
+        }),
+      },
+      raiderIo: {
+        getStaticData: vi.fn(async () =>
+          providerResult({
+            expansionId: 10,
+            seasons: [
+              {
+                slug: "season-tww-3",
+                name: "tww3",
+                startsAt: absurdStart,
+                endsAt: null,
+                isCurrent: false,
+                isMainSeason: true,
+                blizzardSeasonId: 14,
+                dungeonSlugs: [],
+              },
+              {
+                slug: "season-mn-1",
+                name: "mn1",
+                startsAt: "2026-01-01T00:00:00.000Z",
+                endsAt: null,
+                isCurrent: true,
+                isMainSeason: true,
+                blizzardSeasonId: 15,
+                dungeonSlugs: [],
+              },
+            ],
+            dungeons: [],
+            attribution: {
+              provider: "raiderio",
+              displayText: "x",
+              homepageUrl: "https://raider.io",
+              profileUrl: null,
+              sourceUrl: null,
+            },
+          }),
+        ),
+        getSeasonCutoffs,
+      },
+      persistProviderResult: vi.fn(async () => "p"),
+      logger: { info: vi.fn(), warn: vi.fn() },
+    });
+
+    expect(seasons.find((s) => s.id === "prev")!.providerSeasonId).toBeNull();
+    expect(result.seasonCutoffsCalls).toBe(0);
+    expect(getSeasonCutoffs).not.toHaveBeenCalled();
+    expect(
+      result.regions[0]!.reasons.some((r) =>
+        r.includes("RIO_DATE_MATCH_EXACT_ID_CHRONOLOGY_ABSURD"),
+      ),
+    ).toBe(true);
+  });
+
+  it("bootstrap retains no-ID LKG when dates are insufficient to revalidate", async () => {
+    const { prisma, seasons } = makeBootstrapPrisma("season-tww-3");
+    const getSeasonCutoffs = vi.fn(async () => providerResult(cutoffs()));
+    const result = await bootstrapExperienceSeasonMetadata({
+      prisma: prisma as never,
+      regions: [{ code: "EU", id: REGION_ID }],
+      blizzard: {
+        getMythicKeystoneSeasonIndex: vi.fn(async () =>
+          providerResult([
+            {
+              blizzardSeasonId: 14,
+              slug: "s14",
+              name: "14",
+              startTimestamp: Date.parse(startX),
+              endTimestamp: Date.parse("2026-01-01T00:00:00.000Z"),
+            },
+            {
+              blizzardSeasonId: 15,
+              slug: "s15",
+              name: "15",
+              startTimestamp: Date.parse("2026-01-01T00:00:00.000Z"),
+              endTimestamp: null,
+            },
+          ]),
+        ),
+        getMythicKeystoneSeason: vi.fn(async () => {
+          throw new Error("unused");
+        }),
+      },
+      raiderIo: {
+        getStaticData: vi.fn(async () =>
+          providerResult({
+            expansionId: 10,
+            seasons: [
+              {
+                slug: "season-tww-3",
+                name: "tww3",
+                startsAt: null,
+                endsAt: null,
+                isCurrent: false,
+                isMainSeason: true,
+                blizzardSeasonId: null,
+                dungeonSlugs: [],
+              },
+              {
+                slug: "season-mn-1",
+                name: "mn1",
+                startsAt: "2026-01-01T00:00:00.000Z",
+                endsAt: null,
+                isCurrent: true,
+                isMainSeason: true,
+                blizzardSeasonId: 15,
+                dungeonSlugs: [],
+              },
+            ],
+            dungeons: [],
+            attribution: {
+              provider: "raiderio",
+              displayText: "x",
+              homepageUrl: "https://raider.io",
+              profileUrl: null,
+              sourceUrl: null,
+            },
+          }),
+        ),
+        getSeasonCutoffs,
+      },
+      persistProviderResult: vi.fn(async () => "p"),
+      logger: { info: vi.fn(), warn: vi.fn() },
+    });
+
+    expect(seasons.find((s) => s.id === "prev")!.providerSeasonId).toBe("season-tww-3");
+    expect(result.seasonCutoffsCalls).toBe(1);
+    expect(getSeasonCutoffs).toHaveBeenCalled();
+    expect(
+      result.regions[0]!.reasons.some((r) =>
+        r.includes("PERSISTED_RIO_SLUG_COULD_NOT_REVALIDATE"),
+      ),
+    ).toBe(true);
+  });
+
   function makeBootstrapPrisma(prevProviderSeasonId: string | null) {
     type SeasonRow = {
       id: string;

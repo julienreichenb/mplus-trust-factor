@@ -216,13 +216,16 @@ function assertExactIdChronologyCompatible(
 
 /**
  * Revalidate a persisted Season.providerSeasonId against currently available
- * Raider.IO static seasons for a known target Blizzard season id.
+ * Raider.IO static seasons for a known target Blizzard season.
  *
- * PROVEN_INCOMPATIBLE — static data shows an explicit Blizzard-id contradiction
- *   (or non-main season); safe to invalidate the persisted slug.
- * COULD_NOT_REVALIDATE — static unavailable / slug not present in loaded pools;
- *   retain LKG slug (do not clear on transient failure).
- * COMPATIBLE — slug points at an acceptable real main season for the target.
+ * Applies the same identity semantics as fresh matching when evidence exists:
+ * - explicit matching Blizzard id + chronology sanity
+ * - explicit mismatched Blizzard id → PROVEN_INCOMPATIBLE
+ * - missing RIO Blizzard id → conservative date match (not isMainSeason alone)
+ *
+ * PROVEN_INCOMPATIBLE — safe to invalidate the persisted slug.
+ * COULD_NOT_REVALIDATE — retain LKG (static down / insufficient evidence).
+ * COMPATIBLE — slug is acceptable for the target Blizzard season.
  */
 export type PersistedRaiderIoSlugRevalidation =
   | {
@@ -241,6 +244,8 @@ export type PersistedRaiderIoSlugRevalidation =
 export function revalidatePersistedRaiderIoSeasonSlug(input: {
   persistedSlug: string;
   targetBlizzardSeasonId: number;
+  targetBlizzardStartsAtMs?: number | null;
+  targetBlizzardEndsAtMs?: number | null;
   /** True when at least one RIO static payload was successfully loaded. */
   staticDataAvailable: boolean;
   seasons: readonly RaiderIoStaticSeason[];
@@ -289,14 +294,73 @@ export function revalidatePersistedRaiderIoSeasonSlug(input: {
       reason: "PERSISTED_RIO_SLUG_NOT_MAIN_SEASON",
     };
   }
+
+  const blizzard = {
+    startTimestamp:
+      input.targetBlizzardStartsAtMs != null &&
+      Number.isFinite(input.targetBlizzardStartsAtMs)
+        ? input.targetBlizzardStartsAtMs
+        : null,
+    endTimestamp:
+      input.targetBlizzardEndsAtMs != null &&
+      Number.isFinite(input.targetBlizzardEndsAtMs)
+        ? input.targetBlizzardEndsAtMs
+        : null,
+    blizzardSeasonId: input.targetBlizzardSeasonId,
+  };
+
   const rioId = season.blizzardSeasonId;
-  if (rioId != null && Number.isFinite(rioId) && rioId !== input.targetBlizzardSeasonId) {
+  if (rioId != null && Number.isFinite(rioId)) {
+    if (rioId !== input.targetBlizzardSeasonId) {
+      return {
+        status: "PROVEN_INCOMPATIBLE",
+        reason: "PERSISTED_RIO_SLUG_EXPLICIT_BLIZZARD_ID_MISMATCH",
+      };
+    }
+    // Exact Blizzard id — same chronology sanity as fresh unique exact-id match.
+    const chronology = assertExactIdChronologyCompatible(blizzard, season);
+    if (!chronology.ok) {
+      return {
+        status: "PROVEN_INCOMPATIBLE",
+        reason: chronology.reason,
+      };
+    }
+    return { status: "COMPATIBLE", season };
+  }
+
+  // Missing RIO Blizzard id: identity depends on conservative date matching.
+  // Never COMPATIBLE from isMainSeason alone.
+  const dateMatch = matchByDatesOnly(blizzard, [season]);
+  if (dateMatch.ok) {
+    return { status: "COMPATIBLE", season };
+  }
+  if (dateMatch.reason === "BLIZZARD_START_MISSING_FOR_RIO_DATE_MATCH") {
     return {
-      status: "PROVEN_INCOMPATIBLE",
-      reason: "PERSISTED_RIO_SLUG_EXPLICIT_BLIZZARD_ID_MISMATCH",
+      status: "COULD_NOT_REVALIDATE",
+      reason: "PERSISTED_RIO_SLUG_DATES_INSUFFICIENT",
     };
   }
-  return { status: "COMPATIBLE", season };
+  if (dateMatch.reason === "RIO_DATE_MATCH_NO_SEASONS_WITH_START") {
+    return {
+      status: "COULD_NOT_REVALIDATE",
+      reason: "PERSISTED_RIO_SLUG_DATES_INSUFFICIENT",
+    };
+  }
+  // Dates present but season fails proximity/containment → proven mismatch.
+  if (
+    dateMatch.reason === "RIO_DATE_MATCH_NONE" ||
+    dateMatch.reason === "RIO_DATE_MATCH_AMBIGUOUS_START" ||
+    dateMatch.reason === "RIO_DATE_MATCH_AMBIGUOUS_CONTAINED_START"
+  ) {
+    return {
+      status: "PROVEN_INCOMPATIBLE",
+      reason: `PERSISTED_RIO_SLUG_DATE_MISMATCH:${dateMatch.reason}`,
+    };
+  }
+  return {
+    status: "COULD_NOT_REVALIDATE",
+    reason: `PERSISTED_RIO_SLUG_DATES_INSUFFICIENT:${dateMatch.reason}`,
+  };
 }
 
 function matchByDatesOnly(
@@ -1160,6 +1224,10 @@ export async function bootstrapExperienceSeasonMetadata(
             const revalidation = revalidatePersistedRaiderIoSeasonSlug({
               persistedSlug: persisted,
               targetBlizzardSeasonId: targetBlizzardId,
+              targetBlizzardStartsAtMs:
+                previousBlizzardForProof?.startTimestamp ?? null,
+              targetBlizzardEndsAtMs:
+                previousBlizzardForProof?.endTimestamp ?? null,
               staticDataAvailable:
                 staticSeasonsForBind.length > 0 ||
                 (previousExpansionSeasons?.length ?? 0) > 0,
