@@ -10,6 +10,19 @@ export function cooldownRunEvidenceFromDigest(input: {
   slotId: string;
 }): PerformanceCooldownRunEvidence {
   const { digest, slotId } = input;
+  const performanceClock = digest.performance.activeCombatMs;
+  const survivalClock = digest.survival.activeCombatMs;
+  const activeCombatDurationMs =
+    performanceClock != null && performanceClock > 0
+      ? performanceClock
+      : survivalClock;
+  const activeCombatMethod =
+    performanceClock != null && performanceClock > 0
+      ? (digest.performance.activeCombatMethod ?? "hostile_cast_activity")
+      : survivalClock != null
+        ? ("survival_damage_taken_legacy" as const)
+        : null;
+
   return {
     slotId,
     reportCode: digest.reportCode,
@@ -19,7 +32,13 @@ export function cooldownRunEvidenceFromDigest(input: {
     classSlug: digest.classSlug,
     specSlug: digest.specSlug,
     catalogVersion: digest.catalogVersion,
-    activeCombatDurationMs: digest.survival.activeCombatMs,
+    activeCombatDurationMs,
+    activeCombatMethod,
     offensiveActivations: digest.performance.offensiveActivations,
+    loadoutEvidence: {
+      evidenceState: digest.loadoutEvidence.evidenceState,
+      talentSpellIds: digest.loadoutEvidence.talentSpellIds,
+    },
+    ownedPetActorIds: digest.ownedPetActorIds,
   };
 }

@@ -8,6 +8,8 @@ import type {
 } from "@mplus/contracts";
 import {
   acquirePreviousSeasonRatingEvidence,
+  corroboratePreviousSeasonBlizzardNotFound,
+  isAmbiguousBlizzardSeasonProfileNotFound,
   mapSeasonProfileToPreviousSeasonRatingEvidence,
   resolvePreviousMythicSeason,
   type ExperienceSeasonBindingCandidate,
@@ -431,5 +433,68 @@ describe("acquirePreviousSeasonRatingEvidence", () => {
       cause,
     });
     expect(persistProviderResult).not.toHaveBeenCalled();
+  });
+});
+
+describe("corroboratePreviousSeasonBlizzardNotFound", () => {
+  const previous = season({
+    id: "prev",
+    slug: "tww-3",
+    blizzardSeasonId: 13,
+    startsAt: new Date("2025-01-01T00:00:00.000Z"),
+  });
+
+  it("maps ambiguous 404 + RIO absence to CONFIRMED_NO_ACTIVITY", () => {
+    const cause = { statusCode: 404, code: "NOT_FOUND", details: { reason: "PROFILE_UNAVAILABLE" } };
+    expect(isAmbiguousBlizzardSeasonProfileNotFound(cause)).toBe(true);
+    const out = corroboratePreviousSeasonBlizzardNotFound({
+      binding: previous,
+      ratingEvidence: {
+        state: "PROVIDER_FAILURE",
+        reason: "MYTHIC_KEYSTONE_SEASON_PROFILE_FAILED",
+        cause,
+      },
+      rio: { profileFetched: true, previousSeasonScore: null },
+      fetchedAt: "2026-08-08T00:00:00.000Z",
+    });
+    expect(out).toMatchObject({
+      state: "CONFIRMED_NO_ACTIVITY",
+      blizzardSeasonId: 13,
+      rating: null,
+    });
+  });
+
+  it("keeps PROVIDER_FAILURE when RIO reports previous-season score", () => {
+    const cause = { statusCode: 404, code: "NOT_FOUND" };
+    const out = corroboratePreviousSeasonBlizzardNotFound({
+      binding: previous,
+      ratingEvidence: {
+        state: "PROVIDER_FAILURE",
+        reason: "MYTHIC_KEYSTONE_SEASON_PROFILE_FAILED",
+        cause,
+      },
+      rio: { profileFetched: true, previousSeasonScore: 2500 },
+    });
+    expect(out).toMatchObject({
+      state: "PROVIDER_FAILURE",
+      reason: "BLIZZARD_404_CONTRADICTED_BY_RAIDERIO",
+    });
+  });
+
+  it("does not invent absence without RIO corroboration", () => {
+    const cause = { statusCode: 404, code: "NOT_FOUND" };
+    const out = corroboratePreviousSeasonBlizzardNotFound({
+      binding: previous,
+      ratingEvidence: {
+        state: "PROVIDER_FAILURE",
+        reason: "MYTHIC_KEYSTONE_SEASON_PROFILE_FAILED",
+        cause,
+      },
+      rio: null,
+    });
+    expect(out).toMatchObject({
+      state: "PROVIDER_FAILURE",
+      reason: "BLIZZARD_404_UNCORROBORATED",
+    });
   });
 });

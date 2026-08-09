@@ -1,14 +1,24 @@
 /**
- * Partial Trust composite when one or more skill dimensions are unavailable.
+ * Overall composite confidence semantics (intentionally weakest-link).
  *
- * Unavailable dimensions are excluded (not treated as zero). Remaining base
- * weights are renormalized to sum to 1, then applied to available scores.
- *
+ * evidenceConfidence = min(available dimension confidences that are finite)
+ * confidence = evidenceConfidence × availabilityCoverage
  * availabilityCoverage = sum(available base weights) / sum(all base weights)
- * is used to scale evidence confidence downward for missing dimensions.
+ *
+ * Product notes (do not silently retune):
+ * - min() is the documented weakest-link rule (see doc/scoring/SCORING_DIMENSIONS.md).
+ * - Dimension weights influence availabilityCoverage and composite score, but not
+ *   which confidence is selected beyond inclusion in the min set.
+ * - Experience now contributes an explicit confidence when available (resolved
+ *   historical evidence → 1). Unavailable E only reduces coverage.
+ * - availabilityCoverage can double-penalize missing Experience relative to a
+ *   design where missing dims are omitted from both score and confidence.
  */
-
 import { clamp, clamp01 } from "../math.js";
+import {
+  PARTIAL_COMPOSITE_CONFIDENCE_FORMULA_VERSION,
+  uniqueCauses,
+} from "../confidence/dimension-confidence.js";
 import { createDefaultModelV1 } from "../model/defaults.js";
 import { gradeScore } from "../trust.js";
 import type { ScoreModelConfigV1 } from "../types.js";
@@ -30,6 +40,8 @@ export interface PartialCompositeDimensionInput {
   baseWeight: number;
   /** Per-dimension evidence confidence 0–1 when available. */
   confidence?: number | null;
+  /** Machine-readable causes from the dimension confidence breakdown. */
+  confidenceCauses?: readonly string[] | null;
 }
 
 export interface PartialCompositeResult {
@@ -48,6 +60,10 @@ export interface PartialCompositeResult {
     unavailableKeys: PublicSkillDimensionKey[];
     renormalized: boolean;
     availabilityCoverage: number;
+    evidenceConfidence: number;
+    weakestDimensionKey: PublicSkillDimensionKey | null;
+    formulaVersion: typeof PARTIAL_COMPOSITE_CONFIDENCE_FORMULA_VERSION;
+    causes: string[];
   };
 }
 
@@ -134,6 +150,10 @@ export function computePartialComposite(
     totalBase > 0 ? clamp01(availableBase / totalBase) : 0;
 
   if (available.length === 0 || availableBase <= 0) {
+    const causes = uniqueCauses([
+      "no_available_dimensions",
+      ...unavailableKeys.map((k) => `dimension_unavailable:${k}`),
+    ]);
     return {
       composite: null,
       effectiveWeights: {},
@@ -145,6 +165,10 @@ export function computePartialComposite(
         unavailableKeys,
         renormalized: false,
         availabilityCoverage,
+        evidenceConfidence: 0,
+        weakestDimensionKey: null,
+        formulaVersion: PARTIAL_COMPOSITE_CONFIDENCE_FORMULA_VERSION,
+        causes,
       },
     };
   }
@@ -158,12 +182,36 @@ export function computePartialComposite(
   }
   composite = clamp(composite, 0, 100);
 
-  const evidenceConfidences = available
-    .map((d) => d.confidence)
-    .filter((c): c is number => typeof c === "number" && Number.isFinite(c));
-  const evidenceConfidence =
-    evidenceConfidences.length > 0 ? Math.min(...evidenceConfidences) : 0;
+  const withConfidence = available.filter(
+    (d): d is PartialCompositeDimensionInput & { confidence: number } =>
+      typeof d.confidence === "number" && Number.isFinite(d.confidence),
+  );
+  let evidenceConfidence = 0;
+  let weakestDimensionKey: PublicSkillDimensionKey | null = null;
+  if (withConfidence.length > 0) {
+    evidenceConfidence = Math.min(...withConfidence.map((d) => d.confidence));
+    const weakest = withConfidence.find((d) => d.confidence === evidenceConfidence);
+    weakestDimensionKey = weakest?.key ?? null;
+  }
   const confidence = clamp01(evidenceConfidence * availabilityCoverage);
+
+  const causes = uniqueCauses([
+    ...(evidenceConfidence < 1 && weakestDimensionKey
+      ? [`weakest_link:${weakestDimensionKey}`]
+      : evidenceConfidence <= 0 && withConfidence.length === 0
+        ? ["evidence_confidence_missing"]
+        : []),
+    ...(availabilityCoverage < 1
+      ? [
+          "availability_coverage_incomplete",
+          ...unavailableKeys.map((k) => `dimension_unavailable:${k}`),
+        ]
+      : []),
+    ...(evidenceConfidence < 1 && weakestDimensionKey
+      ? (available.find((d) => d.key === weakestDimensionKey)?.confidenceCauses ??
+        [])
+      : []),
+  ]);
 
   // Product rule: when a composite can be calculated from available dimensions,
   // letter grade comes from model thresholds only. Grade U is reserved for
@@ -183,6 +231,10 @@ export function computePartialComposite(
       unavailableKeys,
       renormalized: unavailableKeys.length > 0,
       availabilityCoverage,
+      evidenceConfidence,
+      weakestDimensionKey,
+      formulaVersion: PARTIAL_COMPOSITE_CONFIDENCE_FORMULA_VERSION,
+      causes,
     },
   };
 }

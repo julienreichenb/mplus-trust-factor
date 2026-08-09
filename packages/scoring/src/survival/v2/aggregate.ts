@@ -63,8 +63,25 @@ export function computeSurvivalV2Confidence(input: {
   healthModes: Record<string, number>;
   catalogCoverageMean: number;
   relativeUnreliableCount: number;
-}): number {
-  if (input.dungeonCount === 0) return 0;
+  /** When true, drop inventing catalog coverage from the confidence mix. */
+  catalogCoverageUnmeasured?: boolean;
+}): {
+  confidence: number;
+  causes: string[];
+  components: Record<string, number>;
+} {
+  if (input.dungeonCount === 0) {
+    return {
+      confidence: 0,
+      causes: ["no_survival_evidence"],
+      components: {
+        dungeonCoverage: 0,
+        slotFill: 0,
+        healthFactor: 0,
+        catalogFactor: 0,
+      },
+    };
+  }
   const expected = Math.max(1, input.expectedDungeonCount);
   const coverage = clamp01(input.dungeonCount / expected);
   const slotFill = clamp01(
@@ -82,15 +99,55 @@ export function computeSurvivalV2Confidence(input: {
       ? 0.45
       : clamp01((full * 1 + partial * 0.75 + outcomeOnly * 0.45) / healthTotal);
 
-  const catalogFactor = clamp01(input.catalogCoverageMean);
   const relativePenalty =
     input.relativeUnreliableCount > 0
       ? clamp01(1 - 0.05 * input.relativeUnreliableCount)
       : 1;
 
+  // When catalog coverage is unmeasured, drop that weight and renormalize so a
+  // stand-in constant cannot masquerade as observed evidence quality.
+  const weights = input.catalogCoverageUnmeasured
+    ? { coverage: 0.4 / 0.85, slotFill: 0.25 / 0.85, health: 0.2 / 0.85, catalog: 0 }
+    : { coverage: 0.4, slotFill: 0.25, health: 0.2, catalog: 0.15 };
+  const catalogFactor = clamp01(input.catalogCoverageMean);
   const base =
-    0.4 * coverage + 0.25 * slotFill + 0.2 * healthFactor + 0.15 * catalogFactor;
-  return clamp01(base * relativePenalty * (outcomeOnly > full ? 0.7 : 1));
+    weights.coverage * coverage +
+    weights.slotFill * slotFill +
+    weights.health * healthFactor +
+    weights.catalog * catalogFactor;
+  const confidence = clamp01(
+    base * relativePenalty * (outcomeOnly > full ? 0.7 : 1),
+  );
+
+  const causes: string[] = [];
+  if (coverage < 1) causes.push("incomplete_dungeon_coverage");
+  if (slotFill < 1) causes.push("incomplete_slot_coverage");
+  if (partial > 0) causes.push("health_evidence_partial");
+  if (outcomeOnly > 0) causes.push("max_hp_unavailable");
+  if (outcomeOnly > full) causes.push("health_evidence_outcome_dominated");
+  // catalogCoverageUnmeasured drops weight rather than inventing coverage — not a
+  // confidence penalty by itself. Measured-but-incomplete catalog does emit a cause.
+  if (!input.catalogCoverageUnmeasured && catalogFactor < 1) {
+    causes.push("incomplete_catalog_coverage");
+  }
+  if (input.relativeUnreliableCount > 0) {
+    causes.push("relative_damage_unreliable");
+  }
+
+  return {
+    confidence,
+    causes,
+    components: {
+      dungeonCoverage: coverage,
+      slotFill,
+      healthFactor,
+      catalogFactor: input.catalogCoverageUnmeasured ? 0 : catalogFactor,
+      relativePenalty,
+      fullHealthRuns: full,
+      partialHealthRuns: partial,
+      outcomeOnlyHealthRuns: outcomeOnly,
+    },
+  };
 }
 
 export function tallyHealthModes(

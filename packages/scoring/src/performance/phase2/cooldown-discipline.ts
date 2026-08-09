@@ -6,7 +6,9 @@
 import type { ParticipantOffensiveActivationV1 } from "@mplus/contracts";
 import {
   resolveEligibleOffensiveCooldowns,
+  type CooldownAvailabilityReason,
   type CooldownEligibilitySkipReason,
+  type OffensiveCooldownAvailabilityEvidence,
 } from "./eligibility.js";
 import {
   computeExpectedUses,
@@ -23,19 +25,34 @@ export interface PerformanceCooldownRunEvidence {
   classSlug: string | null;
   specSlug: string | null;
   catalogVersion: string;
-  /** Canonical active-combat duration; null/≤0 → run omitted from cooldown. */
+  /** Run-level active-combat duration for offensive cadence; null/≤0 → omit. */
   activeCombatDurationMs: number | null;
+  /** How activeCombatDurationMs was derived (diagnostics). */
+  activeCombatMethod?:
+    | "hostile_cast_activity"
+    | "fight_duration_fallback"
+    | "survival_damage_taken_legacy"
+    | null;
   /** Projected activations from ParticipantScoringDigestV1.performance. */
   offensiveActivations: readonly ParticipantOffensiveActivationV1[];
+  /** CombatantInfo loadout proof for conditional eligibility. */
+  loadoutEvidence?: {
+    evidenceState: "PRESENT" | "ABSENT" | "UNPARSEABLE";
+    talentSpellIds: readonly number[];
+  };
+  ownedPetActorIds?: readonly number[];
 }
 
 export interface AbilityCooldownScore {
   canonicalKey: string;
+  availabilityReason: Exclude<CooldownAvailabilityReason, "skipped">;
+  cooldownSeconds: number;
+  charges: number | null;
   observedActivationCount: number;
   expectedUses: number;
   usageScore: number;
   effectiveCooldownMs: number;
-  charges: number | null;
+  contribution: number;
 }
 
 export interface RunCooldownDisciplineResult {
@@ -49,6 +66,12 @@ export interface RunCooldownDisciplineResult {
     reason: CooldownEligibilitySkipReason;
   }>;
   usable: boolean;
+  activeCombatDurationMs: number | null;
+  activeCombatMethod:
+    | "hostile_cast_activity"
+    | "fight_duration_fallback"
+    | "survival_damage_taken_legacy"
+    | null;
   omitReason:
     | null
     | "invalid_duration"
@@ -93,11 +116,36 @@ function mean(values: number[]): number | null {
   return values.reduce((s, v) => s + v, 0) / values.length;
 }
 
+function availabilityEvidenceFromRun(
+  run: PerformanceCooldownRunEvidence,
+): OffensiveCooldownAvailabilityEvidence {
+  const observedCanonicalKeys = new Set<string>();
+  const observedSpellIds = new Set<number>();
+  for (const a of run.offensiveActivations) {
+    observedCanonicalKeys.add(a.canonicalKey);
+    observedSpellIds.add(a.primarySpellId);
+    for (const id of a.observedSpellIds ?? []) observedSpellIds.add(id);
+    for (const id of a.contributingSpellIds ?? []) observedSpellIds.add(id);
+  }
+  const loadoutState = run.loadoutEvidence?.evidenceState ?? "ABSENT";
+  return {
+    loadoutEvidenceState: loadoutState,
+    loadoutTalentSpellIds:
+      loadoutState === "PRESENT"
+        ? new Set(run.loadoutEvidence?.talentSpellIds ?? [])
+        : null,
+    observedCanonicalKeys,
+    observedSpellIds,
+    ownedPetActorIds: run.ownedPetActorIds ?? [],
+  };
+}
+
 export function scoreRunCooldownDiscipline(
   run: PerformanceCooldownRunEvidence,
 ): RunCooldownDisciplineResult {
   const key = runKey(run);
   const duration = run.activeCombatDurationMs;
+  const activeCombatMethod = run.activeCombatMethod ?? null;
   if (duration == null || !(duration > 0) || !Number.isFinite(duration)) {
     return {
       slotId: run.slotId,
@@ -107,6 +155,8 @@ export function scoreRunCooldownDiscipline(
       skippedAbilityIds: [],
       skipReasons: [],
       usable: false,
+      activeCombatDurationMs: duration,
+      activeCombatMethod,
       omitReason: "invalid_duration",
     };
   }
@@ -116,6 +166,7 @@ export function scoreRunCooldownDiscipline(
       classSlug: run.classSlug,
       specSlug: run.specSlug,
       catalogVersion: run.catalogVersion,
+      availabilityEvidence: availabilityEvidenceFromRun(run),
     });
 
   if (catalogueIncompatible) {
@@ -127,6 +178,8 @@ export function scoreRunCooldownDiscipline(
       skippedAbilityIds: skipped.map((s) => s.canonicalKey),
       skipReasons: skipped,
       usable: false,
+      activeCombatDurationMs: duration,
+      activeCombatMethod,
       omitReason: "catalogue_incompatible",
     };
   }
@@ -142,13 +195,17 @@ export function scoreRunCooldownDiscipline(
       effectiveCooldownMs: entry.effectiveCooldownMs,
       charges: entry.charges,
     });
+    const usageScore = usageRatioToScore(observed, expectedUses);
     evaluatedAbilities.push({
       canonicalKey: entry.rule.canonicalKey,
+      availabilityReason: entry.availabilityReason,
+      cooldownSeconds: entry.effectiveCooldownMs / 1000,
+      charges: entry.charges,
       observedActivationCount: observed,
       expectedUses,
-      usageScore: usageRatioToScore(observed, expectedUses),
+      usageScore,
       effectiveCooldownMs: entry.effectiveCooldownMs,
-      charges: entry.charges,
+      contribution: usageScore,
     });
   }
 
@@ -161,6 +218,8 @@ export function scoreRunCooldownDiscipline(
       skippedAbilityIds: skipped.map((s) => s.canonicalKey),
       skipReasons: skipped,
       usable: false,
+      activeCombatDurationMs: duration,
+      activeCombatMethod,
       omitReason: "no_evaluable_abilities",
     };
   }
@@ -174,6 +233,8 @@ export function scoreRunCooldownDiscipline(
     skippedAbilityIds: skipped.map((s) => s.canonicalKey),
     skipReasons: skipped,
     usable: score != null,
+    activeCombatDurationMs: duration,
+    activeCombatMethod,
     omitReason: null,
   };
 }
@@ -225,6 +286,7 @@ export function computeOffensiveCooldownDiscipline(
       classSlug: run.classSlug,
       specSlug: run.specSlug,
       catalogVersion: run.catalogVersion,
+      availabilityEvidence: availabilityEvidenceFromRun(run),
     });
     if (!catalogueIncompatible) {
       eligibleAbilityCount = eligible.length;

@@ -81,6 +81,7 @@ function basePackage(
       actorSetHash: "actorshash123456",
       abilityFilterHash: "abilityhash12345",
       catalogVersion: "test-catalog",
+      packageSchemaVersion: CAPABILITY_EVIDENCE_PACKAGE_SCHEMA_VERSION,
       acquisitionPlanVersion: CAPABILITY_ACQUISITION_PLAN_VERSION,
       graphqlQueryVersion: WCL_GRAPHQL_QUERY_VERSION,
       mode: "PRODUCTION_CAPABILITY_ACQUISITION",
@@ -96,6 +97,7 @@ function basePackage(
     capabilitySet: capabilities,
     coverage,
     compactEvents: events,
+    participantLoadouts: [],
     unknownAbilitySummaries: [],
     retention: {
       rawPages: "EPHEMERAL_RAW_PAGE",

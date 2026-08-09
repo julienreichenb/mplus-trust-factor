@@ -26,6 +26,7 @@ const baselineTool = (
   charges: 1,
   availability: "BASELINE",
   canonicalKey: "warlock.defensive.unending-resolve",
+  resolvableSpellIds: [104773],
   ...overrides,
 });
 

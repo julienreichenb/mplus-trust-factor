@@ -41,8 +41,9 @@ Confirmed regression: report `8WawmdrjbYtRFPqy` fight `1` — Wallidrixe is repo
 
 ## Discovery paths
 
-1. **zoneRankings** — primary for M+ runs with `report.code`, `fightID`, `bracket` (key level), timestamps.
-2. **recentReports** — fallback for public report codes when rankings empty.
+1. **encounterRankings** (preferred) — one aliased GraphQL call per active-season dungeon encounter ID. Each `ranks[]` row can supply `report.code` + `report.fightID`, `bracketData` (key), `medal` → timed, `duration`/`startTime`, and fight-local `rankPercent`. When every active dungeon has ≥2 timed log-backed identities, **skip** `recentReports` pagination and mass report hydration.
+2. **zoneRankings** (`compare: Parses`) — legacy whole-zone fallback when active encounter IDs are unavailable.
+3. **recentReports** — fallback stubs only when encounter/zone rankings cannot fill timed coverage; hydration then opens only remaining fightUnknown stubs.
 
 ## Selection policy
 
@@ -107,7 +108,7 @@ Scoring V2 evidence selection (see `doc/scoring/v2/03_WCL_EVIDENCE_SELECTION_CON
 
 Pagination must never blindly hydrate every report. Discovery stays metadata-first; fight/masterData hydration is lazy for selected/fallback candidates only.
 
-Discovery retains timer tri-state (`timed: true | false | null`) in candidate metadata for coverage. Scoring eligibility is stricter: only `timed === true` may enter the acquisition plan / SELECTED slots / detailed ReportEvents pulls. Untimed and timer-unknown runs are rejected at plan construction (`UNTIMED_RUN` / `TIMED_STATE_UNKNOWN`) and are never detailed-fetched for scoring.
+Discovery retains timer tri-state (`timed: true | false | null`) on candidate metadata. Hydration coverage early-stop and scoring plan eligibility both require `timed === true` (2 distinct timed identities per active dungeon). Untimed and timer-unknown runs remain discoverable but do not fill coverage targets and are rejected at plan construction (`UNTIMED_RUN` / `TIMED_STATE_UNKNOWN`); they are never detailed-fetched for scoring.
 
 Ownership is proven **before** any `ReportEvents` call. Candidate-level rejection reasons are preserved through acquisition fallback and must not collapse solely into `FALLBACK_EXHAUSTED`.
 

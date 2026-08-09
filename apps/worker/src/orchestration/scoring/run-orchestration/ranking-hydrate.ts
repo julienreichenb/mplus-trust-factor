@@ -11,6 +11,8 @@ import {
   RANKING_PARSE_SCHEMA_VERSION,
 } from "@mplus/provider-warcraftlogs";
 
+export type { RankingParseEvidenceV2 };
+
 export function rankingParseFactFromPersistedEvidence(input: {
   evidence: RankingParseEvidenceV2;
   artifactId: string | null;
@@ -95,4 +97,81 @@ export function rankingParseCompatibilityKey(input: {
     "RANKING_PARSE",
     RANKING_PARSE_PROVIDER_CONTRACT,
   ].join(":");
+}
+
+/**
+ * True when persisted ranking evidence carries a usable parse percentile.
+ * ABSENT / unavailable rows must not shadow READY EvidenceDataset fallbacks.
+ */
+export function rankingEvidenceHasUsableParse(
+  evidence: Pick<
+    RankingParseEvidenceV2,
+    "bracketPercent" | "rankPercent" | "amountPercent"
+  >,
+): boolean {
+  return (
+    (evidence.bracketPercent != null && Number.isFinite(evidence.bracketPercent)) ||
+    (evidence.rankPercent != null && Number.isFinite(evidence.rankPercent)) ||
+    (evidence.amountPercent != null && Number.isFinite(evidence.amountPercent))
+  );
+}
+
+function namesMatch(a: string | null | undefined, b: string | null | undefined): boolean {
+  if (a == null || b == null) return false;
+  return a.trim().toLowerCase() === b.trim().toLowerCase();
+}
+
+/**
+ * Character-scoped ranking (encounterRankings / zone rankings for the scored
+ * character) must not be copied onto other participants in the same fight.
+ *
+ * When evidence carries characterId / participantActorId, those win.
+ * Legacy fight-scoped rows without identity still bind only to the scoring
+ * target when targetCharacter is provided.
+ */
+export function rankingEvidenceAllowedForParticipant(input: {
+  evidence: Pick<
+    RankingParseEvidenceV2,
+    "characterId" | "participantActorId"
+  >;
+  participantActorId: number;
+  participantCharacterId?: string | null;
+  participantCharacterName?: string | null;
+  targetCharacterId?: string | null;
+  targetCharacterName?: string | null;
+}): boolean {
+  const { evidence } = input;
+
+  if (
+    evidence.participantActorId != null &&
+    Number.isFinite(evidence.participantActorId)
+  ) {
+    return evidence.participantActorId === input.participantActorId;
+  }
+
+  if (evidence.characterId != null && evidence.characterId.length > 0) {
+    if (
+      input.participantCharacterId != null &&
+      input.participantCharacterId === evidence.characterId
+    ) {
+      return true;
+    }
+    return (
+      input.targetCharacterId === evidence.characterId &&
+      namesMatch(input.participantCharacterName, input.targetCharacterName)
+    );
+  }
+
+  // Legacy fight-scoped EvidenceDataset: treat as target-character ranking only.
+  if (input.targetCharacterId != null && input.targetCharacterId.length > 0) {
+    if (
+      input.participantCharacterId != null &&
+      input.participantCharacterId === input.targetCharacterId
+    ) {
+      return true;
+    }
+    return namesMatch(input.participantCharacterName, input.targetCharacterName);
+  }
+
+  return true;
 }

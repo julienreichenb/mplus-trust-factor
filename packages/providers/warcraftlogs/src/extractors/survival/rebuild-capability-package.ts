@@ -27,6 +27,7 @@ import {
   createPageProcessorState,
   processCapabilityEvidencePage,
 } from "../../evidence/capability/page-processor.js";
+import { extractParticipantLoadoutsFromCombatantEvents } from "../../evidence/capability/combatant-loadout.js";
 import { collectProductionRelevantAbilityIds } from "../../evidence/capability/relevant-ability-ids.js";
 import type { SurvivalProbeParticipant, SurvivalProbeSourceIdentity } from "./types.js";
 
@@ -148,6 +149,11 @@ export function rebuildCapabilityPackageFromPersistedEvents(input: {
     });
   }
 
+  const participantLoadouts = extractParticipantLoadoutsFromCombatantEvents(
+    input.bundle.eventsByDataset.CombatantInfo ?? [],
+    new Set(friendlyPlayerActorIds),
+  );
+
   const sourceArtifactIds = input.sourceArtifactIds ?? [];
   const coverage = plan.entries.map((entry) =>
     coverageForCapability({
@@ -186,6 +192,7 @@ export function rebuildCapabilityPackageFromPersistedEvents(input: {
       actorSetHash,
       abilityFilterHash,
       catalogVersion,
+      packageSchemaVersion: CAPABILITY_EVIDENCE_PACKAGE_SCHEMA_VERSION,
       acquisitionPlanVersion: CAPABILITY_ACQUISITION_PLAN_VERSION,
       graphqlQueryVersion: WCL_GRAPHQL_QUERY_VERSION,
       mode,
@@ -201,6 +208,7 @@ export function rebuildCapabilityPackageFromPersistedEvents(input: {
     capabilitySet: [...plan.capabilities].sort() as EvidenceCapability[],
     coverage,
     compactEvents: processor.compactEvents,
+    participantLoadouts,
     unknownAbilitySummaries: [...processor.unknownSummaries.values()].sort(
       (a, b) => b.count - a.count || a.spellId - b.spellId,
     ),

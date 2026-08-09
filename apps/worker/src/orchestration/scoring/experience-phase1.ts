@@ -26,10 +26,12 @@ import {
 } from "@mplus/scoring";
 import {
   acquirePreviousSeasonRatingEvidence,
+  corroboratePreviousSeasonBlizzardNotFound,
   resolvePreviousMythicSeason,
   type ExperienceSeasonBindingCandidate,
   type PersistProviderResultFn,
   type PreviousSeasonRatingEvidence,
+  type RioPreviousSeasonCorroboration,
 } from "./experience-previous-season-evidence.js";
 import { readExperiencePopulationPolicyMetadata } from "./experience-season-population-policy-metadata.js";
 
@@ -57,6 +59,11 @@ export interface BuildExperiencePhase1Input {
    * (`previousRanks.classRank.region`). Not fetched here — no extra RIO call.
    */
   previousRegionalClassRank?: number | null;
+  /**
+   * Optional Raider.IO corroboration for ambiguous Blizzard previous-season 404.
+   * Never replaces Blizzard as the official rating source.
+   */
+  rioPreviousSeasonCorroboration?: RioPreviousSeasonCorroboration | null;
 }
 
 export interface BuildExperiencePhase1Result {
@@ -168,6 +175,22 @@ export function previousRegionalClassRankFromRioProfile(
   return usablePreviousRegionalClassRank(profile.previousRanks ?? null);
 }
 
+/** Build RIO corroboration input from an already-fetched profile (no extra call). */
+export function rioPreviousSeasonCorroborationFromProfile(
+  profile:
+    | {
+        previousSeason?: { scores?: { all?: number | null } | null } | null;
+      }
+    | null
+    | undefined,
+): RioPreviousSeasonCorroboration | null {
+  if (profile == null) return null;
+  const raw = profile.previousSeason?.scores?.all;
+  const previousSeasonScore =
+    typeof raw === "number" && Number.isFinite(raw) && raw > 0 ? raw : null;
+  return { profileFetched: true, previousSeasonScore };
+}
+
 /**
  * Acquire Experience Phase 1 evidence and compute the pure calculator result.
  * At most 1 previous-season profile + 1 achievements Blizzard call.
@@ -254,12 +277,17 @@ export async function buildExperiencePhase1Result(
       // No previous Blizzard call when binding cannot resolve safely.
     } else {
       previousSeasonProfileCalls = 1;
-      const ratingEvidence = await acquirePreviousSeasonRatingEvidence({
+      let ratingEvidence = await acquirePreviousSeasonRatingEvidence({
         identity: input.identity,
         previousSeason: binding.season,
         blizzard: input.blizzard,
         ctx: input.ctx,
         persistProviderResult: input.persistProviderResult,
+      });
+      ratingEvidence = corroboratePreviousSeasonBlizzardNotFound({
+        binding: binding.season,
+        ratingEvidence,
+        rio: input.rioPreviousSeasonCorroboration ?? null,
       });
 
       const previousRow = regionSeasons.find((s) => s.id === binding.season.id);

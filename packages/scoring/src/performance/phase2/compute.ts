@@ -1,5 +1,4 @@
 import { createHash } from "node:crypto";
-import { clamp } from "../../math.js";
 import { stableStringify } from "../../model-config/stable-hash.js";
 import {
   computePerformanceV2,
@@ -12,6 +11,7 @@ import {
   PERFORMANCE_PHASE2_WEIGHTS,
 } from "./constants.js";
 import { combinePerformancePhase2Scores } from "./combine.js";
+import { computePerformancePhase2Confidence } from "./confidence.js";
 import { computeOffensiveCooldownDiscipline } from "./cooldown-discipline.js";
 import type {
   PerformancePhase2ComputeInput,
@@ -94,9 +94,17 @@ export function computePerformancePhase2(
     state = "PARTIAL";
   }
 
+  const confidenceResult = computePerformancePhase2Confidence({
+    phase1Confidence: phase1.confidence,
+    phase1Limits: (phase1.explanation.confidenceLimits ?? []) as string[],
+    weightsApplied: combined.weightsApplied,
+    cooldown,
+    combinedScore: combined.score,
+  });
+
   const limitations = [
     ...combined.limitations,
-    ...((phase1.explanation.confidenceLimits ?? []) as string[]),
+    ...confidenceResult.causes,
   ];
   if (phase1.state === "PARTIAL" && !limitations.includes("phase1_partial")) {
     limitations.push("phase1_partial");
@@ -145,6 +153,8 @@ export function computePerformancePhase2(
     phase2State: "ACTIVE" as const,
     phase3State: "DEFERRED_CRITICAL_MASS" as const,
     contributors,
+    confidenceLimits: [...new Set(limitations)],
+    confidenceBreakdown: confidenceResult.breakdown,
   };
 
   const inputFingerprint = computePerformancePhase2InputFingerprint(
@@ -166,18 +176,17 @@ export function computePerformancePhase2(
     unsupportedAbilityIds: cooldown.unsupportedAbilityIds,
     catalogueIncompatibleRuns: cooldown.catalogueIncompatibleRuns,
     runsWithoutValidDuration: cooldown.runsWithoutValidDuration,
+    confidenceBreakdown: confidenceResult.breakdown,
     phase2State: "ACTIVE",
     phase3State: "DEFERRED_CRITICAL_MASS",
     publicationBlocked: true,
   };
 
-  const confidence =
-    combined.score == null ? 0 : clamp(phase1.confidence, 0, 1);
-
   return {
     state,
     score: combined.score,
-    confidence,
+    confidence: confidenceResult.confidence,
+    confidenceBreakdown: confidenceResult.breakdown,
     phase1Score: phase1.score,
     offensiveCooldownDiscipline: cooldown.score,
     weightsApplied: combined.weightsApplied,

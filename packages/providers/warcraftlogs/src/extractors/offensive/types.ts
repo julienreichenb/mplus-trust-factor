@@ -106,6 +106,8 @@ export interface OffensiveProbeParticipantActivation {
   timestampMs: number;
   rawMatchedEventCount: number;
   contributingSpellIds: number[];
+  observedSpellIds: number[];
+  targetActorId: number | null;
 }
 
 export interface OffensiveProbeParticipantReport {

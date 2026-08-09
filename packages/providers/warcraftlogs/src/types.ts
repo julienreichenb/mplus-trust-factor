@@ -93,7 +93,7 @@ export interface WclRunCandidate {
    */
   timed: boolean | null;
   selectionTags: Array<"LATEST" | "HIGHEST">;
-  source: "zoneRankings" | "recentReports";
+  source: "zoneRankings" | "encounterRankings" | "recentReports";
   /** Cross-provider match confidence when an external run was compared; else null. */
   matchConfidence: RunMatchConfidence | null;
   /** Resolved during report hydration; null until masterData/friendlyPlayers resolve the target. */

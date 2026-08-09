@@ -187,14 +187,23 @@ describe("deterministic filter batching", () => {
 });
 
 describe("catalog-guided relevant abilities", () => {
-  it("collects spellIds, aliases, and optional buff/trigger fields", () => {
+  it("collects spellIds, aliases, activationSpellIds, buff, and trigger fields", () => {
     const rule = {
       spellIds: [1],
       aliases: [2],
+      activationSpellIds: [5],
       activationBuffIds: [3],
       triggeredEffectIds: [4],
     } as AbilityRule;
-    expect(collectRuleEvidenceSpellIds(rule)).toEqual([1, 2, 3, 4]);
+    expect(collectRuleEvidenceSpellIds(rule)).toEqual([1, 2, 3, 4, 5]);
+  });
+
+  it("includes HostileCasts in the production acquisition plan", () => {
+    const plan = buildCapabilityAcquisitionPlan({
+      mode: "PRODUCTION_CAPABILITY_ACQUISITION",
+    });
+    expect(plan.capabilities).toContain("UTILITY_HOSTILE_CASTS");
+    expect(plan.fetchUnits.some((u) => u.dataset === "HostileCasts")).toBe(true);
   });
 
   it("collects production-relevant ability ids from catalog", () => {

@@ -1,4 +1,5 @@
 import type { CharacterSeasonEvidenceManifestV2 } from "@mplus/contracts";
+import type { DimensionConfidenceBreakdown } from "../../confidence/dimension-confidence.js";
 import type {
   SURVIVAL_V2_CALIBRATION_SCHEMA_VERSION,
   SURVIVAL_V2_DEFENSIVE_RATE,
@@ -238,6 +239,7 @@ export interface SurvivalV2ComputeResult {
   inputFingerprint: string;
   score: number | null;
   confidence: number;
+  confidenceBreakdown: DimensionConfidenceBreakdown;
   /** Availability vocabulary only — SHADOW is DimensionComputation lifecycle. */
   state: SurvivalV2AvailabilityState;
   dungeons: SurvivalV2DungeonAggregate[];
@@ -265,6 +267,7 @@ export interface SurvivalV2ComputeResult {
     healthModes: Record<string, number>;
     notes: string[];
     limitations: string[];
+    confidenceBreakdown?: DimensionConfidenceBreakdown;
     contributors: SurvivalV2ContributorDiagnostic[];
     perDungeon: Array<{
       dungeonSlug: string;

@@ -76,6 +76,13 @@ function baseDigest(
     specSlug: "fire",
     role: "DPS",
     ownedPetActorIds: [99],
+    loadoutEvidence: {
+      evidenceState: "ABSENT",
+      talentSpellIds: [],
+      talentTreeNodeIds: [],
+      blizzardSpecId: null,
+      source: "ABSENT",
+    },
     capabilityPackageArtifactId: "pkg-1",
     capabilityPackageContentHash: "a".repeat(32),
     catalogVersion: "catalog-test-v1",
@@ -86,10 +93,13 @@ function baseDigest(
       partition: null,
       rawDps: null,
       offensiveActivations: [],
+      activeCombatMs: 1_500_000,
+      activeCombatMethod: "fight_duration_fallback",
       completeness: "COMPLETE",
       limitations: [],
     },
     utility: {
+      hostileCastEvents: [],
       actions: [],
       capabilityCompleteness: [
         {
@@ -203,6 +213,7 @@ describe("utilityRunFactSetFromDigest Phase 2 mapping", () => {
   it("maps interrupt outcomes with canonical credits and pet attribution", () => {
     const digest = baseDigest({
       utility: {
+        hostileCastEvents: [],
         actions: [
           baseAction({
             canonicalActionId: "kick-success",
@@ -259,11 +270,15 @@ describe("utilityRunFactSetFromDigest Phase 2 mapping", () => {
     expect(facts.limitations).toContain(
       "hostile_cast_windows_not_persisted_in_digest",
     );
+    expect(facts.limitations).toContain("digest_catalog_coverage_unmeasured");
+    expect(facts.catalogCoverage.mechanicCatalogCoverage).toBe(0);
+    expect(facts.catalogCoverage.abilityCatalogCoverage).toBe(0);
   });
 
   it("does not invent VALID_OVERLAP or MATCHED_FAILED from digests", () => {
     const digest = baseDigest({
       utility: {
+        hostileCastEvents: [],
         actions: [
           baseAction({
             canonicalActionId: "a1",
@@ -299,6 +314,7 @@ describe("utilityRunFactSetFromDigest Phase 2 mapping", () => {
   it("excludes personal mobility and unverified externals from full support credit path", () => {
     const digest = baseDigest({
       utility: {
+        hostileCastEvents: [],
         actions: [
           baseAction({
             canonicalActionId: "self-mobility",
@@ -369,6 +385,7 @@ describe("utilityRunFactSetFromDigest Phase 2 mapping", () => {
   it("missing utility datasets throw; zero actions with complete digest do not", () => {
     const missing = baseDigest({
       utility: {
+        hostileCastEvents: [],
         actions: [],
         capabilityCompleteness: [],
         completeness: "UNAVAILABLE",
@@ -444,6 +461,7 @@ describe("utilityRunFactSetFromDigest Phase 2 mapping", () => {
   it("does not double-count identical interrupt digests as two successes without duplicate ids", () => {
     const digest = baseDigest({
       utility: {
+        hostileCastEvents: [],
         actions: [
           baseAction({
             canonicalActionId: "kick-1",

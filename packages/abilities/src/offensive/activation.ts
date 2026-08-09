@@ -1,5 +1,5 @@
 import { dimensionTagsForRule } from "../catalog/rule.js";
-import { getAllRegisteredRules } from "../registry.js";
+import { getAllRegisteredRules, ruleResolvableSpellIds } from "../registry.js";
 import type {
   AbilityRule,
   ActivationEventType,
@@ -68,13 +68,7 @@ function ruleByKey(rules: AbilityRule[]): Map<string, AbilityRule> {
 }
 
 function spellIdsForRule(rule: AbilityRule): Set<number> {
-  return new Set([
-    ...rule.spellIds,
-    ...(rule.aliases ?? []),
-    ...(rule.activationSpellIds ?? []),
-    ...(rule.activationBuffIds ?? []),
-    ...(rule.triggeredEffectIds ?? []),
-  ]);
+  return new Set(ruleResolvableSpellIds(rule));
 }
 
 function activationSpellSet(rule: AbilityRule): Set<number> {

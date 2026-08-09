@@ -120,5 +120,106 @@ describe("mapCharacterScoreToSnapshotDto partial composite", () => {
       },
     );
     expect(unavailable.overallScore).toBeGreaterThan(asZero.overallScore);
+    expect(asZero.dimensions.find((d) => d.dimension === "EXPERIENCE")).toMatchObject({
+      score: 0,
+      state: "AVAILABLE",
+      reason: null,
+    });
+  });
+
+  it("does not reuse overall confidence for every dimension", () => {
+    const dto = mapCharacterScoreToSnapshotDto(
+      {
+        ...baseRow,
+        confidence: 0.26,
+        dimensionDetails: {
+          performance: { confidence: 0.41, limitations: ["profile_only"] },
+          survival: {
+            confidence: 0.52,
+            explanation: { limitations: ["MAX_HP_CONTEXT_UNAVAILABLE"] },
+          },
+          utility: {
+            confidence: 0.33,
+            explanation: { confidenceReasons: ["no_hostile_casts_observed"] },
+          },
+          experience: {
+            score: null,
+            available: false,
+            reason: "PREVIOUS_EVIDENCE_UNAVAILABLE",
+          },
+        },
+      },
+      { modelKey: "default", modelVersion: 6 },
+    );
+    expect(dto.confidence).toBe(0.26);
+    expect(dto.dimensions.find((d) => d.dimension === "PERFORMANCE")?.confidence).toBe(0.41);
+    expect(dto.dimensions.find((d) => d.dimension === "SURVIVAL")?.confidence).toBe(0.52);
+    expect(dto.dimensions.find((d) => d.dimension === "UTILITY")?.confidence).toBe(0.33);
+    expect(dto.dimensions.find((d) => d.dimension === "EXPERIENCE")).toMatchObject({
+      score: null,
+      state: "UNAVAILABLE",
+      reason: "PREVIOUS_EVIDENCE_UNAVAILABLE",
+    });
+    expect(
+      (dto.dimensions.find((d) => d.dimension === "PERFORMANCE")?.contributors as {
+        limitations?: string[];
+      }).limitations,
+    ).toEqual(["profile_only"]);
+  });
+
+  it("Experience 0 from dimensionDetails is available when column is set", () => {
+    const dto = mapCharacterScoreToSnapshotDto(
+      {
+        ...baseRow,
+        experience: 0,
+        dimensionDetails: {
+          experience: {
+            score: 0,
+            available: true,
+            reason: null,
+            previousStandingScore: 0,
+          },
+        },
+      },
+      { modelKey: "default", modelVersion: 6 },
+    );
+    expect(dto.dimensions.find((d) => d.dimension === "EXPERIENCE")).toMatchObject({
+      score: 0,
+      state: "AVAILABLE",
+      reason: null,
+    });
+  });
+
+  it("reads Experience confidence from dimensionDetails (not hard-coded 1)", () => {
+    const dto = mapCharacterScoreToSnapshotDto(
+      {
+        ...baseRow,
+        experience: 0,
+        confidence: 0.5,
+        dimensionDetails: {
+          performance: { confidence: 1 },
+          survival: { confidence: 1 },
+          utility: { confidence: 1 },
+          experience: {
+            score: 0,
+            available: true,
+            confidence: 0.87,
+            confidenceCauses: ["previous_evidence_unavailable"],
+            reason: null,
+          },
+        },
+      },
+      { modelKey: "default", modelVersion: 6 },
+    );
+    const experience = dto.dimensions.find((d) => d.dimension === "EXPERIENCE");
+    expect(experience).toMatchObject({
+      score: 0,
+      state: "AVAILABLE",
+      confidence: 0.87,
+      reason: null,
+    });
+    expect(
+      (experience?.contributors as { limitations?: string[] }).limitations,
+    ).toEqual(["previous_evidence_unavailable"]);
   });
 });

@@ -31,6 +31,7 @@ import {
   type EnsureCharacterPerformanceAggregateResult,
   type FetchCharacterPerformanceAggregateProvider,
 } from "./run-orchestration/ensure-performance-aggregate.js";
+import type { FetchCharacterZoneRankingsParseProvider } from "./run-orchestration/ensure-ranking-parse-facts.js";
 import {
   requirePositivePerformanceAggregateTtlSeconds,
   requireScoringZoneId,
@@ -129,6 +130,11 @@ export interface ScoreCharacterInput {
   performanceAggregateTtlSeconds?: number;
   /** Dedicated points_and_damage provider (live/fixture). Ignored when provider calls forbidden. */
   performanceAggregateProvider?: FetchCharacterPerformanceAggregateProvider | null;
+  /**
+   * CharacterZoneRankings (playerscore) provider for RunRankingFact hydrate.
+   * One call per scoring operation when facts are missing; ignored when provider forbidden.
+   */
+  rankingParseProvider?: FetchCharacterZoneRankingsParseProvider | null;
   /** Test override for ensure port. */
   ensurePerformanceAggregate?: (
     input: Parameters<
@@ -156,6 +162,11 @@ export interface ScoreCharacterResult {
   providerCalls: number;
   scoringVersion: string;
   publicationEnabled: boolean;
+  /**
+   * Experience Phase 1 result used for CharacterScore + public snapshot.
+   * Null when Experience was not supplied to scoreCharacter.
+   */
+  experience: ExperiencePhase1Result | null;
   /**
    * Character/season points_and_damage aggregate consumed by Performance Phase 2.
    */
@@ -185,6 +196,10 @@ export async function scoreCharacter(
       resolveParticipants: input.resolveParticipants,
       resolveFightRoster: input.resolveFightRoster,
       withSourceFightLock: input.withSourceFightLock,
+      zoneId: input.zoneId,
+      rankingParseProvider: input.allowProviderCalls
+        ? input.rankingParseProvider ?? null
+        : null,
       targetCharacter: input.targetCharacter ?? {
         characterId: input.identity.characterId,
         characterName: input.identity.characterName,
@@ -337,6 +352,10 @@ export async function scoreCharacter(
         available: performance?.score != null && Number.isFinite(performance.score),
         baseWeight: dimensionWeights.performance,
         confidence: performance?.confidence ?? null,
+        confidenceCauses:
+          performance?.confidenceBreakdown?.causes ??
+          performance?.limitations ??
+          null,
       },
       {
         key: "survival",
@@ -344,6 +363,10 @@ export async function scoreCharacter(
         available: survival?.score != null && Number.isFinite(survival.score),
         baseWeight: dimensionWeights.survival,
         confidence: survival?.confidence ?? null,
+        confidenceCauses:
+          survival?.confidenceBreakdown?.causes ??
+          survival?.explanation?.limitations ??
+          null,
       },
       {
         key: "utility",
@@ -351,13 +374,20 @@ export async function scoreCharacter(
         available: utility?.score != null && Number.isFinite(utility.score),
         baseWeight: dimensionWeights.utility,
         confidence: utility?.confidence ?? null,
+        confidenceCauses:
+          utility?.confidenceBreakdown?.causes ??
+          utility?.explanation?.confidenceReasons ??
+          null,
       },
       {
         key: "experience",
         score: experienceScore,
         available: experienceAvailable,
         baseWeight: dimensionWeights.experience,
-        confidence: null,
+        confidence: experienceAvailable
+          ? (experienceResult?.confidence ?? 1)
+          : null,
+        confidenceCauses: experienceResult?.confidenceCauses ?? null,
       },
     ],
     { gradeThresholds, minConfidenceForGrade },
@@ -402,6 +432,7 @@ export async function scoreCharacter(
             availableCount: partial.availableCount,
             explanation: partial.explanation,
             grade: partial.grade,
+            confidence: partial.confidence,
           },
           performance: performance
             ? {
@@ -413,6 +444,8 @@ export async function scoreCharacter(
                 coverage: performance.coverage,
                 limitations: performance.limitations,
                 state: performance.state,
+                confidence: performance.confidence,
+                confidenceBreakdown: performance.confidenceBreakdown,
               }
             : null,
           utility: utility
@@ -426,6 +459,9 @@ export async function scoreCharacter(
                 strategicCc: utility.strategicCc,
                 explanation: utility.explanation,
                 context: utility.context,
+                confidence: utility.confidence,
+                confidenceBreakdown: utility.confidenceBreakdown,
+                limitations: utility.explanation?.confidenceReasons ?? [],
               }
             : null,
           survival: survival
@@ -437,6 +473,9 @@ export async function scoreCharacter(
                 observations: survival.observations,
                 explanation: survival.explanation,
                 relativeDamageMode: survival.relativeDamageMode,
+                confidence: survival.confidence,
+                confidenceBreakdown: survival.confidenceBreakdown,
+                limitations: survival.explanation?.limitations ?? [],
               }
             : null,
           experience: experienceResult,
@@ -462,6 +501,7 @@ export async function scoreCharacter(
       orchestration.accounting.providerCalls + aggregateProviderCalls,
     scoringVersion,
     publicationEnabled: input.publicationEnabled === true,
+    experience: experienceResult,
     performanceAggregate: {
       state: performanceAggregate.state,
       data: performanceAggregate.data,

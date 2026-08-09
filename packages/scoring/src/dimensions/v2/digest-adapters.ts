@@ -26,6 +26,7 @@ import type {
   SurvivalV2TimedActivationFact,
 } from "../../survival/v2/types.js";
 import type { PerformanceRunParseFactV2 } from "../../performance/v2/types.js";
+import { estimateActiveCombatMs } from "../../utility/v2/active-combat.js";
 import {
   UTILITY_V2_EXTRACTOR_FAMILY,
   UTILITY_V2_EXTRACTOR_VERSION,
@@ -161,9 +162,28 @@ export function survivalFactDocumentFromDigest(
     recoveryById.set(row.id, row);
   }
 
+  const observedSurvivalSpellIds = new Set<number>();
+  for (const a of [
+    ...digest.survival.personalDefensiveActivations,
+    ...digest.survival.recoveryActivations,
+  ]) {
+    observedSurvivalSpellIds.add(a.primarySpellId);
+    for (const id of a.observedSpellIds ?? []) observedSurvivalSpellIds.add(id);
+  }
+  const loadoutState = digest.loadoutEvidence?.evidenceState ?? "ABSENT";
+  const availabilityEvidence = {
+    loadoutEvidenceState: loadoutState,
+    loadoutTalentSpellIds:
+      loadoutState === "PRESENT"
+        ? new Set(digest.loadoutEvidence?.talentSpellIds ?? [])
+        : null,
+    observedSpellIds: observedSurvivalSpellIds,
+  };
+
   const catalogTools = resolveSurvivalCatalogTools({
     classSlug: digest.classSlug,
     specSlug: digest.specSlug,
+    availabilityEvidence,
   });
 
   const deathsCapability = capabilityStatus(
@@ -198,6 +218,7 @@ export function survivalFactDocumentFromDigest(
       tools: catalogTools.defensiveTools,
       activations: timedDefensives,
       dangerStartMs: w.derivation.windowStartMs,
+      availabilityEvidence,
     });
     const recoveryResponseClass = classifyRecoveryResponse({
       recoveryActivationIds: w.response.recoveryAfter,
@@ -206,6 +227,7 @@ export function survivalFactDocumentFromDigest(
       timingObservable: recoveryTimingObservable,
       tools: catalogTools.selfHealTools,
       activations: timedRecovery,
+      availabilityEvidence,
     });
 
     return {
@@ -251,6 +273,8 @@ export function survivalFactDocumentFromDigest(
     );
   }
   limitations.push("relative_damage_omitted_unreliable_for_phase2");
+  // Digest completeness ≠ measured ability-catalog coverage.
+  limitations.push("digest_catalog_coverage_unmeasured");
 
   const deathEvidenceMissing = deathsCapability === "UNAVAILABLE";
 
@@ -286,11 +310,8 @@ export function survivalFactDocumentFromDigest(
           t.category,
         ),
       ),
-      catalogCoverage: catalogTools.supported
-        ? digest.survival.completeness === "COMPLETE"
-          ? 1
-          : 0.5
-        : 0,
+      // Unmeasured on digest path — fail-closed zero (confidence skips inventing coverage).
+      catalogCoverage: 0,
       timedActivations: timedDefensives,
     },
     dangerWindows,
@@ -555,7 +576,25 @@ export function utilityRunFactSetFromDigest(
   ).length;
 
   const fightDurationMs = digest.survival.fightDurationMs ?? 1_800_000;
-  const activeCombatMs = digest.survival.activeCombatMs ?? fightDurationMs;
+  const hostileCastEvents = digest.utility.hostileCastEvents ?? [];
+  const hostileTimestampsMs = hostileCastEvents.map((e) => e.fightOffsetMs);
+  const hostileActiveCombat =
+    hostileTimestampsMs.length > 0
+      ? estimateActiveCombatMs({
+          fightDurationMs,
+          hostileEventTimestampsMs: hostileTimestampsMs,
+        })
+      : null;
+  const activeCombatMs =
+    hostileActiveCombat?.activeCombatMs ??
+    digest.survival.activeCombatMs ??
+    fightDurationMs;
+  const hostileBegincastCount = hostileCastEvents.filter(
+    (e) =>
+      e.eventType == null ||
+      e.eventType === "begincast" ||
+      e.eventType === "cast",
+  ).length;
 
   const observedToolkit = {
     hasInterrupt: interruptAttempts.length > 0,
@@ -567,10 +606,22 @@ export function utilityRunFactSetFromDigest(
   const limitations = [
     ...digest.utility.limitations,
     ...resolvedToolkit.limitations,
-    // Hostile cast windows are not persisted on ParticipantScoringDigestV1.
-    // Digest path therefore cannot emit VALID_OVERLAP / MATCHED_FAILED.
-    "hostile_cast_windows_not_persisted_in_digest",
+    ...(hostileCastEvents.length === 0
+      ? [
+          // Hostile cast windows absent — digest path cannot emit VALID_OVERLAP / MATCHED_FAILED.
+          "hostile_cast_windows_not_persisted_in_digest",
+        ]
+      : [
+          // Windows are timestamps only; interrupt↔hostile overlap classification remains limited.
+          "digest_hostile_cast_timestamps_only",
+        ]),
     "digest_interrupt_classes_limited_to_success_attempt_unknown",
+    // Catalog coverage is not measured on the digest path — do not present
+    // stand-in constants as observed evidence quality.
+    "digest_catalog_coverage_unmeasured",
+    ...(hostileActiveCombat == null
+      ? ["utility_active_combat_from_survival_damage_taken"]
+      : []),
   ];
 
   return {
@@ -588,16 +639,20 @@ export function utilityRunFactSetFromDigest(
     fightDurationMs,
     activeCombatMs,
     activeCombatHours: activeCombatMs / 3_600_000,
-    hostileBegincastCount: 0,
-    hostileObservability: "ABSENT",
+    hostileBegincastCount,
+    hostileObservability:
+      hostileCastEvents.length > 0
+        ? ("PRESENT" as const)
+        : ("ABSENT" as const),
     toolkit: resolvedToolkit.toolkit,
     interruptAttempts,
     ccActions,
     supportActions,
     dispelPurgeSuccessCount,
     catalogCoverage: {
-      abilityCatalogCoverage: digest.utility.completeness === "COMPLETE" ? 1 : 0.5,
-      mechanicCatalogCoverage: 0.5,
+      // Unmeasured on digest path — fail-closed zeros (confidence skips mechanic gates).
+      abilityCatalogCoverage: 0,
+      mechanicCatalogCoverage: 0,
     },
     limitations,
   };

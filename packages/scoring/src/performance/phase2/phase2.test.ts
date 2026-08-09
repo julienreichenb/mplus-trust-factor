@@ -13,6 +13,7 @@ import {
   computePerformancePhase2,
   combinePerformancePhase2Scores,
   resolveEligibleOffensiveCooldowns,
+  scoreRunCooldownDiscipline,
   PERFORMANCE_PHASE2_ALGORITHM_VERSION,
   type PerformanceCooldownRunEvidence,
 } from "./index.js";
@@ -143,6 +144,7 @@ function cooldownRun(
         timestampMs: 1000,
         rawMatchedEventCount: 1,
         contributingSpellIds: [190319],
+        observedSpellIds: [190319],
       },
       {
         activationId: "a2",
@@ -151,6 +153,7 @@ function cooldownRun(
         timestampMs: 70_000,
         rawMatchedEventCount: 1,
         contributingSpellIds: [190319],
+        observedSpellIds: [190319],
       },
       {
         activationId: "a3",
@@ -159,6 +162,7 @@ function cooldownRun(
         timestampMs: 130_000,
         rawMatchedEventCount: 1,
         contributingSpellIds: [190319],
+        observedSpellIds: [190319],
       },
     ],
     ...overrides,
@@ -332,6 +336,117 @@ describe("Performance Phase 2 activation / eligibility (M–O)", () => {
     ).toBe(false);
   });
 
+  it("N2b — observed use unlocks talent cooldown without loadout", () => {
+    const shifting = getAllRegisteredRules().find(
+      (r) => r.canonicalKey === "mage.offensive.shifting-power",
+    )!;
+    const spellId = shifting.spellIds[0]!;
+    const { eligible, skipped } = resolveEligibleOffensiveCooldowns({
+      classSlug: "mage",
+      specSlug: "fire",
+      catalogVersion: CURRENT_CATALOG_VERSION_ID,
+      availabilityEvidence: {
+        loadoutEvidenceState: "ABSENT",
+        loadoutTalentSpellIds: null,
+        observedCanonicalKeys: new Set(["mage.offensive.shifting-power"]),
+        observedSpellIds: new Set([spellId]),
+        ownedPetActorIds: [],
+      },
+    });
+    expect(
+      eligible.some((e) => e.rule.canonicalKey === "mage.offensive.shifting-power"),
+    ).toBe(true);
+    expect(
+      skipped.some((s) => s.canonicalKey === "mage.offensive.shifting-power"),
+    ).toBe(false);
+  });
+
+  it("N2c — loadout PRESENT with empty spell IDs stays unresolved (node-only)", () => {
+    const { skipped } = resolveEligibleOffensiveCooldowns({
+      classSlug: "mage",
+      specSlug: "fire",
+      catalogVersion: CURRENT_CATALOG_VERSION_ID,
+      availabilityEvidence: {
+        loadoutEvidenceState: "PRESENT",
+        loadoutTalentSpellIds: new Set(), // node IDs only — cannot spell-match
+        observedCanonicalKeys: new Set(),
+        observedSpellIds: new Set(),
+        ownedPetActorIds: [],
+      },
+    });
+    expect(
+      skipped.some(
+        (s) =>
+          s.canonicalKey === "mage.offensive.shifting-power" &&
+          s.reason === "talent_availability_unknown",
+      ),
+    ).toBe(true);
+  });
+
+  it("N2c2 — loadout PRESENT with unrelated spell IDs skips as conditional_not_selected", () => {
+    const { skipped } = resolveEligibleOffensiveCooldowns({
+      classSlug: "mage",
+      specSlug: "fire",
+      catalogVersion: CURRENT_CATALOG_VERSION_ID,
+      availabilityEvidence: {
+        loadoutEvidenceState: "PRESENT",
+        loadoutTalentSpellIds: new Set([1]), // unrelated spell
+        observedCanonicalKeys: new Set(),
+        observedSpellIds: new Set(),
+        ownedPetActorIds: [],
+      },
+    });
+    expect(
+      skipped.some(
+        (s) =>
+          s.canonicalKey === "mage.offensive.shifting-power" &&
+          s.reason === "conditional_not_selected",
+      ),
+    ).toBe(true);
+  });
+
+  it("N2d — loadout PRESENT with talent spell unlocks shifting-power", () => {
+    const shifting = getAllRegisteredRules().find(
+      (r) => r.canonicalKey === "mage.offensive.shifting-power",
+    )!;
+    const spellId = shifting.spellIds[0]!;
+    const { eligible } = resolveEligibleOffensiveCooldowns({
+      classSlug: "mage",
+      specSlug: "fire",
+      catalogVersion: CURRENT_CATALOG_VERSION_ID,
+      availabilityEvidence: {
+        loadoutEvidenceState: "PRESENT",
+        loadoutTalentSpellIds: new Set([spellId]),
+        observedCanonicalKeys: new Set(),
+        observedSpellIds: new Set(),
+        ownedPetActorIds: [],
+      },
+    });
+    const entry = eligible.find(
+      (e) => e.rule.canonicalKey === "mage.offensive.shifting-power",
+    );
+    expect(entry?.availabilityReason).toBe("loadout_selected");
+  });
+
+  it("N2e — run diagnostics expose availability, expected, observed, contribution", () => {
+    const result = scoreRunCooldownDiscipline(
+      cooldownRun({
+        slotId: "s0",
+        activeCombatMethod: "hostile_cast_activity",
+      }),
+    );
+    expect(result.activeCombatMethod).toBe("hostile_cast_activity");
+    expect(result.evaluatedAbilities.length).toBeGreaterThan(0);
+    for (const a of result.evaluatedAbilities) {
+      expect(a.canonicalKey.length).toBeGreaterThan(0);
+      expect(a.availabilityReason).toBeTruthy();
+      expect(a.cooldownSeconds).toBeGreaterThan(0);
+      expect(typeof a.observedActivationCount).toBe("number");
+      expect(a.expectedUses).toBeGreaterThan(0);
+      expect(typeof a.contribution).toBe("number");
+    }
+  });
+
   it("N3 — unknown spec skips spec-gated rules (no all-spec fail-open)", () => {
     const { eligible, skipped } = resolveEligibleOffensiveCooldowns({
       classSlug: "mage",
@@ -389,6 +504,7 @@ describe("Performance Phase 2 character combine (P–S)", () => {
             timestampMs: 1000,
             rawMatchedEventCount: 1,
             contributingSpellIds: [190319],
+        observedSpellIds: [190319],
           },
         ],
       }),
@@ -406,6 +522,7 @@ describe("Performance Phase 2 character combine (P–S)", () => {
             timestampMs: 1000,
             rawMatchedEventCount: 1,
             contributingSpellIds: [190319],
+        observedSpellIds: [190319],
           },
         ],
       }),

@@ -4,6 +4,7 @@ import {
   getAllRegisteredRules,
   normalizeRetailClassSlug,
   projectOffensiveActivations,
+  ruleResolvableSpellIds,
   rulesForSpell,
 } from "@mplus/abilities";
 import {
@@ -143,13 +144,7 @@ function offensiveRulesForParticipant(
 }
 
 function spellIdsForRule(rule: AbilityRule): Set<number> {
-  return new Set([
-    ...rule.spellIds,
-    ...(rule.aliases ?? []),
-    ...(rule.activationSpellIds ?? []),
-    ...(rule.activationBuffIds ?? []),
-    ...(rule.triggeredEffectIds ?? []),
-  ]);
+  return new Set(ruleResolvableSpellIds(rule));
 }
 
 export function buildOffensiveParticipantActivationReports(input: {
@@ -237,6 +232,10 @@ export function buildOffensiveParticipantActivationReports(input: {
         timestampMs: activation.timestampMs,
         rawMatchedEventCount: activation.contributingEventIds.length,
         contributingSpellIds: activation.contributingSpellIds,
+        observedSpellIds: [...new Set(activation.contributingSpellIds)].sort(
+          (a, b) => a - b,
+        ),
+        targetActorId: activation.targetPlayerActorId,
       })),
     };
   });

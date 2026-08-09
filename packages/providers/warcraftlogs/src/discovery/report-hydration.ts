@@ -3,9 +3,11 @@
  * Stubs (fightUnknown) are expanded into Mythic+ candidates before discoverCharacterRuns filtering.
  *
  * Coverage-aware mode (when activeDungeonSlugs is provided) hydrates progressively until
- * every active dungeon has TARGET_ELIGIBLE_CANDIDATES_PER_DUNGEON distinct eligible
- * reportCode+fightId identities, the explicit report budget is exhausted, or no more
- * public stubs remain. Same reportCode is never fetched twice in one call.
+ * every active dungeon has TARGET_ELIGIBLE_CANDIDATES_PER_DUNGEON distinct *timed-eligible*
+ * reportCode+fightId identities (`timed === true`, matching plan eligibility), the explicit
+ * report budget is exhausted, or no more public stubs remain. Untimed / timer-unknown fights
+ * must not fill coverage or early-stop would strand SELECTED slots. Same reportCode is never
+ * fetched twice in one call.
  */
 import type { IsoDateTime } from "@mplus/contracts";
 import type { WclRunCandidate } from "../types.js";
@@ -223,6 +225,25 @@ function normalizeDungeonSlug(slug: string | null | undefined): string | null {
 
 function candidateIdentityKey(reportCode: string, fightId: number): string {
   return `${reportCode}:${fightId}`;
+}
+
+/**
+ * Hydration early-stop coverage must match scoring plan eligibility:
+ * active-pool dungeon + known fight + keyLevel + timed === true.
+ * Untimed / timer-unknown M+ fights remain discoverable candidates but do not
+ * satisfy TARGET_ELIGIBLE_CANDIDATES_PER_DUNGEON (otherwise hydration stops
+ * before a second timed run is found → selection shortfall).
+ */
+export function countsTowardHydrationCoverage(candidate: {
+  keyLevel: number | null;
+  timed: boolean | null;
+  fightId: number;
+  incompleteness: { fightUnknown: boolean };
+}): boolean {
+  if (candidate.incompleteness.fightUnknown) return false;
+  if (candidate.fightId <= 0) return false;
+  if (candidate.keyLevel == null || candidate.keyLevel <= 0) return false;
+  return candidate.timed === true;
 }
 
 function emptyCoverageMap(activeDungeonSlugs: readonly string[]): Map<string, Set<string>> {
@@ -583,8 +604,8 @@ function coverageDiagnosticsMaps(
  * Expand fightUnknown stubs into Mythic+ candidates.
  *
  * When `activeDungeonSlugs` is provided, hydrates progressively until each
- * active dungeon has `targetCandidatesPerDungeon` (default 2) distinct eligible
- * identities, the `maxReports` budget is exhausted, or no stubs remain.
+ * active dungeon has `targetCandidatesPerDungeon` (default 2) distinct
+ * timed-eligible identities, the `maxReports` budget is exhausted, or no stubs remain.
  * Without an active dungeon pool, preserves the legacy fixed-budget slice.
  */
 export async function hydrateFightUnknownCandidates(input: {
@@ -617,12 +638,11 @@ export async function hydrateFightUnknownCandidates(input: {
   const coverage = emptyCoverageMap(activeSlugs);
   const activeSet = new Set(activeSlugs);
 
-  // Seed coverage from already fight-known candidates in the active pool.
+  // Seed coverage from already fight-known *timed* candidates in the active pool.
   for (const c of known) {
     const slug = normalizeDungeonSlug(c.dungeonSlug);
     if (!slug || !activeSet.has(slug)) continue;
-    if (c.fightId <= 0 || c.incompleteness.fightUnknown) continue;
-    if (c.keyLevel == null || c.keyLevel <= 0) continue;
+    if (!countsTowardHydrationCoverage(c)) continue;
     coverage.get(slug)?.add(candidateIdentityKey(c.reportCode, c.fightId));
   }
 
@@ -711,8 +731,10 @@ export async function hydrateFightUnknownCandidates(input: {
         hydrated.push(candidate);
         const slug = normalizeDungeonSlug(candidate.dungeonSlug);
         if (!slug || !activeSet.has(slug)) continue;
-        if (candidate.keyLevel == null || candidate.keyLevel <= 0) continue;
         // Ownership-rejected fights never appear in mapped.candidates.
+        // Untimed / timer-unknown fights are retained as candidates but do not
+        // satisfy coverage (plan eligibility requires timed === true).
+        if (!countsTowardHydrationCoverage(candidate)) continue;
         coverage
           .get(slug)
           ?.add(candidateIdentityKey(candidate.reportCode, candidate.fightId));

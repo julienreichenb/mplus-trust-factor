@@ -92,6 +92,14 @@ export interface RunCanaryDiscoveryInput {
   rateBudgetConfig: RateBudgetConfig;
   discover: (ctx: CanaryDiscoverContext) => Promise<CanaryDiscoveryCandidateSource>;
   /**
+   * Resolve authoritative report.revision for a discovery identity when candidate
+   * metadata lacks it (encounterRankings path). Never fabricates a default.
+   */
+  resolveReportRevision?: (input: {
+    reportCode: string;
+    fightId: number;
+  }) => Promise<{ reportRevision: number; providerCalls: number } | null>;
+  /**
    * Two-stage bootstrap: may perform at most one RateLimitData call when cache miss.
    * Must not call character/report discovery.
    */
@@ -99,6 +107,12 @@ export interface RunCanaryDiscoveryInput {
   /** Optional report code to trace in the operator summary (e.g. Windrunner second report). */
   diagnosticReportCode?: string | null;
   now?: Date;
+}
+
+function isResolvedReportRevision(
+  value: number | null | undefined,
+): value is number {
+  return value != null && Number.isFinite(value) && value >= 0;
 }
 
 function mapRoleForDb(role: EvidenceRole): "DPS" | "TANK" | "HEALER" {
@@ -489,22 +503,35 @@ export async function runScoringCanaryDiscovery(
 
   const acquisitionResults = [];
   const seen = new Set<string>();
+  let revisionResolveProviderCalls = 0;
+  // Resolve revision lazily per slot until one ACQUIRED candidate — do not mass-fetch
+  // revisions for every eligible encounterRankings row.
   for (const slot of plan.slots) {
     for (const c of slot.orderedCandidates) {
       const k = `${c.discoveryIdentity.reportCode}:${c.discoveryIdentity.fightId}`;
-      if (seen.has(k)) continue;
+      if (seen.has(k)) {
+        // Already resolved for an earlier slot; finalize skips duplicates.
+        continue;
+      }
       seen.add(k);
       const meta = mergedCandidates.find(
         (cand) =>
           cand.discoveryIdentity.reportCode === c.discoveryIdentity.reportCode &&
           cand.discoveryIdentity.fightId === c.discoveryIdentity.fightId,
       );
-      const reportRevision = meta?.reportRevision;
+      let reportRevision = meta?.reportRevision ?? null;
       if (
-        reportRevision == null ||
-        !Number.isFinite(reportRevision) ||
-        reportRevision < 0
+        !isResolvedReportRevision(reportRevision) &&
+        input.resolveReportRevision
       ) {
+        const observed = await input.resolveReportRevision({
+          reportCode: c.discoveryIdentity.reportCode,
+          fightId: c.discoveryIdentity.fightId,
+        });
+        revisionResolveProviderCalls += observed?.providerCalls ?? 0;
+        reportRevision = observed?.reportRevision ?? null;
+      }
+      if (!isResolvedReportRevision(reportRevision)) {
         acquisitionResults.push({
           discoveryIdentity: { ...c.discoveryIdentity },
           acquisitionStatus: "REJECTED" as const,
@@ -576,6 +603,8 @@ export async function runScoringCanaryDiscovery(
         actorId: c.actorId,
         evidenceCompleteness: c.evidenceCompleteness,
       });
+      // Slot can finalize with this identity; further chain rows stay unresolved.
+      break;
     }
   }
 
@@ -684,11 +713,9 @@ export async function runScoringCanaryDiscovery(
   });
 
   let rankingPersisted = 0;
+  // Match by fight identity only — encounterRankings often lack revision until resolve.
   const rankingByFight = new Map(
-    discovered.rankingEvidence.map((r) => [
-      `${r.reportCode}:${r.fightId}:${r.reportRevision}`,
-      r,
-    ]),
+    discovered.rankingEvidence.map((r) => [`${r.reportCode}:${r.fightId}`, r]),
   );
   for (const dbSlot of persistedSlots) {
     if (dbSlot.state !== "SELECTED" || dbSlot.reportCode == null || dbSlot.fightId == null) {
@@ -696,13 +723,18 @@ export async function runScoringCanaryDiscovery(
     }
     const rev = dbSlot.reportRevision;
     if (rev == null) continue;
-    const row = rankingByFight.get(`${dbSlot.reportCode}:${dbSlot.fightId}:${rev}`);
+    const row = rankingByFight.get(`${dbSlot.reportCode}:${dbSlot.fightId}`);
     if (!row) continue;
     const outcome = await persistRankingEvidence({
       artifacts: input.artifacts,
       evidence: input.evidence,
       manifestSlotId: dbSlot.id,
-      evidenceRow: row,
+      evidenceRow: {
+        ...row,
+        reportRevision: rev,
+        // EncounterRankings are character-scoped — never party-wide.
+        characterId: input.characterId,
+      },
     });
     if (outcome === "created" || outcome === "reused") rankingPersisted += 1;
   }
@@ -843,7 +875,8 @@ export async function runScoringCanaryDiscovery(
       contentHash: documentForPersist.contentHash,
       catalogVersion: season.catalogVersion,
     }),
-    graphqlRequestCount: discovered.graphqlRequestCount,
+    graphqlRequestCount:
+      discovered.graphqlRequestCount + revisionResolveProviderCalls,
     bootstrapProviderCalls: bootstrap.providerCalls,
     eventPageRequestCount: discovered.capabilityEventPageRequestCount,
     measuredWclPoints:

@@ -63,6 +63,7 @@ const PRODUCTION_DEFAULT_CAPABILITIES: EvidenceCapability[] = [
   "UTILITY_CROWD_CONTROL",
   "UTILITY_EXTERNAL_CASTS",
   "UTILITY_EXTERNAL_TARGET_CONTEXT",
+  "UTILITY_HOSTILE_CASTS",
   "PARTICIPANT_METADATA",
   "ACTOR_OWNERSHIP",
 ];
@@ -123,6 +124,9 @@ const PLAN_BY_CAPABILITY: Record<EvidenceCapability, CapabilityDatasetRequiremen
   ],
   UTILITY_EXTERNAL_TARGET_CONTEXT: [
     req("Buffs", "CATALOG_ABILITY_AND_FRIENDLY_ACTORS"),
+  ],
+  UTILITY_HOSTILE_CASTS: [
+    req("HostileCasts", "NONE", { hostilityType: "Enemies" }),
   ],
   PARTICIPANT_METADATA: [
     req("masterData", "METADATA_ONLY"),

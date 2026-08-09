@@ -5,6 +5,7 @@
 
 import {
   getAbilityCatalog,
+  ruleResolvableSpellIds,
   rulesForCategory,
   type AbilityRule,
 } from "@mplus/abilities";
@@ -33,6 +34,8 @@ export interface SurvivalV2CatalogTool {
   charges: number;
   availability: "BASELINE" | "TALENT" | "OTHER";
   canonicalKey: string;
+  /** All resolvable spell IDs for loadout / observation matching. */
+  resolvableSpellIds: number[];
 }
 
 const DEFENSIVE_CATEGORIES = [
@@ -45,7 +48,12 @@ function ruleAvailability(
   rule: AbilityRule,
 ): SurvivalV2CatalogTool["availability"] {
   if (rule.availability === "BASELINE") return "BASELINE";
-  if (rule.availability === "TALENT") return "TALENT";
+  if (
+    rule.availability === "TALENT" ||
+    rule.availability === "CHOICE_NODE"
+  ) {
+    return "TALENT";
+  }
   return "OTHER";
 }
 
@@ -75,15 +83,45 @@ function toolsFromRules(
         typeof rule.charges === "number" && rule.charges > 0 ? rule.charges : 1,
       availability: ruleAvailability(rule),
       canonicalKey: rule.canonicalKey,
+      resolvableSpellIds: ruleResolvableSpellIds(rule),
     });
   }
   return out;
+}
+
+export interface SurvivalToolAvailabilityEvidence {
+  loadoutEvidenceState: "PRESENT" | "ABSENT" | "UNPARSEABLE";
+  loadoutTalentSpellIds: ReadonlySet<number> | null;
+  observedSpellIds: ReadonlySet<number>;
+}
+
+function isToolConfirmedAvailable(
+  tool: SurvivalV2CatalogTool,
+  evidence: SurvivalToolAvailabilityEvidence | undefined,
+): boolean {
+  if (tool.availability === "BASELINE") return true;
+  if (evidence == null) return false;
+  for (const id of tool.resolvableSpellIds) {
+    if (evidence.observedSpellIds.has(id)) return true;
+  }
+  if (
+    evidence.loadoutEvidenceState === "PRESENT" &&
+    evidence.loadoutTalentSpellIds != null &&
+    evidence.loadoutTalentSpellIds.size > 0 &&
+    tool.availability === "TALENT"
+  ) {
+    return tool.resolvableSpellIds.some((id) =>
+      evidence.loadoutTalentSpellIds!.has(id),
+    );
+  }
+  return false;
 }
 
 /** Resolve defensive + self-heal catalogue tools for a class/spec (fail closed). */
 export function resolveSurvivalCatalogTools(input: {
   classSlug: string | null;
   specSlug: string | null;
+  availabilityEvidence?: SurvivalToolAvailabilityEvidence;
 }): {
   supported: boolean;
   defensiveTools: SurvivalV2CatalogTool[];
@@ -128,10 +166,12 @@ export function resolveSurvivalCatalogTools(input: {
 
   for (const tool of [...defensiveTools, ...selfHealTools]) {
     let state: SurvivalV2ToolkitAvailabilityState;
-    if (tool.availability === "TALENT" || tool.availability === "OTHER") {
-      state = "UNKNOWN";
-    } else {
+    if (tool.availability === "BASELINE") {
       state = "AVAILABLE_CONFIRMED";
+    } else if (isToolConfirmedAvailable(tool, input.availabilityEvidence)) {
+      state = "AVAILABLE_CONFIRMED";
+    } else {
+      state = "UNKNOWN";
     }
     const prev = byCategory.get(tool.category);
     if (prev === "AVAILABLE_CONFIRMED") continue;
@@ -173,14 +213,23 @@ export function toolAvailabilityAt(
   tool: SurvivalV2CatalogTool,
   activations: ReadonlyArray<Pick<SurvivalV2TimedActivation, "abilityGameId" | "timestampMs">>,
   atMs: number,
+  availabilityEvidence?: SurvivalToolAvailabilityEvidence,
 ): "AVAILABLE" | "ON_COOLDOWN" | "UNKNOWN" {
+  // Conditional tools are only readiness-evaluable when availability is proven.
   if (tool.availability === "TALENT" || tool.availability === "OTHER") {
-    return "UNKNOWN";
+    if (!isToolConfirmedAvailable(tool, availabilityEvidence)) {
+      return "UNKNOWN";
+    }
   }
   if (tool.cooldownMs == null) return "UNKNOWN";
 
   const prior = activations
-    .filter((a) => a.abilityGameId === tool.spellId && a.timestampMs <= atMs)
+    .filter(
+      (a) =>
+        (a.abilityGameId === tool.spellId ||
+          tool.resolvableSpellIds.includes(a.abilityGameId)) &&
+        a.timestampMs <= atMs,
+    )
     .sort((a, b) => b.timestampMs - a.timestampMs);
 
   let chargesOnCooldown = 0;
@@ -197,19 +246,29 @@ export function anyPenalizableToolAvailable(input: {
   tools: SurvivalV2CatalogTool[];
   activations: ReadonlyArray<Pick<SurvivalV2TimedActivation, "abilityGameId" | "timestampMs">>;
   atMs: number;
+  availabilityEvidence?: SurvivalToolAvailabilityEvidence;
 }): {
   available: boolean;
   allUnknown: boolean;
   anyTool: boolean;
 } {
-  const baseline = input.tools.filter((t) => t.availability === "BASELINE");
-  if (baseline.length === 0) {
+  const penalizable = input.tools.filter(
+    (t) =>
+      t.availability === "BASELINE" ||
+      isToolConfirmedAvailable(t, input.availabilityEvidence),
+  );
+  if (penalizable.length === 0) {
     return { available: false, allUnknown: input.tools.length > 0, anyTool: false };
   }
   let anyAvailable = false;
   let allUnknown = true;
-  for (const tool of baseline) {
-    const state = toolAvailabilityAt(tool, input.activations, input.atMs);
+  for (const tool of penalizable) {
+    const state = toolAvailabilityAt(
+      tool,
+      input.activations,
+      input.atMs,
+      input.availabilityEvidence,
+    );
     if (state !== "UNKNOWN") allUnknown = false;
     if (state === "AVAILABLE") anyAvailable = true;
   }
@@ -227,6 +286,7 @@ export function classifyDefensiveResponse(input: {
   tools: SurvivalV2CatalogTool[];
   activations: ReadonlyArray<Pick<SurvivalV2TimedActivation, "abilityGameId" | "timestampMs">>;
   dangerStartMs: number;
+  availabilityEvidence?: SurvivalToolAvailabilityEvidence;
 }): SurvivalV2DefensiveResponseClass {
   if (!input.timingObservable) return "NOT_OBSERVABLE";
   if (input.defensivesBefore.length > 0) return "ANTICIPATED";
@@ -236,6 +296,7 @@ export function classifyDefensiveResponse(input: {
     tools: input.tools,
     activations: input.activations,
     atMs: input.dangerStartMs,
+    availabilityEvidence: input.availabilityEvidence,
   });
   if (!avail.anyTool || avail.allUnknown) {
     return avail.anyTool ? "NOT_OBSERVABLE" : "NO_TOOL_AVAILABLE";
@@ -251,6 +312,7 @@ export function classifyRecoveryResponse(input: {
   timingObservable: boolean;
   tools: SurvivalV2CatalogTool[];
   activations: ReadonlyArray<Pick<SurvivalV2TimedActivation, "abilityGameId" | "timestampMs">>;
+  availabilityEvidence?: SurvivalToolAvailabilityEvidence;
 }): SurvivalV2RecoveryResponseClass {
   if (!input.timingObservable) return "NOT_OBSERVABLE";
 
@@ -281,6 +343,7 @@ export function classifyRecoveryResponse(input: {
     tools: input.tools,
     activations: input.activations,
     atMs: input.dangerEndMs,
+    availabilityEvidence: input.availabilityEvidence,
   });
   if (!avail.anyTool || avail.allUnknown) {
     return avail.anyTool ? "NOT_OBSERVABLE" : "NO_SELF_HEAL_AVAILABLE";

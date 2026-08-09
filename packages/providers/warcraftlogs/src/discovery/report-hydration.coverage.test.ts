@@ -50,8 +50,12 @@ function publicReport(input: {
   fightId: number;
   encounterID?: number;
   includeTarget?: boolean;
+  /** WCL keystoneBonus: >0 timed, 0 depleted, omit for unknown. */
+  keystoneBonus?: number | null;
 }): HydrationReportPayload {
   const includeTarget = input.includeTarget !== false;
+  const keystoneBonus =
+    input.keystoneBonus === undefined ? 1 : input.keystoneBonus;
   return {
     code: input.code,
     startTime: 1_750_000_000_000,
@@ -63,7 +67,7 @@ function publicReport(input: {
         encounterID: input.encounterID ?? 0,
         name: input.dungeonSlug,
         keystoneLevel: 12,
-        keystoneBonus: 1,
+        ...(keystoneBonus === null ? {} : { keystoneBonus }),
         startTime: 0,
         endTime: 1_800_000,
         friendlyPlayers: includeTarget ? [1] : [99],
@@ -315,12 +319,13 @@ describe("coverage-aware hydrateFightUnknownCandidates", () => {
         keyLevel: 12,
       },
     ];
-    // Seed one skyreach candidate so skyreach is covered; windrunner still missing.
+    // Seed one timed skyreach candidate so skyreach has 1/2 coverage; windrunner still missing.
     const seed: WclRunCandidate = {
       ...fightUnknownStub("SEED", 1_000_200),
       fightId: 7,
       dungeonSlug: "skyreach",
       keyLevel: 12,
+      timed: true,
       incompleteness: {
         dungeonUnknown: false,
         seasonUnknown: true,
@@ -471,6 +476,113 @@ describe("coverage-aware hydrateFightUnknownCandidates", () => {
     expect(fetchReport).toHaveBeenCalledTimes(2);
     // Newest/oldest alternation yields A1 then EXTRA; A2 must remain unattempted.
     expect(fetchReport).not.toHaveBeenCalledWith("A2");
+  });
+
+  it("does not count untimed fights toward coverage or early-stop", async () => {
+    // Proven 14/16 failure mode: depleted (or timer-unknown) M+ fights filled
+    // coverage early-stop while plan eligibility still required timed===true.
+    // Known-dungeon stubs → newest-first within deficit band (not RR ends).
+    function knownSkyreachStub(reportCode: string, startTimeMs: number): WclRunCandidate {
+      const base = fightUnknownStub(reportCode, startTimeMs);
+      return {
+        ...base,
+        dungeonSlug: "skyreach",
+        incompleteness: { ...base.incompleteness, dungeonUnknown: false },
+      };
+    }
+    const stubs = [
+      knownSkyreachStub("TIMED1", 100),
+      knownSkyreachStub("DEPLETED", 90),
+      knownSkyreachStub("TIMED2", 80),
+      knownSkyreachStub("EXTRA", 70),
+    ];
+    const fetchReport = vi.fn(async (code: string) => {
+      if (code === "DEPLETED") {
+        return publicReport({
+          code,
+          dungeonSlug: "skyreach",
+          fightId: 2,
+          keystoneBonus: 0,
+        });
+      }
+      return publicReport({
+        code,
+        dungeonSlug: "skyreach",
+        fightId: code === "TIMED1" ? 1 : code === "TIMED2" ? 3 : 4,
+        keystoneBonus: 1,
+      });
+    });
+
+    const result = await hydrateFightUnknownCandidates({
+      candidates: stubs,
+      characterName: "Wallidrixe",
+      realmSlug: "archimonde",
+      activeDungeonSlugs: ["skyreach"],
+      maxReports: 24,
+      fetchReport,
+    });
+
+    expect(result.diagnostics.stopReason).toBe("full_coverage");
+    expect(result.diagnostics.distinctCandidatesPerDungeon["skyreach"]).toBe(2);
+    const known = result.candidates.filter((c) => !c.incompleteness.fightUnknown);
+    const timedKnown = known.filter((c) => c.timed === true);
+    expect(timedKnown).toHaveLength(2);
+    expect(timedKnown.map((c) => c.reportCode).sort()).toEqual(["TIMED1", "TIMED2"]);
+    expect(known.some((c) => c.reportCode === "DEPLETED" && c.timed === false)).toBe(true);
+    // DEPLETED was opened but did not satisfy coverage — TIMED2 must still be reached.
+    expect(fetchReport.mock.calls.map(([c]) => c)).toEqual(["TIMED1", "DEPLETED", "TIMED2"]);
+    expect(fetchReport).not.toHaveBeenCalledWith("EXTRA");
+  });
+
+  it("does not seed coverage from fight-known timer-unknown ranking stubs", async () => {
+    const seedUnknownTimer: WclRunCandidate = {
+      ...fightUnknownStub("RANK", 200),
+      fightId: 9,
+      dungeonSlug: "skyreach",
+      keyLevel: 18,
+      timed: null,
+      incompleteness: {
+        dungeonUnknown: false,
+        seasonUnknown: true,
+        timedUnknown: true,
+        keyLevelUnknown: false,
+        rosterIncomplete: true,
+        fightUnknown: false,
+      },
+    };
+    function knownSkyreachStub(reportCode: string, startTimeMs: number): WclRunCandidate {
+      const base = fightUnknownStub(reportCode, startTimeMs);
+      return {
+        ...base,
+        dungeonSlug: "skyreach",
+        incompleteness: { ...base.incompleteness, dungeonUnknown: false },
+      };
+    }
+    const stubs = [
+      knownSkyreachStub("T1", 100),
+      knownSkyreachStub("T2", 90),
+      knownSkyreachStub("EXTRA", 80),
+    ];
+    const fetchReport = vi.fn(async (code: string) =>
+      publicReport({
+        code,
+        dungeonSlug: "skyreach",
+        fightId: code === "T1" ? 1 : code === "T2" ? 2 : 3,
+      }),
+    );
+
+    const result = await hydrateFightUnknownCandidates({
+      candidates: [seedUnknownTimer, ...stubs],
+      characterName: "Wallidrixe",
+      realmSlug: "archimonde",
+      activeDungeonSlugs: ["skyreach"],
+      maxReports: 24,
+      fetchReport,
+    });
+
+    expect(result.diagnostics.distinctCandidatesPerDungeon["skyreach"]).toBe(2);
+    expect(fetchReport.mock.calls.map(([c]) => c)).toEqual(["T1", "T2"]);
+    expect(result.diagnostics.stopReason).toBe("full_coverage");
   });
 
   it("legacy fixed-budget mode also counts null/error attempts", async () => {

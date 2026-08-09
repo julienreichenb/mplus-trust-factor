@@ -108,6 +108,37 @@ export function expectedSlotsForDungeonCount(dungeonCount: number): number {
   return n * EVIDENCE_SLOTS_PER_DUNGEON;
 }
 
+/**
+ * Authoritative dungeonSlug → WCL encounterId bindings for WCL discovery.
+ * Throws when any active dungeon lacks a positive encounter ID.
+ */
+export function requireAuthorityDungeonEncounterBindings(
+  dungeons: readonly ActiveMplusDungeonIdentity[],
+): Array<{ dungeonSlug: string; encounterId: number }> {
+  const missing: string[] = [];
+  const out: Array<{ dungeonSlug: string; encounterId: number }> = [];
+  for (const d of dungeons) {
+    const dungeonSlug = d.slug.trim().toLowerCase();
+    const encounterId = d.wclEncounterId;
+    if (
+      !dungeonSlug ||
+      encounterId == null ||
+      !Number.isFinite(encounterId) ||
+      encounterId <= 0
+    ) {
+      missing.push(dungeonSlug || "(empty-slug)");
+      continue;
+    }
+    out.push({ dungeonSlug, encounterId });
+  }
+  if (missing.length > 0) {
+    throw new SeasonDungeonBindingsMissingError(
+      `Season dungeon(s) missing WCL encounter ID: ${missing.join(", ")}`,
+    );
+  }
+  return out;
+}
+
 /** Current score model evidence shape (v6): 16 slots / 8 dungeons. */
 export const SCORE_MODEL_V6_MAX_EVIDENCE_SLOTS = 16;
 

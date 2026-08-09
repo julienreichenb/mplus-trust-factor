@@ -252,3 +252,70 @@ export async function acquirePreviousSeasonRatingEvidence(input: {
     providerPayloadId,
   });
 }
+
+/** True when Blizzard season-profile failure is an ambiguous HTTP 404 / profile-unavailable. */
+export function isAmbiguousBlizzardSeasonProfileNotFound(cause: unknown): boolean {
+  if (cause == null || typeof cause !== "object") return false;
+  const err = cause as {
+    statusCode?: number | null;
+    code?: string;
+    details?: { reason?: string };
+  };
+  if (err.statusCode === 404) return true;
+  if (err.code === "NOT_FOUND") return true;
+  const reason = err.details?.reason;
+  return reason === "NOT_FOUND" || reason === "PROFILE_UNAVAILABLE";
+}
+
+export type RioPreviousSeasonCorroboration = {
+  /** Raider.IO profile fetch succeeded for this character. */
+  profileFetched: boolean;
+  /** Previous-season overall score when RIO reported one; null when absent/zero. */
+  previousSeasonScore: number | null;
+};
+
+/**
+ * Corroborate ambiguous Blizzard previous-season 404 with Raider.IO.
+ * Does NOT replace Blizzard as the official previous-season score source.
+ * Only reclassifies PROVIDER_FAILURE → CONFIRMED_NO_ACTIVITY when RIO also
+ * shows no previous-season score. When RIO has a positive score, keep failure
+ * (contradiction / provider issue).
+ */
+export function corroboratePreviousSeasonBlizzardNotFound(input: {
+  binding: ExperienceSeasonBindingCandidate;
+  ratingEvidence: PreviousSeasonRatingEvidence;
+  rio: RioPreviousSeasonCorroboration | null;
+  fetchedAt?: string;
+}): PreviousSeasonRatingEvidence {
+  const { ratingEvidence, binding, rio } = input;
+  if (ratingEvidence.state !== "PROVIDER_FAILURE") return ratingEvidence;
+  if (!isAmbiguousBlizzardSeasonProfileNotFound(ratingEvidence.cause)) {
+    return ratingEvidence;
+  }
+  if (rio == null || !rio.profileFetched) {
+    return {
+      ...ratingEvidence,
+      reason: "BLIZZARD_404_UNCORROBORATED",
+    };
+  }
+  const rioScore = rio.previousSeasonScore;
+  if (rioScore != null && Number.isFinite(rioScore) && rioScore > 0) {
+    return {
+      ...ratingEvidence,
+      reason: "BLIZZARD_404_CONTRADICTED_BY_RAIDERIO",
+    };
+  }
+  const blizzardSeasonId = binding.blizzardSeasonId;
+  if (blizzardSeasonId == null || !Number.isFinite(blizzardSeasonId)) {
+    return ratingEvidence;
+  }
+  return {
+    state: "CONFIRMED_NO_ACTIVITY",
+    internalSeasonId: binding.id,
+    seasonSlug: binding.slug,
+    blizzardSeasonId,
+    rating: null,
+    fetchedAt: input.fetchedAt ?? new Date().toISOString(),
+    providerPayloadId: null,
+  };
+}

@@ -805,4 +805,44 @@ describe("computeUtilityV2 safety", () => {
     expect(result.explanation.caps.domainContributionCap).toBeGreaterThan(0);
     expect(result.metrics.domainBreakdown).toBeDefined();
   });
+
+  it("does not apply maxWhenNoHostileCasts when hostile windows were never persisted", () => {
+    const input = baseInput();
+    const withPipelineGap = {
+      ...input,
+      factSets: input.factSets.map((f) => ({
+        ...f,
+        hostileBegincastCount: 0,
+        hostileObservability: "ABSENT" as const,
+        limitations: [
+          ...f.limitations,
+          "hostile_cast_windows_not_persisted_in_digest",
+          "digest_catalog_coverage_unmeasured",
+        ],
+        catalogCoverage: {
+          abilityCatalogCoverage: 0,
+          mechanicCatalogCoverage: 0,
+        },
+      })),
+    };
+    const withGenuineZero = {
+      ...input,
+      factSets: input.factSets.map((f) => ({
+        ...f,
+        hostileBegincastCount: 0,
+        hostileObservability: "ABSENT" as const,
+        limitations: f.limitations.filter(
+          (l) => l !== "hostile_cast_windows_not_persisted_in_digest",
+        ),
+      })),
+    };
+    const gap = computeUtilityV2(withPipelineGap);
+    const genuine = computeUtilityV2(withGenuineZero);
+    expect(gap.explanation.confidenceReasons).toContain(
+      "hostile_cast_windows_not_persisted_in_digest",
+    );
+    expect(gap.explanation.confidenceReasons).not.toContain("no_hostile_casts_observed");
+    expect(genuine.explanation.confidenceReasons).toContain("no_hostile_casts_observed");
+    expect(genuine.confidence).toBeLessThanOrEqual(0.45);
+  });
 });

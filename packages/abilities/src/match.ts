@@ -7,10 +7,6 @@ import type {
 } from "./types.js";
 import { expandScoringCategory, ruleResolvableSpellIds } from "./registry.js";
 
-function ruleSpellIds(rule: AbilityRule): number[] {
-  return [...rule.spellIds, ...(rule.aliases ?? [])];
-}
-
 function matchesClassSpec(
   rule: AbilityRule,
   options: { classSlug?: string | null; specSlug?: string | null; role?: string | null },
@@ -57,7 +53,7 @@ export function spellIdsForCategory(
 ): Set<number> {
   const ids = new Set<number>();
   for (const rule of rulesForCategory(catalog, category, options)) {
-    for (const id of ruleSpellIds(rule)) ids.add(id);
+    for (const id of ruleResolvableSpellIds(rule)) ids.add(id);
   }
   return ids;
 }

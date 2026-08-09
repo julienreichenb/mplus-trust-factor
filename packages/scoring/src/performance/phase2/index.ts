@@ -35,6 +35,11 @@ export {
 } from "./compute.js";
 
 export { combinePerformancePhase2Scores } from "./combine.js";
+export {
+  computePerformancePhase2Confidence,
+  type PerformancePhase2ConfidenceInput,
+  type PerformancePhase2ConfidenceResult,
+} from "./confidence.js";
 
 export { profileAggregateFactFromPersisted } from "./profile-from-aggregate.js";
 

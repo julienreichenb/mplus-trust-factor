@@ -118,7 +118,10 @@ export function collectDamageTakenPoints(
       timestampMs: e.timestampMs,
       amount: Math.max(0, e.amount ?? 0),
       participantActorId: victim,
-      maxHpHint: null,
+      maxHpHint:
+        e.maxHitPoints != null && Number.isFinite(e.maxHitPoints) && e.maxHitPoints > 0
+          ? e.maxHitPoints
+          : null,
     });
   }
   return out.sort(

@@ -189,6 +189,8 @@ describe("scoreCharacter Experience Phase 1 optional input", () => {
     const experience: ExperiencePhase1Result = {
       score: 75,
       available: true,
+      confidence: 1,
+      confidenceCauses: [],
       previousStandingScore: 75,
       classRankFloor: null,
       classRankFloorApplied: false,
@@ -234,6 +236,8 @@ describe("scoreCharacter Experience Phase 1 optional input", () => {
     const experience: ExperiencePhase1Result = {
       score: null,
       available: false,
+      confidence: null,
+      confidenceCauses: ["previous_evidence_unavailable"],
       previousStandingScore: null,
       classRankFloor: null,
       classRankFloorApplied: false,
@@ -270,6 +274,8 @@ describe("scoreCharacter Experience Phase 1 optional input", () => {
     const experience: ExperiencePhase1Result = {
       score: 0,
       available: true,
+      confidence: 1,
+      confidenceCauses: [],
       previousStandingScore: 0,
       classRankFloor: null,
       classRankFloorApplied: false,

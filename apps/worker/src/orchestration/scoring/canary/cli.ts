@@ -36,6 +36,7 @@ import {
   assertOperatorRepositoryMode,
   createMemoryCanaryDependencies,
   createProductionCanaryDependencies,
+  resolveCanaryCharacterIdentity,
   type CanaryCharacterResolution,
   type CanaryRepositoryMode,
   CharacterNotFoundError,
@@ -69,6 +70,7 @@ import type {
 } from "./canary-discover-types.js";
 import type { EvidenceRole } from "@mplus/contracts";
 import type { WclGraphQlClient } from "@mplus/provider-warcraftlogs";
+import { observeAuthoritativeReportRevision } from "../run-orchestration/live-capability-adapter.js";
 import { discoverShadowCanaryCandidates } from "../shadow-canary/discover.js";
 import {
   bootstrapCanaryRateLimitSnapshot,
@@ -823,6 +825,11 @@ export async function runCanaryDiscoverCommand(
       join(process.cwd(), "artifacts", "scoring-canary");
     const snapshotPath = defaultCanaryRateSnapshotPath(outDir);
 
+    const classSpec = await resolveCanaryCharacterIdentity({
+      prisma: deps.container.prisma,
+      characterId: deps.characterResolution.characterId,
+      fallbackRole: role === "TANK" || role === "HEALER" || role === "DPS" ? role : "DPS",
+    });
     const { report } = await runScoringCanaryDiscovery({
       prisma: deps.container.prisma,
       artifacts: deps.container.repositories.artifacts,
@@ -830,9 +837,9 @@ export async function runCanaryDiscoverCommand(
       characterId: deps.characterResolution.characterId,
       characterResolution: deps.characterResolution,
       seasonResolution,
-      role: role === "TANK" || role === "HEALER" || role === "DPS" ? role : "DPS",
-      classSlug: null,
-      specSlug: null,
+      role: classSpec.role,
+      classSlug: classSpec.classSlug,
+      specSlug: classSpec.specSlug,
       rateBudgetConfig: {
         warnPercent: env.WCL_RATE_WARN_PERCENT,
         deferPercent: env.WCL_RATE_DEFER_PERCENT,
@@ -854,6 +861,18 @@ export async function runCanaryDiscoverCommand(
               return fetchCanaryRateLimitSnapshotLive(wcl.getGraphQlClient());
             },
           })),
+      resolveReportRevision: async ({ reportCode, fightId }) => {
+        const wcl = deps.container.providers.warcraftlogs as {
+          getGraphQlClient?: () => WclGraphQlClient;
+        };
+        if (typeof wcl.getGraphQlClient !== "function") return null;
+        return observeAuthoritativeReportRevision({
+          client: wcl.getGraphQlClient(),
+          reportCode,
+          fightId,
+          region: args.region,
+        });
+      },
       discover:
         options?.discoverOverride ??
         (async (ctx) => {
@@ -863,6 +882,15 @@ export async function runCanaryDiscoverCommand(
             realmSlug: args.realm,
             characterName: args.character,
             characterId: deps.characterResolution.characterId,
+            activeDungeonSlugs: seasonResolution.activeDungeonSlugs,
+            activeDungeonEncounters: seasonResolution.dungeons.map((d) => ({
+              dungeonSlug: d.slug,
+              encounterId:
+                d.wclZoneOrEncounterId != null
+                  ? Number(d.wclZoneOrEncounterId)
+                  : null,
+            })),
+            dungeonPoolSource: seasonResolution.catalogSource,
             evaluateIncrementalAdmission: ctx.evaluateIncrementalAdmission,
           });
           const allowed = new Set(
@@ -891,6 +919,9 @@ export async function runCanaryDiscoverCommand(
             estimatedPoints: shadow.diagnostics.providerCalls,
             omittedReports: shadow.diagnostics.omittedReports,
             unhydratedReportCount: shadow.diagnostics.unhydratedReportCount,
+            discoveryStrategy: shadow.diagnostics.discoveryStrategy,
+            hydrationFallbackReason: shadow.diagnostics.hydrationFallbackReason,
+            providerCallBreakdown: shadow.diagnostics.providerCallBreakdown,
             iterativeHydration: shadow.diagnostics.iterativeHydration
               ? {
                   initialHydrationBudget:
@@ -1091,6 +1122,11 @@ export async function runCanaryLiveCommand(
       stopPercent: env.WCL_RATE_STOP_PERCENT ?? 90,
     };
 
+    const classSpec = await resolveCanaryCharacterIdentity({
+      prisma: deps.container.prisma,
+      characterId: deps.characterResolution.characterId,
+      fallbackRole: "DPS",
+    });
     const runner = options?.liveRunner ?? runScoringCanaryLive;
     const { report, reportPath } = await runner({
       prisma: deps.container.prisma,
@@ -1101,9 +1137,9 @@ export async function runCanaryLiveCommand(
       realm: args.realm,
       characterResolution: deps.characterResolution,
       seasonResolution,
-      role: "DPS",
-      classSlug: null,
-      specSlug: null,
+      role: classSpec.role,
+      classSlug: classSpec.classSlug,
+      specSlug: classSpec.specSlug,
       rateBudgetConfig,
       env,
       ports: options?.ports,
@@ -1206,6 +1242,11 @@ async function main(): Promise<void> {
         regionCode: args.region,
       });
       assertSeasonCatalogOk(season);
+      const classSpec = await resolveCanaryCharacterIdentity({
+        prisma: deps.container.prisma,
+        characterId: deps.characterResolution.characterId,
+        fallbackRole: "DPS",
+      });
       const { reportPath, report } = await runScoringCanaryReplay({
         env,
         prisma: deps.container.prisma,
@@ -1214,9 +1255,9 @@ async function main(): Promise<void> {
         characterName: args.character,
         region: args.region,
         realm: args.realm,
-        classSlug: null,
-        specSlug: null,
-        role: "DPS",
+        classSlug: classSpec.classSlug,
+        specSlug: classSpec.specSlug,
+        role: classSpec.role,
         season,
         repositoryMode: "PRODUCTION",
         outputDir: args.outputDir ?? undefined,

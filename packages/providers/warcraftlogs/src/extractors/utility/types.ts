@@ -1,5 +1,5 @@
 import type { AbilityCategory, AbilityRule } from "@mplus/abilities";
-import { dimensionTagsForRule } from "@mplus/abilities";
+import { dimensionTagsForRule, ruleResolvableSpellIds } from "@mplus/abilities";
 import type {
   UtilityActionOutcome,
   UtilityActionTimelineV1,
@@ -131,7 +131,7 @@ export function isUtilityCatalogRule(rule: AbilityRule): boolean {
 }
 
 export function spellIdsForRule(rule: AbilityRule): number[] {
-  return [...new Set([...rule.spellIds, ...(rule.aliases ?? [])])];
+  return ruleResolvableSpellIds(rule);
 }
 
 export function defaultOutcomeForCategory(

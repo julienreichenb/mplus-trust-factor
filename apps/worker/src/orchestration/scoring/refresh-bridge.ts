@@ -20,6 +20,7 @@ import { createRedisSourceFightLock } from "./run-orchestration/source-fight-lea
 import { createProductionRunOrchestrationPorts } from "./run-orchestration/production-ports.js";
 import type { RunOrchestrationPorts } from "./run-orchestration/orchestrator.js";
 import type { FetchCharacterPerformanceAggregateProvider } from "./run-orchestration/ensure-performance-aggregate.js";
+import type { FetchCharacterZoneRankingsParseProvider } from "./run-orchestration/ensure-ranking-parse-facts.js";
 import {
   requirePositivePerformanceAggregateTtlSeconds,
   requireScoringZoneId,
@@ -29,6 +30,7 @@ import {
   allowExperienceBlizzardProviderCalls,
   buildExperiencePhase1Result,
   previousRegionalClassRankFromRioProfile,
+  rioPreviousSeasonCorroborationFromProfile,
 } from "./experience-phase1.js";
 
 export interface AuthoritativeScoringInput {
@@ -90,6 +92,20 @@ function resolvePerformanceAggregateProvider(
   if (wcl && typeof wcl.fetchCharacterPerformanceAggregate === "function") {
     return {
       fetchCharacterPerformanceAggregate: wcl.fetchCharacterPerformanceAggregate.bind(wcl),
+    };
+  }
+  return null;
+}
+
+function resolveRankingParseProvider(
+  container: WorkerContainer,
+): FetchCharacterZoneRankingsParseProvider | null {
+  const wcl = container.providers.warcraftlogs as unknown as {
+    fetchCharacterZoneRankingsParse?: FetchCharacterZoneRankingsParseProvider["fetchCharacterZoneRankingsParse"];
+  } | null;
+  if (wcl && typeof wcl.fetchCharacterZoneRankingsParse === "function") {
+    return {
+      fetchCharacterZoneRankingsParse: wcl.fetchCharacterZoneRankingsParse.bind(wcl),
     };
   }
   return null;
@@ -202,12 +218,20 @@ export async function runAuthoritativeScoring(
   }
 
   let ports = input.portsOverride;
+  /** Owned Redis handle when this function creates the source-fight lock connection. */
+  let redisOwned: ReturnType<WorkerContainer["createRedisConnection"]> | null =
+    null;
   if (!ports) {
+    const rankingParseProvider = allowProviderCalls
+      ? resolveRankingParseProvider(input.container)
+      : null;
     const basePorts = createProductionRunOrchestrationPorts({
       prisma: input.container.prisma,
       artifacts: input.container.repositories.artifacts,
       evidence: input.container.repositories.evidence,
       liveAcquireCapabilityPackage: liveAcquire,
+      zoneId,
+      rankingParseProvider,
       targetCharacter: {
         characterId: input.characterId,
         characterName: input.characterName,
@@ -218,9 +242,9 @@ export async function runAuthoritativeScoring(
         role: input.role,
       },
     });
-    const redis = input.container.createRedisConnection();
+    redisOwned = input.container.createRedisConnection();
     const withSourceFightLock = createRedisSourceFightLock({
-      redis,
+      redis: redisOwned,
       appEnv:
         input.container.env.APP_ENV ??
         input.container.env.NODE_ENV ??
@@ -235,112 +259,122 @@ export async function runAuthoritativeScoring(
     };
   }
 
-  const performanceAggregateProvider =
-    input.performanceAggregateProviderOverride !== undefined
-      ? input.performanceAggregateProviderOverride
-      : allowProviderCalls
-        ? resolvePerformanceAggregateProvider(input.container)
-        : null;
+  try {
+    const performanceAggregateProvider =
+      input.performanceAggregateProviderOverride !== undefined
+        ? input.performanceAggregateProviderOverride
+        : allowProviderCalls
+          ? resolvePerformanceAggregateProvider(input.container)
+          : null;
 
-  let experience: ExperiencePhase1Result | null = null;
-  let experienceBlizzardCalls = 0;
-  if (input.experienceOverride !== undefined) {
-    experience = input.experienceOverride;
-  } else if (
-    allowExperienceBlizzardProviderCalls(input.container.env) &&
-    !input.container.disabledProviders.has("blizzard")
-  ) {
-    const experienceCtx: ProviderFetchContext = {
-      region: input.region,
-      requestId: `experience-phase1:${input.characterId}:${input.seasonId}`,
-      correlationId: fingerprint,
-      forceRefresh: false,
-      now: input.calculatedAt,
+    let experience: ExperiencePhase1Result | null = null;
+    let experienceBlizzardCalls = 0;
+    if (input.experienceOverride !== undefined) {
+      experience = input.experienceOverride;
+    } else if (
+      allowExperienceBlizzardProviderCalls(input.container.env) &&
+      !input.container.disabledProviders.has("blizzard")
+    ) {
+      const experienceCtx: ProviderFetchContext = {
+        region: input.region,
+        requestId: `experience-phase1:${input.characterId}:${input.seasonId}`,
+        correlationId: fingerprint,
+        forceRefresh: false,
+        now: input.calculatedAt,
+      };
+      try {
+        const built = await buildExperiencePhase1Result({
+          prisma: input.container.prisma,
+          identity: {
+            region: input.region,
+            realmSlug: input.realm,
+            name: input.characterName,
+          },
+          currentSeasonId: input.seasonId,
+          regionCode: input.region,
+          blizzard: input.container.providers.blizzard,
+          ctx: experienceCtx,
+          persistProviderResult: (result) =>
+            recordProviderResult(input.container.repositories, result),
+          allowProviderCalls: true,
+          previousRegionalClassRank: previousRegionalClassRankFromRioProfile(
+            input.raiderIoProfile ?? null,
+          ),
+          rioPreviousSeasonCorroboration:
+            rioPreviousSeasonCorroborationFromProfile(
+              input.raiderIoProfile ?? null,
+            ),
+        });
+        experience = built.experience;
+        experienceBlizzardCalls =
+          built.previousSeasonProfileCalls + built.achievementsCalls;
+      } catch (error) {
+        // Experience must never break P/S/U scoring.
+        input.container.logger.warn(
+          {
+            event: "EXPERIENCE_PHASE1_FAILED",
+            characterId: input.characterId,
+            seasonId: input.seasonId,
+            error: error instanceof Error ? error.message : String(error),
+          },
+          "EXPERIENCE_PHASE1_FAILED",
+        );
+        experience = null;
+      }
+    }
+
+    const scoreResult = await scoreCharacter({
+      identity: {
+        characterId: input.characterId,
+        region: input.region,
+        realm: input.realm,
+        characterName: input.characterName,
+      },
+      seasonId: input.seasonId,
+      seasonSlug: input.seasonSlug,
+      role: input.role,
+      classSlug: input.classSlug,
+      specSlug: input.specSlug,
+      activeDungeonSlugs: input.activeDungeonSlugs,
+      candidates: input.candidates,
+      evidenceCutoffAt: input.evidenceCutoffAt,
+      highKeyPolicyId: input.highKeyPolicyId,
+      scoringModelId: input.scoreModelId,
+      scoringModelVersion: String(input.scoreModelVersion),
+      allowProviderCalls,
+      publicationEnabled: input.container.env.SCORING_PUBLICATION_ENABLED,
+      persistCharacterScore: input.persistCharacterScore,
+      scoreModelConfig: input.scoreModelConfig,
+      ports,
+      prisma: input.container.prisma,
+      artifacts: input.container.repositories.artifacts,
+      evidence: input.container.repositories.evidence,
+      liveAcquire,
+      zoneId,
+      partition,
+      performanceAggregateTtlSeconds: ttlSeconds,
+      performanceAggregateProvider,
+      experience,
+    });
+
+    return {
+      disabled: false,
+      snapshot: scoreCharacterResultToSnapshotDto({
+        result: scoreResult,
+        characterId: input.characterId,
+        seasonSlug: input.seasonSlug,
+        scoreModelKey: input.scoreModelKey,
+        scoreModelVersion: input.scoreModelVersion,
+        calculatedAt: input.calculatedAt,
+        inputFingerprint: fingerprint,
+        publicationEnabled: input.container.env.SCORING_PUBLICATION_ENABLED,
+      }),
+      scoreResult,
+      providerCalls: scoreResult.providerCalls + experienceBlizzardCalls,
     };
-    try {
-      const built = await buildExperiencePhase1Result({
-        prisma: input.container.prisma,
-        identity: {
-          region: input.region,
-          realmSlug: input.realm,
-          name: input.characterName,
-        },
-        currentSeasonId: input.seasonId,
-        regionCode: input.region,
-        blizzard: input.container.providers.blizzard,
-        ctx: experienceCtx,
-        persistProviderResult: (result) =>
-          recordProviderResult(input.container.repositories, result),
-        allowProviderCalls: true,
-        previousRegionalClassRank: previousRegionalClassRankFromRioProfile(
-          input.raiderIoProfile ?? null,
-        ),
-      });
-      experience = built.experience;
-      experienceBlizzardCalls =
-        built.previousSeasonProfileCalls + built.achievementsCalls;
-    } catch (error) {
-      // Experience must never break P/S/U scoring.
-      input.container.logger.warn(
-        {
-          event: "EXPERIENCE_PHASE1_FAILED",
-          characterId: input.characterId,
-          seasonId: input.seasonId,
-          error: error instanceof Error ? error.message : String(error),
-        },
-        "EXPERIENCE_PHASE1_FAILED",
-      );
-      experience = null;
+  } finally {
+    if (redisOwned) {
+      await redisOwned.quit().catch(() => undefined);
     }
   }
-
-  const scoreResult = await scoreCharacter({
-    identity: {
-      characterId: input.characterId,
-      region: input.region,
-      realm: input.realm,
-      characterName: input.characterName,
-    },
-    seasonId: input.seasonId,
-    seasonSlug: input.seasonSlug,
-    role: input.role,
-    classSlug: input.classSlug,
-    specSlug: input.specSlug,
-    activeDungeonSlugs: input.activeDungeonSlugs,
-    candidates: input.candidates,
-    evidenceCutoffAt: input.evidenceCutoffAt,
-    highKeyPolicyId: input.highKeyPolicyId,
-    scoringModelId: input.scoreModelId,
-    scoringModelVersion: String(input.scoreModelVersion),
-    allowProviderCalls,
-    publicationEnabled: input.container.env.SCORING_PUBLICATION_ENABLED,
-    persistCharacterScore: input.persistCharacterScore,
-    scoreModelConfig: input.scoreModelConfig,
-    ports,
-    prisma: input.container.prisma,
-    artifacts: input.container.repositories.artifacts,
-    evidence: input.container.repositories.evidence,
-    liveAcquire,
-    zoneId,
-    partition,
-    performanceAggregateTtlSeconds: ttlSeconds,
-    performanceAggregateProvider,
-    experience,
-  });
-
-  return {
-    disabled: false,
-    snapshot: scoreCharacterResultToSnapshotDto({
-      result: scoreResult,
-      characterId: input.characterId,
-      seasonSlug: input.seasonSlug,
-      scoreModelKey: input.scoreModelKey,
-      scoreModelVersion: input.scoreModelVersion,
-      calculatedAt: input.calculatedAt,
-      inputFingerprint: fingerprint,
-      publicationEnabled: input.container.env.SCORING_PUBLICATION_ENABLED,
-    }),
-    scoreResult,
-    providerCalls: scoreResult.providerCalls + experienceBlizzardCalls,
-  };
 }
