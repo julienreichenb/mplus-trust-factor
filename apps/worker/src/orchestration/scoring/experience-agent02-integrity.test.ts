@@ -22,6 +22,7 @@ import {
   hashExperienceEvidencePayload,
   ratingEvidenceFromPersistedRow,
   buildPreviousSeasonRatingPersistInput,
+  buildEliteCutoffHistoryPersistInput,
 } from "./experience-evidence-persist.js";
 import {
   EXPERIENCE_POPULATION_POLICY_METADATA_KEY,
@@ -36,9 +37,12 @@ import {
 import {
   ensureExperienceSeasonBindingReady,
   isExperienceSeasonBindingEnsureComplete,
+  matchBlizzardSeasonToRaiderIoByDates,
   proveExactRaiderIoCutoffSeasonEquivalence,
   resetExperienceSeasonBindingEnsureStateForTests,
   shouldEnsureExperienceSeasonBinding,
+  peekExperienceSeasonBindingEnsureStateForTests,
+  bootstrapExperienceSeasonMetadata,
 } from "./experience-season-bootstrap.js";
 import { synchronizeSeasonPopulationPolicy } from "./experience-season-population-policy-sync.js";
 
@@ -228,6 +232,357 @@ function cutoffs(partial: Partial<RaiderIoSeasonCutoffs> = {}): RaiderIoSeasonCu
     ...partial,
   };
 }
+
+describe("Agent 02 — explicit Blizzard-id mismatch never wins by dates", () => {
+  const startX = "2025-07-01T00:00:00.000Z";
+
+  it("rejects RIO main season with wrong blizzardSeasonId despite identical start", () => {
+    const matched = matchBlizzardSeasonToRaiderIoByDates(
+      {
+        startTimestamp: Date.parse(startX),
+        endTimestamp: Date.parse("2026-01-01T00:00:00.000Z"),
+        blizzardSeasonId: 14,
+      },
+      [
+        {
+          slug: "season-wrong",
+          name: "wrong",
+          startsAt: startX,
+          endsAt: "2026-01-01T00:00:00.000Z",
+          isCurrent: false,
+          isMainSeason: true,
+          blizzardSeasonId: 99,
+          dungeonSlugs: [],
+        },
+      ],
+    );
+    expect(matched.ok).toBe(false);
+    if (matched.ok) return;
+    expect(matched.reason).toBe("RIO_DATE_MATCH_EXPLICIT_BLIZZARD_ID_MISMATCH");
+  });
+
+  it("allows date fallback when RIO blizzardSeasonId is null", () => {
+    const matched = matchBlizzardSeasonToRaiderIoByDates(
+      {
+        startTimestamp: Date.parse(startX),
+        endTimestamp: Date.parse("2026-01-01T00:00:00.000Z"),
+        blizzardSeasonId: 14,
+      },
+      [
+        {
+          slug: "season-tww-3",
+          name: "tww3",
+          startsAt: startX,
+          endsAt: "2026-01-01T00:00:00.000Z",
+          isCurrent: false,
+          isMainSeason: true,
+          blizzardSeasonId: null,
+          dungeonSlugs: [],
+        },
+        {
+          slug: "season-wrong",
+          name: "wrong",
+          startsAt: startX,
+          endsAt: "2026-01-01T00:00:00.000Z",
+          isCurrent: false,
+          isMainSeason: true,
+          blizzardSeasonId: 99,
+          dungeonSlugs: [],
+        },
+      ],
+    );
+    expect(matched.ok).toBe(true);
+    if (!matched.ok) return;
+    expect(matched.season.slug).toBe("season-tww-3");
+  });
+
+  it("date-disambiguates only among exact-id candidates when two share Blizzard 14", () => {
+    const matched = matchBlizzardSeasonToRaiderIoByDates(
+      {
+        startTimestamp: Date.parse(startX),
+        endTimestamp: Date.parse("2026-01-01T00:00:00.000Z"),
+        blizzardSeasonId: 14,
+      },
+      [
+        {
+          slug: "season-far",
+          name: "far",
+          startsAt: "2024-01-01T00:00:00.000Z",
+          endsAt: null,
+          isCurrent: false,
+          isMainSeason: true,
+          blizzardSeasonId: 14,
+          dungeonSlugs: [],
+        },
+        {
+          slug: "season-near",
+          name: "near",
+          startsAt: startX,
+          endsAt: "2026-01-01T00:00:00.000Z",
+          isCurrent: false,
+          isMainSeason: true,
+          blizzardSeasonId: 14,
+          dungeonSlugs: [],
+        },
+        {
+          slug: "season-wrong",
+          name: "wrong",
+          startsAt: startX,
+          endsAt: "2026-01-01T00:00:00.000Z",
+          isCurrent: false,
+          isMainSeason: true,
+          blizzardSeasonId: 99,
+          dungeonSlugs: [],
+        },
+      ],
+    );
+    expect(matched.ok).toBe(true);
+    if (!matched.ok) return;
+    expect(matched.season.slug).toBe("season-near");
+  });
+
+  it("bootstrap does not write season-wrong as providerSeasonId for Blizzard 14", async () => {
+    type SeasonRow = {
+      id: string;
+      regionId: string;
+      slug: string;
+      name: string;
+      blizzardSeasonId: number | null;
+      providerSeasonId: string | null;
+      startsAt: Date | null;
+      endsAt: Date | null;
+      isCurrent: boolean;
+      metadata: Record<string, unknown>;
+      region?: { id: string; code: string };
+    };
+    const seasons: SeasonRow[] = [
+      {
+        id: "cur",
+        regionId: REGION_ID,
+        slug: "blizzard-season-15",
+        name: "15",
+        blizzardSeasonId: 15,
+        providerSeasonId: null,
+        startsAt: new Date("2026-01-01T00:00:00.000Z"),
+        endsAt: null,
+        isCurrent: true,
+        metadata: {},
+        region: { id: REGION_ID, code: "EU" },
+      },
+      {
+        id: "prev",
+        regionId: REGION_ID,
+        slug: "blizzard-season-14",
+        name: "14",
+        blizzardSeasonId: 14,
+        providerSeasonId: null,
+        startsAt: new Date(startX),
+        endsAt: new Date("2026-01-01T00:00:00.000Z"),
+        isCurrent: false,
+        metadata: {},
+        region: { id: REGION_ID, code: "EU" },
+      },
+    ];
+    const prisma = {
+      getSeasons: () => seasons,
+      season: {
+        findFirst: vi.fn(async (args: { where: Record<string, unknown>; select?: Record<string, boolean>; include?: Record<string, boolean> }) => {
+          const row = seasons.find((s) => {
+            if (args.where.regionId != null && s.regionId !== args.where.regionId) return false;
+            if (args.where.slug != null && s.slug !== args.where.slug) return false;
+            if (args.where.isCurrent === true && !s.isCurrent) return false;
+            return true;
+          });
+          if (!row) return null;
+          if (args.include?.region) return { ...row, region: row.region };
+          if (args.select) {
+            const out: Record<string, unknown> = {};
+            for (const k of Object.keys(args.select)) out[k] = (row as Record<string, unknown>)[k];
+            return out;
+          }
+          return { ...row };
+        }),
+        findUnique: vi.fn(async (args: { where: { id: string }; select?: Record<string, boolean>; include?: Record<string, boolean> }) => {
+          const row = seasons.find((s) => s.id === args.where.id);
+          if (!row) return null;
+          if (args.include?.region) return { ...row, region: row.region };
+          if (args.select) {
+            const out: Record<string, unknown> = {};
+            for (const k of Object.keys(args.select)) out[k] = (row as Record<string, unknown>)[k];
+            return out;
+          }
+          return { ...row };
+        }),
+        create: vi.fn(async () => ({ id: "new" })),
+        update: vi.fn(async (args: { where: { id: string }; data: Record<string, unknown> }) => {
+          const idx = seasons.findIndex((s) => s.id === args.where.id);
+          if (idx < 0) throw new Error("missing");
+          seasons[idx] = {
+            ...seasons[idx]!,
+            ...(args.data.providerSeasonId !== undefined
+              ? { providerSeasonId: args.data.providerSeasonId as string | null }
+              : {}),
+            ...(args.data.metadata !== undefined
+              ? { metadata: args.data.metadata as Record<string, unknown> }
+              : {}),
+          };
+          return seasons[idx];
+        }),
+      },
+    };
+
+    const result = await bootstrapExperienceSeasonMetadata({
+      prisma: prisma as never,
+      regions: [{ code: "EU", id: REGION_ID }],
+      blizzard: {
+        getMythicKeystoneSeasonIndex: vi.fn(async () =>
+          providerResult([
+            {
+              blizzardSeasonId: 14,
+              slug: "s14",
+              name: "14",
+              startTimestamp: Date.parse(startX),
+              endTimestamp: Date.parse("2026-01-01T00:00:00.000Z"),
+            },
+            {
+              blizzardSeasonId: 15,
+              slug: "s15",
+              name: "15",
+              startTimestamp: Date.parse("2026-01-01T00:00:00.000Z"),
+              endTimestamp: null,
+            },
+          ]),
+        ),
+        getMythicKeystoneSeason: vi.fn(async () => {
+          throw new Error("unused");
+        }),
+      },
+      raiderIo: {
+        getStaticData: vi.fn(async () =>
+          providerResult({
+            expansionId: 10,
+            seasons: [
+              {
+                slug: "season-wrong",
+                name: "wrong",
+                startsAt: startX,
+                endsAt: "2026-01-01T00:00:00.000Z",
+                isCurrent: false,
+                isMainSeason: true,
+                blizzardSeasonId: 99,
+                dungeonSlugs: [],
+              },
+              {
+                slug: "season-mn-1",
+                name: "mn1",
+                startsAt: "2026-01-01T00:00:00.000Z",
+                endsAt: null,
+                isCurrent: true,
+                isMainSeason: true,
+                blizzardSeasonId: 15,
+                dungeonSlugs: [],
+              },
+            ],
+            dungeons: [],
+            attribution: {
+              provider: "raiderio",
+              displayText: "x",
+              homepageUrl: "https://raider.io",
+              profileUrl: null,
+              sourceUrl: null,
+            },
+          }),
+        ),
+        getSeasonCutoffs: vi.fn(async () =>
+          providerResult(cutoffs({ seasonSlug: "season-wrong", isRemappedSeason: true })),
+        ),
+      },
+      persistProviderResult: vi.fn(async () => "p"),
+      logger: { info: vi.fn(), warn: vi.fn() },
+    });
+
+    expect(seasons.find((s) => s.id === "prev")!.providerSeasonId).not.toBe("season-wrong");
+    expect(seasons.find((s) => s.id === "prev")!.providerSeasonId).toBeNull();
+    expect(result.regions[0]!.previousRaiderIoSlug).toBeNull();
+    expect(result.seasonCutoffsCalls).toBe(0);
+    expect(
+      result.regions[0]!.reasons.some((r) =>
+        r.includes("RIO_DATE_MATCH_EXPLICIT_BLIZZARD_ID_MISMATCH"),
+      ),
+    ).toBe(true);
+  });
+
+  it("phase-1 does not call exact historical RIO when previous RIO slug was never bound", async () => {
+    const rows = [
+      {
+        id: CURRENT_ID,
+        regionId: REGION_ID,
+        slug: "blizzard-season-15",
+        blizzardSeasonId: 15,
+        startsAt: new Date("2026-01-01T00:00:00.000Z"),
+        endsAt: null,
+        metadata: {},
+        providerSeasonId: "season-mn-1",
+      },
+      {
+        id: PREV_ID,
+        regionId: REGION_ID,
+        slug: "blizzard-season-14",
+        blizzardSeasonId: 14,
+        startsAt: new Date(startX),
+        endsAt: new Date("2026-01-01T00:00:00.000Z"),
+        metadata: {},
+        providerSeasonId: null,
+      },
+    ];
+    const getCharacterExactSeasonHistoricalRating = vi.fn(async () =>
+      providerResult({
+        seasonSlug: "season-wrong",
+        seasonFound: true,
+        scoreAll: 2900,
+        activityProof: "UNKNOWN" as const,
+      }),
+    );
+    const result = await buildExperiencePhase1Result({
+      prisma: createPrismaFake(rows as never) as never,
+      characterId: CHAR_ID,
+      identity,
+      currentSeasonId: CURRENT_ID,
+      regionCode: "EU",
+      blizzard: {
+        getMythicKeystoneSeasonProfile: vi.fn(async () => {
+          throw Object.assign(new Error("not found"), {
+            statusCode: 404,
+            code: "NOT_FOUND",
+          });
+        }),
+        getCharacterAchievements: vi.fn(async () => achievementsDto()),
+      },
+      ctx,
+      persistProviderResult: vi.fn(async () => "p"),
+      allowProviderCalls: true,
+      evidenceStore: createInMemoryExperienceEvidenceStore(),
+      canonicalPreviousBinding: {
+        ok: true,
+        season: {
+          id: PREV_ID,
+          regionId: REGION_ID,
+          slug: "blizzard-season-14",
+          blizzardSeasonId: 14,
+          startsAt: new Date(startX),
+          endsAt: new Date("2026-01-01T00:00:00.000Z"),
+          providerSeasonId: null,
+        },
+        boundRaiderIoSlug: null,
+      },
+      boundPreviousRaiderIoSlug: null,
+      raiderIoExactSeason: { getCharacterExactSeasonHistoricalRating },
+    });
+    expect(getCharacterExactSeasonHistoricalRating).not.toHaveBeenCalled();
+    expect(result.raiderIoHistoricalRatingCalls).toBe(0);
+    expect(result.experience.available).toBe(false);
+  });
+});
 
 describe("Agent 02 F3 — canonical previous binding resists fixture pollution", () => {
   it("selects authority previous row and its RIO slug, not later fixture", () => {
@@ -437,6 +792,187 @@ describe("Agent 02 F4 — persisted evidence binding compatibility", () => {
     expect(result.previousSeasonRatingFromCache).toBe(false);
     expect(result.experience.available).toBe(false);
   });
+
+  it("BLIZZARD legacy row with null RIO slug remains compatible", () => {
+    const persist = buildPreviousSeasonRatingPersistInput({
+      characterId: CHAR_ID,
+      evidence: {
+        state: "HAS_VALUE",
+        rating: 2900,
+        ratingSource: "BLIZZARD",
+        internalSeasonId: PREV_ID,
+        seasonSlug: "blizzard-season-14",
+        blizzardSeasonId: 14,
+        fetchedAt: "2026-08-08T00:00:01.000Z",
+        providerPayloadId: "p",
+      },
+      raiderIoSeasonSlug: null,
+    })!;
+    const now = new Date();
+    const row: CharacterExperienceEvidenceDTO = {
+      id: "legacy-blizz",
+      characterId: persist.characterId,
+      seasonId: persist.seasonId,
+      blizzardSeasonId: 14,
+      raiderIoSeasonSlug: null,
+      evidenceKind: persist.evidenceKind,
+      compatibilityVersion: persist.compatibilityVersion,
+      state: persist.state,
+      source: EXPERIENCE_EVIDENCE_SOURCE.BLIZZARD,
+      payload: { ...(persist.payload as object), raiderIoSeasonSlug: null },
+      sourcePayloadId: null,
+      sourceRequestFingerprint: null,
+      contentHash: null,
+      fetchedAt: persist.fetchedAt,
+      createdAt: now,
+      updatedAt: now,
+    };
+    expect(
+      ratingEvidenceFromPersistedRow(row, {
+        characterId: CHAR_ID,
+        seasonId: PREV_ID,
+        blizzardSeasonId: 14,
+        raiderIoSeasonSlug: "season-tww-3",
+      })?.state,
+    ).toBe("HAS_VALUE");
+  });
+
+  it("RAIDERIO_FALLBACK with null RIO slug is rejected when binding has exact slug", () => {
+    const now = new Date();
+    const payload = {
+      schemaVersion: EXPERIENCE_PREVIOUS_RATING_COMPAT_VERSION,
+      state: "HAS_VALUE" as const,
+      rating: 2900,
+      ratingSource: "RAIDERIO_FALLBACK" as const,
+      internalSeasonId: PREV_ID,
+      seasonSlug: "blizzard-season-14",
+      blizzardSeasonId: 14,
+      raiderIoSeasonSlug: null,
+    };
+    const row: CharacterExperienceEvidenceDTO = {
+      id: "rio-null",
+      characterId: CHAR_ID,
+      seasonId: PREV_ID,
+      blizzardSeasonId: 14,
+      raiderIoSeasonSlug: null,
+      evidenceKind: EXPERIENCE_EVIDENCE_KIND.PREVIOUS_SEASON_RATING,
+      compatibilityVersion: EXPERIENCE_PREVIOUS_RATING_COMPAT_VERSION,
+      state: EXPERIENCE_EVIDENCE_STATE.HAS_VALUE,
+      source: EXPERIENCE_EVIDENCE_SOURCE.RAIDERIO_FALLBACK,
+      payload,
+      sourcePayloadId: null,
+      sourceRequestFingerprint: null,
+      contentHash: null,
+      fetchedAt: now,
+      createdAt: now,
+      updatedAt: now,
+    };
+    expect(
+      ratingEvidenceFromPersistedRow(row, {
+        characterId: CHAR_ID,
+        seasonId: PREV_ID,
+        blizzardSeasonId: 14,
+        raiderIoSeasonSlug: "season-tww-3",
+      }),
+    ).toBeNull();
+  });
+
+  it("RAIDERIO_FALLBACK with wrong slug is rejected", () => {
+    const persist = buildPreviousSeasonRatingPersistInput({
+      characterId: CHAR_ID,
+      evidence: {
+        state: "HAS_VALUE",
+        rating: 2900,
+        ratingSource: "RAIDERIO_FALLBACK",
+        internalSeasonId: PREV_ID,
+        seasonSlug: "blizzard-season-14",
+        blizzardSeasonId: 14,
+        fetchedAt: "2026-08-08T00:00:01.000Z",
+        providerPayloadId: "p",
+      },
+      raiderIoSeasonSlug: "season-wrong",
+    })!;
+    const now = new Date();
+    const row: CharacterExperienceEvidenceDTO = {
+      id: "rio-wrong",
+      characterId: persist.characterId,
+      seasonId: persist.seasonId,
+      blizzardSeasonId: 14,
+      raiderIoSeasonSlug: "season-wrong",
+      evidenceKind: persist.evidenceKind,
+      compatibilityVersion: persist.compatibilityVersion,
+      state: persist.state,
+      source: EXPERIENCE_EVIDENCE_SOURCE.RAIDERIO_FALLBACK,
+      payload: persist.payload,
+      sourcePayloadId: null,
+      sourceRequestFingerprint: null,
+      contentHash: persist.contentHash ?? null,
+      fetchedAt: persist.fetchedAt,
+      createdAt: now,
+      updatedAt: now,
+    };
+    expect(
+      ratingEvidenceFromPersistedRow(row, {
+        characterId: CHAR_ID,
+        seasonId: PREV_ID,
+        blizzardSeasonId: 14,
+        raiderIoSeasonSlug: "season-tww-3",
+      }),
+    ).toBeNull();
+  });
+
+  it("correct exact RAIDERIO_FALLBACK replays provider-free", async () => {
+    const store = createInMemoryExperienceEvidenceStore();
+    const persist = buildPreviousSeasonRatingPersistInput({
+      characterId: CHAR_ID,
+      evidence: {
+        state: "HAS_VALUE",
+        rating: 2900,
+        ratingSource: "RAIDERIO_FALLBACK",
+        internalSeasonId: PREV_ID,
+        seasonSlug: "blizzard-season-14",
+        blizzardSeasonId: 14,
+        fetchedAt: "2026-08-08T00:00:01.000Z",
+        providerPayloadId: "p",
+      },
+      raiderIoSeasonSlug: "season-tww-3",
+    })!;
+    await store.upsertImmutable(persist);
+    await store.upsertImmutable(
+      buildEliteCutoffHistoryPersistInput({
+        characterId: CHAR_ID,
+        currentSeasonId: CURRENT_ID,
+        confirmedCount: 0,
+        confirmed: [],
+        fetchedAt: "2026-08-08T00:00:01.000Z",
+      }),
+    );
+
+    const getMythicKeystoneSeasonProfile = vi.fn(async () => {
+      throw new Error("should not call");
+    });
+    const result = await buildExperiencePhase1Result({
+      prisma: createPrismaFake(seasonRowsWithFixturePollution()) as never,
+      characterId: CHAR_ID,
+      identity,
+      currentSeasonId: CURRENT_ID,
+      regionCode: "EU",
+      blizzard: {
+        getMythicKeystoneSeasonProfile,
+        getCharacterAchievements: vi.fn(async () => {
+          throw new Error("should not call");
+        }),
+      },
+      ctx,
+      persistProviderResult: vi.fn(async () => "p"),
+      allowProviderCalls: false,
+      evidenceStore: store,
+    });
+    expect(getMythicKeystoneSeasonProfile).not.toHaveBeenCalled();
+    expect(result.previousSeasonRatingFromCache).toBe(true);
+    expect(result.experience.available).toBe(true);
+    expect(result.diagnostics.ratingSource).toBe("PERSISTED");
+  });
 });
 
 describe("Agent 02 F2 — remapped cutoff equivalence proof", () => {
@@ -581,53 +1117,142 @@ describe("Agent 02 F5 — ensure retries after failed bootstrap", () => {
     ).toBe(true);
   });
 
-  it("failed ensure retries; successful ensure then skips", async () => {
+  it("ensureExperienceSeasonBindingReady retries after failure then skips after success", async () => {
     const currentId = 15;
-    let boom = true;
+    type SeasonRow = {
+      id: string;
+      regionId: string;
+      slug: string;
+      name: string;
+      blizzardSeasonId: number | null;
+      providerSeasonId: string | null;
+      startsAt: Date | null;
+      endsAt: Date | null;
+      isCurrent: boolean;
+      metadata: Record<string, unknown>;
+      region?: { id: string; code: string };
+    };
+    const seasons: SeasonRow[] = [
+      {
+        id: CURRENT_ID,
+        regionId: REGION_ID,
+        slug: "blizzard-season-15",
+        name: "15",
+        blizzardSeasonId: currentId,
+        providerSeasonId: null,
+        startsAt: new Date("2026-01-01T00:00:00.000Z"),
+        endsAt: null,
+        isCurrent: true,
+        metadata: {},
+        region: { id: REGION_ID, code: "EU" },
+      },
+      {
+        id: PREV_ID,
+        regionId: REGION_ID,
+        slug: "blizzard-season-14",
+        name: "14",
+        blizzardSeasonId: 14,
+        providerSeasonId: null,
+        startsAt: new Date("2025-07-01T00:00:00.000Z"),
+        endsAt: new Date("2026-01-01T00:00:00.000Z"),
+        isCurrent: false,
+        metadata: {},
+        region: { id: REGION_ID, code: "EU" },
+      },
+    ];
     const prisma = {
       season: {
-        findFirst: vi.fn(async () => {
-          if (boom) throw new Error("transient db");
-          return {
-            id: CURRENT_ID,
-            blizzardSeasonId: currentId,
-            startsAt: new Date("2026-01-01T00:00:00.000Z"),
-            providerSeasonId: "season-mn-1",
-          };
+        findFirst: vi.fn(async (args: {
+          where: Record<string, unknown>;
+          select?: Record<string, boolean>;
+          include?: Record<string, boolean>;
+        }) => {
+          const row = seasons.find((s) => {
+            if (args.where.regionId != null && s.regionId !== args.where.regionId)
+              return false;
+            if (args.where.slug != null && s.slug !== args.where.slug) return false;
+            if (args.where.isCurrent === true && !s.isCurrent) return false;
+            return true;
+          });
+          if (!row) return null;
+          if (args.include?.region) return { ...row, region: row.region };
+          if (args.select) {
+            const out: Record<string, unknown> = {};
+            for (const k of Object.keys(args.select))
+              out[k] = (row as Record<string, unknown>)[k];
+            return out;
+          }
+          return { ...row };
         }),
-        findUnique: vi.fn(async () => ({
-          blizzardSeasonId: currentId,
-        })),
-        findMany: vi.fn(async () => []),
-        create: vi.fn(async () => ({ id: "x" })),
-        update: vi.fn(async () => ({})),
+        findUnique: vi.fn(async (args: {
+          where: { id: string };
+          select?: Record<string, boolean>;
+          include?: Record<string, boolean>;
+        }) => {
+          const row = seasons.find((s) => s.id === args.where.id);
+          if (!row) return null;
+          if (args.include?.region) return { ...row, region: row.region };
+          if (args.select) {
+            const out: Record<string, unknown> = {};
+            for (const k of Object.keys(args.select))
+              out[k] = (row as Record<string, unknown>)[k];
+            return out;
+          }
+          return { ...row };
+        }),
+        create: vi.fn(async () => ({ id: "new" })),
+        update: vi.fn(async (args: { where: { id: string }; data: Record<string, unknown> }) => {
+          const idx = seasons.findIndex((s) => s.id === args.where.id);
+          if (idx < 0) throw new Error("missing");
+          seasons[idx] = {
+            ...seasons[idx]!,
+            ...(args.data.providerSeasonId !== undefined
+              ? { providerSeasonId: args.data.providerSeasonId as string | null }
+              : {}),
+            ...(args.data.metadata !== undefined
+              ? { metadata: args.data.metadata as Record<string, unknown> }
+              : {}),
+            ...(args.data.blizzardSeasonId !== undefined
+              ? { blizzardSeasonId: args.data.blizzardSeasonId as number }
+              : {}),
+            ...(args.data.startsAt !== undefined
+              ? { startsAt: args.data.startsAt as Date }
+              : {}),
+            ...(args.data.endsAt !== undefined
+              ? { endsAt: args.data.endsAt as Date | null }
+              : {}),
+          };
+          return seasons[idx];
+        }),
       },
     };
 
+    let boom = true;
+    const getMythicKeystoneSeasonIndex = vi.fn(async () => {
+      if (boom) throw new Error("blizzard down");
+      return providerResult([
+        {
+          blizzardSeasonId: 14,
+          slug: "s14",
+          name: "14",
+          startTimestamp: Date.parse("2025-07-01T00:00:00.000Z"),
+          endTimestamp: Date.parse("2026-01-01T00:00:00.000Z"),
+        },
+        {
+          blizzardSeasonId: 15,
+          slug: "s15",
+          name: "15",
+          startTimestamp: Date.parse("2026-01-01T00:00:00.000Z"),
+          endTimestamp: null,
+        },
+      ]);
+    });
     const logger = { info: vi.fn(), warn: vi.fn() };
     const input = {
       prisma: prisma as never,
       regions: [{ code: "EU", id: REGION_ID }],
       blizzard: {
-        getMythicKeystoneSeasonIndex: vi.fn(async () => {
-          if (boom) throw new Error("blizzard down");
-          return providerResult([
-            {
-              blizzardSeasonId: 14,
-              slug: "s14",
-              name: "14",
-              startTimestamp: Date.parse("2025-07-01T00:00:00.000Z"),
-              endTimestamp: Date.parse("2026-01-01T00:00:00.000Z"),
-            },
-            {
-              blizzardSeasonId: 15,
-              slug: "s15",
-              name: "15",
-              startTimestamp: Date.parse("2026-01-01T00:00:00.000Z"),
-              endTimestamp: null,
-            },
-          ]);
-        }),
+        getMythicKeystoneSeasonIndex,
         getMythicKeystoneSeason: vi.fn(async () => {
           throw new Error("unused");
         }),
@@ -680,6 +1305,8 @@ describe("Agent 02 F5 — ensure retries after failed bootstrap", () => {
       status: "skipped",
       reason: "EXPERIENCE_SEASON_BINDING_ALREADY_ENSURED",
     });
+    expect(getMythicKeystoneSeasonIndex).toHaveBeenCalledTimes(1);
+    expect(peekExperienceSeasonBindingEnsureStateForTests().get("EU")).toBeUndefined();
     expect(
       shouldEnsureExperienceSeasonBinding({
         regionCode: "EU",
@@ -687,27 +1314,22 @@ describe("Agent 02 F5 — ensure retries after failed bootstrap", () => {
       }),
     ).toBe(true);
 
-    // Second call must retry (not skip) after transient failure.
     boom = false;
-    // Minimal successful path is hard with this fake — assert memoization gate directly:
-    // after incomplete, shouldEnsure remains true; after remember on complete, skips.
-    expect(
-      shouldEnsureExperienceSeasonBinding({
-        regionCode: "EU",
-        currentBlizzardSeasonId: currentId,
-      }),
-    ).toBe(true);
+    const second = await ensureExperienceSeasonBindingReady(input);
+    expect(second).not.toMatchObject({
+      status: "skipped",
+      reason: "EXPERIENCE_SEASON_BINDING_ALREADY_ENSURED",
+    });
+    expect(getMythicKeystoneSeasonIndex).toHaveBeenCalledTimes(2);
+    expect(peekExperienceSeasonBindingEnsureStateForTests().get("EU")).toBe(currentId);
+    expect(seasons.find((s) => s.id === PREV_ID)!.providerSeasonId).toBe("season-tww-3");
 
-    // Simulate successful ensure memoization.
-    const { rememberExperienceSeasonBindingEnsured } = await import(
-      "./experience-season-bootstrap.js"
-    );
-    rememberExperienceSeasonBindingEnsured("EU", currentId);
     const third = await ensureExperienceSeasonBindingReady(input);
     expect(third).toEqual({
       status: "skipped",
       reason: "EXPERIENCE_SEASON_BINDING_ALREADY_ENSURED",
     });
+    expect(getMythicKeystoneSeasonIndex).toHaveBeenCalledTimes(2);
   });
 });
 

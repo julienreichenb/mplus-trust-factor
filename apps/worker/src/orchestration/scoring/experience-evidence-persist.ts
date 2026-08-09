@@ -242,7 +242,15 @@ export function isPersistedRatingEvidenceCompatible(
   }
 
   const expectedRio = expected.raiderIoSeasonSlug?.trim() || null;
-  if (expectedRio) {
+
+  // RAIDERIO_FALLBACK requires explicit exact-season provenance when binding is known.
+  // BLIZZARD-primary may still tolerate legacy null RIO slug fields.
+  if (payload.ratingSource === "RAIDERIO_FALLBACK" && expectedRio) {
+    const payloadRio = payload.raiderIoSeasonSlug?.trim() || null;
+    const rowRio = row.raiderIoSeasonSlug?.trim() || null;
+    if (!payloadRio || payloadRio !== expectedRio) return false;
+    if (!rowRio || rowRio !== expectedRio) return false;
+  } else if (expectedRio) {
     if (
       row.raiderIoSeasonSlug != null &&
       row.raiderIoSeasonSlug.trim() !== expectedRio

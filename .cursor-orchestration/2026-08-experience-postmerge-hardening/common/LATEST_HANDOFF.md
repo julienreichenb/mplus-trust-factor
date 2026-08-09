@@ -10,7 +10,34 @@ Status: AGENT 02 COMPLETE
 
 ## Current agent
 
-Agent 02 — season binding + evidence integrity hardening (complete).
+Agent 02 — season binding + evidence integrity hardening (complete; corrective follow-up applied).
+
+## Corrective follow-up (explicit Blizzard↔RIO identity)
+
+### RIO match algorithm
+
+When target Blizzard season id is known:
+
+1. exact-id candidates among real main seasons;
+2. unique exact-id → select; multiple → date-disambiguate **only among exact-id**;
+3. no exact-id → date match **only** among RIO seasons with missing/unavailable `blizzardSeasonId`;
+4. explicitly mismatched ids → `RIO_DATE_MATCH_EXPLICIT_BLIZZARD_ID_MISMATCH` (never win by dates).
+
+When target Blizzard id is unavailable: existing date semantics across all real main seasons.
+
+### providerSeasonId writes
+
+- Write `Season.providerSeasonId` only after a successful identity match.
+- Do **not** fall back to `rioPair.current.slug` after a failed match (especially explicit id mismatch).
+- Fail closed: wrong slug is never persisted; cutoff sync is skipped when previous RIO slug is unbound.
+
+### RAIDERIO_FALLBACK replay
+
+When binding has a known exact RIO slug, `RAIDERIO_FALLBACK` rows require non-null matching `payload.raiderIoSeasonSlug` and `row.raiderIoSeasonSlug`. BLIZZARD-primary may still tolerate legacy null RIO provenance.
+
+### Ensure retry proof
+
+`ensureExperienceSeasonBindingReady`: transient failure → same-process retry executes bootstrap again and succeeds (auto-memoizes) → third call returns `EXPERIENCE_SEASON_BINDING_ALREADY_ENSURED`. No manual `rememberExperienceSeasonBindingEnsured` in the proof.
 
 ## 1. Canonical season-binding architecture (F3)
 
@@ -39,7 +66,7 @@ A fixture/non-authority Season with a later `startsAt` and a plausible `provider
 | characterId / seasonId / compat version | must match |
 | payload.internalSeasonId | must match row + expected |
 | blizzardSeasonId | payload (+ row when present) must match expected |
-| raiderIoSeasonSlug | when expected slug known, present row/payload values must match; legacy null tolerated |
+| raiderIoSeasonSlug | BLIZZARD: present values must match when expected known; legacy null OK. RAIDERIO_FALLBACK: payload + row slug required and must equal expected |
 | source ↔ ratingSource | BLIZZARD / RAIDERIO_FALLBACK consistency |
 | contentHash | when present, must equal hash of normalized payload |
 
@@ -106,12 +133,14 @@ pnpm test:raw -- \
   apps/worker/src/orchestration/scoring/score-character.test.ts
 ```
 
-Result: **139 passed** (12 files; 79 + 60 across the two focused runs).
+Result: **148 passed** (12 files).
 
 ## Completed commits
 
 - Agent 01: `062b9cfad4757a388150271081d75f10c13752d2`
-- Agent 02: `2c08699edfb77aede081386c168e326bd704d7ff`
+- Agent 02 primary: `2c08699edfb77aede081386c168e326bd704d7ff`
+- Agent 02 corrective: _(fill after commit)_
+- Tip: _(fill after commit)_
 
 ## Remaining sequence
 
