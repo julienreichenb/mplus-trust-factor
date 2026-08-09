@@ -409,13 +409,22 @@ describe("Experience Phase 1 end-to-end (fixture)", () => {
       performanceAggregateProviderOverride: null,
     };
 
-    // Baseline: Experience disabled → unavailable / null.
+    // Baseline: providers forbidden, no persisted evidence → explicit unavailable Experience.
     await runAuthoritativeScoring({
       ...scoringArgs,
       container: makeContainer(baselineSaved, false),
     });
     expect(getMythicKeystoneSeasonProfile).not.toHaveBeenCalled();
+    expect(getCharacterAchievements).not.toHaveBeenCalled();
     expect(baselineSaved[0]!.experience).toBeNull();
+    const baselineExp = (
+      baselineSaved[0]!.dimensionDetails as {
+        experience: { available: boolean; score: number | null; reason: string | null };
+      }
+    ).experience;
+    expect(baselineExp.available).toBe(false);
+    expect(baselineExp.score).toBeNull();
+    expect(baselineExp.reason).toBe("PREVIOUS_EVIDENCE_UNAVAILABLE");
 
     // Full Experience path (fixture + ALLOW_LIVE_PROVIDER_CALLS).
     const result = await runAuthoritativeScoring({

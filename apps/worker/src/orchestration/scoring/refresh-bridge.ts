@@ -32,6 +32,7 @@ import {
   previousRegionalClassRankFromRioProfile,
   rioPreviousSeasonCorroborationFromProfile,
 } from "./experience-phase1.js";
+import { resolveCanonicalPreviousSeasonBinding } from "./experience-previous-season-evidence.js";
 import { createCharacterExperienceEvidenceRepository } from "@mplus/database";
 
 export interface AuthoritativeScoringInput {
@@ -269,13 +270,15 @@ export async function runAuthoritativeScoring(
           : null;
 
     let experience: ExperiencePhase1Result | null = null;
-    let experienceBlizzardCalls = 0;
+    let experienceProviderCalls = 0;
     if (input.experienceOverride !== undefined) {
       experience = input.experienceOverride;
-    } else if (
-      allowExperienceBlizzardProviderCalls(input.container.env) &&
-      !input.container.disabledProviders.has("blizzard")
-    ) {
+    } else {
+      // Always evaluate/reconstruct Experience via the canonical phase-1 path.
+      // Provider permission controls acquisition only — not whether Experience runs.
+      const allowExperienceProviders =
+        allowExperienceBlizzardProviderCalls(input.container.env) &&
+        !input.container.disabledProviders.has("blizzard");
       const experienceCtx: ProviderFetchContext = {
         region: input.region,
         requestId: `experience-phase1:${input.characterId}:${input.seasonId}`,
@@ -284,37 +287,43 @@ export async function runAuthoritativeScoring(
         now: input.calculatedAt,
       };
       try {
-        // Bound previous RIO slug from Season.providerSeasonId (set by Experience season bind).
-        // Class rank stays fail-closed: previous_mythic_plus_ranks has no exact-season identity.
+        // One canonical previous-season binding decision (internal Season + RIO slug).
+        let canonicalPreviousBinding: ReturnType<
+          typeof resolveCanonicalPreviousSeasonBinding
+        > | null = null;
         let boundPreviousRaiderIoSlug: string | null = null;
         const currentSeasonRow = await input.container.prisma.season.findUnique({
           where: { id: input.seasonId },
           select: {
+            id: true,
             regionId: true,
             blizzardSeasonId: true,
             startsAt: true,
             endsAt: true,
             slug: true,
+            providerSeasonId: true,
           },
         });
-        if (currentSeasonRow?.regionId && currentSeasonRow.startsAt) {
-          const prior = await input.container.prisma.season.findMany({
-            where: {
-              regionId: currentSeasonRow.regionId,
-              startsAt: { lt: currentSeasonRow.startsAt },
-              blizzardSeasonId: { not: null },
+        if (currentSeasonRow?.regionId) {
+          const regionSeasons = await input.container.prisma.season.findMany({
+            where: { regionId: currentSeasonRow.regionId },
+            select: {
+              id: true,
+              regionId: true,
+              slug: true,
+              blizzardSeasonId: true,
+              startsAt: true,
+              endsAt: true,
+              providerSeasonId: true,
             },
-            orderBy: { startsAt: "desc" },
-            take: 2,
-            select: { providerSeasonId: true, startsAt: true },
           });
-          // Fail closed on tied startsAt (should not happen with unique chronology).
-          if (
-            prior.length === 1 ||
-            (prior.length >= 2 &&
-              prior[0]!.startsAt?.getTime() !== prior[1]!.startsAt?.getTime())
-          ) {
-            boundPreviousRaiderIoSlug = prior[0]?.providerSeasonId ?? null;
+          canonicalPreviousBinding = resolveCanonicalPreviousSeasonBinding(
+            currentSeasonRow,
+            regionSeasons,
+          );
+          if (canonicalPreviousBinding.ok) {
+            boundPreviousRaiderIoSlug =
+              canonicalPreviousBinding.boundRaiderIoSlug;
           }
         }
 
@@ -332,14 +341,17 @@ export async function runAuthoritativeScoring(
           ctx: experienceCtx,
           persistProviderResult: (result) =>
             recordProviderResult(input.container.repositories, result),
-          allowProviderCalls: true,
+          allowProviderCalls: allowExperienceProviders,
           evidenceStore: createCharacterExperienceEvidenceRepository(
             input.container.prisma,
           ),
+          canonicalPreviousBinding,
           boundPreviousRaiderIoSlug,
-          raiderIoExactSeason: input.container.disabledProviders.has("raiderio")
-            ? null
-            : input.container.providers.raiderio,
+          raiderIoExactSeason:
+            !allowExperienceProviders ||
+            input.container.disabledProviders.has("raiderio")
+              ? null
+              : input.container.providers.raiderio,
           // No RIO endpoint proves previous_mythic_plus_ranks for an exact season slug.
           previousRegionalClassRank: previousRegionalClassRankFromRioProfile(
             input.raiderIoProfile ?? null,
@@ -352,8 +364,10 @@ export async function runAuthoritativeScoring(
             ),
         });
         experience = built.experience;
-        experienceBlizzardCalls =
-          built.previousSeasonProfileCalls + built.achievementsCalls;
+        experienceProviderCalls =
+          built.previousSeasonProfileCalls +
+          built.achievementsCalls +
+          built.raiderIoHistoricalRatingCalls;
       } catch (error) {
         // Experience must never break P/S/U scoring.
         input.container.logger.warn(
@@ -416,7 +430,7 @@ export async function runAuthoritativeScoring(
         publicationEnabled: input.container.env.SCORING_PUBLICATION_ENABLED,
       }),
       scoreResult,
-      providerCalls: scoreResult.providerCalls + experienceBlizzardCalls,
+      providerCalls: scoreResult.providerCalls + experienceProviderCalls,
     };
   } finally {
     if (redisOwned) {

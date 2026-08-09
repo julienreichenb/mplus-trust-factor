@@ -23,6 +23,8 @@ export interface ExperienceSeasonBindingCandidate {
   blizzardSeasonId: number | null;
   startsAt: Date | null;
   endsAt: Date | null;
+  /** Raider.IO slug bound onto this Season row (`Season.providerSeasonId`). */
+  providerSeasonId?: string | null;
 }
 
 export type PreviousSeasonBindingUnresolvedReason =
@@ -39,6 +41,44 @@ export type PreviousSeasonBindingResult =
       ok: false;
       reason: PreviousSeasonBindingUnresolvedReason;
     };
+
+/**
+ * Canonical previous-season binding: one selected Season row + its RIO slug.
+ * Callers must not independently re-infer "latest prior" for the RIO slug.
+ */
+export type CanonicalPreviousSeasonBinding =
+  | {
+      ok: true;
+      season: ExperienceSeasonBindingCandidate;
+      /** Exact RIO slug from the selected previous row's providerSeasonId. */
+      boundRaiderIoSlug: string | null;
+    }
+  | {
+      ok: false;
+      reason: PreviousSeasonBindingUnresolvedReason;
+    };
+
+/**
+ * Resolve previous Mythic+ season and consume providerSeasonId from that same row.
+ */
+export function resolveCanonicalPreviousSeasonBinding(
+  current: ExperienceSeasonBindingCandidate,
+  candidates: readonly ExperienceSeasonBindingCandidate[],
+): CanonicalPreviousSeasonBinding {
+  const binding = resolvePreviousMythicSeason(current, candidates);
+  if (!binding.ok) return binding;
+  const selected =
+    candidates.find((c) => c.id === binding.season.id) ?? binding.season;
+  const boundRaiderIoSlug = selected.providerSeasonId?.trim() || null;
+  return {
+    ok: true,
+    season: {
+      ...binding.season,
+      providerSeasonId: selected.providerSeasonId ?? binding.season.providerSeasonId ?? null,
+    },
+    boundRaiderIoSlug,
+  };
+}
 
 /**
  * Neutral previous-season Blizzard rating evidence (no percentile / Experience score).
@@ -280,6 +320,69 @@ export function isAmbiguousBlizzardSeasonProfileNotFound(cause: unknown): boolea
   if (err.code === "NOT_FOUND") return true;
   const reason = err.details?.reason;
   return reason === "NOT_FOUND" || reason === "PROFILE_UNAVAILABLE";
+}
+
+/**
+ * Whether an immutable exact-season Raider.IO fallback may be created after Blizzard failure.
+ *
+ * TERMINAL_HISTORICAL_UNAVAILABLE — known unsupported-history / 404 class (Wallidrixe path).
+ * TRANSIENT — 429 / 5xx / retryable network; must not persist RIO fallback.
+ * NON_FALLBACK — other failures; no RIO fallback.
+ */
+export type BlizzardRioFallbackEligibility =
+  | "TERMINAL_HISTORICAL_UNAVAILABLE"
+  | "TRANSIENT"
+  | "NON_FALLBACK";
+
+export function classifyBlizzardPreviousSeasonFailureForRioFallback(
+  cause: unknown,
+): BlizzardRioFallbackEligibility {
+  if (cause == null || typeof cause !== "object") return "NON_FALLBACK";
+  const err = cause as {
+    statusCode?: number | null;
+    code?: string;
+    retryable?: boolean;
+    details?: { reason?: string };
+  };
+  const status = err.statusCode ?? null;
+  const code = typeof err.code === "string" ? err.code.toUpperCase() : "";
+  const reason = err.details?.reason?.toUpperCase?.() ?? "";
+
+  // Transient first — never treat rate-limit / 5xx as terminal historical miss.
+  if (
+    status === 429 ||
+    code === "RATE_LIMITED" ||
+    reason === "RATE_LIMITED"
+  ) {
+    return "TRANSIENT";
+  }
+  if (
+    (status != null && status >= 500) ||
+    code === "NETWORK" ||
+    code === "TIMEOUT" ||
+    reason === "PROVIDER_UNAVAILABLE" ||
+    reason === "TRANSIENT_NETWORK" ||
+    reason === "TIMEOUT"
+  ) {
+    return "TRANSIENT";
+  }
+  if (err.retryable === true) {
+    return "TRANSIENT";
+  }
+
+  if (isAmbiguousBlizzardSeasonProfileNotFound(cause)) {
+    return "TERMINAL_HISTORICAL_UNAVAILABLE";
+  }
+
+  return "NON_FALLBACK";
+}
+
+/** True when exact-season RIO fallback may run and (on success) become immutable. */
+export function mayAttemptImmutableRioHistoricalFallback(cause: unknown): boolean {
+  return (
+    classifyBlizzardPreviousSeasonFailureForRioFallback(cause) ===
+    "TERMINAL_HISTORICAL_UNAVAILABLE"
+  );
 }
 
 export type RioExactSeasonActivityProof = "PROVEN_NONE" | "PROVEN_ACTIVITY" | "UNKNOWN";

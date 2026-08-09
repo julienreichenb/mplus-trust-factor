@@ -173,12 +173,20 @@ export function parsePersistedPreviousClassRankPayload(
 
 export function ratingEvidenceFromPersistedRow(
   row: CharacterExperienceEvidenceDTO,
+  expected?: PreviousSeasonRatingEvidenceBindingExpectation,
 ): PreviousSeasonRatingEvidence | null {
   if (row.evidenceKind !== EXPERIENCE_EVIDENCE_KIND.PREVIOUS_SEASON_RATING) return null;
   if (row.compatibilityVersion !== EXPERIENCE_PREVIOUS_RATING_COMPAT_VERSION) return null;
   const payload = parsePersistedPreviousSeasonRatingPayload(row.payload);
   if (!payload) return null;
   if (payload.internalSeasonId !== row.seasonId) return null;
+
+  if (expected) {
+    if (!isPersistedRatingEvidenceCompatible(row, payload, expected)) {
+      return null;
+    }
+  }
+
   const base = {
     internalSeasonId: payload.internalSeasonId,
     seasonSlug: payload.seasonSlug,
@@ -191,6 +199,98 @@ export function ratingEvidenceFromPersistedRow(
     return { state: "HAS_VALUE", rating: payload.rating!, ...base };
   }
   return { state: "CONFIRMED_NO_ACTIVITY", rating: null, ...base };
+}
+
+/**
+ * Expected previous-season binding for durable evidence reuse.
+ * A mismatched immutable row must fail closed (reacquire or unavailable).
+ */
+export type PreviousSeasonRatingEvidenceBindingExpectation = {
+  characterId: string;
+  seasonId: string;
+  blizzardSeasonId: number;
+  /** Bound RIO slug when known; null means do not enforce slug equality. */
+  raiderIoSeasonSlug?: string | null;
+};
+
+/**
+ * Prove persisted rating evidence matches the current canonical binding.
+ * Legacy null provenance fields are tolerated when the compatibility contract
+ * did not previously require them; present mismatched values fail closed.
+ */
+export function isPersistedRatingEvidenceCompatible(
+  row: CharacterExperienceEvidenceDTO,
+  payload: PersistedPreviousSeasonRatingPayloadV1,
+  expected: PreviousSeasonRatingEvidenceBindingExpectation,
+): boolean {
+  if (row.characterId !== expected.characterId) return false;
+  if (row.seasonId !== expected.seasonId) return false;
+  if (payload.internalSeasonId !== expected.seasonId) return false;
+  if (row.compatibilityVersion !== EXPERIENCE_PREVIOUS_RATING_COMPAT_VERSION) {
+    return false;
+  }
+  if (payload.schemaVersion !== EXPERIENCE_PREVIOUS_RATING_COMPAT_VERSION) {
+    return false;
+  }
+
+  if (payload.blizzardSeasonId !== expected.blizzardSeasonId) return false;
+  if (
+    row.blizzardSeasonId != null &&
+    row.blizzardSeasonId !== expected.blizzardSeasonId
+  ) {
+    return false;
+  }
+
+  const expectedRio = expected.raiderIoSeasonSlug?.trim() || null;
+
+  // RAIDERIO_FALLBACK requires explicit exact-season provenance when binding is known.
+  // BLIZZARD-primary may still tolerate legacy null RIO slug fields.
+  if (payload.ratingSource === "RAIDERIO_FALLBACK" && expectedRio) {
+    const payloadRio = payload.raiderIoSeasonSlug?.trim() || null;
+    const rowRio = row.raiderIoSeasonSlug?.trim() || null;
+    if (!payloadRio || payloadRio !== expectedRio) return false;
+    if (!rowRio || rowRio !== expectedRio) return false;
+  } else if (expectedRio) {
+    if (
+      row.raiderIoSeasonSlug != null &&
+      row.raiderIoSeasonSlug.trim() !== expectedRio
+    ) {
+      return false;
+    }
+    if (
+      payload.raiderIoSeasonSlug != null &&
+      payload.raiderIoSeasonSlug.trim() !== expectedRio
+    ) {
+      return false;
+    }
+  } else if (
+    row.raiderIoSeasonSlug != null &&
+    payload.raiderIoSeasonSlug != null &&
+    row.raiderIoSeasonSlug.trim() !== payload.raiderIoSeasonSlug.trim()
+  ) {
+    return false;
+  }
+
+  // source / ratingSource consistency
+  if (payload.ratingSource === "BLIZZARD") {
+    if (
+      row.source !== EXPERIENCE_EVIDENCE_SOURCE.BLIZZARD &&
+      row.source !== EXPERIENCE_EVIDENCE_SOURCE.NONE
+    ) {
+      return false;
+    }
+  } else if (payload.ratingSource === "RAIDERIO_FALLBACK") {
+    if (row.source !== EXPERIENCE_EVIDENCE_SOURCE.RAIDERIO_FALLBACK) {
+      return false;
+    }
+  }
+
+  if (row.contentHash != null && row.contentHash.length > 0) {
+    const expectedHash = hashExperienceEvidencePayload(payload);
+    if (row.contentHash !== expectedHash) return false;
+  }
+
+  return true;
 }
 
 export function buildPreviousSeasonRatingPersistInput(input: {
