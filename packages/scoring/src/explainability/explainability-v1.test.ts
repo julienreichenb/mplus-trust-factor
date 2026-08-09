@@ -10,7 +10,11 @@ import {
   type ExperiencePhase1Result,
 } from "../experience/phase1/calculate.js";
 import type { PerformancePhase2ComputeResult } from "../performance/phase2/types.js";
-import type { SurvivalV2ComputeResult } from "../survival/v2/types.js";
+import type {
+  SurvivalV2ComputeResult,
+  SurvivalV2DungeonAggregate,
+  SurvivalV2RunScore,
+} from "../survival/v2/types.js";
 import type { UtilityV2ComputeResult, UtilityV2DomainBreakdown } from "../utility/v2/types.js";
 import {
   buildScoreExplainabilityV1,
@@ -18,6 +22,240 @@ import {
   projectScoreExplainabilityPublic,
   SCORE_EXPLAINABILITY_LABEL_CATALOG_VERSION,
 } from "./index.js";
+
+const RECONCILE_EPS = 1e-6;
+
+function sumDriverContributions(
+  drivers: Array<{ contribution: number | null }>,
+): number {
+  return drivers.reduce((s, d) => s + (d.contribution ?? 0), 0);
+}
+
+function survivalComponent(
+  metricKey: string,
+  score: number | null,
+  weightUsed: number,
+  state: "SCORED" | "NOT_APPLICABLE" = score == null ? "NOT_APPLICABLE" : "SCORED",
+): SurvivalV2RunScore["outcome"] {
+  return {
+    metricKey,
+    state,
+    score,
+    weightUsed,
+    reason: state === "NOT_APPLICABLE" ? "unavailable" : null,
+    evidence: {},
+  };
+}
+
+function survivalRun(input: {
+  dungeonSlug: string;
+  slotIndex: number;
+  outcome: number | null;
+  defensive: number | null;
+  recovery: number | null;
+  relativeDamage?: number | null;
+  weightsApplied: SurvivalV2RunScore["weightsApplied"];
+  valid?: boolean;
+}): SurvivalV2RunScore {
+  const w = input.weightsApplied;
+  const relative = input.relativeDamage ?? null;
+  const behavioralScore =
+    (input.outcome ?? 0) * w.outcome +
+    (input.defensive ?? 0) * w.defensive +
+    (input.recovery ?? 0) * w.recovery +
+    (relative != null ? relative * w.relativeDamage : 0);
+  return {
+    dungeonSlug: input.dungeonSlug,
+    slotIndex: input.slotIndex,
+    identity: {
+      reportCode: "TESTCODE000001",
+      fightId: input.slotIndex + 1,
+      reportRevision: 1,
+    },
+    keyLevel: 10,
+    behavioralScore: input.valid === false ? null : behavioralScore,
+    outcome: survivalComponent("survival.outcome", input.outcome, w.outcome),
+    defensive: survivalComponent(
+      "survival.defensive_response",
+      input.defensive,
+      w.defensive,
+    ),
+    recovery: survivalComponent(
+      "survival.emergency_recovery",
+      input.recovery,
+      w.recovery,
+    ),
+    relativeDamageShadow: {
+      mode: w.relativeDamage > 0 ? "active" : "shadow",
+      reliability: "RELIABLE",
+      score: relative,
+      publicContribution: 0,
+      reasons: [],
+      evidence: {},
+    },
+    weightsApplied: w,
+    healthEvidenceMode: input.defensive == null ? "OUTCOME_ONLY" : "FULL",
+    pressureClusterCount: 0,
+    deathCount: input.outcome === 100 ? 0 : 1,
+    limitations: [],
+    valid: input.valid !== false,
+    invalidReason: null,
+  };
+}
+
+function survivalDungeon(
+  dungeonSlug: string,
+  runs: SurvivalV2RunScore[],
+): SurvivalV2DungeonAggregate {
+  const valid = runs.filter((r) => r.valid && r.behavioralScore != null);
+  const scores = valid.map((r) => r.behavioralScore!);
+  const median =
+    scores.length === 0
+      ? null
+      : scores.length === 1
+        ? scores[0]!
+        : (scores[0]! + scores[1]!) / 2;
+  return {
+    dungeonSlug,
+    runCount: valid.length,
+    medianBehavioralScore: median,
+    medianOutcome: null,
+    medianDefensive: null,
+    medianRecovery: null,
+    runs,
+  };
+}
+
+function survivalFromRuns(
+  dungeons: SurvivalV2DungeonAggregate[],
+  overrides: Partial<SurvivalV2ComputeResult> = {},
+): SurvivalV2ComputeResult {
+  const withScores = dungeons.filter((d) => d.medianBehavioralScore != null);
+  const score =
+    withScores.length === 0
+      ? null
+      : withScores.reduce((s, d) => s + d.medianBehavioralScore!, 0) /
+        withScores.length;
+
+  const allValid = dungeons.flatMap((d) =>
+    d.runs.filter((r) => r.valid && r.behavioralScore != null),
+  );
+  const meanOrNull = (pick: (r: SurvivalV2RunScore) => number | null) => {
+    const vals = allValid
+      .map(pick)
+      .filter((v): v is number => v != null && Number.isFinite(v));
+    if (vals.length === 0) return null;
+    return vals.reduce((s, v) => s + v, 0) / vals.length;
+  };
+
+  const relativeMode =
+    overrides.relativeDamageMode ??
+    (allValid.some((r) => r.weightsApplied.relativeDamage > 0)
+      ? "active"
+      : "shadow");
+
+  return survivalFixture({
+    score,
+    state: score == null ? "UNAVAILABLE" : "PARTIAL",
+    dungeons,
+    components: {
+      outcome: meanOrNull((r) => r.outcome.score),
+      defensive: meanOrNull((r) => r.defensive.score),
+      recovery: meanOrNull((r) => r.recovery.score),
+      relativeDamage:
+        relativeMode === "active"
+          ? meanOrNull((r) =>
+              r.weightsApplied.relativeDamage > 0
+                ? r.relativeDamageShadow.score
+                : null,
+            )
+          : null,
+    },
+    relativeDamageMode: relativeMode,
+    relativeDamagePublicContribution:
+      relativeMode === "active"
+        ? meanOrNull((r) =>
+            r.weightsApplied.relativeDamage > 0
+              ? r.relativeDamageShadow.score
+              : null,
+          )
+        : null,
+    ...overrides,
+  });
+}
+
+function survivalFixture(
+  overrides: Partial<SurvivalV2ComputeResult> = {},
+): SurvivalV2ComputeResult {
+  const confidenceBreakdown = buildDimensionConfidenceBreakdown({
+    value: 0.65,
+    causes: ["max_hp_unavailable", "incomplete_dungeon_coverage"],
+    components: {
+      dungeonCoverage: 0.75,
+      slotFill: 0.8,
+      healthFactor: 0.55,
+      catalogFactor: 0.9,
+    },
+  });
+
+  // Default coherent single-run fixture (weights 55/30/15).
+  const defaultRun = survivalRun({
+    dungeonSlug: "ara-kara",
+    slotIndex: 0,
+    outcome: 100,
+    defensive: 35,
+    recovery: 55,
+    weightsApplied: {
+      outcome: 0.55,
+      defensive: 0.3,
+      recovery: 0.15,
+      relativeDamage: 0,
+    },
+  });
+  const defaultDungeon = survivalDungeon("ara-kara", [defaultRun]);
+  const defaultScore = defaultRun.behavioralScore!;
+
+  return {
+    algorithmVersion: "survival-v2-test",
+    modelLabel: "survival-v2-test",
+    calibrationStatus: "CANDIDATE_DEFAULTS_UNCALIBRATED",
+    modelConfigFingerprint: "surv-cfg",
+    inputFingerprint: "surv-fp",
+    score: defaultScore,
+    confidence: 0.65,
+    confidenceBreakdown,
+    state: "PARTIAL",
+    dungeons: [defaultDungeon],
+    components: {
+      outcome: 100,
+      defensive: 35,
+      recovery: 55,
+      relativeDamage: null,
+    },
+    observations: {
+      "survival.outcome": 100,
+      "survival.defensive_response": 35,
+      "survival.emergency_recovery": 55,
+      "survival.relative_avoidable_damage": null,
+    },
+    relativeDamageMode: "shadow",
+    relativeDamagePublicContribution: null,
+    explanation: {
+      selectedSlotCount: 12,
+      expectedSlotCount: 16,
+      scoredRunCount: 12,
+      pressureClusterCount: 4,
+      deathCount: 2,
+      healthModes: { FULL: 4, MISSING: 2 },
+      notes: [],
+      limitations: ["max_hp_unavailable"],
+      contributors: [],
+      perDungeon: [],
+    },
+    metrics: {},
+    ...overrides,
+  };
+}
 
 function emptyComposite(
   overrides: Partial<PartialCompositeResult> = {},
@@ -96,61 +334,6 @@ function performanceFixture(
   };
 }
 
-function survivalFixture(
-  overrides: Partial<SurvivalV2ComputeResult> = {},
-): SurvivalV2ComputeResult {
-  const confidenceBreakdown = buildDimensionConfidenceBreakdown({
-    value: 0.65,
-    causes: ["max_hp_unavailable", "incomplete_dungeon_coverage"],
-    components: {
-      dungeonCoverage: 0.75,
-      slotFill: 0.8,
-      healthFactor: 0.55,
-      catalogFactor: 0.9,
-    },
-  });
-  return {
-    algorithmVersion: "survival-v2-test",
-    modelLabel: "survival-v2-test",
-    calibrationStatus: "CANDIDATE_DEFAULTS_UNCALIBRATED",
-    modelConfigFingerprint: "surv-cfg",
-    inputFingerprint: "surv-fp",
-    score: 62,
-    confidence: 0.65,
-    confidenceBreakdown,
-    state: "PARTIAL",
-    dungeons: [],
-    components: {
-      outcome: 100,
-      defensive: 35,
-      recovery: 55,
-      relativeDamage: 40,
-    },
-    observations: {
-      "survival.outcome": 100,
-      "survival.defensive_response": 35,
-      "survival.emergency_recovery": 55,
-      "survival.relative_avoidable_damage": null,
-    },
-    relativeDamageMode: "shadow",
-    relativeDamagePublicContribution: null,
-    explanation: {
-      selectedSlotCount: 12,
-      expectedSlotCount: 16,
-      scoredRunCount: 12,
-      pressureClusterCount: 4,
-      deathCount: 2,
-      healthModes: { FULL: 4, MISSING: 2 },
-      notes: [],
-      limitations: ["max_hp_unavailable"],
-      contributors: [],
-      perDungeon: [],
-    },
-    metrics: {},
-    ...overrides,
-  };
-}
-
 function utilityDomain(
   partial: Partial<UtilityV2DomainBreakdown> & Pick<UtilityV2DomainBreakdown, "domain">,
 ): UtilityV2DomainBreakdown {
@@ -193,8 +376,8 @@ function utilityFixture(
     scoreSemantics: "floor-plus-observed",
     modelConfigFingerprint: "util-cfg",
     availabilityState: "PARTIAL",
-    score: 58,
-    rawBehaviorEstimate: 66,
+    score: 56,
+    rawBehaviorEstimate: 60,
     confidence: 0.55,
     confidenceComponents: confidenceBreakdown.components,
     confidenceBreakdown,
@@ -451,19 +634,129 @@ describe("Score Explainability V1", () => {
       ).toBe(false);
     });
 
-    it("includes relative damage only when weight-active", () => {
+    it("reconstructs mixed applicability across two runs (outcome-only + full)", () => {
+      // Counterexample from review: outcome-only 100 + full 55 → dungeon 77.5
+      const runA = survivalRun({
+        dungeonSlug: "ara-kara",
+        slotIndex: 0,
+        outcome: 100,
+        defensive: null,
+        recovery: null,
+        weightsApplied: {
+          outcome: 1,
+          defensive: 0,
+          recovery: 0,
+          relativeDamage: 0,
+        },
+      });
+      const runB = survivalRun({
+        dungeonSlug: "ara-kara",
+        slotIndex: 1,
+        outcome: 100,
+        defensive: 0,
+        recovery: 0,
+        weightsApplied: {
+          outcome: 0.55,
+          defensive: 0.3,
+          recovery: 0.15,
+          relativeDamage: 0,
+        },
+      });
+      expect(runA.behavioralScore).toBeCloseTo(100, 6);
+      expect(runB.behavioralScore).toBeCloseTo(55, 6);
+
+      const survival = survivalFromRuns([
+        survivalDungeon("ara-kara", [runA, runB]),
+      ]);
+      expect(survival.score).toBeCloseTo(77.5, 6);
+      // Season component summaries look like defaults — must not drive contributions.
+      expect(survival.components.outcome).toBe(100);
+      expect(survival.components.defensive).toBe(0);
+      expect(survival.components.recovery).toBe(0);
+
       const dim = buildScoreExplainabilityV1({
         performance: null,
-        survival: survivalFixture({
-          relativeDamageMode: "active",
-          relativeDamagePublicContribution: 40,
-          observations: {
-            "survival.outcome": 100,
-            "survival.defensive_response": 35,
-            "survival.emergency_recovery": 55,
-            "survival.relative_avoidable_damage": 40,
-          },
-        }),
+        survival,
+        utility: null,
+        experience: null,
+        composite: null,
+      }).dimensions.SURVIVAL;
+
+      expect(50 + sumDriverContributions(dim.scoreStory.drivers)).toBeCloseTo(
+        survival.score!,
+        6,
+      );
+      // Must not equal the false 55 reconstruction from global .55/.30/.15.
+      expect(50 + sumDriverContributions(dim.scoreStory.drivers)).not.toBeCloseTo(
+        55,
+        1,
+      );
+    });
+
+    it("follows actual run.weightsApplied even when they differ from defaults", () => {
+      const run = survivalRun({
+        dungeonSlug: "dawnbreaker",
+        slotIndex: 0,
+        outcome: 80,
+        defensive: 20,
+        recovery: 40,
+        // Intentionally non-canonical applied weights.
+        weightsApplied: {
+          outcome: 0.2,
+          defensive: 0.5,
+          recovery: 0.3,
+          relativeDamage: 0,
+        },
+      });
+      const survival = survivalFromRuns([survivalDungeon("dawnbreaker", [run])]);
+      const dim = buildScoreExplainabilityV1({
+        performance: null,
+        survival,
+        utility: null,
+        experience: null,
+        composite: null,
+      }).dimensions.SURVIVAL;
+
+      expect(dim.scoreStory.drivers.find((d) => d.code === "survival.outcome")?.weight).toBeCloseTo(
+        0.2,
+        6,
+      );
+      expect(
+        dim.scoreStory.drivers.find((d) => d.code === "survival.defensive_response")
+          ?.weight,
+      ).toBeCloseTo(0.5, 6);
+      expect(50 + sumDriverContributions(dim.scoreStory.drivers)).toBeCloseTo(
+        run.behavioralScore!,
+        6,
+      );
+    });
+
+    it("does not apply a component weight on runs where it was unavailable", () => {
+      const run = survivalRun({
+        dungeonSlug: "priory",
+        slotIndex: 0,
+        outcome: 100,
+        defensive: null,
+        recovery: null,
+        weightsApplied: {
+          outcome: 1,
+          defensive: 0,
+          recovery: 0,
+          relativeDamage: 0,
+        },
+      });
+      const survival = survivalFromRuns([survivalDungeon("priory", [run])], {
+        // Misleading season summary that would invite a wrong global reweight.
+        components: {
+          outcome: 100,
+          defensive: 0,
+          recovery: 0,
+          relativeDamage: null,
+        },
+      });
+      const dim = buildScoreExplainabilityV1({
+        performance: null,
+        survival,
         utility: null,
         experience: null,
         composite: null,
@@ -471,7 +764,210 @@ describe("Score Explainability V1", () => {
 
       expect(
         dim.scoreStory.drivers.map((d) => d.code),
-      ).toContain("survival.relative_avoidable_damage");
+      ).toEqual(["survival.outcome"]);
+      expect(dim.scoreStory.drivers[0]?.weight).toBeCloseTo(1, 6);
+      expect(50 + sumDriverContributions(dim.scoreStory.drivers)).toBeCloseTo(100, 6);
+    });
+
+    it("includes relative damage only from runs with non-zero applied relative weight", () => {
+      const withRelative = survivalRun({
+        dungeonSlug: "floodgate",
+        slotIndex: 0,
+        outcome: 100,
+        defensive: 50,
+        recovery: 50,
+        relativeDamage: 20,
+        weightsApplied: {
+          outcome: 0.5,
+          defensive: 0.25,
+          recovery: 0.15,
+          relativeDamage: 0.1,
+        },
+      });
+      const withoutRelative = survivalRun({
+        dungeonSlug: "floodgate",
+        slotIndex: 1,
+        outcome: 100,
+        defensive: 50,
+        recovery: 50,
+        relativeDamage: 20,
+        weightsApplied: {
+          outcome: 0.55,
+          defensive: 0.3,
+          recovery: 0.15,
+          relativeDamage: 0,
+        },
+      });
+      const survival = survivalFromRuns(
+        [survivalDungeon("floodgate", [withRelative, withoutRelative])],
+        { relativeDamageMode: "active" },
+      );
+      const dim = buildScoreExplainabilityV1({
+        performance: null,
+        survival,
+        utility: null,
+        experience: null,
+        composite: null,
+      }).dimensions.SURVIVAL;
+
+      const relative = dim.scoreStory.drivers.find(
+        (d) => d.code === "survival.relative_avoidable_damage",
+      );
+      expect(relative).toBeDefined();
+      // Mean applied relative weight across the two runs = 0.05
+      expect(relative?.weight).toBeCloseTo(0.05, 6);
+      expect(50 + sumDriverContributions(dim.scoreStory.drivers)).toBeCloseTo(
+        survival.score!,
+        6,
+      );
+    });
+
+    it("never contributes shadow relative damage to the score story", () => {
+      const run = survivalRun({
+        dungeonSlug: "cinderbrew",
+        slotIndex: 0,
+        outcome: 90,
+        defensive: 40,
+        recovery: 60,
+        relativeDamage: 10,
+        weightsApplied: {
+          outcome: 0.55,
+          defensive: 0.3,
+          recovery: 0.15,
+          relativeDamage: 0,
+        },
+      });
+      const survival = survivalFromRuns([survivalDungeon("cinderbrew", [run])], {
+        relativeDamageMode: "shadow",
+        components: {
+          outcome: 90,
+          defensive: 40,
+          recovery: 60,
+          relativeDamage: 10,
+        },
+      });
+      const dim = buildScoreExplainabilityV1({
+        performance: null,
+        survival,
+        utility: null,
+        experience: null,
+        composite: null,
+      }).dimensions.SURVIVAL;
+
+      expect(
+        dim.scoreStory.drivers.map((d) => d.code),
+      ).not.toContain("survival.relative_avoidable_damage");
+      expect(50 + sumDriverContributions(dim.scoreStory.drivers)).toBeCloseTo(
+        survival.score!,
+        6,
+      );
+    });
+
+    it("fails closed (no invented contributions) when run lineage is missing", () => {
+      const dim = buildScoreExplainabilityV1({
+        performance: null,
+        survival: survivalFixture({
+          dungeons: [],
+          score: 62,
+          components: {
+            outcome: 100,
+            defensive: 0,
+            recovery: 0,
+            relativeDamage: null,
+          },
+        }),
+        utility: null,
+        experience: null,
+        composite: null,
+      }).dimensions.SURVIVAL;
+
+      expect(dim.scoreStory.drivers).toEqual([]);
+    });
+  });
+
+  describe("score reconstruction invariants", () => {
+    it("Performance: 50 + sum(contributions) ~= final score", () => {
+      const perf = performanceFixture();
+      const dim = buildScoreExplainabilityV1({
+        performance: perf,
+        survival: null,
+        utility: null,
+        experience: null,
+        composite: null,
+      }).dimensions.PERFORMANCE;
+
+      expect(50 + sumDriverContributions(dim.scoreStory.drivers)).toBeCloseTo(
+        perf.score!,
+        Math.round(-Math.log10(RECONCILE_EPS)),
+      );
+    });
+
+    it("Utility: 50 + domain caps + reliability attenuation ~= final score", () => {
+      const util = utilityFixture();
+      const dim = buildScoreExplainabilityV1({
+        performance: null,
+        survival: null,
+        utility: util,
+        experience: null,
+        composite: null,
+      }).dimensions.UTILITY;
+
+      expect(50 + sumDriverContributions(dim.scoreStory.drivers)).toBeCloseTo(
+        util.score!,
+        Math.round(-Math.log10(RECONCILE_EPS)),
+      );
+    });
+
+    it("Survival: 50 + aggregated run-lineage contributions ~= final score", () => {
+      const survival = survivalFixture();
+      const dim = buildScoreExplainabilityV1({
+        performance: null,
+        survival,
+        utility: null,
+        experience: null,
+        composite: null,
+      }).dimensions.SURVIVAL;
+
+      expect(50 + sumDriverContributions(dim.scoreStory.drivers)).toBeCloseTo(
+        survival.score!,
+        Math.round(-Math.log10(RECONCILE_EPS)),
+      );
+    });
+  });
+
+  describe("unavailable product projection", () => {
+    it("emits no product score drivers when dimension score is unavailable", () => {
+      const built = buildScoreExplainabilityV1({
+        performance: performanceFixture({
+          state: "UNAVAILABLE",
+          score: null,
+          phase1Score: null,
+          offensiveCooldownDiscipline: null,
+          weightsApplied: { phase1: 0, cooldown: 0 },
+          confidenceBreakdown: buildDimensionConfidenceBreakdown({
+            value: 0,
+            causes: ["performance_unavailable"],
+            components: {},
+          }),
+        }),
+        survival: null,
+        utility: null,
+        experience: experienceFixture({
+          score: null,
+          available: false,
+          confidence: null,
+          confidenceCauses: ["previous_evidence_unavailable"],
+          reason: "PREVIOUS_EVIDENCE_UNAVAILABLE",
+        }),
+        composite: null,
+      });
+
+      const publicView = projectScoreExplainabilityPublic(built);
+      expect(publicView.dimensions.PERFORMANCE.scoreDrivers).toEqual([]);
+      expect(publicView.dimensions.EXPERIENCE.scoreDrivers).toEqual([]);
+      expect(
+        publicView.dimensions.PERFORMANCE.confidenceReasons.map((r) => r.code),
+      ).toContain("performance_unavailable");
     });
   });
 

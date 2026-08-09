@@ -23,6 +23,24 @@ function isPublicSafeReason(code: string): boolean {
 export function projectDimensionExplainabilityPublic(
   dimension: DimensionExplainabilityV1,
 ): PublicDimensionExplainabilityV1 {
+  // No authoritative score → never emit product strengths/weaknesses.
+  if (
+    dimension.score == null ||
+    !Number.isFinite(dimension.score) ||
+    dimension.availability === "UNAVAILABLE"
+  ) {
+    return {
+      scoreDrivers: [],
+      confidenceReasons: dimension.confidenceStory.reasons
+        .filter((reason) => isPublicSafeReason(reason.code))
+        .map((reason) => ({
+          code: reason.code,
+          labelKey: reason.labelKey,
+          label: reason.label,
+        })),
+    };
+  }
+
   const scoreDrivers = dimension.scoreStory.drivers
     .filter((driver) => isPublicSafeDriver(driver.code))
     .filter((driver) => {

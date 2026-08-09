@@ -38,3 +38,5 @@ export {
   adaptExperienceExplainability,
   adaptCompositeExplainability,
 } from "./adapters/index.js";
+
+export { reconstructSurvivalComponentContributions } from "./adapters/survival.js";
