@@ -269,13 +269,15 @@ export async function runAuthoritativeScoring(
           : null;
 
     let experience: ExperiencePhase1Result | null = null;
-    let experienceBlizzardCalls = 0;
+    let experienceProviderCalls = 0;
     if (input.experienceOverride !== undefined) {
       experience = input.experienceOverride;
-    } else if (
-      allowExperienceBlizzardProviderCalls(input.container.env) &&
-      !input.container.disabledProviders.has("blizzard")
-    ) {
+    } else {
+      // Always evaluate/reconstruct Experience via the canonical phase-1 path.
+      // Provider permission controls acquisition only — not whether Experience runs.
+      const allowExperienceProviders =
+        allowExperienceBlizzardProviderCalls(input.container.env) &&
+        !input.container.disabledProviders.has("blizzard");
       const experienceCtx: ProviderFetchContext = {
         region: input.region,
         requestId: `experience-phase1:${input.characterId}:${input.seasonId}`,
@@ -332,14 +334,16 @@ export async function runAuthoritativeScoring(
           ctx: experienceCtx,
           persistProviderResult: (result) =>
             recordProviderResult(input.container.repositories, result),
-          allowProviderCalls: true,
+          allowProviderCalls: allowExperienceProviders,
           evidenceStore: createCharacterExperienceEvidenceRepository(
             input.container.prisma,
           ),
           boundPreviousRaiderIoSlug,
-          raiderIoExactSeason: input.container.disabledProviders.has("raiderio")
-            ? null
-            : input.container.providers.raiderio,
+          raiderIoExactSeason:
+            !allowExperienceProviders ||
+            input.container.disabledProviders.has("raiderio")
+              ? null
+              : input.container.providers.raiderio,
           // No RIO endpoint proves previous_mythic_plus_ranks for an exact season slug.
           previousRegionalClassRank: previousRegionalClassRankFromRioProfile(
             input.raiderIoProfile ?? null,
@@ -352,8 +356,10 @@ export async function runAuthoritativeScoring(
             ),
         });
         experience = built.experience;
-        experienceBlizzardCalls =
-          built.previousSeasonProfileCalls + built.achievementsCalls;
+        experienceProviderCalls =
+          built.previousSeasonProfileCalls +
+          built.achievementsCalls +
+          built.raiderIoHistoricalRatingCalls;
       } catch (error) {
         // Experience must never break P/S/U scoring.
         input.container.logger.warn(
@@ -416,7 +422,7 @@ export async function runAuthoritativeScoring(
         publicationEnabled: input.container.env.SCORING_PUBLICATION_ENABLED,
       }),
       scoreResult,
-      providerCalls: scoreResult.providerCalls + experienceBlizzardCalls,
+      providerCalls: scoreResult.providerCalls + experienceProviderCalls,
     };
   } finally {
     if (redisOwned) {
