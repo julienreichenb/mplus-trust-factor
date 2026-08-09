@@ -272,6 +272,11 @@ export type RioPreviousSeasonCorroboration = {
   profileFetched: boolean;
   /** Previous-season overall score when RIO reported one; null when absent/zero. */
   previousSeasonScore: number | null;
+  /**
+   * True when the profile previous alias was proven to match the bound previous RIO slug.
+   * When false/undefined, score must not corroborate (fail closed on unbound alias).
+   */
+  seasonBound?: boolean;
 };
 
 /**
@@ -296,6 +301,12 @@ export function corroboratePreviousSeasonBlizzardNotFound(input: {
     return {
       ...ratingEvidence,
       reason: "BLIZZARD_404_UNCORROBORATED",
+    };
+  }
+  if (rio.seasonBound !== true) {
+    return {
+      ...ratingEvidence,
+      reason: "BLIZZARD_404_UNCORROBORATED_UNBOUND_RIO_PREVIOUS",
     };
   }
   const rioScore = rio.previousSeasonScore;

@@ -454,7 +454,7 @@ describe("corroboratePreviousSeasonBlizzardNotFound", () => {
         reason: "MYTHIC_KEYSTONE_SEASON_PROFILE_FAILED",
         cause,
       },
-      rio: { profileFetched: true, previousSeasonScore: null },
+      rio: { profileFetched: true, previousSeasonScore: null, seasonBound: true },
       fetchedAt: "2026-08-08T00:00:00.000Z",
     });
     expect(out).toMatchObject({
@@ -473,7 +473,7 @@ describe("corroboratePreviousSeasonBlizzardNotFound", () => {
         reason: "MYTHIC_KEYSTONE_SEASON_PROFILE_FAILED",
         cause,
       },
-      rio: { profileFetched: true, previousSeasonScore: 2500 },
+      rio: { profileFetched: true, previousSeasonScore: 2500, seasonBound: true },
     });
     expect(out).toMatchObject({
       state: "PROVIDER_FAILURE",
@@ -495,6 +495,23 @@ describe("corroboratePreviousSeasonBlizzardNotFound", () => {
     expect(out).toMatchObject({
       state: "PROVIDER_FAILURE",
       reason: "BLIZZARD_404_UNCORROBORATED",
+    });
+  });
+
+  it("fails closed when RIO previous alias is unbound to exact season", () => {
+    const cause = { statusCode: 404, code: "NOT_FOUND" };
+    const out = corroboratePreviousSeasonBlizzardNotFound({
+      binding: previous,
+      ratingEvidence: {
+        state: "PROVIDER_FAILURE",
+        reason: "MYTHIC_KEYSTONE_SEASON_PROFILE_FAILED",
+        cause,
+      },
+      rio: { profileFetched: true, previousSeasonScore: null, seasonBound: false },
+    });
+    expect(out).toMatchObject({
+      state: "PROVIDER_FAILURE",
+      reason: "BLIZZARD_404_UNCORROBORATED_UNBOUND_RIO_PREVIOUS",
     });
   });
 });

@@ -251,6 +251,7 @@ describe("normalizeSeasonCutoffs", () => {
   it("maps remapped historical cutoffs that only expose all.quantileMinValue (season-tww-3 shape)", () => {
     // Live EU season-tww-3 (isRemappedSeason): percentile nodes omit top-level `score`.
     const raw: RawSeasonCutoffsResponse = {
+      isRemappedSeason: true,
       cutoffs: {
         updatedAt: "Wed Jan 28 2026 19:41:04 GMT+0000 (Coordinated Universal Time)",
         p999: {
@@ -269,6 +270,7 @@ describe("normalizeSeasonCutoffs", () => {
       },
     };
     const cutoffs = normalizeSeasonCutoffs(raw, "EU", "season-tww-3");
+    expect(cutoffs.isRemappedSeason).toBe(true);
     expect(cutoffs.top0_1Percent).toEqual({
       score: 3946.97,
       quantile: "p999",

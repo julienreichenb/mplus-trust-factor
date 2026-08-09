@@ -162,7 +162,11 @@ export function mapPreviousEvidenceToPhase1Input(input: {
   };
 }
 
-/** Extract usable previous-season regional class rank from a RIO profile. */
+/** Extract usable previous-season regional class rank from a RIO profile.
+ *
+ * `previous_mythic_plus_ranks` carries no season identity in the provider contract.
+ * Exact-season identity must be proven by the caller; otherwise fail closed (null).
+ */
 export function previousRegionalClassRankFromRioProfile(
   profile:
     | {
@@ -170,25 +174,46 @@ export function previousRegionalClassRankFromRioProfile(
       }
     | null
     | undefined,
+  opts?: {
+    /** Set only when rank is proven for the bound previous real Mythic+ season. */
+    exactSeasonProven?: boolean;
+  },
 ): number | null {
   if (profile == null) return null;
+  if (opts?.exactSeasonProven !== true) return null;
   return usablePreviousRegionalClassRank(profile.previousRanks ?? null);
 }
 
-/** Build RIO corroboration input from an already-fetched profile (no extra call). */
+/** Build RIO corroboration input from an already-fetched profile (no extra call).
+ *
+ * Generic `previous` alias is only used when its seasonSlug equals the bound previous RIO slug.
+ * Missing profile → null (do not assume refresh always supplies it).
+ */
 export function rioPreviousSeasonCorroborationFromProfile(
   profile:
     | {
-        previousSeason?: { scores?: { all?: number | null } | null } | null;
+        previousSeason?: {
+          seasonSlug?: string | null;
+          scores?: { all?: number | null } | null;
+        } | null;
       }
     | null
     | undefined,
+  opts?: {
+    boundPreviousRaiderIoSlug?: string | null;
+  },
 ): RioPreviousSeasonCorroboration | null {
   if (profile == null) return null;
+  const boundSlug = opts?.boundPreviousRaiderIoSlug?.trim() || null;
+  const profileSlug = profile.previousSeason?.seasonSlug?.trim() || null;
+  if (!boundSlug || !profileSlug || profileSlug !== boundSlug) {
+    // Profile present but previous alias is unbound / mismatched — not corroboration.
+    return { profileFetched: true, previousSeasonScore: null, seasonBound: false };
+  }
   const raw = profile.previousSeason?.scores?.all;
   const previousSeasonScore =
     typeof raw === "number" && Number.isFinite(raw) && raw > 0 ? raw : null;
-  return { profileFetched: true, previousSeasonScore };
+  return { profileFetched: true, previousSeasonScore, seasonBound: true };
 }
 
 /**

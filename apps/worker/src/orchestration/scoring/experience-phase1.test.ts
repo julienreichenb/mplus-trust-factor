@@ -18,6 +18,7 @@ import {
   buildExperiencePhase1Result,
   mapPreviousEvidenceToPhase1Input,
   previousRegionalClassRankFromRioProfile,
+  rioPreviousSeasonCorroborationFromProfile,
 } from "./experience-phase1.js";
 
 const identity: CharacterIdentityInput = {
@@ -621,33 +622,99 @@ describe("buildExperiencePhase1Result", () => {
 });
 
 describe("previousRegionalClassRankFromRioProfile", () => {
-  it("reads previousRanks.classRank.region and ignores overall region", () => {
+  it("fails closed unless exact-season identity is proven", () => {
+    const ranks = {
+      previousRanks: {
+        overall: 5607,
+        class: 1456,
+        classRank: { world: 1456, region: 503, realm: 12 },
+        server: 95,
+        world: 18745,
+        region: 5607,
+        role: "dps",
+      },
+    };
+    expect(previousRegionalClassRankFromRioProfile(ranks)).toBeNull();
     expect(
-      previousRegionalClassRankFromRioProfile({
-        previousRanks: {
-          overall: 5607,
-          class: 1456,
-          classRank: { world: 1456, region: 503, realm: 12 },
-          server: 95,
-          world: 18745,
-          region: 5607,
-          role: "dps",
+      previousRegionalClassRankFromRioProfile(ranks, { exactSeasonProven: false }),
+    ).toBeNull();
+    expect(previousRegionalClassRankFromRioProfile(null)).toBeNull();
+  });
+
+  it("reads previousRanks.classRank.region only when exactSeasonProven", () => {
+    expect(
+      previousRegionalClassRankFromRioProfile(
+        {
+          previousRanks: {
+            overall: 5607,
+            class: 1456,
+            classRank: { world: 1456, region: 503, realm: 12 },
+            server: 95,
+            world: 18745,
+            region: 5607,
+            role: "dps",
+          },
         },
-      }),
+        { exactSeasonProven: true },
+      ),
     ).toBe(503);
     expect(
-      previousRegionalClassRankFromRioProfile({
-        previousRanks: {
-          overall: 12,
-          class: null,
-          classRank: { world: null, region: null, realm: null },
-          server: null,
-          world: 12,
-          region: 12,
-          role: null,
+      previousRegionalClassRankFromRioProfile(
+        {
+          previousRanks: {
+            overall: 12,
+            class: null,
+            classRank: { world: null, region: null, realm: null },
+            server: null,
+            world: 12,
+            region: 12,
+            role: null,
+          },
         },
-      }),
+        { exactSeasonProven: true },
+      ),
     ).toBeNull();
+  });
+});
+
+describe("rioPreviousSeasonCorroborationFromProfile", () => {
+  it("does not assume profile is supplied", () => {
+    expect(rioPreviousSeasonCorroborationFromProfile(null)).toBeNull();
+    expect(rioPreviousSeasonCorroborationFromProfile(undefined)).toBeNull();
+  });
+
+  it("requires bound previous slug match (Wallidrixe-safe when slug matches)", () => {
+    const profile = {
+      previousSeason: { seasonSlug: "season-zx-1", scores: { all: 0 } },
+    };
+    expect(
+      rioPreviousSeasonCorroborationFromProfile(profile, {
+        boundPreviousRaiderIoSlug: "season-zx-1",
+      }),
+    ).toEqual({
+      profileFetched: true,
+      previousSeasonScore: null,
+      seasonBound: true,
+    });
+    expect(
+      rioPreviousSeasonCorroborationFromProfile(profile, {
+        boundPreviousRaiderIoSlug: "season-zx-2",
+      }),
+    ).toEqual({
+      profileFetched: true,
+      previousSeasonScore: null,
+      seasonBound: false,
+    });
+    expect(
+      rioPreviousSeasonCorroborationFromProfile(
+        { previousSeason: { seasonSlug: "season-zx-1", scores: { all: 3200 } } },
+        { boundPreviousRaiderIoSlug: "season-zx-1" },
+      ),
+    ).toEqual({
+      profileFetched: true,
+      previousSeasonScore: 3200,
+      seasonBound: true,
+    });
   });
 });
 

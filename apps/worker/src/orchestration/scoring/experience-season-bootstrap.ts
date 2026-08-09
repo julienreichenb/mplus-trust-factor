@@ -98,11 +98,21 @@ export type RaiderIoDateMatchResult =
 export const RIO_BLIZZARD_START_PROXIMITY_MS = 21 * 24 * 60 * 60 * 1000;
 
 /**
- * Main Raider.IO season slugs only (exclude cutoffs / remix / break-the-meta variants).
- * Examples: season-tww-3, season-mn-1.
+ * Diagnostic-only: common main-season slug shape (`season-tww-3`, `season-mn-1`).
+ * NOT Experience season authority — `is_main_season` / Blizzard id / dates are.
  */
 export function isCanonicalRaiderIoSeasonSlug(slug: string): boolean {
   return /^season-[a-z]+-\d+$/i.test(slug.trim());
+}
+
+/**
+ * Real Mythic+ seasons only. Event/cutoffs/remix (`is_main_season: false`) are excluded.
+ * Missing `isMainSeason` fails closed (slug regex is not authority).
+ */
+export function isRealMythicPlusRaiderIoSeason(
+  season: Pick<RaiderIoStaticSeason, "isMainSeason">,
+): boolean {
+  return season.isMainSeason === true;
 }
 
 function regionKey(code: string): string {
@@ -116,14 +126,47 @@ function parseIsoMs(value: string | null | undefined): number | null {
 }
 
 /**
- * Match a Blizzard season to a Raider.IO season by dates.
- * Only canonical RIO season slugs are considered.
+ * Match a Blizzard season to a Raider.IO real Mythic+ season.
  *
- * 1) Unique start within proximity of Blizzard start (ties on equal distance fail closed).
- * 2) Else unique RIO start contained in Blizzard [start, end).
- * Otherwise fail closed.
+ * Preference order:
+ * 1) Unique RIO season with matching `blizzardSeasonId` among real main seasons.
+ * 2) Unique start within proximity of Blizzard start (ties fail closed).
+ * 3) Unique RIO start contained in Blizzard [start, end).
+ * Otherwise fail closed. Event seasons never win.
  */
 export function matchBlizzardSeasonToRaiderIoByDates(
+  blizzard: {
+    startTimestamp: number | null;
+    endTimestamp: number | null;
+    blizzardSeasonId?: number | null;
+  },
+  seasons: readonly RaiderIoStaticSeason[],
+): RaiderIoDateMatchResult {
+  const realSeasons = seasons.filter(isRealMythicPlusRaiderIoSeason);
+  if (realSeasons.length === 0) {
+    return { ok: false, reason: "RIO_DATE_MATCH_NO_REAL_MAIN_SEASONS" };
+  }
+
+  const blizzardId =
+    blizzard.blizzardSeasonId != null && Number.isFinite(blizzard.blizzardSeasonId)
+      ? blizzard.blizzardSeasonId
+      : null;
+  if (blizzardId != null) {
+    const byId = realSeasons.filter((s) => s.blizzardSeasonId === blizzardId);
+    if (byId.length === 1) {
+      return { ok: true, season: byId[0]! };
+    }
+    if (byId.length > 1) {
+      // Multiple main seasons sharing one Blizzard id (e.g. tww-1 + tww-1-post) —
+      // fall through to date disambiguation among id matches only.
+      return matchByDatesOnly(blizzard, byId);
+    }
+  }
+
+  return matchByDatesOnly(blizzard, realSeasons);
+}
+
+function matchByDatesOnly(
   blizzard: {
     startTimestamp: number | null;
     endTimestamp: number | null;
@@ -139,9 +182,7 @@ export function matchBlizzardSeasonToRaiderIoByDates(
       ? blizzard.endTimestamp
       : null;
 
-  const withStarts = seasons.filter(
-    (s) => isCanonicalRaiderIoSeasonSlug(s.slug) && parseIsoMs(s.startsAt) != null,
-  );
+  const withStarts = seasons.filter((s) => parseIsoMs(s.startsAt) != null);
   if (withStarts.length === 0) {
     return { ok: false, reason: "RIO_DATE_MATCH_NO_SEASONS_WITH_START" };
   }
@@ -203,27 +244,49 @@ export function pickPreviousSeasonByStartTimestamp<
 }
 
 /**
- * Resolve current (isCurrent) and optional previous Raider.IO seasons.
+ * Resolve current (isCurrent) and optional previous *real* Raider.IO Mythic+ seasons.
+ * Event/intermediate seasons never become previous.
  * Ambiguous current → fail closed.
  * Missing / ambiguous previous does not block current binding.
+ *
+ * Pass `{ unfiltered: true }` only for diagnostics that document the event-season trap.
  */
 export function resolveRaiderIoCurrentAndPrevious(
   seasons: readonly RaiderIoStaticSeason[],
+  opts: { unfiltered?: boolean } = {},
 ): RaiderIoSeasonPairResult {
-  const currentMatches = seasons.filter((s) => s.isCurrent === true);
-  if (currentMatches.length === 0) {
-    return { ok: false, reason: "RIO_NO_CURRENT_SEASON" };
+  const pool = opts.unfiltered === true ? seasons : seasons.filter(isRealMythicPlusRaiderIoSeason);
+  if (!opts.unfiltered && pool.length === 0 && seasons.length > 0) {
+    return { ok: false, reason: "RIO_NO_REAL_MAIN_SEASONS" };
   }
-  if (currentMatches.length > 1) {
-    return { ok: false, reason: "RIO_AMBIGUOUS_CURRENT_SEASON" };
+
+  const currentFromAll = seasons.filter((s) => s.isCurrent === true);
+  let current: RaiderIoStaticSeason;
+  if (opts.unfiltered === true) {
+    if (currentFromAll.length === 0) {
+      return { ok: false, reason: "RIO_NO_CURRENT_SEASON" };
+    }
+    if (currentFromAll.length > 1) {
+      return { ok: false, reason: "RIO_AMBIGUOUS_CURRENT_SEASON" };
+    }
+    current = currentFromAll[0]!;
+  } else {
+    const realCurrent = currentFromAll.filter(isRealMythicPlusRaiderIoSeason);
+    if (realCurrent.length === 0) {
+      return { ok: false, reason: "RIO_NO_CURRENT_SEASON" };
+    }
+    if (realCurrent.length > 1) {
+      return { ok: false, reason: "RIO_AMBIGUOUS_CURRENT_SEASON" };
+    }
+    current = realCurrent[0]!;
   }
-  const current = currentMatches[0]!;
+
   const currentStart = parseIsoMs(current.startsAt);
   if (currentStart == null) {
     return { ok: false, reason: "RIO_CURRENT_START_MISSING" };
   }
 
-  const previousEligible = seasons.filter((s) => {
+  const previousEligible = pool.filter((s) => {
     if (s.slug === current.slug) return false;
     const start = parseIsoMs(s.startsAt);
     return start != null && start < currentStart;
@@ -253,6 +316,126 @@ export function resolveRaiderIoCurrentAndPrevious(
   }
 
   return { ok: true, current, previous: tied[0]!, previousReason: null };
+}
+
+/** Process-local last Experience bind ensured for each region's current Blizzard season. */
+const lastEnsuredCurrentBlizzardSeasonIdByRegion = new Map<string, number>();
+
+/** Test/reset helper — not for production paths. */
+export function resetExperienceSeasonBindingEnsureStateForTests(): void {
+  lastEnsuredCurrentBlizzardSeasonIdByRegion.clear();
+}
+
+export function peekExperienceSeasonBindingEnsureStateForTests(): ReadonlyMap<string, number> {
+  return lastEnsuredCurrentBlizzardSeasonIdByRegion;
+}
+
+/**
+ * True when Experience historical bind/policy must re-run for this authority current season.
+ * Proves long-lived N→N+1 without restart: same process, new current id → ensure again.
+ */
+export function shouldEnsureExperienceSeasonBinding(input: {
+  regionCode: string;
+  currentBlizzardSeasonId: number;
+  force?: boolean;
+}): boolean {
+  if (input.force === true) return true;
+  if (!Number.isFinite(input.currentBlizzardSeasonId)) return true;
+  const key = regionKey(input.regionCode);
+  const last = lastEnsuredCurrentBlizzardSeasonIdByRegion.get(key);
+  return last !== input.currentBlizzardSeasonId;
+}
+
+export function rememberExperienceSeasonBindingEnsured(
+  regionCode: string,
+  currentBlizzardSeasonId: number,
+): void {
+  if (!Number.isFinite(currentBlizzardSeasonId)) return;
+  lastEnsuredCurrentBlizzardSeasonIdByRegion.set(
+    regionKey(regionCode),
+    currentBlizzardSeasonId,
+  );
+}
+
+export interface EnsureExperienceSeasonBindingInput extends ExperienceSeasonBootstrapInput {
+  /**
+   * Authoritative current Blizzard season id per region code (uppercase).
+   * When omitted, bootstrap still runs (startup path) and remembers ids from results when available.
+   */
+  currentBlizzardSeasonIdByRegion?: ReadonlyMap<string, number> | Record<string, number>;
+  force?: boolean;
+}
+
+function readCurrentIdMap(
+  value: EnsureExperienceSeasonBindingInput["currentBlizzardSeasonIdByRegion"],
+): Map<string, number> {
+  const out = new Map<string, number>();
+  if (!value) return out;
+  if (value instanceof Map) {
+    for (const [k, v] of value) out.set(regionKey(k), v);
+    return out;
+  }
+  for (const [k, v] of Object.entries(value)) out.set(regionKey(k), v);
+  return out;
+}
+
+/**
+ * Season-level ensure: when canonical current flips N→N+1 (or first touch),
+ * re-bind previous real RIO slug + sync population policy for the new previous.
+ * Soft-fail. No per-character cutoff fetches.
+ */
+export async function ensureExperienceSeasonBindingReady(
+  input: EnsureExperienceSeasonBindingInput,
+): Promise<ExperienceSeasonBootstrapResult | { status: "skipped"; reason: string }> {
+  const idByRegion = readCurrentIdMap(input.currentBlizzardSeasonIdByRegion);
+  const regionsNeedingEnsure = input.regions.filter((r) => {
+    const key = regionKey(r.code);
+    const currentId = idByRegion.get(key);
+    if (currentId == null) {
+      // Unknown current id → run ensure (safe; bootstrap resolves from DB isCurrent).
+      return true;
+    }
+    return shouldEnsureExperienceSeasonBinding({
+      regionCode: key,
+      currentBlizzardSeasonId: currentId,
+      force: input.force,
+    });
+  });
+
+  if (regionsNeedingEnsure.length === 0) {
+    return { status: "skipped", reason: "EXPERIENCE_SEASON_BINDING_ALREADY_ENSURED" };
+  }
+
+  const result = await bootstrapExperienceSeasonMetadata({
+    ...input,
+    regions: regionsNeedingEnsure,
+  });
+
+  for (const region of regionsNeedingEnsure) {
+    const key = regionKey(region.code);
+    const fromInput = idByRegion.get(key);
+    if (fromInput != null) {
+      rememberExperienceSeasonBindingEnsured(key, fromInput);
+      continue;
+    }
+    const row = result.regions.find((r) => r.region === key);
+    // Best-effort: remember from DB current after bootstrap when caller omitted ids.
+    if (row?.currentSeasonId) {
+      try {
+        const season = await input.prisma.season.findUnique({
+          where: { id: row.currentSeasonId },
+          select: { blizzardSeasonId: true },
+        });
+        if (season?.blizzardSeasonId != null) {
+          rememberExperienceSeasonBindingEnsured(key, season.blizzardSeasonId);
+        }
+      } catch {
+        // ignore
+      }
+    }
+  }
+
+  return result;
 }
 
 async function upsertSeasonDates(input: {
@@ -344,6 +527,7 @@ export async function bootstrapExperienceSeasonMetadata(
     ok: false,
     reason: "RIO_STATIC_DATA_NOT_LOADED",
   };
+  let staticSeasonsForBind: RaiderIoStaticSeason[] = [];
   let currentExpansionId: number | null = null;
   let previousExpansionSeasons: RaiderIoStaticSeason[] | null = null;
   let previousExpansionFetchFailed = false;
@@ -365,7 +549,8 @@ export async function bootstrapExperienceSeasonMetadata(
       // Provenance persistence failure must not block bootstrap.
     }
     currentExpansionId = staticResult.data.expansionId;
-    rioPair = resolveRaiderIoCurrentAndPrevious(staticResult.data.seasons ?? []);
+    staticSeasonsForBind = staticResult.data.seasons ?? [];
+    rioPair = resolveRaiderIoCurrentAndPrevious(staticSeasonsForBind);
     if (!rioPair.ok) {
       input.logger.warn(
         {
@@ -560,49 +745,78 @@ export async function bootstrapExperienceSeasonMetadata(
           previousSeasonId = prevRow?.id ?? null;
 
           if (rioPair.ok && currentSeasonId) {
-            currentRaiderIoSlug = rioPair.current.slug;
+            // Bind current via Blizzard id when possible; else filtered RIO current.
+            const currentMatched = matchBlizzardSeasonToRaiderIoByDates(
+              {
+                startTimestamp: currentStart,
+                endTimestamp: currentDto?.endTimestamp ?? null,
+                blizzardSeasonId: currentRow.blizzardSeasonId,
+              },
+              staticSeasonsForBind,
+            );
+            if (currentMatched.ok) {
+              currentRaiderIoSlug = currentMatched.season.slug;
+            } else {
+              currentRaiderIoSlug = rioPair.current.slug;
+              reasons.push(currentMatched.reason);
+            }
             await input.prisma.season.update({
               where: { id: currentSeasonId },
-              data: { providerSeasonId: rioPair.current.slug },
+              data: { providerSeasonId: currentRaiderIoSlug },
             });
-            if (rioPair.previousReason) {
-              reasons.push(rioPair.previousReason);
-            }
-            if (previousSeasonId && rioPair.previous) {
-              previousRaiderIoSlug = rioPair.previous.slug;
-              await input.prisma.season.update({
-                where: { id: previousSeasonId },
-                data: { providerSeasonId: rioPair.previous.slug },
-              });
-            } else if (previousSeasonId && !rioPair.previous) {
-              // Current-expansion static data cannot resolve previous (e.g. Midnight → TWW).
-              const previousExpansion = await loadPreviousExpansionSeasons();
-              if (!previousExpansion) {
-                reasons.push("PREVIOUS_EXPANSION_STATIC_UNAVAILABLE");
+
+            if (previousSeasonId) {
+              const matchedPrevious = matchBlizzardSeasonToRaiderIoByDates(
+                {
+                  startTimestamp:
+                    previousDto.startTimestamp ??
+                    prevRow?.startsAt?.getTime() ??
+                    null,
+                  endTimestamp:
+                    previousDto.endTimestamp ?? prevRow?.endsAt?.getTime() ?? null,
+                  blizzardSeasonId: previousDto.blizzardSeasonId,
+                },
+                staticSeasonsForBind,
+              );
+              if (matchedPrevious.ok) {
+                previousRaiderIoSlug = matchedPrevious.season.slug;
+                await input.prisma.season.update({
+                  where: { id: previousSeasonId },
+                  data: { providerSeasonId: matchedPrevious.season.slug },
+                });
               } else {
-                const matched = matchBlizzardSeasonToRaiderIoByDates(
-                  {
-                    startTimestamp:
-                      previousDto.startTimestamp ??
-                      prevRow?.startsAt?.getTime() ??
-                      null,
-                    endTimestamp:
-                      previousDto.endTimestamp ?? prevRow?.endsAt?.getTime() ?? null,
-                  },
-                  previousExpansion,
-                );
-                if (!matched.ok) {
-                  reasons.push(matched.reason);
+                // Same-expansion static may lack previous (cross-expansion).
+                const previousExpansion = await loadPreviousExpansionSeasons();
+                if (!previousExpansion) {
+                  reasons.push(matchedPrevious.reason);
+                  reasons.push("PREVIOUS_EXPANSION_STATIC_UNAVAILABLE");
                 } else {
-                  previousRaiderIoSlug = matched.season.slug;
-                  await input.prisma.season.update({
-                    where: { id: previousSeasonId },
-                    data: { providerSeasonId: matched.season.slug },
-                  });
-                  reasons.push("PREVIOUS_RIO_BOUND_VIA_PREVIOUS_EXPANSION");
+                  const crossMatched = matchBlizzardSeasonToRaiderIoByDates(
+                    {
+                      startTimestamp:
+                        previousDto.startTimestamp ??
+                        prevRow?.startsAt?.getTime() ??
+                        null,
+                      endTimestamp:
+                        previousDto.endTimestamp ?? prevRow?.endsAt?.getTime() ?? null,
+                      blizzardSeasonId: previousDto.blizzardSeasonId,
+                    },
+                    previousExpansion,
+                  );
+                  if (!crossMatched.ok) {
+                    reasons.push(matchedPrevious.reason);
+                    reasons.push(crossMatched.reason);
+                  } else {
+                    previousRaiderIoSlug = crossMatched.season.slug;
+                    await input.prisma.season.update({
+                      where: { id: previousSeasonId },
+                      data: { providerSeasonId: crossMatched.season.slug },
+                    });
+                    reasons.push("PREVIOUS_RIO_BOUND_VIA_PREVIOUS_EXPANSION");
+                  }
                 }
               }
-            } else if (!previousSeasonId) {
+            } else {
               reasons.push("PREVIOUS_SEASON_ROW_MISSING_FOR_RIO_BIND");
             }
           } else if (!rioPair.ok) {
@@ -723,6 +937,20 @@ export async function runExperienceSeasonBootstrapSafe(
 ): Promise<ExperienceSeasonBootstrapResult> {
   try {
     const result = await bootstrapExperienceSeasonMetadata(input);
+    for (const region of result.regions) {
+      if (!region.currentSeasonId) continue;
+      try {
+        const season = await input.prisma.season.findUnique({
+          where: { id: region.currentSeasonId },
+          select: { blizzardSeasonId: true },
+        });
+        if (season?.blizzardSeasonId != null) {
+          rememberExperienceSeasonBindingEnsured(region.region, season.blizzardSeasonId);
+        }
+      } catch {
+        // Soft: remembering ensure state must not fail bootstrap.
+      }
+    }
     input.logger.info(
       {
         event: "experience_season_bootstrap",

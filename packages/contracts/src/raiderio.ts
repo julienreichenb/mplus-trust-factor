@@ -154,6 +154,11 @@ export interface RaiderIoSeasonCutoffs {
   region: RegionCode;
   seasonSlug: string | null;
   updatedAt: IsoDateTime | null;
+  /**
+   * Provider flag: historical seasons remapped onto another season's cutoff table.
+   * Experience must not treat remapped cutoffs as exact-season LKG unless equivalence is proven.
+   */
+  isRemappedSeason?: boolean | null;
   /** p999 — 99.9th percentile threshold ≈ top 0.1%. */
   top0_1Percent: RaiderIoCutoffThreshold | null;
   /** p990 — 99th percentile threshold ≈ top 1%. */
@@ -181,6 +186,13 @@ export interface RaiderIoStaticSeason {
   startsAt: IsoDateTime | null;
   endsAt: IsoDateTime | null;
   isCurrent: boolean;
+  /**
+   * Provider `is_main_season`. When true, this is a real Mythic+ season (not event/cutoffs).
+   * Null/undefined when the provider omitted the field — Experience must not invent authority from slug regex.
+   */
+  isMainSeason?: boolean | null;
+  /** Provider `blizzard_season_id` when present; used to bind Blizzard↔RIO identity. */
+  blizzardSeasonId?: number | null;
   dungeonSlugs: string[];
 }
 

@@ -354,6 +354,8 @@ export function normalizeSeasonCutoffs(
     region: normalizeRegion(region),
     seasonSlug: seasonSlug || null,
     updatedAt: cutoffs?.updatedAt ?? null,
+    isRemappedSeason:
+      typeof raw.isRemappedSeason === "boolean" ? raw.isRemappedSeason : null,
     // Semantic map (do not invert): p999 = 99.9th pct ≈ top 0.1%, etc.
     top0_1Percent: normalizeCutoffThreshold(cutoffs?.p999, "p999", "top_0_1_percent"),
     top1Percent: normalizeCutoffThreshold(cutoffs?.p990, "p990", "top_1_percent"),
@@ -411,6 +413,7 @@ export function unavailableSeasonCutoffs(region: RegionCode, seasonSlug: string)
   return {
     region: normalizeRegion(region),
     seasonSlug: seasonSlug || null,
+    isRemappedSeason: null,
     updatedAt: null,
     top0_1Percent: null,
     top1Percent: null,
@@ -445,12 +448,21 @@ export function normalizeStaticData(
         startMs <= nowMs &&
         (Number.isNaN(endMs) || endMs >= nowMs));
 
+    const blizzardSeasonId =
+      typeof s.blizzard_season_id === "number" && Number.isFinite(s.blizzard_season_id)
+        ? s.blizzard_season_id
+        : null;
+    const isMainSeason =
+      typeof s.is_main_season === "boolean" ? s.is_main_season : null;
+
     return {
       slug: s.slug ?? slugify(s.name ?? "unknown"),
       name: s.name ?? s.slug ?? "Unknown",
       startsAt,
       endsAt,
       isCurrent,
+      isMainSeason,
+      blizzardSeasonId,
       dungeonSlugs: (s.dungeons ?? []).map((d) => d.slug ?? slugify(d.name ?? "")),
     };
   });

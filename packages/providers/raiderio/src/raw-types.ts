@@ -141,6 +141,8 @@ export interface RawSeasonCutoffs {
 
 export interface RawSeasonCutoffsResponse {
   cutoffs?: RawSeasonCutoffs;
+  /** Present on live remapped/historical cutoff payloads. */
+  isRemappedSeason?: boolean;
   statusCode?: number;
   message?: string;
   error?: string;
@@ -165,6 +167,7 @@ export interface RawStaticSeason {
   ends?: string | Record<string, string> | null;
   is_current?: boolean;
   is_main_season?: boolean;
+  blizzard_season_id?: number;
   dungeons?: RawStaticDungeon[];
 }
 
