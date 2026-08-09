@@ -1,111 +1,116 @@
 # Latest Handoff
 
 ## Step
-Agent 04 complete — native Raider.IO cutoff band standing + partial-policy fail-closed + policy v2 compatibility.
+Agent 05 complete — FINAL ACCEPTANCE. **MERGE READY**.
 
 ## Product decisions locked
-See `PRODUCT_DECISIONS.md`. Agent 02 season binding + Agent 03 persistence/acquisition remain authoritative.
+See `PRODUCT_DECISIONS.md`. Agents 01–04 remain authoritative for binding, persistence, and native-band scoring.
 
-## Agent 04 outcomes
+## Agent 05 outcomes
 
-### Final native-band scoring model
-Previous-season standing uses discrete provider-native bands (no interpolation):
+### Verdict
+**MERGE READY** on `fix/experience-evidence-completion`.
 
-| Condition | Standing |
-|-----------|----------|
-| rating ≥ p999 | 100 |
-| ≥ p990 and &lt; p999 | 90 |
-| ≥ p900 and &lt; p990 | 75 |
-| ≥ p750 and &lt; p900 | 60 |
-| ≥ p600 and &lt; p750 | 45 |
-| &lt; p600 | 25 |
-| `CONFIRMED_NO_ACTIVITY` | 0 |
+Known acceptable limitation (unchanged): exact previous-season regional class rank remains unavailable — no safely season-bound provider source. Fail-closed (`classRankFloor=null`). Do **not** represent as completed class-rank proof.
 
-Equality belongs to the stronger band whose cutoff is met.
+### Critical acceptance fix
+`resolvePreviousMythicSeason` now requires previous candidates to use Blizzard-authority slug `/^blizzard-season-\d+$/i`. Local fixture seasons (e.g. `pub-cancel-season`) can no longer win chronological previous binding.
 
-Experience remains:
+### Migration
+- Migration: `20260809180000_character_experience_evidence`
+- Commands: `prisma migrate status` → Database schema is up to date; `prisma validate` → valid; `node tools/scripts/_agent05-verify-experience-table.mjs` → table + unique identity + FKs + indexes OK
+- Local DB: `mplus_trust` @ `127.0.0.1:5433`
+- No production deploy from this agent
 
-```text
-max(previousStandingScore, classRankFloor?, eliteFloor?)
-```
+### Wallidrixe (EU / Archimonde) — authoritative path
 
-Class-rank floors and elite floor 90 are unchanged. Class-rank stays fail-closed without exact-season rank evidence.
+#### Season identity
+| Role | Blizzard id | Internal Season slug / id | RIO slug |
+|------|-------------|---------------------------|----------|
+| Current | **17** | `blizzard-season-17` / `965c666a-7e90-42d1-8cc8-e9da6467d6d7` | `season-mn-1` |
+| Previous | **15** | `blizzard-season-15` / `1e41c326-5ac2-4c3f-883a-11640c7dc7eb` | `season-tww-3` |
 
-### Policy / version changes
-- `SEASON_POPULATION_POLICY_VERSION` → `season-population-policy-v2`
-- Store schema → `experience-population-policy-store-v2`
-- Scorer rejects incompatible policy versions (`INCOMPATIBLE_POLICY_VERSION`)
+Proof no Break-the-Meta/event: previous is real Blizzard season 15 + real RIO `season-tww-3` (main); fixture seasons filtered out.
 
-### Partial-policy behavior
-Score only when the native band is unambiguous from present thresholds:
-- p999 present + rating ≥ p999 → 100
-- p600 present + rating &lt; p600 → 25
-- missing upper discriminator (e.g. no p999 while rating ≥ p990) → `AMBIGUOUS_PARTIAL_POLICY`
-- missing middle discriminator between rating and stronger band → unavailable
-- missing weaker irrelevant boundaries do not invalidate a stronger proven band
+#### Historical rating chain
+1. Persisted miss (cold) / hit (warm)
+2. Blizzard historical season 15 → **404**
+3. Dedicated exact-season RIO `season-tww-3` → score 0/null + proven no activity
+4. State: **`CONFIRMED_NO_ACTIVITY`** / persisted `CONFIRMED_ABSENCE` / source **`RAIDERIO_FALLBACK`**
+5. Standing **0** (not special-cased)
 
-Non-monotonic native thresholds → fail closed (`NON_MONOTONIC_THRESHOLDS` / `NON_MONOTONIC_POLICY`). Remapped cutoffs remain ineligible for LKG unless exact target-season equivalence is proven (Agent 03 rule preserved).
+#### Population policy
+- Region EU, season `season-tww-3`, version `season-population-policy-v2`, quality COMPLETE
+- Thresholds: p999=3946.97, p990=3602.13, p900=3114.82, p750=2876.44, p600=2558.75
+- No matched native band (no standing rating); policy present for future HAS_VALUE cases
 
-### Persisted v1 migration / reuse
-Provider-free upgrade when store-v1 + policy-v1 anchors are the canonical p999/p990/p900/p750/p600 key mappings:
-- verify integrity against the **original v1 content hash**
-- upgrade in-memory to v2 for scoring
-- **no** Raider.IO cutoff refetch solely because scoring representation changed
+#### Other Experience evidence
+- Class rank: unavailable (fail-closed); ambiguous generic RIO previous rank **not** used
+- Elite: confirmed absence (0 titles); elite floor not applied
 
-If upgrade cannot be proven → fail closed / reacquire via existing season-policy lifecycle.
+#### Final Experience
+- previousStandingScore=0, classRankFloor=null, eliteFloor n/a
+- score=0, available=true, confidence=1, causes=[]
+- standingProvenance: ratingSource RAIDERIO_FALLBACK (PERSISTED on warm/replay diagnostics), exactHistoricalSeasonSlug `blizzard-season-15`
 
-### No-activity / contradiction (unchanged from Agent 03)
-- 0/null + `PROVEN_NONE` → `CONFIRMED_NO_ACTIVITY` → standing 0
-- 0 + `PROVEN_ACTIVITY` → contradictory / unavailable
-- 0/null + `UNKNOWN` → unavailable
-- provider failure → unavailable (never standing 25 or 0)
+#### P/S/U / composite / CharacterScore
+| Metric | Value | vs AUDIT_BASELINE |
+|--------|-------|-------------------|
+| Performance | ≈94.960 (conf 1) | match |
+| Survival | ≈72.933 (conf 1) | match |
+| Utility | 62.3 (conf 1) | match |
+| Experience | 0 (conf 1) | was unavailable; now proven E=0 |
+| Composite | ≈70.691 (conf 1) | was ≈78.545 with E unavailable — expected |
+| Tier | B | same |
 
-### Diagnostics / provenance
-`ExperiencePhase1Result.standingProvenance` + worker diagnostics expose:
-- historical rating
-- rating source (`BLIZZARD` | `RAIDERIO_FALLBACK`; cache hit keeps original source in provenance; diagnostics may say `PERSISTED`)
-- exact historical season slug
-- population policy version
-- matched native band
-- thresholds used
-- previousStandingScore / classRankFloor / eliteFloor / final score / confidence causes
+CharacterScore id: `8e736310-efff-4872-a363-1203b1a6ad17`  
+Character id: `cbbbd732-8c82-4364-b63c-a94a548765e0`  
+`dimensionDetails.experience` includes score/confidence/causes/`standingProvenance`.
 
-No frontend work.
+### COLD / WARM / REPLAY (historical Experience)
 
-### Cold / warm / replay provider call counts
-| Path | Blizzard rating | Achievements | Dedicated RIO historical | RIO cutoffs | WCL Experience |
-|------|-----------------|--------------|--------------------------|-------------|----------------|
-| Cold miss + Blizzard OK | 1 | 1 | 0 | 0 (season LKG) | 0 |
-| Cold miss + Blizzard fail + dedicated RIO | 1 | 1 | 1 | 0 | 0 |
-| Warm / replay after success | 0 | 0 | 0 | 0 | 0 |
+| Path | Blizzard hist | Achievements | RIO hist |
+|------|---------------|--------------|----------|
+| COLD | 1 | 1 | 1 |
+| WARM | 0 | 0 | 0 |
+| REPLAY | 0 | 0 | 0 |
 
-Identical native-band Experience score on warm/replay when persisted rating + compatible policy are reused.
+Experience identical across warm/replay. Season-authority TTL calls may still occur; not counted as historical regression.
 
-### Confidence
-Resolved evidence (including confirmed absence) → confidence `1`. Unavailable/contradiction → `null` + causes. No fractional confidence for broad native bands.
+### Process-restart persistence
+Agent 05 acceptance: shared durable Map + reconstructed in-memory store → hist providers stay 0; process-local ensure not required.
 
-## Files changed (Agent 04)
-- `packages/scoring/src/experience/phase1/season-population-policy.ts` (+ tests)
-- `packages/scoring/src/experience/phase1/calculate.ts` (+ tests)
-- `packages/scoring/src/index.ts`
-- `apps/worker/.../experience-season-population-policy-metadata.ts` (+ tests)
-- `apps/worker/.../experience-phase1.ts` (+ tests / e2e / live smoke)
-- `apps/worker/.../experience-evidence-persist.test.ts`
-- `apps/worker/.../experience-season-population-policy-sync.test.ts`
-- orchestration handoff
+### Future N → N+1 rollover
+Invented seasons only (zx-* / 910x). Proves: event never previous; N-1 evidence cannot satisfy N; N evidence under own key; policy isolation; no Midnight hard-codes / id−1.
 
-## Tests run
-Scoring phase1 policy + calculate, worker metadata/sync/phase1/persist/e2e/bootstrap/score-character — **all passed** (126 focused tests across those files).
+### Native-band productive path
+Discrete bands only; two ratings in same band → same standing; `interpolateTopPercent` / `scoreFromEstimatedTopPercent` not used on productive Experience path (Agent 05 test).
 
-## Blockers / questions for Agent 05
-1. End-to-end rollover acceptance (Agent 05 prompt).
-2. Class-rank floor still unavailable without exact-season rank source.
-3. Deploy migration `20260809180000_character_experience_evidence` if not yet applied.
-4. Optional: rewrite store-v1 Season.metadata documents to store-v2 on next successful sync (reader already upgrades).
-5. Do **not** change P/S/U formulas.
+### Validation run
+- Worker orchestration/scoring: 63 files / 481 tests passed (2 skipped live)
+- Scoring `src/experience`: 104 passed
+- API `character-score-read`: 8 passed
+- Agent 05 acceptance + previous-season-evidence: passed
+- prisma migrate status / validate / table verify: OK
+- typecheck: scoring, worker, api, database OK
+- build: scoring, worker, api OK
+- eslint on Agent 05 touched files: OK
+- Full monorepo `pnpm test` / root `pnpm lint` not re-run end-to-end in this turn; focused CI-equivalent suites above are green
+
+### Files (Agent 05)
+- `experience-previous-season-evidence.ts` (+ tests) — fixture slug filter
+- `experience-evidence-persist.ts` — shared Map for restart sim
+- `experience-phase1.ts` — diagnostics typing cleanup
+- `experience-agent05-acceptance.test.ts` — rollover / bands / failures / productive path
+- `experience-agent05-live-probe.ts` — live COLD/WARM/REPLAY probe
+- `tools/scripts/_agent05-verify-experience-table.mjs`
+- `FINAL_ACCEPTANCE_MATRIX.md`, `REVIEW_CHECKLIST.md`, this handoff
+
+### Do not
+- Open/merge PR unless explicitly instructed
+- Change P/S/U formulas
+- Claim class-rank completion
+- Deploy migration to production from this agent
 
 ## Baseline
-Preserve P/S/U baseline in `AUDIT_BASELINE.md`.
-
-## Start instruction for Agent 05
-Read this handoff + `PRODUCT_DECISIONS.md`. Execute end-to-end rollover acceptance only. Do not reopen Agents 01–04 unless a regression is proven.
+P/S/U preserved per `AUDIT_BASELINE.md`. Composite changes only because Experience is now available at 0.

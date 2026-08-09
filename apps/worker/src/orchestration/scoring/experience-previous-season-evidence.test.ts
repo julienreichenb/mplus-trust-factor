@@ -23,12 +23,18 @@ function season(partial: Partial<ExperienceSeasonBindingCandidate> & Pick<
   ExperienceSeasonBindingCandidate,
   "id" | "slug"
 >): ExperienceSeasonBindingCandidate {
+  const blizzardSeasonId = partial.blizzardSeasonId ?? 10;
+  const rawSlug = partial.slug;
+  const slug = /^blizzard-season-\d+$/i.test(rawSlug)
+    ? rawSlug
+    : `blizzard-season-${blizzardSeasonId}`;
   return {
     regionId: regionA,
-    blizzardSeasonId: 10,
+    blizzardSeasonId,
     startsAt: new Date("2025-01-01T00:00:00.000Z"),
     endsAt: new Date("2025-06-01T00:00:00.000Z"),
     ...partial,
+    slug,
   };
 }
 
@@ -236,22 +242,54 @@ describe("resolvePreviousMythicSeason", () => {
     const sameEnds = [
       season({
         id: "id-b",
-        slug: "slug-b",
-        blizzardSeasonId: 1,
+        slug: "blizzard-season-9",
+        blizzardSeasonId: 9,
         startsAt: new Date("2024-07-01T00:00:00.000Z"),
         endsAt: new Date("2024-12-01T00:00:00.000Z"),
       }),
       season({
         id: "id-a",
-        slug: "slug-a",
-        blizzardSeasonId: 2,
+        slug: "blizzard-season-9",
+        blizzardSeasonId: 9,
         startsAt: new Date("2024-07-01T00:00:00.000Z"),
         endsAt: new Date("2024-12-01T00:00:00.000Z"),
       }),
     ];
     const tied = resolvePreviousMythicSeason(seasonC, [...sameEnds, seasonC]);
-    // slug ascending then id — slug-a wins.
+    // Same slug/starts/ends — id ascending: id-a wins.
     expect(tied.ok && tied.season.id).toBe("id-a");
+  });
+
+  it("rejects fixture / non-authority season slugs as previous", () => {
+    const fixturePrev = season({
+      id: "fixture",
+      slug: "blizzard-season-999001",
+      blizzardSeasonId: 999001,
+      startsAt: new Date("2025-02-01T00:00:00.000Z"),
+      endsAt: new Date("2025-05-01T00:00:00.000Z"),
+    });
+    // Force non-authority slug (helper would otherwise keep blizzard-season-N).
+    fixturePrev.slug = "pub-cancel-season";
+    const authorityPrev = season({
+      id: "real-prev",
+      slug: "blizzard-season-16",
+      blizzardSeasonId: 16,
+      startsAt: new Date("2025-01-01T00:00:00.000Z"),
+      endsAt: new Date("2025-06-01T00:00:00.000Z"),
+    });
+    const current = season({
+      id: "cur",
+      slug: "blizzard-season-17",
+      blizzardSeasonId: 17,
+      startsAt: new Date("2025-07-01T00:00:00.000Z"),
+      endsAt: null,
+    });
+    const result = resolvePreviousMythicSeason(current, [
+      fixturePrev,
+      authorityPrev,
+      current,
+    ]);
+    expect(result).toEqual({ ok: true, season: authorityPrev });
   });
 });
 
@@ -349,7 +387,7 @@ describe("acquirePreviousSeasonRatingEvidence", () => {
     expect(evidence).toEqual({
       state: "HAS_VALUE",
       internalSeasonId: "prev",
-      seasonSlug: "season-prev",
+      seasonSlug: "blizzard-season-11",
       blizzardSeasonId: 11,
       rating: 3100,
       fetchedAt: "2026-08-08T00:00:01.000Z",

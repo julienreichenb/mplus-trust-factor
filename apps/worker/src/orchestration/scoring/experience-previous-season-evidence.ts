@@ -123,7 +123,11 @@ function comparePreviousSeasonCandidates(
  * Resolve the immediately previous Mythic+ season for a current season.
  *
  * Authority: same regionId + temporal precedence via startsAt (not Blizzard ID − 1).
- * Eligible candidate: same region, distinct id, non-null blizzardSeasonId, startsAt < current.startsAt.
+ * Eligible candidate: same region, distinct id, non-null blizzardSeasonId,
+ * Blizzard-authority slug (`blizzard-season-<n>`), startsAt < current.startsAt.
+ *
+ * Rejects fixture/test seasons (e.g. `pub-cancel-season`) that can otherwise
+ * win chronological selection and corrupt Experience previous binding.
  */
 export function resolvePreviousMythicSeason(
   current: ExperienceSeasonBindingCandidate,
@@ -141,6 +145,8 @@ export function resolvePreviousMythicSeason(
     if (c.id === current.id) return false;
     if (c.regionId == null || c.regionId !== current.regionId) return false;
     if (c.blizzardSeasonId == null || !Number.isFinite(c.blizzardSeasonId)) return false;
+    // Authority seasons only — ignore local fixture / publication-test rows.
+    if (!/^blizzard-season-\d+$/i.test(c.slug.trim())) return false;
     const start = timeMs(c.startsAt);
     if (start == null) return false;
     // Must demonstrably precede current by start time.

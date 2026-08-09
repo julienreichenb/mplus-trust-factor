@@ -15,6 +15,7 @@ import type {
   CharacterIdentityInput,
   ProviderFetchContext,
   ProviderResult,
+  RaiderIoExactSeasonHistoricalRating,
   RegionCode,
 } from "@mplus/contracts";
 import type { PrismaClient } from "@mplus/database";
@@ -28,6 +29,7 @@ import {
   type ExperiencePhase1Result,
   type ExperiencePhase1StandingProvenance,
   type NativeCutoffBand,
+  type NativeCutoffQuantile,
 } from "@mplus/scoring";
 import {
   acquirePreviousSeasonRatingEvidence,
@@ -103,7 +105,7 @@ export type ExperiencePhase1RaiderIoExactSeasonPort = {
     identity: CharacterIdentityInput,
     seasonSlug: string,
     ctx: ProviderFetchContext,
-  ) => Promise<ProviderResult<import("@mplus/contracts").RaiderIoExactSeasonHistoricalRating>>;
+  ) => Promise<ProviderResult<RaiderIoExactSeasonHistoricalRating>>;
 };
 
 export interface BuildExperiencePhase1Result {
@@ -128,7 +130,7 @@ export interface BuildExperiencePhase1Result {
     exactHistoricalSeasonSlug: string | null;
     populationPolicyVersion: string | null;
     matchedNativeBand: string | null;
-    thresholdsUsed: Array<{ quantile: string; score: number }> | null;
+    thresholdsUsed: Array<{ quantile: NativeCutoffQuantile; score: number }> | null;
   };
 }
 
@@ -299,7 +301,7 @@ function resolvePreloadedRioExactSeasonFallback(
 
 function rioEvidenceFromDedicatedResult(input: {
   seasonSlug: string;
-  result: ProviderResult<import("@mplus/contracts").RaiderIoExactSeasonHistoricalRating>;
+  result: ProviderResult<RaiderIoExactSeasonHistoricalRating>;
   providerPayloadId: string | null;
 }): RioExactSeasonScoreEvidence {
   const data = input.result.data;
@@ -341,7 +343,7 @@ export async function buildExperiencePhase1Result(
     exactHistoricalSeasonSlug: null as string | null,
     populationPolicyVersion: null as string | null,
     matchedNativeBand: null as string | null,
-    thresholdsUsed: null as Array<{ quantile: string; score: number }> | null,
+    thresholdsUsed: null as Array<{ quantile: NativeCutoffQuantile; score: number }> | null,
   };
   const previousRegionalClassRank = input.previousRegionalClassRank ?? null;
   const store = input.evidenceStore ?? null;

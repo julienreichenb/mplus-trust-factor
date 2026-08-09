@@ -134,19 +134,6 @@ for (const s of seasonIndex.json?.seasons ?? []) {
 }
 
 const currentDetail = seasonsDetailed.find((s) => s.id === currentSeasonId) ?? null;
-const previousBlizzard = currentDetail?.start_timestamp
-  ? pickPreviousByStart(
-      currentDetail.start_timestamp,
-      seasonsDetailed.map((s) => ({
-        slug: `blizzard-${s.id}`,
-        starts: { eu: new Date(s.start_timestamp).toISOString() },
-        id: s.id,
-        start_timestamp: s.start_timestamp,
-        end_timestamp: s.end_timestamp,
-        is_main_season: true,
-      })),
-    )
-  : null;
 
 // Recompute previous with Blizzard IDs properly
 let previousSeason = null;

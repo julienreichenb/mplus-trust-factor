@@ -278,8 +278,10 @@ export function buildEliteCutoffHistoryPersistInput(input: {
 }
 
 /** In-memory store for unit tests / process-restart simulation of durable rows. */
-export function createInMemoryExperienceEvidenceStore(): ExperienceEvidenceStore {
-  const rows = new Map<string, CharacterExperienceEvidenceDTO>();
+export function createInMemoryExperienceEvidenceStore(
+  sharedRows?: Map<string, CharacterExperienceEvidenceDTO>,
+): ExperienceEvidenceStore {
+  const rows = sharedRows ?? new Map<string, CharacterExperienceEvidenceDTO>();
   const keyOf = (id: CharacterExperienceEvidenceIdentity) =>
     `${id.characterId}|${id.seasonId}|${id.evidenceKind}|${id.compatibilityVersion}`;
 
