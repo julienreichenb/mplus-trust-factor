@@ -318,6 +318,27 @@ describe("calculateExperiencePhase1 — composition (E)", () => {
     });
   });
 
+  it("marks MISSING_POPULATION_POLICY previous evidence as unavailable (never E=0)", () => {
+    const result = calculateExperiencePhase1({
+      previous: { state: "UNAVAILABLE", reason: "MISSING_POPULATION_POLICY" },
+      elite: { confirmedCount: 0 },
+    });
+    expect(result.score).toBeNull();
+    expect(result.available).toBe(false);
+    expect(result.reason).toBe("PREVIOUS_EVIDENCE_UNAVAILABLE");
+    expect(result.confidenceCauses).toContain("previous_evidence_unavailable");
+  });
+
+  it("confirmed no activity remains score 0 with available=true (distinct from unavailable)", () => {
+    const result = calculateExperiencePhase1({
+      previous: { state: "CONFIRMED_NO_ACTIVITY" },
+      elite: { confirmedCount: 0 },
+    });
+    expect(result.score).toBe(0);
+    expect(result.available).toBe(true);
+    expect(result.reason).not.toBe("PREVIOUS_EVIDENCE_UNAVAILABLE");
+  });
+
   it("stronger previous standing wins over class-rank floor", () => {
     const result = calculateExperiencePhase1({
       previous: { state: "STANDING", standing: bandStanding("p999") },

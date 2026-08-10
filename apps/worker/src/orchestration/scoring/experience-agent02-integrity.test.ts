@@ -1840,6 +1840,32 @@ describe("Agent 02 F5 — ensure retries after failed bootstrap", () => {
     ).toBe(true);
   });
 
+  /**
+   * Agent 01 diagnostic freeze — CURRENT BEHAVIOR (faulty for Midnight→TWW policy hole).
+   * NO_USABLE_POLICY is treated as ensure-complete, so ensure will not retry until
+   * the current Blizzard season id changes (or process restart + force).
+   * Desired future fix: do NOT memoize when prior LKG is absent.
+   */
+  it("scoring-stabilization: NO_USABLE_POLICY currently counts as ensure-complete", () => {
+    expect(
+      isExperienceSeasonBindingEnsureComplete({
+        region: "EU",
+        status: "ok",
+        hydratedSeasonCount: 2,
+        currentSeasonId: "cur-midnight",
+        previousSeasonId: "prev-tww",
+        currentRaiderIoSlug: "season-midnight-1",
+        previousRaiderIoSlug: "season-tww-3",
+        policySync: {
+          status: "NO_USABLE_POLICY",
+          seasonId: "prev-tww",
+          reason: "INSUFFICIENT_POLICY",
+        },
+        reasons: ["POLICY_SYNC_INSUFFICIENT"],
+      }),
+    ).toBe(true);
+  });
+
   it("ensureExperienceSeasonBindingReady retries after failure then skips after success", async () => {
     const currentId = 15;
     type SeasonRow = {

@@ -100,6 +100,7 @@
     "scoring:canary": "node tools/scripts/with-env.mjs pnpm --filter @mplus/worker run scoring:canary --",
     "scoring:replay": "node tools/scripts/with-env.mjs pnpm --filter @mplus/worker run scoring:replay --",
     "scoring:doctor": "node tools/scripts/with-env.mjs pnpm --filter @mplus/worker run scoring:doctor --",
+    "scoring:diagnose:stabilization": "node tools/scripts/with-env.mjs pnpm --filter @mplus/worker run scoring:diagnose:stabilization --",
     "scoring:smoke:character": "node tools/scripts/with-env.mjs pnpm --filter @mplus/worker run scoring:smoke:character --"
   },
   "dependencies": {

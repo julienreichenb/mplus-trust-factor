@@ -14,6 +14,7 @@ import {
   combinePerformancePhase2Scores,
   resolveEligibleOffensiveCooldowns,
   scoreRunCooldownDiscipline,
+  computePerformancePhase2Confidence,
   PERFORMANCE_PHASE2_ALGORITHM_VERSION,
   type PerformanceCooldownRunEvidence,
 } from "./index.js";
@@ -586,5 +587,128 @@ describe("Performance Phase 2 character combine (P–S)", () => {
     expect(result.score).toBeNull();
     expect(result.state).toBe("UNAVAILABLE");
     expect(result.limitations).toContain("phase1_unavailable");
+  });
+});
+
+/**
+ * Agent 01 diagnostic freeze — Warlock vs Warrior/Shaman cooldown eligibility asymmetry.
+ * Documents current catalog/eligibility behavior that can drive Performance confidence gaps.
+ */
+describe("scoring-stabilization: offensive cooldown eligibility class asymmetry", () => {
+  const absentLoadout = {
+    loadoutEvidenceState: "ABSENT" as const,
+    loadoutTalentSpellIds: null,
+    observedCanonicalKeys: new Set<string>(),
+    observedSpellIds: new Set<number>(),
+    ownedPetActorIds: [] as number[],
+  };
+
+  it("Demonology Warlock keeps BASELINE Demonic Tyrant eligible without loadout", () => {
+    const { eligible, skipped } = resolveEligibleOffensiveCooldowns({
+      classSlug: "warlock",
+      specSlug: "demonology",
+      catalogVersion: CURRENT_CATALOG_VERSION_ID,
+      availabilityEvidence: absentLoadout,
+    });
+    expect(
+      eligible.some((e) => e.rule.canonicalKey === "warlock.offensive.demonic-tyrant"),
+    ).toBe(true);
+    expect(
+      eligible.find((e) => e.rule.canonicalKey === "warlock.offensive.demonic-tyrant")
+        ?.availabilityReason,
+    ).toBe("baseline");
+    // Talent CDs remain skipped without loadout/observed use — Tyrant alone keeps run usable.
+    expect(
+      skipped.some(
+        (s) =>
+          s.canonicalKey === "warlock.offensive.grimoire-felguard" &&
+          s.reason === "talent_availability_unknown",
+      ),
+    ).toBe(true);
+  });
+
+  it("Arms Warrior with null spec loses Colossus Smash and may have zero eligible CDs", () => {
+    const { eligible, skipped } = resolveEligibleOffensiveCooldowns({
+      classSlug: "warrior",
+      specSlug: null,
+      catalogVersion: CURRENT_CATALOG_VERSION_ID,
+      availabilityEvidence: absentLoadout,
+    });
+    expect(
+      eligible.some((e) => e.rule.canonicalKey === "warrior.offensive.colossus-smash"),
+    ).toBe(false);
+    expect(
+      skipped.some(
+        (s) =>
+          s.canonicalKey === "warrior.offensive.colossus-smash" &&
+          s.reason === "spec_mismatch",
+      ),
+    ).toBe(true);
+    // Class-wide talents also unresolved without loadout → no evaluable abilities.
+    expect(eligible.length).toBe(0);
+  });
+
+  it("Arms Warrior with known spec keeps Colossus Smash BASELINE without loadout", () => {
+    const { eligible } = resolveEligibleOffensiveCooldowns({
+      classSlug: "warrior",
+      specSlug: "arms",
+      catalogVersion: CURRENT_CATALOG_VERSION_ID,
+      availabilityEvidence: absentLoadout,
+    });
+    expect(
+      eligible.some((e) => e.rule.canonicalKey === "warrior.offensive.colossus-smash"),
+    ).toBe(true);
+  });
+
+  it("Elemental Shaman keeps Fire Elemental BASELINE; talents skip without loadout", () => {
+    const { eligible, skipped } = resolveEligibleOffensiveCooldowns({
+      classSlug: "shaman",
+      specSlug: "elemental",
+      catalogVersion: CURRENT_CATALOG_VERSION_ID,
+      availabilityEvidence: absentLoadout,
+    });
+    expect(
+      eligible.some((e) => e.rule.canonicalKey === "shaman.offensive.fire-elemental"),
+    ).toBe(true);
+    expect(
+      skipped.some(
+        (s) =>
+          s.canonicalKey === "shaman.offensive.stormkeeper" &&
+          s.reason === "talent_availability_unknown",
+      ),
+    ).toBe(true);
+  });
+
+  it("null-spec Elemental path skips Fire Elemental → zero eligible without loadout", () => {
+    const { eligible } = resolveEligibleOffensiveCooldowns({
+      classSlug: "shaman",
+      specSlug: null,
+      catalogVersion: CURRENT_CATALOG_VERSION_ID,
+      availabilityEvidence: absentLoadout,
+    });
+    expect(eligible.length).toBe(0);
+  });
+
+  it("partial cooldownRunCoverage pulls confidence below Phase 1 (0.8/0.2 blend)", () => {
+    const confidence = computePerformancePhase2Confidence({
+      phase1Confidence: 1,
+      phase1Limits: [],
+      weightsApplied: { phase1: 0.8, cooldown: 0.2 },
+      combinedScore: 80,
+      cooldown: {
+        score: 70,
+        selectedRunCount: 16,
+        cooldownUsableRunCount: 8,
+        eligibleAbilityCount: 8,
+        evaluatedAbilityCount: 8,
+        unsupportedAbilityIds: [],
+        catalogueIncompatibleRuns: [],
+        runsWithoutValidDuration: [],
+        runScores: [],
+      },
+    });
+    expect(confidence.components.cooldownRunCoverage).toBe(0.5);
+    expect(confidence.confidence).toBeCloseTo(0.8 * 1 + 0.2 * 0.5, 10);
+    expect(confidence.causes).toContain("incomplete_cooldown_run_coverage");
   });
 });

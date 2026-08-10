@@ -137,4 +137,50 @@ describe("character bootstrap repair triggers", () => {
       }),
     ).toBe(false);
   });
+
+  /**
+   * Agent 01 diagnostic freeze — current production behavior (NOT the desired fix).
+   *
+   * A complete Character shell with missing authoritative-season Mythic+ evidence
+   * fails eligibility as CHARACTER_NO_CURRENT_SEASON_MYTHIC_SCORE, but:
+   * - ordinary exact resolve does NOT re-bootstrap (needs forceRetry)
+   * - bootstrapRepairRequired stays false (UI does not advertise resolve repair)
+   * - eligibility conflicts do NOT map to bootstrap repair
+   */
+  describe("scoring-stabilization: complete shell + missing season Mythic evidence", () => {
+    it("does not repair without forceRetry when season Mythic evidence is missing", () => {
+      expect(
+        shouldRepairCharacterBootstrap({
+          character: complete,
+          latestJob: {
+            status: "FAILED",
+            error: { code: "CHARACTER_NO_CURRENT_SEASON_MYTHIC_SCORE" },
+          },
+          forceRetry: false,
+          missingSeasonMythicEvidence: true,
+        }),
+      ).toBe(false);
+    });
+
+    it("keeps bootstrapRepairRequired=false for NO_CURRENT_SEASON_MYTHIC_SCORE", () => {
+      expect(
+        isBootstrapRepairRequired({
+          character: complete,
+          latestJob: {
+            status: "FAILED",
+            error: { code: "CHARACTER_NO_CURRENT_SEASON_MYTHIC_SCORE" },
+          },
+        }),
+      ).toBe(false);
+    });
+
+    it("does not advertise bootstrap repair for NO_CURRENT_SEASON_MYTHIC_SCORE conflicts", () => {
+      expect(
+        eligibilityConflictNeedsBootstrapRepair({
+          character: complete,
+          eligibilityCode: "CHARACTER_NO_CURRENT_SEASON_MYTHIC_SCORE",
+        }),
+      ).toBe(false);
+    });
+  });
 });
