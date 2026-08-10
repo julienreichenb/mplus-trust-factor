@@ -36,6 +36,7 @@ import {
   SeasonAuthorityUnavailableError,
   requireVerifiedSeasonAuthority,
   loadCharacterRefreshEligibilitySignals,
+  persistRefreshEligibilityEvidence,
   fetchBlizzardPublicBootstrap,
   persistPublicCharacterBootstrap,
   type RefreshJobControlDeps,
@@ -567,6 +568,47 @@ export class CharacterService {
       logger: this.container.logger,
       releaseAdmission,
     };
+  }
+
+  /**
+   * Complete shell + missing current-season Mythic+ rating → one keystone call.
+   * Provider failure never becomes confirmed no-score.
+   */
+  private async fetchAndPersistCurrentSeasonMythicScore(
+    character: Character,
+    identity: CharacterIdentityInput,
+    authority: VerifiedSeasonAuthority,
+    opts: { correlationId?: string | null },
+  ): Promise<{ ok: true } | { ok: false; statusCode: number; body: CharacterResolveResponse }> {
+    try {
+      const keystone = await this.container.worker.providers.blizzard.getMythicKeystoneProfile(
+        identity,
+        {
+          region: identity.region,
+          requestId: opts.correlationId ?? `mythic-${character.id}`,
+          correlationId: opts.correlationId ?? null,
+          forceRefresh: true,
+          now: new Date().toISOString(),
+        },
+      );
+      await persistRefreshEligibilityEvidence(this.container.worker.prisma, {
+        characterId: character.id,
+        level: character.level ?? null,
+        mythicRating: keystone.data.currentMythicRating ?? null,
+        authoritativeSeasonRowId: authority.seasonRowId,
+      });
+      return { ok: true };
+    } catch {
+      return {
+        ok: false,
+        statusCode: 503,
+        body: {
+          status: "PROVIDER_UNAVAILABLE",
+          retryable: true,
+          message: "Blizzard is temporarily unavailable. Please retry shortly.",
+        },
+      };
+    }
   }
 
   /**
@@ -1591,8 +1633,9 @@ export class CharacterService {
           this.container.worker.prisma,
           { characterId: character.id, authority },
         );
-        // Fetch-if-null: missing/null current-season score triggers one Blizzard lookup.
-        const missingSeasonMythicEvidence = signalsBefore.currentSeasonMythicScore == null;
+        // Decision is the usable score value — published CharacterScore alone is not enough.
+        const existingScore = signalsBefore.currentSeasonMythicScore;
+        const missingSeasonMythicEvidence = existingScore == null;
         const needsRepair = shouldRepairCharacterBootstrap({
           character,
           latestJob,
@@ -1600,8 +1643,13 @@ export class CharacterService {
           missingSeasonMythicEvidence,
         });
 
-        // Published + idle + score already present → zero Blizzard Mythic+ calls.
-        if (snapshot && !opts.forceRetry && !needsRepair && latestJob?.status !== "FAILED") {
+        // Early READY only when a usable current-season Mythic+ score is already present.
+        if (
+          existingScore != null &&
+          snapshot &&
+          !opts.forceRetry &&
+          latestJob?.status !== "FAILED"
+        ) {
           return {
             statusCode: 200,
             body: { status: "READY", characterId: existing.id, profilePath },
@@ -1610,6 +1658,15 @@ export class CharacterService {
 
         if (needsRepair || latestJob?.status === "FAILED" || opts.forceRetry || !snapshot) {
           if (needsRepair) {
+            if (!characterLacksBootstrapEvidence(character) && missingSeasonMythicEvidence) {
+              const fetched = await this.fetchAndPersistCurrentSeasonMythicScore(
+                character,
+                identity,
+                authority,
+                { correlationId: opts.correlationId },
+              );
+              if (!fetched.ok) return fetched;
+            } else {
             const fetched = await this.fetchBlizzardBootstrap(
               identity,
               { correlationId: opts.correlationId },
@@ -1657,6 +1714,7 @@ export class CharacterService {
               },
               "fetched current-season Mythic+ / bootstrap evidence via exact resolve",
             );
+            }
           }
 
           if (characterLacksBootstrapEvidence(character)) {
@@ -2014,6 +2072,28 @@ export class CharacterService {
         cooldownSecondsRemaining: remaining,
         bootstrapRepairRequired: repairRequired,
       };
+    }
+
+    const eligibilitySignals = await loadCharacterRefreshEligibilitySignals(
+      this.container.worker.prisma,
+      { characterId: character.id, authority: resolvedContract.authority },
+    );
+    if (
+      eligibilitySignals.currentSeasonMythicScore == null &&
+      !characterLacksBootstrapEvidence(character)
+    ) {
+      const fetched = await this.fetchAndPersistCurrentSeasonMythicScore(
+        character,
+        identity,
+        resolvedContract.authority,
+        { correlationId: opts.correlationId },
+      );
+      if (!fetched.ok) {
+        throw HttpError.serviceUnavailable(
+          "PROVIDER_UNAVAILABLE",
+          "Blizzard is temporarily unavailable. Please retry shortly.",
+        );
+      }
     }
 
     const eligibility = await this.evaluateSharedRefreshEligibility(

@@ -556,4 +556,91 @@ describe("CharacterService.resolveCharacter — existing incomplete repair", () 
     expect(mockGetProfile).toHaveBeenCalled();
     expect(mockEnqueue).toHaveBeenCalledTimes(1);
   });
+
+  /**
+   * Manual UI gate failure: existing complete Character + published score snapshot +
+   * no current-season Mythic+ evidence must still fetch Blizzard on normal resolve.
+   */
+  it("scoring-stabilization: published snapshot does not skip current-season Mythic+ fetch", async () => {
+    const complete = { ...repairedFixture };
+    mockFindByIdentity.mockResolvedValue(complete);
+    mockFindLatestJob.mockResolvedValue({ status: "COMPLETED", error: null });
+    mockGetPublishedSnapshot.mockResolvedValue({
+      id: "snap-published",
+      characterId: complete.id,
+      grade: "B",
+      calculatedAt: new Date().toISOString(),
+      seasonId: "season-1",
+    });
+    // No authoritative current-season Mythic+ evidence yet.
+    mockSnapshotFindMany.mockResolvedValue([]);
+    mockCharacterFindUnique.mockResolvedValue({
+      id: complete.id,
+      level: 90,
+      regionId: "reg-1",
+    });
+    // After persist, eligibility re-load must see the new rating.
+    mockSnapshotCreate.mockImplementation(async (args: { data: { mythicRating: number; rawSummary: unknown } }) => {
+      mockSnapshotFindMany.mockResolvedValue([
+        {
+          mythicRating: args.data.mythicRating,
+          rawSummary: args.data.rawSummary,
+        },
+      ]);
+      return {};
+    });
+
+    const service = new CharacterService(buildContainer({ mythicRating: null }));
+    // buildContainer resets findMany from mythicRating:null → keep empty + create hook
+    mockSnapshotFindMany.mockResolvedValue([]);
+    mockSnapshotCreate.mockImplementation(async (args: { data: { mythicRating: number; rawSummary: unknown } }) => {
+      mockSnapshotFindMany.mockResolvedValue([
+        {
+          mythicRating: args.data.mythicRating,
+          rawSummary: args.data.rawSummary,
+        },
+      ]);
+      return {};
+    });
+
+    const first = await service.resolveCharacter({
+      region: "EU",
+      realmSlug: "archimonde",
+      name: "Legacychar",
+    });
+
+    expect(mockGetKeystone).toHaveBeenCalledTimes(1);
+    expect(mockGetProfile).not.toHaveBeenCalled();
+    expect(mockSnapshotCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          characterId: complete.id,
+          mythicRating: 2500,
+        }),
+      }),
+    );
+    expect(first.statusCode).toBe(202);
+    expect(first.body).toMatchObject({
+      status: "QUEUED",
+      characterId: complete.id,
+      refreshId: "job-repair-1",
+    });
+    expect(mockEnqueue).toHaveBeenCalledTimes(1);
+
+    // Second resolve: evidence present → zero Mythic+ calls.
+    mockGetKeystone.mockClear();
+    mockGetProfile.mockClear();
+    mockEnqueue.mockClear();
+    mockSnapshotCreate.mockClear();
+    const second = await service.resolveCharacter({
+      region: "EU",
+      realmSlug: "archimonde",
+      name: "Legacychar",
+    });
+    expect(second.statusCode).toBe(200);
+    expect(second.body).toMatchObject({ status: "READY", characterId: complete.id });
+    expect(mockGetKeystone).not.toHaveBeenCalled();
+    expect(mockGetProfile).not.toHaveBeenCalled();
+    expect(mockEnqueue).not.toHaveBeenCalled();
+  });
 });

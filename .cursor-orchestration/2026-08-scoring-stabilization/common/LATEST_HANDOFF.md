@@ -1,32 +1,27 @@
-# LATEST HANDOFF — Agent 02 (corrective)
+# LATEST HANDOFF — Agent 02 (corrective pass 2)
 
 **Branch:** `fix/scoring-stabilization`  
-**Worktree:** `mplus-worktrees/scoring-stabilization`  
-**Status:** Problem 1 **FIXED IN CODE (simplified)** — **PENDING MANUAL UI VALIDATION**. Do **not** start Agent 03 until the human UI gate passes.
+**Status:** Problem 1 **FIXED IN CODE (pass 2)** — **PENDING MANUAL UI VALIDATION**. Do **not** start Agent 03.
 
-## Corrective pass (on top of ce41efc)
+## Cause of UI gate failure
 
-Removed the over-engineered tri-state (`HAS_SCORE` / `CONFIRMED_NO_SCORE` / `UNKNOWN`) and durable `0 + confirmedNoScore` persistence. Restored eligibility gate / config semantics to Agent 01.
+Existing complete Character + **published score snapshot** + missing current-season Mythic+ rating:
 
-**Only two production fixes remain:**
+- Search/resolve must not treat published snapshot as “done”.
+- Observed API error shape (`CHARACTER_NO_CURRENT_SEASON_MYTHIC_SCORE` + `bootstrapRepairRequired=false`) comes from **refresh eligibility conflict** when score was still null.
 
-1. Missing/null current-season Mythic+ score → fetch Blizzard once on normal exact resolve (`forceRetry` not required).
-2. Keystone provider failure propagates as provider error — never catch-to-null.
+## Fix (control flow only)
 
-**Lookup rule:**
+1. Early READY only when `currentSeasonMythicScore != null` (published snapshot alone is not enough).
+2. Complete shell + missing score → **one Blizzard keystone call** (not full profile bootstrap).
+3. `requestRefresh` also fetch-if-null before throwing the eligibility conflict.
 
-```
-if (currentSeasonMythicScore != null) reuse (0 Blizzard M+ calls)
-else fetch Blizzard once
-  failure → provider error
-  rating == null → CHARACTER_NO_CURRENT_SEASON_MYTHIC_SCORE (score stays null; may refetch later)
-  rating finite → persist and continue
-```
+## Manual UI gate (one character)
 
-## Manual UI checklist
+1. Restart local API / worker / web.
+2. Search the **same** existing DB character that failed.
+3. Expect: no `CHARACTER_NO_CURRENT_SEASON_MYTHIC_SCORE`.
+4. Refresh proceeds normally.
+5. Search again: still works.
 
-**A.** Non-BNet-owned character with current-season M+ → resolves; no false `CHARACTER_NO_CURRENT_SEASON_MYTHIC_SCORE`; refresh can proceed.  
-**B.** Search same character again → still works.  
-**C.** BNet-owned character → unchanged.
-
-## Do not start Agent 03 until UI gate passes.
+Do not start Agent 03 until this passes.
