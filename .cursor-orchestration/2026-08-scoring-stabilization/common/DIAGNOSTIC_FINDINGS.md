@@ -2,9 +2,26 @@
 
 **Date:** 2026-08-10  
 **Branch:** `fix/scoring-stabilization`  
-**Mode:** Agent 01–03B on branch. Experience **formula/UI** still pending Agent 03C. Agent 04 not started.
+**Mode:** Agents 01–03C + **04A diagnostic complete**. Agent **04B not started**. Do not start Agent 05.
 
 Legend for evidence: **OBSERVED** (code/tests), **INFERRED** (strong code path), **NOT YET PROVEN** (needs live character dump).
+
+---
+
+## 0d. Agent 04A — Performance role + WCL live probe (diagnostic only)
+
+| Field | Value |
+|-------|-------|
+| Status | **COMPLETE — DIAGNOSTIC / API-PROOF** (no production formula change) |
+| Full report | [`AGENT_04A_PERFORMANCE_ROLE_PROBE.md`](./AGENT_04A_PERFORMANCE_ROLE_PROBE.md) |
+| Architecture pick | **A — profile throughput canonical**; detailed playerscore must not dominate confidence |
+| Healer damage metric | `points_and_damage` (not standalone `dps`) |
+| Dual heal+damage query | **Feasible** (1 HTTP, ~11 pt spentDelta) |
+| `role`/`specName` on zoneRankings | GraphQL-accepted but **live NO-OP** for pad/pah (wrong filters ≡ correct) |
+| Persistence | **No migration** — new `rankingVersion` dual-channel compact |
+| 04B | Role-aware score/confidence/explain only after this probe; **do not implement in 04A** |
+
+Live canaries: Wallidrixe (DPS Demo), Zam (Tank Guardian), Aspha (Healer Resto).
 
 ---
 
@@ -258,13 +275,12 @@ Shipped:
 
 - Prefer surfacing uncapped/capApplied in audit UI; do **not** change `UTILITY_V2_DOMAIN_CONTRIBUTION_CAP` unless product explicitly requests recalibration.
 
-### Agent 04 — Performance confidence
+### Agent 04 — Performance confidence / role-aware Performance
 
-- For Lfgmasochist-like cases: fix **Phase1 profile/detailed dungeon coverage** (why profile_only / 0 detailed dungeons) before touching cooldown catalog.
-- Still harden extraction so `specSlug` + loadoutEvidence are present (null-spec Warrior/Shaman remain unusable in fixtures).
-- Validate Warrior live with bounded probes.
-- Do **not** artificially inflate confidence weights.
-- Acceptance: Phase1 coverage causes; null-spec vs known-spec Arms/Elemental fixtures; coverage→confidence formula tests.
+- **04A DONE** — see §0d + `AGENT_04A_PERFORMANCE_ROLE_PROBE.md`.
+- **04B (next):** role-aware score weights (DPS 80/20, Tank 100% damage, Healer 65/35 heal/damage); role-aware confidence; drop cooldown penalties for tank/healer; prefer Architecture A (profile throughput canonical); persistence via new rankingVersion dual-channel compact (**no migration**).
+- Do **not** keep detailed `playerscore` as confidence-critical.
+- Do **not** start Agent 05 from this pass.
 
 ### Agent 05 — Experience policy / diagnostics
 
