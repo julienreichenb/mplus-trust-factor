@@ -32,6 +32,7 @@
     "db:migrate": "node tools/scripts/with-env.mjs pnpm --filter @mplus/database exec prisma migrate deploy",
     "db:migrate:dev": "node tools/scripts/with-env.mjs pnpm --filter @mplus/database exec prisma migrate dev",
     "db:seed": "node tools/scripts/with-env.mjs pnpm --filter @mplus/database run seed",
+    "experience:cutoffs:collect": "node tools/scripts/with-env.mjs pnpm --filter @mplus/worker run experience:cutoffs:collect --",
     "db:studio": "node tools/scripts/with-env.mjs pnpm --filter @mplus/database exec prisma studio",
     "db:generate": "pnpm --filter @mplus/database exec prisma generate",
     "db:reset:scoring": "node tools/scripts/with-env.mjs pnpm --filter @mplus/database exec tsx src/reset/cli-test-reset.ts",

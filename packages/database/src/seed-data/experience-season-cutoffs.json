@@ -1,0 +1,871 @@
+{
+  "schemaVersion": "experience-season-cutoffs-catalog-v1",
+  "catalogVersion": 1,
+  "generatedAt": "2026-08-10T17:15:35.053Z",
+  "entries": [
+    {
+      "region": "EU",
+      "raiderIoSeasonSlug": "season-df-1",
+      "blizzardSeasonId": 9,
+      "name": "DF Season 1",
+      "startsAt": "2022-11-28T23:00:00Z",
+      "endsAt": "2023-05-09T15:00:00Z",
+      "closed": true,
+      "cutoffs": {
+        "p999": 3430.9,
+        "p990": 3200.94,
+        "p900": 2793.27,
+        "p750": 2552.71,
+        "p600": 2246.54
+      },
+      "totalPopulation": 62562,
+      "sourceUpdatedAt": "Tue May 02 2023 21:39:47 GMT+0000 (Coordinated Universal Time)",
+      "isRemappedSeason": null,
+      "source": {
+        "provider": "raiderio",
+        "schemaVersion": "0.62.5+prev-ranks-v1",
+        "collectedAt": "2026-08-10T17:15:35.053Z"
+      }
+    },
+    {
+      "region": "EU",
+      "raiderIoSeasonSlug": "season-df-2",
+      "blizzardSeasonId": 10,
+      "name": "DF Season 2",
+      "startsAt": "2023-05-09T15:00:00Z",
+      "endsAt": "2023-11-14T15:00:00Z",
+      "closed": true,
+      "cutoffs": {
+        "p999": 3286.38,
+        "p990": 2747.23,
+        "p900": 1630.64,
+        "p750": 955.606,
+        "p600": 594.245
+      },
+      "totalPopulation": 342214,
+      "sourceUpdatedAt": "Tue Apr 16 2024 12:44:28 GMT+0000 (Coordinated Universal Time)",
+      "isRemappedSeason": null,
+      "source": {
+        "provider": "raiderio",
+        "schemaVersion": "0.62.5+prev-ranks-v1",
+        "collectedAt": "2026-08-10T17:15:35.053Z"
+      }
+    },
+    {
+      "region": "EU",
+      "raiderIoSeasonSlug": "season-df-3",
+      "blizzardSeasonId": 11,
+      "name": "DF Season 3",
+      "startsAt": "2023-11-14T15:00:00Z",
+      "endsAt": "2024-04-23T15:00:00Z",
+      "closed": true,
+      "cutoffs": {
+        "p999": 3720.74,
+        "p990": 3377.09,
+        "p900": 2881.04,
+        "p750": 2523.69,
+        "p600": 1976.22
+      },
+      "totalPopulation": 1860760,
+      "sourceUpdatedAt": "Thu Apr 25 2024 02:42:07 GMT+0000 (Coordinated Universal Time)",
+      "isRemappedSeason": null,
+      "source": {
+        "provider": "raiderio",
+        "schemaVersion": "0.62.5+prev-ranks-v1",
+        "collectedAt": "2026-08-10T17:15:35.053Z"
+      }
+    },
+    {
+      "region": "EU",
+      "raiderIoSeasonSlug": "season-df-4",
+      "blizzardSeasonId": 12,
+      "name": "DF Season 4 • With Pre Patch",
+      "startsAt": "2024-04-23T15:00:00Z",
+      "endsAt": "2024-08-26T22:00:00Z",
+      "closed": true,
+      "cutoffs": {
+        "p999": 3693.66,
+        "p990": 3361.23,
+        "p900": 2795.61,
+        "p750": 2314,
+        "p600": 1778.17
+      },
+      "totalPopulation": 1001375,
+      "sourceUpdatedAt": "Tue Sep 10 2024 08:44:29 GMT+0000 (Coordinated Universal Time)",
+      "isRemappedSeason": null,
+      "source": {
+        "provider": "raiderio",
+        "schemaVersion": "0.62.5+prev-ranks-v1",
+        "collectedAt": "2026-08-10T17:15:35.053Z"
+      }
+    },
+    {
+      "region": "EU",
+      "raiderIoSeasonSlug": "season-sl-3",
+      "blizzardSeasonId": 7,
+      "name": "SL Season 3",
+      "startsAt": "2022-03-01T15:00:00Z",
+      "endsAt": "2022-08-02T15:00:00Z",
+      "closed": true,
+      "cutoffs": {
+        "p999": 3725.93,
+        "p990": 3351.98,
+        "p900": 2933.1,
+        "p750": 2512.82,
+        "p600": 1754.21
+      },
+      "totalPopulation": 1332413,
+      "sourceUpdatedAt": "2022-10-26T17:30:16Z",
+      "isRemappedSeason": null,
+      "source": {
+        "provider": "raiderio",
+        "schemaVersion": "0.62.5+prev-ranks-v1",
+        "collectedAt": "2026-08-10T17:15:35.053Z"
+      }
+    },
+    {
+      "region": "EU",
+      "raiderIoSeasonSlug": "season-sl-4",
+      "blizzardSeasonId": 8,
+      "name": "SL Season 4",
+      "startsAt": "2022-08-02T15:00:00Z",
+      "endsAt": "2022-10-25T15:00:00Z",
+      "closed": true,
+      "cutoffs": {
+        "p999": 3120.63,
+        "p990": 2765.12,
+        "p900": 2327.24,
+        "p750": 2031.18,
+        "p600": 1411.15
+      },
+      "totalPopulation": 823375,
+      "sourceUpdatedAt": "2022-10-30T20:03:47Z",
+      "isRemappedSeason": null,
+      "source": {
+        "provider": "raiderio",
+        "schemaVersion": "0.62.5+prev-ranks-v1",
+        "collectedAt": "2026-08-10T17:15:35.053Z"
+      }
+    },
+    {
+      "region": "EU",
+      "raiderIoSeasonSlug": "season-tww-1",
+      "blizzardSeasonId": 13,
+      "name": "TWW Season 1",
+      "startsAt": "2024-09-17T15:00:00Z",
+      "endsAt": "2025-02-25T15:00:00Z",
+      "closed": true,
+      "cutoffs": {
+        "p999": 3484.38,
+        "p990": 3116.14,
+        "p900": 2706.42,
+        "p750": 2478.34,
+        "p600": 2094.09
+      },
+      "totalPopulation": 1788028,
+      "sourceUpdatedAt": "Thu Feb 27 2025 18:20:28 GMT+0000 (Coordinated Universal Time)",
+      "isRemappedSeason": null,
+      "source": {
+        "provider": "raiderio",
+        "schemaVersion": "0.62.5+prev-ranks-v1",
+        "collectedAt": "2026-08-10T17:15:35.053Z"
+      }
+    },
+    {
+      "region": "EU",
+      "raiderIoSeasonSlug": "season-tww-2",
+      "blizzardSeasonId": 14,
+      "name": "TWW Season 2",
+      "startsAt": "2025-03-04T15:00:00Z",
+      "endsAt": "2025-08-12T15:00:00Z",
+      "closed": true,
+      "cutoffs": {
+        "p999": 3822.26,
+        "p990": 3485.14,
+        "p900": 3055.06,
+        "p750": 2763.11,
+        "p600": 2461.14
+      },
+      "totalPopulation": 1438621,
+      "sourceUpdatedAt": "Mon Jan 19 2026 22:41:01 GMT+0000 (Coordinated Universal Time)",
+      "isRemappedSeason": null,
+      "source": {
+        "provider": "raiderio",
+        "schemaVersion": "0.62.5+prev-ranks-v1",
+        "collectedAt": "2026-08-10T17:15:35.053Z"
+      }
+    },
+    {
+      "region": "EU",
+      "raiderIoSeasonSlug": "season-tww-3",
+      "blizzardSeasonId": 15,
+      "name": "TWW Season 3 • With Pre Patch",
+      "startsAt": "2025-08-12T15:00:00Z",
+      "endsAt": "2026-03-02T22:00:00Z",
+      "closed": true,
+      "cutoffs": {
+        "p999": 3946.97,
+        "p990": 3602.13,
+        "p900": 3114.82,
+        "p750": 2876.44,
+        "p600": 2558.75
+      },
+      "totalPopulation": 1303679,
+      "sourceUpdatedAt": "Wed Jan 28 2026 19:41:04 GMT+0000 (Coordinated Universal Time)",
+      "isRemappedSeason": null,
+      "source": {
+        "provider": "raiderio",
+        "schemaVersion": "0.62.5+prev-ranks-v1",
+        "collectedAt": "2026-08-10T17:15:35.053Z"
+      }
+    },
+    {
+      "region": "KR",
+      "raiderIoSeasonSlug": "season-df-1",
+      "blizzardSeasonId": 9,
+      "name": "DF Season 1",
+      "startsAt": "2022-11-28T23:00:00Z",
+      "endsAt": "2023-05-09T15:00:00Z",
+      "closed": true,
+      "cutoffs": {
+        "p999": 3406.36,
+        "p990": 3323.45,
+        "p900": 2851.3,
+        "p750": 2662.22,
+        "p600": 2431.37
+      },
+      "totalPopulation": 7898,
+      "sourceUpdatedAt": "Tue May 02 2023 21:39:47 GMT+0000 (Coordinated Universal Time)",
+      "isRemappedSeason": null,
+      "source": {
+        "provider": "raiderio",
+        "schemaVersion": "0.62.5+prev-ranks-v1",
+        "collectedAt": "2026-08-10T17:15:35.053Z"
+      }
+    },
+    {
+      "region": "KR",
+      "raiderIoSeasonSlug": "season-df-2",
+      "blizzardSeasonId": 10,
+      "name": "DF Season 2",
+      "startsAt": "2023-05-09T15:00:00Z",
+      "endsAt": "2023-11-14T15:00:00Z",
+      "closed": true,
+      "cutoffs": {
+        "p999": 3314.66,
+        "p990": 2758.39,
+        "p900": 1627.27,
+        "p750": 957.036,
+        "p600": 563.829
+      },
+      "totalPopulation": 35995,
+      "sourceUpdatedAt": "Tue Apr 16 2024 12:44:28 GMT+0000 (Coordinated Universal Time)",
+      "isRemappedSeason": null,
+      "source": {
+        "provider": "raiderio",
+        "schemaVersion": "0.62.5+prev-ranks-v1",
+        "collectedAt": "2026-08-10T17:15:35.053Z"
+      }
+    },
+    {
+      "region": "KR",
+      "raiderIoSeasonSlug": "season-df-3",
+      "blizzardSeasonId": 11,
+      "name": "DF Season 3",
+      "startsAt": "2023-11-14T15:00:00Z",
+      "endsAt": "2024-04-23T15:00:00Z",
+      "closed": true,
+      "cutoffs": {
+        "p999": 3756.76,
+        "p990": 3414.08,
+        "p900": 2933.65,
+        "p750": 2726.74,
+        "p600": 2414.24
+      },
+      "totalPopulation": 138619,
+      "sourceUpdatedAt": "Thu Apr 25 2024 02:42:07 GMT+0000 (Coordinated Universal Time)",
+      "isRemappedSeason": null,
+      "source": {
+        "provider": "raiderio",
+        "schemaVersion": "0.62.5+prev-ranks-v1",
+        "collectedAt": "2026-08-10T17:15:35.053Z"
+      }
+    },
+    {
+      "region": "KR",
+      "raiderIoSeasonSlug": "season-df-4",
+      "blizzardSeasonId": 12,
+      "name": "DF Season 4 • With Pre Patch",
+      "startsAt": "2024-04-23T15:00:00Z",
+      "endsAt": "2024-08-26T22:00:00Z",
+      "closed": true,
+      "cutoffs": {
+        "p999": 3758.94,
+        "p990": 3455.79,
+        "p900": 2854.95,
+        "p750": 2503.795,
+        "p600": 2065.39
+      },
+      "totalPopulation": 102740,
+      "sourceUpdatedAt": "Tue Sep 10 2024 08:44:29 GMT+0000 (Coordinated Universal Time)",
+      "isRemappedSeason": null,
+      "source": {
+        "provider": "raiderio",
+        "schemaVersion": "0.62.5+prev-ranks-v1",
+        "collectedAt": "2026-08-10T17:15:35.053Z"
+      }
+    },
+    {
+      "region": "KR",
+      "raiderIoSeasonSlug": "season-sl-3",
+      "blizzardSeasonId": 7,
+      "name": "SL Season 3",
+      "startsAt": "2022-03-01T15:00:00Z",
+      "endsAt": "2022-08-02T15:00:00Z",
+      "closed": true,
+      "cutoffs": {
+        "p999": 3786.65,
+        "p990": 3439.58,
+        "p900": 3042.7,
+        "p750": 2697.12,
+        "p600": 2366.86
+      },
+      "totalPopulation": 116162,
+      "sourceUpdatedAt": "2022-10-26T17:30:16Z",
+      "isRemappedSeason": null,
+      "source": {
+        "provider": "raiderio",
+        "schemaVersion": "0.62.5+prev-ranks-v1",
+        "collectedAt": "2026-08-10T17:15:35.053Z"
+      }
+    },
+    {
+      "region": "KR",
+      "raiderIoSeasonSlug": "season-sl-4",
+      "blizzardSeasonId": 8,
+      "name": "SL Season 4",
+      "startsAt": "2022-08-02T15:00:00Z",
+      "endsAt": "2022-10-25T15:00:00Z",
+      "closed": true,
+      "cutoffs": {
+        "p999": 3159.23,
+        "p990": 2837.28,
+        "p900": 2432.74,
+        "p750": 2165.5,
+        "p600": 1936.33
+      },
+      "totalPopulation": 77236,
+      "sourceUpdatedAt": "2022-10-30T20:03:47Z",
+      "isRemappedSeason": null,
+      "source": {
+        "provider": "raiderio",
+        "schemaVersion": "0.62.5+prev-ranks-v1",
+        "collectedAt": "2026-08-10T17:15:35.053Z"
+      }
+    },
+    {
+      "region": "KR",
+      "raiderIoSeasonSlug": "season-tww-1",
+      "blizzardSeasonId": 13,
+      "name": "TWW Season 1",
+      "startsAt": "2024-09-17T15:00:00Z",
+      "endsAt": "2025-02-25T15:00:00Z",
+      "closed": true,
+      "cutoffs": {
+        "p999": 3492.61,
+        "p990": 3135.13,
+        "p900": 2713.02,
+        "p750": 2596.54,
+        "p600": 2294.52
+      },
+      "totalPopulation": 198626,
+      "sourceUpdatedAt": "Thu Feb 27 2025 18:20:28 GMT+0000 (Coordinated Universal Time)",
+      "isRemappedSeason": null,
+      "source": {
+        "provider": "raiderio",
+        "schemaVersion": "0.62.5+prev-ranks-v1",
+        "collectedAt": "2026-08-10T17:15:35.053Z"
+      }
+    },
+    {
+      "region": "KR",
+      "raiderIoSeasonSlug": "season-tww-2",
+      "blizzardSeasonId": 14,
+      "name": "TWW Season 2",
+      "startsAt": "2025-03-04T15:00:00Z",
+      "endsAt": "2025-08-12T15:00:00Z",
+      "closed": true,
+      "cutoffs": {
+        "p999": 3809.35,
+        "p990": 3494,
+        "p900": 3073.48,
+        "p750": 2972.115,
+        "p600": 2650.72
+      },
+      "totalPopulation": 134612,
+      "sourceUpdatedAt": "Mon Jan 19 2026 22:41:01 GMT+0000 (Coordinated Universal Time)",
+      "isRemappedSeason": null,
+      "source": {
+        "provider": "raiderio",
+        "schemaVersion": "0.62.5+prev-ranks-v1",
+        "collectedAt": "2026-08-10T17:15:35.053Z"
+      }
+    },
+    {
+      "region": "KR",
+      "raiderIoSeasonSlug": "season-tww-3",
+      "blizzardSeasonId": 15,
+      "name": "TWW Season 3 • With Pre Patch",
+      "startsAt": "2025-08-12T15:00:00Z",
+      "endsAt": "2026-03-02T22:00:00Z",
+      "closed": true,
+      "cutoffs": {
+        "p999": 3963.38,
+        "p990": 3684.27,
+        "p900": 3162.24,
+        "p750": 3008.11,
+        "p600": 2786.46
+      },
+      "totalPopulation": 126371,
+      "sourceUpdatedAt": "Wed Jan 28 2026 19:41:04 GMT+0000 (Coordinated Universal Time)",
+      "isRemappedSeason": null,
+      "source": {
+        "provider": "raiderio",
+        "schemaVersion": "0.62.5+prev-ranks-v1",
+        "collectedAt": "2026-08-10T17:15:35.053Z"
+      }
+    },
+    {
+      "region": "TW",
+      "raiderIoSeasonSlug": "season-df-1",
+      "blizzardSeasonId": 9,
+      "name": "DF Season 1",
+      "startsAt": "2022-11-28T23:00:00Z",
+      "endsAt": "2023-05-09T15:00:00Z",
+      "closed": true,
+      "cutoffs": {
+        "p999": 3466.47,
+        "p990": 3229.7,
+        "p900": 2880.98,
+        "p750": 2706.84,
+        "p600": 2504.02
+      },
+      "totalPopulation": 22112,
+      "sourceUpdatedAt": "Tue May 02 2023 21:39:47 GMT+0000 (Coordinated Universal Time)",
+      "isRemappedSeason": null,
+      "source": {
+        "provider": "raiderio",
+        "schemaVersion": "0.62.5+prev-ranks-v1",
+        "collectedAt": "2026-08-10T17:15:35.053Z"
+      }
+    },
+    {
+      "region": "TW",
+      "raiderIoSeasonSlug": "season-df-2",
+      "blizzardSeasonId": 10,
+      "name": "DF Season 2",
+      "startsAt": "2023-05-09T15:00:00Z",
+      "endsAt": "2023-11-14T15:00:00Z",
+      "closed": true,
+      "cutoffs": {
+        "p999": 3391.37,
+        "p990": 2810.7,
+        "p900": 1777.86,
+        "p750": 1101.15,
+        "p600": 710.476
+      },
+      "totalPopulation": 97769,
+      "sourceUpdatedAt": "Tue Apr 16 2024 12:44:28 GMT+0000 (Coordinated Universal Time)",
+      "isRemappedSeason": null,
+      "source": {
+        "provider": "raiderio",
+        "schemaVersion": "0.62.5+prev-ranks-v1",
+        "collectedAt": "2026-08-10T17:15:35.053Z"
+      }
+    },
+    {
+      "region": "TW",
+      "raiderIoSeasonSlug": "season-df-3",
+      "blizzardSeasonId": 11,
+      "name": "DF Season 3",
+      "startsAt": "2023-11-14T15:00:00Z",
+      "endsAt": "2024-04-23T15:00:00Z",
+      "closed": true,
+      "cutoffs": {
+        "p999": 3781.35,
+        "p990": 3471.7,
+        "p900": 3051.58,
+        "p750": 2788.04,
+        "p600": 2545.59
+      },
+      "totalPopulation": 501748,
+      "sourceUpdatedAt": "Thu Apr 25 2024 02:42:07 GMT+0000 (Coordinated Universal Time)",
+      "isRemappedSeason": null,
+      "source": {
+        "provider": "raiderio",
+        "schemaVersion": "0.62.5+prev-ranks-v1",
+        "collectedAt": "2026-08-10T17:15:35.053Z"
+      }
+    },
+    {
+      "region": "TW",
+      "raiderIoSeasonSlug": "season-df-4",
+      "blizzardSeasonId": 12,
+      "name": "DF Season 4 • With Pre Patch",
+      "startsAt": "2024-04-23T15:00:00Z",
+      "endsAt": "2024-08-26T22:00:00Z",
+      "closed": true,
+      "cutoffs": {
+        "p999": 3735.3,
+        "p990": 3446.93,
+        "p900": 3008.55,
+        "p750": 2698.91,
+        "p600": 2349.69
+      },
+      "totalPopulation": 230886,
+      "sourceUpdatedAt": "Tue Sep 10 2024 08:44:29 GMT+0000 (Coordinated Universal Time)",
+      "isRemappedSeason": null,
+      "source": {
+        "provider": "raiderio",
+        "schemaVersion": "0.62.5+prev-ranks-v1",
+        "collectedAt": "2026-08-10T17:15:35.053Z"
+      }
+    },
+    {
+      "region": "TW",
+      "raiderIoSeasonSlug": "season-sl-3",
+      "blizzardSeasonId": 7,
+      "name": "SL Season 3",
+      "startsAt": "2022-03-01T15:00:00Z",
+      "endsAt": "2022-08-02T15:00:00Z",
+      "closed": true,
+      "cutoffs": {
+        "p999": 3824.76,
+        "p990": 3464.26,
+        "p900": 3065.19,
+        "p750": 2758.995,
+        "p600": 2490.62
+      },
+      "totalPopulation": 51236,
+      "sourceUpdatedAt": "2022-10-26T17:30:16Z",
+      "isRemappedSeason": null,
+      "source": {
+        "provider": "raiderio",
+        "schemaVersion": "0.62.5+prev-ranks-v1",
+        "collectedAt": "2026-08-10T17:15:35.053Z"
+      }
+    },
+    {
+      "region": "TW",
+      "raiderIoSeasonSlug": "season-sl-4",
+      "blizzardSeasonId": 8,
+      "name": "SL Season 4",
+      "startsAt": "2022-08-02T15:00:00Z",
+      "endsAt": "2022-10-25T15:00:00Z",
+      "closed": true,
+      "cutoffs": {
+        "p999": 3251.73,
+        "p990": 2881.98,
+        "p900": 2474.42,
+        "p750": 2221.59,
+        "p600": 2029.85
+      },
+      "totalPopulation": 34658,
+      "sourceUpdatedAt": "2022-10-30T20:03:47Z",
+      "isRemappedSeason": null,
+      "source": {
+        "provider": "raiderio",
+        "schemaVersion": "0.62.5+prev-ranks-v1",
+        "collectedAt": "2026-08-10T17:15:35.053Z"
+      }
+    },
+    {
+      "region": "TW",
+      "raiderIoSeasonSlug": "season-tww-1",
+      "blizzardSeasonId": 13,
+      "name": "TWW Season 1",
+      "startsAt": "2024-09-17T15:00:00Z",
+      "endsAt": "2025-02-25T15:00:00Z",
+      "closed": true,
+      "cutoffs": {
+        "p999": 3511.02,
+        "p990": 3183.28,
+        "p900": 2752.425,
+        "p750": 2626.7650000000003,
+        "p600": 2392.99
+      },
+      "totalPopulation": 60420,
+      "sourceUpdatedAt": "Thu Feb 27 2025 18:20:28 GMT+0000 (Coordinated Universal Time)",
+      "isRemappedSeason": null,
+      "source": {
+        "provider": "raiderio",
+        "schemaVersion": "0.62.5+prev-ranks-v1",
+        "collectedAt": "2026-08-10T17:15:35.053Z"
+      }
+    },
+    {
+      "region": "TW",
+      "raiderIoSeasonSlug": "season-tww-2",
+      "blizzardSeasonId": 14,
+      "name": "TWW Season 2",
+      "startsAt": "2025-03-04T15:00:00Z",
+      "endsAt": "2025-08-12T15:00:00Z",
+      "closed": true,
+      "cutoffs": {
+        "p999": 3841.71,
+        "p990": 3550.99,
+        "p900": 3122.17,
+        "p750": 2997.865,
+        "p600": 2682.97
+      },
+      "totalPopulation": 50536,
+      "sourceUpdatedAt": "Mon Jan 19 2026 22:41:01 GMT+0000 (Coordinated Universal Time)",
+      "isRemappedSeason": null,
+      "source": {
+        "provider": "raiderio",
+        "schemaVersion": "0.62.5+prev-ranks-v1",
+        "collectedAt": "2026-08-10T17:15:35.053Z"
+      }
+    },
+    {
+      "region": "TW",
+      "raiderIoSeasonSlug": "season-tww-3",
+      "blizzardSeasonId": 15,
+      "name": "TWW Season 3 • With Pre Patch",
+      "startsAt": "2025-08-12T15:00:00Z",
+      "endsAt": "2026-03-02T22:00:00Z",
+      "closed": true,
+      "cutoffs": {
+        "p999": 3965.58,
+        "p990": 3690.79,
+        "p900": 3224.38,
+        "p750": 3030.16,
+        "p600": 2825.73
+      },
+      "totalPopulation": 44476,
+      "sourceUpdatedAt": "Wed Jan 28 2026 19:41:04 GMT+0000 (Coordinated Universal Time)",
+      "isRemappedSeason": null,
+      "source": {
+        "provider": "raiderio",
+        "schemaVersion": "0.62.5+prev-ranks-v1",
+        "collectedAt": "2026-08-10T17:15:35.053Z"
+      }
+    },
+    {
+      "region": "US",
+      "raiderIoSeasonSlug": "season-df-1",
+      "blizzardSeasonId": 9,
+      "name": "DF Season 1",
+      "startsAt": "2022-11-28T23:00:00Z",
+      "endsAt": "2023-05-09T15:00:00Z",
+      "closed": true,
+      "cutoffs": {
+        "p999": 3378.85,
+        "p990": 3083.75,
+        "p900": 2722.84,
+        "p750": 2434.615,
+        "p600": 1990.45
+      },
+      "totalPopulation": 45248,
+      "sourceUpdatedAt": "Tue May 02 2023 21:39:47 GMT+0000 (Coordinated Universal Time)",
+      "isRemappedSeason": null,
+      "source": {
+        "provider": "raiderio",
+        "schemaVersion": "0.62.5+prev-ranks-v1",
+        "collectedAt": "2026-08-10T17:15:35.053Z"
+      }
+    },
+    {
+      "region": "US",
+      "raiderIoSeasonSlug": "season-df-2",
+      "blizzardSeasonId": 10,
+      "name": "DF Season 2",
+      "startsAt": "2023-05-09T15:00:00Z",
+      "endsAt": "2023-11-14T15:00:00Z",
+      "closed": true,
+      "cutoffs": {
+        "p999": 3225.12,
+        "p990": 2729.99,
+        "p900": 1568.99,
+        "p750": 904.151,
+        "p600": 543.281
+      },
+      "totalPopulation": 247134,
+      "sourceUpdatedAt": "Tue Apr 16 2024 12:44:28 GMT+0000 (Coordinated Universal Time)",
+      "isRemappedSeason": null,
+      "source": {
+        "provider": "raiderio",
+        "schemaVersion": "0.62.5+prev-ranks-v1",
+        "collectedAt": "2026-08-10T17:15:35.053Z"
+      }
+    },
+    {
+      "region": "US",
+      "raiderIoSeasonSlug": "season-df-3",
+      "blizzardSeasonId": 11,
+      "name": "DF Season 3",
+      "startsAt": "2023-11-14T15:00:00Z",
+      "endsAt": "2024-04-23T15:00:00Z",
+      "closed": true,
+      "cutoffs": {
+        "p999": 3688.18,
+        "p990": 3287.81,
+        "p900": 2788.99,
+        "p750": 2342.535,
+        "p600": 1682.42
+      },
+      "totalPopulation": 1478128,
+      "sourceUpdatedAt": "Thu Apr 25 2024 02:42:07 GMT+0000 (Coordinated Universal Time)",
+      "isRemappedSeason": null,
+      "source": {
+        "provider": "raiderio",
+        "schemaVersion": "0.62.5+prev-ranks-v1",
+        "collectedAt": "2026-08-10T17:15:35.053Z"
+      }
+    },
+    {
+      "region": "US",
+      "raiderIoSeasonSlug": "season-df-4",
+      "blizzardSeasonId": 12,
+      "name": "DF Season 4 • With Pre Patch",
+      "startsAt": "2024-04-23T15:00:00Z",
+      "endsAt": "2024-08-26T22:00:00Z",
+      "closed": true,
+      "cutoffs": {
+        "p999": 3653.96,
+        "p990": 3282.98,
+        "p900": 2712.16,
+        "p750": 2191.64,
+        "p600": 1628
+      },
+      "totalPopulation": 769915,
+      "sourceUpdatedAt": "Tue Sep 10 2024 08:44:29 GMT+0000 (Coordinated Universal Time)",
+      "isRemappedSeason": null,
+      "source": {
+        "provider": "raiderio",
+        "schemaVersion": "0.62.5+prev-ranks-v1",
+        "collectedAt": "2026-08-10T17:15:35.053Z"
+      }
+    },
+    {
+      "region": "US",
+      "raiderIoSeasonSlug": "season-sl-3",
+      "blizzardSeasonId": 7,
+      "name": "SL Season 3",
+      "startsAt": "2022-03-01T15:00:00Z",
+      "endsAt": "2022-08-02T15:00:00Z",
+      "closed": true,
+      "cutoffs": {
+        "p999": 3679.14,
+        "p990": 3261.03,
+        "p900": 2782.82,
+        "p750": 2354.53,
+        "p600": 1496.42
+      },
+      "totalPopulation": 1020211,
+      "sourceUpdatedAt": "2022-10-26T17:30:16Z",
+      "isRemappedSeason": null,
+      "source": {
+        "provider": "raiderio",
+        "schemaVersion": "0.62.5+prev-ranks-v1",
+        "collectedAt": "2026-08-10T17:15:35.053Z"
+      }
+    },
+    {
+      "region": "US",
+      "raiderIoSeasonSlug": "season-sl-4",
+      "blizzardSeasonId": 8,
+      "name": "SL Season 4",
+      "startsAt": "2022-08-02T15:00:00Z",
+      "endsAt": "2022-10-25T15:00:00Z",
+      "closed": true,
+      "cutoffs": {
+        "p999": 3087.26,
+        "p990": 2687.73,
+        "p900": 2235.23,
+        "p750": 2004.81,
+        "p600": 1235.54
+      },
+      "totalPopulation": 660998,
+      "sourceUpdatedAt": "2022-10-30T20:03:47Z",
+      "isRemappedSeason": null,
+      "source": {
+        "provider": "raiderio",
+        "schemaVersion": "0.62.5+prev-ranks-v1",
+        "collectedAt": "2026-08-10T17:15:35.053Z"
+      }
+    },
+    {
+      "region": "US",
+      "raiderIoSeasonSlug": "season-tww-1",
+      "blizzardSeasonId": 13,
+      "name": "TWW Season 1",
+      "startsAt": "2024-09-17T15:00:00Z",
+      "endsAt": "2025-02-25T15:00:00Z",
+      "closed": true,
+      "cutoffs": {
+        "p999": 3458.76,
+        "p990": 3049.82,
+        "p900": 2655.29,
+        "p750": 2347.67,
+        "p600": 1962.75
+      },
+      "totalPopulation": 1285357,
+      "sourceUpdatedAt": "Thu Feb 27 2025 18:20:28 GMT+0000 (Coordinated Universal Time)",
+      "isRemappedSeason": null,
+      "source": {
+        "provider": "raiderio",
+        "schemaVersion": "0.62.5+prev-ranks-v1",
+        "collectedAt": "2026-08-10T17:15:35.053Z"
+      }
+    },
+    {
+      "region": "US",
+      "raiderIoSeasonSlug": "season-tww-2",
+      "blizzardSeasonId": 14,
+      "name": "TWW Season 2",
+      "startsAt": "2025-03-04T15:00:00Z",
+      "endsAt": "2025-08-12T15:00:00Z",
+      "closed": true,
+      "cutoffs": {
+        "p999": 3804.69,
+        "p990": 3425.36,
+        "p900": 3024.99,
+        "p750": 2672.59,
+        "p600": 2275.53
+      },
+      "totalPopulation": 1085428,
+      "sourceUpdatedAt": "Mon Jan 19 2026 22:41:01 GMT+0000 (Coordinated Universal Time)",
+      "isRemappedSeason": null,
+      "source": {
+        "provider": "raiderio",
+        "schemaVersion": "0.62.5+prev-ranks-v1",
+        "collectedAt": "2026-08-10T17:15:35.053Z"
+      }
+    },
+    {
+      "region": "US",
+      "raiderIoSeasonSlug": "season-tww-3",
+      "blizzardSeasonId": 15,
+      "name": "TWW Season 3 • With Pre Patch",
+      "startsAt": "2025-08-12T15:00:00Z",
+      "endsAt": "2026-03-02T22:00:00Z",
+      "closed": true,
+      "cutoffs": {
+        "p999": 3912.96,
+        "p990": 3515.23,
+        "p900": 3061.31,
+        "p750": 2759.89,
+        "p600": 2378.96
+      },
+      "totalPopulation": 947985,
+      "sourceUpdatedAt": "Wed Jan 28 2026 19:41:04 GMT+0000 (Coordinated Universal Time)",
+      "isRemappedSeason": null,
+      "source": {
+        "provider": "raiderio",
+        "schemaVersion": "0.62.5+prev-ranks-v1",
+        "collectedAt": "2026-08-10T17:15:35.053Z"
+      }
+    }
+  ]
+}

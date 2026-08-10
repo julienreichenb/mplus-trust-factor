@@ -9,6 +9,7 @@ import {
   ScoreDimension,
   MetricDirection,
 } from "@prisma/client";
+import { seedExperienceSeasonCutoffsFromCatalog } from "./seed-experience-season-cutoffs.js";
 
 function loadRootEnv(): void {
   const rootEnv = resolve(fileURLToPath(new URL(".", import.meta.url)), "../../../.env");
@@ -743,8 +744,13 @@ async function seed(): Promise<void> {
     });
   }
 
+  const cutoffsReport = await seedExperienceSeasonCutoffsFromCatalog(prisma);
+  const applied = cutoffsReport.results.filter((r) => r.status === "APPLIED").length;
+  const unchanged = cutoffsReport.results.filter((r) => r.status === "UNCHANGED").length;
+
   console.log(
-    "Seed completed (idempotent): EU/US/KR/TW regions, starter EU realms, placeholder season, model v6 ACTIVE (v1–v5 archived), metrics, red flags.",
+    "Seed completed (idempotent): EU/US/KR/TW regions, starter EU realms, placeholder season, model v6 ACTIVE (v1–v5 archived), metrics, red flags," +
+      ` experience cutoffs catalog v${cutoffsReport.catalogVersion} (${cutoffsReport.entryCount} entries; applied=${applied}, unchanged=${unchanged}).`,
   );
 }
 

@@ -17,6 +17,35 @@ export {
   type ScoringResetGuardInput,
   type ScoringResetGuardResult,
 } from "./reset/v2-test-reset-guard.js";
+export {
+  EXPERIENCE_SEASON_CUTOFFS_CATALOG_SCHEMA_VERSION,
+  EXPERIENCE_POPULATION_CATALOG_PROVENANCE_KEY,
+  EXPERIENCE_SEASON_CUTOFF_QUANTILES,
+  SUPPORTED_EXPERIENCE_CUTOFF_REGIONS,
+  compareCatalogEntryKeys,
+  emptyExperienceSeasonCutoffsCatalog,
+  experienceSeasonCutoffsCatalogPath,
+  isCanonicalRaiderIoMainSeasonSlug,
+  loadExperienceSeasonCutoffsCatalog,
+  readExperiencePopulationCatalogProvenance,
+  serializeExperienceSeasonCutoffsCatalog,
+  sortCatalogEntries,
+  validateExperienceSeasonCutoffsCatalog,
+  type CatalogValidationIssue,
+  type ExperienceCutoffRegionCode,
+  type ExperiencePopulationCatalogProvenance,
+  type ExperienceSeasonCutoffQuantile,
+  type ExperienceSeasonCutoffsCatalog,
+  type ExperienceSeasonCutoffsCatalogEntry,
+  type ExperienceSeasonCutoffsCatalogSource,
+} from "./experience-season-cutoffs-catalog.js";
+export {
+  catalogEntryToRaiderIoSeasonCutoffs,
+  seedExperienceSeasonCutoffsFromCatalog,
+  type SeedExperienceCutoffsEntryResult,
+  type SeedExperienceCutoffsPrisma,
+  type SeedExperienceCutoffsReport,
+} from "./seed-experience-season-cutoffs.js";
 
 const globalForPrisma = globalThis as unknown as {
   prisma?: PrismaClient;

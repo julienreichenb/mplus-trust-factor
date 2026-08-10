@@ -20,6 +20,7 @@
     "scoring:doctor": "tsx src/orchestration/scoring/public-cli.ts doctor",
     "scoring:smoke:character": "tsx src/orchestration/scoring/smoke-character.cli.ts",
     "scoring:diagnose:stabilization": "tsx src/orchestration/scoring/stabilization-diagnostic.cli.ts",
+    "experience:cutoffs:collect": "tsx src/orchestration/scoring/experience-cutoffs-collect.cli.ts",
     "scoring:validate:digest-backfill": "tsx src/orchestration/scoring/live-digest-backfill-validate.cli.ts",
     "canary:internal": "tsx src/orchestration/scoring/canary/cli.ts"
   },
