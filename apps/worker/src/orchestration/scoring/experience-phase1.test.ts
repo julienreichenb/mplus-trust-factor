@@ -236,7 +236,7 @@ describe("buildExperiencePhase1Result", () => {
     expect(result.experience.standingProvenance?.historicalRating).toBe(2900);
   });
 
-  it("maps confirmed no activity to score 0", async () => {
+  it("season-level CONFIRMED_NO_ACTIVITY alone does not yield global E0", async () => {
     const prisma = createPrismaFake(
       seasonRows({
         currentStartsAt: new Date("2026-01-01T00:00:00.000Z"),
@@ -253,15 +253,72 @@ describe("buildExperiencePhase1Result", () => {
       currentSeasonId: CURRENT_ID,
       regionCode: "EU",
       blizzard: {
-        getMythicKeystoneSeasonProfile: vi.fn(async () => seasonProfile(null, [])),
+        getMythicKeystoneSeasonProfile: vi.fn(),
         getCharacterAchievements: vi.fn(async () => achievementsDto([])),
       },
       ctx,
       persistProviderResult: vi.fn(async () => "p"),
       allowProviderCalls: true,
+      historicalRatingsOverride: [
+        {
+          seasonId: PREV_ID,
+          seasonSlug: "blizzard-season-14",
+          blizzardSeasonId: 14,
+          rating: null,
+          state: "CONFIRMED_NO_ACTIVITY",
+          source: "BLIZZARD",
+          fetchedAt: "2026-08-08T00:00:01.000Z",
+          providerPayloadId: null,
+        },
+      ],
     });
-    expect(result.experience.score).toBe(0);
+    // Partial no-activity rows ≠ whole-history absence → standing unavailable, not E0.
+    expect(result.diagnostics.previousReason).toBe("NO_SCOREABLE_HISTORICAL_STANDING");
+    expect(result.experience.previousStandingScore).toBeNull();
+    expect(result.experience.score).toBeNull();
+    expect(result.experience.available).toBe(false);
+    expect(result.experience.reason).toBe("HISTORICAL_EVIDENCE_UNAVAILABLE");
+  });
+
+  it("class-rank floor still scores when only CONFIRMED_NO_ACTIVITY history exists", async () => {
+    const prisma = createPrismaFake(
+      seasonRows({
+        currentStartsAt: new Date("2026-01-01T00:00:00.000Z"),
+        prevStartsAt: new Date("2025-06-01T00:00:00.000Z"),
+      }),
+    );
+    const result = await buildExperiencePhase1Result({
+      prisma: prisma as never,
+      identity,
+      characterId: "char-test",
+      currentSeasonId: CURRENT_ID,
+      regionCode: "EU",
+      blizzard: {
+        getMythicKeystoneSeasonProfile: vi.fn(),
+        getCharacterAchievements: vi.fn(async () => achievementsDto([])),
+      },
+      ctx,
+      persistProviderResult: vi.fn(async () => "p"),
+      allowProviderCalls: true,
+      previousRegionalClassRank: 7,
+      historicalRatingsOverride: [
+        {
+          seasonId: PREV_ID,
+          seasonSlug: "blizzard-season-14",
+          blizzardSeasonId: 14,
+          rating: null,
+          state: "CONFIRMED_NO_ACTIVITY",
+          source: "BLIZZARD",
+          fetchedAt: "2026-08-08T00:00:01.000Z",
+          providerPayloadId: null,
+        },
+      ],
+    });
+    expect(result.diagnostics.previousReason).toBe("NO_SCOREABLE_HISTORICAL_STANDING");
+    expect(result.experience.previousStandingScore).toBeNull();
     expect(result.experience.available).toBe(true);
+    expect(result.experience.score).toBe(97);
+    expect(result.experience.classRankFloorApplied).toBe(true);
   });
 
   it("applies elite 90 floor over weaker previous standing", async () => {

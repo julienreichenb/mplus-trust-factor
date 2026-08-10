@@ -208,7 +208,7 @@ describe("computeHistoricalStanding", () => {
     expect(result.uncontextualized[0]!.reason).toBe("REGION_MISMATCH");
   });
 
-  it("UNKNOWN absence creates no proof; CONFIRMED_NO_ACTIVITY alone is tracked", () => {
+  it("CONFIRMED_NO_ACTIVITY alone → no historical standing score (not global E0)", () => {
     const empty = computeHistoricalStanding({
       ratings: [],
       policyBySeasonId: new Map(),
@@ -231,8 +231,12 @@ describe("computeHistoricalStanding", () => {
       policyBySeasonId: new Map(),
       regionCode: "EU",
     });
+    // Diagnostic flag only — callers must not map this to CONFIRMED_NO_ACTIVITY → E0.
     expect(absent.confirmedNoActivityOnly).toBe(true);
     expect(absent.historicalStandingScore).toBeNull();
+    expect(absent.proofs).toHaveLength(0);
+    expect(absent.winning).toBeNull();
+    expect(absent.uncontextualized).toHaveLength(0);
   });
 
   it("exposes policy version on proofs", () => {

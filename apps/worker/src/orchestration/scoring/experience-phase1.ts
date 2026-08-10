@@ -303,13 +303,9 @@ function previousFromHistoricalStanding(computation: ReturnType<typeof computeHi
       winning: computation.winning,
     };
   }
-  if (computation.confirmedNoActivityOnly) {
-    return {
-      previous: { state: "CONFIRMED_NO_ACTIVITY" },
-      reason: null,
-      winning: null,
-    };
-  }
+  // Season-level CONFIRMED_NO_ACTIVITY rows are neutral facts only — they do NOT
+  // prove whole-history absence (03B: index absence = UNKNOWN). Without HAS_VALUE
+  // + COMPLETE policy proofs, historical standing is unavailable (not E=0).
   if (computation.uncontextualized.length > 0) {
     return {
       previous: {
@@ -317,6 +313,16 @@ function previousFromHistoricalStanding(computation: ReturnType<typeof computeHi
         reason: "NO_CONTEXTUALIZED_HISTORICAL_STANDING",
       },
       reason: "NO_CONTEXTUALIZED_HISTORICAL_STANDING",
+      winning: null,
+    };
+  }
+  if (computation.confirmedNoActivityOnly) {
+    return {
+      previous: {
+        state: "UNAVAILABLE",
+        reason: "NO_SCOREABLE_HISTORICAL_STANDING",
+      },
+      reason: "NO_SCOREABLE_HISTORICAL_STANDING",
       winning: null,
     };
   }

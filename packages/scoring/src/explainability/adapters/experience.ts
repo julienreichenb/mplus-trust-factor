@@ -44,22 +44,11 @@ function nativeBandPublicLabel(band: NativeCutoffBand | null | undefined): strin
 function seasonPublicLabel(result: ExperiencePhase1Result): string {
   const slug =
     result.winningHistoricalProof?.policySeasonSlug ??
+    result.winningHistoricalProof?.seasonSlug ??
     result.standingProvenance?.winningSeasonSlug ??
     result.standingProvenance?.exactHistoricalSeasonSlug;
-  if (!slug) return "a prior Mythic+ season";
-  // Prefer human-ish labels for known RIO slugs; otherwise keep slug.
-  const known: Record<string, string> = {
-    "season-tww-3": "The War Within Season 3",
-    "season-tww-2": "The War Within Season 2",
-    "season-tww-1": "The War Within Season 1",
-    "season-df-4": "Dragonflight Season 4",
-    "season-df-3": "Dragonflight Season 3",
-    "season-df-2": "Dragonflight Season 2",
-    "season-df-1": "Dragonflight Season 1",
-    "season-sl-4": "Shadowlands Season 4",
-    "season-sl-3": "Shadowlands Season 3",
-  };
-  return known[slug] ?? slug;
+  const trimmed = typeof slug === "string" ? slug.trim() : "";
+  return trimmed || "historical Mythic+ season";
 }
 
 export function adaptExperienceExplainability(

@@ -60,7 +60,8 @@ export type HistoricalStandingComputation = {
   winning: HistoricalStandingProof | null;
   proofs: HistoricalStandingProof[];
   uncontextualized: UncontextualizedHistoricalSeason[];
-  /** True when only CONFIRMED_NO_ACTIVITY rows exist (no HAS_VALUE ratings). */
+  /** True when only season-level CONFIRMED_NO_ACTIVITY rows exist (no HAS_VALUE).
+   * Diagnostic only — does NOT prove whole-history absence / global E=0. */
   confirmedNoActivityOnly: boolean;
 };
 
