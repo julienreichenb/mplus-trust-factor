@@ -162,7 +162,7 @@ export function catalogEntryFromSeasonCutoffs(input: {
     cutoffs: cutoffsFromDto(input.cutoffs),
     totalPopulation: totalPopulationFromDto(input.cutoffs),
     sourceUpdatedAt: input.cutoffs.updatedAt,
-    isRemappedSeason: input.cutoffs.isRemappedSeason,
+    isRemappedSeason: input.cutoffs.isRemappedSeason ?? null,
     source: {
       provider: "raiderio",
       schemaVersion: input.schemaVersion ?? RAIDERIO_SCHEMA_VERSION,

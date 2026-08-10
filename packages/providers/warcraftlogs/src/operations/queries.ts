@@ -130,6 +130,64 @@ export const OPERATIONS = {
 }`,
   },
 
+  /**
+   * Role-aware Performance aggregate — damage-only (DPS / Tank).
+   * One HTTP GraphQL operation.
+   */
+  CharacterZoneRankingsRoleAwareDamage: {
+    operationName: "CharacterZoneRankingsRoleAwareDamage",
+    query: `query CharacterZoneRankingsRoleAwareDamage(
+  $name: String!
+  $serverSlug: String!
+  $serverRegion: String!
+  $zoneID: Int!
+  $partition: Int
+) {
+  characterData {
+    character(name: $name, serverSlug: $serverSlug, serverRegion: $serverRegion) {
+      damage: zoneRankings(
+        zoneID: $zoneID
+        metric: points_and_damage
+        byBracket: true
+        partition: $partition
+      )
+    }
+  }
+}`,
+  },
+
+  /**
+   * Role-aware Performance aggregate — aliased healing + damage (Healer).
+   * One HTTP GraphQL operation (04A live-proven).
+   */
+  CharacterZoneRankingsRoleAwareHealer: {
+    operationName: "CharacterZoneRankingsRoleAwareHealer",
+    query: `query CharacterZoneRankingsRoleAwareHealer(
+  $name: String!
+  $serverSlug: String!
+  $serverRegion: String!
+  $zoneID: Int!
+  $partition: Int
+) {
+  characterData {
+    character(name: $name, serverSlug: $serverSlug, serverRegion: $serverRegion) {
+      healing: zoneRankings(
+        zoneID: $zoneID
+        metric: points_and_healing
+        byBracket: true
+        partition: $partition
+      )
+      damage: zoneRankings(
+        zoneID: $zoneID
+        metric: points_and_damage
+        byBracket: true
+        partition: $partition
+      )
+    }
+  }
+}`,
+  },
+
   ReportWithFightAndMasterData: {
     operationName: "ReportWithFightAndMasterData",
     query: `query ReportWithFightAndMasterData($code: String!, $fightIDs: [Int!]) {

@@ -1,11 +1,10 @@
 /**
- * Production port: ensure CharacterPerformanceAggregate for scoring.
+ * Production port: ensure CharacterPerformanceAggregate V2 for scoring.
  *
- * Live: fresh cache hit → return; else dedicated WCL points_and_damage fetch → persist.
+ * Live: fresh cache hit → return; else dedicated WCL role-aware fetch → persist.
  * Provider-free replay: load compatible persisted aggregate (expired OK); never call provider.
  *
- * Consumed by functional Performance Phase 2 (`performance-phase2-v1`) as the profile stabilizer.
- * Does not change Utility / Survival numerical formulas.
+ * DPS/Tank: one GraphQL op (damage). Healer: one aliased GraphQL op (healing+damage).
  */
 import type { PrismaClient } from "@mplus/database";
 import {
@@ -15,13 +14,11 @@ import {
 import {
   CHARACTER_PERFORMANCE_AGGREGATE_RANKING_VERSION,
   type CharacterIdentityInput,
+  type EvidenceRole,
+  type PersistedCharacterPerformanceAggregateV2,
   type RegionCode,
-} from "@mplus/contracts";
-import {
-  toPersistedPerformanceAggregate,
   toPerformanceAggregatePartitionKey,
-  type PointsAndDamagePerformanceRecord,
-} from "@mplus/provider-warcraftlogs";
+} from "@mplus/contracts";
 import type { LiveProviderPermission } from "./orchestrator.js";
 
 export interface FetchCharacterPerformanceAggregateProvider {
@@ -29,6 +26,8 @@ export interface FetchCharacterPerformanceAggregateProvider {
     character: CharacterIdentityInput;
     zoneId: number;
     partition: number | null;
+    role: "DPS" | "TANK" | "HEALER";
+    specSlug: string | null;
     ctx: {
       region: RegionCode;
       requestId: string;
@@ -38,15 +37,13 @@ export interface FetchCharacterPerformanceAggregateProvider {
       targetCharacter?: CharacterIdentityInput;
     };
   }): Promise<{
-    record: PointsAndDamagePerformanceRecord | {
-      state: PointsAndDamagePerformanceRecord["state"];
+    record: {
+      state: "OK" | "ERROR" | "SCHEMA_UNSUPPORTED" | "SKIPPED" | "EMPTY";
       adapterVersion: string;
-      metric: "points_and_damage";
+      metric: string;
+      compact: PersistedCharacterPerformanceAggregateV2 | null | unknown;
       raw: unknown;
-      dungeonAggregates: PointsAndDamagePerformanceRecord["dungeonAggregates"];
-      global: PointsAndDamagePerformanceRecord["global"];
-      diagnostics: PointsAndDamagePerformanceRecord["diagnostics"];
-      normalized?: PointsAndDamagePerformanceRecord["normalized"];
+      errorMessage?: string;
     };
     rawPayload: unknown;
     sourceRequestFingerprint: string;
@@ -59,6 +56,8 @@ export interface EnsureCharacterPerformanceAggregateInput {
   seasonId: string;
   zoneId: number;
   partition: number | null;
+  role: EvidenceRole;
+  specSlug: string | null;
   character: {
     name: string;
     realmSlug: string;
@@ -96,6 +95,13 @@ export type EnsureCharacterPerformanceAggregateResult =
       contentHash: null;
     };
 
+function toScoringRole(
+  role: EvidenceRole,
+): "DPS" | "TANK" | "HEALER" | null {
+  if (role === "DPS" || role === "TANK" || role === "HEALER") return role;
+  return null;
+}
+
 export function createEnsureCharacterPerformanceAggregate(deps: {
   prisma: PrismaClient;
 }): (
@@ -106,6 +112,21 @@ export function createEnsureCharacterPerformanceAggregate(deps: {
   return async function ensureCharacterPerformanceAggregate(
     input: EnsureCharacterPerformanceAggregateInput,
   ): Promise<EnsureCharacterPerformanceAggregateResult> {
+    const scoringRole = toScoringRole(input.role);
+    if (scoringRole == null) {
+      return {
+        state: "UNAVAILABLE",
+        data: null,
+        reason: "performance_aggregate_role_unknown",
+        cache: "INCOMPATIBLE",
+        providerCalls: 0,
+        created: false,
+        updated: false,
+        aggregateRowId: null,
+        contentHash: null,
+      };
+    }
+
     const rankingVersion = CHARACTER_PERFORMANCE_AGGREGATE_RANKING_VERSION;
     const partitionKey = toPerformanceAggregatePartitionKey(input.partition);
     const identity = {
@@ -182,6 +203,8 @@ export function createEnsureCharacterPerformanceAggregate(deps: {
       character: characterIdentity,
       zoneId: input.zoneId,
       partition: input.partition,
+      role: scoringRole,
+      specSlug: input.specSlug,
       ctx: {
         region: input.character.region,
         requestId: input.requestId ?? `perf-agg:${input.characterId}`,
@@ -192,11 +215,13 @@ export function createEnsureCharacterPerformanceAggregate(deps: {
       },
     });
 
-    if (fetched.record.state !== "OK") {
+    if (fetched.record.state !== "OK" || fetched.record.compact == null) {
       return {
         state: "UNAVAILABLE",
         data: null,
-        reason: `performance_aggregate_provider_${fetched.record.state.toLowerCase()}`,
+        reason:
+          fetched.record.errorMessage ??
+          `performance_aggregate_provider_${fetched.record.state.toLowerCase()}`,
         cache: "MISS",
         providerCalls: fetched.providerCalls,
         created: false,
@@ -206,29 +231,7 @@ export function createEnsureCharacterPerformanceAggregate(deps: {
       };
     }
 
-    let compact;
-    try {
-      compact = toPersistedPerformanceAggregate({
-        record: fetched.record as PointsAndDamagePerformanceRecord,
-        zoneId: input.zoneId,
-        partition: input.partition,
-      });
-    } catch (error) {
-      return {
-        state: "UNAVAILABLE",
-        data: null,
-        reason:
-          error instanceof Error
-            ? error.message
-            : "performance_aggregate_normalize_failed",
-        cache: "INCOMPATIBLE",
-        providerCalls: fetched.providerCalls,
-        created: false,
-        updated: false,
-        aggregateRowId: null,
-        contentHash: null,
-      };
-    }
+    const compact = fetched.record.compact as PersistedCharacterPerformanceAggregateV2;
 
     const expiresAt = new Date(
       input.now.getTime() + Math.max(1, input.ttlSeconds) * 1000,

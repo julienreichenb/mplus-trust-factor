@@ -1,5 +1,5 @@
 /**
- * Dedicated fetchCharacterPerformanceAggregate — Test A.
+ * Dedicated fetchCharacterPerformanceAggregate — role-aware V2.
  */
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LiveWarcraftLogsProvider } from "./live-provider.js";
 import { OPERATIONS } from "../operations/queries.js";
+import { CHARACTER_PERFORMANCE_AGGREGATE_METRIC } from "@mplus/contracts";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../../../../../");
 const wallidrixePadPath = resolve(
@@ -19,7 +20,7 @@ describe("LiveWarcraftLogsProvider.fetchCharacterPerformanceAggregate", () => {
     vi.restoreAllMocks();
   });
 
-  it("issues only CharacterZoneRankingsPointsAndDamage and adapts OK", async () => {
+  it("issues only CharacterZoneRankingsRoleAwareDamage and adapts OK", async () => {
     const fixture = JSON.parse(readFileSync(wallidrixePadPath, "utf8")) as {
       rawZoneRankingsPointsAndDamage: unknown;
     };
@@ -56,14 +57,14 @@ describe("LiveWarcraftLogsProvider.fetchCharacterPerformanceAggregate", () => {
         };
       }
       expect(args.operationName).toBe(
-        OPERATIONS.CharacterZoneRankingsPointsAndDamage.operationName,
+        OPERATIONS.CharacterZoneRankingsRoleAwareDamage.operationName,
       );
       return {
         response: {
           data: {
             characterData: {
               character: {
-                zoneRankings: fixture.rawZoneRankingsPointsAndDamage,
+                damage: fixture.rawZoneRankingsPointsAndDamage,
               },
             },
           },
@@ -84,6 +85,8 @@ describe("LiveWarcraftLogsProvider.fetchCharacterPerformanceAggregate", () => {
       },
       zoneId: 47,
       partition: null,
+      role: "DPS",
+      specSlug: "demonology",
       ctx: {
         region: "EU",
         now: "2026-08-06T12:00:00.000Z",
@@ -101,7 +104,7 @@ describe("LiveWarcraftLogsProvider.fetchCharacterPerformanceAggregate", () => {
     const padCalls = request.mock.calls.filter(
       (c) =>
         (c[0] as { operationName: string }).operationName ===
-        "CharacterZoneRankingsPointsAndDamage",
+        "CharacterZoneRankingsRoleAwareDamage",
     );
     expect(padCalls).toHaveLength(1);
     const called = padCalls[0]?.[0] as { operationName: string; query: string };
@@ -111,8 +114,15 @@ describe("LiveWarcraftLogsProvider.fetchCharacterPerformanceAggregate", () => {
     expect(called.query).not.toMatch(/ReportWithFight/i);
 
     expect(result.record.state).toBe("OK");
-    expect(result.rawPayload).toEqual(fixture.rawZoneRankingsPointsAndDamage);
-    expect(result.record.dungeonAggregates.length).toBeGreaterThan(0);
+    expect(result.record.metric).toBe(CHARACTER_PERFORMANCE_AGGREGATE_METRIC);
+    expect(result.rawPayload).toEqual({
+      damage: fixture.rawZoneRankingsPointsAndDamage,
+      healing: null,
+    });
+    expect(
+      (result.record.compact as { damage?: { dungeonAggregates?: unknown[] } })
+        ?.damage?.dungeonAggregates?.length ?? 0,
+    ).toBeGreaterThan(0);
     expect(result.sourceRequestFingerprint).toMatch(/^[a-f0-9]{64}$/);
   });
 });

@@ -4,17 +4,15 @@
 import { describe, expect, it, vi } from "vitest";
 import type { EvidenceCandidateMetadataV2 } from "@mplus/contracts";
 import {
+  CHARACTER_PERFORMANCE_AGGREGATE_METRIC,
   CHARACTER_PERFORMANCE_AGGREGATE_RANKING_VERSION,
-  assertPersistedCharacterPerformanceAggregateV1,
+  toPerformanceAggregateDbColumnsV2,
 } from "@mplus/contracts";
 import type { CharacterPerformanceAggregateDTO } from "@mplus/database";
 import { createMemoryOrchestrationPorts } from "./run-orchestration/memory-ports.js";
 import { scoreCharacter, SCORING_VERSION } from "./score-character.js";
 import type { EnsureCharacterPerformanceAggregateResult } from "./run-orchestration/ensure-performance-aggregate.js";
-import {
-  adaptPointsAndDamagePerformance,
-  toPersistedPerformanceAggregate,
-} from "@mplus/provider-warcraftlogs";
+import { buildRoleAwareAggregateFromRaw } from "@mplus/provider-warcraftlogs";
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -120,49 +118,30 @@ function baseScoreInput(
   };
 }
 
+function compactFromPadFixture(raw: unknown) {
+  const built = buildRoleAwareAggregateFromRaw({
+    role: "DPS",
+    // Fixture is Wallidrixe Demonology — leave unproven rather than inventing a Fire bind.
+    targetSpecSlug: null,
+    zoneId: 47,
+    partition: null,
+    damageRaw: raw,
+    healingRaw: null,
+  });
+  if (built.state !== "OK" || built.compact == null) {
+    throw new Error(`fixture adapt failed: ${built.state} ${built.errorMessage ?? ""}`);
+  }
+  return built.compact;
+}
+
 function sampleDto(
   overrides: Partial<CharacterPerformanceAggregateDTO> = {},
 ): CharacterPerformanceAggregateDTO {
-  const compact = assertPersistedCharacterPerformanceAggregateV1({
-    state: "OK",
-    adapterVersion: CHARACTER_PERFORMANCE_AGGREGATE_RANKING_VERSION,
-    metric: "points_and_damage",
-    zoneId: 47,
-    partition: null,
-    dungeonAggregates: [
-      {
-        dungeonSlug: "skyreach",
-        dungeonName: "Skyreach",
-        encounterId: 1,
-        bestParsePercentile: 90,
-        medianParsePercentile: 80,
-        loggedRunCount: 10,
-        specialization: "Fire",
-        keystoneLevel: 12,
-        bestDps: 1000,
-      },
-    ],
-    global: {
-      totalMythicPlusScore: 4000,
-      totalLoggedRuns: 10,
-      bestDpsPercentileAverage: 90,
-      medianDpsPercentileAverage: 80,
-      partition: null,
-      zoneId: 47,
-    },
-    diagnostics: {
-      adapterVersion: CHARACTER_PERFORMANCE_AGGREGATE_RANKING_VERSION,
-      metric: "points_and_damage",
-      provenance: "AGGREGATE_ZONE_RANKINGS",
-      availableDungeonCount: 1,
-      expectedDungeonCount: 8,
-      unavailableEncounters: [],
-      wclBestPerformanceAverage: 90,
-      wclMedianPerformanceAverage: 80,
-      computedBestAverage: 90,
-      computedMedianAverage: 80,
-    },
-  });
+  const fixture = JSON.parse(readFileSync(wallidrixePadPath, "utf8")) as {
+    rawZoneRankingsPointsAndDamage: unknown;
+  };
+  const compact = compactFromPadFixture(fixture.rawZoneRankingsPointsAndDamage);
+  const cols = toPerformanceAggregateDbColumnsV2(compact);
   return {
     id: "agg-1",
     characterId: CHARACTER_ID,
@@ -170,12 +149,12 @@ function sampleDto(
     zoneId: 47,
     partitionKey: "current",
     rankingVersion: CHARACTER_PERFORMANCE_AGGREGATE_RANKING_VERSION,
-    metric: "points_and_damage",
+    metric: CHARACTER_PERFORMANCE_AGGREGATE_METRIC,
     state: "OK",
-    rawPayload: { metric: "points_and_damage" },
-    dungeonAggregates: compact.dungeonAggregates,
-    globalSummary: compact.global,
-    diagnostics: compact.diagnostics,
+    rawPayload: { damage: fixture.rawZoneRankingsPointsAndDamage, healing: null },
+    dungeonAggregates: cols.dungeonAggregates,
+    globalSummary: cols.globalSummary,
+    diagnostics: cols.diagnostics,
     contentHash: "hash-1",
     sourceRequestFingerprint: "fp-1",
     fetchedAt: new Date("2026-08-06T10:00:00.000Z"),
@@ -190,18 +169,12 @@ describe("scoreCharacter performance aggregate orchestration", () => {
     const fixture = JSON.parse(readFileSync(wallidrixePadPath, "utf8")) as {
       rawZoneRankingsPointsAndDamage: unknown;
     };
-    const adapted = adaptPointsAndDamagePerformance({
-      raw: fixture.rawZoneRankingsPointsAndDamage,
-    });
-    const compact = toPersistedPerformanceAggregate({
-      record: adapted,
-      zoneId: 47,
-      partition: null,
-    });
+    const compact = compactFromPadFixture(fixture.rawZoneRankingsPointsAndDamage);
+    const cols = toPerformanceAggregateDbColumnsV2(compact);
     const dto = sampleDto({
-      dungeonAggregates: compact.dungeonAggregates,
-      globalSummary: compact.global,
-      diagnostics: compact.diagnostics,
+      dungeonAggregates: cols.dungeonAggregates,
+      globalSummary: cols.globalSummary,
+      diagnostics: cols.diagnostics,
       compact,
       contentHash: "cold-hash",
       id: "agg-cold",
@@ -253,10 +226,10 @@ describe("scoreCharacter performance aggregate orchestration", () => {
     expect(withAgg.performanceAggregate.cache).toBe("MISS");
     expect(withAgg.performanceAggregate.providerCalls).toBe(1);
     expect(withAgg.performanceAggregate.data?.dungeonAggregates[0]?.bestParsePercentile).toBe(
-      compact.dungeonAggregates[0]?.bestParsePercentile,
+      compact.damage.dungeonAggregates[0]?.bestParsePercentile,
     );
 
-    // Utility / Survival unchanged; Performance Phase 2 may blend profile when aggregate is present.
+    // Utility / Survival unchanged; Performance uses role-aware profile throughput.
     expect(withAgg.orchestration.dimensions.utility?.score).toBe(
       withoutAgg.orchestration.dimensions.utility?.score,
     );
@@ -406,18 +379,16 @@ describe("scoreCharacter performance aggregate orchestration", () => {
 
 describe("ensureCharacterPerformanceAggregate port behavior", () => {
   it("expired live row refreshes via provider (Test H)", async () => {
-    const fixture = JSON.parse(readFileSync(wallidrixePadPath, "utf8")) as {
-      rawZoneRankingsPointsAndDamage: unknown;
-    };
-    const adapted = adaptPointsAndDamagePerformance({
-      raw: fixture.rawZoneRankingsPointsAndDamage,
-    });
-    expect(adapted.state).toBe("OK");
-
     const now = new Date("2026-08-06T12:00:00.000Z");
     const providerCalls = vi.fn(async () => ({
-      record: adapted,
-      rawPayload: fixture.rawZoneRankingsPointsAndDamage,
+      record: {
+        state: "OK" as const,
+        adapterVersion: CHARACTER_PERFORMANCE_AGGREGATE_RANKING_VERSION,
+        metric: CHARACTER_PERFORMANCE_AGGREGATE_METRIC,
+        compact: sampleDto().compact,
+        raw: sampleDto().rawPayload,
+      },
+      rawPayload: sampleDto().rawPayload,
       sourceRequestFingerprint: "fp-refresh",
       providerCalls: 1,
     }));

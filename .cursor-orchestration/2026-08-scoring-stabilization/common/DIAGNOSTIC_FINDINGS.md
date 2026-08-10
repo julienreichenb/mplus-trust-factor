@@ -2,9 +2,46 @@
 
 **Date:** 2026-08-10  
 **Branch:** `fix/scoring-stabilization`  
-**Mode:** Agents 01–03C + **04A diagnostic complete**. Agent **04B not started**. Do not start Agent 05.
+**Mode:** Agents 01–03C + **04A complete** + **04B complete (code)**. **STOP for manual UI review.** Do not start Agent 05.
 
 Legend for evidence: **OBSERVED** (code/tests), **INFERRED** (strong code path), **NOT YET PROVEN** (needs live character dump).
+
+---
+
+## 0e. Agent 04B — Role-aware Performance + confidence
+
+| Field | Value |
+|-------|-------|
+| Status | **COMPLETE IN CODE** — **PENDING MANUAL UI VALIDATION** |
+| Algorithm | `performance-role-aware-v1` |
+| Aggregate | `role-aware-throughput-v2` (no migration; V1 rows not reused) |
+| Phase1 blend | **Bypassed** — profile throughput is canonical; detailed playerscore score-neutral |
+| Spec policy | Payload `observedSpecs` vs target: EXACT_MATCH / COHERENT_UNPROVEN / MISMATCH_REJECTED; query role/specName **not trusted** |
+
+### Formulas
+
+- Parse channel: `0.45*BestAvg + 0.55*MedianAvg` (equal-dungeon means)
+- DPS: `0.80*DamageParse + 0.20*Cooldown`
+- TANK: `1.00*DamageParse` (cooldown non-applicable)
+- HEALER: `0.65*HealingParse + 0.35*DamageParse` (cooldown non-applicable)
+- Channel confidence: `availableCells / (activeDungeonCount * 2)`
+- Role confidence mirrors score weights
+
+### Live (cold, parse-only probe)
+
+| Char | Role | Damage | Heal | Coverage | Perf (parse) | Conf (parse) | HTTP |
+|------|------|--------|------|----------|--------------|--------------|------|
+| Wallidrixe | DPS Demo | 78.95 | — | 16/16 | 78.95* | 1.00* | 1 |
+| Zam | Tank Guardian | 68.9 | — | 16/16 | 68.9 | 1.00 | 1 |
+| Aspha | Healer Resto | 49.37 | 60.19 | 16/16 both | 56.40 | 1.00 | 1 |
+| Lfgmasochist | DPS Ele | 55.51 | — | 12/16 | 55.51* | **0.75** | 1 |
+
+\*DPS final product score still blends cooldown when available; probe was parse-only.  
+Lfgmasochist **before:** Phase1 conf ~0.28 → final ~0.43 via `profile_only`. **After:** damage conf tracks cell coverage (0.75 for 12/16); no `profile_only`.
+
+### Provider bounds
+
+Cold DPS/TANK: 1 GraphQL. Cold HEALER: 1 aliased. Warm/replay: 0.
 
 ---
 
@@ -278,9 +315,8 @@ Shipped:
 ### Agent 04 — Performance confidence / role-aware Performance
 
 - **04A DONE** — see §0d + `AGENT_04A_PERFORMANCE_ROLE_PROBE.md`.
-- **04B (next):** role-aware score weights (DPS 80/20, Tank 100% damage, Healer 65/35 heal/damage); role-aware confidence; drop cooldown penalties for tank/healer; prefer Architecture A (profile throughput canonical); persistence via new rankingVersion dual-channel compact (**no migration**).
-- Do **not** keep detailed `playerscore` as confidence-critical.
-- Do **not** start Agent 05 from this pass.
+- **04B DONE IN CODE** — see §0e. **PENDING MANUAL UI VALIDATION** (DPS / Tank / Healer / Lfgmasochist confidence).
+- Do **not** start Agent 05 until 04B UI gate passes.
 
 ### Agent 05 — Experience policy / diagnostics
 

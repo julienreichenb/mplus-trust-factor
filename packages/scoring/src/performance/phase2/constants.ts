@@ -6,11 +6,14 @@
  */
 
 export const PERFORMANCE_PHASE2_ALGORITHM_VERSION =
-  "performance-phase2-v1" as const;
+  "performance-role-aware-v1" as const;
 
-export const PERFORMANCE_PHASE2_MODEL_LABEL = "phase2-v1" as const;
+export const PERFORMANCE_PHASE2_MODEL_LABEL = "role-aware-v1" as const;
 
-/** Phase 2 combine weights (must sum to 1 when both sources present). */
+/**
+ * Legacy DPS combine weights (damage parse ≡ former "phase1").
+ * Prefer DPS_PERFORMANCE_WEIGHTS from role-aware constants.
+ */
 export const PERFORMANCE_PHASE2_WEIGHTS = Object.freeze({
   phase1: 0.8,
   cooldown: 0.2,

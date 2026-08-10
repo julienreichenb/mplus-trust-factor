@@ -28,6 +28,12 @@ import {
   pointsAndDamageErrorRecord,
   POINTS_AND_DAMAGE_ADAPTER_VERSION,
 } from "../discovery/points-and-damage-performance.js";
+import {
+  ROLE_AWARE_THROUGHPUT_ADAPTER_VERSION,
+  buildRoleAwareAggregateFromRaw,
+  buildRoleAwarePerformanceAggregateRequestFingerprint,
+} from "../discovery/role-aware-performance-aggregate.js";
+import { CHARACTER_PERFORMANCE_AGGREGATE_METRIC } from "@mplus/contracts";
 import { parseJsonScalar } from "../probe/performance-probe-logic.js";
 import { FIXTURE_MPLUS_ZONE_ID, resolveMplusZoneConfig } from "../discovery/mplus-zone.js";
 import {
@@ -229,19 +235,30 @@ export class FixtureWarcraftLogsProvider implements WarcraftLogsProvider {
     character: CharacterIdentityInput;
     zoneId: number;
     partition: number | null;
+    role: "DPS" | "TANK" | "HEALER";
+    specSlug: string | null;
     ctx: ProviderFetchContext;
   }): Promise<{
-    record: ReturnType<typeof adaptPointsAndDamagePerformance>;
+    record: {
+      state: "OK" | "ERROR" | "SCHEMA_UNSUPPORTED" | "SKIPPED" | "EMPTY";
+      adapterVersion: string;
+      metric: string;
+      compact: unknown | null;
+      raw: unknown;
+      errorMessage?: string;
+    };
     rawPayload: unknown;
     sourceRequestFingerprint: string;
     providerCalls: number;
   }> {
-    const fingerprint = buildPerformanceAggregateRequestFingerprint({
+    const fingerprint = buildRoleAwarePerformanceAggregateRequestFingerprint({
       region: input.character.region,
       realmSlug: input.character.realmSlug,
       name: input.character.name,
       zoneId: input.zoneId,
       partition: input.partition,
+      role: input.role,
+      specSlug: input.specSlug,
     });
     const fixture = loadFixtureByIdentity(
       input.character.name,
@@ -252,26 +269,59 @@ export class FixtureWarcraftLogsProvider implements WarcraftLogsProvider {
       | undefined;
     if (!padEnvelope) {
       return {
-        record: pointsAndDamageErrorRecord(
-          "SKIPPED",
-          null,
-          "Fixture has no zoneRankingsPointsAndDamage — Performance unavailable",
-        ),
+        record: {
+          state: "SKIPPED",
+          adapterVersion: ROLE_AWARE_THROUGHPUT_ADAPTER_VERSION,
+          metric: CHARACTER_PERFORMANCE_AGGREGATE_METRIC,
+          compact: null,
+          raw: null,
+          errorMessage:
+            "Fixture has no zoneRankingsPointsAndDamage — Performance unavailable",
+        },
         rawPayload: null,
         sourceRequestFingerprint: fingerprint,
         providerCalls: 1,
       };
     }
-    const raw = parseJsonScalar(
+    const damageRaw = parseJsonScalar(
       padEnvelope.data?.characterData?.character?.zoneRankings ?? null,
     );
-    let record = adaptPointsAndDamagePerformance({ raw });
-    if (record.state === "EMPTY") {
-      record = { ...record, state: "ERROR" };
+    const healingRaw =
+      input.role === "HEALER" && damageRaw != null && typeof damageRaw === "object"
+        ? { ...(damageRaw as Record<string, unknown>), metric: "points_and_healing" }
+        : null;
+    const built = buildRoleAwareAggregateFromRaw({
+      role: input.role,
+      targetSpecSlug: input.specSlug,
+      zoneId: input.zoneId,
+      partition: input.partition,
+      damageRaw,
+      healingRaw,
+    });
+    if (built.state !== "OK" || built.compact == null) {
+      return {
+        record: {
+          state: built.state,
+          adapterVersion: ROLE_AWARE_THROUGHPUT_ADAPTER_VERSION,
+          metric: CHARACTER_PERFORMANCE_AGGREGATE_METRIC,
+          compact: null,
+          raw: built.rawPayload,
+          errorMessage: built.errorMessage,
+        },
+        rawPayload: built.rawPayload,
+        sourceRequestFingerprint: fingerprint,
+        providerCalls: 1,
+      };
     }
     return {
-      record,
-      rawPayload: raw,
+      record: {
+        state: "OK",
+        adapterVersion: ROLE_AWARE_THROUGHPUT_ADAPTER_VERSION,
+        metric: CHARACTER_PERFORMANCE_AGGREGATE_METRIC,
+        compact: built.compact,
+        raw: built.rawPayload,
+      },
+      rawPayload: built.rawPayload,
       sourceRequestFingerprint: fingerprint,
       providerCalls: 1,
     };

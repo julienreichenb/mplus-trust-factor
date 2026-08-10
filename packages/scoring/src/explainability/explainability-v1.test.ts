@@ -300,8 +300,16 @@ function performanceFixture(
     confidence: 0.72,
     confidenceBreakdown,
     phase1Score: 80,
+    damageParseScore: 80,
+    healingParseScore: null,
     offensiveCooldownDiscipline: 35,
-    weightsApplied: { phase1: 0.8, cooldown: 0.2 },
+    weightsApplied: {
+      phase1: 0.8,
+      damageParse: 0.8,
+      healingParse: 0,
+      cooldown: 0.2,
+    },
+    roleAware: {} as PerformancePhase2ComputeResult["roleAware"],
     phase1: {} as PerformancePhase2ComputeResult["phase1"],
     cooldown: {
       score: 35,
@@ -319,6 +327,8 @@ function performanceFixture(
       detailedDungeonCount: 6,
       selectedRunCount: 10,
       profileDungeonCount: 8,
+      damageDungeonCount: 8,
+      healingDungeonCount: 0,
       cooldownUsableRunCount: 4,
       evaluatedAbilityCount: 3,
     },
@@ -571,10 +581,10 @@ describe("Score Explainability V1", () => {
       const cooldown = dim.scoreStory.drivers.find(
         (d) => d.code === "performance.offensive_cooldown_discipline",
       );
-      const phase1 = dim.scoreStory.drivers.find(
-        (d) => d.code === "performance.phase1_score",
+      const damageParse = dim.scoreStory.drivers.find(
+        (d) => d.code === "performance.damage_parse",
       );
-      expect(phase1?.direction).toBe("POSITIVE");
+      expect(damageParse?.direction).toBe("POSITIVE");
       expect(cooldown?.direction).toBe("NEGATIVE");
       expect(cooldown?.value).toBe(35);
       expect(cooldown?.contribution).toBeCloseTo(0.2 * (35 - 50), 6);
@@ -954,7 +964,7 @@ describe("Score Explainability V1", () => {
           score: null,
           phase1Score: null,
           offensiveCooldownDiscipline: null,
-          weightsApplied: { phase1: 0, cooldown: 0 },
+          weightsApplied: { phase1: 0, damageParse: 0, healingParse: 0, cooldown: 0 },
           confidenceBreakdown: buildDimensionConfidenceBreakdown({
             value: 0,
             causes: ["performance_unavailable"],

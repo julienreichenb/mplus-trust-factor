@@ -341,23 +341,25 @@ export interface WarcraftLogsProvider {
     ctx: ProviderFetchContext,
   ): Promise<ProviderResult<WclCharacterSummaryDTO>>;
   /**
-   * Dedicated Character.zoneRankings points_and_damage aggregate (character/season).
+   * Dedicated Character.zoneRankings role-aware throughput aggregate (character/season).
+   * DPS/Tank: points_and_damage only. Healer: aliased points_and_healing + points_and_damage.
    * Must not pull recent reports, fight hydration, or events.
    */
   fetchCharacterPerformanceAggregate?(input: {
     character: CharacterIdentityInput;
     zoneId: number;
     partition: number | null;
+    role: "DPS" | "TANK" | "HEALER";
+    specSlug: string | null;
     ctx: ProviderFetchContext;
   }): Promise<{
     record: {
       state: "OK" | "ERROR" | "SCHEMA_UNSUPPORTED" | "SKIPPED" | "EMPTY";
       adapterVersion: string;
-      metric: "points_and_damage";
+      metric: string;
+      compact: unknown | null;
       raw: unknown;
-      dungeonAggregates: WclDungeonPerformanceAggregateDTO[];
-      global: unknown;
-      diagnostics: unknown;
+      errorMessage?: string;
     };
     rawPayload: unknown;
     sourceRequestFingerprint: string;

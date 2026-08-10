@@ -31,7 +31,6 @@ export {
 export {
   computePerformancePhase2,
   computePerformancePhase2InputFingerprint,
-  type PerformancePhase2ComputeOptions,
 } from "./compute.js";
 
 export { combinePerformancePhase2Scores } from "./combine.js";

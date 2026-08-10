@@ -24,19 +24,16 @@ import {
   computeSurvivalV2,
   computeUtilityV2,
   DigestDimensionIncompleteError,
-  performanceRunParseFactFromDigest,
   cooldownRunEvidenceFromDigest,
   survivalFactDocumentFromDigest,
   utilityRunFactSetFromDigest,
   buildDigestScoreLineage,
   resolveTunableWeights,
-  resolvePerformancePhase2CombineWeights,
-  applyTunableWeightsToPerformanceConfig,
   applyTunableWeightsToSurvivalConfig,
   applyTunableWeightsToUtilityConfig,
   type SeasonDifficultyPolicyV2,
-  type PerformanceProfileAggregateFactV2,
   type PerformancePhase2ComputeResult,
+  type PerformanceThroughputChannelFact,
 } from "@mplus/scoring";
 import {
   buildParticipantScoringDigestsFromPackage,
@@ -237,10 +234,13 @@ export interface RunOrchestrationInput {
   >[0]["acquisitionResults"];
   difficultyPolicy?: SeasonDifficultyPolicyV2 | null;
   /**
-   * Character/season points_and_damage profile fact for Performance Phase 1 stabilizer.
-   * Null when aggregate unavailable — Performance may still score from detailed parses.
+   * Role-aware throughput channels from CharacterPerformanceAggregate V2.
+   * Canonical Performance parse source (Architecture A). Null → Performance unavailable.
    */
-  profileAggregate?: PerformanceProfileAggregateFactV2 | null;
+  throughputChannels?: {
+    damage: PerformanceThroughputChannelFact;
+    healing: PerformanceThroughputChannelFact | null;
+  } | null;
   /**
    * Persisted ScoreModel.config JSON. When omitted, calculators use package defaults
    * (identical to pre-tunable-weights production behaviour).
@@ -343,15 +343,10 @@ export type DimensionUnavailableReason =
   | "survival_timing_evidence_missing";
 
 function mapPerformanceUnavailableReason(input: {
-  hasParseFacts: boolean;
-  hasProfileAggregate: boolean;
+  hasThroughputChannels: boolean;
   detail: string | null;
-  roleAdapterState?: string | null;
-  roleAdapterReason?: string | null;
 }): string {
   const detail = (input.detail ?? "").toLowerCase();
-  const roleReason = (input.roleAdapterReason ?? "").toLowerCase();
-  const roleState = (input.roleAdapterState ?? "").toUpperCase();
 
   if (
     detail.includes("catalogue") ||
@@ -360,35 +355,20 @@ function mapPerformanceUnavailableReason(input: {
   ) {
     return "performance_catalogue_incompatible";
   }
-
-  // Role/spec adapter rejection must not be mislabeled as missing profile aggregate.
   if (
-    roleState === "SPEC_UNRESOLVED" ||
-    roleReason.includes("specialization_unresolved") ||
-    detail.includes("specialization_unresolved") ||
-    detail.includes("role_adapter:specialization_unresolved")
-  ) {
-    return "performance_specialization_unresolved";
-  }
-  if (
-    roleState === "UNSUPPORTED_ROLE" ||
-    roleState === "ADAPTER_UNVERIFIED" ||
-    roleReason.length > 0 ||
-    detail.includes("role_adapter:")
+    detail.includes("role_identity_unknown") ||
+    detail.includes("specialization_unresolved")
   ) {
     return "performance_role_adapter_rejected";
   }
-
-  if (!input.hasParseFacts && input.hasProfileAggregate) {
-    return "performance_parse_missing";
-  }
-  if (input.hasParseFacts && !input.hasProfileAggregate) {
+  if (
+    detail.includes("healing_parse") ||
+    detail.includes("damage_parse") ||
+    !input.hasThroughputChannels
+  ) {
     return "performance_profile_aggregate_missing";
   }
-  if (!input.hasParseFacts) {
-    return "performance_parse_missing";
-  }
-  return detail || "performance_parse_missing";
+  return "performance_unavailable";
 }
 
 function mapUtilityUnavailableReason(detail: string | null): string {
@@ -1084,13 +1064,9 @@ export async function orchestrateScoringRuns(
     [];
   const difficultyPolicy =
     input.difficultyPolicy ?? defaultDifficultyPolicy(input.scope);
-  const usingDefaultDifficultyPolicy = input.difficultyPolicy == null;
+  void difficultyPolicy;
 
   const { weights: tunableWeights } = resolveTunableWeights(input.scoreModelConfig);
-  const performanceCombineWeights =
-    resolvePerformancePhase2CombineWeights(tunableWeights);
-  const performanceModelConfig =
-    applyTunableWeightsToPerformanceConfig(tunableWeights);
   const survivalModelConfig = applyTunableWeightsToSurvivalConfig(tunableWeights);
   const utilityModelConfig = applyTunableWeightsToUtilityConfig(tunableWeights);
 
@@ -1098,10 +1074,13 @@ export async function orchestrateScoringRuns(
   let utility: ReturnType<typeof computeUtilityV2> | null = null;
   let survival: ReturnType<typeof computeSurvivalV2> | null = null;
 
-  if (characterDigests.length > 0) {
-    try {
-      const runParseFacts = [];
-      const cooldownRuns = [];
+  // Performance: canonical profile throughput (Architecture A). Digests only feed
+  // DPS cooldown discipline; detailed playerscore parses are score-neutral.
+  try {
+    const role = manifest.role ?? input.scope.role;
+    const specSlug = manifest.specSlug ?? input.scope.specSlug;
+    const cooldownRuns = [];
+    if (role === "DPS") {
       for (const row of characterDigests) {
         cooldownRuns.push(
           cooldownRunEvidenceFromDigest({
@@ -1109,119 +1088,46 @@ export async function orchestrateScoringRuns(
             slotId: row.slotId,
           }),
         );
-        if (!isUsablePerformanceDigest(row.digest)) {
-          performanceDigestDiagnostics.push({
-            slotId: row.slotId,
-            digestArtifactId: row.digestArtifactId,
-            usable: false,
-            reason:
-              row.digest.performance.limitations.join(",") ||
-              "performance_parse_missing",
-          });
-          continue;
-        }
-        try {
-          runParseFacts.push(
-            performanceRunParseFactFromDigest(row.digest, row.slotId),
-          );
-          performanceDigestDiagnostics.push({
-            slotId: row.slotId,
-            digestArtifactId: row.digestArtifactId,
-            usable: true,
-            reason: null,
-          });
-        } catch (err) {
-          performanceDigestDiagnostics.push({
-            slotId: row.slotId,
-            digestArtifactId: row.digestArtifactId,
-            usable: false,
-            reason:
-              err instanceof DigestDimensionIncompleteError
-                ? err.message
-                : err instanceof Error
-                  ? err.message
-                  : "performance_parse_missing",
-          });
-        }
+        performanceDigestDiagnostics.push({
+          slotId: row.slotId,
+          digestArtifactId: row.digestArtifactId,
+          usable: true,
+          reason: null,
+        });
       }
+    }
 
-      if (runParseFacts.length === 0 && input.profileAggregate == null) {
-        const sampleReason =
-          performanceDigestDiagnostics.find((d) => !d.usable)?.reason ?? null;
+    if (input.throughputChannels == null) {
+      blocked.push({
+        dimension: "PERFORMANCE",
+        reason: mapPerformanceUnavailableReason({
+          hasThroughputChannels: false,
+          detail: "performance_throughput_channels_missing",
+        }),
+      });
+    } else {
+      performance = computePerformancePhase2({
+        role,
+        specSlug,
+        activeDungeonSlugs: manifest.activeDungeonSlugs,
+        damage: input.throughputChannels.damage,
+        healing: input.throughputChannels.healing,
+        cooldownRuns,
+        expectedPartition: null,
+        logFreshness: 1,
+        computedAt: input.selectedAt ?? new Date().toISOString(),
+      });
+      if (performance.score == null) {
         blocked.push({
           dimension: "PERFORMANCE",
           reason: mapPerformanceUnavailableReason({
-            hasParseFacts: false,
-            hasProfileAggregate: false,
-            detail: sampleReason,
+            hasThroughputChannels: true,
+            detail: performance.limitations.join(",") || null,
           }),
         });
-      } else {
-        performance = computePerformancePhase2(
-          {
-            phase1: {
-              manifest: {
-                contentHash: manifest.contentHash,
-                schemaVersion: manifest.schemaVersion,
-                selectorVersion: manifest.selectorVersion,
-                characterId: manifest.characterId,
-                seasonId: manifest.seasonId,
-                seasonSlug: manifest.seasonSlug,
-                // Prefer frozen manifest identity; fall back to scope when an
-                // older frozen document omitted class/spec (canary wiring gap).
-                specSlug: manifest.specSlug ?? input.scope.specSlug,
-                role: manifest.role ?? input.scope.role,
-                highKeyPolicyId: manifest.highKeyPolicyId,
-                activeDungeonSlugs: manifest.activeDungeonSlugs,
-                expectedSlotCount: manifest.expectedSlotCount,
-                selectedSlotCount: manifest.selectedSlotCount,
-                evidenceCutoffAt: manifest.evidenceCutoffAt,
-              },
-              runParseFacts,
-              profileAggregate: input.profileAggregate ?? null,
-              difficultyPolicy,
-              expectedPartition: null,
-              logFreshness: 1,
-              computedAt: input.selectedAt ?? new Date().toISOString(),
-            },
-            cooldownRuns,
-          },
-          {
-            phase1: { modelConfig: performanceModelConfig },
-            combineWeights: performanceCombineWeights,
-          },
-        );
-        if (
-          usingDefaultDifficultyPolicy &&
-          !performance.limitations.includes(
-            "difficulty_policy_orchestrator_default",
-          )
-        ) {
-          performance.limitations.push(
-            "difficulty_policy_orchestrator_default",
-          );
-        }
-        if (performance.score == null) {
-          const roleAdapter = performance.phase1?.roleAdapter;
-          blocked.push({
-            dimension: "PERFORMANCE",
-            reason: mapPerformanceUnavailableReason({
-              hasParseFacts: runParseFacts.length > 0,
-              hasProfileAggregate: input.profileAggregate != null,
-              detail: performance.limitations.join(",") || null,
-              roleAdapterState: roleAdapter?.state ?? null,
-              roleAdapterReason: roleAdapter?.reason ?? null,
-            }),
-          });
-        }
+      }
+      if (role === "DPS") {
         for (const row of characterDigests) {
-          if (
-            !performanceDigestDiagnostics.some(
-              (d) => d.slotId === row.slotId && d.usable,
-            )
-          ) {
-            continue;
-          }
           lineage.push(
             buildDigestScoreLineage({
               digest: row.digest,
@@ -1233,22 +1139,18 @@ export async function orchestrateScoringRuns(
           );
         }
       }
-    } catch (err) {
-      blocked.push({
-        dimension: "PERFORMANCE",
-        reason: mapPerformanceUnavailableReason({
-          hasParseFacts: false,
-          hasProfileAggregate: input.profileAggregate != null,
-          detail:
-            err instanceof DigestDimensionIncompleteError
-              ? err.message
-              : err instanceof Error
-                ? err.message
-                : null,
-        }),
-      });
     }
+  } catch (err) {
+    blocked.push({
+      dimension: "PERFORMANCE",
+      reason: mapPerformanceUnavailableReason({
+        hasThroughputChannels: input.throughputChannels != null,
+        detail: err instanceof Error ? err.message : null,
+      }),
+    });
+  }
 
+  if (characterDigests.length > 0) {
     try {
       const factSets = [];
       for (const row of characterDigests) {

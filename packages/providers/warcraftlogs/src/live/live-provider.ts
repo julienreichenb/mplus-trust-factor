@@ -10,7 +10,10 @@ import type {
   WclRateBudgetDecisionDTO,
   WclVisibilityState,
 } from "@mplus/contracts";
-import { ExternalApiError } from "@mplus/contracts";
+import {
+  CHARACTER_PERFORMANCE_AGGREGATE_METRIC,
+  ExternalApiError,
+} from "@mplus/contracts";
 import { computeRunFingerprint } from "@mplus/domain";
 import type { AppEnv } from "@mplus/config";
 import {
@@ -57,6 +60,11 @@ import {
   POINTS_AND_DAMAGE_ADAPTER_VERSION,
   type PointsAndDamagePerformanceRecord,
 } from "../discovery/points-and-damage-performance.js";
+import {
+  ROLE_AWARE_THROUGHPUT_ADAPTER_VERSION,
+  buildRoleAwareAggregateFromRaw,
+  buildRoleAwarePerformanceAggregateRequestFingerprint,
+} from "../discovery/role-aware-performance-aggregate.js";
 import { parseJsonScalar } from "../probe/performance-probe-logic.js";
 import {
   INCREMENTAL_HYDRATION_BATCH_SIZE,
@@ -487,27 +495,38 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
   }
 
   /**
-   * Dedicated Character.zoneRankings points_and_damage fetch.
+   * Dedicated Character.zoneRankings role-aware throughput aggregate.
+   * DPS/Tank: one points_and_damage field. Healer: aliased healing + damage in one HTTP call.
    * Does not resolve character, query recent reports, hydrate fights, or fetch events.
-   * Character/season Performance evidence — not fight-local.
    */
   async fetchCharacterPerformanceAggregate(input: {
     character: CharacterIdentityInput;
     zoneId: number;
     partition: number | null;
+    role: "DPS" | "TANK" | "HEALER";
+    specSlug: string | null;
     ctx: ProviderFetchContext;
   }): Promise<{
-    record: PointsAndDamagePerformanceRecord;
+    record: {
+      state: "OK" | "ERROR" | "SCHEMA_UNSUPPORTED" | "SKIPPED" | "EMPTY";
+      adapterVersion: string;
+      metric: string;
+      compact: unknown | null;
+      raw: unknown;
+      errorMessage?: string;
+    };
     rawPayload: unknown;
     sourceRequestFingerprint: string;
     providerCalls: number;
   }> {
-    const fingerprint = buildPerformanceAggregateRequestFingerprint({
+    const fingerprint = buildRoleAwarePerformanceAggregateRequestFingerprint({
       region: input.character.region,
       realmSlug: input.character.realmSlug,
       name: input.character.name,
       zoneId: input.zoneId,
       partition: input.partition,
+      role: input.role,
+      specSlug: input.specSlug,
     });
 
     const serverRegion = mapRegionToWcl(input.character.region);
@@ -521,15 +540,18 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
       variables.partition = input.partition;
     }
 
-    // Rate-budget gate before the points_and_damage GraphQL operation.
     const budget = await this.fetchRateLimit(input.ctx);
     if (budget.action === "STOP") {
       return {
-        record: pointsAndDamageErrorRecord(
-          "SKIPPED",
-          null,
-          "WCL rate budget STOP — points_and_damage Performance deferred",
-        ),
+        record: {
+          state: "SKIPPED",
+          adapterVersion: ROLE_AWARE_THROUGHPUT_ADAPTER_VERSION,
+          metric: CHARACTER_PERFORMANCE_AGGREGATE_METRIC,
+          compact: null,
+          raw: null,
+          errorMessage:
+            "WCL rate budget STOP — role-aware Performance aggregate deferred",
+        },
         rawPayload: null,
         sourceRequestFingerprint: fingerprint,
         providerCalls: 1,
@@ -538,7 +560,7 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
     if (shouldDeferExpensiveWork(budget)) {
       throw wclError(
         "BUDGET_EXCEEDED",
-        "WCL rate budget exceeded — deferring points_and_damage Performance fetch",
+        "WCL rate budget exceeded — deferring role-aware Performance fetch",
         {
           visibility: "RATE_LIMITED",
           utilizationPercent: budget.utilizationPercent,
@@ -546,23 +568,30 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
       );
     }
 
+    const op =
+      input.role === "HEALER"
+        ? OPERATIONS.CharacterZoneRankingsRoleAwareHealer
+        : OPERATIONS.CharacterZoneRankingsRoleAwareDamage;
+
     try {
       const perfResult = await this.client.request({
-        operationName: OPERATIONS.CharacterZoneRankingsPointsAndDamage.operationName,
-        query: OPERATIONS.CharacterZoneRankingsPointsAndDamage.query,
+        operationName: op.operationName,
+        query: op.query,
         variables,
         region: input.character.region,
       });
 
       if (perfResult.response.errors && perfResult.response.errors.length > 0) {
         const messages = perfResult.response.errors.map((e) => e.message);
-        const record = pointsAndDamageErrorRecord(
-          "ERROR",
-          null,
-          `CharacterZoneRankingsPointsAndDamage GraphQL error: ${messages.join("; ")}`,
-        );
         return {
-          record,
+          record: {
+            state: "ERROR",
+            adapterVersion: ROLE_AWARE_THROUGHPUT_ADAPTER_VERSION,
+            metric: CHARACTER_PERFORMANCE_AGGREGATE_METRIC,
+            compact: null,
+            raw: null,
+            errorMessage: `${op.operationName} GraphQL error: ${messages.join("; ")}`,
+          },
           rawPayload: null,
           sourceRequestFingerprint: fingerprint,
           providerCalls: 1,
@@ -570,13 +599,123 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
       }
 
       const data = perfResult.response.data as
+        | {
+            characterData?: {
+              character?: {
+                damage?: unknown;
+                healing?: unknown;
+              } | null;
+            };
+          }
+        | null
+        | undefined;
+      const damageRaw = parseJsonScalar(
+        data?.characterData?.character?.damage ?? null,
+      );
+      const healingRaw =
+        input.role === "HEALER"
+          ? parseJsonScalar(data?.characterData?.character?.healing ?? null)
+          : null;
+
+      const built = buildRoleAwareAggregateFromRaw({
+        role: input.role,
+        targetSpecSlug: input.specSlug,
+        zoneId: input.zoneId,
+        partition: input.partition,
+        damageRaw,
+        healingRaw,
+      });
+
+      if (built.state !== "OK" || built.compact == null) {
+        return {
+          record: {
+            state: built.state,
+            adapterVersion: ROLE_AWARE_THROUGHPUT_ADAPTER_VERSION,
+            metric: CHARACTER_PERFORMANCE_AGGREGATE_METRIC,
+            compact: null,
+            raw: built.rawPayload,
+            errorMessage: built.errorMessage,
+          },
+          rawPayload: built.rawPayload,
+          sourceRequestFingerprint: fingerprint,
+          providerCalls: 1,
+        };
+      }
+
+      return {
+        record: {
+          state: "OK",
+          adapterVersion: ROLE_AWARE_THROUGHPUT_ADAPTER_VERSION,
+          metric: CHARACTER_PERFORMANCE_AGGREGATE_METRIC,
+          compact: built.compact,
+          raw: built.rawPayload,
+        },
+        rawPayload: built.rawPayload,
+        sourceRequestFingerprint: fingerprint,
+        providerCalls: 1,
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "unknown";
+      const schemaUnsupported =
+        error instanceof ExternalApiError && error.code === "SCHEMA_UNSUPPORTED";
+      return {
+        record: {
+          state: schemaUnsupported ? "SCHEMA_UNSUPPORTED" : "ERROR",
+          adapterVersion: ROLE_AWARE_THROUGHPUT_ADAPTER_VERSION,
+          metric: CHARACTER_PERFORMANCE_AGGREGATE_METRIC,
+          compact: null,
+          raw: null,
+          errorMessage: `role-aware Performance query failed (${message})`,
+        },
+        rawPayload: null,
+        sourceRequestFingerprint: fingerprint,
+        providerCalls: 1,
+      };
+    }
+  }
+
+  /** Discovery-path pad-only fetch (not the scoring V2 aggregate). */
+  private async fetchPointsAndDamageForDiscovery(input: {
+    character: CharacterIdentityInput;
+    zoneId: number;
+    partition: number | null;
+    ctx: ProviderFetchContext;
+  }): Promise<PointsAndDamagePerformanceRecord> {
+    const serverRegion = mapRegionToWcl(input.character.region);
+    const variables: Record<string, unknown> = {
+      name: input.character.name,
+      serverSlug: input.character.realmSlug,
+      serverRegion,
+      zoneID: input.zoneId,
+    };
+    if (input.partition != null) {
+      variables.partition = input.partition;
+    }
+    try {
+      const perfResult = await this.client.request({
+        operationName: OPERATIONS.CharacterZoneRankingsPointsAndDamage.operationName,
+        query: OPERATIONS.CharacterZoneRankingsPointsAndDamage.query,
+        variables,
+        region: input.character.region,
+      });
+      if (perfResult.response.errors && perfResult.response.errors.length > 0) {
+        return pointsAndDamageErrorRecord(
+          "ERROR",
+          null,
+          `CharacterZoneRankingsPointsAndDamage GraphQL error: ${perfResult.response.errors
+            .map((e) => e.message)
+            .join("; ")}`,
+        );
+      }
+      const data = perfResult.response.data as
         | { characterData?: { character?: { zoneRankings?: unknown } | null } }
         | null
         | undefined;
-      const raw = parseJsonScalar(data?.characterData?.character?.zoneRankings ?? null);
+      const raw = parseJsonScalar(
+        data?.characterData?.character?.zoneRankings ?? null,
+      );
       let record = adaptPointsAndDamagePerformance({ raw });
       if (record.state === "EMPTY") {
-        // Never fabricate OK from empty — treat as ERROR for scoring consumers.
         record = { ...record, state: "ERROR" };
       } else if (record.state === "OK" && record.dungeonAggregates.length === 0) {
         record = pointsAndDamageErrorRecord(
@@ -585,27 +724,16 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
           "points_and_damage returned OK with zero usable dungeon aggregates",
         );
       }
-      return {
-        record,
-        rawPayload: raw,
-        sourceRequestFingerprint: fingerprint,
-        providerCalls: 1,
-      };
+      return record;
     } catch (error) {
       const message = error instanceof Error ? error.message : "unknown";
       const schemaUnsupported =
         error instanceof ExternalApiError && error.code === "SCHEMA_UNSUPPORTED";
-      const record = pointsAndDamageErrorRecord(
+      return pointsAndDamageErrorRecord(
         schemaUnsupported ? "SCHEMA_UNSUPPORTED" : "ERROR",
         null,
-        `points_and_damage query failed — PERFORMANCE unavailable (${message})`,
+        `points_and_damage query failed (${message})`,
       );
-      return {
-        record,
-        rawPayload: null,
-        sourceRequestFingerprint: fingerprint,
-        providerCalls: 1,
-      };
     }
   }
 
@@ -1033,13 +1161,13 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
         `encounterRankings aliased: dungeons=${encounterTargets.length} logBackedRanks=${rankings.length} timedCoverage=${JSON.stringify(coverage.distinctTimedPerDungeon)} full=${coverage.fullCoverage}`,
       );
 
-      const perf = await this.fetchCharacterPerformanceAggregate({
+      const perf = await this.fetchPointsAndDamageForDiscovery({
         character: identity,
         zoneId: this.zoneConfig.zoneId,
         partition: null,
         ctx,
       });
-      performance = perf.record;
+      performance = perf;
       if (performance.state === "SCHEMA_UNSUPPORTED") {
         warnings.push(
           performance.diagnostics.errorMessage ?? "points_and_damage SCHEMA_UNSUPPORTED",
@@ -1076,13 +1204,13 @@ export class LiveWarcraftLogsProvider implements WarcraftLogsProvider {
       rankings = mapZoneRankings(zonePayload, this.zoneConfig.zoneId);
       rankingCandidates = rankingsToCandidates(rankings);
 
-      const perf = await this.fetchCharacterPerformanceAggregate({
+      const perf = await this.fetchPointsAndDamageForDiscovery({
         character: identity,
         zoneId: this.zoneConfig.zoneId,
         partition: null,
         ctx,
       });
-      performance = perf.record;
+      performance = perf;
       if (performance.state === "SCHEMA_UNSUPPORTED") {
         warnings.push(
           performance.diagnostics.errorMessage ?? "points_and_damage SCHEMA_UNSUPPORTED",

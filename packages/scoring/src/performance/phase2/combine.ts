@@ -31,7 +31,7 @@ export function combinePerformancePhase2Scores(
   if (!phase1Ok) {
     return {
       score: null,
-      weightsApplied: { phase1: 0, cooldown: 0 },
+      weightsApplied: { phase1: 0, damageParse: 0, healingParse: 0, cooldown: 0 },
       state: "UNAVAILABLE",
       limitations: [
         "phase1_unavailable",
@@ -43,7 +43,7 @@ export function combinePerformancePhase2Scores(
   if (!cooldownOk) {
     return {
       score: clamp(input.phase1Score!, 0, 100),
-      weightsApplied: { phase1: 1, cooldown: 0 },
+      weightsApplied: { phase1: 1, damageParse: 1, healingParse: 0, cooldown: 0 },
       state: "PARTIAL",
       limitations: ["cooldown_evidence_unavailable"],
     };
@@ -57,6 +57,8 @@ export function combinePerformancePhase2Scores(
     score: clamp(score, 0, 100),
     weightsApplied: {
       phase1: combineWeights.phase1,
+      damageParse: combineWeights.phase1,
+      healingParse: 0,
       cooldown: combineWeights.cooldown,
     },
     state: "AVAILABLE",

@@ -11,12 +11,13 @@ import type { WorkerContainer } from "../../container.js";
 import { runAuthoritativeScoring } from "./refresh-bridge.js";
 import { createMemoryOrchestrationPorts } from "./run-orchestration/memory-ports.js";
 import {
-  adaptPointsAndDamagePerformance,
-  toPersistedPerformanceAggregate,
+  buildRoleAwareAggregateFromRaw,
 } from "@mplus/provider-warcraftlogs";
 import {
+  CHARACTER_PERFORMANCE_AGGREGATE_METRIC,
   CHARACTER_PERFORMANCE_AGGREGATE_RANKING_VERSION,
-  hashPerformanceAggregateContent,
+  hashPerformanceAggregateContentV2,
+  toPerformanceAggregateDbColumnsV2,
   toPerformanceAggregatePartitionKey,
 } from "@mplus/contracts";
 import type { CharacterPerformanceAggregateDTO } from "@mplus/database";
@@ -156,25 +157,24 @@ describe("runAuthoritativeScoring performance aggregate product boundary", () =>
     const fixture = JSON.parse(readFileSync(padPath, "utf8")) as {
       rawZoneRankingsPointsAndDamage: unknown;
     };
-    const adapted = adaptPointsAndDamagePerformance({
-      raw: fixture.rawZoneRankingsPointsAndDamage,
-    });
-    expect(adapted.state).toBe("OK");
-    const compact = toPersistedPerformanceAggregate({
-      record: adapted,
+    const built = buildRoleAwareAggregateFromRaw({
+      role: "DPS",
+      targetSpecSlug: null,
       zoneId: 47,
       partition: null,
+      damageRaw: fixture.rawZoneRankingsPointsAndDamage,
+      healingRaw: null,
     });
+    expect(built.state).toBe("OK");
+    const compact = built.compact!;
+    const cols = toPerformanceAggregateDbColumnsV2(compact);
     const fingerprint = "fp-product-boundary";
-    const contentHash = hashPerformanceAggregateContent({
+    const contentHash = hashPerformanceAggregateContentV2({
       rankingVersion: CHARACTER_PERFORMANCE_AGGREGATE_RANKING_VERSION,
-      metric: "points_and_damage",
+      metric: CHARACTER_PERFORMANCE_AGGREGATE_METRIC,
       zoneId: 47,
       partitionKey: toPerformanceAggregatePartitionKey(null),
-      rawPayload: fixture.rawZoneRankingsPointsAndDamage,
-      dungeonAggregates: compact.dungeonAggregates,
-      global: compact.global,
-      diagnostics: compact.diagnostics,
+      compact,
       sourceRequestFingerprint: fingerprint,
     });
 
@@ -188,12 +188,12 @@ describe("runAuthoritativeScoring performance aggregate product boundary", () =>
         zoneId: 47,
         partitionKey: "current",
         rankingVersion: CHARACTER_PERFORMANCE_AGGREGATE_RANKING_VERSION,
-        metric: "points_and_damage",
+        metric: CHARACTER_PERFORMANCE_AGGREGATE_METRIC,
         state: "OK",
-        rawPayload: fixture.rawZoneRankingsPointsAndDamage,
-        dungeonAggregates: compact.dungeonAggregates,
-        globalSummary: compact.global,
-        diagnostics: compact.diagnostics,
+        rawPayload: built.rawPayload,
+        dungeonAggregates: cols.dungeonAggregates,
+        globalSummary: cols.globalSummary,
+        diagnostics: cols.diagnostics,
         contentHash,
         sourceRequestFingerprint: fingerprint,
         fetchedAt: now,
@@ -201,8 +201,14 @@ describe("runAuthoritativeScoring performance aggregate product boundary", () =>
         compact,
       };
       return {
-        record: adapted,
-        rawPayload: fixture.rawZoneRankingsPointsAndDamage,
+        record: {
+          state: "OK" as const,
+          adapterVersion: CHARACTER_PERFORMANCE_AGGREGATE_RANKING_VERSION,
+          metric: CHARACTER_PERFORMANCE_AGGREGATE_METRIC,
+          compact,
+          raw: built.rawPayload,
+        },
+        rawPayload: built.rawPayload,
         sourceRequestFingerprint: fingerprint,
         providerCalls: 1,
       };
