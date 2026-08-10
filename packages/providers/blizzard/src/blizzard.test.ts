@@ -19,6 +19,7 @@ import {
   normalizeCharacterAchievements,
   normalizeMythicProfileIndex,
   pickPreferredAchievementCompletion,
+  pickSeasonProfileMythicRating,
 } from "./index.js";
 import type { FixtureBlizzardProvider } from "./fixture-provider.js";
 import { fingerprintFor } from "./normalize.js";
@@ -869,6 +870,43 @@ describe("HttpClient conditional requests", () => {
       ttlSeconds: 60,
     });
     expect(cached.cacheHit).toBe(true);
+  });
+});
+
+describe("pickSeasonProfileMythicRating (season-details field)", () => {
+  it("prefers mythic_rating (season endpoint) over current_mythic_rating", () => {
+    expect(
+      pickSeasonProfileMythicRating({
+        mythic_rating: { rating: 2845.5 },
+        current_mythic_rating: { rating: 100 },
+      }),
+    ).toEqual({ rating: 2845.5 });
+  });
+
+  it("falls back to current_mythic_rating when mythic_rating absent", () => {
+    expect(
+      pickSeasonProfileMythicRating({
+        current_mythic_rating: { rating: 900 },
+      }),
+    ).toEqual({ rating: 900 });
+  });
+
+  it("parses season-details payloads that only expose mythic_rating", () => {
+    const parsed = mythicKeystoneSeasonProfileSchema.parse({
+      season: { id: 15 },
+      best_runs: [],
+      mythic_rating: { rating: 3100.25 },
+    });
+    expect(pickSeasonProfileMythicRating(parsed)).toEqual({ rating: 3100.25 });
+    const profile = normalizeMythicProfileIndex(
+      {
+        seasons: [{ id: 15 }],
+        current_mythic_rating: pickSeasonProfileMythicRating(parsed),
+      },
+      { region: "EU", realmSlug: "archimonde", name: "Tester" },
+      15,
+    );
+    expect(profile.currentMythicRating).toBe(3100.25);
   });
 });
 

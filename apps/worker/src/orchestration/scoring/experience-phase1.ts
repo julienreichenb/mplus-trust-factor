@@ -703,6 +703,7 @@ export async function buildExperiencePhase1Result(
     populationPolicyVersion: diagnostics.populationPolicyVersion,
     matchedNativeBand: (diagnostics.matchedNativeBand as NativeCutoffBand | null) ?? null,
     thresholdsUsed: diagnostics.thresholdsUsed,
+    acquisitionReason: diagnostics.previousReason,
   };
 
   const experience: ExperiencePhase1Result = {

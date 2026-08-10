@@ -545,6 +545,19 @@ export function pickPreferredAchievementCompletion(
 }
 
 /**
+ * Prefer season-details `mythic_rating` (Blizzard season endpoint), then
+ * index-shaped `current_mythic_rating` for fixtures / legacy payloads.
+ */
+export function pickSeasonProfileMythicRating(raw: {
+  mythic_rating?: { rating?: number } | null;
+  current_mythic_rating?: { rating?: number } | null;
+}): { rating: number } | undefined {
+  const rating = raw.mythic_rating?.rating ?? raw.current_mythic_rating?.rating;
+  if (rating == null || !Number.isFinite(rating)) return undefined;
+  return { rating };
+}
+
+/**
  * Normalize a character Mythic+ profile index.
  *
  * `preferredCurrentSeasonId` must be the region-authoritative season from

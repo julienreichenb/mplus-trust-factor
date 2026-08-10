@@ -232,6 +232,8 @@ describe("buildExperiencePhase1Result", () => {
     expect(result.experience.available).toBe(true);
     expect(result.experience.score).toBe(75);
     expect(result.experience.eliteFloorApplied).toBe(false);
+    expect(result.experience.standingProvenance?.ratingSource).toBe("BLIZZARD");
+    expect(result.experience.standingProvenance?.historicalRating).toBe(2900);
   });
 
   it("maps confirmed no activity to score 0", async () => {
@@ -508,6 +510,9 @@ describe("buildExperiencePhase1Result", () => {
     expect(result.experience.available).toBe(false);
     expect(result.experience.score).toBeNull();
     expect(result.diagnostics.previousReason).toBe("NULL_RATING_WITH_RUNS");
+    expect(result.experience.standingProvenance?.acquisitionReason).toBe(
+      "NULL_RATING_WITH_RUNS",
+    );
   });
 
   it("previous-provider failure does not become zero", async () => {

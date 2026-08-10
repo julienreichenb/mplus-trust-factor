@@ -1841,12 +1841,10 @@ describe("Agent 02 F5 — ensure retries after failed bootstrap", () => {
   });
 
   /**
-   * Agent 01 diagnostic freeze — CURRENT BEHAVIOR (faulty for Midnight→TWW policy hole).
-   * NO_USABLE_POLICY is treated as ensure-complete, so ensure will not retry until
-   * the current Blizzard season id changes (or process restart + force).
-   * Desired future fix: do NOT memoize when prior LKG is absent.
+   * Agent 03 acceptance — NO_USABLE_POLICY must remain retryable (not memoized).
+   * Otherwise ensure never re-runs when population policy later becomes available.
    */
-  it("scoring-stabilization: NO_USABLE_POLICY currently counts as ensure-complete", () => {
+  it("scoring-stabilization: NO_USABLE_POLICY is not ensure-complete", () => {
     expect(
       isExperienceSeasonBindingEnsureComplete({
         region: "EU",
@@ -1863,7 +1861,7 @@ describe("Agent 02 F5 — ensure retries after failed bootstrap", () => {
         },
         reasons: ["POLICY_SYNC_INSUFFICIENT"],
       }),
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it("ensureExperienceSeasonBindingReady retries after failure then skips after success", async () => {

@@ -71,6 +71,8 @@ export interface ExperiencePhase1StandingProvenance {
   populationPolicyVersion: string | null;
   matchedNativeBand: NativeCutoffBand | null;
   thresholdsUsed: Array<{ quantile: NativeCutoffQuantile; score: number }> | null;
+  /** Specific previous-acquisition reason when Experience is unavailable. */
+  acquisitionReason?: string | null;
 }
 
 export interface ExperiencePhase1Result {

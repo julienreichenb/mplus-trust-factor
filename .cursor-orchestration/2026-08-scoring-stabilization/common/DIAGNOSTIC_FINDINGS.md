@@ -2,9 +2,35 @@
 
 **Date:** 2026-08-10  
 **Branch:** `fix/scoring-stabilization`  
-**Mode:** Agent 01 diagnostic baseline + Agent 02 Problem 1 fix (code done; UI gate pending).
+**Mode:** Agent 01 diagnostic + Agent 02 Problem 1 (UI-validated) + Agent 03 Experience acquisition (code done; UI gate pending).
 
 Legend for evidence: **OBSERVED** (code/tests), **INFERRED** (strong code path), **NOT YET PROVEN** (needs live character dump).
+
+---
+
+## 0a. Problem 4 status (Agent 03 — Experience)
+
+| Field | Value |
+|-------|-------|
+| Status | **FIXED IN CODE** — **PENDING MANUAL UI VALIDATION** |
+| Not fully accepted until | Human Experience UI gate in `LATEST_HANDOFF.md` passes |
+| Agent 04 | **Do not start** until Experience UI gate passes |
+
+### Root cause (confirmed)
+
+Blizzard mythic-keystone **season-details** returns rating under `mythic_rating`. Production only read `current_mythic_rating` (profile-index shape). Successful historical responses were normalized to `rating: null`, then discarded as contradictory when `best_runs` were present. Exact-season RIO fallback does not run on that path → no evidence row → `PREVIOUS_EVIDENCE_UNAVAILABLE`.
+
+### Exact fix
+
+1. Schema + `pickSeasonProfileMythicRating()` prefer `mythic_rating`, fallback `current_mythic_rating`.
+2. Live/fixture `getMythicKeystoneSeasonProfile` use that picker.
+3. `isExperienceSeasonBindingEnsureComplete`: `NO_USABLE_POLICY` is **not** complete (retryable).
+4. Tiny: `standingProvenance.acquisitionReason` ← `diagnostics.previousReason`.
+
+### Provider-call behavior
+
+Cold (no previous rating evidence): ≤1 Blizzard historical season profile (+ existing achievements / optional exact RIO only when already allowed).  
+Replay (immutable evidence persisted): **0** Blizzard historical + **0** RIO historical.
 
 ---
 
@@ -12,9 +38,8 @@ Legend for evidence: **OBSERVED** (code/tests), **INFERRED** (strong code path),
 
 | Field | Value |
 |-------|-------|
-| Status | **FIXED IN CODE** — **PENDING MANUAL UI VALIDATION** |
-| Not fully accepted until | Human UI gate in `LATEST_HANDOFF.md` passes |
-| Agent 03 | **Do not start** until Problem 1 UI gate passes |
+| Status | **FIXED IN CODE** — **MANUALLY UI-VALIDATED** (per chantier handoff) |
+| Agent 03 | Started after Problem 1 UI gate |
 
 ### Root cause (confirmed)
 
@@ -60,10 +85,10 @@ Per exact public resolve: **≤1** keystone acquisition when evidence missing; *
 
 | # | Problem | Root cause (verdict) | Confidence | Agent status |
 |---|---------|----------------------|------------|--------------|
-| 1 | Public search → `CHARACTER_NO_CURRENT_SEASON_MYTHIC_SCORE` | Complete shells skipped M+ re-fetch; missing evidence treated as absence; keystone failure→null; repair flag false | **OBSERVED** | **FIXED IN CODE** / **PENDING MANUAL UI** |
+| 1 | Public search → `CHARACTER_NO_CURRENT_SEASON_MYTHIC_SCORE` | Complete shells skipped M+ re-fetch; missing evidence treated as absence; keystone failure→null; repair flag false | **OBSERVED** | **FIXED** / **UI-VALIDATED** |
 | 2 | Utility identical “+8” / “contributed 8” | Explainability prints `cappedContribution`; `UTILITY_V2_DOMAIN_CONTRIBUTION_CAP = 8`. Strong dual-domain players saturate both domains (CASE A). `expectedDungeons=8` is unrelated | **OBSERVED** | Out of scope (Agent 02+) |
 | 3 | Perf confidence Warlock ≫ Warrior/Shaman | **Lfgmasochist (live):** cooldown coverage already 1.0; low Perf confidence is Phase1 `profile_only` / incomplete dungeon+detailed slots — **not** cooldown. Latent class risk remains: null `specSlug` + ABSENT loadout zeros Warrior/Shaman eligibility (fixtures). Wallidrixe: 16/16 usable, conf 100% | **OBSERVED** (Wallidrixe/Lfgmasochist live) + **OBSERVED** fixtures for null-spec risk; Warrior live **NOT YET PROVEN** | Out of scope |
-| 4 | Lfgmasochist Experience “Previous-season evidence unavailable” | **Live:** `experience: null`, reason `PREVIOUS_EVIDENCE_UNAVAILABLE`; **no** `PREVIOUS_SEASON_RATING` evidence row. Previous TWW season-15 **has COMPLETE population policy** locally — so this instance is **not** `MISSING_POPULATION_POLICY`. Still a real integrity bug: `NO_USABLE_POLICY` is treated as ensure-complete (Midnight hole risk). User fact (played TWW) conflicts with Wallidrixe-style RIO CONFIRMED_ABSENCE path; Lfgmasochist never persisted a previous rating | **OBSERVED** (Lfgmasochist score + evidence) / **OBSERVED** (ensure-complete code bug) | Out of scope |
+| 4 | Lfgmasochist Experience “Previous-season evidence unavailable” | Blizzard season-details `mythic_rating` ignored → null rating → contradictory discard → no persist. Secondary: `NO_USABLE_POLICY` was ensure-complete (retry freeze). | **OBSERVED** | **FIXED IN CODE** / **PENDING MANUAL UI** |
 
 **Production invariant:** P/S/U/E calculators and WCL acquisition were not modified.
 
@@ -155,26 +180,17 @@ confidence = 0.8×phase1Confidence + 0.2×(usable/selected)   when cooldownWeigh
 | Shaman null spec + ABSENT loadout | **0 eligible** | — |
 
 Do not “fix” Lfgmasochist by inflating cooldown weights — Phase1 profile/detailed slot coverage is the live driver.
-### 3.4 Experience Lfgmasochist
+### 3.4 Experience Lfgmasochist — Agent 03
 
-**Live OBSERVED (local DB):**
+**Live OBSERVED (Agent 01 local DB):** score null / `PREVIOUS_EVIDENCE_UNAVAILABLE`; no `PREVIOUS_SEASON_RATING` row; previous season-15 policy COMPLETE.
 
-- CharacterScore on Midnight `blizzard-season-17`: `experience: null`, `available: false`, `reason: PREVIOUS_EVIDENCE_UNAVAILABLE`, cause `previous_evidence_unavailable`.
-- **No** `PREVIOUS_SEASON_RATING` evidence row for Lfgmasochist (only elite absence on current season).
-- Canonical previous TWW `blizzard-season-15` has `providerSeasonId=season-tww-3` and population policy **COMPLETE** — so this instance is **not** explained by missing policy on the previous season.
-- Contrast Wallidrixe: previous rating evidence `CONFIRMED_ABSENCE` via `RAIDERIO_FALLBACK` → calculator E=0 available.
+**Root cause (Agent 03, OBSERVED in Blizzard types + provider mapping):** season-details field `mythic_rating` was never mapped → finite prior-season activity looked like null rating (+ runs) → not persisted; RIO fallback not eligible for that failure class.
 
-**Still a real code integrity bug (Midnight-era risk):** `isExperienceSeasonBindingEnsureComplete` returns true for `policySync.status === "NO_USABLE_POLICY"`, freezing retries when policy never lands. That path yields `MISSING_POPULATION_POLICY` when rating HAS_VALUE but policy absent — different from Lfgmasochist's current local row.
+**Secondary (FIXED):** `NO_USABLE_POLICY` no longer counts as ensure-complete.
 
-**Likely Lfgmasochist immediate causes (ranked):**
+**Diagnostics (tiny):** `standingProvenance.acquisitionReason` now carries `previousReason`.
 
-1. Previous-season rating never successfully persisted (Blizzard historical + RIO fallback both failed or skipped) → UNAVAILABLE without diagnostics (**OBSERVED** missing evidence row).
-2. Dual `isCurrent` seasons locally (`placeholder-current` + `blizzard-season-17`) may confuse bootstrap/previous selection in some paths (**OBSERVED** DB hygiene).
-3. Generic cause collapse: `diagnostics.previousReason` discarded before CharacterScore (**OBSERVED** code).
-
-User fact (played final TWW season) conflicts with a true CONFIRMED_NO_ACTIVITY outcome; current data never reached a HAS_VALUE rating for Lfgmasochist.
-
-Calculator does **not** emit E=0 with the unavailable label. Lfgmasochist column is correctly `null` locally (not 0). If UI shows “0”, that is presentation coercion.
+**Status:** FIXED IN CODE / PENDING MANUAL UI VALIDATION.
 ---
 
 ## 4. Evidence / code paths
@@ -203,7 +219,7 @@ Calculator does **not** emit E=0 with the unavailable label. Lfgmasochist column
 1. Concrete **non-owned** public-search character reproducing `CHARACTER_NO_CURRENT_SEASON_MYTHIC_SCORE` (owned Wallidrixe/Lfgmasochist do not reproduce problem 1).
 2. Utility audit explainability (`capApplied` / uncapped) — current CharacterScores predate or omit ScoreExplainabilityV1 utility drivers locally.
 3. User Warrior character: Phase1 vs cooldown breakdown (Lfgmasochist showed Phase1-dominant).
-4. Why Lfgmasochist never persisted `PREVIOUS_SEASON_RATING` while Wallidrixe got RIO absence on season-15 (provider logs / binding).
+4. ~~Why Lfgmasochist never persisted `PREVIOUS_SEASON_RATING`~~ — answered: `mythic_rating` field drop (Agent 03).
 5. Production UI: does Experience null render as “0”?
 6. Whether production Midnight previous-season policy is COMPLETE or `NO_USABLE_POLICY` (local season-15 is COMPLETE).
 
@@ -213,17 +229,20 @@ Calculator does **not** emit E=0 with the unavailable label. Lfgmasochist column
 
 ### Agent 02 — Eligibility / public search
 
-**DONE IN CODE** (2026-08-10) — see §0. **PENDING MANUAL UI VALIDATION.** Do not start Agent 03 until UI gate passes.
+**DONE** — manually UI-validated. See §0.
+
+### Agent 03 — Experience previous-season acquisition
+
+**DONE IN CODE** — see §0a. **PENDING MANUAL UI VALIDATION.** Do not start Agent 04 until UI gate passes.
 
 Shipped:
-- Typed keystone states (`HAS_SCORE` / `CONFIRMED_NO_SCORE` / `UNKNOWN`).
-- Missing season evidence repairs on normal exact resolve; reuse when known.
-- Worker gate remains provider-free; no eligibility threshold changes; no migration.
+- Blizzard season-details `mythic_rating` mapping
+- `NO_USABLE_POLICY` ensure-complete correction
+- `standingProvenance.acquisitionReason`
 
-### Agent 03 — Utility explainability (optional product)
+### Agent 03b — Utility explainability (optional product; not this chantier agent)
 
 - Prefer surfacing uncapped/capApplied in audit UI; do **not** change `UTILITY_V2_DOMAIN_CONTRIBUTION_CAP` unless product explicitly requests recalibration.
-- Do not conflate with `expectedDungeons`.
 
 ### Agent 04 — Performance confidence
 
