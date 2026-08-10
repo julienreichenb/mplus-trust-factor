@@ -1,20 +1,54 @@
-# LATEST HANDOFF — Agent 03B (Blizzard character M+ history) — corrective pass
+# LATEST HANDOFF — Agent 03C (historical Experience scoring)
 
 **Branch:** `fix/scoring-stabilization`  
-**Status:** Historical character Blizzard dataset: **FIXED IN CODE / READY FOR 03C** (after corrective simplify).
+**Status:** Historical Experience scoring **FIXED IN CODE** — awaiting **manual UI gate** (Lfgmasochist refresh).
 
-Do **not** claim the Experience UI bug is fixed — Agent 03C owns Experience calculation.  
-Do **not** start Agent 04 / 03C from this handoff alone without product gate.
+Do **not** start Agent 04 until the UI gate passes.
 
-## Corrective semantics (accepted)
+## Formula (deterministic baseline)
 
-1. **Index absence ≠ no activity.** Blizzard docs do **not** explicitly guarantee that missing a season from Profile Index `seasons[]` means zero M+ activity. Absence → **UNKNOWN** (no evidence row). `CONFIRMED_NO_ACTIVITY` only from a successful Season Details payload under existing mapping rules.
-2. **Call strategy (KISS):** every Experience acquisition with providers allowed:
-   - Profile Index ×1
-   - Season Details ×N only for **returned** closed seasons still missing terminal evidence
-3. **No magic season-id range** (`1..999`). Authority = index season ids + internal Season mapping + closed/current flags/dates.
-4. Kept: `mythic_rating` extraction, immutable evidence, no migration, exact Season map, cross-expansion, partial cache, zero RIO character calls, 03A catalog untouched.
+```
+historicalStandingScore = MAX(contextualized closed-season native-band scores)
+Experience = MAX(historicalStandingScore, classRankFloor, eliteTitleFloor)
+```
 
-## Next
+Locked bands (exact season cutoffs; no interpolation):  
+p999→100, p990→90, p900→75, p750→60, p600→45, below p600→25.
 
-**Agent 03C** — Experience calculation using Blizzard history + 03A population context.
+Unsupported seasons (rating known, no COMPLETE same-region 03A policy): retained, not scored, not treated as weakness.
+
+## Acquisition
+
+- **03B** is the sole Blizzard historical-rating path (Profile Index ×1 + missing Season Details).
+- Phase1 **no longer** calls Season Details or RIO `mythic_plus_scores_by_season` for standing.
+- Elite achievements path unchanged.
+
+## Live canary (Lfgmasochist / EU / ysondre)
+
+| Season | Blizzard id | Rating | Band | Score | Counted |
+|--------|-------------|--------|------|-------|---------|
+| DF1 | 9 | 3144.55 | p900 | 75 | yes |
+| DF2 | 10 | 3007.93 | p990 | 90 | yes |
+| DF3 | 11 | 2720.56 | p750 | 60 | yes |
+| TWW1 | 13 | 3286.23 | p990 | 90 | yes |
+| TWW2 | 14 | 3726.96 | p990 | 90 | yes |
+| TWW3 | 15 | 3862.63 | p990 | 90 | yes |
+
+**Winning:** TWW3 / 3862.63 / p990 → **historicalStandingScore = 90** → **Experience = 90** (elite 0, no class-rank).
+
+Warm: Profile Index ×1, Season Details ×0.  
+Provider-free replay: Blizzard/RIO/WCL ×0.
+
+## Remaining per-character Raider.IO
+
+- Historical standing: **zero** RIO character-rating calls.
+- Optional class-rank proof still *can* use an already-fetched RIO profile when `exactSeasonProven` (refresh-bridge currently passes `false` → class-rank off). **Not expanded in 03C.**
+
+## UI gate (human)
+
+Refresh Lfgmasochist:
+
+- Experience available (not PREVIOUS_EVIDENCE_UNAVAILABLE)
+- Explanation references historical standing / winning season
+- Score matches diagnostic (~90)
+- P/S/U unchanged

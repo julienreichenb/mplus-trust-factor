@@ -436,7 +436,29 @@ function createHarness(opts?: {
         );
         return row;
       }),
-      findMany: vi.fn(async () => [...evidenceRows.values()]),
+      findMany: vi.fn(
+        async (args?: {
+          where?: {
+            characterId?: string;
+            evidenceKind?: string;
+            compatibilityVersion?: string;
+          };
+        }) => {
+          let rows = [...evidenceRows.values()];
+          if (args?.where?.characterId) {
+            rows = rows.filter((r) => r.characterId === args.where!.characterId);
+          }
+          if (args?.where?.evidenceKind) {
+            rows = rows.filter((r) => r.evidenceKind === args.where!.evidenceKind);
+          }
+          if (args?.where?.compatibilityVersion) {
+            rows = rows.filter(
+              (r) => r.compatibilityVersion === args.where!.compatibilityVersion,
+            );
+          }
+          return rows;
+        },
+      ),
     },
     characterScore: {
       upsert: vi.fn(async ({ create }: { create: Record<string, unknown> }) => {
@@ -494,6 +516,7 @@ function createHarness(opts?: {
         async (args?: {
           where?: {
             regionId?: string;
+            id?: { in?: string[] };
             startsAt?: { lt?: Date };
             blizzardSeasonId?: { not?: null; in?: number[] };
           };
@@ -502,6 +525,10 @@ function createHarness(opts?: {
           select?: Record<string, boolean>;
         }) => {
           let rows = Object.values(seasons);
+          if (args?.where?.id?.in) {
+            const ids = new Set(args.where.id.in);
+            rows = rows.filter((r) => ids.has(r.id));
+          }
           if (args?.where?.regionId) {
             rows = rows.filter((r) => r.regionId === args.where!.regionId);
           }
@@ -838,14 +865,11 @@ describe("Agent 03 — fresh policy + remapped cutoffs + positive rating", () =>
 });
 
 describe("Agent 03 — wrong-season contamination via canonical scoring", () => {
-  it("binds true N-1 RIO slug and persists N-1 identities despite later fixture", async () => {
+  it("persists Blizzard N-1 history with bound RIO slug; never calls RIO character historical", async () => {
     const harness = createHarness({
       allowExperienceProviders: true,
       includeFixturePollution: true,
-      blizzardMode: {
-        kind: "error",
-        cause: { statusCode: 404, code: "NOT_FOUND" },
-      },
+      blizzardMode: { kind: "success", rating: PREV_RATING },
     });
 
     await runAuthoritativeScoring({
@@ -853,17 +877,7 @@ describe("Agent 03 — wrong-season contamination via canonical scoring", () => 
       container: harness.container,
     });
 
-    expect(harness.getCharacterExactSeasonHistoricalRating).toHaveBeenCalledTimes(1);
-    expect(harness.getCharacterExactSeasonHistoricalRating).toHaveBeenCalledWith(
-      { region: "EU", realmSlug: "archimonde", name: "Acceptance" },
-      PREV_RIO_SLUG,
-      expect.objectContaining({ region: "EU" }),
-    );
-    expect(harness.getCharacterExactSeasonHistoricalRating).not.toHaveBeenCalledWith(
-      expect.anything(),
-      FIXTURE_RIO_SLUG,
-      expect.anything(),
-    );
+    expect(harness.getCharacterExactSeasonHistoricalRating).not.toHaveBeenCalled();
 
     const rating = ratingEvidenceRows(harness.evidenceRows).find(
       (r) => r.seasonId === PREV_SEASON_ID,
@@ -872,7 +886,7 @@ describe("Agent 03 — wrong-season contamination via canonical scoring", () => 
     expect(rating.seasonId).toBe(PREV_SEASON_ID);
     expect(rating.blizzardSeasonId).toBe(14);
     expect(rating.raiderIoSeasonSlug).toBe(PREV_RIO_SLUG);
-    expect(rating.source).toBe("RAIDERIO_FALLBACK");
+    expect(rating.source).toBe("BLIZZARD");
 
     const exp = experienceFromSaved(harness.saved[0]!);
     expect(exp.available).toBe(true);
@@ -899,7 +913,7 @@ describe("Agent 03 — transient vs terminal Blizzard fallback (canonical)", () 
       container: harness.container,
     });
 
-    expect(harness.getMythicKeystoneSeasonProfile).toHaveBeenCalledTimes(2);
+    expect(harness.getMythicKeystoneSeasonProfile).toHaveBeenCalledTimes(1);
     expect(harness.getCharacterExactSeasonHistoricalRating).not.toHaveBeenCalled();
     expect(ratingEvidenceRows(harness.evidenceRows)).toHaveLength(0);
     // Elite achievements may still yield Experience (elite floor); rating remains unpersisted.
@@ -907,7 +921,7 @@ describe("Agent 03 — transient vs terminal Blizzard fallback (canonical)", () 
     expect(exp.previousStandingScore).toBeNull();
   });
 
-  it("terminal 404 allows exact RIO fallback after history + Phase 1 Season Details attempts", async () => {
+  it("terminal 404 does not call RIO character historical; elite floor may still score", async () => {
     const harness = createHarness({
       allowExperienceProviders: true,
       blizzardMode: {
@@ -921,14 +935,18 @@ describe("Agent 03 — transient vs terminal Blizzard fallback (canonical)", () 
       container: harness.container,
     });
 
-    // History details fail + Phase 1 details retry + RIO + achievements (+ index).
-    expect(harness.getMythicKeystoneSeasonProfile).toHaveBeenCalledTimes(2);
-    expect(harness.getCharacterExactSeasonHistoricalRating).toHaveBeenCalledTimes(1);
+    // History Season Details fails once; Phase1 must not retry Season Details or RIO historical.
+    expect(harness.getMythicKeystoneSeasonProfile).toHaveBeenCalledTimes(1);
+    expect(harness.getCharacterExactSeasonHistoricalRating).not.toHaveBeenCalled();
     expect(harness.getCharacterAchievements).toHaveBeenCalledTimes(1);
-    expect(result.providerCalls).toBe(5);
-    expect(ratingEvidenceRows(harness.evidenceRows)).toHaveLength(1);
-    expect(ratingEvidenceRows(harness.evidenceRows)[0]!.source).toBe("RAIDERIO_FALLBACK");
-    expect(harness.saved[0]!.experience).toBe(NATIVE_BAND_STANDING_SCORES.p990);
+    // index + failed details + achievements
+    expect(result.providerCalls).toBe(3);
+    expect(ratingEvidenceRows(harness.evidenceRows)).toHaveLength(0);
+    const exp = experienceFromSaved(harness.saved[0]!);
+    expect(exp.available).toBe(true);
+    expect(exp.score).toBe(90);
+    expect(exp.eliteFloorApplied).toBe(true);
+    expect(exp.previousStandingScore).toBeNull();
   });
 
   it("after transient failure, next attempt can retry Blizzard successfully", async () => {
@@ -1005,12 +1023,27 @@ describe("Agent 03 — rollover + ensure retry", () => {
 
     // Flip current: season 15 is no longer current; 16 becomes current.
     harness.seasons[CURRENT_SEASON_ID]!.isCurrent = false;
-    harness.seasons[CURRENT_SEASON_ID]!.endsAt = new Date("2026-06-30T00:00:00.000Z");
+    harness.seasons[CURRENT_SEASON_ID]!.endsAt = new Date("2025-12-15T00:00:00.000Z");
     harness.seasons[N_PLUS_1_SEASON_ID]!.isCurrent = true;
 
+    harness.getMythicKeystoneProfile.mockImplementation(async () =>
+      providerResult(
+        {
+          currentMythicRating: 4000,
+          currentSeasonId: 16,
+          seasons: [{ seasonId: 14 }, { seasonId: 15 }, { seasonId: 16 }],
+          character: {
+            region: "EU",
+            realmSlug: "archimonde",
+            name: "Acceptance",
+          },
+        },
+        "fp-mplus-index-rollover",
+      ),
+    );
     harness.getMythicKeystoneSeasonProfile.mockImplementation(
       async (_identity, seasonId: number) => {
-        // New previous is Blizzard 15.
+        // New closed historical season after rollover is Blizzard 15.
         expect(seasonId).toBe(15);
         return providerResult(
           {
@@ -1030,6 +1063,7 @@ describe("Agent 03 — rollover + ensure retry", () => {
         );
       },
     );
+    harness.getMythicKeystoneProfile.mockClear();
     harness.getMythicKeystoneSeasonProfile.mockClear();
     harness.getCharacterAchievements.mockClear();
     harness.getCharacterExactSeasonHistoricalRating.mockClear();

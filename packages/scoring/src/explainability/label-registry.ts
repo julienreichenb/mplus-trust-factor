@@ -91,22 +91,27 @@ const SCORE_DRIVER_ENTRIES: Record<string, LabelEntry> = {
   },
   "experience.previous_standing": {
     labelKey: "score.experience.previous_standing",
-    template: "Previous-season standing proof scored {value}",
+    template: "Historical standing: {nativeBandLabel} in {seasonLabel}",
+    visibility: "PUBLIC",
+  },
+  "experience.historical_standing": {
+    labelKey: "score.experience.historical_standing",
+    template: "Historical standing: {nativeBandLabel} in {seasonLabel}",
     visibility: "PUBLIC",
   },
   "experience.class_rank_floor": {
     labelKey: "score.experience.class_rank_floor",
-    template: "Class-rank floor proof scored {value}",
+    template: "Regional class rank #{classRank} provides an Experience floor of {value}",
     visibility: "PUBLIC",
   },
   "experience.elite_title_floor": {
     labelKey: "score.experience.elite_title_floor",
-    template: "Elite title floor proof scored {value}",
+    template: "Historical seasonal elite title provides an Experience floor of {value}",
     visibility: "PUBLIC",
   },
   "experience.confirmed_no_activity": {
     labelKey: "score.experience.confirmed_no_activity",
-    template: "Previous-season activity: none confirmed",
+    template: "No confirmed Mythic+ history for scored seasons",
     visibility: "PUBLIC",
   },
 };
@@ -288,7 +293,12 @@ const CONFIDENCE_CAUSE_ENTRIES: Record<string, LabelEntry> = {
   // Experience
   previous_evidence_unavailable: {
     labelKey: "confidence.experience.previous_evidence_unavailable",
-    template: "Previous-season evidence unavailable",
+    template: "Historical Experience evidence unavailable",
+    visibility: "PUBLIC",
+  },
+  historical_evidence_unavailable: {
+    labelKey: "confidence.experience.historical_evidence_unavailable",
+    template: "Historical Experience evidence unavailable",
     visibility: "PUBLIC",
   },
   elite_evidence_unavailable: {

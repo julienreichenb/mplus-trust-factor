@@ -507,18 +507,29 @@ function utilityFixture(
 function experienceFixture(
   overrides: Partial<ExperiencePhase1Result> = {},
 ): ExperiencePhase1Result {
+  const baseStanding =
+    overrides.historicalStandingScore ?? overrides.previousStandingScore ?? 85;
   return {
     score: 85,
     available: true,
     confidence: 1,
     confidenceCauses: [],
-    previousStandingScore: 85,
+    historicalStandingScore: baseStanding,
+    previousStandingScore: baseStanding,
     classRankFloor: 80,
     classRankFloorApplied: false,
     eliteFloorApplied: false,
     confirmedEliteTitleCount: 0,
     reason: null,
     ...overrides,
+    historicalStandingScore:
+      overrides.historicalStandingScore ??
+      overrides.previousStandingScore ??
+      baseStanding,
+    previousStandingScore:
+      overrides.previousStandingScore ??
+      overrides.historicalStandingScore ??
+      baseStanding,
   };
 }
 
@@ -1040,7 +1051,7 @@ describe("Score Explainability V1", () => {
       }).dimensions.EXPERIENCE;
 
       const previous = dim.scoreStory.drivers.find(
-        (d) => d.code === "experience.previous_standing",
+        (d) => d.code === "experience.historical_standing",
       );
       const classRank = dim.scoreStory.drivers.find(
         (d) => d.code === "experience.class_rank_floor",
@@ -1096,7 +1107,7 @@ describe("Score Explainability V1", () => {
       );
       expect(classRank?.params.determinedFinalScore).toBe(true);
       expect(
-        dim.scoreStory.drivers.find((d) => d.code === "experience.previous_standing")
+        dim.scoreStory.drivers.find((d) => d.code === "experience.historical_standing")
           ?.params.determinedFinalScore,
       ).toBe(false);
     });
@@ -1123,7 +1134,7 @@ describe("Score Explainability V1", () => {
         "experience.confirmed_no_activity",
       );
       expect(dim.scoreStory.drivers[0]?.direction).toBe("NEUTRAL");
-      expect(dim.scoreStory.drivers[0]?.label).toMatch(/none confirmed/i);
+      expect(dim.scoreStory.drivers[0]?.label).toMatch(/no confirmed Mythic\+ history/i);
       expect(dim.confidenceStory.value).toBe(1);
       expect(dim.confidenceStory.reasons).toEqual([]);
     });

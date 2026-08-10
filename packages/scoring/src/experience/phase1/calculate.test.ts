@@ -308,13 +308,17 @@ describe("calculateExperiencePhase1 — composition (E)", () => {
       score: null,
       available: false,
       confidence: null,
-      confidenceCauses: ["previous_evidence_unavailable"],
+      confidenceCauses: ["historical_evidence_unavailable"],
+      historicalStandingScore: null,
       previousStandingScore: null,
       classRankFloor: null,
       classRankFloorApplied: false,
+      previousRegionalClassRank: null,
       eliteFloorApplied: false,
       confirmedEliteTitleCount: 0,
-      reason: "PREVIOUS_EVIDENCE_UNAVAILABLE",
+      reason: "HISTORICAL_EVIDENCE_UNAVAILABLE",
+      winningHistoricalProof: null,
+      contextualizedHistoricalSeasonCount: 0,
     });
   });
 
@@ -325,8 +329,8 @@ describe("calculateExperiencePhase1 — composition (E)", () => {
     });
     expect(result.score).toBeNull();
     expect(result.available).toBe(false);
-    expect(result.reason).toBe("PREVIOUS_EVIDENCE_UNAVAILABLE");
-    expect(result.confidenceCauses).toContain("previous_evidence_unavailable");
+    expect(result.reason).toBe("HISTORICAL_EVIDENCE_UNAVAILABLE");
+    expect(result.confidenceCauses).toContain("historical_evidence_unavailable");
   });
 
   it("confirmed no activity remains score 0 with available=true (distinct from unavailable)", () => {
@@ -427,7 +431,7 @@ describe("Experience availability semantics", () => {
     expect(result).toMatchObject({
       score: null,
       available: false,
-      reason: "PREVIOUS_EVIDENCE_UNAVAILABLE",
+      reason: "HISTORICAL_EVIDENCE_UNAVAILABLE",
     });
   });
 

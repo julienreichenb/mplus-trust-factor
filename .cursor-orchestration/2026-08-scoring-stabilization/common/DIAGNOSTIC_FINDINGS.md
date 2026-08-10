@@ -8,16 +8,17 @@ Legend for evidence: **OBSERVED** (code/tests), **INFERRED** (strong code path),
 
 ---
 
-## 0b. Agent 03B — Historical Blizzard character M+ dataset
+## 0c. Agent 03C — Historical Experience scoring
 
 | Field | Value |
 |-------|-------|
-| Status | **FIXED IN CODE / READY FOR 03C** (corrective simplify applied) |
-| Persistence | Reused `PREVIOUS_SEASON_RATING` (no migration) |
-| Formula / UI | Unchanged — 03C owns Experience calc |
+| Status | **FIXED IN CODE** — **PENDING MANUAL UI VALIDATION** |
+| Formula | `MAX(historicalStandingScore, classRankFloor, eliteFloor)` |
+| Acquisition | 03B history only; Phase1 no Season Details / no RIO historical rating |
+| Agent 04 | **Do not start** until Experience UI gate passes |
 
-Call strategy: Profile Index ×1 per Experience refresh (providers allowed); Season Details only for index-returned closed seasons missing terminal evidence.  
-Index absence → **UNKNOWN** (no fabricated no-activity). `CONFIRMED_NO_ACTIVITY` only from successful Season Details payload rules.
+Live canary Lfgmasochist: winning TWW3 3862.63 → p990 → **E=90**.
+
 
 ---
 

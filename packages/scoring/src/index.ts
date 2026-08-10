@@ -642,6 +642,19 @@ export type {
   StandingEstimationResult,
 } from "./experience/phase1/season-population-policy.js";
 
+/** Experience Phase 1 — multi-season historical standing (Agent 03C). */
+export {
+  computeHistoricalStanding,
+  isCompleteRegionalPopulationPolicy,
+  nativeBandStandingScore,
+} from "./experience/phase1/historical-standing.js";
+export type {
+  HistoricalSeasonRatingInput,
+  HistoricalStandingProof,
+  UncontextualizedHistoricalSeason,
+  HistoricalStandingComputation,
+} from "./experience/phase1/historical-standing.js";
+
 /** Experience Phase 1 — elite Mythic+ top 0.1% cutoff history (provider-free; not production-wired). */
 export {
   ELITE_CUTOFF_CATALOG_VERSION,
