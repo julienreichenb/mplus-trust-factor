@@ -1,34 +1,32 @@
 /**
  * Executable Scoring V2 live capability canary.
  *
- * Loads a compatible frozen evidence manifest (no discovery / reselection),
- * admits missing capability packages against the rate snapshot, acquires via
- * the production live adapter, calculates dimensions, then provider-free replays.
+ * Operational wrapper: frozen manifest, cost/rate admission, live capability
+ * gates, package acquisition accounting, publication blocked.
+ *
+ * Scoring authority: runAuthoritativeScoring → scoreCharacter (P/S/U/E +
+ * explainability). Never an alternate composite/confidence path.
  */
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { AppEnv } from "@mplus/config";
 import type { PrismaClient } from "@mplus/database";
 import {
-  EVIDENCE_SELECTOR_VERSION,
+  OBSERVATION_SCHEMA_VERSION,
+  RUN_SELECTION_VERSION,
   expectedEvidenceSlotCount,
   type CharacterSeasonEvidenceManifestV2,
   type EvidenceCandidateMetadataV2,
   type EvidenceRole,
-  type EvidenceSelectionScope,
 } from "@mplus/contracts";
 import {
-  computeScoringConfidenceV1,
   evidenceManifestAnalysisStatus,
-  missingDungeonsFromCoverage,
-  overallConfidenceFromDimensions,
-  type ScoringConfidenceV1,
+  type ExperiencePhase1Result,
 } from "@mplus/scoring";
 import type { RateBudgetConfig } from "@mplus/provider-warcraftlogs";
 import { LiveWarcraftLogsProvider } from "@mplus/provider-warcraftlogs";
 import type { CanaryCharacterResolution, CanaryRepositoryMode } from "./canary-deps.js";
 import type { CanarySeasonResolution } from "./canary-season.js";
-import { ensureCanaryProfileAggregate } from "./canary-performance-aggregate.js";
 import {
   bootstrapCanaryRateLimitSnapshot,
   fetchCanaryRateLimitSnapshotLive,
@@ -48,10 +46,8 @@ import {
 } from "../run-orchestration/live-capability-adapter.js";
 import { createProductionRunOrchestrationPorts } from "../run-orchestration/production-ports.js";
 import { createRedisSourceFightLock } from "../run-orchestration/source-fight-lease.js";
+import type { FetchCharacterPerformanceAggregateProvider } from "../run-orchestration/ensure-performance-aggregate.js";
 import {
-  fingerprintDimensionResults,
-  orchestrateScoringRuns,
-  replayScoringFromPersistedEvidence,
   sourceFightKey,
   uniqueSourceFightsFromManifest,
   type LiveProviderPermission,
@@ -62,23 +58,23 @@ import {
 } from "../run-orchestration/orchestrator.js";
 import type { WorkerContainer } from "../../../container.js";
 import { assertPublicationBlocked } from "../acquisition.js";
+import {
+  runAuthoritativeScoring,
+  type AuthoritativeScoringResult,
+} from "../refresh-bridge.js";
+import type { ScoreCharacterResult } from "../score-character.js";
+import {
+  buildCanaryAuthoritativeComposite,
+  buildCanaryAuthoritativeDimensions,
+  buildEvidenceCoverageDiagnostic,
+  compareAuthoritativeScoringParity,
+  type CanaryAuthoritativeCompositeReport,
+  type CanaryAuthoritativeDimensionReport,
+  type CanaryAuthoritativeReplayAssertion,
+  type CanaryEvidenceCoverageDiagnostic,
+} from "./canary-authoritative-report.js";
 
-export const CANARY_LIVE_REPORT_SCHEMA = "scoring-canary-live-v1" as const;
-
-export interface CanaryLiveDimensionReport {
-  status: "AVAILABLE" | "PARTIAL" | "BLOCKED" | "UNAVAILABLE";
-  score: number | null;
-  usableRunCount: number;
-  targetRunCount: number;
-  representedDungeonCount: number;
-  missingDungeons: string[];
-  confidenceScore: number;
-  confidenceBand: ScoringConfidenceV1["confidenceBand"];
-  unavailableReason: string | null;
-  inputDigestIds: string[];
-  inputDigestFingerprints: string[];
-  blockReason: string | null;
-}
+export const CANARY_LIVE_REPORT_SCHEMA = "scoring-canary-live-v2" as const;
 
 export type CanaryLiveCommandOutcome =
   | "SUCCESS"
@@ -110,6 +106,7 @@ export interface CanaryLiveReport {
   capabilityAcquisitionsAttempted: number;
   capabilityAcquisitionsSucceeded: number;
   capabilityAcquisitionsFailed: number;
+  /** WCL GraphQL / bootstrap request diagnostic (not full authoritative total). */
   graphqlRequestCount: number;
   eventPageRequestCount: number;
   measuredWclPoints: number | null;
@@ -120,35 +117,60 @@ export interface CanaryLiveReport {
   participantDigestsCreated: number;
   participantDigestsReused: number;
   wallidrixeDigestCount: number;
+  /** Canonical P/S/U/E from runAuthoritativeScoring / scoreCharacter. */
   dimensions: {
-    performance: CanaryLiveDimensionReport;
-    utility: CanaryLiveDimensionReport;
-    survival: CanaryLiveDimensionReport;
+    performance: CanaryAuthoritativeDimensionReport;
+    survival: CanaryAuthoritativeDimensionReport;
+    utility: CanaryAuthoritativeDimensionReport;
+    experience: CanaryAuthoritativeDimensionReport;
   };
-  composite: {
-    status:
-      | "AVAILABLE"
-      | "PARTIAL"
-      | "AVAILABLE_WITH_PARTIAL_EVIDENCE"
-      | "UNAVAILABLE";
-    score: number | null;
-    confidence: ScoringConfidenceV1;
-    blockerDimension: "PERFORMANCE" | "UTILITY" | "SURVIVAL" | null;
-  };
-  confidence: ScoringConfidenceV1;
+  /** Canonical composite / tier from partial composite + explainability. */
+  composite: CanaryAuthoritativeCompositeReport;
+  /** Alias of composite.confidence for operators (0–1). */
+  confidence: number;
+  /**
+   * Legacy run-coverage diagnostic only — NOT dimension/composite confidence.
+   * @deprecated Prefer dimensions[].confidence and composite.confidence.
+   */
+  evidenceCoverageDiagnostic: CanaryEvidenceCoverageDiagnostic;
   rateAdmission: CanaryCostProjection["rateLimit"]["admission"];
   rateAdmissionReasons: string[];
   bootstrap: CanaryRateSnapshotBootstrapReport | null;
   costProjection: CanaryCostProjection | null;
+  /** Full authoritative provider total (orchestration + aggregate + Experience). */
+  authoritativeProviderCalls: number;
+  characterScoreWrites: 0;
+  persistCharacterScore: false;
+  authoritativeReplay: CanaryAuthoritativeReplayAssertion;
+  /** @deprecated Prefer authoritativeReplay.providerCalls */
   replayProviderCalls: number;
   replayPackagesCreated: number;
+  /** @deprecated Prefer authoritativeReplay.explainabilityFingerprintEqual */
   replayFingerprintEqual: boolean;
+  /** @deprecated Prefer authoritativeReplay.scoresEqual */
   replayScoresEqual: boolean;
+  /** @deprecated Prefer authoritativeReplay.confidenceEqual */
   replayConfidenceEqual: boolean;
   publicationEnabled: false;
   publicScorePointerMutated: false;
   orchestratorExecuted: true;
+  scoringAuthority: "runAuthoritativeScoring";
+  /**
+   * WCL capability-package live gate based on package cache misses + canary
+   * cost admission. Diagnostic only — NOT the full authoritative scoring
+   * provider permission (which follows env + forceProviderFree).
+   */
+  capabilityLiveProviderPermission: LiveProviderPermission;
+  /**
+   * Effective WCL/orchestration provider permission used by cold
+   * runAuthoritativeScoring (env gates). Replay always forceProviderFree.
+   */
+  authoritativeProviderPermission: LiveProviderPermission;
+  /** Replay always sets forceProviderFree:true on runAuthoritativeScoring. */
+  forceProviderFreeReplay: true;
+  /** @deprecated Prefer capabilityLiveProviderPermission */
   liveProviderPermission: LiveProviderPermission;
+  explainabilityFingerprint: string;
 }
 
 export interface RunCanaryLiveInput {
@@ -174,6 +196,12 @@ export interface RunCanaryLiveInput {
   /** Optional scoring model override for tests. */
   scoringModelId?: string;
   scoringModelVersion?: string | null;
+  /** Test seam: skip Experience acquisition. */
+  experienceOverride?: ExperiencePhase1Result | null;
+  /** Test seam: force aggregate provider null/override into authoritative scoring. */
+  performanceAggregateProviderOverride?:
+    | FetchCharacterPerformanceAggregateProvider
+    | null;
 }
 
 export async function loadCompatibleFrozenManifest(input: {
@@ -230,190 +258,6 @@ export function candidatesFromFrozenManifest(
   return out;
 }
 
-function digestFingerprint(digestArtifactId: string, contentHash?: string | null): string {
-  return contentHash ?? digestArtifactId;
-}
-
-function dimensionReport(input: {
-  result: RunOrchestrationResult;
-  dimension: "performance" | "utility" | "survival";
-  targetRunCount: number;
-  activeDungeonCount: number;
-  activeDungeonSlugs: readonly string[];
-}): CanaryLiveDimensionReport {
-  const dimKey = input.dimension.toUpperCase() as "PERFORMANCE" | "UTILITY" | "SURVIVAL";
-  const blocked = input.result.dimensions.blocked.find((b) => b.dimension === dimKey);
-  const dim =
-    input.dimension === "performance"
-      ? input.result.dimensions.performance
-      : input.dimension === "utility"
-        ? input.result.dimensions.utility
-        : input.result.dimensions.survival;
-
-  const digests = input.result.characterDigests;
-  const perfDiag = input.result.dimensions.performanceDigestDiagnostics ?? [];
-  const usableDigests =
-    input.dimension === "performance" && perfDiag.length > 0
-      ? digests.filter((d) =>
-          perfDiag.some(
-            (p) => p.slotId === d.slotId && p.usable === true,
-          ),
-        )
-      : digests;
-  const usableRunCount = usableDigests.length;
-  const representedDungeonSlugs = [
-    ...new Set(usableDigests.map((d) => d.dungeonSlug.toLowerCase())),
-  ];
-  const representedDungeonCount = representedDungeonSlugs.length;
-  const missingDungeons = missingDungeonsFromCoverage(
-    input.activeDungeonSlugs,
-    representedDungeonSlugs,
-  );
-  const confidence = computeScoringConfidenceV1({
-    usableRunCount,
-    targetRunCount: input.targetRunCount,
-    representedDungeonCount,
-    activeDungeonCount: input.activeDungeonCount,
-    missingDungeons,
-    activeDungeonSlugs: input.activeDungeonSlugs,
-    representedDungeonSlugs,
-  });
-
-  if (blocked) {
-    return {
-      status: "BLOCKED",
-      score: null,
-      usableRunCount,
-      targetRunCount: input.targetRunCount,
-      representedDungeonCount,
-      missingDungeons,
-      confidenceScore: confidence.confidenceScore,
-      confidenceBand: confidence.confidenceBand,
-      unavailableReason: blocked.reason,
-      inputDigestIds: usableDigests.map((d) => d.digestArtifactId),
-      inputDigestFingerprints: usableDigests.map((d) =>
-        digestFingerprint(d.digestArtifactId, d.digest.contentHash),
-      ),
-      blockReason: blocked.reason,
-    };
-  }
-
-  if (dim == null || usableRunCount === 0) {
-    return {
-      status: "UNAVAILABLE",
-      score: null,
-      usableRunCount,
-      targetRunCount: input.targetRunCount,
-      representedDungeonCount,
-      missingDungeons,
-      confidenceScore: confidence.confidenceScore,
-      confidenceBand: confidence.confidenceBand,
-      unavailableReason:
-        input.dimension === "performance" &&
-        perfDiag.some((p) => !p.usable)
-          ? "zero_compatible_performance_facts"
-          : "dimension_unavailable",
-      inputDigestIds: usableDigests.map((d) => d.digestArtifactId),
-      inputDigestFingerprints: usableDigests.map((d) =>
-        digestFingerprint(d.digestArtifactId, d.digest.contentHash),
-      ),
-      blockReason: null,
-    };
-  }
-
-  const score =
-    typeof dim.score === "number" && Number.isFinite(dim.score) ? dim.score : null;
-  if (score == null) {
-    return {
-      status: "UNAVAILABLE",
-      score: null,
-      usableRunCount,
-      targetRunCount: input.targetRunCount,
-      representedDungeonCount,
-      missingDungeons,
-      confidenceScore: confidence.confidenceScore,
-      confidenceBand: confidence.confidenceBand,
-      unavailableReason: "score_null",
-      inputDigestIds: usableDigests.map((d) => d.digestArtifactId),
-      inputDigestFingerprints: usableDigests.map((d) =>
-        digestFingerprint(d.digestArtifactId, d.digest.contentHash),
-      ),
-      blockReason: null,
-    };
-  }
-
-  return {
-    status: usableRunCount < input.targetRunCount ? "PARTIAL" : "AVAILABLE",
-    score,
-    usableRunCount,
-    targetRunCount: input.targetRunCount,
-    representedDungeonCount,
-    missingDungeons,
-    confidenceScore: confidence.confidenceScore,
-    confidenceBand: confidence.confidenceBand,
-    unavailableReason: null,
-    inputDigestIds: usableDigests.map((d) => d.digestArtifactId),
-    inputDigestFingerprints: usableDigests.map((d) =>
-      digestFingerprint(d.digestArtifactId, d.digest.contentHash),
-    ),
-    blockReason: null,
-  };
-}
-
-function compositeFromDimensions(
-  dims: CanaryLiveReport["dimensions"],
-  overallConfidence: ScoringConfidenceV1,
-): CanaryLiveReport["composite"] {
-  const required: Array<{
-    key: "PERFORMANCE" | "UTILITY" | "SURVIVAL";
-    report: CanaryLiveDimensionReport;
-  }> = [
-    { key: "PERFORMANCE", report: dims.performance },
-    { key: "UTILITY", report: dims.utility },
-    { key: "SURVIVAL", report: dims.survival },
-  ];
-  const missing = required.find(
-    (r) =>
-      r.report.status === "UNAVAILABLE" ||
-      r.report.status === "BLOCKED" ||
-      r.report.score == null,
-  );
-  if (missing) {
-    return {
-      status: "UNAVAILABLE",
-      score: null,
-      confidence: overallConfidence,
-      blockerDimension: missing.key,
-    };
-  }
-
-  const scores = required.map((r) => r.report.score!);
-  const dimConfidences = required.map((r) => r.report.confidenceScore);
-  const confidenceScore = overallConfidenceFromDimensions(dimConfidences);
-  const confidence: ScoringConfidenceV1 = {
-    ...overallConfidence,
-    confidenceScore,
-    confidenceBand:
-      confidenceScore <= 0
-        ? "NONE"
-        : confidenceScore >= 85
-          ? "HIGH"
-          : confidenceScore >= 60
-            ? "MEDIUM"
-            : "LOW",
-  };
-  const avg = Math.round((scores[0]! + scores[1]! + scores[2]!) / 3);
-  const partial =
-    overallConfidence.usableRunCount < overallConfidence.targetRunCount ||
-    required.some((r) => r.report.status === "PARTIAL");
-  return {
-    status: partial ? "AVAILABLE_WITH_PARTIAL_EVIDENCE" : "AVAILABLE",
-    score: avg,
-    confidence,
-    blockerDimension: null,
-  };
-}
-
 function resolveCommandOutcome(input: {
   result: RunOrchestrationResult;
   dimensions: CanaryLiveReport["dimensions"];
@@ -422,9 +266,10 @@ function resolveCommandOutcome(input: {
     input.dimensions.performance,
     input.dimensions.utility,
     input.dimensions.survival,
+    input.dimensions.experience,
   ].some(
     (d) =>
-      (d.status === "AVAILABLE" || d.status === "PARTIAL") && d.score != null,
+      (d.state === "AVAILABLE" || d.state === "PARTIAL") && d.score != null,
   );
   if (!anyDimensionCalculated || input.result.characterDigests.length === 0) {
     return "FAILURE";
@@ -436,21 +281,41 @@ function resolveCommandOutcome(input: {
   return "SUCCESS";
 }
 
-function scoresEqual(a: RunOrchestrationResult, b: RunOrchestrationResult): boolean {
-  return (
-    (a.dimensions.performance?.score ?? null) ===
-      (b.dimensions.performance?.score ?? null) &&
-    (a.dimensions.utility?.score ?? null) === (b.dimensions.utility?.score ?? null) &&
-    (a.dimensions.survival?.score ?? null) === (b.dimensions.survival?.score ?? null)
-  );
+function buildCanaryRefreshContract(input: {
+  seasonSlug: string;
+  zoneId: number;
+  scoreModelKey: string;
+  scoreModelVersion: number;
+}) {
+  return {
+    scoringModelKey: input.scoreModelKey,
+    scoringModelVersion: input.scoreModelVersion,
+    observationSchemaVersion: OBSERVATION_SCHEMA_VERSION,
+    wclAdapterVersion: "points-and-damage-v1",
+    blizzardAdapterVersion: "blizzard-v1",
+    raiderIoAdapterVersion: "raiderio-v1",
+    runSelectionVersion: RUN_SELECTION_VERSION,
+    abilityCatalogVersion: "abilities-v1",
+    mechanicCatalogVersion: "mechanics-v1",
+    activeSeasonId: input.seasonSlug,
+    zoneId: input.zoneId,
+    partition: null as number | null,
+  };
 }
 
 /**
  * Production live canary entry. Never invents manifests or calls discovery.
+ * Scoring goes through runAuthoritativeScoring(persistCharacterScore:false).
  */
 export async function runScoringCanaryLive(
   input: RunCanaryLiveInput,
-): Promise<{ report: CanaryLiveReport; reportPath: string; result: RunOrchestrationResult }> {
+): Promise<{
+  report: CanaryLiveReport;
+  reportPath: string;
+  result: RunOrchestrationResult;
+  scoreResult: ScoreCharacterResult;
+  authoritative: AuthoritativeScoringResult;
+}> {
   assertPublicationBlocked(input.env);
 
   const season = input.seasonResolution;
@@ -504,7 +369,7 @@ export async function runScoringCanaryLive(
           },
         });
 
-    // Probe package cache with provider-free ports (no live acquire).
+  // Probe package cache with provider-free ports (no live acquire).
   const probePorts =
     input.ports ??
     createProductionRunOrchestrationPorts({
@@ -557,19 +422,21 @@ export async function runScoringCanaryLive(
   }
 
   const packageCacheMisses = cacheStatuses.filter((c) => !c.packageCacheHit).length;
-  const liveProviderPermission: LiveProviderPermission =
+  // Capability-package gate only (cache miss → may acquire). Distinct from
+  // authoritative env-derived allowProviderCalls used by runAuthoritativeScoring.
+  const capabilityLiveProviderPermission: LiveProviderPermission =
     packageCacheMisses > 0 ? "ALLOWED" : "FORBIDDEN";
 
   const permissionInput = {
     providerMode: input.env.PROVIDER_MODE,
     wclEnabled: input.env.WCL_ENABLED === true,
     allowLiveProviderCalls: input.env.ALLOW_LIVE_PROVIDER_CALLS === true,
-    liveProviderPermissionGranted: liveProviderPermission === "ALLOWED",
+    liveProviderPermissionGranted: capabilityLiveProviderPermission === "ALLOWED",
     scoringPublicationEnabled: input.env.SCORING_PUBLICATION_ENABLED === true,
     hasWclCredentials: Boolean(input.env.WCL_CLIENT_ID && input.env.WCL_CLIENT_SECRET),
   };
   const liveGate = evaluateLiveCapabilityPermission(permissionInput);
-  if (liveProviderPermission === "ALLOWED" && !liveGate.allowed) {
+  if (capabilityLiveProviderPermission === "ALLOWED" && !liveGate.allowed) {
     throw Object.assign(
       new Error(`live_capability_permission_refused:${liveGate.reasons.join(",")}`),
       {
@@ -578,6 +445,13 @@ export async function runScoringCanaryLive(
       },
     );
   }
+
+  const envAllowsAuthoritativeProviders =
+    input.env.ALLOW_LIVE_PROVIDER_CALLS === true &&
+    input.env.PROVIDER_MODE === "live" &&
+    input.env.WCL_ENABLED === true;
+  const authoritativeProviderPermission: LiveProviderPermission =
+    envAllowsAuthoritativeProviders ? "ALLOWED" : "FORBIDDEN";
 
   let eventPageRequestCount = 0;
   let measuredPointsAcc: number | null = bootstrap.measuredPoints;
@@ -588,234 +462,224 @@ export async function runScoringCanaryLive(
 
   let ports = input.ports;
   let redisForLock: ReturnType<WorkerContainer["createRedisConnection"]> | null = null;
+  let cold: AuthoritativeScoringResult;
+  let replay: AuthoritativeScoringResult;
 
-  if (!ports) {
-    let liveHook:
-      | ((args: {
-          sourceFight: SourceFightIdentity;
-          dungeonSlug: string | null;
-          keyLevel: number | null;
-          participants: OrchestrationParticipant[];
-        }) => Promise<LiveCapabilityAcquireResult>)
-      | undefined;
-    if (liveProviderPermission === "ALLOWED") {
-      const client = new LiveWarcraftLogsProvider({
-        env: input.env,
-      }).getGraphQlClient();
-      const baseHook = createLiveCapabilityAcquireHook({
-        env: input.env,
-        prisma: input.prisma,
-        artifacts: input.container.repositories.artifacts,
-        wclSource: input.container.repositories.wclSource,
-        client,
-        region: input.region,
-        permission: permissionInput,
-      });
-      liveHook = async (args) => {
-        acquisitionsAttempted += 1;
-        try {
-          const result = await baseHook(args);
-          if (result.created) acquisitionsSucceeded += 1;
-          eventPageRequestCount += result.accounting.pagesFetched ?? 0;
-          if (result.accounting.pointsConsumed != null) {
-            measuredPointsAcc =
-              (measuredPointsAcc ?? 0) + result.accounting.pointsConsumed;
-          } else if (result.accounting.estimatedPointsConsumed != null) {
-            estimatedPointsAcc += result.accounting.estimatedPointsConsumed;
-          } else if (result.providerCalls > 0) {
-            estimatedPointsAcc += CONSERVATIVE_POINTS_PER_CAPABILITY_FIGHT;
-          }
-          return result;
-        } catch (err) {
-          acquisitionsFailed += 1;
-          throw err;
-        }
-      };
-    }
-
+  // Every path after createRedisConnection must quit — including early validation failures.
+  try {
+    // One Redis connection for the full cold+replay canary operation.
     if (input.useRedisLock !== false) {
       redisForLock = input.container.createRedisConnection();
     }
-    const rosterPorts = createProductionRunOrchestrationPorts({
-      prisma: input.prisma,
-      artifacts: input.container.repositories.artifacts,
-      evidence: input.container.repositories.evidence,
-      liveAcquireCapabilityPackage: liveHook,
-      targetCharacter: {
-        characterId: input.characterId,
-        characterName: input.characterName,
-        realmSlug: input.realm,
-        regionCode: input.region,
-        classSlug: input.classSlug,
-        specSlug: input.specSlug,
-        role: input.role,
-      },
-    });
-    const withSourceFightLock = redisForLock
-      ? createRedisSourceFightLock({
-          redis: redisForLock,
-          appEnv: input.env.APP_ENV ?? input.env.NODE_ENV ?? "development",
-          findCompatiblePackage: (args) =>
-            rosterPorts.findCompatibleCapabilityPackage(args),
-        })
-      : undefined;
 
-    ports = {
-      ...rosterPorts,
-      withSourceFightLock: withSourceFightLock ?? rosterPorts.withSourceFightLock,
-    };
-  }
-
-  let scoringModelId = input.scoringModelId ?? "canary-shadow-model";
-  let scoringModelVersion = input.scoringModelVersion ?? null;
-  if (!input.scoringModelId) {
-    try {
-      const activeModel = await input.container.repositories.score.getActiveModel();
-      if (activeModel?.id) {
-        scoringModelId = activeModel.id;
-        scoringModelVersion =
-          activeModel.version != null ? String(activeModel.version) : null;
+    if (!ports) {
+      let liveHook:
+        | ((args: {
+            sourceFight: SourceFightIdentity;
+            dungeonSlug: string | null;
+            keyLevel: number | null;
+            participants: OrchestrationParticipant[];
+          }) => Promise<LiveCapabilityAcquireResult>)
+        | undefined;
+      if (capabilityLiveProviderPermission === "ALLOWED") {
+        const client = new LiveWarcraftLogsProvider({
+          env: input.env,
+        }).getGraphQlClient();
+        const baseHook = createLiveCapabilityAcquireHook({
+          env: input.env,
+          prisma: input.prisma,
+          artifacts: input.container.repositories.artifacts,
+          wclSource: input.container.repositories.wclSource,
+          client,
+          region: input.region,
+          permission: permissionInput,
+        });
+        liveHook = async (args) => {
+          acquisitionsAttempted += 1;
+          try {
+            const result = await baseHook(args);
+            if (result.created) acquisitionsSucceeded += 1;
+            eventPageRequestCount += result.accounting.pagesFetched ?? 0;
+            if (result.accounting.pointsConsumed != null) {
+              measuredPointsAcc =
+                (measuredPointsAcc ?? 0) + result.accounting.pointsConsumed;
+            } else if (result.accounting.estimatedPointsConsumed != null) {
+              estimatedPointsAcc += result.accounting.estimatedPointsConsumed;
+            } else if (result.providerCalls > 0) {
+              estimatedPointsAcc += CONSERVATIVE_POINTS_PER_CAPABILITY_FIGHT;
+            }
+            return result;
+          } catch (err) {
+            acquisitionsFailed += 1;
+            throw err;
+          }
+        };
       }
-    } catch {
-      // Tests / missing score repo — keep canary shadow model id.
+
+      const rosterPorts = createProductionRunOrchestrationPorts({
+        prisma: input.prisma,
+        artifacts: input.container.repositories.artifacts,
+        evidence: input.container.repositories.evidence,
+        liveAcquireCapabilityPackage: liveHook,
+        targetCharacter: {
+          characterId: input.characterId,
+          characterName: input.characterName,
+          realmSlug: input.realm,
+          regionCode: input.region,
+          classSlug: input.classSlug,
+          specSlug: input.specSlug,
+          role: input.role,
+        },
+      });
+      const withSourceFightLock = redisForLock
+        ? createRedisSourceFightLock({
+            redis: redisForLock,
+            appEnv: input.env.APP_ENV ?? input.env.NODE_ENV ?? "development",
+            findCompatiblePackage: (args) =>
+              rosterPorts.findCompatibleCapabilityPackage(args),
+          })
+        : undefined;
+
+      ports = {
+        ...rosterPorts,
+        withSourceFightLock: withSourceFightLock ?? rosterPorts.withSourceFightLock,
+      };
+    } else if (redisForLock) {
+      // Injected ports (tests): keep Redis open for cold+replay and fail if quit early.
+      const redis = redisForLock as {
+        assertOpen?: () => void;
+      } & typeof redisForLock;
+      const innerLock = ports.withSourceFightLock.bind(ports);
+      ports = {
+        ...ports,
+        withSourceFightLock: async (sourceFight, work) => {
+          if (typeof redis.assertOpen === "function") {
+            redis.assertOpen();
+          }
+          return innerLock(sourceFight, work);
+        },
+      };
     }
-  }
 
-  const scope: EvidenceSelectionScope = {
-    characterId: input.characterId,
-    seasonId: season.seasonId,
-    seasonSlug: season.seasonSlug,
-    specializationId: null,
-    classSlug: input.classSlug,
-    specSlug: input.specSlug,
-    role: input.role,
-    refreshContractHash: `canary-live|${frozen.rowId}|${manifest.contentHash}`,
-    selectorVersion: EVIDENCE_SELECTOR_VERSION,
-    evidenceCutoffAt: manifest.evidenceCutoffAt ?? "2099-01-01T00:00:00.000Z",
-    highKeyPolicyId: manifest.highKeyPolicyId ?? "canary-live-v1",
-    activeDungeonSlugs: [...season.activeDungeonSlugs],
-  };
+    let scoringModelId = input.scoringModelId ?? "canary-shadow-model";
+    let scoreModelKey = "canary-shadow-model";
+    let scoreModelVersionNum = 1;
+    if (!input.scoringModelId) {
+      try {
+        const activeModel = await input.container.repositories.score.getActiveModel();
+        if (activeModel?.id) {
+          scoringModelId = activeModel.id;
+          const modelKey =
+            "key" in activeModel && typeof activeModel.key === "string"
+              ? activeModel.key
+              : activeModel.id;
+          scoreModelKey = modelKey;
+          scoreModelVersionNum =
+            typeof activeModel.version === "number"
+              ? activeModel.version
+              : Number(activeModel.version) || 1;
+        }
+      } catch {
+        // Tests / missing score repo — keep canary shadow model id.
+      }
+    } else if (input.scoringModelVersion != null) {
+      scoreModelVersionNum = Number(input.scoringModelVersion) || 1;
+      scoreModelKey = input.scoringModelId;
+    }
 
-  const zoneId = season.configuredZoneId;
-  if (zoneId == null || !Number.isFinite(zoneId) || zoneId <= 0) {
-    throw Object.assign(new Error("canary_live_requires_wcl_zone_id"), {
-      code: "CANARY_ZONE_ID_REQUIRED",
-    });
-  }
+    const zoneId = season.configuredZoneId;
+    if (zoneId == null || !Number.isFinite(zoneId) || zoneId <= 0) {
+      throw Object.assign(new Error("canary_live_requires_wcl_zone_id"), {
+        code: "CANARY_ZONE_ID_REQUIRED",
+      });
+    }
 
-  // Product parity: CharacterPerformanceAggregate via ensure (HIT/REPLAY when warm).
-  const { profileAggregate, ensure: performanceAggregateEnsure } =
-    await ensureCanaryProfileAggregate({
-      prisma: input.prisma,
-      env: input.env,
-      characterId: input.characterId,
-      characterName: input.characterName,
-      region: input.region,
-      realm: input.realm,
-      seasonId: season.seasonId,
+    const refreshContract = buildCanaryRefreshContract({
+      seasonSlug: season.seasonSlug,
       zoneId,
-      activeDungeonSlugs: season.activeDungeonSlugs,
-      liveProviderPermission,
+      scoreModelKey,
+      scoreModelVersion: scoreModelVersionNum,
     });
 
-  let result: RunOrchestrationResult;
-  try {
-    result = await orchestrateScoringRuns({
+    const evidenceCutoffAt =
+      manifest.evidenceCutoffAt ?? "2099-01-01T00:00:00.000Z";
+    const highKeyPolicyId = manifest.highKeyPolicyId ?? "canary-live-v1";
+    const calculatedAt = new Date().toISOString();
+
+    const commonScoringInput = {
+      container: input.container,
       characterId: input.characterId,
+      seasonId: season.seasonId,
+      seasonSlug: season.seasonSlug,
+      role: input.role,
+      classSlug: input.classSlug,
+      specSlug: input.specSlug,
+      refreshContract,
+      evidenceCutoffAt,
+      highKeyPolicyId,
+      activeDungeonSlugs: [...season.activeDungeonSlugs],
+      candidates,
+      scoreModelKey,
+      scoreModelVersion: scoreModelVersionNum,
+      scoreModelId: scoringModelId,
+      calculatedAt,
       region: input.region,
       realm: input.realm,
       characterName: input.characterName,
-      seasonId: season.seasonId,
-      scoringModelId,
-      scoringModelVersion,
-      liveProviderPermission,
-      scope,
-      candidates,
+      persistCharacterScore: false as const,
       existingManifest: manifest,
-      ports,
-      profileAggregate,
+      portsOverride: ports,
+      experienceOverride: input.experienceOverride,
+      performanceAggregateProviderOverride:
+        input.performanceAggregateProviderOverride,
+    };
+
+    // Cold + replay are one canary operation — keep Redis lock alive for both.
+    cold = await runAuthoritativeScoring(commonScoringInput);
+
+    if (!cold.scoreResult) {
+      throw Object.assign(new Error("canary_live_authoritative_scoring_empty"), {
+        code: "CANARY_LIVE_AUTHORITATIVE_EMPTY",
+      });
+    }
+
+    // TRUE provider-free authoritative replay (one-way forceProviderFree).
+    replay = await runAuthoritativeScoring({
+      ...commonScoringInput,
+      forceProviderFree: true,
+      calculatedAt,
     });
+
+    if (!replay.scoreResult) {
+      throw Object.assign(new Error("canary_live_replay_authoritative_empty"), {
+        code: "CANARY_LIVE_REPLAY_EMPTY",
+      });
+    }
   } finally {
     if (redisForLock) {
       await redisForLock.quit().catch(() => undefined);
     }
   }
 
-  const replay = await replayScoringFromPersistedEvidence({
-    characterId: input.characterId,
-    region: input.region,
-    realm: input.realm,
-    characterName: input.characterName,
-    seasonId: season.seasonId,
-    scoringModelId,
-    scoringModelVersion,
-    scope,
-    candidates,
-    existingManifest: result.manifest,
-    ports,
-    profileAggregate,
-  });
-  void performanceAggregateEnsure;
+  const result = cold.scoreResult!.orchestration;
 
-  const replayFingerprintEqual =
-    fingerprintDimensionResults(result) === fingerprintDimensionResults(replay);
-  const replayScoresEqual = scoresEqual(result, replay);
-  const targetRunCount = expectedSlotCount;
-  const activeDungeonCount = season.activeDungeonSlugs.length;
-  const representedDungeonSlugs = [
-    ...new Set(
-      result.characterDigests.map((d) => d.dungeonSlug.toLowerCase()),
-    ),
-  ];
-  const overallConfidence = computeScoringConfidenceV1({
-    usableRunCount: result.characterDigests.length,
-    targetRunCount,
-    representedDungeonCount: representedDungeonSlugs.length,
-    activeDungeonCount,
+  const authoritativeReplay = compareAuthoritativeScoringParity({
+    cold: cold.scoreResult!,
+    replay: replay.scoreResult!,
+    replayProviderCalls: replay.providerCalls,
+  });
+
+  const dimensions = buildCanaryAuthoritativeDimensions(
+    cold.scoreResult!.explainability,
+  );
+  const composite = buildCanaryAuthoritativeComposite(
+    cold.scoreResult!.explainability,
+  );
+  const evidenceCoverageDiagnostic = buildEvidenceCoverageDiagnostic({
+    orchestration: result,
+    targetRunCount: expectedSlotCount,
     activeDungeonSlugs: season.activeDungeonSlugs,
-    representedDungeonSlugs,
   });
-
-  const dimensions = {
-    performance: dimensionReport({
-      result,
-      dimension: "performance",
-      targetRunCount,
-      activeDungeonCount,
-      activeDungeonSlugs: season.activeDungeonSlugs,
-    }),
-    utility: dimensionReport({
-      result,
-      dimension: "utility",
-      targetRunCount,
-      activeDungeonCount,
-      activeDungeonSlugs: season.activeDungeonSlugs,
-    }),
-    survival: dimensionReport({
-      result,
-      dimension: "survival",
-      targetRunCount,
-      activeDungeonCount,
-      activeDungeonSlugs: season.activeDungeonSlugs,
-    }),
-  };
-
-  const replayRepresented = [
-    ...new Set(
-      replay.characterDigests.map((d) => d.dungeonSlug.toLowerCase()),
-    ),
-  ];
-  const replayConfidence = computeScoringConfidenceV1({
-    usableRunCount: replay.characterDigests.length,
-    targetRunCount,
-    representedDungeonCount: replayRepresented.length,
-    activeDungeonCount,
-    activeDungeonSlugs: season.activeDungeonSlugs,
-    representedDungeonSlugs: replayRepresented,
-  });
-  const replayConfidenceEqual =
-    replayConfidence.confidenceScore === overallConfidence.confidenceScore &&
-    replayConfidence.confidenceBand === overallConfidence.confidenceBand;
 
   const commandOutcome = resolveCommandOutcome({
     result,
@@ -855,7 +719,8 @@ export async function runScoringCanaryLive(
       input.ports != null ? result.accounting.packagesCreated : acquisitionsSucceeded,
     capabilityAcquisitionsFailed:
       input.ports != null ? result.fightFailures.length : acquisitionsFailed,
-    graphqlRequestCount: bootstrap.providerCalls + result.accounting.providerCalls,
+    graphqlRequestCount:
+      bootstrap.providerCalls + result.accounting.providerCalls,
     eventPageRequestCount,
     measuredWclPoints: measuredPointsAcc,
     estimatedWclPoints: estimatedPointsAcc,
@@ -866,21 +731,31 @@ export async function runScoringCanaryLive(
     participantDigestsReused: result.accounting.digestsReused,
     wallidrixeDigestCount: result.characterDigests.length,
     dimensions,
-    composite: compositeFromDimensions(dimensions, overallConfidence),
-    confidence: overallConfidence,
+    composite,
+    confidence: composite.confidence,
+    evidenceCoverageDiagnostic,
     rateAdmission: costProjection.rateLimit.admission,
     rateAdmissionReasons: costProjection.rateLimit.reasons,
     bootstrap,
     costProjection,
-    replayProviderCalls: replay.accounting.providerCalls,
-    replayPackagesCreated: replay.accounting.packagesCreated,
-    replayFingerprintEqual,
-    replayScoresEqual,
-    replayConfidenceEqual,
+    authoritativeProviderCalls: cold.providerCalls,
+    characterScoreWrites: 0,
+    persistCharacterScore: false,
+    authoritativeReplay,
+    replayProviderCalls: authoritativeReplay.providerCalls,
+    replayPackagesCreated: replay.scoreResult!.orchestration.accounting.packagesCreated,
+    replayFingerprintEqual: authoritativeReplay.explainabilityFingerprintEqual,
+    replayScoresEqual: authoritativeReplay.scoresEqual,
+    replayConfidenceEqual: authoritativeReplay.confidenceEqual,
     publicationEnabled: false,
     publicScorePointerMutated: false,
     orchestratorExecuted: true,
-    liveProviderPermission,
+    scoringAuthority: "runAuthoritativeScoring",
+    capabilityLiveProviderPermission,
+    authoritativeProviderPermission,
+    forceProviderFreeReplay: true,
+    liveProviderPermission: capabilityLiveProviderPermission,
+    explainabilityFingerprint: cold.scoreResult!.explainability.fingerprint,
   };
 
   await mkdir(outDir, { recursive: true });
@@ -896,6 +771,12 @@ export async function runScoringCanaryLive(
   if (report.charactersProcessed !== 1) {
     throw Object.assign(new Error("canary_live_character_count_invariant"), {
       code: "CANARY_LIVE_CHARACTER_COUNT",
+      report,
+    });
+  }
+  if (cold.scoreResult!.characterScoreId != null || replay.scoreResult!.characterScoreId != null) {
+    throw Object.assign(new Error("canary_live_character_score_write_forbidden"), {
+      code: "CANARY_LIVE_CHARACTER_SCORE_WRITE",
       report,
     });
   }
@@ -916,18 +797,34 @@ export async function runScoringCanaryLive(
       },
     );
   }
-  if (!replayFingerprintEqual || !replayScoresEqual || !replayConfidenceEqual) {
+  if (
+    !authoritativeReplay.scoresEqual ||
+    !authoritativeReplay.confidenceEqual ||
+    !authoritativeReplay.compositeEqual ||
+    !authoritativeReplay.tierEqual ||
+    !authoritativeReplay.explainabilityFingerprintEqual ||
+    !authoritativeReplay.publicProjectionEqual
+  ) {
     throw Object.assign(new Error("canary_live_replay_mismatch"), {
       code: "CANARY_LIVE_REPLAY_MISMATCH",
       report,
     });
   }
-  if (replay.accounting.providerCalls !== 0 || replay.accounting.packagesCreated !== 0) {
+  if (
+    authoritativeReplay.providerCalls !== 0 ||
+    replay.scoreResult!.orchestration.accounting.packagesCreated !== 0
+  ) {
     throw Object.assign(new Error("canary_live_replay_not_provider_free"), {
       code: "CANARY_LIVE_REPLAY_PROVIDER_CALLS",
       report,
     });
   }
 
-  return { report, reportPath, result };
+  return {
+    report,
+    reportPath,
+    result,
+    scoreResult: cold.scoreResult!,
+    authoritative: cold,
+  };
 }

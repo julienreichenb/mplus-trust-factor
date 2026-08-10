@@ -21,7 +21,6 @@ import CharacterProfileToolbar from "../components/character/CharacterProfileToo
 import CharacterRefreshEta from "../components/character/CharacterRefreshEta.vue";
 import ScoreHeader from "../components/profile/ScoreHeader.vue";
 import DimensionCards from "../components/profile/DimensionCards.vue";
-import ExplainabilityV2Panel from "../components/profile/ExplainabilityV2Panel.vue";
 import AuthenticitySection from "../components/profile/AuthenticitySection.vue";
 import WclVisibilityBanner from "../components/profile/WclVisibilityBanner.vue";
 import KeySignalsPanel from "../components/character/KeySignalsPanel.vue";
@@ -633,11 +632,8 @@ watch(
         :runs-locked="!entitlements.runsUnlocked"
       />
 
-      <ExplainabilityV2Panel
-        :explainability="profile.explainabilityV2"
-        :locked="!entitlements.detailsUnlocked"
-      />
-
+      <!-- Score explanation authority is ScoreExplainabilityV1 on DimensionCards.
+           Legacy ExplainabilityV2 (EvidenceManifest forensics) is admin/debug only. -->
       <KeySignalsPanel
         :dimensions="profile.score?.dimensions ?? []"
         :flags="profile.redFlags"

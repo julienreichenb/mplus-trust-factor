@@ -269,11 +269,32 @@ function mockContainer(manifestDoc: CharacterSeasonEvidenceManifestV2 | null) {
             : null,
         ),
       },
+      scoreModel: {
+        findUnique: vi.fn(async () => ({ config: {} })),
+      },
+      season: {
+        findUnique: vi.fn(async () => null),
+        findMany: vi.fn(async () => []),
+      },
+      characterScore: {
+        findUnique: vi.fn(async () => null),
+        upsert: vi.fn(async () => {
+          throw new Error("character_score_write_forbidden_in_canary_test");
+        }),
+      },
+      characterExperienceEvidence: {
+        findUnique: vi.fn(async () => null),
+        findFirst: vi.fn(async () => null),
+        findMany: vi.fn(async () => []),
+        create: vi.fn(async () => ({ id: "exp-1" })),
+        upsert: vi.fn(async () => ({ id: "exp-1" })),
+      },
       characterPerformanceAggregate: {
         // Warm HIT: skip live WCL aggregate fetch in unit tests.
         findUnique: vi.fn(async () => ({
           id: "agg-canary-live",
           characterId: CHAR_ID,
+          characterName: "Target",
           seasonId: "season-row-1",
           zoneId: 47,
           partitionKey: "current",
@@ -292,6 +313,14 @@ function mockContainer(manifestDoc: CharacterSeasonEvidenceManifestV2 | null) {
       },
       $disconnect: vi.fn(async () => undefined),
     },
+    logger: {
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+      debug: vi.fn(),
+    },
+    providers: {},
+    disabledProviders: new Set(),
     repositories: {
       artifacts: {},
       evidence: {},
@@ -300,7 +329,11 @@ function mockContainer(manifestDoc: CharacterSeasonEvidenceManifestV2 | null) {
         findCompleteBySourceFight: vi.fn(async () => null),
       },
       score: {
-        getActiveModel: vi.fn(async () => ({ id: "model-1", version: "1" })),
+        getActiveModel: vi.fn(async () => ({
+          id: "model-1",
+          key: "model-1",
+          version: 1,
+        })),
       },
     },
     createRedisConnection: vi.fn(() => ({
@@ -323,7 +356,10 @@ describe("reserved stub removal", () => {
     expect(cliSrc).not.toContain("canary_live_execute_path_reserved_for_human_approval");
     expect(liveSrc).not.toContain("canary_live_execute_path_reserved_for_human_approval");
     expect(cliSrc).toContain("runScoringCanaryLive");
-    expect(liveSrc).toContain("orchestrateScoringRuns");
+    expect(liveSrc).toContain("runAuthoritativeScoring");
+    expect(liveSrc).not.toMatch(/\(\s*[A-Za-z_][A-Za-z0-9_]*\s*\+\s*[A-Za-z_][A-Za-z0-9_]*\s*\+\s*[A-Za-z_][A-Za-z0-9_]*\s*\)\s*\/\s*3/);
+    expect(liveSrc).not.toContain("overallConfidenceFromDimensions");
+    expect(liveSrc).not.toContain("replayScoringFromPersistedEvidence");
   });
 });
 
@@ -474,6 +510,7 @@ describe("runScoringCanaryLive", () => {
       });
 
       expect(report.orchestratorExecuted).toBe(true);
+      expect(report.scoringAuthority).toBe("runAuthoritativeScoring");
       expect(report.manifestId).toBe(MANIFEST_ID);
       expect(report.selectedSlotCount).toBe(16);
       expect(report.expectedSlotCount).toBe(16);
@@ -485,13 +522,19 @@ describe("runScoringCanaryLive", () => {
       expect(report.dimensions.performance).toBeDefined();
       expect(report.dimensions.utility).toBeDefined();
       expect(report.dimensions.survival).toBeDefined();
-      expect(report.confidence.confidenceScore).toBe(100);
+      expect(report.dimensions.experience).toBeDefined();
+      expect(report.persistCharacterScore).toBe(false);
+      expect(report.characterScoreWrites).toBe(0);
+      expect(report.evidenceCoverageDiagnostic.confidenceScore).toBe(100);
       expect(report.publicationEnabled).toBe(false);
       expect(report.publicScorePointerMutated).toBe(false);
       expect(report.charactersProcessed).toBe(1);
-      expect(report.replayProviderCalls).toBe(0);
-      expect(report.replayFingerprintEqual).toBe(true);
-      expect(report.replayScoresEqual).toBe(true);
+      expect(report.authoritativeReplay.providerCalls).toBe(0);
+      expect(report.authoritativeReplay.explainabilityFingerprintEqual).toBe(
+        true,
+      );
+      expect(report.authoritativeReplay.scoresEqual).toBe(true);
+      expect(report.authoritativeReplay.publicProjectionEqual).toBe(true);
       expect(ports.stats.acquireCalls).toBe(16);
     } finally {
       await rm(outDir, { recursive: true, force: true });
@@ -636,10 +679,13 @@ describe("runScoringCanaryLive", () => {
     expect(ports.stats.acquireCalls).toBe(acquiresAfterFirst);
     expect(second.report.packagesCreated).toBe(0);
     expect(second.report.packagesReused).toBe(16);
-    expect(second.report.replayFingerprintEqual).toBe(true);
-    expect(first.report.confidence.confidenceScore).toBe(
-      second.report.confidence.confidenceScore,
+    expect(second.report.authoritativeReplay.explainabilityFingerprintEqual).toBe(
+      true,
     );
+    expect(first.report.explainabilityFingerprint).toBe(
+      second.report.explainabilityFingerprint,
+    );
+    expect(first.report.confidence).toBe(second.report.confidence);
     await rm(outDir, { recursive: true, force: true });
   });
 
@@ -694,8 +740,9 @@ describe("runScoringCanaryLive", () => {
       expect(report.selectedSlotCount).toBe(8);
       expect(report.expectedSlotCount).toBe(16);
       expect(report.analysisStatus).toBe("PARTIAL");
-      expect(report.confidence.confidenceScore).toBeLessThan(100);
+      expect(report.evidenceCoverageDiagnostic.confidenceScore).toBeLessThan(100);
       expect(report.publicationEnabled).toBe(false);
+      expect(report.dimensions.experience).toBeDefined();
     } finally {
       await rm(outDir, { recursive: true, force: true });
     }
@@ -797,18 +844,18 @@ describe("runScoringCanaryLive", () => {
       expect(report.fightFailures.length).toBeGreaterThan(0);
       expect(report.wallidrixeDigestCount).toBe(7);
       expect(report.analysisStatus).toBe("PARTIAL");
-      expect(report.dimensions.performance.status).toMatch(/AVAILABLE|PARTIAL/);
-      expect(report.dimensions.utility.status).toMatch(/AVAILABLE|PARTIAL/);
-      expect(report.dimensions.survival.status).toMatch(/AVAILABLE|PARTIAL/);
-      expect(report.dimensions.performance.blockReason).not.toBe(
-        "fight_processing_failed",
-      );
-      expect(report.composite.status).toBe("AVAILABLE_WITH_PARTIAL_EVIDENCE");
+      expect(report.dimensions.performance.state).toMatch(/AVAILABLE|PARTIAL/);
+      expect(report.dimensions.utility.state).toMatch(/AVAILABLE|PARTIAL/);
+      expect(report.dimensions.survival.state).toMatch(/AVAILABLE|PARTIAL/);
+      expect(report.dimensions.experience).toBeDefined();
       expect(report.composite.score).not.toBeNull();
-      expect(report.confidence.confidenceScore).toBeGreaterThan(0);
-      expect(report.confidence.missingDungeons.length).toBeGreaterThan(0);
+      expect(report.confidence).toBeGreaterThan(0);
+      expect(
+        report.evidenceCoverageDiagnostic.missingDungeons.length,
+      ).toBeGreaterThan(0);
       expect(report.publicationEnabled).toBe(false);
-      expect(report.replayProviderCalls).toBe(0);
+      expect(report.authoritativeReplay.providerCalls).toBe(0);
+      expect(report.scoringAuthority).toBe("runAuthoritativeScoring");
     } finally {
       await rm(outDir, { recursive: true, force: true });
     }

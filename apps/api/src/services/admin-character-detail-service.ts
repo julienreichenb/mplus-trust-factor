@@ -1,4 +1,9 @@
 import { presentWowClass, WOW_CLASS_COLORS } from "@mplus/config";
+import {
+  projectScoreExplainabilityAudit,
+  tryParsePersistedScoreExplainability,
+} from "@mplus/scoring";
+import type { ScoreExplainabilityV1 } from "@mplus/contracts";
 import type { ApiContainer } from "../container.js";
 import { HttpError } from "../errors.js";
 
@@ -99,6 +104,12 @@ export type AdminCharacterDetailDTO = {
     calculatedAt: string;
     createdAt: string;
     updatedAt: string;
+    /**
+     * Canonical ScoreExplainabilityV1 audit projection (bounded).
+     * Null on legacy rows without persisted explainability.
+     * Distinct from Scoring V2 EvidenceManifest forensics.
+     */
+    scoreExplainabilityAudit: ScoreExplainabilityV1 | null;
   }>;
   scoreSnapshots: Array<{
     id: string;
@@ -258,24 +269,34 @@ export class AdminCharacterDetailService {
           },
         };
       }),
-      characterScores: characterScores.map((s) => ({
-        id: s.id,
-        seasonId: s.seasonId,
-        seasonSlug: s.season.slug,
-        scoringVersion: s.scoringVersion,
-        performance: s.performance,
-        utility: s.utility,
-        survival: s.survival,
-        experience: s.experience,
-        composite: s.composite,
-        confidence: s.confidence,
-        tier: s.tier,
-        dimensionDetails: s.dimensionDetails,
-        selectedRuns: s.selectedRuns,
-        calculatedAt: s.calculatedAt.toISOString(),
-        createdAt: s.createdAt.toISOString(),
-        updatedAt: s.updatedAt.toISOString(),
-      })),
+      characterScores: characterScores.map((s) => {
+        const details =
+          s.dimensionDetails && typeof s.dimensionDetails === "object"
+            ? (s.dimensionDetails as { explainability?: unknown })
+            : null;
+        const canonical = tryParsePersistedScoreExplainability(details?.explainability);
+        return {
+          id: s.id,
+          seasonId: s.seasonId,
+          seasonSlug: s.season.slug,
+          scoringVersion: s.scoringVersion,
+          performance: s.performance,
+          utility: s.utility,
+          survival: s.survival,
+          experience: s.experience,
+          composite: s.composite,
+          confidence: s.confidence,
+          tier: s.tier,
+          dimensionDetails: s.dimensionDetails,
+          selectedRuns: s.selectedRuns,
+          calculatedAt: s.calculatedAt.toISOString(),
+          createdAt: s.createdAt.toISOString(),
+          updatedAt: s.updatedAt.toISOString(),
+          scoreExplainabilityAudit: canonical
+            ? projectScoreExplainabilityAudit(canonical)
+            : null,
+        };
+      }),
       scoreSnapshots: scoreSnapshots.map((s) => ({
         id: s.id,
         seasonId: s.seasonId,

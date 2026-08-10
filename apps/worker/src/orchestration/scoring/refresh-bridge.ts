@@ -3,6 +3,7 @@
  * No legacy calculateScore, no V1/V2 branching, no supersession.
  */
 import type {
+  CharacterSeasonEvidenceManifestV2,
   EvidenceCandidateMetadataV2,
   EvidenceRole,
   ProviderFetchContext,
@@ -60,6 +61,18 @@ export interface AuthoritativeScoringInput {
    * Default true (operational refresh / recalculate).
    */
   persistCharacterScore?: boolean;
+  /**
+   * One-way safety: may ONLY reduce provider permission.
+   * effectiveAllow = envAllows && !forceProviderFree.
+   * Never overrides an environment denial.
+   */
+  forceProviderFree?: boolean;
+  /**
+   * Optional prevalidated frozen manifest. When supplied, orchestration skips
+   * run reselection (provider-free replay / canary parity). Production default:
+   * undefined (normal selection).
+   */
+  existingManifest?: CharacterSeasonEvidenceManifestV2 | null;
   /** Optional frozen ScoreModel.config override for evaluation. */
   scoreModelConfig?: Record<string, unknown> | null;
   /** Test seam. */
@@ -147,10 +160,13 @@ export async function runAuthoritativeScoring(
     input.container.env.WCL_CHARACTER_TTL_SECONDS ?? 43_200,
   );
 
-  const allowProviderCalls =
+  const envAllowsProviderCalls =
     input.container.env.ALLOW_LIVE_PROVIDER_CALLS === true &&
     input.container.env.PROVIDER_MODE === "live" &&
     input.container.env.WCL_ENABLED === true;
+  // One-way: forceProviderFree may only REDUCE permission.
+  const allowProviderCalls =
+    envAllowsProviderCalls && input.forceProviderFree !== true;
 
   if (!allowProviderCalls && input.candidates.length > 0) {
     input.container.logger.warn(
@@ -278,7 +294,8 @@ export async function runAuthoritativeScoring(
       // Provider permission controls acquisition only — not whether Experience runs.
       const allowExperienceProviders =
         allowExperienceBlizzardProviderCalls(input.container.env) &&
-        !input.container.disabledProviders.has("blizzard");
+        !input.container.disabledProviders.has("blizzard") &&
+        input.forceProviderFree !== true;
       const experienceCtx: ProviderFetchContext = {
         region: input.region,
         requestId: `experience-phase1:${input.characterId}:${input.seasonId}`,
@@ -405,6 +422,7 @@ export async function runAuthoritativeScoring(
       publicationEnabled: input.container.env.SCORING_PUBLICATION_ENABLED,
       persistCharacterScore: input.persistCharacterScore,
       scoreModelConfig: input.scoreModelConfig,
+      existingManifest: input.existingManifest,
       ports,
       prisma: input.container.prisma,
       artifacts: input.container.repositories.artifacts,

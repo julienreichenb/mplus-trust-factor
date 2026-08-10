@@ -96,4 +96,19 @@ test.describe("M+ Trust Factor web (mock mode)", () => {
     await expect(page.getByRole("main")).toBeVisible();
     await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
   });
+
+  test("score explainability smoke on Aleria dimension cards", async ({ page }) => {
+    await page.goto("/character/EU/tarren-mill/Aleria");
+    await expect(page.getByTestId("dimension-cards")).toBeVisible();
+    await expect(page.getByText("What affects your score").first()).toBeVisible();
+    await expect(page.getByText("Previous-season activity: none confirmed")).toBeVisible();
+    await expect(page.getByText("Full confidence")).toBeVisible();
+    await expect(page.getByText("Incomplete cooldown evidence coverage")).toBeVisible();
+    // Confidence reason must not be framed as a player weakness heading+content pair alone —
+    // weakness text for performance exists, but cooldown coverage is under confidence.
+    const cards = page.getByTestId("dimension-cards");
+    await expect(cards.getByTestId("confidence-reasons").first()).toContainText(
+      "Incomplete cooldown evidence coverage",
+    );
+  });
 });

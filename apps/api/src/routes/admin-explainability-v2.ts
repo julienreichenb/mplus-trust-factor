@@ -64,7 +64,13 @@ async function resolveActorUserId(
 }
 
 /**
- * Scoring V2 Control Center + explainability routes.
+ * Scoring V2 Control Center + EvidenceManifest forensic explainability routes.
+ *
+ * LEGACY STATUS (Score Explainability chantier):
+ * - This surface answers EvidenceManifest / DimensionComputation forensic questions.
+ * - It is NOT the authority for current P/S/U/E CharacterScore score drivers.
+ * - Authoritative score explanation is ScoreExplainabilityV1 on CharacterScore
+ *   (see GET /api/v1/admin/characters/:id scoreExplainabilityAudit / product DimensionScoreDTO.explainability).
  * Reads: score.candidate.read. Mutations: admin.scoring.manage.
  * GET overview never enqueues or calls providers.
  */
@@ -255,6 +261,12 @@ export function buildAdminExplainabilityV2Routes(container: ApiContainer): Fasti
         {
           schema: {
             tags: ["admin-explainability-v2"],
+            summary:
+              "LEGACY forensic EvidenceManifest explainability (NOT ScoreExplainabilityV1 authority)",
+            description:
+              "Returns Scoring V2 EvidenceManifest / DimensionComputation diagnostics. " +
+              "For current P/S/U/E score drivers use CharacterScore dimensionDetails.explainability " +
+              "via admin character detail (scoreExplainabilityAudit).",
             params: {
               type: "object",
               properties: { characterId: { type: "string", format: "uuid" } },

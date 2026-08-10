@@ -9,7 +9,9 @@ import type {
 } from "@mplus/contracts";
 import {
   computePartialComposite,
+  contributorsFromLegacyConfidenceContext,
   defaultSkillDimensionWeights,
+  productDimensionExplainabilityFields,
   type ExperiencePhase1Result,
 } from "@mplus/scoring";
 import type { ScoreCharacterResult } from "./score-character.js";
@@ -33,19 +35,15 @@ function clamp01(value: number): number {
   return value;
 }
 
-/** Smallest public contributor payload for confidence limitations / machine keys. */
+/**
+ * @deprecated Prefer contributorsFromPublicScoreDrivers / productDimensionExplainabilityFields.
+ * Retained for tests that assert the old limitation→context shape; no longer used for
+ * NEW canonical explainability-backed scores (never maps limitations to negative).
+ */
 export function contributorsFromLimitations(
   limitations: readonly string[] | null | undefined,
 ): DimensionScoreDTO["contributors"] {
-  const keys = (limitations ?? []).filter(
-    (value): value is string => typeof value === "string" && value.trim().length > 0,
-  );
-  return {
-    limitations: keys,
-    // UI parseContributorSignals reads negative[].label / available[].metricKey.
-    negative: keys.map((metricKey) => ({ metricKey, label: metricKey })),
-    missing: keys.map((metricKey) => ({ metricKey, available: false })),
-  };
+  return contributorsFromLegacyConfidenceContext(limitations);
 }
 
 function resolveExperiencePresentation(experience: ExperiencePhase1Result | null | undefined): {
@@ -53,7 +51,6 @@ function resolveExperiencePresentation(experience: ExperiencePhase1Result | null
   available: boolean;
   confidence: number | null;
   reason: string | null;
-  contributors: DimensionScoreDTO["contributors"];
 } {
   if (!experience) {
     return {
@@ -61,7 +58,6 @@ function resolveExperiencePresentation(experience: ExperiencePhase1Result | null
       available: false,
       confidence: null,
       reason: "EXPERIENCE_UNAVAILABLE",
-      contributors: contributorsFromLimitations(["EXPERIENCE_UNAVAILABLE"]),
     };
   }
   if (
@@ -74,7 +70,6 @@ function resolveExperiencePresentation(experience: ExperiencePhase1Result | null
       available: true,
       confidence: experience.confidence ?? 1,
       reason: null,
-      contributors: contributorsFromLimitations(experience.confidenceCauses ?? []),
     };
   }
   const reason = experience.reason ?? "EXPERIENCE_UNAVAILABLE";
@@ -83,10 +78,6 @@ function resolveExperiencePresentation(experience: ExperiencePhase1Result | null
     available: false,
     confidence: null,
     reason,
-    contributors: contributorsFromLimitations([
-      ...(experience.confidenceCauses ?? []),
-      reason,
-    ]),
   };
 }
 
@@ -116,7 +107,7 @@ export function scoreCharacterResultToSnapshotDto(input: {
     experience?: number | null;
   };
 }): ScoreSnapshotDTO {
-  const { orchestration } = input.result;
+  const { orchestration, explainability } = input.result;
   const perf = orchestration.dimensions.performance;
   const util = orchestration.dimensions.utility;
   const surv = orchestration.dimensions.survival;
@@ -194,6 +185,24 @@ export function scoreCharacterResultToSnapshotDto(input: {
   const confidence = input.persisted?.confidence ?? partial.confidence;
   const grade: Grade = partial.grade;
 
+  // Same public projector as CharacterScore API reads — never rebuild from limitations.
+  const perfExplain = productDimensionExplainabilityFields(
+    explainability,
+    "PERFORMANCE",
+  );
+  const utilExplain = productDimensionExplainabilityFields(
+    explainability,
+    "UTILITY",
+  );
+  const survExplain = productDimensionExplainabilityFields(
+    explainability,
+    "SURVIVAL",
+  );
+  const expExplain = productDimensionExplainabilityFields(
+    explainability,
+    "EXPERIENCE",
+  );
+
   const dimensions: DimensionScoreDTO[] = [
     {
       dimension: "PERFORMANCE",
@@ -206,7 +215,8 @@ export function scoreCharacterResultToSnapshotDto(input: {
         blocked.get("PERFORMANCE") ?? null,
       ),
       reason: blocked.get("PERFORMANCE") ?? null,
-      contributors: contributorsFromLimitations(perf?.limitations),
+      contributors: perfExplain.contributors,
+      explainability: perfExplain.explainability,
     },
     {
       dimension: "UTILITY",
@@ -219,9 +229,8 @@ export function scoreCharacterResultToSnapshotDto(input: {
         blocked.get("UTILITY") ?? null,
       ),
       reason: blocked.get("UTILITY") ?? null,
-      contributors: contributorsFromLimitations(
-        util?.explanation?.confidenceReasons,
-      ),
+      contributors: utilExplain.contributors,
+      explainability: utilExplain.explainability,
     },
     {
       dimension: "SURVIVAL",
@@ -234,7 +243,8 @@ export function scoreCharacterResultToSnapshotDto(input: {
         blocked.get("SURVIVAL") ?? null,
       ),
       reason: blocked.get("SURVIVAL") ?? null,
-      contributors: contributorsFromLimitations(surv?.explanation?.limitations),
+      contributors: survExplain.contributors,
+      explainability: survExplain.explainability,
     },
     {
       dimension: "EXPERIENCE",
@@ -247,9 +257,8 @@ export function scoreCharacterResultToSnapshotDto(input: {
         experienceReason,
       ),
       reason: experienceReason,
-      contributors: experienceAvailable
-        ? contributorsFromLimitations([])
-        : experiencePresentation.contributors,
+      contributors: expExplain.contributors,
+      explainability: expExplain.explainability,
     },
   ];
 
@@ -298,6 +307,7 @@ export function scoreCharacterResultToSnapshotDto(input: {
       availabilityCoverage: partial.availabilityCoverage,
       effectiveWeights: partial.effectiveWeights,
       experience: input.result.experience,
+      explainabilityFingerprint: explainability.fingerprint,
       selectedRuns: orchestration.characterDigests.map((d) => ({
         slotId: d.slotId,
         dungeonSlug: d.dungeonSlug,

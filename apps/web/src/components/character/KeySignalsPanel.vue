@@ -3,7 +3,9 @@ import { computed } from "vue";
 import type { DimensionScoreDTO } from "@mplus/contracts";
 import type { RedFlagDTO } from "../../api/types";
 import {
+  EXPLAINABILITY_UNAVAILABLE_MESSAGE,
   evidenceNoteFromFlag,
+  hasScoreExplainabilityV1,
   parseContributorSignals,
   topSignals,
 } from "../../lib/characterViewModel";
@@ -14,9 +16,13 @@ const props = defineProps<{
   flags: RedFlagDTO[];
 }>();
 
-const contributorSignals = computed(() => parseContributorSignals(props.dimensions));
+const explanationAvailable = computed(() => hasScoreExplainabilityV1(props.dimensions));
+const contributorSignals = computed(() =>
+  explanationAvailable.value ? parseContributorSignals(props.dimensions) : [],
+);
 const positives = computed(() => topSignals(contributorSignals.value, "positive", 3));
 const risks = computed(() => topSignals(contributorSignals.value, "risk", 3));
+const facts = computed(() => topSignals(contributorSignals.value, "fact", 3));
 const publicFlags = computed(() => props.flags.filter((f) => f.public));
 </script>
 
@@ -24,11 +30,19 @@ const publicFlags = computed(() => props.flags.filter((f) => f.public));
   <section class="signals" aria-labelledby="signals-title">
     <h2 id="signals-title">Why this trust profile</h2>
     <p class="note">
-      Signals below are derived from scored dimensions and public probabilistic indicators. They are not
-      proven accusations.
+      Score strengths and weaknesses come from Score Explainability V1. Public indicators below are
+      separate probabilistic signals, not proven accusations.
     </p>
 
-    <div class="columns">
+    <p
+      v-if="!explanationAvailable && dimensions.length"
+      class="empty"
+      data-testid="explainability-fallback"
+    >
+      {{ EXPLAINABILITY_UNAVAILABLE_MESSAGE }}
+    </p>
+
+    <div v-else class="columns">
       <div>
         <h3>Positive signals</h3>
         <ul v-if="positives.length">
@@ -42,15 +56,26 @@ const publicFlags = computed(() => props.flags.filter((f) => f.public));
       </div>
 
       <div>
-        <h3>Risks & limitations</h3>
+        <h3>Risks &amp; weaknesses</h3>
         <ul v-if="risks.length">
           <li v-for="(item, index) in risks" :key="`risk-${index}`">
-            <span class="kind kind--risk">Risk</span>
+            <span class="kind kind--risk">Weakness</span>
             {{ item.label }}
             <span v-if="item.dimension" class="dim">{{ item.dimension }}</span>
           </li>
         </ul>
         <p v-else class="empty">No risk contributor labels in this snapshot.</p>
+      </div>
+
+      <div v-if="facts.length">
+        <h3>Facts / context</h3>
+        <ul>
+          <li v-for="(item, index) in facts" :key="`fact-${index}`">
+            <span class="kind kind--fact">Fact</span>
+            {{ item.label }}
+            <span v-if="item.dimension" class="dim">{{ item.dimension }}</span>
+          </li>
+        </ul>
       </div>
     </div>
 
@@ -130,6 +155,7 @@ const publicFlags = computed(() => props.flags.filter((f) => f.public));
   margin-right: var(--space-2);
   font-family: var(--font-data);
   font-size: var(--text-xs);
+  font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
@@ -142,50 +168,40 @@ const publicFlags = computed(() => props.flags.filter((f) => f.public));
   color: var(--color-ember-500);
 }
 
+.kind--fact {
+  color: var(--color-text-muted);
+}
+
 .dim {
   display: block;
-  margin-top: var(--space-1);
+  margin-top: 0.2rem;
 }
 
 .flag__head {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-2) var(--space-3);
+  gap: var(--space-2);
   align-items: baseline;
 }
 
 .label {
   font-weight: 600;
-  color: var(--color-text);
 }
 
 .sev,
 .conf {
-  font-size: var(--text-sm);
+  font-family: var(--font-data);
+  font-size: var(--text-xs);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
   color: var(--color-text-muted);
 }
 
-.flags li[data-severity="HIGH"],
-.flags li[data-severity="CRITICAL"] {
-  border-left: 3px solid var(--color-danger-500);
-}
-
-.flags li[data-severity="MEDIUM"] {
-  border-left: 3px solid var(--color-amber-500);
-}
-
-.flags li[data-severity="LOW"],
-.flags li[data-severity="INFO"] {
-  border-left: 3px solid var(--color-info-500);
+.flags li[data-severity="HIGH"] {
+  border-color: var(--color-ember-500);
 }
 
 .evidence {
   margin: var(--space-2) 0 0;
-}
-
-@media (min-width: 768px) {
-  .columns {
-    grid-template-columns: 1fr 1fr;
-  }
 }
 </style>

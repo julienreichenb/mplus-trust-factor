@@ -49,10 +49,11 @@ function limitationLabel(code: string): string {
     aria-labelledby="explain-v2-title"
     data-testid="explainability-v2"
   >
-    <h2 id="explain-v2-title">Evidence &amp; confidence</h2>
+    <h2 id="explain-v2-title">Selected-run evidence (Scoring V2)</h2>
     <p class="lead">
-      How this Trust Score was supported by selected runs. Grade U means unavailable or unranked, not
-      a low score.
+      Forensic coverage of selected runs from the Scoring V2 EvidenceManifest path.
+      Current score strengths and weaknesses come from Score Explainability V1 on each dimension card.
+      Grade U means unavailable or unranked, not a low score.
     </p>
 
     <p v-if="locked" class="locked">Detailed evidence breakdown is locked by entitlement.</p>

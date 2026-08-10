@@ -7,7 +7,9 @@ import SkeletonBlock from "../components/common/SkeletonBlock.vue";
 import { ApiClientError } from "../api/live-client";
 import { sanitizeWarcraftLogsUrl } from "../lib/warcraftLogsUrl";
 import TrustTierBadge from "../components/landing/TrustTierBadge.vue";
+import ScoreExplainabilityAuditPanel from "../components/admin/ScoreExplainabilityAuditPanel.vue";
 import type { Grade } from "@mplus/contracts";
+import type { ScoreExplainabilityV1 } from "@mplus/contracts";
 
 const props = defineProps<{ characterId: string }>();
 
@@ -59,6 +61,7 @@ type CharacterScoreRow = {
   dimensionDetails: unknown;
   selectedRuns: unknown;
   calculatedAt: string;
+  scoreExplainabilityAudit?: ScoreExplainabilityV1 | null;
 };
 
 type SnapshotRow = {
@@ -643,7 +646,13 @@ const currentGrade = computed((): Grade | null => {
                 </tr>
                 <tr v-if="expandedScoreId === row.id" class="detail-row">
                   <td colspan="7">
-                    <pre>{{ pretty({ dimensionDetails: row.dimensionDetails, selectedRuns: row.selectedRuns }) }}</pre>
+                    <ScoreExplainabilityAuditPanel
+                      :explainability="row.scoreExplainabilityAudit ?? null"
+                    />
+                    <details class="raw-details">
+                      <summary>Raw dimensionDetails / selectedRuns</summary>
+                      <pre>{{ pretty({ dimensionDetails: row.dimensionDetails, selectedRuns: row.selectedRuns }) }}</pre>
+                    </details>
                   </td>
                 </tr>
               </template>
@@ -902,6 +911,14 @@ pre {
   font-size: 0.75rem;
   white-space: pre-wrap;
   word-break: break-word;
+}
+.raw-details {
+  margin-top: 0.75rem;
+}
+.raw-details summary {
+  cursor: pointer;
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
 }
 .ext {
   color: var(--color-link, #6af);

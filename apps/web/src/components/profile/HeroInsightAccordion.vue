@@ -2,6 +2,8 @@
 import { computed, ref } from "vue";
 import type { CharacterProfileView } from "../../api/types";
 import {
+  EXPLAINABILITY_UNAVAILABLE_MESSAGE,
+  hasScoreExplainabilityV1,
   parseContributorSignals,
   topSignals,
 } from "../../lib/characterViewModel";
@@ -19,11 +21,14 @@ const openPanel = ref<PanelId>("signals");
 const copyState = ref<"idle" | "copied" | "failed">("idle");
 let copyResetTimer: ReturnType<typeof setTimeout> | null = null;
 
+const dimensions = computed(() => props.profile.score?.dimensions ?? []);
+const explanationAvailable = computed(() => hasScoreExplainabilityV1(dimensions.value));
 const signals = computed(() =>
-  props.profile.score?.dimensions ? parseContributorSignals(props.profile.score.dimensions) : [],
+  explanationAvailable.value ? parseContributorSignals(dimensions.value) : [],
 );
 const positives = computed(() => topSignals(signals.value, "positive", 5));
 const risks = computed(() => topSignals(signals.value, "risk", 5));
+const facts = computed(() => topSignals(signals.value, "fact", 5));
 const detailsLocked = computed(() => !(props.profile.entitlements?.detailsUnlocked ?? true));
 const loadoutCode = computed(() => props.profile.talents?.loadoutCode?.trim() || null);
 
@@ -171,28 +176,51 @@ async function copyLoadout(): Promise<void> {
         :aria-labelledby="`insight-${panel.id}-trigger`"
       >
         <div v-if="panel.id === 'signals'" class="key-signals" aria-label="Top signals">
-          <section class="key-signals__col" aria-labelledby="key-signals-strengths">
-            <h3 id="key-signals-strengths" class="key-signals__title">Strengths</h3>
-            <ul v-if="positives.length" class="key-signals__list">
-              <KeySignalRow
-                v-for="(item, index) in positives"
-                :key="`p-${index}`"
-                :signal="item"
-              />
-            </ul>
-            <p v-else class="empty">No standout strengths in this snapshot</p>
-          </section>
-          <section class="key-signals__col" aria-labelledby="key-signals-weaknesses">
-            <h3 id="key-signals-weaknesses" class="key-signals__title">Weaknesses</h3>
-            <ul v-if="risks.length" class="key-signals__list">
-              <KeySignalRow
-                v-for="(item, index) in risks"
-                :key="`r-${index}`"
-                :signal="item"
-              />
-            </ul>
-            <p v-else class="empty">No standout weaknesses in this snapshot</p>
-          </section>
+          <p
+            v-if="!explanationAvailable && dimensions.length"
+            class="empty"
+            data-testid="explainability-fallback"
+          >
+            {{ EXPLAINABILITY_UNAVAILABLE_MESSAGE }}
+          </p>
+          <template v-else>
+            <section class="key-signals__col" aria-labelledby="key-signals-strengths">
+              <h3 id="key-signals-strengths" class="key-signals__title">Strengths</h3>
+              <ul v-if="positives.length" class="key-signals__list">
+                <KeySignalRow
+                  v-for="(item, index) in positives"
+                  :key="`p-${index}`"
+                  :signal="item"
+                />
+              </ul>
+              <p v-else class="empty">No standout strengths in this snapshot</p>
+            </section>
+            <section class="key-signals__col" aria-labelledby="key-signals-weaknesses">
+              <h3 id="key-signals-weaknesses" class="key-signals__title">Weaknesses</h3>
+              <ul v-if="risks.length" class="key-signals__list">
+                <KeySignalRow
+                  v-for="(item, index) in risks"
+                  :key="`r-${index}`"
+                  :signal="item"
+                />
+              </ul>
+              <p v-else class="empty">No standout weaknesses in this snapshot</p>
+            </section>
+            <section
+              v-if="facts.length"
+              class="key-signals__col key-signals__col--facts"
+              aria-labelledby="key-signals-facts"
+            >
+              <h3 id="key-signals-facts" class="key-signals__title">Facts / context</h3>
+              <ul class="key-signals__list">
+                <KeySignalRow
+                  v-for="(item, index) in facts"
+                  :key="`f-${index}`"
+                  :signal="item"
+                />
+              </ul>
+            </section>
+          </template>
         </div>
 
         <HeroGearPanel

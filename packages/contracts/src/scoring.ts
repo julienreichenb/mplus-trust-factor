@@ -80,6 +80,24 @@ export interface DimensionScoreDTO {
   /** Machine-readable reason when not AVAILABLE. */
   reason?: string | null;
   contributors: unknown;
+  /**
+   * Canonical Score Explainability V1 product projection for this dimension.
+   * Optional / additive — absent on legacy CharacterScore rows.
+   */
+  explainability?: {
+    scoreDrivers: Array<{
+      code: string;
+      labelKey: string;
+      label: string;
+      direction: "POSITIVE" | "NEGATIVE" | "NEUTRAL";
+      value?: number | null;
+    }>;
+    confidenceReasons: Array<{
+      code: string;
+      labelKey: string;
+      label: string;
+    }>;
+  };
 }
 
 export interface RedFlagDTO {
