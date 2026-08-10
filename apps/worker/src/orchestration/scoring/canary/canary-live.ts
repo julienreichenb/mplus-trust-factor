@@ -154,6 +154,20 @@ export interface CanaryLiveReport {
   publicScorePointerMutated: false;
   orchestratorExecuted: true;
   scoringAuthority: "runAuthoritativeScoring";
+  /**
+   * WCL capability-package live gate based on package cache misses + canary
+   * cost admission. Diagnostic only — NOT the full authoritative scoring
+   * provider permission (which follows env + forceProviderFree).
+   */
+  capabilityLiveProviderPermission: LiveProviderPermission;
+  /**
+   * Effective WCL/orchestration provider permission used by cold
+   * runAuthoritativeScoring (env gates). Replay always forceProviderFree.
+   */
+  authoritativeProviderPermission: LiveProviderPermission;
+  /** Replay always sets forceProviderFree:true on runAuthoritativeScoring. */
+  forceProviderFreeReplay: true;
+  /** @deprecated Prefer capabilityLiveProviderPermission */
   liveProviderPermission: LiveProviderPermission;
   explainabilityFingerprint: string;
 }
@@ -407,19 +421,21 @@ export async function runScoringCanaryLive(
   }
 
   const packageCacheMisses = cacheStatuses.filter((c) => !c.packageCacheHit).length;
-  const liveProviderPermission: LiveProviderPermission =
+  // Capability-package gate only (cache miss → may acquire). Distinct from
+  // authoritative env-derived allowProviderCalls used by runAuthoritativeScoring.
+  const capabilityLiveProviderPermission: LiveProviderPermission =
     packageCacheMisses > 0 ? "ALLOWED" : "FORBIDDEN";
 
   const permissionInput = {
     providerMode: input.env.PROVIDER_MODE,
     wclEnabled: input.env.WCL_ENABLED === true,
     allowLiveProviderCalls: input.env.ALLOW_LIVE_PROVIDER_CALLS === true,
-    liveProviderPermissionGranted: liveProviderPermission === "ALLOWED",
+    liveProviderPermissionGranted: capabilityLiveProviderPermission === "ALLOWED",
     scoringPublicationEnabled: input.env.SCORING_PUBLICATION_ENABLED === true,
     hasWclCredentials: Boolean(input.env.WCL_CLIENT_ID && input.env.WCL_CLIENT_SECRET),
   };
   const liveGate = evaluateLiveCapabilityPermission(permissionInput);
-  if (liveProviderPermission === "ALLOWED" && !liveGate.allowed) {
+  if (capabilityLiveProviderPermission === "ALLOWED" && !liveGate.allowed) {
     throw Object.assign(
       new Error(`live_capability_permission_refused:${liveGate.reasons.join(",")}`),
       {
@@ -428,6 +444,13 @@ export async function runScoringCanaryLive(
       },
     );
   }
+
+  const envAllowsAuthoritativeProviders =
+    input.env.ALLOW_LIVE_PROVIDER_CALLS === true &&
+    input.env.PROVIDER_MODE === "live" &&
+    input.env.WCL_ENABLED === true;
+  const authoritativeProviderPermission: LiveProviderPermission =
+    envAllowsAuthoritativeProviders ? "ALLOWED" : "FORBIDDEN";
 
   let eventPageRequestCount = 0;
   let measuredPointsAcc: number | null = bootstrap.measuredPoints;
@@ -439,6 +462,11 @@ export async function runScoringCanaryLive(
   let ports = input.ports;
   let redisForLock: ReturnType<WorkerContainer["createRedisConnection"]> | null = null;
 
+  // One Redis connection for the full cold+replay canary operation.
+  if (input.useRedisLock !== false) {
+    redisForLock = input.container.createRedisConnection();
+  }
+
   if (!ports) {
     let liveHook:
       | ((args: {
@@ -448,7 +476,7 @@ export async function runScoringCanaryLive(
           participants: OrchestrationParticipant[];
         }) => Promise<LiveCapabilityAcquireResult>)
       | undefined;
-    if (liveProviderPermission === "ALLOWED") {
+    if (capabilityLiveProviderPermission === "ALLOWED") {
       const client = new LiveWarcraftLogsProvider({
         env: input.env,
       }).getGraphQlClient();
@@ -483,9 +511,6 @@ export async function runScoringCanaryLive(
       };
     }
 
-    if (input.useRedisLock !== false) {
-      redisForLock = input.container.createRedisConnection();
-    }
     const rosterPorts = createProductionRunOrchestrationPorts({
       prisma: input.prisma,
       artifacts: input.container.repositories.artifacts,
@@ -513,6 +538,21 @@ export async function runScoringCanaryLive(
     ports = {
       ...rosterPorts,
       withSourceFightLock: withSourceFightLock ?? rosterPorts.withSourceFightLock,
+    };
+  } else if (redisForLock) {
+    // Injected ports (tests): keep Redis open for cold+replay and fail if quit early.
+    const redis = redisForLock as {
+      assertOpen?: () => void;
+    } & typeof redisForLock;
+    const innerLock = ports.withSourceFightLock.bind(ports);
+    ports = {
+      ...ports,
+      withSourceFightLock: async (sourceFight, work) => {
+        if (typeof redis.assertOpen === "function") {
+          redis.assertOpen();
+        }
+        return innerLock(sourceFight, work);
+      },
     };
   }
 
@@ -590,49 +630,48 @@ export async function runScoringCanaryLive(
   };
 
   let cold: AuthoritativeScoringResult;
+  let replay: AuthoritativeScoringResult;
   try {
-    // Align env permission with canary live gate: when warm cache forbids live
-    // acquisition, still allow authoritative scoring via ports (memory/tests)
-    // when env already permits providers. forceProviderFree is only for replay.
+    // Cold + replay are one canary operation — keep Redis lock alive for both.
     cold = await runAuthoritativeScoring(commonScoringInput);
+
+    if (!cold.scoreResult) {
+      throw Object.assign(new Error("canary_live_authoritative_scoring_empty"), {
+        code: "CANARY_LIVE_AUTHORITATIVE_EMPTY",
+      });
+    }
+
+    // TRUE provider-free authoritative replay (one-way forceProviderFree).
+    replay = await runAuthoritativeScoring({
+      ...commonScoringInput,
+      forceProviderFree: true,
+      calculatedAt,
+    });
+
+    if (!replay.scoreResult) {
+      throw Object.assign(new Error("canary_live_replay_authoritative_empty"), {
+        code: "CANARY_LIVE_REPLAY_EMPTY",
+      });
+    }
   } finally {
     if (redisForLock) {
       await redisForLock.quit().catch(() => undefined);
     }
   }
 
-  if (!cold.scoreResult) {
-    throw Object.assign(new Error("canary_live_authoritative_scoring_empty"), {
-      code: "CANARY_LIVE_AUTHORITATIVE_EMPTY",
-    });
-  }
-
-  const result = cold.scoreResult.orchestration;
-
-  // TRUE provider-free authoritative replay (one-way forceProviderFree).
-  const replay = await runAuthoritativeScoring({
-    ...commonScoringInput,
-    forceProviderFree: true,
-    calculatedAt,
-  });
-
-  if (!replay.scoreResult) {
-    throw Object.assign(new Error("canary_live_replay_authoritative_empty"), {
-      code: "CANARY_LIVE_REPLAY_EMPTY",
-    });
-  }
+  const result = cold.scoreResult!.orchestration;
 
   const authoritativeReplay = compareAuthoritativeScoringParity({
-    cold: cold.scoreResult,
-    replay: replay.scoreResult,
+    cold: cold.scoreResult!,
+    replay: replay.scoreResult!,
     replayProviderCalls: replay.providerCalls,
   });
 
   const dimensions = buildCanaryAuthoritativeDimensions(
-    cold.scoreResult.explainability,
+    cold.scoreResult!.explainability,
   );
   const composite = buildCanaryAuthoritativeComposite(
-    cold.scoreResult.explainability,
+    cold.scoreResult!.explainability,
   );
   const evidenceCoverageDiagnostic = buildEvidenceCoverageDiagnostic({
     orchestration: result,
@@ -702,7 +741,7 @@ export async function runScoringCanaryLive(
     persistCharacterScore: false,
     authoritativeReplay,
     replayProviderCalls: authoritativeReplay.providerCalls,
-    replayPackagesCreated: replay.scoreResult.orchestration.accounting.packagesCreated,
+    replayPackagesCreated: replay.scoreResult!.orchestration.accounting.packagesCreated,
     replayFingerprintEqual: authoritativeReplay.explainabilityFingerprintEqual,
     replayScoresEqual: authoritativeReplay.scoresEqual,
     replayConfidenceEqual: authoritativeReplay.confidenceEqual,
@@ -710,8 +749,11 @@ export async function runScoringCanaryLive(
     publicScorePointerMutated: false,
     orchestratorExecuted: true,
     scoringAuthority: "runAuthoritativeScoring",
-    liveProviderPermission,
-    explainabilityFingerprint: cold.scoreResult.explainability.fingerprint,
+    capabilityLiveProviderPermission,
+    authoritativeProviderPermission,
+    forceProviderFreeReplay: true,
+    liveProviderPermission: capabilityLiveProviderPermission,
+    explainabilityFingerprint: cold.scoreResult!.explainability.fingerprint,
   };
 
   await mkdir(outDir, { recursive: true });
@@ -730,7 +772,7 @@ export async function runScoringCanaryLive(
       report,
     });
   }
-  if (cold.scoreResult.characterScoreId != null || replay.scoreResult.characterScoreId != null) {
+  if (cold.scoreResult!.characterScoreId != null || replay.scoreResult!.characterScoreId != null) {
     throw Object.assign(new Error("canary_live_character_score_write_forbidden"), {
       code: "CANARY_LIVE_CHARACTER_SCORE_WRITE",
       report,
@@ -768,7 +810,7 @@ export async function runScoringCanaryLive(
   }
   if (
     authoritativeReplay.providerCalls !== 0 ||
-    replay.scoreResult.orchestration.accounting.packagesCreated !== 0
+    replay.scoreResult!.orchestration.accounting.packagesCreated !== 0
   ) {
     throw Object.assign(new Error("canary_live_replay_not_provider_free"), {
       code: "CANARY_LIVE_REPLAY_PROVIDER_CALLS",
@@ -780,7 +822,7 @@ export async function runScoringCanaryLive(
     report,
     reportPath,
     result,
-    scoreResult: cold.scoreResult,
+    scoreResult: cold.scoreResult!,
     authoritative: cold,
   };
 }

@@ -677,4 +677,151 @@ describe("Agent 03 canary authoritative parity", () => {
     expect(report.composite.tier).toBeTruthy();
     await rm(outDir, { recursive: true, force: true });
   });
+
+  it("Redis lock stays open across cold+replay; quit only after replay", async () => {
+    const lifecycle: string[] = [];
+    let closed = false;
+    const fakeRedis = {
+      assertOpen() {
+        if (closed) {
+          throw new Error("redis_already_quit");
+        }
+      },
+      async quit() {
+        lifecycle.push("quit");
+        closed = true;
+      },
+    };
+
+    const ports = createMemoryOrchestrationPorts();
+    const baseLock = ports.withSourceFightLock.bind(ports);
+    ports.withSourceFightLock = async (sourceFight, work) => {
+      fakeRedis.assertOpen();
+      lifecycle.push("lock");
+      return baseLock(sourceFight, work);
+    };
+
+    const manifest = buildManifest(
+      fullCandidates(),
+      MIDNIGHT_SEASON_1_DUNGEON_SLUGS,
+    );
+    const container = mockContainer(manifest);
+    container.createRedisConnection = vi.fn(() => fakeRedis);
+    const experience = confirmedNoActivityExperience();
+    const outDir = await mkdtemp(join(tmpdir(), "canary-redis-lifecycle-"));
+    try {
+      const { report } = await runScoringCanaryLive({
+        prisma: container.prisma as never,
+        container: container as never,
+        characterId: CHAR_ID,
+        characterName: "Target",
+        region: "EU",
+        realm: "archimonde",
+        characterResolution: {
+          characterResolutionSource: "test.injected",
+          characterId: CHAR_ID,
+          characterCanonicalIdentity: {
+            region: "EU",
+            realmSlug: "archimonde",
+            name: "Target",
+          },
+          repositoryMode: "PRODUCTION",
+        },
+        seasonResolution: seasonResolutionOk,
+        role: "DPS",
+        classSlug: "mage",
+        specSlug: "arcane",
+        rateBudgetConfig: { warnPercent: 70, deferPercent: 80, stopPercent: 90 },
+        env: liveEnv,
+        ports,
+        ensureRateLimitSnapshot: okBootstrap(100),
+        outputDir: outDir,
+        // Default useRedisLock (enabled) — must keep Redis across cold+replay.
+        scoringModelId: "model-1",
+        experienceOverride: experience,
+      });
+
+      expect(container.createRedisConnection).toHaveBeenCalled();
+      expect(lifecycle.filter((e) => e === "lock").length).toBeGreaterThan(0);
+      expect(lifecycle.at(-1)).toBe("quit");
+      const lastLock = lifecycle.lastIndexOf("lock");
+      const quitIdx = lifecycle.indexOf("quit");
+      expect(quitIdx).toBeGreaterThan(lastLock);
+      // Never quit before the first lock, and never lock after quit.
+      expect(lifecycle.indexOf("quit")).toBe(lifecycle.length - 1);
+      expect(report.authoritativeReplay.explainabilityFingerprintEqual).toBe(
+        true,
+      );
+      expect(report.capabilityLiveProviderPermission).toBe("ALLOWED");
+      expect(report.authoritativeProviderPermission).toBe("ALLOWED");
+      expect(report.forceProviderFreeReplay).toBe(true);
+    } finally {
+      await rm(outDir, { recursive: true, force: true });
+    }
+  });
+
+  it("standalone replay does not mutate caller-owned ports.acquire", async () => {
+    const ports = createMemoryOrchestrationPorts();
+    const originalAcquire = ports.acquireAndPersistCapabilityPackage;
+    const manifest = buildManifest(
+      fullCandidates(),
+      MIDNIGHT_SEASON_1_DUNGEON_SLUGS,
+    );
+    const container = mockContainer(manifest);
+    const experience = confirmedNoActivityExperience();
+    const outDir = await mkdtemp(join(tmpdir(), "canary-replay-ports-"));
+
+    await runScoringCanaryLive({
+      prisma: container.prisma as never,
+      container: container as never,
+      characterId: CHAR_ID,
+      characterName: "Target",
+      region: "EU",
+      realm: "archimonde",
+      characterResolution: {
+        characterResolutionSource: "test.injected",
+        characterId: CHAR_ID,
+        characterCanonicalIdentity: {
+          region: "EU",
+          realmSlug: "archimonde",
+          name: "Target",
+        },
+        repositoryMode: "PRODUCTION",
+      },
+      seasonResolution: seasonResolutionOk,
+      role: "DPS",
+      classSlug: "mage",
+      specSlug: "arcane",
+      rateBudgetConfig: { warnPercent: 70, deferPercent: 80, stopPercent: 90 },
+      env: liveEnv,
+      ports,
+      ensureRateLimitSnapshot: okBootstrap(100),
+      outputDir: outDir,
+      useRedisLock: false,
+      scoringModelId: "model-1",
+      experienceOverride: experience,
+    });
+
+    await runScoringCanaryReplay({
+      env: liveEnv,
+      prisma: container.prisma as never,
+      container: container as never,
+      characterId: CHAR_ID,
+      characterName: "Target",
+      region: "EU",
+      realm: "archimonde",
+      classSlug: "mage",
+      specSlug: "arcane",
+      role: "DPS",
+      season: seasonResolutionOk,
+      repositoryMode: "MEMORY",
+      portsOverride: ports,
+      outputDir: outDir,
+      scoringModelId: "model-1",
+      experienceOverride: experience,
+    });
+
+    expect(ports.acquireAndPersistCapabilityPackage).toBe(originalAcquire);
+    await rm(outDir, { recursive: true, force: true });
+  });
 });

@@ -139,7 +139,7 @@ export async function runScoringCanaryReplay(input: {
     season.activeDungeonSlugs.length,
   );
 
-  const ports: RunOrchestrationPorts =
+  const basePorts: RunOrchestrationPorts =
     input.portsOverride ??
     (input.repositoryMode === "MEMORY"
       ? createMemoryOrchestrationPorts()
@@ -159,11 +159,14 @@ export async function runScoringCanaryReplay(input: {
           },
         }));
 
-  // Guard: acquire must never be callable on replay ports.
-  ports.acquireAndPersistCapabilityPackage = async () => {
-    throw Object.assign(new Error("replay_acquire_forbidden"), {
-      code: "REPLAY_ACQUIRE_FORBIDDEN",
-    });
+  // Do not mutate caller-owned ports — wrap acquire for this replay only.
+  const replayPorts: RunOrchestrationPorts = {
+    ...basePorts,
+    acquireAndPersistCapabilityPackage: async () => {
+      throw Object.assign(new Error("replay_acquire_forbidden"), {
+        code: "REPLAY_ACQUIRE_FORBIDDEN",
+      });
+    },
   };
 
   const zoneId = season.configuredZoneId;
@@ -213,7 +216,7 @@ export async function runScoringCanaryReplay(input: {
     persistCharacterScore: false,
     forceProviderFree: true,
     existingManifest: frozen.document,
-    portsOverride: ports,
+    portsOverride: replayPorts,
     experienceOverride: input.experienceOverride,
     performanceAggregateProviderOverride: null,
   });
