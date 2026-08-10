@@ -33,6 +33,10 @@ export type ExperienceEvidenceStore = {
   upsertImmutable(
     input: UpsertCharacterExperienceEvidenceInput,
   ): Promise<{ row: CharacterExperienceEvidenceDTO; created: boolean }>;
+  /** Optional list — used by Blizzard season-history acquisition. */
+  listPreviousSeasonRatings?(
+    characterId: string,
+  ): Promise<CharacterExperienceEvidenceDTO[]>;
 };
 
 export type PreviousSeasonRatingSource = "BLIZZARD" | "RAIDERIO_FALLBACK";
@@ -388,6 +392,13 @@ export function createInMemoryExperienceEvidenceStore(
   return {
     async find(identity) {
       return rows.get(keyOf(identity)) ?? null;
+    },
+    async listPreviousSeasonRatings(characterId) {
+      return [...rows.values()].filter(
+        (r) =>
+          r.characterId === characterId &&
+          r.evidenceKind === EXPERIENCE_EVIDENCE_KIND.PREVIOUS_SEASON_RATING,
+      );
     },
     async upsertImmutable(input) {
       const key = keyOf(input);

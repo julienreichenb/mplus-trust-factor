@@ -333,6 +333,23 @@ function createHarness(opts?: {
     );
   });
 
+  /** Agent 03B history discovery — seasons with profiles (includes current). */
+  const getMythicKeystoneProfile = vi.fn(async () =>
+    providerResult(
+      {
+        currentMythicRating: 4000,
+        currentSeasonId: 15,
+        seasons: [{ seasonId: 14 }, { seasonId: 15 }],
+        character: {
+          region: "EU",
+          realmSlug: "archimonde",
+          name: "Acceptance",
+        },
+      },
+      "fp-mplus-index",
+    ),
+  );
+
   const getCharacterAchievements = vi.fn(
     async (): Promise<ProviderResult<BlizzardCharacterAchievementsDTO>> =>
       providerResult(
@@ -534,7 +551,11 @@ function createHarness(opts?: {
     },
     prisma,
     providers: {
-      blizzard: { getMythicKeystoneSeasonProfile, getCharacterAchievements },
+      blizzard: {
+        getMythicKeystoneProfile,
+        getMythicKeystoneSeasonProfile,
+        getCharacterAchievements,
+      },
       warcraftlogs: {},
       raiderio: {
         getSeasonCutoffs,
@@ -583,6 +604,7 @@ function createHarness(opts?: {
     saved,
     seasons,
     evidenceRows,
+    getMythicKeystoneProfile,
     getMythicKeystoneSeasonProfile,
     getCharacterAchievements,
     getCharacterExactSeasonHistoricalRating,
@@ -623,8 +645,8 @@ describe("Agent 03 — canonical cold → warm → provider-free replay", () => 
     expect(harness.getMythicKeystoneSeasonProfile).toHaveBeenCalledTimes(1);
     expect(harness.getCharacterAchievements).toHaveBeenCalledTimes(1);
     expect(harness.getCharacterExactSeasonHistoricalRating).not.toHaveBeenCalled();
-    // Exact Experience contribution (P/S/U make 0 provider calls with memory ports).
-    expect(cold.providerCalls).toBe(2);
+    // Index + previous Season Details + achievements (03B history then Phase 1 reuse).
+    expect(cold.providerCalls).toBe(3);
 
     const coldExp = experienceFromSaved(harness.saved[0]!);
     expect(coldExp.available).toBe(true);
@@ -644,6 +666,7 @@ describe("Agent 03 — canonical cold → warm → provider-free replay", () => 
     };
 
     // WARM — providers still allowed; durable evidence must short-circuit historical fetches.
+    harness.getMythicKeystoneProfile?.mockClear();
     harness.getMythicKeystoneSeasonProfile.mockClear();
     harness.getCharacterAchievements.mockClear();
     harness.getCharacterExactSeasonHistoricalRating.mockClear();
@@ -785,7 +808,7 @@ describe("Agent 03 — fresh policy + remapped cutoffs + positive rating", () =>
 
     expect(harness.getMythicKeystoneSeasonProfile).toHaveBeenCalledTimes(1);
     expect(harness.getCharacterExactSeasonHistoricalRating).not.toHaveBeenCalled();
-    expect(cold.providerCalls).toBe(2);
+    expect(cold.providerCalls).toBe(3);
 
     const exp = experienceFromSaved(harness.saved[0]!);
     expect(exp.available).toBe(true);
@@ -836,7 +859,10 @@ describe("Agent 03 — wrong-season contamination via canonical scoring", () => 
       expect.anything(),
     );
 
-    const rating = ratingEvidenceRows(harness.evidenceRows)[0]!;
+    const rating = ratingEvidenceRows(harness.evidenceRows).find(
+      (r) => r.seasonId === PREV_SEASON_ID,
+    )!;
+    expect(rating).toBeTruthy();
     expect(rating.seasonId).toBe(PREV_SEASON_ID);
     expect(rating.blizzardSeasonId).toBe(14);
     expect(rating.raiderIoSeasonSlug).toBe(PREV_RIO_SLUG);
@@ -867,7 +893,7 @@ describe("Agent 03 — transient vs terminal Blizzard fallback (canonical)", () 
       container: harness.container,
     });
 
-    expect(harness.getMythicKeystoneSeasonProfile).toHaveBeenCalledTimes(1);
+    expect(harness.getMythicKeystoneSeasonProfile).toHaveBeenCalledTimes(2);
     expect(harness.getCharacterExactSeasonHistoricalRating).not.toHaveBeenCalled();
     expect(ratingEvidenceRows(harness.evidenceRows)).toHaveLength(0);
     // Elite achievements may still yield Experience (elite floor); rating remains unpersisted.
@@ -875,7 +901,7 @@ describe("Agent 03 — transient vs terminal Blizzard fallback (canonical)", () 
     expect(exp.previousStandingScore).toBeNull();
   });
 
-  it("terminal 404 allows exact RIO fallback and counts exactly 3 Experience calls", async () => {
+  it("terminal 404 allows exact RIO fallback after history + Phase 1 Season Details attempts", async () => {
     const harness = createHarness({
       allowExperienceProviders: true,
       blizzardMode: {
@@ -889,10 +915,11 @@ describe("Agent 03 — transient vs terminal Blizzard fallback (canonical)", () 
       container: harness.container,
     });
 
-    expect(harness.getMythicKeystoneSeasonProfile).toHaveBeenCalledTimes(1);
+    // History details fail + Phase 1 details retry + RIO + achievements (+ index).
+    expect(harness.getMythicKeystoneSeasonProfile).toHaveBeenCalledTimes(2);
     expect(harness.getCharacterExactSeasonHistoricalRating).toHaveBeenCalledTimes(1);
     expect(harness.getCharacterAchievements).toHaveBeenCalledTimes(1);
-    expect(result.providerCalls).toBe(3);
+    expect(result.providerCalls).toBe(5);
     expect(ratingEvidenceRows(harness.evidenceRows)).toHaveLength(1);
     expect(ratingEvidenceRows(harness.evidenceRows)[0]!.source).toBe("RAIDERIO_FALLBACK");
     expect(harness.saved[0]!.experience).toBe(NATIVE_BAND_STANDING_SCORES.p990);

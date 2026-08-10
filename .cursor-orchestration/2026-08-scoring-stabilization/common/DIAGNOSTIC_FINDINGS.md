@@ -2,9 +2,23 @@
 
 **Date:** 2026-08-10  
 **Branch:** `fix/scoring-stabilization`  
-**Mode:** Agent 01 diagnostic + Agent 02 Problem 1 (UI-validated) + Agent 03 Experience acquisition (code done; UI gate pending).
+**Mode:** Agent 01–03B on branch. Experience **formula/UI** still pending Agent 03C. Agent 04 not started.
 
 Legend for evidence: **OBSERVED** (code/tests), **INFERRED** (strong code path), **NOT YET PROVEN** (needs live character dump).
+
+---
+
+## 0b. Agent 03B — Historical Blizzard character M+ dataset
+
+| Field | Value |
+|-------|-------|
+| Status | **FIXED IN CODE / READY FOR 03C** |
+| Persistence | Reused `PREVIOUS_SEASON_RATING` (no migration) |
+| Formula / UI | Unchanged — 03C owns Experience calc |
+
+Cold: Profile Index + Season Details only for missing closed seasons in index.  
+Warm (complete terminal evidence): **0** historical Blizzard calls.  
+Absent-from-index (after successful index): `CONFIRMED_NO_ACTIVITY`. Index failure: leave retryable.
 
 ---
 
@@ -12,8 +26,8 @@ Legend for evidence: **OBSERVED** (code/tests), **INFERRED** (strong code path),
 
 | Field | Value |
 |-------|-------|
-| Status | **FIXED IN CODE** — **PENDING MANUAL UI VALIDATION** |
-| Not fully accepted until | Human Experience UI gate in `LATEST_HANDOFF.md` passes |
+| Status | **FIXED IN CODE** — historical acquisition path fixed; **Experience UI bug not claimed fixed** until 03C |
+| Not fully accepted until | Agent 03C + human Experience UI gate |
 | Agent 04 | **Do not start** until Experience UI gate passes |
 
 ### Root cause (confirmed)
