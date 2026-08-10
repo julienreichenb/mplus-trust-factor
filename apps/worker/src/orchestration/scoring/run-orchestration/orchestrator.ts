@@ -242,6 +242,11 @@ export interface RunOrchestrationInput {
     healing: PerformanceThroughputChannelFact | null;
   } | null;
   /**
+   * Authoritative WCL partition for scoring (same value used for aggregate ensure).
+   * Null = logical "current" — does not invent partition mismatches.
+   */
+  expectedPartition?: number | null;
+  /**
    * Persisted ScoreModel.config JSON. When omitted, calculators use package defaults
    * (identical to pre-tunable-weights production behaviour).
    */
@@ -1113,8 +1118,7 @@ export async function orchestrateScoringRuns(
         damage: input.throughputChannels.damage,
         healing: input.throughputChannels.healing,
         cooldownRuns,
-        expectedPartition: null,
-        logFreshness: 1,
+        expectedPartition: input.expectedPartition ?? null,
         computedAt: input.selectedAt ?? new Date().toISOString(),
       });
       if (performance.score == null) {

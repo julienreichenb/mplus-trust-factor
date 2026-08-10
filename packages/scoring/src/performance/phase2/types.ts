@@ -50,6 +50,7 @@ export interface PerformancePhase2ComputeInput {
   /** DPS only — ignored for tank/healer. */
   cooldownRuns: readonly PerformanceCooldownRunEvidence[];
   expectedPartition?: number | null;
+  /** @deprecated Unused in 04B baseline — freshness is not part of parse confidence. */
   logFreshness?: number;
   computedAt?: string;
 }

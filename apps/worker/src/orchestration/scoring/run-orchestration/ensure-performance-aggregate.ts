@@ -13,6 +13,7 @@ import {
 } from "@mplus/database";
 import {
   CHARACTER_PERFORMANCE_AGGREGATE_RANKING_VERSION,
+  performanceAggregateV2MatchesScoringIdentity,
   type CharacterIdentityInput,
   type EvidenceRole,
   type PersistedCharacterPerformanceAggregateV2,
@@ -102,6 +103,18 @@ function toScoringRole(
   return null;
 }
 
+function isCachedAggregateCompatible(input: {
+  data: CharacterPerformanceAggregateDTO;
+  scoringRole: "DPS" | "TANK" | "HEALER";
+  specSlug: string | null;
+}): boolean {
+  return performanceAggregateV2MatchesScoringIdentity({
+    compact: input.data.compact,
+    role: input.scoringRole,
+    specSlug: input.specSlug,
+  });
+}
+
 export function createEnsureCharacterPerformanceAggregate(deps: {
   prisma: PrismaClient;
 }): (
@@ -139,12 +152,21 @@ export function createEnsureCharacterPerformanceAggregate(deps: {
 
     if (input.liveProviderPermission === "FORBIDDEN") {
       const replay = await repo.findCompatibleForReplay(identity);
-      if (!replay) {
+      if (
+        !replay ||
+        !isCachedAggregateCompatible({
+          data: replay,
+          scoringRole,
+          specSlug: input.specSlug,
+        })
+      ) {
         return {
           state: "UNAVAILABLE",
           data: null,
-          reason: "performance_aggregate_unavailable_replay",
-          cache: "MISS",
+          reason: replay
+            ? "performance_aggregate_role_spec_incompatible_replay"
+            : "performance_aggregate_unavailable_replay",
+          cache: replay ? "INCOMPATIBLE" : "MISS",
           providerCalls: 0,
           created: false,
           updated: false,
@@ -166,7 +188,14 @@ export function createEnsureCharacterPerformanceAggregate(deps: {
     }
 
     const live = await repo.findCompatibleLive({ ...identity, now: input.now });
-    if (live) {
+    if (
+      live &&
+      isCachedAggregateCompatible({
+        data: live,
+        scoringRole,
+        specSlug: input.specSlug,
+      })
+    ) {
       return {
         state: "AVAILABLE",
         data: live,
@@ -179,6 +208,7 @@ export function createEnsureCharacterPerformanceAggregate(deps: {
         contentHash: live.contentHash,
       };
     }
+    // Incompatible role/spec on the shared DB identity → treat as miss and refetch.
 
     if (!input.provider?.fetchCharacterPerformanceAggregate) {
       return {

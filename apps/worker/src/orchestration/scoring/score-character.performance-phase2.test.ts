@@ -239,7 +239,6 @@ describe("scoreCharacter Performance Phase 2 product boundary", () => {
           version: "sdp-v1",
         },
         expectedPartition: null,
-        logFreshness: 1,
         computedAt: "2026-01-01T00:00:00.000Z",
       }).algorithmVersion,
     ).toBe(PERFORMANCE_V2_ALGORITHM_VERSION);

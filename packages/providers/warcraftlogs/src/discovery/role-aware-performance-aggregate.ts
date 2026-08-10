@@ -12,6 +12,7 @@ import {
   PERFORMANCE_THROUGHPUT_METRIC_HEALING,
   assertPersistedCharacterPerformanceAggregateV2,
   dedupeDungeonAggregates,
+  normalizePerformanceSpecToken,
   toPerformanceAggregatePartitionKey,
   type PerformanceAggregateRoleV2,
   type PersistedCharacterPerformanceAggregateV2,
@@ -56,15 +57,6 @@ export function buildRoleAwarePerformanceAggregateRequestFingerprint(input: {
   return createHash("sha256").update(material, "utf8").digest("hex");
 }
 
-function normalizeSpecToken(value: string | null | undefined): string | null {
-  if (value == null || value.trim() === "") return null;
-  return value
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, "-")
-    .replace(/_/g, "-");
-}
-
 /**
  * Spec binding from payload evidence only (not GraphQL filter args).
  * - EXACT_MATCH: at least one observed spec equals target
@@ -75,11 +67,11 @@ export function resolveSpecBinding(input: {
   targetSpecSlug: string | null;
   observedSpecs: readonly string[];
 }): PersistedThroughputChannelV2["specBinding"] {
-  const target = normalizeSpecToken(input.targetSpecSlug);
+  const target = normalizePerformanceSpecToken(input.targetSpecSlug);
   const observed = [
     ...new Set(
       input.observedSpecs
-        .map((s) => normalizeSpecToken(s))
+        .map((s) => normalizePerformanceSpecToken(s))
         .filter((s): s is string => s != null),
     ),
   ];

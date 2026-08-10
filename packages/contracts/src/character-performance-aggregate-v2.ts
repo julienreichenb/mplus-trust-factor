@@ -500,3 +500,37 @@ export function hashPerformanceAggregateContentV2(
 ): string {
   return hashCanonicalJson(performanceAggregateContentHashMaterialV2(input));
 }
+
+/**
+ * Canonical spec token for V2 cache / binding comparisons.
+ * Matches WCL payload specialization normalization (lowercase, spaces/underscores → hyphens).
+ */
+export function normalizePerformanceSpecToken(
+  value: string | null | undefined,
+): string | null {
+  if (value == null || value.trim() === "") return null;
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "-")
+    .replace(/_/g, "-");
+}
+
+/**
+ * Whether a persisted V2 compact may be reused for the requested scoring identity.
+ * DB row identity does not include role/spec — callers must gate HIT/REPLAY with this.
+ */
+export function performanceAggregateV2MatchesScoringIdentity(input: {
+  compact: Pick<
+    PersistedCharacterPerformanceAggregateV2,
+    "role" | "targetSpecSlug"
+  >;
+  role: PerformanceAggregateRoleV2;
+  specSlug: string | null;
+}): boolean {
+  if (input.compact.role !== input.role) return false;
+  const requested = normalizePerformanceSpecToken(input.specSlug);
+  if (requested == null) return true;
+  const cached = normalizePerformanceSpecToken(input.compact.targetSpecSlug);
+  return cached != null && cached === requested;
+}

@@ -310,6 +310,7 @@ export async function scoreCharacter(
     scoringModelVersion: input.scoringModelVersion,
     difficultyPolicy: input.difficultyPolicy,
     throughputChannels,
+    expectedPartition: input.partition ?? null,
     scoreModelConfig,
   });
 

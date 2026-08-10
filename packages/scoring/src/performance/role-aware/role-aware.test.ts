@@ -227,6 +227,66 @@ describe("role-aware Performance formulas", () => {
     expect(scored.confidence).toBe(1);
   });
 
+  it("7. explicit partition mismatch → parse channel unavailable", () => {
+    const channel = { ...fullChannel("damage", 80, 80), partition: 2 };
+    const scored = computeParseChannelScore(channel, ACTIVE, {
+      expectedPartition: 1,
+      causePrefix: "damage_parse",
+    });
+    expect(scored.state).toBe("UNAVAILABLE");
+    expect(scored.score).toBeNull();
+    expect(scored.causes).toContain("damage_parse_partition_mismatch");
+  });
+
+  it("8. healer one-channel partition mismatch → Performance unavailable", () => {
+    const result = computeRoleAwarePerformance({
+      role: "HEALER",
+      specSlug: "restoration",
+      activeDungeonSlugs: ACTIVE,
+      damage: { ...fullChannel("damage", 60, 60), partition: 1 },
+      healing: { ...fullChannel("healing", 80, 80), partition: 2 },
+      cooldownRuns: [],
+      expectedPartition: 1,
+    });
+    expect(result.score).toBeNull();
+    expect(result.state).toBe("UNAVAILABLE");
+    expect(result.limitations).toContain("healing_parse_partition_mismatch");
+  });
+
+  it("9. matching partition → unchanged score/confidence", () => {
+    const matched = computeRoleAwarePerformance({
+      role: "TANK",
+      specSlug: "guardian",
+      activeDungeonSlugs: ACTIVE,
+      damage: { ...fullChannel("damage", 80, 80), partition: 7 },
+      healing: null,
+      cooldownRuns: [],
+      expectedPartition: 7,
+    });
+    const unrestricted = computeRoleAwarePerformance({
+      role: "TANK",
+      specSlug: "guardian",
+      activeDungeonSlugs: ACTIVE,
+      damage: { ...fullChannel("damage", 80, 80), partition: 7 },
+      healing: null,
+      cooldownRuns: [],
+      expectedPartition: null,
+    });
+    expect(matched.score).toBeCloseTo(unrestricted.score!, 10);
+    expect(matched.confidence).toBeCloseTo(unrestricted.confidence, 10);
+  });
+
+  it("null expected partition does not invent mismatch vs numeric channel partition", () => {
+    const scored = computeParseChannelScore(
+      { ...fullChannel("damage", 80, 80), partition: 99 },
+      ACTIVE,
+      { expectedPartition: null, causePrefix: "damage_parse" },
+    );
+    expect(scored.state).toBe("AVAILABLE");
+    expect(scored.score).toBeCloseTo(80, 5);
+    expect(scored.confidence).toBe(1);
+  });
+
   it("13. Missing percentile cells lower only that channel", () => {
     const partialDamage: PerformanceThroughputChannelFact = {
       ...fullChannel("damage", 80, 80),

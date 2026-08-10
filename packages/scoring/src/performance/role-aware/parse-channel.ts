@@ -75,18 +75,18 @@ export function computeParseChannelScore(
   activeDungeonSlugs: readonly string[],
   options?: {
     expectedPartition?: number | null;
-    logFreshness?: number;
     causePrefix?: string;
   },
 ): ParseChannelScoreResult {
   const prefix = options?.causePrefix ?? "parse";
+  const expectedCells = Math.max(0, activeDungeonSlugs.length) * 2;
   if (channel == null) {
     return {
       score: null,
       confidence: 0,
       causes: [`${prefix}_channel_missing`],
       availableCells: 0,
-      expectedCells: Math.max(0, activeDungeonSlugs.length) * 2,
+      expectedCells,
       evidenceCoverage: 0,
       bestAverage: null,
       medianAverage: null,
@@ -101,7 +101,28 @@ export function computeParseChannelScore(
       confidence: 0,
       causes: [`${prefix}_spec_mismatch`],
       availableCells: 0,
-      expectedCells: Math.max(0, activeDungeonSlugs.length) * 2,
+      expectedCells,
+      evidenceCoverage: 0,
+      bestAverage: null,
+      medianAverage: null,
+      dungeonsUsed: 0,
+      state: "UNAVAILABLE",
+    };
+  }
+
+  // Explicit expected partition vs proven channel partition → integrity mismatch.
+  // Null/"current" expected does not invent a mismatch against an unproven numeric partition.
+  if (
+    options?.expectedPartition != null &&
+    channel.partition != null &&
+    channel.partition !== options.expectedPartition
+  ) {
+    return {
+      score: null,
+      confidence: 0,
+      causes: [`${prefix}_partition_mismatch`],
+      availableCells: 0,
+      expectedCells,
       evidenceCoverage: 0,
       bestAverage: null,
       medianAverage: null,
@@ -136,7 +157,7 @@ export function computeParseChannelScore(
       confidence: 0,
       causes: [`${prefix}_no_usable_percentiles`],
       availableCells: 0,
-      expectedCells: Math.max(0, activeDungeonSlugs.length) * 2,
+      expectedCells,
       evidenceCoverage: 0,
       bestAverage: best,
       medianAverage: median,
@@ -158,27 +179,13 @@ export function computeParseChannelScore(
   if (channel.specBinding === "COHERENT_UNPROVEN") {
     causes.push(`${prefix}_spec_binding_unproven`);
   }
-  if (
-    options?.expectedPartition != null &&
-    channel.partition != null &&
-    channel.partition !== options.expectedPartition
-  ) {
-    causes.push(`${prefix}_partition_mismatch`);
-  }
-  const freshness = clamp01(options?.logFreshness ?? 1);
-  if (freshness < 1) {
-    causes.push(`${prefix}_stale`);
-  }
 
-  // Confidence = evidence coverage with mild validity dampeners (no detailed-slot terms).
+  // Confidence = cell coverage; optional mild dampener for unproven spec binding only.
+  // No freshness subsystem in 04B baseline.
   let confidence = evidenceCoverage;
   if (channel.specBinding === "COHERENT_UNPROVEN") {
     confidence *= 0.95;
   }
-  if (causes.includes(`${prefix}_partition_mismatch`)) {
-    confidence *= 0.75;
-  }
-  confidence *= freshness;
   confidence = clamp01(confidence);
 
   return {

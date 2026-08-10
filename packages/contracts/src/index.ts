@@ -50,6 +50,8 @@ export {
   compactFromPerformanceAggregateDbColumnsV2,
   performanceAggregateContentHashMaterialV2,
   hashPerformanceAggregateContentV2,
+  normalizePerformanceSpecToken,
+  performanceAggregateV2MatchesScoringIdentity,
 } from "./character-performance-aggregate-v2.js";
 export type {
   PerformanceAggregateRoleV2,

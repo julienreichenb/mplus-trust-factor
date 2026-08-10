@@ -28,6 +28,7 @@ export function computeRoleAwarePerformanceInputFingerprint(
         algorithmVersion: PERFORMANCE_ROLE_AWARE_ALGORITHM_VERSION,
         role: input.role,
         specSlug: input.specSlug,
+        expectedPartition: input.expectedPartition ?? null,
         activeDungeonSlugs: [...input.activeDungeonSlugs].sort(),
         damage: input.damage
           ? {
@@ -85,7 +86,6 @@ export function computeRoleAwarePerformance(
   const inputFingerprint = computeRoleAwarePerformanceInputFingerprint(input);
   const active = input.activeDungeonSlugs;
   const expectedPartition = input.expectedPartition ?? null;
-  const logFreshness = input.logFreshness ?? 1;
 
   if (input.role === "UNKNOWN") {
     const causes = ["role_identity_unknown"];
@@ -94,14 +94,12 @@ export function computeRoleAwarePerformance(
 
   const damageParse = computeParseChannelScore(input.damage, active, {
     expectedPartition,
-    logFreshness,
     causePrefix: "damage_parse",
   });
   const healingParse =
     input.role === "HEALER"
       ? computeParseChannelScore(input.healing, active, {
           expectedPartition,
-          logFreshness,
           causePrefix: "healing_parse",
         })
       : null;
