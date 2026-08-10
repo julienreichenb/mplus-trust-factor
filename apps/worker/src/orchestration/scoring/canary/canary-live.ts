@@ -46,6 +46,7 @@ import {
 } from "../run-orchestration/live-capability-adapter.js";
 import { createProductionRunOrchestrationPorts } from "../run-orchestration/production-ports.js";
 import { createRedisSourceFightLock } from "../run-orchestration/source-fight-lease.js";
+import type { FetchCharacterPerformanceAggregateProvider } from "../run-orchestration/ensure-performance-aggregate.js";
 import {
   sourceFightKey,
   uniqueSourceFightsFromManifest,
@@ -199,7 +200,7 @@ export interface RunCanaryLiveInput {
   experienceOverride?: ExperiencePhase1Result | null;
   /** Test seam: force aggregate provider null/override into authoritative scoring. */
   performanceAggregateProviderOverride?:
-    | import("../run-orchestration/ensure-performance-aggregate.js").FetchCharacterPerformanceAggregateProvider
+    | FetchCharacterPerformanceAggregateProvider
     | null;
 }
 
