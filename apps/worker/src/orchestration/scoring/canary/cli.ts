@@ -83,6 +83,7 @@ import {
   runScoringCanaryLive,
   type CanaryLiveReport,
 } from "./canary-live.js";
+import { formatCanaryDimensionCliSummary } from "./canary-authoritative-report.js";
 import { runScoringCanaryReplay } from "./canary-replay.js";
 import { runTargetDigestDiagnostic } from "./canary-target-digest-diagnostic.js";
 
@@ -1149,11 +1150,19 @@ export async function runCanaryLiveCommand(
     });
 
     const log = options?.log ?? console.log;
+    const dimSummary = [
+      formatCanaryDimensionCliSummary("PERFORMANCE", report.dimensions.performance),
+      formatCanaryDimensionCliSummary("SURVIVAL", report.dimensions.survival),
+      formatCanaryDimensionCliSummary("UTILITY", report.dimensions.utility),
+      formatCanaryDimensionCliSummary("EXPERIENCE", report.dimensions.experience),
+    ].join("\n\n");
+    log(dimSummary);
     log(
       JSON.stringify(
         {
           summary: "scoring-canary-live",
           reportPath,
+          scoringAuthority: report.scoringAuthority,
           manifestId: report.manifestId,
           selectedSlotCount: report.selectedSlotCount,
           expectedSlotCount: report.expectedSlotCount,
@@ -1162,6 +1171,7 @@ export async function runCanaryLiveCommand(
           capabilityAcquisitionsAttempted: report.capabilityAcquisitionsAttempted,
           capabilityAcquisitionsSucceeded: report.capabilityAcquisitionsSucceeded,
           capabilityAcquisitionsFailed: report.capabilityAcquisitionsFailed,
+          authoritativeProviderCalls: report.authoritativeProviderCalls,
           graphqlRequestCount: report.graphqlRequestCount,
           eventPageRequestCount: report.eventPageRequestCount,
           measuredWclPoints: report.measuredWclPoints,
@@ -1174,28 +1184,65 @@ export async function runCanaryLiveCommand(
           wallidrixeDigestCount: report.wallidrixeDigestCount,
           dimensions: {
             performance: {
-              status: report.dimensions.performance.status,
               score: report.dimensions.performance.score,
-              confidenceScore: report.dimensions.performance.confidenceScore,
-            },
-            utility: {
-              status: report.dimensions.utility.status,
-              score: report.dimensions.utility.score,
-              confidenceScore: report.dimensions.utility.confidenceScore,
+              confidence: report.dimensions.performance.confidence,
+              state: report.dimensions.performance.state,
+              strengths: report.dimensions.performance.strengths,
+              weaknesses: report.dimensions.performance.weaknesses,
+              confidenceReasons:
+                report.dimensions.performance.confidenceReasonLabels,
+              scoreDrivers: report.dimensions.performance.scoreDrivers,
+              confidenceReasonCodes:
+                report.dimensions.performance.confidenceReasons,
             },
             survival: {
-              status: report.dimensions.survival.status,
               score: report.dimensions.survival.score,
-              confidenceScore: report.dimensions.survival.confidenceScore,
+              confidence: report.dimensions.survival.confidence,
+              state: report.dimensions.survival.state,
+              strengths: report.dimensions.survival.strengths,
+              weaknesses: report.dimensions.survival.weaknesses,
+              confidenceReasons:
+                report.dimensions.survival.confidenceReasonLabels,
+              scoreDrivers: report.dimensions.survival.scoreDrivers,
+              confidenceReasonCodes:
+                report.dimensions.survival.confidenceReasons,
+            },
+            utility: {
+              score: report.dimensions.utility.score,
+              confidence: report.dimensions.utility.confidence,
+              state: report.dimensions.utility.state,
+              strengths: report.dimensions.utility.strengths,
+              weaknesses: report.dimensions.utility.weaknesses,
+              confidenceReasons:
+                report.dimensions.utility.confidenceReasonLabels,
+              scoreDrivers: report.dimensions.utility.scoreDrivers,
+              confidenceReasonCodes: report.dimensions.utility.confidenceReasons,
+            },
+            experience: {
+              score: report.dimensions.experience.score,
+              confidence: report.dimensions.experience.confidence,
+              state: report.dimensions.experience.state,
+              strengths: report.dimensions.experience.strengths,
+              weaknesses: report.dimensions.experience.weaknesses,
+              confidenceReasons:
+                report.dimensions.experience.confidenceReasonLabels,
+              scoreDrivers: report.dimensions.experience.scoreDrivers,
+              confidenceReasonCodes:
+                report.dimensions.experience.confidenceReasons,
             },
           },
           composite: report.composite,
-          confidence: {
-            confidenceScore: report.confidence.confidenceScore,
-            confidenceBand: report.confidence.confidenceBand,
+          confidence: report.confidence,
+          evidenceCoverageDiagnostic: {
+            confidenceScore:
+              report.evidenceCoverageDiagnostic.confidenceScore,
+            confidenceBand: report.evidenceCoverageDiagnostic.confidenceBand,
+            note: "diagnostic_only_not_scoring_confidence",
           },
-          replayProviderCalls: report.replayProviderCalls,
-          replayFingerprintEqual: report.replayFingerprintEqual,
+          authoritativeReplay: report.authoritativeReplay,
+          explainabilityFingerprint: report.explainabilityFingerprint,
+          characterScoreWrites: report.characterScoreWrites,
+          persistCharacterScore: report.persistCharacterScore,
           publicationEnabled: report.publicationEnabled,
           publicScorePointerMutated: report.publicScorePointerMutated,
           charactersProcessed: report.charactersProcessed,
@@ -1263,16 +1310,67 @@ async function main(): Promise<void> {
         outputDir: args.outputDir ?? undefined,
       });
       console.log(
+        [
+          formatCanaryDimensionCliSummary(
+            "PERFORMANCE",
+            report.dimensions.performance,
+          ),
+          formatCanaryDimensionCliSummary("SURVIVAL", report.dimensions.survival),
+          formatCanaryDimensionCliSummary("UTILITY", report.dimensions.utility),
+          formatCanaryDimensionCliSummary(
+            "EXPERIENCE",
+            report.dimensions.experience,
+          ),
+        ].join("\n\n"),
+      );
+      console.log(
         JSON.stringify(
           {
             reportPath,
+            scoringAuthority: report.scoringAuthority,
+            forceProviderFree: report.forceProviderFree,
             manifestId: report.manifestId,
             wallidrixeDigestCount: report.wallidrixeDigestCount,
             packagesReused: report.packagesReused,
             packageAcquisitions: report.packageAcquisitions,
             providerCalls: report.providerCalls,
-            dimensions: report.dimensions,
+            characterScoreWrites: report.characterScoreWrites,
+            dimensions: {
+              performance: {
+                score: report.dimensions.performance.score,
+                confidence: report.dimensions.performance.confidence,
+                strengths: report.dimensions.performance.strengths,
+                weaknesses: report.dimensions.performance.weaknesses,
+                confidenceReasons:
+                  report.dimensions.performance.confidenceReasonLabels,
+              },
+              survival: {
+                score: report.dimensions.survival.score,
+                confidence: report.dimensions.survival.confidence,
+                strengths: report.dimensions.survival.strengths,
+                weaknesses: report.dimensions.survival.weaknesses,
+                confidenceReasons:
+                  report.dimensions.survival.confidenceReasonLabels,
+              },
+              utility: {
+                score: report.dimensions.utility.score,
+                confidence: report.dimensions.utility.confidence,
+                strengths: report.dimensions.utility.strengths,
+                weaknesses: report.dimensions.utility.weaknesses,
+                confidenceReasons:
+                  report.dimensions.utility.confidenceReasonLabels,
+              },
+              experience: {
+                score: report.dimensions.experience.score,
+                confidence: report.dimensions.experience.confidence,
+                strengths: report.dimensions.experience.strengths,
+                weaknesses: report.dimensions.experience.weaknesses,
+                confidenceReasons:
+                  report.dimensions.experience.confidenceReasonLabels,
+              },
+            },
             composite: report.composite,
+            explainabilityFingerprint: report.explainabilityFingerprint,
             targetDigestFailures: report.targetDigestFailures,
             publicationEnabled: report.publicationEnabled,
           },
@@ -1465,6 +1563,7 @@ async function main(): Promise<void> {
           {
             reportPath,
             commandOutcome: report.commandOutcome,
+            scoringAuthority: report.scoringAuthority,
             manifestId: report.manifestId,
             selectedSlotCount: report.selectedSlotCount,
             expectedSlotCount: report.expectedSlotCount,
@@ -1473,10 +1572,14 @@ async function main(): Promise<void> {
             packagesCreated: report.packagesCreated,
             packagesReused: report.packagesReused,
             wallidrixeDigestCount: report.wallidrixeDigestCount,
-            confidenceScore: report.confidence.confidenceScore,
-            missingDungeons: report.confidence.missingDungeons,
-            replayProviderCalls: report.replayProviderCalls,
-            replayFingerprintEqual: report.replayFingerprintEqual,
+            composite: report.composite,
+            confidence: report.confidence,
+            evidenceCoverageDiagnosticScore:
+              report.evidenceCoverageDiagnostic.confidenceScore,
+            authoritativeReplay: report.authoritativeReplay,
+            explainabilityFingerprint: report.explainabilityFingerprint,
+            authoritativeProviderCalls: report.authoritativeProviderCalls,
+            characterScoreWrites: report.characterScoreWrites,
             publicationEnabled: report.publicationEnabled,
             publicScorePointerMutated: report.publicScorePointerMutated,
             charactersProcessed: report.charactersProcessed,

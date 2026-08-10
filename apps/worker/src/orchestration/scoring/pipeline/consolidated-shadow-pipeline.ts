@@ -205,7 +205,7 @@ export async function runConsolidatedShadowPipeline(input: {
       outputDir: input.outputDir,
     });
     liveHydration = live.report;
-    providerCalls += live.report.graphqlRequestCount ?? 0;
+    providerCalls += live.report.authoritativeProviderCalls ?? live.report.graphqlRequestCount ?? 0;
     stages.push({
       name: "digest_and_dimensions",
       status: "OK",
@@ -213,8 +213,47 @@ export async function runConsolidatedShadowPipeline(input: {
         packagesCreated: live.report.packagesCreated,
         packagesReused: live.report.packagesReused,
         targetDigestCount: live.report.wallidrixeDigestCount,
-        confidenceScore: live.report.confidence?.confidenceScore,
+        compositeConfidence: live.report.composite.confidence,
+        compositeScore: live.report.composite.score,
+        tier: live.report.composite.tier,
+        explainabilityFingerprint: live.report.explainabilityFingerprint,
+        authoritativeProviderCalls: live.report.authoritativeProviderCalls,
         graphqlRequestCount: live.report.graphqlRequestCount,
+        dimensions: {
+          performance: {
+            score: live.report.dimensions.performance.score,
+            confidence: live.report.dimensions.performance.confidence,
+            strengths: live.report.dimensions.performance.strengths,
+            weaknesses: live.report.dimensions.performance.weaknesses,
+            confidenceReasons:
+              live.report.dimensions.performance.confidenceReasonLabels,
+          },
+          survival: {
+            score: live.report.dimensions.survival.score,
+            confidence: live.report.dimensions.survival.confidence,
+            strengths: live.report.dimensions.survival.strengths,
+            weaknesses: live.report.dimensions.survival.weaknesses,
+            confidenceReasons:
+              live.report.dimensions.survival.confidenceReasonLabels,
+          },
+          utility: {
+            score: live.report.dimensions.utility.score,
+            confidence: live.report.dimensions.utility.confidence,
+            strengths: live.report.dimensions.utility.strengths,
+            weaknesses: live.report.dimensions.utility.weaknesses,
+            confidenceReasons:
+              live.report.dimensions.utility.confidenceReasonLabels,
+          },
+          experience: {
+            score: live.report.dimensions.experience.score,
+            confidence: live.report.dimensions.experience.confidence,
+            strengths: live.report.dimensions.experience.strengths,
+            weaknesses: live.report.dimensions.experience.weaknesses,
+            confidenceReasons:
+              live.report.dimensions.experience.confidenceReasonLabels,
+          },
+        },
+        authoritativeReplay: live.report.authoritativeReplay,
       },
     });
   } else {
@@ -275,8 +314,46 @@ export async function runConsolidatedShadowPipeline(input: {
       packagesReused: replay.report.packagesReused,
       packageAcquisitions: replay.report.packageAcquisitions,
       targetDigestCount: replay.report.wallidrixeDigestCount,
-      dimensions: replay.report.dimensions,
-      composite: replay.report.composite,
+      explainabilityFingerprint: replay.report.explainabilityFingerprint,
+      composite: {
+        score: replay.report.composite.score,
+        confidence: replay.report.composite.confidence,
+        tier: replay.report.composite.tier,
+      },
+      dimensions: {
+        performance: {
+          score: replay.report.dimensions.performance.score,
+          confidence: replay.report.dimensions.performance.confidence,
+          strengths: replay.report.dimensions.performance.strengths,
+          weaknesses: replay.report.dimensions.performance.weaknesses,
+          confidenceReasons:
+            replay.report.dimensions.performance.confidenceReasonLabels,
+        },
+        survival: {
+          score: replay.report.dimensions.survival.score,
+          confidence: replay.report.dimensions.survival.confidence,
+          strengths: replay.report.dimensions.survival.strengths,
+          weaknesses: replay.report.dimensions.survival.weaknesses,
+          confidenceReasons:
+            replay.report.dimensions.survival.confidenceReasonLabels,
+        },
+        utility: {
+          score: replay.report.dimensions.utility.score,
+          confidence: replay.report.dimensions.utility.confidence,
+          strengths: replay.report.dimensions.utility.strengths,
+          weaknesses: replay.report.dimensions.utility.weaknesses,
+          confidenceReasons:
+            replay.report.dimensions.utility.confidenceReasonLabels,
+        },
+        experience: {
+          score: replay.report.dimensions.experience.score,
+          confidence: replay.report.dimensions.experience.confidence,
+          strengths: replay.report.dimensions.experience.strengths,
+          weaknesses: replay.report.dimensions.experience.weaknesses,
+          confidenceReasons:
+            replay.report.dimensions.experience.confidenceReasonLabels,
+        },
+      },
       publicationEnabled: replay.report.publicationEnabled,
     };
     stages.push({

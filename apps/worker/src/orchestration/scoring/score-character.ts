@@ -15,6 +15,7 @@ import {
 } from "@mplus/database";
 import { EVIDENCE_SELECTOR_VERSION } from "@mplus/contracts";
 import type {
+  CharacterSeasonEvidenceManifestV2,
   EvidenceCandidateMetadataV2,
   EvidenceRole,
   RegionCode,
@@ -88,6 +89,11 @@ export interface ScoreCharacterInput {
    * while score publication stays operational-only. Default true.
    */
   persistCharacterScore?: boolean;
+  /**
+   * Optional prevalidated frozen manifest. When supplied, orchestration skips
+   * run reselection (canary / provider-free replay). Production default: undefined.
+   */
+  existingManifest?: CharacterSeasonEvidenceManifestV2 | null;
   /**
    * Optional ScoreModel.config override (e.g. frozen DRAFT config on a CalibrationRun).
    * When omitted, config is loaded from `scoringModelId`.
@@ -298,6 +304,7 @@ export async function scoreCharacter(
       selectorVersion: EVIDENCE_SELECTOR_VERSION,
     },
     candidates: input.candidates,
+    existingManifest: input.existingManifest,
     liveProviderPermission,
     ports,
     scoringModelId: input.scoringModelId,
