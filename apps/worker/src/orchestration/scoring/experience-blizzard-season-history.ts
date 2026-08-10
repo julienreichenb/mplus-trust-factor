@@ -1,16 +1,17 @@
 /**
  * Blizzard closed-season Mythic+ rating history for Experience (Agent 03B).
  *
- * Discovers seasons from the character Mythic Keystone Profile Index, fetches
- * Season Details only for missing closed seasons, and persists immutable
- * PREVIOUS_SEASON_RATING evidence (reused by Phase 1 + future 03C).
+ * Flow (Experience refresh, providers allowed):
+ *   1× Profile Index
+ *   + Season Details only for index seasons that map to closed internal Season
+ *     rows still missing terminal PREVIOUS_SEASON_RATING evidence.
  *
- * Live Blizzard semantics (Agent 03B probe):
- * - Profile Index `seasons[]` lists only seasons with a keystone profile
- *   (includes current). Absence ⇒ no season profile (Season Details → 404).
- * - Season Details expose `mythic_rating` (not `current_mythic_rating`).
- * - Absence from the index is treated as authoritative no-activity for closed
- *   seasons we already have as internal Season rows — after a successful index.
+ * Absence from Profile Index `seasons[]` is UNKNOWN — Blizzard docs do not
+ * guarantee index-absence ≡ no Mythic+ activity. Do not persist no-activity
+ * from absence alone. CONFIRMED_NO_ACTIVITY only from a successful Season
+ * Details payload under existing mapping rules.
+ *
+ * Season Details expose `mythic_rating` (normalized via provider).
  */
 
 import type {
@@ -23,14 +24,12 @@ import type {
 import type { PrismaClient } from "@mplus/database";
 import {
   EXPERIENCE_EVIDENCE_KIND,
-  EXPERIENCE_EVIDENCE_SOURCE,
   EXPERIENCE_EVIDENCE_STATE,
   EXPERIENCE_PREVIOUS_RATING_COMPAT_VERSION,
   type CharacterExperienceEvidenceDTO,
 } from "@mplus/database";
 import {
   buildPreviousSeasonRatingPersistInput,
-  parsePersistedPreviousSeasonRatingPayload,
   ratingEvidenceFromPersistedRow,
   type ExperienceEvidenceStore,
 } from "./experience-evidence-persist.js";
@@ -54,7 +53,7 @@ export type HistoricalSeasonRating = {
   source: "BLIZZARD";
 };
 
-export type ClosedSeasonRow = {
+export type SeasonHistoryRow = {
   id: string;
   slug: string;
   blizzardSeasonId: number;
@@ -106,7 +105,7 @@ function isTerminalRatingRow(row: CharacterExperienceEvidenceDTO): boolean {
 }
 
 export function isClosedSeasonForHistory(
-  season: Pick<ClosedSeasonRow, "isCurrent" | "endsAt" | "blizzardSeasonId" | "id">,
+  season: Pick<SeasonHistoryRow, "isCurrent" | "endsAt" | "blizzardSeasonId" | "id">,
   input: { currentSeasonId: string; authoritativeBlizzardSeasonId: number | null; nowMs: number },
 ): boolean {
   if (season.id === input.currentSeasonId) return false;
@@ -129,7 +128,6 @@ export function historicalSeasonRatingFromEvidenceRow(
   if (evidence.state !== "HAS_VALUE" && evidence.state !== "CONFIRMED_NO_ACTIVITY") {
     return null;
   }
-  // History dataset is Blizzard-authoritative; keep RIO fallback rows out of 03C join set.
   if (evidence.ratingSource === "RAIDERIO_FALLBACK") return null;
   return {
     seasonId: evidence.internalSeasonId,
@@ -157,23 +155,86 @@ export async function listHistoricalSeasonRatingsFromStore(
   return out.sort((a, b) => a.blizzardSeasonId - b.blizzardSeasonId);
 }
 
-async function loadClosedSeasons(input: {
-  prisma: Pick<PrismaClient, "season">;
-  currentSeasonId: string;
-  regionCode: RegionCode;
-  nowMs: number;
-  authoritativeBlizzardSeasonId: number | null;
-}): Promise<ClosedSeasonRow[]> {
-  const current = await input.prisma.season.findUnique({
-    where: { id: input.currentSeasonId },
-    select: { regionId: true },
-  });
-  if (!current?.regionId) return [];
+async function emptyResult(
+  store: ExperienceEvidenceStore,
+  characterId: string,
+  partial: Partial<AcquireBlizzardSeasonHistoryResult> = {},
+): Promise<AcquireBlizzardSeasonHistoryResult> {
+  return {
+    ratings: await listHistoricalSeasonRatingsFromStore(store, characterId),
+    profileIndexCalls: 0,
+    seasonDetailsCalls: 0,
+    persistedCount: 0,
+    skippedCurrentSeasonIds: [],
+    failedSeasonIds: [],
+    ...partial,
+  };
+}
 
-  const rows = await input.prisma.season.findMany({
+/**
+ * Acquire / reuse immutable Blizzard historical Mythic+ ratings for closed seasons
+ * discovered via the character Profile Index.
+ */
+export async function acquireBlizzardSeasonHistory(
+  input: AcquireBlizzardSeasonHistoryInput,
+): Promise<AcquireBlizzardSeasonHistoryResult> {
+  const nowMs = (input.now ?? new Date()).getTime();
+
+  if (!input.allowProviderCalls) {
+    return emptyResult(input.evidenceStore, input.characterId);
+  }
+
+  const currentRow = await input.prisma.season.findUnique({
+    where: { id: input.currentSeasonId },
+    select: { regionId: true, blizzardSeasonId: true },
+  });
+  if (!currentRow?.regionId) {
+    return emptyResult(input.evidenceStore, input.characterId);
+  }
+
+  let profileIndexCalls = 1;
+  let seasonDetailsCalls = 0;
+  let persistedCount = 0;
+  const skippedCurrentSeasonIds: number[] = [];
+  const failedSeasonIds: number[] = [];
+
+  let indexSeasonIds: number[] = [];
+  let authoritativeBlizzardSeasonId: number | null =
+    currentRow.blizzardSeasonId != null && Number.isFinite(currentRow.blizzardSeasonId)
+      ? currentRow.blizzardSeasonId
+      : null;
+
+  try {
+    const index = await input.blizzard.getMythicKeystoneProfile(input.identity, input.ctx);
+    indexSeasonIds = (index.data.seasons ?? [])
+      .map((s) => s.seasonId)
+      .filter((id): id is number => typeof id === "number" && Number.isFinite(id));
+    if (index.data.currentSeasonId != null && Number.isFinite(index.data.currentSeasonId)) {
+      authoritativeBlizzardSeasonId = index.data.currentSeasonId;
+    }
+  } catch {
+    return emptyResult(input.evidenceStore, input.characterId, {
+      profileIndexCalls,
+      failedSeasonIds: [],
+    });
+  }
+
+  if (authoritativeBlizzardSeasonId != null) {
+    skippedCurrentSeasonIds.push(authoritativeBlizzardSeasonId);
+  }
+
+  const existingRows = input.evidenceStore.listPreviousSeasonRatings
+    ? await input.evidenceStore.listPreviousSeasonRatings(input.characterId)
+    : [];
+  const evidenceBySeasonId = new Map(
+    existingRows.filter(isTerminalRatingRow).map((r) => [r.seasonId, r] as const),
+  );
+
+  const uniqueIndexIds = [...new Set(indexSeasonIds)];
+  const mappedSeasons = await input.prisma.season.findMany({
     where: {
-      regionId: current.regionId,
-      blizzardSeasonId: { not: null },
+      regionId: currentRow.regionId,
+      blizzardSeasonId: { in: uniqueIndexIds },
     },
     select: {
       id: true,
@@ -186,131 +247,35 @@ async function loadClosedSeasons(input: {
       providerSeasonId: true,
     },
   });
-
-  return rows
-    .filter(
-      (r): r is typeof r & { blizzardSeasonId: number } =>
-        r.blizzardSeasonId != null &&
-        Number.isFinite(r.blizzardSeasonId) &&
-        // Real Blizzard season ids only (exclude local fixtures e.g. 999001).
-        r.blizzardSeasonId > 0 &&
-        r.blizzardSeasonId < 1000,
-    )
-    .filter((r) =>
-      isClosedSeasonForHistory(r, {
-        currentSeasonId: input.currentSeasonId,
-        authoritativeBlizzardSeasonId: input.authoritativeBlizzardSeasonId,
-        nowMs: input.nowMs,
-      }),
-    )
-    .map((r) => ({
-      id: r.id,
-      slug: r.slug,
-      blizzardSeasonId: r.blizzardSeasonId,
-      regionId: r.regionId,
-      startsAt: r.startsAt,
-      endsAt: r.endsAt,
-      isCurrent: r.isCurrent,
-      providerSeasonId: r.providerSeasonId,
-    }));
-}
-
-/**
- * Acquire / reuse immutable Blizzard historical Mythic+ ratings for closed seasons.
- */
-export async function acquireBlizzardSeasonHistory(
-  input: AcquireBlizzardSeasonHistoryInput,
-): Promise<AcquireBlizzardSeasonHistoryResult> {
-  const now = input.now ?? new Date();
-  const nowMs = now.getTime();
-  let profileIndexCalls = 0;
-  let seasonDetailsCalls = 0;
-  let persistedCount = 0;
-  const skippedCurrentSeasonIds: number[] = [];
-  const failedSeasonIds: number[] = [];
-
-  const existingRows = input.evidenceStore.listPreviousSeasonRatings
-    ? await input.evidenceStore.listPreviousSeasonRatings(input.characterId)
-    : [];
-  const evidenceBySeasonId = new Map(
-    existingRows.filter(isTerminalRatingRow).map((r) => [r.seasonId, r] as const),
+  const seasonByBlizzardId = new Map(
+    mappedSeasons
+      .filter(
+        (s): s is typeof s & { blizzardSeasonId: number } =>
+          s.blizzardSeasonId != null && Number.isFinite(s.blizzardSeasonId),
+      )
+      .map((s) => [s.blizzardSeasonId, s] as const),
   );
 
-  // Authoritative current Blizzard id from the scoring season row when available.
-  const currentRow = await input.prisma.season.findUnique({
-    where: { id: input.currentSeasonId },
-    select: { blizzardSeasonId: true },
-  });
-  const authoritativeFromSeason =
-    currentRow?.blizzardSeasonId != null && Number.isFinite(currentRow.blizzardSeasonId)
-      ? currentRow.blizzardSeasonId
-      : null;
-
-  const closedSeasons = await loadClosedSeasons({
-    prisma: input.prisma,
-    currentSeasonId: input.currentSeasonId,
-    regionCode: input.regionCode,
-    nowMs,
-    authoritativeBlizzardSeasonId: authoritativeFromSeason,
-  });
-
-  const missing = closedSeasons.filter((s) => !evidenceBySeasonId.has(s.id));
-  if (missing.length === 0 || !input.allowProviderCalls) {
-    return {
-      ratings: await listHistoricalSeasonRatingsFromStore(
-        input.evidenceStore,
-        input.characterId,
-      ),
-      profileIndexCalls: 0,
-      seasonDetailsCalls: 0,
-      persistedCount: 0,
-      skippedCurrentSeasonIds,
-      failedSeasonIds,
-    };
-  }
-
-  profileIndexCalls = 1;
-  let indexSeasonIds: Set<number>;
-  let authoritativeFromIndex: number | null = authoritativeFromSeason;
-  try {
-    const index = await input.blizzard.getMythicKeystoneProfile(input.identity, input.ctx);
-    indexSeasonIds = new Set(
-      (index.data.seasons ?? [])
-        .map((s) => s.seasonId)
-        .filter((id): id is number => typeof id === "number" && Number.isFinite(id)),
-    );
+  for (const blizzardSeasonId of uniqueIndexIds) {
     if (
-      index.data.currentSeasonId != null &&
-      Number.isFinite(index.data.currentSeasonId)
-    ) {
-      authoritativeFromIndex = index.data.currentSeasonId;
-    }
-  } catch {
-    // Index failure: do not invent absences; leave missing seasons retryable.
-    return {
-      ratings: await listHistoricalSeasonRatingsFromStore(
-        input.evidenceStore,
-        input.characterId,
-      ),
-      profileIndexCalls,
-      seasonDetailsCalls: 0,
-      persistedCount: 0,
-      skippedCurrentSeasonIds,
-      failedSeasonIds: missing.map((s) => s.blizzardSeasonId),
-    };
-  }
-
-  if (authoritativeFromIndex != null) {
-    skippedCurrentSeasonIds.push(authoritativeFromIndex);
-  }
-
-  for (const season of missing) {
-    if (
-      authoritativeFromIndex != null &&
-      season.blizzardSeasonId === authoritativeFromIndex
+      authoritativeBlizzardSeasonId != null &&
+      blizzardSeasonId === authoritativeBlizzardSeasonId
     ) {
       continue;
     }
+
+    const season = seasonByBlizzardId.get(blizzardSeasonId);
+    if (!season) continue;
+    if (
+      !isClosedSeasonForHistory(season, {
+        currentSeasonId: input.currentSeasonId,
+        authoritativeBlizzardSeasonId,
+        nowMs,
+      })
+    ) {
+      continue;
+    }
+    if (evidenceBySeasonId.has(season.id)) continue;
 
     const binding: ExperienceSeasonBindingCandidate = {
       id: season.id,
@@ -322,43 +287,16 @@ export async function acquireBlizzardSeasonHistory(
       providerSeasonId: season.providerSeasonId,
     };
 
-    // Authoritative absence: closed season we track is not in Profile Index.
-    if (!indexSeasonIds.has(season.blizzardSeasonId)) {
-      const fetchedAt = now.toISOString();
-      const persistInput = buildPreviousSeasonRatingPersistInput({
-        characterId: input.characterId,
-        evidence: {
-          state: "CONFIRMED_NO_ACTIVITY",
-          rating: null,
-          internalSeasonId: season.id,
-          seasonSlug: season.slug,
-          blizzardSeasonId: season.blizzardSeasonId,
-          fetchedAt,
-          providerPayloadId: null,
-          ratingSource: "BLIZZARD",
-        },
-        raiderIoSeasonSlug: season.providerSeasonId?.trim() || null,
-        sourceRequestFingerprint: `blizzard-mplus-index-absent:${season.blizzardSeasonId}`,
-      });
-      if (persistInput) {
-        const { created } = await input.evidenceStore.upsertImmutable(persistInput);
-        if (created) persistedCount += 1;
-      }
-      continue;
-    }
-
     seasonDetailsCalls += 1;
     try {
       const result = await input.blizzard.getMythicKeystoneSeasonProfile(
         input.identity,
-        season.blizzardSeasonId,
+        blizzardSeasonId,
         input.ctx,
       );
       let payloadId: string | null = null;
       try {
-        payloadId = await input.persistProviderResult(
-          result as ProviderResult<unknown>,
-        );
+        payloadId = await input.persistProviderResult(result as ProviderResult<unknown>);
       } catch {
         payloadId = null;
       }
@@ -368,7 +306,7 @@ export async function acquireBlizzardSeasonHistory(
         providerPayloadId: payloadId,
       });
       if (evidence.state !== "HAS_VALUE" && evidence.state !== "CONFIRMED_NO_ACTIVITY") {
-        failedSeasonIds.push(season.blizzardSeasonId);
+        failedSeasonIds.push(blizzardSeasonId);
         continue;
       }
       const persistInput = buildPreviousSeasonRatingPersistInput({
@@ -378,13 +316,13 @@ export async function acquireBlizzardSeasonHistory(
         sourceRequestFingerprint: result.metadata.requestFingerprint ?? null,
       });
       if (!persistInput) {
-        failedSeasonIds.push(season.blizzardSeasonId);
+        failedSeasonIds.push(blizzardSeasonId);
         continue;
       }
       const { created } = await input.evidenceStore.upsertImmutable(persistInput);
       if (created) persistedCount += 1;
     } catch {
-      failedSeasonIds.push(season.blizzardSeasonId);
+      failedSeasonIds.push(blizzardSeasonId);
     }
   }
 
@@ -439,10 +377,3 @@ export function joinHistoricalRatingWithPopulationPolicy(input: {
     cutoffs,
   };
 }
-
-/** @internal — parse helper retained for tests */
-export function _parseRatingPayload(row: CharacterExperienceEvidenceDTO) {
-  return parsePersistedPreviousSeasonRatingPayload(row.payload);
-}
-
-export { EXPERIENCE_EVIDENCE_SOURCE };

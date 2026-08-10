@@ -130,7 +130,18 @@ function createPrismaFake(rows = seasonRows()) {
         const row = rows.find((r) => r.id === where.id);
         return row ? { ...row } : null;
       }),
-      findMany: vi.fn(async () => rows.filter((r) => r.blizzardSeasonId != null)),
+      findMany: vi.fn(
+        async ({
+          where,
+        }: {
+          where: { regionId: string; blizzardSeasonId: { in: number[] } };
+        }) =>
+          rows.filter(
+            (r) =>
+              r.regionId === where.regionId &&
+              where.blizzardSeasonId.in.includes(r.blizzardSeasonId),
+          ),
+      ),
     },
   };
 }
@@ -172,7 +183,7 @@ describe("isClosedSeasonForHistory", () => {
 });
 
 describe("acquireBlizzardSeasonHistory", () => {
-  it("cold: fetches Profile Index + Season Details for closed seasons in index", async () => {
+  it("cold: index ×1 + Season Details for each closed index season missing evidence", async () => {
     const store = createInMemoryExperienceEvidenceStore();
     const getMythicKeystoneProfile = vi.fn(async () =>
       providerResult(
@@ -210,18 +221,16 @@ describe("acquireBlizzardSeasonHistory", () => {
     });
 
     expect(result.profileIndexCalls).toBe(1);
-    // 15,14,13,11 in index and closed; 17 excluded
     expect(result.seasonDetailsCalls).toBe(4);
     expect(getMythicKeystoneSeasonProfile).toHaveBeenCalledTimes(4);
     expect(result.ratings.filter((r) => r.state === "HAS_VALUE")).toHaveLength(4);
     expect(result.ratings.some((r) => r.blizzardSeasonId === 17)).toBe(false);
-    // DF (11) + TWW (13-15) cross-expansion
     expect(result.ratings.map((r) => r.blizzardSeasonId).sort((a, b) => a - b)).toEqual([
       11, 13, 14, 15,
     ]);
   });
 
-  it("partial cache: only missing Season Details call", async () => {
+  it("partial cache: index ×1 + only missing historical Season Details", async () => {
     const store = createInMemoryExperienceEvidenceStore();
     for (const [seasonId, blizzardSeasonId, slug] of [
       [S15, 15, "blizzard-season-15"],
@@ -277,7 +286,7 @@ describe("acquireBlizzardSeasonHistory", () => {
     expect(getMythicKeystoneSeasonProfile).toHaveBeenCalledWith(identity, 11, ctx);
   });
 
-  it("full cache: zero Blizzard historical calls", async () => {
+  it("warm: index ×1 + Season Details ×0 when all index closed seasons persisted", async () => {
     const store = createInMemoryExperienceEvidenceStore();
     for (const [seasonId, blizzardSeasonId, slug] of [
       [S15, 15, "blizzard-season-15"],
@@ -301,7 +310,23 @@ describe("acquireBlizzardSeasonHistory", () => {
         })!,
       );
     }
-    const getMythicKeystoneProfile = vi.fn();
+    const getMythicKeystoneProfile = vi.fn(async () =>
+      providerResult(
+        {
+          currentMythicRating: 1,
+          currentSeasonId: 17,
+          seasons: [
+            { seasonId: 15 },
+            { seasonId: 14 },
+            { seasonId: 13 },
+            { seasonId: 11 },
+            { seasonId: 17 },
+          ],
+          character: identity,
+        },
+        "fp-index",
+      ),
+    );
     const getMythicKeystoneSeasonProfile = vi.fn();
     const result = await acquireBlizzardSeasonHistory({
       prisma: createPrismaFake() as never,
@@ -316,14 +341,14 @@ describe("acquireBlizzardSeasonHistory", () => {
       allowProviderCalls: true,
       now: new Date("2026-08-10T00:00:00.000Z"),
     });
-    expect(result.profileIndexCalls).toBe(0);
+    expect(result.profileIndexCalls).toBe(1);
     expect(result.seasonDetailsCalls).toBe(0);
-    expect(getMythicKeystoneProfile).not.toHaveBeenCalled();
+    expect(getMythicKeystoneProfile).toHaveBeenCalledTimes(1);
     expect(getMythicKeystoneSeasonProfile).not.toHaveBeenCalled();
     expect(result.ratings).toHaveLength(4);
   });
 
-  it("persists authoritative no-activity for closed seasons absent from index (no Season Details)", async () => {
+  it("absent from index: no Season Details, no CONFIRMED_NO_ACTIVITY, no fabricated zero", async () => {
     const store = createInMemoryExperienceEvidenceStore();
     const getMythicKeystoneSeasonProfile = vi.fn(async () => seasonProfileDto(3542, 15));
     const result = await acquireBlizzardSeasonHistory({
@@ -355,13 +380,11 @@ describe("acquireBlizzardSeasonHistory", () => {
     expect(getMythicKeystoneSeasonProfile).toHaveBeenCalledTimes(1);
     expect(getMythicKeystoneSeasonProfile).toHaveBeenCalledWith(identity, 15, ctx);
     const listed = await listHistoricalSeasonRatingsFromStore(store, CHAR_ID);
-    expect(listed.some((r) => r.blizzardSeasonId === 14 && r.state === "CONFIRMED_NO_ACTIVITY")).toBe(
-      true,
-    );
-    expect(listed.some((r) => r.blizzardSeasonId === 11 && r.state === "CONFIRMED_NO_ACTIVITY")).toBe(
-      true,
-    );
-    expect(result.failedSeasonIds).toEqual([]);
+    expect(listed.some((r) => r.blizzardSeasonId === 14)).toBe(false);
+    expect(listed.some((r) => r.blizzardSeasonId === 11)).toBe(false);
+    expect(listed.some((r) => r.state === "CONFIRMED_NO_ACTIVITY")).toBe(false);
+    expect(listed.every((r) => r.rating !== 0 || r.state === "HAS_VALUE")).toBe(true);
+    expect(result.ratings.map((r) => r.blizzardSeasonId)).toEqual([15]);
   });
 
   it("transient Season Details failure leaves season retryable without fake zero", async () => {
@@ -420,10 +443,7 @@ describe("acquireBlizzardSeasonHistory", () => {
       })!,
     );
     const result = await acquireBlizzardSeasonHistory({
-      prisma: createPrismaFake([
-        seasonRows()[0]!,
-        seasonRows()[1]!,
-      ]) as never,
+      prisma: createPrismaFake([seasonRows()[0]!, seasonRows()[1]!]) as never,
       characterId: CHAR_ID,
       identity,
       regionCode: "EU",
@@ -460,7 +480,7 @@ describe("acquireBlizzardSeasonHistory", () => {
           {
             currentMythicRating: 1,
             currentSeasonId: 17,
-            seasons: [{ seasonId: 15 }],
+            seasons: [{ seasonId: 15 }, { seasonId: 17 }],
             character: identity,
           },
           "fp",
@@ -496,7 +516,7 @@ describe("acquireBlizzardSeasonHistory", () => {
       now: new Date("2026-08-10T00:00:00.000Z"),
     });
     expect(first.persistedCount).toBeGreaterThan(0);
-    expect(second.profileIndexCalls).toBe(0);
+    expect(second.profileIndexCalls).toBe(1);
     expect(second.seasonDetailsCalls).toBe(0);
     expect(second.persistedCount).toBe(0);
     const rows = await store.listPreviousSeasonRatings!(CHAR_ID);
@@ -511,7 +531,6 @@ describe("acquireBlizzardSeasonHistory", () => {
   });
 
   it("makes zero Raider.IO character requests (Blizzard-only surface)", async () => {
-    // Acquisition port is Blizzard-only; no RIO methods exist on the input.
     const keys = Object.keys(
       {
         getMythicKeystoneProfile: true,

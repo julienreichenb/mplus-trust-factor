@@ -12,13 +12,12 @@ Legend for evidence: **OBSERVED** (code/tests), **INFERRED** (strong code path),
 
 | Field | Value |
 |-------|-------|
-| Status | **FIXED IN CODE / READY FOR 03C** |
+| Status | **FIXED IN CODE / READY FOR 03C** (corrective simplify applied) |
 | Persistence | Reused `PREVIOUS_SEASON_RATING` (no migration) |
 | Formula / UI | Unchanged — 03C owns Experience calc |
 
-Cold: Profile Index + Season Details only for missing closed seasons in index.  
-Warm (complete terminal evidence): **0** historical Blizzard calls.  
-Absent-from-index (after successful index): `CONFIRMED_NO_ACTIVITY`. Index failure: leave retryable.
+Call strategy: Profile Index ×1 per Experience refresh (providers allowed); Season Details only for index-returned closed seasons missing terminal evidence.  
+Index absence → **UNKNOWN** (no fabricated no-activity). `CONFIRMED_NO_ACTIVITY` only from successful Season Details payload rules.
 
 ---
 

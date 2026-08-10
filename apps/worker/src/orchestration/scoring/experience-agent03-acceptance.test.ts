@@ -495,7 +495,7 @@ function createHarness(opts?: {
           where?: {
             regionId?: string;
             startsAt?: { lt?: Date };
-            blizzardSeasonId?: { not?: null };
+            blizzardSeasonId?: { not?: null; in?: number[] };
           };
           orderBy?: { startsAt?: "asc" | "desc" };
           take?: number;
@@ -509,7 +509,12 @@ function createHarness(opts?: {
             const lt = args.where.startsAt.lt.getTime();
             rows = rows.filter((r) => r.startsAt.getTime() < lt);
           }
-          if (args?.where?.blizzardSeasonId?.not !== undefined) {
+          if (args?.where?.blizzardSeasonId?.in) {
+            const ids = new Set(args.where.blizzardSeasonId.in);
+            rows = rows.filter(
+              (r) => r.blizzardSeasonId != null && ids.has(r.blizzardSeasonId),
+            );
+          } else if (args?.where?.blizzardSeasonId?.not !== undefined) {
             rows = rows.filter((r) => r.blizzardSeasonId != null);
           }
           if (args?.orderBy?.startsAt === "desc") {
@@ -665,7 +670,7 @@ describe("Agent 03 — canonical cold → warm → provider-free replay", () => 
       utility: harness.saved[0]!.utility,
     };
 
-    // WARM — providers still allowed; durable evidence must short-circuit historical fetches.
+    // WARM — Profile Index once; Season Details short-circuit when evidence exists.
     harness.getMythicKeystoneProfile?.mockClear();
     harness.getMythicKeystoneSeasonProfile.mockClear();
     harness.getCharacterAchievements.mockClear();
@@ -677,10 +682,11 @@ describe("Agent 03 — canonical cold → warm → provider-free replay", () => 
       portsOverride: createMemoryOrchestrationPorts(),
     });
 
+    expect(harness.getMythicKeystoneProfile).toHaveBeenCalledTimes(1);
     expect(harness.getMythicKeystoneSeasonProfile).not.toHaveBeenCalled();
     expect(harness.getCharacterExactSeasonHistoricalRating).not.toHaveBeenCalled();
     expect(harness.getCharacterAchievements).not.toHaveBeenCalled();
-    expect(warm.providerCalls).toBe(0);
+    expect(warm.providerCalls).toBe(1);
 
     const warmExp = experienceFromSaved(harness.saved[1]!);
     expect(warmExp).toEqual(coldExp);
