@@ -117,4 +117,94 @@ describe("AdminTuningPage", () => {
     expect(activateModel).not.toHaveBeenCalled();
     wrapper.unmount();
   });
+
+  it("18–19. Performance card shows Parse/DPS/Tank/Healer and hides obsolete knobs", async () => {
+    const wrapper = await mountPage();
+    expect(wrapper.find("[data-testid='perf-section-parse']").exists()).toBe(true);
+    expect(wrapper.find("[data-testid='perf-section-dps']").exists()).toBe(true);
+    expect(wrapper.find("[data-testid='perf-section-tank']").exists()).toBe(true);
+    expect(wrapper.find("[data-testid='perf-section-healer']").exists()).toBe(true);
+    expect(wrapper.find("[data-testid='comp-performance-phase1']").exists()).toBe(false);
+    expect(wrapper.find("[data-testid='comp-performance-dungeonPeak']").exists()).toBe(false);
+    expect(wrapper.find("[data-testid='comp-performance-dungeonFloor']").exists()).toBe(false);
+    expect(wrapper.find("[data-testid='comp-performance-dungeonConsistency']").exists()).toBe(
+      false,
+    );
+    expect(wrapper.get("[data-testid='comp-performance-tank-effective']").text()).toBe("100%");
+
+    const dpsDamage = wrapper.get("[data-testid='comp-performance-dps-damageParse']");
+    await dpsDamage.setValue(90);
+    await flushPromises();
+    await wrapper.get("[data-testid='tuning-save']").trigger("click");
+    await flushPromises();
+    const config = updateModel.mock.calls[0]?.[1] as {
+      tunableWeights?: {
+        schemaVersion: string;
+        components: {
+          performance: {
+            roles: { dps: { damageParse: number; cooldown: number } };
+          };
+        };
+      };
+    };
+    expect(config.tunableWeights?.schemaVersion).toBe("tunable-weights.2");
+    expect(config.tunableWeights?.components.performance.roles.dps.damageParse).toBe(90);
+    wrapper.unmount();
+  });
+
+  it("20. legacy V1 ACTIVE model renders without migration", async () => {
+    const legacyConfig = {
+      ...deepClone(PERSISTED_V6_SCORE_MODEL_CONFIG),
+      tunableWeights: {
+        schemaVersion: "tunable-weights.1",
+        dimensions: {
+          performance: 35,
+          survival: 30,
+          utility: 25,
+          experience: 10,
+        },
+        components: {
+          performance: {
+            phase1: 80,
+            cooldown: 20,
+            dungeonPeak: 40,
+            dungeonFloor: 45,
+            dungeonConsistency: 15,
+            profileBestAverage: 45,
+            profileMedianAverage: 55,
+          },
+          survival: { outcome: 55, defensive: 30, recovery: 15 },
+          utility: { castStops: 45, support: 28, strategicCc: 27 },
+          experience: {
+            previousSeasonScore: 30,
+            historicalTitle: 15,
+            historicalRanking: 10,
+          },
+        },
+      },
+    };
+    listModels.mockResolvedValue([
+      {
+        id: "active-v1",
+        key: "default",
+        version: 6,
+        name: "Legacy Active",
+        status: "ACTIVE",
+        config: legacyConfig,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        activatedAt: "2026-01-02T00:00:00.000Z",
+      },
+    ]);
+    const wrapper = await mountPage({ model: "active-v1" });
+    expect(wrapper.find("[data-testid='perf-section-parse']").exists()).toBe(true);
+    expect(
+      (wrapper.get("[data-testid='comp-performance-parse-bestAverage']").element as HTMLInputElement)
+        .value,
+    ).toBe("45");
+    expect(
+      (wrapper.get("[data-testid='comp-performance-dps-damageParse']").element as HTMLInputElement)
+        .value,
+    ).toBe("80");
+    wrapper.unmount();
+  });
 });

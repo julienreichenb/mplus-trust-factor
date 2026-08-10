@@ -4,11 +4,10 @@ import {
   buildDimensionConfidenceBreakdown,
   uniqueCauses,
 } from "../../confidence/dimension-confidence.js";
+import { DEFAULT_ROLE_AWARE_PERFORMANCE_WEIGHTS } from "../../model-config/tunable-weights.js";
 import { stableStringify } from "../../model-config/stable-hash.js";
 import { computeOffensiveCooldownDiscipline } from "../phase2/cooldown-discipline.js";
 import {
-  DPS_PERFORMANCE_WEIGHTS,
-  HEALER_PERFORMANCE_WEIGHTS,
   PERFORMANCE_ROLE_AWARE_ALGORITHM_VERSION,
   PERFORMANCE_ROLE_AWARE_MODEL_LABEL,
 } from "./constants.js";
@@ -19,9 +18,14 @@ import type {
   RoleAwarePerformanceWeightsApplied,
 } from "./types.js";
 
+function resolveWeights(input: RoleAwarePerformanceComputeInput) {
+  return input.weights ?? DEFAULT_ROLE_AWARE_PERFORMANCE_WEIGHTS;
+}
+
 export function computeRoleAwarePerformanceInputFingerprint(
   input: RoleAwarePerformanceComputeInput,
 ): string {
+  const weights = resolveWeights(input);
   return createHash("sha256")
     .update(
       stableStringify({
@@ -29,6 +33,7 @@ export function computeRoleAwarePerformanceInputFingerprint(
         role: input.role,
         specSlug: input.specSlug,
         expectedPartition: input.expectedPartition ?? null,
+        weights,
         activeDungeonSlugs: [...input.activeDungeonSlugs].sort(),
         damage: input.damage
           ? {
@@ -86,6 +91,7 @@ export function computeRoleAwarePerformance(
   const inputFingerprint = computeRoleAwarePerformanceInputFingerprint(input);
   const active = input.activeDungeonSlugs;
   const expectedPartition = input.expectedPartition ?? null;
+  const formulaWeights = resolveWeights(input);
 
   if (input.role === "UNKNOWN") {
     const causes = ["role_identity_unknown"];
@@ -95,12 +101,14 @@ export function computeRoleAwarePerformance(
   const damageParse = computeParseChannelScore(input.damage, active, {
     expectedPartition,
     causePrefix: "damage_parse",
+    parseWeights: formulaWeights.parse,
   });
   const healingParse =
     input.role === "HEALER"
       ? computeParseChannelScore(input.healing, active, {
           expectedPartition,
           causePrefix: "healing_parse",
+          parseWeights: formulaWeights.parse,
         })
       : null;
 
@@ -168,19 +176,19 @@ export function computeRoleAwarePerformance(
       ]);
     }
     const score =
-      HEALER_PERFORMANCE_WEIGHTS.healingParse * healingParse.score +
-      HEALER_PERFORMANCE_WEIGHTS.damageParse * damageParse.score;
+      formulaWeights.healer.healingParse * healingParse.score +
+      formulaWeights.healer.damageParse * damageParse.score;
     const confidence = clamp01(
-      HEALER_PERFORMANCE_WEIGHTS.healingParse * healingParse.confidence +
-        HEALER_PERFORMANCE_WEIGHTS.damageParse * damageParse.confidence,
+      formulaWeights.healer.healingParse * healingParse.confidence +
+        formulaWeights.healer.damageParse * damageParse.confidence,
     );
     const causes = uniqueCauses([
       ...healingParse.causes,
       ...damageParse.causes,
     ]);
     const weights: RoleAwarePerformanceWeightsApplied = {
-      damageParse: HEALER_PERFORMANCE_WEIGHTS.damageParse,
-      healingParse: HEALER_PERFORMANCE_WEIGHTS.healingParse,
+      damageParse: formulaWeights.healer.damageParse,
+      healingParse: formulaWeights.healer.healingParse,
       cooldown: 0,
     };
     const partial =
@@ -214,13 +222,13 @@ export function computeRoleAwarePerformance(
         {
           key: "performance.healing_parse",
           value: healingParse.score,
-          weight: HEALER_PERFORMANCE_WEIGHTS.healingParse,
+          weight: formulaWeights.healer.healingParse,
           note: null,
         },
         {
           key: "performance.damage_parse",
           value: damageParse.score,
-          weight: HEALER_PERFORMANCE_WEIGHTS.damageParse,
+          weight: formulaWeights.healer.damageParse,
           note: null,
         },
       ],
@@ -252,12 +260,12 @@ export function computeRoleAwarePerformance(
     cooldownEvidenceConfidence = 0;
   } else {
     score =
-      DPS_PERFORMANCE_WEIGHTS.damageParse * damageParse.score +
-      DPS_PERFORMANCE_WEIGHTS.cooldown * cooldown.score!;
+      formulaWeights.dps.damageParse * damageParse.score +
+      formulaWeights.dps.cooldown * cooldown.score!;
     weights = {
-      damageParse: DPS_PERFORMANCE_WEIGHTS.damageParse,
+      damageParse: formulaWeights.dps.damageParse,
       healingParse: 0,
-      cooldown: DPS_PERFORMANCE_WEIGHTS.cooldown,
+      cooldown: formulaWeights.dps.cooldown,
     };
     const selected = cooldown.selectedRunCount;
     const usable = cooldown.cooldownUsableRunCount;

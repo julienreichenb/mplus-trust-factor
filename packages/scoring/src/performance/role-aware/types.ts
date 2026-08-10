@@ -1,5 +1,6 @@
 import type { EvidenceRole } from "@mplus/contracts";
 import type { DimensionConfidenceBreakdown } from "../../confidence/dimension-confidence.js";
+import type { PerformanceRoleAwareWeights } from "../../model-config/tunable-weights.js";
 import type { OffensiveCooldownDisciplineResult } from "../phase2/cooldown-discipline.js";
 import type { PerformanceCooldownRunEvidence } from "../phase2/cooldown-discipline.js";
 
@@ -55,6 +56,11 @@ export interface RoleAwarePerformanceComputeInput {
   /** DPS only — ignored for tank/healer. */
   cooldownRuns: readonly PerformanceCooldownRunEvidence[];
   expectedPartition?: number | null;
+  /**
+   * Effective normalized weights from ScoreModel tunableWeights.
+   * Defaults to package production constants when omitted.
+   */
+  weights?: PerformanceRoleAwareWeights;
   /** @deprecated Unused in 04B baseline — freshness is not part of parse confidence. */
   logFreshness?: number;
   computedAt?: string;

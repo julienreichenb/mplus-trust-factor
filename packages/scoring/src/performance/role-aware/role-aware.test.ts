@@ -514,4 +514,112 @@ describe("role-aware Performance formulas", () => {
     expect(scored.score).not.toBeNull();
     expect(scored.weightsApplied.cooldown).toBe(0);
   });
+
+  it("10–15. custom role-aware weights change score, fingerprint, explainability", () => {
+    const baseWeights = {
+      parse: { bestAverage: 0.45, medianAverage: 0.55 },
+      dps: { damageParse: 0.8, cooldown: 0.2 },
+      tank: { damageParse: 1 },
+      healer: { healingParse: 0.65, damageParse: 0.35 },
+    };
+
+    // DPS 90/10 with known component scores via combine path constants
+    const dpsDefault = computeRoleAwarePerformance({
+      role: "DPS",
+      specSlug: "demonology",
+      activeDungeonSlugs: ACTIVE,
+      damage: fullChannel("damage", 80, 80),
+      healing: null,
+      cooldownRuns: [],
+      weights: baseWeights,
+    });
+    const dpsCustom = computeRoleAwarePerformance({
+      role: "DPS",
+      specSlug: "demonology",
+      activeDungeonSlugs: ACTIVE,
+      damage: fullChannel("damage", 80, 80),
+      healing: null,
+      cooldownRuns: [],
+      weights: {
+        ...baseWeights,
+        dps: { damageParse: 0.9, cooldown: 0.1 },
+      },
+    });
+    // Both PARTIAL without cooldown — score is damage-only; fingerprint still changes.
+    expect(dpsDefault.score).toBeCloseTo(80, 5);
+    expect(dpsCustom.score).toBeCloseTo(80, 5);
+    expect(dpsDefault.inputFingerprint).not.toBe(dpsCustom.inputFingerprint);
+
+    // With synthetic cooldown contribution via weightsApplied when both present:
+    // Inject by computing healer and parse custom configs instead.
+    const healerDefault = computeRoleAwarePerformance({
+      role: "HEALER",
+      specSlug: "restoration",
+      activeDungeonSlugs: ACTIVE,
+      damage: fullChannel("damage", 60, 60),
+      healing: fullChannel("healing", 80, 80),
+      cooldownRuns: [],
+      weights: baseWeights,
+    });
+    const healerCustom = computeRoleAwarePerformance({
+      role: "HEALER",
+      specSlug: "restoration",
+      activeDungeonSlugs: ACTIVE,
+      damage: fullChannel("damage", 60, 60),
+      healing: fullChannel("healing", 80, 80),
+      cooldownRuns: [],
+      weights: {
+        ...baseWeights,
+        healer: { healingParse: 0.8, damageParse: 0.2 },
+      },
+    });
+    expect(healerDefault.score).toBeCloseTo(0.65 * 80 + 0.35 * 60, 5);
+    expect(healerCustom.score).toBeCloseTo(0.8 * 80 + 0.2 * 60, 5);
+    expect(healerDefault.inputFingerprint).not.toBe(healerCustom.inputFingerprint);
+
+    const parseCustom = computeParseChannelScore(fullChannel("damage", 100, 0), ACTIVE, {
+      parseWeights: { bestAverage: 0.6, medianAverage: 0.4 },
+    });
+    const parseDefault = computeParseChannelScore(fullChannel("damage", 100, 0), ACTIVE);
+    expect(parseCustom.score).toBeCloseTo(0.6 * 100 + 0.4 * 0, 5);
+    expect(parseDefault.score).toBeCloseTo(0.45 * 100 + 0.55 * 0, 5);
+    expect(parseCustom.score).not.toBeCloseTo(parseDefault.score!, 5);
+
+    const tank = computeRoleAwarePerformance({
+      role: "TANK",
+      specSlug: "guardian",
+      activeDungeonSlugs: ACTIVE,
+      damage: fullChannel("damage", 70, 70),
+      healing: null,
+      cooldownRuns: [],
+      weights: {
+        ...baseWeights,
+        tank: { damageParse: 1 },
+      },
+    });
+    expect(tank.score).toBeCloseTo(70, 5);
+    expect(tank.weightsApplied.damageParse).toBe(1);
+
+    const healerPhase2 = computePerformancePhase2({
+      role: "HEALER",
+      specSlug: "restoration",
+      activeDungeonSlugs: ACTIVE,
+      damage: fullChannel("damage", 60, 60),
+      healing: fullChannel("healing", 80, 80),
+      cooldownRuns: [],
+      weights: {
+        ...baseWeights,
+        healer: { healingParse: 0.7, damageParse: 0.3 },
+      },
+    });
+    const exp = adaptPerformanceExplainability(healerPhase2);
+    const healingDriver = exp.scoreStory.drivers.find(
+      (d) => d.code === "performance.healing_parse",
+    );
+    const damageDriver = exp.scoreStory.drivers.find(
+      (d) => d.code === "performance.damage_parse",
+    );
+    expect(healingDriver?.weight).toBeCloseTo(0.7, 10);
+    expect(damageDriver?.weight).toBeCloseTo(0.3, 10);
+  });
 });

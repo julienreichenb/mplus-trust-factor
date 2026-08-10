@@ -76,9 +76,11 @@ export function computeParseChannelScore(
   options?: {
     expectedPartition?: number | null;
     causePrefix?: string;
+    parseWeights?: { bestAverage: number; medianAverage: number };
   },
 ): ParseChannelScoreResult {
   const prefix = options?.causePrefix ?? "parse";
+  const parseWeights = options?.parseWeights ?? PARSE_CHANNEL_WEIGHTS;
   const expectedCells = Math.max(0, activeDungeonSlugs.length) * 2;
   if (channel == null) {
     return {
@@ -143,8 +145,8 @@ export function computeParseChannelScore(
   let score: number | null = null;
   if (bestOk && medianOk) {
     score =
-      PARSE_CHANNEL_WEIGHTS.bestAverage * best! +
-      PARSE_CHANNEL_WEIGHTS.medianAverage * median!;
+      parseWeights.bestAverage * best! +
+      parseWeights.medianAverage * median!;
   } else if (bestOk) {
     score = best!;
   } else if (medianOk) {

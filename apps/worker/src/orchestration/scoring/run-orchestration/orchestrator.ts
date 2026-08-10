@@ -29,6 +29,7 @@ import {
   utilityRunFactSetFromDigest,
   buildDigestScoreLineage,
   resolveTunableWeights,
+  resolveRoleAwarePerformanceWeights,
   applyTunableWeightsToSurvivalConfig,
   applyTunableWeightsToUtilityConfig,
   type SeasonDifficultyPolicyV2,
@@ -1074,6 +1075,7 @@ export async function orchestrateScoringRuns(
   const { weights: tunableWeights } = resolveTunableWeights(input.scoreModelConfig);
   const survivalModelConfig = applyTunableWeightsToSurvivalConfig(tunableWeights);
   const utilityModelConfig = applyTunableWeightsToUtilityConfig(tunableWeights);
+  const performanceWeights = resolveRoleAwarePerformanceWeights(tunableWeights);
 
   let performance: PerformancePhase2ComputeResult | null = null;
   let utility: ReturnType<typeof computeUtilityV2> | null = null;
@@ -1119,6 +1121,7 @@ export async function orchestrateScoringRuns(
         healing: input.throughputChannels.healing,
         cooldownRuns,
         expectedPartition: input.expectedPartition ?? null,
+        weights: performanceWeights,
         computedAt: input.selectedAt ?? new Date().toISOString(),
       });
       if (performance.score == null) {

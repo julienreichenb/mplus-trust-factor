@@ -27,18 +27,100 @@ import {
   normalizeRelativeWeights,
   parseTunableWeights,
   resolvePerformancePhase2CombineWeights,
+  resolveRoleAwarePerformanceWeights,
   resolveTunableWeights,
   trustDimensionWeightsFromTunable,
   validateTunableWeights,
   withTunableWeights,
+  TUNABLE_WEIGHTS_LEGACY_SCHEMA_VERSION,
 } from "./tunable-weights.js";
 
 describe("tunable weights", () => {
+  it("1. defaults resolve to parse 45/55, DPS 80/20, Tank 100, Healer 65/35", () => {
+    const roleAware = resolveRoleAwarePerformanceWeights(createDefaultTunableWeights());
+    expect(roleAware.parse.bestAverage).toBeCloseTo(0.45, 10);
+    expect(roleAware.parse.medianAverage).toBeCloseTo(0.55, 10);
+    expect(roleAware.dps.damageParse).toBeCloseTo(0.8, 10);
+    expect(roleAware.dps.cooldown).toBeCloseTo(0.2, 10);
+    expect(roleAware.tank.damageParse).toBe(1);
+    expect(roleAware.healer.healingParse).toBeCloseTo(0.65, 10);
+    expect(roleAware.healer.damageParse).toBeCloseTo(0.35, 10);
+  });
+
   it("rejects negative weights", () => {
     const bad = createDefaultTunableWeights();
     bad.dimensions.performance = -1;
     expect(validateTunableWeights(bad).some((e) => e.includes(">= 0"))).toBe(true);
     expect(() => parseTunableWeights(bad)).toThrow(/MODEL_CONFIG_INVALID/);
+  });
+
+  it("6–9. rejects zero-total parse/DPS/healer groups", () => {
+    const parseZero = createDefaultTunableWeights();
+    parseZero.components.performance.parse.bestAverage = 0;
+    parseZero.components.performance.parse.medianAverage = 0;
+    expect(
+      validateTunableWeights(parseZero).some((e) => e.includes("parse")),
+    ).toBe(true);
+
+    const dpsZero = createDefaultTunableWeights();
+    dpsZero.components.performance.roles.dps.damageParse = 0;
+    dpsZero.components.performance.roles.dps.cooldown = 0;
+    expect(validateTunableWeights(dpsZero).some((e) => e.includes("DPS"))).toBe(
+      true,
+    );
+
+    const healerZero = createDefaultTunableWeights();
+    healerZero.components.performance.roles.healer.healingParse = 0;
+    healerZero.components.performance.roles.healer.damageParse = 0;
+    expect(
+      validateTunableWeights(healerZero).some((e) => e.includes("healer")),
+    ).toBe(true);
+  });
+
+  it("2–5. V1 tunable config resolves without failure and maps correctly", () => {
+    const v1 = {
+      schemaVersion: TUNABLE_WEIGHTS_LEGACY_SCHEMA_VERSION,
+      dimensions: {
+        performance: 35,
+        survival: 30,
+        utility: 25,
+        experience: 10,
+      },
+      components: {
+        performance: {
+          phase1: 90,
+          cooldown: 10,
+          dungeonPeak: 40,
+          dungeonFloor: 45,
+          dungeonConsistency: 15,
+          profileBestAverage: 60,
+          profileMedianAverage: 40,
+        },
+        survival: { outcome: 55, defensive: 30, recovery: 15 },
+        utility: { castStops: 45, support: 28, strategicCc: 27 },
+        experience: {
+          previousSeasonScore: 30,
+          historicalTitle: 15,
+          historicalRanking: 10,
+        },
+      },
+    };
+    expect(validateTunableWeights(v1)).toEqual([]);
+    const parsed = parseTunableWeights(v1);
+    expect(parsed.schemaVersion).toBe("tunable-weights.2");
+    expect(parsed.components.performance.parse.bestAverage).toBe(60);
+    expect(parsed.components.performance.parse.medianAverage).toBe(40);
+    expect(parsed.components.performance.roles.dps.damageParse).toBe(90);
+    expect(parsed.components.performance.roles.dps.cooldown).toBe(10);
+    expect(parsed.components.performance.roles.tank.damageParse).toBe(100);
+    expect(parsed.components.performance.roles.healer.healingParse).toBe(65);
+    expect(parsed.components.performance.roles.healer.damageParse).toBe(35);
+
+    const roleAware = resolveRoleAwarePerformanceWeights(parsed);
+    expect(roleAware.parse.bestAverage).toBeCloseTo(0.6, 10);
+    expect(roleAware.parse.medianAverage).toBeCloseTo(0.4, 10);
+    expect(roleAware.dps.damageParse).toBeCloseTo(0.9, 10);
+    expect(roleAware.dps.cooldown).toBeCloseTo(0.1, 10);
   });
 
   it("normalizes relative weights including zeros", () => {
@@ -100,7 +182,6 @@ describe("tunable weights", () => {
     expect(util.domainWeights.support).toBeCloseTo(UTILITY_V2_DOMAIN_WEIGHTS.support, 10);
     expect(util.domainWeights.strategicCc).toBeCloseTo(UTILITY_V2_DOMAIN_WEIGHTS.strategicCc, 10);
 
-    // Untouched model configs stay bit-identical on non-weight fields of interest.
     expect(surv.algorithmVersion).toBe(SURVIVAL_V2_MODEL_CONFIG.algorithmVersion);
     expect(util.algorithmVersion).toBe(UTILITY_V2_MODEL_CONFIG.algorithmVersion);
   });
@@ -136,7 +217,6 @@ describe("tunable weights", () => {
 
   it("withTunableWeights syncs Trust weights and scoring document", () => {
     const base = createDefaultModelV6({ version: 99 } as never);
-    // Strip and re-apply
     const stripped = { ...base } as typeof base;
     delete (stripped as { tunableWeights?: unknown }).tunableWeights;
     const tunable = createDefaultTunableWeights();
@@ -169,5 +249,20 @@ describe("tunable weights", () => {
     });
     expect(fromPersistedDocument).toBe(false);
     expect(weights.dimensions.performance).toBe(35);
+  });
+
+  it("21. ACTIVE vs DRAFT Performance weights resolve differently (calibration)", () => {
+    const active = resolveRoleAwarePerformanceWeights(createDefaultTunableWeights());
+    const draftDoc = createDefaultTunableWeights();
+    draftDoc.components.performance.roles.dps.damageParse = 90;
+    draftDoc.components.performance.roles.dps.cooldown = 10;
+    draftDoc.components.performance.roles.healer.healingParse = 80;
+    draftDoc.components.performance.roles.healer.damageParse = 20;
+    const draft = resolveRoleAwarePerformanceWeights(draftDoc);
+    expect(draft.dps.damageParse).toBeCloseTo(0.9, 10);
+    expect(draft.dps.cooldown).toBeCloseTo(0.1, 10);
+    expect(draft.healer.healingParse).toBeCloseTo(0.8, 10);
+    expect(active.dps.damageParse).not.toBeCloseTo(draft.dps.damageParse, 10);
+    expect(active.healer.healingParse).not.toBeCloseTo(draft.healer.healingParse, 10);
   });
 });

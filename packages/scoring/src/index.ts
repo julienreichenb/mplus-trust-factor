@@ -41,6 +41,7 @@ export {
   validateTunableWeights,
   parseTunableWeights,
   resolveTunableWeights,
+  resolveRoleAwarePerformanceWeights,
   applyTunableWeightsToPerformanceConfig,
   applyTunableWeightsToSurvivalConfig,
   applyTunableWeightsToUtilityConfig,
@@ -55,9 +56,11 @@ export type {
   scoringDimensionConfigSet,
   scoringDimensionConfigFingerprints,
   ResolvedScoreModelV2DimensionConfigs,
+  TunableWeights,
   TunableWeightsV1,
   TunableDimensionWeights,
   TunableComponentWeights,
+  PerformanceRoleAwareWeights,
 } from "./model-config/index.js";
 
 export { clamp, clamp01, approxEqual, sum, safeDivide } from "./math.js";

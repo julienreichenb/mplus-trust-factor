@@ -17,6 +17,9 @@ Legend for evidence: **OBSERVED** (code/tests), **INFERRED** (strong code path),
 | Aggregate | `role-aware-throughput-v2` (no migration; V1 rows not reused) |
 | Phase1 blend | **Bypassed** — profile throughput is canonical; detailed playerscore score-neutral |
 | Spec policy | Payload `observedSpecs` vs target: EXACT_MATCH / COHERENT_UNPROVEN / MISMATCH_REJECTED; query role/specName **not trusted** |
+| Cache gate (corrective) | HIT/REPLAY require `compact.role` + normalized `targetSpecSlug` match; live miss→refetch; replay mismatch→unavailable |
+| Partition (corrective) | Explicit expected vs proven channel partition → channel UNAVAILABLE (not 0.75 dampener). Null/"current" expected invents no mismatch |
+| Freshness (corrective) | No fake `logFreshness: 1`; confidence = cell coverage (+ optional COHERENT_UNPROVEN 0.95) |
 
 ### Formulas
 

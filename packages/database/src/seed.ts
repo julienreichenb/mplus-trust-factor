@@ -170,7 +170,7 @@ const defaultModelConfigV6 = {
   overallFormula: "WEIGHTED_DIMENSIONS",
   /** Admin console tunable weights — defaults ≡ current production P/U/S behaviour. */
   tunableWeights: {
-    schemaVersion: "tunable-weights.1",
+    schemaVersion: "tunable-weights.2",
     dimensions: {
       performance: 35,
       survival: 30,
@@ -179,13 +179,23 @@ const defaultModelConfigV6 = {
     },
     components: {
       performance: {
-        phase1: 80,
-        cooldown: 20,
-        dungeonPeak: 40,
-        dungeonFloor: 45,
-        dungeonConsistency: 15,
-        profileBestAverage: 45,
-        profileMedianAverage: 55,
+        parse: {
+          bestAverage: 45,
+          medianAverage: 55,
+        },
+        roles: {
+          dps: {
+            damageParse: 80,
+            cooldown: 20,
+          },
+          tank: {
+            damageParse: 100,
+          },
+          healer: {
+            healingParse: 65,
+            damageParse: 35,
+          },
+        },
       },
       survival: {
         outcome: 55,

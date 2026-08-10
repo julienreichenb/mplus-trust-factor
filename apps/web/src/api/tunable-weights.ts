@@ -3,9 +3,10 @@
  * Server remains authoritative for validation and calculator application.
  */
 
-export const TUNABLE_WEIGHTS_SCHEMA_VERSION = "tunable-weights.1" as const;
+export const TUNABLE_WEIGHTS_SCHEMA_VERSION = "tunable-weights.2" as const;
+export const TUNABLE_WEIGHTS_LEGACY_SCHEMA_VERSION = "tunable-weights.1" as const;
 
-export interface TunableWeightsV1 {
+export interface TunableWeights {
   schemaVersion: typeof TUNABLE_WEIGHTS_SCHEMA_VERSION;
   dimensions: {
     performance: number;
@@ -15,13 +16,23 @@ export interface TunableWeightsV1 {
   };
   components: {
     performance: {
-      phase1: number;
-      cooldown: number;
-      dungeonPeak: number;
-      dungeonFloor: number;
-      dungeonConsistency: number;
-      profileBestAverage: number;
-      profileMedianAverage: number;
+      parse: {
+        bestAverage: number;
+        medianAverage: number;
+      };
+      roles: {
+        dps: {
+          damageParse: number;
+          cooldown: number;
+        };
+        tank: {
+          damageParse: number;
+        };
+        healer: {
+          healingParse: number;
+          damageParse: number;
+        };
+      };
     };
     survival: {
       outcome: number;
@@ -41,8 +52,11 @@ export interface TunableWeightsV1 {
   };
 }
 
+/** @deprecated Prefer TunableWeights */
+export type TunableWeightsV1 = TunableWeights;
+
 /** Production defaults — must match packages/scoring tunable-weights defaults. */
-export const DEFAULT_TUNABLE_WEIGHTS: TunableWeightsV1 = {
+export const DEFAULT_TUNABLE_WEIGHTS: TunableWeights = {
   schemaVersion: TUNABLE_WEIGHTS_SCHEMA_VERSION,
   dimensions: {
     performance: 35,
@@ -52,13 +66,23 @@ export const DEFAULT_TUNABLE_WEIGHTS: TunableWeightsV1 = {
   },
   components: {
     performance: {
-      phase1: 80,
-      cooldown: 20,
-      dungeonPeak: 40,
-      dungeonFloor: 45,
-      dungeonConsistency: 15,
-      profileBestAverage: 45,
-      profileMedianAverage: 55,
+      parse: {
+        bestAverage: 45,
+        medianAverage: 55,
+      },
+      roles: {
+        dps: {
+          damageParse: 80,
+          cooldown: 20,
+        },
+        tank: {
+          damageParse: 100,
+        },
+        healer: {
+          healingParse: 65,
+          damageParse: 35,
+        },
+      },
     },
     survival: {
       outcome: 55,
@@ -78,7 +102,7 @@ export const DEFAULT_TUNABLE_WEIGHTS: TunableWeightsV1 = {
   },
 };
 
-export function createDefaultTunableWeights(): TunableWeightsV1 {
+export function createDefaultTunableWeights(): TunableWeights {
   return structuredClone(DEFAULT_TUNABLE_WEIGHTS);
 }
 
@@ -100,53 +124,105 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-export function resolveTunableWeightsFromConfig(config: unknown): TunableWeightsV1 {
+function convertLegacyPerformance(raw: Record<string, unknown>): TunableWeights["components"]["performance"] {
+  const phase1 = typeof raw.phase1 === "number" ? raw.phase1 : 80;
+  const cooldown = typeof raw.cooldown === "number" ? raw.cooldown : 20;
+  const best =
+    typeof raw.profileBestAverage === "number" ? raw.profileBestAverage : 45;
+  const median =
+    typeof raw.profileMedianAverage === "number" ? raw.profileMedianAverage : 55;
+  return {
+    parse: { bestAverage: best, medianAverage: median },
+    roles: {
+      dps: { damageParse: phase1, cooldown },
+      tank: { damageParse: 100 },
+      healer: { healingParse: 65, damageParse: 35 },
+    },
+  };
+}
+
+export function resolveTunableWeightsFromConfig(config: unknown): TunableWeights {
   if (!isRecord(config) || config.tunableWeights == null) {
     return createDefaultTunableWeights();
   }
   const raw = config.tunableWeights;
-  if (!isRecord(raw) || raw.schemaVersion !== TUNABLE_WEIGHTS_SCHEMA_VERSION) {
+  if (
+    !isRecord(raw) ||
+    (raw.schemaVersion !== TUNABLE_WEIGHTS_SCHEMA_VERSION &&
+      raw.schemaVersion !== TUNABLE_WEIGHTS_LEGACY_SCHEMA_VERSION)
+  ) {
     return createDefaultTunableWeights();
   }
-  // Trust API validation on save; UI merges shallowly over defaults.
+
+  const defaults = createDefaultTunableWeights();
+  const dimensions = {
+    ...defaults.dimensions,
+    ...(isRecord(raw.dimensions) ? (raw.dimensions as TunableWeights["dimensions"]) : {}),
+  };
+
+  let performance = defaults.components.performance;
+  if (isRecord(raw.components) && isRecord(raw.components.performance)) {
+    const perf = raw.components.performance;
+    if (isRecord(perf.parse) && isRecord(perf.roles)) {
+      performance = {
+        parse: {
+          ...defaults.components.performance.parse,
+          ...(perf.parse as TunableWeights["components"]["performance"]["parse"]),
+        },
+        roles: {
+          dps: {
+            ...defaults.components.performance.roles.dps,
+            ...(isRecord(perf.roles) && isRecord(perf.roles.dps)
+              ? (perf.roles.dps as TunableWeights["components"]["performance"]["roles"]["dps"])
+              : {}),
+          },
+          tank: {
+            ...defaults.components.performance.roles.tank,
+            ...(isRecord(perf.roles) && isRecord(perf.roles.tank)
+              ? (perf.roles.tank as TunableWeights["components"]["performance"]["roles"]["tank"])
+              : {}),
+          },
+          healer: {
+            ...defaults.components.performance.roles.healer,
+            ...(isRecord(perf.roles) && isRecord(perf.roles.healer)
+              ? (perf.roles.healer as TunableWeights["components"]["performance"]["roles"]["healer"])
+              : {}),
+          },
+        },
+      };
+    } else if (typeof perf.phase1 === "number") {
+      performance = convertLegacyPerformance(perf);
+    }
+  }
+
   return {
-    ...createDefaultTunableWeights(),
-    ...(raw as unknown as TunableWeightsV1),
     schemaVersion: TUNABLE_WEIGHTS_SCHEMA_VERSION,
-    dimensions: {
-      ...DEFAULT_TUNABLE_WEIGHTS.dimensions,
-      ...(isRecord(raw.dimensions) ? (raw.dimensions as TunableWeightsV1["dimensions"]) : {}),
-    },
+    dimensions,
     components: {
-      performance: {
-        ...DEFAULT_TUNABLE_WEIGHTS.components.performance,
-        ...(isRecord(raw.components) && isRecord(raw.components.performance)
-          ? (raw.components.performance as TunableWeightsV1["components"]["performance"])
-          : {}),
-      },
+      performance,
       survival: {
-        ...DEFAULT_TUNABLE_WEIGHTS.components.survival,
+        ...defaults.components.survival,
         ...(isRecord(raw.components) && isRecord(raw.components.survival)
-          ? (raw.components.survival as TunableWeightsV1["components"]["survival"])
+          ? (raw.components.survival as TunableWeights["components"]["survival"])
           : {}),
       },
       utility: {
-        ...DEFAULT_TUNABLE_WEIGHTS.components.utility,
+        ...defaults.components.utility,
         ...(isRecord(raw.components) && isRecord(raw.components.utility)
-          ? (raw.components.utility as TunableWeightsV1["components"]["utility"])
+          ? (raw.components.utility as TunableWeights["components"]["utility"])
           : {}),
       },
       experience: {
-        ...DEFAULT_TUNABLE_WEIGHTS.components.experience,
+        ...defaults.components.experience,
         ...(isRecord(raw.components) && isRecord(raw.components.experience)
-          ? (raw.components.experience as TunableWeightsV1["components"]["experience"])
+          ? (raw.components.experience as TunableWeights["components"]["experience"])
           : {}),
       },
     },
   };
 }
 
-export function validateTunableWeightsClient(weights: TunableWeightsV1): string[] {
+export function validateTunableWeightsClient(weights: TunableWeights): string[] {
   const errors: string[] = [];
   const check = (path: string, value: number) => {
     if (!Number.isFinite(value)) errors.push(`${path} must be a finite number`);
@@ -156,10 +232,31 @@ export function validateTunableWeightsClient(weights: TunableWeightsV1): string[
   if (Object.values(weights.dimensions).reduce((a, b) => a + b, 0) <= 0) {
     errors.push("dimension weights must sum to a positive total");
   }
+  const parse = weights.components.performance.parse;
+  check("performance.parse.bestAverage", parse.bestAverage);
+  check("performance.parse.medianAverage", parse.medianAverage);
+  if (parse.bestAverage + parse.medianAverage <= 0) {
+    errors.push("performance parse weights must sum to a positive total");
+  }
+  const dps = weights.components.performance.roles.dps;
+  check("performance.roles.dps.damageParse", dps.damageParse);
+  check("performance.roles.dps.cooldown", dps.cooldown);
+  if (dps.damageParse + dps.cooldown <= 0) {
+    errors.push("performance DPS weights must sum to a positive total");
+  }
+  check(
+    "performance.roles.tank.damageParse",
+    weights.components.performance.roles.tank.damageParse,
+  );
+  const healer = weights.components.performance.roles.healer;
+  check("performance.roles.healer.healingParse", healer.healingParse);
+  check("performance.roles.healer.damageParse", healer.damageParse);
+  if (healer.healingParse + healer.damageParse <= 0) {
+    errors.push("performance healer weights must sum to a positive total");
+  }
   const walk = (prefix: string, obj: Record<string, number>) => {
     for (const [k, v] of Object.entries(obj)) check(`${prefix}.${k}`, v);
   };
-  walk("performance", weights.components.performance);
   walk("survival", weights.components.survival);
   walk("utility", weights.components.utility);
   walk("experience", weights.components.experience);
@@ -169,7 +266,7 @@ export function validateTunableWeightsClient(weights: TunableWeightsV1): string[
 /** Merge tunableWeights into an existing model config JSON for PUT. */
 export function mergeTunableWeightsIntoConfig(
   baseConfig: unknown,
-  tunable: TunableWeightsV1,
+  tunable: TunableWeights,
 ): Record<string, unknown> {
   // JSON round-trip avoids structuredClone failures on Vue reactive proxies.
   const base = isRecord(baseConfig)
@@ -177,6 +274,6 @@ export function mergeTunableWeightsIntoConfig(
     : {};
   return {
     ...base,
-    tunableWeights: JSON.parse(JSON.stringify(tunable)) as TunableWeightsV1,
+    tunableWeights: JSON.parse(JSON.stringify(tunable)) as TunableWeights,
   };
 }

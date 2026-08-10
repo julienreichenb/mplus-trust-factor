@@ -21,13 +21,17 @@ export {
 } from "./score-model-v2-mapping.js";
 export {
   TUNABLE_WEIGHTS_SCHEMA_VERSION,
+  TUNABLE_WEIGHTS_LEGACY_SCHEMA_VERSION,
   DEFAULT_TUNABLE_WEIGHTS,
+  DEFAULT_ROLE_AWARE_PERFORMANCE_WEIGHTS,
   createDefaultTunableWeights,
   normalizeRelativeWeights,
   effectiveWeightPercent,
   validateTunableWeights,
   parseTunableWeights,
   resolveTunableWeights,
+  convertLegacyPerformanceComponentsToV2,
+  resolveRoleAwarePerformanceWeights,
   applyTunableWeightsToPerformanceConfig,
   applyTunableWeightsToSurvivalConfig,
   applyTunableWeightsToUtilityConfig,
@@ -38,6 +42,7 @@ export {
   withTunableWeights,
   ensureTunableWeightsOnModelConfig,
   canonicalDefaultScoringDimensionConfigs,
+  type TunableWeights,
   type TunableWeightsV1,
   type TunableDimensionWeights,
   type TunableComponentWeights,
@@ -45,4 +50,5 @@ export {
   type TunableSurvivalComponents,
   type TunableUtilityComponents,
   type TunableExperienceComponents,
+  type PerformanceRoleAwareWeights,
 } from "./tunable-weights.js";
