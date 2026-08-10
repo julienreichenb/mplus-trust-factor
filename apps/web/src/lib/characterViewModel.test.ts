@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildDimensionExplainabilityView,
   EXPLAINABILITY_UNAVAILABLE_MESSAGE,
+  hasScoreExplainabilityV1,
   mapEquipmentSlots,
   parseContributorSignals,
   parseConfidenceReasons,
@@ -42,6 +43,7 @@ describe("characterViewModel", () => {
 
   it("extracts contributor signals from Score Explainability V1 fixtures", () => {
     const dims = FIXTURE_CHARACTERS[0]!.profile.score!.dimensions;
+    expect(hasScoreExplainabilityV1(dims)).toBe(true);
     const signals = parseContributorSignals(dims);
     expect(signals.some((s) => s.kind === "positive" && s.label.includes("Phase 1"))).toBe(true);
     expect(signals.some((s) => s.kind === "risk")).toBe(true);
@@ -70,6 +72,7 @@ describe("characterViewModel", () => {
     expect(scoreSignals.some((s) => s.kind === "risk" && /cooldown evidence/i.test(s.label))).toBe(
       false,
     );
+    expect(scoreSignals.some((s) => s.kind === "confidence")).toBe(false);
   });
 
   it("maps known equipment slots and leaves others unavailable", () => {
@@ -80,8 +83,8 @@ describe("characterViewModel", () => {
     expect(slots.find((s) => s.id === "head")?.filled).toBe(false);
   });
 
-  it("maps live available contributors into positive/risk signals when explainability absent", () => {
-    const signals = parseContributorSignals([
+  it("emits no product score signals when ScoreExplainabilityV1 is absent", () => {
+    const dims: DimensionScoreDTO[] = [
       {
         dimension: "PERFORMANCE",
         score: 70,
@@ -90,21 +93,38 @@ describe("characterViewModel", () => {
         state: "AVAILABLE",
         reason: null,
         contributors: {
+          positive: [{ label: "Legacy positive label" }],
+          negative: [{ label: "Legacy negative label" }],
           available: [
             { metricKey: "performance.peak", normalizedValue: 80 },
             { metricKey: "performance.consistency", normalizedValue: 30 },
           ],
-          missing: [{ metricKey: "performance.coverage" }],
+          missing: [{ metricKey: "performance.coverage", available: false }],
+          limitations: ["partial_dungeon_coverage"],
         },
       },
-    ]);
-    expect(signals.some((s) => s.kind === "positive" && s.label.includes("Peak"))).toBe(true);
-    expect(signals.some((s) => s.kind === "risk" && s.label.includes("Consistency"))).toBe(true);
-    // Missing metrics are data gaps — not weaknesses.
-    expect(signals.some((s) => s.label.includes("Missing"))).toBe(false);
+      {
+        dimension: "SURVIVAL",
+        score: 60,
+        confidence: 0.7,
+        weight: 0.3,
+        state: "AVAILABLE",
+        reason: null,
+        contributors: {
+          positive: [{ label: "Survived pulls" }],
+          negative: [{ label: "High deaths" }],
+        },
+      },
+    ];
+    expect(hasScoreExplainabilityV1(dims)).toBe(false);
+    const signals = parseContributorSignals(dims);
+    expect(signals).toEqual([]);
+    expect(signals.some((s) => /Legacy|Peak|Consistency|partial_dungeon|Survived|deaths/i.test(s.label))).toBe(
+      false,
+    );
   });
 
-  it("excludes UNAVAILABLE dimensions from weaknesses (null is not a zero score)", () => {
+  it("excludes UNAVAILABLE dimensions and never invents score signals without V1", () => {
     const signals = parseContributorSignals([
       {
         dimension: "UTILITY",
@@ -135,10 +155,7 @@ describe("characterViewModel", () => {
         },
       },
     ]);
-    expect(signals.every((s) => s.dimensionKey !== "UTILITY")).toBe(true);
-    expect(signals.some((s) => s.label.includes("Missing"))).toBe(false);
-    // Genuine scored zero remains a risk signal, distinct from unavailable.
-    expect(signals.some((s) => s.kind === "risk" && s.dimensionKey === "PERFORMANCE")).toBe(true);
+    expect(signals).toEqual([]);
   });
 
   it("categorizes POSITIVE/NEGATIVE/NEUTRAL scoreDrivers without inventing from thresholds", () => {
@@ -211,7 +228,7 @@ describe("characterViewModel", () => {
     expect(view.legacyFallbackMessage).toBe(EXPLAINABILITY_UNAVAILABLE_MESSAGE);
     expect(view.weaknesses).toEqual([]);
     const signals = parseContributorSignals([dim]);
-    expect(signals.some((s) => /partial_dungeon/i.test(s.label))).toBe(false);
+    expect(signals).toEqual([]);
   });
 
   it("treats Experience E0 confirmed absence as a score fact with full confidence", () => {
@@ -240,6 +257,7 @@ describe("characterViewModel", () => {
     expect(view.facts[0]?.code).toBe("experience.confirmed_no_activity");
     expect(view.weaknesses).toEqual([]);
     expect(view.fullConfidence).toBe(true);
+    expect(parseContributorSignals([dim]).every((s) => s.kind !== "risk")).toBe(true);
   });
 
   it("shows confidence reasons only for unavailable Experience evidence", () => {
@@ -277,5 +295,6 @@ describe("characterViewModel", () => {
     expect(view.confidenceReasons.map((r) => r.code)).toEqual([
       "previous_evidence_unavailable",
     ]);
+    expect(parseContributorSignals([dim])).toEqual([]);
   });
 });

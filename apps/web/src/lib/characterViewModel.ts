@@ -204,91 +204,26 @@ export function buildDimensionExplainabilityView(
 }
 
 /**
- * Prefer Score Explainability V1 scoreDrivers when present.
- * Legacy contributor fallback remains for older rows without explainability.
- * Does NOT invent strengths/weaknesses from contributors.limitations.
- * Does NOT use normalizedValue thresholds as authoritative when V1 exists.
+ * Product score signals come ONLY from Score Explainability V1 scoreDrivers.
+ * When dimension.explainability is null: emit nothing for that dimension
+ * (no contributors.positive/negative, no normalizedValue heuristics, no limitations).
  */
 export function parseContributorSignals(dimensions: DimensionScoreDTO[]): ContributorSignal[] {
   const signals: ContributorSignal[] = [];
   for (const dim of dimensions) {
     if (dim.dimension === "AUTHENTICITY") continue;
-
-    if (dim.explainability) {
-      const view = buildDimensionExplainabilityView(dim);
-      signals.push(...view.strengths, ...view.weaknesses, ...view.facts);
-      continue;
-    }
-
-    // Unavailable / processing / error dimensions are missing evidence — not player weaknesses.
-    if (!isScoredDimension(dim)) {
-      continue;
-    }
-    const dimKey = dim.dimension as RadarDimension;
-    const label = DIMENSION_LABELS[dimKey] ?? dim.dimension;
-    const contrib = dim.contributors as
-      | {
-          positive?: Array<{ label?: string; metricKey?: string }>;
-          negative?: Array<{ label?: string; metricKey?: string }>;
-          available?: Array<{
-            metricKey?: string;
-            normalizedValue?: number | null;
-            available?: boolean;
-          }>;
-          missing?: Array<{ metricKey?: string; available?: boolean }>;
-        }
-      | null
-      | undefined;
-
-    // Preferred legacy shape (mock / older explainers).
-    for (const item of contrib?.positive ?? []) {
-      if (item?.label?.trim()) {
-        signals.push({
-          kind: "positive",
-          label: item.label.trim(),
-          dimension: label,
-          dimensionKey: dimKey,
-        });
-      }
-    }
-    for (const item of contrib?.negative ?? []) {
-      if (item?.label?.trim()) {
-        signals.push({
-          kind: "risk",
-          label: item.label.trim(),
-          dimension: label,
-          dimensionKey: dimKey,
-        });
-      }
-    }
-
-    // Live scoring shape without V1: { available, missing } metric contributors.
-    // Heuristic thresholds are legacy-only — never used when explainability exists.
-    if ((contrib?.positive?.length ?? 0) === 0 && (contrib?.negative?.length ?? 0) === 0) {
-      for (const item of contrib?.available ?? []) {
-        if (!item?.metricKey) continue;
-        const metricLabel = humanizeMetricKey(item.metricKey);
-        const value = item.normalizedValue;
-        if (typeof value === "number" && value >= 55) {
-          signals.push({
-            kind: "positive",
-            label: metricLabel,
-            dimension: label,
-            dimensionKey: dimKey,
-          });
-        } else if (typeof value === "number" && value < 45) {
-          signals.push({
-            kind: "risk",
-            label: metricLabel,
-            dimension: label,
-            dimensionKey: dimKey,
-          });
-        }
-      }
-      // Missing metrics on an otherwise scored dimension are data gaps, not poor play.
-    }
+    if (!dim.explainability) continue;
+    const view = buildDimensionExplainabilityView(dim);
+    signals.push(...view.strengths, ...view.weaknesses, ...view.facts);
   }
   return signals;
+}
+
+/** True when at least one non-authenticity dimension carries ScoreExplainabilityV1. */
+export function hasScoreExplainabilityV1(dimensions: DimensionScoreDTO[]): boolean {
+  return dimensions.some(
+    (dim) => dim.dimension !== "AUTHENTICITY" && dim.explainability != null,
+  );
 }
 
 /** Collect confidence reasons across dimensions (never mixed into weaknesses). */
